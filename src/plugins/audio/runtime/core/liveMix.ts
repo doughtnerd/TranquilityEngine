@@ -42,6 +42,15 @@ export const RESTART_REQUIRED = "moving, removing or reordering buses and effect
 /** The answer of a fifth effect on a bus (`BUS_SLOT` carries at most `BUS_SLOT_MAX_EFFECTS`; architecture §4.7). */
 export const FIFTH_EFFECT = `a bus runs at most ${BUS_SLOT_MAX_EFFECTS} effects; the edit is saved and applies at the next Play, where only the first ${BUS_SLOT_MAX_EFFECTS} of the list run`;
 
+/** The answer of a second compressor on a bus (the core's chain runs one per bus, the first in the list; FU4, R10). */
+export const SECOND_COMPRESSOR = "a bus runs one compressor; the edit is saved and applies at the next Play, where only the first compressor of the list runs and the others are skipped";
+
+/** Whether `op` adds a compressor to a bus that would then hold two or more. */
+function addsSecondCompressor(before: AudioSettings, op: MixOp): boolean {
+  if (op.op !== "addEffect" || op.effect.type !== "compressor") return false;
+  return before.buses.find((b) => b.name === op.bus)!.effects.some((e) => e.type === "compressor");
+}
+
 /** What the live path needs of the loudness hub (`mix/loudnessHub.ts`). */
 export type LiveLoudness = { configure(cfg: LoudnessHubConfig): void; readonly tpGateDbfs: number };
 
@@ -146,6 +155,7 @@ export class LiveMix {
     const cls = opClass(op, before);
     if (cls === "none") return { ok: true, class: "none" };
     const buses = host.buses();
+    if (addsSecondCompressor(before, op)) return this.later(cls, SECOND_COMPRESSOR);
     if (cls === "dip") {
       if (op.op === "addEffect" && before.buses.find((b) => b.name === op.bus)!.effects.length >= BUS_SLOT_MAX_EFFECTS) return this.later(cls, FIFTH_EFFECT);
       const r = host.dip.apply(op);

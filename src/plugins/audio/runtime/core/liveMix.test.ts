@@ -8,7 +8,7 @@ import { parseAudioSettings } from "../../../../engine/audio/settings";
 import { DRAG_RAMP_MS as WIRE_DRAG_RAMP_MS, FADER_COALESCE_MS } from "../wire.generated";
 import { CoreBackend } from "./coreBackend";
 import { DeferredAdds } from "./deferredAdds";
-import { FIFTH_EFFECT, LiveMix, RESTART_REQUIRED, type LiveMixHost } from "./liveMix";
+import { FIFTH_EFFECT, SECOND_COMPRESSOR, LiveMix, RESTART_REQUIRED, type LiveMixHost } from "./liveMix";
 import { DIP_UNAVAILABLE, StructuralDip } from "./structuralDip";
 
 const PROJECT = {
@@ -104,6 +104,18 @@ describe("liveMix (Ma1)", () => {
     const before = mixer.audioSettings;
     expect(mixer.apply({ op: "addEffect", bus: "Music", index: 0, effect: { type: "highpass", frequency: 80, q: 1 } })).toEqual({ ok: false, class: "dip", restartRequired: FIFTH_EFFECT });
     expect(mixer.audioSettings).toBe(before);
+    backend.dispose();
+  });
+
+  it("FU4: a second compressor on a bus applies at the next Play (the core runs the first), at the end or mid-chain", () => {
+    const { backend, mixer } = backendRig();
+    const comp = { type: "compressor", threshold: -30, knee: 6, ratio: 4, attack: 0.01, release: 0.2 } as const;
+    const before = mixer.audioSettings;
+    expect(mixer.apply({ op: "addEffect", bus: "Music", index: 2, effect: comp })).toEqual({ ok: false, class: "direct", restartRequired: SECOND_COMPRESSOR });
+    expect(mixer.apply({ op: "addEffect", bus: "Music", index: 0, effect: comp })).toEqual({ ok: false, class: "dip", restartRequired: SECOND_COMPRESSOR });
+    expect(mixer.audioSettings).toBe(before);
+    // A first compressor on a bus without one is live.
+    expect(mixer.apply({ op: "addEffect", bus: "SFX", index: 0, effect: comp }).ok).toBe(true);
     backend.dispose();
   });
 

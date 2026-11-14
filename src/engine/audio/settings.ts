@@ -366,8 +366,9 @@ function parseEffect(raw: unknown, where: string, problems: string[]): BusEffect
 /**
  * The `audio` section, read leniently: bad entries are dropped or clamped, and each is reported in `problems`.
  * `warnings` are notes on a valid section that the editor saves (G9b): a bus with more effects than the audio core runs
- * (`MAX_CORE_BUS_EFFECTS`) is kept as authored (design R10, ADR 0172: the edit is kept and applies at the next Play,
- * where the core runs the first `MAX_CORE_BUS_EFFECTS`), so it must not hold the Project Settings draft unsaved.
+ * (`MAX_CORE_BUS_EFFECTS`), or a second compressor, is kept as authored (design R10, ADR 0172: the edit is kept and applies
+ * at the next Play, where the core runs the first `MAX_CORE_BUS_EFFECTS` and the first compressor), so it must not hold the
+ * Project Settings draft unsaved.
  */
 export function parseAudioSettings(input: unknown, options: AudioParseOptions = {}): { settings: AudioSettings; problems: string[]; warnings: string[] } {
   const problems: string[] = [];
@@ -390,7 +391,9 @@ export function parseAudioSettings(input: unknown, options: AudioParseOptions = 
         // Kept as authored (the Web Audio reference runs them all); the message says what the core skips. Past the
         // effect count it is a warning, not a problem (G9b, R10): the edit saves and the live path answers FIFTH_EFFECT.
         if (effects.length > MAX_CORE_BUS_EFFECTS) warnings.push(`${where}: the audio core runs only the first ${MAX_CORE_BUS_EFFECTS} effects of a bus; the rest are skipped.`);
-        if (effects.filter((fx) => fx.type === "compressor").length > 1) problems.push(`${where}: the audio core runs one compressor per bus (the first); the others are skipped.`);
+        // A second compressor is the same (FU4): a warning, so the edit saves and applies at the next Play, where the core
+        // runs the first compressor in the list and skips the others (their slots stay empty).
+        if (effects.filter((fx) => fx.type === "compressor").length > 1) warnings.push(`${where}: the audio core runs one compressor per bus; the edit is saved and applies at the next Play, where only the first compressor of the list runs and the others are skipped.`);
         buses.push({
           name: raw.name,
           ...(typeof raw.parent === "string" ? { parent: raw.parent } : {}),
