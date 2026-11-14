@@ -1,6 +1,6 @@
 # Audio mixer (ADR 0097)
 
-How to play sounds is in [Playing sound](playing-sound.md); if a bus is silent, see [Why is there no sound?](why-no-sound.md#4-a-sounds-reason).
+How to play sounds is in [Playing sound](playing-sound.md); if a bus is silent, see [Why is there no sound?](why-no-sound.md#4-a-sounds-reason). Mixing while the game plays, the Mixer panel and the two ducking modes are in [Live mixing and ducking](audio-mixing.md); loudness meters and targets in [Loudness](audio-loudness.md); recording what the mix did in the [Audio profiler](audio-profiler.md); every M5 script member in the [API reference](audio-mix-api.md).
 
 Sound plays on **buses**: a tree that starts at `Master` (default children `Music`, `SFX`, `UI`, `Voice`). Edit it in Project Settings > Audio, or in `project.json`:
 
@@ -19,7 +19,7 @@ Sound plays on **buses**: a tree that starts at `Master` (default children `Musi
 
 - `volume` is linear 0..2. A bus can also take a spatial **bed** (`"bed": "own" | "parent" | "none"` and `"bedPriority"` 0 to 255): see [Spatial audio](spatial-audio.md#beds). Effects run in order: `lowpass`/`highpass` (`frequency`, `q`), `compressor` (`threshold`, `knee`, `ratio`, `attack`, `release`), `reverb` (`send` 0..1 into one shared reverb).
 - **AudioSource**: set `output` (a dropdown of your buses). Empty means Master. **One-shots**: `Audio.playOneShot("asset:boom.wav", { bus: "SFX" })`.
-- **Snapshots** multiply bus volumes and can low-pass a bus; **ducking** lowers `target` while `trigger` has sounds playing.
+- **Snapshots** multiply bus volumes and can low-pass a bus; **ducking** lowers `target` while `trigger` has sounds playing (`mode: "presence"`) or while its level is over a threshold (`mode: "level"`; see [Ducking](audio-mixing.md#ducking)). A bus with `"meter": "loudness"` is measured ([Loudness](audio-loudness.md#what-is-measured)).
 
 Occlusion, reverb zones and Doppler, which shape spatial sounds before they reach their bus, are in [Spatial audio](spatial-audio.md). The `reverb` effect above stays: it is the shared reverb for sounds outside every zone.
 
@@ -35,9 +35,12 @@ Audio.bus("Music").fadeTo(0, 2);          // fade out over 2 s
 Audio.snapshot("Paused", 0.3);            // fade to a named mix
 Audio.clearSnapshot(0.3);
 Audio.bus("Voice").activeVoices;          // sounds playing on it
+Audio.bus("Music").authoredVolume;        // the project's volume (read only)
+Audio.bus("Music").effectiveGain;         // what reaches the speakers, ducking and snapshots included
+Audio.bus("Master").loudness.integrated;  // LUFS on a metered bus; see Loudness
 ```
 
-Unknown bus names warn once and are ignored. Script changes are runtime state: save a player's volumes yourself (`Storage`) and set them at start.
+`volume` is a multiplier on `authoredVolume`, the project's number (see [Fades, volume and sends](#fades-volume-and-sends)). Unknown bus names warn once and are ignored. Script changes are runtime state: save a player's volumes yourself (`Storage`) and set them at start.
 
 ## Choosing the backend
 

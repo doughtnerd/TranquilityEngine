@@ -2,7 +2,7 @@
 
 You can mix while the game plays. Press Play, open **Audio Mixer** from the editor's panels, and move a fader, mute a bus or edit a ducking rule in Project Settings > Audio: you hear it at once, with no restart. This chapter covers what applies at once, what is kept when you press Stop, how undo works, the Mixer panel, Compare, the monitor controls, the two ducking modes, and the few edits that wait for the next Play.
 
-The buses, effects and snapshots themselves are in [Audio mixer](audio-mixer.md). Reading what the mix did afterwards is the [Audio profiler](audio-profiler.md). If a bus is silent, see [Why is there no sound?](why-no-sound.md).
+The buses, effects and snapshots themselves are in [Audio mixer](audio-mixer.md). Reading what the mix did afterwards is the [Audio profiler](audio-profiler.md); what the meters on the strips mean is [Loudness](audio-loudness.md). Script members (`authoredVolume`, `duckGain`, `effectiveGain`, `loudness`) are in the [API reference](audio-mix-api.md). If a bus is silent, see [Why is there no sound?](why-no-sound.md).
 
 ## What you hear, and what is kept
 
@@ -162,6 +162,8 @@ The edit is never lost: it is already in `project.json`. If the banner is more t
 ## See also
 
 - [Audio mixer](audio-mixer.md): buses, effects, snapshots, scripting.
-- [Audio profiler](audio-profiler.md): record a session, the Bus gain track, loudness.
+- [Audio profiler](audio-profiler.md): record a session, the Bus gain track, loudness; [Captures on Android](audio-profiler.md#captures-on-android).
+- [Loudness](audio-loudness.md): the meters, targets and when the check is suspended.
+- [Audio mix: API reference](audio-mix-api.md)
 - [Playing sound](playing-sound.md)
 - [ADR 0171](../decisions/0171-audio-profiler-loudness-metering-and-live-mixing.md), [0172](../decisions/0172-audio-mix-design-corrections-and-owner-decisions.md), [0173](../decisions/0173-the-editor-sdk-lets-a-panel-edit-project-settings-through-the-shared-section.md), and [0147](../decisions/0147-the-editor-sdk-gives-plugins-the-project-status-and-scene-through-one-editor-object.md) for the `editor.project.onSectionChanged` hook the audio plugin uses.

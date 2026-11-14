@@ -1,6 +1,6 @@
 # Audio profiler and capture files (ADR 0171, amended by 0172)
 
-The **Audio Profiler** panel shows what the audio core did while your game played: how busy it was, which voices were playing and why others were not, where it glitched, how loud each bus was. You can record in the editor's Play mode, record from an exported game with `Audio.capture`, save the take as a `.mycap` file, and open that file later in the editor (on your machine or a tester's). For the buses the profiler reports on, see [Audio mixer](audio-mixer.md); for a silent sound, [Why is there no sound?](why-no-sound.md).
+The **Audio Profiler** panel shows what the audio core did while your game played: how busy it was, which voices were playing and why others were not, where it glitched, how loud each bus was. You can record in the editor's Play mode, record from an exported game with `Audio.capture`, save the take as a `.mycap` file, and open that file later in the editor (on your machine or a tester's). For the buses the profiler reports on, see [Audio mixer](audio-mixer.md); to change the mix while you watch it, [Live mixing and ducking](audio-mixing.md); for what the loudness tracks mean, [Loudness](audio-loudness.md); for every `Audio.capture` member, [Audio mix: API reference](audio-mix-api.md#audiocapture); for a silent sound, [Why is there no sound?](why-no-sound.md).
 
 The recorder is a separate chunk that loads on the first `Audio.capture.start()`. A game that never calls it loads no recorder and pays nothing.
 
@@ -40,18 +40,18 @@ The panel lists them in its own legend.
 
 ### Loudness
 
-Loudness tracks show momentary (M), short-term (S) and integrated (I) LUFS for every bus the project meters, the final output included, with LRA and true peak in the tooltip. If the project has a loudness target, its integrated level is drawn as a line and ticks mark where the mix went over or under it. The profiler **warns and never adjusts**: it does not touch a fader, a bus or the target. A reopened capture and the live meter agree, because both use the same statistics. A bus that is not metered reads "Not metered".
+Loudness tracks (the meters themselves, targets and the verdicts are in [Loudness](audio-loudness.md)) show momentary (M), short-term (S) and integrated (I) LUFS for every bus the project meters, the final output included, with LRA and true peak in the tooltip. If the project has a loudness target, its integrated level is drawn as a line and ticks mark where the mix went over or under it. The profiler **warns and never adjusts**: it does not touch a fader, a bus or the target. A reopened capture and the live meter agree, because both use the same statistics. A bus that is not metered reads "Not metered".
 
 ## Recording in the editor
 
 1. Press Play. The panel records on its own while it is open in Play: the live view follows a ring of the most recent audio.
 2. Press **Record** in the bar to start a take. **Stop** ends it. **Save** writes the take to a `.mycap` file.
 3. The ring is bounded. If it wrapped over the start of your take, the file begins at a later keyframe and is marked **Truncated**.
-4. The Mixer's Compare switches and owner joins drop markers into the take by themselves.
+4. The [Mixer](audio-mixing.md#the-mixer-panel)'s Compare switches and owner joins drop markers into the take by themselves. Edits you make with the Mixer while recording show on the Bus levels and Bus gain tracks.
 
 A take survives Stop of Play once, so you can press Stop and then Save. Save with nothing recorded fails with "nothing recorded: call Audio.capture.start() first".
 
-Where the file goes: on the web a download; in the desktop and Android apps the app-data `cache` folder (the path is shown in the bar when it is saved).
+Where the file goes: on the web a download (`<name>.mycap`); in the desktop and Android apps the app-data `cache` folder as `<name>.mycap.bin` (the desktop's path is shown in the bar when it is saved). The Profiler opens either as it is, with no rename.
 
 ## Capturing from a game script
 
@@ -71,9 +71,51 @@ const where = await Audio.capture.save("boss-fight");   // "boss-fight.mycap"; a
 
 **Exported games can record too.** Export with the Audio capture option (`npm run export -- <dir> --audio-capture`, or the checkbox in Build / Export). In that game F9 starts recording and the next F9 stops and saves a `.mycap` file; on a touch screen, hold three fingers for one second. A toast says what happened. On desktop and Android it keeps the newest 16 auto-named files in the app's cache folder; a browser stops at 16 saves per page session.
 
+## Captures on Android
+
+There is no Android export target yet (ADR 0155's `--target android` is not implemented: `--target` is `web` or `desktop`). To record on a phone, export the **web** build with capture on, serve it from your computer and open it in the phone's Chrome. Android 14 with Chrome 113 is the supported floor ([ADR 0169](../decisions/0169-the-supported-mobile-floor-is-android-14-with-chrome-113.md)).
+
+1. Build and export with the option, then serve the folder:
+
+   ```sh
+   npm run build
+   npm run export -- samples/sound-lab --out /tmp/lab-web --audio-capture
+   cd /tmp/lab-web && node serve.mjs 8083
+   ```
+
+2. Turn on USB debugging on the phone, connect it and forward the port, so the phone's `localhost` is your computer:
+
+   ```sh
+   adb reverse tcp:8083 tcp:8083
+   ```
+
+3. Open `http://localhost:8083/` in Chrome on the phone. `localhost` counts as a secure context, so the audio worklet runs. Tap once to unlock audio.
+4. Hold exactly **three fingers on the screen for one second**: a toast says recording started. Play a while, then hold three fingers again: the toast names the saved file. Fewer or more fingers, or lifting early, does nothing. (With a keyboard on the phone, F9 does the same.)
+5. Pull the file to your computer. Chrome saves it in the phone's Downloads:
+
+   ```sh
+   adb shell ls /sdcard/Download
+   adb pull /sdcard/Download/capture-YYYYMMDD-HHMMSS.mycap .
+   ```
+
+6. Open it as any capture: **Audio Profiler**, **Open** (or drop the file on the panel). The CPU track shows the phone's load, or says why it can't ("CPU not yet measured", "clock too coarse") when the phone's worklet clock is too coarse to time it.
+
+A browser stops at 16 saves per page session (a toast says so); reload the page to record again, since a browser can't delete its own downloads.
+
+**A Tauri app** (the desktop export's Tauri project, or an Android Tauri build) saves into its private data folder instead, as `cache/capture-YYYYMMDD-HHMMSS.mycap.bin`, and keeps the newest 16 auto-named files, deleting the oldest (a file you named yourself is never deleted). On a debuggable build, find the file and pull it:
+
+```sh
+adb shell run-as <package id> find . -name "*.mycap.bin"
+adb exec-out run-as <package id> cat files/cache/<name>.mycap.bin > <name>.mycap.bin
+```
+
+The exact data folder depends on the build, which is why the first command looks for it. Open the pulled file as it is: the Profiler accepts `.mycap.bin`.
+
+What a phone can and can't tell you: an emulator's audio runs through your computer and its timing is not a device's, so use it for the trigger, the file and the load, and use a real phone for CPU figures and for how much recording costs.
+
 ## Opening a capture
 
-Press **Open** and choose a `.mycap`, or drop the file on the panel. Only `.mycap` files are accepted; anything else, or a file larger than any capture can be, is turned away with a banner before it is read. Opening decodes in a worker, with a progress bar and a **Cancel**. A refusal leaves the capture you had open.
+Press **Open** and choose a `.mycap`, or drop the file on the panel. Only `.mycap` files, and the `.mycap.bin` files the desktop and Android apps save, are accepted; anything else, or a file larger than any capture can be, is turned away with a banner before it is read. Opening decodes in a worker, with a progress bar and a **Cancel**. A refusal leaves the capture you had open.
 
 What a capture holds is decided by the file, not by your open project, so you see what the recorder saw. Opening never replays sound and never changes your project.
 
@@ -97,6 +139,7 @@ A saved minute of recording is roughly **0.27 MB at 64 live voices, 0.84 MB at 2
 
 ## See also
 
-- [Audio mixer](audio-mixer.md) and [Playing sound](playing-sound.md)
+- [Audio mixer](audio-mixer.md), [Live mixing and ducking](audio-mixing.md), [Loudness](audio-loudness.md) and [Playing sound](playing-sound.md)
+- [Audio mix: API reference](audio-mix-api.md)
 - [Editor](editor.md) for panels and docks
 - [ADR 0171](../decisions/0171-audio-profiler-loudness-metering-and-live-mixing.md) and [ADR 0172](../decisions/0172-audio-mix-design-corrections-and-owner-decisions.md)
