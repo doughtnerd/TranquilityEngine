@@ -7,6 +7,7 @@ import { stepFrame, togglePause } from "./playDebug";
 import { openScene, pickTool, snapping, type Tool } from "./state";
 
 import { isEditable } from "./editable";
+import { dialogOpenAnywhere } from "./windows/editorWindows";
 export { isEditable };
 
 export type Shortcut = "undo" | "redo" | "back" | "forward" | "save" | "play" | "pause" | "step" | "delete" | "copy" | "cut" | "paste" | "paste-child" | "duplicate" | "close-tab" | `tool:${Tool}`;
@@ -53,7 +54,9 @@ export function shortcutFor(e: Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey"
  * Ctrl/Cmd + C/X/V/D copy, cut, paste and duplicate the selected nodes (+ Shift + V pastes as a child);
  * Delete or Backspace deletes the selected node; Ctrl/Cmd + P plays or stops; Ctrl/Cmd + Shift + P pauses or resumes the game and F10 or Ctrl/Cmd + Alt + P steps it one frame; Ctrl/Cmd + S saves; Ctrl/Cmd + W closes the scene tab; Ctrl/Cmd + Z undoes and Ctrl/Cmd + Shift + Z or Ctrl + Y redoes in the active history (the focused editor's, else the scene's); Ctrl/Cmd + Alt + Z / + Shift step back / forward through history in creation order; Q/W/E/R pick the select, move,
  * rotate and scale tools; holding Ctrl/Cmd snaps gizmo drags. Returns a function that removes
- * the listeners.
+ * the listeners. Installed in every editor window, detached panel windows included (main.tsx, with
+ * `forEachEditorWindow`, ADR 0174): a key typed in a child reaches only that child's listeners, so
+ * nothing runs twice.
  */
 export function installShortcuts(target: Window = window): () => void {
   const onKeyDown = (e: KeyboardEvent) => {
@@ -78,7 +81,7 @@ export function installShortcuts(target: Window = window): () => void {
     if (action === "close-tab") {
       e.preventDefault(); // not the browser's close-tab
       const active = openScene.value;
-      if (active && !document.querySelector(".dialog")) void closeScene(active);
+      if (active && !dialogOpenAnywhere()) void closeScene(active);
       return;
     }
     if (action === "save") {
@@ -90,13 +93,13 @@ export function installShortcuts(target: Window = window): () => void {
     }
     if (!action || isEditable(e.target)) return;
     if (action === "delete") {
-      if (document.querySelector(".dialog")) return; // a dialog is open
+      if (dialogOpenAnywhere()) return; // a dialog is open
       e.preventDefault();
       void deleteSelected();
       return;
     }
     if (CLIPBOARD_SHORTCUTS.includes(action)) {
-      if ((e.target as Element | null)?.closest?.(".asset-browser, .dialog") || document.querySelector(".dialog")) return;
+      if ((e.target as Element | null)?.closest?.(".asset-browser, .dialog") || dialogOpenAnywhere()) return;
       e.preventDefault(); // Ctrl+D would bookmark the page
       if (action === "copy") copySelection();
       else if (action === "cut") cutSelection();

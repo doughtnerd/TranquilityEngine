@@ -3,7 +3,7 @@
 // them from the tempo map), cues, regions, entry and exit, zoom, scroll and the playhead, on one canvas. Drags go
 // through the hook that calls `segmentDrag.ts` (Ed3). Colours come from the theme tokens, read when drawing.
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
-import { editor, openAssetDocument } from "../../../../editor/sdk";
+import { editor, openAssetDocument, Panel } from "../../../../editor/sdk";
 import type { AudioEventAsset } from "../../../../engine/audio/eventFormat";
 import type { SegmentNode } from "../../../../engine/audio/musicFormat";
 import { compileSegmentGrid, positionTextToTicks, secondsToTicks, type SegmentGrid } from "../../../../engine/audio/musicGrid";
@@ -425,9 +425,13 @@ export function SegmentViewPanel() {
   const open = openSegment.value;
   const project = editor.project.current;
   editor.project.version; // the file list changes with it
-  if (!project || !open) return <p class="empty">Open a segment from the Event editor.</p>;
-  if (!project.files.includes(open.event)) return <p class="empty">{open.event} isn't in the project any more.</p>;
-  return <OpenSegment key={`${open.event}#${open.segmentId}`} path={open.event} segmentId={open.segmentId} />;
+  if (!project || !open) return <Panel><p class="empty">Open a segment from the Event editor.</p></Panel>;
+  if (!project.files.includes(open.event)) return <Panel><p class="empty">{open.event} isn't in the project any more.</p></Panel>;
+  return (
+    <Panel>
+      <OpenSegment key={`${open.event}#${open.segmentId}`} path={open.event} segmentId={open.segmentId} />
+    </Panel>
+  );
 }
 
 function OpenSegment({ path, segmentId }: { path: string; segmentId: string }) {

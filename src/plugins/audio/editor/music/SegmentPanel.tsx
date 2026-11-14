@@ -10,7 +10,7 @@
 // `audibleStems`. Tap tempo is the median interval of the current run (`tempoTools.ts`).
 import { signal } from "@preact/signals";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
-import { editor, openAssetDocument, registerAssetDropTarget } from "../../../../editor/sdk";
+import { editor, openAssetDocument, registerAssetDropTarget, Panel } from "../../../../editor/sdk";
 import type { AudioEventAsset } from "../../../../engine/audio/eventFormat";
 import {
   BEAT_UNITS, MAX_BPM, MIN_BPM, MUSIC_LIMITS, TRACK_PICKS, type MusicRegion, type MusicTrack, type RegionCondition, type SegmentNode, type TrackPick,
@@ -287,9 +287,13 @@ export function SegmentPanel() {
   const open = openSegment.value;
   const project = editor.project.current;
   editor.project.version;
-  if (!project || !open) return <p class="empty">Segment: open a segment from the Event editor to edit its tempo, stems, cues and regions here.</p>;
-  if (!project.files.includes(open.event)) return <p class="empty">{open.event} isn't in the project any more.</p>;
-  return <OpenPanel key={auditionKey(open.event, open.segmentId)} path={open.event} segmentId={open.segmentId} />;
+  if (!project || !open) return <Panel><p class="empty">Segment: open a segment from the Event editor to edit its tempo, stems, cues and regions here.</p></Panel>;
+  if (!project.files.includes(open.event)) return <Panel><p class="empty">{open.event} isn't in the project any more.</p></Panel>;
+  return (
+    <Panel>
+      <OpenPanel key={auditionKey(open.event, open.segmentId)} path={open.event} segmentId={open.segmentId} />
+    </Panel>
+  );
 }
 
 function OpenPanel({ path, segmentId }: { path: string; segmentId: string }) {

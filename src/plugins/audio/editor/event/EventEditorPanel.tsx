@@ -3,7 +3,7 @@
 // left, the selected node's properties (or the event's own) on the right, and Audition (E6.4) under the parameters
 // with the sliders' values.
 import { useEffect, useMemo, useState } from "preact/hooks";
-import { editor, openAssetDocument } from "../../../../editor/sdk";
+import { editor, openAssetDocument, Panel } from "../../../../editor/sdk";
 import type { AudioEventAsset, EventNode } from "../../../../engine/audio/eventFormat";
 import type { MusicNode } from "../../../../engine/audio/musicFormat";
 import { parseAudioSettings } from "../../../../engine/audio/settings";
@@ -22,9 +22,9 @@ export function EventEditorPanel() {
   const path = openEvent.value;
   const project = editor.project.current;
   editor.project.version; // the file list changes with it
-  if (!project || !path) return <p class="empty">Double-click an audio event (.audioevent.json) in the Assets panel, or create one with New Event.</p>;
-  if (!project.files.includes(path)) return <p class="empty">{path} isn't in the project any more.</p>;
-  return <EventEditor key={path} path={path} />;
+  if (!project || !path) return <Panel><p class="empty">Double-click an audio event (.audioevent.json) in the Assets panel, or create one with New Event.</p></Panel>;
+  if (!project.files.includes(path)) return <Panel><p class="empty">{path} isn't in the project any more.</p></Panel>;
+  return <Panel><EventEditor key={path} path={path} /></Panel>;
 }
 
 function EventEditor({ path }: { path: string }) {

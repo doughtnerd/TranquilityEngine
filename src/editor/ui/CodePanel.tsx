@@ -1,4 +1,5 @@
 import { errorStatus } from "../messages";
+import { Panel } from "./panel/Panel";
 import { effect } from "@preact/signals";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type * as Monaco from "monaco-editor";
@@ -22,60 +23,64 @@ export function CodePanel() {
   const active = activeScript.value;
   const dirty = dirtyScripts.value;
   scriptsVersion.value; // the tabs follow reloads (a deleted script)
-  if (!project) return <p class="empty">No project open</p>;
+  if (!project) return <Panel><p class="empty">No project open</p></Panel>;
   const files = codeFiles(project);
   if (tabs.length === 0) {
     return (
-      <p class="empty">
-        {project.scripts.size > 0
-          ? "Double-click a script, JSON, JavaScript or text file in the Assets panel to open it."
-          : project.root === null
-            ? "This project has no scripts."
-            : "This project has no scripts yet: add .ts files under scripts/."}
-      </p>
+      <Panel>
+        <p class="empty">
+          {project.scripts.size > 0
+            ? "Double-click a script, JSON, JavaScript or text file in the Assets panel to open it."
+            : project.root === null
+              ? "This project has no scripts."
+              : "This project has no scripts yet: add .ts files under scripts/."}
+        </p>
+      </Panel>
     );
   }
   return (
-    <div class="code-panel">
-      <div class="code-tabs" role="tablist" aria-label="Open scripts">
-        {tabs.map((path) => (
-          <div key={path} class={`code-tab${path === active ? " active" : ""}`} role="tab" aria-selected={path === active} title={path} onClick={() => (activeScript.value = path)}>
-            <span class="code-tab-name">{fileName(path)}</span>
-            {dirty.has(path) && (
-              <span class="code-tab-dirty" aria-label="unsaved changes">
-                ●
-              </span>
-            )}
-            {!files.has(path) && <span class="code-tab-gone">(deleted)</span>}
+    <Panel>
+      <div class="code-panel">
+        <div class="code-tabs" role="tablist" aria-label="Open scripts">
+          {tabs.map((path) => (
+            <div key={path} class={`code-tab${path === active ? " active" : ""}`} role="tab" aria-selected={path === active} title={path} onClick={() => (activeScript.value = path)}>
+              <span class="code-tab-name">{fileName(path)}</span>
+              {dirty.has(path) && (
+                <span class="code-tab-dirty" aria-label="unsaved changes">
+                  ●
+                </span>
+              )}
+              {!files.has(path) && <span class="code-tab-gone">(deleted)</span>}
+              <button
+                class="code-tab-close"
+                aria-label={`Close ${fileName(path)}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void closeTab(path);
+                }}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+          {!project.canSave && <span class="code-readonly">read-only</span>}
+          {active && project.fileSystem?.openExternally && (
             <button
-              class="code-tab-close"
-              aria-label={`Close ${fileName(path)}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                void closeTab(path);
-              }}
+              class="code-external"
+              title={
+                isScriptPath(active)
+                  ? `Open ${active} in your code editor (the system's app for .ts files). Changes saved there reload here.`
+                  : `Open ${active} with the system's app for its file type. Reopen the project to see changes saved there.`
+              }
+              onClick={() => void openScriptExternally(active)}
             >
-              ×
+              Open Externally
             </button>
-          </div>
-        ))}
-        {!project.canSave && <span class="code-readonly">read-only</span>}
-        {active && project.fileSystem?.openExternally && (
-          <button
-            class="code-external"
-            title={
-              isScriptPath(active)
-                ? `Open ${active} in your code editor (the system's app for .ts files). Changes saved there reload here.`
-                : `Open ${active} with the system's app for its file type. Reopen the project to see changes saved there.`
-            }
-            onClick={() => void openScriptExternally(active)}
-          >
-            Open Externally
-          </button>
-        )}
+          )}
+        </div>
+        <MonacoHost />
       </div>
-      <MonacoHost />
-    </div>
+    </Panel>
   );
 }
 

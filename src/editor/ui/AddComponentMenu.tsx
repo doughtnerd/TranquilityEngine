@@ -9,6 +9,7 @@ import { newScript } from "../newScript";
 import { componentNotes } from "../sdk/contributions";
 import { recentComponents } from "../preferences";
 import { currentProject, status, type OpenScene } from "../state";
+import { ownerDocumentOf, viewportOf } from "../windows/dom";
 
 /**
  * The Inspector's Add Component button (ADR 0022): a menu of every component type in submenus
@@ -50,9 +51,11 @@ function Flyout(props: { anchorKey: string; label: string; children: ComponentCh
   const el = useRef<HTMLUListElement>(null);
   const [place, setPlace] = useState<Record<string, string>>({ opacity: "0" });
   useLayoutEffect(() => {
-    const anchor = document.querySelector(`.add-component-menu [data-row="${props.anchorKey}"]`);
     const me = el.current;
+    // In its own document and window (a detached panel window, ADR 0174).
+    const anchor = me && ownerDocumentOf(me).querySelector(`.add-component-menu [data-row="${props.anchorKey}"]`);
     if (!anchor || !me) return;
+    const { width: innerWidth, height: innerHeight } = viewportOf(me);
     const r = anchor.getBoundingClientRect();
     const w = me.offsetWidth;
     const h = Math.min(me.scrollHeight, innerHeight - 16);
@@ -74,6 +77,7 @@ function Menu(props: MenuProps & { anchor: HTMLElement; close: () => void }) {
   const [place, setPlace] = useState<Record<string, string>>({ opacity: "0" }); // until placed; still focusable
   useLayoutEffect(() => {
     const r = props.anchor.getBoundingClientRect();
+    const { height: innerHeight } = viewportOf(props.anchor); // its own window's (ADR 0174)
     const below = innerHeight - r.bottom >= Math.min(MENU_HEIGHT, r.top);
     setPlace({
       left: `${r.left + 8}px`,
@@ -224,7 +228,7 @@ function Menu(props: MenuProps & { anchor: HTMLElement; close: () => void }) {
 
   // Keep the keyboard's row in view.
   useEffect(() => {
-    document.querySelector(".add-component-menu li.active, .add-component-flyout li.active")?.scrollIntoView?.({ block: "nearest" });
+    ownerDocumentOf(props.anchor).querySelector(".add-component-menu li.active, .add-component-flyout li.active")?.scrollIntoView?.({ block: "nearest" });
   }, [levels, active]);
 
   const rootRows = panelRows(rootEntries, 0);

@@ -3,6 +3,7 @@
 // plugin removes them all.
 import type { PluginManifest } from "../../plugins/manifest";
 import { orderPlugins } from "../../plugins/order";
+import { setPanelOwner } from "./panelOwners";
 import { fieldChoices, type FieldChoicesContribution, assetActions, assetFormats, assetKinds, componentHeaderActions, hierarchyCreateEntries, idlePrefetches, playStatsCounters, sceneOpenMigrations, type AssetActionContribution, type HierarchyCreateContribution, type IdlePrefetchContribution, type PlayStatsCounterContribution, type SceneOpenMigrationContribution, componentNotes, panelExtensions, panels, projectSettingsSections, sceneToolbarItems, viewportTools, type AssetFormatContribution, type ComponentHeaderActionContribution, type SceneToolbarItemContribution, type ComponentNoteContribution, type AssetKindContribution, type PanelContribution, type PanelExtensionContribution, type ProjectSettingsSectionContribution, type ViewportToolContribution } from "./contributions";
 import { registerInspectorSection, type InspectorSectionOptions, type InspectorSectionProps } from "../ui/inspectorSections";
 import type { LoadComponent } from "./contributions";
@@ -61,7 +62,10 @@ export function activatePlugin(plugin: EditorPlugin): void {
   const context: EditorPluginContext = {
     registerAssetKind: (k) => void undo.push(assetKinds.register(k)),
     registerAssetFormat: (f) => void undo.push(assetFormats.register(f)),
-    registerPanel: (p) => void undo.push(panels.register(p)),
+    registerPanel: (p) => {
+      undo.push(panels.register(p));
+      setPanelOwner(p.id, { plugin: name, pluginTitle: plugin.manifest.title ?? name });
+    },
     registerProjectSettingsSection: (section) => void undo.push(projectSettingsSections.register(checkSettingsSectionKeys(section))),
     registerPanelExtension: (extension) => void undo.push(panelExtensions.register(extension)),
     registerComponentNote: (n) => void undo.push(componentNotes.register(n)),

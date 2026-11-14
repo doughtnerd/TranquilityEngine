@@ -168,13 +168,13 @@ describe("the active history (ADR 0145)", () => {
   });
 
   it("is what Ctrl/Cmd+Z and Ctrl+Y act on, except in text fields", () => {
+    // isEditable goes by tag name (a detached window's inputs aren't the main window's HTMLInputElement, ADR 0174).
     class FakeInput {
+      nodeType = 1;
+      tagName = "INPUT";
       type = "text";
       isContentEditable = false;
     }
-    vi.stubGlobal("HTMLInputElement", FakeInput);
-    vi.stubGlobal("HTMLTextAreaElement", class {});
-    vi.stubGlobal("HTMLSelectElement", class {});
     const keyListeners = new Map<string, Listener>();
     const win = { addEventListener: (t: string, l: Listener) => keyListeners.set(t, l), removeEventListener: (t: string) => keyListeners.delete(t) };
     const stopShortcuts = installShortcuts(win as unknown as Window);

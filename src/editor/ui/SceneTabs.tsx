@@ -7,6 +7,7 @@ import { activateScene, closeScene, closeScenes } from "../session";
 import { docVersion, openScene, openScenes, type OpenScene } from "../state";
 import "./assets.css";
 import "./hierarchy.css";
+import { isKeyboardEvent, ownerWindowOf, viewportOf } from "../windows/dom";
 
 /** The tab context menu: where, and which tab it was opened on. */
 const tabMenu = signal<{ x: number; y: number; scene: OpenScene } | null>(null);
@@ -26,24 +27,26 @@ function TabMenu() {
   useEffect(() => {
     if (!m) return;
     const close = (e: Event) => {
-      if (e instanceof KeyboardEvent && e.key !== "Escape") return;
+      if (isKeyboardEvent(e) && e.key !== "Escape") return;
       if (e.type === "pointerdown" && el.current?.contains(e.target as Node)) return;
       tabMenu.value = null;
     };
-    window.addEventListener("pointerdown", close, true);
-    window.addEventListener("keydown", close, true);
-    window.addEventListener("blur", close);
+    const win = ownerWindowOf(el.current); // the window it's in (a detached panel window, ADR 0174)
+    win.addEventListener("pointerdown", close, true);
+    win.addEventListener("keydown", close, true);
+    win.addEventListener("blur", close);
     el.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
     return () => {
-      window.removeEventListener("pointerdown", close, true);
-      window.removeEventListener("keydown", close, true);
-      window.removeEventListener("blur", close);
+      win.removeEventListener("pointerdown", close, true);
+      win.removeEventListener("keydown", close, true);
+      win.removeEventListener("blur", close);
     };
   }, [m]);
   if (!m) return null;
   const tabs = openScenes.value;
-  const x = Math.min(m.x, window.innerWidth - 220);
-  const y = Math.min(m.y, window.innerHeight - MENU.length * 26 - 10);
+  const view = viewportOf(el.current);
+  const x = Math.min(m.x, view.width - 220);
+  const y = Math.min(m.y, view.height - MENU.length * 26 - 10);
   return (
     <div ref={el} class="context-menu" role="menu" style={{ left: `${Math.max(0, x)}px`, top: `${Math.max(0, y)}px` }}>
       {MENU.map(({ mode, label }) => {

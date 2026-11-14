@@ -1,7 +1,7 @@
 // Lazily loaded panels and dialogs (ADR 0083), and the panel registry built on them.
 import type { VNode } from "preact";
 import { describe, expect, it, vi } from "vitest";
-import { defaultLayout, PANELS, type Layout } from "./layout/model";
+import { defaultLayout, PANELS, typeOf, type Layout } from "./layout/model";
 import { lazyComponent, lazyDialog, PanelLoading } from "./ui/lazy";
 import { PANEL_VIEWS, visiblePanels } from "./ui/panels";
 
@@ -72,9 +72,9 @@ describe("the panel registry", () => {
 
   it("lists each expanded dock's front tabs as visible", () => {
     const layout = defaultLayout();
-    const fronts = layout.docks.flatMap((d) => d.groups.map((g) => g.active));
+    const fronts = layout.docks.flatMap((d) => d.groups.map((g) => typeOf(layout, g.active)));
     expect(visiblePanels(layout)).toEqual(fronts);
     const collapsed: Layout = { ...layout, docks: layout.docks.map((d, i) => (i === 0 ? { ...d, collapsed: true } : d)) };
-    expect(visiblePanels(collapsed)).toEqual(layout.docks.slice(1).flatMap((d) => d.groups.map((g) => g.active)));
+    expect(visiblePanels(collapsed)).toEqual(layout.docks.slice(1).flatMap((d) => d.groups.map((g) => typeOf(layout, g.active))));
   });
 });

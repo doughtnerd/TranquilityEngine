@@ -1,4 +1,4 @@
-// The editor's menu bar as data: File, Edit, Create, Window and Help. Pure (no DOM, no signals), so
+// The editor's menu bar as data: File, Edit, Create, Window, Layouts and Help. Pure (no DOM, no signals), so
 // the rules for which items are enabled, and what they say, are unit-tested; MenuBar.tsx reads the
 // live state into a `MenuState`, wires the `MenuActions`, and draws the result.
 import { allPanels, panelTitle, type PanelId } from "./layout/model";
@@ -20,7 +20,7 @@ export interface MenuEntry {
 }
 
 export interface Menu {
-  id: "file" | "edit" | "create" | "window" | "help";
+  id: "file" | "edit" | "create" | "window" | "layouts" | "help";
   label: string;
   items: readonly MenuEntry[];
 }
@@ -61,6 +61,20 @@ export interface MenuState {
   clipboard: "nodes" | "assets";
   /** The Hierarchy's Create items for the open scene (parent and position logic included). */
   createItems: readonly MenuEntry[];
+  /** The Layouts menu's state (ADR 0174). */
+  layouts: LayoutsMenuState;
+}
+
+/** What the Layouts menu shows (ADR 0174). */
+export interface LayoutsMenuState {
+  /** The saved layouts, by name: file name, display name, where it's kept ("User", "Project", "User + Project"). */
+  saved: readonly { file: string; name: string; scope: string }[];
+  /** The active layout's file name, or null for Default. */
+  active: string | null;
+  /** The working layout differs from the active layout's current version. */
+  modified: boolean;
+  /** Why Save Layout can't save over the active layout, or null. */
+  saveBlocked: string | null;
 }
 
 export interface MenuActions {
@@ -72,7 +86,13 @@ export interface MenuActions {
   reloadScripts(): void;
   exportBuild(): void;
   showPanel(panel: PanelId): void;
+  /** Open the Add Panel dialog (ADR 0174). */
+  addPanel(): void;
   resetLayout(): void;
+  applyLayout(file: string | null): void;
+  saveLayout(): void;
+  saveLayoutAs(): void;
+  manageLayouts(): void;
   closeProject(): void;
   exit(): void;
   undo(): void;
@@ -106,7 +126,7 @@ export function redoLabel(history: HistoryInfo | null): string {
 
 /** The whole menu bar for the current state. */
 export function buildMenus(s: MenuState, a: MenuActions): Menu[] {
-  return [fileMenu(s, a), editMenu(s, a), createMenu(s), windowMenu(s, a), helpMenu(a)];
+  return [fileMenu(s, a), editMenu(s, a), createMenu(s), windowMenu(s, a), layoutsMenu(s, a), helpMenu(a)];
 }
 
 function fileMenu(s: MenuState, a: MenuActions): Menu {
@@ -177,9 +197,46 @@ function createMenu(s: MenuState): Menu {
   return { id: "create", label: "Create", items: s.createItems };
 }
 
+/**
+ * One item per panel type, ticked when one is showing: picking it shows the panel, adding it back when it was
+ * closed (ADR 0174). Then Add Panel… (any panels, a second copy included) and Reset Layout.
+ */
 function windowMenu(s: MenuState, a: MenuActions): Menu {
-  const panels: MenuEntry[] = allPanels().map((p) => ({ label: panelTitle(p), checked: s.visiblePanels.has(p), run: () => a.showPanel(p), title: `Show the ${panelTitle(p)} panel` }));
-  return { id: "window", label: "Window", items: [...panels, SEPARATOR, { label: "Reset Layout", run: a.resetLayout, title: "Put the panels back where they started" }] };
+  const panels: MenuEntry[] = allPanels().map((p) => ({ label: panelTitle(p), checked: s.visiblePanels.has(p), run: () => a.showPanel(p), title: `Show the ${panelTitle(p)} panel (adding it if it's closed)` }));
+  return {
+    id: "window",
+    label: "Window",
+    items: [
+      ...panels,
+      SEPARATOR,
+      { label: "Add Panel…", run: a.addPanel, title: "Choose panels to add, a second copy of one included" },
+      { label: "Reset Layout", run: a.resetLayout, title: "Put the panels back where they started (the Default layout)" },
+    ],
+  };
+}
+
+/** Default and the saved layouts (ticked: the one showing, "●" when changed since), then saving and managing them (ADR 0174). */
+function layoutsMenu(s: MenuState, a: MenuActions): Menu {
+  const l = s.layouts;
+  const mark = (active: boolean) => (active && l.modified ? " ●" : "");
+  return {
+    id: "layouts",
+    label: "Layouts",
+    items: [
+      { label: `Default${mark(l.active === null)}`, checked: l.active === null, run: () => a.applyLayout(null), title: l.active === null && l.modified ? "The built-in layout (changed since: pick it to put it back)" : "The built-in layout" },
+      ...l.saved.map((x) => ({
+        label: `${x.name}${mark(l.active === x.file)}`,
+        shortcut: x.scope,
+        checked: l.active === x.file,
+        run: () => a.applyLayout(x.file),
+        title: `${x.file} · ${x.scope}${l.active === x.file && l.modified ? " · changed since it was saved" : ""}`,
+      })),
+      SEPARATOR,
+      { label: "Save Layout", disabled: l.saveBlocked, run: a.saveLayout, title: "Save the panels as they are over the current layout (a new version: older ones stay in Manage Layouts)" },
+      { label: "Save Layout As…", run: a.saveLayoutAs, title: "Save the panels as they are as a new layout, for you, the project or both" },
+      { label: "Manage Layouts…", disabled: l.saved.length === 0 ? "no saved layouts yet" : null, run: a.manageLayouts, title: "Rename, move or delete layouts, and restore earlier versions" },
+    ],
+  };
 }
 
 function helpMenu(a: MenuActions): Menu {

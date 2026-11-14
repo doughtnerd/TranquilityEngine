@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "preact/hooks";
+import { Panel } from "./panel/Panel";
 import { netWorldInfo } from "../../engine/editor";
 import { CONDITION_LIMITS, MAX_CLIENTS, MAX_THIN_CLIENTS, NO_CONDITIONS, NetStatsSampler, TRAFFIC_CATEGORIES, clampConditions, clientLayout, formatBytes, ghostTypeLabel, hostLayout, type NetConditionValues, type PeerStats, type WorldStats } from "../netPlay";
 import { netConditionsSetting, netPlaySetup } from "../preferences";
@@ -16,11 +17,13 @@ const REFRESH_MS = 250;
  */
 export function NetworkPanel() {
   return (
-    <div class="network-panel">
-      <PlaySetup />
-      <Conditions />
-      {playState.value === "playing" && playing.value ? <Stats /> : <NotPlaying />}
-    </div>
+    <Panel>
+      <div class="network-panel">
+        <PlaySetup />
+        <Conditions />
+        {playState.value === "playing" && playing.value ? <Stats /> : <NotPlaying />}
+      </div>
+    </Panel>
   );
 }
 

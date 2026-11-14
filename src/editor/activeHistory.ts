@@ -16,6 +16,7 @@ import { useEffect, useRef } from "preact/hooks";
 import { focusedAssetDocument, KEEPS_HISTORY_FOCUS, type AssetDocument } from "./assetDocuments";
 import type { CommandStack, HistoryState } from "./document";
 import { docVersion, openScene } from "./state";
+import { forEachChildWindow } from "./windows/editorWindows";
 
 /** A history tree the History panel can draw and jump through (ADR 0027). */
 export interface HistoryTree {
@@ -143,7 +144,7 @@ function rootOf(el: Element | null): Element | null {
   return null;
 }
 
-/** Follow focus and clicks into registered roots (installed by installShortcuts and the first registration). */
+/** Follow focus and clicks into registered roots (installed by installShortcuts and the first registration), in every editor window (ADR 0174). */
 export function trackHistoryFocus(): void {
   if (stopTracking || typeof document === "undefined") return;
   const onFocus = (e: Event) => {
@@ -155,9 +156,20 @@ export function trackHistoryFocus(): void {
   };
   document.addEventListener("focusin", onFocus, true);
   document.addEventListener("pointerdown", onFocus, true);
+  // And in each detached panel window (ADR 0174).
+  const stopChildren = forEachChildWindow((win) => {
+    const doc = win.document;
+    doc.addEventListener("focusin", onFocus, true);
+    doc.addEventListener("pointerdown", onFocus, true);
+    return () => {
+      doc.removeEventListener("focusin", onFocus, true);
+      doc.removeEventListener("pointerdown", onFocus, true);
+    };
+  });
   stopTracking = () => {
     document.removeEventListener("focusin", onFocus, true);
     document.removeEventListener("pointerdown", onFocus, true);
+    stopChildren();
   };
 }
 
@@ -169,7 +181,7 @@ export function trackHistoryFocus(): void {
 export function providePanelHistory(root: Element, history: UndoHistory): () => void {
   trackHistoryFocus();
   // Focus may already be inside a panel that registers as it mounts.
-  const active = typeof document !== "undefined" ? (document.activeElement as Element | null) : null;
+  const active = (root.ownerDocument ?? (typeof document !== "undefined" ? document : null))?.activeElement ?? null;
   panels.set(root, history);
   if (active && root.contains?.(active)) focusedRoot.value = root;
   panelsVersion.value++;

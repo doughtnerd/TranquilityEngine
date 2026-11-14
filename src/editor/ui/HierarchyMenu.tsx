@@ -12,6 +12,7 @@ import { openScene, playState, selectedKeys, selection, type OpenScene } from ".
 import { createUIElement, deleteUIElement, duplicateUIElement, NEW_ELEMENTS, whyNotEditableUI } from "../uiDocumentEdits";
 import { documentsOn, resolveUIElement, selectedUIRef, uiRefKey, type UIElementRef } from "../uiDocuments";
 import { renamingUIElement } from "../uiElementDrag";
+import { isKeyboardEvent, ownerWindowOf, viewportOf } from "../windows/dom";
 
 interface MenuItem {
   label: string;
@@ -150,19 +151,20 @@ export function HierarchyMenu() {
   useEffect(() => {
     if (!m) return;
     const close = (e: Event) => {
-      if (e instanceof KeyboardEvent && e.key !== "Escape") return;
+      if (isKeyboardEvent(e) && e.key !== "Escape") return;
       if (e.type === "pointerdown" && el.current?.contains(e.target as Node)) return;
-      if (e instanceof KeyboardEvent) e.stopPropagation();
+      if (isKeyboardEvent(e)) e.stopPropagation();
       hierarchyMenu.value = null;
     };
-    window.addEventListener("pointerdown", close, true);
-    window.addEventListener("keydown", close, true);
-    window.addEventListener("blur", close);
+    const win = ownerWindowOf(el.current); // the window it's in (a detached panel window, ADR 0174)
+    win.addEventListener("pointerdown", close, true);
+    win.addEventListener("keydown", close, true);
+    win.addEventListener("blur", close);
     el.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
     return () => {
-      window.removeEventListener("pointerdown", close, true);
-      window.removeEventListener("keydown", close, true);
-      window.removeEventListener("blur", close);
+      win.removeEventListener("pointerdown", close, true);
+      win.removeEventListener("keydown", close, true);
+      win.removeEventListener("blur", close);
     };
   }, [m]);
   // Keep it on screen: measured once drawn, moved up to fit, and scrolling when taller than the window.
@@ -170,12 +172,16 @@ export function HierarchyMenu() {
     const menu = el.current;
     if (!menu) return;
     const r = menu.getBoundingClientRect();
-    if (r.bottom > window.innerHeight - 4) menu.style.top = `${Math.max(4, window.innerHeight - r.height - 4)}px`;
+    // Its own window's viewport: in a detached panel window (ADR 0174) the first guess below used the main window's.
+    const { width, height } = viewportOf(menu);
+    if (r.bottom > height - 4) menu.style.top = `${Math.max(4, height - r.height - 4)}px`;
+    if (r.right > width - 4) menu.style.left = `${Math.max(0, width - r.width - 4)}px`;
   }, [m]);
   if (!m) return null;
   // A first guess before it's measured.
   const rows = m.items.filter((i) => !i.separator).length, seps = m.items.length - rows;
-  const x = Math.min(m.x, window.innerWidth - 230), y = Math.min(m.y, window.innerHeight - rows * 24 - seps * 9 - 12);
+  const view = viewportOf(el.current);
+  const x = Math.min(m.x, view.width - 230), y = Math.min(m.y, view.height - rows * 24 - seps * 9 - 12);
   return (
     <div ref={el} class="context-menu hierarchy-menu" role="menu" style={{ left: `${Math.max(0, x)}px`, top: `${Math.max(0, y)}px` }}>
       {m.items.map((item, i) =>

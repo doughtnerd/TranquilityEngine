@@ -19,6 +19,8 @@ export type { SceneSurface, SelectionSurface, PlayState, OpenScene } from "./sce
 // Editing scene documents (ADR 0026): node paths and entries, and the field command inspector sections push.
 export { SetField, pathKey, type NodePath, type NodeEntry, type SceneDocument } from "../document";
 // Building blocks for panels, inspectors and settings sections.
+// The frame every panel renders in, and its instance's own view state (ADR 0174).
+export { Panel, usePanel, usePanelState, usePanelValue, PanelInstanceContext, type PanelInstance, type PanelProps } from "../ui/panel/Panel";
 export { sectionField } from "../ui/inspectorSections";
 export { LargePreview } from "../ui/AssetPreview";
 export { NameList, NumberField, ProblemList, Row, TextField } from "../ui/settingsControls";

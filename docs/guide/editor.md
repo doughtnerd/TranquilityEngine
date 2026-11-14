@@ -23,7 +23,8 @@ One row under the title bar: the logo (click for About), the menus, **Play**, **
 - **Edit:** Undo and Redo (Ctrl+Z, Ctrl+Shift+Z), named for what they undo; Cut, Copy, Paste, Duplicate and Delete (Ctrl+X, C, V, D, Del); Settings….
   - The clipboard items act on the Assets panel's files when that panel had the focus before you opened the menu, and on the Hierarchy's nodes otherwise, as the shortcuts do.
 - **Create:** the Hierarchy's Create menu, at the top level (with a Child variant of each item under the selection).
-- **Window:** one item per panel; picking it brings the panel to the front of its tab group, and the ticks show which panels are visible now. Panels can't be closed, so nothing here hides one. **Reset Layout** is at the bottom.
+- **Window:** one item per panel; picking it brings the panel to the front of its tab group, or adds it back if you closed it, and the ticks show which panels are visible now. **Add Panel…** opens a checklist of panels to add (a second copy of one included), and **Reset Layout** puts back the Default layout.
+- **Layouts:** Default and your saved layouts (the one showing is ticked, with a ● when you've changed it since), then Save Layout, Save Layout As… and Manage Layouts… (see [Layouts](#layouts) below).
 - **Help:** Documentation (opens the guide on GitHub), Log (the message log), About.
 
 Disabled items say why in their tooltip ("nothing selected", "stop playing to edit the scene", "this project is read-only; open a project folder to save").
@@ -45,7 +46,7 @@ Disabled items say why in their tooltip ("nothing selected", "stop playing to ed
 
 The editor is a set of **docks** (strips along the left, right and bottom edges) around the Scene view, which fills what's left. A dock holds one or more **tab groups**; each group shows one panel and has the others as tabs.
 
-Panels load the first time they show (ADR 0083): the ones your layout shows load at start-up, the rest shortly after, so a tab picked in the first moments may say "Loading…" briefly. Adding a panel in code: an id in `layout/model.ts` and a `lazyComponent` entry in `ui/panels.tsx`.
+Panels load the first time they show (ADR 0083): the ones your layout shows load at start-up, the rest shortly after, so a tab picked in the first moments may say "Loading…" briefly. Adding a panel in code: an id in `layout/model.ts` and a `lazyComponent` entry in `ui/panels.tsx`; the panel renders its content inside the `Panel` component (`ui/panel/Panel.tsx`, `Panel` from `myco/editor` for plugins), which also gives each copy of the panel its own view state (`usePanelState`).
 
 - **Move a panel** by dragging its tab or header. A highlight shows where it will land; drop elsewhere or press Escape to leave everything as it was.
 - **Resize** by dragging the handles between panels and docks.
@@ -54,8 +55,31 @@ Panels load the first time they show (ADR 0083): the ones your layout shows load
   - Clicking a tab in a collapsed dock opens it. Dragging the border or dropping a panel on the dock expands it too.
   - The Scene dock never collapses. There is no animation.
 - **Tab overflow.** When a header is too narrow, tabs shrink slightly and then the rest go behind a **» N** button at its end (N is how many are hidden). The open panel's tab always stays visible: picking a hidden one swaps it in. You can drag a panel out of that menu like a tab. A collapsed side strip uses the same button.
-- **Reset Layout** (Window menu) puts every panel back where it started and expands every dock.
-- **Layouts are saved** in the browser's or app's local storage (`myco.editor.layout`), collapsed docks included. If storage is blocked, the layout just isn't remembered.
+- **Close a panel** with the red **×** at the right of its tab (not shown while its dock is collapsed). The Scene view can't be closed.
+- **Add panels** from the Window menu (a closed panel comes back beside its usual neighbour), or right-click a tab or a header and pick **Add Panel…** to add the panels you tick to that group. The same menu has **Close**, **Detach** and **Move to**.
+- **Several copies.** A panel can be open more than once (two Hierarchies, say). Copies show the same scene, project and selection, but each keeps its own view: rows expanded, search text, the Assets panel's folder and Grid/List. A new copy starts from the panel's defaults (the Hierarchy with its nodes expanded; prefab contents and UI elements closed, as always). Only one Scene view can be open.
+- **Reset Layout** (Window menu) puts back the Default layout and expands every dock.
+- **The working layout is remembered** in the browser's or app's local storage (`myco.editor.layout`), collapsed docks and detached windows included. If storage is blocked, it just isn't remembered.
+
+### Layouts
+
+A **layout** is a saved arrangement of panels. The **Layouts** menu lists **Default** (built in) and yours; picking one shows it at once (changes you hadn't saved to the current one are dropped).
+
+- **Save Layout As…** asks for a name and where to keep it: **For me** (your own settings: app data on desktop, browser storage on the web, for every project), **In the project**, or both. A project layout is a file, `<name>.layout.json`, in the project's hidden `.layouts/` folder: it doesn't show in the Assets panel or ship in game builds, and it isn't ignored by the default `.gitignore`, so the team gets it with the project. Read-only projects can't hold layouts.
+- **Save Layout** saves the panels as they are over the current layout. Default can't be saved over (use Save Layout As…).
+- **Versions.** Every save adds a version; nothing is overwritten. **Manage Layouts…** lists your layouts and draws the selected one's versions as a tree, like the History panel: **Apply** shows a version, **Restore** makes it the layout's current one (saving again then starts a new branch). It's also where you rename (the file name follows), move a layout between "for me" and "in the project", or delete it. A layout keeps its last 50 versions.
+- Layout files are read again when the editor window comes back into focus, so a layout a teammate committed shows up after a pull.
+
+### Plugin panels
+
+When a plugin's panel is in a layout and the plugin is off (or missing from the project), the panel keeps its place and title and can be moved or closed as usual; it says it isn't available and which plugin to turn on, with a button to Project Settings › Plugins. Turning a plugin off when layouts show its panels asks first: tick **Remove these panels from the layouts** to close them (saved layouts get a new version without them, so the old one is a Restore away), or leave it unticked to keep them as unavailable panels.
+
+### Detached windows
+
+**Detach** (right-click a tab) opens the panel in a window of its own. It's part of the same editor: the same project, scene and selection. You can add, move, split and collapse panels in it as in the main window, and **Move to Main Window** (or to another window) from a tab's menu takes a panel back; panels can't be dragged between windows. The Scene view stays in the main window.
+
+- Closing a detached window closes its panels (the Window menu brings them back). Closing the main window closes the whole editor, detached windows included, and they reopen with the layout next time.
+- Saved layouts include their detached windows and where they were. In a browser, windows that open without a click can be blocked as pop-ups: a bar at the bottom then offers **Open** (one per click; allow pop-ups for the editor to skip it) or **Dock here**.
 
 ## Project settings: Plugins
 

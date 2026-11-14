@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { assetKind } from "../assetBrowser";
 import { layout, resetLayout } from "../layout/store";
+import { instancesOf } from "../layout/model";
 import { activeScript, closeAllScripts, closeScript, dirtyScripts, openScript, openScripts, scriptFor, setDirty } from "./codeState";
 import { useCoreAssetKinds } from "../testing";
 
@@ -38,8 +39,9 @@ describe("Code panel tabs", () => {
     openScript("scripts/a.ts");
     expect(openScripts.value).toEqual(["scripts/a.ts", "scripts/b.ts"]);
     expect(activeScript.value).toBe("scripts/a.ts");
-    const group = layout.value.docks.flatMap((d) => d.groups).find((g) => g.panels.includes("code"))!;
-    expect(group.active).toBe("code");
+    const [code] = instancesOf(layout.value, "code");
+    const group = layout.value.docks.flatMap((d) => d.groups).find((g) => g.panels.includes(code!))!;
+    expect(group.active).toBe(code);
 
     setDirty("scripts/a.ts", true);
     closeScript("scripts/a.ts");

@@ -31,6 +31,7 @@ import { currentProject, docVersion, status } from "../state";
 import { PivotRow } from "./ImageImportSettings";
 import { confirmInEditor } from "./ConfirmDialog";
 import "./spriteEditor.css";
+import { eventWindow } from "../windows/dom";
 
 /** A slice being edited: `key` tells slices apart while names change; `original` is its name when editing began. */
 interface EditSlice {
@@ -271,13 +272,14 @@ function SpriteEditor(props: { project: EditorProject; image: string }) {
       };
     }
     const move = (m: PointerEvent) => onMove(m);
+    const win = eventWindow(e); // the window it's in (a detached panel window, ADR 0174)
     const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
+      win.removeEventListener("pointermove", move);
+      win.removeEventListener("pointerup", up);
       onUp();
     };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
+    win.addEventListener("pointermove", move);
+    win.addEventListener("pointerup", up);
   };
 
   const onKeyDown = (e: KeyboardEvent) => {

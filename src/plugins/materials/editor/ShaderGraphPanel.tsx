@@ -56,7 +56,7 @@ import { HEADER, PREVIEW, ROW, inlineFields, nodeBox, nodeTitle, portOffset, set
 import { createMaterialForGraph, openShaderGraph, createShaderGraph, openShaderGraphAsset, shaderGraphDocument } from "./shaderGraphAssets";
 import { searchGraph, cycleIndex } from "./shaderGraph/graphSearch";
 import { PropertyValue, numberValue, toHex2 } from "./ShaderPropertyValue";
-import { editor, type EditorProject, NO_DRAG, NO_PAN, NO_WHEEL, NoteView, NodeSearchPopup, Minimap, SelectionBox, createNodeDrag, handleProps, isFieldTarget, px, startBoxSelect, startConnection, startPointerDrag, toGraph, useGraphCanvas, wirePath, writeGraphClipboard, type CanvasNode, type DraftWire, type Point, type SearchItem, type View } from "../../../editor/sdk";
+import { editor, type EditorProject, NO_DRAG, NO_PAN, NO_WHEEL, NoteView, NodeSearchPopup, Minimap, SelectionBox, createNodeDrag, handleProps, isFieldTarget, px, startBoxSelect, startConnection, startPointerDrag, toGraph, useGraphCanvas, wirePath, writeGraphClipboard, type CanvasNode, type DraftWire, type Point, type SearchItem, type View, Panel } from "../../../editor/sdk";
 import "../../../editor/graph/graph.css";
 import "./shaderGraph.css";
 
@@ -70,18 +70,24 @@ type Pending = { side: "output" | "input"; ref: string; type: ValueType | "dynam
 export function ShaderGraphPanel() {
   const path = openShaderGraph.value;
   const project = editor.project.current;
-  if (!project) return <p class="empty">No project open</p>;
+  if (!project) return <Panel><p class="empty">No project open</p></Panel>;
   if (!path || !project.files.includes(path)) {
     return (
-      <div class="shader-graph-empty">
-        <p>Double-click a shader graph (<code>*.shadergraph.json</code>) in the Assets panel to edit it here.</p>
-        <button disabled={!project.canSave} onClick={() => void createShaderGraph("").then((made) => made && openShaderGraphAsset(made))}>
-          New Shader Graph
-        </button>
-      </div>
+      <Panel>
+        <div class="shader-graph-empty">
+          <p>Double-click a shader graph (<code>*.shadergraph.json</code>) in the Assets panel to edit it here.</p>
+          <button disabled={!project.canSave} onClick={() => void createShaderGraph("").then((made) => made && openShaderGraphAsset(made))}>
+            New Shader Graph
+          </button>
+        </div>
+      </Panel>
     );
   }
-  return <GraphEditor key={path} project={project} path={path} />;
+  return (
+    <Panel>
+      <GraphEditor key={path} project={project} path={path} />
+    </Panel>
+  );
 }
 
 const cssType = (t: ValueType | "dynamic") => `t-${t === "dynamic" ? "float" : t}`;

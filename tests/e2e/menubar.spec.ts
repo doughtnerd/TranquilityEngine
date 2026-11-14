@@ -10,9 +10,9 @@ async function openEditor(page: Page): Promise<void> {
   await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
 }
 
-test("the bar has File, Edit, Create, Window and Help, Play in the middle and the project on the right; items show their shortcuts, and a disabled one says why", async ({ page }) => {
+test("the bar has File, Edit, Create, Window, Layouts and Help, Play in the middle and the project on the right; items show their shortcuts, and a disabled one says why", async ({ page }) => {
   await openEditor(page);
-  await expect(menubar(page).getByRole("menuitem")).toHaveText(["File", "Edit", "Create", "Window", "Help"]);
+  await expect(menubar(page).getByRole("menuitem")).toHaveText(["File", "Edit", "Create", "Window", "Layouts", "Help"]);
   await expect(page.getByRole("button", { name: /Play/ })).toBeVisible();
   await expect(page.locator(".menubar-right .project-name")).toContainText("Flappy Bird");
   await expect(page.locator(".menubar-right .readonly-badge")).toHaveText("Read-only"); // a sample
@@ -74,13 +74,16 @@ test("the keyboard moves through the menus: Alt, arrows, Enter, Escape", async (
   await page.keyboard.press("ArrowUp");
   await page.keyboard.press("ArrowUp"); // wraps to the last item
   await expect(page.getByRole("menuitem", { name: "Reset Layout", exact: true })).toBeFocused();
-  await page.keyboard.press("ArrowRight"); // the next menu, opened
+  await page.keyboard.press("ArrowRight"); // the next menu, opened (Layouts: Default first)
+  await expect(menuTitle(page, "Layouts")).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByRole("menuitemcheckbox", { name: "Default", exact: true })).toBeFocused();
+  await page.keyboard.press("ArrowRight"); // and the one after
   await expect(menuTitle(page, "Help")).toHaveAttribute("aria-expanded", "true");
   await expect(page.getByRole("menu").getByRole("menuitem").first()).toBeFocused(); // focused once it has rendered: keys go there
   await page.keyboard.press("Escape");
   await expect(page.getByRole("menu")).toHaveCount(0);
   await expect(menuTitle(page, "Help")).toBeFocused();
-  for (let i = 0; i < 3; i++) await page.keyboard.press("ArrowLeft"); // Window, Create, Edit
+  for (let i = 0; i < 4; i++) await page.keyboard.press("ArrowLeft"); // Layouts, Window, Create, Edit
 
   // Enter activates: Edit > Settings… opens the dialog.
   await page.keyboard.press("ArrowDown");

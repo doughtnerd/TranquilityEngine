@@ -1,12 +1,79 @@
-// The Assets panel's state: the folder showing (with Back/Forward history), the selection of
+// The Assets panel's state: the folder each copy shows (with Back/Forward history, ADR 0174), the selection of
 // files and folders, and how clicks, box selection and arrow keys change it. Entries are project
 // paths, folders ending in "/" (assetDelete.ts). The logic is pure; ui/Assets.tsx renders it.
-import { signal } from "@preact/signals";
+import { computed, signal } from "@preact/signals";
 
-/** The folder showing (project-relative, "" = the root). */
-export const folderPath = signal("");
-/** Search text; when set, the panel lists matching files from every folder. */
-export const assetQuery = signal("");
+/**
+ * One Assets panel's browsing (ADR 0174): the folder it shows, its Back/Forward history and its
+ * search. Each copy of the panel has its own; the selection below is the editor's, shared by all.
+ */
+export class AssetBrowserView {
+  /** The folder showing (project-relative, "" = the root). */
+  readonly folder = signal("");
+  /** Search text; when set, the panel lists matching files from every folder. */
+  readonly query = signal("");
+  /** Bumped when the history stacks change, so the Back/Forward buttons re-render. */
+  readonly historyVersion = signal(0);
+  private readonly back: string[] = [];
+  private readonly forward: string[] = [];
+
+  constructor() {
+    views.add(new WeakRef(this));
+  }
+
+  canGoBack = (): boolean => this.back.length > 0;
+  canGoForward = (): boolean => this.forward.length > 0;
+
+  /** Show `path`, remembering the folder left for Back. Clears the search and selection. */
+  openFolder = (path: string): void => {
+    this.query.value = "";
+    if (path === this.folder.value) return;
+    this.back.push(this.folder.value);
+    this.forward.length = 0;
+    this.show(path);
+  };
+
+  goBack = (): void => {
+    const to = this.back.pop();
+    if (to === undefined) return;
+    this.forward.push(this.folder.value);
+    this.show(to);
+  };
+
+  goForward = (): void => {
+    const to = this.forward.pop();
+    if (to === undefined) return;
+    this.back.push(this.folder.value);
+    this.show(to);
+  };
+
+  /** Forget history and search (another project opened). */
+  reset(): void {
+    this.back.length = this.forward.length = 0;
+    this.folder.value = "";
+    this.query.value = "";
+    this.historyVersion.value++;
+  }
+
+  private show(path: string): void {
+    // The selection is kept when the folder showing is where it was made (going back to it).
+    if (selectedAssets.value.some((e) => !isIn(e, path))) select([]);
+    this.folder.value = path;
+    this.historyVersion.value++;
+  }
+}
+
+const views = new Set<WeakRef<AssetBrowserView>>();
+
+/** The browsing used when no Assets panel is drawn (tests), and the first one shown. */
+export const defaultAssetBrowser = new AssetBrowserView();
+/** The Assets panel last used (clicked or focused): where an import shows its files and an OS drop lands by default. */
+export const lastAssetBrowser = signal<AssetBrowserView>(defaultAssetBrowser);
+
+/** The last-used Assets panel's folder. */
+export const folderPath = computed(() => lastAssetBrowser.value.folder.value);
+/** The last-used Assets panel's search text. */
+export const assetQuery = computed(() => lastAssetBrowser.value.query.value);
 /** Selected entries, in selection order. */
 export const selectedAssets = signal<readonly string[]>([]);
 /** Where Shift ranges start: the entry last clicked or moved to without Shift. */
@@ -16,60 +83,30 @@ export const assetCursor = signal<string | null>(null);
 /** The entry being renamed in place, if any. */
 export const renamingAsset = signal<string | null>(null);
 
-const back: string[] = [];
-const forward: string[] = [];
-/** Bumped when the history stacks change, so the Back/Forward buttons re-render. */
-export const historyVersion = signal(0);
-
-export const canGoBack = () => back.length > 0;
-export const canGoForward = () => forward.length > 0;
-
-/** Show `path`, remembering the folder left for Back. Clears the search and selection. */
-export function openFolder(path: string): void {
-  assetQuery.value = "";
-  if (path === folderPath.value) return;
-  back.push(folderPath.value);
-  forward.length = 0;
-  show(path);
-}
-
-export function goBack(): void {
-  const to = back.pop();
-  if (to === undefined) return;
-  forward.push(folderPath.value);
-  show(to);
-}
-
-export function goForward(): void {
-  const to = forward.pop();
-  if (to === undefined) return;
-  back.push(folderPath.value);
-  show(to);
-}
+export const canGoBack = (): boolean => lastAssetBrowser.peek().canGoBack();
+export const canGoForward = (): boolean => lastAssetBrowser.peek().canGoForward();
+/** Show `path` in the last-used Assets panel. */
+export const openFolder = (path: string): void => lastAssetBrowser.peek().openFolder(path);
+export const goBack = (): void => lastAssetBrowser.peek().goBack();
+export const goForward = (): void => lastAssetBrowser.peek().goForward();
 
 /** The parent of a folder: `a/b` → `a`, `a` → `""`. Null for the root. */
 export const parentFolder = (path: string) => (path === "" ? null : path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
-
-function show(path: string): void {
-  // The selection is kept when the folder showing is where it was made (going back to it).
-  if (selectedAssets.value.some((e) => !isIn(e, path))) select([]);
-  folderPath.value = path;
-  historyVersion.value++;
-}
 
 const isIn = (entry: string, folder: string) => {
   const p = entry.endsWith("/") ? entry.slice(0, -1) : entry;
   return (p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "") === folder;
 };
 
-/** Forget history and selection (another project opened). */
+/** Forget every Assets panel's history, and the selection (another project opened). */
 export function resetAssetBrowser(): void {
-  back.length = forward.length = 0;
-  folderPath.value = "";
-  assetQuery.value = "";
+  for (const ref of [...views]) {
+    const view = ref.deref();
+    if (view) view.reset();
+    else views.delete(ref);
+  }
   renamingAsset.value = null;
   select([]);
-  historyVersion.value++;
 }
 
 /** Set the selection; the cursor and anchor go to `focus` (the last entry by default). */

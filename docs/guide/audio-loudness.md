@@ -1,6 +1,6 @@
 # Loudness, targets and `Bus.loudness` (ADR 0171, amended by 0172)
 
-A mix can be well balanced and still too loud or too quiet next to other games. The audio core measures **loudness** the way broadcast does (ITU-R BS.1770 / EBU R 128) and shows it in the Mixer panel, in the [Audio Profiler](audio-profiler.md) and to your scripts. It compares the result with a **target** for your platform. It **warns and never adjusts**: nothing here touches a fader, a bus or the master volume. For buses, see [Audio mixer](audio-mixer.md).
+A mix can be well balanced and still too loud or too quiet next to other games. The audio core measures **loudness** the way broadcast does (ITU-R BS.1770 / EBU R 128) and shows it in the Mixer panel, in the [Audio Profiler](audio-profiler.md) and to your scripts. It compares the result with a **target** for your platform. It **warns and never adjusts**: nothing here touches a fader, a bus or the master volume. For buses, see [Audio mixer](audio-mixer.md); to listen and adjust while the meters run, [Live mixing and ducking](audio-mixing.md); to keep a record, [Audio profiler](audio-profiler.md); every member below is in [Audio mix: API reference](audio-mix-api.md#busloudness).
 
 Loudness metering needs the audio core (`audio.backend` `"core"`). On the Babylon fallback no bus is metered: every `loudness` reads as unmetered (below).
 
@@ -77,6 +77,8 @@ Beyond the readings above (`momentary`, `shortTerm`, `integrated`, `lra`, `maxTr
 
 ## When the check is suspended
 
+Monitor mute, solo and Compare are explained in [Live mixing and ducking](audio-mixing.md#monitor-controls-and-taint).
+
 The target check says `suspended` (while monitor controls are on, the Mixer shows a banner saying so) while the measurement would not describe what a player hears:
 
 - **MASTER** is not 1, or a **mute** is in force (a script, the authored bus mute or the hidden-tab mute).
@@ -88,7 +90,7 @@ A monitor mute of a bus also **taints** that bus, its ancestors and Master; a mo
 
 - **Mixer panel**: metered buses show M, S and I as numbers (`-inf` while empty) and a short-term bar with the target's line and tolerance band, coloured by `state`. The bar is for a bus you are judging live; the target picker, **Reset**, **Pause** (stops all meters) and the elapsed time sit above the strips.
 - **Play** resets every meter when it starts (`audio.loudnessResetOnPlay`, default true; untick **Reset loudness meters on Play** to keep readings across runs). An exported game's integrated measure starts when the engine starts.
-- **Audio Profiler**: the Loudness and Loudness target tracks, with a line at the target and ticks where the mix went over or under it. A reopened capture and the live meter agree because both use the same statistics. See [Loudness in the profiler](audio-profiler.md#loudness).
+- **Audio Profiler**: the Loudness and Loudness target tracks, with a line at the target and ticks where the mix went over or under it. A reopened capture and the live meter agree because both use the same statistics. See [Loudness in the profiler](audio-profiler.md#loudness). A game exported with the Audio capture option records the same tracks on a tester's machine or phone: [Capturing from a game script](audio-profiler.md#capturing-from-a-game-script), [Captures on Android](audio-profiler.md#captures-on-android).
 
 ## Under load
 
@@ -102,6 +104,7 @@ Numbers measure the final mix, not your content: a mix is only as comparable to 
 
 ## See also
 
-- [Audio mixer](audio-mixer.md) and [Audio profiler and capture files](audio-profiler.md)
+- [Audio mixer](audio-mixer.md), [Live mixing and ducking](audio-mixing.md) and [Audio profiler and capture files](audio-profiler.md)
+- [Audio mix: API reference](audio-mix-api.md)
 - [Why is there no sound?](why-no-sound.md)
 - [ADR 0171](../decisions/0171-audio-profiler-loudness-metering-and-live-mixing.md) and [ADR 0172](../decisions/0172-audio-mix-design-corrections-and-owner-decisions.md)

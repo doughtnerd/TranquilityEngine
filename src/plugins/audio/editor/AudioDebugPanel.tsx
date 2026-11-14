@@ -7,7 +7,7 @@ import { Audio } from "../runtime/Audio";
 import type { AudioDebugInfo } from "../runtime/backend";
 import type { AudioDebugState } from "../runtime/Audio";
 import type { EventDebugRow } from "../runtime/events/eventRuntime";
-import { editor } from "../../../editor/sdk";
+import { editor, Panel } from "../../../editor/sdk";
 import { CounterWatch, MusicWatch, VOICE_COLUMNS, debugSections, mixSections, voiceCells, type Cell, type Section } from "./audioDebugRows";
 import { occlusionOverlayOn } from "./OcclusionOverlay";
 import "./audioDebugPanel.css";
@@ -146,9 +146,11 @@ export function AudioDebugPanel() {
   }, [isPlaying]);
   if (!isPlaying || !info) {
     return (
-      <section class="audio-debug" aria-label="Audio">
-        <p class="audio-debug-empty">Not playing</p>
-      </section>
+      <Panel>
+        <section class="audio-debug" aria-label="Audio">
+          <p class="audio-debug-empty">Not playing</p>
+        </section>
+      </Panel>
     );
   }
   const c = info.counters;
@@ -174,148 +176,150 @@ export function AudioDebugPanel() {
     </tr>
   );
   return (
-    <section class="audio-debug" aria-label="Audio">
-      <h4>
-        Audio <span class="audio-debug-status" data-status={info.status}>{info.status}</span>
-      </h4>
-      <table class="audio-debug-summary">
-        <tbody>
-          <tr>
-            <td>Backend</td>
-            <td>{String(info.core.backend ?? "unknown")}</td>
-          </tr>
-          <tr>
-            <td>Sample rate</td>
-            <td>{info.sampleRate} Hz</td>
-          </tr>
-          <tr>
-            <td>Underruns</td>
-            <td>{c.underruns}</td>
-          </tr>
-          <tr>
-            <td>Logical voices</td>
-            <td>{c.logicalVoices}</td>
-          </tr>
-          <tr>
-            <td>Mixed voices</td>
-            <td>
-              {c.mixedVoices} / {c.mixedCap}
-            </td>
-          </tr>
-          <tr>
-            <td>HRTF voices</td>
-            <td>
-              {c.hrtfVoices}
-              {c.hrtfLoadFailure === 1 ? " (HRTF data failed to load)" : c.hrtfLoadFailure === 2 ? " (HRTF data invalid)" : ""}
-            </td>
-          </tr>
-          <tr>
-            <td>Dropped plays</td>
-            <td>{c.droppedPlays}</td>
-          </tr>
-          <tr>
-            <td>Event instances</td>
-            <td>{(info.events ?? []).length}</td>
-          </tr>
-          <tr>
-            <td title="Clips of a continuous container started on the previous clip's end, one frame late, because their length wasn't known yet">Clips started late</td>
-            <td>{late}</td>
-          </tr>
-        </tbody>
-      </table>
-
-      <h5>Buses</h5>
-      <table class="audio-debug-table" aria-label="Buses">
-        <thead>
-          <tr>
-            <th scope="col">Bus</th>
-            <th scope="col">Gain</th>
-            <th scope="col">Peak</th>
-            <th scope="col">Voices</th>
-            <th scope="col" title="Which ambisonic bed the bus mixes into: its own, its parent's, or none. A warning means it asked for a bed and has none.">Bed</th>
-          </tr>
-        </thead>
-        <tbody>
-          {info.buses.map((b) => (
-            <tr key={b.name}>
-              <td>{b.name}</td>
-              <td title={`Effective ${level(b.effectiveGain)}`}>{level(b.gain)}</td>
-              <td>{level(peakOf(b))}</td>
+    <Panel>
+      <section class="audio-debug" aria-label="Audio">
+        <h4>
+          Audio <span class="audio-debug-status" data-status={info.status}>{info.status}</span>
+        </h4>
+        <table class="audio-debug-summary">
+          <tbody>
+            <tr>
+              <td>Backend</td>
+              <td>{String(info.core.backend ?? "unknown")}</td>
+            </tr>
+            <tr>
+              <td>Sample rate</td>
+              <td>{info.sampleRate} Hz</td>
+            </tr>
+            <tr>
+              <td>Underruns</td>
+              <td>{c.underruns}</td>
+            </tr>
+            <tr>
+              <td>Logical voices</td>
+              <td>{c.logicalVoices}</td>
+            </tr>
+            <tr>
+              <td>Mixed voices</td>
               <td>
-                {b.voices}
-                {b.maxVoices !== null ? ` / ${b.maxVoices}` : ""}
-              </td>
-              <td data-health={b.bedLost ? "warn" : undefined} title={b.bedLost ? "Asked for a bed and has none" : undefined}>
-                {b.bed === undefined ? "-" : b.bedHost && b.bedHost !== b.name ? `${b.bed} (${b.bedHost})` : b.bed}
+                {c.mixedVoices} / {c.mixedCap}
               </td>
             </tr>
-          ))}
-        </tbody>
-      </table>
-
-      <label class="audio-debug-toggle" title="Draw a line from each occluded source to the listener in the scene view, with a marker where it hits a wall, coloured by how much it muffles">
-        <input type="checkbox" checked={occlusionOverlayOn.value} onChange={(e) => (occlusionOverlayOn.value = (e.currentTarget as HTMLInputElement).checked)} /> Show occlusion rays in the scene view
-      </label>
-      {section("m3Counters")}
-      {section("ladder")}
-      {section("beds")}
-      {section("zones")}
-      {section("occlusion")}
-      {section("memory")}
-      {section("musicTotals")}
-      {section("music")}
-      {section("mixCaps")}
-      {section("cpu")}
-      {section("mix")}
-      {section("mixSlots")}
-      {section("ducking")}
-      {section("recorder")}
-
-      <h5>Voices{shown.hidden > 0 ? ` (the ${shown.rows.length} most audible of ${info.voices.length})` : ""}</h5>
-      {info.voices.length === 0 ? (
-        <p class="audio-debug-empty">No voices</p>
-      ) : (
-        <div class="audio-debug-scroll">
-        <table class="audio-debug-table audio-debug-voices" aria-label="Voices">
+            <tr>
+              <td>HRTF voices</td>
+              <td>
+                {c.hrtfVoices}
+                {c.hrtfLoadFailure === 1 ? " (HRTF data failed to load)" : c.hrtfLoadFailure === 2 ? " (HRTF data invalid)" : ""}
+              </td>
+            </tr>
+            <tr>
+              <td>Dropped plays</td>
+              <td>{c.droppedPlays}</td>
+            </tr>
+            <tr>
+              <td>Event instances</td>
+              <td>{(info.events ?? []).length}</td>
+            </tr>
+            <tr>
+              <td title="Clips of a continuous container started on the previous clip's end, one frame late, because their length wasn't known yet">Clips started late</td>
+              <td>{late}</td>
+            </tr>
+          </tbody>
+        </table>
+  
+        <h5>Buses</h5>
+        <table class="audio-debug-table" aria-label="Buses">
           <thead>
             <tr>
-              <th scope="col" title="The node whose AudioSource plays the voice; - for one-shots and event voices">Source</th>
-              <th scope="col">Clip</th>
               <th scope="col">Bus</th>
-              <th scope="col">State</th>
-              <th scope="col">Priority</th>
               <th scope="col">Gain</th>
-              {VOICE_COLUMNS.map((c) => (
-                <th key={c.label} scope="col" title={c.tip}>
-                  {c.label}
-                </th>
-              ))}
+              <th scope="col">Peak</th>
+              <th scope="col">Voices</th>
+              <th scope="col" title="Which ambisonic bed the bus mixes into: its own, its parent's, or none. A warning means it asked for a bed and has none.">Bed</th>
             </tr>
           </thead>
           <tbody>
-            {grouped.groups.flatMap((g) => [
-              <tr key={`e${g.event.id}`} class="audio-debug-event">
-                <td colSpan={6 + VOICE_COLUMNS.length} title={g.event.asset}>
-                  <span class="audio-debug-event-name">{g.event.asset}</span>
-                  <span class="audio-debug-event-meta">
-                    {" "}#{g.event.id} · {g.event.voices} voice{g.event.voices === 1 ? "" : "s"}
-                    {Object.keys(g.event.parameters).length > 0 ? ` · ${parameterText(g.event.parameters)}` : ""}
-                    {g.event.lateStarts > 0 ? ` · ${g.event.lateStarts} late` : ""}
-                  </span>
+            {info.buses.map((b) => (
+              <tr key={b.name}>
+                <td>{b.name}</td>
+                <td title={`Effective ${level(b.effectiveGain)}`}>{level(b.gain)}</td>
+                <td>{level(peakOf(b))}</td>
+                <td>
+                  {b.voices}
+                  {b.maxVoices !== null ? ` / ${b.maxVoices}` : ""}
                 </td>
-              </tr>,
-              ...g.voices.map((v) => voiceRow(v, true)),
-            ])}
-            {grouped.ungrouped.map((v) => voiceRow(v, false))}
+                <td data-health={b.bedLost ? "warn" : undefined} title={b.bedLost ? "Asked for a bed and has none" : undefined}>
+                  {b.bed === undefined ? "-" : b.bedHost && b.bedHost !== b.name ? `${b.bed} (${b.bedHost})` : b.bed}
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
-        </div>
-      )}
-      {shown.hidden > 0 ? (
-        <p class="audio-debug-more">
-          {shown.hidden} more: {Object.entries(shown.hiddenByState).map(([state, n]) => `${n} ${state}`).join(", ")}
-        </p>
-      ) : null}
-    </section>
+  
+        <label class="audio-debug-toggle" title="Draw a line from each occluded source to the listener in the scene view, with a marker where it hits a wall, coloured by how much it muffles">
+          <input type="checkbox" checked={occlusionOverlayOn.value} onChange={(e) => (occlusionOverlayOn.value = (e.currentTarget as HTMLInputElement).checked)} /> Show occlusion rays in the scene view
+        </label>
+        {section("m3Counters")}
+        {section("ladder")}
+        {section("beds")}
+        {section("zones")}
+        {section("occlusion")}
+        {section("memory")}
+        {section("musicTotals")}
+        {section("music")}
+        {section("mixCaps")}
+        {section("cpu")}
+        {section("mix")}
+        {section("mixSlots")}
+        {section("ducking")}
+        {section("recorder")}
+  
+        <h5>Voices{shown.hidden > 0 ? ` (the ${shown.rows.length} most audible of ${info.voices.length})` : ""}</h5>
+        {info.voices.length === 0 ? (
+          <p class="audio-debug-empty">No voices</p>
+        ) : (
+          <div class="audio-debug-scroll">
+          <table class="audio-debug-table audio-debug-voices" aria-label="Voices">
+            <thead>
+              <tr>
+                <th scope="col" title="The node whose AudioSource plays the voice; - for one-shots and event voices">Source</th>
+                <th scope="col">Clip</th>
+                <th scope="col">Bus</th>
+                <th scope="col">State</th>
+                <th scope="col">Priority</th>
+                <th scope="col">Gain</th>
+                {VOICE_COLUMNS.map((c) => (
+                  <th key={c.label} scope="col" title={c.tip}>
+                    {c.label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {grouped.groups.flatMap((g) => [
+                <tr key={`e${g.event.id}`} class="audio-debug-event">
+                  <td colSpan={6 + VOICE_COLUMNS.length} title={g.event.asset}>
+                    <span class="audio-debug-event-name">{g.event.asset}</span>
+                    <span class="audio-debug-event-meta">
+                      {" "}#{g.event.id} · {g.event.voices} voice{g.event.voices === 1 ? "" : "s"}
+                      {Object.keys(g.event.parameters).length > 0 ? ` · ${parameterText(g.event.parameters)}` : ""}
+                      {g.event.lateStarts > 0 ? ` · ${g.event.lateStarts} late` : ""}
+                    </span>
+                  </td>
+                </tr>,
+                ...g.voices.map((v) => voiceRow(v, true)),
+              ])}
+              {grouped.ungrouped.map((v) => voiceRow(v, false))}
+            </tbody>
+          </table>
+          </div>
+        )}
+        {shown.hidden > 0 ? (
+          <p class="audio-debug-more">
+            {shown.hidden} more: {Object.entries(shown.hiddenByState).map(([state, n]) => `${n} ${state}`).join(", ")}
+          </p>
+        ) : null}
+      </section>
+    </Panel>
   );
 }

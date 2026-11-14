@@ -1,4 +1,5 @@
 import type { ComponentChildren } from "preact";
+import { Panel } from "./panel/Panel";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { ANTIALIAS_MODES, PLATFORMS, PARTICLE_QUALITIES, PROBE_QUALITIES, SHADER_LEVELS, SHADOW_QUALITIES } from "../../engine/core/graphics";
 import { defaultSettings } from "../../engine/core/settings";
@@ -77,7 +78,7 @@ export function ProjectSettingsPanel() {
   void projectSettingsSections.version.value; // a plugin's category (de)registered, with the keys it owns
   docVersion.value; // files added (autoload choices)
   const project = currentProject.value;
-  if (!project) return <p class="empty">No project open</p>;
+  if (!project) return <Panel><p class="empty">No project open</p></Panel>;
   const s = settings.open(project);
   const draft = s.draft;
   const editable = project.canSave;
@@ -93,130 +94,132 @@ export function ProjectSettingsPanel() {
   const folder = project.root?.split(/[\\/]/).filter(Boolean).pop() ?? project.name;
 
   return (
-    <div class="project-settings" tabIndex={-1} ref={root}>
-      <div class="project-settings-toolbar">
-        <button disabled={!editable || !s.undoLabel} title={s.undoLabel ? `Undo ${s.undoLabel} (Ctrl+Z)` : "Nothing to undo"} onClick={() => void s.undo()}>
-          Undo
-        </button>
-        <button disabled={!editable || !s.redoLabel} title={s.redoLabel ? `Redo ${s.redoLabel} (Ctrl+Shift+Z)` : "Nothing to redo"} onClick={() => void s.redo()}>
-          Redo
-        </button>
-        <SaveMarker editable={editable} saving={s.saving} error={s.error} problems={problems.length} unsaved={unsaved} />
+    <Panel>
+      <div class="project-settings" tabIndex={-1} ref={root}>
+        <div class="project-settings-toolbar">
+          <button disabled={!editable || !s.undoLabel} title={s.undoLabel ? `Undo ${s.undoLabel} (Ctrl+Z)` : "Nothing to undo"} onClick={() => void s.undo()}>
+            Undo
+          </button>
+          <button disabled={!editable || !s.redoLabel} title={s.redoLabel ? `Redo ${s.redoLabel} (Ctrl+Shift+Z)` : "Nothing to redo"} onClick={() => void s.redo()}>
+            Redo
+          </button>
+          <SaveMarker editable={editable} saving={s.saving} error={s.error} problems={problems.length} unsaved={unsaved} />
+        </div>
+        <CategoryLayout counts={categoryProblems(problems)}>
+          {problems.length > 0 && <ProblemList list={problems.map((p) => p.message)} label="Problems" />}
+          {warnings.length > 0 && <ProblemList list={warnings} label="Warnings" warning />}
+          <fieldset class="project-settings-fields" disabled={!editable}>
+            <Section title="Project">
+              <Row label="Name" problems={problemsAt("name")}>
+                <TextField value={draft.name ?? ""} placeholder={folder} label="Project name" onCommit={(v) => set("Rename project", setName(draft, v))} />
+              </Row>
+            </Section>
+
+            <Section title="Display">
+              <Row label="Width" problems={problemsAt("display.width")}>
+                <NumberField id="ps-width" label="Display width" value={display.width} placeholder={String(defaultSettings.display.width)} suffix="px" onCommit={(v) => set("Set display width", setValue(draft, "display", "width", v))} />
+              </Row>
+              <Row label="Height" problems={problemsAt("display.height")}>
+                <NumberField id="ps-height" label="Display height" value={display.height} placeholder={String(defaultSettings.display.height)} suffix="px" onCommit={(v) => set("Set display height", setValue(draft, "display", "height", v))} />
+              </Row>
+              <Row label="Background" problems={problemsAt("display.backgroundColor")}>
+                <ColorField value={display.backgroundColor} fallback={defaultSettings.display.backgroundColor} onCommit={(v) => set("Set background colour", setValue(draft, "display", "backgroundColor", v))} />
+              </Row>
+              <Row label="Scaling" problems={problemsAt("display.scaleMode")}>
+                <select
+                  aria-label="Display scaling"
+                  value={display.scaleMode ?? defaultSettings.display.scaleMode}
+                  onChange={(e) => {
+                    const v = (e.currentTarget as HTMLSelectElement).value;
+                    set("Set display scaling", setValue(draft, "display", "scaleMode", v === defaultSettings.display.scaleMode ? undefined : v));
+                  }}
+                >
+                  <option value="fit">Fit (keep aspect ratio)</option>
+                  <option value="stretch">Stretch (fill the window)</option>
+                  <option value="pixel-perfect">Pixel-perfect (whole multiples)</option>
+                </select>
+              </Row>
+              <p class="project-settings-hint">The reference size above sets the aspect ratio; the scaling says how the game canvas fills its window.</p>
+            </Section>
+
+            <Section title="Time">
+              <Row label="Fixed timestep" problems={problemsAt("time.fixedDeltaTime")}>
+                <NumberField id="ps-fixed" label="Fixed timestep" value={time.fixedDeltaTime} placeholder={`${round(defaultSettings.time.fixedDeltaTime)}`} suffix={time.fixedDeltaTime ? `s (${round(1 / time.fixedDeltaTime)} Hz)` : "s"} onCommit={(v) => set("Set fixed timestep", setValue(draft, "time", "fixedDeltaTime", v))} />
+              </Row>
+              <Row label="Max frame time" problems={problemsAt("time.maxFrameTime")}>
+                <NumberField id="ps-maxframe" label="Max frame time" value={time.maxFrameTime} placeholder={String(defaultSettings.time.maxFrameTime)} suffix="s" onCommit={(v) => set("Set max frame time", setValue(draft, "time", "maxFrameTime", v))} />
+              </Row>
+              <Row label="Max sub-steps" problems={problemsAt("time.maxSubSteps")}>
+                <NumberField id="ps-substeps" label="Max sub-steps" value={time.maxSubSteps} placeholder={String(defaultSettings.time.maxSubSteps)} onCommit={(v) => set("Set max sub-steps", setValue(draft, "time", "maxSubSteps", v))} />
+              </Row>
+            </Section>
+
+            <Section title="Rendering">
+              <Row label="Pixels per unit" problems={problemsAt("render.pixelsPerUnit")}>
+                <NumberField id="ps-ppu" label="Pixels per unit" value={render.pixelsPerUnit} placeholder={String(defaultSettings.render.pixelsPerUnit)} onCommit={(v) => set("Set pixels per unit", setValue(draft, "render", "pixelsPerUnit", v))} />
+              </Row>
+              <NameList
+                title="Sorting layers"
+                hint="back to front"
+                names={sortingLayersOf(draft)}
+                field="render.sortingLayers"
+                problems={problems}
+                item="sorting layer"
+                onAdd={() => set("Add sorting layer", addSortingLayer(draft))}
+                onRename={(i, v) => void renameSortingLayerEdit(s, draft, i, v)}
+                onRemove={(i) => set("Remove sorting layer", removeSortingLayer(draft, i))}
+                onMove={(i, by) => set("Reorder sorting layers", moveSortingLayer(draft, i, by))}
+              />
+            </Section>
+
+            <Section title="Graphics">
+              <Tiers draft={draft} problems={problemsAt("graphics")} set={set} />
+            </Section>
+
+            <Section title="Plugins">
+              <PluginsSection draft={draft} set={set} />
+            </Section>
+
+            <Section title="Autoloads">
+              <Autoloads s={s} draft={draft} project={project} problems={problems} />
+            </Section>
+
+            <Section title="Build">
+              <p class="project-settings-hint">Used when the game is exported as a desktop app.</p>
+              <Row label="App identifier" problems={problemsAt("build.identifier")}>
+                <TextField value={draft.build?.identifier ?? ""} placeholder="com.example.mygame" label="App identifier" onCommit={(v) => set("Set app identifier", setValue(draft, "build", "identifier", v.trim() || undefined))} />
+              </Row>
+              <Row label="Version" problems={problemsAt("build.version")}>
+                <TextField value={draft.build?.version ?? ""} placeholder="0.1.0" label="Version" onCommit={(v) => set("Set version", setValue(draft, "build", "version", v.trim() || undefined))} />
+              </Row>
+              <Row label="Icon" problems={problemsAt("build.icon")}>
+                <select
+                  aria-label="Icon"
+                  value={draft.build?.icon ?? ""}
+                  onChange={(e) => set("Set icon", setValue(draft, "build", "icon", (e.currentTarget as HTMLSelectElement).value || undefined))}
+                >
+                  <option value="">Default icon</option>
+                  {[...new Set([...(draft.build?.icon ? [draft.build.icon] : []), ...project.files.filter((f) => /\.(png|svg)$/i.test(f))])].map((f) => (
+                    <option key={f} value={f}>
+                      {f}
+                    </option>
+                  ))}
+                </select>
+              </Row>
+            </Section>
+
+            {projectSettingsSections.list().map((c) => {
+              const View = lazySection(c);
+              return (
+                <Section key={c.id} title={c.title}>
+                  <View draft={draft} problems={problemsAt(c.id).map((p) => p.message)} fieldProblems={problemsAt(c.id)} refresh={settings.refresh} set={set} project={project} />
+                </Section>
+              );
+            })}
+          </fieldset>
+        </CategoryLayout>
       </div>
-      <CategoryLayout counts={categoryProblems(problems)}>
-        {problems.length > 0 && <ProblemList list={problems.map((p) => p.message)} label="Problems" />}
-        {warnings.length > 0 && <ProblemList list={warnings} label="Warnings" warning />}
-        <fieldset class="project-settings-fields" disabled={!editable}>
-          <Section title="Project">
-            <Row label="Name" problems={problemsAt("name")}>
-              <TextField value={draft.name ?? ""} placeholder={folder} label="Project name" onCommit={(v) => set("Rename project", setName(draft, v))} />
-            </Row>
-          </Section>
-
-          <Section title="Display">
-            <Row label="Width" problems={problemsAt("display.width")}>
-              <NumberField id="ps-width" label="Display width" value={display.width} placeholder={String(defaultSettings.display.width)} suffix="px" onCommit={(v) => set("Set display width", setValue(draft, "display", "width", v))} />
-            </Row>
-            <Row label="Height" problems={problemsAt("display.height")}>
-              <NumberField id="ps-height" label="Display height" value={display.height} placeholder={String(defaultSettings.display.height)} suffix="px" onCommit={(v) => set("Set display height", setValue(draft, "display", "height", v))} />
-            </Row>
-            <Row label="Background" problems={problemsAt("display.backgroundColor")}>
-              <ColorField value={display.backgroundColor} fallback={defaultSettings.display.backgroundColor} onCommit={(v) => set("Set background colour", setValue(draft, "display", "backgroundColor", v))} />
-            </Row>
-            <Row label="Scaling" problems={problemsAt("display.scaleMode")}>
-              <select
-                aria-label="Display scaling"
-                value={display.scaleMode ?? defaultSettings.display.scaleMode}
-                onChange={(e) => {
-                  const v = (e.currentTarget as HTMLSelectElement).value;
-                  set("Set display scaling", setValue(draft, "display", "scaleMode", v === defaultSettings.display.scaleMode ? undefined : v));
-                }}
-              >
-                <option value="fit">Fit (keep aspect ratio)</option>
-                <option value="stretch">Stretch (fill the window)</option>
-                <option value="pixel-perfect">Pixel-perfect (whole multiples)</option>
-              </select>
-            </Row>
-            <p class="project-settings-hint">The reference size above sets the aspect ratio; the scaling says how the game canvas fills its window.</p>
-          </Section>
-
-          <Section title="Time">
-            <Row label="Fixed timestep" problems={problemsAt("time.fixedDeltaTime")}>
-              <NumberField id="ps-fixed" label="Fixed timestep" value={time.fixedDeltaTime} placeholder={`${round(defaultSettings.time.fixedDeltaTime)}`} suffix={time.fixedDeltaTime ? `s (${round(1 / time.fixedDeltaTime)} Hz)` : "s"} onCommit={(v) => set("Set fixed timestep", setValue(draft, "time", "fixedDeltaTime", v))} />
-            </Row>
-            <Row label="Max frame time" problems={problemsAt("time.maxFrameTime")}>
-              <NumberField id="ps-maxframe" label="Max frame time" value={time.maxFrameTime} placeholder={String(defaultSettings.time.maxFrameTime)} suffix="s" onCommit={(v) => set("Set max frame time", setValue(draft, "time", "maxFrameTime", v))} />
-            </Row>
-            <Row label="Max sub-steps" problems={problemsAt("time.maxSubSteps")}>
-              <NumberField id="ps-substeps" label="Max sub-steps" value={time.maxSubSteps} placeholder={String(defaultSettings.time.maxSubSteps)} onCommit={(v) => set("Set max sub-steps", setValue(draft, "time", "maxSubSteps", v))} />
-            </Row>
-          </Section>
-
-          <Section title="Rendering">
-            <Row label="Pixels per unit" problems={problemsAt("render.pixelsPerUnit")}>
-              <NumberField id="ps-ppu" label="Pixels per unit" value={render.pixelsPerUnit} placeholder={String(defaultSettings.render.pixelsPerUnit)} onCommit={(v) => set("Set pixels per unit", setValue(draft, "render", "pixelsPerUnit", v))} />
-            </Row>
-            <NameList
-              title="Sorting layers"
-              hint="back to front"
-              names={sortingLayersOf(draft)}
-              field="render.sortingLayers"
-              problems={problems}
-              item="sorting layer"
-              onAdd={() => set("Add sorting layer", addSortingLayer(draft))}
-              onRename={(i, v) => void renameSortingLayerEdit(s, draft, i, v)}
-              onRemove={(i) => set("Remove sorting layer", removeSortingLayer(draft, i))}
-              onMove={(i, by) => set("Reorder sorting layers", moveSortingLayer(draft, i, by))}
-            />
-          </Section>
-
-          <Section title="Graphics">
-            <Tiers draft={draft} problems={problemsAt("graphics")} set={set} />
-          </Section>
-
-          <Section title="Plugins">
-            <PluginsSection draft={draft} set={set} />
-          </Section>
-
-          <Section title="Autoloads">
-            <Autoloads s={s} draft={draft} project={project} problems={problems} />
-          </Section>
-
-          <Section title="Build">
-            <p class="project-settings-hint">Used when the game is exported as a desktop app.</p>
-            <Row label="App identifier" problems={problemsAt("build.identifier")}>
-              <TextField value={draft.build?.identifier ?? ""} placeholder="com.example.mygame" label="App identifier" onCommit={(v) => set("Set app identifier", setValue(draft, "build", "identifier", v.trim() || undefined))} />
-            </Row>
-            <Row label="Version" problems={problemsAt("build.version")}>
-              <TextField value={draft.build?.version ?? ""} placeholder="0.1.0" label="Version" onCommit={(v) => set("Set version", setValue(draft, "build", "version", v.trim() || undefined))} />
-            </Row>
-            <Row label="Icon" problems={problemsAt("build.icon")}>
-              <select
-                aria-label="Icon"
-                value={draft.build?.icon ?? ""}
-                onChange={(e) => set("Set icon", setValue(draft, "build", "icon", (e.currentTarget as HTMLSelectElement).value || undefined))}
-              >
-                <option value="">Default icon</option>
-                {[...new Set([...(draft.build?.icon ? [draft.build.icon] : []), ...project.files.filter((f) => /\.(png|svg)$/i.test(f))])].map((f) => (
-                  <option key={f} value={f}>
-                    {f}
-                  </option>
-                ))}
-              </select>
-            </Row>
-          </Section>
-
-          {projectSettingsSections.list().map((c) => {
-            const View = lazySection(c);
-            return (
-              <Section key={c.id} title={c.title}>
-                <View draft={draft} problems={problemsAt(c.id).map((p) => p.message)} fieldProblems={problemsAt(c.id)} refresh={settings.refresh} set={set} project={project} />
-              </Section>
-            );
-          })}
-        </fieldset>
-      </CategoryLayout>
-    </div>
+    </Panel>
   );
 }
 
