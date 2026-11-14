@@ -37,3 +37,16 @@ For the next design or build session; the same lessons are folded into the desig
 9. **One owner decision list, after verification,** so the numbers don't move after the owner decides.
 10. **Hand off after the owner accepts the direction** (step 5) instead of letting a long design session compact.
 11. **Keep verification scripts:** render Mermaid with the npm `mermaid` package (CDNs are blocked here) and re-sum task tables by script.
+
+## Lessons from the M4 design session (owner-requested retrospective, 2026-11-12)
+
+These come from the session that ran steps 1–5 for ADR 0166 (interactive music). The same lessons are folded into the design-subsystem skill.
+
+1. **Keep record numbers out of names until the record is written, then fetch main right before allocating one.** Main took 0163–0165 mid-session, and the `docs/design/0163-audio-music/` folder had to be renumbered to 0166.
+2. **Verify every spike claim the record will rely on, not one per report.** S4's "a stamped start doesn't split the quantum" went into the record unchecked. The senior reviewer found that every stamped record splits (`native/audio/crates/audio-core/src/voices.rs:310-325`).
+3. **A timing harness needs a truth reference far more accurate than the error it judges.** S3 fitted true time as one straight line per 60 s run and reported 7–95 ms of fake error. One 70 s run with a sliding-window fit showed 0.04 ms. When a smoke run and the full run disagree, check the reference before the code.
+4. **At acceptance (step 5), ask only "accept the direction?".** Six detailed decisions, including the estimate, were asked at acceptance and recorded from a bare "I accept", while the estimate had already moved (38–46 → 45–55 person-weeks). Detailed choices belong on step 8's single list after verification. A bare "accept" is never an answer to a decision list: ask, or record visibly provisional defaults.
+5. **Spike, review and author agents work in their own worktrees and commit there.** Agents in the main checkout made the stop hook force about eight commits of half-written drafts.
+6. **Probe network access before the survey.** The proxy blocks the documentation hosts (Audiokinetic, FMOD, Epic, MDN, docs.rs). The S0 survey needed a second pass against primary sources on GitHub (source repositories, vendored headers, MDN browser-compat-data, spec sources), which work.
+7. **Read each reviewer's "what I read" line first** and send back any who skipped reading their points depend on. Three of five skipped some required items.
+8. **Kept from this session:** agents build and smoke-test; the coordinator runs every timed run sequentially on an idle machine from one script that commits per stage (`spikes/audio-music/timed-runs.sh`); runs that can't change a decision are cut with the reason stated.
