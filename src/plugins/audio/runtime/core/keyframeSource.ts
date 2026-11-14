@@ -17,8 +17,10 @@
 //   section: the slot table's version, the monitor flag, the paused meters, the target in force, the active snapshot, the master
 //   volume and the hidden-tab mute.
 //
-// **Allocation.** The voice and bus rows are pooled and rewritten in place (the recorder asks for allocation-free sources); the
-// event and music rows come from the runtime's own allocating row builders, small and once a second.
+// **Allocation (FU5).** Every row (voice, bus, metered, event, music) is pooled and rewritten in place, the five output arrays and the
+// slot flags are reused, and there are no per-keyframe Sets, closures or `?? []` fallbacks: the recorder asks for allocation-free
+// sources. What still allocates is outside this file: `events().debugRows` (its own row builder) and the strings an event's
+// parameter values hash through.
 //
 // **Chunk boundary.** The recorder chunk (`capture/format.ts`) is lazy and this file is in every game that uses the core, so it
 // imports the keyframe types only; the caps below repeat `format.ts`'s `KEYFRAME_MAX_*` (a test holds them equal).
@@ -75,6 +77,18 @@ function busRow(): KeyframeBus {
   return { slot: 0, gen: 0, flags: 0, lanes: new Array<number>(10).fill(0), duck: 1, automation: 1 };
 }
 
+function meteredRow(): KeyframeMetered {
+  return { slot: 0, flags: 0, momentary: 0, shortTerm: 0, integrated: 0, lra: 0, maxTruePeak: 0, maxMomentary: 0, elapsed: 0 };
+}
+function eventRow(): KeyframeEvent {
+  return { id: 0, asset: 0, voices: 0, state: 0, paramsHash: 0 };
+}
+function musicRow(): KeyframeMusic {
+  return { id: 0, segment: 0, state: 0, pass: 0, bar: 0, beat: 0, tick: 0, tempo: 0, pendingTo: 0, pendingTimeSec: 0 };
+}
+/** The shared empty list for an absent `loudnessTargets` (never `?? []`). */
+const NO_TARGETS: readonly { readonly name: string }[] = Object.freeze([]);
+
 /** The keyframe `state` of a live table slot (`debug.ts`'s `stateName`, as the §5.5 code). */
 function stateOf(table: VoiceTable, i: number): number {
   const reason = table.reason[i];
@@ -93,9 +107,13 @@ function stateOf(table: VoiceTable, i: number): number {
 }
 
 /** FNV-1a over an event's parameters (sorted by name), so a change shows between two keyframes. */
-function paramsHash(parameters: Readonly<Record<string, number | string>>): number {
+function paramsHash(parameters: Readonly<Record<string, number | string>>, keys: string[]): number {
   let h = 0x811c9dc5;
-  for (const key of Object.keys(parameters).sort()) {
+  keys.length = 0;
+  for (const key in parameters) if (Object.prototype.hasOwnProperty.call(parameters, key)) keys.push(key);
+  keys.sort();
+  for (let n = 0; n < keys.length; n++) {
+    const key = keys[n]!;
     const text = `${key}=${parameters[key]}`;
     for (let k = 0; k < text.length; k++) h = Math.imul(h ^ text.charCodeAt(k), 0x01000193);
   }
@@ -126,10 +144,20 @@ export class KeyframeSource {
   private readonly busPool: KeyframeBus[] = [];
   private readonly voices: KeyframeVoice[] = [];
   private readonly buses: KeyframeBus[] = [];
+  private readonly meteredPool: KeyframeMetered[] = [];
+  private readonly eventsPool: KeyframeEvent[] = [];
+  private readonly musicPool: KeyframeMusic[] = [];
+  private readonly meteredOut: KeyframeMetered[] = [];
+  private readonly eventsOut: KeyframeEvent[] = [];
+  private readonly musicOut: KeyframeMusic[] = [];
+  /** The parameter names `paramsHash` sorts in place. */
+  private readonly keys: string[] = [];
+  /** Slot flags of the metered buses (grown with the slot table). */
+  private meteredFlags = new Uint8Array(KF_MAX_BUSES);
   private readonly listed = new Map<number, number>();
   private readonly auto = { gain: 1, pitch: 1, lowpass: 0 };
   private readonly payload: { -readonly [K in keyof KeyframePayload]: KeyframePayload[K] } = {
-    voices: this.voices, buses: this.buses, metered: [], events: [], music: [],
+    voices: this.voices, buses: this.buses, metered: this.meteredOut, events: this.eventsOut, music: this.musicOut,
     mix: { slotTableVersion: 0, monitorActive: 0, loudnessPausedMask: 0, targetIndex: 0, snapshotName: 0, masterVolume: 1, hiddenMute: 0 },
   };
 
@@ -139,21 +167,26 @@ export class KeyframeSource {
   read(nameId: KeyframeNameId, noName: number): KeyframePayload {
     const p = this.payload;
     this.readVoices(nameId, noName);
-    const metered = this.readBuses();
-    p.metered = this.readMetered(metered);
-    p.events = this.readEvents(nameId);
-    p.music = this.readMusic(nameId, noName);
+    this.readBuses();
+    this.readMetered();
+    this.readEvents(nameId);
+    this.readMusic(nameId, noName);
     const m = this.host.mixer;
     const mix = p.mix;
     mix.slotTableVersion = this.host.buses.slots.version >>> 0;
     mix.monitorActive = m.monitorActive ? 1 : 0;
     mix.loudnessPausedMask = 0;
-    p.metered.forEach((row, k) => {
-      if (k < 8 && (row.flags & KF_M_PAUSED) !== 0) mix.loudnessPausedMask |= 1 << k;
-    });
-    const targets = m.audioSettings.loudnessTargets ?? [];
+    const metered = this.meteredOut;
+    for (let k = 0; k < metered.length && k < 8; k++) {
+      if ((metered[k]!.flags & KF_M_PAUSED) !== 0) mix.loudnessPausedMask |= 1 << k;
+    }
+    const targets = m.audioSettings.loudnessTargets ?? NO_TARGETS;
     const inForce = this.hub.target;
-    mix.targetIndex = Math.max(0, targets.findIndex((t) => t.name === inForce)) & 0xff;
+    let found = 0;
+    for (let k = 0; k < targets.length; k++) {
+      if (targets[k]!.name === inForce) { found = k; break; }
+    }
+    mix.targetIndex = found & 0xff;
     const snapshot = m.currentSnapshot;
     mix.snapshotName = snapshot === null ? noName : nameId("snapshots", snapshot);
     mix.masterVolume = Math.fround(this.host.masterVolume);
@@ -228,105 +261,139 @@ export class KeyframeSource {
     }
   }
 
-  /** Fills `buses` and returns the slots that are metered (in the hub's order). */
-  private readBuses(): Set<number> {
+  /** The live slot named `name`, or -1 (a loop: `findIndex` would allocate its closure). */
+  private liveSlot(name: string): number {
+    const slots = this.host.buses.slots.slots;
+    for (let i = 0; i < slots.length; i++) {
+      const s = slots[i]!;
+      if (s.state === "live" && s.name === name) return i;
+    }
+    return -1;
+  }
+
+  private setLane(L: number[], k: number, name: string, lane: 0 | 1 | 2 | 3 | 4, to: number): void {
+    L[2 * k] = Math.fround(this.host.mixer.laneGain(name, lane));
+    L[2 * k + 1] = Math.fround(to);
+  }
+
+  private addBus(slot: number, name: string | null, tombstone: boolean, gen: number, root: string | undefined): void {
+    const out = this.buses;
+    if (out.length >= KF_MAX_BUSES) return;
+    const m = this.host.mixer;
+    const row = (this.busPool[out.length] ??= busRow());
+    row.slot = slot & 0xff;
+    row.gen = gen & 0xffff;
+    const lanes = name === null ? undefined : m._lanes(name);
+    const L = row.lanes as number[];
+    if (!lanes || name === null) {
+      L.fill(0);
+      row.flags = tombstone ? KF_BUS_TOMBSTONE : 0;
+      row.duck = 1;
+      row.automation = 1;
+    } else {
+      this.setLane(L, 0, name, Lane.authored, lanes.authoredMute ? 0 : lanes.authored.to);
+      this.setLane(L, 1, name, Lane.runtime, lanes.runtimeMute ? 0 : lanes.runtime.to);
+      this.setLane(L, 2, name, Lane.snapshot, lanes.snapshot.to);
+      this.setLane(L, 3, name, Lane.monitor, m.laneGain(name, Lane.monitor));
+      this.setLane(L, 4, name, Lane.dip, lanes.dip.to);
+      row.flags = (lanes.authoredMute ? 1 : 0) | (lanes.runtimeMute ? 2 : 0) | (lanes.monitorMute ? 4 : 0) | (lanes.monitorSolo ? 8 : 0)
+        | (tombstone ? KF_BUS_TOMBSTONE : 0) | (this.isMetered(slot) || name === root ? KF_BUS_METERED : 0);
+      row.duck = Math.fround(m.laneGain(name, Lane.duck));
+      row.automation = Math.fround(m.laneGain(name, Lane.automation));
+    }
+    out.push(row);
+  }
+
+  private isMetered(slot: number): boolean {
+    return slot < this.meteredFlags.length && this.meteredFlags[slot] !== 0;
+  }
+
+  /** Fills `buses` and marks the slots that are metered in `meteredFlags`. */
+  private readBuses(): void {
     const host = this.host;
     const m = host.mixer;
     const slots = host.buses.slots.slots;
-    const out = this.buses;
-    out.length = 0;
-    const meteredSlots = new Set<number>();
-    const root = m.audioSettings.buses[0]?.name;
-    for (const b of m.audioSettings.buses) {
-      const meter = this.hub.busLoudness(b.name);
-      const slot = slots.findIndex((s) => s.state === "live" && s.name === b.name);
-      if (meter && slot >= 0 && b.name !== root) meteredSlots.add(slot);
+    this.buses.length = 0;
+    if (this.meteredFlags.length < slots.length) this.meteredFlags = new Uint8Array(slots.length * 2); // grows with the table, never per keyframe
+    else this.meteredFlags.fill(0);
+    const settings = m.audioSettings.buses;
+    const root = settings[0]?.name;
+    for (let i = 0; i < settings.length; i++) {
+      const name = settings[i]!.name;
+      const meter = this.hub.busLoudness(name);
+      if (!meter || name === root) continue;
+      const slot = this.liveSlot(name);
+      if (slot >= 0) this.meteredFlags[slot] = 1;
     }
-    const add = (slot: number, name: string | null, tombstone: boolean, gen: number): void => {
-      if (out.length >= KF_MAX_BUSES) return;
-      const row = (this.busPool[out.length] ??= busRow());
-      row.slot = slot & 0xff;
-      row.gen = gen & 0xffff;
-      const lanes = name === null ? undefined : m._lanes(name);
-      const L = row.lanes as number[];
-      if (!lanes || name === null) {
-        L.fill(0);
-        row.flags = tombstone ? KF_BUS_TOMBSTONE : 0;
-        row.duck = 1;
-        row.automation = 1;
-      } else {
-        const set = (k: number, lane: 0 | 1 | 2 | 3 | 4, to: number): void => {
-          L[2 * k] = Math.fround(m.laneGain(name, lane));
-          L[2 * k + 1] = Math.fround(to);
-        };
-        set(0, Lane.authored, lanes.authoredMute ? 0 : lanes.authored.to);
-        set(1, Lane.runtime, lanes.runtimeMute ? 0 : lanes.runtime.to);
-        set(2, Lane.snapshot, lanes.snapshot.to);
-        set(3, Lane.monitor, m.laneGain(name, Lane.monitor));
-        set(4, Lane.dip, lanes.dip.to);
-        row.flags = (lanes.authoredMute ? 1 : 0) | (lanes.runtimeMute ? 2 : 0) | (lanes.monitorMute ? 4 : 0) | (lanes.monitorSolo ? 8 : 0)
-          | (tombstone ? KF_BUS_TOMBSTONE : 0) | (meteredSlots.has(slot) || name === root ? KF_BUS_METERED : 0);
-        row.duck = Math.fround(m.laneGain(name, Lane.duck));
-        row.automation = Math.fround(m.laneGain(name, Lane.automation));
-      }
-      out.push(row);
-    };
     if (slots.length === 0) {
-      m.busNames.forEach((name, i) => add(i, name, false, 0)); // not configured yet: the identity layout
+      const names = m.busNames;
+      for (let i = 0; i < names.length; i++) this.addBus(i, names[i]!, false, 0, root); // not configured yet: the identity layout
     } else {
-      slots.forEach((s, i) => {
-        if (s.state === "free") return;
+      for (let i = 0; i < slots.length; i++) {
+        const s = slots[i]!;
+        if (s.state === "free") continue;
         // A tombstone is a silent root the mixer no longer holds lanes for (or still does, while it fades).
-        add(i, s.name, s.state === "tombstone", s.gen);
-      });
+        this.addBus(i, s.name, s.state === "tombstone", s.gen, root);
+      }
     }
-    return meteredSlots;
   }
 
-  private readMetered(meteredSlots: ReadonlySet<number>): KeyframeMetered[] {
-    const host = this.host;
-    const slots = host.buses.slots.slots;
-    const out: KeyframeMetered[] = [];
-    const settings = host.mixer.audioSettings;
-    const row = (slot: number, name: string): void => {
-      const l = this.hub.busLoudness(name);
-      if (!l || out.length >= KF_MAX_METERED) return;
-      out.push({
-        slot,
-        flags: (l.paused ? KF_M_PAUSED : 0) | (l.incomplete ? KF_M_INCOMPLETE : 0) | (l.tainted ? KF_M_TAINTED : 0) | (l.truePeakBound === "lowerBound" ? KF_M_LOWER_BOUND : 0),
-        momentary: Math.fround(l.momentary), shortTerm: Math.fround(l.shortTerm), integrated: Math.fround(l.integrated), lra: Math.fround(l.lra),
-        maxTruePeak: Math.fround(l.maxTruePeak), maxMomentary: Math.fround(l.maxMomentary), elapsed: Math.fround(l.elapsed),
-      });
-    };
-    const root = settings.buses[0]?.name;
-    if (root !== undefined) row(LOUD_OUTPUT_TAP, root);
-    for (const b of settings.buses) {
-      if (b.name === root) continue;
-      const slot = slots.findIndex((s) => s.state === "live" && s.name === b.name);
-      if (slot >= 0 && meteredSlots.has(slot)) row(slot, b.name);
-    }
-    return out;
+  private meteredRow(slot: number, name: string): void {
+    const out = this.meteredOut;
+    const l = this.hub.busLoudness(name);
+    if (!l || out.length >= KF_MAX_METERED) return;
+    const row = (this.meteredPool[out.length] ??= meteredRow());
+    row.slot = slot;
+    row.flags = (l.paused ? KF_M_PAUSED : 0) | (l.incomplete ? KF_M_INCOMPLETE : 0) | (l.tainted ? KF_M_TAINTED : 0) | (l.truePeakBound === "lowerBound" ? KF_M_LOWER_BOUND : 0);
+    row.momentary = Math.fround(l.momentary);
+    row.shortTerm = Math.fround(l.shortTerm);
+    row.integrated = Math.fround(l.integrated);
+    row.lra = Math.fround(l.lra);
+    row.maxTruePeak = Math.fround(l.maxTruePeak);
+    row.maxMomentary = Math.fround(l.maxMomentary);
+    row.elapsed = Math.fround(l.elapsed);
+    out.push(row);
   }
 
-  private readEvents(nameId: KeyframeNameId): KeyframeEvent[] {
-    const out: KeyframeEvent[] = [];
-    for (const e of events().debugRows(this.listed)) {
+  private readMetered(): void {
+    this.meteredOut.length = 0;
+    const settings = this.host.mixer.audioSettings.buses;
+    const root = settings[0]?.name;
+    if (root !== undefined) this.meteredRow(LOUD_OUTPUT_TAP, root);
+    for (let i = 0; i < settings.length; i++) {
+      const name = settings[i]!.name;
+      if (name === root) continue;
+      const slot = this.liveSlot(name);
+      if (slot >= 0 && this.isMetered(slot)) this.meteredRow(slot, name);
+    }
+  }
+
+  private readEvents(nameId: KeyframeNameId): void {
+    const out = this.eventsOut;
+    out.length = 0;
+    // `debugRows` is the event runtime's own allocating row builder (its file is not this task's).
+    const rows = events().debugRows(this.listed);
+    for (let i = 0; i < rows.length; i++) {
+      const e = rows[i]!;
       if (out.length >= KF_MAX_EVENTS) break;
-      out.push({ id: e.id >>> 0, asset: nameId("events", e.asset), voices: Math.min(0xffff, e.voices), state: 0, paramsHash: paramsHash(e.parameters) });
+      const row = (this.eventsPool[out.length] ??= eventRow());
+      row.id = e.id >>> 0;
+      row.asset = nameId("events", e.asset);
+      row.voices = Math.min(0xffff, e.voices);
+      row.state = 0;
+      row.paramsHash = paramsHash(e.parameters, this.keys);
+      out.push(row);
     }
-    return out;
   }
 
-  private readMusic(nameId: KeyframeNameId, noName: number): KeyframeMusic[] {
-    const out: KeyframeMusic[] = [];
+  private readMusic(nameId: KeyframeNameId, noName: number): void {
+    const out = this.musicOut;
+    out.length = 0;
     const players = musicPlayers();
-    if (players.length === 0) return out;
-    return this.musicRows(players, nameId, noName, out);
-  }
-
-  private musicRows(players: ReturnType<typeof musicPlayers>, nameId: KeyframeNameId, noName: number, out: KeyframeMusic[]): KeyframeMusic[] {
+    if (players.length === 0) return;
     const time = this.host.mixer.time; // the heard clock (`Audio.time`'s base)
-    for (const p of players) {
+    for (let i = 0; i < players.length; i++) {
+      const p = players[i]!;
       if (out.length >= KF_MAX_MUSIC) break;
       const a = p.anchor;
       const pg = a ? playingGridOf(a) : null;
@@ -334,22 +401,24 @@ export class KeyframeSource {
       if (a && pg) {
         const ticks = ticksAt(a, time);
         const pos = Number.isFinite(ticks) ? ticksToPosition(pg.grid, ticks) : null;
-        if (pos) ({ bar, beat, tick } = pos);
+        if (pos) { bar = pos.bar; beat = pos.beat; tick = pos.tick; }
         tempo = pg.grid.bpm[spanAtTicks(pg.grid, Number.isFinite(ticks) ? ticks : 0)]!;
       }
       const t = p.transition;
       const pending = t && t.match && t.state !== "done" && t.state !== "cancelled";
-      out.push({
-        id: p.instance.group >>> 0,
-        segment: p.run ? nameId("events", p.run.node.id) : noName,
-        state: musicStateOf(p.state),
-        pass: Math.min(255, Math.max(0, a?.pass ?? 1)),
-        bar: u16(bar), beat: Math.min(255, Math.max(0, beat)), tick: Math.min(255, Math.max(0, Math.round(tick))), tempo: u16(tempo),
-        pendingTo: pending ? nameId("events", t.to.id) : noName,
-        pendingTimeSec: pending && Number.isFinite(t.exitAt) ? Math.fround(t.exitAt) : 0,
-      });
+      const row = (this.musicPool[out.length] ??= musicRow());
+      row.id = p.instance.group >>> 0;
+      row.segment = p.run ? nameId("events", p.run.node.id) : noName;
+      row.state = musicStateOf(p.state);
+      row.pass = Math.min(255, Math.max(0, a?.pass ?? 1));
+      row.bar = u16(bar);
+      row.beat = Math.min(255, Math.max(0, beat));
+      row.tick = Math.min(255, Math.max(0, Math.round(tick)));
+      row.tempo = u16(tempo);
+      row.pendingTo = pending ? nameId("events", t.to.id) : noName;
+      row.pendingTimeSec = pending && Number.isFinite(t.exitAt) ? Math.fround(t.exitAt) : 0;
+      out.push(row);
     }
-    return out;
   }
 }
 
