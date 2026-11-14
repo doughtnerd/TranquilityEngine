@@ -26,6 +26,7 @@ export function PanelHeader(props: PanelHeaderProps) {
   return (
     <div
       role="tab"
+      aria-label={title}
       aria-selected={selected}
       data-panel-instance={id}
       class={`dock-tab${selected ? " active" : ""}${solo ? " solo" : ""}${closable ? " closable" : ""}`}
