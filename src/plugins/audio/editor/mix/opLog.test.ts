@@ -5,7 +5,7 @@ import { setValue, settingsProblems, settingsWarnings, type SettingsDraft } from
 import { onSectionChanged, type SectionChange } from "../../../../editor/sectionChanged";
 import { editor } from "../../../../editor/sdk";
 import { ROOT, closeTestProject, openTestProject } from "../../../../editor/testing";
-import { FIFTH_EFFECT } from "../../runtime/core/liveMix";
+import { FIFTH_EFFECT, SECOND_COMPRESSOR } from "../../runtime/core/liveMix";
 import { createOpLog, opsOf, recordMixOps, type MixApplier, type OpLogHost } from "./opLog";
 
 const PROJECT = `{
@@ -200,6 +200,25 @@ describe("the audio op log", () => {
     expect(log.entries).toHaveLength(1);
     expect(log.entries[0]!.ops).toEqual([{ op: "addEffect", bus: "sfx", index: 4, effect: { type: "highpass", frequency: 80, q: 1 } }]);
     expect(log.entries[0]!.results[0]!.restartRequired).toBe(FIFTH_EFFECT);
+  });
+
+  it("FU4: a second compressor added in Project Settings is saved (a warning, not a problem) and reaches the mixer, which answers SECOND_COMPRESSOR", async () => {
+    const comp = { type: "compressor", threshold: -24, knee: 30, ratio: 12, attack: 0.003, release: 0.25 };
+    const one = `${JSON.stringify({ name: "Game", audio: { buses: [{ name: "master" }, { name: "sfx", parent: "master", effects: [comp] }] } }, null, 2)}\n`;
+    const { project, fs } = await openTestProject({ "project.json": one });
+    const s = createProjectSettingsSection().open(project);
+    const mixer: MixApplier = { apply: (op) => (op.op === "addEffect" ? { ok: false, class: "direct", restartRequired: SECOND_COMPRESSOR } : { ok: true, class: "direct" }) };
+    const log = createOpLog({ ...host(() => true, null), mixer: () => mixer });
+    const audio = s.draft.audio as { buses: Array<{ name: string; effects?: object[] }> };
+    const two = { ...s.draft, audio: { ...audio, buses: audio.buses.map((b) => (b.name === "sfx" ? { ...b, effects: [...b.effects!, comp] } : b)) } } as SettingsDraft;
+    expect(settingsProblems(two), "no problem keeps the draft unsaved").toEqual([]);
+    expect(settingsWarnings(two).join()).toMatch(/only the first compressor of the list runs/);
+    await s.edit("Add effect", two);
+    expect(s.unsaved, "saved").toBe(false);
+    const saved = JSON.parse(await fs.readText(`${ROOT}\\project.json`)) as { audio: { buses: Array<{ effects?: object[] }> } };
+    expect(saved.audio.buses[1]!.effects).toHaveLength(2);
+    expect(log.entries).toHaveLength(1);
+    expect(log.entries[0]!.results[0]!.restartRequired).toBe(SECOND_COMPRESSOR);
   });
 
   it("a preview that calls the mixer directly never enters the log", async () => {
