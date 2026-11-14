@@ -17,7 +17,8 @@ import { deflateRawSync } from "node:zlib";
 import { afterAll, describe, expect, it } from "vitest";
 import { mixer } from "../../../../engine/audio/mixer";
 import { createEventSink, NO_NAME } from "../../runtime/capture/events";
-import { CAPTURE_FLAG_COMPRESSED, CAPTURE_HEADER_BYTES, NAME_TABLES, type CaptureMetaInit } from "../../runtime/capture/format";
+import { CAPTURE_FLAG_COMPRESSED, CAPTURE_HEADER_BYTES, EventKind, NAME_TABLES, RecordType, decodeKeyframe, type CaptureMetaInit } from "../../runtime/capture/format";
+import { decodeRecordAt, openCapture } from "../../runtime/capture/reader";
 import { createRecorder } from "../../runtime/capture/recorder";
 import { assembleTakeFile } from "../../runtime/capture/save";
 import { FRAME_SECONDS, MiB, RATE, S3_1024, s3Rig, stat, threadWorkerFactory, timedCallOverheadUs, timedSink } from "../../runtime/capture/soakSupport";
@@ -44,6 +45,12 @@ interface Truth {
    * `voiceStop`). Their ids, clips and buses are compared; their state is not (neither side is wrong).
    */
   fading: Set<number>;
+  /**
+   * Voices played but not yet sent to the core (the table's WAITING_FOR_DATA or LOCKED: no PLAY yet), left out of `rows`.
+   * The capture writes `voiceStart` when the PLAY goes out (Rc3, api-and-models §5.6; a queued play is never a row), so
+   * such a voice appears in the Profiler at its PLAY's frame, not at `play()`'s.
+   */
+  unsent: number;
 }
 
 let closeWorkers: (() => void) | null = null;
@@ -96,14 +103,17 @@ describe("soak 2: a 1,024-voice capture opens through the Worker (§3.7)", () =>
     for (let f = 0; f < frames; f++) {
       await rig.frame(at.has(f) ? () => {
         // The game's table after this frame's main side (its events are stamped at the newest STATUS frame).
-        const rows = backend.debug().voices.map((v) => ({ id: v.id, clip: v.clip, bus: v.bus, state: v.state, priority: v.priority, gain: Math.fround(v.gain) }));
         const table = backend.table;
         const fading = new Set<number>();
+        const unsent = new Set<number>();
         for (let i = 0; i < table.capacity; i++) {
           const s = table.state[i]!;
-          if (s === VoiceState.STOPPING || s === VoiceState.ENDING) fading.add(((table.gen[i]! << 16) | i) >>> 0);
+          const id = ((table.gen[i]! << 16) | i) >>> 0;
+          if (s === VoiceState.STOPPING || s === VoiceState.ENDING) fading.add(id);
+          if (s === VoiceState.WAITING_FOR_DATA || s === VoiceState.LOCKED) unsent.add(id);
         }
-        truths.push({ frame: rec.newestStatusFrame, rows: rows.sort((p, q) => p.id - q.id), fading });
+        const rows = backend.debug().voices.filter((v) => !unsent.has(v.id)).map((v) => ({ id: v.id, clip: v.clip, bus: v.bus, state: v.state, priority: v.priority, gain: Math.fround(v.gain) }));
+        truths.push({ frame: rec.newestStatusFrame, rows: rows.sort((p, q) => p.id - q.id), fading, unsent: unsent.size });
       } : undefined);
     }
     const seconds = (rec.newestStatusFrame - startFrame) / RATE;
@@ -145,7 +155,7 @@ describe("soak 2: a 1,024-voice capture opens through the Worker (§3.7)", () =>
     const lookup = nameLookup(source.summary.names);
 
     // The five positions: the replay equals the game's table.
-    const positions: { seconds: number; voices: number; gainOff: number; fading: number; ms: number; scanned: number; fromKeyframe: boolean }[] = [];
+    const positions: { seconds: number; voices: number; gainOff: number; unsent: number; fading: number; ms: number; scanned: number; fromKeyframe: boolean }[] = [];
     for (const truth of truths) {
       const t = truth.frame / RATE;
       expect(t).toBeGreaterThan(source.startSeconds); // inside the kept span
@@ -155,6 +165,31 @@ describe("soak 2: a 1,024-voice capture opens through the Worker (§3.7)", () =>
       expect(state.keyframe).not.toBeNull();
       const replay = reconstructVoices(state, lookup);
       const rows = replay.rows.map((x) => ({ id: x.id, clip: x.clipName, bus: x.busName, state: x.stateName, priority: x.priority, gain: x.gain })).sort((p, q) => p.id - q.id);
+      if (rows.length !== truth.rows.length || rows.some((r, i) => r.id !== truth.rows[i]!.id)) {
+        // A mismatch: name each id on one side only, with the game's row and every record the capture holds for it.
+        const mine = new Set(rows.map((r) => r.id));
+        const theirs = new Set(truth.rows.map((r) => r.id));
+        const c = await openCapture(file);
+        const lines: string[] = [`So1 soak 2 mismatch at ${t.toFixed(4)} s (cursor frame ${truth.frame}; keyframe seq ${state.keyframeSeq}, cursor seq ${state.seq}):`];
+        for (const id of [...theirs].filter((x) => !mine.has(x)).concat([...mine].filter((x) => !theirs.has(x)))) {
+          lines.push(`  id ${id} (slot ${id & 0xffff}, gen ${id >>> 16}): game ${JSON.stringify(truth.rows.find((r) => r.id === id) ?? null)}, replay ${JSON.stringify(rows.find((r) => r.id === id) ?? null)}`);
+          for (let i = 0; i < c.records.count; i++) {
+            if (c.records.type[i] !== RecordType.EVENT) continue;
+            const d = decodeRecordAt(c, i);
+            if (d.kind === "event" && (d.payload.args[0] === id || (d.payload.args[1] === id && d.payload.kind === EventKind.voiceSteal))) {
+              lines.push(`    EVENT seq ${d.seq} frame ${d.frame} (${(d.frame / RATE).toFixed(4)} s) kind ${d.payload.kind} reason ${d.payload.reason} args ${JSON.stringify(d.payload.args)}`);
+            }
+          }
+          const kfs = c.keyframes.filter((k) => c.records.frame[k]! <= truth.frame).slice(-2);
+          for (const k of kfs) {
+            const d = decodeRecordAt(c, k);
+            if (d.kind !== "keyframe") continue;
+            const kf = decodeKeyframe(new DataView(d.payload.buffer, d.payload.byteOffset, d.payload.byteLength), 0, d.payload.byteLength);
+            lines.push(`    KEYFRAME seq ${d.seq} frame ${d.frame}: ${JSON.stringify(kf.voices.find((v) => v.id === id) ?? null)}`);
+          }
+        }
+        console.log(lines.join("\n"));
+      }
       expect(rows.map((r) => r.id), `ids at ${t.toFixed(3)} s`).toEqual(truth.rows.map((r) => r.id));
       const fade = (r: { id: number; state: string }): string => (truth.fading.has(r.id) ? "fading" : r.state);
       expect(rows.map((r) => [r.clip, r.bus, fade(r)]), `clip, bus, state at ${t.toFixed(3)} s`).toEqual(truth.rows.map((r) => [r.clip, r.bus, fade(r)]));
@@ -163,7 +198,7 @@ describe("soak 2: a 1,024-voice capture opens through the Worker (§3.7)", () =>
       let gainOff = 0;
       for (let i = 0; i < rows.length; i++) if (Math.fround(rows[i]!.gain) !== truth.rows[i]!.gain) gainOff++;
       expect(gainOff, `gains at ${t.toFixed(3)} s`).toBe(0);
-      positions.push({ seconds: t, voices: rows.length, gainOff, fading: truth.fading.size, ms, scanned: state.recordsScanned, fromKeyframe: replay.fromKeyframe });
+      positions.push({ seconds: t, voices: rows.length, gainOff, unsent: truth.unsent, fading: truth.fading.size, ms, scanned: state.recordsScanned, fromKeyframe: replay.fromKeyframe });
     }
 
     // Seek and range timings over the kept span (logged).
@@ -208,7 +243,7 @@ describe("soak 2: a 1,024-voice capture opens through the Worker (§3.7)", () =>
       `| records scanned per seek (median / p95 / max) | ${sc.median} / ${sc.p95} / ${sc.max} |`,
       `| range, whole span, ${columns.length} columns, 2,000 buckets (ms) | ${rangeOverviewMs.toFixed(1)} |`,
       `| range, 10 s raw (${raw.seconds!.length} samples) (ms) | ${rangeRawMs.toFixed(1)} |`,
-      ...positions.map((p, i) => `| position ${i + 1} at ${p.seconds.toFixed(3)} s: voices match (fading, state not compared) / seek ms / records scanned | ${p.voices} rows equal (${p.fading}), gain differs on ${p.gainOff} / ${p.ms.toFixed(2)} / ${p.scanned} |`),
+      ...positions.map((p, i) => `| position ${i + 1} at ${p.seconds.toFixed(3)} s: voices match (fading: state not compared; not yet sent: left out) / seek ms / records scanned | ${p.voices} rows equal (${p.fading}; ${p.unsent}), gain differs on ${p.gainOff} / ${p.ms.toFixed(2)} / ${p.scanned} |`),
     ].join("\n"));
     rig.dispose();
   });
