@@ -283,6 +283,59 @@ export function memorySaveEnv(): SaveEnv & { files: { name: string; bytes: Uint8
   };
 }
 
+// --- main-side cost -------------------------------------------------------------------------------------------------
+
+/**
+ * `sink` behind a `Proxy` that times every method call into `timer.ms` (wrappers made once per method). The wrapper's own
+ * cost per call is `timedCallOverheadUs()`; the soaks report it beside the sum so the reader can take it off.
+ */
+export function timedSink<T extends object>(sink: T, timer: { ms: number; calls: number }): T {
+  const wrapped = new Map<PropertyKey, unknown>();
+  return new Proxy(sink, {
+    get(target, key) {
+      const v = Reflect.get(target, key, target) as unknown;
+      if (typeof v !== "function") return v;
+      let w = wrapped.get(key);
+      if (!w) {
+        w = (...args: unknown[]) => {
+          const t0 = performance.now();
+          try {
+            return (v as (...a: unknown[]) => unknown).apply(target, args);
+          } finally {
+            timer.ms += performance.now() - t0;
+            timer.calls++;
+          }
+        };
+        wrapped.set(key, w);
+      }
+      return w;
+    },
+  });
+}
+
+/** The timing wrapper's own cost per call, µs: a no-op method called through `timedSink` (median of 5 runs of 100,000). */
+export function timedCallOverheadUs(): number {
+  const runs: number[] = [];
+  for (let r = 0; r < 5; r++) {
+    const timer = { ms: 0, calls: 0 };
+    const s = timedSink({ f(_a: number): void {} }, timer);
+    const n = 100_000;
+    for (let i = 0; i < n; i++) s.f(i);
+    runs.push((timer.ms * 1000) / n);
+  }
+  return stat(runs).median;
+}
+
+/** Record bytes (head included) by type name over an opened capture. */
+export function bytesByType(c: { records: { count: number; type: Uint8Array; len: Uint32Array } }, names: Record<string, number>): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (let i = 0; i < c.records.count; i++) {
+    const name = Object.entries(names).find(([, v]) => v === c.records.type[i])?.[0] ?? `0x${c.records.type[i]!.toString(16)}`;
+    out[name] = (out[name] ?? 0) + c.records.len[i]! + 20;
+  }
+  return out;
+}
+
 /** Median / p95 / max of `values`. */
 export function stat(values: ArrayLike<number>): { n: number; median: number; p95: number; max: number } {
   const s = Float64Array.from(values).sort();

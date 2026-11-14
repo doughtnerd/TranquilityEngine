@@ -20,7 +20,7 @@ import { createEventSink, NO_NAME } from "../../runtime/capture/events";
 import { CAPTURE_FLAG_COMPRESSED, CAPTURE_HEADER_BYTES, NAME_TABLES, type CaptureMetaInit } from "../../runtime/capture/format";
 import { createRecorder } from "../../runtime/capture/recorder";
 import { assembleTakeFile } from "../../runtime/capture/save";
-import { FRAME_SECONDS, MiB, RATE, S3_1024, s3Rig, stat, threadWorkerFactory } from "../../runtime/capture/soakSupport";
+import { FRAME_SECONDS, MiB, RATE, S3_1024, s3Rig, stat, threadWorkerFactory, timedCallOverheadUs, timedSink } from "../../runtime/capture/soakSupport";
 import { SAMPLE_META } from "../../runtime/capture/testSupport";
 import { VoiceState } from "../../runtime/core/voiceTable";
 import { CaptureSource } from "./profilerSource";
@@ -72,8 +72,22 @@ describe("soak 2: a 1,024-voice capture opens through the Worker (§3.7)", () =>
     const sink = createEventSink(rec, { epochContext: () => ({ sampleRate: RATE, limiterLatencyFrames: 0, outputLatencyFrames: 0, timeOffset: 0, frame: backend.debug().core.currentFrame as number }) });
     rec.setKeyframeSource(() => backend.keyframe((table, name) => sink.name(table, name), NO_NAME));
     sink.epoch("start");
+    // Main's recorder cost at 1,024 voices with G7b's keyframe source (logged against §7.3's 1 ms/s): the tap timed per
+    // block, the sink per call (`timedSink`, whose own cost per call is reported beside it).
     rec.attach(backend);
-    backend.setProfileSink(sink);
+    const rawTap = backend.recorderTap!;
+    let tapMs = 0;
+    let keyframeMs = 0;
+    backend.recorderTap = (data, byteLength, view) => {
+      const kf = rec.lastKeyframeFrame;
+      const t0 = performance.now();
+      rawTap(data, byteLength, view);
+      const dt = performance.now() - t0;
+      tapMs += dt;
+      if (rec.lastKeyframeFrame !== kf) keyframeMs += dt;
+    };
+    const sinkTimer = { ms: 0, calls: 0 };
+    backend.setProfileSink(timedSink(sink, sinkTimer));
     const startFrame = rec.newestStatusFrame;
 
     const frames = Math.round(SOAK_SECONDS / FRAME_SECONDS);
@@ -95,8 +109,11 @@ describe("soak 2: a 1,024-voice capture opens through the Worker (§3.7)", () =>
     const seconds = (rec.newestStatusFrame - startFrame) / RATE;
     expect(Math.abs(seconds - SOAK_SECONDS)).toBeLessThan(0.1);
     expect(rec.ring.dropped).toBe(0);
+    backend.recorderTap = rawTap;
     rec.detach();
     backend.setProfileSink(null);
+    const overheadUs = timedCallOverheadUs();
+    const cost = { tap: tapMs / seconds, keyframe: keyframeMs / seconds, sink: sinkTimer.ms / seconds, calls: sinkTimer.calls / seconds, events: sink.eventsWritten / seconds };
 
     // The save: header, META (the project's buses by slot, plus every name the sink interned: a truncated file's NAMES
     // records may be gone, as `capture.ts`' `withInterned` does), the span, the INDEX; deflate-raw.
@@ -184,6 +201,8 @@ describe("soak 2: a 1,024-voice capture opens through the Worker (§3.7)", () =>
       "|---|---|",
       `| kept span: seconds / records / stored MiB / deflated MiB / truncated | ${dur.toFixed(1)} / ${span.recordCount} / ${(stored.byteLength / MiB).toFixed(2)} / ${(file.byteLength / MiB).toFixed(2)} / ${rec.truncated} |`,
       `| keyframes in the file | ${source.summary.keyframeCount} |`,
+      `| main recorder ms per audio s over the ${SOAK_SECONDS} s: tap (of which keyframe blocks) + sink = total (allowance 1 ms) | ${cost.tap.toFixed(3)} (${cost.keyframe.toFixed(3)}) + ${cost.sink.toFixed(3)} = ${(cost.tap + cost.sink).toFixed(3)} |`,
+      `| sink calls/s (events/s) x the timing wrapper's own ${overheadUs.toFixed(3)} us = ms/s inside the sink figure | ${cost.calls.toFixed(0)} (${cost.events.toFixed(0)}) x ${overheadUs.toFixed(3)} = ${((cost.calls * overheadUs) / 1000).toFixed(3)} |`,
       `| open through the Worker (ms) | ${openMs.toFixed(0)} |`,
       `| seek, ${SEEKS} random (ms median / p95 / max) | ${sk.median.toFixed(2)} / ${sk.p95.toFixed(2)} / ${sk.max.toFixed(2)} |`,
       `| records scanned per seek (median / p95 / max) | ${sc.median} / ${sc.p95} / ${sc.max} |`,

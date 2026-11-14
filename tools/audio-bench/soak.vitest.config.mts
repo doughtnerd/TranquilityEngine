@@ -21,6 +21,8 @@ export default defineConfig({
   cacheDir: join(tmpdir(), "myco-capture-soak-vite"),
   plugins: [typescriptTranspile(), engineTypes()],
   oxc: false,
+  // The real-scene soak loads sample scripts (ADR 0031), which import the engine as "myco", as project scripts do.
+  resolve: { alias: { myco: fileURLToPath(new URL("../../src/myco.ts", import.meta.url)) } },
   test: {
     environment: "node",
     include: ["src/plugins/audio/**/*.soak.ts"],
