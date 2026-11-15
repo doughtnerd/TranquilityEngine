@@ -152,22 +152,7 @@ describe("refusals: what the parse would drop (§2.1, §2.2)", () => {
   });
 });
 
-describe("applyOpToDraft", () => {
-  it("writes the live keys over the authored section and keeps the rest as authored", () => {
-    const d = { audio: { voices: { mixed: 64 }, background: "pause", custom: 1 } };
-    const next = applyOpToDraft(d, { op: "setBus", bus: "Music", key: "volume", value: 0.5 });
-    const audio = next.audio as Record<string, unknown>;
-    expect(audio.voices).toEqual({ mixed: 64 });
-    expect(audio.custom).toBe(1);
-    expect((audio.buses as { name: string; volume: number }[]).find((b) => b.name === "Music")!.volume).toBe(0.5);
-    expect("loudnessTargets" in audio).toBe(false);
-  });
-  it("returns the draft itself when the op is refused or changes nothing", () => {
-    const d = { audio: undefined };
-    expect(applyOpToDraft(d, { op: "removeBus", bus: "Master" })).toBe(d);
-    expect(applyOpToDraft(d, { op: "setBus", bus: "Music", key: "volume", value: 1 })).toBe(d);
-  });
-});
+// applyOpToDraft's write-back (live keys over the authored section): `audioSection.test.ts` (ADR 0175).
 
 describe("diffOps across several edits", () => {
   it("lands on b through a root rename, a reordered list, swapped names and restart-only keys", () => {

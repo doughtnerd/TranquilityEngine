@@ -3,6 +3,7 @@
 import { useState } from "preact/hooks";
 import type { AudioBackground, AudioClipFormat, AudioSettings, AudioSpatialMode, BusBed, BusEffect, BusSettings, DuckingDetector, DuckingMode, DuckingRule } from "../../../engine/audio/settings";
 import { AMBISONIC_LIMITS, BED_LIMITS, BED_PRIORITY_LIMITS, BUS_BEDS, OCCLUSION_LIMITS, SPEED_OF_SOUND_LIMITS, ZONE_LIMITS, busBed, busBedPriority } from "../../../engine/audio/settings";
+import { atBusLimit } from "../../../engine/audio/busCapability";
 import { MATERIAL_LIMITS, MAX_MATERIALS, type OccluderMaterial } from "../../../engine/audio/occlusionMaterials";
 import {
   addLoudnessTarget,
@@ -218,7 +219,7 @@ function BusRow(props: { a: AudioSettings; bus: BusSettings; depth: number; plan
             ))}
           </select>
         )}
-        <button aria-label={`Add child bus to ${bus.name}`} disabled={a.buses.length >= MAX_BUSES} onClick={() => set(`Add bus under ${bus.name}`, addBus(draft, bus.name))}>
+        <button aria-label={`Add child bus to ${bus.name}`} disabled={atBusLimit(a)} onClick={() => set(`Add bus under ${bus.name}`, addBus(draft, bus.name))}>
           + child
         </button>
         {!isRoot && (

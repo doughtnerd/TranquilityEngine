@@ -11,6 +11,7 @@
 // rule leads. STATUS carries one gain per ducked bus (the min of its rules), not one per rule, so the lead is worked out
 // from the rules and what their triggers are doing: the engaged rule heading lowest, else (a release tail) the rule
 // heading lowest.
+import { reasonMessage } from "../../../../engine/audio/busCapability";
 import {
   DEFAULT_DUCK_DETECTOR,
   DEFAULT_DUCK_THRESHOLD,
@@ -25,8 +26,8 @@ import {
 
 export { DEFAULT_DUCK_DETECTOR, DEFAULT_DUCK_THRESHOLD, MAX_DUCK_RULES, MAX_LEVEL_RULES };
 
-/** What a level rule answers on a backend without level ducking (the Babylon fallback; `babylonBackend.NEEDS_AUDIO_CORE` says the same). */
-export const NEEDS_AUDIO_CORE = "Needs the audio core";
+/** What a level rule answers on a backend without level ducking (the Babylon fallback; ADR 0175's `needsAudioCore` reason). */
+export const NEEDS_AUDIO_CORE = reasonMessage("needsAudioCore");
 
 export const DUCK_MODES: readonly DuckingMode[] = ["presence", "level"];
 export const DUCK_DETECTORS: readonly DuckingDetector[] = ["peak", "rms"];

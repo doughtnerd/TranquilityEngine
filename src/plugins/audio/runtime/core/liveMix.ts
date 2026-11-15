@@ -1,5 +1,5 @@
 // ADR 0171 amended by 0172 (M5, contract K0; plan seam; task Ma1): the core backend's live-edit path (api-and-models
-// §6.1–§6.2, §6.6; architecture §3.2, §4.7). `CoreBackend.applyOp` routes every op here; `mixer.apply(op)` reaches it.
+// §6.1–§6.2, §6.6; architecture §3.2, §4.7). `mixer.apply(op)` sends every checked op here (`CoreBackend.mixOpTarget`, ADR 0175).
 //
 // - **Classes** (`opClass`, Mo1, against the mixer's running settings):
 //   - `direct`: authored volume (a `BUS_RAMP` on the `authored` lane, asap over `DRAG_RAMP_MS`) and mute (asap over the
@@ -13,19 +13,21 @@
 //     `bedPriority` (the bed plan again), `loudnessResetOnPlay` (the loudness hub).
 //   - `dip` (structural: move, remove, effect reorder or removal, an effect inserted before the end): Ma2's stamped
 //     sequence (`structuralDip.ts`): the model changes at once, the wire is one dip sequence from F0 = now + lookahead.
-//     A fifth effect inserted mid-chain still applies at the next Play. A direct `BUS_SLOT` for a slot whose structural
-//     change is pending is carried by, or stamped behind, that sequence (`StructuralDip.directSlot`).
-//   - `none`: a refused op (`ok: false`, counted) or one that changes nothing (`ok: true`: a commit re-applying what a
-//     preview already set).
+//     A direct `BUS_SLOT` for a slot whose structural change is pending is carried by, or stamped behind, that sequence
+//     (`StructuralDip.directSlot`).
+// - **The Mixer checks first** (ADR 0175, `Mixer.apply`): a refused op, one that changes nothing, and one past the core's
+//   bus capability rules (a fifth effect, a second compressor: kept, applies at the next Play; `busCapability.ts`) never
+//   reach `sendOp`; the Mixer tells `notSent`, which counts the refused and the kept ones.
 // - **Same batch.** Everything an op sends is staged in the command writer during `apply`, so it goes out with the
 //   frame's BATCH (or sooner with `flushNow`). Runtime state (script volume, fades, mutes, solo, the snapshot in force,
 //   monitor controls) is never touched.
 // - **The preview path** (a fader drag, R22): `mixer.apply` then `flushNow()`, which posts the staged batch at once, at
 //   most once per `FADER_COALESCE_MS`; a call inside the window posts when it ends.
-import { opClass, opRefusal, type ApplyResult, type MixOp } from "../../../../engine/audio/mixOps";
-import type { Mixer } from "../../../../engine/audio/mixer";
+import type { ApplyResult, MixOp } from "../../../../engine/audio/mixOps";
+import type { Mixer, MixOpTarget } from "../../../../engine/audio/mixer";
 import type { AudioSettings } from "../../../../engine/audio/settings";
-import { BUS_SLOT_MAX_EFFECTS, FADER_COALESCE_MS } from "../wire.generated";
+import { CORE_LIVE_CAPS, type LiveCaps, type SentClass } from "../../../../engine/audio/busCapability";
+import { FADER_COALESCE_MS } from "../wire.generated";
 import { hasAudioBackend } from "../backend";
 import { events } from "../events/eventRuntime";
 import { loudnessHub, type LoudnessHubConfig } from "../mix/loudnessHub";
@@ -35,21 +37,6 @@ import type { BusSlotWrite, LoudnessConfigWrite } from "../backend";
 import type { BusIndex } from "./busIndex";
 import type { CommandWriter } from "./commandWriter";
 import type { CoreAutomation } from "./coreAutomation";
-
-/** The answer of a structural op on a backend with no live path (the Mixer panel shows "Applies at the next Play: ..."). */
-export const RESTART_REQUIRED = "moving, removing or reordering buses and effects applies at the next Play";
-
-/** The answer of a fifth effect on a bus (`BUS_SLOT` carries at most `BUS_SLOT_MAX_EFFECTS`; architecture §4.7). */
-export const FIFTH_EFFECT = `a bus runs at most ${BUS_SLOT_MAX_EFFECTS} effects; the edit is saved and applies at the next Play, where only the first ${BUS_SLOT_MAX_EFFECTS} of the list run`;
-
-/** The answer of a second compressor on a bus (the core's chain runs one per bus, the first in the list; FU4, R10). */
-export const SECOND_COMPRESSOR = "a bus runs one compressor; the edit is saved and applies at the next Play, where only the first compressor of the list runs and the others are skipped";
-
-/** Whether `op` adds a compressor to a bus that would then hold two or more. */
-function addsSecondCompressor(before: AudioSettings, op: MixOp): boolean {
-  if (op.op !== "addEffect" || op.effect.type !== "compressor") return false;
-  return before.buses.find((b) => b.name === op.bus)!.effects.some((e) => e.type === "compressor");
-}
 
 /** What the live path needs of the loudness hub (`mix/loudnessHub.ts`). */
 export type LiveLoudness = { configure(cfg: LoudnessHubConfig): void; readonly tpGateDbfs: number };
@@ -94,9 +81,10 @@ function refreshEventAutomation(): void {
   if (hasAudioBackend()) events().syncSettings();
 }
 
-export class LiveMix {
+export class LiveMix implements MixOpTarget {
   /** Live edits refused or left for the next Play (`Audio.debug().mix.liveRefused`). */
   refused = 0;
+  readonly liveCaps: LiveCaps = CORE_LIVE_CAPS;
   /** Batches `flushNow` posted (tests and the gate's figures). */
   posts = 0;
   private lastPostMs = Number.NEGATIVE_INFINITY;
@@ -143,21 +131,18 @@ export class LiveMix {
     return as;
   }
 
-  /** One op on the running mix (§6.2); see the header for what each class sends. */
-  apply(op: MixOp): ApplyResult {
+  /** `Mixer.apply` refused the op or kept it for the next Play: counted. */
+  notSent(): void {
+    this.refused++;
+  }
+
+  /** One checked op of class `cls` on the running mix (§6.2; `Mixer.apply` sends it); see the header for what each class sends. */
+  sendOp(op: MixOp, cls: SentClass): ApplyResult {
     const host = this.host;
     const mixer = host.mixer();
     const before = mixer.audioSettings;
-    if (opRefusal(before, op) !== null) {
-      this.refused++;
-      return { ok: false, class: "none" };
-    }
-    const cls = opClass(op, before);
-    if (cls === "none") return { ok: true, class: "none" };
     const buses = host.buses();
-    if (addsSecondCompressor(before, op)) return this.later(cls, SECOND_COMPRESSOR);
     if (cls === "dip") {
-      if (op.op === "addEffect" && before.buses.find((b) => b.name === op.bus)!.effects.length >= BUS_SLOT_MAX_EFFECTS) return this.later(cls, FIFTH_EFFECT);
       const r = host.dip.apply(op);
       if (!r.ok) {
         this.refused++;
@@ -176,14 +161,13 @@ export class LiveMix {
         host.dip.recycle(); // R9: a tombstone past its tail frees its slot first
         const slot = buses.addBus(name, parent);
         // R10: no free slot (a removed bus is still fading out): the edit is kept, queued, and applies at the recycle.
-        if (typeof slot !== "number") return host.deferred.defer(op, slot.deferred);
+        if (typeof slot !== "number") return host.deferred.defer(op);
         mixer._applyLive(op, slot);
         buses.writeSlot(name, true);
         buses.writeLimits();
         break;
       }
       case "addEffect":
-        if (before.buses.find((b) => b.name === op.bus)!.effects.length >= BUS_SLOT_MAX_EFFECTS) return this.later(cls, FIFTH_EFFECT);
         mixer._applyLive(op);
         this.slotEdited(op.bus);
         break;
@@ -277,12 +261,6 @@ export class LiveMix {
     const buses = this.host.buses();
     const stamp = this.host.dip.directSlot(buses.slotOf(bus));
     if (stamp !== null) buses.writeSlot(bus, false, stamp);
-  }
-
-  /** An op left for later: counted, the edit stays saved, the message says when it applies. */
-  private later(cls: ApplyResult["class"], message: string): ApplyResult {
-    this.refused++;
-    return { ok: false, class: cls, restartRequired: message };
   }
 
   /**

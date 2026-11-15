@@ -4,7 +4,7 @@
 // time so the rest keeps its layout.
 import { defaultSettings, pluginSettingsProblems, SCALE_MODES, type ProjectSettings, type ProjectSettingsInput } from "../engine/core/settings";
 import { defaultTier, parseGraphics, PLATFORMS, type GraphicsSettings, type Platform, type PlatformDefaults, type QualityTier } from "../engine/core/graphics";
-import { parseAudioSettings } from "../engine/audio/settings";
+import { audioSection } from "../engine/audio/audioSection";
 import { projectSettingsSections } from "./sdk/contributions";
 import { uniqueName, withMember } from "./worldsConfig";
 
@@ -287,7 +287,7 @@ export function settingsProblems(draft: SettingsDraft, files?: readonly string[]
   }
 
   for (const message of parseGraphics(draft.graphics).problems) p("graphics", message);
-  for (const message of parseAudioSettings(draft.audio).problems) p("audio", message);
+  for (const message of audioSection(draft.audio).problems) p("audio", message);
 
   for (const message of pluginSettingsProblems(draft.plugins).problems) p("plugins", message);
 
@@ -311,8 +311,8 @@ export function settingsProblems(draft: SettingsDraft, files?: readonly string[]
 export function settingsWarnings(draft: SettingsDraft, knownPlugins?: readonly string[]): string[] {
   const out: string[] = [];
   out.push(...pluginSettingsProblems(draft.plugins, knownPlugins).warnings);
-  // G9b: a bus with more effects than the audio core runs saves (R10); the note says what the core skips.
-  out.push(...parseAudioSettings(draft.audio).warnings);
+  // G9b: a bus rule breach that saves (R10, `busCapability.ts`); the same parse as `settingsProblems` (`audioSection`).
+  out.push(...audioSection(draft.audio).warnings);
   if (!sortingLayersOf(draft).includes("Default")) out.push('There\'s no "Default" sorting layer, which sprites use unless they name another.');
   return out;
 }

@@ -4,7 +4,7 @@
 // takes a freed slot for the oldest at the same `recycle` that frees it; this queue keeps the op each one came from, so
 // the main-side half of the add (the mixer's model, the slot's `BUS_SLOT` as `fresh`, the voice limits, the bed plan
 // and the lanes) is done at that moment, exactly as for an add that found a slot at once. A fifth effect on a bus is not
-// queued: it answers `restartRequired` ("applies at the next Play", `liveMix.ts`).
+// queued: the Mixer keeps it for the next Play (`busCapability.ts`, ADR 0175).
 //
 // - `LiveMix.apply` hands an add the table deferred to `defer`; `LiveMix` binds this to the backend's closures.
 // - `retry` runs at every tombstone recycle (`LiveMix` wraps the dip's `recycle`, so the per-frame update, a structural
@@ -37,15 +37,15 @@ export class DeferredAdds {
     this.host = host;
   }
 
-  /** An add that found no free slot: kept, answers `deferred` with the message (the edit is saved, so this is not a refusal). */
-  defer(op: MixOp, message: string): ApplyResult {
+  /** An add that found no free slot: kept, answers `waitsForSlot` (the edit is saved, so this is not a refusal). */
+  defer(op: MixOp): ApplyResult {
     if (op.op === "addBus") {
       const name = op.name.trim();
       // The same name asked again while it waits is the same add (the table updates its parent); counted once.
       if (!this.ops.has(name)) this.count++;
       this.ops.set(name, op);
     }
-    return { ok: true, class: "direct", deferred: message };
+    return { ok: true, class: "direct", reason: "waitsForSlot" };
   }
 
   /**

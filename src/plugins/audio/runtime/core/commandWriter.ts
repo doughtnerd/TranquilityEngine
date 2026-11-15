@@ -536,7 +536,9 @@ export class CommandWriter implements VoiceCommandSink {
 
   /**
    * ADR 0171 §4.2 BUS_SLOT: one slot's configuration (R7), stamped at `atFrame` or asap. A tombstone is a silent root
-   * (R9). The record's size is 28 B + 32 B per effect (at most `BUS_SLOT_MAX_EFFECTS`; more are not written).
+   * (R9). The record's size is 28 B + 32 B per effect (at most `BUS_SLOT_MAX_EFFECTS`; more are not written). The wire
+   * guard only: whether a fifth effect is a warning, kept for the next Play or refused is `busCapability.ts`'s rule
+   * (ADR 0175; `busCapability.table.test.ts` holds its limit equal to this one).
    */
   busSlot(args: BusSlotArgs, atFrame?: number): void {
     const r = this.slotRec;

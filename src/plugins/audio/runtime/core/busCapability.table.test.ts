@@ -1,0 +1,123 @@
+// ADR 0175: one row per bus capability rule, asserting together what used to be checked in several places: the parse's
+// severity and text, Project Settings' problems and warnings, the live answer on the core (`LiveMix` through
+// `mixer.apply`, counted) and on the fallback's capabilities, and the one message. The wire's `BUS_SLOT_MAX_EFFECTS` is
+// held equal to the rule's limit here, from the plugin side (the engine can't import the wire).
+import { describe, expect, it } from "vitest";
+import {
+  BUS_RULES, FALLBACK_LIVE_CAPS, MAX_BUSES, MAX_CORE_BUS_EFFECTS, atBusLimit, reasonMessage, type BusRule,
+} from "../../../../engine/audio/busCapability";
+import { Mixer, type MixOpTarget } from "../../../../engine/audio/mixer";
+import { opRefusal, type ApplyResult, type MixOp } from "../../../../engine/audio/mixOps";
+import { parseAudioSettings, type BusEffect } from "../../../../engine/audio/settings";
+import { settingsProblems, settingsWarnings } from "../../../../editor/projectSettingsModel";
+import { BUS_SLOT_MAX_EFFECTS } from "../wire.generated";
+import { CoreBackend } from "./coreBackend";
+
+/** A core backend with a recording link (no wasm) over its own mixer holding `audio`. */
+function coreRig(audio: object) {
+  const mixer = new Mixer(parseAudioSettings(audio).settings);
+  const link = { batchPool: { acquire: () => new ArrayBuffer(64 * 1024), release() {} }, nextSeq: () => 1, post() {}, onStatus: () => () => {}, statusDecoder: null };
+  const host = { link, status: "running" as const, preset: { maxLogical: 16 }, worldCount: 1, sampleRate: 48_000, addLifecycleListener: () => () => {} };
+  const clock = { rafTime: () => 0, outputTimestamp: () => ({ contextTime: 0, performanceTime: 0 }), currentTime: () => 0, dateNow: () => 0, fake: true as const };
+  const clips = { acquire: () => 1, release() {}, state: () => "ready", info: () => null, onResident: () => () => {}, releaseWorld() {}, applyClipEvent() {}, residentIds: () => [], acquireReserved() {} };
+  const backend = new CoreBackend(host as never, { clips: clips as never, clock: clock as never, mixer });
+  return { backend, mixer };
+}
+
+/** The fallback's answers: a mixer whose target has `FALLBACK_LIVE_CAPS` and applies what it is sent. */
+function fallbackApply(audio: object, op: MixOp): ApplyResult {
+  const mixer = new Mixer(parseAudioSettings(audio).settings);
+  const target: MixOpTarget = { liveCaps: FALLBACK_LIVE_CAPS, sendOp: (o, cls) => (mixer._applyLive(o), { ok: true, class: cls }) };
+  mixer._setOpTarget(target);
+  return mixer.apply(op);
+}
+
+const lp: BusEffect = { type: "lowpass", frequency: 1000, q: 1 };
+const comp: BusEffect = { type: "compressor", threshold: -24, knee: 30, ratio: 12, attack: 0.003, release: 0.25 };
+const bus = (effects: BusEffect[]) => ({ buses: [{ name: "Master" }, { name: "Fx", parent: "Master", effects }] });
+const many = (n: number) => ({ buses: [{ name: "Master" }, ...Array.from({ length: n - 1 }, (_, i) => ({ name: `B${i + 1}`, parent: "Master" }))] });
+
+interface Row {
+  rule: BusRule;
+  /** A section past the limit (the parse's case), and its finding. */
+  over: object;
+  finding: string;
+  /** A section at the limit and the ops that take it past (each with the class the core answers). */
+  at: object;
+  ops: [MixOp, ApplyResult["class"]][];
+}
+
+const ROWS: Row[] = [
+  {
+    rule: "busCount",
+    over: many(MAX_BUSES + 1),
+    finding: `audio.buses: at most ${MAX_BUSES} buses; the rest are ignored.`,
+    at: many(MAX_BUSES),
+    ops: [[{ op: "addBus", name: "Late", parent: "Master" }, "none"]],
+  },
+  {
+    rule: "effectsPerBus",
+    over: bus([lp, lp, lp, lp, lp]),
+    finding: `audio.buses[1]: a bus runs at most ${MAX_CORE_BUS_EFFECTS} effects; the edit is saved and applies at the next Play, where only the first ${MAX_CORE_BUS_EFFECTS} of the list run.`,
+    at: bus([lp, lp, comp, lp]),
+    ops: [[{ op: "addEffect", bus: "Fx", index: 4, effect: lp }, "direct"], [{ op: "addEffect", bus: "Fx", index: 0, effect: lp }, "dip"]],
+  },
+  {
+    rule: "compressorsPerBus",
+    over: bus([comp, comp]),
+    finding: "audio.buses[1]: a bus runs one compressor; the edit is saved and applies at the next Play, where only the first compressor of the list runs and the others are skipped.",
+    at: bus([comp]),
+    ops: [[{ op: "addEffect", bus: "Fx", index: 1, effect: comp }, "direct"], [{ op: "addEffect", bus: "Fx", index: 0, effect: comp }, "dip"]],
+  },
+];
+
+describe("bus capability rules (ADR 0175)", () => {
+  it("the core's effect limit is the wire's BUS_SLOT_MAX_EFFECTS", () => {
+    expect(MAX_CORE_BUS_EFFECTS).toBe(BUS_SLOT_MAX_EFFECTS);
+    expect(BUS_RULES.effectsPerBus.limit).toBe(BUS_SLOT_MAX_EFFECTS);
+  });
+
+  it("covers every rule", () => {
+    expect(ROWS.map((r) => r.rule).sort()).toEqual(Object.keys(BUS_RULES).sort());
+  });
+
+  it.each(ROWS)("$rule: parse severity, Project Settings, the live answer on the core and the fallback, and the message", ({ rule, over, finding, at, ops }) => {
+    const spec = BUS_RULES[rule];
+    // The parse: a problem drops the rest; a warning keeps the section as authored (R10).
+    const parsed = parseAudioSettings(over);
+    expect(spec.parse === "problem" ? parsed.problems : parsed.warnings).toEqual([finding]);
+    expect(spec.parse === "problem" ? parsed.warnings : parsed.problems).toEqual([]);
+    expect(finding).toContain(spec.message);
+    // Project Settings: a problem holds the draft unsaved; a warning doesn't.
+    const draft = { audio: over as Record<string, unknown> };
+    expect(settingsProblems(draft).map((p) => p.message).includes(finding)).toBe(spec.parse === "problem");
+    expect(settingsWarnings(draft).includes(finding)).toBe(spec.parse === "warning");
+    // At the limit nothing is reported.
+    expect(parseAudioSettings(at)).toMatchObject({ problems: [], warnings: [] });
+
+    for (const [op, cls] of ops) {
+      const { backend, mixer } = coreRig(at);
+      const before = mixer.audioSettings;
+      const r = mixer.apply(op);
+      expect(mixer.audioSettings, "the running model is untouched").toBe(before);
+      expect(backend.liveMix.refused, "counted").toBe(1);
+      const fallback = fallbackApply(at, op);
+      if (spec.live === "refused") {
+        expect(r).toEqual({ ok: false, class: "none" });
+        expect(opRefusal(before, op)).toBe(`${spec.message[0]!.toUpperCase()}${spec.message.slice(1)}.`);
+        expect(fallback).toEqual({ ok: false, class: "none" });
+      } else {
+        expect(r).toEqual({ ok: false, class: cls, reason: rule });
+        expect(reasonMessage(r.reason!)).toBe(spec.message);
+        // Only the core has the limit: the fallback runs every effect.
+        expect(fallback).toEqual(spec.coreOnly ? { ok: true, class: cls } : r);
+      }
+      backend.dispose();
+    }
+  });
+
+  it("the Section's add-bus buttons follow the bus count rule", () => {
+    expect(atBusLimit(parseAudioSettings(many(MAX_BUSES - 1)).settings)).toBe(false);
+    expect(atBusLimit(parseAudioSettings(many(MAX_BUSES)).settings)).toBe(true);
+  });
+});

@@ -517,11 +517,11 @@ test("M5c: Compare plays the saved mix from Play start with the faders locked, s
 /** `mixer.apply(op)` as the editor's section hook does it, through the core backend the page holds (reached through a voice). */
 const applyOp = (page: Page, op: object) =>
   page.evaluate((o) => {
-    type Backend = { applyOp(op: object): { ok: boolean; class: string; deferred?: string; restartRequired?: string } };
+    type Backend = { mixer: { apply(op: object): { ok: boolean; class: string; reason?: string } } };
     type Voice = { backend?: Backend; inner?: { backend?: Backend } };
     const A = (globalThis as unknown as { __myco: { Audio: { playOneShot(c: string, o?: object): { voice?: Voice } } } }).__myco.Audio;
     const v = A.playOneShot("audio/loudness-reference.wav", { volume: 0.0001, bus: "UI" }).voice;
-    return (v?.backend ?? v?.inner?.backend)!.applyOp(o);
+    return (v?.backend ?? v?.inner?.backend)!.mixer.apply(o);
   }, op);
 
 const FX4: MixBus = { name: "Fx", parent: "Master", effects: [{ type: "lowpass", frequency: 18000, q: 1 }, { type: "highpass", frequency: 20, q: 1 }, { type: "compressor", threshold: -24, knee: 30, ratio: 8, attack: 0.003, release: 0.25 }, { type: "reverb", send: 0.2 }] };
@@ -648,7 +648,7 @@ test("M5c: a fifth effect is refused live with the message that it applies at th
     const refused = (await dbg(page)).mix.liveRefused;
     const r = await applyOp(page, { op: "addEffect", bus: "Fx", index: 4, effect: { type: "lowpass", frequency: 8000, q: 1 } });
     expect(r.ok).toBe(false);
-    expect(r.restartRequired).toMatch(/a bus runs at most 4 effects; the edit is saved and applies at the next Play, where only the first 4 of the list run/);
+    expect(r.reason).toBe("effectsPerBus"); // ADR 0175: "a bus runs at most 4 effects; the edit is saved and applies at the next Play, ..."
     expect((await dbg(page)).mix.liveRefused).toBe(refused + 1);
   });
   expect(errors).toEqual([]);
@@ -661,20 +661,20 @@ test("M5c: an add that finds no free slot is deferred (kept, and live at the nex
   await playLiveMix(page);
   await audioFor(page, 0.5);
   const r = await page.evaluate(() => {
-    type Res = { ok: boolean; class: string; deferred?: string };
-    type Backend = { applyOp(op: object): Res };
+    type Res = { ok: boolean; class: string; reason?: string };
+    type Backend = { mixer: { apply(op: object): Res } };
     type Voice = { backend?: Backend; inner?: { backend?: Backend } };
     const A = (globalThis as unknown as { __myco: { Audio: { playOneShot(c: string, o?: object): { voice?: Voice } } } }).__myco.Audio;
     const v = A.playOneShot("audio/loudness-reference.wav", { volume: 0.0001, bus: "B01" }).voice;
     const b = (v?.backend ?? v?.inner?.backend)!;
     // One task: the removed bus is a tombstone still holding its slot when the add arrives.
-    const removed = b.applyOp({ op: "removeBus", bus: "B31" });
-    const added = b.applyOp({ op: "addBus", name: "Late", parent: "Master" });
+    const removed = b.mixer.apply({ op: "removeBus", bus: "B31" });
+    const added = b.mixer.apply({ op: "addBus", name: "Late", parent: "Master" });
     return { removed, added };
   });
   expect(r.removed.ok).toBe(true);
   expect(r.added.ok, "kept, not refused").toBe(true);
-  expect(r.added.deferred).toMatch(/free bus slot/);
+  expect(r.added.reason).toBe("waitsForSlot");
   await expect.poll(async () => (await dbg(page)).mix.liveDeferred, { timeout: 10_000 }).toBeGreaterThanOrEqual(1);
   await expect.poll(async () => (await dbg(page)).mix.slots.find((s) => s.name === "Late")?.state, { timeout: 30_000, message: "the deferred add is live after the recycle" }).toBe("live");
   expect((await dbg(page)).mix.liveRefused).toBe(0);

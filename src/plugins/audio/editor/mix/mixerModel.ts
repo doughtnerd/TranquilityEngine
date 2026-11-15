@@ -13,7 +13,8 @@
 // marking the project dirty. The fader's dB taper (`faderModel.ts`) and the meters' hold and clip latch (`meterModel.ts`)
 // join in the view; the strip carries the fader value as the linear authored number and the meter as plain numbers.
 import { applyOpToDraft, applyOpToSettings, invert, type ApplyResult, type MixOp } from "../../../../engine/audio/mixOps";
-import { parseAudioSettings, type AudioSettings, type BusSettings } from "../../../../engine/audio/settings";
+import type { AudioSettings, BusSettings } from "../../../../engine/audio/settings";
+import { audioSection } from "../../../../engine/audio/audioSection";
 import { EMPTY_BUS_LOUDNESS, type BusLoudness } from "../../../../engine/audio/loudnessTypes";
 import type { SettingsDraft } from "../../../../editor/sdk";
 import { recordMixOps } from "./opLog";
@@ -163,7 +164,7 @@ export interface MixerHost {
   setMonitor?(bus: string, controls: { mute?: boolean; solo?: boolean }): void;
 }
 
-const audioOf = (d: SettingsDraft): AudioSettings => parseAudioSettings(d.audio).settings;
+const audioOf = (d: SettingsDraft): AudioSettings => audioSection(d.audio).settings;
 const volumeOp = (bus: string, value: number): MixOp => ({ op: "setBus", bus, key: "volume", value });
 
 interface Drag {

@@ -4,9 +4,9 @@
 // drag in progress) never enter the history, so they never come through here.
 //
 // The ops of an edit are the ones it recorded (`recordMixOps`, filled by `audioEdit`), else `diffOps(before, after)`.
-// Until Ma1 fills `applyOp`, every op answers `restartRequired`; the log keeps the answer.
+// The mixer answers each op (ADR 0175: `ApplyResult.reason`, a closed set; `reasonMessage` is its text); the log keeps the answer.
 import { diffOps, type ApplyResult, type MixOp, type MixOpEntry } from "../../../../engine/audio/mixOps";
-import { parseAudioSettings } from "../../../../engine/audio/settings";
+import { audioSection } from "../../../../engine/audio/audioSection";
 import { editor, type SectionChange } from "../../../../editor/sdk";
 
 /** What the log needs of the mixer: the play Engine's `mixer.apply`. */
@@ -67,7 +67,7 @@ export function opsOf(change: Pick<SectionChange, "before" | "after" | "cause">)
   if (tag && change.cause !== "external" && (tag.base === undefined || tag.base === other)) {
     return { ops: [...(undo ? tag.entry.inverse : tag.entry.ops)], source: "recorded", restartRequired: [] };
   }
-  const d = diffOps(parseAudioSettings(change.before).settings, parseAudioSettings(change.after).settings);
+  const d = diffOps(audioSection(change.before).settings, audioSection(change.after).settings);
   return { ops: d.ops, source: "diff", restartRequired: d.restartRequired };
 }
 

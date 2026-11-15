@@ -14,7 +14,8 @@
  * bus, the same number as before the split for the same inputs, re-sent on every frame a ramp moves.
  */
 import { defaultAudioSettings, MASTER, type AudioSettings, type BusEffect, type BusSettings } from "./settings";
-import { applyOpToSettings, type MixOp, type ApplyResult } from "./mixOps";
+import { applyOpToSettings, opClass, opRefusal, type MixOp, type ApplyResult } from "./mixOps";
+import { liveRuleAnswer, unsupportedAnswer, type LiveCaps, type SentClass } from "./busCapability";
 import { LoudnessView, EMPTY_BUS_LOUDNESS, type BusLoudness, type LoudnessSource } from "./loudnessTypes";
 
 /** What a backend applies for one bus. */
@@ -149,8 +150,22 @@ export interface MixerTap {
   monitor(muted: number, soloed: number): void;
 }
 
-/** What `mixer.apply` delegates to: the backend's `applyOp` (K0 declares it on `AudioBackend`, optional). */
-export interface MixOpTarget { applyOp?(op: MixOp): ApplyResult }
+/**
+ * What `mixer.apply` sends a checked op to (ADR 0175): the backend's live path (`AudioBackend.mixOpTarget`: the core's
+ * `LiveMix`, the fallback's `sendOp`). The Mixer does the rest: the refusal, the class, a no-op, the bus capability
+ * rules against `liveCaps`, and the answer for a feature the target doesn't run.
+ */
+export interface MixOpTarget {
+  /** What the target runs (`busCapability.ts`: `CORE_LIVE_CAPS`, `FALLBACK_LIVE_CAPS`). */
+  readonly liveCaps: LiveCaps;
+  /**
+   * Send one op the Mixer has checked against this mixer's settings: not refused, changing something, of class `cls`,
+   * within the target's capability rules. The target changes the model (`_applyLive`) and sends what moved.
+   */
+  sendOp(op: MixOp, cls: SentClass): ApplyResult;
+  /** An op the Mixer refused or kept for the next Play without sending it (the core's `liveRefused` counter). */
+  notSent?(r: ApplyResult): void;
+}
 
 /** A bus, as game code sees it: `Audio.bus("Music").volume = 0.5`. Unknown names give an inert bus. */
 export class Bus {
@@ -318,13 +333,30 @@ export class Mixer {
 
   /**
    * Apply an edit while the project plays (§6): the editor's live path. Unlike `configure` it keeps every script value.
-   * Delegates to the backend's `applyOp`, which classifies the op, changes this model through `_applyLive` (authored
-   * values, rules, snapshots; runtime state stays) and sends what moved to the core (Ma1, `core/liveMix.ts`). A backend
-   * with no live path answers `restartRequired`: the edit is saved and applies at the next Play.
+   * The pipeline (ADR 0175), in order: no target answers `noLiveBackend` (the edit is saved and applies at the next
+   * Play); an op `opRefusal` refuses answers `{ ok: false, class: "none" }`; one that changes nothing `{ ok: true,
+   * class: "none" }`; one past a capability rule of the target (`liveRuleAnswer`) is kept for the next Play; anything
+   * else goes to the target's `sendOp`, which changes this model through `_applyLive` (authored values, rules,
+   * snapshots; runtime state stays) and sends what moved (Ma1, `core/liveMix.ts`). A sent op the target can't run
+   * (`unsupportedAnswer`: a level ducking rule on the fallback) is kept in the model and answers its reason.
    */
   apply(op: MixOp): ApplyResult {
-    const r = this.opTarget?.applyOp?.(op);
-    return r ?? { ok: false, class: "none", restartRequired: "no live audio backend" };
+    const target = this.opTarget;
+    if (!target) return { ok: false, class: "none", reason: "noLiveBackend" };
+    const before = this.settings;
+    if (opRefusal(before, op) !== null) return this.notSent(target, { ok: false, class: "none" });
+    const cls = opClass(op, before);
+    if (cls === "none") return { ok: true, class: "none" };
+    const later = liveRuleAnswer(before, op, target.liveCaps);
+    if (later !== null) return this.notSent(target, { ok: false, class: cls, reason: later });
+    const r = target.sendOp(op, cls);
+    const unsupported = r.ok && r.class !== "none" ? unsupportedAnswer(op, target.liveCaps) : null;
+    return unsupported === null ? r : { ok: false, class: r.class, reason: unsupported };
+  }
+
+  private notSent(target: MixOpTarget, r: ApplyResult): ApplyResult {
+    target.notSent?.(r);
+    return r;
   }
 
   /**

@@ -8,7 +8,8 @@ import type { MixOp } from "../../../engine/audio/mixOps";
 import { parseAudioSettings } from "../../../engine/audio/settings";
 import { babylonMock, makeFakeContext, type MockBus, type MockEngine } from "../testing/babylonMocks";
 import { setAudioBackend, type PlayRequest } from "./backend";
-import { BabylonBackend, NEEDS_AUDIO_CORE } from "./babylonBackend";
+import { BabylonBackend } from "./babylonBackend";
+import { reasonMessage } from "../../../engine/audio/busCapability";
 
 vi.mock("@babylonjs/core/AudioV2/webAudio/webAudioEngine", async () => (await import("../testing/babylonMocks")).webAudioEngineModule);
 
@@ -46,7 +47,7 @@ function newBackend(): BabylonBackend {
     visibility: null,
   });
   made.push(b);
-  setAudioBackend(b); // `mixer.apply(op)` reaches the backend's `applyOp`
+  setAudioBackend(b); // `mixer.apply(op)` sends to the backend's `mixOpTarget`
   mixer.onChange(() => b.applyMix(mixer.resolveAll()));
   return b;
 }
@@ -177,8 +178,8 @@ describe("BabylonBackend level ducking rules (§9 Ducking)", () => {
 
   it("answers as needing the audio core, with the design's message", async () => {
     await rig();
-    expect(NEEDS_AUDIO_CORE).toBe("Needs the audio core");
-    expect(mixer.apply(level)).toEqual({ ok: false, class: "direct", restartRequired: "Needs the audio core" });
+    expect(mixer.apply(level)).toEqual({ ok: false, class: "direct", reason: "needsAudioCore" });
+    expect(reasonMessage("needsAudioCore")).toBe("Needs the audio core");
   });
 
   it("does nothing: the level rule never ducks, while a presence rule beside it still does", async () => {
@@ -202,7 +203,7 @@ describe("BabylonBackend level ducking rules (§9 Ducking)", () => {
     mixer.update(1);
     expect(bus("Music").volume).toBeCloseTo(0.4);
     const r = mixer.apply({ op: "setDucking", index: 0, rule: { trigger: "SFX", target: "Music", mode: "level", detector: "rms", threshold: -30, amount: 0.4, attack: 0.1, release: 0.1 } });
-    expect(r.restartRequired).toBe(NEEDS_AUDIO_CORE);
+    expect(r.reason).toBe("needsAudioCore");
     mixer.update(1);
     expect(bus("Music").volume).toBeCloseTo(1);
   });

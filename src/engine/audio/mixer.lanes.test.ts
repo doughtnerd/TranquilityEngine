@@ -8,6 +8,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { Lane, Mixer } from "./mixer";
 import type { MixOp } from "./mixOps";
+import { CORE_LIVE_CAPS } from "./busCapability";
 import { EMPTY_BUS_LOUDNESS, type BusLoudness } from "./loudnessTypes";
 import { defaultAudioSettings, MASTER, type AudioSettings, type BusSettings, type DuckingRule, type SnapshotSettings } from "./settings";
 
@@ -528,7 +529,7 @@ describe("Mixer lanes on the heard clock (Mx1)", () => {
       warn.mockRestore();
     });
 
-    it("apply delegates to the registered target's applyOp and keeps script state", () => {
+    it("apply delegates to the registered target's sendOp and keeps script state", () => {
       const { m, run } = rig(settings(TREE()));
       const music = m.bus("Music");
       const op: MixOp = { op: "setBus", bus: "Music", key: "volume", value: 0.6 };
@@ -539,7 +540,7 @@ describe("Mixer lanes on the heard clock (Mx1)", () => {
       run(12);
       const before = music.volume;
       const seen: MixOp[] = [];
-      m._setOpTarget({ applyOp: (o) => { seen.push(o); return { ok: true, class: "direct" }; } });
+      m._setOpTarget({ liveCaps: CORE_LIVE_CAPS, sendOp: (o) => { seen.push(o); return { ok: true, class: "direct" }; } });
       expect(m.apply(op)).toEqual({ ok: true, class: "direct" });
       expect(seen).toEqual([op]);
       expect(music.volume).toBe(before); // the apply kept the running fade

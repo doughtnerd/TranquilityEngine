@@ -11,6 +11,7 @@ import { onSectionChanged } from "../../../../editor/sectionChanged";
 import { closeTestProject, openTestProject } from "../../../../editor/testing";
 import { EMPTY_BUS_LOUDNESS, type LoudnessResetWhat } from "../../../../engine/audio/loudnessTypes";
 import { applyOpToSettings, type ApplyResult, type MixOp } from "../../../../engine/audio/mixOps";
+import { reasonMessage } from "../../../../engine/audio/busCapability";
 import { parseAudioSettings, type AudioSettings } from "../../../../engine/audio/settings";
 import { MixerChrome } from "./MixerPanel";
 import type { BusReading } from "./mixerModel";
@@ -120,12 +121,13 @@ describe("the banners (pure)", () => {
   it("restartMessages: each message once, from the results and the diff's keys, only for entries after the baseline", () => {
     const entry = (seq: number, results: ApplyResult[], restartRequired: string[] = []): OpLogEntry => ({ seq, cause: "edit", source: "recorded", ops: [], results, restartRequired });
     const entries = [
-      entry(1, [{ ok: false, class: "none", restartRequired: "old" }]),
-      entry(2, [{ ok: false, class: "none", restartRequired: "voices" }, { ok: true, class: "direct" }]),
-      entry(3, [{ ok: false, class: "none", restartRequired: "voices" }], ["backend"]),
+      entry(1, [{ ok: false, class: "dip", reason: "structuralUnavailable" }]),
+      entry(2, [{ ok: false, class: "none", reason: "noLiveBackend" }, { ok: true, class: "direct" }, { ok: true, class: "direct", reason: "waitsForSlot" }, { ok: false, class: "none" }]),
+      entry(3, [{ ok: false, class: "none", reason: "noLiveBackend" }], ["backend"]),
     ];
-    expect(restartMessages(entries, 1)).toEqual(["voices", "backend"]);
-    expect(restartMessages(entries, 0)).toEqual(["old", "voices", "backend"]);
+    // Messages come from the reason (`reasonMessage`); a deferred add (ok) and a refusal (no reason) are not next-Play edits.
+    expect(restartMessages(entries, 1)).toEqual([reasonMessage("noLiveBackend"), "backend"]);
+    expect(restartMessages(entries, 0)).toEqual([reasonMessage("structuralUnavailable"), reasonMessage("noLiveBackend"), "backend"]);
     expect(restartMessages(entries, 3, ["mine"])).toEqual(["mine"]);
   });
 
@@ -156,15 +158,15 @@ describe("every banner on fixtures, through the controller", () => {
     const r = rig();
     r.play();
     expect(bannerIds(r.c.view())).toEqual([]);
-    r.log.entries.push({ seq: 1, cause: "edit", source: "recorded", ops: [], results: [{ ok: false, class: "none", restartRequired: "voice limits" }], restartRequired: [] });
+    r.log.entries.push({ seq: 1, cause: "edit", source: "recorded", ops: [], results: [{ ok: false, class: "direct", reason: "effectsPerBus" }], restartRequired: [] });
     r.log.entries.push({ seq: 2, cause: "undo", source: "diff", ops: [], results: [], restartRequired: ["backend"] });
     const v = r.c.view();
     expect(v.banners.filter((b) => b.id === "restart").map((b) => b.text)).toEqual([
-      "Applies at the next Play: voice limits. The edit is saved.",
+      `Applies at the next Play: ${reasonMessage("effectsPerBus")}. The edit is saved.`,
       "Applies at the next Play: backend. The edit is saved.",
     ]);
     // A fader preview the mixer can't serve live (no live backend) says the same.
-    r.answer("setBus", { ok: false, class: "none", restartRequired: "no live audio backend" });
+    r.answer("setBus", { ok: false, class: "none", reason: "noLiveBackend" });
     expect(r.c.stripModel.beginDrag("sfx")).toBe(true);
     r.c.stripModel.drag(0.4);
     r.c.stripModel.cancelDrag();
@@ -173,10 +175,10 @@ describe("every banner on fixtures, through the controller", () => {
 
   it("entries from before this Play don't show; Stop clears the banner", () => {
     const r = rig();
-    r.log.entries.push({ seq: 4, cause: "edit", source: "recorded", ops: [], results: [{ ok: false, class: "none", restartRequired: "earlier" }], restartRequired: [] });
+    r.log.entries.push({ seq: 4, cause: "edit", source: "recorded", ops: [], results: [{ ok: false, class: "none", reason: "noLiveBackend" }], restartRequired: [] });
     r.play();
     expect(bannerIds(r.c.view())).toEqual([]);
-    r.log.entries.push({ seq: 5, cause: "edit", source: "recorded", ops: [], results: [{ ok: false, class: "none", restartRequired: "later" }], restartRequired: [] });
+    r.log.entries.push({ seq: 5, cause: "edit", source: "recorded", ops: [], results: [{ ok: false, class: "none", reason: "noLiveBackend" }], restartRequired: [] });
     expect(bannerIds(r.c.view())).toEqual(["restart"]);
     r.play(false);
     expect(bannerIds(r.c.view())).toEqual([]);
@@ -226,7 +228,7 @@ describe("every banner on fixtures, through the controller", () => {
   it("all four at once", () => {
     const r = rig({ audio: { ...AUDIO, buses: [{ name: "master" }, { name: "sfx", parent: "master", effects: [{ type: "nope" }] }, { name: "music", parent: "master", meter: "loudness" }] } });
     r.play();
-    r.log.entries.push({ seq: 1, cause: "edit", source: "recorded", ops: [], results: [{ ok: false, class: "none", restartRequired: "voice limits" }], restartRequired: [] });
+    r.log.entries.push({ seq: 1, cause: "edit", source: "recorded", ops: [], results: [{ ok: false, class: "direct", reason: "effectsPerBus" }], restartRequired: [] });
     r.c.stripModel.toggleSolo("music", false);
     r.c.toggleCompare();
     expect([...new Set(bannerIds(r.c.view()))]).toEqual(["problem", "restart", "monitor", "compare"]);
@@ -671,13 +673,13 @@ describe("the chrome", () => {
   it("every banner is rendered with its id, severity and text", () => {
     const r = rig({ audio: { ...AUDIO, buses: [{ name: "master" }, { name: "sfx", parent: "master", effects: [{ type: "nope" }] }, { name: "music", parent: "master", meter: "loudness" }] } });
     r.play();
-    r.log.entries.push({ seq: 1, cause: "edit", source: "recorded", ops: [], results: [{ ok: false, class: "none", restartRequired: "voice limits" }], restartRequired: [] });
+    r.log.entries.push({ seq: 1, cause: "edit", source: "recorded", ops: [], results: [{ ok: false, class: "direct", reason: "effectsPerBus" }], restartRequired: [] });
     r.c.stripModel.toggleSolo("music", false);
     r.c.toggleCompare();
     const banners = find(chrome(r), byClass("mixer-banner"));
     const byId = (id: string) => banners.filter((b) => b.props["data-banner"] === id);
     expect(byId("problem").length).toBeGreaterThan(0);
-    expect(text(byId("restart")[0])).toBe("Applies at the next Play: voice limits. The edit is saved.");
+    expect(text(byId("restart")[0])).toBe(`Applies at the next Play: ${reasonMessage("effectsPerBus")}. The edit is saved.`);
     expect(text(byId("monitor")[0])).toBe(MIXER_BANNER_TEXT.monitor);
     expect(text(byId("compare")[0])).toBe(MIXER_BANNER_TEXT.compare);
     expect(byId("problem")[0]!.props["data-severity"]).toBe("warn");

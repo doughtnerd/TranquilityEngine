@@ -11,13 +11,14 @@
 // ADR 0166 (Q2 owns this file in W1; the coordinator afterwards): the fake has the music seam: `music` (a recording
 // `MusicBackend`, `FakeMusicBackend`), a counting `beginFrame`, `timeAt` over `rafTime` and `latency` over `latencyValue`.
 //
-// ADR 0171 (K0 owns this file in M5 W1; the coordinator afterwards): the fake has every M5 member: `applyOp` records the
-// op and answers `applyResult`, `flushNow` counts, the lane, slot, ducking and loudness writers record, `duckGain` reads
+// ADR 0171 (K0 owns this file in M5 W1; the coordinator afterwards): the fake has every M5 member: `mixOpTarget.sendOp` (ADR
+// 0175: the ops the Mixer checked and sent) records the op and answers `applyResult`, `flushNow` counts, the lane, slot, ducking and loudness writers record, `duckGain` reads
 // `duckGains`, `mixCaps` and `cpu()` are settable, `recorderTap` and `setProfileSink` hold what they're given.
 
 import type { AudioBackend, AudioCpuDebug, AudioMixCaps, AudioPanner, Attenuation, AudioVoice, BusLaneRamp, BusSlotWrite, FadeLaw, ListenerPose, LoudnessConfigWrite, MusicAdmitResult, MusicBackend, MusicBackendCaps, MusicGroupEvent, MusicGroupRequest, MusicGroupStamp, PlayRequest, RecorderTap, VoiceSpatialOptions, ZoneIrService } from "./backend";
 import type { AudioLatency } from "../../../engine/audio/musicTypes";
 import type { ApplyResult, MixOp } from "../../../engine/audio/mixOps";
+import { CORE_LIVE_CAPS } from "../../../engine/audio/busCapability";
 import type { DuckingRule } from "../../../engine/audio/settings";
 import type { ProfileSink } from "./mix/profileSink";
 import { mixer, type Mixer, type ResolvedBus } from "../../../engine/audio/mixer";
@@ -124,9 +125,9 @@ export interface FakeBackend extends AudioBackend {
   latencyValue: AudioLatency;
 
   // ADR 0171 (K0): the M5 mix members.
-  /** Every op `applyOp` received, in order. */
+  /** Every op `mixOpTarget.sendOp` received (after the Mixer's checks), in order. */
   readonly ops: MixOp[];
-  /** What `applyOp` answers (default `{ ok: true, class: "direct" }`). */
+  /** What `sendOp` answers (default `{ ok: true, class: "direct" }`). */
   applyResult: ApplyResult;
   /** `flushNow` calls so far. */
   flushes: number;
@@ -306,7 +307,7 @@ export function makeFakeBackend(): FakeBackend {
     cpuValue: { loadPermille: null, windowMs: 0, clockStepMs: 0, clockSteps: 0, refitResidual: null, sections: null, hidden: null },
     recorderTap: null,
     profileSink: null,
-    applyOp(op: MixOp) { backend.ops.push(op); return { ...backend.applyResult }; },
+    mixOpTarget: { liveCaps: CORE_LIVE_CAPS, sendOp(op: MixOp) { backend.ops.push(op); return { ...backend.applyResult }; } },
     flushNow() { backend.flushes++; },
     rampLane(r: BusLaneRamp) { backend.laneRamps.push({ ...r }); },
     writeSlot(w: BusSlotWrite) { backend.slotWrites.push({ ...w }); },

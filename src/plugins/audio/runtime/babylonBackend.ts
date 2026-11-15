@@ -27,7 +27,9 @@ import type { Vec3Like } from "../../../engine/core/math";
 import type { World } from "../../../engine/core/World";
 import { AudioReverbZone } from "./AudioReverbZone";
 import { Lane, type LaneId, type Mixer, type ResolvedBus } from "../../../engine/audio/mixer";
-import { opClass, opRefusal, type ApplyResult, type MixOp } from "../../../engine/audio/mixOps";
+import type { ApplyResult, MixOp } from "../../../engine/audio/mixOps";
+import type { MixOpTarget } from "../../../engine/audio/mixer";
+import { FALLBACK_LIVE_CAPS, type SentClass } from "../../../engine/audio/busCapability";
 import { events } from "./events/eventRuntime";
 import { BABYLON_CPU_REASON, babylonCpuDebug, babylonMixDebug } from "./mix/mixDebug";
 import { NULL_PROFILE_SINK, type ProfileSink, type ProfileStopReason } from "./mix/profileSink";
@@ -790,9 +792,6 @@ class BabylonSpatialView implements SpatialVoiceView {
   }
 }
 
-/** ADR 0171 §9 (Bb3): what a level-mode ducking rule answers on the fallback (the rule is kept, and does nothing). */
-export const NEEDS_AUDIO_CORE = "Needs the audio core";
-
 /** The fallback's decoded-clip memory ceiling for an ambisonic clip is in `babylonMapping.ts` (`AMBISONIC_DECODE_LIMIT_BYTES`). */
 export class BabylonBackend implements AudioBackend, SpatialPassHost {
   readonly name = "babylon";
@@ -810,6 +809,9 @@ export class BabylonBackend implements AudioBackend, SpatialPassHost {
     stampedBusRamps: false,
     capture: "mainSideOnly",
   };
+
+  /** ADR 0175: where `mixer.apply` sends a checked op (`sendOp`); no core chain, no level ducking. */
+  readonly mixOpTarget: MixOpTarget = { liveCaps: FALLBACK_LIVE_CAPS, sendOp: (op, cls) => this.sendOp(op, cls) };
 
   /** ADR 0162 (K4, F1): main runs Doppler and occlusion over this view (`audioSystem.ts`), then `update`. */
   readonly spatialVoices = new BabylonSpatialView();
@@ -985,20 +987,17 @@ export class BabylonBackend implements AudioBackend, SpatialPassHost {
   }
 
   /**
-   * ADR 0171 §6.2, §9 (Bb3): a live edit on the fallback. There is no core: direct, smoothed and config ops change the
-   * mixer's model (`_applyLive`) and reach Babylon through `applyMix` (bus volumes, which ramp over `BUS_RAMP_SECONDS`);
-   * presence ducking keeps running on main from the model. A level-mode ducking rule is kept in the model (so later
-   * indices agree with the project) and answers `NEEDS_AUDIO_CORE`; it never ducks. Structural ops (`dip`: move, remove,
-   * reorder), `addBus` and `renameBus` change the node graph, so they rebuild it with the same short ramp: no dip, a
-   * click is accepted (the panel says so). The returned class is the op's, as the core answers it.
+   * ADR 0171 §6.2, §9 (Bb3), 0175: a live edit on the fallback, already checked and classified by `Mixer.apply`. There is
+   * no core: direct, smoothed and config ops change the mixer's model (`_applyLive`) and reach Babylon through `applyMix`
+   * (bus volumes, which ramp over `BUS_RAMP_SECONDS`); presence ducking keeps running on main from the model. A
+   * level-mode ducking rule is kept in the model (so later indices agree with the project); the Mixer answers
+   * `needsAudioCore` (`FALLBACK_LIVE_CAPS`), and it never ducks. Structural ops (`dip`: move, remove, reorder), `addBus`
+   * and `renameBus` change the node graph, so they rebuild it with the same short ramp: no dip, a click is accepted (the
+   * panel says so). The returned class is the op's, as the core answers it.
    */
-  applyOp(op: MixOp): ApplyResult {
+  sendOp(op: MixOp, cls: SentClass): ApplyResult {
     const m = this.mixerRef ?? mixer;
     const before = m.audioSettings;
-    if (opRefusal(before, op) !== null) return { ok: false, class: "none" };
-    const cls = opClass(op, before);
-    if (cls === "none") return { ok: true, class: "none" };
-    const level = op.op === "setDucking" && op.rule !== null && op.rule.mode === "level";
     const names = before.buses.map((b) => b.name);
     if (!m._applyLive(op)) return { ok: true, class: "none" };
     const rename = op.op === "renameBus";
@@ -1019,7 +1018,7 @@ export class BabylonBackend implements AudioBackend, SpatialPassHost {
       this.applyMix(m.resolveAll());
     }
     if (op.op === "setAutomation" && hasAudioBackend()) events().getGlobal("");
-    return level ? { ok: false, class: cls, restartRequired: NEEDS_AUDIO_CORE } : { ok: true, class: cls };
+    return { ok: true, class: cls };
   }
 
   /** @internal ADR 0171 (Bb1): the capture's event sink; the null object while no recorder runs (a tap costs one comparison). */
@@ -1096,7 +1095,7 @@ export class BabylonBackend implements AudioBackend, SpatialPassHost {
     };
   }
 
-  /** The fallback has no batch to post: `applyOp` already applied a preview edit. */
+  /** The fallback has no batch to post: `sendOp` already applied a preview edit. */
   flushNow(): void {}
 
   applyMix(buses: readonly ResolvedBus[]): void {

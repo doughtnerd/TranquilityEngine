@@ -34,6 +34,7 @@ import {
   type VoiceSettings,
 } from "../../../engine/audio/settings";
 import { BUILTIN_MATERIALS, DEFAULT_MATERIAL_NAME, MATERIAL_LIMITS, MAX_MATERIALS, type OccluderMaterial } from "../../../engine/audio/occlusionMaterials";
+import { audioSection, sameMaterial, withSettings } from "../../../engine/audio/audioSection";
 import { defaultSettings } from "../../../engine/core/settings";
 import { resolveBeds } from "../runtime/core/beds";
 import type { Curve } from "../../../engine/core/curve";
@@ -50,19 +51,12 @@ function uniqueName(base: string, taken: readonly string[]): string {
 
 export { EFFECT_TYPES, LIMITER_LOOKAHEAD_LIMITS, MAX_BUSES };
 
-export const audioOf = (d: SettingsDraft): AudioSettings => parseAudioSettings(d.audio).settings;
-export const audioProblems = (d: SettingsDraft): string[] => parseAudioSettings(d.audio).problems;
-const sameMaterial = (a: OccluderMaterial, b: OccluderMaterial): boolean =>
-  a.name === b.name && a.transmissionDb === b.transmissionDb && a.cutoffHz === b.cutoffHz && a.wetOcclusion === b.wetOcclusion && a.attackMs === b.attackMs && a.releaseMs === b.releaseMs;
+/** The draft's section, parsed once per section object (`audioSection`, ADR 0175). Frozen: edits build a copy. */
+export const audioOf = (d: SettingsDraft): AudioSettings => audioSection(d.audio).settings;
+export const audioProblems = (d: SettingsDraft): readonly string[] => audioSection(d.audio).problems;
 
-/**
- * The section as written to `project.json`: `occlusion.materials` keeps only the rows that differ from the built-ins (the
- * parse re-adds the others), so a later retune of a built-in reaches projects that never edited it.
- */
-function withAudio(d: SettingsDraft, a: AudioSettings): SettingsDraft {
-  const materials = a.occlusion.materials.filter((m) => { const b = BUILTIN_MATERIALS.find((x) => x.name === m.name); return !b || !sameMaterial(m, b); });
-  return { ...d, audio: { ...a, occlusion: { ...a.occlusion, materials } } as unknown as Record<string, unknown> };
-}
+/** The section as written to `project.json` (`withSettings`: built-in occlusion materials pruned). */
+const withAudio = (d: SettingsDraft, a: AudioSettings): SettingsDraft => withSettings(d, a);
 
 /** Buses in tree order (each bus after its parent), with their depth, for an indented list. */
 export function busTree(a: AudioSettings): { bus: BusSettings; depth: number }[] {
@@ -95,7 +89,7 @@ export const mixOpRefusal = (d: SettingsDraft, op: MixOp): string | null => opRe
 
 export function addBus(d: SettingsDraft, parent = MASTER): SettingsDraft {
   const a = audioOf(d);
-  if (a.buses.length >= MAX_BUSES) return d;
+  // Past the bus count rule the op is refused and `d` comes back (`busCapability.ts`, ADR 0175).
   const p = a.buses.some((b) => b.name === parent) ? parent : a.buses[0].name;
   return applyMixOp(d, { op: "addBus", name: uniqueName("Bus", a.buses.map((b) => b.name)), parent: p });
 }

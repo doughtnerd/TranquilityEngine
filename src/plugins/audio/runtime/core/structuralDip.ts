@@ -50,9 +50,6 @@ export function dipFrames(sampleRate: number): number {
   return Math.round((DIP_MS / 1000) * sampleRate);
 }
 
-/** The answer of a structural op the dip can't serve (no backend bound, a bus the table doesn't hold). */
-export const DIP_UNAVAILABLE = "this structural edit applies at the next Play";
-
 /** The core's bus count. */
 const MAX_BUS = 32;
 
@@ -362,5 +359,5 @@ export class StructuralDip {
 }
 
 function unavailable(): ApplyResult {
-  return { ok: false, class: "dip", restartRequired: DIP_UNAVAILABLE };
+  return { ok: false, class: "dip", reason: "structuralUnavailable" };
 }

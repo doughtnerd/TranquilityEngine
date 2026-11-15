@@ -15,7 +15,6 @@ import { createClipRegistry } from "./clipRegistry";
 import { AudioHost, presetFromSettings } from "./context";
 import { createCoreBackend, type CoreBackend } from "./coreBackend";
 import { watchForTraps } from "./recovery";
-import { FIFTH_EFFECT } from "./liveMix";
 import { Unlock, type UnlockContext } from "./unlock";
 
 const RATE = 48_000;
@@ -147,8 +146,7 @@ describe("deferred live adds on the loopback host (Ma3)", () => {
     const second = mixer.apply({ op: "addBus", name: "B", parent: "Master" });
     expect(second.ok).toBe(true);
     expect(second.class).toBe("direct");
-    expect(second.deferred).toMatch(/waits for a free bus slot/);
-    expect(second.restartRequired).toBeUndefined();
+    expect(second).toEqual({ ok: true, class: "direct", reason: "waitsForSlot" });
     // Kept, queued, counted; the mixer's running model does not hold it yet; nothing was refused.
     expect(r.backend.deferredAdds.pending).toBe(1);
     expect(r.backend.deferredAdds.count).toBe(1);
@@ -189,8 +187,8 @@ describe("deferred live adds on the loopback host (Ma3)", () => {
     const a = mixer.apply({ op: "addBus", name: "A", parent: "Master" });
     const b = mixer.apply({ op: "addBus", name: "B", parent: "Master" });
     expect(a).toMatchObject({ ok: true, class: "direct" });
-    expect(a.deferred).toBeTruthy();
-    expect(b.deferred).toBeTruthy();
+    expect(a.reason).toBe("waitsForSlot");
+    expect(b.reason).toBe("waitsForSlot");
     expect(r.backend.deferredAdds.pending).toBe(2);
     expect(r.backend.deferredAdds.count).toBe(2);
     // The first recycle frees one slot: A (the older) takes it, B still waits.
@@ -238,10 +236,10 @@ describe("deferred live adds on the loopback host (Ma3)", () => {
     await r.step(4);
     mixer.apply({ op: "removeBus", bus: "B31" });
     mixer.apply({ op: "removeBus", bus: "B30" });
-    expect(mixer.apply({ op: "addBus", name: "P", parent: "Master" }).deferred).toBeTruthy();
+    expect(mixer.apply({ op: "addBus", name: "P", parent: "Master" }).reason).toBe("waitsForSlot");
     // P is not in the mixer's running model yet; the child still names it, not Master.
     const kid = mixer.apply({ op: "addBus", name: "Kid", parent: "P" });
-    expect(kid.deferred).toBeTruthy();
+    expect(kid.reason).toBe("waitsForSlot");
     expect(r.backend.deferredAdds.pending).toBe(2);
     expect(r.backend.buses.slots.deferred.map((q) => [q.name, q.parent])).toEqual([["P", "Master"], ["Kid", "P"]]);
     for (let f = 0; f < 80 && r.backend.deferredAdds.pending > 0; f++) await r.step(1);
@@ -263,9 +261,7 @@ describe("deferred live adds on the loopback host (Ma3)", () => {
     expect(mixer.audioSettings.buses[1]!.effects).toHaveLength(4);
     const res = mixer.apply({ op: "addEffect", bus: "B1", index: 4, effect: { type: "lowpass", frequency: 9000, q: 0.7 } });
     expect(res.ok).toBe(false);
-    expect(res.deferred).toBeUndefined();
-    expect(res.restartRequired).toBe(FIFTH_EFFECT);
-    expect(res.restartRequired).toMatch(/next Play/);
+    expect(res).toMatchObject({ ok: false, reason: "effectsPerBus" });
     expect(mixer.audioSettings.buses[1]!.effects).toHaveLength(4);
     expect(r.backend.deferredAdds.pending).toBe(0);
     expect(r.backend.deferredAdds.count).toBe(0);

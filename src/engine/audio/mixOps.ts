@@ -20,9 +20,11 @@
  * its trigger…) is refused: `opRefusal` says why and `applyOpToSettings` returns its input unchanged (the same object).
  */
 import { CURVE_INTERPS, type Curve, type CurveKey } from "../core/curve";
+import { ruleRefusal, type ApplyReason } from "./busCapability";
+import { LIVE_KEYS, audioSection, withLiveKeys } from "./audioSection";
 import {
-  BED_PRIORITY_LIMITS, BUS_BEDS, DEFAULT_BED_PRIORITY, DEFAULT_LOUDNESS_TARGETS, EFFECT_TYPES, MAX_BUSES, MAX_LOUDNESS_BUSES,
-  MAX_LOUDNESS_TARGETS, MAX_TARGET_NAME, ROOT_BED_PRIORITY, parseAudioSettings,
+  BED_PRIORITY_LIMITS, BUS_BEDS, DEFAULT_BED_PRIORITY, DEFAULT_LOUDNESS_TARGETS, EFFECT_TYPES, MAX_LOUDNESS_BUSES,
+  MAX_LOUDNESS_TARGETS, MAX_TARGET_NAME, ROOT_BED_PRIORITY,
   type AudioSettings, type BusAutomation, type BusEffect, type BusSettings, type DuckingRule, type LoudnessTarget, type SnapshotSettings,
 } from "./settings";
 
@@ -75,11 +77,12 @@ export const MIX_OP_NAMES = [
 export interface MixOpEntry { ops: MixOp[]; inverse: MixOp[] }
 
 /**
- * What `mixer.apply(op)` / `AudioBackend.applyOp(op)` answers (§6.2). `deferred`: the edit is kept and applies later
- * (a bus add with no free slot, R10; the message says when). `restartRequired`: no live path serves it; it applies at
- * the next Play (the message names what).
+ * What `mixer.apply(op)` answers (§6.2; ADR 0175). `reason` is one of a closed set (`busCapability.ts`
+ * `APPLY_REASONS`, whose `reasonMessage` is the only text): with `ok: true` the edit is kept and applies later this
+ * session (`waitsForSlot`, a bus add with no free slot, R10); with `ok: false` it is kept and applies at the next Play
+ * (`appliesAtNextPlay`). `ok: false` without a reason: refused (`opRefusal` says why).
  */
-export interface ApplyResult { ok: boolean; class: OpClass; deferred?: string; restartRequired?: string }
+export interface ApplyResult { ok: boolean; class: OpClass; reason?: ApplyReason }
 
 /**
  * The settings draft an op edits: the panel's `SettingsDraft` (`src/editor/projectSettingsModel.ts`) or anything with an
@@ -100,8 +103,8 @@ export interface MixOpNameTable {
 
 export { DEFAULT_LOUDNESS_TARGETS, MAX_LOUDNESS_BUSES, MAX_LOUDNESS_TARGETS, MAX_TARGET_NAME };
 
-/** The `audio` keys a live op edits; every other key that differs is `restartRequired` in `diffOps`. */
-export const LIVE_KEYS = ["buses", "snapshots", "ducking", "automation", "loudnessTargets", "loudnessResetOnPlay"] as const;
+/** The `audio` keys a live op edits (`audioSection.ts` owns the list, ADR 0175). */
+export { LIVE_KEYS };
 
 // --- helpers ---------------------------------------------------------------------------------------------------------
 
@@ -217,7 +220,7 @@ export function opRefusal(a: AudioSettings, op: MixOp): string | null {
       const name = typeof op.name === "string" ? op.name.trim() : "";
       if (name === "") return "A bus needs a name.";
       if (busOf(a, name)) return `Another bus is already named "${name}".`;
-      if (a.buses.length >= MAX_BUSES) return `At most ${MAX_BUSES} buses.`;
+      { const limit = ruleRefusal(a, op); if (limit) return limit; } // ADR 0175: the bus count rule
       if (op.index !== undefined && !Number.isInteger(op.index)) return "A bus index must be a whole number.";
       return null;
     }
@@ -422,19 +425,14 @@ export function applyOpToSettings(a: AudioSettings, op: MixOp): AudioSettings {
 }
 
 /**
- * The next draft after `op`: the parsed section through `applyOpToSettings`, the live keys written back over the
- * draft's `audio` object (other keys stay as authored). `d` itself when nothing changes.
+ * The next draft after `op`: the section (`audioSection`, parsed once per section object) through
+ * `applyOpToSettings`, the live keys written back over the draft's `audio` object (`withLiveKeys`: other keys stay as
+ * authored). `d` itself when nothing changes.
  */
 export function applyOpToDraft<D extends MixDraft>(d: D, op: MixOp): D {
-  const a = parseAudioSettings(d.audio).settings;
+  const a = audioSection(d.audio).settings;
   const next = applyOpToSettings(a, op);
-  if (next === a) return d;
-  const audio: Record<string, unknown> = isObj(d.audio) ? { ...d.audio } : {};
-  for (const key of LIVE_KEYS) {
-    if (next[key] === undefined) delete audio[key];
-    else audio[key] = next[key];
-  }
-  return { ...d, audio };
+  return next === a ? d : withLiveKeys(d, next);
 }
 
 /**
