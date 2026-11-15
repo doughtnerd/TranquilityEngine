@@ -34,8 +34,8 @@ async function rig() {
   const { project } = await openTestProject({ "project.json": PROJECT });
   const section = createProjectSettingsSection().open(project);
   const applied: MixOp[] = [];
-  // The play mixer: everything answers restartRequired, as an engine without a live path does.
-  const answer = (op: MixOp): ApplyResult => (applied.push(op), { ok: false, class: "none", restartRequired: "no live audio backend" });
+  // The play mixer: everything is kept for the next Play, as an engine without a live path answers.
+  const answer = (op: MixOp): ApplyResult => (applied.push(op), { ok: false, class: "none", reason: "noLiveBackend" });
   const log: OpLog = createOpLog({
     onSectionChanged: (k, l) => (unsubs.push(onSectionChanged(k, l)), unsubs[unsubs.length - 1]),
     isPlaying: () => true,

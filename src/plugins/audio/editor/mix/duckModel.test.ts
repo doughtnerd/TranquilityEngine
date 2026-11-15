@@ -1,7 +1,7 @@
 // Dk1: the ducking rule's editing model and the gain-reduction model. Timing never enters: every case is a pure function of
 // its inputs (no clock, no backend).
 import { describe, expect, it } from "vitest";
-import { NEEDS_AUDIO_CORE as BABYLON_NEEDS_CORE } from "../../runtime/babylonBackend";
+import { reasonMessage } from "../../../../engine/audio/busCapability";
 import { parseAudioSettings, type AudioSettings, type DuckingRule } from "../../../../engine/audio/settings";
 import {
   DUCK_DEFAULTS,
@@ -153,9 +153,9 @@ describe("levelRuleCount and levelDuckingAvailable", () => {
     expect(levelDuckingAvailable("core", { levelDucking: false })).toBe(false); // the core failed to start: Babylon plays
     expect(levelDuckingAvailable("babylon", { levelDucking: true })).toBe(true);
   });
-  it("the message is the one the Babylon backend gives", () => {
+  it("the message is the needsAudioCore reason's (the Mixer answers it on the Babylon fallback)", () => {
     expect(NEEDS_AUDIO_CORE).toBe("Needs the audio core");
-    expect(NEEDS_AUDIO_CORE).toBe(BABYLON_NEEDS_CORE);
+    expect(NEEDS_AUDIO_CORE).toBe(reasonMessage("needsAudioCore"));
   });
 });
 

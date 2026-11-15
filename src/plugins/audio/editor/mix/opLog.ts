@@ -4,7 +4,7 @@
 // drag in progress) never enter the history, so they never come through here.
 //
 // The ops of an edit are the ones it recorded (`recordMixOps`, filled by `audioEdit`), else `diffOps(before, after)`.
-// Until Ma1 fills `applyOp`, every op answers `restartRequired`; the log keeps the answer.
+// The mixer answers each op (ADR 0175: `ApplyResult.reason`, a closed set; `reasonMessage` is its text); the log keeps the answer.
 import { diffOps, type ApplyResult, type MixOp, type MixOpEntry } from "../../../../engine/audio/mixOps";
 import { parseAudioSettings } from "../../../../engine/audio/settings";
 import { editor, type SectionChange } from "../../../../editor/sdk";

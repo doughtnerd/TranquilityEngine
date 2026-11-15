@@ -8,8 +8,8 @@ import { parseAudioSettings } from "../../../../engine/audio/settings";
 import { DRAG_RAMP_MS as WIRE_DRAG_RAMP_MS, FADER_COALESCE_MS } from "../wire.generated";
 import { CoreBackend } from "./coreBackend";
 import { DeferredAdds } from "./deferredAdds";
-import { FIFTH_EFFECT, SECOND_COMPRESSOR, LiveMix, RESTART_REQUIRED, type LiveMixHost } from "./liveMix";
-import { DIP_UNAVAILABLE, StructuralDip } from "./structuralDip";
+import { LiveMix, type LiveMixHost } from "./liveMix";
+import { StructuralDip } from "./structuralDip";
 
 const PROJECT = {
   buses: [
@@ -92,31 +92,9 @@ describe("liveMix (Ma1)", () => {
     }
   });
 
-  it("a structural op with no dip bound answers restartRequired and changes nothing (a backend with no live path)", () => {
+  it("a structural op with no dip bound is kept for the next Play and changes nothing (a backend with no live path)", () => {
     const dip = new StructuralDip();
-    expect(dip.apply({ op: "moveBus", bus: "Voice", parent: "Music" })).toEqual({ ok: false, class: "dip", restartRequired: DIP_UNAVAILABLE });
-    expect(RESTART_REQUIRED).toMatch(/next Play/);
-  });
-
-  it("a fifth effect inserted mid-chain (a dip-class insert) applies at the next Play too", () => {
-    const { backend, mixer } = backendRig();
-    for (let k = 2; k < 4; k++) expect(mixer.apply({ op: "addEffect", bus: "Music", index: k, effect: { type: "highpass", frequency: 80, q: 1 } }).ok).toBe(true);
-    const before = mixer.audioSettings;
-    expect(mixer.apply({ op: "addEffect", bus: "Music", index: 0, effect: { type: "highpass", frequency: 80, q: 1 } })).toEqual({ ok: false, class: "dip", restartRequired: FIFTH_EFFECT });
-    expect(mixer.audioSettings).toBe(before);
-    backend.dispose();
-  });
-
-  it("FU4: a second compressor on a bus applies at the next Play (the core runs the first), at the end or mid-chain", () => {
-    const { backend, mixer } = backendRig();
-    const comp = { type: "compressor", threshold: -30, knee: 6, ratio: 4, attack: 0.01, release: 0.2 } as const;
-    const before = mixer.audioSettings;
-    expect(mixer.apply({ op: "addEffect", bus: "Music", index: 2, effect: comp })).toEqual({ ok: false, class: "direct", restartRequired: SECOND_COMPRESSOR });
-    expect(mixer.apply({ op: "addEffect", bus: "Music", index: 0, effect: comp })).toEqual({ ok: false, class: "dip", restartRequired: SECOND_COMPRESSOR });
-    expect(mixer.audioSettings).toBe(before);
-    // A first compressor on a bus without one is live.
-    expect(mixer.apply({ op: "addEffect", bus: "SFX", index: 0, effect: comp }).ok).toBe(true);
-    backend.dispose();
+    expect(dip.apply({ op: "moveBus", bus: "Voice", parent: "Music" })).toEqual({ ok: false, class: "dip", reason: "structuralUnavailable" });
   });
 
   it("an op that changes nothing is a no-op (a commit after its preview); a refused op changes nothing and is counted", () => {
@@ -127,14 +105,6 @@ describe("liveMix (Ma1)", () => {
     expect(mixer.apply({ op: "setBus", bus: "Nope", key: "volume", value: 0.5 })).toEqual({ ok: false, class: "none" });
     expect(mixer.audioSettings).toBe(settings);
     expect(backend.liveMix.refused).toBe(1);
-    backend.dispose();
-  });
-
-  it("a fifth effect on a bus applies at the next Play (BUS_SLOT carries four)", () => {
-    const { backend, mixer } = backendRig();
-    for (let k = 2; k < 4; k++) expect(mixer.apply({ op: "addEffect", bus: "Music", index: k, effect: { type: "highpass", frequency: 80, q: 1 } }).ok).toBe(true);
-    expect(mixer.apply({ op: "addEffect", bus: "Music", index: 4, effect: { type: "highpass", frequency: 80, q: 1 } })).toEqual({ ok: false, class: "direct", restartRequired: FIFTH_EFFECT });
-    expect(mixer.audioSettings.buses[1]!.effects).toHaveLength(4);
     backend.dispose();
   });
 
@@ -184,10 +154,13 @@ describe("liveMix (Ma1)", () => {
     backend.dispose();
   });
 
-  it("CoreBackend.applyOp routes to liveMix; mixer.apply reaches the active backend's applyOp, and nothing once it is gone", async () => {
-    const apply = vi.fn(() => ({ ok: true, class: "direct" as const }));
-    expect(CoreBackend.prototype.applyOp.call({ liveMix: { apply } } as unknown as CoreBackend, OPS[0]![0])).toEqual({ ok: true, class: "direct" });
-    expect(apply).toHaveBeenCalledWith(OPS[0]![0]);
+  it("CoreBackend's mixOpTarget is its liveMix; mixer.apply reaches the active backend's target, and nothing once it is gone", async () => {
+    const { backend, mixer: own } = backendRig();
+    expect(backend.mixOpTarget).toBe(backend.liveMix);
+    const send = vi.spyOn(backend.liveMix, "sendOp");
+    expect(own.apply(OPS[0]![0])).toEqual({ ok: true, class: "direct" });
+    expect(send).toHaveBeenCalledWith(OPS[0]![0], "direct");
+    backend.dispose();
     const { makeFakeBackend } = await import("../testing");
     const { setAudioBackend, mixer } = await import("../backend");
     const fake = makeFakeBackend();
@@ -198,7 +171,7 @@ describe("liveMix (Ma1)", () => {
     } finally {
       setAudioBackend(null);
     }
-    expect(mixer.apply(OPS[0]![0]).restartRequired).toBeTruthy();
+    expect(mixer.apply(OPS[0]![0])).toEqual({ ok: false, class: "none", reason: "noLiveBackend" });
     expect(fake.ops).toHaveLength(1);
   });
 });

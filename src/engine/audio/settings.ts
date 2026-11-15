@@ -21,6 +21,7 @@
 import type { Curve } from "../core/curve";
 import { detectPlatform, type PlatformEnv } from "../core/graphics";
 import { audioCurve, parseParameters, type ParameterDef } from "./eventFormat";
+import { BUS_RULES, MAX_BUSES, MAX_CORE_BUS_EFFECTS, busRuleFindings, findingText } from "./busCapability";
 import { DEFAULT_MATERIAL_NAME, builtinMaterials, parseOccluderMaterials, resolveDefaultMaterial, type OccluderMaterial } from "./occlusionMaterials";
 
 export type BusEffect =
@@ -251,7 +252,8 @@ export type AudioSpatialMode = "hrtf" | "equalPower";
 export type AudioBackendSetting = "babylon" | "core";
 
 export const MASTER = "Master";
-export const MAX_BUSES = 32;
+/** ADR 0175: the bus limits live with their rules in `busCapability.ts`. */
+export { MAX_BUSES, MAX_CORE_BUS_EFFECTS };
 /** ADR 0171 §2.2 / ADR 0172 §1.7: ducking rules per project, and the level rules among them. */
 export const MAX_DUCK_RULES = 32;
 export const MAX_LEVEL_RULES = 8;
@@ -278,9 +280,6 @@ export const DEFAULT_LOUDNESS_TARGETS: readonly Readonly<LoudnessTarget>[] = [
 
 export const defaultBuses = (): BusSettings[] =>
   [MASTER, "Music", "SFX", "UI", "Voice"].map((name, i) => ({ name, ...(i > 0 ? { parent: MASTER } : {}), volume: 1, mute: false, effects: [] }));
-
-/** Effects per bus the audio core runs (`MAX_EFFECTS` in `audio-core/src/fx.rs`); one of them at most may be a compressor. */
-export const MAX_CORE_BUS_EFFECTS = 4;
 
 /**
  * The backend a project gets without `audio.backend` (B7, ADR 0157): the core. To revert the switch, set this to
@@ -365,10 +364,8 @@ function parseEffect(raw: unknown, where: string, problems: string[]): BusEffect
 
 /**
  * The `audio` section, read leniently: bad entries are dropped or clamped, and each is reported in `problems`.
- * `warnings` are notes on a valid section that the editor saves (G9b): a bus with more effects than the audio core runs
- * (`MAX_CORE_BUS_EFFECTS`), or a second compressor, is kept as authored (design R10, ADR 0172: the edit is kept and applies
- * at the next Play, where the core runs the first `MAX_CORE_BUS_EFFECTS` and the first compressor), so it must not hold the
- * Project Settings draft unsaved.
+ * `warnings` are notes on a valid section that the editor saves (G9b): which bus rule breach is a problem and which a
+ * warning, and its text, is `busCapability.ts`'s (ADR 0175; a fifth effect or second compressor is kept as authored, R10).
  */
 export function parseAudioSettings(input: unknown, options: AudioParseOptions = {}): { settings: AudioSettings; problems: string[]; warnings: string[] } {
   const problems: string[] = [];
@@ -379,6 +376,7 @@ export function parseAudioSettings(input: unknown, options: AudioParseOptions = 
 
   if (input.buses !== undefined) {
     const buses: BusSettings[] = [];
+    const rawIndex: number[] = [];
     if (!Array.isArray(input.buses)) problems.push("audio.buses must be a list.");
     else {
       input.buses.forEach((raw, i) => {
@@ -387,13 +385,7 @@ export function parseAudioSettings(input: unknown, options: AudioParseOptions = 
         if (buses.some((b) => b.name === raw.name)) return void problems.push(`${where}: another bus is already named "${raw.name}".`);
         const effects: BusEffect[] = [];
         if (Array.isArray(raw.effects)) raw.effects.forEach((e, j) => { const fx = parseEffect(e, `${where}.effects[${j}]`, problems); if (fx) effects.push(fx); });
-        // The audio core runs a bus's first MAX_CORE_BUS_EFFECTS effects and at most one compressor (`audio-core/src/fx.rs`).
-        // Kept as authored (the Web Audio reference runs them all); the message says what the core skips. Past the
-        // effect count it is a warning, not a problem (G9b, R10): the edit saves and the live path answers FIFTH_EFFECT.
-        if (effects.length > MAX_CORE_BUS_EFFECTS) warnings.push(`${where}: the audio core runs only the first ${MAX_CORE_BUS_EFFECTS} effects of a bus; the rest are skipped.`);
-        // A second compressor is the same (FU4): a warning, so the edit saves and applies at the next Play, where the core
-        // runs the first compressor in the list and skips the others (their slots stay empty).
-        if (effects.filter((fx) => fx.type === "compressor").length > 1) warnings.push(`${where}: the audio core runs one compressor per bus; the edit is saved and applies at the next Play, where only the first compressor of the list runs and the others are skipped.`);
+        rawIndex.push(i);
         buses.push({
           name: raw.name,
           ...(typeof raw.parent === "string" ? { parent: raw.parent } : {}),
@@ -420,8 +412,12 @@ export function parseAudioSettings(input: unknown, options: AudioParseOptions = 
           seen.add(p.name);
         }
       }
-      if (buses.length > MAX_BUSES) problems.push(`audio.buses: at most ${MAX_BUSES} buses; the rest are ignored.`);
       settings.buses = buses.slice(0, MAX_BUSES);
+    }
+    // ADR 0175: the bus capability rules (bus count, effects and compressors per bus) decide severity and message.
+    for (const f of busRuleFindings(buses)) {
+      const text = findingText(f.rule, f.bus < 0 ? "audio.buses" : `audio.buses[${rawIndex[f.bus]}]`);
+      (BUS_RULES[f.rule].parse === "problem" ? problems : warnings).push(text);
     }
   }
   const known = (name: unknown): name is string => typeof name === "string" && settings.buses.some((b) => b.name === name);

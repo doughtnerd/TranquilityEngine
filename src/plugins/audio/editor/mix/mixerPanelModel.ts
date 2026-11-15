@@ -14,6 +14,7 @@
 //   - Play state is read, not told: the first `sample()` that sees Play running starts the Compare snapshot, applies
 //     `loudnessResetOnPlay` and clears the monitor controls; the first that sees it stopped ends Compare.
 import type { ApplyResult, MixOp } from "../../../../engine/audio/mixOps";
+import { appliesAtNextPlay, reasonMessage } from "../../../../engine/audio/busCapability";
 import { parseAudioSettings, type AudioSettings } from "../../../../engine/audio/settings";
 import type { LoudnessResetWhat } from "../../../../engine/audio/loudnessTypes";
 import type { SettingsDraft } from "../../../../editor/sdk";
@@ -45,7 +46,7 @@ export const MIXER_BANNER_TEXT = {
 export interface MixerBannerInput {
   readonly monitorActive: boolean;
   readonly compareActive: boolean;
-  /** What the mixer answered `restartRequired` (each message once), and the section keys with no live path. */
+  /** The messages of what the mixer kept for the next Play (each once), and the section keys with no live path. */
   readonly restart: readonly string[];
   /** The audio section's problems (`parseAudioSettings`). */
   readonly problems: readonly string[];
@@ -61,12 +62,15 @@ export function mixerBanners(input: MixerBannerInput): MixerBanner[] {
   return out;
 }
 
-/** The distinct `restartRequired` messages and no-live-path keys of the op log's entries newer than `afterSeq`, plus `own`. */
+/**
+ * The distinct messages of the results kept for the next Play (`appliesAtNextPlay`, ADR 0175: `reasonMessage` is the
+ * text) and the no-live-path keys of the op log's entries newer than `afterSeq`, plus `own`.
+ */
 export function restartMessages(entries: readonly OpLogEntry[], afterSeq: number, own: Iterable<string> = []): string[] {
   const seen = new Set<string>(own);
   for (const e of entries) {
     if (e.seq <= afterSeq) continue;
-    for (const r of e.results) if (r.restartRequired !== undefined) seen.add(r.restartRequired);
+    for (const r of e.results) if (appliesAtNextPlay(r)) seen.add(reasonMessage(r.reason));
     for (const k of e.restartRequired) seen.add(k);
   }
   return [...seen];
@@ -225,7 +229,7 @@ export class MixerPanelController {
   /** `deps.apply`, remembering what only the next Play can serve. */
   private apply(op: MixOp): ApplyResult {
     const r = this.deps.apply(op);
-    if (r.restartRequired !== undefined) this.own.add(r.restartRequired);
+    if (appliesAtNextPlay(r)) this.own.add(reasonMessage(r.reason));
     return r;
   }
 

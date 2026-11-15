@@ -95,7 +95,7 @@ export const mixOpRefusal = (d: SettingsDraft, op: MixOp): string | null => opRe
 
 export function addBus(d: SettingsDraft, parent = MASTER): SettingsDraft {
   const a = audioOf(d);
-  if (a.buses.length >= MAX_BUSES) return d;
+  // Past the bus count rule the op is refused and `d` comes back (`busCapability.ts`, ADR 0175).
   const p = a.buses.some((b) => b.name === parent) ? parent : a.buses[0].name;
   return applyMixOp(d, { op: "addBus", name: uniqueName("Bus", a.buses.map((b) => b.name)), parent: p });
 }

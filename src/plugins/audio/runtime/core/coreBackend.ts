@@ -56,7 +56,6 @@ import type { Vec3Like } from "../../../../engine/core/math";
 import { mixer as defaultMixer, type Mixer, type ResolvedBus } from "../../../../engine/audio/mixer";
 import { Assets } from "../../../../engine/scene/Assets";
 import type { Attenuation, AudioBackend, AudioBackground, AudioCpuDebug, AudioMixCaps, AudioMixDebug, AudioPanner, AudioStatus, AudioVoice, BusLaneRamp, BusSlotWrite, ClipSpanHold, FadeLaw, ListenerPose, LoudnessConfigWrite, MusicBackend, PlayRequest, RecorderTap, ShapedFade, VoiceSpatialOptions, ZoneIrService } from "../backend";
-import type { ApplyResult, MixOp } from "../../../../engine/audio/mixOps";
 import type { DuckingRule } from "../../../../engine/audio/settings";
 import type { AudioLatency } from "../../../../engine/audio/musicTypes";
 import {
@@ -289,7 +288,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
   readonly dip = new StructuralDip();
   /** ADR 0171 (K0): deferred live adds (`deferredAdds.ts`; Ma3). */
   readonly deferredAdds = new DeferredAdds();
-  /** ADR 0171 (K0): the live-edit path `applyOp` routes to (`liveMix.ts`; Ma1). */
+  /** ADR 0171 (K0), 0175: the live-edit path, `mixer.apply`'s target (`liveMix.ts`; Ma1). */
   readonly liveMix = new LiveMix({
     dip: this.dip,
     deferred: this.deferredAdds,
@@ -583,11 +582,11 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
       }),
     );
     this.configureBuses(this.mixer);
-    // ADR 0171 (K0, Mx1's H2): `mixer.apply(op)` reaches `applyOp`; the mixer evaluates its ramps on the heard clock once
+    // ADR 0171 (K0, Mx1's H2), 0175: `mixer.apply(op)` sends to `liveMix`; the mixer evaluates its ramps on the heard clock once
     // the core runs (`syncMixerClock`, each frame). Only the newest backend on a mixer clears them at its dispose (a
     // replacement is made before the old one goes).
     mixerOwners.set(this.mixer, this);
-    this.mixer._setOpTarget(this);
+    this.mixer._setOpTarget(this.liveMix);
     this.mixer._setDuckSource(this.duckSource);
     this.cleanups.push(() => {
       if (mixerOwners.get(this.mixer) !== this) return;
@@ -1181,9 +1180,9 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     return mixDebugInfo(this, this.liveMix.refused, this.deferredAdds.count);
   }
 
-  /** §6.2: one live edit, routed to `liveMix.ts` (Ma1; every op answers `restartRequired` until then). */
-  applyOp(op: MixOp): ApplyResult {
-    return this.liveMix.apply(op);
+  /** §6.2, ADR 0175: where `mixer.apply` sends a checked op (`liveMix.ts`). */
+  get mixOpTarget(): LiveMix {
+    return this.liveMix;
   }
 
   /** §6.6: post the pending batch now (Ma1). */

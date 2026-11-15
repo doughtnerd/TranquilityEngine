@@ -27,7 +27,7 @@ function rig() {
   const ask = (op: MixOp) => {
     if (op.op !== "addBus") throw new Error("addBus only");
     const r = table.add(op.name, op.parent);
-    return typeof r === "number" ? r : d.defer(op, r.deferred);
+    return typeof r === "number" ? r : d.defer(op);
   };
   /** Frees every tombstone, as the dip does at its end, then retries. */
   const recycle = (frame = 1e9) => {
@@ -39,10 +39,10 @@ function rig() {
 }
 
 describe("DeferredAdds (Ma3)", () => {
-  it("defer answers ok with the message, counts once per name, and keeps the order asked", () => {
+  it("defer answers ok with waitsForSlot, counts once per name, and keeps the order asked", () => {
     const { d, table, ask } = rig();
     table.remove("B31", 0);
-    expect(ask(add("A"))).toEqual({ ok: true, class: "direct", deferred: expect.stringMatching(/waits for a free bus slot/) });
+    expect(ask(add("A"))).toEqual({ ok: true, class: "direct", reason: "waitsForSlot" });
     ask(add("B"));
     ask(add("A", "B1")); // the same add asked again (its parent changed): still one
     expect(d.count).toBe(2);
@@ -129,7 +129,7 @@ describe("DeferredAdds (Ma3)", () => {
 
   it("unbound, defer still answers and retry and pending do nothing", () => {
     const d = new DeferredAdds();
-    expect(d.defer(add("A"), "later")).toEqual({ ok: true, class: "direct", deferred: "later" });
+    expect(d.defer(add("A"))).toEqual({ ok: true, class: "direct", reason: "waitsForSlot" });
     d.retry([1]);
     expect(d.pending).toBe(0);
     expect(d.count).toBe(1);

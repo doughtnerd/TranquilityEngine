@@ -5,13 +5,12 @@
  * Lives in the audio plugin (ADR 0157 §6); the engine imports the mixer from `engine/audio/mixer`.
  */
 import type { Vec3Like } from "../../../engine/core/math";
-import { mixer, type Mixer, type ResolvedBus } from "../../../engine/audio/mixer";
+import { mixer, type Mixer, type MixOpTarget, type ResolvedBus } from "../../../engine/audio/mixer";
 import type { AudioSettings } from "../../../engine/audio/settings";
 import { onAudioConfigured } from "../../../engine/core/audioConfigure";
 import type { AutomationSink } from "./events/automation";
 import type { Curve } from "../../../engine/core/curve";
 import type { AudioLatency, MusicEventHandle } from "../../../engine/audio/musicTypes";
-import type { ApplyResult, MixOp } from "../../../engine/audio/mixOps";
 import type { DuckingRule } from "../../../engine/audio/settings";
 import type { ProfileSink } from "./mix/profileSink";
 import type { KeyframePayload } from "./capture/format";
@@ -767,8 +766,8 @@ export interface AudioBackend {
   readonly mixCaps?: AudioMixCaps;
   /** §1.3, architecture §4.3: the CPU figure (Cp2's `CpuMeter`). */
   cpu?(): AudioCpuDebug;
-  /** §1.3, §6.2: apply one live edit (Ma1–Ma3 fill the core's path; until then every op answers `restartRequired`). */
-  applyOp?(op: MixOp): ApplyResult;
+  /** §1.3, §6.2, ADR 0175: where `mixer.apply` sends a checked live edit (the Mixer refuses, classifies and checks the bus rules first). */
+  readonly mixOpTarget?: MixOpTarget;
   /** §6.6: post the pending batch now (the fader's preview path, at most one post per `FADER_COALESCE_MS`). */
   flushNow?(): void;
   /** §4.2 `BUS_RAMP`: the lane writer (Wa2's interim body, then Mx2's). */
@@ -865,7 +864,7 @@ export function audioBackend(): AudioBackend {
     backend.configureBuses(mixer);
     backend.applyMix(mixer.resolveAll());
     applyBackgroundSetting(backend);
-    mixer._setOpTarget(backend); // ADR 0171 (K0): `mixer.apply(op)` reaches the backend's `applyOp`
+    mixer._setOpTarget(backend.mixOpTarget ?? null); // ADR 0171 (K0), 0175: `mixer.apply(op)` sends to the backend's target
     mixer.onChange(() => backend?.applyMix(mixer.resolveAll()));
   }
   return backend;
@@ -893,7 +892,7 @@ export function setAudioBackend(next: AudioBackend | null): void {
     next.applyMix(mixer.resolveAll());
     applyBackgroundSetting(next);
   }
-  mixer._setOpTarget(next); // ADR 0171 (K0): `mixer.apply(op)` reaches the backend's `applyOp` (null: none)
+  mixer._setOpTarget(next?.mixOpTarget ?? null); // ADR 0171 (K0), 0175: `mixer.apply(op)` sends to the backend's target (null: none)
 }
 
 /** The core load settled (registered, failed, or no longer wanted): the pending backend hands its sound to the real one. */
