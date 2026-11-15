@@ -5,7 +5,7 @@
 //
 // - Audibility (`Audio.debug()`, selection) follows the stem's level: a stem at 0 reads 0 and goes virtual, a rise counts
 //   at once, a fall only at its beat (R3a).
-// - Every dry-gain write multiplies the level in: a promote (SET_MIXED), `_setVolume` and occlusion leave a stem at 0.5
+// - Every dry-gain write multiplies the level in: a promote (SET_MIXED), a volume set and occlusion leave a stem at 0.5
 //   at 0.5 on the core. Before F-9b each reset the in-voice ramp to the plain dry gain (the stem back at full).
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Assets, Engine, SceneManager } from "../../../../myco";
@@ -213,7 +213,7 @@ describe("a quantised stem's level on main (F-9b, loopback host)", () => {
     backend.dispose();
   });
 
-  it("a promote, _setVolume and occlusion keep a stem at 0.5 at 0.5 on the core", { timeout: 60_000 }, async (ctx) => {
+  it("a promote, a volume set and occlusion keep a stem at 0.5 at 0.5 on the core", { timeout: 60_000 }, async (ctx) => {
     const r = await rig();
     if (!r) return ctx.skip();
     const { backend, out, step } = r;
@@ -234,19 +234,19 @@ describe("a quantised stem's level on main (F-9b, loopback host)", () => {
     expect(row(pulse.id).state).toBe("playing");
     expect(settled(out)).toBeCloseTo(half, 5);
 
-    // `_setVolume`: the dry gain is the volume times the level (0.5 x 0.5 of the pulse), and back.
-    backend._setVolume(pulse.id, 0.5);
+    // A volume set: the dry gain is the volume times the level (0.5 x 0.5 of the pulse), and back.
+    backend.voices.setVolume(pulse.id, 0.5);
     await step(3);
     expect(settled(out)).toBeCloseTo(LEVEL.pad + LEVEL.pulse * 0.25, 5);
-    backend._setVolume(pulse.id, 1);
+    backend.voices.setVolume(pulse.id, 1);
     await step(3);
     expect(settled(out)).toBeCloseTo(half, 5);
 
     // Occlusion: the smoothed dry occlusion gain times the level, and open again.
-    backend._setOcclusion(pulse.id, 0.5, 0);
+    backend.voices.setOcclusion(pulse.id, 0.5, 0);
     await step(3);
     expect(settled(out)).toBeCloseTo(LEVEL.pad + LEVEL.pulse * 0.25, 5);
-    backend._setOcclusion(pulse.id, 1, 0);
+    backend.voices.setOcclusion(pulse.id, 1, 0);
     await step(3);
     expect(settled(out)).toBeCloseTo(half, 5);
     backend.dispose();
@@ -274,7 +274,7 @@ describe("a quantised stem's level on main (F-9b, loopback host)", () => {
     Audio.setParameter("Intensity", 0.6);
     await step(1);
     expect(backend.table.stemCount[pulse.i]).toBe(1); // sent, stamped at the beat, not landed
-    backend._setVolume(pulse.id, 0.4);
+    backend.voices.setVolume(pulse.id, 0.4);
     await step(1);
     expect(backend.table.stemCount[pulse.i]).toBe(1);
     expect(settled(out)).toBeCloseTo(LEVEL.pad + LEVEL.pulse * 0.5 * 0.4, 5); // the old level at the new volume

@@ -186,9 +186,9 @@ export class VoiceTable implements VoiceTableHandleApi {
   // --- ADR 0162 (K4; api-and-models §3.2, C20): the M3 columns. Writers in brackets. ---
   /** Selection's audibility before occlusion [sys, selection]; `audibility` is this × `occGain` (C20). */
   readonly audibility0: Float32Array;
-  /** The smoothed dry occlusion gain, 1 open [sys, D2a through `CoreBackend._setOcclusion`]. Default 1. */
+  /** The smoothed dry occlusion gain, 1 open [sys, D2a through `CoreVoices.setOcclusion`, `voices.ts`]. Default 1. */
   readonly occGain: Float32Array;
-  /** The clamped Doppler factor folded into the pitch sent to the core, 1 none [sys, D3 through `_setDopplerRate`]. Default 1. */
+  /** The clamped Doppler factor folded into the pitch sent to the core, 1 none [sys, D3 through `CoreVoices.setDopplerRate`]. Default 1. */
   readonly dopplerFactor: Float32Array;
   /** `VoiceFlag2` bits [main, at play: the request's occlusion, ambisonic, sends and aux]. */
   readonly flags2: Uint8Array;
@@ -227,7 +227,7 @@ export class VoiceTable implements VoiceTableHandleApi {
    * F-9b [main, `musicOps.paramsShaped`]: a music stem's level, the multiplier its stamped in-voice gain ramp puts on the
    * dry gain (quantised automation × solo, `music/stems.ts`); 1 for every other voice. Two views of one level:
    * - `stemDry` is what the core's gain ramp holds when an asap record sent this frame lands (`resolveStems`' frame):
-   *   every dry-gain write (SET_MIXED's promote, `_setVolume`, occlusion, a spatial move) multiplies it in, so it
+   *   every dry-gain write (`voices.ts` `effectiveDryGain`: SET_MIXED's promote, a volume set, occlusion, a spatial move) multiplies it in, so it
    *   doesn't wipe the level. A change stamped later is still pending; the core's held SET_PARAMS applies it then.
    * - `stemGain` is audibility's factor (selection, stealing, `Audio.debug()`), R3a's rule (like `fadeGain` in
    *   `fadeShaped`): a rise counts at once, a fall only once its stamp has come, so the voice isn't cut before it is

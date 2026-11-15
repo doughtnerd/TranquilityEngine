@@ -24,7 +24,7 @@
 // - **The per-voice dip.** A removed bus's voices move to its root: the bus's dip is their fade-out; at B (dip at 0) each
 //   voice's fade drops to 0 and its `SET_PARAMS bus` lands, then it fades back in over `DIP_FRAMES` from B
 //   (`BusIndex.moveVoices`). Those records carry no sequence tag: they ride the planned frames.
-// - **A sound's bus** (§4.7, structural; §3.3's last affected root; G7a): `CoreBackend._setBus` on a sounding voice
+// - **A sound's bus** (§4.7, structural; §3.3's last affected root; G7a): `CoreVoices.setBus` on a sounding voice
 //   moves it on main at once and calls `dipVoice`: the voice dips alone, with no bus dip and no sequence tag. Its fade
 //   goes 1 → 0 over `DIP_FRAMES` from F0 = now + lookahead, then at B (the first quantum start at or after
 //   F0 + `DIP_FRAMES`) `dipVoices` lands its `SET_PARAMS bus` at fade 0 and fades it back in. A second move of the same

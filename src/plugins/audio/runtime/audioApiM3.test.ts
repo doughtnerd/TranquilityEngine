@@ -154,7 +154,7 @@ describe("§1.1 types and handle members", () => {
     r.frame();
     expect([flat.panner, spatial.panner]).toEqual(["flat", "hrtf"]); // a lone spatial voice is in the pick's top `voices.hrtf`
     expect(spatial.occlusion).toBe(1);
-    r.backend._setOcclusion(r.backend.table.liveCount > 0 ? idOf(r.backend, 1) : 0, 0.4, 2000);
+    r.backend.voices.setOcclusion(r.backend.table.liveCount > 0 ? idOf(r.backend, 1) : 0, 0.4, 2000);
     expect(spatial.occlusion).toBeCloseTo(0.4, 5);
     r.backend.table.flags2[1] = VoiceFlag2.AMBISONIC;
     expect(spatial.panner).toBe("ambisonic");

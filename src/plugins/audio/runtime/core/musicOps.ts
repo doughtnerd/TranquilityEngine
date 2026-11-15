@@ -65,6 +65,7 @@ import type { WorkletChannel } from "./workletChannel";
 import type { WarnOnce } from "./codecs";
 import type { ClipInfo, ClipRegistry } from "./clipRegistry";
 import type { CorePlayRequest, CoreVoice } from "./coreBackend";
+import { dryGainBeforeStem, effectiveDryGain } from "./voices";
 import { FadeLaw, packGate, packShape, SET_PARAMS_MASK_GAIN, SET_PARAMS_MASK_LP_HZ, StreamEvent } from "../wire.generated";
 import { hintFromName, MUSIC_ENCODED_BUDGET_MIB, type MusicReply, type PrimeGroupMember } from "../decoder/protocol";
 import type { StreamReply } from "../decoder/decoderClient";
@@ -127,6 +128,8 @@ export interface MusicOpsHost {
   /** The context's rate, Hz (a rebuild may change it). */
   sampleRate(): number;
   readonly warnOnce: WarnOnce;
+  /** F-9b, ADR 0176: a stem's level into the voice (`CoreVoices.setStemLevel`). */
+  setStemLevel(i: number, level: number, at: number | undefined, nowFrame: number, rampFrames: number, shape: number): void;
 }
 
 /** What `Audio.debug().music`/`musicTotals` read of the core's side (P10 builds the rows from it). P1 fills the values. */
@@ -568,7 +571,7 @@ export class CoreMusicOps implements MusicBackend {
     const seconds = Number.isFinite(r.seconds) ? Math.max(0, r.seconds) : 0;
     const rampFrames = Math.round(seconds * clock.sampleRate);
     const stamp = r.at !== undefined && Number.isFinite(r.at) ? clock.stampFor(clock.frameOfTime(r.at)) : undefined;
-    const dry = t.gain[i]! * t.occGain[i]!;
+    const dry = dryGainBeforeStem(t, i);
     const mult = hasGain ? Math.min(4, Math.max(0, r.gain!)) : 1;
     const lp = hasLp ? Math.max(0, r.lowpassHz!) : 0;
     const mask = (hasGain ? SET_PARAMS_MASK_GAIN : 0) | (hasLp ? SET_PARAMS_MASK_LP_HZ : 0);
@@ -577,10 +580,10 @@ export class CoreMusicOps implements MusicBackend {
     if (hasGain) {
       const now = clock.framesNow();
       const applyAt = stamp ?? now + clock.lookaheadFrames();
-      const from = this.gainLevelAt(i, applyAt, dry * t.stemDry[i]!);
+      const from = this.gainLevelAt(i, applyAt, effectiveDryGain(t, i));
       t.logStamped(id, StampedKind.GAIN, applyAt, clock.sampleRate, now, from, mult * dry, seconds, shape, 0);
       // Asap records apply on arrival, at about `framesNow` (the scheduler's asap rule), so that is where this lands.
-      t.setStemLevel(i, mult, stamp, now, rampFrames, shape);
+      this.host.setStemLevel(i, mult, stamp, now, rampFrames, shape);
     }
   }
 

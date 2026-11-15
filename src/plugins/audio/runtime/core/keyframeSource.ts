@@ -36,6 +36,7 @@ import { LOUD_OUTPUT_TAP } from "../wire.generated";
 import type { ClipInfo } from "./clipRegistry";
 import { STOLEN_LISTED_FRAMES, type DebugSource } from "./debug";
 import { VoiceFlag, VoiceReason, VoiceState, type VoiceTable } from "./voiceTable";
+import { reportedGain, reportedPitch } from "./voices";
 
 /** `KEYFRAME_MAX_VOICES`, `_BUSES`, `_METERED`, `_EVENTS`, `_MUSIC` of `capture/format.ts`. */
 export const KF_MAX_VOICES = 8_192;
@@ -227,8 +228,8 @@ export class KeyframeSource {
       row.state = stateOf(table, i);
       row.priority = table.priority[i]!;
       row.reason = (row.state === KfVoiceState.virtual && table.reason[i] === VoiceReason.VIRTUAL) || row.state === KfVoiceState.waitingForData ? 1 : 0;
-      row.gain = Math.fround((automated ? table.gain[i]! * auto.gain : table.gain[i]!) * table.stemGain[i]!);
-      row.pitch = u16(((automated ? table.pitch[i]! * auto.pitch : table.pitch[i]!)) * 4096);
+      row.gain = Math.fround(reportedGain(table, i, automated ? auto.gain : 1));
+      row.pitch = u16(reportedPitch(table, i, automated ? auto.pitch : 1) * 4096);
       row.audibility = u16(clamp01(table.audibility[i]!) * 65536);
       let playhead = 0;
       if ((flags & VoiceFlag.WANTS_PLAYHEAD) !== 0) playhead = table.playhead[i]!;

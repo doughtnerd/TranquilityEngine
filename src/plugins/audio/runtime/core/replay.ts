@@ -60,6 +60,7 @@ import type { ClipInfo, ClipRegistry } from "./clipRegistry";
 import type { ClockMap } from "./clock";
 import type { StatusMirror } from "./mirror";
 import { MAX_STAMPED, StampedKind, STAMPED_FLAG_STOP_AT_END, VoiceFlag, VoiceReason, VoiceState, type VoiceTable } from "./voiceTable";
+import { effectiveDryGain, effectivePitch } from "./voices";
 import { wrapPosition } from "./coreAutomation";
 
 
@@ -577,8 +578,9 @@ export class Replayer {
           flags: playFlags,
           group: t.group[i]!,
           gate: 0,
-          gain: t.gain[i]! * t.occGain[i]!,
-          pitch: t.pitch[i]! * t.dopplerFactor[i]!,
+          // ADR 0176: the dry gain and pitch exactly as the voice sends them (F-9b: with a stem's level; Doppler, clamped).
+          gain: effectiveDryGain(t, i),
+          pitch: effectivePitch(t, i),
           dirX: t.dirX[i]!,
           dirY: t.dirY[i]!,
           dirZ: t.dirZ[i]!,
