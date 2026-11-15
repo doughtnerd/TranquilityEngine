@@ -933,8 +933,9 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
    */
   private joinSession(): void {
     const s = this.session;
-    // Ma3: a reconfigure starts from the settings and a disposed backend applies nothing: no queued live add survives either.
-    s.join("deferredAdds", { reconfigure: () => this.deferredAdds.clear(), dispose: () => this.deferredAdds.clear() });
+    // Ma3: a reconfigure starts from the settings, and a failed or disposed backend applies nothing: no queued live add survives.
+    const clearAdds = () => this.deferredAdds.clear();
+    s.join("deferredAdds", { reconfigure: clearAdds, recoveryFailed: clearAdds, dispose: clearAdds });
     s.join("buses", {
       reconfigure: (mixer) => this.buses.configureBuses(mixer),
       replayHeader: (b) => replayBusConfig(b, this.busConfigWire()),

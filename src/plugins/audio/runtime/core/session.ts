@@ -85,8 +85,9 @@ export const PHASE_ORDER = {
   replayVoice: ["automation", "voiceFx", "voiceState"],
   // Stream voices reopen (FU2: one stamp for all), then music groups reopen as groups (ADR 0166 P9, C16).
   reopenStreams: ["voices", "musicOps"],
-  // Every voice ends "failed" and the queue empties; nothing waits for a replay; nothing staged is sent.
-  recoveryFailed: ["voices", "replayer", "writer"],
+  // No live add waits for a slot (no recycle comes); every voice ends "failed" and the queue empties; nothing waits for
+  // a replay; nothing staged is sent.
+  recoveryFailed: ["deferredAdds", "voices", "replayer", "writer"],
   // Queued adds and plays go, the replay's waiting voices go, the listeners and the mixer's hooks are removed, the
   // music, stream and zone parts close, the link gets its default decoder back, and nothing staged is sent.
   dispose: ["deferredAdds", "voices", "replayer", "cleanups", "musicOps", "streams", "zones", "link", "writer"],
