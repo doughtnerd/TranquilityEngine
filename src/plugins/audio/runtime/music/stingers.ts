@@ -124,7 +124,7 @@ function withOwn(segment: SegmentNode, def: Readonly<StingerDef>): SegmentNode {
 /** Earliest heard time a stinger run can start: the horizon, and for a streamed one the prime lead. */
 function earliestFor(run: SegmentRun, player: MusicPlayer, f: MusicFrame): number {
   const now = f.backend.time;
-  let earliest = Math.max(now, f.backend.horizon?.() ?? now);
+  let earliest = Math.max(now, f.backend.clock?.horizon() ?? now);
   if (run.stems.some((s) => s.streamed)) earliest = Math.max(earliest, now + player.counters.leadMs / 1000);
   return earliest;
 }

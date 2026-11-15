@@ -10,7 +10,7 @@
  * rings over the wrap while the next pass starts on the grid. A wrap the music leaves by a transition at the wrap (an
  * exit at the loop end) still gets its tail: it rings on under the next segment. A wrap the music leaves before (an
  * exit earlier in the pass) gets none, nor does the last pass's end (the members play on into the audio after the
- * region by themselves). The spans are held (`AudioBackend.holdSpan`) from the moment the run plays, so a span is
+ * region by themselves). The spans are held (`AudioClipCache.holdSpan`) from the moment the run plays, so a span is
  * resident when its voice is stamped; a span the backend refuses (over 30 s, over the clip ceiling) drops that tail
  * with one warning (`tailRefused`) and the loop goes on. A tail whose span is still loading, or whose wrap is already
  * inside the lead when it would be stamped, is skipped (`refusals.tailLate`). A backend without span clips plays no
@@ -135,16 +135,18 @@ function releaseSpans(st: LoopTailState): void {
 /** Take the run's tail spans (every region with a tail, every stem), once. */
 function holdSpans(st: LoopTailState, run: SegmentRun, f: MusicFrame): void {
   st.held = true;
-  const hold = f.backend.holdSpan;
+  const clips = f.backend.clipCache;
   const regions = (run.node as Partial<SegmentNode>).regions;
-  if (!hold || !Array.isArray(regions)) return;
+  if (!clips || !Array.isArray(regions)) return;
   for (let region = 0; region < regions.length; region++) {
     if (!((regions[region]!.tailBeats ?? 0) > 0)) continue;
     for (let stem = 0; stem < run.stems.length; stem++) {
       const clip = run.stems[stem]!.clip;
       const span = tailSpanOf(run.node, region, clipRate(clip));
       if (!span) continue;
-      st.spans.push({ region, stem, ...span, hold: hold.call(f.backend, clip, span.startFrame, span.endFrame) });
+      const hold = clips.holdSpan(clip, span.startFrame, span.endFrame);
+      if (!hold) return; // no span clips on this backend: no loop tails
+      st.spans.push({ region, stem, ...span, hold });
     }
   }
 }

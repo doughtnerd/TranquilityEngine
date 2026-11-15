@@ -73,7 +73,7 @@ export function tickHidden(backend: AudioBackend): void {
   // sections; the group events reach the router here, as from step 0.
   const music = backend.music ?? null;
   if (music !== null && music.onGroupEvent === null) music.onGroupEvent = routeGroupEvent;
-  backend.beginFrame?.();
+  backend.clock?.beginFrame();
   updateBeatHolds(backend);
   const f = hiddenFrame(backend);
   for (let k = 0; k < players.length; k++) {

@@ -25,7 +25,8 @@
 // **Chunk boundary.** The recorder chunk (`capture/format.ts`) is lazy and this file is in every game that uses the core, so it
 // imports the keyframe types only; the caps below repeat `format.ts`'s `KEYFRAME_MAX_*` (a test holds them equal).
 import type { KeyframeBus, KeyframeEvent, KeyframeMetered, KeyframeMusic, KeyframePayload, KeyframeVoice } from "../capture/format";
-import { Lane, type Mixer } from "../../../../engine/audio/mixer";
+import type { Mixer } from "../../../../engine/audio/mixer";
+import { writeKeyframeBusLanes } from "../mix/keyframeBus";
 import type { SlotTable } from "../../../../engine/audio/slotTable";
 import { events, type EventDebugRow } from "../events/eventRuntime";
 import { loudnessHub, type LoudnessHub } from "../mix/loudnessHub";
@@ -274,11 +275,6 @@ export class KeyframeSource {
     return -1;
   }
 
-  private setLane(L: number[], k: number, name: string, lane: 0 | 1 | 2 | 3 | 4, to: number): void {
-    L[2 * k] = Math.fround(this.host.mixer.laneGain(name, lane));
-    L[2 * k + 1] = Math.fround(to);
-  }
-
   private addBus(slot: number, name: string | null, tombstone: boolean, gen: number, root: string | undefined): void {
     const out = this.buses;
     if (out.length >= KF_MAX_BUSES) return;
@@ -286,23 +282,15 @@ export class KeyframeSource {
     const row = (this.busPool[out.length] ??= busRow());
     row.slot = slot & 0xff;
     row.gen = gen & 0xffff;
-    const lanes = name === null ? undefined : m._lanes(name);
-    const L = row.lanes as number[];
-    if (!lanes || name === null) {
-      L.fill(0);
+    // The lanes as the Babylon fallback reads them too (`mix/keyframeBus.ts`, ADR 0179).
+    const gates = name === null ? -1 : writeKeyframeBusLanes(row, m, name);
+    if (gates < 0) {
+      (row.lanes as number[]).fill(0);
       row.flags = tombstone ? KF_BUS_TOMBSTONE : 0;
       row.duck = 1;
       row.automation = 1;
     } else {
-      this.setLane(L, 0, name, Lane.authored, lanes.authoredMute ? 0 : lanes.authored.to);
-      this.setLane(L, 1, name, Lane.runtime, lanes.runtimeMute ? 0 : lanes.runtime.to);
-      this.setLane(L, 2, name, Lane.snapshot, lanes.snapshot.to);
-      this.setLane(L, 3, name, Lane.monitor, m.laneGain(name, Lane.monitor));
-      this.setLane(L, 4, name, Lane.dip, lanes.dip.to);
-      row.flags = (lanes.authoredMute ? 1 : 0) | (lanes.runtimeMute ? 2 : 0) | (lanes.monitorMute ? 4 : 0) | (lanes.monitorSolo ? 8 : 0)
-        | (tombstone ? KF_BUS_TOMBSTONE : 0) | (this.isMetered(slot) || name === root ? KF_BUS_METERED : 0);
-      row.duck = Math.fround(m.laneGain(name, Lane.duck));
-      row.automation = Math.fround(m.laneGain(name, Lane.automation));
+      row.flags = gates | (tombstone ? KF_BUS_TOMBSTONE : 0) | (this.isMetered(slot) || name === root ? KF_BUS_METERED : 0);
     }
     out.push(row);
   }

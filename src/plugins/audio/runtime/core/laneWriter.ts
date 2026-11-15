@@ -40,8 +40,26 @@ import {
 } from "../wire.generated";
 import type { CommandWriter } from "./commandWriter";
 import type { ClockMap } from "./clock";
-import type { BusLaneRamp, MixLane } from "../backend";
 import type { ReplayBuilder } from "./replay";
+
+// ADR 0179: the lane writer's inputs live here (they left the backend seam: only `CoreBackend` and its tests write lanes).
+/** One of a bus's main-written gain lanes (ADR 0172 §1.3; `LANE_AUTHORED`..`LANE_DIP` of the wire). */
+export type MixLane = "authored" | "runtime" | "snapshot" | "monitor" | "dip";
+
+/**
+ * One `BUS_RAMP` (§4.2) as main asks for it: ramp `lane` of `bus` (null: the output gain, `BUS_MASTER_OUT`) to `gain`
+ * and/or `lpHz` (the snapshot lane only) over `seconds`, from heard time `at` (omitted: asap). `seconds` 0 is a literal
+ * step (replay and RESET only, R2). `sequenceId` tags a dip's records (13 bits, 0 none, C27).
+ */
+export interface BusLaneRamp {
+  bus: string | null;
+  lane: MixLane;
+  gain?: number;
+  lpHz?: number;
+  seconds: number;
+  at?: number;
+  sequenceId?: number;
+}
 
 /** The core's bus count (`MAX_BUS` in `coreBackend.ts`). */
 const MAX_BUS = 32;
@@ -272,7 +290,7 @@ export class LaneWriter {
   }
 
   /**
-   * §4.2: one `BUS_RAMP` on a main-written lane as asked (`AudioBackend.rampLane`): `bus` null is the output gain;
+   * §4.2: one `BUS_RAMP` on a main-written lane as asked (`CoreBackend.lanes.rampLane`; off the seam, ADR 0179): `bus` null is the output gain;
    * `seconds` 0 is a literal step; `at` (heard seconds) stamps it at its frame, asap when omitted or past.
    */
   rampLane(r: BusLaneRamp): void {

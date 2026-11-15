@@ -317,7 +317,7 @@ export function judgedOffset(offset: number): number {
  */
 export function audioHorizon(): number {
   const b = audioBackend();
-  return b.horizon?.() ?? b.time;
+  return b.clock?.horizon() ?? b.time;
 }
 
 /**
@@ -326,5 +326,5 @@ export function audioHorizon(): number {
  */
 export function audioTimeAt(performanceTime: number): number {
   const b = audioBackend();
-  return b.timeAt?.(performanceTime) ?? b.time;
+  return b.clock?.timeAt(performanceTime) ?? b.time;
 }

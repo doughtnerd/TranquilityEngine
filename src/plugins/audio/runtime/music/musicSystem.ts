@@ -357,11 +357,11 @@ export function hiddenFrame(backend: AudioBackend): MusicFrame {
 // --- Owners' stubs ---------------------------------------------------------------------------------------------------
 
 /**
- * P7: the early step's backend part: `backend.beginFrame?.()` (idempotent per rAF time) so `update()` reads this frame's
+ * P7: the early step's backend part: `backend.clock?.beginFrame()` (idempotent per rAF time) so `update()` reads this frame's
  * `Audio.time`, then this frame's group events from the status mirror (§6, R17). Runs only while music plays.
  */
 export function beginMusicFrame(backend: AudioBackend): void {
-  backend.beginFrame?.(); // advances the clock map and reads the status mirror (group events go to `onGroupEvent`)
+  backend.clock?.beginFrame(); // advances the clock map and reads the status mirror (group events go to `onGroupEvent`)
   updateBeatHolds(backend); // Rh1: rhythm mode holds callbacks through a recovery, before the dispatch
   frameSerial++; // the handles' snapshots are this frame's from here
 }

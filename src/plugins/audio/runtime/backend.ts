@@ -11,9 +11,14 @@ import { onAudioConfigured } from "../../../engine/core/audioConfigure";
 import type { AutomationSink } from "./events/automation";
 import type { Curve } from "../../../engine/core/curve";
 import type { AudioLatency, MusicEventHandle } from "../../../engine/audio/musicTypes";
-import type { DuckingRule } from "../../../engine/audio/settings";
 import type { ProfileSink } from "./mix/profileSink";
 import type { KeyframePayload } from "./capture/format";
+import type { AudioDebugInfo, AudioMixCaps } from "./debugTypes";
+import { PendingCoreBackend } from "./pendingBackend";
+
+// The debug shape moved to `debugTypes.ts` (ADR 0179); every name stays importable from here.
+export type { AudioBedDebug, AudioCpuDebug, AudioDebugInfo, AudioM3Counters, AudioMemoryDebug, AudioMixCaps, AudioMixDebug, AudioMixSlotDebug, AudioOcclusionDebug, AudioRecorderDebug, AudioVoiceM3Debug, AudioZoneDebug, MusicDebugPending, MusicDebugRow, MusicDebugState, MusicDebugTotals } from "./debugTypes";
+export { zeroCounters } from "./debugTypes";
 
 export type Rolloff = "linear" | "inverse" | "exponential";
 
@@ -55,335 +60,11 @@ export type SendCurve = Curve;
 export const DEFAULT_SEND_CURVE: SendCurve = [[0, 1], [1, 0.5]];
 
 /**
- * ADR 0162 §1.6 and contract C24 (K0): the M3 counters `AudioDebugInfo.counters` gains. All optional until the task
- * that fills each one merges; a backend without the feature leaves it out.
- */
-export interface AudioM3Counters {
-  bedVoices?: number; beds?: number; bedDenied?: number; bedsRefused?: number; bedSwitches?: number; bedFilterLoadFailure?: number; belowHorizonVoices?: number;
-  fxVoices?: number; ambisonicVoices?: number;
-  zonesActive?: number; zonesRinging?: number; zonesFaded?: number; zoneMemoryKB?: number; kernelRefused?: number; irFailures?: number; irTruncated?: number; irPrepInCore?: number; irPrepares?: number;
-  occlusionRays?: number; occlusionUsedMs?: number; occlusionOverruns?: number; occlusionSources?: number; occlusionNoPhysics?: number; oldestOcclusionAgeFrames?: number;
-  dopplerClamps?: number; dopplerTeleports?: number; dopplerGuardTrips?: number;
-  wideStarved?: number; m3Shed?: number;
-}
-
-/** ADR 0162 §1.6 (K0): one bed slot in `AudioDebugInfo.beds`. */
-export interface AudioBedDebug {
-  slot: number;
-  /** The bus that hosts the bed. */
-  bus: string;
-  /** Buses mixing into this bed (`parent` beds and buses folded in by gain). */
-  sharing: string[];
-  /** Buses that asked for a bed and didn't get one, and why (C15). */
-  denied: { bus: string; reason: string }[];
-  voices: number;
-  /** Ambisonic clips decoded into this bed. */
-  clips: number;
-  costUs: number;
-}
-
-/** ADR 0162 §1.6 (K0): one reverb zone in `AudioDebugInfo.zones`. */
-export interface AudioZoneDebug {
-  node: string;
-  world: string | null;
-  /** The core slot, or -1 without one. */
-  slot: number;
-  state: string;
-  /** The IR asset, or the preset name. */
-  ir: string;
-  irSeconds: number;
-  kernelKB: number;
-  prepareMs: number;
-  /** Who prepared the kernel (C15). */
-  by: "worker" | "core";
-  sendEnergy: number;
-  rank: number;
-  /** Why the zone is silent ("faded: preset has 2 reverbs", "IR failed: …", "wet 0", "no sources inside"), or "". */
-  why: string;
-}
-
-/** ADR 0162 §1.6 (K0): the occlusion pass in `AudioDebugInfo.occlusion`. */
-export interface AudioOcclusionDebug {
-  enabled: boolean;
-  /** Why it is inert ("2D world", "no 3D physics service"), or "". */
-  note: string;
-  budgetRays: number;
-  rays: number;
-  rayCostUs: number;
-  oldestAgeFrames: number;
-}
-
-/** ADR 0162 §1.6 (K0): M3's fixed memory in `AudioDebugInfo.memory`, bytes. */
-export interface AudioMemoryDebug {
-  beds: number;
-  zones: number;
-  kernels: number;
-  kernelBudget: number;
-  wideRings: number;
-}
-
-/** ADR 0162 §1.6 (K0): what a voice row gains in `AudioDebugInfo.voices`. All optional until the tasks that fill them merge. */
-export interface AudioVoiceM3Debug {
-  panner?: AudioPanner;
-  /** The bed slot this voice mixes into, or null. */
-  bed?: number | null;
-  kindDwellMs?: number;
-  /** The Doppler factor folded into its pitch (1 none). */
-  doppler?: number;
-  occlusion?: { gain: number; cutoffHz: number; ageFrames: number; hits: number; material: string; collider: string | null };
-  filter?: { lowpassHz: number; highpassHz: number; lowpassBy: "occlusion" | "event" | "automation" | "bus" | "snapshot" | "parent" | null };
-  sends?: { zone: string; level: number }[];
-  aux?: { bus: string; level: number } | null;
-}
-
-// --- ADR 0171 amended by 0172 (M5, contract K0): the mix debug shape (api-and-models §1.3; Dbg1, Cp2, Rc2 fill it) ---
-
-/** What a backend can do for the M5 mix (§1.3). The core: all true, `capture: "full"`; the Babylon fallback: false, `"mainSideOnly"`. */
-export interface AudioMixCaps {
-  /** Loudness meters (`Bus.loudness`). */
-  loudness: boolean;
-  /** Level-mode ducking rules run (presence rules run everywhere). */
-  levelDucking: boolean;
-  /** The CPU figure is available. */
-  cpu: boolean;
-  /** Why `cpu` is false ("Babylon fallback: no CPU line", "clock too coarse"), else null. */
-  cpuReason: string | null;
-  /** Script fades and snapshots start on their stamp (`BUS_RAMP` class B). */
-  stampedBusRamps: boolean;
-  /** What a capture records: everything, or main-side events and keyframes only (§9). */
-  capture: "full" | "mainSideOnly";
-}
-
-/** `Audio.debug().cpu` (§1.3, architecture §4.3; Cp2 fills it). */
-export interface AudioCpuDebug {
-  /** Main's load figure, permille; null before the first window fills ("CPU not yet measured"), never 0 for unknown. */
-  loadPermille: number | null;
-  /** The window the figure covers, ms. */
-  windowMs: number;
-  /** The smallest non-zero `Date.now` step seen in the worklet, ms; 0 = none yet. */
-  clockStepMs: number;
-  /** Wall-clock steps clamped (count). */
-  clockSteps: number;
-  /** The live work-unit refit's residual; null until fitted. */
-  refitResidual: number | null;
-  /** Estimated share per section, permille; null until fitted. */
-  sections: { voices: number; buses: number; spatial: number; music: number; loudness: number } | null;
-  /** Why the figure is hidden (the clock is too coarse), else null. */
-  hidden: string | null;
-}
-
-/** One slot of the session slot table in `Audio.debug().mix.slots` (§1.3, §6.3). */
-export interface AudioMixSlotDebug { name: string | null; slot: number; state: "live" | "tombstone" | "free" }
-
-/** `Audio.debug().mix` (§1.3; Dbg1 fills it). Counts are cumulative unless stated. */
-export interface AudioMixDebug {
-  /** The session slot table (the identity layout until Ma1 wires the table in). */
-  slots: AudioMixSlotDebug[];
-  /** A monitor mute or solo is on. */
-  monitorActive: boolean;
-  /** Meters paused now (by script or by the ladder). */
-  metersPaused: number;
-  /** The ladder's loudness step in force (STATUS `loudShed`). */
-  loudnessLadderStep: 0 | 1;
-  /** STATUS `busRecordsEarly`: bus records applied at a quantum's start because the due list was full. */
-  busRecordsEarly: number;
-  /** STATUS `sidechainLate`. */
-  sidechainLate: number;
-  /** Live edits refused. */
-  liveRefused: number;
-  /** Live adds deferred for want of a free slot (architecture §4.7, debug-only). */
-  liveDeferred: number;
-  /** Live adds waiting for a slot now (of `liveDeferred`, those not yet applied). */
-  liveDeferredPending: number;
-  /** Each ducking rule's target gain now. */
-  ducking: { target: string; trigger: string; mode: "level" | "presence"; gain: number }[];
-}
-
-/** `Audio.debug().recorder` (§1.3; Rc2 fills it): the shared capture ring, null while none runs. */
-export interface AudioRecorderDebug {
-  state: string;
-  /** Owners holding the ring (the Profiler panel, `Audio.capture`, the export's trigger). */
-  owners: number;
-  bytes: number;
-  segments: number;
-  evicted: number;
-  truncated: boolean;
-}
-
-/** One of a bus's main-written gain lanes (ADR 0172 §1.3; `LANE_AUTHORED`..`LANE_DIP` of the wire). */
-export type MixLane = "authored" | "runtime" | "snapshot" | "monitor" | "dip";
-
-/**
- * One `BUS_RAMP` (§4.2) as main asks for it: ramp `lane` of `bus` (null: the output gain, `BUS_MASTER_OUT`) to `gain`
- * and/or `lpHz` (the snapshot lane only) over `seconds`, from heard time `at` (omitted: asap). `seconds` 0 is a literal
- * step (replay and RESET only, R2). `sequenceId` tags a dip's records (13 bits, 0 none, C27).
- */
-export interface BusLaneRamp {
-  bus: string | null;
-  lane: MixLane;
-  gain?: number;
-  lpHz?: number;
-  seconds: number;
-  at?: number;
-  sequenceId?: number;
-}
-
-/** One `BUS_SLOT` (§4.2, R7): one slot's configuration, so a parameter edit no longer resends the tree. */
-export interface BusSlotWrite {
-  slot: number;
-  /** Parent slot; `BUS_ROOT` (0xFFFF) for a root. */
-  parent: number;
-  /** In wire form; at most 4 are kept. */
-  effects: { type: number; p: number[] }[];
-  /** Applies at quantum granularity under the gate (a dip's middle record). */
-  structural?: boolean;
-  /** The slot starts zeroed with unity lanes (a re-add after recycling). */
-  fresh?: boolean;
-  sequenceId?: number;
-  /** Heard time it applies (omitted: asap). */
-  at?: number;
-}
-
-/** `LOUD_CONFIG` (§4.2) as main asks for it: the true-peak gate and the metered buses (master is implicit). */
-export interface LoudnessConfigWrite {
-  tpGateDbfs: number;
-  meters: readonly string[];
-}
-
-/**
  * The recorder's copy of a STATUS block (architecture §2.1, §4.2), called in `CoreLink.handleMessage` between the decode
  * and the RECYCLE: `data` is the pooled buffer, valid only during the call; `byteLength` the block's bytes. Must not
  * allocate (ground rules). Rc2 fills it from `capture/recorder.ts`.
  */
 export type RecorderTap = (data: ArrayBuffer, byteLength: number, view?: DataView) => void;
-
-/** A copy of the audio state for tools and "why is there no sound?" (§1, architecture §8). */
-export interface AudioDebugInfo {
-  status: AudioStatus;
-  sampleRate: number;
-  time: number;
-  background: AudioBackground;
-  counters: { underruns: number; lateCommands: number; minSlackFrames: number; workUnits: number; workUnitsMax: number; mixedVoices: number; mixedCap: number; logicalVoices: number; queuedPlays: number; droppedPlays: number; traps: number; refusedLoads: number; hrtfVoices: number; hrtfLoadFailure: number } & AudioM3Counters;
-  /** ADR 0162 (K0) adds `bed` (the bus's `bed` setting), `bedHost` (the bus whose bed it mixes into) and `bedLost` (it asked for a bed and has none). */
-  buses: { name: string; gain: number; effectiveGain: number; peakL: number; peakR: number; voices: number; maxVoices: number | null; bed?: "own" | "parent" | "none"; bedHost?: string | null; bedLost?: boolean; /** ADR 0171 (K0; Mx2 fills it in W3): the start frame (core frames) of the bus's last stamped `BUS_RAMP`; undefined until then. */ lastRampStartFrame?: number }[];
-  voices: ({ id: number; clip: string; bus: string; world: string | null; state: "playing" | "virtual" | "stolen" | "waitingForData" | "busMuted" | "locked"; priority: number; gain: number; pitch: number; audibility: number; playheadSeconds: number | null; owner: string | null; /** ADR 0158 §5 (contract C3): the event instance this voice belongs to, null for none. Filled by E3.1 (core) and E3.2 (Babylon). */ event?: number | null } & AudioVoiceM3Debug)[];
-  /** Architecture 8: context state, latencies, lookahead, transport, memory and health groups. */
-  core: Record<string, number | string | boolean>;
-  /** ADR 0158: playing event instances (`Audio.debug()` adds them; a backend leaves it out). */
-  events?: { id: number; asset: string; world: number; voices: number; parameters: Record<string, number | string> }[];
-  /** ADR 0162 §1.6 (K0): bed slots (filled by A5; absent on a backend without beds). */
-  beds?: AudioBedDebug[];
-  /** ADR 0162 §1.6 (K0): reverb zones (filled by C5; absent on the Babylon fallback, where zones are inert). */
-  zones?: AudioZoneDebug[];
-  /** ADR 0162 §1.6 (K0): the occlusion pass (filled by D2a). */
-  occlusion?: AudioOcclusionDebug;
-  /** ADR 0162 §1.6 (K0): M3's fixed memory (filled by D5 from the core's preset). */
-  memory?: AudioMemoryDebug;
-  /** ADR 0166 §1.6, C11 (Q0): one row per playing music instance (filled by P10; absent on a backend without music). */
-  music?: MusicDebugRow[];
-  /** ADR 0166 §1.6, C11 (Q0): engine-wide music totals (filled by P10). */
-  musicTotals?: MusicDebugTotals;
-  /** ADR 0171 §1.3 (K0; Dbg1): what the backend can do for the mix. Optional until Dbg1 gives every backend one. */
-  mixCaps?: AudioMixCaps;
-  /** ADR 0171 §1.3 (K0; Cp2): the CPU figure. */
-  cpu?: AudioCpuDebug;
-  /** ADR 0171 §1.3 (K0; Dbg1): the slot table, monitor and ladder state, mix counters, ducking. */
-  mix?: AudioMixDebug;
-  /** ADR 0171 §1.3 (K0; Rc2): the shared capture ring, null while none runs. */
-  recorder?: AudioRecorderDebug | null;
-}
-
-// --- ADR 0166 interactive music (M4): the debug shape (§1.6, C11; contract Q0, filled by P10) ---------------------
-
-/** A music instance's state (§1.6). */
-export type MusicDebugState = "priming" | "playing" | "transitioning" | "recovering" | "ending";
-
-/** One playing music instance in `Audio.debug().music` (api-and-models §1.6, architecture §9, C11). Every field states its unit. */
-export interface MusicDebugRow {
-  /** The event instance id (as `AudioDebugInfo.events[].id`). */
-  id: number;
-  /** The event asset path. */
-  asset: string;
-  state: MusicDebugState;
-  /** Node id of the playing segment; null while priming the first one. */
-  segment: string | null;
-  /** The playing segment's pass (loop count), from 1. */
-  pass: number;
-  /** 1-based position; `tick` 0..(ticks per beat - 1), §2.2. */
-  bar: number;
-  beat: number;
-  tick: number;
-  /** Beats per minute. */
-  tempo: number;
-  beatsPerBar: number;
-  /** Heard time of the position, seconds. */
-  time: number;
-  /** The pending change and the rule that supplied it, or null. */
-  pending: MusicDebugPending | null;
-  /** Live groups: id, state, primed members of `of`. */
-  groups: { id: number; state: "admitted" | "priming" | "stamped" | "playing" | "held" | "ending"; primed: number; of: number }[];
-  /** Stems of the playing segment: track name, primed, streamed, the music ring (index in the pool) or null. */
-  stems: { name: string; primed: boolean; streamed: boolean; ring: number | null }[];
-  /** Milliseconds: the last group prime time, the estimator Ê, and the prime lead (1.25 Ê + L + Δ̄, ADR 0167 §1.2). */
-  primeLastMs: number;
-  primeEmaMs: number;
-  leadMs: number;
-  /** Re-plans by reason (`deadline`, `primeLate`, `groupLate`, `groupHeld`, `rebuild`, ...); counts. */
-  replans: Record<string, number>;
-  /** Refusals by cause (`poolFull`, `neverFits`, `tailRefused`, ...); counts. */
-  refusals: Record<string, number>;
-  /** Counts: groups that started late, groups held by a starving member, groups the core gave up on. */
-  lateGroups: number;
-  groupsHeld: number;
-  groupTimeouts: number;
-  /** Audio frames: the slip of the last late or held group. */
-  lastSlipFrames: number;
-  /** Recoveries by cause (`rebuild`, `hidden`, `reload`, `crash`); counts. */
-  recoveries: Record<string, number>;
-  /** Beats coalesced into `missed` since the instance started. */
-  missedBeats: number;
-  /** Stinger outcomes; counts. */
-  stingers: { played: number; late: number; skipped: number; dropped: number };
-}
-
-/** `MusicDebugRow.pending` (§1.6): the change, when it lands, and the rule that supplied it. */
-export interface MusicDebugPending {
-  /** Target child id. */
-  to: string;
-  /** Where it lands, `"bar:beat"` in the playing segment. */
-  time: string;
-  /** Index of the matched rule in its container's list; -1 for the default rule. */
-  rule: number;
-  /** `"from>to"` as the rule names them (`*` for a wildcard). */
-  ruleKey: string;
-  /** Specificity tier 1..4 (§2.4). */
-  tier: 1 | 2 | 3 | 4;
-  /** Id of the container that supplied the rule (the common parent). */
-  parent: string;
-  /** The rule's exit and enter points as written (`"nextBar"`, `"cue:outro"`, ...). */
-  exit: string;
-  enter: string;
-}
-
-/** `Audio.debug().musicTotals` (§1.6): engine-wide; counts unless stated. */
-export interface MusicDebugTotals {
-  /** Music rings in use, the pool's size (`music.rings`), and the most ever in use at once. */
-  poolUsed: number;
-  poolSize: number;
-  poolHighWater: number;
-  musicRingRefused: number;
-  streamStartsLate: number;
-  /** Audio frames: the largest slip since init. */
-  maxSlipFrames: number;
-  /** Whole-quantum splits and voice-local splits, cumulative (R3). */
-  splitQuanta: number;
-  voiceSplits: number;
-  curvePoolFull: number;
-  /** A PLAY whose group found no core table entry (a bug signal, architecture §4.3). */
-  groupTableFull: number;
-  /** The worker's encoded music cache went over its budget with nothing evictable (F-5; counts). */
-  encodedOverBudget: number;
-}
 
 // --- ADR 0166 interactive music (M4): the backend seam (§4.6, C10; contract Q0) ------------------------------------
 
@@ -589,7 +270,7 @@ export interface PlayRequest {
 
 /**
  * C14 (R4a): a reference to a decoded span clip, taken ahead of its plays so the span is resident when a voice is
- * stamped on it (`AudioBackend.holdSpan`). A refused span (bad range, over 30 s, over the clip ceiling) reads `failed`.
+ * stamped on it (`AudioClipCache.holdSpan`). A refused span (bad range, over 30 s, over the clip ceiling) reads `failed`.
  */
 export interface ClipSpanHold {
   readonly state: "loading" | "ready" | "failed";
@@ -708,6 +389,84 @@ export interface ListenerPose {
   up: Vec3Like;
 }
 
+// --- The seam (ADR 0098, narrowed into capabilities by ADR 0179) ------------------------------------------------------
+//
+// Every backend implements the required members. What only some backends can do is grouped into capability objects: a
+// caller reads one once (`const clock = backend.clock; if (clock) ...`) and gets every member of it, so there is no probing
+// of single optional members. A capability is either there whole or absent. On the core every capability getter returns
+// the backend itself (its own members are the capability's), so a capability costs no object and no allocation; the
+// Babylon fallback has `clipCache`, `music`, `mix` and `capture` and no `clock` or `automation`.
+
+/**
+ * The backend's decoded-clip cache (ADR 0158, ADR 0166 G-1, P8, C14): what is known of a loaded clip, dropping an edited
+ * file, and holding a span for loop tails. Core: all of it. Babylon fallback: durations only (facts unknown, nothing to
+ * invalidate, no span clips).
+ */
+export interface AudioClipCache {
+  /** A loaded clip's length in seconds at pitch 1, or null while it isn't known (still loading, streaming). */
+  clipDuration(path: string): number | null;
+  /** A loaded clip's facts, or undefined while unknown (not loaded, failed, or a backend that doesn't keep them). `gapless`: its length is exact. */
+  clipFacts(path: string): { frames: number; rate: number; channels: number; gapless: boolean } | undefined;
+  /** The asset file at `path` was edited: drop what is cached of it (decoded clips, the worker's encoded music bytes). */
+  invalidateClip(path: string): void;
+  /**
+   * C14 (R4a): hold the decoded span `[startFrame, endFrame)` of the asset at `path` (frames at its own rate) so a play
+   * with `PlayRequest.span` finds it resident. Null: this backend has no span clips (no loop tails).
+   */
+  holdSpan(path: string, startFrame: number, endFrame: number): ClipSpanHold | null;
+}
+
+/**
+ * The heard clock (ADR 0158, ADR 0166 §1.3, §6, G-1, Rh1): exact stamping, the frame clock, input timestamps and latency.
+ * The core has it; the Babylon fallback doesn't (callers then use `time`, an estimated lookahead and zero latency).
+ */
+export interface AudioClock {
+  /**
+   * §6 step 0 (R17): advance the heard-clock map and read the status mirror for this display frame. Idempotent per frame
+   * (`ClockMap.beginFrame` does nothing the second time at the same `rafTime`), so `update` may call it again.
+   */
+  beginFrame(): void;
+  /** The earliest audio-clock time (`time`'s base) a play with `at` lands on exactly, for gapless chains; null while unknown (callers treat it as no clock). */
+  horizon(): number | null;
+  /** The clock's frame-interval average Δ̄, seconds; null while unknown (callers estimate it). */
+  frameInterval(): number | null;
+  /** §1.3 `Audio.timeAt`: the raw heard time (seconds) of a `performance.now()` instant (ms). Calibration is never applied (R18). */
+  timeAt(performanceTime: number): number;
+  /** §1.3 `Audio.latency`, seconds. */
+  latency(): AudioLatency;
+}
+
+/**
+ * The live mix (ADR 0171 amended by 0172 §1.3, §6, ADR 0175): what the backend can do for the mix, where `mixer.apply`
+ * sends a checked edit, and the fader's preview flush. Core and Babylon fallback both have it; the pending backend doesn't.
+ */
+export interface AudioLiveMix {
+  /** §1.3: what this backend can do for the mix (Dbg1 tests the flags per backend). */
+  readonly mixCaps: AudioMixCaps;
+  /** §6.2, ADR 0175: where `mixer.apply` sends a checked live edit (the Mixer refuses, classifies and checks the bus rules first). */
+  readonly mixOpTarget: MixOpTarget;
+  /** §6.6: post the pending batch now (the fader's preview path, at most one post per `FADER_COALESCE_MS`). A no-op where there is no batch. */
+  flushNow(): void;
+}
+
+/**
+ * The capture's sources (ADR 0171 §5.5, §5.6, architecture §2.1): the event taps, the KEYFRAME and the STATUS tap. Core and
+ * Babylon fallback both have it. What a capture records is `AudioLiveMix.mixCaps.capture`: on a `"mainSideOnly"` backend
+ * (no STATUS blocks) `recorderTap` is never called.
+ */
+export interface AudioCaptureSource {
+  /** Architecture §2.1: the recorder's STATUS tap, null when no recorder runs (Rc2 sets it through `capture.ts`). */
+  recorderTap: RecorderTap | null;
+  /** §5.6: the capture's event taps (Rc3); null restores the null object. */
+  setProfileSink(sink: ProfileSink | null): void;
+  /**
+   * §5.5 (G7b): the main-side state at this instant, for the capture's KEYFRAME (`capture.ts` hands the recorder
+   * `() => capture.keyframe(nameId, noName)`). `nameId` interns a clip, snapshot or event-asset name into the capture's NAMES
+   * tables (`EventSink.name`), `noName` is the id for none. The payload and its rows may be reused by the next call.
+   */
+  keyframe(nameId: (table: "clips" | "snapshots" | "events", name: string) => number, noName?: number): KeyframePayload;
+}
+
 export interface AudioBackend {
   readonly name: string;
   /** Start a clip. Null if the backend can't (not ready, unknown clip). */
@@ -726,70 +485,25 @@ export interface AudioBackend {
   setBackground(mode: AudioBackground): void;
   /** Per-frame hook. */
   update(dt: number): void;
-  dispose?(): void;
+  /** Stop every voice and let go of the library (`setAudioBackend` calls it on the backend it replaces). */
+  dispose(): void;
+
+  // Capabilities (ADR 0179). Absent: the backend can't do that; callers take the fallback each one names.
+  /** ADR 0158, 0166: the decoded-clip cache. Absent: durations and facts unknown, nothing to drop, no loop tails. */
+  readonly clipCache?: AudioClipCache;
+  /** ADR 0158, 0166: the heard clock. Absent: `time` is the only clock, no exact stamps, zero latency. */
+  readonly clock?: AudioClock;
+  /** ADR 0166 §4.6, C10: the music operations. Absent: no music (the player plays nothing and warns once). */
+  readonly music?: MusicBackend;
   /**
    * ADR 0158: the backend's own automation (the core's tables). Absent: the event runtime evaluates automation on main
    * with `TsAutomation` once per frame and drives voices through their setters.
    */
   readonly automation?: AutomationSink;
-  /** ADR 0158: a loaded clip's length in seconds at pitch 1, or null while it isn't known (still loading, streaming). */
-  clipDuration?(path: string): number | null;
-  /** ADR 0166 (G-1): the clock's frame-interval average Δ̄, seconds. Absent: callers estimate it. */
-  frameInterval?(): number;
-  /** ADR 0166 (G-1): a loaded clip's facts, or undefined while unknown (not loaded, failed). `gapless`: its length is exact. */
-  clipFacts?(path: string): { frames: number; rate: number; channels: number; gapless: boolean } | undefined;
-  /** ADR 0166 (P8): the asset file at `path` was edited: drop what is cached of it (decoded clips, the worker's encoded music bytes). */
-  invalidateClip?(path: string): void;
-  /** ADR 0158: the earliest audio-clock time (`time`'s base) a play with `at` lands on exactly, for gapless chains. */
-  horizon?(): number;
-  /**
-   * ADR 0166 C14 (R4a): hold the decoded span `[startFrame, endFrame)` of the asset at `path` (frames at its own rate)
-   * so a play with `PlayRequest.span` finds it resident. Absent: no span clips (no loop tails).
-   */
-  holdSpan?(path: string, startFrame: number, endFrame: number): ClipSpanHold;
-
-  // ADR 0166 (contract Q0). Optional: a backend without the feature leaves them out.
-  /** §4.6, C10: the music operations; absent: no music. */
-  readonly music?: MusicBackend;
-  /**
-   * §6 step 0 (R17): advance the heard-clock map and read the status mirror for this display frame. Idempotent per frame
-   * (`ClockMap.beginFrame` does nothing the second time at the same `rafTime`), so `update` may call it again.
-   */
-  beginFrame?(): void;
-  /** §1.3 `Audio.timeAt`: the raw heard time (seconds) of a `performance.now()` instant (ms). Calibration is never applied (R18). */
-  timeAt?(performanceTime: number): number;
-  /** §1.3 `Audio.latency`, seconds. */
-  latency?(): AudioLatency;
-
-  // ADR 0171 amended by 0172 (M5, contract K0). Optional: a backend without the feature leaves them out.
-  /** §1.3: what this backend can do for the mix (Dbg1 tests the flags per backend). */
-  readonly mixCaps?: AudioMixCaps;
-  /** §1.3, architecture §4.3: the CPU figure (Cp2's `CpuMeter`). */
-  cpu?(): AudioCpuDebug;
-  /** §1.3, §6.2, ADR 0175: where `mixer.apply` sends a checked live edit (the Mixer refuses, classifies and checks the bus rules first). */
-  readonly mixOpTarget?: MixOpTarget;
-  /** §6.6: post the pending batch now (the fader's preview path, at most one post per `FADER_COALESCE_MS`). */
-  flushNow?(): void;
-  /** §4.2 `BUS_RAMP`: the lane writer (Wa2's interim body, then Mx2's). */
-  rampLane?(r: BusLaneRamp): void;
-  /** §4.2 `BUS_SLOT`: one slot's configuration (Ma1, Ma2). */
-  writeSlot?(w: BusSlotWrite): void;
-  /** §4.2 `BUS_DUCK`: every ducking rule, replace-all, asap (Dp1, Sc1). */
-  writeDucking?(rules: readonly DuckingRule[]): void;
-  /** §4.2 `LOUD_CONFIG`: the metered buses and the true-peak gate, replace-all, asap (Ld2, Ld4). */
-  writeLoudnessConfig?(c: LoudnessConfigWrite): void;
-  /** §1.1 `Bus.duckGain`: the duck lane's gain of `bus` from STATUS (1 = not ducked; Dp1 fills it on the core). */
-  duckGain?(bus: string): number;
-  /** Architecture §2.1: the recorder's STATUS tap, null when no recorder runs (Rc2 sets it through `capture.ts`). */
-  recorderTap?: RecorderTap | null;
-  /** §5.6: the capture's event taps (Rc3); null restores the null object. */
-  setProfileSink?(sink: ProfileSink | null): void;
-  /**
-   * §5.5 (G7b): the main-side state at this instant, for the capture's KEYFRAME (`capture.ts` hands the recorder
-   * `() => backend.keyframe(nameId, noName)`). `nameId` interns a clip, snapshot or event-asset name into the capture's NAMES
-   * tables (`EventSink.name`), `noName` is the id for none. The payload and its rows may be reused by the next call.
-   */
-  keyframe?(nameId: (table: "clips" | "snapshots" | "events", name: string) => number, noName?: number): KeyframePayload;
+  /** ADR 0171, 0175: the live mix. Absent (the pending backend): `mixer.apply` has no target and edits wait. */
+  readonly mix?: AudioLiveMix;
+  /** ADR 0171: the capture's sources. Absent (the pending backend): `Audio.capture` isn't available yet. */
+  readonly capture?: AudioCaptureSource;
 }
 
 let backend: AudioBackend | null = null;
@@ -864,7 +578,7 @@ export function audioBackend(): AudioBackend {
     backend.configureBuses(mixer);
     backend.applyMix(mixer.resolveAll());
     applyBackgroundSetting(backend);
-    mixer._setOpTarget(backend.mixOpTarget ?? null); // ADR 0171 (K0), 0175: `mixer.apply(op)` sends to the backend's target
+    mixer._setOpTarget(backend.mix?.mixOpTarget ?? null); // ADR 0171 (K0), 0175: `mixer.apply(op)` sends to the backend's target
     mixer.onChange(() => backend?.applyMix(mixer.resolveAll()));
   }
   return backend;
@@ -885,14 +599,14 @@ function applyBackgroundSetting(target: AudioBackend): void {
 
 /** Swap the backend (a test double). Sounds on the old one are stopped by its `dispose`. */
 export function setAudioBackend(next: AudioBackend | null): void {
-  backend?.dispose?.();
+  backend?.dispose();
   backend = next;
   if (next) {
     next.configureBuses(mixer);
     next.applyMix(mixer.resolveAll());
     applyBackgroundSetting(next);
   }
-  mixer._setOpTarget(next?.mixOpTarget ?? null); // ADR 0171 (K0), 0175: `mixer.apply(op)` sends to the backend's target (null: none)
+  mixer._setOpTarget(next?.mix?.mixOpTarget ?? null); // ADR 0171 (K0), 0175: `mixer.apply(op)` sends to the backend's target (null: none)
 }
 
 /** The core load settled (registered, failed, or no longer wanted): the pending backend hands its sound to the real one. */
@@ -901,221 +615,6 @@ function settlePending(): void {
   const pending = backend;
   backend = null;
   pending.handOver(audioBackend());
-}
-
-/** D5, as the core's locked queue: at most this many one-shots wait, and none older than `ONE_SHOT_WINDOW_MS`. */
-const MAX_PENDING_ONE_SHOTS = 32;
-const ONE_SHOT_WINDOW_MS = 1000;
-/** Ids for voices that haven't reached a real backend yet (above the core's 16-bit slot ids' generations in use). */
-let nextPendingId = 0x7fff_0000;
-
-/**
- * A voice played while the core was loading (architecture §2.1, §3.1): `reason` "locked", `playing` true. It keeps
- * the request and every setter's latest value, then starts on the real backend at the hand-over and forwards to it.
- * Holders (an `AudioSource`, a music player, an `AudioHandle`) keep the same object throughout.
- */
-class PendingVoice implements AudioVoice {
-  private inner: AudioVoice | null = null;
-  private stopped = false;
-  private dropped = false;
-  private failed = false;
-  private paused = false;
-  private fadeTo: number | null = null;
-  /** ADR 0158 §4: the loop region the event runtime asked for while waiting (the latest call wins). */
-  private loop: { start: number; end: number; looping: boolean } | null = null;
-  /** ADR 0162 (K4): main's latest M3 values while waiting, applied at the hand-over where the real voice takes them. */
-  private velocity: Vec3Like | null = null;
-  private occlusionValue: { gain: number; lpHz: number } | null = null;
-  private dopplerRate: number | null = null;
-  private spatialOptions: VoiceSpatialOptions | null = null;
-  private readonly localId = nextPendingId++;
-  readonly queuedAt = performance.now();
-
-  constructor(private readonly req: PlayRequest) {}
-
-  get live(): boolean {
-    return !this.stopped && !this.dropped && this.inner === null;
-  }
-  get oneShot(): boolean {
-    return !!this.req.oneShot && !this.req.loop;
-  }
-  get id(): number {
-    return this.inner?.id ?? this.localId;
-  }
-  get playing(): boolean {
-    if (this.inner) return this.inner.playing;
-    return this.live;
-  }
-  get alive(): boolean {
-    if (this.inner) return this.inner.alive ?? this.inner.playing;
-    return this.live;
-  }
-  get reason(): AudioReason | null {
-    if (this.inner) return this.inner.reason;
-    if (this.failed) return "failed";
-    return this.stopped || this.dropped ? null : "locked";
-  }
-
-  /** Starts on `target` with the latest values; null from `target` ends it "failed". */
-  attach(target: AudioBackend): void {
-    const voice = target.play({ ...this.req });
-    if (!voice) {
-      this.stopped = true;
-      this.failed = true;
-      return;
-    }
-    this.inner = voice;
-    if (this.fadeTo !== null) voice.fade(this.fadeTo, 0);
-    if (this.paused) voice.pause();
-    // The request's `group` went with `play`. A loop region is applied here only where the voice takes it itself (the
-    // Babylon fallback; a state set, so the event runtime's re-send that follows repeats it harmlessly); a core voice
-    // gets it from that re-send through the core's automation, by id.
-    if (this.loop && voice.setLoop) voice.setLoop(this.loop.start, this.loop.end, this.loop.looping);
-    this.loop = null;
-    // ADR 0162 (K4): the M3 values given while waiting, where the voice takes them.
-    if (this.spatialOptions && voice.setSpatialOptions) voice.setSpatialOptions(this.spatialOptions);
-    if (this.velocity && voice.setVelocity) voice.setVelocity(this.velocity);
-    if (this.occlusionValue && voice.setOcclusion) voice.setOcclusion(this.occlusionValue.gain, this.occlusionValue.lpHz);
-    if (this.dopplerRate !== null && voice.setDopplerRate) voice.setDopplerRate(this.dopplerRate);
-    this.spatialOptions = null;
-    this.velocity = null;
-    this.occlusionValue = null;
-    this.dopplerRate = null;
-  }
-  /** Left out at the hand-over (D5: an old or surplus one-shot). */
-  drop(): void {
-    this.dropped = true;
-  }
-
-  fade(to: number, seconds: number): void {
-    if (this.inner) this.inner.fade(to, seconds);
-    else this.fadeTo = to;
-  }
-  setPriority(priority: number): void {
-    if (this.inner) this.inner.setPriority(priority);
-    else this.req.priority = priority;
-  }
-  setVolume(v: number): void {
-    if (this.inner) this.inner.setVolume(v);
-    else this.req.volume = v;
-  }
-  setPitch(rate: number): void {
-    if (this.inner) this.inner.setPitch(rate);
-    else this.req.pitch = rate;
-  }
-  setAttenuation(a: Attenuation): void {
-    if (this.inner) this.inner.setAttenuation(a);
-    else this.req.attenuation = { minDistance: a.minDistance, maxDistance: a.maxDistance, rolloff: a.rolloff };
-  }
-  setPosition(p: Vec3Like): void {
-    if (this.inner) this.inner.setPosition(p);
-    else this.req.position = { x: p.x, y: p.y, z: p.z };
-  }
-  setBus(bus: string): void {
-    if (this.inner) this.inner.setBus(bus);
-    else this.req.bus = bus;
-  }
-  /** Recorded while waiting (so the event runtime's `TsAutomation` doesn't warn that part of a clip can't loop), forwarded after. */
-  setLoop(start: number, end: number, looping: boolean): void {
-    if (this.inner) this.inner.setLoop?.(start, end, looping);
-    else this.loop = { start, end, looping };
-  }
-  setVelocity(v: Vec3Like): void {
-    if (this.inner) this.inner.setVelocity?.(v);
-    else this.velocity = { x: v.x, y: v.y, z: v.z };
-  }
-  setOcclusion(gain: number, lpHz: number): void {
-    if (this.inner) this.inner.setOcclusion?.(gain, lpHz);
-    else this.occlusionValue = { gain, lpHz };
-  }
-  setDopplerRate(factor: number): void {
-    if (this.inner) this.inner.setDopplerRate?.(factor);
-    else this.dopplerRate = factor;
-  }
-  /** Merged while waiting (omitted fields keep earlier values), as on a playing voice. */
-  setSpatialOptions(o: VoiceSpatialOptions): void {
-    if (this.inner) this.inner.setSpatialOptions?.(o);
-    else this.spatialOptions = { ...this.spatialOptions, ...o };
-  }
-  pause(): void {
-    if (this.inner) this.inner.pause();
-    else this.paused = true;
-  }
-  resume(): void {
-    if (this.inner) this.inner.resume();
-    else this.paused = false;
-  }
-  stop(fadeSeconds?: number): void {
-    if (this.inner) this.inner.stop(fadeSeconds);
-    else this.stopped = true;
-  }
-}
-
-/**
- * The backend while `audio.backend` is "core" and the core is still loading: no library, no context of its own,
- * `status` "locked". Plays become `PendingVoice`s; `handOver` starts the live ones on the backend the load settled
- * on (the core, or "babylon" after a real failure) and passes on the master volume, mute, listener and background.
- */
-class PendingCoreBackend implements AudioBackend {
-  readonly name = "pending";
-  readonly status: AudioStatus = "locked";
-  readonly time = 0;
-  masterVolume = 1;
-  muted = false;
-  private readonly voices: PendingVoice[] = [];
-  private listener: ListenerPose | null = null;
-  private background: AudioBackground | null = null;
-
-  play(req: PlayRequest): AudioVoice | null {
-    const voice = new PendingVoice({ ...req });
-    this.voices.push(voice);
-    return voice;
-  }
-  setListener(pose: ListenerPose): void {
-    const copy = (p: Vec3Like): Vec3Like => ({ x: p.x, y: p.y, z: p.z });
-    this.listener = { position: copy(pose.position), forward: copy(pose.forward), up: copy(pose.up) };
-  }
-  applyMix(): void {}
-  configureBuses(): void {}
-  setBackground(mode: AudioBackground): void {
-    this.background = mode;
-  }
-  update(): void {
-    // Forget voices stopped before the hand-over, so a long load doesn't grow the list.
-    if (this.voices.length > 0 && !this.voices[0]!.live) {
-      let w = 0;
-      for (const v of this.voices) if (v.live) this.voices[w++] = v;
-      this.voices.length = w;
-    }
-  }
-  debug(): AudioDebugInfo {
-    const live = this.voices.filter((v) => v.live);
-    return {
-      status: "locked", sampleRate: 0, time: 0, background: this.background ?? "mute",
-      counters: { underruns: 0, lateCommands: 0, minSlackFrames: 0, workUnits: 0, workUnitsMax: 0, mixedVoices: 0, mixedCap: 0, logicalVoices: live.length, queuedPlays: live.length, droppedPlays: 0, traps: 0, refusedLoads: 0, hrtfVoices: 0, hrtfLoadFailure: 0 },
-      buses: [], voices: [], core: { backend: "pending", state: "loading" },
-    };
-  }
-  handOver(target: AudioBackend): void {
-    target.masterVolume = this.masterVolume;
-    target.muted = this.muted;
-    if (this.background !== null) target.setBackground(this.background);
-    if (this.listener) target.setListener(this.listener);
-    const now = performance.now();
-    const live = this.voices.filter((v) => v.live);
-    this.voices.length = 0;
-    const fresh = (v: PendingVoice) => !v.oneShot || now - v.queuedAt <= ONE_SHOT_WINDOW_MS;
-    // Oldest first: the surplus over the cap is the oldest one-shots.
-    let surplus = live.filter((v) => v.oneShot && fresh(v)).length - MAX_PENDING_ONE_SHOTS;
-    for (const v of live) {
-      if (!fresh(v) || (v.oneShot && surplus-- > 0)) v.drop();
-      else v.attach(target);
-    }
-  }
-  dispose(): void {
-    for (const v of this.voices) v.stop();
-    this.voices.length = 0;
-  }
 }
 
 /** @internal Whether `audioBackend()` is the stand-in used while the core loads (the audio system, tests). */

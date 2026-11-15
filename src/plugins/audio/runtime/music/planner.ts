@@ -123,8 +123,8 @@ export function primeLeadSeconds(primeEmaMs: number, lookaheadSeconds: number, f
 
 /** P2: L, seconds: the backend's `horizon() - now`, or 2 Δ̄ at 60 Hz without one (or before its clock has an estimate). */
 export function lookaheadSeconds(f: MusicFrame): number {
-  const h = f.backend.horizon?.();
-  if (h === undefined || !Number.isFinite(h) || !(h - f.now > EPS)) return DEFAULT_LOOKAHEAD_SECONDS;
+  const h = f.backend.clock?.horizon();
+  if (h == null || !Number.isFinite(h) || !(h - f.now > EPS)) return DEFAULT_LOOKAHEAD_SECONDS;
   return h - f.now;
 }
 
@@ -133,8 +133,8 @@ export function lookaheadSeconds(f: MusicFrame): number {
  * clamp(2 Δ̄, 1,024 frames, 100 ms), so this is exact at 60 Hz and errs long, the safe side, at high refresh rates).
  */
 export function frameIntervalSeconds(f: MusicFrame): number {
-  const fi = f.backend.frameInterval?.();
-  if (fi !== undefined && Number.isFinite(fi) && fi > 0) return fi;
+  const fi = f.backend.clock?.frameInterval();
+  if (fi != null && Number.isFinite(fi) && fi > 0) return fi;
   return lookaheadSeconds(f) / 2;
 }
 
