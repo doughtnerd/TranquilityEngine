@@ -15,7 +15,8 @@
 //     `loudnessResetOnPlay` and clears the monitor controls; the first that sees it stopped ends Compare.
 import type { ApplyResult, MixOp } from "../../../../engine/audio/mixOps";
 import { appliesAtNextPlay, reasonMessage } from "../../../../engine/audio/busCapability";
-import { parseAudioSettings, type AudioSettings } from "../../../../engine/audio/settings";
+import type { AudioSettings } from "../../../../engine/audio/settings";
+import { audioSection } from "../../../../engine/audio/audioSection";
 import type { LoudnessResetWhat } from "../../../../engine/audio/loudnessTypes";
 import type { SettingsDraft } from "../../../../editor/sdk";
 import { createCompareModel, type CompareModel, type CompareSwap } from "./compareModel";
@@ -48,7 +49,7 @@ export interface MixerBannerInput {
   readonly compareActive: boolean;
   /** The messages of what the mixer kept for the next Play (each once), and the section keys with no live path. */
   readonly restart: readonly string[];
-  /** The audio section's problems (`parseAudioSettings`). */
+  /** The audio section's problems (`audioSection`). */
   readonly problems: readonly string[];
 }
 
@@ -223,7 +224,7 @@ export class MixerPanelController {
 
   /** The project's audio section as the engine parses it. */
   private audio(): AudioSettings {
-    return parseAudioSettings(this.deps.draft()?.audio).settings;
+    return audioSection(this.deps.draft()?.audio).settings;
   }
 
   /** `deps.apply`, remembering what only the next Play can serve. */
@@ -357,7 +358,7 @@ export class MixerPanelController {
         monitorActive: this.monitor.active,
         compareActive: this.compare.active,
         restart: playing ? restart : [],
-        problems: parseAudioSettings(this.deps.draft()?.audio).problems,
+        problems: audioSection(this.deps.draft()?.audio).problems,
       }),
       snapshots: audio.snapshots.map((s) => ({ name: s.name, active: playing && this.deps.currentSnapshot() === s.name })),
       targets: this.session.targets(),

@@ -10,7 +10,7 @@
 // No DOM: the tests drive it directly.
 import { EventKind, type KeyframePayload } from "../../runtime/capture/format";
 import type { CaptureSeekState } from "../../runtime/capture/reader";
-import { parseAudioSettings } from "../../../../engine/audio/settings";
+import { audioSection } from "../../../../engine/audio/audioSection";
 import { chooseEmptyState } from "./emptyStates";
 import { busFactors, formatDb, treeProducts, type BusFactors } from "./busFactorsModel";
 import { MAX_VOICE_ROWS, nameFilter, type NameLookup, type VoiceRow } from "./voiceTableModel";
@@ -171,7 +171,7 @@ export function busParents(audio: unknown, busNames: Iterable<readonly [number, 
   const slotOf = new Map<string, number>();
   for (const [slot, name] of busNames) slotOf.set(name, slot);
   const parents = new Map<number, number | null>();
-  for (const b of parseAudioSettings((audio ?? undefined) as never).settings.buses) {
+  for (const b of audioSection(audio ?? undefined).settings.buses) {
     const slot = slotOf.get(b.name);
     if (slot === undefined) continue;
     parents.set(slot, b.parent === undefined ? null : (slotOf.get(b.parent) ?? null));

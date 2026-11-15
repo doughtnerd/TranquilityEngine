@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from "preact/hooks";
 import { editor, openAssetDocument, Panel } from "../../../../editor/sdk";
 import type { AudioEventAsset, EventNode } from "../../../../engine/audio/eventFormat";
 import type { MusicNode } from "../../../../engine/audio/musicFormat";
-import { parseAudioSettings } from "../../../../engine/audio/settings";
+import { audioSection } from "../../../../engine/audio/audioSection";
 import { Audition } from "./Audition";
 import { activeAudition, auditionOverrides, NO_OVERRIDES, setAuditionValue, stingerAuditionFor } from "./auditionHost";
 import { auditionValues } from "./eventParameters";
@@ -44,7 +44,7 @@ function EventEditor({ path }: { path: string }) {
   const values = auditionValues(event.parameters, audition);
   const [voices, setVoices] = useState(0);
 
-  const audioSettings = useMemo(() => parseAudioSettings((project.settings as { audio?: unknown }).audio).settings, [project.settings]);
+  const audioSettings = audioSection((project.settings as { audio?: unknown }).audio).settings;
   const clips = useMemo(() => editor.assets.listed(project.files).filter((f) => editor.assets.kindOf(f) === "audio"), [project.files]);
   const context: FieldContext = {
     clips,

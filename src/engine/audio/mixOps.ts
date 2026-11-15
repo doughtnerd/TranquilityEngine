@@ -21,9 +21,10 @@
  */
 import { CURVE_INTERPS, type Curve, type CurveKey } from "../core/curve";
 import { ruleRefusal, type ApplyReason } from "./busCapability";
+import { LIVE_KEYS, audioSection, withLiveKeys } from "./audioSection";
 import {
   BED_PRIORITY_LIMITS, BUS_BEDS, DEFAULT_BED_PRIORITY, DEFAULT_LOUDNESS_TARGETS, EFFECT_TYPES, MAX_LOUDNESS_BUSES,
-  MAX_LOUDNESS_TARGETS, MAX_TARGET_NAME, ROOT_BED_PRIORITY, parseAudioSettings,
+  MAX_LOUDNESS_TARGETS, MAX_TARGET_NAME, ROOT_BED_PRIORITY,
   type AudioSettings, type BusAutomation, type BusEffect, type BusSettings, type DuckingRule, type LoudnessTarget, type SnapshotSettings,
 } from "./settings";
 
@@ -102,8 +103,8 @@ export interface MixOpNameTable {
 
 export { DEFAULT_LOUDNESS_TARGETS, MAX_LOUDNESS_BUSES, MAX_LOUDNESS_TARGETS, MAX_TARGET_NAME };
 
-/** The `audio` keys a live op edits; every other key that differs is `restartRequired` in `diffOps`. */
-export const LIVE_KEYS = ["buses", "snapshots", "ducking", "automation", "loudnessTargets", "loudnessResetOnPlay"] as const;
+/** The `audio` keys a live op edits (`audioSection.ts` owns the list, ADR 0175). */
+export { LIVE_KEYS };
 
 // --- helpers ---------------------------------------------------------------------------------------------------------
 
@@ -424,19 +425,14 @@ export function applyOpToSettings(a: AudioSettings, op: MixOp): AudioSettings {
 }
 
 /**
- * The next draft after `op`: the parsed section through `applyOpToSettings`, the live keys written back over the
- * draft's `audio` object (other keys stay as authored). `d` itself when nothing changes.
+ * The next draft after `op`: the section (`audioSection`, parsed once per section object) through
+ * `applyOpToSettings`, the live keys written back over the draft's `audio` object (`withLiveKeys`: other keys stay as
+ * authored). `d` itself when nothing changes.
  */
 export function applyOpToDraft<D extends MixDraft>(d: D, op: MixOp): D {
-  const a = parseAudioSettings(d.audio).settings;
+  const a = audioSection(d.audio).settings;
   const next = applyOpToSettings(a, op);
-  if (next === a) return d;
-  const audio: Record<string, unknown> = isObj(d.audio) ? { ...d.audio } : {};
-  for (const key of LIVE_KEYS) {
-    if (next[key] === undefined) delete audio[key];
-    else audio[key] = next[key];
-  }
-  return { ...d, audio };
+  return next === a ? d : withLiveKeys(d, next);
 }
 
 /**

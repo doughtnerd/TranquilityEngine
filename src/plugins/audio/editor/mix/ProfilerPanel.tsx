@@ -19,7 +19,7 @@
 import type { ComponentChild, ComponentType } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { editor, theme, Panel } from "../../../../editor/sdk";
-import { parseAudioSettings } from "../../../../engine/audio/settings";
+import { audioSection } from "../../../../engine/audio/audioSection";
 import { Audio } from "../../runtime/Audio";
 import type { AudioCapture } from "../../runtime/capture/capture";
 import { CAPTURE_FLAG_MAIN_SIDE_ONLY, CaptureError } from "../../runtime/capture/format";
@@ -67,7 +67,7 @@ export interface BannerInput {
 
 /** The capture's META `audio` against the project's section, both as the engine parses them (a missing key and its default agree). */
 export const sameAudioSettings = (a: unknown, b: unknown): boolean =>
-  sameAudioSection(parseAudioSettings(a ?? undefined).settings, parseAudioSettings(b ?? undefined).settings);
+  sameAudioSection(audioSection(a ?? undefined).settings, audioSection(b ?? undefined).settings);
 
 /** JSON-like deep equality (key order ignored). */
 export function sameAudioSection(a: unknown, b: unknown): boolean {
