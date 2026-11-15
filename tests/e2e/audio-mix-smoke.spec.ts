@@ -181,7 +181,7 @@ test("M5-0 smoke: a presence duck starts on its stamped frame", async ({ page })
   page.on("pageerror", (err) => errors.push(err.message));
   await bootMix(page);
   await installFrameClock(page);
-  type Mirror = { currentFrame: number; duckCount: number; duckSlot: Uint16Array; duckGain: Float32Array; splitQuanta?: number };
+  type Mirror = { header: { currentFrame: number }; duckCount: number; duckSlot: Uint16Array; duckGain: Float32Array };
   type Backend = { mirror: Mirror; writer: { busPresence(mask: number, at?: number): void } };
   type Handle = { stop(): void; voice?: { backend?: Backend; inner?: { backend?: Backend } } };
   type G = { __myco: { Audio: { time: number; buses: readonly string[]; bus(n: string): { duckGain: number }; playOneShot(c: string, o: object): Handle } }; __dp1?: { sent: { mask: number; at?: number }[]; handle?: Handle; reads: { frame: number; duck: number; api: number }[] } };
@@ -221,9 +221,9 @@ test("M5-0 smoke: a presence duck starts on its stamped frame", async ({ page })
       const read = () => {
         let duck = 1;
         for (let k = 0; k < m.duckCount; k++) if (m.duckSlot[k] === slot) duck = m.duckGain[k]!;
-        out.push({ frame: m.currentFrame, duck, api: g.__myco.Audio.bus("Music").duckGain });
+        out.push({ frame: m.header.currentFrame, duck, api: g.__myco.Audio.bus("Music").duckGain });
       };
-      while (m.currentFrame < until) {
+      while (m.header.currentFrame < until) {
         read();
         await new Promise((r) => setTimeout(r, 10));
       }

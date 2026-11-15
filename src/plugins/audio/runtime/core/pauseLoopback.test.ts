@@ -117,7 +117,7 @@ describe("pause and resume on the loopback host (A3.7)", () => {
     voice.pause(); // still loading: nothing is on the core yet
     await step(DWELL_FRAMES + 10);
     expect(out.every((s) => s === 0)).toBe(true);
-    expect(backend.mirror.liveVoices).toBe(1);
+    expect(backend.mirror.header.liveVoices).toBe(1);
     voice.resume();
     const resumedAt = out.length;
     await step(4);

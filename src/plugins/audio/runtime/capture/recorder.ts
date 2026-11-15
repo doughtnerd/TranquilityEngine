@@ -24,7 +24,7 @@ import {
   type CaptureWorkerRequest, type EpochPayload, type KeyframePayload,
 } from "./format";
 import { RecorderRing, ringBytesFor, type RingPreset, type RingSpan } from "./ring";
-import { STATUS_BUFFER_BYTES } from "../wire.generated";
+import { STATUS_BUFFER_BYTES, STATUS_HEADER_COLUMNS } from "../wire.generated";
 
 export { KEYFRAME_INDEX_SLOTS, RING_PRESET_BYTES, ringBytesFor, type RingPreset, type RingSpan } from "./ring";
 
@@ -164,7 +164,7 @@ export class Recorder {
   /**
    * The STATUS tap (architecture §3.1), preallocated: called by `CoreLink.handleMessage` after the decode and before the
    * RECYCLE with the raw block and the envelope's total bytes. `view`, when the link passes its own, saves the one
-   * allocation left. Keyframes on rendered frames: the block's `currentFrame` (offset 16, §5.3) 1,000 ms of frames past
+   * allocation left. Keyframes on rendered frames: the block's `currentFrame` (§5.3) 1,000 ms of frames past
    * the last keyframe opens a segment (R13).
    */
   readonly tap = (data: ArrayBuffer, byteLength: number, view?: DataView): void => {
@@ -174,7 +174,7 @@ export class Recorder {
       return;
     }
     const src = view ?? new DataView(data);
-    const frame = src.getFloat64(16, true);
+    const frame = src.getFloat64(STATUS_HEADER_COLUMNS.currentFrame[0], true);
     this.statusCount++;
     if (this.keyframeDue || frame - this.lastKeyframeFrame >= (this.sampleRate * CAPTURE_KEYFRAME_INTERVAL_MS) / 1000) {
       this.writeKeyframe(frame, true);

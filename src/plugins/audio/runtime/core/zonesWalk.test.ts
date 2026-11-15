@@ -142,7 +142,7 @@ describe("zone walk A → B → C on the real wasm (C5 acceptance)", () => {
       expect(debug.find((z) => z.node === "C")!.state).toBe("active");
       expect(debug.find((z) => z.node === "A")!.slot).toBe(-1);
       expect(r.backend.zones.counters.irPrepares).toBe(3);
-      expect(r.backend.mirror.zonesRinging + r.backend.mirror.zonesActive).toBeGreaterThan(0);
+      expect(r.backend.mirror.header.zonesRinging + r.backend.mirror.header.zonesActive).toBeGreaterThan(0);
     } finally {
       r.restore();
     }

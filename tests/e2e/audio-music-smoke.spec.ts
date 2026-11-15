@@ -52,8 +52,8 @@ const reportedSplitQuanta = (d: Debug): number | null => d.musicTotals?.splitQua
 const readSplitQuanta = async (page: Page, d: Debug): Promise<number | null> =>
   reportedSplitQuanta(d) ??
   (await page.evaluate(() => {
-    const backend = (globalThis as unknown as { __smokeBackend?: { mirror?: { splitQuanta?: number } } }).__smokeBackend;
-    return typeof backend?.mirror?.splitQuanta === "number" ? backend.mirror.splitQuanta : null;
+    const backend = (globalThis as unknown as { __smokeBackend?: { mirror?: { header?: { splitQuanta?: number } } } }).__smokeBackend;
+    return typeof backend?.mirror?.header?.splitQuanta === "number" ? backend.mirror.header.splitQuanta : null;
   }));
 
 test("M4 smoke: a stamped fade and a stamped spatial play with sends in the Sound Lab", async ({ page }, info) => {

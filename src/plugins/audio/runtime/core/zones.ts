@@ -242,7 +242,7 @@ export class ZoneManager {
     this.frameNo++;
     // ADR 0170: the core gives its ladder steps back one at a time, the active-slot limit first, so any fall in
     // `m3Shed` means every place is allowed again; the next plan fills it (the core fades the zone in over 100 ms).
-    const steps = this.deps.mirror.m3Shed;
+    const steps = this.deps.mirror.header.m3Shed;
     if (steps < this.ladderSteps) this.shed = 0;
     this.ladderSteps = steps;
     this.maxActive = Math.max(0, Math.min(settings.zones.maxActive | 0, this.slots.length) - this.shed);

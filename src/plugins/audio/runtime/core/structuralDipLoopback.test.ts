@@ -181,7 +181,7 @@ describe("the structural dip on the loopback host (Ma2)", () => {
     await r.step(12);
     const before = (await r.step(1)).last;
     expect(before).toBeCloseTo(LEVEL * 0.5, 6);
-    const late = r.backend.mirror.lateCommands;
+    const late = r.backend.mirror.header.lateCommands;
     const m = await structural(r, { op: "moveBus", bus: "SFX", parent: "Music" });
     // On the audio clock: arrived before F0, the first changed sample at F0, silence from F0 + D through B, the end level.
     expect(m.arrivedAt).toBeLessThan(m.seq.f0);
@@ -190,7 +190,7 @@ describe("the structural dip on the loopback host (Ma2)", () => {
     for (let f = m.seq.f0 + D - 1; f < m.seq.b; f++) expect(m.at(f)).toBe(0);
     expect(m.at(m.seq.end)).toBeCloseTo(LEVEL * 0.25, 6);
     expect(m.last).toBeCloseTo(LEVEL * 0.25, 6);
-    expect(r.backend.mirror.lateCommands, "on time: no shift").toBe(late);
+    expect(r.backend.mirror.header.lateCommands, "on time: no shift").toBe(late);
     // The click test: the largest neighbour step is the dip-down's slope (0.25 / 960 = 2.6e-4).
     const slope = before / D;
     const worst = maxStep(m.out);

@@ -97,7 +97,7 @@ describe("the lane writer on the loopback host (Mx2)", () => {
     backend.play(req("const.wav"));
     await step(10);
     expect((await step(1)).last).toBe(LEVEL);
-    const lateBefore = backend.mirror.lateCommands;
+    const lateBefore = backend.mirror.header.lateCommands;
     const frameAtCall = r.loop.frame;
     mixer.bus("SFX").fadeTo(0.5, 0.05); // 2,400 frames
     const run = await step(60);
@@ -117,9 +117,9 @@ describe("the lane writer on the loopback host (Mx2)", () => {
     expect(at(stamp + 1_199)).toBeCloseTo(LEVEL * 0.75, 4);
     expect(run.last).toBeCloseTo(LEVEL * 0.5, 6);
     // Applied as a stamp: no quantum split, nothing applied early, nothing late.
-    expect(backend.mirror.splitQuanta).toBe(0);
-    expect(backend.mirror.busRecordsEarly).toBe(0);
-    expect(backend.mirror.lateCommands).toBe(lateBefore);
+    expect(backend.mirror.header.splitQuanta).toBe(0);
+    expect(backend.mirror.header.busRecordsEarly).toBe(0);
+    expect(backend.mirror.header.lateCommands).toBe(lateBefore);
     // The main side agrees once the fade is over.
     expect(mixer.bus("SFX").volume).toBe(0.5);
     backend.dispose();

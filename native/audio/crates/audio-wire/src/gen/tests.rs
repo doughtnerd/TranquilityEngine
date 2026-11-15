@@ -86,3 +86,25 @@ fn status_with_a_short_body_is_refused() {
     buf[12..16].copy_from_slice(&(STATUS_HEADER_BYTES - 16).to_le_bytes());
     assert!(StatusBlock::read(&buf, 0).is_ok());
 }
+
+/// ADR 0177: the STATUS header is described once. Every header scalar (section counts aside) is a column and is read
+/// and copied by the generated reader and `copyStatusHeader`; every section is checked and has a cap.
+#[test]
+fn status_header_columns_and_reader_cover_every_field() {
+    let s = schema();
+    let ts = ts::emit(&s, &schema_hash_hex()).unwrap();
+    let cols = &ts[ts.find("export const STATUS_HEADER_COLUMNS = {").unwrap()..];
+    let cols = &cols[..cols.find("} as const").unwrap()];
+    let reader = &ts[ts.find("export class StatusBlockReader {").unwrap()..];
+    let (placed, _) = layout::resolve(16, s.status.fields).unwrap();
+    for p in &placed {
+        let count = s.status.sections.iter().any(|sec| sec.count_field == p.field.name);
+        assert_eq!(cols.contains(&format!("  {}: [{}, ", p.field.name, p.offset)), !count, "{}", p.field.name);
+        assert_eq!(reader.contains(&format!("    b.{} = ", p.field.name)), !count, "{}", p.field.name);
+        assert_eq!(ts.contains(&format!("  dst.{n} = src.{n};", n = p.field.name)), !count, "{}", p.field.name);
+    }
+    for sec in s.status.sections {
+        assert!(reader.contains(&format!("\"STATUS: {} overrun\"", sec.name)), "{}", sec.name);
+        assert!(ts.contains(&format!("  {}: {},\n", sec.name, sec.max)), "{}", sec.name);
+    }
+}

@@ -551,7 +551,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     this.clipSink = { event: (id, code) => this.clips.applyClipEvent(id, code) };
 
     // STATUS: decode into one block, apply in onmessage.
-    host.link.statusDecoder = (buffer) => this.reader.read(buffer);
+    host.link.statusDecoder = (_buffer, view) => this.reader.readView(view);
     this.cleanups.push(this.mirror.attach(host.link));
     // B3, after the mirror: a stream voice that moves again is no longer waiting for data.
     this.cleanups.push(this.streams.attach(host.link));
@@ -1113,7 +1113,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
    */
   mixedCap(): number {
     const configured = this.host.preset.maxMixed ?? this.table.capacity;
-    return effectiveMixedCap(configured, this.mirror.mixedCap);
+    return effectiveMixedCap(configured, this.mirror.header.mixedCap);
   }
 
   /**
@@ -1136,7 +1136,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
 
   /** H3, STATUS `hrtfLoadFailure` with main's part: 2 when the core found the table invalid, 1 when the fetch failed, else 0. */
   get hrtfLoadFailure(): number {
-    return this.mirror.hrtfLoadFailure || (this.hrir.failed ? 1 : 0);
+    return this.mirror.header.hrtfLoadFailure || (this.hrir.failed ? 1 : 0);
   }
 
   /** H3: the panner kind the core holds for slot `i` (0 equal-power, 1 HRTF), which a rebuild's replayed PLAY carries. */
@@ -1158,7 +1158,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
       if (frame !== undefined) row.lastRampStartFrame = frame;
     });
     // ADR 0171 (K0): the M5 sections, empty until their tasks fill them (Dbg1, Cp2, Rc2), and the core's STATUS frame.
-    info.core.currentFrame = this.mirror.currentFrame;
+    info.core.currentFrame = this.mirror.header.currentFrame;
     info.mixCaps = { ...this.mixCaps };
     info.cpu = this.cpu();
     info.mix = this.mixDebug();

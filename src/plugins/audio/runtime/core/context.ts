@@ -127,9 +127,10 @@ export class CoreLink {
   readyState: "pending" | "ready" | "failed" = "pending";
   /**
    * How STATUS buffers are decoded. `readStatus` builds a new block per message; A1.4's `coreBackend` swaps in a
-   * `StatusReader` that fills one preallocated block (the block is then reused: listeners must not keep it).
+   * `StatusReader` that fills one preallocated block (the block is then reused: listeners must not keep it). `view` is
+   * the link's own view of `buffer`, so a decoder that takes it (`StatusReader.readView`) allocates nothing.
    */
-  statusDecoder: (buffer: ArrayBuffer) => StatusBlock = readStatus;
+  statusDecoder: (buffer: ArrayBuffer, view: DataView) => StatusBlock = readStatus;
   /**
    * ADR 0171 (K0; Rc2 sets it from `capture/recorder.ts` through `capture/capture.ts`): the recorder's raw copy of each
    * STATUS block, called after the decode and before the RECYCLE, with the envelope's total bytes. Null when no recorder
@@ -245,7 +246,7 @@ export class CoreLink {
       }
       let status: StatusBlock | null = null;
       try {
-        status = this.statusDecoder(data);
+        status = this.statusDecoder(data, view);
       } catch {
         // A block we can't read still goes back, or the shell's pool shrinks.
       }

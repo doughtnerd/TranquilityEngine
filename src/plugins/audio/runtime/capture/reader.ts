@@ -18,7 +18,7 @@ import {
   type GapPayload, type IndexPayload, type KeyframePayload, type MarkerPayload, type MixOpPayload, type NameTable,
   type NamesPayload, type RecordHead,
 } from "./format";
-import { readStatus, type StatusBlock } from "../wire.generated";
+import { readStatus, readStatusHeaderField, STATUS_HEADER_COLUMNS, type StatusBlock, type StatusHeaderField } from "../wire.generated";
 
 /** What an open can be given. */
 export interface ReaderOptions {
@@ -491,22 +491,12 @@ export function epochOf(c: CaptureContents, i: number): EpochInfo {
 // --- Rc5: the Worker's time index, seek and range (api-and-models §5.4, §5.5, §7; architecture §3.7) ---------------
 
 /**
- * The STATUS header scalars `range` can return, by their `StatusBlock` name: byte offset in the block and type. The
- * header is fixed (176 B before M5, 256 B now; `readStatus`), and the capture's wire hash equals this build's
- * (`wireMismatch` otherwise), so the offsets hold for every capture that opens. `reader.test.ts` checks each against
- * `writeStatus`/`readStatus`.
+ * The STATUS header scalars `range` can return, by their `StatusHeader` name: `[byte offset in the block, type]`. The
+ * generated table (`STATUS_HEADER_COLUMNS`, ADR 0177), so every header field is a column by name, a new one included.
+ * The capture's wire hash equals this build's (`wireMismatch` otherwise), so the offsets hold for every capture that opens.
  */
-export const STATUS_COLUMNS = {
-  currentFrame: [16, "f64"], dateMs: [24, "f64"], underruns: [40, "u32"], lateCommands: [44, "u32"], workUnits: [48, "u32"],
-  workUnitsMax: [52, "u32"], mixedVoices: [56, "u16"], liveVoices: [58, "u16"], flags: [60, "u32"], mixedCap: [78, "u16"],
-  loadPermille: [80, "u16"], traps: [82, "u16"], minSlackFrames: [84, "i32"], underrunFrames: [88, "u32"], arenaUsedKB: [92, "u32"],
-  maxLatenessFrames: [104, "u32"], hrtfVoices: [108, "u16"], bedVoices: [112, "u16"], fxVoices: [116, "u16"], zonesActive: [120, "u16"],
-  m3Shed: [130, "u16"], workBed: [136, "u32"], workZones: [140, "u32"], musicRingsOpen: [148, "u16"], streamStartsLate: [150, "u16"],
-  maxSlipFrames: [160, "u32"], splitQuanta: [164, "u32"], voiceSplits: [168, "u32"], busyMsTotal: [176, "f64"], quantaTotal: [184, "f64"],
-  wuVoices: [192, "f64"], wuBuses: [200, "f64"], wuSpatial: [208, "f64"], wuMusic: [216, "f64"], wuLoudness: [224, "f64"],
-  clockStepMs: [238, "u16"], clockSteps: [244, "u16"], loudShed: [246, "u16"], busRecordsEarly: [248, "u16"], sidechainLate: [250, "u16"],
-} as const satisfies Record<string, readonly [number, "f64" | "u32" | "i32" | "u16"]>;
-export type StatusColumn = keyof typeof STATUS_COLUMNS;
+export const STATUS_COLUMNS = STATUS_HEADER_COLUMNS;
+export type StatusColumn = StatusHeaderField;
 
 /** `range`'s columns beyond the STATUS scalars: `seconds` (each sample's time; in bucket mode each bucket's start). */
 export const RANGE_SECONDS = "seconds";
@@ -514,15 +504,7 @@ export const RANGE_SECONDS = "seconds";
 export const RANGE_MAX_BUCKETS = 65_536;
 
 /** A STATUS scalar read in place (no allocation). */
-export function readStatusColumn(view: DataView, off: number, column: StatusColumn): number {
-  const [at, kind] = STATUS_COLUMNS[column];
-  switch (kind) {
-    case "f64": return view.getFloat64(off + at, true);
-    case "u32": return view.getUint32(off + at, true);
-    case "i32": return view.getInt32(off + at, true);
-    case "u16": return view.getUint16(off + at, true);
-  }
-}
+export const readStatusColumn = readStatusHeaderField;
 
 /** A MARKER on the axis. */
 export interface CaptureMarkerAt { seq: number; seconds: number; text: string }

@@ -77,21 +77,21 @@ describe("the adaptive mixed-voice cap on the loopback host (A3.3)", () => {
     const full = 0.5 * (40 * 41) / 2 / 1600;
     // The probe warms up for 1 s; the cap holds at the configured 40 meanwhile.
     expect(await step(FRAMES_PER_SECOND + 10)).toBeCloseTo(full, 5);
-    expect(backend.mirror.mixedCap).toBe(40);
+    expect(backend.mirror.header.mixedCap).toBe(40);
     expect(backend.mixedCap()).toBe(40);
     expect(backend.debug().counters.mixedCap).toBe(40);
-    expect(backend.mirror.mixedVoices).toBe(40);
+    expect(backend.mirror.header.mixedVoices).toBe(40);
 
     // Load: the render falls 60 ms behind. The next STATUS shows the underrun, the cut and the demotes.
     stall(60);
-    const underrunsBefore = backend.mirror.underruns;
+    const underrunsBefore = backend.mirror.header.underruns;
     await step(15); // no batches while nothing changes, so STATUS comes every 48 quanta (12 frames)
-    expect(backend.mirror.underruns).toBe(underrunsBefore + 1);
-    expect(backend.mirror.mixedCap).toBe(34); // floor(0.85 * 40)
+    expect(backend.mirror.header.underruns).toBe(underrunsBefore + 1);
+    expect(backend.mirror.header.mixedCap).toBe(34); // floor(0.85 * 40)
     expect(backend.mixedCap()).toBe(34);
     expect(backend.debug().counters.mixedCap).toBe(34);
     expect(loop.link.lastStatus!.flags & (1 << 3)).not.toBe(0); // "adaptive cap active"
-    expect(backend.mirror.mixedVoices).toBe(34);
+    expect(backend.mirror.header.mixedVoices).toBe(34);
     // The six quietest went virtual (in time, silent); the table followed the core's `demoted`.
     expect(voices.slice(0, 6).map((v) => v.reason)).toEqual(Array(6).fill("virtual"));
     expect(voices.slice(6).every((v) => v.reason === null)).toBe(true);
@@ -101,7 +101,7 @@ describe("the adaptive mixed-voice cap on the loopback host (A3.3)", () => {
     // Selection respects the lower cap: a voice made loud replaces a quiet one, never adds one.
     voices[0]!.setVolume(0.02);
     await step(5);
-    expect(backend.mirror.mixedVoices).toBe(34);
+    expect(backend.mirror.header.mixedVoices).toBe(34);
     expect(voices[0]!.reason).toBeNull();
     expect(voices[6]!.reason).toBe("virtual");
     voices[0]!.setVolume(1 / 1600);
@@ -110,13 +110,13 @@ describe("the adaptive mixed-voice cap on the loopback host (A3.3)", () => {
     const caps: number[] = [];
     for (let s = 0; s < 9; s++) {
       await step(FRAMES_PER_SECOND);
-      caps.push(backend.mirror.mixedCap);
+      caps.push(backend.mirror.header.mixedCap);
     }
     expect(caps.slice(0, 4).every((c) => c === 34)).toBe(true);
     expect(caps[caps.length - 1]).toBe(40);
     for (let k = 1; k < caps.length; k++) expect(caps[k]! - caps[k - 1]!).toBeLessThanOrEqual(2);
     await step(10);
-    expect(backend.mirror.mixedVoices).toBe(40);
+    expect(backend.mirror.header.mixedVoices).toBe(40);
     expect(loop.link.lastStatus!.flags & (1 << 3)).toBe(0);
     expect(voices.every((v) => v.reason === null)).toBe(true);
     expect(await step(1)).toBeCloseTo(full, 5);

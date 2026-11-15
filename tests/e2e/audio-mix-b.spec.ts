@@ -43,7 +43,7 @@ type Reading = {
 };
 type Loud = { [K in keyof Reading]: Reading[K] } & { reset(what?: string): void; pause(): void; resume(): void };
 type Hub = { noteMonitorMute(bus: string): void; noteMonitorSolo(): void; setMonitorActive(on: boolean): void; setCompare(on: boolean): void; feed(s: { loudShed: number }): void };
-type Backend = { loudness: Hub; mixer: { setMonitor(bus: string, c: { mute?: boolean; solo?: boolean }): void }; mirror: { loudShed: number } };
+type Backend = { loudness: Hub; mixer: { setMonitor(bus: string, c: { mute?: boolean; solo?: boolean }): void }; mirror: { header: { loudShed: number } } };
 type Debug = { status: string; counters: { underruns: number }; voices: { clip: string; bus: string; state: string }[]; mix: { metersPaused: number; loudnessLadderStep: number; monitorActive: boolean } };
 type Api = {
   __myco: { Audio: { time: number; loudnessTarget: string | null; debug(): Debug; bus(n: string): { loudness: Loud; mute: boolean }; playOneShot(c: string, o?: object): { voice?: { backend?: Backend; inner?: { backend?: Backend } } } } };
@@ -506,7 +506,7 @@ test("M5b: the ladder's loudness step, as STATUS reports it: non-master meters p
         hub.feed = (s) => {
           if (g.__ladder.on) {
             s.loudShed = 1;
-            g.__b.mirror.loudShed = 1;
+            g.__b.mirror.header.loudShed = 1;
           }
           feed(s);
         };

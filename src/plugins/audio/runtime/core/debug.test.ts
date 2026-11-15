@@ -201,19 +201,19 @@ describe("buildDebugInfo: header, counters and core (A2.5 keeps them)", () => {
     const state = () => buildDebugInfo(source).core!.ladderState;
     // Underruns going on (the last one now): shedding. The loudness step alone, then with the bed step.
     mirror.underrunFrame = mirror.frameAudio;
-    mirror.loudShed = 1;
+    mirror.header.loudShed = 1;
     expect(state()).toBe("shedding (1 step: metering paused)");
-    mirror.m3Shed = 1;
+    mirror.header.m3Shed = 1;
     expect(state()).toBe("shedding (2 steps: metering paused)");
     // Without the loudness step the text doesn't name it (each field counts on its own).
-    mirror.loudShed = 0;
+    mirror.header.loudShed = 0;
     expect(state()).toBe("shedding (1 step)");
     // A clean second since the last underrun: recovering, with the loudness step still in force.
-    mirror.loudShed = 1;
-    mirror.m3Shed = 0;
+    mirror.header.loudShed = 1;
+    mirror.header.m3Shed = 0;
     mirror.underrunFrame = mirror.frameAudio - 48_000;
     expect(state()).toBe("recovering (1 step: metering paused)");
-    mirror.loudShed = 0;
+    mirror.header.loudShed = 0;
     expect(state()).toBe("cap at floor");
   });
 

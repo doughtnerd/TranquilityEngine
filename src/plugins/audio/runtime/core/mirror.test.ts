@@ -67,10 +67,10 @@ describe("StatusMirror (§3, §4.3)", () => {
     mirror.apply(makeStatusBlock({ currentFrame: 128, dateMs: 10, underruns: 1, minSlackFrames: 50, abiVersion: 0x100, mixedCap: 64, peaks: [{ l: 0.5, r: 0.25 }, { l: 1, r: 1 }] }));
     mirror.apply(makeStatusBlock({ currentFrame: 896, dateMs: 26, underruns: 2, minSlackFrames: 80, abiVersion: 0, mixedCap: 48, peaks: [{ l: 0.125, r: 0 }] }));
     expect(mirror.blocks).toBe(2);
-    expect([mirror.currentFrame, mirror.dateMs, mirror.underruns, mirror.mixedCap]).toEqual([896, 26, 2, 48]);
+    expect([mirror.header.currentFrame, mirror.header.dateMs, mirror.header.underruns, mirror.header.mixedCap]).toEqual([896, 26, 2, 48]);
     expect([mirror.frameAudio, mirror.frameDateMs]).toEqual([896, 26]);
     expect(mirror.abiVersion).toBe(0x100);
-    expect(mirror.minSlackFrames).toBe(80);
+    expect(mirror.header.minSlackFrames).toBe(80);
     expect(mirror.peakCount).toBe(1);
     expect([mirror.peakL[0], mirror.peakR[0]]).toEqual([0.125, 0]);
     expect(mirror.beginFrame()).toBe(50);
@@ -135,12 +135,12 @@ describe("StatusMirror (§3, §4.3)", () => {
     expect(new DataView(buffer).getUint32(0, true)).toBe(MAGIC);
     port.onmessage!({ data: buffer });
     expect(table.state[indexOf(a)]).toBe(VoiceState.ENDING);
-    expect(mirror.currentFrame).toBe(768);
+    expect(mirror.header.currentFrame).toBe(768);
     expect(port.postMessage).toHaveBeenCalledTimes(1); // the RECYCLE
     unsubscribe();
     const again = new ArrayBuffer(STATUS_BUFFER_BYTES);
     writeStatus(new DataView(again), 0, makeStatusBlock({ currentFrame: 1024 }), 2);
     port.onmessage!({ data: again });
-    expect(mirror.currentFrame).toBe(768);
+    expect(mirror.header.currentFrame).toBe(768);
   });
 });

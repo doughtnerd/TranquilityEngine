@@ -66,9 +66,9 @@ describe("selection on the loopback host (A3.1)", () => {
     const volumes = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8].map((v) => v / 4); // under the limiter's 0 dBFS
     const voices = volumes.map((v, k) => backend.play(req(`v${k}.wav`, { volume: v }))!);
     const level = await step(10);
-    expect(loop.link.lastStatus?.mixedVoices ?? backend.mirror.mixedVoices).toBe(4);
-    expect(backend.mirror.mixedVoices).toBe(4);
-    expect(backend.mirror.liveVoices).toBe(8);
+    expect(loop.link.lastStatus?.mixedVoices ?? backend.mirror.header.mixedVoices).toBe(4);
+    expect(backend.mirror.header.mixedVoices).toBe(4);
+    expect(backend.mirror.header.liveVoices).toBe(8);
     expect(level).toBeCloseTo((0.5 * (0.5 + 0.6 + 0.7 + 0.8)) / 4, 5);
     const states = backend.debug().voices.map((v) => v.state);
     expect(states.filter((s) => s === "playing")).toHaveLength(4);
@@ -143,7 +143,7 @@ describe("selection on the loopback host (A3.1)", () => {
     const late = backend.play(req("late.wav", { priority: 200 }))!; // table full: steals b (quieter), waits for its clip
     expect(late.reason).toBe("waitingForData");
     expect(await step(4)).toBeCloseTo(0.2, 5);
-    expect(backend.mirror.liveVoices).toBe(1);
+    expect(backend.mirror.header.liveVoices).toBe(1);
     backend.dispose();
   });
 });

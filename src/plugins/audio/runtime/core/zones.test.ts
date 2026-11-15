@@ -33,7 +33,7 @@ function fakeCore(slots: number, ringFrames = 30, evictFrames = 9) {
   const events: [number, number][] = [];
   const mirror = {
     blocks: 0,
-    m3Shed: 0,
+    header: { m3Shed: 0 },
     zoneCount: slots,
     zoneKernel: new Uint32Array(4),
     zoneState: new Uint8Array(4),
@@ -309,13 +309,13 @@ describe("planning", () => {
     r.step(20);
     expect([stateOf(r, "A").slot, stateOf(r, "B").slot].every((s) => s >= 0)).toBe(true);
     // Step 2 of the core's ladder: B's slot is refused; main follows with one place fewer.
-    r.core.mirror.m3Shed = 2;
+    r.core.mirror.header.m3Shed = 2;
     r.core.events.push([stateOf(r, "B").slot, ZoneEvent.RefusedSlot]);
     r.step(40);
     expect(stateOf(r, "B").slot).toBe(-1);
     expect(stateOf(r, "A").slot).toBeGreaterThanOrEqual(0);
     // The core gives the step back (m3Shed falls): B takes a place again.
-    r.core.mirror.m3Shed = 1;
+    r.core.mirror.header.m3Shed = 1;
     r.step(20);
     expect(stateOf(r, "B").slot).toBeGreaterThanOrEqual(0);
     expect(stateOf(r, "B").why).toBe("");

@@ -3130,8 +3130,8 @@ export function readStatusBusDuckItem(view: DataView, off: number): StatusBusDuc
   return _readStatusBusDuckItem(view, off, limit)[0];
 }
 
-/** A whole STATUS message (kind 9); section counts are derived. */
-export interface StatusBlock {
+/** The STATUS header's scalars, by name (the section counts are left out: they are the sections' lengths). */
+export interface StatusHeader {
   currentFrame: number;
   dateMs: number;
   pingSeq: number;
@@ -3219,6 +3219,10 @@ export interface StatusBlock {
   sidechainLate: number;
   /** reserved, 0 */
   reserved2: number;
+}
+
+/** A whole STATUS message (kind 9): the header's scalars and the sections; section counts are derived. */
+export interface StatusBlock extends StatusHeader {
   /** voices that ended in this block (at most 1024 per block) */
   ended: number[];
   /** voices virtualised by the adaptive cap (at most 1024 per block) */
@@ -3545,4 +3549,809 @@ export function readStatus(buf: ArrayBuffer | ArrayBufferView): StatusBlock {
     cur += 8;
   }
   return { currentFrame, dateMs, pingSeq, pingFrameLo, underruns, lateCommands, workUnits, workUnitsMax, mixedVoices, liveVoices, flags, mixedCap, loadPermille, traps, minSlackFrames, underrunFrames, arenaUsedKB, arenaLargestFreeKB, abiVersion, maxLatenessFrames, hrtfVoices, hrtfLoadFailure, bedVoices, fxVoices, ambisonicVoices, zonesActive, zonesRinging, bedsRefused, m3Shed, zoneUsedKB, workBed, workZones, musicRingsOpen, streamStartsLate, groupsLate, groupsHeld, groupsAbandoned, curvePoolFull, maxSlipFrames, splitQuanta, voiceSplits, reserved, busyMsTotal, quantaTotal, wuVoices, wuBuses, wuSpatial, wuMusic, wuLoudness, clockStepMs, loudSubBlockFrames, clockSteps, loudShed, busRecordsEarly, sidechainLate, reserved2, ended, demoted, starved, playheads, clipEvents, streamEvents, peaks, beds, zones, zoneEvents, musicRings, groupStarts, loudBuses, loudEnergies, busDuck };
+}
+
+/** A `StatusHeader` with every field 0. */
+export function newStatusHeader(): StatusHeader {
+  return {
+    currentFrame: 0,
+    dateMs: 0,
+    pingSeq: 0,
+    pingFrameLo: 0,
+    underruns: 0,
+    lateCommands: 0,
+    workUnits: 0,
+    workUnitsMax: 0,
+    mixedVoices: 0,
+    liveVoices: 0,
+    flags: 0,
+    mixedCap: 0,
+    loadPermille: 0,
+    traps: 0,
+    minSlackFrames: 0,
+    underrunFrames: 0,
+    arenaUsedKB: 0,
+    arenaLargestFreeKB: 0,
+    abiVersion: 0,
+    maxLatenessFrames: 0,
+    hrtfVoices: 0,
+    hrtfLoadFailure: 0,
+    bedVoices: 0,
+    fxVoices: 0,
+    ambisonicVoices: 0,
+    zonesActive: 0,
+    zonesRinging: 0,
+    bedsRefused: 0,
+    m3Shed: 0,
+    zoneUsedKB: 0,
+    workBed: 0,
+    workZones: 0,
+    musicRingsOpen: 0,
+    streamStartsLate: 0,
+    groupsLate: 0,
+    groupsHeld: 0,
+    groupsAbandoned: 0,
+    curvePoolFull: 0,
+    maxSlipFrames: 0,
+    splitQuanta: 0,
+    voiceSplits: 0,
+    reserved: 0,
+    busyMsTotal: 0,
+    quantaTotal: 0,
+    wuVoices: 0,
+    wuBuses: 0,
+    wuSpatial: 0,
+    wuMusic: 0,
+    wuLoudness: 0,
+    clockStepMs: 0,
+    loudSubBlockFrames: 0,
+    clockSteps: 0,
+    loudShed: 0,
+    busRecordsEarly: 0,
+    sidechainLate: 0,
+    reserved2: 0,
+  };
+}
+
+/** Copies every header scalar of `src` into `dst` (a `StatusBlock` is a `StatusHeader`); allocates nothing. */
+export function copyStatusHeader(dst: StatusHeader, src: StatusHeader): void {
+  dst.currentFrame = src.currentFrame;
+  dst.dateMs = src.dateMs;
+  dst.pingSeq = src.pingSeq;
+  dst.pingFrameLo = src.pingFrameLo;
+  dst.underruns = src.underruns;
+  dst.lateCommands = src.lateCommands;
+  dst.workUnits = src.workUnits;
+  dst.workUnitsMax = src.workUnitsMax;
+  dst.mixedVoices = src.mixedVoices;
+  dst.liveVoices = src.liveVoices;
+  dst.flags = src.flags;
+  dst.mixedCap = src.mixedCap;
+  dst.loadPermille = src.loadPermille;
+  dst.traps = src.traps;
+  dst.minSlackFrames = src.minSlackFrames;
+  dst.underrunFrames = src.underrunFrames;
+  dst.arenaUsedKB = src.arenaUsedKB;
+  dst.arenaLargestFreeKB = src.arenaLargestFreeKB;
+  dst.abiVersion = src.abiVersion;
+  dst.maxLatenessFrames = src.maxLatenessFrames;
+  dst.hrtfVoices = src.hrtfVoices;
+  dst.hrtfLoadFailure = src.hrtfLoadFailure;
+  dst.bedVoices = src.bedVoices;
+  dst.fxVoices = src.fxVoices;
+  dst.ambisonicVoices = src.ambisonicVoices;
+  dst.zonesActive = src.zonesActive;
+  dst.zonesRinging = src.zonesRinging;
+  dst.bedsRefused = src.bedsRefused;
+  dst.m3Shed = src.m3Shed;
+  dst.zoneUsedKB = src.zoneUsedKB;
+  dst.workBed = src.workBed;
+  dst.workZones = src.workZones;
+  dst.musicRingsOpen = src.musicRingsOpen;
+  dst.streamStartsLate = src.streamStartsLate;
+  dst.groupsLate = src.groupsLate;
+  dst.groupsHeld = src.groupsHeld;
+  dst.groupsAbandoned = src.groupsAbandoned;
+  dst.curvePoolFull = src.curvePoolFull;
+  dst.maxSlipFrames = src.maxSlipFrames;
+  dst.splitQuanta = src.splitQuanta;
+  dst.voiceSplits = src.voiceSplits;
+  dst.reserved = src.reserved;
+  dst.busyMsTotal = src.busyMsTotal;
+  dst.quantaTotal = src.quantaTotal;
+  dst.wuVoices = src.wuVoices;
+  dst.wuBuses = src.wuBuses;
+  dst.wuSpatial = src.wuSpatial;
+  dst.wuMusic = src.wuMusic;
+  dst.wuLoudness = src.wuLoudness;
+  dst.clockStepMs = src.clockStepMs;
+  dst.loudSubBlockFrames = src.loudSubBlockFrames;
+  dst.clockSteps = src.clockSteps;
+  dst.loudShed = src.loudShed;
+  dst.busRecordsEarly = src.busRecordsEarly;
+  dst.sidechainLate = src.sidechainLate;
+  dst.reserved2 = src.reserved2;
+}
+
+/** A `StatusBlock` with every header field 0 and every section empty. */
+export function newStatusBlock(): StatusBlock {
+  return {
+    currentFrame: 0,
+    dateMs: 0,
+    pingSeq: 0,
+    pingFrameLo: 0,
+    underruns: 0,
+    lateCommands: 0,
+    workUnits: 0,
+    workUnitsMax: 0,
+    mixedVoices: 0,
+    liveVoices: 0,
+    flags: 0,
+    mixedCap: 0,
+    loadPermille: 0,
+    traps: 0,
+    minSlackFrames: 0,
+    underrunFrames: 0,
+    arenaUsedKB: 0,
+    arenaLargestFreeKB: 0,
+    abiVersion: 0,
+    maxLatenessFrames: 0,
+    hrtfVoices: 0,
+    hrtfLoadFailure: 0,
+    bedVoices: 0,
+    fxVoices: 0,
+    ambisonicVoices: 0,
+    zonesActive: 0,
+    zonesRinging: 0,
+    bedsRefused: 0,
+    m3Shed: 0,
+    zoneUsedKB: 0,
+    workBed: 0,
+    workZones: 0,
+    musicRingsOpen: 0,
+    streamStartsLate: 0,
+    groupsLate: 0,
+    groupsHeld: 0,
+    groupsAbandoned: 0,
+    curvePoolFull: 0,
+    maxSlipFrames: 0,
+    splitQuanta: 0,
+    voiceSplits: 0,
+    reserved: 0,
+    busyMsTotal: 0,
+    quantaTotal: 0,
+    wuVoices: 0,
+    wuBuses: 0,
+    wuSpatial: 0,
+    wuMusic: 0,
+    wuLoudness: 0,
+    clockStepMs: 0,
+    loudSubBlockFrames: 0,
+    clockSteps: 0,
+    loudShed: 0,
+    busRecordsEarly: 0,
+    sidechainLate: 0,
+    reserved2: 0,
+    ended: [],
+    demoted: [],
+    starved: [],
+    playheads: [],
+    clipEvents: [],
+    streamEvents: [],
+    peaks: [],
+    beds: [],
+    zones: [],
+    zoneEvents: [],
+    musicRings: [],
+    groupStarts: [],
+    loudBuses: [],
+    loudEnergies: [],
+    busDuck: [],
+  };
+}
+
+/** The type of a STATUS header column. */
+export type StatusColumnType = "f64" | "u32" | "u16" | "i32";
+
+/**
+ * Every STATUS header scalar by its `StatusHeader` name: `[byte offset from the envelope's first byte, type]`. The
+ * capture format stores raw STATUS blocks, and its `range` reads these columns in place.
+ */
+export const STATUS_HEADER_COLUMNS = {
+  currentFrame: [16, "f64"],
+  dateMs: [24, "f64"],
+  pingSeq: [32, "u32"],
+  pingFrameLo: [36, "u32"],
+  underruns: [40, "u32"],
+  lateCommands: [44, "u32"],
+  workUnits: [48, "u32"],
+  workUnitsMax: [52, "u32"],
+  mixedVoices: [56, "u16"],
+  liveVoices: [58, "u16"],
+  flags: [60, "u32"],
+  mixedCap: [78, "u16"],
+  loadPermille: [80, "u16"],
+  traps: [82, "u16"],
+  minSlackFrames: [84, "i32"],
+  underrunFrames: [88, "u32"],
+  arenaUsedKB: [92, "u32"],
+  arenaLargestFreeKB: [96, "u32"],
+  abiVersion: [100, "u32"],
+  maxLatenessFrames: [104, "u32"],
+  hrtfVoices: [108, "u16"],
+  hrtfLoadFailure: [110, "u16"],
+  bedVoices: [112, "u16"],
+  fxVoices: [116, "u16"],
+  ambisonicVoices: [118, "u16"],
+  zonesActive: [120, "u16"],
+  zonesRinging: [122, "u16"],
+  bedsRefused: [126, "u16"],
+  m3Shed: [130, "u16"],
+  zoneUsedKB: [132, "u32"],
+  workBed: [136, "u32"],
+  workZones: [140, "u32"],
+  musicRingsOpen: [148, "u16"],
+  streamStartsLate: [150, "u16"],
+  groupsLate: [152, "u16"],
+  groupsHeld: [154, "u16"],
+  groupsAbandoned: [156, "u16"],
+  curvePoolFull: [158, "u16"],
+  maxSlipFrames: [160, "u32"],
+  splitQuanta: [164, "u32"],
+  voiceSplits: [168, "u32"],
+  reserved: [172, "u32"],
+  busyMsTotal: [176, "f64"],
+  quantaTotal: [184, "f64"],
+  wuVoices: [192, "f64"],
+  wuBuses: [200, "f64"],
+  wuSpatial: [208, "f64"],
+  wuMusic: [216, "f64"],
+  wuLoudness: [224, "f64"],
+  clockStepMs: [238, "u16"],
+  loudSubBlockFrames: [240, "u32"],
+  clockSteps: [244, "u16"],
+  loudShed: [246, "u16"],
+  busRecordsEarly: [248, "u16"],
+  sidechainLate: [250, "u16"],
+  reserved2: [252, "u32"],
+} as const satisfies Record<keyof StatusHeader, readonly [number, StatusColumnType]>;
+/** A STATUS header column's name. */
+export type StatusHeaderField = keyof typeof STATUS_HEADER_COLUMNS;
+
+/** The STATUS header scalar `field` of the block whose envelope starts at `off`, read in place (no allocation). */
+export function readStatusHeaderField(view: DataView, off: number, field: StatusHeaderField): number {
+  const col: readonly [number, StatusColumnType] = STATUS_HEADER_COLUMNS[field];
+  const at = off + col[0];
+  switch (col[1]) {
+    case "f64": return view.getFloat64(at, true);
+    case "u32": return view.getUint32(at, true);
+    case "u16": return view.getUint16(at, true);
+    case "i32": return view.getInt32(at, true);
+  }
+}
+
+/** `StatusPlayheadsItem` field offsets, bytes from the item's start (the item is `STATUS_PLAYHEADS_ITEM_FIXED_END` bytes). */
+export const STATUS_PLAYHEADS_ITEM_AT = { id: 0, clipFrame: 4 } as const;
+/** `StatusClipEventsItem` field offsets, bytes from the item's start (the item is `STATUS_CLIP_EVENTS_ITEM_FIXED_END` bytes). */
+export const STATUS_CLIP_EVENTS_ITEM_AT = { clipId: 0, code: 4 } as const;
+/** `StatusStreamEventsItem` field offsets, bytes from the item's start (the item is `STATUS_STREAM_EVENTS_ITEM_FIXED_END` bytes). */
+export const STATUS_STREAM_EVENTS_ITEM_AT = { id: 0, code: 4 } as const;
+/** `StatusPeaksItem` field offsets, bytes from the item's start (the item is `STATUS_PEAKS_ITEM_FIXED_END` bytes). */
+export const STATUS_PEAKS_ITEM_AT = { l: 0, r: 4 } as const;
+/** `StatusBedsItem` field offsets, bytes from the item's start (the item is `STATUS_BEDS_ITEM_FIXED_END` bytes). */
+export const STATUS_BEDS_ITEM_AT = { bus: 0, voices: 2, work: 4 } as const;
+/** `StatusZonesItem` field offsets, bytes from the item's start (the item is `STATUS_ZONES_ITEM_FIXED_END` bytes). */
+export const STATUS_ZONES_ITEM_AT = { kernelId: 0, state: 4, pad: 5, quantaSinceInput: 6, wetPeak: 8 } as const;
+/** `StatusZoneEventsItem` field offsets, bytes from the item's start (the item is `STATUS_ZONE_EVENTS_ITEM_FIXED_END` bytes). */
+export const STATUS_ZONE_EVENTS_ITEM_AT = { slot: 0, code: 1, reserved: 2 } as const;
+/** `StatusMusicRingsItem` field offsets, bytes from the item's start (the item is `STATUS_MUSIC_RINGS_ITEM_FIXED_END` bytes). */
+export const STATUS_MUSIC_RINGS_ITEM_AT = { streamId: 0, epochFlags: 4 } as const;
+/** `StatusGroupStartsItem` field offsets, bytes from the item's start (the item is `STATUS_GROUP_STARTS_ITEM_FIXED_END` bytes). */
+export const STATUS_GROUP_STARTS_ITEM_AT = { groupId: 0, flags: 2, slipFrames: 4, startFrameLo: 8, startFrameHi: 12 } as const;
+/** `StatusLoudBusesItem` field offsets, bytes from the item's start (the item is `STATUS_LOUD_BUSES_ITEM_FIXED_END` bytes). */
+export const STATUS_LOUD_BUSES_ITEM_AT = { slot: 0, flags: 2, firstSeq: 4, truePeak: 8, gatedQuanta: 12 } as const;
+/** `StatusBusDuckItem` field offsets, bytes from the item's start (the item is `STATUS_BUS_DUCK_ITEM_FIXED_END` bytes). */
+export const STATUS_BUS_DUCK_ITEM_AT = { slot: 0, pad: 2, gain: 4 } as const;
+
+/** Each STATUS section's index in `StatusBlockReader`'s `sectionAt` and `sectionCount`, in wire order. */
+export const STATUS_SECTION = {
+  ended: 0,
+  demoted: 1,
+  starved: 2,
+  playheads: 3,
+  clipEvents: 4,
+  streamEvents: 5,
+  peaks: 6,
+  beds: 7,
+  zones: 8,
+  zoneEvents: 9,
+  musicRings: 10,
+  groupStarts: 11,
+  loudBuses: 12,
+  loudEnergies: 13,
+  busDuck: 14,
+} as const;
+
+/** Each STATUS section's count field: its byte offset in the header (from the envelope's first byte). */
+export const STATUS_SECTION_COUNT_AT = {
+  ended: 64,
+  demoted: 66,
+  starved: 68,
+  playheads: 70,
+  clipEvents: 74,
+  streamEvents: 76,
+  peaks: 72,
+  beds: 114,
+  zones: 128,
+  zoneEvents: 124,
+  musicRings: 144,
+  groupStarts: 146,
+  loudBuses: 232,
+  loudEnergies: 234,
+  busDuck: 236,
+} as const;
+
+/** Each STATUS section's per-block cap. */
+export const STATUS_SECTION_MAX = {
+  ended: 1024,
+  demoted: 1024,
+  starved: 1024,
+  playheads: 256,
+  clipEvents: 64,
+  streamEvents: 64,
+  peaks: 32,
+  beds: 4,
+  zones: 4,
+  zoneEvents: 16,
+  musicRings: 16,
+  groupStarts: 8,
+  loudBuses: 9,
+  loudEnergies: 288,
+  busDuck: 32,
+} as const;
+
+/**
+ * Reads a whole STATUS message into one preallocated `block`, so a reader allocates nothing per message (the
+ * generated `readStatus` builds a fresh block, arrays and items every call). The same checks, codes and messages as
+ * `readStatus`; every section is validated before the block is touched, so a refused message leaves it as it was.
+ * Section arrays keep their capacity (warmed to each cap) and multi-field items are pooled objects: the block, its
+ * arrays and its items are the reader's own and the next read overwrites them, so use them before reading again.
+ * A subclass adds semantic checks in `check`, which runs after the structural ones and before any write.
+ */
+export class StatusBlockReader {
+  /** The reused block. */
+  readonly block: StatusBlock = newStatusBlock();
+  /** The newest validated message's section offsets (bytes from the envelope), by `STATUS_SECTION`. */
+  protected readonly sectionAt = new Uint32Array(15);
+  /** The newest validated message's section counts, by `STATUS_SECTION`. */
+  protected readonly sectionCount = new Uint32Array(15);
+  private readonly playheadsPool: StatusPlayheadsItem[] = [];
+  private readonly clipEventsPool: StatusClipEventsItem[] = [];
+  private readonly streamEventsPool: StatusStreamEventsItem[] = [];
+  private readonly peaksPool: StatusPeaksItem[] = [];
+  private readonly bedsPool: StatusBedsItem[] = [];
+  private readonly zonesPool: StatusZonesItem[] = [];
+  private readonly zoneEventsPool: StatusZoneEventsItem[] = [];
+  private readonly musicRingsPool: StatusMusicRingsItem[] = [];
+  private readonly groupStartsPool: StatusGroupStartsItem[] = [];
+  private readonly loudBusesPool: StatusLoudBusesItem[] = [];
+  private readonly busDuckPool: StatusBusDuckItem[] = [];
+
+  constructor() {
+    const b = this.block;
+    for (let i = 0; i < 1024; i++) b.ended.push(0);
+    b.ended.length = 0;
+    for (let i = 0; i < 1024; i++) b.demoted.push(0);
+    b.demoted.length = 0;
+    for (let i = 0; i < 1024; i++) b.starved.push(0);
+    b.starved.length = 0;
+    for (let i = 0; i < 256; i++) {
+      const item: StatusPlayheadsItem = { id: 0, clipFrame: 0 };
+      this.playheadsPool.push(item);
+      b.playheads.push(item);
+    }
+    b.playheads.length = 0;
+    for (let i = 0; i < 64; i++) {
+      const item: StatusClipEventsItem = { clipId: 0, code: 0 };
+      this.clipEventsPool.push(item);
+      b.clipEvents.push(item);
+    }
+    b.clipEvents.length = 0;
+    for (let i = 0; i < 64; i++) {
+      const item: StatusStreamEventsItem = { id: 0, code: 0 };
+      this.streamEventsPool.push(item);
+      b.streamEvents.push(item);
+    }
+    b.streamEvents.length = 0;
+    for (let i = 0; i < 32; i++) {
+      const item: StatusPeaksItem = { l: 0, r: 0 };
+      this.peaksPool.push(item);
+      b.peaks.push(item);
+    }
+    b.peaks.length = 0;
+    for (let i = 0; i < 4; i++) {
+      const item: StatusBedsItem = { bus: 0, voices: 0, work: 0 };
+      this.bedsPool.push(item);
+      b.beds.push(item);
+    }
+    b.beds.length = 0;
+    for (let i = 0; i < 4; i++) {
+      const item: StatusZonesItem = { kernelId: 0, state: 0, pad: 0, quantaSinceInput: 0, wetPeak: 0 };
+      this.zonesPool.push(item);
+      b.zones.push(item);
+    }
+    b.zones.length = 0;
+    for (let i = 0; i < 16; i++) {
+      const item: StatusZoneEventsItem = { slot: 0, code: 0, reserved: 0 };
+      this.zoneEventsPool.push(item);
+      b.zoneEvents.push(item);
+    }
+    b.zoneEvents.length = 0;
+    for (let i = 0; i < 16; i++) {
+      const item: StatusMusicRingsItem = { streamId: 0, epochFlags: 0 };
+      this.musicRingsPool.push(item);
+      b.musicRings.push(item);
+    }
+    b.musicRings.length = 0;
+    for (let i = 0; i < 8; i++) {
+      const item: StatusGroupStartsItem = { groupId: 0, flags: 0, slipFrames: 0, startFrameLo: 0, startFrameHi: 0 };
+      this.groupStartsPool.push(item);
+      b.groupStarts.push(item);
+    }
+    b.groupStarts.length = 0;
+    for (let i = 0; i < 9; i++) {
+      const item: StatusLoudBusesItem = { slot: 0, flags: 0, firstSeq: 0, truePeak: 0, gatedQuanta: 0 };
+      this.loudBusesPool.push(item);
+      b.loudBuses.push(item);
+    }
+    b.loudBuses.length = 0;
+    for (let i = 0; i < 288; i++) b.loudEnergies.push(0);
+    b.loudEnergies.length = 0;
+    for (let i = 0; i < 32; i++) {
+      const item: StatusBusDuckItem = { slot: 0, pad: 0, gain: 0 };
+      this.busDuckPool.push(item);
+      b.busDuck.push(item);
+    }
+    b.busDuck.length = 0;
+  }
+
+  /** Semantic checks a subclass adds (`sectionAt` and `sectionCount` are set); throw a `WireError` to refuse the message. */
+  protected check(_view: DataView, _limit: number): void {}
+
+  /** Decodes `buf` (envelope first) into `block` and returns it. Builds one `DataView`; `readView` builds none. */
+  read(buf: ArrayBuffer | ArrayBufferView): StatusBlock {
+    return this.readView(buf instanceof ArrayBuffer ? new DataView(buf) : new DataView(buf.buffer, buf.byteOffset, buf.byteLength));
+  }
+
+  /** Decodes the STATUS message starting at `view`'s first byte into `block` and returns it. Allocates nothing. */
+  readView(view: DataView): StatusBlock {
+    if (256 > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "STATUS: truncated");
+    if (view.getUint32(0, true) !== MAGIC) throw new WireError(ErrorCode.BAD_MAGIC, "STATUS: bad magic");
+    if ((view.getUint16(4, true) >> 8) !== VERSION_MAJOR) throw new WireError(ErrorCode.VERSION_MISMATCH, "STATUS: version mismatch");
+    if (view.getUint16(6, true) !== Kind.STATUS) throw new WireError(ErrorCode.MALFORMED, "STATUS: wrong kind");
+    const limit = 16 + view.getUint32(12, true);
+    if (limit > view.byteLength || limit < 256) throw new WireError(ErrorCode.TRUNCATED, "STATUS: truncated");
+    const at = this.sectionAt;
+    const count = this.sectionCount;
+    let cur = 256;
+    let c = 0;
+    c = view.getUint16(64, true);
+    if (c > 1024 || c * 4 > limit - cur) throw new WireError(ErrorCode.OVERSIZE, "STATUS: ended overrun");
+    at[0] = cur;
+    count[0] = c;
+    cur += c * 4;
+    c = view.getUint16(66, true);
+    if (c > 1024 || c * 4 > limit - cur) throw new WireError(ErrorCode.OVERSIZE, "STATUS: demoted overrun");
+    at[1] = cur;
+    count[1] = c;
+    cur += c * 4;
+    c = view.getUint16(68, true);
+    if (c > 1024 || c * 4 > limit - cur) throw new WireError(ErrorCode.OVERSIZE, "STATUS: starved overrun");
+    at[2] = cur;
+    count[2] = c;
+    cur += c * 4;
+    c = view.getUint16(70, true);
+    if (c > 256 || c * 8 > limit - cur) throw new WireError(ErrorCode.OVERSIZE, "STATUS: playheads overrun");
+    at[3] = cur;
+    count[3] = c;
+    cur += c * 8;
+    c = view.getUint16(74, true);
+    if (c > 64 || c * 8 > limit - cur) throw new WireError(ErrorCode.OVERSIZE, "STATUS: clipEvents overrun");
+    at[4] = cur;
+    count[4] = c;
+    cur += c * 8;
+    c = view.getUint16(76, true);
+    if (c > 64 || c * 8 > limit - cur) throw new WireError(ErrorCode.OVERSIZE, "STATUS: streamEvents overrun");
+    at[5] = cur;
+    count[5] = c;
+    cur += c * 8;
+    c = view.getUint16(72, true);
+    if (c > 32 || c * 8 > limit - cur) throw new WireError(ErrorCode.OVERSIZE, "STATUS: peaks overrun");
+    at[6] = cur;
+    count[6] = c;
+    cur += c * 8;
+    c = view.getUint16(114, true);
+    if (c > 4 || c * 8 > limit - cur) throw new WireError(ErrorCode.OVERSIZE, "STATUS: beds overrun");
+    at[7] = cur;
+    count[7] = c;
+    cur += c * 8;
+    c = view.getUint16(128, true);
+    if (c > 4 || c * 12 > limit - cur) throw new WireError(ErrorCode.OVERSIZE, "STATUS: zones overrun");
+    at[8] = cur;
+    count[8] = c;
+    cur += c * 12;
+    c = view.getUint16(124, true);
+    if (c > 16 || c * 4 > limit - cur) throw new WireError(ErrorCode.OVERSIZE, "STATUS: zoneEvents overrun");
+    at[9] = cur;
+    count[9] = c;
+    cur += c * 4;
+    c = view.getUint16(144, true);
+    if (c > 16 || c * 8 > limit - cur) throw new WireError(ErrorCode.OVERSIZE, "STATUS: musicRings overrun");
+    at[10] = cur;
+    count[10] = c;
+    cur += c * 8;
+    c = view.getUint16(146, true);
+    if (c > 8 || c * 16 > limit - cur) throw new WireError(ErrorCode.OVERSIZE, "STATUS: groupStarts overrun");
+    at[11] = cur;
+    count[11] = c;
+    cur += c * 16;
+    c = view.getUint16(232, true);
+    if (c > 9 || c * 16 > limit - cur) throw new WireError(ErrorCode.OVERSIZE, "STATUS: loudBuses overrun");
+    at[12] = cur;
+    count[12] = c;
+    cur += c * 16;
+    c = view.getUint16(234, true);
+    if (c > 288 || c * 4 > limit - cur) throw new WireError(ErrorCode.OVERSIZE, "STATUS: loudEnergies overrun");
+    at[13] = cur;
+    count[13] = c;
+    cur += c * 4;
+    c = view.getUint16(236, true);
+    if (c > 32 || c * 8 > limit - cur) throw new WireError(ErrorCode.OVERSIZE, "STATUS: busDuck overrun");
+    at[14] = cur;
+    count[14] = c;
+    cur += c * 8;
+    this.check(view, limit);
+
+    const b = this.block;
+    b.currentFrame = view.getFloat64(16, true);
+    b.dateMs = view.getFloat64(24, true);
+    b.pingSeq = view.getUint32(32, true);
+    b.pingFrameLo = view.getUint32(36, true);
+    b.underruns = view.getUint32(40, true);
+    b.lateCommands = view.getUint32(44, true);
+    b.workUnits = view.getUint32(48, true);
+    b.workUnitsMax = view.getUint32(52, true);
+    b.mixedVoices = view.getUint16(56, true);
+    b.liveVoices = view.getUint16(58, true);
+    b.flags = view.getUint32(60, true);
+    b.mixedCap = view.getUint16(78, true);
+    b.loadPermille = view.getUint16(80, true);
+    b.traps = view.getUint16(82, true);
+    b.minSlackFrames = view.getInt32(84, true);
+    b.underrunFrames = view.getUint32(88, true);
+    b.arenaUsedKB = view.getUint32(92, true);
+    b.arenaLargestFreeKB = view.getUint32(96, true);
+    b.abiVersion = view.getUint32(100, true);
+    b.maxLatenessFrames = view.getUint32(104, true);
+    b.hrtfVoices = view.getUint16(108, true);
+    b.hrtfLoadFailure = view.getUint16(110, true);
+    b.bedVoices = view.getUint16(112, true);
+    b.fxVoices = view.getUint16(116, true);
+    b.ambisonicVoices = view.getUint16(118, true);
+    b.zonesActive = view.getUint16(120, true);
+    b.zonesRinging = view.getUint16(122, true);
+    b.bedsRefused = view.getUint16(126, true);
+    b.m3Shed = view.getUint16(130, true);
+    b.zoneUsedKB = view.getUint32(132, true);
+    b.workBed = view.getUint32(136, true);
+    b.workZones = view.getUint32(140, true);
+    b.musicRingsOpen = view.getUint16(148, true);
+    b.streamStartsLate = view.getUint16(150, true);
+    b.groupsLate = view.getUint16(152, true);
+    b.groupsHeld = view.getUint16(154, true);
+    b.groupsAbandoned = view.getUint16(156, true);
+    b.curvePoolFull = view.getUint16(158, true);
+    b.maxSlipFrames = view.getUint32(160, true);
+    b.splitQuanta = view.getUint32(164, true);
+    b.voiceSplits = view.getUint32(168, true);
+    b.reserved = view.getUint32(172, true);
+    b.busyMsTotal = view.getFloat64(176, true);
+    b.quantaTotal = view.getFloat64(184, true);
+    b.wuVoices = view.getFloat64(192, true);
+    b.wuBuses = view.getFloat64(200, true);
+    b.wuSpatial = view.getFloat64(208, true);
+    b.wuMusic = view.getFloat64(216, true);
+    b.wuLoudness = view.getFloat64(224, true);
+    b.clockStepMs = view.getUint16(238, true);
+    b.loudSubBlockFrames = view.getUint32(240, true);
+    b.clockSteps = view.getUint16(244, true);
+    b.loudShed = view.getUint16(246, true);
+    b.busRecordsEarly = view.getUint16(248, true);
+    b.sidechainLate = view.getUint16(250, true);
+    b.reserved2 = view.getUint32(252, true);
+    {
+      const list = b.ended;
+      const n = count[0]!;
+      let p = at[0]!;
+      for (let i = 0; i < n; i++, p += 4) list[i] = view.getUint32(p, true);
+      list.length = n;
+    }
+    {
+      const list = b.demoted;
+      const n = count[1]!;
+      let p = at[1]!;
+      for (let i = 0; i < n; i++, p += 4) list[i] = view.getUint32(p, true);
+      list.length = n;
+    }
+    {
+      const list = b.starved;
+      const n = count[2]!;
+      let p = at[2]!;
+      for (let i = 0; i < n; i++, p += 4) list[i] = view.getUint32(p, true);
+      list.length = n;
+    }
+    {
+      const list = b.playheads;
+      const n = count[3]!;
+      let p = at[3]!;
+      const pool = this.playheadsPool;
+      for (let i = 0; i < n; i++, p += 8) {
+        const item = pool[i]!;
+        item.id = view.getUint32(p, true);
+        item.clipFrame = view.getUint32(p + 4, true);
+        list[i] = item;
+      }
+      list.length = n;
+    }
+    {
+      const list = b.clipEvents;
+      const n = count[4]!;
+      let p = at[4]!;
+      const pool = this.clipEventsPool;
+      for (let i = 0; i < n; i++, p += 8) {
+        const item = pool[i]!;
+        item.clipId = view.getUint32(p, true);
+        item.code = view.getUint32(p + 4, true);
+        list[i] = item;
+      }
+      list.length = n;
+    }
+    {
+      const list = b.streamEvents;
+      const n = count[5]!;
+      let p = at[5]!;
+      const pool = this.streamEventsPool;
+      for (let i = 0; i < n; i++, p += 8) {
+        const item = pool[i]!;
+        item.id = view.getUint32(p, true);
+        item.code = view.getUint32(p + 4, true);
+        list[i] = item;
+      }
+      list.length = n;
+    }
+    {
+      const list = b.peaks;
+      const n = count[6]!;
+      let p = at[6]!;
+      const pool = this.peaksPool;
+      for (let i = 0; i < n; i++, p += 8) {
+        const item = pool[i]!;
+        item.l = view.getFloat32(p, true);
+        item.r = view.getFloat32(p + 4, true);
+        list[i] = item;
+      }
+      list.length = n;
+    }
+    {
+      const list = b.beds;
+      const n = count[7]!;
+      let p = at[7]!;
+      const pool = this.bedsPool;
+      for (let i = 0; i < n; i++, p += 8) {
+        const item = pool[i]!;
+        item.bus = view.getUint16(p, true);
+        item.voices = view.getUint16(p + 2, true);
+        item.work = view.getUint32(p + 4, true);
+        list[i] = item;
+      }
+      list.length = n;
+    }
+    {
+      const list = b.zones;
+      const n = count[8]!;
+      let p = at[8]!;
+      const pool = this.zonesPool;
+      for (let i = 0; i < n; i++, p += 12) {
+        const item = pool[i]!;
+        item.kernelId = view.getUint32(p, true);
+        item.state = view.getUint8(p + 4);
+        item.pad = view.getUint8(p + 5);
+        item.quantaSinceInput = view.getUint16(p + 6, true);
+        item.wetPeak = view.getFloat32(p + 8, true);
+        list[i] = item;
+      }
+      list.length = n;
+    }
+    {
+      const list = b.zoneEvents;
+      const n = count[9]!;
+      let p = at[9]!;
+      const pool = this.zoneEventsPool;
+      for (let i = 0; i < n; i++, p += 4) {
+        const item = pool[i]!;
+        item.slot = view.getUint8(p);
+        item.code = view.getUint8(p + 1);
+        item.reserved = view.getUint16(p + 2, true);
+        list[i] = item;
+      }
+      list.length = n;
+    }
+    {
+      const list = b.musicRings;
+      const n = count[10]!;
+      let p = at[10]!;
+      const pool = this.musicRingsPool;
+      for (let i = 0; i < n; i++, p += 8) {
+        const item = pool[i]!;
+        item.streamId = view.getUint32(p, true);
+        item.epochFlags = view.getUint32(p + 4, true);
+        list[i] = item;
+      }
+      list.length = n;
+    }
+    {
+      const list = b.groupStarts;
+      const n = count[11]!;
+      let p = at[11]!;
+      const pool = this.groupStartsPool;
+      for (let i = 0; i < n; i++, p += 16) {
+        const item = pool[i]!;
+        item.groupId = view.getUint16(p, true);
+        item.flags = view.getUint16(p + 2, true);
+        item.slipFrames = view.getUint32(p + 4, true);
+        item.startFrameLo = view.getUint32(p + 8, true);
+        item.startFrameHi = view.getUint32(p + 12, true);
+        list[i] = item;
+      }
+      list.length = n;
+    }
+    {
+      const list = b.loudBuses;
+      const n = count[12]!;
+      let p = at[12]!;
+      const pool = this.loudBusesPool;
+      for (let i = 0; i < n; i++, p += 16) {
+        const item = pool[i]!;
+        item.slot = view.getUint16(p, true);
+        item.flags = view.getUint16(p + 2, true);
+        item.firstSeq = view.getUint32(p + 4, true);
+        item.truePeak = view.getFloat32(p + 8, true);
+        item.gatedQuanta = view.getUint32(p + 12, true);
+        list[i] = item;
+      }
+      list.length = n;
+    }
+    {
+      const list = b.loudEnergies;
+      const n = count[13]!;
+      let p = at[13]!;
+      for (let i = 0; i < n; i++, p += 4) list[i] = view.getFloat32(p, true);
+      list.length = n;
+    }
+    {
+      const list = b.busDuck;
+      const n = count[14]!;
+      let p = at[14]!;
+      const pool = this.busDuckPool;
+      for (let i = 0; i < n; i++, p += 8) {
+        const item = pool[i]!;
+        item.slot = view.getUint16(p, true);
+        item.pad = view.getUint16(p + 2, true);
+        item.gain = view.getFloat32(p + 4, true);
+        list[i] = item;
+      }
+      list.length = n;
+    }
+    return b;
+  }
 }

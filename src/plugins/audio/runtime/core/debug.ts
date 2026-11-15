@@ -241,24 +241,24 @@ export function buildDebugInfo(backend: DebugSource): AudioDebugInfo {
     time: backend.time,
     background: backend.backgroundMode,
     counters: {
-      underruns: m.underruns,
-      lateCommands: m.lateCommands,
-      minSlackFrames: m.minSlackFrames,
-      workUnits: m.workUnits,
-      workUnitsMax: m.workUnitsMax,
-      mixedVoices: m.mixedVoices,
+      underruns: m.header.underruns,
+      lateCommands: m.header.lateCommands,
+      minSlackFrames: m.header.minSlackFrames,
+      workUnits: m.header.workUnits,
+      workUnitsMax: m.header.workUnitsMax,
+      mixedVoices: m.header.mixedVoices,
       // A3.3: the cap selection runs at (the core's adaptive cap, or `voices.mixed` before its first STATUS).
-      mixedCap: backend.mixedCap ? backend.mixedCap() : m.mixedCap,
+      mixedCap: backend.mixedCap ? backend.mixedCap() : m.header.mixedCap,
       logicalVoices: table.liveCount,
       queuedPlays: backend.lockedQueue.size,
       droppedPlays: table.refusedCount + backend.lockedQueue.droppedCount,
       // The host's count over every core (A3.4a): a rebuilt core's STATUS starts again at 0.
-      traps: backend.host.health ? Math.max(backend.host.health.traps, m.traps) : m.traps,
+      traps: backend.host.health ? Math.max(backend.host.health.traps, m.header.traps) : m.header.traps,
       refusedLoads: 0,
       // H3: the voices the core panned with HRTF in its last STATUS quantum (crossfading ones included).
-      hrtfVoices: m.hrtfVoices,
+      hrtfVoices: m.header.hrtfVoices,
       // H3: 2 the core found the table invalid, 1 its fetch failed (main), 0 none.
-      hrtfLoadFailure: backend.hrtfLoadFailure ?? m.hrtfLoadFailure,
+      hrtfLoadFailure: backend.hrtfLoadFailure ?? m.header.hrtfLoadFailure,
       ...bedCounters(backend),
       ...m3Counters(backend),
       // ADR 0162 B4 (C24): starves of wide (ambisonic) streams, from STATUS stream events.
@@ -291,9 +291,9 @@ export function mixDebugInfo(backend: DebugSource, liveRefused: number, liveDefe
       for (let k = 0; k < m.duckCount; k++) if (m.duckSlot[k] === slot) return m.duckGain[k]!;
       return null;
     },
-    loudShed: m.loudShed,
-    busRecordsEarly: m.busRecordsEarly,
-    sidechainLate: m.sidechainLate,
+    loudShed: m.header.loudShed,
+    busRecordsEarly: m.header.busRecordsEarly,
+    sidechainLate: m.header.sidechainLate,
     liveRefused,
     liveDeferred,
     liveDeferredPending: backend.deferredAdds?.pending ?? 0,
@@ -306,10 +306,10 @@ function bedCounters(backend: DebugSource): Record<string, number> {
   if (!planner || planner.maxBeds <= 0) return {};
   const m = backend.mirror;
   return {
-    bedVoices: m.bedVoices,
+    bedVoices: m.header.bedVoices,
     beds: m.bedCount,
     bedDenied: planner.counters.bedDenied,
-    bedsRefused: m.bedsRefused,
+    bedsRefused: m.header.bedsRefused,
     bedSwitches: backend.hrtf?.bedSwitches ?? 0,
     bedFilterLoadFailure: backend.maglsFailed ? 1 : 0,
   };
@@ -327,13 +327,13 @@ function bedRows(backend: DebugSource): { beds?: NonNullable<AudioDebugInfo["bed
  */
 function m3Counters(backend: DebugSource): AudioM3Counters {
   const m = backend.mirror;
-  const out: AudioM3Counters = { fxVoices: m.fxVoices, ambisonicVoices: m.ambisonicVoices, m3Shed: m.m3Shed };
+  const out: AudioM3Counters = { fxVoices: m.header.fxVoices, ambisonicVoices: m.header.ambisonicVoices, m3Shed: m.header.m3Shed };
   const z = backend.zones;
   if (z) {
-    out.zonesActive = m.zonesActive;
-    out.zonesRinging = m.zonesRinging;
+    out.zonesActive = m.header.zonesActive;
+    out.zonesRinging = m.header.zonesRinging;
     out.zonesFaded = z.counters.zonesFaded;
-    out.zoneMemoryKB = m.zoneUsedKB;
+    out.zoneMemoryKB = m.header.zoneUsedKB;
     out.kernelRefused = z.counters.kernelRefused;
     out.irFailures = z.counters.irFailures;
     out.irTruncated = z.counters.irTruncated;
@@ -395,7 +395,7 @@ function memoryRow(backend: DebugSource): AudioMemoryDebug | undefined {
   return {
     beds: bedSlots,
     zones: zonesRegionBytes(slots, frames, MAX_BUSES),
-    kernels: backend.mirror.zoneUsedKB * 1024,
+    kernels: backend.mirror.header.zoneUsedKB * 1024,
     kernelBudget: zoneKernelBudgetBytes(slots, frames),
     wideRings,
   };
@@ -459,15 +459,15 @@ const LADDER_SUSTAIN_SECONDS = 1;
  */
 function ladder(backend: DebugSource): Record<string, string | number> {
   const m = backend.mirror;
-  const loud = m.loudShed !== 0 ? 1 : 0;
-  const steps = m.m3Shed + loud;
+  const loud = m.header.loudShed !== 0 ? 1 : 0;
+  const steps = m.header.m3Shed + loud;
   const ladderRecoveries = m.m3Recoveries;
   if (steps > 0) {
     const clean = m.frameAudio - m.underrunFrame >= LADDER_SUSTAIN_SECONDS * backend.host.sampleRate;
     const what = loud ? ": metering paused" : "";
     return { ladderState: `${clean ? "recovering" : "shedding"} (${steps} ${steps === 1 ? "step" : "steps"}${what})`, ladderRecoveries };
   }
-  const cap = backend.mixedCap ? backend.mixedCap() : m.mixedCap;
+  const cap = backend.mixedCap ? backend.mixedCap() : m.header.mixedCap;
   const configured = backend.host.preset?.maxMixed ?? Infinity;
   return { ladderState: cap > 0 && cap <= Math.min(LADDER_FLOOR, configured) ? "cap at floor" : "idle", ladderRecoveries };
 }
@@ -510,7 +510,7 @@ function timing(backend: DebugSource): Record<string, number | boolean> {
     lookaheadFrames: clock.lookaheadFrames(),
     leadFrames: Math.round(clock.leadFrames),
     rampFrames: clock.rampFrames(),
-    maxLatenessFrames: backend.mirror.maxLatenessFrames,
+    maxLatenessFrames: backend.mirror.header.maxLatenessFrames,
     clockAnchored: clock.anchored,
     clockRejected: clock.rejected,
     clockReanchors: clock.reanchors,
@@ -616,11 +616,11 @@ function musicTotals(backend: DebugSource): MusicDebugTotals {
     poolSize: v.poolSize,
     poolHighWater: v.poolHighWater,
     musicRingRefused: v.musicRingRefused,
-    streamStartsLate: m.streamStartsLate,
-    maxSlipFrames: m.maxSlipFrames,
-    splitQuanta: m.splitQuanta,
-    voiceSplits: m.voiceSplits,
-    curvePoolFull: m.curvePoolFull,
+    streamStartsLate: m.header.streamStartsLate,
+    maxSlipFrames: m.header.maxSlipFrames,
+    splitQuanta: m.header.splitQuanta,
+    voiceSplits: m.header.voiceSplits,
+    curvePoolFull: m.header.curvePoolFull,
     groupTableFull: v.groupTableFull ?? 0,
     encodedOverBudget: v.encodedOverBudget ?? 0,
   };
