@@ -62,10 +62,6 @@ import type { Attenuation, AudioBackend, AudioBackground, AudioCpuDebug, AudioMi
 import type { DuckingRule } from "../../../../engine/audio/settings";
 import type { AudioLatency } from "../../../../engine/audio/musicTypes";
 import { BUS_LP_OFF_HZ, AUX_BUS_NONE, readStatus, type BusConfigBuses } from "../wire.generated";
-// Ld2: the loudness hub's wiring (LOUD_CONFIG at configure and in the rebuild's replay; `play()` at each Engine's audio configure).
-import { ASAP, MAX_LOUDNESS_BUSES, writeLoudConfig } from "../wire.generated";
-import { loudnessHub, type LoudnessBusInfo } from "../mix/loudnessHub";
-import { onAudioConfigured } from "../../../../engine/core/audioConfigure";
 import { AudioHandle, type AudioReason } from "./handle";
 import { limiterLatencyFrames } from "./limiterLatency";
 import { ClockMap } from "./clock";
@@ -73,7 +69,9 @@ import { CommandWriter } from "./commandWriter";
 import { createHrirLoader, createMaglsLoader, type HrirLoader, type MaglsLoader } from "./hrir";
 import { createClipRegistry, type ClipInfo, type ClipRegistry } from "./clipRegistry";
 import { DEFAULT_CLIP_CEILING_MB, type AudioHost, type CoreLink, type HostHealth } from "./context";
-import { PlayheadTracker, Replayer } from "./replay";
+import { PlayheadTracker, Replayer, replayBusConfig, replayMaster } from "./replay";
+import { CoreSession } from "./session";
+import { CoreLoudness } from "./coreLoudness";
 import { buildDebugInfo, mixDebugInfo, type AudioDebugInfo } from "./debug";
 import { BackgroundController } from "./background";
 import { calibrationDeviceChanged, initCalibration } from "../music/calibration";
@@ -96,7 +94,7 @@ import { DopplerPass } from "./doppler";
 import { ListenerStage } from "./listener";
 import { LowpassBy, VoiceFx } from "./voiceFx";
 import { ListenerFrame, SendCurveTable, SpatialViewFlag, type SpatialVoiceView, type StagedFrameHost } from "./spatial";
-import type { ReplayBuilder, ReplaySpatial } from "./replay";
+import type { ReplayBuilder } from "./replay";
 import { BusIndex } from "./busIndex";
 import { LaneWriter } from "./laneWriter";
 import { KeyframeSource } from "./keyframeSource";
@@ -194,8 +192,6 @@ const clamp = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > 
 
 /** ADR 0171 (K0): the core backend that last registered its clock and op target on each mixer. */
 const mixerOwners = new WeakMap<Mixer, CoreBackend>();
-/** Ld2: the core backend that last wired the page's loudness hub (its mixer source and gate sink). */
-let loudnessOwner: CoreBackend | null = null;
 
 export class CoreBackend implements AudioBackend, StagedFrameHost {
   readonly name = "core";
@@ -225,8 +221,6 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
    * needs it first connects it, and a respawned worker or a rebuilt node gets a new one.
    */
   readonly worklet: WorkletChannel<StreamDecoderLike>;
-  /** This recovery's `onContextReplaced` ran (its channel went to the new node, after the link was rebound). */
-  private contextReplacedInRecovery = false;
   /** ADR 0162 (K4): the zone manager (`zones.ts`). */
   readonly zones: ZoneManager;
   /** ADR 0162 (K4): main's occlusion pass (`occlusion.ts`), run by the audio system. */
@@ -239,8 +233,6 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
   readonly sendCurves = new SendCurveTable();
   /** ADR 0162 (K4): the voices as main's passes see them (`spatial.ts`). */
   readonly spatialVoices: TableSpatialView;
-  /** ADR 0162 (K4): the M3 replay hooks, in the replay's order (`replay.ts`). */
-  readonly spatial: ReplaySpatial;
   /** The listener frame `update(dt)` stages LISTENER from (the audio system passes its own to `frameStageListener`). */
   private readonly idleFrame = new ListenerFrame();
   /** ADR 0176: the core voice: start, launch, the setters, what is sent, stem re-sends and refusals (`voices.ts`). */
@@ -255,6 +247,12 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
   private readonly clock: HostClock;
   private readonly reader = new StatusReader();
   private readonly cleanups: (() => void)[] = [];
+  /**
+   * ADR 0178: the core session's lifecycle: the reconfigure, rebuild, replay, failure and dispose phases run their
+   * participants in `PHASE_ORDER`'s order (`session.ts`; the participants join in `joinSession`). It owns `recovering`
+   * and `disposed`.
+   */
+  readonly session = new CoreSession();
   /** ADR 0171 (K0): the bus indexing (`busIndex.ts`; Ma1 moves it onto the slot table). */
   readonly buses: BusIndex;
   /** ADR 0171 (K0): the bus gain writer (`laneWriter.ts`; Wa2, then Mx2). */
@@ -279,7 +277,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
       this.buses.replanBedsOnSettings();
       this.presence.settingsChanged(this.mixer);
       this.lanes.sync();
-      this.loudnessLiveApplied(); // Ld2: the live op sent its own LOUD_CONFIG (or changed nothing it carries)
+      this.loudness.liveApplied(); // Ld2: the live op sent its own LOUD_CONFIG (or changed nothing it carries)
     },
     sending: () => !this.disposed && !this.recovering && this.host.status === "running",
     firstFrame: () => this.clockMap.nextFirstFrame(),
@@ -288,10 +286,8 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
   });
   /** ADR 0171 (K0): the capture's event taps (`mix/profileSink.ts`); the null object until a recorder runs (Rc3). */
   profile: ProfileSink = NULL_PROFILE_SINK;
-  // Ld2: the page's loudness hub; the settings and the metered set it was last configured with.
-  private readonly loudness = loudnessHub;
-  private loudnessFrom: unknown = null;
-  private loudnessKey = "";
+  /** Ld2: the page's loudness hub's wiring (`coreLoudness.ts`). */
+  readonly loudness: CoreLoudness;
   private get names(): string[] {
     return this.buses.names;
   }
@@ -309,7 +305,12 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
   private idlePending = false;
   private master = 1;
   private isMuted = false;
-  private disposed = false;
+  private get disposed(): boolean {
+    return this.session.disposed;
+  }
+  private get recovering(): boolean {
+    return this.session.recovering;
+  }
   private readonly hrir: HrirLoader;
   private readonly magls: MaglsLoader;
   private readonly clipSink: { event(id: number, code: number): void };
@@ -375,12 +376,6 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
       setOcclusion: (i, gain, lpHz) => this.voices.setOcclusionAt(i, gain, lpHz),
       setDopplerRate: (i, factor) => this.voices.setDopplerRateAt(i, factor),
     });
-    this.spatial = {
-      replayBeds: (b: ReplayBuilder) => this.beds.replay(b),
-      replayListener: (b: ReplayBuilder) => this.listener.replay(b),
-      replayZones: (b: ReplayBuilder) => this.zones.replay(b),
-      replayVoiceFx: (b: ReplayBuilder, id: number, i: number) => this.voiceFx.replayVoice(b, id, i),
-    };
     this.clockMap = new ClockMap(this.clock, host.sampleRate, limiterLatencyFrames(host.sampleRate, host.preset.limiterLookaheadMs));
     const fetchBytes =
       streamDeps.fetchBytes ??
@@ -509,11 +504,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
         return s === VoiceState.PLAYING || s === VoiceState.VIRTUAL;
       },
       applyMix: (buses) => this.applyMix(buses),
-      busesReset: () => {
-        this.voices.busesReset();
-        this.lanes.selAuto.fill(1);
-        this.lanes.forget();
-      },
+      busesReset: () => this.session.busesReset(),
       moveVoice: (i, to) => this.voices.moveBus(i, to),
     });
     this.lanes = new LaneWriter({
@@ -523,10 +514,6 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
       busIndexByName: this.buses.busIndexByName,
       busGain: this.selection.busGain,
       refreshSharedLowpass: () => this.refreshSharedLowpass(),
-      replayDucking: (out) => {
-        this.presence.replay(out);
-        this.replayLoudness(out); // Ld2: LOUD_CONFIG after BUS_DUCK and BUS_PRESENCE (§4.2's replay order)
-      },
     });
     this.clipSink = { event: (id, code) => this.clips.applyClipEvent(id, code) };
 
@@ -537,7 +524,8 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     this.cleanups.push(this.streams.attach(host.link));
     this.streamSink = { event: (id, code) => this.streams.streamEvent(id, code) };
     // Ld2: the loudness sections, after the mirror and the recorder tap (api §3.2).
-    this.cleanups.push(host.link.onStatus((status) => this.loudness.feed(status)));
+    this.loudness = new CoreLoudness({ mixer: this.mixer, writer: this.writer, link: host.link, buses: () => this.buses, disposed: () => this.disposed });
+    this.joinSession();
     // Voice ends free the slot's clip reference and the bus count (api §3 "Mixer counting").
     this.table.onFree = (id, bus) => this.voices.onFree(id, bus);
     this.cleanups.push(connectVoiceTable(this.table, host));
@@ -548,10 +536,10 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
           this.idlePending = true;
         },
         onClose: () => this.dispose(),
-        onRebuildStart: () => this.beginRecovery(),
-        onContextReplaced: (rate) => this.contextReplaced(rate),
-        onRebuilt: () => this.endRecovery(),
-        onRecoveryFailed: () => this.recoveryFailed(),
+        onRebuildStart: () => this.session.beginRecovery(),
+        onContextReplaced: (rate) => this.session.contextReplaced(rate),
+        onRebuilt: () => this.session.endRecovery(),
+        onRecoveryFailed: () => this.session.recoveryFailed(),
       }),
     );
     this.cleanups.push(
@@ -559,7 +547,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
         this.buses.replanBedsOnSettings();
         if (!this.disposed) this.presence.settingsChanged(this.mixer);
         if (!this.disposed) this.lanes.sync();
-        this.syncLoudness(false); // Ld2: a settings edit of the meters, targets or loudnessResetOnPlay
+        this.loudness.sync(false); // Ld2: a settings edit of the meters, targets or loudnessResetOnPlay
       }),
     );
     this.configureBuses(this.mixer);
@@ -577,23 +565,8 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
       this.mixer._setOpTarget(null);
       this.mixer._setDuckSource(null);
     });
-    // Ld2: the hub reads for the mixer (`Bus.loudness`), a target change re-sends the gate, and each Engine's audio
-    // configure (the editor's Play; a game's engine start) resets the meters when `loudnessResetOnPlay` says so.
-    loudnessOwner = this;
-    this.loudness.attach(this.mixer);
-    this.loudness.setGateSink((tpGateDbfs) => this.sendLoudness(tpGateDbfs));
-    this.cleanups.push(
-      onAudioConfigured(() => {
-        this.syncLoudness(false);
-        this.loudness.play();
-      }),
-    );
-    this.cleanups.push(() => {
-      if (loudnessOwner !== this) return;
-      loudnessOwner = null;
-      this.mixer.setLoudnessSource(null);
-      this.loudness.setGateSink(null);
-    });
+    // Ld2: the hub reads for the mixer, its gate sink, and each Engine's audio configure as a Play.
+    this.loudness.attach();
   }
 
   /** ADR 0171 (K0): the mixer's ramps run on `heardClock` while this is true. */
@@ -739,78 +712,9 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
   /** R13: game time, ms (the kind dwell's clock). */
   private gameMs = 0;
 
-  /** Rebuilds the core's bus tree: BUS_CONFIG, the table's per-bus limits, and every bus lane (`busIndex.ts`, K0). */
+  /** Rebuilds the core's bus tree: the session's `reconfigure` phase (queued live adds go, BUS_CONFIG and every bus lane, LOUD_CONFIG). */
   configureBuses(mixer: Mixer): void {
-    this.deferredAdds.clear(); // Ma3: a reconfigure starts from the settings; no queued live add survives it.
-    this.buses.configureBuses(mixer);
-    this.syncLoudness(true); // Ld2: the hub and LOUD_CONFIG follow the new slots, after BUS_CONFIG
-  }
-
-  // --- Ld2: the loudness hub's wiring (the stubs file's Ld2 row; api-and-models §3.2, §4.2) ---
-
-  /** Ld2: each bus as the hub needs it, from the mixer's settings and the slot table. */
-  private loudnessBuses(): LoudnessBusInfo[] {
-    const buses = this.buses;
-    return this.mixer.audioSettings.buses.map((b) => ({ name: b.name, parent: b.parent ?? null, slot: buses.slotOf(b.name), metered: b.meter === "loudness" }));
-  }
-
-  /**
-   * Ld2: project load (`force`, after BUS_CONFIG: a slot may mean another bus now, so the bus meters restart with an
-   * empty `LOUD_CONFIG` before the full one; the hub reseeds them and keeps their histograms) or a settings edit: the hub
-   * follows the meters, targets and `loudnessResetOnPlay` (meters that stay keep their state), and `LOUD_CONFIG` goes out
-   * with the gate of the target in force when the metered set or the gate changed. A live op's own `LOUD_CONFIG` is
-   * `liveMix.ts`'s (`loudnessLiveApplied` notes it, so the mixer's change notification sends nothing twice).
-   */
-  private syncLoudness(force: boolean): void {
-    if (this.disposed) return;
-    const settings = this.mixer.audioSettings;
-    if (!force && settings === this.loudnessFrom) return;
-    this.loudnessFrom = settings;
-    const root = settings.buses[0]?.name;
-    if (root === undefined) return;
-    this.loudness.configure({ available: true, root, buses: this.loudnessBuses(), targets: settings.loudnessTargets, resetOnPlay: settings.loudnessResetOnPlay });
-    const gate = this.loudness.tpGateDbfs;
-    if (!force && this.loudnessKeyOf(gate, this.loudnessSlots()) === this.loudnessKey) return;
-    if (force && this.loudnessKey !== "") this.writer.loudConfig(gate, []);
-    this.sendLoudness(gate);
-  }
-
-  /**
-   * Ld2: after a live op (`liveMix.ts`): it configured the hub and sent `LOUD_CONFIG` itself for a meter or target edit,
-   * and no other op changes the metered slots or the gate, so the settings it leaves are what the core holds.
-   */
-  private loudnessLiveApplied(): void {
-    this.loudnessFrom = this.mixer.audioSettings;
-    this.loudnessKey = this.loudnessKeyOf(this.loudness.tpGateDbfs, this.loudnessSlots());
-  }
-
-  /** Ld2: the metered buses' slots (master implicit; an unplaced or repeated one left out), at most the core's 8. */
-  private loudnessSlots(): number[] {
-    const slots: number[] = [];
-    for (const b of this.loudnessBuses()) {
-      if (b.parent === null || !b.metered || b.slot < 0 || slots.includes(b.slot)) continue;
-      if (slots.length < MAX_LOUDNESS_BUSES) slots.push(b.slot);
-    }
-    return slots;
-  }
-
-  private loudnessKeyOf(tpGateDbfs: number, slots: readonly number[]): string {
-    return `${tpGateDbfs}|${slots.join(",")}`;
-  }
-
-  /** Ld2: `LOUD_CONFIG` (replace-all, asap) with `tpGateDbfs` and the metered slots, in the next batch. */
-  private sendLoudness(tpGateDbfs: number): void {
-    if (this.disposed) return;
-    const slots = this.loudnessSlots();
-    this.loudnessKey = this.loudnessKeyOf(tpGateDbfs, slots);
-    this.writer.loudConfig(tpGateDbfs, slots);
-  }
-
-  /** Ld2: a hard rebuild's `LOUD_CONFIG` (§4.2: after BUS_DUCK and BUS_PRESENCE, before the lanes). */
-  private replayLoudness(out: ReplayBuilder): void {
-    const meters = this.loudnessSlots().map((slot) => ({ slot, reserved: 0 }));
-    const tpGateDbfs = this.loudness.tpGateDbfs;
-    out.record(20 + 4 * meters.length, (view, off) => writeLoudConfig(view, off, { voiceId: 0, frameOffset: ASAP, tpGateDbfs, meters }));
+    this.session.reconfigure(mixer);
   }
 
   /** BUS_CONFIG's buses for the tree last configured, root first (also the hard rebuild's replay, A3.4a; `busIndex.ts`). */
@@ -917,82 +821,87 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     this.table.drainCommands(this.commandSink);
     this.dip.update(this.clockMap.framesNow());
     // E2: a mute in force (master, hidden tab, or any bus's authored or script mute) or MASTER not 1 suspends the loudness target check.
-    this.loudness.setMuted(this.isMuted || this.hiddenMuteOn || this.mixer.anyMuted());
-    this.loudness.setMasterNotUnity(this.master !== 1);
+    this.loudness.frame(this.isMuted || this.hiddenMuteOn || this.mixer.anyMuted(), this.master !== 1);
     // A3.4a: during a rebuild (or after recovery gave up) no core keeps what is sent; the replay re-derives it all.
     if (this.recovering || this.host.status === "failed") this.writer.clear();
     else if (this.writer.pending > 0) this.writer.flush(this.clockMap.nextFirstFrame());
   }
 
-  // --- The hard rebuild (A3.4a; `recovery.ts` drives the host, `replay.ts` restores the voices) ---
-
-  private recovering = false;
+  // --- The core session (ADR 0178; `recovery.ts` drives the host's rebuild, `replay.ts` restores the voices) ---
 
   /** True between the old core's loss and the new core's first STATUS. */
   get isRecovering(): boolean {
     return this.recovering;
   }
 
-  /** `onRebuildStart`: the old core is gone; voices keep their handles and state, new plays queue. */
-  private beginRecovery(): void {
-    if (this.disposed) return;
-    this.recovering = true;
-    this.voices.beginRecovery(); // F-12: the replay sends every voice's gain again, and the pending frames change meaning
-    // B3: the new core gets a new node; streams connect to it when they reopen (`reopenStreams`), zone IRs when the
-    // replay (or `contextReplaced`) asks for every kernel again.
-    this.worklet.disconnect();
-    this.contextReplacedInRecovery = false;
-    this.replayer.begin();
-    this.dip.replayEndState();
-  }
-
   /** STATUS blocks that came from a context since replaced: the clock map's fallback ignores them (A3.4c). */
   private staleBlocks = 0;
 
   /**
-   * `onContextReplaced` (A3.4c, architecture §3.7): the rebuild made a new context at `rate`, whose frames start at 0.
-   * The voices' playheads and the trap frame are carried in `Audio.time` seconds (`Replayer.newContext`); the clock
-   * map takes the new rate and the limiter latency at it, and keeps `Audio.time` continuous (`ClockMap.rebase`); the
-   * writer converts seconds at the new rate; the HRIR is resampled for it from the original asset. Clips keep their
-   * own rate (the registry re-decodes them at it; the core's resampler absorbs the difference).
+   * ADR 0178: every part with lifecycle work joins the session here (the replayer joins itself as "replayer", "reset"
+   * and "voiceState"; `loudness` and `worklet` implement their phases themselves). Which phases each runs in, and in what
+   * order, is `PHASE_ORDER` in `session.ts`.
    */
-  private contextReplaced(rate: number): void {
-    if (this.disposed) return;
-    const clock = this.clockMap;
-    this.replayer.newContext(clock.sampleRate, clock.timeOffset);
-    // The old clock's newest estimate (its last frame's offset, extrapolated with the page clock) and its frame's time.
-    clock.rebase(rate, limiterLatencyFrames(rate, this.host.preset.limiterLookaheadMs), clock.carryPoint());
-    this.writer.sampleRate = rate;
-    this.hrir.retarget?.(rate);
-    this.magls.retarget(rate);
-    // C9: the link is bound to the new node now. A channel made since the rebuild started (a zone asked for in the gap)
-    // went to the old one: the kernels asked for again below connect a new one.
-    this.worklet.disconnect();
-    this.contextReplacedInRecovery = true;
-    this.zones.contextReplaced(rate);
-    this.staleBlocks = this.mirror.blocks;
-    this.mirror.cpu.setSampleRate(rate);
-  }
-
-  /** `onRebuilt`: the new core answered: RESET 0, buses, MASTER, the clips again, then the voices as their clips return. */
-  private endRecovery(): void {
-    if (this.disposed) return;
-    this.recovering = false;
-    this.mirror.resetPeaks();
-    this.loudness.epoch(); // Ld2: an EPOCH: each feed reseeds, histograms stay
-    // C9: as in `contextReplaced`, unless that already ran after the rebind: the replay's kernels and reopened streams
-    // connect a channel to the new node.
-    if (!this.contextReplacedInRecovery) this.worklet.disconnect();
-    this.contextReplacedInRecovery = false;
-    this.replayer.restore();
-  }
-
-  /** `onRecoveryFailed`: the host is Failed and silent for the session: every voice ends with reason "failed". */
-  private recoveryFailed(): void {
-    if (this.disposed) return;
-    this.recovering = false;
-    this.voices.recoveryFailed();
-    this.writer.clear();
+  private joinSession(): void {
+    const s = this.session;
+    const { voices, clockMap, mirror } = this;
+    // Ma3: a reconfigure starts from the settings, and a failed or disposed backend applies nothing: no queued live add survives.
+    const clearAdds = () => this.deferredAdds.clear();
+    s.join("deferredAdds", { reconfigure: clearAdds, recoveryFailed: clearAdds, dispose: clearAdds });
+    s.join("buses", { reconfigure: (mixer) => this.buses.configureBuses(mixer), replayHeader: (b) => replayBusConfig(b, this.busConfigWire()) });
+    s.join("loudness", this.loudness);
+    s.join("voices", {
+      busesReset: () => voices.busesReset(),
+      beginRecovery: () => voices.beginRecovery(), // F-12: the replay sends every gain again; pending frames change meaning
+      recoveryFailed: () => voices.recoveryFailed(),
+      dispose: () => voices.dispose(),
+      // B3, FU2: each live stream reopens with a new stream id at one stamp `reopenStamp` ahead, from where its own position reaches there.
+      reopenStreams: (ids) => voices.reopenStreams(ids, reopenStamp(clockMap.framesNow(), clockMap.sampleRate)),
+    });
+    s.join("lanes", { busesReset: () => this.lanes.busesReset(), replayHeader: (b) => this.lanes.replayLanes(b) });
+    s.join("worklet", this.worklet);
+    s.join("dip", { beginRecovery: () => this.dip.replayEndState() });
+    // A3.4c, architecture §3.7: the clock map takes the new rate and the limiter latency at it and keeps `Audio.time`
+    // continuous from the old clock's newest estimate; the writer converts seconds at the new rate. The HRIR and the MagLS
+    // filters are resampled for it from their original assets (clips keep their own rate).
+    const limiter = (rate: number) => limiterLatencyFrames(rate, this.host.preset.limiterLookaheadMs);
+    s.join("clock", {
+      contextReplaced: (rate) => {
+        clockMap.rebase(rate, limiter(rate), clockMap.carryPoint());
+        this.writer.sampleRate = rate;
+      },
+    });
+    s.join("hrir", {
+      contextReplaced: (rate) => {
+        this.hrir.retarget?.(rate);
+        this.magls.retarget(rate);
+      },
+    });
+    s.join("zones", { contextReplaced: (rate) => this.zones.contextReplaced(rate), replayHeader: (b) => this.zones.replay(b), dispose: () => this.zones.dispose() });
+    s.join("mirror", {
+      contextReplaced: (rate) => {
+        this.staleBlocks = mirror.blocks;
+        mirror.cpu.setSampleRate(rate);
+      },
+      endRecovery: () => mirror.resetPeaks(),
+    });
+    s.join("beds", { replayHeader: (b) => this.beds.replay(b) });
+    s.join("presence", { replayHeader: (b) => this.presence.replay(b) });
+    s.join("master", { replayHeader: (b) => replayMaster(b, this.master, this.isMuted || this.hiddenMuteOn) });
+    s.join("listener", { replayHeader: (b) => this.listener.replay(b) });
+    s.join("automation", { replayHeader: (b) => this.automation.replayHeader(b), replayVoice: (b, v) => this.automation.replayVoice(b, v.id, v.i) });
+    s.join("voiceFx", { replayVoice: (b, v) => (v.mixed ? this.voiceFx.replayVoice(b, v.id, v.i) : undefined) });
+    s.join("musicOps", { reopenStreams: () => this.musicOps.reopenGroups(), dispose: () => this.musicOps.dispose() });
+    s.join("streams", { dispose: () => this.streams.dispose() });
+    s.join("cleanups", { dispose: () => this.cleanups.splice(0).forEach((c) => c()) });
+    s.join("link", {
+      dispose: () => {
+        this.table.onFree = null;
+        this.host.link.statusDecoder = readStatus;
+      },
+    });
+    // A3.4a: after recovery gave up, or once disposed, no core keeps what is staged.
+    s.join("writer", { recoveryFailed: () => this.writer.clear(), dispose: () => this.writer.clear() });
   }
 
   /** `Bus.peak` (A2.3): the newest STATUS peaks (already decayed in the core) by bus name; 0 while locked and past the 32 the core reports. */
@@ -1152,18 +1061,9 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     return (this.keyframes ??= new KeyframeSource(this)).read(nameId, noName);
   }
 
+  /** The session's `dispose` phase (once). */
   dispose(): void {
-    this.deferredAdds.clear(); // Ma3
-    if (this.disposed) return;
-    this.disposed = true;
-    this.voices.dispose();
-    for (const c of this.cleanups.splice(0)) c();
-    this.musicOps.dispose();
-    this.streams.dispose();
-    this.zones.dispose();
-    this.table.onFree = null;
-    this.host.link.statusDecoder = readStatus;
-    this.writer.clear();
+    this.session.dispose();
   }
 
   /** ADR 0166 (G-1): Δ̄, seconds (the clock map's frame-interval EMA). */
@@ -1273,15 +1173,11 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
   }
 
   /**
-   * B3, a hard rebuild (`Replayer.restore` hands over the live stream voices): each reopens on the new core with a new
-   * stream id, stamped `STREAM_REOPEN_LEAD_SECONDS` ahead (`voices.reopenStreams`). ADR 0166 (Q2, C16): music group
-   * members are skipped there: their groups reopen as groups (`musicOps.reopenGroups`, P9).
+   * B3, a hard rebuild's stream hand-off: the session's `reopenStreams` phase (each live stream reopens with a new stream
+   * id, FU2's stamp ahead; music group members are skipped there and their groups reopen as groups, ADR 0166 P9).
    */
   reopenStreams(ids: readonly number[]): void {
-    // FU2: frame-driven. Each stream restarts at a stamp `reopenStamp` ahead, from the frame its own position (its last
-    // STATUS playhead, run on at its rate) reaches there, so the worker's first chunks may land any time before it.
-    this.voices.reopenStreams(ids, reopenStamp(this.clockMap.framesNow(), this.clockMap.sampleRate));
-    this.musicOps.reopenGroups();
+    this.session.reopenStreams(ids);
   }
 
   /**

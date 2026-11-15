@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { FadeLaw, FADE_FLAGS_STOP_AT_END, Op, packShape, readFade, readSetParams, readStop, shapeLaw, shapeStartPhase } from "../wire.generated";
 import { PlayheadTracker, Replayer, type ReplaySource } from "./replay";
+import { CoreSession } from "./session";
 import { MAX_STAMPED, StampedKind, VoiceFlag, VoiceReason, VoiceState, VoiceTable } from "./voiceTable";
 
 const RATE = 1000;
@@ -29,18 +30,15 @@ function rig(now = 1000) {
   const clips = { info: () => info, onResident: (_c: number, cb: (i: typeof info) => void) => cb(info) };
   const clockMap = { framesNow: () => now, lookaheadFrames: () => 0, sampleRate: RATE, timeOffset: 0, carryPending: false, reset() {} };
   const posted: ArrayBuffer[] = [];
+  const session = new CoreSession();
   const src = {
     table,
     clips,
     clockMap,
     mirror: { frameAudio: now },
-    mixer: { resolveAll: () => [] },
     writer: { clear() {} },
     playheads: new PlayheadTracker(table, clips as never, RATE),
-    masterVolume: 1,
-    muted: false,
-    host: { sampleRate: RATE },
-    busConfigWire: () => [],
+    session,
   } as unknown as ReplaySource;
   const replayer = new Replayer(src, { post: (b) => posted.push(b), nextSeq: () => 1 });
   const voice = () => {
@@ -51,7 +49,7 @@ function rig(now = 1000) {
     table.gain[i] = 1;
     return id;
   };
-  return { table, replayer, posted, voice };
+  return { table, replayer, posted, voice, session };
 }
 
 describe("the voice table's stamped log", () => {
@@ -170,13 +168,15 @@ describe("Replayer, stamped ramps", () => {
   });
 
   it("lists a decoded music member with the streams (reopenGroups) instead of waiting for its clip, and sends no PLAY for it", () => {
-    const { table, replayer, posted, voice } = rig(1000);
+    const { table, replayer, posted, voice, session } = rig(1000);
     const id = voice();
     table.musicGroup[id & 0xffff] = 5;
     let reopened: readonly number[] = [];
-    (replayer as unknown as { src: ReplaySource }).src.reopenStreams = (ids) => {
-      reopened = ids;
-    };
+    session.join("musicOps", {
+      reopenStreams: (ids) => {
+        reopened = ids;
+      },
+    });
     replayer.begin();
     replayer.restore();
     expect(replayer.flush()).toBe(0);

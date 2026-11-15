@@ -64,6 +64,30 @@ export class WorkletChannel<D extends WorkletChannelDecoder = WorkletChannelDeco
   disconnect(): void {
     this.connectedGeneration = -1;
   }
+
+  // ADR 0178: the channel's part of a hard rebuild, as the core session's "worklet" participant. The new core gets a new
+  // node: streams connect to it when they reopen, zone IRs when the replay (or the new context) asks for every kernel
+  // again. A channel made since the rebuild began (a zone asked for in the gap) went to the old node, so the new context
+  // drops it once the link is rebound; the end drops it unless the new context already did.
+  private replacedInRecovery = false;
+
+  /** The session's `beginRecovery`. */
+  beginRecovery(): void {
+    this.disconnect();
+    this.replacedInRecovery = false;
+  }
+
+  /** The session's `contextReplaced` (C9: the link is bound to the new node now). */
+  contextReplaced(): void {
+    this.disconnect();
+    this.replacedInRecovery = true;
+  }
+
+  /** The session's `endRecovery`. */
+  endRecovery(): void {
+    if (!this.replacedInRecovery) this.disconnect();
+    this.replacedInRecovery = false;
+  }
 }
 
 function defaultChannel(): StreamChannel {

@@ -209,9 +209,13 @@ describe("the loudness hub's wiring in the core backend (Ld2)", () => {
         if (op === Op.LOUD_CONFIG) loud.push(readLoudConfig(view, 0));
       },
     } as unknown as ReplayBuilder;
-    r.backend.lanes.replayLanes(builder);
-    expect(ops.slice(0, 3)).toEqual([Op.BUS_DUCK, Op.BUS_PRESENCE, Op.LOUD_CONFIG]);
-    expect(ops.slice(3).every((o) => o === Op.BUS_RAMP)).toBe(true);
+    // ADR 0178: the session's header phase (RESET, BUS_CONFIG, then these, then the lanes up to MASTER).
+    r.backend.session.replayHeader(builder);
+    expect(ops.slice(0, 2)).toEqual([Op.RESET, Op.BUS_CONFIG]);
+    const lanes = ops.slice(2, ops.indexOf(Op.MASTER));
+    expect(lanes.slice(0, 3)).toEqual([Op.BUS_DUCK, Op.BUS_PRESENCE, Op.LOUD_CONFIG]);
+    expect(lanes.slice(3).length).toBeGreaterThan(0);
+    expect(lanes.slice(3).every((o) => o === Op.BUS_RAMP)).toBe(true);
     expect(loud.map((c) => [c.tpGateDbfs, slots(c)])).toEqual([[-7, [2, 4]]]);
   });
 

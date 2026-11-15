@@ -39,7 +39,8 @@ import { createBatchPool } from "./bufferPool";
 import { CommandWriter, type BatchPort } from "./commandWriter";
 import { LaneWriter } from "./laneWriter";
 import { makeStatusBlock, StatusMirror } from "./mirror";
-import { PlayheadTracker, Replayer, type ReplaySource } from "./replay";
+import { PlayheadTracker, Replayer, replayBusConfig, replayMaster, type ReplaySource } from "./replay";
+import { CoreSession } from "./session";
 import { StatusReader } from "./statusReader";
 import { VoiceTable } from "./voiceTable";
 import { Mixer } from "../../../../engine/audio/mixer";
@@ -258,18 +259,19 @@ describe("Replayer, the header order without BUS_MIX", () => {
       refreshSharedLowpass: () => {},
     });
     const posted: ArrayBuffer[] = [];
+    // ADR 0178: the header is the session's replayHeader phase; the parts this test has join it (the replayer adds RESET).
+    const session = new CoreSession();
+    session.join("buses", { replayHeader: (b) => replayBusConfig(b, [{ parent: BUS_ROOT, effects: [] }, { parent: 0, effects: [] }]) });
+    session.join("lanes", { replayHeader: (b) => lanes.replayLanes(b) });
+    session.join("master", { replayHeader: (b) => replayMaster(b, 0.75, false) });
     const src = {
       table,
       clips,
       clockMap,
       mirror: { frameAudio: 1000 },
-      lanes,
       writer: { clear() {} },
       playheads: new PlayheadTracker(table, clips as never, 1000),
-      masterVolume: 0.75,
-      muted: false,
-      host: { sampleRate: 1000 },
-      busConfigWire: () => [{ parent: BUS_ROOT, effects: [] }, { parent: 0, effects: [] }],
+      session,
     } as unknown as ReplaySource;
     const replayer = new Replayer(src, { post: (b) => posted.push(b), nextSeq: () => 1 });
     replayer.begin();
