@@ -862,3 +862,46 @@ describe("CoreBackend on the loopback host (A1.7's createLoopbackHost)", () => {
     backend.dispose();
   });
 });
+
+/** The records of every REPLAY message posted since the last call (the rebuild's replay, `replay.ts`). */
+function replayRecords(sent: ArrayBuffer[]) {
+  const out: { op: number; voiceId: number; off: number; view: DataView }[] = [];
+  for (const m of sent.splice(0)) {
+    const view = new DataView(m);
+    if (readEnvelope(view, 0).kind !== Kind.REPLAY) continue;
+    let off = 32;
+    while (off < view.byteLength) {
+      const head = readRecordHead(view, off);
+      out.push({ op: head.opcode, voiceId: head.voiceId, off, view });
+      off += head.words * 4;
+    }
+  }
+  return out;
+}
+
+describe("a stem voice across a hard rebuild (F-9b)", () => {
+  it("replays at the dry gain the core held: volume × occlusion × the stem's level", () => {
+    const r = rig();
+    r.frame();
+    const voice = r.backend.play({ ...req("stem.wav"), volume: 0.8, loop: true })!;
+    r.frame();
+    voice.setOcclusion!(0.5, 20_000);
+    // The stem's level (asap, no ramp), then frames pass so it has landed, and a later stamped fade prunes its log entry.
+    voice.paramsShaped!({ gain: 0.25, seconds: 0 });
+    for (let k = 0; k < 10; k++) r.frame();
+    voice.fadeShaped!({ to: 1, seconds: 0, law: "linear" });
+    r.frame();
+    r.sent.length = 0;
+    for (const l of r.listeners) l.onRebuildStart?.("trap");
+    for (const l of r.listeners) l.onRebuilt?.();
+    r.clips.settle(r.clips.ids.get("stem.wav")!, "ready");
+    r.frame();
+    const records = replayRecords(r.sent).filter((x) => x.voiceId === voice.id);
+    const play = records.find((x) => x.op === Op.PLAY)!;
+    expect(play).toBeDefined();
+    expect(readPlay(play.view, play.off).gain).toBeCloseTo(0.8 * 0.5 * 0.25, 6);
+    // Nothing behind it puts a different gain back.
+    const gains = records.filter((x) => x.op === Op.SET_PARAMS).map((x) => readSetParams(x.view, x.off)).filter((p) => (p.mask & 1) !== 0);
+    for (const p of gains) expect(p.gain).toBeCloseTo(0.8 * 0.5 * 0.25, 6);
+  });
+});

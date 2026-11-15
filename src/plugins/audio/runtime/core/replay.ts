@@ -577,7 +577,7 @@ export class Replayer {
           flags: playFlags,
           group: t.group[i]!,
           gate: 0,
-          gain: t.gain[i]! * t.occGain[i]!,
+          gain: t.gain[i]! * t.occGain[i]! * t.stemDry[i]!, // F-9b: the dry gain with the stem level, as `dryGain` sends it
           pitch: t.pitch[i]! * t.dopplerFactor[i]!,
           dirX: t.dirX[i]!,
           dirY: t.dirY[i]!,
