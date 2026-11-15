@@ -104,14 +104,14 @@ export const peakOver = (page: Page, bus: string, ms = 300) =>
 /** The core's group counters: `groupsLate`, `groupsHeld` and `groupsAbandoned` from the STATUS mirror, the slip and splits from `musicTotals`. */
 export const readLate = (page: Page): Promise<Late | null> =>
   page.evaluate(() => {
-    const g = globalThis as unknown as { __myco: Api; __e1Backend?: { mirror?: Record<string, number> } };
+    const g = globalThis as unknown as { __myco: Api; __e1Backend?: { mirror?: { header?: Record<string, number> } } };
     if (!g.__e1Backend) {
       // Any voice reaches its backend (TypeScript-private, a plain property at run time); a silent one-shot is the cheapest.
       const clip = g.__myco.Assets.has("audio/beep.wav") ? "audio/beep.wav" : "music/foo.mp3";
       const v = g.__myco.Audio.playOneShot(clip, { volume: 0.0001, bus: "UI" }).voice;
       g.__e1Backend = (v?.backend ?? v?.inner?.backend) as typeof g.__e1Backend;
     }
-    const m = g.__e1Backend?.mirror;
+    const m = g.__e1Backend?.mirror?.header;
     if (!m) return null;
     return { groupsLate: m.groupsLate!, groupsHeld: m.groupsHeld!, groupsAbandoned: m.groupsAbandoned!, maxSlipFrames: m.maxSlipFrames!, splitQuanta: m.splitQuanta! };
   });

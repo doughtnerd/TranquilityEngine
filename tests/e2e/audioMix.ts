@@ -38,9 +38,9 @@ export async function installFrameClock(page: Page): Promise<void> {
   await page.evaluate(() => {
     const g = globalThis as unknown as { __myco: Api; __mixFrame?: () => { frame: number; source: string } };
     const v = g.__myco.Audio.playOneShot("audio/beep.wav", { volume: 0.0001, bus: "UI" }).voice;
-    const backend = (v?.backend ?? v?.inner?.backend) as { mirror?: { currentFrame?: number } } | undefined;
+    const backend = (v?.backend ?? v?.inner?.backend) as { mirror?: { header?: { currentFrame?: number } } } | undefined;
     g.__mixFrame = () => {
-      const f = backend?.mirror?.currentFrame;
+      const f = backend?.mirror?.header?.currentFrame;
       if (typeof f === "number" && f > 0) return { frame: f, source: "status.currentFrame" };
       const d = g.__myco.Audio.debug() as MixDebug;
       return { frame: Math.round(d.time * d.sampleRate), source: "Audio.time * sampleRate" };

@@ -54,7 +54,7 @@ describe("C2b: the group gate on the loopback host (ADR 0166 §4.3)", () => {
     const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer }) as unknown as AudioBackend & {
       clockMap: { frameOfTime(t: number): number };
       music: NonNullable<AudioBackend["music"]>;
-      mirror: { groupsLate: number; maxSlipFrames: number };
+      mirror: { header: { groupsLate: number; maxSlipFrames: number } };
       dispose(): void;
     };
     setAudioBackend(backend);
@@ -110,7 +110,7 @@ describe("C2b: the group gate on the loopback host (ADR 0166 §4.3)", () => {
     console.info(`C2b loopback: 8 stems at frame ${start}, onset ${onset.toFixed(6)} (sum of levels ${sum.toFixed(2)}), max deviation after ${flat}`);
     expect(flat).toBe(0);
     expect(onset).toBeCloseTo(sum, 4); // every stem is in the first sample
-    expect(backend.mirror.groupsLate).toBe(0);
+    expect(backend.mirror.header.groupsLate).toBe(0);
     backend.dispose();
   });
 });

@@ -10,7 +10,7 @@
 // Owners: Rc1 (header, framing, every record codec but KEYFRAME, META, INDEX, the Worker protocol); Rc1b fills the
 // KEYFRAME codec stubs tagged `Rc1b` (§5.5) without changing their signatures; Rc2 writes keyframes into the ring
 // against them.
-import { Kind, MAGIC, QUANTUM_FRAMES, SCHEMA_HASH, STATUS_BUFFER_BYTES, STATUS_EVERY_QUANTA, STATUS_HEADER_BYTES, VERSION_MAJOR, VERSION_MINOR } from "../wire.generated";
+import { Kind, MAGIC, QUANTUM_FRAMES, SCHEMA_HASH, STATUS_BUFFER_BYTES, STATUS_EVERY_QUANTA, STATUS_HEADER_BYTES, STATUS_HEADER_COLUMNS, VERSION_MAJOR, VERSION_MINOR } from "../wire.generated";
 
 // --- constants (§5.1, §5.7) -------------------------------------------------------------------------------------------
 
@@ -639,7 +639,8 @@ export function checkStatusPayload(view: DataView, off: number, len: number, fra
   if (view.getUint16(off + 6, true) !== Kind.STATUS) throw new CaptureError("badRecord", base + off + 6, "STATUS record holds another message kind");
   const body = view.getUint32(off + 12, true);
   if (16 + body !== len) badLength(base, off + 12, "STATUS", len, 16 + body);
-  if (view.getFloat64(off + 16, true) !== frame) throw new CaptureError("badRecord", base + off + 16, "STATUS currentFrame differs from its record's frame");
+  const frameAt = STATUS_HEADER_COLUMNS.currentFrame[0];
+  if (view.getFloat64(off + frameAt, true) !== frame) throw new CaptureError("badRecord", base + off + frameAt, "STATUS currentFrame differs from its record's frame");
 }
 
 export function eventBytes(p: Pick<EventPayload, "kind" | "args">): number {

@@ -48,7 +48,7 @@ describe("streaming on the loopback host (B3)", () => {
     }
     expect(r.left.slice(at + WAV_FRAMES).every((s) => s === 0)).toBe(true);
     expect(voice.playing).toBe(false);
-    expect(r.backend.mirror.underruns).toBe(0);
+    expect(r.backend.mirror.header.underruns).toBe(0);
     expect(r.backend.streams.stats.starves).toBe(0);
     expect(r.backend.streams.stats.eos).toBe(1);
     expect(r.backend.streams.size).toBe(0);
@@ -82,7 +82,7 @@ describe("streaming on the loopback host (B3)", () => {
     for (let k = 0; at + k < r.left.length && k < WAV_FRAMES; k++) {
       if (r.left[at + k] !== want(k, 0) || r.right[at + k] !== want(k, 1)) expect.fail(`frame ${k}: ${r.left[at + k]} vs ${want(k, 0)}`);
     }
-    expect(r.backend.mirror.underruns).toBe(0);
+    expect(r.backend.mirror.header.underruns).toBe(0);
     expect(r.backend.streams.stats.starves).toBe(0);
     expect(voice.reason).toBeNull();
     // The chunk buffers circulated: the worker allocated about a window of them (8 chunks), not one per chunk.
@@ -174,13 +174,13 @@ describe("streaming on the loopback host (B3)", () => {
     expect(a.reason).toBeNull();
     expect(b.reason).toBeNull();
     expect(r.loop.driver.openStreams).toBe(2);
-    expect(r.backend.mirror.liveVoices).toBe(2);
+    expect(r.backend.mirror.header.liveVoices).toBe(2);
     a.stop(0.01);
     b.stop();
     await r.step(10);
     await r.settle();
     await r.step(2);
-    expect(r.backend.mirror.liveVoices).toBe(0);
+    expect(r.backend.mirror.header.liveVoices).toBe(0);
     expect(r.loop.driver.openStreams).toBe(0);
     expect(r.backend.streams.size).toBe(0);
     expect(r.left.slice(-512).every((s) => s === 0)).toBe(true);
@@ -295,7 +295,7 @@ describe("stream seeks on the loopback host (B3b)", () => {
       expect(s0 - (f + FADE)).toBeLessThan(RATE / 10); // the new audio sounds within 100 ms
       expect(voice.playing).toBe(true);
       expect(voice.reason).toBeNull();
-      expect(r.backend.mirror.underruns).toBe(0);
+      expect(r.backend.mirror.header.underruns).toBe(0);
       // Credits and buffers keep flowing: more chunks, from the pool.
       expect(r.handler.streamStats.chunks).toBeGreaterThan(chunksBefore);
       expect(r.handler.streamStats.allocated).toBeLessThanOrEqual(20);

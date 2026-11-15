@@ -1,6 +1,5 @@
 // ADR 0171/0172 M5 (Wa2; api-and-models §4.2, §4.3): main's side of the M5 wire. The writers of the new records read back
-// with the generated readers; `StatusReader` reads the 256-byte header and the three sections into preallocated arrays
-// (identity reuse of the block, its arrays and items shows it allocates nothing per block) and enforces the count-sum rule; the mirror
+// with the generated readers (the STATUS reader and its count-sum rule are `statusBlock.test.ts`, ADR 0177); the mirror
 // exposes the fields; the replay sends no BUS_MIX and resends every bus lane (Mx2; the lane writer's own cases are `laneWriter.test.ts`).
 import { describe, expect, it } from "vitest";
 import {
@@ -18,10 +17,8 @@ import {
   LANE_RUNTIME,
   LANE_SNAPSHOT,
   LOUD_FLAG_PAUSED,
-  LOUD_METERS,
   LOUD_OUTPUT_TAP,
   MAX_DUCK_RULES,
-  MAX_LOUD_ENERGIES,
   MAX_LOUDNESS_BUSES,
   Op,
   rampSequenceId,
@@ -32,9 +29,7 @@ import {
   readBusSlot,
   readLoudConfig,
   readRecordHead,
-  readStatus,
   STATUS_BUFFER_BYTES,
-  STATUS_WORST_CASE_BYTES,
   WireError,
   writeStatus,
   type BusDuckRules,
@@ -179,7 +174,7 @@ describe("CommandWriter, the M5 records", () => {
   });
 });
 
-// --- StatusReader --------------------------------------------------------------------------------------------------------
+// --- STATUS (the reader itself, every field and section: statusBlock.test.ts, ADR 0177) --------------------------------------------------------------------------------------------------------
 
 const encode = (fields: Partial<StatusBlock>): ArrayBuffer => {
   const buffer = new ArrayBuffer(STATUS_BUFFER_BYTES);
@@ -187,22 +182,6 @@ const encode = (fields: Partial<StatusBlock>): ArrayBuffer => {
   return buffer;
 };
 
-const codeOf = (fn: () => unknown): number => {
-  try {
-    fn();
-  } catch (e) {
-    return (e as WireError).code;
-  }
-  return -999;
-};
-const messageOf = (fn: () => unknown): string => {
-  try {
-    fn();
-  } catch (e) {
-    return (e as Error).message;
-  }
-  return "";
-};
 
 const m5Header = () => ({
   busyMsTotal: 1234.5,
@@ -231,146 +210,6 @@ const sections = (counts: number[], d: number): Partial<StatusBlock> => {
   };
 };
 
-describe("StatusReader, ADR 0171 header and sections (Wa2)", () => {
-  it("reads every M5 header field at its offset (176..255) and the three sections, equal to the generated readStatus", () => {
-    const buffer = encode({ ...m5Header(), ...sections([3, 0, 2], 2), ended: [1], peaks: [{ l: 1, r: 2 }] });
-    const view = new DataView(buffer);
-    expect(view.getFloat64(176, true)).toBe(1234.5);
-    expect(view.getUint16(232, true)).toBe(3);
-    expect(view.getUint16(234, true)).toBe(5);
-    expect(view.getUint16(236, true)).toBe(2);
-    const got = new StatusReader().read(buffer);
-    expect(got).toEqual(readStatus(buffer));
-    expect(got).toMatchObject(m5Header());
-    expect(got.loudBuses).toHaveLength(3);
-    expect(got.loudBuses[0]).toMatchObject({ slot: 1, flags: 3 | LOUD_FLAG_PAUSED, firstSeq: 100 });
-    expect(got.loudBuses[2]!.slot).toBe(LOUD_OUTPUT_TAP);
-    expect(got.loudEnergies).toEqual([1, 2, 3, 4, 5].map((n) => n / 64));
-    expect(got.busDuck).toEqual([{ slot: 2, pad: 0, gain: 0.25 }, { slot: 3, pad: 0, gain: 0.25 + 1 / 64 }]);
-  });
-
-  it("the worst case (every section at its cap, 17,824 B) parses and equals readStatus; a block with none reads empty sections", () => {
-    const ids = Array.from({ length: 1024 }, (_, i) => i + 1);
-    const full = encode({
-      ...m5Header(),
-      ...sections(new Array(LOUD_METERS).fill(MAX_LOUD_ENERGIES / LOUD_METERS), MAX_DUCK_RULES),
-      ended: ids,
-      demoted: ids,
-      starved: ids,
-      playheads: Array.from({ length: 256 }, (_, i) => ({ id: i, clipFrame: i })),
-      clipEvents: Array.from({ length: 64 }, (_, i) => ({ clipId: i, code: 1 })),
-      streamEvents: Array.from({ length: 64 }, (_, i) => ({ id: i, code: 2 })),
-      peaks: Array.from({ length: 32 }, (_, i) => ({ l: i, r: -i })),
-      beds: Array.from({ length: 4 }, (_, i) => ({ bus: i, voices: i, work: i })),
-      zones: Array.from({ length: 4 }, (_, i) => ({ kernelId: i, state: 3, pad: 0, quantaSinceInput: i, wetPeak: 0.5 })),
-      zoneEvents: Array.from({ length: 16 }, (_, i) => ({ slot: i % 4, code: 1, reserved: 0 })),
-      musicRings: Array.from({ length: 16 }, (_, i) => ({ streamId: i + 1, epochFlags: i })),
-      groupStarts: Array.from({ length: 8 }, (_, i) => ({ groupId: i, flags: 1, slipFrames: i, startFrameLo: i, startFrameHi: 0 })),
-    });
-    expect(STATUS_WORST_CASE_BYTES).toBe(17_824);
-    expect(new DataView(full).getUint32(12, true) + 16).toBe(STATUS_WORST_CASE_BYTES);
-    const reader = new StatusReader();
-    const got = reader.read(full);
-    expect(got).toEqual(readStatus(full));
-    expect(got.loudBuses).toHaveLength(9);
-    expect(got.loudEnergies).toHaveLength(288);
-    expect(got.busDuck).toHaveLength(32);
-    const empty = reader.read(encode({}));
-    expect([empty.loudBuses.length, empty.loudEnergies.length, empty.busDuck.length]).toEqual([0, 0, 0]);
-  });
-
-  it("the count sum: the loudBuses new-block counts (flags & 0x3F) must equal loudEnergyCount, else WireError MALFORMED; the other flag bits do not count", () => {
-    const reader = new StatusReader();
-    const good = encode(sections([2, 3], 0)); // flags carry LOUD_FLAG_PAUSED on the first meter: bit 6 is not a count
-    expect(reader.read(good).loudEnergies).toHaveLength(5);
-    // The body has room for 64 energies, so only the sum can be wrong.
-    const room = encode(sections([32, 32], 0));
-    expect(reader.read(room).loudEnergies).toHaveLength(64);
-    for (const [counts, energies] of [[[2, 3], 4], [[2, 3], 6], [[0], 1], [[32, 32], 63], [[1, 0], 0]] as const) {
-      const bad = room.slice(0);
-      const v = new DataView(bad);
-      v.setUint16(232, counts.length, true);
-      counts.forEach((c, i) => v.setUint16(STATUS_HEADER_BYTES_PLUS + i * 16 + 2, c, true));
-      v.setUint16(234, energies, true);
-      expect(codeOf(() => reader.read(bad))).toBe(ErrorCode.MALFORMED);
-      expect(messageOf(() => reader.read(bad))).toBe("STATUS: loudEnergies count sum");
-    }
-  });
-
-  it("the caps and overruns fire OVERSIZE with the generated reader's messages: 10 loudBuses, 289 loudEnergies, 33 busDuck, sections past the end", () => {
-    const reader = new StatusReader();
-    const good = encode(sections([1, 1], 1));
-    const withU16 = (offset: number, value: number): ArrayBuffer => {
-      const copy = good.slice(0);
-      new DataView(copy).setUint16(offset, value, true);
-      return copy;
-    };
-    for (const [bytes, text] of [
-      [withU16(232, 10), "STATUS: loudBuses overrun"],
-      [withU16(234, 289), "STATUS: loudEnergies overrun"],
-      [withU16(236, 33), "STATUS: busDuck overrun"],
-    ] as const) {
-      expect(codeOf(() => reader.read(bytes))).toBe(ErrorCode.OVERSIZE);
-      expect(messageOf(() => reader.read(bytes))).toBe(text);
-      expect(codeOf(() => readStatus(bytes))).toBe(ErrorCode.OVERSIZE);
-    }
-    // Counts within their caps but past the message's end (the body is cut short): the same OVERSIZE.
-    const cut = good.slice(0);
-    new DataView(cut).setUint32(12, 256 - 16 + 20, true);
-    expect(codeOf(() => reader.read(cut))).toBe(ErrorCode.OVERSIZE);
-    // A body shorter than the header is TRUNCATED, as before.
-    const short = good.slice(0, 200);
-    expect(codeOf(() => reader.read(short))).toBe(ErrorCode.TRUNCATED);
-  });
-
-  it("a refused M5 message leaves the block as it was", () => {
-    const reader = new StatusReader();
-    reader.read(encode({ currentFrame: 55, ...m5Header(), ...sections([2], 1) }));
-    const bad = encode({ currentFrame: 99, ...sections([2], 0) });
-    new DataView(bad).setUint16(234, 3, true);
-    expect(() => reader.read(bad)).toThrow(WireError);
-    expect(reader.block.currentFrame).toBe(55);
-    expect(reader.block.busyMsTotal).toBe(1234.5);
-    expect(reader.block.loudEnergies).toHaveLength(2);
-    expect(reader.block.busDuck).toHaveLength(1);
-  });
-
-  it("allocates nothing per block: the block, every section array and every item are the reader's own and reused across 3,000 worst-case reads", () => {
-    const worst = encode({
-      ...sections(new Array(LOUD_METERS).fill(MAX_LOUD_ENERGIES / LOUD_METERS), MAX_DUCK_RULES),
-      peaks: Array.from({ length: 32 }, (_, i) => ({ l: i, r: -i })),
-      playheads: Array.from({ length: 256 }, (_, i) => ({ id: i, clipFrame: i })),
-    });
-    const small = encode(sections([1], 1));
-    const reader = new StatusReader();
-    const a = reader.read(worst);
-    const buses = a.loudBuses;
-    const energies = a.loudEnergies;
-    const duck = a.busDuck;
-    const item = a.loudBuses[3];
-    const duckItem = a.busDuck[3];
-    const b = reader.read(small);
-    expect(b).toBe(a);
-    expect(b.loudBuses).toBe(buses);
-    expect(b.loudEnergies).toBe(energies);
-    expect(b.busDuck).toBe(duck);
-    expect([b.loudBuses.length, b.loudEnergies.length, b.busDuck.length]).toEqual([1, 1, 1]);
-    expect(reader.read(worst).loudBuses[3]).toBe(item);
-    expect(reader.block.busDuck[3]).toBe(duckItem);
-    // Structural, not a heap measure (a heap delta under a parallel suite is noise, the ground rules' wall-clock rule): every
-    // item object of every section, captured after a worst-case read, is the same object after 3,000 more reads.
-    const owned = (blk: typeof a) => [blk, blk.loudBuses, blk.loudEnergies, blk.busDuck, blk.peaks, blk.playheads, ...blk.loudBuses, ...blk.busDuck, ...blk.peaks, ...blk.playheads];
-    const firstRead = owned(reader.read(worst));
-    for (let i = 0; i < 3000; i++) reader.read(i % 2 === 0 ? worst : small);
-    const lastRead = owned(reader.read(worst));
-    expect(lastRead.length).toBe(firstRead.length);
-    for (let i = 0; i < firstRead.length; i++) expect(lastRead[i]).toBe(firstRead[i]);
-  });
-});
-
-/** The first loudBuses item's offset: the sections start after the 256-byte header when no older section has items. */
-const STATUS_HEADER_BYTES_PLUS = 256;
-
 // --- the mirror ---------------------------------------------------------------------------------------------------------
 
 describe("StatusMirror, the M5 fields", () => {
@@ -378,8 +217,8 @@ describe("StatusMirror, the M5 fields", () => {
     const mirror = new StatusMirror(new VoiceTable(8));
     const reader = new StatusReader();
     mirror.apply(reader.read(encode({ ...m5Header(), ...sections([3, 0, 2], 2) })));
-    const { reserved2: _reserved2, ...header } = m5Header();
-    expect(mirror).toMatchObject({ ...header, loudBusCount: 3, loudEnergyCount: 5, duckCount: 2 });
+    expect(mirror.header).toMatchObject(m5Header());
+    expect(mirror).toMatchObject({ loudBusCount: 3, loudEnergyCount: 5, duckCount: 2 });
     expect(Array.from(mirror.loudSlot.subarray(0, 3))).toEqual([1, 2, LOUD_OUTPUT_TAP]);
     expect(Array.from(mirror.loudFlags.subarray(0, 3))).toEqual([3 | LOUD_FLAG_PAUSED, 0, 2]);
     expect(Array.from(mirror.loudFirstSeq.subarray(0, 3))).toEqual([100, 101, 102]);
@@ -390,7 +229,7 @@ describe("StatusMirror, the M5 fields", () => {
     expect(mirror.duckGain[0]).toBeCloseTo(0.25);
     mirror.apply(reader.read(encode({})));
     expect([mirror.loudBusCount, mirror.loudEnergyCount, mirror.duckCount]).toEqual([0, 0, 0]);
-    expect(mirror.busyMsTotal).toBe(0);
+    expect(mirror.header.busyMsTotal).toBe(0);
   });
 });
 

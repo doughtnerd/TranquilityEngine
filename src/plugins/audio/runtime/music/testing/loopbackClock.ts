@@ -238,8 +238,8 @@ export async function musicLoopback(options: MusicLoopbackOptions): Promise<Musi
       return m;
     },
     late() {
-      const mirror = (backend as unknown as { mirror: { groupsLate: number; maxSlipFrames: number } }).mirror;
-      return { groupsLate: mirror.groupsLate, maxSlipFrames: mirror.maxSlipFrames };
+      const mirror = (backend as unknown as { mirror: { header: { groupsLate: number; maxSlipFrames: number } } }).mirror;
+      return { groupsLate: mirror.header.groupsLate, maxSlipFrames: mirror.header.maxSlipFrames };
     },
     delayBatches(quanta, once = true) {
       delay = quanta > 0 ? { quanta: Math.round(quanta), once } : null;

@@ -6,12 +6,10 @@
 // H3 stub doesn't decode, so `snapshot.keyframe` is null until W5; the base record and `keyframeSeq` are checked.
 import { deflateRawSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
-import { makeStatusBlock } from "../core/mirror";
-import { STATUS_BUFFER_BYTES, readStatus, writeStatus, type StatusBlock } from "../wire.generated";
+import { readStatus } from "../wire.generated";
 import { CAPTURE_FLAG_COMPRESSED, CAPTURE_HEADER_BYTES, RecordType, assembleCapture, encodeRecords, readCaptureHeader } from "./format";
 import {
-  CANCEL_CHECK_RECORDS, CaptureTimeIndex, STATUS_COLUMNS, decodeRecordAt, openCapture, rangeCapture, readStatusColumn, recordSeconds,
-  seekCapture, type CaptureContents, type StatusColumn,
+  CANCEL_CHECK_RECORDS, CaptureTimeIndex, decodeRecordAt, openCapture, rangeCapture, recordSeconds, seekCapture, type CaptureContents,
 } from "./reader";
 import { EMPTY_KEYFRAME_PAYLOAD, SAMPLE_HEADER, SAMPLE_META, longCapture, longCaptureRecords, longStatusFields, sampleCapture, sampleRecords } from "./testSupport";
 import { createCaptureWorkerHandler, type CaptureRequest, type CaptureResponse } from "./worker";
@@ -96,23 +94,6 @@ describe("seekCapture and rangeCapture on the sample (every record type, two epo
     expect(() => rangeCapture(c, idx, 0, 1, [], 0)).toThrow(/buckets/);
   });
 
-  it("every STATUS column reads its field at its offset (against writeStatus and readStatus)", () => {
-    const fields: Partial<StatusBlock> = {};
-    let n = 1;
-    for (const col of Object.keys(STATUS_COLUMNS) as StatusColumn[]) {
-      const kind = STATUS_COLUMNS[col][1];
-      (fields as Record<string, number>)[col] = kind === "f64" ? n + 0.5 : kind === "i32" ? -n : n;
-      n++;
-    }
-    const bytes = new Uint8Array(STATUS_BUFFER_BYTES);
-    writeStatus(new DataView(bytes.buffer), 0, makeStatusBlock(fields), 1);
-    const parsed = readStatus(bytes);
-    const view = new DataView(bytes.buffer);
-    for (const col of Object.keys(STATUS_COLUMNS) as StatusColumn[]) {
-      expect([col, readStatusColumn(view, 0, col)]).toEqual([col, parsed[col]]);
-      expect([col, parsed[col]]).toEqual([col, fields[col]]);
-    }
-  });
 });
 
 describe("the 10-minute capture (Rc5's acceptance: jump under 16 ms, open under 2 s, design targets, logged)", () => {

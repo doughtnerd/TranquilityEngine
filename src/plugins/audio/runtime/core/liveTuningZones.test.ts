@@ -34,6 +34,7 @@ function fakeCore(slots: number, ringFrames = 30, evictFrames = 9) {
   const events: [number, number][] = [];
   const mirror = {
     blocks: 0,
+    header: { m3Shed: 0 },
     zoneCount: slots,
     zoneKernel: new Uint32Array(4),
     zoneState: new Uint8Array(4),

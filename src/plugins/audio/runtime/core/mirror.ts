@@ -2,13 +2,25 @@
 // every STATUS block the core posts is applied here in the host's `onmessage` (`CoreLink.onStatus`), never waiting
 // for a frame, so `playing`, `reason`, playheads, peaks and counters stay fresh with frames stopped. Voice sections
 // go into the voice table (ended, demoted, starved, playheads); clip and stream events queue for their owners (the
-// clip registry, A1.3a; streams, M1b); peaks and counters take the newest; `minSlackFrames` the minimum since the
-// last frame; `framePair` feeds the clock map (A1.4). All storage is preallocated: applying a block allocates nothing.
+// clip registry, A1.3a; streams, M1b); peaks take the newest, and so does the header, as one generated record (`header`,
+// ADR 0177: a new schema field arrives by name); `minSlackSinceFrame` the minimum since the last frame; `framePair` feeds
+// the clock map (A1.4). All storage is preallocated: applying a block allocates nothing.
 //
-// (`readStatus`, which `CoreLink` runs before calling listeners, still builds a `StatusBlock` per block; that object
-// is the link's, not the mirror's.)
+// (The block `apply` gets is the link's `StatusReader`'s, reused per block, or `readStatus`'s; never kept here.)
 import { MAX_BUSES } from "../../../../engine/audio/settings";
-import { LOUD_METERS, MAX_BEDS, MAX_DUCK_RULES, MAX_LOUD_ENERGIES, MAX_MUSIC_RINGS, MAX_ZONE_SLOTS, type StatusBlock } from "../wire.generated";
+import {
+  copyStatusHeader,
+  LOUD_METERS,
+  MAX_BEDS,
+  MAX_DUCK_RULES,
+  MAX_LOUD_ENERGIES,
+  MAX_MUSIC_RINGS,
+  MAX_ZONE_SLOTS,
+  newStatusBlock,
+  newStatusHeader,
+  type StatusBlock,
+  type StatusHeader,
+} from "../wire.generated";
 import type { CoreLink } from "./context";
 import type { VoiceTable } from "./voiceTable";
 import { CpuMeter } from "../mix/cpuMeter";
@@ -37,53 +49,27 @@ export class StatusMirror {
    */
   freeEndedInMessage = false;
 
-  // --- Newest header values (§4.3) ---
-  currentFrame = 0;
-  dateMs = 0;
-  pingSeq = 0;
-  pingFrameLo = 0;
-  underruns = 0;
-  lateCommands = 0;
-  workUnits = 0;
-  workUnitsMax = 0;
-  mixedVoices = 0;
-  liveVoices = 0;
-  flags = 0;
-  mixedCap = 0;
-  loadPermille = 0;
-  traps = 0;
-  underrunFrames = 0;
-  arenaUsedKB = 0;
-  arenaLargestFreeKB = 0;
-  maxLatenessFrames = 0;
-  hrtfVoices = 0;
-  hrtfLoadFailure = 0;
-  /** The first non-zero `abiVersion` seen (only the first block carries it). */
+  // --- The header (§4.3; ADR 0177) ---
+  /**
+   * The newest block's header scalars, every field by its schema name (`header.underruns`, `header.streamStartsLate`,
+   * `header.busyMsTotal`, ...). One generated record copied whole per block (`copyStatusHeader`), so a field added to the
+   * schema reaches here, `Audio.debug()`'s sources and the capture's columns by name. The values are the wire's: the
+   * fields below hold what main derives from them.
+   */
+  readonly header: StatusHeader = newStatusHeader();
+  /** The first non-zero `abiVersion` seen (only the first block carries it; `header.abiVersion` is the newest block's). */
   abiVersion = 0;
-  /** The newest block's `minSlackFrames`. */
-  minSlackFrames = 0;
+  /** Cp2: main's CPU figure (`cpu.loadPermille`, 0 until its first window fills); the wire's `header.loadPermille` is reserved 0. */
+  loadPermille = 0;
   /** The minimum `minSlackFrames` since the last `beginFrame` (`Infinity` if no block arrived since). */
   minSlackSinceFrame = Number.POSITIVE_INFINITY;
   /** §3 `framePair`: the newest block's `currentFrame` and `dateMs`, for the clock map. */
   frameAudio = 0;
   frameDateMs = 0;
-
-  // --- ADR 0162 (K4; §4.3, C7): the M3 header fields, newest block ---
-  bedVoices = 0;
-  fxVoices = 0;
-  ambisonicVoices = 0;
-  zonesActive = 0;
-  zonesRinging = 0;
-  bedsRefused = 0;
-  /** D5: the load-shedding ladder's steps in force, bed plus zone (STATUS `m3Shed`; ADR 0170: they come back). */
-  m3Shed = 0;
-  /** ADR 0170: steps the ladder gave back (each fall of `m3Shed` within one core), cumulative. */
+  /** ADR 0170: steps the ladder gave back (each fall of `header.m3Shed` within one core), cumulative. */
   m3Recoveries = 0;
   /** ADR 0170: `currentFrame` of the newest block whose `underruns` rose (-Infinity: none yet). */
   underrunFrame = Number.NEGATIVE_INFINITY;
-  zoneUsedKB = 0;
-  workBed = 0;
-  workZones = 0;
 
   // --- ADR 0162 (K4; §4.3, C7): the `beds` and `zones` sections, newest block (index = item; `bedCount` / `zoneCount` valid) ---
   /** Per active bed slot: host bus, voices encoded, work units last quantum. The bed planner and `Audio.debug()` read them. */
@@ -98,46 +84,11 @@ export class StatusMirror {
   readonly zoneWetPeak = new Float32Array(MAX_ZONE_SLOTS);
   zoneCount = 0;
 
-  // --- ADR 0166 (Z4; §4.4, H4): the M4 header fields (newest block; the cumulative ones are the core's running totals) ---
-  musicRingsOpen = 0;
-  streamStartsLate = 0;
-  groupsLate = 0;
-  groupsHeld = 0;
-  groupsAbandoned = 0;
-  curvePoolFull = 0;
-  maxSlipFrames = 0;
-  splitQuanta = 0;
-  voiceSplits = 0;
-
   // --- ADR 0166 (§4.4): the `musicRings` level, newest block: every open music ring, so a lost report repairs itself ---
   /** Per open ring: its stream id and `epochFlags` (bits 0-29 epoch, 30 primed, 31 bound); `musicRingCount` valid. */
   readonly musicRingStream = new Uint32Array(MAX_MUSIC_RINGS);
   readonly musicRingEpochFlags = new Uint32Array(MAX_MUSIC_RINGS);
   musicRingCount = 0;
-
-  // --- ADR 0171 (Wa2; §4.3): the M5 header fields, newest block. Cumulative values are f64 and restart at 0 with the shell (an epoch change) ---
-  /** Shell: sum of `Date.now()` deltas around `process()`, ms, since the driver started. */
-  busyMsTotal = 0;
-  /** Shell: quanta processed since the driver started. */
-  quantaTotal = 0;
-  /** Core: cumulative work units by part (voices, buses, spatial, music, loudness). */
-  wuVoices = 0;
-  wuBuses = 0;
-  wuSpatial = 0;
-  wuMusic = 0;
-  wuLoudness = 0;
-  /** Shell: the smallest non-zero `Date.now` delta seen; 0 = none yet. */
-  clockStepMs = 0;
-  /** Core: the loudness sub-block length in frames, `round(sampleRate / 10)`. */
-  loudSubBlockFrames = 0;
-  /** Shell: wall-clock steps clamped (saturating). */
-  clockSteps = 0;
-  /** Core: the ladder's loudness step in force, 0 or 1. */
-  loudShed = 0;
-  /** Core, cumulative saturating: bus records that arrived after their frame. */
-  busRecordsEarly = 0;
-  /** Core, cumulative saturating: sidechain reads that were late. */
-  sidechainLate = 0;
 
   // --- ADR 0171 (Wa2; §4.3): the `loudBuses`, `loudEnergies` and `busDuck` sections, newest block (index = item; counts valid) ---
   /** Per meter (the output tap is slot `LOUD_OUTPUT_TAP`): slot, flags (bits 0-5 new-block count), first sequence, true peak, gated quanta. */
@@ -256,16 +207,7 @@ export class StatusMirror {
     this.zoneCount = nz;
     const zoneEvents = status.zoneEvents;
     for (let k = 0; k < zoneEvents.length; k++) this.pushZoneEvent(zoneEvents[k]!.slot, zoneEvents[k]!.code);
-    // ADR 0166 (Z4): the M4 header fields, the `musicRings` level and the `groupStarts` queue.
-    this.musicRingsOpen = status.musicRingsOpen;
-    this.streamStartsLate = status.streamStartsLate;
-    this.groupsLate = status.groupsLate;
-    this.groupsHeld = status.groupsHeld;
-    this.groupsAbandoned = status.groupsAbandoned;
-    this.curvePoolFull = status.curvePoolFull;
-    this.maxSlipFrames = status.maxSlipFrames;
-    this.splitQuanta = status.splitQuanta;
-    this.voiceSplits = status.voiceSplits;
+    // ADR 0166 (Z4): the `musicRings` level and the `groupStarts` queue.
     const rings = status.musicRings;
     const nr = rings.length < MAX_MUSIC_RINGS ? rings.length : MAX_MUSIC_RINGS;
     for (let k = 0; k < nr; k++) {
@@ -275,20 +217,7 @@ export class StatusMirror {
     this.musicRingCount = nr;
     const starts = status.groupStarts;
     for (let k = 0; k < starts.length; k++) this.pushGroupStart(starts[k]!.groupId, starts[k]!.flags, starts[k]!.slipFrames, starts[k]!.startFrameHi * 4294967296 + starts[k]!.startFrameLo);
-    // ADR 0171 (Wa2): the M5 header fields and the three sections, into preallocated arrays.
-    this.busyMsTotal = status.busyMsTotal;
-    this.quantaTotal = status.quantaTotal;
-    this.wuVoices = status.wuVoices;
-    this.wuBuses = status.wuBuses;
-    this.wuSpatial = status.wuSpatial;
-    this.wuMusic = status.wuMusic;
-    this.wuLoudness = status.wuLoudness;
-    this.clockStepMs = status.clockStepMs;
-    this.loudSubBlockFrames = status.loudSubBlockFrames;
-    this.clockSteps = status.clockSteps;
-    this.loudShed = status.loudShed;
-    this.busRecordsEarly = status.busRecordsEarly;
-    this.sidechainLate = status.sidechainLate;
+    // ADR 0171 (Wa2): the three M5 sections, into preallocated arrays.
     const loudBuses = status.loudBuses;
     const nl = loudBuses.length < LOUD_METERS ? loudBuses.length : LOUD_METERS;
     for (let k = 0; k < nl; k++) {
@@ -311,44 +240,16 @@ export class StatusMirror {
       this.duckGain[k] = busDuck[k]!.gain;
     }
     this.duckCount = nd;
-    // Header: the newest block wins.
-    this.currentFrame = status.currentFrame;
-    this.dateMs = status.dateMs;
-    this.pingSeq = status.pingSeq;
-    this.pingFrameLo = status.pingFrameLo;
-    if (status.underruns > this.underruns) this.underrunFrame = status.currentFrame;
-    this.underruns = status.underruns;
-    this.lateCommands = status.lateCommands;
-    this.workUnits = status.workUnits;
-    this.workUnitsMax = status.workUnitsMax;
-    this.mixedVoices = status.mixedVoices;
-    this.liveVoices = status.liveVoices;
-    this.flags = status.flags;
-    this.mixedCap = status.mixedCap;
+    // Header: the newest block wins, whole. What main derives is read against the previous header first.
+    const h = this.header;
+    if (status.underruns > h.underruns) this.underrunFrame = status.currentFrame;
+    // A new core's first block (it carries `abiVersion`) starts its own ladder: a fall there isn't a recovery.
+    if (status.m3Shed < h.m3Shed && status.abiVersion === 0) this.m3Recoveries += h.m3Shed - status.m3Shed;
+    copyStatusHeader(h, status);
     // Cp2 (architecture §4.3): the wire's `loadPermille` is reserved 0; the figure is main's, 0 until the first window fills (`cpu.loadPermille` says null).
     this.cpu.feed(status);
     this.loadPermille = this.cpu.loadPermille ?? 0;
-    this.traps = status.traps;
-    this.underrunFrames = status.underrunFrames;
-    this.arenaUsedKB = status.arenaUsedKB;
-    this.arenaLargestFreeKB = status.arenaLargestFreeKB;
-    this.maxLatenessFrames = status.maxLatenessFrames;
-    this.hrtfVoices = status.hrtfVoices;
-    this.hrtfLoadFailure = status.hrtfLoadFailure;
-    this.bedVoices = status.bedVoices;
-    this.fxVoices = status.fxVoices;
-    this.ambisonicVoices = status.ambisonicVoices;
-    // A new core's first block (it carries `abiVersion`) starts its own ladder: a fall there isn't a recovery.
-    if (status.m3Shed < this.m3Shed && status.abiVersion === 0) this.m3Recoveries += this.m3Shed - status.m3Shed;
-    this.m3Shed = status.m3Shed;
-    this.zonesActive = status.zonesActive;
-    this.zonesRinging = status.zonesRinging;
-    this.bedsRefused = status.bedsRefused;
-    this.zoneUsedKB = status.zoneUsedKB;
-    this.workBed = status.workBed;
-    this.workZones = status.workZones;
     if (this.abiVersion === 0 && status.abiVersion !== 0) this.abiVersion = status.abiVersion;
-    this.minSlackFrames = status.minSlackFrames;
     if (status.minSlackFrames < this.minSlackSinceFrame) this.minSlackSinceFrame = status.minSlackFrames;
     this.frameAudio = status.currentFrame;
     this.frameDateMs = status.dateMs;
@@ -498,78 +399,5 @@ export class StatusMirror {
  * the object the link would hand to `StatusMirror.apply`.
  */
 export function makeStatusBlock(fields: Partial<StatusBlock> = {}): StatusBlock {
-  return {
-    currentFrame: 0,
-    dateMs: 0,
-    pingSeq: 0,
-    pingFrameLo: 0,
-    underruns: 0,
-    lateCommands: 0,
-    workUnits: 0,
-    workUnitsMax: 0,
-    mixedVoices: 0,
-    liveVoices: 0,
-    flags: 0,
-    mixedCap: 0,
-    loadPermille: 0,
-    traps: 0,
-    minSlackFrames: 0,
-    underrunFrames: 0,
-    arenaUsedKB: 0,
-    arenaLargestFreeKB: 0,
-    abiVersion: 0,
-    maxLatenessFrames: 0,
-    hrtfVoices: 0,
-    hrtfLoadFailure: 0,
-    bedVoices: 0,
-    fxVoices: 0,
-    ambisonicVoices: 0,
-    zonesActive: 0,
-    zonesRinging: 0,
-    bedsRefused: 0,
-    m3Shed: 0,
-    zoneUsedKB: 0,
-    workBed: 0,
-    workZones: 0,
-    musicRingsOpen: 0,
-    streamStartsLate: 0,
-    groupsLate: 0,
-    groupsHeld: 0,
-    groupsAbandoned: 0,
-    curvePoolFull: 0,
-    maxSlipFrames: 0,
-    splitQuanta: 0,
-    voiceSplits: 0,
-    reserved: 0,
-    busyMsTotal: 0,
-    quantaTotal: 0,
-    wuVoices: 0,
-    wuBuses: 0,
-    wuSpatial: 0,
-    wuMusic: 0,
-    wuLoudness: 0,
-    clockStepMs: 0,
-    loudSubBlockFrames: 0,
-    clockSteps: 0,
-    loudShed: 0,
-    busRecordsEarly: 0,
-    sidechainLate: 0,
-    reserved2: 0,
-    ended: [],
-    demoted: [],
-    starved: [],
-    playheads: [],
-    clipEvents: [],
-    streamEvents: [],
-    peaks: [],
-    beds: [],
-    zones: [],
-    zoneEvents: [],
-    musicRings: [],
-    groupStarts: [],
-    loudBuses: [],
-    loudEnergies: [],
-    busDuck: [],
-    ...fields,
-  };
+  return Object.assign(newStatusBlock(), fields);
 }
