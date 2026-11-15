@@ -707,7 +707,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     // A3.4a: while a hard rebuild runs, new plays wait in the locked queue and start once the new core is up.
     const id = this.voices.start(req, this.host.status === "running" && !this.recovering);
     if (id === 0) return null;
-    const voice = new Voice(this.voices, this.table, id);
+    const voice = new Voice(this, id);
     this.automation.onPlay(voice, req);
     return voice;
   }
@@ -1339,11 +1339,11 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
  */
 class Voice extends AudioHandle implements CoreVoice {
   constructor(
-    private readonly voices: CoreVoices,
-    table: VoiceTable,
+    /** The backend, kept (not just its `voices`) because the browser specs reach the writer and mirror through it. */
+    readonly backend: CoreBackend,
     id: number,
   ) {
-    super(table, id);
+    super(backend.table, id);
   }
 
   get handle(): AudioHandle {
@@ -1351,74 +1351,74 @@ class Voice extends AudioHandle implements CoreVoice {
   }
 
   setVolume(v: number): void {
-    this.voices.setVolume(this.id, v);
+    this.backend.voices.setVolume(this.id, v);
   }
 
   setPitch(rate: number): void {
-    this.voices.setPitch(this.id, rate);
+    this.backend.voices.setPitch(this.id, rate);
   }
 
   setAttenuation(a: Attenuation): void {
-    this.voices.setAttenuation(this.id, a);
+    this.backend.voices.setAttenuation(this.id, a);
   }
 
   setPosition(p: Vec3Like): void {
-    this.voices.setPosition(this.id, p);
+    this.backend.voices.setPosition(this.id, p);
   }
 
   setBus(bus: string): void {
-    this.voices.setBus(this.id, bus);
+    this.backend.voices.setBus(this.id, bus);
   }
 
   setPriority(priority: number): void {
-    this.voices.setPriority(this.id, priority);
+    this.backend.voices.setPriority(this.id, priority);
   }
 
   pause(): void {
-    this.voices.setPaused(this.id, true);
+    this.backend.voices.setPaused(this.id, true);
   }
 
   resume(): void {
-    this.voices.setPaused(this.id, false);
+    this.backend.voices.setPaused(this.id, false);
   }
 
   seek(seconds: number): void {
-    this.voices.seek(this.id, seconds);
+    this.backend.voices.seek(this.id, seconds);
   }
 
   /** ADR 0166 §4.2 (Q2): a shaped, stamped fade of the `fade` ramp (`musicOps.fadeShaped`, P1). */
   fadeShaped(f: ShapedFade): void {
-    this.voices.fadeShaped(this.id, f);
+    this.backend.voices.fadeShaped(this.id, f);
   }
 
   /** ADR 0166 (G-1): a stamped gain and/or low-pass ramp with a law (`musicOps.paramsShaped`). */
   paramsShaped(r: { gain?: number; lowpassHz?: number; seconds: number; law?: FadeLaw; at?: number }): void {
-    this.voices.paramsShaped(this.id, r);
+    this.backend.voices.paramsShaped(this.id, r);
   }
 
   // ADR 0162 (K0, K4): main's M3 results and options.
   setVelocity(v: Vec3Like): void {
-    this.voices.setVelocity(this.id, v);
+    this.backend.voices.setVelocity(this.id, v);
   }
 
   setOcclusion(gain: number, lpHz: number): void {
-    this.voices.setOcclusion(this.id, gain, lpHz);
+    this.backend.voices.setOcclusion(this.id, gain, lpHz);
   }
 
   get panner(): AudioPanner | null {
-    return this.voices.pannerOf(this.id);
+    return this.backend.voices.pannerOf(this.id);
   }
 
   get occlusion(): number {
-    return this.voices.occlusionOf(this.id);
+    return this.backend.voices.occlusionOf(this.id);
   }
 
   setDopplerRate(factor: number): void {
-    this.voices.setDopplerRate(this.id, factor);
+    this.backend.voices.setDopplerRate(this.id, factor);
   }
 
   setSpatialOptions(o: VoiceSpatialOptions): void {
-    this.voices.setSpatialOptions(this.id, o);
+    this.backend.voices.setSpatialOptions(this.id, o);
   }
 }
 
