@@ -224,10 +224,10 @@ describe("Ck1: the send run-out and a sound's bus", () => {
   });
 
   // §4.7 lists "a sound's bus" as structural (§3.3: the voice dips alone with the per-voice FADE and `SET_PARAMS bus`
-  // from F0). Ck1 found `CoreBackend._setBus` sending one asap `SET_PARAMS bus` (abrupt ~0.97-0.99 here, as S4's
+  // from F0). Ck1 found `CoreBackend._setBus` (now `CoreVoices.setBus`) sending one asap `SET_PARAMS bus` (abrupt ~0.97-0.99 here, as S4's
   // 0.94-1.0); G7a routes a sounding voice through `StructuralDip.dipVoice`: fade-out over DIP_FRAMES from F0, the bus
   // at B with the fade at 0, fade-in. F-40's `maxStep` over the edit's window also stays within the signal's own.
-  it("a sound's bus (Sound.bus while playing) dips: `_setBus` on a sounding voice goes through the per-voice dip", T, async (ctx) => {
+  it("a sound's bus (Sound.bus while playing) dips: `voices.setBus` on a sounding voice goes through the per-voice dip", T, async (ctx) => {
     const probe = await liveRig(PROJECT);
     if (!probe) return ctx.skip();
     probe.backend.dispose();
@@ -243,7 +243,7 @@ describe("Ck1: the send run-out and a sound's bus", () => {
         const out: number[] = [...(await r.step(WARM)).out, ...(await r.quanta(k))];
         const from = out.length;
         const emitted = r.backend.dip.emitted;
-        if (edit) r.backend._setBus(v.id, "Voice");
+        if (edit) r.backend.voices.setBus(v.id, "Voice");
         out.push(...(await r.step(AFTER)).out);
         expect(r.backend.dip.emitted, "no bus sequence: the voice dips alone").toBe(emitted);
         r.backend.dispose();
@@ -264,7 +264,7 @@ describe("Ck1: the send run-out and a sound's bus", () => {
       const inside = maxStep(x, got.from - 1, got.from + settle);
       ratio = Math.max(ratio, inside / Math.max(before, after));
     }
-    console.info(`[G7a] a sound's bus via _setBus: worst abrupt ${w.toFixed(3)} at 8 phases (difference peak ${peak.toFixed(4)}; click threshold ${CLICK}), maxStep ${ratio.toFixed(3)} of the signal's`);
+    console.info(`[G7a] a sound's bus via voices.setBus: worst abrupt ${w.toFixed(3)} at 8 phases (difference peak ${peak.toFixed(4)}; click threshold ${CLICK}), maxStep ${ratio.toFixed(3)} of the signal's`);
     expect(peak, "the move is heard").toBeGreaterThan(1e-4);
     expect(w).toBeLessThanOrEqual(SMOOTH);
     expect(ratio).toBeLessThanOrEqual(1.1);

@@ -22,6 +22,7 @@ import { LowpassBy, type VoiceFx } from "./voiceFx";
 import type { ZoneManager } from "./zones";
 import type { PlayheadTracker } from "./replay";
 import { VoiceFlag, VoiceFlag2, VoiceReason, VoiceState, type VoiceTable } from "./voiceTable";
+import { reportedGain, reportedPitch } from "./voices";
 
 export type { AudioDebugInfo };
 
@@ -202,8 +203,8 @@ export function buildDebugInfo(backend: DebugSource): AudioDebugInfo {
       state: stateName(table, i),
       priority: table.priority[i]!,
       // F-9b: a music stem's level (quantised automation, solo) multiplies in, as in its audibility.
-      gain: (automated ? table.gain[i]! * auto.gain : table.gain[i]!) * table.stemGain[i]!,
-      pitch: automated ? table.pitch[i]! * auto.pitch : table.pitch[i]!,
+      gain: reportedGain(table, i, automated ? auto.gain : 1),
+      pitch: reportedPitch(table, i, automated ? auto.pitch : 1),
       audibility: clamp01(table.audibility[i]!),
       playheadSeconds: playheadSeconds(backend, i, clip),
       owner: backend.owners?.[i] ?? null,

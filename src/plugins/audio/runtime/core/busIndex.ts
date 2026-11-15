@@ -79,6 +79,8 @@ export interface BusIndexHost {
   applyMix(buses: readonly ResolvedBus[]): void;
   /** A configure forgets the backend's last-bus lookup cache and resets selection's automated bus gains. */
   busesReset(): void;
+  /** ADR 0176: live slot `i` moves to bus `to` on main (the table's bus and counts, the mixer's counts, presence; `voices.moveBus`). */
+  moveVoice(i: number, to: number): void;
 }
 
 export class BusIndex {
@@ -254,8 +256,8 @@ export class BusIndex {
   }
 
   /**
-   * The per-voice dip, main's side (§6.5), at the op: every live voice on one of `from` moves to slot `to` in the
-   * table (its slot and the counts), the mixer's counts and presence, so selection and new plays see the end state at
+   * The per-voice dip, main's side (§6.5), at the op: every live voice on one of `from` moves to slot `to` (`host.moveVoice`: the
+   * table's slot and counts, the mixer's counts and presence), so selection and new plays see the end state at
    * once. Returns the moved voices' ids for `dipVoices`.
    */
   moveVoices(from: ReadonlySet<number>, to: number): number[] {
@@ -264,14 +266,7 @@ export class BusIndex {
     const ids: number[] = [];
     for (let i = 0; i < t.capacity; i++) {
       if (t.state[i] === VoiceState.FREE || !from.has(t.bus[i]!)) continue;
-      const old = t.bus[i]!;
-      t.bus[i] = to;
-      if (t.busLive[old]! > 0) t.busLive[old]!--;
-      t.busLive[to]!++;
-      host.mixer.voiceEnded(this.names[old] ?? "");
-      host.mixer.voiceStarted(this.names[to] ?? "");
-      host.presence.voiceStopped(old, i);
-      host.presence.voiceStarted(to, i);
+      host.moveVoice(i, to);
       ids.push(((t.gen[i]! << 16) | i) >>> 0);
     }
     return ids;

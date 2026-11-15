@@ -36,6 +36,7 @@ function rig() {
     onCore: () => false,
     applyMix() {},
     busesReset() {},
+    moveVoice() {},
   };
   const index = new BusIndex(host);
   return { mixer, index, configs, slots, plans, table };
