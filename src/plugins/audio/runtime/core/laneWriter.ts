@@ -18,7 +18,8 @@
 // - **Replay** (`replayLanes`, §4.2, R12): after RESET and BUS_CONFIG every lane of every bus is resent (BUS_CONFIG does not
 //   reset a re-added slot's lanes): `runtime` and `snapshot` as their remaining ramp (a step to the value now, then an
 //   asap ramp to the target over what is left), `authored`, `monitor` and a drag at their value (the target), a dip at
-//   its end state.
+//   its end state. Its place in the header (after BUS_DUCK, BUS_PRESENCE and LOUD_CONFIG, before MASTER) is the core
+//   session's `PHASE_ORDER.replayHeader` (ADR 0178).
 // - **Selection** (`busGain`): each bus's own lane product (authored × runtime × snapshot × monitor × dip × duck) times
 //   its ancestors', times the automated gains (`refreshBusGain`).
 import { BUS_MIN_RAMP_MS, Lane, rampAt, type Mixer, type Ramp, type ResolvedBus } from "../../../../engine/audio/mixer";
@@ -60,8 +61,6 @@ export interface LaneWriterHost {
   readonly busGain: Float32Array;
   /** ADR 0162 (A5, S3): re-fold the sharing chain's snapshot low-pass after the cutoffs changed. */
   refreshSharedLowpass(): void;
-  /** Dp1 (§4.2's replay order): `BUS_DUCK` and `BUS_PRESENCE`, after `BUS_CONFIG` and before the lanes (`presence.ts`). */
-  replayDucking?(out: ReplayBuilder): void;
 }
 
 export class LaneWriter {
@@ -106,6 +105,12 @@ export class LaneWriter {
   /** The bus tree was configured again (BUS_CONFIG): the next `sync` resends every lane of every bus. */
   forget(): void {
     this.full = true;
+  }
+
+  /** The slot table was reset (a configure, the session's `busesReset`): the automated bus gains go back to 1 and every lane is resent. */
+  busesReset(): void {
+    this.selAuto.fill(1);
+    this.forget();
   }
 
   /** `Audio.debug()`'s bus row: the start frame of bus `b`'s last stamped `BUS_RAMP`, undefined before one. */
@@ -289,8 +294,6 @@ export class LaneWriter {
    * dip at its end state. What it sends becomes what the core is known to hold.
    */
   replayLanes(out: ReplayBuilder): void {
-    // Dp1: the ducking rules and the presence mask come first (§4.2: BUS_CONFIG, BUS_DUCK, BUS_PRESENCE, then lanes).
-    this.host.replayDucking?.(out);
     const mixer = this.host.mixer;
     const now = mixer.time;
     const rate = this.host.clockMap.sampleRate;

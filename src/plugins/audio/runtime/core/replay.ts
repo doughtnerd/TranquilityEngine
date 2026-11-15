@@ -28,7 +28,13 @@
 // on from where it was; one that finished during the gap is applied as its final value, and a stop that finished ends
 // the voice (it is freed, not replayed). A music group member is never replayed as a voice: its group is primed and
 // stamped again (`reopenStreams` hands them to `musicOps.reopenGroups`, so a decoded member is listed with the streams).
-import type { LaneWriter } from "./laneWriter";
+//
+// ADR 0178: the order above is data in `session.ts` (`PHASE_ORDER.replayHeader` and `.replayVoice`): the header is the
+// core session's `replayHeader` phase and what follows each PLAY its `replayVoice` phase, each module joining with its
+// own records (the replayer joins as "reset", RESET 0, and "voiceState", the FADE, stamped ramps and SET_PAUSED). The
+// replayer itself joins the lifecycle as "replayer" (`begin`, `newContext`, `restore`, and `drop` when recovery fails or
+// the backend is disposed).
+import type { CoreSession, ReplayVoice } from "./session";
 import {
   ASAP,
   Kind,
@@ -286,50 +292,36 @@ export interface ReplaySource {
   readonly clips: ClipRegistry;
   readonly clockMap: ClockMap;
   readonly mirror: StatusMirror;
-  /** ADR 0171 §4.2 (Mx2): the lane writer, which replays every bus lane; absent: no lanes. */
-  readonly lanes?: Pick<LaneWriter, "replayLanes">;
   readonly writer: { clear(): void };
   readonly playheads: PlayheadTracker;
-  readonly masterVolume: number;
-  readonly muted: boolean;
-  /** MASTER is held at 0 by the hidden-page policy (`background.ts`); the replayed MASTER keeps it so. */
-  readonly hiddenMuted?: boolean;
-  readonly host: { readonly sampleRate: number };
+  /**
+   * ADR 0178: the core session. The replayer joins it ("replayer", "reset", "voiceState"); its header REPLAY is the
+   * session's `replayHeader` phase, each replayed PLAY is followed by the `replayVoice` phase, and the stream hand-off is
+   * the `reopenStreams` phase, each in the order `PHASE_ORDER` declares.
+   */
+  readonly session: CoreSession;
   /** H3: the panner kind main holds for slot `i` (1 HRTF), so the replayed PLAY keeps it; absent: equal-power. */
   hrtfPanner?(i: number): number;
-  /** BUS_CONFIG's buses for the current tree, root first. */
-  busConfigWire(): BusConfigBuses[];
-  /** B3: the live stream voices reopen on the new core (new stream ids, from their playheads), after the header. */
-  reopenStreams?(ids: readonly number[]): void;
-  /** ADR 0158 (E3.1): the automation mirror the replay restores; absent: nothing to restore. */
+  /** ADR 0158 (E3.1): slot `i`'s SET_LOOP region (the automation mirror's); absent: none. */
   readonly automation?: ReplayAutomation;
-  /** ADR 0162 (K4): the M3 state the replay restores; absent: nothing to restore. */
-  readonly spatial?: ReplaySpatial;
-}
-
-/**
- * @internal ADR 0162 (K4): the M3 replay hooks (`CoreBackend` provides them from `beds.ts`, `listener.ts`, `zones.ts` and
- * `voiceFx.ts`). The order of the calls is the replay's (S10); each appends nothing while its feature is inert.
- */
-export interface ReplaySpatial {
-  /** BED_CONFIG, right after BUS_CONFIG. */
-  replayBeds(b: ReplayBuilder): void;
-  /** LISTENER (the last rotation, snapped), after MASTER. */
-  replayListener(b: ReplayBuilder): void;
-  /** ZONE_CONFIG, after LISTENER. */
-  replayZones(b: ReplayBuilder): void;
-  /** Voice `id`'s SET_VOICE_FX, right after its replayed PLAY (a mixed, non-default voice). */
-  replayVoiceFx(b: ReplayBuilder, id: number, i: number): void;
 }
 
 /** @internal What the replay asks of the automation mirror (`CoreAutomation` satisfies it). */
 export interface ReplayAutomation {
-  /** Curves, parameters and bus bindings, appended to the header REPLAY after MASTER. */
-  replayHeader(b: ReplayBuilder): void;
-  /** Voice `id`'s bindings and loop, appended right after its replayed PLAY. */
-  replayVoice(b: ReplayBuilder, id: number, i: number): void;
   /** Slot `i`'s loop region in clip frames (`end` 0 = the clip's end), or null without one. */
   loopOf(i: number): { readonly start: number; readonly end: number; readonly looping: boolean } | null;
+}
+
+/** @internal BUS_CONFIG with `buses` (root first), asap: the header's record after RESET (the bus index's `replayHeader`). */
+export function replayBusConfig(b: ReplayBuilder, buses: BusConfigBuses[]): void {
+  let size = 16;
+  for (const bus of buses) size += 4 + 32 * bus.effects.length;
+  b.record(size, (view, off) => writeBusConfig(view, off, { voiceId: 0, frameOffset: ASAP, buses }));
+}
+
+/** @internal MASTER at `volume`, muted (main's mute or the hidden-page policy) or not, asap, no ramp (§4.2: MASTER keeps its record here). */
+export function replayMaster(b: ReplayBuilder, volume: number, muted: boolean): void {
+  b.record(24, (view, off) => writeMaster(view, off, { voiceId: 0, frameOffset: ASAP, volume, muted: muted ? 1 : 0, rampFrames: 0 }));
 }
 
 /** @internal Counts for `Audio.debug()` and the tests. */
@@ -363,8 +355,10 @@ export class Replayer {
   private handOff = false;
   private readonly builder: ReplayBuilder;
   private trapFrame = 0;
-  /** Bumped by each `restore`, so clip listeners from an earlier rebuild do nothing. */
+  /** Bumped by each `restore` (and by `drop`), so clip listeners from an earlier rebuild do nothing. */
   private epoch = 0;
+  /** The voice the `replayVoice` phase sees, reused for every replayed voice. */
+  private readonly voice: ReplayVoice = { id: 0, i: 0, mixed: false, frame: 0, rate: 0 };
 
   constructor(
     private readonly src: ReplaySource,
@@ -372,6 +366,29 @@ export class Replayer {
     options: { maxRecordBytes?: number } = {},
   ) {
     this.builder = new ReplayBuilder(options.maxRecordBytes);
+    // ADR 0178: the replayer's places in the session's lifecycle and in the replay's order.
+    const session = src.session;
+    session.join("replayer", {
+      beginRecovery: () => this.begin(),
+      // Before the clock map rebases: the carried anchors use the old clock's rate and offset.
+      contextReplaced: () => this.newContext(src.clockMap.sampleRate, src.clockMap.timeOffset),
+      endRecovery: () => this.restore(),
+      recoveryFailed: () => this.drop(),
+      dispose: () => this.drop(),
+    });
+    session.join("reset", {
+      replayHeader: (b) => b.record(16, (view, off) => writeReset(view, off, { voiceId: 0, frameOffset: ASAP, keepClips: 0 })),
+    });
+    session.join("voiceState", { replayVoice: (b, v) => this.replayVoiceState(b, v) });
+  }
+
+  /** Recovery gave up, or the backend is disposed: nothing waits for a replay any more (clip listeners already made do nothing). */
+  drop(): void {
+    this.epoch++;
+    this.waiting.clear();
+    this.back.length = 0;
+    this.streams = [];
+    this.handOff = false;
   }
 
   /** Voices waiting for their clip, or for the next `flush`. */
@@ -486,31 +503,24 @@ export class Replayer {
   }
 
   /**
- * RESET 0, BUS_CONFIG, (BED_CONFIG,) the bus lanes, MASTER(, LISTENER, ZONE_CONFIG) in one REPLAY (§7's replay order,
- * S10), every record asap. ADR 0171 §4.2 (Mx2): the lanes are every main-written lane of every bus from the lane writer
- * (`LaneWriter.replayLanes`): `runtime` and `snapshot` as their remaining ramp (a literal step to the value now, then an
- * asap ramp to the target over what is left), `authored` and `monitor` at their value, a dip at its end state. MASTER
- * keeps its record here (§4.2: the first send). BUS_DUCK, BUS_PRESENCE and LOUD_CONFIG go after BUS_CONFIG once their
- * tasks send them (Dp1, Ld2); nothing sends them yet, so there is nothing to replay.
- */
+   * The header REPLAY: the session's `replayHeader` phase (ADR 0178), in `PHASE_ORDER.replayHeader`'s order (§7 as
+   * extended by S10 and §4.2: RESET 0, BUS_CONFIG, BED_CONFIG, BUS_DUCK and BUS_PRESENCE, LOUD_CONFIG, the bus lanes,
+   * MASTER, LISTENER, ZONE_CONFIG, the automation mirror), every record asap, posted at the mirror's frame.
+   */
   private postHeader(): void {
     const b = this.builder;
-    b.record(16, (view, off) => writeReset(view, off, { voiceId: 0, frameOffset: ASAP, keepClips: 0 }));
-    const buses = this.src.busConfigWire();
-    let size = 16;
-    for (const bus of buses) size += 4 + 32 * bus.effects.length;
-    b.record(size, (view, off) => writeBusConfig(view, off, { voiceId: 0, frameOffset: ASAP, buses }));
-    this.src.spatial?.replayBeds(b);
-    // ADR 0171 §4.2 (Mx2): every main-written lane of every bus (BUS_CONFIG doesn't reset a re-added slot's lanes):
-    // `runtime` and `snapshot` as their remaining ramp, the rest at their value, a dip at its end state (`laneWriter.ts`).
-    this.src.lanes?.replayLanes(b);
-    const { masterVolume } = this.src;
-    const muted = this.src.muted || this.src.hiddenMuted === true;
-    b.record(24, (view, off) => writeMaster(view, off, { voiceId: 0, frameOffset: ASAP, volume: masterVolume, muted: muted ? 1 : 0, rampFrames: 0 }));
-    this.src.spatial?.replayListener(b);
-    this.src.spatial?.replayZones(b);
-    this.src.automation?.replayHeader(b);
+    this.src.session.replayHeader(b);
     this.stats.messages += b.post(this.port, this.src.mirror.frameAudio, true);
+  }
+
+  /** The voice table's own records after a replayed PLAY (the session's "voiceState"): FADE to its fade gain, its stamped ramps, SET_PAUSED. */
+  private replayVoiceState(b: ReplayBuilder, v: Readonly<ReplayVoice>): void {
+    const t = this.src.table;
+    const { id, i } = v;
+    const fade = t.fadeGain[i]!;
+    if (fade !== 1) b.record(28, (view, off) => writeFade(view, off, { voiceId: id, frameOffset: ASAP, target: fade, frames: 0, flags: 0 }));
+    if (t.stampedCount[i]! > 0) this.replayStamped(b, id, i, v.frame, v.rate);
+    if ((t.flags[i]! & VoiceFlag.PAUSED) !== 0) b.record(16, (view, off) => writeSetPaused(view, off, { voiceId: id, frameOffset: ASAP, paused: 1 }));
   }
 
   /**
@@ -522,7 +532,7 @@ export class Replayer {
       const streams = this.streams;
       this.streams = [];
       this.handOff = false;
-      this.src.reopenStreams?.(streams);
+      this.src.session.reopenStreams(streams);
       this.stats.replayed += streams.length;
     }
     if (this.back.length === 0 || !this.settleTimeline()) return 0;
@@ -589,12 +599,15 @@ export class Replayer {
           startOffsetFrames: Math.floor(pos),
         }),
       );
-      this.src.automation?.replayVoice(b, id, i);
-      if (s === VoiceState.PLAYING) this.src.spatial?.replayVoiceFx(b, id, i);
-      const fade = t.fadeGain[i]!;
-      if (fade !== 1) b.record(28, (view, off) => writeFade(view, off, { voiceId: id, frameOffset: ASAP, target: fade, frames: 0, flags: 0 }));
-      if (t.stampedCount[i]! > 0) this.replayStamped(b, id, i, frame, rate);
-      if ((flags & VoiceFlag.PAUSED) !== 0) b.record(16, (view, off) => writeSetPaused(view, off, { voiceId: id, frameOffset: ASAP, paused: 1 }));
+      // ADR 0178: what follows the PLAY is the session's `replayVoice` phase (AUTOMATE and SET_LOOP, SET_VOICE_FX, the
+      // voice table's FADE, stamped ramps and SET_PAUSED, in `PHASE_ORDER.replayVoice`'s order).
+      const v = this.voice;
+      v.id = id;
+      v.i = i;
+      v.mixed = s === VoiceState.PLAYING;
+      v.frame = frame;
+      v.rate = rate;
+      this.src.session.replayVoice(b, v);
       replayed++;
     }
     this.back.length = 0;
