@@ -88,9 +88,10 @@ export const PHASE_ORDER = {
   // No live add waits for a slot (no recycle comes); every voice ends "failed" and the queue empties; nothing waits for
   // a replay; nothing staged is sent.
   recoveryFailed: ["deferredAdds", "voices", "replayer", "writer"],
-  // Queued adds and plays go, the replay's waiting voices go, the listeners and the mixer's hooks are removed, the
-  // music, stream and zone parts close, the link gets its default decoder back, and nothing staged is sent.
-  dispose: ["deferredAdds", "voices", "replayer", "cleanups", "musicOps", "streams", "zones", "link", "writer"],
+  // Queued adds and plays go, the replay's waiting voices go, the listeners and the mixer's hooks are removed, the page's
+  // loudness hub is released (if still ours), the music, stream and zone parts close, the link gets its default decoder
+  // back, and nothing staged is sent.
+  dispose: ["deferredAdds", "voices", "replayer", "cleanups", "loudness", "musicOps", "streams", "zones", "link", "writer"],
 } as const satisfies { readonly [P in SessionPhase]: readonly string[] };
 
 /** Every participant name some phase lists. */
