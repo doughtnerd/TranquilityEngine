@@ -396,7 +396,6 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
     const p = new MaterialPreview(previewHost.current!);
     p.onShaderError = setShaderError;
     preview.current = p;
-    Object.assign(window, { shaderGraphPreview: p });
     return () => {
       p.dispose();
       preview.current = null;

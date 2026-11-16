@@ -119,7 +119,7 @@ export function TileThumbnail(props: { path: string; kind: AssetKind | "folder";
 }
 
 /** An icon for kinds without a rendered preview (or while one loads). */
-export function KindIcon(props: { kind: AssetKind | "folder" }) {
+function KindIcon(props: { kind: AssetKind | "folder" }) {
   const d = kindIcon(props.kind); // the asset kind module's (ADR 0143)
   return (
     <svg class="asset-icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -134,9 +134,9 @@ export function KindIcon(props: { kind: AssetKind | "folder" }) {
  * The one clip playing in the editor (from a tile or the Inspector). Its position is in `clipTime`,
  * which changes several times a second, so only the playing clip's tile and player read it.
  */
-export const playingClip = signal<{ path: string; paused: boolean; duration: number; loop: boolean; volume: number } | null>(null);
+const playingClip = signal<{ path: string; paused: boolean; duration: number; loop: boolean; volume: number } | null>(null);
 /** The playing clip's position in seconds. */
-export const clipTime = signal(0);
+const clipTime = signal(0);
 
 let audio: HTMLAudioElement | null = null;
 /** The URL `audio` plays: a rewritten clip gets a new one, and then a new element. */
@@ -174,12 +174,12 @@ export function playClip(path: string, from?: number): void {
   void audio.play().catch(() => undefined);
 }
 
-export function pauseClip(): void {
+function pauseClip(): void {
   audio?.pause();
 }
 
 /** Stop and forget the playing clip. */
-export function stopClip(): void {
+function stopClip(): void {
   if (audio) {
     audio.pause();
     audio.src = "";

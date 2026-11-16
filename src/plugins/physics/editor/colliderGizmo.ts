@@ -99,17 +99,17 @@ export function pose3DOf(node: GameObject): Pose3D {
 }
 
 /** A character controller's capsule is always upright: it follows the node's position and scale, never its rotation. */
-export function uprightPose3D(node: GameObject): Pose3D {
+function uprightPose3D(node: GameObject): Pose3D {
   return { ...pose3DOf(node), rotation: [0, 0, 0, 1] };
 }
 
 /** The 2D version: position and scale, no rotation. */
-export function uprightPose2D(node: GameObject): Pose2D {
+function uprightPose2D(node: GameObject): Pose2D {
   return { ...poseOf(node), rotation: 0 };
 }
 
 /** The pose a 3D collider's shape is placed with (upright for a character controller). */
-export const colliderPose3D = (node: GameObject, c: Collider): Pose3D => (c instanceof CharacterController ? uprightPose3D(node) : pose3DOf(node));
+const colliderPose3D = (node: GameObject, c: Collider): Pose3D => (c instanceof CharacterController ? uprightPose3D(node) : pose3DOf(node));
 const colliderPose2D = (node: GameObject, c: Collider2D): Pose2D => (c instanceof CharacterController2D ? uprightPose2D(node) : poseOf(node));
 
 type EditableCollider2D = BoxCollider2D | CircleCollider2D | PolygonCollider2D | EdgeCollider2D | CharacterController2D;
@@ -203,7 +203,7 @@ export function collider3dShapes(engine: Engine): { node: GameObject; wire: Wire
 }
 
 /** The handles of a 3D collider being edited, by id. */
-export function handles3D(node: GameObject, c: EditableCollider3D): Record<string, V3> {
+function handles3D(node: GameObject, c: EditableCollider3D): Record<string, V3> {
   const pose = colliderPose3D(node, c), center: V3 = [c.center.x, c.center.y, c.center.z];
   if (c instanceof MeshCollider) return { center: worldCenter(pose, center) };
   if (c instanceof CharacterController) return capsuleHandles3D(pose, center, c.radius, c.height, "y");

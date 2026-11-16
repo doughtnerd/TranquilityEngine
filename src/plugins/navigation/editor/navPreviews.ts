@@ -24,9 +24,9 @@ import { openSceneBakeBytes, openSceneBakeKey } from "./navGizmo";
 import { type ViewportToolContribution, editor, persisted, parseHex, theme } from "../../../editor/sdk";
 
 /** Outlines per preview (Foxfire's MaxCells). */
-export const MAX_PREVIEW_CELLS = 5000;
+const MAX_PREVIEW_CELLS = 5000;
 /** Triangle outlines in the surface bins preview. */
-export const MAX_BIN_SEGMENTS = 60_000;
+const MAX_BIN_SEGMENTS = 60_000;
 /** Lifts the bin outlines off the surfaces, along each face normal. */
 const BIN_LIFT = 0.02;
 
@@ -43,7 +43,7 @@ const hexOf = (c: string): number => {
 const rgbaHex = (c: readonly number[]): number => (Math.round((c[0] ?? 1) * 255) << 16) | (Math.round((c[1] ?? 1) * 255) << 8) | Math.round((c[2] ?? 1) * 255);
 
 /** The unit box `[-0.5, 0.5]^3` to world space for a box component on `node` (its world matrix × center / size). */
-export function boxToWorldOf(node: GameObject, center: { x: number; y: number; z: number }, size: { x: number; y: number; z: number }): number[] {
+function boxToWorldOf(node: GameObject, center: { x: number; y: number; z: number }, size: { x: number; y: number; z: number }): number[] {
   const world = node.world;
   let e = node.entity;
   while (e >= 0 && !world.hasTransform[e]) e = world.parentEntity(e);
@@ -65,7 +65,7 @@ export function boxToWorldOf(node: GameObject, center: { x: number; y: number; z
  * Flight leaves in `box` from the flight volumes of `bakes`: `area` "" = any area; `refinedOnly` = only resolution
  * region leaves; `agentTypes` (ids) limits it to those types' volumes (empty = every volume).
  */
-export async function flightLeavesInBox(bakes: readonly Uint8Array[], box: readonly number[], area: string, refinedOnly: boolean, max = MAX_PREVIEW_CELLS, agentTypes: readonly string[] = []): Promise<Float32Array> {
+async function flightLeavesInBox(bakes: readonly Uint8Array[], box: readonly number[], area: string, refinedOnly: boolean, max = MAX_PREVIEW_CELLS, agentTypes: readonly string[] = []): Promise<Float32Array> {
   const parts: number[] = [];
   for (const bytes of bakes) {
     for (const group of await volumeGroupsFor(bytes, agentTypes)) {
@@ -89,7 +89,7 @@ async function volumeGroupsFor(bytes: Uint8Array, agentTypes: readonly string[])
 }
 
 /** The walkable triangles (9 floats each) a chunk collects, outlined by bin; with the bin glyph at `origin`. */
-export function binSegments(triangles: Float32Array, bins: Int32Array, layout: SurfaceBinLayout, colors: { floor: number; ceiling: number; unwalkable: number; capture: number }, origin: readonly number[], radius: number): DebugSegments[] {
+function binSegments(triangles: Float32Array, bins: Int32Array, layout: SurfaceBinLayout, colors: { floor: number; ceiling: number; unwalkable: number; capture: number }, origin: readonly number[], radius: number): DebugSegments[] {
   const byColor = new Map<number, number[]>();
   const add = (color: number, ...p: number[]) => {
     let list = byColor.get(color);
@@ -144,7 +144,7 @@ export function binSegments(triangles: Float32Array, bins: Int32Array, layout: S
 }
 
 /** A chunk's walkable triangles as one flat array (9 floats each). */
-export function walkableTriangles(meshes: readonly { positions: Float32Array; indices: Uint32Array; kind?: string }[]): Float32Array {
+function walkableTriangles(meshes: readonly { positions: Float32Array; indices: Uint32Array; kind?: string }[]): Float32Array {
   let count = 0;
   for (const m of meshes) if ((m.kind ?? "navMesh") === "navMesh") count += Math.floor(m.indices.length / 3);
   const out = new Float32Array(count * 9);
@@ -175,7 +175,7 @@ function selectedTarget(): { key: string; node: GameObject } | null {
 const v3key = (v: { x: number; y: number; z: number }) => `${v.x},${v.y},${v.z}`;
 
 /** The edit-mode preview provider: recomputes (asynchronously) when what it depends on changes. */
-export class NavSelectionPreview {
+class NavSelectionPreview {
   private memoKey = "";
   private memoNode = "";
   private memo: DebugSegments[] = [];

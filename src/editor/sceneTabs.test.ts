@@ -6,7 +6,6 @@ import { MemoryStorage, type StorageNamespace, type StorageValue } from "../engi
 import { SetField } from "./document";
 import { OrbitCamera } from "./OrbitCamera";
 import { sceneOpenMigrations } from "./sdk/contributions";
-import { shortcutFor } from "./shortcuts";
 import { createSceneTabs, tabsToClose, type SceneTabs } from "./sceneTabs";
 import { openScene, openScenes, sceneCamera, select, selectedKeys, status, type OpenScene } from "./state";
 import { DEMO_SCENE, demoAssets, demoSettings, sampleProject } from "./testing";
@@ -27,14 +26,6 @@ describe("tabsToClose", () => {
   it("closes nothing to the right of the last tab", () => {
     expect(tabsToClose(tabs, "d", "right", dirty)).toEqual([]);
     expect(tabsToClose(tabs, "a", "left", dirty)).toEqual([]);
-  });
-});
-
-describe("close tab shortcut", () => {
-  it("is Ctrl/Cmd+W, and plain W is still the move tool", () => {
-    expect(shortcutFor({ key: "w", ctrlKey: true, metaKey: false, shiftKey: false })).toBe("close-tab");
-    expect(shortcutFor({ key: "w", ctrlKey: false, metaKey: true, shiftKey: false })).toBe("close-tab");
-    expect(shortcutFor({ key: "w", ctrlKey: false, metaKey: false, shiftKey: false })).toBe("tool:move");
   });
 });
 

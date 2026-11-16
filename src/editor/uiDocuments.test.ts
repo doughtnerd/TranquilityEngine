@@ -13,7 +13,6 @@ import { createPrefab } from "./prefabs";
 import { editorSettings, joinPath, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
 import { currentProject, openScene, sceneCamera, select, selectedKeys, selectedUIElement } from "./state";
 import {
-  contentSpan,
   describeOrigin,
   documentRows,
   elementOfComponent,
@@ -163,17 +162,14 @@ describe("refs and hierarchy rows", () => {
     expect(rowAncestry([d], "ui:nope|0|")).toBeNull();
   });
 
-  it("give an element's markup location and text content span", () => {
+  it("give an element's markup location", () => {
     const play = hudDoc().query("#play")!;
     const where = markupLocation(play);
     expect(where.file).toBe("ui/menu.ui.xml");
     expect(where.line).toBe(6);
     expect(MENU.slice(where.openTagSpan.start, where.openTagSpan.end)).toBe(`<Button id="play" class="primary">`);
-    const span = contentSpan(play._markup, MENU)!;
-    expect(MENU.slice(span.start, span.end)).toBe("Play");
     const badge = hudDoc().query("#badge")!;
     expect(markupLocation(badge).from).toBe("ui/widgets/badge.ui.xml");
-    expect(contentSpan(hudDoc().root!._markup, MENU)).not.toBeNull();
   });
 });
 

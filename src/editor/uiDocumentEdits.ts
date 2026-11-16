@@ -53,7 +53,7 @@ export interface MarkupPlace {
 const childIndex = (el: UIDocumentElement) => (el.parent ? el.parent._markup.children.indexOf(el._markup) : -1);
 
 /** The element's own tag: in its file (a used document's root is that file's root, path []). */
-export function ownPlace(el: UIDocumentElement): MarkupPlace {
+function ownPlace(el: UIDocumentElement): MarkupPlace {
   const file = el._markup.file;
   const path: number[] = [];
   for (let e = el; e.parent && !e._markup.from && e.parent._markup.file === file; e = e.parent) path.unshift(childIndex(e));
@@ -61,14 +61,14 @@ export function ownPlace(el: UIDocumentElement): MarkupPlace {
 }
 
 /** For a used document's root: its `<Use>` tag in the parent's file. Null otherwise. */
-export function usePlace(el: UIDocumentElement): MarkupPlace | null {
+function usePlace(el: UIDocumentElement): MarkupPlace | null {
   if (!el._markup.from || !el.parent) return null;
   const parent = ownPlace(el.parent);
   return { file: parent.file, path: [...parent.path, childIndex(el)] };
 }
 
 /** Where the element sits among its siblings (its `<Use>` tag for a used root); null for the document's root. */
-export function sitePlace(el: UIDocumentElement): MarkupPlace | null {
+function sitePlace(el: UIDocumentElement): MarkupPlace | null {
   if (!el.parent) return null;
   return usePlace(el) ?? ownPlace(el);
 }
@@ -631,7 +631,7 @@ export function moveUIElementToClass(ref: UIElementRef, className?: string): boo
  * Rules more specific than `.name` that set any of `properties` on the element once it has the
  * class: attributes beat every rule, so moving them into `.name` can let these show through.
  */
-export function moreSpecificRules(el: UIDocumentElement, name: string, properties: readonly string[]): string[] {
+function moreSpecificRules(el: UIDocumentElement, name: string, properties: readonly string[]): string[] {
   const target = { ...el._target, classes: [...el._target.classes, name] };
   const out: string[] = [];
   for (const sheet of el.document._sheets) {

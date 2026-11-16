@@ -19,7 +19,7 @@ export function openShaderGraphAsset(path: string): void {
 }
 
 /** The format id of the graph at `path`: a sub-graph or a shader graph. */
-export const shaderGraphFormatId = (path: string): "shadergraph" | "shadersubgraph" => (isShaderSubGraphPath(path) ? "shadersubgraph" : "shadergraph");
+const shaderGraphFormatId = (path: string): "shadergraph" | "shadersubgraph" => (isShaderSubGraphPath(path) ? "shadersubgraph" : "shadergraph");
 
 /** The asset document editing the graph at `path`: its value, edits, undo and redo, saving. */
 export const shaderGraphDocument = (project: EditorProject, path: string): AssetDocument<ShaderGraph> => openAssetDocument<ShaderGraph>(project, path, shaderGraphFormatId(path));
@@ -35,16 +35,8 @@ export function readShaderGraph(project: EditorProject, path: string): ReadShade
   return { graph: read.value, problems: read.problems.map((p) => p.message) };
 }
 
-/** Replace a graph through its document (one undo step) and wait for the write. Throws for a read-only project. */
-export function writeShaderGraph(project: EditorProject, path: string, graph: ShaderGraph): Promise<void> {
-  if (!project.canSave) return Promise.reject(new Error(`${project.name} is read-only.`));
-  const doc = shaderGraphDocument(project, path);
-  doc.edit(graph);
-  return doc.flush();
-}
-
 /** Where New Shader Graph goes by default: `shaders/` if the project has it, else the folder given. */
-export function shaderGraphFolder(folder: string): string {
+function shaderGraphFolder(folder: string): string {
   return folder === "" && editor.project.current?.folders.includes("shaders") ? "shaders" : folder;
 }
 

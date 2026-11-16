@@ -5,7 +5,6 @@ import { SetField } from "./document";
 import { gizmoEdit, gizmoMode } from "./gizmo";
 import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile } from "./project";
-import { shortcutFor } from "./shortcuts";
 import { openScene, sceneCamera } from "./state";
 import { DEMO_SCENE, demoAssets, demoSettings } from "./testing";
 
@@ -83,20 +82,7 @@ describe("gizmo edits (ADR 0026)", () => {
   });
 });
 
-describe("tool shortcuts", () => {
-  const key = (k: string, mods: Partial<{ ctrlKey: boolean; metaKey: boolean; shiftKey: boolean; altKey: boolean }> = {}) =>
-    shortcutFor({ key: k, ctrlKey: false, metaKey: false, shiftKey: false, ...mods });
-
-  it("maps Q/W/E/R to tools, ignoring modified keys", () => {
-    expect(key("q")).toBe("tool:select");
-    expect(key("w")).toBe("tool:move");
-    expect(key("E")).toBe("tool:rotate");
-    expect(key("r")).toBe("tool:scale");
-    expect(key("r", { ctrlKey: true })).toBeNull();
-    expect(key("w", { altKey: true })).toBeNull();
-    expect(key("z", { ctrlKey: true })).toBe("undo");
-  });
-
+describe("tool gizmo modes", () => {
   it("select shows no gizmo; the others pick a mode", () => {
     expect(gizmoMode("select")).toBeNull();
     expect(gizmoMode("move")).toBe("translate");

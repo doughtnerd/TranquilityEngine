@@ -1,21 +1,24 @@
 // ADR 0131: per-type Inspector extras come from a registry keyed by Component type, and load lazily.
 import { describe, expect, it, vi } from "vitest";
 import "./ui/inspectorSections.builtin";
-import { inspectorSectionsFor, registerInspectorSection, registeredInspectorSections } from "./ui/inspectorSections";
+import { inspectorSectionsFor, registerInspectorSection } from "./ui/inspectorSections";
+
+/** Every section `type` has: one top-level node selected shows them all. */
+const sectionsOf = (type: string) => inspectorSectionsFor(type, [["root"]]);
 
 describe("inspector sections", () => {
   // The ParticleSystem's section is the Particles plugin's (src/plugins/particles/particles.test.ts), the navigation components' the Navigation plugin's, the Tilemap's the Tilemaps plugin's (src/plugins/tilemaps/tilemaps.test.ts).
   it("registers the engine components' sections", () => {
     for (const type of ["engine.Environment", "engine.ReflectionProbe"]) {
-      expect(registeredInspectorSections(type), type).toHaveLength(1);
+      expect(sectionsOf(type), type).toHaveLength(1);
     }
-    expect(registeredInspectorSections("engine.Transform")).toHaveLength(0);
+    expect(sectionsOf("engine.Transform")).toHaveLength(0);
   });
 
   it("loads nothing until a section is rendered or preloaded", async () => {
     const load = vi.fn(async () => () => null);
     registerInspectorSection("test.sections.Lazy", load);
-    const [view] = registeredInspectorSections("test.sections.Lazy");
+    const [view] = sectionsOf("test.sections.Lazy");
     expect(load).not.toHaveBeenCalled();
     expect(view.loaded).toBe(false);
     await view.preload();
@@ -36,7 +39,7 @@ describe("inspector sections", () => {
   it("each built-in section's module loads and exports its component", async () => {
     const types = ["engine.Environment", "engine.ReflectionProbe"];
     for (const type of types) {
-      for (const view of registeredInspectorSections(type)) {
+      for (const view of sectionsOf(type)) {
         await view.preload();
         expect(view.loaded, type).toBe(true);
       }

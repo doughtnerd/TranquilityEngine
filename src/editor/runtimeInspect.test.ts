@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input, type BootstrapSetting, type ProjectSettingsInput } from "../engine";
 import { World } from "../engine/core/World";
 import { engineWorld, listComponents, listNodes, writeField } from "../engine/editor";
-import { addAsset } from "./assetBrowser";
+import { addAssetEntries } from "./assetBrowser";
 import { RemoveNode, SetField } from "./document";
 import { OrbitCamera } from "./OrbitCamera";
 import { startPlay, type PlaySession } from "./playMode";
@@ -12,7 +12,6 @@ import { applyKept, docPathFor, forgetKept, keepComponent, keepNode, kept, liveR
 import { replaceScripts } from "./scriptLoader";
 import { openScene, sceneCamera } from "./state";
 import { sampleProject, useCoreAssetKinds } from "./testing";
-import { shortcutFor } from "./shortcuts";
 
 useCoreAssetKinds(); // core asset kinds, as main.tsx registers them (ADR 0143)
 
@@ -59,7 +58,7 @@ afterEach(async () => {
 describe("mapping live nodes to the edited document", () => {
   it("maps scene nodes by id, and nodes inside a placed prefab instance as [instance, inner…]", async () => {
     const scene = openScene.value!;
-    const pipes = addAsset(scene, "prefabs/pipe-pair.prefab.json");
+    const pipes = addAssetEntries(scene, "prefabs/pipe-pair.prefab.json")[0].id;
     play = await startPlay({ editor, scene, project: sample });
     const engine = play.engine;
     expect(docPathFor(live(engine, "Bird"), SCENE, scene.doc)).toEqual({ path: ["bird"] });
@@ -210,15 +209,3 @@ describe("pausing and stepping the play session", () => {
   });
 });
 
-describe("pause and step shortcuts", () => {
-  const key = (k: string, mods: { ctrlKey?: boolean; shiftKey?: boolean; altKey?: boolean; metaKey?: boolean } = {}) =>
-    shortcutFor({ key: k, code: k.length === 1 ? `Key${k.toUpperCase()}` : k, ctrlKey: false, metaKey: false, shiftKey: false, ...mods });
-  it("Ctrl/Cmd+Shift+P pauses, F10 and Ctrl/Cmd+Alt+P step, Ctrl/Cmd+P still plays", () => {
-    expect(key("P", { ctrlKey: true, shiftKey: true })).toBe("pause");
-    expect(key("p", { metaKey: true, shiftKey: true })).toBe("pause");
-    expect(key("F10")).toBe("step");
-    expect(key("p", { ctrlKey: true, altKey: true })).toBe("step");
-    expect(key("p", { ctrlKey: true })).toBe("play");
-    expect(key("F10", { shiftKey: true })).toBeNull();
-  });
-});

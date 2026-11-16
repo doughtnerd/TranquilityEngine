@@ -43,7 +43,7 @@ export interface NavOverlaySettings extends NavDebugFlags {
   group: number;
 }
 
-export const DEFAULT_NAV_OVERLAY: NavOverlaySettings = { ...NO_NAV_DEBUG, seams: true, paths: true, group: 0 };
+const DEFAULT_NAV_OVERLAY: NavOverlaySettings = { ...NO_NAV_DEBUG, seams: true, paths: true, group: 0 };
 
 export const navOverlaySettings = persisted<NavOverlaySettings>("myco.editor.navOverlay", DEFAULT_NAV_OVERLAY);
 
@@ -308,7 +308,7 @@ const orFlags = (a: NavDebugFlags, b: NavDebugFlags): NavDebugFlags => ({
 });
 
 /** A provider drawing `world`'s live navigation runtime; empty while the World has none. */
-export function runtimeNavProvider(world: World, settings: () => NavDebugFlags = () => cleanNavOverlay(navOverlaySettings.peek())): () => EditorOverlay {
+function runtimeNavProvider(world: World, settings: () => NavDebugFlags = () => cleanNavOverlay(navOverlaySettings.peek())): () => EditorOverlay {
   let overlay: RuntimeNavOverlay | null = null;
   let forRuntime: unknown = null;
   return () => {
@@ -332,7 +332,7 @@ export function runtimeNavProvider(world: World, settings: () => NavDebugFlags =
 const PLAY_ID = "navigation";
 
 /** Draw navigation in the scene view (edit mode) and in every World of a play session. Returns a function that removes the play Worlds' drawing. */
-export function installNavGizmo(view: Pick<ViewportToolContext, "overlay">, playing: ReadonlySignal<PlaySession | null>): () => void {
+function installNavGizmo(view: Pick<ViewportToolContext, "overlay">, playing: ReadonlySignal<PlaySession | null>): () => void {
   const bake = new NavBakeOverlay(
     () => cleanNavOverlay(navOverlaySettings.peek()),
     () => navDebugColors(theme.peek()),

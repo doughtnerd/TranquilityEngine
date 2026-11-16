@@ -114,7 +114,7 @@ export function hierarchyTargetAt(clientX: number, clientY: number, doc: Documen
  * Where a viewport drop lands: under the cursor on the plane sprites live on (2D view) or on the
  * ground (3D view, y = 0); the camera's focus if the ray misses it.
  */
-export function viewportDropPoint(x: number, y: number): [number, number, number] {
+function viewportDropPoint(x: number, y: number): [number, number, number] {
   const camera = sceneCamera.value;
   if (!camera) return [0, 0, 0];
   const hit = viewMode.value === "3d" ? viewport(camera._world).pointOnPlane(x, y, [0, 1, 0], [0, 0, 0]) : viewport(camera._world).pointOnPlane(x, y, [0, 0, 1], [0, 0, 0]);

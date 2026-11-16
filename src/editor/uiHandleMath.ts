@@ -92,7 +92,7 @@ export type HandleId = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
 export const HANDLES: readonly HandleId[] = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
 
 /** A handle's place in the element's frame: fractions of its width and height. */
-export function handleFraction(id: HandleId): [number, number] {
+function handleFraction(id: HandleId): [number, number] {
   const fx = id.includes("w") ? 0 : id.includes("e") ? 1 : 0.5;
   const fy = id.startsWith("n") ? 0 : id.startsWith("s") ? 1 : 0.5;
   return [fx, fy];
@@ -131,9 +131,9 @@ const round = (v: number, digits: number) => {
   return Object.is(r, -0) ? 0 : r;
 };
 /** Pixels as an attribute value (`120`, `12.5` without snapping). */
-export const pxText = (v: number, snap: boolean): string => String(snap ? round(v, 0) : round(v, 2));
+const pxText = (v: number, snap: boolean): string => String(snap ? round(v, 0) : round(v, 2));
 /** A percentage as an attribute value (`37.5%`). */
-export const pctText = (v: number): string => `${round(v, 2)}%`;
+const pctText = (v: number): string => `${round(v, 2)}%`;
 
 // --- Resizing -------------------------------------------------------------------------------------
 

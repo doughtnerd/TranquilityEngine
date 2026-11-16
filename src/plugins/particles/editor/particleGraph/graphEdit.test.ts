@@ -19,7 +19,6 @@ import {
   moveBlock,
   moveItems,
   moveProperty,
-  parseParticleClipboard,
   pasteItems,
   removeBlock,
   removeItems,
@@ -263,8 +262,6 @@ describe("particle graph edits", () => {
     const clip = copyItems(g, ["s1", "s2", "n1"])!;
     expect(clip.edges).toHaveLength(1);
     expect(clip.events).toHaveLength(1);
-    expect(parseParticleClipboard(JSON.stringify(clip))).toEqual(clip);
-    expect(parseParticleClipboard("{\"format\":\"other\"}")).toBeNull();
     const pasted = pasteItems(g, clip, [1000, 1000]);
     expect(pasted.ids).toEqual(["s3", "s4", "n3"]);
     const s4 = pasted.graph.systems.find((s) => s.id === "s4")!;

@@ -185,15 +185,3 @@ export function cutNodes(scene: OpenScene, keys: readonly string[]): NodeClipboa
 
 /** Clipboard JSON for the system clipboard. */
 export const clipboardText = (clip: NodeClipboard) => JSON.stringify({ format: CLIPBOARD_FORMAT, ...clip }, null, 2);
-
-/** The clipboard from system clipboard text, or null if it isn't copied nodes. */
-export function parseClipboardText(text: string): NodeClipboard | null {
-  try {
-    const v = JSON.parse(text) as { format?: unknown; source?: unknown; subtrees?: unknown };
-    if (v.format !== CLIPBOARD_FORMAT || typeof v.source !== "string" || !Array.isArray(v.subtrees)) return null;
-    if (!v.subtrees.every((s) => Array.isArray(s) && s.length > 0 && s.every((e) => e && typeof e === "object" && typeof (e as NodeEntry).id === "string"))) return null;
-    return { source: v.source, subtrees: v.subtrees as NodeEntry[][] };
-  } catch {
-    return null;
-  }
-}

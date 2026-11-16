@@ -2,7 +2,7 @@
 // blank lines, quotes and indentation elsewhere stay byte for byte.
 import { describe, expect, it } from "vitest";
 import { parseMarkup } from "../../engine/ui/document/markup";
-import { addRule, findRule, removeDeclaration, setDeclaration, setDeclarations } from "./cssText";
+import { addRule, findRule, setDeclaration, setDeclarations } from "./cssText";
 import {
   addStyle,
   duplicateElement,
@@ -170,13 +170,6 @@ describe("stylesheets", () => {
     expect(setDeclaration(CSS, ".primary", "padding", "8px")).toBe(CSS.replace("#336699; }", "#336699; padding: 8px; }"));
     expect(setDeclaration(`.a {}`, ".a", "gap", "1px")).toBe(`.a { gap: 1px; }`);
     expect(setDeclaration(`.a {\n}\n`, ".a", "gap", "1px")).toBe(`.a {\n  gap: 1px;\n}\n`);
-  });
-
-  it("removes declarations, their line when alone on it", () => {
-    expect(removeDeclaration(CSS, ".column", "color")).toBe(CSS.replace("\n  color: var(--fg)", ""));
-    expect(removeDeclaration(CSS, ".column", "flex-direction")).toBe(CSS.replace("flex-direction: column; ", ""));
-    expect(removeDeclaration(CSS, ".primary", "background-color")).toBe(CSS.replace(" background-color: #336699;", ""));
-    expect(removeDeclaration(CSS, ".primary", "nope")).toBe(CSS);
   });
 
   it("adds rules at the end, matching the sheet's indentation", () => {

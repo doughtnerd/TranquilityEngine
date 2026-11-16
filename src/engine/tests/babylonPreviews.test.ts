@@ -329,7 +329,6 @@ describe("the shader graph preview while Babylon loads (routing)", () => {
     const preview = new MaterialPreview({ appendChild() {} } as unknown as HTMLElement);
     const compiled = preview.setGraph(graph);
     expect(compiled.fragment.body).toMatch(/^var mOut_baseColor: vec3f/m); // WGSL
-    expect(preview.readCenter()).toBeNull(); // nothing drawn yet
     preview.onShaderError = () => undefined;
     preview.dispose(); // before the module arrives: it never builds
   });

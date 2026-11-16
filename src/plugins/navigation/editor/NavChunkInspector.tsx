@@ -7,7 +7,7 @@ import { editor, type OpenScene, type InspectorSectionProps } from "../../../edi
 import "../../../editor/ui/bake.css";
 import "./navBake.css";
 
-export function NavChunkBake(props: { scene: OpenScene; nodeId: string }) {
+function NavChunkBake(props: { scene: OpenScene; nodeId: string }) {
   const { scene, nodeId } = props;
   navBakeVersion.value;
   const version = editor.project.version;

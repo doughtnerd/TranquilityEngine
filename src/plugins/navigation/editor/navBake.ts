@@ -77,13 +77,6 @@ function update(scenePath: string, chunkNodeId: string, patch: Partial<NavChunkB
   navBakeVersion.value++;
 }
 
-/** Forget every chunk's state (another project opened; tests). */
-export function resetNavBakeStates(): void {
-  states.clear();
-  recordCache.clear();
-  navBakeVersion.value++;
-}
-
 let stateProject: EditorProject | null = null;
 
 /** Start over when another project is opened: states and records are per project. */
@@ -107,7 +100,7 @@ export function isNavBakeStale(s: NavChunkBakeState): boolean {
 export type NavBakeRunner = (request: NavBakeRequest, onStage: (stage: NavBakeStage) => void) => Promise<NavBakeResult>;
 
 /** Bakes on this thread (Node, tests). */
-export const inThreadRunner: NavBakeRunner = async (r, onStage) => {
+const inThreadRunner: NavBakeRunner = async (r, onStage) => {
   onStage("baking");
   return bakeChunk(r.meshes, r.settings, r.scenePath, r.chunkNodeId, r.chunk);
 };
@@ -151,7 +144,7 @@ function bakeWorker(): Worker | null {
 }
 
 /** Bakes in the bake worker; falls back to this thread where workers aren't available. */
-export const workerRunner: NavBakeRunner = (request, onStage) => {
+const workerRunner: NavBakeRunner = (request, onStage) => {
   const w = bakeWorker();
   if (!w) return inThreadRunner(request, onStage);
   return new Promise((resolve, reject) => {
@@ -162,19 +155,11 @@ export const workerRunner: NavBakeRunner = (request, onStage) => {
   });
 };
 
-let runner: NavBakeRunner = workerRunner;
 
 /** Frees every chunk's incremental bake caches, in the worker and on this thread. */
 function releaseBakers(): void {
   worker?.postMessage({ id: nextId++, type: "release" });
   releaseBakeCaches();
-}
-
-/** Use another runner (tests bake in-thread); returns the previous one. */
-export function setNavBakeRunner(next: NavBakeRunner): NavBakeRunner {
-  const previous = runner;
-  runner = next;
-  return previous;
 }
 
 // --- records ----------------------------------------------------------------------------------------
@@ -274,7 +259,7 @@ export async function bakeNavChunk(project: EditorProject, scenePath: string, wo
     const comp = navChunkOf(chunkNode);
     const needsReference = !!comp && assetPathOf((comp as unknown as { bake?: unknown }).bake) !== asset;
     const request: NavBakeRequest = { meshes: geometry.meshes, settings, scenePath, chunkNodeId: id, chunk: navBakeChunk(geometry) };
-    const result = await runner(request, (stage) => update(scenePath, id, { stage }));
+    const result = await workerRunner(request, (stage) => update(scenePath, id, { stage }));
     update(scenePath, id, { stage: "writing" });
     await project.writeBinary(asset, result.bytes);
     const report = { ...result.report, warnings: [...geometry.warnings, ...(geometry.pending.length ? [`Models still loading weren't baked: ${geometry.pending.join(", ")}.`] : []), ...result.report.warnings] };

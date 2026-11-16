@@ -188,7 +188,7 @@ export const PRESETS: readonly ThemePreset[] = [
   },
 ];
 
-export const DEFAULT_PRESET = "myco-dark";
+const DEFAULT_PRESET = "myco-dark";
 
 /** Themes the user imported from files (ADR 0116), kept beside the built-in presets. */
 export const customThemes = persisted<ThemePreset[]>("myco.editor.customThemes", []);
@@ -200,7 +200,7 @@ export const presetById = (id: string): ThemePreset => PRESETS.find((p) => p.id 
 export const allPresets = computed<ThemePreset[]>(() => [...PRESETS, ...(Array.isArray(customThemes.value) ? customThemes.value : [])]);
 
 /** Overrides that are real colours, as lower-case `#rrggbb`. */
-export function cleanOverrides(overrides: Partial<Record<string, unknown>> | null | undefined): Partial<ThemeBase> {
+function cleanOverrides(overrides: Partial<Record<string, unknown>> | null | undefined): Partial<ThemeBase> {
   const out: Partial<ThemeBase> = {};
   for (const key of BASE_KEYS) {
     const v = overrides?.[key];

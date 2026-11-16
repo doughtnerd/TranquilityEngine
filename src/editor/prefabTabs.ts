@@ -7,7 +7,7 @@ import { switchScene } from "./session";
 import { openScene, openScenes, select, status } from "./state";
 
 /** Prefab tabs opened from an instance: prefab path → the path of the tab it was opened from. */
-export const prefabOrigins = signal<ReadonlyMap<string, string>>(new Map());
+const prefabOrigins = signal<ReadonlyMap<string, string>>(new Map());
 
 /** The tab the open prefab was opened from, if it was opened with Open Prefab and that tab is still open. */
 export function prefabOrigin(): string | null {

@@ -4,20 +4,6 @@
 // and the Projects window creates it here once it has painted and the page is idle, from the same
 // window entry, so the editor loads in the background while the user picks a project. Picking one
 // before then creates it at once.
-import tauriConfig from "../../../src-tauri/tauri.conf.json";
-
-/** The editor window's label (tauri.conf.json, and the capabilities that name it). */
-export const EDITOR_WINDOW = "main";
-
-type WindowEntry = { label: string; create?: boolean } & Record<string, unknown>;
-
-/** The options to create the editor window with: its tauri.conf.json entry, less what only the config file reads. */
-export function editorWindowOptions(windows: readonly WindowEntry[] = tauriConfig.app.windows as WindowEntry[]): Record<string, unknown> {
-  const entry = windows.find((w) => w.label === EDITOR_WINDOW);
-  if (!entry) throw new Error(`tauri.conf.json has no "${EDITOR_WINDOW}" window.`);
-  const { label: _label, create: _create, ...options } = entry;
-  return options;
-}
 
 let starting: Promise<void> | null = null;
 

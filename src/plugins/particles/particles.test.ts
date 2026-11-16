@@ -9,7 +9,6 @@ import { ParticleSystem } from "../../engine/render/components";
 import { _registeredRenderFeatures } from "../../engine/render/renderFeatures";
 import { defaultParticleGraph, formatParticleGraph } from "../../engine/scene/particleGraphFormat";
 import { assetKind } from "../../editor/assetBrowser";
-import { _reset } from "../../editor/assetDocuments";
 import { acceptsFile } from "../../editor/assetFieldKinds";
 import { inspectableAsset } from "../../editor/assetImport";
 import { canAddToScene, kindIcon, kindLabel, kindOpens, registeredKind } from "../../editor/assetKindLookup";
@@ -21,7 +20,7 @@ import { useEditorPlugins } from "../testEditorPlugins";
 import { currentProject } from "../../editor/state";
 import { MemoryFileSystem, ROOT, useCoreAssetKinds } from "../../editor/testing";
 import { previewKind } from "../../editor/thumbnails/keys";
-import { registeredInspectorSections } from "../../editor/ui/inspectorSections";
+import { inspectorSectionsFor } from "../../editor/ui/inspectorSections";
 import { EDITOR_PLUGINS } from "../editor";
 import { RUNTIME_PLUGINS } from "../runtime";
 import { deactivateRuntimePlugin, isRuntimePluginActive } from "../runtimeContext";
@@ -49,7 +48,6 @@ async function open(files: Record<string, string>) {
 
 const editorHalf = useEditorPlugins([particlesEditorPlugin], "each");
 afterEach(() => {
-  _reset();
   currentProject.value = null;
   openParticleGraph.value = null;
 });
@@ -100,7 +98,7 @@ describe("the Particles plugin's editor half (ADR 0134)", () => {
   });
 
   it("registers the ParticleSystem's Inspector section", async () => {
-    const [section] = registeredInspectorSections("engine.ParticleSystem");
+    const [section] = inspectorSectionsFor("engine.ParticleSystem", [["root"]]);
     expect(section).toBeDefined();
     await section!.preload();
     expect(section!.loaded).toBe(true);
@@ -148,7 +146,7 @@ describe("the Particles plugin's editor half (ADR 0134)", () => {
     expect(canAddToScene(FX)).toBe(false);
     expect(panels.get("particlegraph")).toBeUndefined();
     expect(registeredPanels().has("particlegraph")).toBe(false);
-    expect(registeredInspectorSections("engine.ParticleSystem")).toHaveLength(0);
+    expect(inspectorSectionsFor("engine.ParticleSystem", [["root"]])).toHaveLength(0);
   });
 });
 

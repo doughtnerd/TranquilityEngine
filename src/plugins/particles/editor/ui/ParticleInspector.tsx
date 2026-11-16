@@ -194,7 +194,7 @@ function PropertyInput(props: { prop: GraphProperty; value: unknown; onChange: (
  * Under a ParticleSystem's fields: open its effect in the Particle Graph (or make a new one), and
  * set its exposed properties for this instance. Overrides are undoable field changes.
  */
-export function ParticleSystemEffect(props: { scene: OpenScene; path: NodePath; index: number; effectPath: string; embedded?: unknown; overrides?: unknown }) {
+function ParticleSystemEffect(props: { scene: OpenScene; path: NodePath; index: number; effectPath: string; embedded?: unknown; overrides?: unknown }) {
   editor.project.version;
   const { scene, path, index } = props;
   const [id, ...target] = path;

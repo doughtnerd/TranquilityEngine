@@ -5,6 +5,7 @@ import { assetsForKinds } from "./assetFieldKinds";
 import {
   assetKind,
   canAddToScene,
+  sceneNodesAt,
   fieldKindKnown,
   kindIcon,
   kindImportSettings,
@@ -15,7 +16,6 @@ import {
   opensInCodePanel,
   previewOf,
   satisfiesFieldKind,
-  sceneNodesOf,
 } from "./assetKindLookup";
 import { inspectableAsset } from "./assetImport";
 import { CORE_ASSET_KINDS } from "./assetKinds.builtin";
@@ -55,7 +55,7 @@ describe("one kind through the asset kind module", () => {
     expect(opened).toEqual(["a/x.spin.json"]);
     expect(opensInCodePanel("spin")).toBe(false);
     expect(canAddToScene("a/x.spin.json")).toBe(true);
-    expect(sceneNodesOf("spin")!.nodes(new SceneDocument({ format: "myco.scene@2", nodes: [] }), "a/x.spin.json")[0].id).toBe("spinner");
+    expect(sceneNodesAt("a/x.spin.json")!.nodes(new SceneDocument({ format: "myco.scene@2", nodes: [] }), "a/x.spin.json")[0].id).toBe("spinner");
     expect(kindImportSettings("spin")).toBe(spin.importSettings);
     expect(inspectableAsset("a/x.spin.json")).toBe("a/x.spin.json");
     expect(previewOf("a/x.spin.json")).toBe("material");

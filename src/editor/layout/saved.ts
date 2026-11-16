@@ -7,8 +7,8 @@
 import type { PanelCatalog } from "./catalog";
 import { layoutShape, parseLayout, type Layout } from "./model";
 
-export const LAYOUT_FORMAT = "myco.layout@1";
-export const LAYOUT_EXTENSION = ".layout.json";
+const LAYOUT_FORMAT = "myco.layout@1";
+const LAYOUT_EXTENSION = ".layout.json";
 /** The project folder project layouts live in (hidden: the Assets panel and exports skip dot-folders). */
 export const LAYOUTS_FOLDER = ".layouts";
 /** Versions kept per layout file. */
@@ -67,7 +67,7 @@ export function restoreVersion(file: LayoutFile, seq: number): LayoutFile {
 }
 
 /** A version of the file (its head by default). */
-export function versionOf(file: LayoutFile, seq = file.head): LayoutVersion | undefined {
+function versionOf(file: LayoutFile, seq = file.head): LayoutVersion | undefined {
   return file.versions.find((v) => v.seq === seq);
 }
 

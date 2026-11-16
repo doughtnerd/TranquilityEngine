@@ -36,13 +36,13 @@ export interface SourceElement {
 export type ElementPath = readonly number[];
 
 /** Tags that are a document's elements (a `<Use>` stands for its used root). */
-export const ELEMENT_TAGS: ReadonlySet<string> = new Set(["Canvas", "Panel", "Text", "Image", "Button", "InputField", "Use"]);
+const ELEMENT_TAGS: ReadonlySet<string> = new Set(["Canvas", "Panel", "Text", "Image", "Button", "InputField", "Use"]);
 
 /** An edit that can't be made (no such element, the root can't be removed…). */
 export class MarkupEditError extends Error {}
 
 /** An element's element children: UI tags and `<Use>`, in order. */
-export const elementChildren = (el: SourceElement): SourceElement[] => el.nodes.filter((n) => ELEMENT_TAGS.has(n.tag));
+const elementChildren = (el: SourceElement): SourceElement[] => el.nodes.filter((n) => ELEMENT_TAGS.has(n.tag));
 
 /** The value's span inside an attribute's text (after the quote; empty at the end for a bare name). */
 function valueSpanOf(source: string, start: number, end: number): SourceSpan {
@@ -76,7 +76,7 @@ export function parseSource(text: string): SourceElement | null {
 }
 
 /** Every top-level tag in the text. */
-export function parseTopLevel(text: string): SourceElement[] {
+function parseTopLevel(text: string): SourceElement[] {
   const stack: Building[] = [];
   const top: SourceElement[] = [];
   let pending: SourceAttribute[] = [];
@@ -121,7 +121,7 @@ export function elementAt(root: SourceElement | null, path: ElementPath): Source
 }
 
 /** The element at `path` in `text`; throws when there's none. */
-export function requireElement(text: string, path: ElementPath): SourceElement {
+function requireElement(text: string, path: ElementPath): SourceElement {
   const el = elementAt(parseSource(text), path);
   if (!el) throw new MarkupEditError(`There's no element at ${path.length ? path.join("/") : "the root"} in the file (it changed).`);
   return el;
@@ -132,13 +132,13 @@ export function requireElement(text: string, path: ElementPath): SourceElement {
 const splice = (text: string, start: number, end: number, insert: string) => text.slice(0, start) + insert + text.slice(end);
 
 /** An attribute value written inside double quotes. */
-export const escapeAttribute = (value: string) => value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+const escapeAttribute = (value: string) => value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
 
 /** Text content. */
-export const escapeText = (value: string) => value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const escapeText = (value: string) => value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 /** The whitespace between the start of `pos`'s line and `pos`, or null when something else comes first on the line. */
-export function lineIndent(text: string, pos: number): string | null {
+function lineIndent(text: string, pos: number): string | null {
   let i = pos;
   while (i > 0 && (text[i - 1] === " " || text[i - 1] === "\t")) i--;
   return i === 0 || text[i - 1] === "\n" ? text.slice(i, pos) : null;
@@ -151,7 +151,7 @@ function leadingWhitespace(text: string, pos: number): string {
 }
 
 /** One level of indentation in the file: a child's indent minus its parent's, else two spaces. */
-export function indentUnit(text: string, root: SourceElement | null = parseSource(text)): string {
+function indentUnit(text: string, root: SourceElement | null = parseSource(text)): string {
   const walk = (el: SourceElement): string | null => {
     const outer = lineIndent(text, el.span.start);
     for (const c of el.nodes) {
@@ -315,7 +315,7 @@ export function removeElement(text: string, path: ElementPath): string {
 }
 
 /** An element's markup with lines after the first un-indented by its own line's indent (for re-inserting elsewhere). */
-export function elementSnippet(text: string, path: ElementPath): string {
+function elementSnippet(text: string, path: ElementPath): string {
   const el = requireElement(text, path);
   const raw = text.slice(el.span.start, el.span.end);
   const indent = lineIndent(text, el.span.start) ?? leadingWhitespace(text, el.span.start);
@@ -327,7 +327,7 @@ export function elementSnippet(text: string, path: ElementPath): string {
 }
 
 /** `path` adjusted for removing the element at `removed` (paths after it among its siblings move up one). */
-export function pathAfterRemoval(path: ElementPath, removed: ElementPath): number[] {
+function pathAfterRemoval(path: ElementPath, removed: ElementPath): number[] {
   const out = [...path];
   const d = removed.length - 1;
   if (path.length > d && removed.slice(0, d).every((v, i) => path[i] === v) && path[d] > removed[d]) out[d]--;
@@ -373,7 +373,7 @@ export function uniqueName(base: string, taken: ReadonlySet<string>): string {
 }
 
 /** `snippet` with every `id` in it changed to one not in `taken` (which grows). */
-export function withUniqueIds(snippet: string, taken: Set<string>): string {
+function withUniqueIds(snippet: string, taken: Set<string>): string {
   const spans: { span: SourceSpan; value: string }[] = [];
   const walk = (el: SourceElement) => {
     for (const a of el.attributes) if (a.name === "id") spans.push({ span: a.valueSpan, value: a.value });

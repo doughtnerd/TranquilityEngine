@@ -9,7 +9,7 @@ import { errorStatus } from "./messages";
 import type { EditorProject } from "./projects";
 import { currentProject, status } from "./state";
 
-export class ProjectTextFiles implements TextFileHost {
+class ProjectTextFiles implements TextFileHost {
   /** Text written but not yet on disk (null: being deleted), newest per file. */
   private readonly pending = new Map<string, string | null>();
   private readonly running = new Map<string, Promise<void>>();

@@ -138,7 +138,7 @@ export interface StatsSnapshot {
 }
 
 /** The JS heap from `performance.memory` (Chromium only). */
-export function jsHeap(): { used: number; limit: number } | null {
+function jsHeap(): { used: number; limit: number } | null {
   const m = (globalThis.performance as Performance & { memory?: { usedJSHeapSize: number; jsHeapSizeLimit: number } } | undefined)?.memory;
   return m && typeof m.usedJSHeapSize === "number" ? { used: m.usedJSHeapSize, limit: m.jsHeapSizeLimit } : null;
 }

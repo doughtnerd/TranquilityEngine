@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { defaultMaterialSettings, formatMaterial, type MaterialSettings } from "../../engine/scene/material";
 import { defaultShaderGraph, defaultShaderSubGraph, formatShaderGraph } from "../../engine/scene/shaderGraph";
 import { assetKind, opensInCodePanel } from "../../editor/assetBrowser";
-import { _reset, openAssetDocument } from "../../editor/assetDocuments";
+import { openAssetDocument } from "../../editor/assetDocuments";
 import { acceptsFile } from "../../editor/assetFieldKinds";
 import { inspectableAsset } from "../../editor/assetImport";
 import { kindIcon, kindLabel, kindOpens, registeredKind } from "../../editor/assetKindLookup";
@@ -32,7 +32,6 @@ const KINDS = ["material", "shader", "shadergraph", "shadersubgraph"] as const;
 
 const editorHalf = useEditorPlugins([materialsEditorPlugin], "each");
 afterEach(() => {
-  _reset();
   currentProject.value = null;
 });
 

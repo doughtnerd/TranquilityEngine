@@ -96,13 +96,6 @@ function allSpaces(project: EditorProject, p: HistoryPlatform): SlotSpace[] {
   return folder ? [folder, userSpace(project, p)] : [userSpace(project, p)];
 }
 
-let platformSource: () => Promise<HistoryPlatform> = defaultHistoryPlatform;
-
-/** Tests: use in-memory storage (null: the real platform again). */
-export function _useAssetHistoryPlatform(p: HistoryPlatform | null): void {
-  platformSource = p ? async () => p : defaultHistoryPlatform;
-}
-
 let queue: Promise<void> = Promise.resolve();
 
 function enqueue(task: () => Promise<void>): Promise<void> {
@@ -162,7 +155,7 @@ export class AssetHistoryPersistence {
   }
 
   private async slots(): Promise<SlotBackend> {
-    return currentSpace(this.host.project, historyLocation.peek(), await platformSource()).slots(this.host.tree.path);
+    return currentSpace(this.host.project, historyLocation.peek(), await defaultHistoryPlatform()).slots(this.host.tree.path);
   }
 
   private async load(): Promise<void> {
@@ -237,7 +230,7 @@ async function tryTo(work: () => Promise<void>): Promise<void> {
 export function moveAssetHistories(project: EditorProject, moves: readonly (readonly [string, string])[]): Promise<void> {
   if (!project.canSave || moves.length === 0) return Promise.resolve();
   return enqueue(async () => {
-    const p = await platformSource();
+    const p = await defaultHistoryPlatform();
     for (const space of allSpaces(project, p)) for (const [from, to] of moves) await tryTo(() => space.move(trim(from), trim(to)));
   });
 }
@@ -246,14 +239,7 @@ export function moveAssetHistories(project: EditorProject, moves: readonly (read
 export function deleteAssetHistories(project: EditorProject, paths: readonly string[]): Promise<void> {
   if (!project.canSave || paths.length === 0) return Promise.resolve();
   return enqueue(async () => {
-    const p = await platformSource();
+    const p = await defaultHistoryPlatform();
     for (const space of allSpaces(project, p)) for (const path of paths) await tryTo(() => space.remove(trim(path)));
   });
-}
-
-/** Tests: forget attached histories and stop following the setting. */
-export function _resetAssetHistory(): void {
-  for (const h of [...attached]) h.stop();
-  stopFollowingLocation?.();
-  stopFollowingLocation = null;
 }

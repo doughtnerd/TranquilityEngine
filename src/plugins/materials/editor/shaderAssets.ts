@@ -4,21 +4,21 @@ import { defaultShaderAsset, formatShaderAsset, type ShaderAsset } from "../../.
 import { editor } from "../../../editor/sdk";
 
 /** WGSL starter for New Shader: a `Tint` property sets the base colour. */
-export const NEW_SHADER_WGSL = `// Properties are uniforms.<Name>. Keywords are #ifdef KW_<NAME>.
+const NEW_SHADER_WGSL = `// Properties are uniforms.<Name>. Keywords are #ifdef KW_<NAME>.
 fn surface(s: MycoSurfaceInput, out: ptr<function, MycoSurface>) {
   (*out).baseColor = uniforms.Tint.rgb;
 }
 `;
 
 /** GLSL ES 3.0 starter for New Shader, the same surface as the WGSL one. */
-export const NEW_SHADER_GLSL = `// Properties are bare names. Keywords are #ifdef KW_<NAME>.
+const NEW_SHADER_GLSL = `// Properties are bare names. Keywords are #ifdef KW_<NAME>.
 void surface(MycoSurfaceInput s, inout MycoSurface o) {
   o.baseColor = Tint.rgb;
 }
 `;
 
 /** Where New Shader goes by default: `shaders/` if the project has it, else the folder given. */
-export function shaderFolder(folder: string): string {
+function shaderFolder(folder: string): string {
   return folder === "" && editor.project.current?.folders.includes("shaders") ? "shaders" : folder;
 }
 

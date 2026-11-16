@@ -4,13 +4,13 @@ import { afterEach, describe, expect, it } from "vitest";
 import { getComponentClass } from "../../engine/core/registry";
 import { byPhase } from "../../engine/render/renderFeatures";
 import { assetKind } from "../../editor/assetBrowser";
-import { _reset, assetDocumentsDeleted, assetDocumentsMoved, openAssetDocument } from "../../editor/assetDocuments";
+import { assetDocumentsDeleted, assetDocumentsMoved, openAssetDocument } from "../../editor/assetDocuments";
 import { acceptsFile } from "../../editor/assetFieldKinds";
 import { inspectableAsset } from "../../editor/assetImport";
 import { kindIcon, kindLabel, registeredKind } from "../../editor/assetKindLookup";
 import { joinPath, openFolderProject } from "../../editor/projects";
 import { assetFormats, assetKinds, panels, viewportTools } from "../../editor/sdk/contributions";
-import { registeredInspectorSections } from "../../editor/ui/inspectorSections";
+import { inspectorSectionsFor } from "../../editor/ui/inspectorSections";
 import { createViewportToolHost } from "../../editor/viewportTools";
 import type { Engine } from "../../engine";
 import type { World } from "../../engine/core/World";
@@ -84,18 +84,17 @@ describe("the Tilemaps plugin's runtime half (ADR 0135)", () => {
 describe("the Tilemaps plugin's editor half (ADR 0134)", () => {
   const editorHalf = useEditorPlugins([tilemapsEditorPlugin], "each");
   afterEach(() => {
-    _reset();
     currentProject.value = null;
   });
 
   it("registers the Tile Palette panel, the paint tool and the Tilemap's Inspector section, and removes them (ADR 0138)", () => {
     expect(panels.get("tilepalette")).toMatchObject({ title: "Tile Palette", beside: "code" });
     expect(viewportTools.get(PAINT_TOOL_ID)).toBeDefined();
-    expect(registeredInspectorSections("engine.Tilemap")).toHaveLength(1);
+    expect(inspectorSectionsFor("engine.Tilemap", [["root"]])).toHaveLength(1);
     editorHalf.off();
     expect(panels.get("tilepalette")).toBeUndefined();
     expect(viewportTools.get(PAINT_TOOL_ID)).toBeUndefined();
-    expect(registeredInspectorSections("engine.Tilemap")).toHaveLength(0);
+    expect(inspectorSectionsFor("engine.Tilemap", [["root"]])).toHaveLength(0);
   });
 
   it("keeps the brush and the active viewport tool in step, and leaves the editor's keys alone", () => {

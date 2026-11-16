@@ -25,13 +25,10 @@ import type { SettingsDraft } from "../../../editor/sdk";
 /** The draft's navigation settings (the defaults when there's no section). */
 export const navigationOf = (d: SettingsDraft): NavigationSettings => parseNavigationSettings(d.navigation).settings;
 
-/** The parse problems of the draft's navigation section. */
-export const navigationProblems = (d: SettingsDraft): string[] => parseNavigationSettings(d.navigation).problems;
-
 const withNavigation = (draft: SettingsDraft, nav: NavigationSettings): SettingsDraft => ({ ...draft, navigation: nav as unknown as Record<string, unknown> });
 
 /** A new id for an agent type or area. */
-export function newNavId(): string {
+function newNavId(): string {
   const c = globalThis.crypto as Crypto | undefined;
   if (c?.randomUUID) return c.randomUUID();
   const hex = (n: number) => Array.from({ length: n }, () => Math.floor(Math.random() * 16).toString(16)).join("");
@@ -165,7 +162,7 @@ export function renameNavAvoidanceLayer(draft: SettingsDraft, layer: number, nam
 }
 
 /** The agent types that take part in avoidance (walk with avoidance on: flyers only separate), by name. */
-export function navAvoidingTypes(nav: NavigationSettings): { index: number; t: NavAgentType }[] {
+function navAvoidingTypes(nav: NavigationSettings): { index: number; t: NavAgentType }[] {
   return nav.agentTypes
     .map((t, index) => ({ index, t }))
     .filter(({ t }) => t.canWalk && t.avoidance !== null)

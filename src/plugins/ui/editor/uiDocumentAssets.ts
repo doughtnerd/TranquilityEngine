@@ -4,7 +4,7 @@
 import { editor } from "../../../editor/sdk";
 
 /** The markup and stylesheet of a new UI document whose stylesheet is `css` (a file name beside it). */
-export function newUIDocumentTexts(css: string): { markup: string; stylesheet: string } {
+function newUIDocumentTexts(css: string): { markup: string; stylesheet: string } {
   return {
     markup: `<Canvas>\n  <Style src="${css}"/>\n  <Panel id="panel">\n    <Text id="title">New UI Document</Text>\n  </Panel>\n</Canvas>\n`,
     stylesheet: `/* The look of the document beside it (ADR 0077). */\n#panel {\n  width: 100%;\n  height: 100%;\n  justify-content: center;\n  align-items: center;\n}\n\n#title {\n  font-size: 32px;\n}\n`,

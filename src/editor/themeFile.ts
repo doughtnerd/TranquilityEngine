@@ -5,8 +5,8 @@
 // DOM; `projectTheme.ts` and the Settings dialog do the file and storage work.
 import { BASE_KEYS, luminance, parseHex, PRESETS, mergeBase, type ThemeBase, type ThemeKind, type ThemePreset } from "./theme";
 
-export const THEME_FORMAT = "myco.theme";
-export const THEME_VERSION = 1;
+const THEME_FORMAT = "myco.theme";
+const THEME_VERSION = 1;
 export const THEME_FORMAT_ID = `${THEME_FORMAT}@${THEME_VERSION}`;
 
 /** Where a project's own theme lives, relative to the project root. */

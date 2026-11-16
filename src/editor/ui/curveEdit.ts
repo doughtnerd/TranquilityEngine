@@ -4,7 +4,6 @@
  * linear over `[xMin, xMax]`. No DOM here, so they're tested headless.
  */
 import type { Curve, CurveInterp, CurveKey } from "../../engine/core/curve";
-import { evalCurve } from "../../engine/core/curve";
 
 /** A `[x, y]` pair, as colour and alpha keys of a gradient use. */
 export type Key<T> = [number, T];
@@ -12,7 +11,7 @@ export type Key<T> = [number, T];
 export type AnyKey = readonly [number, unknown, CurveInterp?];
 
 /** The default x range: a particle curve's `t`. */
-export const UNIT_RANGE: [number, number] = [0, 1];
+const UNIT_RANGE: [number, number] = [0, 1];
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 /** A shallow copy of one key, keeping its length (so an `interp` survives). */
@@ -173,37 +172,3 @@ export function axisTicks(range: readonly [number, number], target: number): num
 }
 
 // L6.1a
-/**
- * `n` (>= 2) points `[x, y]` along `curve` for drawing over `xRange`, sorted by x: evenly spaced samples (first at
- * `xMin`, last at `xMax`), plus each key's x that falls inside the range, plus, for a `"step"` segment, a point at the
- * next key's x holding the earlier key's y (just before the jump), so a step draws square. Duplicate points (same x
- * and y) are dropped. Empty curve: `[]`. Values come from `evalCurve`.
- */
-export function curveSamples(curve: Curve, n: number, xRange: readonly [number, number] = UNIT_RANGE): [number, number][] {
-  if (curve.length === 0) return [];
-  const [xMin, xMax] = xRange;
-  const count = Math.max(2, Math.floor(n) || 2);
-  // Hold points go first so that, after a stable sort, they come before any other point at the same x.
-  const points: [number, number][] = [];
-  for (let i = 0; i < curve.length - 1; i++) {
-    const next = curve[i + 1][0];
-    if (curve[i][2] === "step" && next >= xMin && next <= xMax) points.push([next, curve[i][1]]);
-  }
-  for (let i = 0; i < count; i++) {
-    const x = i === count - 1 ? xMax : xMin + ((xMax - xMin) * i) / (count - 1);
-    points.push([x, evalCurve(curve, x)]);
-  }
-  for (const k of curve) {
-    if (k[0] >= xMin && k[0] <= xMax) points.push([k[0], evalCurve(curve, k[0])]);
-  }
-  points.sort((a, b) => a[0] - b[0]);
-  const seen = new Set<string>();
-  const out: [number, number][] = [];
-  for (const p of points) {
-    const id = `${p[0]}|${p[1]}`;
-    if (seen.has(id)) continue;
-    seen.add(id);
-    out.push(p);
-  }
-  return out;
-}

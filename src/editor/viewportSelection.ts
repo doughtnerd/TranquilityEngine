@@ -23,9 +23,9 @@ import { pressOnSelectedUI } from "./uiHandles";
 import { orderClickHits, partitionUIHits } from "./uiPicking";
 
 /** Pointer travel (CSS pixels) under which a press and release count as a click, not a drag. */
-export const CLICK_SLOP = 4;
+const CLICK_SLOP = 4;
 /** How far (CSS pixels) from an Alt+click a node can be and still be listed. */
-export const REFINE_RADIUS = 24;
+const REFINE_RADIUS = 24;
 
 export interface PointerSample {
   readonly x: number;

@@ -2,7 +2,7 @@
 // EventTree.tsx, the music field descriptors and stinger helpers of nodeFields.ts, and the writer round trip through
 // the asset document. Every edit result must read back through `parseAudioEvent` without a problem and with unique ids.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { _reset, openAssetDocument } from "../../../../editor/assetDocuments";
+import { openAssetDocument } from "../../../../editor/assetDocuments";
 import { joinPath, openFolderProject } from "../../../../editor/projects";
 import { currentProject } from "../../../../editor/state";
 import { MemoryFileSystem, ROOT } from "../../../../editor/testing";
@@ -20,7 +20,6 @@ import {
 
 useEditorPlugins([audioEditorPlugin], "each");
 afterEach(() => {
-  _reset();
   vi.useRealTimers();
 });
 

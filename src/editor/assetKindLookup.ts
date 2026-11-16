@@ -66,12 +66,6 @@ function behaviourAt(path: string): AssetKindContribution | undefined {
   const hash = path.indexOf("#");
   return registeredKind(assetKind(hash >= 0 ? path.slice(0, hash) : path));
 }
-/** The registered kind a kind asks for what it can do: its own, or for `sprite` the first kind with slices (use `behaviourAt` when the path is known). */
-function behaviourOf(kind: AssetKind | "folder"): AssetKindContribution | undefined {
-  if (kind !== "sprite") return registeredKind(kind);
-  void assetKinds.version.value;
-  return assetKinds.list().find((k) => k.slices);
-}
 
 /** A kind's label in the Assets panel ("Scene", "Particle Effect"; "File" for `other`). */
 export function kindLabel(kind: AssetKind | "folder"): string {
@@ -113,9 +107,6 @@ export function openAsset(path: string): boolean {
   return false;
 }
 
-/** What adding a file of this kind to a scene makes, if anything (a sprite adds as its image does). */
-export const sceneNodesOf = (kind: AssetKind): AssetSceneNodes | undefined => behaviourOf(kind)?.addToScene;
-
 /** What adding the entry at `path` to a scene makes, if anything (a slice adds as its file does). */
 export const sceneNodesAt = (path: string): AssetSceneNodes | undefined => behaviourAt(path)?.addToScene;
 
@@ -155,7 +146,7 @@ export function previewOf(path: string): PreviewKind | null {
 }
 
 /** The field kinds (ADR 0131) a kind's files satisfy: its `referencedAs` (a sprite's are `sprite`). */
-export function fieldKindsOf(kind: AssetKind): readonly string[] {
+function fieldKindsOf(kind: AssetKind): readonly string[] {
   if (kind === "sprite") return ["sprite"];
   return registeredKind(kind)?.referencedAs ?? [];
 }

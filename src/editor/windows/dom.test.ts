@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { isEditable } from "../editable";
-import { activeElementOf, eventWindow, isElement, isKeyboardEvent, isTag, ownerDocumentOf, ownerWindowOf, viewportOf } from "./dom";
+import { activeElementOf, eventWindow, isKeyboardEvent, ownerDocumentOf, ownerWindowOf, viewportOf } from "./dom";
 
 // Fake windows and documents: the helpers duck-type them, so a child window's objects (another realm) work.
 function fakeWindow(name: string, size = { innerWidth: 800, innerHeight: 600 }) {
@@ -38,12 +38,7 @@ describe("owner-document helpers (ADR 0174, detached windows)", () => {
     expect(eventWindow({ target: null, view: child.win } as unknown as Event)).toBe(child.win);
   });
 
-  it("test tags and keyboard events without the main realm's constructors", () => {
-    const input = element(child.doc, "input", { type: "text" });
-    expect(isTag(input, "input")).toBe(true);
-    expect(isTag(input, "button")).toBe(false);
-    expect(isElement(input)).toBe(true);
-    expect(isElement(child.doc)).toBe(false);
+  it("tests keyboard events without the main realm's constructors", () => {
     expect(isKeyboardEvent({ type: "keydown", key: "Escape" } as unknown as Event)).toBe(true);
     expect(isKeyboardEvent({ type: "pointerdown" } as unknown as Event)).toBe(false);
   });

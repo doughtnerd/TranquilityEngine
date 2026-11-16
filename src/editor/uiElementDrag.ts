@@ -34,7 +34,7 @@ export const uiElementDrag = signal<UIElementDrag | null>(null);
 const CONTAINERS: ReadonlySet<string> = new Set(["Canvas", "Panel"]);
 
 /** Where dropping on the row `key` at `fraction` (0 top, 1 bottom) of its height lands, or a reason it can't. */
-export function uiDropAt(dragged: UIElementRef, key: string, fraction: number): { target: UIElementDrop | null; problem: string | null } {
+function uiDropAt(dragged: UIElementRef, key: string, fraction: number): { target: UIElementDrop | null; problem: string | null } {
   const scene = openScene.peek();
   const ref = parseUIRefKey(key);
   const el = scene && ref ? resolveUIElement(scene.sync, ref) : null;

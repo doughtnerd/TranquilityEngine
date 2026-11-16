@@ -6,7 +6,7 @@ import { FsaFileSystem, fsaSupported } from "./fsaFileSystem";
 let fsa: FsaFileSystem | null = null;
 
 /** The browser's folder file system (one per tab: it holds the folders opened in it). */
-export function browserFolders(): FsaFileSystem {
+function browserFolders(): FsaFileSystem {
   return (fsa ??= new FsaFileSystem());
 }
 

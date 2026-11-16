@@ -3,12 +3,12 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { defaultFormation, formatFormation, setFormationCell, type NavFormationAsset } from "../../engine/nav/formation";
 import { assetKind } from "../../editor/assetBrowser";
-import { _reset, assetDocumentsMoved, openAssetDocument } from "../../editor/assetDocuments";
+import { assetDocumentsMoved, openAssetDocument } from "../../editor/assetDocuments";
 import { acceptsFile } from "../../editor/assetFieldKinds";
 import { inspectableAsset } from "../../editor/assetImport";
 import { kindIcon, kindLabel, registeredKind } from "../../editor/assetKindLookup";
 import { joinPath, openFolderProject } from "../../editor/projects";
-import { inspectorSectionsFor, registeredInspectorSections } from "../../editor/ui/inspectorSections";
+import { inspectorSectionsFor } from "../../editor/ui/inspectorSections";
 import { assetFormats, assetKinds, panelExtensions, projectSettingsSections } from "../../editor/sdk/contributions";
 import { isPluginActive } from "../../editor/sdk/plugins";
 import { useEditorPlugins } from "../testEditorPlugins";
@@ -36,7 +36,6 @@ const mask = (): NavFormationAsset => ({ ...defaultFormation(), shape: "mask" })
 
 const editorHalf = useEditorPlugins([navigationEditorPlugin], "each");
 afterEach(() => {
-  _reset();
   currentProject.value = null;
 });
 
@@ -94,15 +93,15 @@ describe("the Navigation plugin's editor half (ADR 0134)", () => {
   });
 
   it("registers the navigation components' Inspector sections, which load", async () => {
-    expect(registeredInspectorSections("engine.NavChunk")).toHaveLength(2);
+    expect(inspectorSectionsFor("engine.NavChunk", [["root"]])).toHaveLength(2);
     // Rooted-only sections show for a top-level node only.
     expect(inspectorSectionsFor("engine.NavChunk", [["a", "b"]])).toHaveLength(0);
     expect(inspectorSectionsFor("engine.NavChunk", [["a"]])).toHaveLength(2);
     for (const type of ["engine.NavAgent", "engine.NavAvoidanceObstacle", "engine.NavGroup", "engine.NavResolutionVolume", "engine.NavModifierVolume", "engine.NavCostVolume"]) {
-      expect(registeredInspectorSections(type), type).toHaveLength(1);
+      expect(inspectorSectionsFor(type, [["root"]]), type).toHaveLength(1);
     }
     for (const type of ["engine.NavChunk", "engine.NavAgent", "engine.NavAvoidanceObstacle", "engine.NavGroup", "engine.NavResolutionVolume", "engine.NavModifierVolume", "engine.NavCostVolume"]) {
-      for (const view of registeredInspectorSections(type)) {
+      for (const view of inspectorSectionsFor(type, [["root"]])) {
         await view.preload();
         expect(view.loaded, type).toBe(true);
       }
@@ -116,6 +115,6 @@ describe("the Navigation plugin's editor half (ADR 0134)", () => {
     expect(assetFormats.get("formation")).toBeUndefined();
     expect(projectSettingsSections.list()).toEqual([]);
     expect(panelExtensions.list()).toEqual([]);
-    for (const type of ["engine.NavChunk", "engine.NavAgent", "engine.NavGroup", "engine.NavCostVolume"]) expect(registeredInspectorSections(type), type).toEqual([]);
+    for (const type of ["engine.NavChunk", "engine.NavAgent", "engine.NavGroup", "engine.NavCostVolume"]) expect(inspectorSectionsFor(type, [["root"]]), type).toEqual([]);
   });
 });

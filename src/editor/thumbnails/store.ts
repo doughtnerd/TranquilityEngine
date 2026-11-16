@@ -16,7 +16,7 @@ export interface ThumbnailStore {
   remove(name: string): Promise<void>;
 }
 
-export const THUMBNAIL_FOLDER = ".myco/thumbnails";
+const THUMBNAIL_FOLDER = ".myco/thumbnails";
 
 /** The project folder's `.myco/thumbnails/`. */
 export function projectStore(fs: FileSystem, root: string): ThumbnailStore {

@@ -1,22 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input } from "../engine";
 import { SpriteRenderer } from "../engine/render/components";
-import {
-  addAsset,
-  assetKind,
-  buildFolderTree,
-  findFolder,
-  idBase,
-  nodeForAsset,
-  opensInCodePanel,
-  parentForAdd,
-  prefabInstanceEntry,
-  searchEntries,
-  searchFiles,
-  spriteNodeEntry,
-  uniqueId,
-  whyNotAddable,
-} from "./assetBrowser";
+import { addAssetEntries, assetKind, idBase, nodeForAsset, opensInCodePanel, parentForAdd, prefabInstanceEntry, searchEntries, searchFiles, spriteNodeEntry, uniqueId, whyNotAddable } from "./assetBrowser";
 import { OrbitCamera } from "./OrbitCamera";
 import { navigationEditorPlugin } from "../plugins/navigation/editor";
 import { particlesEditorPlugin } from "../plugins/particles/editor";
@@ -39,22 +24,6 @@ beforeAll(() => activatePlugins(PLUGINS));
 afterAll(() => PLUGINS.forEach((p) => deactivatePlugin(p.manifest.name)));
 
 describe("asset browser: folders and search", () => {
-  it("builds a sorted folder tree from project paths", () => {
-    const tree = buildFolderTree(["images/b.png", "project.json", "images/a.png", "scenes/main.scene.json", "images/ui/icon.png"]);
-    expect(tree.files).toEqual(["project.json"]);
-    expect(tree.folders.map((f) => f.name)).toEqual(["images", "scenes"]);
-    const images = findFolder(tree, "images")!;
-    expect(images.files).toEqual(["images/a.png", "images/b.png"]);
-    expect(findFolder(tree, "images/ui")!.files).toEqual(["images/ui/icon.png"]);
-    expect(findFolder(tree, "missing")).toBeNull();
-    expect(findFolder(tree, "")).toBe(tree);
-  });
-
-  it("has the demo's folders", () => {
-    const tree = buildFolderTree(demo.files);
-    expect(tree.folders.map((f) => f.name)).toEqual(expect.arrayContaining(["images", "music", "prefabs", "scenes"]));
-  });
-
   it("searches file names across folders, every word must match", () => {
     expect(searchFiles(demo.files, "pipe").sort()).toEqual(["images/PipeDown.png", "images/PipeUp.png", "prefabs/pipe-pair.prefab.json"]);
     expect(searchFiles(demo.files, "pipe prefab")).toEqual(["prefabs/pipe-pair.prefab.json"]);
@@ -128,7 +97,7 @@ describe("asset browser: adding to the scene (ADR 0026)", () => {
 
   /** The low-level add under a selection (the + button goes through `addAssets`, addAssets.test.ts). */
   const addAssetToScene = (scene: NonNullable<typeof openScene.value>, path: string, selected: string | null, position?: readonly [number, number, number]) =>
-    addAsset(scene, path, { parent: parentForAdd(scene.doc, selected), position });
+    addAssetEntries(scene, path, { parent: parentForAdd(scene.doc, selected), position })[0].id;
 
   it("adds a prefab instance as one undoable step, twice with distinct ids", () => {
     const scene = openScene.value!;

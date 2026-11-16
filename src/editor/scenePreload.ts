@@ -6,7 +6,7 @@ import { SetScenePreload, type SceneDocument } from "./document";
 import type { CommandStack } from "./document";
 
 /** Files the preload list takes: prefabs and material assets (what `warmSet` walks). */
-export const PRELOAD_FILE = /\.(prefab|material)\.json$/;
+const PRELOAD_FILE = /\.(prefab|material)\.json$/;
 
 /** The file a variant-report warning says to add to the scene's preload list, or null. */
 export function preloadSuggestion(text: string): string | null {

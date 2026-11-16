@@ -93,7 +93,7 @@ export function strokeCells(tool: BrushTool, a: Cell, b: Cell): Cell[] {
 }
 
 /** Where a flood fill may spread: the map's tiles plus a margin, or 32 × 32 cells around the click when empty. */
-export function fillBounds(map: Tilemap, x: number, y: number): { minX: number; minY: number; maxX: number; maxY: number } {
+function fillBounds(map: Tilemap, x: number, y: number): { minX: number; minY: number; maxX: number; maxY: number } {
   const b = map.cellBounds();
   if (!b) return { minX: x - 16, minY: y - 16, maxX: x + 15, maxY: y + 15 };
   return { minX: Math.min(b.minX, x) - 1, minY: Math.min(b.minY, y) - 1, maxX: Math.max(b.maxX, x) + 1, maxY: Math.max(b.maxY, y) + 1 };

@@ -20,12 +20,11 @@ import {
   type ShaderGraph,
 } from "../../../../engine/scene/shaderGraph";
 import { KEYWORD_NAME, type ShaderKeyword } from "../../../../engine/scene/shaderKeywords";
-import { parseGraphClipboard } from "../../../../editor/sdk";
 
 const clone = (g: ShaderGraph): ShaderGraph => structuredClone(g);
 
 /** A new node id for `type` that the graph doesn't use: `multiply1`, `multiply2`… */
-export function newNodeId(graph: ShaderGraph, type: string, taken: ReadonlySet<string> = new Set()): string {
+function newNodeId(graph: ShaderGraph, type: string, taken: ReadonlySet<string> = new Set()): string {
   const base = type.replace(/[^A-Za-z0-9_-]/g, "") || "node";
   for (let i = 1; ; i++) {
     const id = `${base}${i}`;
@@ -190,7 +189,7 @@ export function setGraphOptions(graph: ShaderGraph, patch: Partial<Pick<ShaderGr
 const TYPE_LABELS: Record<GraphPropertyType, string> = { float: "Float", vector2: "Vector2", vector3: "Vector3", vector4: "Vector4", color: "Color", texture: "Texture" };
 
 /** A property name the graph doesn't use: `Color`, `Color 2`… */
-export function freePropertyName(graph: ShaderGraph, base: string): string {
+function freePropertyName(graph: ShaderGraph, base: string): string {
   if (!graph.properties.some((p) => p.name === base)) return base;
   for (let i = 2; ; i++) if (!graph.properties.some((p) => p.name === `${base} ${i}`)) return `${base} ${i}`;
 }
@@ -261,7 +260,7 @@ export function moveProperty(graph: ShaderGraph, name: string, delta: -1 | 1): S
 // --- keywords (ADR 0106) ----------------------------------------------------------------------------
 
 /** A keyword name the graph doesn't use: `KEYWORD`, `KEYWORD_2`… */
-export function freeKeywordName(graph: ShaderGraph, base = "KEYWORD"): string {
+function freeKeywordName(graph: ShaderGraph, base = "KEYWORD"): string {
   const taken = (n: string) => (graph.keywords ?? []).some((k) => k.name === n);
   if (!taken(base)) return base;
   for (let i = 2; ; i++) if (!taken(`${base}_${i}`)) return `${base}_${i}`;
@@ -367,11 +366,6 @@ export function copyNodes(graph: ShaderGraph, ids: Iterable<string>): GraphClipb
     edges: graph.edges.filter((e) => picked.has(splitPortRef(e.from).node) && picked.has(splitPortRef(e.to).node)).map((e) => ({ ...e })),
     properties: graph.properties.filter((p) => used.has(p.name)).map((p) => structuredClone(p)),
   };
-}
-
-/** Read a clipboard from text (the system clipboard), or null if it isn't one. */
-export function parseClipboard(text: string): GraphClipboard | null {
-  return parseGraphClipboard<GraphClipboard>(text, CLIPBOARD_FORMAT, (v) => Array.isArray(v.nodes) && Array.isArray(v.edges));
 }
 
 /**

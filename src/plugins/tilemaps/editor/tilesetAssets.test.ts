@@ -4,8 +4,9 @@ import { useEditorPlugins } from "../../testEditorPlugins";
 import { defaultImportSettings, formatImportSettings, sidecarPath } from "../../../engine/scene/importSettings";
 import { assetKind } from "../../../editor/assetBrowser";
 import { blockStamp } from "./palette";
+import { parseTileset } from "../runtime/tileset";
 import { joinPath, openFolderProject } from "../../../editor/projects";
-import { formatTileset, readTileset, splitSprite, tilesetFromSlices, tilesForSlices } from "./tilesetAssets";
+import { formatTileset, splitSprite, tilesetFromSlices, tilesForSlices } from "./tilesetAssets";
 import { MemoryFileSystem, ROOT, useCoreAssetKinds } from "../../../editor/testing";
 
 useCoreAssetKinds(); // core asset kinds, as main.tsx registers them (ADR 0143)
@@ -59,7 +60,7 @@ describe("tileset assets (ADR 0103)", () => {
     await project.writeText("a.tileset.json", formatTileset(data));
     expect(fs.files.get(joinPath(ROOT, "a.tileset.json"))).toBe(formatTileset(data));
     expect(formatTileset(data)).toContain('\n  "tileSize"');
-    expect(readTileset(project, "a.tileset.json").tileset.tiles).toHaveLength(1);
+    expect(parseTileset(project.assets.get("a.tileset.json"), "a.tileset.json").tileset.tiles).toHaveLength(1);
   });
 
   it("splits sprite references", () => {

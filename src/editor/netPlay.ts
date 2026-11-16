@@ -246,7 +246,7 @@ export function clampConditions(c: Partial<NetConditionValues>): NetConditionVal
 export const conditionsOff = (c: NetConditionValues) => c.latencyMs === 0 && c.jitterMs === 0 && c.lossPercent === 0;
 
 /** The slider values as a transport's link conditions (loss as a fraction). */
-export function linkConditions(c: NetConditionValues): { latencyMs: number; jitterMs: number; loss: number } {
+function linkConditions(c: NetConditionValues): { latencyMs: number; jitterMs: number; loss: number } {
   const v = clampConditions(c);
   return { latencyMs: v.latencyMs, jitterMs: v.jitterMs, loss: v.lossPercent / 100 };
 }

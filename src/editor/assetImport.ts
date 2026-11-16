@@ -16,7 +16,7 @@ import type { EditorProject } from "./projects";
 import { select as selectNodes, selectedKeys } from "./state";
 
 /** True if an asset has import settings: its kind brings an import settings view (ADR 0143: images and audio, models from the Meshes plugin). */
-export const hasImportSettings = (path: string): boolean => kindImportSettings(assetKind(path)) !== undefined;
+const hasImportSettings = (path: string): boolean => kindImportSettings(assetKind(path)) !== undefined;
 
 export interface ReadSettings {
   settings: ImportSettings;

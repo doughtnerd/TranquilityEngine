@@ -14,7 +14,7 @@ export const osDragOver = signal(false);
 export const osDragFolder = signal<string | null>(null);
 
 /** The folder a drop at this point lands in: the folder element under it, else the one showing. */
-export function dropFolderAt(el: Element | null): string {
+function dropFolderAt(el: Element | null): string {
   const target = el?.closest<HTMLElement>("[data-drop-folder]");
   return target ? (target.dataset.dropFolder ?? "") : folderPath.value;
 }

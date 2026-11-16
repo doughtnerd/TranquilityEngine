@@ -3,14 +3,13 @@
 // history follows a rename.
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { defaultParticleGraph, formatParticleGraph } from "../../../engine/scene/particleGraphFormat";
-import { _reset } from "../../../editor/assetDocuments";
 import { moveAssets } from "../../../editor/assetOps";
 import { joinPath, openFolderProject, type EditorProject } from "../../../editor/projects";
 import { useEditorPlugins } from "../../testEditorPlugins";
 import { currentProject, status } from "../../../editor/state";
 import { MemoryFileSystem, ROOT } from "../../../editor/testing";
 import { particlesEditorPlugin } from ".";
-import { createParticleBlock, createParticleSubgraph, particleDocument, particleFormatId, readEffect, writeEffect } from "./particleAssets";
+import { createParticleBlock, createParticleSubgraph, particleDocument, particleFormatId, readEffect } from "./particleAssets";
 import { formatAsset, subgraphTemplate } from "./particleGraph/assetDocs";
 import { addNote, moveItems, setSystemCollapsed, updateNote } from "./particleGraph/graphEdit";
 
@@ -30,7 +29,6 @@ beforeEach(async () => {
   currentProject.value = project;
 });
 afterEach(() => {
-  _reset();
   currentProject.value = null;
   status.value = null;
 });
@@ -82,7 +80,8 @@ describe("particle documents (ADR 0134)", () => {
 
   it("add no undo step for an edit that changes nothing (a note patched to what it holds)", async () => {
     const doc = particleDocument(project, FX);
-    await writeEffect(project, FX, addNote(doc.value.value, [0, 0]).graph);
+    doc.edit(addNote(doc.value.value, [0, 0]).graph);
+    await doc.flush();
     doc.undo();
     doc.redo();
     await doc.flush();
@@ -112,7 +111,8 @@ describe("particle documents (ADR 0134)", () => {
   it("keep an effect's history through a rename", async () => {
     const doc = particleDocument(project, FX);
     const start = doc.value.value;
-    await writeEffect(project, FX, addNote(start, [0, 0]).graph);
+    doc.edit(addNote(start, [0, 0]).graph);
+    await doc.flush();
     const to = "effects/c.particles.json";
     expect(await moveAssets([[FX, to]])).toBe(true);
     expect(particleDocument(project, to)).toBe(doc);
@@ -136,7 +136,6 @@ describe("particle documents (ADR 0134)", () => {
     const doc = particleDocument(project, FX);
     doc.edit(addNote(doc.value.value, [0, 0]).graph);
     expect(doc.value.value.notes).toHaveLength(0);
-    await expect(writeEffect(project, FX, defaultParticleGraph())).rejects.toThrow(/read-only/);
   });
 });
 

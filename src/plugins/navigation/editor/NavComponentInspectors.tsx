@@ -28,7 +28,7 @@ function sceneChunks(scene: OpenScene): NavChunk[] {
 const typeName = (settings: NavigationSettings, id: string) => settings.agentTypes.find((t) => t.id === id)?.name || id;
 
 /** NavAgent: whether any NavChunk in the scene bakes the agent's type. */
-export function NavAgentBakeNote(props: { scene: OpenScene; agentType: string }) {
+function NavAgentBakeNote(props: { scene: OpenScene; agentType: string }) {
   editor.project.version;
   const settings = projectNavigation(editor.project.current);
   const type = resolveAgentType(settings, props.agentType);
@@ -50,7 +50,7 @@ export function NavAgentBakeNote(props: { scene: OpenScene; agentType: string })
 }
 
 /** Foxfire's avoidance summary under a NavAgent (its type's "On / Avoids / Avoided by") or a NavAvoidanceObstacle. */
-export function NavAvoidanceNote(props: { agentType?: string; obstacleLayers?: number }) {
+function NavAvoidanceNote(props: { agentType?: string; obstacleLayers?: number }) {
   const settings = projectNavigation(editor.project.current);
   let lines: string[];
   if (props.obstacleLayers !== undefined) lines = navObstacleSummary(settings, props.obstacleLayers);
@@ -71,7 +71,7 @@ export function NavAvoidanceNote(props: { agentType?: string; obstacleLayers?: n
 }
 
 /** NavChunk: what it bakes for each agent type and what it shares, above the Bake button; the Surface bins toggle. */
-export function NavChunkPlanSummary(props: { scene: OpenScene; nodeId: string }) {
+function NavChunkPlanSummary(props: { scene: OpenScene; nodeId: string }) {
   const { scene, nodeId } = props;
   const version = editor.project.version;
   const project = editor.project.current;
@@ -198,7 +198,7 @@ function SurfaceBinsSection(props: { settings: NavigationSettings; nodeKey: stri
 }
 
 /** NavResolutionVolume: the cell size it gives each flying agent type, and where it does nothing. */
-export function NavResolutionSummary(props: { scene: OpenScene; nodeKey: string; cellSize: number; agents: string[] }) {
+function NavResolutionSummary(props: { scene: OpenScene; nodeKey: string; cellSize: number; agents: string[] }) {
   editor.project.version;
   const settings = projectNavigation(editor.project.current);
   const chunks = sceneChunks(props.scene);
@@ -241,7 +241,7 @@ export function NavResolutionSummary(props: { scene: OpenScene; nodeKey: string;
 }
 
 /** NavModifierVolume: what the flight preview found (when it applies to the air). */
-export function NavModifierPreviewNote(props: { nodeKey: string; appliesTo: string; area: string }) {
+function NavModifierPreviewNote(props: { nodeKey: string; appliesTo: string; area: string }) {
   const status = navPreviewStatus.value;
   if (props.appliesTo === "ground") return null;
   if (!props.area) return <p class="nav-note">Set an area to see the flight cells it marks.</p>;
@@ -249,7 +249,7 @@ export function NavModifierPreviewNote(props: { nodeKey: string; appliesTo: stri
 }
 
 /** NavCostVolume (ADR 0070): what it does at runtime, and agent types it can't affect. */
-export function NavCostVolumeNote(props: { cost: number; excluded: boolean; agents: string[]; domain: string }) {
+function NavCostVolumeNote(props: { cost: number; excluded: boolean; agents: string[]; domain: string }) {
   const settings = projectNavigation(editor.project.current);
   const { summary, warnings } = describeNavCostVolume(settings, props);
   return (

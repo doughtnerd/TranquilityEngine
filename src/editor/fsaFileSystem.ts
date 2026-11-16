@@ -46,7 +46,7 @@ export async function ensureWritable(handle: FsaDirectoryHandle): Promise<boolea
 const isNotFound = (err: unknown) => err instanceof Error && (err.name === "NotFoundError" || err.name === "TypeMismatchError");
 
 /** The polling interval for `watch` (there are no change events for local folders). */
-export const WATCH_INTERVAL_MS = 1000;
+const WATCH_INTERVAL_MS = 1000;
 
 export class FsaFileSystem implements FileSystem {
   readonly canWrite = true;

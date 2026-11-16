@@ -56,7 +56,7 @@ export interface CheckOptions {
 }
 
 /** One error as the dialog lists it. */
-export const describeDiagnostic = (d: ScriptDiagnostic) => `${d.path}:${d.line}: ${d.message}`;
+const describeDiagnostic = (d: ScriptDiagnostic) => `${d.path}:${d.line}: ${d.message}`;
 
 /**
  * Before Play (ADR 0125): type-check `project`'s scripts and, with errors, ask whether to play

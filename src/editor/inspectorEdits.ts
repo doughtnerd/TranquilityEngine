@@ -60,7 +60,7 @@ export function worldsBadge(worlds: readonly string[] | undefined): string | nul
 }
 
 /** True when two Worlds settings admit the same Worlds (every World, or the same tags in any order). */
-export const sameWorlds = (a: readonly string[] | undefined, b: readonly string[] | undefined): boolean =>
+const sameWorlds = (a: readonly string[] | undefined, b: readonly string[] | undefined): boolean =>
   isEveryWorld(a) === isEveryWorld(b) && (isEveryWorld(a) || (a!.length === b!.length && a!.every((t) => b!.includes(t))));
 
 /** `worlds` with `tag` ticked or unticked; unticking from every World leaves no Worlds. */

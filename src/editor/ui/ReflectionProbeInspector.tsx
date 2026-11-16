@@ -5,7 +5,7 @@ import { currentProject, type OpenScene } from "../state";
 import "./bake.css";
 import type { InspectorSectionProps } from "./inspectorSections";
 
-export function ReflectionProbeBake(props: { scene: OpenScene; nodeId: string }) {
+function ReflectionProbeBake(props: { scene: OpenScene; nodeId: string }) {
   const { scene, nodeId } = props;
   const project = currentProject.value;
   const [busy, setBusy] = useState(false);

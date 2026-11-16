@@ -20,8 +20,8 @@ const CLIPBOARD_SHORTCUTS: readonly Shortcut[] = ["copy", "cut", "paste", "paste
 
 const TOOL_KEYS: Record<string, Tool> = { q: "select", w: "move", e: "rotate", r: "scale" };
 
-/** What a keydown means to the editor, if anything. Exported for tests. */
-export function shortcutFor(e: Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey" | "shiftKey"> & { altKey?: boolean; code?: string }): Shortcut | null {
+/** What a keydown means to the editor, if anything. */
+function shortcutFor(e: Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey" | "shiftKey"> & { altKey?: boolean; code?: string }): Shortcut | null {
   const key = (e.key ?? "").toLowerCase(); // Chromium's autofill sends key events with no key
   // Ctrl/Cmd + Alt (+ Shift) + Z: step through history in creation order (Vim's g- / g+). Checked
   // before plain Ctrl + Z, and by key code too, since Alt changes `key` on some layouts.

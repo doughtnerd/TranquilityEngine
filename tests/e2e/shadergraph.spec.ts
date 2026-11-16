@@ -1,8 +1,7 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join, relative, sep } from "node:path";
 import { expect, requireWebGPU, test, type Locator, type Page } from "./fixtures";
 import { NODES } from "../../src/engine/render/shaderGraph/nodes";
 import { installFakeFolders, nextFolder, readFile } from "./fakeFolders";
+import { playgroundFiles, previewDraws, previewPixels, shaderGraphFile } from "./shaderPreview";
 
 // The Shader Graph panel (ADR 0046, 0047): creating a graph from the Assets panel, adding a
 // property and nodes, wiring them to the output, undo and redo, the live preview, materials that
@@ -11,23 +10,9 @@ import { installFakeFolders, nextFolder, readFile } from "./fakeFolders";
 
 test.describe.configure({ timeout: 60_000 }); // WebKit renders on the CPU
 
-const SAMPLE = "samples/playground3d";
-
-function sampleFiles(dir = SAMPLE): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const name of readdirSync(dir)) {
-    const full = join(dir, name);
-    if (statSync(full).isDirectory()) Object.assign(out, sampleFiles(full));
-    else if (name !== "sample.json") out[relative(SAMPLE, full).split(sep).join("/")] = readFileSync(full, "utf8");
-  }
-  return out;
-}
-
-type Pixel = [number, number, number, number];
 /** The editor's debug hooks on `window`. Page callbacks are serialized, so each casts `window` itself. */
 type Hooks = {
   engine?: { world: { time: { frameCount: number }; render: { diagnostics(): { drawn: { meshes: { node: { name: string }; materials: { unlit: boolean }[] }[] } } } } };
-  shaderGraphPreview?: { readCenter(): Pixel | null; setGraph(graph: unknown): unknown };
 };
 
 function trackErrors(page: Page): string[] {
@@ -39,9 +24,9 @@ function trackErrors(page: Page): string[] {
   return errors;
 }
 
-async function openPlayground(page: Page, writable: boolean): Promise<void> {
+async function openPlayground(page: Page, writable: boolean, extraFiles: Record<string, string> = {}): Promise<void> {
   if (writable) {
-    await installFakeFolders(page, { Playground: sampleFiles() });
+    await installFakeFolders(page, { Playground: { ...playgroundFiles(), ...extraFiles } });
     await page.goto("/editor.html");
     await nextFolder(page, "Playground");
     await page.getByRole("dialog", { name: "Start" }).getByRole("button", { name: "Open Project…" }).click();
@@ -57,7 +42,6 @@ const showFolder = (page: Page, name: string) => page.locator(".asset-folder", {
 const node = (page: Page, id: string) => page.locator(`.sg-node[data-node="${id}"]`);
 const port = (page: Page, id: string, portId: string, side: "input" | "output") => node(page, id).locator(`[data-handleid="${portId}"].${side === "input" ? "target" : "source"}`);
 const graphFile = async (page: Page, path: string) => JSON.parse((await readFile(page, path)) ?? "{}");
-const previewPixel = (page: Page) => page.evaluate(() => (window as unknown as Hooks).shaderGraphPreview?.readCenter() ?? null);
 
 /** Drag a wire from one port to another. */
 async function wire(page: Page, from: Locator, to: Locator): Promise<void> {
@@ -89,7 +73,7 @@ test("create a shader graph, wire a colour property to the output, and see the p
   await expect(node(page, "output")).toBeVisible();
   const file = "Playground/shaders/New Shader Graph.shadergraph.json";
   // The default graph draws white.
-  await expect.poll(async () => (await previewPixel(page))?.[0] ?? 0).toBeGreaterThan(150);
+  await expect.poll(async () => (await previewPixels(page)).center[0]).toBeGreaterThan(150);
 
   // A colour property, set to red, placed in the graph and wired to Base Color.
   await panel.getByRole("combobox", { name: "Add property" }).selectOption("color");
@@ -103,8 +87,8 @@ test("create a shader graph, wire a colour property to the output, and see the p
   await expect(page.locator(".sg-wire")).toHaveCount(1);
   // The preview turns red: much more red than green.
   await expect.poll(async () => {
-    const p = await previewPixel(page);
-    return p ? p[0] - p[1] : 0;
+    const { center } = await previewPixels(page);
+    return center[0] - center[1];
   }, { timeout: 20_000 }).toBeGreaterThan(80);
 
   // Node search: Space, type, Enter adds a node where the search opened.
@@ -187,7 +171,7 @@ test("editing a graph updates the scene's meshes whose material uses it", async 
   expect(errors).toEqual([]);
 });
 
-test("the read-only sample shows its graph and every node type compiles and draws in the preview", async ({ page, webgpu }) => {
+test("the read-only sample shows its graph and draws it in the preview", async ({ page, webgpu }) => {
   requireWebGPU(webgpu); // the preview draws graphs as WGSL alone (ADR 0081)
   const errors = trackErrors(page);
   await openPlayground(page, false);
@@ -196,38 +180,50 @@ test("the read-only sample shows its graph and every node type compiles and draw
   await expect(page.locator(".sg-node")).toHaveCount(10);
   await expect(page.locator(".sg-wire")).toHaveCount(10);
   await expect(page.locator(".sg-readonly")).toHaveText("This project is read-only.");
-  await expect.poll(async () => (await previewPixel(page)) !== null).toBe(true);
+  await expect.poll(() => previewDraws(page), { timeout: 20_000 }).toBe(true);
+  expect(errors).toEqual([]);
+});
 
-  // Each node type, wired into Base Color (and, where it can run per vertex, Vertex Offset), compiles and draws.
-  for (const def of NODES) {
-    if (def.type === "output") continue;
-    const number = def.outputs.find((p) => p.type !== "texture");
-    const vertex = !def.fragmentOnly;
-    // A node with only a texture output (Texture 2D Asset) is sampled by a Sample Texture 2D node;
-    // nodes with no outputs until they're set up (Sub Graph, Custom Function) just compile.
-    const textureOnly = !number && def.outputs.length > 0;
-    const out = number ? `n.${number.id}` : textureOnly ? "s.rgb" : null;
-    const graph = {
-      target: "lit",
-      surface: "opaque",
-      doubleSided: false,
-      properties: [{ name: "P", type: "vector3", value: [1, 0.5, 0.2] }],
-      nodes: [
-        { id: "output", type: "output", position: [0, 0] },
-        { id: "n", type: def.type, position: [0, 0], ...(def.type === "property" ? { settings: { property: "P" } } : {}) },
-        ...(textureOnly ? [{ id: "s", type: "sampleTexture", position: [0, 0] }] : []),
-      ],
-      edges: [
-        ...(textureOnly ? [{ from: `n.${def.outputs[0].id}`, to: "s.texture" }] : []),
-        ...(out ? [{ from: out, to: "output.baseColor" }, ...(vertex ? [{ from: out, to: "output.vertexOffset" }] : [])] : []),
-      ],
-    };
-    const pixel = await page.evaluate((g) => {
-      const p = (window as unknown as Hooks).shaderGraphPreview!;
-      p.setGraph(g);
-      return p.readCenter();
-    }, graph);
-    expect(pixel, def.type).not.toBeNull();
+/** A graph with one `def` node (its id is its type) wired into Base Color, and where it can run per vertex, Vertex Offset. */
+function nodeGraph(def: (typeof NODES)[number]): object {
+  const id = def.type;
+  const number = def.outputs.find((p) => p.type !== "texture");
+  const vertex = !def.fragmentOnly;
+  // A node with only a texture output (Texture 2D Asset) is sampled by a Sample Texture 2D node;
+  // nodes with no outputs until they're set up (Sub Graph, Custom Function) just compile.
+  const textureOnly = !number && def.outputs.length > 0;
+  const sampler = id === "sampleTexture" ? "sampler" : "sampleTexture";
+  const out = number ? `${id}.${number.id}` : textureOnly ? `${sampler}.rgb` : null;
+  return {
+    target: "lit",
+    surface: "opaque",
+    doubleSided: false,
+    properties: [{ name: "P", type: "vector3", value: [1, 0.5, 0.2] }],
+    nodes: [
+      { id: "output", type: "output", position: [0, 0] },
+      { id, type: def.type, position: [0, 0], ...(def.type === "property" ? { settings: { property: "P" } } : {}) },
+      ...(textureOnly ? [{ id: sampler, type: "sampleTexture", position: [0, 200] }] : []),
+    ],
+    edges: [
+      ...(textureOnly ? [{ from: `${id}.${def.outputs[0].id}`, to: `${sampler}.texture` }] : []),
+      ...(out ? [{ from: out, to: "output.baseColor" }, ...(vertex ? [{ from: out, to: "output.vertexOffset" }] : [])] : []),
+    ],
+  };
+}
+
+test("every node type compiles and draws in the preview", async ({ page, browserName, webgpu }) => {
+  test.skip(browserName !== "chromium", "folders open writably through File System Access in Chromium only");
+  requireWebGPU(webgpu); // the preview draws graphs as WGSL alone (ADR 0081)
+  test.setTimeout(240_000);
+  const errors = trackErrors(page);
+  const defs = NODES.filter((def) => def.type !== "output");
+  // One graph file per node type, opened from the Assets panel in turn.
+  await openPlayground(page, true, Object.fromEntries(defs.map((def) => [`shaders/node-${def.type}.shadergraph.json`, shaderGraphFile(nodeGraph(def))])));
+  await showFolder(page, "shaders");
+  for (const def of defs) {
+    await page.locator(".asset-tile", { hasText: `node-${def.type}.shadergraph.json` }).dblclick();
+    await expect(node(page, def.type), def.type).toBeVisible();
+    await expect.poll(() => previewDraws(page), { message: def.type, timeout: 20_000 }).toBe(true);
   }
   expect(errors).toEqual([]);
 });

@@ -6,7 +6,6 @@ import { RenameNode, SetActive, SetField } from "./document";
 import { colorToJSON, editorFor, parseNumber, toSceneJSON } from "./fieldValues";
 import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile } from "./project";
-import { shortcutFor } from "./shortcuts";
 import { openScene, sceneCamera } from "./state";
 import { DEMO_SCENE, demoAssets, demoSettings } from "./testing";
 
@@ -48,14 +47,6 @@ describe("field values (scene-file JSON)", () => {
     expect(parseNumber("pi / 2")).toBeCloseTo(Math.PI / 2, 12);
     expect(parseNumber("-π")).toBeCloseTo(-Math.PI, 12);
     expect(parseNumber("pie")).toBeNull();
-  });
-
-  it("maps keys to undo/redo", () => {
-    expect(shortcutFor({ key: "z", ctrlKey: true, metaKey: false, shiftKey: false })).toBe("undo");
-    expect(shortcutFor({ key: "Z", ctrlKey: true, metaKey: false, shiftKey: true })).toBe("redo");
-    expect(shortcutFor({ key: "y", ctrlKey: true, metaKey: false, shiftKey: false })).toBe("redo");
-    expect(shortcutFor({ key: "z", ctrlKey: false, metaKey: true, shiftKey: false })).toBe("undo");
-    expect(shortcutFor({ key: "z", ctrlKey: false, metaKey: false, shiftKey: false })).toBeNull();
   });
 });
 

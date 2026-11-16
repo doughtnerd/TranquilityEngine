@@ -8,7 +8,7 @@ import type { FieldCodec } from "./codec";
 export type RotationView = "radians" | "degrees" | "quaternion";
 
 /** The views in the order the row's toggle cycles through them. */
-export const ROTATION_VIEWS: readonly RotationView[] = ["radians", "degrees", "quaternion"];
+const ROTATION_VIEWS: readonly RotationView[] = ["radians", "degrees", "quaternion"];
 
 /** The view after `view` in the toggle's cycle. */
 export const nextRotationView = (view: RotationView): RotationView => ROTATION_VIEWS[(ROTATION_VIEWS.indexOf(view) + 1) % ROTATION_VIEWS.length];
@@ -31,7 +31,7 @@ const EULER_HINT_LIMIT = 512;
 const rotationKey = (q: QuatLike): string => quaternionJSON(q).map((n) => n.toFixed(5)).join(",");
 
 /** Remember that `angles` (radians, order ZXY) were typed for the rotation `q`. */
-export function rememberEulerRadians(angles: readonly number[], q: QuatLike): void {
+function rememberEulerRadians(angles: readonly number[], q: QuatLike): void {
   const key = rotationKey(q);
   eulerHints.delete(key);
   eulerHints.set(key, [...angles]);
@@ -50,10 +50,10 @@ const roundTo = (n: number, decimals: number): number => {
  * Euler angles in radians (order ZXY) for `q`: the ones last typed for it when there are any, else read from
  * the quaternion (pitch -π/2..π/2, yaw and roll -π..π), rounded so float noise doesn't show.
  */
-export const eulerRadiansOf = (q: Quaternion): number[] => [...(rememberedEulerRadians(q) ?? q.toEuler().toArray().map((n) => roundTo(n, 6)))];
+const eulerRadiansOf = (q: Quaternion): number[] => [...(rememberedEulerRadians(q) ?? q.toEuler().toArray().map((n) => roundTo(n, 6)))];
 
 /** True when `a` and `b` are the same turn (q and -q included), to well under a thousandth of a degree. */
-export function sameRotation(a: QuatLike, b: QuatLike): boolean {
+function sameRotation(a: QuatLike, b: QuatLike): boolean {
   const la = Math.hypot(a.x, a.y, a.z, a.w) || 1, lb = Math.hypot(b.x, b.y, b.z, b.w) || 1;
   return Math.abs(a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w) / (la * lb) > 1 - 1e-11;
 }

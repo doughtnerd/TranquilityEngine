@@ -3,7 +3,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { Assets, Engine, MeshRenderer } from "../myco";
-import { addAsset, assetKind, prepareAssets, whyNotAddable } from "./assetBrowser";
+import { addAssetEntries, assetKind, prepareAssets, whyNotAddable } from "./assetBrowser";
 import { newComponentEntry } from "./componentEdits";
 import { createNode, newNodeEntry } from "./nodeCreate";
 import { openSceneFile } from "./project";
@@ -41,11 +41,11 @@ describe("adding models from the Assets panel (ADR 0044)", () => {
       const scene = openScene.value!;
       expect(whyNotAddable(scene.doc, "models/robot.fbx")).toBeNull();
       await prepareAssets(["models/robot.fbx", "models/crate.obj"]);
-      const robot = addAsset(scene, "models/robot.fbx", { position: [1, 0, 2] });
+      const robot = addAssetEntries(scene, "models/robot.fbx", { position: [1, 0, 2] })[0].id;
       expect(scene.doc.children(robot).map((id) => scene.doc.node(id).name)).toEqual(["Body", "Head"]);
       const head = scene.doc.children(robot)[1];
       expect(scene.doc.node(head).components!.find((c) => c.type === "engine.MeshRenderer")!.data).toEqual({ mesh: "asset:models/robot.fbx#Head" });
-      const crate = addAsset(scene, "models/crate.obj");
+      const crate = addAssetEntries(scene, "models/crate.obj")[0].id;
       expect(scene.doc.children(crate)).toEqual([]);
       expect(scene.sync.nodeFor(crate)!.getBehavior(MeshRenderer)!.mesh).toBe("models/crate.obj");
       scene.stack.undo();
@@ -68,7 +68,7 @@ describe("adding glTF models from the Assets panel (ADR 0088)", () => {
       const scene = openScene.value!;
       expect(assetKind("models/lamp.glb")).toBe("model");
       await prepareAssets(["models/lamp.glb"]);
-      const lamp = addAsset(scene, "models/lamp.glb");
+      const lamp = addAssetEntries(scene, "models/lamp.glb")[0].id;
       const names = (id: string) => scene.doc.children(id).map((c) => scene.doc.node(c).name);
       const mesh = (id: string) => scene.doc.node(id).components!.find((c) => c.type === "engine.MeshRenderer")?.data;
       expect(names(lamp)).toEqual(["Base", "Pole"]);

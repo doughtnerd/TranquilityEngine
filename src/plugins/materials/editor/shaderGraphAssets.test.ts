@@ -1,13 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defaultShaderGraph, defaultShaderSubGraph, formatShaderGraph } from "../../../engine/scene/shaderGraph";
-import { _reset } from "../../../editor/assetDocuments";
 import { useEditorPlugins } from "../../testEditorPlugins";
 import { materialsEditorPlugin } from ".";
 import { moveAssets } from "../../../editor/assetOps";
 import { joinPath, openFolderProject, type EditorProject } from "../../../editor/projects";
 import { assetFormats } from "../../../editor/sdk/contributions";
 import { addNode, moveNodes } from "./shaderGraph/graphEdit";
-import { readShaderGraph, shaderGraphDocument, writeShaderGraph } from "./shaderGraphAssets";
+import { readShaderGraph, shaderGraphDocument } from "./shaderGraphAssets";
 import { shaderGraphFormat, shaderSubgraphFormat } from "./shaderGraphFormat";
 import { currentProject, status } from "../../../editor/state";
 import { MemoryFileSystem, ROOT } from "../../../editor/testing";
@@ -30,7 +29,6 @@ beforeEach(async () => {
 // The formats come from the Materials plugin (ADR 0134).
 useEditorPlugins([materialsEditorPlugin], "each");
 afterEach(() => {
-  _reset();
   vi.useRealTimers();
   currentProject.value = null;
   status.value = null;
@@ -104,7 +102,8 @@ describe("shader graph documents", () => {
   it("keeps a graph's history through a rename", async () => {
     const doc = shaderGraphDocument(project, PATH);
     const start = doc.value.value;
-    await writeShaderGraph(project, PATH, addNode(start, "time", [0, 0]).graph);
+    doc.edit(addNode(start, "time", [0, 0]).graph);
+    await doc.flush();
     const to = "shaders/c.shadergraph.json";
     expect(await moveAssets([[PATH, to]])).toBe(true);
     expect(shaderGraphDocument(project, to)).toBe(doc);

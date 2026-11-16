@@ -20,7 +20,7 @@ export function readFormation(project: EditorProject, path: string): ReadFormati
 }
 
 /** Where New Formation goes by default: `navigation/` if the project has it, else the folder given. */
-export function formationFolder(folder: string): string {
+function formationFolder(folder: string): string {
   return folder === "" && editor.project.current?.folders.includes("navigation") ? "navigation" : folder;
 }
 

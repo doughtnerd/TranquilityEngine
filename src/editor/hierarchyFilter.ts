@@ -40,7 +40,7 @@ function instanceTypes(prefabPath: string): string[] {
  * instance's from its prefab (plus `addComponent` overrides), and a node inside an instance's
  * from the prefab file it's written in.
  */
-export function componentTypesOf(doc: SceneDocument, key: string): string[] {
+function componentTypesOf(doc: SceneDocument, key: string): string[] {
   const path = key.split("/");
   if (!doc.has(path[0])) return [];
   const node = doc.node(path[0]);
@@ -64,7 +64,7 @@ export function componentTypesOf(doc: SceneDocument, key: string): string[] {
 const shortName = (type: string) => type.slice(type.lastIndexOf(".") + 1).toLowerCase();
 
 /** True if a row with this name and these component types matches `query`. */
-export function rowMatches(query: HierarchyQuery, name: string, types: () => readonly string[]): boolean {
+function rowMatches(query: HierarchyQuery, name: string, types: () => readonly string[]): boolean {
   const lower = name.toLowerCase();
   if (!query.words.every((w) => lower.includes(w))) return false;
   if (query.types.length === 0) return true;

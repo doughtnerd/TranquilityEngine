@@ -8,7 +8,7 @@ const folderOf = (path: string) => (path.includes("/") ? path.slice(0, path.last
 const join = (folder: string, name: string) => (folder ? `${folder}/${name}` : name).replace(/\\/g, "/");
 
 /** An .obj's material libraries (`mtllib`) and an .mtl's texture maps (`map_Kd`, `bump`…), relative to the file. */
-export function wavefrontReferences(path: string, text: string): string[] {
+function wavefrontReferences(path: string, text: string): string[] {
   const out: string[] = [];
   const folder = folderOf(path);
   for (const line of text.split(/\r?\n/)) {
@@ -21,7 +21,7 @@ export function wavefrontReferences(path: string, text: string): string[] {
 }
 
 /** A .gltf's external buffers and images (not `data:` URIs), relative to the file. A .glb or .fbx names nothing readable as text. */
-export function gltfReferences(path: string, text: string): string[] {
+function gltfReferences(path: string, text: string): string[] {
   if (!path.toLowerCase().endsWith(".gltf")) return [];
   let json: { buffers?: { uri?: unknown }[]; images?: { uri?: unknown }[] };
   try {

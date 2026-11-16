@@ -14,7 +14,7 @@ import { UIDocument, type UIDocumentElement } from "../engine/ui/UIDocument";
 import { getFields, type FieldInfo } from "../engine/core/registry";
 import { Assets } from "../engine/scene/Assets";
 import type { UIComponentType } from "../engine/ui/components";
-import type { MarkupAttribute, MarkupElement, ResolvedValue, SourceSpan, StyleTarget, ValueSource } from "../engine/ui/document/types";
+import type { MarkupAttribute, ResolvedValue, SourceSpan, StyleTarget, ValueSource } from "../engine/ui/document/types";
 import { pathKey, type NodePath } from "./document";
 import { selectedAssets } from "./assetSelection";
 import { select, selectedUIElement } from "./state";
@@ -186,7 +186,7 @@ export function rowAncestry(rows: readonly UIDocumentRows[], key: string): strin
 // --- Markup locations ---------------------------------------------------------------------------
 
 /** 1-based line and column of an offset in a file's current text (1:1 when it can't be read). */
-export function lineColumnOf(file: string, offset: number): { line: number; column: number } {
+function lineColumnOf(file: string, offset: number): { line: number; column: number } {
   const text = Assets.has(file) ? Assets.get(file) : null;
   if (typeof text !== "string") return { line: 1, column: 1 };
   let line = 1, start = 0;
@@ -197,18 +197,6 @@ export function lineColumnOf(file: string, offset: number): { line: number; colu
     }
   }
   return { line, column: offset - start + 1 };
-}
-
-/**
- * The span of an element's text content (between its open and close tags), or null when it has
- * none or is self-closing. `source` is the text of `element.file`.
- */
-export function contentSpan(element: MarkupElement, source: string): SourceSpan | null {
-  const { openTagSpan, span } = element;
-  if (openTagSpan.end >= span.end) return null; // self-closing
-  const close = source.lastIndexOf("</", span.end);
-  if (close < openTagSpan.end) return null;
-  return { start: openTagSpan.end, end: close };
 }
 
 /** Where an element is written: its file, whole span and open tag, and (for part 2's edits) its attributes. */

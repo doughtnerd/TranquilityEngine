@@ -10,7 +10,7 @@ export interface History<T> {
   key: string | null;
 }
 
-export const MAX_HISTORY = 100;
+const MAX_HISTORY = 100;
 
 export const createHistory = <T>(present: T): History<T> => ({ past: [], present, future: [], key: null });
 
@@ -26,9 +26,6 @@ export function pushHistory<T>(h: History<T>, next: T, options: { key?: string |
   const past = [...h.past, h.present];
   return { past: past.length > limit ? past.slice(past.length - limit) : past, present: next, future: [], key };
 }
-
-/** The present replaced without an undo step (state that isn't an edit, like which slice names were saved). */
-export const replacePresent = <T>(h: History<T>, next: T): History<T> => ({ ...h, present: next });
 
 export const canUndo = (h: History<unknown>) => h.past.length > 0;
 export const canRedo = (h: History<unknown>) => h.future.length > 0;

@@ -48,16 +48,8 @@ export function readEffect(project: EditorProject, path: string): ReadEffect {
   return kind ? parseAssetDoc(raw, kind) : parseEffect(raw, path);
 }
 
-/** Replace a file's graph through its document (one undo step) and wait for the write. Throws for a read-only project. */
-export function writeEffect(project: EditorProject, path: string, graph: ParticleGraph): Promise<void> {
-  if (!project.canSave) return Promise.reject(new Error(`${project.name} is read-only.`));
-  const doc = particleDocument(project, path);
-  doc.edit(graph);
-  return doc.flush();
-}
-
 /** Where New Particle Effect goes by default: `effects/` if the project has it, else the folder given. */
-export function effectFolder(folder: string): string {
+function effectFolder(folder: string): string {
   return folder === "" && editor.project.current?.folders.includes("effects") ? "effects" : folder;
 }
 

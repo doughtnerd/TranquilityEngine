@@ -3,7 +3,7 @@ export interface Point { x: number; y: number }
 export interface Rect { x: number; y: number; width: number; height: number }
 
 /** Logical pixels left free around the window inside the work area (shadow, a margin from the taskbar and screen edges). */
-export const WORK_AREA_MARGIN = 16;
+const WORK_AREA_MARGIN = 16;
 /** The smallest height the window shrinks to on a tiny screen. */
 const MIN_HEIGHT = 200;
 

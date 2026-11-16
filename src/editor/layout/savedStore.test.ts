@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { MemoryStorage } from "../../engine/platform/Storage";
+import type { StorageBackend } from "../../engine/platform/Storage";
+import { defaultHistoryPlatform } from "../historyPersistence";
 import { joinPath } from "../projects";
 import { ROOT, closeTestProject, openTestProject, useBuiltinPanels } from "../testing";
 import { closePanel, defaultLayout, instancesOf, openTypes } from "./model";
@@ -19,7 +20,6 @@ import {
   saveLayout,
   saveLayoutAs,
   savedLayouts,
-  setLayoutPlatform,
   setLayoutScopes,
   whyNoProjectLayouts,
   whyNoSave,
@@ -29,13 +29,14 @@ import { registeredPanels } from "./registeredPanels";
 
 useBuiltinPanels();
 
-let storage: MemoryStorage;
+/** Per-user storage, the editor's own (in-memory under Node): emptied before each test. */
+let storage: StorageBackend;
 const typesOf = (l = layout.value) => openTypes(l);
 const closeType = (type: string) => (layout.value = closePanel(layout.value, instancesOf(layout.value, type)[0]!, registeredPanels()));
 
 beforeEach(async () => {
-  storage = new MemoryStorage();
-  setLayoutPlatform(async () => ({ fs: null, userStorage: storage }));
+  storage = (await defaultHistoryPlatform()).userStorage;
+  for (const key of await storage.list("settings")) await storage.delete("settings", key);
   await refreshSavedLayouts(null); // nothing from the last test
   applyDefaultLayout();
 });

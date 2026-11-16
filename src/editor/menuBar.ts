@@ -116,7 +116,7 @@ export const NO_SCENE = "open a scene first";
 export const NO_PROJECT = "open a project first";
 export const READ_ONLY = "this project is read-only; open a project folder to save";
 export const STOP_PLAYING = "stop playing to edit the scene";
-export const NO_FOLDER_ACCESS = "this browser can't open project folders; use the desktop editor or a Chromium browser";
+const NO_FOLDER_ACCESS = "this browser can't open project folders; use the desktop editor or a Chromium browser";
 
 /** The Undo item's text: "Undo <what>", or just "Undo" when there's nothing to undo. */
 export function undoLabel(history: HistoryInfo | null): string {

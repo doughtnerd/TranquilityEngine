@@ -46,7 +46,7 @@ export interface HandleStore {
   delete(id: string): Promise<void>;
 }
 
-export const MAX_RECENT = 10;
+const MAX_RECENT = 10;
 
 const isEntry = (e: unknown): e is RecentProject => {
   const r = e as RecentProject;
@@ -180,7 +180,7 @@ export function recentProjects(): RecentProjects {
 export const recentVersion = signal(0);
 
 /** The list in localStorage. */
-export function localListStore(key = "myco.editor.recentProjects"): ListStore {
+function localListStore(key = "myco.editor.recentProjects"): ListStore {
   return {
     read: () => globalThis.localStorage?.getItem(key) ?? null,
     write: (text) => globalThis.localStorage?.setItem(key, text),
@@ -188,7 +188,7 @@ export function localListStore(key = "myco.editor.recentProjects"): ListStore {
 }
 
 /** Folder handles in IndexedDB (structured-cloneable there, unlike in JSON). */
-export function indexedDbHandleStore(dbName = "myco-editor-recent", storeName = "handles"): HandleStore | null {
+function indexedDbHandleStore(dbName = "myco-editor-recent", storeName = "handles"): HandleStore | null {
   if (typeof indexedDB === "undefined") return null;
   let db: Promise<IDBDatabase> | null = null;
   const open = () =>

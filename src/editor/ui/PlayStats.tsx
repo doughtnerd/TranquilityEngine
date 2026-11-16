@@ -12,7 +12,7 @@ import { usePopover } from "./popover";
 import "./playstats.css";
 
 /** Whether the Stats overlay shows while playing, remembered per user. */
-export const playStatsShown = persisted("myco.editor.playStats", false);
+const playStatsShown = persisted("myco.editor.playStats", false);
 
 /** How often the Stats overlay refreshes (about 4 Hz). */
 const REFRESH_MS = 250;

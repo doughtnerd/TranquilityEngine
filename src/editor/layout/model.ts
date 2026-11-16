@@ -96,8 +96,8 @@ export interface Rect {
 export const HEADER_HEIGHT = 28;
 /** Distance from the layout's outer edge, or the filling dock's edge, that targets a new dock. */
 export const EDGE_BAND = 28;
-export const DEFAULT_SIZE: Record<Side, number> = { left: 240, right: 300, bottom: 190 };
-export const MIN_DOCK = 120;
+const DEFAULT_SIZE: Record<Side, number> = { left: 240, right: 300, bottom: 190 };
+const MIN_DOCK = 120;
 /** The smallest the filling (innermost) dock gets: other docks shrink to leave it this much. */
 export const MIN_FILL = { w: 200, h: 140 };
 /** Smallest share of a dock a group can be resized to. */
@@ -122,7 +122,7 @@ export function newInstanceId(): PanelInstanceId {
 // --- instances ----------------------------------------------------------------------------------
 
 /** Every window's docks: the main window's, then each detached window's. */
-export function allDocks(layout: Layout): Dock[] {
+function allDocks(layout: Layout): Dock[] {
   return [...layout.docks, ...(layout.windows ?? []).flatMap((w) => w.docks)];
 }
 
@@ -250,7 +250,7 @@ export function defaultLayout(catalog: PanelCatalog): Layout {
 }
 
 /** `layout` with `panelInfo` refreshed for the registered plugin panels it holds (others' entries kept), and entries for types it no longer holds dropped. */
-export function withPanelInfo(layout: Layout, catalog: PanelCatalog): Layout {
+function withPanelInfo(layout: Layout, catalog: PanelCatalog): Layout {
   const held = new Set(Object.values(layout.instances).map((i) => i.type));
   const info: Partial<Record<PanelId, PanelInfo>> = {};
   for (const type of held) {
@@ -749,9 +749,9 @@ export function hitTest(layout: Layout, geo: Geometry, panel: PanelInstanceId, x
 // --- tab overflow -------------------------------------------------------------------------------
 
 /** How far tabs may shrink (a share of their natural size) before some go behind the overflow button. */
-export const TAB_MIN_SHRINK = 0.88;
+const TAB_MIN_SHRINK = 0.88;
 /** Room the overflow button ("» N") takes at the end of a header. */
-export const OVERFLOW_BUTTON = 40;
+const OVERFLOW_BUTTON = 40;
 
 export interface TabFit {
   /** Indices of the tabs shown, in their order. */
