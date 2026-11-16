@@ -6,13 +6,13 @@
 import { describe, expect, it, vi } from "vitest";
 import { deflateRawSync } from "node:zlib";
 import type { VNode } from "preact";
-import { CAPTURE_ABI_VERSION, CAPTURE_FLAG_COMPRESSED, CAPTURE_HEADER_BYTES, CAPTURE_MAX_UNCOMPRESSED_BYTES, assembleCapture } from "../../runtime/capture/format";
+import { CAPTURE_ABI_VERSION, CAPTURE_FLAG_COMPRESSED, CAPTURE_HEADER_BYTES, CAPTURE_MAX_UNCOMPRESSED_BYTES, CAPTURE_META_MAX_BYTES, assembleCapture } from "../../runtime/capture/format";
 import { SAMPLE_HEADER, SAMPLE_META, sampleCapture } from "../../runtime/capture/testSupport";
 import type { AudioCapture } from "../../runtime/capture/capture";
 import { CaptureSource, type CaptureWorkerLike, type ProfileSource } from "./profilerSource";
 import { createCaptureWorkerHandler, type CaptureRequest, type CaptureResponse } from "../../runtime/capture/worker";
-import { BANNER_TEXT, ProfilerChrome, ProfilerController, profilerSlots, type BarSlotProps, type ProfilerDeps } from "./ProfilerPanel";
-import { OPEN_MAX_FILE_BYTES, OPEN_REFUSALS, installOpenCapture, isCaptureFileName, routeCaptureFile, type CaptureFileLike } from "./openCapture";
+import { BANNER_TEXT, ProfilerChrome, ProfilerController, profilerSlots, type BarSlotProps, type ProfilerDeps, type ProfilerSlots } from "./ProfilerPanel";
+import { OPEN_REFUSALS, installOpenCapture, type CaptureFileLike } from "./openCapture";
 
 function inProcessWorker(): CaptureWorkerLike {
   const w: CaptureWorkerLike & { dead: boolean } = {
@@ -38,6 +38,29 @@ function inProcessWorker(): CaptureWorkerLike {
 
 // The bar is a component (it holds the file input in a ref); with no DOM here its tree is built by calling it, ref stubbed.
 vi.mock("preact/hooks", async (importOriginal) => ({ ...(await importOriginal<typeof import("preact/hooks")>()), useRef: () => ({ current: null }) }));
+
+/** The largest file the route reads: the header, a META chunk and an uncompressed payload at its cap. */
+const OPEN_MAX_FILE_BYTES = CAPTURE_HEADER_BYTES + CAPTURE_META_MAX_BYTES + CAPTURE_MAX_UNCOMPRESSED_BYTES;
+
+/**
+ * Hand `file` to the panel's drop slot as `installOpenCapture` fills it (the drop and the bar's Open both call it), and
+ * resolve whether a capture is now open: the controller's `openBlob` answer, or false when the route refused it unread.
+ */
+async function routeCaptureFile(c: Pick<ProfilerController, "openBlob" | "refuseFile">, file: CaptureFileLike): Promise<boolean> {
+  const slots: Pick<ProfilerSlots, "onDropFile"> = { onDropFile: () => {} };
+  installOpenCapture(slots);
+  let opened: Promise<boolean> = Promise.resolve(false);
+  const opener = { openBlob: (f: CaptureFileLike) => (opened = c.openBlob(f)), refuseFile: (name: string, code: string, message: string) => c.refuseFile(name, code, message) };
+  slots.onDropFile(opener as unknown as ProfilerController, file);
+  return opened;
+}
+
+/** Whether the route takes a file by its name (rather than refusing it unread as not a capture). */
+async function isCaptureFileName(name: string): Promise<boolean> {
+  let taken = false;
+  await routeCaptureFile({ openBlob: async () => (taken = true), refuseFile() {} }, { name, arrayBuffer: async () => new ArrayBuffer(0) });
+  return taken;
+}
 
 const PROJECT_AUDIO = SAMPLE_META.audio;
 const buf = (b: Uint8Array): ArrayBuffer => b.slice().buffer as ArrayBuffer;
@@ -187,11 +210,11 @@ describe("the decode caps refuse a bomb (security bounds, not raised)", () => {
 });
 
 describe("drop and Open reach the same controller path", () => {
-  it("extension check is case-insensitive and exact", () => {
-    expect(isCaptureFileName("a.mycap")).toBe(true);
-    expect(isCaptureFileName("A.MYCAP")).toBe(true);
-    expect(isCaptureFileName("a.mycap.txt")).toBe(false);
-    expect(isCaptureFileName("mycap")).toBe(false);
+  it("extension check is case-insensitive and exact", async () => {
+    expect(await isCaptureFileName("a.mycap")).toBe(true);
+    expect(await isCaptureFileName("A.MYCAP")).toBe(true);
+    expect(await isCaptureFileName("a.mycap.txt")).toBe(false);
+    expect(await isCaptureFileName("mycap")).toBe(false);
   });
 
   it("both fill from profilerSlots.onDropFile: a drop on the chrome and the bar's file input open the same capture; uninstall restores", async () => {
@@ -242,9 +265,9 @@ function findInput(node: unknown): InputProps | null {
 }
 
 describe("a capture saved on desktop or Android (Tauri Storage adds .bin)", () => {
-  it("accepts name.mycap.bin, and still refuses other .bin files", () => {
-    expect(isCaptureFileName("2026-11-13 sound-lab.mycap.bin")).toBe(true);
-    expect(isCaptureFileName("TAKE.MYCAP.BIN")).toBe(true);
-    expect(isCaptureFileName("level.bin")).toBe(false);
+  it("accepts name.mycap.bin, and still refuses other .bin files", async () => {
+    expect(await isCaptureFileName("2026-11-13 sound-lab.mycap.bin")).toBe(true);
+    expect(await isCaptureFileName("TAKE.MYCAP.BIN")).toBe(true);
+    expect(await isCaptureFileName("level.bin")).toBe(false);
   });
 });
