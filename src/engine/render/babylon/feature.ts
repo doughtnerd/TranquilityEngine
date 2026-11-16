@@ -79,6 +79,12 @@ export interface BabylonFeature {
   fit?(camera: TargetCamera): void;
   /** Once a frame, before the frame graph runs (the sky's bake, like probe captures). */
   beforeFrame?(): void;
+  /**
+   * ADR 0189: whether what it draws and lights with has loaded and taken effect (the lighting rig's
+   * environment map lights the scene; the sky's first bake does). Absent means always. A thumbnail
+   * renderer syncs until every feature has settled (or its time runs out) before it draws a still.
+   */
+  settled?(): boolean;
   dispose(): void;
 }
 

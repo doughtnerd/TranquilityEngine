@@ -832,9 +832,13 @@ export class BabylonRenderer {
     return new BabylonRenderer(engine, settings, plugged, policy);
   }
 
-  /** @internal Thumbnails: whether the World's textures and models had all loaded at the last sync. */
+  /**
+   * @internal Thumbnails: whether the World's textures and models had all loaded at the last sync, and every
+   * feature has settled (ADR 0189: an environment map lights the scene, a sky's first bake does; a lazy
+   * feature still loading hasn't).
+   */
   contentReady(): boolean {
-    return this.contentLoaded;
+    return this.contentLoaded && this.slots.every((slot) => !slot.loading && (slot.feature?.settled?.() ?? true));
   }
 
   /** @internal Thumbnails: the main view after the last sync (the first canvas camera, ADR 0129) and its Babylon camera, or null. */
@@ -851,9 +855,13 @@ export class BabylonRenderer {
     return out;
   }
 
-  /** @internal Thumbnails: what a frame does before drawing a view, for a still drawn with `camera` outside the frame graph (the sky box fits it; the sky bakes). */
-  beforeStill(camera: TargetCamera): void {
-    this.frame.beforeView?.(camera);
+  /**
+   * @internal Thumbnails: what a frame does before drawing a view, for a still drawn with `camera` outside
+   * the frame graph (the sky box fits it; the sky bakes). Null while settling, before there's a camera:
+   * only the once-a-frame work (a bake the next sync puts in the scene).
+   */
+  beforeStill(camera: TargetCamera | null): void {
+    if (camera) this.frame.beforeView?.(camera);
     for (const slot of this.slots) slot.feature?.beforeFrame?.();
   }
 

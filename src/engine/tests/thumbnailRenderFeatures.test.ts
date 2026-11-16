@@ -11,7 +11,7 @@ import { Assets, Engine, SceneManager } from "../index";
 import { Camera, Light, SpriteRenderer } from "../render/components";
 import { BabylonRenderer, loadPluginFeatures } from "../render/babylon/BabylonRenderer";
 import { _registeredRenderFeatures, type RenderFeatureRegistration } from "../render/renderFeatures";
-import { ThumbnailRenderer } from "../render/babylon/previews/ThumbnailRenderer";
+import { ThumbnailScenes } from "../render/babylon/previews/thumbnailScenes";
 
 const TEXTURE = 512; // NullEngine's texture size
 const PROJECT_PPU = 16;
@@ -91,7 +91,7 @@ describe("thumbnails through the render features (ADR 0153)", () => {
   }
 
   it("sizes a sliced sprite and a sprite with its own pixels per unit as a World does", async () => {
-    const thumbnails = ThumbnailRenderer.forEngine(new NullEngine(), 64, { studio: false, readyTimeout: 500, settings: () => ({ render: { pixelsPerUnit: PROJECT_PPU } }) });
+    const thumbnails = new ThumbnailScenes(new NullEngine(), 64, { studio: false, readyTimeout: 500, settings: () => ({ render: { pixelsPerUnit: PROJECT_PPU } }) });
     const p = (await thumbnails.prepare("prefab", "sprites.prefab.json", false))!;
     expect(p).not.toBeNull();
     const ref = await inWorld("sprites.prefab.json");
@@ -123,7 +123,7 @@ describe("thumbnails through the render features (ADR 0153)", () => {
   });
 
   it("takes a scene's light and camera defaults from the Components, and frames it from that camera", async () => {
-    const thumbnails = ThumbnailRenderer.forEngine(new NullEngine(), 64, { studio: false, readyTimeout: 200, settings: () => ({}) });
+    const thumbnails = new ThumbnailScenes(new NullEngine(), 64, { studio: false, readyTimeout: 200, settings: () => ({}) });
     const p = (await thumbnails.prepare("scene", "defaults.scene.json", false))!;
     try {
       const world = new World("editor");
@@ -146,7 +146,7 @@ describe("thumbnails through the render features (ADR 0153)", () => {
   });
 
   it("leaves out what a disabled plugin draws", async () => {
-    const thumbnails = ThumbnailRenderer.forEngine(new NullEngine(), 64, { studio: false, readyTimeout: 200, settings: () => ({ render: { pixelsPerUnit: PROJECT_PPU } }) });
+    const thumbnails = new ThumbnailScenes(new NullEngine(), 64, { studio: false, readyTimeout: 200, settings: () => ({ render: { pixelsPerUnit: PROJECT_PPU } }) });
     // As if the Sprites plugin were off: its render feature isn't registered.
     const registered = _registeredRenderFeatures() as RenderFeatureRegistration[];
     const at = registered.findIndex((r) => r.spec.name === "sprites");

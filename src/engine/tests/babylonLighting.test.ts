@@ -491,7 +491,7 @@ describe("environment maps (ADR 0053, 0113)", () => {
   });
 
   const environment = (map: string) => GameObject.create("environment").addBehavior(Environment, { map });
-  const missing = () => warn.mock.calls.filter((c) => /isn't in the project/.test(String(c[0])));
+  const missing = () => warn.mock.calls.filter((c: unknown[]) => /isn't in the project/.test(String(c[0])));
 
   it("loads a six-image cubemap asset, a JSON file with no URL of its own, from its faces", () => {
     environment("asset:env/box.cubemap.json");
