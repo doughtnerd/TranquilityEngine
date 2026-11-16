@@ -8,8 +8,13 @@ import { TimelineCanvas, type TimelineColors } from "../drawTimeline";
 import { MUSIC_SLOT, buildScene } from "../loudnessSceneSupport";
 import { CaptureSource, type CaptureWorkerLike } from "../profilerSource";
 import { TrackList } from "../timelineModel";
-import { LOUDNESS_MARKS_TRACK_ID, LOUDNESS_PLOT_FLOOR, LOUDNESS_PLOT_RANGE, LOUDNESS_TRACK_ID, formatBusReadout, formatLevel, loudnessTrackFactory, loudnessTracks, type LoudnessTrackModule } from "./loudness";
+import { loudnessTracks, type LoudnessTrackModule } from "./loudness";
 import type { TrackContext } from "./types";
+
+const LOUDNESS_TRACK_ID = "loudness";
+const LOUDNESS_MARKS_TRACK_ID = "loudness.marks";
+const LOUDNESS_PLOT_RANGE = 70;
+const LOUDNESS_PLOT_FLOOR = -70;
 
 function inProcessWorker(): CaptureWorkerLike {
   const w: CaptureWorkerLike = {
@@ -33,7 +38,7 @@ function inProcessWorker(): CaptureWorkerLike {
 const scene = buildScene();
 const NAMES = { Music: MUSIC_SLOT } as const;
 
-async function setup(factory = loudnessTrackFactory): Promise<{ source: CaptureSource; mod: LoudnessTrackModule }> {
+async function setup(factory = loudnessTracks()): Promise<{ source: CaptureSource; mod: LoudnessTrackModule }> {
   const source = await CaptureSource.openFile(scene.file.slice().buffer, { worker: inProcessWorker() });
   const ctx: TrackContext = {
     source,
@@ -120,10 +125,10 @@ describe("the loudness track", () => {
     const e = scene.expected.find((x) => x.slot === LOUD_OUTPUT_TAP && x.status === 79 && !x.afterEvent)!;
     const text = mod.tooltipAt!(e.t - source.startSeconds)!;
     const master = text.split("\n").find((l) => l.startsWith("Master:"))!;
-    expect(master).toBe(formatBusReadout("Master", {
-      time: 0, momentary: e.live.momentary, shortTerm: e.live.shortTerm, integrated: e.live.integrated, lra: e.live.lra,
-      truePeak: e.live.maxTruePeak, peak: 0, incomplete: e.live.incomplete,
-    }));
+    const level = (v: number) => (Number.isNaN(v) || v === Number.NEGATIVE_INFINITY ? "-inf" : v.toFixed(1)); // one decimal, "-inf" undefined
+    expect(master).toBe(
+      `Master: M ${level(e.live.momentary)}  S ${level(e.live.shortTerm)}  I ${level(e.live.integrated)} LUFS  LRA ${level(e.live.lra)} LU  TP ${level(e.live.maxTruePeak)} dBTP${e.live.incomplete ? "  (incomplete)" : ""}`,
+    );
     expect(text).toContain("Music: M ");
     expect(text).toContain("Target console: -24.0 LUFS +/- 2.0 LU, -1.0 dBTP");
     // At the end the output reads -14 against a -24 target: over, said in words.
@@ -162,14 +167,18 @@ describe("the loudness track", () => {
 
   it("a source that cannot be asked gives no data and no throw", async () => {
     const fake = { duration: 1, startSeconds: 0 } as unknown as TrackContext["source"];
-    const [mod] = loudnessTrackFactory({ source: fake, names: { clip: () => undefined, bus: () => undefined, event: () => undefined } });
+    const [mod] = loudnessTracks()({ source: fake, names: { clip: () => undefined, bus: () => undefined, event: () => undefined } });
     await mod!.refresh();
     expect(mod!.data()).toBeUndefined();
     expect(mod!.tooltipAt?.(0)).toBeNull();
   });
 
-  it("formats undefined levels as -inf", () => {
-    expect(formatLevel(Number.NEGATIVE_INFINITY)).toBe("-inf");
-    expect(formatLevel(-23.04)).toBe("-23.0");
+  it("reads an undefined level as -inf: the integrated loudness before the gate has a block", async () => {
+    const { source, mod } = await setup();
+    await mod.refresh();
+    const first = scene.expected.find((x) => x.slot === LOUD_OUTPUT_TAP && x.live.integrated === Number.NEGATIVE_INFINITY);
+    expect(first, "a reading before the gate opens").toBeDefined();
+    expect(mod.tooltipAt!(first!.t - source.startSeconds)).toMatch(/^Master: M \S+  S \S+  I -inf LUFS/m);
+    source.close();
   });
 });

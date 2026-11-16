@@ -5,10 +5,7 @@ import { describe, expect, it } from "vitest";
 import { EMPTY_KEYFRAME } from "../../../runtime/capture/recorder";
 import { SAMPLE_RATE } from "../../../runtime/capture/testSupport";
 import type { CaptureSource } from "../profilerSource";
-import {
-  MAX_INSTANCE_LANES, MAX_TOOLTIP_LINES, assignLanes, eventLogFor, eventNames, eventSpans, eventTracks, formatValue, instanceLines, instanceTooltip,
-  parameterChanges, parameterTooltip, spanText, stateChanges, stateTooltip, type EventSpan, type HoverTrackModule,
-} from "./events";
+import { MAX_TOOLTIP_LINES, eventLogFor, eventTracks, formatSeconds, formatValue, parameterChanges, eventNames, type HoverTrackModule } from "./events";
 import { EventKind } from "../../../runtime/capture/format";
 import { recordScene, viewportTime, type Scene } from "./recordScene";
 
@@ -47,13 +44,15 @@ function script(marks: Record<string, number>) {
 describe("event instance spans, parameters and state changes through the real EventSink", () => {
   it("spans start and stop at the recorded STATUS frames; an unstopped instance is still running", async () => {
     const marks: Record<string, number> = {};
-    const { source, log } = await open(script(marks));
-    const spans = eventSpans(log.ofKind(EventKind.eventStart), log.ofKind(EventKind.eventStop), log.initial, eventNames(source));
-    expect(spans.map((s) => [s.name, s.instance, s.end === null])).toEqual([["Explosion", 1, false], ["Ambience", 2, true], ["Late", 3, true]]);
-    expect(spans[0]!.start).toBeCloseTo(viewportTime(source, marks.explosionStart!), 9);
-    expect(spans[0]!.end).toBeCloseTo(viewportTime(source, marks.explosionStop!), 9);
-    expect(spans[1]!.start).toBeCloseTo(viewportTime(source, marks.explosionStart!), 9);
-    expect(spans[2]!.start).toBeCloseTo(viewportTime(source, marks.lateStart!), 9);
+    const { source, instances } = await open(script(marks));
+    instances.tolerance = 0;
+    const start = viewportTime(source, marks.explosionStart!), stop = viewportTime(source, marks.explosionStop!), late = viewportTime(source, marks.lateStart!);
+    // Hovering inside each span lists the running instances, most recently started first.
+    expect(instances.tooltipAt!(start + 0.01)!.split("\n").map((l) => l.split("  ")[0])).toEqual(["Ambience #2", "Explosion #1"]);
+    expect(instances.tooltipAt!(start + 0.01)).toContain(`Explosion #1  ${formatSeconds(start)} to ${formatSeconds(stop)} (${formatSeconds(stop - start)})`);
+    expect(instances.tooltipAt!(start + 0.01)).toContain(`Ambience #2  ${formatSeconds(start)}, still running`);
+    expect(instances.tooltipAt!(late + 0.01)!.split("\n")[0]).toMatch(new RegExp(`^Late #3  ${formatSeconds(late).replace(".", "\\.")}, still running`));
+    expect(instances.tooltipAt!(stop + 0.05)).not.toContain("Explosion");
     source.close();
   });
 
@@ -80,11 +79,9 @@ describe("event instance spans, parameters and state changes through the real Ev
   it("tooltips are the model functions' strings", async () => {
     const marks: Record<string, number> = {};
     const { source, instances, parameters, states, log } = await open(script(marks));
-    const spans = eventSpans(log.ofKind(EventKind.eventStart), log.ofKind(EventKind.eventStop), log.initial, eventNames(source));
     const tIn = viewportTime(source, marks.explosionStart!) + 0.2;
     instances.tolerance = 0.01;
-    expect(instances.tooltipAt!(tIn)).toBe(instanceTooltip(spans, tIn, 0.01, source.duration));
-    expect(instances.tooltipAt!(tIn)).toBe(`${spanText(spans[1]!, source.duration)}\n${spanText(spans[0]!, source.duration)}`);
+    expect(instances.tooltipAt!(tIn)!.split("\n")).toHaveLength(2);
     expect(instances.tooltipAt!(tIn)).toContain('Explosion #1  ');
     expect(instances.tooltipAt!(tIn)).toContain("Ambience #2  ");
     expect(instances.tooltipAt!(tIn)).toContain("still running");
@@ -93,15 +90,12 @@ describe("event instance spans, parameters and state changes through the real Ev
     expect(changes.map((c) => [c.name, c.instance, formatValue(c.value)])).toEqual([["intensity", null, "0.3"], ["pitch", 2, "1.25"]]);
     const tp = viewportTime(source, marks.explosionStart!);
     parameters.tolerance = 0.005;
-    expect(parameters.tooltipAt!(tp)).toBe(parameterTooltip(changes, tp, 0.005));
     expect(parameters.tooltipAt!(tp)).toBe(`${tp.toFixed(3)} s  intensity = 0.3`);
     expect(parameters.tooltipAt!(viewportTime(source, marks.explosionStop!))).toMatch(/pitch = 1\.25 \(instance 2\)$/);
     expect(parameters.tooltipAt!(tp + 0.25)).toBeNull();
 
-    const sc = stateChanges(log.ofKind(EventKind.stateChange), eventNames(source));
     const ts = viewportTime(source, marks.state!);
     states.tolerance = 0.005;
-    expect(states.tooltipAt!(ts)).toBe(stateTooltip(sc, ts, 0.005));
     expect(states.tooltipAt!(ts)).toBe(`${ts.toFixed(3)} s  Level → Cave`);
     expect(instances.tooltipAt!(-5)).toBeNull();
     source.close();
@@ -160,11 +154,11 @@ describe("event instance spans, parameters and state changes through the real Ev
       },
       { keyframeSource: () => ({ ...EMPTY_KEYFRAME, events: [{ id: 9, asset: 4, voices: 1, state: 0, paramsHash: 0 }] }) },
     );
-    const spans = eventSpans(log.ofKind(EventKind.eventStart), log.ofKind(EventKind.eventStop), log.initial, eventNames(source));
-    expect(spans).toHaveLength(1);
-    expect(spans[0]).toMatchObject({ instance: 9, asset: 4, start: 0, fromKeyframe: true, name: "event 4" });
-    expect(spans[0]!.end).toBeCloseTo(viewportTime(source, stopFrame), 9);
-    expect(instances.tooltipAt!(0.1)).toContain("before the capture");
+    const stop = viewportTime(source, stopFrame);
+    expect(log.initial).toHaveLength(1);
+    expect(instances.tooltipAt!(0.1)).toBe(`event 4 #9  before the capture to ${formatSeconds(stop)} (${formatSeconds(stop)})`);
+    expect(instances.data()!.lines).toHaveLength(1);
+    expect(instances.data()!.lines![0]!.values[0]).toBe(1); // running from 0
     source.close();
   });
 
@@ -176,30 +170,51 @@ describe("event instance spans, parameters and state changes through the real Ev
   });
 });
 
-describe("the pure models", () => {
-  const span = (instance: number, start: number, end: number | null): EventSpan => ({ instance, asset: 1, name: "E", start, end, fromKeyframe: false });
-
-  it("lanes: the first free lane, a new one up to the cap, then the last lane (counted)", () => {
-    const spans = [span(1, 0, 10), span(2, 1, 2), span(3, 2, 3), span(4, 3, 9)];
-    expect(assignLanes(spans)).toEqual({ lane: [0, 1, 1, 1], lanes: 2, overflow: 0 });
-    const many = Array.from({ length: MAX_INSTANCE_LANES + 2 }, (_, i) => span(i, 0, null));
-    const r = assignLanes(many);
-    expect([r.lanes, r.overflow, r.lane[r.lane.length - 1]]).toEqual([MAX_INSTANCE_LANES, 2, MAX_INSTANCE_LANES - 1]);
+describe("spans, lanes and the tooltip cap", () => {
+  it("lanes: an instance overlapping all the others takes a new lane, up to six; later ones share the last", async () => {
+    const { source, instances } = await open((s) => {
+      s.advance(0.5);
+      for (let i = 1; i <= 8; i++) s.sink.eventStart(i, `E${i}`);
+      s.advance(1.5);
+    });
+    expect(instances.data()!.lines).toHaveLength(6);
+    source.close();
   });
 
-  it("a start of an open instance ends the earlier span; a stop of an unknown instance is ignored", () => {
-    const ev = (kind: number, time: number, ...args: number[]) => ({ seq: time, time, kind, args, f32: undefined });
-    const n = { parameter: String, event: (i: number) => `e${i}` };
-    const out = eventSpans([ev(EventKind.eventStart, 1, 5, 1), ev(EventKind.eventStart, 3, 5, 2)], [ev(EventKind.eventStop, 4, 5), ev(EventKind.eventStop, 6, 77)], [], n);
-    expect(out.map((s) => [s.start, s.end, s.name])).toEqual([[1, 3, "e1"], [3, 4, "e2"]]);
+  it("a start of an open instance ends the earlier span; a stop of an unknown instance is ignored", async () => {
+    const marks: Record<string, number> = {};
+    const { source, instances } = await open((s) => {
+      s.advance(0.5);
+      marks.first = s.frame();
+      s.sink.eventStart(5, "First");
+      s.advance(1);
+      marks.second = s.frame();
+      s.sink.eventStart(5, "Second");
+      s.advance(1.5);
+      marks.stop = s.frame();
+      s.sink.eventStop(5);
+      s.sink.eventStop(77);
+      s.advance(2);
+    });
+    instances.tolerance = 0;
+    const [t1, t2, t3] = [marks.first!, marks.second!, marks.stop!].map((f) => viewportTime(source, f));
+    expect(instances.tooltipAt!(t1 + 0.01)).toBe(`First #5  ${formatSeconds(t1!)} to ${formatSeconds(t2!)} (${formatSeconds(t2! - t1!)})`);
+    expect(instances.tooltipAt!(t2! + 0.01)).toBe(`Second #5  ${formatSeconds(t2!)} to ${formatSeconds(t3!)} (${formatSeconds(t3! - t2!)})`);
+    expect(instances.tooltipAt!(t3! + 0.2)).toBeNull();
+    source.close();
   });
 
-  it("an open span draws to the end of the capture; a tooltip lists at most MAX_TOOLTIP_LINES and counts the rest", () => {
-    const spans = Array.from({ length: MAX_TOOLTIP_LINES + 3 }, (_, i) => span(i, 0, null));
-    const text = instanceTooltip(spans, 1, 0, 2)!;
+  it("an open span draws to the end of the capture; a tooltip lists at most MAX_TOOLTIP_LINES and counts the rest", async () => {
+    const { source, instances } = await open((s) => {
+      s.advance(0.5);
+      for (let i = 1; i <= MAX_TOOLTIP_LINES + 3; i++) s.sink.eventStart(i, `E${i}`);
+      s.advance(1.5);
+    });
+    const text = instances.tooltipAt!(1)!;
     expect(text.split("\n")).toHaveLength(MAX_TOOLTIP_LINES + 1);
     expect(text.endsWith("+3 more")).toBe(true);
-    const { lines } = instanceLines([span(1, 0.5, null)], [0, 1, 2], 2);
-    expect(Array.from(lines[0]!.values)).toEqual([0, 1, 1, 1]); // grid 0, 0.5, 1, 2
+    const line = instances.data()!.lines![0]!;
+    expect(line.values[line.values.length - 1]).toBe(1); // still 1 at the capture's last sample
+    source.close();
   });
 });

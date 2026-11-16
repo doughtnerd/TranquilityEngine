@@ -19,11 +19,11 @@ import type { Track } from "../timelineModel";
 import { indexAtOrBefore } from "./cpu";
 import type { TrackContext, TrackFactory, TrackModule } from "./types";
 
-export const UNDERRUN_TRACK = "counters.underruns";
-export const LATE_TRACK = "counters.late";
-export const SLACK_TRACK = "counters.slack";
-export const LADDER_TRACK = "counters.ladder";
-export const LADDER_STEPS_TRACK = "counters.ladderSteps";
+const UNDERRUN_TRACK = "counters.underruns";
+const LATE_TRACK = "counters.late";
+const SLACK_TRACK = "counters.slack";
+const LADDER_TRACK = "counters.ladder";
+const LADDER_STEPS_TRACK = "counters.ladderSteps";
 
 const COLUMNS = [...new Set([...COUNTER_COLUMNS, ...LADDER_COLUMNS, ...VOICE_COLUMNS])];
 const LEVEL_COLOR = { green: "accent", amber: "warning", red: "danger" } as const;

@@ -7,7 +7,7 @@ import { statusColumns } from "../profilerSource";
 import type { LineSeries, TrackData } from "../drawTimeline";
 import type { TrackFactory, TrackModule } from "./types";
 
-export const VOICES_TRACK_ID = "voices.counts";
+const VOICES_TRACK_ID = "voices.counts";
 
 /** The lanes, in draw order: the series each reads, its tooltip label and its theme colour. */
 const LANES = [
@@ -51,14 +51,14 @@ export interface VoiceCounts {
 }
 
 /** The counts of the STATUS in force at `t` (the last one at or before it), or `null` before the first. */
-export function voiceCountsAt(series: VoiceSeries, t: number): VoiceCounts | null {
+function voiceCountsAt(series: VoiceSeries, t: number): VoiceCounts | null {
   const i = indexAtOrBefore(series.times, t);
   if (i < 0) return null;
   return { playing: series.mixed[i]!, virtual: series.virtual[i]!, cap: series.cap[i]!, hrtf: series.hrtf[i]!, bed: series.bed[i]!, live: series.live[i]! };
 }
 
 /** The hover text: "playing 3, virtual 1, cap 64, HRTF 0, bed 0 (4 live)". */
-export function voiceTooltip(series: VoiceSeries, t: number): string | null {
+function voiceTooltip(series: VoiceSeries, t: number): string | null {
   const c = voiceCountsAt(series, t);
   if (!c) return null;
   return `playing ${c.playing}, virtual ${c.virtual}, cap ${c.cap}, HRTF ${c.hrtf}, bed ${c.bed} (${c.live} live)`;

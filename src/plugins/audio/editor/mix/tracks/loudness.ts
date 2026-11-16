@@ -23,11 +23,11 @@ import type { ProfileSource } from "../profilerSource";
 import type { TrackContext, TrackFactory, TrackModule } from "./types";
 
 /** The plotted value of a reading is `LUFS - LOUDNESS_PLOT_FLOOR`. */
-export const LOUDNESS_PLOT_FLOOR = -70;
+const LOUDNESS_PLOT_FLOOR = -70;
 /** The top of the scale in the same units (0 LUFS). */
-export const LOUDNESS_PLOT_RANGE = 70;
-export const LOUDNESS_TRACK_ID = "loudness";
-export const LOUDNESS_MARKS_TRACK_ID = "loudness.marks";
+const LOUDNESS_PLOT_RANGE = 70;
+const LOUDNESS_TRACK_ID = "loudness";
+const LOUDNESS_MARKS_TRACK_ID = "loudness.marks";
 
 /** One bus's cached series: the readings the lines and the tooltip use. */
 interface BusSeries {
@@ -36,13 +36,13 @@ interface BusSeries {
 }
 
 /** A level as text: `-23.1`, or `-inf` where undefined. */
-export function formatLevel(v: number): string {
+function formatLevel(v: number): string {
   if (Number.isNaN(v) || v === Number.NEGATIVE_INFINITY) return "-inf";
   return v.toFixed(1);
 }
 
 /** One bus's line of the tooltip. */
-export function formatBusReadout(name: string, v: CaptureLoudnessValues): string {
+function formatBusReadout(name: string, v: CaptureLoudnessValues): string {
   return `${name}: M ${formatLevel(v.momentary)}  S ${formatLevel(v.shortTerm)}  I ${formatLevel(v.integrated)} LUFS  LRA ${formatLevel(v.lra)} LU  TP ${formatLevel(v.truePeak)} dBTP${v.incomplete ? "  (incomplete)" : ""}`;
 }
 
@@ -202,7 +202,7 @@ class LoudnessTrack implements LoudnessTrackModule {
   }
 }
 
-/** The factory with the panel's target; `loudnessTrackFactory` is the one without. */
+/** The factory, with the panel's target when it has one. */
 export function loudnessTracks(options: LoudnessTrackOptions = {}): TrackFactory {
   return (ctx) => {
     const main = new LoudnessTrack(ctx, (options.client ?? defaultClient)(ctx.source), options);
@@ -210,4 +210,3 @@ export function loudnessTracks(options: LoudnessTrackOptions = {}): TrackFactory
   };
 }
 
-export const loudnessTrackFactory: TrackFactory = loudnessTracks();

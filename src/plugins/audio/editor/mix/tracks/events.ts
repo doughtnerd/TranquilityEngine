@@ -23,12 +23,13 @@ import { EventKind } from "../../../runtime/capture/format";
 import type { CaptureSeekState } from "../../../runtime/capture/reader";
 import type { LineSeries, TrackData } from "../drawTimeline";
 import { statusColumns, type ProfileSource } from "../profilerSource";
+import { assignLanes } from "./lanes";
 import type { TrackContext, TrackFactory, TrackModule } from "./types";
 
 /** The id an absent name or instance carries in an EVENT (`capture/events.ts`' `NO_NAME`). */
 export const NO_NAME = 0xffffffff;
 /** Lanes the instances track draws; a deeper overlap shares the last lane. */
-export const MAX_INSTANCE_LANES = 6;
+const MAX_INSTANCE_LANES = 6;
 /** The hover reach (seconds each side) until the panel sets `tolerance` from its pixel scale. */
 export const DEFAULT_HOVER_TOLERANCE_S = 0.02;
 /** Lines a tooltip lists before it counts the rest. */
@@ -253,7 +254,7 @@ export interface EventSpan {
  * still open ends the earlier span there; a stop of an unknown instance is ignored. `initial` seeds the instances the first
  * keyframe counted as running from 0.
  */
-export function eventSpans(starts: readonly LoggedEvent[], stops: readonly LoggedEvent[], initial: readonly InitialInstance[], names: EventNames): EventSpan[] {
+function eventSpans(starts: readonly LoggedEvent[], stops: readonly LoggedEvent[], initial: readonly InitialInstance[], names: EventNames): EventSpan[] {
   const spans: { instance: number; asset: number; start: number; end: number | null; fromKeyframe: boolean }[] = [];
   const open = new Map<number, (typeof spans)[number]>();
   const open1 = (instance: number, asset: number, start: number, fromKeyframe: boolean): void => {
@@ -280,31 +281,9 @@ export function eventSpans(starts: readonly LoggedEvent[], stops: readonly Logge
   return spans.sort((a, b) => a.start - b.start || a.instance - b.instance).map((s) => ({ ...s, name: names.event(s.asset) }));
 }
 
-/** Greedy lane per span (spans sorted by start): the first lane free at its start, a new one up to `max`, else the last. */
-export function assignLanes(spans: readonly EventSpan[], max = MAX_INSTANCE_LANES): { lane: number[]; lanes: number; overflow: number } {
-  const free: number[] = [];
-  const lane: number[] = [];
-  let overflow = 0;
-  for (const s of spans) {
-    let k = free.findIndex((end) => end <= s.start);
-    if (k < 0) {
-      if (free.length < max) {
-        k = free.length;
-        free.push(0);
-      } else {
-        k = free.length - 1;
-        overflow++;
-      }
-    }
-    free[k] = Math.max(free[k]!, s.end ?? Infinity);
-    lane.push(k);
-  }
-  return { lane, lanes: free.length, overflow };
-}
-
 /** The lane lines: 1 over each span, 0 between, on the STATUS times plus every span boundary (an open span ends at `duration`). */
-export function instanceLines(spans: readonly EventSpan[], statusTimes: ArrayLike<number>, duration: number): { lines: LineSeries[]; overflow: number } {
-  const { lane, lanes, overflow } = assignLanes(spans);
+function instanceLines(spans: readonly EventSpan[], statusTimes: ArrayLike<number>, duration: number): { lines: LineSeries[]; overflow: number } {
+  const { lane, lanes, overflow } = assignLanes(spans, MAX_INSTANCE_LANES);
   const bounds: number[] = [];
   for (const s of spans) bounds.push(s.start, s.end ?? duration);
   const grid = mergeTimes(statusTimes, bounds);
@@ -320,7 +299,7 @@ export function instanceLines(spans: readonly EventSpan[], statusTimes: ArrayLik
 // --- tooltips (the strings) --------------------------------------------------------------------------------------------
 
 /** One span as a line: `"Explosion" #12  0.512 s to 1.730 s (1.218 s)`. */
-export function spanText(s: EventSpan, duration: number): string {
+function spanText(s: EventSpan, duration: number): string {
   const head = `${s.name} #${s.instance}`;
   const from = s.fromKeyframe ? "before the capture" : formatSeconds(s.start);
   if (s.end === null) return `${head}  ${from}, still running (${formatSeconds(Math.max(0, duration - s.start))} so far)`;
@@ -328,7 +307,7 @@ export function spanText(s: EventSpan, duration: number): string {
 }
 
 /** The spans running at `t` (within `tolerance` of their ends), most recently started first. */
-export function instanceTooltip(spans: readonly EventSpan[], t: number, tolerance: number, duration: number): string | null {
+function instanceTooltip(spans: readonly EventSpan[], t: number, tolerance: number, duration: number): string | null {
   const hit = spans.filter((s) => s.start - tolerance <= t && t <= (s.end ?? Infinity) + tolerance).reverse();
   return listText(hit.slice(0, MAX_TOOLTIP_LINES).map((s) => spanText(s, duration)), hit.length);
 }
@@ -364,7 +343,7 @@ export interface StateChange {
 }
 
 /** The stateChange events (args `parameter, label`) as changes. */
-export function stateChanges(events: readonly LoggedEvent[], names: EventNames): StateChange[] {
+function stateChanges(events: readonly LoggedEvent[], names: EventNames): StateChange[] {
   return events.map((e) => ({ time: e.time, parameter: names.parameter(e.args[0]!), label: names.parameter(e.args[1]!) }));
 }
 
@@ -378,11 +357,11 @@ function tickTooltip<T extends { time: number }>(items: readonly T[], t: number,
   return listText(items.slice(from, Math.min(to, from + MAX_TOOLTIP_LINES)).map(text), to - from);
 }
 
-export function parameterTooltip(changes: readonly ParameterChange[], t: number, tolerance: number): string | null {
+function parameterTooltip(changes: readonly ParameterChange[], t: number, tolerance: number): string | null {
   return tickTooltip(changes, t, tolerance, parameterText);
 }
 
-export function stateTooltip(changes: readonly StateChange[], t: number, tolerance: number): string | null {
+function stateTooltip(changes: readonly StateChange[], t: number, tolerance: number): string | null {
   return tickTooltip(changes, t, tolerance, stateText);
 }
 

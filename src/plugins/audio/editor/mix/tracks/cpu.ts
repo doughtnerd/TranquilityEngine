@@ -20,11 +20,11 @@ import { statusColumns } from "../profilerSource";
 import type { Track } from "../timelineModel";
 import type { TrackContext, TrackFactory, TrackModule } from "./types";
 
-export const CPU_LOAD_TRACK = "cpu.load";
-export const CPU_SECTIONS_TRACK = "cpu.sections";
+const CPU_LOAD_TRACK = "cpu.load";
+const CPU_SECTIONS_TRACK = "cpu.sections";
 
 /** The five sections in the order `AudioCpuDebug.sections` names them, and each lane's colour. */
-export const CPU_SECTION_KEYS = ["voices", "buses", "spatial", "music", "loudness"] as const;
+const CPU_SECTION_KEYS = ["voices", "buses", "spatial", "music", "loudness"] as const;
 export type CpuSectionKey = (typeof CPU_SECTION_KEYS)[number];
 export const CPU_SECTION_COLORS: Readonly<Record<CpuSectionKey, TimelineColorKey>> = {
   voices: "accent", buses: "accent2", spatial: "warning", music: "text", loudness: "muted",

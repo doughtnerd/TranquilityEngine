@@ -18,7 +18,7 @@ import {
 import type { TrackContext, TrackFactory } from "./types";
 
 /** Lanes the music state track draws; later instances are not drawn (their transitions still tick). */
-export const MAX_MUSIC_LANES = 4;
+const MAX_MUSIC_LANES = 4;
 
 /** One recorded change of a music instance's segment. */
 export interface MusicTransition {
@@ -30,7 +30,7 @@ export interface MusicTransition {
 }
 
 /** The musicTransition events as transitions. */
-export function musicTransitions(events: readonly LoggedEvent[], names: EventNames): MusicTransition[] {
+function musicTransitions(events: readonly LoggedEvent[], names: EventNames): MusicTransition[] {
   return events.map((e) => ({
     time: e.time,
     instance: e.args[0]!,
@@ -40,18 +40,18 @@ export function musicTransitions(events: readonly LoggedEvent[], names: EventNam
 }
 
 /** The rule a transition is named by (the segment pair the rule matched; see the header). */
-export function transitionRule(t: Pick<MusicTransition, "from" | "to">): string {
+function transitionRule(t: Pick<MusicTransition, "from" | "to">): string {
   return t.from === null ? "first segment, from nothing" : `${t.from} → ${t.to}`;
 }
 
 /** A transition's tooltip line: `1.200 s  music 7: A -> B  (rule A -> B)`. */
-export function transitionText(t: MusicTransition): string {
+function transitionText(t: MusicTransition): string {
   const what = t.from === null ? `starts ${t.to}` : `${t.from} → ${t.to}`;
   return `${formatSeconds(t.time)}  music ${t.instance}: ${what}  (rule: ${transitionRule(t)})`;
 }
 
 /** The transitions within `tolerance` of `t`. */
-export function transitionTooltip(transitions: readonly MusicTransition[], t: number, tolerance: number): string | null {
+function transitionTooltip(transitions: readonly MusicTransition[], t: number, tolerance: number): string | null {
   const [from, to] = indicesNear(transitions.map((x) => x.time), t, tolerance);
   return listText(transitions.slice(from, Math.min(to, from + MAX_TOOLTIP_LINES)).map(transitionText), to - from);
 }
@@ -68,7 +68,7 @@ export interface MusicSegment {
 }
 
 /** The segments each instance played: a transition ends its instance's current segment and starts `to`. */
-export function musicSegments(transitions: readonly MusicTransition[]): MusicSegment[] {
+function musicSegments(transitions: readonly MusicTransition[]): MusicSegment[] {
   const out: { instance: number; segment: string; start: number; end: number | null; rule: string }[] = [];
   const current = new Map<number, (typeof out)[number]>();
   for (const t of transitions) {
@@ -82,7 +82,7 @@ export function musicSegments(transitions: readonly MusicTransition[]): MusicSeg
 }
 
 /** The segment lines: level = the segment's number (1-based, by first appearance) over a scale topped by the segment count. */
-export function musicStateLines(segments: readonly MusicSegment[], statusTimes: ArrayLike<number>, duration: number): LineSeries[] {
+function musicStateLines(segments: readonly MusicSegment[], statusTimes: ArrayLike<number>, duration: number): LineSeries[] {
   const number = new Map<string, number>();
   for (const s of segments) if (!number.has(s.segment)) number.set(s.segment, number.size + 1);
   const instances: number[] = [];
@@ -102,7 +102,7 @@ export function musicStateLines(segments: readonly MusicSegment[], statusTimes: 
 }
 
 /** What is playing at `t`: one line per instance with a segment at `t`. */
-export function musicStateTooltip(segments: readonly MusicSegment[], t: number): string | null {
+function musicStateTooltip(segments: readonly MusicSegment[], t: number): string | null {
   const hit = segments.filter((s) => s.start <= t && (s.end === null || t < s.end));
   return listText(hit.map((s) => `music ${s.instance}: playing ${s.segment} since ${formatSeconds(s.start)}  (rule: ${s.rule})`));
 }

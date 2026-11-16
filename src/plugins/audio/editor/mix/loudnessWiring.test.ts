@@ -11,8 +11,11 @@ import { LOUD_OUTPUT_TAP } from "../../runtime/wire.generated";
 import { loudnessTargetNamed, registerMixPanels } from "./index";
 import { buildScene, MUSIC_SLOT } from "./loudnessSceneSupport";
 import { CaptureSource } from "./profilerSource";
-import { LOUDNESS_MARKS_TRACK_ID, LOUDNESS_TRACK_ID, type LoudnessTrackModule } from "./tracks/loudness";
+import { type LoudnessTrackModule } from "./tracks/loudness";
 import { inProcessWorker } from "./voiceSceneSupport";
+
+const LOUDNESS_TRACK_ID = "loudness";
+const LOUDNESS_MARKS_TRACK_ID = "loudness.marks";
 
 const TARGETS = [
   { name: "console", integrated: -24, tolerance: 2, truePeak: -1 },

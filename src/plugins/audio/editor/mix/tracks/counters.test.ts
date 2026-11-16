@@ -4,9 +4,15 @@
 import { describe, expect, it } from "vitest";
 import { TimelineCanvas, type TimelineColors } from "../drawTimeline";
 import { TrackList, timeToX } from "../timelineModel";
-import { LADDER_STEPS_TRACK, LADDER_TRACK, LATE_TRACK, SLACK_TRACK, UNDERRUN_TRACK, counterTracks } from "./counters";
+import { counterTracks } from "./counters";
 import { STATUS_SECONDS, context, open, records, timeOf, type Fields } from "./cpuCountersTestSupport";
 import type { TrackModule } from "./types";
+
+const LADDER_STEPS_TRACK = "counters.ladderSteps";
+const LADDER_TRACK = "counters.ladder";
+const SLACK_TRACK = "counters.slack";
+const LATE_TRACK = "counters.late";
+const UNDERRUN_TRACK = "counters.underruns";
 
 const byId = (mods: readonly TrackModule[], id: string): TrackModule => mods.find((m) => m.track.id === id)!;
 const list = (a: ArrayLike<number> | undefined): number[] => Array.from(a ?? []);

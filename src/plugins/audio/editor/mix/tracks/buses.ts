@@ -18,16 +18,16 @@ import type { LineSeries, TrackData } from "../drawTimeline";
 import type { ProfileSource } from "../profilerSource";
 import type { TrackContext, TrackFactory, TrackModule } from "./types";
 
-export const BUS_LEVEL_TRACK_ID = "buses.level";
-export const BUS_GAIN_TRACK_ID = "buses.gain";
+const BUS_LEVEL_TRACK_ID = "buses.level";
+const BUS_GAIN_TRACK_ID = "buses.gain";
 
 /** The finest grid step, seconds. */
-export const GRID_BASE_S = 0.5;
+const GRID_BASE_S = 0.5;
 /** The most grid points a capture is sampled at. */
-export const MAX_GRID_SAMPLES = 512;
+const MAX_GRID_SAMPLES = 512;
 
 /** The grid step for a capture of `duration` seconds: `GRID_BASE_S` doubled until at most `MAX_GRID_SAMPLES` points fit. */
-export function gridStride(duration: number): number {
+function gridStride(duration: number): number {
   let s = GRID_BASE_S;
   while (duration / s + 1 > MAX_GRID_SAMPLES) s *= 2;
   return s;
@@ -44,7 +44,7 @@ export interface BusSample {
 }
 
 /** The seek samples of one capture; both tracks share it. */
-export class BusSampler {
+class BusSampler {
   private readonly cache = new Map<number, BusSample>();
   private readonly byKeyframe = new Map<number, readonly BusFactors[] | null>();
   private chain: Promise<void> = Promise.resolve();
@@ -200,7 +200,7 @@ export function busGainData(lines: readonly BusGainLine[]): TrackData | undefine
 }
 
 /** One bus's tooltip line: its effective gain and the lanes off unity, e.g. `Music: product 0.398 (-8.0 dB) = authored -6.0 dB x duck -2.0 dB`. */
-export function busFactorsText(name: string, f: BusFactors): string {
+function busFactorsText(name: string, f: BusFactors): string {
   const head = f.tombstone ? `${name} (removed)` : name;
   if (f.nonUnity.length === 0) return `${head}: product 1.000 (0.0 dB), every lane at unity`;
   const lanes = f.factors.filter((x) => !x.unity).map((x) => `${x.lane} ${formatDb(x.db)}`).join(" x ");

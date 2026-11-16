@@ -3,12 +3,15 @@
 import { describe, expect, it } from "vitest";
 import { CPU_WINDOW_QUANTA } from "../../../runtime/mix/cpuMeter";
 import { EMPTY_STATES } from "../emptyStates";
-import { CPU_SECTION_KEYS, CPU_LOAD_TRACK, CPU_SECTIONS_TRACK, cpuTracks, indexAtOrBefore } from "./cpu";
+import { cpuTracks, indexAtOrBefore } from "./cpu";
 import { QUANTA_PER_STATUS, QUANTUM_MS, context, inProcessWorker, open, records, timeOf, type Fields } from "./cpuCountersTestSupport";
 import { assembleCapture } from "../../../runtime/capture/format";
 import { SAMPLE_HEADER, SAMPLE_META } from "../../../runtime/capture/testSupport";
 import { CaptureSource } from "../profilerSource";
 
+const CPU_SECTION_KEYS = ["voices", "buses", "spatial", "music", "loudness"] as const;
+const CPU_SECTIONS_TRACK = "cpu.sections";
+const CPU_LOAD_TRACK = "cpu.load";
 const WINDOW_SAMPLES = CPU_WINDOW_QUANTA / QUANTA_PER_STATUS; // 16
 
 /** A steady load: `share` of every quantum busy; work units rise by fixed steps (one scalar fits them exactly). */
