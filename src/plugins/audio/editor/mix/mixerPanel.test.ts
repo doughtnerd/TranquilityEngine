@@ -1,9 +1,8 @@
-// The Mixer panel (task Mp2b): the controller over injected deps, and the chrome rendered from its view. Cases: every banner on
+// The Mixer panel (task Mp2b): the controller over injected deps (the rendered panel is `mixerPanelView.test.ts`). Cases: every banner on
 // fixtures (a problem, applies at the next Play with the op's message, monitor active, Compare), the snapshot buttons, the target
 // picker (an entry per target), Reset, Pause and the elapsed time (on a fake audio clock), Compare on and off restoring the edited
 // mix with no commit and no undo step, a fader drag as one undo step through a real project section, and the strips following the
 // 50 ms readings without marking the project dirty. No assertion reads a wall clock: the clock is the one the test advances.
-import type { VNode } from "preact";
 import { afterEach, describe, expect, it } from "vitest";
 import type { SettingsDraft } from "../../../../editor/sdk";
 import { createProjectSettingsSection } from "../../../../editor/projectSettingsSection";
@@ -13,7 +12,6 @@ import { EMPTY_BUS_LOUDNESS, type LoudnessResetWhat } from "../../../../engine/a
 import { applyOpToSettings, type ApplyResult, type MixOp } from "../../../../engine/audio/mixOps";
 import { reasonMessage } from "../../../../engine/audio/busCapability";
 import { parseAudioSettings, type AudioSettings } from "../../../../engine/audio/settings";
-import { MixerChrome } from "./MixerPanel";
 import type { BusReading } from "./mixerModel";
 import { MixerPanelController, NOT_PLAYING, type MixerPanelDeps, type MixerView } from "./mixerPanelModel";
 import type { OpLogEntry } from "./opLog";
@@ -591,129 +589,3 @@ describe("the strips follow the readings", () => {
   });
 });
 
-// ---- the chrome ----
-
-type Node = VNode<Record<string, unknown>>;
-function find(node: unknown, pred: (n: Node) => boolean, out: Node[] = []): Node[] {
-  if (Array.isArray(node)) { node.forEach((c) => find(c, pred, out)); return out; }
-  if (!node || typeof node !== "object" || !("props" in node)) return out;
-  const v = node as Node;
-  if (typeof v.type === "function") return find((v.type as (p: unknown) => unknown)(v.props), pred, out);
-  if (pred(v)) out.push(v);
-  return find(v.props.children, pred, out);
-}
-function text(node: unknown): string {
-  if (node === null || node === undefined || typeof node === "boolean") return "";
-  if (typeof node === "string" || typeof node === "number") return String(node);
-  if (Array.isArray(node)) return node.map(text).join("");
-  const v = node as Node;
-  if (typeof v.type === "function") return text((v.type as (p: unknown) => unknown)(v.props));
-  return text(v.props.children);
-}
-const byClass = (cls: string) => (n: Node): boolean => typeof n.props.class === "string" && n.props.class.split(" ").includes(cls);
-const chrome = (r: ReturnType<typeof rig>, onChange = () => {}): VNode => MixerChrome({ controller: r.c, view: r.c.view(), onChange }) as VNode;
-const click = (n: Node): void => (n.props.onClick as () => void)();
-
-describe("the chrome", () => {
-  it("renders a strip per bus, in tree order, on the controller's strip model", () => {
-    const r = rig();
-    const tree = chrome(r);
-    expect(find(tree, (n) => n.props.role === "group" && typeof n.props["data-bus"] === "string").map((n) => n.props["data-bus"])).toEqual(["master", "sfx", "music"]);
-  });
-
-  it("a button per snapshot, disabled outside Play, pressed for the one in force; a click picks it", () => {
-    const r = rig();
-    let buttons = find(chrome(r), byClass("mixer-snapshot"));
-    expect(buttons.map(text)).toEqual(["Paused", "Menu"]);
-    expect(buttons.every((b) => b.props.disabled === true)).toBe(true);
-    r.play();
-    buttons = find(chrome(r), byClass("mixer-snapshot"));
-    expect(buttons.every((b) => b.props.disabled === false)).toBe(true);
-    click(buttons[1]!);
-    expect(r.log.snapshots).toEqual(["Menu"]);
-    buttons = find(chrome(r), byClass("mixer-snapshot"));
-    expect(buttons.map((b) => b.props["aria-pressed"])).toEqual([false, true]);
-  });
-
-  it("the target picker has an option per target, the one in force selected; changing it picks", () => {
-    const r = rig();
-    const select = find(chrome(r), (n) => n.props["aria-label"] === "Loudness target")[0]!;
-    const options = find(select, (n) => n.type === "option");
-    expect(options.map((o) => o.props.value)).toEqual(["console", "mobile", "broadcast"]);
-    expect(options.map((o) => o.props.selected)).toEqual([true, false, false]);
-    expect(text(options[2])).toBe("broadcast (-23 LUFS ±1 LU, -2 dBTP)");
-    let changed = 0;
-    (find(chrome(r, () => void changed++), (n) => n.props["aria-label"] === "Loudness target")[0]!.props.onChange as (e: unknown) => void)({ currentTarget: { value: "mobile" } });
-    expect(r.log.targets).toEqual(["mobile"]);
-    expect(changed).toBe(1);
-  });
-
-  it("Reset, Pause (with its pressed state and label) and the elapsed time", () => {
-    const r = rig();
-    r.play();
-    r.advance(65);
-    const tree = chrome(r);
-    expect(text(find(tree, byClass("mixer-elapsed"))[0])).toBe("1:05");
-    click(find(tree, byClass("mixer-reset"))[0]!);
-    expect(r.log.hub).toContain("reset:all");
-    let pause = find(chrome(r), byClass("mixer-pause"))[0]!;
-    expect([text(pause), pause.props["aria-pressed"]]).toEqual(["Pause", false]);
-    click(pause);
-    pause = find(chrome(r), byClass("mixer-pause"))[0]!;
-    expect([text(pause), pause.props["aria-pressed"]]).toEqual(["Resume", true]);
-    click(pause);
-    expect(text(find(chrome(r), byClass("mixer-pause"))[0])).toBe("Pause");
-  });
-
-  it("Compare: disabled outside Play, a toggle button in Play, pressed while on", () => {
-    const r = rig();
-    expect(find(chrome(r), byClass("mixer-compare"))[0]!.props.disabled).toBe(true);
-    r.play();
-    r.c.stripModel.setVolume("sfx", 0.4);
-    let b = find(chrome(r), byClass("mixer-compare"))[0]!;
-    expect([b.props.disabled, b.props["aria-pressed"]]).toEqual([false, false]);
-    click(b);
-    b = find(chrome(r), byClass("mixer-compare"))[0]!;
-    expect(b.props["aria-pressed"]).toBe(true);
-    click(b);
-    expect(find(chrome(r), byClass("mixer-compare"))[0]!.props["aria-pressed"]).toBe(false);
-    expect(r.liveVolume("sfx")).toBe(0.4);
-  });
-
-  it("every banner is rendered with its id, severity and text", () => {
-    const r = rig({ audio: { ...AUDIO, buses: [{ name: "master" }, { name: "sfx", parent: "master", effects: [{ type: "nope" }] }, { name: "music", parent: "master", meter: "loudness" }] } });
-    r.play();
-    r.log.entries.push({ seq: 1, cause: "edit", source: "recorded", ops: [], results: [{ ok: false, class: "direct", reason: "effectsPerBus" }], restartRequired: [] });
-    r.c.stripModel.toggleSolo("music", false);
-    r.c.toggleCompare();
-    const banners = find(chrome(r), byClass("mixer-banner"));
-    const byId = (id: string) => banners.filter((b) => b.props["data-banner"] === id);
-    expect(byId("problem").length).toBeGreaterThan(0);
-    expect(text(byId("restart")[0])).toBe(`Applies at the next Play: ${reasonMessage("effectsPerBus")}. The edit is saved.`);
-    expect(text(byId("monitor")[0])).toBe(MIXER_BANNER_TEXT.monitor);
-    expect(text(byId("compare")[0])).toBe(MIXER_BANNER_TEXT.compare);
-    expect(byId("problem")[0]!.props["data-severity"]).toBe("warn");
-    expect(byId("problem")[0]!.props.role).toBe("alert");
-    expect(byId("restart")[0]!.props["data-severity"]).toBe("info");
-    expect(byId("restart")[0]!.props.role).toBe("status");
-  });
-
-  it("shows the not-playing note outside Play and no banner list when there is nothing to say", () => {
-    const r = rig();
-    let tree = chrome(r);
-    expect(text(find(tree, byClass("mixer-empty"))[0])).toBe(NOT_PLAYING);
-    expect(find(tree, byClass("mixer-banners"))).toEqual([]);
-    r.play();
-    tree = chrome(r);
-    expect(find(tree, byClass("mixer-empty"))).toEqual([]);
-  });
-
-  it("a strip's solo goes through the monitor, and its fader is locked in Compare", () => {
-    const r = rig();
-    r.play();
-    const solo = find(chrome(r), (n) => n.props["aria-label"] === "Solo sfx")[0]!;
-    click(solo);
-    expect(r.log.monitors).toEqual([["sfx", { solo: true }]]);
-    expect(r.log.commits).toEqual([]);
-  });
-});

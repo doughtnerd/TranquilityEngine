@@ -1,26 +1,31 @@
 // ADR 0173: the Mixer panel's section is the SDK's `editor.project.settings`, the Project Settings panel's own history.
-// `loadMixer` (through `registerMixPanels`'s view) fills `mixerHost.section`; a fader drag over the panel's real deps
-// (`defaultMixerDeps`: draft and commit through the host's section) commits one undo step there; an undo from the Project
-// Settings panel's history puts the value back, and the op log hands the restored volume to the play mixer (the heard value).
-// No wall clock: the drag is three calls, the op log is synchronous, and the save is awaited through the SDK.
-import { afterEach, describe, expect, it } from "vitest";
+// `loadMixer` (through `registerMixPanels`'s view) fills `mixerHost.section`; a fader drag on the rendered panel (its real
+// deps: draft and commit through the host's section; the play mixer's previews and readings spied) commits one undo step
+// there; an undo from the Project Settings panel's history puts the value back, and the op log hands the restored volume
+// to the play mixer (the heard value). No wall clock: the drag is three pointer events, the op log is synchronous, and
+// the save is awaited through the SDK.
+import { h } from "preact";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { editor, type EditorPluginContext, type SettingsDraft } from "../../../../editor/sdk";
 import { projectSettings } from "../../../../editor/projectSettingsInstance";
 import { closeTestProject, openTestProject } from "../../../../editor/testing";
+import { find, render } from "../../../../editor/testRender";
 import { EMPTY_BUS_LOUDNESS } from "../../../../engine/audio/loudnessTypes";
+import { mixer, type Bus } from "../../../../engine/audio/mixer";
 import type { MixOp } from "../../../../engine/audio/mixOps";
-import { positionToGain } from "./faderModel";
 import { registerMixPanels } from "./index";
-import { defaultMixerDeps, mixerHost } from "./MixerPanel";
-import { MixerPanelController } from "./mixerPanelModel";
+import { MixerPanel, mixerHost } from "./MixerPanel";
 import { playState } from "../../../../editor/state";
 import { startOpLog } from "./opLog";
+
+vi.mock("preact/hooks", () => import("../../../../editor/testRender"));
 
 const PROJECT = JSON.stringify({ name: "Game", audio: { buses: [{ name: "master" }, { name: "sfx", parent: "master" }, { name: "music", parent: "master" }] } }, null, 2);
 
 const disposers: Array<() => void> = [];
 afterEach(() => {
   while (disposers.length) disposers.pop()!();
+  vi.restoreAllMocks();
   closeTestProject(); // `mixerHost` stays filled: the panel's module loads once, as in the editor
 });
 
@@ -47,28 +52,21 @@ async function rig() {
       },
   }));
   disposers.push(log.dispose);
-  const commits: string[] = [];
-  let saved: void | Promise<void> = undefined;
-  const real = defaultMixerDeps();
-  const c = new MixerPanelController(
-    {
-      ...real,
-      commit: (label, next) => (commits.push(label), (saved = real.commit(label, next))), // the host's section, i.e. the SDK
-      playing: () => true,
-      apply: (op) => (op.op === "setBus" && op.bus === "sfx" && op.key === "volume" && (heard = op.value as number), { ok: true, class: "direct" }), // the preview
-      flushNow: () => {},
-      readBus: () => ({ runtimeVolume: heard, runtimeMute: false, solo: false, peak: 0, effectiveGain: 1, duckGain: 1, activeVoices: 0, loudness: EMPTY_BUS_LOUDNESS }),
-      setMonitor: () => {},
-      hub: undefined,
-      mark: () => {},
-      clock: () => 0,
-    },
-    () => {},
-  );
-  c.sample();
-  /** The last commit's save (`edit` resolves once project.json is written). */
-  const settle = () => saved;
-  return { project, c, commits, heard: () => heard, log, settle };
+  // The panel's previews go to the play mixer too, and its readings come from there.
+  vi.spyOn(mixer, "apply").mockImplementation((op: MixOp) => {
+    if (op.op === "setBus" && op.bus === "sfx" && op.key === "volume") heard = op.value as number;
+    return { ok: true, class: "direct" };
+  });
+  vi.spyOn(mixer, "bus").mockImplementation(() => ({ exists: true, volume: heard, mute: false, solo: false, peak: 0, effectiveGain: 1, duckGain: 1, activeVoices: 0, loudness: EMPTY_BUS_LOUDNESS }) as unknown as Bus);
+  const flushNow = mixerHost.flushNow;
+  mixerHost.flushNow = () => {};
+  const panel = render(() => h(MixerPanel, {}));
+  disposers.push(() => { panel.unmount(); mixerHost.flushNow = flushNow; });
+  /** The sfx fader's handlers, from the panel as rendered now. */
+  const fader = () => find(panel.tree(), (n) => n.props["aria-label"] === "sfx volume")[0]!.props as unknown as Record<"onPointerDown" | "onPointerMove" | "onPointerUp", (e: unknown) => void>;
+  const track = { getBoundingClientRect: () => ({ height: 100 }), setPointerCapture() {}, releasePointerCapture() {}, focus() {} };
+  const pointer = (clientY: number) => ({ clientY, button: 0, shiftKey: false, pointerId: 7, currentTarget: track });
+  return { project, heard: () => heard, log, fader, pointer };
 }
 
 describe("the Mixer over editor.project.settings", () => {
@@ -83,20 +81,19 @@ describe("the Mixer over editor.project.settings", () => {
   it("a fader drag commits one undo step in the Project Settings history; its undo restores the value and the heard value", async () => {
     const r = await rig();
     const panel = projectSettings.open(r.project); // what the Project Settings panel edits and undoes
-    expect(r.c.stripModel.beginDrag("sfx")).toBe(true);
-    r.c.stripModel.drag(positionToGain(0.4));
-    r.c.stripModel.drag(positionToGain(0.5));
+    r.fader().onPointerDown(r.pointer(50));
+    r.fader().onPointerMove(r.pointer(60));
+    r.fader().onPointerMove(r.pointer(70)); // down: quieter
     expect(editor.project.settings.canUndo()).toBe(false); // previews never enter the history
     const v = editor.project.settings.version;
-    r.c.stripModel.endDrag();
-    await r.settle();
-    const g = positionToGain(0.5);
-    expect(r.commits).toHaveLength(1);
+    r.fader().onPointerUp(r.pointer(70));
+    await vi.waitFor(() => expect(sfxVolumeOf(JSON.parse(r.project.textOf("project.json")!) as SettingsDraft)).toBeDefined()); // saved
+    const g = sfxVolumeOf(editor.project.settings.draft())!;
+    expect(g).toBeLessThan(1);
     expect(editor.project.settings.version).toBeGreaterThan(v);
-    expect(sfxVolumeOf(editor.project.settings.draft())).toBeCloseTo(g, 9);
-    expect(sfxVolumeOf(JSON.parse(r.project.textOf("project.json")!) as SettingsDraft)).toBeCloseTo(g, 9); // saved
+    expect(sfxVolumeOf(JSON.parse(r.project.textOf("project.json")!) as SettingsDraft)).toBeCloseTo(g, 9);
     expect(r.heard()).toBeCloseTo(g, 9);
-    expect(panel.undoLabel).toBe(r.commits[0]); // one step, the panel's history
+    expect(panel.undoLabel).toBeTruthy(); // one step, the panel's history
     // The Project Settings panel's Undo.
     await panel.undo();
     expect(sfxVolumeOf(editor.project.settings.draft())).toBeUndefined();

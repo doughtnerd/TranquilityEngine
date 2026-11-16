@@ -3,7 +3,7 @@
 // and the banners (a problem in the audio section, an edit that applies at the next Play, monitor controls on, Compare on).
 //
 // Thin over a pure model: `MixerPanelController` (`mixerPanelModel.ts`) holds every decision and is tested without a DOM;
-// `MixerChrome` only renders its `view` and forwards events (it has no hooks, so a test calls it as a function), and
+// `MixerChrome` only renders its `view` and forwards events, and
 // `MixerPanel` owns the timer: the controller samples the live readings every `POLL_MS` (the cadence of `BusMeters`) while
 // the editor plays. Sampling writes nothing, so a moving meter never marks the project dirty.
 //
@@ -46,7 +46,7 @@ export const mixerHost: {
 const loudnessBuses = (): string[] => [...mixer.busNames];
 
 /** The deps over the real editor, mixer and hub. */
-export function defaultMixerDeps(): MixerPanelDeps {
+function defaultMixerDeps(): MixerPanelDeps {
   const hubReset = (what: LoudnessResetWhat): void => { for (const n of loudnessBuses()) mixer.bus(n).loudness.reset(what); };
   return {
     draft: () => {
@@ -88,7 +88,7 @@ export function defaultMixerDeps(): MixerPanelDeps {
 
 // ---- the view ---------------------------------------------------------------------------------------------------------
 
-export interface MixerChromeProps {
+interface MixerChromeProps {
   readonly controller: MixerPanelController;
   readonly view: MixerView;
   /** A gesture changed something: re-render. */
@@ -108,8 +108,8 @@ function Banners(props: { banners: readonly MixerBanner[] }): JSX.Element | null
   );
 }
 
-/** The panel's chrome from a view: no hooks, so a test calls it as a function. */
-export function MixerChrome(props: MixerChromeProps): JSX.Element {
+/** The panel's chrome from a view. */
+function MixerChrome(props: MixerChromeProps): JSX.Element {
   const { controller: c, view: v, onChange } = props;
   const selected = v.targets.find((t) => t.selected);
   return (
