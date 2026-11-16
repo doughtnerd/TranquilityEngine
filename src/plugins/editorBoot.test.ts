@@ -11,18 +11,21 @@ afterEach(() => {
 
 describe("editorBoot", () => {
   it("restores a saved layout's Shader Graph and Sky tabs", async () => {
+    await import("../editor/corePanels");
     const { activatePanel, defaultLayout, instancesOf, movePanel } = await import("../editor/layout/model");
+    const { registeredPanels } = await import("../editor/layout/registeredPanels");
     const { applyEditorPlugins, pluginManifests } = await import("./editorPlugins");
     applyEditorPlugins(undefined);
-    const start = defaultLayout();
+    const start = defaultLayout(registeredPanels());
     const [shaderGraph] = instancesOf(start, "shadergraph");
     const [hierarchy] = instancesOf(start, "hierarchy");
-    const saved = JSON.stringify(activatePanel(movePanel(start, shaderGraph!, { kind: "tab", group: "hierarchy" }), "sky"));
+    const saved = JSON.stringify(activatePanel(movePanel(start, shaderGraph!, { kind: "tab", group: "hierarchy" }), "sky", registeredPanels()));
     applyEditorPlugins(pluginManifests().map((m) => m.name)); // every plugin off again
     vi.resetModules();
 
     const storage = new Map([[KEY, saved]]);
     vi.stubGlobal("localStorage", { getItem: (k: string) => storage.get(k) ?? null, setItem: (k: string, v: string) => void storage.set(k, v) });
+    await import("../editor/corePanels"); // as main.tsx boots: the built-in panels, then the plugins
     await import("./editorBoot");
     const { layout } = await import("../editor/layout/store");
     const { openTypes } = await import("../editor/layout/model");

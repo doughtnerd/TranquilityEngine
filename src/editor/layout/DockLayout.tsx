@@ -4,14 +4,12 @@ import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } fro
 import {
   HEADER_HEIGHT,
   activatePanel,
-  canClosePanel,
   closePanel,
   instanceTitle,
   typeOf,
   MAIN_WINDOW,
   windowView,
   fromWindowView,
-  canDetach,
   movePanelToWindow,
   windowOf,
   type Layout,
@@ -29,6 +27,8 @@ import {
   type Rect,
   type Side,
 } from "./model";
+import { canClosePanel, canDetach } from "./catalog";
+import { registeredPanels } from "./registeredPanels";
 import { layout, requestAddPanel } from "./store";
 import { PanelHeader } from "./PanelHeader";
 import { detachToWindow, windowTitle } from "./detached";
@@ -80,7 +80,7 @@ const openMenu = signal<object | null>(null);
 const headerMenu = signal<{ windowId: string; x: number; y: number; group: string; panel?: PanelId } | null>(null);
 
 /** A panel instance's title in the current layout. */
-const titleOf = (id: PanelId) => instanceTitle(layout.value, id);
+const titleOf = (id: PanelId) => instanceTitle(layout.value, id, registeredPanels());
 
 /**
  * A header's height at the current UI scale (the CSS draws `.dock-header` at 28px × `--ui-scale`,
@@ -103,7 +103,7 @@ type Root = { current: HTMLDivElement | null };
  * header) to collapse it to its edge. Tabs that don't fit a header go behind a "» N" button. (The
  * Scene panel keeps the engine's canvas alive across moves: see ScenePanel.tsx.)
  */
-export function DockLayout(props: { panels: Record<PanelId, () => ComponentChildren>; windowId?: string }) {
+export function DockLayout(props: { view: (type: PanelId) => ComponentChildren; windowId?: string }) {
   const root = useRef<HTMLDivElement>(null);
   const windowId = props.windowId ?? MAIN_WINDOW;
   const scope = useMemo(() => (windowId === MAIN_WINDOW ? mainScope : dockScope(windowId)), [windowId]);
@@ -125,7 +125,7 @@ export function DockLayout(props: { panels: Record<PanelId, () => ComponentChild
     <ScopeContext.Provider value={scope}>
       <div ref={root} class={`dock-layout${dragging ? (dragging.hit ? " dragging" : " dragging invalid") : ""}`}>
         {geo.docks.map((d) => (
-          <DockView key={d.dock.id} dock={d} root={root} panels={props.panels} />
+          <DockView key={d.dock.id} dock={d} root={root} view={props.view} />
         ))}
         {dragging?.hit && <div class="drop-preview" style={box(dragging.hit.preview)} />}
         {dragging && (
@@ -164,8 +164,8 @@ function CollapseButton(props: { dock: DockRect }) {
   );
 }
 
-function DockView(props: { dock: DockRect; root: Root; panels: Record<PanelId, () => ComponentChildren> }) {
-  const { dock, root, panels } = props;
+function DockView(props: { dock: DockRect; root: Root; view: (type: PanelId) => ComponentChildren }) {
+  const { dock, root, view } = props;
   const scope = useScope();
   const side = dock.dock.side;
   const collapsible = canCollapse(scope.get(), dock.dock.id);
@@ -212,7 +212,8 @@ function DockView(props: { dock: DockRect; root: Root; panels: Record<PanelId, (
             <TabStrip panels={g.group.panels} active={g.group.active} vertical={false} root={root} group={g.group.id} />
             {collapsible && i === chevronGroup && <CollapseButton dock={dock} />}
           </div>
-          <PanelInstanceContext.Provider key={g.group.active} value={instanceOf(scope, g.group.active)}>{panels[typeOf(layout.value, g.group.active)]()}</PanelInstanceContext.Provider>
+          <PanelInstanceContext.Provider key={g.group.active} value={instanceOf(scope, g.group.active)}>{view(typeOf(layout.value, g.group.active))}</PanelInstanceContext.Provider>
+
         </div>
       ))}
       {handle}
@@ -277,7 +278,7 @@ function TabStrip(props: { panels: PanelId[]; active: PanelId; selected?: readon
 
   const solo = panels.length === 1 && !props.collapsedStrip;
   // No × in a collapsed strip (ADR 0174): the panel isn't showing there.
-  const closable = (p: PanelId) => !props.collapsedStrip && canClosePanel(typeOf(layout.value, p));
+  const closable = (p: PanelId) => !props.collapsedStrip && canClosePanel(registeredPanels(), typeOf(layout.value, p));
   const activeIndex = Math.max(0, panels.indexOf(active));
   const measured = sizes.length === panels.length && available > 0;
   const fit = measured && !solo ? fitTabs(sizes, available, activeIndex, undefined, moreSize || undefined) : { visible: panels.map((_, i) => i), hidden: [] as number[], scale: 1 };
@@ -298,7 +299,7 @@ function TabStrip(props: { panels: PanelId[]; active: PanelId; selected?: readon
             closable={closable(p)}
             style={length ? (vertical ? { height: length } : { width: length }) : undefined}
             onPress={(e) => startDrag(scope, e, p, root)}
-            onClose={() => scope.set(closePanel(scope.get(), p))}
+            onClose={() => scope.set(closePanel(scope.get(), p, registeredPanels()))}
             onMenu={(e) => openHeaderMenu(scope, e, props.group, p)}
           />
         );
@@ -434,7 +435,7 @@ function startDrag(scope: DockScope, e: PointerEvent, panel: PanelId, root: Root
     win.removeEventListener("keydown", key, true);
     const hit = drag.value?.hit;
     drag.value = null;
-    if (!active) scope.set(activatePanel(scope.get(), panel)); // a click: show this tab
+    if (!active) scope.set(activatePanel(scope.get(), panel, registeredPanels())); // a click: show this tab
     else if (apply && hit) scope.set(movePanel(scope.get(), panel, hit.target));
     done?.();
   };
@@ -457,7 +458,7 @@ function startDrag(scope: DockScope, e: PointerEvent, panel: PanelId, root: Root
 
 /** The `PanelInstance` a group's showing panel is drawn as. */
 function instanceOf(scope: DockScope, id: PanelId): PanelInstance {
-  return { id, type: typeOf(layout.value, id), title: titleOf(id), close: () => scope.set(closePanel(scope.get(), id)) };
+  return { id, type: typeOf(layout.value, id), title: titleOf(id), close: () => scope.set(closePanel(scope.get(), id, registeredPanels())) };
 }
 
 function openHeaderMenu(scope: DockScope, e: MouseEvent, group: string, panel?: PanelId): void {
@@ -476,10 +477,11 @@ function HeaderMenu() {
   const view = scope.get();
   const group = view.docks.flatMap((d) => d.groups).find((g) => g.id === m.group);
   const target = m.panel ?? group?.active;
-  const closable = target !== undefined && canClosePanel(typeOf(view, target));
-  // Detach and Move to (ADR 0174): the Scene view stays in the main window.
+  const catalog = registeredPanels();
+  const closable = target !== undefined && canClosePanel(catalog, typeOf(view, target));
+  // Detach and Move to (ADR 0174): a panel that can't be detached (the Scene view) stays in the main window.
   const full = layout.value;
-  const detachable = target !== undefined && canDetach(typeOf(full, target));
+  const detachable = target !== undefined && canDetach(catalog, typeOf(full, target));
   const here = target !== undefined ? (windowOf(full, target)?.id ?? MAIN_WINDOW) : MAIN_WINDOW;
   const destinations = detachable ? [...(here !== MAIN_WINDOW ? [{ id: MAIN_WINDOW, title: "Main Window" }] : []), ...(full.windows ?? []).filter((w) => w.id !== here).map((w) => ({ id: w.id, title: windowTitle(full, w).replace(/ · Myco Engine$/, "") }))] : [];
   return (
@@ -497,10 +499,10 @@ function HeaderMenu() {
       <button
         role="menuitem"
         disabled={!closable}
-        title={closable ? undefined : "The Scene view can't be closed"}
+        title={closable || target === undefined ? undefined : `${titleOf(target)} can't be closed`}
         onClick={() => {
           close();
-          if (target !== undefined) scope.set(closePanel(scope.get(), target));
+          if (target !== undefined) scope.set(closePanel(scope.get(), target, catalog));
         }}
       >
         {target !== undefined ? `Close ${titleOf(target)}` : "Close"}
@@ -509,7 +511,7 @@ function HeaderMenu() {
       <button
         role="menuitem"
         disabled={!detachable}
-        title={detachable ? "Open this panel in a window of its own" : "The Scene view stays in the main window"}
+        title={detachable ? "Open this panel in a window of its own" : target !== undefined ? `${titleOf(target)} stays in the main window` : undefined}
         onClick={() => {
           close();
           if (target !== undefined) detachToWindow(target, ref.current?.ownerDocument.defaultView ?? undefined);
@@ -524,7 +526,8 @@ function HeaderMenu() {
           title={`Move this panel to ${d.id === MAIN_WINDOW ? "the main window" : `the window with ${d.title}`}`}
           onClick={() => {
             close();
-            if (target !== undefined) layout.value = movePanelToWindow(layout.peek(), target, d.id);
+            if (target !== undefined) layout.value = movePanelToWindow(layout.peek(), target, d.id, catalog);
+
           }}
         >
           Move to {d.id === MAIN_WINDOW ? "Main Window" : d.title}

@@ -30,6 +30,7 @@ import {
   type SavedLayout,
 } from "./saved";
 import { layout } from "./store";
+import { registeredPanels } from "./registeredPanels";
 import { panelsOfPlugin } from "../sdk/panelOwners";
 import { captureWindowBounds } from "./detached";
 
@@ -68,7 +69,7 @@ export const activeSaved = computed(() => savedLayouts.value.find((s) => s.file 
 /** True when the working layout differs from the active layout's current version (panels moved, added or closed; sizes don't count). */
 export const layoutModified = computed(() => {
   const active = activeSaved.value;
-  return active ? !matchesHead(active.newest, layout.value) : false;
+  return active ? !matchesHead(active.newest, layout.value, registeredPanels()) : false;
 });
 
 /** Why the project can't hold layouts now, or null when it can. */
@@ -183,14 +184,14 @@ const report = (what: string) => (err: unknown) => void (status.value = errorSta
 
 /** Show the Default layout. */
 export function applyDefaultLayout(): void {
-  layout.value = defaultLayout();
+  layout.value = defaultLayout(registeredPanels());
   activeLayoutFile.value = null;
 }
 
 /** Show a saved layout (its current version, or version `seq`) and make it the active one. */
 export function applySavedLayout(file: string, seq?: number): boolean {
   const saved = savedLayouts.peek().find((s) => s.file === file);
-  const next = saved ? layoutOf(saved.newest, seq) : null;
+  const next = saved ? layoutOf(saved.newest, registeredPanels(), seq) : null;
   if (!saved || !next) {
     status.value = { kind: "info", text: saved ? `The layout “${saved.name}” couldn't be read.` : "That layout no longer exists." };
     return false;
@@ -317,7 +318,7 @@ export function pluginPanelTypes(plugins: readonly string[]): PanelId[] {
     for (const [type, info] of Object.entries(l.panelInfo)) if (info?.plugin && plugins.includes(info.plugin)) types.add(type);
   };
   remembered(layout.peek());
-  for (const s of savedLayouts.peek()) remembered(layoutOf(s.newest));
+  for (const s of savedLayouts.peek()) remembered(layoutOf(s.newest, registeredPanels()));
   return [...types];
 }
 
@@ -328,7 +329,7 @@ export function layoutsWithPanels(types: readonly PanelId[]): LayoutWithPanels[]
   const working = hits(layout.peek());
   if (working.length > 0) out.push({ file: null, name: "Current layout", types: working, writable: true });
   for (const s of savedLayouts.peek()) {
-    const t = hits(layoutOf(s.newest));
+    const t = hits(layoutOf(s.newest, registeredPanels()));
     if (t.length > 0) out.push({ file: s.file, name: s.name, types: t, writable: writableScopes(s).length > 0 });
   }
   return out;
@@ -336,11 +337,13 @@ export function layoutsWithPanels(types: readonly PanelId[]): LayoutWithPanels[]
 
 /** Close the panels of `types` in the working layout, and save each saved layout holding them as a new version without them (`label`). */
 export async function removePanelsFromLayouts(types: readonly PanelId[], label: string): Promise<void> {
-  layout.value = removePanelTypes(layout.peek(), types);
+  const catalog = registeredPanels();
+  layout.value = removePanelTypes(layout.peek(), types, catalog);
   for (const s of savedLayouts.peek()) {
-    const head = layoutOf(s.newest);
+    const head = layoutOf(s.newest, catalog);
     if (!head || writableScopes(s).length === 0) continue;
-    const without = removePanelTypes(head, types);
+    const without = removePanelTypes(head, types, catalog);
+
     if (without === head) continue;
     try {
       await writeTo(s.file, addVersion(s.newest, without, Date.now(), label), writableScopes(s));

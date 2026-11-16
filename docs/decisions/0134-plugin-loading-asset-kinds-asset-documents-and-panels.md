@@ -1,6 +1,6 @@
 # 0134. Editor plugins load from a first-party list and contribute asset kinds, asset formats and panels; asset documents own editing
 
-- **Status:** Accepted
+- **Status:** Accepted; amended by 0182 (panel contributions gain closable, detachable and dock; built-in panels register as contributions)
 - **Date:** 2026-11-08
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

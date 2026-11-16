@@ -9,6 +9,7 @@ import { copySelection, cutSelection, duplicateSelection, nodeClipboard, pasteCl
 import { isInsidePrefab } from "../hierarchyEdit";
 import { layout, requestAddPanel, showPanel } from "../layout/store";
 import { typeOf, type PanelId } from "../layout/model";
+import { registeredPanels } from "../layout/registeredPanels";
 import { activeLayoutFile, applyDefaultLayout, applySavedLayout, layoutModified, savedLayouts, saveLayout, whyNoSave } from "../layout/savedStore";
 import { manageLayoutsOpen, saveLayoutAsOpen } from "../layout/layoutDialogs";
 import { scopeLabel, scopesOf } from "../layout/saved";
@@ -162,7 +163,9 @@ function liveMenus(): Menu[] {
           .slice(0, RECENT_IN_MENU)
           .map((e) => ({ id: e.id, name: e.name, path: e.path }))
       : [],
+    panels: registeredPanels(),
     visiblePanels: visiblePanels(),
+
     pasteBlocked: nodeClipboard.value ? whyNotPasteHere() : "nothing copied",
     selectionInPrefab: selectedKeys.value.some(isInsidePrefab),
     hasSelection: selectedKeys.value.length > 0 || selectedUIElement.value !== null,

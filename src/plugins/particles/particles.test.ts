@@ -13,7 +13,7 @@ import { _reset } from "../../editor/assetDocuments";
 import { acceptsFile } from "../../editor/assetFieldKinds";
 import { inspectableAsset } from "../../editor/assetImport";
 import { canAddToScene, kindIcon, kindLabel, kindOpens, registeredKind } from "../../editor/assetKindLookup";
-import { allPanels, isKnownPanel, isOnDemand, panelBeside, panelTitle, PANELS } from "../../editor/layout/model";
+import { registeredPanels } from "../../editor/layout/registeredPanels";
 import { joinPath, openFolderProject } from "../../editor/projects";
 import { assetFormats, assetKinds, panels } from "../../editor/sdk/contributions";
 import { isPluginActive } from "../../editor/sdk/plugins";
@@ -95,12 +95,8 @@ describe("the Particles plugin's editor half (ADR 0134)", () => {
   });
 
   it("registers the Particle Graph panel beside the Scene view, once", () => {
-    expect(isKnownPanel("particlegraph")).toBe(true);
-    expect(panelTitle("particlegraph")).toBe("Particle Graph");
-    expect(panelBeside("particlegraph")).toBe("scene");
-    expect(isOnDemand("particlegraph")).toBe(false);
-    expect(PANELS).not.toContain("particlegraph");
-    expect(allPanels().filter((p) => p === "particlegraph")).toHaveLength(1);
+    expect(registeredPanels().has("particlegraph")).toBe(true);
+    expect(registeredPanels().get("particlegraph")).toEqual({ title: "Particle Graph", beside: "scene", owner: { plugin: "myco.particles", pluginTitle: "Particles" } });
   });
 
   it("registers the ParticleSystem's Inspector section", async () => {
@@ -151,7 +147,7 @@ describe("the Particles plugin's editor half (ADR 0134)", () => {
     expect(assetKind(FX)).toBe("json"); // a generic file again: it opens in the Code panel and adds to no scene
     expect(canAddToScene(FX)).toBe(false);
     expect(panels.get("particlegraph")).toBeUndefined();
-    expect(isKnownPanel("particlegraph")).toBe(false);
+    expect(registeredPanels().has("particlegraph")).toBe(false);
     expect(registeredInspectorSections("engine.ParticleSystem")).toHaveLength(0);
   });
 });

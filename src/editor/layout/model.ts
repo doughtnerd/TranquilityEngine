@@ -17,61 +17,17 @@
 // A dock other than the filling one can be collapsed to its edge: it keeps its size (to come back
 // to) but draws as a strip one header thick, its tabs along it. Tabs that don't fit a header go
 // behind an overflow button (`fitTabs`).
+//
+// What the rules know about each panel type (its title, where it starts, whether it can be closed,
+// copied or detached) comes from the `PanelCatalog` the caller passes (ADR 0182); nothing here names a
+// panel type or reads the panel registry.
 
-import { panels as panelRegistry } from "../sdk/contributions";
-import { panelOwner } from "../sdk/panelOwners";
+import { canClosePanel, canDetach, isOnDemand, isSinglePanel, panelBeside, panelDock, panelTitle, type PanelCatalog, type PanelId } from "./catalog";
 
-export type BuiltinPanelId = "scene" | "hierarchy" | "inspector" | "assets" | "history" | "code" | "worlds" | "network" | "project";
-/** A panel type: a built-in panel's id, or the id of a panel a plugin registered (ADR 0133). */
-export type PanelId = BuiltinPanelId | (string & {});
+export type { PanelId } from "./catalog";
 /** One open panel in a layout (ADR 0174): a UUID, mapped to its type by `Layout.instances`. */
 export type PanelInstanceId = string;
 export type Side = "left" | "right" | "bottom";
-
-/** The built-in panels (registered ones: `allPanels()`). */
-export const PANELS: readonly BuiltinPanelId[] = ["scene", "hierarchy", "inspector", "assets", "history", "code", "worlds", "network", "project"];
-export const PANEL_TITLES: Record<BuiltinPanelId, string> = { scene: "Scene", hierarchy: "Hierarchy", inspector: "Inspector", assets: "Assets", history: "History", code: "Code", worlds: "Worlds", network: "Network", project: "Project" };
-/** Panels that can only be open once: the Scene view owns the one viewport and WebGL context. */
-const SINGLE_PANELS: readonly BuiltinPanelId[] = ["scene"];
-
-/** Every panel type: the built-in ones, then those plugins registered. Reads the registry's version, so a component calling it re-renders on changes. */
-export function allPanels(): PanelId[] {
-  void panelRegistry.version.value;
-  return [...PANELS, ...panelRegistry.list().map((p) => p.id).filter((id) => !(PANELS as readonly string[]).includes(id))];
-}
-
-/** True for a built-in or currently registered panel type. */
-export function isKnownPanel(type: PanelId): boolean {
-  void panelRegistry.version.value;
-  return (PANELS as readonly string[]).includes(type) || panelRegistry.get(type) !== undefined;
-}
-
-/** A panel type's title (from `info`, a layout's memory of an unavailable plugin panel, else the type itself if it's unknown). */
-export function panelTitle(type: PanelId, info?: PanelInfo): string {
-  void panelRegistry.version.value;
-  return (PANEL_TITLES as Record<string, string>)[type] ?? panelRegistry.get(type)?.title ?? info?.title ?? type;
-}
-
-/** The panel whose group `type` joins when first shown, if it names one. */
-export function panelBeside(type: PanelId): PanelId | undefined {
-  void panelRegistry.version.value;
-  return (BESIDE as Record<string, PanelId | undefined>)[type] ?? panelRegistry.get(type)?.beside;
-}
-
-/** True for a panel kept out of the default layout (built-in or registered with `onDemand`). */
-export function isOnDemand(type: PanelId): boolean {
-  void panelRegistry.version.value;
-  return (ON_DEMAND_PANELS as readonly string[]).includes(type) || !!panelRegistry.get(type)?.onDemand;
-}
-
-/** True for a panel type that can only be open once (the Scene view, or a registered panel with `single`). */
-export function isSinglePanel(type: PanelId): boolean {
-  void panelRegistry.version.value;
-  return (SINGLE_PANELS as readonly string[]).includes(type) || !!panelRegistry.get(type)?.single;
-}
-
-/** True for a panel type the user can close (every one but the Scene view). */
-export const canClosePanel = (type: PanelId): boolean => type !== "scene";
 
 export interface TabGroup {
   id: string;
@@ -163,16 +119,6 @@ export function newInstanceId(): PanelInstanceId {
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
 }
 
-/**
- * Panels left out of the default layout and opened on demand (the Window menu, or an action such as
- * double-clicking a sky asset), so the editor starts without them; once opened they stay in the
- * layout like any other. Saved layouts without them don't get them added back.
- */
-export const ON_DEMAND_PANELS: readonly BuiltinPanelId[] = [];
-
-/** Where a panel missing from a layout goes: beside its usual neighbour, else with the Inspector, else the first group. */
-const BESIDE: Partial<Record<BuiltinPanelId, BuiltinPanelId>> = { code: "assets", worlds: "history", network: "worlds", project: "worlds" };
-
 // --- instances ----------------------------------------------------------------------------------
 
 /** Every window's docks: the main window's, then each detached window's. */
@@ -196,9 +142,9 @@ export function instancesOf(layout: Layout, type: PanelId): PanelInstanceId[] {
 }
 
 /** The title an instance shows: its type's, or the layout's memory of an unavailable plugin panel. */
-export function instanceTitle(layout: Layout, id: PanelInstanceId): string {
+export function instanceTitle(layout: Layout, id: PanelInstanceId, catalog: PanelCatalog): string {
   const type = typeOf(layout, id);
-  return panelTitle(type, layout.panelInfo[type]);
+  return panelTitle(catalog, type, layout.panelInfo[type]);
 }
 
 /** Every instance's type in the layout, in dock order (for tests and menus). */
@@ -206,21 +152,36 @@ export function openTypes(layout: Layout): PanelId[] {
   return allDocks(layout).flatMap((d) => d.groups.flatMap((g) => g.panels.map((id) => typeOf(layout, id))));
 }
 
-/** The group holding `type`'s neighbour, else its neighbour's neighbour and so on (the Sky panel → Particle Graph → Scene), else the Inspector's, else the first. */
-function groupFor(layout: Layout, type: PanelId): TabGroup {
+/**
+ * The group holding `type`'s neighbour, else its neighbour's neighbour and so on (the Sky panel → Particle
+ * Graph → Scene), else the first group holding a panel that starts in the right dock (the Inspector's),
+ * else the first.
+ */
+function groupFor(layout: Layout, type: PanelId, catalog: PanelCatalog): TabGroup {
   const groups = layout.docks.flatMap((d) => d.groups);
   const holding = (p: PanelId) => groups.find((g) => g.panels.some((id) => typeOf(layout, id) === p));
   const seen = new Set<PanelId>([type]);
-  for (let near = panelBeside(type); near !== undefined && !seen.has(near); near = panelBeside(near)) {
+  for (let near = panelBeside(catalog, type); near !== undefined && !seen.has(near); near = panelBeside(catalog, near)) {
     seen.add(near);
     const group = holding(near);
     if (group) return group;
   }
-  return holding("inspector") ?? groups[0]!;
+  for (const p of catalog.keys()) {
+    const group = panelDock(catalog, p) === "right" ? holding(p) : undefined;
+    if (group) return group;
+  }
+  return groups[0] ?? addFillDock(layout);
+}
+
+/** A new innermost (filling) dock with one empty group, which it returns. */
+function addFillDock(layout: Layout): TabGroup {
+  const group: TabGroup = { id: newId("g"), panels: [], active: "" };
+  layout.docks.push({ id: newId("d"), side: "left", size: 0, groups: [group], fractions: [1] });
+  return group;
 }
 
 /** Put a new instance of `type` into `layout` (mutated): in `group`, or beside its neighbour (after its tab when `afterNeighbour`). */
-function insertInstance(layout: Layout, type: PanelId, group?: TabGroup, afterNeighbour = false): PanelInstanceId {
+function insertInstance(layout: Layout, type: PanelId, catalog: PanelCatalog, group?: TabGroup, afterNeighbour = false): PanelInstanceId {
   const id = newInstanceId();
   layout.instances[id] = { type };
   if (!layout.known.includes(type)) layout.known.push(type);
@@ -235,11 +196,11 @@ function insertInstance(layout: Layout, type: PanelId, group?: TabGroup, afterNe
     g.panels.splice(g.panels.indexOf(sibling) + 1, 0, id);
     return id;
   }
-  const near = panelBeside(type);
+  const near = panelBeside(catalog, type);
   const nearId = near !== undefined ? instancesOf(layout, near)[0] : undefined;
   const at = nearId !== undefined ? locate(layout, nearId) : null;
   if (afterNeighbour && at) at.group.panels.splice(at.group.panels.indexOf(nearId!) + 1, 0, id);
-  else groupFor(layout, type).panels.push(id);
+  else groupFor(layout, type, catalog).panels.push(id);
   return id;
 }
 
@@ -261,37 +222,40 @@ function fromTypes(docks: Dock[]): Layout {
   return { version: 2, docks, instances, known: [], panelInfo: {} };
 }
 
-/**
- * The editor's first layout: the built-in panels, then each registered panel that isn't on demand
- * (the Shader Graph, from the Materials plugin) as the tab after its `beside` neighbour.
- */
-export function defaultLayout(): Layout {
-  const layout = fromTypes(builtinDefaultDocks());
-  for (const type of allPanels()) {
-    if (type === "scene" || isOnDemand(type) || instancesOf(layout, type).length > 0) continue;
-    insertInstance(layout, type, undefined, true);
-  }
-  layout.known = allPanels();
-  return withPanelInfo(layout);
-}
+/** The default layout's docks, outermost first, with their ids; the last fills the middle. */
+const DEFAULT_DOCKS: readonly { dock: "left" | "right" | "bottom" | "fill"; id: string; side: Side; size: number }[] = [
+  { dock: "bottom", id: "bottom", side: "bottom", size: DEFAULT_SIZE.bottom },
+  { dock: "left", id: "left", side: "left", size: DEFAULT_SIZE.left },
+  { dock: "right", id: "right", side: "right", size: DEFAULT_SIZE.right },
+  { dock: "fill", id: "main", side: "left", size: 0 },
+];
 
-function builtinDefaultDocks(): Dock[] {
-  return [
-    { id: "bottom", side: "bottom", size: DEFAULT_SIZE.bottom, groups: [{ id: "assets", panels: ["assets", "code"], active: "assets" }], fractions: [1] },
-    { id: "left", side: "left", size: DEFAULT_SIZE.left, groups: [{ id: "hierarchy", panels: ["hierarchy"], active: "hierarchy" }], fractions: [1] },
-    { id: "right", side: "right", size: DEFAULT_SIZE.right, groups: [{ id: "inspector", panels: ["inspector", "history", "worlds", "network", "project"], active: "inspector" }], fractions: [1] },
-    // Innermost: fills the middle.
-    { id: "main", side: "left", size: 0, groups: [{ id: "scene", panels: ["scene"], active: "scene" }], fractions: [1] },
-  ];
+/**
+ * The editor's first layout: each panel type that names a `dock` as a tab of that dock's one group (named
+ * after its first panel), in catalog order (Assets and Code at the bottom, the Hierarchy left, the
+ * Inspector and others right, the Scene view filling the middle); then each other panel that isn't on
+ * demand (the Shader Graph, from the Materials plugin) as the tab after its `beside` neighbour.
+ */
+export function defaultLayout(catalog: PanelCatalog): Layout {
+  const types = [...catalog.keys()].filter((type) => !isOnDemand(catalog, type));
+  const docks: Dock[] = [];
+  for (const d of DEFAULT_DOCKS) {
+    const panels = types.filter((type) => panelDock(catalog, type) === d.dock);
+    if (panels.length > 0) docks.push({ id: d.id, side: d.side, size: d.size, groups: [{ id: panels[0]!, panels, active: panels[0]! }], fractions: [1] });
+  }
+  const layout = fromTypes(docks);
+  for (const type of types) if (instancesOf(layout, type).length === 0) insertInstance(layout, type, catalog, undefined, true);
+  layout.known = [...catalog.keys()];
+  return withPanelInfo(layout, catalog);
 }
 
 /** `layout` with `panelInfo` refreshed for the registered plugin panels it holds (others' entries kept), and entries for types it no longer holds dropped. */
-export function withPanelInfo(layout: Layout): Layout {
+export function withPanelInfo(layout: Layout, catalog: PanelCatalog): Layout {
   const held = new Set(Object.values(layout.instances).map((i) => i.type));
   const info: Partial<Record<PanelId, PanelInfo>> = {};
   for (const type of held) {
-    const registered = panelRegistry.get(type);
-    const owner = panelOwner(type);
+    const registered = catalog.get(type);
+    const owner = registered?.owner;
     const kept = layout.panelInfo[type];
     if (registered && owner) info[type] = { title: registered.title, plugin: owner.plugin, pluginTitle: owner.pluginTitle };
     else if (kept) info[type] = kept;
@@ -397,9 +361,9 @@ export function movePanel(layout: Layout, panel: PanelInstanceId, target: DropTa
  * Show a panel: given an instance id, make it its group's visible tab; given a type, its first
  * instance, or a new one (beside its neighbour) when none is open. Expands a collapsed dock.
  */
-export function activatePanel(layout: Layout, panel: PanelInstanceId | PanelId): Layout {
+export function activatePanel(layout: Layout, panel: PanelInstanceId | PanelId, catalog: PanelCatalog): Layout {
   const id = layout.instances[panel] ? panel : instancesOf(layout, panel)[0];
-  if (id === undefined) return isKnownPanel(panel) ? addPanel(layout, panel).layout : layout;
+  if (id === undefined) return catalog.has(panel) ? addPanel(layout, panel, catalog).layout : layout;
   const from = locate(layout, id);
   if (!from || (from.group.active === id && !from.dock.collapsed)) return layout;
   const next = structuredClone(layout);
@@ -414,24 +378,21 @@ export function activatePanel(layout: Layout, panel: PanelInstanceId | PanelId):
  * neighbour. It becomes its group's visible tab, and a collapsed dock expands. A single panel already
  * open is shown instead.
  */
-export function addPanel(layout: Layout, type: PanelId, groupId?: string): { layout: Layout; id: PanelInstanceId } {
+export function addPanel(layout: Layout, type: PanelId, catalog: PanelCatalog, groupId?: string): { layout: Layout; id: PanelInstanceId } {
   const open = instancesOf(layout, type);
-  if (open.length > 0 && isSinglePanel(type)) return { layout: activatePanel(layout, open[0]), id: open[0] };
+  if (open.length > 0 && isSinglePanel(catalog, type)) return { layout: activatePanel(layout, open[0], catalog), id: open[0] };
   const next = structuredClone(layout);
   const group = groupId !== undefined ? allDocks(next).flatMap((d) => d.groups).find((g) => g.id === groupId) : undefined;
-  if (next.docks.length === 0) {
-    next.docks.push({ id: newId("d"), side: "left", size: 0, groups: [{ id: newId("g"), panels: [], active: "" }], fractions: [1] });
-  }
-  const id = insertInstance(next, type, group);
+  const id = insertInstance(next, type, catalog, group);
   const at = locate(next, id)!;
   at.group.active = id;
   delete at.dock.collapsed;
-  return { layout: withPanelInfo(normalize(next)), id };
+  return { layout: withPanelInfo(normalize(next), catalog), id };
 }
 
-/** Close a panel instance (never the Scene view). Returns `layout` itself when it isn't open or can't close. */
-export function closePanel(layout: Layout, panel: PanelInstanceId): Layout {
-  if (!locate(layout, panel) || !canClosePanel(typeOf(layout, panel))) return layout;
+/** Close a panel instance (never one whose type can't close, the Scene view). Returns `layout` itself when it isn't open or can't close. */
+export function closePanel(layout: Layout, panel: PanelInstanceId, catalog: PanelCatalog): Layout {
+  if (!locate(layout, panel) || !canClosePanel(catalog, typeOf(layout, panel))) return layout;
   const next = structuredClone(layout);
   for (const d of allDocks(next)) {
     for (const g of d.groups) {
@@ -442,13 +403,13 @@ export function closePanel(layout: Layout, panel: PanelInstanceId): Layout {
       if (g.active === panel) g.active = g.panels[Math.min(at, g.panels.length - 1)] ?? "";
     }
   }
-  return withPanelInfo(normalize(next));
+  return withPanelInfo(normalize(next), catalog);
 }
 
 /** Close every instance of the given types (a plugin's panels the user chose to remove). Returns `layout` itself when none is open. */
-export function removePanelTypes(layout: Layout, types: readonly PanelId[]): Layout {
+export function removePanelTypes(layout: Layout, types: readonly PanelId[], catalog: PanelCatalog): Layout {
   let next = layout;
-  for (const id of Object.keys(layout.instances)) if (types.includes(typeOf(layout, id))) next = closePanel(next, id);
+  for (const id of Object.keys(layout.instances)) if (types.includes(typeOf(layout, id))) next = closePanel(next, id, catalog);
   return next;
 }
 
@@ -483,12 +444,9 @@ export function fromWindowView(view: Layout, windowId: string, before: Layout): 
   return normalize({ ...view, docks: main.docks, windows });
 }
 
-/** True for a panel that can go into a detached window (every one but the Scene view, whose canvas belongs to the main window). */
-export const canDetach = (type: PanelId): boolean => type !== "scene";
-
-/** Move `panel` into a new detached window of its own (at `bounds`). Returns the layout itself when it can't be detached. */
-export function detachPanel(layout: Layout, panel: PanelInstanceId, bounds?: LayoutWindow["bounds"]): { layout: Layout; windowId: string | null } {
-  if (!locate(layout, panel) || !canDetach(typeOf(layout, panel))) return { layout, windowId: null };
+/** Move `panel` into a new detached window of its own (at `bounds`). Returns the layout itself when its type can't be detached. */
+export function detachPanel(layout: Layout, panel: PanelInstanceId, catalog: PanelCatalog, bounds?: LayoutWindow["bounds"]): { layout: Layout; windowId: string | null } {
+  if (!locate(layout, panel) || !canDetach(catalog, typeOf(layout, panel))) return { layout, windowId: null };
   const next = structuredClone(layout);
   for (const d of allDocks(next)) for (const g of d.groups) g.panels = g.panels.filter((p) => p !== panel);
   const id = newId("w");
@@ -499,18 +457,18 @@ export function detachPanel(layout: Layout, panel: PanelInstanceId, bounds?: Lay
 }
 
 /** Move `panel` into the window `windowId` (`MAIN_WINDOW` for the main one), as a tab of its first group. */
-export function movePanelToWindow(layout: Layout, panel: PanelInstanceId, windowId: string): Layout {
+export function movePanelToWindow(layout: Layout, panel: PanelInstanceId, windowId: string, catalog: PanelCatalog): Layout {
   const view = windowView(layout, windowId);
-  if (!view || !locate(layout, panel) || (windowId !== MAIN_WINDOW && !canDetach(typeOf(layout, panel)))) return layout;
+  if (!view || !locate(layout, panel) || (windowId !== MAIN_WINDOW && !canDetach(catalog, typeOf(layout, panel)))) return layout;
   const group = view.docks.flatMap((d) => d.groups)[0];
   if (!group || group.panels.includes(panel)) return layout;
   return movePanel(layout, panel, { kind: "tab", group: group.id });
 }
 
 /** Close a detached window: its panels close with it. */
-export function closeWindow(layout: Layout, windowId: string): Layout {
+export function closeWindow(layout: Layout, windowId: string, catalog: PanelCatalog): Layout {
   if (!(layout.windows ?? []).some((w) => w.id === windowId)) return layout;
-  return withPanelInfo(normalize({ ...layout, windows: (layout.windows ?? []).filter((w) => w.id !== windowId) }));
+  return withPanelInfo(normalize({ ...layout, windows: (layout.windows ?? []).filter((w) => w.id !== windowId) }), catalog);
 }
 
 /** Remember where a detached window is (to reopen it there). */
@@ -568,14 +526,16 @@ export function resizeSplit(layout: Layout, dockId: string, index: number, delta
  * otherwise null (the caller falls back to the default). Guards against stale or hand-edited
  * storage. Version-1 layouts (groups listing panel types) are migrated: one instance each.
  *
- * Panels whose type isn't registered (a plugin that is off or gone) are kept, shown as unavailable.
+ * Panels whose type isn't in `catalog` (a plugin that is off or gone) are kept, shown as unavailable.
  * Panel types the layout hasn't seen (added to the editor after it was saved) are added as tabs
  * beside their neighbour (the Code panel: the Assets panel; the Worlds panel: the History panel; …)
  * or the group holding the Inspector, or the first group; types it has seen but doesn't hold were
- * closed and stay closed. A missing scene view (layouts from when it was fixed in the middle) gets a
- * new innermost dock, filling the middle again.
+ * closed and stay closed. A missing panel that can't be closed goes back regardless: the Scene view
+ * (layouts from when it was fixed in the middle) gets a new innermost dock, filling the middle again.
+ * The catalog's rules also hold for hand-edited files: a panel that can't be detached is dropped
+ * from detached windows, and a single panel open twice keeps its first copy.
  */
-export function parseLayout(value: unknown): Layout | null {
+export function parseLayout(value: unknown, catalog: PanelCatalog): Layout | null {
   try {
     const raw = structuredClone(value) as Omit<Partial<Layout>, "version"> & { version?: number; docks?: Dock[] };
     if (!raw || (raw.version !== 1 && raw.version !== 2) || !Array.isArray(raw.docks)) return null;
@@ -606,21 +566,26 @@ export function parseLayout(value: unknown): Layout | null {
       if (windows.length > 0) l.windows = windows;
     }
     const first = normalize(l);
-    // A Scene view in a detached window (a hand-edited file) can't be: drop it there (one fills the main window below).
-    for (const w of first.windows ?? []) for (const d of w.docks) for (const g of d.groups) g.panels = g.panels.filter((p) => typeOf(first, p) !== "scene");
-    // Two Scene views (a hand-edited file): keep the first.
-    for (const extra of instancesOf(first, "scene").slice(1)) for (const d of first.docks) for (const g of d.groups) g.panels = g.panels.filter((p) => p !== extra);
+    const drop = (keep: (p: PanelInstanceId) => boolean, docks: readonly Dock[]) => {
+      for (const d of docks) for (const g of d.groups) g.panels = g.panels.filter(keep);
+    };
+    // A panel that can't be detached (the Scene view) in a detached window (a hand-edited file) can't be: drop it there.
+    drop((p) => canDetach(catalog, typeOf(first, p)), (first.windows ?? []).flatMap((w) => w.docks));
+    // Two copies of a single panel (a hand-edited file): keep the first.
+    const extras = new Set([...new Set(openTypes(first))].filter((t) => isSinglePanel(catalog, t)).flatMap((t) => instancesOf(first, t).slice(1)));
+    drop((p) => !extras.has(p), allDocks(first));
     const result = normalize(first);
-    const held = new Set(openTypes(result));
-    if (!held.has("scene")) {
-      const id = newInstanceId();
-      result.instances[id] = { type: "scene" };
-      result.docks.push({ id: newId("d"), side: "left", size: 0, groups: [{ id: newId("g"), panels: [id], active: id }], fractions: [1] });
+    // A panel that can't be closed is always there: one missing (the Scene view, in layouts from when it was
+    // fixed in the middle) goes back, a filling one into a new innermost dock.
+    for (const p of catalog.keys()) {
+      if (canClosePanel(catalog, p) || instancesOf(result, p).length > 0) continue;
+      insertInstance(result, p, catalog, panelDock(catalog, p) === "fill" ? addFillDock(result) : undefined);
     }
-    const missing = allPanels().filter((p) => !held.has(p) && p !== "scene" && !isOnDemand(p) && !result.known.includes(p));
-    for (const p of missing) insertInstance(result, p);
-    for (const p of [...allPanels(), ...held]) if (!result.known.includes(p)) result.known.push(p);
-    return withPanelInfo(normalize(result));
+    const held = new Set(openTypes(result));
+    const missing = [...catalog.keys()].filter((p) => !held.has(p) && !isOnDemand(catalog, p) && !result.known.includes(p));
+    for (const p of missing) insertInstance(result, p, catalog);
+    for (const p of [...catalog.keys(), ...held]) if (!result.known.includes(p)) result.known.push(p);
+    return withPanelInfo(normalize(result), catalog);
   } catch {
     return null;
   }

@@ -18,7 +18,7 @@ import { RefineList } from "./RefineList";
 import { StartScreen } from "./StartScreen";
 import { NewProjectDialog } from "./NewProjectDialog";
 import { MenuBar } from "./MenuBar";
-import { PANEL_VIEWS } from "./panels";
+import { panelView } from "./panels";
 import { spriteEditorImage } from "../assetImport";
 
 // Dialogs that load when first opened (ADR 0083).
@@ -34,7 +34,7 @@ export function App() {
   return (
     <div class={`editor${playState.value !== "edit" ? " playing" : ""}`}>
       <Toolbar />
-      <DockLayout panels={PANEL_VIEWS} />
+      <DockLayout view={panelView} />
       <PendingWindowsBanner />
       <DetachedWindows />
       {!currentProject.value && !isTauri() && <StartScreen /> /* the desktop editor has a Projects window instead (ADR 0059) */}

@@ -8,7 +8,7 @@ import { _reset, openAssetDocument } from "../../editor/assetDocuments";
 import { acceptsFile } from "../../editor/assetFieldKinds";
 import { inspectableAsset } from "../../editor/assetImport";
 import { kindIcon, kindLabel, kindOpens, registeredKind } from "../../editor/assetKindLookup";
-import { isKnownPanel, isOnDemand, panelBeside, panelTitle } from "../../editor/layout/model";
+import { registeredPanels } from "../../editor/layout/registeredPanels";
 import { joinPath } from "../../editor/projects";
 import { assetFormats, assetKinds, panels } from "../../editor/sdk/contributions";
 import { isPluginActive } from "../../editor/sdk/plugins";
@@ -55,10 +55,8 @@ describe("the Sky plugin's editor half (ADR 0134)", () => {
   });
 
   it("registers the Sky panel, on demand beside the graph editors", () => {
-    expect(isKnownPanel("sky")).toBe(true);
-    expect(panelTitle("sky")).toBe("Sky");
-    expect(panelBeside("sky")).toBe("particlegraph");
-    expect(isOnDemand("sky")).toBe(true);
+    expect(registeredPanels().has("sky")).toBe(true);
+    expect(registeredPanels().get("sky")).toEqual({ title: "Sky", beside: "particlegraph", onDemand: true, owner: { plugin: "myco.sky", pluginTitle: "Sky" } });
   });
 
   it("registers a format that round-trips a preset and reports problems as messages", () => {
@@ -95,7 +93,7 @@ describe("the Sky plugin's editor half (ADR 0134)", () => {
     expect(inspectableAsset(SKY)).toBeNull();
     expect(assetFormats.get("sky")).toBeUndefined();
     expect(panels.get("sky")).toBeUndefined();
-    expect(isKnownPanel("sky")).toBe(false);
+    expect(registeredPanels().has("sky")).toBe(false);
   });
 });
 

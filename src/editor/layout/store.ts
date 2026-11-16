@@ -1,8 +1,10 @@
 // The editor's panel layout as shared state, remembered per user between sessions. It's a
 // per-viewer convenience, so browser storage is fine; anything unreadable falls back to the
-// default layout.
+// default layout. The layout model's rules get the editor's panel catalog: the panel registry, where the
+// built-in panels and plugins' are registered (ADR 0182).
 import { effect, signal } from "@preact/signals";
 import { activatePanel, addPanel, defaultLayout, parseLayout, type Layout, type PanelId } from "./model";
+import { registeredPanels } from "./registeredPanels";
 import { retainInstances } from "./instanceState";
 
 const STORAGE_KEY = "myco.editor.layout";
@@ -20,9 +22,9 @@ const saved = readSaved();
 
 function load(): Layout {
   try {
-    return (saved && parseLayout(JSON.parse(saved))) || defaultLayout();
+    return (saved && parseLayout(JSON.parse(saved), registeredPanels())) || defaultLayout(registeredPanels());
   } catch {
-    return defaultLayout();
+    return defaultLayout(registeredPanels());
   }
 }
 
@@ -52,13 +54,13 @@ effect(() => retainInstances(Object.keys(layout.value.instances)));
 
 /** Show a panel: an instance id, or a type (its first instance, or a new one when none is open). */
 export function showPanel(panel: PanelId): void {
-  layout.value = activatePanel(layout.value, panel);
+  layout.value = activatePanel(layout.value, panel, registeredPanels());
 }
 
 /** Open a new instance of each of `types` (in `group` when given), the last one showing (ADR 0174). */
 export function addPanels(types: readonly PanelId[], group?: string): void {
   let next = layout.value;
-  for (const type of types) next = addPanel(next, type, group).layout;
+  for (const type of types) next = addPanel(next, type, registeredPanels(), group).layout;
   layout.value = next;
 }
 
@@ -71,5 +73,6 @@ export function requestAddPanel(group?: string, window?: string): void {
 }
 
 export function resetLayout(): void {
-  layout.value = defaultLayout();
+  layout.value = defaultLayout(registeredPanels());
+
 }

@@ -1,9 +1,14 @@
-// Lazily loaded panels and dialogs (ADR 0083), and the panel registry built on them.
+// Lazily loaded panels and dialogs (ADR 0083), and the panel views built on them (ADR 0182).
 import type { VNode } from "preact";
 import { describe, expect, it, vi } from "vitest";
-import { defaultLayout, PANELS, typeOf, type Layout } from "./layout/model";
+import { defaultLayout, typeOf, type Layout } from "./layout/model";
+import { registeredPanels } from "./layout/registeredPanels";
 import { lazyComponent, lazyDialog, PanelLoading } from "./ui/lazy";
-import { PANEL_VIEWS, visiblePanels } from "./ui/panels";
+import { Panel as PanelFrame } from "./ui/panel/Panel";
+import { BUILTIN_PANELS } from "./ui/panels.builtin";
+import { panelView, visiblePanels } from "./ui/panels";
+import { UnavailablePanel } from "./ui/UnavailablePanel";
+import { useBuiltinPanels } from "./testing";
 
 const Panel = () => null;
 const vnode = (x: unknown) => x as VNode<{ error?: string }>;
@@ -65,16 +70,30 @@ describe("lazyDialog", () => {
   });
 });
 
-describe("the panel registry", () => {
-  it("has a view for every panel", () => {
-    expect(Object.keys(PANEL_VIEWS).sort()).toEqual([...PANELS].sort());
+describe("panel views", () => {
+  useBuiltinPanels();
+
+  it("renders every registered panel lazily, framed until it loads, and an unregistered type as unavailable", () => {
+    for (const type of registeredPanels().keys()) expect(vnode(panelView(type)).type, type).toBe(PanelFrame);
+    expect(vnode(panelView("gone.plugin.panel")).type).toBe(UnavailablePanel);
   });
 
   it("lists each expanded dock's front tabs as visible", () => {
-    const layout = defaultLayout();
+    const layout = defaultLayout(registeredPanels());
     const fronts = layout.docks.flatMap((d) => d.groups.map((g) => typeOf(layout, g.active)));
     expect(visiblePanels(layout)).toEqual(fronts);
     const collapsed: Layout = { ...layout, docks: layout.docks.map((d, i) => (i === 0 ? { ...d, collapsed: true } : d)) };
     expect(visiblePanels(collapsed)).toEqual(layout.docks.slice(1).flatMap((d) => d.groups.map((g) => typeOf(layout, g.active))));
+  });
+});
+
+describe("the built-in panels (ADR 0182)", () => {
+  it("are ordinary panel contributions: the editor's boot registers each, with its facts, ahead of any plugin's", async () => {
+    await import("./corePanels");
+    const catalog = registeredPanels();
+    expect([...catalog.keys()].slice(0, BUILTIN_PANELS.length)).toEqual(["scene", "hierarchy", "inspector", "assets", "history", "code", "worlds", "network", "project"]);
+    expect(catalog.get("scene")).toEqual({ title: "Scene", dock: "fill", single: true, closable: false, detachable: false });
+    expect(catalog.get("code")).toEqual({ title: "Code", dock: "bottom", beside: "assets" });
+    for (const p of BUILTIN_PANELS) expect(catalog.get(p.id)?.owner, p.id).toBeUndefined(); // Core: no plugin
   });
 });

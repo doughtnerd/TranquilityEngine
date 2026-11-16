@@ -9,7 +9,7 @@ import { _reset, openAssetDocument } from "../../editor/assetDocuments";
 import { acceptsFile } from "../../editor/assetFieldKinds";
 import { inspectableAsset } from "../../editor/assetImport";
 import { kindIcon, kindLabel, kindOpens, registeredKind } from "../../editor/assetKindLookup";
-import { isKnownPanel, isOnDemand, panelBeside, panelTitle } from "../../editor/layout/model";
+import { registeredPanels } from "../../editor/layout/registeredPanels";
 import { joinPath, openFolderProject } from "../../editor/projects";
 import { assetFormats, assetKinds, panels } from "../../editor/sdk/contributions";
 import { isPluginActive } from "../../editor/sdk/plugins";
@@ -74,10 +74,8 @@ describe("the Materials plugin's editor half (ADR 0134)", () => {
   });
 
   it("registers the Shader Graph panel beside the Scene view, in the default layout", () => {
-    expect(isKnownPanel("shadergraph")).toBe(true);
-    expect(panelTitle("shadergraph")).toBe("Shader Graph");
-    expect(panelBeside("shadergraph")).toBe("scene");
-    expect(isOnDemand("shadergraph")).toBe(false);
+    expect(registeredPanels().has("shadergraph")).toBe(true);
+    expect(registeredPanels().get("shadergraph")).toEqual({ title: "Shader Graph", beside: "scene", owner: { plugin: "myco.materials", pluginTitle: "Materials" } });
   });
 
   it("registers formats that round-trip and report problems as messages", () => {
@@ -127,7 +125,7 @@ describe("the Materials plugin's editor half (ADR 0134)", () => {
       expect(assetFormats.get(k), k).toBeUndefined();
     }
     expect(panels.get("shadergraph")).toBeUndefined();
-    expect(isKnownPanel("shadergraph")).toBe(false);
+    expect(registeredPanels().has("shadergraph")).toBe(false);
   });
 });
 
