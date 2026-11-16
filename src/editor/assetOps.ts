@@ -17,7 +17,7 @@ import { errorStatus } from "./messages";
 import { isWithin, type EditorProject } from "./projects";
 import { isScriptPath } from "./scriptLoader";
 import { reloadScripts } from "./session";
-import { currentProject, docVersion, openScene, scriptsVersion, status } from "./state";
+import { currentProject, docVersion, scriptsVersion, status } from "./state";
 import { freePath, taken } from "./freePath";
 
 export { freePath, splitExtension } from "./freePath";

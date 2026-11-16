@@ -1,5 +1,5 @@
 import { Audio, GameBehavior, Input, behavior, field } from "myco";
-import { exposeKeyScopes, keysClaimed } from "../keyScope";
+import { keysClaimed } from "../keyScope";
 
 /**
  * Key 2: toggle the Music bus's mute. Key 3 fades its volume down and back up. Buses are the project's mixer groups.

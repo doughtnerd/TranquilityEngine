@@ -4,7 +4,6 @@ import type { World } from "../core/World";
 import {
   GERSTNER_BODY,
   MAX_WAVES,
-  WAVE_STRIDE,
   WATER_PRESET,
   cleanWaves,
   createPackedWaves,

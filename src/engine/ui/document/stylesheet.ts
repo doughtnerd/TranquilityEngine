@@ -13,7 +13,6 @@ import { hasBinding, problemAt, resolvePath } from "./markup";
 import type {
   Declaration,
   MarkupAttribute,
-  MarkupElement,
   ParseStylesheet,
   ResolvedValue,
   ResolveStyle,

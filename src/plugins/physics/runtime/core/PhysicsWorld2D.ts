@@ -3,7 +3,7 @@
  * shapes and joints. Internal: game code uses RigidBody2D, the 2D colliders and the Physics2D facade.
  * Angles are radians here; Transforms and Components use degrees.
  */
-import { DEG2RAD, Mat4, RAD2DEG, Vector2 } from "../../../../engine/core/math";
+import { DEG2RAD, Mat4, Vector2 } from "../../../../engine/core/math";
 import type { World } from "../../../../engine/core/World";
 import { cleanPoints, convexParts } from "../../../../engine/physics/polygon";
 import type { GameObject } from "../../../../engine/scene/GameObject";

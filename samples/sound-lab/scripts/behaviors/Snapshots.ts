@@ -1,5 +1,5 @@
 import { Audio, GameBehavior, Input, behavior, field } from "myco";
-import { exposeKeyScopes, keysClaimed } from "../keyScope";
+import { keysClaimed } from "../keyScope";
 
 /** Key 4: switch the project's "Underwater" snapshot (muffled, quieter music) on and off. */
 @behavior("lab.Snapshots")

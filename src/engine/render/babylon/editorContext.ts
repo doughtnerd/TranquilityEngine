@@ -15,7 +15,6 @@ import type { UtilityLayerRenderer } from "@babylonjs/core/Rendering/utilityLaye
 import type { Scene } from "@babylonjs/core/scene.js";
 import type { ProjectSettings } from "../../core/settings";
 import type { World } from "../../core/World";
-import type { GameObject } from "../../scene/GameObject";
 import type { Camera, MeshRenderer, ReflectionProbe, SpriteRenderer, Text } from "../components";
 import type { ViewportUI } from "../editorViewport";
 

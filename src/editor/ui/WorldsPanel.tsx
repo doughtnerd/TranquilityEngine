@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import type { LinkConfig, WorldTag } from "../../engine";
 import { listSystemCatalog, type SystemCatalogEntry } from "../../engine/core/systems";
 import { listTransports } from "../../engine/net/Transport";
