@@ -249,32 +249,6 @@ export function positionAtX(map: TempoMap, view: Viewport, x: number): BarBeatTi
   return ticksToPosition(map, xToTicks(map, view, x));
 }
 
-/**
- * L-Ed2a. The tick of the nearest grid line (bar or beat, per `kind`) to x, for hover feedback and as the base of
- * Ed3's snapping: `"beat"` rounds to a multiple of 960 ticks, `"bar"` to the nearest bar line of the span it falls in
- * (a metre change's marker counts as a bar line). Never negative: x left of the grid gives 0. Pure.
- */
-export function nearestGridTicks(map: TempoMap, view: Viewport, x: number, kind: "bar" | "beat"): number {
-  const t = secondsToTicks(map, xToSeconds(view, x));
-  if (kind === "beat") return Math.max(0, Math.round(t / MUSIC_TICKS_PER_BEAT) * MUSIC_TICKS_PER_BEAT) + 0;
-  // The bar line at or before t and the first one after it, across span boundaries: a tempo-only marker mid-bar keeps the
-  // bar's phase (same metre, origin on the same lines) and a metre change starts a bar at its marker.
-  const s = spanIndexAt(map, t);
-  const before = Math.max(0, map.barOriginTick[s] + Math.floor((t - map.barOriginTick[s]) / map.ticksPerBar[s]) * map.ticksPerBar[s]);
-  let from = t;
-  let after = Infinity;
-  for (let i = s; i < map.count; i++) {
-    const cand = map.barOriginTick[i] + (Math.floor((from - map.barOriginTick[i]) / map.ticksPerBar[i]) + 1) * map.ticksPerBar[i];
-    if (i + 1 < map.count && cand >= map.startTick[i + 1]) {
-      from = map.startTick[i + 1] - 1;
-      continue;
-    }
-    after = cand;
-    break;
-  }
-  return Math.abs(t - before) <= Math.abs(after - t) ? before + 0 : after;
-}
-
 /** The ticks of one beat, re-exported so the view and Ed3 need not import the grid for the constant. */
 export const TICKS_PER_BEAT = MUSIC_TICKS_PER_BEAT;
 

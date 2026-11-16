@@ -1,15 +1,14 @@
 // ADR 0171 amended by 0172 (M5a, task Pf3d; api-and-models §7, architecture §3.7): the profiler's marker track, pure.
 // A marker (`ProfileSink.marker`, a MARKER record: `ProfileSource.markers`) is a tick on `markers.markers`; its hover is
-// `markerTooltip`'s string. The module's `markerAt(t, tolerance)` is the marker under a click at `t`, for the cursor to
-// land on (paused, whatever it was doing, live included). The times are `cursorModel.ts`'s `cursorTargets().marker` (the source's marker seconds
-// less `startSeconds`, sorted), so `cursor.find("marker", ...)`'s previous and next agree with what a click lands on.
+// `markerTooltip`'s string. The times are `cursorModel.ts`'s `cursorTargets().marker` (the source's marker seconds less
+// `startSeconds`, sorted), so a tick sits where `cursor.find("marker", ...)`'s previous and next land.
 import type { CaptureMarkerAt } from "../../../runtime/capture/reader";
 import type { ProfileSource } from "../profilerSource";
 import { MAX_TOOLTIP_LINES, formatSeconds, hoverModule, indicesNear, listText, type HoverTrackModule } from "./events";
 import type { TrackContext, TrackFactory } from "./types";
 
 /** A marker on the viewport axis. */
-export interface MarkerTick {
+interface MarkerTick {
   readonly time: number;
   readonly text: string;
 }
@@ -20,7 +19,7 @@ function markerTicks(markers: readonly CaptureMarkerAt[], startSeconds: number):
 }
 
 /** `1.250 s  Boss spawned`. */
-export function markerText(m: MarkerTick): string {
+function markerText(m: MarkerTick): string {
   return `${formatSeconds(m.time)}  ${m.text}`;
 }
 
@@ -30,24 +29,7 @@ function markerTooltip(markers: readonly MarkerTick[], t: number, tolerance: num
   return listText(markers.slice(from, Math.min(to, from + MAX_TOOLTIP_LINES)).map(markerText), to - from);
 }
 
-/** The marker nearest `t` within `tolerance` seconds (the earlier on a tie), or null. */
-function markerNear(markers: readonly MarkerTick[], t: number, tolerance: number): MarkerTick | null {
-  const [from, to] = indicesNear(markers.map((m) => m.time), t, tolerance);
-  let best: MarkerTick | null = null;
-  for (let i = from; i < to; i++) {
-    const m = markers[i]!;
-    if (best === null || Math.abs(m.time - t) < Math.abs(best.time - t)) best = m;
-  }
-  return best;
-}
-
-/** The marker track, with the panel's click lookup. */
-export type MarkerTrackModule = HoverTrackModule & {
-  /** The marker under a click at `t` (default reach: the module's `tolerance`). */
-  markerAt(t: number, tolerance?: number): MarkerTick | null;
-};
-
-export function markerTrack(source: ProfileSource): MarkerTrackModule {
+function markerTrack(source: ProfileSource): HoverTrackModule {
   let markers: MarkerTick[] = [];
   const read = () => {
     markers = markerTicks(source.markers, source.startSeconds);
@@ -56,9 +38,7 @@ export function markerTrack(source: ProfileSource): MarkerTrackModule {
       tooltip: (t: number, tol: number) => markerTooltip(markers, t, tol),
     };
   };
-  const m = hoverModule({ id: "markers.markers", label: "Markers", kind: "ticks", height: 22, visible: true }, null, read) as MarkerTrackModule;
-  m.markerAt = (t, tolerance = m.tolerance) => markerNear(markers, t, tolerance);
-  return m;
+  return hoverModule({ id: "markers.markers", label: "Markers", kind: "ticks", height: 22, visible: true }, null, read);
 }
 
 /** The marker track of an opened capture. */

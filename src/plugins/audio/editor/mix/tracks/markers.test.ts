@@ -1,9 +1,10 @@
-// ADR 0171/0172 (Pf3d; api-and-models §7): the marker track over markers recorded through the real `EventSink`. The marker
-// under a click is the one the cursor's own previous and next marker steps give; the tooltip is the text with its time.
+// ADR 0171/0172 (Pf3d; api-and-models §7): the marker track over markers recorded through the real `EventSink`. The ticks
+// sit where the cursor's own previous and next marker steps land; the tooltip is the text with its time.
 import { describe, expect, it } from "vitest";
 import { CURSOR_COLUMNS, CursorModel, cursorTargets } from "../cursorModel";
 import { statusColumns } from "../profilerSource";
-import { markerTracks, type MarkerTrackModule } from "./markers";
+import { markerTracks } from "./markers";
+import type { HoverTrackModule } from "./events";
 import { recordScene, viewportTime } from "./recordScene";
 
 async function open() {
@@ -20,7 +21,7 @@ async function open() {
     s.sink.marker("Player hit again");
     s.advance(3);
   });
-  const [markers] = markerTracks({ source, names: { clip: () => undefined, bus: () => undefined, event: () => undefined } }) as [MarkerTrackModule];
+  const [markers] = markerTracks({ source, names: { clip: () => undefined, bus: () => undefined, event: () => undefined } }) as [HoverTrackModule];
   await markers.refresh();
   const cursor = new CursorModel({ live: true });
   cursor.setDuration(source.duration);
@@ -49,44 +50,22 @@ describe("markers through the real EventSink", () => {
     source.close();
   });
 
-  it("a click on a marker finds it; the cursor seeking there agrees with its own marker steps", async () => {
-    const { source, markers, cursor, marks } = await open();
+  it("the cursor's marker steps land on the ticks", async () => {
+    const { source, cursor, marks } = await open();
     expect(cursor.mode).toBe("live");
     const at = viewportTime(source, marks.hit!);
-    const hit = markers.markerAt(at + 0.004, 0.01);
-    expect(hit).toEqual({ time: at, text: "Player hit" });
-    cursor.seekTo(hit!.time);
+    cursor.seekTo(at);
     expect([cursor.mode, cursor.time]).toEqual(["paused", at]);
-    // The cursor's own marker steps agree with where the click landed.
     expect(cursor.find("marker", "previous")).toBe(viewportTime(source, marks.boss!));
     expect(cursor.find("marker", "next")).toBe(viewportTime(source, marks.hit2!));
     source.close();
   });
 
-  it("a click away from every marker finds none", async () => {
-    const { source, markers, marks } = await open();
-    const far = viewportTime(source, marks.boss!) + 0.2;
-    expect(markers.markerAt(far, 0.01)).toBeNull();
-    source.close();
-  });
-
-  it("the nearest of two markers in reach wins, and the default reach is the module's tolerance", async () => {
-    const { source, markers, marks } = await open();
-    const a = viewportTime(source, marks.hit!);
-    const b = viewportTime(source, marks.hit2!);
-    expect(markers.markerAt((a + b) / 2 + 0.001, 1)?.text).toBe("Player hit again");
-    expect(markers.markerAt(a - 0.001, 1)?.text).toBe("Player hit");
-    markers.tolerance = 0.002;
-    expect(markers.markerAt(a + 0.001)?.text).toBe("Player hit");
-    expect(markers.markerAt(a + 0.01)).toBeNull();
-    source.close();
-  });
-
-  it("a capture with no markers has no data and no hit", async () => {
+  it("a capture with no markers has no data and no tooltip", async () => {
     const source = await recordScene((s) => s.advance(1));
-    const [m] = markerTracks({ source, names: { clip: () => undefined, bus: () => undefined, event: () => undefined } }) as [MarkerTrackModule];
+    const [m] = markerTracks({ source, names: { clip: () => undefined, bus: () => undefined, event: () => undefined } }) as [HoverTrackModule];
     await m.refresh();
-    expect([m.data(), m.tooltipAt!(0.5), m.markerAt(0.5, 1)]).toEqual([undefined, null, null]);
+    expect([m.data(), m.tooltipAt!(0.5)]).toEqual([undefined, null]);
     source.close();
   });
 });
