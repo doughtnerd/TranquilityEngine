@@ -12,8 +12,8 @@ import { Assets } from "../index";
 import { MeshRenderer } from "../render/components";
 import { getFields } from "../core/registry";
 import { formatImportSettings, parseImportSettings } from "../scene/importSettings";
-import { DEFAULT_SLOT, clearModelCache, loadMeshes, materialSlots, type SurfaceInfo } from "../scene/models";
-import { meshOf, modelMaterial, surfaceMaterial } from "../render/babylon/materials";
+import { DEFAULT_SLOT, clearModelCache, loadMeshes, materialSlots, type ModelMesh, type SurfaceInfo } from "../scene/models";
+import { meshOf, modelBaseMaterial, modelSubMeshes } from "../render/babylon/materials";
 
 const lamp = () => `data:application/octet-stream;base64,${readFileSync(new URL("../../../samples/playground3d/models/lamp.glb", import.meta.url)).toString("base64")}`;
 
@@ -59,11 +59,13 @@ describe("material slots (ADR 0089)", () => {
       const [base] = await loadMeshes("asset:models/lamp.glb#Base"); // Stone and Metal
       const cache = new WeakMap<object, BabylonMaterial>();
       const rock = new PBRMaterial("rock", scene);
-      const made: BabylonMaterial[] = [];
       const mesh = meshOf(scene, "base", base);
-      const m = modelMaterial(scene, cache, base, mesh, (s) => (s.name === "Stone" ? rock : null), made);
+      const pick = (s: SurfaceInfo) => (s.name === "Stone" ? rock : null);
+      const multis = new WeakMap<object, Map<string, MultiMaterial>>();
+      const m = modelBaseMaterial(scene, cache, base, pick, multis);
+      modelSubMeshes(base, mesh);
       expect(m).toBeInstanceOf(MultiMaterial);
-      expect(made).toEqual([m]);
+      expect(modelBaseMaterial(scene, cache, base, pick, multis)).toBe(m); // shared by renderers with the same slots
       const subs = (m as MultiMaterial).subMaterials;
       expect(subs[0]).toBe(rock);
       expect(subs[1]?.name).toBe("model:Base:Metal");
@@ -73,10 +75,14 @@ describe("material slots (ADR 0089)", () => {
     it("draws one material without submeshes when every slot has the same one, and asks for the default slot without surfaces", async () => {
       const [base] = await loadMeshes("asset:models/lamp.glb#Base");
       const all = new PBRMaterial("all", scene);
-      expect(modelMaterial(scene, new WeakMap(), base, meshOf(scene, "b", base), () => all)).toBe(all);
+      expect(modelBaseMaterial(scene, new WeakMap(), base, () => all)).toBe(all);
+      const mesh = meshOf(scene, "b", base);
+      const before = mesh.subMeshes.length;
+      modelSubMeshes({ ...base, surfaces: base.surfaces.slice(0, 1) }, mesh); // one material: the mesh's own submesh draws it
+      expect(mesh.subMeshes.length).toBe(before);
       const [cube] = await loadMeshes("builtin:cube");
-      expect(modelMaterial(scene, new WeakMap(), cube, meshOf(scene, "c", cube), (s) => (s === DEFAULT_SLOT ? all : null))).toBe(all);
-      expect(modelMaterial(scene, new WeakMap(), cube, meshOf(scene, "c2", cube))).toBeNull();
+      expect(modelBaseMaterial(scene, new WeakMap(), cube, (s) => (s === DEFAULT_SLOT ? all : null))).toBe(all);
+      expect(modelBaseMaterial(scene, new WeakMap(), cube)).toBeNull();
     });
 
     it("maps glTF surface fields onto the PBR material (ADR 0088)", () => {
@@ -95,7 +101,9 @@ describe("material slots (ADR 0089)", () => {
         unlit: false,
         physical: { clearcoat: 0.5, clearcoatRoughness: 0.2, sheen: 1, sheenColor: [1, 0, 0], sheenRoughness: 0.3, transmission: 0.8, thickness: 0.1, ior: 1.4, specularIntensity: 0.9, specularColor: [1, 1, 1], iridescence: 0, iridescenceIOR: 1.3 },
       };
-      const m = surfaceMaterial(scene, new WeakMap(), surface, "Mesh") as PBRMaterial;
+      // A model mesh with this one surface draws it as its own PBR material.
+      const surfaceMaterial = (surface: SurfaceInfo) => modelBaseMaterial(scene, new WeakMap(), { name: "Mesh", surfaces: [surface], data: { groups: [] } } as unknown as ModelMesh) as PBRMaterial;
+      const m = surfaceMaterial(surface);
       expect(m.transparencyMode).toBe(PBRMaterial.PBRMATERIAL_ALPHATEST);
       expect(m.alphaCutOff).toBe(0.4);
       expect(m.emissiveColor.asArray()).toEqual([2, 1, 0]);
@@ -105,10 +113,10 @@ describe("material slots (ADR 0089)", () => {
       expect(m.subSurface.isRefractionEnabled).toBe(true);
       expect(m.indexOfRefraction).toBeCloseTo(1.4);
       expect(m.iridescence.isEnabled).toBe(false);
-      const blend = surfaceMaterial(scene, new WeakMap(), { ...surface, alphaMode: "blend", opacity: 0.5, physical: undefined }, "Mesh") as PBRMaterial;
+      const blend = surfaceMaterial({ ...surface, alphaMode: "blend", opacity: 0.5, physical: undefined });
       expect(blend.transparencyMode).toBe(PBRMaterial.PBRMATERIAL_ALPHABLEND);
       expect(blend.alpha).toBe(0.5);
-      expect((surfaceMaterial(scene, new WeakMap(), { ...surface, unlit: true }, "Mesh") as PBRMaterial).unlit).toBe(true);
+      expect(surfaceMaterial({ ...surface, unlit: true }).unlit).toBe(true);
     });
   });
 });

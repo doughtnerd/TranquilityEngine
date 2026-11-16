@@ -13,7 +13,7 @@ import { parseImportSettings } from "../scene/importSettings";
 import { pinPartToModelSpace } from "../scene/pivotMigration";
 import { migrateSceneFile } from "../scene/SceneLoader";
 import { clearModelCache, drawnVariant, loadMeshes, loadModel, materialSlots } from "../scene/models";
-import { modelBaseMaterial, surfaceMaterial } from "../render/babylon/materials";
+import { modelBaseMaterial } from "../render/babylon/materials";
 import { carGltf, dataUrl } from "./fixtures/gltf/carGltf";
 
 const round = (a: ArrayLike<number>) => Array.from(a, (n) => +n.toFixed(4) || 0);
@@ -198,7 +198,7 @@ describe("glTF layers and variants on Babylon (ADR 0118)", () => {
   it("maps layer textures and anisotropy onto the PBR material", async () => {
     useCar();
     const [body] = await loadMeshes("asset:models/car.gltf#Body");
-    const m = surfaceMaterial(scene, new WeakMap(), body.surfaces[0], "Body") as PBRMaterial;
+    const m = modelBaseMaterial(scene, new WeakMap(), body) as PBRMaterial;
     expect(m.clearCoat.texture).not.toBeNull();
     expect(m.clearCoat.textureRoughness).not.toBeNull();
     expect(m.clearCoat.bumpTexture?.level).toBe(0.5);
