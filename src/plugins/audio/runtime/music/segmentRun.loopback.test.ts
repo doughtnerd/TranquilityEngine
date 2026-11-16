@@ -15,7 +15,6 @@ import {
   cancelRun,
   createSegmentRun,
   groupRequest,
-  MAX_MUSIC_GROUP_ID,
   nextGroupId,
   pollPrimed,
   primeRun,
@@ -23,6 +22,9 @@ import {
   setSegmentClipSource,
   stampRun,
 } from "./segmentRun";
+
+/** The largest music group id the runs hand out (segmentRun.ts). */
+const MAX_MUSIC_GROUP_ID = 1023;
 
 const RATE = 48_000;
 

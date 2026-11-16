@@ -8,7 +8,7 @@ import { setAudioBackend } from "../backend";
 import { AUDIO_SYSTEMS } from "../audioSystem";
 import { makeFakeBackend, type FakeBackend } from "../testing";
 import type { EventInstance } from "../events/eventRuntime";
-import { _musicStepStats, _resetMusicPlayers, createMusicPlayer, disposeMusicPlayer, musicActive, musicPlanStep, musicPlayers, playerOf } from "./musicSystem";
+import { _resetMusicPlayers, createMusicPlayer, disposeMusicPlayer, musicActive, musicPlanStep, musicPlayers, playerOf } from "./musicSystem";
 import { routeGroupEvent } from "./segmentRun";
 
 const step = AUDIO_SYSTEMS.find((s) => s.name === "engine.AudioMusic")!;
@@ -20,8 +20,6 @@ let fake: FakeBackend;
 function rig(): FakeBackend {
   fake = makeFakeBackend();
   setAudioBackend(fake);
-  _musicStepStats.early = 0;
-  _musicStepStats.plan = 0;
   return fake;
 }
 
@@ -44,7 +42,6 @@ describe("engine.AudioMusic (ADR 0166 §6 step 0, ADR 0167 §2)", () => {
     for (let k = 0; k < 10_000; k++) step.run(viewWorld, 1 / 60);
     for (let k = 0; k < 10_000; k++) musicPlanStep(b, 1 / 60); // step 9 likewise
     expect(b.beginFrameCalls).toBe(0);
-    expect(_musicStepStats).toEqual({ early: 0, plan: 0 });
     expect(b.music!.onGroupEvent).toBeNull();
     expect(musicPlayers()).toHaveLength(0);
   });
@@ -58,19 +55,20 @@ describe("engine.AudioMusic (ADR 0166 §6 step 0, ADR 0167 §2)", () => {
     expect(player.requestedAt).toBe(3);
     expect(playerOf(instance)).toBe(player);
     step.run(hiddenWorld, 1 / 60);
-    expect(_musicStepStats.early).toBe(0);
+    expect(b.music!.onGroupEvent).toBeNull(); // step 0 runs only in the World with the view
+    expect(b.beginFrameCalls).toBe(0);
     step.run(viewWorld, 1 / 60);
-    expect(_musicStepStats.early).toBe(1);
     expect(b.music!.onGroupEvent).toBe(routeGroupEvent);
     musicPlanStep(b, 1 / 60);
-    expect(_musicStepStats.plan).toBe(1);
+    expect(b.beginFrameCalls).toBeGreaterThan(0);
     disposeMusicPlayer(player, b);
     expect(b.music!.released).toEqual([7]);
     expect(playerOf(instance)).toBeNull();
     expect(player.state).toBe("stopped");
+    const framesAfter = b.beginFrameCalls;
     step.run(viewWorld, 1 / 60);
     musicPlanStep(b, 1 / 60);
-    expect(_musicStepStats).toEqual({ early: 1, plan: 1 });
+    expect(b.beginFrameCalls).toBe(framesAfter); // no player: both steps stop at their guard
   });
 
   it("a player disposed during step 9 doesn't skip the next one", () => {

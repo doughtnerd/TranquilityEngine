@@ -34,7 +34,7 @@ import { segmentClipSource } from "./segmentRun";
 import { cancelTransition, planImmediate } from "./transition";
 
 /** The crossfade of a seek, milliseconds (§10 R7). */
-export const SEEK_FADE_MS = 5;
+const SEEK_FADE_MS = 5;
 
 /** A position `"bar:beat:tick"` (§2.2), 1-based bar and beat, tick 0-based; null when it doesn't parse. */
 export interface SeekPosition {

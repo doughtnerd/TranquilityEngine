@@ -10,11 +10,11 @@ import type { MusicClipFacts } from "../../../../engine/audio/musicValidate";
 import { _resetMusicPlayers, createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
 import { _resetSegmentRuns, createSegmentRun, setSegmentClipSource, type SegmentRun } from "./segmentRun";
 import { advanceAnchor, anchorRun, nextWrapOf, predictWrap, ticksAt } from "./anchors";
-import { conditionHolds, tickRegions, WHILE_SPLICE_MARGIN_SECONDS } from "./regions";
+import { conditionHolds, tickRegions } from "./regions";
 
 const L = 0.05;
 const DBAR = 0.016;
-const LEAD = L + DBAR + WHILE_SPLICE_MARGIN_SECONDS;
+const LEAD = L + DBAR + 0.01; // the while splice margin
 /** 120 bpm: 1,920 ticks a second; a bar is 2 s. */
 const TPS = 1920;
 

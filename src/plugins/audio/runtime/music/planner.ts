@@ -39,7 +39,7 @@ import {
 /** The margin on Ê in the lead (ADR 0167 §1). */
 export const PRIME_LEAD_FACTOR = 1.25;
 /** Re-plans in a row that warn `replanStorm` once. */
-export const REPLAN_STORM = 3;
+const REPLAN_STORM = 3;
 /** Ê before a backend reports one, ms (architecture §4.1's seed). */
 const PRIME_EMA_FALLBACK_MS = 40;
 /** L when the backend has no `horizon` or its clock has no estimate yet: 2 Δ̄ at 60 Hz. */

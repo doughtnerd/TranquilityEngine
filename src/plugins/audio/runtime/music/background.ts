@@ -56,7 +56,7 @@ const EPS = 1e-9;
 let hidden = false;
 
 /** True while the page is hidden under `play` or `mute` and the players tick from STATUS (architecture §3.8). */
-export function musicHidden(): boolean {
+function musicHidden(): boolean {
   return hidden;
 }
 

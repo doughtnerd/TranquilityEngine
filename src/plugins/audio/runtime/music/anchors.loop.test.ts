@@ -9,7 +9,7 @@ import { compileSegmentGrid, ticksToSeconds } from "../../../../engine/audio/mus
 import type { MusicClipFacts } from "../../../../engine/audio/musicValidate";
 import { _resetMusicPlayers, createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
 import { _resetSegmentRuns, createSegmentRun, groupRequest, pollPrimed, primeRun, setSegmentClipSource, stampRun, type SegmentRun } from "./segmentRun";
-import { advanceAnchor, anchorRun, heardTimeOf, predictWrap, simpleLoopOf, ticksAt } from "./anchors";
+import { advanceAnchor, anchorRun, heardTimeOf, predictWrap, ticksAt } from "./anchors";
 
 let facts: Record<string, MusicClipFacts | undefined> = {};
 let streamed = true;
@@ -113,8 +113,6 @@ describe("a simple forever loop is looped by its members (P3 follow-up)", () => 
         expect(want === null ? mem.loopStartFrame : [mem.loopStartFrame, mem.loopEndFrame]).toEqual(want ?? undefined);
       }
     }
-    // `simpleLoopOf` still answers only the simple forever loop.
-    expect(simpleLoopOf(segment([{ id: "r", from: "1:1:0", to: "3:1:0", count: 3 }]), 48_000)).toBeNull();
   });
 
   it("decoded members: the whole file loops by the PLAY flag; a region inside it goes to the voice as a loop in seconds", () => {

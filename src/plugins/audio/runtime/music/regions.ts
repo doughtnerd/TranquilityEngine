@@ -43,7 +43,7 @@ import { frameIntervalSeconds, lookaheadSeconds } from "./planner";
 import type { SegmentRun } from "./segmentRun";
 
 /** The splice margin (architecture §3.5): 480 frames at 48 kHz cover the ≥ 368 a splice needs ahead of the voice. */
-export const WHILE_SPLICE_MARGIN_SECONDS = 0.01;
+const WHILE_SPLICE_MARGIN_SECONDS = 0.01;
 /** Float noise allowed when comparing heard seconds (far under one frame at 192 kHz). */
 const EPS = 1e-7;
 

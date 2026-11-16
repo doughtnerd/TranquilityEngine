@@ -65,7 +65,7 @@ export interface StingerState {
 }
 
 /** R5: an empty stinger state. */
-export function createStingerState(): StingerState {
+function createStingerState(): StingerState {
   return { queued: [], sounding: [], lastPlayed: new Map() };
 }
 

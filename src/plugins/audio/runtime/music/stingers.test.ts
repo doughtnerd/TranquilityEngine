@@ -9,7 +9,7 @@ import { parseAudioEvent } from "../../../../engine/audio/eventFormat";
 import type { MusicNode, SegmentNode } from "../../../../engine/audio/musicFormat";
 import { _resetMusicPlayers, createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
 import { _resetSegmentRuns, createSegmentRun, setSegmentClipSource } from "./segmentRun";
-import { _resetStingers, createStingerState, tickStingers, triggerOn, triggerStinger } from "./stingers";
+import { _resetStingers, tickStingers, triggerOn, triggerStinger } from "./stingers";
 
 type Raw = Record<string, unknown>;
 
@@ -246,6 +246,5 @@ describe("the pool", () => {
     rig(rootOf([stinger()]));
     player.state = "stopped";
     expect(triggerStinger(player, "hit")).toBe(false);
-    expect(createStingerState().queued).toEqual([]);
   });
 });

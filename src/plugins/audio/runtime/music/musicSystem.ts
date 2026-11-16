@@ -262,8 +262,6 @@ export function _resetMusicPlayers(): void {
   players.length = 0;
 }
 
-/** @internal How often each step got past its guard (the safety-net test reads these). */
-export const _musicStepStats = { early: 0, plan: 0 };
 
 // --- The frame steps -------------------------------------------------------------------------------------------------
 
@@ -286,7 +284,6 @@ let boundGroupEvents: MusicBackend | null = null;
  */
 export function musicEarlyStep(backend: AudioBackend, dt: number): void {
   if (players.length === 0 || isPendingCoreBackend(backend)) return; // F-35: see `musicPlanStep`
-  _musicStepStats.early++;
   const music = backend.music ?? null;
   if (music !== null && boundGroupEvents !== music) {
     // The group and member events reach the players through P1's router (delivered after the status mirror is read).
@@ -308,7 +305,6 @@ export function musicEarlyStep(backend: AudioBackend, dt: number): void {
  */
 export function musicPlanStep(backend: AudioBackend, dt: number): void {
   if (players.length === 0 || isPendingCoreBackend(backend)) return;
-  _musicStepStats.plan++;
   const f = setFrame(backend, dt, false);
   // In creation order; a player disposed during its own tick leaves the array, so its index is visited again.
   for (let k = 0; k < players.length; k++) {

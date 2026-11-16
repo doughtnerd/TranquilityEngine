@@ -189,7 +189,7 @@ export interface MemberLoop {
  * at the clip's own `rate`, rounded as the anchor's pass walk rounds them (`compile`), so `predictWrap` and the grid
  * agree with the looping member; null too when a bound isn't a position or the region is empty.
  */
-export function simpleLoopOf(node: MusicNodeRef, rate: number): MemberLoop | null {
+function simpleLoopOf(node: MusicNodeRef, rate: number): MemberLoop | null {
   const regions = (node as Partial<SegmentNode>).regions;
   if (!Array.isArray(regions) || regions.length !== 1) return null;
   const reg = regions[0]!;

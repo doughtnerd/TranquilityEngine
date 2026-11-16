@@ -3,7 +3,7 @@
 // which file position sounds. 120 bpm 4/4: bar 2 is file second 2.0 (level 0.25).
 import { afterEach, describe, expect, it } from "vitest";
 import { musicLoopback, resetMusicLoopback, RATE } from "./testing/loopbackClock";
-import { seekMusic, SEEK_FADE_MS } from "./seek";
+import { seekMusic } from "./seek";
 
 afterEach(() => resetMusicLoopback());
 
@@ -45,7 +45,7 @@ describe("music seek on the core (R7)", () => {
     await r.stepUntil(() => r.out.length > seam + 3000);
 
     // Before the seam the old position plays on; the crossfade is the 5 ms from the seam; after it the new position.
-    const fadeFrames = Math.round((SEEK_FADE_MS / 1000) * RATE);
+    const fadeFrames = Math.round((5 / 1000) * RATE) /* the seek fade, 5 ms */;
     expect(r.maxError(seam - 400, seam, (i) => ramp(i - startA))).toBeLessThan(2e-3);
     const mid = seam + fadeFrames / 2;
     const old = ramp(mid - startA);

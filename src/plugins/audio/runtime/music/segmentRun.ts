@@ -19,7 +19,7 @@ import { applySlip, firstLoopOf, type MemberLoop } from "./anchors";
 import { stopLoopTails } from "./loopTail";
 
 /** The highest music group id (§3.2: ids 1..1023). */
-export const MAX_MUSIC_GROUP_ID = 1023;
+const MAX_MUSIC_GROUP_ID = 1023;
 
 /**
  * How a run resolves a stem's clip (P1). The event runtime's clip starter is private to `eventRuntime.ts`, so whoever

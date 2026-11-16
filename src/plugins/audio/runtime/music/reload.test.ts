@@ -10,7 +10,7 @@ import type { MusicClipFacts } from "../../../../engine/audio/musicValidate";
 import { _resetMusicPlayers, createMusicPlayer, tickPlayer, type MusicFrame, type MusicNodeRef, type MusicPlayer } from "./musicSystem";
 import { _resetSegmentRuns, setSegmentClipSource } from "./segmentRun";
 import { requestStart } from "./planner";
-import { noteAssetChanged, RELOAD_FADE_MS, setReloadHost } from "./reload";
+import { noteAssetChanged, setReloadHost } from "./reload";
 
 const RATE = 48_000;
 const L = 1 / 30;
@@ -124,7 +124,7 @@ describe("reload: a stem edit swaps at the next bar without a gap", () => {
     for (const s of shaped) {
       expect(s.fade.at).toBeCloseTo(3.1, 9);
       expect(s.fade.to).toBe(0);
-      expect(s.fade.seconds).toBeCloseTo(RELOAD_FADE_MS / 1000, 12);
+      expect(s.fade.seconds).toBeCloseTo(5 / 1000, 12) /* the reload fade */;
       expect(s.fade.stopAtEnd).toBe(true);
       expect(s.fade.law).toBe("equalPowerOut");
     }

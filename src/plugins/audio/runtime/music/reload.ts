@@ -31,7 +31,7 @@ import { lookaheadSeconds, requestStart, type PlannedStart } from "./planner";
 import { cancelRun, segmentClipSource, type SegmentRun } from "./segmentRun";
 
 /** The crossfade at the swap, milliseconds: the outgoing stems fade out from T (the seek's 5 ms, R25). */
-export const RELOAD_FADE_MS = 5;
+const RELOAD_FADE_MS = 5;
 
 /** Seconds after the fade's end the outgoing run is cancelled (its voices have stopped; this frees the group). */
 const RETIRE_SLACK_SECONDS = 0.1;

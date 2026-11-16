@@ -9,8 +9,11 @@ import type { MusicClipFacts } from "../../../../engine/audio/musicValidate";
 import { _resetMusicPlayers, createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
 import { _resetSegmentRuns, setSegmentClipSource } from "./segmentRun";
 import {
-  cancelPlanned, frameIntervalSeconds, lookaheadSeconds, planTick, primeLeadSeconds, REPLAN_STORM, requestStart, type PlanRequest,
+  cancelPlanned, frameIntervalSeconds, lookaheadSeconds, planTick, primeLeadSeconds, requestStart, type PlanRequest,
 } from "./planner";
+
+/** Replans of one pending start before the planner calls it a storm (planner.ts). */
+const REPLAN_STORM = 3;
 
 const RATE = 48_000;
 const L = 1 / 30;

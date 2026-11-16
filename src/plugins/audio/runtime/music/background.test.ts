@@ -11,7 +11,7 @@ import { _resetMusicPlayers, createMusicPlayer, type MusicFrame, type MusicPlaye
 import { _resetSegmentRuns, routeGroupEvent, setSegmentClipSource } from "./segmentRun";
 import { planTick } from "./planner";
 import { ticksAt } from "./anchors";
-import { _resetMusicBackground, groupAbandoned, musicHidden, noteHidden, recoverAbandoned, recoverGroups, tickHidden } from "./background";
+import { _resetMusicBackground, groupAbandoned, noteHidden, recoverAbandoned, recoverGroups, tickHidden } from "./background";
 
 const RATE = 48_000;
 const L = 1 / 30;
@@ -193,7 +193,6 @@ describe("the hidden-tab tick (ADR 0166 P9, architecture §3.8)", () => {
     expect(b.beginFrameCalls).toBe(0);
     expect(player.state).toBe("starting");
     noteHidden(true);
-    expect(musicHidden()).toBe(true);
     tickHidden(b);
     expect(b.beginFrameCalls).toBe(1);
     expect(b.music!.stamps.at(-1)).toMatchObject({ group: p.run.group, at: p.at });
