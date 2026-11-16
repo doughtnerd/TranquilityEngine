@@ -68,7 +68,7 @@ export function colliderVolume(c: Collider): ZoneGeometry | null {
 }
 
 /** What to draw this frame: every collider an occluder applies to, in the occluder's material tint. */
-export function occluderOverlay(engine: Engine): EditorOverlay {
+function occluderOverlay(engine: Engine): EditorOverlay {
   const overlay: EditorOverlay = { lines: [], handles: [] };
   const base = colliderClass();
   const colliders = base ? GameObject.findObjectsOfType(base) : [];

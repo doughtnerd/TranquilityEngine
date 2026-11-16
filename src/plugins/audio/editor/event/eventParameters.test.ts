@@ -4,7 +4,6 @@ import { newNode } from "./eventTreeModel";
 import {
   addParameter,
   auditionValues,
-  freeParameterName,
   parameterNameProblem,
   removeParameter,
   renameParameterAt,
@@ -17,8 +16,9 @@ const speed: NumericParameter = { name: "Speed", min: 0, max: 10, default: 2, se
 const surface: LabelledParameter = { name: "Surface", labels: ["Grass", "Stone"], default: "Stone" };
 
 describe("eventParameters", () => {
-  it("freeParameterName and addParameter make unique names and stop at the limit", () => {
-    expect(freeParameterName(["Parameter", "Parameter 2"])).toBe("Parameter 3");
+  it("addParameter makes unique names and stop at the limit", () => {
+    const taken: AudioEventAsset = { ...emptyAudioEvent(), parameters: [{ ...speed, name: "Parameter" }, { ...speed, name: "Parameter 2" }] };
+    expect(addParameter(taken).parameters.map((p) => p.name)).toEqual(["Parameter", "Parameter 2", "Parameter 3"]);
     let e = emptyAudioEvent();
     e = addParameter(addParameter(e));
     expect(e.parameters.map((p) => p.name)).toEqual(["Parameter", "Parameter 2"]);

@@ -5,12 +5,15 @@ import {
   parseAudioEvent,
   type AudioEventAsset,
 } from "../../../engine/audio/eventFormat";
-import { audioEventFormat, audioEventReferences, eventClipPaths, renameEventClips } from "./eventAsset";
+import { audioEventFormat, audioEventReferences } from "./eventAsset";
 
 /** An event built from a literal root through the engine's lenient parser. */
 const eventOf = (root: unknown): AudioEventAsset => parseAudioEvent({ format: AUDIO_EVENT_FORMAT, root }).value;
 
 const clip = (path: string) => ({ type: "clip", clip: path });
+
+/** The clip paths the kind's references extractor reads from the event's saved text. */
+const eventClipPaths = (event: AudioEventAsset): readonly string[] => audioEventReferences.read("sfx/x.audioevent.json", formatAudioEvent(event));
 
 describe("audioEventFormat", () => {
   it("parses a valid event with no problems and formats it back to the same value", () => {
@@ -39,7 +42,7 @@ describe("audioEventFormat", () => {
   });
 });
 
-describe("eventClipPaths", () => {
+describe("audioEventReferences clip paths", () => {
   it("lists clips at every depth, once each, in tree order", () => {
     const event = eventOf({
       type: "random",
@@ -65,39 +68,6 @@ describe("eventClipPaths", () => {
   it("leaves out empty paths", () => {
     const event = eventOf({ type: "layer", children: [clip(""), clip("x.ogg")] });
     expect(eventClipPaths(event)).toEqual(["x.ogg"]);
-  });
-});
-
-describe("renameEventClips", () => {
-  const event = eventOf({
-    type: "layer",
-    children: [
-      { type: "random", children: [clip("a.ogg"), clip("keep.ogg")] },
-      { type: "sustain", start: clip("a.ogg"), loop: clip("loop.ogg"), end: clip("a.ogg") },
-    ],
-  });
-
-  it("rewrites every matching clip, including nested and sustain slots, without touching others", () => {
-    const renamed = renameEventClips(event, new Map([["a.ogg", "moved/a.ogg"]]));
-    expect(eventClipPaths(renamed)).toEqual(["moved/a.ogg", "keep.ogg", "loop.ogg"]);
-    expect(renamed.root).toMatchObject({
-      type: "layer",
-      children: [
-        { type: "random", children: [{ clip: "moved/a.ogg" }, { clip: "keep.ogg" }] },
-        { type: "sustain", start: { clip: "moved/a.ogg" }, loop: { clip: "loop.ogg" }, end: { clip: "moved/a.ogg" } },
-      ],
-    });
-  });
-
-  it("does not modify its input", () => {
-    const before = JSON.stringify(event);
-    renameEventClips(event, new Map([["a.ogg", "moved/a.ogg"]]));
-    expect(JSON.stringify(event)).toBe(before);
-  });
-
-  it("returns an equal event when nothing matches", () => {
-    const renamed = renameEventClips(event, new Map([["nope.ogg", "x.ogg"]]));
-    expect(renamed).toEqual(event);
   });
 });
 

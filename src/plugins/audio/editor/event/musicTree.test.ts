@@ -15,8 +15,10 @@ import {
   musicNodePaths, parameterUses, parsePathKey, pathKey, removeMusicNode, renameMusicId, renameParameter, reorderMusicNode, setMusicNode,
 } from "./eventTreeModel";
 import {
-  coerceField, findField, musicNodeFields, newStinger, patchStinger, readField, stingerAtFrom, stingerAtKind, writeField, type FieldDescriptor,
+  coerceField, musicNodeFields, newStinger, patchStinger, readField, stingerAtFrom, stingerAtKind, writeField, type FieldDescriptor,
 } from "./nodeFields";
+
+const fieldNamed = (fields: readonly FieldDescriptor[], name: string): FieldDescriptor | undefined => fields.find((f) => f.name === name);
 
 useEditorPlugins([audioEditorPlugin], "each");
 afterEach(() => {
@@ -258,12 +260,12 @@ describe("musicNodeFields", () => {
     expect(names(musicNodeFields(rnd, null))).toEqual(["id", "mode", "rounds", "avoidRepeat", "volume", "volumeRandom"]);
     expect(names(musicNodeFields(rnd.children[0], rnd))).toContain("weight");
     expect(names(musicNodeFields(root0("sequence").library[0], root0("sequence"), true))).toEqual(["id", "gridOffset", "entry", "exit", "volume", "volumeRandom"]);
-    expect(findField(musicNodeFields(rnd, null), "avoidRepeat")).toMatchObject({ max: 1 });
+    expect(fieldNamed(musicNodeFields(rnd, null), "avoidRepeat")).toMatchObject({ max: 1 });
   });
 
   it("an optional select writes the cue name and removes the key when cleared", () => {
     const seg = music().children[0] as SegmentNode;
-    const exit = findField(musicNodeFields(seg, null), "exit")!;
+    const exit = fieldNamed(musicNodeFields(seg, null), "exit")!;
     expect(exit).toMatchObject({ kind: "select", options: ["exit"], optional: true });
     const set = writeField(seg, exit, coerceField(exit, "exit"));
     expect(set.exit).toBe("exit");
@@ -276,7 +278,7 @@ describe("musicNodeFields", () => {
 
   it("field writes read back", () => {
     const root = music();
-    const volume = findField(musicNodeFields(root, null), "volume")!;
+    const volume = fieldNamed(musicNodeFields(root, null), "volume")!;
     const next = setMusicNode(root, [], writeField(root, volume, 0.5));
     expect((next as MusicSwitchNode).volume).toBe(0.5);
     expectRoundTrip(next);

@@ -14,7 +14,7 @@ import {
 import { renameParameter } from "./eventTreeModel";
 
 /** The first free name of the form "Parameter", "Parameter 2"… among `taken`. */
-export function freeParameterName(taken: readonly string[], base = "Parameter"): string {
+function freeParameterName(taken: readonly string[], base = "Parameter"): string {
   if (!taken.includes(base)) return base;
   for (let i = 2; ; i++) if (!taken.includes(`${base} ${i}`)) return `${base} ${i}`;
 }

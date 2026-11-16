@@ -52,9 +52,6 @@ export function subtreeColliders(node: GameObject): Collider[] {
   return out;
 }
 
-/** The colliders an occluder applies to: those of its node and of descendants without an occluder of their own (`nearestOccluder`). */
-export const coveredColliders = (occluder: AudioOccluder): Collider[] => subtreeColliders(occluder.node).filter((c) => nearestOccluder(c.node) === occluder);
-
 /** A collider that can never be hit by an occlusion ray: disabled, a trigger (sensors don't occlude), or on a layer outside `audio.occlusion.layers`. */
 export function colliderIsInert(c: Collider, audio: Pick<AudioSettings, "occlusion">): boolean {
   if (!c.isActiveAndEnabled || c.isTrigger) return true;
