@@ -8,7 +8,8 @@ import { CreatePlane } from "@babylonjs/core/Meshes/Builders/planeBuilder.js";
 import { Scene } from "@babylonjs/core/scene.js";
 import { pbrVertexShaderWGSL } from "@babylonjs/core/ShadersWGSL/pbr.vertex.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createGraphMaterial, graphCustomCode, graphUsesUv, graphShadowCustomCode, graphUniformBuffer, SHADOW_REMAPPED_VARIABLES, type GraphShared } from "../render/babylon/graphMaterial";
+import { createGraphMaterial, type GraphShared } from "../render/babylon/graphMaterial";
+import { graphCode, graphPlugins } from "./graphPluginCode";
 import type { CompiledShaderGraph } from "../render/shaderGraph/compile";
 
 function compiled(overrides: Partial<CompiledShaderGraph> = {}): CompiledShaderGraph {
@@ -62,7 +63,7 @@ describe("shader graph materials on Babylon (ADR 0075 stage 4)", () => {
   });
 
   it("puts the vertex code before the world position, with the graph's inputs and offset", () => {
-    const code = graphCustomCode(compiled(), "vertex");
+    const code = graphCode(compiled(), "vertex");
     expect(code.CUSTOM_VERTEX_DEFINITIONS).toContain("varying vMycoUv");
     const [rx, inject] = Object.entries(code).find(([k]) => k.startsWith("!"))!;
     expect(new RegExp(rx.slice(1)).test("var worldPos: vec4f=finalWorld* vec4f(positionUpdated,1.0);")).toBe(true);
@@ -73,7 +74,7 @@ describe("shader graph materials on Babylon (ADR 0075 stage 4)", () => {
   });
 
   it("sets the surface from the fragment code: albedo, alpha, clip, metallic, roughness, emission", () => {
-    const code = graphCustomCode(compiled(), "fragment");
+    const code = graphCode(compiled(), "fragment");
     expect(code.CUSTOM_FRAGMENT_MAIN_BEGIN).toBe("var n2: vec4f = uniforms.uTint;");
     expect(code.CUSTOM_FRAGMENT_UPDATE_ALPHA).toContain("surfaceAlbedo = n2.rgb;");
     expect(code.CUSTOM_FRAGMENT_UPDATE_ALPHA).toContain("if (alpha < 0.5) { discard; }");
@@ -84,7 +85,7 @@ describe("shader graph materials on Babylon (ADR 0075 stage 4)", () => {
   it("draws an unlit graph's colour directly, without the lit hooks", () => {
     const m = createGraphMaterial(scene, "g", compiled({ target: "unlit" }), {}, shared, noTextures);
     expect(m.material.unlit).toBe(true);
-    const code = graphCustomCode(compiled({ target: "unlit" }), "fragment");
+    const code = graphCode(compiled({ target: "unlit" }), "fragment");
     expect(Object.keys(code).some((k) => k.startsWith("!reflectivity"))).toBe(false);
     expect(code.CUSTOM_FRAGMENT_BEFORE_FINALCOLORCOMPOSITION).toBeUndefined();
   });
@@ -95,7 +96,7 @@ describe("shader graph materials on Babylon (ADR 0075 stage 4)", () => {
   });
 
   it("registers its uniforms with the shared time and resolution, and gives each texture slot a texture", () => {
-    expect(graphUniformBuffer(compiled()).map((u) => u.name)).toEqual(["uMycoTime", "uMycoResolution", "uMycoMainLightDir", "uMycoMainLightColor", "uTint", "uSpeed"]);
+    expect((graphPlugins(compiled()).main!.getUniforms() as { ubo: { name: string }[] }).ubo.map((u) => u.name)).toEqual(["uMycoTime", "uMycoResolution", "uMycoMainLightDir", "uMycoMainLightColor", "uTint", "uSpeed"]);
     const m = createGraphMaterial(scene, "g", compiled(), {}, shared, noTextures);
     expect(m.state.textures.has("tex1")).toBe(true); // white until a texture loads
   });
@@ -115,8 +116,6 @@ describe("shader graph materials on Babylon (ADR 0075 stage 4)", () => {
     const noTexture = { uniforms: [], fragment: { ...compiled().fragment, declarations: "varying vMycoUv: vec2f;" } };
     const reads = compiled({ ...noTexture, vertex: { ...compiled().vertex, offset: null } });
     const ignores = compiled({ ...noTexture, key: "def456", vertex: { declarations: "", body: "", offset: null, varyings: "" } });
-    expect(graphUsesUv(reads)).toBe(true);
-    expect(graphUsesUv(ignores)).toBe(false);
     const uv1 = (c: CompiledShaderGraph) => {
       const mesh = CreatePlane(`p${c.key}`, { size: 1 }, scene); // has UVs
       mesh.material = createGraphMaterial(scene, "g", c, {}, shared, noTextures).material;
@@ -129,16 +128,16 @@ describe("shader graph materials on Babylon (ADR 0075 stage 4)", () => {
 
   it("defines mycoVColor from the vertex and instance colours (white without) only when the graph reads it", () => {
     const reads = compiled({ vertex: { ...compiled().vertex, body: "var c: vec4f = mycoVColor;" }, fragment: { ...compiled().fragment, body: "var n2: vec4f = mycoVColor;" } });
-    const f = graphCustomCode(reads, "fragment").CUSTOM_FRAGMENT_MAIN_BEGIN;
+    const f = graphCode(reads, "fragment").CUSTOM_FRAGMENT_MAIN_BEGIN;
     expect(f).toContain("let mycoVColor: vec4f = fragmentInputs.vColor;");
     expect(f).toContain("#else\nlet mycoVColor: vec4f = vec4f(1.0);");
     expect(f.indexOf("mycoVColor: vec4f")).toBeLessThan(f.indexOf("var n2"));
-    const v = Object.values(graphCustomCode(reads, "vertex")).join("\n");
+    const v = Object.values(graphCode(reads, "vertex")).join("\n");
     expect(v).toContain("mycoVColor = mycoVColor * vertexInputs.color;");
     expect(v).toContain("mycoVColor = mycoVColor * vertexInputs.instanceColor;");
     expect(v.indexOf("var mycoVColor")).toBeLessThan(v.indexOf("var c: vec4f"));
-    expect(graphCustomCode(compiled(), "fragment").CUSTOM_FRAGMENT_MAIN_BEGIN).not.toContain("mycoVColor");
-    expect(Object.values(graphCustomCode(compiled(), "vertex")).join("\n")).not.toContain("mycoVColor");
+    expect(graphCode(compiled(), "fragment").CUSTOM_FRAGMENT_MAIN_BEGIN).not.toContain("mycoVColor");
+    expect(Object.values(graphCode(compiled(), "vertex")).join("\n")).not.toContain("mycoVColor");
   });
 
   it("is given vertex colours by meshes that have them (instance colours: see babylonParticles), with the graph material", () => {
@@ -238,14 +237,13 @@ describe("shader graph materials on Babylon (ADR 0075 stage 4)", () => {
     });
 
     it("finds the spots Babylon's shadow-map code goes in the PBR vertex shader, after the graph's offset", () => {
-      const graph = new RegExp(Object.keys(graphShadowCustomCode(compiled(), "vertex")).find((k) => k.startsWith("!"))!.slice(1));
+      const graph = new RegExp(Object.keys(graphPlugins(compiled()).shadow!.getCustomCode("vertex", ShaderLanguage.WGSL)!).find((k) => k.startsWith("!"))!.slice(1));
       const src = pbrVertexShaderWGSL.shader;
       const at = src.search(graph);
       expect(at).toBeGreaterThan(-1);
       // The normal bias goes at CUSTOM_VERTEX_UPDATE_WORLDPOS, reading the world normal varying.
       expect(src.indexOf("#define CUSTOM_VERTEX_UPDATE_WORLDPOS")).toBeGreaterThan(at);
       expect(src.indexOf("vertexOutputs.vNormalW=")).toBeGreaterThan(at);
-      expect(SHADOW_REMAPPED_VARIABLES).toEqual(["vNormalW", "vertexOutputs.vNormalW"]);
       // No SHADOWDEPTH_METRIC: the metric code goes at the end of main, after the position is final.
       expect(src).not.toContain("SHADOWDEPTH_METRIC");
       expect(src.trimEnd().endsWith("}")).toBe(true);

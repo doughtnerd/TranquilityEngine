@@ -6,7 +6,8 @@ import { Texture } from "@babylonjs/core/Materials/Textures/texture.js";
 import { Scene } from "@babylonjs/core/scene.js";
 import { pbrPixelShaderWGSL } from "@babylonjs/core/ShadersWGSL/pbr.fragment.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { CLEARCOAT_NORMAL_ANCHOR, SPECULAR_ANCHOR, enablePhysicalLayers, graphCustomCode } from "../render/babylon/graphMaterial";
+import { createGraphMaterial } from "../render/babylon/graphMaterial";
+import { codeAt, graphCode } from "./graphPluginCode";
 import { applyBuiltinSettings, builtinTextureSlots } from "../render/babylon/materials";
 import { compileShaderGraph } from "../render/shaderGraph/compile";
 import { Color } from "../core/math";
@@ -124,8 +125,8 @@ describe("physical shader graph layer inputs (ADR 0118)", () => {
     expect(c.problems).toEqual([]);
     const p = c.fragment.physical!;
     expect(Object.keys(p).sort()).toEqual(["anisotropy", "anisotropyDirection", "iridescence", "iridescenceThickness", "specularColor"]);
-    const code = graphCustomCode(c, "fragment");
-    expect(code[SPECULAR_ANCHOR]).toBe(`var metallicReflectanceFactors: vec4f = vec4f(${p.specularColor}, uniforms.vMetallicReflectanceFactors.a);`);
+    const code = graphCode(c, "fragment");
+    expect(codeAt(code, "!var\\s+metallicReflectanceFactors")).toBe(`var metallicReflectanceFactors: vec4f = vec4f(${p.specularColor}, uniforms.vMetallicReflectanceFactors.a);`);
     const src = inject(code);
     expect(src).toContain(`vec4f(${p.iridescence}, uniforms.vIridescenceParams.y, ${p.iridescenceThickness}, ${p.iridescenceThickness})`);
     expect(src).toContain(`vec3f(${p.anisotropyDirection}, ${p.anisotropy})`);
@@ -136,8 +137,9 @@ describe("physical shader graph layer inputs (ADR 0118)", () => {
     expect(compileShaderGraph(graph({ iridescenceThickness: 250 })).fragment.physical).toEqual({});
     const engine = new NullEngine();
     try {
-      const m = new PBRMaterial("m", new Scene(engine));
-      enablePhysicalLayers(m, { anisotropy: "a" });
+      const c = compileShaderGraph(graph({ anisotropy: 0.7 }));
+      expect(c.fragment.physical).toHaveProperty("anisotropy");
+      const m = createGraphMaterial(new Scene(engine), "m", c, {}, { time: 0, resolution: [1, 1] }, () => Promise.reject(new Error("no textures"))).material;
       expect(m.anisotropy.isEnabled).toBe(true);
       expect(m.anisotropy.legacy).toBe(false);
     } finally {
@@ -149,11 +151,11 @@ describe("physical shader graph layer inputs (ADR 0118)", () => {
     const c = compileShaderGraph(graph({ clearcoat: 1 }, [["n.out", "output.clearcoatNormal"]], [{ id: "n", type: "vector3", position: [0, 0], inputs: { x: 0, y: 0.2, z: 1 } }]));
     expect(c.problems).toEqual([]);
     expect(c.fragment.physical).toHaveProperty("clearcoatNormal");
-    const code = graphCustomCode(c, "fragment");
+    const code = graphCode(c, "fragment");
     expect(code.CUSTOM_FRAGMENT_DEFINITIONS).toContain("fn mycoBabylonTangentFrame");
     expect(c.vertex.varyings).toContain("vMycoUv");
     const src = inject(code);
-    expect(code[CLEARCOAT_NORMAL_ANCHOR]).toContain(`* (${c.fragment.physical!.clearcoatNormal})`);
+    expect(codeAt(code, "!clearcoatOut")).toContain(`* (${c.fragment.physical!.clearcoatNormal})`);
     expect(src).toContain("clearcoatOut = clearcoatBlock(fragmentInputs.vPositionW, normalize(mycoBabylonTangentFrame(");
     // Unconnected, it compiles nothing.
     expect(compileShaderGraph(graph({ clearcoat: 1 })).fragment.physical).not.toHaveProperty("clearcoatNormal");

@@ -8,7 +8,8 @@ import { Scene } from "@babylonjs/core/scene.js";
 import { pbrPixelShader } from "@babylonjs/core/Shaders/pbr.fragment.js";
 import { pbrVertexShader } from "@babylonjs/core/Shaders/pbr.vertex.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createGraphMaterial, GLSL_ALBEDO_ANCHOR, glslCustomCode, graphSupports, type GraphShared } from "../render/babylon/graphMaterial";
+import { createGraphMaterial, GLSL_ALBEDO_ANCHOR, type GraphShared } from "../render/babylon/graphMaterial";
+import { graphCode, graphPlugins } from "./graphPluginCode";
 import { ShaderLanguage } from "@babylonjs/core/Materials/shaderLanguage.js";
 import { compileShaderGraph } from "../render/shaderGraph/compile";
 import { compileShaderAsset } from "../render/shaderGraph/shaderAsset";
@@ -163,20 +164,23 @@ describe("hand-written shader assets (ADR 0106)", () => {
     expect(compileShaderAsset(shader, { wgsl: "fn other() {}" }).problems.join()).toContain("no `fn surface");
     const glslOnly = compileShaderAsset(shader, { glsl: GLSL });
     expect(glslOnly.noWgsl).toBe(true);
-    expect(graphSupports(glslOnly, ShaderLanguage.WGSL)).toBe(false);
-    expect(graphSupports(glslOnly, ShaderLanguage.GLSL)).toBe(true);
-    expect(graphSupports(compileShaderAsset(shader, { wgsl: WGSL }), ShaderLanguage.GLSL)).toBe(false);
+    // The plugin goes only on materials in a language the shader has.
+    expect(graphPlugins(glslOnly, ShaderLanguage.WGSL).main).toBeNull();
+    expect(graphPlugins(glslOnly, ShaderLanguage.GLSL).main?.isCompatible(ShaderLanguage.GLSL)).toBe(true);
+    const wgslOnly = graphPlugins(compileShaderAsset(shader, { wgsl: WGSL }), ShaderLanguage.WGSL).main!;
+    expect(wgslOnly.isCompatible(ShaderLanguage.GLSL)).toBe(false);
+    expect(graphPlugins(compileShaderAsset(shader, { wgsl: WGSL }), ShaderLanguage.GLSL).main).toBeNull();
   });
 
   it("puts GLSL where Babylon's GLSL PBR shaders have the anchors", () => {
     const { shader } = parseShaderAsset(ASSET);
     const c = compileShaderAsset(shader, { wgsl: WGSL, glsl: GLSL });
-    const vertex = glslCustomCode(c, "vertex");
+    const vertex = graphCode(c, "vertex", ShaderLanguage.GLSL);
     const [vx, inject] = Object.entries(vertex).find(([k]) => k.startsWith("!"))!;
     expect(new RegExp(vx.slice(1)).test(pbrVertexShader.shader)).toBe(true);
     expect(inject).toContain("positionUpdated = positionUpdated + (mycoOffset);");
     expect(inject.indexOf("mycoOffset =")).toBeLessThan(inject.indexOf("vec4 worldPos"));
-    const fragment = glslCustomCode(c, "fragment");
+    const fragment = graphCode(c, "fragment", ShaderLanguage.GLSL);
     for (const k of Object.keys(fragment).filter((k) => k.startsWith("!"))) expect(new RegExp(k.slice(1)).test(pbrPixelShader.shader), k).toBe(true);
     expect(Object.keys(fragment)).toContain(GLSL_ALBEDO_ANCHOR);
     for (const point of ["CUSTOM_FRAGMENT_DEFINITIONS", "CUSTOM_FRAGMENT_MAIN_BEGIN", "CUSTOM_FRAGMENT_UPDATE_ALPHA", "CUSTOM_FRAGMENT_BEFORE_FINALCOLORCOMPOSITION"]) expect(pbrPixelShader.shader).toContain(`#define ${point}`);
