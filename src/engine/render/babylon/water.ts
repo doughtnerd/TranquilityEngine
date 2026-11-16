@@ -118,7 +118,7 @@ fn mycoNoise(p: vec2f) -> vec3f {
 
 /**
  * The wave sum in GLSL (WebGL2): the vec4 uniforms unpacked into `GERSTNER_BODY`'s flat
- * `WAVE_STRIDE` layout, then `GERSTNER_BODY` itself (the text three.js's shader and the CPU sampler's
+ * `WAVE_STRIDE` layout, then `GERSTNER_BODY` itself (the text the WGSL path and the CPU sampler's
  * tests use), so the fallback draws exactly the waves `WaterSurface.sample` reports.
  */
 const GLSL_GERSTNER = /* glsl */ `

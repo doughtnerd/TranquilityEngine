@@ -14,7 +14,7 @@
 //   not scaled up from a CSS-pixel texture. Babylon's own adaptive scaling (`idealWidth`,
 //   `renderScale`) is left alone, because it would also resize the texture.
 // - The interim `Text` components sit in a container scaled by `pixelRatio` alone, so they're placed
-//   in CSS pixels like the three.js backend does.
+//   in CSS pixels.
 // - A world canvas is a plane with its own texture at `WORLD_RESOLUTION` times the reference
 //   resolution, its root container scaled by that factor.
 import { Matrix } from "@babylonjs/core/Maths/math.vector.js";
@@ -565,7 +565,7 @@ export class BabylonUI {
     this.setFont(ctl, t.fontSize, weight, t.fontFamily, t.lineHeight);
     if (put(ctl, "color", colorKey(t.color))) ctl.color = t.color.toCss();
     if (put(ctl, "outline", `${outline}|${t.outlineColor ? colorKey(t.outlineColor) : -1}`)) {
-      // The three.js backend strokes with lineWidth `outlineWidth * 2`, centred on the glyph edge.
+      // Stroked `outlineWidth * 2` wide, centred on the glyph edge: `outlineWidth` shows outside it.
       ctl.outlineWidth = outline * 2;
       if (t.outlineColor) ctl.outlineColor = t.outlineColor.toCss();
     }

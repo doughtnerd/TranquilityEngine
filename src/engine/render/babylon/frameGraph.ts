@@ -407,7 +407,7 @@ export class BabylonFrame {
         graph.addTask(task);
         this.overlayTask = task;
       }
-      // The game's UI covers the editor's helpers, as on three.js, where they're part of the 3D scene.
+      // The game's UI covers the editor's helpers.
       if (v.ui && this.ui) {
         const ui = this.ui;
         const task = new FrameGraphDrawTask(`ui${i}`, graph, () => ui());

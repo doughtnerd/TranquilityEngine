@@ -2,7 +2,6 @@
  * Stages 2–3 of ADR 0075 on Babylon.js: Light components (ADR 0043), which lights cast shadows and
  * how (ADR 0050, 0053; the frame graph draws the shadow maps, `frameGraph.ts`), and the Environment
  * component's lighting and sky (ADR 0053), with the default studio room when a World has no map.
- * Mirrors what the three.js backend does in `syncLights`, `syncCascades` and `syncEnvironment`.
  */
 import type { Camera as BabylonCamera } from "@babylonjs/core/Cameras/camera.js";
 import { ClusteredLightContainer } from "@babylonjs/core/Lights/Clustered/clusteredLightContainer.js";
@@ -425,7 +424,7 @@ export class BabylonLighting {
     const m = world.worldMatrix(l.node.entity);
     const o = l.node.entity * 16;
     if (light instanceof HemisphericLight) {
-      light.groundColor.copyFrom(color); // three's AmbientLight: the same from every direction
+      light.groundColor.copyFrom(color); // an ambient light: the same from every direction
       light.specular.set(0, 0, 0);
       return true;
     }
@@ -451,8 +450,8 @@ export class BabylonLighting {
     light.autoUpdateExtends = false;
     light.orthoLeft = light.orthoBottom = -half;
     light.orthoRight = light.orthoTop = half;
-    // three.js puts the shadow camera's near plane behind the node; Babylon wants it in front, so the
-    // light moves back along its direction by the same distance instead.
+    // The shadow camera's box starts behind the node (casters behind it still shadow); Babylon wants the
+    // near plane in front, so the light moves back along its direction by that distance instead.
     light.position = light.position.subtractInPlace(light.direction.scaleToRef(half * 2, tmpBack));
     light.shadowMinZ = 0;
     light.shadowMaxZ = half * 4;

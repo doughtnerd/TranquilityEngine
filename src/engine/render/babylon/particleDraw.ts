@@ -292,8 +292,7 @@ function orderSystem(scene: Scene, ps: BabylonParticleSystem, renderOrder: numbe
 /**
  * An emitter drawn by a Babylon CPU particle system whose list mirrors the simulation.
  *
- * `blendTiles` (three.quarks mixes the texels of the flipbook's tile and the next by the tile value's
- * fraction): each particle is drawn twice, on its tile at (1 − f) of its opacity and on the next tile
+ * `blendTiles` (the texels of the flipbook's tile and the next mixed by the tile value's fraction): each particle is drawn twice, on its tile at (1 − f) of its opacity and on the next tile
  * at f, from `SimParticle.tileBlend`. That is exact for additive and premultiplied blending (two
  * weighted sums add up to the mixed texel) and close for alpha blending (where the second copy also
  * dims the first a little); it keeps Babylon's own particle shader, where a custom one would need

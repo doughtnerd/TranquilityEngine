@@ -14,7 +14,7 @@ export function clampBorder(border: readonly number[], w: number, h: number): [n
 }
 
 export interface SpriteFrame {
-  /** Texture coordinates `[u0, v0, u1, v1]` (v up, as three.js loads images), or null for the whole texture. */
+  /** Texture coordinates `[u0, v0, u1, v1]` (v up: 0 at the image's bottom), or null for the whole texture. */
   uv: [number, number, number, number] | null;
   /** Size in world units before the node's scale. */
   size: [number, number];

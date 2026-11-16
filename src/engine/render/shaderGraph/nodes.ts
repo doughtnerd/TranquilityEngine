@@ -185,7 +185,7 @@ fn mycoHsvToRgb(c: vec3f) -> vec3f {
   let c: f32 = cos(r);
   return vec2f(d.x * c - d.y * s, d.x * s + d.y * c) + center;
 }`,
-  // The Babylon backend binds the main light (three.js's rule: first shadow-casting directional light, else
+  // The Babylon backend binds the main light (the first shadow-casting directional light, else
   // the first directional one) as uniforms; Babylon's own light0 is whatever light the mesh lists first.
   mainLight: `fn mycoMainLightDirection() -> vec3f {
   return normalize(uniforms.uMycoMainLightDir);

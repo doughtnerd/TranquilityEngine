@@ -60,7 +60,7 @@ export function createPreviewScene(engine: AbstractEngine): Scene {
 export function addPreviewLights(scene: Scene, ambient: number, sun: number): { ambient: HemisphericLight; sun: DirectionalLight } {
   const hemi = new HemisphericLight("preview.ambient", new Vector3(0, 1, 0), scene);
   hemi.intensity = ambient;
-  hemi.groundColor = new Color3(1, 1, 1); // three's AmbientLight: the same from every direction
+  hemi.groundColor = new Color3(1, 1, 1); // an ambient light: the same from every direction
   hemi.specular = Color3.Black();
   const light = new DirectionalLight("preview.sun", new Vector3(-4, -10, 6).normalize(), scene);
   light.intensity = sun;

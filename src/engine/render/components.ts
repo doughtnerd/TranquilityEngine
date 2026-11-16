@@ -1,6 +1,6 @@
 /**
- * Render components (ADR 0004, 0010, 0014). Engine-native: none of these expose three.js.
- * The render backend mirrors them into three.js objects each frame.
+ * Render components (ADR 0004, 0010, 0014). Engine-native: none of these expose the renderer.
+ * The render backend mirrors them into Babylon.js objects each frame (ADR 0075, 0081).
  */
 import { Component } from "../core/Component";
 import { Color, Quaternion, Ray, Vector2, Vector3 } from "../core/math";
