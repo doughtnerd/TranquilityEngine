@@ -8,27 +8,19 @@ import { defaultAudioSettings } from "../../../../engine/audio/settings";
 import { Audio } from "../../runtime/Audio";
 import { loudnessHub } from "../../runtime/mix/loudnessHub";
 import { LOUD_OUTPUT_TAP } from "../../runtime/wire.generated";
-import { loudnessTargetNamed, registerMixPanels } from "./index";
+import { registerMixPanels } from "./index";
 import { buildScene, MUSIC_SLOT } from "./loudnessSceneSupport";
 import { CaptureSource } from "./profilerSource";
-import { LOUDNESS_MARKS_TRACK_ID, LOUDNESS_TRACK_ID, type LoudnessTrackModule } from "./tracks/loudness";
+import { type LoudnessTrackModule } from "./tracks/loudness";
 import { inProcessWorker } from "./voiceSceneSupport";
+
+const LOUDNESS_TRACK_ID = "loudness";
+const LOUDNESS_MARKS_TRACK_ID = "loudness.marks";
 
 const TARGETS = [
   { name: "console", integrated: -24, tolerance: 2, truePeak: -1 },
   { name: "mobile", integrated: -16, tolerance: 1.5, truePeak: -2 },
 ];
-
-describe("loudnessTargetNamed", () => {
-  it("is the entry the session's target names; null for no target, an unknown name or no list", () => {
-    expect(loudnessTargetNamed(TARGETS, "console")).toBe(TARGETS[0]);
-    expect(loudnessTargetNamed(TARGETS, "mobile")).toBe(TARGETS[1]);
-    expect(loudnessTargetNamed(TARGETS, null)).toBeNull();
-    expect(loudnessTargetNamed(TARGETS, "cinema")).toBeNull();
-    expect(loudnessTargetNamed([], "console")).toBeNull();
-    expect(loudnessTargetNamed(undefined, "console")).toBeNull();
-  });
-});
 
 describe("the Profiler's loudness track in loadProfiler", () => {
   afterEach(() => {
@@ -61,6 +53,10 @@ describe("the Profiler's loudness track in loadProfiler", () => {
       await mod.refresh();
       expect(mod.tooltipAt!(at)).toContain(`Target ${t.name}: ${t.integrated.toFixed(1)} LUFS`);
     }
+    // A name the project's list doesn't have is no target of the project's.
+    Audio.loudnessTarget = "cinema";
+    await mod.refresh();
+    expect(mod.tooltipAt!(at)).not.toContain("Target cinema");
     // `null` selects the first entry (the hub's rule).
     Audio.loudnessTarget = null;
     await mod.refresh();

@@ -1,21 +1,9 @@
 import { describe, expect, it } from "vitest";
-import {
-  FADER_FLOOR_DB,
-  FADER_MAX_DB,
-  FINE_DRAG_SCALE,
-  SNAP_RADIUS,
-  UNITY_POSITION,
-  dbToGain,
-  dbToPosition,
-  dragGain,
-  dragPosition,
-  formatDb,
-  gainToDb,
-  gainToPosition,
-  positionToDb,
-  positionToGain,
-  snapToUnity,
-} from "./faderModel";
+import { FADER_MAX_DB, FINE_DRAG_SCALE, UNITY_POSITION, dbToGain, dbToPosition, dragPosition, formatDb, gainToDb, gainToPosition, positionToDb, positionToGain, snapToUnity } from "./faderModel";
+
+const SNAP_RADIUS = 0.02;
+
+const FADER_FLOOR_DB = -60;
 
 describe("fader taper", () => {
   it("round trips position -> dB -> position to 1e-9 across the travel", () => {
@@ -97,12 +85,5 @@ describe("fader snapping and fine drag", () => {
     expect(dragPosition(0.1, -5)).toBe(0);
     // fine travel near unity still snaps once inside the radius
     expect(dragPosition(UNITY_POSITION - 0.1, 0.9, true)).toBe(UNITY_POSITION);
-  });
-
-  it("drags a gain", () => {
-    expect(dragGain(1, 0)).toBe(1);
-    expect(dragGain(1, 0.25)).toBe(2);
-    expect(dragGain(1, -1)).toBe(0);
-    expect(dragGain(0.5, 0.1)).toBeGreaterThan(0.5);
   });
 });

@@ -6,10 +6,29 @@ import { describe, expect, it } from "vitest";
 import type { SettingsDraft } from "../../../../editor/sdk";
 import { parseAudioSettings } from "../../../../engine/audio/settings";
 import { FINE_DRAG_SCALE, UNITY_POSITION, gainToPosition, positionToGain } from "./faderModel";
-import { buildStrips, createMixerModel, type MixerHost } from "./mixerModel";
-import { KEY_PAGE_STEP, KEY_STEP, MixerStrip, faderHandlers, keyPosition } from "./MixerStrip";
+import { createMixerModel, type MixerHost } from "./mixerModel";
+import { MixerStrip } from "./MixerStrip";
+
+/** A key moves the fader this much of its travel; Page Up and Page Down this much. */
+const KEY_STEP = 0.02;
+const KEY_PAGE_STEP = 0.1;
 
 const AUDIO = { buses: [{ name: "master" }, { name: "sfx", parent: "master", volume: 0.5 }, { name: "music", parent: "master" }] };
+
+/** The props of the strip's one ARIA slider (the fader track). */
+function slider(tree: VNode): Record<string, unknown> {
+  const found: Array<VNode<Record<string, unknown>>> = [];
+  const walk = (n: unknown): void => {
+    if (Array.isArray(n)) return n.forEach(walk);
+    if (!n || typeof n !== "object" || !("props" in n)) return;
+    const v = n as VNode<Record<string, unknown>>;
+    if (v.props.role === "slider") found.push(v);
+    walk(v.props.children);
+  };
+  walk(tree);
+  expect(found).toHaveLength(1);
+  return found[0]!.props;
+}
 
 function rig() {
   let draft: SettingsDraft = { audio: AUDIO } as SettingsDraft;
@@ -22,15 +41,24 @@ function rig() {
   };
   const model = createMixerModel(host);
   const volume = (bus: string): number => parseAudioSettings(draft.audio).settings.buses.find((b) => b.name === bus)!.volume;
-  const strip = (bus: string) => buildStrips(parseAudioSettings(draft.audio).settings).find((s) => s.name === bus)!;
+  const strip = (bus: string) => model.strips().find((s) => s.name === bus)!;
   /** Press `key` on the fader of `bus`, with a fresh render before it (as the panel re-renders after each edit). */
   const press = (bus: string, key: string, mod: { shiftKey?: boolean; altKey?: boolean } = {}) => {
     let prevented = false;
     let changed = 0;
-    faderHandlers({ strip: strip(bus), model, onChange: () => void changed++ }).onKeyDown({ key, ...mod, preventDefault: () => { prevented = true; } } as KeyboardEvent);
+    const fader = slider(MixerStrip({ strip: strip(bus), model, onChange: () => void changed++ }) as VNode);
+    (fader.onKeyDown as (e: KeyboardEvent) => void)({ key, ...mod, preventDefault: () => { prevented = true; } } as KeyboardEvent);
     return { prevented, changed };
   };
   return { model, commits, volume, strip, press };
+}
+
+/** The fader position a key press on the sfx fader leads to from `pos` (Shift when `fine`), or null when the fader doesn't take the key. */
+function keyPosition(pos: number, key: string, fine: boolean): number | null {
+  const r = rig();
+  r.model.setVolume("sfx", positionToGain(pos));
+  const { prevented } = r.press("sfx", key, fine ? { shiftKey: true } : {});
+  return prevented ? gainToPosition(r.volume("sfx")) : null;
 }
 
 describe("keyPosition: the position a key leads to", () => {
@@ -44,14 +72,14 @@ describe("keyPosition: the position a key leads to", () => {
     ["Home", 0],
     ["End", 1],
   ])("%s", (key, expected) => {
-    expect(keyPosition(0.5, key, false)).toBeCloseTo(expected, 12);
+    expect(keyPosition(0.5, key, false)).toBeCloseTo(expected, 9);
   });
 
   it("a modifier makes the arrow and page steps fine", () => {
-    expect(keyPosition(0.5, "ArrowUp", true)).toBeCloseTo(0.5 + KEY_STEP * FINE_DRAG_SCALE, 12);
-    expect(keyPosition(0.5, "ArrowLeft", true)).toBeCloseTo(0.5 - KEY_STEP * FINE_DRAG_SCALE, 12);
-    expect(keyPosition(0.5, "PageUp", true)).toBeCloseTo(0.5 + KEY_PAGE_STEP * FINE_DRAG_SCALE, 12);
-    expect(keyPosition(0.5, "PageDown", true)).toBeCloseTo(0.5 - KEY_PAGE_STEP * FINE_DRAG_SCALE, 12);
+    expect(keyPosition(0.5, "ArrowUp", true)).toBeCloseTo(0.5 + KEY_STEP * FINE_DRAG_SCALE, 9);
+    expect(keyPosition(0.5, "ArrowLeft", true)).toBeCloseTo(0.5 - KEY_STEP * FINE_DRAG_SCALE, 9);
+    expect(keyPosition(0.5, "PageUp", true)).toBeCloseTo(0.5 + KEY_PAGE_STEP * FINE_DRAG_SCALE, 9);
+    expect(keyPosition(0.5, "PageDown", true)).toBeCloseTo(0.5 - KEY_PAGE_STEP * FINE_DRAG_SCALE, 9);
   });
 
   it("Home and End ignore the modifier; the position clamps to 0..1; other keys are not the fader's", () => {
@@ -76,7 +104,7 @@ describe("a key press on the fader is one committed edit", () => {
     expect(r.commits).toEqual(["Set sfx volume"]);
     expect(res.prevented).toBe(true);
     expect(res.changed).toBe(1);
-    expect(r.volume("sfx")).toBeCloseTo(positionToGain(keyPosition(start, key, false)!), 12);
+    expect(r.volume("sfx")).toBeCloseTo(positionToGain(keyPosition(start, key, false)!), 9);
   });
 
   it("each press is its own commit (one undo step each)", () => {

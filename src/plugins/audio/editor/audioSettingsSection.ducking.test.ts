@@ -9,13 +9,18 @@ import { audioSection } from "../../../engine/audio/audioSection";
 import type { ApplyResult, MixOp } from "../../../engine/audio/mixOps";
 import { parseAudioSettings, type DuckingRule } from "../../../engine/audio/settings";
 import { createProjectSettingsSection } from "../../../editor/projectSettingsSection";
-import { onSectionChanged } from "../../../editor/sectionChanged";
 import { closeTestProject, openTestProject, readDraft } from "../../../editor/testing";
 import type { SettingsDraft } from "../../../editor/sdk";
 import { DuckingEditor } from "./AudioSettingsSection";
-import { addDucking, audioOf, moveDucking, removeDucking, setDuckingValue } from "./audioSettingsModel";
-import { createOpLog, type MixApplier } from "./mix/opLog";
+import { addDuckingEdit, audioOf, moveDucking, removeDucking, setDuckingValueEdit } from "./audioSettingsModel";
+import { playState } from "../../../editor/state";
+import { startOpLog, type MixApplier } from "./mix/opLog";
 import { newDuckRule } from "./mix/duckModel";
+
+/** Add a ducking rule as the section's button does (a refused add leaves the draft). */
+const addDucking = (d: SettingsDraft): SettingsDraft => addDuckingEdit(d).draft;
+/** Set one field of a rule as the section's controls do (a refused edit leaves the draft). */
+const setDuckingValue = (d: SettingsDraft, index: number, key: keyof DuckingRule, value: string | number): SettingsDraft => setDuckingValueEdit(d, index, key, value).draft;
 
 // ---- walking a rendered tree (as MixerStrip.test.ts does) ----
 
@@ -409,7 +414,9 @@ async function playing(ducking: object[], isPlaying: () => boolean = () => true)
   const { project } = await openTestProject({ "project.json": JSON.stringify({ name: "G", audio: { ducking } }) });
   const section = createProjectSettingsSection().open(project);
   const mixer = new FakeMixer();
-  const log = createOpLog({ onSectionChanged: (k, l) => (unsubs.push(onSectionChanged(k, l)), unsubs[unsubs.length - 1]!), isPlaying, mixer: () => mixer });
+  playState.value = isPlaying() ? "playing" : "edit"; // the op log is live only while Play runs
+  const log = startOpLog(() => mixer);
+  unsubs.push(log.dispose, () => void (playState.value = "edit"));
   return { section, mixer, log };
 }
 

@@ -4,14 +4,17 @@
 import { describe, expect, it } from "vitest";
 import { RecordType, assembleCapture, type CaptureRecordInit, type KeyframeBus } from "../../../runtime/capture/format";
 import { SAMPLE_HEADER, SAMPLE_META, SAMPLE_RATE, statusBytesWith } from "../../../runtime/capture/testSupport";
-import { busFactors } from "../busFactorsModel";
 import { CaptureSource } from "../profilerSource";
 import { nameLookup } from "../voiceTableModel";
 import { BLOCKS, FRAMES, KEYFRAME_FRAMES, inProcessWorker } from "../voiceSceneSupport";
-import {
-  BUS_GAIN_TRACK_ID, BUS_LEVEL_TRACK_ID, BusSampler, GRID_BASE_S, MAX_GRID_SAMPLES, busFactorsText, busName, busTracks, gridStride,
-} from "./buses";
+import { busName, busTracks } from "./buses";
+import type { ProfileSource } from "../profilerSource";
 import type { TrackContext } from "./types";
+
+const BUS_LEVEL_TRACK_ID = "buses.level";
+const BUS_GAIN_TRACK_ID = "buses.gain";
+/** The finest grid step the tracks sample at, seconds. */
+const GRID_BASE_S = 0.5;
 
 const TOMBSTONE = 1 << 4;
 const metered = 1 << 5;
@@ -143,10 +146,6 @@ describe("the bus gain factors", () => {
     source.close();
   });
 
-  it("builds its text from busFactorsModel: a muted lane reads -inf and counts as off unity", () => {
-    const f = busFactors({ slot: 1, gen: 1, flags: 1, lanes: Array.from({ length: 10 }, () => 1), duck: 1, automation: 0.5 });
-    expect(busFactorsText("Music", f)).toBe("Music: product 0.000 (-inf dB) = authored -inf dB x automation -6.0 dB");
-  });
 });
 
 describe("naming", () => {
@@ -173,15 +172,22 @@ describe("naming", () => {
 });
 
 describe("the sampler", () => {
-  it("doubles the grid step while the capture would need more than the most samples", () => {
-    expect(gridStride(10)).toBe(GRID_BASE_S);
-    const long = gridStride(600);
-    expect(long).toBe(2);
-    expect(600 / long + 1).toBeLessThanOrEqual(MAX_GRID_SAMPLES);
-    expect(600 / (long / 2) + 1).toBeGreaterThan(MAX_GRID_SAMPLES);
+  it("doubles the grid step while the capture would need more than 512 samples", async () => {
+    /** The seeks the tracks make over a capture of `duration` seconds with nothing in it. */
+    const seeksFor = async (duration: number): Promise<number> => {
+      let seeks = 0;
+      const source = { duration, startSeconds: 0, summary: { meta: { audio: null } }, seek: async () => (seeks++, { status: null, keyframe: null, keyframeSeq: 0 }) } as unknown as ProfileSource;
+      const [level, gain] = busTracks({ source, names: { clip: () => undefined, bus: () => undefined, event: () => undefined } });
+      await Promise.all([level!.refresh(), gain!.refresh()]);
+      return seeks;
+    };
+    expect(await seeksFor(10)).toBe(21); // every 0.5 s
+    expect(await seeksFor(255.5)).toBe(512); // still every 0.5 s: 512 points fit
+    expect(await seeksFor(256)).toBe(257); // every 1 s
+    expect(await seeksFor(600)).toBe(301); // every 2 s
   });
 
-  it("seeks each grid point once: a second refresh does no work", async () => {
+  it("seeks each grid point once for both tracks: a second refresh does no work", async () => {
     const { source, ctx } = await open();
     let seeks = 0;
     const real = source.seek.bind(source);
@@ -189,13 +195,13 @@ describe("the sampler", () => {
       seeks++;
       return real(t);
     };
-    const sampler = new BusSampler(ctx.source);
-    await sampler.refresh();
+    const [level, gain] = busTracks(ctx);
+    await Promise.all([level!.refresh(), gain!.refresh()]);
     const first = seeks;
     expect(first).toBe(Math.floor(source.duration / GRID_BASE_S) + 1);
-    await sampler.refresh();
+    await Promise.all([level!.refresh(), gain!.refresh()]);
     expect(seeks).toBe(first);
-    expect(sampler.samples).toHaveLength(first);
+    expect(level!.data()!.lines![0]!.times).toHaveLength(first - 1); // the point at 0 is before the first STATUS
     source.close();
   });
 

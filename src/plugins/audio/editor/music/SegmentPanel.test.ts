@@ -4,10 +4,9 @@ import { describe, expect, it } from "vitest";
 import { formatAudioEvent, parseAudioEvent, type AudioEventAsset } from "../../../../engine/audio/eventFormat";
 import type { SegmentNode } from "../../../../engine/audio/musicFormat";
 import {
-  addCue, addRegion, audibleStems, auditionKey, auditionOf, moveTrack, promoteAlternative, readCondition, removeAlternative, removeCue,
-  removeRegion, removeTrack, renameCue, renameTrack, setCueAt, setEntry, setExit, setGridOffset, setTempo, setTrackBus, setTrackPick,
-  setTrackVolume, stemAudition, toggleStem, updateRegion, type Edit,
-} from "./SegmentPanel";
+  addCue, addRegion, moveTrack, promoteAlternative, readCondition, removeAlternative, removeCue, removeRegion, removeTrack, renameCue, renameTrack, setCueAt, setEntry, setExit, setGridOffset, setTempo, setTrackBus, setTrackPick, setTrackVolume, updateRegion, type Edit,
+} from "./segmentEdits";
+import { audibleStems, auditionKey, auditionOf, stemAudition, toggleStem } from "./stemAudition";
 import { findSegment, replaceSegment } from "./segmentViewModel";
 
 const RAW = {

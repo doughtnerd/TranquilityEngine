@@ -4,10 +4,10 @@ import type { ApplyResult, MixOp } from "../../../../engine/audio/mixOps";
 import { parseAudioSettings } from "../../../../engine/audio/settings";
 import { createProjectSettingsSection } from "../../../../editor/projectSettingsSection";
 import type { SettingsDraft } from "../../../../editor/projectSettingsModel";
-import { onSectionChanged } from "../../../../editor/sectionChanged";
 import { closeTestProject, openTestProject } from "../../../../editor/testing";
-import { createOpLog, type MixApplier } from "./opLog";
-import { buildStrips, createMixerModel, type BusReading, type MixerHost } from "./mixerModel";
+import { playState } from "../../../../editor/state";
+import { startOpLog, type MixApplier } from "./opLog";
+import { createMixerModel, type BusReading, type MixerHost } from "./mixerModel";
 
 const PROJECT = `{
   "name": "Game",
@@ -36,11 +36,9 @@ async function rig() {
   const { project } = await openTestProject({ "project.json": PROJECT });
   const section = createProjectSettingsSection().open(project);
   const mixer = new HeardMixer();
-  const log = createOpLog({
-    onSectionChanged: (k, l) => (unsubs.push(onSectionChanged(k, l)), unsubs[unsubs.length - 1]),
-    isPlaying: () => true,
-    mixer: () => mixer,
-  });
+  playState.value = "playing"; // the op log is live only while Play runs
+  const log = startOpLog(() => mixer);
+  unsubs.push(log.dispose, () => void (playState.value = "edit"));
   const flushes: number[] = [];
   const commits: string[] = [];
   const monitors: Array<[string, object]> = [];
@@ -199,9 +197,11 @@ describe("toggles and typed values", () => {
 
 describe("strips", () => {
   const settings = parseAudioSettings(JSON.parse(PROJECT).audio).settings;
+  /** The model over the project's draft, as the Mixer panel makes it; nothing it applies or commits matters here. */
+  const model = () => createMixerModel({ draft: () => ({ audio: JSON.parse(PROJECT).audio }) as SettingsDraft, apply: () => ({ ok: true, class: "direct" }), flushNow() {}, commit() {} });
 
   it("come in tree order with authored values, sends and depth", () => {
-    const strips = buildStrips(settings);
+    const strips = model().strips();
     expect(strips.map((s) => [s.name, s.depth, s.parent])).toEqual([["master", 0, null], ["sfx", 1, "master"], ["music", 1, "master"]]);
     expect(strips[1]).toMatchObject({ volume: 1, mute: false, sends: [0.3], live: false, metered: false });
     expect(strips[0]).toMatchObject({ root: true, metered: true });
@@ -209,13 +209,16 @@ describe("strips", () => {
   });
 
   it("show the drag's previewed value on its strip only", () => {
-    const strips = buildStrips(settings, () => null, () => undefined, { bus: "sfx", value: 0.25 });
+    const m = model();
+    m.beginDrag("sfx");
+    m.drag(0.25);
+    const strips = m.strips();
     expect(strips.map((s) => [s.dragging, s.shownVolume])).toEqual([[false, 1], [true, 0.25], [false, 0.8]]);
   });
 
   it("carry the live readings and the folded meter numbers", () => {
-    const reading: BusReading = { runtimeVolume: 0.5, runtimeMute: true, solo: true, peak: 0.7, effectiveGain: 0.4, duckGain: 0.6, activeVoices: 3, loudness: buildStrips(settings)[0].loudness, monitorSolo: true };
-    const strips = buildStrips(settings, (n) => (n === "sfx" ? reading : null), (n) => (n === "music" ? { peak: 0.1, hold: 0.9, clipLatched: true } : undefined));
+    const reading: BusReading = { runtimeVolume: 0.5, runtimeMute: true, solo: true, peak: 0.7, effectiveGain: 0.4, duckGain: 0.6, activeVoices: 3, loudness: model().strips()[0].loudness, monitorSolo: true };
+    const strips = model().strips((n) => (n === "sfx" ? reading : null), (n) => (n === "music" ? { peak: 0.1, hold: 0.9, clipLatched: true } : undefined));
     expect(strips[1]).toMatchObject({ live: true, runtimeVolume: 0.5, runtimeMute: true, solo: true, monitorSolo: true, monitorMute: false, effectiveGain: 0.4, duckGain: 0.6, activeVoices: 3, meter: { peak: 0.7, hold: 0.7, clipLatched: false } });
     expect(strips[2].meter).toEqual({ peak: 0.1, hold: 0.9, clipLatched: true });
     expect(strips[2].live).toBe(false);

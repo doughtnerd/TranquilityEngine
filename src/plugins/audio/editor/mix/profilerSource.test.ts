@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { CaptureError, RecordType, assembleCapture, encodeRecords, type CaptureRecordInit } from "../../runtime/capture/format";
 import { SAMPLE_HEADER, SAMPLE_META, longCapture, longCaptureRecords, sampleCapture } from "../../runtime/capture/testSupport";
 import { createCaptureWorkerHandler, type CaptureRequest, type CaptureResponse } from "../../runtime/capture/worker";
-import { CaptureSource, captureErrorFrom, statusColumns, type CaptureWorkerLike } from "./profilerSource";
+import { CaptureSource, statusColumns, type CaptureWorkerLike } from "./profilerSource";
 
 /** A Worker stand-in: each message runs the real handler on a later macrotask; transferred buffers are detached. */
 function inProcessWorker(): CaptureWorkerLike & { requests: CaptureRequest[]; terminated: boolean } {
@@ -88,8 +88,16 @@ describe("CaptureSource (files)", () => {
     expect(worker.terminated).toBe(true);
   });
 
-  it("captureErrorFrom keeps a message that has no prefix", () => {
-    expect(captureErrorFrom({ code: "badValue", offset: -1, message: "plain" }).message).toBe("badValue at -1: plain");
+  it("a Worker refusal whose message has no prefix keeps it whole", async () => {
+    // A Worker that refuses every request with a bare message.
+    const worker: CaptureWorkerLike = {
+      onmessage: null,
+      onerror: null,
+      postMessage(req) { queueMicrotask(() => worker.onmessage?.({ data: { type: "error", id: req.id, error: { code: "badValue", offset: -1, message: "plain" } } as never })); },
+      terminate() {},
+    };
+    const e = await refusal(CaptureSource.openFile(buf(sampleCapture()), { worker }));
+    expect([e.code, e.message]).toEqual(["badValue", "badValue at -1: plain"]);
   });
 
   it("an aborted signal cancels the open (before it starts, and mid-open)", async () => {

@@ -6,7 +6,7 @@
 // monitor, dip) and one last-reported value each for the core-owned `duck` and `automation`. Those two have no target on
 // the wire, so their target here equals their value.
 
-import type { KeyframeBus, KeyframePayload } from "../../runtime/capture/format";
+import type { KeyframeBus } from "../../runtime/capture/format";
 
 /** The seven lanes in wire order (`LANE_AUTHORED` 0 … `LANE_AUTOMATION` 6; `Lane` in `engine/audio/mixer.ts`). */
 export const FACTOR_LANES = ["authored", "runtime", "snapshot", "monitor", "dip", "duck", "automation"] as const;
@@ -90,11 +90,6 @@ export function busFactors(bus: KeyframeBus): BusFactors {
     nonUnity: factors.filter((f) => !f.unity).map((f) => f.lane),
     tombstone: (bus.flags & FLAG_TOMBSTONE) !== 0,
   };
-}
-
-/** Every bus row of a keyframe, in the keyframe's order. */
-export function keyframeBusFactors(keyframe: Pick<KeyframePayload, "buses">): BusFactors[] {
-  return keyframe.buses.map(busFactors);
 }
 
 /** A bus's product times its ancestors' (the level reaching the output from it). */

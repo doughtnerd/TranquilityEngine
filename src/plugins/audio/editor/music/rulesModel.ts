@@ -62,7 +62,7 @@ export interface RuleReadout {
 }
 
 /** The tier names the readout uses: 1 `pair`, 2 `from named`, 3 `to named`, 4 `*>*`. */
-export const TIER_TEXT: Readonly<Record<RuleTier, string>> = {
+const TIER_TEXT: Readonly<Record<RuleTier, string>> = {
   1: "Tier 1: pair (from and to named)",
   2: "Tier 2: from named",
   3: "Tier 3: to named",
@@ -73,7 +73,7 @@ export const TIER_TEXT: Readonly<Record<RuleTier, string>> = {
  * The headers of a container: its direct children's ids in list order, then `*`. A container with no children has just
  * `*`. L-Ed6a.
  */
-export function ruleHeaders(container: MusicContainerNode): RuleHeader[] {
+function ruleHeaders(container: MusicContainerNode): RuleHeader[] {
   const children: RuleHeader[] = container.children.map((c) => ({ id: c.id, label: c.id, isWildcard: false }));
   return [...children, { id: RULE_WILDCARD, label: RULE_WILDCARD, isWildcard: true }];
 }

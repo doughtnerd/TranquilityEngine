@@ -1,22 +1,8 @@
 import { describe, expect, it } from "vitest";
-import {
-  MIN_SPAN_S,
-  TrackList,
-  clampViewport,
-  createMinMaxPyramid,
-  downsampleMinMax,
-  downsampleMinMaxPyramid,
-  downsampleTicks,
-  downsampleTicksIndexed,
-  extendMinMaxPyramid,
-  followLiveViewport,
-  panViewport,
-  timeToX,
-  xToTime,
-  zoomViewport,
-  type Track,
-  type Viewport,
-} from "./timelineModel";
+import { TrackList, clampViewport, createMinMaxPyramid, downsampleMinMax, downsampleMinMaxPyramid, downsampleTicks, downsampleTicksIndexed, extendMinMaxPyramid, followLiveViewport, panViewport, timeToX, xToTime, zoomViewport, type Track, type Viewport } from "./timelineModel";
+
+// The narrowest span the viewport allows.
+const MIN_SPAN_S = 0.005;
 
 const vp = (start: number, end: number, followLive = false): Viewport => ({ start, end, followLive });
 

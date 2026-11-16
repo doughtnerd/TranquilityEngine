@@ -32,7 +32,7 @@ import {
 import { type ViewportDrag, type ViewportPointer, type ViewportToolContribution, editor, SetField, type OpenScene, theme, viewportColors } from "../../../editor/sdk";
 
 /** The zone tool's id: also its overlay id and its active-tool id. */
-export const ZONE_TOOL_ID = "myco.audio.zones";
+const ZONE_TOOL_ID = "myco.audio.zones";
 /** The component type the tool and the Edit Zone action work on. */
 export const ZONE_TYPE = "engine.AudioReverbZone";
 
@@ -79,7 +79,7 @@ export function zoneHandles(g: ZoneGeometry, blendDistance: number): Record<stri
 }
 
 /** What to draw this frame: every zone in the edited scene, handles for the one being edited. */
-export function zoneOverlay(engine: Engine): EditorOverlay {
+function zoneOverlay(engine: Engine): EditorOverlay {
   const overlay: EditorOverlay = { lines: [], handles: [] };
   const selected = new Set(editor.scene.selection.nodes().map((s) => s.node));
   for (const zone of GameObject.findObjectsOfType(AudioReverbZone)) {
@@ -170,8 +170,8 @@ function grouped(scene: OpenScene, label: string, move: (p: ViewportPointer) => 
   return { move, end: close, cancel: close };
 }
 
-/** The pointer ray at a canvas point: what the viewport gives, or a stand-in in tests. */
-export type RayAt = (x: number, y: number) => { origin: readonly number[]; direction: readonly number[] } | null;
+/** The pointer ray at a canvas point, as the viewport gives it. */
+type RayAt = (x: number, y: number) => { origin: readonly number[]; direction: readonly number[] } | null;
 
 /**
  * Press on a zone handle: drag it along its axis, to the point on the axis nearest the pointer's ray (face and radius
@@ -179,7 +179,7 @@ export type RayAt = (x: number, y: number) => { origin: readonly number[]; direc
  * `center` (box), `radius` (sphere) or `blendDistance`. Null when the handle isn't on this zone or its axis can't be
  * worked out.
  */
-export function startZoneDrag(rayAt: RayAt, scene: OpenScene, press: { x: number; y: number }, handle: string, node: GameObject, zone: AudioReverbZone, editing: EditingZone): ViewportDrag | null {
+function startZoneDrag(rayAt: RayAt, scene: OpenScene, press: { x: number; y: number }, handle: string, node: GameObject, zone: AudioReverbZone, editing: EditingZone): ViewportDrag | null {
   const pose = zonePoseOf(node); // fixed for the drag
   const g = geometryOf(node, zone);
   const handles = zoneHandles(g, zone.blendDistance);

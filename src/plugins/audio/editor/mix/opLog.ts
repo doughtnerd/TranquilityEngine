@@ -59,7 +59,7 @@ export function recordMixOps(value: object, entry: MixOpEntry, base?: object): v
 const isObject = (v: unknown): v is object => typeof v === "object" && v !== null;
 
 /** The ops a change stands for: edit and redo, the entry on `after`; undo, the inverse on `before`; else a diff. */
-export function opsOf(change: Pick<SectionChange, "before" | "after" | "cause">): { ops: MixOp[]; source: "recorded" | "diff"; restartRequired: string[] } {
+function opsOf(change: Pick<SectionChange, "before" | "after" | "cause">): { ops: MixOp[]; source: "recorded" | "diff"; restartRequired: string[] } {
   const undo = change.cause === "undo";
   const tagged = undo ? change.before : change.after;
   const tag = isObject(tagged) ? recorded.get(tagged) : undefined;
@@ -72,7 +72,7 @@ export function opsOf(change: Pick<SectionChange, "before" | "after" | "cause">)
 }
 
 /** Start the log over `host`. */
-export function createOpLog(host: OpLogHost): OpLog {
+function createOpLog(host: OpLogHost): OpLog {
   const entries: OpLogEntry[] = [];
   let seq = 0;
   const off = host.onSectionChanged("audio", (change) => {

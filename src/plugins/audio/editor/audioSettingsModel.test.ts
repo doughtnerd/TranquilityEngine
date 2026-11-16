@@ -1,16 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { audioSection } from "../../../engine/audio/audioSection";
-import { parseAudioSettings } from "../../../engine/audio/settings";
+import { parseAudioSettings, type AudioSettings } from "../../../engine/audio/settings";
+import type { SettingsDraft } from "../../../editor/sdk";
 import { MAX_PARAMETERS } from "../../../engine/audio/eventFormat";
 import { withSettings } from "../../../editor/projectSettingsModel";
 import { readDraft } from "../../../editor/testing";
-import {
-  addBus, addDucking, addEffect, addSnapshot, applyVoicesPreset, audioOf, VOICE_PRESETS, busTree, removeBus, renameBus, setBackend, setBackground, setBusMaxVoices, setBusParent, setBusValue,
-  addBusAutomation, addParameter, removeBusAutomation, removeParameter, renameParameter, setBusAutomationBus, setBusAutomationCurve, setBusAutomationParameter,
-  setBusAutomationTarget, setParameterDefaultLabel, setParameterLabelled, setParameterLabels, setParameterRange,
-  setClipFormat, setClipMemory, setCodec, setLimiterLookahead, setSnapshotVolume, setSpatial, setVoices, voicesPreset, setMusicRings, setRhythmMode,
-  addMaterial, bedPlan, lostBeds, materialIsModified, physicsLayerNames, removeMaterial, renameMaterial, resetMaterial, setBed, setBusBed, setBusBedPriority, setDoppler, setMaterial, setMaxClips, setOcclusion, setZones, toggleOcclusionLayer, zoneMemory, zoneWarnings,
-} from "./audioSettingsModel";
+import { addBus, addDuckingEdit, addEffect, addSnapshot, applyVoicesPreset, audioOf, VOICE_PRESETS, busTree, removeBus, renameBus, setBackend, setBackground, setBusMaxVoices, setBusParent, setBusValue, addBusAutomation, addParameter, removeBusAutomation, removeParameter, renameParameter, setBusAutomationBus, setBusAutomationCurve, setBusAutomationParameter, setBusAutomationTarget, setParameterDefaultLabel, setParameterLabelled, setParameterLabels, setParameterRange, setClipFormat, setClipMemory, setCodec, setLimiterLookahead, setSnapshotVolume, setSpatial, setVoices, voicesPreset, setMusicRings, setRhythmMode, addMaterial, bedPlan, materialIsModified, physicsLayerNames, removeMaterial, renameMaterial, resetMaterial, setBed, setBusBed, setBusBedPriority, setDoppler, setMaterial, setMaxClips, setOcclusion, setZones, toggleOcclusionLayer, zoneMemory, zoneWarnings, type BedPlan } from "./audioSettingsModel";
+
+/** The lost-bed warning's rows. */
+const lostBedsOf = (a: AudioSettings): BedPlan["lost"] => bedPlan(a).lost;
+/** Add a ducking rule as the section's button does (a refused add leaves the draft). */
+const addDucking = (d: SettingsDraft): SettingsDraft => addDuckingEdit(d).draft;
 
 const empty = () => readDraft({});
 const bus = (d: ReturnType<typeof empty>, name: string) => audioOf(d).buses.find((b) => b.name === name)!;
@@ -397,7 +397,7 @@ describe("ADR 0162 E3: beds, occlusion, materials, zones, Doppler", () => {
 
   it("warns about a bus that asked for a bed and lost it to priority", () => {
     let d = setBed(empty(), 1); // one slot: Master (own, 255) hosts
-    expect(lostBeds(audioOf(d))).toEqual([]);
+    expect(lostBedsOf(audioOf(d))).toEqual([]);
     d = setBusBed(d, "Music", "own");
     d = setBusBedPriority(d, "Music", 200);
     const plan = bedPlan(audioOf(d));
@@ -405,7 +405,7 @@ describe("ADR 0162 E3: beds, occlusion, materials, zones, Doppler", () => {
     expect(plan.lost).toEqual([{ bus: "Music", outrankedBy: ["Master"], sharesWith: "Master" }]);
     expect(plan.hostOf).toMatchObject({ Master: "Master", Music: "Master", SFX: "Master" });
     // a second slot and a higher priority: Music wins and Master... keeps its own slot
-    expect(lostBeds(audioOf(setBed(d, 2)))).toEqual([]);
+    expect(lostBedsOf(audioOf(setBed(d, 2)))).toEqual([]);
     expect(bedPlan(audioOf(setBusBedPriority(d, "Music", 255))).hosts).toEqual(["Master"]); // tie at 255: the shallower bus
     // two buses at the same depth fight for one slot; the lower priority loses
     d = setBusBedPriority(setBusBed(setBusBed(d, "Master", "none"), "SFX", "own"), "SFX", 150);
@@ -414,7 +414,7 @@ describe("ADR 0162 E3: beds, occlusion, materials, zones, Doppler", () => {
     expect(p2.lost.map((l) => l.bus)).toEqual(["SFX"]);
     expect(p2.lost[0].sharesWith).toBeNull(); // Master is `none`: nothing to share, so SFX is flat
     // beds off: nothing is lost
-    expect(lostBeds(audioOf(setBed(d, 0)))).toEqual([]);
+    expect(lostBedsOf(audioOf(setBed(d, 0)))).toEqual([]);
   });
 
   it("edits occlusion keys and layers; they re-parse against the physics layers", () => {

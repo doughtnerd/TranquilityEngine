@@ -10,8 +10,8 @@ export const openSegment = signal<{ readonly event: string; readonly segmentId: 
 /** The music container (playlist or music switch) whose rules the Rules panel shows: event path and node id, or null. */
 export const openRules = signal<{ readonly event: string; readonly nodeId: string } | null>(null);
 
-export const SEGMENT_VIEW_PANEL = "audiosegment";
-export const SEGMENT_PANEL = "audiosegmentpanel";
+const SEGMENT_VIEW_PANEL = "audiosegment";
+const SEGMENT_PANEL = "audiosegmentpanel";
 export const RULES_PANEL = "audiorules";
 
 /** Open segment `segmentId` of the event `event` in the segment view, bring it forward and show its Segment Properties beside it. */

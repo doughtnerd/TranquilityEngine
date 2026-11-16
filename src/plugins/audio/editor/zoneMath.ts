@@ -24,9 +24,9 @@ export type Wire = V3[][];
 /** The shortest a zone edge or radius is dragged to, local units. */
 export const MIN_EXTENT = 0.01;
 /** Segments per quarter arc of a box shell's rounded corners. */
-export const SHELL_ARC_SEGMENTS = 8;
+const SHELL_ARC_SEGMENTS = 8;
 /** Segments of a sphere's circle. */
-export const CIRCLE_SEGMENTS = 32;
+const CIRCLE_SEGMENTS = 32;
 
 /** The faces of a box zone, as handle ids: axis then sign. */
 export type ZoneFace = "x+" | "x-" | "y+" | "y-" | "z+" | "z-";

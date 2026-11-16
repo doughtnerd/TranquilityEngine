@@ -10,7 +10,7 @@
 // mute notch, as on a console. Pure TypeScript; no DOM.
 
 /** The quietest non-silent fader level, in dB. Same as the meter floor. */
-export const FADER_FLOOR_DB = -60;
+const FADER_FLOOR_DB = -60;
 /** The loudest fader level, in dB: gain 2, the upper bound of `Bus.volume` in the settings. */
 export const FADER_MAX_DB = 20 * Math.log10(2);
 /** The maximum linear gain (position 1). */
@@ -18,7 +18,7 @@ export const FADER_MAX_GAIN = 2;
 /** The fader position of unity gain (0 dB, gain 1). */
 export const UNITY_POSITION = 0.75;
 /** A drag within this distance of `UNITY_POSITION` snaps to it. */
-export const SNAP_RADIUS = 0.02;
+const SNAP_RADIUS = 0.02;
 /** Fine drag (a modifier key held) moves the position this fraction of the pointer travel. */
 export const FINE_DRAG_SCALE = 0.1;
 
@@ -80,11 +80,6 @@ export function snapToUnity(position: number): number {
  */
 export function dragPosition(start: number, delta: number, fine = false): number {
   return snapToUnity(clamp01(start) + delta * (fine ? FINE_DRAG_SCALE : 1));
-}
-
-/** The gain a drag lands on (`dragPosition` then `positionToGain`). */
-export function dragGain(startGain: number, delta: number, fine = false): number {
-  return positionToGain(dragPosition(gainToPosition(startGain), delta, fine));
 }
 
 /** A readout string for a gain: "-inf", "0.0 dB", "-6.0 dB", "+3.5 dB". */

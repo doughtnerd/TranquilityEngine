@@ -84,7 +84,7 @@ export function descendants(a: AudioSettings, name: string): string[] {
 /** Apply one op to the draft (what every function in this block calls). */
 export const applyMixOp = (d: SettingsDraft, op: MixOp): SettingsDraft => applyOpToDraft(d, op);
 /** Why `op` can't apply to `d` (the message to show under the field), or null. */
-export const mixOpRefusal = (d: SettingsDraft, op: MixOp): string | null => opRefusal(audioOf(d), op);
+const mixOpRefusal = (d: SettingsDraft, op: MixOp): string | null => opRefusal(audioOf(d), op);
 
 export function addBus(d: SettingsDraft, parent = MASTER): SettingsDraft {
   const a = audioOf(d);
@@ -159,7 +159,6 @@ export function addDuckingEdit(d: SettingsDraft): DuckEdit {
   }
   return { draft: d, refusal: first ?? "A ducking rule needs two buses." };
 }
-export const addDucking = (d: SettingsDraft): SettingsDraft => addDuckingEdit(d).draft;
 export const removeDucking = (d: SettingsDraft, index: number): SettingsDraft => applyMixOp(d, { op: "setDucking", index, rule: null });
 
 /**
@@ -175,7 +174,6 @@ export function setDuckingValueEdit(d: SettingsDraft, index: number, key: keyof 
   const refusal = duckRefusal(a, a.ducking.map((r, i) => (i === index ? rule : r)));
   return refusal ? { draft: d, refusal } : { draft: applyMixOp(d, { op: "setDucking", index, rule }), refusal: null };
 }
-export const setDuckingValue = (d: SettingsDraft, index: number, key: keyof DuckingRule, value: string | number): SettingsDraft => setDuckingValueEdit(d, index, key, value).draft;
 
 /** Move a rule up (`delta` -1) or down (+1) the list; the ends stay. The order is the index the messages and the core's rule table use. */
 export function moveDucking(d: SettingsDraft, index: number, delta: number): SettingsDraft {
@@ -208,8 +206,6 @@ export function setLoudnessTarget(d: SettingsDraft, index: number, patch: Partia
   return applyMixOp(d, { op: "setTarget", index, target });
 }
 export { LOUDNESS_TARGET_LIMITS, MAX_LOUDNESS_BUSES, MAX_TARGET_NAME };
-/** Non-root buses that are metered (the root always is and isn't counted). */
-export const meteredBusCount = (a: AudioSettings): number => a.buses.filter((b, i) => i > 0 && b.meter !== undefined).length;
 /** Is the bus metered? The root always is. */
 export const isBusMetered = (a: AudioSettings, name: string): boolean => a.buses[0]?.name === name || a.buses.find((b) => b.name === name)?.meter !== undefined;
 /** Why turning the bus's meter on would be refused ("At most 8 buses can be metered"), or null: already on, or allowed. */
@@ -541,14 +537,6 @@ export function zoneWarnings(a: Pick<AudioSettings, "zones">): ZoneWarning[] {
   return a.zones.standby === 0 ? [{ code: "evictionFade", maxActive: a.zones.maxActive, fadeMs: ZONE_EVICTION_FADE_MS }] : [];
 }
 
-/** `zones.standby`: rounded and clamped to 0..1. Non-finite changes nothing. */
-export function setZoneStandby(d: SettingsDraft, standby: number): SettingsDraft {
-  const a = audioOf(d);
-  if (!Number.isFinite(standby)) return d;
-  const v = clampInt(standby, 0, 1);
-  return a.zones.standby === v ? d : withAudio(d, { ...a, zones: { ...a.zones, standby: v } });
-}
-
 // --- ADR 0162 E3: beds, ambisonic clips, occlusion, zones, Doppler (api-and-models section 7, 2.1, 2.2) -------------------
 
 /** `audio.bed.maxBeds`: rounded, clamped 0..4 (0 turns beds off). Non-finite changes nothing. */
@@ -612,9 +600,6 @@ export function bedPlan(a: AudioSettings): BedPlan {
     maxBeds: a.bed.maxBeds,
   };
 }
-
-/** The buses that asked for their own bed and lost it to priority: the lost-bed warning's rows (empty when `maxBeds` is 0). */
-export const lostBeds = (a: AudioSettings): BedPlan["lost"] => bedPlan(a).lost;
 
 export interface OcclusionPatch {
   /** Physics layer names; `null` is every layer, an empty list turns occlusion off. Repeats and blanks are dropped. */

@@ -14,6 +14,7 @@
 //
 // "Per second" and "any increment" need the previous samples, so a `CounterWatch` sees every sample the panel takes.
 import type { AudioDebugInfo, MusicDebugRow, MusicDebugTotals } from "../runtime/backend";
+import type { EventDebugRow } from "../runtime/events/eventRuntime";
 
 /** green, amber, red; "info" is a number with no threshold (a gauge, not a fault). */
 export type Health = "ok" | "warn" | "bad" | "info";
@@ -52,7 +53,7 @@ export interface Section {
 }
 
 /** How long a counter that rose stays red, seconds (the panel refreshes at 4 Hz, so a blink would be missed). */
-export const STICKY_SECONDS = 5;
+const STICKY_SECONDS = 5;
 /** The window the per-second rates are measured over, seconds. */
 const RATE_WINDOW = 1;
 
@@ -120,13 +121,13 @@ export function formatBytes(bytes: number): string {
 }
 
 /** Hz as "800 Hz" or "5.0 kHz"; at or above 20 kHz the filter is open. */
-export function formatHz(hz: number): string {
+function formatHz(hz: number): string {
   if (hz >= 20000) return "open";
   return hz >= 1000 ? `${(hz / 1000).toFixed(1)} kHz` : `${Math.round(hz)} Hz`;
 }
 
 /** A gain as a fraction and decibels ("0.35 (-9 dB)"), or "1 (open)". */
-export function formatGain(g: number): string {
+function formatGain(g: number): string {
   if (g >= 0.9995) return "1 (open)";
   if (!(g > 0)) return "0 (silent)";
   return `${g.toFixed(2)} (${(20 * Math.log10(g)).toFixed(0)} dB)`;
@@ -135,7 +136,7 @@ export function formatGain(g: number): string {
 // --- The §9 health rules -----------------------------------------------------------------------------------------
 
 /** Health of the occlusion result age, S8 (frames at 0.25 ms). */
-export const occlusionAgeHealth = (frames: number): Health => (frames <= HEALTH.occlusionAgeAmber ? "ok" : frames <= HEALTH.occlusionAgeRed ? "warn" : "bad");
+const occlusionAgeHealth = (frames: number): Health => (frames <= HEALTH.occlusionAgeAmber ? "ok" : frames <= HEALTH.occlusionAgeRed ? "warn" : "bad");
 
 const nonZeroWarn = (v: number): Health => (v > 0 ? "warn" : "ok");
 const nonZeroBad = (v: number): Health => (v > 0 ? "bad" : "ok");
@@ -679,14 +680,14 @@ export class MusicWatch {
 }
 
 /** Lead health (§9: <= 150 ms green, 150-330 amber, > one beat red): green to 150, red above `60000 / tempo`, amber between (the table leaves 330 to the beat open when a beat is longer; this reading is the lead's). */
-export function leadHealth(leadMs: number, tempo: number): Health {
+function leadHealth(leadMs: number, tempo: number): Health {
   if (leadMs <= MUSIC_HEALTH.leadGreenMs) return "ok";
   const beatMs = tempo > 0 ? 60000 / tempo : Infinity;
   return leadMs > beatMs ? "bad" : "warn";
 }
 
 /** One-line text of `pending` ("verse at 5:1, tier 2 rule intro>verse from parent, exit nextBar, enter cue:in") or "none". */
-export function pendingText(p: MusicDebugRow["pending"]): string {
+function pendingText(p: MusicDebugRow["pending"]): string {
   if (!p) return "none";
   return `${p.to} at ${p.time}, tier ${p.tier} rule ${p.ruleKey} from ${p.parent}, exit ${p.exit}, enter ${p.enter}`;
 }
@@ -696,7 +697,7 @@ export function pendingText(p: MusicDebugRow["pending"]): string {
  * pass, bar:beat:tick, tempo, pending, groups primed n/N, stems primed n/N, prime last / Ê / lead in ms with lead health,
  * re-plans, refusals, late / held / timeouts, last slip in frames and ms, recoveries, missed beats, stingers).
  */
-export function musicInstanceRows(rows: readonly MusicDebugRow[], sampleRate: number, watch?: MusicWatch): Row[] {
+function musicInstanceRows(rows: readonly MusicDebugRow[], sampleRate: number, watch?: MusicWatch): Row[] {
   const deadline = watch?.deadlineReplansPer100();
   return rows.map((r): Row => {
     const groupsPrimed = r.groups.reduce((a, g) => a + num(g.primed), 0);
@@ -795,36 +796,34 @@ export const MUSIC_COLUMNS: readonly Column[] = [
  * late groups (red), holds (red), timeouts and recoveries (`watch`), `refusals.poolFull` / `leadOverBeat` / `tailRefused`
  * and `stingers.skipped` (amber), `refusals.neverFits` and other permanent refusals (red).
  */
-export function musicTotalsRows(rows: readonly MusicDebugRow[], totals: MusicDebugTotals | undefined, watch?: MusicWatch): Row[] {
+function musicTotalsRows(rows: readonly MusicDebugRow[], totals: MusicDebugTotals, watch?: MusicWatch): Row[] {
   const out: Row[] = [];
   const sum = (f: (r: MusicDebugRow) => number): number => rows.reduce((a, r) => a + num(f(r)), 0);
-  if (totals) {
-    const size = num(totals.poolSize);
-    const used = num(totals.poolUsed);
-    out.push(
-      kv(
-        "poolUsed",
-        "Music rings in use",
-        `${fmt(used)} of ${fmt(size)} (high-water ${fmt(num(totals.poolHighWater))})`,
-        "Music rings in use now, the pool's size (music.rings) and the most ever in use at once (rings). Amber when every ring is in use.",
-        size > 0 && used >= size ? "warn" : "info",
-      ),
-    );
-    const refused = num(totals.musicRingRefused);
-    out.push(kv("musicRingRefused", "Music rings refused", fmt(refused), "Streamed stems refused for lack of a music ring (counts). Red on any.", nonZeroBad(refused)));
-    const late = num(totals.streamStartsLate);
-    out.push(kv("streamStartsLate", "Stream starts late", fmt(late), "Streams that started after their group's start (counts). Red on any.", nonZeroBad(late)));
-    const splits = num(totals.splitQuanta);
-    out.push(kv("splitQuanta", "Quantum splits (music)", fmt(splits), "Whole-quantum splits caused by music, cumulative (counts). Red on any: a bug.", nonZeroBad(splits)));
-    out.push(kv("voiceSplits", "Voice splits", fmt(num(totals.voiceSplits)), "Voice-local splits, cumulative (counts). Informational.", "info"));
-    out.push(kv("maxSlipFrames", "Largest slip", `${fmt(num(totals.maxSlipFrames))} frames`, "The largest slip since init, in audio frames. Informational.", "info"));
-    const curve = num(totals.curvePoolFull);
-    out.push(kv("curvePoolFull", "Curve pool full", fmt(curve), "Fade curves that found the curve pool full (counts). Amber when non-zero.", nonZeroWarn(curve)));
-    const table = num(totals.groupTableFull);
-    out.push(kv("groupTableFull", "Group table full", fmt(table), "A PLAY whose group found no core table entry (counts). Red on any: a bug.", nonZeroBad(table)));
-    const over = num(totals.encodedOverBudget);
-    out.push(kv("encodedOverBudget", "Encoded cache over budget", fmt(over), "Times the worker's encoded music cache exceeded its budget with nothing evictable (counts). Amber when non-zero.", nonZeroWarn(over)));
-  }
+  const size = num(totals.poolSize);
+  const used = num(totals.poolUsed);
+  out.push(
+    kv(
+      "poolUsed",
+      "Music rings in use",
+      `${fmt(used)} of ${fmt(size)} (high-water ${fmt(num(totals.poolHighWater))})`,
+      "Music rings in use now, the pool's size (music.rings) and the most ever in use at once (rings). Amber when every ring is in use.",
+      size > 0 && used >= size ? "warn" : "info",
+    ),
+  );
+  const refused = num(totals.musicRingRefused);
+  out.push(kv("musicRingRefused", "Music rings refused", fmt(refused), "Streamed stems refused for lack of a music ring (counts). Red on any.", nonZeroBad(refused)));
+  const startsLate = num(totals.streamStartsLate);
+  out.push(kv("streamStartsLate", "Stream starts late", fmt(startsLate), "Streams that started after their group's start (counts). Red on any.", nonZeroBad(startsLate)));
+  const splits = num(totals.splitQuanta);
+  out.push(kv("splitQuanta", "Quantum splits (music)", fmt(splits), "Whole-quantum splits caused by music, cumulative (counts). Red on any: a bug.", nonZeroBad(splits)));
+  out.push(kv("voiceSplits", "Voice splits", fmt(num(totals.voiceSplits)), "Voice-local splits, cumulative (counts). Informational.", "info"));
+  out.push(kv("maxSlipFrames", "Largest slip", `${fmt(num(totals.maxSlipFrames))} frames`, "The largest slip since init, in audio frames. Informational.", "info"));
+  const curve = num(totals.curvePoolFull);
+  out.push(kv("curvePoolFull", "Curve pool full", fmt(curve), "Fade curves that found the curve pool full (counts). Amber when non-zero.", nonZeroWarn(curve)));
+  const table = num(totals.groupTableFull);
+  out.push(kv("groupTableFull", "Group table full", fmt(table), "A PLAY whose group found no core table entry (counts). Red on any: a bug.", nonZeroBad(table)));
+  const over = num(totals.encodedOverBudget);
+  out.push(kv("encodedOverBudget", "Encoded cache over budget", fmt(over), "Times the worker's encoded music cache exceeded its budget with nothing evictable (counts). Amber when non-zero.", nonZeroWarn(over)));
   const timeouts = sum((r) => r.groupTimeouts);
   const timeoutRate = watch?.groupTimeoutsPerMinute();
   out.push(
@@ -877,3 +876,52 @@ export function musicTotalsRows(rows: readonly MusicDebugRow[], totals: MusicDeb
   out.push(kv("stingersSkipped", "Stingers skipped", fmt(skipped), "Stingers skipped, summed over the music instances (counts). Amber when non-zero.", nonZeroWarn(skipped)));
   return out;
 }
+
+// --- The voices table: the most audible voices, grouped by event instance -----------------------------------------
+
+/**
+ * At most this many voice rows. A game can hold thousands of voices (4,096 logical at the default preset); rendering a
+ * row for each four times a second made the editor crawl, so the table shows the most audible ones and counts the rest.
+ */
+export const MAX_VOICE_ROWS = 64;
+
+/** The voices the table shows: the `MAX_VOICE_ROWS` most audible (ties by priority), and how many of each state are left out. */
+export function voiceRows(voices: readonly DebugVoice[], max = MAX_VOICE_ROWS): { rows: DebugVoice[]; hidden: number; hiddenByState: Record<string, number> } {
+  if (voices.length <= max) return { rows: voices.slice(), hidden: 0, hiddenByState: {} };
+  const sorted = voices.slice().sort((a, b) => b.audibility - a.audibility || b.priority - a.priority || a.id - b.id);
+  const hiddenByState: Record<string, number> = {};
+  for (let i = max; i < sorted.length; i++) {
+    const s = sorted[i]!.state;
+    hiddenByState[s] = (hiddenByState[s] ?? 0) + 1;
+  }
+  return { rows: sorted.slice(0, max), hidden: sorted.length - max, hiddenByState };
+}
+
+/** A playing event instance and its voices among the rows shown. */
+export interface VoiceGroup {
+  event: EventDebugRow;
+  voices: DebugVoice[];
+}
+
+/**
+ * The shown rows split by event instance (`voices[].event` against `Audio.debug().events`): the groups in the order their
+ * first voice appears, and the voices that belong to no listed instance as they were (an instance that already ended
+ * counts as none).
+ */
+export function groupByEvent(rows: readonly DebugVoice[], events: readonly EventDebugRow[] | undefined): { groups: VoiceGroup[]; ungrouped: DebugVoice[] } {
+  const byId = new Map<number, EventDebugRow>();
+  for (const e of events ?? []) byId.set(e.id, e);
+  const groups = new Map<number, VoiceGroup>();
+  const ungrouped: DebugVoice[] = [];
+  for (const v of rows) {
+    const e = v.event !== undefined && v.event !== null ? byId.get(v.event) : undefined;
+    if (!e) { ungrouped.push(v); continue; }
+    let g = groups.get(e.id);
+    if (!g) groups.set(e.id, (g = { event: e, voices: [] }));
+    g.voices.push(v);
+  }
+  return { groups: [...groups.values()], ungrouped };
+}
+
+/** How many continuous-container clips the playing event instances started a frame late (0158 §6). */
+export const lateStartCount = (events: readonly EventDebugRow[] | undefined): number => (events ?? []).reduce((n, e) => n + (e.lateStarts ?? 0), 0);

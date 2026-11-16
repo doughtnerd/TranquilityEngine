@@ -6,63 +6,15 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { Audio } from "../runtime/Audio";
 import type { AudioDebugInfo } from "../runtime/backend";
 import type { AudioDebugState } from "../runtime/Audio";
-import type { EventDebugRow } from "../runtime/events/eventRuntime";
 import { editor, Panel } from "../../../editor/sdk";
-import { CounterWatch, MusicWatch, VOICE_COLUMNS, debugSections, mixSections, voiceCells, type Cell, type Section } from "./audioDebugRows";
+import { CounterWatch, MusicWatch, VOICE_COLUMNS, debugSections, groupByEvent, lateStartCount, mixSections, voiceCells, voiceRows, type Cell, type Section } from "./audioDebugRows";
 import { occlusionOverlayOn } from "./OcclusionOverlay";
 import "./audioDebugPanel.css";
 
 /** The panel reads `Audio.debug()` this often while playing (not every frame). */
 const REFRESH_MS = 250;
 
-/**
- * At most this many voice rows. A game can hold thousands of voices (4,096 logical at the default preset); rendering a
- * row for each four times a second made the editor crawl, so the table shows the most audible ones and counts the rest.
- */
-export const MAX_VOICE_ROWS = 64;
-
 type DebugVoice = AudioDebugInfo["voices"][number];
-
-/** The voices the table shows: the `MAX_VOICE_ROWS` most audible (ties by priority), and how many of each state are left out. */
-export function voiceRows(voices: readonly DebugVoice[], max = MAX_VOICE_ROWS): { rows: DebugVoice[]; hidden: number; hiddenByState: Record<string, number> } {
-  if (voices.length <= max) return { rows: voices.slice(), hidden: 0, hiddenByState: {} };
-  const sorted = voices.slice().sort((a, b) => b.audibility - a.audibility || b.priority - a.priority || a.id - b.id);
-  const hiddenByState: Record<string, number> = {};
-  for (let i = max; i < sorted.length; i++) {
-    const s = sorted[i]!.state;
-    hiddenByState[s] = (hiddenByState[s] ?? 0) + 1;
-  }
-  return { rows: sorted.slice(0, max), hidden: sorted.length - max, hiddenByState };
-}
-
-/** A playing event instance and its voices among the rows shown. */
-export interface VoiceGroup {
-  event: EventDebugRow;
-  voices: DebugVoice[];
-}
-
-/**
- * The shown rows split by event instance (`voices[].event` against `Audio.debug().events`): the groups in the order their
- * first voice appears, and the voices that belong to no listed instance as they were (an instance that already ended
- * counts as none).
- */
-export function groupByEvent(rows: readonly DebugVoice[], events: readonly EventDebugRow[] | undefined): { groups: VoiceGroup[]; ungrouped: DebugVoice[] } {
-  const byId = new Map<number, EventDebugRow>();
-  for (const e of events ?? []) byId.set(e.id, e);
-  const groups = new Map<number, VoiceGroup>();
-  const ungrouped: DebugVoice[] = [];
-  for (const v of rows) {
-    const e = v.event !== undefined && v.event !== null ? byId.get(v.event) : undefined;
-    if (!e) { ungrouped.push(v); continue; }
-    let g = groups.get(e.id);
-    if (!g) groups.set(e.id, (g = { event: e, voices: [] }));
-    g.voices.push(v);
-  }
-  return { groups: [...groups.values()], ungrouped };
-}
-
-/** How many continuous-container clips the playing event instances started a frame late (0158 §6). */
-export const lateStartCount = (events: readonly EventDebugRow[] | undefined): number => (events ?? []).reduce((n, e) => n + (e.lateStarts ?? 0), 0);
 
 /** "Name 0.5, Other Grass": an instance's parameters on one line. */
 const parameterText = (p: Record<string, number | string>): string =>

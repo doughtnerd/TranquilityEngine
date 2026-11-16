@@ -2,7 +2,7 @@
 // clicked second, trigger a stinger while playing, hot reload, and the playhead, all on the real runtime: the music player
 // reached through `Audio.play`, the same path a game's script takes. The audio host (play, flush the pending write,
 // reload) is injected, so this module imports neither `Audio` nor Preact and the tests run it against a fake;
-// `transportHost.ts` builds the real one. The pure helpers (`seekText`, `playheadSeconds`) need only the tempo grid.
+// `transportHost.ts` builds the real one. The pure helper `playheadSeconds` needs only the tempo grid.
 import { signal, type ReadonlySignal } from "@preact/signals";
 import { cueTicks, positionToTicks, secondsToNearestTick, ticksToPositionText, ticksToSeconds, type SegmentGrid, type TempoMap } from "../../../../engine/audio/musicGrid";
 import type { MusicEventHandle, MusicSeekResult } from "../../../../engine/audio/musicTypes";
@@ -17,7 +17,7 @@ export type TransportTarget =
   | { readonly kind: "seconds"; readonly seconds: number };
 
 /** The `"bar:beat:tick"` text `handle.music.seek` takes for `target`; null for `start` (no seek) or a target the grid can't place. */
-export function seekText(grid: SegmentGrid, target: TransportTarget): string | null {
+function seekText(grid: SegmentGrid, target: TransportTarget): string | null {
   switch (target.kind) {
     case "start": return null;
     case "bar": return Number.isInteger(target.bar) && target.bar >= 1 ? `${target.bar}:1:0` : null;

@@ -2,8 +2,10 @@
 import { describe, it, expect } from "vitest";
 import { formatAudioEvent, parseAudioEvent, type AudioEventAsset, type BlendNode, type EventNode, type RandomNode, type SustainNode, type SwitchNode } from "../../../../engine/audio/eventFormat";
 import {
-  coerceField, eventFields, findField, nodeFields, readField, writeField, type FieldDescriptor, type GroupField, type AuxSend,
+  coerceField, eventFields, nodeFields, readField, writeField, type FieldDescriptor, type GroupField, type AuxSend,
 } from "./nodeFields";
+
+const fieldNamed = (fields: readonly FieldDescriptor[], name: string): FieldDescriptor | undefined => fields.find((f) => f.name === name);
 
 const clip = (extra: Record<string, unknown> = {}) => ({ type: "clip", clip: "a.ogg", ...extra });
 const parseRoot = (root: unknown): EventNode => parseAudioEvent({ format: "myco.audioevent@1", root }).value.root;
@@ -12,7 +14,7 @@ const parseEvent = (extra: Record<string, unknown> = {}): AudioEventAsset =>
 
 const names = (fields: readonly FieldDescriptor[]): string[] => fields.map((f) => f.name);
 const need = (fields: readonly FieldDescriptor[], name: string): FieldDescriptor => {
-  const f = findField(fields, name);
+  const f = fieldNamed(fields, name);
   if (!f) throw new Error(`no field "${name}"`);
   return f;
 };
@@ -246,10 +248,10 @@ describe("eventFields", () => {
 });
 
 describe("field values", () => {
-  it("findField finds by name at the top level", () => {
-    expect(findField(eventFields(), "priority")?.kind).toBe("number");
-    expect(findField(eventFields(), "nope")).toBeUndefined();
-    expect(findField(eventFields(), "maxInstances")).toBeUndefined();
+  it("eventFields has priority at the top level, maxInstances only inside a group", () => {
+    expect(fieldNamed(eventFields(), "priority")?.kind).toBe("number");
+    expect(fieldNamed(eventFields(), "nope")).toBeUndefined();
+    expect(fieldNamed(eventFields(), "maxInstances")).toBeUndefined();
   });
 
   it("readField reads a key, undefined when absent", () => {

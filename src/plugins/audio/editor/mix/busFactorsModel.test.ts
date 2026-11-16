@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { KeyframeBus } from "../../runtime/capture/format";
-import { FACTOR_LANES, busFactors, formatDb, gainToDb, keyframeBusFactors, treeProducts } from "./busFactorsModel";
+import { FACTOR_LANES, busFactors, formatDb, gainToDb, treeProducts } from "./busFactorsModel";
 
 function row(over: Partial<KeyframeBus> = {}): KeyframeBus {
   return { slot: 0, gen: 1, flags: 0, lanes: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1], duck: 1, automation: 1, ...over };
@@ -52,11 +52,6 @@ describe("busFactors", () => {
     expect(busFactors(row()).tombstone).toBe(false);
   });
 
-  it("reads every keyframe bus", () => {
-    const rows = keyframeBusFactors({ buses: [row({ slot: 2 }), row({ slot: 5, duck: 0.5 })] });
-    expect(rows.map((r) => r.slot)).toEqual([2, 5]);
-    expect(rows[1].product).toBe(0.5);
-  });
 });
 
 describe("treeProducts", () => {

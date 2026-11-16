@@ -10,10 +10,11 @@ import { closeTestProject, openTestProject } from "../../../../editor/testing";
 import { EMPTY_BUS_LOUDNESS } from "../../../../engine/audio/loudnessTypes";
 import type { MixOp } from "../../../../engine/audio/mixOps";
 import { positionToGain } from "./faderModel";
-import { MIXER_PANEL, mixerSectionOf, registerMixPanels } from "./index";
+import { registerMixPanels } from "./index";
 import { defaultMixerDeps, mixerHost } from "./MixerPanel";
 import { MixerPanelController } from "./mixerPanelModel";
-import { createOpLog } from "./opLog";
+import { playState } from "../../../../editor/state";
+import { startOpLog } from "./opLog";
 
 const PROJECT = JSON.stringify({ name: "Game", audio: { buses: [{ name: "master" }, { name: "sfx", parent: "master" }, { name: "music", parent: "master" }] } }, null, 2);
 
@@ -29,7 +30,7 @@ const sfxVolumeOf = (d: SettingsDraft): number | undefined => (d.audio as { buse
 async function loadMixerPanel(): Promise<void> {
   const views = new Map<string, () => Promise<unknown>>();
   registerMixPanels({ registerPanel: (p: { id: string; view: () => Promise<unknown> }) => void views.set(p.id, p.view) } as unknown as EditorPluginContext);
-  await views.get(MIXER_PANEL)!();
+  await views.get("audiomixer")!();
 }
 
 async function rig() {
@@ -37,16 +38,14 @@ async function rig() {
   await loadMixerPanel();
   // The play mixer: what it was last told for sfx's volume is what's heard.
   let heard = 1;
-  const log = createOpLog({
-    onSectionChanged: (k, l) => editor.project.onSectionChanged(k, l),
-    isPlaying: () => true,
-    mixer: () => ({
+  playState.value = "playing"; // the op log is live only while Play runs
+  disposers.push(() => void (playState.value = "edit"));
+  const log = startOpLog(() => ({
       apply: (op: MixOp) => {
         if (op.op === "setBus" && op.bus === "sfx" && op.key === "volume") heard = op.value === null ? 1 : (op.value as number);
         return { ok: true, class: "direct" };
       },
-    }),
-  });
+  }));
   disposers.push(log.dispose);
   const commits: string[] = [];
   let saved: void | Promise<void> = undefined;
@@ -114,7 +113,8 @@ describe("the Mixer over editor.project.settings", () => {
 
   it("an edit in the Project Settings panel shows in the Mixer's draft and version", async () => {
     const { project } = await openTestProject({ "project.json": PROJECT });
-    const section = mixerSectionOf(editor.project.settings);
+    await loadMixerPanel();
+    const section = mixerHost.section!; // the registration's view of Project Settings
     const v = section.version!.value;
     const panel = projectSettings.open(project);
     const audio = panel.draft.audio as { buses: Array<Record<string, unknown>> };

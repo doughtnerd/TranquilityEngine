@@ -41,7 +41,7 @@ export const KEY_BINDINGS: readonly KeyBinding[] = [
 ];
 
 /** The `aria-keyshortcuts` of the whole panel. */
-export const PANEL_KEYSHORTCUTS = KEY_BINDINGS.map((b) => b.shortcuts).join(" ");
+const PANEL_KEYSHORTCUTS = KEY_BINDINGS.map((b) => b.shortcuts).join(" ");
 
 /** What the handler reads of a `KeyboardEvent`. */
 export interface KeyEventLike {
@@ -63,13 +63,13 @@ interface TargetLike {
 const tagOf = (t: unknown): string => ((t as TargetLike | null)?.tagName ?? "").toUpperCase();
 
 /** A control that takes typing (or the Space it needs itself): the panel's keys leave it alone. */
-export function isEditableTarget(target: unknown): boolean {
+function isEditableTarget(target: unknown): boolean {
   const tag = tagOf(target);
   return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || (target as TargetLike | null)?.isContentEditable === true;
 }
 
 /** The action a key stands for, or null (no binding, a modifier held, or an editable control has the event). */
-export function keyActionOf(e: KeyEventLike): ProfilerKeyAction | null {
+function keyActionOf(e: KeyEventLike): ProfilerKeyAction | null {
   if (e.ctrlKey || e.altKey || e.metaKey) return null;
   if (isEditableTarget(e.target)) return null;
   const shift = e.shiftKey === true;
@@ -98,7 +98,7 @@ export type KeyController = Pick<ProfilerController, "cursor" | "cursorMoved">;
  * Applies an action through `CursorModel`. True when the cursor moved or changed mode (and the controller was told); false
  * when there was nowhere to go (the end of that kind), which leaves everything unchanged.
  */
-export function runKeyAction(action: ProfilerKeyAction, controller: KeyController): boolean {
+function runKeyAction(action: ProfilerKeyAction, controller: KeyController): boolean {
   const c = controller.cursor;
   let changed: boolean;
   switch (action.type) {
@@ -125,7 +125,7 @@ export function runKeyAction(action: ProfilerKeyAction, controller: KeyControlle
  * The panel's `keydown`. `focused` says whether focus is inside the panel: false, and the key is not ours (nothing runs,
  * the event is left alone). Returns true when the key was handled.
  */
-export function handleProfilerKey(e: KeyEventLike, controller: KeyController, focused: () => boolean): boolean {
+function handleProfilerKey(e: KeyEventLike, controller: KeyController, focused: () => boolean): boolean {
   if (!focused()) return false;
   const action = keyActionOf(e);
   if (!action) return false;

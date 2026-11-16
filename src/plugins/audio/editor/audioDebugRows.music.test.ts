@@ -1,7 +1,7 @@
 // ADR 0166 P10, leaf L-P10a: the music rows' thresholds (architecture §9) on hand-built `MusicDebugRow`s.
 import { describe, expect, it } from "vitest";
-import type { MusicDebugRow, MusicDebugTotals } from "../runtime/backend";
-import { MUSIC_COLUMNS, MusicWatch, leadHealth, musicInstanceRows, musicTotalsRows, pendingText, type Row } from "./audioDebugRows";
+import type { AudioDebugInfo, MusicDebugRow, MusicDebugTotals } from "../runtime/backend";
+import { MUSIC_COLUMNS, MusicWatch, debugSections, type Row } from "./audioDebugRows";
 
 const row = (over: Partial<MusicDebugRow> = {}): MusicDebugRow => ({
   id: 1,
@@ -48,6 +48,16 @@ const totals = (over: Partial<MusicDebugTotals> = {}): MusicDebugTotals => ({
   ...over,
 });
 
+/** The panel's sections for a sample with these music rows and totals. */
+const sections = (rows: readonly MusicDebugRow[], musicTotals: MusicDebugTotals | undefined, sampleRate: number, watch?: MusicWatch) =>
+  debugSections({ status: "running", sampleRate, time: 0, counters: {}, buses: [], voices: [], core: {}, music: rows, musicTotals } as unknown as AudioDebugInfo, undefined, watch);
+/** The "Music" section's rows: one per instance. */
+const musicInstanceRows = (rows: readonly MusicDebugRow[], sampleRate: number, watch?: MusicWatch): Row[] =>
+  sections(rows, undefined, sampleRate, watch).find((s) => s.id === "music")!.rows;
+/** The "Music totals" section's rows. */
+const musicTotalsRows = (rows: readonly MusicDebugRow[], t: MusicDebugTotals | undefined, watch?: MusicWatch): Row[] =>
+  sections(rows, t, 48000, watch).find((s) => s.id === "musicTotals")!.rows;
+
 /** The row with `id`; fails the test when it is missing. */
 const find = (rows: readonly Row[], id: string): Row => {
   const r = rows.find((x) => x.id === id);
@@ -81,14 +91,14 @@ describe("L-P10a music health (architecture §9)", () => {
     const watch = new MusicWatch();
     // 100 transitions (the pass rises each sample) and no re-plans: green.
     for (let i = 0; i <= 100; i++) watch.observe(i * 0.1, [row({ pass: 1 + i })], undefined);
-    expect(totalsHealth([], undefined, "replansDeadline", watch)).toBe("ok");
+    expect(totalsHealth([], totals(), "replansDeadline", watch)).toBe("ok");
     // One re-plan in 100 transitions: amber (1 is not below 1).
     watch.observe(10.1, [row({ pass: 101, replans: { deadline: 1 } })], undefined);
     expect(watch.deadlineReplansPer100()).toBe(1);
-    expect(totalsHealth([], undefined, "replansDeadline", watch)).toBe("warn");
+    expect(totalsHealth([], totals(), "replansDeadline", watch)).toBe("warn");
     // Eleven re-plans in 100 transitions: red.
     watch.observe(10.2, [row({ pass: 101, replans: { deadline: 11 } })], undefined);
-    expect(totalsHealth([], undefined, "replansDeadline", watch)).toBe("bad");
+    expect(totalsHealth([], totals(), "replansDeadline", watch)).toBe("bad");
   });
 
   it("re-plans that rise with no transition read red; none before the first transition reads 0", () => {
@@ -101,7 +111,7 @@ describe("L-P10a music health (architecture §9)", () => {
     stuck.observe(0, [row()], undefined);
     stuck.observe(1, [row({ replans: { deadline: 1 } })], undefined);
     expect(stuck.deadlineReplansPer100()).toBe(Infinity);
-    expect(totalsHealth([], undefined, "replansDeadline", stuck)).toBe("bad");
+    expect(totalsHealth([], totals(), "replansDeadline", stuck)).toBe("bad");
   });
 
   it("refusals.poolFull, leadOverBeat, tailRefused, stingers.skipped, curvePoolFull: green at 0, amber when non-zero", () => {
@@ -149,6 +159,7 @@ describe("L-P10a music health (architecture §9)", () => {
   });
 
   it("lead: green to 150 ms, amber to one beat or 330 ms, red above a beat", () => {
+    const leadHealth = (leadMs: number, tempo: number) => cellOf(musicInstanceRows([row({ leadMs, tempo })], 48000)[0]!, "Prime (ms)").health;
     // 120 BPM: a beat is 500 ms.
     expect(leadHealth(150, 120)).toBe("ok");
     expect(leadHealth(151, 120)).toBe("warn");
@@ -182,7 +193,8 @@ describe("L-P10a music rows", () => {
     for (const r of out) expect(r.cells).toHaveLength(MUSIC_COLUMNS.length);
   });
 
-  it("pendingText names target, time, tier, rule key, parent, exit and enter; null reads none", () => {
+  it("Pending names target, time, tier, rule key, parent, exit and enter; null reads none", () => {
+    const pendingText = (pending: MusicDebugRow["pending"]) => cellOf(musicInstanceRows([row({ pending })], 48000)[0]!, "Pending").text;
     expect(
       pendingText({ to: "verse", time: "5:1", rule: 2, ruleKey: "intro>verse", tier: 2, parent: "parent", exit: "nextBar", enter: "cue:in" }),
     ).toBe("verse at 5:1, tier 2 rule intro>verse from parent, exit nextBar, enter cue:in");
@@ -225,18 +237,17 @@ describe("L-P10a music rows", () => {
     expect(cellOf(r!, "Last slip").text).toBe("480 frames (10 ms)");
   });
 
-  it("totals rows: pool used of size with high-water; undefined totals still returns the summed rows", () => {
+  it("totals rows: pool used of size with high-water; a backend without totals shows none", () => {
     const out = musicTotalsRows([row({ lateGroups: 1 })], totals({ poolUsed: 3, poolHighWater: 5 }));
     expect(find(out, "poolUsed").cells[1]!.text).toBe("3 of 8 (high-water 5)");
     expect(find(out, "poolUsed").health).toBe("info");
     expect(totalsHealth([], totals({ poolUsed: 8, poolSize: 8 }), "poolUsed")).toBe("warn");
 
-    const bare = musicTotalsRows([row({ lateGroups: 1 })], undefined);
-    expect(bare.some((r) => r.id === "poolUsed")).toBe(false);
-    expect(find(bare, "lateGroups").cells[1]!.text).toBe("1");
+    expect(find(out, "lateGroups").cells[1]!.text).toBe("1");
+    expect(musicTotalsRows([row({ lateGroups: 1 })], undefined)).toEqual([]);
   });
 
-  it("no instances: musicInstanceRows returns an empty list", () => {
+  it("no instances: the Music section has no rows", () => {
     expect(musicInstanceRows([], 48000)).toEqual([]);
   });
 });

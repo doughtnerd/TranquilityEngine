@@ -1,15 +1,16 @@
 // Mo1 (api-and-models §6.2): the settings section's model functions build a MixOp and apply it with applyOpToDraft,
 // so the UI and a live op edit the same way; the M5 functions (meter, effect order, targets, reset option).
 import { describe, expect, it } from "vitest";
-import { applyOpToDraft, type MixOp } from "../../../engine/audio/mixOps";
-import { parseAudioSettings } from "../../../engine/audio/settings";
+import { applyOpToDraft, opRefusal, type MixOp } from "../../../engine/audio/mixOps";
+import { parseAudioSettings, type DuckingRule } from "../../../engine/audio/settings";
+import type { SettingsDraft } from "../../../editor/sdk";
 import { readDraft } from "../../../editor/testing";
-import {
-  addBus, addBusAutomation, addDucking, addEffect, addLoudnessTarget, addParameter, addSnapshot, audioOf, loudnessTargets, mixOpRefusal, moveEffect,
-  removeBus, removeDucking, removeEffect, removeLoudnessTarget, removeSnapshot, renameBus, renameSnapshot, setBusBed, setBusBedPriority,
-  setBusMaxVoices, setBusMeter, setBusParent, setBusValue, setDuckingValue, setEffectValue, setLoudnessResetOnPlay, setLoudnessTarget,
-  setSnapshotLowpass, setSnapshotVolume,
-} from "./audioSettingsModel";
+import { addBus, addBusAutomation, addDuckingEdit, addEffect, addLoudnessTarget, addParameter, addSnapshot, audioOf, loudnessTargets, moveEffect, removeBus, removeDucking, removeEffect, removeLoudnessTarget, removeSnapshot, renameBus, renameSnapshot, setBusBed, setBusBedPriority, setBusMaxVoices, setBusMeter, setBusParent, setBusValue, setDuckingValueEdit, setEffectValue, setLoudnessResetOnPlay, setLoudnessTarget, setSnapshotLowpass, setSnapshotVolume } from "./audioSettingsModel";
+
+/** Add a ducking rule as the section's button does (a refused add leaves the draft). */
+const addDucking = (d: SettingsDraft): SettingsDraft => addDuckingEdit(d).draft;
+/** Set one field of a rule as the section's controls do (a refused edit leaves the draft). */
+const setDuckingValue = (d: SettingsDraft, index: number, key: keyof DuckingRule, value: string | number): SettingsDraft => setDuckingValueEdit(d, index, key, value).draft;
 
 const empty = () => readDraft({});
 /**
@@ -60,13 +61,13 @@ describe("the M5 model functions (ADR 0171 §2.1)", () => {
     expect((addLoudnessTarget(empty()).audio as { loudnessTargets: { name: string }[] }).loudnessTargets.map((t) => t.name)).toEqual(["console", "mobile", "Target"]);
     expect((setLoudnessResetOnPlay(empty(), false).audio as { loudnessResetOnPlay?: boolean }).loudnessResetOnPlay).toBe(false);
     expect(setBusMeter(empty(), "Master", true)).toEqual(empty());
-    expect(mixOpRefusal(empty(), { op: "setBus", bus: "Master", key: "meter", value: "loudness" })).toBe("Master is always metered");
+    expect(opRefusal(audioOf(empty()), { op: "setBus", bus: "Master", key: "meter", value: "loudness" })).toBe("Master is always metered");
   });
   it.skipIf(!parseKeepsM5Keys)("meters a bus, refuses the root with a message, and turns it off", () => {
     const d = setBusMeter(empty(), "Voice", true);
     expect((d.audio as { buses: { name: string; meter?: string }[] }).buses.find((b) => b.name === "Voice")!.meter).toBe("loudness");
     expect(setBusMeter(empty(), "Master", true)).toEqual(empty());
-    expect(mixOpRefusal(empty(), { op: "setBus", bus: "Master", key: "meter", value: "loudness" })).toBe("Master is always metered");
+    expect(opRefusal(audioOf(empty()), { op: "setBus", bus: "Master", key: "meter", value: "loudness" })).toBe("Master is always metered");
     expect((setBusMeter(d, "Voice", false).audio as { buses: { meter?: string }[] }).buses.every((b) => b.meter === undefined)).toBe(true);
   });
   it("reorders effects", () => {

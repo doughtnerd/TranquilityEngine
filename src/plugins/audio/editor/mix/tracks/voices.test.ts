@@ -7,9 +7,10 @@ import { SAMPLE_HEADER, SAMPLE_META, SAMPLE_RATE } from "../../../runtime/captur
 import { CaptureSource } from "../profilerSource";
 import { nameLookup, reconstructVoices } from "../voiceTableModel";
 import { KEYFRAME_FRAMES, inProcessWorker, openScene, truthAt } from "../voiceSceneSupport";
-import { VOICES_TRACK_ID, voiceCountsAt, voicesTracks, voiceTooltip } from "./voices";
-import { voiceSeries } from "../cpuTrack";
+import { voicesTracks } from "./voices";
 import type { TrackContext } from "./types";
+
+const VOICES_TRACK_ID = "voices.counts";
 
 const seconds = (frame: number): number => frame / SAMPLE_RATE;
 
@@ -80,12 +81,15 @@ describe("the voices track", () => {
     source.close();
   });
 
-  it("clamps virtual at 0 when more are mixed than live, and has no counts before the first STATUS", () => {
-    const series = voiceSeries({ seconds: Float64Array.of(1, 2), liveVoices: Float64Array.of(2, 5), mixedVoices: Float64Array.of(3, 1), mixedCap: Float64Array.of(8, 8), hrtfVoices: Float64Array.of(0, 1), bedVoices: Float64Array.of(0, 0), fxVoices: Float64Array.of(0, 0) });
-    expect(voiceCountsAt(series, 0.5)).toBeNull();
-    expect(voiceTooltip(series, 0.5)).toBeNull();
-    expect(voiceCountsAt(series, 1.5)).toEqual({ playing: 3, virtual: 0, cap: 8, hrtf: 0, bed: 0, live: 2 });
-    expect(voiceCountsAt(series, 99)).toMatchObject({ playing: 1, virtual: 4 });
+  it("clamps virtual at 0 when more are mixed than live, and has no counts before the first STATUS", async () => {
+    // The first half of the scene mixes more voices than it tracks; the second half has four virtual.
+    const source = await openScene((block) => (block < 100 ? { mixedVoices: 3, liveVoices: 2, mixedCap: 8 } : { mixedVoices: 1, liveVoices: 5, mixedCap: 8, hrtfVoices: 1 }));
+    const [mod] = voicesTracks({ source, names: nameLookup(source.summary.names) });
+    await mod!.refresh();
+    expect(mod!.tooltipAt!(-0.5)).toBeNull();
+    expect(mod!.tooltipAt!(0.5)).toBe("playing 3, virtual 0, cap 8, HRTF 0, bed 0 (2 live)");
+    expect(mod!.tooltipAt!(source.duration + 1)).toBe("playing 1, virtual 4, cap 8, HRTF 1, bed 0 (5 live)");
+    source.close();
   });
 
   it("has no data for a capture without a STATUS", async () => {

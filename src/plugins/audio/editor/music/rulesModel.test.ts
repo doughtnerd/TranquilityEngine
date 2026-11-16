@@ -3,11 +3,17 @@
 import { describe, expect, it } from "vitest";
 import { parseAudioEvent } from "../../../../engine/audio/eventFormat";
 import type { MusicContainerNode } from "../../../../engine/audio/musicFormat";
-import { analyzeTransitionRules, DEFAULT_TRANSITION_RULE, RULE_WILDCARD } from "../../../../engine/audio/musicRules";
+import { analyzeTransitionRules, DEFAULT_TRANSITION_RULE, RULE_WILDCARD, type RuleTier } from "../../../../engine/audio/musicRules";
 import { matchInContainer } from "../../runtime/music/transitionRules";
-import {
-  buildRulesGrid, effectiveRule, explainPair, ruleHeaders, ruleMatchesPair, TIER_TEXT,
-} from "./rulesModel";
+import { buildRulesGrid, effectiveRule, explainPair, ruleMatchesPair } from "./rulesModel";
+
+// The readout's tier names.
+const TIER_TEXT: Readonly<Record<RuleTier, string>> = {
+  1: "Tier 1: pair (from and to named)",
+  2: "Tier 2: from named",
+  3: "Tier 3: to named",
+  4: "Tier 4: * to * (or the default rule)",
+};
 
 type Raw = Record<string, unknown>;
 
@@ -43,7 +49,13 @@ const FIXTURE: Raw[] = [
 ];
 const IDS = ["a", "b", "c"];
 
-describe("ruleHeaders (L-Ed6a)", () => {
+describe("the grid's headers (L-Ed6a)", () => {
+  /** The rows of the grid; its columns are the same headers. */
+  const ruleHeaders = (c: MusicContainerNode) => {
+    const g = buildRulesGrid(c);
+    expect(g.columns).toEqual(g.rows);
+    return g.rows;
+  };
   it("lists the direct children in order, then the wildcard", () => {
     expect(ruleHeaders(container(FIXTURE))).toEqual([
       { id: "a", label: "a", isWildcard: false },

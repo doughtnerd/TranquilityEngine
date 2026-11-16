@@ -12,22 +12,12 @@ import { getFields } from "../../../engine/core/registry";
 import { openScene, playState, selection } from "../../../editor/state";
 import { DEMO_SCENE, demoAssets, demoSettings } from "../../../editor/testing";
 import { parseAudioSettings } from "../../../engine/audio/settings";
-import { occluderOverlay } from "./AudioOccluderGizmo";
-import {
-  AMBISONIC_IGNORED_FIELDS,
-  analyzeOccluder,
-  audioOfProject,
-  blendColor,
-  coveredColliders,
-  describeCost,
-  materialTint,
-  occluderCost,
-  physics3dAvailable,
-  sendCurveOf,
-  zoneCostLine,
-  zoneNotices,
-  zoneReverbLine,
-} from "./audioInspectorModel";
+import { occluderTool } from "./AudioOccluderGizmo";
+import { createRegistry } from "../../../editor/sdk/registry";
+import type { ViewportToolContribution } from "../../../editor/sdk";
+import { createViewportToolHost } from "../../../editor/viewportTools";
+import type { EditorOverlay } from "../../../engine/editor";
+import { AMBISONIC_IGNORED_FIELDS, analyzeOccluder, audioOfProject, blendColor, describeCost, materialTint, occluderCost, physics3dAvailable, sendCurveOf, zoneCostLine, zoneNotices, zoneReverbLine } from "./audioInspectorModel";
 import { dragGroup, writeField } from "./inspectorWrite";
 
 const OCC = "engine.AudioOccluder";
@@ -136,10 +126,6 @@ describe("audio inspector sections", () => {
       expect(codes(occluderOf(wall), true, audio)).toEqual(["inert"]);
     });
 
-    it("lists the colliders it covers: its node's and those of descendants without an occluder", () => {
-      const wall = node([[OCC], [BOX]]);
-      expect(coveredColliders(occluderOf(wall))).toHaveLength(1);
-    });
   });
 
   describe("material read-out", () => {
@@ -157,23 +143,38 @@ describe("audio inspector sections", () => {
   });
 
   describe("occluder gizmo", () => {
+    // The occluder tool installed on a viewport tool host, as the scene view does; the test reads what it draws.
+    let draw: (() => EditorOverlay) | null = null;
+    let stop = () => {};
+    beforeEach(() => {
+      const tools = createRegistry<ViewportToolContribution>("Viewport tool");
+      tools.register(occluderTool);
+      stop = createViewportToolHost({
+        engine, world: engine.world, canvas: null, keys: new EventTarget(), tools,
+        addOverlay: (id, provider) => void (id === occluderTool.id && (draw = provider)),
+        removeOverlay: () => void (draw = null),
+      });
+    });
+    afterEach(() => stop());
+    const occluderOverlay = (): EditorOverlay => draw!();
+
     it("outlines the colliders an occluder applies to, tinted by material, dimmer unselected and as it opens", () => {
       const wall = node([[OCC, { material: "glass" }], [BOX]]);
       node([[BOX]]); // no occluder: not drawn here
-      const dim = occluderOverlay(engine);
+      const dim = occluderOverlay();
       expect(dim.lines).toHaveLength(12); // one box
       selection.value = wall.id;
-      const bright = occluderOverlay(engine);
+      const bright = occluderOverlay();
       expect(bright.lines).toHaveLength(12);
       expect(bright.lines[0]!.color).toBe(materialTint(defaults, "glass"));
       expect(dim.lines[0]!.color).not.toBe(bright.lines[0]!.color);
       wall.scene.stack.execute(new SetField(wall.id, OCC, "openness", 1));
-      expect(occluderOverlay(engine).lines[0]!.color).not.toBe(bright.lines[0]!.color);
+      expect(occluderOverlay().lines[0]!.color).not.toBe(bright.lines[0]!.color);
     });
 
     it("draws a sphere collider as three circles and gives each material its own tint", () => {
       node([[OCC], ["engine.SphereCollider"]]);
-      expect(occluderOverlay(engine).lines).toHaveLength(3);
+      expect(occluderOverlay().lines).toHaveLength(3);
       const tints = new Set(["concrete", "cloth", "wood", "glass", "metal", "none", "custom"].map((m) => materialTint(defaults, m)));
       expect(tints.size).toBe(7);
       expect(materialTint(defaults, "")).toBe(materialTint(defaults, defaults.occlusion.defaultMaterial));
@@ -186,10 +187,10 @@ describe("audio inspector sections", () => {
       const door = createNode(scene, "empty", { position: [0, 0, 0], parent: room.id } as never);
       scene.stack.execute(new AddComponent(door, { type: BOX, data: {} }));
       selection.value = room.id;
-      expect(occluderOverlay(engine).lines[0]!.color).toBe(materialTint(defaults, "wood"));
+      expect(occluderOverlay().lines[0]!.color).toBe(materialTint(defaults, "wood"));
       scene.stack.execute(new AddComponent(door, { type: OCC, data: { material: "glass" } }));
       selection.value = door;
-      expect(occluderOverlay(engine).lines[0]!.color).toBe(materialTint(defaults, "glass"));
+      expect(occluderOverlay().lines[0]!.color).toBe(materialTint(defaults, "glass"));
     });
   });
 

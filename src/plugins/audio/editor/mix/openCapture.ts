@@ -18,7 +18,7 @@ export const CAPTURE_EXTENSION = ".mycap";
  * (uncompressed) capture can reach and deflate output never exceeds by more than the same slack. Past it the file can't be
  * a capture the decoder would accept, so it is refused unread rather than loaded into memory first.
  */
-export const OPEN_MAX_FILE_BYTES = CAPTURE_HEADER_BYTES + CAPTURE_META_MAX_BYTES + CAPTURE_MAX_UNCOMPRESSED_BYTES;
+const OPEN_MAX_FILE_BYTES = CAPTURE_HEADER_BYTES + CAPTURE_META_MAX_BYTES + CAPTURE_MAX_UNCOMPRESSED_BYTES;
 
 /** What the route needs of a file (a `File`, or a Tauri-read stand-in). */
 export interface CaptureFileLike {
@@ -33,7 +33,7 @@ export type CaptureOpener = Pick<ProfilerController, "openBlob" | "refuseFile">;
 /** The name desktop and Android saves get: the engine's Tauri `Storage` adds `.bin` to binary values (`<appData>/cache/<key>.bin`). */
 export const CAPTURE_STORAGE_EXTENSION = `${CAPTURE_EXTENSION}.bin`;
 
-export const isCaptureFileName = (name: string): boolean => {
+const isCaptureFileName = (name: string): boolean => {
   const n = name.toLowerCase();
   return n.endsWith(CAPTURE_EXTENSION) || n.endsWith(CAPTURE_STORAGE_EXTENSION);
 };
@@ -45,7 +45,7 @@ export const OPEN_REFUSALS = {
 } as const;
 
 /** Opens `file` through the controller, or refuses it with a banner. Resolves true when a capture is now open. */
-export async function routeCaptureFile(controller: CaptureOpener, file: CaptureFileLike): Promise<boolean> {
+async function routeCaptureFile(controller: CaptureOpener, file: CaptureFileLike): Promise<boolean> {
   if (!isCaptureFileName(file.name)) {
     controller.refuseFile(file.name, "notCapture", OPEN_REFUSALS.notCapture(file.name));
     return false;

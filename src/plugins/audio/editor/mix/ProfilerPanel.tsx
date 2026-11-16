@@ -46,7 +46,7 @@ export interface ProfilerBanner {
 }
 
 /** The banner texts (the design gives the behaviour; the words are these, and the tests assert them). */
-export const BANNER_TEXT = {
+const BANNER_TEXT = {
   viewing: "Viewing, not replaying",
   truncated: "Truncated: the ring wrapped. This capture starts at a later keyframe, not at Play.",
   projectMismatch: "This capture was recorded with a different audio section than the open project's. It is shown as recorded.",
@@ -66,7 +66,7 @@ export interface BannerInput {
 }
 
 /** The capture's META `audio` against the project's section, both as the engine parses them (a missing key and its default agree). */
-export const sameAudioSettings = (a: unknown, b: unknown): boolean =>
+const sameAudioSettings = (a: unknown, b: unknown): boolean =>
   sameAudioSection(audioSection(a ?? undefined).settings, audioSection(b ?? undefined).settings);
 
 /** JSON-like deep equality (key order ignored). */

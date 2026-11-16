@@ -4,7 +4,7 @@ import { computed } from "@preact/signals";
 import type { AudioEventAsset } from "../../../../engine/audio/eventFormat";
 import { editor, openAssetDocument } from "../../../../editor/sdk";
 import { openSegment } from "./index";
-import { audibleStems, auditionKey, auditionOf } from "./SegmentPanel";
+import { audibleStems, auditionKey, auditionOf } from "./stemAudition";
 import type { Transport } from "./transport";
 import { startTransportService } from "./transportService";
 import { findSegment } from "./segmentViewModel";

@@ -2,18 +2,28 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { theme } from "../../../../editor/sdk";
-import {
-  CLICK_SLOP_PX,
-  RULER_HEIGHT,
-  TIMELINE_TOKENS,
-  TimelineCanvas,
-  ZOOM_PER_PX,
-  readTimelineColors,
-  type TimelineColors,
-  type TimelineOptions,
-  type TrackData,
-} from "./drawTimeline";
-import { MIN_SPAN_S, TrackList, timeToX, xToTime, zoomViewport } from "./timelineModel";
+import { RULER_HEIGHT, TimelineCanvas, readTimelineColors, type TimelineColors, type TimelineOptions, type TrackData } from "./drawTimeline";
+import { TrackList, timeToX, xToTime, zoomViewport } from "./timelineModel";
+
+const TIMELINE_TOKENS = {
+  bg: "--bg-sunken",
+  panel: "--panel",
+  border: "--border",
+  text: "--text",
+  muted: "--muted",
+  accent: "--accent",
+  accent2: "--accent2",
+  accentSoft: "--accent-soft",
+  warning: "--warning",
+  danger: "--danger",
+} as const;
+
+const ZOOM_PER_PX = 1.0015;
+
+const CLICK_SLOP_PX = 3;
+
+// The narrowest span the viewport allows.
+const MIN_SPAN_S = 0.005;
 
 /** A 2D context that records every call by name and every fill/stroke style it was given. */
 class MockCtx {

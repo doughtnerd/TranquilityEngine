@@ -12,7 +12,7 @@ export interface Viewport {
 }
 
 /** The narrowest span the viewport allows (seconds). */
-export const MIN_SPAN_S = 0.005;
+const MIN_SPAN_S = 0.005;
 
 /**
  * Clamp into [0, duration], span in [MIN_SPAN_S, max(duration, MIN_SPAN_S)]; followLive keeps end = duration.

@@ -2,8 +2,8 @@
 // columns, on hand-built `AudioDebugInfo`. The §7 rows against a real loopback run are in `audioDebugRows.loopback.test.ts`.
 import { describe, expect, it } from "vitest";
 import type { AudioDebugInfo } from "../runtime/backend";
-import { CounterWatch, STICKY_SECONDS, VOICE_COLUMNS, debugSections, formatBytes, formatGain, formatHz, occlusionAgeHealth, voiceCells } from "./audioDebugRows";
-import { MAX_RAYS, gainColor, occludedVoices, occlusionColors, occlusionOverlay } from "./OcclusionOverlay";
+import { CounterWatch, VOICE_COLUMNS, debugSections, formatBytes, voiceCells } from "./audioDebugRows";
+import { gainColor, occludedVoices, occlusionColors, occlusionOverlay } from "./occlusionRays";
 
 const base = (counters: Partial<AudioDebugInfo["counters"]> = {}, time = 0, extra: Partial<AudioDebugInfo> = {}): AudioDebugInfo =>
   ({
@@ -16,7 +16,7 @@ const health = (info: AudioDebugInfo, row: string, watch?: CounterWatch, section
 
 describe("S8 health thresholds", () => {
   it("oldestOcclusionAgeFrames: green to 8, amber 9 to 30, red above", () => {
-    expect([0, 8, 9, 30, 31].map(occlusionAgeHealth)).toEqual(["ok", "ok", "warn", "warn", "bad"]);
+    expect([0, 8, 9, 30, 31].map((n) => health(base({ oldestOcclusionAgeFrames: n }), "oldestOcclusionAgeFrames"))).toEqual(["ok", "ok", "warn", "warn", "bad"]);
     expect(health(base({ oldestOcclusionAgeFrames: 20 }), "oldestOcclusionAgeFrames")).toBe("warn");
     expect(health(base({ oldestOcclusionAgeFrames: 40 }), "oldestOcclusionAgeFrames")).toBe("bad");
   });
@@ -40,12 +40,12 @@ describe("S8 health thresholds", () => {
     expect(run([0, 1, 2, 3, 4])).toBe("bad"); // 4 per s
   });
 
-  it("wideStarved and m3Shed are red on a rise, for STICKY_SECONDS", () => {
+  it("wideStarved and m3Shed are red on a rise, for 5 s", () => {
     const w = new CounterWatch();
     w.observe(base({ wideStarved: 0, m3Shed: 0 }, 0));
     w.observe(base({ wideStarved: 1, m3Shed: 0 }, 1));
     expect(health(base({ wideStarved: 1 }, 1), "wideStarved", w)).toBe("bad");
-    w.observe(base({ wideStarved: 1, m3Shed: 0 }, 1 + STICKY_SECONDS + 0.5));
+    w.observe(base({ wideStarved: 1, m3Shed: 0 }, 1 + 5 + 0.5)); // past the 5 s a rise stays red
     expect(health(base({ wideStarved: 1 }), "wideStarved", w)).toBe("ok");
     w.observe(base({ wideStarved: 1, m3Shed: 2 }, 10));
     expect(health(base({ m3Shed: 2 }), "m3Shed", w, "ladder")).toBe("bad");
@@ -110,10 +110,14 @@ describe("sections", () => {
 });
 
 describe("formatters and voice columns", () => {
-  it("formats bytes, hertz and gain", () => {
+  it("formats bytes, and a voice's filter in hertz and its occlusion gain in decibels", () => {
     expect([formatBytes(0), formatBytes(2048), formatBytes(50 * 1024), formatBytes(3 * 1024 * 1024)]).toEqual(["0", "2.0 KB", "50 KB", "3.0 MB"]);
-    expect([formatHz(800), formatHz(5000), formatHz(20000)]).toEqual(["800 Hz", "5.0 kHz", "open"]);
-    expect([formatGain(1), formatGain(0.5), formatGain(0)]).toEqual(["1 (open)", "0.50 (-6 dB)", "0 (silent)"]);
+    const voice = (lowpassHz: number, gain: number) =>
+      ({ id: 1, clip: "a", bus: "SFX", world: "1", state: "playing", priority: 1, gain: 1, pitch: 1, audibility: 1, playheadSeconds: null, owner: null, occlusion: { gain, cutoffHz: 1000, ageFrames: 0, hits: 1, material: "", collider: null }, filter: { lowpassHz, highpassHz: 20 } }) as AudioDebugInfo["voices"][number];
+    const lowpass = VOICE_COLUMNS.findIndex((c) => c.label === "Low-pass");
+    const occlusion = VOICE_COLUMNS.findIndex((c) => c.label === "Occlusion");
+    expect([800, 5000, 20000].map((hz) => voiceCells(voice(hz, 1))[lowpass]!.text)).toEqual(["800 Hz", "5.0 kHz", "open"]);
+    expect([0.9999, 0.5, 0].map((g) => voiceCells(voice(1000, g))[occlusion]!.tip!.split(";")[0])).toEqual(["Gain 1 (open)", "Gain 0.50 (-6 dB)", "Gain 0 (silent)"]);
   });
 
   it("a voice without M3 fields shows dashes in every column", () => {
@@ -141,11 +145,11 @@ describe("occlusion overlay", () => {
     expect(gainColor(Number.NaN, colors)).toBe(0x00ff00);
   });
 
-  it("takes only occluded voices of the World, most muffled first, at most MAX_RAYS", () => {
+  it("takes only occluded voices of the World, most muffled first, at most 48", () => {
     const vs = [voice(1, 1, 0), voice(2, 0.5, 1), voice(3, 0.1, 1), voice(4, 0.2, 1, "2"), voice(5, 1, 1), { ...voice(6, 1, 0), occlusion: undefined } as AudioDebugInfo["voices"][number]];
     expect(occludedVoices(vs, 1).map((v) => v.id)).toEqual([3, 2, 5]);
-    const many = Array.from({ length: MAX_RAYS + 10 }, (_, i) => voice(i + 1, 0.5, 1));
-    expect(occludedVoices(many, 1)).toHaveLength(MAX_RAYS);
+    const many = Array.from({ length: 48 + 10 }, (_, i) => voice(i + 1, 0.5, 1));
+    expect(occludedVoices(many, 1)).toHaveLength(48);
   });
 
   it("draws a ray to the listener and a cross at the hit; no source, no ray; no hit, no cross", () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_VOICE_ROWS, groupByEvent, lateStartCount, voiceRows } from "./AudioDebugPanel";
+import { MAX_VOICE_ROWS, groupByEvent, lateStartCount, voiceRows } from "./audioDebugRows";
 import type { EventDebugRow } from "../runtime/events/eventRuntime";
 
 type V = Parameters<typeof voiceRows>[0][number];

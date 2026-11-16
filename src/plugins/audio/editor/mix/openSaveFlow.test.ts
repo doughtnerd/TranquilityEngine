@@ -6,11 +6,8 @@ import type { VNode } from "preact";
 import { CAPTURE_ERROR_CODES, CaptureError, readCaptureHeader } from "../../runtime/capture/format";
 import { sampleCapture } from "../../runtime/capture/testSupport";
 import { ProfilerController, profilerBanners, type ProfilerBanner, type ProfilerDeps } from "./ProfilerPanel";
-import { ProfilerBanners, bannerText } from "./ProfilerBanners";
-import {
-  CAPTURE_ERROR_HEADLINES, OPEN_ROUTE_HEADLINES, OpenSaveFlow, captureErrorMessage, describeFlow, headlineOf, openFraction, parseErrorBanner,
-  syncFlow, type FlowViewInput,
-} from "./openSaveFlow";
+import { ProfilerBanners } from "./ProfilerBanners";
+import { OpenSaveFlow, captureErrorMessage, describeFlow, parseErrorBanner, syncFlow, type FlowViewInput } from "./openSaveFlow";
 
 /** The reader's refusal of `bytes`' header. */
 function readerError(bytes: Uint8Array): CaptureError {
@@ -23,23 +20,32 @@ function readerError(bytes: Uint8Array): CaptureError {
   throw new Error("the reader accepted the header");
 }
 
+/** A code's headline: the message for it with no detail, less the code. */
+const headline = (code: string): string => captureErrorMessage(code, "").replace(new RegExp(` ?\\(${code}\\)$`), "");
+/** The route's own codes' headlines. */
+const OPEN_ROUTE_HEADLINES = { notCapture: "Not a capture file.", open: "The file couldn't be opened." } as const;
+
+/** The words and code the banners slot shows for one banner. */
+function bannerText(b: ProfilerBanner): { text: string; code: string | null } {
+  const p = (ProfilerBanners({ banners: [b] }) as VNode<{ children: VNode<Record<string, unknown>>[] }>).props.children[0]!;
+  return { text: String(p.props.children), code: (p.props["data-code"] as string | undefined) ?? null };
+}
+
 const plain = (e: CaptureError): string => e.message.slice(`${e.code} at ${e.offset}: `.length);
 
 describe("a message per CaptureError code", () => {
   for (const code of CAPTURE_ERROR_CODES) {
     it(`${code}: a headline, the code and the reader's detail`, () => {
-      const head = CAPTURE_ERROR_HEADLINES[code];
+      const head = headline(code);
       expect(head.length).toBeGreaterThan(10);
       expect(head.endsWith(".")).toBe(true);
-      expect(headlineOf(code)).toBe(head);
       const msg = captureErrorMessage(code, "detail text at 42");
       expect(msg).toBe(`${head} (${code}) detail text at 42`);
     });
   }
 
-  it("the table has no extra codes and no two codes share a headline", () => {
-    expect(Object.keys(CAPTURE_ERROR_HEADLINES).sort()).toEqual([...CAPTURE_ERROR_CODES].sort());
-    const heads = Object.values(CAPTURE_ERROR_HEADLINES);
+  it("no two codes share a headline", () => {
+    const heads = CAPTURE_ERROR_CODES.map(headline);
     expect(new Set(heads).size).toBe(heads.length);
   });
 
@@ -47,7 +53,7 @@ describe("a message per CaptureError code", () => {
     expect(captureErrorMessage("notCapture", "x.txt is not a capture file")).toBe(`${OPEN_ROUTE_HEADLINES.notCapture} (notCapture) x.txt is not a capture file`);
     expect(captureErrorMessage("open", "disk gone")).toBe(`${OPEN_ROUTE_HEADLINES.open} (open) disk gone`);
     expect(captureErrorMessage("fromTheFuture", "huh")).toBe("(fromTheFuture) huh");
-    expect(captureErrorMessage("badMagic", "")).toBe(`${CAPTURE_ERROR_HEADLINES.badMagic} (badMagic)`);
+    expect(captureErrorMessage("badMagic", "")).toBe("Not a Myco capture file. (badMagic)");
   });
 
   it("newerFormat and olderFormat name this build's format and the file's", () => {
@@ -100,7 +106,7 @@ describe("the banners slot", () => {
       const banner = c.view.banners[0]!;
       const { text, code: shown } = bannerText(banner);
       expect(shown).toBe(code);
-      expect(text).toBe(`Can't open bad.mycap: ${CAPTURE_ERROR_HEADLINES[code]} (${code}) the detail`);
+      expect(text).toBe(`Can't open bad.mycap: ${headline(code)} (${code}) the detail`);
       c.dispose();
     });
   }
@@ -159,10 +165,16 @@ describe("the open and save flow", () => {
     expect(f.state).toMatchObject({ phase: "done", fraction: 1 });
   });
 
-  it("openFraction clamps and survives a zero total", () => {
-    expect(openFraction("inflate", 5, 0)).toBe(0);
-    expect(openFraction("records", 9, 3)).toBe(1);
-    expect(openFraction("records", -1, 3)).toBe(0.5);
+  it("the bar's fraction clamps and survives a zero total", () => {
+    const fractionAfter = (step: "inflate" | "records", done: number, total: number): number | null => {
+      const f = new OpenSaveFlow();
+      f.begin("open", "a.mycap");
+      f.progress(step, done, total);
+      return f.state.fraction;
+    };
+    expect(fractionAfter("inflate", 5, 0)).toBe(0);
+    expect(fractionAfter("records", 9, 3)).toBe(1);
+    expect(fractionAfter("records", -1, 3)).toBe(0.5);
   });
 
   it("cancel: a running open becomes cancelled, a late report and finish change nothing, and the bar says the previous capture stays", () => {

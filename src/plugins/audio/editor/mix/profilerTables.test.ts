@@ -16,12 +16,17 @@ import { WindowedGridView, type WindowedGridProps } from "./WindowedGrid";
 import {
   EVENT_COLUMNS, MUSIC_COLUMNS, ProfilerTables, ProfilerTablesView, RowsTableView, eventCells, musicCells, profilerTablesData,
 } from "./profilerTables";
-import {
-  MAX_RENDERED_ROWS, OVERSCAN_ROWS, ROW_HEIGHT, TABLE_EMPTY, VIEWPORT_HEIGHT, VIEWPORT_ROWS, busParents, busTableRows, moveFocus,
-  musicRows, navigate, scrollToIndex, tableEmptyText, thiefText, voiceCells, windowRows,
-} from "./profilerTablesModel";
+import { busParents, busTableRows, musicRows, tableEmptyText, voiceCells } from "./profilerTablesModel";
+import { MAX_RENDERED_ROWS, OVERSCAN_ROWS, ROW_HEIGHT, VIEWPORT_HEIGHT, VIEWPORT_ROWS, moveFocus, navigate, scrollToIndex, windowRows } from "./gridWindow";
 import { nameLookup, reconstructVoices, type VoiceRow } from "./voiceTableModel";
 import { openScene } from "./voiceSceneSupport";
+
+// The tables' own empty-state words.
+const TABLE_EMPTY = {
+  noCursor: "Place the cursor on the timeline to read the tables",
+  noMatch: "No rows match the filter",
+  none: { voices: "No voices at the cursor", buses: "No bus data at the cursor", events: "No event instances at the cursor", music: "No music playing at the cursor" },
+} as const;
 
 // ---- walking a rendered tree ----
 
@@ -207,7 +212,6 @@ describe("the voice table on a recorded scene: reasons and the thief", () => {
     const byId = new Map(replay.rows.map((r) => [r.id, r]));
     const victim = byId.get(1)!;
     expect(victim.stateName).toBe("stolen");
-    expect(thiefText(victim, byId)).toBe("voice 3 (jump.ogg)");
     expect(voiceCells(victim, byId)).toMatchObject({ state: "stolen", reason: "priority, by voice 3 (jump.ogg)", clip: "jump.ogg", bus: "Music" });
 
     const table = VoiceTableView({ data: voiceTableData(replay, "", CTX), grid: gridAt(0) });
@@ -222,7 +226,7 @@ describe("the voice table on a recorded scene: reasons and the thief", () => {
     const names = nameLookup(s.summary.names);
     const byId = new Map(reconstructVoices(state, names).rows.map((r) => [r.id, r]));
     expect(voiceCells(byId.get(2)!, byId)).toMatchObject({ state: "virtual", reason: "below audibility" });
-    expect(thiefText(byId.get(2)!, byId)).toBe("");
+    expect(voiceCells(byId.get(2)!, byId).reason).not.toContain("by voice");
     const { state: later } = await seekAtFrame(65_000); // promoted at 60,000
     const byIdLater = new Map(reconstructVoices(later, names).rows.map((r) => [r.id, r]));
     expect(voiceCells(byIdLater.get(2)!, byIdLater).reason).toBe("promoted");
@@ -231,7 +235,6 @@ describe("the voice table on a recorded scene: reasons and the thief", () => {
 
   it("names the thief by id when it isn't in the table, and prints '-' for fields a later voice doesn't have", () => {
     const row = { thief: 99, reasonText: "", clipName: "x", busName: "y", stateName: "stolen", priority: null, pitch: null, audibility: null, gain: 1, playheadFrames: 0, id: 1 } as unknown as VoiceRow;
-    expect(thiefText(row, new Map())).toBe("voice 99");
     expect(voiceCells(row, new Map())).toMatchObject({ reason: "by voice 99", priority: "-", pitch: "-", audibility: "-", gain: "0.0 dB" });
   });
 });

@@ -8,7 +8,7 @@ import { captureErrorMessage, parseErrorBanner } from "./openSaveFlow";
 import "./openSaveFlow.css";
 
 /** The words of one banner: an open refusal expands to its code's message; every other banner keeps the controller's text. */
-export function bannerText(b: ProfilerBanner): { text: string; code: string | null } {
+function bannerText(b: ProfilerBanner): { text: string; code: string | null } {
   const parsed = parseErrorBanner(b.id, b.text);
   if (!parsed) return { text: b.text, code: null };
   return { text: `Can't open ${parsed.file}: ${captureErrorMessage(parsed.code, parsed.detail)}`, code: parsed.code };

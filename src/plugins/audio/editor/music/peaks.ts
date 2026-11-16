@@ -8,7 +8,7 @@ import { hintFromName } from "../../runtime/decoder/protocol";
 import { buildMips, type PeakMips } from "./peaksMip";
 
 /** Frames per base bin the editor asks for (§7: the view draws one bin per pixel at most; 256 frames is 172 bins/s at 44.1 kHz). */
-export const PEAKS_BIN_FRAMES = 256;
+const PEAKS_BIN_FRAMES = 256;
 
 /** Where the service reads a project file from (the editor passes the project's file API; tests pass a map). */
 export interface PeaksSource {

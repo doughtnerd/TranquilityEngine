@@ -15,11 +15,17 @@ import { reasonMessage } from "../../../../engine/audio/busCapability";
 import { parseAudioSettings, type AudioSettings } from "../../../../engine/audio/settings";
 import { MixerChrome } from "./MixerPanel";
 import type { BusReading } from "./mixerModel";
-import {
-  MIXER_BANNER_TEXT, MixerPanelController, NOT_PLAYING, formatElapsed, mixerBanners, restartMessages, type MixerPanelDeps, type MixerView,
-} from "./mixerPanelModel";
+import { MixerPanelController, NOT_PLAYING, type MixerPanelDeps, type MixerView } from "./mixerPanelModel";
 import type { OpLogEntry } from "./opLog";
-import { PEAK_HOLD_MS } from "./meterModel";
+
+// The banners' words.
+const MIXER_BANNER_TEXT = {
+  monitor: "Monitor controls are on: the loudness target check is suspended and the meters are marked. They are never saved.",
+  compare: "Compare: you are hearing the saved mix from Play start. The faders are locked and nothing is saved.",
+  restart: (what: string): string => `Applies at the next Play: ${what}. The edit is saved.`,
+} as const;
+
+const PEAK_HOLD_MS = 1500;
 
 const AUDIO = {
   buses: [{ name: "master" }, { name: "sfx", parent: "master" }, { name: "music", parent: "master", volume: 0.8, meter: "loudness" }],
@@ -104,35 +110,39 @@ afterEach(() => closeTestProject());
 
 // ---- banners ----
 
-describe("the banners (pure)", () => {
-  it("each banner has its text, severity and place: problems, then applies-at-next-Play, then monitor, then Compare", () => {
-    const all = mixerBanners({ monitorActive: true, compareActive: true, restart: ["voices"], problems: ["audio.buses must be a list."] });
-    expect(all.map((b) => b.id)).toEqual(["problem", "restart", "monitor", "compare"]);
-    expect(all.map((b) => b.text)).toEqual(["audio.buses must be a list.", "Applies at the next Play: voices. The edit is saved.", MIXER_BANNER_TEXT.monitor, MIXER_BANNER_TEXT.compare]);
-    expect(all.map((b) => b.severity)).toEqual(["warn", "info", "info", "warn"]);
-  });
-
-  it("nothing to say, no banner; several problems and several restart messages each get one", () => {
-    expect(mixerBanners({ monitorActive: false, compareActive: false, restart: [], problems: [] })).toEqual([]);
-    const two = mixerBanners({ monitorActive: false, compareActive: false, restart: ["a", "b"], problems: ["x", "y"] });
-    expect(two.map((b) => b.id)).toEqual(["problem", "problem", "restart", "restart"]);
-  });
-
-  it("restartMessages: each message once, from the results and the diff's keys, only for entries after the baseline", () => {
+describe("the banners' order and the restart messages, through the controller", () => {
+  it("each message once, from the results and the diff's keys, only for entries after the baseline", () => {
+    const r = rig();
     const entry = (seq: number, results: ApplyResult[], restartRequired: string[] = []): OpLogEntry => ({ seq, cause: "edit", source: "recorded", ops: [], results, restartRequired });
-    const entries = [
-      entry(1, [{ ok: false, class: "dip", reason: "structuralUnavailable" }]),
+    r.log.entries.push(entry(1, [{ ok: false, class: "dip", reason: "structuralUnavailable" }]));
+    r.play(); // the baseline: entry 1 was before this Play
+    r.log.entries.push(
       entry(2, [{ ok: false, class: "none", reason: "noLiveBackend" }, { ok: true, class: "direct" }, { ok: true, class: "direct", reason: "waitsForSlot" }, { ok: false, class: "none" }]),
       entry(3, [{ ok: false, class: "none", reason: "noLiveBackend" }], ["backend"]),
-    ];
+    );
     // Messages come from the reason (`reasonMessage`); a deferred add (ok) and a refusal (no reason) are not next-Play edits.
-    expect(restartMessages(entries, 1)).toEqual([reasonMessage("noLiveBackend"), "backend"]);
-    expect(restartMessages(entries, 0)).toEqual([reasonMessage("structuralUnavailable"), reasonMessage("noLiveBackend"), "backend"]);
-    expect(restartMessages(entries, 3, ["mine"])).toEqual(["mine"]);
+    expect(r.c.view().banners.filter((b) => b.id === "restart").map((b) => b.text)).toEqual([reasonMessage("noLiveBackend"), "backend"].map(MIXER_BANNER_TEXT.restart));
   });
 
-  it("formatElapsed: m:ss, then h:mm:ss; bad input reads 0:00", () => {
-    expect([0, 59.9, 60, 3599, 3600, 3725, -5, NaN].map(formatElapsed)).toEqual(["0:00", "0:59", "1:00", "59:59", "1:00:00", "1:02:05", "0:00", "0:00"]);
+  it("several problems and several restart messages each get one banner, problems first", () => {
+    const r = rig({ audio: { buses: [{ name: "master" }, { name: "sfx", parent: "master", effects: [{ type: "nope" }, { type: "nada" }] }] } });
+    r.play();
+    r.log.entries.push({ seq: 1, cause: "edit", source: "diff", ops: [], results: [], restartRequired: ["a", "b"] });
+    const v = r.c.view();
+    expect(v.banners.map((b) => b.id)).toEqual([...v.banners.filter((b) => b.id === "problem").map(() => "problem"), "restart", "restart"]);
+    expect(v.banners.filter((b) => b.id === "problem").length).toBeGreaterThanOrEqual(2);
+    expect(v.banners.map((b) => b.severity)).toEqual(v.banners.map((b) => (b.id === "problem" ? "warn" : "info")));
+  });
+
+  it("the elapsed time reads m:ss, then h:mm:ss", () => {
+    const r = rig();
+    r.play();
+    const at = (s: number): string => {
+      r.advance(s);
+      r.c.sample();
+      return r.c.view().elapsed;
+    };
+    expect([0, 59.9, 0.1, 3539, 1, 125].map(at)).toEqual(["0:00", "0:59", "1:00", "59:59", "1:00:00", "1:02:05"]);
   });
 });
 

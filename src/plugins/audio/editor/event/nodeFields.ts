@@ -410,11 +410,6 @@ export function eventFields(): FieldDescriptor[] {
   return [bus, volumeField(), pitchField(), volumeRandomField(), pitchRandomField(), priority, spatial, filter, sends, limit, cooldown, automationField()];
 }
 
-/** The field named `name` in `fields` (top level only), or `undefined`. */
-export function findField(fields: readonly FieldDescriptor[], name: string): FieldDescriptor | undefined {
-  return fields.find((f) => f.name === name);
-}
-
 /** Whether `target` is a sustain node. */
 function isSustain(target: object): target is SustainNode {
   return (target as { type?: unknown }).type === "sustain";

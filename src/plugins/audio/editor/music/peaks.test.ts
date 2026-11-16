@@ -2,7 +2,10 @@
 // sharing of concurrent requests, cancel of a superseded computation, failures not cached.
 import { describe, expect, it } from "vitest";
 import type { DecodedPeaks } from "../../runtime/decoder/decoderClient";
-import { createPeaksService, PEAKS_BIN_FRAMES, type PeaksSource } from "./peaks";
+import { createPeaksService, type PeaksSource } from "./peaks";
+
+// The base bin the peaks service asks for by default.
+const PEAKS_BIN_FRAMES = 256;
 
 interface Call {
   readonly bytes: ArrayBuffer;

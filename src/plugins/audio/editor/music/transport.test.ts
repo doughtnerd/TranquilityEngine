@@ -4,7 +4,7 @@ import { emptySegment } from "../../../../engine/audio/musicFormat";
 import { compileSegmentGrid } from "../../../../engine/audio/musicGrid";
 import type { MusicSeekResult } from "../../../../engine/audio/musicTypes";
 import { activeAudition } from "../event/auditionHost";
-import { createTransport, playheadSeconds, seekText, type TransportHandle, type TransportHost } from "./transport";
+import { createTransport, playheadSeconds, type TransportHandle, type TransportHost, type TransportTarget } from "./transport";
 
 const segment = { ...emptySegment("a"), tempo: [{ at: "1:1:0", bpm: 120, beatsPerBar: 4, beatUnit: 4 }], cues: [{ name: "entry", at: "1:1:0" }, { name: "late", at: "2:3:0" }, { name: "drop", at: "3:1:0" }] };
 const grid = compileSegmentGrid(segment, { endSeconds: 60 });
@@ -55,15 +55,21 @@ const req = (extra: object = {}) => ({ event: "m.audioevent.json", segmentId: "a
 
 afterEach(() => { activeAudition.value = null; });
 
-describe("seekText and playheadSeconds", () => {
-  it("turns targets into positions", () => {
-    expect(seekText(grid, { kind: "start" })).toBeNull();
-    expect(seekText(grid, { kind: "bar", bar: 5 })).toBe("5:1:0");
-    expect(seekText(grid, { kind: "bar", bar: 0 })).toBeNull();
-    expect(seekText(grid, { kind: "cue", name: "drop" })).toBe("3:1:0");
-    expect(seekText(grid, { kind: "cue", name: "nope" })).toBeNull();
-    expect(seekText(grid, { kind: "seconds", seconds: 4 })).toBe("3:1:0");
-    expect(seekText(grid, { kind: "seconds", seconds: Number.NaN })).toBeNull();
+describe("start positions and playheadSeconds", () => {
+  it("turns targets into the position the music starts at", async () => {
+    /** The position a play from `from` asks the host to start at (null: none, from the start or off the grid). */
+    const startAt = async (from: TransportTarget): Promise<string | null> => {
+      const host = fakeHost([fakeHandle()]);
+      await createTransport(host).play(req({ from }));
+      return host.positions[0] ?? null;
+    };
+    expect(await startAt({ kind: "start" })).toBeNull();
+    expect(await startAt({ kind: "bar", bar: 5 })).toBe("5:1:0");
+    expect(await startAt({ kind: "bar", bar: 0 })).toBeNull();
+    expect(await startAt({ kind: "cue", name: "drop" })).toBe("3:1:0");
+    expect(await startAt({ kind: "cue", name: "nope" })).toBeNull();
+    expect(await startAt({ kind: "seconds", seconds: 4 })).toBe("3:1:0");
+    expect(await startAt({ kind: "seconds", seconds: Number.NaN })).toBeNull();
   });
   it("maps bar, beat and fraction to file seconds, only in its own segment", () => {
     expect(playheadSeconds(grid, { segment: "a", bar: 2, beat: 3, beatFraction: 0.5 }, "a")).toBeCloseTo(3.25, 6);

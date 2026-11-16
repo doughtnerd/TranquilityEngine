@@ -2,7 +2,12 @@
 import { describe, expect, it } from "vitest";
 import { compileTempoMap, nextBarTicks } from "../../../../engine/audio/musicGrid";
 import type { TempoMarker } from "../../../../engine/audio/musicFormat";
-import { SNAP_MODES, SNAP_STEP_TICKS, snapTicks } from "./segmentSnap";
+import { SNAP_MODES, snapTicks } from "./segmentSnap";
+
+// The beat-based modes' steps.
+const SNAP_STEP_TICKS: Readonly<Record<"beat" | "half-beat" | "quarter-beat", number>> = {
+  beat: 960, "half-beat": 480, "quarter-beat": 240,
+};
 
 const m = (at: string, bpm: number, beatsPerBar = 4, beatUnit = 4): TempoMarker => ({ at, bpm, beatsPerBar, beatUnit });
 /** 4/4: a beat is 960 ticks, a bar 3840. */
@@ -33,7 +38,6 @@ describe("snapTicks (L-Ed3a)", () => {
 
   it("L-Ed3a: half-beat and quarter-beat snap to multiples of 480 and 240", () => {
     const map = steady();
-    expect(SNAP_STEP_TICKS).toEqual({ beat: 960, "half-beat": 480, "quarter-beat": 240 });
     expect(snapTicks(map, 700, "half-beat")).toBe(480);
     expect(snapTicks(map, 721, "half-beat")).toBe(960);
     expect(snapTicks(map, 130, "quarter-beat")).toBe(240);

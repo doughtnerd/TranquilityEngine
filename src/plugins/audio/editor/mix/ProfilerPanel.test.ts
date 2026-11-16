@@ -13,10 +13,15 @@ import { CaptureSource, type CaptureWorkerLike, type ProfileSource } from "./pro
 import type { LiveHost, LiveRecording, LiveScheduler } from "./liveFollow";
 import type { TrackFactory } from "./tracks/types";
 import { cpuTracks } from "./tracks/cpu";
-import {
-  BANNER_TEXT, ProfilerChrome, ProfilerController, profilerBanners, profilerSlots, sameAudioSettings,
-  type BarSlotProps, type ProfilerDeps, type ProfilerSlots,
-} from "./ProfilerPanel";
+import { ProfilerChrome, ProfilerController, profilerBanners, profilerSlots, type BarSlotProps, type ProfilerDeps, type ProfilerSlots } from "./ProfilerPanel";
+
+// The banners' words.
+const BANNER_TEXT = {
+  viewing: "Viewing, not replaying",
+  truncated: "Truncated: the ring wrapped. This capture starts at a later keyframe, not at Play.",
+  projectMismatch: "This capture was recorded with a different audio section than the open project's. It is shown as recorded.",
+  babylon: "Babylon fallback: main-side events and keyframes only. The CPU, underrun and loudness tracks are absent.",
+} as const;
 
 /** The capture Worker's real handler behind a `CaptureWorkerLike`, answering on later macrotasks. */
 function inProcessWorker(): CaptureWorkerLike {
@@ -198,7 +203,12 @@ describe("banners on fixture captures", () => {
     expect(profilerBanners({ source: live, projectAudio: PROJECT_AUDIO, error: null, fileName: null })).toEqual([]);
   });
 
-  it("sameAudioSettings reads a missing section as the defaults and ignores key order", () => {
+  it("the project check reads a missing section as the defaults and ignores key order", () => {
+    /** Whether a file capture recorded with `recorded` matches a project whose section is `project`. */
+    const sameAudioSettings = (recorded: unknown, project: unknown): boolean => {
+      const file = { live: false, truncated: false, summary: { header: { flags: 0 }, meta: { audio: recorded } } } as unknown as ProfileSource;
+      return !profilerBanners({ source: file, projectAudio: project, error: null, fileName: "a.mycap" }).some((b) => b.id === "projectMismatch");
+    };
     expect(sameAudioSettings(null, undefined)).toBe(true);
     expect(sameAudioSettings({ buses: [{ name: "Music" }] }, { buses: [{ name: "Music" }] })).toBe(true);
     expect(sameAudioSettings({ buses: [{ name: "Music" }] }, { buses: [{ name: "SFX" }] })).toBe(false);

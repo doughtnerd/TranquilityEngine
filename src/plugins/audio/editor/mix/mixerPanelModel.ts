@@ -38,7 +38,7 @@ export interface MixerBanner {
 }
 
 /** The banner texts (the design gives the behaviour; the words are these, and the tests assert them). */
-export const MIXER_BANNER_TEXT = {
+const MIXER_BANNER_TEXT = {
   monitor: "Monitor controls are on: the loudness target check is suspended and the meters are marked. They are never saved.",
   compare: "Compare: you are hearing the saved mix from Play start. The faders are locked and nothing is saved.",
   restart: (what: string): string => `Applies at the next Play: ${what}. The edit is saved.`,
@@ -54,7 +54,7 @@ export interface MixerBannerInput {
 }
 
 /** Every banner that applies: problems first, then what waits for the next Play, then the monitor and Compare. */
-export function mixerBanners(input: MixerBannerInput): MixerBanner[] {
+function mixerBanners(input: MixerBannerInput): MixerBanner[] {
   const out: MixerBanner[] = [];
   for (const text of input.problems) out.push({ id: "problem", severity: "warn", text });
   for (const what of input.restart) out.push({ id: "restart", severity: "info", text: MIXER_BANNER_TEXT.restart(what) });
@@ -67,7 +67,7 @@ export function mixerBanners(input: MixerBannerInput): MixerBanner[] {
  * The distinct messages of the results kept for the next Play (`appliesAtNextPlay`, ADR 0175: `reasonMessage` is the
  * text) and the no-live-path keys of the op log's entries newer than `afterSeq`, plus `own`.
  */
-export function restartMessages(entries: readonly OpLogEntry[], afterSeq: number, own: Iterable<string> = []): string[] {
+function restartMessages(entries: readonly OpLogEntry[], afterSeq: number, own: Iterable<string> = []): string[] {
   const seen = new Set<string>(own);
   for (const e of entries) {
     if (e.seq <= afterSeq) continue;
@@ -78,7 +78,7 @@ export function restartMessages(entries: readonly OpLogEntry[], afterSeq: number
 }
 
 /** Seconds as "m:ss" ("h:mm:ss" from an hour on). */
-export function formatElapsed(seconds: number): string {
+function formatElapsed(seconds: number): string {
   const s = Math.max(0, Math.floor(Number.isFinite(seconds) ? seconds : 0));
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);

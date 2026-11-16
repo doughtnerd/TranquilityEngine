@@ -11,7 +11,7 @@ export type SnapMode = "off" | "bar" | "beat" | "half-beat" | "quarter-beat";
 export const SNAP_MODES: readonly SnapMode[] = ["off", "bar", "beat", "half-beat", "quarter-beat"];
 
 /** Ticks between the lines of the beat-based modes (`MUSIC_TICKS_PER_BEAT` / 1, 2, 4). `off` and `bar` have no fixed step. */
-export const SNAP_STEP_TICKS: Readonly<Record<"beat" | "half-beat" | "quarter-beat", number>> = {
+const SNAP_STEP_TICKS: Readonly<Record<"beat" | "half-beat" | "quarter-beat", number>> = {
   beat: 960, "half-beat": 480, "quarter-beat": 240,
 };
 

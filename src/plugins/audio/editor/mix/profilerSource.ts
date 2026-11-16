@@ -56,7 +56,7 @@ function spawnCaptureWorker(): CaptureWorkerLike {
 }
 
 /** The Worker's refusal as a `CaptureError` on main (its message without the code prefix the constructor adds again). */
-export function captureErrorFrom(info: CaptureErrorInfo): CaptureError {
+function captureErrorFrom(info: CaptureErrorInfo): CaptureError {
   const prefix = `${info.code} at ${info.offset}: `;
   return new CaptureError(info.code, info.offset, info.message.startsWith(prefix) ? info.message.slice(prefix.length) : info.message);
 }

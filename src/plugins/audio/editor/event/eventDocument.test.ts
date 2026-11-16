@@ -8,10 +8,12 @@ import { MemoryFileSystem, ROOT } from "../../../../editor/testing";
 import { formatAudioEvent, emptyAudioEvent, type AudioEventAsset, type LayerNode } from "../../../../engine/audio/eventFormat";
 import { useEditorPlugins } from "../../../testEditorPlugins";
 import { audioEditorPlugin } from "..";
-import { setNode } from "./EventTree";
-import { findField, nodeFields, writeField } from "./nodeFields";
+import { setNode } from "./eventTreeModel";
+import { nodeFields, writeField, type FieldDescriptor } from "./nodeFields";
 import { addNode } from "./treeActions";
 import { applyClipDrop } from "./treeDrop";
+
+const fieldNamed = (fields: readonly FieldDescriptor[], name: string): FieldDescriptor | undefined => fields.find((f) => f.name === name);
 
 useEditorPlugins([audioEditorPlugin], "each");
 afterEach(() => {
@@ -55,7 +57,7 @@ describe("Event editor edits through the asset document", () => {
     vi.useFakeTimers();
     const { doc } = await openEvent();
     const root = doc.value.value.root;
-    const volume = findField(nodeFields(root, null), "volume")!;
+    const volume = fieldNamed(nodeFields(root, null), "volume")!;
     for (const v of [0.9, 0.8, 0.7]) doc.edit({ ...doc.value.value, root: setNode(doc.value.value.root, [], writeField(doc.value.value.root, volume, v)) }, { coalesce: true, label: "Edit volume" });
     vi.advanceTimersByTime(500);
     await doc.flush();

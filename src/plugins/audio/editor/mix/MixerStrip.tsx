@@ -16,7 +16,7 @@ import type { MixerModel, Strip } from "./mixerModel";
 import "./stripStyle.css";
 
 /** The gain-reduction meter's full scale, in dB of reduction. */
-export const GAIN_REDUCTION_MAX_DB = 24;
+const GAIN_REDUCTION_MAX_DB = 24;
 /** The loudness bar's scale: `METER_FLOOR_DB` (-60) LUFS to 0. */
 export const LUFS_FLOOR = METER_FLOOR_DB;
 
@@ -38,14 +38,14 @@ export interface MixerStripProps {
 }
 
 /** A LUFS reading as text: "-inf" for a gated, empty or unmetered reading, else one decimal. */
-export function formatLufs(lufs: number): string {
+function formatLufs(lufs: number): string {
   if (!(lufs > -Infinity)) return "-inf";
   const r = Math.round(lufs * 10) / 10;
   return (r === 0 ? 0 : r).toFixed(1);
 }
 
 /** A LUFS value as a 0..1 position on the loudness bar (`LUFS_FLOOR`..0). */
-export function lufsFill(lufs: number): number {
+function lufsFill(lufs: number): number {
   if (!(lufs > LUFS_FLOOR)) return 0;
   return lufs >= 0 ? 1 : (lufs - LUFS_FLOOR) / -LUFS_FLOOR;
 }
@@ -82,16 +82,16 @@ type PointerEv = PointerEvent & { currentTarget: HTMLElement };
 type KeyEv = KeyboardEvent;
 
 /** A key press moves the fader this much of its travel; a modifier (`fine`) scales it by `FINE_DRAG_SCALE`, as for a drag. */
-export const KEY_STEP = 0.02;
+const KEY_STEP = 0.02;
 /** Page Up and Page Down move the fader this much. */
-export const KEY_PAGE_STEP = 0.1;
+const KEY_PAGE_STEP = 0.1;
 
 /**
  * The fader position a key leads to from `pos`, or null for a key the fader doesn't use. Arrows (up and right raise, down and
  * left lower) move `KEY_STEP`, the page keys `KEY_PAGE_STEP`, both scaled when `fine`; Home goes to the bottom (silence), End
  * to the top. Clamped to 0..1 and not snapped to unity: a snap would hold a key from ever leaving 0 dB.
  */
-export function keyPosition(pos: number, key: string, fine: boolean): number | null {
+function keyPosition(pos: number, key: string, fine: boolean): number | null {
   const scale = fine ? FINE_DRAG_SCALE : 1;
   const clamp = (p: number): number => Math.min(1, Math.max(0, p));
   switch (key) {
@@ -105,8 +105,8 @@ export function keyPosition(pos: number, key: string, fine: boolean): number | n
   }
 }
 
-/** Pointer handlers for one strip's fader. Exported for tests; the component wires them onto the track. */
-export function faderHandlers(props: Pick<MixerStripProps, "strip" | "model" | "onChange">) {
+/** Pointer and key handlers for one strip's fader; the component wires them onto the track. */
+function faderHandlers(props: Pick<MixerStripProps, "strip" | "model" | "onChange">) {
   const { strip, model } = props;
   const changed = (): void => props.onChange?.();
   const end = (commit: boolean, e?: { currentTarget: HTMLElement; pointerId?: number }): void => {

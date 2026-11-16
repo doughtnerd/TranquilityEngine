@@ -21,13 +21,11 @@ import { validateSegment, type MusicFactsLookup, type MusicValidateOptions, type
 import { readImportHints, type ImportHints, type SmplLoop } from "./importHints";
 
 /** One dropped file. */
-export interface ImportFile {
+interface ImportFile {
   /** The asset path the clip will have (no `asset:`). */
   path: string;
   /** The file bytes, for the hint readers; absent: no hints are read. */
   bytes?: Uint8Array;
-  /** Hints already read (tests, a cache); wins over `bytes`. */
-  hints?: ImportHints;
 }
 
 export interface ImportOptions extends MusicValidateOptions {
@@ -65,14 +63,14 @@ export interface ImportResult {
 }
 
 /** The stem name for a path: its file name without extension, made to fit `[A-Za-z0-9_ -]`-style names, unique in `taken`. */
-export function stemNameFor(path: string, taken: ReadonlySet<string>): string {
+function stemNameFor(path: string, taken: ReadonlySet<string>): string {
   const base = (path.split(/[\\/]/).pop() ?? path).replace(/\.[^.]*$/, "").trim().replace(/[^\w -]+/g, "_").slice(0, 40) || "stem";
   if (!taken.has(base)) return base;
   for (let i = 2; ; i++) if (!taken.has(`${base} ${i}`)) return `${base} ${i}`;
 }
 
 /** Whether the segment still has its default grid, the only case hints are written into. */
-export function hasDefaultGrid(seg: SegmentNode): boolean {
+function hasDefaultGrid(seg: SegmentNode): boolean {
   const t = seg.tempo[0];
   return seg.tempo.length === 1 && t !== undefined && t.at === "1:1:0" && t.bpm === 120 && t.beatsPerBar === 4 && t.beatUnit === 4
     && seg.cues.length === 0 && seg.regions.length === 0 && seg.gridOffset === 0;
@@ -101,7 +99,7 @@ function hintedLoop(h: ImportHints): { start: number; end: number } | null {
  * `facts(path)` is the decoder's probe reduced to `MusicClipFacts`; it supplies the sample rate that frame hints need
  * (`wav.rate` of the hints is the fallback) and feeds the lint.
  */
-export function importClips(segment: SegmentNode, files: readonly ImportFile[], facts: MusicFactsLookup, options?: ImportOptions): ImportResult {
+function importClips(segment: SegmentNode, files: readonly ImportFile[], facts: MusicFactsLookup, options?: ImportOptions): ImportResult {
   const applied: ImportApplied = { tracks: [], alternatives: [], cues: [], skipped: [] };
   const tracks: MusicTrack[] = segment.tracks.map((t) => ({ ...t, alternatives: [...t.alternatives] }));
   const taken = new Set(tracks.map((t) => t.name));
@@ -131,7 +129,7 @@ export function importClips(segment: SegmentNode, files: readonly ImportFile[], 
 
   if (added.length > 0 && hasDefaultGrid(segment)) {
     for (const f of added) {
-      const h = f.hints ?? (f.bytes ? readImportHints(f.bytes) : undefined);
+      const h = f.bytes ? readImportHints(f.bytes) : undefined;
       if (!h) continue;
       const w = h.wav;
       const bpm = w?.acid?.bpm ?? h.ogg?.bpm;

@@ -10,7 +10,7 @@ import { audioSection } from "../../../../engine/audio/audioSection";
 import { Audition } from "./Audition";
 import { activeAudition, auditionOverrides, NO_OVERRIDES, setAuditionValue, stingerAuditionFor } from "./auditionHost";
 import { auditionValues } from "./eventParameters";
-import { getMusicNode, getNode, musicIdProblem, parentPath, pathKey, renameMusicId, setMusicNode, setNode, type NodePath, type SustainSlot } from "./EventTree";
+import { getMusicNode, getNode, musicIdProblem, parentPath, pathKey, renameMusicId, setMusicNode, setNode, type NodePath, type SustainSlot } from "./eventTreeModel";
 import { EventTree } from "./EventTree";
 import { EventProperties, MusicNodeProperties, NodeProperties, type FieldContext } from "./NodeProperties";
 import { openRulesTable, openSegmentView } from "../music";

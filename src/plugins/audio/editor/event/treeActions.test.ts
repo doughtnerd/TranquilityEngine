@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { EventNode, LayerNode, RandomNode, SustainNode } from "../../../../engine/audio/eventFormat";
-import { getNode, newNode } from "./EventTree";
+import { getNode, newNode } from "./eventTreeModel";
 import { addNode, addTarget, changeListType } from "./treeActions";
 
 /** layer [ clip a, sustain { loop: clip c } ] */
