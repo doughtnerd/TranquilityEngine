@@ -5,7 +5,6 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { CoreLink, type LinkPort } from "../core/context";
-import { BATCH_POOL_BUFFERS } from "../core/bufferPool";
 import {
   CLIP_BEGIN_FIXED_END,
   CLIP_CHUNK_FIXED_END,
@@ -181,11 +180,11 @@ describe("coreDriver with the real wasm", () => {
     const r = rig();
     r.run(48 * 10);
     const taken = r.link.batchPool.acquire()!;
-    expect(r.link.batchPool.available).toBe(BATCH_POOL_BUFFERS - 1);
+    expect(r.link.batchPool.available).toBe(4 - 1);
     void taken;
     r.driver.onMessage(batch(), r.clock.frame, r.clock.now);
     r.flush();
-    expect(r.link.batchPool.available).toBe(BATCH_POOL_BUFFERS);
+    expect(r.link.batchPool.available).toBe(4);
     const before = r.link.statusCount;
     r.run(48);
     expect(r.link.statusCount - before).toBeGreaterThanOrEqual(7);

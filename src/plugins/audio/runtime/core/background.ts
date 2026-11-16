@@ -31,7 +31,7 @@ import { HiddenTabPolicy, MUTE_RAMP_MS } from "../hiddenTab";
 
 export { MUTE_RAMP_MS, PAUSE_RAMP_MS, PAUSE_SUSPEND_DELAY_MS } from "../hiddenTab";
 /** How often the heartbeat is judged (ms). A hidden page's timers run at 1 Hz at most, which only matters while visible. */
-export const HEALTH_CHECK_MS = 250;
+const HEALTH_CHECK_MS = 250;
 
 /** The page's visibility (`document`, or a fake). */
 export interface VisibilitySource {

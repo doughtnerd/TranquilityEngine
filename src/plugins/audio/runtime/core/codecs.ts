@@ -7,8 +7,8 @@
 // decodes there.
 
 /** The decoder ABI's error codes for a file it can't read (`ERR_FORMAT`, `ERR_CODEC` in audio-decode's lib.rs). */
-export const DECODE_ERR_FORMAT = -3;
-export const DECODE_ERR_CODEC = -4;
+const DECODE_ERR_FORMAT = -3;
+const DECODE_ERR_CODEC = -4;
 
 const AAC_EXTENSIONS = new Set(["m4a", "mp4", "aac"]);
 
@@ -20,7 +20,7 @@ function extensionOf(path: string): string {
 }
 
 /** @internal Whether `path` names an AAC file (by its extension). */
-export function isAacPath(path: string): boolean {
+function isAacPath(path: string): boolean {
   return AAC_EXTENSIONS.has(extensionOf(path));
 }
 

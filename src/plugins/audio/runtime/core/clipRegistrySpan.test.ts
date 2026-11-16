@@ -3,7 +3,7 @@ import { fakeDecoder, type PlanarClip } from "./fakeDecoder";
 import { describe, expect, it, vi } from "vitest";
 import type { DecodeClipOptions } from "../decoder/decoderClient";
 import { ClipEvent, Kind, readClipBegin, readClipChunk, readClipUnload } from "../wire.generated";
-import { createClipRegistry, MAX_SPAN_SECONDS, type ClipRegistryDeps } from "./clipRegistry";
+import { createClipRegistry, type ClipRegistryDeps } from "./clipRegistry";
 
 const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 const RATE = 48_000;
@@ -92,13 +92,13 @@ describe("clipRegistry span clips (R4c, C14)", () => {
 
   it("refuses a span over 30 s and a bad range, reported as failed without throwing", async () => {
     const h = harness(3_000_000);
-    const long = h.registry.acquireSpan!("a.wav", 0, MAX_SPAN_SECONDS * RATE + 1);
-    const exact = h.registry.acquireSpan!("a.wav", 0, MAX_SPAN_SECONDS * RATE);
+    const long = h.registry.acquireSpan!("a.wav", 0, 30 * RATE + 1);
+    const exact = h.registry.acquireSpan!("a.wav", 0, 30 * RATE);
     const bad = [h.registry.acquireSpan!("a.wav", 10, 10), h.registry.acquireSpan!("a.wav", -1, 10), h.registry.acquireSpan!("a.wav", 0.5, 10)];
     for (const id of bad) expect(h.registry.info(id)).toMatchObject({ state: "failed", failure: "refusedSpan" });
     await settle();
     expect(h.registry.info(long)).toMatchObject({ state: "failed", failure: "refusedSpan" });
-    expect(h.registry.info(exact)).toMatchObject({ state: "copying", frames: MAX_SPAN_SECONDS * RATE });
+    expect(h.registry.info(exact)).toMatchObject({ state: "copying", frames: 30 * RATE });
     expect(h.sent.filter((m) => h.kind(m) === Kind.CLIP_BEGIN)).toHaveLength(1);
   });
 

@@ -43,8 +43,8 @@ describe("one AudioContext per page", () => {
   });
 
   afterEach(async () => {
-    const { _resetAudioHostForTests } = await import("./context");
-    await _resetAudioHostForTests();
+    const { currentAudioHost } = await import("./context");
+    await currentAudioHost()?.close();
     vi.unstubAllGlobals();
   });
 

@@ -15,6 +15,7 @@ import { loadCoreWasm, workletModuleUrl, type CoreWasm } from "./loader";
 import { Unlock } from "./unlock";
 import type { DeviceSnapshot } from "./deviceChange";
 import type { RecorderTap } from "../backend";
+import { busRemap } from "./busRemap";
 
 /** @internal §2.1's states as `Audio.status` reports them. */
 export type HostStatus = "locked" | "running" | "failed";
@@ -31,22 +32,22 @@ export const ARENA_INITIAL_BYTES = 16 << 20;
  */
 export type LatencyHint = AudioContextLatencyCategory | number;
 /** @internal §4.6: rhythm mode's numeric hint, seconds. */
-export const RHYTHM_LATENCY_HINT = 0;
+const RHYTHM_LATENCY_HINT = 0;
 /** @internal §3.1: the hint outside rhythm mode. */
-export const DEFAULT_LATENCY_HINT: AudioContextLatencyCategory = "interactive";
+const DEFAULT_LATENCY_HINT: AudioContextLatencyCategory = "interactive";
 /** @internal §4.6: a change of `outputLatency` this soon (ms) after the context was made counts as evidence it is live. */
-export const LATENCY_EVIDENCE_WINDOW_MS = 10_000;
+const LATENCY_EVIDENCE_WINDOW_MS = 10_000;
 /**
  * @internal §4.6 "rate-limited": a change of the rhythm-mode setting rebuilds the context at most once per this (ms);
  * a later change waits for the rest of it, and only the last one counts. Every rebuild also takes one from the
  * recovery limit (`recovery.ts`), but a mode rebuild never spends the last one: it waits instead.
  */
-export const MODE_REBUILD_INTERVAL_MS = 1_000;
+const MODE_REBUILD_INTERVAL_MS = 1_000;
 /** @internal A mode rebuild the recovery limit deferred is tried again after this (ms). */
-export const MODE_REBUILD_RETRY_MS = 5_000;
+const MODE_REBUILD_RETRY_MS = 5_000;
 
 /** @internal The `latencyHint` for a context in rhythm mode (`0`) or not (`"interactive"`). */
-export function latencyHintFor(rhythmMode: boolean): LatencyHint {
+function latencyHintFor(rhythmMode: boolean): LatencyHint {
   return rhythmMode ? RHYTHM_LATENCY_HINT : DEFAULT_LATENCY_HINT;
 }
 
@@ -359,19 +360,6 @@ export interface HostLifecycleListener {
    * STATUS, so whoever holds rate-dependent state (the core backend: clock map, writer, playheads, HRIR) moves it now.
    */
   onContextReplaced?(sampleRate: number): void;
-}
-
-/**
- * @internal The pure remap rule (api §3): for each old bus index, the index of the same name in `to`, else 0 (the
- * root). Names are unique within a tree (the settings parse guarantees it).
- */
-export function busRemap(from: readonly string[], to: readonly string[]): Uint8Array {
-  const map = new Uint8Array(from.length);
-  for (let i = 0; i < from.length; i++) {
-    const j = to.indexOf(from[i]!);
-    map[i] = j < 0 ? 0 : j;
-  }
-  return map;
 }
 
 const presetsEqual = (a: CorePreset, b: CorePreset): boolean =>
@@ -1142,14 +1130,6 @@ export function acquireAudioHost(start: () => Promise<AudioHost>): Promise<Audio
 /** @internal The page's live host, or null (none started, still starting, or closed). */
 export function currentAudioHost(): AudioHost | null {
   return pageHost && !pageHost.closed ? pageHost : null;
-}
-
-/** @internal Tests: closes the page's host (if any) and forgets it and any pending start. */
-export async function _resetAudioHostForTests(): Promise<void> {
-  const host = pageHost;
-  pageHost = null;
-  pageStart = null;
-  if (host) await host.close();
 }
 
 let pageHost: AudioHost | null = null;

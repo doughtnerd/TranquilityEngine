@@ -13,6 +13,7 @@ import type { AmbisonicImport } from "../../../../engine/scene/importSettings";
 import { setFileLoopFrames, setFileLoopPoints } from "../loopPoints";
 import { aacRefusal, createWarnOnce, unsupportedFormat, type WarnOnce } from "./codecs";
 import { i16ToF32 } from "./pcm";
+import { CLIP_INDEX_LIMIT, makeClipId } from "./clipIds";
 
 /** A clip's lifecycle (`copying -> ready` on the core's `resident` clip event, wire §4.3). */
 export type ClipState = "idle" | "fetching" | "decoding" | "copying" | "ready" | "failed" | "unloading";
@@ -135,10 +136,10 @@ export interface ReservedClipData {
 }
 
 /** C14: the longest span clip, in seconds of the file's own rate. */
-export const MAX_SPAN_SECONDS = 30;
+const MAX_SPAN_SECONDS = 30;
 
 /** The reserved HRIR clip id range (api-and-models 4.1). */
-export const RESERVED_CLIP_FIRST = 0xffff0000;
+const RESERVED_CLIP_FIRST = 0xffff0000;
 export const RESERVED_CLIP_LAST = 0xffff00ff;
 
 /**
@@ -212,11 +213,6 @@ export function ambisonicStreamsByDefault(path: string): boolean {
   return longAmbisonic.has(gainKey(path));
 }
 
-/** @internal Forgets what was learned about long ambisonic clips (tests; a project reload). */
-export function resetAmbisonicStreamDefaults(): void {
-  longAmbisonic.clear();
-}
-
 /**
  * ADR 0162 §2.4: whether a decoded clip of `channels` channels is playable given its sidecar's `ambisonic` block. A clip
  * over 2 channels must be ambisonic (4, 9 or 16 channels: order 1, 2 or 3); a given `order` must agree with the
@@ -238,21 +234,6 @@ export function checkAmbisonic(path: string, channels: number, ambisonic: Ambiso
   if (order >= 2 && hint !== 1 && hint !== 0) return { error: `ambisonic order ${order} (${channels} channels) needs a WAV file; other formats stop at 8 channels` };
   return { order };
 }
-
-/** Ids: index in the low 24 bits, an 8-bit generation in the high bits. */
-export const CLIP_INDEX_BITS = 24;
-/**
- * Indices stay below this, so no id can fall in the reserved HRIR range 0xFFFF0000..0xFFFF00FF (generation 0xFF with
- * index 0xFF0000..0xFF00FF). 16.7 million live clips is not a limit anyone reaches.
- */
-export const CLIP_INDEX_LIMIT = 0xff0000;
-
-/** @internal `id` from a slot index and generation. */
-export const makeClipId = (index: number, generation: number): number => (((generation & 0xff) << CLIP_INDEX_BITS) | index) >>> 0;
-/** @internal The slot index of `id`. */
-export const clipIndex = (id: number): number => id & 0xffffff;
-/** @internal The generation of `id`. */
-export const clipGeneration = (id: number): number => id >>> CLIP_INDEX_BITS;
 
 const DEFAULT_CEILING_BYTES = 128 << 20;
 

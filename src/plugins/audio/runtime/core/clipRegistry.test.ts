@@ -5,7 +5,8 @@ import { Assets } from "../../../../engine/scene/Assets";
 import type { DecodeClipOptions } from "../decoder/decoderClient";
 import { ClipEvent, ClipFormat, Kind, readClipBegin, readClipChunk, readClipUnload } from "../wire.generated";
 import { CLIP_BYTES_PER_QUANTUM } from "./chunker";
-import { CLIP_INDEX_LIMIT, checkAmbisonic, clipGeneration, clipIndex, createClipRegistry, makeClipId, type ClipRegistryDeps } from "./clipRegistry";
+import { checkAmbisonic, createClipRegistry, type ClipRegistryDeps } from "./clipRegistry";
+import { CLIP_INDEX_LIMIT, clipGeneration, clipIndex, makeClipId } from "./clipIds";
 
 const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 

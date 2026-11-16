@@ -12,7 +12,7 @@ import type { MusicEvent } from "../../../../engine/audio/musicTypes";
 import type { EventInstance } from "../events/eventRuntime";
 import { fakeDecoder } from "./fakeDecoder";
 import { createClipRegistry } from "./clipRegistry";
-import { AudioHost, presetFromSettings, RHYTHM_LATENCY_HINT, type ContextOptions, type ContextParts, type LatencyHint } from "./context";
+import { AudioHost, presetFromSettings, type ContextOptions, type ContextParts, type LatencyHint } from "./context";
 import { createCoreBackend, type CoreBackend } from "./coreBackend";
 import { contextRebuilds, rebuildHost, watchForTraps, type RebuildOutcome } from "./recovery";
 import { BackgroundController, type VisibilitySource } from "./background";
@@ -106,7 +106,7 @@ async function rig(startInRhythm: boolean) {
   const target = new EventTarget();
   const hints: LatencyHint[] = [];
   let hostNow = 0;
-  const first = fakeContext(startInRhythm ? RHYTHM_LATENCY_HINT : "interactive");
+  const first = fakeContext(startInRhythm ? 0 : "interactive");
   const respawn = () => loop.respawn();
   /** Frames the next new context takes to open (a real one adds its worklet module meanwhile); the old core renders on. */
   let openFrames = 0;
@@ -308,7 +308,7 @@ describe("rhythm mode on the loopback host (ADR 0166 Rh1, architecture §4.6)", 
 
     // One mode rebuild, into a new context made with the numeric hint.
     expect(r.host.modeRebuilds).toBe(1);
-    expect(r.hints).toEqual([RHYTHM_LATENCY_HINT]);
+    expect(r.hints).toEqual([0]);
     expect(contextRebuilds(r.host)).toBe(1);
     expect(r.host.health.rebuilds).toBe(1);
     expect(r.host.rhythmMode).toBe(true);
@@ -333,7 +333,7 @@ describe("rhythm mode on the loopback host (ADR 0166 Rh1, architecture §4.6)", 
 
   it("a trap rebuild in rhythm mode: callbacks held until the re-entry is stamped, then the gap as one call", async () => {
     const r = await rig(true);
-    expect(r.host.latencyHint).toBe(RHYTHM_LATENCY_HINT);
+    expect(r.host.latencyHint).toBe(0);
     const player = await startPlaying(r);
     await r.step(10);
     r.watchBeats(player);
@@ -345,7 +345,7 @@ describe("rhythm mode on the loopback host (ADR 0166 Rh1, architecture §4.6)", 
     const firedBefore = r.fired.length;
     expect(await r.trap()).toBe("rebuilt");
     expect(r.hints).toEqual([]); // a trap keeps the context, and its hint
-    expect(r.host.latencyHint).toBe(RHYTHM_LATENCY_HINT);
+    expect(r.host.latencyHint).toBe(0);
     const at = (await waitStamp(r, stamps)).at;
     // Same context: frames continue, so the re-entry's position is the frames since the first stamp.
     expect(Math.abs(player.run!.startFrame - (at - t0) * RATE)).toBeLessThanOrEqual(1);

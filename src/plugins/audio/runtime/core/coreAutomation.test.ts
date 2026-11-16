@@ -6,13 +6,17 @@ import type { Curve } from "../../../../engine/core/curve";
 import { AutoTarget, type Binding } from "../events/automation";
 import { Kind, Op, readEnvelope, readRecordHead } from "../wire.generated";
 import type { AudioVoice } from "../backend";
-import { CommandWriter, CORE_CURVE_KEYS, STAGING_BYTES, AUTOMATION_GLOBAL } from "./commandWriter";
+import { CommandWriter, CORE_CURVE_KEYS, AUTOMATION_GLOBAL } from "./commandWriter";
 import { BufferPool } from "./bufferPool";
 import { CoreAutomation, RESYNC_BYTES_PER_FRAME, wrapPosition, type CoreAutomationDeps } from "./coreAutomation";
 import { ReplayBuilder } from "./replay";
 import { Selection } from "./selection";
 import { VoiceFlag, VoiceState, VoiceTable } from "./voiceTable";
 import type { ClipInfo } from "./clipRegistry";
+import { BATCH_MAX_BYTES } from "../wire.generated";
+
+/** The writer's staging area: four full batches. */
+const STAGING_BYTES = 4 * BATCH_MAX_BYTES;
 
 type Call = [string, ...unknown[]];
 

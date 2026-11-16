@@ -2,7 +2,7 @@
 // (`backgroundLoopback.test.ts`) runs the same modes on the real core.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AudioBackground } from "../backend";
-import { BackgroundController, HEALTH_CHECK_MS, MUTE_RAMP_MS, PAUSE_RAMP_MS, PAUSE_SUSPEND_DELAY_MS, type BackgroundHost, type BackgroundTarget, type VisibilitySource } from "./background";
+import { BackgroundController, MUTE_RAMP_MS, PAUSE_RAMP_MS, PAUSE_SUSPEND_DELAY_MS, type BackgroundHost, type BackgroundTarget, type VisibilitySource } from "./background";
 import type { DeviceSnapshot } from "./deviceChange";
 import type { RebuildReason } from "./recovery";
 
@@ -216,7 +216,7 @@ describe("BackgroundController: stall, interruption, device (§3.7, §7)", () =>
     const { target, rebuilds, c } = rig();
     for (let i = 0; i < 40; i++) {
       target.statusBlocks++;
-      await vi.advanceTimersByTimeAsync(HEALTH_CHECK_MS);
+      await vi.advanceTimersByTimeAsync(250);
     }
     expect(rebuilds).toEqual([]);
     c.dispose();

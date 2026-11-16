@@ -175,16 +175,16 @@ export type AutomationBinding = AutomateBindings;
 /** `AutomationBinding.param` bit for a global parameter slot (0..63); without it the slot is the instance's local one (0..15). */
 export const AUTOMATION_GLOBAL = 0x8000;
 /** `AutomationBinding.target`: volume (linear gain multiplier), pitch (ratio multiplier), lowpass (Hz). A bus takes volume and lowpass. */
-export const AUTOMATION_TARGET = { volume: 0, pitch: 1, lowpass: 2 } as const;
+const AUTOMATION_TARGET = { volume: 0, pitch: 1, lowpass: 2 } as const;
 /** The core keeps at most this many bindings per voice and per bus, curves of at most `CORE_CURVE_KEYS` keys, and curve ids below `CORE_CURVES`. */
-export const CORE_BINDINGS = 8;
+const CORE_BINDINGS = 8;
 export const CORE_CURVE_KEYS = 32;
-export const CORE_CURVES = 1024;
+const CORE_CURVES = 1024;
 /** Most bytes of curves in one CURVES record: larger uploads are split into several records (each fits a batch). */
 const CURVES_RECORD_BUDGET = 32 * 1024;
 
 /** The staging area's size in bytes: four full batches. */
-export const STAGING_BYTES = 4 * BATCH_MAX_BYTES;
+const STAGING_BYTES = 4 * BATCH_MAX_BYTES;
 /** The smallest record is 16 bytes (SET_PAUSED, RESET). */
 const MAX_RECORDS = STAGING_BYTES / 16;
 /** Envelope (16) plus batch header (16). */

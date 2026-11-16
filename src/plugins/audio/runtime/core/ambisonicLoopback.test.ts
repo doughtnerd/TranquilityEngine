@@ -19,7 +19,7 @@ import { createDecoderHandler } from "../decoder/handler";
 import type { DecoderRequest } from "../decoder/protocol";
 import hash from "../wasm/hash.json";
 import type { AudioHost } from "./context";
-import { ambisonicImportGain, ambisonicStreamsByDefault, createClipRegistry, resetAmbisonicStreamDefaults } from "./clipRegistry";
+import { ambisonicImportGain, ambisonicStreamsByDefault, createClipRegistry } from "./clipRegistry";
 import { CoreBackend, type CoreBackendHost } from "./coreBackend";
 import { ListenerFrame } from "./spatial";
 import type { World } from "../../../../engine/core/World";
@@ -299,7 +299,6 @@ describe("ambisonic clips on the loopback host (B6)", { timeout: PATIENCE_MS }, 
   });
 
   it("an ambisonic clip over 5 s streams: the first play restarts as a stream, later plays are streams at once (B5)", async () => {
-    resetAmbisonicStreamDefaults();
     const long = tone(440, 5.5, RATE, 0.5) as Float32Array;
     const wav = toBuffer(ambisonicWav(encodeTone(long, 0, 0, 1) as Float32Array[], RATE));
     const r = await rig("decoder", { "long.wav": wav });

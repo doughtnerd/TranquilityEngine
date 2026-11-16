@@ -6,7 +6,7 @@
 import { BATCH_MAX_BYTES, STATUS_BUFFER_BYTES, STATUS_POOL_BUFFERS } from "../wire.generated";
 
 /** §4.7: buffers in the host's BATCH pool. */
-export const BATCH_POOL_BUFFERS = 4;
+const BATCH_POOL_BUFFERS = 4;
 
 /** @internal A fixed pool of `count` buffers of exactly `bytes` bytes each. */
 export class BufferPool {

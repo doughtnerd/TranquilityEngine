@@ -18,7 +18,8 @@ import {
   ASAP,
   readClipBegin,
 } from "../wire.generated";
-import { createClipRegistry, RESERVED_CLIP_FIRST } from "./clipRegistry";
+import { createClipRegistry } from "./clipRegistry";
+import { CLIP_ID_RESERVED_FIRST as RESERVED_CLIP_FIRST } from "../wire.generated";
 import { AudioHost, presetFromSettings } from "./context";
 import { createCoreBackend, type CoreBackend } from "./coreBackend";
 import { rebuildHost, watchForTraps } from "./recovery";

@@ -23,17 +23,16 @@ import {
 import { createBatchPool, type BufferPool } from "./bufferPool";
 import {
   AUTOMATION_GLOBAL,
-  AUTOMATION_TARGET,
-  CORE_BINDINGS,
   CORE_CURVE_KEYS,
-  CORE_CURVES,
   CommandWriter,
-  STAGING_BYTES,
   type AutomationBinding,
   type BatchPort,
   type PlayArgs,
 } from "./commandWriter";
 import { VoiceState, VoiceTable } from "./voiceTable";
+
+/** The writer's staging area: four full batches. */
+const STAGING_BYTES = 4 * BATCH_MAX_BYTES;
 
 function rig(sampleRate = 48_000) {
   const pool: BufferPool = createBatchPool();
@@ -254,9 +253,9 @@ describe("CommandWriter automation records (ADR 0158 E2)", () => {
 
   it("automate stays after its stamped PLAY and keeps at most 8 bindings; an empty list clears", () => {
     const { writer, posted } = rig();
-    const binding: AutomationBinding = { param: AUTOMATION_GLOBAL | 3, curve: 7, target: AUTOMATION_TARGET.lowpass };
+    const binding: AutomationBinding = { param: AUTOMATION_GLOBAL | 3, curve: 7, target: 2 /* lowpass */ };
     writer.play(play(9), 500);
-    writer.automate(9, 500, [binding, { param: 1, curve: 8, target: AUTOMATION_TARGET.volume }]);
+    writer.automate(9, 500, [binding, { param: 1, curve: 8, target: 0 /* volume */ }]);
     writer.automate(9, 500, Array.from({ length: 12 }, () => binding));
     writer.automate(9, undefined, []);
     writer.flush(400);
@@ -266,7 +265,7 @@ describe("CommandWriter automation records (ADR 0158 E2)", () => {
     const a = readAutomate(b.view, b.records[2]!.off);
     expect(a.voiceId).toBe(9);
     expect(a.bindings).toEqual([binding, { param: 1, curve: 8, target: 0 }]);
-    expect(readAutomate(b.view, b.records[3]!.off).bindings).toHaveLength(CORE_BINDINGS);
+    expect(readAutomate(b.view, b.records[3]!.off).bindings).toHaveLength(8) /* the core's bindings per voice */;
   });
 
   it("param writes PARAM asap; a bad seek jumps", () => {
@@ -298,7 +297,7 @@ describe("CommandWriter automation records (ADR 0158 E2)", () => {
     // 512 curves of 40 keys (≈ 200 KB): 32 keys each are sent, over several records with consecutive ids.
     const big = rig();
     const long = Array.from({ length: 40 }, (_, i) => [i, i] as const);
-    big.writer.curves(0, Array.from({ length: CORE_CURVES / 2 }, () => long));
+    big.writer.curves(0, Array.from({ length: 1024 / 2 }, () => long));
     big.writer.flush(0);
     let next = 0;
     for (const buffer of big.posted) {
@@ -310,14 +309,14 @@ describe("CommandWriter automation records (ADR 0158 E2)", () => {
         next += cc.curves.length;
       }
     }
-    expect(next).toBe(CORE_CURVES / 2);
+    expect(next).toBe(1024 / 2);
     expect(big.writer.pending).toBe(0);
     expect(big.writer.stats.dropped).toBe(0);
   });
 
   it("busAutomate writes BUS_AUTOMATE for the bus index", () => {
     const { writer, posted } = rig();
-    writer.busAutomate(2, [{ param: AUTOMATION_GLOBAL, curve: 4, target: AUTOMATION_TARGET.lowpass }]);
+    writer.busAutomate(2, [{ param: AUTOMATION_GLOBAL, curve: 4, target: 2 /* lowpass */ }]);
     writer.flush(0);
     const b = records(posted[0]!);
     const r = readBusAutomate(b.view, b.records[0]!.off);

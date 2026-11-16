@@ -26,7 +26,7 @@ export const REANCHOR_AFTER = 10;
 /** §4.7 Clock: the render lead Λ releases by this fraction of its distance to the observation per frame. */
 export const LEAD_RELEASE = 0.01;
 /** §4.7 Clock: the fallback adds this many frames of lead. */
-export const FALLBACK_LEAD_FRAMES = 512;
+const FALLBACK_LEAD_FRAMES = 512;
 /** §4.3: the frame-interval EMA's gain (Δ̄). */
 export const INTERVAL_EMA = 0.1;
 /** The frame-interval EMA starts here (ms, 60 Hz). */

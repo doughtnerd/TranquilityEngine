@@ -26,7 +26,11 @@ import {
   shapeStartPhase,
 } from "../wire.generated";
 import { createBatchPool, type BufferPool } from "./bufferPool";
-import { CommandWriter, STAGING_BYTES, type BatchPort, type PlayArgs } from "./commandWriter";
+import { CommandWriter, type BatchPort, type PlayArgs } from "./commandWriter";
+import { BATCH_MAX_BYTES } from "../wire.generated";
+
+/** The writer's staging area: four full batches. */
+const STAGING_BYTES = 4 * BATCH_MAX_BYTES;
 
 function rig(sampleRate = 48_000) {
   const pool: BufferPool = createBatchPool();

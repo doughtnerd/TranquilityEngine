@@ -3,13 +3,14 @@ import { Engine } from "../../../../engine/index";
 import { mixer } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings, type AudioSettings } from "../../../../engine/audio/settings";
 import type { World } from "../../../../engine/core/World";
-import { AudioHost, CoreLink, acquireAudioHost, _resetAudioHostForTests, busRemap, currentAudioHost, presetFromSettings } from "./context";
+import { AudioHost, CoreLink, acquireAudioHost, currentAudioHost, presetFromSettings } from "./context";
+import { busRemap } from "./busRemap";
 import { AudioWorldService, connectHostToEngines } from "./service";
 import { Unlock, type UnlockContext } from "./unlock";
 
 // A0.8-L1 fills these (architecture §1, §3.9; api-and-models §3 "Bus state serialisation", §7): the page's one
 // AudioHost across play, stop and replay cycles of two Engines, with fakes for Web Audio. Hosts are built with
-// `AudioHost._create(parts)` and the page singleton with `acquireAudioHost`; `_resetAudioHostForTests` in afterEach.
+// `AudioHost._create(parts)` and the page singleton with `acquireAudioHost`; closing the current host in afterEach.
 
 /** A fake context: a mutable `state`, `resume`/`close` as `vi.fn`s, and a statechange listener set this file can fire. */
 function fakeContext(state = "suspended") {
@@ -113,7 +114,7 @@ async function createEngine(names: string[]): Promise<Engine> {
 
 async function cleanup(): Promise<void> {
   try {
-    await _resetAudioHostForTests();
+    await currentAudioHost()?.close();
   } finally {
     for (const disconnect of disconnects.splice(0)) disconnect();
     for (const engine of engines.splice(0)) engine.dispose();
@@ -177,14 +178,14 @@ describe("page singleton", () => {
     expect(start).toHaveBeenCalledTimes(1);
   });
 
-  it("currentAudioHost is null before, the host after, null after _resetAudioHostForTests", async () => {
+  it("currentAudioHost is null before, the host after, null once it is closed", async () => {
     expect(currentAudioHost()).toBeNull();
 
     const { host } = makeHost();
     await acquireAudioHost(async () => host);
     expect(currentAudioHost()).toBe(host);
 
-    await _resetAudioHostForTests();
+    await host.close();
     expect(currentAudioHost()).toBeNull();
     expect(host.closed).toBe(true);
   });

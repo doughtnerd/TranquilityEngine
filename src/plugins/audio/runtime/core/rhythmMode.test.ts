@@ -5,9 +5,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { defaultAudioSettings, type AudioSettings } from "../../../../engine/audio/settings";
 import {
-  AudioHost, CoreLink, DEFAULT_LATENCY_HINT, LATENCY_EVIDENCE_WINDOW_MS, latencyHintFor, MODE_REBUILD_INTERVAL_MS, MODE_REBUILD_RETRY_MS,
-  presetFromSettings, RHYTHM_LATENCY_HINT, type ContextParts, type LinkPort,
+  AudioHost, CoreLink, presetFromSettings, type ContextParts, type LinkPort,
 } from "./context";
+/** The host's timings (context.ts): latency evidence counts for 10 s; a mode rebuild waits 1 s, a failed one retries after 5 s. */
+const LATENCY_EVIDENCE_WINDOW_MS = 10_000;
+const MODE_REBUILD_INTERVAL_MS = 1_000;
+const MODE_REBUILD_RETRY_MS = 5_000;
 import { rebuildHost, watchForTraps, type RebuildableHost } from "./recovery";
 import { Unlock, type UnlockContext } from "./unlock";
 import type { CoreWasm } from "./loader";
@@ -83,13 +86,6 @@ function host(options: { ctx?: FakeCtx; rhythmMode?: boolean; recreate?: boolean
 const settings = (rhythmMode: boolean): AudioSettings => ({ ...defaultAudioSettings(), rhythmMode });
 
 describe("the latency hint (ADR 0166 §4.6)", () => {
-  it("is 0 in rhythm mode and \"interactive\" otherwise", () => {
-    expect(RHYTHM_LATENCY_HINT).toBe(0);
-    expect(latencyHintFor(true)).toBe(0);
-    expect(latencyHintFor(false)).toBe("interactive");
-    expect(DEFAULT_LATENCY_HINT).toBe("interactive");
-  });
-
   it("the host reports the mode and hint its context was made with", () => {
     expect(host().h.rhythmMode).toBe(false);
     expect(host().h.latencyHint).toBe("interactive");

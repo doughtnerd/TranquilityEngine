@@ -7,7 +7,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { aacRefusal, createWarnOnce, DECODE_ERR_CODEC, DECODE_ERR_FORMAT, isAacPath, unsupportedFormat } from "./codecs";
+import { aacRefusal, createWarnOnce, unsupportedFormat } from "./codecs";
 import { rig } from "../../testing/streamRig";
 import { recordingSink } from "../mix/recordingSink";
 
@@ -21,19 +21,19 @@ afterEach(() => vi.restoreAllMocks());
 
 describe("codecs.ts", () => {
   it("knows AAC by its extension and refuses it only while the setting is off", () => {
-    expect(["a.m4a", "b/c.MP4", "d.aac", "e.mp3", "f.m4a.ogg", "aac", ".m4a"].map(isAacPath)).toEqual([true, true, true, false, false, false, false]);
+    expect(["a.m4a", "b/c.MP4", "d.aac", "e.mp3", "f.m4a.ogg", "aac", ".m4a"].map((path) => aacRefusal(path, false) !== null)).toEqual([true, true, true, false, false, false, false]);
     expect(aacRefusal("music/x.m4a", true)).toBeNull();
     expect(aacRefusal("music/x.ogg", false)).toBeNull();
     expect(aacRefusal("music/x.m4a", false)).toContain("audio.codecs.aac");
   });
 
   it("names the format and the supported list for the decoder's format and codec errors only", () => {
-    const m = unsupportedFormat("sfx/a.opus", false, DECODE_ERR_CODEC, "unsupported codec opus")!;
+    const m = unsupportedFormat("sfx/a.opus", false, -4 /* ERR_CODEC */, "unsupported codec opus")!;
     expect(m).toContain('"sfx/a.opus"');
     expect(m).toContain("(.opus)");
     expect(m).toContain("Supported: WAV, FLAC, MP3 and Ogg Vorbis (AAC with audio.codecs.aac on)");
-    expect(unsupportedFormat("sfx/blob", true, DECODE_ERR_FORMAT, "x")).toContain("a file without an extension");
-    expect(unsupportedFormat("sfx/blob", true, DECODE_ERR_FORMAT, "x")).toContain("and AAC (.m4a, .mp4, .aac)");
+    expect(unsupportedFormat("sfx/blob", true, -3 /* ERR_FORMAT */, "x")).toContain("a file without an extension");
+    expect(unsupportedFormat("sfx/blob", true, -3 /* ERR_FORMAT */, "x")).toContain("and AAC (.m4a, .mp4, .aac)");
     expect(unsupportedFormat("sfx/a.wav", false, -5, "truncated")).toBeNull();
     expect(unsupportedFormat("sfx/a.wav", false, undefined, "worker died")).toBeNull();
   });
