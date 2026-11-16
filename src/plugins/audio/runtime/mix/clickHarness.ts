@@ -9,12 +9,14 @@
 // samples, so a run without the edit is the reference S4's `abrupt` compares with.
 import { mixer } from "../../../../engine/audio/mixer";
 import { parseAudioSettings } from "../../../../engine/audio/settings";
-import { Kind, Op, readBatchHeader, readBusRamp, readBusSlot, readEnvelope, readRecordHead, rampSequenceId } from "../wire.generated";
+import { Kind, Op, readBusRamp, readBusSlot, rampSequenceId } from "../wire.generated";
+import { batchRecords } from "../core/batchRecords";
 import { setAudioBackend } from "../backend";
 import { events } from "../events/eventRuntime";
 import { fakeDecoder } from "../core/fakeDecoder";
 import { createClipRegistry } from "../core/clipRegistry";
-import { AudioHost, presetFromSettings } from "../core/context";
+import { AudioHost, presetFromSettings, type CoreLink } from "../core/context";
+import { CommandWriter } from "../core/commandWriter";
 import { createCoreBackend, type CoreBackend } from "../core/coreBackend";
 import { watchForTraps } from "../core/recovery";
 import { Unlock, type UnlockContext } from "../core/unlock";
@@ -106,17 +108,13 @@ export async function liveRig(project: unknown) {
   const batches: PostedBatch[] = [];
   const post = link.post.bind(link);
   link.post = ((buffer: ArrayBuffer, ...rest: unknown[]) => {
-    const view = new DataView(buffer);
-    if (readEnvelope(view, 0).kind === Kind.BATCH) {
-      const header = readBatchHeader(view, 0);
-      const records: PostedRecord[] = [];
-      let off = 32;
-      for (let i = 0; i < header.count; i++) {
-        const head = readRecordHead(view, off);
-        const seq = head.opcode === Op.BUS_RAMP ? rampSequenceId(readBusRamp(view, off).shape) : head.opcode === Op.BUS_SLOT ? readBusSlot(view, off).sequenceId : 0;
-        records.push({ op: head.opcode, seq, frame: head.frameOffset === 0xffffffff ? -1 : header.firstFrame + head.frameOffset });
-        off += head.words * 4;
-      }
+    const batch = batchRecords(buffer);
+    if (batch?.kind === Kind.BATCH) {
+      const records: PostedRecord[] = batch.records.map((x) => ({
+        op: x.opcode,
+        seq: x.opcode === Op.BUS_RAMP ? rampSequenceId(readBusRamp(x.view, x.off).shape) : x.opcode === Op.BUS_SLOT ? readBusSlot(x.view, x.off).sequenceId : 0,
+        frame: x.frame,
+      }));
       batches.push({ frame: loop.frame, records });
     }
     return (post as (b: ArrayBuffer, ...r: unknown[]) => void)(buffer, ...rest);
@@ -164,6 +162,31 @@ export async function liveRig(project: unknown) {
   };
   const play = (bus: string, path = "const.wav") => backend.play({ path, url: path, loop: true, stream: false, bus });
   return { loop, host, backend, step, quanta, settle, batches, play };
+}
+
+/**
+ * The abrupt controls: `write`'s records go out on the rig's link now, in one batch of their own (asap), as a second
+ * sender's would, past the backend (no dip, no lane writer).
+ */
+export function sendRaw(r: { readonly loop: { readonly link: CoreLink; readonly frame: number } }, write: (w: CommandWriter) => void): void {
+  const w = new CommandWriter(r.loop.link, RATE);
+  write(w);
+  w.flush(r.loop.frame);
+}
+
+/**
+ * The structural sequences among `batches` (each batch holding records with a sequence id), in order: id, F0 (the
+ * earliest stamped ramp: the dip-downs), B (the `BUS_SLOT` records' frame) and the planned end (B + `DIP_FRAMES`).
+ */
+export function sequencesIn(batches: readonly PostedBatch[]): { id: number; f0: number; b: number; end: number }[] {
+  const out: { id: number; f0: number; b: number; end: number }[] = [];
+  for (const batch of batches) {
+    const recs = batch.records.filter((x) => x.seq !== 0);
+    if (recs.length === 0) continue;
+    const b = recs.find((x) => x.op === Op.BUS_SLOT)?.frame ?? -1;
+    out.push({ id: recs[0]!.seq, f0: Math.min(...recs.filter((x) => x.op === Op.BUS_RAMP).map((x) => x.frame)), b, end: b + Math.round(0.02 * RATE) });
+  }
+  return out;
 }
 
 /**

@@ -2,8 +2,9 @@
 //
 // The gate is measured on the AUDIO CLOCK: from the input event's timestamp to the first core sample that differs from the
 // no-edit render, in frames the loopback host rendered converted at its rate. Nothing here reads a wall clock: the
-// simulated main thread keeps one virtual time in audio-clock milliseconds, `LiveMix`'s `nowMs` and `setTimer` are
-// pointed at it, and a drag's events, the coalescing timer and the main-thread frames are all events on it.
+// simulated main thread keeps one virtual time in audio-clock milliseconds; while the drags run, the page's
+// `performance.now` reads it and `setTimeout` schedules on it (the live path's coalescing window and timer use those),
+// and a drag's events, the coalescing timer and the main-thread frames are all events on it.
 //
 // The model (the loopback host has no threads): between two quanta the main thread runs every event whose time is at or
 // before the next quantum's first frame (an event inside a quantum is seen by the worklet before the next one, as a posted
@@ -15,9 +16,11 @@
 // phase and cadence of the main-thread frame (8.3, 16.7, 33.3, 50 ms: `mixer.update`, `backend.update`), and, on half the
 // drags, an edit of a silent bus posted 0.2..3.8 ms before the first event so the first event lands inside the coalescing
 // window and waits for its end.
+import { vi } from "vitest";
 import { mixer, DRAG_RAMP_MS } from "../../../../engine/audio/mixer";
 import { parseAudioSettings } from "../../../../engine/audio/settings";
-import { Kind, LANE_AUTHORED, Op, readBatchHeader, readBusRamp, readEnvelope, readRecordHead } from "../wire.generated";
+import { Kind, LANE_AUTHORED, Op, readBusRamp } from "../wire.generated";
+import { batchRecords } from "../core/batchRecords";
 import { setAudioBackend } from "../backend";
 import { events } from "../events/eventRuntime";
 import { fakeDecoder } from "../core/fakeDecoder";
@@ -125,19 +128,9 @@ async function build() {
   let simNow = 0;
   const post = link.post.bind(link);
   link.post = ((buffer: ArrayBuffer, ...rest: unknown[]) => {
-    const view = new DataView(buffer);
-    if (readEnvelope(view, 0).kind === Kind.BATCH) {
-      const header = readBatchHeader(view, 0);
-      let off = 32;
-      let voiceRamp = false;
-      for (let i = 0; i < header.count; i++) {
-        const head = readRecordHead(view, off);
-        if (head.opcode === Op.BUS_RAMP) {
-          const r = readBusRamp(view, off);
-          if (r.voiceId === VOICE_SLOT && r.lane === LANE_AUTHORED) voiceRamp = true;
-        }
-        off += head.words * 4;
-      }
+    const batch = batchRecords(buffer);
+    if (batch?.kind === Kind.BATCH) {
+      const voiceRamp = batch.records.some((x) => x.opcode === Op.BUS_RAMP && x.voiceId === VOICE_SLOT && readBusRamp(x.view, x.off).lane === LANE_AUTHORED);
       posts.push({ atMs: simNow, frame: loop.frame, voiceRamp });
     }
     return (post as (b: ArrayBuffer, ...r: unknown[]) => void)(buffer, ...rest);
@@ -185,10 +178,12 @@ export async function runFaderGate(options: GateOptions): Promise<DragResult[] |
   };
   let cadence = 16.667;
   let nextTick = cadence;
-  // `LiveMix` reads the injected time and timer (its host object is the backend's literal; no source is changed).
-  const liveHost = (backend.liveMix as unknown as { host: { nowMs?: () => number; setTimer?: (fn: () => void, ms: number) => void } }).host;
-  liveHost.nowMs = () => now;
-  liveHost.setTimer = (fn, ms) => at(now + ms, fn);
+  // The page's clock and timer are the virtual main thread's while the drags run (restored before returning).
+  const clockSpy = vi.spyOn(performance, "now").mockImplementation(() => now);
+  const timerSpy = vi.spyOn(globalThis, "setTimeout").mockImplementation(((fn: () => void, ms?: number) => {
+    at(now + (ms ?? 0), fn);
+    return 0;
+  }) as unknown as typeof setTimeout);
 
   const trace: number[] = [];
   let traceBase = 0;
@@ -284,6 +279,8 @@ export async function runFaderGate(options: GateOptions): Promise<DragResult[] |
       baselineHeld: firstIdx >= 0 && trace.slice(0, firstIdx).every((v) => v === base) && changedFrame >= post.frame,
     });
   }
+  clockSpy.mockRestore();
+  timerSpy.mockRestore();
   backend.dispose();
   setAudioBackend(null);
   events()._reset();
