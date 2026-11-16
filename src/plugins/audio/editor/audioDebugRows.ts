@@ -770,7 +770,7 @@ function musicInstanceRows(rows: readonly MusicDebugRow[], sampleRate: number, w
 }
 
 /** Column headers (label and tooltip) for `musicInstanceRows`, one per cell. */
-export const MUSIC_COLUMNS: readonly Column[] = [
+const MUSIC_COLUMNS: readonly Column[] = [
   { label: "Event", tip: "The event instance id and its asset path." },
   { label: "State", tip: "priming (the first segment's streams are filling), playing (a scheduled change shows under Pending), transitioning (two segments audible together: a crossfade or a bridge), recovering (after a rebuild, hide or reload), or ending." },
   { label: "Segment", tip: "The playing segment and its pass (its loop count, from 1)." },

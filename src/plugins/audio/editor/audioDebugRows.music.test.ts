@@ -1,7 +1,7 @@
 // ADR 0166 P10, leaf L-P10a: the music rows' thresholds (architecture §9) on hand-built `MusicDebugRow`s.
 import { describe, expect, it } from "vitest";
 import type { AudioDebugInfo, MusicDebugRow, MusicDebugTotals } from "../runtime/backend";
-import { MUSIC_COLUMNS, MusicWatch, debugSections, type Row } from "./audioDebugRows";
+import { MusicWatch, debugSections, type Row } from "./audioDebugRows";
 
 const row = (over: Partial<MusicDebugRow> = {}): MusicDebugRow => ({
   id: 1,
@@ -54,6 +54,8 @@ const sections = (rows: readonly MusicDebugRow[], musicTotals: MusicDebugTotals 
 /** The "Music" section's rows: one per instance. */
 const musicInstanceRows = (rows: readonly MusicDebugRow[], sampleRate: number, watch?: MusicWatch): Row[] =>
   sections(rows, undefined, sampleRate, watch).find((s) => s.id === "music")!.rows;
+/** The "Music" section's columns, as the panel shows them. */
+const musicColumns = () => sections([], undefined, 48000).find((s) => s.id === "music")!.columns!;
 /** The "Music totals" section's rows. */
 const musicTotalsRows = (rows: readonly MusicDebugRow[], t: MusicDebugTotals | undefined, watch?: MusicWatch): Row[] =>
   sections(rows, t, 48000, watch).find((s) => s.id === "musicTotals")!.rows;
@@ -67,7 +69,7 @@ const find = (rows: readonly Row[], id: string): Row => {
 
 /** The cell of an instance row under the column with `label`. */
 const cellOf = (r: Row, label: string): { text: string; health?: string } => {
-  const i = MUSIC_COLUMNS.findIndex((c) => c.label === label);
+  const i = musicColumns().findIndex((c) => c.label === label);
   const cell = r.cells[i];
   if (!cell) throw new Error(`no cell ${label}`);
   return cell;
@@ -190,7 +192,7 @@ describe("L-P10a music rows", () => {
   it("one instance row per MusicDebugRow, cells matching MUSIC_COLUMNS in count", () => {
     const out = musicInstanceRows([row({ id: 1 }), row({ id: 2 })], 48000);
     expect(out.map((r) => r.id)).toEqual(["music1", "music2"]);
-    for (const r of out) expect(r.cells).toHaveLength(MUSIC_COLUMNS.length);
+    for (const r of out) expect(r.cells).toHaveLength(musicColumns().length);
   });
 
   it("Pending names target, time, tier, rule key, parent, exit and enter; null reads none", () => {
