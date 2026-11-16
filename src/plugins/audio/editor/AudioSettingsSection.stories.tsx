@@ -123,9 +123,9 @@ export const PresenceRule: Story = {
     expect(c.has("Ducking 1 detector")).toBe(false);
     expect(c.has("Ducking 1 threshold")).toBe(false);
     await step("amount, attack and release on a presence rule", async () => {
-      c.type("Ducking 1 amount", 0.25);
-      c.type("Ducking 1 attack", 0.02);
-      c.type("Ducking 1 release", 1.5);
+      await c.type("Ducking 1 amount", 0.25);
+      await c.type("Ducking 1 attack", 0.02);
+      await c.type("Ducking 1 release", 1.5);
       expect(rulesOf(args)[0]).toMatchObject({ mode: "presence", amount: 0.25, attack: 0.02, release: 1.5 });
     });
     await step("a presence rule takes the target choices", async () => {
@@ -161,24 +161,24 @@ export const LevelRule: Story = {
       const f = c.field("Ducking 1 threshold") as HTMLInputElement;
       expect([f.min, f.max]).toEqual(["-80", "0"]);
       for (const n of [-80, 0, -18, -30]) {
-        c.type("Ducking 1 threshold", n);
+        await c.type("Ducking 1 threshold", n);
         expect(rulesOf(args)[0]!.threshold).toBe(n);
       }
-      c.type("Ducking 1 threshold", -200);
+      await c.type("Ducking 1 threshold", -200);
       expect(rulesOf(args)[0]!.threshold).toBe(-80);
-      c.type("Ducking 1 threshold", 20);
+      await c.type("Ducking 1 threshold", 20);
       expect(rulesOf(args)[0]!.threshold).toBe(0);
     });
     await step("amount, attack and release: each limit and a typical value", async () => {
       for (const [key, values] of [["amount", [0, 1, 0.4]], ["attack", [10, 0, 0.1]], ["release", [10, 0, 0.5]]] as const) {
         for (const n of values) {
-          c.type(`Ducking 1 ${key}`, n);
+          await c.type(`Ducking 1 ${key}`, n);
           expect(rulesOf(args)[0]![key]).toBe(n);
         }
       }
-      c.type("Ducking 1 amount", 2);
-      c.type("Ducking 1 attack", 50);
-      c.type("Ducking 1 release", -1);
+      await c.type("Ducking 1 amount", 2);
+      await c.type("Ducking 1 attack", 50);
+      await c.type("Ducking 1 release", -1);
       expect(rulesOf(args)[0]).toMatchObject({ amount: 1, attack: 10, release: 0 });
     });
     await step("level to presence drops the detector and threshold, and their controls", async () => {
@@ -261,7 +261,7 @@ export const LevelCycle: Story = {
       expect(rulesOf(args)[1]!.target).toBe("SFX");
     });
     await step("the next successful edit clears the message", async () => {
-      c.type("Ducking 1 amount", 0.2);
+      await c.type("Ducking 1 amount", 0.2);
       await waitFor(() => expect(c.refusal()).toBeNull());
     });
     await step("the same pair as presence is accepted", async () => {
@@ -330,7 +330,7 @@ export const BabylonBackend: Story = {
     const c = controls(canvasElement);
     expect(c.needsCore()).toEqual([[0, "Needs the audio core"], [2, "Needs the audio core"]]);
     await step("the rule is kept and still editable there", async () => {
-      c.type("Ducking 1 threshold", -24);
+      await c.type("Ducking 1 threshold", -24);
       await c.pick("Ducking 1 detector", "peak");
       expect(rulesOf(args)[0]).toMatchObject({ mode: "level", detector: "peak", threshold: -24 });
     });
@@ -384,7 +384,7 @@ export const LiveEditDuringPlay: StoryObj<LiveArgs> = {
   render: (_args, { loaded }) => <LiveSection section={loaded.section} />,
   play: async ({ canvasElement, args }) => {
     const c = controls(canvasElement);
-    c.type("Ducking 1 threshold", -20);
+    await c.type("Ducking 1 threshold", -20);
     await waitFor(() => expect(args.apply).toHaveBeenCalledWith({ op: "setDucking", index: 0, rule: { ...newDuckRule("Music", "Voice"), threshold: -20 } }));
     expect(args.apply).toHaveBeenCalledTimes(1);
     // A refused edit never reaches the section, so nothing reaches the mixer.
