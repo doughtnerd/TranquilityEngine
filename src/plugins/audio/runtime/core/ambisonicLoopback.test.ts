@@ -160,12 +160,12 @@ async function image(where: Where, order: 1 | 2 | 3, az: number, turn = 0) {
   const r = await rig(where, { [name]: wavs(order, az).ambix });
   const voice = await playAmbisonic(r, name, "ambix");
   expect(voice).not.toBeNull();
-  await r.until(() => r.backend.mirror.header.ambisonicVoices >= 1, "the voice to play");
+  await r.until(() => (r.loop.link.lastStatus?.ambisonicVoices ?? 0) >= 1, "the voice to play");
   await r.step(30);
-  expect(r.backend.mirror.header.ambisonicVoices).toBe(1);
+  expect(r.loop.link.lastStatus!.ambisonicVoices).toBe(1);
   // The decode ran where it should: a hosted bed on the master bus, or none (a private decoder); both cost work_bed.
-  expect(r.backend.mirror.bedCount).toBe(where === "bed" ? 1 : 0);
-  expect(r.backend.mirror.header.workBed).toBeGreaterThan(0);
+  expect(r.loop.link.lastStatus!.beds.length).toBe(where === "bed" ? 1 : 0);
+  expect(r.loop.link.lastStatus!.workBed).toBeGreaterThan(0);
   if (turn !== 0) {
     r.turnHead(turn);
     await r.step(30);
@@ -268,7 +268,7 @@ describe("ambisonic clips on the loopback host (B6)", { timeout: PATIENCE_MS }, 
     const voice = fuma.backend.play({ path: "first-fuma.wav", url: "first-fuma.wav", loop: true, stream: false, bus: "Master", ambisonic: true, volume: 1 });
     expect(voice).not.toBeNull();
     // The decode runs in real time on the in-process worker: step until the clip is on the core and playing.
-    await fuma.until(() => fuma.backend.mirror.header.ambisonicVoices >= 1, "the FuMa voice to play");
+    await fuma.until(() => (fuma.loop.link.lastStatus?.ambisonicVoices ?? 0) >= 1, "the FuMa voice to play");
     expect(ambisonicImportGain("first-fuma.wav")).toBeCloseTo(Math.SQRT2, 6);
     await fuma.step(40);
     fuma.measure();
@@ -294,7 +294,7 @@ describe("ambisonic clips on the loopback host (B6)", { timeout: PATIENCE_MS }, 
     expect(low.playing).toBe(false); // stolen by main
     expect(high.playing).toBe(true);
     await r.step(40);
-    expect(r.backend.mirror.header.ambisonicVoices).toBe(1);
+    expect(r.loop.link.lastStatus!.ambisonicVoices).toBe(1);
     r.client.dispose();
   });
 

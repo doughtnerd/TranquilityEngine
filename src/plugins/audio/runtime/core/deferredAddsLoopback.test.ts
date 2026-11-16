@@ -8,7 +8,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { mixer } from "../../../../engine/audio/mixer";
 import { parseAudioSettings } from "../../../../engine/audio/settings";
 import { TOMBSTONE_TAIL_FRAMES } from "../../../../engine/audio/slotTable";
-import { BUS_SLOT_FLAGS_FRESH, Kind, Op, readBatchHeader, readBusSlot, readEnvelope, readRecordHead } from "../wire.generated";
+import { BUS_ROOT, BUS_SLOT_FLAGS_FRESH, Kind, Op, readBusSlot } from "../wire.generated";
+import { batchRecords, type BatchRecord } from "./batchRecords";
 import { setAudioBackend } from "../backend";
 import { events } from "../events/eventRuntime";
 import { createClipRegistry } from "./clipRegistry";
@@ -52,11 +53,6 @@ function fakeContext() {
   return ctx;
 }
 
-interface Rec {
-  op: number;
-  view: DataView;
-  off: number;
-}
 
 /** The real host and core backend on the loopback over the page's mixer, a constant 0.5 clip, no limiter look-ahead (output frames are core frames). */
 async function rig(settingsJson: unknown) {
@@ -76,22 +72,11 @@ async function rig(settingsJson: unknown) {
   hosts.push(host);
   const link = loop.link;
   // Every BATCH posted, decoded (a copy: the shell recycles the buffer), with the core frame it was posted at.
-  const batches: { frame: number; records: Rec[] }[] = [];
+  const batches: { frame: number; records: BatchRecord[] }[] = [];
   const post = link.post.bind(link);
   link.post = ((buffer: ArrayBuffer, ...rest: unknown[]) => {
-    const view = new DataView(buffer);
-    if (readEnvelope(view, 0).kind === Kind.BATCH) {
-      const header = readBatchHeader(view, 0);
-      const copy = new DataView(buffer.slice(0));
-      const records: Rec[] = [];
-      let off = 32;
-      for (let i = 0; i < header.count; i++) {
-        const head = readRecordHead(view, off);
-        records.push({ op: head.opcode, view: copy, off });
-        off += head.words * 4;
-      }
-      batches.push({ frame: loop.frame, records });
-    }
+    const batch = batchRecords(buffer.slice(0));
+    if (batch?.kind === Kind.BATCH) batches.push({ frame: loop.frame, records: batch.records });
     return (post as (b: ArrayBuffer, ...r: unknown[]) => void)(buffer, ...rest);
   }) as typeof link.post;
   const clips = createClipRegistry({
@@ -131,8 +116,13 @@ const play = (backend: CoreBackend, bus: string) => backend.play({ path: "const.
 /** The BUS_SLOT records posted for `slot`, with the core frame each batch was posted at. */
 const slotRecords = (r: Rig, slot: number) =>
   r.batches
-    .flatMap((b) => b.records.map((x) => ({ at: b.frame, body: x.op === Op.BUS_SLOT ? readBusSlot(x.view, x.off) : null })))
-    .filter((e) => e.body !== null && e.body.slot === slot) as { at: number; body: ReturnType<typeof readBusSlot> }[];
+    .flatMap((b) => b.records.map((x) => ({ at: b.frame, frame: x.frame, body: x.opcode === Op.BUS_SLOT ? readBusSlot(x.view, x.off) : null })))
+    .filter((e) => e.body !== null && e.body.slot === slot) as { at: number; frame: number; body: ReturnType<typeof readBusSlot> }[];
+/** The live-edit counts `Audio.debug().mix` reports: refused, adds deferred so far, adds still waiting. */
+const live = (r: Rig) => {
+  const m = r.backend.debug().mix!;
+  return { refused: m.liveRefused, count: m.liveDeferred, pending: m.liveDeferredPending };
+};
 const names = () => mixer.audioSettings.buses.map((b) => b.name);
 
 describe("deferred live adds on the loopback host (Ma3)", () => {
@@ -140,7 +130,7 @@ describe("deferred live adds on the loopback host (Ma3)", () => {
     const r = await rig(project(31)); // slots 0..30 live, 31 free
     if (!r) return ctx.skip();
     await r.step(4);
-    const refused = r.backend.liveMix.refused;
+    const refused = live(r).refused;
     expect(mixer.apply({ op: "removeBus", bus: "B30" })).toEqual({ ok: true, class: "dip" });
     expect(mixer.apply({ op: "addBus", name: "A", parent: "Master" })).toEqual({ ok: true, class: "direct" });
     const second = mixer.apply({ op: "addBus", name: "B", parent: "Master" });
@@ -148,20 +138,22 @@ describe("deferred live adds on the loopback host (Ma3)", () => {
     expect(second.class).toBe("direct");
     expect(second).toEqual({ ok: true, class: "direct", reason: "waitsForSlot" });
     // Kept, queued, counted; the mixer's running model does not hold it yet; nothing was refused.
-    expect(r.backend.deferredAdds.pending).toBe(1);
-    expect(r.backend.deferredAdds.count).toBe(1);
+    expect(live(r).pending).toBe(1);
+    expect(live(r).count).toBe(1);
     // Debug shows both: `liveDeferred` is the adds deferred so far, `liveDeferredPending` those still waiting.
     expect(r.backend.debug().mix).toMatchObject({ liveDeferred: 1, liveDeferredPending: 1 });
-    expect(r.backend.liveMix.refused).toBe(refused);
+    expect(live(r).refused).toBe(refused);
     expect(r.backend.buses.slots.slotOf("A")).toBe(31);
     expect(r.backend.buses.slots.slotOf("B")).toBe(-1);
     expect(names()).not.toContain("B");
     // Render until it applies: on the audio clock, past the tombstone's tail.
-    for (let f = 0; f < 60 && r.backend.deferredAdds.pending > 0; f++) await r.step(1);
-    expect(r.backend.deferredAdds.pending, "applied within 60 frames").toBe(0);
+    for (let f = 0; f < 60 && live(r).pending > 0; f++) await r.step(1);
+    expect(live(r).pending, "applied within 60 frames").toBe(0);
     expect(r.backend.debug().mix).toMatchObject({ liveDeferred: 1, liveDeferredPending: 0 });
-    const seq = r.backend.dip.last!;
-    expect(seq.tombstones).toEqual([30]);
+    // The removal's sequence made slot 30 a silent root at B; its dip ends DIP_FRAMES later.
+    const tomb = slotRecords(r, 30).filter((e) => e.body.sequenceId > 0);
+    expect(tomb.map((e) => e.body.parent)).toEqual([BUS_ROOT]);
+    const seq = { end: tomb[0]!.frame + Math.round(0.02 * RATE) };
     expect(r.backend.buses.slots.slotOf("B")).toBe(30); // the recycled slot
     expect(r.backend.buses.slots.slots[30]!.gen).toBe(1);
     expect(names()).toContain("B");
@@ -175,7 +167,7 @@ describe("deferred live adds on the loopback host (Ma3)", () => {
     // Heard: a clip on B reaches the output at the full level through the recycled slot.
     play(r.backend, "B");
     expect((await r.step(12)).last).toBeCloseTo(LEVEL, 6);
-    expect(r.backend.deferredAdds.count).toBe(1);
+    expect(live(r).count).toBe(1);
     r.backend.dispose();
   });
 
@@ -189,24 +181,24 @@ describe("deferred live adds on the loopback host (Ma3)", () => {
     expect(a).toMatchObject({ ok: true, class: "direct" });
     expect(a.reason).toBe("waitsForSlot");
     expect(b.reason).toBe("waitsForSlot");
-    expect(r.backend.deferredAdds.pending).toBe(2);
-    expect(r.backend.deferredAdds.count).toBe(2);
+    expect(live(r).pending).toBe(2);
+    expect(live(r).count).toBe(2);
     // The first recycle frees one slot: A (the older) takes it, B still waits.
-    for (let f = 0; f < 60 && r.backend.deferredAdds.pending === 2; f++) await r.step(1);
-    expect(r.backend.deferredAdds.pending).toBe(1);
+    for (let f = 0; f < 60 && live(r).pending === 2; f++) await r.step(1);
+    expect(live(r).pending).toBe(1);
     expect(r.backend.buses.slots.slotOf("A")).toBe(31);
     expect(r.backend.buses.slots.slotOf("B")).toBe(-1);
     expect(names()).toContain("A");
     expect(names()).not.toContain("B");
     // Frames later nothing has changed (no spurious retry applies it); a second removal frees B's slot.
     await r.step(8);
-    expect(r.backend.deferredAdds.pending).toBe(1);
+    expect(live(r).pending).toBe(1);
     mixer.apply({ op: "removeBus", bus: "B30" });
-    for (let f = 0; f < 60 && r.backend.deferredAdds.pending > 0; f++) await r.step(1);
-    expect(r.backend.deferredAdds.pending).toBe(0);
+    for (let f = 0; f < 60 && live(r).pending > 0; f++) await r.step(1);
+    expect(live(r).pending).toBe(0);
     expect(r.backend.buses.slots.slotOf("B")).toBe(30);
     expect(names()).toContain("B");
-    expect(r.backend.deferredAdds.count).toBe(2);
+    expect(live(r).count).toBe(2);
     play(r.backend, "B");
     expect((await r.step(12)).last).toBeCloseTo(LEVEL, 6);
     r.backend.dispose();
@@ -220,9 +212,9 @@ describe("deferred live adds on the loopback host (Ma3)", () => {
     mixer.apply({ op: "removeBus", bus: "B30" });
     mixer.apply({ op: "addBus", name: "P", parent: "Master" }); // deferred
     mixer.apply({ op: "addBus", name: "Kid", parent: "Master" }); // deferred
-    expect(r.backend.deferredAdds.pending).toBe(2);
-    for (let f = 0; f < 80 && r.backend.deferredAdds.pending > 0; f++) await r.step(1);
-    expect(r.backend.deferredAdds.pending).toBe(0);
+    expect(live(r).pending).toBe(2);
+    for (let f = 0; f < 80 && live(r).pending > 0; f++) await r.step(1);
+    expect(live(r).pending).toBe(0);
     expect(names().slice(-2)).toEqual(["P", "Kid"]);
     expect(r.backend.buses.slots.slotOf("P")).toBeLessThan(r.backend.buses.slots.slotOf("Kid"));
     play(r.backend, "Kid");
@@ -240,10 +232,10 @@ describe("deferred live adds on the loopback host (Ma3)", () => {
     // P is not in the mixer's running model yet; the child still names it, not Master.
     const kid = mixer.apply({ op: "addBus", name: "Kid", parent: "P" });
     expect(kid.reason).toBe("waitsForSlot");
-    expect(r.backend.deferredAdds.pending).toBe(2);
+    expect(live(r).pending).toBe(2);
     expect(r.backend.buses.slots.deferred.map((q) => [q.name, q.parent])).toEqual([["P", "Master"], ["Kid", "P"]]);
-    for (let f = 0; f < 80 && r.backend.deferredAdds.pending > 0; f++) await r.step(1);
-    expect(r.backend.deferredAdds.pending).toBe(0);
+    for (let f = 0; f < 80 && live(r).pending > 0; f++) await r.step(1);
+    expect(live(r).pending).toBe(0);
     expect(names().slice(-2)).toEqual(["P", "Kid"]);
     expect(mixer.audioSettings.buses.find((b) => b.name === "Kid")!.parent).toBe("P");
     const table = r.backend.buses.slots;
@@ -263,26 +255,25 @@ describe("deferred live adds on the loopback host (Ma3)", () => {
     expect(res.ok).toBe(false);
     expect(res).toMatchObject({ ok: false, reason: "effectsPerBus" });
     expect(mixer.audioSettings.buses[1]!.effects).toHaveLength(4);
-    expect(r.backend.deferredAdds.pending).toBe(0);
-    expect(r.backend.deferredAdds.count).toBe(0);
+    expect(live(r).pending).toBe(0);
+    expect(live(r).count).toBe(0);
     r.backend.dispose();
   });
 
-  it("clear() (Stop) forgets the queue: the freed slot is not given to a forgotten add", { timeout: 60_000 }, async (ctx) => {
+  it("a configure (Stop) forgets the queue: the freed slot is not given to a forgotten add", { timeout: 60_000 }, async (ctx) => {
     const r = await rig(project(32));
     if (!r) return ctx.skip();
     await r.step(4);
     mixer.apply({ op: "removeBus", bus: "B31" });
     mixer.apply({ op: "addBus", name: "A", parent: "Master" });
-    expect(r.backend.deferredAdds.pending).toBe(1);
-    r.backend.deferredAdds.clear();
-    const posted = r.backend.liveMix.posts;
+    expect(live(r).pending).toBe(1);
+    // Stop: the next Play's configure (the host's remap) starts from the settings, where the add never was.
+    r.backend.configureBuses(mixer);
     for (let f = 0; f < 60; f++) await r.step(1);
     expect(names()).not.toContain("A");
     expect(slotRecords(r, 31).filter((e) => (e.body.flags & BUS_SLOT_FLAGS_FRESH) !== 0)).toEqual([]);
-    expect(r.backend.deferredAdds.pending).toBe(0);
-    expect(r.backend.deferredAdds.count).toBe(1);
-    expect(r.backend.liveMix.posts).toBe(posted);
+    expect(live(r).pending).toBe(0);
+    expect(live(r).count).toBe(1);
     r.backend.dispose();
   });
 });

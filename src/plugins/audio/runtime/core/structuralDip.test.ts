@@ -2,8 +2,10 @@
 // dip's records, decoded from the batches a core backend posts on a recording link (no wasm). A move, a remove and a
 // mid-list insert each post one stamped sequence (dip-down, BUS_SLOT, dip-up under one sequenceId) alone in one batch;
 // same-task ops coalesce, later ones queue after the planned end; a direct edit of a pending slot rides the sequence; a
-// tombstone recycles only after its tail with no voice on it; the replay carries the end state. The sound of each case
-// (maxStep on the real core, a rebuild mid-dip) is in `structuralDipLoopback.test.ts`.
+// freed slot is taken fresh; a rebuild's replay carries the end state. `StructuralDip` alone (over a real bus index and
+// command writer, its clock in the test's hands): a sequence is in flight until its planned end, a tombstone recycles
+// only after its tail with no voice on it, and `replayEndState` forgets the queue. The sound of each case (maxStep on
+// the real core, a rebuild mid-dip) is in `structuralDipLoopback.test.ts`.
 import { describe, expect, it, vi } from "vitest";
 import { Mixer } from "../../../../engine/audio/mixer";
 import type { MixOp } from "../../../../engine/audio/mixOps";
@@ -23,12 +25,21 @@ import {
   rampSequenceId,
   readBatchHeader,
   readBusRamp,
+  packShape,
   readBusSlot,
   readEnvelope,
+  readFade,
   readRecordHead,
+  readSetParams,
 } from "../wire.generated";
+import { batchRecords, type BatchRecord } from "./batchRecords";
+import { BusIndex } from "./busIndex";
+import { CommandWriter } from "./commandWriter";
+import type { HostLifecycleListener } from "./context";
 import { CoreBackend } from "./coreBackend";
-import { ReplayBuilder } from "./replay";
+import { Presence } from "./presence";
+import { StructuralDip } from "./structuralDip";
+import { VoiceTable } from "./voiceTable";
 
 const RATE = 48_000;
 const D = Math.round(0.02 * RATE); // the dip: 20 ms, 960 frames at 48 kHz
@@ -83,18 +94,56 @@ function rig() {
     onStatus: () => () => {},
     statusDecoder: null,
   };
-  const host = { link, status: "running" as const, preset: { maxLogical: 16 }, worldCount: 1, sampleRate: RATE, addLifecycleListener: () => () => {} };
-  const clock = { rafTime: () => 0, outputTimestamp: () => ({ contextTime: 0, performanceTime: 0 }), currentTime: () => 0, dateNow: () => 0, fake: true as const };
+  const listeners: HostLifecycleListener[] = [];
+  const addLifecycleListener = (l: HostLifecycleListener) => {
+    listeners.push(l);
+    return () => {};
+  };
+  const host = { link, status: "running" as const, preset: { maxLogical: 16 }, worldCount: 1, sampleRate: RATE, addLifecycleListener };
+  // The context's clock, which the test moves on (`advance`): its output timestamp follows, so F_now does.
+  let ms = 0;
+  const clock = { rafTime: () => ms, outputTimestamp: () => ({ contextTime: ms / 1000, performanceTime: ms }), currentTime: () => ms / 1000, dateNow: () => ms, fake: true as const };
   const clips = { acquire: () => 1, release() {}, state: () => "ready", info: () => null, onResident: () => () => {}, releaseWorld() {}, applyClipEvent() {}, residentIds: () => [], acquireReserved() {} };
   const backend = new CoreBackend(host as never, { clips: clips as never, clock: clock as never, mixer });
   backend.update(0.016); // the configure's records go out
   posted.length = 0;
   const batches = () => posted.splice(0).map(decode).filter((b): b is Rec[] => b !== null);
+  /** Every record posted since the last call (any opcode), for the generated readers. */
+  const records = () => posted.splice(0).flatMap((b) => batchRecords(b)?.records ?? []);
   const settle = async () => {
     for (let k = 0; k < 4; k++) await Promise.resolve();
   };
-  return { backend, mixer, batches, settle };
+  /** Frames on the context's clock, `ms` at a time, each followed by the backend's frame. */
+  const advance = (frames: number, step = 16) => {
+    for (let t = 0; t < frames; t++) {
+      ms += step;
+      backend.update(step / 1000);
+    }
+  };
+  /** A hard rebuild as the host runs it: the old core is gone, the new one answers (its REPLAY goes on the link). */
+  const rebuild = () => {
+    for (const l of listeners) l.onRebuildStart?.("trap");
+    for (const l of listeners) l.onRebuilt?.();
+  };
+  return { backend, mixer, batches, records, settle, advance, rebuild };
 }
+
+/** Voice `id`'s per-voice dip among `recs`: its FADE records, its `SET_PARAMS bus` records, and whether any bus sequence went. */
+function voiceDip(recs: readonly BatchRecord[], id: number) {
+  const fades = recs.filter((x) => x.opcode === Op.FADE && x.voiceId === id).map((x) => {
+    const f = readFade(x.view, x.off);
+    return { target: f.target, frames: f.frames, shape: f.shape ?? 0, frame: x.frame };
+  });
+  const buses = recs
+    .filter((x) => x.opcode === Op.SET_PARAMS && x.voiceId === id)
+    .map((x) => ({ p: readSetParams(x.view, x.off), frame: x.frame }))
+    .filter((x) => (x.p.mask & SET_PARAMS_MASK_BUS) !== 0)
+    .map((x) => ({ bus: x.p.bus, frame: x.frame }));
+  const sequenced = recs.some((x) => (x.opcode === Op.BUS_RAMP && rampSequenceId(readBusRamp(x.view, x.off).shape) !== 0) || (x.opcode === Op.BUS_SLOT && readBusSlot(x.view, x.off).sequenceId !== 0));
+  return { fades, buses, sequenced };
+}
+/** A linear ramp from its start (FADE's law and start phase word). */
+const LINEAR = packShape(FadeLaw.Linear, 0);
 
 /** The batches holding a sequenced record; each must hold nothing else (the sequence is posted alone). */
 function sequenceBatches(posted: Rec[][]): Rec[][] {
@@ -150,13 +199,11 @@ describe("the structural dip's sequence (Ma2)", () => {
     expect(seq.down.map((r) => r.slot)).toEqual([SLOT.UI]);
     expect(seq.slots.map((s) => [s.slot, s.parent])).toEqual([[SLOT.UI, SLOT.Music]]);
     expect(seq.up.map((r) => r.slot)).toEqual([SLOT.UI]);
-    expect(backend.dip.last).toMatchObject({ id: seq.id, f0: seq.f0, b: seq.b, end: seq.end });
-    expect(backend.dip.inFlight).toBe(true);
     backend.dispose();
   });
 
   it("a remove tombstones the bus and its descendants: each dips down and stays at 0, and becomes a silent root at B", async () => {
-    const { backend, mixer, batches, settle } = rig();
+    const { backend, mixer, batches, settle, rebuild } = rig();
     expect(mixer.apply({ op: "removeBus", bus: "SFX" })).toEqual({ ok: true, class: "dip" });
     expect(backend.buses.slotOf("SFX")).toBe(-1);
     expect(backend.buses.slotOf("Steps")).toBe(-1);
@@ -175,10 +222,8 @@ describe("the structural dip's sequence (Ma2)", () => {
     ]);
     // The replay's BUS_CONFIG carries them as silent roots; the dip lane replays at its end state, 0.
     expect(backend.busConfigWire().slice(2, 4)).toEqual([{ parent: BUS_ROOT, effects: [] }, { parent: BUS_ROOT, effects: [] }]);
-    const out = new ReplayBuilder();
-    backend.lanes.replayLanes(out);
-    const replayed: Rec[] = [];
-    out.post({ post: (m) => void replayed.push(...(decode(m) ?? [])), nextSeq: () => 1 }, 0, true);
+    rebuild();
+    const replayed = batches().flat();
     const dips = replayed.filter((r): r is Extract<Rec, { op: "ramp" }> => r.op === "ramp" && r.lane === LANE_DIP).map((r) => [r.slot, r.gain]);
     expect(dips).toEqual([[SLOT.SFX, 0], [SLOT.Steps, 0], [SLOT.Master, 1], [SLOT.Music, 1], [SLOT.UI, 1]]);
     backend.dispose();
@@ -220,7 +265,6 @@ describe("the structural dip's sequence (Ma2)", () => {
     expect(first.slots.map((s) => [s.slot, s.parent])).toEqual([[SLOT.SFX, 5], [SLOT.UI, 5]]);
     expect(first.down.map((r) => r.slot)).toEqual([SLOT.SFX, SLOT.UI]);
     // A second structural op inside the first dip: its own sequence, queued after the first's end.
-    expect(backend.dip.inFlight).toBe(true);
     mixer.apply({ op: "moveEffect", bus: "Music", from: 0, to: 1 });
     await settle();
     posted = sequenceBatches(batches());
@@ -256,33 +300,13 @@ describe("the structural dip's sequence (Ma2)", () => {
     backend.dispose();
   });
 
-  it("a tombstone recycles only TOMBSTONE_TAIL_FRAMES after its sequence's end, and only with no voice on it", async () => {
-    const { backend, mixer, settle } = rig();
-    mixer.apply({ op: "removeBus", bus: "UI" });
-    // Not stamped yet: never recycles.
-    expect(backend.dip.recycle(1e12)).toEqual([]);
-    await settle();
-    const end = backend.dip.last!.end;
-    expect(backend.buses.slots.slots[SLOT.UI]).toMatchObject({ state: "tombstone", recycleAfterFrame: end + TOMBSTONE_TAIL_FRAMES });
-    expect(backend.dip.recycle(end + TOMBSTONE_TAIL_FRAMES - 1)).toEqual([]);
-    // A voice still on it holds it.
-    backend.table.busLive[SLOT.UI] = 1;
-    expect(backend.dip.recycle(end + TOMBSTONE_TAIL_FRAMES)).toEqual([]);
-    backend.table.busLive[SLOT.UI] = 0;
-    // G7c: the mixer holds the tombstone's state (its dip at 0, for a replay) until the slot recycles, then drops it.
-    expect(mixer._tombstoneLanes().map((l) => [l.slot, l.dip.to])).toEqual([[SLOT.UI, 0]]);
-    expect(backend.dip.recycle(end + TOMBSTONE_TAIL_FRAMES)).toEqual([SLOT.UI]);
-    expect(mixer._tombstoneLanes()).toEqual([]);
-    expect(backend.buses.slots.slots[SLOT.UI]).toMatchObject({ state: "free", gen: 1 });
-    expect(backend.busNames[SLOT.UI]).toBe("");
-    backend.dispose();
-  });
-
   it("an add after the recycle takes the freed slot as fresh; the lane writer sends its lanes there", async () => {
-    const { backend, mixer, batches, settle } = rig();
+    const { backend, mixer, batches, settle, advance } = rig();
     mixer.apply({ op: "removeBus", bus: "UI" });
     await settle();
-    backend.dip.recycle(backend.dip.last!.end + TOMBSTONE_TAIL_FRAMES);
+    // The frames go by on the context's clock until the backend's frame recycles the tombstone (its end + the tail).
+    for (let k = 0; k < 40 && backend.busNames[SLOT.UI] !== ""; k++) advance(1);
+    expect(backend.busNames[SLOT.UI]).toBe("");
     batches();
     expect(mixer.apply({ op: "addBus", name: "Amb", parent: "Music" })).toEqual({ ok: true, class: "direct" });
     expect(backend.buses.slotOf("Amb")).toBe(SLOT.UI);
@@ -292,66 +316,143 @@ describe("the structural dip's sequence (Ma2)", () => {
     expect(recs.filter((r) => r.op === "ramp").map((r) => (r as { slot: number }).slot)).toEqual([4, 4, 4, 4, 4]);
     backend.dispose();
   });
-
-  it("replayEndState: the queue is forgotten and tombstones may recycle from the new core's frame", async () => {
-    const { backend, mixer, settle } = rig();
-    mixer.apply({ op: "removeBus", bus: "UI" });
-    await settle();
-    backend.dip.replayEndState();
-    expect(backend.dip.inFlight).toBe(false);
-    expect(backend.buses.slots.slots[SLOT.UI]!.recycleAfterFrame).toBeLessThanOrEqual(backend.dip.last!.end + TOMBSTONE_TAIL_FRAMES);
-    // An op still open at the rebuild makes its main-side changes (the frame's commit clears its records while recovering).
-    mixer.apply({ op: "moveBus", bus: "Music", parent: "SFX" });
-    expect(backend.dip.inFlight).toBe(true);
-    backend.dip.replayEndState();
-    expect(backend.dip.inFlight).toBe(false);
-    expect(backend.busConfigWire()[SLOT.Music]!.parent).toBe(SLOT.SFX);
-    backend.dispose();
-  });
 });
 
 describe("a sound's bus: the per-voice dip (G7a, §4.7)", () => {
   const req = (bus: string, at?: number) => ({ path: "a.wav", url: "a.wav", loop: true, stream: false, bus, ...(at !== undefined ? { at } : {}) });
 
   it("a sounding voice fades out over DIP_FRAMES from F0, changes bus at B with its fade at 0 and fades back in; no bus sequence", () => {
-    const { backend } = rig();
+    const { backend, records } = rig();
     const v = backend.play(req("SFX"))!;
     backend.update(0.016);
-    const fades = vi.spyOn(backend.writer, "fadeShaped");
-    const params = vi.spyOn(backend.writer, "setParams");
-    const emitted = backend.dip.emitted;
+    records();
     v.setBus("UI");
-    expect(backend.dip.emitted).toBe(emitted);
-    expect(fades).toHaveBeenCalledTimes(3);
-    const f0 = fades.mock.calls[0]![5]!;
+    backend.update(0.016);
+    const first = voiceDip(records(), v.id);
+    expect(first.sequenced, "no bus sequence").toBe(false);
+    expect(first.fades).toHaveLength(3);
+    const f0 = first.fades[0]!.frame;
     const b = Math.ceil((f0 + D) / QUANTUM_FRAMES) * QUANTUM_FRAMES;
-    expect(fades.mock.calls).toEqual([
-      [v.id, 0, D / RATE, FadeLaw.Linear, 0, f0],
-      [v.id, 0, 0, FadeLaw.Linear, 0, b],
-      [v.id, 1, D / RATE, FadeLaw.Linear, 0, b],
+    expect(first.fades).toEqual([
+      { target: 0, frames: D, shape: LINEAR, frame: f0 },
+      { target: 0, frames: 0, shape: LINEAR, frame: b },
+      { target: 1, frames: D, shape: LINEAR, frame: b },
     ]);
-    expect(params.mock.calls).toEqual([[v.id, SET_PARAMS_MASK_BUS, 0, 0, 0, 0, 0, 0, 0, SLOT.UI, 0, b]]);
+    expect(first.buses).toEqual([{ bus: SLOT.UI, frame: b }]);
     // A second move before the first one's end starts at that end (its fade-in is never cut to 0).
-    fades.mockClear();
-    params.mockClear();
     v.setBus("Music");
-    expect(fades.mock.calls[0]).toEqual([v.id, 0, D / RATE, FadeLaw.Linear, 0, b + D]);
+    backend.update(0.016);
+    const second = voiceDip(records(), v.id);
+    expect(second.fades[0]).toEqual({ target: 0, frames: D, shape: LINEAR, frame: b + D });
     const b2 = Math.ceil((b + 2 * D) / QUANTUM_FRAMES) * QUANTUM_FRAMES;
-    expect(params.mock.calls).toEqual([[v.id, SET_PARAMS_MASK_BUS, 0, 0, 0, 0, 0, 0, 0, SLOT.Music, 0, b2]]);
+    expect(second.buses).toEqual([{ bus: SLOT.Music, frame: b2 }]);
     backend.dispose();
   });
 
   it("a voice whose stamped start is still ahead changes bus at once, at its start frame, with no fade", () => {
-    const { backend } = rig();
+    const { backend, records } = rig();
     const v = backend.play(req("SFX", 1))!;
     backend.update(0.016);
     const start = backend.playheads.anchorFrame[v.id & 0xffff]!;
     expect(start).toBeGreaterThan(backend.clockMap.framesNow());
-    const fades = vi.spyOn(backend.writer, "fadeShaped");
-    const params = vi.spyOn(backend.writer, "setParams");
+    records();
     v.setBus("UI");
-    expect(fades).not.toHaveBeenCalled();
-    expect(params.mock.calls).toEqual([[v.id, SET_PARAMS_MASK_BUS, 0, 0, 0, 0, 0, 0, 0, SLOT.UI, 0, start]]);
+    backend.update(0.016);
+    const moved = voiceDip(records(), v.id);
+    expect(moved.fades).toEqual([]);
+    expect(moved.buses).toEqual([{ bus: SLOT.UI, frame: start }]);
     backend.dispose();
+  });
+});
+
+// --- StructuralDip alone: over a real bus index and command writer on a recording link; the frames are the test's ---
+
+function dipRig() {
+  const mixer = new Mixer(parseAudioSettings(PROJECT).settings);
+  const table = new VoiceTable(16);
+  const posted: ArrayBuffer[] = [];
+  const link = { batchPool: { acquire: () => new ArrayBuffer(64 * 1024), release: () => true }, nextSeq: () => 1, post: (b: ArrayBuffer) => void posted.push(b.slice(0)) };
+  const writer = new CommandWriter(link as never, RATE);
+  const buses = new BusIndex({
+    mixer,
+    writer,
+    beds: { plan() {} },
+    automation: { onBusesConfigured() {} },
+    mirror: { resetPeaks() {} },
+    table,
+    presence: new Presence(),
+    onCore: () => false,
+    applyMix() {},
+    busesReset() {},
+    moveVoice() {},
+  });
+  buses.configureBuses(mixer);
+  /** F_now; a batch posted now applies a lookahead later. */
+  let now = 0;
+  const LOOKAHEAD = 1024;
+  const dip = new StructuralDip();
+  dip.bind({ mixer: () => mixer, buses: () => buses, writer: () => writer, sending: () => true, firstFrame: () => now + LOOKAHEAD, framesNow: () => now });
+  posted.length = 0;
+  /** The sequences posted since the last call. */
+  const sequences = () => sequenceBatches(posted.splice(0).map(decode).filter((b): b is Rec[] => b !== null)).map(sequenceOf);
+  const settle = async () => {
+    for (let k = 0; k < 4; k++) await Promise.resolve();
+  };
+  return { mixer, table, buses, dip, sequences, settle, at: (f: number) => void (now = f) };
+}
+
+describe("StructuralDip alone (Ma2: in flight, R9 recycling, R12 replay)", () => {
+  it("a sequence is in flight from the op (open in its task) until its planned end, and a later one queues after it", async () => {
+    const r = dipRig();
+    expect(r.dip.inFlight).toBe(false);
+    expect(r.dip.apply({ op: "moveBus", bus: "UI", parent: "Music" })).toEqual({ ok: true, class: "dip" });
+    expect(r.dip.inFlight, "open in this task").toBe(true);
+    await r.settle();
+    const [seq] = r.sequences();
+    expect(seq).toBeDefined();
+    r.at(seq!.end - 1);
+    expect(r.dip.inFlight, "running on the core").toBe(true);
+    r.at(seq!.end);
+    expect(r.dip.inFlight, "back up").toBe(false);
+  });
+
+  it("a tombstone recycles only TOMBSTONE_TAIL_FRAMES after its sequence's end, and only with no voice on it", async () => {
+    const r = dipRig();
+    r.dip.apply({ op: "removeBus", bus: "UI" });
+    // Not stamped yet: never recycles.
+    expect(r.dip.recycle(1e12)).toEqual([]);
+    await r.settle();
+    const end = r.sequences()[0]!.end;
+    expect(r.buses.slots.slots[SLOT.UI]).toMatchObject({ state: "tombstone", recycleAfterFrame: end + TOMBSTONE_TAIL_FRAMES });
+    expect(r.dip.recycle(end + TOMBSTONE_TAIL_FRAMES - 1)).toEqual([]);
+    // A voice still on it holds it.
+    r.table.busLive[SLOT.UI] = 1;
+    expect(r.dip.recycle(end + TOMBSTONE_TAIL_FRAMES)).toEqual([]);
+    r.table.busLive[SLOT.UI] = 0;
+    // G7c: the mixer holds the tombstone's state (its dip at 0, for a replay) until the slot recycles, then drops it.
+    expect(r.mixer._tombstoneLanes().map((l) => [l.slot, l.dip.to])).toEqual([[SLOT.UI, 0]]);
+    expect(r.dip.recycle(end + TOMBSTONE_TAIL_FRAMES)).toEqual([SLOT.UI]);
+    expect(r.mixer._tombstoneLanes()).toEqual([]);
+    expect(r.buses.slots.slots[SLOT.UI]).toMatchObject({ state: "free", gen: 1 });
+    expect(r.buses.names[SLOT.UI]).toBe("");
+  });
+
+  it("replayEndState: the queue is forgotten and tombstones may recycle from the new core's frame; twice is once", async () => {
+    const r = dipRig();
+    r.dip.apply({ op: "removeBus", bus: "UI" });
+    await r.settle();
+    const end = r.sequences()[0]!.end;
+    r.dip.replayEndState();
+    expect(r.dip.inFlight).toBe(false);
+    expect(r.buses.slots.slots[SLOT.UI]!.recycleAfterFrame).toBeLessThanOrEqual(end + TOMBSTONE_TAIL_FRAMES);
+    // An op still open at the rebuild makes its main-side changes (the frame's commit clears its records while recovering).
+    r.dip.apply({ op: "moveBus", bus: "Music", parent: "SFX" });
+    expect(r.dip.inFlight).toBe(true);
+    r.dip.replayEndState();
+    expect(r.dip.inFlight).toBe(false);
+    expect(r.buses.busConfigWire()[SLOT.Music]!.parent).toBe(SLOT.SFX);
+    r.dip.replayEndState();
+    expect(r.dip.inFlight).toBe(false);
+    expect(r.buses.busConfigWire()[SLOT.Music]!.parent).toBe(SLOT.SFX);
   });
 });

@@ -11,6 +11,8 @@ import { createDecoderHandler } from "../decoder/handler";
 import { createDecoderClient, type WorkerLike } from "../decoder/decoderClient";
 import type { DecoderReply, StreamPortLike } from "../decoder/protocol";
 import { makeWav, signal } from "../decoder/testWav";
+import { watchBatches } from "./batchWatch";
+import { Op, readPlay } from "../wire.generated";
 import { createClipRegistry } from "./clipRegistry";
 import { AudioHost, presetFromSettings } from "./context";
 import { createCoreBackend } from "./coreBackend";
@@ -107,11 +109,14 @@ describe("a stream across a hard rebuild (B3)", () => {
       }
       if (!done()) throw new Error(`gave up waiting for ${what}`);
     };
+    const posted = watchBatches(link);
+    /** The stream ids the voice's PLAYs carried to the core (the first, then the replay's). */
+    const streamsOf = (id: number) => posted.pending.flatMap((b) => b.records.filter((x) => x.opcode === Op.PLAY && x.voiceId === id).map((x) => readPlay(x.view, x.off).clip));
     const voice = backend.play({ path: "music/long.wav", url: "", loop: false, stream: true, bus: "Music" })!;
     await until(() => loop.driver.stats.streamFrames > 0, "the stream's first frames");
     await step(73);
     expect(voice.reason).toBeNull();
-    const oldStream = backend.table.clip[voice.id & 0xffff]!;
+    const oldStream = streamsOf(voice.id).at(-1)!;
     const connections = backend.streams.stats.connections;
 
     loop.trapNext();
@@ -123,7 +128,7 @@ describe("a stream across a hard rebuild (B3)", () => {
     await until(() => out.slice(restartAt).some((s) => s !== 0), "the reopened stream to sound");
     await step(20);
     expect(loop.cores).toBe(2);
-    expect(backend.table.clip[voice.id & 0xffff]).not.toBe(oldStream);
+    expect(streamsOf(voice.id).at(-1)).not.toBe(oldStream);
     expect(backend.streams.stats.connections).toBe(connections + 1);
     expect(voice.playing).toBe(true);
     expect(voice.reason).toBeNull();

@@ -11,7 +11,8 @@ import { mixer } from "../../../../engine/audio/mixer";
 import type { MixOp } from "../../../../engine/audio/mixOps";
 import { parseAudioSettings } from "../../../../engine/audio/settings";
 import { TOMBSTONE_TAIL_FRAMES } from "../../../../engine/audio/slotTable";
-import { BUS_ROOT, Kind, Op, readBatchHeader, readBusRamp, readBusSlot, readEnvelope, readRecordHead, rampSequenceId } from "../wire.generated";
+import { BUS_ROOT, Kind, Op, readBatchHeader, readBusRamp, readBusSlot, readEnvelope, readRecordHead, readSetParams, rampSequenceId } from "../wire.generated";
+import { sendRaw } from "../mix/clickHarness";
 import { setAudioBackend } from "../backend";
 import { events } from "../events/eventRuntime";
 import { maxStep } from "../golden/maxStep";
@@ -73,6 +74,7 @@ function fakeContext() {
 
 interface Rec {
   op: number;
+  voiceId: number;
   seq: number;
   frame: number;
   view: DataView;
@@ -109,7 +111,7 @@ async function rig() {
       for (let i = 0; i < header.count; i++) {
         const head = readRecordHead(view, off);
         const seq = head.opcode === Op.BUS_RAMP ? rampSequenceId(readBusRamp(view, off).shape) : head.opcode === Op.BUS_SLOT ? readBusSlot(view, off).sequenceId : 0;
-        records.push({ op: head.opcode, seq, frame: head.frameOffset === 0xffffffff ? -1 : header.firstFrame + head.frameOffset, view: copy, off });
+        records.push({ op: head.opcode, voiceId: head.voiceId, seq, frame: head.frameOffset === 0xffffffff ? -1 : header.firstFrame + head.frameOffset, view: copy, off });
         off += head.words * 4;
       }
       batches.push({ frame: loop.frame, records });
@@ -153,6 +155,28 @@ async function rig() {
 const play = (backend: CoreBackend, bus: string) => backend.play({ path: "const.wav", url: "const.wav", loop: true, stream: false, bus });
 
 /**
+ * A posted sequence, read off its batch: its id, F0 (the dip-downs' frame), B (the BUS_SLOT records' frame), its end
+ * (B + D), the live roots (dipped down and up) and the tombstones (dipped down only).
+ */
+function sequenceIn(records: readonly Rec[]) {
+  const ramps = records.filter((x) => x.op === Op.BUS_RAMP).map((x) => ({ ...readBusRamp(x.view, x.off), frame: x.frame }));
+  const down = ramps.filter((x) => x.gain === 0);
+  const up = ramps.filter((x) => x.gain === 1);
+  const b = records.find((x) => x.op === Op.BUS_SLOT)!.frame;
+  return {
+    id: records[0]!.seq,
+    f0: Math.min(...down.map((x) => x.frame)),
+    b,
+    end: b + D,
+    roots: up.map((x) => x.voiceId),
+    tombstones: down.filter((x) => !up.some((u) => u.voiceId === x.voiceId)).map((x) => x.voiceId),
+  };
+}
+/** The sequences among `batches`, in order. */
+const sequencesIn = (batches: readonly { records: Rec[] }[]) => batches.filter((b) => b.records.some((x) => x.seq !== 0)).map((b) => sequenceIn(b.records));
+
+
+/**
  * Applies a structural `op` between frames and renders `frames` frames: the samples from the frame before the op, the
  * one batch holding the sequence (checked to hold nothing else), and the sequence's frames.
  */
@@ -165,7 +189,7 @@ async function structural(r: NonNullable<Awaited<ReturnType<typeof rig>>>, op: M
   const batch = seqBatches[0]!;
   expect(batch.records.every((x) => x.seq !== 0 && (x.op === Op.BUS_RAMP || x.op === Op.BUS_SLOT)), `${op.op}: nothing else in it`).toBe(true);
   expect(new Set(batch.records.map((x) => x.seq)).size, `${op.op}: one sequenceId`).toBe(1);
-  const seq = r.backend.dip.last!;
+  const seq = sequenceIn(batch.records);
   const out = Float32Array.from([...pre.out, ...run.out]);
   const at = (frame: number) => out[frame - pre.start]!;
   const firstChanged = pre.start + out.findIndex((v) => v !== out[0]);
@@ -180,7 +204,7 @@ describe("the structural dip on the loopback host (Ma2)", () => {
     await r.step(12);
     const before = (await r.step(1)).last;
     expect(before).toBeCloseTo(LEVEL * 0.5, 6);
-    const late = r.backend.mirror.header.lateCommands;
+    const late = r.loop.link.lastStatus!.lateCommands;
     const m = await structural(r, { op: "moveBus", bus: "SFX", parent: "Music" });
     // On the audio clock: arrived before F0, the first changed sample at F0, silence from F0 + D through B, the end level.
     expect(m.arrivedAt).toBeLessThan(m.seq.f0);
@@ -189,14 +213,14 @@ describe("the structural dip on the loopback host (Ma2)", () => {
     for (let f = m.seq.f0 + D - 1; f < m.seq.b; f++) expect(m.at(f)).toBe(0);
     expect(m.at(m.seq.end)).toBeCloseTo(LEVEL * 0.25, 6);
     expect(m.last).toBeCloseTo(LEVEL * 0.25, 6);
-    expect(r.backend.mirror.header.lateCommands, "on time: no shift").toBe(late);
+    expect(r.loop.link.lastStatus!.lateCommands, "on time: no shift").toBe(late);
     // The click test: the largest neighbour step is the dip-down's slope (0.25 / 960 = 2.6e-4).
     const slope = before / D;
     const worst = maxStep(m.out);
     console.info(`[Ma2] move: maxStep ${worst.toExponential(3)} against the dip slope ${slope.toExponential(3)}`);
     expect(worst).toBeLessThanOrEqual(slope * F32_ROUNDING);
     // The same re-parent sent abruptly (one asap BUS_SLOT back under Master, no dip): a step of the whole change.
-    r.backend.writer.busSlot({ slot: SLOT.SFX, parent: SLOT.Master, effects: [{ type: 0, p: [8000, 0.7, 0, 0, 0, 0, 0] }] });
+    sendRaw(r, (w) => w.busSlot({ slot: SLOT.SFX, parent: SLOT.Master, effects: [{ type: 0, p: [8000, 0.7, 0, 0, 0, 0, 0] }] }));
     const abrupt = await r.step(4);
     const jump = maxStep(Float32Array.from(abrupt.out));
     console.info(`[Ma2] move sent abruptly: maxStep ${jump.toExponential(3)}`);
@@ -213,11 +237,13 @@ describe("the structural dip on the loopback host (Ma2)", () => {
     expect(before).toBeCloseTo(LEVEL * 0.5, 6);
     const recycles = vi.spyOn(r.backend.buses, "recycle");
     const m = await structural(r, { op: "removeBus", bus: "SFX" });
-    const i = v.id & 0xffff;
-    expect(r.backend.table.bus[i]).toBe(SLOT.Master);
-    expect(r.backend.table.busLive[SLOT.SFX]).toBe(0);
+    const d = r.backend.debug();
+    expect(d.voices.find((x) => x.id === v.id)!.bus).toBe("Master");
+    expect(d.buses[SLOT.SFX]!.voices).toBe(0);
     expect(m.seq.tombstones).toEqual([SLOT.SFX]);
-    expect(m.seq.voices).toBe(1);
+    // Its voice moved with the per-voice dip: its SET_PARAMS bus lands at B, on Master.
+    const moves = r.batches.flatMap((b) => b.records).filter((x) => x.op === Op.SET_PARAMS && x.voiceId === v.id && x.frame === m.seq.b);
+    expect(moves.map((x) => readSetParams(x.view, x.off).bus)).toEqual([SLOT.Master]);
     expect(m.firstChanged).toBe(m.seq.f0);
     for (let f = m.seq.f0 + D - 1; f < m.seq.b; f++) expect(m.at(f)).toBe(0);
     // On Master now (gain 1): the full level once the voice's fade-in ends.
@@ -256,7 +282,7 @@ describe("the structural dip on the loopback host (Ma2)", () => {
     console.info(`[Ma2] mid-list insert: maxStep ${worst.toExponential(3)} against the dip slope ${slope.toExponential(3)}`);
     expect(worst).toBeLessThanOrEqual(slope * FILTER_RESTART);
     // Abruptly (one asap BUS_SLOT with a high-pass first, no dip), the rewrite of a playing chain steps.
-    r.backend.writer.busSlot({ slot: SLOT.SFX, parent: SLOT.Master, effects: [{ type: 1, p: [2000, 0.7, 0, 0, 0, 0, 0] }, { type: 0, p: [8000, 0.7, 0, 0, 0, 0, 0] }] });
+    sendRaw(r, (w) => w.busSlot({ slot: SLOT.SFX, parent: SLOT.Master, effects: [{ type: 1, p: [2000, 0.7, 0, 0, 0, 0, 0] }, { type: 0, p: [8000, 0.7, 0, 0, 0, 0, 0] }] }));
     const abrupt = await r.step(2);
     const jump = maxStep(Float32Array.from([before, ...abrupt.out]));
     console.info(`[Ma2] insert sent abruptly: maxStep ${jump.toExponential(3)}`);
@@ -272,18 +298,19 @@ describe("the structural dip on the loopback host (Ma2)", () => {
     const pre = await r.step(1);
     mixer.apply({ op: "moveBus", bus: "SFX", parent: "Music" });
     const one = await r.step(1);
-    const first = r.backend.dip.last!;
-    expect(r.backend.dip.inFlight).toBe(true);
+    const [first] = sequencesIn(one.posted);
     mixer.apply({ op: "moveBus", bus: "SFX", parent: "Voice" });
     const rest = await r.step(24);
-    const second = r.backend.dip.last!;
-    expect(second.id).not.toBe(first.id);
-    expect(second.f0).toBeGreaterThanOrEqual(first.end);
+    const [second] = sequencesIn(rest.posted);
+    expect(first).toBeDefined();
+    expect(second).toBeDefined();
+    expect(second!.id).not.toBe(first!.id);
+    expect(second!.f0).toBeGreaterThanOrEqual(first!.end);
     const out = Float32Array.from([...pre.out, ...one.out, ...rest.out]);
     const at = (frame: number) => out[frame - pre.start]!;
     // Up on the first end state (under Music, 0.25 x 0.5 ... = 0.125) from the first's end to the second's F0.
-    for (let f = first.end; f < second.f0; f++) expect(at(f)).toBeCloseTo(LEVEL * 0.25, 6);
-    expect(at(second.f0 + D - 1)).toBe(0);
+    for (let f = first!.end; f < second!.f0; f++) expect(at(f)).toBeCloseTo(LEVEL * 0.25, 6);
+    expect(at(second!.f0 + D - 1)).toBe(0);
     expect(rest.last).toBeCloseTo(LEVEL * 0.5, 6); // under Voice (1)
     const worst = maxStep(out);
     console.info(`[Ma2] two queued moves: maxStep ${worst.toExponential(3)} against the dip slope ${(LEVEL * 0.5 / D).toExponential(3)}`);
@@ -291,10 +318,9 @@ describe("the structural dip on the loopback host (Ma2)", () => {
     r.backend.dispose();
   });
 
-  for (const [when, into, replayCall] of [
-    ["before F0", -1, true],
-    ["in the dip-down", D / 2, true],
-    ["in the dip-down, without replayEndState", D / 2, false],
+  for (const [when, into] of [
+    ["before F0", -1],
+    ["in the dip-down", D / 2],
   ] as const) {
     it(`a rebuild mid-dip (${when}) lands on the end state: the replay carries the new tree and the dip lane at its end`, { timeout: 60_000 }, async (ctx) => {
       const r = await rig();
@@ -307,7 +333,7 @@ describe("the structural dip on the loopback host (Ma2)", () => {
       mixer.apply({ op: "moveBus", bus: "Voice", parent: "Music" });
       mixer.apply({ op: "removeBus", bus: "SFX" });
       await r.settle();
-      const seq = r.backend.dip.last!;
+      const seq = sequencesIn(r.batches).at(-1)!;
       expect(seq.roots).toEqual([SLOT.Voice]);
       expect(seq.tombstones).toEqual([SLOT.SFX]);
       // Render up to the trap point, then the core traps.
@@ -322,16 +348,14 @@ describe("the structural dip on the loopback host (Ma2)", () => {
       expect(r.host.health.recoveries).toBe(1);
       expect(resumed).toBeGreaterThan(0);
       expect(trappedAt).toBeLessThan(seq.b);
-      if (replayCall) r.backend.dip.replayEndState();
       // No sequence after the rebuild: the replay already holds the end state.
-      const slots = vi.spyOn(r.backend.writer, "busSlot");
       const settled = await r.step(16);
-      expect(slots).not.toHaveBeenCalled();
+      expect(settled.posted.flatMap((b) => b.records).filter((x) => x.op === Op.BUS_SLOT)).toEqual([]);
       // Both voices on their end-state buses: SFX's voice on Master (1), Voice's under Music (0.5).
       expect(settled.last).toBeCloseTo(LEVEL + LEVEL * 0.5, 6);
       expect(Math.min(...settled.out)).toBeCloseTo(LEVEL + LEVEL * 0.5, 6);
       expect(r.backend.busConfigWire().slice(0, 4).map((b) => b.parent)).toEqual([BUS_ROOT, SLOT.Master, BUS_ROOT, SLOT.Music]);
-      expect(r.backend.table.bus.slice(0, 2).includes(SLOT.SFX)).toBe(false);
+      expect(r.backend.debug().voices.some((x) => x.bus === "SFX")).toBe(false);
       r.backend.dispose();
     });
   }

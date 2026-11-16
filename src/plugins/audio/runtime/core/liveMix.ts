@@ -89,10 +89,10 @@ export interface LiveMixHost {
   automationChanged?(): void;
   /** Default: the page's hub. */
   loudness?: LiveLoudness;
-  /** Milliseconds for `flushNow`'s coalescing (default `performance.now`). */
-  nowMs?(): number;
-  /** Runs `fn` after `ms` (default `setTimeout`). */
-  setTimer?(fn: () => void, ms: number): void;
+  /** Milliseconds for `flushNow`'s coalescing (the backend's: `performance.now`). */
+  nowMs(): number;
+  /** Runs `fn` after `ms` (the backend's: `setTimeout`). */
+  setTimer(fn: () => void, ms: number): void;
 }
 
 /**
@@ -107,8 +107,6 @@ export class LiveMix implements MixOpTarget {
   /** Live edits refused or left for the next Play (`Audio.debug().mix.liveRefused`). */
   refused = 0;
   readonly liveCaps: LiveCaps = CORE_LIVE_CAPS;
-  /** Batches `flushNow` posted (tests and the gate's figures). */
-  posts = 0;
   private lastPostMs = Number.NEGATIVE_INFINITY;
   private timerSet = false;
 
@@ -236,7 +234,7 @@ export class LiveMix implements MixOpTarget {
   flushNow(): void {
     const host = this.host;
     if (!host.sending()) return;
-    const now = host.nowMs ? host.nowMs() : performance.now();
+    const now = host.nowMs();
     const wait = this.lastPostMs + FADER_COALESCE_MS - now;
     if (wait > 0) {
       // Inside the window: the edits wait for its end (or go with the frame's BATCH first).
@@ -246,15 +244,13 @@ export class LiveMix implements MixOpTarget {
         this.timerSet = false;
         this.flushNow();
       };
-      if (host.setTimer) host.setTimer(fire, wait);
-      else setTimeout(fire, wait);
+      host.setTimer(fire, wait);
       return;
     }
     const writer = host.writer();
     if (writer.pending === 0) return;
     writer.flush(host.firstFrame());
     this.lastPostMs = now;
-    this.posts++;
   }
 
   /** §4.2 `BUS_SLOT`: one slot's configuration as given (Ma2 sends its structural records through it). */

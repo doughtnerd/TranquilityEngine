@@ -7,6 +7,8 @@ import { fakeDecoder } from "./fakeDecoder";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Mixer } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings } from "../../../../engine/audio/settings";
+import { watchBatches } from "./batchWatch";
+import { Op } from "../wire.generated";
 import { createClipRegistry } from "./clipRegistry";
 import { AudioHost, presetFromSettings } from "./context";
 import { createCoreBackend, type CoreBackend } from "./coreBackend";
@@ -97,7 +99,7 @@ describe("the lane writer on the loopback host (Mx2)", () => {
     backend.play(req("const.wav"));
     await step(10);
     expect((await step(1)).last).toBe(LEVEL);
-    const lateBefore = backend.mirror.header.lateCommands;
+    const lateBefore = r.loop.link.lastStatus!.lateCommands;
     const frameAtCall = r.loop.frame;
     mixer.bus("SFX").fadeTo(0.5, 0.05); // 2,400 frames
     const run = await step(60);
@@ -116,9 +118,9 @@ describe("the lane writer on the loopback host (Mx2)", () => {
     expect(at(stamp + 1_199)).toBeCloseTo(LEVEL * 0.75, 4);
     expect(run.last).toBeCloseTo(LEVEL * 0.5, 6);
     // Applied as a stamp: no quantum split, nothing applied early, nothing late.
-    expect(backend.mirror.header.splitQuanta).toBe(0);
-    expect(backend.mirror.header.busRecordsEarly).toBe(0);
-    expect(backend.mirror.header.lateCommands).toBe(lateBefore);
+    expect(r.loop.link.lastStatus!.splitQuanta).toBe(0);
+    expect(r.loop.link.lastStatus!.busRecordsEarly).toBe(0);
+    expect(r.loop.link.lastStatus!.lateCommands).toBe(lateBefore);
     // The main side agrees once the fade is over.
     expect(mixer.bus("SFX").volume).toBe(0.5);
     backend.dispose();
@@ -164,7 +166,7 @@ describe("the lane writer on the loopback host (Mx2)", () => {
     expect(resumed, "sound again on the new core").toBeGreaterThan(0);
     expect(r.host.health.recoveries).toBe(1);
     // From here the new core runs the replayed remaining ramp itself: main sends no further bus ramp.
-    const ramps = vi.spyOn(backend.writer, "busRampFrames");
+    const posted = watchBatches(loop.link);
     // Neither back at the fade's start nor jumped to its end: where main's ramp is now, on the heard clock.
     const now = await step(1);
     const expected = mixer.bus("SFX").volume * LEVEL;
@@ -177,7 +179,7 @@ describe("the lane writer on the loopback host (Mx2)", () => {
     const rest = await step(80);
     expect(rest.last).toBe(0);
     expect(mixer.bus("SFX").volume).toBe(0);
-    expect(ramps).not.toHaveBeenCalled();
+    expect(posted.takeOps(Op.BUS_RAMP)).toEqual([]);
     backend.dispose();
   });
 });

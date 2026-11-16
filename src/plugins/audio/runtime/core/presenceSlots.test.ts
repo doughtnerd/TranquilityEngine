@@ -5,7 +5,8 @@
 // wasm (the loopback host), on the audio clock: Music plays a constant 0.5, Voice (silent) triggers its duck.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mixer } from "../../../../engine/audio/mixer";
-import type { BusDuckRules } from "../wire.generated";
+import { Op, readBusDuck } from "../wire.generated";
+import { watchBatches } from "./batchWatch";
 import { closeRigs, liveRig } from "../mix/clickHarness";
 
 const LEVEL = 0.5;
@@ -26,15 +27,17 @@ describe("presence rules by slot after live structural edits (Ck1)", () => {
   it("a rule sent after a remove still names the trigger's slot, and ducks", { timeout: 60_000 }, async (ctx) => {
     const r = await liveRig(PROJECT);
     if (!r) return ctx.skip();
-    const ducks = vi.spyOn(r.backend.writer, "busDuck");
+    const posted = watchBatches(r.loop.link);
+    const ducks = () => posted.takeOps(Op.BUS_DUCK).map((x) => readBusDuck(x.view, x.off).rules);
     r.play("Music");
     await r.step(12);
+    ducks(); // the configure's rules
     expect(mixer.apply({ op: "removeBus", bus: "SFX" })).toEqual({ ok: true, class: "dip" });
     await r.step(24);
     // The removed bus's slot is a tombstone (index-stable routing, §4.7): Voice keeps slot 4, so the rules are the same
     // on the wire and nothing is sent again.
     expect(r.backend.buses.slotOf("Voice")).toBe(4);
-    expect(ducks).not.toHaveBeenCalled();
+    expect(ducks()).toEqual([]);
     r.play("Voice");
     const run = await r.step(30);
     expect(run.last / LEVEL, "Music ducks while Voice plays").toBeCloseTo(AMOUNT, 3);
@@ -44,7 +47,8 @@ describe("presence rules by slot after live structural edits (Ck1)", () => {
   it("a bus added into a recycled slot: a rule triggered by it names its slot and ducks", { timeout: 60_000 }, async (ctx) => {
     const r = await liveRig(PROJECT);
     if (!r) return ctx.skip();
-    const ducks = vi.spyOn(r.backend.writer, "busDuck");
+    const posted = watchBatches(r.loop.link);
+    const ducks = () => posted.takeOps(Op.BUS_DUCK).map((x) => readBusDuck(x.view, x.off).rules);
     r.play("Music");
     await r.step(12);
     expect(mixer.apply({ op: "removeBus", bus: "SFX" })).toEqual({ ok: true, class: "dip" });
@@ -59,7 +63,7 @@ describe("presence rules by slot after live structural edits (Ck1)", () => {
     // A rule triggered by the new bus, inserted after it (so the rules are sent again).
     mixer.apply({ op: "setDucking", index: 1, insert: true, rule: { target: "Music", trigger: "Amb", mode: "presence", amount: AMB_AMOUNT, attack: 0.005, release: 0.05 } });
     await r.step(1);
-    const last = ducks.mock.calls.at(-1)![0] as readonly BusDuckRules[];
+    const last = ducks().at(-1)!;
     expect(last.map((x) => [x.target, x.trigger])).toEqual([
       [1, 4],
       [1, 2],

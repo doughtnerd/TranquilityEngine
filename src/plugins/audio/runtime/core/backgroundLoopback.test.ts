@@ -104,7 +104,7 @@ async function rig(mode: AudioBackground, opts: { settings?: AudioSettings; fram
   };
   /** Frames until `voice` is on the core (its clip loaded and the PLAY sent). */
   const settle = async (voice: { id: number }) => {
-    for (let i = 0; i < 30 && backend.table.state[voice.id & 0xffff] === 4; i++) await frame();
+    for (let i = 0; i < 30 && backend.debug().voices.find((v) => v.id === voice.id)?.state === "waitingForData"; i++) await frame();
   };
   /** Quanta with no `update()`, as a hidden tab runs. */
   const quanta = (n: number) => {
@@ -208,7 +208,7 @@ describe("background modes on the loopback host (A3.4b)", () => {
     // 0.1 s clip = 38 quanta; STATUS comes every 6 and ends are applied in its handler. No update() from here.
     quanta(60);
     expect(voice.playing).toBe(false);
-    expect(backend.table.isLive(id)).toBe(false);
+    expect(backend.debug().voices.some((v) => v.id === id)).toBe(false);
     expect(backend.debug().voices).toHaveLength(0);
     page.set(false);
     backend.dispose();
@@ -224,16 +224,16 @@ describe("background modes on the loopback host (A3.4b)", () => {
       await frame();
       quanta(60); // visible: STATUS marks it ended; the slot waits for the next update()
       expect(visibleVoice.playing).toBe(false);
-      expect(backend.table.isLive(visibleVoice.id)).toBe(true);
+      expect(visibleVoice.alive).toBe(true);
       await frame();
-      expect(backend.table.isLive(visibleVoice.id)).toBe(false);
+      expect(visibleVoice.alive).toBe(false);
       const hiddenVoice = backend.play(req("h.wav", { loop: false, oneShot: true, volume: 0.5 }))!;
       await settle(hiddenVoice);
       await frame();
       page.set(true);
       if (mode === "pause") await vi.advanceTimersByTimeAsync(PAUSE_SUSPEND_DELAY_MS);
       quanta(60);
-      expect(backend.table.isLive(hiddenVoice.id)).toBe(false);
+      expect(hiddenVoice.alive).toBe(false);
       backend.dispose();
     }
   });
@@ -247,9 +247,9 @@ describe("background modes on the loopback host (A3.4b)", () => {
     await frame();
     quanta(60);
     expect(voice.playing).toBe(false);
-    expect(backend.table.isLive(voice.id)).toBe(true);
+    expect(voice.alive).toBe(true);
     page.set(true);
-    expect(backend.table.isLive(voice.id)).toBe(false);
+    expect(voice.alive).toBe(false);
     backend.dispose();
   });
 

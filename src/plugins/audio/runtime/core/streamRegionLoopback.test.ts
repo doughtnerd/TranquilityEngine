@@ -88,7 +88,7 @@ async function releaseRun(start: number, end: number, pass: number, before: numb
     lateness: tailAt === undefined ? Number.NaN : tailAt - expected,
     ahead: expected - requested,
     playing: voice.playing,
-    underruns: r.backend.mirror.header.underruns,
+    underruns: r.loop.link.lastStatus!.underruns,
     starves: r.backend.streams.stats.starves,
   };
   r.backend.dispose();
@@ -112,7 +112,7 @@ describe("stream region loops on the loopback host (E4.4)", () => {
     for (let k = 0; k < n; k++) if (r.left[at + k] !== want(looped(k, 12_000, 24_000))) expect.fail(`stream frame ${k}: ${r.left[at + k]} vs file frame ${looped(k, 12_000, 24_000)}`);
     expect(voice.playing).toBe(true);
     expect(r.backend.streams.stats.starves).toBe(0);
-    expect(r.backend.mirror.header.underruns).toBe(0);
+    expect(r.loop.link.lastStatus!.underruns).toBe(0);
     r.backend.dispose();
   });
 

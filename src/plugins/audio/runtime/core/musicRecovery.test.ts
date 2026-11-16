@@ -143,9 +143,8 @@ describe("musicOps recovery (ADR 0166 P9)", () => {
     // The stamped group's bound streams close on the worker.
     expect(r.closes).toEqual(expect.arrayContaining(r.primes[0]!.members.map((m) => m.streamId)));
     for (const v of voices) {
-      expect(r.backend.table.isLive(v.id)).toBe(false);
+      expect(r.backend.debug().voices.some((x) => x.id === v.id)).toBe(false);
       expect(r.ops.ownsVoice(v.id)).toBe(false);
-      expect(r.backend.table.musicGroup[v.id & 0xffff]).toBe(0);
     }
     expect(recover).toHaveBeenCalledTimes(1);
     expect(recover.mock.calls[0]![1]).toBe("rebuild");

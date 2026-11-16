@@ -7,6 +7,8 @@ import { fakeDecoder } from "./fakeDecoder";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Mixer } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings, type AudioSettings, type DuckingRule } from "../../../../engine/audio/settings";
+import { watchBatches } from "./batchWatch";
+import { Op, readBusPresence } from "../wire.generated";
 import { createClipRegistry } from "./clipRegistry";
 import { AudioHost, presetFromSettings } from "./context";
 import { createCoreBackend, type CoreBackend } from "./coreBackend";
@@ -107,16 +109,17 @@ describe("presence ducking in the core (Dp1)", () => {
     expect((await step(1)).last).toBe(LEVEL);
     expect(backend.presence.duckRecords).toBe(1);
     // A voice on SFX, stamped 0.05 s ahead of the heard clock.
-    const writes = vi.spyOn(backend.writer, "busPresence");
+    const posted = watchBatches(r.loop.link);
+    const planned = backend.clockMap.frameOfTime(backend.time + 0.05);
     const sfx = backend.play(req("SFX", { at: backend.time + 0.05 }))!;
-    // Stamped at the voice's start frame: the PLAY's own stamp (the table's start frame, cleared once the PLAY is sent).
-    const plays = vi.mocked(writes).mock.calls;
-    expect(plays).toHaveLength(1);
-    expect(plays[0]![0]).toBe((1 << 1) | (1 << 2)); // Music and SFX
-    const startFrame = plays[0]![1]!;
-    expect(startFrame).toBe(backend.clockMap.frameOfTime(backend.time + 0.05));
-    expect(startFrame).toBeGreaterThan(r.loop.frame);
+    const playedAt = r.loop.frame;
     const run = await step(60);
+    // Stamped at the voice's start frame: the PLAY's own stamp (the table's start frame, cleared once the PLAY is sent).
+    const plays = posted.takeOps(Op.BUS_PRESENCE).map((x) => ({ mask: readBusPresence(x.view, x.off).mask, frame: x.frame }));
+    expect(plays[0]!.mask).toBe((1 << 1) | (1 << 2)); // Music and SFX
+    const startFrame = plays[0]!.frame;
+    expect(startFrame).toBe(planned);
+    expect(startFrame).toBeGreaterThan(playedAt);
     const at = (frame: number) => run.out[frame - run.start]! / LEVEL;
     const q0 = Math.floor(startFrame / Q) * Q;
     const firstChanged = run.start + run.out.findIndex((v) => v !== LEVEL);
@@ -130,10 +133,10 @@ describe("presence ducking in the core (Dp1)", () => {
     expect(mixer.bus("Music").duckGain).toBeCloseTo(amount, 4);
     expect(mixer.bus("SFX").duckGain).toBe(1);
     // An explicit stop: BUS_PRESENCE asap with the bit cleared; the duck releases with `release`.
-    writes.mockClear();
+    posted.take();
     sfx.stop();
     const rel = await step(1);
-    expect(writes).toHaveBeenCalledWith(1 << 1, undefined);
+    expect(posted.takeOps(Op.BUS_PRESENCE).map((x) => ({ mask: readBusPresence(x.view, x.off).mask, frame: x.frame }))).toContainEqual({ mask: 1 << 1, frame: -1 });
     const relAt = rel.start + rel.out.findIndex((v) => v / LEVEL > amount + 1e-4);
     const more = await step(120); // settles within SETTLE (1e-5) after ~11 time constants
     const all = [...rel.out, ...more.out];

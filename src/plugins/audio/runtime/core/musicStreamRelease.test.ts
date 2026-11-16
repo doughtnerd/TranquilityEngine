@@ -77,7 +77,7 @@ async function memberRelease(start: number, end: number, pass: number, before: n
     lateness: tailAt === undefined ? Number.NaN : tailAt - expected,
     ahead: expected - requested,
     playing: voice!.playing,
-    underruns: r.backend.mirror.header.underruns,
+    underruns: r.loop.link.lastStatus!.underruns,
   };
   r.backend.dispose();
   return result;

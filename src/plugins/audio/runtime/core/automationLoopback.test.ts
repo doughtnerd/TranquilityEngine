@@ -17,6 +17,8 @@ import { createClipRegistry } from "./clipRegistry";
 import { AudioHost, presetFromSettings, type CoreLink } from "./context";
 import { CoreBackend, createCoreBackend, type CoreBackendHost } from "./coreBackend";
 import { CORE_CURVE_KEYS } from "./commandWriter";
+import { watchBatches } from "./batchWatch";
+import { BATCH_FLAGS_OVERFLOWED } from "../wire.generated";
 import { watchForTraps } from "./recovery";
 import { Unlock, type UnlockContext } from "./unlock";
 
@@ -127,8 +129,7 @@ describe("event automation in the core (E3.1, loopback)", () => {
       expect(out.length - mark).toBeGreaterThan(0.075 * RATE + 2048);
       expect(level(out, out.length - 2048, out.length) / full).toBeCloseTo(0.25, 3);
       // Selection's copy, evaluated on main at the target.
-      const i = backend.table.liveCount > 0 ? [...Array(backend.table.capacity).keys()].find((k) => backend.table.state[k] !== 0)! : -1;
-      expect(backend.table.autoGain[i]).toBeCloseTo(0.25, 6);
+      expect(backend.debug().voices[0]!.gain).toBeCloseTo(0.25, 6);
       expect(backend.debug().voices[0]!.event).toBeGreaterThan(0);
       expect(evaluated).not.toHaveBeenCalled();
       expect(applied).not.toHaveBeenCalled();
@@ -240,6 +241,7 @@ describe("a hard rebuild mid-automation (E3.1, loopback)", () => {
         for (let k = 0; k < 4; k++) await Promise.resolve();
       }
     };
+    const posted = watchBatches(link);
     const a = backend.automation;
     // A full table (past the writer's 256 KB staging area): curve id k is flat at 1 except the two used below.
     const full = (y: (x: number) => number): Curve => Array.from({ length: CORE_CURVE_KEYS }, (_, k) => [k / (CORE_CURVE_KEYS - 1), y(k / (CORE_CURVE_KEYS - 1))] as const);
@@ -259,7 +261,8 @@ describe("a hard rebuild mid-automation (E3.1, loopback)", () => {
       expect(out.some((s) => s !== 0)).toBe(true);
     });
     await step(10);
-    expect(backend.writer.stats.dropped).toBe(0);
+    // Nothing was dropped: no posted batch carries the overflow flag (the curves past the staging area were carried).
+    expect(posted.take().some((b) => (b.flags & BATCH_FLAGS_OVERFLOWED) !== 0)).toBe(false);
     const before = level(out, out.length - 2048, out.length);
     expect(before / DC).toBeCloseTo(0.25, 2);
 

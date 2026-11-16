@@ -22,7 +22,6 @@ import { decodeRecordAt, openCapture } from "../../runtime/capture/reader";
 import { assembleTakeFile } from "../../runtime/capture/save";
 import { FRAME_SECONDS, MiB, RATE, S3_1024, s3Rig, stat, threadWorkerFactory, timedCallOverheadUs, timedSink } from "../../runtime/capture/soakSupport";
 import { SAMPLE_META } from "../../runtime/capture/testSupport";
-import { VoiceState } from "../../runtime/core/voiceTable";
 import { CaptureSource } from "./profilerSource";
 import { nameLookup, reconstructVoices } from "./voiceTableModel";
 
@@ -103,16 +102,10 @@ describe("soak 2: a 1,024-voice capture opens through the Worker (§3.7)", () =>
     const truths: Truth[] = [];
     for (let f = 0; f < frames; f++) {
       await rig.frame(at.has(f) ? () => {
-        // The game's table after this frame's main side (its events are stamped at the newest STATUS frame).
-        const table = backend.table;
-        const fading = new Set<number>();
-        const unsent = new Set<number>();
-        for (let i = 0; i < table.capacity; i++) {
-          const s = table.state[i]!;
-          const id = ((table.gen[i]! << 16) | i) >>> 0;
-          if (s === VoiceState.STOPPING || s === VoiceState.ENDING) fading.add(id);
-          if (s === VoiceState.WAITING_FOR_DATA || s === VoiceState.LOCKED) unsent.add(id);
-        }
+        // The game's voices after this frame's main side (its events are stamped at the newest STATUS frame): `Audio.debug()`
+        // rows, the ones not yet sent (locked, or waiting for their data) left out, and the scene's stopped voices fading.
+        const fading = rig.fading();
+        const unsent = new Set(backend.debug().voices.filter((v) => v.state === "locked" || v.state === "waitingForData").map((v) => v.id));
         const rows = backend.debug().voices.filter((v) => !unsent.has(v.id)).map((v) => ({ id: v.id, clip: v.clip, bus: v.bus, state: v.state, priority: v.priority, gain: Math.fround(v.gain) }));
         truths.push({ frame: rec.newestStatusFrame, rows: rows.sort((p, q) => p.id - q.id), fading, unsent: unsent.size });
       } : undefined);

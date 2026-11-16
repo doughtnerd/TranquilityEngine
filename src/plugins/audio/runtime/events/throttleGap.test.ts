@@ -2,7 +2,7 @@
 // silence when the throttle changes ("E, press & release Right, then Up": RPM 0 -> 0.5 -> 0 -> 1 -> 0). The single-clip
 // engine (T) is smooth. This plays the sample's real event files and clips through the real event runtime and the real
 // `CoreBackend` on the loopback host (the committed wasm), with `setParameter` on frames as key presses would, and
-// measures the output per quantum (128 frames) and the voice table's states.
+// measures the output per quantum (128 frames) and each voice's state in `Audio.debug()`.
 //
 // Cause: `CoreAutomation.setParam` -> `reevaluate` (core/coreAutomation.ts) stores each bound voice's curves evaluated
 // at the parameter's *target* into `table.autoGain`, once, when the parameter is set. Selection (core/selection.ts
@@ -25,7 +25,6 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Assets, Engine, SceneManager } from "../../../../myco";
 import { mixer } from "../../../../engine/audio/mixer";
-import { evalCurve, type Curve } from "../../../../engine/core/curve";
 import { setAudioBackend, type AudioEventHandle } from "../backend";
 import { Audio } from "../index";
 import { _resetHandleWarningsForTests } from "../core/handle";
@@ -33,7 +32,6 @@ import { createClipRegistry } from "../core/clipRegistry";
 import { fakeDecoder, type PlanarClip } from "../core/fakeDecoder";
 import type { AudioHost } from "../core/context";
 import { CoreBackend, type CoreBackendHost } from "../core/coreBackend";
-import { VoiceState } from "../core/voiceTable";
 import { createLoopbackHost } from "../testing";
 import { events } from "./eventRuntime";
 
@@ -94,31 +92,15 @@ async function boot(): Promise<Engine> {
   return engine;
 }
 
-// --- A model of the proposed fix, applied from the test (runtime files are owned elsewhere) -------------------------
-
-/** The blend's children (from engine.audioevent.json) and the event's volume curve on RPM. */
-const blend = eventJson(BLEND) as { automation: { curve: Curve }[]; root: { loop: { children: { clip: string; range: [number, number]; fade: number }[] } } };
-const EVENT_VOLUME = blend.automation[0]!.curve;
-const CHILD_CURVES = new Map<string, Curve>();
-
-/**
- * `selection: "target"` is today's behaviour. The other two overwrite `table.autoGain` of the blend's voices every
- * frame, before selection runs, from an estimate of the core's smoothed RPM (the same seek as the core):
- *  - "maxGain": the larger of the curves' gain at the estimate and at the target (the proposed fix);
- *  - "maxParam": the curves evaluated at the larger of the estimate and the target parameter *value* (one reading of
- *    E4.5's planned change; it still fails on the way up).
- */
-type Selection = "target" | "maxGain" | "maxParam";
-
 interface Row {
   frame: number;
   /** RMS of the left channel per quantum. */
   rms: number[];
-  /** Per blend child (idle, mid, high) or "single": the table state (2 mixed, 3 virtual). */
-  states: Record<string, number>;
+  /** Per blend child (idle, mid, high) or "single": its `Audio.debug()` state ("playing" mixed, "virtual"). */
+  states: Record<string, string>;
 }
 
-async function render(event: string, script: Record<number, number>, total: number, selection: Selection = "target"): Promise<Row[] | null> {
+async function render(event: string, script: Record<number, number>, total: number): Promise<Row[] | null> {
   vi.spyOn(console, "warn").mockImplementation(() => {});
   _resetHandleWarningsForTests();
   events()._reset();
@@ -135,45 +117,27 @@ async function render(event: string, script: Record<number, number>, total: numb
   const host: CoreBackendHost = { link, status: "running", preset: { maxLogical: 64, maxMixed: 32 }, worldCount: 1, sampleRate: RATE, addLifecycleListener: (() => () => {}) as AudioHost["addLifecycleListener"] };
   const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer });
   setAudioBackend(backend);
-  if (CHILD_CURVES.size === 0) for (const c of blend.root.loop.children) CHILD_CURVES.set(c.clip, events().blendCurve(c as never)!);
-  const t = backend.table;
   const rows: Row[] = [];
   let h!: AudioEventHandle;
-  let target = 0;
-  let estimate = 0;
   try {
     for (let f = 0; f < total; f++) {
       if (f === 0) h = Audio.play(event, { bus: "Engine", parameters: { RPM: 0 } });
       if (script[f] !== undefined) {
-        target = script[f]!;
-        h.setParameter("RPM", target);
+        h.setParameter("RPM", script[f]!);
       }
       events().update(FRAME_SECONDS);
-      if (selection !== "target") {
-        for (let i = 0; i < t.capacity; i++) {
-          if (t.state[i] === VoiceState.FREE) continue;
-          const curve = CHILD_CURVES.get(backend.clips.info(t.clip[i]!)?.path ?? "");
-          if (!curve) continue;
-          const gain = (x: number) => Math.max(0, evalCurve(curve, x)) * evalCurve(EVENT_VOLUME, x);
-          t.autoGain[i] = selection === "maxGain" ? Math.max(gain(estimate), gain(target)) : gain(Math.max(estimate, target));
-        }
-      }
       backend.update(FRAME_SECONDS);
       const out = loop.renderQuanta(FRAME_QUANTA);
-      // The core smooths RPM at 1.5/s per quantum; the estimate follows it frame by frame.
-      const step = 1.5 * FRAME_SECONDS;
-      estimate = Math.abs(target - estimate) <= step ? target : estimate + Math.sign(target - estimate) * step;
       const rms: number[] = [];
       for (let q = 0; q < FRAME_QUANTA; q++) {
         let s = 0;
         for (let k = q * QUANTUM; k < (q + 1) * QUANTUM; k++) s += out.left[k]! ** 2;
         rms.push(Math.sqrt(s / QUANTUM));
       }
-      const states: Record<string, number> = {};
-      for (let i = 0; i < t.capacity; i++) {
-        if (t.state[i] === VoiceState.FREE) continue;
-        const name = (backend.clips.info(t.clip[i]!)?.path ?? "?").replace(/.*engine-/, "").replace(".wav", "");
-        states[name] = t.state[i]!;
+      const states: Record<string, string> = {};
+      for (const v of backend.debug().voices) {
+        if (v.state === "stolen") continue;
+        states[(v.clip || "?").replace(/.*engine-/, "").replace(".wav", "")] = v.state;
       }
       rows.push({ frame: f, rms, states });
       await new Promise<void>((r) => setTimeout(r, 0));
@@ -185,7 +149,7 @@ async function render(event: string, script: Record<number, number>, total: numb
     engine.dispose();
   }
   if (process.env.THROTTLE_GAP_DUMP) {
-    writeFileSync(`${process.env.THROTTLE_GAP_DUMP}/${event.replace(/.*\//, "")}-${selection}-${Object.values(script).join("_")}.txt`,
+    writeFileSync(`${process.env.THROTTLE_GAP_DUMP}/${event.replace(/.*\//, "")}-${Object.values(script).join("_")}.txt`,
       rows.map((r) => `${r.frame}\t${r.rms.map((x) => x.toFixed(4)).join(" ")}\t${JSON.stringify(r.states)}`).join("\n"));
   }
   return rows;
@@ -233,7 +197,7 @@ describe("throttle changes on the Sound Lab engines (the core, loopback)", () =>
       if (!rows) return ctx.skip();
       expect(peakRms(rows, S - 20, S)).toBeGreaterThan(0.1);
       expect(longestGapMs(rows, S - 20)).toBeLessThan(SMOOTH_MS);
-      expect(rows.filter((r) => r.frame >= S).every((r) => r.states.single === VoiceState.PLAYING)).toBe(true);
+      expect(rows.filter((r) => r.frame >= S).every((r) => r.states.single === "playing")).toBe(true);
     }
   });
 
@@ -242,7 +206,7 @@ describe("throttle changes on the Sound Lab engines (the core, loopback)", () =>
     if (!rows) return ctx.skip();
     expect(peakRms(rows, S - 20, S)).toBeGreaterThan(0.1);
     expect(longestGapMs(rows, S - 20)).toBeLessThan(SMOOTH_MS);
-    expect(rows[S - 1]!.states).toEqual({ idle: VoiceState.PLAYING, mid: VoiceState.VIRTUAL, high: VoiceState.VIRTUAL });
+    expect(rows[S - 1]!.states).toEqual({ idle: "playing", mid: "virtual", high: "virtual" });
   });
 
   // The bug: selection reads autoGain evaluated at RPM's target (coreAutomation.ts `reevaluate`, called once from
@@ -265,14 +229,14 @@ describe("throttle changes on the Sound Lab engines (the core, loopback)", () =>
     const rows = await render(BLEND, SEQ_A, S + 10);
     if (!rows) return ctx.skip();
     // RPM moves 0.016 a frame; idle is at full level up to 0.1 and fades out to 0.5, so it must still be mixed 5 frames on.
-    expect(rows[S + 5]!.states.idle).toBe(VoiceState.PLAYING);
+    expect(rows[S + 5]!.states.idle).toBe("playing");
   });
 
   it("visiting RPM 0.5 leaves mid virtual (not stopped), and a later Up is gapless with or without the visit", { timeout: 120_000 }, async (ctx) => {
     const withRight = await render(BLEND, { [S]: 0.5, [S + 100]: 0, [S + 250]: 1 }, S + 350);
     const without = await render(BLEND, { [S + 250]: 1 }, S + 350);
     if (!withRight || !without) return ctx.skip();
-    expect(withRight[S + 249]!.states).toEqual({ idle: VoiceState.PLAYING, mid: VoiceState.VIRTUAL, high: VoiceState.VIRTUAL });
+    expect(withRight[S + 249]!.states).toEqual({ idle: "playing", mid: "virtual", high: "virtual" });
     expect(longestGapMs(withRight, S - 20)).toBeLessThan(SMOOTH_MS);
     expect(longestGapMs(without, S - 20)).toBeLessThan(SMOOTH_MS);
   });

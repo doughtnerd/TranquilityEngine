@@ -114,7 +114,6 @@ async function walk(r: Awaited<ReturnType<typeof rig>>, framesPerRoom: number) {
   r.zone("C", 60, "cave");
   const voice = r.backend.play({ path: "tone", url: "tone", loop: true, stream: false, bus: "SFX", attenuation: { minDistance: 1, maxDistance: 50, rolloff: "inverse" }, position: { x: 0, y: 0, z: 0 } })!;
   expect(voice).not.toBeNull();
-  const m = r.backend.mirror;
   const tables: string[] = [];
   let wetHeard = 0;
   for (const x of [0, 30, 60]) {
@@ -122,9 +121,10 @@ async function walk(r: Awaited<ReturnType<typeof rig>>, framesPerRoom: number) {
     r.pose.position.x = x;
     for (let f = 0; f < framesPerRoom; f++) {
       await r.step();
-      const t = [...m.zoneState.subarray(0, m.zoneCount)].join("");
+      const zones = r.loop.link.lastStatus?.zones ?? [];
+      const t = zones.map((z) => z.state).join("");
       if (tables.at(-1) !== t) tables.push(t);
-      for (let k = 0; k < m.zoneCount; k++) if (m.zoneState[k] === ZoneState.Active && m.zoneWetPeak[k]! > 0) wetHeard++;
+      for (const z of zones) if (z.state === ZoneState.Active && z.wetPeak > 0) wetHeard++;
     }
   }
   return { tables, wetHeard, debug: r.backend.zones.debug()! };
@@ -142,7 +142,7 @@ describe("zone walk A → B → C on the real wasm (C5 acceptance)", () => {
       expect(debug.find((z) => z.node === "C")!.state).toBe("active");
       expect(debug.find((z) => z.node === "A")!.slot).toBe(-1);
       expect(r.backend.zones.counters.irPrepares).toBe(3);
-      expect(r.backend.mirror.header.zonesRinging + r.backend.mirror.header.zonesActive).toBeGreaterThan(0);
+      expect(r.loop.link.lastStatus!.zonesRinging + r.loop.link.lastStatus!.zonesActive).toBeGreaterThan(0);
     } finally {
       r.restore();
     }

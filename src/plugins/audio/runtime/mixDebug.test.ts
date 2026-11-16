@@ -124,7 +124,8 @@ describe("core backend: mix (§1.3)", () => {
   });
   it("reports liveRefused and liveDeferred from the live-edit path", () => {
     const { backend } = coreRig();
-    (backend.liveMix as unknown as { refused: number }).refused = 4;
+    // Four ops the mixer refuses (an unknown bus): each is counted.
+    for (let k = 0; k < 4; k++) expect(mixer.apply({ op: "setBus", bus: "Nope", key: "volume", value: 0.5 }).ok).toBe(false);
     expect(backend.debug().mix!.liveRefused).toBe(4);
   });
   it("lists a ducking row per rule from the settings, 1 while not ducked", () => {

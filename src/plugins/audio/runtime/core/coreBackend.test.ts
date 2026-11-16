@@ -33,7 +33,6 @@ import type { ClipInfo, ClipRegistry, ClipResidentListener, ClipState } from "./
 import type { HrirLoader } from "./hrir";
 import { CoreBackend, type CoreBackendDeps, type CoreBackendHost, type CoreVoice } from "./coreBackend";
 import { makeStatusBlock } from "./mirror";
-import { VoiceReason, VoiceState } from "./voiceTable";
 
 class FakeRegistry implements ClipRegistry {
   readonly ids = new Map<string, number>();
@@ -161,6 +160,8 @@ function fakeClock() {
 
 const req = (path = "a.wav", extra: object = {}) => ({ path, url: path, loop: false, stream: false, bus: "SFX", ...extra });
 const idx = (id: number) => id & 0xffff;
+/** Voice `id`'s `Audio.debug()` row. */
+const row = (r: { backend: CoreBackend }, id: number) => r.backend.debug().voices.find((v) => v.id === id);
 const only = (list: ReturnType<typeof decode>["records"], op: number) => list.filter((x) => x.op === op);
 
 describe("CoreBackend (api-and-models §3, §6)", () => {
@@ -192,7 +193,6 @@ describe("CoreBackend (api-and-models §3, §6)", () => {
     const plays = only(r.ops(), Op.PLAY);
     expect(plays).toHaveLength(1);
     const p = readPlay(plays[0]!.view, plays[0]!.off);
-    expect(p.clip).toBe(r.backend.table.clip[voice.id & 0xffff]);
     expect(p.clip >>> 0).toBeGreaterThanOrEqual(0xffff0100);
     expect(p.flags & 2).toBe(2); // stream
     expect(p.flags & 16).toBe(16); // spatial
@@ -338,8 +338,7 @@ describe("CoreBackend (api-and-models §3, §6)", () => {
     r.mixer.configure(settings);
     const remap: BusRemap = { epoch: 2, from: ["Master", "Music", "SFX", "UI", "Voice"], to: settings.buses.map((b) => b.name), map: new Uint8Array([0, 0, 1, 2, 3]) };
     for (const l of [...r.listeners]) l.onBusRemap?.(remap);
-    expect(r.backend.table.busMax[1]).toBe(3);
-    expect(r.backend.table.busMax[2]).toBe(0);
+    expect(r.backend.debug().buses.slice(1, 3).map((b) => b.maxVoices)).toEqual([3, null]);
     r.frame();
     const ops = r.ops();
     expect(readBusConfig(ops.find((o) => o.op === Op.BUS_CONFIG)!.view, ops.find((o) => o.op === Op.BUS_CONFIG)!.off).buses).toHaveLength(4);
@@ -504,7 +503,7 @@ describe("CoreBackend (api-and-models §3, §6)", () => {
     expect(params[0]!.gain).toBeCloseTo(0.3);
     expect(params[1]!.pitch).toBe(16);
     expect(params[2]!.mask).toBe(SET_PARAMS_MASK_SCORE);
-    expect(params[2]!.score).toBeCloseTo(r.backend.table.audibility[v.id & 0xffff]!, 6);
+    expect(params[2]!.score).toBeCloseTo(row(r, v.id)!.audibility, 6);
     // G7a (§4.7): the voice is sounding, so its bus goes through the per-voice dip: stamped at B (after the asap
     // records), between its fade-out and fade-in.
     expect(params[3]!.bus).toBe(1);
@@ -519,7 +518,7 @@ describe("CoreBackend (api-and-models §3, §6)", () => {
     const v = r.backend.play(req())!;
     expect(v.playing).toBe(true);
     expect(v.reason).toBe("locked");
-    expect(r.backend.table.state[idx(v.id)]).toBe(VoiceState.LOCKED);
+    expect(row(r, v.id)!.state).toBe("locked");
     r.frame();
     expect(only(r.ops(), Op.PLAY)).toHaveLength(0);
     r.state.status = "running";
@@ -555,7 +554,7 @@ describe("CoreBackend (api-and-models §3, §6)", () => {
     const first = r.link.lastStatus;
     r.status({ currentFrame: 9_600, dateMs: 1_000_100 });
     expect(r.link.lastStatus).toBe(first); // one block, reused
-    expect(r.backend.mirror.frameAudio).toBe(9_600);
+    expect(r.backend.debug().core.currentFrame).toBe(9_600);
     r.frame();
     expect(r.backend.time).toBeGreaterThan(0);
   });
@@ -588,7 +587,7 @@ describe("CoreBackend (api-and-models §3, §6)", () => {
     expect(r.backend.play(req())).toBeNull();
   });
 
-  it("every voice's table fields reset on reuse", () => {
+  it("a reused slot carries none of the old voice's fields", () => {
     const r = rig();
     const v = r.backend.play({ ...req(), volume: 0.2, position: { x: 1, y: 0, z: 0 } })!;
     v.stop();
@@ -597,9 +596,13 @@ describe("CoreBackend (api-and-models §3, §6)", () => {
     r.frame();
     const w = r.backend.play(req())!;
     expect(idx(w.id)).toBe(idx(v.id));
-    expect(r.backend.table.flags[idx(w.id)]! & 2).toBe(0);
-    expect(r.backend.table.reason[idx(w.id)]).toBe(VoiceReason.NONE);
-    expect(r.backend.table.volume[idx(w.id)]).toBe(1);
+    expect(w.reason).toBeNull();
+    r.ops();
+    r.frame();
+    const play = only(r.ops(), Op.PLAY).find((o) => o.voiceId === w.id)!;
+    const p = readPlay(play.view, play.off);
+    expect(p.flags & 16).toBe(0); // not spatial
+    expect(p.gain).toBe(1);
   });
 });
 
@@ -616,7 +619,7 @@ describe("CoreBackend: ducking counts and Bus.peak (A2.3)", () => {
     const duck = r.ops().find((o) => o.op === Op.BUS_DUCK)!;
     expect(readBusDuck(duck.view, duck.off).rules).toEqual([{ target: 1, trigger: 4, flags: 0, thresholdDb: -30, amount: expect.closeTo(0.4, 6), attack: expect.closeTo(0.1, 6), release: 0.5 }]);
     const v = r.backend.play(req("v.wav", { bus: "Voice", loop: true }))!;
-    expect(r.backend.table.state[idx(v.id)]).toBe(VoiceState.LOCKED);
+    expect(row(r, v.id)!.state).toBe("locked");
     expect(r.mixer.bus("Voice").activeVoices).toBe(1);
     r.frame();
     expect(masks(r)).toEqual([VOICE_BIT]);
@@ -640,7 +643,7 @@ describe("CoreBackend: ducking counts and Bus.peak (A2.3)", () => {
     expect(masks(r)).toEqual([0, VOICE_BIT]);
     r.status({ demoted: [v.id] });
     r.frame();
-    expect(r.backend.table.state[idx(v.id)]).toBe(VoiceState.VIRTUAL);
+    expect(row(r, v.id)!.state).toBe("virtual");
     expect(r.mixer.bus("Voice").activeVoices).toBe(1);
     // Dp1: demotion changes no presence (the voice still counts); the duck is the core's, read from STATUS.
     expect(masks(r)).toEqual([]);

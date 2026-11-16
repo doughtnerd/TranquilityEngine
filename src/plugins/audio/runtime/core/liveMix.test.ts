@@ -5,7 +5,8 @@ import { describe, expect, it, vi } from "vitest";
 import { DRAG_RAMP_MS, Mixer } from "../../../../engine/audio/mixer";
 import { MIX_OP_NAMES, opClass, type MixOp } from "../../../../engine/audio/mixOps";
 import { parseAudioSettings } from "../../../../engine/audio/settings";
-import { DRAG_RAMP_MS as WIRE_DRAG_RAMP_MS, FADER_COALESCE_MS } from "../wire.generated";
+import { BUS_SLOT_FLAGS_STRUCTURAL, DRAG_RAMP_MS as WIRE_DRAG_RAMP_MS, FADER_COALESCE_MS, Op, readBusSlot } from "../wire.generated";
+import { batchRecords } from "./batchRecords";
 import { CoreBackend } from "./coreBackend";
 import { DeferredAdds } from "./deferredAdds";
 import { LiveMix, type LiveMixHost } from "./liveMix";
@@ -81,13 +82,19 @@ describe("liveMix (Ma1)", () => {
 
   it("answers each class: every class applies (ok), dip through Ma2's sequence; the model changes at once", () => {
     for (const [op, cls] of OPS) {
-      const { backend, mixer } = backendRig();
+      const { backend, mixer, posted } = backendRig();
       const before = mixer.audioSettings;
       const r = mixer.apply(op);
       expect(r, op.op).toEqual({ ok: true, class: cls });
       expect(mixer.audioSettings, op.op).not.toBe(before);
-      expect(backend.liveMix.refused).toBe(0);
-      if (cls === "dip") expect(backend.dip.inFlight, op.op).toBe(true);
+      expect(backend.debug().mix!.liveRefused).toBe(0);
+      if (cls === "dip") {
+        // The frame emits the open sequence: a structural BUS_SLOT tagged with its sequence id.
+        posted.length = 0;
+        backend.update(0.016);
+        const slots = posted.flatMap((b) => batchRecords(b)?.records ?? []).filter((x) => x.opcode === Op.BUS_SLOT).map((x) => readBusSlot(x.view, x.off));
+        expect(slots.some((x) => x.sequenceId > 0 && (x.flags & BUS_SLOT_FLAGS_STRUCTURAL) !== 0), op.op).toBe(true);
+      }
       backend.dispose();
     }
   });
@@ -104,7 +111,7 @@ describe("liveMix (Ma1)", () => {
     expect(mixer.apply({ op: "setBus", bus: "Music", key: "volume", value: 0.5 })).toEqual({ ok: true, class: "none" });
     expect(mixer.apply({ op: "setBus", bus: "Nope", key: "volume", value: 0.5 })).toEqual({ ok: false, class: "none" });
     expect(mixer.audioSettings).toBe(settings);
-    expect(backend.liveMix.refused).toBe(1);
+    expect(backend.debug().mix!.liveRefused).toBe(1);
     backend.dispose();
   });
 
@@ -138,7 +145,7 @@ describe("liveMix (Ma1)", () => {
     expect(ui.volume).toBe(0.7);
     expect(mixer.resolveOutput("UI")).toBe("Menu");
     const v = backend.play({ path: "a.wav", url: "a.wav", loop: false, stream: false, bus: "UI" })!;
-    expect(backend.table.bus[v.id & 0xffff]).toBe(4);
+    expect(backend.debug().voices.find((x) => x.id === v.id)!.bus).toBe("Menu");
     expect(warn).toHaveBeenCalledTimes(1); // one warning for the old name
     warn.mockRestore();
     backend.dispose();
@@ -154,10 +161,9 @@ describe("liveMix (Ma1)", () => {
     backend.dispose();
   });
 
-  it("CoreBackend's mixOpTarget is its liveMix; mixer.apply reaches the active backend's target, and nothing once it is gone", async () => {
+  it("mixer.apply reaches CoreBackend's mixOpTarget, the active backend's target, and nothing once it is gone", async () => {
     const { backend, mixer: own } = backendRig();
-    expect(backend.mixOpTarget).toBe(backend.liveMix);
-    const send = vi.spyOn(backend.liveMix, "sendOp");
+    const send = vi.spyOn(backend.mixOpTarget, "sendOp");
     expect(own.apply(OPS[0]![0])).toEqual({ ok: true, class: "direct" });
     expect(send).toHaveBeenCalledWith(OPS[0]![0], "direct");
     backend.dispose();
@@ -242,7 +248,6 @@ describe("flushNow (the preview path, §6.6)", () => {
     for (let i = 1; i < posts.length; i++) expect(posts[i]! - posts[i - 1]!).toBeGreaterThanOrEqual(FADER_COALESCE_MS);
     expect(posts.length).toBeLessThanOrEqual(Math.floor(49.5 / FADER_COALESCE_MS) + 2);
     expect(posts[posts.length - 1]!).toBeGreaterThanOrEqual(49.5); // the last edit (at 49.5 ms) was posted
-    expect(live.posts).toBe(posts.length);
   });
 
   it("posts nothing while the backend can't send (locked, recovering, disposed)", () => {
