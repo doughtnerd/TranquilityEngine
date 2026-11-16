@@ -25,9 +25,6 @@ declare module "../../../engine/render/RenderSurface" {
   }
 }
 
-/** A warm item's mesh (a Babylon mesh; this module names no Babylon types itself, ADR 0075). */
-type Mesh = NonNullable<ReturnType<WarmCustom["build"]>>["meshes"][number];
-
 /** @internal The particle player's host, from the renderer's core host (ADR 0130's model, ADR 0154). */
 export function particleHost(host: BabylonFeatureHost): BabylonParticleHost {
   return {
@@ -77,7 +74,7 @@ export class ParticlesFeature implements BabylonFeature {
     if (c instanceof ParticleSystem) this.particles.release(c);
   }
 
-  /** One warm item per effect the content uses (ADR 0080): its draws, one particle each, built by the player. */
+  /** One warm item per effect the content uses (ADR 0080): an effect player's warm state, each draw holding one particle. */
   warm(content: WarmContent): WarmItem[] {
     return content.effects.map((e) => this.warmEffect(e));
   }
@@ -86,22 +83,7 @@ export class ParticlesFeature implements BabylonFeature {
     const name = `${WARM_PREFIX}particles:${typeof effect === "string" ? effect : "embedded"}`;
     return {
       key: typeof effect === "string" ? name : `${name}:${JSON.stringify(effect)}`,
-      build: (_at, position, camera) => {
-        const draws = this.particles.warmDraws(effect, name, position, () => camera);
-        if (!draws) return null; // a texture or model is still loading
-        const meshes: Mesh[] = [];
-        const systems: { render(): number; isReady(): boolean }[] = [];
-        for (const d of draws) {
-          if (d.kind === "system") systems.push(d.ps as unknown as { render(): number; isReady(): boolean });
-          else meshes.push((d as unknown as { mesh: Mesh }).mesh);
-        }
-        return {
-          meshes,
-          systems,
-          ready: () => meshes.every((m) => m.isReady(true)) && systems.every((s) => s.isReady()),
-          dispose: () => draws.forEach((d) => d.dispose()),
-        };
-      },
+      build: (_at, position, camera) => this.particles.warm(effect, name, position, camera), // null while a texture or model is still loading
     };
   }
 

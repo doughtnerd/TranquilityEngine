@@ -12,10 +12,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createGraphMaterial } from "../render/babylon/graphMaterial";
 import type { CompiledShaderGraph } from "../render/shaderGraph/compile";
 import { Color as EngineColor } from "../core/math";
-import type { InstanceDraw, QuadDraw } from "../render/babylon/particleMeshes";
+import type { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { BabylonParticles, type BabylonParticleHost } from "../render/babylon/particles";
 import type { ParticleCommand, ParticleSystem } from "../render/components";
-import { trailPoint } from "../render/particles/simulation";
 import { defaultEmitter, defaultRenderer, defaultShape, particleEffectJSON, type ParticleEffect, type ParticleEmitterSettings, type ParticleRenderer } from "../scene/particles";
 
 /** A stand-in ParticleSystem component: the fields and state the player reads and writes. */
@@ -45,9 +44,17 @@ describe("particles on the Babylon backend (ADR 0075 stage 5)", () => {
   let engine: NullEngine;
   let scene: Scene;
   let players: BabylonParticles[];
+  /** What the draws last sent each GPU vertex buffer (the NullEngine keeps no copy of a partial update). */
+  let uploads: WeakMap<object, Float32Array>;
 
   beforeEach(() => {
     engine = new NullEngine();
+    uploads = new WeakMap();
+    const upload = engine.updateDynamicVertexBuffer.bind(engine);
+    engine.updateDynamicVertexBuffer = (buffer, vertices, ...rest) => {
+      uploads.set(buffer, vertices as Float32Array);
+      upload(buffer, vertices, ...rest);
+    };
     scene = new Scene(engine);
     // Trails and material-asset quads face the active camera: on +Z, looking at the origin.
     const camera = new TargetCamera("camera", new Vector3(0, 0, 10), scene);
@@ -80,6 +87,12 @@ describe("particles on the Babylon backend (ADR 0075 stage 5)", () => {
   }
   /** The scene's Babylon particle systems. */
   const systems = () => scene.particleSystems as BabylonParticleSystem[];
+  /** The meshes drawing the "Fx" node's effect, in the order its emitters were built. */
+  const drawn = () => scene.meshes.filter((m) => m.name.startsWith("particles:Fx:")) as Mesh[];
+  /** Quads a mesh built on the CPU draws (its submesh's indices, six a quad). */
+  const quadsOf = (m: Mesh) => (m.isVisible ? m.subMeshes[0].indexCount / 6 : 0);
+  /** A mesh's vertex data of one kind (thin-instance buffers included), as last sent to the GPU. */
+  const data = (m: Mesh, kind: string) => uploads.get(m.getVertexBuffer(kind)!.getWrapperBuffer().getBuffer()!)!;
   const frames = (p: BabylonParticles, c: ParticleSystem, n: number, dt = 1 / 60, unscaled = dt) => {
     for (let i = 0; i < n; i++) p.sync([c], dt, unscaled);
   };
@@ -104,9 +117,10 @@ describe("particles on the Babylon backend (ADR 0075 stage 5)", () => {
 
   describe("seed", () => {
     const randomFx = (): ParticleEffect => ({ emitters: [{ ...defaultEmitter("E"), startLife: 10, startSpeed: 3, shape: { ...defaultShape(), type: "sphere", radius: 1 }, emission: { rateOverTime: 50, rateOverDistance: 0, bursts: [] } }] });
+    /** Where the particles `c` draws are (several players share the scene: its own system, found as the variant report does). */
     const snapshot = (p: BabylonParticles, c: ParticleSystem) => {
-      const sim = p.drawsOf(c)[0].emitter;
-      return sim.pool.slice(0, sim.count).map((q) => [q.wx, q.wy, q.wz].map((v) => v.toFixed(5)).join(","));
+      const own = systems().find((s) => p.ownerOf(s) === c)!;
+      return own.particles.map((q) => q.position.asArray().map((v) => v.toFixed(5)).join(","));
     };
     const play = (seed: number) => {
       const p = make();
@@ -290,20 +304,19 @@ describe("particles on the Babylon backend (ADR 0075 stage 5)", () => {
     const c = fakeSystem({ emitters: [still("E", { mode: "mesh", mesh: "builtin:cube" }, { startRotation: 90 })] });
     frames(p, c, 3);
     expect(scene.particleSystems).toHaveLength(0);
-    const d = p.drawsOf(c)[0] as InstanceDraw;
-    expect(d.kind).toBe("instances");
-    expect(d.mesh.thinInstanceCount).toBe(3);
-    expect(d.mesh.isVisible).toBe(true);
-    expect(d.mesh.material).toBeInstanceOf(StandardMaterial); // the unlit texture material
+    const [mesh] = drawn();
+    expect(mesh.thinInstanceCount).toBe(3);
+    expect(mesh.isVisible).toBe(true);
+    expect(mesh.material).toBeInstanceOf(StandardMaterial); // the unlit texture material
     // Turned 90° about +Y and scaled by the size (2), at the node's position.
-    const m = Array.from(d.matrices.subarray(0, 16));
+    const m = Array.from(mesh.thinInstanceGetWorldMatrices()[0].m);
     expect(m[0]).toBeCloseTo(0, 5);
     expect(m[2]).toBeCloseTo(-2, 5);
     expect(m[5]).toBeCloseTo(2, 5);
     expect(m[8]).toBeCloseTo(2, 5);
     expect(m.slice(12)).toEqual([3, 4, 5, 1]);
     // #ff000080: linear red, half opaque.
-    expect(Array.from(d.colors.subarray(0, 4)).map((v) => +v.toFixed(3))).toEqual([1, 0, 0, 0.502]);
+    expect(Array.from(data(mesh, "instanceColor").slice(0, 4)).map((v) => +v.toFixed(3))).toEqual([1, 0, 0, 0.502]);
     expect(warn).not.toHaveBeenCalled();
     warn.mockRestore();
   });
@@ -317,19 +330,17 @@ describe("particles on the Babylon backend (ADR 0075 stage 5)", () => {
     );
     const c = fakeSystem({ emitters: [emitter] });
     frames(p, c, 10);
-    const d = p.drawsOf(c)[0] as QuadDraw;
-    expect(d.kind).toBe("trail");
+    const [mesh] = drawn();
     expect(scene.particleSystems).toHaveLength(0);
-    const sim = d.emitter.pool[0];
-    expect(sim.trailCount).toBe(5);
-    expect(d.quads).toBe(4); // one per segment
+    expect(quadsOf(mesh)).toBe(4); // one per segment of its five trail points
     // The particle rises along +Y; the camera looks along -Z, so the ribbon spreads along X.
-    const v = (i: number) => [d.positions[i * 3], d.positions[i * 3 + 1], d.positions[i * 3 + 2]];
-    const head = { x: 0, y: 0, z: 0 };
-    trailPoint(sim, 0, head);
+    const positions = data(mesh, "position");
+    const colors = data(mesh, "color");
+    const uvs = data(mesh, "uv");
+    const v = (i: number) => [positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2]];
     const [a, b] = [v(0), v(1)];
-    expect(a[1]).toBeCloseTo(head.y, 5);
-    expect(b[1]).toBeCloseTo(head.y, 5);
+    const head = { y: a[1] };
+    expect(b[1]).toBeCloseTo(head.y, 5); // across the ribbon at the head
     expect(Math.abs(a[0] - b[0])).toBeCloseTo(0.5, 5); // full width at the head
     expect(a[2]).toBeCloseTo(0, 5);
     expect(b[2]).toBeCloseTo(0, 5);
@@ -337,17 +348,17 @@ describe("particles on the Babylon backend (ADR 0075 stage 5)", () => {
     expect(Math.abs(v(4)[0] - v(5)[0])).toBeCloseTo(0.375, 5);
     // The tail (last quad's far end) has no width.
     expect(v(14)[0]).toBeCloseTo(v(15)[0], 5);
-    const tail = { x: 0, y: 0, z: 0 };
-    trailPoint(sim, 4, tail);
-    expect(v(14)[1]).toBeCloseTo(tail.y, 5);
+    const tail = { y: v(14)[1] };
+    expect(v(15)[1]).toBeCloseTo(tail.y, 5);
     expect(tail.y).toBeLessThan(head.y);
-    // Coloured with the particle, U along the ribbon (1 at the head).
-    expect(d.colors[3]).toBeCloseTo(sim.a, 5);
-    expect(d.uvs[0]).toBeCloseTo(1, 5);
-    expect(d.uvs[14 * 2]).toBeCloseTo(0, 5);
+    // Coloured with the particle all along, U along the ribbon (1 at the head).
+    expect(colors[3]).toBeGreaterThan(0);
+    expect(colors[14 * 4 + 3]).toBeCloseTo(colors[3], 5);
+    expect(uvs[0]).toBeCloseTo(1, 5);
+    expect(uvs[14 * 2]).toBeCloseTo(0, 5);
     // Fewer quads than the buffers hold make the submesh partial: it needs bounds of its own, which
     // Babylon's transparent sort reads (it threw on `boundingSphere` of undefined in the editor).
-    const sub = d.mesh.subMeshes[0];
+    const sub = mesh.subMeshes[0];
     expect(sub.IsGlobal).toBe(false);
     const bounds = sub.getBoundingInfo();
     expect(bounds).toBeDefined();
@@ -363,9 +374,7 @@ describe("particles on the Babylon backend (ADR 0075 stage 5)", () => {
     const p = make(false, true, { material: () => graphMaterial });
     const c = fakeSystem({ emitters: [still("Q", { material: "fx.mat" }), still("M", { mode: "mesh", material: "fx.mat" })] });
     frames(p, c, 20);
-    const [quads, meshes] = p.drawsOf(c);
-    const q = (quads as QuadDraw).mesh;
-    const m = (meshes as InstanceDraw).mesh;
+    const [q, m] = drawn();
     for (const mesh of [q, m]) expect(mesh.material).toBe(graphMaterial);
     const defines = (mesh: typeof q) => {
       graphMaterial.isReadyForSubMesh(mesh, mesh.subMeshes[0]);
@@ -389,17 +398,17 @@ describe("particles on the Babylon backend (ADR 0075 stage 5)", () => {
     const c = fakeSystem({ emitters: [still("E", { material: "fx.mat" }), still("M", { mode: "mesh", material: "fx.mat" })] });
     frames(p, c, 2);
     expect(asked).toContain("fx.mat");
-    let [billboards, meshes] = p.drawsOf(c);
-    expect(billboards.kind).toBe("system"); // the material isn't there: the texture and blending
-    expect((meshes as InstanceDraw).mesh.material).toBeInstanceOf(StandardMaterial);
+    expect(scene.particleSystems).toHaveLength(1); // the material isn't there: the texture and blending
+    let [meshes] = drawn();
+    expect(meshes.material).toBeInstanceOf(StandardMaterial);
     material = new StandardMaterial("fx", scene);
     frames(p, c, 20); // the build key is checked a few times a second
-    [billboards, meshes] = p.drawsOf(c);
-    expect(billboards.kind).toBe("quads");
-    expect((billboards as QuadDraw).mesh.material).toBe(material);
-    expect((billboards as QuadDraw).quads).toBe(3);
-    expect((meshes as InstanceDraw).mesh.material).toBe(material);
     expect(scene.particleSystems).toHaveLength(0);
+    let billboards: Mesh;
+    [billboards, meshes] = drawn();
+    expect(billboards.material).toBe(material);
+    expect(quadsOf(billboards)).toBe(3);
+    expect(meshes.material).toBe(material);
     p.dispose();
     expect(scene.materials).toContain(material); // shared: not the draw's to dispose
     expect(scene.meshes).toHaveLength(0);
@@ -408,14 +417,18 @@ describe("particles on the Babylon backend (ADR 0075 stage 5)", () => {
   it("orders particle systems by renderOrder, and mesh draws by alphaIndex", () => {
     const p = make();
     const c = fakeSystem({
-      emitters: [still("Two", { renderOrder: 2 }), still("Minus", { renderOrder: -1 }), still("Zero", {}), still("TrailBack", { mode: "trail", renderOrder: -3 }), still("MeshFront", { mode: "mesh", renderOrder: 4 }), still("MeshZero", { mode: "mesh" })],
+      emitters: [
+        still("Two", { renderOrder: 2 }, { startSize: 3 }),
+        still("Minus", { renderOrder: -1 }, { startSize: 1 }),
+        still("Zero", {}, { startSize: 2 }),
+        still("TrailBack", { mode: "trail", renderOrder: -3 }),
+        still("MeshFront", { mode: "mesh", renderOrder: 4 }),
+        still("MeshZero", { mode: "mesh" }),
+      ],
     });
     frames(p, c, 2);
-    const draws = p.drawsOf(c);
-    expect(systems()).toEqual([draws[1].ps, draws[2].ps, draws[0].ps]); // -1, 0, 2
-    expect((draws[3] as QuadDraw).mesh.alphaIndex).toBe(-3);
-    expect((draws[4] as InstanceDraw).mesh.alphaIndex).toBe(Number.POSITIVE_INFINITY);
-    expect((draws[5] as InstanceDraw).mesh.alphaIndex).toBe(Number.MAX_VALUE); // with the scene's other transparent meshes
+    expect(systems().map((s) => s.particles[0].scale.x)).toEqual([1, 2, 3]); // Minus (-1), Zero (0), Two (2)
+    expect(drawn().map((m) => m.alphaIndex)).toEqual([-3, Number.POSITIVE_INFINITY, Number.MAX_VALUE]); // MeshZero with the scene's other transparent meshes
   });
 
   it("blends flipbook tiles: each particle twice, on its tile and the next, weighted by the fraction", () => {
@@ -424,24 +437,23 @@ describe("particles on the Babylon backend (ADR 0075 stage 5)", () => {
     const frame: ParticleEmitterSettings["behaviors"][number] = { type: "frameOverLife", frame: { curve: [[0, 0], [1, 4]] } };
     const c = fakeSystem({ emitters: [still("E", { tiles: [2, 2], blendTiles: true }, { startLife: 1, behaviors: [frame] }), still("Q", { tiles: [2, 2], blendTiles: true, material: "fx.mat" }, { startLife: 1, behaviors: [frame] })] });
     frames(p, c, 18); // 0.3 s: tile value 1.2
-    const [d, q] = p.drawsOf(c);
-    const sim = d.emitter.pool[0];
-    expect(sim.tile).toBe(1);
-    expect(sim.tileBlend).toBeCloseTo(0.2, 1);
     const list = systems()[0].particles;
     expect(list).toHaveLength(6); // 3 particles × 2
     expect(list[0].cellIndex).toBe(1);
-    expect(list[0].color.a).toBeCloseTo(sim.a * (1 - sim.tileBlend), 5);
     expect(list[1].cellIndex).toBe(2);
-    expect(list[1].color.a).toBeCloseTo(sim.a * sim.tileBlend, 5);
-    expect(list[1].color.r).toBeCloseTo(sim.r, 5); // additive: only the opacity is weighted
+    // The opacity split by the tile value's fraction (0.2): 0.8 on its tile, 0.2 on the next.
+    const [a0, a1] = [list[0].color.a, list[1].color.a];
+    expect(a1 / (a0 + a1)).toBeCloseTo(0.2, 1);
+    expect(list[1].color.r).toBeCloseTo(list[0].color.r, 5); // additive: only the opacity is weighted
     // Quads (a material asset) do the same: two quads, the second on the next tile's UVs.
-    const quads = q as QuadDraw;
-    expect(quads.quads).toBe(6);
-    expect(quads.colors[3]).toBeCloseTo(sim.a * (1 - sim.tileBlend), 5);
-    expect(quads.colors[4 * 4 + 3]).toBeCloseTo(sim.a * sim.tileBlend, 5);
-    expect([quads.uvs[0], quads.uvs[1]]).toEqual([0.5, 0.5]); // tile 1: top right, its bottom-left corner
-    expect([quads.uvs[8], quads.uvs[9]]).toEqual([0, 0]); // tile 2: bottom left
+    const [q] = drawn();
+    const colors = data(q, "color");
+    const uvs = data(q, "uv");
+    expect(quadsOf(q)).toBe(6);
+    expect(colors[3]).toBeCloseTo(a0, 5);
+    expect(colors[4 * 4 + 3]).toBeCloseTo(a1, 5);
+    expect([uvs[0], uvs[1]]).toEqual([0.5, 0.5]); // tile 1: top right, its bottom-left corner
+    expect([uvs[8], uvs[9]]).toEqual([0, 0]); // tile 2: bottom left
   });
 
   it("loads a flipbook's texture unflipped for Babylon's sprite sheet, and other particle textures flipped", async () => {
@@ -474,9 +486,10 @@ describe("particles on the Babylon backend (ADR 0075 stage 5)", () => {
     const p = make(false, true, { material: (path) => (path ? material : null) });
     const c = fakeSystem({ emitters: [still("H", { mode: "horizontal", material: "fx.mat" })] });
     frames(p, c, 10);
-    const d = p.drawsOf(c)[0] as QuadDraw;
-    expect(d.quads).toBeGreaterThan(0);
-    const v = (i: number) => [d.positions[i * 3], d.positions[i * 3 + 1], d.positions[i * 3 + 2]];
+    const [d] = drawn();
+    expect(quadsOf(d)).toBeGreaterThan(0);
+    const positions = data(d, "position");
+    const v = (i: number) => [positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2]];
     const [c0, c1, c2, c3] = [v(0), v(1), v(2), v(3)];
     for (const k of [c0, c1, c2, c3]) expect(k[1]).toBeCloseTo(c0[1], 5); // flat
     expect(c3[2]).toBeGreaterThan(c0[2]); // V 1 (the image's top) towards +Z
@@ -493,21 +506,21 @@ describe("particles on the Babylon backend (ADR 0075 stage 5)", () => {
     const p = make(false, true, { material: (path) => (path ? material : null) });
     const c = fakeSystem({ emitters: [still("Q", { material: "fx.mat" }), still("T", { mode: "trail", material: "fx.mat" }, { startSpeed: 2 }), still("Plain", { mode: "trail" }, { startSpeed: 2 })] });
     frames(p, c, 10);
-    const [q, t, plain] = p.drawsOf(c) as QuadDraw[];
-    expect(q.mesh.isVerticesDataPresent("normal")).toBe(true);
+    const [q, t, plain] = drawn();
+    expect(q.isVerticesDataPresent("normal")).toBe(true);
     // The camera is on +Z looking at the particles at the origin: billboard normals point at it.
-    const n = q.normals!;
+    const n = data(q, "normal");
     expect(n[0]).toBeCloseTo(0, 5);
     expect(n[1]).toBeCloseTo(0, 5);
     expect(n[2]).toBeCloseTo(1, 5);
-    expect(t.quads).toBeGreaterThan(0);
-    expect(t.mesh.isVerticesDataPresent("normal")).toBe(true);
-    const tn = t.normals!;
-    const toCamera = new Vector3(0, 0, 10).subtract(new Vector3(t.positions[0], t.positions[1], t.positions[2]));
+    expect(quadsOf(t)).toBeGreaterThan(0);
+    expect(t.isVerticesDataPresent("normal")).toBe(true);
+    const tn = data(t, "normal");
+    const tp = data(t, "position");
+    const toCamera = new Vector3(0, 0, 10).subtract(new Vector3(tp[0], tp[1], tp[2]));
     expect(Vector3.Dot(new Vector3(tn[0], tn[1], tn[2]), toCamera)).toBeGreaterThan(0);
     expect(Math.hypot(tn[0], tn[1], tn[2])).toBeCloseTo(1, 5);
-    expect(plain.normals).toBeNull();
-    expect(plain.mesh.isVerticesDataPresent("normal")).toBe(false);
+    expect(plain.isVerticesDataPresent("normal")).toBe(false);
   });
 
   it("sets up blending, billboard modes and flipbooks on the Babylon system", () => {

@@ -11,8 +11,8 @@ import { Vector3 } from "@babylonjs/core/Maths/math.vector.js";
 import { Scene } from "@babylonjs/core/scene.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Color as EngineColor } from "../core/math";
-import { KernelDraw } from "../render/babylon/gpuParticles";
-import { KernelMaterialDraw, MycoKernelParticlePlugin } from "../render/babylon/kernelMaterial";
+import { ShaderMaterial } from "@babylonjs/core/Materials/shaderMaterial.js";
+import { MycoKernelParticlePlugin } from "../render/babylon/kernelMaterial";
 import { BabylonParticles } from "../render/babylon/particles";
 import { materialVertexCode } from "../render/particles/gpu/kernelShader";
 import type { ParticleCommand, ParticleSystem } from "../render/components";
@@ -108,18 +108,19 @@ describe("kernel outputs with material assets, and kernel warm-up (ADR 0126)", (
   it("draws a kernel output with an unshared copy of a PBR material carrying the placement plugin", () => {
     const c = fakeSystem(graph("materials/fx.material.json"));
     for (let i = 0; i < 5; i++) player.sync([c], 1 / 30, 1 / 30);
-    const draws = player.kernelDrawsOf(c);
-    expect(draws).toHaveLength(1);
-    const d = draws[0] as KernelMaterialDraw;
-    expect(d).toBeInstanceOf(KernelMaterialDraw);
+    const drawn = scene.meshes.filter((m) => m.name.startsWith("particles:Fx:"));
+    expect(drawn).toHaveLength(1);
+    const mesh = drawn[0] as Mesh;
     expect(copies).toBe(1);
-    expect(d.material).not.toBe(material);
-    expect(d.material.pluginManager?.getPlugin("MycoKernelParticles")).toBeInstanceOf(MycoKernelParticlePlugin);
-    expect(d.sorted).toBe(true); // alpha blending sorts by default
-    expect(d.plugin.current?.state).toHaveLength(4); // the JavaScript executor's four state textures
-    expect(d.mesh.forcedInstanceCount).toBe(64);
-    expect(d.mesh.getVerticesData("color")).toBeTruthy(); // white vertex colours carry the particle's
-    const ext = d.material;
+    const ext = mesh.material as PBRMaterial;
+    expect(ext).toBeInstanceOf(PBRMaterial);
+    expect(ext).not.toBe(material);
+    const plugin = ext.pluginManager?.getPlugin("MycoKernelParticles") as MycoKernelParticlePlugin;
+    expect(plugin).toBeInstanceOf(MycoKernelParticlePlugin);
+    expect(plugin.current?.pairs).toBeTruthy(); // alpha blending sorts by default: the sorted pairs are bound
+    expect(plugin.current?.state).toHaveLength(4); // the JavaScript executor's four state textures
+    expect(mesh.forcedInstanceCount).toBe(64);
+    expect(mesh.getVerticesData("color")).toBeTruthy(); // white vertex colours carry the particle's
     player.dispose();
     expect(scene.materials.includes(ext)).toBe(false);
     expect(scene.materials.includes(material!)).toBe(true);
@@ -130,7 +131,8 @@ describe("kernel outputs with material assets, and kernel warm-up (ADR 0126)", (
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const c = fakeSystem(graph("materials/plain.material.json"));
     player.sync([c], 1 / 30, 1 / 30);
-    expect(player.kernelDrawsOf(c)[0]).toBeInstanceOf(KernelDraw);
+    const mesh = scene.meshes.find((m) => m.name.startsWith("particles:Fx:"))!;
+    expect(mesh.material).toBeInstanceOf(ShaderMaterial); // the kernel's own shader draw, with the texture
     expect(warn.mock.calls.some(([m]) => /isn't a PBR material/.test(String(m)))).toBe(true);
     warn.mockRestore();
   });
@@ -163,22 +165,19 @@ describe("kernel outputs with material assets, and kernel warm-up (ADR 0126)", (
   it("warms kernel emitters' own draws (and pipelines) besides the CPU ones", () => {
     material = null;
     const effect = particleGraphJSON(graph("", { trail: true }));
-    const draws = player.warmDraws(effect, "warm:fx", { x: 0, y: 0, z: 0 }, () => camera)!;
-    expect(draws).toHaveLength(2); // the quad output and the trail, no CPU draw for the kernel system
-    for (const d of draws) {
-      expect(d.kind).toBe("instances");
-      expect((d as unknown as { mesh: Mesh }).mesh.forcedInstanceCount).toBe(64);
-    }
+    const parts = player.warm(effect, "warm:fx", { x: 0, y: 0, z: 0 }, camera)!;
+    expect(parts.systems).toHaveLength(0); // no CPU draw for the kernel system
+    expect(parts.meshes).toHaveLength(2); // the quad output and the trail
+    for (const m of parts.meshes) expect(m.forcedInstanceCount).toBe(64);
     const meshes = scene.meshes.length;
-    for (const d of draws) d.dispose();
+    parts.dispose();
     expect(scene.meshes.length).toBe(meshes - 2);
   });
 
   it("warms a material-asset kernel output with its material copy", () => {
-    const draws = player.warmDraws(particleGraphJSON(graph("materials/fx.material.json")), "warm:fx", { x: 0, y: 0, z: 0 }, () => camera)!;
-    expect(draws).toHaveLength(1);
-    const mesh = (draws[0] as unknown as { mesh: Mesh }).mesh;
-    expect(mesh.material?.pluginManager?.getPlugin("MycoKernelParticles")).toBeTruthy();
-    draws[0].dispose();
+    const parts = player.warm(particleGraphJSON(graph("materials/fx.material.json")), "warm:fx", { x: 0, y: 0, z: 0 }, camera)!;
+    expect(parts.meshes).toHaveLength(1);
+    expect(parts.meshes[0]!.material?.pluginManager?.getPlugin("MycoKernelParticles")).toBeTruthy();
+    parts.dispose();
   });
 });

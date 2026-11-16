@@ -1,6 +1,6 @@
 # 0153. One effect player plays every particle effect, and prefab and scene thumbnails draw through the real render features
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0185 (the warm-up builds through the player; one draw factory makes every particle draw)
 - **Date:** 2026-11-09
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

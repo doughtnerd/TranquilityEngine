@@ -20,8 +20,7 @@ import type { ModelMesh } from "../../scene/models";
 import type { KernelSystem } from "../../scene/particleKernel";
 import { outputSorts } from "../../scene/particleGraph";
 import { DRAW_MODE, materialVertexCode } from "../particles/gpu/kernelShader";
-import { particleAlphaIndex } from "./particleMeshes";
-import { MycoSoftParticlePlugin, type DepthSource } from "./softParticles";
+import type { Draw } from "./particleDraw";
 
 /** The textures a material draw reads, from the run (latest state, uniforms, look-up table, sorted pairs). */
 export interface KernelTextures {
@@ -149,25 +148,29 @@ export function drawsKernelParticles(material: Material | null): material is PBR
 }
 
 /** One kernel output drawn with a material asset's copy. */
-export class KernelMaterialDraw {
+export class KernelMaterialDraw implements Draw {
+  readonly kind = "kernelMaterial";
   readonly mesh: Mesh;
+  readonly meshes: readonly Mesh[];
+  readonly systems: readonly never[] = [];
   readonly material: PBRMaterial;
   readonly plugin: MycoKernelParticlePlugin;
   readonly sorted: boolean;
 
   constructor(
     scene: Scene,
-    name: string,
+    readonly name: string,
     readonly kernel: KernelSystem,
     readonly output: number,
     private readonly source: KernelTextureSource & { sortFor?(): void },
     /** An unshared copy of the material asset (disposed with the draw). */
     private readonly copy: { material: PBRMaterial; dispose(): void },
-    opts: { mesh?: ModelMesh; softness: number; depth: DepthSource | null; interleaved: boolean },
+    opts: { mesh?: ModelMesh; interleaved: boolean },
   ) {
     const out = kernel.outputs[output];
     this.sorted = outputSorts(out.settings);
     this.mesh = new Mesh(name, scene);
+    this.meshes = [this.mesh];
     const vd = new VertexData();
     const m = out.type === "mesh" ? opts.mesh?.data : undefined;
     if (m) {
@@ -197,17 +200,19 @@ export class KernelMaterialDraw {
     this.material = copy.material;
     this.material.backFaceCulling = false;
     this.plugin = new MycoKernelParticlePlugin(this.material, kernel, output, { sorted: this.sorted, interleaved: opts.interleaved });
-    if (opts.softness > 0 && opts.depth) new MycoSoftParticlePlugin(this.material, opts.softness, opts.depth);
     this.mesh.material = this.material;
     this.mesh.alwaysSelectAsActiveMesh = true;
     this.mesh.isPickable = false;
     this.mesh.doNotSyncBoundingInfo = true;
     this.mesh.freezeWorldMatrix(); // the plugin writes world positions
     this.mesh.forcedInstanceCount = kernel.capacity;
-    this.mesh.alphaIndex = particleAlphaIndex(out.settings.renderOrder);
     // Textures from the start: readiness can't wait on them (Babylon settles a material's defines the
     // first time it asks, so a plugin that says "not ready" then is never asked to compile again).
     this.plugin.current = source.textures(false);
+  }
+
+  isReady(): boolean {
+    return this.mesh.isReady(true);
   }
 
   /** This frame's textures (after the run stepped). */

@@ -3,11 +3,9 @@
 // systems, drawn through Babylon; Babylon's own particle features don't cover the effect format), and this
 // adapter does what is about the World: it reads each component's effect, seed, scale, tint and
 // overrides, rebuilds a player when the effect or what it draws with changes, runs scripts' commands, the
-// editor's preview rules and `destroyOnFinish`, reports `_state`, and builds the warm-up's draws (ADR
-// 0080). Loaded on demand with the Particles plugin's feature, so games without particles never load it.
-// Babylon types stay inside this folder (ADR 0010).
-import type { Mesh } from "@babylonjs/core/Meshes/mesh.js";
-import type { ParticleEmitterSettings } from "../../scene/particles";
+// editor's preview rules and `destroyOnFinish`, reports `_state`, and asks a player for the warm-up's
+// state of an effect (ADR 0080). Loaded on demand with the Particles plugin's feature, so games without
+// particles never load it. Babylon types stay inside this folder (ADR 0010).
 import type { Camera } from "@babylonjs/core/Cameras/camera.js";
 import { Assets } from "../../scene/Assets";
 import { GameObject } from "../../scene/GameObject";
@@ -16,14 +14,9 @@ import { projectAssets } from "../../scene/particleSubgraphs";
 import type { ParticleSystem } from "../components";
 import type { ParticleStats } from "../RenderSurface";
 import type { ParticlePreview } from "../renderPolicy";
-import { ProgramRunner } from "../particles/programRunner";
-import { EffectSimulation, linearRGB } from "../particles/simulation";
-import type { Draw } from "./particleDraw";
-import type { KernelDraw } from "./gpuParticles";
-import type { KernelMaterialDraw } from "./kernelMaterial";
-import type { KernelSystem, SystemBackend } from "../../scene/particleKernel";
-import { KernelEffect } from "../particles/gpu/kernelEffect";
-import { EffectPlayer, EffectResources, type EffectHost, type PlayState } from "./effectPlayer";
+import { linearRGB } from "../particles/simulation";
+import { EffectPlayer, EffectResources, type EffectHost, type PlayState, type WarmPoint } from "./effectPlayer";
+import type { WarmParts } from "./warmUp";
 
 /** What the particle player needs from the render backend: an effect host, plus the World's matrices and rules. */
 export interface BabylonParticleHost extends EffectHost {
@@ -52,8 +45,6 @@ interface Instance {
 
 /** Editor preview: a finished one-shot effect plays again after this many seconds. */
 const PREVIEW_REPEAT_GAP = 0.6;
-/** A warm-up particle's size in metres: drawn, but covering no pixel. */
-const WARM_PARTICLE_SIZE = 1e-5;
 /** Seconds between checks of a built effect's textures. */
 const KEY_CHECK_INTERVAL = 0.25;
 
@@ -157,7 +148,7 @@ export class BabylonParticles {
   /** A player for `c`'s effect JSON, or null when it's missing or broken (warned once). */
   private player(c: ParticleSystem, raw: unknown, state: PlayState): EffectPlayer | null {
     const program = this.parse(c, raw);
-    return program && new EffectPlayer(this.resources, program, { name: c.node.name, seed: c.seed, state });
+    return program && new EffectPlayer(this.resources, program, { name: `particles:${c.node.name}`, seed: c.seed, state });
   }
 
   /** The effect's JSON: the asset's (identity changes when the file does), or the embedded object. */
@@ -193,31 +184,16 @@ export class BabylonParticles {
     return !!before && now.some((v, i) => v !== before[i]);
   }
 
-  /** @internal Tests and the editor: the backend each system of `c`'s effect runs on. */
-  backendsOf(c: ParticleSystem): SystemBackend[] {
-    const program = this.instances.get(c)?.player?.program;
-    return (program && this.resources.plan(program)?.backends) ?? [];
-  }
-
-  /** @internal Tests: a system's kernel draws. */
-  kernelDrawsOf(c: ParticleSystem): readonly (KernelDraw | KernelMaterialDraw)[] {
-    return this.instances.get(c)?.player?.kdraws ?? [];
-  }
-
-  /** @internal Tests: the kernel effect playing `c`. */
-  kernelEffectOf(c: ParticleSystem): KernelEffect | null {
-    return this.instances.get(c)?.player?.kfx ?? null;
-  }
-
   // --- warm-up (ADR 0080) ---------------------------------------------------------------------------------
 
   /**
-   * @internal The draws an effect makes, as a player would build them, each holding one particle at
-   * `at` too small to see, so drawing them once makes their shaders' pipelines. `effect` is an asset
-   * path or an embedded effect object. Null while a texture, material or model it needs is loading
-   * (ask again later); empty when it can't be built (missing or broken: the load reports it).
+   * @internal What warming an effect draws: an effect player's warm state (`EffectPlayer.warm`), each
+   * draw holding one particle at `at` too small to see, so drawing them once makes their shaders'
+   * pipelines; disposing the parts disposes the player. `effect` is an asset path or an embedded effect
+   * object; draw names start with `name`. Null while a texture, material or model it needs is loading
+   * (ask again later); nothing to draw when it can't be built (missing or broken: the load reports it).
    */
-  warmDraws(effect: string | object, name: string, at: { x: number; y: number; z: number }, camera: () => Camera | null): Draw[] | null {
+  warm(effect: string | object, name: string, at: WarmPoint, camera: Camera): WarmParts | null {
     let raw: unknown = effect;
     let where = "a particle effect";
     if (typeof effect === "string") {
@@ -227,95 +203,26 @@ export class BabylonParticles {
       } catch {
         raw = undefined;
       }
-      if (raw === undefined) return [];
     }
-    const program = this.resources.compile(raw, where)?.program;
-    if (!program) return [];
-    const key = this.resources.buildKey(program);
-    if (key === null) return null;
-    const runner = new ProgramRunner(program);
-    const played = runner.effect();
-    const plan = this.resources.plan(program);
-    // Kernel systems warm their own pipelines below; the CPU warms the rest (ADR 0126).
-    const cpuEffect = plan?.running.length ? { ...played, emitters: played.emitters.map((e, i) => (plan.backends[i] === "cpu" ? e : { ...e, enabled: false })) } : played;
-    const sim = new EffectSimulation(cpuEffect, { live: runner.live });
-    const kernelDraws = plan?.running.length ? this.warmKernels(plan.running, played.emitters, runner, name, camera) : [];
-    if (kernelDraws === null) return null;
-    const cpuDraws = sim.emitters.map((e) => {
-      const d = this.resources.makeDraw(`${name}:${e.name}`, e, 1, camera);
-      const p = e.alloc();
-      p.wx = at.x;
-      p.wy = at.y;
-      p.wz = at.z;
-      p.size = p.length = WARM_PARTICLE_SIZE;
-      p.tileBlend = 0;
-      if (e.renderer.mode === "trail") {
-        // Two trail points, so the ribbon has a segment to draw.
-        p.trail = new Float32Array([at.x, at.y, at.z, at.x, at.y + WARM_PARTICLE_SIZE, at.z]);
-        p.trailCap = 2;
-        p.trailCount = 2;
-        p.trailHead = 0;
-      }
-      d.update();
-      return d;
-    });
-    return [...cpuDraws, ...kernelDraws];
+    const program = raw === undefined ? null : this.resources.compile(raw, where)?.program;
+    if (!program) return { meshes: [], systems: [], ready: () => true, dispose: () => {} };
+    const player = new EffectPlayer(this.resources, program, { name, camera: () => camera });
+    if (!player.warm(at)) {
+      player.dispose();
+      return null;
+    }
+    return {
+      meshes: player.draws.flatMap((d) => d.meshes),
+      systems: player.draws.flatMap((d) => d.systems),
+      ready: () => player.ready,
+      dispose: () => player.dispose(),
+    };
   }
 
-  /**
-   * Kernel systems' warm draws (ADR 0080, 0126): a kernel effect stepped once with nothing spawned, which
-   * builds each system's simulation pipeline (WebGPU compute, WebGL2 program; the dead list's spawn pass
-   * and the trail history pass with it), and each output's draw, updated once so a sorted output's sort
-   * passes are built too. The draws are meshes the warmer draws like the CPU's mesh draws; disposing them
-   * disposes the runs. Null while a texture or model they need is loading.
-   */
-  private warmKernels(kernels: KernelSystem[], emitters: readonly ParticleEmitterSettings[], runner: ProgramRunner, name: string, camera: () => Camera | null): Draw[] | null {
-    const res = this.resources;
-    const fx = new KernelEffect(kernels, emitters, res.kernelHost(), { live: runner.live, seed: 1 });
-    const out: Draw[] = [];
-    for (const s of fx.systems) {
-      for (const [k, o] of s.kernel.outputs.entries()) {
-        if (o.settings.texture && res.textureFor(o.settings.texture, false) === null) {
-          for (const d of out) d.dispose();
-          fx.dispose();
-          return null;
-        }
-        const dname = `${name}:${s.kernel.id}:${k}`;
-        const d = res.kernelDraw(dname, s, k, o);
-        out.push({ name: dname, kind: "instances", mesh: d.mesh, ps: { dispose: () => d.dispose() }, emitter: null as never, capacity: 0, ensure: () => {}, update: () => d.update(), dispose: () => d.dispose() } as Draw & { mesh: Mesh });
-      }
-    }
-    fx.endEmit();
-    const cam = camera();
-    fx.step(1 / 60, [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1], 1, [1, 1, 1, 1], runner.context, undefined);
-    const prev = this.host.scene.activeCamera;
-    if (cam) this.host.scene.activeCamera = cam;
-    for (const d of out) d.update();
-    if (cam) this.host.scene.activeCamera = prev;
-    // The runs belong to the draws now: the last one disposed takes the effect with it.
-    let left = out.length;
-    for (const d of out) {
-      const dispose = d.dispose;
-      d.dispose = () => {
-        dispose();
-        if (--left === 0) fx.dispose();
-      };
-    }
-    if (!out.length) fx.dispose();
-    return out;
-  }
-
-  /** @internal The variant report: the ParticleSystem a draw's Babylon particle system or mesh belongs to, if any. */
+  /** @internal The variant report: the ParticleSystem a Babylon particle system or mesh draws for, if any. */
   ownerOf(drawn: object): ParticleSystem | null {
-    for (const [c, inst] of this.instances) {
-      for (const d of inst.player?.draws ?? []) if (d.ps === drawn || (d as { mesh?: unknown }).mesh === drawn) return c;
-    }
+    for (const [c, inst] of this.instances) if (inst.player?.owns(drawn)) return c;
     return null;
-  }
-
-  /** @internal Tests: a system's draws. */
-  drawsOf(c: ParticleSystem): readonly Draw[] {
-    return this.instances.get(c)?.player?.draws ?? [];
   }
 
   /** Restart every previewed effect (the editor overlay's Restart). */
@@ -340,7 +247,7 @@ export class BabylonParticles {
       const p = inst.player;
       const count = p?.count ?? 0;
       emitters += p?.emitters ?? 0;
-      batches += (p?.draws.length ?? 0) + (p?.kdraws.length ?? 0);
+      batches += p?.draws.length ?? 0;
       particles += count;
       if (inst.shown && !previewed) previewed = { time: p?.time ?? 0, count };
     }
