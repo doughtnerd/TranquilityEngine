@@ -159,13 +159,13 @@ export class BabylonLighting {
   private skybox: Mesh | null = null;
   private skyMaterial: PBRMaterial | null = null;
   private readonly warned = new Set<string>();
-  /** Whether the last sync asked for cascaded shadows, for tests. */
+  /** Whether the last sync asked for cascaded shadows (the lighting diagnostics). */
   private cascading = false;
-  /** How many lights the last sync gave cascades (ADR 0110), for tests. */
+  /** How many lights the last sync gave cascades (ADR 0110; the lighting diagnostics). */
   private cascadedCount = 0;
   /**
-   * The main light shader graphs read (Main Light Direction / Color nodes), chosen as three.js's
-   * `directionalLights[0]` is: the first shadow-casting directional light, else the first directional
+   * The main light shader graphs read (Main Light Direction / Color nodes): the first shadow-casting
+   * directional light, else the first directional
    * one, else the default sun when the World has no Lights, else (0.4, 1, -0.6) and white. `direction`
    * is a unit world vector toward the light; `color` is linear colour × intensity. Updated in place.
    */

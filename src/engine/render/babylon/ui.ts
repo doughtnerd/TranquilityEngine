@@ -834,11 +834,6 @@ function context(): MeasureContext | null {
   return measureContext;
 }
 
-/** @internal Tests: forget the cached 2D context (after stubbing `OffscreenCanvas`). */
-export function _resetTextMeasurer(): void {
-  measureContext = undefined;
-}
-
 /** Text's lines (wrapped to `maxWidth` at spaces, as the GUI's word wrapping does) and the widest one. */
 function textSize(text: string, fontSize: number, weight: string, family: string, lineHeight: number, maxWidth = Infinity): { width: number; height: number; lines: number } {
   const ctx = context();

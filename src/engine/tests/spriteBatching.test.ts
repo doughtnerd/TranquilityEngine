@@ -65,7 +65,7 @@ describe("the sprite batcher (ADR 0108)", () => {
     const atlas = new Texture(null, scene), other = new Texture(null, scene);
     // Equal orders group by texture; a different texture in between splits a run.
     batcher.update([item(atlas, 0), item(other, 1), item(atlas, 0, 1), item(atlas, 2), item(atlas, 2, 1)]);
-    expect(batcher.stats()).toEqual({ batches: 3, sprites: 5 });
+    expect([batches(scene).length, batchedSprites(scene)]).toEqual([3, 5]);
     const meshes = batches(scene);
     expect(meshes.map((m) => m.thinInstanceCount)).toEqual([2, 1, 2]);
     // Each run's alphaIndex is its draw order, as a lone sprite's or a tilemap layer's is.
@@ -81,7 +81,7 @@ describe("the sprite batcher (ADR 0108)", () => {
     expect(meshes[0].material).toBe(meshes[2].material); // one material per texture
     // A whole tile map from one atlas is one draw.
     batcher.update(Array.from({ length: 500 }, (_, i) => item(atlas, 0, i)));
-    expect(batcher.stats()).toEqual({ batches: 1, sprites: 500 });
+    expect([batches(scene).length, batchedSprites(scene)]).toEqual([1, 500]);
     expect(batches(scene)[0].thinInstanceCount).toBe(500);
     expect(meshes[1].isEnabled()).toBe(false); // runs no longer needed are hidden, kept for reuse
   });

@@ -47,7 +47,6 @@ import { Camera, PostProcessing, ReflectionProbe, SpriteRenderer } from "../comp
 import type { UICore } from "../../ui/UICore";
 import { BabylonProbes } from "./probes";
 import { BabylonRenderTextures } from "./renderTextures";
-import type { GameObject } from "../../scene/GameObject";
 import type { PixelGrid, RenderDiagnostics, RenderFeatureDiagnostics } from "../RenderSurface";
 import { Graphics } from "../Graphics";
 import type { PostSettings } from "../postEffects";
@@ -57,7 +56,7 @@ import type { PostEffects, ToneMappingName } from "../postEffects";
 import { BabylonFrame, type CameraView } from "./frameGraph";
 import { BabylonLighting } from "./lighting";
 import { BabylonMaterialLibrary } from "./materialLibrary";
-import { eagerFeature, lazyFeature, type BabylonFeature, type BabylonFeatureFactory, type BabylonFeatureHost, type BabylonWarmFactory, type FeatureSlot, type FeatureSyncContext, type MeshesFeatureApi, type SpritesFeatureApi } from "./feature";
+import { describeDrawn, eagerFeature, lazyFeature, type BabylonFeature, type BabylonFeatureFactory, type BabylonFeatureHost, type BabylonWarmFactory, type FeatureSlot, type FeatureSyncContext, type MeshesFeatureApi, type SpritesFeatureApi } from "./feature";
 import { _registeredRenderFeatures, byPhase, ownerOf, specNeeded, SYNC_PHASES, type RenderFeatureRegistration, type RenderFeatureSpec, type SyncPhase } from "../renderFeatures";
 import { BabylonQuadBatches } from "./quadBatches";
 import { ENVIRONMENT_SPEC, EnvironmentFeature, FOG_SPEC, LIGHTS_SPEC, LightsFeature, PROBES_SPEC, ProbesFeature } from "./features";
@@ -68,7 +67,6 @@ import { AsyncPipelines, FirstFrames } from "./asyncPipelines";
 import { effectClock, PipelineWarmer, VariantReport, type WarmItem } from "./warmUp";
 import type { WarmContent } from "../../scene/warmUp";
 import type { QualityTier } from "../../core/graphics";
-import { _instantiatedPrefabOf } from "../../scene/SceneLoader";
 
 interface CameraEntry {
   camera: TargetCamera;
@@ -169,7 +167,7 @@ export class BabylonRenderer {
   private readonly phases = new Map<SyncPhase, FeatureSlot[]>();
   /** What the renderer worked out for the features this sync. */
   private readonly syncCtx: FeatureSyncContext = { view: null, viewCamera: null, ready: false, probeMeshes: [] };
-  /** Meshes drawn with a probe's map last frame, for tests. */
+  /** Meshes drawn with a probe's map last frame (the probes' diagnostics). */
   private reflecting = 0;
   /** The core services plugin features are built from (ADR 0135, 0154). */
   private readonly host: BabylonFeatureHost;
@@ -185,7 +183,7 @@ export class BabylonRenderer {
   private lastPlan: PlannedView[] = [];
   private readonly frame: BabylonFrame;
   private readonly casters: AbstractMesh[] = [];
-  /** What the last frame's first camera ran, for tests and the editor. */
+  /** What the last frame's first camera ran (the post diagnostics). */
   private lastPost: { composed: boolean; toneMapping: ToneMappingName; effects: PostEffects | null; composedCameras: number } | null = null;
   private clearColor: Color4;
   private owner: World | null = null;
@@ -342,27 +340,11 @@ export class BabylonRenderer {
     void this.warmer.rewarm();
   }
 
-  /** Editor play mode: log shader variants compiled after loading, naming their node and prefab (ADR 0080). */
+  /** Editor play mode: log shader variants compiled after loading, naming their node and prefab (ADR 0080, 0154 `describe`). */
   setVariantReport(on: boolean): void {
     if (on === !!this.report) return;
     this.report?.dispose();
-    this.report = on ? new VariantReport(this.engine, this.scene, (m) => this.describeMesh(m)) : null;
-  }
-
-  /**
-   * What a drawn object is, for the variant report: the first feature that knows it says (ADR 0154
-   * `describe`), and the node's prefab, if it came from one, is named; null for other objects.
-   */
-  private describeMesh(drawn: object): { what: string; prefab?: string } | null {
-    for (const slot of this.slots) {
-      const d = slot.feature?.describe?.(drawn);
-      if (!d) continue;
-      let prefab: string | undefined;
-      for (let n: GameObject | null = d.node ?? null; n && !prefab; n = n.parent) prefab = _instantiatedPrefabOf(n);
-      if (prefab) return { what: `${d.what} (from ${prefab})`, prefab };
-      return d.asset ? { what: d.what, prefab: d.asset } : { what: d.what };
-    }
-    return null;
+    this.report = on ? new VariantReport(this.engine, this.scene, (m) => describeDrawn(this.slots.map((s) => s.feature), m)) : null;
   }
 
   // --- Editor (ADR 0022; stage 8) ---------------------------------------------------------------
@@ -473,7 +455,7 @@ export class BabylonRenderer {
     this.gridSource = source;
   }
 
-  /** The view's device-pixel grid: the surface's, else (tests) the canvas's size, or the reference resolution, at the pixel ratio `resize` applied. */
+  /** The view's device-pixel grid: the surface's, else (a thumbnail renderer's) the canvas's size, or the reference resolution, at the pixel ratio `resize` applied. */
   private pixelGrid(): PixelGrid {
     if (this.gridSource) return this.gridSource();
     const canvas = this.engine.getRenderingCanvas();
@@ -533,7 +515,7 @@ export class BabylonRenderer {
     }
   }
 
-  /** @internal Tests and the editor: the UI core (layout and routing) a loaded feature runs (ADR 0154 `uiCore`), or null. */
+  /** @internal The editor: the UI core (layout and routing) a loaded feature runs (ADR 0154 `uiCore`), or null. */
   uiState(): UICore | null {
     for (const slot of this.slots) {
       const core = slot.feature?.uiCore?.();
@@ -555,11 +537,6 @@ export class BabylonRenderer {
     return this.feature<MeshesFeatureApi>("meshes");
   }
 
-  /** @internal Tests and e2e: the Meshes plugin's feature (`meshRenderers`, `batchStats()`), or null without it. */
-  get meshes(): MeshesFeatureApi | null {
-    return this.meshesFeature();
-  }
-
   /** The core services plugin render features are built from (ADR 0135, 0154): nothing here is one feature's. */
   private featureHost(): BabylonFeatureHost {
     const probes = this.probes;
@@ -567,7 +544,6 @@ export class BabylonRenderer {
       scene: this.scene,
       lighting: this.lighting,
       materials: this.materials,
-      probeLookup: (x, y, z) => probes.lookup(x, y, z),
       probes: {
         get any() {
           return probes.any;
@@ -576,7 +552,6 @@ export class BabylonRenderer {
         reflected: () => void this.reflecting++,
       },
       settings: this.settings,
-      drawPolicy: () => this.policy.drawPolicy,
       policy: () => this.policy,
       world: () => this.owner,
       viewCamera: () => (this.owner ? (this.viewCameras(this.owner)[0] ?? null) : null),
@@ -814,11 +789,6 @@ export class BabylonRenderer {
     return this.spritesFeature()?.spriteSize(s) ?? null;
   }
 
-  /** @internal Tests: sync just the MeshRenderers (the Meshes plugin's feature, ADR 0130, 0140). */
-  syncMeshes(world: World): void {
-    this.meshesFeature()?.sync(world, this.syncCtx);
-  }
-
   // --- Thumbnails (ADR 0153) -------------------------------------------------------------------
 
   /**
@@ -925,7 +895,7 @@ export interface PluginFeature {
 
 /**
  * @internal Load the factories of the registered eager features; one that fails to load is logged and left
- * out. Tests pass them to the constructor. With `world` (thumbnails, ADR 0153), the lazy features that
+ * out (`create` and `forThumbnail` take them). With `world` (thumbnails, ADR 0153), the lazy features that
  * World needs are loaded now too, so they start with the renderer, and the ones it doesn't are left out.
  */
 export async function loadPluginFeatures(world?: World): Promise<PluginFeature[]> {

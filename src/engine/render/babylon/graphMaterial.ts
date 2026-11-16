@@ -440,7 +440,7 @@ class MycoGraphPlugin extends MaterialPluginBase {
   }
 }
 
-let whiteCache = new WeakMap<Scene, RawTexture>();
+const whiteCache = new WeakMap<Scene, RawTexture>();
 
 /** A 1×1 white texture: what an empty texture slot reads. */
 function white(scene: Scene): RawTexture {
@@ -450,11 +450,6 @@ function white(scene: Scene): RawTexture {
     whiteCache.set(scene, t);
   }
   return t;
-}
-
-/** @internal Forget cached textures (tests). */
-export function _resetGraphTextures(): void {
-  whiteCache = new WeakMap();
 }
 
 /**

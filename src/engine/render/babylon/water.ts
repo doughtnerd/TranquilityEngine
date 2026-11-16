@@ -474,14 +474,9 @@ export class BabylonWater {
     m.environmentIntensity = probe ? probe.intensity : 1;
   }
 
-  /** The drawn surfaces (tests, diagnostics). */
+  /** The drawn surfaces (diagnostics). */
   state(): { surfaces: number } {
     return { surfaces: this.entries.size };
-  }
-
-  /** @internal Tests: the drawn meshes. */
-  meshes(): Mesh[] {
-    return [...this.entries.values()].map((e) => e.mesh);
   }
 
   release(w: WaterSurface): void {

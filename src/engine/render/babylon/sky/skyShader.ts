@@ -533,12 +533,6 @@ fn main(input: FragmentInputs) -> FragmentOutputs {
 }
 `;
 
-/** @internal Tests: every shader source by name. */
-export const SKY_SOURCES = {
-  glsl: { vertex: GLSL_VERTEX, fragment: GLSL_FRAGMENT, bakeVertex: GLSL_BAKE_VERTEX, bakeFragment: GLSL_BAKE_FRAGMENT },
-  wgsl: { vertex: WGSL_VERTEX, fragment: WGSL_FRAGMENT, bakeVertex: WGSL_BAKE_VERTEX, bakeFragment: WGSL_BAKE_FRAGMENT },
-} as const;
-
 ShaderStore.ShadersStore[`${SKY_SHADER}VertexShader`] = GLSL_VERTEX;
 ShaderStore.ShadersStore[`${SKY_SHADER}FragmentShader`] = GLSL_FRAGMENT;
 ShaderStore.ShadersStore[`${SKY_BAKE_SHADER}VertexShader`] = GLSL_BAKE_VERTEX;

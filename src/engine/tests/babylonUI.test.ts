@@ -15,7 +15,7 @@ import { Text } from "../render/components";
 import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText } from "../ui/components";
 import type { UIComponentType } from "../ui/components";
 import type { UICoreLike, UILaidOutCanvas, UILaidOutElement } from "../ui/uiCoreTypes";
-import { BabylonUI, WORLD_RESOLUTION, _resetTextMeasurer, cssWeight, flipRows, measureText, redrawnPixels } from "../render/babylon/ui";
+import { BabylonUI, WORLD_RESOLUTION, cssWeight, flipRows, measureText, redrawnPixels } from "../render/babylon/ui";
 import { _resetFonts, loadBundledFont } from "../ui/fonts";
 
 /** A 2D context that draws nothing and measures half an em per character. */
@@ -485,37 +485,39 @@ describe("the interim Text on the screen texture", () => {
 describe("measureText", () => {
   const req = (over: Partial<Parameters<typeof measureText>[0]> = {}) => ({ text: "hello world", fontSize: 10, fontWeight: "400", fontFamily: "Inter", lineHeight: 1.2, maxWidth: Infinity, ...over });
   const g = globalThis as unknown as { OffscreenCanvas?: unknown };
-  const withCanvas = (run: () => void) => {
+  /** The module freshly loaded, as a page loads it: it looks for a canvas on first use and keeps what it found. */
+  const freshMeasure = async (): Promise<typeof measureText> => {
+    vi.resetModules();
+    return (await import("../render/babylon/ui")).measureText;
+  };
+  const withCanvas = async (run: (measure: typeof measureText) => void) => {
     g.OffscreenCanvas = class {
       getContext() {
         return fakeContext();
       }
     };
-    _resetTextMeasurer();
     try {
-      run();
+      run(await freshMeasure());
     } finally {
       delete g.OffscreenCanvas;
-      _resetTextMeasurer();
     }
   };
 
-  it("estimates without a canvas, and measures with one", () => {
-    _resetTextMeasurer();
-    const estimated = measureText(req());
+  it("estimates without a canvas, and measures with one", async () => {
+    const estimated = (await freshMeasure())(req());
     expect(estimated.height).toBeCloseTo(12);
     expect(estimated.width).toBeGreaterThan(0);
-    withCanvas(() => {
-      expect(measureText(req())).toEqual({ width: 55 * 1.05 + 1, height: 12 }); // 11 characters x 5 px, with the room layout gets
-      expect(measureText(req({ text: "" }))).toEqual({ width: 0, height: 12 });
+    await withCanvas((measure) => {
+      expect(measure(req())).toEqual({ width: 55 * 1.05 + 1, height: 12 }); // 11 characters x 5 px, with the room layout gets
+      expect(measure(req({ text: "" }))).toEqual({ width: 0, height: 12 });
     });
   });
 
-  it("wraps at spaces to maxWidth and counts lines", () => {
-    withCanvas(() => {
-      expect(measureText(req({ maxWidth: 30 }))).toEqual({ width: 25 * 1.05 + 1, height: 24 }); // "hello" / "world"
-      expect(measureText(req({ text: "a\nb\nc" })).height).toBeCloseTo(36);
-      expect(measureText(req({ text: "unbreakable", maxWidth: 20 }))).toEqual({ width: 55 * 1.05 + 1, height: 12 }); // overflows
+  it("wraps at spaces to maxWidth and counts lines", async () => {
+    await withCanvas((measure) => {
+      expect(measure(req({ maxWidth: 30 }))).toEqual({ width: 25 * 1.05 + 1, height: 24 }); // "hello" / "world"
+      expect(measure(req({ text: "a\nb\nc" })).height).toBeCloseTo(36);
+      expect(measure(req({ text: "unbreakable", maxWidth: 20 }))).toEqual({ width: 55 * 1.05 + 1, height: 12 }); // overflows
     });
   });
 

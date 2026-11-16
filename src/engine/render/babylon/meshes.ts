@@ -130,7 +130,7 @@ export class BabylonMeshes implements MeshesFeatureApi {
     for (const [component, e] of this.meshRenderers) yield { component, meshes: e.meshes };
   }
 
-  /** The renderer that owns a drawn mesh or batch source (the warm-up's and the shader report's `describeMesh`), or null. */
+  /** The renderer that owns a drawn mesh or batch source (`describe`, for the variant report), or null. */
   ownerOf(drawn: unknown): MeshRenderer | null {
     for (const [r, e] of this.meshRenderers) {
       if (e.meshes.includes(drawn as AbstractMesh) || e.drawables.some((d) => d.source === drawn)) return r;
@@ -155,21 +155,6 @@ export class BabylonMeshes implements MeshesFeatureApi {
       meshes.set(r.node, list);
     }
     return [...meshes].map(([node, materials]) => ({ node, materials }));
-  }
-
-  /** The batching counts (tests, diagnostics). */
-  batchStats(): ReturnType<MeshBatches["stats"]> {
-    return this.batches.stats();
-  }
-
-  /** The hidden source meshes batches draw from (tests). */
-  batchSources(): ReturnType<MeshBatches["sources"]> {
-    return this.batches.sources();
-  }
-
-  /** A renderer's own Babylon meshes (none in a thin batch), or undefined (tests). */
-  meshesOf(r: MeshRenderer): readonly AbstractMesh[] | undefined {
-    return this.meshRenderers.get(r)?.meshes;
   }
 
   private syncMesh(world: World, r: MeshRenderer): void {

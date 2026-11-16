@@ -283,10 +283,10 @@ export class BabylonSky {
   private current: BaseTexture | null = null;
   private readonly retiring: { texture: BaseTexture; frames: number }[] = [];
   private path = "";
-  /** Bakes made, for tests and the editor's stats. */
-  bakes = 0;
+  /** Bakes made (the sky diagnostics, which the editor's stats show). */
+  private bakes = 0;
   /** Milliseconds the last bake's draw calls took on the CPU (GPU time is not measured). */
-  lastBakeMs = 0;
+  private lastBakeMs = 0;
 
   /**
    * `liveSky` finds the World's live sky control (the Sky plugin's `Sky` component, ADR 0135), or null

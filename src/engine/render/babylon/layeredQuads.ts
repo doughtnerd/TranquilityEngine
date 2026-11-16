@@ -146,7 +146,6 @@ export class SpriteBatcher {
   private readonly runs: Run[] = [];
   private readonly materials = new Map<Texture | null, PBRMaterial>();
   private used = 0;
-  private drawn = 0;
   private readonly order: SpriteItem[] = [];
   private readonly textureIds = new WeakMap<Texture, number>();
   private nextTextureId = 1;
@@ -175,13 +174,7 @@ export class SpriteBatcher {
     }
     flushRun(sorted.length);
     this.used = run + 1;
-    this.drawn = sorted.length;
     for (let i = this.used; i < this.runs.length; i++) this.runs[i].mesh.setEnabled(false);
-  }
-
-  /** Draw calls and sprites last drawn (benchmarks). */
-  stats(): { batches: number; sprites: number } {
-    return { batches: this.used, sprites: this.drawn };
   }
 
   dispose(): void {

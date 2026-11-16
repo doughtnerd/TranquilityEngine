@@ -65,18 +65,6 @@ export function heightFogOn(scene: Scene): boolean {
   return !!states.get(scene)?.on;
 }
 
-/**
- * @internal The fog amount the shader computes, 0–1, for tests: from the eye at height `eyeY` to a point
- * `distance` metres away at height `pointY`.
- */
-export function heightFogAmount(s: Pick<HeightFogState, "density" | "base" | "falloff">, eyeY: number, pointY: number, distance: number): number {
-  const f = Math.max(1e-4, s.falloff);
-  const dy = pointY - eyeY;
-  const k = Math.abs(f * dy) > 1e-4 ? (1 - Math.exp(-f * dy)) / (f * dy) : 1;
-  const integral = Math.max(0, s.density) * Math.exp(-f * (eyeY - s.base)) * distance * k;
-  return Math.min(1, Math.max(0, 1 - Math.exp(-integral)));
-}
-
 const WGSL_FN = /* wgsl */ `
 #ifdef MYCO_HEIGHT_FOG
 fn mycoHeightFogAmount(p: vec3f, eye: vec3f) -> f32 {
