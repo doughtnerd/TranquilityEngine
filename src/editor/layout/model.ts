@@ -95,13 +95,13 @@ export interface Rect {
 /** Height of a group's header (title or tabs); keep in sync with the CSS. */
 export const HEADER_HEIGHT = 28;
 /** Distance from the layout's outer edge, or the filling dock's edge, that targets a new dock. */
-export const EDGE_BAND = 28;
+const EDGE_BAND = 28;
 const DEFAULT_SIZE: Record<Side, number> = { left: 240, right: 300, bottom: 190 };
 const MIN_DOCK = 120;
 /** The smallest the filling (innermost) dock gets: other docks shrink to leave it this much. */
-export const MIN_FILL = { w: 200, h: 140 };
+const MIN_FILL = { w: 200, h: 140 };
 /** Smallest share of a dock a group can be resized to. */
-export const MIN_FRACTION = 0.1;
+const MIN_FRACTION = 0.1;
 
 let nextId = 1;
 const newId = (prefix: string) => `${prefix}${Date.now().toString(36)}-${nextId++}`;
@@ -490,7 +490,7 @@ export function canCollapse(layout: Layout, dockId: string): boolean {
 }
 
 /** Collapse or expand a dock (the filling dock never collapses). Returns `layout` itself when nothing changes. */
-export function setDockCollapsed(layout: Layout, dockId: string, collapsed: boolean): Layout {
+function setDockCollapsed(layout: Layout, dockId: string, collapsed: boolean): Layout {
   const dock = layout.docks.find((d) => d.id === dockId);
   if (!dock || !!dock.collapsed === collapsed || (collapsed && !canCollapse(layout, dockId))) return layout;
   return { ...layout, docks: layout.docks.map((d) => (d.id === dockId ? (collapsed ? { ...d, collapsed: true } : withoutCollapsed(d)) : d)) };

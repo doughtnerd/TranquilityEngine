@@ -12,7 +12,7 @@ const LAYOUT_EXTENSION = ".layout.json";
 /** The project folder project layouts live in (hidden: the Assets panel and exports skip dot-folders). */
 export const LAYOUTS_FOLDER = ".layouts";
 /** Versions kept per layout file. */
-export const MAX_VERSIONS = 50;
+const MAX_VERSIONS = 50;
 
 export type LayoutScope = "user" | "project";
 
@@ -82,7 +82,7 @@ export function layoutOf(file: LayoutFile, catalog: PanelCatalog, seq = file.hea
  * Drop versions past `max`, never `head`: first the oldest versions off head's line (old branches), then
  * the oldest of head's ancestors. A dropped version's children hang from its parent (or become roots).
  */
-export function pruneVersions(file: LayoutFile, max = MAX_VERSIONS): LayoutFile {
+function pruneVersions(file: LayoutFile, max = MAX_VERSIONS): LayoutFile {
   if (file.versions.length <= max) return file;
   const bySeq = new Map(file.versions.map((v) => [v.seq, v]));
   const keep = new Set<number>();
@@ -121,7 +121,7 @@ export function parseLayoutFile(value: unknown): LayoutFile | null {
 export const layoutFileText = (file: LayoutFile): string => `${JSON.stringify(file, null, 2)}\n`;
 
 /** A file-name slug for a layout name: "My Layout!" → "my-layout". */
-export function slugOf(name: string): string {
+function slugOf(name: string): string {
   const slug = name
     .normalize("NFKD")
     .replace(/[̀-ͯ]/g, "")
