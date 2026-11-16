@@ -2,10 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Camera, Engine, GameBehavior, GameObject, Input, Vector2 } from "../index";
 import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UILength } from "../ui/components";
 import { World } from "../core/World";
-import { UICore, canvasScale, onFrameEdge, uiLength } from "../ui/UICore";
+import { UICore, canvasScale, uiLength } from "../ui/UICore";
 import type { TextMeasureRequest } from "../ui/uiCoreTypes";
 import { Assets } from "../scene/Assets";
-import { UI_FONT_FAMILY, _resetFonts, fontEpoch, fontFamilyOf, loadBundledFont, onFontLoaded } from "../ui/fonts";
+import { UI_FONT_FAMILY, fontEpoch, fontFamilyOf, loadBundledFont, onFontLoaded } from "../ui/fonts";
 
 // ADR 0076: the renderer-neutral UI core: Yoga layout and UI-first routing, no renderer, no GPU.
 
@@ -449,7 +449,7 @@ describe("UICore text", () => {
     vi.stubGlobal("document", { fonts: { add: (f: FakeFontFace) => added.push(f), delete: () => true } });
     const source = { has: (p: string) => p === "fonts/Pirata One.ttf", get: () => "blob:pirata" };
     Assets.addSource(source);
-    _resetFonts();
+    // Nothing in this file has loaded the bundled font yet (each test file gets its own modules), so it loads below.
     try {
       const canvas = node("Canvas", null, UICanvas);
       const top = node("Top", canvas.node, UIPanel, { alignItems: "flex-start" } as Partial<UIPanel>);
@@ -485,7 +485,6 @@ describe("UICore text", () => {
     } finally {
       Assets.removeSource(source);
       vi.unstubAllGlobals();
-      _resetFonts();
     }
   });
 
@@ -497,7 +496,6 @@ describe("UICore text", () => {
     expect(warn).toHaveBeenCalledTimes(1);
     // Node has no FontFace: a font file still gets its family name (and nothing loads).
     expect(fontFamilyOf("fonts/a.woff2")).toBe(`myco-font-fonts-a-woff2, ${UI_FONT_FAMILY}`);
-    _resetFonts();
   });
 
   it("a passive core lays out but never routes", async () => {
@@ -1015,7 +1013,7 @@ describe("UICore editor picking (ADR 0077)", () => {
     expect(c.pickCanvases(1275, 360)).toEqual([canvas]);
     expect(c.pickCanvases(640, 716)).toEqual([canvas]);
     expect(c.pickCanvases(100, 100, null, 8)).toEqual([]);
-    expect(onFrameEdge(1281, 3, 1280, 720, 8)).toBe(false); // outside the frame
+    expect(c.pickCanvases(1281, 3)).toEqual([]); // outside the frame
     const sign = node("Sign", null, UICanvas, { mode: "world", referenceResolution: new Vector2(200, 100), pixelSize: 0.01 } as Partial<UICanvas>);
     sign.node.transform!.position.set(0, 0, -5);
     engine.step(DT);

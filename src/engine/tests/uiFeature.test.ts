@@ -12,7 +12,6 @@ import { UIButton, UICanvas, type UILength } from "../ui/components";
 import { BabylonUI } from "../render/babylon/ui";
 import { BabylonUIFeature, type BabylonUIHost } from "../render/babylon/uiFeature";
 import { _registeredRenderFeatures, specNeeded, specOwns } from "../render/renderFeatures";
-import { _resetFonts } from "../ui/fonts";
 
 /** A plugin's render feature spec, as its activation registered it. */
 const registeredSpec = (name: string) => _registeredRenderFeatures().find((f) => f.spec.name === name)!.spec;
@@ -50,7 +49,6 @@ function host(): BabylonUIHost {
 
 beforeEach(async () => {
   Input.reset();
-  _resetFonts();
   engine = await Engine.create({ headless: true });
   babylon = new NullEngine();
   (babylon as unknown as { createCanvas: typeof fakeCanvas }).createCanvas = fakeCanvas;

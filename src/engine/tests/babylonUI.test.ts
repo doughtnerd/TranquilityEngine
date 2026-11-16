@@ -16,7 +16,7 @@ import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText } from "../u
 import type { UIComponentType } from "../ui/components";
 import type { UICoreLike, UILaidOutCanvas, UILaidOutElement } from "../ui/uiCoreTypes";
 import { BabylonUI, WORLD_RESOLUTION, cssWeight, flipRows, measureText, redrawnPixels } from "../render/babylon/ui";
-import { _resetFonts, loadBundledFont } from "../ui/fonts";
+import { loadBundledFont } from "../ui/fonts";
 
 /** A 2D context that draws nothing and measures half an em per character. */
 function fakeContext() {
@@ -258,7 +258,7 @@ describe("screen canvases on Babylon GUI (ADR 0076)", () => {
     }
     vi.stubGlobal("FontFace", FakeFontFace);
     vi.stubGlobal("document", { fonts: { add: () => undefined, delete: () => true } });
-    _resetFonts();
+    // The bundled font hasn't loaded in this file yet (each test file gets its own modules), so it loads now.
     try {
       const canvas = node("C", null, UICanvas);
       const text = node("T", canvas.node, UIText, { text: "Hello" });
@@ -273,7 +273,6 @@ describe("screen canvases on Babylon GUI (ADR 0076)", () => {
       expect(Object.keys(sizes)).toEqual([]);
     } finally {
       vi.unstubAllGlobals();
-      _resetFonts();
     }
   });
 
