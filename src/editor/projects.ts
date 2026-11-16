@@ -8,6 +8,7 @@ import { Assets, type AssetSource, type ProjectSettingsInput } from "../engine";
 import type { FileSystem } from "../engine/platform/FileSystem";
 import { isSidecarPath, sidecarPath } from "../engine/scene/importSettings";
 import { isScriptPath, isTextAsset, joinPath } from "./projectPaths";
+import { readOnlyMessage } from "./readOnly";
 
 export { isTextAsset, joinPath };
 
@@ -154,14 +155,14 @@ class MapProject implements EditorProject {
   }
 
   async writeScript(path: string, text: string): Promise<void> {
-    if (!this.write) throw new Error(`${this.name} is read-only. Open a project folder to save.`);
+    if (!this.write) throw new Error(readOnlyMessage(this, "save"));
     if (!isScriptPath(path)) throw new Error(`${path} isn't a script: scripts are .ts files under scripts/ (or a plugin's folder under plugins/).`);
     await this.write(path, text);
     this.scriptMap = new Map(this.scriptMap).set(path, text);
   }
 
   async writeText(path: string, text: string): Promise<void> {
-    if (!this.write) throw new Error(`${this.name} is read-only. Open a project folder to save.`);
+    if (!this.write) throw new Error(readOnlyMessage(this, "save"));
     const value = JSON.parse(text);
     await this.write(path, text);
     if (!this.values.has(path)) this.sortedFiles = null;
@@ -179,7 +180,7 @@ class MapProject implements EditorProject {
       }
       return this.writeText(path, text);
     }
-    if (!this.write) throw new Error(`${this.name} is read-only. Open a project folder to save.`);
+    if (!this.write) throw new Error(readOnlyMessage(this, "save"));
     await this.write(path, text);
     if (!this.values.has(path)) this.sortedFiles = null;
     this.texts.set(path, text);

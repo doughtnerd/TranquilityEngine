@@ -16,6 +16,7 @@ import { isWithin, type EditorProject } from "./projects";
 import { assetFormats, type AssetFormatContribution, type AssetProblem } from "./sdk/contributions";
 import { currentProject, docVersion, status } from "./state";
 import { editorFocus } from "./windows/editorFocus";
+import { readOnlyMessage } from "./readOnly";
 
 export interface EditOptions {
   /** Merge with the previous coalesced edit into one undo step, and write after the format's writeDelay (default 150 ms) of quiet. For sliders and drags. */
@@ -166,7 +167,7 @@ class Document<T> implements AssetDocument<T> {
   edit(next: T, options: EditOptions = {}): void {
     if (this.closed) return;
     if (this.readOnly) {
-      const text = `${this.project.name} is read-only. Open a project folder (or copy the sample) to change ${fileName(this.path)}.`;
+      const text = readOnlyMessage(this.project, `change ${fileName(this.path)}`);
       if (status.peek()?.text !== text) status.value = { kind: "info", text };
       return;
     }

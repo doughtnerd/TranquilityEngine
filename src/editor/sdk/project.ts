@@ -16,6 +16,7 @@ import { onSectionChanged, type SectionChange } from "../sectionChanged";
 import { projectSettings } from "../projectSettingsInstance";
 import type { SettingsDraft } from "../projectSettingsModel";
 import { messages } from "./messages";
+import { readOnlyMessage } from "../readOnly";
 
 export type { AssetKind, EditorProject, SectionChange, SettingsDraft };
 
@@ -143,7 +144,7 @@ export const project: ProjectSurface = {
   settings,
   refuseReadOnly(p, what) {
     if (p.canSave) return false;
-    messages.info(`${p.name} is read-only. Open a project folder (or copy the sample) to add ${what}.`);
+    messages.info(readOnlyMessage(p, `add ${what}`));
     return true;
   },
   async createFile(options) {
