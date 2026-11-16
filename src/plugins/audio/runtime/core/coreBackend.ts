@@ -1229,8 +1229,8 @@ export class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, Au
  */
 class Voice extends AudioHandle implements CoreVoice {
   constructor(
-    /** The backend, kept (not just its `voices`) because the browser specs reach the writer and mirror through it. */
-    readonly backend: CoreBackend,
+    /** Private like before ADR 0176: only the browser specs read it (from plain JS, to reach the writer and mirror). */
+    private readonly backend: CoreBackend,
     id: number,
   ) {
     super(backend.table, id);
