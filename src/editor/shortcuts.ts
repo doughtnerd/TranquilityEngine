@@ -1,5 +1,5 @@
 // Editor keyboard shortcuts. Text fields keep their own keys (and undo), so shortcuts skip them.
-import { activeHistory, redo, stepBack, stepForward, trackHistoryFocus, undo } from "./activeHistory";
+import { activeHistory, redo, stepBack, stepForward, undo } from "./activeHistory";
 import { deleteSelected } from "./deleteSelection";
 import { copySelection, cutSelection, duplicateSelection, pasteClipboard } from "./hierarchyActions";
 import { closeScene, save, togglePlaying } from "./session";
@@ -119,7 +119,6 @@ export function installShortcuts(target: Window = window): () => void {
     else if (action === "back") stepBack();
     else stepForward();
   };
-  trackHistoryFocus();
   const onKeyUp = (e: KeyboardEvent) => {
     if (e.key === "Control" || e.key === "Meta") snapping.value = false;
   };

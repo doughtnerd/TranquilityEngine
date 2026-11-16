@@ -15,7 +15,7 @@ import { errorStatus } from "./messages";
 import { isWithin, type EditorProject } from "./projects";
 import { assetFormats, type AssetFormatContribution, type AssetProblem } from "./sdk/contributions";
 import { currentProject, docVersion, status } from "./state";
-import { forEachChildWindow } from "./windows/editorWindows";
+import { editorFocus } from "./windows/editorFocus";
 
 export interface EditOptions {
   /** Merge with the previous coalesced edit into one undo step, and write after the format's writeDelay (default 150 ms) of quiet. For sliders and drags. */
@@ -349,58 +349,27 @@ function dropAll(write: boolean): void {
   for (const doc of documents.values()) doc.drop(write);
   documents = new Map();
   documentsProject = null;
-  focused.value = null;
+  documentsDropped.value++;
 }
 
-const focused = signal<Document<unknown> | null>(null);
+/** Bumped when documents are dropped or deleted, so `focusedAssetDocument` lets go of them. */
+const documentsDropped = signal(0);
 
 /**
- * Clicks and focus inside these keep whichever editor's history was focused (ADR 0145): the History
- * panel showing it, and the menu bar whose Edit > Undo acts on it.
- */
-export const KEEPS_HISTORY_FOCUS = '.history-panel, [role="menubar"], [role="menu"]';
-let stopTrackingFocus: (() => void) | null = null;
-
-/**
- * The asset document whose editor was last focused or clicked (its root carries
- * `data-asset-document` with the document's path), or null once something else was: the History
+ * The asset document whose editor holds the editor focus (focus or the last press, in any editor
+ * window: windows/editorFocus.ts, ADR 0174): the nearest root marked `data-asset-document` with the
+ * document's path. Null once something else was focused, or once the document is dropped. The History
  * panel shows its tree instead of the scene's, and Undo / Redo act on it (activeHistory.ts, ADR 0145).
- * Clicks in the History panel and the menu bar keep it.
+ * Clicks in the History panel and the menu bar keep it (KEEPS_HISTORY_FOCUS).
  */
-export const focusedAssetDocument: ReadonlySignal<AssetDocument<unknown> | null> = focused;
-
-/** Follow focus and clicks to set `focusedAssetDocument` (installed with the first document). */
-function trackFocus(): void {
-  if (stopTrackingFocus || typeof document === "undefined") return;
-  const onFocus = (e: Event) => {
-    const el = e.target as Element | null;
-    if (!el?.closest) return;
-    const host = el.closest("[data-asset-document]");
-    if (host) focused.value = documents.get(host.getAttribute("data-asset-document") ?? "") ?? null;
-    else if (!el.closest(KEEPS_HISTORY_FOCUS)) focused.value = null;
-  };
-  document.addEventListener("focusin", onFocus, true);
-  document.addEventListener("pointerdown", onFocus, true);
-  // And in each detached panel window (ADR 0174).
-  const stopChildren = forEachChildWindow((win) => {
-    const doc = win.document;
-    doc.addEventListener("focusin", onFocus, true);
-    doc.addEventListener("pointerdown", onFocus, true);
-    return () => {
-      doc.removeEventListener("focusin", onFocus, true);
-      doc.removeEventListener("pointerdown", onFocus, true);
-    };
-  });
-  stopTrackingFocus = () => {
-    document.removeEventListener("focusin", onFocus, true);
-    document.removeEventListener("pointerdown", onFocus, true);
-    stopChildren();
-  };
-}
+export const focusedAssetDocument: ReadonlySignal<AssetDocument<unknown> | null> = computed(() => {
+  documentsDropped.value;
+  const host = editorFocus.value?.closest("[data-asset-document]");
+  return (host && documents.get(host.getAttribute("data-asset-document") ?? "")) || null;
+});
 
 /** Drop the documents when the editor switches project (installed with the first document). */
 function followProject(): void {
-  trackFocus();
   if (stopFollowingProject) return;
   lastSeenProject = currentProject.peek();
   stopFollowingProject = effect(() => {
@@ -457,8 +426,8 @@ export function assetDocumentsDeleted(paths: readonly string[]): void {
     if (!paths.some((p) => isWithin(path, p.replace(/\/+$/, "")))) continue;
     doc.drop(false);
     documents.delete(path);
-    if (focused.peek() === doc) focused.value = null;
   }
+  documentsDropped.value++;
   if (project) void deleteAssetHistories(project, paths); // saved histories too, open or not
 }
 
@@ -468,7 +437,5 @@ export function _reset(): void {
   stopFollowingProject?.();
   stopFollowingProject = null;
   lastSeenProject = null;
-  stopTrackingFocus?.();
-  stopTrackingFocus = null;
   _resetAssetHistory();
 }
