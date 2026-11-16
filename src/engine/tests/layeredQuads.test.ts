@@ -78,6 +78,22 @@ describe("layered 2D quads (ADR 0014, 0108, 0136, 0186)", () => {
     quads.dispose();
   });
 
+  it("steps each further run of one order, fractional orders included", () => {
+    // orderInLayer is any number: two textures at 0.5 are two runs, the second a step past the first.
+    const batcher = new SpriteBatcher(scene);
+    const a = new Texture(null, scene), b = new Texture(null, scene), c = new Texture(null, scene);
+    batcher.update([sprite(a, 0.5), sprite(b, 0.5), sprite(c, 0.5), sprite(a, -2.25), sprite(b, -2.25), sprite(a, 1.5)]);
+    const alpha = drawOrder().map((n) => scene.getMeshByName(n)!.alphaIndex);
+    expect(new Set(alpha).size).toBe(6); // no two runs tie
+    expect(alpha[0]).toBe(-2.25);
+    expect(alpha[1]).toBeGreaterThan(-2.25);
+    expect(alpha[1]).toBeLessThan(0.5);
+    expect(alpha[2]).toBe(0.5);
+    expect(alpha[4]).toBeLessThan(1.5);
+    expect(alpha[5]).toBe(1.5);
+    batcher.dispose();
+  });
+
   it("gives every 2D quad the unlit, layer-ordered material", () => {
     const tex = new Texture(null, scene);
     const m = layeredQuadMaterial("q", scene, tex);

@@ -10,7 +10,8 @@
  *   - 2D content (a lone sprite, a quad batch, the first sprite run of an order) sits at its draw order,
  *     `sortingOrder`'s sorting layer index × 10000 + order in layer (`placeInLayer`);
  *   - each further sprite run of the same order (another texture) sits `RUN_STEP` past the run before,
- *     so runs sort deterministically and stay below the next whole order;
+ *     so runs of one order sort deterministically and stay below the next order (whole or fractional,
+ *     as long as the orders are further apart than their runs' steps);
  *   - a particle mesh (`placeParticles`) sits by its emitter's `renderOrder`: 0 at Babylon's default
  *     (`Number.MAX_VALUE`, sorted by distance with the scene's other transparent meshes, after all 2D
  *     content), a negative one at that value (among the 2D content of the first sorting layer), a
@@ -229,10 +230,10 @@ export class SpriteBatcher {
     const texture = sorted[start].texture;
     const material = this.material(texture);
     if (run.mesh.material !== material) run.mesh.material = material;
-    // Its order, a step past the previous run of the same order (orders are whole numbers: steps stay below the next).
+    // Its order, or a step past the previous run when that has the same order (any number: orders aren't
+    // only whole ones). The last item of the previous run is the one before this run's first.
     const order = sorted[start].order;
-    const previous = index > 0 ? this.runs[index - 1].mesh : null;
-    run.mesh.alphaIndex = previous && Math.floor(previous.alphaIndex) === order ? previous.alphaIndex + RUN_STEP : order;
+    run.mesh.alphaIndex = start > 0 && sorted[start - 1].order === order ? this.runs[index - 1].mesh.alphaIndex + RUN_STEP : order;
     run.mesh.thinInstanceCount = n;
     run.mesh.thinInstanceBufferUpdated("matrix");
     run.mesh.thinInstanceBufferUpdated("instanceColor");
