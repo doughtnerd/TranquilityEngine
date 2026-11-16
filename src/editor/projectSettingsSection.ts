@@ -6,7 +6,7 @@ import type { GraphicsSettings } from "../engine/core/graphics";
 import { layerRenamesBetween } from "./layerRename";
 import { updateLayerReferences } from "./layerRenameEdit";
 import { createProjectSection, type ProjectSection } from "./projectSection";
-import { disabledPluginsOf, graphicsOf, settingsKeys, settingsProblems, type SettingsDraft } from "./projectSettingsModel";
+import { disabledPluginsOf, graphicsOf, settingsKeys, settingsProblems, type SettingsDraft, type SettingsProblem } from "./projectSettingsModel";
 import { docVersion } from "./state";
 
 /** What a save changes outside `project.json`, given by the panel (the running editor's graphics and plugins). */
@@ -17,8 +17,8 @@ export interface ProjectSettingsHooks {
   pluginsChanged?(): void;
 }
 
-export function createProjectSettingsSection(hooks: ProjectSettingsHooks = {}): ProjectSection<SettingsDraft> {
-  return createProjectSection<SettingsDraft>({
+export function createProjectSettingsSection(hooks: ProjectSettingsHooks = {}): ProjectSection<SettingsDraft, SettingsProblem> {
+  return createProjectSection<SettingsDraft, SettingsProblem>({
     name: "Project Settings",
     what: "the project settings",
     keys: settingsKeys,

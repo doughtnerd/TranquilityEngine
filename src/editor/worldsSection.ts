@@ -21,8 +21,8 @@ function bootstrapOf(draft: WorldsDraft): unknown {
   return view.explicit ? modelToConfig(view.model) : undefined;
 }
 
-export function createWorldsSection(): ProjectSection<WorldsDraft> {
-  return createProjectSection<WorldsDraft>({
+export function createWorldsSection(): ProjectSection<WorldsDraft, string> {
+  return createProjectSection<WorldsDraft, string>({
     name: "Worlds",
     what: "the Worlds",
     keys: () => ["bootstrap"],

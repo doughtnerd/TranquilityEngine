@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { EditorProject } from "./projects";
+import { readOnlyProject, type EditorProject } from "./projects";
 import { checkSettingsSectionKeys, setValue, settingsKeys, type SettingsDraft } from "./projectSettingsModel";
 import { createProjectSettingsSection } from "./projectSettingsSection";
 import { projectSettingsSections } from "./sdk/contributions";
@@ -165,6 +165,52 @@ describe("a project section", () => {
     await s.undo();
     await s.redo();
     await vi.waitFor(() => expect(project.textOf("a.scene.json")).toContain('"Glow"'));
+  });
+});
+
+describe("a project section's status", () => {
+  it("is saved when the file holds the draft, and saving while a write is in progress", async () => {
+    const { project } = await openTestProject({ "project.json": PROJECT });
+    const s = createProjectSettingsSection().open(project);
+    expect(s.status).toEqual({ kind: "saved" });
+    const written = s.edit("Rename project", { ...s.draft, name: "Other" });
+    expect(s.status).toEqual({ kind: "saving" });
+    await written;
+    expect(s.status).toEqual({ kind: "saved" });
+    expect(s.problems).toEqual([]);
+  });
+
+  it("lists the draft's problems, unsaved when an edit made them and not when the file holds them", async () => {
+    const { project } = await openTestProject({ "project.json": PROJECT });
+    const s = createProjectSettingsSection().open(project);
+    await s.edit("Set display width", setValue(s.draft, "display", "width", -5));
+    expect(s.problems.map((p) => p.field)).toEqual(["display.width"]);
+    expect(s.status).toEqual({ kind: "problems", count: 1, unsaved: true });
+    closeTestProject();
+    const { project: held } = await openTestProject({ "project.json": `{ "display": { "width": -5 } }` });
+    const h = createProjectSettingsSection().open(held);
+    expect(h.problems).toHaveLength(1);
+    expect(h.status).toEqual({ kind: "problems", count: 1, unsaved: false });
+    // The Worlds section's problems are its graph's.
+    const w = createWorldsSection().open(project);
+    const model = graphModel(w.draft);
+    await w.edit("Rename World", editedWorlds({ ...model, worlds: [{ ...model.worlds[0], name: "" }] }));
+    expect(w.problems.length).toBeGreaterThan(0);
+    expect(w.status).toMatchObject({ kind: "problems", unsaved: true });
+  });
+
+  it("is read-only for a project that can't be saved: no edit, no undo, its problems still listed", () => {
+    const text = `{ "name": "Sample", "display": { "width": -5 } }`;
+    const project = readOnlyProject("Sample", { values: new Map([["project.json", JSON.parse(text)]]), texts: new Map([["project.json", text]]) });
+    const settings = createProjectSettingsSection();
+    const s = settings.open(project);
+    void s.edit("Rename project", { ...s.draft, name: "Mine" });
+    expect(s.draft.name).toBe("Sample");
+    expect(s.status).toEqual({ kind: "read-only" });
+    expect(s.problems).toHaveLength(1);
+    expect(s.canUndo).toBe(false);
+    expect(s.canRedo).toBe(false);
+    expect(settings.history.canUndo).toBe(false);
   });
 });
 
