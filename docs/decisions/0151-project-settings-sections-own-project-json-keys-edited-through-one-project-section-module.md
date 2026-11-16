@@ -1,6 +1,6 @@
 # 0151. Project settings sections own the project.json keys they declare, edited through one project section module
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0181 (the session reports its status, problems and read-only undo flags; one shared toolbar view)
 - **Date:** 2026-11-09
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
