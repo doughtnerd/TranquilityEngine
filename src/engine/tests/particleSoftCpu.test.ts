@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { heightFogOn, heightFogShader, setHeightFog, useHeightFog } from "../render/babylon/heightFog";
 import { BabylonParticles } from "../render/babylon/particles";
 import { MycoSoftParticlePlugin } from "../render/babylon/softParticles";
+import { runShader, vec, type Vec } from "./shaderMaths";
 import { compileParticleGraph } from "../scene/particleCompile";
 import { defaultParticleGraph } from "../scene/particleGraphFormat";
 import { defaultEmitter, defaultShape, parseParticleEffect, type ParticleEmitterSettings, type ParticleRenderer, PARTICLES_FORMAT, type ParticleEffect } from "../scene/particles";
@@ -117,6 +118,36 @@ describe("soft CPU particles and particle height fog (ADR 0126)", () => {
     expect(plugin.getCustomCode("fragment", ShaderLanguage.WGSL)!.CUSTOM_FRAGMENT_BEFORE_FRAGCOLOR).toContain("finalColor");
     expect(plugin.getCustomCode("fragment", ShaderLanguage.GLSL)!.CUSTOM_FRAGMENT_BEFORE_FRAGCOLOR).toContain("mycoSoftDepth");
     expect(plugin.getCustomCode("vertex", ShaderLanguage.WGSL)).toBeNull();
+  });
+
+  it("fades over the softness in front of the scene's surfaces, the same in both shading languages", () => {
+    const softness = 2;
+    const plugin = new MycoSoftParticlePlugin(new PBRMaterial("p", scene), softness, { map: () => null });
+    /** The alpha each language's fade code leaves on an opaque fragment `particleDepth` metres away, with the scene `sceneDepth` metres away there (0: nothing drawn). */
+    const fade = (sceneDepth: number, particleDepth: number): number => {
+      const depthTexel = () => vec(4, sceneDepth, 0, 0, 0);
+      // The view looks down −z: a fragment at z = −d is d metres away.
+      const view = (v: Vec) => vec(4, v.c[0]!, v.c[1]!, v.c[2]!, 1);
+      const position = vec(3, 0, 0, -particleDepth);
+      const soft = vec(4, softness, 64, 64, 1);
+      const result = "finalColor.a";
+      const glsl = runShader(plugin.getCustomCode("fragment", ShaderLanguage.GLSL)!.CUSTOM_FRAGMENT_BEFORE_FRAGCOLOR!, {
+        defines: ["MYCO_SOFT_PARTICLES"],
+        env: { finalColor: vec(4, 1), mycoSoft: soft, mycoSoftDepth: null, texture2D: depthTexel, gl_FragCoord: vec(4, 0), view, vPositionW: position },
+        result,
+      }) as number;
+      const wgsl = runShader(plugin.getCustomCode("fragment", ShaderLanguage.WGSL)!.CUSTOM_FRAGMENT_BEFORE_FRAGCOLOR!, {
+        defines: ["MYCO_SOFT_PARTICLES"],
+        env: { finalColor: vec(4, 1), uniforms: { mycoSoft: soft }, mycoSoftDepth: null, textureDimensions: () => vec(2, 64), textureLoad: depthTexel, fragmentInputs: { position: vec(4, 0), vPositionW: position }, scene: { view } },
+        result,
+      }) as number;
+      expect(wgsl).toBeCloseTo(glsl, 9);
+      return glsl;
+    };
+    expect(fade(10, 9)).toBeCloseTo(0.5);
+    expect(fade(10, 7)).toBe(1);
+    expect(fade(10, 10.5)).toBe(0);
+    expect(fade(0, 50)).toBe(1); // nothing drawn behind
   });
 
   it("keeps a ShaderMaterial's height-fog define in step with the scene", () => {
