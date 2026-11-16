@@ -211,24 +211,6 @@ export class MaterialPreview {
     } else renderFrame(engine, scene);
   }
 
-  /**
-   * @internal Tests: render now and read the centre pixel as [r, g, b, a] (0–255), or null if the shader
-   * failed or hasn't compiled yet. The frame is copied into a 2D canvas in the same task, since a WebGPU
-   * canvas can't be read after it's presented.
-   */
-  readCenter(): [number, number, number, number] | null {
-    this.render();
-    const mesh = this.mesh;
-    if (this.shaderFailed || !this.engine || !mesh?.material || !mesh.material.isReady(mesh)) return null;
-    const probe = document.createElement("canvas");
-    probe.width = probe.height = 1;
-    const ctx = probe.getContext("2d", { willReadFrequently: true });
-    if (!ctx) return null;
-    ctx.drawImage(this.canvas, Math.floor(this.canvas.width / 2), Math.floor(this.canvas.height / 2), 1, 1, 0, 0, 1, 1);
-    const px = ctx.getImageData(0, 0, 1, 1).data;
-    return [px[0], px[1], px[2], px[3]];
-  }
-
   dispose(): void {
     this.disposed = true;
     cancelAnimationFrame(this.frame);

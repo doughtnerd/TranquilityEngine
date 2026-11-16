@@ -35,7 +35,6 @@ interface MaterialPreviewImpl {
   setMesh(kind: PreviewMesh): void;
   setGraph(graph: ShaderGraph, properties?: Record<string, GraphValue>): CompiledShaderGraph;
   clearTextures(): void;
-  readCenter(): [number, number, number, number] | null;
   dispose(): void;
 }
 
@@ -87,11 +86,6 @@ export class MaterialPreview {
   /** Forget loaded textures (the project's images changed). */
   clearTextures(): void {
     this.impl?.clearTextures();
-  }
-
-  /** @internal Tests: render now and read the centre pixel as [r, g, b, a] (0–255), or null if the shader failed (or isn't drawn yet). */
-  readCenter(): [number, number, number, number] | null {
-    return this.impl?.readCenter() ?? null;
   }
 
   dispose(): void {

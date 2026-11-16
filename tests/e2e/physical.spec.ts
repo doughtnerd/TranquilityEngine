@@ -1,7 +1,6 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join, relative, sep } from "node:path";
 import { expect, requireWebGPU, test, type Page } from "./fixtures";
 import { installFakeFolders, nextFolder, readFile } from "./fakeFolders";
+import { playgroundFiles, previewDraws, shaderGraphFile } from "./shaderPreview";
 
 // Physical materials (ADR 0052): the Material inspector's physical fields save to the file and the
 // mesh draws with three's physical material; physical shader graphs compile in WebGL with every
@@ -9,20 +8,8 @@ import { installFakeFolders, nextFolder, readFile } from "./fakeFolders";
 
 test.describe.configure({ timeout: 60_000 });
 
-const SAMPLE = "samples/playground3d";
-function sampleFiles(dir = SAMPLE): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const name of readdirSync(dir)) {
-    const full = join(dir, name);
-    if (statSync(full).isDirectory()) Object.assign(out, sampleFiles(full));
-    else if (name !== "sample.json") out[relative(SAMPLE, full).split(sep).join("/")] = readFileSync(full, "utf8");
-  }
-  return out;
-}
-
 type Hooks = {
   engine?: { world: { time: { frameCount: number }; render: { diagnostics(): { drawn: { meshes: { node: { name: string }; materials: { unlit: boolean; clearcoat: number; transmission: number }[] }[] } } } } };
-  shaderGraphPreview?: { setGraph(g: unknown): unknown; readCenter(): number[] | null };
 };
 
 function trackErrors(page: Page): string[] {
@@ -41,7 +28,7 @@ const meshMaterial = (page: Page, name: string) =>
 test("a physical material's fields save to its file and the mesh draws with clearcoat and transmission", async ({ page, browserName }) => {
   test.skip(browserName !== "chromium", "folders open writably through File System Access in Chromium only");
   const errors = trackErrors(page);
-  await installFakeFolders(page, { Playground: sampleFiles() });
+  await installFakeFolders(page, { Playground: playgroundFiles() });
   await page.goto("/editor.html");
   await nextFolder(page, "Playground");
   await page.getByRole("dialog", { name: "Start" }).getByRole("button", { name: "Open Project…" }).click();
@@ -62,30 +49,30 @@ test("a physical material's fields save to its file and the mesh draws with clea
   expect(errors).toEqual([]);
 });
 
-test("a physical shader graph with every feature compiles and draws in the preview", async ({ page, webgpu }) => {
+test("a physical shader graph with every feature compiles and draws in the preview", async ({ page, browserName, webgpu }) => {
+  test.skip(browserName !== "chromium", "folders open writably through File System Access in Chromium only");
   requireWebGPU(webgpu); // the preview draws graphs as WGSL alone (ADR 0081)
   const errors = trackErrors(page);
-  await page.goto("/editor.html?sample=playground3d");
+  const graph = {
+    target: "physical",
+    surface: "opaque",
+    doubleSided: false,
+    properties: [],
+    nodes: [
+      { id: "output", type: "output", position: [0, 0], inputs: { clearcoat: 1, clearcoatRoughness: 0.2, sheenColor: [1, 0, 0], transmission: 0.5, thickness: 1, ior: 1.33, iridescence: 1, specularIntensity: 0.5 } },
+      { id: "t", type: "time", position: [0, 0] },
+    ],
+    edges: [{ from: "t.sine", to: "output.clearcoat" }],
+  };
+  await installFakeFolders(page, { Playground: { ...playgroundFiles(), "shaders/physical.shadergraph.json": shaderGraphFile(graph) } });
+  await page.goto("/editor.html");
+  await nextFolder(page, "Playground");
+  await page.getByRole("dialog", { name: "Start" }).getByRole("button", { name: "Open Project…" }).click();
   await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
   await page.locator(".asset-folder", { hasText: /^shaders$/ }).click();
-  await page.locator(".asset-tile", { hasText: "pulse.shadergraph.json" }).dblclick();
-  await expect.poll(() => page.evaluate(() => !!(window as unknown as Hooks).shaderGraphPreview)).toBe(true);
-  await page.evaluate(() => {
-    const p = (window as unknown as Hooks).shaderGraphPreview!;
-    p.setGraph({
-      target: "physical",
-      surface: "opaque",
-      doubleSided: false,
-      properties: [],
-      nodes: [
-        { id: "output", type: "output", position: [0, 0], inputs: { clearcoat: 1, clearcoatRoughness: 0.2, sheenColor: [1, 0, 0], transmission: 0.5, thickness: 1, ior: 1.33, iridescence: 1, specularIntensity: 0.5 } },
-        { id: "t", type: "time", position: [0, 0] },
-      ],
-      edges: [{ from: "t.sine", to: "output.clearcoat" }],
-    });
-  });
+  await page.locator(".asset-tile", { hasText: "physical.shadergraph.json" }).dblclick();
+  await expect(page.locator('.sg-node[data-node="t"]')).toBeVisible();
   // The Babylon preview loads and compiles asynchronously: poll until it has drawn.
-  const center = () => page.evaluate(() => (window as unknown as Hooks).shaderGraphPreview!.readCenter());
-  await expect.poll(center, { timeout: 20_000 }).not.toBeNull();
+  await expect.poll(() => previewDraws(page), { timeout: 20_000 }).toBe(true);
   expect(errors).toEqual([]);
 });
