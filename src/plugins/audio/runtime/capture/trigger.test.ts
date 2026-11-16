@@ -5,7 +5,7 @@
 // fakes, the hold is a manual scheduler (no wall clock) and recording runs on the STATUS frames a test feeds.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Audio } from "../Audio";
 import { setAudioBackend } from "../backend";
 import { makeFakeBackend, type FakeBackend } from "../testing";

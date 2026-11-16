@@ -184,31 +184,7 @@ export interface MemberLoop {
 }
 
 /**
- * P3: the loop of a segment the worker (or a decoded voice) runs by itself: **exactly one region with `count: 0` and
- * no `while`** (the simple forever loop). Counted passes, `while` and several regions are R4a/R4b's: null. Frames are
- * at the clip's own `rate`, rounded as the anchor's pass walk rounds them (`compile`), so `predictWrap` and the grid
- * agree with the looping member; null too when a bound isn't a position or the region is empty.
- */
-function simpleLoopOf(node: MusicNodeRef, rate: number): MemberLoop | null {
-  const regions = (node as Partial<SegmentNode>).regions;
-  if (!Array.isArray(regions) || regions.length !== 1) return null;
-  const reg = regions[0]!;
-  if (reg.count !== 0 || reg.while !== undefined) return null;
-  const c = compile(node);
-  if (!c || !(rate > 0)) return null;
-  const frameOf = (text: string): number => {
-    if (text === "start") return 0;
-    if (text === "end") return 0;
-    const t = positionTextToTicks(c.grid, text);
-    return t === null ? Number.NaN : Math.round(ticksToSeconds(c.grid, t) * rate);
-  };
-  const start = frameOf(reg.from), end = frameOf(reg.to);
-  if (!Number.isFinite(start) || !Number.isFinite(end) || (end !== 0 && end <= start) || start < 0) return null;
-  return { startFrame: start, endFrame: end, wholeFile: start === 0 && end === 0 };
-}
-
-/**
- * R4a: a region of the node (`index` in its `regions`) in file frames of `rate`, rounded as `simpleLoopOf` rounds them
+ * R4a: a region of the node (`index` in its `regions`) in file frames of `rate`, rounded as the anchor's pass walk rounds them
  * (`"start"` 0, `"end"` 0 = the file's end); null when a bound isn't a position or the region is empty.
  */
 export function regionFramesOf(node: MusicNodeRef, index: number, rate: number): MemberLoop | null {

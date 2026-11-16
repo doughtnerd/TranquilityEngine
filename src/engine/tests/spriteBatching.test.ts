@@ -176,7 +176,7 @@ describe("the sprite feature (ADR 0108, 0130)", () => {
 
   it("batches plain sprites into one draw, and re-fills when a sprite changes", () => {
     const f = make();
-    const a = sprite("a", 0), b = sprite("b", 2, { color: Color.from("#ff0000") });
+    sprite("a", 0); const b = sprite("b", 2, { color: Color.from("#ff0000") });
     f.sync(world, ctx);
     expect(batches(scene).map((m) => m.thinInstanceCount)).toEqual([2]);
     expect(own(f)).toEqual([]); // no mesh per sprite
@@ -229,7 +229,7 @@ describe("the sprite feature (ADR 0108, 0130)", () => {
   it("snaps sprites to the texel grid under a pixel-perfect camera", () => {
     const f = make();
     GameObject.create("cam").addBehavior(Camera, { pixelPerfect: true });
-    const a = sprite("a", 0.51);
+    sprite("a", 0.51);
     f.sync(world, ctx);
     const m = instance(batches(scene)[0], "matrix", 0, 16);
     expect(m[12] * 16).toBeCloseTo(Math.round(m[12] * 16)); // on a 1/16 grid (the quad's pivot offset is 0 here)
@@ -258,7 +258,7 @@ describe("the sprite feature (ADR 0108, 0130)", () => {
     expect(own(f)).toEqual([]);
     expect(f.drawnNodes()).toEqual([]);
     expect(mesh.isDisposed()).toBe(true);
-    const b = sprite("b", 1);
+    sprite("b", 1);
     f.sync(world, ctx);
     const [{ mesh: meshB }] = [...f.editorSprites()];
     f.dispose();

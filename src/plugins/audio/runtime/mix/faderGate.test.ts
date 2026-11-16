@@ -4,7 +4,6 @@
 // converted at its rate (`faderGateHarness.ts`); no assertion reads a wall clock.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { setAudioBackend } from "../backend";
-import { events } from "../events/eventRuntime";
 import { FADER_COALESCE_MS } from "../wire.generated";
 import { runFaderGate, summarize } from "./faderGateHarness";
 import { endAudioSession } from "../testing";

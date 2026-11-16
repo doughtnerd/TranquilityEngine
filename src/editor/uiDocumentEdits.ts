@@ -225,8 +225,6 @@ function aliasesOf(name: string): string[] {
   return [...new Set([name, kebab(camelCase(name)), camelCase(name)])];
 }
 
-const idOf = (m: MarkupElement) => m.attributes.find((a) => a.name === "id")?.value ?? null;
-
 /** The path segment of the element with `tag`/`id` at `index` among `siblings` (the others, in order). */
 function segment(siblings: readonly MarkupElement[], index: number, tag: string, id: string | null): string {
   if (id) return `/#${id}`;

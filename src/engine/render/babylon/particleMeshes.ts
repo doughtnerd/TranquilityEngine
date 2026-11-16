@@ -189,8 +189,6 @@ export class QuadDraw implements EmitterDraw {
   capacity: number;
   readonly mesh: Mesh;
   readonly meshes: readonly Mesh[];
-  /** Quads drawn by the last update. */
-  private quads = 0;
   private positions = new Float32Array(0);
   private colors = new Float32Array(0);
   private uvs = new Float32Array(0);
@@ -290,7 +288,6 @@ export class QuadDraw implements EmitterDraw {
 
   /** Upload the first `quads` quads and draw only those. */
   private show(quads: number): void {
-    this.quads = quads;
     this.mesh.isVisible = quads > 0;
     if (!quads) return;
     const v = quads * 4;

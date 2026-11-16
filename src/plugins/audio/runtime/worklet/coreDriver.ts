@@ -47,7 +47,7 @@ import {
   writeStreamClose,
   writeStreamCredit,
 } from "../wire.generated";
-import { clipSampleBytes, memoryMaximumPages, MEMORY_INITIAL_PAGES, spatialRegionsBytes, zoneMaxFrames } from "./coreMemory";
+import { clipSampleBytes, memoryMaximumPages, MEMORY_INITIAL_PAGES, zoneMaxFrames } from "./coreMemory";
 import { UnderrunProbe } from "./underrunProbe";
 
 /** @internal The name `processor.ts` registers and the host creates its node with. */

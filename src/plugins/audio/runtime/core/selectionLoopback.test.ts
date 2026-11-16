@@ -64,7 +64,7 @@ describe("selection on the loopback host (A3.1)", () => {
   it("mixes at most `voices.mixed`: the core's count and the output are the loudest voices'", async (ctx) => {
     const r = await rig({ maxMixed: 4 });
     if (!r) return ctx.skip();
-    const { backend, step, loop } = r;
+    const { backend, step } = r;
     const volumes = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8].map((v) => v / 4); // under the limiter's 0 dBFS
     const voices = volumes.map((v, k) => backend.play(req(`v${k}.wav`, { volume: v }))!);
     const level = await step(10);

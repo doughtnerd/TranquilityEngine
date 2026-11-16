@@ -27,7 +27,6 @@ import "../../../samples/sound-lab/scripts/behaviors/LoopCycler";
 import { setAudioBackend } from "../../plugins/audio/runtime/backend";
 import { makeFakeBackend } from "../../plugins/audio/runtime/testing";
 import { OcclusionPass } from "../../plugins/audio/runtime/core/occlusion";
-import { encodeVoiceId } from "../../plugins/audio/runtime/core/ids";
 import { ListenerFrame, SendCurveTable, SpatialViewFlag, type SpatialVoiceView } from "../../plugins/audio/runtime/core/spatial";
 
 const SAMPLE = fileURLToPath(new URL("../../../samples/sound-lab", import.meta.url));

@@ -16,8 +16,6 @@ import { fakeDecoder } from "../core/fakeDecoder";
 import type { AudioHost } from "../core/context";
 import { CoreBackend, type CoreBackendHost } from "../core/coreBackend";
 import { AUDIO_SYSTEMS } from "../audioSystem";
-import { musicPlayers } from "../music/musicSystem";
-import { events } from "./eventRuntime";
 import { endAudioSession } from "../testing";
 
 const RATE = 48_000;

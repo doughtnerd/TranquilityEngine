@@ -72,7 +72,7 @@ export class MaterialPreview {
   private unchecked = false;
   private disposed = false;
 
-  constructor(private readonly container: HTMLElement, canvas?: HTMLCanvasElement) {
+  constructor(container: HTMLElement, canvas?: HTMLCanvasElement) {
     this.canvas = canvas ?? document.createElement("canvas");
     this.canvas.style.display = "block";
     this.canvas.style.width = "100%";

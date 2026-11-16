@@ -3,7 +3,7 @@
 // table here also checks both on each case.
 import { describe, expect, it } from "vitest";
 import {
-  applyOpToDraft, applyOpToSettings, diffOps, invert, MAX_LOUDNESS_BUSES, MIX_OP_NAMES, opClass, opRefusal,
+  applyOpToSettings, diffOps, invert, MAX_LOUDNESS_BUSES, MIX_OP_NAMES, opClass, opRefusal,
   type MixOp, type OpClass,
 } from "./mixOps";
 import { decodeMixOp, encodeMixOp, type MixOpNameTable } from "./mixOpCodec";

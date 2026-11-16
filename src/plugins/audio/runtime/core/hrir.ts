@@ -57,7 +57,6 @@ import type { ClipRegistry } from "./clipRegistry";
 import { readHrirHeader, resampleHrir, resampleMagls } from "./hrirResample";
 
 const FORMAT_HRIR = 2;
-const f32 = Math.fround;
 
 /** The reserved HRIR clip id (generation 0xFF, index 0xFF0000); the range is 0xFFFF0000..0xFFFF00FF. */
 const HRIR_CLIP_ID = 0xffff0000;

@@ -6,7 +6,7 @@
 // command writer, its clock in the test's hands): a sequence is in flight until its planned end, a tombstone recycles
 // only after its tail with no voice on it, and `replayEndState` forgets the queue. The sound of each case (maxStep on
 // the real core, a rebuild mid-dip) is in `structuralDipLoopback.test.ts`.
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { Mixer } from "../../../../engine/audio/mixer";
 import type { MixOp } from "../../../../engine/audio/mixOps";
 import { parseAudioSettings } from "../../../../engine/audio/settings";

@@ -22,7 +22,7 @@ import {
   createMusicPlayer, disposeMusicPlayer, musicPlayers, type MusicFrame, type MusicPlayer,
 } from "./music/musicSystem";
 import { setSegmentClipSource } from "./music/segmentRun";
-import { planTick, requestStart, type PlanRequest } from "./music/planner";
+import { planTick } from "./music/planner";
 import { requestTransition, tickTransition } from "./music/transition";
 
 const RATE = 48_000;
@@ -43,9 +43,6 @@ function segment(id: string, clips: string[], gridOffset = 0, extra: Record<stri
   if (!node) throw new Error("fixture segment did not parse");
   return node;
 }
-
-/** Bars every 0.5 s on the heard clock, the planner's own test rule. */
-const bars = (nb: number): number => Math.ceil(nb / 0.5 - 1e-9) * 0.5;
 
 let groupIds = 7;
 const instance = (): EventInstance =>
@@ -88,11 +85,6 @@ function playingPlayer(node: SegmentNode = segment("A", ["music/a1.ogg", "music/
   expect(player.state).toBe("playing");
   return player;
 }
-
-/** A segment B for a change: two streamed stems, the planner's bar rule. */
-const toB = (extra: Partial<PlanRequest> = {}): PlanRequest => ({
-  to: segment("B", ["music/b1.ogg", "music/b2.ogg"]), reason: "switch", grid: "bar", notBefore: Number.NaN, startFrame: 0, points: bars, ...extra,
-});
 
 /** Register an audio event whose root is `root`, read by `Audio.play` as `MUSIC_EVENT`. */
 function registerEvent(root: Record<string, unknown>): void {

@@ -7,7 +7,6 @@ import { afterEach, beforeEach, vi } from "vitest";
 import { Assets, Engine, SceneManager } from "../../../../myco";
 import { setAudioBackend } from "../backend";
 import { makeFakeBackend, type FakeBackend, endAudioSession } from "../testing";
-import { events } from "./eventRuntime";
 
 /** The event asset format tag. */
 export const F = "myco.audioevent@1";

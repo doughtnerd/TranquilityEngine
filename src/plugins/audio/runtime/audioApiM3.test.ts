@@ -12,7 +12,6 @@ import { CoreLink, type AudioHost, type HostLifecycleListener, type LinkPort } f
 import type { ClipInfo, ClipRegistry, ClipResidentListener, ClipState } from "./core/clipRegistry";
 import { CoreBackend, type CoreBackendHost } from "./core/coreBackend";
 import { makeStatusBlock } from "./core/statusFixtures";
-import { VoiceFlag2 } from "./core/voiceTable";
 import { LowpassBy } from "./core/voiceFx";
 import { setAudioBackend, DEFAULT_SEND_CURVE, type AudioPanner, type SendCurve } from "./backend";
 import { makeFakeBackend, endAudioSession } from "./testing";

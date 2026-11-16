@@ -94,7 +94,6 @@ async function rig() {
   return { backend, step };
 }
 
-const _x = (id: number) => Audio.debug().voices.filter((v) => v.event === id && v.state !== "stolen");
 
 
 describe("Bus.effectiveGain on the core includes bus automation (M2 F2, loopback)", () => {

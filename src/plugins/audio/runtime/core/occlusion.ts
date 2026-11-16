@@ -40,7 +40,7 @@ import { AudioOccluder, nearestOccluder } from "../AudioOccluder";
 import type { AudioOcclusionDebug } from "../backend";
 import { LP_TOP } from "../wire.generated";
 import { voiceGen, voiceIndex } from "./ids";
-import { LATERAL_OFFSET_M, MAX_HITS, MULTI_RAYS, MULTI_RAY_SOURCES, RECAST_STEP_M, hitWetFactor, lateralAxis, lateralOffset, smoothStep, type Vec3Out } from "./occlusionMath";
+import { MAX_HITS, MULTI_RAYS, MULTI_RAY_SOURCES, RECAST_STEP_M, hitWetFactor, lateralAxis, lateralOffset, smoothStep, type Vec3Out } from "./occlusionMath";
 import { MIN_AUDIBILITY } from "./selection";
 import { SpatialViewFlag, type ListenerFrame, type SpatialVoiceView } from "./spatial";
 

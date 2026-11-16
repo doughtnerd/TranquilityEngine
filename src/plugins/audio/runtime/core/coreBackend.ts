@@ -60,7 +60,7 @@ import { mixer as defaultMixer, type Mixer, type MixOpTarget, type ResolvedBus }
 import { Assets } from "../../../../engine/scene/Assets";
 import type { Attenuation, AudioBackend, AudioBackground, AudioCaptureSource, AudioClipCache, AudioClock, AudioCpuDebug, AudioLiveMix, AudioMixCaps, AudioMixDebug, AudioPanner, AudioStatus, AudioVoice, ClipSpanHold, FadeLaw, ListenerPose, MusicBackend, PlayRequest, RecorderTap, ShapedFade, VoiceSpatialOptions, ZoneIrService } from "../backend";
 import type { AudioLatency } from "../../../../engine/audio/musicTypes";
-import { BUS_LP_OFF_HZ, AUX_BUS_NONE, readStatus, type BusConfigBuses } from "../wire.generated";
+import { BUS_LP_OFF_HZ, readStatus, type BusConfigBuses } from "../wire.generated";
 import { AudioHandle, type AudioReason } from "./handle";
 import { limiterLatencyFrames } from "./limiterLatency";
 import { ClockMap } from "./clock";
@@ -93,7 +93,6 @@ import { DopplerPass } from "./doppler";
 import { ListenerStage } from "./listener";
 import { LowpassBy, VoiceFx } from "./voiceFx";
 import { ListenerFrame, SendCurveTable, SpatialViewFlag, type SpatialVoiceView, type StagedFrameHost } from "./spatial";
-import type { ReplayBuilder } from "./replay";
 import { BusIndex } from "./busIndex";
 import { LaneWriter } from "./laneWriter";
 import { KeyframeSource, type KeyframeHost } from "./keyframeSource";

@@ -6,7 +6,6 @@ import { fakeDecoder } from "./fakeDecoder";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Mixer } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings } from "../../../../engine/audio/settings";
-import { ClipFormat } from "../wire.generated";
 import { createClipRegistry } from "./clipRegistry";
 import { AudioHost, presetFromSettings, type ContextParts, type LinkPort } from "./context";
 import { createCoreBackend, type CoreBackend } from "./coreBackend";

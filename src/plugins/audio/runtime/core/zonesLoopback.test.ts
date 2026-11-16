@@ -71,7 +71,6 @@ class Rig {
   private token = 1;
   private readonly lefts: Float32Array[] = [];
   private readonly rights: Float32Array[] = [];
-  private readonly pending: Promise<void>[] = [];
   private readonly replies: (IrPreparedMessage | IrFailedMessage)[] = [];
   /** Clip sample bytes handed to the worklet (the clip's and the kernels' chunks). */
   private clipBytesSent = 0;

@@ -168,18 +168,15 @@ export interface PlayArgs {
 /**
  * One automation binding of AUTOMATE / BUS_AUTOMATE (ADR 0158 §3), as on the wire: `param` is a parameter slot
  * (`AUTOMATION_GLOBAL | slot` for a global one, else a local slot of the voice's instance `group`), `curve` a curve id
- * from `curves`, `target` one of `AUTOMATION_TARGET`.
+ * from `curves`,. `target`: volume 0, pitch 1, lowpass 2.
  */
 export type AutomationBinding = AutomateBindings;
 
 /** `AutomationBinding.param` bit for a global parameter slot (0..63); without it the slot is the instance's local one (0..15). */
 export const AUTOMATION_GLOBAL = 0x8000;
-/** `AutomationBinding.target`: volume (linear gain multiplier), pitch (ratio multiplier), lowpass (Hz). A bus takes volume and lowpass. */
-const AUTOMATION_TARGET = { volume: 0, pitch: 1, lowpass: 2 } as const;
-/** The core keeps at most this many bindings per voice and per bus, curves of at most `CORE_CURVE_KEYS` keys, and curve ids below `CORE_CURVES`. */
+/** The core keeps at most this many bindings per voice and per bus, curves of at most `CORE_CURVE_KEYS` keys. */
 const CORE_BINDINGS = 8;
 export const CORE_CURVE_KEYS = 32;
-const CORE_CURVES = 1024;
 /** Most bytes of curves in one CURVES record: larger uploads are split into several records (each fits a batch). */
 const CURVES_RECORD_BUDGET = 32 * 1024;
 
