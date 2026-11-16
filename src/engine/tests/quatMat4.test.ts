@@ -60,4 +60,15 @@ describe("invertAffine", () => {
     for (let i = 0; i < 16; i++) expect(product[i]).toBeCloseTo(identity[i], 9);
     expect(invertAffine([0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1])).toBeNull();
   });
+
+  it("inverts a rotated, scaled and translated matrix (not only symmetric ones)", () => {
+    const q = Quaternion.fromEuler(30, 45, 60);
+    const m = new Float64Array(16);
+    Mat4.compose(m, 0, [10, -4, 7], 0, [q.x, q.y, q.z, q.w], 0, [2, 3, 0.5], 0);
+    const product = new Float64Array(16);
+    Mat4.multiply(product, 0, m, 0, Float64Array.from(invertAffine(m)!), 0);
+    const identity = new Float64Array(16);
+    Mat4.identity(identity, 0);
+    for (let i = 0; i < 16; i++) expect(product[i]).toBeCloseTo(identity[i], 9);
+  });
 });
