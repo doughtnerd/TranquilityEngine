@@ -2,10 +2,12 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input, Quaternion, Vector3 } from "../engine";
 import { composeMatrix, localPoseFromWorld, type LocalPose } from "../engine/render/gizmoMath";
 import { SetField } from "./document";
-import { gizmoEdit, gizmoMode } from "./gizmo";
+import { gizmoEdit, installGizmo } from "./gizmo";
 import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile } from "./project";
-import { openScene, sceneCamera } from "./state";
+import { openScene, sceneCamera, select, snapping, tool, viewMode } from "./state";
+import { gizmoPivot, gizmoSpace, snapSettings, updateSnap } from "./sceneTools";
+import { FakeRenderSurface } from "../engine/render/fakeViewport";
 import { DEMO_SCENE, demoAssets, demoSettings } from "./testing";
 
 const quat = (zDeg: number) => Quaternion.fromEuler(0, 0, zDeg * (Math.PI / 180));
@@ -82,11 +84,51 @@ describe("gizmo edits (ADR 0026)", () => {
   });
 });
 
-describe("tool gizmo modes", () => {
+describe("the gizmo on the selection, over a fake viewport (ADR 0128)", () => {
+  let surface: FakeRenderSurface;
+  let stop: () => void;
+
+  beforeEach(async () => {
+    Input.reset();
+    const engine = await Engine.create({ headless: true, kind: "editor", project: demoSettings(), assets: demoAssets() });
+    surface = new FakeRenderSurface();
+    engine.world.render = surface;
+    sceneCamera.value = OrbitCamera.create(GameObject.create("SceneCamera", { parent: engine.world.root }));
+    openSceneFile(engine, DEMO_SCENE);
+    stop = installGizmo(engine);
+    return () => {
+      stop();
+      tool.value = "move";
+      engine.world.render = null;
+    };
+  });
+
   it("select shows no gizmo; the others pick a mode", () => {
-    expect(gizmoMode("select")).toBeNull();
-    expect(gizmoMode("move")).toBe("translate");
-    expect(gizmoMode("rotate")).toBe("rotate");
-    expect(gizmoMode("scale")).toBe("scale");
+    select(["bird"]);
+    tool.value = "select";
+    expect(surface.adapter.gizmo).toBeNull();
+    tool.value = "move";
+    expect(surface.adapter.gizmo?.options.mode).toBe("translate");
+    tool.value = "rotate";
+    expect(surface.adapter.gizmo?.options.mode).toBe("rotate");
+    tool.value = "scale";
+    expect(surface.adapter.gizmo?.options.mode).toBe("scale");
+  });
+
+  it("passes the snap steps, space and pivot, and the active node among the topmost targets", () => {
+    const fresh = { ...snapSettings.value };
+    snapping.value = false;
+    updateSnap({ always: true, move: 0.5, rotate: Math.PI / 4 });
+    gizmoSpace.value = "local";
+    gizmoPivot.value = "pivot";
+    viewMode.value = "2d";
+    select(["bird", "ground-a", "bg-a"]);
+    expect(surface.adapter.gizmo?.options).toMatchObject({ snap: true, snapSteps: { move: 0.5, rotate: Math.PI / 4, scale: 0.1 }, space: "local", pivot: "pivot", planar: true, activeIndex: 2 });
+    select(["bird", "ground-a", "bird-sprite"]); // the active node is a child of a target, not one itself: the last target
+    expect(surface.adapter.gizmo?.options.activeIndex).toBe(1);
+    snapSettings.value = fresh;
+    gizmoSpace.value = "world";
+    gizmoPivot.value = "center";
+    viewMode.value = "3d";
   });
 });

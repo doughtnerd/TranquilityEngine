@@ -19,7 +19,7 @@ const FIELDS: Record<Mode, "position" | "rotation" | "scale"> = { translate: "po
 const LABELS: Record<Mode, string> = { translate: "Move", rotate: "Rotate", scale: "Scale" };
 
 /** Gizmo mode for a tool, or null when the tool shows no gizmo. */
-export function gizmoMode(t: Tool): Mode | null {
+function gizmoMode(t: Tool): Mode | null {
   return t === "select" ? null : MODES[t];
 }
 
@@ -39,7 +39,7 @@ export function gizmoEdit(doc: SceneDocument, node: string | NodePath, mode: Mod
  * "always snap") with the chosen steps, world or local space, and centre or pivot placement on the
  * active node (`active`; when it isn't a target, e.g. a child of another selected node, the last target).
  */
-export function gizmoOptions(mode: Mode, keys: readonly string[], active: string | null): GizmoOptions {
+function gizmoOptions(mode: Mode, keys: readonly string[], active: string | null): GizmoOptions {
   const snap = cleanSnap(snapSettings.value);
   const at = active === null ? -1 : keys.indexOf(active);
   return {
