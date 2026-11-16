@@ -11,7 +11,8 @@ import { isMusicContainer, type MusicContainerNode, type MusicNode } from "../..
 import { buildRulesGrid, explainPair, replaceContainer, ruleMatchesPair } from "./rulesModel";
 import { openRules } from "./index";
 import { peaksFor } from "./peaksHost";
-import { addRule, duplicateRule, moveRule, removeRule, RuleEditor, type RuleEdit } from "./RuleEditor";
+import { RuleEditor } from "./RuleEditor";
+import { addRule, duplicateRule, moveRule, removeRule, type RuleEdit } from "./ruleEdits";
 import { issuesOfRule, leafSegments, lintTransitionRules, worstSeverity } from "./ruleLint";
 import { planTransitionAudition, runTransitionAudition } from "./ruleAudition";
 import { musicTransport } from "./transportHost";

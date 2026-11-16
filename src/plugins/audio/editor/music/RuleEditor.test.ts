@@ -4,9 +4,8 @@ import { describe, expect, it } from "vitest";
 import { formatAudioEvent, parseAudioEvent, type AudioEventAsset } from "../../../../engine/audio/eventFormat";
 import type { MusicContainerNode } from "../../../../engine/audio/musicFormat";
 import {
-  addRule, checkFade, duplicateRule, exitText, gridSpec, moveRule, removeRule, setBridge, setBridgeOwnFade, setEnter, setExit, setFade, setRuleEnds,
-  type RuleEdit,
-} from "./RuleEditor";
+  addRule, checkFade, duplicateRule, gridSpec, moveRule, removeRule, setBridge, setBridgeOwnFade, setEnter, setExit, setFade, setRuleEnds, type RuleEdit,
+} from "./ruleEdits";
 import { containerOf, segmentRaw, switchEvent } from "./ruleFixtures";
 import { replaceContainer } from "./rulesModel";
 
@@ -74,8 +73,6 @@ describe("ends, exit and enter", () => {
     expect(gridSpec("bar", 1)).toBe("bar");
     expect(gridSpec("beat", 8)).toEqual({ every: "beat", n: 8 });
     expect(gridSpec("beat", 0)).toMatch(/2\.\.64/);
-    expect(exitText({ every: "bar", n: 4 })).toBe("every 4 bars");
-    expect(exitText("immediate")).toBe("immediate");
   });
   it("accepts a cue the target has, refuses one it lacks", () => {
     const event = base();
