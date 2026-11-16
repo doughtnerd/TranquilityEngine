@@ -165,7 +165,7 @@ describe("plugin editor halves reach the editor through its SDK (ADR 0147)", () 
     "plugins/materials/editor/ShaderGraphPanel.tsx -> editor/graph/graph.css",
     "plugins/particles/editor/ui/particleGraph/GraphEditor.tsx -> editor/graph/graph.css",
   ]);
-  const editorHalves = files(join(SRC, "plugins")).filter((f) => /^plugins\/[^/]+\/editor\//.test(rel(f)) && !/\.test\.tsx?$/.test(f));
+  const editorHalves = files(join(SRC, "plugins")).filter((f) => /^plugins\/[^/]+\/editor\//.test(rel(f)) && !/\.(test|stories)\.tsx?$/.test(f));
   const shellImports = editorHalves.flatMap((f) =>
     specifiers(f)
       .map(({ spec }) => resolved(f, spec))

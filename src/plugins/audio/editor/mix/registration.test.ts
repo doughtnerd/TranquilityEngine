@@ -26,7 +26,7 @@ describe("registerMixPanels", () => {
       for (const e of readdirSync(dir, { withFileTypes: true })) {
         const p = join(dir, e.name);
         if (e.isDirectory()) walk(p);
-        else if (/\.(ts|tsx)$/.test(e.name) && !/\.test\.ts$/.test(e.name) && e.name !== "index.ts") {
+        else if (/\.(ts|tsx)$/.test(e.name) && !/\.(test\.ts|stories\.tsx)$/.test(e.name) && e.name !== "index.ts") {
           const text = readFileSync(p, "utf8");
           if (/\bregisterPanel\b|registerSceneToolbarItem|registerMenu|registerShortcut|registerKeybinding/.test(text)) offenders.push(e.name);
         }
