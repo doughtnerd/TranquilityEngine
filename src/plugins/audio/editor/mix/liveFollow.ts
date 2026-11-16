@@ -9,7 +9,6 @@
 // injectable scheduler. Segments are never throttled; they go to the Worker the moment the recorder posts them.
 import { CaptureError, type CaptureWorkerRequest } from "../../runtime/capture/format";
 import { CaptureSource, type CaptureSourceOptions, type ProfileSource } from "./profilerSource";
-import { followLiveViewport, type Viewport } from "./timelineModel";
 
 /** The least time between two model updates, milliseconds (§7). */
 const LIVE_UPDATE_MS = 66;

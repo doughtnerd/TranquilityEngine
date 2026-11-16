@@ -5,7 +5,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { createProjectSettingsSection } from "../../../../editor/projectSettingsSection";
 import type { SettingsDraft } from "../../../../editor/projectSettingsModel";
-import { onSectionChanged } from "../../../../editor/sectionChanged";
 import { closeTestProject, openTestProject } from "../../../../editor/testing";
 import { EMPTY_BUS_LOUDNESS } from "../../../../engine/audio/loudnessTypes";
 import type { ApplyResult, MixOp } from "../../../../engine/audio/mixOps";

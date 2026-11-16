@@ -6,15 +6,12 @@
 // view does.
 //
 // Interpretations: solo and mute are audition-only editor state (`stemAudition.ts`), never written to the asset. Tap tempo is the median interval of the current run (`tempoTools.ts`).
-import { signal } from "@preact/signals";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { editor, openAssetDocument, registerAssetDropTarget, Panel } from "../../../../editor/sdk";
 import type { AudioEventAsset } from "../../../../engine/audio/eventFormat";
 import {
-  BEAT_UNITS, MAX_BPM, MIN_BPM, MUSIC_LIMITS, TRACK_PICKS, type MusicRegion, type MusicTrack, type RegionCondition, type SegmentNode, type TrackPick,
+  BEAT_UNITS, MAX_BPM, MIN_BPM, MUSIC_LIMITS, TRACK_PICKS, type MusicRegion, type SegmentNode, type TrackPick,
 } from "../../../../engine/audio/musicFormat";
-import { compileSegmentGrid, positionTextToTicks } from "../../../../engine/audio/musicGrid";
-import { canonicalPosition, comparePositions, isBarBeatTick, parsePosition, positionProblem } from "../../../../engine/audio/musicPosition";
 import { validateSegment, type MusicClipFacts, type MusicLintIssue } from "../../../../engine/audio/musicValidate";
 import { importDropped } from "./import";
 import { openSegment } from "./index";
@@ -23,7 +20,7 @@ import type { PeaksService } from "./peaks";
 import { findSegment, replaceSegment } from "./segmentViewModel";
 import { barCountCandidates, tapTempo, tempoFromLength } from "./tempoTools";
 import { type Edit, setTempo, setGridOffset, renameTrack, setTrackVolume, setTrackPick, removeTrack, moveTrack, removeAlternative, promoteAlternative, addCue, renameCue, setCueAt, removeCue, setEntry, setExit, addRegion, type RegionPatch, updateRegion, removeRegion, type ConditionForm, readCondition } from "./segmentEdits";
-import { type StemAudition, stemAudition, auditionKey, auditionOf, toggleStem, audibleStems } from "./stemAudition";
+import { type StemAudition, auditionKey, auditionOf, toggleStem, audibleStems } from "./stemAudition";
 import "./segmentPanel.css";
 
 const ok = (segment: SegmentNode): Edit => ({ segment });

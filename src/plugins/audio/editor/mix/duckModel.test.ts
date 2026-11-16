@@ -10,7 +10,6 @@ const DUCK_DEFAULTS = { amount: 0.4, attack: 0.1, release: 0.5 } as const;
 
 const settings = (ducking: object[], buses?: object[]): AudioSettings => parseAudioSettings({ ...(buses ? { buses } : {}), ducking }).settings;
 const level = (target: string, trigger: string, over: object = {}) => ({ target, trigger, mode: "level", ...over });
-const presence = (target: string, trigger: string, over: object = {}) => ({ target, trigger, mode: "presence", ...over });
 
 describe("a new rule", () => {
   it("is a level rule with an RMS detector at -30 dBFS (owner decision 8)", () => {

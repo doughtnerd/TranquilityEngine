@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import type { MixOp } from "../../../../engine/audio/mixOps";
 import { EMPTY_BUS_LOUDNESS, type BusLoudness, type LoudnessTargetReading, type LoudnessTargetState } from "../../../../engine/audio/loudnessTypes";
 import type { SettingsDraft } from "../../../../editor/sdk";
-import { FADER_MAX_DB, UNITY_POSITION, positionToGain } from "./faderModel";
+import { FADER_MAX_DB, positionToGain } from "./faderModel";
 import { createMeter, resetClip, tickMeter, type MeterState } from "./meterModel";
 import { meterFill } from "../meterFill";
 import { METER_FLOOR_DB, meterFill as meterFillFromView } from "../BusMeters";

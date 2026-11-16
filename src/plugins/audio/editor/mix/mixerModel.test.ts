@@ -4,7 +4,6 @@ import type { ApplyResult, MixOp } from "../../../../engine/audio/mixOps";
 import { parseAudioSettings } from "../../../../engine/audio/settings";
 import { createProjectSettingsSection } from "../../../../editor/projectSettingsSection";
 import type { SettingsDraft } from "../../../../editor/projectSettingsModel";
-import { onSectionChanged } from "../../../../editor/sectionChanged";
 import { closeTestProject, openTestProject } from "../../../../editor/testing";
 import { playState } from "../../../../editor/state";
 import { startOpLog, type MixApplier } from "./opLog";

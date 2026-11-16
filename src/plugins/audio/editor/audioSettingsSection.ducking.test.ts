@@ -9,7 +9,6 @@ import { audioSection } from "../../../engine/audio/audioSection";
 import type { ApplyResult, MixOp } from "../../../engine/audio/mixOps";
 import { parseAudioSettings, type DuckingRule } from "../../../engine/audio/settings";
 import { createProjectSettingsSection } from "../../../editor/projectSettingsSection";
-import { onSectionChanged } from "../../../editor/sectionChanged";
 import { closeTestProject, openTestProject, readDraft } from "../../../editor/testing";
 import type { SettingsDraft } from "../../../editor/sdk";
 import { DuckingEditor } from "./AudioSettingsSection";

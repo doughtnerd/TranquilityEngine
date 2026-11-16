@@ -2,12 +2,8 @@
 // of `ruleEdits.ts`; the component applies a result through the event's asset document (one undo step per edit) and shows
 // the lint rows of the rule and the "audition this transition" action.
 import { useEffect, useState } from "preact/hooks";
-import {
-  DEFAULT_TRANSITION_RULE, FADE_CURVES, GRID_EVERY_MAX, GRID_EVERY_MIN, MAX_FADE_BEATS, MAX_FADE_SECONDS, RULE_WILDCARD,
-  type FadeCurve, type TransitionEnter, type TransitionExit, type TransitionFade, type TransitionRule,
-} from "../../../../engine/audio/musicRules";
-import { MUSIC_LIMITS, type MusicContainerNode } from "../../../../engine/audio/musicFormat";
-import type { GridSpec } from "../../../../engine/audio/musicTypes";
+import { FADE_CURVES, RULE_WILDCARD, type FadeCurve, type TransitionEnter, type TransitionExit, type TransitionFade } from "../../../../engine/audio/musicRules";
+import type { MusicContainerNode } from "../../../../engine/audio/musicFormat";
 import { endSegments, type RuleLintIssue } from "./ruleLint";
 import { type RuleEdit, setRuleEnds, gridSpec, setExit, setEnter, type FadeSlot, setFade, setBridgeOwnFade, setBridge } from "./ruleEdits";
 import "./ruleEditor.css";
