@@ -14,7 +14,7 @@ import {
   _resetSegmentRuns, createSegmentRun, groupRequest, pollPrimed, primeRun, routeGroupEvent, setSegmentClipSource, stampRun,
   type SegmentRun,
 } from "./segmentRun";
-import { advanceAnchor, anchorRun, applySlip, heardTimeAtPass, heardTimeOf, playingGridOf, predictWrap, rebaseAnchors, ticksAt } from "./anchors";
+import { advanceAnchor, anchorRun, applySlip, heardTimeOf, playingGridOf, predictWrap, rebaseAnchors, ticksAt } from "./anchors";
 import { createRegionState } from "./regions";
 
 let facts: Record<string, MusicClipFacts> = {};
@@ -113,7 +113,6 @@ describe("anchors: loop regions and predictWrap (§3.5)", () => {
     expect(ticksAt(player.anchor!, 17)).toBeCloseTo(3 * 1920, 6); // pass 2, file 3 s
     expect(ticksAt(player.anchor!, 20)).toBeCloseTo(2 * 1920, 6); // the wrap lands on `from`
     expect(ticksAt(player.anchor!, 25)).toBeCloseTo(7 * 1920, 6); // pass 3 ended at 24 (file 6 s): file 7 s
-    expect(heardTimeAtPass(player.anchor!, 2 * 1920, 3)).toBeNaN(); // the anchor is outside the region
   });
 
   it("count 1 never wraps; a forever region predicts in closed form hours on", () => {
@@ -140,8 +139,8 @@ describe("anchors: loop regions and predictWrap (§3.5)", () => {
     const a = player.anchor!;
     expect(a.ticks).toBe(3 * 1920);
     expect(predictWrap(player, 10)).toBeCloseTo(13, 9);
-    expect(heardTimeAtPass(a, 2 * 1920, 2)).toBeCloseTo(13, 9);
-    expect(heardTimeAtPass(a, 2 * 1920, 4)).toBeCloseTo(21, 9);
+    expect(predictWrap(player, 13)).toBeCloseTo(17, 9); // pass 3 begins at `from`
+    expect(predictWrap(player, 17)).toBeCloseTo(21, 9); // pass 4
     expect(advanceAnchor(player, 12)).toBe(false);
     expect(advanceAnchor(player, 18)).toBe(true); // wraps at 13 and 17
     expect(a).toMatchObject({ ticks: 2 * 1920, pass: 3 });
@@ -328,8 +327,17 @@ function rateChange(pinned: boolean): { checked: number; worstOld: number; worst
     for (let pass = 1; pass <= 60; pass++) {
       for (let t = 3840; t < 5 * 3840; t += 960) if (pass > 1 || ticksToSeconds(g, t) >= startFrame / CR) points.push([t, pass]);
     }
+    // The prediction as the beat clock reads it: the anchor's own pass by `heardTimeOf`, a later pass that many region
+    // lengths on, a length being the gap between two wraps `predictWrap` reports.
+    const predict = (): ((ticks: number, pass: number) => number) => {
+      const a = player.anchor!;
+      const w = predictWrap(player, a.time);
+      const passSeconds = predictWrap(player, w) - w;
+      return (ticks, pass) => heardTimeOf(a, ticks) + (pass - a.pass) * passSeconds;
+    };
+    const before = predict();
     let worstOld = 0;
-    for (const [t, pass] of points) worstOld = Math.max(worstOld, Math.abs(map.frameOfTime(heardTimeAtPass(player.anchor!, t, pass)) - map.frameOfTime(truth(t, pass))));
+    for (const [t, pass] of points) worstOld = Math.max(worstOld, Math.abs(map.frameOfTime(before(t, pass)) - map.frameOfTime(truth(t, pass))));
 
     // The rebuild: a 44.1 kHz context; Audio.time carries over (ClockMap.rebase), the anchors are rebased.
     map.rebase(44_100, 66, map.carryPoint());
@@ -338,12 +346,13 @@ function rateChange(pinned: boolean): { checked: number; worstOld: number; worst
     rebaseAnchors(player, 44_100);
     expect(player.counters.lastSlipFrames).toBe(Math.round((1201 * 44_100) / 48_000));
     const after = map.audioTime();
+    const rebased = predict();
     let worstNew = 0, exactNew = 0, checked = 0;
     for (const [t, pass] of points) {
       const ideal = truth(t, pass);
       if (ideal < after) continue;
       checked++;
-      const predicted = heardTimeAtPass(player.anchor!, t, pass);
+      const predicted = rebased(t, pass);
       worstNew = Math.max(worstNew, Math.abs(map.frameOfTime(predicted) - Math.round((ideal - map.timeOffset) * 44_100)));
       exactNew = Math.max(exactNew, Math.abs(predicted - ideal) * 44_100);
     }
