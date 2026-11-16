@@ -64,8 +64,8 @@ function createState(): WaterState {
 const WAVE_UNIFORMS = Array.from({ length: MAX_WAVES }, (_, i) => `mycoWave${i}`);
 const PHASE_UNIFORMS = ["mycoPhase0", "mycoPhase1"];
 
-/** @internal The plugin's uniform buffer entries (all vec4). */
-export function waterUniformBuffer(): { name: string; size: number; type: string }[] {
+/** The plugin's uniform buffer entries (all vec4). */
+function waterUniformBuffer(): { name: string; size: number; type: string }[] {
   const names = [...WAVE_UNIFORMS, ...PHASE_UNIFORMS, "mycoWaterA", "mycoWaterB", "mycoDeep", "mycoShallow", "mycoFoam"];
   return names.map((name) => ({ name, size: 4, type: "vec4" }));
 }
@@ -167,11 +167,11 @@ vec3 mycoNoise(vec2 p) {
 const GLSL_ALBEDO_ANCHOR = "!albedoOpacityOutParams\\s+albedoOpacityOut\\s*;";
 
 /**
- * @internal Where the water's code goes in Babylon's PBR shaders, by injection point (keys starting
+ * Where the water's code goes in Babylon's PBR shaders, by injection point (keys starting
  * with "!" are regular expressions Babylon replaces; see the file's header). WGSL on WebGPU, GLSL
  * on the WebGL2 fallback.
  */
-export function waterCustomCode(shaderType: string, language: ShaderLanguage = ShaderLanguage.WGSL): { [point: string]: string } {
+function waterCustomCode(shaderType: string, language: ShaderLanguage = ShaderLanguage.WGSL): { [point: string]: string } {
   if (language === ShaderLanguage.GLSL) return waterCustomCodeGLSL(shaderType);
   if (shaderType === "vertex") {
     return {
@@ -328,14 +328,14 @@ interface WaterEntry {
 }
 
 /** The vertices per side a surface is drawn with on the active tier ("low" shader level: half). */
-export function babylonWaterResolution(resolution: number, shaderLevel: string): number {
+function babylonWaterResolution(resolution: number, shaderLevel: string): number {
   const r = Number.isFinite(resolution) ? resolution : 128;
   const scaled = shaderLevel === "low" ? r * 0.5 : r;
   return Math.max(2, Math.min(1024, Math.round(scaled)));
 }
 
 /** A flat grid of `size`, `resolution` vertices per side, in the XZ plane facing +Y (wound as Babylon's left-handed default: right-hand-rule normal -Y). */
-export function waterGridData(size: number, resolution: number): VertexData {
+function waterGridData(size: number, resolution: number): VertexData {
   const n = resolution;
   const positions = new Float32Array(n * n * 3);
   const normals = new Float32Array(n * n * 3);

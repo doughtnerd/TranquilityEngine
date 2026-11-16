@@ -8,14 +8,41 @@ import type { MaterialPluginBase } from "@babylonjs/core/Materials/materialPlugi
 import type { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
 import { ShaderLanguage } from "@babylonjs/core/Materials/shaderLanguage.js";
 import { Scene } from "@babylonjs/core/scene.js";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { World } from "../core/World";
 import { Assets, Engine, GameObject, Graphics, SceneManager } from "../index";
 import { WaterSurface } from "../render/water/WaterSurface";
-import { BabylonWater, babylonWaterResolution, waterCustomCode, waterGridData, waterUniformBuffer } from "../render/babylon/water";
+import { BabylonWater } from "../render/babylon/water";
 import { GERSTNER_BODY, MAX_WAVES, gerstner } from "../render/water/gerstner";
 import { waterTime } from "../render/water/WaterSurface";
 import { ALBEDO_ANCHOR } from "../render/babylon/graphMaterial";
+
+type ShaderCode = { [point: string]: string };
+/** The code the water material's wave plugin gives Babylon's PBR shaders, and its uniform buffer: read through Babylon's plugin API. */
+let waterCode: (shaderType: string, language?: ShaderLanguage) => ShaderCode;
+let waterUbo: { name: string; size: number; type: string }[];
+beforeAll(async () => {
+  Assets.clearSources();
+  Assets.addSource(Assets.fromObject({ "s.json": { format: "myco.scene@1", nodes: [] } }));
+  const engine = await Engine.create({ headless: true });
+  await SceneManager.load("s.json");
+  const babylon = new NullEngine();
+  const scene = new Scene(babylon);
+  const water = new BabylonWater(scene);
+  const w = GameObject.create("sea").addBehavior(WaterSurface);
+  engine.step(1 / 60);
+  water.sync(engine.world as unknown as World, [w]);
+  const mesh = scene.meshes.find((m) => m.name === "myco-water")!;
+  const plugin = (mesh.material as PBRMaterial).pluginManager!.getPlugin("MycoWater") as MaterialPluginBase;
+  const code = new Map<string, ShaderCode>();
+  for (const language of [ShaderLanguage.WGSL, ShaderLanguage.GLSL]) for (const type of ["vertex", "fragment"]) code.set(`${type}|${language}`, plugin.getCustomCode(type, language)!);
+  waterCode = (type, language = ShaderLanguage.WGSL) => code.get(`${type}|${language}`)!;
+  waterUbo = (plugin.getUniforms() as { ubo: typeof waterUbo }).ubo;
+  water.dispose();
+  scene.dispose();
+  babylon.dispose();
+  engine.dispose();
+});
 
 describe("water surfaces on Babylon (ADR 0075 stage 6)", () => {
   let engine: Engine;
@@ -67,9 +94,10 @@ describe("water surfaces on Babylon (ADR 0075 stage 6)", () => {
   });
 
   it("winds the grid as Babylon's left-handed default, facing +Y (right-hand-rule normal down)", () => {
-    const d = waterGridData(2, 3);
-    const p = d.positions as Float32Array;
-    const idx = d.indices as Uint32Array;
+    water.sync(world(), [surface({ resolution: 3, size: 2 })]);
+    const mesh = waterMeshes()[0];
+    const p = mesh.getVerticesData(VertexBuffer.PositionKind)!;
+    const idx = mesh.getIndices()!;
     for (let t = 0; t < idx.length; t += 3) {
       const v = (i: number) => [p[idx[t + i] * 3], p[idx[t + i] * 3 + 1], p[idx[t + i] * 3 + 2]];
       const [a, b, c] = [v(0), v(1), v(2)];
@@ -92,8 +120,6 @@ describe("water surfaces on Babylon (ADR 0075 stage 6)", () => {
     w.size = 80;
     water.sync(world(), [w]);
     expect(Math.max(...waterMeshes()[0].getVerticesData(VertexBuffer.PositionKind)!)).toBeCloseTo(40, 6);
-    expect(babylonWaterResolution(128, "high")).toBe(128);
-    expect(babylonWaterResolution(128, "low")).toBe(64);
     Graphics._apply("Low");
     water.sync(world(), [w]);
     expect(waterMeshes()[0].getTotalVertices()).toBe(16 * 16);
@@ -153,9 +179,12 @@ describe("water surfaces on Babylon (ADR 0075 stage 6)", () => {
 });
 
 describe("the water WGSL", () => {
-  const vertex = waterCustomCode("vertex");
-  const fragment = waterCustomCode("fragment");
-  const all = [...Object.values(vertex), ...Object.values(fragment), ...Object.keys(vertex), ...Object.keys(fragment)].join("\n");
+  let vertex: ShaderCode, fragment: ShaderCode, all: string;
+  beforeAll(() => {
+    vertex = waterCode("vertex");
+    fragment = waterCode("fragment");
+    all = [...Object.values(vertex), ...Object.values(fragment), ...Object.keys(vertex), ...Object.keys(fragment)].join("\n");
+  });
 
   it("goes in the injection points Babylon's PBR shaders have", () => {
     expect(Object.keys(vertex)).toContain("CUSTOM_VERTEX_DEFINITIONS");
@@ -176,9 +205,9 @@ describe("the water WGSL", () => {
   });
 
   it("declares no uniforms of its own and reads every packed one", () => {
-    const names = waterUniformBuffer().map((u) => u.name);
+    const names = waterUbo.map((u) => u.name);
     expect(names.filter((n) => n.startsWith("mycoWave")).length).toBe(MAX_WAVES);
-    expect(waterUniformBuffer().every((u) => u.type === "vec4" && u.size === 4)).toBe(true);
+    expect(waterUbo.every((u) => u.type === "vec4" && u.size === 4)).toBe(true);
     for (const n of names) expect(all).toContain(`uniforms.${n}`);
     expect(all).not.toMatch(/^\s*uniform /m);
   });
@@ -194,8 +223,11 @@ describe("the water WGSL", () => {
 });
 
 describe("the water GLSL (WebGL2 fallback)", () => {
-  const vertex = waterCustomCode("vertex", ShaderLanguage.GLSL);
-  const fragment = waterCustomCode("fragment", ShaderLanguage.GLSL);
+  let vertex: ShaderCode, fragment: ShaderCode;
+  beforeAll(() => {
+    vertex = waterCode("vertex", ShaderLanguage.GLSL);
+    fragment = waterCode("fragment", ShaderLanguage.GLSL);
+  });
 
   it("matches the lines of Babylon's GLSL PBR shaders it replaces", () => {
     const pos = Object.keys(vertex).find((k) => k.startsWith("!"))!;
@@ -208,7 +240,7 @@ describe("the water GLSL (WebGL2 fallback)", () => {
   it("sums the waves with GERSTNER_BODY itself, reads every packed uniform, and shadows none of them", () => {
     expect(vertex.CUSTOM_VERTEX_DEFINITIONS).toContain(GERSTNER_BODY.replace(/\$float/g, "float").replace(/\$int/g, "int"));
     const all = [...Object.values(vertex), ...Object.values(fragment)].join("\n");
-    for (const { name } of waterUniformBuffer()) {
+    for (const { name } of waterUbo) {
       expect(all).toMatch(new RegExp(`\\b${name}\\b`));
       expect(all).not.toMatch(new RegExp(`\\b(float|vec[234]|int) ${name}\\b`)); // a local of a uniform's name
     }
@@ -221,7 +253,7 @@ type V4 = { x: number; y: number; z: number; w: number };
 
 /** The wave function a shader's CUSTOM_VERTEX_DEFINITIONS declares, translated to JavaScript: (rest x, rest z, uniforms) → displacement. */
 function shaderWaves(language: ShaderLanguage): (px: number, pz: number, u: Record<string, V4>) => number[] {
-  const defs = waterCustomCode("vertex", language).CUSTOM_VERTEX_DEFINITIONS;
+  const defs = waterCode("vertex", language).CUSTOM_VERTEX_DEFINITIONS;
   const start = defs.search(/(fn|void) mycoGerstner/);
   let src = defs.slice(start, defs.indexOf("\n}\n", defs.search(/disp = vec3\(|return mat3x3f/)) + 2);
   src = src.replace(/uniforms\./g, "").replace(/\b(mycoWave\d|mycoPhase\d|mycoWaterA)\b/g, "u.$1");
