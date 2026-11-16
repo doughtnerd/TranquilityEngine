@@ -22,7 +22,7 @@ import type { DecoderReply, IrFailedMessage, IrPreparedMessage, StreamPortLike }
 import hash from "../runtime/wasm/hash.json";
 import { LOOPBACK_PRESET } from "../runtime/testing";
 import { CounterWatch, VOICE_COLUMNS, debugSections, voiceCells, type Section } from "./audioDebugRows";
-import { gainColor, occlusionColors, occlusionOverlay, occludedVoices, type OcclusionScene } from "./OcclusionOverlay";
+import { gainColor, occlusionColors, occlusionOverlay, occludedVoices, type OcclusionScene } from "./occlusionRays";
 import { theme } from "../../../editor/sdk";
 
 const DECODER = readFileSync(fileURLToPath(new URL("../runtime/wasm/myco_audio_decode.wasm", import.meta.url)));
