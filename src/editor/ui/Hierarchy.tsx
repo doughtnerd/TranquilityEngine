@@ -19,6 +19,7 @@ import { renamingUIElement, startUIElementDrag, uiDropDescription, uiElementDrag
 import "./hierarchy.css";
 import { liveInspecting } from "../runtimeInspect";
 import { RuntimeHierarchy, WorldPicker } from "./RuntimeHierarchy";
+import { activeElementOf } from "../windows/dom";
 
 /** The Inspector shows the open scene's settings when nothing is selected: clear the node and asset selections. */
 function showSceneSettings(): void {
@@ -402,7 +403,8 @@ function UIElementRename(props: { row: UIElementRow }) {
       placeholder="id"
       value={initial}
       ref={(input) => {
-        if (input && document.activeElement !== input) {
+        // Its own window's focus: in a detached panel window (ADR 0174) the main document's never is the input, so every render reselected it.
+        if (input && activeElementOf(input) !== input) {
           input.focus();
           input.select();
         }
