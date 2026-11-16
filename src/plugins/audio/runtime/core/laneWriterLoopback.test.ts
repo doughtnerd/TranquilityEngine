@@ -101,10 +101,9 @@ describe("the lane writer on the loopback host (Mx2)", () => {
     const frameAtCall = r.loop.frame;
     mixer.bus("SFX").fadeTo(0.5, 0.05); // 2,400 frames
     const run = await step(60);
-    const stamp = backend.lanes.lastRampStartFrame(SFX)!;
+    const stamp = backend.debug().buses[SFX]!.lastRampStartFrame!;
     expect(stamp).toBeDefined();
     expect(stamp, "stamped ahead of the core's frame at the call").toBeGreaterThan(frameAtCall);
-    expect(backend.debug().buses[SFX]!.lastRampStartFrame).toBe(stamp);
     const at = (frame: number) => run.out[frame - run.start]!;
     const firstChanged = run.start + run.out.findIndex((v) => v !== LEVEL);
     expect(firstChanged, "the fade starts on its stamped frame").toBe(stamp);
@@ -135,7 +134,7 @@ describe("the lane writer on the loopback host (Mx2)", () => {
     backend.masterVolume = 0.5;
     await step(4);
     expect((await step(1)).last).toBeCloseTo(LEVEL * 0.25, 6);
-    expect(backend.lanes.lastRampStartFrame(SFX)).toBeUndefined();
+    expect(backend.debug().buses[SFX]!.lastRampStartFrame ?? undefined).toBeUndefined();
     backend.muted = true;
     await step(4);
     expect((await step(1)).last).toBe(0);

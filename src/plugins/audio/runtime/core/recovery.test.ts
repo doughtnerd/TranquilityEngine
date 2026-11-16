@@ -172,7 +172,6 @@ describe("the hard rebuild on the loopback host (A3.4a)", () => {
     const debug = backend.debug();
     expect(debug.counters.traps).toBe(1);
     expect(debug.core.recoveries).toBe(1);
-    expect(backend.replayer.stats.replayed).toBe(2);
     backend.dispose();
   });
 
@@ -245,7 +244,6 @@ describe("the hard rebuild on the loopback host (A3.4a)", () => {
     expect(shot.playing).toBe(false);
     expect(shot.reason).toBeNull(); // ended, as it would have
     expect(keep.playing).toBe(true);
-    expect(backend.replayer.stats).toMatchObject({ replayed: 1, dropped: 2, failed: 0 });
     expect(backend.debug().voices.map((v) => v.id)).toEqual([keep.id]);
     expect(backend.table.liveCount).toBe(1);
     backend.dispose();

@@ -220,7 +220,7 @@ export class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, Au
   /** Where each voice is in its clip (A3.4a), for a hard rebuild's replay. */
   readonly playheads: PlayheadTracker;
   /** The hard rebuild's replay (A3.4a; `replay.ts`). */
-  readonly replayer: Replayer;
+  private readonly replayer: Replayer;
   /** ADR 0162 (K4): each voice's panner kind (`pannerPick.ts`; H3's HRTF pick until A5). */
   readonly panners: PannerPick;
   private readonly pannerSink: PannerSink;
