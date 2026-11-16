@@ -3,7 +3,8 @@
  * vertex buffer per texture (usually one), quads in the tilemap's local units, so the render
  * backend draws a whole chunk in one call and rebuilds only chunks that changed.
  */
-import { CHUNK_SIZE, FLIP_DIAGONAL, FLIP_X, FLIP_Y, flagsOf, tileIdOf } from "./format";
+import { CHUNK_SIZE, FLIP_DIAGONAL, flagsOf, tileIdOf } from "./format";
+import { sourceCorner } from "./tileFlips";
 
 /** What a tile draws: a texture, its UV rectangle (v up) and its size in cells. */
 export interface TileFrame {
@@ -23,15 +24,6 @@ export interface ChunkMesh {
   indices: Uint32Array;
   /** Quads in this mesh. */
   quads: number;
-}
-
-/** The texture coordinate (s, t ∈ 0..1, t down) a drawn corner of a flipped tile samples. */
-export function sourceCorner(s: number, t: number, flags: number): [number, number] {
-  // Drawn = vertical ∘ horizontal ∘ diagonal (source), each its own inverse, so undo them in reverse.
-  if (flags & FLIP_Y) t = 1 - t;
-  if (flags & FLIP_X) s = 1 - s;
-  if (flags & FLIP_DIAGONAL) [s, t] = [t, s];
-  return [s, t];
 }
 
 // Corners in drawing order (bottom-left, bottom-right, top-right, top-left) as (s, t) with t down.

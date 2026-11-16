@@ -63,15 +63,3 @@ export interface Stamp {
   height: number;
   values: number[];
 }
-
-/** The cells a stamp paints with its bottom-left at (x, y), with their values (empty cells skipped). */
-export function stampCells(stamp: Stamp, x: number, y: number): { x: number; y: number; value: number }[] {
-  const out: { x: number; y: number; value: number }[] = [];
-  for (let r = 0; r < stamp.height; r++) {
-    for (let c = 0; c < stamp.width; c++) {
-      const v = stamp.values[r * stamp.width + c];
-      if (v) out.push({ x: x + c, y: y + r, value: v });
-    }
-  }
-  return out;
-}

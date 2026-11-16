@@ -72,8 +72,8 @@ function warnOnce(key: string, message: string): void {
   console.warn(`[myco] ${message}`);
 }
 
-/** @internal The tileset asset at `path`, parsed once per version of its JSON, or null (warning once) if missing or bad. */
-export function loadTileset(path: string): Tileset | null {
+/** The tileset asset at `path`, parsed once per version of its JSON, or null (warning once) if missing or bad. */
+function loadTileset(path: string): Tileset | null {
   if (!path) return null;
   if (!Assets.has(path)) {
     warnOnce(`missing|${path}`, `tileset "${path}" not found.`);

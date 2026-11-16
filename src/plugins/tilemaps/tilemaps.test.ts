@@ -2,7 +2,7 @@
 // render feature; its editor half registers the tileset kind and format, and tilesets edit through an asset document.
 import { afterEach, describe, expect, it } from "vitest";
 import { getComponentClass } from "../../engine/core/registry";
-import { _registeredRenderFeatures, byPhase } from "../../engine/render/renderFeatures";
+import { byPhase } from "../../engine/render/renderFeatures";
 import { assetKind } from "../../editor/assetBrowser";
 import { assetDocumentsDeleted, assetDocumentsMoved, openAssetDocument } from "../../editor/assetDocuments";
 import { acceptsFile } from "../../editor/assetFieldKinds";

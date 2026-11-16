@@ -61,12 +61,8 @@ export function newLayer(name = "Layer", sortingLayer = "Default"): TilemapLayer
 }
 
 type LayerMigration = (layer: Record<string, unknown>) => Record<string, unknown>;
+/** Upgrades of a layer from version `n` (the key) to `n + 1`; none yet, while the layer is at version 1. */
 const layerMigrations = new Map<number, LayerMigration>();
-
-/** @internal Register an upgrade of a layer from version `from` to `from + 1`. */
-export function registerTilemapLayerMigration(from: number, migrate: LayerMigration): void {
-  layerMigrations.set(from, migrate);
-}
 
 /**
  * A layer read from a scene file, upgraded to the current version with defaults for missing
