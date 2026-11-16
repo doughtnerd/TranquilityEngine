@@ -42,6 +42,11 @@ export interface PopoverOptions {
   readonly inside?: readonly (Element | { readonly current: Element | null } | null | undefined)[];
   /** Escape dismisses it (default true). False for owners that handle Escape themselves. */
   readonly escape?: boolean;
+  /**
+   * Its window losing focus dismisses it (default true). False for a popover holding a native picker
+   * (a colour input), whose dialog takes the window's focus while it's in use.
+   */
+  readonly blur?: boolean;
   /** Focus its first enabled item when it opens (menus; default false). */
   readonly focusFirst?: boolean;
   /** The user dismissed it. Called once; the owner stops showing it (and `close` is then a no-op). */
@@ -96,7 +101,7 @@ export function openPopover(el: HTMLElement, options: PopoverOptions): Popover {
     e.stopPropagation(); // not the editor's own Escape handling as well
     dismiss("escape");
   };
-  const onBlur = (e: Event) => e.target === win && dismiss("blur");
+  const onBlur = (e: Event) => e.target === win && options.blur !== false && dismiss("blur");
   // Focus moving to another element outside. (Into nothing, as when the focused item is removed or
   // a separator is clicked, or into another window, which `blur` covers, isn't leaving.)
   const onFocusOut = (e: Event) => {

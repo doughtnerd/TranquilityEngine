@@ -24,7 +24,7 @@ function fakeWindow(innerWidth = 320, innerHeight = 240) {
   return { win, doc, fire, listening };
 }
 
-type Fake = HTMLElement & { children: Fake[]; fire(type: string, init: Record<string, unknown>): void; focused: boolean };
+type Fake = HTMLElement & { kids: Fake[]; disabled: boolean; fire(type: string, init: Record<string, unknown>): void; focused: boolean };
 
 /** An element in `doc`, `size` big where it's drawn (`rect` for an anchor). */
 function element(doc: Document & { activeElement: Element | null }, opts: { size?: { width: number; height: number }; rect?: DOMRect | Partial<DOMRect>; tag?: string; disabled?: boolean } = {}): Fake {
@@ -36,13 +36,13 @@ function element(doc: Document & { activeElement: Element | null }, opts: { size
     isConnected: true,
     disabled: !!opts.disabled,
     style: {} as Record<string, string>,
-    children: [] as Fake[],
+    kids: [] as Fake[],
     focused: false,
     getBoundingClientRect: () => (opts.rect ?? { left: 0, top: 0, right: opts.size?.width ?? 0, bottom: opts.size?.height ?? 0, ...opts.size }) as DOMRect,
     contains(node: unknown): boolean {
-      return node === el || el.children.some((c) => c.contains(node));
+      return node === el || el.kids.some((c) => c.contains(node as Node));
     },
-    querySelector: () => el.children.find((c) => c.tagName === "BUTTON" && !c.disabled) ?? null,
+    querySelector: () => el.kids.find((c) => c.tagName === "BUTTON" && !c.disabled) ?? null,
     focus() {
       el.focused = true;
       doc.activeElement = el as unknown as Element;
@@ -64,7 +64,7 @@ describe("popovers (menus and floating panels), in the window they're in (ADR 01
     const toggle = element(child.doc);
     const menu = element(child.doc, { size: MENU });
     const item = element(child.doc, { tag: "button" });
-    menu.children.push(item);
+    menu.kids.push(item);
     const reasons: DismissReason[] = [];
     const popover = openPopover(menu, { anchor: toggle, inside: [{ current: toggle }], onDismiss: (r) => reasons.push(r) });
     expect(popover.window).toBe(child.win);
@@ -116,7 +116,7 @@ describe("popovers (menus and floating panels), in the window they're in (ADR 01
     const menu = element(child.doc, { size: MENU });
     const off = element(child.doc, { tag: "button", disabled: true });
     const on = element(child.doc, { tag: "button" });
-    menu.children.push(off, on);
+    menu.kids.push(off, on);
     const onDismiss = vi.fn();
     openPopover(menu, { anchor: { x: 0, y: 0 }, focusFirst: true, onDismiss });
     expect(on.focused).toBe(true);
@@ -143,6 +143,10 @@ describe("popovers (menus and floating panels), in the window they're in (ADR 01
     openPopover(element(child.doc, { size: MENU }), { onDismiss });
     child.fire("blur", { target: child.win });
     expect(onDismiss).toHaveBeenCalledWith("blur");
+    const withPicker = vi.fn();
+    openPopover(element(child.doc, { size: MENU }), { blur: false, onDismiss: withPicker });
+    child.fire("blur", { target: child.win }); // a colour input's picker opened
+    expect(withPicker).not.toHaveBeenCalled();
 
     const toggle = element(child.doc);
     const menu = element(child.doc, { size: MENU });

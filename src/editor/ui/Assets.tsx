@@ -35,6 +35,7 @@ import { assetTileSize, assetView } from "../preferences";
 import { joinPath, type EditorProject } from "../projects";
 import { currentProject, docVersion, openScene, sceneCamera, scriptsVersion, selection, status } from "../state";
 import { TileThumbnail } from "./AssetPreview";
+import { usePopover } from "./popover";
 import "./assets.css";
 import "./assetSlices.css";
 
@@ -740,28 +741,11 @@ function ContextMenu() {
   const owner = useAssetsView();
   const m = menu.value?.owner === owner ? menu.value : null;
   const el = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!m) return;
-    const close = (e: Event) => {
-      if (e instanceof KeyboardEvent && e.key !== "Escape") return;
-      if (e.type === "pointerdown" && el.current?.contains(e.target as Node)) return;
-      menu.value = null;
-    };
-    window.addEventListener("pointerdown", close, true);
-    window.addEventListener("keydown", close, true);
-    window.addEventListener("blur", close);
-    el.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
-    return () => {
-      window.removeEventListener("pointerdown", close, true);
-      window.removeEventListener("keydown", close, true);
-      window.removeEventListener("blur", close);
-    };
-  }, [m]);
+  // In the panel's own window (a detached panel window, ADR 0174), measured to stay on screen.
+  usePopover(el, !!m, { anchor: m, key: m, focusFirst: true, onDismiss: () => (menu.value = null) });
   if (!m) return null;
-  // Keep it on screen.
-  const x = Math.min(m.x, window.innerWidth - 220), y = Math.min(m.y, window.innerHeight - m.items.length * 26 - 10);
   return (
-    <div ref={el} class="context-menu" role="menu" style={{ left: `${Math.max(0, x)}px`, top: `${Math.max(0, y)}px` }}>
+    <div ref={el} class="context-menu" role="menu">
       {m.items.map((item, i) =>
         item.separator ? (
           <div key={i} class="context-sep" role="separator" />
