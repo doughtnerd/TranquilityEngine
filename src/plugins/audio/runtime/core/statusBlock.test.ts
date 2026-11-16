@@ -21,7 +21,7 @@ import {
   type StatusHeaderField,
 } from "../wire.generated";
 import { RecordType, assembleCapture } from "../capture/format";
-import { CaptureTimeIndex, STATUS_COLUMNS, openCapture, rangeCapture, readStatusColumn } from "../capture/reader";
+import { CaptureTimeIndex, STATUS_COLUMNS, openCapture, rangeCapture } from "../capture/reader";
 import { SAMPLE_HEADER, SAMPLE_META, SAMPLE_RATE, sampleRecords } from "../capture/testSupport";
 import { StatusMirror, makeStatusBlock } from "./mirror";
 import { StatusReader } from "./statusReader";
@@ -102,7 +102,6 @@ describe("the STATUS block, generated once (ADR 0177)", () => {
     expect(STATUS_COLUMNS).toBe(STATUS_HEADER_COLUMNS);
     for (const f of FIELDS) {
       expect([f, readStatusHeaderField(view, 0, f)]).toEqual([f, block[f]]);
-      expect([f, readStatusColumn(view, 0, f)]).toEqual([f, block[f]]);
     }
 
     // The mirror keeps the newest header as one record: every field by name.

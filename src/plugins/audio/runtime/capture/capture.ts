@@ -57,7 +57,7 @@ export interface AudioCapture {
 export type AudioCaptureState = "idle" | "loading" | "recording" | "stopped";
 
 /** The empty-save rejection (§1.2). */
-export const NOTHING_RECORDED = "nothing recorded: call Audio.capture.start() first";
+const NOTHING_RECORDED = "nothing recorded: call Audio.capture.start() first";
 
 /** What the recorder chunk exports to this file (a type only: the module is reached by `import()` alone). */
 export type RecorderModule = typeof import("./recorder");
@@ -631,11 +631,6 @@ export const audioCapture: AudioCapture = {
 
 /** @internal The Profiler panel's way onto the ring (Pf7's `LiveHost`): `join()` is an owner distinct from a take. Not part of `Audio.capture`'s public type. */
 export const captureLiveHost: CaptureLiveHost = { join: () => capture.join() };
-
-/** @internal The ring's owners: whether a take runs and how many panel holds there are. */
-export function captureOwners(): { take: boolean; panels: number } {
-  return capture.owners();
-}
 
 /** @internal `Audio.debug().recorder` (§1.3): null while no ring exists. The coordinator wires it into `Audio.debug()`. */
 export function captureDebug(): AudioRecorderDebug | null {

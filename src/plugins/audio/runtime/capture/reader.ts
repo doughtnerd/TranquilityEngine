@@ -42,9 +42,9 @@ export interface ReaderOptions {
 }
 
 /** Records between cancel checks and progress calls. */
-export const CANCEL_CHECK_RECORDS = 4096;
+const CANCEL_CHECK_RECORDS = 4096;
 /** The record table's first capacity. */
-export const RECORD_TABLE_INITIAL = 1024;
+const RECORD_TABLE_INITIAL = 1024;
 
 /**
  * Every record's head and where its payload is, in struct-of-arrays form (no object per record). Row `i` is the i-th
@@ -477,7 +477,7 @@ export function recordSeconds(c: CaptureContents, i: number): number {
 }
 
 /** The epoch record `i` belongs to (binary search over `epochs`). */
-export function epochOf(c: CaptureContents, i: number): EpochInfo {
+function epochOf(c: CaptureContents, i: number): EpochInfo {
   let lo = 0;
   let hi = c.epochs.length - 1;
   while (lo < hi) {
@@ -504,7 +504,7 @@ export const RANGE_SECONDS = "seconds";
 export const RANGE_MAX_BUCKETS = 65_536;
 
 /** A STATUS scalar read in place (no allocation). */
-export const readStatusColumn = readStatusHeaderField;
+const readStatusColumn = readStatusHeaderField;
 
 /** A MARKER on the axis. */
 export interface CaptureMarkerAt { seq: number; seconds: number; text: string }

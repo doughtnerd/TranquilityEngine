@@ -9,13 +9,20 @@ import { AUDIO_SERVICE, AudioWorldService } from "../core/service";
 import { mixer } from "../../../../engine/audio/mixer";
 import type { AudioHost } from "../core/context";
 import { makeFakeBackend, type FakeBackend } from "../testing";
-import { _setFramePump, _setRecorderLoader, _setSaveEnv, captureDebug, captureLiveHost, captureOwners, capturePlayStopped, NOTHING_RECORDED, releaseCapture, type RecorderModule } from "./capture";
+import { _setFramePump, _setRecorderLoader, _setSaveEnv, captureDebug, captureLiveHost, capturePlayStopped, releaseCapture, type RecorderModule } from "./capture";
 import { EventKind, RecordType, decodeKeyframe, type KeyframePayload } from "./format";
 import { decodeRecordAt, openCapture, openLiveCapture, type CaptureContents } from "./reader";
-import { _resetSaveState, deflateRawCompress, type SaveEnv } from "./save";
+import { defaultSaveEnv, type SaveEnv } from "./save";
 import { SAMPLE_HEADER, SAMPLE_META, keyframeCodecForTests, statusBytes } from "./testSupport";
 import { assembleCapture } from "./format";
 import type { Recorder } from "./recorder";
+
+
+/** The ring's owners as `Audio.debug().recorder` reports them: whether a take runs, and the panel holds besides it. */
+function captureOwners(): { take: boolean; panels: number } {
+  const take = Audio.capture.state === "recording";
+  return { take, panels: (captureDebug()?.owners ?? 0) - (take ? 1 : 0) };
+}
 
 const MiB = 1024 * 1024;
 const RATE = 48_000;
@@ -64,7 +71,7 @@ function rig(opts: { babylon?: boolean; keyframe?: boolean } = {}) {
     storage: { save: async () => {}, list: async () => [], delete: async () => {} },
     appDataDir: async () => "/data/app",
     download: (bytes, fileName) => void downloads.push({ bytes, fileName }),
-    compress: deflateRawCompress,
+    compress: defaultSaveEnv().compress,
     now: () => new Date(2026, 10, 13, 10, 15, 0),
   };
   _setSaveEnv(env);
@@ -96,7 +103,6 @@ function keyframes(c: CaptureContents): { frame: number; payload: KeyframePayloa
 }
 
 beforeEach(() => {
-  _resetSaveState();
 });
 
 afterEach(() => {
@@ -244,7 +250,7 @@ describe("Play stops", () => {
     capturePlayStopped(); // the take outlived one Play stop: this one frees it
     expect(captureDebug()).toBeNull();
     expect(Audio.capture.state).toBe("idle");
-    await expect(Audio.capture.save()).rejects.toThrow(NOTHING_RECORDED);
+    await expect(Audio.capture.save()).rejects.toThrow("nothing recorded: call Audio.capture.start() first");
   });
 
   it("a take stopped before Play stops is Held the same way; a panel beside a take ends with it", async () => {

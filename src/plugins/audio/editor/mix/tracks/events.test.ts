@@ -2,7 +2,7 @@
 // `EventSink`. Spans and ticks sit at the STATUS frame an event was recorded at; each tooltip is the string its model function
 // builds; the sweep reads every keyframe interval (an event just before a keyframe included) in a bounded number of seeks.
 import { describe, expect, it } from "vitest";
-import { EMPTY_KEYFRAME } from "../../../runtime/capture/recorder";
+import { EMPTY_KEYFRAME_PAYLOAD as EMPTY_KEYFRAME } from "../../../runtime/capture/testSupport";
 import { SAMPLE_RATE } from "../../../runtime/capture/testSupport";
 import type { CaptureSource } from "../profilerSource";
 import {

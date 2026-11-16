@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 import { readStatus } from "../wire.generated";
 import { CAPTURE_FLAG_COMPRESSED, CAPTURE_HEADER_BYTES, RecordType, assembleCapture, encodeRecords, readCaptureHeader } from "./format";
 import {
-  CANCEL_CHECK_RECORDS, CaptureTimeIndex, decodeRecordAt, openCapture, rangeCapture, recordSeconds, seekCapture, type CaptureContents,
+  CaptureTimeIndex, decodeRecordAt, openCapture, rangeCapture, recordSeconds, seekCapture, type CaptureContents,
 } from "./reader";
 import { EMPTY_KEYFRAME_PAYLOAD, SAMPLE_HEADER, SAMPLE_META, longCapture, longCaptureRecords, longStatusFields, sampleCapture, sampleRecords } from "./testSupport";
 import { createCaptureWorkerHandler, type CaptureRequest, type CaptureResponse } from "./worker";
@@ -113,7 +113,7 @@ describe("the 10-minute capture (Rc5's acceptance: jump under 16 ms, open under 
     expect(opened.summary.markers.map((m) => m.text)).toEqual(Array.from({ length: 11 }, (_, i) => `minute ${i}`));
     expect(opened.summary.endSeconds).toBeGreaterThan(TEN_MINUTES - 0.1);
     const progress = out.filter((o) => o.r.type === "progress" && o.r.id === 1);
-    expect(progress.length).toBe(Math.floor(h.recordCount / CANCEL_CHECK_RECORDS));
+    expect(progress.length).toBe(Math.floor(h.recordCount / 4096)); // one progress call per 4,096 records (the cancel check)
     t = performance.now();
     await send({ type: "open", id: 2, source: "file", bytes: buf(z) });
     const compressedMs = performance.now() - t;

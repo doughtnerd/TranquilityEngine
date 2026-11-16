@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Matrix, Quaternion, Vector3 } from "@babylonjs/core/Maths/math.vector.pure";
-import { busCreationSteps, busVolume, listenerQuaternion, planBuses, playbackRate, spatialParams, spatialSoundOptions, webAudioVector } from "./babylonMapping";
+import { busCreationSteps, listenerQuaternion, planBuses, playbackRate, spatialParams, spatialSoundOptions, webAudioVector } from "./babylonMapping";
 
 describe("planBuses", () => {
   it("creates parents before children, in project order otherwise", () => {
@@ -37,7 +37,8 @@ describe("planBuses", () => {
       { name: "Master", parent: null, options: { volume: 1 } },
       { name: "SFX", parent: "Master", options: { volume: 0.25 } },
     ]);
-    expect([busVolume(-1), busVolume(NaN), busVolume(1.5)]).toEqual([0, 1, 1.5]);
+    const odd = busCreationSteps(planBuses([{ name: "A" }, { name: "B" }, { name: "C" }]), new Map([["A", -1], ["B", NaN], ["C", 1.5]]));
+    expect(odd.map((s) => s.options.volume)).toEqual([0, 1, 1.5]);
   });
 });
 

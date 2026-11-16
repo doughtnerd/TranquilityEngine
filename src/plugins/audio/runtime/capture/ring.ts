@@ -16,7 +16,7 @@ import { CAPTURE_RECORD_HEAD_BYTES, CAPTURE_RECORD_MAX_BYTES, RecordType, type I
 /** Segment table rows (R13): 4,096 one-second segments, 68 minutes. A new segment past it evicts the oldest. */
 export const KEYFRAME_INDEX_SLOTS = 4096;
 /** The smallest ring on any device (§4.2: "never below 4 MiB"). */
-export const RING_MIN_BYTES = 4 * 1024 * 1024;
+const RING_MIN_BYTES = 4 * 1024 * 1024;
 /** §4.2: the ring is at most this many bytes per GB `navigator.deviceMemory` reports (16 MiB on a 2 GB device). */
 export const RING_BYTES_PER_GB = 8 * 1024 * 1024;
 

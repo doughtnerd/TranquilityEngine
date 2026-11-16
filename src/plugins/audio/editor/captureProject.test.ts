@@ -9,7 +9,7 @@ import { Audio } from "../runtime/Audio";
 import { setAudioBackend } from "../runtime/backend";
 import { _setRecorderLoader, _setSaveEnv, releaseCapture, setCaptureProject } from "../runtime/capture/capture";
 import { openCapture } from "../runtime/capture/reader";
-import { _resetSaveState, deflateRawCompress } from "../runtime/capture/save";
+import { defaultSaveEnv } from "../runtime/capture/save";
 import { makeFakeBackend } from "../runtime/testing";
 import { audioEditorPlugin } from "./index";
 
@@ -25,7 +25,7 @@ async function recordedProject(): Promise<{ name: string; version: string }> {
     storage: { save: async () => {}, list: async () => [], delete: async () => {} },
     appDataDir: async () => "/data",
     download: (bytes) => void downloads.push(bytes),
-    compress: deflateRawCompress,
+    compress: defaultSaveEnv().compress,
     now: () => new Date(2026, 10, 13, 10, 15, 0),
   });
   await Audio.capture.start();
@@ -45,7 +45,6 @@ afterEach(() => {
 
 describe("the audio editor plugin names the project in a capture", () => {
   it("META carries the open project's name, and the version when project.json keeps one; none open: empty", async () => {
-    _resetSaveState();
     const ctx = new Proxy({} as object, { get: () => () => () => {} }) as unknown as EditorPluginContext;
     audioEditorPlugin.activate(ctx);
 
@@ -53,12 +52,10 @@ describe("the audio editor plugin names the project in a capture", () => {
     expect(await recordedProject()).toEqual({ name: "Flappy", version: "2.0.1" });
 
     releaseCapture();
-    _resetSaveState();
     currentProject.value = fakeProject("Pirates", { version: 3 }); // not a string: no version
     expect(await recordedProject()).toEqual({ name: "Pirates", version: "" });
 
     releaseCapture();
-    _resetSaveState();
     currentProject.value = null;
     expect(await recordedProject()).toEqual({ name: "", version: "" });
   });

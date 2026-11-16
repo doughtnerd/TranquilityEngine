@@ -15,7 +15,7 @@ import { isTauri } from "../../../../engine/platform/FileSystem";
 import { audioCapture, type AudioCapture } from "./capture";
 
 /** How long exactly three fingers stay down before the touch trigger fires, ms (owner decision 7). */
-export const TRIGGER_HOLD_MS = 1000;
+const TRIGGER_HOLD_MS = 1000;
 /** The key. */
 export const TRIGGER_KEY = "F9";
 /** Fingers of the touch hold. */
@@ -23,9 +23,9 @@ export const TRIGGER_FINGERS = 3;
 /** How long a toast stays, ms. */
 export const TOAST_MS = 3000;
 
-export const TOAST_RECORDING = "Recording audio…";
-export const toastSaved = (name: string): string => `Saved ${name}`;
-export const toastCap = (max: number): string => `Capture limit reached: this page has saved ${max} captures, and a browser can't delete downloads. Reload the page to record more.`;
+const TOAST_RECORDING = "Recording audio…";
+const toastSaved = (name: string): string => `Saved ${name}`;
+const toastCap = (max: number): string => `Capture limit reached: this page has saved ${max} captures, and a browser can't delete downloads. Reload the page to record more.`;
 
 /** What the trigger needs of its surroundings; every member has a real default, so a test passes fakes. */
 export interface TriggerEnv {
@@ -46,7 +46,7 @@ export interface TriggerEnv {
 const touchCount = (e: Event): number => (e as unknown as { touches?: { length: number } }).touches?.length ?? 0;
 
 /** The name a toast shows: a web file name as it is, a Tauri `<appData>/cache/<key>.bin` path as the capture's own file name. */
-export function savedName(result: string): string {
+function savedName(result: string): string {
   const leaf = result.split(/[\\/]/).pop() ?? result;
   const bare = leaf.replace(/\.bin$/i, "");
   try {

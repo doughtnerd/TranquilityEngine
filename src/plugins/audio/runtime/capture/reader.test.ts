@@ -7,7 +7,7 @@ import {
   CAPTURE_FLAG_COMPRESSED, CAPTURE_HEADER_BYTES, CAPTURE_RECORD_HEAD_BYTES, CaptureError, RecordType, assembleCapture,
   encodeRecords, readCaptureHeader, type CaptureErrorCode,
 } from "./format";
-import { RecordTable, decodeRecordAt, epochOf, openCapture, openLiveCapture, recordSeconds, type ReaderOptions } from "./reader";
+import { RecordTable, decodeRecordAt, openCapture, openLiveCapture, recordSeconds, type ReaderOptions } from "./reader";
 import { SAMPLE_HEADER, SAMPLE_META, sampleCapture, sampleRecords, statusBytes } from "./testSupport";
 
 async function codeOf(f: () => Promise<unknown>): Promise<CaptureErrorCode | "none"> {
@@ -50,7 +50,6 @@ describe("openCapture", () => {
     expect(c.warnings).toEqual([]);
     expect(c.names.clips.get(2)).toBe("land.ogg");
     expect(c.epochs.map((e) => [e.epoch, e.firstRecord, e.sampleRate])).toEqual([[0, 0, 48_000], [1, 12, 44_100]]);
-    expect(epochOf(c, 14).epoch).toBe(1);
     expect(recordSeconds(c, 14)).toBeCloseTo(768 / 44_100 + 3.25, 12);
   });
 

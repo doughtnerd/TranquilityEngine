@@ -11,9 +11,15 @@ import { setAudioBackend } from "../backend";
 import { makeFakeBackend, type FakeBackend } from "../testing";
 import { _setRecorderLoader, _setSaveEnv, releaseCapture, type RecorderModule } from "./capture";
 import { CAPTURE_TRIGGER_MAX_FILES } from "./format";
-import { _resetSaveState, deflateRawCompress, type SaveEnv } from "./save";
+import { defaultSaveEnv, webSaveCount, type SaveEnv } from "./save";
 import { keyframeCodecForTests, statusBytes } from "./testSupport";
-import { TOAST_RECORDING, TRIGGER_HOLD_MS, installCaptureTrigger, savedName, toastCap, toastSaved, type TriggerEnv } from "./trigger";
+import { installCaptureTrigger, type TriggerEnv } from "./trigger";
+
+/** The trigger's toasts and hold, as a player sees them. */
+const TOAST_RECORDING = "Recording audio…";
+const toastSaved = (name: string): string => `Saved ${name}`;
+const TOAST_CAP = "Capture limit reached: this page has saved 16 captures, and a browser can't delete downloads. Reload the page to record more.";
+const TRIGGER_HOLD_MS = 1000;
 
 const RATE = 48_000;
 const BLOCK = 768;
@@ -170,7 +176,6 @@ describe("the three-finger hold", () => {
     expect(r.clock.pending(), "two fingers arm nothing").toEqual([]);
     r.target.fire("touchstart", touches(3));
     expect(r.clock.pending()).toEqual([TRIGGER_HOLD_MS]);
-    expect(TRIGGER_HOLD_MS).toBe(1000);
     expect(r.calls).toEqual([]);
     r.clock.run();
     await vi.waitFor(() => expect(r.calls).toEqual(["start"]));
@@ -231,10 +236,8 @@ describe("the web's cap of 16", () => {
     count = CAPTURE_TRIGGER_MAX_FILES;
     r.toasts.length = 0;
     await r.press();
-    await vi.waitFor(() => expect(r.toasts).toEqual([toastCap(CAPTURE_TRIGGER_MAX_FILES)]));
+    await vi.waitFor(() => expect(r.toasts).toEqual([TOAST_CAP]));
     expect(r.calls).toEqual(["start"]);
-    expect(toastCap(16)).toMatch(/16 captures/);
-    expect(toastCap(16)).toMatch(/Reload/);
   });
 
   it("a Tauri trigger has no cap: files rotate instead", async () => {
@@ -243,10 +246,19 @@ describe("the web's cap of 16", () => {
     await vi.waitFor(() => expect(r.calls).toEqual(["start"]));
   });
 
-  it("the toast shows a Tauri path as the capture's own file name", () => {
-    expect(savedName("capture-20261113-101500.mycap")).toBe("capture-20261113-101500.mycap");
-    expect(savedName("/data/app/cache/capture-20261113-101500.mycap.bin")).toBe("capture-20261113-101500.mycap");
-    expect(savedName("C:\\Users\\a\\AppData\\cache\\capture-20261113-101500-2.mycap.bin")).toBe("capture-20261113-101500-2.mycap");
+  it("the toast shows a Tauri path as the capture's own file name", async () => {
+    for (const [saved, shown] of [
+      ["capture-20261113-101500.mycap", "capture-20261113-101500.mycap"],
+      ["/data/app/cache/capture-20261113-101500.mycap.bin", "capture-20261113-101500.mycap"],
+      ["C:\\Users\\a\\AppData\\cache\\capture-20261113-101500-2.mycap.bin", "capture-20261113-101500-2.mycap"],
+    ]) {
+      const r = rigFake({ tauri: true });
+      r.cap.saved = saved;
+      await r.press();
+      await r.press();
+      await vi.waitFor(() => expect(r.toasts.at(-1), saved).toBe(`Saved ${shown}`));
+      r.uninstall();
+    }
   });
 });
 
@@ -313,7 +325,7 @@ function realRig(opts: { tauri?: boolean; existing?: string[] } = {}) {
     },
     appDataDir: async () => "/data/app",
     download: (_bytes, fileName) => void downloads.push(fileName),
-    compress: deflateRawCompress,
+    compress: defaultSaveEnv().compress,
     now: () => new Date(2026, 10, 13, 10, 15, 0),
   };
   _setSaveEnv(env);
@@ -330,7 +342,7 @@ function realRig(opts: { tauri?: boolean; existing?: string[] } = {}) {
 
 describe("against the real Audio.capture", () => {
   let loader: (() => Promise<RecorderModule>) | null = null;
-  beforeEach(() => _resetSaveState());
+
   afterEach(() => {
     releaseCapture();
     if (loader) _setRecorderLoader(loader);
@@ -372,7 +384,8 @@ describe("against the real Audio.capture", () => {
     const target = fakeTarget();
     const toasts: string[] = [];
     const off = installCaptureTrigger({ target, toast: (t) => void toasts.push(t) });
-    for (let n = 1; n <= CAPTURE_TRIGGER_MAX_FILES; n++) {
+    const left = CAPTURE_TRIGGER_MAX_FILES - webSaveCount(); // earlier tests on this page downloaded too
+    for (let n = 1; n <= left; n++) {
       target.fire("keydown", key("F9"));
       await vi.waitFor(() => expect(Audio.capture.state).toBe("recording"));
       r.feed(4);
@@ -381,12 +394,13 @@ describe("against the real Audio.capture", () => {
       await vi.waitFor(() => expect(Audio.capture.state).toBe("stopped"));
       await vi.waitFor(() => expect(toasts.at(-1)).toMatch(/^Saved /));
     }
-    expect(new Set(r.downloads).size, "no download overwrites another").toBe(16);
+    expect(new Set(r.downloads).size, "no download overwrites another").toBe(left);
     toasts.length = 0;
     target.fire("keydown", key("F9"));
-    await vi.waitFor(() => expect(toasts).toEqual([toastCap(CAPTURE_TRIGGER_MAX_FILES)]));
+    await vi.waitFor(() => expect(toasts).toEqual([TOAST_CAP]));
     expect(Audio.capture.state).toBe("stopped");
-    expect(r.downloads.length).toBe(16);
+    expect(r.downloads.length).toBe(left);
+    expect(webSaveCount()).toBe(CAPTURE_TRIGGER_MAX_FILES);
     off();
   });
 
@@ -401,10 +415,10 @@ describe("against the real Audio.capture", () => {
     await vi.waitFor(() => expect(Audio.capture.state).toBe("recording"));
     r.feed(4);
     target.fire("keydown", key("F9"));
-    await vi.waitFor(() => expect(toasts.at(-1)).toBe("Saved capture-20261113-101500.mycap"));
+    await vi.waitFor(() => expect(toasts.at(-1)).toMatch(/^Saved capture-20261113-101500(-\d+)?\.mycap$/)); // -n after an earlier auto name in this second
     expect(r.stored.size).toBe(CAPTURE_TRIGGER_MAX_FILES);
     expect(r.deleted, "the two oldest, oldest first").toEqual([old[0], old[1]]);
-    expect(r.stored.has("capture-20261113-101500.mycap")).toBe(true);
+    expect(r.stored.has(toasts.at(-1)!.slice("Saved ".length))).toBe(true);
     off();
   });
 });

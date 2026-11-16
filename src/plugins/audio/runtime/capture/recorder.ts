@@ -28,9 +28,6 @@ import { STATUS_BUFFER_BYTES, STATUS_HEADER_COLUMNS } from "../wire.generated";
 
 export { KEYFRAME_INDEX_SLOTS, RING_PRESET_BYTES, ringBytesFor, type RingPreset, type RingSpan } from "./ring";
 
-/** What `capture.ts`'s `RecorderModule` sees (Rc4 widens its interface to this module's exports). */
-export const recorderModule = true as const;
-
 /**
  * The keyframe codec (contract H3). The default is `format.ts`'s `keyframeBytes` and `encodeKeyframe`, which Rc1b fills
  * in W5; until then they throw, so tests pass a placeholder (`capture/testSupport.ts` `keyframeCodecForTests`).
@@ -49,7 +46,7 @@ export const FORMAT_KEYFRAME_CODEC: KeyframeCodec = { bytes: keyframeBytes, enco
 export type KeyframeSource = () => KeyframePayload;
 
 /** An empty keyframe (no voices, buses, meters, events or music). */
-export const EMPTY_KEYFRAME: KeyframePayload = Object.freeze({
+const EMPTY_KEYFRAME: KeyframePayload = Object.freeze({
   voices: [], buses: [], metered: [], events: [], music: [],
   mix: Object.freeze({ slotTableVersion: 0, monitorActive: 0, loudnessPausedMask: 0, targetIndex: 0, snapshotName: 0, masterVolume: 1, hiddenMute: 0 }),
 });

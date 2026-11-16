@@ -49,7 +49,7 @@ export function planBuses(buses: readonly BusNode[]): BusPlan[] {
 }
 
 /** A bus volume Babylon accepts: finite and not negative (the mixer already keeps it within 0..2). */
-export function busVolume(gain: number | undefined): number {
+function busVolume(gain: number | undefined): number {
   return gain !== undefined && Number.isFinite(gain) ? Math.max(0, gain) : 1;
 }
 

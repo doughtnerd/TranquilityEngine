@@ -6,8 +6,8 @@ import { CoreLink, type LinkPort } from "../core/context";
 import { Kind, type StatusBlock } from "../wire.generated";
 import { CAPTURE_RECORD_HEAD_BYTES, EpochReason, GapReason, RecordType, decodeEpoch, decodeGap, decodeKeyframe, encodeKeyframe, keyframeBytes, type GapPayload, type KeyframePayload, type MarkerPayload } from "./format";
 import { decodeRecordAt, openLiveCapture, type CaptureContents } from "./reader";
-import { Recorder, createRecorder, recorderModule, type EpochContext, type RecorderOptions } from "./recorder";
-import { KEYFRAME_INDEX_SLOTS, RING_MIN_BYTES, RING_PRESET_BYTES, RecorderRing, ringBytesFor, type RingPreset } from "./ring";
+import { Recorder, createRecorder, type EpochContext, type RecorderOptions } from "./recorder";
+import { KEYFRAME_INDEX_SLOTS, RING_PRESET_BYTES, RecorderRing, ringBytesFor, type RingPreset } from "./ring";
 import { EMPTY_KEYFRAME_PAYLOAD, SAMPLE_RATE, keyframeCodecForTests, liveHead, rc1bReady, statusBytes, statusBytesWithVoices } from "./testSupport";
 
 const MiB = 1024 * 1024;
@@ -54,13 +54,13 @@ describe("ringBytesFor (§4.2)", () => {
   });
   it("keeps a 2 GB device at or under 16 MiB (a platform limit)", () => {
     for (const p of presets) expect(ringBytesFor(p, 2)).toBeLessThanOrEqual(16 * MiB);
-    expect(RING_MIN_BYTES).toBe(RING_PRESET_BYTES.low);
+    for (const p of presets) expect(ringBytesFor(p, 0.25), `${p} on a 256 MB device`).toBe(4 * MiB); // never below 4 MiB
+    expect(RING_PRESET_BYTES.low).toBe(4 * MiB);
   });
   it("sizes the recorder's one buffer", () => {
     const r = createRecorder({ preset: "high", deviceMemory: 2, codec: keyframeCodecForTests() });
     expect(r.ring.capacity).toBe(16 * MiB);
     expect(r.ring.bytes.byteLength).toBe(16 * MiB);
-    expect(recorderModule).toBe(true);
   });
 });
 

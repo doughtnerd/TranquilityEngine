@@ -13,7 +13,7 @@ import { BabylonBackend } from "./babylonBackend";
 import { _setFramePump, _setSaveEnv, releaseCapture } from "./capture/capture";
 import { EventKind, RecordType, decodeKeyframe } from "./capture/format";
 import { decodeRecordAt, openCapture } from "./capture/reader";
-import { _resetSaveState, deflateRawCompress } from "./capture/save";
+import { defaultSaveEnv } from "./capture/save";
 import { NULL_PROFILE_SINK } from "./mix/profileSink";
 import { taps } from "./mix/profileTaps";
 
@@ -30,7 +30,6 @@ const made: BabylonBackend[] = [];
 
 beforeEach(() => {
   babylonMock.reset();
-  _resetSaveState();
   mixer.configure(parseAudioSettings({ buses: BUSES }).settings);
 });
 
@@ -63,7 +62,7 @@ describe("a capture on the real Babylon backend", () => {
       storage: { save: async () => {}, list: async () => [], delete: async () => {} },
       appDataDir: async () => "/data",
       download: (bytes) => void downloads.push(bytes),
-      compress: deflateRawCompress,
+      compress: defaultSaveEnv().compress,
       now: () => new Date(2026, 10, 13, 10, 15, 0),
     });
     const clock = (seconds: number): void => {

@@ -9,11 +9,18 @@ import type { CaptureWorkerLike } from "./profilerSource";
 import { Audio } from "../../runtime/Audio";
 import { setAudioBackend } from "../../runtime/backend";
 import { makeFakeBackend, type FakeBackend } from "../../runtime/testing";
-import { _setRecorderLoader, _setSaveEnv, captureDebug, captureLiveHost, captureOwners, releaseCapture, type RecorderModule } from "../../runtime/capture/capture";
+import { _setRecorderLoader, _setSaveEnv, captureDebug, captureLiveHost, releaseCapture, type RecorderModule } from "../../runtime/capture/capture";
 import { createCaptureWorkerHandler, type CaptureRequest, type CaptureResponse } from "../../runtime/capture/worker";
-import { deflateRawCompress, type SaveEnv } from "../../runtime/capture/save";
+import { defaultSaveEnv, type SaveEnv } from "../../runtime/capture/save";
 import { openCapture } from "../../runtime/capture/reader";
 import { keyframeCodecForTests, statusBytes } from "../../runtime/capture/testSupport";
+
+
+/** The ring's owners as `Audio.debug().recorder` reports them: whether a take runs, and the panel holds besides it. */
+function captureOwners(): { take: boolean; panels: number } {
+  const take = Audio.capture.state === "recording";
+  return { take, panels: (captureDebug()?.owners ?? 0) - (take ? 1 : 0) };
+}
 
 const BLOCK = 768;
 const RATE = 48_000;
@@ -80,7 +87,7 @@ function rig() {
     storage: { save: async () => {}, list: async () => [], delete: async () => {} },
     appDataDir: async () => "/data",
     download: (bytes) => void downloads.push(bytes),
-    compress: deflateRawCompress,
+    compress: defaultSaveEnv().compress,
     now: () => new Date(2026, 10, 13, 10, 15, 0),
   };
   _setSaveEnv(env);

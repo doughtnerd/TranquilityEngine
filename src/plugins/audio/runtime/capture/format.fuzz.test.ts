@@ -10,7 +10,7 @@ import {
   DEFERRED_STAMP_BYTES, RECORD_FLAG_DEFERRED, RecordType, assembleCapture, encodeCaptureMeta, readCaptureHeader,
   type CaptureErrorCode, type CaptureRecordInit,
 } from "./format";
-import { RECORD_TABLE_INITIAL, RecordTable, decodeRecordAt, openCapture, type ReaderOptions } from "./reader";
+import { RecordTable, decodeRecordAt, openCapture, type ReaderOptions } from "./reader";
 import { SAMPLE_HEADER, SAMPLE_META, sampleCapture, sampleRecords } from "./testSupport";
 import { STATUS_BUFFER_BYTES } from "../wire.generated";
 
@@ -49,10 +49,10 @@ function recorder() {
 
 /**
  * The most a record table may allocate while reading a payload of `bytes`: its first capacity, or twice the records the
- * payload can hold (rows grow by doubling and never past the records read, reader.ts `RecordTable.reserve`).
+ * payload can hold (1,024 rows first; rows grow by doubling and never past the records read, reader.ts `RecordTable.reserve`).
  */
 function tableCap(bytes: number): number {
-  return Math.max(RECORD_TABLE_INITIAL, 2 * Math.ceil(bytes / CAPTURE_RECORD_HEAD_BYTES)) * RecordTable.ROW_BYTES;
+  return Math.max(1024, 2 * Math.ceil(bytes / CAPTURE_RECORD_HEAD_BYTES)) * RecordTable.ROW_BYTES;
 }
 
 /** A copy of `file` with `edit` applied to its bytes. */

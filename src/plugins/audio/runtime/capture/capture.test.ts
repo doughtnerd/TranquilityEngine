@@ -11,14 +11,21 @@ import { notifyEngineLifecycle } from "../../../../engine/core/engineLifecycle";
 import { setAudioBackend } from "../backend";
 import { NULL_PROFILE_SINK } from "../mix/profileSink";
 import { makeFakeBackend, type FakeBackend } from "../testing";
-import { _setRecorderLoader, _setSaveEnv, captureDebug, captureLiveHost, captureOwners, NOTHING_RECORDED, releaseCapture, setCaptureProject, type CaptureLiveHost, type RecorderModule } from "./capture";
+import { _setRecorderLoader, _setSaveEnv, captureDebug, captureLiveHost, releaseCapture, setCaptureProject, type CaptureLiveHost, type RecorderModule } from "./capture";
 import {
   CAPTURE_FLAG_COMPRESSED, CAPTURE_FLAG_MAIN_SIDE_ONLY, CAPTURE_MARKER_MAX_BYTES, EpochReason, GapReason, RecordType, assembleCapture, readCaptureHeader,
 } from "./format";
 import { decodeRecordAt, openCapture, openLiveCapture, type CaptureContents } from "./reader";
 import type { Recorder } from "./recorder";
-import { _resetSaveState, deflateRawCompress, type SaveEnv } from "./save";
+import { defaultSaveEnv, type SaveEnv } from "./save";
 import { SAMPLE_HEADER, SAMPLE_META, keyframeCodecForTests, statusBytes, statusBytesWithVoices } from "./testSupport";
+
+
+/** The ring's owners as `Audio.debug().recorder` reports them: whether a take runs, and the panel holds besides it. */
+function captureOwners(): { take: boolean; panels: number } {
+  const take = Audio.capture.state === "recording";
+  return { take, panels: (captureDebug()?.owners ?? 0) - (take ? 1 : 0) };
+}
 
 const SRC = join(__dirname, "../../../..");
 const MiB = 1024 * 1024;
@@ -57,7 +64,7 @@ function rig(opts: { ringBytes?: number; tauri?: boolean } = {}) {
     storage: { save: async (key, value) => void saved.push({ key, bytes: value as Uint8Array }), list: async () => saved.map((s) => s.key), delete: async () => {} },
     appDataDir: async () => "/data/app",
     download: (bytes, fileName) => void downloads.push({ bytes, fileName }),
-    compress: deflateRawCompress,
+    compress: defaultSaveEnv().compress,
     now: () => new Date(2026, 10, 13, 10, 15, 0),
   };
   _setSaveEnv(env);
@@ -87,7 +94,6 @@ function framesOf(c: CaptureContents): number[] {
 let restoreLoader: (() => Promise<RecorderModule>) | null = null;
 
 beforeEach(() => {
-  _resetSaveState();
   restoreLoader = null;
 });
 
@@ -110,7 +116,7 @@ describe("Audio.capture: a game that never calls start loads no recorder", () =>
     expect(capture.truncated).toBe(false);
     capture.mark("no ring");
     capture.stop();
-    await expect(capture.save("take")).rejects.toThrow(NOTHING_RECORDED);
+    await expect(capture.save("take")).rejects.toThrow("nothing recorded: call Audio.capture.start() first");
     expect(captureDebug()).toBeNull();
     expect(captureOwners()).toEqual({ take: false, panels: 0 });
     expect(r.loads).not.toHaveBeenCalled();
@@ -259,7 +265,7 @@ describe("start, stop, mark and save", () => {
     Audio.capture.stop();
     releaseCapture();
     expect(Audio.capture.state).toBe("idle");
-    await expect(Audio.capture.save()).rejects.toThrow(NOTHING_RECORDED);
+    await expect(Audio.capture.save()).rejects.toThrow("nothing recorded: call Audio.capture.start() first");
     expect(r.downloads).toEqual([]);
   });
 
@@ -275,7 +281,7 @@ describe("start, stop, mark and save", () => {
     expect(captureDebug(), "a Play stop doesn't release the ring").not.toBeNull();
     notifyEngineLifecycle("disposed", "editor"); // the project closed
     expect(captureDebug(), "the editor's Engine going releases it").toBeNull();
-    await expect(Audio.capture.save()).rejects.toThrow(NOTHING_RECORDED);
+    await expect(Audio.capture.save()).rejects.toThrow("nothing recorded: call Audio.capture.start() first");
     // An exported game: a runtime Engine with no editor.
     notifyEngineLifecycle("created", "runtime");
     await Audio.capture.start();
@@ -322,7 +328,7 @@ describe("start, stop, mark and save", () => {
     expect(r.fb.recorderTap).toBeNull();
     expect(r.fb.profileSink).toBeNull();
     expect(captureDebug()).toBeNull();
-    await expect(Audio.capture.save()).rejects.toThrow(NOTHING_RECORDED);
+    await expect(Audio.capture.save()).rejects.toThrow("nothing recorded: call Audio.capture.start() first");
   });
 
   it("the Babylon fallback (no recorder tap, capture mainSideOnly) records main-side events and says so in the header", async () => {
@@ -374,7 +380,7 @@ describe("save: the web Blob and the Tauri Storage paths, deflate-raw or stored"
     const r = rig();
     await Audio.capture.start();
     r.feed(3);
-    expect(await Audio.capture.save()).toBe("capture-20261113-101500.mycap");
+    expect(await Audio.capture.save()).toMatch(/^capture-20261113-101500(-\d+)?\.mycap$/); // -2, -3... after an earlier auto name in this second
   });
 
   it("on Tauri it saves through Storage into cache and resolves with the app-data path", async () => {
@@ -528,7 +534,7 @@ describe("owners: the Profiler panel's hold is distinct from a take (the LiveHos
     expect(r.fb.recorderTap).toBeTypeOf("function");
     expect(captureDebug()).toMatchObject({ state: "recording", owners: 1 });
     r.feed(SECOND);
-    await expect(Audio.capture.save()).rejects.toThrow(NOTHING_RECORDED);
+    await expect(Audio.capture.save()).rejects.toThrow("nothing recorded: call Audio.capture.start() first");
     expect(rec.head().byteLength).toBeGreaterThan(96);
     rec.release();
     expect(captureOwners()).toEqual({ take: false, panels: 0 });

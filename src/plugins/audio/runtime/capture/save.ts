@@ -20,7 +20,7 @@ import type { RingSpan } from "./ring";
 /** The file extension every capture carries. */
 export const CAPTURE_EXTENSION = ".mycap";
 /** A file name's stem is cut to this many characters (§1.2); the extension is added after. */
-export const CAPTURE_NAME_MAX_CHARS = 64;
+const CAPTURE_NAME_MAX_CHARS = 64;
 
 /** What the saver needs of the platform, the storage, the clock and the compressor. */
 export interface SaveEnv {
@@ -59,7 +59,7 @@ let autoRepeats = 0;
 let webSaves = 0;
 
 /** `capture-YYYYMMDD-HHMMSS` in local time; a second save within the same second gets `-2`, `-3`... so none overwrites. */
-export function autoCaptureStem(now: Date): string {
+function autoCaptureStem(now: Date): string {
   const stem = `capture-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
   if (stem === lastAutoStem) autoRepeats++;
   else {
@@ -74,19 +74,12 @@ export function autoCaptureStem(now: Date): string {
  * no `..`), a `.mycap` the caller already wrote isn't doubled, the stem is cut to 64 characters and `.mycap` is appended.
  * An absent name, or one with nothing left, is the auto name. `auto` says which, since only auto-named files rotate.
  */
-export function captureFileName(name: string | undefined, now: Date): { file: string; auto: boolean } {
+function captureFileName(name: string | undefined, now: Date): { file: string; auto: boolean } {
   let stem = typeof name === "string" ? name.trim() : "";
   if (stem.toLowerCase().endsWith(CAPTURE_EXTENSION)) stem = stem.slice(0, -CAPTURE_EXTENSION.length);
   stem = stem.replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^\.+/, "").slice(0, CAPTURE_NAME_MAX_CHARS);
   if (stem) return { file: stem + CAPTURE_EXTENSION, auto: false };
   return { file: autoCaptureStem(now) + CAPTURE_EXTENSION, auto: true };
-}
-
-/** @internal Tests: forget the auto-name repeat counter and the web save count. */
-export function _resetSaveState(): void {
-  lastAutoStem = "";
-  autoRepeats = 0;
-  webSaves = 0;
 }
 
 /** Downloads this page has started since it loaded: the web trigger stops at `CAPTURE_TRIGGER_MAX_FILES` per session (R16), since a download can't be deleted. */
@@ -141,7 +134,7 @@ export function assembleTakeFile(take: SaveTake): Uint8Array {
 }
 
 /** deflate-raw through `CompressionStream` (byte-equal to zlib, §5.1); null when the runtime has none or the stream fails. */
-export async function deflateRawCompress(payload: Uint8Array): Promise<Uint8Array | null> {
+async function deflateRawCompress(payload: Uint8Array): Promise<Uint8Array | null> {
   if (typeof CompressionStream === "undefined") return null;
   try {
     const cs = new CompressionStream("deflate-raw");
@@ -170,7 +163,7 @@ export async function deflateRawCompress(payload: Uint8Array): Promise<Uint8Arra
 }
 
 /** The stored file with everything after the header compressed and `compressed` set; the stored file itself when `compress` gives null. */
-export async function compressCapture(file: Uint8Array, compress: SaveEnv["compress"]): Promise<Uint8Array> {
+async function compressCapture(file: Uint8Array, compress: SaveEnv["compress"]): Promise<Uint8Array> {
   const packed = await compress(file.subarray(CAPTURE_HEADER_BYTES));
   if (!packed) return file;
   const out = new Uint8Array(CAPTURE_HEADER_BYTES + packed.byteLength);
@@ -184,7 +177,7 @@ export async function compressCapture(file: Uint8Array, compress: SaveEnv["compr
 // --- where it goes --------------------------------------------------------------------------------------------------
 
 /** Where Tauri's `Storage` puts `key` in the `cache` namespace (`TauriStorage`: `<appDataDir>/cache/<encoded key>.bin`). */
-export function cachePath(appDataDir: string, key: string): string {
+function cachePath(appDataDir: string, key: string): string {
   return `${appDataDir.replace(/[\\/]+$/, "")}/cache/${encodeURIComponent(key)}.bin`;
 }
 
@@ -217,7 +210,7 @@ export async function rotateCaptures(storage: Pick<SaveEnv["storage"], "list" | 
 }
 
 /** The browser's download: a `Blob` behind an object URL and a clicked `a[download]`, revoked a moment later. */
-export function browserDownload(bytes: Uint8Array, fileName: string): void {
+function browserDownload(bytes: Uint8Array, fileName: string): void {
   const url = URL.createObjectURL(new Blob([bytes as Uint8Array<ArrayBuffer>], { type: "application/octet-stream" }));
   const a = document.createElement("a");
   a.href = url;
