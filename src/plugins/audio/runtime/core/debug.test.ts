@@ -4,7 +4,8 @@ import { Mixer } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings, type AudioSettings } from "../../../../engine/audio/settings";
 import type { ClipInfo } from "./clipRegistry";
 import { buildDebugInfo, type AudioDebugInfo, type DebugSource } from "./debug";
-import { makeStatusBlock, StatusMirror } from "./mirror";
+import { StatusMirror } from "./mirror";
+import { makeStatusBlock } from "./statusFixtures";
 import { UnlockQueue } from "./unlockQueue";
 import { VoiceFlag, VoiceReason, VoiceState, VoiceTable, type VoiceStateCode } from "./voiceTable";
 

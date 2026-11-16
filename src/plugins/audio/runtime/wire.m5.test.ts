@@ -4,7 +4,7 @@
 // and at zero. The generated file and the vectors are owned by the schema generator and L-Wa1a, not by this file.
 import { describe, expect, it } from "vitest";
 import * as wire from "./wire.generated";
-import { makeStatusBlock } from "./core/mirror";
+import { makeStatusBlock } from "./core/statusFixtures";
 import wireVectors from "../../../../native/audio/crates/audio-wire/vectors/wire.json";
 
 interface Vector {

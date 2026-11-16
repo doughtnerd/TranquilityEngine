@@ -4,7 +4,7 @@
 // `streamRebuild.test.ts`.)
 import { describe, expect, it } from "vitest";
 import type { StatusBlock } from "../wire.generated";
-import { makeStatusBlock } from "./mirror";
+import { makeStatusBlock } from "./statusFixtures";
 import { reopenStamp, StreamManager, type StreamDecoderLike } from "./streams";
 import { VoiceFlag, VoiceReason, VoiceState, VoiceTable } from "./voiceTable";
 

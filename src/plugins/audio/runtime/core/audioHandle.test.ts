@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { VoiceTable, VoiceState, VoiceReason } from "./voiceTable";
-import { StatusMirror, makeStatusBlock } from "./mirror";
+import { StatusMirror } from "./mirror";
+import { makeStatusBlock } from "./statusFixtures";
 import { AudioHandle } from "./handle";
 import { voiceIndex } from "./ids";
 

@@ -2,7 +2,7 @@
 // The `test-hooks` wasm cases (decode_batch, schema hash export) belong to later tasks and stay out of this file.
 import { describe, expect, it } from "vitest";
 import * as wire from "./wire.generated";
-import { makeStatusBlock } from "./core/mirror";
+import { makeStatusBlock } from "./core/statusFixtures";
 import wireVectors from "../../../../native/audio/crates/audio-wire/vectors/wire.json";
 
 type Json = number | string | Json[] | { [key: string]: Json };

@@ -10,7 +10,7 @@ import type { AudioHost, HostLifecycleListener } from "./core/context";
 import { CoreLink, type LinkPort } from "./core/context";
 import type { ClipInfo, ClipRegistry, ClipResidentListener, ClipState } from "./core/clipRegistry";
 import { CoreBackend, type CoreBackendHost } from "./core/coreBackend";
-import { makeStatusBlock } from "./core/mirror";
+import { makeStatusBlock } from "./core/statusFixtures";
 import { _resetHandleWarningsForTests } from "./core/handle";
 import { setAudioBackend } from "./backend";
 import { babylonMock, makeFakeContext } from "../testing/babylonMocks";

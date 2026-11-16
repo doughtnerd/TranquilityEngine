@@ -11,7 +11,7 @@ import { STATUS_BUFFER_BYTES, writeStatus } from "./wire.generated";
 import { CoreLink, type AudioHost, type HostLifecycleListener, type LinkPort } from "./core/context";
 import type { ClipInfo, ClipRegistry, ClipResidentListener, ClipState } from "./core/clipRegistry";
 import { CoreBackend, type CoreBackendHost } from "./core/coreBackend";
-import { makeStatusBlock } from "./core/mirror";
+import { makeStatusBlock } from "./core/statusFixtures";
 import { _resetHandleWarningsForTests } from "./core/handle";
 import { VoiceFlag2 } from "./core/voiceTable";
 import { LowpassBy } from "./core/voiceFx";

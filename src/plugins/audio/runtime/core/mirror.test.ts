@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { MAGIC, STATUS_BUFFER_BYTES, writeStatus } from "../wire.generated";
 import { CoreLink, type LinkPort } from "./context";
-import { makeStatusBlock, StatusMirror } from "./mirror";
+import { StatusMirror } from "./mirror";
+import { makeStatusBlock } from "./statusFixtures";
 import { VoiceReason, VoiceState, VoiceTable } from "./voiceTable";
 
 /** The mirror holds at most this many clip events between drains. */

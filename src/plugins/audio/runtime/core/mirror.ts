@@ -16,7 +16,6 @@ import {
   MAX_LOUD_ENERGIES,
   MAX_MUSIC_RINGS,
   MAX_ZONE_SLOTS,
-  newStatusBlock,
   newStatusHeader,
   type StatusBlock,
   type StatusHeader,
@@ -394,10 +393,3 @@ export class StatusMirror {
   }
 }
 
-/**
- * @internal Tests: a STATUS block with every header field 0, every section empty, then `fields` laid over it. Builds
- * the object the link would hand to `StatusMirror.apply`.
- */
-export function makeStatusBlock(fields: Partial<StatusBlock> = {}): StatusBlock {
-  return Object.assign(newStatusBlock(), fields);
-}

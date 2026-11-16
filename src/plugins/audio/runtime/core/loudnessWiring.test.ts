@@ -11,7 +11,7 @@ import type { AudioHost, HostLifecycleListener } from "./context";
 import { CoreLink, type LinkPort } from "./context";
 import type { ClipInfo, ClipRegistry, ClipState } from "./clipRegistry";
 import { CoreBackend, type CoreBackendHost } from "./coreBackend";
-import { makeStatusBlock } from "./mirror";
+import { makeStatusBlock } from "./statusFixtures";
 import type { ReplayBuilder } from "./replay";
 import { loudnessHub, setLoudnessTarget } from "../mix/loudnessHub";
 

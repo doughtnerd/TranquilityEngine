@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { defaultAudioSettings, type AudioSettings, type BusSettings } from "../../../../engine/audio/settings";
 import { MAX_BUSES } from "../../../../engine/audio/settings";
 import { AudioHost, CoreLink, presetFromSettings } from "./context";
-import { makeStatusBlock, StatusMirror } from "./mirror";
+import { StatusMirror } from "./mirror";
+import { makeStatusBlock } from "./statusFixtures";
 import { Unlock, type UnlockContext } from "./unlock";
 import { connectVoiceTable, MAX_STEM_PENDING, VoiceFlag,VoiceReason, VoiceState, VoiceTable, type VoiceCommandSink } from "./voiceTable";
 

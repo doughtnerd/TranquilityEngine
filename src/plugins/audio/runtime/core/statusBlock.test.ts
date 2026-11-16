@@ -23,7 +23,8 @@ import {
 import { RecordType, assembleCapture } from "../capture/format";
 import { CaptureTimeIndex, STATUS_COLUMNS, openCapture, rangeCapture } from "../capture/reader";
 import { SAMPLE_HEADER, SAMPLE_META, SAMPLE_RATE, sampleRecords } from "../capture/testSupport";
-import { StatusMirror, makeStatusBlock } from "./mirror";
+import { StatusMirror } from "./mirror";
+import { makeStatusBlock } from "./statusFixtures";
 import { StatusReader } from "./statusReader";
 import { VoiceTable } from "./voiceTable";
 

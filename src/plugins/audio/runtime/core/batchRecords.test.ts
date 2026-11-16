@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { ASAP, BUS_LP_OFF_HZ, BUS_RAMP_MASK_GAIN, Kind, LANE_AUTHORED, Op, STATUS_BUFFER_BYTES, readBusRamp, readBusSlot, readReset, writeReset, writeStatus } from "../wire.generated";
 import { batchRecords } from "./batchRecords";
 import { CommandWriter } from "./commandWriter";
-import { makeStatusBlock } from "./mirror";
+import { makeStatusBlock } from "./statusFixtures";
 import { ReplayBuilder } from "./replay";
 
 /** A link that keeps what is posted. */

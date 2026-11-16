@@ -1,6 +1,6 @@
 // @internal Tests only (Rc1 and its leaves L-Rc1a, L-Rc1c; Rc1b, Rc5, Rc6 may reuse it): a capture holding every record
 // type, built with `format.ts`'s writers. Never imported by runtime code.
-import { makeStatusBlock } from "../core/mirror";
+import { makeStatusBlock } from "../core/statusFixtures";
 import { STATUS_BUFFER_BYTES, writeStatus, type StatusBlock } from "../wire.generated";
 import { RecordType, assembleCapture, encodeKeyframe, keyframeBytes, type CaptureHeaderInit, type CaptureMetaInit, type CaptureRecordInit, type KeyframePayload } from "./format";
 

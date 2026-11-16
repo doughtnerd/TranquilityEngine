@@ -38,7 +38,8 @@ import {
 import { createBatchPool } from "./bufferPool";
 import { CommandWriter, type BatchPort } from "./commandWriter";
 import { LaneWriter } from "./laneWriter";
-import { makeStatusBlock, StatusMirror } from "./mirror";
+import { StatusMirror } from "./mirror";
+import { makeStatusBlock } from "./statusFixtures";
 import { PlayheadTracker, Replayer, replayBusConfig, replayMaster, type ReplaySource } from "./replay";
 import { CoreSession } from "./session";
 import { StatusReader } from "./statusReader";

@@ -4,7 +4,7 @@
 // The first two cases are live and pin the packers and the older-record rule.
 import { describe, expect, it } from "vitest";
 import * as wire from "./wire.generated";
-import { makeStatusBlock } from "./core/mirror";
+import { makeStatusBlock } from "./core/statusFixtures";
 import wireVectors from "../../../../native/audio/crates/audio-wire/vectors/wire.json";
 
 describe("M4 wire packers", () => {

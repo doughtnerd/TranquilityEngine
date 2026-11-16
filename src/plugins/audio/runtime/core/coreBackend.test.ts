@@ -32,7 +32,7 @@ import { CoreLink, type LinkPort } from "./context";
 import type { ClipInfo, ClipRegistry, ClipResidentListener, ClipState } from "./clipRegistry";
 import type { HrirLoader } from "./hrir";
 import { CoreBackend, type CoreBackendDeps, type CoreBackendHost, type CoreVoice } from "./coreBackend";
-import { makeStatusBlock } from "./mirror";
+import { makeStatusBlock } from "./statusFixtures";
 
 class FakeRegistry implements ClipRegistry {
   readonly ids = new Map<string, number>();
