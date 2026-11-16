@@ -8,6 +8,7 @@ import { installShortcuts } from "./shortcuts";
 import { assetFormats } from "./sdk/contributions";
 import { currentProject, openScene, type OpenScene } from "./state";
 import { MemoryFileSystem, ROOT } from "./testing";
+import { registerEditorWindow } from "./windows/editorWindows";
 
 interface Thing {
   n: number;
@@ -154,6 +155,34 @@ describe("the active history (ADR 0145)", () => {
     expect(activeHistory.value?.kind).toBe("panel");
     stop();
     expect(activeHistory.value?.kind).toBe("asset"); // the document marked on the same root
+  });
+
+  it("is an asset document's history while its editor is focused in a detached window (ADR 0174)", () => {
+    vi.stubGlobal("document", { ...document, querySelector: () => null }); // the main window shows no asset editor
+    const { stack, calls } = fakeStack(true);
+    openFakeScene(stack);
+    const doc = openDoc();
+    doc.edit({ n: 2 }, { label: "Set n" });
+    // A detached panel window showing the asset's editor; the main window's document doesn't have it.
+    const childListeners = new Map<string, Listener[]>();
+    const childDocument = {
+      addEventListener: (type: string, l: Listener) => childListeners.set(type, [...(childListeners.get(type) ?? []), l]),
+      removeEventListener: (type: string, l: Listener) => childListeners.set(type, (childListeners.get(type) ?? []).filter((x) => x !== l)),
+      querySelector: (sel: string) => (sel === `[data-asset-document=${JSON.stringify(PATH)}]` ? {} : null),
+    };
+    const child = { document: childDocument } as unknown as Window;
+    (child as { window: unknown }).window = child;
+    const off = registerEditorWindow(child);
+    try {
+      const editor = element({ asset: PATH });
+      for (const l of childListeners.get("focusin") ?? []) l({ target: element({ parent: editor }) } as unknown as Event);
+      expect(activeHistory.value).toMatchObject({ kind: "asset", path: PATH });
+      expect(undo()).toBe(true);
+      expect(doc.value.value).toEqual({ n: 1 });
+      expect(calls).toEqual([]); // not the scene's
+    } finally {
+      off();
+    }
   });
 
   it("does nothing when there's nothing to undo or redo, or nothing to act on", () => {

@@ -16,7 +16,7 @@ import { useEffect, useRef } from "preact/hooks";
 import { focusedAssetDocument, KEEPS_HISTORY_FOCUS, type AssetDocument } from "./assetDocuments";
 import type { CommandStack, HistoryState } from "./document";
 import { docVersion, openScene } from "./state";
-import { forEachChildWindow } from "./windows/editorWindows";
+import { editorDocuments, forEachChildWindow } from "./windows/editorWindows";
 
 /** A history tree the History panel can draw and jump through (ADR 0027). */
 export interface HistoryTree {
@@ -212,10 +212,15 @@ export function usePanelHistory(ref: { readonly current: Element | null }, histo
 
 // --- resolving ------------------------------------------------------------------------------------
 
-/** The asset document's editor is still on the page (a replaced inspector doesn't leave its history active). */
+/**
+ * The asset document's editor is still on a page, in any editor window (a replaced inspector doesn't
+ * leave its history active; an editor in a detached panel window counts, ADR 0174).
+ */
 function editorShown(path: string): boolean {
-  if (typeof document === "undefined" || !document.querySelector) return true;
-  return document.querySelector(`[data-asset-document=${JSON.stringify(path)}]`) !== null;
+  const docs = editorDocuments().filter((d) => typeof d.querySelector === "function");
+  if (docs.length === 0) return true; // no page to look in
+  const selector = `[data-asset-document=${JSON.stringify(path)}]`;
+  return docs.some((d) => d.querySelector(selector) !== null);
 }
 
 function resolve(): ActiveHistory | null {
