@@ -45,23 +45,23 @@ describe("Babylon quad batches drawing tilemaps (ADR 0103, 0136)", () => {
     map.fillRect(0, 0, 20, 2, 1); // two chunks
     const world = World.require();
     tilemaps.sync(world);
-    expect(quads.meshes()).toHaveLength(0); // texture still loading
+    expect([...scene.meshes]).toHaveLength(0); // texture still loading
     loaded = true;
     pending.forEach((f) => f());
     tilemaps.sync(world);
-    const meshes = quads.meshes();
+    const meshes = [...scene.meshes];
     expect(meshes).toHaveLength(2);
     expect(meshes.map((m) => m.getTotalVertices()).sort((a, b) => a - b)).toEqual([4 * 4 * 2, 16 * 4 * 2]);
     expect(meshes[0].alphaIndex).toBe(3);
     // Editing one chunk rebuilds only that chunk.
     map.setTile(18, 0, 0);
     tilemaps.sync(world);
-    const after = quads.meshes();
+    const after = [...scene.meshes];
     expect(after.filter((m) => meshes.includes(m))).toHaveLength(1);
     // Hiding the layer hides its meshes; removing the tilemap disposes them.
     map.layers = map.toLayerData().map((l) => ({ ...l, visible: false }));
     tilemaps.sync(world);
-    expect(quads.meshes().every((m) => !m.isEnabled())).toBe(true);
+    expect([...scene.meshes].every((m) => !m.isEnabled())).toBe(true);
     const material = after[0].material!;
     expect(after.every((m) => m.material === material)).toBe(true); // one shared material per texture and tint
     tilemaps.release(map);

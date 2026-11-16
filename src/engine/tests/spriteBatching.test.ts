@@ -4,17 +4,40 @@ import { NullEngine } from "@babylonjs/core/Engines/nullEngine.js";
 import { ShaderLanguage } from "@babylonjs/core/Materials/shaderLanguage.js";
 import { RawTexture } from "@babylonjs/core/Materials/Textures/rawTexture.js";
 import { Texture } from "@babylonjs/core/Materials/Textures/texture.js";
+import type { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
+import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh.js";
+import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { Scene } from "@babylonjs/core/scene.js";
 import { pbrVertexShader } from "@babylonjs/core/Shaders/pbr.vertex.js";
 import { pbrVertexShaderWGSL } from "@babylonjs/core/ShadersWGSL/pbr.vertex.js";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { World } from "../core/World";
 import { Assets, Camera, Color, Engine, GameObject, SceneManager, Vector2 } from "../index";
 import { SpriteRenderer } from "../render/components";
 import { BabylonSprites } from "../render/babylon/sprites";
 import { SPRITES_SPEC } from "../../plugins/sprites/runtime";
 import type { FeatureSyncContext } from "../render/babylon/feature";
-import { SpriteBatcher, spriteUvCode, UV_RECT_ATTRIBUTE, type SpriteItem } from "../render/babylon/spriteBatches";
+import { SpriteBatcher, spriteUvCode, UV_RECT_ATTRIBUTE, type SpriteItem } from "../render/babylon/layeredQuads";
+
+// Read through Babylon's public API only: the scene's meshes, their alphaIndex and thin-instance count,
+// and the thin-instance buffers handed to `thinInstanceSetBuffer` (the batcher fills them in place).
+const buffers = new Map<Mesh, Map<string, Float32Array>>();
+const setBuffer = Mesh.prototype.thinInstanceSetBuffer;
+beforeEach(() => {
+  buffers.clear();
+  vi.spyOn(Mesh.prototype, "thinInstanceSetBuffer").mockImplementation(function (this: Mesh, kind, data, ...rest) {
+    if (data instanceof Float32Array) (buffers.get(this) ?? buffers.set(this, new Map()).get(this)!).set(kind, data);
+    return setBuffer.call(this, kind, data, ...rest);
+  });
+});
+afterEach(() => vi.restoreAllMocks());
+/** The scene's meshes drawn now, in draw order. */
+const drawn = (scene: Scene): AbstractMesh[] => scene.meshes.filter((m) => m.isEnabled() && !m.isDisposed()).sort((a, b) => a.alphaIndex - b.alphaIndex);
+/** The sprite batches drawn now (thin-instance meshes), in draw order. */
+const batches = (scene: Scene): Mesh[] => drawn(scene).filter((m): m is Mesh => m instanceof Mesh && m.thinInstanceCount > 0);
+/** Instance `i`'s `stride` floats of a batch's buffer `kind`. */
+const instance = (mesh: Mesh, kind: string, i: number, stride: number): number[] => [...buffers.get(mesh)!.get(kind)!.slice(i * stride, (i + 1) * stride)];
+const batchedSprites = (scene: Scene): number => batches(scene).reduce((n, m) => n + m.thinInstanceCount, 0);
 
 describe("the sprite batcher (ADR 0108)", () => {
   let engine: NullEngine;
@@ -43,32 +66,32 @@ describe("the sprite batcher (ADR 0108)", () => {
     // Equal orders group by texture; a different texture in between splits a run.
     batcher.update([item(atlas, 0), item(other, 1), item(atlas, 0, 1), item(atlas, 2), item(atlas, 2, 1)]);
     expect(batcher.stats()).toEqual({ batches: 3, sprites: 5 });
-    const meshes = batcher.meshes();
+    const meshes = batches(scene);
     expect(meshes.map((m) => m.thinInstanceCount)).toEqual([2, 1, 2]);
     // Each run's alphaIndex is its draw order, as a lone sprite's or a tilemap layer's is.
     expect(meshes.map((m) => m.alphaIndex)).toEqual([0, 1, 2]);
     // Two textures in one order: the second run sits just after the first, still before the next order.
     batcher.update([item(atlas, 5), item(other, 5), item(atlas, 6)]);
-    const [x, y, z] = batcher.meshes().map((m) => m.alphaIndex);
+    const [x, y, z] = batches(scene).map((m) => m.alphaIndex);
     expect(x).toBe(5);
     expect(y).toBeGreaterThan(5);
     expect(y).toBeLessThan(6);
     expect(z).toBe(6);
-    expect((meshes[0].material as unknown as { albedoTexture: Texture }).albedoTexture).toBe(atlas);
+    expect((meshes[0].material as PBRMaterial).albedoTexture).toBe(atlas);
     expect(meshes[0].material).toBe(meshes[2].material); // one material per texture
     // A whole tile map from one atlas is one draw.
     batcher.update(Array.from({ length: 500 }, (_, i) => item(atlas, 0, i)));
     expect(batcher.stats()).toEqual({ batches: 1, sprites: 500 });
-    expect(batcher.meshes()[0].thinInstanceCount).toBe(500);
+    expect(batches(scene)[0].thinInstanceCount).toBe(500);
     expect(meshes[1].isEnabled()).toBe(false); // runs no longer needed are hidden, kept for reuse
   });
 
   it("fills the per-instance matrix, colour and UV rectangle", () => {
     batcher.update([item(null, 0, 3)]);
-    const storage = (batcher.meshes()[0] as unknown as { _thinInstanceDataStorage: { matrixData: Float32Array }; _userThinInstanceBuffersStorage: { data: Record<string, Float32Array> } });
-    expect(storage._thinInstanceDataStorage.matrixData[12]).toBe(3);
-    expect([...storage._userThinInstanceBuffersStorage.data.instanceColor.slice(0, 4)]).toEqual([1, 0.5, 0.25, 0.75]);
-    expect([...storage._userThinInstanceBuffersStorage.data[UV_RECT_ATTRIBUTE].slice(0, 4)]).toEqual([0.25, 0, 0.25, 0.5]);
+    const [mesh] = batches(scene);
+    expect(instance(mesh, "matrix", 0, 16)[12]).toBe(3);
+    expect(instance(mesh, "instanceColor", 0, 4)).toEqual([1, 0.5, 0.25, 0.75]);
+    expect(instance(mesh, UV_RECT_ATTRIBUTE, 0, 4)).toEqual([0.25, 0, 0.25, 0.5]);
   });
 
   it("puts the UV rectangle where both PBR vertex shaders have the UV", () => {
@@ -89,7 +112,8 @@ describe("the sprite feature (ADR 0108, 0130)", () => {
   let policy: "batched" | "perObject";
   let textures: Map<string, Texture>;
   let warnings: string[];
-  type Internals = { batcher: SpriteBatcher; sprites: Map<SpriteRenderer, { mesh: unknown; item: SpriteItem | null }> };
+  /** The sprites drawn by a mesh of their own (the feature's editor sprites). */
+  const own = (f: BabylonSprites): SpriteRenderer[] => [...f.editorSprites()].map((e) => e.component as SpriteRenderer);
   const make = (): BabylonSprites =>
     new BabylonSprites({
       scene,
@@ -139,14 +163,16 @@ describe("the sprite feature (ADR 0108, 0130)", () => {
     const f = make();
     const a = sprite("a", 0), b = sprite("b", 2, { color: Color.from("#ff0000") });
     f.sync(world, ctx);
-    const internals = f as unknown as Internals;
-    expect(internals.batcher.stats()).toEqual({ batches: 1, sprites: 2 });
-    expect(internals.sprites.get(a)!.mesh).toBeNull(); // no mesh per sprite
-    expect(internals.sprites.get(b)!.item!.color[1]).toBe(0);
-    expect(f.drawnNodes().length).toBe(2);
+    expect(batches(scene).map((m) => m.thinInstanceCount)).toEqual([2]);
+    expect(own(f)).toEqual([]); // no mesh per sprite
+    const [batch] = batches(scene);
+    expect(instance(batch, "instanceColor", 0, 4)).toEqual([1, 1, 1, 1]); // a
+    expect(instance(batch, "instanceColor", 1, 4)).toEqual([1, 0, 0, 1]); // b, red
+    expect(f.drawnNodes().map((n) => n.name).sort()).toEqual(["a", "b"]);
     b.enabled = false;
     f.sync(world, ctx);
-    expect(internals.batcher.stats().sprites).toBe(1);
+    expect(batchedSprites(scene)).toBe(1);
+    expect(f.drawnNodes().map((n) => n.name)).toEqual(["a"]);
     f.dispose();
   });
 
@@ -156,11 +182,9 @@ describe("the sprite feature (ADR 0108, 0130)", () => {
     const sliced = sprite("panel", 0, { sprite: "asset:images/ui.png#panel", size: new Vector2(3, 2) });
     const plain = sprite("dot", 1, { sprite: "asset:images/ui.png#dot" });
     f.sync(world, ctx);
-    const internals = f as unknown as Internals;
-    expect(internals.sprites.get(sliced)!.mesh).not.toBeNull();
-    expect(internals.sprites.get(plain)!.mesh).toBeNull();
-    expect(internals.batcher.stats()).toEqual({ batches: 1, sprites: 1 });
-    expect([...f.editorSprites()].map((e) => e.component)).toEqual([sliced]);
+    expect(own(f)).toEqual([sliced]);
+    expect(batches(scene).map((m) => m.thinInstanceCount)).toEqual([1]); // the plain one
+    expect(f.drawnNodes()).toContain(plain.node);
     f.dispose();
   });
 
@@ -169,9 +193,8 @@ describe("the sprite feature (ADR 0108, 0130)", () => {
     const f = make();
     const a = sprite("a", 0);
     f.sync(world, ctx);
-    const internals = f as unknown as Internals;
-    expect(internals.sprites.get(a)!.mesh).not.toBeNull();
-    expect(internals.batcher.stats().batches).toBe(0);
+    expect(own(f)).toEqual([a]);
+    expect(batches(scene)).toEqual([]);
     f.dispose();
   });
 
@@ -179,13 +202,12 @@ describe("the sprite feature (ADR 0108, 0130)", () => {
     const f = make();
     const a = sprite("a", 0);
     f.sync(world, ctx);
-    const internals = f as unknown as Internals;
-    expect(internals.sprites.get(a)!.mesh).toBeNull();
-    expect(internals.batcher.stats()).toEqual({ batches: 1, sprites: 1 });
+    expect(own(f)).toEqual([]);
+    expect(batchedSprites(scene)).toBe(1);
     policy = "perObject"; // editor play mode reaches into the game World: its viewport handle asks for per-object meshes
     f.sync(world, ctx);
-    expect(internals.sprites.get(a)!.mesh).not.toBeNull();
-    expect(internals.batcher.stats().sprites).toBe(0);
+    expect(own(f)).toEqual([a]);
+    expect(batchedSprites(scene)).toBe(0);
     f.dispose();
   });
 
@@ -194,7 +216,7 @@ describe("the sprite feature (ADR 0108, 0130)", () => {
     GameObject.create("cam").addBehavior(Camera, { pixelPerfect: true });
     const a = sprite("a", 0.51);
     f.sync(world, ctx);
-    const m = (f as unknown as Internals).sprites.get(a)!.item!.matrix;
+    const m = instance(batches(scene)[0], "matrix", 0, 16);
     expect(m[12] * 16).toBeCloseTo(Math.round(m[12] * 16)); // on a 1/16 grid (the quad's pivot offset is 0 here)
     expect(m[12]).toBeCloseTo(0.5);
     f.dispose();
@@ -216,16 +238,17 @@ describe("the sprite feature (ADR 0108, 0130)", () => {
     const f = make();
     const a = sprite("a", 0);
     f.sync(world, ctx);
-    const internals = f as unknown as Internals;
-    const mesh = internals.sprites.get(a)!.mesh as { isDisposed(): boolean };
+    const [{ mesh }] = [...f.editorSprites()];
     f.release(a);
-    expect(internals.sprites.has(a)).toBe(false);
+    expect(own(f)).toEqual([]);
+    expect(f.drawnNodes()).toEqual([]);
     expect(mesh.isDisposed()).toBe(true);
     const b = sprite("b", 1);
     f.sync(world, ctx);
-    const meshB = internals.sprites.get(b)!.mesh as { isDisposed(): boolean };
+    const [{ mesh: meshB }] = [...f.editorSprites()];
     f.dispose();
     expect(meshB.isDisposed()).toBe(true);
-    expect(internals.sprites.size).toBe(0);
+    expect(own(f)).toEqual([]);
+    expect(scene.meshes).toEqual([]);
   });
 });

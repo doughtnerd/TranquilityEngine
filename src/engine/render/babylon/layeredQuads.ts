@@ -1,12 +1,25 @@
 /**
- * Sprite batching (ADR 0108): sprites draw as thin instances of one quad per run of sprites sharing a
- * texture (an atlas) and a draw order. Sprites are sorted by sorting layer and order (ADR 0014) and,
- * within one order, grouped by texture; each run is one mesh and one draw. A run's `alphaIndex` is its
- * order (plus a small step per run within that order), the same `alphaIndex` a lone sprite or a
- * tilemap layer of that order has, so batches sort among the other ordered meshes exactly as before.
+ * Layered 2D quads (ADR 0014, 0108, 0136, 0186): the one owner of how 2D content draws on Babylon.
+ * Lone sprites (`sprites.ts`), sprite batches (`SpriteBatcher` below), quad batches (tilemaps,
+ * `quadBatches.ts`) and particle meshes (`particleDraw.ts`) are its callers. It owns:
  *
- * Per instance: the world matrix (size, pivot, flips and the node), the tint (Babylon's instance colour,
- * which multiplies the PBR albedo and alpha) and the slice's UV rectangle (`SpriteUvPlugin`, GLSL and WGSL).
+ * - the material: unlit PBR, two-sided (flipped sprites mirror their quad), alpha-blended, no depth
+ *   write and depth test ALWAYS, so 2D content draws in layer order, not by depth (`layeredQuadMaterial`);
+ * - the draw order. Babylon sorts transparent meshes by `alphaIndex` (lowest first), then back to front,
+ *   so a 2D draw's place is its `alphaIndex`, which is set only here:
+ *   - 2D content (a lone sprite, a quad batch, the first sprite run of an order) sits at its draw order,
+ *     `sortingOrder`'s sorting layer index × 10000 + order in layer (`placeInLayer`);
+ *   - each further sprite run of the same order (another texture) sits `RUN_STEP` past the run before,
+ *     so runs of one order sort deterministically and stay below the next order (whole or fractional,
+ *     as long as the orders are further apart than their runs' steps);
+ *   - a particle mesh (`placeParticles`) sits by its emitter's `renderOrder`: 0 at Babylon's default
+ *     (`Number.MAX_VALUE`, sorted by distance with the scene's other transparent meshes, after all 2D
+ *     content), a negative one at that value (among the 2D content of the first sorting layer), a
+ *     positive one at +Infinity, after everything (two positive orders then sort by distance, not order);
+ * - sprite batching (ADR 0108): sprites are sorted by draw order and, within one order, grouped by
+ *   texture (an atlas); each run is one mesh of thin instances and one draw. Per instance: the world
+ *   matrix (size, pivot, flips and the node), the tint (Babylon's instance colour, which multiplies the
+ *   PBR albedo and alpha) and the slice's UV rectangle (`SpriteUvPlugin`, GLSL and WGSL).
  */
 import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
 import { Constants } from "@babylonjs/core/Engines/constants.js";
@@ -19,8 +32,42 @@ import { Matrix } from "@babylonjs/core/Maths/math.vector.js";
 import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData.js";
 import "@babylonjs/core/Meshes/thinInstanceMesh.js"; // Mesh.thinInstance*
+import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import { pbr } from "./materials";
+
+// --- the material ----------------------------------------------------------------------------------
+
+/** A new material for 2D quads showing `texture` with its alpha (null: plain white), drawn in layer order, not by depth. */
+export function layeredQuadMaterial(name: string, scene: Scene, texture: Texture | null): PBRMaterial {
+  const m = pbr(name, scene);
+  m.unlit = true;
+  m.backFaceCulling = false; // flipped sprites mirror their quad
+  m.disableDepthWrite = true;
+  m.depthFunction = Constants.ALWAYS; // 2D content draws in layer order, not by depth (ADR 0014)
+  m.transparencyMode = PBRMaterial.PBRMATERIAL_ALPHABLEND;
+  m.useAlphaFromAlbedoTexture = true;
+  m.albedoTexture = texture;
+  return m;
+}
+
+// --- the draw order --------------------------------------------------------------------------------
+
+/** How far apart runs of one draw order sit in `alphaIndex`. */
+const RUN_STEP = 1e-4;
+
+/** Put a mesh drawing 2D content (a lone sprite, a quad batch) at draw order `order` (`sortingOrder`'s value). */
+export function placeInLayer(mesh: AbstractMesh, order: number): void {
+  mesh.alphaIndex = order;
+}
+
+/** Put a mesh drawing particles at its emitter's `renderOrder` (see the file comment). */
+export function placeParticles(mesh: AbstractMesh, renderOrder: number): void {
+  if (renderOrder === 0 || !Number.isFinite(renderOrder)) mesh.alphaIndex = Number.MAX_VALUE;
+  else mesh.alphaIndex = renderOrder > 0 ? Number.POSITIVE_INFINITY : renderOrder;
+}
+
+// --- sprite batching -------------------------------------------------------------------------------
 
 /** One sprite to draw this frame. */
 export interface SpriteItem {
@@ -93,10 +140,8 @@ const QUAD = (() => {
 })();
 
 const IDENTITY = Matrix.Identity();
-/** How far apart runs of one draw order sit in `alphaIndex`. */
-const RUN_STEP = 1e-4;
 
-/** Draws sprites batched per texture run (see the file comment). */
+/** Draws sprites batched per texture run, in draw order (see the file comment). */
 export class SpriteBatcher {
   private readonly runs: Run[] = [];
   private readonly materials = new Map<Texture | null, PBRMaterial>();
@@ -134,14 +179,9 @@ export class SpriteBatcher {
     for (let i = this.used; i < this.runs.length; i++) this.runs[i].mesh.setEnabled(false);
   }
 
-  /** Draw calls and sprites last drawn (benchmarks, tests). */
+  /** Draw calls and sprites last drawn (benchmarks). */
   stats(): { batches: number; sprites: number } {
     return { batches: this.used, sprites: this.drawn };
-  }
-
-  /** The run meshes in use (tests). */
-  meshes(): Mesh[] {
-    return this.runs.slice(0, this.used).map((r) => r.mesh);
   }
 
   dispose(): void {
@@ -154,14 +194,7 @@ export class SpriteBatcher {
   private material(texture: Texture | null): PBRMaterial {
     let m = this.materials.get(texture);
     if (m) return m;
-    m = pbr(`sprites:${texture?.name ?? "plain"}`, this.scene);
-    m.unlit = true;
-    m.backFaceCulling = false; // flipped sprites mirror their quad
-    m.disableDepthWrite = true;
-    m.depthFunction = Constants.ALWAYS; // sprites draw in layer order, not by depth (ADR 0014)
-    m.transparencyMode = PBRMaterial.PBRMATERIAL_ALPHABLEND;
-    m.useAlphaFromAlbedoTexture = true;
-    m.albedoTexture = texture;
+    m = layeredQuadMaterial(`sprites:${texture?.name ?? "plain"}`, this.scene, texture);
     new SpriteUvPlugin(m);
     this.materials.set(texture, m);
     return m;
@@ -197,10 +230,10 @@ export class SpriteBatcher {
     const texture = sorted[start].texture;
     const material = this.material(texture);
     if (run.mesh.material !== material) run.mesh.material = material;
-    // Its order, a step past the previous run of the same order (orders are whole numbers: steps stay below the next).
+    // Its order, or a step past the previous run when that has the same order (any number: orders aren't
+    // only whole ones). The last item of the previous run is the one before this run's first.
     const order = sorted[start].order;
-    const previous = index > 0 ? this.runs[index - 1].mesh : null;
-    run.mesh.alphaIndex = previous && Math.floor(previous.alphaIndex) === order ? previous.alphaIndex + RUN_STEP : order;
+    run.mesh.alphaIndex = start > 0 && sorted[start - 1].order === order ? this.runs[index - 1].mesh.alphaIndex + RUN_STEP : order;
     run.mesh.thinInstanceCount = n;
     run.mesh.thinInstanceBufferUpdated("matrix");
     run.mesh.thinInstanceBufferUpdated("instanceColor");
