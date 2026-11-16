@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { getComponentClass } from "../../engine/core/registry";
 import { byPhase } from "../../engine/render/renderFeatures";
 import { assetKind } from "../../editor/assetBrowser";
-import { _reset, assetDocumentsDeleted, assetDocumentsMoved, openAssetDocument } from "../../editor/assetDocuments";
+import { assetDocumentsDeleted, assetDocumentsMoved, openAssetDocument } from "../../editor/assetDocuments";
 import { acceptsFile } from "../../editor/assetFieldKinds";
 import { inspectableAsset } from "../../editor/assetImport";
 import { kindIcon, kindLabel, registeredKind } from "../../editor/assetKindLookup";
@@ -84,7 +84,6 @@ describe("the Tilemaps plugin's runtime half (ADR 0135)", () => {
 describe("the Tilemaps plugin's editor half (ADR 0134)", () => {
   const editorHalf = useEditorPlugins([tilemapsEditorPlugin], "each");
   afterEach(() => {
-    _reset();
     currentProject.value = null;
   });
 

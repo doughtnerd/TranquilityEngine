@@ -1,7 +1,7 @@
 // The Event editor's edits through the audio event's asset document (ADR 0133, 0158 §7): what the panel does on a tree
 // edit, a property change and a slider drag, written to the file and undone in steps.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { _reset, openAssetDocument } from "../../../../editor/assetDocuments";
+import { openAssetDocument } from "../../../../editor/assetDocuments";
 import { joinPath, openFolderProject } from "../../../../editor/projects";
 import { currentProject } from "../../../../editor/state";
 import { MemoryFileSystem, ROOT } from "../../../../editor/testing";
@@ -15,7 +15,6 @@ import { applyClipDrop } from "./treeDrop";
 
 useEditorPlugins([audioEditorPlugin], "each");
 afterEach(() => {
-  _reset();
   vi.useRealTimers();
 });
 

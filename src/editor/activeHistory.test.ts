@@ -1,8 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { activeHistory, providePanelHistory, redo, stepBack, undo, type UndoHistory } from "./activeHistory";
-import { _reset, openAssetDocument, type AssetDocument } from "./assetDocuments";
-import { _useAssetHistoryPlatform, assetHistorySettled } from "./assetHistory";
-import { MemoryStorage } from "../engine/platform/Storage";
+import { openAssetDocument, type AssetDocument } from "./assetDocuments";
+import { assetHistorySettled } from "./assetHistory";
 import { joinPath, openFolderProject, type EditorProject } from "./projects";
 import { installShortcuts } from "./shortcuts";
 import { assetFormats } from "./sdk/contributions";
@@ -102,13 +101,10 @@ beforeEach(async () => {
   fs.files.set(joinPath(ROOT, PATH), '{ "n": 1 }');
   project = await openFolderProject(fs, ROOT);
   currentProject.value = project;
-  _useAssetHistoryPlatform({ fs: null, userStorage: new MemoryStorage() });
 });
 
 afterEach(async () => {
   await assetHistorySettled();
-  _reset();
-  _useAssetHistoryPlatform(null);
   unregister();
   openScene.value = null;
   currentProject.value = null;

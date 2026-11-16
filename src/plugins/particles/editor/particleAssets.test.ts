@@ -3,7 +3,6 @@
 // history follows a rename.
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { defaultParticleGraph, formatParticleGraph } from "../../../engine/scene/particleGraphFormat";
-import { _reset } from "../../../editor/assetDocuments";
 import { moveAssets } from "../../../editor/assetOps";
 import { joinPath, openFolderProject, type EditorProject } from "../../../editor/projects";
 import { useEditorPlugins } from "../../testEditorPlugins";
@@ -30,7 +29,6 @@ beforeEach(async () => {
   currentProject.value = project;
 });
 afterEach(() => {
-  _reset();
   currentProject.value = null;
   status.value = null;
 });

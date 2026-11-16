@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { deleteAssets } from "./assetDelete";
-import { _reset, focusedAssetDocument, openAssetDocument, type AssetDocument } from "./assetDocuments";
-import { ASSET_HISTORY_DIR, _useAssetHistoryPlatform, assetHistorySettled } from "./assetHistory";
+import { focusedAssetDocument, openAssetDocument, type AssetDocument } from "./assetDocuments";
+import { ASSET_HISTORY_DIR, assetHistorySettled } from "./assetHistory";
 import { moveAssets } from "./assetOps";
-import { MemoryStorage } from "../engine/platform/Storage";
+import type { StorageBackend } from "../engine/platform/Storage";
+import { defaultHistoryPlatform } from "./historyPersistence";
 import { askBeforeDeletingAssets, historyLocation } from "./preferences";
 import { joinPath, openFolderProject, readOnlyProject, type EditorProject } from "./projects";
 import { assetFormats } from "./sdk/contributions";
@@ -20,7 +21,8 @@ const PATH = "things/a.thing.json";
 let fs: MemoryFileSystem;
 let project: EditorProject;
 let unregister: () => void;
-let userStorage: MemoryStorage;
+/** Per-user storage, the editor's own (in-memory under Node): emptied after each test. */
+let userStorage: StorageBackend;
 const onDisk = (path: string) => fs.files.get(joinPath(ROOT, path));
 const open = (path = PATH) => openAssetDocument<Thing>(project, path, "thing");
 
@@ -41,19 +43,18 @@ beforeEach(async () => {
   project = await openFolderProject(fs, ROOT);
   currentProject.value = project;
   askBeforeDeletingAssets.value = false;
-  userStorage = new MemoryStorage();
-  _useAssetHistoryPlatform({ fs: null, userStorage });
+  userStorage = (await defaultHistoryPlatform()).userStorage;
 });
 
 afterEach(async () => {
   await assetHistorySettled();
-  _reset();
-  _useAssetHistoryPlatform(null);
+  currentProject.value = null; // closing the project drops its documents
+  await assetHistorySettled();
+  for (const key of await userStorage.list("cache")) await userStorage.delete("cache", key);
   historyLocation.value = "project";
   unregister();
   vi.useRealTimers();
   askBeforeDeletingAssets.value = true;
-  currentProject.value = null;
   status.value = null;
 });
 
@@ -526,7 +527,7 @@ describe("the focused asset document (for the History panel)", () => {
       expect(focusedAssetDocument.value).toBeNull();
       fire("focusin", "[data-asset-document]");
       expect(focusedAssetDocument.value).toBe(doc);
-      _reset(); // the documents are dropped
+      currentProject.value = null; // the project closes: its documents are dropped
       expect(focusedAssetDocument.value).toBeNull();
     } finally {
       close();

@@ -9,7 +9,6 @@ import { ParticleSystem } from "../../engine/render/components";
 import { _registeredRenderFeatures } from "../../engine/render/renderFeatures";
 import { defaultParticleGraph, formatParticleGraph } from "../../engine/scene/particleGraphFormat";
 import { assetKind } from "../../editor/assetBrowser";
-import { _reset } from "../../editor/assetDocuments";
 import { acceptsFile } from "../../editor/assetFieldKinds";
 import { inspectableAsset } from "../../editor/assetImport";
 import { canAddToScene, kindIcon, kindLabel, kindOpens, registeredKind } from "../../editor/assetKindLookup";
@@ -49,7 +48,6 @@ async function open(files: Record<string, string>) {
 
 const editorHalf = useEditorPlugins([particlesEditorPlugin], "each");
 afterEach(() => {
-  _reset();
   currentProject.value = null;
   openParticleGraph.value = null;
 });

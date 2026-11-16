@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { skyPreset } from "../../engine/sky/presets";
 import { formatSky, parseSky, type SkySettings } from "../../engine/sky/skyFormat";
 import { assetKind } from "../../editor/assetBrowser";
-import { _reset, openAssetDocument } from "../../editor/assetDocuments";
+import { openAssetDocument } from "../../editor/assetDocuments";
 import { acceptsFile } from "../../editor/assetFieldKinds";
 import { inspectableAsset } from "../../editor/assetImport";
 import { kindIcon, kindLabel, kindOpens, registeredKind } from "../../editor/assetKindLookup";
@@ -29,7 +29,6 @@ const open = (files: Record<string, string>) => openTestProject(files);
 
 const editorHalf = useEditorPlugins([skyEditorPlugin], "each");
 afterEach(() => {
-  _reset();
   closeTestProject();
 });
 

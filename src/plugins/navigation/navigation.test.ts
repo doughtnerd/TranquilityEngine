@@ -3,7 +3,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { defaultFormation, formatFormation, setFormationCell, type NavFormationAsset } from "../../engine/nav/formation";
 import { assetKind } from "../../editor/assetBrowser";
-import { _reset, assetDocumentsMoved, openAssetDocument } from "../../editor/assetDocuments";
+import { assetDocumentsMoved, openAssetDocument } from "../../editor/assetDocuments";
 import { acceptsFile } from "../../editor/assetFieldKinds";
 import { inspectableAsset } from "../../editor/assetImport";
 import { kindIcon, kindLabel, registeredKind } from "../../editor/assetKindLookup";
@@ -36,7 +36,6 @@ const mask = (): NavFormationAsset => ({ ...defaultFormation(), shape: "mask" })
 
 const editorHalf = useEditorPlugins([navigationEditorPlugin], "each");
 afterEach(() => {
-  _reset();
   currentProject.value = null;
 });
 

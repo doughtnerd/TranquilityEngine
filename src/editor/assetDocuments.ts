@@ -9,7 +9,7 @@
 // branch, and reopening the project brings the history back. It follows renames and is deleted
 // with its file.
 import { computed, effect, signal, untracked, type ReadonlySignal } from "@preact/signals";
-import { AssetHistoryPersistence, _resetAssetHistory, deleteAssetHistories, moveAssetHistories } from "./assetHistory";
+import { AssetHistoryPersistence, deleteAssetHistories, moveAssetHistories } from "./assetHistory";
 import { TextHistory, type HistoryState } from "./document";
 import { errorStatus } from "./messages";
 import { isWithin, type EditorProject } from "./projects";
@@ -430,13 +430,4 @@ export function assetDocumentsDeleted(paths: readonly string[]): void {
   }
   documentsDropped.value++;
   if (project) void deleteAssetHistories(project, paths); // saved histories too, open or not
-}
-
-/** Tests: forget every document and stop following the project. */
-export function _reset(): void {
-  dropAll(false);
-  stopFollowingProject?.();
-  stopFollowingProject = null;
-  lastSeenProject = null;
-  _resetAssetHistory();
 }

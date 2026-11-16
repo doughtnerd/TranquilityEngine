@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { _reset, openAssetDocument } from "../../../editor/assetDocuments";
+import { openAssetDocument } from "../../../editor/assetDocuments";
 import { useEditorPlugins } from "../../testEditorPlugins";
 import { materialsEditorPlugin } from ".";
 import { moveAssets } from "../../../editor/assetOps";
@@ -14,7 +14,6 @@ import { MemoryFileSystem, ROOT } from "../../../editor/testing";
 // The formats come from the Materials plugin (ADR 0134).
 useEditorPlugins([materialsEditorPlugin], "each");
 afterEach(() => {
-  _reset();
   vi.useRealTimers();
 });
 
