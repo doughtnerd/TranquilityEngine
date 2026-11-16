@@ -821,11 +821,12 @@ export function invertAffine(m: ArrayLike<number>): number[] | null {
   const det = a * A + b * B + c * C;
   if (Math.abs(det) < 1e-12) return null;
   const inv = [A, -(b * i - c * h), b * f - c * e, B, a * i - c * g, -(a * f - c * d), C, -(a * h - b * g), a * e - b * d].map((x) => x / det);
-  // inv is row-major 3×3: inv[r * 3 + c].
+  // a…i read the column-major input row by row, so they spell the transpose of its 3×3 part and `inv` (row-major)
+  // is the transpose of that part's inverse: the inverse's row r, column c is inv[c * 3 + r].
   const t = [m[12], m[13], m[14]];
   const out = new Array<number>(16).fill(0);
-  for (let col = 0; col < 3; col++) for (let row = 0; row < 3; row++) out[col * 4 + row] = inv[row * 3 + col];
-  for (let row = 0; row < 3; row++) out[12 + row] = -(inv[row * 3] * t[0] + inv[row * 3 + 1] * t[1] + inv[row * 3 + 2] * t[2]);
+  for (let col = 0; col < 3; col++) for (let row = 0; row < 3; row++) out[col * 4 + row] = inv[col * 3 + row];
+  for (let row = 0; row < 3; row++) out[12 + row] = -(inv[row] * t[0] + inv[3 + row] * t[1] + inv[6 + row] * t[2]);
   out[15] = 1;
   return out;
 }
