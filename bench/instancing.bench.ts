@@ -18,7 +18,7 @@ import { World } from "../src/engine/core/World";
 import { Assets, Engine, GameObject, Material, MeshRenderer, SceneManager, SpriteRenderer, Vector2 } from "../src/engine/index";
 import { BabylonRenderer } from "../src/engine/render/babylon/BabylonRenderer";
 import type { MeshBatches } from "../src/engine/render/babylon/meshBatches";
-import type { SpriteBatcher } from "../src/engine/render/babylon/spriteBatches";
+import type { SpriteBatcher } from "../src/engine/render/babylon/layeredQuads";
 
 const SIZES = [1000, 4000];
 const MESH_MODES = ["auto", "thin", "off"] as const;

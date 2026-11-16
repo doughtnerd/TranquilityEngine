@@ -3,8 +3,7 @@
  * thin-instance batches, or as a mesh each (9-sliced and tiled slices, and the editor's scene view).
  * Shares nothing with the renderer but what `BabylonSpriteHost` hands it.
  */
-import { Constants } from "@babylonjs/core/Engines/constants.js";
-import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
+import type { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
 import type { Texture } from "@babylonjs/core/Materials/Textures/texture.js";
 import { Color3 } from "@babylonjs/core/Maths/math.color.js";
 import { Matrix } from "@babylonjs/core/Maths/math.vector.js";
@@ -23,8 +22,7 @@ import { sortingOrder, unknownLayerMessage } from "../sortOrder";
 import { MAX_TILE_QUADS, SPRITE_GRID_INDICES, spriteFrame, spriteMeshData, type SpriteFrame } from "../spriteFrame";
 import type { EditorSprite } from "./editorContext";
 import type { FeatureSyncContext, SpritesFeatureApi } from "./feature";
-import { pbr } from "./materials";
-import { SpriteBatcher, type SpriteItem } from "./spriteBatches";
+import { layeredQuadMaterial, placeInLayer, SpriteBatcher, type SpriteItem } from "./layeredQuads";
 
 
 /** @internal What the sprite feature needs from the renderer. */
@@ -213,7 +211,7 @@ export class BabylonSprites implements SpritesFeatureApi {
     if (material) {
       material.albedoColor.set(c.r, c.g, c.b).toLinearSpaceToRef(material.albedoColor);
       material.alpha = c.a;
-      mesh!.alphaIndex = order;
+      placeInLayer(mesh!, order);
       if (frame && texSize) this.setSpriteGeometry(entry, frame, texSize.width, texSize.height);
     } else {
       const item = (entry.item ??= { texture: null, order, matrix: new Float32Array(16), color: [1, 1, 1, 1], uvRect: [0, 0, 1, 1] });
@@ -273,14 +271,7 @@ export class BabylonSprites implements SpritesFeatureApi {
     data.uvs = grid.uvs;
     data.indices = SPRITE_GRID_INDICES as number[];
     data.applyToMesh(mesh, true);
-    const material = pbr(`sprite:${s.node.name}`, scene);
-    material.unlit = true;
-    material.backFaceCulling = false; // flipped sprites mirror their quad
-    material.disableDepthWrite = true;
-    material.depthFunction = Constants.ALWAYS; // sprites draw in layer order, not by depth (ADR 0014)
-    material.transparencyMode = PBRMaterial.PBRMATERIAL_ALPHABLEND;
-    material.useAlphaFromAlbedoTexture = true;
-    material.albedoTexture = entry.texture;
+    const material = layeredQuadMaterial(`sprite:${s.node.name}`, scene, entry.texture);
     mesh.material = material;
     mesh.alwaysSelectAsActiveMesh = true;
     entry.mesh = mesh;

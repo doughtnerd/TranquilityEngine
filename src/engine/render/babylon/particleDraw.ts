@@ -17,11 +17,9 @@
 // `scene.particleSystems`, so `orderSystem` keeps that list stably sorted by the emitters' renderOrder
 // (systems that aren't ours count as 0). They all draw before the group's transparent meshes, mesh-based
 // particles included, so a negative renderOrder can't put a billboard emitter under a transparent mesh,
-// nor a positive one over it. Among transparent meshes Babylon sorts by `alphaIndex` (lowest first),
-// then back to front. Meshes default to `Number.MAX_VALUE`, so `particleAlphaIndex` leaves renderOrder 0
-// there (sorted by distance with the scene's other transparent meshes), puts negative orders before them
-// in order, and positive orders after them all at +Infinity: two different positive orders then sort by
-// distance, not by order. `orderMesh` and `orderSystem` are the only places a particle draw is ordered.
+// nor a positive one over it. A mesh draw's place among transparent meshes, 2D content included, is
+// its `alphaIndex`, which the layered 2D quads module sets (`placeParticles`, `layeredQuads.ts`, ADR
+// 0186). `placeParticles` and `orderSystem` are the only places a particle draw is ordered.
 import type { Camera } from "@babylonjs/core/Cameras/camera.js";
 import { Constants } from "@babylonjs/core/Engines/constants.js";
 import type { Material } from "@babylonjs/core/Materials/material.js";
@@ -41,6 +39,7 @@ import type { SimEmitter, SimParticle } from "../particles/simulation";
 import { KernelDraw, sortRunOnce, type BabylonRun, type SceneDepth } from "./gpuParticles";
 import { heightFogOn } from "./heightFog";
 import { KernelMaterialDraw, drawsKernelParticles } from "./kernelMaterial";
+import { placeParticles } from "./layeredQuads";
 import { BLEND_EPSILON, InstanceDraw, QuadDraw, unlitParticleMaterial } from "./particleMeshes";
 import { MycoSoftParticlePlugin, type DepthSource } from "./softParticles";
 
@@ -191,7 +190,7 @@ function emitterDraw(res: DrawResources, name: string, { emitter: e, capacity, c
   let d: InstanceDraw | QuadDraw;
   if (r.mode === "mesh") d = new InstanceDraw(scene, name, e, capacity, res.meshFor(r.mesh) ?? meshesIfLoaded(FALLBACK_MESH)![0], look(false));
   else d = new QuadDraw(scene, name, e, capacity, r.mode === "trail" ? "trail" : "quads", look(true), camera ?? (() => scene.activeCamera ?? scene.cameraToUseForPointers));
-  orderMesh(d.mesh, r.renderOrder);
+  placeParticles(d.mesh, r.renderOrder);
   return d;
 }
 
@@ -209,7 +208,7 @@ function kernelDraw(res: DrawResources, name: string, { system: s, output: k }: 
   }
   if (o.settings.material && !d) res.warnOnce(`kmat|${name}|${o.settings.material}`, `${name}: the kernel output "${s.kernel.name}" draws with its texture: ${o.type === "trail" ? "trails don't take material assets yet" : `"${o.settings.material}" isn't a PBR material (or hasn't loaded)`}.`);
   d ??= new KernelDraw(res.scene, name, s.kernel, k, s.run as BabylonRun, texture, softness > 0 ? { softness, depth: res.sceneDepth() } : null, { mesh });
-  orderMesh(d.mesh, o.settings.renderOrder);
+  placeParticles(d.mesh, o.settings.renderOrder);
   return d;
 }
 
@@ -271,17 +270,6 @@ function soften(material: StandardMaterial | PBRMaterial, softness: number, dept
 }
 
 // --- render order -----------------------------------------------------------------------------------
-
-/** The `alphaIndex` a mesh drawing particles gets for an emitter's `renderOrder` (see the file comment). */
-function particleAlphaIndex(renderOrder: number): number {
-  if (renderOrder === 0 || !Number.isFinite(renderOrder)) return Number.MAX_VALUE;
-  return renderOrder > 0 ? Number.POSITIVE_INFINITY : renderOrder;
-}
-
-/** Put a particle mesh in the draw order. */
-function orderMesh(mesh: Mesh, renderOrder: number): void {
-  mesh.alphaIndex = particleAlphaIndex(renderOrder);
-}
 
 /** Each of our Babylon particle systems' renderOrder. */
 const ORDER = new WeakMap<object, number>();

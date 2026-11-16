@@ -1,11 +1,10 @@
 /**
  * Quad batches on Babylon (ADR 0136): the backend half of `QuadBatchHost`. Each batch is one mesh; its
- * material is shared by every batch with the same texture, tint and opacity. Like sprites, quads draw in
- * sorting-layer order (`alphaIndex`) without depth testing (ADR 0014). Knows nothing of tiles: the
- * Tilemaps plugin's tile renderer decides what the quads are.
+ * material is shared by every batch with the same texture, tint and opacity. Like sprites, quads are
+ * layered 2D quads: `layeredQuads.ts` gives them their material and their place in the draw order
+ * (ADR 0014, 0186). Knows nothing of tiles: the Tilemaps plugin's tile renderer decides what the quads are.
  */
-import { Constants } from "@babylonjs/core/Engines/constants.js";
-import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
+import type { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
 import type { Texture } from "@babylonjs/core/Materials/Textures/texture.js";
 import { Color3 } from "@babylonjs/core/Maths/math.color.js";
 import { Matrix } from "@babylonjs/core/Maths/math.vector.js";
@@ -15,7 +14,7 @@ import type { Scene } from "@babylonjs/core/scene.js";
 import { Assets } from "../../scene/Assets";
 import { authoredSize } from "../../scene/importSettings";
 import type { QuadBatch, QuadBatchHost } from "../quadBatches";
-import { pbr } from "./materials";
+import { layeredQuadMaterial, placeInLayer } from "./layeredQuads";
 
 /** What the quad batches borrow from the renderer. */
 export interface BabylonQuadBatchDeps {
@@ -56,11 +55,6 @@ export class BabylonQuadBatches implements QuadBatchHost {
     return this.deps.sortOrder(sortingLayer, orderInLayer);
   }
 
-  /** @internal The meshes of the live batches (tests and editor queries). */
-  meshes(): Mesh[] {
-    return [...this.batches].flatMap((b) => (b.mesh ? [b.mesh] : []));
-  }
-
   /** @internal */
   get scene(): Scene {
     return this.deps.scene;
@@ -73,13 +67,7 @@ export class BabylonQuadBatches implements QuadBatchHost {
     const key = `${texture}|${hex}|${alpha}`;
     let shared = this.materials.get(key);
     if (!shared) {
-      const m = pbr(`quads:${key}`, this.deps.scene);
-      m.unlit = true;
-      m.backFaceCulling = false;
-      m.disableDepthWrite = true;
-      m.depthFunction = Constants.ALWAYS;
-      m.transparencyMode = PBRMaterial.PBRMATERIAL_ALPHABLEND;
-      m.useAlphaFromAlbedoTexture = true;
+      const m = layeredQuadMaterial(`quads:${key}`, this.deps.scene, null);
       Color3.FromHexString(hex).toLinearSpaceToRef(m.albedoColor);
       m.alpha = alpha;
       const apply = (tex: Texture | null): void => {
@@ -146,7 +134,7 @@ class BabylonQuadBatch implements QuadBatch {
       data.normals = new Float32Array(quads * 12).map((_, i) => (i % 3 === 2 ? 1 : 0));
       data.applyToMesh(mesh, false);
       mesh.alwaysSelectAsActiveMesh = true;
-      mesh.alphaIndex = this.order;
+      placeInLayer(mesh, this.order);
       mesh.freezeWorldMatrix(this.matrix);
       mesh.setEnabled(this.visible);
       this.mesh = mesh;
@@ -163,7 +151,7 @@ class BabylonQuadBatch implements QuadBatch {
 
   setOrder(order: number): void {
     this.order = order;
-    if (this.mesh) this.mesh.alphaIndex = order;
+    if (this.mesh) placeInLayer(this.mesh, order);
   }
 
   setTint(color: string, opacity: number): void {
