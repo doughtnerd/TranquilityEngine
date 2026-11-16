@@ -547,10 +547,8 @@ export class BabylonLighting {
     }
     const entry: EnvMap = { path, texture: null, sky: null };
     this.envMap = entry;
-    let url: string;
-    try {
-      url = Assets.url(path);
-    } catch {
+    // Presence, not a URL: a six-image `*.cubemap.json` is a JSON asset, which has none (its faces do).
+    if (!Assets.has(path)) {
       this.warnOnce(`env|${path}`, `environment map "${path}" isn't in the project; using the built-in environment.`);
       return;
     }
@@ -566,6 +564,13 @@ export class BabylonLighting {
       } catch (err) {
         failed((err as Error).message);
       }
+      return;
+    }
+    let url: string;
+    try {
+      url = Assets.url(path);
+    } catch (err) {
+      failed((err as Error).message);
       return;
     }
     entry.texture =
