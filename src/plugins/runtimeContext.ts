@@ -8,7 +8,6 @@ import { _undefineBuiltinSystem, _undefineSystem, defineBuiltinSystem, defineSys
 import { _registerWorldService, type WorldServiceDef } from "../engine/core/worldServices";
 import { _registerRenderFeature, type RenderFeatureRegistration, type RenderFeatureSpec } from "../engine/render/renderFeatures";
 import type { PluginManifest } from "./manifest";
-import { orderPlugins } from "./order";
 import type { HalfActivator } from "./pluginSet";
 
 /** A render feature a first-party plugin contributes (ADR 0135). */
@@ -62,15 +61,6 @@ export interface RuntimePlugin {
   activate(context: RuntimePluginContext): void;
 }
 
-export interface ActivateOptions {
-  /** Names of the enabled plugins (default: all). A disabled plugin's Components are unregistered, and nothing else of it registers. */
-  readonly enabled?: Iterable<string>;
-  /** For the dedicated server: plugins whose manifest says `server: false` are left out (as disabled). */
-  readonly server?: boolean;
-  /** Dependencies outside `plugins` that are already active (ADR 0139: third-party halves activated after the first-party ones). */
-  readonly provided?: ReadonlySet<string>;
-}
-
 const active = new Map<string, Array<() => void>>();
 /** Plugins left out by an activation, with what undoing their Components' unregistration takes. */
 const disabled = new Map<string, Array<() => void>>();
@@ -116,7 +106,7 @@ function unclaim(cls: ComponentClass, id: string): () => void {
  * decorators registered them), so scenes load them as missing (ADR 0133). Once per plugin until it is
  * activated; nothing happens for an active plugin.
  */
-export function disableRuntimePlugin(plugin: RuntimePlugin): void {
+function disableRuntimePlugin(plugin: RuntimePlugin): void {
   const name = plugin.manifest.name;
   manifests.set(name, plugin.manifest);
   if (active.has(name) || disabled.has(name)) return;
@@ -136,7 +126,7 @@ export function disableRuntimePlugin(plugin: RuntimePlugin): void {
  * Activate one runtime half (its dependencies must be active). Nothing happens when it already is. A
  * half that throws is rolled back and the error rethrown.
  */
-export function activateRuntimePlugin(plugin: RuntimePlugin): void {
+function activateRuntimePlugin(plugin: RuntimePlugin): void {
   const name = plugin.manifest.name;
   if (active.has(name)) return;
   manifests.set(name, plugin.manifest);
@@ -176,25 +166,11 @@ export function activateRuntimePlugin(plugin: RuntimePlugin): void {
 }
 
 /**
- * Activate runtime halves in dependency order (ADR 0134's `orderPlugins`). Already-active plugins are
- * skipped. A plugin that throws is rolled back and the error rethrown. Low level: hosts go through a
- * plugin set (`pluginSet.ts`, ADR 0144), which drives `runtimeActivator`.
- */
-export function activateRuntimePlugins(plugins: readonly RuntimePlugin[], options: ActivateOptions = {}): void {
-  const enabled = options.enabled ? new Set(options.enabled) : null;
-  for (const plugin of orderPlugins(plugins, options.provided)) {
-    const on = (!enabled || enabled.has(plugin.manifest.name)) && !(options.server && plugin.manifest.server === false);
-    if (on) activateRuntimePlugin(plugin);
-    else if (!active.has(plugin.manifest.name)) disableRuntimePlugin(plugin);
-  }
-}
-
-/**
  * Undo everything a runtime half registered: its Components are unregistered (scenes load them as
  * missing), its systems leave the catalog, its World services are disposed where they run, and its
  * render features are left out of renderers created from now on.
  */
-export function deactivateRuntimePlugin(name: string): void {
+function deactivateRuntimePlugin(name: string): void {
   const undo = active.get(name);
   if (!undo) return;
   active.delete(name);

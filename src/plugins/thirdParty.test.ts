@@ -10,7 +10,7 @@ import { loadProjectCode as loadServerCode, readProject } from "../server/projec
 import { resolveEnabledPlugins } from "./enabled";
 import type { PluginManifest } from "./manifest";
 import { FIRST_PARTY_MANIFESTS } from "./manifests";
-import { activateRuntimePlugins, deactivateRuntimePlugin, isRuntimePluginActive } from "./runtimeContext";
+import { isRuntimePluginActive, runtimeActivator } from "./runtimeContext";
 import {
   SDK_VERSION,
   checkPlugins,
@@ -228,7 +228,7 @@ describe("enabling", () => {
 });
 
 describe("loading through the script loader", () => {
-  afterEach(() => deactivateRuntimePlugin("acme.spinner"));
+  afterEach(() => runtimeActivator.deactivate("acme.spinner"));
 
   it("compiles a plugin's runtime half like scripts and activates it: its Component is claimed, and unregistered on deactivation", async () => {
     const { json, code } = readFixture();
@@ -239,11 +239,11 @@ describe("loading through the script loader", () => {
     expect(result.problems).toEqual([]);
     const spinner = plan.runtime[0]!;
     const module = await loadedScriptModule(spinner.runtime!);
-    activateRuntimePlugins([toRuntimePlugin(spinner, module)], { provided: plan.enabled });
+    runtimeActivator.activate(toRuntimePlugin(spinner, module));
     expect(isRuntimePluginActive("acme.spinner")).toBe(true);
     expect(getComponentClass("acme.Spinner")).toBe(module.Spinner);
     expect(((await loadedScriptModule("scripts/useSpinner.ts")) as { defaultSpeed: number }).defaultSpeed).toBe(90);
-    deactivateRuntimePlugin("acme.spinner");
+    runtimeActivator.deactivate("acme.spinner");
     expect(getComponentClass("acme.Spinner")).toBeUndefined();
   });
 
@@ -300,7 +300,7 @@ describe("game builds", () => {
 });
 
 describe("the dedicated server", () => {
-  afterEach(() => deactivateRuntimePlugin("acme.spinner"));
+  afterEach(() => runtimeActivator.deactivate("acme.spinner"));
 
   it("loads enabled runtime halves", async () => {
     const project = await readProject(FIXTURE);

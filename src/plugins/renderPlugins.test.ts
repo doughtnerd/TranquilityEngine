@@ -14,7 +14,6 @@ import { environmentRuntimePlugin } from "./environment/runtime";
 import { MESHES_SPEC, meshesRuntimePlugin } from "./meshes/runtime";
 import { postProcessingRuntimePlugin } from "./post-processing/runtime";
 import { isRuntimePluginActive, RUNTIME_PLUGINS, type RuntimePlugin } from "./runtime";
-import { deactivateRuntimePlugin } from "./runtimeContext";
 import { applyTestPlugins } from "./testPlugins";
 import { SPRITES_SPEC, spritesRuntimePlugin } from "./sprites/runtime";
 import { TILEMAPS_SPEC } from "./tilemaps/runtime";
@@ -22,6 +21,7 @@ import { UI_SPEC, uiRuntimePlugin } from "./ui/runtime";
 import { WATER_SPEC, waterRuntimePlugin } from "./water/runtime";
 import { SKY_SPEC } from "./sky/runtime";
 import { PARTICLES_SPEC } from "./particles/runtime";
+import { runtimeActivator } from "./runtimeContext";
 
 /** The renderer's own features, in its registration order (`BabylonRenderer`'s constructor). */
 const BUILTIN = [LIGHTS_SPEC, FOG_SPEC, ENVIRONMENT_SPEC, PROBES_SPEC];
@@ -103,7 +103,7 @@ describe.each(CASES)("the $plugin.manifest.name runtime half (ADR 0140)", ({ plu
   });
 
   it("removes its Components and feature when deactivated, and restores them", () => {
-    deactivateRuntimePlugin(name); // the runtime activator directly
+    runtimeActivator.deactivate(name); // the runtime activator directly
     expect(isRuntimePluginActive(name)).toBe(false);
     for (const id of Object.keys(components)) expect(getComponentClass(id)).toBeUndefined();
     if (feature) expect(registered()).toHaveLength(0);
