@@ -32,7 +32,7 @@ import { loudnessTarget } from "../mix/loudnessHub";
 import type { EpochContext } from "./events";
 import type { CaptureHeaderInit, CaptureMetaInit, NameTable } from "./format";
 import type { RingSpan } from "./ring";
-import type { SaveEnv, SaveTake } from "./save";
+import type { SaveTake } from "./save";
 
 /** `Audio.capture` (§1.2). */
 export interface AudioCapture {
@@ -60,48 +60,18 @@ export type AudioCaptureState = "idle" | "loading" | "recording" | "stopped";
 const NOTHING_RECORDED = "nothing recorded: call Audio.capture.start() first";
 
 /** What the recorder chunk exports to this file (a type only: the module is reached by `import()` alone). */
-export type RecorderModule = typeof import("./recorder");
+type RecorderModule = typeof import("./recorder");
 type Recorder = ReturnType<RecorderModule["createRecorder"]>;
 type EventSink = ReturnType<(typeof import("./events"))["createEventSink"]>;
-
-/** Loads the recorder chunk: the only `import()` of `recorder.ts`. */
-let loadRecorder: () => Promise<RecorderModule> = () => import("./recorder");
-
-/** @internal Tests: replace the chunk loader (a spy proves a game that never starts loads nothing). Returns the previous one. */
-export function _setRecorderLoader(load: () => Promise<RecorderModule>): () => Promise<RecorderModule> {
-  const previous = loadRecorder;
-  loadRecorder = load;
-  return previous;
-}
-
-/** The platform, storage, clock and compressor `save` uses; null: the real ones (`save.ts` `defaultSaveEnv`). */
-let saveEnv: SaveEnv | null = null;
-
-/** @internal Tests: replace the save environment (fakes for the web and Tauri paths). Returns the previous one. */
-export function _setSaveEnv(env: SaveEnv | null): SaveEnv | null {
-  const previous = saveEnv;
-  saveEnv = env;
-  return previous;
-}
 
 /** How often the Babylon fallback's frame pump reads the audio clock, ms (the clock's frames are what is recorded, not this period). */
 const FRAME_PUMP_MS = 100;
 
-/** Starts calling `tick` until the returned stop runs; the default polls on a timer. */
-type FramePump = (tick: () => void) => () => void;
-
-const timerPump: FramePump = (tick) => {
+/** Calls `tick` every `FRAME_PUMP_MS` until the returned stop runs. */
+function framePump(tick: () => void): () => void {
   const id = setInterval(tick, FRAME_PUMP_MS);
   (id as { unref?: () => void }).unref?.();
   return () => clearInterval(id);
-};
-let framePump: FramePump = timerPump;
-
-/** @internal Tests: replace the Babylon frame pump (a test steps the audio clock and ticks it by hand). Returns the previous one. */
-export function _setFramePump(pump: FramePump | null): FramePump {
-  const previous = framePump;
-  framePump = pump ?? timerPump;
-  return previous;
 }
 
 /** The project a capture's META names (§5.2, owner decision 6). The engine has no project record at run time, so the page title stands in until a shell says better. */
@@ -245,8 +215,7 @@ class Capture implements AudioCapture {
     } catch (e) {
       return Promise.reject(new Error(messageOf(e)));
     }
-    const env = saveEnv;
-    return import("./save").then((s) => s.saveCapture(take, name, env ?? undefined));
+    return import("./save").then((s) => s.saveCapture(take, name));
   }
 
   // --- the seam and the debug view ------------------------------------------------------------------------------------
@@ -355,7 +324,8 @@ class Capture implements AudioCapture {
 
   private async createRing(): Promise<void> {
     const backend = this.target();
-    const [mod, events, save] = await Promise.all([loadRecorder(), import("./events"), import("./save")]);
+    // The only `import()` of `recorder.ts`.
+    const [mod, events, save] = await Promise.all([import("./recorder"), import("./events"), import("./save")]);
     const rec = mod.createRecorder({});
     const sink = events.createEventSink(rec, { epochContext: () => this.epochContext(backend) });
     this.noName = events.NO_NAME;

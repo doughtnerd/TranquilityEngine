@@ -1,21 +1,29 @@
 // ADR 0171 amended by 0172 (M5, task G7b; architecture §2.1, §4.1): `capture.ts` wires the backend's keyframe source to the
 // recorder and the sink's name interning, drives the keyframe cadence and the event frames of a backend with no STATUS (the
 // Babylon fallback) from its audio clock, and lets go of the ring when Play stops. Backends are fakes; time is the frames the
-// fake's audio clock has reached, advanced by hand (no timer, no wall clock).
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// fake's audio clock has reached, advanced by hand; the fallback's frame pump runs on faked intervals (no wall clock).
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Audio } from "../Audio";
 import { setAudioBackend } from "../backend";
 import { AUDIO_SERVICE, AudioWorldService } from "../core/service";
 import { mixer } from "../../../../engine/audio/mixer";
 import type { AudioHost } from "../core/context";
 import { makeFakeBackend, type FakeBackend } from "../testing";
-import { _setFramePump, _setRecorderLoader, _setSaveEnv, captureDebug, captureLiveHost, capturePlayStopped, releaseCapture, type RecorderModule } from "./capture";
+import { captureDebug, captureLiveHost, capturePlayStopped, releaseCapture } from "./capture";
 import { EventKind, RecordType, decodeKeyframe, type KeyframePayload } from "./format";
 import { decodeRecordAt, openCapture, openLiveCapture, type CaptureContents } from "./reader";
 import { defaultSaveEnv, type SaveEnv } from "./save";
-import { SAMPLE_HEADER, SAMPLE_META, keyframeCodecForTests, statusBytes } from "./testSupport";
+import { SAMPLE_HEADER, SAMPLE_META, statusBytes, type CaptureChunkControl } from "./testSupport";
 import { assembleCapture } from "./format";
-import type { Recorder } from "./recorder";
+
+/** The recorder and save chunks are the real ones, wrapped: a 4 MiB ring, each save through the rig's fakes. */
+const chunk = vi.hoisted((): CaptureChunkControl => ({ options: {}, recorders: [], saveEnv: null }));
+vi.mock("./recorder", async (real) => (await import("./testSupport")).captureRecorderModule(await real(), chunk));
+vi.mock("./save", async (real) => (await import("./testSupport")).captureSaveModule(await real(), chunk));
+
+/** The Babylon fallback's frame pump polls every 100 ms (`FRAME_PUMP_MS`): only intervals are faked, so imports still settle. */
+const PUMP_MS = 100;
+const fakePumpTimers = (): void => void vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
 
 
 /** The ring's owners as `Audio.debug().recorder` reports them: whether a take runs, and the panel holds besides it. */
@@ -60,11 +68,9 @@ function rig(opts: { babylon?: boolean; keyframe?: boolean } = {}) {
     };
   }
   setAudioBackend(fb);
-  const recorders: Recorder[] = [];
-  _setRecorderLoader(async (): Promise<RecorderModule> => {
-    const m = await import("./recorder");
-    return { ...m, createRecorder: (o) => { const r = m.createRecorder({ ringBytes: 4 * MiB, ...o }); recorders.push(r); return r; } };
-  });
+  chunk.options = { ringBytes: 4 * MiB };
+  chunk.recorders.length = 0;
+  const recorders = chunk.recorders;
   const downloads: { bytes: Uint8Array; fileName: string }[] = [];
   const env: SaveEnv = {
     tauri: false,
@@ -74,7 +80,7 @@ function rig(opts: { babylon?: boolean; keyframe?: boolean } = {}) {
     compress: defaultSaveEnv().compress,
     now: () => new Date(2026, 10, 13, 10, 15, 0),
   };
-  _setSaveEnv(env);
+  chunk.saveEnv = env;
   const feed = (n: number): void => {
     for (let k = 0; k < n; k++) {
       fb.frame += BLOCK;
@@ -102,14 +108,10 @@ function keyframes(c: CaptureContents): { frame: number; payload: KeyframePayloa
   });
 }
 
-beforeEach(() => {
-});
-
 afterEach(() => {
   releaseCapture();
-  _setFramePump(null);
-  _setRecorderLoader(() => import("./recorder"));
-  _setSaveEnv(null);
+  vi.useRealTimers();
+  chunk.saveEnv = null;
   setAudioBackend(null);
   vi.restoreAllMocks();
 });
@@ -148,18 +150,13 @@ describe("the backend's keyframe source reaches the recorder", () => {
 
 describe("the Babylon fallback has no STATUS: its audio clock drives the frames", () => {
   it("event frames and the keyframe cadence advance with the clock the pump reports; no STATUS record is written", async () => {
-    let tick: (() => void) | null = null;
-    let stopped = 0;
-    _setFramePump((t) => {
-      tick = t;
-      return () => void stopped++;
-    });
+    fakePumpTimers();
     const r = rig({ babylon: true });
     await Audio.capture.start();
-    expect(tick).not.toBeNull();
+    expect(vi.getTimerCount(), "the pump runs").toBe(1);
     const clock = (seconds: number): void => {
       r.fb.time = seconds;
-      tick!();
+      vi.advanceTimersByTime(PUMP_MS);
     };
     const sink = r.fb.profileSink!;
     clock(0.5);
@@ -170,7 +167,7 @@ describe("the Babylon fallback has no STATUS: its audio clock drives the frames"
     sink.voiceStart(3, "c.wav", 2, 0, 0, 1);
     clock(2.75);
     Audio.capture.stop();
-    expect(stopped).toBe(1); // Held: the pump ends with the recording
+    expect(vi.getTimerCount()).toBe(0); // Held: the pump ends with the recording
     await Audio.capture.save("b");
     const c = await openCapture(r.downloads[0]!.bytes);
     expect(c.mainSideOnly).toBe(true);
@@ -189,36 +186,29 @@ describe("the Babylon fallback has no STATUS: its audio clock drives the frames"
     expect(starts).toEqual([Math.floor(0.5 * RATE), Math.floor(1.25 * RATE), Math.floor(2.5 * RATE)]);
   });
 
-  it("the pump stops when the ring is Held and starts again for a new take; a Held ring ignores a late tick", async () => {
-    const pumps: { tick: () => void; stopped: boolean }[] = [];
-    _setFramePump((t) => {
-      const p = { tick: t, stopped: false };
-      pumps.push(p);
-      return () => void (p.stopped = true);
-    });
+  it("the pump stops when the ring is Held and starts again for a new take", async () => {
+    fakePumpTimers();
     const r = rig({ babylon: true });
     await Audio.capture.start();
     r.fb.time = 3;
-    pumps[0]!.tick();
+    vi.advanceTimersByTime(PUMP_MS);
+    expect(r.recorders[0]!.newestStatusFrame).toBe(3 * RATE);
     Audio.capture.stop();
-    expect(pumps[0]!.stopped).toBe(true);
-    const frames = r.recorders[0]!.newestStatusFrame;
+    expect(vi.getTimerCount()).toBe(0);
     r.fb.time = 9;
-    pumps[0]!.tick(); // a tick that raced the stop does nothing
-    expect(r.recorders[0]!.newestStatusFrame).toBe(frames);
+    vi.advanceTimersByTime(10 * PUMP_MS); // Held: nothing reads the clock
+    expect(r.recorders[0]!.newestStatusFrame).toBe(3 * RATE);
     await Audio.capture.start();
-    expect(pumps).toHaveLength(2);
-    expect(pumps[1]!.stopped).toBe(false);
-    pumps[1]!.tick();
+    expect(vi.getTimerCount()).toBe(1);
+    vi.advanceTimersByTime(PUMP_MS);
     expect(r.recorders[0]!.newestStatusFrame).toBe(9 * RATE);
   });
 
   it("the core backend runs no pump", async () => {
-    const pump = vi.fn(() => () => {});
-    _setFramePump(pump);
+    fakePumpTimers();
     rig();
     await Audio.capture.start();
-    expect(pump).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
   });
 });
 
