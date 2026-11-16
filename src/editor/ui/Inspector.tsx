@@ -56,7 +56,7 @@ import { openScript, scriptFor } from "../code/codeState";
 import { applyOverrides, applyOverridesTo, createPrefabFromNodes, createPrefab, findInner, isInnerPropertyOverridden, nodePropertyCommand, revertInnerProperty } from "../prefabs";
 import { currentProject, docVersion, openScene, scriptsVersion, selectedKeys, selectedUIElement, selection, status, type OpenScene } from "../state";
 import { componentHeaderActions, type ComponentHeaderActionContribution } from "../sdk/contributions";
-import { isKeyboardEvent, ownerDocumentOf } from "../windows/dom";
+import { usePopover } from "./popover";
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
@@ -1077,19 +1077,8 @@ function ComponentMenu(props: { scene: OpenScene; title: string; worlds: { targe
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const ref = useRef<HTMLSpanElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: Event) => {
-      if (isKeyboardEvent(e) ? e.key === "Escape" : !ref.current?.contains(e.target as Node)) setOpen(false);
-    };
-    const doc = ownerDocumentOf(ref.current); // the window it's in (a detached panel window, ADR 0174)
-    doc.addEventListener("pointerdown", close, true);
-    doc.addEventListener("keydown", close, true);
-    return () => {
-      doc.removeEventListener("pointerdown", close, true);
-      doc.removeEventListener("keydown", close, true);
-    };
-  }, [open]);
+  // The button and its menu, closing in the window they're in (a detached panel window, ADR 0174); CSS places the menu.
+  usePopover(ref, open, { onDismiss: () => setOpen(false) });
   const active = worlds[worlds.length - 1].setting;
   const current = effectiveWorlds(active);
   const all = worlds.map((w) => effectiveWorlds(w.setting));

@@ -1,13 +1,13 @@
 // Open scene tabs (ADR 0026) along the top of the Scene panel: click to switch, × or middle-click
 // to close, a context menu with Close Others/All/Right/Left/Saved, Ctrl/Cmd+W (asking first if it has unsaved changes). The active tab is `openScene`.
 import { signal } from "@preact/signals";
-import { useEffect, useRef } from "preact/hooks";
+import { useRef } from "preact/hooks";
 import { tabsToClose, type CloseMode } from "../sceneTabs";
 import { activateScene, closeScene, closeScenes } from "../session";
 import { docVersion, openScene, openScenes, type OpenScene } from "../state";
 import "./assets.css";
 import "./hierarchy.css";
-import { isKeyboardEvent, ownerWindowOf, viewportOf } from "../windows/dom";
+import { usePopover } from "./popover";
 
 /** The tab context menu: where, and which tab it was opened on. */
 const tabMenu = signal<{ x: number; y: number; scene: OpenScene } | null>(null);
@@ -24,31 +24,12 @@ const MENU: readonly { mode: CloseMode; label: string }[] = [
 function TabMenu() {
   const m = tabMenu.value;
   const el = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!m) return;
-    const close = (e: Event) => {
-      if (isKeyboardEvent(e) && e.key !== "Escape") return;
-      if (e.type === "pointerdown" && el.current?.contains(e.target as Node)) return;
-      tabMenu.value = null;
-    };
-    const win = ownerWindowOf(el.current); // the window it's in (a detached panel window, ADR 0174)
-    win.addEventListener("pointerdown", close, true);
-    win.addEventListener("keydown", close, true);
-    win.addEventListener("blur", close);
-    el.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
-    return () => {
-      win.removeEventListener("pointerdown", close, true);
-      win.removeEventListener("keydown", close, true);
-      win.removeEventListener("blur", close);
-    };
-  }, [m]);
+  // In its own window (a detached panel window, ADR 0174), measured to stay on screen.
+  usePopover(el, !!m, { anchor: m, key: m, focusFirst: true, onDismiss: () => (tabMenu.value = null) });
   if (!m) return null;
   const tabs = openScenes.value;
-  const view = viewportOf(el.current);
-  const x = Math.min(m.x, view.width - 220);
-  const y = Math.min(m.y, view.height - MENU.length * 26 - 10);
   return (
-    <div ref={el} class="context-menu" role="menu" style={{ left: `${Math.max(0, x)}px`, top: `${Math.max(0, y)}px` }}>
+    <div ref={el} class="context-menu" role="menu">
       {MENU.map(({ mode, label }) => {
         const targets = tabsToClose(tabs, m.scene, mode, (t) => t.stack.dirty);
         return (
@@ -65,7 +46,6 @@ function TabMenu() {
           </button>
         );
       })}
-      <TabMenu />
     </div>
   );
 }

@@ -1,6 +1,6 @@
 # 0145. Undo and Redo act on one active history, resolved by focus
 
-- **Status:** Proposed — built in the same change
+- **Status:** Proposed — built in the same change; amended by 0180 (one editor focus tracker for every editor window)
 - **Date:** 2026-11-09
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

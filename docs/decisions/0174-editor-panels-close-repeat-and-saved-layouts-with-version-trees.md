@@ -1,6 +1,6 @@
 # 0174. Editor panels share one Panel component, can be closed, added and repeated with per-instance view state; layouts are `.layout.json` files with a version tree, per user or per project
 
-- **Status:** Accepted
+- **Status:** Accepted; amended by 0180 (menus and popovers use one popover module that knows its window)
 - **Date:** 2026-11-13
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

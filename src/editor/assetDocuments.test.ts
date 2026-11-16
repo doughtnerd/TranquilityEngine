@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { deleteAssets } from "./assetDelete";
-import { _reset, focusedAssetDocument, KEEPS_HISTORY_FOCUS, openAssetDocument, type AssetDocument } from "./assetDocuments";
+import { _reset, focusedAssetDocument, openAssetDocument, type AssetDocument } from "./assetDocuments";
 import { ASSET_HISTORY_DIR, _useAssetHistoryPlatform, assetHistorySettled } from "./assetHistory";
 import { moveAssets } from "./assetOps";
 import { MemoryStorage } from "../engine/platform/Storage";
@@ -9,6 +9,8 @@ import { joinPath, openFolderProject, readOnlyProject, type EditorProject } from
 import { assetFormats } from "./sdk/contributions";
 import { currentProject, docVersion, status } from "./state";
 import { MemoryFileSystem, ROOT } from "./testing";
+import { KEEPS_HISTORY_FOCUS } from "./windows/editorFocus";
+import { registerEditorWindow } from "./windows/editorWindows";
 
 interface Thing {
   n: number;
@@ -501,10 +503,12 @@ describe("asset document history on disk (ADR 0027, 0133)", () => {
 });
 
 describe("the focused asset document (for the History panel)", () => {
-  it("follows focus and clicks into an asset editor, and keeps it for clicks in the History panel", () => {
+  it("follows focus and clicks into an asset editor in any editor window, keeps it for clicks in the History panel, and lets go of a dropped document", () => {
+    // An editor window (a detached panel window, ADR 0174, or the main one), registered as the editor's are.
     const listeners = new Map<string, (e: Event) => void>();
-    const fake = { addEventListener: (type: string, l: (e: Event) => void) => listeners.set(type, l), removeEventListener: (type: string) => listeners.delete(type) };
-    vi.stubGlobal("document", fake);
+    const win = { document: { addEventListener: (type: string, l: (e: Event) => void) => listeners.set(type, l), removeEventListener: (type: string) => listeners.delete(type) } } as unknown as Window;
+    (win as { window: unknown }).window = win;
+    const close = registerEditorWindow(win);
     try {
       const doc = open();
       /** An element inside `selector`'s match (with `path` as its data-asset-document), or inside nothing. */
@@ -512,6 +516,7 @@ describe("the focused asset document (for the History panel)", () => {
         closest: (sel: string) => (sel === inside ? { getAttribute: () => PATH } : null),
       });
       const fire = (type: string, inside: string | null) => listeners.get(type)!({ target: target(inside) } as unknown as Event);
+      fire("pointerdown", null); // the viewport
       expect(focusedAssetDocument.value).toBeNull();
       fire("focusin", "[data-asset-document]");
       expect(focusedAssetDocument.value).toBe(doc);
@@ -520,11 +525,11 @@ describe("the focused asset document (for the History panel)", () => {
       fire("pointerdown", null); // the viewport
       expect(focusedAssetDocument.value).toBeNull();
       fire("focusin", "[data-asset-document]");
-      _reset();
+      expect(focusedAssetDocument.value).toBe(doc);
+      _reset(); // the documents are dropped
       expect(focusedAssetDocument.value).toBeNull();
-      expect(listeners.size).toBe(0);
     } finally {
-      vi.unstubAllGlobals();
+      close();
     }
   });
 });

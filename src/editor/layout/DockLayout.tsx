@@ -33,6 +33,7 @@ import { layout, requestAddPanel } from "./store";
 import { PanelHeader } from "./PanelHeader";
 import { detachToWindow, windowTitle } from "./detached";
 import { PanelInstanceContext, type PanelInstance } from "../ui/panel/Panel";
+import { usePopover } from "../ui/popover";
 
 /** Pointer travel (CSS px) before pressing a panel header becomes a drag. */
 const DRAG_THRESHOLD = 5;
@@ -341,29 +342,11 @@ function OverflowMenu(props: { panels: PanelId[]; at: { x: number; y: number }; 
   const { panels, at, root, onClose } = props;
   const scope = useScope();
   const ref = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
-  useLayoutEffect(() => {
-    // Measured, then placed to stay on screen: right-aligned under a header's button, beside a strip's.
-    const el = ref.current!;
-    const w = el.offsetWidth, h = el.offsetHeight;
-    const left = props.vertical ? at.x : at.x - w;
-    const win = el.ownerDocument.defaultView ?? window;
-    setPos({ left: Math.max(4, Math.min(left, win.innerWidth - w - 4)), top: Math.max(4, Math.min(at.y, win.innerHeight - h - 4)) });
-  }, [at.x, at.y]);
-  useEffect(() => {
-    // Outside the menu closes it; its own "» N" button toggles it itself.
-    const away = (e: PointerEvent) => !ref.current?.contains(e.target as Node) && !props.button.current?.contains(e.target as Node) && onClose();
-    const key = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    const win = ref.current?.ownerDocument.defaultView ?? window;
-    win.addEventListener("pointerdown", away, true);
-    win.addEventListener("keydown", key, true);
-    return () => {
-      win.removeEventListener("pointerdown", away, true);
-      win.removeEventListener("keydown", key, true);
-    };
-  }, []);
+  // Measured and kept on screen in its own window: right-aligned under a header's button, beside a
+  // strip's. Its own "» N" button toggles it itself.
+  usePopover(ref, true, { anchor: at, align: props.vertical ? "start" : "end", inside: [props.button], onDismiss: onClose });
   return (
-    <div ref={ref} class="context-menu dock-more-menu" role="menu" aria-label="Hidden tabs" style={pos ? { left: `${pos.left}px`, top: `${pos.top}px` } : { left: "-9999px", top: "0px" }}>
+    <div ref={ref} class="context-menu dock-more-menu" role="menu" aria-label="Hidden tabs">
       {panels.map((p) => (
         <button key={p} role="menuitem" title={`Show ${titleOf(p)} (drag to move it)`} onPointerDown={(e) => startDrag(scope, e, p, root, onClose)}>
           {titleOf(p)}
@@ -487,26 +470,8 @@ function HeaderMenu() {
   const m = headerMenu.value!;
   const scope = useScope();
   const ref = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
   const close = () => (headerMenu.value = null);
-  useLayoutEffect(() => {
-    const el = ref.current!;
-    const win = el.ownerDocument.defaultView ?? window;
-    setPos({ left: Math.max(4, Math.min(m.x, win.innerWidth - el.offsetWidth - 4)), top: Math.max(4, Math.min(m.y, win.innerHeight - el.offsetHeight - 4)) });
-  }, [m.x, m.y]);
-  useEffect(() => {
-    const win = ref.current?.ownerDocument.defaultView ?? window;
-    const away = (e: PointerEvent) => !ref.current?.contains(e.target as Node) && close();
-    const key = (e: KeyboardEvent) => e.key === "Escape" && close();
-    win.addEventListener("pointerdown", away, true);
-    win.addEventListener("keydown", key, true);
-    win.addEventListener("blur", close);
-    return () => {
-      win.removeEventListener("pointerdown", away, true);
-      win.removeEventListener("keydown", key, true);
-      win.removeEventListener("blur", close);
-    };
-  }, []);
+  usePopover(ref, true, { anchor: m, onDismiss: close });
   // The tab under the pointer, else the group's showing one.
   const view = scope.get();
   const group = view.docks.flatMap((d) => d.groups).find((g) => g.id === m.group);
@@ -518,7 +483,7 @@ function HeaderMenu() {
   const here = target !== undefined ? (windowOf(full, target)?.id ?? MAIN_WINDOW) : MAIN_WINDOW;
   const destinations = detachable ? [...(here !== MAIN_WINDOW ? [{ id: MAIN_WINDOW, title: "Main Window" }] : []), ...(full.windows ?? []).filter((w) => w.id !== here).map((w) => ({ id: w.id, title: windowTitle(full, w).replace(/ · Myco Engine$/, "") }))] : [];
   return (
-    <div ref={ref} class="context-menu dock-header-menu" role="menu" aria-label="Panel menu" style={pos ? { left: `${pos.left}px`, top: `${pos.top}px` } : { left: "-9999px", top: "0px" }}>
+    <div ref={ref} class="context-menu dock-header-menu" role="menu" aria-label="Panel menu">
       <button
         role="menuitem"
         title="Choose panels to add to this group"

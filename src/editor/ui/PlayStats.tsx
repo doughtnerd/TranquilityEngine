@@ -2,12 +2,13 @@
 // in the game view's corner. Mounted into the game view's play bar and overlay layer for each play
 // session (`mountPlayTools`, from session.ts).
 import { render } from "preact";
-import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { setEngineTiming } from "../../engine/editor";
 import { PLAY_GIZMO_KINDS, cleanPlayGizmos, playGizmos, updatePlayGizmos } from "../playGizmos";
 import type { PlaySession } from "../playMode";
 import { StatsCollector, megabytes, takeSnapshot, type StatsSnapshot, type WorldStats } from "../playStats";
 import { persisted } from "../preferences";
+import { usePopover } from "./popover";
 import "./playstats.css";
 
 /** Whether the Stats overlay shows while playing, remembered per user. */
@@ -56,32 +57,8 @@ function GizmoMenu() {
   const [open, setOpen] = useState(false);
   const button = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
-  const [place, setPlace] = useState<Record<string, string>>({ visibility: "hidden" });
-  useLayoutEffect(() => {
-    if (!open || !button.current) return;
-    const r = button.current.getBoundingClientRect();
-    const width = panel.current?.offsetWidth ?? 200, height = panel.current?.offsetHeight ?? 100;
-    setPlace({ top: `${Math.max(8, r.top - height - 4)}px`, left: `${Math.max(8, Math.min(r.right - width, innerWidth - width - 8))}px` });
-  }, [open]);
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: PointerEvent) => {
-      const t = e.target as Node;
-      if (!panel.current?.contains(t) && !button.current?.contains(t)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      e.stopPropagation();
-      setOpen(false);
-      button.current?.focus();
-    };
-    window.addEventListener("pointerdown", onDown, true);
-    window.addEventListener("keydown", onKey, true);
-    return () => {
-      window.removeEventListener("pointerdown", onDown, true);
-      window.removeEventListener("keydown", onKey, true);
-    };
-  }, [open]);
+  // Above the bar, right-aligned with its button, in the window the game view is in (ADR 0174).
+  usePopover(panel, open, { anchor: button.current, side: "above", align: "end", margin: 8, inside: [button], onDismiss: () => setOpen(false) });
   const s = cleanPlayGizmos(playGizmos.value);
   return (
     <>
@@ -89,7 +66,7 @@ function GizmoMenu() {
         ▾
       </button>
       {open && (
-        <div ref={panel} class="scene-popover gizmos-menu" role="dialog" aria-label="Gizmo kinds" style={place}>
+        <div ref={panel} class="scene-popover gizmos-menu" role="dialog" aria-label="Gizmo kinds">
           {PLAY_GIZMO_KINDS.map((k) => (
             <label key={k.key} class={`gizmos-kind${s.enabled ? "" : " off"}`} title={k.title}>
               <input type="checkbox" checked={s[k.key]} onChange={(e) => updatePlayGizmos({ [k.key]: (e.currentTarget as HTMLInputElement).checked })} />

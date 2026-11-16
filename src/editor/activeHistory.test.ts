@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { _resetActiveHistory, activeHistory, providePanelHistory, redo, stepBack, undo, type UndoHistory } from "./activeHistory";
-import { _reset, KEEPS_HISTORY_FOCUS, openAssetDocument, type AssetDocument } from "./assetDocuments";
+import { activeHistory, providePanelHistory, redo, stepBack, undo, type UndoHistory } from "./activeHistory";
+import { _reset, openAssetDocument, type AssetDocument } from "./assetDocuments";
 import { _useAssetHistoryPlatform, assetHistorySettled } from "./assetHistory";
 import { MemoryStorage } from "../engine/platform/Storage";
 import { joinPath, openFolderProject, type EditorProject } from "./projects";
@@ -8,16 +8,37 @@ import { installShortcuts } from "./shortcuts";
 import { assetFormats } from "./sdk/contributions";
 import { currentProject, openScene, type OpenScene } from "./state";
 import { MemoryFileSystem, ROOT } from "./testing";
+import { KEEPS_HISTORY_FOCUS } from "./windows/editorFocus";
+import { registerEditorWindow } from "./windows/editorWindows";
 
 interface Thing {
   n: number;
 }
 const PATH = "things/a.thing.json";
 
-// --- a fake page: capture listeners and elements with just what the focus tracking reads ----------
+// --- fake editor windows: capture listeners and elements with just what the focus tracking reads --
 
 type Listener = (e: Event) => void;
-let listeners: Map<string, Listener[]>;
+
+/** An editor window (registered as the editor's windows are, ADR 0174) showing the asset editors in `shows`. */
+function editorWindow() {
+  const listeners = new Map<string, Listener[]>();
+  const shows = new Set<string>();
+  const document = {
+    addEventListener: (type: string, l: Listener) => listeners.set(type, [...(listeners.get(type) ?? []), l]),
+    removeEventListener: (type: string, l: Listener) => listeners.set(type, (listeners.get(type) ?? []).filter((x) => x !== l)),
+    querySelector: (sel: string) => ([...shows].some((path) => sel === `[data-asset-document=${JSON.stringify(path)}]`) ? {} : null),
+  };
+  const win = { document } as unknown as Window;
+  (win as { window: unknown }).window = win;
+  const close = registerEditorWindow(win);
+  /** Focus (or click) `target`, as the capture listeners on the window's document see it. */
+  const focus = (target: FakeElement, type: "focusin" | "pointerdown" = "pointerdown") => {
+    for (const l of listeners.get(type) ?? []) l({ target } as unknown as Event);
+  };
+  return { shows, focus, close };
+}
+let page: ReturnType<typeof editorWindow>;
 
 interface FakeElement {
   parentElement: FakeElement | null;
@@ -35,10 +56,8 @@ function element(opts: { parent?: FakeElement; asset?: string; keeps?: boolean }
     },
   };
 }
-/** Focus (or click) `target`, as the capture listeners on the document see it. */
-const focus = (target: FakeElement, type: "focusin" | "pointerdown" = "pointerdown") => {
-  for (const l of listeners.get(type) ?? []) l({ target } as unknown as Event);
-};
+/** Focus (or click) `target` in the editor's window. */
+const focus = (target: FakeElement, type: "focusin" | "pointerdown" = "pointerdown") => page.focus(target, type);
 
 /** A scene CommandStack stand-in, counting calls. */
 function fakeStack(canUndo: boolean, canRedo = false) {
@@ -71,11 +90,8 @@ let project: EditorProject;
 let unregister: () => void;
 
 beforeEach(async () => {
-  listeners = new Map();
-  vi.stubGlobal("document", {
-    addEventListener: (type: string, l: Listener) => listeners.set(type, [...(listeners.get(type) ?? []), l]),
-    removeEventListener: (type: string, l: Listener) => listeners.set(type, (listeners.get(type) ?? []).filter((x) => x !== l)),
-  });
+  page = editorWindow();
+  focus(element()); // nothing with a history of its own
   unregister = assetFormats.register({
     id: "thing",
     parse: (raw) => ({ value: { n: (raw as { n?: number } | undefined)?.n ?? 0 }, problems: [] }),
@@ -92,12 +108,11 @@ beforeEach(async () => {
 afterEach(async () => {
   await assetHistorySettled();
   _reset();
-  _resetActiveHistory();
   _useAssetHistoryPlatform(null);
   unregister();
   openScene.value = null;
   currentProject.value = null;
-  vi.unstubAllGlobals();
+  page.close();
 });
 
 const openDoc = () => openAssetDocument<Thing>(project, PATH, "thing") as AssetDocument<Thing>;
@@ -119,6 +134,7 @@ describe("the active history (ADR 0145)", () => {
     openFakeScene(stack);
     const doc = openDoc();
     doc.edit({ n: 2 }, { label: "Set n" });
+    page.shows.add(PATH);
     const editor = element({ asset: PATH });
     focus(element({ parent: editor }), "focusin");
     expect(activeHistory.value).toMatchObject({ kind: "asset", path: PATH });
@@ -141,6 +157,7 @@ describe("the active history (ADR 0145)", () => {
     const { stack } = fakeStack(true);
     openFakeScene(stack);
     openDoc().edit({ n: 3 });
+    page.shows.add(PATH);
     const root = element({ asset: PATH });
     const local = panelHistory();
     const stop = providePanelHistory(root as unknown as Element, local);
@@ -154,6 +171,38 @@ describe("the active history (ADR 0145)", () => {
     expect(activeHistory.value?.kind).toBe("panel");
     stop();
     expect(activeHistory.value?.kind).toBe("asset"); // the document marked on the same root
+  });
+
+  it("is a panel's own history when focus was already inside its root as it registered", () => {
+    const { stack } = fakeStack(true);
+    openFakeScene(stack);
+    const root = element();
+    focus(element({ parent: root }), "focusin"); // a dialog focusing itself as it mounts
+    expect(activeHistory.value?.kind).toBe("scene");
+    const local = panelHistory();
+    const stop = providePanelHistory(root as unknown as Element, local);
+    expect(activeHistory.value).toMatchObject({ kind: "panel", history: local });
+    stop();
+    expect(activeHistory.value?.kind).toBe("scene");
+  });
+
+  it("is an asset document's history while its editor is focused in a detached window (ADR 0174)", () => {
+    const { stack, calls } = fakeStack(true);
+    openFakeScene(stack);
+    const doc = openDoc();
+    doc.edit({ n: 2 }, { label: "Set n" });
+    // A detached panel window shows the asset's editor; the main window doesn't.
+    const child = editorWindow();
+    child.shows.add(PATH);
+    try {
+      child.focus(element({ parent: element({ asset: PATH }) }), "focusin");
+      expect(activeHistory.value).toMatchObject({ kind: "asset", path: PATH });
+      expect(undo()).toBe(true);
+      expect(doc.value.value).toEqual({ n: 1 });
+      expect(calls).toEqual([]); // not the scene's
+    } finally {
+      child.close();
+    }
   });
 
   it("does nothing when there's nothing to undo or redo, or nothing to act on", () => {
@@ -178,12 +227,13 @@ describe("the active history (ADR 0145)", () => {
     const keyListeners = new Map<string, Listener>();
     const win = { addEventListener: (t: string, l: Listener) => keyListeners.set(t, l), removeEventListener: (t: string) => keyListeners.delete(t) };
     const stopShortcuts = installShortcuts(win as unknown as Window);
+    const cleanups: (() => void)[] = [];
     try {
       const { stack, calls } = fakeStack(true, true);
       openFakeScene(stack);
       const root = element();
       const local = panelHistory();
-      providePanelHistory(root as unknown as Element, local);
+      cleanups.push(providePanelHistory(root as unknown as Element, local));
       const inPanel = Object.assign(element({ parent: root }), { isContentEditable: false });
       focus(inPanel);
       const press = (key: string, target: object, shiftKey = false) => {
@@ -202,6 +252,7 @@ describe("the active history (ADR 0145)", () => {
       expect(calls).toEqual([]);
     } finally {
       stopShortcuts();
+      cleanups.splice(0).forEach((c) => c());
     }
   });
 });

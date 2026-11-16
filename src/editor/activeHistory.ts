@@ -1,6 +1,7 @@
 // The active history (ADR 0145): the one edit history that Undo and Redo act on right now, wherever
 // they come from (Edit menu, Ctrl/Cmd+Z / Ctrl/Cmd+Shift+Z / Ctrl+Y, Ctrl/Cmd+Alt(+Shift)+Z, the
-// History panel). It follows focus:
+// History panel). It follows the editor focus (`editorFocus`, windows/editorFocus.ts: focus or the
+// last press, in any editor window, ADR 0174):
 //
 // 1. a panel-local history, while focus or the last click is inside the root a panel registered it
 //    on (`providePanelHistory` / `usePanelHistory`: Project Settings, Worlds, the Sprite Editor, the
@@ -9,14 +10,16 @@
 //    `data-asset-document`, such as Sky, a material, a shader graph, a formation or a tileset);
 // 3. otherwise the open scene's CommandStack.
 //
-// Clicks and focus in the History panel and the menu bar keep the current choice (KEEPS_HISTORY_FOCUS).
+// Clicks and focus in the History panel and the menu bar keep the current choice (KEEPS_HISTORY_FOCUS,
+// applied by the editor focus).
 // The histories keep their own implementations; this module only sees them through `UndoHistory`.
 import { computed, signal, type ReadonlySignal } from "@preact/signals";
 import { useEffect, useRef } from "preact/hooks";
-import { focusedAssetDocument, KEEPS_HISTORY_FOCUS, type AssetDocument } from "./assetDocuments";
+import { focusedAssetDocument, type AssetDocument } from "./assetDocuments";
 import type { CommandStack, HistoryState } from "./document";
 import { docVersion, openScene } from "./state";
-import { forEachChildWindow } from "./windows/editorWindows";
+import { editorFocus } from "./windows/editorFocus";
+import { editorDocuments } from "./windows/editorWindows";
 
 /** A history tree the History panel can draw and jump through (ADR 0027). */
 export interface HistoryTree {
@@ -134,9 +137,6 @@ export function assetDocumentHistory(doc: AssetDocument<unknown>): UndoHistory {
 
 const panels = new Map<Element, UndoHistory>();
 const panelsVersion = signal(0);
-/** The registered root that focus or the last click was in (kept for clicks in KEEPS_HISTORY_FOCUS), or null. */
-const focusedRoot = signal<Element | null>(null);
-let stopTracking: (() => void) | null = null;
 
 /** The registered root `el` is in, if any. */
 function rootOf(el: Element | null): Element | null {
@@ -144,51 +144,22 @@ function rootOf(el: Element | null): Element | null {
   return null;
 }
 
-/** Follow focus and clicks into registered roots (installed by installShortcuts and the first registration), in every editor window (ADR 0174). */
-export function trackHistoryFocus(): void {
-  if (stopTracking || typeof document === "undefined") return;
-  const onFocus = (e: Event) => {
-    const el = e.target as Element | null;
-    if (!el?.closest) return;
-    const root = rootOf(el);
-    if (root) focusedRoot.value = root;
-    else if (!el.closest(KEEPS_HISTORY_FOCUS)) focusedRoot.value = null;
-  };
-  document.addEventListener("focusin", onFocus, true);
-  document.addEventListener("pointerdown", onFocus, true);
-  // And in each detached panel window (ADR 0174).
-  const stopChildren = forEachChildWindow((win) => {
-    const doc = win.document;
-    doc.addEventListener("focusin", onFocus, true);
-    doc.addEventListener("pointerdown", onFocus, true);
-    return () => {
-      doc.removeEventListener("focusin", onFocus, true);
-      doc.removeEventListener("pointerdown", onFocus, true);
-    };
-  });
-  stopTracking = () => {
-    document.removeEventListener("focusin", onFocus, true);
-    document.removeEventListener("pointerdown", onFocus, true);
-    stopChildren();
-  };
-}
+/** The registered root the editor focus (focus or the last press, in any editor window) is in, or null. */
+const focusedRoot = computed(() => (panelsVersion.value, rootOf(editorFocus.value)));
 
 /**
- * While focus or the last click is inside `root`, `history` is the active one (it wins over an asset
- * document marked on the same root, so a panel can wrap its document's undo). Returns the unregister.
- * Registering again for the same root replaces the history.
+ * While the editor focus (focus or the last press, in any editor window; clicks in
+ * KEEPS_HISTORY_FOCUS keep it) is inside `root`, `history` is the active one. It wins over an asset
+ * document marked on the same root, so a panel can wrap its document's undo. Focus already inside
+ * `root` when it registers counts. Returns the unregister. Registering again for the same root
+ * replaces the history.
  */
 export function providePanelHistory(root: Element, history: UndoHistory): () => void {
-  trackHistoryFocus();
-  // Focus may already be inside a panel that registers as it mounts.
-  const active = (root.ownerDocument ?? (typeof document !== "undefined" ? document : null))?.activeElement ?? null;
   panels.set(root, history);
-  if (active && root.contains?.(active)) focusedRoot.value = root;
   panelsVersion.value++;
   return () => {
     if (panels.get(root) !== history) return;
     panels.delete(root);
-    if (focusedRoot.peek() === root) focusedRoot.value = null;
     panelsVersion.value++;
   };
 }
@@ -212,10 +183,15 @@ export function usePanelHistory(ref: { readonly current: Element | null }, histo
 
 // --- resolving ------------------------------------------------------------------------------------
 
-/** The asset document's editor is still on the page (a replaced inspector doesn't leave its history active). */
+/**
+ * The asset document's editor is still on a page, in any editor window (a replaced inspector doesn't
+ * leave its history active; an editor in a detached panel window counts, ADR 0174).
+ */
 function editorShown(path: string): boolean {
-  if (typeof document === "undefined" || !document.querySelector) return true;
-  return document.querySelector(`[data-asset-document=${JSON.stringify(path)}]`) !== null;
+  const docs = editorDocuments().filter((d) => typeof d.querySelector === "function");
+  if (docs.length === 0) return true; // no page to look in
+  const selector = `[data-asset-document=${JSON.stringify(path)}]`;
+  return docs.some((d) => d.querySelector(selector) !== null);
 }
 
 function resolve(): ActiveHistory | null {
@@ -254,13 +230,4 @@ export function stepBack(): void {
 
 export function stepForward(): void {
   resolve()?.history.forward?.();
-}
-
-/** Tests: forget the registrations and stop following focus. */
-export function _resetActiveHistory(): void {
-  stopTracking?.();
-  stopTracking = null;
-  panels.clear();
-  focusedRoot.value = null;
-  panelsVersion.value++;
 }
