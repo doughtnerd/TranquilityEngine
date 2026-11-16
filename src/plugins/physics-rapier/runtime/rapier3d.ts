@@ -207,8 +207,8 @@ class Character implements BackendCharacter<Dim3> {
   }
 }
 
-/** @internal One World's Rapier 3D simulation. */
-export class RapierWorld3D implements PhysicsWorld3DBackend {
+/** One World's Rapier 3D simulation. */
+class RapierWorld3D implements PhysicsWorld3DBackend {
   readonly rapier: RAPIER.World;
   private readonly events = new RAPIER.EventQueue(true);
   private readonly bodies = new Map<number, Body>();

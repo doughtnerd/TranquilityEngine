@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { Assets, BoxCollider, CapsuleCollider, Engine, GameObject, SceneManager } from "../../myco";
 import { raycastInto, rayGroupsFor, type WorldRayInto, type WorldRayQuery } from "../core/worldServices";
 import { PhysicsWorld3D } from "../../plugins/physics/runtime/core/PhysicsWorld3D";
-import { RapierWorld3D } from "../../plugins/physics-rapier/runtime/rapier3d";
+import { initRapier3D, rapier3DBackend } from "../../plugins/physics-rapier/runtime/rapier3d";
 import { PHYSICS_3D_SERVICE } from "../../plugins/physics/runtime/systems3d";
 
 const project = { physics: { gravity: [0, -10] as [number, number], layers: ["Default", "Walls", "Ghost"], collisionMatrix: { Default: ["Default", "Walls", "Ghost"] } } };
@@ -124,11 +124,13 @@ describe("raycastInto (C14)", () => {
     expect(e2.world.service(PHYSICS_3D_SERVICE.id)).toBeNull();
   });
 
-  it("makes no allocation on its call path (structural check)", () => {
+  it("makes no allocation on its call path (structural check)", async () => {
     // The path: core raycastInto, the service entry, PhysicsWorld3D.raycastInto, the backend's raycastInto and the
     // two predicates. None may hold an object or array literal, a closure, `new`, spread or a template.
     const backend = (PhysicsWorld3D.prototype as unknown as { raycastInto: unknown }).raycastInto;
-    const sources = [raycastInto, PHYSICS_3D_SERVICE.raycastInto, backend, RapierWorld3D.prototype.raycastInto].map((f) => String(f));
+    await initRapier3D();
+    const rapierWorld = rapier3DBackend.createWorld({ gravity: { x: 0, y: -10, z: 0 }, warn: () => {} });
+    const sources = [raycastInto, PHYSICS_3D_SERVICE.raycastInto, backend, rapierWorld.raycastInto].map((f) => String(f));
     for (const src of sources) {
       // An arrow entry point is the function itself, made once: only what's inside it counts.
       const body = src.replace(/\/\/.*$/gm, "").replace(/^\([^)]*\)\s*=>/, "");
