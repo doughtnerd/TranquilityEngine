@@ -1,9 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Engine, GameObject, Input, getComponentClass } from "../engine";
 import { getDataComponentDef } from "../engine/core/data";
 import { listComponents } from "../engine/editor";
 import { activeScript, closeAllScripts, openScripts } from "./code/codeState";
-import { createScript, scriptFolderFor } from "./newScript";
+import { newScript, scriptFolderFor } from "./newScript";
 import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile } from "./project";
 import { editorSettings, joinPath, openFolderProject, useProjectAssets } from "./projects";
@@ -11,6 +11,11 @@ import { loadScripts, replaceScripts } from "./scriptLoader";
 import { scriptId, scriptName, scriptTemplate, whyNotScriptName } from "./scriptTemplates";
 import { currentProject, openScene, sceneCamera, status } from "./state";
 import { MemoryFileSystem, ROOT, demoFolder } from "./testing";
+import { askNewScript } from "./ui/NewScriptDialog";
+import type { NodePath } from "./document";
+
+// What the user answers in the New Script dialog (a UI the tests don't render).
+vi.mock("./ui/NewScriptDialog", () => ({ askNewScript: vi.fn() }));
 
 describe("script names", () => {
   it("turn what's typed into a PascalCase name", () => {
@@ -72,8 +77,15 @@ describe("creating a script", () => {
 
   afterEach(() => replaceScripts(new Map()));
 
+  /** New Script from Add Component on nodes `ids`, the dialog answered with `kind` and `name`. */
+  const create = (kind: "behavior" | "data" | "system", name: string, ids: readonly string[]) => {
+    vi.mocked(askNewScript).mockResolvedValueOnce({ kind, name });
+    const addTo = ids.map((id) => ({ path: [id] as NodePath, node: openScene.value!.sync.nodeFor(id)! }));
+    return newScript({ addTo });
+  };
+
   it("writes it from the template, loads it, opens it in the Code panel and adds it to nodes", async () => {
-    const path = await createScript("behavior", "Mover", "scripts", [["ceiling"], ["bird"]]);
+    const path = await create("behavior", "Mover", ["ceiling", "bird"]);
     expect(path).toBe("scripts/Mover.ts");
     expect(fs.files.get(joinPath(ROOT, "scripts/Mover.ts"))).toBe(scriptTemplate("behavior", "Mover"));
     expect(openScripts.value).toEqual(["scripts/Mover.ts"]);
@@ -86,7 +98,7 @@ describe("creating a script", () => {
   });
 
   it("doesn't add a system to nodes", async () => {
-    await createScript("system", "Cool", "scripts", [["ceiling"]]);
+    await create("system", "Cool", ["ceiling"]);
     expect(listComponents(openScene.value!.sync.nodeFor("ceiling")!).map((c) => c.type)).not.toContain("game.Cool");
     expect(status.value?.text).toBe("Created scripts/Cool.ts.");
   });

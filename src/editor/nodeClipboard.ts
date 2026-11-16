@@ -75,7 +75,7 @@ function freshId(doc: SceneDocument, id: string, taken: Set<string>): string {
  * references inside the copies re-pointed, other references kept only within the source scene
  * (else None), and each root renamed if a sibling there already has its name.
  */
-export function entriesForPaste(doc: SceneDocument, clip: NodeClipboard, parent: string | null): NodeEntry[][] {
+function entriesForPaste(doc: SceneDocument, clip: NodeClipboard, parent: string | null): NodeEntry[][] {
   const taken = new Set<string>();
   const ids = new Map<string, string>();
   for (const subtree of clip.subtrees) for (const e of subtree) ids.set(e.id, freshId(doc, e.id, taken));

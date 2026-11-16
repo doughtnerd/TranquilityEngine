@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Engine } from "../engine";
 import { WaterSurface } from "../engine/render/water/WaterSurface";
-import { NEW_NODE_KINDS, createNode, newNodeEntry } from "./nodeCreate";
+import { createNode, newNodeKinds } from "./nodeCreate";
 import { openSceneFile } from "./project";
 import { openScene } from "./state";
 import { DEMO_SCENE, demoAssets, demoSettings } from "./testing";
@@ -11,13 +11,12 @@ describe("Create > Water (ADR 0072)", () => {
     const engine = await Engine.create({ headless: true, kind: "editor", project: demoSettings(), assets: demoAssets() });
     openSceneFile(engine, DEMO_SCENE);
     const scene = openScene.value!;
-    expect(NEW_NODE_KINDS.map((k) => k.label)).toContain("Water");
-    const entry = newNodeEntry(scene.doc, "water", null);
+    expect(newNodeKinds().map((k) => k.label)).toContain("Water");
+    const id = createNode(scene, "water");
+    const entry = scene.doc.node(id);
     expect(entry.name).toBe("Water");
     expect(entry.components!.map((c) => c.type)).toEqual(["engine.Transform", "engine.WaterSurface"]);
     expect((entry.components![1].data as { waves: unknown[] }).waves).toHaveLength(4);
-
-    const id = createNode(scene, "water");
     const node = scene.sync.nodeFor(id)!;
     const water = node.getComponent(WaterSurface)!;
     expect(water).toBeTruthy();

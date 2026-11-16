@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { Assets, Engine, MeshRenderer } from "../myco";
 import { addAssetEntries, assetKind, prepareAssets, whyNotAddable } from "./assetBrowser";
 import { newComponentEntry } from "./componentEdits";
-import { createNode, newNodeEntry } from "./nodeCreate";
+import { createNode, type NodeKind } from "./nodeCreate";
 import { openSceneFile } from "./project";
 import { openScene } from "./state";
 import { DEMO_SCENE, demoAssets, demoSettings } from "./testing";
@@ -19,13 +19,14 @@ describe("creating 3D nodes", () => {
   it("makes shapes with a mesh and matching collider, and lights aimed down", async () => {
     const engine = await Engine.create({ headless: true, kind: "editor", project: demoSettings(), assets: demoAssets() });
     openSceneFile(engine, DEMO_SCENE);
-    const doc = openScene.value!.doc;
-    expect(newNodeEntry(doc, "sphere", null).components!.map((c) => c.type)).toEqual(["engine.Transform", "engine.MeshRenderer", "engine.SphereCollider"]);
-    expect(newNodeEntry(doc, "plane", null).components![2].type).toBe("engine.MeshCollider");
-    const sun = newNodeEntry(doc, "directional-light", null, [0, 0, 0]);
+    const scene = openScene.value!;
+    const made = (kind: NodeKind, position?: [number, number, number]) => scene.doc.node(createNode(scene, kind, { position }));
+    expect(made("sphere").components!.map((c) => c.type)).toEqual(["engine.Transform", "engine.MeshRenderer", "engine.SphereCollider"]);
+    expect(made("plane").components![2].type).toBe("engine.MeshCollider");
+    const sun = made("directional-light", [0, 0, 0]);
     expect(sun).toMatchObject({ id: "directional-light", name: "Directional Light" });
     expect(sun.components![0].data).toEqual({ position: [0, 5, 0], rotation: [0.4082179, -0.2345697, -0.1093817, 0.8754261] });
-    expect(newNodeEntry(doc, "point-light", null).components![1].data).toEqual({ type: "point" });
+    expect(made("point-light").components![1].data).toEqual({ type: "point" });
     engine.dispose();
   });
 });

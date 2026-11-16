@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { getComponentClass } from "../engine";
 import { compileForBuild } from "../export/webBuild";
-import { bundlePackages, isPackageSpecifier, packageName, packageTypes, PackageResolver, type PackageFiles, type PackageSource } from "./packages";
+import { PackageResolver, packageName } from "./packageResolver";
+import { bundlePackages, isPackageSpecifier, packageTypes, type PackageFiles, type PackageSource } from "./packages";
 import { loadScripts, replaceScripts } from "./scriptLoader";
 import { nodeEsbuild } from "../server/packages";
 
