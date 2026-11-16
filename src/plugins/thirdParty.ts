@@ -168,7 +168,7 @@ const NAME_RE = /^[a-z0-9][a-z0-9._-]*$/;
  * Read a `plugin.json` value (ADR 0139). Returns the manifest, or null with every problem found.
  * Unknown keys are ignored.
  */
-export function parsePluginManifest(raw: unknown): { manifest: ThirdPartyManifest | null; problems: string[] } {
+function parsePluginManifest(raw: unknown): { manifest: ThirdPartyManifest | null; problems: string[] } {
   const problems: string[] = [];
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return { manifest: null, problems: ["plugin.json must hold an object"] };
   const r = raw as Record<string, unknown>;
