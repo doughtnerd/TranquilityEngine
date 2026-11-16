@@ -5,7 +5,7 @@
  * the whole World every frame, so nothing is lost.
  *
  * The editor's viewport (ADR 0128) is a `ViewportHandle` over the renderer's editor tools (the
- * Babylon adapter, `editorTools.ts`, loaded on demand): the handle keeps editor state set before they
+ * Babylon adapter, `editorViewport.ts`, loaded on demand): the handle keeps editor state set before they
  * load and hands it over once. An editor World's surface waits for the tools before it reports started.
  */
 import type { WarmContent } from "../../scene/warmUp";

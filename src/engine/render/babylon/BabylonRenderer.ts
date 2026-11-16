@@ -14,7 +14,7 @@
  * properties, probe copies) are built by the scene's `BabylonMaterialLibrary` (`materialLibrary.ts`,
  * ADR 0127) from the renderer-neutral resolution in `render/materialResolution.ts`.
  *
- * Editor helpers (stage 8) are in `editorTools.ts` (loaded on demand) over the context below; their
+ * Editor helpers (stage 8) are in `editorViewport.ts` (loaded on demand) over the context below; their
  * overlay is a utility layer the frame graph draws after the view camera. The camera preview inset is
  * one more camera in the frame graph, drawn last.
  *
@@ -37,7 +37,7 @@ import { Scene } from "@babylonjs/core/scene.js";
 import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh.js";
 import { UtilityLayerRenderer } from "@babylonjs/core/Rendering/utilityLayerRenderer.js";
 import { EDITOR_LAYER_MASK, type BabylonEditorContext } from "./editorContext";
-import type { BabylonEditorTools } from "./editorTools";
+import type { BabylonEditorViewport } from "./editorViewport";
 import type { Component } from "../../core/Component";
 import type { ProjectSettings } from "../../core/settings";
 import type { World } from "../../core/World";
@@ -191,8 +191,8 @@ export class BabylonRenderer {
   private owner: World | null = null;
   private disposed = false;
   /** Editor helpers (stage 8), loaded on first use; an editor World loads them at once. */
-  private tools: BabylonEditorTools | null = null;
-  private toolsLoading: Promise<BabylonEditorTools | null> | null = null;
+  private tools: BabylonEditorViewport | null = null;
+  private toolsLoading: Promise<BabylonEditorViewport | null> | null = null;
   private overlayLayer: UtilityLayerRenderer | null = null;
   /** Editor: whether the last frame drew the camera preview. */
   cameraPreviewDrawn = false;
@@ -368,14 +368,14 @@ export class BabylonRenderer {
   // --- Editor (ADR 0022; stage 8) ---------------------------------------------------------------
 
   /** The editor helpers (the editor viewport's Babylon adapter, ADR 0128), or null while they load (the first call starts loading them). */
-  editorTools(): BabylonEditorTools | null {
+  editorTools(): BabylonEditorViewport | null {
     if (!this.disposed) void this.loadEditorTools();
     return this.tools;
   }
 
   /** Load the editor helpers (once); resolves with them, or null if they couldn't load or the renderer was disposed. */
-  loadEditorTools(): Promise<BabylonEditorTools | null> {
-    this.toolsLoading ??= import("./editorTools")
+  loadEditorTools(): Promise<BabylonEditorViewport | null> {
+    this.toolsLoading ??= import("./editorViewport")
       .then((m) => {
         if (this.disposed) return null;
         // Manual rendering: the frame graph draws it (frameGraph.ts), straight onto the canvas.
@@ -383,7 +383,7 @@ export class BabylonRenderer {
         layer.utilityLayerScene._useCurrentFrameBuffer = true;
         this.overlayLayer = layer;
         this.frame.overlay = layer;
-        this.tools = new m.BabylonEditorTools(this.editorContext(layer));
+        this.tools = new m.BabylonEditorViewport(this.editorContext(layer));
         return this.tools;
       })
       .catch((err) => {

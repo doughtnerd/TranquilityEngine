@@ -16,7 +16,7 @@ let engine: Promise<void> | null = null;
 export function prefetchEngine(): Promise<void> {
   engine ??= Promise.allSettled([
     import("../engine/render/babylon/BabylonRenderer"),
-    import("../engine/render/babylon/editorTools"),
+    import("../engine/render/babylon/editorViewport"),
     import("../engine/render/babylon/particles"),
     import("../engine/ui/document/parsers"),
   ]).then(() => {});

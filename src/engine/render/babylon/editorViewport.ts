@@ -1,9 +1,15 @@
 /**
- * Editor picking and canvas queries for the Babylon backend (ADR 0022, 0075 stage 8): what lies
- * under a canvas point, the ray through it, where a world point lands on the canvas, and the
- * on-screen rectangles of nodes. Matches the three.js backend's behaviour. Camera maths is the
- * engine's own (`Camera.screenPointToRay`, `worldToScreenPoint`, ADR 0073, viewport-aware); Babylon
- * only intersects meshes and measures their bounds.
+ * The Babylon backend's editor viewport (ADR 0022, 0075 stage 8, 0128): the adapter `ViewportHandle`
+ * drives once the renderer's editor tools have loaded on demand, so a game never downloads them.
+ * It answers the editor's queries itself (what lies under a canvas point, the ray through it, where a
+ * world point lands, nodes' rectangles on the canvas) and draws through three modules: the grid,
+ * outlines and editor overlay (`editorGuides.ts`), the camera, light and particle system icons
+ * (`editorIcons.ts`), and the transform gizmo (`editorGizmo.ts`). Renderer-level features (background,
+ * sprite sizes, UI, probe bakes) go to `BabylonEditorContext.renderer`.
+ *
+ * Camera maths is the engine's own (`Camera.screenPointToRay`, `worldToScreenPoint`, ADR 0073,
+ * viewport-aware); Babylon only intersects meshes and measures their bounds. Nothing Babylon crosses
+ * this class's public methods. Queries answer nothing (empty, null) until the surface has a World.
  */
 import { Ray as BabylonRay } from "@babylonjs/core/Culling/ray.js";
 import { Matrix, Vector3 as BabylonVector3 } from "@babylonjs/core/Maths/math.vector.js";
@@ -12,31 +18,120 @@ import type { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { Vector2, Vector3 } from "../../core/math";
 import type { World } from "../../core/World";
 import type { GameObject } from "../../scene/GameObject";
-import type { Camera } from "../components";
-import type { ScreenRect } from "../editorViewport";
+import type { Camera, ReflectionProbe, SpriteRenderer } from "../components";
+import type { EditorColors, EditorDrawing, EditorOverlay, GizmoHandlers, GizmoOptions, ScreenRect, ViewportAdapter, ViewportUI, ViewRay, WorldBox } from "../editorViewport";
+import { readView } from "./editorBatches";
 import type { BabylonEditorContext } from "./editorContext";
+import { BabylonEditorGizmo } from "./editorGizmo";
+import { BabylonEditorGuides } from "./editorGuides";
+import { BabylonEditorIcons } from "./editorIcons";
 
-/** Icons (camera and light) draw above every sprite; meshes below every sprite (as on three.js). */
+/** Icons (camera, light and particle system) draw above every sprite; meshes below every sprite (as on three.js). */
 const ICON_ORDER = 1e9;
 const MESH_ORDER = -1e12;
 
-type Ray3 = { origin: [number, number, number]; direction: [number, number, number] };
-
 const visible = (m: AbstractMesh): boolean => m.isEnabled() && m.isVisible;
 
-export class BabylonEditorQueries {
-  /** `iconsAt` returns the camera and light icons within the pick radius of a canvas point. */
-  constructor(
-    private readonly ctx: BabylonEditorContext,
-    private readonly iconsAt?: (world: World, x: number, y: number) => GameObject[],
-  ) {}
+/** @internal The Babylon editor viewport adapter (ADR 0128). */
+export class BabylonEditorViewport implements ViewportAdapter {
+  private readonly guides: BabylonEditorGuides;
+  private readonly icons: BabylonEditorIcons;
+  private readonly gizmo: BabylonEditorGizmo;
+  private disposed = false;
+
+  constructor(private readonly ctx: BabylonEditorContext) {
+    // A utility layer scene starts with image processing on; the overlay colours are sRGB values drawn to the canvas as they are.
+    ctx.overlay.utilityLayerScene.imageProcessingConfiguration.isEnabled = false;
+    this.guides = new BabylonEditorGuides(ctx);
+    this.icons = new BabylonEditorIcons(ctx, this.guides);
+    this.gizmo = new BabylonEditorGizmo(ctx);
+  }
+
+  /** Each frame, after the renderer's sync and before the overlay scene draws. Editor Worlds draw icons; every World its overlay and live selection outline. */
+  sync(world: World): void {
+    if (this.disposed) return;
+    const view = readView(this.ctx);
+    this.guides.sync(view);
+    if (this.ctx.editor) this.icons.sync(world, view);
+    this.gizmo.sync(world);
+  }
+
+  dispose(): void {
+    this.disposed = true;
+    this.gizmo.dispose();
+    this.guides.dispose();
+    this.icons.dispose();
+  }
+
+  // --- State -------------------------------------------------------------------------------------
+
+  setColors(colors: EditorColors): void {
+    if (!this.ctx.editor) return; // a game's surface keeps its own background and has no grid
+    this.ctx.renderer.setClearColor(colors.background);
+    this.guides.setColors(colors);
+  }
+
+  setGrid(plane: "xz" | "xy", cellSize: number, visible: boolean): void {
+    this.guides.setGrid(plane, cellSize, visible);
+  }
+
+  setSelection(nodes: readonly GameObject[], shown: boolean): void {
+    this.guides.setSelection(nodes, shown);
+  }
+
+  setOverlay(provider: (() => EditorOverlay) | null): void {
+    this.guides.setOverlay(provider);
+  }
+
+  setGizmo(nodes: readonly GameObject[], options: GizmoOptions, handlers: GizmoHandlers | null): void {
+    this.gizmo.setGizmo(nodes, options, handlers);
+  }
+
+  // --- Drawing queries ---------------------------------------------------------------------------
+
+  grid(): { cellSize: number; visible: boolean; divisions: number } | null {
+    return this.guides.gridShown();
+  }
+
+  gizmoActiveAt(x: number, y: number): boolean {
+    return this.gizmo.gizmoActiveAt(x, y);
+  }
+
+  overlayHandles(): { id: string; x: number; y: number }[] {
+    return this.ctx.world() ? this.guides.overlayHandles() : [];
+  }
+
+  lightIcons(): { node: GameObject; x: number; y: number }[] {
+    return this.ctx.world() ? this.icons.lightIcons() : [];
+  }
+
+  drawn(): EditorDrawing {
+    return { ...this.guides.drawn(), lightWires: this.icons.lightWireCount(), cameraPreview: this.ctx.renderer.cameraPreviewDrawn() };
+  }
+
+  // --- Renderer-level features -------------------------------------------------------------------
+
+  spriteSize(sprite: SpriteRenderer): [number, number] | null {
+    return this.ctx.renderer.spriteSize(sprite);
+  }
+
+  ui(): ViewportUI | null {
+    return this.ctx.renderer.ui();
+  }
+
+  bakeReflectionProbe(probe: ReflectionProbe): Promise<ArrayBuffer> {
+    return this.ctx.renderer.bakeReflectionProbe(probe);
+  }
+
+  // --- Picking and canvas queries ----------------------------------------------------------------
 
   private hasSize(): boolean {
     return this.ctx.canvas.clientWidth > 0 && this.ctx.canvas.clientHeight > 0;
   }
 
+  /** The camera that draws the view (the first in depth order), once there is a World. */
   private view(): Camera | null {
-    return this.ctx.viewCameras()[0] ?? null;
+    return this.ctx.world() ? (this.ctx.viewCameras()[0] ?? null) : null;
   }
 
   /**
@@ -44,8 +139,8 @@ export class BabylonEditorQueries {
    * icons, screen-space text, sprites by draw order (no depth testing), then meshes nearest first.
    * Uses the camera that draws the view (the first in depth order).
    */
-  pick(world: World, x: number, y: number): GameObject[] {
-    if (!this.hasSize()) return [];
+  pick(x: number, y: number): GameObject[] {
+    if (!this.ctx.world() || !this.hasSize()) return [];
     const hits: { node: GameObject; order: number; distance: number }[] = [];
 
     for (const t of this.ctx.texts()) {
@@ -53,7 +148,7 @@ export class BabylonEditorQueries {
       if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) hits.push({ node: t.component.node, order: Infinity, distance: 0 });
     }
 
-    const ray = this.rayAt(world, x, y);
+    const ray = this.rayAt(x, y);
     if (ray) {
       const o = new BabylonVector3(...ray.origin), d = new BabylonVector3(...ray.direction);
       for (const s of this.ctx.sprites()) {
@@ -78,7 +173,7 @@ export class BabylonEditorQueries {
         }
         if (nearest < Infinity) hits.push({ node: m.component.node, order: MESH_ORDER, distance: nearest });
       }
-      if (this.iconsAt) for (const node of this.iconsAt(world, x, y)) hits.push({ node, order: ICON_ORDER, distance: 0 });
+      for (const node of this.icons.iconsAt(x, y)) hits.push({ node, order: ICON_ORDER, distance: 0 });
     }
 
     hits.sort((a, b) => b.order - a.order || a.distance - b.distance);
@@ -87,7 +182,7 @@ export class BabylonEditorQueries {
   }
 
   /** The ray under a canvas point through the camera that draws the view, or null. */
-  rayAt(_world: World, x: number, y: number): Ray3 | null {
+  rayAt(x: number, y: number): ViewRay | null {
     const view = this.view();
     if (!view || !this.hasSize()) return null;
     const ray = view.screenPointToRay(new Vector2(x, y));
@@ -95,7 +190,7 @@ export class BabylonEditorQueries {
   }
 
   /** A world point's place on the canvas (CSS pixels, origin top-left), or null if it's behind the camera or beyond far. */
-  worldToCanvas(_world: World, p: readonly number[]): [number, number] | null {
+  worldToCanvas(p: readonly number[]): [number, number] | null {
     const view = this.view();
     if (!view || !this.hasSize()) return null;
     return project(view, p[0], p[1], p[2] ?? 0);
@@ -106,9 +201,9 @@ export class BabylonEditorQueries {
    * sprite, text or meshes, or (with none) a point at its origin. Nodes behind the camera are left
    * out. Parents come before children.
    */
-  screenBounds(world: World, root: GameObject): { node: GameObject; rect: ScreenRect }[] {
-    const view = this.view();
-    if (!view || !this.hasSize()) return [];
+  screenBounds(root: GameObject): { node: GameObject; rect: ScreenRect }[] {
+    const world = this.ctx.world(), view = this.view();
+    if (!world || !view || !this.hasSize()) return [];
     const sprites = new Map<GameObject, Mesh>(), texts = new Map<GameObject, ScreenRect>(), meshes = new Map<GameObject, AbstractMesh[]>();
     for (const s of this.ctx.sprites()) if (visible(s.mesh)) sprites.set(s.component.node, s.mesh);
     for (const m of this.ctx.meshes()) {
@@ -160,31 +255,8 @@ export class BabylonEditorQueries {
     return out;
   }
 
-  /** The world point on the plane z = `z` under a canvas point; null if the ray misses it. */
-  pointOnPlaneZ(world: World, x: number, y: number, z = 0): [number, number, number] | null {
-    const ray = this.rayAt(world, x, y);
-    if (!ray) return null;
-    const [ox, oy, oz] = ray.origin, [dx, dy, dz] = ray.direction;
-    if (Math.abs(dz) < 1e-6) return null;
-    const t = (z - oz) / dz;
-    if (t < 0) return null;
-    return [ox + dx * t, oy + dy * t, z];
-  }
-
-  /** The world point on a plane (through `point`, facing `normal`) under a canvas point; null if the ray misses it. */
-  pointOnPlane(world: World, x: number, y: number, normal: readonly number[], point: readonly number[]): [number, number, number] | null {
-    const ray = this.rayAt(world, x, y);
-    if (!ray) return null;
-    const [ox, oy, oz] = ray.origin, [dx, dy, dz] = ray.direction;
-    const denom = normal[0] * dx + normal[1] * dy + normal[2] * dz;
-    if (Math.abs(denom) < 1e-6) return null;
-    const t = (normal[0] * (point[0] - ox) + normal[1] * (point[1] - oy) + normal[2] * (point[2] - oz)) / denom;
-    if (t < 0) return null;
-    return [ox + dx * t, oy + dy * t, oz + dz * t];
-  }
-
   /** The world-space box around the meshes of `node`'s MeshRenderers, or null if none is drawn. */
-  meshBounds(node: GameObject): { min: [number, number, number]; max: [number, number, number] } | null {
+  meshBounds(node: GameObject): WorldBox | null {
     const min: [number, number, number] = [Infinity, Infinity, Infinity], max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
     let any = false;
     for (const m of this.ctx.meshes()) {

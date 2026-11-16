@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { lightSegments } from "../render/babylon/editorOverlays";
+import { lightSegments } from "../render/babylon/editorIcons";
 
 describe("light gizmo wireframes (ADR 0043)", () => {
   const at = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 2, 3, 1]; // a translation to (1, 2, 3)
