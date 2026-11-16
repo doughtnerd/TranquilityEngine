@@ -1,33 +1,43 @@
 import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
-import { Engine } from "../engine";
-import { World } from "../engine/core/World";
-import { LobbyClient } from "../engine/net/lobby/client";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { _matchOf } from "../engine/net/lobby/match";
 import { startServer, type RunningServer } from "./run";
 
 // ADR 0067, 0068 on the dedicated server: a lobby World from the bootstrap, whose match Worlds
-// (created at runtime) listen on the server's port by path; players join by URL.
+// (created at runtime) listen on the server's port by path; players join by URL. Each player is a
+// page of its own (the engine imported afresh, so its own page-wide `Lobby`), as in production.
 
 const FIXTURE = fileURLToPath(new URL("./fixtures/lobby", import.meta.url));
 const servers: RunningServer[] = [];
-const engines: Engine[] = [];
-const clients: LobbyClient[] = [];
+interface Page {
+  readonly engine: import("../engine").Engine;
+  readonly Lobby: typeof import("../engine").Lobby;
+  /** Run `fn` in the page's World, as its scripts' code runs. */
+  run(fn: () => void): void;
+}
+const pages: Page[] = [];
 
 afterEach(async () => {
-  for (const c of clients.splice(0)) c.disconnect();
-  for (const e of engines.splice(0)) e.dispose();
+  for (const p of pages.splice(0)) {
+    p.Lobby.disconnect();
+    p.engine.dispose();
+  }
   for (const s of servers.splice(0)) await s.close();
 });
 
-async function page(): Promise<Engine> {
-  const engine = await Engine.create({
+/** A player's page: the engine imported afresh, so it has its own `Lobby`. */
+async function page(): Promise<Page> {
+  vi.resetModules();
+  const myco = await import("../engine");
+  const { World } = await import("../engine/core/World");
+  const engine = await myco.Engine.create({
     headless: true,
     project: { time: { fixedDeltaTime: 1 / 30 } },
     bootstrap: { worlds: [{ name: "Menu" }], templates: { MatchClient: { tags: ["client", "match"], scenes: [] } } },
   });
-  engines.push(engine);
-  return engine;
+  const p: Page = { engine, Lobby: myco.Lobby, run: (fn) => World._runIn(engine.world, fn) };
+  pages.push(p);
+  return p;
 }
 
 async function until(done: () => boolean, what: string, timeoutMs = 4000): Promise<void> {
@@ -37,7 +47,7 @@ async function until(done: () => boolean, what: string, timeoutMs = 4000): Promi
     if (Date.now() > deadline) throw new Error(`Timed out waiting for ${what}`);
     await new Promise((resolve) => setTimeout(resolve, 5));
     const now = performance.now();
-    for (const e of engines) e.step((now - last) / 1000);
+    for (const p of pages) p.engine.step((now - last) / 1000);
     last = now;
   }
 }
@@ -50,11 +60,11 @@ describe("myco-server with a lobby (ADR 0067, 0068)", () => {
     expect(server.listeners.map((l) => l.world)).toEqual(["Lobby"]);
     const { url, port } = server.listeners[0];
 
-    const pages = [await page(), await page()];
-    const [a, b] = [new LobbyClient(), new LobbyClient()];
-    clients.push(a, b);
-    World._runIn(pages[0].world, () => a.connect(url, { name: "Anne" }));
-    World._runIn(pages[1].world, () => b.connect(url, { name: "Bart" }));
+    const [anne, bart] = [await page(), await page()];
+    const [a, b] = [anne.Lobby, bart.Lobby];
+    expect(a).not.toBe(b);
+    anne.run(() => a.connect(url, { name: "Anne" }));
+    bart.run(() => b.connect(url, { name: "Bart" }));
     await until(() => a.state === "lobby" && b.state === "lobby", "both in the lobby");
     a.quickMatch({ arena: "open" });
     await until(() => a.state === "room", "a room");

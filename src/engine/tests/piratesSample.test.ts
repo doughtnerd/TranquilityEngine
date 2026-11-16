@@ -3,8 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Assets, Engine, GameObject, Lobby, Replicated, SceneInstance } from "../index";
 import { UIButton, UIPanel, UIText } from "../ui/components";
 import { World } from "../core/World";
-import { LobbyClient } from "../net/lobby/client";
 import { readProject } from "../../server/project";
+import "../../server/websocketServer"; // the Node "websocket" transport, which can listen
 // The sample's scripts, registered as loading the project's scripts would (ADR 0031).
 import { CLOUD_PREFAB, CLOUD_RADIUS, Cloud, inCloudAmong, FlagState, Game, Phase, Ship, TEAM_COLORS, type CloudView, type FlagView, type GameView, type ShipView } from "../../../samples/pirates/scripts/data";
 import "../../../samples/pirates/scripts/systems";
@@ -35,9 +35,13 @@ const SAMPLE = fileURLToPath(new URL("../../../samples/pirates", import.meta.url
 const STEP = 1 / 60;
 
 const engines: Engine[] = [];
-const players: LobbyClient[] = [];
+/** Other players' pages, stepped with this one. */
+const pages: OtherPage[] = [];
 afterEach(() => {
-  for (const c of players.splice(0)) c.disconnect();
+  for (const p of pages.splice(0)) {
+    p.Lobby.disconnect();
+    p.engine.dispose();
+  }
   Lobby.disconnect();
   for (const e of engines.splice(0)) e.dispose();
   Assets.clearSources();
@@ -60,14 +64,49 @@ function sceneOf(world: World): string | null {
   return world.sceneNodes[0]?.getBehavior(SceneInstance)?.source ?? null;
 }
 
-/** Step until `done` holds (letting scene loads settle). */
+/** Step until `done` holds (letting scene loads settle), with every other player's page; over a socket, in real time. */
 async function stepUntil(engine: Engine, done: () => boolean, what: string, maxFrames = 3000): Promise<void> {
   for (let i = 0; i < maxFrames; i++) {
     if (done()) return;
     engine.step(STEP);
-    if (i % 5 === 0) await settle();
+    for (const p of pages) p.engine.step(STEP);
+    if (pages.length) await new Promise((resolve) => setTimeout(resolve, 1));
+    else if (i % 5 === 0) await settle();
   }
   if (!done()) throw new Error(`Timed out waiting for ${what}`);
+}
+
+/** Another player's page: the sample's scripts in the engine imported afresh, so it has its own page-wide `Lobby`. */
+interface OtherPage {
+  readonly engine: { step(dt: number): void; dispose(): void };
+  readonly Lobby: typeof Lobby;
+}
+
+/** Another player's page of the project (without its menu), its `Lobby` connected to `address` as `name`. */
+async function otherPage(project: Awaited<ReturnType<typeof readProject>>, address: string, name: string): Promise<OtherPage> {
+  vi.resetModules();
+  const myco = await import("../../myco");
+  const { World: PageWorld } = await import("../core/World");
+  await import("../../../samples/pirates/scripts/data");
+  await import("../../../samples/pirates/scripts/systems");
+  await import("../../../samples/pirates/scripts/client");
+  await import("../../../samples/pirates/scripts/bots");
+  await import("../../../samples/pirates/scripts/navigation");
+  await import("../../../samples/pirates/scripts/rules");
+  await import("../../../samples/pirates/scripts/weather");
+  await import("../../../samples/pirates/scripts/behaviors/Bolt");
+  await import("../../../samples/pirates/scripts/behaviors/Actors");
+  await import("../../../samples/pirates/scripts/behaviors/Splash");
+  await import("../../../samples/pirates/scripts/behaviors/FollowCamera");
+  await import("../../../samples/pirates/scripts/behaviors/Hud");
+  await import("../../../samples/pirates/scripts/lobby");
+  myco.Assets.addSource(project.assets);
+  const settings = project.settings as unknown as { bootstrap: { worlds: unknown[] } };
+  const engine = await myco.Engine.create({ headless: true, project: { ...settings, bootstrap: { ...settings.bootstrap, worlds: [{ name: "Page" }] } } as never });
+  PageWorld._runIn(engine.world, () => myco.Lobby.connect(address, { name }));
+  const page: OtherPage = { engine, Lobby: myco.Lobby as unknown as typeof Lobby };
+  pages.push(page);
+  return page;
 }
 
 function shipsIn(world: World): { rep: Replicated; data: ShipView; x: number; z: number }[] {
@@ -257,13 +296,17 @@ describe("the King of Pirates sample", () => {
     engines.push(engine);
     const menuWorld = engine._world("Menu")!;
     const menu = menuWorld._componentsOfType(Menu)[0].node;
+    // This page's lobby World listens over WebSocket first, so its matches do too, for Anne in a page
+    // of her own. The menu's "local" connection, on its first frame, finds it.
+    const lobbyTemplate = (project.settings as unknown as { bootstrap: { templates: { Lobby: object } } }).bootstrap.templates.Lobby;
+    const lobbyWorld = engine.createWorld({ ...lobbyTemplate, name: "Lobby" });
+    const url = await lobbyWorld.listen("websocket", { address: "ws://127.0.0.1:0" });
     await stepUntil(engine, () => Lobby.state === "lobby", "the menu's lobby");
+    expect(engine.findWorld("Lobby 2")).toBeNull();
     // This page creates a room (Create Room, as clicked); Anne joins it by its code; the host starts it.
     menu.find("Screen/Home/Left/CreateRoom")!.getBehavior(UIButton)!._simulateClick();
     await stepUntil(engine, () => Lobby.state === "room", "the room");
-    const anne = new LobbyClient();
-    players.push(anne);
-    World._runIn(menuWorld, () => anne.connect("local", { name: "Anne" }));
+    const anne = (await otherPage(project, url, "Anne")).Lobby;
     await stepUntil(engine, () => anne.state === "lobby", "Anne's lobby");
     anne.joinRoom(Lobby.room!.code);
     await stepUntil(engine, () => anne.state === "room" && Lobby.room!.members.length === 2, "Anne in the room");
@@ -333,9 +376,10 @@ describe("the King of Pirates sample", () => {
     const engine = await Engine.create({ headless: true, project: settings as never });
     engines.push(engine);
 
-    const anne = new LobbyClient();
-    players.push(anne);
-    World._runIn(engine._world("Menu")!, () => anne.connect("local", { name: "Anne" }));
+    // The menu's page-wide Lobby, connected again under Anne's name.
+    await stepUntil(engine, () => Lobby.state === "lobby", "the menu's lobby");
+    World._runIn(engine._world("Menu")!, () => Lobby.connect("local", { name: "Anne" }));
+    const anne = Lobby;
     await stepUntil(engine, () => anne.state === "lobby", "the lobby");
     anne.quickMatch({ arena: "maze", length: "20", ships: "4" });
     await stepUntil(engine, () => anne.state === "match", "the quick match");
