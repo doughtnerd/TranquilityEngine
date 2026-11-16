@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { BrowserFileSystem, UnsupportedError, isTauri, type DirEntry, type FileSystem } from "../platform/FileSystem";
+import { getFileSystem, isTauri, type DirEntry, type FileSystem } from "../platform/FileSystem";
 import { TauriFileSystem } from "../platform/TauriFileSystem";
 import { TauriStorage } from "../platform/TauriStorage";
 
@@ -146,10 +146,11 @@ describe("platform detection and the browser file system", () => {
   });
 
   it("rejects writes, listing and the folder dialog in the browser", async () => {
-    const fs = new BrowserFileSystem();
+    const fs = await getFileSystem(); // not Tauri: the read-only browser file system
     expect(fs.canWrite).toBe(false);
-    await expect(fs.writeText()).rejects.toBeInstanceOf(UnsupportedError);
-    await expect(fs.list()).rejects.toBeInstanceOf(UnsupportedError);
-    await expect(fs.pickFolder()).rejects.toBeInstanceOf(UnsupportedError);
+    const unsupported = { name: "UnsupportedError", message: expect.stringMatching(/not available in the browser; run the editor under Tauri/) };
+    await expect(fs.writeText("a.txt", "")).rejects.toMatchObject(unsupported);
+    await expect(fs.list("")).rejects.toMatchObject(unsupported);
+    await expect(fs.pickFolder()).rejects.toMatchObject(unsupported);
   });
 });
