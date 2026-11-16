@@ -1,7 +1,7 @@
 /**
  * Water surfaces (ADR 0072): a grid displaced by a Gerstner wave sum, drawn by the render backend
  * (`WaterRenderer`) and sampled on the CPU from the same maths (`gerstner.ts`), so objects float
- * on the waves you see. Engine-native: no three.js here, so servers sample water headless.
+ * on the waves you see. Engine-native: no renderer here, so servers sample water headless.
  */
 import { Component } from "../../core/Component";
 import { Color, Vector3 } from "../../core/math";

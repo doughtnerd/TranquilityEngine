@@ -16,6 +16,17 @@ import { ThumbnailRenderer } from "../render/babylon/previews/ThumbnailRenderer"
 import { ThumbnailScenes } from "../render/babylon/previews/thumbnailScenes";
 import { MaterialPreview } from "../render/previewRouting";
 
+/**
+ * `ThumbnailRenderer.create` makes its engine with `createPreviewEngine` (WebGPU, else WebGL2): here it gets
+ * a NullEngine, kept so a test can take its context away.
+ */
+const previewEngines = vi.hoisted(() => [] as NullEngine[]);
+vi.mock("../render/babylon/previews/common", async (importOriginal) => {
+  const { NullEngine } = await import("@babylonjs/core/Engines/nullEngine.js");
+  const original = await importOriginal<typeof import("../render/babylon/previews/common")>();
+  return { ...original, createPreviewEngine: async () => previewEngines[previewEngines.push(new NullEngine()) - 1] };
+});
+
 /** The scene's Babylon particle systems (CPU ones, which hold their particle list). */
 const systems = (scene: Scene) => scene.particleSystems as ParticleSystem[];
 
@@ -51,11 +62,12 @@ const project = {
 describe("Babylon preview renderers (ADR 0075 stage 7)", () => {
   let engine: NullEngine;
   let renderer: ThumbnailRenderer;
-  /** What each thumbnail draws, on the same engine (the renderer draws and captures these). */
+  /** What each thumbnail draws (the renderer draws and captures these), on an engine of their own. */
   let scenes: ThumbnailScenes;
+  let scenesEngine: NullEngine;
   let warn: ReturnType<typeof vi.spyOn>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     Assets.clearSources();
     Assets.addSource({
       has: (p) => p in project,
@@ -64,14 +76,18 @@ describe("Babylon preview renderers (ADR 0075 stage 7)", () => {
         return typeof v === "string" ? JSON.parse(v) : v;
       },
     });
-    engine = new NullEngine();
-    renderer = new ThumbnailRenderer(engine, 64, { studio: false, readyTimeout: 20 });
-    scenes = new ThumbnailScenes(engine, 64, { studio: false, readyTimeout: 20 });
+    vi.stubGlobal("document", { createElement: () => ({ width: 0, height: 0 }) }); // the renderer's offscreen canvas
+    renderer = await ThumbnailRenderer.create(64, { studio: false, readyTimeout: 20 });
+    vi.unstubAllGlobals();
+    engine = previewEngines.at(-1)!;
+    scenesEngine = new NullEngine();
+    scenes = new ThumbnailScenes(scenesEngine, 64, { studio: false, readyTimeout: 20 });
     warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
   });
 
   afterEach(() => {
     scenes.dispose();
+    scenesEngine.dispose();
     renderer.dispose();
     warn.mockRestore();
     Assets.clearSources();

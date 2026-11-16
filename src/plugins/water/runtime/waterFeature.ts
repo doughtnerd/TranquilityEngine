@@ -4,4 +4,4 @@ import type { BabylonFeatureFactory } from "../../../engine/render/babylon/featu
 import { WaterFeature } from "../../../engine/render/babylon/waterFeature";
 
 /** @internal Builds the feature from the renderer's shared services. */
-export const createWaterFeature: BabylonFeatureFactory = (host) => new WaterFeature(host.scene, (x, y, z) => host.probeLookup(x, y, z));
+export const createWaterFeature: BabylonFeatureFactory = (host) => new WaterFeature(host.scene, (x, y, z) => host.probes.lookup(x, y, z));

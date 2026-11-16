@@ -24,13 +24,13 @@ import type { DrawnMaterial, PixelGrid, RenderDiagnostics } from "../RenderSurfa
 import type { RenderPolicy } from "../renderPolicy";
 import type { QuadBatchHost } from "../quadBatches";
 import { specNeeded, type RenderFeatureSpec } from "../renderFeatures";
+import { _instantiatedPrefabOf } from "../../scene/SceneLoader";
 import type { WarmItem } from "./warmUp";
 import type { Scene } from "@babylonjs/core/scene.js";
 import type { BabylonLighting } from "./lighting";
 import type { BabylonMaterialLibrary } from "./materialLibrary";
 import type { ProbeHit } from "./probes";
 import type { EditorMesh, EditorSprite } from "./editorContext";
-import type { MeshBatches } from "./meshBatches";
 
 /** @internal What the renderer worked out before a feature's phase (ADR 0130). */
 export interface FeatureSyncContext {
@@ -55,6 +55,23 @@ export interface DrawnDescription {
   what: string;
   node?: GameObject;
   asset?: string;
+}
+
+/**
+ * @internal What a drawn object is, for the variant report (ADR 0080): the first feature that knows it
+ * says (ADR 0154 `describe`), and the prefab its node came from, if any, is named (else the asset the
+ * feature gave); null when no feature knows it.
+ */
+export function describeDrawn(features: Iterable<BabylonFeature | null>, drawn: object): { what: string; prefab?: string } | null {
+  for (const feature of features) {
+    const d = feature?.describe?.(drawn);
+    if (!d) continue;
+    let prefab: string | undefined;
+    for (let n: GameObject | null = d.node ?? null; n && !prefab; n = n.parent) prefab = _instantiatedPrefabOf(n);
+    if (prefab) return { what: `${d.what} (from ${prefab})`, prefab };
+    return d.asset ? { what: d.what, prefab: d.asset } : { what: d.what };
+  }
+  return null;
 }
 
 /** @internal One render feature of the Babylon backend (ADR 0130; the optional hooks the renderer iterates, ADR 0154). */
@@ -106,15 +123,14 @@ export interface BabylonFeatureHost {
   readonly lighting: BabylonLighting;
   /** The material library (ADR 0127). */
   readonly materials: BabylonMaterialLibrary;
-  /** The reflection probe nearest a point (ADR 0130's probe lookup). */
-  probeLookup(x: number, y: number, z: number): ProbeHit | null;
-  /** Reflection probes: whether any exist, the lookup, and counting a mesh drawn with one's reflection this frame (diagnostics). */
+  /** Reflection probes: whether any exist, the lookup (the probe nearest a point, ADR 0130), and counting a mesh drawn with one's reflection this frame (diagnostics). */
   readonly probes: { readonly any: boolean; lookup(x: number, y: number, z: number): ProbeHit | null; reflected(): void };
   /** The project settings the renderer was made with (pixels per unit, sorting layers). */
   readonly settings: ProjectSettings;
-  /** `perObject` in the editor's scene view and editor play mode (picking and outlines), else `batched` (ADR 0129). Read each sync. */
-  drawPolicy(): "batched" | "perObject";
-  /** The render policy now (ADR 0129): the scene view, the particle preview… Read it each sync. */
+  /**
+   * The render policy now (ADR 0129): the scene view, the particle preview, the draw policy (`perObject`
+   * in the editor's scene view and editor play mode, for picking and outlines, else `batched`)… Read it each sync.
+   */
   policy(): Readonly<RenderPolicy>;
   /** The World being drawn, or null before the first sync. */
   world(): World | null;
@@ -155,8 +171,6 @@ export interface MeshesFeatureApi extends BabylonFeature {
   drawn(): { node: GameObject; materials: DrawnMaterial[] }[];
   /** The MeshRenderers and their Babylon meshes, for the editor tools. */
   editorMeshes(): Iterable<EditorMesh>;
-  /** Tests and e2e: the batches' counts (ADR 0108). */
-  batchStats(): ReturnType<MeshBatches["stats"]>;
 }
 
 /** @internal A plugin render feature's factory, as `RenderFeatureRegistration.load` gives it for this backend. */

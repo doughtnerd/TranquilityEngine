@@ -186,7 +186,7 @@ export class WebGl2Run implements KernelRun {
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   }
 
-  /** Read the latest state back, interleaved like the other executors (tests and tools; slow). */
+  /** Read the latest state back, interleaved like the other executors (the parity tool, bench/particles; slow). */
   read(): Float32Array {
     const gl = this.gl;
     const out = new Float32Array(this.kernel.capacity * KERNEL_FLOATS);
@@ -202,7 +202,7 @@ export class WebGl2Run implements KernelRun {
     return out;
   }
 
-  /** Read the trail history back, block by block like the JavaScript executor's (tests; slow). */
+  /** Read the trail history back, block by block like the JavaScript executor's (the parity tool; slow). */
   readHistory(): Float32Array | null {
     const h = this.history;
     if (!h) return null;

@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vite
 import { World } from "../core/World";
 import { Assets, Camera, Engine, GameObject, Material, SceneManager } from "../index";
 import { MeshRenderer, SpriteRenderer } from "../render/components";
-import { BabylonRenderer, loadPluginFeatures, type PluginFeature } from "../render/babylon/BabylonRenderer";
+import { BabylonRenderer, loadPluginFeatures } from "../render/babylon/BabylonRenderer";
 import type { BabylonEditorContext, BabylonEditorRendererHooks, EditorMesh } from "../render/babylon/editorContext";
 import { BabylonEditorViewport } from "../render/babylon/editorViewport";
 import { ViewportHandle } from "../render/editorViewport";
@@ -177,11 +177,11 @@ describe("the Babylon renderer's diagnostics (ADR 0128)", () => {
     await SceneManager.load("s.json");
     world = World.require();
     nullEngine = new NullEngine();
-    const Ctor = BabylonRenderer as unknown as new (engine: NullEngine, settings: unknown, plugged: PluginFeature[]) => BabylonRenderer;
     // The Meshes plugin's feature (ADR 0140), registered by Vitest's setup file's plugin activation.
     const meshes = (await loadPluginFeatures()).filter((p) => p.registration.spec.name === "meshes");
     expect(meshes).toHaveLength(1);
-    renderer = new Ctor(nullEngine, world.settings, meshes);
+    // Made the way thumbnails make one: the one way a renderer takes an engine it's given (NullEngine can't make the studio room).
+    renderer = BabylonRenderer.forThumbnail(nullEngine, world.settings, meshes, { studio: null });
   });
   afterEach(() => {
     Material._resetShared();
@@ -194,11 +194,11 @@ describe("the Babylon renderer's diagnostics (ADR 0128)", () => {
     shown.addBehavior(MeshRenderer, { mesh: "builtin:cube" });
     const hidden = GameObject.create("hidden");
     hidden.addBehavior(MeshRenderer, { mesh: "builtin:cube" }).enabled = false;
-    renderer.syncMeshes(world); // the full sync needs a GPU for the environment map
+    renderer.sync(world);
     const d = renderer.diagnostics();
     expect(d.drawn.meshes.map((m) => m.node)).toEqual([shown]);
     expect(d.drawn.meshes[0].materials).toEqual([{ unlit: false, clearcoat: 0, transmission: 0 }]);
-    expect(d.cameras).toEqual([]); // no World claimed, no frame drawn
+    expect(d.cameras).toEqual([]); // no frame drawn
     expect(d.post.composedCameras).toBe(0);
     expect(d.stats.geometries).toBeGreaterThan(0);
   });

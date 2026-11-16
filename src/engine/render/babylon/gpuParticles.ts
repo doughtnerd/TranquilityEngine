@@ -28,7 +28,7 @@ import { WebGl2Sorter, WebGpuSorter, depthRow, sortLayout, sortPairsJs } from ".
 import { outputSorts } from "../../scene/particleGraph";
 import { heightFogShader, useHeightFog } from "./heightFog";
 import type { KernelTextures } from "./kernelMaterial";
-import { BUFFER, WebGpuRun, type GpuBuffer, type GpuDevice } from "../particles/gpu/webgpuRun";
+import { WebGpuRun, type GpuBuffer, type GpuDevice } from "../particles/gpu/webgpuRun";
 import { hasSceneFrame, requestSceneDepth, sceneDepth } from "./frameGraph";
 import type { Draw } from "./particleDraw";
 
@@ -768,6 +768,3 @@ export class KernelDraw implements Draw {
     this.material.dispose(false, false);
   }
 }
-
-/** For tests: the GPU buffer usage flags the WebGPU path needs (storage, written from the CPU). */
-export const KERNEL_BUFFER_USAGE = BUFFER.STORAGE | BUFFER.COPY_DST;

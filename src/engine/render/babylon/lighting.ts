@@ -2,7 +2,6 @@
  * Stages 2–3 of ADR 0075 on Babylon.js: Light components (ADR 0043), which lights cast shadows and
  * how (ADR 0050, 0053; the frame graph draws the shadow maps, `frameGraph.ts`), and the Environment
  * component's lighting and sky (ADR 0053), with the default studio room when a World has no map.
- * Mirrors what the three.js backend does in `syncLights`, `syncCascades` and `syncEnvironment`.
  */
 import type { Camera as BabylonCamera } from "@babylonjs/core/Cameras/camera.js";
 import { ClusteredLightContainer } from "@babylonjs/core/Lights/Clustered/clusteredLightContainer.js";
@@ -159,13 +158,13 @@ export class BabylonLighting {
   private skybox: Mesh | null = null;
   private skyMaterial: PBRMaterial | null = null;
   private readonly warned = new Set<string>();
-  /** Whether the last sync asked for cascaded shadows, for tests. */
+  /** Whether the last sync asked for cascaded shadows (the lighting diagnostics). */
   private cascading = false;
-  /** How many lights the last sync gave cascades (ADR 0110), for tests. */
+  /** How many lights the last sync gave cascades (ADR 0110; the lighting diagnostics). */
   private cascadedCount = 0;
   /**
-   * The main light shader graphs read (Main Light Direction / Color nodes), chosen as three.js's
-   * `directionalLights[0]` is: the first shadow-casting directional light, else the first directional
+   * The main light shader graphs read (Main Light Direction / Color nodes): the first shadow-casting
+   * directional light, else the first directional
    * one, else the default sun when the World has no Lights, else (0.4, 1, -0.6) and white. `direction`
    * is a unit world vector toward the light; `color` is linear colour × intensity. Updated in place.
    */
@@ -425,7 +424,7 @@ export class BabylonLighting {
     const m = world.worldMatrix(l.node.entity);
     const o = l.node.entity * 16;
     if (light instanceof HemisphericLight) {
-      light.groundColor.copyFrom(color); // three's AmbientLight: the same from every direction
+      light.groundColor.copyFrom(color); // an ambient light: the same from every direction
       light.specular.set(0, 0, 0);
       return true;
     }
@@ -451,8 +450,8 @@ export class BabylonLighting {
     light.autoUpdateExtends = false;
     light.orthoLeft = light.orthoBottom = -half;
     light.orthoRight = light.orthoTop = half;
-    // three.js puts the shadow camera's near plane behind the node; Babylon wants it in front, so the
-    // light moves back along its direction by the same distance instead.
+    // The shadow camera's box starts behind the node (casters behind it still shadow); Babylon wants the
+    // near plane in front, so the light moves back along its direction by that distance instead.
     light.position = light.position.subtractInPlace(light.direction.scaleToRef(half * 2, tmpBack));
     light.shadowMinZ = 0;
     light.shadowMaxZ = half * 4;
@@ -606,7 +605,7 @@ export class BabylonLighting {
     this.skyFog = amount;
   }
 
-  /** Tests: whether cascaded shadows are on, and the environment map's state. */
+  /** Whether cascaded shadows are on, and the environment map's state (the lighting diagnostics). */
   state(): { cascades: boolean; cascadedLights: number; environment: string; environmentLoaded: boolean; skybox: boolean } {
     return {
       cascades: this.cascading,
@@ -615,11 +614,6 @@ export class BabylonLighting {
       environmentLoaded: !!this.envMap?.texture && cubemapReady(this.envMap.texture),
       skybox: !!this.skybox?.isEnabled(),
     };
-  }
-
-  /** Tests and the editor: the shadow map size the tier gives, and whether any light has one. */
-  shadowState(): { shadows: boolean; shadowMapSize: number } {
-    return { shadows: Graphics.tier.shadows !== "off", shadowMapSize: SHADOW_MAP_SIZE[Graphics.tier.shadows] };
   }
 
   /**

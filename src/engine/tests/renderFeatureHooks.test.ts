@@ -8,7 +8,7 @@ import { World } from "../core/World";
 import { Assets, Engine, GameObject, Graphics, SceneManager } from "../index";
 import { BabylonRenderer, type PluginFeature } from "../render/babylon/BabylonRenderer";
 import { BabylonSurface } from "../render/babylon/BabylonSurface";
-import type { BabylonFeature, BabylonFeatureFactory, BabylonFeatureHost, BabylonWarmFactory } from "../render/babylon/feature";
+import { describeDrawn, type BabylonFeature, type BabylonFeatureFactory, type BabylonFeatureHost, type BabylonWarmFactory } from "../render/babylon/feature";
 import type { WarmCustom } from "../render/babylon/warmUp";
 import { FakeRenderSurface } from "../render/fakeViewport";
 import { noRenderDiagnostics } from "../render/RenderSurface";
@@ -25,8 +25,8 @@ describe("render feature hooks (ADR 0154)", () => {
   let nullEngine: NullEngine;
   let renderer: BabylonRenderer;
   let world: World;
-  const Ctor = BabylonRenderer as unknown as new (engine: NullEngine, settings: unknown, plugged: PluginFeature[]) => BabylonRenderer;
-  const make = (plugged: PluginFeature[]) => (renderer = new Ctor(nullEngine, world.settings, plugged));
+  // A renderer on Babylon's NullEngine, made the way thumbnails make one (the one way a renderer takes an engine it's given).
+  const make = (plugged: PluginFeature[]) => (renderer = BabylonRenderer.forThumbnail(nullEngine, world.settings, plugged, { studio: null }));
 
   beforeEach(async () => {
     Assets.clearSources();
@@ -50,7 +50,7 @@ describe("render feature hooks (ADR 0154)", () => {
     const feature: BabylonFeature = {
       sync: () => {},
       describe: (d) => (d === drawn ? { node, what: `The fake of "${node.name}"`, asset: "fx/fake.json" } : null),
-      warm: (content) => content.effects.map((e) => warmItem(`fake:${String(e)}`)),
+      warm: vi.fn((content: WarmContent) => content.effects.map((e) => warmItem(`fake:${String(e)}`))),
       diagnostics: () => ({ count: 3 }),
       uiCore: () => core,
       dispose: () => {},
@@ -60,19 +60,20 @@ describe("render feature hooks (ADR 0154)", () => {
     return { plugged: { registration: { spec, load: async () => factory }, factory }, feature, node, drawn, core, host: () => host! };
   }
 
-  it("asks every loaded feature to describe a drawn object, warm content, report diagnostics and give its UI core", () => {
+  it("asks every loaded feature to warm content, report diagnostics and give its UI core", () => {
     const f = fakeFeature();
     make([f.plugged]);
-    const describe = (renderer as unknown as { describeMesh(d: object): unknown }).describeMesh.bind(renderer);
-    expect(describe(f.drawn)).toEqual({ what: `The fake of "emitter"`, prefab: "fx/fake.json" });
-    expect(describe({ name: "something else" })).toBeNull();
-
     expect(renderer.diagnostics().features).toEqual({ fake: { count: 3 } });
     expect(renderer.uiState()).toBe(f.core);
-
-    const add = vi.spyOn((renderer as unknown as { warmer: { add(items: unknown[]): Promise<void> } }).warmer, "add");
     void renderer.warmUp(EFFECTS);
-    expect(add).toHaveBeenCalledWith([expect.objectContaining({ key: "fake:fx.particles.json" })]);
+    expect(f.feature.warm).toHaveBeenCalledWith(EFFECTS);
+  });
+
+  it("describes a drawn object by the first feature that knows it, naming the asset it gives (the variant report)", () => {
+    const f = fakeFeature();
+    const other: BabylonFeature = { sync: () => {}, describe: () => null, dispose: () => {} };
+    expect(describeDrawn([null, other, f.feature], f.drawn)).toEqual({ what: `The fake of "emitter"`, prefab: "fx/fake.json" });
+    expect(describeDrawn([other, f.feature], { name: "something else" })).toBeNull();
   });
 
   it("builds plugin features from a core host that carries no single feature's services", () => {
@@ -95,25 +96,23 @@ describe("render feature hooks (ADR 0154)", () => {
     const load = vi.fn(async () => factory);
     const spec: RenderFeatureSpec = { name: "lazyFx", phase: "effects", types: [], lazy: true, warms: (c) => c.effects.length > 0 };
     make([{ registration: { spec, load }, factory: null }]);
-    const add = vi.spyOn((renderer as unknown as { warmer: { add(items: unknown[]): Promise<void> } }).warmer, "add");
     await renderer.warmUp(NOTHING);
     expect(load).not.toHaveBeenCalled();
     void renderer.warmUp(EFFECTS);
-    await vi.waitFor(() => expect(add).toHaveBeenCalledWith([expect.objectContaining({ key: "lazy:fx.particles.json" })]));
+    await vi.waitFor(() => expect(warm).toHaveBeenCalledWith(EFFECTS));
     expect(load).toHaveBeenCalledTimes(1);
-    expect(warm).toHaveBeenCalledWith(EFFECTS);
   });
 
   it("warms with a registration's lighter loadWarm, without loading the feature", async () => {
     const load = vi.fn(async (): Promise<BabylonFeatureFactory> => () => ({ sync: () => {}, dispose: () => {} }));
-    const warmFactory: BabylonWarmFactory = () => ({ warm: (content) => (content.worldUI ? [warmItem("canvas")] : []) });
+    const warm = vi.fn((content: WarmContent) => (content.worldUI ? [warmItem("canvas")] : []));
+    const warmFactory: BabylonWarmFactory = () => ({ warm });
     const loadWarm = vi.fn(async () => warmFactory);
     const spec: RenderFeatureSpec = { name: "lazyUI", phase: "overlay", types: [], lazy: true, warms: (c) => c.worldUI };
     make([{ registration: { spec, load, loadWarm }, factory: null }]);
-    const add = vi.spyOn((renderer as unknown as { warmer: { add(items: unknown[]): Promise<void> } }).warmer, "add");
     void renderer.warmUp({ ...NOTHING, worldUI: true });
     void renderer.warmUp({ ...NOTHING, worldUI: true });
-    await vi.waitFor(() => expect(add).toHaveBeenCalledWith([expect.objectContaining({ key: "canvas" })]));
+    await vi.waitFor(() => expect(warm).toHaveBeenCalledTimes(2));
     expect(loadWarm).toHaveBeenCalledTimes(1);
     expect(load).not.toHaveBeenCalled();
   });

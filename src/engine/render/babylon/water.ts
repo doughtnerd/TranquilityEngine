@@ -118,7 +118,7 @@ fn mycoNoise(p: vec2f) -> vec3f {
 
 /**
  * The wave sum in GLSL (WebGL2): the vec4 uniforms unpacked into `GERSTNER_BODY`'s flat
- * `WAVE_STRIDE` layout, then `GERSTNER_BODY` itself (the text three.js's shader and the CPU sampler's
+ * `WAVE_STRIDE` layout, then `GERSTNER_BODY` itself (the text the WGSL path and the CPU sampler's
  * tests use), so the fallback draws exactly the waves `WaterSurface.sample` reports.
  */
 const GLSL_GERSTNER = /* glsl */ `
@@ -474,14 +474,9 @@ export class BabylonWater {
     m.environmentIntensity = probe ? probe.intensity : 1;
   }
 
-  /** The drawn surfaces (tests, diagnostics). */
+  /** The drawn surfaces (diagnostics). */
   state(): { surfaces: number } {
     return { surfaces: this.entries.size };
-  }
-
-  /** @internal Tests: the drawn meshes. */
-  meshes(): Mesh[] {
-    return [...this.entries.values()].map((e) => e.mesh);
   }
 
   release(w: WaterSurface): void {

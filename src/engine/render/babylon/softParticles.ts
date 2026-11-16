@@ -119,9 +119,3 @@ if (mycoSoft.w > 0.5) {
         };
   }
 }
-
-/** The soft fade the shader computes, for tests: 0–1 from the two view depths (scene 0: nothing drawn). */
-export function softFade(sceneDepth: number, particleDepth: number, softness: number): number {
-  const scene = Math.abs(sceneDepth) || 1e9;
-  return Math.min(1, Math.max(0, (scene - Math.abs(particleDepth)) / Math.max(softness, 1e-4)));
-}

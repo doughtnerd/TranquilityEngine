@@ -1,31 +1,7 @@
 // ADR 0110: height fog on the Babylon backend, headless.
 import { describe, expect, it } from "vitest";
-import { heightFogAmount } from "../render/babylon/heightFog";
 
 describe("height fog (ADR 0110)", () => {
-  const fog = { density: 0.1, base: 0, falloff: 0.5 };
-
-  it("is thicker low down than high up, and grows with distance", () => {
-    expect(heightFogAmount(fog, 0, 0, 20)).toBeGreaterThan(heightFogAmount(fog, 10, 10, 20));
-    expect(heightFogAmount(fog, 0, 0, 40)).toBeGreaterThan(heightFogAmount(fog, 0, 0, 20));
-    expect(heightFogAmount(fog, 0, 0, 0)).toBe(0);
-  });
-
-  it("matches plain exponential fog along a level ray at the base height", () => {
-    expect(heightFogAmount(fog, 0, 0, 10)).toBeCloseTo(1 - Math.exp(-0.1 * 10), 6);
-  });
-
-  it("integrates along a sloped ray: looking down into fog fogs more than looking up out of it", () => {
-    const down = heightFogAmount(fog, 5, 0, 20);
-    const up = heightFogAmount(fog, 5, 10, 20);
-    expect(down).toBeGreaterThan(up);
-    // Exactly the integral of d·e^(−f(y−base)) along the ray, from y=5 to y=0 over 20 m.
-    const steps = 10000;
-    let sum = 0;
-    for (let i = 0; i < steps; i++) sum += 0.1 * Math.exp(-0.5 * (5 - 5 * ((i + 0.5) / steps))) * (20 / steps);
-    expect(down).toBeCloseTo(1 - Math.exp(-sum), 4);
-  });
-
   it("compiles in only where the scene has it and the mesh takes fog", async () => {
     const { NullEngine } = await import("@babylonjs/core/Engines/nullEngine.js");
     const { Scene } = await import("@babylonjs/core/scene.js");

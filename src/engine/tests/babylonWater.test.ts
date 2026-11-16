@@ -42,6 +42,8 @@ describe("water surfaces on Babylon (ADR 0075 stage 6)", () => {
   });
 
   const world = () => engine.world as unknown as World;
+  /** The surfaces' meshes in the test's Babylon scene, in the order they were made. */
+  const waterMeshes = () => scene.meshes.filter((m) => m.name === "myco-water") as import("@babylonjs/core/Meshes/mesh.js").Mesh[];
   const surface = (props: Partial<WaterSurface> = {}) => {
     const node = GameObject.create("sea");
     const w = node.addBehavior(WaterSurface);
@@ -54,7 +56,7 @@ describe("water surfaces on Babylon (ADR 0075 stage 6)", () => {
     const w = surface({ resolution: 16, size: 50 });
     water.sync(world(), [w]);
     expect(water.state()).toEqual({ surfaces: 1 });
-    const mesh = water.meshes()[0];
+    const mesh = waterMeshes()[0];
     expect(mesh.getTotalVertices()).toBe(16 * 16);
     expect(mesh.getTotalIndices()).toBe(15 * 15 * 6);
     const pos = mesh.getVerticesData(VertexBuffer.PositionKind)!;
@@ -80,21 +82,21 @@ describe("water surfaces on Babylon (ADR 0075 stage 6)", () => {
   it("rebuilds the grid when the size or resolution changes, and halves it on the low shader level", () => {
     const w = surface({ resolution: 16, size: 50 });
     water.sync(world(), [w]);
-    const first = water.meshes()[0];
+    const first = waterMeshes()[0];
     water.sync(world(), [w]);
-    expect(water.meshes()[0]).toBe(first); // unchanged: kept
+    expect(waterMeshes()[0]).toBe(first); // unchanged: kept
     w.resolution = 32;
     water.sync(world(), [w]);
-    expect(water.meshes()[0].getTotalVertices()).toBe(32 * 32);
+    expect(waterMeshes()[0].getTotalVertices()).toBe(32 * 32);
     expect(scene.meshes.filter((m) => m.name === "myco-water")).toHaveLength(1);
     w.size = 80;
     water.sync(world(), [w]);
-    expect(Math.max(...water.meshes()[0].getVerticesData(VertexBuffer.PositionKind)!)).toBeCloseTo(40, 6);
+    expect(Math.max(...waterMeshes()[0].getVerticesData(VertexBuffer.PositionKind)!)).toBeCloseTo(40, 6);
     expect(babylonWaterResolution(128, "high")).toBe(128);
     expect(babylonWaterResolution(128, "low")).toBe(64);
     Graphics._apply("Low");
     water.sync(world(), [w]);
-    expect(water.meshes()[0].getTotalVertices()).toBe(16 * 16);
+    expect(waterMeshes()[0].getTotalVertices()).toBe(16 * 16);
   });
 
   it("follows the node and hides with the component", () => {
@@ -102,7 +104,7 @@ describe("water surfaces on Babylon (ADR 0075 stage 6)", () => {
     w.node.transform!.position.set(3, 2, -5);
     engine.step(1 / 60);
     water.sync(world(), [w]);
-    const mesh = water.meshes()[0];
+    const mesh = waterMeshes()[0];
     const p = mesh.getAbsolutePosition();
     expect([p.x, p.y, p.z]).toEqual([3, 2, -5]);
     expect(mesh.isEnabled()).toBe(true);
@@ -118,7 +120,7 @@ describe("water surfaces on Babylon (ADR 0075 stage 6)", () => {
     water.dispose();
     water = new BabylonWater(scene, () => hit);
     water.sync(world(), [w]);
-    const m = water.meshes()[0].material as import("@babylonjs/core/Materials/PBR/pbrMaterial.js").PBRMaterial;
+    const m = waterMeshes()[0].material as import("@babylonjs/core/Materials/PBR/pbrMaterial.js").PBRMaterial;
     expect(m.sideOrientation).toBeNull(); // the scene's default front face (ADR 0164)
     expect(m.maxSimultaneousLights).toBe(8);
     expect(m.transparencyMode).toBe(0);
@@ -274,6 +276,8 @@ describe("the water Babylon draws is the water physics samples (pirates: hulls u
   });
 
   const world = () => engine.world as unknown as World;
+  /** The surfaces' meshes in the test's Babylon scene, in the order they were made. */
+  const waterMeshes = () => scene.meshes.filter((m) => m.name === "myco-water") as import("@babylonjs/core/Meshes/mesh.js").Mesh[];
 
   /** The uniforms the material's wave plugin binds for a draw, by name. */
   function bound(material: PBRMaterial): Record<string, V4> {
@@ -289,7 +293,7 @@ describe("the water Babylon draws is the water physics samples (pirates: hulls u
     const w = GameObject.create("sea").addBehavior(WaterSurface);
     engine.step(1 / 60);
     water.sync(world(), [w]);
-    const m = water.meshes()[0].material as PBRMaterial;
+    const m = waterMeshes()[0].material as PBRMaterial;
     expect(m.shaderLanguage).toBe(ShaderLanguage.GLSL); // NullEngine compiles GLSL, as WebGL2 does
     const plugin = m.pluginManager?.getPlugin("MycoWater");
     expect(plugin).toBeTruthy();
@@ -306,7 +310,7 @@ describe("the water Babylon draws is the water physics samples (pirates: hulls u
     const time = waterTime(world());
     expect(time).toBeGreaterThan(1);
     water.sync(world(), [w]);
-    const u = bound(water.meshes()[0].material as PBRMaterial);
+    const u = bound(waterMeshes()[0].material as PBRMaterial);
 
     const packed = w._pack(time);
     for (const language of [ShaderLanguage.GLSL, ShaderLanguage.WGSL]) {

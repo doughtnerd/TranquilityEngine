@@ -2,8 +2,8 @@
  * The last pass of every camera on the Babylon backend (ADR 0051, 0075): colour grading
  * (brightness, contrast, saturation, hue), the vignette, tone mapping with exposure, and the sRGB
  * encode. Babylon's image processing has no AgX (the PostProcessing default), so the pass is ours,
- * with three.js's AgX, ACES Filmic and Khronos PBR Neutral curves, so a scene looks the same on
- * either backend. Written in WGSL for WebGPU and GLSL for the WebGL2 fallback.
+ * with the AgX, ACES Filmic and Khronos PBR Neutral curves three.js uses (the look scenes were made
+ * with before ADR 0081). Written in WGSL for WebGPU and GLSL for the WebGL2 fallback.
  */
 import { ShaderStore } from "@babylonjs/core/Engines/shaderStore.js";
 
@@ -109,7 +109,7 @@ fn main(input: FragmentInputs) -> FragmentOutputs {
   let luma = dot(c, vec3f(0.2126, 0.7152, 0.0722));
   c = max(mix(vec3f(luma), c, 1.0 + uniforms.grade.z), vec3f(0.0));
   if (uniforms.tone.z > 0.5) {
-    // The postprocessing library's default vignette, as three.js draws it (ADR 0051).
+    // The postprocessing library's default vignette (ADR 0051).
     let d = distance(input.vUV, vec2f(0.5));
     c = c * smoothstep(0.8, uniforms.vignetteShape.y * 0.799, d * (uniforms.vignetteShape.x + uniforms.vignetteShape.y));
   }

@@ -407,7 +407,7 @@ export class BabylonFrame {
         graph.addTask(task);
         this.overlayTask = task;
       }
-      // The game's UI covers the editor's helpers, as on three.js, where they're part of the 3D scene.
+      // The game's UI covers the editor's helpers.
       if (v.ui && this.ui) {
         const ui = this.ui;
         const task = new FrameGraphDrawTask(`ui${i}`, graph, () => ui());
@@ -678,11 +678,6 @@ export class BabylonFrame {
       const b = v.backdrop;
       f.backdrop = b ? [b.r, b.g, b.b, 1] : [0, 0, 0, 0];
     });
-  }
-
-  /** Tests and the editor: whether the last frame's first camera ran any effect. */
-  state(views: CameraView[]): { composed: boolean; loaded: boolean } {
-    return { composed: !!views[0]?.effects, loaded: this.ready };
   }
 
   dispose(): void {

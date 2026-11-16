@@ -1,7 +1,6 @@
 /**
  * Per-cascade shadow caster culling for Babylon's cascaded shadow maps (ADR 0075). Babylon draws every
- * caster into every cascade; three.js's CSM culls each cascade's shadow camera like any camera. This
- * hands the shadow map, per cascade (layer), only the casters whose bounds reach that cascade's box:
+ * caster into every cascade. This hands the shadow map, per cascade (layer), only the casters whose bounds reach that cascade's box:
  * inside its four sides and nearer the light than its far side. The near side isn't tested: with depth
  * clamping a caster between the light and the box still shadows it.
  */

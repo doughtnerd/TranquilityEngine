@@ -55,7 +55,7 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
   }
 
   /** A renderer on `engine`, which it then owns (disposes); `size` is the thumbnails' pixels. */
-  constructor(
+  private constructor(
     private readonly engine: AbstractEngine,
     readonly size: number = THUMBNAIL_SIZE,
     options: ThumbnailOptions = {},

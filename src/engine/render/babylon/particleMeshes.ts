@@ -28,7 +28,7 @@ import type { DrawMaterial, EmitterDraw } from "./particleDraw";
 /**
  * The unlit material mesh-based particles draw with when the emitter has no material asset: its
  * texture times the particle colour (vertex or instance colour), transparent, without depth writes,
- * blended like three.js's MeshBasicMaterial (additive; normal; premultiplied, which multiplies the
+ * blended additive, normal or premultiplied (which multiplies the
  * colour by alpha in the shader). A StandardMaterial with lighting off and a white emissive colour
  * gives texture × colour unclamped, and treats colour spaces exactly as Babylon's particle shader
  * does (the same image-processing step), so these particles look like the billboards: linear colour
@@ -59,11 +59,9 @@ function prepare(mesh: Mesh): void {
 // --- mesh particles ---------------------------------------------------------------------------------
 
 /**
- * Mesh mode: each particle is a thin instance of the model's first mesh (as the three.js backend uses
- * its first geometry), at the particle's world position, scaled by its size, turned by its rotation
+ * Mesh mode: each particle is a thin instance of the model's first mesh, at the particle's world position, scaled by its size, turned by its rotation
  * about world +Y, and tinted by its colour (the instance colour, which Babylon's standard and PBR
- * materials multiply in). three.quarks draws mesh particles unturned; the rotation is used here so
- * Start Rotation and Rotation over Life mean something. Flipbook tiles aren't applied to meshes.
+ * materials multiply in). The rotation makes Start Rotation and Rotation over Life mean something. Flipbook tiles aren't applied to meshes.
  */
 export class InstanceDraw implements EmitterDraw {
   readonly kind = "instances";
@@ -72,8 +70,8 @@ export class InstanceDraw implements EmitterDraw {
   readonly mesh: Mesh;
   readonly meshes: readonly Mesh[];
   /** Per instance: a 4×4 matrix (Babylon's layout, translation in 12-14) and linear RGBA. */
-  matrices = new Float32Array(0);
-  colors = new Float32Array(0);
+  private matrices = new Float32Array(0);
+  private colors = new Float32Array(0);
 
   constructor(
     scene: Scene,
@@ -179,10 +177,9 @@ const point = { x: 0, y: 0, z: 0 };
  *   `blendTiles` draws a second quad on the next flipbook tile (see `particleDraw.ts`).
  * - `trail`: a ribbon per particle through its trail history (`SimParticle.trail`, newest first), one
  *   quad per segment, `size × widthAt(u)` wide (u 0 at the head, 1 at the tail), coloured with the
- *   particle's colour; U runs along the ribbon (1 at the head, as three.quarks), V across it, within
- *   the particle's flipbook tile. three.quarks records each point's colour and size when it is laid
- *   down; the simulation keeps positions only, so the whole ribbon takes the particle's current
- *   colour and size.
+ *   particle's colour; U runs along the ribbon (1 at the head), V across it, within
+ *   the particle's flipbook tile. The simulation keeps positions only, so the whole ribbon takes the
+ *   particle's current colour and size.
  *
  * Both face one camera, worked out on the CPU: the scene's active camera (the World's first view;
  * the preview's camera). Other views (split screen) see the same geometry, turned towards that one.
@@ -193,12 +190,12 @@ export class QuadDraw implements EmitterDraw {
   readonly mesh: Mesh;
   readonly meshes: readonly Mesh[];
   /** Quads drawn by the last update. */
-  quads = 0;
-  positions = new Float32Array(0);
-  colors = new Float32Array(0);
-  uvs = new Float32Array(0);
+  private quads = 0;
+  private positions = new Float32Array(0);
+  private colors = new Float32Array(0);
+  private uvs = new Float32Array(0);
   /** Per-vertex normals, only with a material asset: a lit or graph material reads the normal (a Fresnel node, lighting), and its shader doesn't compile without one. */
-  normals: Float32Array | null = null;
+  private normals: Float32Array | null = null;
   private quadCap = 0;
   /** The normal `vertex` writes, set per quad or trail point. */
   private nx = 0;
@@ -358,7 +355,7 @@ export class QuadDraw implements EmitterDraw {
 
   /**
    * One quad centred on (px, py, pz) spanning ±(ax, ay, az) and ±(bx, by, bz), on flipbook `tile`
-   * (tile 0 is the image's top left, as three.js; the texture is loaded with invertY, so V 1 is the
+   * (tile 0 is the image's top left; the texture is loaded with invertY, so V 1 is the
    * image's top).
    */
   private quad(q: number, px: number, py: number, pz: number, ax: number, ay: number, az: number, bx: number, by: number, bz: number, tile: number, r: number, g: number, b: number, a: number): void {

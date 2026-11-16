@@ -403,7 +403,7 @@ export class WebGl2Sorter {
     gl.bindVertexArray(null);
   }
 
-  /** Read the sorted pairs back (tests; slow). */
+  /** Read the sorted pairs back (the parity tool, bench/particles; slow). */
   read(): Float32Array {
     const gl = this.gl;
     const out = new Float32Array(this.layout.width * this.layout.height * 4);

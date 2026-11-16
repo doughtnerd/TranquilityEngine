@@ -1,6 +1,6 @@
 /**
  * @internal Editor: shader graph previews on the Babylon backend (ADR 0046–0048, 0075 stage 7), with the
- * same API as `render/MaterialPreview.ts` (three.js). `MaterialPreview` is a live preview of a graph on a
+ * API `render/previewRouting.ts` routes to. `MaterialPreview` is a live preview of a graph on a
  * built-in mesh in a canvas of its own, lit like a default scene (a sun, soft ambient light and the studio
  * environment); drag to turn the mesh. `NodePreviewRenderer` draws every node's preview with one offscreen
  * engine, copied into each node's 2D canvas. Graphs compile to WGSL.
@@ -132,7 +132,7 @@ export class MaterialPreview {
     const material = this.mesh?.material ?? null;
     this.mesh?.dispose();
     const mesh = meshOf(scene, `preview.${this.kind}`, meshesIfLoaded(`builtin:${this.kind}`)![0]);
-    // The plane leans back (three's mesh.rotation.x = -60°) so it shows its face to the camera's tilt.
+    // The plane leans back 60° about X so it shows its face to the camera's tilt.
     const a = this.kind === "plane" ? -Math.PI / 3 : 0;
     const c = Math.cos(a), s = Math.sin(a);
     mesh.freezeWorldMatrix(Matrix.FromArray([1, 0, 0, 0, 0, c, s, 0, 0, -s, c, 0, 0, 0, 0, 1]));

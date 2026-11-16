@@ -19,11 +19,11 @@
  *   iridescence, and specular intensity (the F0 factor).
  *
  * Shadows: a graph with a vertex offset gives its material a `ShadowDepthWrapper`, so shadow maps draw
- * the displaced mesh, as the three.js backend's depth and distance materials do. The wrapper is
+ * the displaced mesh. The wrapper is
  * standalone over a second, unlit PBR material carrying the graph's vertex code only (no surface code),
  * and Babylon splices its shadow-map code into that material's shaders: plain, cascaded and point-light
  * (cube) maps alike. Graphs without an offset draw their shadows with Babylon's own shadow shader.
- * Like three.js, shadows ignore the graph's alpha clip.
+ * Shadows ignore the graph's alpha clip.
  *
  * Graphs are WebGPU only (they compile to WGSL alone, ADR 0081): on the WebGL2 fallback the plugin
  * turns itself off and the material draws as plain PBR (with plain shadows), with one warning from the
@@ -440,7 +440,7 @@ class MycoGraphPlugin extends MaterialPluginBase {
   }
 }
 
-let whiteCache = new WeakMap<Scene, RawTexture>();
+const whiteCache = new WeakMap<Scene, RawTexture>();
 
 /** A 1×1 white texture: what an empty texture slot reads. */
 function white(scene: Scene): RawTexture {
@@ -450,11 +450,6 @@ function white(scene: Scene): RawTexture {
     whiteCache.set(scene, t);
   }
   return t;
-}
-
-/** @internal Forget cached textures (tests). */
-export function _resetGraphTextures(): void {
-  whiteCache = new WeakMap();
 }
 
 /**

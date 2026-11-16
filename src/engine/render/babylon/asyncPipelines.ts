@@ -28,13 +28,6 @@ interface GPUDevice {
   createRenderPipelineAsync(descriptor: GPURenderPipelineDescriptor): Promise<GPURenderPipeline>;
 }
 
-let enabled = true;
-
-/** @internal Measurements only: off, Worlds made after this compile warm-up pipelines as Babylon does (stalling). */
-export function _setAsyncPipelines(on: boolean): void {
-  enabled = on;
-}
-
 /** Thrown from the pipeline lookup to skip a draw whose pipeline is compiling. */
 const SKIP = Symbol("myco.skipDraw");
 
@@ -59,11 +52,7 @@ export class AsyncPipelines {
   /** Compiles started and not finished, by cache token (one per distinct state). */
   private readonly pending = new Map<unknown, Promise<void>>();
   private readonly restore: () => void;
-  /** Pipelines compiled asynchronously so far (for the check page and tests). */
-  compiled = 0;
-  /** Draws skipped while their pipeline compiled. */
-  skipped = 0;
-  /** Of those, draws that weren't the warmer's own (`shown()`): content a held first frame (`FirstFrames`) would have shown. */
+  /** Draws skipped while their pipeline compiled that weren't the warmer's own (`shown()`): content a held first frame (`FirstFrames`) would have shown. */
   skippedShown = 0;
 
   private constructor(cache: PipelineCache, device: GPUDevice, engine: WebGPUInternals, active: () => boolean, shown: () => boolean) {
@@ -88,13 +77,11 @@ export class AsyncPipelines {
           .then((pipeline) => {
             param.pipeline = pipeline;
             cache._setRenderPipeline(param);
-            this.compiled++;
           })
           .catch((err: Error) => console.warn(`[myco] a warm-up pipeline didn't compile: ${err.message}`))
           .finally(() => this.pending.delete(token));
         this.pending.set(token, done);
       }
-      this.skipped++;
       if (shown()) this.skippedShown++;
       throw SKIP;
     };
@@ -118,14 +105,9 @@ export class AsyncPipelines {
   static install(engine: AbstractEngine, active: () => boolean, shown: () => boolean = () => false): AsyncPipelines | null {
     const e = engine as unknown as WebGPUInternals;
     const cache = e._cacheRenderPipeline;
-    if (!enabled || !engine.isWebGPU || !cache || !e._device || typeof e._draw !== "function") return null;
+    if (!engine.isWebGPU || !cache || !e._device || typeof e._draw !== "function") return null;
     if (typeof cache._lookupRenderPipeline !== "function" || typeof cache._buildRenderPipelineDescriptor !== "function" || typeof cache._setRenderPipeline !== "function") return null;
     return new AsyncPipelines(cache, e._device, e, active, shown);
-  }
-
-  /** Compiles still running. */
-  get busy(): boolean {
-    return this.pending.size > 0;
   }
 
   /** Resolves once every compile started so far has finished. */

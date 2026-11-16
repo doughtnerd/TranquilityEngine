@@ -4,8 +4,7 @@ import { expect, requireWebGPU, test, type Locator, type Page } from "./fixtures
 import { installFakeFolders, nextFolder, readFile } from "./fakeFolders";
 
 // Shader sub-graphs, custom functions, node previews, copy and paste, groups, notes and the
-// minimap (ADR 0048), and scripts setting a renderer's material properties (ADR 0049), on the
-// 3D Playground (its water graph uses the ripple sub-graph, which holds a Custom Function node).
+// minimap (ADR 0048), on the 3D Playground (its water graph uses the ripple sub-graph, which holds a Custom Function node).
 
 test.describe.configure({ timeout: 60_000 }); // WebKit renders on the CPU
 
@@ -21,9 +20,9 @@ function sampleFiles(dir = SAMPLE): Record<string, string> {
   return out;
 }
 
-type Renderer = { node: { name: string }; setMaterialProperty(name: string, value: unknown): void; clearMaterialProperties(): void };
+/** The editor's World on `window`; its render surface reports what it draws in engine terms (ADR 0128). */
 type Hooks = {
-  engine?: { world: { time: { frameCount: number }; render: { renderer: { meshes: null | { meshRenderers: Map<Renderer, { meshes: { material: { unlit: boolean; uniqueId: number } | null }[] }> } } | null } } };
+  engine?: { world: { time: { frameCount: number }; render: { diagnostics(): { drawn: { meshes: { node: { name: string }; materials: { unlit: boolean }[] }[] }; stats: { programs: number } } } } };
 };
 
 function trackErrors(page: Page, allow: RegExp[] = []): string[] {
@@ -59,12 +58,14 @@ const node = (page: Page, id: string) => page.locator(`.sg-node[data-node="${id}
 const json = async (page: Page, path: string) => JSON.parse((await readFile(page, path)) ?? "{}");
 const card = (page: Page, name: string) => page.locator(".inspector-body .component").filter({ has: page.getByRole("checkbox", { name: `${name} enabled`, exact: true }) });
 const row = (page: Page, name: string) => page.locator(".tree .row", { has: page.locator(".name", { hasText: new RegExp(`^${name}$`) }) });
-/** The material a node's mesh draws with: Babylon lit/unlit and id. */
+/** Whether a node's mesh draws lit or unlit, in engine material terms. */
 const meshMaterial = (page: Page, name: string) =>
   page.evaluate((n) => {
-    for (const [r, e] of (window as unknown as Hooks).engine!.world.render.renderer?.meshes?.meshRenderers ?? []) if (r.node.name === n) { const m = e.meshes[0]?.material; return m ? `${m.unlit ? "unlit" : "lit"}:${m.uniqueId}` : null; }
-    return null;
+    const m = (window as unknown as Hooks).engine!.world.render.diagnostics().drawn.meshes.find((d) => d.node.name === n)?.materials[0];
+    return m ? (m.unlit ? "unlit" : "lit") : null;
   }, name);
+/** The shader programs the renderer has compiled: a rebuilt material's new shader adds one. */
+const programs = (page: Page) => page.evaluate(() => (window as unknown as Hooks).engine!.world.render.diagnostics().stats.programs);
 
 test("sub-graphs rebuild the materials using them; custom functions, copy and paste, groups, notes and previews save to the file", async ({ page, browserName, webgpu }) => {
   test.skip(browserName !== "chromium", "folders open writably through File System Access in Chromium only");
@@ -78,8 +79,8 @@ test("sub-graphs rebuild the materials using them; custom functions, copy and pa
   const material = card(page, "MeshRenderer").getByRole("combobox", { name: "material" });
   await material.fill("materials/water.material.json");
   await material.press("Enter");
-  await expect.poll(async () => (await meshMaterial(page, "Ground"))?.split(":")[0]).toBe("lit");
-  const before = await meshMaterial(page, "Ground");
+  await expect.poll(() => meshMaterial(page, "Ground")).toBe("lit");
+  const before = await programs(page);
 
   // Editing the sub-graph rebuilds the Ground's material.
   await openGraph(page, "ripple.shadersubgraph.json");
@@ -89,7 +90,7 @@ test("sub-graphs rebuild the materials using them; custom functions, copy and pa
   await panel.getByLabel("Rings value").fill("12");
   await panel.getByLabel("Rings value").press("Enter");
   await expect.poll(async () => (await json(page, "Playground/shaders/ripple.shadersubgraph.json")).properties[0].value).toBe(12);
-  await expect.poll(() => meshMaterial(page, "Ground")).not.toBe(before);
+  await expect.poll(() => programs(page)).toBeGreaterThan(before); // its shader compiles again
 
   // The Custom Function node's code is edited in the side bar; a body that doesn't compile shows the compiler's error.
   await node(page, "ripple").locator(".sg-node-header").click();
@@ -137,7 +138,7 @@ test("sub-graphs rebuild the materials using them; custom functions, copy and pa
   expect(errors).toEqual([]);
 });
 
-test("node previews draw, the minimap pans the canvas, and scripts override a renderer's material properties", async ({ page }) => {
+test("node previews draw and the minimap pans the canvas", async ({ page }) => {
   const errors = trackErrors(page);
   await openPlayground(page, false);
   await openGraph(page, "water.shadergraph.json");
@@ -157,16 +158,7 @@ test("node previews draw, the minimap pans the canvas, and scripts override a re
   await page.mouse.up();
   await expect.poll(() => viewport.getAttribute("style")).not.toBe(before);
 
-  // A script's override gives the Pillar its own copy of the graph material; clearing it shares the asset's again.
-  const shared = await meshMaterial(page, "Pillar");
-  expect(shared).toMatch(/^lit:/);
-  await page.evaluate(() => {
-    for (const [r] of (window as unknown as Hooks).engine!.world.render.renderer?.meshes?.meshRenderers ?? []) if (r.node.name === "Pillar") r.setMaterialProperty("Tint", [1, 0, 0]);
-  });
-  await expect.poll(() => meshMaterial(page, "Pillar")).not.toBe(shared);
-  await page.evaluate(() => {
-    for (const [r] of (window as unknown as Hooks).engine!.world.render.renderer?.meshes?.meshRenderers ?? []) if (r.node.name === "Pillar") r.clearMaterialProperties();
-  });
-  await expect.poll(() => meshMaterial(page, "Pillar")).toBe(shared);
+  // The Pillar draws lit with its graph material (a script override's own copy is materialLibrary.test.ts's).
+  expect(await meshMaterial(page, "Pillar")).toBe("lit");
   expect(errors).toEqual([]);
 });

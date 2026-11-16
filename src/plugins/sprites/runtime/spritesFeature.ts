@@ -11,6 +11,6 @@ export const createSpritesFeature: BabylonFeatureFactory = (host) =>
     sortingLayers: () => host.settings.render.sortingLayers,
     texture: (path) => host.materials.texture(path),
     loadedTexture: (path) => host.materials.loadedTexture(path),
-    drawPolicy: () => host.drawPolicy(),
+    drawPolicy: () => host.policy().drawPolicy,
     warnOnce: (key, message) => host.warnOnce(key, message),
   });

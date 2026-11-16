@@ -234,22 +234,6 @@ export class MeshBatches {
     for (const b of this.batches.values()) if (b.kind === "thin" && b.castShadows && b.slots.length) yield b.source;
   }
 
-  /** The batch sources Babylon draws (for diagnostics and the variant report). */
-  sources(): Mesh[] {
-    return [...this.batches.values()].map((b) => b.source);
-  }
-
-  /** Batches and how many drawables each has (benchmarks, tests). */
-  stats(): { batches: number; instanced: number; thin: number; drawables: number } {
-    let instanced = 0, thin = 0, drawables = 0;
-    for (const b of this.batches.values()) {
-      if (b.kind === "thin") thin++;
-      else instanced++;
-      drawables += b.members;
-    }
-    return { batches: this.batches.size, instanced, thin, drawables };
-  }
-
   dispose(): void {
     for (const b of this.batches.values()) b.source.dispose();
     this.batches.clear();

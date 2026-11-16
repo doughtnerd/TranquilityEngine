@@ -26,7 +26,7 @@ import { BabylonEditorGizmo } from "./editorGizmo";
 import { BabylonEditorGuides } from "./editorGuides";
 import { BabylonEditorIcons } from "./editorIcons";
 
-/** Icons (camera, light and particle system) draw above every sprite; meshes below every sprite (as on three.js). */
+/** Icons (camera, light and particle system) draw above every sprite; meshes below every sprite. */
 const ICON_ORDER = 1e9;
 const MESH_ORDER = -1e12;
 

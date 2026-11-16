@@ -181,7 +181,7 @@ export class ThumbnailScenes {
 
   private camera(scene: Scene, bounds: Bounds | null, direction: readonly number[], fallback: Bounds): { camera: TargetCamera; target: [number, number, number] } {
     const camera = new TargetCamera("preview.camera", Vector3.Zero(), scene, false);
-    camera.fov = (FOV * Math.PI) / 180; // vertical, like three's
+    camera.fov = (FOV * Math.PI) / 180; // vertical, like the engine's
     camera.fovMode = Camera.FOVMODE_VERTICAL_FIXED;
     const view = frameView(bounds ?? fallback, FOV, direction);
     camera.minZ = view.near;

@@ -1,5 +1,5 @@
 // Internal (ADR 0060): runs a compiled particle program's bindings for one playing effect, for the
-// particle renderer and the editor's effect preview. Live bindings write boxes the quarks
+// particle renderer and the editor's effect preview. Live bindings write boxes the simulation's
 // generators read every frame; the others are baked into the settings the effect is built from,
 // and a change asks for a rebuild.
 import type { GraphInputValue } from "../../scene/particleGraph";

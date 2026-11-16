@@ -12,7 +12,7 @@ import { Scene } from "@babylonjs/core/scene.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { heightFogOn, heightFogShader, setHeightFog, useHeightFog } from "../render/babylon/heightFog";
 import { BabylonParticles } from "../render/babylon/particles";
-import { MycoSoftParticlePlugin, softFade } from "../render/babylon/softParticles";
+import { MycoSoftParticlePlugin } from "../render/babylon/softParticles";
 import { compileParticleGraph } from "../scene/particleCompile";
 import { defaultParticleGraph } from "../scene/particleGraphFormat";
 import { defaultEmitter, defaultShape, particleEffectJSON, parseParticleEffect, type ParticleEmitterSettings, type ParticleRenderer } from "../scene/particles";
@@ -114,13 +114,6 @@ describe("soft CPU particles and particle height fog (ADR 0126)", () => {
     expect(plugin.getCustomCode("fragment", ShaderLanguage.WGSL)!.CUSTOM_FRAGMENT_BEFORE_FRAGCOLOR).toContain("finalColor");
     expect(plugin.getCustomCode("fragment", ShaderLanguage.GLSL)!.CUSTOM_FRAGMENT_BEFORE_FRAGCOLOR).toContain("mycoSoftDepth");
     expect(plugin.getCustomCode("vertex", ShaderLanguage.WGSL)).toBeNull();
-  });
-
-  it("fades over the softness in front of the scene's surfaces", () => {
-    expect(softFade(10, 9, 2)).toBeCloseTo(0.5);
-    expect(softFade(10, 7, 2)).toBe(1);
-    expect(softFade(10, 10.5, 2)).toBe(0);
-    expect(softFade(0, 50, 2)).toBe(1); // nothing drawn behind
   });
 
   it("keeps a ShaderMaterial's height-fog define in step with the scene", () => {

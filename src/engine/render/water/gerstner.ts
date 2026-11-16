@@ -12,7 +12,7 @@
  * - `gerstner` is that sum in TypeScript for the CPU, and `sampleWaves` inverts the horizontal
  *   displacement so a height can be asked for at a world XZ position.
  *
- * Everything is in the water's local XZ plane (y up). No three.js here: servers sample waves too.
+ * Everything is in the water's local XZ plane (y up). No renderer here: servers sample waves too.
  */
 
 /** One wave of a water surface. */
