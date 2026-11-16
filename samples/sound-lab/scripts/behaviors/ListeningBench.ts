@@ -1,5 +1,5 @@
 import { Audio, AudioSource, GameBehavior, GameObject, Input, Time, behavior, field } from "myco";
-import { exposeKeyScopes, keysClaimed } from "../keyScope";
+import { keysClaimed } from "../keyScope";
 
 /** Seconds between the sounds of a sequence. Each is scheduled with `at` on the audio clock, so the spacing is exact. */
 const ladderGap = 1.25;

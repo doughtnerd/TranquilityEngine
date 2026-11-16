@@ -17,10 +17,9 @@ import { localPoseFromMatrix, matrixFrom, type LocalPose } from "../render/gizmo
 import { ViewportHandle, type EditorOverlay, type EditorViewport } from "../render/editorViewport";
 import type { RenderPolicyPort } from "../render/renderPolicy";
 import type { RenderDiagnostics } from "../render/RenderSurface";
-import { MeshRenderer, SpriteRenderer } from "../render/components";
+import { MeshRenderer } from "../render/components";
 import { meshesIfLoaded, type ModelMesh } from "../scene/models";
 import type { GameObject } from "../scene/GameObject";
-import type { UICanvas, UIComponentType } from "../ui/components";
 import { SceneInstance, _instantiatedPrefabOf, applyTransform, assignField, instantiateFile, type InstantiateHooks, type SceneFile } from "../scene/SceneLoader";
 import type { Schema } from "../core/data";
 import { _undefineInput, _writeSyntheticInput, definedInputs } from "../net/input";

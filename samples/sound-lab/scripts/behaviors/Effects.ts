@@ -1,5 +1,5 @@
 import { Audio, GameBehavior, Input, behavior, field } from "myco";
-import { exposeKeyScopes, keysClaimed } from "../keyScope";
+import { keysClaimed } from "../keyScope";
 
 /**
  * Key 5: a loud noise burst on SFX, whose bus has a compressor. While it plays, the project's ducking rule lowers

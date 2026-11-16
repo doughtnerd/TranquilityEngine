@@ -1,11 +1,10 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { Engine, GameObject, Input, defineInput, defineSystem, f32, i32, u8, type BootstrapConfig, type BootstrapSetting, type ProjectSettingsInput } from "../engine";
 import { World } from "../engine/core/World";
 import { engineWorld, netWorldInfo, worldViewStates } from "../engine/editor";
 import { netSession } from "../engine/net/session";
-import type { LinkConditions } from "../engine/net/Transport";
 import { NetStatsSampler, byCategory, clampConditions, clientLayout, createThinInput, ghostTypeLabel, hostLayout, playBootstrap, withConditions, playWorldSources } from "./netPlay";
 import { OrbitCamera } from "./OrbitCamera";
 import { startPlay } from "./playMode";
@@ -14,9 +13,6 @@ import { editorSettings, useProjectAssets, type EditorProject } from "./projects
 import { replaceScripts } from "./scriptLoader";
 import { openScene, sceneCamera } from "./state";
 import { sampleProject } from "./testing";
-
-/** A loopback transport: it simulates link conditions. */
-type LoopbackTransport = { readonly conditions: Readonly<LinkConditions> };
 
 // Multiplayer play mode (ADR 0033 §9, T15): the play-time bootstrap, thin clients and conditions.
 
@@ -367,6 +363,9 @@ describe("multiplayer play mode", () => {
   });
 
   it("simulates conditions on the clients' and the server's transports, from the start and live", async () => {
+    // The loopback transports read `performance.now()`: fake it from the start, so every link time is on the test's clock.
+    vi.useFakeTimers({ toFake: ["performance"] });
+    onTestFinished(() => void vi.useRealTimers());
     const play = await startPlay({
       editor,
       scene: openScene.value!,
@@ -375,13 +374,28 @@ describe("multiplayer play mode", () => {
       conditions: { latencyMs: 80, jitterMs: 10, lossPercent: 5 },
     });
     try {
-      const conditions = () =>
-        ["Client 1", "Client 2", "Server"].flatMap((name) => netSession(engineWorld(play.engine, name)!)!.transportList().map((t) => (t as unknown as LoopbackTransport).conditions));
-      expect(conditions()).toEqual(Array(3).fill({ latencyMs: 80, jitterMs: 10, loss: 0.05 }));
+      // The round trips each client measures, and the server's peers as the clients report them.
+      const rtts = () => {
+        const info = netWorldInfo(play.engine);
+        return [...info.filter((w) => w.role === "client").map((w) => w.rtt), ...info.find((w) => w.world === "Server")!.peers.map((p) => p.rtt)];
+      };
+      /** Play `seconds` on the faked clock. */
+      const run = (seconds: number) => {
+        for (let i = 0; i < seconds / frame; i++) {
+          vi.advanceTimersByTime(frame * 1000);
+          play.engine.step(frame);
+        }
+      };
+      const between = (lo: number, hi: number) => expect(rtts().every((rtt) => rtt >= lo && rtt <= hi), `${rtts().join(", ")} ms`).toBe(true);
+      run(4);
+      expect(rtts()).toHaveLength(4);
+      between(150, 600); // 80 ms each way, up to 10 ms jitter, a frame's wait (a lost message retried costs a round trip more)
       play.setConditions({ latencyMs: 200, jitterMs: 0, lossPercent: 0 });
-      expect(conditions()).toEqual(Array(3).fill({ latencyMs: 200, jitterMs: 0, loss: 0 }));
+      run(4);
+      between(380, 460);
       play.setConditions({ latencyMs: 0, jitterMs: 0, lossPercent: 0 }); // Off
-      expect(conditions()).toEqual(Array(3).fill({ latencyMs: 0, jitterMs: 0, loss: 0 }));
+      run(4);
+      between(0, 60);
     } finally {
       play.stop();
     }

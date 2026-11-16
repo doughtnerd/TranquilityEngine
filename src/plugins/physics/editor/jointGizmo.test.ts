@@ -2,16 +2,13 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Engine, HingeJoint } from "../../../myco";
 import { AddComponent } from "../../../editor/document";
 import { jointTool } from "./jointGizmo";
-import { FakeRenderSurface } from "../../../engine/render/fakeViewport";
 import type { EditorOverlay } from "../../../engine/editor";
-import { createRegistry } from "../../../editor/sdk/registry";
-import type { ViewportToolContribution } from "../../../editor/sdk";
-import { createViewportToolHost } from "../../../editor/viewportTools";
+import { viewportTools } from "../../../editor/sdk/contributions";
 import { ARC_RADIUS, arcPoints, crossLines, jointWire, perpendicular, rotateAround, zigzag } from "./jointMath";
 import { createNode } from "../../../editor/nodeCreate";
 import { openSceneFile } from "../../../editor/project";
 import { openScene, playState, selection } from "../../../editor/state";
-import { DEMO_SCENE, demoAssets, demoSettings } from "../../../editor/testing";
+import { DEMO_SCENE, demoAssets, demoSettings, sceneViewTools } from "../../../editor/testing";
 
 const close = (a: readonly number[], b: readonly number[]) => a.forEach((v, i) => expect(v).toBeCloseTo(b[i], 6));
 
@@ -93,11 +90,8 @@ describe("joint overlay", () => {
 
 /** The joint tool on `engine`'s scene view, over a fake viewport (ADR 0128): what it draws now, and a function that removes it. */
 function jointView(engine: Engine): { overlay: () => EditorOverlay; stop: () => void } {
-  const tools = createRegistry<ViewportToolContribution>("Viewport tool");
-  tools.register(jointTool);
-  const surface = new FakeRenderSurface();
-  engine.world.render = surface;
+  const off = viewportTools.register(jointTool);
   playState.value = "edit";
-  const stop = createViewportToolHost({ engine, world: engine.world, canvas: null, keys: new EventTarget(), tools });
-  return { overlay: () => surface.adapter.overlay?.() ?? { lines: [], handles: [] }, stop: () => (stop(), (engine.world.render = null)) };
+  const view = sceneViewTools(engine);
+  return { overlay: view.overlay, stop: () => (view.stop(), off()) };
 }

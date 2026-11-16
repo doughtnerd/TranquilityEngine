@@ -1,16 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Engine, PolygonCollider2D } from "../../../myco";
 import { AddComponent, SetField } from "../../../editor/document";
-import { FakeRenderSurface } from "../../../engine/render/fakeViewport";
 import type { EditorOverlay } from "../../../engine/editor";
-import { createRegistry } from "../../../editor/sdk/registry";
-import type { ViewportToolContribution } from "../../../editor/sdk";
-import { createViewportToolHost, selectableOutlines } from "../../../editor/viewportTools";
+import { viewportTools } from "../../../editor/sdk/contributions";
+import { selectableOutlines } from "../../../editor/viewportTools";
 import { colliderTool, editingCollider } from "./colliderGizmo";
 import { MIN_EXTENT, capsule2DHandles, capsule2DPoints, dragCapsule2DHeight, dragCapsule2DRadius, boxCorners, boxHandles, circleHandles, circlePoints, dragBoxEdge, dragCircleRadius, pointInPolygon, polygonArea, toLocal, toWorld, type Pose2D } from "./colliderMath";
 import { openSceneFile } from "../../../editor/project";
 import { openScene, playState, selection } from "../../../editor/state";
-import { DEMO_SCENE, demoAssets, demoSettings } from "../../../editor/testing";
+import { DEMO_SCENE, demoAssets, demoSettings, sceneViewTools } from "../../../editor/testing";
 
 const close = (a: readonly number[], b: readonly number[]) => a.forEach((v, i) => expect(v).toBeCloseTo(b[i], 6));
 const identity: Pose2D = { position: [0, 0, 0], rotation: 0, scale: [1, 1] };
@@ -163,11 +161,8 @@ describe("the overlay with the demo scene open", () => {
 
 /** The collider tool on `engine`'s scene view, over a fake viewport (ADR 0128): what it draws now, and a function that removes it. */
 function colliderView(engine: Engine): { overlay: () => EditorOverlay; stop: () => void } {
-  const tools = createRegistry<ViewportToolContribution>("Viewport tool");
-  tools.register(colliderTool);
-  const surface = new FakeRenderSurface();
-  engine.world.render = surface;
+  const off = viewportTools.register(colliderTool);
   playState.value = "edit";
-  const stop = createViewportToolHost({ engine, world: engine.world, canvas: null, keys: new EventTarget(), tools });
-  return { overlay: () => surface.adapter.overlay?.() ?? { lines: [], handles: [] }, stop: () => (stop(), (engine.world.render = null)) };
+  const view = sceneViewTools(engine);
+  return { overlay: view.overlay, stop: () => (view.stop(), off()) };
 }

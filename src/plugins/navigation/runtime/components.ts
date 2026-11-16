@@ -10,7 +10,6 @@ import { Component } from "../../../engine/core/Component";
 import { Vector3, type Vec3Input } from "../../../engine/core/math";
 import { AssetRef, PlainObject, component, field } from "../../../engine/core/registry";
 import type { ProjectSettings } from "../../../engine/core/settings";
-import type { World } from "../../../engine/core/World";
 import { GameObject } from "../../../engine/scene/GameObject";
 import type { NavAgentBackend, NavChunkBackend, NavGateBackend, NavObstacleBackend, NavTargetBackend } from "./NavigationWorld";
 import { navigationOf, readVec3 } from "./navigationSystems";

@@ -46,7 +46,6 @@ import type { SubMesh } from "@babylonjs/core/Meshes/subMesh.js";
 import { checkPropertyValue, type GraphValue } from "../../scene/shaderGraph";
 import { useEngineLightFalloff } from "./materials";
 import { allKeywordDefines, keywordDefines, type KeywordValue } from "../../scene/shaderKeywords";
-import { TANGENT_FRAME_GLSL } from "../shaderGraph/shaderAsset";
 import { linearColor, SHARED_UNIFORMS, srgbToLinear, type CompiledShaderGraph, type CompiledUniform, type PhysicalInput } from "../shaderGraph/compile";
 
 /** Values every graph material reads, owned by the renderer and updated each frame. */

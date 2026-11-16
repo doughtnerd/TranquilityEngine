@@ -138,11 +138,18 @@ export class AssetHistoryPersistence {
   private scheduled = false;
   private failing = false;
   private stopped = false;
+  /** This history's newest queued disk work (the queue runs in order, so everything before it is done when it is). */
+  private last: Promise<void>;
 
   constructor(private readonly host: AssetHistoryHost) {
     attached.add(this);
     followLocation();
-    void enqueue(() => this.load());
+    this.last = enqueue(() => this.load());
+  }
+
+  /** Resolves when the disk work queued for this history so far (the load, saves, a relocation) is done. */
+  written(): Promise<void> {
+    return this.last;
   }
 
   private async slots(): Promise<SlotBackend> {
@@ -170,7 +177,7 @@ export class AssetHistoryPersistence {
     this.pending = true;
     if (this.scheduled) return;
     this.scheduled = true;
-    void enqueue(async () => {
+    this.last = enqueue(async () => {
       this.scheduled = false;
       if (this.pending) await this.saveNow();
     });
@@ -179,7 +186,7 @@ export class AssetHistoryPersistence {
   /** Write to the slots for the tree's current path and the current location from now on (after a rename, or the setting changed). */
   relocate(): void {
     if (this.stopped) return;
-    void enqueue(async () => {
+    this.last = enqueue(async () => {
       if (this.stopped) return;
       this.store = new HistoryStore(await this.slots());
       await this.store.load(); // continue after any generation already there

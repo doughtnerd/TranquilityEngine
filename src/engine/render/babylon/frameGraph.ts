@@ -50,7 +50,6 @@ import type { InternalTexture } from "@babylonjs/core/Materials/Textures/interna
 import { ThinTexture } from "@babylonjs/core/Materials/Textures/thinTexture.js";
 import { ShaderLanguage } from "@babylonjs/core/Materials/shaderLanguage.js";
 import type { Color4 } from "@babylonjs/core/Maths/math.color.js";
-import type { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import { ThinDepthOfFieldEffectBlurLevel } from "@babylonjs/core/PostProcesses/thinDepthOfFieldEffect.js";
 import { refillIfChanged } from "../changeDetection";

@@ -23,13 +23,15 @@ let unregister: () => void;
 /** Per-user storage, the editor's own (in-memory under Node): emptied after each test. */
 let userStorage: StorageBackend;
 const onDisk = (path: string) => fs.files.get(joinPath(ROOT, path));
-const open = (path = PATH) => openAssetDocument<Thing>(project, path, "thing");
+/** Documents the test opened, flushed before the project closes after it. */
+const opened = new Set<AssetDocument<Thing>>();
+const open = (path = PATH) => {
+  const doc = openAssetDocument<Thing>(project, path, "thing");
+  opened.add(doc);
+  return doc;
+};
 /** Where a project folder keeps its asset histories (ADR 0133). */
 const ASSET_HISTORY_DIR = ".myco/asset-history";
-/** Let queued disk work (history loads, saves, moves, deletes) finish: it's all promises over the in-memory file system and storage, so a few task turns drain it. */
-const settled = async () => {
-  for (let i = 0; i < 3; i++) await new Promise((resolve) => setTimeout(resolve, 0));
-};
 
 beforeEach(async () => {
   unregister = assetFormats.register({
@@ -53,9 +55,9 @@ beforeEach(async () => {
 
 afterEach(async () => {
   vi.useRealTimers();
-  await settled();
+  await Promise.all([...opened].map((d) => d.flush())); // their writes and history work done
+  opened.clear();
   currentProject.value = null; // closing the project drops its documents
-  await settled();
   for (const key of await userStorage.list("cache")) await userStorage.delete("cache", key);
   historyLocation.value = "project";
   unregister();
@@ -303,15 +305,13 @@ describe("asset document history on disk (ADR 0027, 0133)", () => {
   /** Open the document and wait for its saved history to load. */
   const openLoaded = async (path = PATH) => {
     const doc = open(path);
-    await settled();
+    await doc.flush();
     return doc;
   };
   /** Write everything, close the project and open it again (as after a restart). */
   const reopen = async (...docs: AssetDocument<Thing>[]) => {
     for (const d of docs) await d.flush();
-    await settled();
     currentProject.value = project = await openFolderProject(fs, ROOT);
-    await settled();
   };
 
   it("saves the tree in the project folder and restores it when the project reopens", async () => {
@@ -373,7 +373,6 @@ describe("asset document history on disk (ADR 0027, 0133)", () => {
     const doc = await openLoaded();
     doc.edit({ n: 2 });
     await doc.flush();
-    await settled();
     expect(await moveAssets([[PATH, "things/c.thing.json"]])).toBe(true);
     doc.edit({ n: 3 });
     await reopen(doc);
@@ -397,7 +396,6 @@ describe("asset document history on disk (ADR 0027, 0133)", () => {
     doc.edit({ n: 1 }); // back to the content a new file will have
     await reopen(doc);
     expect(await deleteAssets([PATH])).toBe(true);
-    await settled();
     expect([slot(PATH, "a"), slot(PATH, "b")]).toEqual([undefined, undefined]);
     await project.writeText(PATH, '{"n":1}\n');
     const fresh = await openLoaded();
@@ -410,7 +408,6 @@ describe("asset document history on disk (ADR 0027, 0133)", () => {
     doc.edit({ n: 2 });
     await reopen(doc);
     expect(await deleteAssets(["things/"])).toBe(true);
-    await settled();
     expect([...fs.files.keys()].filter((k) => k.includes("asset-history"))).toEqual([]);
   });
 
@@ -419,7 +416,6 @@ describe("asset document history on disk (ADR 0027, 0133)", () => {
     doc.edit({ n: 2 });
     doc.edit({ n: 3 });
     await doc.flush();
-    await settled();
     fs.files.set(joinPath(ROOT, PATH), '{"n":2}\n'); // the last write didn't land before the editor closed
     await reopen();
     const again = await openLoaded();
@@ -459,7 +455,6 @@ describe("asset document history on disk (ADR 0027, 0133)", () => {
     const doc = await openLoaded();
     doc.edit({ n: 2 });
     await doc.flush();
-    await settled();
     doc.edit({ n: 3 });
     await reopen(doc);
     const newest = ["a", "b"].map((s) => joinPath(ROOT, `${ASSET_HISTORY_DIR}/${PATH}.history.${s}.json`)).sort((x, y) => JSON.parse(fs.files.get(y) as string).generation - JSON.parse(fs.files.get(x) as string).generation)[0];
@@ -480,12 +475,10 @@ describe("asset document history on disk (ADR 0027, 0133)", () => {
     expect([...fs.files.keys()].some((k) => k.includes("asset-history"))).toBe(false);
     expect((await userStorage.list("cache")).some((k) => k.includes(encodeURIComponent(PATH)))).toBe(true);
     expect(await moveAssets([[PATH, "things/c.thing.json"]])).toBe(true);
-    await settled();
     const moved = await openLoaded("things/c.thing.json");
     expect(moved.canUndo.value).toBe(true);
     await reopen(moved);
     expect(await deleteAssets(["things/c.thing.json"])).toBe(true);
-    await settled();
     expect((await userStorage.list("cache")).filter((k) => k.startsWith("asset-history"))).toEqual([]);
   });
 
@@ -493,17 +486,15 @@ describe("asset document history on disk (ADR 0027, 0133)", () => {
     const doc = await openLoaded();
     doc.edit({ n: 2 });
     await doc.flush();
-    await settled();
     historyLocation.value = "user";
-    await settled();
+    await doc.flush(); // the move to the new location is the history's queued work
     expect((await userStorage.list("cache")).some((k) => k.startsWith("asset-history"))).toBe(true);
   });
 
   it("keeps no history file for a read-only project", async () => {
     const sample = readOnlyProject("Flappy", { values: new Map<string, unknown>([[PATH, { n: 1 }]]), texts: new Map([[PATH, '{ "n": 1 }']]) });
     currentProject.value = sample;
-    openAssetDocument<Thing>(sample, PATH, "thing");
-    await settled();
+    await openAssetDocument<Thing>(sample, PATH, "thing").flush();
     expect(await userStorage.list("cache")).toEqual([]);
   });
 });

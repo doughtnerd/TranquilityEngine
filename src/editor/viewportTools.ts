@@ -11,7 +11,6 @@ import type { World } from "../engine/core/World";
 import { addEditorOverlay, removeEditorOverlay, viewportCanvas, type EditorOverlay, type EditorOverlayKind } from "../engine/editor";
 import { isEditable } from "./editable";
 import { errorStatus } from "./messages";
-import type { Registry } from "./sdk/registry";
 import { viewportTools, type SelectableOutline, type ViewportDrag, type ViewportPointer, type ViewportToolContext, type ViewportToolContribution } from "./sdk/contributions";
 import { activateViewportTool, activeViewportTool, openScene, playState, status } from "./state";
 
@@ -21,28 +20,6 @@ const selectables = new Map<World, () => SelectableOutline[]>();
 /** The outlines the viewport tools on `world`'s scene view mark selectable (`ViewportToolContext.selectable`); none without a host. */
 export function selectableOutlines(world: World): SelectableOutline[] {
   return selectables.get(world)?.() ?? [];
-}
-
-/** The bits of the canvas the host uses (a fake one in tests). */
-export interface ViewportHostCanvas extends EventTarget {
-  getBoundingClientRect(): { left: number; top: number };
-  setPointerCapture?(pointerId: number): void;
-  readonly style: { cursor: string };
-}
-
-export interface ViewportToolHostOptions {
-  readonly engine: Engine;
-  readonly world: World;
-  readonly canvas: ViewportHostCanvas | null;
-  /** Where keys are listened for (the window). */
-  readonly keys: EventTarget;
-  readonly tools?: Registry<ViewportToolContribution>;
-  readonly addOverlay?: (id: string, provider: () => EditorOverlay, kind: EditorOverlayKind) => void;
-  readonly removeOverlay?: (id: string) => void;
-  /** A modal dialog is open: keys belong to it. */
-  readonly dialogOpen?: () => boolean;
-  /** A text field that keeps its own keys (default `isEditable`). */
-  readonly editable?: (target: EventTarget | null) => boolean;
 }
 
 type PressHandler = Parameters<ViewportToolContext["onPress"]>[0];
@@ -73,23 +50,15 @@ interface PointerLike {
 
 /** Install the registered viewport tools on the Editor World's scene view. Returns a function that removes them. */
 export function installViewportTools(engine: Engine): () => void {
-  return createViewportToolHost({
-    engine,
-    world: engine.world,
-    canvas: viewportCanvas(engine.world),
-    keys: window,
-    dialogOpen: () => document.querySelector(".dialog") !== null,
-  });
-}
-
-/** The host itself, with its surroundings passed in (tests give it a fake canvas). */
-export function createViewportToolHost(options: ViewportToolHostOptions): () => void {
-  const { engine, world, canvas, keys } = options;
-  const tools = options.tools ?? viewportTools;
-  const addOverlay = options.addOverlay ?? ((id, provider, kind) => addEditorOverlay(world, id, provider, kind));
-  const removeOverlay = options.removeOverlay ?? ((id) => removeEditorOverlay(world, id));
-  const dialogOpen = options.dialogOpen ?? (() => false);
-  const editable = options.editable ?? isEditable;
+  const world = engine.world;
+  const canvas = viewportCanvas(world);
+  /** Keys are listened for on the window. */
+  const keys: EventTarget = window;
+  const tools = viewportTools;
+  const addOverlay = (id: string, provider: () => EditorOverlay, kind: EditorOverlayKind) => addEditorOverlay(world, id, provider, kind);
+  const removeOverlay = (id: string) => removeEditorOverlay(world, id);
+  /** A modal dialog is open: keys belong to it. */
+  const dialogOpen = () => document.querySelector(".dialog") !== null;
 
   const installs = new Map<string, Install>();
   let drag: { install: Install; drag: ViewportDrag; pointerId: number } | null = null;
@@ -221,7 +190,7 @@ export function createViewportToolHost(options: ViewportToolHostOptions): () => 
 
   const onKey = (event: Event) => {
     const e = event as KeyboardEvent;
-    if (!editing() || e.ctrlKey || e.metaKey || e.altKey || editable(e.target) || dialogOpen()) return;
+    if (!editing() || e.ctrlKey || e.metaKey || e.altKey || isEditable(e.target) || dialogOpen()) return;
     for (const inst of ordered()) {
       for (const h of inst.keys) {
         if (h(e)) {

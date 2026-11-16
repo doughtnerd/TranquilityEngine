@@ -4,7 +4,7 @@
  * tested headless. Works in double precision (`Float64Array`), so poses written to scene files
  * don't pick up float32 noise.
  */
-import { Mat4, Quaternion, type QuatLike, type Vec3Like } from "../core/math";
+import { Mat4, type QuatLike, type Vec3Like } from "../core/math";
 
 /** @internal A Transform's local values in scene-file form: metres, a quaternion `[x, y, z, w]` (ADR 0163), scale factors. */
 export interface LocalPose {

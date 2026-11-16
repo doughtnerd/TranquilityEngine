@@ -103,7 +103,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await new Promise((resolve) => setTimeout(resolve, 0)); // queued history work over the in-memory file system
+  await openDoc().flush(); // its writes and queued history work, before the project closes
   unregister();
   openScene.value = null;
   currentProject.value = null;

@@ -10,8 +10,8 @@
  * the match World its main view and input (`Engine._handView`); when the match ends (or the player leaves it), the match client World is
  * destroyed and the paused Worlds resume.
  *
- * `LobbyClient` is the instance behind `Lobby`; tests make several to play several players in one
- * process.
+ * `LobbyClient` is the one instance behind `Lobby`: a page plays one player (tests play several from
+ * several pages, each importing the engine afresh).
  */
 import { templateConfig } from "../../core/bootstrap";
 import { World } from "../../core/World";
@@ -42,11 +42,9 @@ export interface LobbyConnectOptions {
 export const LOBBY_CLIENT_TAG = "lobby-client";
 
 const clients = new WeakMap<World, LobbyClient>();
-/** Match client Worlds of every LobbyClient in the page: never paused for another player's match (hot-seat play). */
-const matchClientWorlds = new WeakSet<WorldHandle>();
 
-/** @internal One player's connection to a lobby. `Lobby` is the page-wide one. */
-export class LobbyClient {
+/** One player's connection to a lobby: the page-wide one behind `Lobby`. */
+class LobbyClient {
   private currentState: LobbyState = "offline";
   /** The last refusal or disconnect reason ("" for none). */
   error = "";
@@ -94,11 +92,6 @@ export class LobbyClient {
   /** The match client World while a match plays, else null. */
   get matchWorld(): WorldHandle | null {
     return this.match?.handle.alive ? this.match.handle : null;
-  }
-
-  /** @internal Tests: the hidden lobby client World. */
-  get lobbyWorld(): WorldHandle | null {
-    return this.world?.alive ? this.world : null;
   }
 
   /**
@@ -312,7 +305,6 @@ export class LobbyClient {
       return;
     }
     this.match = { handle, id: m.matchId, wasOpen: false };
-    matchClientWorlds.add(handle);
     try {
       handle.connect(this.matchAddress(m), m.transport, { ticket: m.ticket });
     } catch (err) {
@@ -362,7 +354,7 @@ export class LobbyClient {
     const states = engine._viewStates?.() ?? [];
     for (const s of states) {
       const handle = engine.findWorld(s.name);
-      if (!handle || handle === match || matchClientWorlds.has(handle) || handle.hasTag(LOBBY_CLIENT_TAG) || !s.renders || s.paused) continue;
+      if (!handle || handle === match || handle.hasTag(LOBBY_CLIENT_TAG) || !s.renders || s.paused) continue;
       handle.pause();
       this.paused.push(handle);
     }
@@ -444,8 +436,8 @@ function lobbyConfig(engine: LobbyEngine): WorldConfig | null {
 export class Lobby {
   private constructor() {}
 
-  /** @internal The page-wide client. */
-  static readonly _client = new LobbyClient();
+  /** The page-wide client. */
+  private static readonly client = new LobbyClient();
 
   /** Turn on the lobby service in a server World (as a World config's `"lobby"` does). */
   static host(world: WorldHandle, options: LobbyOptions): void {
@@ -456,81 +448,81 @@ export class Lobby {
 
   /** Connect to a lobby server (`"ws://host:7777"`), or `"local"` to run the project's lobby World in this page. Returns at once. */
   static connect(address: string, profile: LobbyProfile, options?: LobbyConnectOptions): void {
-    Lobby._client.connect(address, profile, options);
+    Lobby.client.connect(address, profile, options);
   }
 
   static disconnect(): void {
-    Lobby._client.disconnect();
+    Lobby.client.disconnect();
   }
 
   /** `"offline" | "connecting" | "lobby" | "room" | "starting" | "match"`. */
   static get state(): LobbyState {
-    return Lobby._client.state;
+    return Lobby.client.state;
   }
 
   /** The last refusal or disconnect reason ("" for none). */
   static get error(): string {
-    return Lobby._client.error;
+    return Lobby.client.error;
   }
 
   /** Public rooms: code, name, member count, settings. */
   static get rooms(): readonly LobbyRoomInfo[] {
-    return Lobby._client.rooms;
+    return Lobby.client.rooms;
   }
 
   /** The room the player is in (members, ready flags, host, settings, countdown), or null. */
   static get room(): LobbyRoom | null {
-    return Lobby._client.room;
+    return Lobby.client.room;
   }
 
   /** The player's slot and whether they host their room, or null outside a room. */
   static get me(): LobbyMe | null {
-    return Lobby._client.me;
+    return Lobby.client.me;
   }
 
   /** The match client World while a match plays, else null. */
   static get matchWorld(): WorldHandle | null {
-    return Lobby._client.matchWorld;
+    return Lobby.client.matchWorld;
   }
 
   static quickMatch(settings?: Readonly<Record<string, string>>): void {
-    Lobby._client.quickMatch(settings);
+    Lobby.client.quickMatch(settings);
   }
 
   static createRoom(options?: { name?: string; public?: boolean; settings?: Readonly<Record<string, string>> }): void {
-    Lobby._client.createRoom(options);
+    Lobby.client.createRoom(options);
   }
 
   static joinRoom(code: string): void {
-    Lobby._client.joinRoom(code);
+    Lobby.client.joinRoom(code);
   }
 
   static leaveRoom(): void {
-    Lobby._client.leaveRoom();
+    Lobby.client.leaveRoom();
   }
 
   static setReady(ready: boolean): void {
-    Lobby._client.setReady(ready);
+    Lobby.client.setReady(ready);
   }
 
   /** Host only. */
   static setSetting(key: string, value: string): void {
-    Lobby._client.setSetting(key, value);
+    Lobby.client.setSetting(key, value);
   }
 
   /** Host only. */
   static kick(slot: number): void {
-    Lobby._client.kick(slot);
+    Lobby.client.kick(slot);
   }
 
   /** Host only: start once the room has `minPlayers`. */
   static start(): void {
-    Lobby._client.start();
+    Lobby.client.start();
   }
 
   /** Leave the running match and go back to the room. */
   static leaveMatch(): void {
-    Lobby._client.leaveMatch();
+    Lobby.client.leaveMatch();
   }
 }
 

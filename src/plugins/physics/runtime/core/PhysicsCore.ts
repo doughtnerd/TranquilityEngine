@@ -17,7 +17,7 @@ import { layerGroups } from "../../../../engine/physics/layers";
 import type { BodyType, CollisionFlags } from "../../../../engine/physics/types";
 import { GameObject } from "../../../../engine/scene/GameObject";
 import type { Transform } from "../../../../engine/scene/Transform";
-import type { BackendBody, BackendCharacter, BackendCollider, BodySettings, CharacterSettings, DimensionTypes, JointDesc, JointSettings, PhysicsCapabilities, PhysicsWorldBackend, Pose } from "../backend";
+import type { BackendBody, BackendCharacter, BodySettings, CharacterSettings, DimensionTypes, JointDesc, JointSettings, PhysicsCapabilities, PhysicsWorldBackend, Pose } from "../backend";
 import type { BodyState, ColliderState, JointState } from "./state";
 
 /** @internal The RigidBody fields the core reads, in either dimension. */

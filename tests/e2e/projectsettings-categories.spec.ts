@@ -5,8 +5,6 @@ import { showTab } from "./tabs";
 // (right); a narrow panel swaps the list for a dropdown.
 test.describe.configure({ timeout: 60_000 });
 
-type Hooks = { engine?: { world: { time: { frameCount: number } } }; openTestProject(extra: Record<string, string>): Promise<void> };
-
 const CATEGORIES = ["Project", "Display", "Time", "Physics", "Rendering", "Graphics", "Navigation", "Audio", "Plugins", "Autoloads", "Build"];
 
 async function openProject(page: Page): Promise<void> {
