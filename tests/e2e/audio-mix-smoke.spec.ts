@@ -186,6 +186,12 @@ test("M5-0 smoke: a presence duck starts on its stamped frame", async ({ page })
   type Handle = { stop(): void };
   type Read = { frame: number; duck: number };
   type G = { __myco: { Audio: { time: number; debug(): MixDebug; bus(n: string): { duckGain: number }; playOneShot(c: string, o: object): Handle } }; __dp1?: Handle };
+  /** The core's rebuilds and recoveries (`Audio.debug().core`): a rebuilt core's frames start again at 0, so no frame here compares across one. */
+  const rebuilds = () => page.evaluate(() => {
+    const core = (globalThis as unknown as G).__myco.Audio.debug().core;
+    return Number(core.rebuilds ?? 0) + Number(core.recoveries ?? 0);
+  });
+  const rebuiltBefore = await rebuilds();
   const before = await page.evaluate(() => (globalThis as unknown as G).__myco.Audio.bus("Music").duckGain);
   expect(before, "nothing on SFX yet: Music not ducked").toBe(1);
   // 1. A quiet voice on SFX, `at` 0.3 s ahead of the heard clock: its start frame, and so the stamp of its presence.
@@ -213,27 +219,60 @@ test("M5-0 smoke: a presence duck starts on its stamped frame", async ({ page })
       [until, stopAtOne] as const,
     );
   // 2. On the core's STATUS frames: Music's duck stays 1 in every block up to the quantum holding the stamp, then falls toward 0.3.
+  //    When it began is dated by the duck's own curve, not by when a read happened to land (reads are 10 ms timers on a page
+  //    that can stall): the follower moves one pole per quantum (`duck.rs`), so a reading g at frame F, `t` seconds into a move
+  //    from `from` toward `goal`, is goal + (from - goal)·exp(-t/τ), and F - τ·sr·ln((from - goal)/(g - goal)) is the frame the
+  //    move began. A follower within SETTLE (1e-5) of its goal lands on it, so only readings short of that date a move.
+  const SETTLE = 1e-5;
+  const AMOUNT = 0.3;
+  const ATTACK = 0.05;
+  const RELEASE = 0.4;
+  const QUANTUM = 128;
+  const onset = (r: Read, from: number, goal: number, tau: number) => r.frame - tau * rate * Math.log((from - goal) / (r.duck - goal));
   const reads = await sample(stamp + Math.round(0.5 * rate), false); // 0.5 s: ten attack constants, well inside the 4 s clip
-  const q0 = Math.floor(stamp / 128) * 128;
+  expect(await rebuilds(), "the core was not rebuilt while the duck was read (its frames would restart at 0)").toBe(rebuiltBefore);
+  const q0 = Math.floor(stamp / QUANTUM) * QUANTUM;
   for (const r of reads) if (r.frame <= q0) expect(r.duck, `STATUS frame ${r.frame}, before the stamp's quantum ${q0}`).toBe(1);
   expect(reads.some((r) => r.frame <= q0), "a block before the stamp was read").toBe(true);
   const ducked = reads.filter((r) => r.duck < 1);
   expect(ducked.length, "the duck was read").toBeGreaterThan(0);
   expect(ducked[0]!.frame, "first seen in a block after the stamp's quantum").toBeGreaterThan(q0);
-  expect(ducked[0]!.frame - stamp, "and within a few blocks of it").toBeLessThan(0.1 * rate);
-  expect(reads.at(-1)!.duck, "held near the rule's amount").toBeCloseTo(0.3, 2);
-  // 3. An explicit stop clears the presence at once: the duck releases with `release` (0.4 s) back to 1, from the stop on.
+  // The attack begins in the stamp's quantum; a couple of quanta either way allow for the quantum boundary, the per-sample
+  // interpolation inside it and f32 rounding of the reading (a dated onset lands within a frame of the quantum here). An attack
+  // that waited for a later STATUS or the clip's end misses. A page stalled through the whole attack (reads are 10 ms timers,
+  // and 0.3 s gaps happen on a loaded machine) leaves only readings that have landed on the amount, which bound the onset from
+  // above by the landing time, ATTACK·ln(0.7/SETTLE) ≈ 0.56 s, so that case allows the stall instead.
+  const dating = ducked.find((r) => r.duck - AMOUNT > SETTLE);
+  if (dating) {
+    const attackStart = onset(dating, 1, AMOUNT, ATTACK);
+    expect(Math.abs(attackStart - q0), `the attack began at frame ${Math.round(attackStart)}, on the stamp's quantum ${q0}`).toBeLessThan(2 * QUANTUM);
+  } else {
+    const latest = ducked[0]!.frame - ATTACK * rate * Math.log((1 - AMOUNT) / SETTLE);
+    expect(latest - q0, `no reading inside the attack; landed by frame ${ducked[0]!.frame}, so begun by ${Math.round(latest)}`).toBeLessThan(0.5 * rate);
+  }
+  expect(reads.at(-1)!.duck, "held near the rule's amount").toBeCloseTo(AMOUNT, 2);
+  // 3. An explicit stop clears the presence at once: the duck releases with `release` (0.4 s) back to exactly 1, from the stop on.
+  //    It lands on 1 once within SETTLE of it, τ·ln(0.7/SETTLE) ≈ 4.5 s after the release began.
+  const settleSeconds = RELEASE * Math.log((1 - AMOUNT) / SETTLE);
   const stopFrame = await page.evaluate(() => {
     const g = globalThis as unknown as G;
     g.__dp1!.stop();
     return Number(g.__myco.Audio.debug().core.currentFrame);
   });
-  const after = await sample(stopFrame + 3 * rate, true);
+  const after = await sample(stopFrame + Math.round((settleSeconds + 4) * rate), true);
+  expect(await rebuilds(), "nor while the release was read").toBe(rebuiltBefore);
   expect(after.at(-1)!.duck, "released to 1").toBe(1);
-  const rising = after.find((r) => r.duck > 0.35)!;
-  expect(rising, "the release began").toBeTruthy();
-  expect(rising.frame - stopFrame, "asap: within a few blocks of the stop, not at the clip's end").toBeLessThan(0.3 * rate);
-  expect(after.at(-1)!.frame - stopFrame, "back at 1 within a couple of seconds of the stop").toBeLessThan(2 * rate);
+  const datingRelease = after.find((r) => r.duck - AMOUNT > 0.01 && 1 - r.duck > SETTLE);
+  expect(datingRelease, "a reading inside the release, to date it").toBeDefined();
+  const held = Math.min(...after.filter((r) => r.frame <= datingRelease!.frame).map((r) => r.duck)); // the gain it released from
+  const releaseStart = onset(datingRelease!, held, 1, RELEASE);
+  // asap: a stop goes out unstamped with the next engine frame's batch, so the release begins a lookahead, a STATUS interval
+  // (`stopFrame` is the newest block's, up to 48 quanta old) and any main-thread stall after the stop: up to 0.5 s seen on a
+  // loaded machine. Waiting for the voice's end instead would begin it at the 4 s clip's end, at least 3.5 s after the stop.
+  expect(releaseStart - stopFrame, `asap: the release began at frame ${Math.round(releaseStart)}, soon after the stop at ${stopFrame}`).toBeLessThan(1 * rate);
+  expect(releaseStart, "well before the clip's end").toBeLessThan(stamp + 3 * rate);
+  expect(releaseStart - stopFrame, "and not before the stop").toBeGreaterThan(-4 * QUANTUM);
+  expect(after.at(-1)!.frame - releaseStart, "back at 1 when the release settles (a read a STATUS block or a stalled timer later)").toBeLessThan((settleSeconds + 1) * rate);
   expect(errors).toEqual([]);
 });
 
