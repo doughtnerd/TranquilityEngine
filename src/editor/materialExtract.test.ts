@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
 import { Assets } from "../engine";
 import { colorHex, parseMaterial } from "../engine/scene/material";
-import { clearModelCache, type SurfaceInfo } from "../engine/scene/models";
+import { type SurfaceInfo } from "../engine/scene/models";
 import { readImportSettings } from "./assetImport";
 import { extractModelMaterials, materialFromSurface } from "./materialExtract";
 import { joinPath, openFolderProject } from "./projects";
@@ -12,7 +12,6 @@ const surface = (over: Partial<SurfaceInfo> = {}): SurfaceInfo => ({ name: "S", 
 
 describe("extracting a model's materials (ADR 0089)", () => {
   afterEach(() => {
-    clearModelCache();
     Assets.clearSources();
   });
 

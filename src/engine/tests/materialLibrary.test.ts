@@ -18,7 +18,7 @@ import { MeshRenderer } from "../render/components";
 import { BabylonMaterialLibrary } from "../render/babylon/materialLibrary";
 import { meshOf } from "../render/babylon/materials";
 import { previewMaterials } from "../render/babylon/previews/common";
-import { clearModelCache, loadMeshes, materialSlots, meshesIfLoaded } from "../scene/models";
+import { loadMeshes, materialSlots, meshesIfLoaded } from "../scene/models";
 
 const RED = "asset:materials/red.material.json";
 const GREEN = "asset:materials/green.material.json";
@@ -67,7 +67,6 @@ describe("the Babylon material library (ADR 0127)", () => {
   const warnings: string[] = [];
 
   beforeEach(async () => {
-    clearModelCache();
     useProject();
     await Engine.create({ headless: true });
     await SceneManager.load("s.json");

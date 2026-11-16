@@ -4,7 +4,7 @@ import { compileParticleKernels } from "../scene/particleKernel";
 import { defaultBlock } from "../scene/particleBlocks";
 import type { GraphNode, ParticleGraph } from "../scene/particleGraph";
 import { newGraphId, parseParticleGraph, systemTemplate } from "../scene/particleGraphFormat";
-import { BLOCK_FORMAT, SUBGRAPH_FORMAT, expandParticleGraph, referencedAssets } from "../scene/particleSubgraphs";
+import { BLOCK_FORMAT, SUBGRAPH_FORMAT, expandParticleGraph, expansionDependencies } from "../scene/particleSubgraphs";
 
 const node = (id: string, type: string, extra: Partial<GraphNode> = {}): GraphNode => ({ id, type, position: [0, 0], ...extra });
 
@@ -57,7 +57,7 @@ describe("particle sub-graphs (ADR 0095)", () => {
     sys.spawn.blocks.push(rate);
     g.nodes.push(node("five", "constant.number", { settings: { value: 5 } }), node("sg", "subgraph", { settings: { asset: "asset:fx/sum.particlesubgraph.json" }, inputs: { b: 10 } }));
     g.edges.push({ from: "five.out", to: "sg.a" }, { from: "sg.out", to: `${sys.id}.${rate.id}.rate` });
-    expect(referencedAssets(g)).toEqual(["asset:fx/sum.particlesubgraph.json"]);
+    expect(expansionDependencies(g, resolve)).toEqual(["asset:fx/sum.particlesubgraph.json"]);
     const { graph, problems } = expandParticleGraph(g, resolve);
     expect(problems).toEqual([]);
     expect(graph.nodes.some((n) => n.type === "subgraph")).toBe(false);

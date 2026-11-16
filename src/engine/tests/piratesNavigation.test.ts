@@ -3,7 +3,6 @@ import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { Assets, Engine, GameObject, Navigation, Replicated } from "../../myco";
 import { World } from "../core/World";
 import { releaseBakeCaches } from "../nav/bake";
-import { clearNavBakeCache } from "../../plugins/navigation/runtime/navigationSystems";
 import { readProject } from "../../server/project";
 // The sample's scripts, registered as loading the project's scripts would (ADR 0031).
 import { CLOUD_PREFAB, Cloud, FlagState, Fx, SHIP_PREFAB, SHIP_RADIUS, Ship, bearing, headingRotation, type CloudView, type FlagView, type ShipView } from "../../../samples/pirates/scripts/data";
@@ -39,7 +38,6 @@ const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 /** A server World alone (no client, so no ships spawn by themselves) on one arena, its navigation loaded. */
 async function arena(scene: string): Promise<{ engine: Engine; server: World }> {
   const project = await readProject(SAMPLE);
-  clearNavBakeCache();
   Assets.addSource(project.assets);
   const settings = { ...project.settings, bootstrap: { worlds: [{ name: "Server", tags: ["server"], renders: false, input: false, scenes: [`scenes/${scene}.scene.json`] }] } };
   const engine = await Engine.create({ headless: true, project: settings });

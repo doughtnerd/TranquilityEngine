@@ -2,18 +2,20 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Assets } from "../index";
 import { sidecarValue } from "../scene/Assets";
 import {
-  DEFAULT_IMPORT_SETTINGS,
   defaultImportSettings,
   formatImportSettings,
-  importSettingsJSON,
   isSidecarPath,
   parseImportSettings,
   sidecarAsset,
   sidecarPath,
   splitSpriteRef,
   whyNotSliceName,
+  type ImportSettings,
 } from "../scene/importSettings";
 import { spriteFrame } from "../render/spriteFrame";
+
+/** The sidecar file's JSON object for `settings`. */
+const importSettingsJSON = (settings: ImportSettings): Record<string, unknown> => JSON.parse(formatImportSettings(settings));
 
 afterEach(() => Assets.clearSources());
 
@@ -41,8 +43,8 @@ describe("sidecar paths and slice references", () => {
 
 describe("parseImportSettings", () => {
   it("gives the defaults for a missing sidecar", () => {
-    expect(parseImportSettings(undefined).settings).toEqual(DEFAULT_IMPORT_SETTINGS);
-    expect(parseImportSettings({ format: "myco.import@1" }).settings).toEqual(DEFAULT_IMPORT_SETTINGS);
+    expect(parseImportSettings(undefined).settings).toEqual(defaultImportSettings());
+    expect(parseImportSettings({ format: "myco.import@1" }).settings).toEqual(defaultImportSettings());
   });
 
   it("reads every setting, with slice pivots defaulting to the image's", () => {
@@ -151,7 +153,7 @@ describe("Assets.importSettings", () => {
     Assets.addSource(Assets.fromObject(files));
     expect(Assets.importSettings("asset:images/a.png").filter).toBe("point");
     expect(Assets.importSettings("images/a.png#x").sprites[0].name).toBe("x"); // a slice reads its image's
-    expect(Assets.importSettings("images/b.png")).toEqual(DEFAULT_IMPORT_SETTINGS);
+    expect(Assets.importSettings("images/b.png")).toEqual(defaultImportSettings());
     const before = sidecarValue("images/a.png");
     files["images/a.png.meta.json"] = { format: "myco.import@1", filter: "linear" };
     expect(sidecarValue("images/a.png")).not.toBe(before);
@@ -161,7 +163,7 @@ describe("Assets.importSettings", () => {
   it("warns about a bad sidecar and uses the defaults", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     Assets.addSource(Assets.fromObject({ "a.png.meta.json": { format: "nope" } }));
-    expect(Assets.importSettings("a.png")).toEqual(DEFAULT_IMPORT_SETTINGS);
+    expect(Assets.importSettings("a.png")).toEqual(defaultImportSettings());
     expect(warn).toHaveBeenCalledWith(expect.stringMatching(/unknown format/));
     warn.mockRestore();
   });

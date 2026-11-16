@@ -10,7 +10,7 @@ import { MeshRenderer } from "../render/components";
 import { decodeBakedModel, encodeBakedModel } from "../scene/bakedModel";
 import { parseImportSettings } from "../scene/importSettings";
 import { migrateSceneFile } from "../scene/SceneLoader";
-import { clearModelCache, drawnVariant, loadMeshes, loadModel, materialSlots } from "../scene/models";
+import { drawnVariant, loadMeshes, loadModel, materialSlots } from "../scene/models";
 import { modelBaseMaterial, surfaceMaterial } from "../render/babylon/materials";
 import { carGltf, dataUrl } from "./fixtures/gltf/carGltf";
 
@@ -18,7 +18,6 @@ const round = (a: ArrayLike<number>) => Array.from(a, (n) => +n.toFixed(4) || 0)
 const S = Math.SQRT1_2;
 
 function useCar(sidecar?: Record<string, unknown>) {
-  clearModelCache();
   Assets.clearSources();
   Assets.addSource(
     Assets.fromObject({
@@ -129,7 +128,6 @@ describe("glTF lights and cameras (ADR 0118)", () => {
     const first = car.nodes.length;
     car.nodes.push({ name: "Sun", extensions: { KHR_lights_punctual: { light: 2 } } } as never, { name: "Ortho", camera: 1 } as never);
     car.nodes[0].children!.push(first, first + 1);
-    clearModelCache();
     Assets.clearSources();
     Assets.addSource(Assets.fromObject({ "models/more.gltf": dataUrl(new TextEncoder().encode(JSON.stringify(car))) }));
     const data = await loadModel("models/more.gltf");

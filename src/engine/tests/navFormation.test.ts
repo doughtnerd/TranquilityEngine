@@ -21,7 +21,6 @@ import {
   setFormationCell,
   type NavFormationAsset,
 } from "../nav/formation";
-import { clearNavBakeCache } from "../../plugins/navigation/runtime/navigationSystems";
 import {
   binColor,
   chunkBakesAgentType,
@@ -247,7 +246,6 @@ function find(name: string): GameObject {
 
 /** Four agents join a group using `formation` and walk 30 m along +x; returns their final positions. */
 async function march(formation: NavFormationAsset): Promise<{ x: number; z: number }[]> {
-  clearNavBakeCache();
   Assets.clearSources();
   const members = ["a", "b", "c", "d"];
   Assets.addSource(

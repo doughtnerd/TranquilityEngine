@@ -2,7 +2,6 @@ import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { Assets, Engine, GameObject, NavAgent, NavGate, Navigation, SceneManager } from "../../myco";
 import { releaseBakeCaches } from "../nav/bake";
-import { clearNavBakeCache } from "../../plugins/navigation/runtime/navigationSystems";
 import { readProject } from "../../server/project";
 // The sample's scripts, registered as loading the project's scripts would (ADR 0031).
 import { chunkIndexAt, type AgentKind } from "../../../samples/navigation/scripts/data";
@@ -53,7 +52,6 @@ describe("the navigation sample (ADR 0065)", () => {
     vi.spyOn(console, "log").mockImplementation(() => {}); // the runtime's route and seam reports
 
     const project = await readProject(SAMPLE);
-    clearNavBakeCache();
     Assets.clearSources();
     Assets.addSource(project.assets);
     const engine = await Engine.create({ headless: true, project: project.settings });

@@ -337,7 +337,7 @@ export function colorHex(c: Color): string {
 }
 
 /** A material file's JSON: the format, then only what differs from the defaults. */
-export function materialJSON(settings: MaterialSettings): Record<string, unknown> {
+function materialJSON(settings: MaterialSettings): Record<string, unknown> {
   const d = defaultMaterialSettings();
   const out: Record<string, unknown> = { format: MATERIAL_FORMAT };
   if (settings.shader !== d.shader) out.shader = settings.shader;

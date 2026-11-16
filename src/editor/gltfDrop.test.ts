@@ -1,7 +1,6 @@
 // ADR 0118: dropping a glTF builds its node tree with node pivots (opt-in), lights and cameras.
 import { afterEach, describe, expect, it } from "vitest";
 import { Assets, Engine } from "../engine";
-import { clearModelCache } from "../engine/scene/models";
 import { carGltf, dataUrl } from "../engine/tests/fixtures/gltf/carGltf";
 import { addAssets } from "./addAssets";
 import { messageLog } from "./messages";
@@ -15,7 +14,6 @@ import { useEditorPlugins } from "../plugins/testEditorPlugins";
 useEditorPlugins([meshesEditorPlugin]);
 
 async function dropCar(sidecar?: Record<string, unknown>) {
-  clearModelCache();
   const engine = await Engine.create({ headless: true, kind: "editor", project: demoSettings(), assets: demoAssets() });
   const extra = Assets.fromObject({
     "models/car.gltf": dataUrl(new TextEncoder().encode(JSON.stringify(carGltf()))),

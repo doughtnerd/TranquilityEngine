@@ -4,7 +4,6 @@ import { Assets, Engine, GameObject, NavAgent, NavCostVolume, Navigation, SceneM
 import { World } from "../core/World";
 import { bakeChunk, releaseBakeCaches, type NavBakeMesh } from "../nav/bake";
 import { RuntimeNavOverlay, NO_NAV_DEBUG, type NavDebugColors } from "../nav/debugGeometry";
-import { clearNavBakeCache } from "../../plugins/navigation/runtime/navigationSystems";
 import { describeNavCostVolume } from "../nav/plan";
 import type { Vec3 } from "../../plugins/navigation/runtime/runtime";
 import { defaultNavAgentType, parseNavigationSettings, type NavigationSettings } from "../nav/settings";
@@ -71,7 +70,6 @@ afterEach(() => {
 });
 
 async function setup(volume?: Record<string, unknown>) {
-  clearNavBakeCache();
   Assets.clearSources();
   const scene = {
     format: "myco.scene@4",

@@ -4,14 +4,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Assets } from "../index";
 import { BAKED_SUFFIX, decodeBakedModel } from "../scene/bakedModel";
 import { defaultImportSettings } from "../scene/importSettings";
-import { bakeModelFile, clearModelCache, loadMeshes } from "../scene/models";
+import { bakeModelFile, loadMeshes } from "../scene/models";
 
 const sample = (p: string) => readFileSync(new URL(`../../../samples/playground3d/${p}`, import.meta.url));
 const dataUrl = (bytes: Uint8Array | Buffer) => `data:application/octet-stream;base64,${Buffer.from(bytes).toString("base64")}`;
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=";
 
 function use(files: Record<string, unknown>) {
-  clearModelCache();
   Assets.clearSources();
   Assets.addSource(Assets.fromObject(files));
 }
@@ -21,7 +20,6 @@ const MTL = "newmtl Painted\nKd 1 0.5 0\nmap_Kd textures/paint.png\n";
 
 describe("baked models (ADR 0090)", () => {
   afterEach(() => {
-    clearModelCache();
     Assets.clearSources();
     vi.restoreAllMocks();
   });

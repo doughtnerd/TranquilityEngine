@@ -87,7 +87,7 @@ export const subgraphRef = (n: GraphNode): string => String(n.settings?.asset ??
 export const customBlockRef = (b: GraphBlock): string => String(b.inputs.asset ?? "");
 
 /** Every asset a graph refers to through sub-graphs and custom blocks (one level; nested ones are found while expanding). */
-export function referencedAssets(graph: ParticleGraph): string[] {
+function referencedAssets(graph: ParticleGraph): string[] {
   const out = new Set<string>();
   for (const n of graph.nodes) if (n.type === "subgraph" && subgraphRef(n)) out.add(subgraphRef(n));
   for (const s of graph.systems)

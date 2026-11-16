@@ -425,7 +425,7 @@ function packedColors(attr: BufferAttribute | undefined): Float32Array | null {
 }
 
 /** @internal The renderer-neutral views of a geometry and its materials. */
-export function neutralMesh(geometry: BufferGeometry, materials: readonly Material[]): { data: MeshData; surfaces: SurfaceInfo[] } {
+function neutralMesh(geometry: BufferGeometry, materials: readonly Material[]): { data: MeshData; surfaces: SurfaceInfo[] } {
   const positions = packed(geometry.getAttribute("position") as BufferAttribute) ?? new Float32Array(0);
   const count = positions.length / 3;
   const index = geometry.getIndex();
@@ -637,10 +637,6 @@ export function drawnVariant(ref: string, variant: string): string | undefined {
 }
 
 /** @internal The names of a model's meshes (what `#name` can refer to), once loaded. */
-export async function modelMeshNames(path: string): Promise<string[]> {
-  return (await loadModel(path)).meshes.map((m) => m.name);
-}
-
 function builtinMeshes(ref: string): readonly ModelMesh[] {
   const name = ref.slice(BUILTIN_PREFIX.length) as BuiltinMesh;
   if (!BUILTIN_MESHES.includes(name)) {
@@ -1101,13 +1097,6 @@ function disposeModel(data: ModelData): void {
  */
 export function meshTriangles(mesh: ModelMesh): { vertices: Float32Array; indices: Uint32Array } {
   return { vertices: Float32Array.from(mesh.data.positions), indices: Uint32Array.from(mesh.data.indices) };
-}
-
-/** @internal Forget every loaded model (tests). */
-export function clearModelCache(): void {
-  for (const e of cache.values()) if (e.data) disposeModel(e.data);
-  cache.clear();
-  warned.clear();
 }
 
 /** @internal The material slots (ADR 0089) of what a mesh reference draws, if loaded (starting the load if not), else null. */

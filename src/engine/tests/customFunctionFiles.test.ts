@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { Assets } from "../index";
 import { compileShaderGraph } from "../render/shaderGraph/compile";
-import { parseShaderGraph, shaderGraphJSON, type ShaderGraph } from "../scene/shaderGraph";
+import { parseShaderGraph, type ShaderGraph, formatShaderGraph } from "../scene/shaderGraph";
+
+/** A shader graph file's JSON object. */
+const shaderGraphJSON = (graph: ShaderGraph): Record<string, unknown> => JSON.parse(formatShaderGraph(graph));
 
 const graph = (file: string | undefined, wgsl?: string): ShaderGraph => {
   const { graph: g } = parseShaderGraph({
@@ -40,7 +43,7 @@ describe("Custom Function body files", () => {
 
   it("round-trips the file field and ignores a non-string", () => {
     const g = graph("asset:shaders/wave.wgsl");
-    const again = parseShaderGraph(JSON.parse(JSON.stringify(shaderGraphJSON(g)))).graph;
+    const again = parseShaderGraph(shaderGraphJSON(g)).graph;
     expect(again.nodes.find((n) => n.id === "f")!.function!.file).toBe("asset:shaders/wave.wgsl");
     const bad = parseShaderGraph({ format: "myco.shadergraph@1", nodes: [{ id: "f", type: "customFunction", function: { name: "w", file: 3 } }] });
     expect(bad.graph.nodes.find((n) => n.id === "f")!.function!.file).toBeUndefined();

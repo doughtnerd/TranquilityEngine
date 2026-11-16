@@ -18,7 +18,6 @@ import {
 } from "../../myco";
 import { World } from "../core/World";
 import { bakeChunk, releaseBakeCaches, type NavBakeMesh } from "../nav/bake";
-import { clearNavBakeCache } from "../../plugins/navigation/runtime/navigationSystems";
 import { chunkIdOf, type Vec3 } from "../../plugins/navigation/runtime/runtime";
 import { defaultNavAgentType, parseNavigationSettings, type NavigationSettings } from "../nav/settings";
 
@@ -106,7 +105,6 @@ function sceneFile(options: SceneOptions) {
 }
 
 async function setup(options: SceneOptions = {}) {
-  clearNavBakeCache();
   Assets.clearSources();
   Assets.addSource(Assets.fromObject({ [SCENE]: sceneFile(options), [BAKE]: bakeUrl }));
   const engine = await Engine.create({ headless: true, project: project() });

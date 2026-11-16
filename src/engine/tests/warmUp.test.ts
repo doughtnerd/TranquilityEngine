@@ -17,7 +17,7 @@ import { Assets } from "../index";
 import { effectClock, nextBatchSize, PipelineWarmer, WARM_PREFIX } from "../render/babylon/warmUp";
 import { projectScriptAssetRefs, scriptAssetRefs } from "../scene/scriptAssetRefs";
 import { _setScriptAssetRefs, warmSet } from "../scene/warmUp";
-import { clearModelCache, loadMeshes, materialSlots } from "../scene/models";
+import { loadMeshes, materialSlots } from "../scene/models";
 import { modelBaseMaterial, modelSubMeshes } from "../render/babylon/materials";
 
 const renderer = (data: Record<string, unknown>) => ({ type: "engine.MeshRenderer", data });
@@ -312,7 +312,6 @@ describe("the warmer draws a model's material slots (ADR 0080, 0089)", () => {
   let camera: TargetCamera;
   const lamp = () => `data:application/octet-stream;base64,${readFileSync(new URL("../../../samples/playground3d/models/lamp.glb", import.meta.url)).toString("base64")}`;
   beforeEach(() => {
-    clearModelCache();
     Assets.clearSources();
     Assets.addSource(Assets.fromObject({ "models/lamp.glb": lamp() }));
     babylon = new NullEngine();
