@@ -264,7 +264,7 @@ function readInto<T extends object>(
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
 /** The power of two nearest `size` within 32–512 (cube faces must be square powers of two to mip). */
-export function bakeSizeOf(size: number): number {
+function bakeSizeOf(size: number): number {
   const p = Math.round(Math.log2(clamp(size || 128, 32, 512)));
   return 2 ** p;
 }
@@ -289,17 +289,4 @@ export function hexToLinear(hex: string): [number, number, number] {
     out[i] = c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
   }
   return out;
-}
-
-/** Linear RGB 0–1 to `#rrggbb` (sRGB), clamped. */
-export function linearToHex(rgb: readonly number[]): string {
-  let s = "#";
-  for (let i = 0; i < 3; i++) {
-    const c = clamp(rgb[i] ?? 0, 0, 1);
-    const e = c <= 0.0031308 ? c * 12.92 : 1.055 * c ** (1 / 2.4) - 0.055;
-    s += Math.round(e * 255)
-      .toString(16)
-      .padStart(2, "0");
-  }
-  return s;
 }
