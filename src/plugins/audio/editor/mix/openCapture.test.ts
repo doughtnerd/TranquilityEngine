@@ -11,8 +11,16 @@ import { SAMPLE_HEADER, SAMPLE_META, sampleCapture } from "../../runtime/capture
 import type { AudioCapture } from "../../runtime/capture/capture";
 import { CaptureSource, type CaptureWorkerLike, type ProfileSource } from "./profilerSource";
 import { createCaptureWorkerHandler, type CaptureRequest, type CaptureResponse } from "../../runtime/capture/worker";
-import { BANNER_TEXT, ProfilerChrome, ProfilerController, profilerSlots, type BarSlotProps, type ProfilerDeps, type ProfilerSlots } from "./ProfilerPanel";
+import { ProfilerChrome, ProfilerController, profilerSlots, type BarSlotProps, type ProfilerDeps, type ProfilerSlots } from "./ProfilerPanel";
 import { OPEN_REFUSALS, installOpenCapture, type CaptureFileLike } from "./openCapture";
+
+// The banners' words.
+const BANNER_TEXT = {
+  viewing: "Viewing, not replaying",
+  truncated: "Truncated: the ring wrapped. This capture starts at a later keyframe, not at Play.",
+  projectMismatch: "This capture was recorded with a different audio section than the open project's. It is shown as recorded.",
+  babylon: "Babylon fallback: main-side events and keyframes only. The CPU, underrun and loudness tracks are absent.",
+} as const;
 
 function inProcessWorker(): CaptureWorkerLike {
   const w: CaptureWorkerLike & { dead: boolean } = {
