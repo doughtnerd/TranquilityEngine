@@ -10,7 +10,7 @@ import { closeTestProject, openTestProject } from "../../../../editor/testing";
 import { EMPTY_BUS_LOUDNESS } from "../../../../engine/audio/loudnessTypes";
 import type { MixOp } from "../../../../engine/audio/mixOps";
 import { positionToGain } from "./faderModel";
-import { MIXER_PANEL, mixerSectionOf, registerMixPanels } from "./index";
+import { registerMixPanels } from "./index";
 import { defaultMixerDeps, mixerHost } from "./MixerPanel";
 import { MixerPanelController } from "./mixerPanelModel";
 import { playState } from "../../../../editor/state";
@@ -30,7 +30,7 @@ const sfxVolumeOf = (d: SettingsDraft): number | undefined => (d.audio as { buse
 async function loadMixerPanel(): Promise<void> {
   const views = new Map<string, () => Promise<unknown>>();
   registerMixPanels({ registerPanel: (p: { id: string; view: () => Promise<unknown> }) => void views.set(p.id, p.view) } as unknown as EditorPluginContext);
-  await views.get(MIXER_PANEL)!();
+  await views.get("audiomixer")!();
 }
 
 async function rig() {
@@ -113,7 +113,8 @@ describe("the Mixer over editor.project.settings", () => {
 
   it("an edit in the Project Settings panel shows in the Mixer's draft and version", async () => {
     const { project } = await openTestProject({ "project.json": PROJECT });
-    const section = mixerSectionOf(editor.project.settings);
+    await loadMixerPanel();
+    const section = mixerHost.section!; // the registration's view of Project Settings
     const v = section.version!.value;
     const panel = projectSettings.open(project);
     const audio = panel.draft.audio as { buses: Array<Record<string, unknown>> };

@@ -3,7 +3,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { EditorPluginContext } from "../../../../editor/sdk";
-import { MIXER_PANEL, PROFILER_PANEL, registerMixPanels } from "./index";
+import { registerMixPanels } from "./index";
 
 const MIX_DIR = __dirname;
 
@@ -15,9 +15,7 @@ describe("registerMixPanels", () => {
       get: (t, k) => (k in t ? (t as Record<string | symbol, unknown>)[k] : (..._a: unknown[]) => void others.push(String(k))),
     }) as unknown as EditorPluginContext;
     registerMixPanels(ctx);
-    expect(panels.map((p) => p.id)).toEqual([PROFILER_PANEL, MIXER_PANEL]);
-    expect(PROFILER_PANEL).toBe("audioprofiler");
-    expect(MIXER_PANEL).toBe("audiomixer");
+    expect(panels.map((p) => p.id)).toEqual(["audioprofiler", "audiomixer"]);
     expect(panels.map((p) => p.title)).toEqual(["Audio Profiler", "Audio Mixer"]);
     expect(others).toEqual([]); // no menu entry, toolbar button, shortcut, tool or section
   });
@@ -44,7 +42,7 @@ describe("registerMixPanels", () => {
     expect(text).not.toMatch(/^import .*MixerPanel/m);
     const panels: { id: string; view: () => Promise<unknown> }[] = [];
     registerMixPanels({ registerPanel: (p: (typeof panels)[number]) => void panels.push(p) } as unknown as EditorPluginContext);
-    const view = await panels.find((p) => p.id === MIXER_PANEL)!.view();
+    const view = await panels.find((p) => p.id === "audiomixer")!.view();
     expect(typeof view).toBe("function");
   });
 

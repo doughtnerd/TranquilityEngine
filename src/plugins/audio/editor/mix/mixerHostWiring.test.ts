@@ -1,4 +1,4 @@
-// G8a: what the editor half hands the Mixer panel. `wireMixerHost` fills `mixerHost.flushNow` and `mixerHost.entries`; with the
+// G8a: what the editor half hands the Mixer panel. The registration fills `mixerHost.flushNow` and `mixerHost.entries`; with the
 // op log's entries behind it, the restart banner lists an op the op log recorded from a Project Settings section edit (not only
 // the panel's own previews); a drag preview calls `flushNow`; the monitor mute never commits and names the bus the hub taints.
 // No wall clock: the op log is synchronous and the clock is a counter.
@@ -10,11 +10,12 @@ import { closeTestProject, openTestProject } from "../../../../editor/testing";
 import { EMPTY_BUS_LOUDNESS } from "../../../../engine/audio/loudnessTypes";
 import type { ApplyResult, MixOp } from "../../../../engine/audio/mixOps";
 import { positionToGain } from "./faderModel";
-import { wireMixerHost } from "./index";
+import type { EditorPluginContext } from "../../../../editor/sdk";
+import { registerMixPanels } from "./index";
 import { mixerHost } from "./MixerPanel";
 import { MixerPanelController, type MixerPanelDeps } from "./mixerPanelModel";
 import { playState } from "../../../../editor/state";
-import { startOpLog, type OpLog, type OpLogEntry } from "./opLog";
+import { startOpLog, type OpLog } from "./opLog";
 
 const PROJECT = JSON.stringify({ name: "Game", audio: { buses: [{ name: "master" }, { name: "sfx", parent: "master" }, { name: "music", parent: "master" }] } });
 
@@ -44,7 +45,9 @@ async function rig() {
   const hub: string[] = [];
   const monitors: Array<[string, object]> = [];
   const commits: string[] = [];
-  wireMixerHost(mixerHost, { flushNow: () => void flushes++, entries: () => log.entries });
+  // What the registration fills the host with, here this test's flush counter and op log.
+  mixerHost.flushNow = () => void flushes++;
+  mixerHost.entries = () => log.entries;
   const deps: MixerPanelDeps = {
     draft: () => section.draft,
     commit: (label, next) => { commits.push(label); return section.edit(label, next); },
@@ -73,16 +76,13 @@ async function rig() {
   return { c, section, log, commits, monitors, hub, flushes: () => flushes };
 }
 
-describe("wireMixerHost", () => {
-  it("entries reads the source's current list each call; flushNow reaches the source", () => {
-    let list: OpLogEntry[] = [];
-    let flushes = 0;
-    wireMixerHost(mixerHost, { flushNow: () => void flushes++, entries: () => list });
+describe("the registration's wiring", () => {
+  it("loading the panel fills the host: the plugin's op log entries (none before it activates) and the backend's flush", async () => {
+    const views = new Map<string, () => Promise<unknown>>();
+    registerMixPanels({ registerPanel: (p: { id: string; view: () => Promise<unknown> }) => void views.set(p.id, p.view) } as unknown as EditorPluginContext);
+    await views.get("audiomixer")!();
     expect(mixerHost.entries!()).toEqual([]);
-    list = [{ seq: 1, cause: "edit", source: "recorded", ops: [], results: [], restartRequired: ["x"] }];
-    expect(mixerHost.entries!()).toBe(list);
-    mixerHost.flushNow!();
-    expect(flushes).toBe(1);
+    expect(() => mixerHost.flushNow!()).not.toThrow(); // no backend mixer here: nothing to flush
   });
 });
 

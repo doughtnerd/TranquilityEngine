@@ -11,9 +11,12 @@ import { FADER_MAX_DB, UNITY_POSITION, positionToGain } from "./faderModel";
 import { createMeter, resetClip, tickMeter, type MeterState } from "./meterModel";
 import { meterFill } from "../meterFill";
 import { METER_FLOOR_DB, meterFill as meterFillFromView } from "../BusMeters";
-import { buildStrips, createMixerModel, type BusReading, type MixerHost, type MixerModel, type Strip } from "./mixerModel";
+import { createMixerModel, type BusReading, type MixerHost, type MixerModel, type Strip } from "./mixerModel";
 import { parseAudioSettings } from "../../../../engine/audio/settings";
-import { GAIN_REDUCTION_MAX_DB, MixerStrip, faderHandlers, formatLufs, gainReductionDb, lufsFill, targetMarks, type MixerStripProps } from "./MixerStrip";
+import { MixerStrip, gainReductionDb, targetMarks, type MixerStripProps } from "./MixerStrip";
+
+/** The gain-reduction meter's full scale, dB. */
+const GAIN_REDUCTION_MAX_DB = 24;
 
 /** What a view draws from a meter state and the live peak: the bar, the hold marker, the clip lamp. */
 const readMeter = (m: MeterState, peak: number) => ({ fill: meterFill(peak), holdFill: meterFill(m.hold), clipped: m.clipped });
@@ -98,10 +101,13 @@ function pointer(track: Track, clientY: number, over: { shiftKey?: boolean; butt
 }
 const newTrack = (): Track => ({ captured: [], released: [], focused: 0 });
 
-/** Drive a fader as the browser would: re-render between events, so a stale handler would show. */
+type Handler = (e?: never) => void;
+type FaderHandlers = Record<"onPointerDown" | "onPointerMove" | "onPointerUp" | "onPointerCancel" | "onKeyDown" | "onDblClick", Handler>;
+
+/** Drive a fader as the browser would: re-render between events, so a stale handler would show; the handlers are the slider's. */
 function faderOf(r: ReturnType<typeof rig>, bus: string, changes: { n: number }, read: BusReading | null = reading()) {
   const props = (): MixerStripProps => ({ strip: stripOf(r, bus, read), model: r.model, onChange: () => void changes.n++ });
-  return () => faderHandlers(props());
+  return (): FaderHandlers => one(render(props()), byLabel(`${bus} volume`)).props as unknown as FaderHandlers;
 }
 
 describe("the strip renders every element from a strip model", () => {
@@ -439,10 +445,8 @@ describe("loudness readouts and the target line", () => {
 
   it("gated and empty readings read -inf, never NaN", () => {
     expect(rows(view(strip("music", loud({ momentary: -Infinity, shortTerm: -Infinity, integrated: -Infinity }))))).toEqual({ momentary: "-inf", shortTerm: "-inf", integrated: "-inf" });
-    expect(formatLufs(-Infinity)).toBe("-inf");
-    expect(formatLufs(NaN)).toBe("-inf");
-    expect(formatLufs(-0.04)).toBe("0.0");
-    expect(formatLufs(-23.06)).toBe("-23.1");
+    // One decimal, no "-0.0"; NaN reads -inf too.
+    expect(rows(view(strip("master", loud({ momentary: NaN, shortTerm: -0.04, integrated: -23.06 }))))).toEqual({ momentary: "-inf", shortTerm: "0.0", integrated: "-23.1" });
   });
 
   it("no target line without a target, and one per state when there is one", () => {
@@ -468,12 +472,8 @@ describe("loudness readouts and the target line", () => {
   });
 
   it("the LUFS scale clamps", () => {
-    expect(lufsFill(-Infinity)).toBe(0);
-    expect(lufsFill(-60)).toBe(0);
-    expect(lufsFill(-90)).toBe(0);
-    expect(lufsFill(-30)).toBe(0.5);
-    expect(lufsFill(0)).toBe(1);
-    expect(lufsFill(6)).toBe(1);
+    const fill = (shortTerm: number) => one(view(strip("music", loud({ shortTerm, target: target("ok") }))), byClass("mixer-target-fill")).props.style;
+    expect([-Infinity, -60, -90, -30, 0, 6].map(fill)).toEqual(["scaleX(0)", "scaleX(0)", "scaleX(0)", "scaleX(0.5)", "scaleX(1)", "scaleX(1)"].map((transform) => ({ transform })));
   });
 });
 
@@ -580,9 +580,8 @@ describe("a model is shared by every strip", () => {
     expect(find(render({ strip: stripOf(r, "sfx"), model: r.model }), byLabel("Monitor mute sfx"))).toHaveLength(0);
   });
 
-  it("buildStrips and MixerStrip agree for a strip built without the model", () => {
-    const { settings } = parseAudioSettings(AUDIO);
-    const [root] = buildStrips(settings, () => reading({ effectiveGain: 2 }));
+  it("the model's strips and MixerStrip agree for a strip read live", () => {
+    const [root] = rig().model.strips(() => reading({ effectiveGain: 2 }));
     const model = { beginDrag: () => false, drag() {}, endDrag: () => false, cancelDrag() {}, setVolume: () => false, toggleMute: () => false, toggleSolo() {}, dragging: null } satisfies Pick<MixerModel, "beginDrag" | "drag" | "endDrag" | "cancelDrag" | "setVolume" | "toggleMute" | "toggleSolo" | "dragging">;
     expect(text(one(render({ strip: root!, model }), byClass("mixer-gain-effective")))).toBe("eff +6.0 dB");
   });

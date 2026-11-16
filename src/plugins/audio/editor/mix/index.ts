@@ -8,8 +8,8 @@ import { editor, type EditorPluginContext, type ProjectSettingsSurface, type Set
 import type { OpLogEntry } from "./opLog";
 import type { CaptureLoudnessTarget } from "../../runtime/capture/format";
 
-export const PROFILER_PANEL = "audioprofiler";
-export const MIXER_PANEL = "audiomixer";
+const PROFILER_PANEL = "audioprofiler";
+const MIXER_PANEL = "audiomixer";
 
 export function registerMixPanels(context: EditorPluginContext): void {
   context.registerPanel({
@@ -45,7 +45,7 @@ export interface MixerHostSources {
 }
 
 /** Fill the panel's host with `sources` (G8a: previews post at once; the restart banner reads every recorded op). */
-export function wireMixerHost(host: { flushNow: (() => void) | null; entries: (() => readonly OpLogEntry[]) | null }, sources: MixerHostSources): void {
+function wireMixerHost(host: { flushNow: (() => void) | null; entries: (() => readonly OpLogEntry[]) | null }, sources: MixerHostSources): void {
   host.flushNow = () => sources.flushNow();
   host.entries = () => sources.entries();
 }
@@ -55,7 +55,7 @@ export function wireMixerHost(host: { flushNow: (() => void) | null; entries: ((
  * (ADR 0173): its draft and edits, its history for Ctrl+Z while the panel is focused, and its version. The surface follows
  * the open project, so `open` ignores its argument. The surface names no steps, so the history's labels are null.
  */
-export function mixerSectionOf(settings: ProjectSettingsSurface): import("./MixerPanel").MixerSection {
+function mixerSectionOf(settings: ProjectSettingsSurface): import("./MixerPanel").MixerSection {
   const session = { get draft() { return settings.draft(); }, edit: (label: string, next: SettingsDraft) => settings.edit(label, next) };
   return {
     open: () => session,
@@ -104,7 +104,7 @@ function loadProfiler(): Promise<typeof import("./ProfilerPanel")["ProfilerPanel
 }
 
 /** The entry of `audio.loudnessTargets` the session checks against (`Audio.loudnessTarget`), or null when none is selected or the name isn't in the list. */
-export function loudnessTargetNamed(targets: readonly CaptureLoudnessTarget[] | undefined, name: string | null): CaptureLoudnessTarget | null {
+function loudnessTargetNamed(targets: readonly CaptureLoudnessTarget[] | undefined, name: string | null): CaptureLoudnessTarget | null {
   if (name === null) return null;
   return targets?.find((t) => t.name === name) ?? null;
 }

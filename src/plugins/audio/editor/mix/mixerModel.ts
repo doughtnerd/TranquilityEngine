@@ -112,7 +112,7 @@ function treeOrder(a: AudioSettings): { bus: BusSettings; depth: number }[] {
  * One strip per bus, in tree order. `read` gives the live readings (null: not playing, strips are at rest), `meterOf` the
  * folded meter state, `drag` the strip being dragged and its previewed value. Pure: nothing is written anywhere.
  */
-export function buildStrips(
+function buildStrips(
   settings: AudioSettings,
   read: ReadBus = () => null,
   meterOf: MeterOf = () => undefined,
