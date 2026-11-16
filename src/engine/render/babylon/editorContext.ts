@@ -1,7 +1,8 @@
 /**
- * What the Babylon backend's editor helpers (ADR 0022, 0075 stage 8) get from the renderer: picking
- * and canvas queries (`editorQueries.ts`), the grid, outlines, overlays and camera/light gizmos
- * (`editorOverlays.ts`), and the transform gizmo (`editorGizmo.ts`).
+ * What the Babylon backend's editor viewport (ADR 0022, 0075 stage 8, 0128; `editorViewport.ts`, which
+ * also does the picking and canvas queries) gets from the renderer, as do its drawing modules: the grid,
+ * outlines and overlay (`editorGuides.ts`), the camera, light and particle system icons (`editorIcons.ts`),
+ * and the transform gizmo (`editorGizmo.ts`).
  *
  * Two scenes: the main scene (post-processed by the frame graph; the grid lives here so meshes hide
  * it) and the overlay scene, a utility layer drawn after the frame graph, on top of everything and

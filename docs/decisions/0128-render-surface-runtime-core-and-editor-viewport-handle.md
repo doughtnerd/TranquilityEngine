@@ -1,6 +1,6 @@
 # 0128. The render surface is a runtime core plus an editor viewport handle
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0187 (the Babylon adapter is `BabylonEditorViewport` in `babylon/editorViewport.ts`, drawing through `editorGuides.ts` and `editorIcons.ts`; `editorTools.ts`, `editorQueries.ts` and `editorOverlays.ts` are gone)
 - **Date:** 2026-11-07
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

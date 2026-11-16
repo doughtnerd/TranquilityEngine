@@ -1,4 +1,4 @@
-// ADR 0128: the editor viewport's Babylon adapter (`BabylonEditorTools`) behind a `ViewportHandle`, on
+// ADR 0128: the editor viewport's Babylon adapter (`BabylonEditorViewport`) behind a `ViewportHandle`, on
 // NullEngine with a fake renderer context (real Babylon scenes, meshes and utility layer), and the
 // Babylon renderer's diagnostics snapshot.
 import { NullEngine } from "@babylonjs/core/Engines/nullEngine.js";
@@ -13,7 +13,7 @@ import { Assets, Camera, Engine, GameObject, Material, SceneManager } from "../i
 import { MeshRenderer, SpriteRenderer } from "../render/components";
 import { BabylonRenderer, loadPluginFeatures, type PluginFeature } from "../render/babylon/BabylonRenderer";
 import type { BabylonEditorContext, BabylonEditorRendererHooks, EditorMesh } from "../render/babylon/editorContext";
-import { BabylonEditorTools } from "../render/babylon/editorTools";
+import { BabylonEditorViewport } from "../render/babylon/editorViewport";
 import { ViewportHandle } from "../render/editorViewport";
 import { FakeRenderPolicyPort } from "../render/fakeViewport";
 import type { UICoreLike } from "../ui/uiCoreTypes";
@@ -28,7 +28,7 @@ describe("the editor viewport's Babylon adapter (ADR 0128)", () => {
   let cameras: Camera[];
   let meshes: EditorMesh[];
   let hooks: { [K in keyof BabylonEditorRendererHooks]: Mock<BabylonEditorRendererHooks[K]> };
-  let tools: BabylonEditorTools | null;
+  let tools: BabylonEditorViewport | null;
   let loaded: boolean;
 
   const make = (editor = true) => {
@@ -46,7 +46,7 @@ describe("the editor viewport's Babylon adapter (ADR 0128)", () => {
       texts: () => [],
       renderer: hooks,
     } as unknown as BabylonEditorContext;
-    tools = new BabylonEditorTools(ctx);
+    tools = new BabylonEditorViewport(ctx);
     return new ViewportHandle(() => (loaded ? tools : null), new FakeRenderPolicyPort());
   };
 
@@ -103,7 +103,8 @@ describe("the editor viewport's Babylon adapter (ADR 0128)", () => {
     expect(viewport.grid()).toEqual({ plane: "xz", cellSize: 2, visible: false, divisions: expect.any(Number) });
     expect(viewport.ready).toBe(true);
     expect(hooks.setClearColor).toHaveBeenCalledWith(0x112233);
-    expect(tools!.overlays.isOutlined(node)).toBe(true);
+    tools!.sync(World.require());
+    expect(viewport.drawn().outlines).toBe(1); // the selection arrived
 
     viewport.pick(400, 300); // a later query doesn't replay again
     expect(hooks.setClearColor).toHaveBeenCalledTimes(1);
@@ -204,7 +205,7 @@ describe("the Babylon renderer's diagnostics (ADR 0128)", () => {
 
   it("loads the editor tools once, and they are the viewport adapter", async () => {
     const tools = await renderer.loadEditorTools();
-    expect(tools).toBeInstanceOf(BabylonEditorTools);
+    expect(tools).toBeInstanceOf(BabylonEditorViewport);
     expect(renderer.editorTools()).toBe(tools);
     expect(await renderer.loadEditorTools()).toBe(tools);
   });

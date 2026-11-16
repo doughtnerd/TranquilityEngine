@@ -9,7 +9,7 @@
  * once when they arrive, and answers "nothing" until then. Renderer policy (scene view, per-object
  * sprites, camera and particle previews; ADR 0129) is not the tools' business: it goes straight to the
  * surface's `RenderPolicyPort`, live before the tools load. Below the handle, `ViewportAdapter` is the
- * seam a renderer implements for the editor tools: the Babylon one (`babylon/editorTools.ts`) and an
+ * seam a renderer implements for the editor tools: the Babylon one (`babylon/editorViewport.ts`) and an
  * in-memory fake for tests (`fakeViewport.ts`). Both speak engine types only (ADR 0010): node ids live on `GameObject`s,
  * points are canvas CSS pixels (origin top-left), and nothing a renderer owns is ever handed out.
  */
