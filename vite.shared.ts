@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSy
 import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
-import type { Plugin } from "vite";
+import type { Plugin, UserConfig } from "vite";
 
 /**
  * Compile TypeScript (and TSX) with tsc instead of Vite's default transformer (oxc), which does
@@ -306,5 +306,27 @@ export function playerFiles(): Plugin {
       this.emitFile({ type: "asset", fileName: "player/files.json", source: readFileSync(join(PLAYER_DIR, "files.json")) });
       for (const file of manifest.files) this.emitFile({ type: "asset", fileName: `player/${file}`, source: readFileSync(join(PLAYER_DIR, ...file.split("/"))) });
     },
+  };
+}
+
+/** `"myco"` (and its old name) as project scripts and samples import the engine (ADR 0031): the engine's public module. */
+export const MYCO_ALIASES: Record<string, string> = {
+  myco: fileURLToPath(new URL("./src/myco.ts", import.meta.url)),
+  tranquility: fileURLToPath(new URL("./src/myco.ts", import.meta.url)),
+};
+
+/**
+ * The editor's Vite settings for rendering its components outside the editor page (ADR 0219): Storybook's build and
+ * the story tests. tsc compiles TypeScript and JSX as in the editor (`oxc` off), workers are ES modules with the same
+ * transpile, the engine's declarations and the `"myco"` alias resolve, and Preact's JSX runtime is pre-bundled (the
+ * dependency scanner never sees the import tsc adds).
+ */
+export function componentViteConfig(): UserConfig {
+  return {
+    plugins: [typescriptTranspile(), engineTypes()],
+    worker: { format: "es", plugins: () => [typescriptTranspile()] },
+    oxc: false,
+    resolve: { alias: MYCO_ALIASES },
+    optimizeDeps: { include: ["preact/jsx-runtime"] },
   };
 }

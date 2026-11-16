@@ -16,5 +16,5 @@
     "sourceMap": true,
     "outDir": "./dist/"
   },
-  "include": ["src/**/*", "samples/*/scripts/**/*"]
+  "include": ["src/**/*", "samples/*/scripts/**/*", ".storybook/preview.tsx"]
 }

@@ -1,14 +1,14 @@
-import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
-import { engineTypes, typescriptTranspile } from "./vite.shared.ts";
+import { MYCO_ALIASES, engineTypes, typescriptTranspile } from "./vite.shared.ts";
 
 export default defineConfig({
   plugins: [typescriptTranspile(), engineTypes()],
   oxc: false,
   // Sample scripts (ADR 0031) import the engine as "myco", as project scripts do.
-  resolve: { alias: { myco: fileURLToPath(new URL("./src/myco.ts", import.meta.url)), tranquility: fileURLToPath(new URL("./src/myco.ts", import.meta.url)) } },
+  resolve: { alias: MYCO_ALIASES },
   test: {
     environment: "node",
+    // Headless unit tests only: stories (`*.stories.tsx`) run in a browser through vitest.stories.config.mts (ADR 0219).
     include: ["src/**/*.test.ts"],
     // First-party runtime plugins active, as in the player (ADR 0135).
     setupFiles: ["./src/plugins/testSetup.ts"],
