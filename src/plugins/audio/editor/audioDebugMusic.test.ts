@@ -4,13 +4,14 @@ import { Mixer } from "../../../engine/audio/mixer";
 import { defaultAudioSettings } from "../../../engine/audio/settings";
 import { debugSections } from "./audioDebugRows";
 import type { EventInstance } from "../runtime/events/eventRuntime";
-import { _resetMusicPlayers, createMusicPlayer } from "../runtime/music/musicSystem";
+import { createMusicPlayer } from "../runtime/music/musicSystem";
 import { buildDebugInfo, type DebugSource } from "../runtime/core/debug";
 import { StatusMirror } from "../runtime/core/mirror";
 import { UnlockQueue } from "../runtime/core/unlockQueue";
 import { VoiceTable } from "../runtime/core/voiceTable";
+import { endAudioSession } from "../runtime/testing";
 
-afterEach(() => _resetMusicPlayers());
+afterEach(() => endAudioSession());
 
 function source(view?: { poolUsed: number; poolSize: number; poolHighWater: number; musicRingRefused: number; groupTableFull?: number }) {
   const table = new VoiceTable(8);

@@ -8,9 +8,10 @@ import { setAudioBackend, type AudioBackend } from "../backend";
 import type { EventInstance } from "../events/eventRuntime";
 import { parseAudioEvent } from "../../../../engine/audio/eventFormat";
 import type { MusicNode } from "../../../../engine/audio/musicFormat";
-import { _resetMusicPlayers, createMusicPlayer, type MusicFrame } from "./musicSystem";
-import { _resetSegmentRuns, routeGroupEvent, setSegmentClipSource } from "./segmentRun";
+import { createMusicPlayer, type MusicFrame } from "./musicSystem";
+import { routeGroupEvent, setSegmentClipSource } from "./segmentRun";
 import { planTick, requestStart } from "./planner";
+import { endAudioSession } from "../testing";
 
 const RATE = 48_000;
 const FRAMES = 4 * RATE;
@@ -19,8 +20,7 @@ const STEMS = 8;
 const level = (k: number): number => 0.01 * (k + 1);
 
 afterEach(() => {
-  _resetMusicPlayers();
-  _resetSegmentRuns();
+  endAudioSession();
   setAudioBackend(null);
 });
 

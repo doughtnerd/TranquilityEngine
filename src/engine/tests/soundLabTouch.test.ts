@@ -11,12 +11,14 @@ import { readProject } from "../../server/project";
 import.meta.glob("../../../samples/sound-lab/scripts/behaviors/*.ts", { eager: true });
 import { MusicLab } from "../../../samples/sound-lab/scripts/behaviors/MusicLab";
 import { setAudioBackend } from "../../plugins/audio/runtime/backend";
-import { makeFakeBackend } from "../../plugins/audio/runtime/testing";
+import { makeFakeBackend, endAudioSession } from "../../plugins/audio/runtime/testing";
 import { Audio } from "../../plugins/audio/runtime";
-import { resetCalibrationForTests, setCalibration, calibrationSettled } from "../../plugins/audio/runtime/music/calibration";
-import { _resetMusicPlayers } from "../../plugins/audio/runtime/music/musicSystem";
+import { setCalibration } from "../../plugins/audio/runtime/music/calibration";
 import { events } from "../../plugins/audio/runtime/events/eventRuntime";
 import type { RhythmLab, RhythmState } from "../../../samples/sound-lab/scripts/behaviors/RhythmLab";
+
+/** Lets the calibration's storage read or write land (a few promise turns). */
+const settle = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
 
 const SAMPLE = fileURLToPath(new URL("../../../samples/sound-lab/", import.meta.url));
 const fake = makeFakeBackend();
@@ -68,8 +70,7 @@ beforeEach(() => {
   fake.ready = true;
   setAudioBackend(fake);
   events().now = () => clock.time;
-  events()._reset();
-  resetCalibrationForTests();
+  endAudioSession();
   vi.spyOn(console, "warn").mockImplementation(() => {});
 });
 
@@ -79,10 +80,9 @@ afterEach(async () => {
   Assets.clearSources();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
-  _resetMusicPlayers();
-  events()._reset();
+  endAudioSession();
   setCalibration(0);
-  await calibrationSettled();
+  await settle();
   setAudioBackend(null);
 });
 

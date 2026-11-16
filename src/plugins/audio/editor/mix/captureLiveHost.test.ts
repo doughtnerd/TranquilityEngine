@@ -9,11 +9,16 @@ import type { CaptureWorkerLike } from "./profilerSource";
 import { Audio } from "../../runtime/Audio";
 import { setAudioBackend } from "../../runtime/backend";
 import { makeFakeBackend, type FakeBackend } from "../../runtime/testing";
-import { _setRecorderLoader, _setSaveEnv, captureDebug, captureLiveHost, releaseCapture, type RecorderModule } from "../../runtime/capture/capture";
+import { captureDebug, captureLiveHost, releaseCapture } from "../../runtime/capture/capture";
 import { createCaptureWorkerHandler, type CaptureRequest, type CaptureResponse } from "../../runtime/capture/worker";
 import { defaultSaveEnv, type SaveEnv } from "../../runtime/capture/save";
 import { openCapture } from "../../runtime/capture/reader";
-import { keyframeCodecForTests, statusBytes } from "../../runtime/capture/testSupport";
+import { keyframeCodecForTests, statusBytes, type CaptureChunkControl } from "../../runtime/capture/testSupport";
+
+/** The recorder and save chunks are the real ones, wrapped: an 8 MiB ring, each save through the rig's fakes. */
+const chunk = vi.hoisted((): CaptureChunkControl => ({ options: {}, recorders: [], saveEnv: null }));
+vi.mock("../../runtime/capture/recorder", async (real) => (await import("../../runtime/capture/testSupport")).captureRecorderModule(await real(), chunk));
+vi.mock("../../runtime/capture/save", async (real) => (await import("../../runtime/capture/testSupport")).captureSaveModule(await real(), chunk));
 
 
 /** The ring's owners as `Audio.debug().recorder` reports them: whether a take runs, and the panel holds besides it. */
@@ -77,10 +82,7 @@ function rig() {
   const baseDebug = fb.debug.bind(fb);
   fb.debug = () => ({ ...baseDebug(), time: fb.frame / RATE, sampleRate: RATE, core: { backend: "fake", currentFrame: fb.frame } });
   setAudioBackend(fb);
-  const before = _setRecorderLoader(async (): Promise<RecorderModule> => {
-    const m = await import("../../runtime/capture/recorder");
-    return { ...m, createRecorder: (o) => m.createRecorder({ ringBytes: 8 * MiB, codec: keyframeCodecForTests(), ...o }) };
-  });
+  chunk.options = { ringBytes: 8 * MiB, codec: keyframeCodecForTests() };
   const downloads: Uint8Array[] = [];
   const env: SaveEnv = {
     tauri: false,
@@ -90,7 +92,7 @@ function rig() {
     compress: defaultSaveEnv().compress,
     now: () => new Date(2026, 10, 13, 10, 15, 0),
   };
-  _setSaveEnv(env);
+  chunk.saveEnv = env;
   const feed = (n: number): void => {
     for (let k = 0; k < n; k++) {
       fb.frame += BLOCK;
@@ -102,15 +104,12 @@ function rig() {
   const updates: LiveFollowModel[] = [];
   const scheduler = manualScheduler();
   const follow = new LiveFollow({ host: captureLiveHost, scheduler, sourceOptions: () => ({ worker: inProcessWorker() }), onUpdate: (m) => void updates.push(m) });
-  return { fb, feed, follow, downloads, restore: () => _setRecorderLoader(before) };
+  return { fb, feed, follow, downloads };
 }
 
-let cleanup: (() => void) | null = null;
 afterEach(() => {
   releaseCapture();
-  cleanup?.();
-  cleanup = null;
-  _setSaveEnv(null);
+  chunk.saveEnv = null;
   setAudioBackend(null);
 });
 
@@ -119,7 +118,6 @@ const settle = (cond: () => boolean) => vi.waitFor(() => expect(cond()).toBe(tru
 describe("LiveFollow over Rc4's LiveHost", () => {
   it("opening the panel loads the recorder as a panel owner: the view follows the ring, which is no take", async () => {
     const r = rig();
-    cleanup = r.restore;
     await r.follow.start();
     expect(r.follow.current.state).toBe("following");
     expect(captureOwners()).toEqual({ take: false, panels: 1 });
@@ -133,7 +131,6 @@ describe("LiveFollow over Rc4's LiveHost", () => {
 
   it("closing the panel with no take frees the ring", async () => {
     const r = rig();
-    cleanup = r.restore;
     await r.follow.start();
     r.feed(SECOND + 5);
     await settle(() => r.follow.current.segments >= 1);
@@ -146,7 +143,6 @@ describe("LiveFollow over Rc4's LiveHost", () => {
 
   it("closing the panel with a take running keeps the ring and the take, and reopening resumes the view", async () => {
     const r = rig();
-    cleanup = r.restore;
     await Audio.capture.start();
     await r.follow.start();
     expect(captureOwners()).toEqual({ take: true, panels: 1 });
@@ -169,7 +165,6 @@ describe("LiveFollow over Rc4's LiveHost", () => {
 
   it("the take ending while the panel is open leaves the panel recording; its close then holds the ring for save", async () => {
     const r = rig();
-    cleanup = r.restore;
     await Audio.capture.start();
     await r.follow.start();
     r.feed(SECOND + 5);

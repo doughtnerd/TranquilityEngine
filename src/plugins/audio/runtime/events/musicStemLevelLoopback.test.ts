@@ -9,7 +9,7 @@
 //   at 0.5 on the core. Before F-9b each reset the in-voice ramp to the plain dry gain (the stem back at full).
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Assets, Engine, SceneManager } from "../../../../myco";
-import { mixer as globalMixer, registerCoreBackend, resetCoreFallbackState, setAudioBackend, type AudioVoice } from "../backend";
+import { mixer as globalMixer, registerCoreBackend, setAudioBackend, type AudioVoice } from "../backend";
 import { Audio } from "../index";
 import { createClipRegistry } from "../core/clipRegistry";
 import { fakeDecoder } from "../core/fakeDecoder";
@@ -18,6 +18,7 @@ import { CoreBackend, type CoreBackendHost } from "../core/coreBackend";
 import { AUDIO_SYSTEMS } from "../audioSystem";
 import { musicPlayers } from "../music/musicSystem";
 import { events } from "./eventRuntime";
+import { endAudioSession } from "../testing";
 
 const RATE = 48_000;
 const BEAT = RATE / 2;
@@ -55,16 +56,15 @@ const INTENSITY = {
 let undo: (() => void) | null = null;
 beforeEach(() => {
   setAudioBackend(null);
-  resetCoreFallbackState();
-  events()._reset();
+  endAudioSession();
   vi.spyOn(console, "warn").mockImplementation(() => {});
 });
 afterEach(() => {
   undo?.();
   undo = null;
-  events()._reset();
+  endAudioSession();
   setAudioBackend(null);
-  resetCoreFallbackState();
+  endAudioSession();
   vi.restoreAllMocks();
 });
 

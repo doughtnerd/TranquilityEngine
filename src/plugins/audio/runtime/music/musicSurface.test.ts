@@ -3,16 +3,16 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { Audio } from "../Audio";
 import { setAudioBackend } from "../backend";
-import { makeFakeBackend } from "../testing";
+import { makeFakeBackend, endAudioSession } from "../testing";
 import type { EventInstance } from "../events/eventRuntime";
 import { Calibration as PublicCalibration, type GridSpec, type MusicEvent, type MusicHandle, type MusicPositionAt } from "../../../../myco";
 import { Calibration } from "./calibration";
 import { musicHandleOf } from "./handle";
-import { _resetMusicPlayers, createMusicPlayer, onMusicOf } from "./musicSystem";
+import { createMusicPlayer, onMusicOf } from "./musicSystem";
 import { triggerOn } from "./stingers";
 
 afterEach(() => {
-  _resetMusicPlayers();
+  endAudioSession();
   setAudioBackend(null);
   Audio.calibration = 0;
 });

@@ -5,6 +5,7 @@ import { VoiceReason, VoiceState } from "./voiceTable";
 import type { VoiceTableHandleApi } from "./voiceTable";
 
 import type { AudioReason } from "../backend";
+import { onAudioSessionReleased } from "../audioSession";
 
 export type { AudioReason };
 
@@ -174,8 +175,8 @@ export class AudioHandle {
 const warnedKeys = new Set<string>();
 
 /**
- * @internal Warns once per `key` for the page (§1 "each clamps and warns once"), with the `[myco]` prefix as
- * `mixer.ts` does. Tests reset it with `_resetHandleWarningsForTests`.
+ * @internal Warns once per `key` for the audio session (§1 "each clamps and warns once"), with the `[myco]` prefix as
+ * `mixer.ts` does. A released session (ADR 0218: the project's Engines went) warns afresh.
  */
 export function warnOnce(key: string, message: string): void {
   if (warnedKeys.has(key)) return;
@@ -183,7 +184,4 @@ export function warnOnce(key: string, message: string): void {
   console.warn(`[myco] ${message}`);
 }
 
-/** @internal Tests: forget which warnings were given. */
-export function _resetHandleWarningsForTests(): void {
-  warnedKeys.clear();
-}
+onAudioSessionReleased(() => warnedKeys.clear());

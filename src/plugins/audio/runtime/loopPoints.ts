@@ -13,6 +13,7 @@
 
 import { Assets, fetchAssetBytes } from "../../../engine/scene/Assets";
 import { fileSampleRate, readLoopPoints } from "./loopPointsReader";
+import { onAudioSessionReleased } from "./audioSession";
 
 /** A loop region in seconds; `end` is exclusive. */
 export interface LoopPoints {
@@ -84,11 +85,11 @@ export function onLoopPoints(path: string, cb: (points: LoopPoints | null) => vo
   };
 }
 
-/** Forgets what the files said (tests; a backend teardown). Waiters stay subscribed. */
-export function resetFileLoopPoints(): void {
+/** A released session (ADR 0218) forgets what the files said: the next project's files may differ under the same paths. Waiters stay subscribed. */
+onAudioSessionReleased(() => {
   fileByPath.clear();
   scans.clear();
-}
+});
 
 /**
  * Converts frames from a decode (`ClipInfo.loopStartFrame/loopEndFrame`) or from `readLoopPoints` to seconds and
@@ -99,8 +100,8 @@ export function setFileLoopFrames(path: string, frames: { start: number; end: nu
   setFileLoopPoints(path, { start: frames.start / sampleRate, end: frames.end / sampleRate });
 }
 
-/** Records the loop points stored in `bytes`, a clip's encoded file (Babylon path, or anyone holding the bytes). Never throws. */
-export function scanFileLoopPoints(path: string, bytes: Uint8Array): void {
+/** Records the loop points stored in `bytes`, a clip's encoded file (the Babylon path's fetch). Never throws. */
+function scanFileLoopPoints(path: string, bytes: Uint8Array): void {
   let frames: { start: number; end: number } | null = null;
   let rate: number | null = null;
   try {

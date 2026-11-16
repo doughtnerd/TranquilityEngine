@@ -10,10 +10,6 @@ publish.workspace = true
 name = "myco_audio"
 crate-type = ["cdylib", "rlib"]
 
-[features]
-# Extra exports for tests (myco_audio_debug_decode_batch); built by build.mjs into its own wasm.
-test-hooks = []
-
 [dependencies]
 audio-core.workspace = true
 audio-wire.workspace = true

@@ -2,13 +2,13 @@
 // Clock: 120 bpm 4/4, a 120 s clip; A plays from 1.1 (stamped from now 1 + the 100 ms first lead).
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { setAudioBackend } from "../backend";
-import { makeFakeBackend, type FakeBackend } from "../testing";
+import { makeFakeBackend, type FakeBackend, endAudioSession } from "../testing";
 import type { EventInstance } from "../events/eventRuntime";
 import { parseAudioEvent } from "../../../../engine/audio/eventFormat";
 import type { MusicNode, MusicSwitchNode } from "../../../../engine/audio/musicFormat";
 import type { MusicClipFacts } from "../../../../engine/audio/musicValidate";
-import { _resetMusicPlayers, createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
-import { _resetSegmentRuns, setSegmentClipSource } from "./segmentRun";
+import { createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
+import { setSegmentClipSource } from "./segmentRun";
 import { planTick, requestStart } from "./planner";
 import { requestTransition, tickTransition } from "./transition";
 import { seekMusic } from "./seek";
@@ -60,8 +60,7 @@ const tick = (player: MusicPlayer, now: number): void => {
 };
 
 afterEach(() => {
-  _resetMusicPlayers();
-  _resetSegmentRuns();
+  endAudioSession();
   setAudioBackend(null);
   vi.restoreAllMocks();
 });
@@ -114,7 +113,7 @@ describe("seekMusic", () => {
     expect(player.transition).toBeNull();
   });
 
-  it("is notPlaying for good once the music is stopping, stopped or refused, or its player is gone", () => {
+  it("is notPlaying for good once the music is stopping, stopped or refused, or its player is gone", async () => {
     rig();
     const gone = { ok: false, reason: "notPlaying", permanent: true };
     const stopped = playing(root());
@@ -125,7 +124,7 @@ describe("seekMusic", () => {
     stopped.state = "refused";
     expect(seekMusic(stopped, "2:1:0")).toEqual(gone);
     const orphan = createMusicPlayer(instance(), root());
-    _resetMusicPlayers();
+    endAudioSession();
     expect(seekMusic(orphan, "2:1:0")).toEqual(gone);
   });
 

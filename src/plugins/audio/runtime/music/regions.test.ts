@@ -7,10 +7,12 @@ import type { AudioBackend } from "../backend";
 import type { EventInstance } from "../events/eventRuntime";
 import { parseSegmentNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
 import type { MusicClipFacts } from "../../../../engine/audio/musicValidate";
-import { _resetMusicPlayers, createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
-import { _resetSegmentRuns, createSegmentRun, setSegmentClipSource, type SegmentRun } from "./segmentRun";
+import { createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
+import { createSegmentRun, setSegmentClipSource, type SegmentRun } from "./segmentRun";
 import { advanceAnchor, anchorRun, nextWrapOf, predictWrap, ticksAt } from "./anchors";
-import { conditionHolds, tickRegions } from "./regions";
+import { tickRegions } from "./regions";
+import { conditionHolds } from "./regionCondition";
+import { endAudioSession } from "../testing";
 
 const L = 0.05;
 const DBAR = 0.016;
@@ -64,8 +66,7 @@ const looped = (cond: Record<string, unknown> = { parameter: "Loop", is: "hold" 
   segment({ regions: [{ id: "body", from: "2:1:0", to: "4:1:0", count, while: cond }] });
 
 afterEach(() => {
-  _resetMusicPlayers();
-  _resetSegmentRuns();
+  endAudioSession();
   for (const k of Object.keys(params)) delete params[k];
   vi.restoreAllMocks();
 });

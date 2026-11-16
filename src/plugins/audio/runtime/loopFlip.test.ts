@@ -12,14 +12,13 @@ import { RATE, rig } from "../testing/streamRig";
 import { setAudioBackend, type PlayRequest } from "./backend";
 import { BabylonBackend } from "./babylonBackend";
 import { fakeDecoder } from "./core/fakeDecoder";
-import { _resetHandleWarningsForTests } from "./core/handle";
 import { CoreBackend, type CoreBackendHost } from "./core/coreBackend";
 import type { AudioHost, CoreLink } from "./core/context";
 import { CoreAutomation, type CoreAutomationDeps } from "./core/coreAutomation";
 import { VoiceState, VoiceTable } from "./core/voiceTable";
 import { makeWav, signal } from "./decoder/testWav";
-import { resetFileLoopPoints } from "./loopPoints";
 import type { AudioVoice } from "./backend";
+import { endAudioSession } from "./testing";
 
 vi.mock("@babylonjs/core/AudioV2/webAudio/webAudioEngine", async () => (await import("../testing/babylonMocks")).webAudioEngineModule);
 
@@ -43,7 +42,7 @@ function withSmpl(base: ArrayBuffer, start: number, end: number): Uint8Array {
 const dataUrl = (bytes: Uint8Array): string => `data:audio/wav;base64,${Buffer.from(bytes).toString("base64")}`;
 const tinyWav = (rate: number) => makeWav(16, 1, rate, () => 0);
 
-beforeEach(() => resetFileLoopPoints());
+beforeEach(() => endAudioSession());
 afterEach(() => {
   Assets.clearSources();
   vi.restoreAllMocks();
@@ -240,7 +239,7 @@ function make(): BabylonBackend {
 describe("a plain looping clip on Babylon uses its loop points (E4.5)", () => {
   beforeEach(() => {
     babylonMock.reset();
-    _resetHandleWarningsForTests();
+    endAudioSession();
     mixer.configure(parseAudioSettings({ buses: [{ name: "Master" }] }).settings);
   });
   afterEach(() => {

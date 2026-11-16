@@ -2,15 +2,15 @@
 // fake's horizon (now + L); the test primes a group a few frames after its prime request, as a worker would.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { setAudioBackend } from "../backend";
-import { makeFakeBackend, type FakeBackend } from "../testing";
+import { makeFakeBackend, type FakeBackend, endAudioSession } from "../testing";
 import type { EventInstance } from "../events/eventRuntime";
 import { parseSegmentNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
 import type { MusicClipFacts } from "../../../../engine/audio/musicValidate";
-import { _resetMusicPlayers, createMusicPlayer, type MusicFrame, type MusicNodeRef, type MusicPlayer } from "./musicSystem";
+import { createMusicPlayer, type MusicFrame, type MusicNodeRef, type MusicPlayer } from "./musicSystem";
 import { planTick } from "./planner";
 import { tickTransition } from "./transition";
-import { createPlaylistState, enterPlaylist, peekNext, tickPlaylist } from "./playlist";
-import { _resetSegmentRuns, setSegmentClipSource } from "./segmentRun";
+import { createPlaylistState, enterPlaylist, tickPlaylist } from "./playlist";
+import { setSegmentClipSource } from "./segmentRun";
 
 const RATE = 48_000;
 const L = 1 / 30;
@@ -90,8 +90,7 @@ function run(player: MusicPlayer, from: number, until: number, each?: (now: numb
 const order = (): string[] => stamps.map((s) => s.id.replace(/^music\//, "").replace(/-0\.ogg$/, ""));
 
 afterEach(() => {
-  _resetMusicPlayers();
-  _resetSegmentRuns();
+  endAudioSession();
   setAudioBackend(null);
   vi.restoreAllMocks();
 });
@@ -100,13 +99,6 @@ describe("playlist: state and peek", () => {
   it("createPlaylistState is null for a segment and a state for a playlist", () => {
     expect(createPlaylistState(segment("a"), 1)).toBeNull();
     expect(createPlaylistState(playlist("p", [segment("a")]), 1)).not.toBeNull();
-  });
-
-  it("peekNext does not advance, descends into a nested playlist and ends at the last round", () => {
-    const root = playlist("p", [segment("a"), playlist("n", [segment("b"), segment("c")]), segment("d")]);
-    const st = createPlaylistState(root, 3)!;
-    expect(peekNext(st)?.id).toBe("a");
-    expect(peekNext(st)?.id).toBe("a");
   });
 });
 

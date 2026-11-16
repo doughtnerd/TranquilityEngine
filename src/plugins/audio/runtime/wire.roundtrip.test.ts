@@ -1,5 +1,4 @@
 // A0.2-L5: the TypeScript packers against the byte vectors (ADR 0157 section 4.4, "Round-trip test").
-// The `test-hooks` wasm cases (decode_batch, schema hash export) belong to later tasks and stay out of this file.
 import { describe, expect, it } from "vitest";
 import * as wire from "./wire.generated";
 import { makeStatusBlock } from "./core/statusFixtures";

@@ -333,18 +333,6 @@ export function heardTimeOf(anchor: GridAnchor, ticks: number): number {
 }
 
 /**
- * P3: heard time of `ticks` in loop pass `pass` of the region the anchor is in (K1's beats in later passes): the
- * anchor's pass plus (pass - anchor.pass) region lengths. Outside a region only `pass === anchor.pass` is defined.
- */
-export function heardTimeAtPass(anchor: GridAnchor, ticks: number, pass: number): number {
-  const t = heardTimeOf(anchor, ticks);
-  if (pass === anchor.pass) return t;
-  const c = compiledOf(anchor);
-  const r = c ? regionAt(c, ticksToSeconds(c.grid, anchor.ticks)) : null;
-  return r ? t + (pass - anchor.pass) * (r.to - r.from) : Number.NaN;
-}
-
-/**
  * P3: the position (ticks, fractional) heard at `time` (seconds) on the anchor's segment, NaN when unknown. Loop passes
  * after the anchor are unrolled (a time three passes on reads the region's position, not past its end); before the
  * anchor it extrapolates linearly. A released `while` region is known through `bindRelease` (R4b binds the player's anchor).

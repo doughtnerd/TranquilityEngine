@@ -3,9 +3,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Assets, Engine, GameObject, SceneManager } from "../../../../myco";
 import { setAudioBackend, type AudioBackend } from "../backend";
-import { _resetHandleWarningsForTests } from "../core/handle";
 import { AudioSource } from "../AudioSource";
-import { makeFakeBackend } from "../testing";
+import { makeFakeBackend, endAudioSession } from "../testing";
 import { Audio } from "../index";
 import { events, worldSeed, type EventInstance } from "./eventRuntime";
 import type { AutomationSink } from "./automation";
@@ -26,13 +25,12 @@ beforeEach(() => {
   fake.clear();
   fake.ready = true;
   setAudioBackend(fake);
-  events()._reset();
-  _resetHandleWarningsForTests();
+  endAudioSession();
   vi.spyOn(console, "warn").mockImplementation(() => {});
 });
 afterEach(() => {
   vi.restoreAllMocks();
-  events()._reset();
+  endAudioSession();
   setAudioBackend(null);
 });
 
@@ -52,7 +50,7 @@ describe("seeding per World (0158 §6)", () => {
   it("the same seed and the same World give the same picks", async () => {
     await boot(RANDOM());
     const first = picks("r.audioevent.json", 3);
-    events()._reset();
+    endAudioSession();
     await boot(RANDOM());
     expect(picks("r.audioevent.json", 3)).toEqual(first);
   });
@@ -63,10 +61,10 @@ describe("seeding per World (0158 §6)", () => {
     const b = picks("r.audioevent.json", 2);
     expect(b).not.toEqual(a);
     // World 1 alone, fresh: the same picks as when World 2 played in between.
-    events()._reset();
+    endAudioSession();
     await boot(RANDOM());
     const alone = [...picks("r.audioevent.json", 1, 8), ...picks("r.audioevent.json", 1, 8)];
-    events()._reset();
+    endAudioSession();
     await boot(RANDOM());
     const mixed: string[] = [];
     for (let i = 0; i < 8; i++) { mixed.push(...picks("r.audioevent.json", 1, 1)); picks("r.audioevent.json", 2, 1); }

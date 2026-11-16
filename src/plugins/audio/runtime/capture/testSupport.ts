@@ -3,6 +3,8 @@
 import { makeStatusBlock } from "../core/statusFixtures";
 import { STATUS_BUFFER_BYTES, writeStatus, type StatusBlock } from "../wire.generated";
 import { RecordType, assembleCapture, encodeKeyframe, keyframeBytes, type CaptureHeaderInit, type CaptureMetaInit, type CaptureRecordInit, type KeyframePayload } from "./format";
+import type { Recorder, RecorderOptions } from "./recorder";
+import type { SaveEnv } from "./save";
 
 export const SAMPLE_RATE = 48_000;
 
@@ -151,4 +153,35 @@ export function statusBytesWithVoices(currentFrame: number, voices: number): Uin
   const demoted = Array.from({ length: Math.min(voices, 1024) }, (_, i) => i + 1);
   const peaks = Array.from({ length: 32 }, (_, i) => ({ l: i / 64, r: i / 32 }));
   return statusBytesWith({ currentFrame, playheads, demoted, peaks, mixedVoices: voices, liveVoices: voices });
+}
+
+/**
+ * What a test's `vi.mock` of `./recorder` and `./save` reads. `capture.ts` reaches both chunks by `import()` alone, so a
+ * test wraps the real modules (`captureRecorderModule`, `captureSaveModule` in its mock factories) instead of handing the
+ * capture a loader. Declare it with `vi.hoisted` so the factories can see it.
+ */
+export interface CaptureChunkControl {
+  /** Options every new recorder gets ahead of the capture's own (a test's ring size, a keyframe codec); {}: the defaults. */
+  options: RecorderOptions;
+  /** Every recorder made, in order. */
+  recorders: Recorder[];
+  /** The platform `saveCapture` writes through; null: the real one (`defaultSaveEnv`). */
+  saveEnv: SaveEnv | null;
+}
+
+/** The real recorder chunk, its `createRecorder` taking `control.options` and listing what it makes. */
+export function captureRecorderModule(real: typeof import("./recorder"), control: CaptureChunkControl): typeof import("./recorder") {
+  return {
+    ...real,
+    createRecorder: (opts) => {
+      const r = real.createRecorder({ ...control.options, ...opts });
+      control.recorders.push(r);
+      return r;
+    },
+  };
+}
+
+/** The real save chunk, `saveCapture` writing through `control.saveEnv` when one is set. */
+export function captureSaveModule(real: typeof import("./save"), control: CaptureChunkControl): typeof import("./save") {
+  return { ...real, saveCapture: (take, name, env) => real.saveCapture(take, name, env ?? control.saveEnv ?? undefined) };
 }

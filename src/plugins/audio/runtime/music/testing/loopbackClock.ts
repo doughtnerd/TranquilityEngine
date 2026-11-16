@@ -16,18 +16,14 @@
 //   r.dispose();
 import { vi } from "vitest";
 import { Assets, Engine, SceneManager } from "../../../../../myco";
-import { mixer as globalMixer, registerCoreBackend, resetCoreFallbackState, setAudioBackend } from "../../backend";
+import { mixer as globalMixer, registerCoreBackend, setAudioBackend } from "../../backend";
 import { Audio } from "../../index";
 import { createClipRegistry } from "../../core/clipRegistry";
 import { fakeDecoder } from "../../core/fakeDecoder";
 import type { AudioHost } from "../../core/context";
 import { CoreBackend, type CoreBackendHost } from "../../core/coreBackend";
 import { AUDIO_SYSTEMS } from "../../audioSystem";
-import { events } from "../../events/eventRuntime";
-import { _resetMusicPlayers, musicPlayers, type MusicPlayer } from "../musicSystem";
-import { _resetSegmentRuns, segmentClipSource, setSegmentClipSource } from "../segmentRun";
-import { _resetStingers } from "../stingers";
-import { _resetMusicBackground } from "../background";
+import { musicPlayers, type MusicPlayer } from "../musicSystem";
 
 export const RATE = 48_000;
 export const QUANTUM = 128;
@@ -96,29 +92,22 @@ export interface MusicLoopback {
 }
 
 let undo: (() => void) | null = null;
+/** The fixture's Engine: disposing it ends the audio session (ADR 0218), which forgets the runtime's music state. */
+let liveEngine: Engine | null = null;
 
 /** Clears what a fixture left; `dispose` calls it, and a test's `afterEach` may too. */
 export function resetMusicLoopback(): void {
   undo?.();
   undo = null;
-  events()._reset();
-  _resetMusicPlayers();
-  // `_resetSegmentRuns` also drops the clip source `AudioSource.ts` registers once at import; keep it.
-  const source = segmentClipSource();
-  _resetSegmentRuns();
-  setSegmentClipSource(source);
-  _resetStingers();
-  _resetMusicBackground();
+  liveEngine?.dispose();
+  liveEngine = null;
   setAudioBackend(null);
-  resetCoreFallbackState();
   vi.restoreAllMocks();
 }
 
 /** The engine, the real core and the clips, settled and silent; null when the wasm can't load. */
 export async function musicLoopback(options: MusicLoopbackOptions): Promise<MusicLoopback | null> {
-  setAudioBackend(null);
-  resetCoreFallbackState();
-  events()._reset();
+  resetMusicLoopback();
   vi.spyOn(console, "warn").mockImplementation(() => {});
   const quantaPerFrame = options.quantaPerFrame ?? 6;
   const frameFrames = quantaPerFrame * QUANTUM;
@@ -132,6 +121,7 @@ export async function musicLoopback(options: MusicLoopbackOptions): Promise<Musi
     project: { audio: { buses: [{ name: "Master" }, { name: "Music", parent: "Master" }], seed: 7, backend: "core", parameters: options.parameters ?? [] } } as never,
   });
   await SceneManager.load("s.json");
+  liveEngine = engine;
   engine.world.render = {} as never;
 
   const testing = await import("../../testing");

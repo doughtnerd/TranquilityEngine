@@ -9,13 +9,13 @@
 //   beat  -> 1.6        bar -> 3.1        exitCue (A's cue "out" at 2:1:0) -> 3.1 as well, so it is not used to tell rules apart.
 import { afterEach, describe, expect, it } from "vitest";
 import { setAudioBackend } from "../backend";
-import { makeFakeBackend, type FakeBackend } from "../testing";
+import { makeFakeBackend, type FakeBackend, endAudioSession } from "../testing";
 import type { EventInstance } from "../events/eventRuntime";
 import { parseAudioEvent } from "../../../../engine/audio/eventFormat";
 import { isMusicContainer, type MusicNode } from "../../../../engine/audio/musicFormat";
 import type { MusicClipFacts } from "../../../../engine/audio/musicValidate";
-import { _resetMusicPlayers, createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
-import { _resetSegmentRuns, setSegmentClipSource } from "./segmentRun";
+import { createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
+import { setSegmentClipSource } from "./segmentRun";
 import { planTick, requestStart } from "./planner";
 import { requestTransition, tickTransition } from "./transition";
 
@@ -100,8 +100,7 @@ function change(player: MusicPlayer, r: MusicNode, to: string, now = 1.5): NonNu
 }
 
 afterEach(() => {
-  _resetMusicPlayers();
-  _resetSegmentRuns();
+  endAudioSession();
   setAudioBackend(null);
 });
 

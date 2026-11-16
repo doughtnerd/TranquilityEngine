@@ -32,6 +32,7 @@ import type { HostClock } from "./core/hostClock";
 import { QUANTUM_FRAMES, type StatusBlock } from "./wire.generated";
 import { DEFAULT_LIMITER_LOOKAHEAD_MS } from "../../../engine/audio/settings";
 import { CoreDriver, instantiateCore, type CoreInstance, type CorePreset } from "./worklet/coreDriver";
+import { notifyEngineLifecycle } from "../../../engine/core/engineLifecycle";
 
 /** The controls a test has over a fake clock. */
 export interface FakeHostClock extends HostClock {
@@ -556,6 +557,18 @@ export function makeFakeZoneIrService(): FakeZoneIrService {
   return service;
 }
 
+// --- The audio session ------------------------------------------------------------------------------------------
+
+/**
+ * Ends the audio session as a game's exit does (ADR 0218): the Engines' lifecycle reports a game Engine disposed, so every
+ * listener of the release forgets the project's audio state (the event runtime's instances and groups, the music players,
+ * the files' loop points, the warn-once keys, the core fallback's warning, the capture). Call it between tests instead of
+ * resetting modules by hand. Nothing else about an Engine happens (no mixer reconfigure), so a rig may call it at any point.
+ */
+export function endAudioSession(): void {
+  notifyEngineLifecycle("disposed", "runtime");
+}
+
 // --- The loopback host ----------------------------------------------------------------------------------------
 
 /** The real wasm core run in Node with no AudioContext (architecture §4.6). */
@@ -585,7 +598,11 @@ export interface LoopbackHost {
    * shell gets nothing more. (Addition to K4.)
    */
   respawn(): { readonly node: AudioWorkletNode; readonly port: LinkPort };
-  /** A3.4a: the next quantum traps inside the real wasm (`myco_audio_debug_trap_next`); needs `testHooks`. (Addition to K4.) */
+  /**
+   * A3.4a: the next quantum's render call traps. The host hands the shell the real instance's exports with
+   * `myco_audio_process` wrapped to throw a `WebAssembly.RuntimeError` once, as a wasm trap inside that call does; the core
+   * itself has no hook for it. (Addition to K4.)
+   */
   trapNext(): void;
   /** Cores made so far (1, plus one per `respawn` or `recreate`). (Addition to K4.) */
   readonly cores: number;
@@ -606,23 +623,36 @@ export const LOOPBACK_PRESET: CorePreset = { maxLogical: 256, maxMixed: 32, maxB
 export const LOOPBACK_RATE = 48_000;
 
 
-/**
- * Builds a loopback host on the committed wasm, with the given (or a new) fake clock and preset. `testHooks` loads the
- * test-hooks wasm instead (the same core plus test-only exports, such as the trap A3.4a's tests ask for).
- */
-export async function createLoopbackHost(options: { clock?: FakeHostClock; preset?: CorePreset; testHooks?: boolean } = {}): Promise<LoopbackHost> {
+/** Builds a loopback host on the committed wasm, with the given (or a new) fake clock and preset. */
+export async function createLoopbackHost(options: { clock?: FakeHostClock; preset?: CorePreset } = {}): Promise<LoopbackHost> {
   // A variable specifier: the engine's declaration build (tsconfig.engine.json) has no Node types, and this file only runs in Node tests.
   const nodeFs = "node:fs/promises";
   const { readFile } = (await import(/* @vite-ignore */ nodeFs)) as { readFile(url: URL): Promise<Uint8Array> };
-  const wasm = await readFile(new URL(options.testHooks ? "./wasm/testing/myco_audio_test_hooks.wasm" : "./wasm/myco_audio.wasm", import.meta.url));
+  const wasm = await readFile(new URL("./wasm/myco_audio.wasm", import.meta.url));
   const clock = options.clock ?? fakeHostClock();
   const preset = options.preset ?? LOOPBACK_PRESET;
   const module = new WebAssembly.Module(wasm as Uint8Array<ArrayBuffer>);
 
   let rate = LOOPBACK_RATE;
+  /** Set by `trapNext`: the current core's next render call throws, as a trap inside it would. */
+  let trapPending = false;
+  /** The real instance with `myco_audio_process` wrapped (`trapNext`); every other export is the instance's own. */
+  const trappable = (real: CoreInstance): CoreInstance => {
+    const render = real.exports.myco_audio_process;
+    const myco_audio_process = (frameLo: number, frameHi: number): number => {
+      if (trapPending) {
+        trapPending = false;
+        throw new WebAssembly.RuntimeError("unreachable");
+      }
+      return render(frameLo, frameHi);
+    };
+    const exports = Object.create(real.exports, { myco_audio_process: { value: myco_audio_process } }) as CoreInstance["exports"];
+    return { exports, memory: real.memory, sampleRate: real.sampleRate };
+  };
   /** One core with its shell and both message queues (a respawn makes another; the old one is dropped). */
   const spawn = () => {
-    const core = instantiateCore(module, preset, rate);
+    trapPending = false;
+    const core = trappable(instantiateCore(module, preset, rate));
     const toMain: unknown[] = [];
     const toWorklet: unknown[] = [];
     const driver = new CoreDriver(core, (message) => toMain.push(message), clock.dateNow());
@@ -683,9 +713,7 @@ export async function createLoopbackHost(options: { clock?: FakeHostClock; prese
       return { node, port: current.port };
     },
     trapNext() {
-      const hook = (current.core.exports as unknown as { myco_audio_debug_trap_next?: () => void }).myco_audio_debug_trap_next;
-      if (typeof hook !== "function") throw new Error("trapNext needs createLoopbackHost({ testHooks: true })");
-      hook();
+      trapPending = true;
     },
     send(buffer) {
       current.port.postMessage(buffer, [buffer]);

@@ -4,20 +4,18 @@
 // core is `beatClock.loopback.test.ts`.
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { setAudioBackend } from "../backend";
-import { _resetMusicPlayers } from "./musicSystem";
-import { _resetSegmentRuns } from "./segmentRun";
 import { anchorRun, applySlip, ticksAt } from "./anchors";
-import { heardRunAt, predictDue, resyncBeats, seatBeats } from "./beatClock";
+import { heardRunAt, predictDue, seatBeats } from "./beatClock";
 import { drive, frames, musicSegment, playingRun, rigClips, stampedRun, type Fired } from "./testing/beatRig";
 import type { MusicEvent } from "../../../../engine/audio/musicTypes";
+import { endAudioSession } from "../testing";
 
 const T120 = [{ at: "1:1:0", bpm: 120, beatsPerBar: 4, beatUnit: 4 }];
 const DT = 1 / 60;
 
 beforeEach(() => rigClips());
 afterEach(() => {
-  _resetMusicPlayers();
-  _resetSegmentRuns();
+  endAudioSession();
   setAudioBackend(null);
 });
 
@@ -224,7 +222,7 @@ describe("successors and corrections", () => {
     expect(player.beats).toBeNull(); // a query moves no cursor and makes no state
   });
 
-  it("a late start (any size) moves the cursor with its run: nothing doubles, nothing skips", () => {
+  it("a late start (any size) moves the cursor with its run: nothing doubles, nothing skips", async () => {
     for (const slipSeconds of [0.004, 0.03, 1.3]) {
       const { player, run } = playingRun(musicSegment({ tempo: T120 }), 0, 1.0);
       const list = frames(0.95, 6, DT);
@@ -237,7 +235,7 @@ describe("successors and corrections", () => {
       expect(keys).toEqual(Array.from({ length: keys.length }, (_, k) => k + 1));
       for (const f of beats.slice(1)) expect(f.e.time).toBeCloseTo(1 + slip + 0.5 * ((f.e.bar - 1) * 4 + f.e.beat - 1), 9);
       expect(player.counters.lateGroups).toBe(1);
-      _resetMusicPlayers();
+      endAudioSession();
     }
   });
 
@@ -276,7 +274,7 @@ describe("successors and corrections", () => {
 
   it("held (Rh1): nothing fires while held; on release the backlog coalesces", () => {
     const { player } = playingRun(musicSegment({ tempo: T120 }), 0, 0);
-    resyncBeats(player, -0.05);
+    seatBeats(player, -0.05);
     const list = frames(-0.05, 3, DT);
     list[40]!.before = () => (player.beats!.held = true);
     list[100]!.before = () => (player.beats!.held = false);

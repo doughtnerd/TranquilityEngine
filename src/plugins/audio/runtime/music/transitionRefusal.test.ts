@@ -7,13 +7,13 @@
 // at 1.1, 3.1, 5.1, ...; L (the lookahead) is 1/30 s at 60 Hz.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { setAudioBackend } from "../backend";
-import { makeFakeBackend, type FakeBackend } from "../testing";
+import { makeFakeBackend, type FakeBackend, endAudioSession } from "../testing";
 import type { EventInstance } from "../events/eventRuntime";
 import { parseAudioEvent } from "../../../../engine/audio/eventFormat";
 import type { MusicNode, MusicSwitchNode } from "../../../../engine/audio/musicFormat";
 import type { MusicClipFacts } from "../../../../engine/audio/musicValidate";
-import { _resetMusicPlayers, createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
-import { _resetSegmentRuns, setSegmentClipSource } from "./segmentRun";
+import { createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
+import { setSegmentClipSource } from "./segmentRun";
 import { planTick, requestStart } from "./planner";
 import { requestTransition, tickTransition, type Transition } from "./transition";
 
@@ -86,8 +86,7 @@ const untouched = (player: MusicPlayer): boolean =>
   });
 
 afterEach(() => {
-  _resetMusicPlayers();
-  _resetSegmentRuns();
+  endAudioSession();
   setAudioBackend(null);
   vi.restoreAllMocks();
 });

@@ -4,8 +4,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Assets, Engine, SceneManager } from "../../../../myco";
 import { setAudioBackend } from "../backend";
-import { _resetHandleWarningsForTests } from "../core/handle";
-import { makeFakeBackend } from "../testing";
+import { makeFakeBackend, endAudioSession } from "../testing";
 import { Audio } from "../index";
 import { events } from "./eventRuntime";
 
@@ -25,13 +24,12 @@ beforeEach(() => {
   fake.clear();
   fake.ready = true;
   setAudioBackend(fake);
-  events()._reset();
-  _resetHandleWarningsForTests();
+  endAudioSession();
   vi.spyOn(console, "warn").mockImplementation(() => {});
 });
 afterEach(() => {
   vi.restoreAllMocks();
-  events()._reset();
+  endAudioSession();
   setAudioBackend(null);
 });
 
@@ -44,7 +42,7 @@ describe("pinned: random picks", () => {
     const first = fake.plays.map((p) => p.path);
     expect(new Set(first).size).toBeGreaterThan(1);
     fake.clear();
-    events()._reset();
+    endAudioSession();
     await boot(structuredClone(RANDOM)); // a fresh asset object: today's avoid-repeat history is per node, so it must be a new node
     for (let i = 0; i < 12; i++) Audio.play("r.audioevent.json");
     expect(fake.plays.map((p) => p.path)).toEqual(first);

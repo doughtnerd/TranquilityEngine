@@ -1,26 +1,27 @@
 // ADR 0162 E7 (#158): live tuning of the AudioOccluder fields and the `audio.occlusion.*` settings. Real AudioOccluder
-// components on real nodes of a playing World, with the engine's own occluder lookup and signature, and a fake ray query
-// (a wall at x = 5 between the listener at the origin and a voice at x = 10) and a fake voice view. Each edit must show
+// components on real nodes of a playing 3D physics World, through the engine's own occlusion environment (D0's ray query
+// against a box collider wall at x = 5 between the listener at the origin and a voice at x = 10), and a fake voice view. Each edit must show
 // in the result the pass hands the backend, and the first frame after the edit must already move it.
 import { beforeEach, describe, expect, it } from "vitest";
 import { builtinMaterials } from "../../../../engine/audio/occlusionMaterials";
 import type { AudioSettings } from "../../../../engine/audio/settings";
 import type { World } from "../../../../engine/core/World";
-import type { WorldRayInto } from "../../../../engine/core/worldServices";
-import { Assets, Engine, GameObject, SceneManager } from "../../../../myco";
+import { Assets, BoxCollider, Engine, GameObject, SceneManager } from "../../../../myco";
 import { AudioOccluder } from "../AudioOccluder";
 import { LP_TOP } from "../wire.generated";
 import { encodeVoiceId } from "./ids";
-import { engineOcclusionEnvironment, OcclusionPass, type OcclusionEnvironment } from "./occlusion";
+import { OcclusionPass } from "./occlusion";
 import { ListenerFrame, SendCurveTable, SpatialViewFlag, type SpatialVoiceView } from "./spatial";
 
 const KEY = 1;
 const db = (v: number) => Math.pow(10, v / 20);
 
+let engine: Engine;
+
 beforeEach(async () => {
   Assets.clearSources();
-  Assets.addSource(Assets.fromObject({ "s.json": { format: "myco.scene@1", nodes: [] } }));
-  await Engine.create({ headless: true });
+  Assets.addSource(Assets.fromObject({ "s.json": { format: "myco.scene@1", settings: { physics: "3d" }, nodes: [] } }));
+  engine = await Engine.create({ headless: true, project: { physics: { gravity: [0, -10], layers: ["Default"], collisionMatrix: { Default: ["Default"] } } } });
   await SceneManager.load("s.json");
 });
 
@@ -68,30 +69,12 @@ type Occlusion = AudioSettings["occlusion"];
 function rig() {
   const world: World = GameObject.create("probe").world;
   const wall = GameObject.create("Wall");
+  wall.transform!.position.x = 5;
+  wall.addBehavior(BoxCollider).size.set(0.5, 4, 4);
   const occluder = wall.addBehavior(AudioOccluder, { material: "glass" });
-  let hitWall = true;
-  let clock = 0;
-  const env: OcclusionEnvironment = {
-    ...engineOcclusionEnvironment(),
-    raycastInto(_w, out: WorldRayInto, o, d, maxDistance) {
-      clock += 0.004;
-      if (!hitWall || d.x <= 0) return false;
-      const t = (5 - o.x) / d.x;
-      if (t < 0 || t > maxDistance) return false;
-      out.node = wall;
-      out.distance = t;
-      out.point.x = 5;
-      out.point.y = o.y + d.y * t;
-      out.point.z = o.z + d.z * t;
-      return true;
-    },
-    rayGroupsFor: () => undefined,
-    hasService: () => true,
-    now: () => clock,
-    clockResolutionMs: 0.001,
-  };
+  engine.step(1 / 60); // the collider joins the physics World
   const view = new View();
-  const pass = new OcclusionPass(4, env);
+  const pass = new OcclusionPass(4);
   const frame = new ListenerFrame();
   const settings: { occlusion: Occlusion } = {
     occlusion: { layers: null, budgetMs: 0.25, defaultMaterial: "concrete", smoothingMs: 10, materials: builtinMaterials() },
@@ -109,7 +92,7 @@ function rig() {
     return { gain: view.gain, lpHz: view.lpHz };
   };
   const material = (name: string) => settings.occlusion.materials.find((m) => m.name === name)!;
-  return { world, wall, occluder, view, pass, run, settle, settings, material, wallHit: (on: boolean) => void (hitWall = on) };
+  return { world, wall, occluder, view, pass, run, settle, settings, material };
 }
 
 describe("AudioOccluder fields apply next frame", () => {

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MusicEvent, MusicKind } from "../../../../engine/audio/musicTypes";
 import type { GameBehavior as GameBehaviorType } from "../../../../engine/core/Component";
 import type { EventInstance } from "../events/eventRuntime";
+import { endAudioSession } from "../testing";
 
 const asked: { kind: MusicKind; now: number; interval: number }[] = [];
 const seated: { now: number; kind?: MusicKind }[] = [];
@@ -21,11 +22,9 @@ vi.mock("./beatClock", () => ({
 }));
 
 // The test setup already loaded the real modules: reset, then import ones that see the mock (and one `GameBehavior`).
-let _resetMusicPlayers: typeof import("./musicSystem")._resetMusicPlayers;
 let _setMusicHandleFactory: typeof import("./musicSystem")._setMusicHandleFactory;
 let createMusicPlayer: typeof import("./musicSystem").createMusicPlayer;
 let dispatchMusic: typeof import("./musicSystem").dispatchMusic;
-let subscribeMusic: typeof import("./musicSystem").subscribeMusic;
 let disposeMusicPlayer: typeof import("./musicSystem").disposeMusicPlayer;
 let onMusicOf: typeof import("./musicSystem").onMusicOf;
 type Frame = Parameters<typeof import("./musicSystem").dispatchMusic>[0];
@@ -52,7 +51,7 @@ function rig(comps: GameBehavior[]) {
 
 beforeEach(async () => {
   vi.resetModules();
-  ({ _resetMusicPlayers, _setMusicHandleFactory, createMusicPlayer, dispatchMusic, subscribeMusic, disposeMusicPlayer, onMusicOf } = await import("./musicSystem"));
+  ({ _setMusicHandleFactory, createMusicPlayer, dispatchMusic, disposeMusicPlayer, onMusicOf } = await import("./musicSystem"));
   const { GameBehavior } = await import("../../../../engine/core/Component");
   Plain = class extends GameBehavior {};
   Beater = class extends GameBehavior {
@@ -70,7 +69,7 @@ beforeEach(async () => {
   _setMusicHandleFactory(() => ({ tag: "handle" }) as never);
 });
 afterEach(() => {
-  _resetMusicPlayers();
+  endAudioSession();
   _setMusicHandleFactory(null);
   vi.restoreAllMocks();
 });
@@ -168,12 +167,12 @@ describe("dispatchMusic (K2)", () => {
     expect(asked).toEqual([]);
   });
 
-  describe("subscribeMusic (K5)", () => {
+  describe("onMusicOf, a music handle's subscription (K5)", () => {
     it("subscribes per kind, the unsubscribe stops it, a double unsubscribe is a no-op, the kind leaves the mask", () => {
       const p = rig([]);
       const got: string[] = [];
-      const offBeat = subscribeMusic(p, "beat", (e) => got.push(`beat ${e.beat}`));
-      subscribeMusic(p, "cue", () => got.push("cue"));
+      const offBeat = onMusicOf(p.instance, "beat", (e) => got.push(`beat ${e.beat}`));
+      onMusicOf(p.instance, "cue", () => got.push("cue"));
       expect(p.subscribed).toBe(1 | 4);
       script.set("beat", [{ beat: 2 }, { beat: 3 }]);
       dispatchMusic(frame(1));
@@ -189,10 +188,10 @@ describe("dispatchMusic (K2)", () => {
 
     it("a kind joining the mask is seated at now; a re-subscribe owes no backlog", () => {
       const p = rig([]);
-      const off = subscribeMusic(p, "bar", () => {});
+      const off = onMusicOf(p.instance, "bar", () => {});
       dispatchMusic(frame(1));
       expect(seated).toEqual([{ now: 1, kind: undefined }]);
-      subscribeMusic(p, "beat", () => {});
+      onMusicOf(p.instance, "beat", () => {});
       dispatchMusic(frame(2));
       expect(seated[1]).toEqual({ now: 2, kind: "beat" });
       off();
@@ -202,9 +201,9 @@ describe("dispatchMusic (K2)", () => {
       const p = rig([]);
       const order: string[] = [];
       let offC = () => {};
-      const offA = subscribeMusic(p, "beat", () => { order.push("a"); offA(); offC(); });
-      subscribeMusic(p, "beat", () => order.push("b"));
-      offC = subscribeMusic(p, "beat", () => order.push("c"));
+      const offA = onMusicOf(p.instance, "beat", () => { order.push("a"); offA(); offC(); });
+      onMusicOf(p.instance, "beat", () => order.push("b"));
+      offC = onMusicOf(p.instance, "beat", () => order.push("c"));
       script.set("beat", [{}, {}]);
       dispatchMusic(frame(1));
       expect(order).toEqual(["a", "b"]);
@@ -215,7 +214,7 @@ describe("dispatchMusic (K2)", () => {
     it("a listener added during dispatch first hears the next event", () => {
       const p = rig([]);
       const order: string[] = [];
-      subscribeMusic(p, "beat", () => { order.push("a"); if (order.length === 1) subscribeMusic(p, "beat", () => order.push("late")); });
+      onMusicOf(p.instance, "beat", () => { order.push("a"); if (order.length === 1) onMusicOf(p.instance, "beat", () => order.push("late")); });
       script.set("beat", [{}, {}]);
       dispatchMusic(frame(1));
       dispatchMusic(frame(2));
@@ -225,7 +224,7 @@ describe("dispatchMusic (K2)", () => {
     it("the same event object is reused per kind; the instance ending drops listeners and makes later unsubscribes and subscribes no-ops", () => {
       const p = rig([]);
       const seen: MusicEvent[] = [];
-      const off = subscribeMusic(p, "beat", (e) => seen.push(e));
+      const off = onMusicOf(p.instance, "beat", (e) => seen.push(e));
       script.set("beat", [{}, {}]);
       dispatchMusic(frame(1));
       dispatchMusic(frame(2));
@@ -234,7 +233,7 @@ describe("dispatchMusic (K2)", () => {
       expect(p.listeners).toBeNull();
       expect(() => off()).not.toThrow();
       expect(p.subscribed).toBe(0);
-      subscribeMusic(p, "beat", () => {})();
+      onMusicOf(p.instance, "beat", () => {})();
       expect(p.listeners).toBeNull();
     });
 

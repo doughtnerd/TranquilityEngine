@@ -1,8 +1,8 @@
 // ADR 0171 amended by 0172 (M5, task G7b; api-and-models §9, §5.5): the real Babylon backend (against the mocked AudioV2 engine)
 // under the real recorder. The fallback has no STATUS, so its audio clock in frames (`debug().core.currentFrame`, and `time` at
 // the context's rate) is what stamps events and drives the keyframe cadence; the keyframes carry its voices and bus lanes with
-// the clip names interned through the sink. No wall-clock assertion: the fake context's clock is moved by hand and the pump is
-// ticked by hand.
+// the clip names interned through the sink. No wall-clock assertion: the fake context's clock is moved by hand and the pump runs
+// on faked intervals.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mixer } from "../../../engine/audio/mixer";
 import { parseAudioSettings } from "../../../engine/audio/settings";
@@ -10,14 +10,18 @@ import { babylonMock, makeFakeContext } from "../testing/babylonMocks";
 import { Audio } from "./Audio";
 import { setAudioBackend } from "./backend";
 import { BabylonBackend } from "./babylonBackend";
-import { _setFramePump, _setSaveEnv, releaseCapture } from "./capture/capture";
+import { releaseCapture } from "./capture/capture";
 import { EventKind, RecordType, decodeKeyframe } from "./capture/format";
 import { decodeRecordAt, openCapture } from "./capture/reader";
 import { defaultSaveEnv } from "./capture/save";
+import type { CaptureChunkControl } from "./capture/testSupport";
 import { NULL_PROFILE_SINK } from "./mix/profileSink";
 import { taps } from "./mix/profileTaps";
 
 vi.mock("@babylonjs/core/AudioV2/webAudio/webAudioEngine", async () => (await import("../testing/babylonMocks")).webAudioEngineModule);
+/** The save chunk is the real one, wrapped: each save goes through the test's fakes. */
+const chunk = vi.hoisted((): CaptureChunkControl => ({ options: {}, recorders: [], saveEnv: null }));
+vi.mock("./capture/save", async (real) => (await import("./capture/testSupport")).captureSaveModule(await real(), chunk));
 
 const RATE = 48_000;
 const BUSES = [{ name: "Master" }, { name: "SFX", parent: "Master" }, { name: "Music", parent: "Master" }];
@@ -35,8 +39,8 @@ beforeEach(() => {
 
 afterEach(() => {
   releaseCapture();
-  _setFramePump(null);
-  _setSaveEnv(null);
+  vi.useRealTimers();
+  chunk.saveEnv = null;
   setAudioBackend(null);
   for (const b of made.splice(0)) b.dispose();
   mixer._setTap(null);
@@ -51,13 +55,10 @@ describe("a capture on the real Babylon backend", () => {
     made.push(b);
     setAudioBackend(b);
     mixer.onChange(() => b.applyMix(mixer.resolveAll()));
-    let tick: (() => void) | null = null;
-    _setFramePump((t) => {
-      tick = t;
-      return () => {};
-    });
+    // The capture's frame pump polls every 100 ms; only intervals are faked, so the flushes' timeouts still run.
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
     const downloads: Uint8Array[] = [];
-    _setSaveEnv({
+    chunk.saveEnv = ({
       tauri: false,
       storage: { save: async () => {}, list: async () => [], delete: async () => {} },
       appDataDir: async () => "/data",
@@ -67,7 +68,7 @@ describe("a capture on the real Babylon backend", () => {
     });
     const clock = (seconds: number): void => {
       ctx.currentTime = seconds;
-      tick!();
+      vi.advanceTimersByTime(100);
     };
 
     // The engine exists once a sound plays; its clock is the context's.

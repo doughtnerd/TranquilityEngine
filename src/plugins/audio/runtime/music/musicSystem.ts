@@ -17,6 +17,7 @@
  * through `createMusicPlayer`, and ends through `disposeMusicPlayer`. `handle.music` finds it with `playerOf`.
  */
 import { isPendingCoreBackend, type AudioBackend, type MusicBackend } from "../backend";
+import { onAudioSessionReleased } from "../audioSession";
 import type { MusicEvent, MusicEventHandle, MusicHandle, MusicKind } from "../../../../engine/audio/musicTypes";
 import { GameBehavior } from "../../../../engine/core/Component";
 import type { EventInstance } from "../events/eventRuntime";
@@ -256,11 +257,12 @@ export function disposeMusicPlayer(player: MusicPlayer, backend: AudioBackend | 
   backend?.music?.releaseInstance(player.instance.group);
 }
 
-/** @internal Tests: forget every player (between tests). */
-export function _resetMusicPlayers(): void {
+/** A released audio session (ADR 0218) forgets every player: their Engines are gone, and so is anything they played. */
+function forgetMusicPlayers(): void {
   for (const p of players) byInstance.delete(p.instance);
   players.length = 0;
 }
+onAudioSessionReleased(forgetMusicPlayers);
 
 
 // --- The frame steps -------------------------------------------------------------------------------------------------
@@ -537,7 +539,7 @@ const NOOP = (): void => {};
  * K5: `handle.onMusic(kind, fn)` on a music instance: adds `fn` to the player's listeners and its kind to `subscribed`;
  * the returned function removes it. A listener added during a dispatch first hears the next event (§1.2).
  */
-export function subscribeMusic(player: MusicPlayer, kind: MusicKind, fn: (e: MusicEvent) => void): () => void {
+function subscribeMusic(player: MusicPlayer, kind: MusicKind, fn: (e: MusicEvent) => void): () => void {
   if (typeof fn !== "function" || player.state === "stopped") return NOOP;
   const ls = (player.listeners ??= { beat: [], bar: [], cue: [] });
   ls[kind] = [...ls[kind], fn];

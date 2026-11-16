@@ -35,7 +35,8 @@
  * Not built: a stem that changes file at E (a streamed alternative picked per pass) would move the commit point back
  * by a full prime lead; alternatives are picked once per run today, so no stem does.
  */
-import type { RegionCondition, SegmentNode } from "../../../../engine/audio/musicFormat";
+import type { SegmentNode } from "../../../../engine/audio/musicFormat";
+import { conditionHolds } from "./regionCondition";
 import { warnOnce } from "../core/handle";
 import type { MusicFrame, MusicPlayer } from "./musicSystem";
 import { anchorPastRegion, bindRelease, nextWrapOf } from "./anchors";
@@ -72,23 +73,13 @@ export interface RegionState {
 }
 
 /** R4b: a region state for a new run. */
-export function createRegionState(): RegionState {
+function createRegionState(): RegionState {
   return {
     region: -1, passes: 0, commitAt: Number.NaN, released: false,
     lastPass: Number.NaN, releaseAt: Number.NaN, decided: Number.NaN, run: null, reads: 0, releases: 0, late: 0,
   };
 }
 
-/**
- * R4b: whether `cond` holds for the parameter value `value`; null when it can't be read (no such parameter, or the
- * comparison doesn't fit the value's kind).
- */
-export function conditionHolds(cond: RegionCondition, value: number | string | undefined): boolean | null {
-  if (value === undefined) return null;
-  if ("is" in cond) return String(value) === cond.is;
-  if (typeof value !== "number" || !Number.isFinite(value)) return null;
-  return "atLeast" in cond ? value >= cond.atLeast : value < cond.below;
-}
 
 const sameTime = (a: number, b: number): boolean => Math.abs(a - b) < 1e-6;
 

@@ -12,7 +12,7 @@ The Rust half of ADR 0157: a mixer that runs in an `AudioWorklet` as WebAssembly
 | `crates/audio-wasm` | The C ABI over imported memory, built as `myco_audio.wasm`. Its `src/lib.rs` is the ABI |
 | `crates/audio-decode` | Symphonia behind a C ABI, built as `myco_audio_decode.wasm` (WAV, FLAC, MP3, Ogg Vorbis) and, with the `aac` feature, `myco_audio_decode_aac.wasm` |
 
-The built files are committed in `src/plugins/audio/runtime/wasm/` (`myco_audio.wasm`, the two decoders, `hash.json`, and `testing/myco_audio_test_hooks.wasm`), so the engine builds without Rust. `myco_hrir.bin` beside them is the HRTF data, made by `tools/hrir/convert.mjs` (see `tools/hrir/README.md`; licence in `docs/design/0157-audio-core/hrir-licence.md`).
+The built files are committed in `src/plugins/audio/runtime/wasm/` (`myco_audio.wasm`, the two decoders and `hash.json`), so the engine builds without Rust. `myco_hrir.bin` beside them is the HRTF data, made by `tools/hrir/convert.mjs` (see `tools/hrir/README.md`; licence in `docs/design/0157-audio-core/hrir-licence.md`).
 
 On the TypeScript side: `runtime/core/` is the host and backend (`context.ts`, `coreBackend.ts`, `recovery.ts`, `background.ts`, `clipRegistry.ts`, `hrir.ts`), `runtime/decoder/` the worker and its client, `runtime/worklet/processor.ts` the `AudioWorkletProcessor`, `runtime/babylonBackend.ts` the fallback, and `runtime/golden/` the goldens.
 
@@ -37,7 +37,7 @@ npm run check:audio-metered                        # the cost gate: instruction 
 `npm run build:audio` (`build.mjs`) does, in order:
 
 1. Runs `gen_wire` (regenerates the wire; below), then `bake-magls --check` (ADR 0162 A3: re-bakes `src/engine/audio/magls-o3.bin` and the 16 → 2 bed matrix and fails if either differs from what is committed; run `cargo run -p bake-magls --release` to rewrite the asset after changing the design or the HRIR set).
-2. Builds `audio-wasm` for `wasm32` in release with `+simd128`, and again with the `test-hooks` feature into the test-hooks wasm.
+2. Builds `audio-wasm` for `wasm32` in release with `+simd128`. (There is no test build of it: the loopback tests that need a trap wrap the real instance's `myco_audio_process`, `testing.ts` `trapNext`.)
 3. Builds `audio-decode`, default and `aac`, and decodes a few fixtures with the built wasm as a smoke test.
 4. Enforces the size gates: mixer 320 KB (a tripwire since ADR 0158, not a design limit; raised from 256 KB after ADR 0162 M3), default decoder 900 KB, AAC decoder 1,100 KB. A build over a gate fails. The mixer also warns past 300 KB, so a milestone sees its headroom shrink before the gate.
 5. Reads the source hash and ABI version out of the wasm and writes `hash.json`.

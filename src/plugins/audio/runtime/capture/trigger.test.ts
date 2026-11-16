@@ -9,11 +9,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Audio } from "../Audio";
 import { setAudioBackend } from "../backend";
 import { makeFakeBackend, type FakeBackend } from "../testing";
-import { _setRecorderLoader, _setSaveEnv, releaseCapture, type RecorderModule } from "./capture";
+import { releaseCapture } from "./capture";
 import { CAPTURE_TRIGGER_MAX_FILES } from "./format";
 import { defaultSaveEnv, webSaveCount, type SaveEnv } from "./save";
-import { keyframeCodecForTests, statusBytes } from "./testSupport";
+import { keyframeCodecForTests, statusBytes, type CaptureChunkControl } from "./testSupport";
 import { installCaptureTrigger, type TriggerEnv } from "./trigger";
+
+/** The recorder and save chunks are the real ones, wrapped: a 4 MiB ring, each save through the rig's fakes. */
+const chunk = vi.hoisted((): CaptureChunkControl => ({ options: {}, recorders: [], saveEnv: null }));
+vi.mock("./recorder", async (real) => (await import("./testSupport")).captureRecorderModule(await real(), chunk));
+vi.mock("./save", async (real) => (await import("./testSupport")).captureSaveModule(await real(), chunk));
 
 /** The trigger's toasts and hold, as a player sees them. */
 const TOAST_RECORDING = "Recording audio…";
@@ -305,11 +310,8 @@ function realRig(opts: { tauri?: boolean; existing?: string[] } = {}) {
     return { ...d, time: fb.frame / RATE, sampleRate: RATE, core: { ...d.core, currentFrame: fb.frame } };
   };
   setAudioBackend(fb);
-  const loads = vi.fn(async (): Promise<RecorderModule> => {
-    const m = await import("./recorder");
-    return { ...m, createRecorder: (o) => m.createRecorder({ ringBytes: 4 * MiB, codec: keyframeCodecForTests(), ...o }) };
-  });
-  _setRecorderLoader(loads);
+  chunk.options = { ringBytes: 4 * MiB, codec: keyframeCodecForTests() };
+  chunk.recorders.length = 0;
   const downloads: string[] = [];
   const stored = new Set(opts.existing ?? []);
   const deleted: string[] = [];
@@ -328,7 +330,7 @@ function realRig(opts: { tauri?: boolean; existing?: string[] } = {}) {
     compress: defaultSaveEnv().compress,
     now: () => new Date(2026, 10, 13, 10, 15, 0),
   };
-  _setSaveEnv(env);
+  chunk.saveEnv = env;
   const feed = (n: number): void => {
     for (let k = 0; k < n; k++) {
       fb.frame += BLOCK;
@@ -337,26 +339,23 @@ function realRig(opts: { tauri?: boolean; existing?: string[] } = {}) {
       fb.recorderTap?.(data, block.byteLength, new DataView(data));
     }
   };
-  return { fb, loads, downloads, stored, deleted, feed };
+  return { fb, recorders: chunk.recorders, downloads, stored, deleted, feed };
 }
 
 describe("against the real Audio.capture", () => {
-  let loader: (() => Promise<RecorderModule>) | null = null;
 
   afterEach(() => {
     releaseCapture();
-    if (loader) _setRecorderLoader(loader);
-    _setSaveEnv(null);
+    chunk.saveEnv = null;
     setAudioBackend(null);
     vi.restoreAllMocks();
   });
 
   it("a game that installs the trigger but never presses loads no recorder", () => {
     const r = realRig();
-    loader = r.loads;
     const target = fakeTarget();
     const off = installCaptureTrigger({ target, toast: () => {} });
-    expect(r.loads).not.toHaveBeenCalled();
+    expect(r.recorders.length).toBe(0);
     expect(Audio.capture.state).toBe("idle");
     expect(r.fb.recorderTap).toBeNull();
     off();
@@ -364,13 +363,12 @@ describe("against the real Audio.capture", () => {
 
   it("F9, a second of audio, F9: one download, named and toasted", async () => {
     const r = realRig();
-    loader = r.loads;
     const target = fakeTarget();
     const toasts: string[] = [];
     const off = installCaptureTrigger({ target, toast: (t) => void toasts.push(t) });
     target.fire("keydown", key("F9"));
     await vi.waitFor(() => expect(Audio.capture.state).toBe("recording"));
-    expect(r.loads).toHaveBeenCalledTimes(1);
+    expect(r.recorders.length).toBe(1);
     r.feed(Math.ceil(RATE / BLOCK));
     target.fire("keydown", key("F9"));
     await vi.waitFor(() => expect(r.downloads).toEqual(["capture-20261113-101500.mycap"]));
@@ -380,7 +378,6 @@ describe("against the real Audio.capture", () => {
 
   it("the web stops at 16 downloads a page session, then says so and records nothing more", async () => {
     const r = realRig();
-    loader = r.loads;
     const target = fakeTarget();
     const toasts: string[] = [];
     const off = installCaptureTrigger({ target, toast: (t) => void toasts.push(t) });
@@ -407,7 +404,6 @@ describe("against the real Audio.capture", () => {
   it("on Tauri a save keeps the newest 16 auto-named files, through Rc4's rotateCaptures", async () => {
     const old = Array.from({ length: 17 }, (_, i) => `capture-20261101-1000${String(i).padStart(2, "0")}.mycap`);
     const r = realRig({ tauri: true, existing: old });
-    loader = r.loads;
     const target = fakeTarget();
     const toasts: string[] = [];
     const off = installCaptureTrigger({ target, toast: (t) => void toasts.push(t), tauri: true });

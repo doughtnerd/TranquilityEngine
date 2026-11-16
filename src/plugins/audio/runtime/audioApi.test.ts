@@ -11,10 +11,9 @@ import { CoreLink, type LinkPort } from "./core/context";
 import type { ClipInfo, ClipRegistry, ClipResidentListener, ClipState } from "./core/clipRegistry";
 import { CoreBackend, type CoreBackendHost } from "./core/coreBackend";
 import { makeStatusBlock } from "./core/statusFixtures";
-import { _resetHandleWarningsForTests } from "./core/handle";
 import { setAudioBackend } from "./backend";
 import { babylonMock, makeFakeContext } from "../testing/babylonMocks";
-import { makeFakeBackend } from "./testing";
+import { makeFakeBackend, endAudioSession } from "./testing";
 import { Audio, AudioListener, AudioSource } from "./index";
 
 vi.mock("@babylonjs/core/AudioV2/webAudio/webAudioEngine", async () => (await import("../testing/babylonMocks")).webAudioEngineModule);
@@ -166,7 +165,7 @@ beforeEach(async () => {
   fake.clear();
   fake.ready = true;
   setAudioBackend(fake);
-  _resetHandleWarningsForTests();
+  endAudioSession();
   warn = vi.spyOn(console, "warn").mockImplementation(() => {});
   Assets.clearSources();
   Assets.addSource(Assets.fromObject({ "s.json": { format: "myco.scene@1", nodes: [] }, "a.wav": "data:audio/wav;base64,AAAA", "bad.wav": "data:audio/wav;base64,AAAA" }));

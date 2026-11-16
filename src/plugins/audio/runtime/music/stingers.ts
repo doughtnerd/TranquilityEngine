@@ -72,10 +72,6 @@ function createStingerState(): StingerState {
 /** The last frame `tickStingers` saw (see the header). */
 let lastFrame: MusicFrame | null = null;
 
-/** @internal Tests: forget the remembered frame and the compiled grids. */
-export function _resetStingers(): void {
-  lastFrame = null;
-}
 
 const alive = (v: AudioVoice): boolean => v.alive ?? v.playing;
 
@@ -140,7 +136,7 @@ function soundingCount(st: StingerState, now: number): number {
  * R5: fire the stinger whose `trigger` is `name`. True when accepted; false when unknown, dropped by `dontRepeat` or
  * `ifTooLate: "skip"`, or the pool refused it (the counters say which).
  */
-export function triggerStinger(player: MusicPlayer, name: string): boolean {
+function triggerStinger(player: MusicPlayer, name: string): boolean {
   const f = lastFrame;
   const run = player.run;
   if (!f || !f.music || !run || run.state === "cancelled" || player.state === "stopping" || player.state === "stopped" || player.state === "refused") {

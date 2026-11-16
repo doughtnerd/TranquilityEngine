@@ -15,6 +15,7 @@ import type { ProfileSink } from "./mix/profileSink";
 import type { KeyframePayload } from "./capture/format";
 import type { AudioDebugInfo, AudioMixCaps } from "./debugTypes";
 import { PendingCoreBackend } from "./pendingBackend";
+import { onAudioSessionReleased } from "./audioSession";
 
 // The debug shape moved to `debugTypes.ts` (ADR 0179); every name stays importable from here.
 export type { AudioBedDebug, AudioCpuDebug, AudioDebugInfo, AudioM3Counters, AudioMemoryDebug, AudioMixCaps, AudioMixDebug, AudioMixSlotDebug, AudioOcclusionDebug, AudioRecorderDebug, AudioVoiceM3Debug, AudioZoneDebug, MusicDebugPending, MusicDebugRow, MusicDebugState, MusicDebugTotals } from "./debugTypes";
@@ -538,11 +539,11 @@ export function noteCoreUnavailable(reason: string): void {
   settlePending();
 }
 
-/** @internal Test hook: forget the warning state so each test starts clean. */
-export function resetCoreFallbackState(): void {
+/** A released session (ADR 0218) forgets why the core couldn't run: the next project's service load probes again, and warns once. */
+onAudioSessionReleased(() => {
   warnedCore = false;
   coreUnavailableReason = null;
-}
+});
 
 /**
  * K3: which backend `audio.backend` picks. `"core"` is the core, the default (`defaultBackend()` in the settings; macOS

@@ -16,16 +16,20 @@
 // whole run: no allocating constructor ran inside the tap (Bn2's structural check, around every block of the ten minutes)
 // and the ring's buffer, view and segment tables kept their identity.
 import { inflateRawSync } from "node:zlib";
-import { afterAll, describe, expect, it } from "vitest";
-import { audioCapture, captureDebug, releaseCapture, setCaptureProject, _setRecorderLoader, _setSaveEnv, type RecorderModule } from "../../runtime/capture/capture";
+import { afterAll, describe, expect, it, vi } from "vitest";
+import { audioCapture, captureDebug, releaseCapture, setCaptureProject } from "../../runtime/capture/capture";
 import { CAPTURE_FLAG_COMPRESSED, CAPTURE_FLAG_TRUNCATED, CAPTURE_HEADER_BYTES, RecordType, decodeKeyframe, readCaptureHeader } from "../../runtime/capture/format";
 import { decodeRecordAt, openCapture } from "../../runtime/capture/reader";
-/** The recorder chunk is reached only by `import()` (a test checks no source imports it statically). */
-type Recorder = ReturnType<RecorderModule["createRecorder"]>;
+import type { CaptureChunkControl } from "../../runtime/capture/testSupport";
 import { AllocationCounter, FRAME_SECONDS, MiB, RATE, S3_1024, memorySaveEnv, s3Rig, stat, threadWorkerFactory } from "../../runtime/capture/soakSupport";
 import { chooseEmptyStateKind } from "./emptyStates";
 import { profilerBanners } from "./ProfilerPanel";
 import { CaptureSource } from "./profilerSource";
+
+/** The recorder and save chunks are the real ones, wrapped: the take's recorder is kept, its save goes to memory. */
+const chunk = vi.hoisted((): CaptureChunkControl => ({ options: {}, recorders: [], saveEnv: null }));
+vi.mock("../../runtime/capture/recorder", async (real) => (await import("../../runtime/capture/testSupport")).captureRecorderModule(await real(), chunk));
+vi.mock("../../runtime/capture/save", async (real) => (await import("../../runtime/capture/testSupport")).captureSaveModule(await real(), chunk));
 
 const WARM_SECONDS = 10;
 /** Ten minutes; `SO1_SECONDS` shortens it for a shakedown of the harness only (the soak result is the 600 s run). */
@@ -46,19 +50,15 @@ describe("soak 1: the default ring wraps over ten minutes of a busy scene (§3.6
     for (let t = 0; t < WARM_SECONDS; t += FRAME_SECONDS) await rig.frame();
     expect(rig.countLive()).toBeGreaterThanOrEqual(Math.floor(S3_1024.live * 0.9));
 
-    // The product's path: Audio.capture.start() loads the chunk and makes the default ring; the loader is wrapped only to
+    // The product's path: Audio.capture.start() loads the chunk and makes the default ring; the chunk is wrapped only to
     // keep a reference to the recorder it makes.
-    let rec: Recorder | null = null;
-    const restoreLoader = _setRecorderLoader(async () => {
-      const m = await import("../../runtime/capture/recorder");
-      return { ...m, createRecorder: (o?: Parameters<RecorderModule["createRecorder"]>[0]) => (rec = m.createRecorder(o)) } as RecorderModule;
-    });
+    chunk.recorders.length = 0;
     const env = memorySaveEnv();
-    const restoreEnv = _setSaveEnv(env);
+    chunk.saveEnv = env;
     setCaptureProject(() => ({ name: "So1 ring wrap", version: "1" }));
     await audioCapture.start();
     expect(audioCapture.state).toBe("recording");
-    const r = rec as unknown as Recorder;
+    const r = chunk.recorders[0]!;
     const ring = r.ring;
     expect(ring.capacity).toBe(16 * MiB); // the default preset with no deviceMemory (§4.2)
 
@@ -181,8 +181,7 @@ describe("soak 1: the default ring wraps over ten minutes of a busy scene (§3.6
     expect(chooseEmptyStateKind("voices", { playing: false, hasCapture: true, truncated: source.truncated, beforeFirstKeyframe: first.keyframe === null })).toBeNull();
     source.close();
 
-    _setRecorderLoader(restoreLoader);
-    _setSaveEnv(restoreEnv);
+    chunk.saveEnv = null;
     const kv = stat(kfVoices);
     console.log([
       `So1 soak 1, ring wrap: S3 1,024-live scene through the real core, default ring ${ring.capacity / MiB} MiB, ${SOAK_SECONDS} s of rendered audio (container, wall ${wallRun.toFixed(0)} s incl. ${WARM_SECONDS} s warm-up)`,

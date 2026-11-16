@@ -1,24 +1,29 @@
 // ADR 0171 amended by 0172 (M5a, K0 then Rc4; api-and-models §1.2, architecture §2.1, §3.7): `Audio.capture`. A game that
-// never calls `start()` loads no recorder (the loader is never called and no source imports the chunk statically); a start
+// never calls `start()` makes no recorder (and no source imports the chunk statically; `capture.chunk.test.ts` checks it is
+// never even loaded); a start
 // loads it once, begins a take over the shared ring, `stop` holds the ring, a start from Held begins a new take after a GAP,
 // `mark` writes a marker, `save` writes the latest take (web download and Tauri `Storage`, against fakes), and the Profiler
 // panel's `LiveHost` is an owner distinct from a take. Timing is the STATUS frames the tests feed, never a wall clock.
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Audio } from "../Audio";
 import { notifyEngineLifecycle } from "../../../../engine/core/engineLifecycle";
 import { setAudioBackend } from "../backend";
 import { NULL_PROFILE_SINK } from "../mix/profileSink";
 import { makeFakeBackend, type FakeBackend } from "../testing";
-import { _setRecorderLoader, _setSaveEnv, captureDebug, captureLiveHost, releaseCapture, setCaptureProject, type CaptureLiveHost, type RecorderModule } from "./capture";
+import { captureDebug, captureLiveHost, releaseCapture, setCaptureProject, type CaptureLiveHost } from "./capture";
 import {
   CAPTURE_FLAG_COMPRESSED, CAPTURE_FLAG_MAIN_SIDE_ONLY, CAPTURE_MARKER_MAX_BYTES, EpochReason, GapReason, RecordType, assembleCapture, readCaptureHeader,
 } from "./format";
 import { decodeRecordAt, openCapture, openLiveCapture, type CaptureContents } from "./reader";
-import type { Recorder } from "./recorder";
 import { defaultSaveEnv, type SaveEnv } from "./save";
-import { SAMPLE_HEADER, SAMPLE_META, keyframeCodecForTests, statusBytes, statusBytesWithVoices } from "./testSupport";
+import { SAMPLE_HEADER, SAMPLE_META, keyframeCodecForTests, statusBytes, statusBytesWithVoices, type CaptureChunkControl } from "./testSupport";
+
+/** The recorder and save chunks are the real ones, wrapped: each ring a test's size, each save through the rig's fakes. */
+const chunk = vi.hoisted((): CaptureChunkControl => ({ options: {}, recorders: [], saveEnv: null }));
+vi.mock("./recorder", async (real) => (await import("./testSupport")).captureRecorderModule(await real(), chunk));
+vi.mock("./save", async (real) => (await import("./testSupport")).captureSaveModule(await real(), chunk));
 
 
 /** The ring's owners as `Audio.debug().recorder` reports them: whether a take runs, and the panel holds besides it. */
@@ -41,7 +46,7 @@ function sources(dir: string, out: string[] = []): string[] {
   return out;
 }
 
-/** Everything a case needs: a fake core backend that reports a frame, a loader that counts, a save environment of fakes. */
+/** Everything a case needs: a fake core backend that reports a frame, the recorders made, a save environment of fakes. */
 function rig(opts: { ringBytes?: number; tauri?: boolean } = {}) {
   const fb = makeFakeBackend() as FakeBackend & { frame: number };
   fb.frame = 0;
@@ -51,12 +56,9 @@ function rig(opts: { ringBytes?: number; tauri?: boolean } = {}) {
     return { ...d, time: fb.frame / RATE, sampleRate: RATE, core: { ...d.core, currentFrame: fb.frame } };
   };
   setAudioBackend(fb);
-  const recorders: Recorder[] = [];
-  const loads = vi.fn(async (): Promise<RecorderModule> => {
-    const m = await import("./recorder");
-    return { ...m, createRecorder: (o) => { const r = m.createRecorder({ ringBytes: opts.ringBytes ?? 4 * MiB, codec: keyframeCodecForTests(), ...o }); recorders.push(r); return r; } };
-  });
-  _setRecorderLoader(loads);
+  chunk.options = { ringBytes: opts.ringBytes ?? 4 * MiB, codec: keyframeCodecForTests() };
+  chunk.recorders.length = 0;
+  const recorders = chunk.recorders;
   const downloads: { bytes: Uint8Array; fileName: string }[] = [];
   const saved: { key: string; bytes: Uint8Array }[] = [];
   const env: SaveEnv = {
@@ -67,7 +69,7 @@ function rig(opts: { ringBytes?: number; tauri?: boolean } = {}) {
     compress: defaultSaveEnv().compress,
     now: () => new Date(2026, 10, 13, 10, 15, 0),
   };
-  _setSaveEnv(env);
+  chunk.saveEnv = env;
   /** `n` STATUS blocks through the tap the backend holds now (none while Held: nothing records). */
   const feed = (n: number, voices = 0): void => {
     for (let k = 0; k < n; k++) {
@@ -79,7 +81,7 @@ function rig(opts: { ringBytes?: number; tauri?: boolean } = {}) {
   };
   const open = async (bytes: Uint8Array): Promise<CaptureContents> => openCapture(bytes);
   const types = (c: CaptureContents): number[] => Array.from(c.records.type.subarray(0, c.records.count));
-  return { fb, loads, recorders, downloads, saved, env, feed, open, types };
+  return { fb, recorders, downloads, saved, env, feed, open, types };
 }
 
 /** Blocks for one second of rendered frames. */
@@ -91,24 +93,16 @@ function framesOf(c: CaptureContents): number[] {
   return out;
 }
 
-let restoreLoader: (() => Promise<RecorderModule>) | null = null;
-
-beforeEach(() => {
-  restoreLoader = null;
-});
-
 afterEach(() => {
   releaseCapture();
-  if (restoreLoader) _setRecorderLoader(restoreLoader);
-  _setSaveEnv(null);
+  chunk.saveEnv = null;
   setAudioBackend(null);
   vi.restoreAllMocks();
 });
 
 describe("Audio.capture: a game that never calls start loads no recorder", () => {
-  it("never calls the chunk loader, and every member answers as idle", async () => {
+  it("makes no recorder, and every member answers as idle", async () => {
     const r = rig();
-    restoreLoader = r.loads;
     const capture = Audio.capture;
     expect(capture.state).toBe("idle");
     expect(capture.seconds).toBe(0);
@@ -119,19 +113,19 @@ describe("Audio.capture: a game that never calls start loads no recorder", () =>
     await expect(capture.save("take")).rejects.toThrow("nothing recorded: call Audio.capture.start() first");
     expect(captureDebug()).toBeNull();
     expect(captureOwners()).toEqual({ take: false, panels: 0 });
-    expect(r.loads).not.toHaveBeenCalled();
+    expect(r.recorders.length).toBe(0);
     expect(r.fb.recorderTap).toBeNull();
     expect(r.fb.profileSink).toBeNull();
   });
 
-  it("start() is what loads the chunk, once: a second start, a stop and a restart load nothing more", async () => {
+  it("start() is what makes the ring, once: a second start, a stop and a restart make no other", async () => {
     const r = rig();
     await Audio.capture.start();
-    expect(r.loads).toHaveBeenCalledTimes(1);
+    expect(r.recorders.length).toBe(1);
     await Audio.capture.start();
     Audio.capture.stop();
     await Audio.capture.start();
-    expect(r.loads).toHaveBeenCalledTimes(1);
+    expect(r.recorders.length).toBe(1);
     expect(r.recorders.length).toBe(1);
   });
 
@@ -139,8 +133,8 @@ describe("Audio.capture: a game that never calls start loads no recorder", () =>
     const offenders: string[] = [];
     for (const file of sources(SRC)) {
       const text = readFileSync(file, "utf8");
-      // A static import or re-export naming the recorder module (any relative spelling).
-      if (/^\s*(import|export)\b[^;]*from\s+["'][^"']*capture\/recorder["']/m.test(text) || /^\s*(import|export)\b[^;]*from\s+["']\.\/recorder["']/m.test(text) && file.includes(`${sep}capture${sep}`)) {
+      // A static value import or re-export naming the recorder module (any relative spelling; a type import is erased).
+      if (/^\s*(import|export)\b(?!\s+type\b)[^;]*from\s+["'][^"']*capture\/recorder["']/m.test(text) || /^\s*(import|export)\b(?!\s+type\b)[^;]*from\s+["']\.\/recorder["']/m.test(text) && file.includes(`${sep}capture${sep}`)) {
         offenders.push(relative(SRC, file));
       }
     }
@@ -209,7 +203,7 @@ describe("start, stop, mark and save", () => {
     await Audio.capture.start();
     r.feed(5);
     await Audio.capture.start();
-    expect(r.loads).toHaveBeenCalledTimes(1);
+    expect(r.recorders.length).toBe(1);
     expect(captureOwners()).toEqual({ take: true, panels: 0 });
     await Audio.capture.save();
     const c = await r.open(r.downloads[0]!.bytes);
@@ -222,7 +216,7 @@ describe("start, stop, mark and save", () => {
     const a = Audio.capture.start();
     const b = Audio.capture.start();
     await Promise.all([a, b]);
-    expect(r.loads).toHaveBeenCalledTimes(1);
+    expect(r.recorders.length).toBe(1);
     expect(r.recorders.length).toBe(1);
     expect(Audio.capture.state).toBe("recording");
     expect(captureOwners()).toEqual({ take: true, panels: 0 });
@@ -296,33 +290,15 @@ describe("start, stop, mark and save", () => {
     r.fb.capture = undefined; // a pending or absent backend has no capture source (ADR 0179)
     await expect(Audio.capture.start()).rejects.toThrow(/audio core/);
     expect(Audio.capture.state).toBe("idle");
-    expect(r.loads).not.toHaveBeenCalled();
+    expect(r.recorders.length).toBe(0);
     expect(captureDebug()).toBeNull();
-  });
-
-  it("start rejects with the chunk's error when the recorder can't load, and works once it can", async () => {
-    const r = rig();
-    _setRecorderLoader(() => Promise.reject(new Error("chunk failed to load")));
-    await expect(Audio.capture.start()).rejects.toThrow("chunk failed to load");
-    expect(Audio.capture.state).toBe("idle");
-    expect(captureOwners()).toEqual({ take: false, panels: 0 });
-    _setRecorderLoader(r.loads);
-    await Audio.capture.start();
-    expect(Audio.capture.state).toBe("recording");
   });
 
   it("stop while the chunk loads abandons the start: no take, no tap, no ring; start resolves", async () => {
     const r = rig();
-    let release!: () => void;
-    const gate = new Promise<void>((res) => (release = res));
-    _setRecorderLoader(async () => {
-      await gate;
-      return r.loads();
-    });
     const started = Audio.capture.start();
-    expect(Audio.capture.state).toBe("loading");
+    expect(Audio.capture.state).toBe("loading"); // the chunk's import() is still pending
     Audio.capture.stop();
-    release();
     await started;
     expect(Audio.capture.state).toBe("idle");
     expect(r.fb.recorderTap).toBeNull();
@@ -453,7 +429,7 @@ describe("Held: a start from Held begins a new take after a GAP", () => {
     const firstTakeEnd = r.fb.frame;
     r.fb.frame += 10 * SECOND * BLOCK; // time passes, nothing recorded
     await Audio.capture.start();
-    expect(r.loads, "the chunk and the ring are reused").toHaveBeenCalledTimes(1);
+    expect(r.recorders.length, "the ring is reused").toBe(1);
     expect(r.fb.recorderTap).toBeTypeOf("function");
     r.feed(SECOND);
     await Audio.capture.save("second");
@@ -528,7 +504,7 @@ describe("owners: the Profiler panel's hold is distinct from a take (the LiveHos
   it("a panel join with no take records; its release with no take frees the ring (nothing to save)", async () => {
     const r = rig();
     const rec = await captureLiveHost.join();
-    expect(r.loads).toHaveBeenCalledTimes(1);
+    expect(r.recorders.length).toBe(1);
     expect(captureOwners()).toEqual({ take: false, panels: 1 });
     expect(Audio.capture.state, "the panel isn't a take").toBe("idle");
     expect(r.fb.recorderTap).toBeTypeOf("function");
@@ -626,7 +602,7 @@ describe("owners: the Profiler panel's hold is distinct from a take (the LiveHos
     r.feed(SECOND);
     Audio.capture.stop();
     const panel = await captureLiveHost.join();
-    expect(r.loads).toHaveBeenCalledTimes(1);
+    expect(r.recorders.length).toBe(1);
     expect(r.fb.recorderTap).toBeTypeOf("function");
     r.feed(2 * SECOND);
     expect(Audio.capture.state).toBe("stopped");

@@ -7,9 +7,10 @@ import { setAudioBackend } from "../backend";
 import { events } from "../events/eventRuntime";
 import { FADER_COALESCE_MS } from "../wire.generated";
 import { runFaderGate, summarize } from "./faderGateHarness";
+import { endAudioSession } from "../testing";
 
 afterEach(() => {
-  events()._reset();
+  endAudioSession();
   setAudioBackend(null);
   vi.restoreAllMocks();
 });

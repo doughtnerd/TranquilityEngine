@@ -11,7 +11,6 @@ import { setAudioBackend, type AudioVoice } from "../backend";
 import { Audio } from "../index";
 import { events } from "../events/eventRuntime";
 import { AutoTarget, TsAutomation, type Binding } from "../events/automation";
-import { _resetHandleWarningsForTests } from "./handle";
 import { fakeDecoder, type PlanarClip } from "./fakeDecoder";
 import { createClipRegistry } from "./clipRegistry";
 import { AudioHost, presetFromSettings, type CoreLink } from "./context";
@@ -21,6 +20,7 @@ import { watchBatches } from "./batchWatch";
 import { BATCH_FLAGS_OVERFLOWED } from "../wire.generated";
 import { watchForTraps } from "./recovery";
 import { Unlock, type UnlockContext } from "./unlock";
+import { endAudioSession } from "../testing";
 
 const RATE = 48_000;
 const STEP = 3;
@@ -97,13 +97,13 @@ describe("event automation in the core (E3.1, loopback)", () => {
     await SceneManager.load("s.json");
     engine.world.render = {} as never;
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    _resetHandleWarningsForTests();
+    endAudioSession();
     const r = await loopbackRig({ mixer: globalMixer });
     if (!r) return ctx.skip();
     const { backend, step, out } = r;
     const evaluated = vi.spyOn(TsAutomation.prototype, "update");
     const applied = vi.spyOn(TsAutomation.prototype, "bindVoice");
-    events()._reset();
+    endAudioSession();
     setAudioBackend(backend);
     try {
       const h = Audio.play("e.audioevent.json");
@@ -135,7 +135,7 @@ describe("event automation in the core (E3.1, loopback)", () => {
       expect(applied).not.toHaveBeenCalled();
       h.stop();
     } finally {
-      events()._reset();
+      endAudioSession();
       setAudioBackend(null);
       engine.dispose?.();
     }
@@ -218,7 +218,7 @@ function fakeContext() {
 describe("a hard rebuild mid-automation (E3.1, loopback)", () => {
   it("restores a full 1,024-curve table, parameters, bindings and loops on the new core", { timeout: 30_000 }, async () => {
     const testing = await import("../testing");
-    const loop = await testing.createLoopbackHost({ testHooks: true, preset: { ...testing.LOOPBACK_PRESET, limiterLookaheadMs: 0 } });
+    const loop = await testing.createLoopbackHost({ preset: { ...testing.LOOPBACK_PRESET, limiterLookaheadMs: 0 } });
     const context = fakeContext();
     const node = Object.assign(new EventTarget(), { connect() {}, disconnect() {} }) as unknown as AudioWorkletNode;
     const unlock = new Unlock({ target: new EventTarget(), context: context as unknown as UnlockContext });

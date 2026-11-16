@@ -2,12 +2,12 @@
 // sets `now` and the fake's horizon (now + L, L = 33.3 ms: 60 Hz), and the test says when a group is primed.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { setAudioBackend } from "../backend";
-import { makeFakeBackend, type FakeBackend } from "../testing";
+import { makeFakeBackend, type FakeBackend, endAudioSession } from "../testing";
 import type { EventInstance } from "../events/eventRuntime";
 import { parseSegmentNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
 import type { MusicClipFacts } from "../../../../engine/audio/musicValidate";
-import { _resetMusicPlayers, createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
-import { _resetSegmentRuns, setSegmentClipSource } from "./segmentRun";
+import { createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
+import { setSegmentClipSource } from "./segmentRun";
 import {
   cancelPlanned, frameIntervalSeconds, lookaheadSeconds, planTick, primeLeadSeconds, requestStart, type PlanRequest,
 } from "./planner";
@@ -74,8 +74,7 @@ function playingPlayer(): MusicPlayer {
 const bars = (nb: number): number => Math.ceil(nb / 0.5 - 1e-9) * 0.5;
 
 afterEach(() => {
-  _resetMusicPlayers();
-  _resetSegmentRuns();
+  endAudioSession();
   setAudioBackend(null);
   vi.restoreAllMocks();
 });

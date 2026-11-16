@@ -73,20 +73,13 @@ function hasRuntimeShare(host: AudioHost | undefined): boolean {
 }
 
 /**
- * @internal Connects a freshly started host to the Engines (`Engine.ts` reconfigure): applies the mixer's current
- * settings (`host.reconfigure(mixer.audioSettings)`), then follows every later `Engine.create`'s
- * `_onAudioConfigured`. Returns the disconnect, which also runs when the host closes. Connecting the same host again
- * (the service registered again, so `load` ran again) adds nothing and returns the first disconnect. `onConfigured` defaults to
- * `Engine._onAudioConfigured` (tests may pass their own source).
+ * Connects a freshly started host to the Engines (`Engine.ts` reconfigure): applies the mixer's current settings
+ * (`host.reconfigure(mixer.audioSettings)`), then follows every later `Engine.create`'s `_onAudioConfigured` until the
+ * host closes. Connecting the same host again (the service registered again, so `load` ran again) adds nothing.
  */
-export function connectHostToEngines(
-  host: AudioHost,
-  onConfigured: (listener: (settings: AudioSettings) => void) => () => void = onAudioConfigured,
-): () => void {
-  const existing = connections.get(host);
-  if (existing) return existing;
-  if (host.closed) return () => {};
-  const stopFollowing = onConfigured((settings) => {
+function connectHostToEngines(host: AudioHost): void {
+  if (connections.has(host) || host.closed) return;
+  const stopFollowing = onAudioConfigured((settings: AudioSettings) => {
     if (!host.closed) host.reconfigure(settings);
   });
   let removeListener: () => void = () => {};
@@ -99,7 +92,6 @@ export function connectHostToEngines(
   connections.set(host, disconnect);
   removeListener = host.addLifecycleListener({ onClose: disconnect });
   host.reconfigure(mixer.audioSettings);
-  return disconnect;
 }
 
 const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error));

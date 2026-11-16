@@ -8,15 +8,13 @@
 // "within one frame, nothing missed, doubled or phantom" and their ideal-frame share is reported.
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { setAudioBackend } from "../backend";
-import { _resetMusicPlayers } from "./musicSystem";
-import { _resetSegmentRuns } from "./segmentRun";
 import { rigClips } from "./testing/beatRig";
 import { recordedTrace, replayClock, runScenario, score, synthTrace, type JitterTrace, type Score } from "./testing/jitterTrace";
+import { endAudioSession } from "../testing";
 
 beforeEach(() => rigClips(3600));
 afterEach(() => {
-  _resetMusicPlayers();
-  _resetSegmentRuns();
+  endAudioSession();
   setAudioBackend(null);
 });
 

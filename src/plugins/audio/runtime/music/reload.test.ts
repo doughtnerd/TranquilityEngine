@@ -3,12 +3,12 @@
 // first segment starts at 1.1 s (now 1 + the 100 ms lead), so bar lines are heard at 3.1, 5.1, ...
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { setAudioBackend, type AudioVoice, type ShapedFade } from "../backend";
-import { makeFakeBackend, type FakeBackend } from "../testing";
+import { makeFakeBackend, type FakeBackend, endAudioSession } from "../testing";
 import type { EventInstance } from "../events/eventRuntime";
 import { parseSegmentNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
 import type { MusicClipFacts } from "../../../../engine/audio/musicValidate";
-import { _resetMusicPlayers, createMusicPlayer, tickPlayer, type MusicFrame, type MusicNodeRef, type MusicPlayer } from "./musicSystem";
-import { _resetSegmentRuns, setSegmentClipSource } from "./segmentRun";
+import { createMusicPlayer, tickPlayer, type MusicFrame, type MusicNodeRef, type MusicPlayer } from "./musicSystem";
+import { setSegmentClipSource } from "./segmentRun";
 import { requestStart } from "./planner";
 import { noteAssetChanged, setReloadHost } from "./reload";
 
@@ -78,8 +78,7 @@ function playingPlayer(node: SegmentNode = segment("A", ["music/a1.ogg", "music/
 }
 
 afterEach(() => {
-  _resetMusicPlayers();
-  _resetSegmentRuns();
+  endAudioSession();
   setReloadHost(null);
   setAudioBackend(null);
   vi.restoreAllMocks();

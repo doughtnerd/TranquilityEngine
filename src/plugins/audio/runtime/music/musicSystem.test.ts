@@ -6,9 +6,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { World } from "../../../../engine/core/World";
 import { setAudioBackend } from "../backend";
 import { AUDIO_SYSTEMS } from "../audioSystem";
-import { makeFakeBackend, type FakeBackend } from "../testing";
+import { makeFakeBackend, type FakeBackend, endAudioSession } from "../testing";
 import type { EventInstance } from "../events/eventRuntime";
-import { _resetMusicPlayers, createMusicPlayer, disposeMusicPlayer, musicActive, musicPlanStep, musicPlayers, playerOf } from "./musicSystem";
+import { createMusicPlayer, disposeMusicPlayer, musicActive, musicPlanStep, musicPlayers, playerOf } from "./musicSystem";
 import { routeGroupEvent } from "./segmentRun";
 
 const step = AUDIO_SYSTEMS.find((s) => s.name === "engine.AudioMusic")!;
@@ -24,7 +24,7 @@ function rig(): FakeBackend {
 }
 
 afterEach(() => {
-  _resetMusicPlayers();
+  endAudioSession();
   setAudioBackend(null);
 });
 

@@ -23,7 +23,8 @@ import { warnOnce } from "../core/handle";
 import { taps } from "../mix/profileTaps";
 import { NULL_PROFILE_SINK } from "../mix/profileSink";
 import { loopPointsFor, onLoopPoints } from "../loopPoints";
-import { _resetMusicPlayers, createMusicPlayer, disposeMusicPlayer, type MusicFrame, type MusicNodeRef, type MusicPlayer } from "../music/musicSystem";
+import { onAudioSessionReleased } from "../audioSession";
+import { createMusicPlayer, disposeMusicPlayer, type MusicFrame, type MusicNodeRef, type MusicPlayer } from "../music/musicSystem";
 import { segmentClipSource, stopPlayerRuns, type StemRun } from "../music/segmentRun";
 import { quantizedRamp } from "../music/stems";
 import { loopTailVoices } from "../music/loopTail";
@@ -333,10 +334,9 @@ export class EventSystem {
     this.timers.length = 0;
   }
 
-  /** @internal Test hook: forget everything (a new page). */
-  _reset(): void {
+  /** The audio session was released (ADR 0218: the project's Engines went): stop everything and forget it, as a new page would. */
+  release(): void {
     this.stopAll();
-    _resetMusicPlayers();
     this.sink = null; this.sinkOf = null; this.ts = null;
     this.curvesById.length = 0;
     this.curveMap.clear();
@@ -1657,5 +1657,7 @@ let system: EventSystem | null = null;
 export function events(): EventSystem {
   return (system ??= new EventSystem());
 }
+
+onAudioSessionReleased(() => system?.release());
 
 export { LOWPASS_OFF };

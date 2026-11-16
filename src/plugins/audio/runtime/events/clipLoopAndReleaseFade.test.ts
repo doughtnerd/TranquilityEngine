@@ -4,12 +4,13 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { eventKit, clip, ev } from "./eventTestKit";
 import { events } from "./eventRuntime";
-import { resetFileLoopPoints, setFileLoopPoints } from "../loopPoints";
+import { setFileLoopPoints } from "../loopPoints";
+import { endAudioSession } from "../testing";
 
 const kit = eventKit();
 const fake = kit.fake;
 
-beforeEach(() => resetFileLoopPoints());
+beforeEach(() => endAudioSession());
 
 const loopEvents = (voice: number) => fake.voices[voice].events.filter((e) => e.kind === "loop");
 

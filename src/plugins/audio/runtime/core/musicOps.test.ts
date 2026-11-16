@@ -25,6 +25,7 @@ import { watchBatches } from "./batchWatch";
 import { VoiceState, VoiceTable } from "./voiceTable";
 import { fakeHostClock } from "../testing";
 import { fakeDecoder } from "./fakeDecoder";
+import { endAudioSession } from "../testing";
 
 /** The prime-latency average's seed before any prime has been measured, ms. */
 const PRIME_EMA_SEED_MS = 40;
@@ -756,7 +757,7 @@ describe("a streamed music stem's voice (F-16)", () => {
 
 describe("a music debug row's pending change", () => {
   it("is set while the transition is pending, stamped or running (past T - L), and null once done", async () => {
-    const { createMusicPlayer, _resetMusicPlayers } = await import("../music/musicSystem");
+    const { createMusicPlayer } = await import("../music/musicSystem");
     const { backend } = rig();
     const player = createMusicPlayer({ group: 4, path: "m.audioevent.json" } as never, { id: "A", type: "segment" });
     const match = { rule: 1, ruleKey: "A>B", tier: 2, parent: null, exit: "nextBar", enter: "start" };
@@ -770,7 +771,7 @@ describe("a music debug row's pending change", () => {
       (player.transition as { state: string }).state = state;
       expect(pending(), state).toBeNull();
     }
-    _resetMusicPlayers();
+    endAudioSession();
     backend.dispose();
   });
 });

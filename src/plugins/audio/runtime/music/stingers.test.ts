@@ -3,13 +3,13 @@
 // that grid, not off G1's helpers.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { setAudioBackend } from "../backend";
-import { makeFakeBackend, type FakeBackend } from "../testing";
+import { makeFakeBackend, type FakeBackend, endAudioSession } from "../testing";
 import type { EventInstance } from "../events/eventRuntime";
 import { parseAudioEvent } from "../../../../engine/audio/eventFormat";
 import type { MusicNode, SegmentNode } from "../../../../engine/audio/musicFormat";
-import { _resetMusicPlayers, createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
-import { _resetSegmentRuns, createSegmentRun, setSegmentClipSource } from "./segmentRun";
-import { _resetStingers, tickStingers, triggerOn, triggerStinger } from "./stingers";
+import { createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
+import { createSegmentRun, setSegmentClipSource } from "./segmentRun";
+import { tickStingers, triggerOn } from "./stingers";
 
 type Raw = Record<string, unknown>;
 
@@ -53,9 +53,7 @@ const at = (t: number, horizon = t): void => {
 const tick = (): void => tickStingers(player, f);
 
 afterEach(() => {
-  _resetMusicPlayers();
-  _resetSegmentRuns();
-  _resetStingers();
+  endAudioSession();
   setAudioBackend(null);
   vi.restoreAllMocks();
 });
@@ -63,7 +61,7 @@ afterEach(() => {
 describe("trigger namespace", () => {
   it("is false for an unknown name and for a non-music handle", () => {
     rig(rootOf([stinger()]));
-    expect(triggerStinger(player, "nope")).toBe(false);
+    expect(triggerOn(player.instance, "nope")).toBe(false);
     expect(player.counters.refusals.stingerUnknown).toBe(1);
     expect(triggerOn({}, "hit")).toBe(false);
   });
@@ -78,7 +76,7 @@ describe("trigger namespace", () => {
     // The playing segment is the inner playlist's child.
     const a = ((value.musicRoot as unknown as { children: { children: SegmentNode[] }[] }).children[0]!).children[0]!;
     player.run = createSegmentRun(player, a, 0);
-    expect(triggerStinger(player, "hit")).toBe(true);
+    expect(triggerOn(player.instance, "hit")).toBe(true);
     expect(b.music!.admitted[0]!.members[0]!.play.path).toBe("music/deep.ogg");
   });
 });
@@ -88,7 +86,7 @@ describe("quantise and the grid", () => {
     rig(rootOf([stinger()]));
     const run = player.run;
     const anchor = { ...player.anchor! };
-    expect(triggerStinger(player, "hit")).toBe(true);
+    expect(triggerOn(player.instance, "hit")).toBe(true);
     tick();
     expect(b.music!.stamps).toHaveLength(1);
     expect(b.music!.stamps[0]!.at).toBeCloseTo(0.5, 9);
@@ -104,9 +102,9 @@ describe("quantise and the grid", () => {
   it("a bar spec lands on the bar; immediate on the earliest time; a cue on the cue", () => {
     rig(rootOf([stinger({ trigger: "bar", at: "bar" }), stinger({ trigger: "now", at: "immediate" }), stinger({ trigger: "cue", at: { cue: "drop" } })]));
     at(0.1, 0.15);
-    expect(triggerStinger(player, "bar")).toBe(true);
-    expect(triggerStinger(player, "now")).toBe(true);
-    expect(triggerStinger(player, "cue")).toBe(true);
+    expect(triggerOn(player.instance, "bar")).toBe(true);
+    expect(triggerOn(player.instance, "now")).toBe(true);
+    expect(triggerOn(player.instance, "cue")).toBe(true);
     tick();
     const times = b.music!.stamps.map((s) => s.at);
     expect(times[0]).toBeCloseTo(2, 9);
@@ -117,13 +115,13 @@ describe("quantise and the grid", () => {
   it("a cue already passed has no point and drops", () => {
     rig(rootOf([stinger({ at: { cue: "drop" } })]));
     at(2.5);
-    expect(triggerStinger(player, "hit")).toBe(false);
+    expect(triggerOn(player.instance, "hit")).toBe(false);
     expect(player.counters.stingers.dropped).toBe(1);
   });
 
   it("uses its own volume and bus", () => {
     rig(rootOf([stinger({ volume: 0.5, bus: "Stingers" })]));
-    expect(triggerStinger(player, "hit")).toBe(true);
+    expect(triggerOn(player.instance, "hit")).toBe(true);
     const play = b.music!.admitted[0]!.members[0]!.play;
     expect(play.bus).toBe("Stingers");
     expect(play.volume).toBeCloseTo(0.5, 9);
@@ -136,7 +134,7 @@ describe("ifTooLate", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     rig(rootOf([stinger({ ifTooLate: "nextGrid" })]));
     at(0.4, 0.55);
-    expect(triggerStinger(player, "hit")).toBe(true);
+    expect(triggerOn(player.instance, "hit")).toBe(true);
     tick();
     expect(b.music!.stamps[0]!.at).toBeCloseTo(1.0, 9);
     expect(player.counters.stingers.late).toBe(1);
@@ -146,7 +144,7 @@ describe("ifTooLate", () => {
   it("playNow plays at the earliest time", () => {
     rig(rootOf([stinger({ ifTooLate: "playNow" })]));
     at(0.4, 0.55);
-    expect(triggerStinger(player, "hit")).toBe(true);
+    expect(triggerOn(player.instance, "hit")).toBe(true);
     tick();
     expect(b.music!.stamps[0]!.at).toBeCloseTo(0.55, 9);
     expect(player.counters.stingers.late).toBe(1);
@@ -155,14 +153,14 @@ describe("ifTooLate", () => {
   it("skip drops it and returns false without admitting anything", () => {
     rig(rootOf([stinger({ ifTooLate: "skip" })]));
     at(0.4, 0.55);
-    expect(triggerStinger(player, "hit")).toBe(false);
+    expect(triggerOn(player.instance, "hit")).toBe(false);
     expect(b.music!.admitted).toHaveLength(0);
     expect(player.counters.stingers.skipped).toBe(1);
   });
 
   it("an on-time stinger is not late whatever ifTooLate says", () => {
     rig(rootOf([stinger({ ifTooLate: "skip" })]));
-    expect(triggerStinger(player, "hit")).toBe(true);
+    expect(triggerOn(player.instance, "hit")).toBe(true);
     expect(player.counters.stingers.skipped).toBe(0);
   });
 
@@ -172,7 +170,7 @@ describe("ifTooLate", () => {
     player.counters.leadMs = 200;
     at(0.1);
     // Point 0.5 is after now + 0.2: accepted, queued, waiting for its ring.
-    expect(triggerStinger(player, "hit")).toBe(true);
+    expect(triggerOn(player.instance, "hit")).toBe(true);
     tick();
     expect(b.music!.stamps).toHaveLength(0);
     // The prime finishes after the point is inside the lead: skip drops it.
@@ -188,13 +186,13 @@ describe("ifTooLate", () => {
 describe("dontRepeat", () => {
   it("drops a repeat inside the window and plays again after it", () => {
     rig(rootOf([stinger({ dontRepeat: 2 })]));
-    expect(triggerStinger(player, "hit")).toBe(true); // plays at 0.5
+    expect(triggerOn(player.instance, "hit")).toBe(true); // plays at 0.5
     tick();
     at(1.0);
-    expect(triggerStinger(player, "hit")).toBe(false);
+    expect(triggerOn(player.instance, "hit")).toBe(false);
     expect(player.counters.stingers.dropped).toBe(1);
     at(2.6);
-    expect(triggerStinger(player, "hit")).toBe(true);
+    expect(triggerOn(player.instance, "hit")).toBe(true);
   });
 });
 
@@ -202,7 +200,7 @@ describe("at most 4 at once", () => {
   // The fake backend only keeps voices for primed (streamed) groups, so these stingers stream.
   const streamed = (): void => setSegmentClipSource({ url: (p) => p, settings: () => ({ volume: 1, stream: true }), bus: (o) => o ?? "Master", facts: () => undefined });
   const fire = (): boolean => {
-    const ok = triggerStinger(player, "hit");
+    const ok = triggerOn(player.instance, "hit");
     b.music!.setPrimed(b.music!.admitted[b.music!.admitted.length - 1]!.group);
     tick();
     return ok;
@@ -237,7 +235,7 @@ describe("the pool", () => {
   it("a refused admission returns false and counts it", () => {
     rig(rootOf([stinger()]));
     b.music!.admitResult = { ok: false, reason: "poolFull", permanent: false };
-    expect(triggerStinger(player, "hit")).toBe(false);
+    expect(triggerOn(player.instance, "hit")).toBe(false);
     expect(player.counters.refusals.poolFull).toBe(1);
     expect(player.stingers!.queued).toHaveLength(0);
   });
@@ -245,6 +243,6 @@ describe("the pool", () => {
   it("a trigger before any tick, or on a stopped player, is false", () => {
     rig(rootOf([stinger()]));
     player.state = "stopped";
-    expect(triggerStinger(player, "hit")).toBe(false);
+    expect(triggerOn(player.instance, "hit")).toBe(false);
   });
 });

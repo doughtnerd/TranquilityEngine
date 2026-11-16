@@ -15,7 +15,7 @@ import {
   DEFAULT_TRANSITION_RULE, type TransitionEnter, type TransitionExit, type TransitionRule,
 } from "../../../../engine/audio/musicRules";
 import {
-  enterFrame, enterPoint, exitTime, findRule, heardTimeAt, resolveFades, ruleIndexOf, ticksAtHeard,
+  enterFrame, enterPoint, exitTime, findRule, heardTimeAt, matchInContainer, resolveFades, ticksAtHeard,
   type GridAt, type PlayingGrid, type RuleMatch,
 } from "./transitionRules";
 
@@ -190,14 +190,13 @@ describe("findRule: §2.4 precedence in one container", () => {
     }
   });
 
-  it("L-R1a: ruleIndexOf returns the same index object for the same container, a fresh one for a reparsed asset", () => {
+  it("L-R1a: a pair's match is cached for the same container, and made afresh for a reparsed asset", () => {
     const list: Raw[] = [{ from: "a", to: "b", exit: "beat" }];
     const root = tree(list);
-    const first = ruleIndexOf(root);
-    expect(ruleIndexOf(root)).toBe(first);
-    expect(first.container).toBe("p");
-    expect(first.pairs).toBeInstanceOf(Map);
-    expect(ruleIndexOf(tree(list))).not.toBe(first);
+    const first = matchInContainer(root, "a", "b");
+    expect(matchInContainer(root, "a", "b")).toBe(first);
+    expect(first.parent).toBe("p");
+    expect(matchInContainer(tree(list), "a", "b")).not.toBe(first);
   });
 });
 

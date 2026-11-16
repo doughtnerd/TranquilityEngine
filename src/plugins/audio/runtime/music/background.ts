@@ -104,7 +104,7 @@ export function recoverGroups(backend: AudioBackend, cause: "rebuild" | "crash" 
 }
 
 /** Players that had a run when a rebuild started and haven't been re-planned (`recoverGroups`) yet. */
-let awaitingRecovery = new WeakSet<MusicPlayer>();
+const awaitingRecovery = new WeakSet<MusicPlayer>();
 
 /**
  * Rh1 (architecture §3.7, §4.6): sets each player's `beats.held` for this frame. In rhythm mode (`audio.rhythmMode` on
@@ -149,17 +149,10 @@ export function recoverAbandoned(backend: AudioBackend): void {
   for (const p of players) recoverPlayer(p, f, "abandon");
 }
 
-/** @internal Tests: forget the hidden flag, pending abandons and every player's recovery limit. */
-export function _resetMusicBackground(): void {
-  hidden = false;
-  abandoned.clear();
-  limits = new WeakMap();
-  awaitingRecovery = new WeakSet();
-}
 
 // --- Internals -------------------------------------------------------------------------------------------------------
 
-let limits = new WeakMap<MusicPlayer, RateLimit>();
+const limits = new WeakMap<MusicPlayer, RateLimit>();
 const warned = new WeakSet<MusicPlayer>();
 
 function bump(rec: Record<string, number>, key: string): void {

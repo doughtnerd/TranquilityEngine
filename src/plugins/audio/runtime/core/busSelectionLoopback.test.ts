@@ -9,11 +9,11 @@ import { mixer as globalMixer } from "../../../../engine/audio/mixer";
 import { setAudioBackend } from "../backend";
 import { Audio } from "../index";
 import { events } from "../events/eventRuntime";
-import { _resetHandleWarningsForTests } from "./handle";
 import { fakeDecoder, type PlanarClip } from "./fakeDecoder";
 import { createClipRegistry } from "./clipRegistry";
 import type { AudioHost, CoreLink } from "./context";
 import { CoreBackend, type CoreBackendHost } from "./coreBackend";
+import { endAudioSession } from "../testing";
 
 const RATE = 48_000;
 const QUANTUM = 128;
@@ -28,7 +28,7 @@ const fetchBytes = async () => new ArrayBuffer(16);
 const closers: (() => void)[] = [];
 afterEach(() => {
   for (const c of closers.splice(0)) c();
-  events()._reset();
+  endAudioSession();
   setAudioBackend(null);
   vi.restoreAllMocks();
 });
@@ -54,7 +54,7 @@ async function rig(maxMixed: number) {
   await SceneManager.load("s.json");
   engine.world.render = {} as never;
   vi.spyOn(console, "warn").mockImplementation(() => {});
-  _resetHandleWarningsForTests();
+  endAudioSession();
   const testing = await import("../testing");
   let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>> & { link: CoreLink };
   try {
@@ -67,7 +67,7 @@ async function rig(maxMixed: number) {
   const host: CoreBackendHost = { link, status: "running", preset: { maxLogical: 64, maxMixed }, worldCount: 1, sampleRate: RATE, addLifecycleListener: (() => () => {}) as AudioHost["addLifecycleListener"] };
   const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer: globalMixer });
   closers.push(() => backend.dispose());
-  events()._reset();
+  endAudioSession();
   setAudioBackend(backend);
   /** One frame of 4 quanta; returns each quantum's RMS (left). */
   const frame = async (): Promise<number[]> => {

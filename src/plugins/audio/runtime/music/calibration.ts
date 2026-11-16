@@ -63,7 +63,7 @@ function calibrationKey(sinkId?: string | null): string {
 let calibrationSeconds = 0;
 let calibrationIsStale = false;
 let currentKey = calibrationKey();
-/** The newest persistence write or read, so a caller (and the tests) can wait for it. */
+/** The newest persistence write or read: each new one is chained after it, so writes land in order. */
 let pending: Promise<void> = Promise.resolve();
 /** Bumped by every set and device switch, so a slower read cannot overwrite a newer value. */
 let epoch = 0;
@@ -119,19 +119,6 @@ export function calibrationDeviceChanged(sinkId?: string | null): Promise<void> 
   return done;
 }
 
-/** Resolves when the newest persistence read or write has finished. */
-export function calibrationSettled(): Promise<void> {
-  return pending;
-}
-
-/** Test seam: forget everything in memory (the stored value stays in `Storage`, as after a reload). */
-export function resetCalibrationForTests(): void {
-  calibrationSeconds = 0;
-  calibrationIsStale = false;
-  currentKey = calibrationKey();
-  pending = Promise.resolve();
-  epoch++;
-}
 
 /** `Audio.calibration` (seconds, default 0): subtracted from an input's offset (`judged = offset - calibration`). */
 export function getCalibration(): number {

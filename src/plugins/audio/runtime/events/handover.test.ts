@@ -2,14 +2,13 @@
 // real CoreBackend over the loopback host (the wasm core in Node).
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Assets, Engine, SceneManager } from "../../../../myco";
-import { mixer as globalMixer, registerCoreBackend, resetCoreFallbackState, setAudioBackend, type AudioBackend } from "../backend";
+import { mixer as globalMixer, registerCoreBackend, setAudioBackend, type AudioBackend } from "../backend";
 import { Audio } from "../index";
-import { _resetHandleWarningsForTests } from "../core/handle";
 import { createClipRegistry } from "../core/clipRegistry";
 import { fakeDecoder, type PlanarClip } from "../core/fakeDecoder";
 import type { AudioHost } from "../core/context";
 import { CoreBackend, type CoreBackendHost } from "../core/coreBackend";
-import { makeFakeBackend } from "../testing";
+import { makeFakeBackend, endAudioSession } from "../testing";
 import { events } from "./eventRuntime";
 import { TsAutomation, type AutomationSink } from "./automation";
 
@@ -34,17 +33,15 @@ const SUSTAIN = { "e.audioevent.json": { format: F, bus: "SFX", parameters: [{ n
 let undo: (() => void) | null = null;
 beforeEach(() => {
   setAudioBackend(null);
-  resetCoreFallbackState();
-  events()._reset();
-  _resetHandleWarningsForTests();
+  endAudioSession();
   vi.spyOn(console, "warn").mockImplementation(() => {});
 });
 afterEach(() => {
   undo?.();
   undo = null;
-  events()._reset();
+  endAudioSession();
   setAudioBackend(null);
-  resetCoreFallbackState();
+  endAudioSession();
   vi.restoreAllMocks();
 });
 

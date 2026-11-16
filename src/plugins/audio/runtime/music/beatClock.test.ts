@@ -7,21 +7,20 @@
 // steps). The invariant everywhere: every beat is delivered once, fired or counted in a `missed`, none doubled or phantom.
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { setAudioBackend } from "../backend";
-import { _resetMusicPlayers, type MusicPlayer } from "./musicSystem";
-import { _resetSegmentRuns } from "./segmentRun";
+import { type MusicPlayer } from "./musicSystem";
 import { anchorRun } from "./anchors";
-import { predictDue, resyncBeats } from "./beatClock";
+import { predictDue, seatBeats } from "./beatClock";
 import { drive, frames, musicSegment, playingRun, rigClips, stampedRun, type DriveFrame, type Fired } from "./testing/beatRig";
 import { runScenario, score, synthTrace } from "./testing/jitterTrace";
 import type { MusicEvent } from "../../../../engine/audio/musicTypes";
+import { endAudioSession } from "../testing";
 
 const T120 = [{ at: "1:1:0", bpm: 120, beatsPerBar: 4, beatUnit: 4 }];
 const DT = 1 / 60;
 
 beforeEach(() => rigClips(7200));
 afterEach(() => {
-  _resetMusicPlayers();
-  _resetSegmentRuns();
+  endAudioSession();
   setAudioBackend(null);
 });
 
@@ -294,7 +293,7 @@ describe("a held clock's backlog", () => {
     const b = musicSegment({ tempo: T120, cues: [{ name: "bq", at: "1:2:0" }] });
     const { player } = playingRun(a, 0, 0);
     player.next = stampedRun(player, b, 0, 8, 6); // lands after four passes of A
-    resyncBeats(player, -0.05);
+    seatBeats(player, -0.05);
     const list = frames(-0.05, 12.4, DT);
     list[idx(list, 0.4)]!.before = () => (player.beats!.held = true);
     list[idx(list, 10.2)]!.before = () => (player.beats!.held = false);
@@ -312,7 +311,7 @@ describe("a held clock's backlog", () => {
 
   it("held while a late start moves the run: on release nothing doubles or skips", () => {
     const { player, run } = playingRun(musicSegment({ tempo: T120 }), 0, 1);
-    resyncBeats(player, 0.95);
+    seatBeats(player, 0.95);
     const list = frames(0.95, 6, DT);
     list[20]!.before = () => (player.beats!.held = true);
     list[40]!.before = () => {
@@ -329,7 +328,7 @@ describe("a held clock's backlog", () => {
 
   it("held, released and held again: each release coalesces only its own stretch", () => {
     const { player } = playingRun(musicSegment({ tempo: T120 }), 0, 0);
-    resyncBeats(player, -0.05);
+    seatBeats(player, -0.05);
     const list = frames(-0.05, 8, DT);
     list[idx(list, 1.2)]!.before = () => (player.beats!.held = true);
     list[idx(list, 3.2)]!.before = () => (player.beats!.held = false);
@@ -342,7 +341,7 @@ describe("a held clock's backlog", () => {
 
   it("a held player that stops: nothing is fired on release", () => {
     const { player } = playingRun(musicSegment({ tempo: T120 }), 0, 0);
-    resyncBeats(player, -0.05);
+    seatBeats(player, -0.05);
     player.beats!.held = true;
     expect(drive(player, frames(-0.05, 2, DT))).toEqual([]);
     player.state = "stopped";

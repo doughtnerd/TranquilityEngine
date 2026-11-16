@@ -32,15 +32,18 @@ import { presetFromSettings } from "../core/context";
 import { CoreBackend, type CoreBackendHost } from "../core/coreBackend";
 import { createClipRegistry } from "../core/clipRegistry";
 import { fakeDecoder, type PlanarClip } from "../core/fakeDecoder";
-import { _resetHandleWarningsForTests } from "../core/handle";
 import { events } from "../events/eventRuntime";
-import { createLoopbackHost, type LoopbackHost } from "../testing";
-import { audioCapture, releaseCapture, setCaptureProject, _setRecorderLoader, _setSaveEnv, type RecorderModule } from "./capture";
+import { createLoopbackHost, type LoopbackHost, endAudioSession } from "../testing";
+import { audioCapture, releaseCapture, setCaptureProject } from "./capture";
 import { openCapture } from "./reader";
-/** The recorder chunk is reached only by `import()` (a test checks no source imports it statically). */
-type Recorder = ReturnType<RecorderModule["createRecorder"]>;
+import type { CaptureChunkControl } from "./testSupport";
 import { RecordType } from "./format";
 import { FRAME_QUANTA, FRAME_SECONDS, RATE, bytesByType, memorySaveEnv, stat, timedCallOverheadUs, timedSink } from "./soakSupport";
+
+// The recorder and save chunks are the real ones, wrapped: the take's recorder is kept, its save goes to memory.
+const chunk = vi.hoisted((): CaptureChunkControl => ({ options: {}, recorders: [], saveEnv: null }));
+vi.mock("./recorder", async (real) => (await import("./testSupport")).captureRecorderModule(await real(), chunk));
+vi.mock("./save", async (real) => (await import("./testSupport")).captureSaveModule(await real(), chunk));
 
 // The Stress readout draws into the DOM; the soak runs in Node, so it is a no-op here (the storm itself is unchanged).
 vi.mock("../../../../../samples/stress/scripts/hud", () => ({
@@ -134,7 +137,7 @@ afterEach(() => {
   engine?.dispose();
   engine = null;
   Assets.clearSources();
-  events()._reset();
+  endAudioSession();
   setAudioBackend(null);
   vi.restoreAllMocks();
 });
@@ -167,8 +170,7 @@ async function runScene(spec: SceneSpec): Promise<SceneResult | null> {
     return null;
   }
   vi.spyOn(console, "warn").mockImplementation(() => {});
-  _resetHandleWarningsForTests();
-  events()._reset();
+  endAudioSession();
   const link = loop.link;
   const clips = createClipRegistry({
     send: (m) => link.post(m), nextSeq: () => link.nextSeq(), fetchBytes: (p) => fetchFrom(dir, p), decodeWorker: fakeDecoder(async (b) => parseWav(b)),
@@ -228,16 +230,12 @@ async function runScene(spec: SceneSpec): Promise<SceneResult | null> {
   const warmSeconds = audioSeconds;
 
   // The take, on the product's path.
-  let rec: Recorder | null = null;
-  const restoreLoader = _setRecorderLoader(async () => {
-    const m = await import("./recorder");
-    return { ...m, createRecorder: (o?: Parameters<RecorderModule["createRecorder"]>[0]) => (rec = m.createRecorder(o)) } as RecorderModule;
-  });
+  chunk.recorders.length = 0;
   const env = memorySaveEnv();
-  const restoreEnv = _setSaveEnv(env);
+  chunk.saveEnv = env;
   setCaptureProject(() => ({ name: spec.name, version: "So1" }));
   await audioCapture.start();
-  const r = rec as unknown as Recorder;
+  const r = chunk.recorders[0]!;
   const tap = backend.recorderTap!;
   const tapUs: number[] = [];
   let tapMs = 0;
@@ -270,8 +268,7 @@ async function runScene(spec: SceneSpec): Promise<SceneResult | null> {
   await audioCapture.save(spec.name.replace(/\W+/g, "-"));
   const file = env.files[0]!.bytes;
   const opened = await openCapture(file);
-  _setRecorderLoader(restoreLoader);
-  _setSaveEnv(restoreEnv);
+  chunk.saveEnv = null;
   expect(Math.abs(seconds - MEASURE_SECONDS)).toBeLessThan(0.05);
   expect(opened.keyframes.length, "a keyframe a second of rendered frames").toBeGreaterThanOrEqual(MEASURE_SECONDS - 1);
   const result: SceneResult = {

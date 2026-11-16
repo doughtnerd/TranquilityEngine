@@ -8,13 +8,12 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Mixer } from "../../../engine/audio/mixer";
 import { defaultAudioSettings } from "../../../engine/audio/settings";
-import { Assets, Engine, GameObject, SceneManager } from "../../../myco";
+import { Assets, BoxCollider, Engine, GameObject, SceneManager } from "../../../myco";
 import { AudioOccluder } from "../runtime/AudioOccluder";
 import { AudioReverbZone } from "../runtime/AudioReverbZone";
 import type { AudioHost } from "../runtime/core/context";
 import type { CoreBackendHost } from "../runtime/core/coreBackend";
 import { fakeDecoder } from "../runtime/core/fakeDecoder";
-import { engineOcclusionEnvironment } from "../runtime/core/occlusion";
 import { ListenerFrame } from "../runtime/core/spatial";
 import { createZoneIrService } from "../runtime/core/zoneIr";
 import { createDecoderHandler } from "../runtime/decoder/handler";
@@ -29,8 +28,8 @@ const DECODER = readFileSync(fileURLToPath(new URL("../runtime/wasm/myco_audio_d
 
 async function rig(slots: number, maxActive: number, standby: number) {
   Assets.clearSources();
-  Assets.addSource(Assets.fromObject({ "s.json": { format: "myco.scene@1", nodes: [] } }));
-  await Engine.create({ headless: true });
+  Assets.addSource(Assets.fromObject({ "s.json": { format: "myco.scene@1", settings: { physics: "3d" }, nodes: [] } }));
+  const engine = await Engine.create({ headless: true, project: { physics: { gravity: [0, -10], layers: ["Default"], collisionMatrix: { Default: ["Default"] } } } });
   await SceneManager.load("s.json");
   const testing = await import("../runtime/testing");
   const loop = await testing.createLoopbackHost({ preset: { ...LOOPBACK_PRESET, maxZoneSlots: slots, zoneMaxSeconds: 1, maxBeds: 1, maxWide: 1 } });
@@ -102,21 +101,12 @@ async function rig(slots: number, maxActive: number, standby: number) {
     await Promise.all(pending.splice(0));
     await new Promise((r) => setTimeout(r, 0));
   };
+  // A real box collider wall in the 3D physics World, found by the occlusion pass's own ray query.
   const wall = GameObject.create("Wall");
+  wall.transform!.position.x = 5;
+  wall.addBehavior(BoxCollider).size.set(0.5, 4, 4);
   wall.addBehavior(AudioOccluder, { material: "concrete" });
-  const env = engineOcclusionEnvironment();
-  vi.spyOn(env, "hasService").mockReturnValue(true);
-  vi.spyOn(env, "raycastInto").mockImplementation((_w, out, o, d, maxDistance) => {
-    if (d.x <= 0) return false;
-    const t = (5 - o.x) / d.x;
-    if (t < 0 || t > maxDistance) return false;
-    out.node = wall;
-    out.distance = t;
-    out.point.x = 5;
-    out.point.y = o.y + d.y * t;
-    out.point.z = o.z + d.z * t;
-    return true;
-  });
+  engine.step(1 / 60);
   const zone = (name: string, x: number, preset: string) => {
     const node = GameObject.create(name);
     node.transform!.position = [x, 0, 0];
