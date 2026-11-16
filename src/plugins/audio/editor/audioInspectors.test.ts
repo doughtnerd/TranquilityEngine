@@ -10,12 +10,10 @@ import { componentNotes } from "../../../editor/sdk";
 import { choicesFor } from "../../../editor/fieldValues";
 import { getFields } from "../../../engine/core/registry";
 import { openScene, playState, selection } from "../../../editor/state";
-import { DEMO_SCENE, demoAssets, demoSettings } from "../../../editor/testing";
+import { DEMO_SCENE, demoAssets, demoSettings, sceneViewTools } from "../../../editor/testing";
 import { parseAudioSettings } from "../../../engine/audio/settings";
 import { occluderTool } from "./AudioOccluderGizmo";
-import { createRegistry } from "../../../editor/sdk/registry";
-import type { ViewportToolContribution } from "../../../editor/sdk";
-import { createViewportToolHost } from "../../../editor/viewportTools";
+import { viewportTools } from "../../../editor/sdk/contributions";
 import type { EditorOverlay } from "../../../engine/editor";
 import { AMBISONIC_IGNORED_FIELDS, analyzeOccluder, audioOfProject, blendColor, describeCost, materialTint, occluderCost, physics3dAvailable, sendCurveOf, zoneCostLine, zoneNotices, zoneReverbLine } from "./audioInspectorModel";
 import { dragGroup, writeField } from "./inspectorWrite";
@@ -147,13 +145,10 @@ describe("audio inspector sections", () => {
     let draw: (() => EditorOverlay) | null = null;
     let stop = () => {};
     beforeEach(() => {
-      const tools = createRegistry<ViewportToolContribution>("Viewport tool");
-      tools.register(occluderTool);
-      stop = createViewportToolHost({
-        engine, world: engine.world, canvas: null, keys: new EventTarget(), tools,
-        addOverlay: (id, provider) => void (id === occluderTool.id && (draw = provider)),
-        removeOverlay: () => void (draw = null),
-      });
+      const off = viewportTools.register(occluderTool);
+      const view = sceneViewTools(engine);
+      draw = view.overlay;
+      stop = () => (view.stop(), off());
     });
     afterEach(() => stop());
     const occluderOverlay = (): EditorOverlay => draw!();

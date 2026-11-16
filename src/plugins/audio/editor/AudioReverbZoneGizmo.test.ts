@@ -5,62 +5,40 @@ import { AudioReverbZone, Engine } from "../../../myco";
 import { AddComponent } from "../../../editor/document";
 import { createNode } from "../../../editor/nodeCreate";
 import { openSceneFile } from "../../../editor/project";
-import { createRegistry } from "../../../editor/sdk/registry";
-import type { ViewportToolContribution } from "../../../editor/sdk";
+import { viewportTools } from "../../../editor/sdk/contributions";
 import { SetField } from "../../../editor/document";
 import { activateViewportTool, activeViewportTool, openScene, pickTool, playState, selection } from "../../../editor/state";
-import { DEMO_SCENE, demoAssets, demoSettings } from "../../../editor/testing";
-import { createViewportToolHost, type ViewportHostCanvas } from "../../../editor/viewportTools";
-import { addEditorOverlay, removeEditorOverlay, type EditorOverlay } from "../../../engine/editor";
-import { FakeRenderSurface } from "../../../engine/render/fakeViewport";
+import { DEMO_SCENE, demoAssets, demoSettings, sceneViewTools, type SceneViewCanvas } from "../../../editor/testing";
+import { shownEditorOverlays, type EditorOverlay } from "../../../engine/editor";
+import type { FakeRenderSurface } from "../../../engine/render/fakeViewport";
 import { ZONE_TYPE, editingZone, zoneTool } from "./AudioReverbZoneGizmo";
 import { editZoneAction } from "./EditZoneButton";
 
 const close = (a: readonly number[], b: readonly number[]) => a.forEach((v, i) => expect(v).toBeCloseTo(b[i]!, 6));
 const ZONE_TOOL_ID = zoneTool.id;
 
-/** A canvas the tool host listens on: pointer events are dispatched to it, at client = canvas coordinates. */
-function fakeCanvas(): ViewportHostCanvas {
-  return Object.assign(new EventTarget(), { getBoundingClientRect: () => ({ left: 0, top: 0 }), style: { cursor: "" } });
-}
-
 describe("the reverb zone tool", () => {
   let engine: Engine;
   let dispose: () => void;
   let surface: FakeRenderSurface;
-  let canvas: ViewportHostCanvas;
-  const overlays = new Map<string, string>();
-  const providers = new Map<string, () => EditorOverlay>();
+  /** The canvas the tool host listens on: pointer events are dispatched to it, at client = canvas coordinates. */
+  let canvas: SceneViewCanvas;
+  let drawn: () => EditorOverlay;
   /** What the zone tool draws this frame. */
-  const zoneOverlay = (): EditorOverlay => providers.get(ZONE_TOOL_ID)!();
+  const zoneOverlay = (): EditorOverlay => drawn();
+  const zoneOverlayShown = () => shownEditorOverlays(engine.world).includes(ZONE_TOOL_ID);
 
   beforeEach(async () => {
     engine = await Engine.create({ headless: true, kind: "editor", project: demoSettings(), assets: demoAssets() });
     openSceneFile(engine, DEMO_SCENE);
     playState.value = "edit";
     // The fake surface's fixed camera looks along +z: the canvas point (400 + 100x, 300 - 100y) is the world point (x, y).
-    surface = new FakeRenderSurface();
-    engine.world.render = surface;
-    canvas = fakeCanvas();
-    const tools = createRegistry<ViewportToolContribution>("Viewport tool");
-    tools.register(zoneTool);
-    dispose = createViewportToolHost({
-      engine,
-      world: engine.world,
-      canvas,
-      keys: new EventTarget(),
-      tools,
-      addOverlay: (id, provider, kind) => {
-        overlays.set(id, kind);
-        providers.set(id, provider);
-        addEditorOverlay(engine.world, id, provider, kind);
-      },
-      removeOverlay: (id) => {
-        overlays.delete(id);
-        providers.delete(id);
-        removeEditorOverlay(engine.world, id);
-      },
-    });
+    const off = viewportTools.register(zoneTool);
+    const view = sceneViewTools(engine);
+    surface = view.surface;
+    canvas = view.canvas;
+    drawn = view.overlay;
+    dispose = () => (view.stop(), off());
   });
 
   afterEach(() => {
@@ -68,7 +46,6 @@ describe("the reverb zone tool", () => {
     editingZone.value = null;
     selection.value = null;
     activateViewportTool(null);
-    engine.world.render = null;
     engine.dispose();
   });
 
@@ -107,7 +84,7 @@ describe("the reverb zone tool", () => {
   }
 
   it("registers its overlay, and draws every zone: bright when selected, dim when not", () => {
-    expect(overlays.has(ZONE_TOOL_ID)).toBe(true);
+    expect(zoneOverlayShown()).toBe(true);
     const { id } = zoneNode();
     const dim = zoneOverlay();
     expect(dim.lines.length).toBe(12 + 3); // twelve box edges, three shell loops
@@ -252,6 +229,6 @@ describe("the reverb zone tool", () => {
     dispose();
     dispose = () => {};
     expect(editingZone.value).toBeNull();
-    expect(overlays.has(ZONE_TOOL_ID)).toBe(false);
+    expect(zoneOverlayShown()).toBe(false);
   });
 });
