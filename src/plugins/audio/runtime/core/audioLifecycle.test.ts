@@ -5,8 +5,16 @@ import { defaultAudioSettings, type AudioSettings } from "../../../../engine/aud
 import type { World } from "../../../../engine/core/World";
 import { AudioHost, CoreLink, acquireAudioHost, currentAudioHost, presetFromSettings } from "./context";
 import { busRemap } from "./busRemap";
-import { AudioWorldService, connectHostToEngines } from "./service";
+import { AUDIO_SERVICE, AudioWorldService } from "./service";
 import { Unlock, type UnlockContext } from "./unlock";
+
+/** The host the service's `load` starts (`startAudioHost`), set by a test; the probe answers "supported" (Node has no worklet). */
+const started = vi.hoisted(() => ({ host: null as unknown }));
+vi.mock("./probe", () => ({ probeCoreSupport: async () => ({ supported: true }) }));
+vi.mock("./context", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./context")>()),
+  startAudioHost: async () => started.host,
+}));
 
 // A0.8-L1 fills these (architecture §1, §3.9; api-and-models §3 "Bus state serialisation", §7): the page's one
 // AudioHost across play, stop and replay cycles of two Engines, with fakes for Web Audio. Hosts are built with
@@ -48,7 +56,6 @@ function fakeNode() {
 }
 
 const hosts: AudioHost[] = [];
-const disconnects: Array<() => void> = [];
 const engines: Engine[] = [];
 
 /** A host built from fakes, closed by `cleanup` if the test leaves it open. */
@@ -87,19 +94,11 @@ function settingsWith(names: string[], base: AudioSettings = defaultAudioSetting
   };
 }
 
-/** A stand-in for `Engine._onAudioConfigured`: the test fires the settings an Engine.create would send. */
-function fakeSource() {
-  const listeners = new Set<(settings: AudioSettings) => void>();
-  return {
-    listeners,
-    connect(listener: (settings: AudioSettings) => void) {
-      listeners.add(listener);
-      return () => void listeners.delete(listener);
-    },
-    fire(settings: AudioSettings) {
-      for (const listener of [...listeners]) listener(settings);
-    },
-  };
+/** Runs the service's real `load` (the probe and the host start stand in) with `host` as the host it starts. */
+async function loadService(host: AudioHost): Promise<void> {
+  started.host = host;
+  const loaded = await AUDIO_SERVICE.load("core");
+  expect(loaded).toMatchObject({ ready: true, host });
 }
 
 /** Creates a headless Engine whose project has the buses `names` (root first), and disposes it in cleanup. */
@@ -116,7 +115,6 @@ async function cleanup(): Promise<void> {
   try {
     await currentAudioHost()?.close();
   } finally {
-    for (const disconnect of disconnects.splice(0)) disconnect();
     for (const engine of engines.splice(0)) engine.dispose();
     for (const host of hosts.splice(0)) if (!host.closed) await host.close();
     mixer.configure(defaultAudioSettings());
@@ -395,11 +393,11 @@ describe("reconfigure", () => {
 describe("two Engines on one page (§3.9)", () => {
   afterEach(cleanup);
 
-  it("connectHostToEngines applies the mixer's settings, then follows each Engine.create's audio settings", async () => {
+  it("the service's load applies the mixer's settings to the host, then follows each Engine.create's audio settings", async () => {
     const { host } = makeHost();
     await createEngine(["Master", "Music"]);
 
-    disconnects.push(connectHostToEngines(host));
+    await loadService(host);
     expect(host.busNames).toEqual(["Master", "Music"]);
     const epoch = host.busEpoch;
 
@@ -408,34 +406,23 @@ describe("two Engines on one page (§3.9)", () => {
     expect(host.busEpoch).toBe(epoch + 1);
   });
 
-  it("connecting the same host twice adds one listener; the disconnect, or close, stops following", async () => {
-    const source = fakeSource();
+  it("loading again with the same host follows once; closing the host stops following", async () => {
     const { host } = makeHost();
-    const first = connectHostToEngines(host, source.connect);
-    const second = connectHostToEngines(host, source.connect);
-    expect(source.listeners.size).toBe(1);
-    expect(second).toBe(first);
+    await loadService(host);
+    await loadService(host);
+    const reconfigure = vi.spyOn(host, "reconfigure");
+    await createEngine(["Master", "Music"]);
+    expect(reconfigure).toHaveBeenCalledTimes(1);
 
-    const epoch = host.busEpoch;
-    source.fire(settingsWith(["Master", "Music"]));
-    expect(host.busEpoch).toBe(epoch + 1);
-
-    first();
-    expect(source.listeners.size).toBe(0);
-    source.fire(settingsWith(["Master"]));
-    expect(host.busEpoch).toBe(epoch + 1);
-
-    const { host: closing } = makeHost();
-    connectHostToEngines(closing, source.connect);
-    expect(source.listeners.size).toBe(1);
-    await closing.close();
-    expect(source.listeners.size).toBe(0);
+    await host.close();
+    await createEngine(["Master", "Music", "SFX"]);
+    expect(reconfigure).toHaveBeenCalledTimes(1);
   });
 
   it("play, stop and replay cycles across an editor World and play Worlds keep one host and one context", async () => {
     const { host, context } = makeHost();
     const editor = await createEngine(["Master", "Music"]);
-    disconnects.push(connectHostToEngines(host));
+    await loadService(host);
 
     // The editor's edit World registers and holds no voices.
     const editWorld = new AudioWorldService(editor.world, { ready: true, host });
