@@ -11,7 +11,7 @@ import { describe, expect, it, vi } from "vitest";
 import { makeWav, signal } from "../decoder/testWav";
 import { RATE, rig } from "../../testing/streamRig";
 import { ZONE_KERNEL_ID_FIRST } from "../wire.generated";
-import { zoneKernelBlobBytes } from "../worklet/coreDriver";
+import { zoneKernelBlobBytes } from "../worklet/coreMemory";
 import type { ZoneIrService } from "../backend";
 
 const ZONES = { maxZoneSlots: 2, zoneMaxSeconds: 1 } as const;

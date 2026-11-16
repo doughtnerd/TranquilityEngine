@@ -9,7 +9,8 @@ import { musicPlayers, type MusicPlayer, type MusicPlayerState } from "../music/
 import type { Mixer } from "../../../../engine/audio/mixer";
 import { MAX_BUSES } from "../../../../engine/audio/settings";
 import { AUX_BUS_NONE } from "../wire.generated";
-import { spatialRegionsBytes, zoneKernelBudgetBytes, zoneMaxFrames, zonesRegionBytes, type CorePreset } from "../worklet/coreDriver";
+import { type CorePreset } from "../worklet/coreDriver";
+import { spatialRegionsBytes, zoneKernelBudgetBytes, zoneMaxFrames, zonesRegionBytes } from "../worklet/coreMemory";
 import type { ClipInfo } from "./clipRegistry";
 import type { ClockMap } from "./clock";
 import type { CoreMusicOps } from "./musicOps";

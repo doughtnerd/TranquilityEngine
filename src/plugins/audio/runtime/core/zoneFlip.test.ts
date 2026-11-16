@@ -5,7 +5,8 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { defaultAudioSettings, type ZoneSettings } from "../../../../engine/audio/settings";
-import { fixedRegionsHeadroomBytes, instantiateCore, MEMORY_INITIAL_PAGES, memoryMaximumPages, type CorePreset } from "../worklet/coreDriver";
+import { instantiateCore, type CorePreset } from "../worklet/coreDriver";
+import { fixedRegionsHeadroomBytes, MEMORY_INITIAL_PAGES, memoryMaximumPages } from "../worklet/coreMemory";
 import { presetFromSettings } from "./context";
 import { spatialInitParams } from "./initParams";
 

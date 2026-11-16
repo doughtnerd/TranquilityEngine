@@ -20,7 +20,7 @@
 
 import { createLoopbackHost, LOOPBACK_PRESET, type LoopbackHost } from "../testing";
 import { Kind, readClipBegin, readClipChunk, writeClipBegin, writeClipChunk, writeEnvelope } from "../wire.generated";
-import { clipSampleBytes } from "../worklet/coreDriver";
+import { clipSampleBytes } from "../worklet/coreMemory";
 
 export const QUANTUM = 128;
 

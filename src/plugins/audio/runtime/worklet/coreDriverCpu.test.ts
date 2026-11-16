@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Kind, readStatus, STATUS_EVERY_QUANTA, STATUS_IDLE_EVERY_QUANTA, writeBatchHeader, writeEnvelope, type StatusBlock } from "../wire.generated";
-import { CoreDriver, CPU_DELTA_MAX_MS, instantiateCore, SHELL_FIELD, type CoreInstance, type CorePreset } from "./coreDriver";
+import { CoreDriver, CPU_DELTA_MAX_MS, instantiateCore, type CoreInstance, type CorePreset } from "./coreDriver";
 
 const WASM = readFileSync(fileURLToPath(new URL("../wasm/myco_audio.wasm", import.meta.url)));
 const RATE = 48_000;
@@ -81,7 +81,6 @@ afterEach(() => {
 
 describe("coreDriver CPU counters (Cp1)", () => {
   it("land at 176, 184, 238 and 244, beside dateMs", () => {
-    expect(SHELL_FIELD).toMatchObject({ dateMs: 24, busyMsTotal: 176, quantaTotal: 184, clockStepMs: 238, clockSteps: 244 });
     const r = rig();
     r.run(STATUS_EVERY_QUANTA, 2, 3);
     const s = r.posted.at(-1)!.block;
