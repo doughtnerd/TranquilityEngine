@@ -2,10 +2,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, getComponentClass } from "../engine";
 import { FsaFileSystem } from "./fsaFileSystem";
 import { MemoryDirectoryHandle } from "./fsaMemory";
-import { newMainScene, newProjectJson, scaffoldProject, whyNotProjectName } from "./newProject";
+import { scaffoldProject, whyNotProjectName } from "./newProject";
 import { openSceneFile } from "./project";
 import { editorSettings, joinPath, openFolderProject, useProjectAssets } from "./projects";
-import { TYPES_DIR } from "./scriptingSetup";
 import { openScene } from "./state";
 import { MemoryFileSystem } from "./testing";
 
@@ -36,7 +35,7 @@ describe("new projects", () => {
     expect(settings).toMatchObject({ name: "My Game", display: { width: 1280, height: 720 }, time: { fixedDeltaTime: 1 / 60, maxFrameTime: 0.25 }, autoload: [] });
     expect(fs.folders.has(joinPath(ROOT, "scripts"))).toBe(true);
     expect(fs.files.has(joinPath(ROOT, "tsconfig.json"))).toBe(true);
-    expect(fs.files.get(joinPath(ROOT, `${TYPES_DIR}/index.d.ts`))).toBe("export {};");
+    expect(fs.files.get(joinPath(ROOT, ".myco/types/myco/index.d.ts"))).toBe("export {};");
     expect(fs.files.get(joinPath(ROOT, ".gitignore"))).toContain(".myco/*");
     expect(fs.files.get(joinPath(ROOT, ".gitignore"))).toContain("!.myco/thumbnails/"); // thumbnails are shared (ADR 0061)
 
@@ -74,14 +73,18 @@ describe("new projects", () => {
     expect(at).toBe("/Games");
     await scaffoldProject(fs, joinPath(at!, "Space"), { name: "Space", template: "3d" });
     expect(JSON.parse(parent.read("Space/project.json")!).name).toBe("Space");
-    expect(parent.read("Space/scenes/main.scene.json")).toBe(newMainScene("3d"));
+    const inMemory = new MemoryFileSystem();
+    await scaffoldProject(inMemory, ROOT, { name: "Space", template: "3d" });
+    expect(parent.read("Space/scenes/main.scene.json")).toBe(inMemory.files.get(joinPath(ROOT, "scenes/main.scene.json")));
     const project = await openFolderProject(fs, "/Games/Space");
     expect(project.canSave).toBe(true);
     expect(project.mainScene).toBe("scenes/main.scene.json");
   });
 
-  it("writes every setting out in project.json", () => {
-    const json = JSON.parse(newProjectJson("X", "3d"));
+  it("writes every setting out in project.json", async () => {
+    const fs = new MemoryFileSystem();
+    await scaffoldProject(fs, ROOT, { name: "X", template: "3d" });
+    const json = JSON.parse(fs.files.get(joinPath(ROOT, "project.json")) as string);
     expect(Object.keys(json)).toEqual(["name", "display", "time", "physics", "render", "autoload"]);
   });
 });

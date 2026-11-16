@@ -6,7 +6,7 @@ import { World } from "../engine/core/World";
 import { engineWorld, netWorldInfo, worldViewStates } from "../engine/editor";
 import { netSession } from "../engine/net/session";
 import type { LoopbackTransport } from "../engine/net/transport/loopback";
-import { NetStatsSampler, byCategory, clampConditions, clientLayout, createThinInput, ghostTypeLabel, hostLayout, playBootstrap, trafficCategory, withConditions, playWorldSources } from "./netPlay";
+import { NetStatsSampler, byCategory, clampConditions, clientLayout, createThinInput, ghostTypeLabel, hostLayout, playBootstrap, withConditions, playWorldSources } from "./netPlay";
 import { OrbitCamera } from "./OrbitCamera";
 import { startPlay } from "./playMode";
 import { openSceneFile } from "./project";
@@ -173,16 +173,9 @@ describe("the play bootstrap for the Host pattern (a server template created at 
 
 describe("stats helpers", () => {
   it("group message kinds and turn counters into rates over about a second", () => {
-    expect(["net.snapshot", "net.snapshotAck", "net.input:game.Move(x:f32)", "net.rpc", "net.ping", "net.pong", "net.hello", "net.custom"].map(trafficCategory)).toEqual([
-      "snapshots",
-      "acks",
-      "inputs",
-      "RPCs",
-      "pings",
-      "pings",
-      "handshake",
-      "other",
-    ]);
+    const kinds = ["net.snapshot", "net.snapshotAck", "net.input:game.Move(x:f32)", "net.rpc", "net.ping", "net.pong", "net.hello", "net.custom"];
+    const each = byCategory({ bytes: 0, messages: 0, byKind: Object.fromEntries(kinds.map((k) => [k, { bytes: 1, messages: 1 }])) });
+    expect(Object.fromEntries(Object.entries(each).map(([c, v]) => [c, v.messages]))).toEqual({ snapshots: 1, acks: 1, inputs: 1, RPCs: 1, pings: 2, handshake: 1, other: 1 });
     const traffic = (bytes: number) => ({ bytes, messages: bytes / 10, byKind: { "net.snapshot": { bytes: bytes - 10, messages: bytes / 10 - 1 }, "net.ping": { bytes: 10, messages: 1 } } });
     expect(byCategory(traffic(100)).snapshots).toEqual({ bytes: 90, messages: 9 });
     const world = (bytes: number) => ({

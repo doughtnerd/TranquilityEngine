@@ -1,7 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import { panelCatalog } from "./layout/catalog";
 import { BUILTIN_PANELS } from "./ui/panels.builtin";
-import { buildMenus, NO_SCENE, NOTHING_SELECTED, READ_ONLY, STOP_PLAYING, redoLabel, undoLabel, type Menu, type MenuActions, type MenuEntry, type MenuState } from "./menuBar";
+import { buildMenus, redoLabel, undoLabel, type Menu, type MenuActions, type MenuEntry, type MenuState } from "./menuBar";
+
+// Why menu items are disabled, as the menus say it.
+const NO_SCENE = "open a scene first";
+const READ_ONLY = "this project is read-only; open a project folder to save";
+const STOP_PLAYING = "stop playing to edit the scene";
+const NOTHING_SELECTED = "nothing selected";
 
 const noop = () => {};
 const actions = (): MenuActions => {

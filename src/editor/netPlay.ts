@@ -275,7 +275,7 @@ export type TrafficCategory = "snapshots" | "acks" | "inputs" | "RPCs" | "pings"
 
 export const TRAFFIC_CATEGORIES: readonly TrafficCategory[] = ["snapshots", "acks", "inputs", "RPCs", "pings", "handshake", "other"];
 
-export function trafficCategory(kind: string): TrafficCategory {
+function trafficCategory(kind: string): TrafficCategory {
   if (kind === "net.snapshot") return "snapshots";
   if (kind === "net.snapshotAck") return "acks";
   if (kind.startsWith("net.input:")) return "inputs";

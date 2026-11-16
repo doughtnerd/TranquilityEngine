@@ -25,7 +25,7 @@ export function whyNotProjectName(name: string): string | null {
 const json = (value: unknown) => `${JSON.stringify(value, null, 2)}\n`;
 
 /** The new project's `project.json`: every setting written out, so the Project panel and a text editor both show them. */
-export function newProjectJson(name: string, template: ProjectTemplate): string {
+function newProjectJson(name: string, template: ProjectTemplate): string {
   return json({
     name: name.trim(),
     display: { width: 1280, height: 720, backgroundColor: template === "2d" ? "#1d1f24" : "#20242c" },
@@ -37,7 +37,7 @@ export function newProjectJson(name: string, template: ProjectTemplate): string 
 }
 
 /** The new project's main scene: a camera (orthographic in 2D; perspective with a sun in 3D, ADR 0043). */
-export function newMainScene(template: ProjectTemplate): string {
+function newMainScene(template: ProjectTemplate): string {
   const camera =
     template === "2d"
       ? [
