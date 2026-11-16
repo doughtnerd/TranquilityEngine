@@ -65,7 +65,6 @@ function TabMenu() {
           </button>
         );
       })}
-      <TabMenu />
     </div>
   );
 }
