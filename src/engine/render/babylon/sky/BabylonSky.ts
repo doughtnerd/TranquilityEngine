@@ -66,11 +66,8 @@ const FACES: readonly (readonly [Vector3, Vector3, Vector3])[] = [
 
 const language = (engine: AbstractEngine) => (engine.isWebGPU ? ShaderLanguage.WGSL : ShaderLanguage.GLSL);
 
-/**
- * @internal The sky's box and shader for one scene, also used by the editor's previews and
- * thumbnails. `update` packs a frame's uniforms; textures load on demand by asset path.
- */
-export class SkyDrawable {
+/** The sky's box and shader for one scene. `update` packs a frame's uniforms; textures load on demand by asset path. */
+class SkyDrawable {
   readonly mesh: Mesh;
   readonly material: ShaderMaterial;
   private readonly vectors = SKY_UNIFORMS.map(() => new Vector4());
@@ -118,6 +115,12 @@ export class SkyDrawable {
       this.textures.set(p, t);
     }
     return t?.isReady() ? t : null;
+  }
+
+  /** Whether a texture it asked for is still loading. */
+  loading(): boolean {
+    for (const t of this.textures.values()) if (t && !t.isReady()) return true;
+    return false;
   }
 
   /** Pack `frame` (its texture flags filled from the settings) into the material. */
@@ -171,10 +174,8 @@ interface PendingBake {
   filtered: boolean;
 }
 
-/**
- * @internal Renders a sky's six faces into a new cube texture, then prefilters it. One per scene.
- */
-export class SkyBaker {
+/** Renders a sky's six faces into a new cube texture, then prefilters it. One per scene. */
+class SkyBaker {
   private renderer: EffectRenderer | null = null;
   private wrapper: EffectWrapper | null = null;
   private filtering: HDRFiltering | null = null;
@@ -414,6 +415,16 @@ export class BabylonSky {
   /** Centre the sky on the camera about to draw. */
   fit(camera: TargetCamera): void {
     if (this.path) this.drawable?.fit(camera);
+  }
+
+  /**
+   * ADR 0189: the sky is drawn as it will stay: its textures have loaded and, when it lights the scene,
+   * its first bake does. True without a sky.
+   */
+  settled(): boolean {
+    if (!this.path) return true;
+    if (this.drawable?.loading()) return false;
+    return !this.settings?.lighting.bake || !!this.current;
   }
 
   /** Tests and the editor: the sky's state. */

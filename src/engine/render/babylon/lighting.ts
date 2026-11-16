@@ -97,6 +97,8 @@ interface EnvMap {
   texture: BaseTexture | null;
   /** A copy drawn as the sky (skybox coordinates). */
   sky: BaseTexture | null;
+  /** Loading it failed: there's nothing to wait for. */
+  failed: boolean;
 }
 
 /**
@@ -545,12 +547,10 @@ export class BabylonLighting {
       this.envMap = null;
       return;
     }
-    const entry: EnvMap = { path, texture: null, sky: null };
+    const entry: EnvMap = { path, texture: null, sky: null, failed: false };
     this.envMap = entry;
-    let url: string;
-    try {
-      url = Assets.url(path);
-    } catch {
+    // Presence, not a URL: a six-image `*.cubemap.json` is a JSON asset, which has none (its faces do).
+    if (!Assets.has(path)) {
       this.warnOnce(`env|${path}`, `environment map "${path}" isn't in the project; using the built-in environment.`);
       return;
     }
@@ -559,7 +559,10 @@ export class BabylonLighting {
       this.warnOnce(`env|${path}`, `environment map "${path}" isn't an .hdr, .exr, .png, .jpg, .env, .dds, .cubemap.json or .sky.json file; using the built-in environment.`);
       return;
     }
-    const failed = (message?: string) => console.error(`[myco] failed to load environment map "${path}": ${message ?? "unknown error"}`);
+    const failed = (message?: string) => {
+      entry.failed = true;
+      console.error(`[myco] failed to load environment map "${path}": ${message ?? "unknown error"}`);
+    };
     if (kind === "cube" || kind === "faces") {
       try {
         entry.texture = loadCubemap(path, kind, this.scene, failed);
@@ -568,12 +571,29 @@ export class BabylonLighting {
       }
       return;
     }
+    let url: string;
+    try {
+      url = Assets.url(path);
+    } catch (err) {
+      failed((err as Error).message);
+      return;
+    }
     entry.texture =
       kind === "hdr"
         ? new HDRCubeTexture(url, this.scene, ENV_SIZE, false, true, false, true, null, failed)
         : kind === "exr"
           ? new EXRCubeTexture(url, this.scene, ENV_SIZE, false, true, false, true, null, failed)
           : new EquiRectangularCubeTexture(url, this.scene, ENV_SIZE, false, true, null, failed);
+  }
+
+  /**
+   * Whether the Environment's map has loaded and lights the scene, as of the last sync (ADR 0189). True
+   * when there's nothing to wait for: no map, a procedural sky's (the sky feature waits for its bake), or
+   * one that isn't in the project or failed to load.
+   */
+  environmentSettled(): boolean {
+    const map = this.envMap;
+    return !map?.texture || map.failed || this.scene.environmentTexture === map.texture;
   }
 
   /** A procedural sky's baked environment, or null (ADR 0112). */

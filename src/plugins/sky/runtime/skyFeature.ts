@@ -1,7 +1,8 @@
 // The Sky plugin's render feature (ADR 0112, 0135): the procedural sky, drawn behind every camera,
 // baked for lighting, and driving the sun. Loaded on demand by the renderer (the plugin registers a
 // loader for it), so Babylon stays out of the `myco` module. The drawing itself, `BabylonSky`, stays in
-// the renderer because the asset thumbnails use its baker and drawable too.
+// `render/babylon/` with the rest of the Babylon code (ADR 0140); sky thumbnails draw through this feature
+// in a headless World, as a World draws the sky (ADR 0189).
 import type { World } from "../../../engine/core/World";
 import type { BabylonFeature, BabylonFeatureFactory } from "../../../engine/render/babylon/feature";
 import { BabylonSky } from "../../../engine/render/babylon/sky/BabylonSky";
@@ -35,6 +36,11 @@ export class SkyFeature implements BabylonFeature {
   /** Render a requested bake; runs before the frame graph. */
   beforeFrame(): void {
     this.sky.bake();
+  }
+
+  /** ADR 0189: its textures have loaded and its first bake lights the scene (thumbnails wait for it). */
+  settled(): boolean {
+    return this.sky.settled();
   }
 
   /** `RenderDiagnostics.features.sky` (ADR 0154). */

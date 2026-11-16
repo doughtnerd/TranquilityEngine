@@ -7,10 +7,11 @@ import type { PointLight } from "@babylonjs/core/Lights/pointLight.js";
 import type { SpotLight } from "@babylonjs/core/Lights/spotLight.js";
 import { RGBE_ReadHeader, RGBE_ReadPixels } from "@babylonjs/core/Misc/HighDynamicRange/hdr.js";
 import { Scene } from "@babylonjs/core/scene.js";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SHADOW_MAP_SIZE } from "../core/graphics";
 import { World } from "../core/World";
 import { Assets, Color, Engine, GameObject, Graphics, Light, SceneManager } from "../index";
+import { Environment } from "../render/components";
 import { TargetCamera } from "@babylonjs/core/Cameras/targetCamera.js";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector.js";
 import { CreateBox } from "@babylonjs/core/Meshes/Builders/boxBuilder.js";
@@ -448,5 +449,60 @@ describe("clustered point and spot lights (ADR 0079)", () => {
     c._lightDataRenderId = scene.getRenderId();
     reclusterForNextCamera(scene);
     expect(c._lightDataRenderId).toBe(-1);
+  });
+});
+
+describe("environment maps (ADR 0053, 0113)", () => {
+  let engine: Engine;
+  let babylon: NullEngine;
+  let scene: Scene;
+  let lighting: BabylonLighting;
+  let warn: ReturnType<typeof vi.spyOn>;
+  let error: ReturnType<typeof vi.spyOn>;
+  const PIXEL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
+
+  beforeEach(async () => {
+    Assets.clearSources();
+    Assets.addSource(
+      Assets.fromObject({
+        "s.json": { format: "myco.scene@1", nodes: [] },
+        "faces/a.png": PIXEL,
+        "env/box.cubemap.json": { format: "myco.cubemap@1", px: "faces/a.png", nx: "faces/a.png", py: "faces/a.png", ny: "faces/a.png", pz: "faces/a.png", nz: "faces/a.png" },
+      }),
+    );
+    engine = await Engine.create({ headless: true });
+    await SceneManager.load("s.json");
+    babylon = new NullEngine();
+    scene = new Scene(babylon);
+    lighting = new BabylonLighting(scene);
+    lighting.shareStudio(null); // NullEngine can't make the studio room
+    warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    warn.mockRestore();
+    error.mockRestore();
+    lighting.dispose();
+    scene.dispose();
+    babylon.dispose();
+    engine.dispose();
+    Assets.clearSources();
+  });
+
+  const environment = (map: string) => GameObject.create("environment").addBehavior(Environment, { map });
+  const missing = () => warn.mock.calls.filter((c: unknown[]) => /isn't in the project/.test(String(c[0])));
+
+  it("loads a six-image cubemap asset, a JSON file with no URL of its own, from its faces", () => {
+    environment("asset:env/box.cubemap.json");
+    lighting.syncEnvironment(World.require(), 100);
+    expect(lighting.state().environment).toBe("env/box.cubemap.json");
+    expect(missing()).toEqual([]);
+  });
+
+  it("still says so when the map isn't in the project", () => {
+    environment("asset:env/gone.hdr");
+    lighting.syncEnvironment(World.require(), 100);
+    expect(missing()).toHaveLength(1);
   });
 });

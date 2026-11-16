@@ -75,6 +75,11 @@ export class EnvironmentFeature implements BabylonFeature {
     this.lighting.syncEnvironment(world, ctx.view?.far ?? 1000);
   }
 
+  /** ADR 0189: the Environment's map lights the scene (or there's none to wait for). */
+  settled(): boolean {
+    return this.lighting.environmentSettled();
+  }
+
   /** Nothing: `LightsFeature.dispose` disposes the shared `BabylonLighting`. */
   dispose(): void {}
 }
