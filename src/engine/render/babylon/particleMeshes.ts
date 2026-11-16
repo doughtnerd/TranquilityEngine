@@ -59,8 +59,7 @@ function prepare(mesh: Mesh): void {
 // --- mesh particles ---------------------------------------------------------------------------------
 
 /**
- * Mesh mode: each particle is a thin instance of the model's first mesh (as the three.js backend uses
- * its first geometry), at the particle's world position, scaled by its size, turned by its rotation
+ * Mesh mode: each particle is a thin instance of the model's first mesh, at the particle's world position, scaled by its size, turned by its rotation
  * about world +Y, and tinted by its colour (the instance colour, which Babylon's standard and PBR
  * materials multiply in). three.quarks draws mesh particles unturned; the rotation is used here so
  * Start Rotation and Rotation over Life mean something. Flipbook tiles aren't applied to meshes.
@@ -72,8 +71,8 @@ export class InstanceDraw implements EmitterDraw {
   readonly mesh: Mesh;
   readonly meshes: readonly Mesh[];
   /** Per instance: a 4×4 matrix (Babylon's layout, translation in 12-14) and linear RGBA. */
-  matrices = new Float32Array(0);
-  colors = new Float32Array(0);
+  private matrices = new Float32Array(0);
+  private colors = new Float32Array(0);
 
   constructor(
     scene: Scene,
@@ -193,12 +192,12 @@ export class QuadDraw implements EmitterDraw {
   readonly mesh: Mesh;
   readonly meshes: readonly Mesh[];
   /** Quads drawn by the last update. */
-  quads = 0;
-  positions = new Float32Array(0);
-  colors = new Float32Array(0);
-  uvs = new Float32Array(0);
+  private quads = 0;
+  private positions = new Float32Array(0);
+  private colors = new Float32Array(0);
+  private uvs = new Float32Array(0);
   /** Per-vertex normals, only with a material asset: a lit or graph material reads the normal (a Fresnel node, lighting), and its shader doesn't compile without one. */
-  normals: Float32Array | null = null;
+  private normals: Float32Array | null = null;
   private quadCap = 0;
   /** The normal `vertex` writes, set per quad or trail point. */
   private nx = 0;

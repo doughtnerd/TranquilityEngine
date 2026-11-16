@@ -15,7 +15,6 @@ import type { BabylonEditorContext, EditorMesh, EditorSprite } from "../render/b
 import { EDITOR_LAYER_MASK } from "../render/babylon/editorContext";
 import { BabylonEditorViewport } from "../render/babylon/editorViewport";
 import { gridDivisions } from "../render/babylon/editorGuides";
-import { lightSegments } from "../render/babylon/editorIcons";
 import type { EditorOverlay } from "../render/editorViewport";
 
 describe("Babylon editor viewport drawing (ADR 0075 stage 8, 0128)", () => {
@@ -86,6 +85,12 @@ describe("Babylon editor viewport drawing (ADR 0075 stage 8, 0128)", () => {
   };
   const named = (s: Scene, name: string) => s.meshes.filter((m) => m.name === name);
   const colorsOf = (m: Mesh) => Array.from(m.getVerticesData(VertexBuffer.ColorKind)!);
+  /** The light wireframes drawn: each segment's two ends, from the overlay's line mesh. */
+  const lightWires = (): number[][][] => {
+    const wires = named(layer.utilityLayerScene, "myco.editor.lightWires")[0] as Mesh | undefined;
+    const p = wires?.getVerticesData(VertexBuffer.PositionKind) ?? [];
+    return Array.from({ length: vp.drawn().lightWires }, (_, i) => [[p[i * 6], p[i * 6 + 1], p[i * 6 + 2]], [p[i * 6 + 3], p[i * 6 + 4], p[i * 6 + 5]]]);
+  };
 
   it("draws a grid and axes in the main scene, not the overlay scene", () => {
     expect(named(scene, "myco.editor.grid")).toHaveLength(1);
@@ -311,12 +316,22 @@ describe("Babylon editor viewport drawing (ADR 0075 stage 8, 0128)", () => {
     expect(vp.drawn().lightWires).toBe(9 + 36);
   });
 
-  it("lists light segments for a world matrix", () => {
-    const identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
-    const sun = lightSegments({ type: "directional", range: 0, spotAngle: 0 }, identity, false);
-    expect(sun).toHaveLength(9);
-    expect(sun[0][1]).toEqual([0, 0, 2]); // the arrow points along +Z
-    expect(lightSegments({ type: "ambient", range: 0, spotAngle: 0 }, identity, true)).toHaveLength(0);
+  it("draws a directional light's rays along its +Z axis (ADR 0164)", () => {
+    editNode("sun", [1, 2, 3]).addBehavior(Light, { type: "directional" });
+    step();
+    const segs = lightWires();
+    expect(segs).toHaveLength(9);
+    expect(segs[0]).toEqual([[1, 2, 3], [1, 2, 5]].map((p) => p.map((v) => expect.closeTo(v, 5)))); // the main ray, 2 m long
+  });
+
+  it("draws a spot light's cone out to its range", () => {
+    editNode("spot", [1, 2, 3]).addBehavior(Light, { type: "spot", range: 4, spotAngle: 90 });
+    step();
+    const segs = lightWires();
+    expect(segs).toHaveLength(4 + 32);
+    const [, tip] = segs[0];
+    expect(tip[0]).toBeCloseTo(1 + 4); // tan(45°) × 4 to the side
+    expect(tip[2]).toBeCloseTo(3 + 4);
   });
 
   it("finds camera and light icons under a canvas point", () => {

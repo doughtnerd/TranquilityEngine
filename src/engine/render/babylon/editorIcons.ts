@@ -28,8 +28,6 @@ import type { BabylonEditorContext } from "./editorContext";
 /** The click radius around an icon, CSS pixels. */
 const ICON_PICK_RADIUS = 16;
 
-type Seg = [[number, number, number], [number, number, number]];
-
 // --- Icons ---------------------------------------------------------------------------------------
 
 type Sdf = (x: number, y: number) => number;
@@ -146,7 +144,7 @@ function particleIconPixels(): Uint8Array {
  * a spot light's cone, a point light's range (when selected). `m` is the node's world matrix, 16
  * numbers column by column starting at `offset`.
  */
-export function emitLightSegments(
+function emitLightSegments(
   l: Pick<Light, "type" | "range" | "spotAngle">,
   m: ArrayLike<number>,
   offset: number,
@@ -193,12 +191,6 @@ export function emitLightSegments(
   }
 }
 
-/** @see emitLightSegments: the wireframe as a list of segments (for tests and tools). `m` holds the world matrix column by column. */
-export function lightSegments(l: Pick<Light, "type" | "range" | "spotAngle">, m: ArrayLike<number>, selected: boolean): Seg[] {
-  const out: Seg[] = [];
-  emitLightSegments(l, m, 0, selected, (ax, ay, az, bx, by, bz) => out.push([[ax, ay, az], [bx, by, bz]]));
-  return out;
-}
 // --- Icon kinds --------------------------------------------------------------------------------
 
 type IconComponent = Camera | Light | ParticleSystem;
