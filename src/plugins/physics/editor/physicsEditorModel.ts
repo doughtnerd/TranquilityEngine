@@ -4,9 +4,9 @@ import type { PhysicsDimension } from "../runtime";
 import { setValue, type SettingsDraft } from "../../../editor/sdk";
 
 /** The dimension a Physics Component works in: ids ending in "2D" are 2D (RigidBody2D, TilemapCollider2D…), the rest 3D. */
-export const componentDimension = (type: string): PhysicsDimension => (/2D$/.test(type) ? "2d" : "3d");
+const componentDimension = (type: string): PhysicsDimension => (/2D$/.test(type) ? "2d" : "3d");
 
-export const NO_BACKEND_NOTE = "(no physics backend)";
+const NO_BACKEND_NOTE = "(no physics backend)";
 
 /**
  * The note after a Component's name in Add Component: "(no physics backend)" when `myco.physics` is active,
@@ -17,7 +17,7 @@ export function noBackendNote(type: string, state: { pluginOf(type: string): str
   return state.backendCount(componentDimension(type)) === 0 ? NO_BACKEND_NOTE : null;
 }
 
-export const DEFAULT_BACKEND_LABEL = "Default (only registered)";
+const DEFAULT_BACKEND_LABEL = "Default (only registered)";
 
 export interface BackendOption {
   readonly value: string;

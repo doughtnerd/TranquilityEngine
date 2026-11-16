@@ -8,7 +8,9 @@ import { openSceneFile } from "../../../editor/project";
 import { activateViewportTool, activeViewportTool, pickTool, playState, selection } from "../../../editor/state";
 import { DEMO_SCENE, demoAssets, demoSettings } from "../../../editor/testing";
 import { createViewportToolHost, selectableOutlines } from "../../../editor/viewportTools";
-import { COLLIDER_TOOL_ID, colliderTool, editingCollider } from "./colliderGizmo";
+import { colliderTool, editingCollider } from "./colliderGizmo";
+
+const COLLIDER_TOOL_ID = colliderTool.id;
 import { editColliderAction } from "./EditColliderButton";
 
 describe("the collider tool", () => {
