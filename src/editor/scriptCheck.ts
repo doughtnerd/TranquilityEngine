@@ -37,11 +37,6 @@ export async function refreshPackageTypes(project: EditorProject): Promise<void>
   m.setPackageTypes(files, untyped);
 }
 
-/** Forget which package declarations the TypeScript service has, so the next check reads them again (an `npm install`, say). */
-export function forgetPackageTypes(): void {
-  packageTypesKey = null;
-}
-
 /** The type errors of `project`'s scripts, from Monaco's TypeScript service (loaded if it isn't yet). */
 async function monacoCheck(project: EditorProject): Promise<ScriptDiagnostic[]> {
   const m = await loadMonaco();

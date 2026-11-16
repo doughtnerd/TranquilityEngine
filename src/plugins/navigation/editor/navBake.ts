@@ -242,7 +242,7 @@ export interface NavBakeOutcome {
  * caller points the NavChunk at the file. Throws for a read-only project or a failed bake (also kept in
  * the chunk's state).
  */
-export async function bakeNavChunk(project: EditorProject, scenePath: string, world: World, chunkNode: GameObject): Promise<NavBakeOutcome> {
+async function bakeNavChunk(project: EditorProject, scenePath: string, world: World, chunkNode: GameObject): Promise<NavBakeOutcome> {
   forProject(project);
   const id = chunkIdOf(chunkNode);
   if (!project.canSave) throw new Error(`${project.name} is read-only: open a project folder to bake navigation.`);
@@ -289,7 +289,7 @@ export async function bakeOpenSceneChunk(scene: OpenScene, nodeId: string, proje
 // --- Bake All ---------------------------------------------------------------------------------------
 
 /** A scene instantiated into a World of its own (no renderer, nothing runs), for Bake All. */
-export function scratchSceneWorld(project: EditorProject, path: string, file: SceneFile): { world: World; scene: GameObject } {
+function scratchSceneWorld(project: EditorProject, path: string, file: SceneFile): { world: World; scene: GameObject } {
   const world = new World("editor", editorSettings(project));
   const scene = World._runIn(world, () => instantiateDocument(world, file, path, { onProblem: () => {} }));
   return { world, scene };
@@ -300,7 +300,7 @@ export function scratchSceneWorld(project: EditorProject, path: string, file: Sc
  * edits included); other open scenes from their documents; the rest from their files. Returns how many
  * chunks were baked and the failures.
  */
-export async function bakeAllNavigation(project: EditorProject): Promise<{ baked: number; failed: string[] }> {
+async function bakeAllNavigation(project: EditorProject): Promise<{ baked: number; failed: string[] }> {
   const scenes = project.files.filter((f) => editor.assets.isScene(f) && f.endsWith(".scene.json"));
   const failed: string[] = [];
   let baked = 0;

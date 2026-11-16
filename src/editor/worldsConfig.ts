@@ -11,7 +11,7 @@ import { DEFAULT_WORLD_NAME, DEFAULT_WORLD_TAGS, worldsMatch } from "../engine/c
 export const PRESET_TAGS: readonly WorldTag[] = ["default", "client", "server", "local", "editor"];
 
 /** Transports offered for links even before they're registered (ADR 0033). */
-export const KNOWN_TRANSPORTS: readonly string[] = ["loopback", "websocket"];
+const KNOWN_TRANSPORTS: readonly string[] = ["loopback", "websocket"];
 
 /** A template's config: a World config whose name is optional (it defaults to the template's). */
 export type TemplateConfig = Omit<WorldConfig, "name"> & { name?: string };
@@ -361,7 +361,7 @@ export function extraOptionKeys(link: LinkConfig): string[] {
 }
 
 /** Problems with one link's option values (`where` is its location prefix, as `validateBootstrap` writes it). */
-export function linkOptionProblems(link: LinkConfig, where: string): string[] {
+function linkOptionProblems(link: LinkConfig, where: string): string[] {
   const out: string[] = [];
   const options = link.options;
   if (typeof options !== "object" || options === null || Array.isArray(options)) return out;

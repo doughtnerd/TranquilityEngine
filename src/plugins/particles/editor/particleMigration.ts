@@ -7,7 +7,7 @@ import { editor, SetField, type SceneDocument, type OpenScene } from "../../../e
 
 const TYPE = "engine.ParticleSystem";
 
-export interface EmbeddedEffect {
+interface EmbeddedEffect {
   /** The node holding the component. */
   node: string;
   name: string;
@@ -17,7 +17,7 @@ export interface EmbeddedEffect {
 }
 
 /** The ParticleSystems in `doc` that hold an embedded effect and have no effect asset. */
-export function findEmbeddedEffects(doc: SceneDocument): EmbeddedEffect[] {
+function findEmbeddedEffects(doc: SceneDocument): EmbeddedEffect[] {
   const out: EmbeddedEffect[] = [];
   for (const entry of doc.nodes) {
     let index = 0;
@@ -35,7 +35,7 @@ export function findEmbeddedEffects(doc: SceneDocument): EmbeddedEffect[] {
 }
 
 /** Message shown after moving `count` effects. */
-export const migrationMessage = (count: number): string => `Moved ${count} embedded particle effect${count === 1 ? "" : "s"} into effects/; save the scene to keep the change.`;
+const migrationMessage = (count: number): string => `Moved ${count} embedded particle effect${count === 1 ? "" : "s"} into effects/; save the scene to keep the change.`;
 
 /**
  * Write each embedded effect of `scene` as an asset in `effects/` and point its system at it, as

@@ -30,8 +30,3 @@ export function retainInstances(keep: Iterable<string>): void {
   const kept = new Set(keep);
   for (const id of [...store.keys()]) if (!kept.has(id)) store.delete(id);
 }
-
-/** Forget one instance's state. */
-export function dropInstance(instance: string): void {
-  store.delete(instance);
-}

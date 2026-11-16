@@ -49,9 +49,6 @@ export const cleanThemeName = (v: unknown, fallback = "Imported theme") => {
 /** A stable id for an imported theme: `custom-` and the name's slug. */
 export const themeIdFor = (name: string) => `custom-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "theme"}`;
 
-/** The kind a theme's colours suggest (dark or light by the panel's luminance). */
-export const kindOfBase = (base: ThemeBase): ThemeKind => (luminance(base.panel) > 0.4 ? "light" : "dark");
-
 /** The built-in theme whose colours stand in for a kind's missing ones. */
 const fallbackFor = (kind: ThemeKind): ThemePreset => PRESETS.find((p) => p.kind === kind) ?? PRESETS[0];
 

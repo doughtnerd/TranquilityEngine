@@ -11,7 +11,6 @@ import {
   navAvoidanceSummary,
   navListedLayers,
   navObstacleSummary,
-  navVoxelWarning,
   nextFreeNavAvoidanceLayer,
   renameNavAvoidanceLayer,
   setNavAgentLayer,
@@ -224,8 +223,8 @@ describe("avoidance layers", () => {
     const nav = navigationOf({});
     const t = nav.agentTypes[0]; // 0.25 x 0.125 m voxels, 0.4 m steps: holds ~56 degree slopes, coverage 55
     expect(navAgentTypeWarnings(nav, t)).toEqual([]);
-    expect(navVoxelWarning({ ...nav, orientation: { ...nav.orientation, coverageDeg: 60 } }, t)).toMatch(/more than ~56 degrees.*Step Height 0.4 over Cell Size 0.25.*up to 60 degrees/);
-    expect(navVoxelWarning({ ...nav, voxels: "fixed", cellSize: 0.25, cellHeight: 0.5 }, t)).toMatch(/^Step Height \(0.4\) is below Cell Height \(0.5\)/);
+    expect(navAgentTypeWarnings({ ...nav, orientation: { ...nav.orientation, coverageDeg: 60 } }, t)[0]).toMatch(/^Humanoid: Surfaces tilted more than ~56 degrees.*Step Height 0.4 over Cell Size 0.25.*up to 60 degrees/);
+    expect(navAgentTypeWarnings({ ...nav, voxels: "fixed", cellSize: 0.25, cellHeight: 0.5 }, t)).toEqual([expect.stringMatching(/^Humanoid: Step Height \(0.4\) is below Cell Height \(0.5\)/)]);
     const neither = { ...t, canWalk: false, canFly: false };
     expect(navAgentTypeWarnings(nav, neither)).toEqual(["Humanoid can neither walk nor fly: nothing is baked for it."]);
   });

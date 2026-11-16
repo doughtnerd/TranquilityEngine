@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "preact/hooks";
-import { colorKind, hexColor, numberKind, parseHexColor, type CurveKey, type ParticleColor, type ParticleColorKind, type ParticleGradient, type ParticleNumber, type ParticleNumberKind } from "../../../../../engine/scene/particles";
-import { convertColor, convertNumber } from "../../particles/curveEdit";
-import { CurveEditor, CurvePreview } from "./ParticleCurve";
+import { colorKind, hexColor, parseHexColor, type ParticleColor, type ParticleColorKind, type ParticleGradient } from "../../../../../engine/scene/particles";
+import { convertColor } from "../../particles/curveEdit";
 import { GradientEditor, GradientPreview } from "./GradientEditor";
 import "./particles.css";
 
@@ -71,12 +70,6 @@ export function VecField(props: { value: [number, number, number]; onChange: (v:
   );
 }
 
-const NUMBER_MODES: [ParticleNumberKind, string][] = [
-  ["constant", "Constant"],
-  ["random", "Random"],
-  ["curve", "Curve"],
-  ["randomCurves", "Random Curves"],
-];
 const COLOR_MODES: [ParticleColorKind, string][] = [
   ["constant", "Constant"],
   ["random", "Random"],
@@ -97,86 +90,6 @@ function ValueRow(props: { label: string; children: preact.ComponentChildren; mo
       </div>
       {props.expanded}
     </div>
-  );
-}
-
-/**
- * A number that can be a constant, a random range, a curve over life, or a random value between
- * two curves (ADR 0057). Curves show as a sparkline that opens the full editor when clicked.
- * `allowCurves` false offers just Constant and Random.
- */
-export function ParticleNumberInput(props: { value: ParticleNumber; onChange: (v: ParticleNumber) => void; label: string; allowCurves?: boolean; readOnly?: boolean }) {
-  const { value, onChange, label, readOnly } = props;
-  const kind = numberKind(value);
-  const [open, setOpen] = useState(false);
-  const modes = props.allowCurves === false ? NUMBER_MODES.slice(0, 2) : NUMBER_MODES;
-  const mode = (
-    <select class="pe-mode" aria-label={`${label} mode`} title={`${label}: ${kind} (change how it varies)`} disabled={readOnly} value={kind} onChange={(e) => onChange(convertNumber(value, (e.currentTarget as HTMLSelectElement).value as ParticleNumberKind))}>
-      {modes.map(([k, name]) => (
-        <option key={k} value={k}>
-          {name}
-        </option>
-      ))}
-      {!modes.some(([k]) => k === kind) && <option value={kind}>{NUMBER_MODES.find(([k]) => k === kind)![1]}</option>}
-    </select>
-  );
-  if (typeof value === "number") {
-    return (
-      <ValueRow label={label} mode={mode}>
-        <NumField value={value} label={label} disabled={readOnly} onCommit={onChange} />
-      </ValueRow>
-    );
-  }
-  if ("random" in value) {
-    const [a, b] = value.random;
-    return (
-      <ValueRow label={label} mode={mode}>
-        <span class="pe-pair">
-          <NumField value={a} label={`${label} min`} disabled={readOnly} onCommit={(n) => onChange({ random: [n, b] })} />
-          <NumField value={b} label={`${label} max`} disabled={readOnly} onCommit={(n) => onChange({ random: [a, n] })} />
-        </span>
-      </ValueRow>
-    );
-  }
-  const toggle = (previews: preact.ComponentChildren) => (
-    <button type="button" class={`pe-expand${open ? " open" : ""}`} aria-label={`${label} ${open ? "collapse" : "expand"}`} aria-expanded={open} onClick={() => setOpen(!open)}>
-      {previews}
-    </button>
-  );
-  if ("curve" in value) {
-    const curve = value.curve;
-    return (
-      <ValueRow
-        label={label}
-        mode={mode}
-        expanded={open && <CurveEditor keys={curve} label={label} readOnly={readOnly} onChange={(keys) => onChange({ curve: keys })} />}
-      >
-        {toggle(<CurvePreview keys={curve} />)}
-      </ValueRow>
-    );
-  }
-  const [ca, cb] = value.randomCurves;
-  const set = (i: 0 | 1, keys: CurveKey[]) => onChange({ randomCurves: i === 0 ? [keys, cb] : [ca, keys] });
-  return (
-    <ValueRow
-      label={label}
-      mode={mode}
-      expanded={
-        open && (
-          <>
-            <CurveEditor keys={ca} label={`${label} min`} readOnly={readOnly} onChange={(k) => set(0, k)} />
-            <CurveEditor keys={cb} label={`${label} max`} readOnly={readOnly} onChange={(k) => set(1, k)} />
-          </>
-        )
-      }
-    >
-      {toggle(
-        <>
-          <CurvePreview keys={ca} />
-          <CurvePreview keys={cb} />
-        </>,
-      )}
-    </ValueRow>
   );
 }
 

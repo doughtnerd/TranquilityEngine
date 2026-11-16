@@ -22,7 +22,7 @@ export function openParticleGraphAsset(path: string): void {
 }
 
 /** The format id of the file at `path`: an effect, a sub-graph or a custom block. */
-export function particleFormatId(path: string): "particles" | "particlesubgraph" | "particleblock" {
+function particleFormatId(path: string): "particles" | "particlesubgraph" | "particleblock" {
   const kind = assetDocKind(path);
   return kind === "subgraph" ? "particlesubgraph" : kind === "block" ? "particleblock" : "particles";
 }

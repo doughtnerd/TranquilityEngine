@@ -61,21 +61,6 @@ export function tagOf(target: unknown): string | null {
   return el && el.nodeType === 1 && typeof el.tagName === "string" ? el.tagName.toLowerCase() : null;
 }
 
-/**
- * Listen on `target`'s window for the lifetime of the returned cleanup: the window-level listeners
- * of menus closing on outside clicks, drags following the pointer and Escape keys.
- */
-export function listenOnWindowOf<K extends keyof WindowEventMap>(
-  target: Owned,
-  type: K,
-  listener: (e: WindowEventMap[K]) => void,
-  options?: boolean | AddEventListenerOptions,
-): () => void {
-  const win = ownerWindowOf(target);
-  win.addEventListener(type, listener as EventListener, options);
-  return () => win.removeEventListener(type, listener as EventListener, options);
-}
-
 /** Whether `e` is a keyboard event (realm-independent `instanceof KeyboardEvent`: an event in a detached window is that window's). */
 export function isKeyboardEvent(e: Event): e is KeyboardEvent {
   return typeof e.type === "string" && e.type.startsWith("key") && "key" in e;

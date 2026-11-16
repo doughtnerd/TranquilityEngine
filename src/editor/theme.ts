@@ -4,7 +4,7 @@
 // colours…, kept readable against the panels). Tokens become CSS custom properties on :root; the
 // Code panel's Monaco theme and the viewport's overlay colours are made from the same tokens.
 import { computed, effect, signal } from "@preact/signals";
-import { alpha, contrast, ensureContrast, luminance, mix, parseHex, readableOn, rgb, toHex } from "./colorMath";
+import { alpha, ensureContrast, luminance, mix, parseHex, readableOn, rgb, toHex } from "./colorMath";
 import { persisted } from "./preferences";
 
 export { alpha, contrast, luminance, mix, parseHex } from "./colorMath";

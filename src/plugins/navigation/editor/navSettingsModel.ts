@@ -302,7 +302,7 @@ const f32Text = (v: number): string => String(Number(Math.fround(v).toPrecision(
  * Why this agent type's voxels will break the navmesh up, or null (nav-bake's `BakeProfile::voxel_warning`): a step
  * below one cell, or a voxel field that can't hold the slopes the orientation bins take.
  */
-export function navVoxelWarning(nav: NavigationSettings, t: NavAgentType): string | null {
+function navVoxelWarning(nav: NavigationSettings, t: NavAgentType): string | null {
   const { cellSize, cellHeight } = navVoxelSize(nav, t);
   const step = t.walk.stepHeight;
   const climb = Math.floor(step / cellHeight) * cellHeight;
@@ -340,9 +340,6 @@ export function navAgentTypeWarnings(nav: NavigationSettings, t: NavAgentType): 
 export function setNavValue(draft: SettingsDraft, path: string, value: unknown): SettingsDraft {
   return withNavigation(draft, setPath(navigationOf(draft), path, value));
 }
-
-/** Replace the surface rings. */
-export const setNavSurfaceRings = (draft: SettingsDraft, rings: NavigationSettings["surfaceRings"]): SettingsDraft => withNavigation(draft, { ...navigationOf(draft), surfaceRings: rings });
 
 /** Put the defaults back (the section is removed from `project.json`). */
 export const resetNavigation = (draft: SettingsDraft): SettingsDraft => ({ ...draft, navigation: undefined });
