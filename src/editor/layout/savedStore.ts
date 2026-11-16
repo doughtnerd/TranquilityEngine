@@ -34,7 +34,7 @@ import { registeredPanels } from "./registeredPanels";
 import { panelsOfPlugin } from "../sdk/panelOwners";
 import { captureWindowBounds } from "./detached";
 
-/** Where layout files are read and written; tests pass in-memory versions. */
+/** Where layout files are read and written. */
 export interface LayoutPlatform {
   /** The platform's file system (Tauri), for projects whose own isn't writable; null in browsers. */
   fs: FileSystem | null;
@@ -43,14 +43,10 @@ export interface LayoutPlatform {
 
 const USER_PREFIX = "layouts/";
 
-let platformSource: () => Promise<LayoutPlatform> = async () => {
+/** The editor's platform (history's: the FileSystem, and per-user storage). */
+async function platformSource(): Promise<LayoutPlatform> {
   const { defaultHistoryPlatform } = await import("../historyPersistence");
   return defaultHistoryPlatform();
-};
-
-/** Use another platform (tests). */
-export function setLayoutPlatform(source: () => Promise<LayoutPlatform>): void {
-  platformSource = source;
 }
 
 /** User layouts, by file name. */

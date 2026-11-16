@@ -67,9 +67,6 @@ export function whyNotDeletableFolder(project: EditorProject, path: string, open
  * Delete an asset or script, asking first unless the user turned that off. Returns true if it was
  * deleted.
  */
-export function deleteAsset(path: string): Promise<boolean> {
-  return deleteAssets([path]);
-}
 
 /**
  * Delete files and folders (selection entries: folders end in "/"), asking first unless the user

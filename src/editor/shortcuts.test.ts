@@ -126,7 +126,7 @@ describe("node shortcuts", () => {
     const n = openScene.value!.doc.nodes.length, bird = openScene.value!.doc.subtree("bird").length;
     select(["bird"]);
     press("c", { metaKey: true });
-    expect(nodeClipboard.value?.subtrees).toHaveLength(1);
+    expect(nodeClipboard.peek()?.subtrees).toHaveLength(1);
     press("v", { metaKey: true });
     expect(openScene.value!.doc.nodes.length).toBe(n + bird);
   });

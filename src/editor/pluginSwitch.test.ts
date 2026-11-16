@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { MemoryStorage } from "../engine/platform/Storage";
+import { defaultHistoryPlatform } from "./historyPersistence";
 import type { PluginManifest } from "../plugins/manifest";
 import { openTypes } from "./layout/model";
-import { applyDefaultLayout, refreshSavedLayouts, saveLayoutAs, savedLayouts, setLayoutPlatform } from "./layout/savedStore";
+import { applyDefaultLayout, refreshSavedLayouts, saveLayoutAs, savedLayouts } from "./layout/savedStore";
 import { layout } from "./layout/store";
 import { switchPlugin, type PluginSwitchAnswer, type PluginSwitchQuestion } from "./pluginSwitch";
 import type { SettingsDraft } from "./projectSettingsModel";
@@ -40,7 +40,8 @@ async function run(draft: SettingsDraft, name: string, on: boolean, answers: Plu
 }
 
 beforeEach(async () => {
-  setLayoutPlatform(async () => ({ fs: null, userStorage: new MemoryStorage() }));
+  const storage = (await defaultHistoryPlatform()).userStorage; // the editor's own: in-memory under Node
+  for (const key of await storage.list("settings")) await storage.delete("settings", key);
   await refreshSavedLayouts(null);
   applyDefaultLayout();
 });

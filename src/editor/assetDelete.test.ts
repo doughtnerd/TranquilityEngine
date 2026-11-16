@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input, getComponentClass } from "../engine";
 import { listComponents } from "../engine/editor";
-import { deleteAsset, whyNotDeletableAsset, whyNotDeletableFolder } from "./assetDelete";
+import { deleteAssets, whyNotDeletableAsset, whyNotDeletableFolder } from "./assetDelete";
 import { assetUsers } from "./assetReferences";
 import { OrbitCamera } from "./OrbitCamera";
 import { askBeforeDeletingAssets } from "./preferences";
@@ -63,7 +63,7 @@ describe("deleting", () => {
 
   it("removes the file from disk and the project, and takes it out of the prefabs that used it", async () => {
     askBeforeDeletingAssets.value = false; // no dialog in a headless test
-    expect(await deleteAsset("images/background.png")).toBe(true);
+    expect(await deleteAssets(["images/background.png"])).toBe(true);
     expect(fs.files.has(joinPath(ROOT, "images/background.png"))).toBe(false);
     expect(project.files).not.toContain("images/background.png");
     const prefab = fs.files.get(joinPath(ROOT, "prefabs/background.prefab.json")) as string;
@@ -79,7 +79,7 @@ describe("deleting", () => {
   it("removes a deleted prefab's instances from the open scene as one undoable step, and from the project's autoloads", async () => {
     askBeforeDeletingAssets.value = false;
     const { doc, stack } = openScene.value!;
-    await deleteAsset("prefabs/background.prefab.json");
+    await deleteAssets(["prefabs/background.prefab.json"]);
     expect(doc.has("bg-a") || doc.has("bg-b")).toBe(false);
     expect(stack.dirty).toBe(true); // saving keeps it
     expect(stack.undoLabel).toBe("Remove references to background.prefab.json");
@@ -90,13 +90,13 @@ describe("deleting", () => {
     expect(doc.has("bg-a")).toBe(true);
     expect(openScene.value!.sync.nodeFor("bg-a")).not.toBeNull();
 
-    await deleteAsset("prefabs/music.prefab.json");
+    await deleteAssets(["prefabs/music.prefab.json"]);
     expect(JSON.parse(fs.files.get(joinPath(ROOT, "project.json")) as string).autoload).toEqual([]);
   });
 
   it("lists scripts that still mention it; they aren't edited", async () => {
     askBeforeDeletingAssets.value = false;
-    await deleteAsset("prefabs/pipe-pair.prefab.json");
+    await deleteAssets(["prefabs/pipe-pair.prefab.json"]);
     expect(status.value?.text).toBe("Deleted prefabs/pipe-pair.prefab.json. Still referred to by scripts/Spawner2.ts.");
     expect(project.scripts.get("scripts/Spawner2.ts")).toContain("prefabs/pipe-pair.prefab.json");
   });
@@ -104,13 +104,13 @@ describe("deleting", () => {
   it("reloads scripts after deleting one, so its types go", async () => {
     askBeforeDeletingAssets.value = false;
     expect(getComponentClass("game.Spawner2")).toBeDefined();
-    await deleteAsset("scripts/Spawner2.ts");
+    await deleteAssets(["scripts/Spawner2.ts"]);
     expect(project.scripts.has("scripts/Spawner2.ts")).toBe(false);
     expect(getComponentClass("game.Spawner2")).toBeUndefined();
   });
 
   it("won't delete the scene that's open", async () => {
-    expect(await deleteAsset(openScene.value!.path)).toBe(false);
+    expect(await deleteAssets([openScene.value!.path])).toBe(false);
     expect(status.value?.text).toMatch(/Can't delete main\.scene\.json: it's the scene open now/);
   });
 });

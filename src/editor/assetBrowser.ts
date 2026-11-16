@@ -27,52 +27,6 @@ export const fileName = (path: string) => path.slice(path.lastIndexOf("/") + 1);
 /** The folder of a project path: `images/bird.png` → `images`, `project.json` → `""` (the root). */
 export const folderOf = (path: string) => (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
 
-export interface Folder {
-  /** Folder name; `""` for the project root. */
-  readonly name: string;
-  /** Project-relative folder path; `""` for the root. */
-  readonly path: string;
-  readonly folders: Folder[];
-  /** Files directly in this folder, sorted. */
-  readonly files: string[];
-}
-
-/** Build the folder tree for a list of project-relative file paths. Folders and files are sorted. */
-export function buildFolderTree(files: readonly string[]): Folder {
-  const root: Folder = { name: "", path: "", folders: [], files: [] };
-  for (const file of files) {
-    let folder = root;
-    const parts = file.split("/");
-    for (let i = 0; i < parts.length - 1; i++) {
-      const path = parts.slice(0, i + 1).join("/");
-      let next = folder.folders.find((f) => f.path === path);
-      if (!next) {
-        next = { name: parts[i], path, folders: [], files: [] };
-        folder.folders.push(next);
-      }
-      folder = next;
-    }
-    folder.files.push(file);
-  }
-  const sort = (f: Folder) => {
-    f.folders.sort((a, b) => a.name.localeCompare(b.name));
-    f.files.sort((a, b) => fileName(a).localeCompare(fileName(b)));
-    f.folders.forEach(sort);
-  };
-  sort(root);
-  return root;
-}
-
-/** The folder at `path`, or null if it doesn't exist (e.g. after a project switch). */
-export function findFolder(root: Folder, path: string): Folder | null {
-  if (path === "") return root;
-  for (const f of root.folders) {
-    if (f.path === path) return f;
-    if (path.startsWith(f.path + "/")) return findFolder(f, path);
-  }
-  return null;
-}
-
 /** Files whose name contains every word of `query` (case-insensitive), across all folders. */
 export function searchFiles(files: readonly string[], query: string): string[] {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
@@ -217,6 +171,3 @@ export function addAssetEntries(scene: OpenScene, path: string, options: AddOpti
   scene.stack.execute(new AddNode(entries, { parent: options.parent ?? null, index: options.index }));
   return entries;
 }
-
-/** `addAssetEntries`, returning the new root node's id. */
-export const addAsset = (scene: OpenScene, path: string, options: AddOptions = {}): string => addAssetEntries(scene, path, options)[0]!.id;
