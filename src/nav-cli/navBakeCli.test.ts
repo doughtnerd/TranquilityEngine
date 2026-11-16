@@ -3,8 +3,21 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
-import { bakeProject, parseArgs } from "./main";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { main, parseArgs } from "./main";
+
+/** Run the command as `npm run nav:bake -- …args` does: its exit code and what it printed. */
+async function run(...args: string[]): Promise<{ status: number; out: string; err: string }> {
+  const out: string[] = [], err: string[] = [];
+  const log = vi.spyOn(console, "log").mockImplementation((line: string) => void out.push(line));
+  const error = vi.spyOn(console, "error").mockImplementation((line: string) => void err.push(line));
+  try {
+    return { status: await main(args), out: out.join("\n"), err: err.join("\n") };
+  } finally {
+    log.mockRestore();
+    error.mockRestore();
+  }
+}
 
 // `npm run nav:bake` (ADR 0065): bakes a project folder's NavChunks in Node and writes each bake beside its scene.
 
@@ -44,18 +57,20 @@ describe("nav:bake", () => {
 
   it("bakes every scene with a NavChunk, writes the .nav.bin beside it and sets the scene's reference", async () => {
     const dir = tinyProject();
-    const lines: string[] = [];
-    const result = await bakeProject(dir, [], (l) => lines.push(l));
-    expect(result.failed).toEqual([]);
-    expect(result.baked).toEqual([{ scene: "scenes/main.scene.json", asset: "scenes/main.nav.bin", summary: expect.stringMatching(/\d+ polys/) }]);
+    const result = await run(dir);
+    expect(result.status).toBe(0);
+    expect(result.out).toMatch(/scenes\/main\.nav\.bin: \d[\d,]* polys/);
+    expect(result.out).toMatch(/Baked 1 chunk\./);
     expect(readFileSync(join(dir, "scenes", "main.nav.bin")).subarray(0, 4).length).toBe(4);
     expect(existsSync(join(dir, ".myco", "nav", "scenes", "main.nav.bin.json"))).toBe(true);
-    expect(lines.join("\n")).toMatch(/menu\.scene\.json: no NavChunk; skipped/);
+    expect(result.out).toMatch(/menu\.scene\.json: no NavChunk; skipped/);
     const scene = JSON.parse(readFileSync(join(dir, "scenes", "main.scene.json"), "utf8"));
     expect(scene.nodes[0].components[1].data).toEqual({ collect: "both", bake: "asset:scenes/main.nav.bin" });
     // Named scenes only; an unknown one is an error.
-    expect((await bakeProject(dir, ["scenes/menu.scene.json"])).baked).toEqual([]);
-    await expect(bakeProject(dir, ["scenes/nope.scene.json"])).rejects.toThrow(/No such scene/);
+    expect((await run(dir, "scenes/menu.scene.json")).out).toMatch(/Baked 0 chunks\./);
+    const unknown = await run(dir, "scenes/nope.scene.json");
+    expect(unknown.status).toBe(1);
+    expect(unknown.err).toMatch(/No such scene/);
   });
 
   it("runs from source in Node", () => {
