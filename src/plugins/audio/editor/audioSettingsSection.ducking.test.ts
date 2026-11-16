@@ -13,9 +13,14 @@ import { onSectionChanged } from "../../../editor/sectionChanged";
 import { closeTestProject, openTestProject, readDraft } from "../../../editor/testing";
 import type { SettingsDraft } from "../../../editor/sdk";
 import { DuckingEditor } from "./AudioSettingsSection";
-import { addDucking, audioOf, moveDucking, removeDucking, setDuckingValue } from "./audioSettingsModel";
+import { addDuckingEdit, audioOf, moveDucking, removeDucking, setDuckingValueEdit } from "./audioSettingsModel";
 import { createOpLog, type MixApplier } from "./mix/opLog";
 import { newDuckRule } from "./mix/duckModel";
+
+/** Add a ducking rule as the section's button does (a refused add leaves the draft). */
+const addDucking = (d: SettingsDraft): SettingsDraft => addDuckingEdit(d).draft;
+/** Set one field of a rule as the section's controls do (a refused edit leaves the draft). */
+const setDuckingValue = (d: SettingsDraft, index: number, key: keyof DuckingRule, value: string | number): SettingsDraft => setDuckingValueEdit(d, index, key, value).draft;
 
 // ---- walking a rendered tree (as MixerStrip.test.ts does) ----
 

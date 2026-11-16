@@ -1,25 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { makeZoneVolume, outsideDistance, zoneVolumeFromMatrix, ZONE_SHAPE_BOX, ZONE_SHAPE_SPHERE } from "../runtime/core/zoneWeights";
-import {
-  blendAxis,
-  blendHandle,
-  closestOnAxis,
-  dragBlend,
-  dragZoneFace,
-  dragZoneRadius,
-  MIN_EXTENT,
-  rotate,
-  zoneFaceHandles,
-  zoneGeometry,
-  zoneRadiusHandles,
-  zoneShellWire,
-  zoneVolumeWire,
-  CIRCLE_SEGMENTS,
-  SHELL_ARC_SEGMENTS,
-  type Pose3D,
-  type Quat,
-  type V3,
-} from "./zoneMath";
+import { blendAxis, blendHandle, closestOnAxis, dragBlend, dragZoneFace, dragZoneRadius, MIN_EXTENT, rotate, zoneFaceHandles, zoneGeometry, zoneRadiusHandles, zoneShellWire, zoneVolumeWire, type Pose3D, type Quat, type V3 } from "./zoneMath";
 
 const close = (a: readonly number[], b: readonly number[], digits = 6) => {
   expect(a.length).toBe(b.length);
@@ -90,11 +71,11 @@ describe("wireframes", () => {
     const wire = zoneVolumeWire(g);
     expect(wire.length).toBe(3);
     wire.forEach((c) => {
-      expect(c.length).toBe(CIRCLE_SEGMENTS + 1);
+      expect(c.length).toBe(32 + 1); // 32 segments a circle
       c.forEach((p) => expect(Math.hypot(...p)).toBeCloseTo(15, 9));
     });
     close(wire[0]![0]!, [15, 0, 0]);
-    close(wire[0]![CIRCLE_SEGMENTS / 4]!, [0, 15, 0]);
+    close(wire[0]![32 / 4]!, [0, 15, 0]);
   });
 
   it("every volume point is on the surface and every shell point is blendDistance outside it (outsideDistance)", () => {
@@ -112,11 +93,11 @@ describe("wireframes", () => {
   it("draws a box's shell as three closed rounded rectangles (4 arcs of 8 segments, first point repeated)", () => {
     const shell = zoneShellWire(boxA(), 2);
     shell.forEach((loop) => {
-      expect(loop.length).toBe(4 * (SHELL_ARC_SEGMENTS + 1) + 1);
+      expect(loop.length).toBe(4 * (8 + 1) + 1); // 8 segments a quarter arc
       expect(loop[loop.length - 1]).toEqual(loop[0]);
     });
     close(shell[0]![0]!, [18, 1, 0]); // x-y plane: the +x +y corner arc starts straight out from the corner (16 + 2, 1)
-    close(shell[0]![SHELL_ARC_SEGMENTS]!, [16, 3, 0]); // and ends straight up from it
+    close(shell[0]![8]!, [16, 3, 0]); // and ends straight up from it
   });
 
   it("draws a sphere's shell at radius + blendDistance, and no shell for a hard edge", () => {

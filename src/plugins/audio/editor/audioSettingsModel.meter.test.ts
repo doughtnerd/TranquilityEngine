@@ -2,11 +2,12 @@
 // reset option. The view is thin over these functions; a case per control option.
 import { describe, expect, it } from "vitest";
 import { audioSection } from "../../../engine/audio/audioSection";
+import type { AudioSettings } from "../../../engine/audio/settings";
 import { readDraft } from "../../../editor/testing";
-import {
-  addBus, addLoudnessTarget, audioOf, busMeterRefusal, isBusMetered, loudnessTargetRefusal, loudnessTargets, meteredBusCount,
-  removeLoudnessTarget, setBusMeter, setLoudnessResetOnPlay, setLoudnessTarget, MAX_LOUDNESS_TARGETS,
-} from "./audioSettingsModel";
+import { addBus, addLoudnessTarget, audioOf, busMeterRefusal, isBusMetered, loudnessTargetRefusal, loudnessTargets, removeLoudnessTarget, setBusMeter, setLoudnessResetOnPlay, setLoudnessTarget, MAX_LOUDNESS_TARGETS } from "./audioSettingsModel";
+
+/** Non-root buses that are metered, as the saved settings say. */
+const meteredBusCount = (a: AudioSettings): number => a.buses.filter((b, i) => i > 0 && b.meter !== undefined).length;
 
 const empty = () => readDraft({});
 const NINTH = "At most 8 buses can be metered";
