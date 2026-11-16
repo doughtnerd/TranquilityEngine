@@ -6,7 +6,7 @@ const mismatch = (name: string) => Object.assign(new Error(`${name} is the wrong
 
 let clock = 1;
 
-export class MemoryFileHandle implements FsaFileHandle {
+class MemoryFileHandle implements FsaFileHandle {
   readonly kind = "file";
   data: Uint8Array = new Uint8Array();
   modified = clock++;

@@ -90,7 +90,7 @@ export function openUIElementMenu(x: number, y: number, ref: UIElementRef): void
 }
 
 /** The right-click menu for the row `key`, or for empty space (null). */
-export function rowMenuItems(scene: OpenScene, key: string | null): MenuItem[] {
+function rowMenuItems(scene: OpenScene, key: string | null): MenuItem[] {
   const pasteItem = (asChild: boolean): MenuItem => ({
     label: asChild ? "Paste as Child" : "Paste",
     shortcut: asChild ? "Ctrl+Shift+V" : "Ctrl+V",

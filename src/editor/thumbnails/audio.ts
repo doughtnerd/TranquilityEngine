@@ -11,7 +11,7 @@ export interface AudioSummary {
 }
 
 /** How many slices a waveform has. */
-export const PEAK_COUNT = 200;
+const PEAK_COUNT = 200;
 
 /** The loudest absolute sample per slice, over every channel, rounded to 3 decimals. */
 export function computePeaks(channels: readonly Float32Array[], count = PEAK_COUNT): number[] {

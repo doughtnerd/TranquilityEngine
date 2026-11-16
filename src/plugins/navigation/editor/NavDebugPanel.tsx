@@ -11,10 +11,10 @@ const REFRESH_MS = 250;
 const MAX_WARNINGS = 50;
 
 /** Warnings drained from the runtime this session, newest last (draining empties the runtime's own list). */
-export const navWarnings = signal<string[]>([]);
+const navWarnings = signal<string[]>([]);
 
 /** Flatten a stats object to `path: number|boolean` rows (so counters the runtime adds later show up too). */
-export function statRows(stats: unknown, prefix = ""): { name: string; value: string }[] {
+function statRows(stats: unknown, prefix = ""): { name: string; value: string }[] {
   if (!stats || typeof stats !== "object") return [];
   const rows: { name: string; value: string }[] = [];
   for (const [k, v] of Object.entries(stats as Record<string, unknown>)) {

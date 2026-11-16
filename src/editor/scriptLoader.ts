@@ -18,7 +18,7 @@ export const ENGINE_MODULE = "myco";
 export const LEGACY_ENGINE_MODULE = "tranquility";
 const isEngineModule = (specifier: string) => specifier === ENGINE_MODULE || specifier === LEGACY_ENGINE_MODULE;
 /** The editor SDK (ADR 0133, 0139): only a plugin's editor half (`plugins/<folder>/editor/`) may import it. */
-export const EDITOR_MODULE = "myco/editor";
+const EDITOR_MODULE = "myco/editor";
 
 export { isScriptPath, rewriteImports };
 export type { PackageSource };

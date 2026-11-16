@@ -49,7 +49,7 @@ export async function editMaterial(project: EditorProject, path: string, patch: 
 }
 
 /** Where New Material goes by default: `materials/` if the project has it, else the folder given. */
-export function materialFolder(folder: string): string {
+function materialFolder(folder: string): string {
   return folder === "" && editor.project.current?.folders.includes("materials") ? "materials" : folder;
 }
 

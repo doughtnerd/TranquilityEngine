@@ -94,7 +94,7 @@ function nodeRect(key: string): { left: number; top: number; right: number; bott
 /** Asset thumbnails follow the open project (ADR 0061); installed with the first one. */
 let thumbnailsInstalled = false;
 
-export async function loadProject(project: EditorProject): Promise<void> {
+async function loadProject(project: EditorProject): Promise<void> {
   if (!thumbnailsInstalled) {
     thumbnailsInstalled = true;
     installThumbnails();
@@ -476,7 +476,7 @@ function syncPackageTypes(project: EditorProject): void {
 let checkingScripts = false;
 
 /** Leave play mode: dispose the game's Engine and resume editing (and reload scripts saved meanwhile). */
-export function stopPlaying(): void {
+function stopPlaying(): void {
   if (!play) return;
   const keptValues = takeKept(); // "Keep values" from the live Inspector (runtimeInspect.ts)
   endLiveInspection();

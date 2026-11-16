@@ -100,7 +100,7 @@ export function isNavBakeStale(s: NavChunkBakeState): boolean {
 export type NavBakeRunner = (request: NavBakeRequest, onStage: (stage: NavBakeStage) => void) => Promise<NavBakeResult>;
 
 /** Bakes on this thread (Node, tests). */
-export const inThreadRunner: NavBakeRunner = async (r, onStage) => {
+const inThreadRunner: NavBakeRunner = async (r, onStage) => {
   onStage("baking");
   return bakeChunk(r.meshes, r.settings, r.scenePath, r.chunkNodeId, r.chunk);
 };
@@ -144,7 +144,7 @@ function bakeWorker(): Worker | null {
 }
 
 /** Bakes in the bake worker; falls back to this thread where workers aren't available. */
-export const workerRunner: NavBakeRunner = (request, onStage) => {
+const workerRunner: NavBakeRunner = (request, onStage) => {
   const w = bakeWorker();
   if (!w) return inThreadRunner(request, onStage);
   return new Promise((resolve, reject) => {

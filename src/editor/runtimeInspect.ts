@@ -137,7 +137,7 @@ export function docPathFor(node: GameObject, scenePath: string, doc: SceneDocume
  * A component's live values as scene-file JSON, the form `SetField` stores. Fields that can't be
  * written to a scene (unknown types, references to nodes that aren't in the document) are left out.
  */
-export function liveValuesJSON(info: ComponentInfo, nodeId: (node: GameObject) => string | null): Record<string, unknown> {
+function liveValuesJSON(info: ComponentInfo, nodeId: (node: GameObject) => string | null): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const f of info.fields) {
     const editor = editorFor(f);

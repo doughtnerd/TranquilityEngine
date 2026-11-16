@@ -57,7 +57,7 @@ function circle(c: V3, u: V3, v: V3, r: number, from = 0, to = Math.PI * 2, n = 
 // --- box ---------------------------------------------------------------------------------------
 
 export type BoxFace3D = "x+" | "x-" | "y+" | "y-" | "z+" | "z-";
-export const BOX_FACES: readonly BoxFace3D[] = ["x+", "x-", "y+", "y-", "z+", "z-"];
+const BOX_FACES: readonly BoxFace3D[] = ["x+", "x-", "y+", "y-", "z+", "z-"];
 
 export function boxWire(pose: Pose3D, center: readonly number[], size: readonly number[]): Wire {
   const h = boxHalfExtents(size, pose.scale), c = worldCenter(pose, center);

@@ -15,7 +15,7 @@ interface ThemeFolder {
 }
 
 /** The project's theme from its folder (null: none, or unreadable). */
-export async function readProjectTheme(project: ThemeFolder): Promise<ThemePreset | null> {
+async function readProjectTheme(project: ThemeFolder): Promise<ThemePreset | null> {
   const { root, fileSystem: fs } = project;
   if (!root || !fs) return null;
   try {

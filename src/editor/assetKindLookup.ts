@@ -146,7 +146,7 @@ export function previewOf(path: string): PreviewKind | null {
 }
 
 /** The field kinds (ADR 0131) a kind's files satisfy: its `referencedAs` (a sprite's are `sprite`). */
-export function fieldKindsOf(kind: AssetKind): readonly string[] {
+function fieldKindsOf(kind: AssetKind): readonly string[] {
   if (kind === "sprite") return ["sprite"];
   return registeredKind(kind)?.referencedAs ?? [];
 }

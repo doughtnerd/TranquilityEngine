@@ -4,7 +4,6 @@
  * linear over `[xMin, xMax]`. No DOM here, so they're tested headless.
  */
 import type { Curve, CurveInterp, CurveKey } from "../../engine/core/curve";
-import { evalCurve } from "../../engine/core/curve";
 
 /** A `[x, y]` pair, as colour and alpha keys of a gradient use. */
 export type Key<T> = [number, T];
@@ -12,7 +11,7 @@ export type Key<T> = [number, T];
 export type AnyKey = readonly [number, unknown, CurveInterp?];
 
 /** The default x range: a particle curve's `t`. */
-export const UNIT_RANGE: [number, number] = [0, 1];
+const UNIT_RANGE: [number, number] = [0, 1];
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 /** A shallow copy of one key, keeping its length (so an `interp` survives). */

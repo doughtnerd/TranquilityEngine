@@ -10,7 +10,7 @@ export interface History<T> {
   key: string | null;
 }
 
-export const MAX_HISTORY = 100;
+const MAX_HISTORY = 100;
 
 export const createHistory = <T>(present: T): History<T> => ({ past: [], present, future: [], key: null });
 

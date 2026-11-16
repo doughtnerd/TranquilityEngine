@@ -23,10 +23,10 @@ export type ComponentRef = Pick<ComponentInfo, "type" | "index">;
 export const rotationViewOf = (field: Pick<FieldValue, "options">): RotationView => field.options?.view ?? preferredRotationView();
 
 /** The Rotation angles preference (anything unreadable: radians). */
-export const preferredRotationView = (): RotationView => (rotationAngles.value === "degrees" ? "degrees" : "radians");
+const preferredRotationView = (): RotationView => (rotationAngles.value === "degrees" ? "degrees" : "radians");
 
 /** A vector's axes, or a default when it's unset. */
-export function axesBase(value: unknown, editor: FieldEditor): number[] {
+function axesBase(value: unknown, editor: FieldEditor): number[] {
   if (Array.isArray(value)) return [...value];
   if (value && typeof value === "object" && "toArray" in value) return (value as { toArray(): number[] }).toArray();
   return editor === "vector2" ? [1, 1] : [0, 0, 0];
@@ -42,7 +42,7 @@ export function withAxis(value: unknown, editor: FieldEditor, axis: number, n: n
 }
 
 /** A comparable form of a field value, to tell whether several nodes' values differ. */
-export function valueKey(v: unknown, scene: OpenScene): string {
+function valueKey(v: unknown, scene: OpenScene): string {
   if (Array.isArray(v)) return `[${v.map((x) => valueKey(x, scene)).join(",")}]`;
   if (v instanceof Quaternion) return `quat:${JSON.stringify(rotationCodec("radians").read(v).map((r) => Math.round(r * 1e6)))}`;
   if (v instanceof Color) return `color:${v.toHex()}:${v.a}`;
@@ -55,7 +55,7 @@ export function valueKey(v: unknown, scene: OpenScene): string {
 export const isMixed = (scene: OpenScene, values: readonly unknown[]): boolean => new Set(values.map((v) => valueKey(v, scene))).size > 1;
 
 /** True when the field is an override on any of the nodes (prefab instances and nodes inside them). */
-export const isFieldOverridden = (doc: SceneDocument, paths: readonly NodePath[], component: ComponentRef, field: string): boolean =>
+const isFieldOverridden = (doc: SceneDocument, paths: readonly NodePath[], component: ComponentRef, field: string): boolean =>
   paths.some((p) => isOverridden(doc, p, component.type, field, component.index));
 
 /** Each node's live value of the field (undefined where the node or component is gone). */

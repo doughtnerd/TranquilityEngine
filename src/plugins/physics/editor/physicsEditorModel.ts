@@ -34,7 +34,7 @@ export function backendOptions(registered: readonly { id: string; title?: string
   return out;
 }
 
-export const backendKey = (dimension: PhysicsDimension) => (dimension === "2d" ? "backend2d" : "backend3d");
+const backendKey = (dimension: PhysicsDimension) => (dimension === "2d" ? "backend2d" : "backend3d");
 
 /** The backend a draft names for `dimension` ("" when unset). */
 export const backendOf = (draft: SettingsDraft, dimension: PhysicsDimension): string => {

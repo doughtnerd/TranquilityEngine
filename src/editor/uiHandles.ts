@@ -43,7 +43,7 @@ import { elementLabel, resolveUIElement, selectedUIRef, type UIElementRef } from
 import { viewportElements } from "./ui/ScenePanel";
 
 /** Pointer travel (CSS pixels) before a press on the box becomes a move (as a click's slop in `viewportSelection.ts`). */
-export const MOVE_THRESHOLD = 4;
+const MOVE_THRESHOLD = 4;
 const HANDLE_SIZE = 8;
 
 /** A UI component's box on the viewport canvas (CSS pixels) with its size in UI pixels, or null. */
@@ -166,7 +166,7 @@ export function beginMove(ref: UIElementRef, pointer: Point, boxOf: BoxOf): Hand
 }
 
 /** The siblings in flow (shown, not absolute, written in the file) along the parent's main axis, with the dragged element's markup index. */
-export function flowSiblings(el: UIDocumentElement, parent: UIDocumentElement, parentMap: BoxMap, boxOf: BoxOf): { siblings: FlowSibling[]; self: number } {
+function flowSiblings(el: UIDocumentElement, parent: UIDocumentElement, parentMap: BoxMap, boxOf: BoxOf): { siblings: FlowSibling[]; self: number } {
   const column = isColumn(String(fieldsOf(parent).flexDirection ?? "row"));
   const children = parent._markup.children;
   const siblings: FlowSibling[] = [];

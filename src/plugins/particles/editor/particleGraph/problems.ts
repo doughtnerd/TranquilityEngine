@@ -24,7 +24,7 @@ export function locateProblem(graph: ParticleGraph, at: string | undefined): Pro
 }
 
 /** The compiler's warning on a wire whose source combines per-particle values (it runs only on a GPU backend). */
-export const isGpuProblem = (p: GraphProblem) => /GPU backend/.test(p.message);
+const isGpuProblem = (p: GraphProblem) => /GPU backend/.test(p.message);
 
 export interface ProblemIndex {
   /** By system id, block key (`system.block`) and node id: the messages about it. */

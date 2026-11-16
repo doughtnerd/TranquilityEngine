@@ -5,7 +5,7 @@
 // lines that grouped nodes in the original file are kept.
 
 /** Line width before a value breaks across lines (the demo's files stay within it). */
-export const LINE_WIDTH = 112;
+const LINE_WIDTH = 112;
 
 export interface FormatOptions {
   width?: number;
@@ -65,7 +65,7 @@ export function nodeTexts(text: string): Map<string, string> {
 }
 
 /** Ids of top-level nodes preceded by a blank line in `text`, so a re-save can keep the grouping. */
-export function blankLinesBefore(text: string): Set<string> {
+function blankLinesBefore(text: string): Set<string> {
   const out = new Set<string>();
   const lines = text.split(/\r?\n/);
   for (let i = 1; i < lines.length; i++) {

@@ -22,7 +22,7 @@ const kindOf2D = (j: Joint2D): JointKind =>
   j instanceof HingeJoint2D ? "hinge" : j instanceof SliderJoint2D ? "slider" : j instanceof RopeJoint2D ? "rope" : j instanceof SpringJoint2D ? "spring" : j instanceof FixedJoint2D ? "fixed" : "fixed";
 
 /** The 3D joint's shape in world space. */
-export function joint3DShape(j: Joint): JointShape | null {
+function joint3DShape(j: Joint): JointShape | null {
   const node = j.node;
   if (!node.transform) return null;
   const pose = pose3DOf(node);
@@ -47,7 +47,7 @@ export function joint3DShape(j: Joint): JointShape | null {
 }
 
 /** The 2D joint's shape in world space (in the XY plane at the node's z). */
-export function joint2DShape(j: Joint2D): JointShape | null {
+function joint2DShape(j: Joint2D): JointShape | null {
   const node = j.node;
   if (!node.transform) return null;
   const pose = poseOf(node);

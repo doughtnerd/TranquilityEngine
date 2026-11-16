@@ -50,9 +50,9 @@ async function platformSource(): Promise<LayoutPlatform> {
 }
 
 /** User layouts, by file name. */
-export const userLayouts = signal<ReadonlyMap<string, LayoutFile>>(new Map());
+const userLayouts = signal<ReadonlyMap<string, LayoutFile>>(new Map());
 /** The open project's layouts, by file name. */
-export const projectLayouts = signal<ReadonlyMap<string, LayoutFile>>(new Map());
+const projectLayouts = signal<ReadonlyMap<string, LayoutFile>>(new Map());
 /** Every saved layout, once per file name, by name. */
 export const savedLayouts = computed<SavedLayout[]>(() => mergeSaved(userLayouts.value, projectLayouts.value));
 

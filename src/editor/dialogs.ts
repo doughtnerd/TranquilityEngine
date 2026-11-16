@@ -4,13 +4,13 @@ import { isTauri } from "../engine/platform/FileSystem";
 import { openScene, openScenes, type OpenScene } from "./state";
 
 /** Open scenes (every tab, and the active one) with unsaved changes. */
-export function dirtyScenes(): OpenScene[] {
+function dirtyScenes(): OpenScene[] {
   const all = new Set(openScenes.value);
   if (openScene.value) all.add(openScene.value);
   return [...all].filter((s) => s.stack.dirty);
 }
 
-export async function confirmDialog(message: string, okLabel = "OK"): Promise<boolean> {
+async function confirmDialog(message: string, okLabel = "OK"): Promise<boolean> {
   if (isTauri()) {
     const { ask } = await import("@tauri-apps/plugin-dialog");
     return ask(message, { title: "Myco Engine Editor", kind: "warning", okLabel, cancelLabel: "Cancel" });

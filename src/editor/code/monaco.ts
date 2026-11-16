@@ -65,7 +65,7 @@ export function modelFor(path: string, text: string): monaco.editor.ITextModel {
  * edits take the text on disk. `dirty` are paths with unsaved edits, left alone. JSON files are
  * also given to the TypeScript service, so scripts can import them with their types.
  */
-export function syncModels(scripts: ReadonlyMap<string, string>, dirty: ReadonlySet<string>): void {
+function syncModels(scripts: ReadonlyMap<string, string>, dirty: ReadonlySet<string>): void {
   for (const model of monaco.editor.getModels()) {
     const path = model.uri.path.replace(/^\/project\//, "");
     if (model.uri.scheme !== "file" || !model.uri.path.startsWith("/project/")) continue;

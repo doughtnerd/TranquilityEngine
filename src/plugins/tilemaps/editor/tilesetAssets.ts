@@ -2,7 +2,7 @@
 // (empty, or one tile per slice of an image), reading them, and the slice helpers the Assets panel's Create Tileset
 // from Slices action and the Tile Palette use. Editing goes through the tileset's asset document (ADR 0134), made
 // by this plugin's `tileset` format (`tilesetFormat.ts`).
-import { newTileset, parseTileset, TILESET_SUFFIX, type TileDef, type TilesetData } from "../runtime/tileset";
+import { newTileset, TILESET_SUFFIX, type TileDef, type TilesetData } from "../runtime/tileset";
 import type { ImportSettings } from "../../../engine/scene/importSettings";
 import { editor, type EditorProject } from "../../../editor/sdk";
 
@@ -23,7 +23,7 @@ export function splitSprite(sprite: string): { image: string; slice: string } | 
 }
 
 /** The sprite reference of a slice: `asset:images/tiles.png#grass`. */
-export const sliceSprite = (image: string, slice: string) => `asset:${image}#${slice}`;
+const sliceSprite = (image: string, slice: string) => `asset:${image}#${slice}`;
 
 /** Tiles for the slices of `settings` that `used` sprites don't have yet, with ids counting up from `firstId`. */
 export function tilesForSlices(settings: ImportSettings, image: string, firstId = 1, used: ReadonlySet<string> = new Set()): TileDef[] {

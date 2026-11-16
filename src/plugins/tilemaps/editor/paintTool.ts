@@ -21,7 +21,7 @@ const PICK = 0xffd54f;
 const GRID_REACH = 12;
 
 /** The selected node's Tilemap while painting is possible. */
-export function paintTarget(): Tilemap | null {
+function paintTarget(): Tilemap | null {
   if (editor.scene.playState !== "edit") return null;
   return tilemapOf(editor.scene.selection.node());
 }

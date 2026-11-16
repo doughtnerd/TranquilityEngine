@@ -35,7 +35,6 @@ import { newGraphId, systemTemplate } from "../../../../engine/scene/particleGra
 import { nodeDef, type PortType } from "../../../../engine/scene/particleNodes";
 import { outputTypeResolved, whyNotConnectResolved, type AssetResolver } from "../../../../engine/scene/particleSubgraphs";
 import { blockInputs, editorNodeDef, wireRulesGraph } from "./assetDocs";
-import { parseGraphClipboard } from "../../../../editor/sdk";
 
 const clone = <T>(v: T): T => structuredClone(v);
 const round = (p: Vec2 | readonly number[]): Vec2 => [Math.round(p[0]), Math.round(p[1])];
@@ -121,7 +120,7 @@ export type WireTarget =
   | { kind: "node"; node: string; input: string }
   | { kind: "none" };
 
-export function wireTarget(graph: ParticleGraph, to: string): WireTarget {
+function wireTarget(graph: ParticleGraph, to: string): WireTarget {
   const parts = to.split(".");
   if (parts.length === 2 && graph.systems.some((s) => s.id === parts[0])) {
     return parts[1] === "start" || parts[1] === "stop" ? { kind: "event", system: parts[0], end: parts[1] } : { kind: "none" };
@@ -138,7 +137,7 @@ export const isWireableInput = (input: BlockInputDef) => input.type === "number"
  * The port type a value from `from` needs to match to wire into a block input: a curve or gradient
  * feeds an input that takes curves (numbers) or gradients (colours); otherwise the input's type.
  */
-export function blockInputType(graph: ParticleGraph, from: string, input: BlockInputDef, resolve?: AssetResolver): PortType {
+function blockInputType(graph: ParticleGraph, from: string, input: BlockInputDef, resolve?: AssetResolver): PortType {
   const [id, port] = splitRef(from);
   const node = graph.nodes.find((n) => n.id === id);
   const src = node ? outputTypeResolved(graph, node, port, resolve) : null;

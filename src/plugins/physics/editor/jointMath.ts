@@ -5,9 +5,9 @@ import type { V3 } from "./collider3dMath";
 export type { V3 };
 
 /** Size of the cross drawn at an anchor, in world units. */
-export const CROSS_SIZE = 0.15;
+const CROSS_SIZE = 0.15;
 /** Length of a hinge's axis line, and the radius of its limits arc. */
-export const AXIS_LENGTH = 1;
+const AXIS_LENGTH = 1;
 export const ARC_RADIUS = 0.5;
 
 const DEG = Math.PI / 180;

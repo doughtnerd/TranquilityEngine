@@ -15,7 +15,7 @@ export function openSkyAsset(path: string): void {
 }
 
 /** Where New Sky goes by default: `skies/` if the project has it, else the folder given. */
-export function skyFolder(folder: string): string {
+function skyFolder(folder: string): string {
   return folder === "" && editor.project.current?.folders.includes("skies") ? "skies" : folder;
 }
 

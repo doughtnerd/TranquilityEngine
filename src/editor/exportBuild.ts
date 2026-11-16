@@ -15,7 +15,7 @@ import { joinPath, jsonFiles, type EditorProject } from "./projects";
 export const desktopExportCommand = (project: EditorProject, audioCapture = false) => `npm run export -- "${project.root ?? "<projectDir>"}" --target desktop${audioCapture ? " --audio-capture" : ""}`;
 
 /** Plan a web build of the open project (compiles its scripts). Throws an `ExportError` if it can't be built. */
-export async function planProjectBuild(project: EditorProject, bake = true, options: BuildOptions = {}): Promise<WebBuildPlan> {
+async function planProjectBuild(project: EditorProject, bake = true, options: BuildOptions = {}): Promise<WebBuildPlan> {
   const files = [...new Set([...project.files, ...project.scripts.keys()])];
   const plan = await planWebBuild({ name: project.root?.split(/[\\/]/).filter(Boolean).pop() ?? project.name, settings: project.settings, files, scripts: project.scripts, json: jsonFiles(project), packages: packageSourceFor(project, "production") }, options);
   // Models baked for the build (ADR 0090), through the project's assets the editor already serves.

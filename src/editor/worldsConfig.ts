@@ -334,7 +334,7 @@ export interface LinkOptionInfo {
   max?: number;
 }
 
-export const LINK_OPTIONS: readonly LinkOptionInfo[] = [
+const LINK_OPTIONS: readonly LinkOptionInfo[] = [
   { key: "address", label: "Address", kind: "string", hint: "Where the server listens. Loopback makes one up per Engine and server World." },
   { key: "port", label: "Port", kind: "number", hint: "The port a WebSocket server listens on (Node only).", transports: ["websocket"], integer: true, max: 65535 },
   { key: "url", label: "URL", kind: "string", hint: "Where a WebSocket client connects, such as ws://localhost:8080.", transports: ["websocket"] },
@@ -585,7 +585,7 @@ function topLevelMembers(text: string): Member[] | null {
  * A value as project.json lays values out: objects one key per line, lists of plain values on one
  * line (`["server", "local"]`), lists of objects one per line.
  */
-export function formatJsonValue(value: unknown, indent = "", unit = "  ", nl = "\n"): string {
+function formatJsonValue(value: unknown, indent = "", unit = "  ", nl = "\n"): string {
   const inner = indent + unit;
   if (Array.isArray(value)) {
     if (value.length === 0) return "[]";

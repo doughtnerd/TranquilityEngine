@@ -3,10 +3,10 @@
 // scripts/; data components share one "Data" submenu.
 import type { ComponentTypeInfo } from "../engine/editor";
 
-export const OTHER_CATEGORY = "Other";
+const OTHER_CATEGORY = "Other";
 
 /** Engine categories in menu order. Empty ones are left out of the menu. */
-export const ENGINE_CATEGORIES = ["Rendering", "Physics 2D", "Physics 3D", "Navigation", "Audio", "UI", "Animation", "Networking", "Input", OTHER_CATEGORY] as const;
+const ENGINE_CATEGORIES = ["Rendering", "Physics 2D", "Physics 3D", "Navigation", "Audio", "UI", "Animation", "Networking", "Input", OTHER_CATEGORY] as const;
 
 /** The category of each built-in component, by its short name (`engine.` stripped). Navigation is by the `Nav` prefix. */
 const BY_NAME: Readonly<Record<string, string>> = {

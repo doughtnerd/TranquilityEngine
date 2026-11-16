@@ -10,7 +10,7 @@ import { errorStatus } from "./messages";
 import type { EditorProject } from "./projects";
 import { status, type OpenScene } from "./state";
 
-export const REFLECTION_PROBE = "engine.ReflectionProbe";
+const REFLECTION_PROBE = "engine.ReflectionProbe";
 
 const assetPathOf = (ref: unknown) => (typeof ref === "string" ? assetRefTarget(ref) : "");
 

@@ -32,7 +32,7 @@ function showSceneSettings(): void {
  * searching in one doesn't change another. The default: every scene node expanded, prefab instances'
  * inner nodes and UI documents' element rows closed (they can hold hundreds of rows), no search.
  */
-export class HierarchyView {
+class HierarchyView {
   /** Collapsed scene nodes, by path key. */
   readonly collapsed = signal<ReadonlySet<string>>(new Set());
   /** Prefab instances showing their inner nodes, by path key (instances start collapsed). */

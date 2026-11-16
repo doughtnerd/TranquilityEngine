@@ -9,7 +9,7 @@ import { currentProject, docVersion, status } from "./state";
 import { readOnlyMessage } from "./readOnly";
 
 /** A new scene's contents: an orthographic camera looking at the origin, like the samples'. */
-export function newSceneFile(): SceneFile {
+function newSceneFile(): SceneFile {
   return {
     format: "myco.scene@1",
     nodes: [
@@ -26,7 +26,7 @@ export function newSceneFile(): SceneFile {
 }
 
 /** Where File > New Scene goes: `scenes/` if the project has it, else the project root. */
-export function defaultSceneFolder(): string {
+function defaultSceneFolder(): string {
   return currentProject.value?.folders.includes("scenes") ? "scenes" : "";
 }
 

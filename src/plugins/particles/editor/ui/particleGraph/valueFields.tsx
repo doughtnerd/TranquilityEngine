@@ -29,7 +29,7 @@ export function asNumber(v: unknown, fallback: ParticleNumber = 0): ParticleNumb
   return fallback;
 }
 /** A value read as a ParticleColor. */
-export function asColor(v: unknown, fallback: ParticleColor = "#ffffff"): ParticleColor {
+function asColor(v: unknown, fallback: ParticleColor = "#ffffff"): ParticleColor {
   if (typeof v === "string" && v.startsWith("#")) return v;
   if (isObj(v) && (Array.isArray(v.random) || isObj(v.gradient) || Array.isArray(v.randomGradients))) return v as unknown as ParticleColor;
   return fallback;
@@ -42,7 +42,7 @@ export const asGradient = (v: unknown): ParticleGradient => (isObj(v) && Array.i
 // --- popover -----------------------------------------------------------------------------------------
 
 /** A button showing `preview` that opens `children` in a popover below it; a click outside or Escape closes it. */
-export function PopoverButton(props: { label: string; preview: ComponentChildren; children: ComponentChildren; wide?: boolean }) {
+function PopoverButton(props: { label: string; preview: ComponentChildren; children: ComponentChildren; wide?: boolean }) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLSpanElement>(null);
   // The button and its popover (placed by CSS), closing in the window the graph is in (a detached panel
@@ -145,7 +145,7 @@ export function ColorSwatch(props: { value: string; label: string; readOnly?: bo
 }
 
 /** A colour in the forms its input allows. */
-export function ColorValue(props: { value: unknown; fallback?: ParticleColor; forms?: readonly string[]; label: string; readOnly?: boolean; onChange(v: ParticleColor): void }) {
+function ColorValue(props: { value: unknown; fallback?: ParticleColor; forms?: readonly string[]; label: string; readOnly?: boolean; onChange(v: ParticleColor): void }) {
   const { label, readOnly, onChange } = props;
   const value = asColor(props.value, props.fallback);
   const kind = colorKind(value);

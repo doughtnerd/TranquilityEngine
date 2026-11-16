@@ -7,7 +7,7 @@ import type { GraphNode, ShaderGraph } from "../../../../engine/scene/shaderGrap
 export const HEADER = 26;
 export const ROW = 22;
 export const PAD = 6;
-export const BASE_WIDTH = 176;
+const BASE_WIDTH = 176;
 /** A node preview's height (ADR 0048), under the rows. */
 export const PREVIEW = 120;
 /** Extra width per inline number field beyond the first. */

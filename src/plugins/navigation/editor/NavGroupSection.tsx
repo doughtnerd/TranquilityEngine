@@ -63,7 +63,7 @@ function FormationThumb(props: { formation: NavFormationAsset }) {
  * Under a NavGroup's fields: when its formation is "mask" or it has a formation asset, a preview of the asset's mask
  * and Edit, or Create formation asset (which assigns the new asset to the group).
  */
-export function NavGroupFormation(props: { scene: OpenScene; nodeId: string; index: number; formation: string; formationAsset: string }) {
+function NavGroupFormation(props: { scene: OpenScene; nodeId: string; index: number; formation: string; formationAsset: string }) {
   editor.project.version;
   const project = editor.project.current;
   if (!project) return null;

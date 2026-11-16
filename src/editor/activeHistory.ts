@@ -66,7 +66,7 @@ export interface ActiveHistory {
 const sceneHistories = new WeakMap<CommandStack, UndoHistory>();
 
 /** The scene's CommandStack as an UndoHistory (it changes `docVersion`, which the getters read). */
-export function sceneHistory(stack: CommandStack): UndoHistory {
+function sceneHistory(stack: CommandStack): UndoHistory {
   let h = sceneHistories.get(stack);
   if (h) return h;
   const read = () => (docVersion.value, stack);
@@ -107,7 +107,7 @@ export function sceneHistory(stack: CommandStack): UndoHistory {
 const documentHistories = new WeakMap<AssetDocument<unknown>, UndoHistory>();
 
 /** An asset document as an UndoHistory: nothing to undo on a read-only project, which refuses edits. */
-export function assetDocumentHistory(doc: AssetDocument<unknown>): UndoHistory {
+function assetDocumentHistory(doc: AssetDocument<unknown>): UndoHistory {
   let h = documentHistories.get(doc);
   if (h) return h;
   h = {

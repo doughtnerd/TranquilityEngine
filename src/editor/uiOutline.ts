@@ -12,7 +12,7 @@ import { resolveUIElement, selectedUIRef } from "./uiDocuments";
 const SVG = "http://www.w3.org/2000/svg";
 
 /** Outline points as an SVG `points` attribute. */
-export const polygonPoints = (points: readonly (readonly [number, number])[], dx = 0, dy = 0): string => points.map(([x, y]) => `${(x + dx).toFixed(1)},${(y + dy).toFixed(1)}`).join(" ");
+const polygonPoints = (points: readonly (readonly [number, number])[], dx = 0, dy = 0): string => points.map(([x, y]) => `${(x + dx).toFixed(1)},${(y + dy).toFixed(1)}`).join(" ");
 
 /** Draw the selected UI element's outline over the viewport until the returned function is called. */
 export function installUIElementOutline(engine: Engine): () => void {

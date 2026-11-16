@@ -58,7 +58,7 @@ export function boxHandles(pose: Pose2D, center: V2, size: V2): Record<BoxHandle
 }
 
 /** World radius of a circle collider (radius × the larger scale axis, like the physics backend). */
-export const worldRadius = (pose: Pose2D, radius: number) => Math.abs(radius) * Math.max(Math.abs(pose.scale[0]), Math.abs(pose.scale[1]));
+const worldRadius = (pose: Pose2D, radius: number) => Math.abs(radius) * Math.max(Math.abs(pose.scale[0]), Math.abs(pose.scale[1]));
 
 /** A circle collider's outline in world space, as `segments` points. */
 export function circlePoints(pose: Pose2D, center: V2, radius: number, segments = 48): [number, number, number][] {
@@ -106,7 +106,7 @@ export function dragCircleRadius(pose: Pose2D, p: V2, center: V2): number {
 // --- Character controller (an upright capsule that never turns with the node) -------------------
 
 /** World size of an upright 2D capsule: radius × |scale.x|, half straight part = max(0, height × |scale.y| / 2 − radius). */
-export function capsule2DSize(pose: Pose2D, radius: number, height: number): { radius: number; halfStraight: number } {
+function capsule2DSize(pose: Pose2D, radius: number, height: number): { radius: number; halfStraight: number } {
   const r = Math.abs(radius) * Math.abs(pose.scale[0]);
   return { radius: r, halfStraight: Math.max(0, (Math.abs(height) * Math.abs(pose.scale[1])) / 2 - r) };
 }
@@ -159,7 +159,7 @@ export { pointInPolygon, polygonArea } from "../../../editor/polygonMath";
 // --- Polygon and edge colliders (ADR 0039) ------------------------------------------------------
 
 /** Fewest points a polygon (closed) or edge (open) collider keeps when removing vertices. */
-export const minPoints = (closed: boolean) => (closed ? 3 : 2);
+const minPoints = (closed: boolean) => (closed ? 3 : 2);
 
 /** A points collider's outline in world space: each point offset by `center`, then posed. */
 export function pointsOutline(pose: Pose2D, center: V2, points: readonly V2[]): [number, number, number][] {

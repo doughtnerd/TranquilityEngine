@@ -49,7 +49,7 @@ export function readEffect(project: EditorProject, path: string): ReadEffect {
 }
 
 /** Where New Particle Effect goes by default: `effects/` if the project has it, else the folder given. */
-export function effectFolder(folder: string): string {
+function effectFolder(folder: string): string {
   return folder === "" && editor.project.current?.folders.includes("effects") ? "effects" : folder;
 }
 

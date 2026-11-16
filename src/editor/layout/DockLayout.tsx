@@ -59,7 +59,7 @@ export interface DockScope {
 }
 
 /** The scope for `windowId`'s dock layout. */
-export function dockScope(windowId: string): DockScope {
+function dockScope(windowId: string): DockScope {
   return {
     windowId,
     get: () => (windowId === MAIN_WINDOW ? layout.value : (windowView(layout.value, windowId) ?? { ...layout.value, docks: [], windows: [] })),

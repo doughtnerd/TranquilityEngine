@@ -5,7 +5,7 @@ import { NumField } from "./valueInputs";
 import "./particles.css";
 
 /** A CSS `linear-gradient` of the gradient, with alpha (shown over a checkerboard by `.gradient-bar`). */
-export function gradientCss(g: ParticleGradient): string {
+function gradientCss(g: ParticleGradient): string {
   const stops = Array.from({ length: 17 }, (_, i) => {
     const t = i / 16;
     const [r, gr, b, a] = evalGradient(g, t);

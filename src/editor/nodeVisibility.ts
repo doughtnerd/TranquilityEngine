@@ -21,7 +21,7 @@ const NONE: NodeFlags = { hidden: new Set(), locked: new Set() };
 export const nodeFlags = signal<NodeFlags>(NONE);
 
 /** The storage key for a scene's flags in a project (a folder's path, or a sample's name). */
-export function flagsStorageKey(project: string, scene: string): string {
+function flagsStorageKey(project: string, scene: string): string {
   return `myco.editor.nodeFlags:${project}:${scene}`;
 }
 
