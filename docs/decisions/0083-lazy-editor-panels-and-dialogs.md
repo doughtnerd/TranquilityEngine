@@ -1,6 +1,6 @@
 # 0083. Editor panels and dialogs load on first show, through one small lazy-component helper
 
-- **Status:** Proposed
+- **Status:** Proposed; amended by 0182 (the Scene view is lazy too; built-in panels are panel contributions)
 - **Date:** 2026-11-07
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
