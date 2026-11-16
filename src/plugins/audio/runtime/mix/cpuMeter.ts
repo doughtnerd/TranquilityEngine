@@ -17,9 +17,9 @@ export const CPU_NO_STEP_SECONDS = 1;
 /** @internal The sample ring holds this many STATUS samples of the current epoch (§4.3 says 32; 128 covers the 384-quantum window at the 6-quantum cadence, 64 samples, with slack; interpretation noted in the Cp2 report). */
 export const CPU_RING_SAMPLES = 128;
 /** @internal §4.3: the refit keeps this many windows (16 s at 256 ms each). */
-export const CPU_FIT_WINDOWS = 64;
+const CPU_FIT_WINDOWS = 64;
 /** @internal Fewest windows before the refit reports (and `sections` is non-null). */
-export const CPU_FIT_MIN_WINDOWS = 8;
+const CPU_FIT_MIN_WINDOWS = 8;
 /** @internal Frames per quantum (the Web Audio render quantum). */
 export const CPU_QUANTUM_FRAMES = 128;
 

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Assets } from "../../../engine/index";
-import { fileSampleRate, loadFileLoopPoints, loopPointsFor, onLoopPoints, resetFileLoopPoints, scanFileLoopPoints, setFileLoopFrames, setFileLoopPoints } from "./loopPoints";
+import { fileSampleRate } from "./loopPointsReader";
+import { loadFileLoopPoints, loopPointsFor, onLoopPoints, resetFileLoopPoints, scanFileLoopPoints, setFileLoopFrames, setFileLoopPoints } from "./loopPoints";
 
 const le32 = (n: number): number[] => [n & 255, (n >> 8) & 255, (n >> 16) & 255, (n >>> 24) & 255];
 const ascii = (s: string): number[] => [...s].map((c) => c.charCodeAt(0));

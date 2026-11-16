@@ -72,32 +72,11 @@ import {
 import { CreditWindow, STREAM_CHUNK_FRAMES, STREAM_WINDOW_FRAMES } from "./credit";
 import type { AmbisonicConvention, ClipInfo, DecoderReply, StreamLoopMessage, StreamOpenMessage, StreamPortLike, StreamRequest, StreamSeekMessage } from "./protocol";
 import { DecoderError, type DecoderWasm, type RawInfo } from "./wasm";
+import { resolveRegion, type StreamRegion } from "./loopRegion";
 
 /** E4.4: kept as an alias; `atStreamFrame` is now part of `StreamLoopMessage` (contract C2). */
 export type StreamLoopAt = StreamLoopMessage;
 
-/** A loop region in file frames, `end` exclusive (0: the file's end). */
-export interface StreamRegion {
-  readonly start: number;
-  readonly end: number;
-}
-
-/**
- * The region a looping stream loops (E4.4): `start`/`end` as sent (end 0 = the file's end; both absent: the file's own
- * points, `fileLoop`, else the whole file), clamped to a file of `frames` frames (-1 unknown). An empty or inverted
- * region loops the whole file, as the core does for clips.
- */
-export function resolveRegion(start: number | undefined, end: number | undefined, fileLoop: StreamRegion | null, frames: number): StreamRegion {
-  if (start === undefined && end === undefined) return fileLoop ?? { start: 0, end: 0 };
-  let a = Math.max(0, Math.floor(start ?? 0));
-  let b = Math.max(0, Math.floor(end ?? 0));
-  if (frames > 0 && (b === 0 || b > frames)) b = frames;
-  if (b !== 0 && !(a < b)) {
-    a = 0;
-    b = frames > 0 ? frames : 0;
-  }
-  return { start: a, end: b };
-}
 
 /** The file's own loop region from the wasm's info, or null. */
 function fileLoopOf(raw: RawInfo): StreamRegion | null {
@@ -125,7 +104,7 @@ export const MUSIC_PRIME_FRAMES = 4096;
 /** Bytes of a pooled chunk buffer: the envelope and header, then 4,096 stereo f32 frames. */
 export const STREAM_CHUNK_BUFFER_BYTES = STREAM_CHUNK_FIXED_END + STREAM_CHUNK_FRAMES * 2 * 4;
 /** B4: bytes of a pooled wide chunk buffer: the envelope and header, then 2,048 frames of 16 channels. */
-export const STREAM_WIDE_CHUNK_BUFFER_BYTES = STREAM_CHUNK_FIXED_END + STREAM_WIDE_CHUNK_FRAMES * STREAM_MAX_CHANNELS * 4;
+const STREAM_WIDE_CHUNK_BUFFER_BYTES = STREAM_CHUNK_FIXED_END + STREAM_WIDE_CHUNK_FRAMES * STREAM_MAX_CHANNELS * 4;
 /** Chunk buffers kept for reuse per size (two windows of one stream, or one each of two). */
 const POOL_MAX = 16;
 

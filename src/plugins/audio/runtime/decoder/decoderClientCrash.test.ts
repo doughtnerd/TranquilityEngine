@@ -4,9 +4,13 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { createDecoderHandler } from "./handler";
-import { createDecoderClient, DecoderUnavailableError, MAX_RESPAWNS, RESPAWN_WINDOW_MS, type WorkerLike } from "./decoderClient";
+import { createDecoderClient, DecoderUnavailableError, type WorkerLike } from "./decoderClient";
 import { CLIP_CHUNK_FRAMES, type DecoderRequest } from "./protocol";
 import hash from "../wasm/hash.json";
+
+/** The client respawns a crashed worker at most 3 times in a 60 s window. */
+const MAX_RESPAWNS = 3;
+const RESPAWN_WINDOW_MS = 60_000;
 
 const FIXTURES = fileURLToPath(new URL("../../../../../native/audio/crates/audio-decode/tests/fixtures/", import.meta.url));
 const WASM = readFileSync(fileURLToPath(new URL("../wasm/myco_audio_decode.wasm", import.meta.url)));

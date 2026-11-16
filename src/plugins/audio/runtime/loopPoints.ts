@@ -12,7 +12,7 @@
 // so waiters resolve either way.
 
 import { Assets, fetchAssetBytes } from "../../../engine/scene/Assets";
-import { readLoopPoints } from "./loopPointsReader";
+import { fileSampleRate, readLoopPoints } from "./loopPointsReader";
 
 /** A loop region in seconds; `end` is exclusive. */
 export interface LoopPoints {
@@ -97,34 +97,6 @@ export function resetFileLoopPoints(): void {
 export function setFileLoopFrames(path: string, frames: { start: number; end: number } | null, sampleRate: number): void {
   if (!frames || !(sampleRate > 0) || !(frames.end > frames.start)) return setFileLoopPoints(path, null);
   setFileLoopPoints(path, { start: frames.start / sampleRate, end: frames.end / sampleRate });
-}
-
-/**
- * The sample rate a file states, which its loop points are counted in: a WAV's `fmt ` chunk, an Ogg Vorbis
- * identification header, 48000 for Opus (whose loop comments are in 48 kHz samples). Null when unknown. Never throws.
- */
-export function fileSampleRate(bytes: Uint8Array): number | null {
-  const u32 = (at: number): number => ((bytes[at] ?? 0) | ((bytes[at + 1] ?? 0) << 8) | ((bytes[at + 2] ?? 0) << 16) | ((bytes[at + 3] ?? 0) << 24)) >>> 0;
-  const tag = (at: number, text: string): boolean => {
-    if (at + text.length > bytes.length) return false;
-    for (let i = 0; i < text.length; i++) if (bytes[at + i] !== text.charCodeAt(i)) return false;
-    return true;
-  };
-  if (tag(0, "RIFF") && tag(8, "WAVE")) {
-    let pos = 12;
-    while (pos + 8 <= bytes.length) {
-      const size = u32(pos + 4);
-      if (tag(pos, "fmt ")) return size >= 8 && pos + 20 <= bytes.length ? u32(pos + 12) || null : null;
-      pos += 8 + size + (size & 1);
-    }
-    return null;
-  }
-  if (tag(0, "OggS") && bytes.length > 27) {
-    const body = 27 + (bytes[26] ?? 0); // the first packet starts after the lacing table
-    if (tag(body, "OpusHead")) return 48000;
-    if (body + 16 <= bytes.length && bytes[body] === 1 && tag(body + 1, "vorbis")) return u32(body + 12) || null;
-  }
-  return null;
 }
 
 /** Records the loop points stored in `bytes`, a clip's encoded file (Babylon path, or anyone holding the bytes). Never throws. */

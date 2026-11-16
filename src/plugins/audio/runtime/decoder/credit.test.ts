@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CreditAccumulator, CreditWindow, STREAM_CHUNK_FRAMES, STREAM_CREDIT_FRAMES, STREAM_WINDOW_FRAMES } from "./credit";
+import { CreditAccumulator, CreditWindow, STREAM_CHUNK_FRAMES, STREAM_WINDOW_FRAMES } from "./credit";
 
 describe("stream credits (B3)", () => {
   it("the window holds eight chunks, and a credit frees room for one more", () => {
@@ -10,7 +10,7 @@ describe("stream credits (B3)", () => {
       sent++;
     }
     expect(sent).toBe(STREAM_WINDOW_FRAMES / STREAM_CHUNK_FRAMES);
-    w.credit(STREAM_CREDIT_FRAMES - 1);
+    w.credit(new CreditAccumulator().every - 1); // one frame short of a credit
     expect(w.canSend()).toBe(false);
     w.credit(1);
     expect(w.canSend()).toBe(true);

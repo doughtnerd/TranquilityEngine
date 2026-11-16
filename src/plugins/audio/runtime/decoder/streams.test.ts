@@ -5,11 +5,10 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import hash from "../wasm/hash.json";
-import { Kind, readStreamChunk, readStreamOpen, STREAM_CHUNK_FIXED_END, STREAM_CHUNK_FLAGS_LAST, STREAM_CHUNK_FLAGS_WRAPPED, STREAM_RING_FRAMES_WIDE, STREAM_WIDE_CHUNK_FRAMES, StreamConvention, writeEnvelope, writeStreamCredit } from "../wire.generated";
+import { Kind, readStreamChunk, readStreamOpen, STREAM_CHUNK_FIXED_END, STREAM_CHUNK_FLAGS_LAST, STREAM_CHUNK_FLAGS_WRAPPED, STREAM_MAX_CHANNELS, STREAM_RING_FRAMES_WIDE, STREAM_WIDE_CHUNK_FRAMES, StreamConvention, writeEnvelope, writeStreamCredit } from "../wire.generated";
 import { STREAM_CHUNK_FRAMES, STREAM_WINDOW_FRAMES } from "./credit";
 import { createDecoderHandler } from "./handler";
 import type { DecoderReply, StreamPortLike } from "./protocol";
-import { STREAM_WIDE_CHUNK_BUFFER_BYTES } from "./streams";
 import { makeWav, signal } from "./testWav";
 import { DecoderWasm } from "./wasm";
 
@@ -147,7 +146,7 @@ describe("stream decoder (B3)", () => {
     expect((replies.find((r) => r.type === "streamOpened") as { info: { importGain?: number } }).info.importGain).toBeUndefined();
     let chunks = toWorklet.filter((b) => kindOf(b) === Kind.STREAM_CHUNK);
     expect(chunks.length).toBe(STREAM_RING_FRAMES_WIDE / STREAM_WIDE_CHUNK_FRAMES); // the window: 8 chunks
-    expect(chunks.every((b) => b.byteLength === STREAM_WIDE_CHUNK_BUFFER_BYTES)).toBe(true);
+    expect(chunks.every((b) => b.byteLength === STREAM_CHUNK_FIXED_END + STREAM_WIDE_CHUNK_FRAMES * STREAM_MAX_CHANNELS * 4)).toBe(true);
     const heads = chunks.map((b) => readStreamChunk(new DataView(b), 0));
     expect(heads.every((h) => h.frames === STREAM_WIDE_CHUNK_FRAMES)).toBe(true);
     expect(heads[2]!.flags & STREAM_CHUNK_FLAGS_WRAPPED).toBeTruthy(); // 5,000 frames: the third chunk wraps

@@ -9,7 +9,7 @@ export const STREAM_CHUNK_FRAMES = 4096;
 /** The credit window: frames buffered in the ring plus in flight (the core's ring, the wire's `STREAM_RING_FRAMES`). */
 export const STREAM_WINDOW_FRAMES = 32768;
 /** The shell credits once this many frames were consumed (architecture §4.7: "credit every 4,096 consumed"). */
-export const STREAM_CREDIT_FRAMES = 4096;
+const STREAM_CREDIT_FRAMES = 4096;
 
 /** The worker's side: frames sent and not yet credited back. */
 export class CreditWindow {

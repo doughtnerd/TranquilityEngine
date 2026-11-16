@@ -33,7 +33,7 @@ import { LoudnessFeedControl, LoudnessStats, SUB_BLOCK_SECONDS, linearToDb, type
 
 /** Keyframe `metered` flag bits (format.ts `KeyframeMetered.flags`). */
 export const KF_METERED_PAUSED = 1;
-export const KF_METERED_INCOMPLETE = 2;
+const KF_METERED_INCOMPLETE = 2;
 export const KF_METERED_TAINTED = 4;
 export const KF_METERED_LOWER_BOUND = 8;
 

@@ -5,7 +5,7 @@ import { LOUD_FLAG_RESET, LOUD_OUTPUT_TAP, type StatusBlock } from "../wire.gene
 import { LoudnessHub } from "./loudnessHub";
 import type { KeyframeMetered } from "../capture/format";
 import { LoudnessStats, SUB_BLOCK_SECONDS, energyToLufs, linearToDb } from "./loudnessStats";
-import { KF_METERED_INCOMPLETE, LoudnessTrackModel, type LoudnessStatusInput } from "./loudnessTrackModel";
+import { LoudnessTrackModel, type LoudnessStatusInput } from "./loudnessTrackModel";
 
 const SLOT = 3;
 const PER_STATUS = 5;
@@ -289,7 +289,7 @@ describe("seek from a keyframe", () => {
   function reading(full: LoudnessTrackModel, t: number): KeyframeMetered {
     const v = full.valuesAt(SLOT, t)!;
     return {
-      slot: SLOT, flags: v.incomplete ? KF_METERED_INCOMPLETE : 0, momentary: Math.fround(v.momentary), shortTerm: Math.fround(v.shortTerm),
+      slot: SLOT, flags: v.incomplete ? 2 /* incomplete */ : 0, momentary: Math.fround(v.momentary), shortTerm: Math.fround(v.shortTerm),
       integrated: Math.fround(v.integrated), lra: Math.fround(v.lra), maxTruePeak: Math.fround(v.truePeak), maxMomentary: 0, elapsed: 0,
     };
   }

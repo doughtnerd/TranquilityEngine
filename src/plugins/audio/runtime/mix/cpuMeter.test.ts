@@ -1,7 +1,11 @@
 // `CpuMeter` (api-and-models §10, the `CpuMeter` row; architecture §4.3). Every case drives the meter with a fake
 // `Date.now` through a small shell model, never a wall clock.
 import { describe, expect, it } from "vitest";
-import { CPU_FIT_MIN_WINDOWS, CPU_FIT_WINDOWS, CpuMeter } from "./cpuMeter";
+import { CpuMeter } from "./cpuMeter";
+
+/** The CPU meter refits its section shares over 64 windows, the first fit after 8. */
+const CPU_FIT_WINDOWS = 64;
+const CPU_FIT_MIN_WINDOWS = 8;
 
 const SAMPLE_RATE = 48000;
 /** One render quantum, ms: 128 frames at 48 kHz. */

@@ -9,7 +9,8 @@ import { Kind, readStreamChunk, readStreamOpen, STREAM_CHUNK_FIXED_END, STREAM_C
 import { STREAM_CHUNK_FRAMES, STREAM_WINDOW_FRAMES } from "./credit";
 import { createDecoderHandler } from "./handler";
 import type { DecoderReply, StreamPortLike } from "./protocol";
-import { resolveRegion, type StreamLoopAt } from "./streams";
+import { type StreamLoopAt } from "./streams";
+import { resolveRegion } from "./loopRegion";
 import { makeWav, signal } from "./testWav";
 
 const WASM = readFileSync(fileURLToPath(new URL("../wasm/myco_audio_decode.wasm", import.meta.url)));

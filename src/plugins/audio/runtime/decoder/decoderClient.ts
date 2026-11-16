@@ -64,8 +64,8 @@ export class DecoderUnavailableError extends Error {
 }
 
 /** B6: a crashed worker is respawned at most this many times within `RESPAWN_WINDOW_MS`, like the core's rebuilds. */
-export const MAX_RESPAWNS = 3;
-export const RESPAWN_WINDOW_MS = 60_000;
+const MAX_RESPAWNS = 3;
+const RESPAWN_WINDOW_MS = 60_000;
 
 /** A decoded clip: `pcm` is interleaved int16 (`frames * channels` samples). */
 export interface DecodedClip {
