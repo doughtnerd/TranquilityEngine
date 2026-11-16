@@ -8,6 +8,7 @@ import { rotationAngles } from "../preferences";
 import { previewedQuality, previewQuality, qualityTiers } from "../graphicsPreview";
 import { sceneToolbarItems, type SceneToolbarItemContribution } from "../sdk/contributions";
 import { lazyComponent, type LazyComponent } from "./lazy";
+import { usePopover } from "./popover";
 import "./scene-tools.css";
 
 /**
@@ -88,33 +89,9 @@ function Popover(props: { label: string; buttonText: string; buttonClass: string
   const [open, setOpen] = useState(false);
   const button = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
-  const [place, setPlace] = useState<Record<string, string>>({ visibility: "hidden" });
-  useLayoutEffect(() => {
-    if (!open || !button.current) return;
-    const r = button.current.getBoundingClientRect();
-    const width = panel.current?.offsetWidth ?? 220;
-    setPlace({ top: `${r.bottom + 4}px`, left: `${Math.max(8, Math.min(r.left, innerWidth - width - 8))}px` });
-  }, [open]);
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: PointerEvent) => {
-      const t = e.target as Node;
-      if (!panel.current?.contains(t) && !button.current?.contains(t)) setOpen(false);
-    };
-    // Escape closes it wherever focus is (and doesn't reach the editor's own Escape handling).
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      e.stopPropagation();
-      setOpen(false);
-      if (panel.current?.contains(document.activeElement)) button.current?.focus();
-    };
-    window.addEventListener("pointerdown", onDown, true);
-    window.addEventListener("keydown", onKey, true);
-    return () => {
-      window.removeEventListener("pointerdown", onDown, true);
-      window.removeEventListener("keydown", onKey, true);
-    };
-  }, [open]);
+  // Below its button, kept in the window it's in (a detached panel window, ADR 0174). Escape closes it
+  // wherever focus is (and doesn't reach the editor's own Escape handling).
+  usePopover(panel, open, { anchor: button.current, margin: 8, inside: [button], onDismiss: () => setOpen(false) });
   useEffect(() => {
     if (props.disabled) setOpen(false);
   }, [props.disabled]);
@@ -130,7 +107,6 @@ function Popover(props: { label: string; buttonText: string; buttonClass: string
           role="dialog"
           aria-label={props.label}
           tabIndex={-1}
-          style={place}
         >
           {props.children}
         </div>

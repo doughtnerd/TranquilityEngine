@@ -2,7 +2,7 @@
 // rows and empty space. Same look and keys as the Assets panel's menu (`.context-menu`).
 import { openPrefabFrom } from "../prefabTabs";
 import { signal } from "@preact/signals";
-import { useEffect, useLayoutEffect, useRef } from "preact/hooks";
+import { useRef } from "preact/hooks";
 import { deleteSelected } from "../deleteSelection";
 import { copySelection, createNodeIn, cutSelection, duplicateSelection, nodeClipboard, pasteClipboardAt, whyNotPasteAt } from "../hierarchyActions";
 import { newNodeKinds, whyNotCreatable } from "../nodeCreate";
@@ -12,7 +12,7 @@ import { openScene, playState, selectedKeys, selection, type OpenScene } from ".
 import { createUIElement, deleteUIElement, duplicateUIElement, NEW_ELEMENTS, whyNotEditableUI } from "../uiDocumentEdits";
 import { documentsOn, resolveUIElement, selectedUIRef, uiRefKey, type UIElementRef } from "../uiDocuments";
 import { renamingUIElement } from "../uiElementDrag";
-import { isKeyboardEvent, ownerWindowOf, viewportOf } from "../windows/dom";
+import { usePopover } from "./popover";
 
 interface MenuItem {
   label: string;
@@ -148,42 +148,11 @@ export function openCreateMenu(button: HTMLElement): void {
 export function HierarchyMenu() {
   const m = hierarchyMenu.value;
   const el = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!m) return;
-    const close = (e: Event) => {
-      if (isKeyboardEvent(e) && e.key !== "Escape") return;
-      if (e.type === "pointerdown" && el.current?.contains(e.target as Node)) return;
-      if (isKeyboardEvent(e)) e.stopPropagation();
-      hierarchyMenu.value = null;
-    };
-    const win = ownerWindowOf(el.current); // the window it's in (a detached panel window, ADR 0174)
-    win.addEventListener("pointerdown", close, true);
-    win.addEventListener("keydown", close, true);
-    win.addEventListener("blur", close);
-    el.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
-    return () => {
-      win.removeEventListener("pointerdown", close, true);
-      win.removeEventListener("keydown", close, true);
-      win.removeEventListener("blur", close);
-    };
-  }, [m]);
-  // Keep it on screen: measured once drawn, moved up to fit, and scrolling when taller than the window.
-  useLayoutEffect(() => {
-    const menu = el.current;
-    if (!menu) return;
-    const r = menu.getBoundingClientRect();
-    // Its own window's viewport: in a detached panel window (ADR 0174) the first guess below used the main window's.
-    const { width, height } = viewportOf(menu);
-    if (r.bottom > height - 4) menu.style.top = `${Math.max(4, height - r.height - 4)}px`;
-    if (r.right > width - 4) menu.style.left = `${Math.max(0, width - r.width - 4)}px`;
-  }, [m]);
+  // In its own window (a detached panel window, ADR 0174), measured to stay on screen.
+  usePopover(el, !!m, { anchor: m, key: m, focusFirst: true, onDismiss: () => (hierarchyMenu.value = null) });
   if (!m) return null;
-  // A first guess before it's measured.
-  const rows = m.items.filter((i) => !i.separator).length, seps = m.items.length - rows;
-  const view = viewportOf(el.current);
-  const x = Math.min(m.x, view.width - 230), y = Math.min(m.y, view.height - rows * 24 - seps * 9 - 12);
   return (
-    <div ref={el} class="context-menu hierarchy-menu" role="menu" style={{ left: `${Math.max(0, x)}px`, top: `${Math.max(0, y)}px` }}>
+    <div ref={el} class="context-menu hierarchy-menu" role="menu">
       {m.items.map((item, i) =>
         item.separator ? (
           <div key={i} class="context-sep" role="separator" />

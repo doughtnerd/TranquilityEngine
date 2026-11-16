@@ -3,14 +3,14 @@
 // vectors, flags, choices and asset pickers. Curves and gradients show as a small preview that
 // opens the curve or gradient editor in a popover, so blocks stay one line per input.
 import type { ComponentChildren } from "preact";
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useRef, useState } from "preact/hooks";
 import type { GraphInputValue } from "../../../../../engine/scene/particleGraph";
 import { colorKind, hexColor, numberKind, parseHexColor, type CurveKey, type ParticleColor, type ParticleColorKind, type ParticleGradient, type ParticleNumber, type ParticleNumberKind } from "../../../../../engine/scene/particles";
 import { convertColor, convertNumber } from "../../particles/curveEdit";
 import { CurveEditor, CurvePreview } from "../particles/ParticleCurve";
 import { GradientEditor, GradientPreview } from "../particles/GradientEditor";
 import { NumField } from "../particles/valueInputs";
-import { editor, NO_DRAG, NO_PAN, NO_WHEEL } from "../../../../../editor/sdk";
+import { editor, NO_DRAG, NO_PAN, NO_WHEEL, usePopover } from "../../../../../editor/sdk";
 
 const CTRL = `${NO_DRAG} ${NO_WHEEL}`;
 
@@ -45,17 +45,9 @@ export const asGradient = (v: unknown): ParticleGradient => (isObj(v) && Array.i
 export function PopoverButton(props: { label: string; preview: ComponentChildren; children: ComponentChildren; wide?: boolean }) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLSpanElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const down = (e: PointerEvent) => !box.current?.contains(e.target as Node) && setOpen(false);
-    const key = (e: KeyboardEvent) => e.key === "Escape" && (e.stopPropagation(), setOpen(false));
-    document.addEventListener("pointerdown", down, true);
-    document.addEventListener("keydown", key, true);
-    return () => {
-      document.removeEventListener("pointerdown", down, true);
-      document.removeEventListener("keydown", key, true);
-    };
-  }, [open]);
+  // The button and its popover (placed by CSS), closing in the window the graph is in (a detached panel
+  // window, ADR 0174). Not on the window's blur: a colour input's picker takes the focus while in use.
+  usePopover(box, open, { blur: false, onDismiss: () => setOpen(false) });
   return (
     <span class="pg-pop-anchor" ref={box}>
       <button type="button" class={`pg-pop-button ${CTRL}${open ? " open" : ""}`} aria-label={`Edit ${props.label}`} aria-expanded={open} title={`Edit ${props.label}`} onClick={() => setOpen(!open)}>

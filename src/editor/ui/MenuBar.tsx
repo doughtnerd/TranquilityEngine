@@ -24,6 +24,7 @@ import { aboutOpen } from "./AboutDialog";
 import { exportOpen, settingsOpen } from "./dialogState";
 import { createMenuItems } from "./HierarchyMenu";
 import { openNewProjectDialog } from "./NewProjectDialog";
+import { usePopover } from "./popover";
 import "./menubar.css";
 
 const RECENT_IN_MENU = 5;
@@ -299,17 +300,9 @@ export function MenuBar() {
     menuOpen.value = open !== null;
   }, [open !== null]);
 
-  useEffect(() => {
-    if (!open) return;
-    const away = (e: PointerEvent) => !root.current?.contains(e.target as Node) && setOpen(null);
-    const blur = () => setOpen(null);
-    window.addEventListener("pointerdown", away, true);
-    window.addEventListener("blur", blur);
-    return () => {
-      window.removeEventListener("pointerdown", away, true);
-      window.removeEventListener("blur", blur);
-    };
-  }, [open !== null]);
+  // A press outside the titles and the open drop-down, or the window losing focus, closes it; its own
+  // keys handle Escape and moving between menus (below).
+  usePopover(root, open !== null, { escape: false, onDismiss: () => setOpen(null) });
 
   // Alt pressed and released on its own moves focus to the first title. Anything else while it's
   // held (another key, a click such as the scene view's Alt+click, the wheel) makes it a modifier.
