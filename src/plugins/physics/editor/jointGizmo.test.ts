@@ -1,11 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Engine, HingeJoint } from "../../../myco";
 import { AddComponent } from "../../../editor/document";
-import { jointOverlay } from "./jointGizmo";
+import { jointTool } from "./jointGizmo";
+import { FakeRenderSurface } from "../../../engine/render/fakeViewport";
+import type { EditorOverlay } from "../../../engine/editor";
+import { createRegistry } from "../../../editor/sdk/registry";
+import type { ViewportToolContribution } from "../../../editor/sdk";
+import { createViewportToolHost } from "../../../editor/viewportTools";
 import { ARC_RADIUS, arcPoints, crossLines, jointWire, perpendicular, rotateAround, zigzag } from "./jointMath";
 import { createNode } from "../../../editor/nodeCreate";
 import { openSceneFile } from "../../../editor/project";
-import { openScene, selection } from "../../../editor/state";
+import { openScene, playState, selection } from "../../../editor/state";
 import { DEMO_SCENE, demoAssets, demoSettings } from "../../../editor/testing";
 
 const close = (a: readonly number[], b: readonly number[]) => a.forEach((v, i) => expect(v).toBeCloseTo(b[i], 6));
@@ -53,13 +58,16 @@ describe("joint geometry", () => {
 
 describe("joint overlay", () => {
   let engine: Engine;
+  let view: ReturnType<typeof jointView>;
 
   beforeEach(async () => {
     engine = await Engine.create({ headless: true, kind: "editor", project: demoSettings(), assets: demoAssets() });
     openSceneFile(engine, DEMO_SCENE);
+    view = jointView(engine);
   });
 
   afterEach(() => {
+    view.stop();
     selection.value = null;
     engine.dispose();
   });
@@ -68,10 +76,10 @@ describe("joint overlay", () => {
     const scene = openScene.value!;
     const a = createNode(scene, "empty", { position: [0, 0, 0] });
     const b = createNode(scene, "empty", { position: [3, 0, 0] });
-    expect(jointOverlay(engine).lines).toEqual([]);
+    expect(view.overlay().lines).toEqual([]);
     scene.stack.execute(new AddComponent(a, { type: "engine.HingeJoint", data: { anchor: [1, 0, 0], axis: [0, 1, 0], autoConfigureConnectedAnchor: false, connectedAnchor: [0, 0, 0], useLimits: true, limits: { min: -45, max: 45 } } }));
     scene.sync.nodeFor(a)!.getBehavior(HingeJoint)!.connectedBody = scene.sync.nodeFor(b)!; // object references aren't document fields here
-    const overlay = jointOverlay(engine);
+    const overlay = view.overlay();
     const lines = overlay.lines;
     // cross (3), link, axis, arc, two radii
     expect(lines).toHaveLength(8);
@@ -79,6 +87,17 @@ describe("joint overlay", () => {
     expect(link).toBeDefined();
     const normal = lines[0].color;
     selection.value = a;
-    expect(jointOverlay(engine).lines[0].color).not.toBe(normal);
+    expect(view.overlay().lines[0].color).not.toBe(normal);
   });
 });
+
+/** The joint tool on `engine`'s scene view, over a fake viewport (ADR 0128): what it draws now, and a function that removes it. */
+function jointView(engine: Engine): { overlay: () => EditorOverlay; stop: () => void } {
+  const tools = createRegistry<ViewportToolContribution>("Viewport tool");
+  tools.register(jointTool);
+  const surface = new FakeRenderSurface();
+  engine.world.render = surface;
+  playState.value = "edit";
+  const stop = createViewportToolHost({ engine, world: engine.world, canvas: null, keys: new EventTarget(), tools });
+  return { overlay: () => surface.adapter.overlay?.() ?? { lines: [], handles: [] }, stop: () => (stop(), (engine.world.render = null)) };
+}

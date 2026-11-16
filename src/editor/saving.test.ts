@@ -4,7 +4,7 @@ import { SetField } from "./document";
 import { confirmDiscard } from "./dialogs";
 import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile, saveOpenScene } from "./project";
-import { editorSettings, joinPath, listAssetFiles, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
+import { editorSettings, joinPath, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
 import { currentProject, openScene, sceneCamera } from "./state";
 import { MemoryFileSystem, ROOT, demoFolder, raw } from "./testing";
 
@@ -15,7 +15,7 @@ describe("project folders (ADR 0026)", () => {
   });
 
   it("lists asset files, skipping scripts, hidden folders and node_modules", async () => {
-    const files = await listAssetFiles(demoFolder(), ROOT);
+    const { files } = await openFolderProject(demoFolder(), ROOT);
     expect(files).toContain("scenes/main.scene.json");
     expect(files).toContain("images/flappyBird.png");
     expect(files.some((f) => f.endsWith(".ts") || f.startsWith("node_modules") || f.startsWith(".git"))).toBe(false);

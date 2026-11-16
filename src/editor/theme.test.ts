@@ -1,22 +1,46 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ensureContrast } from "./colorMath";
 import {
-  applyTheme,
   BASE_KEYS,
   clampSize,
-  cleanFamily,
+  CODE_FONTS,
+  codeFontFamily,
+  codeFontSize,
   contrast,
   cssVar,
-  ensureContrast,
+  activePreset,
+  fonts,
+  installTheme,
   mergeBase,
   mix,
   monacoColors,
   parseHex,
-  presetById,
   PRESETS,
-  resolveTheme,
+  resetOverrides,
+  setOverride,
+  theme,
+  themePreset,
+  uiFontFamily,
+  uiFontSize,
+  UI_FONTS,
   viewportColors,
+  type ThemeBase,
+  type ThemePreset,
   type ThemeTokens,
 } from "./theme";
+
+const presetById = (id: string) => PRESETS.find((p) => p.id === id)!;
+
+/** The editor's theme tokens with `preset` chosen and `overrides` of its key colours set. */
+function resolveTheme(preset: ThemePreset, overrides: Partial<ThemeBase> = {}): ThemeTokens {
+  themePreset.value = preset.id;
+  resetOverrides();
+  for (const [key, value] of Object.entries(overrides)) setOverride(key as keyof ThemeBase, value);
+  const tokens = theme.value;
+  resetOverrides();
+  themePreset.value = "myco-dark";
+  return tokens;
+}
 
 describe("colour maths", () => {
   it("parses short and long hex, and mixes", () => {
@@ -42,7 +66,9 @@ describe("colour maths", () => {
 describe("presets", () => {
   it("include Myco Dark (the default), Myco Light and a high-contrast theme", () => {
     expect(PRESETS.map((p) => p.id)).toEqual(expect.arrayContaining(["myco-dark", "myco-light", "high-contrast"]));
-    expect(presetById("nonsense").id).toBe("myco-dark");
+    themePreset.value = "nonsense";
+    expect(activePreset.value.id).toBe("myco-dark");
+    themePreset.value = "myco-dark";
   });
 
   it.each(PRESETS.map((p) => [p.name, p] as const))("%s keeps text readable", (_name, preset) => {
@@ -102,7 +128,12 @@ describe("applying a theme", () => {
     const props = new Map<string, string>();
     const el = { style: { setProperty: (k: string, v: string) => props.set(k, v), colorScheme: "" }, dataset: {} as Record<string, string> };
     const t = resolveTheme(presetById("myco-light"));
-    applyTheme(el as unknown as HTMLElement, t, "light", { ui: "Verdana, sans-serif", uiSize: 15, code: "monospace", codeSize: 16 });
+    themePreset.value = "myco-light";
+    [uiFontFamily.value, uiFontSize.value, codeFontFamily.value, codeFontSize.value] = ["Verdana, sans-serif", 15, "monospace", 16];
+    const stop = installTheme(el as unknown as HTMLElement);
+    stop();
+    themePreset.value = "myco-dark";
+    [uiFontFamily.value, uiFontSize.value, codeFontFamily.value, codeFontSize.value] = [UI_FONTS[0].value, 13, CODE_FONTS[0].value, 13];
     for (const key of Object.keys(t) as (keyof ThemeTokens)[]) expect(props.get(cssVar(key))).toBe(t[key]);
     // The names other panels' CSS uses keep working.
     for (const name of ["--bg", "--panel", "--border", "--text", "--muted", "--accent", "--button", "--button-hover"]) expect(props.has(name)).toBe(true);
@@ -128,8 +159,11 @@ describe("applying a theme", () => {
     expect(clampSize(100, { min: 10, max: 20 }, 13)).toBe(20);
     expect(clampSize("abc", { min: 10, max: 20 }, 13)).toBe(13);
     expect(clampSize(14.6, { min: 10, max: 20 }, 13)).toBe(15);
-    expect(cleanFamily("  ", "serif")).toBe("serif");
-    expect(cleanFamily("Inter; } body { color: red", "serif")).toBe("Inter  body  color: red");
+    uiFontFamily.value = "  ";
+    expect(fonts.value.ui).toBe(UI_FONTS[0].value);
+    uiFontFamily.value = "Inter; } body { color: red";
+    expect(fonts.value.ui).toBe("Inter  body  color: red");
+    uiFontFamily.value = UI_FONTS[0].value;
   });
 });
 
@@ -154,7 +188,7 @@ describe("theme settings", () => {
     expect(JSON.parse(store.get("myco.editor.themeOverrides")!)).toEqual({ "myco-dark": { accent: "#ff8800" } });
 
     m.themePreset.value = "myco-light"; // another preset: its own (no) overrides
-    expect(m.theme.value.accent).toBe(m.presetById("myco-light").base.accent);
+    expect(m.theme.value.accent).toBe(m.PRESETS.find((p) => p.id === "myco-light")!.base.accent);
     expect(store.get("myco.editor.theme")).toBe('"myco-light"');
     m.themePreset.value = "myco-dark";
     expect(m.theme.value.accent).toBe("#ff8800");

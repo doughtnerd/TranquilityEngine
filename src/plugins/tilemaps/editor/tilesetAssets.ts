@@ -37,7 +37,7 @@ export function tilesForSlices(settings: ImportSettings, image: string, firstId 
 }
 
 /** A tileset with one tile per slice of an image (ids 1…n), sized by the first slice, or 16 × 16 for an image without slices. */
-export function tilesetFromSlices(imagePath: string, project: EditorProject | null = editor.project.current): TilesetData {
+function tilesetFromSlices(imagePath: string, project: EditorProject | null = editor.project.current): TilesetData {
   const settings = project ? editor.assets.importSettings(project, imagePath).settings : null;
   const ts = newTileset();
   if (!settings || settings.sprites.length === 0) return ts;

@@ -1,10 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Engine, PolygonCollider2D } from "../../../myco";
 import { AddComponent, SetField } from "../../../editor/document";
-import { colliderOverlay, colliderShapes, editingCollider } from "./colliderGizmo";
+import { FakeRenderSurface } from "../../../engine/render/fakeViewport";
+import type { EditorOverlay } from "../../../engine/editor";
+import { createRegistry } from "../../../editor/sdk/registry";
+import type { ViewportToolContribution } from "../../../editor/sdk";
+import { createViewportToolHost, selectableOutlines } from "../../../editor/viewportTools";
+import { colliderTool, editingCollider } from "./colliderGizmo";
 import { MIN_EXTENT, capsule2DHandles, capsule2DPoints, dragCapsule2DHeight, dragCapsule2DRadius, boxCorners, boxHandles, circleHandles, circlePoints, dragBoxEdge, dragCircleRadius, pointInPolygon, polygonArea, toLocal, toWorld, type Pose2D } from "./colliderMath";
 import { openSceneFile } from "../../../editor/project";
-import { openScene, selection } from "../../../editor/state";
+import { openScene, playState, selection } from "../../../editor/state";
 import { DEMO_SCENE, demoAssets, demoSettings } from "../../../editor/testing";
 
 const close = (a: readonly number[], b: readonly number[]) => a.forEach((v, i) => expect(v).toBeCloseTo(b[i], 6));
@@ -89,13 +94,16 @@ describe("dragging handles", () => {
 
 describe("the overlay with the demo scene open", () => {
   let engine: Engine;
+  let view: ReturnType<typeof colliderView>;
 
   beforeEach(async () => {
     engine = await Engine.create({ headless: true, kind: "editor", project: demoSettings(), assets: demoAssets() });
     openSceneFile(engine, DEMO_SCENE);
+    view = colliderView(engine);
   });
 
   afterEach(() => {
+    view.stop();
     editingCollider.value = null;
     selection.value = null;
     engine.dispose();
@@ -103,7 +111,7 @@ describe("the overlay with the demo scene open", () => {
 
   it("outlines every collider, the selected one brighter, with no handles until editing", () => {
     selection.value = "bird";
-    const overlay = colliderOverlay(engine);
+    const overlay = view.overlay();
     expect(overlay.lines).toHaveLength(3); // ground, ceiling, bird
     const bird = overlay.lines.find((l) => l.points.length > 4)!;
     expect(bird.color).not.toBe(overlay.lines.find((l) => l !== bird)!.color);
@@ -116,23 +124,23 @@ describe("the overlay with the demo scene open", () => {
     stack.execute(new AddComponent("bird", { type: "engine.CharacterController2D", data: { radius: 0.5, height: 2 } }));
     const node = sync.nodeFor("bird")!;
     stack.execute(new SetField("bird", "engine.Transform", "rotation", 90));
-    const shape = colliderShapes(engine).filter((s) => s.node === node).find((s) => s.points.length === 34)!;
+    const shape = selectableOutlines(engine.world).filter((s) => s.node === node).find((s) => s.points.length === 34)!;
     const ys = shape.points.map((p) => p[1]), xs = shape.points.map((p) => p[0]);
     expect(Math.max(...ys) - Math.min(...ys)).toBeCloseTo(2 * Math.abs(node.transform!.worldScale.y));
     expect(Math.max(...xs) - Math.min(...xs)).toBeCloseTo(1 * Math.abs(node.transform!.worldScale.x));
     selection.value = "bird";
     editingCollider.value = { key: "bird", type: "engine.CharacterController2D", index: 0 };
-    expect(colliderOverlay(engine).handles.map((h) => h.id).sort()).toEqual(["center", "height-bottom", "height-top", "radius-left", "radius-right"]);
+    expect(view.overlay().handles.map((h) => h.id).sort()).toEqual(["center", "height-bottom", "height-top", "radius-left", "radius-right"]);
   });
 
   it("adds handles for the collider being edited", () => {
     selection.value = "ground-collider";
     editingCollider.value = { key: "ground-collider", type: "engine.BoxCollider2D", index: 0 };
-    const ids = colliderOverlay(engine).handles.map((h) => h.id);
+    const ids = view.overlay().handles.map((h) => h.id);
     expect(ids.sort()).toEqual(["bottom", "center", "left", "right", "top"]);
 
     selection.value = "bird"; // a stale edit target draws nothing
-    expect(colliderOverlay(engine).handles).toEqual([]);
+    expect(view.overlay().handles).toEqual([]);
   });
 
   it("outlines polygon (closed) and edge (open) colliders, with vertex and insert handles when edited (ADR 0039)", () => {
@@ -142,13 +150,24 @@ describe("the overlay with the demo scene open", () => {
     const node = sync.nodeFor("bird")!;
     expect(node.getBehavior(PolygonCollider2D)!.points).toEqual([[0, 0], [1, 0], [0, 1]]);
     selection.value = "bird";
-    const lines = colliderOverlay(engine).lines;
+    const lines = view.overlay().lines;
     expect(lines.filter((l) => l.points.length === 3 && l.closed)).toHaveLength(1);
     expect(lines.filter((l) => l.points.length === 2 && !l.closed)).toHaveLength(1);
     editingCollider.value = { key: "bird", type: "engine.PolygonCollider2D", index: 0 };
-    const ids = colliderOverlay(engine).handles.map((h) => h.id).sort();
+    const ids = view.overlay().handles.map((h) => h.id).sort();
     expect(ids).toEqual(["center", "insert:0", "insert:1", "insert:2", "vertex:0", "vertex:1", "vertex:2"]);
     stack.execute(new SetField("bird", "engine.PolygonCollider2D", "points", [[0, 0], [1, 0], [1, 1], [0, 1]]));
-    expect(colliderOverlay(engine).handles.filter((h) => h.id.startsWith("vertex:"))).toHaveLength(4);
+    expect(view.overlay().handles.filter((h) => h.id.startsWith("vertex:"))).toHaveLength(4);
   });
 });
+
+/** The collider tool on `engine`'s scene view, over a fake viewport (ADR 0128): what it draws now, and a function that removes it. */
+function colliderView(engine: Engine): { overlay: () => EditorOverlay; stop: () => void } {
+  const tools = createRegistry<ViewportToolContribution>("Viewport tool");
+  tools.register(colliderTool);
+  const surface = new FakeRenderSurface();
+  engine.world.render = surface;
+  playState.value = "edit";
+  const stop = createViewportToolHost({ engine, world: engine.world, canvas: null, keys: new EventTarget(), tools });
+  return { overlay: () => surface.adapter.overlay?.() ?? { lines: [], handles: [] }, stop: () => (stop(), (engine.world.render = null)) };
+}

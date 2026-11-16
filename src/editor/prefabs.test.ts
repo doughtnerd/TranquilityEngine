@@ -3,7 +3,7 @@ import { Engine, GameObject, Input } from "../engine";
 import { SpriteRenderer } from "../engine/render/components";
 import { AddNode, RevertOverrides, SetField, SetOverrides, type SceneFile } from "./document";
 import { OrbitCamera } from "./OrbitCamera";
-import { createPrefabFromNodes, addInnerNode, removeInnerNode, applyOverrides, createPrefab, findInner, innerNodes, isOverridden, newPrefabPath, prefabFileName } from "./prefabs";
+import { createPrefabFromNodes, addInnerNode, removeInnerNode, applyOverridesTo, createPrefab, findInner, instanceInnerNodes, isOverridden } from "./prefabs";
 import { openSceneFile } from "./project";
 import { editorSettings, joinPath, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
 import { currentProject, openScene, sceneCamera } from "./state";
@@ -33,7 +33,7 @@ function addPipe(id = "pipe"): void {
 describe("prefab structure (ADR 0013)", () => {
   it("lists the nodes inside an instance from its prefab file", () => {
     addPipe();
-    const inner = innerNodes("prefabs/pipe-pair.prefab.json", ["pipe"]);
+    const inner = instanceInnerNodes(openScene.value!.doc, "pipe");
     expect(inner.map((n) => n.name)).toEqual(["Top", "Bottom", "ScoreGate"]);
     expect(inner[0].path).toEqual(["pipe", "top"]);
     expect(findInner(openScene.value!.doc, ["pipe", "bottom"])?.name).toBe("Bottom");
@@ -41,7 +41,7 @@ describe("prefab structure (ADR 0013)", () => {
   });
 
   it("an instance whose prefab is a single node has no inner nodes", () => {
-    expect(innerNodes("prefabs/background.prefab.json", ["bg-a"])).toEqual([]);
+    expect(instanceInnerNodes(openScene.value!.doc, "bg-a")).toEqual([]);
   });
 });
 
@@ -68,7 +68,7 @@ describe("Apply (ADR 0022)", () => {
   it("writes overrides into the prefab file and refreshes every instance", async () => {
     const scene = openScene.value!;
     scene.stack.execute(new SetField("bg-a", "engine.SpriteRenderer", "color", "#ff0000"));
-    expect(await applyOverrides(scene, project, "bg-a")).toBe(1);
+    expect(await applyOverridesTo(scene, project, ["bg-a"])).toBe(1);
 
     const tile = fileOf("prefabs/background.prefab.json").nodes[0];
     expect(tile.components!.find((c) => c.type === "engine.SpriteRenderer")!.data!.color).toBe("#ff0000");
@@ -91,7 +91,7 @@ describe("Apply (ADR 0022)", () => {
         { component: "engine.SpriteRenderer", enabled: false },
       ]),
     );
-    expect(await applyOverrides(scene, project, "bg-a")).toBe(4);
+    expect(await applyOverridesTo(scene, project, ["bg-a"])).toBe(4);
     const tile = fileOf("prefabs/background.prefab.json").nodes[0];
     expect(tile.components!.map((c) => c.type)).toEqual(["engine.Transform", "engine.SpriteRenderer", "engine.BoxCollider2D"]);
     expect(tile.components![1].enabled).toBe(false);
@@ -100,7 +100,7 @@ describe("Apply (ADR 0022)", () => {
 
     // Inside the pipe: the top node is plain in pipe-pair.prefab.json, so it's edited directly.
     scene.stack.execute(new SetOverrides("pipe", "components", [{ target: ["top"], component: "engine.BoxCollider2D", enabled: false }]));
-    expect(await applyOverrides(scene, project, "pipe")).toBe(1);
+    expect(await applyOverridesTo(scene, project, ["pipe"])).toBe(1);
     const top = fileOf("prefabs/pipe-pair.prefab.json").nodes.find((n) => n.id === "top")!;
     expect(top.components!.find((c) => c.type === "engine.BoxCollider2D")!.enabled).toBe(false);
   });
@@ -108,7 +108,7 @@ describe("Apply (ADR 0022)", () => {
   it("writes a component's Worlds override into the prefab (ADR 0042)", async () => {
     const scene = openScene.value!;
     scene.stack.execute(new SetOverrides("bg-a", "Set Worlds", [{ component: "game.Scroller", worlds: ["client"] }]));
-    expect(await applyOverrides(scene, project, "bg-a")).toBe(1);
+    expect(await applyOverridesTo(scene, project, ["bg-a"])).toBe(1);
     const tile = fileOf("prefabs/background.prefab.json").nodes[0];
     expect(tile.components!.find((c) => c.type === "game.Scroller")).toEqual({ type: "game.Scroller", worlds: ["client"], data: { speed: 0.5, wrapWidth: 32 } });
   });
@@ -118,13 +118,13 @@ describe("Apply (ADR 0022)", () => {
     scene.stack.execute(
       new SetOverrides("bg-a", "order", [{ addComponent: { type: "engine.CircleCollider2D" } }, { order: ["engine.CircleCollider2D", "engine.SpriteRenderer"] }]),
     );
-    expect(await applyOverrides(scene, project, "bg-a")).toBe(2);
+    expect(await applyOverridesTo(scene, project, ["bg-a"])).toBe(2);
     const tile = fileOf("prefabs/background.prefab.json").nodes[0];
     expect(tile.components!.map((c) => c.type)).toEqual(["engine.Transform", "engine.CircleCollider2D", "game.Scroller", "engine.SpriteRenderer"]);
 
     addPipe();
     scene.stack.execute(new SetOverrides("pipe", "order", [{ target: ["top"], order: ["engine.BoxCollider2D", "engine.SpriteRenderer"] }]));
-    await applyOverrides(scene, project, "pipe");
+    await applyOverridesTo(scene, project, ["pipe"]);
     const top = fileOf("prefabs/pipe-pair.prefab.json").nodes.find((n) => n.id === "top")!;
     expect(top.components!.map((c) => c.type)).toEqual(["engine.Transform", "engine.BoxCollider2D", "engine.SpriteRenderer"]);
   });
@@ -133,15 +133,16 @@ describe("Apply (ADR 0022)", () => {
     const scene = openScene.value!;
     scene.stack.execute(new SetField("bg-a", "engine.SpriteRenderer", "color", "#ff0000"));
     const readOnly = { ...project, canSave: false, name: "Demo" } as EditorProject;
-    await expect(applyOverrides(scene, readOnly, "bg-a")).rejects.toThrow(/read-only/);
+    await expect(applyOverridesTo(scene, readOnly, ["bg-a"])).rejects.toThrow(/read-only/);
   });
 });
 
 describe("Create Prefab (ADR 0022)", () => {
-  it("names files safely and avoids existing ones", () => {
-    expect(prefabFileName("GroundCollider")).toBe("ground-collider");
-    expect(prefabFileName("  My Pipe #2 ")).toBe("my-pipe-2");
-    expect(newPrefabPath(project, "Ground")).toBe("prefabs/ground-2.prefab.json"); // ground.prefab.json exists
+  it("names files safely and avoids existing ones", async () => {
+    const scene = openScene.value!;
+    expect(await createPrefabFromNodes(scene, project, ["ceiling", "ground-collider"], "GroundCollider")).toBe("prefabs/ground-collider.prefab.json");
+    expect(await createPrefabFromNodes(scene, project, ["bg-a", "bg-b"], "  My Pipe #2 ")).toBe("prefabs/my-pipe-2.prefab.json");
+    expect(await createPrefabFromNodes(scene, project, ["ground-a", "ground-b"], "Ground")).toBe("prefabs/ground-2.prefab.json"); // ground.prefab.json exists
   });
 
   it("turns a node into a prefab file plus an instance in the same place", async () => {
@@ -187,7 +188,7 @@ describe("child node overrides (ADR 0086)", () => {
     expect(doc.node("pipe").overrides).toBeUndefined();
     stack.redo();
     const { project: _p } = { project };
-    await applyOverrides(openScene.value!, project, "pipe");
+    await applyOverridesTo(openScene.value!, project, ["pipe"]);
     const file = fileOf("prefabs/pipe-pair.prefab.json");
     expect(file.nodes.find((n) => n.id === "node")).toMatchObject({ name: "Spike", parent: "top" });
     expect(doc.node("pipe").overrides).toBeUndefined();
@@ -199,7 +200,7 @@ describe("child node overrides (ADR 0086)", () => {
     removeInnerNode(openScene.value!, ["pipe", "bottom"]);
     expect(doc.node("pipe").overrides).toEqual([{ target: ["bottom"], removeNode: true }]);
     expect(sync.nodeFor(["pipe", "bottom"])?.isValid ?? false).toBe(false);
-    await applyOverrides(openScene.value!, project, "pipe");
+    await applyOverridesTo(openScene.value!, project, ["pipe"]);
     expect(fileOf("prefabs/pipe-pair.prefab.json").nodes.some((n) => n.id === "bottom")).toBe(false);
   });
 

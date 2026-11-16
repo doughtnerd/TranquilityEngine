@@ -13,7 +13,7 @@ import { openSceneFile } from "./project";
 import { editorSettings, joinPath, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
 import { currentProject, openScene, playState, sceneCamera, select, status } from "./state";
 import { editorTextFiles } from "./textFiles";
-import { beginMove, beginResize, whyNoHandles, type BoxOf } from "./uiHandles";
+import { beginMove, beginResize, whyNoHandles, type BoxOf } from "./uiHandleDrags";
 import { resolveUIElement, type UIElementRef } from "./uiDocuments";
 
 const ROOT = "C:\\Games\\handles";

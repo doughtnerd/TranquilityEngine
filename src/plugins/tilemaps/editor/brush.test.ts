@@ -8,7 +8,8 @@ import { tilemapsEditorPlugin } from ".";
 import { openSceneFile } from "../../../editor/project";
 import { openScene } from "../../../editor/state";
 import { DEMO_SCENE, demoAssets, demoSettings } from "../../../editor/testing";
-import { activeLayer, brushFlags, brushRandom, brushStamp, brushTerrain, brushValueAt, combineFlags, commitTilemap, fillAt, paintCells, pickFromMap, strokeCells } from "./brush";
+import { activeLayer, brushFlags, brushRandom, brushStamp, brushTerrain, commitTilemap, fillAt, paintCells, pickFromMap, strokeCells } from "./brush";
+import { brushValueAt, combineFlags } from "./brushCells";
 
 const TILESET = {
   format: "myco.tileset@1",

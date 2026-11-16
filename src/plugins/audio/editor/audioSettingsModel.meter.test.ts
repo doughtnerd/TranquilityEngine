@@ -2,7 +2,7 @@
 // reset option. The view is thin over these functions; a case per control option.
 import { describe, expect, it } from "vitest";
 import { audioSection } from "../../../engine/audio/audioSection";
-import { readDraft } from "../../../editor/projectSettingsModel";
+import { readDraft } from "../../../editor/testing";
 import {
   addBus, addLoudnessTarget, audioOf, busMeterRefusal, isBusMetered, loudnessTargetRefusal, loudnessTargets, meteredBusCount,
   removeLoudnessTarget, setBusMeter, setLoudnessResetOnPlay, setLoudnessTarget, MAX_LOUDNESS_TARGETS,

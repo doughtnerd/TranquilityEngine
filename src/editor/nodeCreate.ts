@@ -30,7 +30,7 @@ const UI_ELEMENTS: Record<UIKind, { type: string; data: Record<string, unknown> 
 type Vec3 = readonly [number, number, number];
 
 /** The editor's own kinds, in menu order, with their base names. Plugins' kinds join them in `newNodeKinds()`. */
-export const NEW_NODE_KINDS: readonly { kind: NewNodeKind; label: string; name: string }[] = [
+const NEW_NODE_KINDS: readonly { kind: NewNodeKind; label: string; name: string }[] = [
   { kind: "empty", label: "Empty", name: "Node" },
   { kind: "sprite", label: "Sprite", name: "Sprite" },
   { kind: "camera", label: "Camera", name: "Camera" },
@@ -99,7 +99,7 @@ export function uniqueName(doc: SceneDocument, parent: string | null, base: stri
 }
 
 /** The scene entry for a new node of `kind` under `parent`, at `position` in the parent's space. */
-export function newNodeEntry(doc: SceneDocument, kind: NodeKind, parent: string | null, position: Vec3 = [0, 0, 0], effect = ""): NodeEntry {
+function newNodeEntry(doc: SceneDocument, kind: NodeKind, parent: string | null, position: Vec3 = [0, 0, 0], effect = ""): NodeEntry {
   const contributed = contributedKind(kind);
   const info = contributed ?? NEW_NODE_KINDS.find((k) => k.kind === kind);
   if (!info) throw new Error(`there is no "${kind}" node kind (is its plugin disabled?)`);

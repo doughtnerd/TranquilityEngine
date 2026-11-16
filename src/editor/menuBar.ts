@@ -112,10 +112,10 @@ export interface MenuActions {
 
 export const DOCS_URL = "https://github.com/doughtnerd/tranquilityengine/tree/master/docs/guide";
 
-export const NO_SCENE = "open a scene first";
+const NO_SCENE = "open a scene first";
 export const NO_PROJECT = "open a project first";
-export const READ_ONLY = "this project is read-only; open a project folder to save";
-export const STOP_PLAYING = "stop playing to edit the scene";
+const READ_ONLY = "this project is read-only; open a project folder to save";
+const STOP_PLAYING = "stop playing to edit the scene";
 const NO_FOLDER_ACCESS = "this browser can't open project folders; use the desktop editor or a Chromium browser";
 
 /** The Undo item's text: "Undo <what>", or just "Undo" when there's nothing to undo. */
@@ -155,7 +155,7 @@ function fileMenu(s: MenuState, a: MenuActions): Menu {
   return { id: "file", label: "File", items };
 }
 
-export const NOTHING_SELECTED = "nothing selected";
+const NOTHING_SELECTED = "nothing selected";
 
 function editMenu(s: MenuState, a: MenuActions): Menu {
   const items: MenuEntry[] = [

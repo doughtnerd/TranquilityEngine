@@ -13,7 +13,7 @@ import type { UIComponentType } from "../engine/ui/components";
 const visibleColor = (c: Color | null | undefined): boolean => !!c && c.a > 0;
 
 /** True when the element draws something under the pointer: a fill, border, text or image (nothing at zero opacity). */
-export function isPaintedUI(c: UIComponentType): boolean {
+function isPaintedUI(c: UIComponentType): boolean {
   if (!(c instanceof UIPanel || c instanceof UIText || c instanceof UIImage)) return false; // a canvas draws nothing itself
   if (c.opacity <= 0) return false;
   if (c instanceof UIText) return c.text.trim() !== "";

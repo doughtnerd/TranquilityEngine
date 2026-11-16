@@ -18,7 +18,7 @@ export const scriptFolderFor = (assetFolder: string) => (assetFolder === "script
  * defines to those nodes (looked up again by path, since loading rebuilds the scene). Returns
  * the script's path.
  */
-export async function createScript(kind: ScriptKind, name: string, folder: string, addTo: readonly NodePath[] = []): Promise<string> {
+async function createScript(kind: ScriptKind, name: string, folder: string, addTo: readonly NodePath[] = []): Promise<string> {
   const path = `${folder}/${name}.ts`;
   await saveScript(path, scriptTemplate(kind, name));
   openScript(path);

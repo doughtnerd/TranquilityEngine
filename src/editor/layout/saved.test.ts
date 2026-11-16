@@ -1,17 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { BUILTIN_PANELS } from "../ui/panels.builtin";
-import { panelCatalog } from "./catalog";
+import { registerBuiltinPanels } from "../ui/panels.builtin";
+import { registeredPanels } from "./registeredPanels";
 import { closePanel, defaultLayout, instancesOf } from "./model";
-import { MAX_VERSIONS, addVersion, fileNameFor, layoutOf, matchesHead, mergeSaved, newLayoutFile, parseLayoutFile, pruneVersions, restoreVersion, scopeLabel, slugOf, type LayoutFile } from "./saved";
+import { addVersion, fileNameFor, layoutOf, matchesHead, mergeSaved, newLayoutFile, parseLayoutFile, restoreVersion, scopeLabel, type LayoutFile } from "./saved";
 
-const catalog = panelCatalog(BUILTIN_PANELS);
+/** How many versions a layout file keeps. */
+const MAX_VERSIONS = 50;
+
+registerBuiltinPanels(); // as the editor does at boot
+const catalog = registeredPanels();
 
 describe("layout files (ADR 0174)", () => {
   it("names files from layout names, numbering clashes", () => {
-    expect(slugOf("Custom")).toBe("custom");
-    expect(slugOf("  Level Design / Audio! ")).toBe("level-design-audio");
-    expect(slugOf("Été")).toBe("ete");
-    expect(slugOf("!!!")).toBe("layout");
+    expect(fileNameFor("  Level Design / Audio! ", new Set())).toBe("level-design-audio.layout.json");
+    expect(fileNameFor("Été", new Set())).toBe("ete.layout.json");
+    expect(fileNameFor("!!!", new Set())).toBe("layout.layout.json");
     expect(fileNameFor("Custom", new Set())).toBe("custom.layout.json");
     expect(fileNameFor("Custom", new Set(["custom.layout.json"]))).toBe("custom-2.layout.json");
   });
@@ -36,15 +39,18 @@ describe("layout files (ADR 0174)", () => {
     for (let i = 1; i <= MAX_VERSIONS + 5; i++) f = addVersion(f, a, i);
     expect(f.versions).toHaveLength(MAX_VERSIONS);
     expect(f.versions.some((v) => v.seq === f.head)).toBe(true);
-    // A branch: head on an old line keeps its ancestors.
+    // A branch: head on an old line keeps its ancestors; the old branch goes first, oldest first.
     let g = newLayoutFile("G", a, 0);
     g = addVersion(g, a, 1); // 2
     g = addVersion(g, a, 2); // 3
     g = restoreVersion(g, 1);
-    g = addVersion(g, a, 3); // 4, child of 1
-    const pruned = pruneVersions(g, 2);
-    expect(pruned.versions.map((v) => v.seq).sort()).toEqual([1, 4]);
-    expect(pruned.versions.find((v) => v.seq === 4)!.parent).toBe(1);
+    for (let i = 3; g.versions.length < MAX_VERSIONS; i++) g = addVersion(g, a, i); // 4…, a line from 1
+    expect(g.versions.map((v) => v.seq).slice(0, 3)).toEqual([1, 2, 3]);
+    g = addVersion(g, a, 100);
+    expect(g.versions.map((v) => v.seq).slice(0, 3)).toEqual([1, 3, 4]); // 2, the oldest off head's line
+    g = addVersion(g, a, 101);
+    expect(g.versions.map((v) => v.seq).slice(0, 2)).toEqual([1, 4]);
+    expect(g.versions.find((v) => v.seq === 4)!.parent).toBe(1);
   });
 
   it("reads files back and rejects broken ones", () => {

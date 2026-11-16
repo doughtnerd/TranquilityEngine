@@ -6,7 +6,8 @@
 // import settings sidecar dropped beside its file follows the file's new name.
 import type { FileSystem } from "../engine/platform/FileSystem";
 import { isSidecarPath, sidecarAsset, sidecarPath } from "../engine/scene/importSettings";
-import { splitExtension, whyNotValidName } from "./assetOps";
+import { whyNotValidName } from "./assetOps";
+import { numberedName } from "./freePath";
 import { errorStatus } from "./messages";
 import { isScriptPath, isTextAsset, joinPath } from "./projectPaths";
 import type { EditorProject } from "./projects";
@@ -29,19 +30,12 @@ export function whyNotImportable(project: EditorProject | null): string | null {
   return null;
 }
 
-/** `name` with " (n)" before its extension (`a.png` → `a (1).png`; `x.scene.json` → `x (1).scene.json`); n 0 is the name itself. */
-export function numberedName(name: string, n: number): string {
-  if (n === 0) return name;
-  const [base, ext] = splitExtension(name);
-  return `${base} (${n})${ext}`;
-}
-
 /**
  * Where each incoming file goes in `folder`: a map from its incoming path to a project path.
  * `isTaken` says whether a project path is a file or folder already. Top-level names that are taken
  * are numbered; so is a file's sidecar when its file is, and files inside a dropped folder follow the folder.
  */
-export function planImport(isTaken: (path: string) => boolean, folder: string, incoming: readonly string[]): Map<string, string> {
+function planImport(isTaken: (path: string) => boolean, folder: string, incoming: readonly string[]): Map<string, string> {
   const tops = new Set(incoming.map((p) => p.split("/")[0]));
   const renamed = new Map<string, string>();
   const claimed = new Set<string>();

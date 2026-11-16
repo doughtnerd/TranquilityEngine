@@ -10,7 +10,7 @@ const splice = (text: string, start: number, end: number, insert: string) => tex
 const normalize = (selector: string) => selector.trim().replace(/\s+/g, " ").replace(/\s*([>,])\s*/g, "$1");
 
 /** The rules of a sheet, with spans into `text`. */
-export function rulesOf(text: string): readonly StyleRule[] {
+function rulesOf(text: string): readonly StyleRule[] {
   return parseStylesheet(text, "edit.ui.css").rules;
 }
 

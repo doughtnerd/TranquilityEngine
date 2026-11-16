@@ -3,7 +3,10 @@ import { componentNotes, projectSettingsSections } from "../../../editor/sdk/con
 import { isPluginActive } from "../../../editor/sdk";
 import { useEditorPlugins } from "../../testEditorPlugins";
 import { physicsEditorPlugin } from "./index";
-import { backendOf, backendOptions, componentDimension, DEFAULT_BACKEND_LABEL, NO_BACKEND_NOTE, noBackendNote, setBackend } from "./physicsEditorModel";
+import { backendOf, backendOptions, noBackendNote, setBackend } from "./physicsEditorModel";
+
+const NO_BACKEND_NOTE = "(no physics backend)";
+const DEFAULT_BACKEND_LABEL = "Default (only registered)";
 
 describe("physics editor half", () => {
   const editorHalf = useEditorPlugins([physicsEditorPlugin], "each");
@@ -21,10 +24,11 @@ describe("physics editor half", () => {
 describe("noBackendNote", () => {
   const state = (count2d: number, count3d: number, owner = "myco.physics") => ({ pluginOf: () => owner, backendCount: (d: "2d" | "3d") => (d === "2d" ? count2d : count3d) });
   it("finds a Component's dimension", () => {
-    expect(componentDimension("engine.RigidBody2D")).toBe("2d");
-    expect(componentDimension("engine.TilemapCollider2D")).toBe("2d");
-    expect(componentDimension("engine.RigidBody")).toBe("3d");
-    expect(componentDimension("engine.Buoyancy")).toBe("3d");
+    const no2d = state(0, 1); // ids ending in 2D are 2D, the rest 3D
+    expect(noBackendNote("engine.RigidBody2D", no2d)).toBe(NO_BACKEND_NOTE);
+    expect(noBackendNote("engine.TilemapCollider2D", no2d)).toBe(NO_BACKEND_NOTE);
+    expect(noBackendNote("engine.RigidBody", no2d)).toBeNull();
+    expect(noBackendNote("engine.Buoyancy", no2d)).toBeNull();
   });
   it("labels only physics Components whose dimension has no backend", () => {
     expect(noBackendNote("engine.RigidBody2D", state(0, 1))).toBe(NO_BACKEND_NOTE);

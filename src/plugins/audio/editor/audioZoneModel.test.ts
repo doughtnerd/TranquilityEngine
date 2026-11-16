@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseAudioSettings } from "../../../engine/audio/settings";
-import { readDraft, withSettings } from "../../../editor/projectSettingsModel";
+import { withSettings } from "../../../editor/projectSettingsModel";
+import { readDraft } from "../../../editor/testing";
 import { audioOf, setZoneStandby, zoneMemory, zoneSlots, zoneWarnings } from "./audioSettingsModel";
 
 // ADR 0162 C6: zones.standby, the slot count and the zone memory (architecture section 6: 1.7 / 9.2 / 18.0 MB).

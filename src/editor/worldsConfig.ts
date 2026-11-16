@@ -11,7 +11,7 @@ import { DEFAULT_WORLD_NAME, DEFAULT_WORLD_TAGS, worldsMatch } from "../engine/c
 export const PRESET_TAGS: readonly WorldTag[] = ["default", "client", "server", "local", "editor"];
 
 /** Transports offered for links even before they're registered (ADR 0033). */
-export const KNOWN_TRANSPORTS: readonly string[] = ["loopback", "websocket"];
+const KNOWN_TRANSPORTS: readonly string[] = ["loopback", "websocket"];
 
 /** A template's config: a World config whose name is optional (it defaults to the template's). */
 export type TemplateConfig = Omit<WorldConfig, "name"> & { name?: string };
@@ -51,7 +51,7 @@ export type BootstrapView =
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 
 /** The default bootstrap's single World, as a model. */
-export function defaultModel(): WorldsModel {
+function defaultModel(): WorldsModel {
   return { worlds: [{ name: DEFAULT_WORLD_NAME, tags: [...DEFAULT_WORLD_TAGS] }], links: [], templates: [] };
 }
 
@@ -361,7 +361,7 @@ export function extraOptionKeys(link: LinkConfig): string[] {
 }
 
 /** Problems with one link's option values (`where` is its location prefix, as `validateBootstrap` writes it). */
-export function linkOptionProblems(link: LinkConfig, where: string): string[] {
+function linkOptionProblems(link: LinkConfig, where: string): string[] {
   const out: string[] = [];
   const options = link.options;
   if (typeof options !== "object" || options === null || Array.isArray(options)) return out;
@@ -442,7 +442,7 @@ export function systemStatus(config: { tags?: readonly WorldTag[]; systems?: Sys
  * leaves both lists, then goes into `include` or `exclude` only if the tags alone would disagree.
  * Undefined when nothing is left to select.
  */
-export function selectSystem(config: { tags?: readonly WorldTag[]; systems?: SystemSelection }, entry: SystemCatalogEntry, on: boolean): SystemSelection | undefined {
+function selectSystem(config: { tags?: readonly WorldTag[]; systems?: SystemSelection }, entry: SystemCatalogEntry, on: boolean): SystemSelection | undefined {
   const include = (config.systems?.include ?? []).filter((n) => n !== entry.name);
   const exclude = (config.systems?.exclude ?? []).filter((n) => n !== entry.name);
   const byTags = worldsMatch(entry.worlds, tagsOf(config));
@@ -600,15 +600,6 @@ function formatJsonValue(value: unknown, indent = "", unit = "  ", nl = "\n"): s
   return JSON.stringify(value) ?? "null";
 }
 
-/**
- * `project.json`'s text with its `bootstrap` set to `setting` (or removed, for undefined). Every
- * other key keeps its text exactly; the section follows the file's indent and line endings. Text
- * it can't scan is rewritten whole (2-space JSON with a trailing newline).
- */
-export function withBootstrap(text: string, setting: BootstrapConfig | string | undefined): string {
-  return withMember(text, "bootstrap", setting);
-}
-
 /** A value on one line: compact (`{"a":[1,2]}`) or spaced (`{ "a": [1, 2] }`). */
 function formatJsonInline(value: unknown, spaced: boolean): string {
   if (!spaced) return JSON.stringify(value) ?? "null";
@@ -622,7 +613,7 @@ function formatJsonInline(value: unknown, spaced: boolean): string {
 
 /**
  * A JSON object's text with its top-level `key` set to `setting` (or removed, for undefined), the
- * way `withBootstrap` sets `bootstrap`: every other key keeps its text exactly. A file laid out one
+ * way the Worlds panel sets `bootstrap`: every other key keeps its text exactly. A file laid out one
  * key per line gets the value in that layout, at the keys' indent; a file on one line stays on one
  * line, with its own spacing after `:` and between keys.
  */

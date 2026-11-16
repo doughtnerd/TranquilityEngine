@@ -1,16 +1,19 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input } from "../engine";
-import { SceneDocument, type SceneFile } from "./document";
-import { filterHierarchy, parseHierarchyQuery } from "./hierarchyFilter";
+import { CommandStack, SceneDocument, type SceneFile } from "./document";
+import { filterHierarchy } from "./hierarchyFilter";
 import { moveNodes } from "./hierarchyEdit";
-import { createNode, newNodeEntry, uniqueName } from "./nodeCreate";
-import { copyNodes, cutNodes, duplicateNodes, entriesForPaste, clipboardText, pasteNodes, pasteTarget, subtreeRoots, whyNotCopyable, whyNotPastable } from "./nodeClipboard";
+import { createNode, uniqueName } from "./nodeCreate";
+import { copyNodes, cutNodes, duplicateNodes, clipboardText, pasteNodes, pasteTarget, subtreeRoots, whyNotCopyable, whyNotPastable } from "./nodeClipboard";
 import { nodeDrag, startNodeDrag } from "./nodeDrag";
 import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile } from "./project";
 import { editorSettings, useProjectAssets } from "./projects";
 import { openScene, sceneCamera, select, selectedKeys, type OpenScene } from "./state";
 import { sampleProject } from "./testing";
+
+/** A scene that isn't open in the editor, to paste into: its document and an undo stack. */
+const sceneOf = (doc: SceneDocument) => ({ doc, stack: new CommandStack(doc) }) as unknown as OpenScene;
 
 let scene: OpenScene;
 
@@ -58,7 +61,7 @@ describe("creating nodes", () => {
     expect(uniqueName(doc, null, "Node")).toBe("Node (2)");
     expect(uniqueName(doc, "b", "Node")).toBe("Node");
     expect(uniqueName(doc, null, "Node (1)")).toBe("Node (2)");
-    expect(newNodeEntry(doc, "empty", "a").name).toBe("Node (1)");
+    expect(doc.node(createNode(sceneOf(doc), "empty", { parent: "a" })).name).toBe("Node (1)");
   });
 });
 
@@ -91,11 +94,11 @@ describe("copy, paste, duplicate and cut", () => {
     const { doc } = scene;
     const ref = doc.references().find((r) => r.path.length === 1 && r.path[0] !== "bird" && doc.subtree(r.to).length > 0 && !doc.subtree(r.path[0]).includes(r.to))!;
     const clip = copyNodes(doc, [ref.path[0]]);
-    const same = entriesForPaste(doc, clip, null)[0][0];
-    expect(same.components!.find((c) => c.type === ref.type)!.data![ref.field]).toEqual({ $node: ref.to });
+    const [same] = pasteNodes(scene, clip, { parent: null });
+    expect(doc.fieldValue(same, ref.type, ref.field)).toEqual({ $node: ref.to });
     const other = new SceneDocument({ format: "myco.scene@1", nodes: [{ id: ref.to, name: "Lookalike" }] }, "scenes/other.scene.json");
-    const elsewhere = entriesForPaste(other, clip, null)[0][0];
-    expect(elsewhere.components!.find((c) => c.type === ref.type)!.data![ref.field]).toBeNull();
+    const [elsewhere] = pasteNodes(sceneOf(other), clip, { parent: null });
+    expect(other.fieldValue(elsewhere, ref.type, ref.field)).toBeNull();
   });
 
   it("copies prefab instances with their overrides", () => {
@@ -119,9 +122,9 @@ describe("copy, paste, duplicate and cut", () => {
   it("pasting into another scene works from the clipboard (paste survives switching scenes)", () => {
     const clip = copyNodes(scene.doc, ["bird"]);
     const other = new SceneDocument({ format: "myco.scene@1", nodes: [] }, "scenes/empty.scene.json");
-    const [[root, child]] = entriesForPaste(other, clip, null);
-    expect(root.id).toBe("bird");
-    expect(child.parent).toBe("bird");
+    const [root] = pasteNodes(sceneOf(other), clip, { parent: null });
+    expect(root).toBe("bird");
+    expect(other.children("bird")).toHaveLength(1);
   });
 
   it("duplicates several nodes, each after itself, as one step", () => {
@@ -225,7 +228,6 @@ describe("hierarchy search", () => {
   });
 
   it("matches component types with t:", () => {
-    expect(parseHierarchyQuery("t:Camera bird")).toEqual({ words: ["bird"], types: ["camera"] });
     const cams = filterHierarchy(scene.doc, "t:camera")!;
     expect([...cams.matches]).toEqual(["camera"]);
     const colliders = filterHierarchy(scene.doc, "t:BoxCollider2D")!;
@@ -235,5 +237,9 @@ describe("hierarchy search", () => {
     const sprites = filterHierarchy(scene.doc, "t:spriterenderer")!;
     expect(sprites.matches.has("bg-a")).toBe(true);
     expect(sprites.matches.has("bird-sprite")).toBe(true);
+    // Types and words together, in any case: both must match.
+    const colliderCeiling = filterHierarchy(scene.doc, "T:BoxCollider2D  CEIL")!;
+    expect([...colliderCeiling.matches]).toEqual(["ceiling"]);
+    expect(filterHierarchy(scene.doc, "t:")).toBeNull(); // a bare "t:" is no query
   });
 });

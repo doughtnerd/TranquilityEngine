@@ -1,11 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { BUILTIN_PANELS } from "../ui/panels.builtin";
+import { registerBuiltinPanels } from "../ui/panels.builtin";
+import { registeredPanels } from "./registeredPanels";
 import { panelCatalog, type PanelCatalog, type PanelFacts } from "./catalog";
 import {
-  EDGE_BAND,
   HEADER_HEIGHT,
-  MIN_FILL,
-  MIN_FRACTION,
   activatePanel as activateRaw,
   addPanel,
   closePanel,
@@ -23,7 +21,6 @@ import {
   parseLayout as parseRaw,
   resizeDock,
   resizeSplit,
-  setDockCollapsed,
   toggleDock,
   type Layout,
   type PanelId,
@@ -36,7 +33,8 @@ const PARTICLE_GRAPH: Entry = { id: "particlegraph", title: "Particle Graph", be
 const SHADER_GRAPH: Entry = { id: "shadergraph", title: "Shader Graph", beside: "scene", owner: { plugin: "myco.materials", pluginTitle: "Materials" } };
 const TILE_PALETTE: Entry = { id: "tilepalette", title: "Tile Palette", beside: "code", owner: { plugin: "myco.tilemaps", pluginTitle: "Tilemaps" } };
 const SKY: Entry = { id: "sky", title: "Sky", beside: "particlegraph", onDemand: true, owner: { plugin: "myco.sky", pluginTitle: "Sky" } };
-const BUILTIN = panelCatalog(BUILTIN_PANELS);
+registerBuiltinPanels(); // as the editor does at boot
+const BUILTIN = registeredPanels();
 /** The built-in panels, then `extra` in registration order. */
 const catalogOf = (...extra: Entry[]): PanelCatalog => new Map([...BUILTIN, ...panelCatalog(extra, (id) => extra.find((e) => e.id === id)?.owner)]);
 /** The Particles, Materials and Tilemaps plugins' panels registered, as most tests have them. */
@@ -167,14 +165,14 @@ describe("resizing", () => {
   it("clamps docks so the filling dock keeps its minimum size", () => {
     const l = resizeDock(defaultLayout(), "left", 5000);
     const geo = computeGeometry(l, bounds);
-    expect(geo.fill.w).toBeGreaterThanOrEqual(MIN_FILL.w - 1);
+    expect(geo.fill.w).toBeGreaterThanOrEqual(200 - 1); // the scene view keeps its 200 px minimum
     expect(l.docks[1].size).toBe(5000); // stored as asked, drawn clamped
   });
 
   it("moves a split between groups, keeping both above the minimum", () => {
     const l = movePanel(defaultLayout(), "assets", { kind: "split", dock: "left", index: 1 });
     const r = resizeSplit(l, "left", 0, 0.9);
-    expect(where(r, "assets").fractions[1]).toBeCloseTo(MIN_FRACTION);
+    expect(where(r, "assets").fractions[1]).toBeCloseTo(0.1); // the smallest share a group keeps
   });
 });
 
@@ -207,7 +205,7 @@ describe("hit testing a drag", () => {
 
   it("inside a dock targets a split before or after the group under the pointer", () => {
     const left = geo.docks[1].rect;
-    const x = left.x + EDGE_BAND + 20;
+    const x = left.x + 28 + 20; // past the 28 px edge band
     expect(hitTest(l, geo, "inspector", x, left.y + left.h * 0.25)?.target).toEqual({ kind: "split", dock: "left", index: 0 });
     const lower = hitTest(l, geo, "inspector", x, left.y + left.h * 0.75)!;
     expect(lower.target).toEqual({ kind: "split", dock: "left", index: 1 });
@@ -297,7 +295,7 @@ describe("collapsing docks", () => {
   });
 
   it("collapses side docks to a strip as wide as a header", () => {
-    const geo = computeGeometry(setDockCollapsed(defaultLayout(), "left", true), bounds);
+    const geo = computeGeometry(toggleDock(defaultLayout(), "left"), bounds);
     expect(geo.docks[1].rect.w).toBe(HEADER_HEIGHT);
     expect(geo.docks[1].handle).not.toBeNull(); // still draggable, to expand
     expect(geo.docks[1].splits).toEqual([]);
@@ -306,12 +304,12 @@ describe("collapsing docks", () => {
   it("never collapses the filling dock", () => {
     const l = defaultLayout();
     expect(canCollapse(l, "main")).toBe(false);
-    expect(setDockCollapsed(l, "main", true)).toBe(l);
+    expect(toggleDock(l, "main")).toBe(l);
     expect(canCollapse(l, "right")).toBe(true);
   });
 
   it("expands when a panel in it is shown, when it's resized, or when a panel is dropped on it", () => {
-    const collapsed = setDockCollapsed(defaultLayout(), "bottom", true);
+    const collapsed = toggleDock(defaultLayout(), "bottom");
     expect(activatePanel(collapsed, "code").docks[0].collapsed).toBeUndefined();
     expect(activatePanel(collapsed, "code").docks[0].groups[0].active).toBe("code");
     expect(activatePanel(collapsed, "assets").docks[0].collapsed).toBeUndefined(); // already active: still expands
@@ -322,7 +320,7 @@ describe("collapsing docks", () => {
   });
 
   it("is saved and read back, and old layouts without it still load", () => {
-    const l = setDockCollapsed(defaultLayout(), "right", true);
+    const l = toggleDock(defaultLayout(), "right");
     expect(parseLayout(JSON.parse(JSON.stringify(l)))!.docks[2].collapsed).toBe(true);
     expect(parseLayout(JSON.parse(JSON.stringify(defaultLayout())))!.docks.every((d) => !d.collapsed)).toBe(true);
     const bad = JSON.parse(JSON.stringify(l));
@@ -332,7 +330,7 @@ describe("collapsing docks", () => {
 
   it("drops the flag when a collapsed dock becomes the filling one", () => {
     // Move the scene view out of the innermost dock: the right dock (collapsed) becomes last.
-    let l = setDockCollapsed(defaultLayout(), "right", true);
+    let l = toggleDock(defaultLayout(), "right");
     l = movePanel(l, "scene", { kind: "tab", group: "hierarchy" });
     l = movePanel(l, "shadergraph", { kind: "tab", group: "hierarchy" });
     l = movePanel(l, "particlegraph", { kind: "tab", group: "hierarchy" });

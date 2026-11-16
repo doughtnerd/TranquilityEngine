@@ -21,7 +21,7 @@ const sceneBase = (scenePath: string) => (scenePath.split("/").pop() ?? scenePat
 const safe = (s: string) => s.replace(/[\\/:*?"<>|#]+/g, "-").trim() || "probe";
 
 /** Where a probe's bake goes: the file its `bakedMap` already names (overwritten), else a free `<scene folder>/probes/<scene>-<node>.env`. */
-export function probeBakePath(project: EditorProject, scenePath: string, nodeName: string, bakedMap: unknown): string {
+function probeBakePath(project: EditorProject, scenePath: string, nodeName: string, bakedMap: unknown): string {
   const current = assetPathOf(bakedMap);
   if (current && /\.env$/i.test(current)) return current;
   const slash = scenePath.lastIndexOf("/");
@@ -29,7 +29,7 @@ export function probeBakePath(project: EditorProject, scenePath: string, nodeNam
   return freePath(project, folder, `${safe(sceneBase(scenePath))}-${safe(nodeName)}.env`);
 }
 
-export interface ProbeBakeDeps {
+interface ProbeBakeDeps {
   project: EditorProject;
   scenePath: string;
   /** The editor World's viewport, which captures the probe. */
@@ -42,7 +42,7 @@ export interface ProbeBakeDeps {
 }
 
 /** Bake, write, then set `bakedMap` and `refresh`. Returns the written path; throws if the bake or write fails (nothing is edited then). */
-export async function bakeProbe(d: ProbeBakeDeps): Promise<string> {
+async function bakeProbe(d: ProbeBakeDeps): Promise<string> {
   if (!d.project.canSave) throw new Error(`${d.project.name} is read-only: open a project folder to bake.`);
   const probe = d.node.getComponent(ReflectionProbe);
   if (!probe) throw new Error(`${d.node.name} has no ReflectionProbe.`);

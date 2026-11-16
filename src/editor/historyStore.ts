@@ -25,7 +25,7 @@ interface Envelope {
 }
 
 /** Parse and verify a slot; null if it's missing, torn or tampered with. */
-export function readSlot(text: string | null): Envelope | null {
+function readSlot(text: string | null): Envelope | null {
   if (!text) return null;
   try {
     const e = JSON.parse(text) as Envelope;

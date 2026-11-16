@@ -191,7 +191,7 @@ export async function newFolder(parent: string): Promise<string | null> {
  * Copy selection entries into `folder` (a folder copies everything in it); names that are taken
  * get " copy" (and a number). Returns the new entries.
  */
-export async function copyAssets(entries: readonly string[], folder: string): Promise<string[]> {
+async function copyAssets(entries: readonly string[], folder: string): Promise<string[]> {
   const project = currentProject.value;
   if (!project?.canSave || entries.length === 0) return [];
   const made: string[] = [];

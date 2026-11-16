@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { activeHistory, providePanelHistory, redo, stepBack, undo, type UndoHistory } from "./activeHistory";
 import { openAssetDocument, type AssetDocument } from "./assetDocuments";
-import { assetHistorySettled } from "./assetHistory";
 import { joinPath, openFolderProject, type EditorProject } from "./projects";
 import { installShortcuts } from "./shortcuts";
 import { assetFormats } from "./sdk/contributions";
@@ -104,7 +103,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await assetHistorySettled();
+  await new Promise((resolve) => setTimeout(resolve, 0)); // queued history work over the in-memory file system
   unregister();
   openScene.value = null;
   currentProject.value = null;

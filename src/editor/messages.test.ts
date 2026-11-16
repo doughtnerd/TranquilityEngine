@@ -1,13 +1,16 @@
 import { effect, signal } from "@preact/signals";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { LOG_LIMIT, clearLog, describeError, errorStatus, installMessageLog, kindShown, logMessage, logOpen, logShown, logText, messageLog, shownEntries, toggleLogKind, unseenErrors } from "./messages";
+import { LOG_KINDS, clearLog, describeError, errorStatus, installMessageLog, kindShown, logMessage, logOpen, logText, messageLog, shownEntries, toggleLogKind, unseenErrors } from "./messages";
+
+/** How many entries the log keeps. */
+const LOG_LIMIT = 300;
 import { status } from "./state";
 
 beforeEach(() => {
   clearLog();
   logOpen.value = false;
   status.value = null;
-  logShown.value = { info: true, warning: true, error: true };
+  for (const kind of LOG_KINDS) if (!kindShown(kind)) toggleLogKind(kind); // every kind shown
 });
 
 describe("error statuses", () => {
@@ -61,7 +64,7 @@ describe("the log's filter", () => {
   it("copies only the entries passed", () => {
     logMessage("info", "hello");
     logMessage("error", "oops");
-    logShown.value = { info: false, warning: true, error: true };
+    toggleLogKind("info");
     expect(logText(shownEntries())).toMatch(/^\[[^\]]+\] ERROR oops$/);
   });
 });

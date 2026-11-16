@@ -1,15 +1,18 @@
 import { describe, expect, it } from "vitest";
 import "../engine";
 import { componentCatalog } from "../engine/editor";
-import { buildMenuTree, engineCategory, knownEngineCategory, scriptFolders } from "./componentCategories";
+import { buildMenuTree } from "./componentCategories";
+
+/** The Add Component submenu an engine component id lands in. */
+const categoryOf = (id: string) => buildMenuTree([{ id, name: id, group: "Engine" as const }], new Map())[0]!.label;
 
 describe("Add Component categories", () => {
   it("puts every registered engine component in a real category, not Other", () => {
     const engine = componentCatalog().filter((t) => t.group === "Engine");
     expect(engine.length).toBeGreaterThan(10);
-    expect(engine.filter((t) => knownEngineCategory(t.id) === null).map((t) => t.id)).toEqual([]);
-    expect(engineCategory("engine.NavAgent")).toBe("Navigation");
-    expect(engineCategory("engine.SomethingNew")).toBe("Other");
+    expect(engine.filter((t) => categoryOf(t.id) === "Other").map((t) => t.id)).toEqual([]);
+    expect(categoryOf("engine.NavAgent")).toBe("Navigation");
+    expect(categoryOf("engine.SomethingNew")).toBe("Other");
   });
 
   it("groups scripts by folder and data components in one Data submenu", () => {
@@ -18,7 +21,6 @@ describe("Add Component categories", () => {
       ["scripts/behaviors/Bird.ts", `@behavior("game.Bird")`],
       ["scripts/data.ts", `defineComponent("game.Scroller", {})`],
     ]);
-    expect(scriptFolders(["game.Grunt", "game.Bird"], scripts).get("game.Grunt")).toEqual(["behaviors", "enemies"]);
     const items = [
       { id: "engine.Camera", name: "Camera", group: "Engine" as const },
       { id: "game.Grunt", name: "Grunt", group: "Scripts" as const },

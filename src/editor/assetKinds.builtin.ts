@@ -24,7 +24,7 @@ const instanceNodes: AssetSceneNodes = {
 };
 
 /** Every core kind, in the order they register. */
-export const CORE_ASSET_KINDS: readonly AssetKindContribution[] = [
+const CORE_ASSET_KINDS: readonly AssetKindContribution[] = [
   {
     id: "scene",
     extensions: [".scene.json"],

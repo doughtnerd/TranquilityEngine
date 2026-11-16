@@ -1,7 +1,9 @@
 // Test helpers for editor tests (not part of the editor build): the Flappy sample's files, with
 // its types registered (sampleTypes.ts), the core asset kinds (`useCoreAssetKinds`) and the built-in panels
 // (`useBuiltinPanels`).
+import type { VNode } from "preact";
 import type { AssetSource, ProjectSettingsInput } from "../engine";
+import type { ComponentInfo } from "../engine/editor";
 import { afterAll, beforeAll } from "vitest";
 import "./sampleTypes";
 import { registerCoreAssetKinds } from "./assetKinds.builtin";
@@ -9,6 +11,9 @@ import { resetLayout } from "./layout/store";
 import { registerBuiltinPanels } from "./ui/panels.builtin";
 import { MemoryFileSystem } from "./memoryFs";
 import { editorSettings, joinPath, openFolderProject, readOnlyProject, type EditorProject } from "./projects";
+import { settingsKeys, type SettingsDraft } from "./projectSettingsModel";
+import { InspectorSections, type InspectorSectionProps } from "./ui/inspectorSections";
+import type { LazyComponent } from "./ui/lazy";
 import { currentProject, select, status } from "./state";
 
 export { MemoryFileSystem };
@@ -114,4 +119,23 @@ export function useBuiltinPanels(): void {
     undo?.();
     undo = null;
   });
+}
+
+/** A settings draft (the Project panel's sections of project.json) from parsed settings: each of `keys` that's set, copied. */
+export function readDraft(settings: ProjectSettingsInput | Record<string, unknown>, keys: readonly string[] = settingsKeys()): SettingsDraft {
+  const out: Record<string, unknown> = {};
+  for (const key of keys) {
+    const value = (settings as Record<string, unknown>)[key];
+    if (value !== undefined) out[key] = structuredClone(value);
+  }
+  return out as SettingsDraft;
+}
+
+/** A draft's sections as one comparable string. */
+export const sectionsKey = (draft: SettingsDraft, keys: readonly string[] = settingsKeys()) => JSON.stringify(keys.map((k) => draft[k] ?? null));
+
+/** The sections the Inspector draws under a `type` component for a selection of `paths`, as it renders them (lazy views, none loaded yet). */
+export function inspectorSectionsFor(type: string, paths: InspectorSectionProps["paths"]): LazyComponent<InspectorSectionProps>[] {
+  const drawn = InspectorSections({ info: { type } as ComponentInfo, paths } as InspectorSectionProps) as VNode<{ children: VNode[] }>;
+  return drawn.props.children.map((view) => view.type as unknown as LazyComponent<InspectorSectionProps>);
 }

@@ -28,7 +28,7 @@ export const fileName = (path: string) => path.slice(path.lastIndexOf("/") + 1);
 export const folderOf = (path: string) => (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
 
 /** Files whose name contains every word of `query` (case-insensitive), across all folders. */
-export function searchFiles(files: readonly string[], query: string): string[] {
+function searchFiles(files: readonly string[], query: string): string[] {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
   if (words.length === 0) return [];
   return files.filter((f) => words.every((w) => fileName(f).toLowerCase().includes(w))).sort((a, b) => fileName(a).localeCompare(fileName(b)));
@@ -147,12 +147,11 @@ export interface AddOptions {
   placeInstances?: boolean;
 }
 
-/** The scene entry an asset becomes: an instance (prefab, scene), a sprite (image), an audio source (audio), or what a plugin's kind makes. */
-export function nodeForAsset(doc: SceneDocument, path: string, options: AddOptions = {}): NodeEntry | null {
-  return sceneEntriesForAsset(doc, path, options)[0] ?? null;
-}
-
-/** Every entry adding `path` makes, from its kind's `addToScene` (ADR 0140, 0143): the root first (`nodeForAsset`), then any descendants (a model's node tree). */
+/**
+ * Every entry adding `path` makes, from its kind's `addToScene` (ADR 0140, 0143): the root first
+ * (an instance for a prefab or scene, a sprite for an image, an audio source for audio, or what a
+ * plugin's kind makes), then any descendants (a model's node tree).
+ */
 function sceneEntriesForAsset(doc: SceneDocument, path: string, options: AddOptions): NodeEntry[] {
   const add = sceneNodesAt(path);
   if (!add) return [];

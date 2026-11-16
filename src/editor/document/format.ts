@@ -29,7 +29,7 @@ export function originalLayout(text: string): OriginalLayout {
  * The source text of each element of the root object's `nodes` array, by node id. A small
  * scanner (strings and nesting only); returns an empty map for anything it doesn't understand.
  */
-export function nodeTexts(text: string): Map<string, string> {
+function nodeTexts(text: string): Map<string, string> {
   const out = new Map<string, string>();
   let depth = 0, i = 0, inNodes = false, start = -1, lastKey = "";
   while (i < text.length) {

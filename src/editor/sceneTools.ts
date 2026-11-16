@@ -26,7 +26,7 @@ export interface SnapSettings {
   always: boolean;
 }
 
-export const DEFAULT_SNAP: SnapSettings = { move: 0.25, rotate: Math.PI / 12, scale: 0.1, grid: 1, showGrid: true, always: false, v: 2 };
+const DEFAULT_SNAP: SnapSettings = { move: 0.25, rotate: Math.PI / 12, scale: 0.1, grid: 1, showGrid: true, always: false, v: 2 };
 
 /** Snap steps, grid and "always snap" (missing or bad values from older storage fall back to the defaults). */
 export const snapSettings = persisted<SnapSettings>("myco.editor.snap", DEFAULT_SNAP);
@@ -68,7 +68,7 @@ export const toggleGizmoSpace = () => (gizmoSpace.value = gizmoSpace.value === "
 export const toggleGizmoPivot = () => (gizmoPivot.value = gizmoPivot.value === "pivot" ? "center" : "pivot");
 
 /** Scene tool keys: X toggles local/world space, Z toggles pivot/centre (no modifiers; Ctrl+Z stays undo). */
-export function sceneToolShortcut(e: Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey" | "shiftKey" | "altKey">): "space" | "pivot" | null {
+function sceneToolShortcut(e: Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey" | "shiftKey" | "altKey">): "space" | "pivot" | null {
   if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return null;
   const key = (e.key ?? "").toLowerCase();
   return key === "x" ? "space" : key === "z" ? "pivot" : null;

@@ -29,7 +29,7 @@ const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "obj
  * `json` (a scene or prefab file, or its document) with layer `from` renamed to `to` wherever a
  * component field or a prefab override names it. Returns the same object when nothing changed.
  */
-export function withRenamedLayer<T>(json: T, kind: LayerKind, from: string, to: string): { value: T; changed: boolean; count: number } {
+function withRenamedLayer<T>(json: T, kind: LayerKind, from: string, to: string): { value: T; changed: boolean; count: number } {
   let count = 0;
   const field = FIELD[kind];
   const walk = (v: unknown): unknown => {

@@ -52,7 +52,7 @@ function valueKey(v: unknown, scene: OpenScene): string {
 }
 
 /** True when the nodes' values (one per node) differ. */
-export const isMixed = (scene: OpenScene, values: readonly unknown[]): boolean => new Set(values.map((v) => valueKey(v, scene))).size > 1;
+const isMixed = (scene: OpenScene, values: readonly unknown[]): boolean => new Set(values.map((v) => valueKey(v, scene))).size > 1;
 
 /** True when the field is an override on any of the nodes (prefab instances and nodes inside them). */
 const isFieldOverridden = (doc: SceneDocument, paths: readonly NodePath[], component: ComponentRef, field: string): boolean =>

@@ -13,7 +13,6 @@ import {
   layoutModified,
   layoutsWithPanels,
   pluginPanelTypes,
-  refreshSavedLayouts,
   removePanelsFromLayouts,
   renameLayout,
   restoreLayoutVersion,
@@ -34,10 +33,22 @@ let storage: StorageBackend;
 const typesOf = (l = layout.value) => openTypes(l);
 const closeType = (type: string) => (layout.value = closePanel(layout.value, instancesOf(layout.value, type)[0]!, registeredPanels()));
 
+/**
+ * Let the editor read the layouts again: opening or closing a project reads them (as does the window
+ * regaining focus), over in-memory storage and files, so a task turn finishes the read.
+ */
+const settled = () => new Promise((resolve) => setTimeout(resolve, 0));
+/** Close any project and read the layouts again, as the editor does when a project closes. */
+async function rereadWithoutProject(): Promise<void> {
+  await openTestProject();
+  closeTestProject();
+  await settled();
+}
+
 beforeEach(async () => {
   storage = (await defaultHistoryPlatform()).userStorage;
   for (const key of await storage.list("settings")) await storage.delete("settings", key);
-  await refreshSavedLayouts(null); // nothing from the last test
+  await rereadWithoutProject(); // nothing from the last test
   applyDefaultLayout();
 });
 afterEach(() => {
@@ -48,7 +59,7 @@ afterEach(() => {
 describe("saved layouts (ADR 0174)", () => {
   it("saves the working layout as a project file in .layouts/ and lists it; Default can't be saved over", async () => {
     const { fs } = await openTestProject();
-    await refreshSavedLayouts();
+    await settled();
     expect(whyNoSave()).toMatch(/Default/);
     closeType("code");
     const file = await saveLayoutAs("Scripting", ["project"]);
@@ -63,7 +74,7 @@ describe("saved layouts (ADR 0174)", () => {
   it("saves user layouts to per-user storage, one entry per file", async () => {
     await saveLayoutAs("Mine", ["user"]);
     expect(await storage.list("settings")).toEqual(["layouts/mine.layout.json"]);
-    await refreshSavedLayouts(null);
+    await rereadWithoutProject();
     expect(savedLayouts.value.map((s) => s.name)).toEqual(["Mine"]);
   });
 
@@ -87,7 +98,7 @@ describe("saved layouts (ADR 0174)", () => {
 
   it("renames (the file follows), moves between places and deletes", async () => {
     const { fs } = await openTestProject();
-    await refreshSavedLayouts();
+    await settled();
     const file = (await saveLayoutAs("Audio", ["project"]))!;
     await renameLayout(file, "Mixing");
     expect(fs.files.has(joinPath(ROOT, ".layouts/audio.layout.json"))).toBe(false);
@@ -104,7 +115,7 @@ describe("saved layouts (ADR 0174)", () => {
   it("reads layouts committed to the project, and can't write project layouts in a read-only project", async () => {
     const committed: LayoutFile = newLayoutFile("Team", defaultLayout(registeredPanels()), 1);
     await openTestProject({ ".layouts/team.layout.json": layoutFileText(committed), ".layouts/notes.txt": "x" });
-    await refreshSavedLayouts();
+    await settled();
     expect(savedLayouts.value.map((s) => s.name)).toEqual(["Team"]);
     expect(whyNoProjectLayouts(null)).toMatch(/no project/);
   });
@@ -129,7 +140,7 @@ describe("saved layouts (ADR 0174)", () => {
     const newer = addVersion({ ...old, name: "Shared (team)" }, defaultLayout(registeredPanels()), 50);
     await storage.save("settings", "layouts/shared.layout.json", layoutFileText(old));
     await openTestProject({ ".layouts/shared.layout.json": layoutFileText(newer) });
-    await refreshSavedLayouts();
+    await settled();
     expect(savedLayouts.value.map((s) => s.name)).toEqual(["Shared (team)"]);
   });
 });

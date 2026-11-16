@@ -4,8 +4,8 @@ import type { VNode } from "preact";
 import { describe, expect, it } from "vitest";
 import { Quaternion } from "../../engine";
 import { NumberInput } from "./NumberInput";
-import { RotationField, rowRotationView, setRowRotationView, sharedAxes } from "./RotationField";
-import { nextRotationView, quaternionJSON, rememberedEulerRadians, rotationCodec, rotationFrom, withRotationAxis } from "./rotationCodec";
+import { RotationField } from "./RotationField";
+import { nextRotationView, quaternionJSON, rotationCodec, rotationFrom, withRotationAxis } from "./rotationCodec";
 
 const radians = rotationCodec("radians");
 const degrees = rotationCodec("degrees");
@@ -24,7 +24,6 @@ describe("rotation codecs", () => {
     const q = degrees.write([10, 200, 0], Quaternion.identity);
     expect(q.equals(Quaternion.euler((10 * Math.PI) / 180, (200 * Math.PI) / 180, 0), 1e-9)).toBe(true);
     expect(degrees.read(q)).toEqual([10, 200, 0]);
-    expect(rememberedEulerRadians(q)![1]).toBeCloseTo((200 * Math.PI) / 180, 12);
     // The same rotation in radians shows the typed angles converted, not the -160° the quaternion reads as.
     expect(radians.read(q)[1]).toBeCloseTo((200 * Math.PI) / 180, 12);
     expect(degrees.read(Quaternion.rotateX(Math.PI / 6))).toEqual([30, 0, 0]);
@@ -106,6 +105,20 @@ function boxes(node: VNode): VNode<{ value: number | null; label: string; onComm
   return found;
 }
 
+/** The view toggle button in a rendered RotationField. */
+function toggleOf(node: VNode): VNode<{ onClick: () => void }> {
+  let found: VNode<{ onClick: () => void }> | null = null;
+  const walk = (n: unknown) => {
+    if (Array.isArray(n)) return n.forEach(walk);
+    if (!n || typeof n !== "object" || !("props" in n)) return;
+    const v = n as VNode<{ children?: unknown; class?: string }>;
+    if (v.type === "button" && v.props.class === "rotation-view") found = v as never;
+    walk(v.props.children);
+  };
+  walk(node);
+  return found!;
+}
+
 describe("RotationField", () => {
   it("shows a dash for axes that differ and commits each node's own rotation", () => {
     const a = Quaternion.euler(0, 0.5, 0), b = Quaternion.euler(0.25, 0.5, 0);
@@ -123,11 +136,11 @@ describe("RotationField", () => {
   it("shows four boxes in the quaternion view, and a row's toggle overrides the view for the session", () => {
     const q = Quaternion.identity;
     expect(boxes(RotationField({ values: [q], view: "quaternion", label: "r", onCommit: () => {} }) as VNode)).toHaveLength(4);
-    expect(sharedAxes([[1, 2], [1, 3]])).toEqual([1, null]);
-    expect(rowRotationView("test.Row.rotation", "radians")).toBe("radians");
-    setRowRotationView("test.Row.rotation", "degrees");
-    expect(rowRotationView("test.Row.rotation", "radians")).toBe("degrees");
-    const shown = boxes(RotationField({ values: [Quaternion.rotateY(Math.PI / 2)], label: "r", toggleKey: "test.Row.rotation", onCommit: () => {} }) as VNode);
-    expect(shown.map((i) => i.props.value)).toEqual([0, 90, 0]);
+    const row = () => RotationField({ values: [Quaternion.rotateY(Math.PI / 2)], label: "r", toggleKey: "test.Row.rotation", onCommit: () => {} }) as VNode;
+    expect(boxes(row()).map((i) => i.props.value)).toEqual([0, 1.570796, 0]); // radians until toggled
+    toggleOf(row()).props.onClick();
+    expect(boxes(row()).map((i) => i.props.value)).toEqual([0, 90, 0]);
+    // Another row keeps its own view.
+    expect(boxes(RotationField({ values: [Quaternion.rotateY(Math.PI / 2)], label: "r", toggleKey: "test.Other.rotation", onCommit: () => {} }) as VNode).map((i) => i.props.value)).toEqual([0, 1.570796, 0]);
   });
 });

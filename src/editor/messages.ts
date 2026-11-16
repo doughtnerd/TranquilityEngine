@@ -15,7 +15,7 @@ export interface LogEntry {
 }
 
 /** The most entries kept; older ones drop off. */
-export const LOG_LIMIT = 300;
+const LOG_LIMIT = 300;
 
 /** Messages, oldest first. */
 export const messageLog = signal<readonly LogEntry[]>([]);
@@ -28,7 +28,7 @@ export const logOpen = signal(false);
 export const LOG_KINDS: readonly LogEntry["kind"][] = ["info", "warning", "error"];
 
 /** Which kinds of entry the log panel shows (its filter toggles); remembered per user. */
-export const logShown = persisted<Record<LogEntry["kind"], boolean>>("myco.editor.logShown", { info: true, warning: true, error: true });
+const logShown = persisted<Record<LogEntry["kind"], boolean>>("myco.editor.logShown", { info: true, warning: true, error: true });
 
 /** Whether entries of `kind` are shown; a kind missing from a stored preference is shown. */
 export function kindShown(kind: LogEntry["kind"], shown: Partial<Record<LogEntry["kind"], boolean>> = logShown.value): boolean {

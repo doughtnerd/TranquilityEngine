@@ -26,7 +26,7 @@ export interface PlayGizmoSettings {
   other: boolean;
 }
 
-export const DEFAULT_PLAY_GIZMOS: PlayGizmoSettings = { enabled: true, navigation: true, outline: true, other: true };
+const DEFAULT_PLAY_GIZMOS: PlayGizmoSettings = { enabled: true, navigation: true, outline: true, other: true };
 
 /** The kinds the Gizmos menu lists, in order. */
 export const PLAY_GIZMO_KINDS: readonly { key: Exclude<keyof PlayGizmoSettings, "enabled">; label: string; title: string }[] = [
@@ -52,7 +52,7 @@ export function updatePlayGizmos(patch: Partial<PlayGizmoSettings>): void {
 }
 
 /** Whether overlays of `kind` draw in the play view under `s`. Colliders (edit-mode only today) follow the master toggle. */
-export function overlayKindShown(s: PlayGizmoSettings, kind: EditorOverlayKind): boolean {
+function overlayKindShown(s: PlayGizmoSettings, kind: EditorOverlayKind): boolean {
   if (!s.enabled) return false;
   if (kind === "navigation") return s.navigation;
   if (kind === "other") return s.other;

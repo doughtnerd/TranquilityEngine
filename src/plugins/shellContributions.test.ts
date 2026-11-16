@@ -4,10 +4,11 @@
 // registered by their plugins, and all of them go when their plugin does.
 import { describe, expect, it } from "vitest";
 import { defaultImportSettings, formatImportSettings, sidecarPath } from "../engine/scene/importSettings";
-import { NEW_NODE_KINDS, newNodeKinds, newNodeEntry } from "../editor/nodeCreate";
+import { createNode, newNodeKinds, type NodeKind } from "../editor/nodeCreate";
 import { joinPath, openFolderProject } from "../editor/projects";
 import { assetActions, hierarchyCreateEntries, idlePrefetches, panelExtensions, playStatsCounters, sceneOpenMigrations, viewportTools } from "../editor/sdk/contributions";
-import { SceneDocument } from "../editor/document";
+import { CommandStack, SceneDocument } from "../editor/document";
+import type { OpenScene } from "../editor/state";
 import { MemoryFileSystem, ROOT, useCoreAssetKinds } from "../editor/testing";
 import { useEditorPlugins } from "./testEditorPlugins";
 import { navigationEditorPlugin } from "./navigation/editor";
@@ -19,32 +20,39 @@ const PLUGINS = [particlesEditorPlugin, navigationEditorPlugin, tilemapsEditorPl
 useCoreAssetKinds();
 const halves = useEditorPlugins(PLUGINS, "each");
 
+/** Create a node of `kind` in an empty scene (not the editor's open one); returns its entry. */
+function made(kind: NodeKind, position?: [number, number, number], effect?: string) {
+  const doc = new SceneDocument({ format: "myco.scene@1", nodes: [] } as never, "a.scene.json");
+  const scene = { doc, stack: new CommandStack(doc) } as unknown as OpenScene;
+  return doc.node(createNode(scene, kind, { position, effect }));
+}
+
 describe("the Hierarchy's Create menu (ADR 0146)", () => {
   it("lists plugins' kinds where they have always been", () => {
     const labels = newNodeKinds().map((k) => k.label);
     expect(labels.slice(0, 4)).toEqual(["Empty", "Sprite", "Tilemap", "Camera"]);
     expect(labels.slice(labels.indexOf("Reflection Probe"), labels.indexOf("Reflection Probe") + 3)).toEqual(["Reflection Probe", "Particle System", "Water"]);
-    expect(labels).toHaveLength(NEW_NODE_KINDS.length + 2);
+    halves.off();
+    expect(labels).toHaveLength(newNodeKinds().length + 2); // the built-in kinds and the two plugins' ones
   });
 
   it("makes the plugins' nodes", () => {
-    const doc = new SceneDocument({ format: "myco.scene@1", nodes: [] } as never, "a.scene.json");
-    const map = newNodeEntry(doc, "tilemap", null, [1, 2, 0], "asset:t.tileset.json");
+    const map = made("tilemap", [1, 2, 0], "asset:t.tileset.json");
     expect(map.name).toBe("Tilemap");
     expect(map.components).toEqual([
       { type: "engine.Transform", data: { position: [1, 2, 0] } },
       { type: "engine.Tilemap", data: { tileset: "asset:t.tileset.json" } },
       { type: "engine.TilemapCollider2D", data: {} },
     ]);
-    expect(newNodeEntry(doc, "particle-system", null).components![1]).toEqual({ type: "engine.ParticleSystem", data: {} });
+    expect(made("particle-system").components![1]).toEqual({ type: "engine.ParticleSystem", data: {} });
     expect(hierarchyCreateEntries.get("particle-system")!.createAsset).toBeTypeOf("function");
   });
 
   it("drops a disabled plugin's kinds", () => {
     halves.off(); // Tilemaps and Particles among them
-    expect(newNodeKinds().map((k) => k.kind)).toEqual(NEW_NODE_KINDS.map((k) => k.kind));
-    const doc = new SceneDocument({ format: "myco.scene@1", nodes: [] } as never, "a.scene.json");
-    expect(() => newNodeEntry(doc, "tilemap", null)).toThrow(/plugin disabled/);
+    expect(newNodeKinds().map((k) => k.kind)).not.toContain("tilemap");
+    expect(newNodeKinds().map((k) => k.kind)).not.toContain("particle-system");
+    expect(() => made("tilemap")).toThrow(/plugin disabled/);
   });
 });
 

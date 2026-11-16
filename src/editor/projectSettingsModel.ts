@@ -9,7 +9,7 @@ import { projectSettingsSections } from "./sdk/contributions";
 import { uniqueName, withMember } from "./worldsConfig";
 
 /** The top-level keys the shell's own Project panel categories edit (the Worlds panel edits `bootstrap`). */
-export const CORE_SETTINGS_KEYS = ["name", "display", "time", "render", "autoload", "graphics", "audio", "plugins", "build"] as const;
+const CORE_SETTINGS_KEYS = ["name", "display", "time", "render", "autoload", "graphics", "audio", "plugins", "build"] as const;
 
 /**
  * Every key the Project panel edits: the core keys, then those the registered settings sections declare
@@ -59,19 +59,6 @@ export interface SettingsProblem {
   field: string;
   message: string;
 }
-
-/** The panel's keys from parsed `project.json` settings (a deep copy). */
-export function readDraft(settings: ProjectSettingsInput | Record<string, unknown>, keys: readonly string[] = settingsKeys()): SettingsDraft {
-  const out: Record<string, unknown> = {};
-  for (const key of keys) {
-    const value = (settings as Record<string, unknown>)[key];
-    if (value !== undefined) out[key] = structuredClone(value);
-  }
-  return out as SettingsDraft;
-}
-
-/** The draft's keys as one comparable string. */
-export const sectionsKey = (draft: SettingsDraft, keys: readonly string[] = settingsKeys()) => JSON.stringify(keys.map((k) => draft[k] ?? null));
 
 /**
  * `project.json`'s text with the draft's sections written in. Only sections that differ from

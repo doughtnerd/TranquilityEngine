@@ -1,13 +1,14 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import "../../../engine";
-import { Assets } from "../../../engine";
+import { Assets, Engine } from "../../../engine";
 import { loadNavigation } from "../../../engine/nav/loader";
-import { bakeAllNavigation, bakeNavChunk, checkNavInputs, isNavBakeStale, navChunkState, scratchSceneWorld, lookUpNavRecord } from "./navBake";
+import { bakeAllFromPanel, bakeOpenSceneChunk, checkNavInputs, isNavBakeStale, navChunkState, lookUpNavRecord } from "./navBake";
 import { navPolyCount, navRecordPath, withBakeReference } from "./navBakeFiles";
 import { MemoryFileSystem } from "../../../editor/memoryFs";
-import { joinPath, openFolderProject, useProjectAssets } from "../../../editor/projects";
+import { openSceneFile } from "../../../editor/project";
+import { editorSettings, joinPath, openFolderProject, useProjectAssets, type EditorProject } from "../../../editor/projects";
+import { openScene, status } from "../../../editor/state";
 import type { SceneFile } from "../../../engine/scene/SceneLoader";
-import { findNavChunks } from "../../../engine/nav/geometry";
 
 // Baking navigation in the editor (ADR 0065): a NavChunk bakes from a World into `<scene>.nav.bin`, with a
 // record of its inputs for the stale notice; Bake All bakes every scene and points chunks at their files.
@@ -35,17 +36,32 @@ async function project() {
 }
 
 describe("editor navigation bake", () => {
+  let engine: Engine | null = null;
   beforeEach(() => {
     Assets.clearSources();
   });
+  afterEach(() => {
+    openScene.value = null;
+    engine?.dispose();
+    engine = null;
+    status.value = null;
+  });
+
+  /** Open `path` of `p` in the editor; returns the open scene. */
+  async function openIn(p: EditorProject, path: string) {
+    engine = await Engine.create({ headless: true, kind: "editor", project: editorSettings(p) });
+    openSceneFile(engine, path);
+    return openScene.value!;
+  }
 
   it("bakes a chunk into the scene's .nav.bin, records its inputs, and notices when they change", async () => {
     const { fs, p } = await project();
-    const { world, scene: root } = scratchSceneWorld(p, "scenes/a.scene.json", p.assets.get("scenes/a.scene.json") as SceneFile);
-    const [chunk] = findNavChunks(root);
-    const outcome = await bakeNavChunk(p, "scenes/a.scene.json", world, chunk);
-    expect(outcome.asset).toBe("scenes/a.nav.bin");
-    expect(outcome.needsReference).toBe(true);
+    const open = await openIn(p, "scenes/a.scene.json");
+    const world = open.sync.world, chunk = open.sync.nodeFor("nav")!;
+    await bakeOpenSceneChunk(open, "nav", p);
+    expect(status.value?.text).toMatch(/^Baked Navigation: scenes\/a\.nav\.bin/);
+    expect(open.doc.fieldValue("nav", "engine.NavChunk", "bake")).toBe("asset:scenes/a.nav.bin"); // pointed at its file, in the open scene
+    const outcome = { record: navChunkState("scenes/a.scene.json", "nav").record! };
     const bytes = fs.files.get(joinPath(ROOT, "scenes/a.nav.bin"));
     expect(bytes).toBeInstanceOf(Uint8Array);
     expect(p.files).toContain("scenes/a.nav.bin");
@@ -66,7 +82,7 @@ describe("editor navigation bake", () => {
     expect(isNavBakeStale(s)).toBe(false);
     await checkNavInputs(p, "scenes/a.scene.json", world, chunk);
     expect(isNavBakeStale(s)).toBe(false);
-    root.children.find((n) => n.id === "ground")!.transform!.position.y = 1;
+    open.sync.nodeFor("ground")!.transform!.position.y = 1;
     await checkNavInputs(p, "scenes/a.scene.json", world, chunk);
     expect(isNavBakeStale(s)).toBe(true);
 
@@ -77,22 +93,29 @@ describe("editor navigation bake", () => {
   });
 
   it("refuses to bake a read-only project", async () => {
-    const { p } = await project();
-    const { world, scene: root } = scratchSceneWorld(p, "scenes/a.scene.json", p.assets.get("scenes/a.scene.json") as SceneFile);
+    const { fs, p } = await project();
+    const open = await openIn(p, "scenes/a.scene.json");
     const readOnly = Object.create(p, { canSave: { value: false } });
-    await expect(bakeNavChunk(readOnly, "scenes/a.scene.json", world, findNavChunks(root)[0])).rejects.toThrow(/read-only/);
+    await bakeOpenSceneChunk(open, "nav", readOnly);
+    expect(status.value).toMatchObject({ kind: "error", text: expect.stringMatching(/Couldn't bake Navigation/) });
+    expect(status.value?.detail ?? status.value?.text).toMatch(/read-only/);
+    expect(fs.files.has(joinPath(ROOT, "scenes/a.nav.bin"))).toBe(false);
+    await bakeAllFromPanel(readOnly);
+    expect(status.value?.text).toMatch(/read-only/);
   });
 
   it("Bake All bakes every scene with a NavChunk and points each chunk at its file", async () => {
     const { fs, p } = await project();
-    const result = await bakeAllNavigation(p);
-    expect(result).toEqual({ baked: 2, failed: [] });
+    await bakeAllFromPanel(p);
+    expect(status.value).toMatchObject({ kind: "info", text: "Baked 2 navigation chunks." });
     expect(fs.files.get(joinPath(ROOT, "scenes/b.nav.bin"))).toBeInstanceOf(Uint8Array);
     const b = JSON.parse(fs.files.get(joinPath(ROOT, "scenes/b.scene.json")) as string) as SceneFile;
     expect(b.nodes[0].components?.find((c) => c.type === "engine.NavChunk")?.data).toEqual({ bake: "asset:scenes/b.nav.bin" });
     // Baking again finds the reference set, and leaves the scene file alone.
     const writes = fs.writes.length;
-    expect(await bakeAllNavigation(p)).toEqual({ baked: 2, failed: [] });
+    status.value = null;
+    await bakeAllFromPanel(p);
+    expect(status.value).toMatchObject({ kind: "info", text: "Baked 2 navigation chunks." });
     expect(fs.writes.slice(writes).filter((w) => w.endsWith(".scene.json"))).toEqual([]);
   });
 

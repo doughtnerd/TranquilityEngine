@@ -117,7 +117,7 @@ async function readUserLayouts(): Promise<Map<string, LayoutFile>> {
 }
 
 /** Read every layout file again (the project was opened, or the window came back into focus after an outside change). */
-export async function refreshSavedLayouts(project: EditorProject | null = currentProject.peek()): Promise<void> {
+async function refreshSavedLayouts(project: EditorProject | null = currentProject.peek()): Promise<void> {
   const started = writes;
   const [user, proj] = await Promise.all([readUserLayouts(), readProjectLayouts(project)]);
   if (project !== currentProject.peek()) return; // another project opened meanwhile

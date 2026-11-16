@@ -11,7 +11,7 @@ import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile, saveOpenScene } from "./project";
 import { createPrefab } from "./prefabs";
 import { editorSettings, joinPath, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
-import { currentProject, openScene, sceneCamera, select, selectedKeys, selectedUIElement } from "./state";
+import { currentProject, openScene, sceneCamera, select, selectedKeys, selectedUIElement, selection } from "./state";
 import {
   describeOrigin,
   documentRows,
@@ -27,7 +27,10 @@ import {
   uiRefKey,
   type FieldSourceRow,
 } from "./uiDocuments";
-import { applyClickSelection, chooseSelection, uiHitKeys } from "./viewportSelection";
+import { installViewportSelection } from "./viewportSelection";
+import { setLocked } from "./nodeVisibility";
+import { FakeRenderSurface } from "../engine/render/fakeViewport";
+import type { UIComponentType } from "../engine/ui/components";
 
 const ROOT = "C:\\Games\\ui";
 const DT = 1 / 60;
@@ -228,31 +231,50 @@ describe("selecting elements", () => {
     expect(selectedUIElement.value).toBeNull();
   });
 
-  it("maps picked UI to element keys (document UI) and node ids (hand-built UI), skipping locked hosts", () => {
+  /** Clicks in the scene view over a fake viewport (ADR 0128) whose UI pick returns `ui()`, with the camera node under every point. */
+  function clicking(ui: () => UIComponentType[]) {
+    const surface = new FakeRenderSurface();
+    engine.world.render = surface;
+    surface.adapter.uiCore = { pickAll: () => ui(), pickCanvases: () => [], cornersOf: () => null };
+    surface.adapter.rects.set(scene().sync.nodeFor("cam")!, { left: 0, top: 0, right: 800, bottom: 600 });
+    const stop = installViewportSelection(engine, sceneCamera.value!);
+    const pointer = (type: string, x: number, y: number) =>
+      Object.assign(new Event(type), { clientX: x, clientY: y, button: 0, pointerId: 1, altKey: false, shiftKey: false, ctrlKey: false, metaKey: false });
+    const click = (x = 400, y = 300) => {
+      surface.canvas.dispatchEvent(pointer("pointerdown", x, y));
+      surface.canvas.dispatchEvent(pointer("pointerup", x, y));
+      return selectedUIElement.value ?? selection.value;
+    };
+    return { surface, click, stop: () => (stop(), (engine.world.render = null)) };
+  }
+
+  it("maps picked UI to element keys (document UI), each once, skipping locked hosts", () => {
     const sync = scene().sync;
     const play = hudDoc().query("#play")!;
     const label = play.children[0];
-    const keys = uiHitKeys([label.component, play.component, label.component], sync, () => true);
-    expect(keys).toEqual([uiRefKey(refOfElement(sync, label)!), uiRefKey(refOfElement(sync, play)!)]);
-    expect(uiHitKeys([play.component], sync, (n) => n !== hudDoc().node)).toEqual([]);
+    const view = clicking(() => [label.component, play.component, label.component]);
+    expect(view.click()).toBe(uiRefKey(refOfElement(sync, label)!));
+    expect(view.click()).toBe(uiRefKey(refOfElement(sync, play)!)); // the label isn't listed twice
+    setLocked("hud", true);
+    expect(view.click(10, 10)).toBe("cam"); // the locked node's document can't be picked
+    setLocked("hud", false);
+    view.stop();
   });
 
   it("a click on the same spot cycles from the topmost element down to scene nodes", () => {
     const sync = scene().sync;
     const play = hudDoc().query("#play")!;
-    const hits = [...uiHitKeys([play.children[0].component, play.component], sync, () => true), "cam"];
-    let current: string | null = null;
-    const chosen: string[] = [];
-    for (let i = 0; i < 4; i++) {
-      const key = chooseSelection(hits, current, i > 0);
-      applyClickSelection(key);
-      current = selectedUIElement.value ?? selectedKeys.value.at(-1) ?? null;
-      chosen.push(current!);
-    }
+    let picked: UIComponentType[] = [play.children[0].component, play.component];
+    const view = clicking(() => picked);
+    const hits = [uiRefKey(refOfElement(sync, play.children[0])!), uiRefKey(refOfElement(sync, play)!), "cam"];
+    const chosen = [view.click(), view.click(), view.click(), view.click()];
     expect(chosen).toEqual([hits[0], hits[1], "cam", hits[0]]);
     expect(selectedUIRef()).toEqual(parseUIRefKey(hits[0]));
-    applyClickSelection(null);
+    picked = [];
+    view.surface.adapter.rects.clear();
+    expect(view.click(20, 20)).toBeNull(); // empty space
     expect(selectedUIElement.value).toBeNull();
     expect(selectedKeys.value).toEqual([]);
+    view.stop();
   });
 });

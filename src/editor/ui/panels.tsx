@@ -49,6 +49,3 @@ export function preloadPanels(layout: Layout): Promise<void> {
   );
   return now;
 }
-
-/** True once a panel's code has loaded. */
-export const panelLoaded = (panel: PanelId): boolean => lazyFor(panel)?.loaded ?? false;

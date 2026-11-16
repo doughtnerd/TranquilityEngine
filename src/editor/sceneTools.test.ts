@@ -1,12 +1,15 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Engine, GameObject, Input } from "../engine";
-import { actionLabel, alignOffsets, distributeOffsets, runAlign, type Box } from "./align";
-import { gizmoOptions } from "./gizmo";
+import { actionLabel, runAlign } from "./align";
+import { alignOffsets, distributeOffsets, type Box } from "./boxAlign";
 import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile } from "./project";
-import { DEFAULT_SNAP, cleanSnap, gizmoPivot, gizmoSpace, sceneToolShortcut, snapActive, snapSettings, snapTo, updateSnap } from "./sceneTools";
-import { openScene, sceneCamera, select, snapping, viewMode } from "./state";
+import { cleanSnap, gizmoPivot, gizmoSpace, installSceneToolKeys, snapActive, snapSettings, snapTo, updateSnap } from "./sceneTools";
+import { openScene, sceneCamera, select, snapping } from "./state";
 import { DEMO_SCENE, demoAssets, demoSettings } from "./testing";
+
+/** The snap settings a fresh editor starts with. */
+const DEFAULT_SNAP = { move: 0.25, rotate: Math.PI / 12, scale: 0.1, grid: 1, showGrid: true, always: false, v: 2 as const };
 
 const box = (x0: number, x1: number, y0 = 0, y1 = 0): Box => ({ min: [x0, y0, 0], max: [x1, y1, 0] });
 
@@ -52,13 +55,13 @@ describe("snap settings", () => {
   });
 
   it("keeps the rotate step in radians, and converts a step saved in degrees before version 2 (ADR 0164)", () => {
-    expect(DEFAULT_SNAP.rotate).toBeCloseTo(Math.PI / 12, 12);
+    expect(cleanSnap(null).rotate).toBeCloseTo(Math.PI / 12, 12);
     expect(cleanSnap({ move: 0.25, rotate: 45 }).rotate).toBeCloseTo(Math.PI / 4, 12); // an old save: degrees
     expect(cleanSnap({ rotate: 0.5, v: 2 }).rotate).toBe(0.5);
     expect(cleanSnap({ rotate: 45 }).v).toBe(2);
   });
 
-  it("snaps while Ctrl is held or always, and passes the steps, space and pivot to the gizmo", () => {
+  it("snaps while Ctrl is held or always", () => {
     snapSettings.value = { ...DEFAULT_SNAP };
     snapping.value = false;
     expect(snapActive.value).toBe(false);
@@ -67,24 +70,28 @@ describe("snap settings", () => {
     snapping.value = false;
     updateSnap({ always: true, move: 0.5, rotate: Math.PI / 4 });
     expect(snapActive.value).toBe(true);
-    gizmoSpace.value = "local";
-    gizmoPivot.value = "pivot";
-    viewMode.value = "2d";
-    const o = gizmoOptions("translate", ["a", "b", "c"], "b");
-    expect(o).toMatchObject({ snap: true, snapSteps: { move: 0.5, rotate: Math.PI / 4, scale: 0.1 }, space: "local", pivot: "pivot", planar: true, activeIndex: 1 });
-    expect(gizmoOptions("rotate", ["a", "b"], "child-of-a").activeIndex).toBe(1); // active isn't a target: the last one
     snapSettings.value = { ...DEFAULT_SNAP };
-    gizmoSpace.value = "world";
-    gizmoPivot.value = "center";
-    viewMode.value = "3d";
   });
 
   it("X and Z toggle space and pivot; with Ctrl, Z stays undo", () => {
-    const k = (key: string, mods: Partial<KeyboardEvent> = {}) => sceneToolShortcut({ key, ctrlKey: false, metaKey: false, shiftKey: false, altKey: false, ...mods });
-    expect(k("x")).toBe("space");
-    expect(k("Z")).toBe("pivot");
-    expect(k("z", { ctrlKey: true })).toBeNull();
-    expect(k("x", { shiftKey: true })).toBeNull();
+    vi.stubGlobal("document", { querySelector: () => null });
+    const keys = new EventTarget();
+    const stop = installSceneToolKeys(keys as unknown as Window);
+    const press = (key: string, mods: Partial<KeyboardEvent> = {}) =>
+      keys.dispatchEvent(Object.assign(new Event("keydown"), { key, ctrlKey: false, metaKey: false, shiftKey: false, altKey: false, repeat: false, ...mods }));
+    gizmoSpace.value = "world";
+    gizmoPivot.value = "center";
+    press("x");
+    expect(gizmoSpace.value).toBe("local");
+    press("Z");
+    expect(gizmoPivot.value).toBe("pivot");
+    press("z", { ctrlKey: true });
+    press("x", { shiftKey: true });
+    expect([gizmoSpace.value, gizmoPivot.value]).toEqual(["local", "pivot"]);
+    stop();
+    gizmoSpace.value = "world";
+    gizmoPivot.value = "center";
+    vi.unstubAllGlobals();
   });
 });
 

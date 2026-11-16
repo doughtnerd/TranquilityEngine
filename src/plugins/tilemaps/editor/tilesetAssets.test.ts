@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { tilemapsEditorPlugin } from ".";
 import { useEditorPlugins } from "../../testEditorPlugins";
 import { defaultImportSettings, formatImportSettings, sidecarPath } from "../../../engine/scene/importSettings";
@@ -6,7 +6,8 @@ import { assetKind } from "../../../editor/assetBrowser";
 import { blockStamp } from "./palette";
 import { parseTileset } from "../runtime/tileset";
 import { joinPath, openFolderProject } from "../../../editor/projects";
-import { formatTileset, splitSprite, tilesetFromSlices, tilesForSlices } from "./tilesetAssets";
+import { createTilesetFromSlices, splitSprite, tilesForSlices } from "./tilesetAssets";
+import { currentProject } from "../../../editor/state";
 import { MemoryFileSystem, ROOT, useCoreAssetKinds } from "../../../editor/testing";
 
 useCoreAssetKinds(); // core asset kinds, as main.tsx registers them (ADR 0143)
@@ -18,8 +19,18 @@ async function projectWithSlices(rects: [number, number, number, number][]) {
   const settings = defaultImportSettings();
   settings.sprites = rects.map((rect, i) => ({ name: `t_${i}`, rect, pivot: [0.5, 0.5] }));
   if (rects.length) fs.files.set(joinPath(ROOT, sidecarPath("images/t.png")), formatImportSettings(settings));
-  return { fs, project: await openFolderProject(fs, ROOT), settings };
+  const project = await openFolderProject(fs, ROOT);
+  currentProject.value = project;
+  return { fs, project, settings };
 }
+
+/** Create Tileset from Slices on images/t.png, in the project's top folder: the tileset it wrote. */
+async function tilesetFromSlices(project: Awaited<ReturnType<typeof projectWithSlices>>["project"]) {
+  const path = (await createTilesetFromSlices("", "images/t.png"))!;
+  expect(path).toBe("t.tileset.json");
+  return parseTileset(project.assets.get(path), path).tileset;
+}
+afterEach(() => (currentProject.value = null));
 
 useEditorPlugins([tilemapsEditorPlugin]);
 
@@ -32,7 +43,7 @@ describe("tileset assets (ADR 0103)", () => {
 
   it("makes one tile per slice, sized by the first slice", async () => {
     const { project } = await projectWithSlices([[0, 0, 8, 12], [8, 0, 8, 12], [16, 0, 8, 12]]);
-    const ts = tilesetFromSlices("images/t.png", project);
+    const ts = await tilesetFromSlices(project);
     expect(ts.tileSize).toEqual([8, 12]);
     expect(ts.tiles.map((t) => [t.id, t.sprite, t.collision])).toEqual([
       [1, "asset:images/t.png#t_0", "none"],
@@ -43,7 +54,7 @@ describe("tileset assets (ADR 0103)", () => {
 
   it("falls back to 16 × 16 and no tiles for an image without slices", async () => {
     const { project } = await projectWithSlices([]);
-    const ts = tilesetFromSlices("images/t.png", project);
+    const ts = await tilesetFromSlices(project);
     expect(ts.tileSize).toEqual([16, 16]);
     expect(ts.tiles).toEqual([]);
   });
@@ -56,11 +67,8 @@ describe("tileset assets (ADR 0103)", () => {
 
   it("writes pretty JSON that reads back", async () => {
     const { fs, project } = await projectWithSlices([[0, 0, 8, 8]]);
-    const data = tilesetFromSlices("images/t.png", project);
-    await project.writeText("a.tileset.json", formatTileset(data));
-    expect(fs.files.get(joinPath(ROOT, "a.tileset.json"))).toBe(formatTileset(data));
-    expect(formatTileset(data)).toContain('\n  "tileSize"');
-    expect(parseTileset(project.assets.get("a.tileset.json"), "a.tileset.json").tileset.tiles).toHaveLength(1);
+    expect((await tilesetFromSlices(project)).tiles).toHaveLength(1);
+    expect(fs.files.get(joinPath(ROOT, "t.tileset.json"))).toContain('\n  "tileSize"');
   });
 
   it("splits sprite references", () => {

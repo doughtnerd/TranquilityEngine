@@ -5,28 +5,26 @@ import { getComponentClass } from "../../engine/core/registry";
 import { byPhase } from "../../engine/render/renderFeatures";
 import { assetKind } from "../../editor/assetBrowser";
 import { assetDocumentsDeleted, assetDocumentsMoved, openAssetDocument } from "../../editor/assetDocuments";
-import { acceptsFile } from "../../editor/assetFieldKinds";
-import { inspectableAsset } from "../../editor/assetImport";
-import { kindIcon, kindLabel, registeredKind } from "../../editor/assetKindLookup";
+import { inspectedAsset } from "../../editor/assetImport";
+import { select as selectAssets } from "../../editor/assetSelection";
+import { kindIcon, kindLabel, registeredKind, satisfiesFieldKind } from "../../editor/assetKindLookup";
 import { joinPath, openFolderProject } from "../../editor/projects";
 import { assetFormats, assetKinds, panels, viewportTools } from "../../editor/sdk/contributions";
-import { inspectorSectionsFor } from "../../editor/ui/inspectorSections";
 import { createViewportToolHost } from "../../editor/viewportTools";
 import type { Engine } from "../../engine";
 import type { World } from "../../engine/core/World";
-import { PAINT_TOOL_ID, PAINT_TOOL_KEYS } from "./editor/paintTool";
 import { brushTool, pickBrushTool } from "./editor/brush";
 import { isPluginActive } from "../../editor/sdk/plugins";
 import { useEditorPlugins } from "../testEditorPlugins";
 import { activeViewportTool, currentProject, pickTool } from "../../editor/state";
-import { MemoryFileSystem, ROOT, useCoreAssetKinds } from "../../editor/testing";
+import { inspectorSectionsFor, MemoryFileSystem, ROOT, useCoreAssetKinds } from "../../editor/testing";
 import { formatTileset } from "./editor/tilesetAssets";
 import { EDITOR_PLUGINS } from "../editor";
 import { RUNTIME_PLUGINS, isRuntimePluginActive } from "../runtime";
 import { applyTestPlugins } from "../testPlugins";
 import { MESHES_SPEC } from "../meshes/runtime";
 import { tilemapsEditorPlugin } from "./editor";
-import { parsePolygon } from "./editor/TilesetInspector";
+import { parsePolygon } from "./editor/polygonText";
 import { Tilemap, tilemapsRuntimePlugin } from "./runtime";
 import { _registeredRenderFeatures } from "../../engine/render/renderFeatures";
 import { newTileset, type TilesetData } from "./runtime/tileset";
@@ -35,6 +33,9 @@ import { newTileset, type TilesetData } from "./runtime/tileset";
 const registeredSpec = (name: string) => _registeredRenderFeatures().find((f) => f.spec.name === name)!.spec;
 const SPRITES_SPEC = registeredSpec("sprites");
 const TILEMAPS_SPEC = registeredSpec("tilemaps");
+
+/** The paint tool's id: also its active-tool id. */
+const PAINT_TOOL_ID = "myco.tilemaps.paint";
 
 useCoreAssetKinds(); // core asset kinds, as main.tsx registers them (ADR 0143)
 
@@ -119,7 +120,6 @@ describe("the Tilemaps plugin's editor half (ADR 0134)", () => {
     expect(activeViewportTool.value).toBeNull(); // uninstalled with the scene view
     expect(brushTool.value).toBe("fill");
     pickBrushTool(null);
-    for (const key of ["q", "w", "e", "r", "f"]) expect(PAINT_TOOL_KEYS[key]).toBeUndefined();
   });
 
   it("registers the tileset asset kind: matching, label, icon, inspector and tileset fields", () => {
@@ -128,9 +128,9 @@ describe("the Tilemaps plugin's editor half (ADR 0134)", () => {
     expect(assetKind("tiles/data.json")).toBe("json");
     expect(kindLabel("tileset")).toBe("Tileset");
     expect(kindIcon("tileset")).toMatch(/^M/);
-    expect(inspectableAsset(TILESET)).toBe(TILESET);
-    expect(acceptsFile("tileset", TILESET)).toBe(true);
-    expect(acceptsFile("material", TILESET)).toBe(false);
+    expect(inspectedFor(TILESET)).toBe(TILESET);
+    expect(satisfiesFieldKind("tileset", TILESET)).toBe(true);
+    expect(satisfiesFieldKind("material", TILESET)).toBe(false);
     expect(assetKinds.get("tileset")?.referencedAs).toEqual(["tileset"]);
   });
 
@@ -220,6 +220,14 @@ describe("the Tilemaps plugin's editor half (ADR 0134)", () => {
     expect(isPluginActive("myco.tilemaps")).toBe(false);
     expect(registeredKind("tileset")).toBeUndefined();
     expect(assetFormats.get("tileset")).toBeUndefined();
-    expect(inspectableAsset(TILESET)).toBeNull(); // a disabled plugin's files show as generic files
+    expect(inspectedFor(TILESET)).toBeNull(); // a disabled plugin's files show as generic files
   });
 });
+
+/** The file the Inspector shows with `entry` alone selected in the Assets panel (null: none). */
+function inspectedFor(entry: string): string | null {
+  selectAssets([entry]);
+  const shown = inspectedAsset.peek();
+  selectAssets([]);
+  return shown;
+}

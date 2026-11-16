@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Color, Engine, GameObject } from "../engine";
 import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText } from "../engine/ui/components";
-import { isPaintedUI, orderClickHits, partitionUIHits } from "./uiPicking";
+import { orderClickHits, partitionUIHits } from "./uiPicking";
+import type { UIComponentType } from "../engine/ui/components";
+
+/** Whether picking counts `c` as painted (it draws something under the pointer). */
+const isPaintedUI = (c: UIComponentType) => partitionUIHits([c]).painted.length === 1;
 
 let engine: Engine;
 beforeEach(async () => {
@@ -11,7 +15,7 @@ afterEach(() => engine.dispose());
 
 const make = <T extends UIPanel | UIText | UIImage | UICanvas | UIInputField | UIButton>(type: new () => T, init: Partial<T> = {}): T => GameObject.create("n").addBehavior(type as never, init as never) as T;
 
-describe("isPaintedUI", () => {
+describe("painted UI", () => {
   it("is false for a canvas and a transparent panel, true for a fill or a border", () => {
     expect(isPaintedUI(make(UICanvas))).toBe(false);
     expect(isPaintedUI(make(UIPanel))).toBe(false);

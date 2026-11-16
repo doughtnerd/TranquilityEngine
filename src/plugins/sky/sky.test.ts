@@ -5,9 +5,9 @@ import { skyPreset } from "../../engine/sky/presets";
 import { formatSky, parseSky, type SkySettings } from "../../engine/sky/skyFormat";
 import { assetKind } from "../../editor/assetBrowser";
 import { openAssetDocument } from "../../editor/assetDocuments";
-import { acceptsFile } from "../../editor/assetFieldKinds";
-import { inspectableAsset } from "../../editor/assetImport";
-import { kindIcon, kindLabel, kindOpens, registeredKind } from "../../editor/assetKindLookup";
+import { inspectedAsset } from "../../editor/assetImport";
+import { select as selectAssets } from "../../editor/assetSelection";
+import { kindIcon, kindLabel, kindOpens, registeredKind, satisfiesFieldKind } from "../../editor/assetKindLookup";
 import { registeredPanels } from "../../editor/layout/registeredPanels";
 import { joinPath } from "../../editor/projects";
 import { assetFormats, assetKinds, panels } from "../../editor/sdk/contributions";
@@ -47,9 +47,9 @@ describe("the Sky plugin's editor half (ADR 0134)", () => {
     expect(kindIcon("sky")).toMatch(/^M/);
     expect(previewKind(SKY)).toBe("sky");
     expect(kindOpens(SKY)).toBe(true);
-    expect(inspectableAsset(SKY)).toBe(SKY);
-    expect(acceptsFile("environment", SKY)).toBe(true);
-    expect(acceptsFile("material", SKY)).toBe(false);
+    expect(inspectedFor(SKY)).toBe(SKY);
+    expect(satisfiesFieldKind("environment", SKY)).toBe(true);
+    expect(satisfiesFieldKind("material", SKY)).toBe(false);
     expect(assetKinds.get("sky")?.create?.label).toBe("New Sky");
   });
 
@@ -88,8 +88,8 @@ describe("the Sky plugin's editor half (ADR 0134)", () => {
     expect(assetKind(SKY)).toBe("json");
     expect(registeredKind("sky")).toBeUndefined();
     expect(previewKind(SKY)).toBeNull();
-    expect(acceptsFile("environment", SKY)).toBe(false);
-    expect(inspectableAsset(SKY)).toBeNull();
+    expect(satisfiesFieldKind("environment", SKY)).toBe(false);
+    expect(inspectedFor(SKY)).toBeNull();
     expect(assetFormats.get("sky")).toBeUndefined();
     expect(panels.get("sky")).toBeUndefined();
     expect(registeredPanels().has("sky")).toBe(false);
@@ -115,3 +115,11 @@ describe("New Sky (ADR 0112)", () => {
     expect(await assetKinds.get("sky")!.create!.create("")).toBe("New Sky.sky.json");
   });
 });
+
+/** The file the Inspector shows with `entry` alone selected in the Assets panel (null: none). */
+function inspectedFor(entry: string): string | null {
+  selectAssets([entry]);
+  const shown = inspectedAsset.peek();
+  selectAssets([]);
+  return shown;
+}

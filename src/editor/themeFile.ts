@@ -7,7 +7,7 @@ import { BASE_KEYS, luminance, parseHex, PRESETS, mergeBase, type ThemeBase, typ
 
 const THEME_FORMAT = "myco.theme";
 const THEME_VERSION = 1;
-export const THEME_FORMAT_ID = `${THEME_FORMAT}@${THEME_VERSION}`;
+const THEME_FORMAT_ID = `${THEME_FORMAT}@${THEME_VERSION}`;
 
 /** Where a project's own theme lives, relative to the project root. */
 export const PROJECT_THEME_PATH = ".myco/theme.json";
@@ -48,9 +48,6 @@ export const cleanThemeName = (v: unknown, fallback = "Imported theme") => {
 
 /** A stable id for an imported theme: `custom-` and the name's slug. */
 export const themeIdFor = (name: string) => `custom-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "theme"}`;
-
-/** The kind a theme's colours suggest (dark or light by the panel's luminance). */
-export const kindOfBase = (base: ThemeBase): ThemeKind => (luminance(base.panel) > 0.4 ? "light" : "dark");
 
 /** The built-in theme whose colours stand in for a kind's missing ones. */
 const fallbackFor = (kind: ThemeKind): ThemePreset => PRESETS.find((p) => p.kind === kind) ?? PRESETS[0];

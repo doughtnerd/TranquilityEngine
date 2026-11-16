@@ -1,6 +1,14 @@
+import { signal } from "@preact/signals";
 import { describe, expect, it } from "vitest";
-import { FrameWindow, StatsCollector } from "./playStats";
-import { DEFAULT_PLAY_GIZMOS, cleanPlayGizmos, outlineShown, overlayKindShown } from "./playGizmos";
+import { Engine } from "../engine";
+import { addEditorOverlay, shownEditorOverlays } from "../engine/editor";
+import { FrameWindow } from "./frameWindow";
+import { StatsCollector } from "./playStats";
+import { cleanPlayGizmos, installPlayGizmos, outlineShown, playGizmos, updatePlayGizmos } from "./playGizmos";
+import type { PlaySession } from "./playMode";
+
+/** The Gizmos settings a fresh editor starts with. */
+const DEFAULT_PLAY_GIZMOS = { enabled: true, navigation: true, outline: true, other: true };
 
 describe("play stats: the frame window", () => {
   it("reports current, min and average fps over the window", () => {
@@ -56,13 +64,22 @@ describe("play stats: the collector (the Engine's timing hook)", () => {
 });
 
 describe("play view gizmos settings", () => {
-  it("shows a kind only with the master toggle on and the kind's box ticked", () => {
-    const s = { ...DEFAULT_PLAY_GIZMOS, navigation: false };
-    expect(overlayKindShown(s, "navigation")).toBe(false);
-    expect(overlayKindShown(s, "other")).toBe(true);
-    expect(overlayKindShown(s, "colliders")).toBe(true);
+  it("shows a kind only with the master toggle on and the kind's box ticked", async () => {
+    const engine = await Engine.create({ headless: true });
+    const world = engine.world;
+    for (const kind of ["navigation", "colliders", "other"] as const) addEditorOverlay(world, kind, () => ({ lines: [], handles: [] }), kind);
+    const stop = installPlayGizmos(signal<PlaySession | null>({ engine } as unknown as PlaySession));
+    expect(shownEditorOverlays(world)).toEqual(["navigation", "colliders", "other"]);
+    updatePlayGizmos({ navigation: false });
+    expect(shownEditorOverlays(world)).toEqual(["colliders", "other"]);
+    updatePlayGizmos({ navigation: true, other: false });
+    expect(shownEditorOverlays(world)).toEqual(["navigation", "colliders"]);
+    updatePlayGizmos({ other: true, enabled: false });
+    expect(shownEditorOverlays(world)).toEqual([]); // colliders too follow the master toggle
+    stop();
+    playGizmos.value = cleanPlayGizmos(null);
+    engine.dispose();
     const off = { ...DEFAULT_PLAY_GIZMOS, enabled: false };
-    for (const kind of ["navigation", "colliders", "other"] as const) expect(overlayKindShown(off, kind)).toBe(false);
     expect(outlineShown(off)).toBe(false);
     expect(outlineShown({ ...DEFAULT_PLAY_GIZMOS, outline: false })).toBe(false);
     expect(outlineShown(DEFAULT_PLAY_GIZMOS)).toBe(true);

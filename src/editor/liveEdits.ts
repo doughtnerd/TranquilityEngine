@@ -12,7 +12,7 @@ import { newComponentEntry, whyNotAddable } from "./componentEdits";
 const shortName = (type: string) => type.replace(/^[^.]*\./, "");
 
 /** Where top-level nodes go in a live World: under its active scene, else its root (as `GameObject.create` does). */
-export function topLevelOf(world: World): GameObject {
+function topLevelOf(world: World): GameObject {
   return world.activeScene ?? world.root;
 }
 

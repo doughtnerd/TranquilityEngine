@@ -3,18 +3,20 @@ import declarations from "virtual:myco-types";
 import { describe, expect, it } from "vitest";
 import type { FileSystem } from "../engine/platform/FileSystem";
 import { joinPath } from "./projects";
-import { TYPES_DIR, projectTsconfig, watchScripts, writeScriptingFiles } from "./scriptingSetup";
+import { watchScripts, writeScriptingFiles } from "./scriptingSetup";
 import { scriptTemplate } from "./scriptTemplates";
 import { MemoryFileSystem, ROOT } from "./testing";
 
 const at = (path: string) => joinPath(ROOT, path);
+/** Where a project keeps the engine's declarations for external editors. */
+const TYPES_DIR = ".myco/types/myco";
 
 describe("files for external editors", () => {
   it("adds a scripts folder, a tsconfig.json and the engine's declarations", async () => {
     const fs = new MemoryFileSystem();
     fs.files.set(at("project.json"), "{}");
     expect(await writeScriptingFiles(fs, ROOT, { "index.d.ts": "export {};", "core/World.d.ts": "export {};" })).toEqual({ tsconfig: true, types: true });
-    expect(fs.files.get(at("tsconfig.json"))).toBe(projectTsconfig());
+    expect(JSON.parse(fs.files.get(at("tsconfig.json")) as string).compilerOptions.paths.myco).toEqual([`./${TYPES_DIR}/index.d.ts`]);
     expect(fs.files.get(at(`${TYPES_DIR}/core/World.d.ts`))).toBe("export {};");
     expect(JSON.parse(fs.files.get(at(`${TYPES_DIR}/package.json`)) as string)).toEqual({ name: "myco", types: "index.d.ts" });
   });
@@ -31,11 +33,14 @@ describe("files for external editors", () => {
 });
 
 describe("the generated tsconfig with the engine's declarations", () => {
-  it("type-checks the script templates the way an external editor would, without errors", () => {
+  it("type-checks the script templates the way an external editor would, without errors", async () => {
+    // The tsconfig.json a new project gets.
+    const project = new MemoryFileSystem();
+    await writeScriptingFiles(project, ROOT, {});
     // A project folder in memory; TypeScript's own lib files come from disk.
     const dir = "/project";
     const files = new Map<string, string>();
-    files.set(`${dir}/tsconfig.json`, projectTsconfig());
+    files.set(`${dir}/tsconfig.json`, project.files.get(at("tsconfig.json")) as string);
     for (const [path, text] of Object.entries(declarations)) files.set(`${dir}/${TYPES_DIR}/${path}`, text);
     files.set(`${dir}/scripts/Mover.ts`, scriptTemplate("behavior", "Mover"));
     files.set(`${dir}/scripts/Heat.ts`, scriptTemplate("data", "Heat"));

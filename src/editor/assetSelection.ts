@@ -72,8 +72,6 @@ export const lastAssetBrowser = signal<AssetBrowserView>(defaultAssetBrowser);
 
 /** The last-used Assets panel's folder. */
 export const folderPath = computed(() => lastAssetBrowser.value.folder.value);
-/** The last-used Assets panel's search text. */
-export const assetQuery = computed(() => lastAssetBrowser.value.query.value);
 /** Selected entries, in selection order. */
 export const selectedAssets = signal<readonly string[]>([]);
 /** Where Shift ranges start: the entry last clicked or moved to without Shift. */

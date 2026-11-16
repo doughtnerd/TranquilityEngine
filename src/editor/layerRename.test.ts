@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input } from "../engine";
 import { OrbitCamera } from "./OrbitCamera";
-import { layerRenamesBetween, layerUsers, renameLayerReferences, withRenamedLayer } from "./layerRename";
+import { layerRenamesBetween, layerUsers, renameLayerReferences, type LayerKind } from "./layerRename";
 import { openSceneFile } from "./project";
 import { renameSortingLayer, moveSortingLayer, type SettingsDraft } from "./projectSettingsModel";
 import { addLayer, renameLayer } from "../plugins/physics/editor/physicsSettingsModel";
@@ -12,29 +12,38 @@ import { MemoryFileSystem, ROOT } from "./testing";
 const scene = (data: unknown) => ({ format: "myco.scene@1", nodes: [data] });
 const collider = (layer: string) => ({ type: "engine.BoxCollider2D", data: { layer } });
 
-describe("withRenamedLayer (ADR 0116)", () => {
-  it("renames collider layers and sprite sorting layers, each only for its own kind", () => {
-    const json = scene({ id: "a", components: [collider("Ground"), { type: "engine.SpriteRenderer", data: { sortingLayer: "Ground" } }, { type: "game.Thing", data: { layer: "Ground" } }] });
-    const phys = withRenamedLayer(json, "physics", "Ground", "Floor");
-    expect(phys.count).toBe(1);
-    expect(JSON.stringify(phys.value)).toContain('"layer":"Floor"');
-    expect(JSON.stringify(phys.value)).toContain('"sortingLayer":"Ground"'); // untouched
-    expect(JSON.stringify(phys.value)).toContain('{"type":"game.Thing","data":{"layer":"Ground"}}'); // not a collider
-    const sort = withRenamedLayer(json, "sorting", "Ground", "Floor");
-    expect(sort.count).toBe(1);
-    expect(JSON.stringify(sort.value)).toContain('"sortingLayer":"Floor"');
+/** Rename a layer in a project holding one prefab file, `json`: the files changed and the prefab as parsed afterwards, as JSON text. */
+async function renamedIn(json: unknown, kind: LayerKind, from: string, to: string): Promise<{ done: string[]; text: string }> {
+  const fs = new MemoryFileSystem();
+  fs.files.set(joinPath(ROOT, "project.json"), JSON.stringify({ name: "t" }));
+  fs.files.set(joinPath(ROOT, "x.prefab.json"), JSON.stringify(json, null, 2));
+  const project = await openFolderProject(fs, ROOT);
+  openScene.value = null;
+  const done = await renameLayerReferences(project, [{ kind, from, to }]);
+  return { done, text: JSON.stringify(JSON.parse(project.textOf("x.prefab.json")!)) };
+}
+
+describe("renaming a layer in a scene file (ADR 0116)", () => {
+  it("renames collider layers and sprite sorting layers, each only for its own kind", async () => {
+    const json = scene({ id: "a", name: "A", components: [collider("Ground"), { type: "engine.SpriteRenderer", data: { sortingLayer: "Ground" } }, { type: "game.Thing", data: { layer: "Ground" } }] });
+    const phys = (await renamedIn(json, "physics", "Ground", "Floor")).text;
+    expect(phys.match(/"Floor"/g)).toHaveLength(1);
+    expect(phys).toContain('"layer":"Floor"');
+    expect(phys).toContain('"sortingLayer":"Ground"'); // untouched
+    expect(phys).toContain('{"type":"game.Thing","data":{"layer":"Ground"}}'); // not a collider
+    const sort = (await renamedIn(json, "sorting", "Ground", "Floor")).text;
+    expect(sort.match(/"Floor"/g)).toHaveLength(1);
+    expect(sort).toContain('"sortingLayer":"Floor"');
   });
 
-  it("renames prefab overrides and nested nodes, and reports no change by identity", () => {
-    const json = scene({ id: "i", prefab: "p.prefab.json", children: [{ id: "c", components: [collider("A")] }], overrides: [{ target: ["x"], component: "engine.CircleCollider2D", field: "layer", value: "A" }, { target: ["x"], component: "game.Thing", field: "layer", value: "A" }] });
-    const r = withRenamedLayer(json, "physics", "A", "B");
-    expect(r.count).toBe(2);
-    const text = JSON.stringify(r.value);
-    expect(text).toContain('"value":"B"');
-    expect(text.match(/"value":"A"/g)).toHaveLength(1);
-    const none = withRenamedLayer(json, "physics", "Zed", "Q");
-    expect(none.changed).toBe(false);
-    expect(none.value).toBe(json);
+  it("renames prefab overrides and nested nodes, and leaves a file that doesn't name the layer alone", async () => {
+    const json = scene({ id: "i", name: "I", prefab: "p.prefab.json", children: [{ id: "c", components: [collider("A")] }], overrides: [{ target: ["x"], component: "engine.CircleCollider2D", field: "layer", value: "A" }, { target: ["x"], component: "game.Thing", field: "layer", value: "A" }] });
+    const r = await renamedIn(json, "physics", "A", "B");
+    expect(r.done).toEqual(["x.prefab.json"]);
+    expect(r.text.match(/"B"/g)).toHaveLength(2);
+    expect(r.text).toContain('"value":"B"');
+    expect(r.text.match(/"value":"A"/g)).toHaveLength(1);
+    expect((await renamedIn(json, "physics", "Zed", "Q")).done).toEqual([]);
   });
 });
 

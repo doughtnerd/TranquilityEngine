@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input } from "../engine";
 import { SpriteRenderer } from "../engine/render/components";
 import { deleteAssets } from "./assetDelete";
-import { assetClipboard, copyAssets, duplicateAssets, freePath, moveAssets, moveAssetsTo, newFolder, pasteAssets, renameAsset, splitExtension, whyNotMoveTarget, whyNotValidName } from "./assetOps";
+import { assetClipboard, duplicateAssets, freePath, moveAssets, moveAssetsTo, newFolder, pasteAssets, renameAsset, splitExtension, whyNotMoveTarget, whyNotValidName } from "./assetOps";
 import { OrbitCamera } from "./OrbitCamera";
 import { askBeforeDeletingAssets } from "./preferences";
 import { openSceneFile } from "./project";
@@ -116,7 +116,8 @@ describe("copying", () => {
     assetClipboard.value = { entries: ["images/ground.jpg"], cut: true };
     expect(await pasteAssets("music")).toEqual([]); // the name's taken there now
     expect(status.value?.text).toMatch(/already exists/);
-    expect(await copyAssets(["images/"], "images")).toEqual([]);
+    assetClipboard.value = { entries: ["images/"], cut: false };
+    expect(await pasteAssets("images")).toEqual([]);
     expect(status.value?.text).toMatch(/into itself/);
     assetClipboard.value = { entries: ["images/PipeUp.png"], cut: true };
     expect(await pasteAssets("")).toEqual(["PipeUp.png"]);

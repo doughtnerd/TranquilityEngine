@@ -9,18 +9,17 @@ import { ParticleSystem } from "../../engine/render/components";
 import { _registeredRenderFeatures } from "../../engine/render/renderFeatures";
 import { defaultParticleGraph, formatParticleGraph } from "../../engine/scene/particleGraphFormat";
 import { assetKind } from "../../editor/assetBrowser";
-import { acceptsFile } from "../../editor/assetFieldKinds";
-import { inspectableAsset } from "../../editor/assetImport";
-import { canAddToScene, kindIcon, kindLabel, kindOpens, registeredKind } from "../../editor/assetKindLookup";
+import { inspectedAsset } from "../../editor/assetImport";
+import { select as selectAssets } from "../../editor/assetSelection";
+import { canAddToScene, kindIcon, kindLabel, kindOpens, registeredKind, satisfiesFieldKind } from "../../editor/assetKindLookup";
 import { registeredPanels } from "../../editor/layout/registeredPanels";
 import { joinPath, openFolderProject } from "../../editor/projects";
 import { assetFormats, assetKinds, panels } from "../../editor/sdk/contributions";
 import { isPluginActive } from "../../editor/sdk/plugins";
 import { useEditorPlugins } from "../testEditorPlugins";
 import { currentProject } from "../../editor/state";
-import { MemoryFileSystem, ROOT, useCoreAssetKinds } from "../../editor/testing";
+import { inspectorSectionsFor, MemoryFileSystem, ROOT, useCoreAssetKinds } from "../../editor/testing";
 import { previewKind } from "../../editor/thumbnails/keys";
-import { inspectorSectionsFor } from "../../editor/ui/inspectorSections";
 import { EDITOR_PLUGINS } from "../editor";
 import { RUNTIME_PLUGINS } from "../runtime";
 import { isRuntimePluginActive, runtimeActivator } from "../runtimeContext";
@@ -70,7 +69,7 @@ describe("the Particles plugin's editor half (ADR 0134)", () => {
     expect(previewKind(FX)).toBe("particles");
     for (const p of [FX, SUB, BLOCK]) {
       expect(kindOpens(p)).toBe(true);
-      expect(inspectableAsset(p)).toBe(p);
+      expect(inspectedFor(p)).toBe(p);
     }
     expect(canAddToScene(FX)).toBe(true); // a ParticleSystem node (ADR 0143)
     expect(canAddToScene(SUB)).toBe(false);
@@ -78,9 +77,9 @@ describe("the Particles plugin's editor half (ADR 0134)", () => {
   });
 
   it("lets effect fields (ParticleSystem.effect) take effects only", () => {
-    expect(acceptsFile("particles", FX)).toBe(true);
-    expect(acceptsFile("particles", SUB)).toBe(false);
-    expect(acceptsFile("material", FX)).toBe(false);
+    expect(satisfiesFieldKind("particles", FX)).toBe(true);
+    expect(satisfiesFieldKind("particles", SUB)).toBe(false);
+    expect(satisfiesFieldKind("material", FX)).toBe(false);
   });
 
   it("opens each kind in the Particle Graph", () => {
@@ -175,3 +174,11 @@ describe("the Particles plugin's runtime half (ADR 0135)", () => {
     expect(_registeredRenderFeatures().some((f) => f.spec.name === "particles")).toBe(false);
   });
 });
+
+/** The file the Inspector shows with `entry` alone selected in the Assets panel (null: none). */
+function inspectedFor(entry: string): string | null {
+  selectAssets([entry]);
+  const shown = inspectedAsset.peek();
+  selectAssets([]);
+  return shown;
+}

@@ -5,7 +5,6 @@ import { defaultLayout, typeOf, type Layout } from "./layout/model";
 import { registeredPanels } from "./layout/registeredPanels";
 import { lazyComponent, lazyDialog, PanelLoading } from "./ui/lazy";
 import { Panel as PanelFrame } from "./ui/panel/Panel";
-import { BUILTIN_PANELS } from "./ui/panels.builtin";
 import { panelView, visiblePanels } from "./ui/panels";
 import { UnavailablePanel } from "./ui/UnavailablePanel";
 import { useBuiltinPanels } from "./testing";
@@ -91,9 +90,10 @@ describe("the built-in panels (ADR 0182)", () => {
   it("are ordinary panel contributions: the editor's boot registers each, with its facts, ahead of any plugin's", async () => {
     await import("./corePanels");
     const catalog = registeredPanels();
-    expect([...catalog.keys()].slice(0, BUILTIN_PANELS.length)).toEqual(["scene", "hierarchy", "inspector", "assets", "history", "code", "worlds", "network", "project"]);
+    const builtin = ["scene", "hierarchy", "inspector", "assets", "history", "code", "worlds", "network", "project"];
+    expect([...catalog.keys()].slice(0, builtin.length)).toEqual(builtin);
     expect(catalog.get("scene")).toEqual({ title: "Scene", dock: "fill", single: true, closable: false, detachable: false });
     expect(catalog.get("code")).toEqual({ title: "Code", dock: "bottom", beside: "assets" });
-    for (const p of BUILTIN_PANELS) expect(catalog.get(p.id)?.owner, p.id).toBeUndefined(); // Core: no plugin
+    for (const id of builtin) expect(catalog.get(id)?.owner, id).toBeUndefined(); // Core: no plugin
   });
 });

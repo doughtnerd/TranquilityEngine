@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameBehavior, GameObject, Input, behavior, defineComponent, f32, field } from "../engine";
 import type { World } from "../engine/core/World";
 import { engineWorld, instantiateDocument, listComponents, listNodes } from "../engine/editor";
-import { addLiveComponent, createLiveNode, createLiveSibling, deleteLive, liveNodeChoices, moveLive, removeLiveComponent, renameLive, setLiveNodeRef, topLevelOf, whyNotDeleteLive, whyNotMoveLive, whyNotRemoveLive } from "./liveEdits";
+import { addLiveComponent, createLiveNode, createLiveSibling, deleteLive, liveNodeChoices, moveLive, removeLiveComponent, renameLive, setLiveNodeRef, whyNotDeleteLive, whyNotMoveLive, whyNotRemoveLive } from "./liveEdits";
 
 const log: string[] = [];
 
@@ -38,7 +38,7 @@ const names = () => listNodes(world).filter((n) => n.depth > 0).map((n) => `${" 
 describe("live nodes", () => {
   it("creates at the top level, as a child, and beside a row; renames", () => {
     const a = createLiveNode(world, null, undefined, "A");
-    expect(a.parent).toBe(topLevelOf(world));
+    expect(a.parent).toBe(world.activeScene ?? world.root); // the top level, as GameObject.create places it
     const child = createLiveNode(world, a, undefined, "Child");
     const b = createLiveNode(world, null, undefined, "B");
     createLiveSibling(a, "AfterA");
@@ -77,7 +77,7 @@ describe("live nodes", () => {
     expect(moveLive(a, a)).toBe("it can't go inside itself");
     expect(whyNotMoveLive(world.root, a)).toBe("it's the World root");
     expect(moveLive(b, null)).toBeNull();
-    expect(b.parent).toBe(topLevelOf(world));
+    expect(b.parent).toBe(world.activeScene ?? world.root);
     const scene = instantiateDocument(world, { format: "myco.scene@1", nodes: [] }, "scenes/x.scene.json");
     expect(whyNotMoveLive(scene, a)).toBe("a loaded scene stays at the top of its World");
   });

@@ -14,7 +14,7 @@ export interface Bus {
   listen<T>(event: string, handler: (payload: T) => void): Promise<() => void>;
 }
 
-export const EVENTS = {
+const EVENTS = {
   /** Projects window → editor: are you ready? */
   ping: "myco://editor-ping",
   /** Editor → Projects window: loaded and listening (on start-up, and in answer to a ping). */

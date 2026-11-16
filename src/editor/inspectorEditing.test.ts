@@ -3,7 +3,7 @@ import { AssetRef, Color, Engine, GameObject, Input, PlainObject, Quaternion, Ve
 import { SpriteRenderer } from "../engine/render/components";
 import { listComponents } from "../engine/editor";
 import { RenameNode, SetActive, SetField } from "./document";
-import { colorToJSON, editorFor, parseNumber, toSceneJSON } from "./fieldValues";
+import { editorFor, parseNumber, toSceneJSON } from "./fieldValues";
 import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile } from "./project";
 import { openScene, sceneCamera } from "./state";
@@ -29,7 +29,7 @@ describe("field values (scene-file JSON)", () => {
     expect(toSceneJSON("quaternion", [0, 0, Math.PI / 2])).toEqual([0, 0, 0.7071068, 0.7071068]);
     expect(toSceneJSON("quaternion", new Quaternion(0, -0.7071068, 0, -0.7071068))).toEqual([0, 0.7071068, 0, 0.7071068]);
     expect(toSceneJSON("color", new Color(1, 0, 0, 1))).toBe("#ff0000");
-    expect(colorToJSON(new Color(0, 1, 0, 0.5))).toBe("#00ff0080");
+    expect(toSceneJSON("color", new Color(0, 1, 0, 0.5))).toBe("#00ff0080");
     expect(toSceneJSON("asset", "images/bird.png")).toBe("asset:images/bird.png");
     expect(toSceneJSON("asset", "asset:images/bird.png")).toBe("asset:images/bird.png");
     expect(toSceneJSON("node", "bird")).toEqual({ $node: "bird" });

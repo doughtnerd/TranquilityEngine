@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { NavBakeOverlay, bakePathsOf, cleanNavOverlay, navDebugColors, type NavOverlaySettings } from "./navGizmo";
-import { PRESETS, resolveTheme } from "../../../editor/theme";
+import { NavBakeOverlay, bakePathsOf, navDebugColors } from "./navBakeOverlay";
+import { cleanNavOverlay, type NavOverlaySettings } from "./navGizmo";
+import { theme } from "../../../editor/theme";
 
 /** Line kinds in the wasm debug line buffers (stride 7: a xyz, b xyz, kind; `native/nav` debug.rs). */
 const LINE_KIND = { outline: 0, fold: 2 } as const;
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
-const colors = navDebugColors(resolveTheme(PRESETS[0]));
+const colors = navDebugColors(theme.value);
+/** Bake sections by agent type: the type's index itself. */
+const groupsByIndex = async (_bytes: Uint8Array, typeIndex: number) => ({ walk: typeIndex, fly: typeIndex });
 
 describe("the scene view's navigation overlay", () => {
   it("finds the baked assets of a scene's NavChunk nodes", () => {
@@ -44,6 +47,7 @@ describe("the scene view's navigation overlay", () => {
       linesFor,
       async () => Float32Array.from([0, 0, 0, 1, 1]),
       () => ({ paths: ["scenes/main.nav.bin"], urlOf: () => url, token: "scene", version: 1 }),
+      groupsByIndex,
     );
     expect(overlay.segments()).toEqual([]); // loading
     await tick();
@@ -76,7 +80,7 @@ describe("the scene view's navigation overlay", () => {
   });
 
   it("draws nothing with every toggle off, and reports a bake that does not read", async () => {
-    const off = new NavBakeOverlay(() => cleanNavOverlay({}), () => colors);
+    const off = new NavBakeOverlay(() => cleanNavOverlay({}), () => colors, () => 0, async () => new Uint8Array(0), async () => new Float32Array(0), async () => new Float32Array(0), () => null, groupsByIndex);
     expect(off.segments()).toEqual([]);
     const broken = new NavBakeOverlay(
       () => ({ ...cleanNavOverlay({}), navmesh: true }),
@@ -88,6 +92,7 @@ describe("the scene view's navigation overlay", () => {
       async () => new Float32Array(0),
       async () => new Float32Array(0),
       () => ({ paths: ["a.nav.bin"], urlOf: () => "blob:x", token: 1, version: 1 }),
+      groupsByIndex,
     );
     broken.segments();
     await tick();

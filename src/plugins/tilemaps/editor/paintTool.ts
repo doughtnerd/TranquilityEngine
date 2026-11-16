@@ -11,7 +11,7 @@ import { activeLayer, brushStamp, brushTerrain, brushTool, commitTilemap, fillAt
 import { type ViewportToolContribution, editor, activeViewportTool } from "../../../editor/sdk";
 
 /** The paint tool's id: also its overlay id and its active-tool id. */
-export const PAINT_TOOL_ID = "myco.tilemaps.paint";
+const PAINT_TOOL_ID = "myco.tilemaps.paint";
 
 const GRID = 0x5a6270;
 const BRUSH = 0x4fc3f7;
@@ -45,7 +45,7 @@ interface PaintState {
 }
 
 /** Keys that pick a brush tool while a tilemap is selected (plus Shift+E erase, X/Y/Z flip). */
-export const PAINT_TOOL_KEYS: Record<string, BrushTool> = { b: "pencil", u: "rect", g: "fill", i: "pick" };
+const PAINT_TOOL_KEYS: Record<string, BrushTool> = { b: "pencil", u: "rect", g: "fill", i: "pick" };
 
 /** The scene view tilemap paint tool. */
 export const paintTool: ViewportToolContribution = {

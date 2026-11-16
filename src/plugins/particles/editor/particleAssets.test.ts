@@ -9,7 +9,7 @@ import { useEditorPlugins } from "../../testEditorPlugins";
 import { currentProject, status } from "../../../editor/state";
 import { MemoryFileSystem, ROOT } from "../../../editor/testing";
 import { particlesEditorPlugin } from ".";
-import { createParticleBlock, createParticleSubgraph, particleDocument, particleFormatId, readEffect } from "./particleAssets";
+import { createParticleBlock, createParticleSubgraph, particleDocument, readEffect } from "./particleAssets";
 import { formatAsset, subgraphTemplate } from "./particleGraph/assetDocs";
 import { addNote, moveItems, setSystemCollapsed, updateNote } from "./particleGraph/graphEdit";
 
@@ -45,8 +45,9 @@ function countWrites(): string[] {
 }
 
 describe("particle documents (ADR 0134)", () => {
-  it("open effects, sub-graphs and blocks with their own format", () => {
-    expect([particleFormatId(FX), particleFormatId(SUB), particleFormatId("x.particleblock.json")]).toEqual(["particles", "particlesubgraph", "particleblock"]);
+  it("open effects, sub-graphs and blocks with their own format", async () => {
+    const block = (await createParticleBlock(""))!;
+    expect(particleDocument(project, block).problems.value).toEqual([]);
     expect(particleDocument(project, FX).value.value.systems.length).toBeGreaterThan(0);
     expect(particleDocument(project, SUB).value.value.nodes.some((n) => n.type === "asset.input")).toBe(true);
   });

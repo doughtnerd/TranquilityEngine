@@ -1,29 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { queueProjectFileWrite } from "./projectFile";
-import {
-  addAutoload,
-  addSortingLayer,
-  addTier,
-  graphicsOf,
-  moveTier,
-  removeTier,
-  renameTier,
-  setPlatformDefault,
-  setAutoDetect,
-  setDefaultTier,
-  setTargetFrameRate,
-  setTierValue,
-  moveAutoload,
-  moveSortingLayer,
-  readDraft,
-  setName,
-  settingsProblems,
-  settingsWarnings,
-  setValue,
-  withSettings,
-  type SettingsDraft,
-} from "./projectSettingsModel";
-import { raw } from "./testing";
+import { addAutoload, addSortingLayer, addTier, graphicsOf, moveTier, removeTier, renameTier, setPlatformDefault, setAutoDetect, setDefaultTier, setTargetFrameRate, setTierValue, moveAutoload, moveSortingLayer, setName, settingsProblems, settingsWarnings, setValue, withSettings, type SettingsDraft } from "./projectSettingsModel";
+import { raw, readDraft } from "./testing";
 
 const FLAPPY = raw["../../samples/flappy/project.json"];
 const flappy = () => readDraft(JSON.parse(FLAPPY));

@@ -24,7 +24,7 @@ export interface NodeBox {
 }
 
 /** True if a node can show a preview: it has a number output and isn't the output node or a property (as in Unity). */
-export const hasPreview = (node: GraphNode, graph: ShaderGraph) => node.type !== "output" && node.type !== "property" && nodePorts(node, graph).outputs.some((p) => p.type !== "texture");
+const hasPreview = (node: GraphNode, graph: ShaderGraph) => node.type !== "output" && node.type !== "property" && nodePorts(node, graph).outputs.some((p) => p.type !== "texture");
 
 /** How many number fields an input shows inline (0: none). */
 export function inlineFields(port: PortDef, connected: boolean, dynamic: ValueType): number {

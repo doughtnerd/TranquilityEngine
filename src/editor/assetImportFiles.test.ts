@@ -1,7 +1,8 @@
 // Importing files dropped from the OS (ADR 0085): name collisions, folders, sidecars, text assets.
 import { beforeEach, describe, expect, it } from "vitest";
 import { Input } from "../engine";
-import { filesOfPaths, importFiles, numberedName, planImport, whyNotImportable, type IncomingFile } from "./assetImportFiles";
+import { filesOfPaths, importFiles, whyNotImportable, type IncomingFile } from "./assetImportFiles";
+import { numberedName } from "./freePath";
 import { joinPath, openFolderProject, type EditorProject } from "./projects";
 import { currentProject } from "./state";
 import { MemoryFileSystem, ROOT, demoFolder } from "./testing";
@@ -17,25 +18,6 @@ beforeEach(async () => {
   fs = demoFolder();
   project = await openFolderProject(fs, ROOT);
   currentProject.value = project;
-});
-
-describe("numberedName", () => {
-  it("numbers before the extension", () => {
-    expect(numberedName("a.png", 0)).toBe("a.png");
-    expect(numberedName("a.png", 1)).toBe("a (1).png");
-    expect(numberedName("x.scene.json", 2)).toBe("x (2).scene.json");
-  });
-});
-
-describe("planImport", () => {
-  it("numbers taken names, folders as a whole, and sidecars with their file", () => {
-    const taken = new Set(["images/a.png", "images/sprites", "images/a (1).png"]);
-    const plan = planImport((p) => taken.has(p), "images", ["a.png", "a.png.meta.json", "sprites/b.png", "c.png"]);
-    expect(plan.get("a.png")).toBe("images/a (2).png");
-    expect(plan.get("a.png.meta.json")).toBe("images/a (2).png.meta.json");
-    expect(plan.get("sprites/b.png")).toBe("images/sprites (1)/b.png");
-    expect(plan.get("c.png")).toBe("images/c.png");
-  });
 });
 
 describe("importFiles", () => {
@@ -60,6 +42,12 @@ describe("importFiles", () => {
     await importFiles(project, "", [file("a.png"), file("a.png.meta.json", '{"format":"myco.import@1"}')]);
     const again = await importFiles(project, "", [file("a.png"), file("a.png.meta.json", '{"format":"myco.import@1"}')]);
     expect(again.imported.sort()).toEqual(["a (1).png", "a (1).png.meta.json"]);
+  });
+
+  it("numbers taken names, folders as a whole, and sidecars with their file", async () => {
+    await importFiles(project, "images", [file("a.png"), file("a (1).png"), file("sprites/x.png")]);
+    const result = await importFiles(project, "images", [file("a.png"), file("a.png.meta.json", '{"format":"myco.import@1"}'), file("sprites/b.png"), file("c.png")]);
+    expect(result.imported.sort()).toEqual(["images/a (2).png", "images/a (2).png.meta.json", "images/c.png", "images/sprites (1)/b.png"]);
   });
 
   it("refuses a read-only project", () => {

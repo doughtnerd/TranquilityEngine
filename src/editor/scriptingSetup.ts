@@ -7,10 +7,10 @@ import { hashText } from "./document/patch";
 import { joinPath } from "./projectPaths";
 
 /** Where the engine's declarations go in a project, served to TypeScript as the `"myco"` package. */
-export const TYPES_DIR = ".myco/types/myco";
+const TYPES_DIR = ".myco/types/myco";
 
 /** The `tsconfig.json` a project gets (only if it has none): scripts compiled as the editor compiles them. */
-export function projectTsconfig(): string {
+function projectTsconfig(): string {
   const config = {
     compilerOptions: {
       target: "ES2022",

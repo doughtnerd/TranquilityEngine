@@ -16,7 +16,7 @@ export interface HierarchyQuery {
 }
 
 /** Parse a search box's text; null when it's empty. */
-export function parseHierarchyQuery(text: string): HierarchyQuery | null {
+function parseHierarchyQuery(text: string): HierarchyQuery | null {
   const words: string[] = [], types: string[] = [];
   for (const part of text.toLowerCase().split(/\s+/).filter(Boolean)) {
     if (part.startsWith("t:")) {

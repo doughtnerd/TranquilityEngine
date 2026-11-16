@@ -62,20 +62,20 @@ const BY_NAME: Readonly<Record<string, string>> = {
 };
 
 /** The category of an engine component id, or null when the table doesn't know it (it lands in Other). */
-export function knownEngineCategory(id: string): string | null {
+function knownEngineCategory(id: string): string | null {
   const name = id.replace(/^[^.]*\./, "");
   if (name.startsWith("Nav")) return "Navigation";
   return BY_NAME[name] ?? null;
 }
 
-export const engineCategory = (id: string): string => knownEngineCategory(id) ?? OTHER_CATEGORY;
+const engineCategory = (id: string): string => knownEngineCategory(id) ?? OTHER_CATEGORY;
 
 /**
  * The folders under `scripts/` of the script that defines each id, found by looking for the id as
  * a string literal (`@behavior("game.Bird")`, `defineComponent("game.Scroller", …)`) in the
  * project's sources. Ids not found, or whose file is directly in scripts/, get no folders.
  */
-export function scriptFolders(ids: readonly string[], scripts: ReadonlyMap<string, string>): Map<string, string[]> {
+function scriptFolders(ids: readonly string[], scripts: ReadonlyMap<string, string>): Map<string, string[]> {
   const out = new Map<string, string[]>();
   for (const id of ids) {
     for (const [path, source] of scripts) {

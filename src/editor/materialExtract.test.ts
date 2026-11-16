@@ -4,8 +4,9 @@ import { Assets } from "../engine";
 import { colorHex, parseMaterial } from "../engine/scene/material";
 import { type SurfaceInfo } from "../engine/scene/models";
 import { readImportSettings } from "./assetImport";
-import { extractModelMaterials, materialFromSurface } from "./materialExtract";
+import { extractModelMaterials } from "./materialExtract";
 import { joinPath, openFolderProject } from "./projects";
+import { materialFromSurface } from "./surfaceMaterial";
 import { MemoryFileSystem, ROOT } from "./testing";
 
 const surface = (over: Partial<SurfaceInfo> = {}): SurfaceInfo => ({ name: "S", color: [1, 0.2158605, 0], opacity: 0.5, transparent: true, metalness: 0.4, roughness: 0.3, doubleSided: false, map: null, ...over });

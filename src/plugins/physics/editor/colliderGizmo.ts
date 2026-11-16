@@ -66,7 +66,7 @@ import { cleanSnap, snapActive, snapSettings, snapTo } from "../../../editor/sce
 import { type ViewportDrag, type ViewportPointer, type ViewportToolContribution, editor, SetField, type OpenScene, theme, viewportColors } from "../../../editor/sdk";
 
 /** The collider tool's id: also its overlay id and its active-tool id. */
-export const COLLIDER_TOOL_ID = "myco.physics.colliders";
+const COLLIDER_TOOL_ID = "myco.physics.colliders";
 
 /** The collider whose handles are showing ("Edit Collider", like Unity), or null. */
 export interface EditingCollider {
@@ -146,7 +146,7 @@ function editedCollider(): { node: GameObject; collider: EditableCollider; editi
 const isPoints = (c: Collider2D): c is PolygonCollider2D | EdgeCollider2D => c instanceof PolygonCollider2D || c instanceof EdgeCollider2D;
 
 /** Every 2D collider in the edited scene, with its outline in world space (open for edge colliders). */
-export function colliderShapes(engine: Engine): { node: GameObject; points: [number, number, number][]; closed: boolean }[] {
+function colliderShapes(engine: Engine): { node: GameObject; points: [number, number, number][]; closed: boolean }[] {
   const out: { node: GameObject; points: [number, number, number][]; closed: boolean }[] = [];
   for (const c of GameObject.findObjectsOfType(Collider2D)) {
     const node = c.node;
@@ -168,7 +168,7 @@ const outlines = new WeakMap<object, MeshOutline>();
 const wires = new WeakMap<Collider, { key: string; source: unknown; wire: Wire }>();
 
 /** Every 3D collider in the edited scene, as a wireframe in world space. Mesh colliders whose model is loading are left out. */
-export function collider3dShapes(engine: Engine): { node: GameObject; wire: Wire }[] {
+function collider3dShapes(engine: Engine): { node: GameObject; wire: Wire }[] {
   const out: { node: GameObject; wire: Wire }[] = [];
   for (const c of GameObject.findObjectsOfType(Collider)) {
     const node = c.node;
@@ -213,7 +213,7 @@ function handles3D(node: GameObject, c: EditableCollider3D): Record<string, V3> 
 }
 
 /** What to draw this frame: outlines for every collider in the edited scene, handles for the one being edited. */
-export function colliderOverlay(engine: Engine): EditorOverlay {
+function colliderOverlay(engine: Engine): EditorOverlay {
   const overlay: EditorOverlay = { lines: [], handles: [] };
   const selected = new Set(editor.scene.selection.nodes().map((s) => s.node));
   for (const { node, points, closed } of colliderShapes(engine)) {

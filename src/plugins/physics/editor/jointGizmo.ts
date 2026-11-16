@@ -76,7 +76,7 @@ function joint2DShape(j: Joint2D): JointShape | null {
 }
 
 /** What to draw this frame: every joint in the edited scene. */
-export function jointOverlay(engine: Engine): EditorOverlay {
+function jointOverlay(engine: Engine): EditorOverlay {
   const overlay: EditorOverlay = { lines: [], handles: [] };
   const selected = new Set(editor.scene.selection.nodes().map((s) => s.node));
   const draw = (node: GameObject, shape: JointShape | null) => {

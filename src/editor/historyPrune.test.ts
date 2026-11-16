@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { HistoryFile, HistoryState } from "./document";
-import { cleanPruneDays, DAY_MS, pruneHistoryByAge } from "./historyPrune";
+import { cleanPruneDays, pruneHistoryByAge } from "./historyPrune";
+
+const DAY_MS = 86_400_000;
 
 const NOW = 1_000 * DAY_MS;
 const st = (seq: number, parent: number, ageDays: number, extra: Partial<HistoryState> = {}): HistoryState => ({ seq, parent, label: `s${seq}`, time: NOW - ageDays * DAY_MS, hash: `h${seq}`, ...extra });
