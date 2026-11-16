@@ -1,5 +1,5 @@
 // The Event editor's toolbar actions over the selection (ADR 0158 §7): where "Add" puts a new node, and changing a
-// list container's type. Pure, over eventTree.ts.
+// list container's type. Pure, over eventTreeModel.ts.
 import type { EventNode, NodeType } from "../../../../engine/audio/eventFormat";
 import {
   addChild,
@@ -12,7 +12,7 @@ import {
   type ListNodeType,
   type NodePath,
   type TreeEdit,
-} from "./EventTree";
+} from "./eventTreeModel";
 
 /**
  * Where "Add" puts a new node with `selected` selected (`null`: the event row, which means the root): into a selected

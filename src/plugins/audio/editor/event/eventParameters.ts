@@ -1,6 +1,6 @@
 // The Event editor's parameter edits (ADR 0158 §2): an event's local parameters, numeric or labelled, kept valid the
 // way `parseParameters` reads them (unique non-empty names, min <= default <= max, a labelled default among its
-// labels), and the audition values the sliders hold. Pure; renaming goes through `renameParameter` (eventTree.ts)
+// labels), and the audition values the sliders hold. Pure; renaming goes through `renameParameter` (eventTreeModel.ts)
 // so every use follows.
 import {
   MAX_LOCAL_PARAMETERS,
@@ -11,7 +11,7 @@ import {
   type NumericParameter,
   type ParameterDef,
 } from "../../../../engine/audio/eventFormat";
-import { renameParameter } from "./EventTree";
+import { renameParameter } from "./eventTreeModel";
 
 /** The first free name of the form "Parameter", "Parameter 2"… among `taken`. */
 export function freeParameterName(taken: readonly string[], base = "Parameter"): string {

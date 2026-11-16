@@ -1,5 +1,5 @@
 // Ed8: the Event editor's music tree (ADR 0166 §2.3, §2.5; decision D6: the tree is `musicRoot`): the pure edits of
-// EventTree.tsx, the music field descriptors and stinger helpers of nodeFields.ts, and the writer round trip through
+// eventTreeModel.ts, the music field descriptors and stinger helpers of nodeFields.ts, and the writer round trip through
 // the asset document. Every edit result must read back through `parseAudioEvent` without a problem and with unique ids.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { openAssetDocument } from "../../../../editor/assetDocuments";
@@ -13,7 +13,7 @@ import { audioEditorPlugin } from "..";
 import {
   addMusicNode, canDuplicateMusic, canRemoveMusic, duplicateMusicNode, freshMusicId, getMusicNode, isLibraryPath, musicIdProblem, musicIds,
   musicNodePaths, parameterUses, parsePathKey, pathKey, removeMusicNode, renameMusicId, renameParameter, reorderMusicNode, setMusicNode,
-} from "./EventTree";
+} from "./eventTreeModel";
 import {
   coerceField, findField, musicNodeFields, newStinger, patchStinger, readField, stingerAtFrom, stingerAtKind, writeField, type FieldDescriptor,
 } from "./nodeFields";
