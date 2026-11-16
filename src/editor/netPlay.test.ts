@@ -363,6 +363,9 @@ describe("multiplayer play mode", () => {
   });
 
   it("simulates conditions on the clients' and the server's transports, from the start and live", async () => {
+    // The loopback transports read `performance.now()`: fake it from the start, so every link time is on the test's clock.
+    vi.useFakeTimers({ toFake: ["performance"] });
+    onTestFinished(() => void vi.useRealTimers());
     const play = await startPlay({
       editor,
       scene: openScene.value!,
@@ -370,15 +373,13 @@ describe("multiplayer play mode", () => {
       netPlay: { clients: 2, thin: 0 },
       conditions: { latencyMs: 80, jitterMs: 10, lossPercent: 5 },
     });
-    vi.useFakeTimers({ toFake: ["performance"] });
-    onTestFinished(() => void vi.useRealTimers());
     try {
       // The round trips each client measures, and the server's peers as the clients report them.
       const rtts = () => {
         const info = netWorldInfo(play.engine);
         return [...info.filter((w) => w.role === "client").map((w) => w.rtt), ...info.find((w) => w.world === "Server")!.peers.map((p) => p.rtt)];
       };
-      /** Play `seconds` on the loopback's clock (it reads `performance.now()`). */
+      /** Play `seconds` on the faked clock. */
       const run = (seconds: number) => {
         for (let i = 0; i < seconds / frame; i++) {
           vi.advanceTimersByTime(frame * 1000);
