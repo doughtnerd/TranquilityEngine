@@ -59,7 +59,7 @@ export class WebGpuRun implements KernelRun {
   /** The last alive count read back (a frame or two old), or null before the first read. */
   alive: number | null = null;
   private disposed = false;
-  /** Shader compile messages, if the device reported any (tests). */
+  /** Shader compile messages, if the device reported any (the parity tool). */
   readonly ready: Promise<string[]>;
 
   constructor(
@@ -208,7 +208,7 @@ export class WebGpuRun implements KernelRun {
     return this.dead !== null;
   }
 
-  /** Read the latest state back (tests and tools; slow). */
+  /** Read the latest state back (the parity tool, bench/particles; slow). */
   async read(): Promise<Float32Array> {
     const bytes = this.kernel.capacity * KERNEL_FLOATS * 4;
     const staging = this.device.createBuffer({ size: bytes, usage: BUFFER.MAP_READ | BUFFER.COPY_DST, label: "particles readback" });
@@ -222,7 +222,7 @@ export class WebGpuRun implements KernelRun {
     return out;
   }
 
-  /** Read the trail history back, block by block like the JavaScript executor's (tests; slow). */
+  /** Read the trail history back, block by block like the JavaScript executor's (the parity tool; slow). */
   async readHistory(): Promise<Float32Array | null> {
     if (!this.history) return null;
     const bytes = (this.kernel.trail ?? 0) * this.kernel.capacity * 16;

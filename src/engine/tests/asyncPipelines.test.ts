@@ -52,14 +52,14 @@ describe("async warm-up pipelines (ADR 0080)", () => {
     f.engine._draw();
     f.engine._draw(); // the same state again: no second compile
     expect(f.engine.drew).toEqual([]); // both skipped
-    expect(f.resolvers).toHaveLength(1);
-    expect(a.busy).toBe(true);
-    expect(a.skipped).toBe(2);
+    expect(f.resolvers).toHaveLength(1); // one compile
+    let settled = false;
+    void a.settled().then(() => (settled = true));
+    await Promise.resolve();
+    expect(settled).toBe(false); // still compiling
     const pipeline = { compiled: "a" };
     f.resolvers[0](pipeline);
     await a.settled();
-    expect(a.busy).toBe(false);
-    expect(a.compiled).toBe(1);
     f.engine._draw();
     expect(f.engine.drew).toEqual([`a:${JSON.stringify(pipeline)}`]); // from the cache: no blocking compile
     expect(f.log).toEqual([]);
@@ -96,7 +96,7 @@ describe("a World's first frames (ADR 0120)", () => {
     warm = false;
     f.setState("b");
     f.engine._draw(); // content in a held first frame
-    expect(a.skipped).toBe(2);
+    expect(f.engine.drew).toEqual([]); // both skipped
     expect(a.skippedShown).toBe(1);
     a.dispose();
   });

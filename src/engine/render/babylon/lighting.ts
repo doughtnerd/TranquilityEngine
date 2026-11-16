@@ -606,7 +606,7 @@ export class BabylonLighting {
     this.skyFog = amount;
   }
 
-  /** Tests: whether cascaded shadows are on, and the environment map's state. */
+  /** Whether cascaded shadows are on, and the environment map's state (the lighting diagnostics). */
   state(): { cascades: boolean; cascadedLights: number; environment: string; environmentLoaded: boolean; skybox: boolean } {
     return {
       cascades: this.cascading,
@@ -615,11 +615,6 @@ export class BabylonLighting {
       environmentLoaded: !!this.envMap?.texture && cubemapReady(this.envMap.texture),
       skybox: !!this.skybox?.isEnabled(),
     };
-  }
-
-  /** Tests and the editor: the shadow map size the tier gives, and whether any light has one. */
-  shadowState(): { shadows: boolean; shadowMapSize: number } {
-    return { shadows: Graphics.tier.shadows !== "off", shadowMapSize: SHADOW_MAP_SIZE[Graphics.tier.shadows] };
   }
 
   /**

@@ -427,7 +427,7 @@ export class BabylonSky {
     return !this.settings?.lighting.bake || !!this.current;
   }
 
-  /** Tests and the editor: the sky's state. */
+  /** The sky's state (its feature's diagnostics). */
   state(): { active: boolean; drawn: boolean; bakes: number; baked: boolean; time: number; lastBakeMs: number } {
     return { active: this.active, drawn: !!this.drawable?.mesh.isEnabled(), bakes: this.bakes, baked: !!this.current, time: this.time, lastBakeMs: this.lastBakeMs };
   }

@@ -237,7 +237,7 @@ export class BabylonParticles {
     this.instances.delete(c);
   }
 
-  /** @internal Tests and the editor overlay: what's playing. `batches` counts draws (a Babylon particle system or a mesh each). */
+  /** @internal What's playing (the particle feature's diagnostics, which the editor overlay shows). `batches` counts draws (a Babylon particle system or a mesh each). */
   state(): ParticleStats {
     let emitters = 0;
     let particles = 0;

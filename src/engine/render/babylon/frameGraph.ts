@@ -680,11 +680,6 @@ export class BabylonFrame {
     });
   }
 
-  /** Tests and the editor: whether the last frame's first camera ran any effect. */
-  state(views: CameraView[]): { composed: boolean; loaded: boolean } {
-    return { composed: !!views[0]?.effects, loaded: this.ready };
-  }
-
   dispose(): void {
     this.luts.dispose();
     this.scene.frameGraph = null;

@@ -256,7 +256,7 @@ export class BabylonProbes {
     };
   }
 
-  /** Tests: how many probes have captured, how many there are, and (set by the renderer) how many meshes reflect one. */
+  /** How many probes have captured, how many there are, and (set by the renderer) how many meshes reflect one (the probe diagnostics). */
   state(reflecting: number): { captured: number; probes: number; reflecting: number } {
     return { captured: this.boxes.length, probes: this.entries.size, reflecting };
   }

@@ -105,7 +105,7 @@ export class BabylonRenderTextures {
     return entry;
   }
 
-  /** Tests and the editor: the render textures made so far, by path. */
+  /** The render textures made so far, by path (the diagnostics). */
   state(): Record<string, { width: number; height: number; format: string }> {
     const out: Record<string, { width: number; height: number; format: string }> = {};
     for (const [k, e] of this.entries) out[k] = { width: e.settings.width, height: e.settings.height, format: e.settings.format };
