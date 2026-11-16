@@ -11,24 +11,12 @@ import { TileThumb } from "./TileThumb";
 import { editor, openAssetDocument } from "../../../editor/sdk";
 import "../../../editor/ui/assetInspector.css";
 import "./tilesetInspector.css";
+import { parsePolygon, polygonText } from "./polygonText";
 
 type CollisionKind = "none" | "full" | "oneWay" | "polygon";
 
 const collisionKind = (c: TileCollision): CollisionKind => (typeof c === "string" ? c : "polygon");
 
-/** `x,y x,y …` in cell units, or null if it isn't three or more points. */
-export function parsePolygon(text: string): [number, number][] | null {
-  const pts: [number, number][] = [];
-  for (const part of text.trim().split(/\s+/)) {
-    if (!part) continue;
-    const m = /^(-?\d*\.?\d+),(-?\d*\.?\d+)$/.exec(part);
-    if (!m) return null;
-    pts.push([Number(m[1]), Number(m[2])]);
-  }
-  return pts.length >= 3 ? pts : null;
-}
-
-const polygonText = (pts: readonly (readonly number[])[]) => pts.map((p) => `${p[0]},${p[1]}`).join(" ");
 
 /** Grid position (row by row from the top-left) to its index in the pattern string N NE E SE S SW W NW; -1 is the centre. */
 const PATTERN_AT = [7, 0, 1, 6, -1, 2, 5, 4, 3];

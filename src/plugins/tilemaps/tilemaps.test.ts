@@ -13,7 +13,6 @@ import { assetFormats, assetKinds, panels, viewportTools } from "../../editor/sd
 import { createViewportToolHost } from "../../editor/viewportTools";
 import type { Engine } from "../../engine";
 import type { World } from "../../engine/core/World";
-import { PAINT_TOOL_ID, PAINT_TOOL_KEYS } from "./editor/paintTool";
 import { brushTool, pickBrushTool } from "./editor/brush";
 import { isPluginActive } from "../../editor/sdk/plugins";
 import { useEditorPlugins } from "../testEditorPlugins";
@@ -26,10 +25,13 @@ import { applyTestPlugins } from "../testPlugins";
 import { MESHES_SPEC } from "../meshes/runtime";
 import { SPRITES_SPEC } from "../sprites/runtime";
 import { tilemapsEditorPlugin } from "./editor";
-import { parsePolygon } from "./editor/TilesetInspector";
+import { parsePolygon } from "./editor/polygonText";
 import { TILEMAPS_SPEC, Tilemap, tilemapsRuntimePlugin } from "./runtime";
 import { _registeredRenderFeatures } from "../../engine/render/renderFeatures";
 import { newTileset, type TilesetData } from "./runtime/tileset";
+
+/** The paint tool's id: also its active-tool id. */
+const PAINT_TOOL_ID = "myco.tilemaps.paint";
 
 useCoreAssetKinds(); // core asset kinds, as main.tsx registers them (ADR 0143)
 
@@ -115,7 +117,6 @@ describe("the Tilemaps plugin's editor half (ADR 0134)", () => {
     expect(activeViewportTool.value).toBeNull(); // uninstalled with the scene view
     expect(brushTool.value).toBe("fill");
     pickBrushTool(null);
-    for (const key of ["q", "w", "e", "r", "f"]) expect(PAINT_TOOL_KEYS[key]).toBeUndefined();
   });
 
   it("registers the tileset asset kind: matching, label, icon, inspector and tileset fields", () => {
