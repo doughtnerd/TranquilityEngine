@@ -6,6 +6,7 @@
 import { KERNEL_FLOATS, U } from "../../../scene/particleKernel";
 import type { GpuBuffer, GpuDevice } from "./webgpuRun";
 import { BUFFER } from "./webgpuRun";
+import { bitonicStages } from "./bitonic";
 
 /** Sorted pairs a draw reads: the padded count, and its layout as a texture (width × height). */
 export interface SortLayout {
@@ -15,7 +16,7 @@ export interface SortLayout {
 }
 
 /** Keys above this are dead slots. */
-export const DEAD_KEY = 3.0e38;
+const DEAD_KEY = 3.0e38;
 
 /** The padded size and texture layout for `capacity` particles. */
 export function sortLayout(capacity: number): SortLayout {
@@ -24,31 +25,6 @@ export function sortLayout(capacity: number): SortLayout {
   n = Math.max(2, n);
   const width = Math.min(n, 1024);
   return { n, width, height: n / width };
-}
-
-/** The bitonic network's stages for `n` (a power of two): [k, j] pairs, in order. */
-export function bitonicStages(n: number): [number, number][] {
-  const out: [number, number][] = [];
-  for (let k = 2; k <= n; k *= 2) for (let j = k / 2; j >= 1; j /= 2) out.push([k, j]);
-  return out;
-}
-
-/** Apply one bitonic stage to (key, value) pairs in place: what one GPU pass does. */
-export function bitonicStep(pairs: Float32Array, n: number, k: number, j: number): void {
-  for (let i = 0; i < n; i++) {
-    const l = i ^ j;
-    if (l <= i) continue;
-    const up = (i & k) === 0;
-    const a = pairs[i * 2];
-    const b = pairs[l * 2];
-    if (up ? a > b : a < b) {
-      const v = pairs[i * 2 + 1];
-      pairs[i * 2] = b;
-      pairs[i * 2 + 1] = pairs[l * 2 + 1];
-      pairs[l * 2] = a;
-      pairs[l * 2 + 1] = v;
-    }
-  }
 }
 
 /**
@@ -97,7 +73,7 @@ export function sortPairsJs(state: Float32Array, capacity: number, row: readonly
 const WG = 64;
 
 /** The key pass (entry `sortKeys`) and one bitonic stage (entry `sortStep`) over `pairs`. */
-export function wgslSort(): string {
+function wgslSort(): string {
   return `
 struct KeyParams { row: vec4f, sizes: vec4f };
 struct StepParams { k: u32, j: u32, n: u32, pad: u32 };

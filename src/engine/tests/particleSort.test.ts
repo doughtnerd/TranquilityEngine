@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import { KERNEL_FLOATS, U } from "../scene/particleKernel";
 import { outputSorts } from "../scene/particleGraph";
 import { parseParticleGraph } from "../scene/particleGraphFormat";
-import { DEAD_KEY, bitonicStages, bitonicStep, depthRow, sortLayout, sortPairsJs, wgslSort } from "../render/particles/gpu/sort";
+import { bitonicStages, bitonicStep } from "../render/particles/gpu/bitonic";
+import { WebGpuSorter, depthRow, sortLayout, sortPairsJs } from "../render/particles/gpu/sort";
+import type { GpuDevice } from "../render/particles/gpu/webgpuRun";
 
 function rng(seed: number): () => number {
   let s = seed >>> 0;
@@ -36,7 +38,7 @@ describe("particle sorting (ADR 0126)", () => {
     for (const n of [2, 4, 64, 1024]) {
       const pairs = new Float32Array(n * 2);
       for (let i = 0; i < n; i++) {
-        pairs[i * 2] = i % 7 === 0 ? DEAD_KEY : Math.floor(r() * 100) - 50;
+        pairs[i * 2] = i % 7 === 0 ? 3e38 : Math.floor(r() * 100) - 50;
         pairs[i * 2 + 1] = i;
       }
       for (const [k, j] of bitonicStages(n)) bitonicStep(pairs, n, k, j);
@@ -53,7 +55,7 @@ describe("particle sorting (ADR 0126)", () => {
     sortPairsJs(state, 5, [0, 0, 1, 0], out, layout); // depth = z
     const order = Array.from({ length: layout.n }, (_, i) => out[i * 2 + 1]);
     expect(order.slice(0, 3)).toEqual([2, 3, 0]);
-    expect(out[3 * 2]).toBe(Math.fround(DEAD_KEY));
+    expect(out[3 * 2]).toBeGreaterThan(1e38); // a dead slot's key
   });
 
   it("carries the view row through the node's matrix for local-space systems", () => {
@@ -76,9 +78,25 @@ describe("particle sorting (ADR 0126)", () => {
     expect(g.graph.systems[0].output.settings.sort).toBe("off");
   });
 
-  it("generates the WGSL sort passes", () => {
-    const src = wgslSort();
-    expect(src).toContain("fn sortKeys(");
-    expect(src).toContain("fn sortStep(");
+  it("builds the WebGPU sort from the WGSL key pass and one pipeline per entry, a step per network stage", () => {
+    const shaders: string[] = [], entries: string[] = [];
+    let stageGroups = 0;
+    const device = new Proxy({} as Record<string, unknown>, {
+      get: (_, key) => {
+        if (key === "queue") return { writeBuffer: () => undefined, submit: () => undefined };
+        if (key === "createShaderModule") return (d: { code: string }) => (shaders.push(d.code), {});
+        if (key === "createComputePipeline") return (d: { compute: { entryPoint: string } }) => (entries.push(d.compute.entryPoint), {});
+        if (key === "createBindGroup") return (d: { entries: { resource: { size?: number } }[] }) => (d.entries[0].resource.size === 16 && stageGroups++, {});
+        return () => ({ destroy: () => undefined });
+      },
+    }) as unknown as GpuDevice;
+    const sorter = new WebGpuSorter(device, 100);
+    expect(sorter.layout.n).toBe(128);
+    expect(shaders).toHaveLength(1);
+    expect(shaders[0]).toContain("fn sortKeys(");
+    expect(shaders[0]).toContain("fn sortStep(");
+    expect(shaders[0]).toContain("var key = 3e+38;"); // dead slots' key
+    expect(entries).toEqual(["sortKeys", "sortStep"]);
+    expect(stageGroups).toBe(bitonicStages(128).length);
   });
 });

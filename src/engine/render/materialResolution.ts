@@ -283,14 +283,14 @@ export const instancingPath = (req: SlotRequest): string => req.materials?.[0] |
 // --- Values: script Materials (ADR 0107) and renderer overrides (ADR 0049) -------------------------------
 
 /** The built-in materials' property names (ADR 0049). */
-export const BUILTIN_PROPERTIES: ReadonlySet<string> = new Set([
+const BUILTIN_PROPERTIES: ReadonlySet<string> = new Set([
   "color", "emission", "metalness", "roughness", "texture",
   "clearcoat", "clearcoatRoughness", "sheen", "sheenColor", "sheenRoughness", "transmission", "thickness", "ior",
   "iridescence", "iridescenceIOR", "anisotropy", "anisotropyRotation", "specularIntensity", "specularColor",
 ]);
 
 /** A script value as material-file data: colours as `#rrggbbaa`, vectors as number lists. */
-export function toGraphValue(v: MaterialPropertyValue): GraphValue {
+function toGraphValue(v: MaterialPropertyValue): GraphValue {
   if (v instanceof EngineColor) return colorHex(v);
   if (v instanceof EngineVector2) return [v.x, v.y];
   if (v instanceof EngineVector3) return [v.x, v.y, v.z];
@@ -305,7 +305,7 @@ export function graphValues(values: Iterable<[string, MaterialPropertyValue]>): 
 }
 
 /** The property names a material has: a graph's uniform properties, else the built-in ones. */
-export function knownProperties(compiled: CompiledShaderGraph | null): ReadonlySet<string> {
+function knownProperties(compiled: CompiledShaderGraph | null): ReadonlySet<string> {
   return compiled ? new Set(compiled.uniforms.flatMap((u) => (u.property ? [u.property] : []))) : BUILTIN_PROPERTIES;
 }
 

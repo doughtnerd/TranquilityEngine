@@ -8,10 +8,8 @@ import { Color, Vector3 } from "../core/math";
 import { Assets } from "../scene/Assets";
 import { Material } from "../render/Material";
 import {
-  BUILTIN_PROPERTIES,
   instancingFor,
   isStampCurrent,
-  knownProperties,
   overrideWarnings,
   pickSlot,
   resolveMaterial,
@@ -21,7 +19,7 @@ import {
   slotSources,
   textureLoad,
   textureValue,
-  toGraphValue,
+  graphValues,
   warmVariantKeywords,
   type AssetRead,
 } from "../render/materialResolution";
@@ -163,10 +161,11 @@ describe("material resolution (ADR 0127)", () => {
     afterEach(() => Material._resetShared());
 
     it("turns script values into material-file data", () => {
-      expect(toGraphValue(new Color(1, 0, 0, 1))).toBe("#ff0000");
-      expect(toGraphValue(new Color(1, 0, 0, 0.5))).toMatch(/^#ff0000[0-9a-f]{2}$/);
-      expect(toGraphValue(new Vector3(1, 2, 3))).toEqual([1, 2, 3]);
-      expect(toGraphValue(0.5)).toBe(0.5);
+      const data = graphValues([["opaque", new Color(1, 0, 0, 1)], ["half", new Color(1, 0, 0, 0.5)], ["at", new Vector3(1, 2, 3)], ["amount", 0.5]]);
+      expect(data.opaque).toBe("#ff0000");
+      expect(data.half).toMatch(/^#ff0000[0-9a-f]{2}$/);
+      expect(data.at).toEqual([1, 2, 3]);
+      expect(data.amount).toBe(0.5);
       expect(textureValue({ texture: "asset:images/a.png" })).toBe("images/a.png");
       expect(textureValue({})).toBeNull();
     });
@@ -207,8 +206,9 @@ describe("material resolution (ADR 0127)", () => {
 
     it("knows a material's property names: a graph's uniforms, else the built-in ones", () => {
       const r = resolveMaterial("asset:rim.material.json", opts(files().read));
-      expect(knownProperties(r.compiled).has("Tint")).toBe(true);
-      expect(knownProperties(null)).toBe(BUILTIN_PROPERTIES);
+      expect(overrideWarnings("asset:rim.material.json", "Box", ["Tint", "color"], r.compiled).map((w) => w.message)).toEqual(['Box: its material has no property "color"; setMaterialProperty ignores it.']);
+      const builtIns = ["color", "emission", "metalness", "roughness", "texture", "clearcoat", "sheenColor", "transmission", "ior", "iridescence", "anisotropy", "specularColor"];
+      expect(overrideWarnings("asset:red.material.json", "Box", builtIns, null)).toEqual([]);
       expect(overrideWarnings("asset:red.material.json", "Box", ["color", "wobble"], null).map((w) => w.message)).toEqual(['Box: its material has no property "wobble"; setMaterialProperty ignores it.']);
     });
   });

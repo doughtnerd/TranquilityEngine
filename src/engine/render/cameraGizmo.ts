@@ -21,10 +21,10 @@ export interface FrustumShape {
  * How deep the wireframe is drawn. Cameras often have far = 1000; drawing all of it would put
  * the far end out of sight, so it stops at `maxDepth` beyond the near plane.
  */
-export const GIZMO_MAX_DEPTH = 30;
+const GIZMO_MAX_DEPTH = 30;
 
-/** @internal The 8 corners: near plane then far plane, each [bottom-left, bottom-right, top-right, top-left]. */
-export function frustumCorners(shape: FrustumShape, maxDepth = GIZMO_MAX_DEPTH): [number, number, number][] {
+/** The 8 corners: near plane then far plane, each [bottom-left, bottom-right, top-right, top-left]. */
+function frustumCorners(shape: FrustumShape, maxDepth = GIZMO_MAX_DEPTH): [number, number, number][] {
   const near = Math.max(shape.near, 0);
   const far = Math.max(near, Math.min(shape.far, near + maxDepth));
   const halfAt = (d: number): [number, number] => {
