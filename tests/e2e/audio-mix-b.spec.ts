@@ -43,7 +43,7 @@ type Reading = {
 };
 type Loud = { [K in keyof Reading]: Reading[K] } & { reset(what?: string): void; pause(): void; resume(): void };
 type Hub = { noteMonitorMute(bus: string): void; noteMonitorSolo(): void; setMonitorActive(on: boolean): void; setCompare(on: boolean): void; feed(s: { loudShed: number }): void };
-type Backend = { loudness: Hub; mixer: { setMonitor(bus: string, c: { mute?: boolean; solo?: boolean }): void }; mirror: { header: { loudShed: number } } };
+type Backend = { loudness: { hub: Hub }; mixer: { setMonitor(bus: string, c: { mute?: boolean; solo?: boolean }): void }; mirror: { header: { loudShed: number } } };
 type Debug = { status: string; counters: { underruns: number }; voices: { clip: string; bus: string; state: string }[]; mix: { metersPaused: number; loudnessLadderStep: number; monitorActive: boolean } };
 type Api = {
   __myco: { Audio: { time: number; loudnessTarget: string | null; debug(): Debug; bus(n: string): { loudness: Loud; mute: boolean }; playOneShot(c: string, o?: object): { voice?: { backend?: Backend; inner?: { backend?: Backend } } } } };
@@ -391,9 +391,9 @@ test("M5b: a monitor mute taints its bus, its ancestors and master; a monitor so
       ([name, ctl, n, on]) => {
         const b = (globalThis as unknown as Api).__b;
         b.mixer.setMonitor(name as string, ctl as { mute?: boolean });
-        if (n === "mute") b.loudness.noteMonitorMute(name as string);
-        if (n === "solo") b.loudness.noteMonitorSolo();
-        b.loudness.setMonitorActive(on as boolean);
+        if (n === "mute") b.loudness.hub.noteMonitorMute(name as string);
+        if (n === "solo") b.loudness.hub.noteMonitorSolo();
+        b.loudness.hub.setMonitorActive(on as boolean);
       },
       [bus, c, note, active] as const,
     );
@@ -465,11 +465,11 @@ test("M5b: a monitor mute taints its bus, its ancestors and master; a monitor so
     // The last reset left no integrated value (verdict waiting): meter a second of the tone first, so "off" can read ok.
     await metered(page, "Master", 1);
     await metered(page, "UI", 1);
-    await page.evaluate(() => (globalThis as unknown as Api).__b.loudness.setCompare(true));
+    await page.evaluate(() => (globalThis as unknown as Api).__b.loudness.hub.setCompare(true));
     const on = await readBoth(page, "Master", "UI");
     expect(on.map((x) => x.tainted)).toEqual([true, true]);
     expect(on.map((x) => x.state)).toEqual(["suspended", "suspended"]);
-    await page.evaluate(() => (globalThis as unknown as Api).__b.loudness.setCompare(false));
+    await page.evaluate(() => (globalThis as unknown as Api).__b.loudness.hub.setCompare(false));
     const off = await readBoth(page, "Master", "UI");
     expect(off.map((x) => x.state)).toEqual(["ok", "ok"]);
     expect(off.map((x) => x.tainted)).toEqual([true, true]);
@@ -501,7 +501,7 @@ test("M5b: the ladder's loudness step, as STATUS reports it: non-master meters p
       if (!g.__ladder) {
         g.__ladder = { on: false };
         // The seam: the STATUS block the core sends carries `loudShed` (0 or 1); it reaches the mirror and the hub in this order.
-        const hub = g.__b.loudness as unknown as { feed(s: { loudShed: number }): void };
+        const hub = g.__b.loudness.hub as unknown as { feed(s: { loudShed: number }): void };
         const feed = hub.feed.bind(hub);
         hub.feed = (s) => {
           if (g.__ladder.on) {

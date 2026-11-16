@@ -440,14 +440,14 @@ type Press5b = { key: string; repeat: boolean; time: number };
 type Globals5b = {
   __myco: { Audio: { time: number; loudnessTarget: string | null; debug(): Dbg & { mix: { metersPaused: number; loudnessLadderStep: number } }; bus(n: string): { loudness: Loud } } };
   __m5b: { presses: Press5b[] };
-  __b5b?: { loudness: { feed(s: { loudShed: number }): void }; mirror: { header: { loudShed: number } } };
+  __b5b?: { loudness: { hub: { feed(s: { loudShed: number }): void } }; mirror: { header: { loudShed: number } } };
   __ladder5b?: { on: boolean };
 };
 
 /** The M5b recorder: a capture-phase key log, the core backend (for the ladder seam), and (owner mode) the card. */
 async function installM5b(page: Page, card: boolean): Promise<void> {
   await page.evaluate((showCard) => {
-    type Backend = { loudness: { feed(s: { loudShed: number }): void }; mirror: { header: { loudShed: number } } };
+    type Backend = { loudness: { hub: { feed(s: { loudShed: number }): void } }; mirror: { header: { loudShed: number } } };
     const g = globalThis as unknown as Globals5b;
     const seed = (g.__myco.Audio as unknown as { playOneShot(c: string, o?: object): { voice?: { backend?: Backend; inner?: { backend?: Backend } } } }).playOneShot("audio/beep.wav", { volume: 0.0001, bus: "SFX" }).voice;
     g.__b5b = (seed?.backend ?? seed?.inner?.backend)!;
@@ -595,7 +595,7 @@ test.describe("listening M5b: loudness against a reference", () => {
           const g = globalThis as unknown as Globals5b;
           if (!g.__ladder5b) {
             g.__ladder5b = { on: false };
-            const hub = g.__b5b!.loudness;
+            const hub = g.__b5b!.loudness.hub; // `CoreBackend.loudness` is the hub's wiring (ADR 0178)
             const feed = hub.feed.bind(hub);
             hub.feed = (s) => {
               if (g.__ladder5b!.on) {

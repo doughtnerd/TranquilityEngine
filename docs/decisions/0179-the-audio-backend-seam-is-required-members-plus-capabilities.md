@@ -69,7 +69,7 @@ We will keep the required members required and group what only some backends can
 
 **Negative / costs**
 - `backend.mix.mixCaps` and `backend.clipCache.clipDuration` repeat themselves (the price of keeping member names).
-- On the fallback, `pause` now always arms the 40 ms suspend timer. The suspend hook does nothing on a context it didn't make, so nothing audible changes.
+- On the fallback, `pause` now always arms the 40 ms suspend timer, and whether the backend made its context is read when the timer fires rather than at the hide. The suspend hook does nothing on a context it didn't make, so nothing audible changes; a context the fallback makes inside those 40 ms is now suspended too.
 - `AudioClock.horizon()` and `frameInterval()` can now answer null. The core never does.
 
 ## Deprecates
