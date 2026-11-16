@@ -35,6 +35,3 @@ export function retainInstances(keep: Iterable<string>): void {
 export function dropInstance(instance: string): void {
   store.delete(instance);
 }
-
-/** True when `instance` has any state (for tests). */
-export const hasInstanceState = (instance: string): boolean => store.has(instance);

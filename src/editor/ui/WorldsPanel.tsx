@@ -9,7 +9,8 @@ import { playing } from "../session";
 import type { ProjectSectionSession } from "../projectSection";
 import type { EditorProject } from "../projects";
 import { currentProject, playState, scriptsVersion } from "../state";
-import { createWorldsSection, editedWorlds, type WorldsDraft } from "../worldsSection";
+import { worlds } from "../worldsInstance";
+import { editedWorlds, type WorldsDraft } from "../worldsSection";
 import {
   PRESET_TAGS,
   addLink,
@@ -21,7 +22,6 @@ import {
   linkableNames,
   lobbyLinks,
   mentions,
-  modelProblems,
   nameOf,
   remove,
   removeLink,
@@ -48,33 +48,34 @@ import {
 import { PROJECT_FILE } from "../projectFile";
 import { DEFAULT_LAYOUT, layoutGraph, type LayoutLinkIn, type LayoutNodeIn } from "../worldsLayout";
 import "./worlds.css";
+import { usePanelState } from "./panel/Panel";
+import { ProjectSectionToolbar } from "./ProjectSectionToolbar";
 import { NumberField, TextField } from "./settingsControls";
 
-/** The panel's state for the open project: its project section's session (ADR 0151), kept outside the component. */
-type PanelState = ProjectSectionSession<WorldsDraft>;
-
-/** `bootstrap` in `project.json`: the draft, its undo, saving and outside changes (ADR 0151). */
-const worlds = createWorldsSection();
-
-/** The selected World or template, per session (a new session, after an outside edit, selects the first World). */
-const selections = new WeakMap<PanelState, WorldRef | null>();
-
-function selectedIn(s: PanelState): WorldRef | null {
-  if (!selections.has(s)) selections.set(s, s.draft.view.kind === "graph" ? { kind: "world", index: 0 } : null);
-  return selections.get(s) ?? null;
+/**
+ * What a Worlds panel copy edits through: the shell's Worlds section session (ADR 0151, shared by every copy) and this
+ * copy's own selection (ADR 0174 view state).
+ */
+interface PanelState {
+  readonly session: ProjectSectionSession<WorldsDraft, string>;
+  select(ref: WorldRef | null): void;
 }
 
-function select(s: PanelState, ref: WorldRef | null): void {
-  selections.set(s, ref);
-  worlds.refresh();
+/**
+ * This copy's selected World or template. It belongs to one session: a new session (after an outside edit, or
+ * another project) selects the first World again.
+ */
+interface Selection {
+  readonly of: ProjectSectionSession<WorldsDraft, string> | null;
+  readonly ref: WorldRef | null;
 }
 
-/** Make an edit: record it for undo and save it (if valid). */
+/** Make an edit: record it for undo and save it (if valid), selecting `selectRef` when given. */
 function edit(s: PanelState, label: string, model: WorldsModel, selectRef?: WorldRef | null): void {
-  if (s.draft.view.kind !== "graph" || !s.project.canSave) return;
-  if (selectRef !== undefined) selections.set(s, selectRef);
-  void s.edit(label, editedWorlds(model));
-  worlds.refresh();
+  const session = s.session;
+  if (session.draft.view.kind !== "graph" || !session.project.canSave) return;
+  if (selectRef !== undefined) s.select(selectRef);
+  void session.edit(label, editedWorlds(model));
 }
 
 const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
@@ -88,12 +89,14 @@ const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringif
 export function WorldsPanel() {
   const root = useRef<HTMLDivElement>(null);
   usePanelHistory(root, worlds.history);
+  const selection = usePanelState<Selection>("worlds.selection", { of: null, ref: null });
   worlds.version.value;
   scriptsVersion.value; // scripts define systems
   const project = currentProject.value;
   if (!project) return <p class="empty">No project open</p>;
-  const s = worlds.open(project);
-  const view = s.draft.view;
+  const session = worlds.open(project);
+  const s: PanelState = { session, select: (ref) => (selection.value = { of: session, ref }) };
+  const view = session.draft.view;
   if (view.kind === "code") {
     return (
       <p class="empty">
@@ -112,15 +115,24 @@ export function WorldsPanel() {
 
   const model = view.model;
   const catalog = listSystemCatalog();
-  const all = modelProblems(model, catalog);
-  const problems = groupProblems(all);
+  const problems = groupProblems(session.problems);
   const editable = project.canSave;
-  let selected = selectedIn(s);
+  let selected: WorldRef | null = selection.value.of === session ? selection.value.ref : { kind: "world" as const, index: 0 };
   if (selected && !configOf(model, selected)) selected = model.worlds.length ? { kind: "world", index: 0 } : null;
 
   return (
     <div class="worlds-panel" tabIndex={-1} ref={root}>
-      <div class="worlds-toolbar">
+      <ProjectSectionToolbar
+        session={session}
+        noun="Worlds"
+        class="worlds-toolbar"
+        problemsNote="play mode won't start until they're fixed"
+        saved={
+          view.explicit
+            ? { label: "Saved", title: "Matches project.json's bootstrap" }
+            : { label: "Default bootstrap", title: "The project has no bootstrap, so it runs the default one: a single World. Your first edit writes it out." }
+        }
+      >
         <button disabled={!editable} title="Add a start-up World" onClick={() => edit(s, "Add World", addWorld(model), { kind: "world", index: model.worlds.length })}>
           + World
         </button>
@@ -131,16 +143,9 @@ export function WorldsPanel() {
         >
           + Spawnable World
         </button>
-        <button disabled={!editable || !s.undoLabel} title={s.undoLabel ? `Undo ${s.undoLabel} (Ctrl+Z)` : "Nothing to undo"} onClick={() => void s.undo()}>
-          Undo
-        </button>
-        <button disabled={!editable || !s.redoLabel} title={s.redoLabel ? `Redo ${s.redoLabel} (Ctrl+Shift+Z)` : "Nothing to redo"} onClick={() => void s.redo()}>
-          Redo
-        </button>
-        <SaveMarker editable={editable} saving={s.saving} error={s.error} problems={all.length} unsaved={s.unsaved} explicit={view.explicit} />
-      </div>
+      </ProjectSectionToolbar>
       <div class="worlds-body">
-        <Graph model={model} problems={problems} selected={selected} onSelect={(ref) => select(s, ref)} defaultRate={defaultTickRate(project)} />
+        <Graph model={model} problems={problems} selected={selected} onSelect={s.select} defaultRate={defaultTickRate(project)} />
         {problems.general.length > 0 && <Problems list={problems.general} />}
         <fieldset class="worlds-fields" disabled={!editable}>
           {selected && <Details s={s} model={model} target={selected} problems={problems} catalog={catalog} project={project} />}
@@ -153,34 +158,6 @@ export function WorldsPanel() {
 
 function defaultTickRate(project: EditorProject): number {
   return Math.round(1 / (project.settings.time?.fixedDeltaTime ?? 1 / 60));
-}
-
-function SaveMarker(props: { editable: boolean; saving: boolean; error: string | null; problems: number; unsaved: boolean; explicit: boolean }) {
-  const { editable, saving, error, problems, unsaved, explicit } = props;
-  if (!editable) return <span class="worlds-status readonly" title="This project is read-only. Open a project folder to edit its Worlds.">Read-only</span>;
-  const plural = problems === 1 ? "" : "s";
-  if (problems > 0 && unsaved) {
-    return (
-      <span class="worlds-status unsaved" title={`project.json keeps the last valid Worlds. Fix the problem${plural} to save, or undo.`}>
-        ● Not saved: {problems} problem{plural}
-      </span>
-    );
-  }
-  if (problems > 0) {
-    return (
-      <span class="worlds-status unsaved" title={`project.json's bootstrap has ${problems} problem${plural}; play mode won't start until they're fixed.`}>
-        {problems} problem{plural} in project.json
-      </span>
-    );
-  }
-  if (saving) return <span class="worlds-status">Saving…</span>;
-  if (error) return <span class="worlds-status unsaved" title={error}>● Not saved</span>;
-  if (unsaved) return <span class="worlds-status">Saving…</span>;
-  return (
-    <span class="worlds-status saved" title={explicit ? "Matches project.json's bootstrap" : "The project has no bootstrap, so it runs the default one: a single World. Your first edit writes it out."}>
-      {explicit ? "Saved" : "Default bootstrap"}
-    </span>
-  );
 }
 
 function Problems(props: { list: readonly string[] }) {

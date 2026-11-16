@@ -1,10 +1,6 @@
 /* Project panel (ADR 0038): project.json's settings beyond the Worlds. */
 .panel.project .panel-body { padding: 0; overflow: hidden; display: flex; }
 .project-settings { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; outline: none; }
-.project-settings-toolbar { flex: none; display: flex; align-items: center; gap: 4px; padding: 4px 6px; border-bottom: 1px solid var(--border); }
-.project-settings-status { margin-left: auto; font-size: 11px; color: var(--muted); white-space: nowrap; }
-.project-settings-status.saved { color: var(--success); }
-.project-settings-status.unsaved { color: var(--warning); }
 .project-settings-main { flex: 1; display: flex; min-height: 0; min-width: 0; }
 .project-settings-main.narrow { flex-direction: column; }
 .project-settings-categories { flex: none; width: 92px; display: flex; flex-direction: column; padding: 4px 0; overflow-y: auto; border-right: 1px solid var(--border); }

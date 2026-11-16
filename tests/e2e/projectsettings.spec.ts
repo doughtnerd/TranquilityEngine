@@ -30,7 +30,7 @@ async function openProject(page: Page): Promise<void> {
 
 const panel = (page: Page) => page.locator(".panel.project");
 const projectJson = async (page: Page) => JSON.parse((await page.evaluate(() => (window as unknown as Hooks).testFolder.read("project.json")))!);
-const status = (page: Page) => panel(page).locator(".project-settings-status");
+const status = (page: Page) => panel(page).locator(".section-status");
 
 async function commit(page: Page, label: string, value: string): Promise<void> {
   const box = panel(page).getByRole("textbox", { name: label, exact: true });

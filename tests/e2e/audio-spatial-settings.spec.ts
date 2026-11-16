@@ -96,7 +96,7 @@ test("beds, occlusion, zones and Doppler: edit each, project.json holds it, a pr
   await expect.poll(async () => (await saved(page)).speedOfSound).toBe(400);
 
   // What the panel wrote parses without problems, and the panel lists none.
-  await expect(panel(page).locator(".project-settings-status")).toHaveText("Saved");
+  await expect(panel(page).locator(".section-status")).toHaveText("Saved");
   await expect(panel(page).getByRole("list", { name: "Problems" })).toHaveCount(0);
   const text = await projectText(page);
   expect(parseAudioSettings(JSON.parse(text).audio).problems).toEqual([]);

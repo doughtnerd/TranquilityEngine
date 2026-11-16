@@ -120,14 +120,8 @@ const settings: ProjectSettingsSurface = {
   edit: (label, next) => settingsSession()?.edit(label, next) ?? Promise.resolve(),
   undo: () => void settingsSession()?.undo(),
   redo: () => void settingsSession()?.redo(),
-  canUndo: () => {
-    const s = settingsSession();
-    return !!s && s.project.canSave && s.canUndo;
-  },
-  canRedo: () => {
-    const s = settingsSession();
-    return !!s && s.project.canSave && s.canRedo;
-  },
+  canUndo: () => !!settingsSession()?.canUndo,
+  canRedo: () => !!settingsSession()?.canRedo,
   get version() {
     return settingsVersion.value;
   },
