@@ -276,6 +276,15 @@ export interface MusicDebugTotals {
   poolHighWater: number;
   musicRingRefused: number;
   streamStartsLate: number;
+  /**
+   * The core's group counters (STATUS, cumulative, saturating at 65535): groups that started late, groups held by a starving
+   * member (counted when the hold begins, so a hold in progress shows), and groups given up on. The rows' `lateGroups`,
+   * `groupsHeld` and `groupTimeouts` are main's per-instance counts of the same reports, which arrive when the group starts,
+   * resumes or is abandoned.
+   */
+  groupsLate: number;
+  groupsHeld: number;
+  groupsAbandoned: number;
   /** Audio frames: the largest slip since init. */
   maxSlipFrames: number;
   /** Whole-quantum splits and voice-local splits, cumulative (R3). */

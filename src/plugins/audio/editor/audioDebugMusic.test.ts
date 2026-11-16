@@ -41,9 +41,9 @@ function source(view?: { poolUsed: number; poolSize: number; poolHighWater: numb
 describe("Audio.debug() music (P10, §1.6)", () => {
   it("musicTotals carries the core's counters from the status mirror and the pool from musicOps", () => {
     const { src, mirror } = source({ poolUsed: 2, poolSize: 8, poolHighWater: 5, musicRingRefused: 1, groupTableFull: 4 });
-    Object.assign(mirror.header, { streamStartsLate: 3, maxSlipFrames: 700, splitQuanta: 9, voiceSplits: 11, curvePoolFull: 2 });
+    Object.assign(mirror.header, { streamStartsLate: 3, groupsLate: 6, groupsHeld: 1, groupsAbandoned: 5, maxSlipFrames: 700, splitQuanta: 9, voiceSplits: 11, curvePoolFull: 2 });
     expect(buildDebugInfo(src).musicTotals).toEqual({
-      poolUsed: 2, poolSize: 8, poolHighWater: 5, musicRingRefused: 1, streamStartsLate: 3, maxSlipFrames: 700, splitQuanta: 9, voiceSplits: 11, curvePoolFull: 2, groupTableFull: 4, encodedOverBudget: 0,
+      poolUsed: 2, poolSize: 8, poolHighWater: 5, musicRingRefused: 1, streamStartsLate: 3, groupsLate: 6, groupsHeld: 1, groupsAbandoned: 5, maxSlipFrames: 700, splitQuanta: 9, voiceSplits: 11, curvePoolFull: 2, groupTableFull: 4, encodedOverBudget: 0,
     });
   });
 

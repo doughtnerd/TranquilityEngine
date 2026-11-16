@@ -45,7 +45,7 @@ export type Row = {
   missedBeats: number;
   stingers: { played: number; late: number; skipped: number; dropped: number };
 };
-export type Totals = { poolUsed: number; poolSize: number; poolHighWater: number; musicRingRefused: number; streamStartsLate: number; maxSlipFrames: number; splitQuanta: number; voiceSplits: number; curvePoolFull: number; groupTableFull: number };
+export type Totals = { poolUsed: number; poolSize: number; poolHighWater: number; musicRingRefused: number; streamStartsLate: number; groupsLate: number; groupsHeld: number; groupsAbandoned: number; maxSlipFrames: number; splitQuanta: number; voiceSplits: number; curvePoolFull: number; groupTableFull: number };
 export type Debug = {
   status: string;
   counters: { underruns: number };
@@ -54,11 +54,7 @@ export type Debug = {
   music?: Row[];
   musicTotals?: Totals;
 };
-/**
- * The group counters as `Audio.debug()` reports them: `groupsLate`, `groupsHeld` and `groupsAbandoned` summed over every music
- * row `readLate` has seen in the page (each row's `lateGroups`, `groupsHeld`, `groupTimeouts`: main's count of the core's
- * group-start reports), `maxSlipFrames` and `splitQuanta` from `musicTotals` (the core's STATUS header).
- */
+/** The core's cumulative group counters, slip and splits, as `Audio.debug().musicTotals` reports them (the STATUS header). */
 export type Late = { groupsLate: number; groupsHeld: number; groupsAbandoned: number; maxSlipFrames: number; splitQuanta: number };
 /** What a page's handle says about its music, read in one go. */
 export type Snap = {
@@ -108,15 +104,9 @@ export const peakOver = (page: Page, bus: string, ms = 300) =>
 /** The group counters (`Late`) from `Audio.debug()`; null while it reports no music totals (not the core). */
 export const readLate = (page: Page): Promise<Late | null> =>
   page.evaluate(() => {
-    type Counts = { late: number; held: number; timeouts: number };
-    const g = globalThis as unknown as { __myco: Api; __lateRows?: Record<string, Counts> };
-    const d = g.__myco.Audio.debug() as Debug;
-    if (!d.musicTotals) return null;
-    // A row's counters only grow while it lives; a stopped player's row goes, so keep the last reading of every row seen.
-    const rows = (g.__lateRows ??= {});
-    for (const r of d.music ?? []) rows[`${r.id}:${r.asset}`] = { late: r.lateGroups, held: r.groupsHeld, timeouts: r.groupTimeouts };
-    const sum = (k: keyof Counts) => Object.values(rows).reduce((n, c) => n + c[k], 0);
-    return { groupsLate: sum("late"), groupsHeld: sum("held"), groupsAbandoned: sum("timeouts"), maxSlipFrames: d.musicTotals.maxSlipFrames, splitQuanta: d.musicTotals.splitQuanta };
+    const t = ((globalThis as unknown as { __myco: Api }).__myco.Audio.debug() as Debug).musicTotals;
+    if (!t) return null;
+    return { groupsLate: t.groupsLate, groupsHeld: t.groupsHeld, groupsAbandoned: t.groupsAbandoned, maxSlipFrames: t.maxSlipFrames, splitQuanta: t.splitQuanta };
   });
 
 /** Collects what a page logs that matters to music: errors, uncaught exceptions, and warnings from the engine or about audio. */
