@@ -86,7 +86,7 @@ async function rig() {
   const preset = { ...testing.LOOPBACK_PRESET, maxMixed: MAX_MIXED, maxBeds: 1, limiterLookaheadMs: 0 };
   let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>>;
   try {
-    loop = await testing.createLoopbackHost({ testHooks: true, preset });
+    loop = await testing.createLoopbackHost({ preset });
   } catch {
     return null;
   }

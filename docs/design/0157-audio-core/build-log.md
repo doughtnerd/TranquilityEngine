@@ -575,3 +575,7 @@ The remainder of M2 (E3 from E3.1, E4–E7) is planned as a milestone build: [wa
 ## M2 complete (owner, 2026-11-10)
 
 The owner declared M2 complete. Carried as owner items: the lab-VM bench run (E5.5) and the listening-pass re-check and sign-off (E7.1). Saved for later: ADR 0161 (Proposed, `Assets` lookup caching). Next: M3 (spatial), which starts with its own record; kickoff prompt in [2026-11-audio-m3-kickoff.md](../../plans/2026-11-audio-m3-kickoff.md).
+
+## Test-only cleanup: no test-hooks wasm (2026-11-16)
+
+The `test-hooks` cargo feature, its two exports (`myco_audio_debug_trap_next`, and the `myco_audio_debug_decode_batch` stub that only returned `NOT_IMPLEMENTED`), its build in `build.mjs` and the committed `wasm/testing/myco_audio_test_hooks.wasm` are removed (CLAUDE.md: no feature-flagged builds for tests). The loopback tests that need a trap keep `LoopbackHost.trapNext()`: `testing.ts` hands the shell the real instance's exports with `myco_audio_process` wrapped to throw a `WebAssembly.RuntimeError` once, which the shell's trap catch takes as it takes a wasm trap. `createLoopbackHost` loses its `testHooks` option. Rebuilt with `npm run build:audio` (no `wasm-opt` on PATH, as before): new source hash `c8fdbfa8…`; `myco_audio.wasm` 377,648 B, both decoders the same size as before, so nothing moves against the size gates. The bundled `spikes/audio-mix/mix-core/live/build/live.mjs` still carries the old `testHooks` branch from its M5 build; it never takes it and is left as that spike's record.

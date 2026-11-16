@@ -28,7 +28,7 @@ describe("HRTF for the nearest voices on the loopback host (H3)", { timeout: PAT
     const testing = await import("../testing");
     let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>>;
     try {
-      loop = await testing.createLoopbackHost({ testHooks: true });
+      loop = await testing.createLoopbackHost();
     } catch {
       return ctx.skip();
     }

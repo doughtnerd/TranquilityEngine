@@ -48,7 +48,7 @@ async function rig() {
   const preset = { ...presetFromSettings(mixer.audioSettings), limiterLookaheadMs: 0 };
   let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>>;
   try {
-    loop = await testing.createLoopbackHost({ testHooks: true, preset });
+    loop = await testing.createLoopbackHost({ preset });
   } catch {
     return null;
   }

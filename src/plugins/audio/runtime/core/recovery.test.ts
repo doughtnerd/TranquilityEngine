@@ -68,7 +68,7 @@ function fakeContext() {
  */
 async function rig() {
   const testing = await import("../testing");
-  const loop = await testing.createLoopbackHost({ testHooks: true });
+  const loop = await testing.createLoopbackHost();
   const context = fakeContext();
   const firstNode = Object.assign(new EventTarget(), { connect() {}, disconnect() {} }) as unknown as AudioWorkletNode;
   const unlock = new Unlock({ target: new EventTarget(), context: context as unknown as UnlockContext });

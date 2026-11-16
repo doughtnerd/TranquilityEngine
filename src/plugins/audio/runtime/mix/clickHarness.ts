@@ -93,7 +93,7 @@ export async function liveRig(project: unknown) {
   const preset = { ...presetFromSettings(settings), limiterLookaheadMs: 0 };
   let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>>;
   try {
-    loop = await testing.createLoopbackHost({ testHooks: true, preset });
+    loop = await testing.createLoopbackHost({ preset });
   } catch {
     return null;
   }

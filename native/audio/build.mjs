@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // `npm run build:audio` (ADR 0157, api-and-models §5): compiles native/audio to WebAssembly and writes
-// myco_audio.wasm, the test-hooks wasm, the decoder (myco_audio_decode.wasm, and myco_audio_decode_aac.wasm with
+// myco_audio.wasm, the decoder (myco_audio_decode.wasm, and myco_audio_decode_aac.wasm with
 // AAC, B4) and hash.json to src/plugins/audio/runtime/wasm/, which is
 // committed, so the engine builds without Rust. Modelled on native/nav/build.mjs, without
 // wasm-bindgen: the core's exports are plain `extern "C"` functions over imported memory.
@@ -83,12 +83,10 @@ function genWire() {
 }
 
 /** Builds audio-wasm for wasm32 in release; returns the built .wasm's path. */
-function buildWasm({ testHooks }) {
+function buildWasm() {
   const args = ["build", "-p", "audio-wasm", "--target", TARGET, "--release"];
-  if (testHooks) args.push("--features", "test-hooks", "--target-dir", "target/test-hooks");
   run("cargo", args, { CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS: WASM_RUSTFLAGS });
-  const dir = testHooks ? "target/test-hooks" : "target";
-  return fileURLToPath(new URL(`${dir}/${TARGET}/release/myco_audio.wasm`, import.meta.url));
+  return fileURLToPath(new URL(`target/${TARGET}/release/myco_audio.wasm`, import.meta.url));
 }
 
 /** Builds audio-decode (M1b) for wasm32 in release; returns the built .wasm's path. Its build.rs
@@ -217,10 +215,8 @@ function main() {
   checkToolchain();
   genWire();
   checkMagls();
-  const mixerBuild = buildWasm({ testHooks: false });
-  const testBuild = buildWasm({ testHooks: true });
+  const mixerBuild = buildWasm();
   optimize(mixerBuild);
-  optimize(testBuild);
   const mixerBytes = gate(mixerBuild, MIXER_LIMIT, "myco_audio.wasm");
   if (mixerBytes > MIXER_WARN) {
     console.warn(`[build:audio] warning: myco_audio.wasm is ${mixerBytes - MIXER_WARN} bytes over the ${MIXER_WARN / 1024} KB warning line (ADR 0162 §5.2; the gate stays ${MIXER_LIMIT / 1024} KB). Look for bloat before it reaches the gate.`);
@@ -243,12 +239,8 @@ function main() {
     aacBytes = gate(aacBuild, DECODER_AAC_LIMIT, "myco_audio_decode_aac.wasm");
     aacHash = smokeDecoder(aacBuild, { aac: true, label: "myco_audio_decode_aac.wasm" });
   }
-  const testBytes = statSync(testBuild).size;
-  console.log(`[build:audio] myco_audio_test_hooks.wasm: ${testBytes} bytes (${(testBytes / 1024).toFixed(1)} KB), not gated`);
-
-  mkdirSync(`${out}testing`, { recursive: true });
+  mkdirSync(out, { recursive: true });
   copyFileSync(mixerBuild, `${out}myco_audio.wasm`);
-  copyFileSync(testBuild, `${out}testing/myco_audio_test_hooks.wasm`);
   if (decoderBuild) copyFileSync(decoderBuild, `${out}myco_audio_decode.wasm`);
   if (aacBuild) copyFileSync(aacBuild, `${out}myco_audio_decode_aac.wasm`);
 
@@ -260,7 +252,7 @@ function main() {
       process.exit(1);
     }
   }
-  const bytes = { "myco_audio.wasm": mixerBytes, "testing/myco_audio_test_hooks.wasm": testBytes };
+  const bytes = { "myco_audio.wasm": mixerBytes };
   if (decoderBuild) bytes["myco_audio_decode.wasm"] = decoderBytes;
   if (aacBuild) bytes["myco_audio_decode_aac.wasm"] = aacBytes;
   writeHashJson(identity, bytes);

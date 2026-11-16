@@ -234,7 +234,7 @@ M1 has one resampler mode, the 4-point Lagrange kernel (A3.6), so "per resampler
 
 ### L16. The rebuild after a trap (Config A, 2 min; dev server only)
 
-- **Special setup:** a real trap needs the test-hooks wasm (`myco_audio_debug_trap_next`), which only the loopback tests load. In the browser, the same rebuild runs from the devtools console of the **dev server** page (`npm run dev`; a production build has no `/src/` modules). With Music, the Emitter and the Tape playing:
+- **Special setup:** the core has no trap export; the loopback tests make the render call throw once (`testing.ts` `trapNext` wraps the instance's `myco_audio_process`). In the browser, the same rebuild runs from the devtools console of the **dev server** page (`npm run dev`; a production build has no `/src/` modules). With Music, the Emitter and the Tape playing:
   ```js
   await (await import("/src/plugins/audio/runtime/core/recovery.ts")).rebuild("trap")    // same context, new core
   await (await import("/src/plugins/audio/runtime/core/recovery.ts")).rebuild("device")  // new AudioContext

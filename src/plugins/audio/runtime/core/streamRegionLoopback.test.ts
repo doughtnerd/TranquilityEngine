@@ -144,7 +144,7 @@ describe("stream region loops on the loopback host (E4.4)", () => {
 
   it("a hard rebuild mid-loop reopens the stream inside its region, and it keeps looping", async () => {
     const testing = await import("../testing");
-    const loop = await testing.createLoopbackHost({ testHooks: true, preset: { ...testing.LOOPBACK_PRESET, limiterLookaheadMs: 0 } });
+    const loop = await testing.createLoopbackHost({ preset: { ...testing.LOOPBACK_PRESET, limiterLookaheadMs: 0 } });
     const context = {
       state: "running",
       sampleRate: RATE,

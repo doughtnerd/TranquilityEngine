@@ -44,7 +44,7 @@ function fakeContext() {
 describe("a stream across a hard rebuild (B3)", () => {
   it("reopens on the new core with a new stream id, from where it was, and plays on", async () => {
     const testing = await import("../testing");
-    const loop = await testing.createLoopbackHost({ testHooks: true, preset: { ...testing.LOOPBACK_PRESET, limiterLookaheadMs: 0 } });
+    const loop = await testing.createLoopbackHost({ preset: { ...testing.LOOPBACK_PRESET, limiterLookaheadMs: 0 } });
     const context = fakeContext();
     const node = Object.assign(new EventTarget(), { connect() {}, disconnect() {} }) as unknown as AudioWorkletNode;
     const unlock = new Unlock({ target: new EventTarget(), context: context as unknown as UnlockContext });
