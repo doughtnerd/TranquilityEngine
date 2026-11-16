@@ -69,7 +69,7 @@ export function createMenuItems(scene: OpenScene): MenuItem[] {
 }
 
 /** The right-click menu for a UI document element row (ADR 0077): create inside it, rename, duplicate, delete. */
-export function uiElementMenuItems(scene: OpenScene, ref: UIElementRef): MenuItem[] {
+function uiElementMenuItems(scene: OpenScene, ref: UIElementRef): MenuItem[] {
   const el = resolveUIElement(scene.sync, ref);
   const reason = whyNotEditableUI() ?? (el ? null : "it's gone");
   const label = el?._synthetic ? "a button's label is its text content" : null;

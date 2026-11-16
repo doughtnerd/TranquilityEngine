@@ -259,7 +259,7 @@ export function attributeText(value: unknown): string {
 const pixels = (n: number) => (n === 0 ? "0" : `${n}px`);
 
 /** An attribute's value as a stylesheet declaration writes it: colours as hex, lengths with `px`, assets as `url()`. */
-export function cssValue(info: FieldInfo | null, raw: string): string {
+function cssValue(info: FieldInfo | null, raw: string): string {
   const v = raw.trim();
   if (!info || v.includes("var(")) return v;
   const number = /^-?(\d+\.?\d*|\.\d+)(px)?$/.test(v) ? parseFloat(v) : null;
@@ -334,7 +334,7 @@ export function setUIElementAttributes(ref: UIElementRef, attributes: Readonly<R
 }
 
 /** Set an element's text content (a Text's text, a Button's label, an InputField's value). */
-export function setUIElementText(ref: UIElementRef, text: string): boolean {
+function setUIElementText(ref: UIElementRef, text: string): boolean {
   const scene = editableScene();
   const found = scene && editableElement(scene, ref);
   if (!scene || !found) return false;

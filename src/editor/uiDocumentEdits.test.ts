@@ -15,7 +15,6 @@ import { editorTextFiles } from "./textFiles";
 import {
   beginUIEdit,
   createUIElement,
-  cssValue,
   deleteUIElement,
   duplicateUIElement,
   endUIEdit,
@@ -25,11 +24,9 @@ import {
   setUIElementAttributes,
   setUIElementClasses,
   setUIElementField,
-  setUIElementText,
   whyNotMovable,
 } from "./uiDocumentEdits";
 import { fieldSources, resolveUIElement, selectedUIRef, selectUIElement, type UIElementRef } from "./uiDocuments";
-import { getFields } from "../engine/core/registry";
 import { createUIDocument } from "../plugins/ui/editor/uiDocumentAssets";
 
 const ROOT = "C:\\Games\\ui";
@@ -56,6 +53,11 @@ const BADGE = `<Panel class="badge" gap="3">
 </Panel>
 `;
 const BARE = `<Canvas>\n  <Panel id="box" padding="8" background-color="rgb(255, 0, 0)" width="50"/>\n</Canvas>\n`;
+const STYLED = `<Canvas>
+  <Panel id="box" background-color="rgb(0, 128, 255)" width="50%" flex-grow="1" gap="0" flex-direction="column"/>
+  <Panel id="plain" background-color="none" width="auto"/>
+</Canvas>
+`;
 
 const SCENE = {
   format: "myco.scene@1",
@@ -63,6 +65,7 @@ const SCENE = {
     { id: "cam", name: "Camera", components: [{ type: "engine.Transform" }, { type: "engine.Camera" }] },
     { id: "hud", name: "HUD", components: [{ type: "engine.Transform" }, { type: "engine.UIDocument", data: { document: "asset:ui/menu.ui.xml" } }] },
     { id: "bare", name: "Bare", components: [{ type: "engine.Transform" }, { type: "engine.UIDocument", data: { document: "asset:ui/bare.ui.xml" } }] },
+    { id: "styled", name: "Styled", components: [{ type: "engine.Transform" }, { type: "engine.UIDocument", data: { document: "asset:ui/styled.ui.xml" } }] },
   ],
 };
 
@@ -86,6 +89,7 @@ const FILES: Record<string, string> = {
   "ui/menu.ui.css": MENU_CSS,
   "ui/widgets/badge.ui.xml": BADGE,
   "ui/bare.ui.xml": BARE,
+  "ui/styled.ui.xml": STYLED,
 };
 
 beforeEach(async () => {
@@ -151,7 +155,7 @@ describe("Inspector writes", () => {
     await settle();
     expect(text("ui/menu.ui.xml")).toContain(`<Text id="title">Points: {points}</Text>`);
     expect(fieldSources(el("/#menu/#title")!).find((r) => r.field === "text")!.origin).toMatchObject({ kind: "content", bound: true });
-    setUIElementText(ref("/#menu/#play/label"), "Go!");
+    setUIElementField(ref("/#menu/#play/label"), "text", "Go!"); // a button's label is its text content
     await settle();
     expect(text("ui/menu.ui.xml")).toContain(`<Button id="play" class="primary">Go!</Button>`);
     expect(el("/#menu/#play/label")!.as(UIText).text).toBe("Go!");
@@ -266,16 +270,13 @@ describe("Move to class", () => {
     expect(text("ui/bare.ui.xml")).toBe(BARE);
   });
 
-  it("formats values for stylesheets", () => {
-    const info = (type: string, field: string) => getFields((type === "Text" ? UIText : UIPanel) as never).find((f) => f.name === field)!;
-    expect(cssValue(info("Panel", "backgroundColor"), "rgb(0, 128, 255)")).toBe("#0080ff");
-    expect(cssValue(info("Panel", "backgroundColor"), "none")).toBe("none");
-    expect(cssValue(info("Panel", "width"), "auto")).toBe("auto");
-    expect(cssValue(info("Panel", "width"), "50%")).toBe("50%");
-    expect(cssValue(info("Panel", "flexGrow"), "1")).toBe("1");
-    expect(cssValue(info("Panel", "gap"), "0")).toBe("0");
-    expect(cssValue(info("Text", "text"), "Hi there")).toBe(`"Hi there"`);
-    expect(cssValue(info("Panel", "flexDirection"), "column")).toBe("column");
+  it("formats values for stylesheets", async () => {
+    expect(moveUIElementToClass(ref("/#box", "styled"))).toBe(true);
+    expect(moveUIElementToClass(ref("/#plain", "styled"))).toBe(true);
+    await settle();
+    const css = text("ui/styled.ui.css");
+    expect(css).toContain(".box {\n  background-color: #0080ff;\n  width: 50%;\n  flex-grow: 1;\n  gap: 0;\n  flex-direction: column;\n}");
+    expect(css).toContain(".plain {\n  background-color: none;\n  width: auto;\n}");
   });
 });
 
@@ -407,7 +408,8 @@ describe("documents keep building", () => {
 
 describe("menus", () => {
   it("the Create menu adds elements into the selected element or the selected node's document; element rows have a menu", async () => {
-    const { createMenuItems, uiElementMenuItems } = await import("./ui/HierarchyMenu");
+    const { createMenuItems, hierarchyMenu, openUIElementMenu } = await import("./ui/HierarchyMenu");
+    const uiElementMenuItems = (r: UIElementRef) => (openUIElementMenu(0, 0, r), hierarchyMenu.value!.items);
     select([]);
     expect(createMenuItems(scene()).some((i) => i.label.includes("in Document"))).toBe(false);
     select(["bare"]);
@@ -417,9 +419,10 @@ describe("menus", () => {
     await settle();
     expect(selectedUIRef()).toEqual(ref("/Text[0]", "bare"));
     expect(text("ui/bare.ui.xml")).toContain("<Text>New Text</Text>");
-    const rowItems = uiElementMenuItems(scene(), ref(""));
+    const rowItems = uiElementMenuItems(ref(""));
     expect(rowItems.find((i) => i.label === "Delete")!.disabled).toMatch(/root/);
-    expect(uiElementMenuItems(scene(), ref("/#menu/#play")).find((i) => i.label === "Duplicate")!.disabled).toBeNull();
+    expect(uiElementMenuItems(ref("/#menu/#play")).find((i) => i.label === "Duplicate")!.disabled).toBeNull();
+    hierarchyMenu.value = null;
   });
 
   it("Delete and Duplicate act on a selected element", async () => {

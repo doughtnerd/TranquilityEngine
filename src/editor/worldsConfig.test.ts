@@ -5,7 +5,6 @@ import {
   addLink,
   addTemplate,
   addWorld,
-  defaultModel,
   groupProblems,
   extraOptionKeys,
   isSpawnableName,
@@ -21,12 +20,11 @@ import {
   readBootstrap,
   remove,
   rename,
-  selectSystem,
   setSystem,
   systemStatus,
   transportChoices,
   updateConfig,
-  withBootstrap,
+  withMember,
   type WorldsModel,
   withReplicationSetting,
 } from "./worldsConfig";
@@ -37,6 +35,11 @@ const CATALOG: SystemCatalogEntry[] = [
   { name: "net.Replicate", phase: "lateUpdate", worlds: ["server"], builtin: false },
 ];
 const [scripts, scroll, replicate] = CATALOG;
+
+/** The Worlds panel's model for a project.json without a bootstrap. */
+const defaultModel = () => (readBootstrap(undefined) as { model: WorldsModel }).model;
+/** `project.json`'s text with its `bootstrap` set (undefined: removed), as the Worlds panel writes it. */
+const withBootstrap = (text: string, setting: unknown) => withMember(text, "bootstrap", setting);
 
 const clientServer = (): WorldsModel => ({
   worlds: [{ name: "Client", tags: ["client"] }, { name: "Server", tags: ["server"] }],
@@ -129,13 +132,16 @@ describe("system checklist", () => {
   });
 
   it("toggling writes include and exclude minimally", () => {
+    /** The selection a World with `config` gets after turning `entry` on or off. */
+    const toggled = (config: Partial<WorldsModel["worlds"][number]>, entry: SystemCatalogEntry, on: boolean) =>
+      setSystem({ worlds: [{ name: "W", tags: [], ...config }], links: [], templates: [] }, { kind: "world", index: 0 }, entry, on).worlds[0].systems;
     const server = { tags: ["server"] };
-    expect(selectSystem(server, scroll, true)).toEqual({ include: ["game.Scroll"] });
-    expect(selectSystem(server, replicate, false)).toEqual({ exclude: ["net.Replicate"] });
-    expect(selectSystem(server, replicate, true)).toBeUndefined(); // the tags already run it
+    expect(toggled(server, scroll, true)).toEqual({ include: ["game.Scroll"] });
+    expect(toggled(server, replicate, false)).toEqual({ exclude: ["net.Replicate"] });
+    expect(toggled(server, replicate, true)).toBeUndefined(); // the tags already run it
     // Turning back to what the tags say removes the entry, and the empty selection with it.
-    expect(selectSystem({ tags: ["server"], systems: { include: ["game.Scroll"] } }, scroll, false)).toBeUndefined();
-    expect(selectSystem({ tags: ["server"], systems: { include: ["game.Scroll"], exclude: ["net.Replicate"] } }, replicate, true)).toEqual({ include: ["game.Scroll"] });
+    expect(toggled({ tags: ["server"], systems: { include: ["game.Scroll"] } }, scroll, false)).toBeUndefined();
+    expect(toggled({ tags: ["server"], systems: { include: ["game.Scroll"], exclude: ["net.Replicate"] } }, replicate, true)).toEqual({ include: ["game.Scroll"] });
   });
 
   it("setSystem edits the World's config", () => {
