@@ -44,8 +44,9 @@ export interface ProjectSectionSpec<D, P = unknown> {
  * - `read-only`: the project can't be saved; nothing is edited.
  * - `problems`: the draft has `count` problems, so it isn't written; `unsaved` when it differs from the file (an edit
  *   made it invalid) rather than the file holding them.
- * - `saving`: a write is in progress, or the draft differs from the file and its write is queued.
- * - `failed`: the last write failed (`error` says why) and the draft still differs from the file.
+ * - `saving`: a write is in progress.
+ * - `failed`: the last write failed (`error` says why), until a write succeeds.
+ * - `saving` again: the draft differs from the file and its write is queued.
  * - `saved`: the file holds the draft.
  */
 export type ProjectSectionStatus =
@@ -149,8 +150,10 @@ class Session<D, P> implements ProjectSectionSession<D, P> {
     const count = this.problems.length;
     const unsaved = this.unsaved;
     if (count > 0) return { kind: "problems", count, unsaved };
-    if (this.saving || unsaved) return { kind: "saving" };
+    if (this.saving) return { kind: "saving" };
+    // A failed write leaves the draft differing from the file with nothing queued: that's a failure, not a save to come.
     if (this.error) return { kind: "failed", error: this.error };
+    if (unsaved) return { kind: "saving" };
     return { kind: "saved" };
   }
   get undoLabel(): string | null {

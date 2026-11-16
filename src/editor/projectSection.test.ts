@@ -199,6 +199,21 @@ describe("a project section's status", () => {
     expect(w.status).toMatchObject({ kind: "problems", unsaved: true });
   });
 
+  it("is failed after a write fails while the draft still differs, until a later write succeeds", async () => {
+    const { project, fs } = await openTestProject({ "project.json": PROJECT });
+    const s = createProjectSettingsSection().open(project);
+    const write = fs.writeText.bind(fs);
+    fs.writeText = async () => {
+      throw new Error("disk full");
+    };
+    await s.edit("Rename project", { ...s.draft, name: "Other" });
+    expect(s.unsaved).toBe(true);
+    expect(s.status).toMatchObject({ kind: "failed", error: expect.stringContaining("Couldn't save the project settings") });
+    fs.writeText = write;
+    await s.edit("Rename project again", { ...s.draft, name: "Another" });
+    expect(s.status).toEqual({ kind: "saved" });
+  });
+
   it("is read-only for a project that can't be saved: no edit, no undo, its problems still listed", () => {
     const text = `{ "name": "Sample", "display": { "width": -5 } }`;
     const project = readOnlyProject("Sample", { values: new Map([["project.json", JSON.parse(text)]]), texts: new Map([["project.json", text]]) });

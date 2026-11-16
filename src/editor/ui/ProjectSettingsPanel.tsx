@@ -231,8 +231,9 @@ function SaveMarker(props: { editable: boolean; saving: boolean; error: string |
   const plural = problems === 1 ? "" : "s";
   if (problems > 0 && unsaved) return <span class="project-settings-status unsaved" title={`${PROJECT_FILE} keeps the last valid settings. Fix the problem${plural} to save, or undo.`}>● Not saved: {problems} problem{plural}</span>;
   if (problems > 0) return <span class="project-settings-status unsaved">{problems} problem{plural} in {PROJECT_FILE}</span>;
-  if (saving || unsaved) return <span class="project-settings-status">Saving…</span>;
+  if (saving) return <span class="project-settings-status">Saving…</span>;
   if (error) return <span class="project-settings-status unsaved" title={error}>● Not saved</span>;
+  if (unsaved) return <span class="project-settings-status">Saving…</span>;
   return <span class="project-settings-status saved" title={`Matches ${PROJECT_FILE}`}>Saved</span>;
 }
 
