@@ -9,7 +9,6 @@ import {
   copyNodes,
   defaultFunction,
   groupNodes,
-  parseClipboard,
   pasteNodes,
   removeNodes,
   removeNote,
@@ -44,8 +43,6 @@ describe("copy and paste", () => {
     expect(clip.nodes.map((n) => n.id)).toEqual(["add1", "time1", "property1"]);
     expect(clip.edges).toEqual([{ from: "time1.time", to: "add1.a" }]);
     expect(clip.properties.map((p) => p.name)).toEqual(["Color"]);
-    expect(parseClipboard(JSON.stringify(clip))).toEqual(clip);
-    expect(parseClipboard("not json")).toBeNull();
     expect(copyNodes(sample(), ["output"])).toBeNull();
   });
 

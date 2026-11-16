@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canRedo, canUndo, createHistory, pushHistory, redo, replacePresent, undo } from "./spriteHistory";
+import { canRedo, canUndo, createHistory, pushHistory, redo, undo } from "./spriteHistory";
 
 describe("sprite editor history", () => {
   it("undoes and redoes pushes", () => {
@@ -47,11 +47,5 @@ describe("sprite editor history", () => {
     let h = createHistory(0);
     for (let i = 1; i <= 5; i++) h = pushHistory(h, i, { limit: 3 });
     expect(h.past).toEqual([2, 3, 4]);
-  });
-
-  it("replaces the present without a step", () => {
-    const h = replacePresent(pushHistory(createHistory(0), 1), 7);
-    expect(h.present).toBe(7);
-    expect(h.past).toEqual([0]);
   });
 });

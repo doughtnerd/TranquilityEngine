@@ -85,33 +85,6 @@ export function setDeclaration(text: string, selector: string, property: string,
   return splice(text, end, end, insert);
 }
 
-/** Remove every declaration of `property` in the rule for `selector` (its line when alone on it). No change without one. */
-export function removeDeclaration(text: string, selector: string, property: string): string {
-  for (;;) {
-    const rule = findRule(text, selector);
-    const d = rule && [...rule.declarations].reverse().find((x) => x.property === property);
-    if (!rule || !d) return text;
-    const { close } = blockOf(text, rule);
-    let start = d.span.start, end = declarationEnd(text, d);
-    let after = end;
-    while (after < close && /[ \t]/.test(text[after])) after++;
-    if (text[after] === ";") end = after + 1;
-    const lineStart = text.lastIndexOf("\n", start - 1) + 1;
-    let e = end;
-    while (e < text.length && /[ \t]/.test(text[e])) e++;
-    const firstOnLine = /^[ \t]*$/.test(text.slice(lineStart, start));
-    if (firstOnLine && text[e] === "\n") {
-      start = lineStart;
-      end = e + 1;
-    } else if (firstOnLine) {
-      end = e; // something follows on the line (a comment): keep the indent, drop the space after
-    } else {
-      while (start > 0 && /[ \t]/.test(text[start - 1])) start--;
-    }
-    text = splice(text, start, end, "");
-  }
-}
-
 /** Add `selector { … }` at the end of the sheet, one declaration per line, after a blank line. */
 export function addRule(text: string, selector: string, declarations: readonly (readonly [string, string])[]): string {
   const indent = indentOf(text);

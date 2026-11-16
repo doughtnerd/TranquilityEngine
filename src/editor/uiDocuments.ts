@@ -199,18 +199,6 @@ export function lineColumnOf(file: string, offset: number): { line: number; colu
   return { line, column: offset - start + 1 };
 }
 
-/**
- * The span of an element's text content (between its open and close tags), or null when it has
- * none or is self-closing. `source` is the text of `element.file`.
- */
-export function contentSpan(element: MarkupElement, source: string): SourceSpan | null {
-  const { openTagSpan, span } = element;
-  if (openTagSpan.end >= span.end) return null; // self-closing
-  const close = source.lastIndexOf("</", span.end);
-  if (close < openTagSpan.end) return null;
-  return { start: openTagSpan.end, end: close };
-}
-
 /** Where an element is written: its file, whole span and open tag, and (for part 2's edits) its attributes. */
 export interface MarkupLocation {
   readonly file: string;

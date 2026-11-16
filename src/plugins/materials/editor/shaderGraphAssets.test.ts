@@ -6,7 +6,7 @@ import { moveAssets } from "../../../editor/assetOps";
 import { joinPath, openFolderProject, type EditorProject } from "../../../editor/projects";
 import { assetFormats } from "../../../editor/sdk/contributions";
 import { addNode, moveNodes } from "./shaderGraph/graphEdit";
-import { readShaderGraph, shaderGraphDocument, writeShaderGraph } from "./shaderGraphAssets";
+import { readShaderGraph, shaderGraphDocument } from "./shaderGraphAssets";
 import { shaderGraphFormat, shaderSubgraphFormat } from "./shaderGraphFormat";
 import { currentProject, status } from "../../../editor/state";
 import { MemoryFileSystem, ROOT } from "../../../editor/testing";
@@ -102,7 +102,8 @@ describe("shader graph documents", () => {
   it("keeps a graph's history through a rename", async () => {
     const doc = shaderGraphDocument(project, PATH);
     const start = doc.value.value;
-    await writeShaderGraph(project, PATH, addNode(start, "time", [0, 0]).graph);
+    doc.edit(addNode(start, "time", [0, 0]).graph);
+    await doc.flush();
     const to = "shaders/c.shadergraph.json";
     expect(await moveAssets([[PATH, to]])).toBe(true);
     expect(shaderGraphDocument(project, to)).toBe(doc);

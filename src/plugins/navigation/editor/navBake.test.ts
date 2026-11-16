@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import "../../../engine";
 import { Assets } from "../../../engine";
 import { loadNavigation } from "../../../engine/nav/loader";
-import { inThreadRunner, bakeAllNavigation, bakeNavChunk, checkNavInputs, isNavBakeStale, navChunkState, resetNavBakeStates, scratchSceneWorld, setNavBakeRunner, lookUpNavRecord } from "./navBake";
+import { bakeAllNavigation, bakeNavChunk, checkNavInputs, isNavBakeStale, navChunkState, scratchSceneWorld, lookUpNavRecord } from "./navBake";
 import { navPolyCount, navRecordPath, withBakeReference } from "./navBakeFiles";
 import { MemoryFileSystem } from "../../../editor/memoryFs";
 import { joinPath, openFolderProject, useProjectAssets } from "../../../editor/projects";
@@ -36,8 +36,6 @@ async function project() {
 
 describe("editor navigation bake", () => {
   beforeEach(() => {
-    resetNavBakeStates();
-    setNavBakeRunner(inThreadRunner);
     Assets.clearSources();
   });
 
@@ -72,9 +70,9 @@ describe("editor navigation bake", () => {
     await checkNavInputs(p, "scenes/a.scene.json", world, chunk);
     expect(isNavBakeStale(s)).toBe(true);
 
-    // A fresh session finds the record on disk.
-    resetNavBakeStates();
-    await lookUpNavRecord(p, "scenes/a.scene.json", chunk);
+    // A fresh session (the project opened again) finds the record on disk.
+    const again = await openFolderProject(fs, ROOT);
+    await lookUpNavRecord(again, "scenes/a.scene.json", chunk);
     expect(navChunkState("scenes/a.scene.json", "nav").record?.inputSignature).toBe(outcome.record.inputSignature);
   });
 

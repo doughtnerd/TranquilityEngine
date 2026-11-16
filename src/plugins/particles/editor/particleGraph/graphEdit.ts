@@ -579,10 +579,6 @@ export function copyItems(graph: ParticleGraph, ids: Iterable<string>): Particle
   };
 }
 
-/** Read a clipboard payload from text (null for anything else). */
-export const parseParticleClipboard = (text: string): ParticleClipboard | null =>
-  parseGraphClipboard<ParticleClipboard>(text, CLIPBOARD_FORMAT, (v) => Array.isArray(v.systems) && Array.isArray(v.nodes) && Array.isArray(v.edges) && Array.isArray(v.events));
-
 /** Ids for a paste: unused in the graph (systems, blocks, nodes, notes and groups share one id space), counting up per prefix. */
 function allocator(graph: ParticleGraph) {
   const used = new Set<string>([...graph.nodes, ...graph.notes, ...graph.groups].map((i) => i.id));

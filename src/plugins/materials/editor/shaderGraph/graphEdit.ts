@@ -369,11 +369,6 @@ export function copyNodes(graph: ShaderGraph, ids: Iterable<string>): GraphClipb
   };
 }
 
-/** Read a clipboard from text (the system clipboard), or null if it isn't one. */
-export function parseClipboard(text: string): GraphClipboard | null {
-  return parseGraphClipboard<GraphClipboard>(text, CLIPBOARD_FORMAT, (v) => Array.isArray(v.nodes) && Array.isArray(v.edges));
-}
-
 /**
  * Paste copied nodes with new ids, their top-left corner at `at`, keeping their connections;
  * properties they read that the graph lacks are added.

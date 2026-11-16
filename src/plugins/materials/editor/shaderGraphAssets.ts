@@ -35,14 +35,6 @@ export function readShaderGraph(project: EditorProject, path: string): ReadShade
   return { graph: read.value, problems: read.problems.map((p) => p.message) };
 }
 
-/** Replace a graph through its document (one undo step) and wait for the write. Throws for a read-only project. */
-export function writeShaderGraph(project: EditorProject, path: string, graph: ShaderGraph): Promise<void> {
-  if (!project.canSave) return Promise.reject(new Error(`${project.name} is read-only.`));
-  const doc = shaderGraphDocument(project, path);
-  doc.edit(graph);
-  return doc.flush();
-}
-
 /** Where New Shader Graph goes by default: `shaders/` if the project has it, else the folder given. */
 export function shaderGraphFolder(folder: string): string {
   return folder === "" && editor.project.current?.folders.includes("shaders") ? "shaders" : folder;

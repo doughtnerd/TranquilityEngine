@@ -61,16 +61,6 @@ export function tagOf(target: unknown): string | null {
   return el && el.nodeType === 1 && typeof el.tagName === "string" ? el.tagName.toLowerCase() : null;
 }
 
-/** An element of tag `tag` (realm-independent `instanceof HTMLXElement`). */
-export function isTag<K extends keyof HTMLElementTagNameMap>(target: unknown, tag: K): target is HTMLElementTagNameMap[K] {
-  return tagOf(target) === tag;
-}
-
-/** Whether `target` is an Element (realm-independent `instanceof Element`). */
-export function isElement(target: unknown): target is Element {
-  return tagOf(target) !== null;
-}
-
 /**
  * Listen on `target`'s window for the lifetime of the returned cleanup: the window-level listeners
  * of menus closing on outside clicks, drags following the pointer and Escape keys.

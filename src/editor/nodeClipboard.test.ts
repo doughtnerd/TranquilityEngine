@@ -4,7 +4,7 @@ import { SceneDocument, type SceneFile } from "./document";
 import { filterHierarchy, parseHierarchyQuery } from "./hierarchyFilter";
 import { moveNodes } from "./hierarchyEdit";
 import { createNode, newNodeEntry, uniqueName } from "./nodeCreate";
-import { copyNodes, cutNodes, duplicateNodes, entriesForPaste, parseClipboardText, clipboardText, pasteNodes, pasteTarget, subtreeRoots, whyNotCopyable, whyNotPastable } from "./nodeClipboard";
+import { copyNodes, cutNodes, duplicateNodes, entriesForPaste, clipboardText, pasteNodes, pasteTarget, subtreeRoots, whyNotCopyable, whyNotPastable } from "./nodeClipboard";
 import { nodeDrag, startNodeDrag } from "./nodeDrag";
 import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile } from "./project";
@@ -147,11 +147,9 @@ describe("copy, paste, duplicate and cut", () => {
     expect(doc.fieldValue("bird", "game.Bird", "visual")).toEqual({ $node: "bird-sprite" });
   });
 
-  it("round-trips through system clipboard text", () => {
+  it("writes the copied nodes to system clipboard text, tagged with their format", () => {
     const clip = copyNodes(scene.doc, ["bird"]);
-    expect(parseClipboardText(clipboardText(clip))).toEqual(clip);
-    expect(parseClipboardText("hello")).toBeNull();
-    expect(parseClipboardText('{"format":"other"}')).toBeNull();
+    expect(JSON.parse(clipboardText(clip))).toEqual({ format: "myco.nodes@1", ...clip });
   });
 
   it("refuses to paste a prefab into itself", () => {

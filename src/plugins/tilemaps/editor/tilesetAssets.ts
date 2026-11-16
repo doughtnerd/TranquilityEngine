@@ -12,15 +12,6 @@ export interface ReadTileset {
   problems: string[];
 }
 
-/** A tileset asset as the file holds it now. */
-export function readTileset(project: EditorProject, path: string): ReadTileset {
-  try {
-    return parseTileset(project.assets.get(path), path);
-  } catch (err) {
-    return { tileset: newTileset(), problems: [(err as Error).message] };
-  }
-}
-
 /** The file text of a tileset: pretty JSON, 2-space indent. */
 export const formatTileset = (data: TilesetData): string => `${JSON.stringify(data, null, 2)}\n`;
 

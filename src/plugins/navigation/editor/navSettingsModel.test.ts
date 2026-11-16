@@ -20,7 +20,6 @@ import {
   navColorHex,
   navHexColor,
   navigationOf,
-  navigationProblems,
   navVoxelSize,
   removeNavAgentType,
   removeNavArea,
@@ -82,7 +81,7 @@ describe("navigation settings draft", () => {
     expect(problems).toHaveLength(1);
     expect(problems[0]).toMatchObject({ field: "navigation" });
     expect(problems[0].message).toMatch(/walk\.radius should be at least/);
-    expect(navigationProblems(d)).toEqual([]);
+    expect(settingsProblems(d)).toEqual([]);
     d = setNavAgentAvoidance(d, 0, false);
     expect(navigationOf(d).agentTypes[0].avoidance).toBeNull();
     d = setNavAgentAvoidance(d, 0, true);

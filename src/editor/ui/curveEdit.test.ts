@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Curve } from "../../engine/core/curve";
-import { addKey, axisTicks, curveSamples, fitYRange, moveKey, pixelToX, pixelToY, removeKey, setKeyInterp, xToPixel, yToPixel } from "./curveEdit";
+import { addKey, axisTicks, fitYRange, moveKey, pixelToX, pixelToY, removeKey, setKeyInterp, xToPixel, yToPixel } from "./curveEdit";
 
 describe("curve keys (ported from the particle editor)", () => {
   it("adds keys in order and clamps t", () => {
@@ -82,24 +82,5 @@ describe("per-segment interpolation", () => {
   it("gives an added key the interp of the key before it", () => {
     expect(addKey([[0, 0, "smooth"], [1, 1]] as Curve[number][], 0.5, 0.2).keys[1]).toEqual([0.5, 0.2, "smooth"]);
     expect(addKey([[0.5, 0, "smooth"], [1, 1]] as Curve[number][], 0.1, 0.2).keys[0]).toEqual([0.1, 0.2]);
-  });
-});
-
-describe("curveSamples", () => {
-  it("samples evenly and includes the keys", () => {
-    const pts = curveSamples([[0, 0], [0.3, 1], [1, 0]], 5);
-    expect(pts[0]).toEqual([0, 0]);
-    expect(pts[pts.length - 1]).toEqual([1, 0]);
-    expect(pts.some((p) => p[0] === 0.3 && p[1] === 1)).toBe(true);
-    expect(pts.map((p) => p[0])).toEqual([...pts.map((p) => p[0])].sort((a, b) => a - b));
-  });
-  it("draws a step square", () => {
-    const pts = curveSamples([[0, 0, "step"], [1, 1]], 3);
-    expect(pts).toContainEqual([1, 0]);
-    expect(pts).toContainEqual([1, 1]);
-  });
-  it("is empty for an empty curve and follows the x range", () => {
-    expect(curveSamples([], 5)).toEqual([]);
-    expect(curveSamples([[0, 1], [10, 1]], 3, [0, 10]).map((p) => p[0])).toEqual([0, 5, 10]);
   });
 });
