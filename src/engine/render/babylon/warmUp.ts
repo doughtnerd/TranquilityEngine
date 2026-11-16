@@ -27,6 +27,7 @@ import type { SubMesh } from "@babylonjs/core/Meshes/subMesh.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import { meshesIfLoaded, type ModelMesh } from "../../scene/models";
 import type { WarmMesh } from "../../scene/warmUp";
+import { nextBatchSize } from "../batchSize";
 import { meshOf } from "./materials";
 import type { MaterialInstancing } from "../../scene/material";
 import "@babylonjs/core/Meshes/instancedMesh.js"; // Mesh.createInstance
@@ -149,12 +150,6 @@ export function effectClock(engine: AbstractEngine): { ms(): number; dispose(): 
   };
 }
 
-/** @internal The next batch's size from the last one's: double while its effects took under half the budget, else scale to the budget. */
-export function nextBatchSize(size: number, effectMs: number, max: number): number {
-  if (effectMs < EFFECT_BUDGET_MS / 2) return Math.min(max, size * 2);
-  return Math.max(1, Math.min(max, Math.round((size * EFFECT_BUDGET_MS) / effectMs)));
-}
-
 interface Batch {
   meshes: Mesh[];
   /** Custom items' parts (particle draws, world canvases). */
@@ -260,7 +255,7 @@ export class PipelineWarmer {
     b.frames++;
     if (!this.deps.materials.loading() && b.meshes.every((m) => m.isReady(true, m.hasInstances)) && b.parts.every((p) => p.ready())) b.readyFrames++;
     if (b.readyFrames < 2 && b.frames < MAX_FRAMES) return;
-    if (this.deps.effectMs) this.size = nextBatchSize(b.size, this.deps.effectMs() - b.effectStart, this.maxBatch);
+    if (this.deps.effectMs) this.size = nextBatchSize(b.size, this.deps.effectMs() - b.effectStart, this.maxBatch, EFFECT_BUDGET_MS);
     this.drop(b);
     this.batch = null;
     if (!this.queue.length) this.drained();
@@ -510,11 +505,11 @@ export class VariantReport {
 }
 
 /**
- * @internal The variant report's warning. It names the file to add to the scene's `settings.preload`
+ * The variant report's warning. It names the file to add to the scene's `settings.preload`
  * when there is one (the prefab the node came from, else the material asset), in a fixed phrase the
  * editor's message log finds (`preloadSuggestion`) to offer adding it.
  */
-export function variantWarning(what: string, material: string, change: string, prefab?: string): string {
+function variantWarning(what: string, material: string, change: string, prefab?: string): string {
   const name = material.replace(/^material:/, "");
   const asset = prefab ?? (/^(?:asset:)?([^#]+\.material\.json)/.exec(name)?.[1] ?? null);
   const fix = asset ? `Add ${asset.replace(/^asset:/, "")} to the scene's settings.preload list` : "Add its prefab to the scene's settings.preload list";

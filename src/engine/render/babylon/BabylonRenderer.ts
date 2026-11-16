@@ -66,7 +66,7 @@ import { snapToGrid } from "../pixelPerfect";
 import { AsyncPipelines, FirstFrames } from "./asyncPipelines";
 import { effectClock, PipelineWarmer, VariantReport, type WarmItem } from "./warmUp";
 import type { WarmContent } from "../../scene/warmUp";
-import type { QualityTier } from "../../core/graphics";
+import { pipelineTierKey } from "../../core/graphics";
 
 interface CameraEntry {
   camera: TargetCamera;
@@ -80,15 +80,6 @@ const tmpScale = new Vector3();
 const tmpQuat = new Quaternion();
 const tmpPos = new Vector3();
 
-
-/**
- * @internal The tier settings that change the pipelines draws need (ADR 0080): the sample count, the
- * passes (post-processing, ambient occlusion, depth of field, bloom), shadow maps and cascades, the
- * shader level graph materials compile for, and probe captures. Not the render scale or particle budget.
- */
-export function pipelineTierKey(t: Readonly<QualityTier>): string {
-  return [t.antialias, t.shadows, t.shadowCascades, t.shaderLevel, t.postProcessing, t.bloom, t.ambientOcclusion, t.depthOfField, t.reflectionProbes].join("|");
-}
 
 /** The whole camera texture (each camera renders into a texture its rectangle's size, frameGraph.ts). */
 const FULL_VIEW: ViewRect = Object.freeze({ x: 0, y: 0, width: 1, height: 1 });

@@ -2,7 +2,6 @@
 // Inspector's edits are one undoable step each, and the message log finds the file a warm-up
 // warning names.
 import { describe, expect, it } from "vitest";
-import { variantWarning } from "../engine/render/babylon/warmUp";
 import { CommandStack, SceneDocument, SetScenePreload, type SceneFile } from "./document";
 import { formatSceneJSON } from "./document/format";
 import { addToPreload, preloadCandidates, preloadSuggestion, removeFromPreload } from "./scenePreload";
@@ -49,14 +48,14 @@ describe("the scene's preload list in the editor (ADR 0080)", () => {
   });
 
   it("finds the file a warm-up warning names: the prefab, else the material asset", () => {
-    const fromPrefab = variantWarning('"Splash" (from prefabs/splash.prefab.json)', "material:asset:materials/splash.material.json", "+ALPHABLEND", "prefabs/splash.prefab.json");
+    // The warm-up's variant report words them so (`warmUpChecks.test.ts` checks its side).
+    const warning = (what: string, name: string, fix: string) => `[myco] ${what} drew a shader variant that wasn't warmed up (${name}: +ALPHABLEND), so its frame waited for the shader to compile. ${fix}, or SceneManager.preload it, or report the rule the warm-up is missing (ADR 0080).`;
+    const fromPrefab = warning('"Splash" (from prefabs/splash.prefab.json)', "asset:materials/splash.material.json", "Add prefabs/splash.prefab.json to the scene's settings.preload list");
     expect(preloadSuggestion(fromPrefab)).toBe("prefabs/splash.prefab.json");
-    const fromMaterial = variantWarning('"Rock"', "material:materials/rock.material.json", "not warmed up");
-    expect(fromMaterial).toContain("Add materials/rock.material.json to the scene's settings.preload list");
+    const fromMaterial = warning('"Rock"', "materials/rock.material.json", "Add materials/rock.material.json to the scene's settings.preload list");
     expect(preloadSuggestion(fromMaterial)).toBe("materials/rock.material.json");
-    const builtIn = variantWarning('"Cube"', "builtin:lit", "not warmed up");
+    const builtIn = warning('"Cube"', "builtin:lit", "Add its prefab to the scene's settings.preload list");
     expect(preloadSuggestion(builtIn)).toBeNull(); // nothing to add: the text says to add its prefab
-    expect(builtIn).toContain("Add its prefab to the scene's settings.preload list");
     expect(preloadSuggestion("[myco] something else")).toBeNull();
   });
 });

@@ -15,7 +15,8 @@ import { Text } from "../render/components";
 import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText } from "../ui/components";
 import type { UIComponentType } from "../ui/components";
 import type { UICoreLike, UILaidOutCanvas, UILaidOutElement } from "../ui/uiCoreTypes";
-import { BabylonUI, WORLD_RESOLUTION, cssWeight, flipRows, measureText, redrawnPixels } from "../render/babylon/ui";
+import { BabylonUI, measureText } from "../render/babylon/ui";
+import { flipRows, redrawnPixels } from "../render/pixelRegions";
 import { loadBundledFont } from "../ui/fonts";
 
 /** A 2D context that draws nothing and measures half an em per character. */
@@ -373,10 +374,10 @@ describe("world canvases on Babylon GUI (ADR 0076)", () => {
     expect(mesh.isPickable).toBe(false);
     const texture = (mesh.material as unknown as { emissiveTexture: { getSize(): { width: number; height: number }; rootContainer: Container } }).emissiveTexture;
     // NullEngine rounds texture sizes up to a power of two (and caps them at 512); a real GPU keeps them.
-    expect(texture.getSize().width).toBeGreaterThanOrEqual(200 * WORLD_RESOLUTION);
-    expect(texture.getSize().height).toBeGreaterThanOrEqual(100 * WORLD_RESOLUTION);
+    expect(texture.getSize().width).toBeGreaterThanOrEqual(200 * 2);
+    expect(texture.getSize().height).toBeGreaterThanOrEqual(100 * 2);
     const root = texture.rootContainer.children[0] as Container;
-    expect(root.scaleX).toBe(WORLD_RESOLUTION);
+    expect(root.scaleX).toBe(2); // world canvases draw at twice their reference resolution
     const r = root.children.find((c) => c.name === "P")!;
     expect([r.leftInPixels, r.topInPixels, r.widthInPixels, r.heightInPixels]).toEqual([10, 20, 50, 30]);
     expect(rootOf()).toBeUndefined(); // not on the screen texture
@@ -521,7 +522,13 @@ describe("measureText", () => {
   });
 
   it("names weights as CSS", () => {
-    expect(["light", "normal", "medium", "semi-bold", "bold", "650", "odd"].map(cssWeight)).toEqual(["300", "400", "500", "600", "700", "650", "400"]);
+    const weights = ["light", "normal", "medium", "semi-bold", "bold", "650", "odd"];
+    const canvas = node("C", null, UICanvas);
+    const texts = weights.map((fontWeight, i) => node(`T${i}`, canvas.node, UIText, { text: "Hi", fontWeight }));
+    const core = new FakeCore();
+    core.set([canvasInfo(canvas)], texts.map((t) => [t, canvas] as [UIText, UICanvas]));
+    sync(core);
+    expect(texts.map((_, i) => (byName(rootOf(), `T${i}`) as TextBlock).fontWeight)).toEqual(["300", "400", "500", "600", "700", "650", "400"]);
   });
 });
 
@@ -562,6 +569,36 @@ describe("uploading only the redrawn part of the screen UI (ADR 0075 notes)", ()
     expect(out).toBe(buffer);
     expect(Array.from(out.subarray(0, 12))).toEqual([3, 3, 3, 3, 2, 2, 2, 2, 1, 1, 1, 1]);
     expect(flipRows(pixels, 4, 3, new Uint8Array(4)).length).toBe(12); // grown when too small
+  });
+
+  it("makes the GUI's canvas with willReadFrequently on WebGPU, where its redrawn part is read back (ADR 0120)", () => {
+    const contexts: unknown[] = [];
+    const createCanvas = (width: number, height: number) => {
+      const canvas = fakeCanvas(width, height);
+      const ctx = canvas.getContext();
+      return { ...canvas, getContext: (_kind: string, options?: unknown) => (contexts.push(options ?? null), ctx) };
+    };
+    const gpu = new NullEngine();
+    (gpu as unknown as { createCanvas: typeof createCanvas }).createCanvas = createCanvas;
+    Object.defineProperty(gpu, "isWebGPU", { value: true }); // the engine kind is all it checks
+    const gpuScene = new Scene(gpu);
+    const gpuUI = new BabylonUI(gpuScene, { texture: () => Promise.reject(new Error("no textures")) });
+    expect(contexts[0]).toEqual({ willReadFrequently: true }); // the first context decides
+    expect(gpu.createCanvas).toBe(createCanvas); // put back
+    gpuUI.dispose();
+    gpuScene.dispose();
+    gpu.dispose();
+    // Other engines' canvases are left alone.
+    contexts.length = 0;
+    const gl = new NullEngine();
+    (gl as unknown as { createCanvas: typeof createCanvas }).createCanvas = createCanvas;
+    const glScene = new Scene(gl);
+    const glUI = new BabylonUI(glScene, { texture: () => Promise.reject(new Error("no textures")) });
+    expect(contexts.length).toBeGreaterThan(0);
+    expect(contexts.every((c) => c === null)).toBe(true);
+    glUI.dispose();
+    glScene.dispose();
+    gl.dispose();
   });
 
   it("leaves Babylon's own update alone off WebGPU", () => {

@@ -11,16 +11,18 @@ import { CreateBox } from "@babylonjs/core/Meshes/Builders/boxBuilder.js";
 import { ParticleSystem as BabylonParticleSystem } from "@babylonjs/core/Particles/particleSystem.js";
 import { Scene } from "@babylonjs/core/scene.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { defaultGraphics } from "../core/graphics";
+import { defaultGraphics, pipelineTierKey } from "../core/graphics";
 import { Assets } from "../index";
-import { pipelineTierKey } from "../render/babylon/BabylonRenderer";
 import type { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { BabylonParticles } from "../render/babylon/particles";
-import { warmWorldCanvas } from "../render/babylon/ui";
+import { worldCanvasWarm } from "../render/babylon/ui";
 import { PipelineWarmer, WARM_PREFIX, type WarmCustom, type WarmParts } from "../render/babylon/warmUp";
 import { defaultEmitter, defaultShape, particleEffectJSON, type ParticleEffect, type ParticleEmitterSettings, type ParticleRenderer } from "../scene/particles";
 import { scriptAssetRefs } from "../scene/scriptAssetRefs";
-import { _setScriptAssetRefs, warmSet } from "../scene/warmUp";
+import { _setScriptAssetRefs, warmSet, type WarmContent } from "../scene/warmUp";
+
+/** The world UI's warm plane, as the warm-up builds it at `at`. */
+const worldCanvasPlane = (scene: Scene, at: Matrix): WarmParts => (worldCanvasWarm(scene, { worldUI: true } as WarmContent)[0] as WarmCustom).build(at, Vector3.Zero(), null as never)!;
 
 /** GUI textures draw on a 2D canvas: one that draws nothing (NullEngine has no canvas in Node). */
 function fakeCanvas(width: number, height: number) {
@@ -138,7 +140,7 @@ describe("the Babylon warmer's custom items (ADR 0080)", () => {
       key: "fx",
       build: (at): WarmParts | null => {
         if (!loaded) return null;
-        const plane = warmWorldCanvas(scene, `${WARM_PREFIX}canvas`, at);
+        const plane = worldCanvasPlane(scene, at);
         return { ...plane, ready: () => ready && plane.ready(), dispose: () => ((freed = true), plane.dispose()) };
       },
     };
@@ -274,7 +276,7 @@ describe("warming world-space UI (ADR 0080)", () => {
     const babylon = nullEngine();
     const scene = new Scene(babylon);
     const at = Matrix.Translation(4, 5, 6);
-    const parts = warmWorldCanvas(scene, `${WARM_PREFIX}canvas`, at);
+    const parts = worldCanvasPlane(scene, at);
     const mesh = parts.meshes[0]!;
     const m = mesh.material as StandardMaterial;
     expect(m).toBeInstanceOf(StandardMaterial);
