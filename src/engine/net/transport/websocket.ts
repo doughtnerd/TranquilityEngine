@@ -35,7 +35,7 @@ export interface WebSocketLimits {
   maxBacklogBytes: number;
 }
 
-export const DEFAULT_WEBSOCKET_LIMITS: Readonly<WebSocketLimits> = {
+const DEFAULT_WEBSOCKET_LIMITS: Readonly<WebSocketLimits> = {
   maxMessageBytes: 1024 * 1024,
   maxQueuedBytes: 4 * 1024 * 1024,
   unreliableBacklogBytes: 64 * 1024,
@@ -47,16 +47,16 @@ export function websocketLimits(options: Record<string, unknown> = {}): WebSocke
   return { ...DEFAULT_WEBSOCKET_LIMITS, ...((options.limits as Partial<WebSocketLimits> | undefined) ?? {}) };
 }
 
-/** @internal Prefix `data` with the 1-byte header for `channel`. */
-export function encodeFrame(channel: Channel, data: Uint8Array): Uint8Array {
+/** Prefix `data` with the 1-byte header for `channel`. */
+function encodeFrame(channel: Channel, data: Uint8Array): Uint8Array {
   const frame = new Uint8Array(data.byteLength + 1);
   frame[0] = channel === "unreliable" ? UNRELIABLE_BIT : 0;
   frame.set(data, 1);
   return frame;
 }
 
-/** @internal Split a frame into channel and payload, or return an error message if it's malformed. */
-export function decodeFrame(frame: Uint8Array): { channel: Channel; data: Uint8Array } | string {
+/** Split a frame into channel and payload, or return an error message if it's malformed. */
+function decodeFrame(frame: Uint8Array): { channel: Channel; data: Uint8Array } | string {
   if (frame.byteLength === 0) return "empty frame";
   const header = frame[0];
   if (header & RESERVED_BITS) return `unknown frame flags 0x${header.toString(16)}`;
@@ -84,7 +84,7 @@ export interface SocketLike {
  * @internal One end of a WebSocket. The owning transport wires the socket's callbacks to the
  * `handle*` methods, which queue events for its next `poll()`.
  */
-export class WebSocketConnection implements TransportConnection {
+class WebSocketConnection implements TransportConnection {
   state: ConnectionState = "connecting";
   /** Frames sent while connecting, flushed on open. */
   private pending: Uint8Array[] = [];

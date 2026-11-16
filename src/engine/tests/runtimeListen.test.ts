@@ -4,7 +4,8 @@ import "../../server/websocketServer"; // the Node "websocket" transport, which 
 import { Assets, Connection, ConnectionState, Engine, GameBehavior, GameObject, Replicated, behavior, defineComponent, defineInput, defineRpc, defineSystem, field, i32, str, type BootstrapConfig } from "../index";
 import { World } from "../core/World";
 import { WebSocketTransport } from "../net/transport/websocket";
-import { NodeWebSocketTransport, _sharedServers } from "../../server/websocketServer";
+import type { ListenAddress } from "../../server/websocketServer";
+import { createTransport, type Transport } from "../net/Transport";
 import { netSession } from "../net/session";
 
 // ADR 0067: WorldHandle.listen at runtime, several Worlds on one WebSocket port by path.
@@ -88,7 +89,6 @@ describe("WorldHandle.listen (ADR 0067)", () => {
     const u2 = await m2.listen("websocket", { address: `ws://127.0.0.1:${port}/match/2` });
     expect(u1).toBe(`ws://127.0.0.1:${port}/match/1`);
     expect(u2).toBe(`ws://127.0.0.1:${port}/match/2`);
-    expect(_sharedServers().filter((s) => s.key.includes(`:${port}`))).toEqual([{ key: expect.stringContaining(`127.0.0.1:${port}`), paths: ["/", "/match/1", "/match/2"] }]);
     // The same path twice is refused.
     const m3 = engine.createWorld({ name: "Match 3", tags: ["server"] });
     await expect(m3.listen("websocket", { host: "127.0.0.1", port, path: "/match/1" })).rejects.toThrow(/already listened on/);
@@ -113,12 +113,11 @@ describe("WorldHandle.listen (ADR 0067)", () => {
     m3.destroy();
     engine.dispose();
     engines.splice(engines.indexOf(engine), 1);
-    expect(_sharedServers().filter((s) => s.key.includes(`:${port}`))).toEqual([]);
     await expect(upgradeStatus(`ws://127.0.0.1:${port}/`)).rejects.toThrow(/ECONNREFUSED/);
   });
 
   it("a lone listener at / still accepts any path (as before 0067)", async () => {
-    const s = new NodeWebSocketTransport();
+    const s = createTransport("websocket") as Transport & { readonly address: ListenAddress | null };
     try {
       await s.listen("ws://127.0.0.1:0");
       expect(await upgradeStatus(`${s.address!.url}/anything`)).toBe(101);

@@ -20,7 +20,7 @@ import {
 } from "../index";
 import { World } from "../core/World";
 import { netSession } from "../net/session";
-import { configureReplication, serverReplication } from "../net/replication/server";
+import { serverReplication } from "../net/replication/server";
 import { clientReplication } from "../net/replication/client";
 import { netWorldInfo } from "../editor";
 
@@ -368,10 +368,11 @@ describe("replication (T11)", () => {
   });
 
   it("fits snapshots to the budget, sending the rest in later ones", async () => {
-    const engine = await create(clientsAndServer(1, { latencyMs: 10 }));
+    // ADR 0101: the server World's config sets the snapshot budget.
+    const config = clientsAndServer(1, { latencyMs: 10 });
+    const engine = await create({ ...config, worlds: config.worlds!.map((w) => (w.name === "Server" ? { ...w, replication: { maxSnapshotBytes: 300 } } : w)) });
     const server = world(engine, "Server");
     step(engine, 5);
-    configureReplication(server, { maxSnapshotBytes: 300 });
     inWorld(server, () => {
       for (let i = 0; i < 100; i++) GameObject.instantiate("prefabs/crate.json", { position: [i, 0, 0] });
     });

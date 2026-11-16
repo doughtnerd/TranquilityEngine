@@ -46,9 +46,9 @@
  * - Ownership (T11): `of(node)` accepts a connection node. `registerInputOwnerResolver` lets
  *   replication map another node (a ghost owned by a connection, `Replicated.ownerId`) to its
  *   connection node, on both ends.
- * - Prediction (T13): `inputAt(def, world, tick)` returns a client's input for a past tick, and
- *   `setInputReplayTick(world, tick)` makes `of()` return that tick's input while re-simulating
- *   (the newest earlier one if that tick has none, as the server repeats it).
+ * - Prediction (T13): a client keeps its input for past ticks, and `setInputReplayTick(world, tick)`
+ *   makes `of()` return that tick's input while re-simulating (the newest earlier one if that tick
+ *   has none, as the server repeats it).
  */
 import { World } from "../core/World";
 import { _recordRegistration } from "../core/registry";
@@ -155,12 +155,6 @@ const replayTicks = new WeakMap<World, number>();
 export function setInputReplayTick(world: World, tick: number | null): void {
   if (tick === null) replayTicks.delete(world);
   else replayTicks.set(world, tick);
-}
-
-/** @internal Prediction (T13): a client World's input for `tick`, as the server gets it; null if it has none. */
-export function inputAt<S extends Schema>(def: InputDef<S>, world: World, tick: number): Readonly<DataView<S>> | null {
-  const state = streams.get(def.id)?.clients.get(world);
-  return (state?.history.get(tick) as Readonly<DataView<S>> | undefined) ?? null;
 }
 
 // --- defining -----------------------------------------------------------------------------------

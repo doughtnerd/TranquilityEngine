@@ -4,7 +4,7 @@ import { World } from "../core/World";
 import { createBitReader, createBitWriter } from "../net/codec";
 import { netSession } from "../net/session";
 import { serverReplication } from "../net/replication/server";
-import { SNAPSHOT, StringTableIn, StringTableOut, MAX_TABLE_STRINGS } from "../net/replication/wire";
+import { SNAPSHOT, StringTableIn, StringTableOut } from "../net/replication/wire";
 
 // ADR 0100: replicating node activity and reparenting, and the per-connection string table for
 // spawns. Loopback on a fake clock that advances with `engine.step`, as in replication.test.ts.
@@ -276,6 +276,7 @@ describe("the per-connection string table (ADR 0100)", () => {
   });
 
   it("sends strings inline without an index once the table is full", () => {
+    const MAX_TABLE_STRINGS = 4096; // the table's size on the wire
     const out = new StringTableOut();
     const defined: number[] = [];
     const write = out.writer(defined);

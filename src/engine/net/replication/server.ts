@@ -814,13 +814,6 @@ export function serverReplication(world: World): ServerReplication | null {
   return r;
 }
 
-/** @internal Change a server World's replication settings (tests, tools). */
-export function configureReplication(world: World, options: ReplicationOptions): void {
-  const r = serverReplication(world);
-  if (!r) throw new Error(`World "${world.name}" isn't a network server.`);
-  applyReplicationOptions(r, options);
-}
-
 function applyReplicationOptions(r: ServerReplication, options: ReplicationOptions): void {
   if (options.sendRate !== undefined) r.sendRate = Math.max(1e-6, options.sendRate);
   if (options.maxSnapshotBytes !== undefined) r.maxSnapshotBytes = Math.max(64, options.maxSnapshotBytes);

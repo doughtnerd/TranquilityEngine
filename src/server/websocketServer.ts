@@ -73,11 +73,6 @@ const servers = new Map<string, SharedServer>();
 
 const serverKey = (host: string | undefined, port: number) => `${host ?? "*"}:${port}`;
 
-/** @internal Tests and tools: how many shared HTTP servers are open, and their paths. */
-export function _sharedServers(): { key: string; paths: string[] }[] {
-  return [...new Set(servers.values())].map((s) => ({ key: [...s.keys].join(","), paths: [...s.routes.keys()] }));
-}
-
 /** The path part of an upgrade request's URL, without the query. */
 function requestPath(request: IncomingMessage): string {
   const raw = request.url ?? "/";
@@ -150,7 +145,7 @@ function releaseServer(shared: SharedServer): void {
 }
 
 /** A WebSocket transport that can listen (Node only) as well as connect. */
-export class NodeWebSocketTransport extends WebSocketTransport {
+class NodeWebSocketTransport extends WebSocketTransport {
   private shared: SharedServer | null = null;
   private wss: WebSocketServer | null = null;
   private bound: ListenAddress | null = null;

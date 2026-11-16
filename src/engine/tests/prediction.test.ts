@@ -22,7 +22,7 @@ import {
 import { World } from "../core/World";
 import { netSession } from "../net/session";
 import { clientReplication } from "../net/replication/client";
-import { clientPrediction, predictionStats, type PredictionStats } from "../net/prediction";
+import { predictionStats, type PredictionStats } from "../net/prediction";
 
 // ADR 0033 §6, T13: client prediction with rollback and re-simulation, over the loopback transport
 // on a fake clock that advances with `engine.step`, so everything is deterministic.
@@ -201,7 +201,7 @@ function trackClient(engine: Engine) {
     log,
     sample: () => {
       const ghost = ghostIn(engine, "P1");
-      log.set(clientPrediction(p1)!.lastSimulated, { x: ghost.transform!.position.x, vx: ghost.getData(Body)!.vx, fuel: ghost.getBehavior(Fuel)!.fuel });
+      log.set(predictedTick(p1), { x: ghost.transform!.position.x, vx: ghost.getData(Body)!.vx, fuel: ghost.getBehavior(Fuel)!.fuel });
     },
   };
 }
@@ -227,12 +227,12 @@ describe("client prediction (T13)", () => {
     const before = stats(engine);
 
     // From tick T0 on the input is +1: the client moves on T0 itself, long before the server gets there.
-    const T0 = clientPrediction(p1)!.lastSimulated + 10;
+    const T0 = predictedTick(p1) + 10;
     inputOverride = (t) => (t >= T0 && t < T0 + 30 ? 1 : t >= T0 + 30 ? 0 : undefined);
     let serverTickAtT0 = -1;
     step(engine, 240, () => {
       client.sample();
-      if (clientPrediction(p1)!.lastSimulated === T0 && serverTickAtT0 < 0) serverTickAtT0 = serverSession.tick;
+      if (predictedTick(p1) === T0 && serverTickAtT0 < 0) serverTickAtT0 = serverSession.tick;
     });
     expect(client.log.get(T0)!.x - client.log.get(T0 - 1)!.x).toBeCloseTo(SPEED, 6);
     expect(client.log.get(T0)!.vx).toBe(1);
@@ -320,7 +320,6 @@ describe("client prediction (T13)", () => {
   it("blends a small correction's rendered position over about 100 ms, keeping the simulation exact", async () => {
     const { engine, server, player } = await start({ latencyMs: 50 });
     const p1 = world(engine, "P1");
-    const prediction = clientPrediction(p1)!;
     step(engine, 10);
     const before = stats(engine);
     World._runIn(server, () => (player.transform!.position.x += 1));
@@ -328,23 +327,24 @@ describe("client prediction (T13)", () => {
     let frames = 0;
     while (stats(engine).rollbacks === before.rollbacks && frames++ < 60) step(engine);
     expect(stats(engine).rollbacks).toBe(before.rollbacks + 1);
+    // Drawn behind the corrected (simulated) position by most of the unit, then less each frame. The simulation
+    // matches the server's, so the gap is the server's position at the predicted tick minus where the ghost is drawn.
     const ghost = ghostIn(engine, "P1");
-    type Shown = { sx: number } | null;
-    const tracked = (prediction as unknown as { ghosts: Map<unknown, { shown: Shown; smoothing: object | null }> }).ghosts;
-    const p = [...tracked.values()][0];
-    // Drawn behind the corrected (simulated) position by most of the unit, then less each frame.
-    let gap = p.shown!.sx - ghost.transform!.position.x;
-    expect(gap).toBeGreaterThan(0.7);
-    expect(gap).toBeLessThan(1 + 1e-6);
+    const drawn: [tick: number, x: number][] = [];
+    const sample = () => drawn.push([predictedTick(p1), ghost.transform!.position.x]);
+    sample();
     for (let i = 0; i < 4; i++) {
       step(engine);
-      const next = p.shown!.sx - ghost.transform!.position.x;
-      expect(next).toBeLessThan(gap);
-      gap = next;
+      sample();
     }
     step(engine, 4); // past 100 ms: drawn where simulated
-    expect(p.smoothing).toBeNull();
-    expect(p.shown).toBeNull();
+    sample();
+    step(engine, 30); // the server reaches those ticks
+    const gaps = drawn.map(([tick, x]) => serverLog.get(tick)!.x - x);
+    expect(gaps[0]).toBeGreaterThan(0.7);
+    expect(gaps[0]).toBeLessThan(1 + 1e-6);
+    for (let i = 1; i <= 4; i++) expect(gaps[i]).toBeLessThan(gaps[i - 1]);
+    expect(gaps[5]).toBeCloseTo(0, 6);
     // The simulation itself was never offset: it matches the server.
     const client = trackClient(engine);
     step(engine, 40, client.sample);
@@ -364,7 +364,7 @@ describe("client prediction (T13)", () => {
     // serverTick never goes back: jumping it 3 ahead skips two ticks, then the next two steps stay on it.
     time.serverTick += 3;
     step(engine, 30, client.sample);
-    const endTick = clientPrediction(p1)!.lastSimulated;
+    const endTick = predictedTick(p1);
 
     const d = delta(before, stats(engine));
     // (the tick estimate also wobbles on its own now and then: at least these)
@@ -417,7 +417,7 @@ describe("client prediction (T13)", () => {
     const b = serverLog.get(net.interpolationTick + 1)!.x;
     expect(ghost.transform!.position.x).toBeCloseTo(a + (b - a) * net.interpolationFraction, 3);
     // P1 predicts its own player ahead of what P2 shows.
-    expect(clientPrediction(world(engine, "P1"))!.lastSimulated).toBeGreaterThan(net.interpolationTick + 5);
+    expect(predictedTick(world(engine, "P1"))).toBeGreaterThan(net.interpolationTick + 5);
   });
 
   it("runs predicted systems like any other in Worlds that aren't networked, and only in fixedUpdate", async () => {
