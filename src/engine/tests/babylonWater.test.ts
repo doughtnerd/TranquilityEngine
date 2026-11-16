@@ -13,7 +13,7 @@ import type { World } from "../core/World";
 import { Assets, Engine, GameObject, Graphics, SceneManager } from "../index";
 import { WaterSurface } from "../render/water/WaterSurface";
 import { BabylonWater, babylonWaterResolution, waterCustomCode, waterGridData, waterUniformBuffer } from "../render/babylon/water";
-import { GERSTNER_BODY, MAX_WAVES, gerstner, gerstnerBodyJS } from "../render/water/gerstner";
+import { GERSTNER_BODY, MAX_WAVES, gerstner } from "../render/water/gerstner";
 import { waterTime } from "../render/water/WaterSurface";
 import { ALBEDO_ANCHOR } from "../render/babylon/graphMaterial";
 

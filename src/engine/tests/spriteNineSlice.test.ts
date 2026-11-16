@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clampBorder, spriteFrame, spriteMeshData, SPRITE_GRID_INDICES } from "../render/spriteFrame";
+import { spriteFrame, spriteMeshData, SPRITE_GRID_INDICES } from "../render/spriteFrame";
 import { defaultImportSettings, importSettingsJSON, parseImportSettings } from "../scene/importSettings";
 
 const frameOf = (border: [number, number, number, number] | undefined, size?: { x: number; y: number }) => {
@@ -49,8 +49,8 @@ describe("9-slice sprite meshes", () => {
   });
 
   it("clamps borders inside the slice", () => {
-    expect(clampBorder([-3, 0, 30, 0], 32, 16)).toEqual([0, 0, 30, 0]);
-    const [l, , r] = clampBorder([20, 0, 20, 0], 32, 16);
+    expect(frameOf([-3, 0, 30, 0]).border).toEqual([0, 0, 30, 0]); // the slice is 32 × 16
+    const [l, , r] = frameOf([20, 0, 20, 0]).border!;
     expect(l + r).toBeCloseTo(32);
     expect(frameOf([0, 0, 0, 0]).border).toBeNull();
   });

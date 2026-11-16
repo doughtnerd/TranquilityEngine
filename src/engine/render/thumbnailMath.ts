@@ -27,12 +27,6 @@ export function frameView(bounds: Bounds, fov: number, direction: readonly numbe
 
 export { seededRandom } from "./particles/random";
 
-/** A scene file's `#rrggbb[aa]` colour as 0xRRGGBB (alpha dropped); white if it isn't one. */
-export function colorFromHex(hex: string): number {
-  const m = /^#?([0-9a-f]{6})([0-9a-f]{2})?$/i.exec(hex.trim());
-  return m ? parseInt(m[1], 16) : 0xffffff;
-}
-
 /** An orbit around a point: yaw about +Y, pitch up from the horizon (radians), and a distance. */
 export interface Orbit {
   yaw: number;

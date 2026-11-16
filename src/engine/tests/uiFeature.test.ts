@@ -11,7 +11,7 @@ import { Text } from "../render/components";
 import { UIButton, UICanvas, type UILength } from "../ui/components";
 import { BabylonUI } from "../render/babylon/ui";
 import { BabylonUIFeature, type BabylonUIHost } from "../render/babylon/uiFeature";
-import { _registeredRenderFeatures, specNeeded, specOwns } from "../render/renderFeatures";
+import { _registeredRenderFeatures, ownerOf, specNeeded } from "../render/renderFeatures";
 
 /** A plugin's render feature spec, as its activation registered it. */
 const registeredSpec = (name: string) => _registeredRenderFeatures().find((f) => f.spec.name === name)!.spec;
@@ -88,9 +88,9 @@ describe("BabylonUIFeature", () => {
     expect(specNeeded(UI_SPEC, w)).toBe(false);
     const { canvas, play } = menu();
     const text = GameObject.create("Score").addBehavior(Text, { text: "Hi" });
-    expect(specOwns(UI_SPEC, canvas)).toBe(true);
-    expect(specOwns(UI_SPEC, play)).toBe(true);
-    expect(specOwns(UI_SPEC, text)).toBe(true);
+    expect(ownerOf([UI_SPEC], canvas)).toBe(0);
+    expect(ownerOf([UI_SPEC], play)).toBe(0);
+    expect(ownerOf([UI_SPEC], text)).toBe(0);
     expect(specNeeded(UI_SPEC, w)).toBe(true);
   });
 

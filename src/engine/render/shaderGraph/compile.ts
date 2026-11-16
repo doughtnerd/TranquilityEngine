@@ -120,7 +120,7 @@ const BUILTIN_TYPES: Record<Builtin, ValueType> = {
 };
 
 /** A float literal: `1` → `1.0`. */
-export function floatLiteral(n: number): string {
+function floatLiteral(n: number): string {
   if (!Number.isFinite(n)) return "0.0";
   const s = String(n);
   return /[.e]/i.test(s) ? s : `${s}.0`;

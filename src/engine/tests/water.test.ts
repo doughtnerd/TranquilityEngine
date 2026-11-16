@@ -8,13 +8,12 @@ import {
   WATER_PRESET,
   cleanWaves,
   createPackedWaves,
-  deepWaterSpeed,
   gerstner,
-  gerstnerBodyJS,
   packWaves,
   sampleWaves,
   type PackedWaves,
 } from "../render/water/gerstner";
+import { deepWaterSpeed } from "../render/water/dispersion";
 import { sampleSurface, waterTime } from "../render/water/WaterSurface";
 
 /** A seeded random source, so failures reproduce. */
@@ -31,17 +30,12 @@ function randomWaves(r: () => number, count: number): WaterWave[] {
  * The shader's wave sum, run as JavaScript: the exact text the water plugin puts in its vertex
  * shader, with only `float`/`int` → `let` and `sin`/`cos` → `Math.*`.
  */
-const shaderWaves = new Function("mycoWaves", "mycoWaveCount", "px", "pz", `${gerstnerBodyJS()}\nreturn [gx, gy, gz, tx, ty, tz, bx, by, bz];`) as (w: ArrayLike<number>, n: number, px: number, pz: number) => number[];
+const bodyJS = GERSTNER_BODY.replace(/\$float|\$int/g, "let").replace(/\b(sin|cos)\(/g, "Math.$1(");
+const shaderWaves = new Function("mycoWaves", "mycoWaveCount", "px", "pz", `${bodyJS}\nreturn [gx, gy, gz, tx, ty, tz, bx, by, bz];`) as (w: ArrayLike<number>, n: number, px: number, pz: number) => number[];
 
 const shaderAt = (p: PackedWaves, x: number, z: number) => shaderWaves(p.data, p.count, x, z);
 
 describe("Gerstner waves: one sum for the GPU and the CPU (ADR 0072)", () => {
-  it("the JavaScript is the shared body with only the type words filled in", () => {
-    // Every statement of the body appears verbatim (after the type substitution) in the JavaScript;
-    // babylonWater.test.ts checks the WGSL and GLSL the water plugin builds from it.
-    expect(gerstnerBodyJS().replace(/Math\./g, "").replace(/\blet\b/g, "T")).toBe(GERSTNER_BODY.replace(/\$float|\$int/g, "T"));
-  });
-
   it("the CPU sampler's sum matches the shader's sum at sample points, for random wave sets and times", () => {
     const r = rng(7);
     for (let set = 0; set < 20; set++) {

@@ -51,7 +51,7 @@ export interface RenderFeatureSpec {
 }
 
 /** Whether `spec` owns `c`. */
-export function specOwns(spec: RenderFeatureSpec, c: Component): boolean {
+function specOwns(spec: RenderFeatureSpec, c: Component): boolean {
   return spec.owns ? spec.owns(c) : spec.types.some((t) => c instanceof t);
 }
 
