@@ -8,7 +8,7 @@ import { openSceneFile } from "./project";
 import { editorSettings, useProjectAssets } from "./projects";
 import { ancestorKeys, combineSelection, hierarchyEntries, rangeBetween, selectModeFor, topmostKeys, withDescendants } from "./selectionModel";
 import { openScene, sceneCamera, select, selectedKeys, selectedNodes, selection } from "./state";
-import { boxBetween, colliderBounds, colliderHits, idsInBox, keysNear } from "./viewportSelection";
+import { boxBetween, colliderBounds, colliderHits, idsInBox, keysNear } from "./viewportPicks";
 import { sampleProject } from "./testing";
 
 afterEach(() => select([]));
