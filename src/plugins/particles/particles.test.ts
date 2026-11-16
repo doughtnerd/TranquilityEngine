@@ -29,7 +29,7 @@ import { particlesEditorPlugin } from "./editor";
 import { openParticleGraph, readEffect } from "./editor/particleAssets";
 import { particleBlockFormat, particlesFormat, particleSubgraphFormat } from "./editor/particleFormat";
 import { blockTemplate, formatAsset, subgraphTemplate } from "./editor/particleGraph/assetDocs";
-import { PARTICLES_SPEC, particlesRuntimePlugin } from "./runtime";
+import { particlesRuntimePlugin } from "./runtime";
 
 useCoreAssetKinds(); // core asset kinds, as main.tsx registers them (ADR 0143)
 
@@ -157,8 +157,7 @@ describe("the Particles plugin's runtime half (ADR 0135)", () => {
     expect(isRuntimePluginActive("myco.particles")).toBe(true);
     expect(getComponentClass("engine.ParticleSystem")).toBe(ParticleSystem);
     const feature = _registeredRenderFeatures().find((f) => f.spec.name === "particles");
-    expect(feature?.spec).toBe(PARTICLES_SPEC);
-    expect(PARTICLES_SPEC).toMatchObject({ phase: "effects", types: [ParticleSystem], lazy: true, holdsFirstFrame: false });
+    expect(feature?.spec).toMatchObject({ phase: "effects", types: [ParticleSystem], lazy: true, holdsFirstFrame: false });
   });
 
   it("loads the feature's factory on demand", async () => {

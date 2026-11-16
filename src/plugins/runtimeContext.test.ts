@@ -9,7 +9,7 @@ import { _registeredRenderFeatures } from "../engine/render/renderFeatures";
 import type { PluginManifest } from "./manifest";
 import { RUNTIME_PLUGINS } from "./runtime";
 import { activateRuntimePlugins, deactivateRuntimePlugin, isRuntimePluginActive, type RuntimePlugin } from "./runtimeContext";
-import { SKY_SPEC, Sky, skyRuntimePlugin } from "./sky/runtime";
+import { Sky, skyRuntimePlugin } from "./sky/runtime";
 
 @component("test.rt.Thing")
 class Thing extends Component {}
@@ -94,7 +94,7 @@ describe("runtime plugin activation (ADR 0135)", () => {
     activateRuntimePlugins(RUNTIME_PLUGINS);
     expect(getComponentClass("engine.Sky")).toBe(Sky);
     const sky = _registeredRenderFeatures().find((r) => r.spec.name === "sky")!;
-    expect(sky.spec).toMatchObject(SKY_SPEC);
+    expect(sky.spec).toMatchObject({ name: "sky", phase: "lighting", types: [], lazy: false });
     expect(typeof (await sky.load())).toBe("function");
   });
 });

@@ -15,9 +15,13 @@ import { World } from "../core/World";
 import { Assets, Camera, Color, Engine, GameObject, SceneManager, Vector2 } from "../index";
 import { SpriteRenderer } from "../render/components";
 import { BabylonSprites } from "../render/babylon/sprites";
-import { SPRITES_SPEC } from "../../plugins/sprites/runtime";
 import type { FeatureSyncContext } from "../render/babylon/feature";
 import { SpriteBatcher, spriteUvCode, UV_RECT_ATTRIBUTE, type SpriteItem } from "../render/babylon/layeredQuads";
+import { _registeredRenderFeatures } from "../render/renderFeatures";
+
+/** A plugin's render feature spec, as its activation registered it. */
+const registeredSpec = (name: string) => _registeredRenderFeatures().find((f) => f.spec.name === name)!.spec;
+const SPRITES_SPEC = registeredSpec("sprites");
 
 // Read through Babylon's public API only: the scene's meshes, their alphaIndex and thin-instance count,
 // and the thin-instance buffers handed to `thinInstanceSetBuffer` (the batcher fills them in place).

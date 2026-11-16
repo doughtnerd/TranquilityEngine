@@ -6,8 +6,8 @@ import type { BabylonFeatureFactory, BabylonFeatureHost } from "../../../engine/
 import { BabylonUIFeature, type BabylonUIHost } from "../../../engine/render/babylon/uiFeature";
 import { loadBundledFont } from "../../../engine/ui/fonts";
 
-/** @internal The UI feature's host, from the renderer's core host (ADR 0130's model, ADR 0154). */
-export function uiHost(host: BabylonFeatureHost): BabylonUIHost {
+/** The UI feature's host, from the renderer's core host (ADR 0130's model, ADR 0154). */
+function uiHost(host: BabylonFeatureHost): BabylonUIHost {
   return {
     scene: host.scene,
     texture: (ref) => host.materials.texture(ref),

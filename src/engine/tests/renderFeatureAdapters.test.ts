@@ -8,14 +8,18 @@ import { Assets, Engine, Fog, GameObject, Graphics, Light, ReflectionProbe, Scen
 import { Tilemap } from "../../plugins/tilemaps/runtime/Tilemap";
 import { ParticleSystem } from "../render/components";
 import { WaterSurface } from "../render/water/WaterSurface";
-import { PARTICLES_SPEC } from "../../plugins/particles/runtime";
 import { ENVIRONMENT_SPEC, FOG_SPEC, LIGHTS_SPEC, LightsFeature, EnvironmentFeature, PROBES_SPEC, ProbesFeature } from "../render/babylon/features";
-import { WATER_SPEC } from "../../plugins/water/runtime";
-import { TILEMAPS_SPEC } from "../../plugins/tilemaps/runtime";
 import type { FeatureSyncContext } from "../render/babylon/feature";
 import { FogFeature } from "../render/babylon/fog";
 import { BabylonLighting } from "../render/babylon/lighting";
 import { BabylonProbes } from "../render/babylon/probes";
+import { _registeredRenderFeatures } from "../render/renderFeatures";
+
+/** A plugin's render feature spec, as its activation registered it. */
+const registeredSpec = (name: string) => _registeredRenderFeatures().find((f) => f.spec.name === name)!.spec;
+const PARTICLES_SPEC = registeredSpec("particles");
+const WATER_SPEC = registeredSpec("water");
+const TILEMAPS_SPEC = registeredSpec("tilemaps");
 
 const ctx: FeatureSyncContext = { view: null, viewCamera: null, ready: true, probeMeshes: [] };
 

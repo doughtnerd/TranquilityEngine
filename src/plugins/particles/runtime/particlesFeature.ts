@@ -25,8 +25,8 @@ declare module "../../../engine/render/RenderSurface" {
   }
 }
 
-/** @internal The particle player's host, from the renderer's core host (ADR 0130's model, ADR 0154). */
-export function particleHost(host: BabylonFeatureHost): BabylonParticleHost {
+/** The particle player's host, from the renderer's core host (ADR 0130's model, ADR 0154). */
+function particleHost(host: BabylonFeatureHost): BabylonParticleHost {
   return {
     scene: host.scene,
     particlePreview: () => host.policy().particlePreview,

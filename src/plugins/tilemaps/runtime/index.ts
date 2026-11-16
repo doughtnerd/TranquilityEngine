@@ -16,8 +16,8 @@ export { FLIP_DIAGONAL, FLIP_X, FLIP_Y, type TilemapLayerData } from "./format";
 export type { TerrainDef, TileCollision, TileDef, TilePattern, TilePolygon, TilesetData } from "./tileset";
 export type { TileCollisionMode } from "./collision";
 
-/** @internal After sprites; `MESHES_SPEC` names it in its own `after`, so meshes sync after it (ADR 0135). */
-export const TILEMAPS_SPEC: RenderFeatureSpec = { name: "tilemaps", phase: "content", types: [Tilemap], lazy: false, after: ["sprites"] };
+/** After sprites; `MESHES_SPEC` names it in its own `after`, so meshes sync after it (ADR 0135). */
+const TILEMAPS_SPEC: RenderFeatureSpec = { name: "tilemaps", phase: "content", types: [Tilemap], lazy: false, after: ["sprites"] };
 
 export const tilemapsRuntimePlugin: RuntimePlugin = {
   manifest: tilemapsManifest,

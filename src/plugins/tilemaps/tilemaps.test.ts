@@ -2,7 +2,7 @@
 // render feature; its editor half registers the tileset kind and format, and tilesets edit through an asset document.
 import { afterEach, describe, expect, it } from "vitest";
 import { getComponentClass } from "../../engine/core/registry";
-import { byPhase } from "../../engine/render/renderFeatures";
+import { _registeredRenderFeatures, byPhase } from "../../engine/render/renderFeatures";
 import { assetKind } from "../../editor/assetBrowser";
 import { assetDocumentsDeleted, assetDocumentsMoved, openAssetDocument } from "../../editor/assetDocuments";
 import { acceptsFile } from "../../editor/assetFieldKinds";
@@ -25,12 +25,16 @@ import { EDITOR_PLUGINS } from "../editor";
 import { RUNTIME_PLUGINS, isRuntimePluginActive } from "../runtime";
 import { applyTestPlugins } from "../testPlugins";
 import { MESHES_SPEC } from "../meshes/runtime";
-import { SPRITES_SPEC } from "../sprites/runtime";
 import { tilemapsEditorPlugin } from "./editor";
 import { parsePolygon } from "./editor/TilesetInspector";
-import { TILEMAPS_SPEC, Tilemap, tilemapsRuntimePlugin } from "./runtime";
+import { Tilemap, tilemapsRuntimePlugin } from "./runtime";
 import { _registeredRenderFeatures } from "../../engine/render/renderFeatures";
 import { newTileset, type TilesetData } from "./runtime/tileset";
+
+/** A plugin's render feature spec, as its activation registered it. */
+const registeredSpec = (name: string) => _registeredRenderFeatures().find((f) => f.spec.name === name)!.spec;
+const SPRITES_SPEC = registeredSpec("sprites");
+const TILEMAPS_SPEC = registeredSpec("tilemaps");
 
 useCoreAssetKinds(); // core asset kinds, as main.tsx registers them (ADR 0143)
 
@@ -62,7 +66,6 @@ describe("the Tilemaps plugin's runtime half (ADR 0135)", () => {
   it("claims the Tilemap Component and registers the tiles render feature, ordered after sprites (ADR 0136)", () => {
     expect(isRuntimePluginActive("myco.tilemaps")).toBe(true);
     expect(getComponentClass("engine.Tilemap")).toBe(Tilemap);
-    expect(_registeredRenderFeatures().find((r) => r.spec.name === "tilemaps")?.spec).toMatchObject({ ...TILEMAPS_SPEC });
     expect(TILEMAPS_SPEC).toMatchObject({ phase: "content", types: [Tilemap], lazy: false, after: ["sprites"] });
     // The order is kept: sprites, tilemaps, meshes (meshes name tilemaps in their own `after`).
     const specs = [SPRITES_SPEC, MESHES_SPEC, TILEMAPS_SPEC];
