@@ -3,10 +3,10 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { activeAudition } from "../event/auditionHost";
 import { createTransport, type TransportHandle, type TransportHost } from "./transport";
-import { auditionPair, leadBar, planTransitionAudition, runTransitionAudition } from "./ruleAudition";
+import { planTransitionAudition, runTransitionAudition } from "./ruleAudition";
 import { containerOf, segmentRaw, switchEvent } from "./ruleFixtures";
-import { leafSegments } from "./ruleLint";
-import { compileSegmentGrid } from "../../../../engine/audio/musicGrid";
+import type { AudioEventAsset } from "../../../../engine/audio/eventFormat";
+import type { MusicContainerNode } from "../../../../engine/audio/musicFormat";
 
 const PATH = "m.audioevent.json";
 const exitCue = { cues: [{ name: "exit", at: "9:1:0" }] };
@@ -14,7 +14,12 @@ const children = [segmentRaw("a", exitCue), segmentRaw("b"), segmentRaw("c")];
 
 afterEach(() => { activeAudition.value = null; });
 
-describe("auditionPair", () => {
+describe("the pair a plan auditions", () => {
+  /** The pair the plan for rule `index` starts and changes between, or null when it refuses for want of one. */
+  const auditionPair = (c: MusicContainerNode, index: number, pair?: { from: string; to: string }) => {
+    const plan = planTransitionAudition(PATH, { musicRoot: c } as AudioEventAsset, c, index, { pair });
+    return plan.ok ? plan.pair : null;
+  };
   it("prefers the chosen pair when the rule wins it, else the first pair the rule wins", () => {
     const c = containerOf(switchEvent([{ from: "a", to: "b" }, { from: "b" }]));
     expect(auditionPair(c, 0)).toEqual({ from: "a", to: "b" });
@@ -49,7 +54,6 @@ describe("planTransitionAudition", () => {
     expect(at.ok && at.from).toEqual({ kind: "bar", bar: 3 });
     const bad = planTransitionAudition(PATH, event, c, 0, { bar: 0 });
     expect(bad.ok && bad.from).toEqual({ kind: "start" });
-    expect(leadBar(compileSegmentGrid(leafSegments(c)[0], { endSeconds: NaN }))).toBe(1);
   });
   it("uses the chosen pair for a wildcard rule", () => {
     const event = switchEvent([{ from: "*", to: "*" }]);

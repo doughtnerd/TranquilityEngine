@@ -40,7 +40,7 @@ export interface AuditionOptions {
 const refuse = (reason: string): TransitionAuditionRefusal => ({ ok: false, reason });
 
 /** The pair of two different children the rule `index` wins: the preferred one when it wins it, else the first in grid order. */
-export function auditionPair(container: MusicContainerNode, index: number, prefer?: { from: string; to: string }): { from: string; to: string } | null {
+function auditionPair(container: MusicContainerNode, index: number, prefer?: { from: string; to: string }): { from: string; to: string } | null {
   const ids = container.children.map((c) => c.id);
   const wins = (f: string, t: string): boolean => f !== t && ids.includes(f) && ids.includes(t) && effectiveRule(container, f, t).rule === index;
   if (prefer && wins(prefer.from, prefer.to)) return { from: prefer.from, to: prefer.to };
@@ -51,7 +51,7 @@ export function auditionPair(container: MusicContainerNode, index: number, prefe
 }
 
 /** The default start bar of the audition: two bars before the exit cue, never before bar 1. */
-export function leadBar(grid: SegmentGrid): number {
+function leadBar(grid: SegmentGrid): number {
   if (!Number.isFinite(grid.exitTicks)) return 1;
   const p = ticksToPosition(grid, grid.exitTicks);
   return p ? Math.max(1, p.bar - 2) : 1;
