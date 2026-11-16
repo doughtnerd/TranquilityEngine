@@ -1,7 +1,7 @@
 // The editor's menu bar as data: File, Edit, Create, Window, Layouts and Help. Pure (no DOM, no signals), so
 // the rules for which items are enabled, and what they say, are unit-tested; MenuBar.tsx reads the
 // live state into a `MenuState`, wires the `MenuActions`, and draws the result.
-import { allPanels, panelTitle, type PanelId } from "./layout/model";
+import { panelTitle, type PanelCatalog, type PanelId } from "./layout/catalog";
 import { newNodeKinds } from "./nodeCreate";
 
 export interface MenuEntry {
@@ -47,6 +47,8 @@ export interface MenuState {
   isDesktop: boolean;
   /** Recent projects other than the open one, newest first. */
   recent: readonly { id: string; name: string; path: string }[];
+  /** Every panel type the editor can show (ADR 0182), for Window's items. */
+  panels: PanelCatalog;
   visiblePanels: ReadonlySet<PanelId>;
   /** Why pasting isn't possible now, or null. */
   pasteBlocked: string | null;
@@ -202,7 +204,11 @@ function createMenu(s: MenuState): Menu {
  * closed (ADR 0174). Then Add Panel… (any panels, a second copy included) and Reset Layout.
  */
 function windowMenu(s: MenuState, a: MenuActions): Menu {
-  const panels: MenuEntry[] = allPanels().map((p) => ({ label: panelTitle(p), checked: s.visiblePanels.has(p), run: () => a.showPanel(p), title: `Show the ${panelTitle(p)} panel (adding it if it's closed)` }));
+  const panels: MenuEntry[] = [...s.panels.keys()].map((p) => {
+    const title = panelTitle(s.panels, p);
+    return { label: title, checked: s.visiblePanels.has(p), run: () => a.showPanel(p), title: `Show the ${title} panel (adding it if it's closed)` };
+  });
+
   return {
     id: "window",
     label: "Window",

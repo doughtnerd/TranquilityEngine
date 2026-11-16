@@ -3,9 +3,10 @@ import { assetKind } from "../assetBrowser";
 import { layout, resetLayout } from "../layout/store";
 import { instancesOf } from "../layout/model";
 import { activeScript, closeAllScripts, closeScript, dirtyScripts, openScript, openScripts, scriptFor, setDirty } from "./codeState";
-import { useCoreAssetKinds } from "../testing";
+import { useBuiltinPanels, useCoreAssetKinds } from "../testing";
 
 useCoreAssetKinds(); // core asset kinds, as main.tsx registers them (ADR 0143)
+useBuiltinPanels(); // and the built-in panels, the Code panel among them (ADR 0182)
 
 beforeEach(() => {
   closeAllScripts();

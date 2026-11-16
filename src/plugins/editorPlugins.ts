@@ -6,6 +6,7 @@
 // cheap: unchanged halves stay. Editor code only.
 import { errorStatus } from "../editor/messages";
 import { parseLayout } from "../editor/layout/model";
+import { registeredPanels } from "../editor/layout/registeredPanels";
 import { layout, reloadLayout } from "../editor/layout/store";
 import type { EditorPlugin } from "../editor/sdk/plugins";
 import { status } from "../editor/state";
@@ -58,7 +59,8 @@ export function applyEditorPlugins(disabled: Iterable<string> | undefined, optio
   if (options.layout === "reload") reloadLayout();
   else if (options.layout === "live") {
     try {
-      layout.value = parseLayout(JSON.parse(JSON.stringify(layout.value))) ?? layout.value;
+      layout.value = parseLayout(JSON.parse(JSON.stringify(layout.value)), registeredPanels()) ?? layout.value;
+
     } catch {
       reloadLayout();
     }

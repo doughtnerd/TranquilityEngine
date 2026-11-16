@@ -7,7 +7,7 @@ import { dockWindowInMain, openLayoutWindow, openWindows, pendingWindows, startD
 import { addPanelRequest, layout } from "../layout/store";
 import { ChildWindowPortal } from "../windows/ChildWindowPortal";
 import { AddPanelDialog } from "./AddPanelDialog";
-import { PANEL_VIEWS } from "./panels";
+import { panelView } from "./panels";
 
 export function DetachedWindows() {
   useEffect(() => startDetachedWindows(), []);
@@ -15,7 +15,7 @@ export function DetachedWindows() {
     <>
       {[...openWindows.value].map(([id, handle]) => (
         <ChildWindowPortal key={id} handle={handle}>
-          <DockLayout panels={PANEL_VIEWS} windowId={id} />
+          <DockLayout view={panelView} windowId={id} />
           {addPanelRequest.value?.window === id && <AddPanelDialog inWindow={id} />}
         </ChildWindowPortal>
       ))}

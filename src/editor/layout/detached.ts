@@ -12,6 +12,7 @@ import { computed, effect, signal } from "@preact/signals";
 import { openChildWindow, type ChildWindowHandle } from "../windows/childWindow";
 import { status } from "../state";
 import { MAIN_WINDOW, closeWindow, detachPanel, instanceTitle, movePanelToWindow, setWindowBounds, type Layout, type LayoutWindow, type PanelInstanceId } from "./model";
+import { registeredPanels } from "./registeredPanels";
 import { layout } from "./store";
 
 /** The open detached windows, by layout window id. */
@@ -33,7 +34,7 @@ export const pendingWindows = computed<LayoutWindow[]>(() => {
 
 /** A window's title: its panels' titles. */
 export function windowTitle(l: Layout, win: LayoutWindow): string {
-  const titles = win.docks.flatMap((d) => d.groups.map((g) => instanceTitle(l, g.active)));
+  const titles = win.docks.flatMap((d) => d.groups.map((g) => instanceTitle(l, g.active, registeredPanels())));
   return `${titles.join(", ") || "Panels"} · Myco Engine`;
 }
 
@@ -79,7 +80,7 @@ export function openLayoutWindow(id: string, quiet = false): boolean {
         stop();
         setOpen(id, null);
         // Closed by the user: its panels close with it. Closed with the main window: kept for next time.
-        if (!mainClosing) layout.value = closeWindow(layout.peek(), id);
+        if (!mainClosing) layout.value = closeWindow(layout.peek(), id, registeredPanels());
       });
     },
     (err: unknown) => {
@@ -94,7 +95,7 @@ export function openLayoutWindow(id: string, quiet = false): boolean {
 /** Detach `panel` into a new window (from a click: Detach in a header menu). */
 export function detachToWindow(panel: PanelInstanceId, from?: Window): void {
   const before = layout.peek();
-  const { layout: next, windowId } = detachPanel(before, panel, defaultBounds(from));
+  const { layout: next, windowId } = detachPanel(before, panel, registeredPanels(), defaultBounds(from));
   if (!windowId) return;
   layout.value = next;
   if (!openLayoutWindow(windowId)) layout.value = before; // blocked: the panel stays where it was
@@ -111,7 +112,8 @@ export function dockWindowInMain(id: string): void {
   let next = layout.peek();
   const win = (next.windows ?? []).find((w) => w.id === id);
   if (!win) return;
-  for (const panel of win.docks.flatMap((d) => d.groups.flatMap((g) => g.panels))) next = movePanelToWindow(next, panel, MAIN_WINDOW);
+  for (const panel of win.docks.flatMap((d) => d.groups.flatMap((g) => g.panels))) next = movePanelToWindow(next, panel, MAIN_WINDOW, registeredPanels());
+
   layout.value = next;
 }
 

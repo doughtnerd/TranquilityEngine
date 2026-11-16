@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { PANELS } from "./layout/model";
+import { panelCatalog } from "./layout/catalog";
+import { BUILTIN_PANELS } from "./ui/panels.builtin";
 import { buildMenus, NO_SCENE, NOTHING_SELECTED, READ_ONLY, STOP_PLAYING, redoLabel, undoLabel, type Menu, type MenuActions, type MenuEntry, type MenuState } from "./menuBar";
 
 const noop = () => {};
@@ -8,6 +9,8 @@ const actions = (): MenuActions => {
   return new Proxy(fns, { get: (t, name: string) => (t[name] ??= vi.fn()) }) as unknown as MenuActions;
 };
 
+const panels = panelCatalog(BUILTIN_PANELS);
+const PANELS = [...panels.keys()];
 const scene = { path: "main.scene.json", dirty: false };
 const history = { undoLabel: null, redoLabel: null, canUndo: false, canRedo: false };
 /** With a scene open, the scene's history is the active one unless the test says otherwise. */
@@ -19,7 +22,9 @@ const state = (over: Partial<MenuState> = {}): MenuState => ({
   canOpenFolders: true,
   isDesktop: false,
   recent: [],
+  panels,
   visiblePanels: new Set(PANELS),
+
   pasteBlocked: null,
   selectionInPrefab: false,
   hasSelection: true,

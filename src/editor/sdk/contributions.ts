@@ -143,7 +143,13 @@ export interface AssetFormatContribution<T = unknown> {
   readonly writeDelay?: number;
 }
 
-/** A dockable panel. */
+/** A dock of the editor's default layout: one of the side docks, or the one filling the middle (the Scene view's). */
+export type PanelDock = "left" | "right" | "bottom" | "fill";
+
+/**
+ * A dockable panel. The editor's built-in panels are contributions too (ADR 0182, `panels.builtin.ts`),
+ * registered at start-up before any plugin's.
+ */
 export interface PanelContribution {
   readonly id: string;
   readonly title: string;
@@ -152,8 +158,17 @@ export interface PanelContribution {
   readonly beside?: string;
   /** Kept out of the default layout and the idle preload; opened by something else (double-clicking an asset). */
   readonly onDemand?: boolean;
-  /** Only one copy can be open (ADR 0174): the Add Panel dialog offers it only when none is. */
+  /** Only one copy can be open (ADR 0174): the Add Panel dialog offers it only when none is, and a layout holding two keeps the first. */
   readonly single?: boolean;
+  /** False when the user can't close it (default true). Such a panel is always in the layout: one missing from a saved layout is added back. */
+  readonly closable?: boolean;
+  /** False when it can't go into a detached window (default true); a saved layout with it in one drops it there. */
+  readonly detachable?: boolean;
+  /**
+   * The default layout's dock it starts in, after the panels registered before it that name the same
+   * dock (ADR 0182). Without one it starts as the tab after its `beside` neighbour.
+   */
+  readonly dock?: PanelDock;
 }
 
 /** What a Project settings section is given. */

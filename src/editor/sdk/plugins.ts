@@ -63,8 +63,10 @@ export function activatePlugin(plugin: EditorPlugin): void {
     registerAssetKind: (k) => void undo.push(assetKinds.register(k)),
     registerAssetFormat: (f) => void undo.push(assetFormats.register(f)),
     registerPanel: (p) => {
-      undo.push(panels.register(p));
+      // The owner first, so the panel catalog built when the registry changes names it; a taken id changes neither.
+      if (panels.get(p.id)) throw new Error(`Panel "${p.id}" is already registered.`);
       setPanelOwner(p.id, { plugin: name, pluginTitle: plugin.manifest.title ?? name });
+      undo.push(panels.register(p));
     },
     registerProjectSettingsSection: (section) => void undo.push(projectSettingsSections.register(checkSettingsSectionKeys(section))),
     registerPanelExtension: (extension) => void undo.push(panelExtensions.register(extension)),

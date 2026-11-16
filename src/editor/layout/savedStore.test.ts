@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { MemoryStorage } from "../../engine/platform/Storage";
 import { joinPath } from "../projects";
-import { ROOT, closeTestProject, openTestProject } from "../testing";
+import { ROOT, closeTestProject, openTestProject, useBuiltinPanels } from "../testing";
 import { closePanel, defaultLayout, instancesOf, openTypes } from "./model";
 import { addVersion, newLayoutFile, layoutFileText, type LayoutFile } from "./saved";
 import {
@@ -25,10 +25,13 @@ import {
   whyNoSave,
 } from "./savedStore";
 import { layout } from "./store";
+import { registeredPanels } from "./registeredPanels";
+
+useBuiltinPanels();
 
 let storage: MemoryStorage;
 const typesOf = (l = layout.value) => openTypes(l);
-const closeType = (type: string) => (layout.value = closePanel(layout.value, instancesOf(layout.value, type)[0]!));
+const closeType = (type: string) => (layout.value = closePanel(layout.value, instancesOf(layout.value, type)[0]!, registeredPanels()));
 
 beforeEach(async () => {
   storage = new MemoryStorage();
@@ -98,7 +101,7 @@ describe("saved layouts (ADR 0174)", () => {
   });
 
   it("reads layouts committed to the project, and can't write project layouts in a read-only project", async () => {
-    const committed: LayoutFile = newLayoutFile("Team", defaultLayout(), 1);
+    const committed: LayoutFile = newLayoutFile("Team", defaultLayout(registeredPanels()), 1);
     await openTestProject({ ".layouts/team.layout.json": layoutFileText(committed), ".layouts/notes.txt": "x" });
     await refreshSavedLayouts();
     expect(savedLayouts.value.map((s) => s.name)).toEqual(["Team"]);
@@ -121,8 +124,8 @@ describe("saved layouts (ADR 0174)", () => {
   });
 
   it("lists the newer copy of a layout kept in both places", async () => {
-    const old = newLayoutFile("Shared", defaultLayout(), 1);
-    const newer = addVersion({ ...old, name: "Shared (team)" }, defaultLayout(), 50);
+    const old = newLayoutFile("Shared", defaultLayout(registeredPanels()), 1);
+    const newer = addVersion({ ...old, name: "Shared (team)" }, defaultLayout(registeredPanels()), 50);
     await storage.save("settings", "layouts/shared.layout.json", layoutFileText(old));
     await openTestProject({ ".layouts/shared.layout.json": layoutFileText(newer) });
     await refreshSavedLayouts();

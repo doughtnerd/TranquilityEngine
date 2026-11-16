@@ -6,7 +6,9 @@ import { applyDefaultLayout, refreshSavedLayouts, saveLayoutAs, savedLayouts, se
 import { layout } from "./layout/store";
 import { switchPlugin, type PluginSwitchAnswer, type PluginSwitchQuestion } from "./pluginSwitch";
 import type { SettingsDraft } from "./projectSettingsModel";
-import { closeTestProject, openTestProject } from "./testing";
+import { closeTestProject, openTestProject, useBuiltinPanels } from "./testing";
+
+useBuiltinPanels();
 
 const m = (name: string, title: string, ...deps: string[]): PluginManifest => ({ name, title, version: "1.0.0", dependencies: Object.fromEntries(deps.map((d) => [d, "1.0.0"])) });
 // Tools <- Graph <- Graph Extras, and an unrelated Sky.

@@ -1,16 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { materialsEditorPlugin } from "../../plugins/materials/editor";
-import { particlesEditorPlugin } from "../../plugins/particles/editor";
-import { skyEditorPlugin } from "../../plugins/sky/editor";
-import { tilemapsEditorPlugin } from "../../plugins/tilemaps/editor";
-import { deactivatePlugin } from "../sdk/plugins";
-import { useEditorPlugins } from "../../plugins/testEditorPlugins";
+import { BUILTIN_PANELS } from "../ui/panels.builtin";
+import { panelCatalog, type PanelCatalog, type PanelFacts } from "./catalog";
 import {
   EDGE_BAND,
   HEADER_HEIGHT,
   MIN_FILL,
   MIN_FRACTION,
-  PANELS,
   activatePanel as activateRaw,
   addPanel,
   closePanel,
@@ -19,9 +14,11 @@ import {
   fitTabs,
   defaultLayout as defaultRaw,
   hitTest,
+  detachPanel,
   instancesOf,
+  instanceTitle,
+  openTypes,
   typeOf,
-  allPanels,
   movePanel,
   parseLayout as parseRaw,
   resizeDock,
@@ -31,11 +28,19 @@ import {
   type Layout,
   type PanelId,
 } from "./model";
-import { panels, type PanelContribution } from "../sdk/contributions";
 
-// The Shader Graph panel is the Materials plugin's and the Particle Graph the Particles plugin's (ADR 0134);
-// the editor activates them (in EDITOR_PLUGINS' order) before any layout loads.
-useEditorPlugins([particlesEditorPlugin, materialsEditorPlugin, tilemapsEditorPlugin], "each");
+// The model takes the panel catalog as a value (ADR 0182): these tests pass the editor's built-in panels
+// (the real contributions) and the facts of the plugin panels they need, as the plugins register them.
+type Entry = PanelFacts & { id: PanelId };
+const PARTICLE_GRAPH: Entry = { id: "particlegraph", title: "Particle Graph", beside: "scene", owner: { plugin: "myco.particles", pluginTitle: "Particles" } };
+const SHADER_GRAPH: Entry = { id: "shadergraph", title: "Shader Graph", beside: "scene", owner: { plugin: "myco.materials", pluginTitle: "Materials" } };
+const TILE_PALETTE: Entry = { id: "tilepalette", title: "Tile Palette", beside: "code", owner: { plugin: "myco.tilemaps", pluginTitle: "Tilemaps" } };
+const SKY: Entry = { id: "sky", title: "Sky", beside: "particlegraph", onDemand: true, owner: { plugin: "myco.sky", pluginTitle: "Sky" } };
+const BUILTIN = panelCatalog(BUILTIN_PANELS);
+/** The built-in panels, then `extra` in registration order. */
+const catalogOf = (...extra: Entry[]): PanelCatalog => new Map([...BUILTIN, ...panelCatalog(extra, (id) => extra.find((e) => e.id === id)?.owner)]);
+/** The Particles, Materials and Tilemaps plugins' panels registered, as most tests have them. */
+const editor = catalogOf(PARTICLE_GRAPH, SHADER_GRAPH, TILE_PALETTE);
 
 /**
  * Layouts with each instance's id renamed to its type (where a type is open once), so tests read
@@ -53,13 +58,13 @@ function named(l: Layout): Layout {
   out.instances = Object.fromEntries(Object.entries(l.instances).map(([id, i]) => [rename(id), i]));
   return out;
 }
-const defaultLayout = () => named(defaultRaw());
-const parseLayout = (v: unknown) => {
-  const r = parseRaw(v);
+const defaultLayout = (c = editor) => named(defaultRaw(c));
+const parseLayout = (v: unknown, c = editor) => {
+  const r = parseRaw(v, c);
   return r && named(r);
 };
-const activatePanel = (l: Layout, p: string) => {
-  const r = activateRaw(l, p);
+const activatePanel = (l: Layout, p: string, c = editor) => {
+  const r = activateRaw(l, p, c);
   return r === l ? l : named(r);
 };
 
@@ -83,19 +88,17 @@ describe("default layout", () => {
   it("places a registered panel after its neighbour, and leaves it out when its plugin isn't active", () => {
     const scene = (l: Layout) => l.docks.flatMap((d) => d.groups).find((g) => g.panels.includes("scene"))!.panels;
     expect(scene(defaultLayout())).toEqual(["scene", "shadergraph", "particlegraph"]);
-    deactivatePlugin(materialsEditorPlugin.manifest.name);
-    expect(scene(defaultLayout())).toEqual(["scene", "particlegraph"]);
+    expect(scene(defaultLayout(catalogOf(PARTICLE_GRAPH, TILE_PALETTE)))).toEqual(["scene", "particlegraph"]); // Materials off
   });
 
-  it("restores a saved layout's Shader Graph tab only while the Materials plugin has registered it", () => {
+  it("restores a saved layout's Shader Graph tab, and keeps it as unavailable while the Materials plugin is off", () => {
     const saved = JSON.parse(JSON.stringify(movePanel(defaultLayout(), "shadergraph", { kind: "tab", group: "hierarchy" }))) as Layout;
     expect(where(parseLayout(saved)!, "shadergraph").side).toBe("left");
     expect(where(parseLayout(saved)!, "shadergraph").groups[0]!.panels).toEqual(["hierarchy", "shadergraph"]);
-    deactivatePlugin(materialsEditorPlugin.manifest.name);
     // While the plugin is off it stays where it was, as an unavailable panel that remembers its title and plugin (ADR 0174).
-    const off = parseLayout(saved)!;
+    const off = parseLayout(saved, catalogOf(PARTICLE_GRAPH, TILE_PALETTE))!;
     expect(where(off, "shadergraph").groups[0]!.panels).toEqual(["hierarchy", "shadergraph"]);
-    expect(off.panelInfo.shadergraph).toMatchObject({ title: "Shader Graph", plugin: materialsEditorPlugin.manifest.name });
+    expect(off.panelInfo.shadergraph).toEqual({ title: "Shader Graph", plugin: "myco.materials", pluginTitle: "Materials" });
   });
 });
 
@@ -396,91 +399,72 @@ describe("tab fitting and header height edge cases", () => {
 
 describe("on-demand panels", () => {
   // The Sky plugin's panel (ADR 0134) is the on-demand one.
-  useEditorPlugins([skyEditorPlugin], "each");
+  const sky = catalogOf(PARTICLE_GRAPH, SHADER_GRAPH, TILE_PALETTE, SKY);
 
-  it("leaves the Sky panel out of the default layout and adds it beside the graph editors when shown", async () => {
-    const { isOnDemand } = await import("./model");
-    expect(isOnDemand("sky")).toBe(true);
-    const l = defaultLayout();
+  it("leaves the Sky panel out of the default layout and adds it beside the graph editors when shown", () => {
+    const l = defaultLayout(sky);
     expect(l.docks.flatMap((d) => d.groups.flatMap((g) => g.panels))).not.toContain("sky");
-    const shown = activatePanel(l, "sky");
+    const shown = activatePanel(l, "sky", sky);
     const group = shown.docks.flatMap((d) => d.groups).find((g) => g.panels.includes("sky"))!;
     expect(group.panels).toEqual(["scene", "shadergraph", "particlegraph", "sky"]);
     expect(group.active).toBe("sky");
-    expect(activatePanel(shown, "sky")).toBe(shown); // already showing
+    expect(activatePanel(shown, "sky", sky)).toBe(shown); // already showing
   });
 
-  it("doesn't add an on-demand panel back to a saved layout, but keeps one that was opened", async () => {
-    const saved = parseLayout(JSON.parse(JSON.stringify(defaultLayout())));
+  it("doesn't add an on-demand panel back to a saved layout, but keeps one that was opened", () => {
+    const saved = parseLayout(JSON.parse(JSON.stringify(defaultLayout(sky))), sky);
     expect(saved!.docks.flatMap((d) => d.groups.flatMap((g) => g.panels))).not.toContain("sky");
-    const opened = parseLayout(JSON.parse(JSON.stringify(activatePanel(defaultLayout(), "sky"))));
+    const opened = parseLayout(JSON.parse(JSON.stringify(activatePanel(defaultLayout(sky), "sky", sky))), sky);
     expect(opened!.docks.flatMap((d) => d.groups.flatMap((g) => g.panels))).toContain("sky");
   });
 });
 
 describe("registered panels (ADR 0133)", () => {
-  const view = async () => () => null;
   const layoutPanels = (l: Layout) => l.docks.flatMap((d) => d.groups.flatMap((g) => g.panels));
-  const withPanel = async (c: PanelContribution, body: () => void | Promise<void>) => {
-    const off = panels.register(c);
-    try {
-      await body();
-    } finally {
-      off();
-    }
-  };
+  const withPanel = (c: Entry) => catalogOf(PARTICLE_GRAPH, SHADER_GRAPH, TILE_PALETTE, c);
 
-  it("lists a registered panel in allPanels with its title", async () => {
-    const { allPanels, panelTitle, isKnownPanel } = await import("./model");
-    expect(isKnownPanel("plug")).toBe(false);
-    await withPanel({ id: "plug", title: "Plug", view }, () => {
-      expect(allPanels()).toContain("plug");
-      expect(allPanels().slice(0, PANELS.length)).toEqual([...PANELS]);
-      expect(panelTitle("plug")).toBe("Plug");
-      expect(isKnownPanel("plug")).toBe(true);
-    });
-    expect(allPanels()).not.toContain("plug");
+  it("joins its beside group when first shown, and stays out of the default layout when onDemand", () => {
+    const c = withPanel({ id: "plug", title: "Plug", beside: "history", onDemand: true });
+    const l = defaultLayout(c);
+    expect(layoutPanels(l)).not.toContain("plug");
+    const shown = activatePanel(l, "plug", c);
+    const group = shown.docks.flatMap((d) => d.groups).find((g) => g.panels.includes("plug"))!;
+    expect(group.panels).toContain("history");
+    expect(group.active).toBe("plug");
+    expect(activatePanel(l, "plug")).toBe(l); // a type the catalog doesn't hold isn't opened
   });
 
-  it("joins its beside group when first shown, and stays out of the default layout when onDemand", async () => {
-    const { isOnDemand } = await import("./model");
-    await withPanel({ id: "plug", title: "Plug", view, beside: "history", onDemand: true }, () => {
-      expect(isOnDemand("plug")).toBe(true);
-      const l = defaultLayout();
-      expect(layoutPanels(l)).not.toContain("plug");
-      const shown = activatePanel(l, "plug");
-      const group = shown.docks.flatMap((d) => d.groups).find((g) => g.panels.includes("plug"))!;
-      expect(group.panels).toContain("history");
-      expect(group.active).toBe("plug");
-    });
+  it("adds a non-onDemand registered panel missing from a saved layout, beside its group", () => {
+    const c = withPanel({ id: "plug", title: "Plug", beside: "assets" });
+    const saved = parseLayout(JSON.parse(JSON.stringify(defaultLayout())), c)!;
+    const group = saved.docks.flatMap((d) => d.groups).find((g) => g.panels.includes("plug"))!;
+    expect(group.panels).toContain("assets");
   });
 
-  it("adds a non-onDemand registered panel missing from a saved layout, beside its group", async () => {
-    await withPanel({ id: "plug", title: "Plug", view, beside: "assets" }, () => {
-      const saved = parseLayout(JSON.parse(JSON.stringify(defaultLayout())))!;
-      const group = saved.docks.flatMap((d) => d.groups).find((g) => g.panels.includes("plug"))!;
-      expect(group.panels).toContain("assets");
-    });
+  it("puts a panel without a neighbour with the Inspector, or in the right dock's next group when it's closed", () => {
+    const c = withPanel({ id: "plug", title: "Plug" });
+    expect(defaultLayout(c).docks.find((d) => d.id === "right")!.groups[0]!.panels).toEqual(["inspector", "history", "worlds", "network", "project", "plug"]);
+    const noInspector = parseLayout(JSON.parse(JSON.stringify(closePanel(defaultLayout(), "inspector", editor))), c)!;
+    expect(where(noInspector, "plug").groups[0]!.panels).toEqual(["history", "worlds", "network", "project", "plug"]);
   });
 
-  it("keeps an unknown saved panel (a plugin that is off or gone) in place, titled from the layout's memory", async () => {
+  it("keeps an unknown saved panel (a plugin that is off or gone) in place, titled from the layout's memory", () => {
     const raw = JSON.parse(JSON.stringify(defaultLayout())) as Layout;
     raw.docks[0]!.groups[0]!.panels.push("gone");
     raw.instances.gone = { type: "gone.panel" };
     raw.panelInfo["gone.panel"] = { title: "Gone", plugin: "acme.gone", pluginTitle: "Acme Gone" };
-    const parsed = parseRaw(raw)!;
+    const parsed = parseRaw(raw, editor)!;
     expect(parsed.docks[0]!.groups[0]!.panels).toContain("gone");
     expect(typeOf(parsed, "gone")).toBe("gone.panel");
     expect(parsed.panelInfo["gone.panel"]).toEqual({ title: "Gone", plugin: "acme.gone", pluginTitle: "Acme Gone" });
-    const { instanceTitle } = await import("./model");
-    expect(instanceTitle(parsed, "gone")).toBe("Gone");
+    expect(instanceTitle(parsed, "gone", editor)).toBe("Gone");
+    expect(instanceTitle(parsed, "hierarchy", editor)).toBe("Hierarchy");
   });
 
-  it("keeps a saved registered panel while its plugin is registered", async () => {
-    await withPanel({ id: "plug", title: "Plug", view, onDemand: true }, () => {
-      const raw = JSON.parse(JSON.stringify(activatePanel(defaultLayout(), "plug")));
-      expect(layoutPanels(parseLayout(raw)!)).toContain("plug");
-    });
+  it("keeps a saved registered panel while its plugin is registered", () => {
+    const c = withPanel({ id: "plug", title: "Plug", onDemand: true });
+    const raw = JSON.parse(JSON.stringify(activatePanel(defaultLayout(c), "plug", c)));
+    expect(layoutPanels(parseLayout(raw, c)!)).toContain("plug");
   });
 });
 
@@ -488,7 +472,7 @@ describe("panel instances (ADR 0174)", () => {
   const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
   it("gives every panel in the default layout a UUID instance id mapped to its type", () => {
-    const l = defaultRaw();
+    const l = defaultRaw(editor);
     const ids = l.docks.flatMap((d) => d.groups.flatMap((g) => g.panels));
     expect(ids.every((id) => UUID.test(id))).toBe(true);
     expect(new Set(ids).size).toBe(ids.length);
@@ -498,7 +482,7 @@ describe("panel instances (ADR 0174)", () => {
 
   it("migrates a version-1 layout (groups listing types) to one instance per panel", () => {
     const v1 = { version: 1, docks: [{ id: "main", side: "left", size: 0, groups: [{ id: "g", panels: ["scene", "hierarchy"], active: "hierarchy" }], fractions: [1] }] };
-    const l = parseRaw(v1)!;
+    const l = parseRaw(v1, editor)!;
     expect(l.version).toBe(2);
     const group = l.docks[0]!.groups[0]!;
     expect(group.panels.slice(0, 2).map((id) => typeOf(l, id))).toEqual(["scene", "hierarchy"]);
@@ -508,49 +492,44 @@ describe("panel instances (ADR 0174)", () => {
 
   it("adds a second instance of a panel, which shows in the given group", () => {
     const l = defaultLayout();
-    const { layout: two, id } = addPanel(l, "hierarchy", "inspector");
+    const { layout: two, id } = addPanel(l, "hierarchy", editor, "inspector");
     expect(UUID.test(id)).toBe(true);
     expect(instancesOf(two, "hierarchy")).toEqual(["hierarchy", id]);
     const group = two.docks.flatMap((d) => d.groups).find((g) => g.id === "inspector")!;
     expect(group.panels.at(-1)).toBe(id);
     expect(group.active).toBe(id);
-    expect(addPanel(two, "hierarchy").layout.docks.find((d) => d.id === "left")!.groups[0]!.panels).toHaveLength(2); // no group: beside the first
+    expect(addPanel(two, "hierarchy", editor).layout.docks.find((d) => d.id === "left")!.groups[0]!.panels).toHaveLength(2); // no group: beside the first
   });
 
   it("never opens a second Scene view: adding it shows the open one", () => {
     const l = defaultLayout();
-    const { layout, id } = addPanel(l, "scene", "hierarchy");
+    const { layout, id } = addPanel(l, "scene", editor, "hierarchy");
     expect(id).toBe("scene");
     expect(instancesOf(layout, "scene")).toEqual(["scene"]);
   });
 
   it("closes a panel: the next tab shows, emptied groups and docks go, and the Scene view never closes", () => {
     const l = defaultLayout();
-    const closed = closePanel(l, "inspector");
+    const closed = closePanel(l, "inspector", editor);
     expect(instancesOf(closed, "inspector")).toEqual([]);
     expect(closed.instances.inspector).toBeUndefined();
     expect(closed.docks.find((d) => d.id === "right")!.groups[0]!.active).toBe("history");
-    const noLeft = closePanel(l, "hierarchy");
+    const noLeft = closePanel(l, "hierarchy", editor);
     expect(noLeft.docks.find((d) => d.id === "left")).toBeUndefined();
-    expect(closePanel(l, "scene")).toBe(l);
-    expect(closePanel(l, "nope")).toBe(l);
+    expect(closePanel(l, "scene", editor)).toBe(l);
+    expect(closePanel(l, "nope", editor)).toBe(l);
   });
 
   it("keeps a closed panel closed when the layout is read back, but adds a type it has never seen", async () => {
-    const closed = closePanel(defaultLayout(), "worlds");
+    const closed = closePanel(defaultLayout(), "worlds", editor);
     expect(instancesOf(parseLayout(JSON.parse(JSON.stringify(closed)))!, "worlds")).toEqual([]);
-    const view = async () => () => null;
-    const off = panels.register({ id: "brandnew", title: "New", view, beside: "assets" });
-    try {
-      expect(instancesOf(parseLayout(JSON.parse(JSON.stringify(closed)))!, "brandnew")).toHaveLength(1);
-    } finally {
-      off();
-    }
+    const brandNew = catalogOf(PARTICLE_GRAPH, SHADER_GRAPH, TILE_PALETTE, { id: "brandnew", title: "New", beside: "assets" });
+    expect(instancesOf(parseLayout(JSON.parse(JSON.stringify(closed)), brandNew)!, "brandnew")).toHaveLength(1);
   });
 
   it("shows a closed panel again (a new instance) when it's asked for by type", () => {
-    const closed = closePanel(defaultLayout(), "history");
-    const shown = activateRaw(closed, "history");
+    const closed = closePanel(defaultLayout(), "history", editor);
+    const shown = activateRaw(closed, "history", editor);
     const [id] = instancesOf(shown, "history");
     expect(id).toBeDefined();
     expect(shown.docks.flatMap((d) => d.groups).find((g) => g.panels.includes(id!))!.active).toBe(id);
@@ -558,37 +537,37 @@ describe("panel instances (ADR 0174)", () => {
 
   it("removes every instance of the given types", async () => {
     const { removePanelTypes } = await import("./model");
-    const { layout: two } = addPanel(defaultLayout(), "network", "hierarchy");
-    const removed = removePanelTypes(two, ["network"]);
+    const { layout: two } = addPanel(defaultLayout(), "network", editor, "hierarchy");
+    const removed = removePanelTypes(two, ["network"], editor);
     expect(instancesOf(removed, "network")).toEqual([]);
-    expect(removePanelTypes(removed, ["network"])).toBe(removed);
+    expect(removePanelTypes(removed, ["network"], editor)).toBe(removed);
   });
 
   it("compares layouts by panel types, ignoring instance ids and sizes", async () => {
     const { layoutShape } = await import("./model");
-    expect(layoutShape(defaultRaw())).toBe(layoutShape(defaultRaw()));
-    expect(layoutShape(resizeDock(defaultRaw(), "left", 400))).toBe(layoutShape(defaultRaw()));
-    expect(layoutShape(closePanel(defaultLayout(), "code"))).not.toBe(layoutShape(defaultRaw()));
+    expect(layoutShape(defaultRaw(editor))).toBe(layoutShape(defaultRaw(editor)));
+    expect(layoutShape(resizeDock(defaultRaw(editor), "left", 400))).toBe(layoutShape(defaultRaw(editor)));
+    expect(layoutShape(closePanel(defaultLayout(), "code", editor))).not.toBe(layoutShape(defaultRaw(editor)));
   });
 });
 
 describe("detached windows (ADR 0174)", () => {
   it("detaches a panel into a window of its own, and the rest of the model sees it there", async () => {
-    const { detachPanel, windowOf } = await import("./model");
+    const { windowOf } = await import("./model");
     const l = defaultLayout();
-    const { layout: d, windowId } = detachPanel(l, "inspector", { x: 10, y: 20, w: 400, h: 300 });
+    const { layout: d, windowId } = detachPanel(l, "inspector", editor, { x: 10, y: 20, w: 400, h: 300 });
     expect(windowId).not.toBeNull();
     expect(d.windows).toHaveLength(1);
     expect(windowOf(d, "inspector")?.id).toBe(windowId);
     expect(d.windows![0]!.bounds).toEqual({ x: 10, y: 20, w: 400, h: 300 });
     expect(instancesOf(d, "inspector")).toEqual(["inspector"]);
     expect(d.docks.flatMap((x) => x.groups.flatMap((g) => g.panels))).not.toContain("inspector");
-    expect(detachPanel(l, "scene").windowId).toBeNull(); // the Scene view stays in the main window
+    expect(detachPanel(l, "scene", editor).windowId).toBeNull(); // the Scene view stays in the main window
   });
 
   it("lays out, moves within and closes panels in a window through its view", async () => {
-    const { detachPanel, windowView, fromWindowView, MAIN_WINDOW, movePanelToWindow, closeWindow } = await import("./model");
-    const { layout: d, windowId } = detachPanel(defaultLayout(), "inspector");
+    const { windowView, fromWindowView, MAIN_WINDOW, movePanelToWindow, closeWindow } = await import("./model");
+    const { layout: d, windowId } = detachPanel(defaultLayout(), "inspector", editor);
     const view = windowView(d, windowId!)!;
     expect(view.docks.flatMap((x) => x.groups.flatMap((g) => g.panels))).toEqual(["inspector"]);
     // Drop History (from the main window) onto the window's group, in the window's view.
@@ -597,19 +576,18 @@ describe("detached windows (ADR 0174)", () => {
     expect(moved.windows![0]!.docks[0]!.groups[0]!.panels).toEqual(["inspector", "history"]);
     expect(moved.docks.flatMap((x) => x.groups.flatMap((g) => g.panels))).not.toContain("history");
     // Back to the main window.
-    const back = movePanelToWindow(moved, "history", MAIN_WINDOW);
+    const back = movePanelToWindow(moved, "history", MAIN_WINDOW, editor);
     expect(back.windows![0]!.docks[0]!.groups[0]!.panels).toEqual(["inspector"]);
     // Closing the window's last panel closes the window.
-    expect(closePanel(back, "inspector").windows).toBeUndefined();
+    expect(closePanel(back, "inspector", editor).windows).toBeUndefined();
     // Closing the window closes its panels.
-    const closed = closeWindow(moved, windowId!);
+    const closed = closeWindow(moved, windowId!, editor);
     expect(closed.windows).toBeUndefined();
     expect(instancesOf(closed, "history")).toEqual([]);
   });
 
   it("saves windows with the layout and reads them back; a Scene view in a window goes back to the main one", async () => {
-    const { detachPanel } = await import("./model");
-    const { layout: d } = detachPanel(defaultLayout(), "inspector", { x: 1, y: 2, w: 3, h: 4 });
+    const { layout: d } = detachPanel(defaultLayout(), "inspector", editor, { x: 1, y: 2, w: 3, h: 4 });
     const back = parseLayout(JSON.parse(JSON.stringify(d)))!;
     expect(back.windows![0]!.docks[0]!.groups[0]!.panels).toEqual(["inspector"]);
     expect(back.windows![0]!.bounds).toEqual({ x: 1, y: 2, w: 3, h: 4 });
@@ -618,6 +596,47 @@ describe("detached windows (ADR 0174)", () => {
     for (const dock of hacked.docks) for (const g of dock.groups) g.panels = g.panels.filter((p) => p !== "scene");
     const fixed = parseLayout(hacked)!;
     expect(instancesOf(fixed, "scene")).toHaveLength(1);
+    expect(fixed.windows![0]!.docks[0]!.groups[0]!.panels).toEqual(["inspector"]);
+  });
+});
+
+describe("the panel catalog's facts (ADR 0182)", () => {
+  it("builds the default layout from each panel's dock, whatever the panels are", () => {
+    const c = panelCatalog([
+      { id: "view", title: "View", dock: "fill" },
+      { id: "tree", title: "Tree", dock: "left" },
+      { id: "props", title: "Props", dock: "left" },
+      { id: "log", title: "Log", beside: "tree" },
+    ]);
+    expect(sides(defaultLayout(c))).toEqual(["left:tree+log+props", "left:view"]);
+    expect(defaultRaw(new Map()).docks).toEqual([]);
+    expect(openTypes(addPanel(defaultRaw(new Map()), "x", c).layout)).toEqual(["x"]); // an empty layout gets a dock for it
+  });
+
+  it("keeps a panel that can't close in the layout: closing does nothing, and a saved layout missing it gets it back", () => {
+    const pinned = catalogOf(PARTICLE_GRAPH, SHADER_GRAPH, TILE_PALETTE, { id: "pinned", title: "Pinned", beside: "assets", closable: false });
+    const l = defaultLayout(pinned);
+    expect(closePanel(l, "pinned", pinned)).toBe(l);
+    const without = JSON.parse(JSON.stringify(l)) as Layout;
+    for (const d of without.docks) for (const g of d.groups) g.panels = g.panels.filter((p) => p !== "pinned");
+    expect(where(parseLayout(without, pinned)!, "pinned").groups[0]!.panels).toContain("assets"); // though the layout knows it
+    expect(instancesOf(parseLayout(without, editor)!, "pinned")).toEqual([]); // a plain panel stays closed
+  });
+
+  it("holds a hand-edited file to the single and detachable facts of any panel, not only the Scene view's", () => {
+    const strict = catalogOf(PARTICLE_GRAPH, SHADER_GRAPH, TILE_PALETTE, { id: "solo", title: "Solo", beside: "assets", single: true, detachable: false });
+    const l = defaultLayout(strict);
+    const shown = addPanel(l, "solo", strict); // single: shows the open one
+    expect(shown.id).toBe("solo");
+    expect(instancesOf(shown.layout, "solo")).toEqual(["solo"]);
+    expect(detachPanel(l, "solo", strict).windowId).toBeNull();
+    const hacked = JSON.parse(JSON.stringify(detachPanel(l, "inspector", strict).layout)) as Layout;
+    hacked.instances.solo2 = { type: "solo" };
+    hacked.instances.solo3 = { type: "solo" };
+    hacked.docks[0]!.groups[0]!.panels.push("solo2");
+    hacked.windows![0]!.docks[0]!.groups[0]!.panels.push("solo3");
+    const fixed = parseLayout(hacked, strict)!;
+    expect(instancesOf(fixed, "solo")).toEqual(["solo"]);
     expect(fixed.windows![0]!.docks[0]!.groups[0]!.panels).toEqual(["inspector"]);
   });
 });

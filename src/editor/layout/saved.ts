@@ -4,6 +4,7 @@
 // next save branches from there. Nothing is deleted except the oldest versions past `MAX_VERSIONS`
 // (never `head`; old branches before head's own line). A layout can live in the project (`.layouts/`), in per-user
 // storage, or both; `mergeSaved` lists each file name once, with the newer copy.
+import type { PanelCatalog } from "./catalog";
 import { layoutShape, parseLayout, type Layout } from "./model";
 
 export const LAYOUT_FORMAT = "myco.layout@1";
@@ -70,10 +71,11 @@ export function versionOf(file: LayoutFile, seq = file.head): LayoutVersion | un
   return file.versions.find((v) => v.seq === seq);
 }
 
-/** The layout a version holds, checked and brought up to date (`parseLayout`), or null when it's unreadable. */
-export function layoutOf(file: LayoutFile, seq = file.head): Layout | null {
+/** The layout a version holds, checked and brought up to date against `catalog` (`parseLayout`), or null when it's unreadable. */
+export function layoutOf(file: LayoutFile, catalog: PanelCatalog, seq = file.head): Layout | null {
   const v = versionOf(file, seq);
-  return v ? parseLayout(v.layout) : null;
+  return v ? parseLayout(v.layout, catalog) : null;
+
 }
 
 /**
@@ -165,7 +167,7 @@ export function scopeLabel(scopes: readonly LayoutScope[]): string {
 }
 
 /** True when `layout` arranges the same panel types as the file's head (sizes and instance ids aside): not modified. */
-export function matchesHead(file: LayoutFile, layout: Layout): boolean {
-  const head = layoutOf(file);
+export function matchesHead(file: LayoutFile, layout: Layout, catalog: PanelCatalog): boolean {
+  const head = layoutOf(file, catalog);
   return head !== null && layoutShape(head) === layoutShape(layout);
 }

@@ -9,7 +9,8 @@ import { pluginTitle, type PluginManifest } from "../../plugins/manifest";
 import { disabledPluginsOf, type SettingsDraft } from "../projectSettingsModel";
 import { switchPlugin, type PluginSwitchAnswer, type PluginSwitchQuestion } from "../pluginSwitch";
 import { confirmInEditor } from "./ConfirmDialog";
-import { panelTitle } from "../layout/model";
+import { panelTitle } from "../layout/catalog";
+import { registeredPanels } from "../layout/registeredPanels";
 
 type Set = (label: string, next: SettingsDraft) => void;
 
@@ -50,7 +51,8 @@ export function PluginsSection(props: { draft: SettingsDraft; set: Set }) {
         `${q.layouts.length === 1 ? "A layout shows" : `${q.layouts.length} layouts show`} panels from ${q.turningOff.length === 1 ? "this plugin" : "these plugins"}. ` +
         "Kept, they stay where they are and say which plugin brings them back; removed, saved layouts get a new version without them (the old one stays in Manage Layouts)." +
         (fixed.length > 0 ? ` Read-only project layouts keep them: ${fixed.map((l) => l.name).join(", ")}.` : ""),
-      items: q.layouts.map((l) => `${l.name}: ${l.types.map((t) => panelTitle(t)).join(", ")}`),
+      items: q.layouts.map((l) => `${l.name}: ${l.types.map((t) => panelTitle(registeredPanels(), t)).join(", ")}`),
+
       optionLabel: "Remove these panels from the layouts",
       confirmLabel: "Turn off",
       danger: false,

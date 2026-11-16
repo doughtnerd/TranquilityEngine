@@ -3,7 +3,9 @@
 // one of each ticked type, into the header's group when opened from a header menu, else to each
 // panel's usual place; the last one added shows.
 import { useEffect, useRef, useState } from "preact/hooks";
-import { allPanels, instancesOf, isSinglePanel, panelTitle, type PanelId } from "../layout/model";
+import { isSinglePanel, panelTitle } from "../layout/catalog";
+import { instancesOf, type PanelId } from "../layout/model";
+import { registeredPanels } from "../layout/registeredPanels";
 import { addPanelRequest, addPanels, layout } from "../layout/store";
 
 /** The dialog; `inWindow` is the detached window rendering it (each window shows its own requests). */
@@ -18,7 +20,8 @@ export function AddPanelDialog(props: { inWindow?: string }) {
   }, [request]);
   if (!request) return null;
   const current = layout.value;
-  const types = allPanels().filter((t) => !(isSinglePanel(t) && instancesOf(current, t).length > 0));
+  const catalog = registeredPanels();
+  const types = [...catalog.keys()].filter((t) => !(isSinglePanel(catalog, t) && instancesOf(current, t).length > 0));
   const close = (add: boolean) => {
     addPanelRequest.value = null;
     if (add && ticked.size > 0) addPanels(types.filter((t) => ticked.has(t)), request.group);
@@ -57,7 +60,8 @@ export function AddPanelDialog(props: { inWindow?: string }) {
               <li key={t}>
                 <input id={id} ref={i === 0 ? first : undefined} type="checkbox" data-panel-type={t} checked={ticked.has(t)} onChange={(e) => toggle(t, (e.currentTarget as HTMLInputElement).checked)} />
                 <label for={id}>
-                  {panelTitle(t)}
+                  {panelTitle(catalog, t)}
+
                   {open > 0 && <span class="add-panel-note">{open === 1 ? "open (adds another)" : `${open} open (adds another)`}</span>}
                 </label>
               </li>

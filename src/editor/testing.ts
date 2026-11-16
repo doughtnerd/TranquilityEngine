@@ -1,9 +1,12 @@
 // Test helpers for editor tests (not part of the editor build): the Flappy sample's files, with
-// its types registered (sampleTypes.ts), and the core asset kinds (`useCoreAssetKinds`).
+// its types registered (sampleTypes.ts), the core asset kinds (`useCoreAssetKinds`) and the built-in panels
+// (`useBuiltinPanels`).
 import type { AssetSource, ProjectSettingsInput } from "../engine";
 import { afterAll, beforeAll } from "vitest";
 import "./sampleTypes";
 import { registerCoreAssetKinds } from "./assetKinds.builtin";
+import { resetLayout } from "./layout/store";
+import { registerBuiltinPanels } from "./ui/panels.builtin";
 import { MemoryFileSystem } from "./memoryFs";
 import { editorSettings, joinPath, openFolderProject, readOnlyProject, type EditorProject } from "./projects";
 import { currentProject, select, status } from "./state";
@@ -90,6 +93,22 @@ export function useCoreAssetKinds(): void {
   let undo: (() => void) | null = null;
   beforeAll(() => {
     undo = registerCoreAssetKinds();
+  });
+  afterAll(() => {
+    undo?.();
+    undo = null;
+  });
+}
+
+/**
+ * Register the built-in panels (ADR 0182) for every test in the calling file, as `corePanels.ts` does at
+ * boot, and start from the default layout (the layout store read storage before they were registered).
+ */
+export function useBuiltinPanels(): void {
+  let undo: (() => void) | null = null;
+  beforeAll(() => {
+    undo = registerBuiltinPanels();
+    resetLayout();
   });
   afterAll(() => {
     undo?.();
