@@ -5,13 +5,13 @@
 import { describe, expect, it } from "vitest";
 import {
   BUS_RULES, FALLBACK_LIVE_CAPS, MAX_BUSES, MAX_CORE_BUS_EFFECTS, atBusLimit, reasonMessage, type BusRule,
-} from "../../../../engine/audio/busCapability";
-import { Mixer, type MixOpTarget } from "../../../../engine/audio/mixer";
-import { opRefusal, type ApplyResult, type MixOp } from "../../../../engine/audio/mixOps";
-import { parseAudioSettings, type BusEffect } from "../../../../engine/audio/settings";
-import { settingsProblems, settingsWarnings } from "../../../../editor/projectSettingsModel";
-import { BUS_SLOT_MAX_EFFECTS } from "../wire.generated";
-import { CoreBackend } from "./coreBackend";
+} from "../../../engine/audio/busCapability";
+import { Mixer, type MixOpTarget } from "../../../engine/audio/mixer";
+import { opRefusal, type ApplyResult, type MixOp } from "../../../engine/audio/mixOps";
+import { parseAudioSettings, type BusEffect } from "../../../engine/audio/settings";
+import { settingsProblems, settingsWarnings } from "../../../editor/projectSettingsModel";
+import { BUS_SLOT_MAX_EFFECTS } from "../runtime/wire.generated";
+import { CoreBackend } from "../runtime/core/coreBackend";
 
 /** A core backend with a recording link (no wasm) over its own mixer holding `audio`. */
 function coreRig(audio: object) {

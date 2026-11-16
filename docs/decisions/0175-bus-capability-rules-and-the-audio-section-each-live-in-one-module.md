@@ -69,4 +69,4 @@ A plugin-side test asserts `BUS_SLOT_MAX_EFFECTS` (the wire, generated from Rust
 
 ## References
 
-`src/engine/audio/busCapability.ts`, `src/engine/audio/audioSection.ts`, `src/engine/audio/mixer.ts` (`apply`, `MixOpTarget`), `src/plugins/audio/runtime/core/liveMix.ts`, `src/plugins/audio/runtime/babylonBackend.ts` (`sendOp`); tests `src/plugins/audio/runtime/core/busCapability.table.test.ts`, `src/engine/audio/mixer.pipeline.test.ts`, `src/engine/audio/audioSection.test.ts`.
+`src/engine/audio/busCapability.ts`, `src/engine/audio/audioSection.ts`, `src/engine/audio/mixer.ts` (`apply`, `MixOpTarget`), `src/plugins/audio/runtime/core/liveMix.ts`, `src/plugins/audio/runtime/babylonBackend.ts` (`sendOp`); tests `src/plugins/audio/editor/busCapability.table.test.ts`, `src/engine/audio/mixer.pipeline.test.ts`, `src/engine/audio/audioSection.test.ts`.
