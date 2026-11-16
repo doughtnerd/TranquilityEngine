@@ -5,13 +5,14 @@
 // reads a wall clock.
 import { describe, expect, it, vi } from "vitest";
 import { deflateRawSync } from "node:zlib";
-import type { VNode } from "preact";
+import { h } from "preact";
+import { byClass, find, render } from "../../../../editor/testRender";
 import { CAPTURE_ABI_VERSION, CAPTURE_FLAG_COMPRESSED, CAPTURE_HEADER_BYTES, CAPTURE_MAX_UNCOMPRESSED_BYTES, CAPTURE_META_MAX_BYTES, assembleCapture } from "../../runtime/capture/format";
 import { SAMPLE_HEADER, SAMPLE_META, sampleCapture } from "../../runtime/capture/testSupport";
 import type { AudioCapture } from "../../runtime/capture/capture";
 import { CaptureSource, type CaptureWorkerLike, type ProfileSource } from "./profilerSource";
 import { createCaptureWorkerHandler, type CaptureRequest, type CaptureResponse } from "../../runtime/capture/worker";
-import { ProfilerChrome, ProfilerController, profilerSlots, type BarSlotProps, type ProfilerDeps, type ProfilerSlots } from "./ProfilerPanel";
+import { ProfilerController, ProfilerPanel, profilerSlots, type BarSlotProps, type ProfilerDeps, type ProfilerSlots } from "./ProfilerPanel";
 import { OPEN_REFUSALS, installOpenCapture, type CaptureFileLike } from "./openCapture";
 
 // The banners' words.
@@ -44,8 +45,8 @@ function inProcessWorker(): CaptureWorkerLike {
   return w;
 }
 
-// The bar is a component (it holds the file input in a ref); with no DOM here its tree is built by calling it, ref stubbed.
-vi.mock("preact/hooks", async (importOriginal) => ({ ...(await importOriginal<typeof import("preact/hooks")>()), useRef: () => ({ current: null }) }));
+// The panel is rendered with its hooks and no DOM (`testRender`).
+vi.mock("preact/hooks", () => import("../../../../editor/testRender"));
 
 /** The largest file the route reads: the header, a META chunk and an uncompressed payload at its cap. */
 const OPEN_MAX_FILE_BYTES = CAPTURE_HEADER_BYTES + CAPTURE_META_MAX_BYTES + CAPTURE_MAX_UNCOMPRESSED_BYTES;
@@ -225,52 +226,43 @@ describe("drop and Open reach the same controller path", () => {
     expect(await isCaptureFileName("mycap")).toBe(false);
   });
 
-  it("both fill from profilerSlots.onDropFile: a drop on the chrome and the bar's file input open the same capture; uninstall restores", async () => {
-    const original = profilerSlots.onDropFile;
+  it("both fill from profilerSlots.onDropFile: a drop on the panel and the bar's file input open the same capture; uninstall restores", async () => {
+    const original = { ...profilerSlots };
     const undo = installOpenCapture(profilerSlots);
+    // The registered panel over its real deps: each open spawns a capture Worker, here the real handler in process.
+    let opened = 0;
+    vi.stubGlobal("Worker", class { constructor() { opened++; return inProcessWorker(); } });
+    let bar: BarSlotProps | null = null;
+    profilerSlots.bar = (p) => ((bar = p), h(original.bar, p));
+    const panel = render(() => h(ProfilerPanel, {}));
     try {
-      expect(profilerSlots.onDropFile).not.toBe(original);
-      const openedBy: string[] = [];
-      const c = new ProfilerController(deps({ openCapture: async (b, s) => { openedBy.push("open"); return realOpen(b); } }));
+      expect(profilerSlots.onDropFile).not.toBe(original.onDropFile);
+      const tree = () => panel.tree();
+      const controller = (): ProfilerController => (tree(), bar!.controller);
       // The drop.
-      const chrome = ProfilerChrome({ controller: c, view: c.view }) as VNode<{ onDrop: (e: unknown) => void }>;
-      chrome.props.onDrop({ preventDefault() {}, dataTransfer: { files: [fileOf("d.mycap", good())] } });
-      await vi.waitFor(() => expect(c.view.source).not.toBeNull());
-      expect(c.view.fileName).toBe("d.mycap");
-      c.closeFile();
-      // Open: the bar's input, found in the rendered tree, calls the same slot.
-      const bar = (profilerSlots.bar as (p: BarSlotProps) => VNode)({ view: c.view, controller: c } as BarSlotProps);
-      const input = findInput(bar);
-      expect(input).not.toBeNull();
-      const picked = fileOf("p.mycap", good());
-      input!.onChange({ currentTarget: { files: [picked], value: "x" } });
-      await vi.waitFor(() => expect(c.view.source).not.toBeNull());
-      expect(c.view.fileName).toBe("p.mycap");
-      expect(openedBy).toEqual(["open", "open"]);
+      (find(tree(), byClass("profiler"))[0]!.props.onDrop as (e: unknown) => void)({ preventDefault() {}, dataTransfer: { files: [fileOf("d.mycap", good())] } });
+      await vi.waitFor(() => expect(controller().view.source).not.toBeNull());
+      expect(controller().view.fileName).toBe("d.mycap");
+      controller().closeFile();
+      // Open: the bar's file input, found in the rendered tree, calls the same slot.
+      const input = () => find(tree(), (n) => n.type === "input" && n.props.type === "file")[0]!.props.onChange as (e: unknown) => void;
+      input()({ currentTarget: { files: [fileOf("p.mycap", good())], value: "x" } });
+      await vi.waitFor(() => expect(controller().view.source).not.toBeNull());
+      expect(controller().view.fileName).toBe("p.mycap");
+      expect(opened).toBe(2);
       // A non-capture through Open gets the same refusal as through the drop.
-      input!.onChange({ currentTarget: { files: [fileOf("x.wav", new ArrayBuffer(0))], value: "x" } });
-      await vi.waitFor(() => expect(ids(c)).toContain("error"));
-      expect(textOf(c, "error")).toContain("notCapture");
-      c.dispose();
+      input()({ currentTarget: { files: [fileOf("x.wav", new ArrayBuffer(0))], value: "x" } });
+      await vi.waitFor(() => expect(ids(controller())).toContain("error"));
+      expect(textOf(controller(), "error")).toContain("notCapture");
     } finally {
+      panel.unmount();
+      vi.unstubAllGlobals();
       undo();
+      profilerSlots.bar = original.bar;
     }
-    expect(profilerSlots.onDropFile).toBe(original);
+    expect(profilerSlots.onDropFile).toBe(original.onDropFile);
   });
 });
-
-type InputProps = { type?: string; onChange: (e: unknown) => void };
-function findInput(node: unknown): InputProps | null {
-  const n = node as { type?: unknown; props?: { children?: unknown } & InputProps } | null | undefined;
-  if (!n || typeof n !== "object") return null;
-  if (n.type === "input" && n.props?.type === "file") return n.props;
-  const kids = n.props?.children;
-  for (const k of Array.isArray(kids) ? kids : [kids]) {
-    const r = findInput(k);
-    if (r) return r;
-  }
-  return null;
-}
 
 describe("a capture saved on desktop or Android (Tauri Storage adds .bin)", () => {
   it("accepts name.mycap.bin, and still refuses other .bin files", async () => {

@@ -1,12 +1,17 @@
-// ADR 0171/0172 (Pf8; api-and-models §7): the bar slot's tree. Labels on every control (the test walks the vnode tree),
-// the open progress and Cancel, the legend, Open through X2's `onDropFile`, and no colour literals in Pf8's files.
+// ADR 0171/0172 (Pf8; api-and-models §7): the bar slot, rendered with its hooks (`testRender`, no DOM) over a real
+// controller and the shared `profilerFlow`. Labels on every control (the test walks the rendered tree), the open
+// progress and Cancel, the legend, Open clicking the file input, a chosen file going through X2's `onDropFile`, and no
+// colour literals in Pf8's files.
 import { readFileSync } from "node:fs";
-import { describe, expect, it, vi } from "vitest";
-import type { ComponentChild, VNode } from "preact";
+import { h } from "preact";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { find, render, type HostNode, type Rendered } from "../../../../editor/testRender";
 import { ProfilerController, profilerSlots, type ProfilerDeps, type ProfilerView } from "./ProfilerPanel";
-import { BarView, chooseFile, flowInput, type BarViewProps } from "./ProfilerBar";
+import { ProfilerBar } from "./ProfilerBar";
 import { KEY_BINDINGS } from "./profilerKeys";
-import { OpenSaveFlow, describeFlow } from "./openSaveFlow";
+import { profilerFlow } from "./openSaveFlow";
+
+vi.mock("preact/hooks", () => import("../../../../editor/testRender"));
 
 const deps: ProfilerDeps = {
   capture: { state: "idle", seconds: 0, bytes: 0, truncated: false, start: async () => {}, stop() {}, mark() {}, save: async () => "x" } as unknown as ProfilerDeps["capture"],
@@ -17,25 +22,27 @@ const deps: ProfilerDeps = {
   playing: () => false,
 };
 
-type Node = VNode<Record<string, unknown>>;
+type Node = HostNode;
 
-/** Every intrinsic element in a vnode tree. */
-function elements(n: ComponentChild): Node[] {
-  if (n === null || n === undefined || typeof n !== "object") return [];
-  if (Array.isArray(n)) return n.flatMap(elements);
-  const v = n as Node;
-  const out: Node[] = typeof v.type === "string" ? [v] : [];
-  return out.concat(elements(v.props?.children as ComponentChild));
-}
+const mounted: Rendered[] = [];
+afterEach(() => {
+  while (mounted.length) mounted.pop()!.unmount();
+  profilerFlow.reset();
+});
 
-function props(view: ProfilerView, over: Partial<BarViewProps> = {}): BarViewProps {
-  const flow = new OpenSaveFlow();
-  return {
-    view,
-    status: describeFlow(flow.state, flowInput(view)),
-    onRecord: () => {}, onStop: () => {}, onSave: () => {}, onOpen: () => {}, onCancel: () => {}, onFile: () => {},
-    ...over,
-  };
+/**
+ * The bar for `view` over `controller`; `elements()` renders it and lists every host element. The file input's ref gets
+ * a stand-in that counts clicks; the bar's root finds no panel around it (`closest` answers null), as outside a panel.
+ */
+function bar(view: ProfilerView, controller: ProfilerController) {
+  const props = { view, controller };
+  const clicks = { input: 0 };
+  const r = render(() => h(ProfilerBar, props), {
+    host: (type) => (type === "input" ? { value: "", click: () => void clicks.input++ } : { closest: () => null }),
+  });
+  mounted.push(r);
+  const elements = (): Node[] => find(r.tree(), () => true);
+  return { props, clicks, elements, by: (action: string) => elements().find((e) => e.props["data-action"] === action) };
 }
 
 const CONTROLS = new Set(["button", "input", "progress", "canvas", "select", "textarea"]);
@@ -47,24 +54,21 @@ describe("accessibility labels", () => {
   const opening: ProfilerView = { ...idle, busy: "opening", fileName: "a.mycap" };
   const saving: ProfilerView = { ...idle, busy: "saving" };
 
-  for (const [name, view, flowState] of [["idle", idle, null], ["opening", opening, "open"], ["saving", saving, "save"]] as const) {
+  for (const [name, view] of [["idle", idle], ["opening", opening], ["saving", saving]] as const) {
     it(`${name}: every control, list and landmark in the bar has an aria-label`, () => {
-      const flow = new OpenSaveFlow();
-      if (flowState) flow.begin(flowState, "a.mycap");
-      const tree = BarView(props(view, { status: describeFlow(flow.state, flowInput(view)) }));
-      const els = elements(tree);
+      const els = bar(view, c).elements();
       expect(els.length).toBeGreaterThan(8);
       for (const e of els) {
         const role = e.props.role as string | undefined;
-        if (CONTROLS.has(e.type as string) || (role && REGIONS.has(role)) || e.type === "ul" || e.type === "kbd") {
-          expect(e.props["aria-label"], `${String(e.type)} ${String(role ?? "")}`).toBeTruthy();
+        if (CONTROLS.has(e.type) || (role && REGIONS.has(role)) || e.type === "ul" || e.type === "kbd") {
+          expect(e.props["aria-label"], `${e.type} ${String(role ?? "")}`).toBeTruthy();
         }
       }
     });
   }
 
   it("the toolbar carries a label and its buttons name their action", () => {
-    const els = elements(BarView(props(idle)));
+    const els = bar(idle, c).elements();
     const labels = Object.fromEntries(els.filter((e) => e.type === "button").map((e) => [e.props["data-action"] as string, e.props["aria-label"] as string]));
     expect(labels).toEqual({ record: "Record a capture", stop: "Stop recording", save: "Save the capture", open: "Open a capture file" });
     expect(els.find((e) => e.props.role === "toolbar")!.props["aria-label"]).toBe("Capture");
@@ -74,78 +78,77 @@ describe("accessibility labels", () => {
 describe("the bar's open and save experience", () => {
   const c = new ProfilerController(deps);
 
-  it("an open shows a Cancel button and a labelled progress bar; idle shows neither", () => {
-    const opening = elements(BarView(props({ ...c.view, busy: "opening", fileName: "a.mycap" }, { status: { phase: "running", kind: "open", text: "Unpacking a.mycap 25%", fraction: 0.25, cancellable: true, severity: "info" } })));
-    expect(opening.some((e) => e.props["data-action"] === "cancel")).toBe(true);
-    const p = opening.find((e) => e.type === "progress")!;
+  it("an open shows a Cancel button and a labelled progress bar that follows the reports; idle shows neither", () => {
+    const b = bar({ ...c.view, busy: "opening", fileName: "a.mycap" }, c);
+    expect(b.by("cancel")).toBeDefined();
+    profilerFlow.progress("inflate", 1, 2); // half of the first half
+    const els = b.elements();
+    const p = els.find((e) => e.type === "progress")!;
     expect(p.props.value).toBe(0.25);
     expect(p.props["aria-label"]).toBe("Open progress");
-    const idle = elements(BarView(props(c.view)));
+    expect(els.find((e) => e.props.role === "status")!.props.children).toBe("Unpacking a.mycap 25%");
+    profilerFlow.reset();
+    const idle = bar(c.view, c).elements();
     expect(idle.some((e) => e.props["data-action"] === "cancel" || e.type === "progress")).toBe(false);
   });
 
   it("an open before its first report is an indeterminate bar (no value); a save is one too, labelled as a save", () => {
-    const open = elements(BarView(props({ ...c.view, busy: "opening" }, { status: { phase: "running", kind: "open", text: "Opening", fraction: null, cancellable: true, severity: "info" } })));
+    const open = bar({ ...c.view, busy: "opening" }, c).elements();
     expect("value" in open.find((e) => e.type === "progress")!.props).toBe(false);
-    const save = elements(BarView(props({ ...c.view, busy: "saving" }, { status: { phase: "running", kind: "save", text: "Saving", fraction: null, cancellable: false, severity: "info" } })));
+    const save = bar({ ...c.view, busy: "saving" }, c).elements();
     const p = save.find((e) => e.type === "progress")!;
     expect(p.props["aria-label"]).toBe("Save progress");
     expect("value" in p.props).toBe(false);
     expect(save.some((e) => e.props["data-action"] === "cancel")).toBe(false);
   });
 
-  it("Open, Record and Save are off while busy; Cancel and Open call their handlers", () => {
-    const onCancel = vi.fn();
-    const onOpen = vi.fn();
-    const busy = elements(BarView(props({ ...c.view, busy: "opening" }, { onCancel, onOpen })));
-    const by = (a: string) => busy.find((e) => e.props["data-action"] === a)!;
-    expect(by("open").props.disabled).toBe(true);
-    expect(by("record").props.disabled).toBe(true);
-    expect(by("save").props.disabled).toBe(true);
-    (by("cancel").props.onClick as () => void)();
-    expect(onCancel).toHaveBeenCalledTimes(1);
-    const open = elements(BarView(props(c.view, { onOpen }))).find((e) => e.props["data-action"] === "open")!;
-    expect(open.props.disabled).toBe(false);
-    (open.props.onClick as () => void)();
-    expect(onOpen).toHaveBeenCalledTimes(1);
+  it("Open, Record and Save are off while busy; Cancel cancels the flow and the open; Open clicks the file input", () => {
+    const cancelOpen = vi.spyOn(c, "cancelOpen");
+    const busy = bar({ ...c.view, busy: "opening" }, c);
+    expect(busy.by("open")!.props.disabled).toBe(true);
+    expect(busy.by("record")!.props.disabled).toBe(true);
+    expect(busy.by("save")!.props.disabled).toBe(true);
+    expect(profilerFlow.state.phase).toBe("running");
+    (busy.by("cancel")!.props.onClick as () => void)();
+    expect(cancelOpen).toHaveBeenCalledTimes(1);
+    expect(profilerFlow.state.phase).toBe("cancelled");
+    cancelOpen.mockRestore();
+    const idle = bar(c.view, c);
+    expect(idle.by("open")!.props.disabled).toBe(false);
+    (idle.by("open")!.props.onClick as () => void)();
+    expect(idle.clicks.input).toBe(1);
   });
 
   it("the status line shows the flow's text in a polite live region", () => {
-    const els = elements(BarView(props(c.view, { status: { phase: "failed", kind: "save", text: "disk full", fraction: undefined, cancellable: false, severity: "error" } })));
+    const els = bar({ ...c.view, flowError: "disk full" }, c).elements();
     const s = els.find((e) => e.props["aria-live"] === "polite")!;
     expect(s.props.children).toBe("disk full");
     expect(s.props["data-severity"]).toBe("error");
   });
 
   it("the legend lists every key with its label", () => {
-    const items = elements(BarView(props(c.view))).filter((e) => e.type === "li");
+    const items = bar(c.view, c).elements().filter((e) => e.type === "li");
     expect(items.map((e) => e.props["data-key"])).toEqual(KEY_BINDINGS.map((b) => b.id));
   });
 
-  it("choosing a file clears the input and goes through profilerSlots.onDropFile (X2's route)", () => {
+  it("a chosen file clears the input, resets the last outcome and goes through profilerSlots.onDropFile (X2's route)", () => {
     const seen: string[] = [];
     const original = profilerSlots.onDropFile;
     profilerSlots.onDropFile = (_c, f) => void seen.push(f.name);
     try {
-      const input = { value: "C:\\a.mycap" };
-      chooseFile(c, { name: "a.mycap", arrayBuffer: async () => new ArrayBuffer(0) } as unknown as File, input, new OpenSaveFlow());
-      expect(input.value).toBe("");
+      profilerFlow.begin("save");
+      profilerFlow.fail();
+      const input = bar(c.view, c).elements().find((e) => e.type === "input")!;
+      const el = { files: [{ name: "a.mycap" }], value: "C:\\a.mycap" };
+      (input.props.onChange as (e: unknown) => void)({ currentTarget: el });
+      expect(el.value).toBe("");
       expect(seen).toEqual(["a.mycap"]);
+      expect(profilerFlow.state.phase).toBe("idle");
+      (input.props.onChange as (e: unknown) => void)({ currentTarget: { files: [], value: "" } });
+      expect(seen).toEqual(["a.mycap"]); // no file chosen: nothing routed
     } finally {
       profilerSlots.onDropFile = original;
     }
-  });
-
-  it("the file input routes its chosen file to onFile", () => {
-    const onFile = vi.fn();
-    const input = elements(BarView(props(c.view, { onFile }))).find((e) => e.type === "input")!;
-    const f = { name: "b.mycap" } as File;
-    const el = { files: [f] } as unknown as HTMLInputElement;
-    (input.props.onChange as (e: unknown) => void)({ currentTarget: el });
-    expect(onFile).toHaveBeenCalledWith(f, el);
-    onFile.mockClear();
-    (input.props.onChange as (e: unknown) => void)({ currentTarget: { files: [] } });
-    expect(onFile).not.toHaveBeenCalled();
   });
 });
 

@@ -668,8 +668,9 @@ function Timeline({ controller, view }: { controller: ProfilerController; view: 
   );
 }
 
-/** The chrome as a pure function of the view: the tests walk this tree; the stateful wrapper below feeds it. */
-export function ProfilerChrome({ controller, view, slots = profilerSlots }: { controller: ProfilerController; view: ProfilerView; slots?: ProfilerSlots }): ComponentChild {
+/** The chrome as a pure function of the view; the stateful wrapper below feeds it. */
+function ProfilerChrome({ controller, view }: { controller: ProfilerController; view: ProfilerView }): ComponentChild {
+  const slots = profilerSlots;
   const Bar = slots.bar;
   const Banners = slots.banners;
   const Tables = slots.tables;

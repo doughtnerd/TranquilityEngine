@@ -6,12 +6,12 @@
 import type { ComponentChild } from "preact";
 import { useEffect, useReducer, useRef } from "preact/hooks";
 import { profilerSlots, type BarSlotProps, type ProfilerController, type ProfilerView } from "./ProfilerPanel";
-import { describeFlow, profilerFlow, syncFlow, type FlowStatus, type FlowViewInput, type OpenSaveFlow } from "./openSaveFlow";
+import { describeFlow, profilerFlow, syncFlow, type FlowStatus, type FlowViewInput } from "./openSaveFlow";
 import { KEY_BINDINGS, attachProfilerKeys } from "./profilerKeys";
 import "./openSaveFlow.css";
 
 /** The controller's view as the flow model reads it. */
-export function flowInput(view: ProfilerView): FlowViewInput {
+function flowInput(view: ProfilerView): FlowViewInput {
   return {
     busy: view.busy,
     flowError: view.flowError,
@@ -22,7 +22,7 @@ export function flowInput(view: ProfilerView): FlowViewInput {
   };
 }
 
-export interface BarViewProps {
+interface BarViewProps {
   readonly view: ProfilerView;
   readonly status: FlowStatus;
   readonly onRecord: () => void;
@@ -35,8 +35,8 @@ export interface BarViewProps {
   readonly fileInputRef?: { current: HTMLInputElement | null };
 }
 
-/** The bar as a pure function of its props (the tests walk this tree). */
-export function BarView({ view, status, onRecord, onStop, onSave, onOpen, onCancel, onFile, fileInputRef }: BarViewProps): ComponentChild {
+/** The bar as a pure function of its props. */
+function BarView({ view, status, onRecord, onStop, onSave, onOpen, onCancel, onFile, fileInputRef }: BarViewProps): ComponentChild {
   const recording = view.recording === "recording" || view.recording === "loading";
   const busy = view.busy !== null;
   return (
@@ -97,9 +97,9 @@ export function BarView({ view, status, onRecord, onStop, onSave, onOpen, onCanc
 }
 
 /** What the bar does with a chosen file: clears the input (so the same file can be chosen again) and routes it. */
-export function chooseFile(controller: ProfilerController, file: File, input: { value: string }, flow: OpenSaveFlow = profilerFlow): void {
+function chooseFile(controller: ProfilerController, file: File, input: { value: string }): void {
   input.value = "";
-  flow.reset(); // a new open replaces the last outcome
+  profilerFlow.reset(); // a new open replaces the last outcome
   profilerSlots.onDropFile(controller, file);
 }
 

@@ -11,8 +11,9 @@
 // host elements (`div`, `button`…) with their props, handlers included. Effects and layout effects run after each
 // render when their dependencies change, and their cleanups run when the component leaves the tree or on `unmount()`. A
 // state update inside an effect renders again before `tree()` returns; an update from a handler or a resolved promise
-// shows on the next `tree()`. Refs are never attached (there is no DOM), so a ref's `current` stays what the component
-// set. Context providers are honoured. That is all the editor's components use.
+// shows on the next `tree()`. There is no DOM: a ref on a host element stays empty unless the test passes `host`, which
+// makes the stand-in object for an element (one per element, kept across renders; null leaves that ref empty). Context
+// providers are honoured. That is all the editor's components use.
 import type { ComponentChild, VNode } from "preact";
 
 /** A host element of a rendered tree: its tag and its props, children rendered. */
@@ -22,7 +23,10 @@ type Deps = readonly unknown[] | undefined;
 interface EffectSlot { kind: "effect"; deps: Deps; cleanup?: (() => void) | void; run?: () => (() => void) | void; layout: boolean }
 interface Instance { slots: unknown[]; index: number; obj?: ClassInstance }
 interface ClassInstance { props: unknown; state: Record<string, unknown>; context?: unknown; render(props: unknown, state: unknown, context: unknown): ComponentChild; setState(u: unknown): void; forceUpdate(): void; componentDidMount?(): void; componentWillUnmount?(): void }
-interface Root { instances: Map<string, Instance>; dirty: boolean; pending: EffectSlot[] }
+interface Root { instances: Map<string, Instance>; dirty: boolean; pending: EffectSlot[]; host?: HostFactory; elements: Map<string, object | null> }
+
+/** Makes the stand-in for a host element a ref points at (`type` is its tag), or null for none. */
+export type HostFactory = (type: string, props: Record<string, unknown>) => object | null;
 
 let root: Root | null = null;
 let current: Instance | null = null;
@@ -132,7 +136,7 @@ export function useErrorBoundary(): [unknown, () => void] {
 
 // ---- rendering ----
 
-interface ElementLike { type: unknown; props: Record<string, unknown>; key?: unknown }
+interface ElementLike { type: unknown; props: Record<string, unknown>; key?: unknown; ref?: unknown }
 
 function isContext(type: unknown): boolean {
   return typeof type === "function" && (type as { Provider?: unknown }).Provider === type;
@@ -150,6 +154,13 @@ function expand(node: unknown, path: string, r: Root, seen: Set<string>): unknow
   if (typeof node !== "object" || !("type" in node) || !("props" in node)) return null;
   const v = node as ElementLike;
   if (typeof v.type === "string") {
+    const ref = (v.ref ?? v.props.ref) as { current: unknown } | ((el: unknown) => void) | null | undefined; // preact keeps a host element's ref off its props
+    if (ref && r.host) {
+      if (!r.elements.has(path)) r.elements.set(path, r.host(v.type, v.props));
+      const el = r.elements.get(path);
+      if (typeof ref === "function") ref(el);
+      else ref.current = el;
+    }
     return { type: v.type, key: v.key, props: { ...v.props, children: expand(v.props.children, `${path}>`, r, seen) } };
   }
   if (typeof v.type !== "function") return null;
@@ -228,8 +239,8 @@ export interface Rendered {
 }
 
 /** Render `element()` with hooks; call `tree()` to (re-)render and read it. */
-export function render(element: () => ComponentChild): Rendered {
-  const r: Root = { instances: new Map(), dirty: false, pending: [] };
+export function render(element: () => ComponentChild, opts: { host?: HostFactory } = {}): Rendered {
+  const r: Root = { instances: new Map(), dirty: false, pending: [], elements: new Map(), ...(opts.host ? { host: opts.host } : {}) };
   let alive = true;
   let last: unknown = null;
   return {
