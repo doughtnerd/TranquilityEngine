@@ -68,8 +68,8 @@ interface PluginConfig {
  */
 let constructing: PluginConfig | null = null;
 
-/** @internal Places a material's vertices from kernel particle state (one per output draw). */
-export class MycoKernelParticlePlugin extends MaterialPluginBase {
+/** Places a material's vertices from kernel particle state (one per output draw). */
+class MycoKernelParticlePlugin extends MaterialPluginBase {
   /** Set each frame by the draw. */
   current: KernelTextures | null = null;
   private readonly cfg: PluginConfig;
@@ -154,7 +154,7 @@ export class KernelMaterialDraw implements Draw {
   readonly meshes: readonly Mesh[];
   readonly systems: readonly never[] = [];
   readonly material: PBRMaterial;
-  readonly plugin: MycoKernelParticlePlugin;
+  private readonly plugin: MycoKernelParticlePlugin;
   readonly sorted: boolean;
 
   constructor(
