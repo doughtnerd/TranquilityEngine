@@ -15,7 +15,7 @@ import { Panel } from "./panel/Panel";
 import { extensionsOf, lazyExtension, PanelExtensions } from "./panelExtensions";
 
 /** Every built-in panel, in the order they register (the Window menu's and the default layout's order). */
-export const BUILTIN_PANELS: readonly PanelContribution[] = [
+const BUILTIN_PANELS: readonly PanelContribution[] = [
   // The one viewport and WebGL context: one copy, always open, in the main window's middle.
   { id: "scene", title: "Scene", view: () => import("./ScenePanel").then((m) => m.ScenePanel), dock: "fill", single: true, closable: false, detachable: false },
   { id: "hierarchy", title: "Hierarchy", view: () => import("./Hierarchy").then((m) => m.Hierarchy), dock: "left" },

@@ -21,32 +21,13 @@ export function readMaterial(project: EditorProject, path: string): ReadMaterial
   }
 }
 
-/** Write a material asset's file directly (New Material and other creators; edits go through `editMaterial`). Throws for a read-only project. */
+/** Write a material asset's file directly (New Material and other creators; edits go through the material's asset document). Throws for a read-only project. */
 export async function writeMaterial(project: EditorProject, path: string, settings: MaterialSettings): Promise<void> {
   await project.writeText(path, formatMaterial(settings));
 }
 
 /** True if two settings would write the same file. */
 export const sameMaterial = (a: MaterialSettings, b: MaterialSettings) => formatMaterial(a) === formatMaterial(b);
-
-/**
- * Change a material asset through its asset document (undo, ordered writes, read-only refusal):
- * `patch` (or what it returns for the settings as they are then) is applied to the document's
- * current settings. Resolves true once the file has the change; false if nothing changed or the
- * project is read-only. `coalesce` merges quick edits (drags) into one undo step.
- */
-export async function editMaterial(project: EditorProject, path: string, patch: Partial<MaterialSettings> | ((current: MaterialSettings) => Partial<MaterialSettings>), options?: EditOptions): Promise<boolean> {
-  const doc = openAssetDocument<MaterialSettings>(project, path, "material");
-  const settings = doc.value.peek();
-  const next = { ...settings, ...(typeof patch === "function" ? patch(settings) : patch) };
-  if (sameMaterial(next, settings) || doc.readOnly) {
-    if (doc.readOnly) doc.edit(next);
-    return false;
-  }
-  doc.edit(next, options);
-  if (!options?.coalesce) await doc.flush(); // a drag writes after its pause
-  return true;
-}
 
 /** Where New Material goes by default: `materials/` if the project has it, else the folder given. */
 function materialFolder(folder: string): string {

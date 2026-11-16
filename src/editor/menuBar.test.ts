@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { panelCatalog } from "./layout/catalog";
-import { BUILTIN_PANELS } from "./ui/panels.builtin";
+import { registerBuiltinPanels } from "./ui/panels.builtin";
+import { registeredPanels } from "./layout/registeredPanels";
 import { buildMenus, redoLabel, undoLabel, type Menu, type MenuActions, type MenuEntry, type MenuState } from "./menuBar";
 
 // Why menu items are disabled, as the menus say it.
@@ -15,7 +15,8 @@ const actions = (): MenuActions => {
   return new Proxy(fns, { get: (t, name: string) => (t[name] ??= vi.fn()) }) as unknown as MenuActions;
 };
 
-const panels = panelCatalog(BUILTIN_PANELS);
+registerBuiltinPanels(); // as the editor does at boot
+const panels = registeredPanels();
 const PANELS = [...panels.keys()];
 const scene = { path: "main.scene.json", dirty: false };
 const history = { undoLabel: null, redoLabel: null, canUndo: false, canRedo: false };

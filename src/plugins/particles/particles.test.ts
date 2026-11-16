@@ -18,9 +18,8 @@ import { assetFormats, assetKinds, panels } from "../../editor/sdk/contributions
 import { isPluginActive } from "../../editor/sdk/plugins";
 import { useEditorPlugins } from "../testEditorPlugins";
 import { currentProject } from "../../editor/state";
-import { MemoryFileSystem, ROOT, useCoreAssetKinds } from "../../editor/testing";
+import { inspectorSectionsFor, MemoryFileSystem, ROOT, useCoreAssetKinds } from "../../editor/testing";
 import { previewKind } from "../../editor/thumbnails/keys";
-import { inspectorSectionsFor } from "../../editor/ui/inspectorSections";
 import { EDITOR_PLUGINS } from "../editor";
 import { RUNTIME_PLUGINS } from "../runtime";
 import { deactivateRuntimePlugin, isRuntimePluginActive } from "../runtimeContext";

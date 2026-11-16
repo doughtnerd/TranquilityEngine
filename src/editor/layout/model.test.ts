@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { BUILTIN_PANELS } from "../ui/panels.builtin";
+import { registerBuiltinPanels } from "../ui/panels.builtin";
+import { registeredPanels } from "./registeredPanels";
 import { panelCatalog, type PanelCatalog, type PanelFacts } from "./catalog";
 import {
   HEADER_HEIGHT,
@@ -32,7 +33,8 @@ const PARTICLE_GRAPH: Entry = { id: "particlegraph", title: "Particle Graph", be
 const SHADER_GRAPH: Entry = { id: "shadergraph", title: "Shader Graph", beside: "scene", owner: { plugin: "myco.materials", pluginTitle: "Materials" } };
 const TILE_PALETTE: Entry = { id: "tilepalette", title: "Tile Palette", beside: "code", owner: { plugin: "myco.tilemaps", pluginTitle: "Tilemaps" } };
 const SKY: Entry = { id: "sky", title: "Sky", beside: "particlegraph", onDemand: true, owner: { plugin: "myco.sky", pluginTitle: "Sky" } };
-const BUILTIN = panelCatalog(BUILTIN_PANELS);
+registerBuiltinPanels(); // as the editor does at boot
+const BUILTIN = registeredPanels();
 /** The built-in panels, then `extra` in registration order. */
 const catalogOf = (...extra: Entry[]): PanelCatalog => new Map([...BUILTIN, ...panelCatalog(extra, (id) => extra.find((e) => e.id === id)?.owner)]);
 /** The Particles, Materials and Tilemaps plugins' panels registered, as most tests have them. */

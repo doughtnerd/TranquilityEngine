@@ -1,7 +1,8 @@
 // ADR 0131: per-type Inspector extras come from a registry keyed by Component type, and load lazily.
 import { describe, expect, it, vi } from "vitest";
 import "./ui/inspectorSections.builtin";
-import { inspectorSectionsFor, registerInspectorSection } from "./ui/inspectorSections";
+import { registerInspectorSection } from "./ui/inspectorSections";
+import { inspectorSectionsFor } from "./testing";
 
 /** Every section `type` has: one top-level node selected shows them all. */
 const sectionsOf = (type: string) => inspectorSectionsFor(type, [["root"]]);

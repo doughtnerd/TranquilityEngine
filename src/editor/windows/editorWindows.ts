@@ -37,7 +37,7 @@ export function editorDocuments(): Document[] {
 }
 
 /** Whether `win` is one of the editor's windows. */
-export function isEditorWindow(win: Window): boolean {
+function isEditorWindow(win: Window): boolean {
   return win === mainWindow() || children.peek().includes(win);
 }
 

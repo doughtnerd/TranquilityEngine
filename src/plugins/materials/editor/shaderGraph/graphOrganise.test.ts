@@ -22,7 +22,7 @@ import {
   updateNote,
   whyNotPortName,
 } from "./graphEdit";
-import { hasPreview, nodeBox, PREVIEW } from "./nodeLayout";
+import { nodeBox, PREVIEW } from "./nodeLayout";
 
 // Copy and paste, groups, notes, sub-graph outputs, custom functions and previews (ADR 0048).
 
@@ -123,13 +123,13 @@ describe("custom functions and previews", () => {
   it("gives nodes with number outputs a preview area, which collapses", () => {
     let g = addNode(defaultShaderGraph(), "sine", [0, 0]).graph;
     const sine = () => g.nodes[1];
-    expect(hasPreview(sine(), g)).toBe(true);
+    expect(nodeBox(sine(), g, () => false).previewTop).not.toBeNull();
     const open = nodeBox(sine(), g, () => false);
     expect(open.previewTop).not.toBeNull();
     g = setPreview(g, "sine1", false);
     expect(sine().preview).toBe(false);
     expect(nodeBox(sine(), g, () => false).height).toBe(open.height - PREVIEW);
     expect(setPreview(g, "sine1", true).nodes[1].preview).toBeUndefined();
-    expect(hasPreview(g.nodes[0], g)).toBe(false); // the output node
+    expect(nodeBox(g.nodes[0], g, () => false).previewTop).toBeNull(); // the output node
   });
 });

@@ -43,7 +43,7 @@ export function registerInspectorSection(type: string, load: () => Promise<Funct
 }
 
 /** The sections a `type` component shows for this selection, in registration order (none loads until rendered). */
-export function inspectorSectionsFor(type: string, paths: readonly NodePath[]): LazyComponent<InspectorSectionProps>[] {
+function inspectorSectionsFor(type: string, paths: readonly NodePath[]): LazyComponent<InspectorSectionProps>[] {
   return (sections.get(type) ?? [])
     .filter((s) => (!s.single && !s.rootOnly) || (paths.length === 1 && (!s.rootOnly || paths[0].length === 1)))
     .map((s) => s.view);

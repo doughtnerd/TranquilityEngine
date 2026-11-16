@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { BUILTIN_PANELS } from "../ui/panels.builtin";
-import { panelCatalog } from "./catalog";
+import { registerBuiltinPanels } from "../ui/panels.builtin";
+import { registeredPanels } from "./registeredPanels";
 import { closePanel, defaultLayout, instancesOf } from "./model";
 import { addVersion, fileNameFor, layoutOf, matchesHead, mergeSaved, newLayoutFile, parseLayoutFile, restoreVersion, scopeLabel, type LayoutFile } from "./saved";
 
 /** How many versions a layout file keeps. */
 const MAX_VERSIONS = 50;
 
-const catalog = panelCatalog(BUILTIN_PANELS);
+registerBuiltinPanels(); // as the editor does at boot
+const catalog = registeredPanels();
 
 describe("layout files (ADR 0174)", () => {
   it("names files from layout names, numbering clashes", () => {
