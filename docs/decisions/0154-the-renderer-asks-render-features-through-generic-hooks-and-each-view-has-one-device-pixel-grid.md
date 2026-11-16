@@ -1,6 +1,6 @@
 # 0154. The renderer asks render features through generic hooks, never particle or UI services by name; each view has one device-pixel grid
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0188 (the feature host offers each service once: no `probeLookup` or `drawPolicy()`)
 - **Date:** 2026-11-09
 - **Deciders:** Chris Carlson
 - **Supersedes:** — (amends 0140)
