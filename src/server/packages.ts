@@ -12,7 +12,7 @@ let esbuild: Promise<EsbuildApi> | null = null;
  * esbuild-wasm's Node build. Its service runs in a child `node` process, which inherits
  * `NODE_OPTIONS`; a preload there warms up the random generator first (esbuildPrewarm.cjs).
  */
-export function nodeEsbuild(): Promise<EsbuildApi> {
+function nodeEsbuild(): Promise<EsbuildApi> {
   return (esbuild ??= (async () => {
     const prewarm = fileURLToPath(new URL("./esbuildPrewarm.cjs", import.meta.url));
     const options = process.env.NODE_OPTIONS ?? "";

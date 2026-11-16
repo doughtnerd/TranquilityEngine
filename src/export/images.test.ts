@@ -1,6 +1,6 @@
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
-import { processImages, transcodeRequest, type ImageTranscoder } from "./images";
+import { processImages, type ImageTranscoder, type TranscodeRequest } from "./images";
 import { sharpTranscoder } from "./imagesNode";
 import { MANIFEST_FORMAT } from "./format";
 import type { WebBuildPlan } from "./webBuild";
@@ -8,12 +8,30 @@ import type { WebBuildPlan } from "./webBuild";
 const plan = (copies: string[]): WebBuildPlan => ({ manifest: { format: MANIFEST_FORMAT, name: "t", mainScene: null, files: copies, scripts: [] }, copies, generated: new Map() });
 const sidecar = (o: object) => JSON.stringify({ format: "myco.import@1", ...o });
 
-describe("transcodeRequest", () => {
-  it("does nothing without maxSize or compression, and picks WebP quality and lossless for point filtering", () => {
-    expect(transcodeRequest("a.png", { maxSize: 0, compression: "none", filter: "linear" })).toBeNull();
-    expect(transcodeRequest("a.PNG", { maxSize: 64, compression: "none", filter: "linear" })).toEqual({ maxSize: 64, webp: null, nearest: false, ext: "png" });
-    expect(transcodeRequest("a.png", { maxSize: 0, compression: "high", filter: "linear" })?.webp).toEqual({ quality: 50, lossless: false });
-    expect(transcodeRequest("a.png", { maxSize: 0, compression: "low", filter: "point" })).toMatchObject({ webp: { quality: 90, lossless: true }, nearest: true });
+describe("transcode requests", () => {
+  it("does nothing without maxSize or compression, and picks WebP quality and lossless for point filtering", async () => {
+    const sidecars: Record<string, string> = {
+      "plain.png.meta.json": sidecar({}),
+      "big.PNG.meta.json": sidecar({ maxSize: 64 }),
+      "high.png.meta.json": sidecar({ compression: "high" }),
+      "pixel.png.meta.json": sidecar({ compression: "low", filter: "point" }),
+    };
+    const requests = new Map<number, TranscodeRequest>();
+    const images = ["plain.png", "big.PNG", "high.png", "pixel.png"];
+    await processImages(plan(images.flatMap((i) => [i, `${i}.meta.json`])), {
+      platform: "web",
+      readText: (p) => sidecars[p],
+      readBytes: async (p) => new Uint8Array(images.indexOf(p) + 1), // tells the transcoder which image it has
+      transcode: async (bytes, r) => {
+        requests.set(bytes.length - 1, r);
+        return { bytes, width: 1, height: 1, sourceWidth: 1, sourceHeight: 1 };
+      },
+    });
+    const request = (image: string) => requests.get(images.indexOf(image));
+    expect(request("plain.png")).toBeUndefined();
+    expect(request("big.PNG")).toEqual({ maxSize: 64, webp: null, nearest: false, ext: "png" });
+    expect(request("high.png")?.webp).toEqual({ quality: 50, lossless: false });
+    expect(request("pixel.png")).toMatchObject({ webp: { quality: 90, lossless: true }, nearest: true });
   });
 });
 
