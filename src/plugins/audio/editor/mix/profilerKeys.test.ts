@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import { CursorModel, NO_TARGETS, type CursorTargets } from "./cursorModel";
 import {
-  KEY_BINDINGS, PANEL_KEYSHORTCUTS, attachProfilerKeys, handleProfilerKey, isEditableTarget, keyActionOf, runKeyAction,
+  KEY_BINDINGS, attachProfilerKeys,
   type KeyEventLike, type KeyScopeElement,
 } from "./profilerKeys";
 
@@ -32,6 +32,43 @@ const key = (k: string, extra: Partial<KeyEventLike> = {}): KeyEventLike & { pre
   const e = { key: k, ...extra, prevented: 0, preventDefault() { e.prevented++; } };
   return e;
 };
+
+/** A stand-in panel element whose focus is set by the test. */
+function element(preset: Record<string, string> = {}) {
+  const attrs = new Map(Object.entries(preset));
+  let listener: ((e: KeyEventLike) => void) | null = null;
+  const inside = {};
+  const doc = { activeElement: null as unknown };
+  const el: KeyScopeElement & { fire(e: KeyEventLike): void; inside: object; doc: typeof doc; attrs: Map<string, string>; hasListener(): boolean } = {
+    addEventListener: (_t, l) => void (listener = l),
+    removeEventListener: (_t, l) => void (listener === l && (listener = null)),
+    hasAttribute: (n) => attrs.has(n),
+    setAttribute: (n, v) => void attrs.set(n, v),
+    removeAttribute: (n) => void attrs.delete(n),
+    contains: (o) => o === inside || o === el,
+    ownerDocument: doc,
+    fire: (e) => listener?.(e),
+    hasListener: () => listener !== null,
+    inside,
+    doc,
+    attrs,
+  };
+  return el;
+}
+
+/** A key pressed in the panel as `attachProfilerKeys` scopes it, with focus inside when `focused()`; true when the panel took it. */
+function handleProfilerKey(e: KeyEventLike, controller: Parameters<typeof attachProfilerKeys>[1], focused: () => boolean): boolean {
+  const el = element();
+  const off = attachProfilerKeys(el, controller);
+  el.doc.activeElement = focused() ? el.inside : null;
+  let handled = false;
+  el.fire({ ...e, preventDefault: () => { handled = true; e.preventDefault?.(); } });
+  off();
+  return handled;
+}
+
+/** Whether the focused panel takes the key (over a paused file cursor at 3). */
+const isOurs = (e: KeyEventLike): boolean => handleProfilerKey(e, rig(3).controller, () => true);
 
 describe("a case per key, through CursorModel", () => {
   const cases: Array<[string, Partial<KeyEventLike> & { key: string }, number]> = [
@@ -97,15 +134,18 @@ describe("a case per key, through CursorModel", () => {
       const shift = b.keys.startsWith("Shift+");
       const bare = shift ? b.keys.slice(6) : b.keys;
       const k = bare === "Left" ? "ArrowLeft" : bare === "Right" ? "ArrowRight" : bare === "Space" ? " " : shift ? bare : bare.toLowerCase();
-      expect(keyActionOf({ key: k, shiftKey: shift })).toEqual(b.action);
+      expect(isOurs({ key: k, shiftKey: shift }), b.keys).toBe(true);
     }
-    expect(PANEL_KEYSHORTCUTS.split(" ")).toHaveLength(KEY_BINDINGS.length);
+    const el = element();
+    attachProfilerKeys(el, rig().controller);
+    expect(el.attrs.get("aria-keyshortcuts")!.split(" ")).toEqual(KEY_BINDINGS.map((b) => b.shortcuts));
   });
 
-  it("runKeyAction returns whether the cursor changed", () => {
-    const { controller } = rig(3);
-    expect(runKeyAction({ type: "jump", kind: "marker", direction: "next" }, controller)).toBe(true);
-    expect(runKeyAction({ type: "jump", kind: "marker", direction: "next" }, controller)).toBe(false);
+  it("the controller is told only when the cursor changed", () => {
+    const { controller, moved } = rig(3);
+    handleProfilerKey(key("M", { shiftKey: true }), controller, () => true);
+    handleProfilerKey(key("M", { shiftKey: true }), controller, () => true); // no marker after the last
+    expect(moved).toEqual([5]);
   });
 });
 
@@ -125,56 +165,38 @@ describe("scope", () => {
   });
 
   it("editable controls keep their keys; so do Ctrl, Alt and Meta chords and unbound keys", () => {
-    expect(isEditableTarget({ tagName: "INPUT" })).toBe(true);
-    expect(isEditableTarget({ tagName: "textarea" })).toBe(true);
-    expect(isEditableTarget({ tagName: "DIV", isContentEditable: true })).toBe(true);
-    expect(isEditableTarget({ tagName: "DIV" })).toBe(false);
-    expect(keyActionOf({ key: "ArrowLeft", target: { tagName: "INPUT" } })).toBeNull();
-    expect(keyActionOf({ key: "u", ctrlKey: true })).toBeNull();
-    expect(keyActionOf({ key: "u", altKey: true })).toBeNull();
-    expect(keyActionOf({ key: "u", metaKey: true })).toBeNull();
-    expect(keyActionOf({ key: "x" })).toBeNull();
-    expect(keyActionOf({ key: "Enter" })).toBeNull();
-    expect(keyActionOf({ key: "ArrowLeft", shiftKey: true })).toBeNull();
+    expect(isOurs({ key: "u", target: { tagName: "INPUT" } })).toBe(false);
+    expect(isOurs({ key: "u", target: { tagName: "textarea" } })).toBe(false);
+    expect(isOurs({ key: "u", target: { tagName: "DIV", isContentEditable: true } })).toBe(false);
+    expect(isOurs({ key: "u", target: { tagName: "DIV" } })).toBe(true);
+    expect(isOurs({ key: "ArrowLeft", target: { tagName: "INPUT" } })).toBe(false);
+    expect(isOurs({ key: "u", ctrlKey: true })).toBe(false);
+    expect(isOurs({ key: "u", altKey: true })).toBe(false);
+    expect(isOurs({ key: "u", metaKey: true })).toBe(false);
+    expect(isOurs({ key: "x" })).toBe(false);
+    expect(isOurs({ key: "Enter" })).toBe(false);
+    expect(isOurs({ key: "ArrowLeft", shiftKey: true })).toBe(false);
   });
 
   it("Space on a focused button is the button's own click", () => {
-    expect(keyActionOf({ key: " ", target: { tagName: "BUTTON" } })).toBeNull();
-    expect(keyActionOf({ key: " ", target: { tagName: "CANVAS" } })).toEqual({ type: "toggleLive" });
-    expect(keyActionOf({ key: "ArrowRight", target: { tagName: "BUTTON" } })).toEqual({ type: "step", direction: "next" });
+    const live = rig(0, true);
+    expect(handleProfilerKey(key(" ", { target: { tagName: "BUTTON" } }), live.controller, () => true)).toBe(false);
+    expect(live.cursor.mode).toBe("live");
+    expect(handleProfilerKey(key(" ", { target: { tagName: "CANVAS" } }), live.controller, () => true)).toBe(true);
+    expect(live.cursor.mode).toBe("paused"); // Space toggled live
+    const file = rig(3);
+    expect(handleProfilerKey(key("ArrowRight", { target: { tagName: "BUTTON" } }), file.controller, () => true)).toBe(true);
+    expect(file.cursor.time).toBe(4);
   });
 });
 
 describe("attachProfilerKeys", () => {
-  /** A stand-in panel element whose focus is set by the test. */
-  function element(preset: Record<string, string> = {}) {
-    const attrs = new Map(Object.entries(preset));
-    let listener: ((e: KeyEventLike) => void) | null = null;
-    const inside = {};
-    const doc = { activeElement: null as unknown };
-    const el: KeyScopeElement & { fire(e: KeyEventLike): void; inside: object; doc: typeof doc; attrs: Map<string, string>; hasListener(): boolean } = {
-      addEventListener: (_t, l) => void (listener = l),
-      removeEventListener: (_t, l) => void (listener === l && (listener = null)),
-      hasAttribute: (n) => attrs.has(n),
-      setAttribute: (n, v) => void attrs.set(n, v),
-      removeAttribute: (n) => void attrs.delete(n),
-      contains: (o) => o === inside || o === el,
-      ownerDocument: doc,
-      fire: (e) => listener?.(e),
-      hasListener: () => listener !== null,
-      inside,
-      doc,
-      attrs,
-    };
-    return el;
-  }
-
   it("makes the panel focusable and listed, acts only with focus inside, and detaches cleanly", () => {
     const el = element();
     const { controller, cursor } = rig(3);
     const off = attachProfilerKeys(el, controller);
     expect(el.attrs.get("tabindex")).toBe("0");
-    expect(el.attrs.get("aria-keyshortcuts")).toBe(PANEL_KEYSHORTCUTS);
+    expect(el.attrs.get("aria-keyshortcuts")).toBe(KEY_BINDINGS.map((b) => b.shortcuts).join(" "));
     el.doc.activeElement = {}; // focus elsewhere in the editor
     el.fire(key("ArrowRight"));
     expect(cursor.time).toBe(3);

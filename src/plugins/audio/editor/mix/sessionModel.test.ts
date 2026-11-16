@@ -4,7 +4,7 @@ import type { LoudnessResetWhat } from "../../../../engine/audio/loudnessTypes";
 import { LoudnessHub } from "../../runtime/mix/loudnessHub";
 import { createCompareModel } from "./compareModel";
 import { createMonitorModel, type MonitorBus } from "./monitorModel";
-import { createSessionModel, formatTarget, type SessionHost } from "./sessionModel";
+import { createSessionModel, type SessionHost } from "./sessionModel";
 
 /** A clock the test advances; the model never reads any other. */
 function makeClock() {
@@ -129,7 +129,7 @@ describe("the target picker", () => {
     const { model } = setup({ audio });
     expect(model.targets().map((t) => t.name)).toEqual(["tv", "web"]);
     expect(model.target).toBe("tv");
-    expect(formatTarget(model.targets()[1])).toBe("-16 LUFS ±2 LU, -1 dBTP");
+    expect(model.targets()[1]!.label).toBe("-16 LUFS ±2 LU, -1 dBTP");
   });
 
   it("a pick for each entry is exactly one host call and marks it selected (never a commit: the host has no way to)", () => {

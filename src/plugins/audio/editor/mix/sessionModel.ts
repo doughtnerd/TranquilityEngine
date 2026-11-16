@@ -74,7 +74,7 @@ export interface SessionModel {
   syncTarget(name: string | null): void;
 }
 
-export const formatTarget = (t: LoudnessTarget): string => `${t.integrated} LUFS ±${t.tolerance} LU, ${t.truePeak} dBTP`;
+const formatTarget = (t: LoudnessTarget): string => `${t.integrated} LUFS ±${t.tolerance} LU, ${t.truePeak} dBTP`;
 
 export function createSessionModel(options: SessionOptions): SessionModel {
   const { host, clock } = options;

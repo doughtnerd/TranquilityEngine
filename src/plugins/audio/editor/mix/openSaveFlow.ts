@@ -16,7 +16,7 @@ export type OpenRouteCode = "notCapture" | "open";
 export type OpenErrorCode = CaptureErrorCode | OpenRouteCode;
 
 /** One headline per code. The reader's detail follows it (`captureErrorMessage`), so a headline says what it means and what to do. */
-export const CAPTURE_ERROR_HEADLINES: Readonly<Record<CaptureErrorCode, string>> = {
+const CAPTURE_ERROR_HEADLINES: Readonly<Record<CaptureErrorCode, string>> = {
   badMagic: "Not a Myco capture file.",
   newerFormat: "This capture was saved by a newer build; update this editor to open it.",
   olderFormat: "This capture was saved by an older build and old captures are not migrated; re-record it with this build.",
@@ -48,7 +48,7 @@ export const CAPTURE_ERROR_HEADLINES: Readonly<Record<CaptureErrorCode, string>>
 };
 
 /** The route's own codes (`OPEN_REFUSALS` in `openCapture.ts` carries their full texts as the detail). */
-export const OPEN_ROUTE_HEADLINES: Readonly<Record<OpenRouteCode, string>> = {
+const OPEN_ROUTE_HEADLINES: Readonly<Record<OpenRouteCode, string>> = {
   notCapture: "Not a capture file.",
   open: "The file couldn't be opened.",
 };
@@ -58,7 +58,7 @@ const KNOWN_CODES: ReadonlySet<string> = new Set<string>([...CAPTURE_ERROR_CODES
 export const isOpenErrorCode = (code: string): code is OpenErrorCode => KNOWN_CODES.has(code);
 
 /** The headline of `code`, or null for a code this build has no words for. */
-export function headlineOf(code: string): string | null {
+function headlineOf(code: string): string | null {
   if (Object.prototype.hasOwnProperty.call(CAPTURE_ERROR_HEADLINES, code)) return CAPTURE_ERROR_HEADLINES[code as CaptureErrorCode];
   if (Object.prototype.hasOwnProperty.call(OPEN_ROUTE_HEADLINES, code)) return OPEN_ROUTE_HEADLINES[code as OpenRouteCode];
   return null;
@@ -106,7 +106,7 @@ export interface FlowState {
 const IDLE: FlowState = { kind: null, phase: "idle", name: null, fraction: null, step: null };
 
 /** An open has two steps, inflating then scanning records; each fills half of the bar. */
-export function openFraction(step: OpenProgressPhase, done: number, total: number): number {
+function openFraction(step: OpenProgressPhase, done: number, total: number): number {
   const part = total > 0 && Number.isFinite(done) ? Math.min(Math.max(done / total, 0), 1) : 0;
   return step === "inflate" ? part / 2 : 0.5 + part / 2;
 }
