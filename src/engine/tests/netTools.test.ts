@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { Engine, defineInput, defineRpc, f32, i32, type BootstrapConfig } from "../index";
+import { Engine, defineInput, defineRpc, f32, i32, u8, type BootstrapConfig } from "../index";
 import { World } from "../core/World";
 import { inputStreams, netConditions, netWorldInfo, setNetConditions, unregisterScripts, withScriptRegistrations, writeWorldInput, type NetPeerInfo } from "../editor";
 import { netSession } from "../net/session";
@@ -39,6 +39,8 @@ async function create(clients = ["Client"]): Promise<Engine> {
 }
 
 const Ping = defineRpc("test.tools.Ping", { n: i32 });
+// Defining the stream registers it; the tests read it back through the tools.
+defineInput("test.tools.Steer", { x: f32, turn: i32, fire: u8 });
 
 const info = (engine: Engine, world: string) => netWorldInfo(engine).find((w) => w.world === world)!;
 const only = (engine: Engine, world: string): NetPeerInfo => info(engine, world).peers[0];
