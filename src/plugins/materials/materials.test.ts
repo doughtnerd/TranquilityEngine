@@ -6,7 +6,8 @@ import { defaultMaterialSettings, formatMaterial, type MaterialSettings } from "
 import { defaultShaderGraph, defaultShaderSubGraph, formatShaderGraph } from "../../engine/scene/shaderGraph";
 import { assetKind, opensInCodePanel } from "../../editor/assetBrowser";
 import { openAssetDocument } from "../../editor/assetDocuments";
-import { inspectableAsset } from "../../editor/assetImport";
+import { inspectedAsset } from "../../editor/assetImport";
+import { select as selectAssets } from "../../editor/assetSelection";
 import { kindIcon, kindLabel, kindOpens, registeredKind, satisfiesFieldKind } from "../../editor/assetKindLookup";
 import { registeredPanels } from "../../editor/layout/registeredPanels";
 import { joinPath, openFolderProject } from "../../editor/projects";
@@ -56,8 +57,8 @@ describe("the Materials plugin's editor half (ADR 0134)", () => {
     expect(KINDS.map((k) => kindLabel(k))).toEqual(["Material", "Shader", "Shader Graph", "Sub Graph"]);
     for (const k of KINDS) expect(kindIcon(k), k).toMatch(/^M/);
     expect([previewKind(MATERIAL), previewKind(SHADER), previewKind(GRAPH), previewKind(SUB)]).toEqual(["material", null, "shadergraph", null]);
-    for (const p of [MATERIAL, GRAPH, SUB]) expect(inspectableAsset(p), p).toBe(p);
-    expect(inspectableAsset(SHADER)).toBeNull();
+    for (const p of [MATERIAL, GRAPH, SUB]) expect(inspectedFor(p), p).toBe(p);
+    expect(inspectedFor(SHADER)).toBeNull();
     // A material only selects; shaders open in the Code panel and graphs in the Shader Graph panel.
     expect([kindOpens(MATERIAL), kindOpens(SHADER), kindOpens(GRAPH), kindOpens(SUB)]).toEqual([false, true, true, true]);
     expect(KINDS.map((k) => assetKinds.get(k)?.create?.label)).toEqual(["New Material", "New Shader", "New Shader Graph", "New Shader Sub Graph"]);
@@ -115,7 +116,7 @@ describe("the Materials plugin's editor half (ADR 0134)", () => {
     for (const p of [MATERIAL, SHADER, GRAPH, SUB]) {
       expect(assetKind(p), p).toBe("json");
       expect(previewKind(p), p).toBeNull();
-      expect(inspectableAsset(p), p).toBeNull();
+      expect(inspectedFor(p), p).toBeNull();
       expect(satisfiesFieldKind("material", p), p).toBe(false);
     }
     for (const k of KINDS) {
@@ -140,3 +141,11 @@ describe("New… entries", () => {
     expect(await assetKinds.get("shadersubgraph")!.create!.create("")).toBe("shaders/New Sub Graph.shadersubgraph.json");
   });
 });
+
+/** The file the Inspector shows with `entry` alone selected in the Assets panel (null: none). */
+function inspectedFor(entry: string): string | null {
+  selectAssets([entry]);
+  const shown = inspectedAsset.peek();
+  selectAssets([]);
+  return shown;
+}

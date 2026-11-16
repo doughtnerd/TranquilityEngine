@@ -3,7 +3,8 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { assetKind, canAddToScene, opensInCodePanel } from "../editor/assetBrowser";
 import { kindIcon, kindLabel, registeredKind, satisfiesFieldKind } from "../editor/assetKindLookup";
-import { inspectableAsset } from "../editor/assetImport";
+import { inspectedAsset } from "../editor/assetImport";
+import { select as selectAssets } from "../editor/assetSelection";
 import { activatePlugins, deactivatePlugin, isPluginActive } from "../editor/sdk/plugins";
 import { previewKind } from "../editor/thumbnails/keys";
 import { EDITOR_PLUGINS } from "./editor";
@@ -57,11 +58,11 @@ describe("the render plugins' asset kinds (ADR 0140)", () => {
     expect(opensInCodePanel("uidocument")).toBe(true);
     expect(opensInCodePanel("stylesheet")).toBe(true);
     for (const k of ["model", "environment", "cubemap", "lut"]) expect(opensInCodePanel(k), k).toBe(false);
-    expect(inspectableAsset("env/studio.hdr")).toBe("env/studio.hdr");
-    expect(inspectableAsset("skies/box.cubemap.json")).toBe("skies/box.cubemap.json");
+    expect(inspectedFor("env/studio.hdr")).toBe("env/studio.hdr");
+    expect(inspectedFor("skies/box.cubemap.json")).toBe("skies/box.cubemap.json");
     expect(registeredKind("model")?.inspector).toBeUndefined(); // the shell's import Inspector (ADR 0040) shows models
     expect(registeredKind("model")?.importSettings).toBeDefined(); // with the Meshes plugin's rows (ADR 0143)
-    expect(inspectableAsset("models/ship.glb")).toBe("models/ship.glb");
+    expect(inspectedFor("models/ship.glb")).toBe("models/ship.glb");
     expect(satisfiesFieldKind("mesh", "models/ship.glb")).toBe(true);
     expect(satisfiesFieldKind("model", "models/ship.glb")).toBe(true);
     expect(satisfiesFieldKind("environment", "env/studio.hdr")).toBe(true);
@@ -95,3 +96,11 @@ describe("the render plugins' asset kinds (ADR 0140)", () => {
     expect(assetKind("models/ship.glb")).toBe("model");
   });
 });
+
+/** The file the Inspector shows with `entry` alone selected in the Assets panel (null: none). */
+function inspectedFor(entry: string): string | null {
+  selectAssets([entry]);
+  const shown = inspectedAsset.peek();
+  selectAssets([]);
+  return shown;
+}

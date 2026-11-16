@@ -47,7 +47,7 @@ export async function writeImportSettings(project: EditorProject, path: string, 
 export const sameSettings = (a: ImportSettings, b: ImportSettings) => formatImportSettings(a) === formatImportSettings(b);
 
 /** The file the Asset Inspector shows for an Assets panel entry (a slice shows its image), or null if it has no inspector. */
-export function inspectableAsset(entry: string): string | null {
+function inspectableAsset(entry: string): string | null {
   const file = isSliceEntry(entry) ? splitSliceEntry(entry).image : entry;
   // Its kind's own Inspector view, or its import settings (ADR 0133, 0143).
   return kindInspector(assetKind(file)) !== undefined || hasImportSettings(file) ? file : null;

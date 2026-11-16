@@ -17,8 +17,8 @@ import {
   previewOf,
   satisfiesFieldKind,
 } from "./assetKindLookup";
-import { inspectableAsset } from "./assetImport";
-import { CORE_ASSET_KINDS } from "./assetKinds.builtin";
+import { inspectedAsset } from "./assetImport";
+import { select as selectAssets } from "./assetSelection";
 import { SceneDocument } from "./document";
 import { assetKinds, type AssetKindContribution } from "./sdk/contributions";
 import { useCoreAssetKinds } from "./testing";
@@ -57,7 +57,7 @@ describe("one kind through the asset kind module", () => {
     expect(canAddToScene("a/x.spin.json")).toBe(true);
     expect(sceneNodesAt("a/x.spin.json")!.nodes(new SceneDocument({ format: "myco.scene@2", nodes: [] }), "a/x.spin.json")[0].id).toBe("spinner");
     expect(kindImportSettings("spin")).toBe(spin.importSettings);
-    expect(inspectableAsset("a/x.spin.json")).toBe("a/x.spin.json");
+    expect(inspectedFor("a/x.spin.json")).toBe("a/x.spin.json");
     expect(previewOf("a/x.spin.json")).toBe("material");
     expect(previewOf("a/x.spin.json.meta.json")).toBeNull();
     expect(satisfiesFieldKind("spin", "a/x.spin.json")).toBe(true);
@@ -108,8 +108,7 @@ describe("matching paths", () => {
 
 describe("core kinds", () => {
   it("register like plugin kinds, and the module answers folder, sprite and other itself", () => {
-    expect(CORE_ASSET_KINDS.map((k) => k.id)).toEqual(["scene", "prefab", "image", "audio", "rendertexture", "json", "xml", "script", "javascript", "typescript", "text"]);
-    for (const k of CORE_ASSET_KINDS) expect(assetKinds.get(k.id)).toBe(k);
+    expect(assetKinds.list().map((k) => k.id)).toEqual(["scene", "prefab", "image", "audio", "rendertexture", "json", "xml", "script", "javascript", "typescript", "text"]);
     expect([kindLabel("folder"), kindLabel("sprite"), kindLabel("other")]).toEqual(["Folder", "Sprite", "File"]);
     for (const k of ["folder", "sprite", "other"]) expect(kindIcon(k)).toMatch(/^M/);
   });
@@ -131,3 +130,11 @@ describe("core kinds", () => {
     }
   });
 });
+
+/** The file the Inspector shows with `entry` alone selected in the Assets panel (null: none). */
+function inspectedFor(entry: string): string | null {
+  selectAssets([entry]);
+  const shown = inspectedAsset.peek();
+  selectAssets([]);
+  return shown;
+}

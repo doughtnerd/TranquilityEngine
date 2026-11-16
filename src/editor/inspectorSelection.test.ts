@@ -6,7 +6,7 @@ import { materialsEditorPlugin } from "../plugins/materials/editor";
 import { navigationEditorPlugin } from "../plugins/navigation/editor";
 import { particlesEditorPlugin } from "../plugins/particles/editor";
 import { tilemapsEditorPlugin } from "../plugins/tilemaps/editor";
-import { inspectableAsset, inspectedAsset, inspectSelectedAsset, showAsset, showsAssetInspector } from "./assetImport";
+import { inspectedAsset, inspectSelectedAsset, showAsset, showsAssetInspector } from "./assetImport";
 import { folderPath, resetAssetBrowser, select as selectAssets, selectedAssets } from "./assetSelection";
 import { useEditorPlugins } from "../plugins/testEditorPlugins";
 import { select as selectNodes, selectedKeys } from "./state";
@@ -33,11 +33,11 @@ const INSPECTED = [
 
 describe("the Inspector follows the latest selection", () => {
   it("knows which assets have an inspector", () => {
-    for (const path of INSPECTED) expect(inspectableAsset(path), path).toBe(path);
-    expect(inspectableAsset("images/flag.png#wave")).toBe("images/flag.png"); // a slice shows its image
-    expect(inspectableAsset("scenes/main.scene.json")).toBeNull();
-    expect(inspectableAsset("scripts/ship.ts")).toBeNull();
-    expect(inspectableAsset("materials/")).toBeNull();
+    for (const path of INSPECTED) expect(inspectedFor(path), path).toBe(path);
+    expect(inspectedFor("images/flag.png#wave")).toBe("images/flag.png"); // a slice shows its image
+    expect(inspectedFor("scenes/main.scene.json")).toBeNull();
+    expect(inspectedFor("scripts/ship.ts")).toBeNull();
+    expect(inspectedFor("materials/")).toBeNull();
   });
 
   it("shows an asset selected after a node, for every asset kind with an inspector", () => {
@@ -81,3 +81,11 @@ describe("the Inspector follows the latest selection", () => {
     expect(showsAssetInspector()).toBe(true);
   });
 });
+
+/** The file the Inspector shows with `entry` alone selected in the Assets panel (null: none). */
+function inspectedFor(entry: string): string | null {
+  selectAssets([entry]);
+  const shown = inspectedAsset.peek();
+  selectAssets([]);
+  return shown;
+}

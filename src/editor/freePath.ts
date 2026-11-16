@@ -11,6 +11,13 @@ export function splitExtension(name: string): [string, string] {
   return m ? [m[1], m[2]] : [name, ""];
 }
 
+/** `name` with " (n)" before its extension (`a.png` → `a (1).png`; `x.scene.json` → `x (1).scene.json`); n 0 is the name itself. */
+export function numberedName(name: string, n: number): string {
+  if (n === 0) return name;
+  const [base, ext] = splitExtension(name);
+  return `${base} (${n})${ext}`;
+}
+
 /** True if a file or folder is at `path`. */
 export const taken = (project: EditorProject, path: string) => project.files.includes(path) || project.scripts.has(path) || project.folders.includes(path);
 

@@ -8,7 +8,7 @@ import { deleteAssets } from "./assetDelete";
 import { assetUsers } from "./assetReferences";
 import { inspectedAsset, readImportSettings, showsAssetInspector, writeImportSettings } from "./assetImport";
 import { selectedAssets } from "./assetSelection";
-import { assetClipboard, copyAssets, duplicateAssets, moveAssetsTo, pasteAssets, renameAsset, renameSliceReferences } from "./assetOps";
+import { assetClipboard, duplicateAssets, moveAssetsTo, pasteAssets, renameAsset, renameSliceReferences } from "./assetOps";
 import { OrbitCamera } from "./OrbitCamera";
 import { askBeforeDeletingAssets } from "./preferences";
 import { openSceneFile } from "./project";
@@ -145,7 +145,8 @@ describe("asset operations carry sidecars", () => {
     expect(await pasteAssets("music")).toEqual(["music/PipeUp.png"]);
     expect(onDisk("music/PipeUp.png.meta.json")).toBe(SHEET_META);
     // A folder copies each sidecar once, with its file.
-    expect(await copyAssets(["images/"], "")).toEqual(["images copy/"]);
+    assetClipboard.value = { entries: ["images/"], cut: false };
+    expect(await pasteAssets("")).toEqual(["images copy/"]);
     expect(onDisk("images copy/PipeUp.png.meta.json")).toBe(SHEET_META);
     expect(onDisk("images copy/PipeUp copy.png.meta.json")).toBe(SHEET_META);
   });
