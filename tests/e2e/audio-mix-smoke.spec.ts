@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { inflateRawSync } from "node:zlib";
 import { expect, test } from "./fixtures";
-import { bootMix, installFrameClock, mixDebug, sampleBusGain } from "./audioMix";
+import { bootMix, installFrameClock, mixDebug, sampleBusGain, type MixDebug } from "./audioMix";
 import { MARKER_TEXT, exportAndServe, expectTablesAt, openCaptureFile, openProfilerTab, press, recordScene, rulerAt, stopServed } from "./audioExport";
 import { panelOf } from "./audioProfiler";
 import { TONE_PEAK, fader, openLiveMix, openMixer, playLiveMix, savedProject, stopPlay } from "./audioMixLive";
@@ -174,76 +174,66 @@ test("M5-0 smoke: a fade lands through the lanes on its stamp", async ({ page })
   expect(errors).toEqual([]);
 });
 
-// Dp1: the Sound Lab ducks Music under SFX by presence (amount 0.3, attack 0.05 s, release 0.4 s). The exact first ducked
-// sample is asserted on the loopback host (`presenceLoopback.test.ts`); here, the shipped page, on the core's STATUS frames.
+// Dp1: the Sound Lab ducks Music under SFX by presence (amount 0.3, attack 0.05 s, release 0.4 s). That the BUS_PRESENCE goes
+// out stamped at the voice's start frame, and asap at an explicit stop, is `presence.test.ts` (a recording writer); the exact
+// first ducked sample is the loopback host's (`presenceLoopback.test.ts`). Here, the shipped page, through the public API: a
+// voice played with `at` is due on the core frame `round(at x rate)` (the clock map's `frameOfTime`; this page never replaced
+// its context), and `Bus.duckGain` stays 1 in every STATUS block (`Audio.debug().core.currentFrame`) up to that frame's quantum.
 test("M5-0 smoke: a presence duck starts on its stamped frame", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", (err) => errors.push(err.message));
   await bootMix(page);
-  await installFrameClock(page);
-  type Mirror = { header: { currentFrame: number }; duckCount: number; duckSlot: Uint16Array; duckGain: Float32Array };
-  type Backend = { mirror: Mirror; writer: { busPresence(mask: number, at?: number): void } };
-  type Handle = { stop(): void; voice?: { backend?: Backend; inner?: { backend?: Backend } } };
-  type G = { __myco: { Audio: { time: number; buses: readonly string[]; bus(n: string): { duckGain: number }; playOneShot(c: string, o: object): Handle } }; __dp1?: { sent: { mask: number; at?: number }[]; handle?: Handle; reads: { frame: number; duck: number; api: number }[] } };
-  // 1. A quiet voice on SFX, `at` 0.3 s ahead of the heard clock: its BUS_PRESENCE goes out stamped at its start frame.
-  const music = await page.evaluate(() => {
-    const g = globalThis as unknown as G;
-    return g.__myco.Audio.buses.indexOf("Music");
-  });
+  type Handle = { stop(): void };
+  type Read = { frame: number; duck: number };
+  type G = { __myco: { Audio: { time: number; debug(): MixDebug; bus(n: string): { duckGain: number }; playOneShot(c: string, o: object): Handle } }; __dp1?: Handle };
   const before = await page.evaluate(() => (globalThis as unknown as G).__myco.Audio.bus("Music").duckGain);
   expect(before, "nothing on SFX yet: Music not ducked").toBe(1);
-  await page.evaluate(() => {
+  // 1. A quiet voice on SFX, `at` 0.3 s ahead of the heard clock: its start frame, and so the stamp of its presence.
+  const { stamp, rate } = await page.evaluate(() => {
     const g = globalThis as unknown as G;
-    const probe = g.__myco.Audio.playOneShot("audio/beep.wav", { volume: 0.0001, bus: "UI" });
-    const backend = (probe.voice?.backend ?? probe.voice?.inner?.backend)!;
-    const sent: { mask: number; at?: number }[] = [];
-    const write = backend.writer.busPresence.bind(backend.writer);
-    backend.writer.busPresence = (mask: number, at?: number) => {
-      sent.push({ mask, at });
-      write(mask, at);
-    };
-    g.__dp1 = { sent, reads: [] };
-    g.__dp1.handle = g.__myco.Audio.playOneShot("audio/melody-loop.wav", { volume: 0.0001, bus: "SFX", at: g.__myco.Audio.time + 0.3 });
+    const at = g.__myco.Audio.time + 0.3;
+    const rate = g.__myco.Audio.debug().sampleRate;
+    g.__dp1 = g.__myco.Audio.playOneShot("audio/melody-loop.wav", { volume: 0.0001, bus: "SFX", at });
+    return { stamp: Math.round(at * rate), rate };
   });
-  const sent = await page.evaluate(() => (globalThis as unknown as G).__dp1!.sent);
-  const sfxBit = 1 << (await page.evaluate(() => (globalThis as unknown as G).__myco.Audio.buses.indexOf("SFX")));
-  const stamped = sent.find((x) => (x.mask & sfxBit) !== 0 && x.at !== undefined);
-  expect(stamped, "BUS_PRESENCE with SFX's bit, stamped").toBeDefined();
-  const stamp = stamped!.at!;
-  // 2. On the core's STATUS frames: Music's busDuck stays 1 in every block before the quantum holding the stamp, then
-  //    falls toward 0.3; Bus.duckGain reads it.
-  const reads = await page.evaluate(
-    async ([slot, until]) => {
-      const g = globalThis as unknown as G;
-      const backend = (g.__dp1!.handle!.voice?.backend ?? g.__dp1!.handle!.voice?.inner?.backend)!;
-      const m = backend.mirror;
-      const out: { frame: number; duck: number; api: number }[] = [];
-      const read = () => {
-        let duck = 1;
-        for (let k = 0; k < m.duckCount; k++) if (m.duckSlot[k] === slot) duck = m.duckGain[k]!;
-        out.push({ frame: m.header.currentFrame, duck, api: g.__myco.Audio.bus("Music").duckGain });
-      };
-      while (m.header.currentFrame < until) {
+  /** Reads Music's duck with the STATUS frame it came in, every 10 ms, until a block at or past `until` (or, with `stopAtOne`, a duck of 1). */
+  const sample = (until: number, stopAtOne: boolean) =>
+    page.evaluate(
+      async ([limit, one]) => {
+        const g = globalThis as unknown as G;
+        const out: Read[] = [];
+        const read = () => out.push({ frame: Number(g.__myco.Audio.debug().core.currentFrame), duck: g.__myco.Audio.bus("Music").duckGain });
         read();
-        await new Promise((r) => setTimeout(r, 10));
-      }
-      read(); // the first block at or past `until` (STATUS idles at 48 quanta while nothing is sent)
-      return out;
-    },
-    [music, stamp + 24_000] as const, // 0.5 s: ten attack constants, well inside the 4 s clip
-  );
+        while (out.at(-1)!.frame < (limit as number) && !(one && out.at(-1)!.duck === 1)) {
+          await new Promise((r) => setTimeout(r, 10));
+          read();
+        }
+        return out;
+      },
+      [until, stopAtOne] as const,
+    );
+  // 2. On the core's STATUS frames: Music's duck stays 1 in every block up to the quantum holding the stamp, then falls toward 0.3.
+  const reads = await sample(stamp + Math.round(0.5 * rate), false); // 0.5 s: ten attack constants, well inside the 4 s clip
   const q0 = Math.floor(stamp / 128) * 128;
   for (const r of reads) if (r.frame <= q0) expect(r.duck, `STATUS frame ${r.frame}, before the stamp's quantum ${q0}`).toBe(1);
+  expect(reads.some((r) => r.frame <= q0), "a block before the stamp was read").toBe(true);
   const ducked = reads.filter((r) => r.duck < 1);
   expect(ducked.length, "the duck was read").toBeGreaterThan(0);
   expect(ducked[0]!.frame, "first seen in a block after the stamp's quantum").toBeGreaterThan(q0);
-  expect(reads[reads.length - 1]!.duck, "held near the rule's amount").toBeCloseTo(0.3, 2);
-  expect(reads[reads.length - 1]!.api).toBeCloseTo(reads[reads.length - 1]!.duck, 6);
-  // 3. An explicit stop clears the bit asap; the duck releases with `release` (0.4 s) back to 1.
-  await page.evaluate(() => (globalThis as unknown as G).__dp1!.handle!.stop());
-  await expect.poll(() => page.evaluate(() => (globalThis as unknown as G).__myco.Audio.bus("Music").duckGain), { timeout: 15_000 }).toBe(1);
-  const after = await page.evaluate(() => (globalThis as unknown as G).__dp1!.sent);
-  expect(after.some((x) => (x.mask & sfxBit) === 0 && x.at === undefined), "an asap BUS_PRESENCE without SFX's bit").toBe(true);
+  expect(ducked[0]!.frame - stamp, "and within a few blocks of it").toBeLessThan(0.1 * rate);
+  expect(reads.at(-1)!.duck, "held near the rule's amount").toBeCloseTo(0.3, 2);
+  // 3. An explicit stop clears the presence at once: the duck releases with `release` (0.4 s) back to 1, from the stop on.
+  const stopFrame = await page.evaluate(() => {
+    const g = globalThis as unknown as G;
+    g.__dp1!.stop();
+    return Number(g.__myco.Audio.debug().core.currentFrame);
+  });
+  const after = await sample(stopFrame + 3 * rate, true);
+  expect(after.at(-1)!.duck, "released to 1").toBe(1);
+  const rising = after.find((r) => r.duck > 0.35)!;
+  expect(rising, "the release began").toBeTruthy();
+  expect(rising.frame - stopFrame, "asap: within a few blocks of the stop, not at the clip's end").toBeLessThan(0.3 * rate);
+  expect(after.at(-1)!.frame - stopFrame, "back at 1 within a couple of seconds of the stop").toBeLessThan(2 * rate);
   expect(errors).toEqual([]);
 });
 

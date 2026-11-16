@@ -94,12 +94,12 @@ Do them in order the first time; each one leaves the page as it found it, except
 
 ### S5. The ladder flag. No key (the walker's step; the owner's check is on a loaded device)
 
-When the audio thread runs late for long enough, the engine's **shedding ladder** takes its first step: it pauses every loudness meter except Master's ("meters paused to give the time back"), reports it, and gives it back last. You cannot provoke that with a key on a healthy machine (it needs the adaptive voice cap at its floor and seconds of underruns), so the walker sets the same flag the core's STATUS carries and reads what the page does with it. On a **loaded device** (the lab VM, a phone, or the stress sample while it underruns), you would see:
+When the audio thread runs late for long enough, the engine's **shedding ladder** takes its first step: it pauses every loudness meter except Master's ("meters paused to give the time back"), reports it, and gives it back last. You cannot provoke that with a key on a healthy machine (it needs the adaptive voice cap at its floor and seconds of underruns), so the walker has no step for it: the unit tests drive a real one. On a **loaded device** (the lab VM, a phone, or the stress sample while it underruns), you would see:
 
 - **While the step is in force:** UI's line shows **`[paused by ladder]`**, its clock stops, **Master's does not pause** and keeps measuring; **Window > Audio Debug** shows `Loudness ladder step 1` (flagged bad) and `Meters paused 1`. The sound is unaffected (this is the engine saving time, not changing the mix).
 - **When it is given back:** UI meters again, and its line shows **`[incomplete]`**: the time it was shed is a gap in its measurement, so its integrated value is marked as not covering the whole programme until you press C. Master is never marked.
 - **A defect reads like:** Master pausing with the others; UI pausing with no `ladder` in its flag; the step in force but the debug row at 0; UI back with no `incomplete`.
-- **Walker confirms (the seam, not a real step):** the `loudShed` the core reports sets UI to paused by `ladder`, Master not paused, `Audio.debug().mix` reads `loudnessLadderStep 1` and `metersPaused 1`; across 1.5 s of the audio clock UI's clock holds and Master's runs on; when the flag goes back to 0 UI meters again and is `incomplete`, Master is not; C clears it. **Limit:** the core's own trigger and the step order (loudness first, given back last) are `audio-core`'s and `ladderRecoveryLoopback.test.ts`'s checks, not this walker's.
+- **Checked by the unit tests, not the walker:** `ladderRecoveryLoopback.test.ts` (the real wasm under load: the meters paused by `ladder`, Master metering on, the step given back last and marking the paused meters `incomplete`) and `mixDebug.test.ts` (`Audio.debug().mix.loudnessLadderStep` follows STATUS `loudShed`). The walker has no way to make the core shed through the page, and it does not fake the flag.
 
 ### S6. The owner's way with the keys: late, twice, held
 
@@ -115,7 +115,7 @@ You press at human pace, and not always at a good moment. These are the cases th
 
 - **Hear.** Headless Chromium has no sound output: every "correct" and "defect" sentence above about how it sounds (a steady tone, a click, a distorted peak, a doubled tone) is yours. The walker reads the meters' numbers, the verdict, the flags and `Audio.debug()`.
 - **Judge that the number belongs to the sound.** A meter that agrees with the engine's own tone generator proves the filter and gating, which the goldens already do (the synthesised EBU Tech 3341/3342 set, task Ld6). Your ear and, if you have one, a second meter on the same file are what say the engine's number is the loudness you hear.
-- **A real ladder step.** See S5: the walker sets the flag; the device sets the real one.
+- **A real ladder step.** See S5: the unit tests drive one on the loopback host; the device sets the real one.
 - **Monitor mute and solo, Compare, and the mixer panel's meters.** The taint rules (a monitor mute taints that bus, its ancestors and master; solo and Compare taint every meter; a mark stays until a reset) and every reset option are checked by `tests/e2e/audio-mix-b.spec.ts`. The Mixer panel's strips and the Profiler's loudness track are M5c and the profiler sections.
 
 ## Sign-off

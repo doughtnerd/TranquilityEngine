@@ -7,7 +7,7 @@ import {
 // Interactive music, milestone M4a (ADR 0166/0167; waves plan, task E1): the milestone's path in the real browser, on the
 // core backend (one case on Babylon). The cases open the Sound Lab (or the Flappy sample) in Play mode, add music events built
 // from the lab's clips (`audioMusic.ts`) and observe them through `Audio.debug()` (the `music` rows, `musicTotals`:
-// `maxSlipFrames`, `splitQuanta`; the core's `groupsLate` from the STATUS mirror) and the bus meters. The events play on the Tape
+// `maxSlipFrames`, `splitQuanta`; the rows' group counters summed by `readLate`) and the bus meters. The events play on the Tape
 // bus, so its meter shows the music alone. Headless Chromium has no sound output: the meters and counters are the proof, the
 // listening section (audio-music-listening.spec.ts, M4a) is the ear's. Frames are capped (tests/e2e/README.md), so the
 // tolerances are in tenths of a second; the sample-exact claims are the loopback tests' (T1) and the cargo goldens' (C3).

@@ -13,73 +13,42 @@ import { fader, openAudioSettings, openLabCopy, openMixer, playLiveMix, savedPro
 //
 // The page is the Sound Lab's main page as it ships (the keys are the sample's own: B drums on Music, A noise on Ambience, 2 and N
 // mute Music and Ambience, 3 and Z fade them, 4 the Underwater snapshot, 5 a burst on SFX, X the same burst scheduled 1 s ahead).
-// The walker adds nothing the sample doesn't have but a recorder: a capture-phase key listener that logs each press, spies on the
-// command writer's `busRampFrames`, `busPresence` and `play` (what main sent and the frame it stamped), and a 10 ms sampler of
-// the heard clock, the core's STATUS frame, the duck lane and the meters. Every timing assertion is on the audio clock (the core's
-// STATUS frame, `Audio.time`, frames in records); the real-time intervals only pace the reads. In the owner's mode a step waits
-// for the owner's key (the recorder sees it) and then reads what the page did, and fails if it did not run as built.
+// The walker adds nothing the sample doesn't have but a recorder: a capture-phase key listener that logs each press and a 10 ms
+// sampler of what the public API reports: the heard clock (`Audio.time`), the core's STATUS frame (`Audio.debug().core.currentFrame`),
+// Music's duck (`Bus.duckGain`), the buses' effective gains, the stamp of each bus's last ramp (`lastRampStartFrame`) and the meters.
+// Every timing assertion is on the audio clock (the core's STATUS frame, `Audio.time`, the stamps); the real-time intervals only pace
+// the reads. In the owner's mode a step waits for the owner's key (the recorder sees it) and then reads what the page did, and fails
+// if it did not run as built. What main writes for each change (one BUS_RAMP per lane that moved, its gain, low-pass and length, a
+// snapshot's buses at one stamp; a presence record stamped at the voice's start frame, the PLAY at the same frame) is the unit tests'
+// (`laneWriter.test.ts`, `presence.test.ts`, `voices.test.ts`), each driving its module through its own interface.
 //
 // **Owner mode, what it also covers (ground rules, "the walker also runs in the owner's mode"):** the `M5-0 (listen mode)` case
 // presses the same keys at human pace (seconds between keys), one key late (after the page sat idle, so STATUS idles at 48 quanta),
 // one key twice (two separate presses) and one key held (auto-repeat: it must act once), and checks the same landings.
 //
-// **What the walker cannot do:** hear. Headless Chromium has no sound output; it reads the lane values, the duck, the records
-// main sent and the core's meters. A click, a zipper or a thin spectrum is the owner's ear (and the objective `maxStep` checks of
-// the goldens). The snapshot's low-pass is read from the records sent (`busRampFrames` with `lpHz`), not from the sound.
+// **What the walker cannot do:** hear. Headless Chromium has no sound output; it reads the lane values, the duck, the stamps and the
+// core's meters. A click, a zipper or a thin spectrum is the owner's ear (and the objective `maxStep` checks of the goldens). The
+// snapshot's low-pass is the owner's ear here and `laneWriter.test.ts`'s records; the walker checks its stamp and its gains.
 
 const LISTEN = process.env.E2E_LISTEN === "1";
 test.describe.configure({ timeout: LISTEN ? 3_600_000 : 240_000 });
 
-const LANE = { runtime: 1, snapshot: 2 } as const;
-const BUS_LP_OFF_HZ = 24000;
-
-type Ramp = { kind: "ramp"; bus: number; lane: number; mask: number; gain: number; lpHz: number; frames: number; at?: number; now: number };
-type Pres = { kind: "presence"; mask: number; at?: number; now: number };
-type Play = { kind: "play"; at?: number; now: number };
-type Sent = Ramp | Pres | Play;
 type Press = { key: string; repeat: boolean; time: number; frame: number };
-type Read = { frame: number; time: number; duck: number; music: number; ambience: number; sfxPeak: number; masterPeak: number; musicPeak: number };
+type Read = { frame: number; time: number; duck: number; music: number; ambience: number; sfxPeak: number; masterPeak: number; musicPeak: number; musicStamp: number | null; sfxStamp: number | null };
 type Row = { name: string; effectiveGain: number; peakL: number; lastRampStartFrame?: number };
-type Dbg = { sampleRate: number; buses: Row[]; voices: { id: number; clip: string; bus: string; state: string }[]; musicTotals?: { splitQuanta?: number }; counters: { underruns: number } };
-type M50 = { presses: Press[]; sent: Sent[]; reads: Read[]; slots: Record<string, number> };
+type Dbg = { sampleRate: number; buses: Row[]; voices: { id: number; clip: string; bus: string; state: string }[]; musicTotals?: { splitQuanta?: number }; counters: { underruns: number }; core: Record<string, number | string | boolean> };
+type M50 = { presses: Press[]; reads: Read[] };
 
 type Globals = { __myco: { Audio: { time: number; debug(): Dbg; buses: readonly string[]; bus(n: string): { effectiveGain: number; duckGain: number; peak: number } } } };
 
-/** Installs the recorder: key log, command-writer spies, the 10 ms sampler, and (owner mode) the card. */
+/** Installs the recorder: key log, the 10 ms sampler, and (owner mode) the card. */
 async function installM50(page: Page, card: boolean): Promise<void> {
   await page.evaluate((showCard) => {
-    type Writer = Record<string, (...a: never[]) => void>;
-    type Mirror = { header: { currentFrame: number }; duckCount: number; duckSlot: Uint16Array; duckGain: Float32Array };
-    type Backend = { mirror: Mirror; writer: Writer };
-    type V = { backend?: Backend; inner?: { backend?: Backend } };
     const g = globalThis as unknown as Globals & { __m50?: M50 };
     const { Audio } = g.__myco;
-    const seed = (Audio as unknown as { playOneShot(c: string, o?: object): { voice?: V } }).playOneShot("audio/beep.wav", { volume: 0.0001, bus: "UI" }).voice;
-    const backend = (seed?.backend ?? seed?.inner?.backend)!;
-    const st: M50 = { presses: [], sent: [], reads: [], slots: {} };
-    for (const n of Audio.buses) st.slots[n] = Audio.buses.indexOf(n);
+    const st: M50 = { presses: [], reads: [] };
     g.__m50 = st;
-    const now = () => backend.mirror.header.currentFrame;
-    const w = backend.writer as unknown as {
-      busRampFrames(bus: number, lane: number, mask: number, gain: number, lpHz: number, frames: number, seq?: number, at?: number): void;
-      busPresence(mask: number, at?: number): void;
-      play(args: unknown, at?: number): void;
-    };
-    const ramp = w.busRampFrames.bind(w);
-    w.busRampFrames = (bus, lane, mask, gain, lpHz, frames, seq, at) => {
-      st.sent.push({ kind: "ramp", bus, lane, mask, gain, lpHz, frames, at, now: now() });
-      ramp(bus, lane, mask, gain, lpHz, frames, seq, at);
-    };
-    const pres = w.busPresence.bind(w);
-    w.busPresence = (mask, at) => {
-      st.sent.push({ kind: "presence", mask, at, now: now() });
-      pres(mask, at);
-    };
-    const playW = w.play.bind(w);
-    w.play = (args, at) => {
-      st.sent.push({ kind: "play", at, now: now() });
-      playW(args, at);
-    };
+    const now = () => Number(Audio.debug().core.currentFrame);
     window.addEventListener(
       "keydown",
       (e) => {
@@ -87,15 +56,22 @@ async function installM50(page: Page, card: boolean): Promise<void> {
       },
       { capture: true },
     );
-    const m = backend.mirror;
-    const music = Audio.buses.indexOf("Music");
     setInterval(() => {
-      let duck = 1;
-      for (let k = 0; k < m.duckCount; k++) if (m.duckSlot[k] === music) duck = m.duckGain[k]!;
       const d = Audio.debug();
       const row = (n: string) => d.buses.find((b) => b.name === n)!;
       if (st.reads.length > 60_000) st.reads.splice(0, 10_000);
-      st.reads.push({ frame: m.header.currentFrame, time: Audio.time, duck, music: Audio.bus("Music").effectiveGain, ambience: Audio.bus("Ambience").effectiveGain, sfxPeak: row("SFX").peakL, masterPeak: row("Master").peakL, musicPeak: row("Music").peakL });
+      st.reads.push({
+        frame: Number(d.core.currentFrame),
+        time: Audio.time,
+        duck: Audio.bus("Music").duckGain,
+        music: Audio.bus("Music").effectiveGain,
+        ambience: Audio.bus("Ambience").effectiveGain,
+        sfxPeak: row("SFX").peakL,
+        masterPeak: row("Master").peakL,
+        musicPeak: row("Music").peakL,
+        musicStamp: row("Music").lastRampStartFrame ?? null,
+        sfxStamp: row("SFX").lastRampStartFrame ?? null,
+      });
     }, 10);
     if (showCard) {
       const el = document.createElement("pre");
@@ -110,7 +86,6 @@ const dbg = async (page: Page) => (await mixDebug(page)) as unknown as Dbg;
 const audioTime = (page: Page) => page.evaluate(() => (globalThis as unknown as Globals).__myco.Audio.time);
 const frameNow = (page: Page) => page.evaluate(() => (globalThis as unknown as { __m50: M50 }).__m50.reads.at(-1)!.frame);
 const row = async (page: Page, bus: string) => (await dbg(page)).buses.find((b) => b.name === bus)!;
-const sentCount = (page: Page) => page.evaluate(() => (globalThis as unknown as { __m50: M50 }).__m50.sent.length);
 
 /** Waits on the audio clock: until `Audio.time` passes `t` (the reads pace in real time, the condition is heard time). */
 const untilTime = (page: Page, t: number, timeout = 30_000) => page.waitForFunction((x) => (globalThis as unknown as Globals).__myco.Audio.time > x, t, { timeout, polling: 50 });
@@ -131,9 +106,16 @@ async function press(page: Page, key: string, hint: string, o: { human?: boolean
   return page.evaluate(([k, n]) => (globalThis as unknown as { __m50: M50 }).__m50.presses.slice(n as number).find((p) => p.key === k && !p.repeat)!, [key, before] as const);
 }
 
-const sentSince = (page: Page, from: number) => page.evaluate((n) => (globalThis as unknown as { __m50: M50 }).__m50.sent.slice(n), from);
 const readsSince = (page: Page, t: number) => page.evaluate((from) => (globalThis as unknown as { __m50: M50 }).__m50.reads.filter((r) => r.time >= from), t);
-const slot = (page: Page, name: string) => page.evaluate((n) => (globalThis as unknown as { __m50: M50 }).__m50.slots[n]!, name);
+/** Each distinct stamp a bus row showed since `t` (heard time), in the order the sampler saw them. */
+const stampsSince = async (page: Page, field: "musicStamp" | "sfxStamp", t: number, than: number): Promise<number[]> => {
+  const out: number[] = [];
+  for (const r of await readsSince(page, t)) {
+    const s = r[field];
+    if (s !== null && s > than && s !== out.at(-1)) out.push(s);
+  }
+  return out;
+};
 
 /** The next BUS_RAMP stamp on a bus row: waits until `lastRampStartFrame` moves past `than`. */
 async function stampOf(page: Page, bus: string, than: number): Promise<number> {
@@ -161,6 +143,12 @@ async function boot(page: Page): Promise<string[]> {
 /** Every duck-lane sample and the Music bus's effective gain over a window of the heard clock. */
 const duckSeries = (reads: Read[]) => ({ min: Math.min(...reads.map((r) => r.duck)), minGain: Math.min(...reads.map((r) => r.music)) });
 
+/**
+ * The X key's burst is played with `at: Audio.time + 1` in the game's update after the key: its start frame is at least
+ * `round((press.time + 1) x rate)` (the press's heard clock, read just before) and at most a few game frames later.
+ */
+const scheduledFrom = (t: Press, rate: number) => Math.round((t.time + 1) * rate);
+
 test.describe("listening M5-0: the stamped bus path", () => {
   // One page at a time: two software-GL pages on this machine starve each other (the core underruns, which a headless walk cannot judge).
   test.describe.configure({ mode: "serial" });
@@ -169,9 +157,6 @@ test.describe("listening M5-0: the stamped bus path", () => {
     const errors = await boot(page);
     const rate = (await dbg(page)).sampleRate;
     const split0 = (await dbg(page)).musicTotals?.splitQuanta ?? 0;
-    const music = await slot(page, "Music");
-    const ambience = await slot(page, "Ambience");
-    const sfx = await slot(page, "SFX");
 
     await test.step("S0 setup: the tone is paused (P) and the drums play on Music (B), the project's hum plays on Ambience", async () => {
       await press(page, "p", "Pauses the Music tone so the drums are the only thing on Music.");
@@ -183,20 +168,15 @@ test.describe("listening M5-0: the stamped bus path", () => {
 
     await test.step("S1 key 3: a scripted fade lands on its stamp, down over 0.5 s to a quarter and back up", async () => {
       const base = (await row(page, "Music")).lastRampStartFrame ?? 0;
-      const sent0 = await sentCount(page);
       const before = await peakOver(page, "musicPeak", 1.2);
       const t = await press(page, "3", "Fades Music (the drums) to a quarter over half a second, from about a tenth of a second after the key.");
       const stamp = await stampOf(page, "Music", base);
       expect(stamp, "stamped ahead of the core's frame at the key").toBeGreaterThan(t.frame);
       expect(stamp - t.frame, "within the lookahead and the clock's lead").toBeLessThan(0.5 * rate);
-      const ramps = (await sentSince(page, sent0)).filter((s): s is Ramp => s.kind === "ramp" && s.bus === music && s.lane === LANE.runtime);
-      expect(ramps.length, "one BUS_RAMP on Music's runtime lane, nothing re-sent while it runs").toBe(1);
-      expect(ramps[0]!.at, "the record carries the stamp the row shows").toBe(stamp);
-      expect(ramps[0]!.gain).toBeCloseTo(0.25, 6);
-      expect(ramps[0]!.frames / rate, "0.5 s long").toBeCloseTo(0.5, 2);
       // On the audio clock: landed by stamp + 0.5 s (the core has rendered past it), monotone, not in one step.
       await expect.poll(() => frameNow(page), { timeout: 15_000 }).toBeGreaterThan(stamp + Math.round(0.5 * rate));
       await settle(page, "Music", 0.15);
+      expect(await stampsSince(page, "musicStamp", t.time, base), "one stamped ramp on Music, nothing re-sent while it ran").toEqual([stamp]);
       const reads = (await readsSince(page, t.time)).filter((r) => r.music > 0);
       for (let i = 1; i < reads.length; i++) expect(reads[i]!.music, "never rises while fading down").toBeLessThanOrEqual(reads[i - 1]!.music + 1e-9);
       const left = reads.find((r) => r.music < 0.6 - 1e-3)!;
@@ -216,28 +196,21 @@ test.describe("listening M5-0: the stamped bus path", () => {
 
     await test.step("S2 key 4: the Underwater snapshot's ramps land on one stamp (Music, SFX and Ambience together), and key 4 again clears it", async () => {
       const base = (await row(page, "Music")).lastRampStartFrame ?? 0;
-      const sent0 = await sentCount(page);
       const t = await press(page, "4", "Underwater: the drums go muffled and quieter, the hum and noise too, over half a second. Press again afterwards to clear it.");
       const stamp = await stampOf(page, "Music", base);
       expect(stamp).toBeGreaterThan(t.frame);
-      const ramps = (await sentSince(page, sent0)).filter((s): s is Ramp => s.kind === "ramp" && s.lane === LANE.snapshot);
-      const by = (n: number) => ramps.find((r) => r.bus === n);
-      expect(by(music), "Music's snapshot ramp").toMatchObject({ gain: expect.closeTo(0.6, 6), lpHz: 500, at: stamp });
-      expect(by(ambience), "Ambience's snapshot ramp").toMatchObject({ gain: expect.closeTo(0.5, 6), lpHz: 900, at: stamp });
-      expect(by(sfx), "SFX's snapshot ramp: its low-pass only").toMatchObject({ lpHz: 1500, at: stamp });
-      expect(new Set(ramps.map((r) => r.at)).size, "one stamp for every bus the snapshot touches").toBe(1);
-      expect((await row(page, "Ambience")).lastRampStartFrame, "the Ambience row shows the same stamp").toBe(stamp);
+      // Every bus the snapshot touches shows the same stamp (SFX's ramp is its low-pass only).
+      await expect.poll(async () => (await row(page, "Ambience")).lastRampStartFrame, { timeout: 15_000, message: "the Ambience row shows the same stamp" }).toBe(stamp);
+      await expect.poll(async () => (await row(page, "SFX")).lastRampStartFrame, { timeout: 15_000, message: "the SFX row shows the same stamp" }).toBe(stamp);
       await expect.poll(() => frameNow(page), { timeout: 15_000 }).toBeGreaterThan(stamp + Math.round(0.5 * rate));
       await settle(page, "Music", 0.36);
       await settle(page, "Ambience", 0.4);
       await settle(page, "SFX", 1);
       // Clear.
-      const sent1 = await sentCount(page);
       const base1 = (await row(page, "Music")).lastRampStartFrame!;
       await press(page, "4", "Clears the snapshot: the sound opens up again.");
       const stamp1 = await stampOf(page, "Music", base1);
-      const cleared = (await sentSince(page, sent1)).filter((s): s is Ramp => s.kind === "ramp" && s.lane === LANE.snapshot);
-      expect(cleared.find((r) => r.bus === music), "Music's ramp back to open").toMatchObject({ gain: expect.closeTo(1, 6), lpHz: BUS_LP_OFF_HZ, at: stamp1 });
+      expect(stamp1, "the clear is a new ramp on Music's row").toBeGreaterThan(stamp);
       await settle(page, "Music", 0.6);
       await settle(page, "Ambience", 0.8);
     });
@@ -247,7 +220,6 @@ test.describe("listening M5-0: the stamped bus path", () => {
 
     await test.step("S3 key 5: a burst on SFX ducks Music to the rule's 0.3 and releases it", async () => {
       await duckRest();
-      const sent0 = await sentCount(page);
       const t = await press(page, "5", "A noise burst; the drums dip hard under it at once and swell back after it ends, over about half a second.");
       await expect.poll(() => page.evaluate((from) => (globalThis as unknown as { __m50: M50 }).__m50.reads.filter((r) => r.time >= from).some((r) => r.duck < 0.35), t.time), { timeout: 10_000, message: "the duck reached the rule's amount" }).toBe(true);
       await duckRest();
@@ -258,36 +230,29 @@ test.describe("listening M5-0: the stamped bus path", () => {
       expect(minGain, "Music's effective gain follows: 0.6 x 0.3").toBeLessThan(0.2);
       const first = reads.find((r) => r.duck < 1)!;
       expect(first.frame, "no duck before the key").toBeGreaterThan(t.frame);
-      const sent = await sentSince(page, sent0);
-      const withSfx = sent.filter((s): s is Pres => s.kind === "presence" && (s.mask & (1 << sfx)) !== 0);
-      const without = sent.filter((s): s is Pres => s.kind === "presence" && (s.mask & (1 << sfx)) === 0);
-      expect(withSfx.length, "BUS_PRESENCE with SFX's bit").toBeGreaterThan(0);
-      expect(without.length, "and the bit cleared when the burst ended").toBeGreaterThan(0);
-      expect(reads[reads.length - 1]!.duck, "released to 1").toBeGreaterThan(0.999);
+      expect(reads.some((r) => r.sfxPeak > 0.01), "the burst was on the SFX meter").toBe(true);
+      expect(reads[reads.length - 1]!.duck, "released to 1 once the burst ended").toBeGreaterThan(0.999);
     });
 
     await test.step("S4 key X: the same burst scheduled 1 s ahead: Music ducks on the burst's own frame, not before and not after", async () => {
       await duckRest();
-      const sent0 = await sentCount(page);
       const t = await press(page, "x", "The burst sounds one second after the key. The drums must dip exactly as it hits: no dip before it, no full-level drums under its first instant.");
-      await expect.poll(async () => (await sentSince(page, sent0)).some((s) => s.kind === "presence" && s.at !== undefined), { timeout: 10_000 }).toBe(true);
-      const sent = await sentSince(page, sent0);
-      const pres = sent.find((s): s is Pres => s.kind === "presence" && s.at !== undefined && (s.mask & (1 << sfx)) !== 0)!;
-      const stamp = pres.at!;
-      expect(stamp - t.frame, "a second ahead, within the clock's lead").toBeGreaterThan(0.8 * rate);
-      expect(stamp - t.frame).toBeLessThan(1.5 * rate);
-      expect(sent.some((s) => s.kind === "play" && s.at === stamp), "the voice's PLAY carries the same frame").toBe(true);
-      await expect.poll(() => frameNow(page), { timeout: 20_000 }).toBeGreaterThan(stamp + Math.round(0.4 * rate));
-      const q0 = Math.floor(stamp / 128) * 128;
+      const earliest = scheduledFrom(t, rate);
+      await expect.poll(() => frameNow(page), { timeout: 20_000 }).toBeGreaterThan(earliest + Math.round(0.6 * rate));
+      const q0 = Math.floor(earliest / 128) * 128;
       const reads = await readsSince(page, t.time);
-      for (const r of reads) if (r.frame <= q0) expect(r.duck, `STATUS frame ${r.frame}, before the stamp's quantum ${q0}`).toBe(1);
+      expect(reads.some((r) => r.frame > t.frame && r.frame <= q0), "blocks between the key and the burst's frame were read").toBe(true);
+      for (const r of reads) if (r.frame <= q0) expect(r.duck, `STATUS frame ${r.frame}, before the burst's frame ${earliest}`).toBe(1);
       for (const r of reads) if (r.frame <= q0) expect(r.sfxPeak, `the burst is not heard before its frame (${r.frame})`).toBeLessThan(0.01);
       const ducked = reads.find((r) => r.duck < 1)!;
       expect(ducked, "the duck was read").toBeTruthy();
-      expect(ducked.frame, "first seen in a block after the stamp's quantum").toBeGreaterThan(q0);
-      expect(ducked.frame - stamp, "and within a few blocks of it").toBeLessThan(0.3 * rate);
       const heard = reads.find((r) => r.sfxPeak > 0.01)!;
+      expect(heard, "the burst reached the SFX meter").toBeTruthy();
+      expect(ducked.frame, "first seen in a block after the burst's earliest frame").toBeGreaterThan(q0);
       expect(heard.frame, "the burst reaches the SFX meter after its frame, not before").toBeGreaterThan(q0);
+      // On the sound's own frame: the duck and the burst show up together, within a couple of STATUS blocks (6 quanta each).
+      expect(Math.abs(ducked.frame - heard.frame), "the duck starts with the burst").toBeLessThanOrEqual(2 * 6 * 128);
+      expect(ducked.frame - earliest, "a second after the key, within a few game frames").toBeLessThan(0.5 * rate);
       await duckRest();
     });
 
@@ -360,31 +325,34 @@ test.describe("listening M5-0: the stamped bus path", () => {
       await expect.poll(() => page.evaluate((from) => (globalThis as unknown as { __m50: M50 }).__m50.reads.filter((r) => r.time >= from).some((r) => r.duck < 0.35), t5.time), { timeout: 10_000 }).toBe(true);
       await duckRest();
       await think(2);
-      const sent0 = await sentCount(page);
       const tx = await press(page, "x", "", human);
-      await expect.poll(async () => (await sentSince(page, sent0)).some((s) => s.kind === "presence" && s.at !== undefined), { timeout: 10_000 }).toBe(true);
-      const stamp2 = (await sentSince(page, sent0)).find((s): s is Pres => s.kind === "presence" && s.at !== undefined)!.at!;
-      expect(stamp2 - tx.frame).toBeGreaterThan(0.8 * rate);
-      await expect.poll(() => frameNow(page), { timeout: 20_000 }).toBeGreaterThan(stamp2 + Math.round(0.3 * rate));
+      const earliest = scheduledFrom(tx, rate);
+      await expect.poll(() => frameNow(page), { timeout: 20_000 }).toBeGreaterThan(earliest + Math.round(0.4 * rate));
+      const reads = await readsSince(page, tx.time);
+      const q0 = Math.floor(earliest / 128) * 128;
+      for (const r of reads) if (r.frame <= q0) expect(r.duck, `no duck before the scheduled burst (${r.frame})`).toBe(1);
+      expect(reads.find((r) => r.duck < 1)?.frame ?? 0, "the duck came, a second after the key").toBeGreaterThan(q0);
       await duckRest();
     });
 
     await test.step("two quick presses of key 3 (down, then up): two stamps in order, ends at the authored level; a held key acts once", async () => {
       await think(1);
       const base = (await row(page, "Music")).lastRampStartFrame!;
-      const sent0 = await sentCount(page);
+      const t0 = await audioTime(page);
       await page.keyboard.press("3");
       await page.waitForTimeout(250); // two game frames (the page runs at 10 a second here): a quick double tap, mid-fade
       await page.keyboard.press("3");
-      await expect.poll(async () => (await sentSince(page, sent0)).filter((s) => s.kind === "ramp" && s.lane === LANE.runtime).length, { timeout: 10_000 }).toBeGreaterThanOrEqual(2);
-      const ramps = (await sentSince(page, sent0)).filter((s): s is Ramp => s.kind === "ramp" && s.lane === LANE.runtime);
-      expect(ramps.map((r) => r.gain.toFixed(2)), "down, then up").toEqual(["0.25", "1.00"]);
-      expect(ramps[1]!.at!, "the second is stamped no earlier than the first").toBeGreaterThanOrEqual(ramps[0]!.at!);
-      await expect.poll(() => frameNow(page), { timeout: 20_000 }).toBeGreaterThan(ramps[1]!.at! + Math.round(0.6 * rate));
+      await expect.poll(async () => (await stampsSince(page, "musicStamp", t0, base)).length, { timeout: 10_000, message: "two stamped ramps on Music" }).toBeGreaterThanOrEqual(2);
+      const stamps = await stampsSince(page, "musicStamp", t0, base);
+      expect(stamps, "down, then up: two ramps, the second stamped after the first").toHaveLength(2);
+      expect(stamps[1]!, "the second is stamped no earlier than the first").toBeGreaterThanOrEqual(stamps[0]!);
+      await expect.poll(() => frameNow(page), { timeout: 20_000 }).toBeGreaterThan(stamps[1]! + Math.round(0.6 * rate));
       await settle(page, "Music", 0.6);
-      expect((await row(page, "Music")).lastRampStartFrame).toBeGreaterThan(base);
+      const dipped = (await readsSince(page, t0)).filter((r) => r.frame > stamps[0]!);
+      expect(Math.min(...dipped.map((r) => r.music)), "the first press started down before the second turned it back").toBeLessThan(0.6 - 1e-3);
       // A held key: the first keydown, then auto-repeats. The page's getKeyDown fires once, so the fade goes down once.
-      const sent1 = await sentCount(page);
+      const base1 = (await row(page, "Music")).lastRampStartFrame!;
+      const t1 = await audioTime(page);
       await page.keyboard.down("3");
       for (let i = 0; i < 6; i++) {
         await page.waitForTimeout(120);
@@ -392,9 +360,8 @@ test.describe("listening M5-0: the stamped bus path", () => {
       }
       await page.keyboard.up("3");
       await think(1);
-      const held = (await sentSince(page, sent1)).filter((s): s is Ramp => s.kind === "ramp" && s.lane === LANE.runtime);
-      expect(held.length, "a held key is one fade").toBe(1);
-      expect(held[0]!.gain).toBeCloseTo(0.25, 6);
+      expect(await stampsSince(page, "musicStamp", t1, base1), "a held key is one fade").toHaveLength(1);
+      await settle(page, "Music", 0.15);
       await press(page, "3", "", human);
       await settle(page, "Music", 0.6);
     });
@@ -432,25 +399,21 @@ test.describe("listening M5-0: the stamped bus path", () => {
 //   the owner's mode:        E2E_LISTEN=1 npm run test:e2e:slow -- audio-mix-listening --headed --workers 1 -g "M5b \(owner"
 //
 // **What the walker cannot do:** hear (steadiness, clicks at the tone's start or stop, the hot tone's harshness are the owner's ear),
-// and provoke the ladder (a real step needs the adaptive cap at its floor and seconds of underruns): step S5 sets the STATUS
-// block's `loudShed` as the core reports it, the same seam as `audio-mix-b.spec.ts`.
+// and provoke the ladder (a real step needs the adaptive cap at its floor and seconds of underruns). The ladder's loudness step
+// reaching the meters (non-master meters paused by "ladder", master metering on, the give-back marking them incomplete) is
+// `ladderRecoveryLoopback.test.ts` on the real wasm, and `Audio.debug().mix.loudnessLadderStep` is `mixDebug.test.ts`.
 
 type Loud = { momentary: number; shortTerm: number; integrated: number; lra: number; maxTruePeak: number; elapsed: number; paused: boolean; pausedBy: string | null; incomplete: boolean; tainted: boolean; target: { name: string; state: string; deviation: number; peakOver: boolean } | null };
 type Press5b = { key: string; repeat: boolean; time: number };
 type Globals5b = {
   __myco: { Audio: { time: number; loudnessTarget: string | null; debug(): Dbg & { mix: { metersPaused: number; loudnessLadderStep: number } }; bus(n: string): { loudness: Loud } } };
   __m5b: { presses: Press5b[] };
-  __b5b?: { loudness: { hub: { feed(s: { loudShed: number }): void } }; mirror: { header: { loudShed: number } } };
-  __ladder5b?: { on: boolean };
 };
 
-/** The M5b recorder: a capture-phase key log, the core backend (for the ladder seam), and (owner mode) the card. */
+/** The M5b recorder: a capture-phase key log and (owner mode) the card. */
 async function installM5b(page: Page, card: boolean): Promise<void> {
   await page.evaluate((showCard) => {
-    type Backend = { loudness: { hub: { feed(s: { loudShed: number }): void } }; mirror: { header: { loudShed: number } } };
     const g = globalThis as unknown as Globals5b;
-    const seed = (g.__myco.Audio as unknown as { playOneShot(c: string, o?: object): { voice?: { backend?: Backend; inner?: { backend?: Backend } } } }).playOneShot("audio/beep.wav", { volume: 0.0001, bus: "SFX" }).voice;
-    g.__b5b = (seed?.backend ?? seed?.inner?.backend)!;
     g.__m5b = { presses: [] };
     window.addEventListener("keydown", (e) => g.__m5b.presses.push({ key: e.key.toLowerCase(), repeat: e.repeat, time: g.__myco.Audio.time }), { capture: true });
     if (showCard) {
@@ -500,7 +463,7 @@ const near = (x: number, want: number, tol = 0.1) => Math.abs(x - want) <= tol;
 test.describe("listening M5b: loudness against a reference", () => {
   test.describe.configure({ mode: "serial" });
 
-  test("M5b (owner or headless): the reference reads -22.99 LUFS, the target verdicts, a hot signal's true peak, reset and pause, the ladder flag", { tag: "@slow" }, async ({ page }) => {
+  test("M5b (owner or headless): the reference reads -22.99 LUFS, the target verdicts, a hot signal's true peak, reset and pause", { tag: "@slow" }, async ({ page }) => {
     const errors = await boot5b(page);
 
     await test.step("S0 setup: the readout is on, and master reads the page's own sounds", async () => {
@@ -588,40 +551,7 @@ test.describe("listening M5b: loudness against a reference", () => {
       await expect.poll(async () => (await meter(page, "UI")).elapsed, { timeout: 15_000 }).toBeLessThan(1);
     });
 
-    await test.step("S5 (walker only): the ladder's loudness step reaches the meters: UI pauses by the ladder, master keeps metering, the resume marks incomplete", async () => {
-      await meteredFor(page, "UI", 2);
-      const set = (on: boolean) =>
-        page.evaluate((v) => {
-          const g = globalThis as unknown as Globals5b;
-          if (!g.__ladder5b) {
-            g.__ladder5b = { on: false };
-            const hub = g.__b5b!.loudness.hub; // `CoreBackend.loudness` is the hub's wiring (ADR 0178)
-            const feed = hub.feed.bind(hub);
-            hub.feed = (s) => {
-              if (g.__ladder5b!.on) {
-                s.loudShed = 1;
-                g.__b5b!.mirror.header.loudShed = 1;
-              }
-              feed(s);
-            };
-          }
-          g.__ladder5b.on = v;
-        }, on);
-      await set(true);
-      await expect.poll(async () => (await meter(page, "UI")).pausedBy, { timeout: 15_000 }).toBe("ladder");
-      const [m0, u0] = [await meter(page, "Master"), await meter(page, "UI")];
-      expect(m0.paused, "master never shed").toBe(false);
-      expect((await page.evaluate(() => (globalThis as unknown as Globals5b).__myco.Audio.debug())).mix).toMatchObject({ loudnessLadderStep: 1, metersPaused: 1 });
-      await audioFor(page, 1.5);
-      const [m1, u1] = [await meter(page, "Master"), await meter(page, "UI")];
-      expect(u1.elapsed).toBe(u0.elapsed);
-      expect(m1.elapsed).toBeGreaterThan(m0.elapsed + 1);
-      await set(false);
-      await expect.poll(async () => (await meter(page, "UI")).paused, { timeout: 15_000 }).toBe(false);
-      expect((await meter(page, "UI")).incomplete, "a shed span is a gap").toBe(true);
-      expect((await meter(page, "Master")).incomplete).toBe(false);
-      await press5b(page, "c", "Reset: the incomplete flag clears.");
-      await expect.poll(async () => (await meter(page, "UI")).incomplete, { timeout: 15_000 }).toBe(false);
+    await test.step("the reference off: the page as the owner found it", async () => {
       await press5b(page, "l", "The reference off: the page is as you found it.");
     });
 
