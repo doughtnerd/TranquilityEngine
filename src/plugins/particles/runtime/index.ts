@@ -15,10 +15,10 @@ import { particlesManifest } from "../manifest";
 export { ParticleSystem, type ParticlePropertyValue } from "../../../engine/render/components";
 
 /**
- * @internal Plays ParticleSystems; loaded the first time a World has one (ADR 0083). The only feature
+ * Plays ParticleSystems; loaded the first time a World has one (ADR 0083). The only feature
  * of the `effects` phase, which runs after content and lighting and before probes capture.
  */
-export const PARTICLES_SPEC: RenderFeatureSpec = {
+const PARTICLES_SPEC: RenderFeatureSpec = {
   name: "particles",
   phase: "effects",
   types: [ParticleSystem],

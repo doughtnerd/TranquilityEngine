@@ -120,6 +120,23 @@ describe("the Babylon material library (ADR 0127)", () => {
       expect(lib.isGraph(b)).toBe(true);
     });
 
+    it("rebuilds a graph material unlit when its graph's target is saved as unlit (the Shader Graph's Target)", () => {
+      expect((lib.material(GRAPHED) as PBRMaterial).unlit).toBe(false);
+      useProject({ "shaders/pulse.shadergraph.json": { ...pulse, target: "unlit" } });
+      expect((lib.material(GRAPHED) as PBRMaterial).unlit).toBe(true);
+    });
+
+    it("builds a physical material's clearcoat and transmission from its saved fields (the Material inspector's)", () => {
+      useProject({ "materials/red.material.json": { format: "myco.material@1", shader: "physical", color: "#ff0000", clearcoat: 1, transmission: 0.5, ior: 1.33 } });
+      const m = lib.material(RED) as PBRMaterial;
+      expect(m.unlit).toBe(false);
+      expect(m.clearCoat.isEnabled).toBe(true);
+      expect(m.clearCoat.intensity).toBe(1);
+      expect(m.subSurface.isRefractionEnabled).toBe(true);
+      expect(m.subSurface.refractionIntensity).toBe(0.5);
+      expect(m.indexOfRefraction).toBeCloseTo(1.33);
+    });
+
     it("rebuilds a shader asset's material when one of its code files changes", () => {
       const a = lib.material(RIM)!;
       expect(lib.isGraph(a)).toBe(true);

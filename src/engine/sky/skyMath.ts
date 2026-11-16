@@ -197,7 +197,7 @@ export function starRotation(sky: SkySettings, timeOfDay = sky.sun.timeOfDay): n
 }
 
 /** The settings that change a bake, as text: everything but the time of day (and the rebake policy). */
-export function bakeSignature(sky: SkySettings): string {
+function bakeSignature(sky: SkySettings): string {
   const { sun, lighting, ...rest } = sky;
   return JSON.stringify([rest, { ...sun, timeOfDay: 0 }, lighting.bakeSize]);
 }

@@ -108,24 +108,6 @@ export function lutStripRGBA8(lut: Pick<CubeLut, "size" | "data">): { width: num
   return { width, height, pixels };
 }
 
-/** The same strip as Float32 RGBA (unclamped, alpha 1). */
-export function lutStripRGBAFloat(lut: Pick<CubeLut, "size" | "data">): { width: number; height: number; pixels: Float32Array } {
-  const { size, data } = lut;
-  const width = size * size;
-  const pixels = new Float32Array(size * size * size * 4);
-  for (let b = 0; b < size; b++)
-    for (let g = 0; g < size; g++)
-      for (let r = 0; r < size; r++) {
-        const src = (r + size * (g + size * b)) * 3;
-        const dst = (g * width + r + b * size) * 4;
-        pixels[dst] = data[src];
-        pixels[dst + 1] = data[src + 1];
-        pixels[dst + 2] = data[src + 2];
-        pixels[dst + 3] = 1;
-      }
-  return { width, height: size, pixels };
-}
-
 /** A neutral LUT: every colour maps to itself. */
 export function identityLut(size = 2): CubeLut {
   const data = new Float32Array(size * size * size * 3);

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { identityLut, lutStripRGBA8, lutStripRGBAFloat, parseCubeLut } from "../render/lut";
+import { identityLut, lutStripRGBA8, parseCubeLut } from "../render/lut";
 import { Assets } from "../scene/Assets";
 
 const identity2 = `# a comment
@@ -58,13 +58,12 @@ describe("LUT strips", () => {
     expect(px(3, 1)).toEqual([255, 255, 255, 255]);
   });
 
-  it("clamps and rounds RGBA8, keeps floats unclamped", () => {
+  it("clamps and rounds RGBA8", () => {
     const lut = identityLut(2);
     lut.data[0] = 2;
     lut.data[1] = -1;
     lut.data[2] = 0.5;
     expect(Array.from(lutStripRGBA8(lut).pixels.slice(0, 4))).toEqual([255, 0, 128, 255]);
-    expect(Array.from(lutStripRGBAFloat(lut).pixels.slice(0, 4))).toEqual([2, -1, 0.5, 1]);
   });
 });
 

@@ -2,14 +2,14 @@ import { expect, requireWebGPU, test, type Page } from "./fixtures";
 import { installFakeFolders, nextFolder, readFile } from "./fakeFolders";
 import { playgroundFiles, previewDraws, shaderGraphFile } from "./shaderPreview";
 
-// Physical materials (ADR 0052): the Material inspector's physical fields save to the file and the
-// mesh draws with three's physical material; physical shader graphs compile in WebGL with every
-// feature on.
+// Physical materials (ADR 0052): the Material inspector's physical fields save to the file (the
+// renderer's material library building clearcoat and transmission from it is checked in
+// materialLibrary.test.ts); physical shader graphs compile with every feature on.
 
 test.describe.configure({ timeout: 60_000 });
 
 type Hooks = {
-  engine?: { world: { time: { frameCount: number }; render: { diagnostics(): { drawn: { meshes: { node: { name: string }; materials: { unlit: boolean; clearcoat: number; transmission: number }[] }[] } } } } };
+  engine?: { world: { time: { frameCount: number } } };
 };
 
 function trackErrors(page: Page): string[] {
@@ -19,13 +19,7 @@ function trackErrors(page: Page): string[] {
   return errors;
 }
 
-const meshMaterial = (page: Page, name: string) =>
-  page.evaluate((n) => {
-    // What the renderer draws the node with, in engine material terms (ADR 0128).
-    return (window as unknown as Hooks).engine!.world.render.diagnostics().drawn.meshes.find((m) => m.node.name === n)?.materials[0] ?? null;
-  }, name);
-
-test("a physical material's fields save to its file and the mesh draws with clearcoat and transmission", async ({ page, browserName }) => {
+test("a physical material's fields save to its file", async ({ page, browserName }) => {
   test.skip(browserName !== "chromium", "folders open writably through File System Access in Chromium only");
   const errors = trackErrors(page);
   await installFakeFolders(page, { Playground: playgroundFiles() });
@@ -44,8 +38,6 @@ test("a physical material's fields save to its file and the mesh draws with clea
     await material.getByRole("spinbutton", { name: label, exact: true }).press("Enter");
   }
   await expect.poll(async () => JSON.parse((await readFile(page, "Playground/materials/metal.material.json")) ?? "{}")).toMatchObject({ shader: "physical", clearcoat: 1, transmission: 0.5, ior: 1.33 });
-  await expect.poll(async () => (await meshMaterial(page, "Body"))?.clearcoat).toBe(1);
-  expect(await meshMaterial(page, "Body")).toMatchObject({ unlit: false, clearcoat: 1, transmission: 0.5 });
   expect(errors).toEqual([]);
 });
 

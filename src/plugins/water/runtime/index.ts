@@ -10,8 +10,8 @@ import { waterManifest } from "../manifest";
 
 export { Water, WaterSurface, type WaterSample } from "../../../engine/render/water/WaterSurface";
 
-/** @internal Loaded the first time a World has a surface; holds the first frame meanwhile, so water shows from frame one (ADR 0120). */
-export const WATER_SPEC: RenderFeatureSpec = { name: "water", phase: "surfaces", types: [WaterSurface], lazy: true, holdsFirstFrame: true };
+/** Loaded the first time a World has a surface; holds the first frame meanwhile, so water shows from frame one (ADR 0120). */
+const WATER_SPEC: RenderFeatureSpec = { name: "water", phase: "surfaces", types: [WaterSurface], lazy: true, holdsFirstFrame: true };
 
 export const waterRuntimePlugin: RuntimePlugin = {
   manifest: waterManifest,

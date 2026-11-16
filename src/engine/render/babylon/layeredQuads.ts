@@ -83,10 +83,10 @@ export interface SpriteItem {
 }
 
 /** The per-instance UV rectangle's attribute. */
-export const UV_RECT_ATTRIBUTE = "mycoUvRect";
+const UV_RECT_ATTRIBUTE = "mycoUvRect";
 
-/** @internal Where the UV rectangle goes in Babylon's PBR vertex shader (GLSL and WGSL). */
-export function spriteUvCode(shaderType: string, language: ShaderLanguage): { [point: string]: string } | null {
+/** Where the UV rectangle goes in Babylon's PBR vertex shader (GLSL and WGSL). */
+function spriteUvCode(shaderType: string, language: ShaderLanguage): { [point: string]: string } | null {
   if (shaderType !== "vertex") return null;
   const wgsl = language === ShaderLanguage.WGSL;
   return {

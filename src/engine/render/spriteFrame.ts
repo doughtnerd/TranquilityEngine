@@ -5,7 +5,7 @@
 import { findSlice, type ImportSettings, type SpriteFill } from "../scene/importSettings";
 
 /** A border `[left, bottom, right, top]` with negatives zeroed and each opposite pair shrunk to fit `w` × `h`. */
-export function clampBorder(border: readonly number[], w: number, h: number): [number, number, number, number] {
+function clampBorder(border: readonly number[], w: number, h: number): [number, number, number, number] {
   const [l, b, r, t] = border.map((v) => Math.max(0, v));
   const fit = (a: number, c: number, total: number): [number, number] => (a + c > total && a + c > 0 ? [(a * total) / (a + c), (c * total) / (a + c)] : [a, c]);
   const [l2, r2] = fit(l, r, w);

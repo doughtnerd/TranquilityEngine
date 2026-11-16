@@ -17,12 +17,13 @@ import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight.js";
 import type { BaseTexture } from "@babylonjs/core/Materials/Textures/baseTexture.js";
 import "../prefilterGuard";
 import { Color3, Color4 } from "@babylonjs/core/Maths/math.color.js";
-import { Matrix, Quaternion, Vector3 } from "@babylonjs/core/Maths/math.vector.js";
+import { Vector3 } from "@babylonjs/core/Maths/math.vector.js";
 import { Scene } from "@babylonjs/core/scene.js";
 import { Assets } from "../../../scene/Assets";
 import { parseMaterial, type MaterialSettings } from "../../../scene/material";
 import { parseShaderGraph, type ShaderGraph } from "../../../scene/shaderGraph";
 import type { GraphShared } from "../graphMaterial";
+import { lookAtRotation } from "../lookAt";
 import { BabylonMaterialLibrary } from "../materialLibrary";
 
 /** What a thumbnail's lights are (the editor's default scene: soft ambient, a sun, the studio room). */
@@ -135,24 +136,6 @@ export function ensureCanvasSize(engine: AbstractEngine, w: number, h: number): 
   const canvas = engine.getRenderingCanvas();
   if (!canvas || (canvas.width === w && canvas.height === h)) return;
   engine.setSize(w, h);
-}
-
-/**
- * The rotation that puts a camera at `eye` looking at `target`, +Y up, as the engine's cameras look
- * (along +Z): the quaternion of the basis the engine's world matrices decompose to.
- */
-export function lookAtRotation(eye: readonly number[], target: readonly number[]): Quaternion {
-  const z = new Vector3(target[0] - eye[0], target[1] - eye[1], target[2] - eye[2]);
-  if (z.lengthSquared() < 1e-12) z.set(0, 0, 1);
-  z.normalize();
-  let x = Vector3.Cross(Vector3.Up(), z);
-  if (x.lengthSquared() < 1e-12) x = new Vector3(1, 0, 0); // looking straight up or down
-  x.normalize();
-  const y = Vector3.Cross(z, x);
-  const m = Matrix.FromValues(x.x, x.y, x.z, 0, y.x, y.y, y.z, 0, z.x, z.y, z.z, 0, 0, 0, 0, 1);
-  const q = new Quaternion();
-  m.decompose(undefined, q);
-  return q;
 }
 
 /** Put `camera` at `eye` looking at `target`. */

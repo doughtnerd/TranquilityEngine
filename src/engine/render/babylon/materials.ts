@@ -63,7 +63,7 @@ export function linear(c: Color): Color3 {
 const vertexDatas = new WeakMap<object, VertexData>();
 
 /** A model mesh's vertices (its renderer-neutral data) as Babylon vertex data, made once per mesh. */
-export function vertexDataOf(src: ModelMesh): VertexData {
+function vertexDataOf(src: ModelMesh): VertexData {
   let data = vertexDatas.get(src.data);
   if (data) return data;
   const d = src.data;
@@ -121,7 +121,7 @@ function ensureKtx2Loader(): void {
 }
 
 /** One model surface as a PBR material, shared by every mesh using it (`cache` is the owner's, per scene). */
-export function surfaceMaterial(scene: Scene, cache: WeakMap<object, BabylonMaterial>, surface: SurfaceInfo, meshName: string): BabylonMaterial {
+function surfaceMaterial(scene: Scene, cache: WeakMap<object, BabylonMaterial>, surface: SurfaceInfo, meshName: string): BabylonMaterial {
   let m = cache.get(surface);
   if (m) return m;
   const made = pbr(`model:${meshName}:${surface.name}`, scene);
@@ -317,40 +317,6 @@ function setPhysicalExtras(m: PBRMaterial, x: { attenuationColor: Color3 | null;
  */
 function variantSurface(src: ModelMesh, i: number, variant: string | undefined): SurfaceInfo {
   return (variant && src.variantSurfaces?.[variant]?.[i]) || src.surfaces[i] || src.surfaces[0];
-}
-
-/**
- * A model mesh's materials as Babylon materials: for each of its surfaces, `pick`'s material (a
- * renderer's or the import settings' material asset for that slot, ADR 0089) or the surface's own
- * as a PBR material. A mesh drawing several, one per index group, gets a submesh per group under a
- * `MultiMaterial` (returned in `made` too, for its owner to dispose). A mesh without surfaces asks
- * `pick` for the default slot. Null when nothing applies (the caller draws the default material).
- */
-export function modelMaterial(
-  scene: Scene,
-  cache: WeakMap<object, BabylonMaterial>,
-  src: ModelMesh,
-  mesh: Mesh,
-  pick: (surface: SurfaceInfo) => BabylonMaterial | null = () => null,
-  made?: BabylonMaterial[],
-  variant?: string,
-): BabylonMaterial | null {
-  if (!src.surfaces.length) return pick(DEFAULT_SLOT);
-  const one = (i: number) => {
-    const surface = src.surfaces[i] ?? src.surfaces[0];
-    return pick(surface) ?? surfaceMaterial(scene, cache, variantSurface(src, i, variant), src.name);
-  };
-  const groups = src.data.groups;
-  if (src.surfaces.length < 2 || groups.length < 2) return one(0);
-  const subs = src.surfaces.map((_, i) => one(i));
-  if (subs.every((m) => m === subs[0])) return subs[0]; // one material for every group: the mesh's one submesh does
-  const multi = new MultiMaterial(`model:${src.name}`, scene);
-  multi.subMaterials = subs;
-  made?.push(multi);
-  mesh.subMeshes = [];
-  const vertices = src.data.positions.length / 3;
-  for (const g of groups) new SubMesh(Math.min(g.materialIndex, src.surfaces.length - 1), 0, vertices, g.start, g.count, mesh);
-  return multi;
 }
 
 /**

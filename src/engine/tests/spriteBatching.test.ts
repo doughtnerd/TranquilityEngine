@@ -5,6 +5,7 @@ import { ShaderLanguage } from "@babylonjs/core/Materials/shaderLanguage.js";
 import { RawTexture } from "@babylonjs/core/Materials/Textures/rawTexture.js";
 import { Texture } from "@babylonjs/core/Materials/Textures/texture.js";
 import type { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
+import type { MaterialPluginBase } from "@babylonjs/core/Materials/materialPluginBase.js";
 import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh.js";
 import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { Scene } from "@babylonjs/core/scene.js";
@@ -15,9 +16,13 @@ import { World } from "../core/World";
 import { Assets, Camera, Color, Engine, GameObject, SceneManager, Vector2 } from "../index";
 import { SpriteRenderer } from "../render/components";
 import { BabylonSprites } from "../render/babylon/sprites";
-import { SPRITES_SPEC } from "../../plugins/sprites/runtime";
 import type { FeatureSyncContext } from "../render/babylon/feature";
-import { SpriteBatcher, spriteUvCode, UV_RECT_ATTRIBUTE, type SpriteItem } from "../render/babylon/layeredQuads";
+import { SpriteBatcher, type SpriteItem } from "../render/babylon/layeredQuads";
+import { _registeredRenderFeatures } from "../render/renderFeatures";
+
+/** A plugin's render feature spec, as its activation registered it. */
+const registeredSpec = (name: string) => _registeredRenderFeatures().find((f) => f.spec.name === name)!.spec;
+const SPRITES_SPEC = registeredSpec("sprites");
 
 // Read through Babylon's public API only: the scene's meshes, their alphaIndex and thin-instance count,
 // and the thin-instance buffers handed to `thinInstanceSetBuffer` (the batcher fills them in place).
@@ -37,6 +42,14 @@ const drawn = (scene: Scene): AbstractMesh[] => scene.meshes.filter((m) => m.isE
 const batches = (scene: Scene): Mesh[] => drawn(scene).filter((m): m is Mesh => m instanceof Mesh && m.thinInstanceCount > 0);
 /** Instance `i`'s `stride` floats of a batch's buffer `kind`. */
 const instance = (mesh: Mesh, kind: string, i: number, stride: number): number[] => [...buffers.get(mesh)!.get(kind)!.slice(i * stride, (i + 1) * stride)];
+/** The material plugin a batch's material reads each instance's UV rectangle with (Babylon's plugin API). */
+const uvPlugin = (mesh: Mesh): MaterialPluginBase => (mesh.material as PBRMaterial).pluginManager!.getPlugin("MycoSpriteUv")!;
+/** The per-instance attribute that plugin reads. */
+const uvAttribute = (mesh: Mesh): string => {
+  const attributes: string[] = [];
+  uvPlugin(mesh).getAttributes(attributes, mesh.getScene(), mesh);
+  return attributes[0]!;
+};
 const batchedSprites = (scene: Scene): number => batches(scene).reduce((n, m) => n + m.thinInstanceCount, 0);
 
 describe("the sprite batcher (ADR 0108)", () => {
@@ -91,17 +104,19 @@ describe("the sprite batcher (ADR 0108)", () => {
     const [mesh] = batches(scene);
     expect(instance(mesh, "matrix", 0, 16)[12]).toBe(3);
     expect(instance(mesh, "instanceColor", 0, 4)).toEqual([1, 0.5, 0.25, 0.75]);
-    expect(instance(mesh, UV_RECT_ATTRIBUTE, 0, 4)).toEqual([0.25, 0, 0.25, 0.5]);
+    expect(instance(mesh, uvAttribute(mesh), 0, 4)).toEqual([0.25, 0, 0.25, 0.5]);
   });
 
   it("puts the UV rectangle where both PBR vertex shaders have the UV", () => {
+    batcher.update([item(null, 0)]);
+    const plugin = uvPlugin(batches(scene)[0]!);
     for (const [language, source] of [[ShaderLanguage.GLSL, pbrVertexShader.shader], [ShaderLanguage.WGSL, pbrVertexShaderWGSL.shader]] as const) {
-      const code = spriteUvCode("vertex", language)!;
+      const code = plugin.getCustomCode("vertex", language)!;
       for (const point of Object.keys(code)) expect(source, point).toContain(`#define ${point}`);
       // The update point comes after the UV is read.
       expect(source.indexOf("#define CUSTOM_VERTEX_UPDATE_POSITION")).toBeGreaterThan(source.search(/uvUpdated\s*[:=]/));
     }
-    expect(spriteUvCode("fragment", ShaderLanguage.GLSL)).toBeNull();
+    expect(plugin.getCustomCode("fragment", ShaderLanguage.GLSL)).toBeNull();
   });
 });
 

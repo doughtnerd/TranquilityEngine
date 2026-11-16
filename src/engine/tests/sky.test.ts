@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { SKY_PRESETS, skyPreset } from "../sky/presets";
 import { Sky } from "../../plugins/sky/runtime/Sky";
-import { bakeSizeOf, defaultSky, formatSky, hexToLinear, isSkyPath, linearToHex, parseSky, SKY_FORMAT } from "../sky/skyFormat";
-import { bakeSignature, bodyDirections, directionFromAngles, hoursApart, moonPhase, SkyBakeScheduler, skyLight, starRotation, sunAngles, transmittance } from "../sky/skyMath";
+import { defaultSky, formatSky, hexToLinear, isSkyPath, parseSky, SKY_FORMAT } from "../sky/skyFormat";
+import { bodyDirections, directionFromAngles, hoursApart, moonPhase, SkyBakeScheduler, skyLight, starRotation, sunAngles, transmittance } from "../sky/skyMath";
 
 const near = (a: number, b: number, eps = 1e-3) => expect(Math.abs(a - b)).toBeLessThan(eps);
 
@@ -40,12 +40,12 @@ describe("sky format", () => {
   it("knows sky paths, bake sizes and colours", () => {
     expect(isSkyPath("skies/Day.SKY.JSON")).toBe(true);
     expect(isSkyPath("skies/day.json")).toBe(false);
-    expect(bakeSizeOf(100)).toBe(128);
-    expect(bakeSizeOf(1000)).toBe(512);
-    expect(bakeSizeOf(1)).toBe(32);
+    const bakeSize = (size: number) => parseSky({ format: SKY_FORMAT, lighting: { bakeSize: size } }).settings.lighting.bakeSize;
+    expect(bakeSize(100)).toBe(128);
+    expect(bakeSize(1000)).toBe(512);
+    expect(bakeSize(1)).toBe(32);
     expect(hexToLinear("#ffffff")).toEqual([1, 1, 1]);
     near(hexToLinear("#808080")[0], 0.2159);
-    expect(linearToHex(hexToLinear("#3a7bd5"))).toBe("#3a7bd5");
   });
 });
 
@@ -140,7 +140,8 @@ describe("sky maths", () => {
     s.invalidate();
     expect(s.update(6.2, sky, 10.6)).toBe(true);
     expect(hoursApart(23.5, 0.5)).toBe(1);
-    expect(bakeSignature({ ...sky, sun: { ...sky.sun, timeOfDay: 3 } })).toBe(bakeSignature(sky));
+    sky.sun.timeOfDay = 3; // the asset's time of day isn't a setting that rebakes; the clock passed in is
+    expect(s.update(10, sky, 10.6)).toBe(false);
   });
 });
 
@@ -169,7 +170,7 @@ describe("Sky component", () => {
 describe("sky uniforms and cubemaps", async () => {
   const { packSkyUniforms } = await import("../render/babylon/sky/skyUniforms");
   const { SKY_UNIFORMS } = await import("../render/babylon/sky/skyShader");
-  const { parseCubemap, formatCubemap, isCubemapPath } = await import("../sky/cubemapFormat");
+  const { parseCubemap, formatCubemap } = await import("../sky/cubemapFormat");
   const { environmentKind } = await import("../render/babylon/lighting");
   const at = (u: Float32Array, name: string) => Array.from(u.slice(SKY_UNIFORMS.indexOf(name as never) * 4, SKY_UNIFORMS.indexOf(name as never) * 4 + 4));
   const frame = (over = {}) => ({ settings: defaultSky(), time: 12, seconds: 0, rotation: 0, intensity: 1, fog: null, baking: false, moonTexture: false, milkyWayTexture: false, ...over });
@@ -216,7 +217,6 @@ describe("sky uniforms and cubemaps", async () => {
     const parsed = parseCubemap(JSON.parse(formatCubemap(faces as never)));
     expect(parsed.nx).toBe("a/nx.png");
     expect(() => parseCubemap({ px: "x" }, "c.cubemap.json")).toThrow(/py, pz, nx, ny, nz/);
-    expect(isCubemapPath("s/Box.CUBEMAP.json")).toBe(true);
     expect(environmentKind("s/a.env")).toBe("cube");
     expect(environmentKind("s/a.dds")).toBe("cube");
     expect(environmentKind("s/a.cubemap.json")).toBe("faces");

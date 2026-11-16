@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { colorFromHex, frameView, MAX_PITCH, moveOrbit, orbitOf, orbitPosition, seededRandom, previewPixels } from "../render/thumbnailMath";
+import { frameView, MAX_PITCH, moveOrbit, orbitOf, orbitPosition, seededRandom, previewPixels } from "../render/thumbnailMath";
 
 describe("thumbnail framing (ADR 0061)", () => {
   it("looks at the bounds' centre from the given direction, far enough to fit them", () => {
@@ -33,14 +33,6 @@ describe("seeded random", () => {
     expect(Array.from({ length: 50 }, () => b())).toEqual(xs);
     expect(c()).not.toBe(xs[0]);
     expect(xs.every((x) => x >= 0 && x < 1)).toBe(true);
-  });
-});
-
-describe("sprite colours", () => {
-  it("reads #rrggbb[aa], white otherwise", () => {
-    expect(colorFromHex("#ff8000")).toBe(0xff8000);
-    expect(colorFromHex("#ff800080")).toBe(0xff8000);
-    expect(colorFromHex("nope")).toBe(0xffffff);
   });
 });
 

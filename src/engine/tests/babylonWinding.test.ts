@@ -13,7 +13,7 @@ import { Scene } from "@babylonjs/core/scene.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { BUILTIN_MESHES, builtinMeshData } from "../scene/builtinMeshes";
 import type { MeshData } from "../scene/models";
-import { pbr, vertexDataOf } from "../render/babylon/materials";
+import { meshOf, pbr } from "../render/babylon/materials";
 
 type V3 = [number, number, number];
 const sub = (a: V3, b: V3): V3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
@@ -92,8 +92,7 @@ describe("front faces in Babylon's left-handed default (ADR 0164)", () => {
 
   for (const name of BUILTIN_MESHES) {
     it(`draws the built-in ${name}'s outward faces front-facing with the engine's material`, () => {
-      const mesh = new Mesh(name, scene);
-      vertexDataOf({ name, data: builtinMeshData(name) } as never).applyToMesh(mesh);
+      const mesh = meshOf(scene, name, { name, data: builtinMeshData(name) } as never);
       mesh.material = pbr("m", scene);
       expect(mesh.material.sideOrientation).toBeNull(); // no override: the scene's default
       if (name === "plane") {
@@ -125,7 +124,7 @@ describe("front faces in Babylon's left-handed default (ADR 0164)", () => {
   it("computes outward normals for engine geometry that has none (Babylon's ComputeNormals)", () => {
     const d = builtinMeshData("cube");
     const bare: MeshData = { ...d, normals: null };
-    const computed = vertexDataOf({ name: "bare", data: bare } as never).normals!;
+    const computed = meshOf(scene, "bare", { name: "bare", data: bare } as never).getVerticesData("normal")!;
     // Flat faces: each computed normal points the way the built-in one does.
     for (let i = 0; i < d.positions.length; i += 3) {
       const want: V3 = [d.normals![i], d.normals![i + 1], d.normals![i + 2]];

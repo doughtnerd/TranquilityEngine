@@ -17,9 +17,6 @@ export const CUBE_FACES = ["px", "py", "pz", "nx", "ny", "nz"] as const;
 export type CubeFace = (typeof CUBE_FACES)[number];
 export type CubemapFaces = Record<CubeFace, string>;
 
-/** True for a six-image cubemap asset path. */
-export const isCubemapPath = (path: string): boolean => /\.cubemap\.json$/i.test(path.split(/[?#]/)[0]!);
-
 /** Read a cubemap asset; throws with a readable message when a face is missing. */
 export function parseCubemap(raw: unknown, path = "cubemap"): CubemapFaces {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error(`${path} isn't a cubemap (expected a JSON object).`);

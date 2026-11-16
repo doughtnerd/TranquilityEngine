@@ -55,7 +55,7 @@ interface CanvasEntry extends Entry {
 }
 
 /** True when a point lies within `edge` pixels inside the border of the `width` x `height` frame at the origin. */
-export function onFrameEdge(x: number, y: number, width: number, height: number, edge: number): boolean {
+function onFrameEdge(x: number, y: number, width: number, height: number, edge: number): boolean {
   if (x < 0 || y < 0 || x > width || y > height) return false;
   return x < edge || y < edge || x > width - edge || y > height - edge;
 }

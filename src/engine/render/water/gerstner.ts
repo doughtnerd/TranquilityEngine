@@ -7,13 +7,14 @@
  *   by a frequency in 32-bit floats.
  * - `GERSTNER_BODY` is the wave sum written once, in the subset of syntax WGSL, GLSL and
  *   JavaScript share: Babylon's water plugin (`render/babylon/water.ts`) fills in its type words for
- *   each shader language; `gerstnerBodyJS()` gives the same text as JavaScript (tests compile it to
- *   prove the sampler below computes what the shader computes).
+ *   each shader language (tests run the same text as JavaScript to prove the sampler below computes
+ *   what the shader computes).
  * - `gerstner` is that sum in TypeScript for the CPU, and `sampleWaves` inverts the horizontal
  *   displacement so a height can be asked for at a world XZ position.
  *
  * Everything is in the water's local XZ plane (y up). No renderer here: servers sample waves too.
  */
+import { deepWaterSpeed } from "./dispersion";
 
 /** One wave of a water surface. */
 export interface WaterWave {
@@ -31,15 +32,8 @@ export interface WaterWave {
 export const MAX_WAVES = 8;
 /** Floats per packed wave: direction x, direction z, wave number k, amplitude, phase. */
 export const WAVE_STRIDE = 5;
-/** Gravity for the deep-water speed, m/s². */
-export const WATER_GRAVITY = 9.81;
 
 const TAU = Math.PI * 2;
-
-/** The deep-water speed of a wave of `wavelength`: √(g·L/2π). */
-export function deepWaterSpeed(wavelength: number): number {
-  return Math.sqrt((WATER_GRAVITY * Math.max(wavelength, 1e-4)) / TAU);
-}
 
 /** A wave list with every field a finite number (scene data may leave some out). */
 export function cleanWaves(waves: readonly Partial<WaterWave>[] | null | undefined): WaterWave[] {
@@ -132,11 +126,6 @@ for ($int i = 0; i < ${MAX_WAVES}; i++) {
   bz -= wdz * wdz * wst * ws;
 }
 `;
-
-/** `GERSTNER_BODY` as JavaScript statements (the same text the shaders are made from). */
-export function gerstnerBodyJS(): string {
-  return GERSTNER_BODY.replace(/\$float|\$int/g, "let").replace(/\b(sin|cos)\(/g, "Math.$1(");
-}
 
 /** One evaluation of the wave sum at a rest position. */
 export interface GerstnerResult {

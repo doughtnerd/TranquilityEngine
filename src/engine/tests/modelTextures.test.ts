@@ -8,7 +8,7 @@ import type { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
 import { Scene } from "@babylonjs/core/scene.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Assets } from "../index";
-import { surfaceMaterial } from "../render/babylon/materials";
+import { modelBaseMaterial } from "../render/babylon/materials";
 import { loadMeshes } from "../scene/models";
 
 const file = (path: string) => readFileSync(new URL(`../../../samples/pirates/${path}`, import.meta.url));
@@ -75,7 +75,7 @@ describe("model textures (ADR 0044, 0075)", () => {
     const engine = new NullEngine();
     const scene = new Scene(engine);
     try {
-      const m = surfaceMaterial(scene, new WeakMap(), rock.surfaces[0], rock.name) as PBRMaterial;
+      const m = modelBaseMaterial(scene, new WeakMap(), rock) as PBRMaterial;
       expect(m.albedoTexture).not.toBeNull();
     } finally {
       scene.dispose();

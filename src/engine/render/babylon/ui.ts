@@ -43,9 +43,10 @@ import { fontEpoch, fontFamilyOf, onFontLoaded } from "../../ui/fonts";
 import { UI_FONT_FAMILY, UI_LINE_HEIGHT } from "../../ui/layout";
 import type { TextMeasureRequest, UICoreLike, UILaidOutCanvas, UILaidOutElement } from "../../ui/uiCoreTypes";
 import { Text, type Anchor } from "../components";
+import { flipRows, redrawnPixels, type PixelRect } from "../pixelRegions";
 
 /** World canvases' texture pixels per UI pixel. */
-export const WORLD_RESOLUTION = 2;
+const WORLD_RESOLUTION = 2;
 export { UI_FONT_FAMILY, UI_LINE_HEIGHT };
 
 // TextWrapping is a const enum in Babylon's declarations: use its values.
@@ -643,11 +644,11 @@ export function worldCanvasWarm(scene: Scene, content: WarmContent): WarmItem[] 
 }
 
 /**
- * @internal ADR 0080: a world canvas's plane for the warm-up, made as `createWorldCanvas` makes one
+ * ADR 0080: a world canvas's plane for the warm-up, made as `createWorldCanvas` makes one
  * (the GUI's material: emissive and opacity from its texture, unlit, not culled) and placed at `at`,
  * so drawing it once makes the pipelines world-space UI draws with.
  */
-export function warmWorldCanvas(scene: Scene, name: string, at: Matrix): { meshes: Mesh[]; systems: never[]; ready(): boolean; dispose(): void } {
+function warmWorldCanvas(scene: Scene, name: string, at: Matrix): { meshes: Mesh[]; systems: never[]; ready(): boolean; dispose(): void } {
   const { mesh, adt } = worldCanvasPlane(scene, name, 1, 1, 2, 2);
   mesh.freezeWorldMatrix(at);
   return {
@@ -685,7 +686,7 @@ function colorKey(c: Color): number {
 }
 
 /** UIText.fontWeight (`"bold"`, `300`...) as a CSS weight. */
-export function cssWeight(w: string): string {
+function cssWeight(w: string): string {
   switch (w) {
     case "light": return "300";
     case "normal": return "400";
@@ -712,32 +713,6 @@ function anchorFactors(anchor: Anchor): [number, number] {
 
 // --- uploading only what was redrawn ---
 
-/** A rectangle of a texture, in its pixels from the top-left. */
-export interface PixelRect {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-/**
- * @internal The whole pixels a redraw touched: Babylon GUI's invalidated rectangle (fractional, and
- * possibly past the edges) grown by a pixel for antialiasing and clamped to the texture. Null when
- * nothing of it is on the texture.
- */
-export function redrawnPixels(r: { left: number; top: number; width: number; height: number }, width: number, height: number): PixelRect | null {
-  const x = Math.max(0, Math.floor(r.left) - 1), y = Math.max(0, Math.floor(r.top) - 1);
-  const w = Math.min(width, Math.ceil(r.left + r.width) + 1) - x, h = Math.min(height, Math.ceil(r.top + r.height) + 1) - y;
-  return w > 0 && h > 0 ? { x, y, width: w, height: h } : null;
-}
-
-/** @internal `rows` rows of RGBA pixels, `rowBytes` each, in reverse order, into `into` (grown as needed). */
-export function flipRows(pixels: Uint8ClampedArray | Uint8Array, rowBytes: number, rows: number, into: Uint8Array<ArrayBuffer>): Uint8Array<ArrayBuffer> {
-  const out = into.length >= rows * rowBytes ? into : new Uint8Array(rows * rowBytes);
-  for (let j = 0; j < rows; j++) out.set(pixels.subarray(j * rowBytes, (j + 1) * rowBytes), (rows - 1 - j) * rowBytes);
-  return out;
-}
-
 /**
  * On WebGPU, a GUI texture's update writes only the part its redraw touched (ADR 0075 notes). Babylon
  * GUI redraws only its invalidated rectangle, but its update copied the whole canvas with
@@ -753,7 +728,7 @@ interface GPUQueueLike {
 }
 
 /**
- * @internal Make `create`'s GUI texture on a canvas whose 2D context reads back cheaply
+ * Make `create`'s GUI texture on a canvas whose 2D context reads back cheaply
  * (`willReadFrequently`) on WebGPU, where `uploadRedrawnPart` reads the redrawn pixels each redraw.
  * Chrome draws a canvas on the GPU until a few readbacks, then moves it to the CPU: that move took
  * about 440 ms of one frame when a pirates match's HUD first drew (ADR 0120). Created on the CPU,
@@ -761,7 +736,7 @@ interface GPUQueueLike {
  * `engine.createCanvas` and takes its context with a plain `getContext("2d")`, which returns the
  * context already made with this setting.
  */
-export function readableCanvas<T>(engine: AbstractEngine, create: () => T): T {
+function readableCanvas<T>(engine: AbstractEngine, create: () => T): T {
   if (!engine.isWebGPU) return create();
   const original = engine.createCanvas;
   engine.createCanvas = ((width: number, height: number) => {

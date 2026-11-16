@@ -15,12 +15,18 @@ import { MESHES_SPEC, meshesRuntimePlugin } from "./meshes/runtime";
 import { postProcessingRuntimePlugin } from "./post-processing/runtime";
 import { isRuntimePluginActive, RUNTIME_PLUGINS, type RuntimePlugin } from "./runtime";
 import { applyTestPlugins } from "./testPlugins";
-import { SPRITES_SPEC, spritesRuntimePlugin } from "./sprites/runtime";
-import { TILEMAPS_SPEC } from "./tilemaps/runtime";
-import { UI_SPEC, uiRuntimePlugin } from "./ui/runtime";
-import { WATER_SPEC, waterRuntimePlugin } from "./water/runtime";
-import { SKY_SPEC } from "./sky/runtime";
-import { PARTICLES_SPEC } from "./particles/runtime";
+import { spritesRuntimePlugin } from "./sprites/runtime";
+import { uiRuntimePlugin } from "./ui/runtime";
+import { waterRuntimePlugin } from "./water/runtime";
+
+/** A plugin's render feature spec, as its activation registered it. */
+const registeredSpec = (name: string) => _registeredRenderFeatures().find((f) => f.spec.name === name)!.spec;
+const SPRITES_SPEC = registeredSpec("sprites");
+const TILEMAPS_SPEC = registeredSpec("tilemaps");
+const UI_SPEC = registeredSpec("ui");
+const WATER_SPEC = registeredSpec("water");
+const SKY_SPEC = registeredSpec("sky");
+const PARTICLES_SPEC = registeredSpec("particles");
 import { runtimeActivator } from "./runtimeContext";
 
 /** The renderer's own features, in its registration order (`BabylonRenderer`'s constructor). */

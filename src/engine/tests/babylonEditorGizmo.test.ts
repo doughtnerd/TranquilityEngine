@@ -14,7 +14,8 @@ import { World } from "../core/World";
 import { Assets, Engine, GameObject, SceneManager } from "../index";
 import { Quaternion } from "../core/math";
 import type { LocalPose } from "../render/gizmoMath";
-import { BabylonEditorGizmo, gizmoRootScale } from "../render/babylon/editorGizmo";
+import { BabylonEditorGizmo } from "../render/babylon/editorGizmo";
+import { gizmoRootScale } from "../render/babylon/gizmoSize";
 import type { BabylonEditorContext } from "../render/babylon/editorContext";
 import type { GizmoHandlers, GizmoOptions } from "../render/editorViewport";
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { formatMaterial, materialGraph, parseMaterial, defaultMaterialSettings } from "../scene/material";
 import { defaultShaderGraph, formatShaderGraph, parseShaderGraph, SHADER_GRAPH_FORMAT, type GraphNode, type ShaderGraph } from "../scene/shaderGraph";
-import { compileShaderGraph, convert, floatLiteral, linearColor, shaderGraphListing } from "../render/shaderGraph/compile";
+import { compileShaderGraph, convert, linearColor, shaderGraphListing } from "../render/shaderGraph/compile";
 import { NODES, nodePorts } from "../render/shaderGraph/nodes";
 
 const graph = (nodes: GraphNode[], edges: [string, string][], extra: Partial<ShaderGraph> = {}): ShaderGraph => ({
@@ -122,9 +122,13 @@ describe("compiling shader graphs to WGSL", () => {
     expect(convert("v", "vec3", "vec4")).toBe("vec4f(v, 1.0)");
     expect(convert("v", "vec2", "vec4")).toBe("vec4f(v, 0.0, 1.0)");
     expect(convert("v", "vec2", "vec3")).toBe("vec3f(v, 0.0)");
-    expect(floatLiteral(2)).toBe("2.0");
-    expect(floatLiteral(-0.25)).toBe("-0.25");
-    expect(floatLiteral(1e-7)).toBe("1e-7");
+  });
+
+  it("writes inline numbers as float literals", () => {
+    const body = (alpha: number) => compileShaderGraph(graph([], [], { nodes: [{ id: "output", type: "output", position: [0, 0], inputs: { alpha } }] })).fragment.body;
+    expect(body(2)).toContain("var mOut_alpha: f32 = 2.0;");
+    expect(body(-0.25)).toContain("var mOut_alpha: f32 = -0.25;");
+    expect(body(1e-7)).toContain("var mOut_alpha: f32 = 1e-7;");
   });
 
   it("colour inputs are sRGB inline and linear in the shader", () => {

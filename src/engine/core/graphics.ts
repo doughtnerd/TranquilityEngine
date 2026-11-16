@@ -140,6 +140,15 @@ export const defaultGraphics = (): GraphicsSettings => ({
 /** A new tier's values (the High tier's), with the given name. */
 export const defaultTier = (name: string): QualityTier => ({ ...defaultGraphics().tiers[2], name });
 
+/**
+ * The tier settings that change the pipelines draws need (ADR 0080), as a key: the sample count, the
+ * passes (post-processing, ambient occlusion, depth of field, bloom), shadow maps and cascades, the
+ * shader level graph materials compile for, and probe captures. Not the render scale or particle budget.
+ */
+export function pipelineTierKey(t: Readonly<QualityTier>): string {
+  return [t.antialias, t.shadows, t.shadowCascades, t.shaderLevel, t.postProcessing, t.bloom, t.ambientOcclusion, t.depthOfField, t.reflectionProbes].join("|");
+}
+
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const TIER_KEYS = ["name", "renderScale", "antialias", "shadows", "shadowCascades", "cascadedLights", "shadowDistance", "anisotropy", "shaderLevel", "postProcessing", "bloom", "ambientOcclusion", "depthOfField", "reflectionProbes", "particles"];
 

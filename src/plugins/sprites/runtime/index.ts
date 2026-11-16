@@ -10,8 +10,8 @@ import { spritesManifest } from "../manifest";
 
 export { SpriteRenderer } from "../../../engine/render/components";
 
-/** @internal The first feature of the `content` phase (tilemaps and meshes name it in their `after`). */
-export const SPRITES_SPEC: RenderFeatureSpec = { name: "sprites", phase: "content", types: [SpriteRenderer], lazy: false };
+/** The first feature of the `content` phase (tilemaps and meshes name it in their `after`). */
+const SPRITES_SPEC: RenderFeatureSpec = { name: "sprites", phase: "content", types: [SpriteRenderer], lazy: false };
 
 export const spritesRuntimePlugin: RuntimePlugin = {
   manifest: spritesManifest,

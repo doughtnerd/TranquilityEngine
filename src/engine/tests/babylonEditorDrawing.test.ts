@@ -14,7 +14,6 @@ import { ParticleSystem } from "../render/components";
 import type { BabylonEditorContext, EditorMesh, EditorSprite } from "../render/babylon/editorContext";
 import { EDITOR_LAYER_MASK } from "../render/babylon/editorContext";
 import { BabylonEditorViewport } from "../render/babylon/editorViewport";
-import { gridDivisions } from "../render/babylon/editorGuides";
 import type { EditorOverlay } from "../render/editorViewport";
 
 describe("Babylon editor viewport drawing (ADR 0075 stage 8, 0128)", () => {
@@ -119,11 +118,13 @@ describe("Babylon editor viewport drawing (ADR 0075 stage 8, 0128)", () => {
     expect(named(scene, "myco.editor.grid")[0].rotation.x).toBeCloseTo(Math.PI / 2);
     vp.setGrid("xy", 2, true); // rebuilt: the plane stays
     expect(named(scene, "myco.editor.grid")[0].rotation.x).toBeCloseTo(Math.PI / 2);
-    expect(vp.grid()!.divisions).toBe(gridDivisions(2));
+    expect(vp.grid()!.divisions).toBe(20); // about 40 m across
     vp.setGrid("xy", -1, true); // nonsense falls back to 1 m
     expect(vp.grid()!.cellSize).toBe(1);
-    expect(gridDivisions(0.01)).toBe(400);
-    expect(gridDivisions(100)).toBe(10);
+    vp.setGrid("xy", 0.01, true);
+    expect(vp.grid()!.divisions).toBe(400); // at most
+    vp.setGrid("xy", 100, true);
+    expect(vp.grid()!.divisions).toBe(10); // at least
   });
 
   it("colours the grid in linear light, with centre lines in the centre colour", () => {

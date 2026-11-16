@@ -130,11 +130,3 @@ function loadProjectFont(path: string, family: string): void {
       warnOnce(`load|${path}`, `UI font "${path}" couldn't load (${(err as Error)?.message ?? err}); the text uses Inter.`);
     });
 }
-
-/** @internal Tests: forget loaded fonts and listeners' state. */
-export function _resetFonts(): void {
-  bundled = null;
-  projectFonts.clear();
-  warned.clear();
-  epoch = 0;
-}

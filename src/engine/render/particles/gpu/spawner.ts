@@ -26,7 +26,7 @@ function evalNumber(v: ParticleNumber, t: number, u: number): number {
 }
 
 /** The largest a number value can be (for the alive estimate). */
-export function maxOf(v: ParticleNumber): number {
+function maxOf(v: ParticleNumber): number {
   if (typeof v === "number") return v;
   if ("random" in v) return Math.max(v.random[0], v.random[1]);
   const keys = "curve" in v ? v.curve : [...v.randomCurves[0], ...v.randomCurves[1]];

@@ -2,9 +2,9 @@
 // variant report (a shader variant compiled after the load names its node, prefab and define change)
 // and (in `materialLibrary.test.ts`) renderer override copies following a base texture that loads after
 // them. And ADR 0120's load
-// fixes that run without a GPU: the screen UI's readable canvas and the remembered include expansion.
+// fixes that run without a GPU: the remembered include expansion (the screen UI's readable canvas is in
+// `babylonUI.test.ts`).
 import { TargetCamera } from "@babylonjs/core/Cameras/targetCamera.js";
-import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
 // @ts-expect-error `_ClearIncludeCache` is our patch's (patches/@babylonjs+core+9.32.0.patch), not in Babylon's types
 import { ProcessIncludes, _ClearIncludeCache } from "@babylonjs/core/Engines/Processors/shaderProcessor.js";
 import { NullEngine } from "@babylonjs/core/Engines/nullEngine.js";
@@ -13,7 +13,6 @@ import { Vector3 as BVector3 } from "@babylonjs/core/Maths/math.vector.js";
 import { CreateBox } from "@babylonjs/core/Meshes/Builders/boxBuilder.js";
 import { Scene } from "@babylonjs/core/scene.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { readableCanvas } from "../render/babylon/ui";
 import { VariantReport, WARM_PREFIX } from "../render/babylon/warmUp";
 
 describe("the variant report (ADR 0080)", () => {
@@ -71,6 +70,26 @@ describe("the variant report (ADR 0080)", () => {
     report.dispose();
   });
 
+  it("names the material asset to preload when the node has no prefab, and the prefab to find when there's neither", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const report = new VariantReport(engine, scene, (m) => ({ what: `"${m.name}"` }));
+    frame(report);
+    now = 5000;
+    const rock = CreateBox("rock", {}, scene);
+    const fromAsset = new PBRMaterial("material:materials/rock.material.json", scene);
+    fromAsset.unlit = true;
+    rock.material = fromAsset;
+    const cube = CreateBox("cube", {}, scene);
+    const builtIn = new PBRMaterial("material:builtin:lit", scene);
+    builtIn.alpha = 0.5; // another variant than the rock's (one compile is reported once)
+    cube.material = builtIn;
+    frame(report);
+    const messages = warn.mock.calls.map((c) => String(c[0]));
+    expect(messages.find((m) => m.includes('"rock"'))).toContain("Add materials/rock.material.json to the scene's settings.preload list");
+    expect(messages.find((m) => m.includes('"cube"'))).toContain("Add its prefab to the scene's settings.preload list");
+    report.dispose();
+  });
+
   it("keeps quiet about the warmer's own meshes and what isn't content", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const report = new VariantReport(engine, scene, (m) => (m.name.startsWith("helper") ? null : { what: m.name }));
@@ -98,33 +117,6 @@ describe("the variant report (ADR 0080)", () => {
     frame(report);
     expect(warn).not.toHaveBeenCalled();
     report.dispose();
-  });
-});
-
-describe("the screen UI's canvas reads back cheaply (ADR 0120)", () => {
-  const fakeEngine = (isWebGPU: boolean) => {
-    const contexts: unknown[] = [];
-    const canvas = { getContext: (_kind: string, options?: unknown) => (contexts.push(options ?? null), {}) };
-    const createCanvas = () => canvas;
-    return { engine: { isWebGPU, createCanvas } as unknown as AbstractEngine, contexts, createCanvas };
-  };
-
-  it("makes the GUI's canvas with willReadFrequently on WebGPU, where its redrawn part is read back", () => {
-    const { engine, contexts, createCanvas } = fakeEngine(true);
-    const made = readableCanvas(engine, () => {
-      const c = engine.createCanvas(1, 1) as unknown as { getContext(kind: string): unknown };
-      c.getContext("2d"); // what Babylon's DynamicTexture does next
-      return "texture";
-    });
-    expect(made).toBe("texture");
-    expect(contexts[0]).toEqual({ willReadFrequently: true }); // the first context decides
-    expect(engine.createCanvas).toBe(createCanvas); // put back
-  });
-
-  it("leaves other engines' canvases alone", () => {
-    const { engine, contexts } = fakeEngine(false);
-    readableCanvas(engine, () => engine.createCanvas(1, 1));
-    expect(contexts).toEqual([]);
   });
 });
 

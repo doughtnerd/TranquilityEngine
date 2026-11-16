@@ -133,7 +133,7 @@ function texturePath(u: CompiledUniform, overrides: Record<string, GraphValue>):
  * PBR material binds the UV attribute only when the material itself needs it (a texture), so without
  * asking, `mycoVUv` read zero: a UV-driven graph with no texture drew flat (the ripple sample).
  */
-export function graphUsesUv(c: CompiledShaderGraph): boolean {
+function graphUsesUv(c: CompiledShaderGraph): boolean {
   return /\bmycoVUv\b/.test(`${c.vertex.body}\n${c.vertex.varyings}\n${c.vertex.offset ?? ""}`);
 }
 
@@ -169,7 +169,7 @@ const FRAGMENT_COLOR = [
  * @internal Where a compiled graph's WGSL goes in Babylon's PBR shaders, by injection point (keys starting
  * with "!" are regular expressions Babylon replaces; see the file's header).
  */
-export function graphCustomCode(c: CompiledShaderGraph, shaderType: string): { [point: string]: string } {
+function graphCustomCode(c: CompiledShaderGraph, shaderType: string): { [point: string]: string } {
   if (shaderType === "vertex") {
     const v = c.vertex;
     return {
@@ -218,7 +218,7 @@ export function graphCustomCode(c: CompiledShaderGraph, shaderType: string): { [
 }
 
 /** Where metallic and roughness (and a physical graph's IOR) go: the first argument of Babylon's `reflectivityBlock`. */
-export const REFLECTIVITY_ANCHOR = "!reflectivityBlock\\(\\s*uniforms\\.vReflectivityColor";
+const REFLECTIVITY_ANCHOR = "!reflectivityBlock\\(\\s*uniforms\\.vReflectivityColor";
 
 /**
  * @internal A physical graph's layers (ADR 0052) in Babylon's PBR fragment shader. Each layer's
@@ -260,17 +260,17 @@ export function physicalCustomCode(p: Partial<Record<PhysicalInput, string>>): {
 }
 
 /** Where Babylon's PBR fragment shader calls the clear coat block with the geometric normal (ADR 0118: a graph's clear coat normal replaces it). */
-export const CLEARCOAT_NORMAL_ANCHOR = "!clearcoatOut\\s*=\\s*clearcoatBlock\\(\\s*fragmentInputs\\.vPositionW\\s*,\\s*geometricNormalW";
+const CLEARCOAT_NORMAL_ANCHOR = "!clearcoatOut\\s*=\\s*clearcoatBlock\\(\\s*fragmentInputs\\.vPositionW\\s*,\\s*geometricNormalW";
 
 /** Babylon's reflectance factors (metallic workflow), where a physical graph's specular intensity goes. */
-export const SPECULAR_ANCHOR = "!var\\s+metallicReflectanceFactors\\s*:\\s*vec4f\\s*=\\s*uniforms\\.vMetallicReflectanceFactors\\s*;";
+const SPECULAR_ANCHOR = "!var\\s+metallicReflectanceFactors\\s*:\\s*vec4f\\s*=\\s*uniforms\\.vMetallicReflectanceFactors\\s*;";
 
 /**
  * @internal The graph's code in the shadow-depth material (graphs with a vertex offset): the vertex code
  * as the material draws it, and on the fragment side only the declarations its varyings and textures
  * need, so the shadow pass runs no surface code.
  */
-export function graphShadowCustomCode(c: CompiledShaderGraph, shaderType: string): { [point: string]: string } {
+function graphShadowCustomCode(c: CompiledShaderGraph, shaderType: string): { [point: string]: string } {
   return shaderType === "vertex" ? graphCustomCode(c, "vertex") : { CUSTOM_FRAGMENT_DEFINITIONS: c.fragment.declarations };
 }
 
@@ -278,7 +278,7 @@ export function graphShadowCustomCode(c: CompiledShaderGraph, shaderType: string
  * @internal Where a shader asset's GLSL (ADR 0106, WebGL2) goes in Babylon's GLSL PBR shaders: the same
  * points as `graphCustomCode`'s, spelled as the GLSL shaders spell them.
  */
-export function glslCustomCode(c: CompiledShaderGraph, shaderType: string, depth = false): { [point: string]: string } {
+function glslCustomCode(c: CompiledShaderGraph, shaderType: string, depth = false): { [point: string]: string } {
   const g = c.glsl;
   if (!g) return {};
   if (shaderType === "vertex") {
@@ -326,7 +326,7 @@ export const GLSL_ALBEDO_ANCHOR = "!albedoOpacityOutParams\\s+albedoOpacityOut\\
  * @internal Names Babylon's injected shadow-map vertex code reads, remapped to the PBR vertex shader's:
  * its world normal is the varying (`worldPos` is already a `var` of that name).
  */
-export const SHADOW_REMAPPED_VARIABLES = ["vNormalW", "vertexOutputs.vNormalW"];
+const SHADOW_REMAPPED_VARIABLES = ["vNormalW", "vertexOutputs.vNormalW"];
 
 /** A graph material's values: each uniform's numbers and each texture slot's texture, refreshed by `setProperties`. */
 export interface GraphState {
@@ -337,7 +337,7 @@ export interface GraphState {
 }
 
 /** @internal The plugin's uniform buffer entries: the shared time and resolution, then the graph's non-texture uniforms. */
-export function graphUniformBuffer(c: CompiledShaderGraph): { name: string; size: number; type: string }[] {
+function graphUniformBuffer(c: CompiledShaderGraph): { name: string; size: number; type: string }[] {
   const ubo: { name: string; size: number; type: string }[] = [
     { name: SHARED_UNIFORMS.time, size: 1, type: "float" },
     { name: SHARED_UNIFORMS.resolution, size: 2, type: "vec2" },
@@ -349,7 +349,7 @@ export function graphUniformBuffer(c: CompiledShaderGraph): { name: string; size
 }
 
 /** Whether the plugin can draw a compiled graph in a shading language: graphs in WGSL; shader assets in what they ship (ADR 0106). */
-export function graphSupports(c: CompiledShaderGraph, language: ShaderLanguage): boolean {
+function graphSupports(c: CompiledShaderGraph, language: ShaderLanguage): boolean {
   return language === ShaderLanguage.WGSL ? !c.noWgsl : language === ShaderLanguage.GLSL && !!c.glsl;
 }
 
@@ -532,7 +532,7 @@ export function createGraphMaterial(scene: Scene, name: string, c: CompiledShade
  * The values set here are what Babylon binds, and only matter where the graph leaves one alone (the
  * iridescence IOR and thickness range stay Babylon's defaults, as built-in physical materials have them).
  */
-export function enablePhysicalLayers(material: PBRMaterial, p: Partial<Record<PhysicalInput, string>>): void {
+function enablePhysicalLayers(material: PBRMaterial, p: Partial<Record<PhysicalInput, string>>): void {
   material.clearCoat.isEnabled = !!p.clearcoat;
   if (p.clearcoat) {
     material.clearCoat.intensity = 1;

@@ -11,7 +11,7 @@ import type { ParticleSystem } from "@babylonjs/core/Particles/particleSystem.js
 import type { Scene } from "@babylonjs/core/scene.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Assets } from "../scene/Assets";
-import { lookAtRotation } from "../render/babylon/previews/common";
+import { lookAtRotation } from "../render/babylon/lookAt";
 import { ThumbnailRenderer } from "../render/babylon/previews/ThumbnailRenderer";
 import { ThumbnailScenes } from "../render/babylon/previews/thumbnailScenes";
 import { MaterialPreview } from "../render/previewRouting";

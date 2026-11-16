@@ -12,7 +12,8 @@ import { Scene } from "@babylonjs/core/scene.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Color as EngineColor } from "../core/math";
 import { ShaderMaterial } from "@babylonjs/core/Materials/shaderMaterial.js";
-import { MycoKernelParticlePlugin } from "../render/babylon/kernelMaterial";
+import type { MaterialPluginBase } from "@babylonjs/core/Materials/materialPluginBase.js";
+import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh.js";
 import { BabylonParticles } from "../render/babylon/particles";
 import { materialVertexCode } from "../render/particles/gpu/kernelShader";
 import type { ParticleCommand, ParticleSystem } from "../render/components";
@@ -62,6 +63,16 @@ function fakeSystem(g: ParticleGraph): ParticleSystem {
     _state: { playing: false, paused: false, time: 0, count: 0, alive: false },
     node: { name: "Fx" },
   } as unknown as ParticleSystem;
+}
+
+/** The placement plugin on a kernel draw's material (Babylon's plugin API). */
+const placement = (mesh: AbstractMesh): MaterialPluginBase => (mesh.material as PBRMaterial).pluginManager!.getPlugin("MycoKernelParticles")!;
+/** The textures a plugin binds for a draw, by sampler name. */
+function bound(plugin: MaterialPluginBase, scene: Scene): string[] {
+  const textures: string[] = [];
+  const ubo = { updateFloat4: () => undefined, setTexture: (name: string) => textures.push(name) };
+  plugin.bindForSubMesh(ubo as never, scene, scene.getEngine(), null as never);
+  return textures;
 }
 
 describe("kernel outputs with material assets, and kernel warm-up (ADR 0126)", () => {
@@ -118,10 +129,11 @@ describe("kernel outputs with material assets, and kernel warm-up (ADR 0126)", (
     const ext = mesh.material as PBRMaterial;
     expect(ext).toBeInstanceOf(PBRMaterial);
     expect(ext).not.toBe(material);
-    const plugin = ext.pluginManager?.getPlugin("MycoKernelParticles") as MycoKernelParticlePlugin;
-    expect(plugin).toBeInstanceOf(MycoKernelParticlePlugin);
-    expect(plugin.current?.pairs).toBeTruthy(); // alpha blending sorts by default: the sorted pairs are bound
-    expect(plugin.current?.state).toHaveLength(4); // the JavaScript executor's four state textures
+    const plugin = placement(mesh);
+    expect(plugin.getClassName()).toBe("MycoKernelParticlePlugin");
+    const textures = bound(plugin, scene);
+    expect(textures).toContain("kpidx"); // alpha blending sorts by default: the sorted pairs are bound
+    expect(textures.filter((t) => /^kps\d$/.test(t))).toHaveLength(4); // the JavaScript executor's four state textures
     expect(mesh.forcedInstanceCount).toBe(64);
     expect(mesh.getVerticesData("color")).toBeTruthy(); // white vertex colours carry the particle's
     player.dispose();
@@ -151,15 +163,16 @@ describe("kernel outputs with material assets, and kernel warm-up (ADR 0126)", (
     const glsl = materialVertexCode(k, 0, "glsl", { sorted: false, interleaved: false });
     expect(glsl.definitions).toContain("uniform highp sampler2D kps0;");
     expect(glsl.definitions).not.toMatch(/\bku\[/); // uniforms come from the kpu texture
-    const a = new MycoKernelParticlePlugin(new PBRMaterial("a", scene), k, 0, { sorted: false, interleaved: false });
-    const other = graph("m");
+    // Two systems drawing with the same material asset, their outputs placing particles differently.
+    const other = graph("materials/fx.material.json");
     addBlock(other, other.systems[0], "output", "attribute.size", { mode: "multiply", value: 2 });
-    const k2 = compileParticleKernels(other, compileParticleGraph(other)).systems[0];
-    const b = new MycoKernelParticlePlugin(new PBRMaterial("b", scene), k2, 0, { sorted: false, interleaved: false });
+    player.sync([fakeSystem(graph("materials/fx.material.json")), { ...fakeSystem(other), node: { name: "Gx" } } as unknown as ParticleSystem], 1 / 30, 1 / 30);
+    const meshOf = (name: string) => scene.meshes.find((m) => m.name.startsWith(`particles:${name}:`))!;
+    const [a, b] = [placement(meshOf("Fx")), placement(meshOf("Gx"))];
     const da = { MYCO_KERNEL_PARTICLES: 0 };
     const db = { MYCO_KERNEL_PARTICLES: 0 };
-    a.prepareDefines(da as never);
-    b.prepareDefines(db as never);
+    a.prepareDefines(da as never, scene, null as never);
+    b.prepareDefines(db as never, scene, null as never);
     expect(da.MYCO_KERNEL_PARTICLES).not.toBe(0);
     expect(da.MYCO_KERNEL_PARTICLES).not.toBe(db.MYCO_KERNEL_PARTICLES);
     expect(a.getCustomCode("vertex", ShaderLanguage.GLSL)?.CUSTOM_VERTEX_UPDATE_WORLDPOS).toBeTruthy();

@@ -5,7 +5,6 @@ import { Assets, Engine, GameObject, SceneManager, Tilemap, TilemapCollider2D } 
 import { readProject } from "../../server/project";
 import { Player } from "../../../samples/platformer/scripts/behaviors/Player";
 import "../../../samples/platformer/scripts/behaviors/CameraFollow";
-import { loadTileset } from "../../plugins/tilemaps/runtime/Tilemap";
 import { missingBlobMasks } from "../../plugins/tilemaps/runtime/autotile";
 
 const SAMPLE = fileURLToPath(new URL("../../../samples/platformer", import.meta.url));
@@ -35,9 +34,9 @@ const run = (engine: Engine, seconds: number, each?: () => void) => {
 
 describe("platformer sample", () => {
   it("has a valid tileset whose ground terrain covers every sides-only shape", async () => {
-    const project = await readProject(SAMPLE);
-    Assets.addSource(project.assets);
-    const ts = loadTileset("tiles/platformer.tileset.json")!;
+    const { map } = await start();
+    expect(map.tileset).toBe("tiles/platformer.tileset.json");
+    const ts = map.tilesetAsset!;
     expect(ts).not.toBeNull();
     const ground = ts.byTerrain.get("Ground")!;
     expect(ground).toHaveLength(16);

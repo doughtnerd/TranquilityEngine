@@ -25,7 +25,7 @@ const DEFAULT_EDITOR_COLORS: EditorColors = { background: 0x24272d, grid: 0x3a3f
 const HANDLE_SIZE = 9;
 
 /** Grid lines per side for a cell size: about 40 m across, between 10 and 400 lines. */
-export function gridDivisions(cell: number): number {
+function gridDivisions(cell: number): number {
   return Math.min(400, Math.max(10, Math.round(40 / cell)));
 }
 

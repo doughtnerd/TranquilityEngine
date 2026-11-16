@@ -15,10 +15,10 @@ export { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UIAlig
 export { UIClassList, UIDocument, UIDocumentElement, UIEvents, type UIEvent, type UIEventHandler, type UIEventType, type UIListOptions, type UITag } from "../../../engine/ui/UIDocument";
 
 /**
- * @internal Screen and world UI canvases and their elements, and `Text`; loaded the first time a World
+ * Screen and world UI canvases and their elements, and `Text`; loaded the first time a World
  * has one (ADR 0083), holding the first frame meanwhile (ADR 0120). The only `overlay` feature.
  */
-export const UI_SPEC: RenderFeatureSpec = {
+const UI_SPEC: RenderFeatureSpec = {
   name: "ui",
   phase: "overlay",
   types: [UICanvas, Text],

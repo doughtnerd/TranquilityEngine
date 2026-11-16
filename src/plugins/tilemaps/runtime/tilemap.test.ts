@@ -1,10 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { Assets, BoxCollider2D, Engine, FLIP_DIAGONAL, FLIP_X, GameObject, RigidBody2D, SceneManager, Tilemap, TilemapChanges, TilemapCollider2D, getComponentClass } from "../../../myco";
-import { blobMasks, canonicalBlob, maskToPattern, missingBlobMasks, neighbourMask, paintTerrain, patternScore, pickTerrainTile, sidesPattern } from "./autotile";
-import { floodCells, lineCells, rectCells, stampCells } from "./brushes";
-import { buildTileShapes, flipPoint, greedyRectangles, rowRuns, traceOutlines } from "./collision";
-import { CHUNK_CELLS, cellToChunk, cellValue, decodeChunk, encodeChunk, migrateLayer, newLayer, registerTilemapLayerMigration, rotateFlagsClockwise, FLIP_Y } from "./format";
-import { buildChunkMeshes, sourceCorner, type TileFrame } from "./mesh";
+import { missingBlobMasks, paintTerrain } from "./autotile";
+import { floodCells, lineCells, rectCells } from "./brushes";
+import { greedyRectangles, rowRuns, traceOutlines } from "./cellRegions";
+import { buildTileShapes } from "./collision";
+import { CHUNK_CELLS, cellToChunk, cellValue, decodeChunk, encodeChunk, migrateLayer, newLayer, rotateFlagsClockwise, FLIP_Y } from "./format";
+import { buildChunkMeshes, type TileFrame } from "./mesh";
+import { blobMasks, canonicalBlob, maskToPattern, neighbourMask, patternScore, pickTerrainTile, sidesPattern } from "./neighbourPatterns";
+import { flipPoint, sourceCorner } from "./tileFlips";
 import { Tileset, newTileset, parseTileset, pickWeighted, tileAnchor, type TileDef } from "./tileset";
 
 const TILESET = {
@@ -39,13 +42,12 @@ describe("tilemap format (ADR 0103)", () => {
     expect(cellToChunk(-1, -1)).toEqual({ cx: -1, cy: -1, index: 255 });
   });
 
-  it("migrates layers: defaults for missing values, registered upgrades, newer versions refused", () => {
+  it("migrates layers: defaults for missing values, older versions without an upgrade and newer versions refused", () => {
     const l = migrateLayer({ name: "A", chunks: { "0,0": "1", bad: "2" } });
     expect(l).toMatchObject({ v: 1, name: "A", sortingLayer: "Default", visible: true, collision: true, opacity: 1 });
     expect(Object.keys(l.chunks)).toEqual(["0,0"]);
     expect(() => migrateLayer({ v: 99 })).toThrow(/newer/);
-    registerTilemapLayerMigration(0, (r) => ({ ...r, name: "upgraded" }));
-    expect(migrateLayer({ v: 0 }).name).toBe("upgraded");
+    expect(() => migrateLayer({ v: 0 })).toThrow(/no migration from layer version 0/);
   });
 
   it("turns flags clockwise through the four rotations", () => {
@@ -172,14 +174,13 @@ describe("chunk meshes (ADR 0103)", () => {
 });
 
 describe("brushes (ADR 0103)", () => {
-  it("makes rectangles, lines, flood fills and stamps", () => {
+  it("makes rectangles, lines and flood fills", () => {
     expect(rectCells(1, 1, 0, 0)).toHaveLength(4);
     expect(lineCells(0, 0, 3, 1)).toHaveLength(4);
     const solid = new Set(["0,0", "1,0", "2,0"]);
     const filled = floodCells(5, 5, (x, y) => (solid.has(`${x},${y}`) ? 1 : 0), { minX: -1, minY: -1, maxX: 6, maxY: 6 });
     expect(filled).toHaveLength(8 * 8 - 3);
     expect(floodCells(0, 0, (x, y) => (solid.has(`${x},${y}`) ? 1 : 0), { minX: -9, minY: -9, maxX: 9, maxY: 9 })).toHaveLength(3);
-    expect(stampCells({ width: 2, height: 1, values: [5, 0] }, 3, 4)).toEqual([{ x: 3, y: 4, value: 5 }]);
   });
 });
 

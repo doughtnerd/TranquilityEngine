@@ -2,16 +2,19 @@
 import { describe, expect, it, vi } from "vitest";
 import { Component } from "../core/Component";
 import type { World } from "../core/World";
-import { SYNC_PHASES, byPhase, ownerOf, specNeeded, type RenderFeatureSpec } from "../render/renderFeatures";
+import { _registeredRenderFeatures, SYNC_PHASES, byPhase, ownerOf, specNeeded, type RenderFeatureSpec } from "../render/renderFeatures";
 import { eagerFeature, lazyFeature, type BabylonFeature } from "../render/babylon/feature";
 import { ENVIRONMENT_SPEC, FOG_SPEC, LIGHTS_SPEC, PROBES_SPEC } from "../render/babylon/features";
-import { WATER_SPEC } from "../../plugins/water/runtime";
-import { TILEMAPS_SPEC } from "../../plugins/tilemaps/runtime";
 import { MESHES_SPEC } from "../../plugins/meshes/runtime";
-import { SPRITES_SPEC } from "../../plugins/sprites/runtime";
-import { UI_SPEC } from "../../plugins/ui/runtime";
-import { SKY_SPEC } from "../../plugins/sky/runtime";
-import { PARTICLES_SPEC } from "../../plugins/particles/runtime";
+
+/** A plugin's render feature spec, as its activation registered it. */
+const registeredSpec = (name: string) => _registeredRenderFeatures().find((f) => f.spec.name === name)!.spec;
+const WATER_SPEC = registeredSpec("water");
+const TILEMAPS_SPEC = registeredSpec("tilemaps");
+const SPRITES_SPEC = registeredSpec("sprites");
+const UI_SPEC = registeredSpec("ui");
+const SKY_SPEC = registeredSpec("sky");
+const PARTICLES_SPEC = registeredSpec("particles");
 
 class A extends Component {}
 class B extends Component {}

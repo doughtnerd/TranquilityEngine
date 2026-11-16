@@ -17,22 +17,27 @@ import { Vector3 } from "@babylonjs/core/Maths/math.vector.js";
 import { CreateBox } from "@babylonjs/core/Meshes/Builders/boxBuilder.js";
 import type { ShadowRequest } from "../render/babylon/frameGraph";
 import { BabylonLighting, reclusterForNextCamera } from "../render/babylon/lighting";
-import { studioHdr } from "../render/babylon/studioEnvironment";
+import { resolveObjectURL } from "node:buffer";
+import { studioHdrUrl } from "../render/babylon/studioEnvironment";
 import { pbr } from "../render/babylon/materials";
 
 describe("the studio environment (ADR 0075)", () => {
-  it("is a Radiance .hdr image Babylon reads, brighter overhead than below", () => {
-    const bytes = studioHdr(64);
+  it("is a Radiance .hdr image Babylon reads, brighter overhead than below", async () => {
+    const url = studioHdrUrl();
+    expect(studioHdrUrl()).toBe(url); // made once per page
+    const blob = resolveObjectURL(url)!; // Node's view of the blob URL Babylon loads
+    expect(blob.type).toBe("image/vnd.radiance");
+    const bytes = new Uint8Array(await blob.arrayBuffer());
     const info = RGBE_ReadHeader(bytes);
-    expect([info.width, info.height]).toEqual([64, 32]);
+    expect([info.width, info.height]).toEqual([256, 128]);
     const pixels = RGBE_ReadPixels(bytes, info);
-    expect(pixels.length).toBe(64 * 32 * 3);
+    expect(pixels.length).toBe(256 * 128 * 3);
     const row = (r: number) => {
       let sum = 0;
-      for (let x = 0; x < 64; x++) sum += pixels[(r * 64 + x) * 3];
-      return sum / 64;
+      for (let x = 0; x < 256; x++) sum += pixels[(r * 256 + x) * 3];
+      return sum / 256;
     };
-    expect(row(2)).toBeGreaterThan(row(29)); // ceiling over floor
+    expect(row(8)).toBeGreaterThan(row(119)); // ceiling over floor
     expect(Math.max(...pixels)).toBeGreaterThan(2); // soft boxes are brighter than white
   });
 });
