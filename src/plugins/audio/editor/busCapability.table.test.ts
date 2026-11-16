@@ -100,7 +100,7 @@ describe("bus capability rules (ADR 0175)", () => {
       const before = mixer.audioSettings;
       const r = mixer.apply(op);
       expect(mixer.audioSettings, "the running model is untouched").toBe(before);
-      expect(backend.liveMix.refused, "counted").toBe(1);
+      expect(backend.debug().mix!.liveRefused, "counted (Audio.debug().mix.liveRefused)").toBe(1);
       const fallback = fallbackApply(at, op);
       if (spec.live === "refused") {
         expect(r).toEqual({ ok: false, class: "none" });
