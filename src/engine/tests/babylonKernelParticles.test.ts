@@ -5,6 +5,7 @@ import { TargetCamera } from "@babylonjs/core/Cameras/targetCamera.js";
 import { NullEngine } from "@babylonjs/core/Engines/nullEngine.js";
 import { ShaderMaterial } from "@babylonjs/core/Materials/shaderMaterial.js";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector.js";
+import type { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { Scene } from "@babylonjs/core/scene.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Color as EngineColor } from "../core/math";
@@ -84,6 +85,8 @@ describe("kernel particle systems in the World player (ADR 0094)", () => {
     players.push(p);
     return p;
   }
+  /** The meshes drawing `node`'s effect (each kernel output draws one). */
+  const meshesOf = (node: string) => scene.meshes.filter((m) => m.name.startsWith(`particles:${node}:`)) as Mesh[];
   const frames = (p: BabylonParticles, c: ParticleSystem, n: number, dt = 1 / 60) => {
     for (let i = 0; i < n; i++) p.sync([c], dt, dt);
   };
@@ -95,16 +98,20 @@ describe("kernel particle systems in the World player (ADR 0094)", () => {
   it("keeps plain systems on the CPU and runs gpu systems on a kernel with one draw per output", () => {
     const p = make();
     const cpu = fakeSystem(graph());
-    const gpu = fakeSystem(graph("gpu", 2));
+    const gpu = fakeSystem(graph("gpu", 2), { node: { name: "Gpu" } } as Partial<ParticleSystem>);
     p.sync([cpu, gpu], 1 / 60, 1 / 60);
-    expect(p.backendsOf(cpu)).toEqual(["cpu"]);
-    expect(p.backendsOf(gpu)).toEqual(["js"]);
-    expect(p.kernelDrawsOf(cpu)).toHaveLength(0);
-    const draws = p.kernelDrawsOf(gpu);
-    expect(draws).toHaveLength(2);
-    expect(draws[0].mesh.forcedInstanceCount).toBe(100);
-    expect(draws[0].material).toBeInstanceOf(ShaderMaterial);
-    expect(draws[0].mesh.alwaysSelectAsActiveMesh).toBe(true);
+    // The CPU system draws through a Babylon particle system, the kernel one with a mesh per output.
+    expect(scene.particleSystems.map((s) => s.name)).toEqual([expect.stringMatching(/^particles:Fx:/)]);
+    expect(meshesOf("Fx")).toHaveLength(0);
+    const meshes = meshesOf("Gpu");
+    expect(meshes).toHaveLength(2);
+    expect(meshes[0].forcedInstanceCount).toBe(100);
+    expect(meshes[0].material).toBeInstanceOf(ShaderMaterial);
+    expect(meshes[0].alwaysSelectAsActiveMesh).toBe(true);
+    expect(p.state()).toMatchObject({ systems: 2, emitters: 2, batches: 3 });
+    // The variant report finds the system a kernel output's mesh draws for.
+    expect(p.ownerOf(meshes[1])).toBe(gpu);
+    expect(p.ownerOf(scene.particleSystems[0])).toBe(cpu);
   });
 
   it("spawns, counts (estimated) and finishes kernel systems through the component's state", () => {
@@ -132,8 +139,8 @@ describe("kernel particle systems in the World player (ADR 0094)", () => {
     c._commands.push({ op: "stop", clear: true });
     frames(p, c, 1);
     expect(c._state.playing).toBe(false);
-    const fx = p.kernelEffectOf(c)!;
-    expect(fx.emitting).toBe(false);
+    expect(c._state.count).toBe(0);
+    expect(c._state.alive).toBe(false); // not emitting, nothing left
   });
 
   it("doesn't report CPU-only problems for systems a kernel runs", () => {
@@ -152,8 +159,8 @@ describe("kernel particle systems in the World player (ADR 0094)", () => {
     g.systems[0].output.settings.softness = 0.5;
     const c = fakeSystem(g);
     frames(p, c, 2);
-    const d = p.kernelDrawsOf(c)[0];
-    expect(d.material.getActiveTextures().length).toBeGreaterThan(0);
+    const d = meshesOf("Fx")[0];
+    expect(d.material!.getActiveTextures().length).toBeGreaterThan(0);
     const renderers = (scene as unknown as { _depthRenderer?: Record<string, unknown> })._depthRenderer ?? {};
     expect(Object.keys(renderers).length).toBe(1);
     p.dispose();
@@ -164,7 +171,7 @@ describe("kernel particle systems in the World player (ADR 0094)", () => {
     const p = make();
     const c = fakeSystem(graph("gpu"));
     frames(p, c, 2);
-    const mesh = p.kernelDrawsOf(c)[0].mesh;
+    const [mesh] = meshesOf("Fx");
     p.release(c);
     expect(mesh.isDisposed()).toBe(true);
   });

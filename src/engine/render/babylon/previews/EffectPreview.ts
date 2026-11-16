@@ -215,7 +215,7 @@ export class ParticleEffectPreview implements ParticleEffectPreviewApi {
   /** Make the effect's player once the scene is up, and build it (again when what it draws with has changed). */
   private build(): void {
     if (!this.resources || !this.program) return;
-    this.player ??= new EffectPlayer(this.resources, this.program, { name: "preview" });
+    this.player ??= new EffectPlayer(this.resources, this.program, { name: "particles:preview" });
     this.player.build();
     this.retry = RETRY_INTERVAL;
   }

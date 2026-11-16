@@ -1,14 +1,16 @@
-// Internal (ADR 0057, 0060, 0094, 0153): the effect player. One particle effect at one transform on the
-// Babylon backend: its ProgramRunner, our own CPU `EffectSimulation` for the systems the CPU runs, the
-// `KernelEffect` for the ones a kernel executor runs, and the Babylon draws of both (`particleDraw.ts`,
-// `gpuParticles.ts`, `kernelMaterial.ts`) with their fallbacks (the dot for a missing texture, the
-// texture for a material asset that isn't there, a model still loading holds the build). It owns how an
-// effect plays: restart (seeded effects repeat exactly), the systems that start on events rather than On
-// Play, custom events, emit, stop and clear, and a finished one-shot effect playing again.
+// Internal (ADR 0057, 0060, 0080, 0094, 0153): the effect player, the only thing that builds a particle
+// effect. One effect at one transform on the Babylon backend: its ProgramRunner, our own CPU
+// `EffectSimulation` for the systems the CPU runs, the `KernelEffect` for the ones a kernel executor
+// runs, and the Babylon draws of both, each made by the draw factory (`particleDraw.ts`), with their
+// fallbacks (the dot for a missing texture, the texture for a material asset that isn't there, a model
+// still loading holds the build). It owns how an effect plays: restart (seeded effects repeat exactly),
+// the systems that start on events rather than On Play, custom events, emit, stop and clear, a finished
+// one-shot effect playing again, and the warm-up's one-particle state (ADR 0080).
 //
-// Three callers drive it: `BabylonParticles` (a World's ParticleSystems, one player each), the particle
-// graph editor's `EffectPreview` and the asset thumbnails (one player each). What they share per scene
-// (the texture cache, the dot, the scene depth, the kernel host, warnings) is an `EffectResources`.
+// Four callers drive it: `BabylonParticles` (a World's ParticleSystems, one player each, and the
+// warm-up's effects), the particle graph editor's `EffectPreview` and the asset thumbnails (one player
+// each). What they share per scene (the texture cache, the dot, the scene depth, the kernel host,
+// warnings) is an `EffectResources`.
 // Babylon types stay inside this folder (ADR 0010).
 import type { Camera } from "@babylonjs/core/Cameras/camera.js";
 import type { Material } from "@babylonjs/core/Materials/material.js";
@@ -19,17 +21,16 @@ import { loadMeshes, meshesIfLoaded, type ModelMesh } from "../../scene/models";
 import { compileParticleGraph, type ParticleProgram } from "../../scene/particleCompile";
 import type { ParticleGraph } from "../../scene/particleGraph";
 import { parseParticleGraph } from "../../scene/particleGraphFormat";
-import { chooseBackend, compileParticleKernels, type KernelExecutor, type KernelOutput, type KernelProgram, type KernelSystem, type SystemBackend } from "../../scene/particleKernel";
+import { chooseBackend, compileParticleKernels, type KernelExecutor, type KernelProgram, type KernelSystem, type SystemBackend } from "../../scene/particleKernel";
 import { expandParticleGraph, expansionDependencies, projectAssets } from "../../scene/particleSubgraphs";
 import { KernelEffect } from "../particles/gpu/kernelEffect";
 import { ProgramRunner, playTimes } from "../particles/programRunner";
 import { randomForSeed } from "../particles/random";
 import { EffectSimulation, type ParticleRaycast, type SimEmitter } from "../particles/simulation";
-import { BabylonKernelHost, KernelDraw, SceneDepth, sortRunOnce, type BabylonRun } from "./gpuParticles";
+import { BabylonKernelHost, SceneDepth } from "./gpuParticles";
 import { heightFogOn } from "./heightFog";
-import { KernelMaterialDraw, drawsKernelParticles } from "./kernelMaterial";
 import type { BabylonMaterialLibrary } from "./materialLibrary";
-import { createDotTexture, makeDraw, usesSheet, type Draw } from "./particleDraw";
+import { createDotTexture, createDraw, usesSheet, type Draw, type DrawResources, type EmitterDraw } from "./particleDraw";
 
 /** What an effect player needs from where it draws: the scene, textures, material assets, ray queries. */
 export interface EffectHost {
@@ -72,8 +73,6 @@ export interface CompiledEffect {
   deps: string[];
 }
 
-/** A kernel system's run in a `KernelEffect`. */
-type SystemRun = KernelEffect["systems"][number];
 type Rgba = readonly [number, number, number, number];
 
 const WHITE: Rgba = [1, 1, 1, 1];
@@ -81,9 +80,9 @@ const IDENTITY: readonly number[] = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0
 
 /**
  * What every effect player in one scene shares: the texture cache, the dot texture, the scene depth and
- * the kernel host, kernel plans, and warnings (each said once).
+ * the kernel host, kernel plans, and warnings (each said once). It is what the draw factory draws with.
  */
-export class EffectResources {
+export class EffectResources implements DrawResources {
   private readonly warned = new Set<string>();
   private readonly textures = new Map<string, { tex: BaseTexture | null; failed: boolean }>();
   private readonly plans = new WeakMap<ParticleProgram, KernelPlan>();
@@ -279,41 +278,6 @@ export class EffectResources {
     await Promise.all(waits);
   }
 
-  /** A CPU emitter's draw (`particleDraw.ts`): with its material asset, else its texture, else the dot. */
-  makeDraw(name: string, e: SimEmitter, capacity: number, camera?: () => Camera | null): Draw {
-    const r = e.renderer;
-    const material = this.materialFor(r.material);
-    const heightFog = heightFogOn(this.host.scene);
-    const found = r.texture && !material ? this.textureFor(r.texture, usesSheet(r, heightFog)) : null;
-    const texture = found && found !== "failed" ? found : this.dotTexture();
-    const mesh = r.mode === "mesh" ? this.meshFor(r.mesh) : undefined;
-    const depth = (r.softness ?? 0) > 0 ? this.sceneDepth() : null;
-    return makeDraw(this.host.scene, name, e, capacity, texture, texture === this.dot, { material, mesh, camera, depth, heightFog, copyMaterial: (n) => this.copyMaterial(r.material, n) });
-  }
-
-  /** A kernel output's draw (ADR 0094, 0126): with its material asset where it can be, else its texture. */
-  kernelDraw(name: string, s: SystemRun, k: number, o: KernelOutput): KernelDraw | KernelMaterialDraw {
-    const found = o.settings.texture ? this.textureFor(o.settings.texture, false) : null;
-    const texture = found && found !== "failed" ? found : this.dotTexture();
-    const mesh = o.type === "mesh" ? (this.meshFor(o.settings.mesh) ?? undefined) : undefined;
-    const softness = o.settings.softness ?? 0;
-    const made = o.settings.material && o.type !== "trail" ? this.kernelMaterialDraw(name, s.kernel, k, s.run as BabylonRun, o.settings.material, { mesh, softness }) : null;
-    if (o.settings.material && !made) this.warnOnce(`kmat|${name}|${o.settings.material}`, `${name}: the kernel output "${s.kernel.name}" draws with its texture: ${o.type === "trail" ? "trails don't take material assets yet" : `"${o.settings.material}" isn't a PBR material (or hasn't loaded)`}.`);
-    return made ?? new KernelDraw(this.host.scene, name, s.kernel, k, s.run, texture, this.sceneDepth(), { mesh, softness });
-  }
-
-  /** A kernel output drawn with a material asset (ADR 0126), or null when the material can't (not PBR, not loaded). */
-  private kernelMaterialDraw(name: string, kernel: KernelSystem, k: number, run: BabylonRun, path: string, opts: { mesh?: ModelMesh; softness: number }): KernelMaterialDraw | null {
-    if (!drawsKernelParticles(this.materialFor(path))) return null;
-    const copy = this.copyMaterial(path, `${name}:material`);
-    if (!copy || !drawsKernelParticles(copy.material)) {
-      copy?.dispose();
-      return null;
-    }
-    const source = { textures: (sorted: boolean) => run.textures(sorted), sortFor: () => sortRunOnce(this.host.scene, run) };
-    return new KernelMaterialDraw(this.host.scene, name, kernel, k, source, { material: copy.material, dispose: copy.dispose }, { ...opts, depth: opts.softness > 0 ? this.sceneDepth() : null, interleaved: run.kind === "webgpu" });
-  }
-
   dispose(): void {
     this.dot?.dispose();
     this.dot = null;
@@ -326,13 +290,25 @@ export class EffectResources {
 export type PlayState = "playing" | "paused" | "stopped";
 
 export interface EffectPlayerOptions {
-  /** Draw names start with this (`particles:<name>:<emitter>`). */
+  /** Draw names start with this (`<name>:<emitter>`, `<name>:<kernel system>:<output>`). */
   name: string;
   /** The random seed (0: unseeded); a seeded effect repeats exactly on every restart. Default 0. */
   seed?: number;
   /** How it starts once built: playing (default) or stopped (a ParticleSystem without Play On Awake). */
   state?: PlayState;
+  /** The camera trails and quads face. Default: the scene's active camera (the World's first view). */
+  camera?: () => Camera | null;
 }
+
+/** Where a warm-up point is (`EffectPlayer.warm`). */
+export interface WarmPoint {
+  x: number;
+  y: number;
+  z: number;
+}
+
+/** A warm-up particle's size in metres: drawn, but covering no pixel. */
+const WARM_PARTICLE_SIZE = 1e-5;
 
 /**
  * One effect at one transform (ADR 0153): the runner, the CPU simulation and kernel systems, their draws,
@@ -353,9 +329,11 @@ export class EffectPlayer {
   /** Has played at all (so `destroyOnFinish` waits for it to start). */
   started = false;
   private _sim: EffectSimulation | null = null;
-  private _draws: Draw[] = [];
+  /** The CPU emitters' draws. */
+  private _cpuDraws: EmitterDraw[] = [];
   private _kfx: KernelEffect | null = null;
-  private _kdraws: (KernelDraw | KernelMaterialDraw)[] = [];
+  /** Every draw: the CPU emitters', then the kernel outputs'. */
+  private _draws: Draw[] = [];
   /** What the current build depended on (`EffectResources.buildKey`); "" when unbuilt. */
   private key = "";
   /** The effect's random, swapped on restart; the simulation and runner call it through `rnd`. */
@@ -380,16 +358,21 @@ export class EffectPlayer {
     return this._sim;
   }
 
+  /** What it draws with: each CPU emitter's draw, then each kernel output's (one batch each). */
   get draws(): readonly Draw[] {
     return this._draws;
   }
 
-  get kfx(): KernelEffect | null {
-    return this._kfx;
+  /** Whether every draw is ready to draw (shaders compiled, textures loaded). */
+  get ready(): boolean {
+    for (const d of this._draws) if (!d.isReady()) return false;
+    return true;
   }
 
-  get kdraws(): readonly (KernelDraw | KernelMaterialDraw)[] {
-    return this._kdraws;
+  /** Whether `drawn` (a Babylon mesh or particle system) is one of its draws'. */
+  owns(drawn: object): boolean {
+    for (const d of this._draws) if ((d.meshes as readonly object[]).includes(drawn) || (d.systems as readonly object[]).includes(drawn)) return true;
+    return false;
   }
 
   get built(): boolean {
@@ -440,6 +423,67 @@ export class EffectPlayer {
       this.key = "";
       return false;
     }
+    this.make(key, (e) => Math.max(1, Math.ceil(e.settings.maxParticles * Math.max(1, this.scale))));
+    const was = this.state;
+    if (was === "stopped") this.stop();
+    else {
+      this.restart();
+      if (was === "paused") this.pause();
+    }
+    return true;
+  }
+
+  /**
+   * The warm-up's state (ADR 0080): built as `build` builds it, but each CPU emitter's draw holds one
+   * particle at `at`, too small to cover a pixel, and the kernel systems are stepped once with nothing
+   * spawned, so drawing it once makes every pipeline the effect's draws use (a kernel's simulation pass,
+   * with its spawn, trail history and sort passes). Stopped: it doesn't play. False while a texture or
+   * model it draws with is loading (ask again later).
+   */
+  warm(at: WarmPoint): boolean {
+    this.disposeDraws();
+    this.key = "";
+    const key = this.resources.buildKey(this.program);
+    if (key === null || this.kernelTexturesLoading()) return false;
+    this.make(key, () => 1);
+    this.stop();
+    const sim = this._sim!;
+    for (const e of sim.emitters) {
+      const p = e.alloc();
+      p.wx = at.x;
+      p.wy = at.y;
+      p.wz = at.z;
+      p.size = p.length = WARM_PARTICLE_SIZE;
+      p.tileBlend = 0;
+      if (e.renderer.mode === "trail") {
+        // Two trail points, so the ribbon has a segment to draw.
+        p.trail = new Float32Array([at.x, at.y, at.z, at.x, at.y + WARM_PARTICLE_SIZE, at.z]);
+        p.trailCap = 2;
+        p.trailCount = 2;
+        p.trailHead = 0;
+      }
+    }
+    this._kfx?.step(1 / 60, IDENTITY, 1, WHITE, this.runner.context, undefined);
+    // Drawn for the warm-up's camera: a sorted kernel output builds its sort passes for it.
+    const scene = this.resources.scene;
+    const cam = this.options.camera?.() ?? null;
+    const prev = scene.activeCamera;
+    if (cam) scene.activeCamera = cam;
+    for (const d of this._draws) d.update();
+    if (cam) scene.activeCamera = prev;
+    return true;
+  }
+
+  /** Whether a texture a kernel output draws with is still loading (the warm-up waits for it; a build draws the dot meanwhile). */
+  private kernelTexturesLoading(): boolean {
+    for (const k of this.resources.plan(this.program)?.running ?? []) {
+      for (const o of k.outputs) if (o.settings.texture && this.resources.textureFor(o.settings.texture, false) === null) return true;
+    }
+    return false;
+  }
+
+  /** Make the simulation, the kernel effect and every draw for build `key`, each CPU draw holding `capacity(emitter)` particles. */
+  private make(key: string, capacity: (e: SimEmitter) => number): void {
     this.key = key;
     const res = this.resources;
     const effect = this.runner.effect();
@@ -448,20 +492,14 @@ export class EffectPlayer {
     const cpuEffect = plan?.running.length ? { ...effect, emitters: effect.emitters.map((e, i) => (plan.backends[i] === "cpu" ? e : { ...e, enabled: false })) } : effect;
     const sim = new EffectSimulation(cpuEffect, { live: this.runner.live, random: this.rnd, raycast: res.host.raycast });
     this._sim = sim;
-    const name = this.options.name;
-    this._draws = sim.emitters.map((e) => res.makeDraw(`particles:${name}:${e.name}`, e, Math.max(1, Math.ceil(e.settings.maxParticles * Math.max(1, this.scale)))));
+    const { name, camera } = this.options;
+    this._cpuDraws = sim.emitters.map((e) => createDraw(res, `${name}:${e.name}`, { emitter: e, capacity: capacity(e), camera }));
+    this._draws = [...this._cpuDraws];
     if (plan?.running.length) {
       const kfx = new KernelEffect(plan.running, effect.emitters, res.kernelHost(), { live: this.runner.live, random: this.rnd, seeds: this.program.seeds, seed: this.seed });
       this._kfx = kfx;
-      for (const s of kfx.systems) s.kernel.outputs.forEach((o, k) => this._kdraws.push(res.kernelDraw(`particles:${name}:${s.kernel.id}:${k}`, s, k, o)));
+      for (const s of kfx.systems) for (let k = 0; k < s.kernel.outputs.length; k++) this._draws.push(createDraw(res, `${name}:${s.kernel.id}:${k}`, { system: s, output: k }));
     }
-    const was = this.state;
-    if (was === "stopped") this.stop();
-    else {
-      this.restart();
-      if (was === "paused") this.pause();
-    }
-    return true;
   }
 
   /** Set where the effect is (the node's world matrix, 16 floats column-major), its scale and tint, before commands that spawn. */
@@ -532,11 +570,8 @@ export class EffectPlayer {
       sim.step(dt, world, this.scale, this.tint);
       this._kfx?.step(dt, world, this.scale, this.tint, this.runner.context, this.overrides, playTimes(this.program, this.time));
     }
-    for (const d of this._draws) {
-      d.ensure(Math.max(1, Math.floor(d.emitter.settings.maxParticles * this.scale))); // the particle limit may have gone up
-      d.update();
-    }
-    for (const d of this._kdraws) d.update();
+    for (const d of this._cpuDraws) d.ensure(Math.max(1, Math.floor(d.emitter.settings.maxParticles * this.scale))); // the particle limit may have gone up
+    for (const d of this._draws) d.update();
     if (this.state === "playing" && !this.emitting) this.state = "stopped"; // a one-shot effect finished emitting
     if (this.state === "playing") this.started = true;
   }
@@ -577,8 +612,7 @@ export class EffectPlayer {
   private disposeDraws(): void {
     for (const d of this._draws) d.dispose();
     this._draws = [];
-    for (const d of this._kdraws) d.dispose();
-    this._kdraws = [];
+    this._cpuDraws = [];
     this._kfx?.dispose();
     this._kfx = null;
     this._sim = null;

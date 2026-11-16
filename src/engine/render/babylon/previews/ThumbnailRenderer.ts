@@ -651,7 +651,7 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
       // Everything the emitters draw with, loaded first, so the effect is built once, with it.
       await resources.preload(program);
       await library.settled();
-      const made = new EffectPlayer(resources, program, { name: "thumbnail", seed: PARTICLE_SEED });
+      const made = new EffectPlayer(resources, program, { name: "particles:thumbnail", seed: PARTICLE_SEED });
       player = made;
       if (!made.build()) throw new Error("what it draws with didn't load.");
       const step = (dt: number) => {

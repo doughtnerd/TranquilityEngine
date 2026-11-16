@@ -4,11 +4,9 @@
 import { NullEngine } from "@babylonjs/core/Engines/nullEngine.js";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial.js";
 import { RawTexture } from "@babylonjs/core/Materials/Textures/rawTexture.js";
-import type { ParticleSystem as BabylonParticleSystem } from "@babylonjs/core/Particles/particleSystem.js";
 import { Scene } from "@babylonjs/core/scene.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { EffectPlayer, EffectResources, type EffectHost } from "../render/babylon/effectPlayer";
-import type { QuadDraw } from "../render/babylon/particleMeshes";
 import { compileParticleGraph, type ParticleProgram } from "../scene/particleCompile";
 import { migrateParticleEffect } from "../scene/particleGraphFormat";
 import { defaultEmitter, defaultRenderer, defaultShape, type ParticleEffect, type ParticleEmitterSettings, type ParticleRenderer } from "../scene/particles";
@@ -112,13 +110,13 @@ describe("the effect player (ADR 0153)", () => {
     resolve(spark);
     await loading;
     expect(waiting.build()).toBe(true);
-    expect((waiting.draws[0].ps as unknown as BabylonParticleSystem).particleTexture).toBe(spark);
+    expect(waiting.draws[0].systems[0].particleTexture).toBe(spark);
 
     const failing = new EffectPlayer(res, program({ emitters: [steady("B", 30, { texture: "missing.png" })] }), { name: "fx" });
     expect(failing.build()).toBe(false);
     await new Promise((r) => setTimeout(r, 0));
     expect(failing.build()).toBe(true);
-    expect((failing.draws[0].ps as unknown as BabylonParticleSystem).particleTexture).toBe(res.dotTexture());
+    expect(failing.draws[0].systems[0].particleTexture).toBe(res.dotTexture());
     expect(warnings.filter((w) => w.includes("missing.png"))).toHaveLength(1);
     waiting.dispose();
     failing.dispose();
@@ -135,7 +133,7 @@ describe("the effect player (ADR 0153)", () => {
     player.step(0.2);
     expect(player.build()).toBe(true);
     expect(player.draws[0].kind).toBe("quads");
-    expect((player.draws[0] as QuadDraw).mesh.material).toBe(material);
+    expect(player.draws[0].meshes[0].material).toBe(material);
     expect(player.state).toBe("playing"); // the rebuild kept it playing
     player.dispose();
   });

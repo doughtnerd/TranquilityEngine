@@ -30,7 +30,7 @@ import { heightFogShader, useHeightFog } from "./heightFog";
 import type { KernelTextures } from "./kernelMaterial";
 import { BUFFER, WebGpuRun, type GpuBuffer, type GpuDevice } from "../particles/gpu/webgpuRun";
 import { hasSceneFrame, requestSceneDepth, sceneDepth } from "./frameGraph";
-import { particleAlphaIndex } from "./particleMeshes";
+import type { Draw } from "./particleDraw";
 
 /** What a draw binds each frame: the run's latest state, uniforms and look-up table. */
 interface DrawSource {
@@ -604,9 +604,15 @@ class JsBabylonRun implements BabylonRun {
 export interface KernelDrawOptions {
   /** The model mesh of a mesh output (else a cube). */
   mesh?: ModelMesh;
-  /** Soft particles: fade over this many metres in front of surfaces (0: off). */
-  softness: number;
 }
+
+/** Soft particles on a kernel draw (ADR 0096, 0126): fade over `softness` metres in front of the scene's depth. */
+export interface KernelSoft {
+  softness: number;
+  depth: SceneDepth;
+}
+
+const NO_SYSTEMS: readonly never[] = [];
 
 /** The frame each run was last sorted in (several sorted outputs of one system share the sort). */
 const sortedAt = new WeakMap<object, number>();
@@ -618,10 +624,12 @@ function viewZRow(cam: Camera): [number, number, number, number] {
 }
 
 /** One output of a kernel system: an instanced quad (or model) per particle slot. */
-export class KernelDraw {
+export class KernelDraw implements Draw {
+  readonly kind = "kernel";
   readonly mesh: Mesh;
+  readonly meshes: readonly Mesh[];
+  readonly systems = NO_SYSTEMS;
   readonly material: ShaderMaterial;
-  private readonly soft: boolean;
   /** Drawn back to front (ADR 0126: `sort`, auto for alpha blending). */
   readonly sorted: boolean;
   /** A trail output (ADR 0126): a ribbon through each particle's history. */
@@ -629,20 +637,21 @@ export class KernelDraw {
 
   constructor(
     private readonly scene: Scene,
-    name: string,
+    readonly name: string,
     readonly kernel: KernelSystem,
     readonly output: number,
     private readonly source: KernelRun,
     texture: BaseTexture,
-    private readonly sceneDepth: SceneDepth,
+    /** Soft particles, decided by the draw factory (`particleDraw.ts`); null draws hard. */
+    private readonly soft: KernelSoft | null,
     opts: KernelDrawOptions,
   ) {
     const out = kernel.outputs[output];
     const webgpu = scene.getEngine().isWebGPU;
-    this.soft = opts.softness > 0;
     this.sorted = outputSorts(out.settings);
     this.trail = out.type === "trail" && !!kernel.trail && !!out.trail;
     this.mesh = new Mesh(name, scene);
+    this.meshes = [this.mesh];
     const vd = new VertexData();
     if (this.trail) {
       // A strip of `points` pairs: position (side ±0.5, point index), V across.
@@ -681,7 +690,7 @@ export class KernelDraw {
     }
     vd.applyToMesh(this.mesh);
     const fog = heightFogShader(webgpu ? "wgsl" : "glsl");
-    const shaderOpts = { soft: this.soft, sorted: this.sorted, fog: fog.decl };
+    const shaderOpts = { soft: !!this.soft, sorted: this.sorted, fog: fog.decl };
     const shaders = webgpu ? wgslDraw(kernel, output, shaderOpts) : glslDraw(kernel, output, shaderOpts);
     const uniforms = ["viewProjection", "view", "kcam", "kdraw", "kdraw2", "kdraw3", ...(this.trail ? ["ktrail"] : []), ...fog.uniforms, ...(this.soft ? ["ksoft"] : []), ...(webgpu ? [] : ["ku", "kw", ...(this.sorted ? ["kidxW"] : [])])];
     this.material = new ShaderMaterial(
@@ -703,7 +712,7 @@ export class KernelDraw {
     m.alphaMode = out.settings.blending === "additive" ? Constants.ALPHA_ADD : out.settings.blending === "premultiplied" ? Constants.ALPHA_PREMULTIPLIED : Constants.ALPHA_COMBINE;
     m.setTexture("ktex", texture);
     m.setVector4("kdraw", new Vector4(DRAW_MODE[out.type] ?? 0, out.settings.speedScale, out.settings.lengthScale, out.tiles[0]));
-    m.setVector4("kdraw2", new Vector4(out.blendTiles ? 1 : 0, opts.softness, out.settings.blending === "premultiplied" ? 1 : 0, out.settings.blending === "additive" ? 1 : 0));
+    m.setVector4("kdraw2", new Vector4(out.blendTiles ? 1 : 0, this.soft?.softness ?? 0, out.settings.blending === "premultiplied" ? 1 : 0, out.settings.blending === "additive" ? 1 : 0));
     useHeightFog(m, scene);
     m.setVector4("kdraw3", new Vector4(out.tiles[1], 0, 0, 0));
     m.onBindObservable.add(() => {
@@ -713,7 +722,7 @@ export class KernelDraw {
       effect.setVector3("kcam", cam.globalPosition);
       if (this.soft) {
         // The camera drawing now: each camera has its own depth (ADR 0109).
-        const map = this.sceneDepth.map(cam);
+        const map = this.soft.depth.map(cam);
         if (map) {
           effect.setTexture("kdepthTex", map);
           const s = map.getSize();
@@ -725,8 +734,11 @@ export class KernelDraw {
     this.mesh.alwaysSelectAsActiveMesh = true;
     this.mesh.isPickable = false;
     this.mesh.forcedInstanceCount = kernel.capacity;
-    this.mesh.alphaIndex = particleAlphaIndex(out.settings.renderOrder);
     this.mesh.doNotSyncBoundingInfo = true;
+  }
+
+  isReady(): boolean {
+    return this.mesh.isReady(true);
   }
 
   /** Bind this frame's state (ping-pong buffers change every frame). */
@@ -735,12 +747,7 @@ export class KernelDraw {
     src.bind(this.material);
     const cam = this.scene.activeCamera;
     if (this.sorted && cam) {
-      // Once a frame per system, for the active camera (split-screen views share its order).
-      const frame = this.scene.getFrameId();
-      if (sortedAt.get(src) !== frame) {
-        sortedAt.set(src, frame);
-        src.sort(depthRow(viewZRow(cam), src.lastUniforms, this.scene.useRightHandedSystem));
-      }
+      sortRunOnce(this.scene, src); // once a frame per system, for the active camera (split-screen views share its order)
       src.bindSort(this.material);
     }
     if (this.trail) {
@@ -751,7 +758,7 @@ export class KernelDraw {
     if (cam) this.material.setVector3("kcam", cam.globalPosition ?? Vector3.Zero());
     if (this.soft) {
       // Bound per camera while drawing (onBind); set here too so the material has a texture to compile with.
-      const map = this.sceneDepth.map();
+      const map = this.soft.depth.map();
       if (map) this.material.setTexture("kdepthTex", map);
     }
   }

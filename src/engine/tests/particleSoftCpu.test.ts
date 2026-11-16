@@ -11,7 +11,6 @@ import { Vector3 } from "@babylonjs/core/Maths/math.vector.js";
 import { Scene } from "@babylonjs/core/scene.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { heightFogOn, heightFogShader, setHeightFog, useHeightFog } from "../render/babylon/heightFog";
-import type { InstanceDraw, QuadDraw } from "../render/babylon/particleMeshes";
 import { BabylonParticles } from "../render/babylon/particles";
 import { MycoSoftParticlePlugin, softFade } from "../render/babylon/softParticles";
 import { compileParticleGraph } from "../scene/particleCompile";
@@ -65,22 +64,24 @@ describe("soft CPU particles and particle height fog (ADR 0126)", () => {
 
   it("draws soft billboards as mesh quads with the fade, and hard ones through a Babylon particle system", () => {
     const effect = particleEffectJSON({ emitters: [emitter("Soft", { softness: 0.5 }), emitter("Hard", {}), emitter("Rocks", { mode: "mesh", softness: 1 })] });
-    const draws = player.warmDraws(effect, "w", at, () => camera)!;
-    expect(draws.map((d) => d.kind)).toEqual(["quads", "system", "instances"]);
-    expect(softPlugin((draws[0] as QuadDraw).mesh.material)?.softness).toBe(0.5);
-    expect(softPlugin((draws[2] as InstanceDraw).mesh.material)?.softness).toBe(1);
-    for (const d of draws) d.dispose();
+    const parts = player.warm(effect, "w", at, camera)!;
+    expect(parts.systems).toHaveLength(1); // the hard one
+    const [soft, rocks] = parts.meshes;
+    expect([soft!.hasThinInstances, rocks!.hasThinInstances]).toEqual([false, true]);
+    expect(softPlugin(soft!.material)?.softness).toBe(0.5);
+    expect(softPlugin(rocks!.material)?.softness).toBe(1);
+    parts.dispose();
   });
 
   it("fades a copy of a shared material asset, leaving the asset alone", () => {
     const shared = new PBRMaterial("fx", scene);
     material = shared;
-    const draws = player.warmDraws(particleEffectJSON({ emitters: [emitter("Lit", { material: "materials/fx.material.json", softness: 2 })] }), "w", at, () => camera)!;
-    const used = (draws[0] as QuadDraw).mesh.material!;
+    const parts = player.warm(particleEffectJSON({ emitters: [emitter("Lit", { material: "materials/fx.material.json", softness: 2 })] }), "w", at, camera)!;
+    const used = parts.meshes[0]!.material!;
     expect(used).not.toBe(shared);
     expect(softPlugin(used)?.softness).toBe(2);
     expect(softPlugin(shared)).toBeNull();
-    draws[0].dispose();
+    parts.dispose();
     expect(scene.materials.includes(used)).toBe(false); // the copy goes with the draw
     expect(scene.materials.includes(shared)).toBe(true);
   });
@@ -89,12 +90,12 @@ describe("soft CPU particles and particle height fog (ADR 0126)", () => {
     expect(heightFogOn(scene)).toBe(false);
     setHeightFog(scene, FOG_ON);
     expect(heightFogOn(scene)).toBe(true);
-    const draws = player.warmDraws(particleEffectJSON({ emitters: [emitter("Dots", {})] }), "w", at, () => camera)!;
-    expect(draws[0].kind).toBe("quads");
+    const parts = player.warm(particleEffectJSON({ emitters: [emitter("Dots", {})] }), "w", at, camera)!;
+    expect(parts.systems).toHaveLength(0);
     // (After earlier tests disposed their engines: the plugin is registered again.)
-    const mat = (draws[0] as QuadDraw).mesh.material!;
+    const mat = parts.meshes[0]!.material!;
     expect(mat.pluginManager?.getPlugin("MycoHeightFog")).toBeTruthy();
-    draws[0].dispose();
+    parts.dispose();
   });
 
   it("splices height fog into standard materials before Babylon's own fog", () => {

@@ -1,6 +1,6 @@
 # 0080. Scene loads warm up the shader pipelines their content will need, derived from what they reference
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0185 (a particle effect's warm item is an effect player's warm state)
 - **Date:** 2026-11-06
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

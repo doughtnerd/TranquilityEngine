@@ -14,7 +14,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { defaultGraphics } from "../core/graphics";
 import { Assets } from "../index";
 import { pipelineTierKey } from "../render/babylon/BabylonRenderer";
-import type { InstanceDraw, QuadDraw } from "../render/babylon/particleMeshes";
+import type { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { BabylonParticles } from "../render/babylon/particles";
 import { warmWorldCanvas } from "../render/babylon/ui";
 import { PipelineWarmer, WARM_PREFIX, type WarmCustom, type WarmParts } from "../render/babylon/warmUp";
@@ -218,47 +218,54 @@ describe("warming particle effects (ADR 0080)", () => {
     babylon.dispose();
   });
 
+  /** Quads a mesh built on the CPU draws (its submesh's indices, six a quad). */
+  const quadsOf = (m: Mesh) => (m.isVisible ? m.subMeshes[0]!.indexCount / 6 : 0);
+
   it("builds each emitter's draw with one particle where it's told, too small to see", () => {
     const effect = particleEffectJSON({ emitters: [emitter("Dots", { blending: "additive" }), emitter("Rocks", { mode: "mesh", mesh: "builtin:cube" }), emitter("Streaks", { mode: "trail" })] });
-    const draws = player.warmDraws(effect, `${WARM_PREFIX}fx`, at, () => camera)!;
-    expect(draws.map((d) => d.kind)).toEqual(["system", "instances", "trail"]);
-    const ps = draws[0]!.ps as unknown as BabylonParticleSystem;
+    const parts = player.warm(effect, `${WARM_PREFIX}fx`, at, camera)!;
+    expect(parts.systems).toHaveLength(1);
+    expect(parts.meshes.map((m) => m.hasThinInstances)).toEqual([true, false]); // the rocks' thin instances, the streaks' ribbon
+    const ps = parts.systems[0] as BabylonParticleSystem;
     expect(ps.particles).toHaveLength(1);
     expect(ps.particles[0]!.position.asArray()).toEqual([1, 2, 3]);
     expect(ps.particles[0]!.scale.x).toBeLessThan(1e-4);
     expect(ps.blendMode).toBe(BabylonParticleSystem.BLENDMODE_ADD); //, as the real draw: the blend state is part of the pipeline
     expect(ps.name.startsWith(WARM_PREFIX)).toBe(true); // the report skips warm-up draws
-    const rocks = draws[1] as InstanceDraw;
-    expect(rocks.mesh.thinInstanceCount).toBe(1);
-    expect(rocks.mesh.isVisible).toBe(true);
-    expect(rocks.matrices[0]).toBeLessThan(1e-4);
-    expect((draws[2] as QuadDraw).quads).toBe(1); // a ribbon segment to draw
-    for (const d of draws) d.dispose();
+    const [rocks, streaks] = parts.meshes;
+    expect(rocks!.thinInstanceCount).toBe(1);
+    expect(rocks!.isVisible).toBe(true);
+    expect(rocks!.thinInstanceGetWorldMatrices()[0]!.m[0]).toBeLessThan(1e-4);
+    expect(quadsOf(streaks!)).toBe(1); // a ribbon segment to draw
+    parts.dispose();
     expect(scene.particleSystems).toHaveLength(0);
+    expect(scene.meshes).toHaveLength(0);
   });
 
   it("waits for a texture it needs, and draws material-asset emitters with the material", async () => {
     let resolve!: (t: RawTexture) => void;
     textures.set("images/spark.png", new Promise((r) => (resolve = r)));
     const effect = particleEffectJSON({ emitters: [emitter("Sparks", { texture: "images/spark.png" })] });
-    expect(player.warmDraws(effect, "w", at, () => camera)).toBeNull(); // loading: ask again later
+    expect(player.warm(effect, "w", at, camera)).toBeNull(); // loading: ask again later
     resolve(RawTexture.CreateRGBATexture(new Uint8Array(4), 1, 1, scene));
     await Promise.resolve();
     await Promise.resolve();
-    const draws = player.warmDraws(effect, "w", at, () => camera)!;
-    expect(draws).toHaveLength(1);
-    draws[0]!.dispose();
+    const parts = player.warm(effect, "w", at, camera)!;
+    expect(parts.systems).toHaveLength(1);
+    expect(parts.meshes).toHaveLength(0);
+    parts.dispose();
     material = new StandardMaterial("fx", scene);
-    const quads = player.warmDraws(particleEffectJSON({ emitters: [emitter("Lit", { material: "materials/fx.material.json" })] }), "w", at, () => camera)!;
-    expect(quads[0]!.kind).toBe("quads");
-    expect((quads[0] as QuadDraw).mesh.material).toBe(material);
-    expect((quads[0] as QuadDraw).quads).toBe(1);
-    quads[0]!.dispose();
+    const quads = player.warm(particleEffectJSON({ emitters: [emitter("Lit", { material: "materials/fx.material.json" })] }), "w", at, camera)!;
+    expect(quads.systems).toHaveLength(0);
+    expect(quads.meshes[0]!.material).toBe(material);
+    expect(quadsOf(quads.meshes[0]!)).toBe(1);
+    quads.dispose();
   });
 
   it("gives nothing for an effect that isn't in the project", () => {
     Assets.clearSources();
-    expect(player.warmDraws("effects/gone.particles.json", "w", at, () => camera)).toEqual([]);
+    const parts = player.warm("effects/gone.particles.json", "w", at, camera)!;
+    expect([parts.meshes, parts.systems]).toEqual([[], []]);
   });
 });
 

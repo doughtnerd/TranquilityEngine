@@ -1,42 +1,125 @@
-// Internal (ADR 0057, 0075): how simulated particles are drawn on the Babylon backend. Shared by the
-// World's player (`particles.ts`) and the editor's previews (`previews/EffectPreview.ts`,
-// `previews/ThumbnailRenderer.ts`). `makeDraw` picks, per emitter:
+// Internal (ADR 0057, 0075, 0094, 0126, 0153): the particle draw factory. Every Babylon draw of a
+// particle effect is made here, by `createDraw`, for the effect player (`effectPlayer.ts`), which the
+// World, the particle graph's preview, the thumbnails and the warm-up all play through. It decides:
 //
-// - a Babylon CPU `ParticleSystem`, with its own emission and update turned off, showing the particle
-//   list `EffectSimulation` produced (billboards, stretched, horizontal, vertical, flipbook sheets,
-//   blending) — the cheapest, used whenever it can draw the emitter;
-// - mesh particles (`mesh` mode), trails (`trail` mode), and any emitter with a material asset, which
-//   Babylon's particle system can't draw, as meshes (`particleMeshes.ts`).
+// - which draw a CPU emitter gets: a Babylon CPU `ParticleSystem` (`SystemDraw` below), with its own
+//   emission and update turned off, showing the particle list `EffectSimulation` produced (billboards,
+//   stretched, horizontal, vertical, flipbook sheets, blending), the cheapest, used whenever it can draw
+//   the emitter; else meshes (`particleMeshes.ts`): thin instances for `mesh` mode, ribbons for `trail`,
+//   quads for an emitter with a material asset, a soft one or one under height fog;
+// - which draw a kernel output gets (ADR 0094, 0126): an instanced mesh with its material asset's copy
+//   where the material can (`kernelMaterial.ts`), else the instanced shader draw (`gpuParticles.ts`);
+// - what each draw shades with: its material asset, its texture, or the dot, with the soft fade
+//   (ADR 0126) wherever the emitter or output is soft;
+// - where it sits in the draw order (`renderOrder`, below).
 //
-// `renderOrder`: Babylon draws a rendering group's particle systems in the order of
-// `scene.particleSystems`, so `sortParticleSystems` keeps that list stably sorted by the emitters'
-// renderOrder (systems that aren't ours count as 0). They all draw before the group's transparent
-// meshes, mesh-based particles included, so a negative renderOrder can't put a billboard emitter under
-// a transparent mesh, nor a positive one over it, as it can on three.js (see `particleMeshes.ts` for
-// how the mesh draws sort).
+// Draw order: Babylon draws a rendering group's particle systems in the order of
+// `scene.particleSystems`, so `orderSystem` keeps that list stably sorted by the emitters' renderOrder
+// (systems that aren't ours count as 0). They all draw before the group's transparent meshes, mesh-based
+// particles included, so a negative renderOrder can't put a billboard emitter under a transparent mesh,
+// nor a positive one over it. Among transparent meshes Babylon sorts by `alphaIndex` (lowest first),
+// then back to front. Meshes default to `Number.MAX_VALUE`, so `particleAlphaIndex` leaves renderOrder 0
+// there (sorted by distance with the scene's other transparent meshes), puts negative orders before them
+// in order, and positive orders after them all at +Infinity: two different positive orders then sort by
+// distance, not by order. `orderMesh` and `orderSystem` are the only places a particle draw is ordered.
 import type { Camera } from "@babylonjs/core/Cameras/camera.js";
 import { Constants } from "@babylonjs/core/Engines/constants.js";
 import type { Material } from "@babylonjs/core/Materials/material.js";
+import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
+import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial.js";
 import type { BaseTexture } from "@babylonjs/core/Materials/Textures/baseTexture.js";
 import { RawTexture } from "@babylonjs/core/Materials/Textures/rawTexture.js";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector.js";
+import type { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { Particle } from "@babylonjs/core/Particles/particle.js";
 import { ParticleSystem as BabylonParticleSystem } from "@babylonjs/core/Particles/particleSystem.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import { meshesIfLoaded, type ModelMesh } from "../../scene/models";
-import type { ParticleRenderer as RendererSettings } from "../../scene/particles";
+import type { ParticleBlending, ParticleRenderer as RendererSettings } from "../../scene/particles";
+import type { KernelEffect } from "../particles/gpu/kernelEffect";
 import type { SimEmitter, SimParticle } from "../particles/simulation";
-import { BLEND_EPSILON, InstanceDraw, QuadDraw, type Draw } from "./particleMeshes";
-import type { DepthSource } from "./softParticles";
+import { KernelDraw, sortRunOnce, type BabylonRun, type SceneDepth } from "./gpuParticles";
+import { heightFogOn } from "./heightFog";
+import { KernelMaterialDraw, drawsKernelParticles } from "./kernelMaterial";
+import { BLEND_EPSILON, InstanceDraw, QuadDraw, unlitParticleMaterial } from "./particleMeshes";
+import { MycoSoftParticlePlugin, type DepthSource } from "./softParticles";
 
-export type { Draw } from "./particleMeshes";
-export { particleAlphaIndex } from "./particleMeshes";
+/** One drawing of an effect's emitter (CPU) or kernel output on the Babylon backend, made by `createDraw`. */
+export interface Draw {
+  readonly name: string;
+  /**
+   * `system`: a Babylon particle system; `instances`: thin instances of a mesh; `quads`/`trail`:
+   * geometry built on the CPU; `kernel`: a kernel output's instanced shader draw; `kernelMaterial`: a
+   * kernel output drawn with its material asset's copy.
+   */
+  readonly kind: "system" | "instances" | "quads" | "trail" | "kernel" | "kernelMaterial";
+  /** The Babylon meshes it draws (transparent, ordered by `alphaIndex`). */
+  readonly meshes: readonly Mesh[];
+  /** The Babylon particle systems it draws (a `system` draw's one, replaced when it grows). */
+  readonly systems: readonly BabylonParticleSystem[];
+  /** Whether what it draws with is ready (shaders compiled, textures loaded). */
+  isReady(): boolean;
+  /** Show the particles as they are now (a kernel draw binds the run's latest state). */
+  update(): void;
+  /** Free it, leaving shared textures and material assets. */
+  dispose(): void;
+}
+
+/** A CPU emitter's draw: it mirrors the simulation's particle list. */
+export interface EmitterDraw extends Draw {
+  readonly kind: "system" | "instances" | "quads" | "trail";
+  readonly emitter: SimEmitter;
+  /** Particles it holds before it has to grow. */
+  capacity: number;
+  /** Make room for `need` particles. */
+  ensure(need: number): void;
+}
+
+/** What a mesh draw shades with: owned by the draw, which disposes it (a shared material asset is left alone). */
+export interface DrawMaterial {
+  readonly material: Material;
+  /** It is the emitter's material asset (or a soft copy of it), not the draw's own unlit material. */
+  readonly asset: boolean;
+  dispose(): void;
+}
+
+/** What the factory asks of the scene's shared resources (`EffectResources`). */
+export interface DrawResources {
+  readonly scene: Scene;
+  /** An emitter's material asset, or null (none, or not available yet). */
+  materialFor(path: string | undefined): Material | null;
+  /** An unshared copy of a material asset, or null. */
+  copyMaterial(path: string, name: string): { material: Material; dispose(): void } | null;
+  /** A texture: null while it loads, "failed" if it didn't. */
+  textureFor(path: string, sheet: boolean): BaseTexture | null | "failed";
+  /** The soft round dot drawn without a texture. */
+  dotTexture(): BaseTexture;
+  /** A model's mesh: null while it loads, undefined when there's none. */
+  meshFor(ref: string): ModelMesh | null | undefined;
+  /** The scene's depth, for soft particles. */
+  sceneDepth(): SceneDepth;
+  warnOnce(key: string, message: string): void;
+}
+
+/** A kernel system's run in a `KernelEffect`. */
+export type SystemRun = KernelEffect["systems"][number];
+
+/** A CPU emitter to draw, holding up to `capacity` particles before it grows. */
+export interface EmitterSource {
+  emitter: SimEmitter;
+  capacity: number;
+  /** The camera trails and quads face. Default: the scene's active camera (the World's first view). */
+  camera?: () => Camera | null;
+}
+
+/** A kernel system's output to draw. */
+export interface KernelSource {
+  system: SystemRun;
+  output: number;
+}
 
 /** The default dot texture's size in pixels. */
 export const DOT_SIZE = 64;
-
-/** The mesh a mesh-mode emitter draws when its own can't be had. */
-const FALLBACK_MESH = "builtin:cube";
 
 // Babylon's billboard modes (`ParticleSystem.BILLBOARDMODE_*`).
 const BILLBOARD_ALL = 7;
@@ -62,26 +145,6 @@ export function createDotTexture(scene: Scene): RawTexture {
   return dot;
 }
 
-/** What an emitter's draw needs besides its texture. */
-export interface DrawOptions {
-  /** The emitter's material asset as a Babylon material (shared, never disposed by the draw), or null for none. */
-  material?: Material | null;
-  /** Mesh mode: the model mesh to draw. Default: the emitter's mesh if it's loaded, else a cube. */
-  mesh?: ModelMesh | null;
-  /** The camera trails and material-asset quads face. Default: the scene's active camera (the World's first view). */
-  camera?: () => Camera | null;
-  /** The scene's depth, for soft emitters (`softness`, ADR 0126). Without it they draw hard. */
-  depth?: DepthSource | null;
-  /** An unshared copy of the material asset, for soft emitters with one (default: a clone). */
-  copyMaterial?: (name: string) => { material: Material; dispose(): void } | null;
-  /**
-   * The scene has height fog (ADR 0110): billboards draw as mesh quads, whose material fogs (Babylon's
-   * particle shader can't). The player rebuilds draws when this changes.
-   */
-  heightFog?: boolean;
-}
-
-/** A Babylon draw for an emitter, holding up to `capacity` particles before it grows; `isDot` when `texture` is the default dot. */
 /**
  * Whether an emitter drawn without a material asset is drawn by a Babylon particle system reading its
  * texture as a sprite sheet. Its texture is then loaded unflipped: Babylon's particle shader reads a
@@ -101,33 +164,132 @@ export function drawsAsSystem(r: RendererSettings, heightFog = false): boolean {
   return r.mode !== "mesh" && r.mode !== "trail" && !((r.softness ?? 0) > 0) && !heightFog;
 }
 
-export function makeDraw(scene: Scene, name: string, e: SimEmitter, capacity: number, texture: BaseTexture, isDot: boolean, options: DrawOptions = {}): Draw {
-  const r = e.renderer;
-  const material = options.material ?? null;
-  const camera = options.camera ?? (() => scene.activeCamera ?? scene.cameraToUseForPointers);
-  const soft = (r.softness ?? 0) > 0 && options.depth ? { softness: r.softness!, depth: options.depth, copy: options.copyMaterial } : null;
-  if (r.mode === "mesh") {
-    const source = options.mesh ?? meshesIfLoaded(r.mesh)?.[0] ?? meshesIfLoaded(FALLBACK_MESH)![0];
-    return new InstanceDraw(scene, name, e, capacity, source, material, texture, soft);
-  }
-  if (r.mode === "trail") return new QuadDraw(scene, name, e, capacity, "trail", material, texture, camera, soft);
-  if (material || !drawsAsSystem(r, options.heightFog)) return new QuadDraw(scene, name, e, capacity, "quads", material, texture, camera, soft);
-  return new SystemDraw(scene, name, e, capacity, texture, isDot);
+/** The mesh a mesh-mode emitter draws when its own can't be had. */
+const FALLBACK_MESH = "builtin:cube";
+
+/**
+ * The draw for a CPU emitter or a kernel output (see the file comment): the one place a particle draw is
+ * made, given what it shades with and put in the draw order.
+ */
+export function createDraw(res: DrawResources, name: string, source: EmitterSource): EmitterDraw;
+export function createDraw(res: DrawResources, name: string, source: KernelSource): Draw;
+export function createDraw(res: DrawResources, name: string, source: EmitterSource | KernelSource): Draw {
+  return "emitter" in source ? emitterDraw(res, name, source) : kernelDraw(res, name, source);
 }
 
-/** Copy the simulation's particles into the draw (it must hold `e.count`, see `Draw.ensure`). */
-export function copyParticles(d: Draw): void {
-  d.update();
+/** A CPU emitter's draw: with its material asset, else its texture, else the dot. */
+function emitterDraw(res: DrawResources, name: string, { emitter: e, capacity, camera }: EmitterSource): EmitterDraw {
+  const scene = res.scene;
+  const r = e.renderer;
+  const asset = res.materialFor(r.material);
+  const heightFog = heightFogOn(scene);
+  const found = r.texture && !asset ? res.textureFor(r.texture, usesSheet(r, heightFog)) : null;
+  const isDot = !found || found === "failed";
+  const texture = isDot ? res.dotTexture() : found;
+  if (!asset && drawsAsSystem(r, heightFog)) return new SystemDraw(scene, name, e, capacity, texture, isDot, (ps) => orderSystem(scene, ps, r.renderOrder));
+  const look = (twoSided: boolean) => meshMaterial(res, name, asset, r.material, texture, r.blending, twoSided, r.softness ?? 0);
+  let d: InstanceDraw | QuadDraw;
+  if (r.mode === "mesh") d = new InstanceDraw(scene, name, e, capacity, res.meshFor(r.mesh) ?? meshesIfLoaded(FALLBACK_MESH)![0], look(false));
+  else d = new QuadDraw(scene, name, e, capacity, r.mode === "trail" ? "trail" : "quads", look(true), camera ?? (() => scene.activeCamera ?? scene.cameraToUseForPointers));
+  orderMesh(d.mesh, r.renderOrder);
+  return d;
+}
+
+/** A kernel output's draw (ADR 0094, 0126): with its material asset where it can be, else its texture. */
+function kernelDraw(res: DrawResources, name: string, { system: s, output: k }: KernelSource): Draw {
+  const o = s.kernel.outputs[k];
+  const found = o.settings.texture ? res.textureFor(o.settings.texture, false) : null;
+  const texture = found && found !== "failed" ? found : res.dotTexture();
+  const mesh = o.type === "mesh" ? (res.meshFor(o.settings.mesh) ?? undefined) : undefined;
+  const softness = o.settings.softness ?? 0;
+  let d: KernelDraw | KernelMaterialDraw | null = null;
+  if (o.settings.material && o.type !== "trail") {
+    d = kernelMaterialDraw(res, name, s, k, o.settings.material, mesh);
+    if (d && softness > 0) soften(d.material, softness, res.sceneDepth());
+  }
+  if (o.settings.material && !d) res.warnOnce(`kmat|${name}|${o.settings.material}`, `${name}: the kernel output "${s.kernel.name}" draws with its texture: ${o.type === "trail" ? "trails don't take material assets yet" : `"${o.settings.material}" isn't a PBR material (or hasn't loaded)`}.`);
+  d ??= new KernelDraw(res.scene, name, s.kernel, k, s.run as BabylonRun, texture, softness > 0 ? { softness, depth: res.sceneDepth() } : null, { mesh });
+  orderMesh(d.mesh, o.settings.renderOrder);
+  return d;
+}
+
+/** A kernel output drawn with a material asset's copy (ADR 0126), or null when the material can't (not PBR, not loaded). */
+function kernelMaterialDraw(res: DrawResources, name: string, s: SystemRun, k: number, path: string, mesh: ModelMesh | undefined): KernelMaterialDraw | null {
+  if (!drawsKernelParticles(res.materialFor(path))) return null;
+  const copy = res.copyMaterial(path, `${name}:material`);
+  if (!copy || !drawsKernelParticles(copy.material)) {
+    copy?.dispose();
+    return null;
+  }
+  const run = s.run as BabylonRun;
+  const source = { textures: (sorted: boolean) => run.textures(sorted), sortFor: () => sortRunOnce(res.scene, run) };
+  return new KernelMaterialDraw(res.scene, name, s.kernel, k, source, { material: copy.material, dispose: copy.dispose }, { mesh, interleaved: run.kind === "webgpu" });
+}
+
+// --- what mesh draws shade with ---------------------------------------------------------------------
+
+/** A mesh draw's material: the material asset (shared) or its own unlit one, with the soft fade where the emitter is soft. */
+function meshMaterial(res: DrawResources, name: string, asset: Material | null, path: string, texture: BaseTexture, blending: ParticleBlending, twoSided: boolean, softness: number): DrawMaterial {
+  const own = asset ? null : unlitParticleMaterial(res.scene, `${name}:material`, texture, blending, twoSided);
+  const base = (asset ?? own)!;
+  const used = softness > 0 ? softened(base, !asset, softness, res.sceneDepth(), (n) => res.copyMaterial(path, n)) : { material: base, copy: null };
+  return {
+    material: used.material,
+    asset: !!asset,
+    dispose: () => {
+      own?.dispose(false, false); // the texture is shared
+      used.copy?.dispose();
+    },
+  };
+}
+
+/**
+ * The material a mesh draw uses with soft particles: its own unlit material gains the fade; a material
+ * asset is shared, so the draw takes a copy of it with the fade (disposed with the draw). Materials
+ * that aren't standard or PBR (none today) draw hard. Returns the material and the copy to dispose.
+ */
+function softened(material: Material, own: boolean, softness: number, depth: DepthSource, copy: (name: string) => { material: Material; dispose(): void } | null): { material: Material; copy: { dispose(): void } | null } {
+  if (own && material instanceof StandardMaterial) {
+    soften(material, softness, depth);
+    return { material, copy: null };
+  }
+  if (material instanceof PBRMaterial || material instanceof StandardMaterial) {
+    const name = `${material.name} (soft)`;
+    const made = copy(name) ?? ((c) => (c ? { material: c, dispose: () => c.dispose(false, false) } : null))(material.clone(name));
+    if (made && (made.material instanceof PBRMaterial || made.material instanceof StandardMaterial)) {
+      soften(made.material, softness, depth);
+      return { material: made.material, copy: made };
+    }
+    made?.dispose();
+  }
+  return { material, copy: null };
+}
+
+/** The soft fade (ADR 0126) on an unshared material: the one place it's attached. */
+function soften(material: StandardMaterial | PBRMaterial, softness: number, depth: DepthSource): void {
+  new MycoSoftParticlePlugin(material, softness, depth);
 }
 
 // --- render order -----------------------------------------------------------------------------------
+
+/** The `alphaIndex` a mesh drawing particles gets for an emitter's `renderOrder` (see the file comment). */
+function particleAlphaIndex(renderOrder: number): number {
+  if (renderOrder === 0 || !Number.isFinite(renderOrder)) return Number.MAX_VALUE;
+  return renderOrder > 0 ? Number.POSITIVE_INFINITY : renderOrder;
+}
+
+/** Put a particle mesh in the draw order. */
+function orderMesh(mesh: Mesh, renderOrder: number): void {
+  mesh.alphaIndex = particleAlphaIndex(renderOrder);
+}
 
 /** Each of our Babylon particle systems' renderOrder. */
 const ORDER = new WeakMap<object, number>();
 const orderOf = (ps: object): number => ORDER.get(ps) ?? 0;
 
-/** Stably sort the scene's particle systems by renderOrder, so higher ones draw later (a no-op when sorted). */
-export function sortParticleSystems(scene: Scene): void {
+/** Put a Babylon particle system in the draw order: the scene's list stably sorted by renderOrder, higher ones later (a no-op when sorted). */
+function orderSystem(scene: Scene, ps: BabylonParticleSystem, renderOrder: number): void {
+  ORDER.set(ps, renderOrder);
   const list = scene.particleSystems;
   for (let i = 1; i < list.length; i++) {
     if (orderOf(list[i - 1]) > orderOf(list[i])) {
@@ -150,9 +312,11 @@ export function sortParticleSystems(scene: Scene): void {
  * GLSL and WGSL twins of Babylon's particle shaders. It costs a second particle only while a
  * particle is between tiles.
  */
-class SystemDraw implements Draw {
+class SystemDraw implements EmitterDraw {
   readonly kind = "system";
-  ps: BabylonParticleSystem;
+  readonly meshes = [] as const;
+  /** Its one Babylon particle system (replaced when it grows). */
+  readonly systems: [BabylonParticleSystem];
   capacity: number;
   /** Babylon particles taken off the list, reused later. */
   private spare: Particle[] = [];
@@ -167,12 +331,18 @@ class SystemDraw implements Draw {
     capacity: number,
     readonly texture: BaseTexture,
     private readonly isDot: boolean,
+    /** Puts each Babylon particle system it builds in the draw order. */
+    private readonly place: (ps: BabylonParticleSystem) => void,
   ) {
     const r = emitter.renderer;
     this.mode = r.mode === "stretched" || r.mode === "horizontal" || r.mode === "vertical" ? r.mode : "billboard";
     this.blend = r.blendTiles && r.tiles[0] * r.tiles[1] > 1;
     this.capacity = Math.max(1, capacity);
-    this.ps = this.build();
+    this.systems = [this.build()];
+  }
+
+  private get ps(): BabylonParticleSystem {
+    return this.systems[0];
   }
 
   private build(): BabylonParticleSystem {
@@ -192,9 +362,8 @@ class SystemDraw implements Draw {
       ps.spriteCellWidth = size.width / r.tiles[0];
       ps.spriteCellHeight = size.height / r.tiles[1];
     }
-    ORDER.set(ps, r.renderOrder);
     ps.start();
-    sortParticleSystems(this.scene);
+    this.place(ps);
     return ps;
   }
 
@@ -204,7 +373,11 @@ class SystemDraw implements Draw {
     this.capacity = Math.ceil(need * 1.5);
     this.ps.dispose(false);
     this.spare = [];
-    this.ps = this.build();
+    this.systems[0] = this.build();
+  }
+
+  isReady(): boolean {
+    return this.ps.isReady();
   }
 
   update(): void {
