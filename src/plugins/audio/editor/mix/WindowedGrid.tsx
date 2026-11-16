@@ -7,7 +7,7 @@
 // small hook the stateful tables use to feed it.
 import type { JSX } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
-import { MAX_RENDERED_ROWS, ROW_HEIGHT, VIEWPORT_HEIGHT, navigate, windowRows } from "./profilerTablesModel";
+import { MAX_RENDERED_ROWS, ROW_HEIGHT, VIEWPORT_HEIGHT, navigate, windowRows } from "./gridWindow";
 import "./profilerTables.css";
 
 /** A cell: its text, and an optional flag the stylesheet reads (`data-flag`). */
