@@ -14,7 +14,8 @@ import { closeTestProject, openTestProject, readDraft } from "../../../editor/te
 import type { SettingsDraft } from "../../../editor/sdk";
 import { DuckingEditor } from "./AudioSettingsSection";
 import { addDuckingEdit, audioOf, moveDucking, removeDucking, setDuckingValueEdit } from "./audioSettingsModel";
-import { createOpLog, type MixApplier } from "./mix/opLog";
+import { playState } from "../../../editor/state";
+import { startOpLog, type MixApplier } from "./mix/opLog";
 import { newDuckRule } from "./mix/duckModel";
 
 /** Add a ducking rule as the section's button does (a refused add leaves the draft). */
@@ -414,7 +415,9 @@ async function playing(ducking: object[], isPlaying: () => boolean = () => true)
   const { project } = await openTestProject({ "project.json": JSON.stringify({ name: "G", audio: { ducking } }) });
   const section = createProjectSettingsSection().open(project);
   const mixer = new FakeMixer();
-  const log = createOpLog({ onSectionChanged: (k, l) => (unsubs.push(onSectionChanged(k, l)), unsubs[unsubs.length - 1]!), isPlaying, mixer: () => mixer });
+  playState.value = isPlaying() ? "playing" : "edit"; // the op log is live only while Play runs
+  const log = startOpLog(() => mixer);
+  unsubs.push(log.dispose, () => void (playState.value = "edit"));
   return { section, mixer, log };
 }
 

@@ -13,7 +13,8 @@ import { positionToGain } from "./faderModel";
 import { MIXER_PANEL, mixerSectionOf, registerMixPanels } from "./index";
 import { defaultMixerDeps, mixerHost } from "./MixerPanel";
 import { MixerPanelController } from "./mixerPanelModel";
-import { createOpLog } from "./opLog";
+import { playState } from "../../../../editor/state";
+import { startOpLog } from "./opLog";
 
 const PROJECT = JSON.stringify({ name: "Game", audio: { buses: [{ name: "master" }, { name: "sfx", parent: "master" }, { name: "music", parent: "master" }] } }, null, 2);
 
@@ -37,16 +38,14 @@ async function rig() {
   await loadMixerPanel();
   // The play mixer: what it was last told for sfx's volume is what's heard.
   let heard = 1;
-  const log = createOpLog({
-    onSectionChanged: (k, l) => editor.project.onSectionChanged(k, l),
-    isPlaying: () => true,
-    mixer: () => ({
+  playState.value = "playing"; // the op log is live only while Play runs
+  disposers.push(() => void (playState.value = "edit"));
+  const log = startOpLog(() => ({
       apply: (op: MixOp) => {
         if (op.op === "setBus" && op.bus === "sfx" && op.key === "volume") heard = op.value === null ? 1 : (op.value as number);
         return { ok: true, class: "direct" };
       },
-    }),
-  });
+  }));
   disposers.push(log.dispose);
   const commits: string[] = [];
   let saved: void | Promise<void> = undefined;

@@ -13,7 +13,8 @@ import { positionToGain } from "./faderModel";
 import { wireMixerHost } from "./index";
 import { mixerHost } from "./MixerPanel";
 import { MixerPanelController, type MixerPanelDeps } from "./mixerPanelModel";
-import { createOpLog, type OpLog, type OpLogEntry } from "./opLog";
+import { playState } from "../../../../editor/state";
+import { startOpLog, type OpLog, type OpLogEntry } from "./opLog";
 
 const PROJECT = JSON.stringify({ name: "Game", audio: { buses: [{ name: "master" }, { name: "sfx", parent: "master" }, { name: "music", parent: "master" }] } });
 
@@ -36,11 +37,9 @@ async function rig() {
   const applied: MixOp[] = [];
   // The play mixer: everything is kept for the next Play, as an engine without a live path answers.
   const answer = (op: MixOp): ApplyResult => (applied.push(op), { ok: false, class: "none", reason: "noLiveBackend" });
-  const log: OpLog = createOpLog({
-    onSectionChanged: (k, l) => (unsubs.push(onSectionChanged(k, l)), unsubs[unsubs.length - 1]),
-    isPlaying: () => true,
-    mixer: () => ({ apply: answer }),
-  });
+  playState.value = "playing"; // the op log is live only while Play runs
+  const log: OpLog = startOpLog(() => ({ apply: answer }));
+  unsubs.push(log.dispose, () => void (playState.value = "edit"));
   let flushes = 0;
   const hub: string[] = [];
   const monitors: Array<[string, object]> = [];

@@ -6,7 +6,8 @@ import { createProjectSettingsSection } from "../../../../editor/projectSettings
 import type { SettingsDraft } from "../../../../editor/projectSettingsModel";
 import { onSectionChanged } from "../../../../editor/sectionChanged";
 import { closeTestProject, openTestProject } from "../../../../editor/testing";
-import { createOpLog, type MixApplier } from "./opLog";
+import { playState } from "../../../../editor/state";
+import { startOpLog, type MixApplier } from "./opLog";
 import { buildStrips, createMixerModel, type BusReading, type MixerHost } from "./mixerModel";
 
 const PROJECT = `{
@@ -36,11 +37,9 @@ async function rig() {
   const { project } = await openTestProject({ "project.json": PROJECT });
   const section = createProjectSettingsSection().open(project);
   const mixer = new HeardMixer();
-  const log = createOpLog({
-    onSectionChanged: (k, l) => (unsubs.push(onSectionChanged(k, l)), unsubs[unsubs.length - 1]),
-    isPlaying: () => true,
-    mixer: () => mixer,
-  });
+  playState.value = "playing"; // the op log is live only while Play runs
+  const log = startOpLog(() => mixer);
+  unsubs.push(log.dispose, () => void (playState.value = "edit"));
   const flushes: number[] = [];
   const commits: string[] = [];
   const monitors: Array<[string, object]> = [];

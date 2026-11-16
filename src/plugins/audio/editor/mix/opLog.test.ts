@@ -2,10 +2,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { ApplyResult, MixOp } from "../../../../engine/audio/mixOps";
 import { createProjectSettingsSection } from "../../../../editor/projectSettingsSection";
 import { setValue, type SettingsDraft } from "../../../../editor/projectSettingsModel";
-import { onSectionChanged, type SectionChange } from "../../../../editor/sectionChanged";
+import { emitSectionChanged, type SectionChange } from "../../../../editor/sectionChanged";
 import { editor } from "../../../../editor/sdk";
 import { ROOT, closeTestProject, openTestProject } from "../../../../editor/testing";
-import { createOpLog, opsOf, recordMixOps, type MixApplier, type OpLogHost } from "./opLog";
+import { playState } from "../../../../editor/state";
+import { recordMixOps, startOpLog, type MixApplier, type OpLog } from "./opLog";
 
 const PROJECT = `{
   "name": "Game",
@@ -24,6 +25,7 @@ class FakeMixer implements MixApplier {
 const unsubs: Array<() => void> = [];
 afterEach(() => {
   while (unsubs.length) unsubs.pop()!();
+  playState.value = "edit";
   closeTestProject();
 });
 
@@ -32,8 +34,12 @@ const sfxVolume = (d: SettingsDraft, volume: number) => {
   return { ...d, audio: { ...audio, buses: audio.buses.map((b) => (b.name === "sfx" ? { ...b, volume } : b)) } } as SettingsDraft;
 };
 
-function host(playing: () => boolean, mixer: FakeMixer | null): OpLogHost {
-  return { onSectionChanged: (k, l) => (unsubs.push(onSectionChanged(k, l)), unsubs[unsubs.length - 1]), isPlaying: playing, mixer: () => mixer };
+/** The log as the panels start it, over the editor's section changes; `playing` sets the editor's play state (the log is live only in Play). */
+function startLog(mixer: MixApplier | null, playing = true): OpLog {
+  playState.value = playing ? "playing" : "edit";
+  const log = startOpLog(() => mixer);
+  unsubs.push(log.dispose);
+  return log;
 }
 
 describe("editor.project.onSectionChanged", () => {
@@ -100,7 +106,7 @@ describe("the audio op log", () => {
     const { project } = await openTestProject({ "project.json": PROJECT });
     const s = createProjectSettingsSection().open(project);
     const mixer = new FakeMixer();
-    const log = createOpLog(host(() => true, mixer));
+    const log = startLog(mixer);
     await s.edit("Volume", sfxVolume(s.draft, 0.5));
     expect(mixer.applied).toEqual([{ op: "setBus", bus: "sfx", key: "volume", value: 0.5 }]);
     await s.undo();
@@ -117,7 +123,7 @@ describe("the audio op log", () => {
     const { project } = await openTestProject({ "project.json": PROJECT });
     const s = createProjectSettingsSection().open(project);
     const mixer = new FakeMixer();
-    createOpLog(host(() => true, mixer));
+    startLog(mixer);
     const next = sfxVolume(s.draft, 0.5);
     const ops: MixOp[] = [{ op: "setBus", bus: "sfx", key: "volume", value: 0.5 }];
     const inverse: MixOp[] = [{ op: "setBus", bus: "sfx", key: "volume", value: 1 }];
@@ -132,14 +138,12 @@ describe("the audio op log", () => {
     const { project } = await openTestProject({ "project.json": PROJECT });
     const s = createProjectSettingsSection().open(project);
     const mixer = new FakeMixer();
-    let playing = false;
-    const log = createOpLog(host(() => playing, mixer));
+    const log = startLog(mixer, false);
     await s.edit("Volume", sfxVolume(s.draft, 0.5));
     await s.undo();
     expect(mixer.applied).toEqual([]);
     expect(log.entries).toEqual([]);
-    const none = createOpLog(host(() => true, null));
-    playing = true;
+    const none = startLog(null);
     await s.redo();
     expect(none.entries).toEqual([]);
     expect(mixer.applied).toHaveLength(1);
@@ -149,7 +153,7 @@ describe("the audio op log", () => {
     const { project } = await openTestProject({ "project.json": PROJECT });
     const s = createProjectSettingsSection().open(project);
     const mixer = new FakeMixer();
-    createOpLog(host(() => true, mixer));
+    startLog(mixer);
     await s.edit("Bad", { ...sfxVolume(s.draft, 0.5), display: { width: -5, height: 10 } } as SettingsDraft);
     expect(mixer.applied).toEqual([]);
   });
@@ -158,7 +162,7 @@ describe("the audio op log", () => {
     const { project } = await openTestProject({ "project.json": PROJECT });
     const s = createProjectSettingsSection().open(project);
     const mixer = new FakeMixer();
-    const log = createOpLog(host(() => true, mixer));
+    const log = startLog(mixer);
     const audio = s.draft.audio as Record<string, unknown>;
     await s.edit("Enable AAC", { ...s.draft, audio: { ...audio, codecs: { aac: true } } } as SettingsDraft);
     await s.undo();
@@ -186,7 +190,7 @@ describe("the audio op log", () => {
     const { project, fs } = await openTestProject({ "project.json": text });
     const s = createProjectSettingsSection().open(project);
     const mixer: MixApplier = { apply: (op) => (op.op === "addEffect" ? { ok: false, class: "direct", reason: rule } : { ok: true, class: "direct" }) };
-    const log = createOpLog({ ...host(() => true, null), mixer: () => mixer });
+    const log = startLog(mixer);
     const audio = s.draft.audio as { buses: Array<{ name: string; effects?: object[] }> };
     const next = { ...s.draft, audio: { ...audio, buses: audio.buses.map((b) => (b.name === "sfx" ? { ...b, effects: [...b.effects!, add] } : b)) } } as SettingsDraft;
     await s.edit("Add effect", next);
@@ -202,25 +206,33 @@ describe("the audio op log", () => {
     const { project } = await openTestProject({ "project.json": PROJECT });
     const s = createProjectSettingsSection().open(project);
     const mixer = new FakeMixer();
-    const log = createOpLog(host(() => true, mixer));
+    const log = startLog(mixer);
     mixer.apply({ op: "setBus", bus: "sfx", key: "volume", value: 0.3 }); // a drag in progress
     expect(log.entries).toEqual([]);
     expect(s.canUndo).toBe(false);
   });
 
   it("diffs untagged changes, and stops after dispose", () => {
+    const mixer = new FakeMixer();
+    const log = startLog(mixer);
+    /** The entry a change to the audio section makes. */
+    const entryOf = (change: Omit<SectionChange, "key">) => {
+      emitSectionChanged({ key: "audio", ...change });
+      return log.entries.at(-1)!;
+    };
     const before = { buses: [{ name: "master" }, { name: "sfx", parent: "master" }] };
     const after = { buses: [{ name: "master" }, { name: "sfx", parent: "master", volume: 0.4 }] };
-    expect(opsOf({ before, after, cause: "edit" })).toMatchObject({ source: "diff", ops: [{ op: "setBus", bus: "sfx", key: "volume", value: 0.4 }] });
+    expect(entryOf({ before, after, cause: "edit" })).toMatchObject({ source: "diff", ops: [{ op: "setBus", bus: "sfx", key: "volume", value: 0.4 }] });
     // recorded ops made from another base are not trusted
     const stale = { buses: [{ name: "master" }, { name: "sfx", parent: "master", volume: 0.4 }] };
-    recordMixOps(stale, { ops: [], inverse: [] }, { other: true });
-    expect(opsOf({ before, after: stale, cause: "edit" }).source).toBe("diff");
-    recordMixOps(stale, { ops: [], inverse: [] }, before);
-    expect(opsOf({ before, after: stale, cause: "edit" }).source).toBe("recorded");
-    const mixer = new FakeMixer();
-    const log = createOpLog(host(() => true, mixer));
+    const op: MixOp = { op: "setBus", bus: "sfx", key: "volume", value: 0.4 };
+    recordMixOps(stale, { ops: [op], inverse: [] }, { other: true });
+    expect(entryOf({ before, after: stale, cause: "edit" }).source).toBe("diff");
+    recordMixOps(stale, { ops: [op], inverse: [] }, before);
+    expect(entryOf({ before, after: stale, cause: "edit" }).source).toBe("recorded");
+    const count = log.entries.length;
     log.dispose();
-    expect(log.entries).toEqual([]);
+    emitSectionChanged({ key: "audio", before, after, cause: "edit" });
+    expect(log.entries).toHaveLength(count);
   });
 });
