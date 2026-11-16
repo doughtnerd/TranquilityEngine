@@ -127,7 +127,7 @@ test("global parameters and bus automation: add, edit, rename, remove, with proj
   expect((await saved(page)).automation).toEqual([]);
 
   // What the panel wrote parses without problems, and the panel lists none.
-  await expect(panel(page).locator(".project-settings-status")).toHaveText("Saved");
+  await expect(panel(page).locator(".section-status")).toHaveText("Saved");
   await expect(panel(page).getByRole("list", { name: "Problems" })).toHaveCount(0);
   expect(parseAudioSettings((await projectJson(page)).audio).problems).toEqual([]);
 });

@@ -8,7 +8,6 @@ import { RENAMED_PLUGINS } from "../../plugins/enabled";
 import { usePanelHistory } from "../activeHistory";
 import { projectSettingsCategory } from "../preferences";
 import { projectSettingsSections, type ProjectSettingsSectionContribution, type ProjectSettingsSectionProps } from "../sdk/contributions";
-import { PROJECT_FILE } from "../projectFile";
 import type { ProjectSectionSession } from "../projectSection";
 import { projectSettings } from "../projectSettingsInstance";
 import {
@@ -31,7 +30,6 @@ import {
   setTargetFrameRate,
   setName,
   setTierValue,
-  settingsProblems,
   settingsWarnings,
   setValue,
   sortingLayersOf,
@@ -42,6 +40,7 @@ import {
 import type { EditorProject } from "../projects";
 import { currentProject, docVersion } from "../state";
 import { PluginsSection } from "./PluginsSection";
+import { ProjectSectionToolbar } from "./ProjectSectionToolbar";
 import { lazyComponent, type LazyComponent } from "./lazy";
 import { NumberField, TextField } from "./settingsControls";
 import { NameList, ProblemList, Row } from "./settingsControls";
@@ -49,7 +48,7 @@ import { renameLayerEdit } from "../layerRenameEdit";
 import "./projectSettings.css";
 
 /** The panel's state for the open project: its project section's session (ADR 0151), kept outside the component. */
-type PanelState = ProjectSectionSession<SettingsDraft>;
+type PanelState = ProjectSectionSession<SettingsDraft, SettingsProblem>;
 
 /**
  * The `project.json` keys the built-in categories and the registered sections own: the draft,
@@ -82,9 +81,8 @@ export function ProjectSettingsPanel() {
   const s = settings.open(project);
   const draft = s.draft;
   const editable = project.canSave;
-  const problems = settingsProblems(draft, project.files);
+  const problems = s.problems;
   const warnings = settingsWarnings(draft, [...allPluginManifests().map((m) => m.name), ...Object.keys(RENAMED_PLUGINS)]); // old names still work (ADR 0137)
-  const unsaved = s.unsaved;
   const problemsAt = (field: string) => problems.filter((p) => p.field === field || p.field.startsWith(`${field}.`));
   const set = (label: string, next: SettingsDraft) => edit(s, label, next);
 
@@ -96,15 +94,7 @@ export function ProjectSettingsPanel() {
   return (
     <Panel>
       <div class="project-settings" tabIndex={-1} ref={root}>
-        <div class="project-settings-toolbar">
-          <button disabled={!editable || !s.undoLabel} title={s.undoLabel ? `Undo ${s.undoLabel} (Ctrl+Z)` : "Nothing to undo"} onClick={() => void s.undo()}>
-            Undo
-          </button>
-          <button disabled={!editable || !s.redoLabel} title={s.redoLabel ? `Redo ${s.redoLabel} (Ctrl+Shift+Z)` : "Nothing to redo"} onClick={() => void s.redo()}>
-            Redo
-          </button>
-          <SaveMarker editable={editable} saving={s.saving} error={s.error} problems={problems.length} unsaved={unsaved} />
-        </div>
+        <ProjectSectionToolbar session={s} noun="settings" class="project-settings-toolbar" />
         <CategoryLayout counts={categoryProblems(problems)}>
           {problems.length > 0 && <ProblemList list={problems.map((p) => p.message)} label="Problems" />}
           {warnings.length > 0 && <ProblemList list={warnings} label="Warnings" warning />}
@@ -225,17 +215,6 @@ export function ProjectSettingsPanel() {
 
 const round = (n: number) => Math.round(n * 1e4) / 1e4;
 
-function SaveMarker(props: { editable: boolean; saving: boolean; error: string | null; problems: number; unsaved: boolean }) {
-  const { editable, saving, error, problems, unsaved } = props;
-  if (!editable) return <span class="project-settings-status readonly" title="This project is read-only. Open a project folder to edit its settings.">Read-only</span>;
-  const plural = problems === 1 ? "" : "s";
-  if (problems > 0 && unsaved) return <span class="project-settings-status unsaved" title={`${PROJECT_FILE} keeps the last valid settings. Fix the problem${plural} to save, or undo.`}>● Not saved: {problems} problem{plural}</span>;
-  if (problems > 0) return <span class="project-settings-status unsaved">{problems} problem{plural} in {PROJECT_FILE}</span>;
-  if (saving || unsaved) return <span class="project-settings-status">Saving…</span>;
-  if (error) return <span class="project-settings-status unsaved" title={error}>● Not saved</span>;
-  return <span class="project-settings-status saved" title={`Matches ${PROJECT_FILE}`}>Saved</span>;
-}
-
 /** The settings categories, in order (Unity-style list). A category's title is its id. */
 const BUILTIN_CATEGORIES = ["Project", "Display", "Time", "Rendering", "Graphics", "Plugins", "Autoloads", "Build"] as const;
 
@@ -273,7 +252,7 @@ function categoryOf(field: string): string {
   }
 }
 
-function categoryProblems(problems: SettingsProblem[]): Record<string, number> {
+function categoryProblems(problems: readonly SettingsProblem[]): Record<string, number> {
   const counts: Record<string, number> = {};
   for (const p of problems) counts[categoryOf(p.field)] = (counts[categoryOf(p.field)] ?? 0) + 1;
   return counts;
@@ -401,7 +380,7 @@ function ColorField(props: { value: string | undefined; fallback: string; onComm
 }
 
 /** Scenes and prefabs instanced at startup that persist across scene loads, in order. */
-function Autoloads(props: { s: PanelState; draft: SettingsDraft; project: EditorProject; problems: SettingsProblem[] }) {
+function Autoloads(props: { s: PanelState; draft: SettingsDraft; project: EditorProject; problems: readonly SettingsProblem[] }) {
   const { s, draft, project, problems } = props;
   const list = autoloadsOf(draft);
   const choices = project.files.filter((f) => /\.(scene|prefab)\.json$/.test(f) && !list.includes(f));
@@ -453,7 +432,7 @@ const CASCADE_LABELS: Record<string, string> = { 1: "1 (off)" };
 const AO_OPTIONS = ["off", "low", "medium", "high", "ultra"] as const;
 
 /** The graphics quality tiers (ADR 0050), lowest first, as compact cards. */
-function Tiers(props: { draft: SettingsDraft; problems: SettingsProblem[]; set: (label: string, next: SettingsDraft) => void }) {
+function Tiers(props: { draft: SettingsDraft; problems: readonly SettingsProblem[]; set: (label: string, next: SettingsDraft) => void }) {
   const { draft, problems, set } = props;
   const g = graphicsOf(draft);
   const value = (i: number, key: TierValueKey, v: unknown) => set(`Set ${g.tiers[i].name} ${key}`, setTierValue(draft, i, key, v));

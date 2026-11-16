@@ -3,7 +3,8 @@
 // undo history, keeps them when another panel's keys change, tells its own write coming back from an
 // outside edit, writes valid drafts only (through the shared queue, so panels never drop each other's
 // change), runs after-save and after-undo hooks, and exposes the history as an `UndoHistory` (ADR 0145).
-// Panels are views over it: they read `open(project)` and call `edit`, `undo` and `redo`.
+// Panels are views over it: they read `open(project)`, show its `status`, `problems` and undo flags, and call `edit`,
+// `undo` and `redo`.
 import { signal, type ReadonlySignal } from "@preact/signals";
 import type { UndoHistory } from "./activeHistory";
 import { errorStatus } from "./messages";
@@ -17,7 +18,7 @@ import { EditHistory, withMember } from "./worldsConfig";
 export type SectionValues = Readonly<Record<string, unknown>>;
 
 /** What a section is: its keys, how its draft is read and written, what stops a save, and its hooks. */
-export interface ProjectSectionSpec<D> {
+export interface ProjectSectionSpec<D, P = unknown> {
   /** Its history's name ("Project Settings", "Worlds"). */
   readonly name: string;
   /** What save errors call it: "Couldn't save {what} to project.json". */
@@ -29,7 +30,7 @@ export interface ProjectSectionSpec<D> {
   /** Each owned key's value in `draft`; undefined removes the key. Keys it doesn't own are ignored. */
   write(draft: D): SectionValues;
   /** Anything in the list keeps the draft unsaved, in the panel, until an edit or undo fixes it. */
-  problems(draft: D, project: EditorProject): readonly unknown[];
+  problems(draft: D, project: EditorProject): readonly P[];
   /** The draft with keys added since it was read (`added`: their values in the file). Without it, added keys start the section again. */
   adopt?(draft: D, added: SectionValues): D;
   /** After `draft` was written; `before` is what the file held. */
@@ -38,8 +39,25 @@ export interface ProjectSectionSpec<D> {
   stepped?(project: EditorProject, before: D, after: D): void;
 }
 
+/**
+ * Where the section's edits stand, one of (first that applies):
+ * - `read-only`: the project can't be saved; nothing is edited.
+ * - `problems`: the draft has `count` problems, so it isn't written; `unsaved` when it differs from the file (an edit
+ *   made it invalid) rather than the file holding them.
+ * - `saving`: a write is in progress.
+ * - `failed`: the last write failed (`error` says why), until a write succeeds.
+ * - `saving` again: the draft differs from the file and its write is queued.
+ * - `saved`: the file holds the draft.
+ */
+export type ProjectSectionStatus =
+  | { readonly kind: "read-only" }
+  | { readonly kind: "problems"; readonly count: number; readonly unsaved: boolean }
+  | { readonly kind: "saving" }
+  | { readonly kind: "failed"; readonly error: string }
+  | { readonly kind: "saved" };
+
 /** The section's state for one open project. */
-export interface ProjectSectionSession<D> {
+export interface ProjectSectionSession<D, P = unknown> {
   readonly project: EditorProject;
   readonly draft: D;
   /** A write is in progress. */
@@ -48,6 +66,11 @@ export interface ProjectSectionSession<D> {
   readonly error: string | null;
   /** Whether the draft's keys differ from the file's (an invalid draft, or a save not done yet). */
   readonly unsaved: boolean;
+  /** What keeps the draft from being written (the spec's `problems`, worked out on each read). */
+  readonly problems: readonly P[];
+  /** Where the edits stand, for the panel's marker. */
+  readonly status: ProjectSectionStatus;
+  /** Whether `undo` / `redo` would step: false while the project is read-only. */
   readonly canUndo: boolean;
   readonly canRedo: boolean;
   readonly undoLabel: string | null;
@@ -58,17 +81,15 @@ export interface ProjectSectionSession<D> {
   redo(): Promise<void>;
 }
 
-export interface ProjectSection<D> {
+export interface ProjectSection<D, P = unknown> {
   /** Bumped when the session changes, so views re-render. */
   readonly version: ReadonlySignal<number>;
   /** The session for `project`, reconciled with `project.json`: read again only when the section's own keys changed elsewhere. */
-  open(project: EditorProject): ProjectSectionSession<D>;
+  open(project: EditorProject): ProjectSectionSession<D, P>;
   /** The open session's undo list, for `usePanelHistory` (ADR 0145): Ctrl+Z and Edit > Undo step it. */
   readonly history: UndoHistory;
   /** Re-render the views (a field put back after a cancelled edit). */
   refresh(): void;
-  /** Forget the session; the next `open` reads the file again. */
-  reset(): void;
 }
 
 const json = (v: unknown) => JSON.stringify(v) ?? "";
@@ -85,7 +106,7 @@ function pick(settings: unknown, keys: readonly string[]): Record<string, unknow
 /** Each key's value as JSON, to tell a change to these keys from a change to others. */
 const snapshot = (settings: unknown, keys: readonly string[]) => new Map(keys.map((k) => [k, json((settings as Record<string, unknown>)[k])]));
 
-class Session<D> implements ProjectSectionSession<D> {
+class Session<D, P> implements ProjectSectionSession<D, P> {
   /** `project.json`'s text when the section last read or wrote it. */
   fileText: string | undefined;
   /** The text a write in progress is writing: until it's done, the project may already hold it. */
@@ -100,7 +121,7 @@ class Session<D> implements ProjectSectionSession<D> {
   told: D;
 
   constructor(
-    private readonly owner: SectionImpl<D>,
+    private readonly owner: SectionImpl<D, P>,
     readonly project: EditorProject,
   ) {
     const spec = owner.spec;
@@ -115,10 +136,25 @@ class Session<D> implements ProjectSectionSession<D> {
     return this.history.current;
   }
   get canUndo(): boolean {
-    return this.history.canUndo;
+    return this.project.canSave && this.history.canUndo;
   }
   get canRedo(): boolean {
-    return this.history.canRedo;
+    return this.project.canSave && this.history.canRedo;
+  }
+  get problems(): readonly P[] {
+    return this.owner.spec.problems(this.draft, this.project);
+  }
+
+  get status(): ProjectSectionStatus {
+    if (!this.project.canSave) return { kind: "read-only" };
+    const count = this.problems.length;
+    const unsaved = this.unsaved;
+    if (count > 0) return { kind: "problems", count, unsaved };
+    if (this.saving) return { kind: "saving" };
+    // A failed write leaves the draft differing from the file with nothing queued: that's a failure, not a save to come.
+    if (this.error) return { kind: "failed", error: this.error };
+    if (unsaved) return { kind: "saving" };
+    return { kind: "saved" };
   }
   get undoLabel(): string | null {
     return this.history.undoLabel;
@@ -249,21 +285,21 @@ class Session<D> implements ProjectSectionSession<D> {
   }
 }
 
-class SectionImpl<D> implements ProjectSection<D> {
-  session: Session<D> | null = null;
+class SectionImpl<D, P> implements ProjectSection<D, P> {
+  session: Session<D, P> | null = null;
   private readonly count = signal(0);
   readonly version: ReadonlySignal<number> = this.count;
   readonly history: UndoHistory;
 
-  constructor(readonly spec: ProjectSectionSpec<D>) {
+  constructor(readonly spec: ProjectSectionSpec<D, P>) {
     const self = this;
     this.history = {
       name: spec.name,
       get canUndo() {
-        return (self.count.value, !!self.session?.project.canSave && self.session.canUndo);
+        return (self.count.value, !!self.session?.canUndo);
       },
       get canRedo() {
-        return (self.count.value, !!self.session?.project.canSave && self.session.canRedo);
+        return (self.count.value, !!self.session?.canRedo);
       },
       get undoLabel() {
         return (self.count.value, self.session?.undoLabel ?? null);
@@ -280,7 +316,7 @@ class SectionImpl<D> implements ProjectSection<D> {
     this.count.value++;
   }
 
-  open(project: EditorProject): ProjectSectionSession<D> {
+  open(project: EditorProject): ProjectSectionSession<D, P> {
     const s = this.session;
     if (s && s.project === project && s.reconcile()) return s;
     return (this.session = new Session(this, project));
@@ -288,14 +324,9 @@ class SectionImpl<D> implements ProjectSection<D> {
 
   /** Bound, so views can pass it on as a callback. */
   readonly refresh = (): void => this.bump();
-
-  reset(): void {
-    this.session = null;
-    this.bump();
-  }
 }
 
 /** A project section over `spec`: kept outside any component, since a hidden tab unmounts. */
-export function createProjectSection<D>(spec: ProjectSectionSpec<D>): ProjectSection<D> {
+export function createProjectSection<D, P = unknown>(spec: ProjectSectionSpec<D, P>): ProjectSection<D, P> {
   return new SectionImpl(spec);
 }

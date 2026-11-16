@@ -24,7 +24,7 @@ test("building a client + server layout writes project.json, and Ctrl+Z undoes i
   await openProject(page);
   const p = panel(page);
   await expect(p.locator('.worlds-node[data-world="Default"]')).toBeVisible();
-  await expect(p.locator(".worlds-status")).toHaveText("Default bootstrap");
+  await expect(p.locator(".section-status")).toHaveText("Default bootstrap");
   expect(await bootstrap(page)).toBeUndefined();
 
   // A Server World tagged server.
@@ -33,7 +33,7 @@ test("building a client + server layout writes project.json, and Ctrl+Z undoes i
   await p.getByRole("textbox", { name: "World name" }).press("Enter");
   await p.getByRole("button", { name: "Add tag server" }).click();
   await expect(p.locator('.worlds-node[data-world="Server"] .worlds-chip')).toHaveText(["server"]);
-  await expect(p.locator(".worlds-status")).toHaveText("Saved");
+  await expect(p.locator(".section-status")).toHaveText("Saved");
   await expect.poll(() => bootstrap(page)).toEqual({
     worlds: [
       { name: "Default", tags: ["default", "local"] },
@@ -87,13 +87,13 @@ test("an invalid edit stays unsaved, with its problem shown, until it's fixed", 
   await expect.poll(async () => (await bootstrap(page))?.worlds.length).toBe(2);
   await p.getByRole("textbox", { name: "World name" }).fill("Default");
   await p.getByRole("textbox", { name: "World name" }).press("Enter");
-  await expect(p.locator(".worlds-status")).toHaveText(/Not saved: 1 problem/);
+  await expect(p.locator(".section-status")).toHaveText(/Not saved: 1 problem/);
   await expect(p.locator(".worlds-details .worlds-problems")).toContainText('another World is already named "Default"');
   expect((await bootstrap(page)).worlds.map((w: { name: string }) => w.name)).toEqual(["Default", "World"]);
 
   await p.getByRole("textbox", { name: "World name" }).fill("Server");
   await p.getByRole("textbox", { name: "World name" }).press("Enter");
-  await expect(p.locator(".worlds-status")).toHaveText("Saved");
+  await expect(p.locator(".section-status")).toHaveText("Saved");
   await expect.poll(async () => (await bootstrap(page)).worlds.map((w: { name: string }) => w.name)).toEqual(["Default", "Server"]);
 });
 
@@ -103,7 +103,7 @@ test("the read-only sample shows its Worlds without editing", async ({ page }) =
   await showTab(page, /^Worlds/);
   const p = panel(page);
   await expect(p.locator('.worlds-node[data-world="Default"]')).toBeVisible();
-  await expect(p.locator(".worlds-status")).toHaveText("Read-only");
+  await expect(p.locator(".section-status")).toHaveText("Read-only");
   await expect(p.getByRole("button", { name: "+ World" })).toBeDisabled();
   await expect(p.getByRole("textbox", { name: "World name" })).toBeDisabled();
 });

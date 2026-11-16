@@ -1,10 +1,6 @@
 /* Worlds panel (ADR 0032) */
 .panel.worlds .panel-body { padding: 0; overflow: hidden; display: flex; }
 .worlds-panel { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; outline: none; }
-.worlds-toolbar { flex: none; display: flex; align-items: center; gap: 4px; padding: 4px 6px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
-.worlds-status { margin-left: auto; font-size: calc(11px * var(--ui-scale)); color: var(--muted); white-space: nowrap; }
-.worlds-status.saved { color: var(--success); }
-.worlds-status.unsaved { color: var(--warning); }
 .worlds-body { flex: 1; overflow: auto; min-height: 0; padding: 0 0 10px; }
 
 .worlds-graph { overflow-x: auto; overflow-y: hidden; }
