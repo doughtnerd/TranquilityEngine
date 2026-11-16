@@ -1,14 +1,15 @@
 // The Project panel's Plugins category (ADR 0133, 0139): the first-party plugins, then the project's
 // third-party ones (from plugins/ and npm packages), with a checkbox each, and the refused ones. Only
 // what's off is stored (`plugins.disabled`), so new plugins default on. Turning off a plugin that others
-// need asks first and turns them off too; turning one on turns on what it needs.
+// need asks first and turns them off too; turning one on turns on what it needs. The switch is
+// `switchPlugin` (pluginSwitch.ts); this view draws the list and the dialogs.
 import { allPluginManifests, projectPlugins } from "../../plugins/thirdPartyEditor";
-import { migrateDisabledPlugins, pluginDependencies, pluginDependents, resolveEnabledPlugins, setPluginEnabled } from "../../plugins/enabled";
+import { migrateDisabledPlugins, pluginDependencies, resolveEnabledPlugins } from "../../plugins/enabled";
 import { pluginTitle, type PluginManifest } from "../../plugins/manifest";
-import { disabledPluginsOf, setDisabledPlugins, type SettingsDraft } from "../projectSettingsModel";
+import { disabledPluginsOf, type SettingsDraft } from "../projectSettingsModel";
+import { switchPlugin, type PluginSwitchAnswer, type PluginSwitchQuestion } from "../pluginSwitch";
 import { confirmInEditor } from "./ConfirmDialog";
 import { panelTitle } from "../layout/model";
-import { layoutsWithPanels, pluginPanelTypes, removePanelsFromLayouts } from "../layout/savedStore";
 
 type Set = (label: string, next: SettingsDraft) => void;
 
@@ -27,46 +28,36 @@ export function PluginsSection(props: { draft: SettingsDraft; set: Set }) {
   const disabled = migrateDisabledPlugins(disabledPluginsOf(draft)); // old names (myco.physics2d) read as their new plugin (ADR 0137)
   const enabled = resolveEnabledPlugins(manifests, disabled);
 
-  const toggle = async (m: PluginManifest, on: boolean) => {
-    const { disabled: next, affected } = setPluginEnabled(manifests, disabled, m.name, on);
-    if (!on && pluginDependents(manifests, m.name).length > 0) {
-      const dependents = pluginDependents(manifests, m.name).filter((n) => enabled.has(n));
-      if (dependents.length > 0) {
-        const answer = await confirmInEditor({
-          title: `Turn off ${pluginTitle(m)}`,
-          message: `${dependents.length === 1 ? "A plugin needs" : `${dependents.length} plugins need`} ${pluginTitle(m)} and will turn off too.`,
-          items: dependents.map(title),
-          confirmLabel: "Turn off all",
-          danger: false,
-        });
-        if (!answer.ok) return;
-      }
+  // The switch itself is an operation (pluginSwitch.ts); this only words its questions as dialogs.
+  const ask = async (q: PluginSwitchQuestion): Promise<PluginSwitchAnswer> => {
+    const heading = `Turn off ${title(q.plugin)}`;
+    if (q.kind === "dependents") {
+      const n = q.dependents.length;
+      const answer = await confirmInEditor({
+        title: heading,
+        message: `${n === 1 ? "A plugin needs" : `${n} plugins need`} ${title(q.plugin)} and will turn off too.`,
+        items: q.dependents.map(title),
+        confirmLabel: "Turn off all",
+        danger: false,
+      });
+      return { proceed: answer.ok };
     }
-    if (!on) {
-      // Layouts showing the panels of the plugins turning off (ADR 0174): keep them as unavailable panels, or remove them.
-      const turningOff = [m.name, ...pluginDependents(manifests, m.name).filter((n) => enabled.has(n))];
-      const types = pluginPanelTypes(turningOff);
-      const holding = types.length > 0 ? layoutsWithPanels(types) : [];
-      if (holding.length > 0) {
-        const fixed = holding.filter((l) => !l.writable);
-        const answer = await confirmInEditor({
-          title: `Turn off ${pluginTitle(m)}`,
-          message:
-            `${holding.length === 1 ? "A layout shows" : `${holding.length} layouts show`} panels from ${turningOff.length === 1 ? "this plugin" : "these plugins"}. ` +
-            "Kept, they stay where they are and say which plugin brings them back; removed, saved layouts get a new version without them (the old one stays in Manage Layouts)." +
-            (fixed.length > 0 ? ` Read-only project layouts keep them: ${fixed.map((l) => l.name).join(", ")}.` : ""),
-          items: holding.map((l) => `${l.name}: ${l.types.map((t) => panelTitle(t)).join(", ")}`),
-          optionLabel: "Remove these panels from the layouts",
-          confirmLabel: "Turn off",
-          danger: false,
-        });
-        if (!answer.ok) return;
-        if (answer.option) await removePanelsFromLayouts(types, `Removed ${turningOff.map(title).join(", ")} panels`);
-      }
-    }
-    const label = on ? `Enable plugin ${pluginTitle(m)}` : `Disable plugin ${pluginTitle(m)}`;
-    set(on && affected.length > 0 ? `${label} and ${affected.map(title).join(", ")}` : label, setDisabledPlugins(draft, next));
+    // Layouts showing the panels of the plugins turning off (ADR 0174): keep them as unavailable panels, or remove them.
+    const fixed = q.layouts.filter((l) => !l.writable);
+    const answer = await confirmInEditor({
+      title: heading,
+      message:
+        `${q.layouts.length === 1 ? "A layout shows" : `${q.layouts.length} layouts show`} panels from ${q.turningOff.length === 1 ? "this plugin" : "these plugins"}. ` +
+        "Kept, they stay where they are and say which plugin brings them back; removed, saved layouts get a new version without them (the old one stays in Manage Layouts)." +
+        (fixed.length > 0 ? ` Read-only project layouts keep them: ${fixed.map((l) => l.name).join(", ")}.` : ""),
+      items: q.layouts.map((l) => `${l.name}: ${l.types.map((t) => panelTitle(t)).join(", ")}`),
+      optionLabel: "Remove these panels from the layouts",
+      confirmLabel: "Turn off",
+      danger: false,
+    });
+    return answer.ok ? { proceed: true, removePanels: answer.option } : { proceed: false };
   };
+  const toggle = (m: PluginManifest, on: boolean) => switchPlugin({ manifests, draft, name: m.name, on, ask, edit: set });
 
   return (
     <div class="plugins-section">
