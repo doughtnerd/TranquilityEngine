@@ -1,58 +1,58 @@
 // Dk1: the ducking section's controls, each with each option (mode, detector, threshold, amount, attack, release, trigger,
 // target, add, remove, reorder), the refusals the parse makes (a level cycle naming its rules, the 9th level rule, the 33rd
 // rule), "Needs the audio core" on a backend without level ducking, and a live edit reaching a fake mixer through the op
-// log. The section is called as a function and its VNode tree walked (the component has no hooks); handlers get plain
-// event objects. No DOM, no timers.
-import type { VNode } from "preact";
-import { afterEach, describe, expect, it } from "vitest";
+// log. The Audio section is rendered whole (`testRender`, hooks and all, no DOM) and its tree walked; handlers get plain
+// event objects. No timers.
+import { h } from "preact";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { audioSection } from "../../../engine/audio/audioSection";
 import type { ApplyResult, MixOp } from "../../../engine/audio/mixOps";
 import { parseAudioSettings, type DuckingRule } from "../../../engine/audio/settings";
 import { createProjectSettingsSection } from "../../../editor/projectSettingsSection";
 import { closeTestProject, openTestProject, readDraft } from "../../../editor/testing";
 import type { SettingsDraft } from "../../../editor/sdk";
-import { DuckingEditor } from "./AudioSettingsSection";
+import { byLabel, find, render, text, type HostNode, type Rendered } from "../../../editor/testRender";
+import { AudioSettingsSection } from "./AudioSettingsSection";
 import { addDuckingEdit, audioOf, moveDucking, removeDucking, setDuckingValueEdit } from "./audioSettingsModel";
 import { playState } from "../../../editor/state";
 import { startOpLog, type MixApplier } from "./mix/opLog";
 import { newDuckRule } from "./mix/duckModel";
+
+vi.mock("preact/hooks", () => import("../../../editor/testRender"));
 
 /** Add a ducking rule as the section's button does (a refused add leaves the draft). */
 const addDucking = (d: SettingsDraft): SettingsDraft => addDuckingEdit(d).draft;
 /** Set one field of a rule as the section's controls do (a refused edit leaves the draft). */
 const setDuckingValue = (d: SettingsDraft, index: number, key: keyof DuckingRule, value: string | number): SettingsDraft => setDuckingValueEdit(d, index, key, value).draft;
 
-// ---- walking a rendered tree (as MixerStrip.test.ts does) ----
-
-type Node = VNode<Record<string, unknown>>;
-function find(node: unknown, pred: (n: Node) => boolean, out: Node[] = []): Node[] {
-  if (Array.isArray(node)) { node.forEach((c) => find(c, pred, out)); return out; }
-  if (!node || typeof node !== "object" || !("props" in node)) return out;
-  const v = node as Node;
-  if (typeof v.type === "function") return find((v.type as (p: unknown) => unknown)(v.props), pred, out);
-  if (pred(v)) out.push(v);
-  return find(v.props.children, pred, out);
-}
-const byLabel = (label: string) => (n: Node): boolean => n.props["aria-label"] === label;
+type Node = HostNode;
 const has = (tree: unknown, label: string): boolean => find(tree, byLabel(label)).length > 0;
-function text(node: unknown): string {
-  if (node === null || node === undefined || typeof node === "boolean") return "";
-  if (typeof node === "string" || typeof node === "number") return String(node);
-  if (Array.isArray(node)) return node.map(text).join("");
-  const v = node as Node;
-  if (typeof v.type === "function") return text((v.type as (p: unknown) => unknown)(v.props));
-  return text(v.props.children);
-}
+const refusalOf = (tree: unknown): string | null => {
+  const shown = find(tree, (n) => n.props["data-duck-refusal"] !== undefined);
+  return shown.length === 0 ? null : text(shown);
+};
 
-// ---- a rig: the editor over an in-memory draft; each handler re-renders, so a stale one would show ----
+// ---- a rig: the Audio section over an in-memory draft; each handler re-renders, so a stale one would show ----
 
+const mounted: Rendered[] = [];
+afterEach(() => {
+  while (mounted.length) mounted.pop()!.unmount();
+});
+
+/** `levelDucking` false: the project plays on the Babylon backend, which has no level ducking. */
 function rig(ducking: object[] = [], levelDucking = true, buses?: object[]) {
-  const s = { draft: readDraft({ audio: { ...(buses ? { buses } : {}), ducking } }) as SettingsDraft, refusal: null as string | null, labels: [] as string[] };
-  const view = (): VNode => DuckingEditor({
-    a: audioOf(s.draft), draft: s.draft, levelDucking, refusal: s.refusal,
-    set: (label, next) => { s.labels.push(label); s.draft = next; },
-    onRefusal: (m) => { s.refusal = m; },
-  }) as VNode;
+  const audio = { ...(buses ? { buses } : {}), ...(levelDucking ? {} : { backend: "babylon" }), ducking };
+  const draft = { value: readDraft({ audio }) as SettingsDraft };
+  const labels: string[] = [];
+  const section = render(() => h(AudioSettingsSection, { draft: draft.value, problems: [], set: (label: string, next: SettingsDraft) => { labels.push(label); draft.value = next; } }));
+  mounted.push(section);
+  const view = (): unknown => section.tree();
+  const s = {
+    get draft(): SettingsDraft { return draft.value; },
+    labels,
+    /** The refusal the section shows, or null. */
+    get refusal(): string | null { return refusalOf(view()); },
+  };
   const one = (label: string): Node => {
     const f = find(view(), byLabel(label));
     expect(f, label).toHaveLength(1);
@@ -61,14 +61,14 @@ function rig(ducking: object[] = [], levelDucking = true, buses?: object[]) {
   return {
     s,
     view,
-    rules: (): DuckingRule[] => audioOf(s.draft).ducking,
+    rules: (): DuckingRule[] => audioOf(draft.value).ducking,
     pick: (label: string, value: string) => (one(label).props.onChange as (e: unknown) => void)({ currentTarget: { value } }),
     type: (label: string, n: number) => (one(label).props.onChange as (e: unknown) => void)({ currentTarget: { valueAsNumber: n, value: String(n) } }),
     click: (label: string) => (one(label).props.onClick as () => void)(),
     options: (label: string): string[] => find(one(label), (n) => n.type === "option").map((o) => String(o.props.value)),
     value: (label: string): unknown => one(label).props.value,
     addButton: (): Node => find(view(), (n) => n.type === "button" && text(n).includes("Ducking rule"))[0]!,
-    refusal: (): string => text(find(view(), (n) => n.props["data-duck-refusal"] !== undefined)),
+    refusal: (): string => refusalOf(view()) ?? "",
   };
 }
 
@@ -232,7 +232,8 @@ describe("remove and reorder", () => {
   const three = () => rig([level("Music", "Voice"), presence("SFX", "Voice"), level("UI", "Voice", { threshold: -12 })]);
   it("remove drops that rule and clears a showing refusal", () => {
     const r = three();
-    r.s.refusal = "old";
+    r.pick("Ducking 1 trigger", "Music"); // a bus can't duck itself: refused, the message shows
+    expect(r.s.refusal).not.toBeNull();
     r.click("Remove ducking rule 2");
     expect(r.rules().map((x) => x.target)).toEqual(["Music", "UI"]);
     expect(r.s.refusal).toBeNull();

@@ -353,10 +353,10 @@ const DUCK_DETECTOR_LABELS: Record<DuckingDetector, string> = { peak: "peak", rm
 
 /**
  * The ducking rules (api-and-models §2; task Dk1): mode, trigger, target, detector and threshold on a level rule, amount,
- * attack, release, reorder, remove, add. No hooks, so a test can call it; `Ducking` keeps the refusal. An edit the settings
+ * attack, release, reorder, remove, add. `Ducking` keeps the refusal. An edit the settings
  * parse would drop (a level cycle, the 9th level rule) is not saved: `onRefusal` gets the parse's message instead.
  */
-export function DuckingEditor(props: { a: AudioSettings; draft: SettingsDraft; set: Set; levelDucking: boolean; refusal: string | null; onRefusal: (message: string | null) => void }) {
+function DuckingEditor(props: { a: AudioSettings; draft: SettingsDraft; set: Set; levelDucking: boolean; refusal: string | null; onRefusal: (message: string | null) => void }) {
   const { a, draft, set, levelDucking, refusal, onRefusal } = props;
   const apply = (label: string, edit: DuckEdit) => {
     onRefusal(edit.refusal);
