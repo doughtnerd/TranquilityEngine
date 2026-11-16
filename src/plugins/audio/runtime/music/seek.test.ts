@@ -11,7 +11,7 @@ import { _resetMusicPlayers, createMusicPlayer, type MusicFrame, type MusicPlaye
 import { _resetSegmentRuns, setSegmentClipSource } from "./segmentRun";
 import { planTick, requestStart } from "./planner";
 import { requestTransition, tickTransition } from "./transition";
-import { parseSeekPosition, seekMusic } from "./seek";
+import { seekMusic } from "./seek";
 
 const RATE = 48_000;
 const L = 1 / 30;
@@ -64,24 +64,6 @@ afterEach(() => {
   _resetSegmentRuns();
   setAudioBackend(null);
   vi.restoreAllMocks();
-});
-
-describe("parseSeekPosition", () => {
-  it("reads bar:beat:tick, with beat and tick defaulting to 1 and 0", () => {
-    expect(parseSeekPosition("5:3:120")).toEqual({ bar: 5, beat: 3, tick: 120 });
-    expect(parseSeekPosition("5:3")).toEqual({ bar: 5, beat: 3, tick: 0 });
-    expect(parseSeekPosition("5")).toEqual({ bar: 5, beat: 1, tick: 0 });
-    expect(parseSeekPosition("01:1:000")).toEqual({ bar: 1, beat: 1, tick: 0 });
-    expect(parseSeekPosition("1:1:959")).toEqual({ bar: 1, beat: 1, tick: 959 });
-  });
-
-  it("refuses everything else", () => {
-    for (const bad of ["", "0:1:0", "1:0:0", "1:1:960", "1:33:0", "100000:1:0", "-1:1:0", "1.5:1:0", "1:1:0:0", " 1:1:0", "1:1:", ":1:0", "a:b:c", "start", "end", "1:1:0 "]) {
-      expect(parseSeekPosition(bad), bad).toBeNull();
-    }
-    expect(parseSeekPosition(undefined as unknown as string)).toBeNull();
-    expect(parseSeekPosition(5 as unknown as string)).toBeNull();
-  });
 });
 
 describe("seekMusic", () => {

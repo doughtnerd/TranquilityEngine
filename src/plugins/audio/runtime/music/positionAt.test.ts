@@ -6,7 +6,7 @@ import { setAudioBackend } from "../backend";
 import { makeFakeBackend } from "../testing";
 import { _resetMusicPlayers } from "./musicSystem";
 import { _resetSegmentRuns } from "./segmentRun";
-import { judgedOffset, positionAt } from "./handle";
+import { positionAt } from "./handle";
 import { setCalibration } from "./calibration";
 import { musicSegment, playingRun, rigClips, stampedRun } from "./testing/beatRig";
 
@@ -89,10 +89,8 @@ describe("positionAt", () => {
 describe("judged", () => {
   it("is the offset less the calibration, and positionAt carries it", () => {
     const { player } = playingRun(musicSegment({ tempo: T120 }), 0, 1.0);
-    expect(judgedOffset(0.03)).toBeCloseTo(0.03, 12);
+    expect(positionAt(player, ms(2.53)).judged).toBeCloseTo(0.03, 9); // no calibration: judged is the offset
     setCalibration(0.02);
-    expect(judgedOffset(0.03)).toBeCloseTo(0.01, 12);
-    expect(judgedOffset(-0.03)).toBeCloseTo(-0.05, 12);
     const at = positionAt(player, ms(2.53));
     expect(at.offset).toBeCloseTo(0.03, 9);
     expect(at.judged).toBeCloseTo(0.01, 9);

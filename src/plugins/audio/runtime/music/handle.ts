@@ -307,7 +307,7 @@ export function positionAt(player: MusicPlayer, performanceTime: number): MusicP
  * `Audio.timeAt` or `offset`). Output latency is already in the heard clock `timeAt` reads, so it is not subtracted
  * again. Rh2 owns the stored calibration (`getCalibration`; 0 until it ships). A non-finite offset passes through.
  */
-export function judgedOffset(offset: number): number {
+function judgedOffset(offset: number): number {
   return offset - getCalibration();
 }
 

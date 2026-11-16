@@ -27,7 +27,7 @@ import type { SegmentNode } from "../../../../engine/audio/musicFormat";
 import {
   compileSegmentGrid, positionInMetre, positionToTicks, secondsToFrames, ticksToSeconds, type SegmentGrid,
 } from "../../../../engine/audio/musicGrid";
-import { MAX_POSITION_BAR, MAX_POSITION_BEAT, MUSIC_TICKS_PER_BEAT } from "../../../../engine/audio/musicPosition";
+import { parseSeekPosition } from "../../../../engine/audio/musicPosition";
 import { audioBackend } from "../backend";
 import { playerOf, type MusicFrame, type MusicPlayer } from "./musicSystem";
 import { segmentClipSource } from "./segmentRun";
@@ -35,33 +35,6 @@ import { cancelTransition, planImmediate } from "./transition";
 
 /** The crossfade of a seek, milliseconds (§10 R7). */
 const SEEK_FADE_MS = 5;
-
-/** A position `"bar:beat:tick"` (§2.2), 1-based bar and beat, tick 0-based; null when it doesn't parse. */
-export interface SeekPosition {
-  bar: number;
-  beat: number;
-  tick: number;
-}
-
-const SHAPE = /^(\d+)(?::(\d+)(?::(\d+))?)?$/;
-
-/**
- * R7: parse `"bar:beat:tick"` (`"bar:beat"` and `"bar"` too, the rest 1 and 0); null when invalid. Whole numbers only
- * (no sign, space or fraction): bar 1..`MAX_POSITION_BAR`, beat 1..`MAX_POSITION_BEAT`, tick 0..959. Whether the beat
- * exists in the bar's metre is the segment's to say (`seekMusic`).
- */
-export function parseSeekPosition(to: string): SeekPosition | null {
-  if (typeof to !== "string") return null;
-  const m = SHAPE.exec(to);
-  if (m === null) return null;
-  const bar = Number(m[1]);
-  const beat = m[2] === undefined ? 1 : Number(m[2]);
-  const tick = m[3] === undefined ? 0 : Number(m[3]);
-  if (bar < 1 || bar > MAX_POSITION_BAR) return null;
-  if (beat < 1 || beat > MAX_POSITION_BEAT) return null;
-  if (tick < 0 || tick >= MUSIC_TICKS_PER_BEAT) return null;
-  return { bar, beat, tick };
-}
 
 /** Float noise allowed when comparing heard seconds (as `transition.ts`). */
 const EPS = 1e-7;

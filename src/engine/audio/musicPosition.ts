@@ -140,3 +140,32 @@ export function snapToNextBar(p: BarBeatTick): BarBeatTick {
   if (p.beat === 1 && p.tick === 0) return p;
   return { bar: p.bar + 1, beat: 1, tick: 0 };
 }
+
+// --- a seek target (R7, `AudioHandle.seek`) -------------------------------------------------------------------------
+
+/** A position `"bar:beat:tick"` (§2.2), 1-based bar and beat, tick 0-based; null when it doesn't parse. */
+export interface SeekPosition {
+  bar: number;
+  beat: number;
+  tick: number;
+}
+
+const SHAPE = /^(\d+)(?::(\d+)(?::(\d+))?)?$/;
+
+/**
+ * R7: parse `"bar:beat:tick"` (`"bar:beat"` and `"bar"` too, the rest 1 and 0); null when invalid. Whole numbers only
+ * (no sign, space or fraction): bar 1..`MAX_POSITION_BAR`, beat 1..`MAX_POSITION_BEAT`, tick 0..959. Whether the beat
+ * exists in the bar's metre is the segment's to say (`seekMusic`).
+ */
+export function parseSeekPosition(to: string): SeekPosition | null {
+  if (typeof to !== "string") return null;
+  const m = SHAPE.exec(to);
+  if (m === null) return null;
+  const bar = Number(m[1]);
+  const beat = m[2] === undefined ? 1 : Number(m[2]);
+  const tick = m[3] === undefined ? 0 : Number(m[3]);
+  if (bar < 1 || bar > MAX_POSITION_BAR) return null;
+  if (beat < 1 || beat > MAX_POSITION_BEAT) return null;
+  if (tick < 0 || tick >= MUSIC_TICKS_PER_BEAT) return null;
+  return { bar, beat, tick };
+}

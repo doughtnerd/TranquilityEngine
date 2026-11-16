@@ -2,17 +2,7 @@
  * Musical position grammar (`api-and-models.md` §2.2, L-F1ab): parse, format, canonical text, ordering and snaps.
  */
 import { describe, expect, it } from "vitest";
-import {
-  canonicalPosition,
-  comparePositions,
-  formatPosition,
-  parsePosition,
-  positionProblem,
-  snapToBeat,
-  snapToNextBar,
-  type BarBeatTick,
-  type MusicPosition,
-} from "./musicPosition";
+import { canonicalPosition, comparePositions, formatPosition, parsePosition, positionProblem, snapToBeat, snapToNextBar, type BarBeatTick, type MusicPosition, parseSeekPosition } from "./musicPosition";
 
 const words = { start: true, end: true } as const;
 
@@ -185,3 +175,21 @@ describe("snapToNextBar", () => {
 function at(bar: number, beat: number, tick: number): BarBeatTick {
   return { bar, beat, tick };
 }
+
+describe("parseSeekPosition (a seek target, R7)", () => {
+  it("reads bar:beat:tick, with beat and tick defaulting to 1 and 0", () => {
+    expect(parseSeekPosition("5:3:120")).toEqual({ bar: 5, beat: 3, tick: 120 });
+    expect(parseSeekPosition("5:3")).toEqual({ bar: 5, beat: 3, tick: 0 });
+    expect(parseSeekPosition("5")).toEqual({ bar: 5, beat: 1, tick: 0 });
+    expect(parseSeekPosition("01:1:000")).toEqual({ bar: 1, beat: 1, tick: 0 });
+    expect(parseSeekPosition("1:1:959")).toEqual({ bar: 1, beat: 1, tick: 959 });
+  });
+
+  it("refuses everything else", () => {
+    for (const bad of ["", "0:1:0", "1:0:0", "1:1:960", "1:33:0", "100000:1:0", "-1:1:0", "1.5:1:0", "1:1:0:0", " 1:1:0", "1:1:", ":1:0", "a:b:c", "start", "end", "1:1:0 "]) {
+      expect(parseSeekPosition(bad), bad).toBeNull();
+    }
+    expect(parseSeekPosition(undefined as unknown as string)).toBeNull();
+    expect(parseSeekPosition(5 as unknown as string)).toBeNull();
+  });
+});

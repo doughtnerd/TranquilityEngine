@@ -3,7 +3,6 @@ import { MemoryStorage, Storage } from "../../../../engine/platform/Storage";
 import {
   Calibration,
   calibrationDeviceChanged,
-  calibrationKey,
   calibrationSettled,
   fromTaps,
   getCalibration,
@@ -96,12 +95,6 @@ describe("Calibration.fromTaps", () => {
 });
 
 describe("Audio.calibration persistence", () => {
-  it("keys per output device", () => {
-    expect(calibrationKey("")).toBe("audio.calibration.default");
-    expect(calibrationKey(undefined)).toBe("audio.calibration.default");
-    expect(calibrationKey("abc123")).toBe("audio.calibration.abc123");
-  });
-
   it("defaults to 0, not stale, and ignores non-finite values", () => {
     expect(getCalibration()).toBe(0);
     expect(isCalibrationStale()).toBe(false);

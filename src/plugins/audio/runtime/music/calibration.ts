@@ -56,7 +56,7 @@ const NAMESPACE = "settings";
 const KEY_PREFIX = "audio.calibration.";
 
 /** The storage key for an output device: `audio.calibration.<sinkId>`, `.default` for the default device ("" or unknown). */
-export function calibrationKey(sinkId?: string | null): string {
+function calibrationKey(sinkId?: string | null): string {
   return KEY_PREFIX + (typeof sinkId === "string" && sinkId !== "" ? sinkId : "default");
 }
 
