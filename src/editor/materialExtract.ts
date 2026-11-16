@@ -9,6 +9,7 @@ import { loadMeshes, materialSlots, DEFAULT_SLOT, type SurfaceInfo, type Texture
 import { fileName, folderOf } from "./assetBrowser";
 import { readImportSettings, writeImportSettings } from "./assetImport";
 import type { EditorProject } from "./projects";
+import { readOnlyMessage } from "./readOnly";
 
 /** One linear channel in sRGB (material assets store sRGB colours; model surfaces are linear). */
 const toSrgb = (c: number) => {
@@ -117,7 +118,7 @@ export interface ExtractResult {
  * project or a model that doesn't load.
  */
 export async function extractModelMaterials(project: EditorProject, modelPath: string): Promise<ExtractResult> {
-  if (!project.canSave) throw new Error(`${project.name} is read-only. Open a project folder (or copy the sample) to extract materials.`);
+  if (!project.canSave) throw new Error(readOnlyMessage(project, "extract materials"));
   const slots = materialSlots(await loadMeshes(`asset:${modelPath}`)).filter((s) => s.surface !== DEFAULT_SLOT);
   if (!slots.length) throw new Error(`${fileName(modelPath)} has no materials of its own.`);
   const base = fileName(modelPath).replace(/\.[^.]+$/, "");

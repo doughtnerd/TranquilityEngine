@@ -7,7 +7,7 @@ import { listComponents, type FieldValue } from "../engine/editor";
 import { AddComponent, AddNode, SetField, type NodePath } from "./document";
 import { choicesFor, defaultItem, editorFor, fieldTitle, itemEditorFor, itemField, toSceneJSON } from "./fieldValues";
 import { deleteNodes } from "./hierarchyEdit";
-import { componentWorlds, effectiveWorlds, knownWorldTags, setComponentWorlds, setNodeTags, tagsOverridden, worldsBadge } from "./inspectorEdits";
+import { componentWorlds, effectiveWorlds, knownWorldTags, setComponentWorlds, setNodeTags, tagsOverridden, withWorldTag, worldsBadge } from "./inspectorEdits";
 import { OrbitCamera } from "./OrbitCamera";
 import { removeComponentFrom } from "./componentEdits";
 import { openSceneFile } from "./project";
@@ -138,6 +138,29 @@ describe("a component's Worlds (ADR 0033 §3)", () => {
     expect(target("bg-a").node.getBehavior(Object.getPrototypeOf(info("bg-a", "engine.SpriteRenderer").component!).constructor)).not.toBeNull(); // the editor World has everything
     removeComponentFrom(scene(), [{ ...target("bg-a"), info: info("bg-a", "engine.SpriteRenderer") }]);
     expect(doc.node("bg-a").overrides!.some((o) => o.worlds !== undefined)).toBe(false);
+  });
+
+  it("drops a node's own setting where it matches what the component inherits, and leaves unchanged ones alone", () => {
+    const { stack } = scene();
+    const rb = (key: string) => ({ ...target(key), info: info(key, "engine.RigidBody2D") });
+    const own = () => worldsOf("bird", "engine.RigidBody2D").own;
+    const before = stack.undoLabel;
+    expect(setComponentWorlds(scene(), [rb("bird")], ["*"])).toBe(0); // every World is what it inherits
+    expect(own()).toBeUndefined();
+    expect(stack.undoLabel).toBe(before);
+    setComponentWorlds(scene(), [rb("bird")], ["server", "client"]);
+    expect(setComponentWorlds(scene(), [rb("bird")], ["client", "server"])).toBe(0); // the same tags in another order
+    expect(setComponentWorlds(scene(), [rb("bird")], ["*"], "Set Worlds of RigidBody2D")).toBe(1);
+    expect(own()).toBeUndefined();
+    expect(stack.undoLabel).toBe("Set Worlds of RigidBody2D");
+    stack.undo();
+    expect(own()).toEqual(["server", "client"]);
+  });
+
+  it("ticks and unticks a World tag", () => {
+    expect(withWorldTag(undefined, "server", true)).toEqual(["server"]);
+    expect(withWorldTag(["*"], "server", false)).toEqual([]);
+    expect(withWorldTag(["client", "server"], "client", false)).toEqual(["server"]);
   });
 
   it("offers client, server and the project's World tags", () => {

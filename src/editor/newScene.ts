@@ -6,6 +6,7 @@ import { errorStatus } from "./messages";
 import { writeSceneFile } from "./project";
 import { switchScene } from "./session";
 import { currentProject, docVersion, status } from "./state";
+import { readOnlyMessage } from "./readOnly";
 
 /** A new scene's contents: an orthographic camera looking at the origin, like the samples'. */
 export function newSceneFile(): SceneFile {
@@ -37,7 +38,7 @@ export async function createScene(folder: string = defaultSceneFolder()): Promis
   const project = currentProject.value;
   if (!project) return null;
   if (!project.canSave) {
-    status.value = { kind: "info", text: `${project.name} is read-only. Open a project folder (or copy the sample) to add scenes.` };
+    status.value = { kind: "info", text: readOnlyMessage(project, "add scenes") };
     return null;
   }
   const path = freePath(project, folder, "New Scene.scene.json");

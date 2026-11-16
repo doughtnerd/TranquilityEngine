@@ -32,6 +32,7 @@ import {
 import { writeSceneFile } from "./project";
 import type { EditorProject } from "./projects";
 import type { OpenScene } from "./state";
+import { readOnlyMessage } from "./readOnly";
 
 /** A node inside a prefab instance, from the prefab file (nested prefabs included) and the instance's overrides. */
 export interface InnerNode {
@@ -351,7 +352,7 @@ export function instancesOf(doc: SceneDocument, prefab: string): string[] {
 export async function applyOverrides(open: OpenScene, project: EditorProject, instance: string): Promise<number> {
   const entry = open.doc.node(instance);
   if (!entry.prefab) throw new Error(`"${instance}" is not a prefab instance.`);
-  if (!project.canSave) throw new Error(`${project.name} is read-only. Open a project folder to apply overrides.`);
+  if (!project.canSave) throw new Error(readOnlyMessage(project, "apply overrides"));
   // A scene instance's own node (empty target) isn't in the scene file, so its overrides (e.g.
   // where the sub-scene is placed) stay on the instance.
   const scene = isScenePath(entry.prefab);
@@ -396,7 +397,7 @@ export async function createPrefab(scene: OpenScene, project: EditorProject, id:
   const { doc, stack } = scene;
   const entry = doc.node(id);
   if (entry.prefab) throw new Error(`"${entry.name ?? id}" is already a prefab instance.`);
-  if (!project.canSave) throw new Error(`${project.name} is read-only. Open a project folder to create prefabs.`);
+  if (!project.canSave) throw new Error(readOnlyMessage(project, "create prefabs"));
 
   const subtree = doc.subtree(id);
   const inside = new Set(subtree);
@@ -434,7 +435,7 @@ export async function createPrefabFromNodes(scene: OpenScene, project: EditorPro
   if (ids.length === 1) return createPrefab(scene, project, ids[0]);
   const { doc, stack } = scene;
   if (ids.length === 0) throw new Error("Select the nodes to turn into a prefab.");
-  if (!project.canSave) throw new Error(`${project.name} is read-only. Open a project folder to create prefabs.`);
+  if (!project.canSave) throw new Error(readOnlyMessage(project, "create prefabs"));
   const parent = doc.parentOf(ids[0]);
   if (ids.some((id) => doc.parentOf(id) !== parent)) throw new Error("The nodes must share a parent to become one prefab.");
   // Siblings in hierarchy order; a selected node's ancestor can't also be selected (same parent).

@@ -6,6 +6,7 @@ import { freePath } from "./assetOps";
 import { errorStatus } from "./messages";
 import type { EditorProject } from "./projects";
 import { currentProject, docVersion, status } from "./state";
+import { readOnlyMessage } from "./readOnly";
 
 export interface ReadRenderTexture {
   settings: RenderTextureSettings;
@@ -32,7 +33,7 @@ export async function createRenderTexture(folder: string): Promise<string | null
   const project = currentProject.value;
   if (!project) return null;
   if (!project.canSave) {
-    status.value = { kind: "info", text: `${project.name} is read-only. Open a project folder (or copy the sample) to add render textures.` };
+    status.value = { kind: "info", text: readOnlyMessage(project, "add render textures") };
     return null;
   }
   const path = freePath(project, folder, "New Render Texture.rendertexture.json");
