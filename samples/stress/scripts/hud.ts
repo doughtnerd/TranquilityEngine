@@ -85,7 +85,6 @@ export class Hud {
   private info: Info | null = null;
 
   // Everything since the storm started.
-  private stormAt = 0;
   private capMin = Infinity;
   private capMax = 0;
   private logicalMax = 0;
@@ -152,7 +151,6 @@ export class Hud {
   /** The storm just began: the counters so far (warm-up) are not the soak's. */
   stormStarted(s: Sample): void {
     this.base = s;
-    this.stormAt = performance.now();
     if (this.soakWanted) this.beginSoak(s);
   }
 

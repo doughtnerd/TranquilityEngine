@@ -31,7 +31,7 @@ import type { AudioHost, BusRemap, HostLifecycleListener } from "./context";
 import { CoreLink, type LinkPort } from "./context";
 import type { ClipInfo, ClipRegistry, ClipResidentListener, ClipState } from "./clipRegistry";
 import type { HrirLoader } from "./hrir";
-import { CoreBackend, type CoreBackendDeps, type CoreBackendHost, type CoreVoice } from "./coreBackend";
+import { CoreBackend, type CoreBackendDeps, type CoreBackendHost } from "./coreBackend";
 import { makeStatusBlock } from "./statusFixtures";
 
 class FakeRegistry implements ClipRegistry {

@@ -701,7 +701,7 @@ type ModelLoadingManager = LoadingManager & { settled(): Promise<void> };
 
 /** A loading manager that finds a model's textures in the project, and (headless) leaves them blank. */
 function manager(modelPath: string): ModelLoadingManager {
-  const { LoadingManager, Texture } = lib();
+  const { LoadingManager } = lib();
   const m = new LoadingManager() as ModelLoadingManager;
   m.setURLModifier((url) => textureUrl(modelPath, url));
   if (typeof document === "undefined") {

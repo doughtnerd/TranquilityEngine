@@ -61,7 +61,7 @@ describe("stems (ADR 0166 P5)", () => {
   });
 
   it("setAudibleStems (editor solo and mute) keeps only the named stems of its segment audible, and null restores all (F-14)", () => {
-    const { player, f, voices } = rig();
+    const { player, voices } = rig();
     setAudibleStems(player, ["drums", "pad"], "s", 0.1); // bass muted
     expect(voices.map((v) => v.events.filter((e) => e.kind === "fade").pop())).toEqual([
       { kind: "fade", to: 1, seconds: 0.1 }, { kind: "fade", to: 0, seconds: 0.1 }, { kind: "fade", to: 1, seconds: 0.1 },

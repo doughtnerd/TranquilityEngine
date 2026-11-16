@@ -23,7 +23,6 @@ import { CoreBackend, type CoreBackendHost } from "../core/coreBackend";
 import { AUDIO_SYSTEMS } from "../audioSystem";
 import { musicPlayers } from "../music/musicSystem";
 import { QUANTIZED_RAMP_SECONDS } from "./automation";
-import { events } from "./eventRuntime";
 import { endAudioSession } from "../testing";
 
 const RATE = 48_000;

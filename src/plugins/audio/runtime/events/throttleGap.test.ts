@@ -31,7 +31,6 @@ import { createClipRegistry } from "../core/clipRegistry";
 import { fakeDecoder, type PlanarClip } from "../core/fakeDecoder";
 import type { AudioHost } from "../core/context";
 import { CoreBackend, type CoreBackendHost } from "../core/coreBackend";
-import { VoiceState } from "../core/voiceTable";
 import { createLoopbackHost, endAudioSession } from "../testing";
 import { events } from "./eventRuntime";
 

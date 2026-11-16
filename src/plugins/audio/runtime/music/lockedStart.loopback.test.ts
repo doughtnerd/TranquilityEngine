@@ -6,7 +6,6 @@ import { Assets, Engine, SceneManager } from "../../../../myco";
 import { audioBackend, isPendingCoreBackend, registerCoreBackend, setAudioBackend } from "../backend";
 import { Audio } from "../index";
 import { makeFakeBackend, endAudioSession } from "../testing";
-import { events } from "../events/eventRuntime";
 import { musicPlanStep, musicPlayers } from "./musicSystem";
 import { musicLoopback, resetMusicLoopback } from "./testing/loopbackClock";
 import type { MusicEvent } from "../../../../engine/audio/musicTypes";

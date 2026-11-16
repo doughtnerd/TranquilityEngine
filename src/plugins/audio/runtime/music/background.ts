@@ -20,7 +20,7 @@
  *   reads `mirror.freeEndedInMessage`). The planner's lead includes Δ̄, so a start due while hidden is primed and
  *   stamped a STATUS interval ahead, and the music is where it would have been on resume: under `mute` too (owner
  *   decision 5), whose only cost is MASTER at 0. Containers that commit a successor at a segment's start (P4's next
- *   item, R3a) read `frame.hidden` or `musicHidden()`. Stamps made while hidden count in `counters.recoveries.hidden`.
+ *   item, R3a) read `frame.hidden`. Stamps made while hidden count in `counters.recoveries.hidden`.
  * - **Recovery** (`recoverGroups`, from `musicOps.reopenGroups` after `musicOps` forgot the dead groups): per player,
  *   one take from its recovery limit (3 per sliding 60 s, `core/rateLimit.ts`, as the core's own rebuilds); past it the
  *   player stops with one warning (`recoveries.refused`). Otherwise the anchors are rebased for the context's rate
@@ -54,11 +54,6 @@ export type MusicRecoveryCause = "rebuild" | "crash" | "rate" | "abandon";
 const EPS = 1e-9;
 
 let hidden = false;
-
-/** True while the page is hidden under `play` or `mute` and the players tick from STATUS (architecture §3.8). */
-function musicHidden(): boolean {
-  return hidden;
-}
 
 /** P9: the page became hidden or visible (from the background controller). */
 export function noteHidden(isHidden: boolean): void {

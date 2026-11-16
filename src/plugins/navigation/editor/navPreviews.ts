@@ -172,8 +172,6 @@ function selectedTarget(): { key: string; node: GameObject } | null {
   return node ? { key: keys[0], node } : null;
 }
 
-const v3key = (v: { x: number; y: number; z: number }) => `${v.x},${v.y},${v.z}`;
-
 /** The edit-mode preview provider: recomputes (asynchronously) when what it depends on changes. */
 class NavSelectionPreview {
   private memoKey = "";

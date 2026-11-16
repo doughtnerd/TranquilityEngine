@@ -12,7 +12,6 @@ import {
 } from "./musicValidate";
 import { FIXTURE_CLIPS, clip, lookup, secs } from "./__fixtures__/music/clips";
 
-const MIB = 1024 * 1024;
 const facts = lookup(FIXTURE_CLIPS);
 
 const track = (name: string, path: string, over: Partial<MusicTrack> = {}): MusicTrack => ({

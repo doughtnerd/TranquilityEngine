@@ -32,7 +32,6 @@ import { presetFromSettings } from "../core/context";
 import { CoreBackend, type CoreBackendHost } from "../core/coreBackend";
 import { createClipRegistry } from "../core/clipRegistry";
 import { fakeDecoder, type PlanarClip } from "../core/fakeDecoder";
-import { events } from "../events/eventRuntime";
 import { createLoopbackHost, type LoopbackHost, endAudioSession } from "../testing";
 import { audioCapture, releaseCapture, setCaptureProject } from "./capture";
 import { openCapture } from "./reader";

@@ -6,7 +6,7 @@ import { makeFakeBackend, type FakeVoice, endAudioSession } from "../testing";
 import type { EventInstance } from "../events/eventRuntime";
 import { AutoTarget, continuousBindings, evaluateQuantized, QUANTIZED_RAMP_SECONDS, TsAutomation, type Binding } from "../events/automation";
 import { parseSegmentNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
-import { createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
+import { createMusicPlayer, type MusicFrame } from "./musicSystem";
 import { setSegmentClipSource, type SegmentRun, type StemRun } from "./segmentRun";
 import { quantizedRamp, setAudibleStems, tickStems, type StampedRamp } from "./stems";
 

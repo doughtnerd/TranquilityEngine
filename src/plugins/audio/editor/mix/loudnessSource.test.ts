@@ -8,7 +8,7 @@ import { LOUD_OUTPUT_TAP } from "../../runtime/wire.generated";
 import { CaptureError, RecordType } from "../../runtime/capture/format";
 import { createCaptureWorkerHandler, type CaptureRequest, type CaptureResponse } from "../../runtime/capture/worker";
 import { LoudnessSource } from "./loudnessSource";
-import { MUSIC_SLOT, buildScene, type Expected, type Scene } from "./loudnessSceneSupport";
+import { MUSIC_SLOT, buildScene, type Scene } from "./loudnessSceneSupport";
 import { CaptureSource, type CaptureWorkerLike } from "./profilerSource";
 
 function inProcessWorker(): CaptureWorkerLike & { requests: CaptureRequest[] } {

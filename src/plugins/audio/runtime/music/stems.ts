@@ -14,7 +14,7 @@
 import { compileSegmentGrid, nextGridSeconds, ticksToSeconds, type SegmentGrid } from "../../../../engine/audio/musicGrid";
 import type { GridSpec } from "../../../../engine/audio/musicTypes";
 import type { SegmentNode } from "../../../../engine/audio/musicFormat";
-import type { AudioVoice, FadeLaw } from "../backend";
+import type { FadeLaw } from "../backend";
 import type { MusicFrame, MusicPlayer } from "./musicSystem";
 import { segmentClipSource, type SegmentRun, type StemRun } from "./segmentRun";
 
