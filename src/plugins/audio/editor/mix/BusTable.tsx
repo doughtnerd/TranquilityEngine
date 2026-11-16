@@ -11,7 +11,7 @@ const LANE_TITLES: Record<(typeof FACTOR_LANES)[number], string> = {
   authored: "Authored", runtime: "Runtime", snapshot: "Snapshot", monitor: "Monitor", dip: "Dip", duck: "Duck", automation: "Automation",
 };
 
-export const BUS_COLUMNS: readonly GridColumn[] = [
+const BUS_COLUMNS: readonly GridColumn[] = [
   { key: "bus", title: "Bus", width: "minmax(72px, 1.2fr)" },
   ...FACTOR_LANES.map((l): GridColumn => ({ key: l, title: LANE_TITLES[l], width: "minmax(56px, 0.7fr)", align: "end" })),
   { key: "product", title: "Product", width: "72px", align: "end" },
@@ -35,7 +35,7 @@ export function busTableData(rows: readonly BusRow[] | null, unfiltered: number,
 }
 
 /** One bus's cells: each lane's dB (flagged `unity` or `active`), the product and the tree product. A removed bus (tombstone) says so. */
-export function busCells(row: BusRow): GridCell[] {
+function busCells(row: BusRow): GridCell[] {
   return [
     row.tombstone ? `${row.name} (removed)` : row.name,
     ...row.factors.map((f): GridCell => ({ text: formatDb(f.db), flag: f.unity ? "unity" : "active" })),
@@ -46,7 +46,7 @@ export function busCells(row: BusRow): GridCell[] {
 
 type GridHandlers = Pick<GridState, "scrollTop" | "focus" | "onScroll" | "onKey" | "onFocusRow">;
 
-export function BusTableView({ data, grid }: { data: BusTableData; grid: GridHandlers }) {
+function BusTableView({ data, grid }: { data: BusTableData; grid: GridHandlers }) {
   return (
     <section class="ptable" data-table="buses" aria-label="Buses">
       <h3 class="ptable-title">Buses</h3>

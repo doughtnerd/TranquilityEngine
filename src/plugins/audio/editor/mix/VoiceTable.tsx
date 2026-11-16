@@ -3,14 +3,14 @@
 // audible first), in a windowed grid: 1,024 voices scroll with at most 64 rows rendered. Columns carry the state, the
 // reason text and the thief of a steal; a field a voice born after the keyframe doesn't have yet reads "-".
 //
-// `voiceTableData` is the pure step from a replay to what the view draws; `VoiceTableView` is a pure function of that
-// and a grid's state; `VoiceTable` adds the scroll and focus state.
+// `voiceTableData` is the pure step from a replay to what the view draws; `VoiceTableView` draws that at a grid's
+// state; `VoiceTable` adds the scroll and focus state.
 import { useRef } from "preact/hooks";
 import { WindowedGridView, useGridState, type GridCell, type GridColumn, type GridState } from "./WindowedGrid";
 import { tableEmptyText, voiceCells, voiceSummary, type TableEmptyInput } from "./profilerTablesModel";
 import { voiceTable, type VoiceReplay, type VoiceRow } from "./voiceTableModel";
 
-export const VOICE_COLUMNS: readonly GridColumn[] = [
+const VOICE_COLUMNS: readonly GridColumn[] = [
   { key: "id", title: "Voice", width: "52px", align: "end" },
   { key: "clip", title: "Clip", width: "minmax(80px, 1.4fr)" },
   { key: "bus", title: "Bus", width: "minmax(56px, 0.8fr)" },
@@ -60,7 +60,7 @@ function cellsOf(byId: ReadonlyMap<number, VoiceRow>): (row: VoiceRow) => GridCe
 }
 
 /** The section as a pure function of the data and the grid's state. */
-export function VoiceTableView({ data, grid }: { data: VoiceTableData; grid: GridHandlers }) {
+function VoiceTableView({ data, grid }: { data: VoiceTableData; grid: GridHandlers }) {
   return (
     <section class="ptable" data-table="voices" aria-label="Voices">
       <h3 class="ptable-title">Voices</h3>

@@ -1,25 +1,27 @@
 // ADR 0171/0172 (Pf5; api-and-models §7): the profiler's tables. Cases: the window (1,024 voices render at most 64 rows at
 // every scroll position; scrolling moves the window), reasons and the thief on a real recorded scene, the filter, the bus
 // table's factors and products, event and music rows, every empty state, keyboard focus through the rows, the filter
-// input, and theme tokens only. The views are pure functions of their props (no hooks in the parts under test), so the
-// tests call them and walk the VNode tree, as `MixerStrip.test.ts` does. No wall clock anywhere.
+// input, and theme tokens only. The tables are rendered with their hooks (`testRender`, no DOM) and their trees walked;
+// scrolling, keys and typing go through the rendered handlers. No wall clock anywhere.
 import { readFileSync } from "node:fs";
-import type { VNode } from "preact";
-import { describe, expect, it } from "vitest";
+import { h, type ComponentChild } from "preact";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { EventKind, type KeyframeBus, type KeyframePayload, type KeyframeVoice } from "../../runtime/capture/format";
 import type { CaptureSeekState } from "../../runtime/capture/reader";
 import { SAMPLE_RATE } from "../../runtime/capture/testSupport";
-import { BusTableView, busCells, busTableData } from "./BusTable";
-import { type ProfilerSlots, profilerSlots } from "./ProfilerPanel";
-import { VoiceTableView, voiceTableData } from "./VoiceTable";
-import { WindowedGridView, type WindowedGridProps } from "./WindowedGrid";
-import {
-  EVENT_COLUMNS, MUSIC_COLUMNS, ProfilerTables, ProfilerTablesView, RowsTableView, eventCells, musicCells, profilerTablesData,
-} from "./profilerTables";
+import { byClass, find, render, text, type HostNode, type Rendered } from "../../../../editor/testRender";
+import { BusTable, busTableData, type BusTableData } from "./BusTable";
+import { type ProfilerSlots, type TablesSlotProps, profilerSlots } from "./ProfilerPanel";
+import type { ProfileSource } from "./profilerSource";
+import { VoiceTable, voiceTableData, type VoiceTableData } from "./VoiceTable";
+import { WindowedGridView } from "./WindowedGrid";
+import { ProfilerTables } from "./profilerTables";
 import { busParents, busTableRows, musicRows, tableEmptyText, voiceCells } from "./profilerTablesModel";
 import { MAX_RENDERED_ROWS, OVERSCAN_ROWS, ROW_HEIGHT, VIEWPORT_HEIGHT, VIEWPORT_ROWS, moveFocus, navigate, scrollToIndex, windowRows } from "./gridWindow";
 import { nameLookup, reconstructVoices, type VoiceRow } from "./voiceTableModel";
 import { openScene } from "./voiceSceneSupport";
+
+vi.mock("preact/hooks", () => import("../../../../editor/testRender"));
 
 // The tables' own empty-state words.
 const TABLE_EMPTY = {
@@ -28,37 +30,67 @@ const TABLE_EMPTY = {
   none: { voices: "No voices at the cursor", buses: "No bus data at the cursor", events: "No event instances at the cursor", music: "No music playing at the cursor" },
 } as const;
 
-// ---- walking a rendered tree ----
+// ---- rendering and walking a tree ----
 
-type Node = VNode<Record<string, unknown>>;
-function find(node: unknown, pred: (n: Node) => boolean, out: Node[] = []): Node[] {
-  if (Array.isArray(node)) { node.forEach((c) => find(c, pred, out)); return out; }
-  if (!node || typeof node !== "object" || !("props" in node)) return out;
-  const v = node as Node;
-  if (typeof v.type === "function") return find((v.type as (p: unknown) => unknown)(v.props), pred, out); // render components in place
-  if (pred(v)) out.push(v);
-  return find(v.props.children, pred, out);
-}
-/** As `find`, but function components are not called (the stateful tables use hooks). */
-function findShallow(node: unknown, pred: (n: Node) => boolean, out: Node[] = []): Node[] {
-  if (Array.isArray(node)) { node.forEach((c) => findShallow(c, pred, out)); return out; }
-  if (!node || typeof node !== "object" || !("props" in node)) return out;
-  const v = node as Node;
-  if (pred(v)) out.push(v);
-  return findShallow(v.props.children, pred, out);
-}
-const byClass = (cls: string) => (n: Node): boolean => typeof n.props.class === "string" && n.props.class.split(" ").includes(cls);
-function text(node: unknown): string {
-  if (node === null || node === undefined || typeof node === "boolean") return "";
-  if (typeof node === "string" || typeof node === "number") return String(node);
-  if (Array.isArray(node)) return node.map(text).join("");
-  const v = node as Node;
-  if (typeof v.type === "function") return text((v.type as (p: unknown) => unknown)(v.props));
-  return text(v.props.children);
-}
+type Node = HostNode;
 const rowsOf = (tree: unknown): Node[] => find(tree, byClass("pgrid-row"));
 const indices = (tree: unknown): number[] => rowsOf(tree).map((r) => r.props["data-index"] as number);
 const cellTexts = (row: Node): string[] => find(row, byClass("pgrid-cell")).map((c) => text(c));
+
+const mounted: Rendered[] = [];
+afterEach(() => {
+  while (mounted.length) mounted.pop()!.unmount();
+});
+function mount(element: () => ComponentChild): Rendered {
+  const r = render(element);
+  mounted.push(r);
+  return r;
+}
+/** A rendered voice or bus table, with its scroll region and keys driven through the rendered handlers. */
+function table(element: () => ComponentChild) {
+  const r = mount(element);
+  const tree = (): unknown => r.tree();
+  return {
+    tree,
+    scroll(scrollTop: number): unknown {
+      const region = find(tree(), (n) => n.props["data-scroll"] === true)[0]!;
+      (region.props.onScroll as (e: unknown) => void)({ currentTarget: { scrollTop } });
+      return tree();
+    },
+    press(key: string): boolean {
+      let prevented = false;
+      const grid = find(tree(), (n) => n.props.role === "grid")[0]!;
+      (grid.props.onKeyDown as (e: { key: string; preventDefault(): void }) => void)({ key, preventDefault: () => { prevented = true; } });
+      return prevented;
+    },
+  };
+}
+const voiceTable = (data: VoiceTableData) => table(() => h(VoiceTable, { data }));
+const busTable = (data: BusTableData) => table(() => h(BusTable, { data }));
+
+/** The whole tables region (the profiler's `tables` slot) over `source` at `seek`, with its filter typed through its input. */
+function region(source: ProfileSource, seek: CaptureSeekState | null) {
+  const r = mount(() => h(ProfilerTables, { source, seek, cursor: { mode: "paused", time: 0, revision: 0 }, live: null } satisfies TablesSlotProps));
+  const tree = (): unknown => r.tree();
+  const section = (name: string): Node => find(tree(), (n) => n.type === "section" && n.props["data-table"] === name)[0]!;
+  return {
+    tree,
+    section,
+    filter(value: string): void {
+      const input = find(tree(), (n) => n.type === "input")[0]!;
+      (input.props.onInput as (e: unknown) => void)({ currentTarget: { value } });
+    },
+    rows: (name: string): string[][] => rowsOf(section(name)).map(cellTexts),
+    summary: (name: string): string => text(find(section(name), byClass("ptable-summary"))),
+    empty: (name: string): string | null => {
+      const e = find(section(name), byClass("ptable-empty"));
+      return e.length ? text(e) : null;
+    },
+  };
+}
+/** A source with these names that never answers a seek (the region asks for one only when it has none). */
+const sourceOf = (names: { buses?: Map<number, string>; events?: Map<number, string> }, audio?: unknown): ProfileSource =>
+  ({ summary: { names: { clips: new Map(), buses: names.buses ?? new Map(), events: names.events ?? new Map() }, meta: audio === undefined ? {} : { audio } }, truncated: false, startSeconds: 0, seek: () => new Promise(() => {}) }) as unknown as ProfileSource;
 
 // ---- synthetic seek states ----
 
@@ -75,9 +107,6 @@ const voice = (id: number, over: Partial<KeyframeVoice> = {}): KeyframeVoice => 
 const thousand = (): CaptureSeekState => seekState(keyframe({ voices: Array.from({ length: 1024 }, (_, i) => voice(i + 1)) }));
 const NAMES_LOOKUP = nameLookup({ clips: new Map([[1, "jump.ogg"], [2, "Land.ogg"], [3, "footstep.ogg"]]), buses: new Map([[0, "Master"], [1, "Music"], [2, "SFX"]]), events: new Map(), parameters: new Map(), snapshots: new Map(), targets: new Map() } as never);
 const CTX = { playing: false, truncated: false };
-
-/** A fixed grid state for the stateless views. */
-const gridAt = (scrollTop: number, focus = 0) => ({ scrollTop, focus, onScroll: () => {}, onKey: () => {}, onFocusRow: () => {} });
 
 const voiceData = (state: CaptureSeekState, filter = "") => voiceTableData(reconstructVoices(state, NAMES_LOOKUP), filter, CTX);
 
@@ -167,8 +196,9 @@ describe("the voice table: 1,024 voices, at most 64 rows rendered", () => {
 
   it("renders at most 64 rows at several scroll positions, and the window moves with the scroll", () => {
     const firsts: number[] = [];
+    const t = voiceTable(data);
     for (const scrollTop of [0, 150, 1_000, 5_000, 10_000, 15_000, 20_000, 20_480, 99_999]) {
-      const tree = VoiceTableView({ data, grid: gridAt(scrollTop) });
+      const tree = t.scroll(scrollTop);
       const idx = indices(tree);
       expect(idx.length, `scroll ${scrollTop}`).toBeGreaterThan(0);
       expect(idx.length, `scroll ${scrollTop}`).toBeLessThanOrEqual(MAX_RENDERED_ROWS);
@@ -184,7 +214,7 @@ describe("the voice table: 1,024 voices, at most 64 rows rendered", () => {
   });
 
   it("positions each row at its index and sizes the spacer for the whole list", () => {
-    const tree = VoiceTableView({ data, grid: gridAt(10_000) });
+    const tree = voiceTable(data).scroll(10_000);
     const spacer = find(tree, byClass("pgrid-spacer"))[0]!;
     expect((spacer.props.style as { height: string }).height).toBe(`${1024 * ROW_HEIGHT}px`);
     for (const r of rowsOf(tree)) expect((r.props.style as { top: string }).top).toBe(`${(r.props["data-index"] as number) * ROW_HEIGHT}px`);
@@ -214,8 +244,8 @@ describe("the voice table on a recorded scene: reasons and the thief", () => {
     expect(victim.stateName).toBe("stolen");
     expect(voiceCells(victim, byId)).toMatchObject({ state: "stolen", reason: "priority, by voice 3 (jump.ogg)", clip: "jump.ogg", bus: "Music" });
 
-    const table = VoiceTableView({ data: voiceTableData(replay, "", CTX), grid: gridAt(0) });
-    const row = rowsOf(table).find((r) => cellTexts(r)[0] === "1")!;
+    const tree = voiceTable(voiceTableData(replay, "", CTX)).tree();
+    const row = rowsOf(tree).find((r) => cellTexts(r)[0] === "1")!;
     expect(cellTexts(row)[4]).toBe("priority, by voice 3 (jump.ogg)");
     expect(row.props["data-state"]).toBe("stolen");
     s.close();
@@ -252,23 +282,24 @@ describe("the filter", () => {
   it("says how many matched, and renders only the matching rows", () => {
     const d = voiceData(state, "jump");
     expect(d.summary).toBe("2 of 4 voices");
-    expect(rowsOf(VoiceTableView({ data: d, grid: gridAt(0) }))).toHaveLength(2);
+    expect(rowsOf(voiceTable(d).tree())).toHaveLength(2);
   });
 
   it("filters the other tables by their names and says when nothing matches", () => {
-    const names = { audio: { buses: [{ name: "Master" }] }, names: { clips: new Map(), buses: new Map([[0, "Master"], [1, "Music"]]), events: new Map([[5, "PlayerJump"], [6, "Ambience"]]) } };
-    const source = { summary: { names: names.names, meta: { audio: names.audio } }, truncated: false } as never;
+    const source = sourceOf({ buses: new Map([[0, "Master"], [1, "Music"]]), events: new Map([[5, "PlayerJump"], [6, "Ambience"]]) }, { buses: [{ name: "Master" }] });
     const seek = seekState(keyframe({ buses: [bus(0), bus(1)], events: [{ id: 1, asset: 5, voices: 2, state: 1, paramsHash: 0 }, { id: 2, asset: 6, voices: 1, state: 1, paramsHash: 0 }] }));
-    const all = profilerTablesData(source, seek, "");
-    expect(all.buses.rows).toHaveLength(2);
-    expect(all.events.rows).toHaveLength(2);
-    const some = profilerTablesData(source, seek, "mus");
-    expect(some.buses.rows.map((r) => r.name)).toEqual(["Music"]);
-    expect(some.events.rows).toHaveLength(0);
-    expect(some.events.empty).toBe(TABLE_EMPTY.noMatch);
-    expect(some.buses.summary).toBe("1 of 2 buses");
-    expect(profilerTablesData(source, seek, "jump").events.rows.map((r) => r.name)).toEqual(["PlayerJump"]);
-    expect(profilerTablesData(source, seek, "zzz").voices.empty).toBe(TABLE_EMPTY.none.voices); // no voices at all: not "no match"
+    const r = region(source, seek);
+    expect(r.rows("buses")).toHaveLength(2);
+    expect(r.rows("events")).toHaveLength(2);
+    r.filter("mus");
+    expect(r.rows("buses").map((c) => c[0])).toEqual(["Music"]);
+    expect(r.rows("events")).toHaveLength(0);
+    expect(r.empty("events")).toBe(TABLE_EMPTY.noMatch);
+    expect(r.summary("buses")).toBe("1 of 2 buses");
+    r.filter("jump");
+    expect(r.rows("events").map((c) => c[1])).toEqual(["PlayerJump"]);
+    r.filter("zzz");
+    expect(r.empty("voices")).toBe(TABLE_EMPTY.none.voices); // no voices at all: not "no match"
   });
 });
 
@@ -311,7 +342,7 @@ describe("the bus table", () => {
   it("renders one row per bus with a cell per lane, flagged unity or active, plus the product and tree", () => {
     const kf = keyframe({ buses: [bus(1, { lanes: [0.5, 0.5, 1, 1, 1, 1, 1, 1, 1, 1] })] });
     const data = busTableData(busTableRows(kf, NAMES_LOOKUP, parents), 1, "", { ...CTX, beforeFirstKeyframe: false });
-    const tree = BusTableView({ data, grid: gridAt(0) });
+    const tree = busTable(data).tree();
     const rows = rowsOf(tree);
     expect(rows).toHaveLength(1);
     const cells = find(rows[0], byClass("pgrid-cell"));
@@ -329,10 +360,10 @@ describe("the bus table", () => {
     const kf = keyframe({ buses: [bus(1, { flags: 1 }), bus(2, { flags: 1 << 4 }), bus(7)] });
     const rows = busTableRows(kf, NAMES_LOOKUP, parents);
     expect(rows[0]!.productText).toBe("-inf dB");
-    expect(busCells(rows[1]!)[0]).toEqual("SFX (removed)");
     expect(rows[2]!.name).toBe("bus 7");
-    const view = BusTableView({ data: busTableData(rows, 3, "", { ...CTX, beforeFirstKeyframe: false }), grid: gridAt(0) });
+    const view = busTable(busTableData(rows, 3, "", { ...CTX, beforeFirstKeyframe: false })).tree();
     expect(rowsOf(view).map((r) => r.props["data-state"])).toEqual(["active", "removed", "unity"]);
+    expect(cellTexts(rowsOf(view)[1]!)[0]).toBe("SFX (removed)");
   });
 });
 
@@ -342,11 +373,9 @@ describe("event and music rows", () => {
   it("lists the event instances at the cursor of a recorded scene, with their voices", async () => {
     const s = await openScene();
     const state = await s.seek(5_000 / SAMPLE_RATE); // event 10 (PlayerJump) started at 2,000
-    const data = profilerTablesData(s, state, "");
-    expect(data.events.rows.map((r) => [r.id, r.name])).toEqual([[10, "PlayerJump"]]);
-    expect(data.events.summary).toBe("1 event instance");
-    const view = RowsTableView({ title: "Event instances", label: "events", columns: EVENT_COLUMNS, data: data.events, rowKey: (r) => r.id, cells: eventCells, grid: gridAt(0) });
-    expect(cellTexts(rowsOf(view)[0]!)).toEqual(["10", "PlayerJump", "0"]); // started after the keyframe: the stream carries no voice count (voiceTableModel)
+    const r = region(s, state);
+    expect(r.rows("events")).toEqual([["10", "PlayerJump", "0"]]); // started after the keyframe: the stream carries no voice count (voiceTableModel)
+    expect(r.summary("events")).toBe("1 event instance");
     s.close();
   });
 
@@ -363,8 +392,9 @@ describe("event and music rows", () => {
       { id: 7, segment: "Intro", state: "playing", pass: 2, position: "4:3.120", tempo: 120, pendingTo: "Loop", pendingTimeSec: 12.5 },
       { id: 8, segment: "Outro", state: "ending", pass: 1, position: "1:1.0", tempo: 90, pendingTo: null, pendingTimeSec: null },
     ]);
-    expect(musicCells(rows[0]!)).toEqual(["7", "Intro", "playing", "2", "4:3.120", "120", "to Loop at 12.50 s"]);
-    expect(musicCells(rows[1]!)).toEqual(["8", "Outro", "ending", "1", "1:1.0", "90", ""]);
+    const r = region(sourceOf({ events: new Map([[1, "Intro"], [2, "Loop"], [3, "Outro"]]) }), seekState(keyframe({ music })));
+    expect(r.rows("music")).toEqual([["7", "Intro", "playing", "2", "4:3.120", "120", "to Loop at 12.50 s"], ["8", "Outro", "ending", "1", "1:1.0", "90", ""]]);
+    expect(find(r.section("music"), (n) => n.props.role === "columnheader").map(text)).toEqual(["Instance", "Segment", "State", "Pass", "Bar:beat.tick", "Tempo", "Pending"]);
   });
 
   it("applies a musicTransition after the keyframe (the instance moves, its pending transition clears) and starts new instances", () => {
@@ -376,7 +406,6 @@ describe("event and music rows", () => {
 
   it("filters music rows by segment name", () => {
     expect(musicRows(seekState(keyframe({ music })), eventName, "out").map((r) => r.id)).toEqual([8]);
-    expect(MUSIC_COLUMNS.length).toBe(7);
   });
 });
 
@@ -389,8 +418,8 @@ describe("every empty state", () => {
     for (const kind of ["voices", "buses", "events", "music"] as const) {
       expect(tableEmptyText(kind, { ...base, ready: false })).toBe(TABLE_EMPTY.noCursor);
     }
-    const data = profilerTablesData({ summary: { names: { clips: new Map(), buses: new Map(), events: new Map() }, meta: {} }, truncated: false } as never, null, "");
-    expect([data.voices.empty, data.buses.empty, data.events.empty, data.music.empty]).toEqual([TABLE_EMPTY.noCursor, TABLE_EMPTY.noCursor, TABLE_EMPTY.noCursor, TABLE_EMPTY.noCursor]);
+    const r = region(sourceOf({}), null); // the region's own seek never answers
+    expect(["voices", "buses", "events", "music"].map(r.empty)).toEqual([TABLE_EMPTY.noCursor, TABLE_EMPTY.noCursor, TABLE_EMPTY.noCursor, TABLE_EMPTY.noCursor]);
   });
 
   it("has a text for each table with no rows", () => {
@@ -412,7 +441,7 @@ describe("every empty state", () => {
   });
 
   it("draws the empty text instead of a grid", () => {
-    const empty = VoiceTableView({ data: voiceData(seekState(keyframe())), grid: gridAt(0) });
+    const empty = voiceTable(voiceData(seekState(keyframe()))).tree();
     expect(find(empty, byClass("ptable-empty")).map(text)).toEqual(["No voices at the cursor"]);
     expect(rowsOf(empty)).toHaveLength(0);
     expect(find(empty, (n) => n.props.role === "grid")).toHaveLength(0);
@@ -431,30 +460,12 @@ describe("every empty state", () => {
 describe("keyboard focus moves through the rows", () => {
   const data = voiceData(thousand());
 
-  /** A tiny host: the grid state the stateful table keeps, driven by the view's own `onKey`. */
+  /** The rendered table, its keys pressed on the grid; the focus is the row that is the tab stop. */
   function host() {
-    const st = { scrollTop: 0, focus: 0 };
-    const grid = {
-      get scrollTop() { return st.scrollTop; },
-      get focus() { return st.focus; },
-      onScroll: (top: number) => { st.scrollTop = top; },
-      onKey: (key: string, prevent: () => void) => {
-        const next = navigate({ focus: st.focus, scrollTop: st.scrollTop }, key, data.rows.length);
-        if (!next) return;
-        prevent();
-        Object.assign(st, next);
-      },
-      onFocusRow: (i: number) => { st.focus = i; },
-    };
-    const render = () => VoiceTableView({ data, grid });
-    const press = (key: string): boolean => {
-      let prevented = false;
-      const grids = find(render(), (n) => n.props.role === "grid");
-      (grids[0]!.props.onKeyDown as (e: { key: string; preventDefault(): void }) => void)({ key, preventDefault: () => { prevented = true; } });
-      return prevented;
-    };
-    const focused = (): Node[] => rowsOf(render()).filter((r) => r.props.tabIndex === 0);
-    return { st, render, press, focused };
+    const t = voiceTable(data);
+    const focused = (): Node[] => rowsOf(t.tree()).filter((r) => r.props.tabIndex === 0);
+    const focus = (): number => focused()[0]!.props["data-index"] as number;
+    return { render: t.tree, press: t.press, focused, focus };
   }
 
   it("has one tab stop, the focused row, and moves it down and up one row per arrow key", () => {
@@ -463,7 +474,7 @@ describe("keyboard focus moves through the rows", () => {
     expect(h.press("ArrowDown")).toBe(true);
     expect(h.focused().map((r) => r.props["data-index"])).toEqual([1]);
     for (let i = 0; i < 29; i++) h.press("ArrowDown");
-    expect(h.st.focus).toBe(30);
+    expect(h.focus()).toBe(30);
     expect(h.focused().map((r) => r.props["data-index"])).toEqual([30]); // rendered: the window followed the focus
     expect(indices(h.render()).length).toBeLessThanOrEqual(MAX_RENDERED_ROWS);
     h.press("ArrowUp");
@@ -473,33 +484,39 @@ describe("keyboard focus moves through the rows", () => {
   it("pages, and jumps to the first and last row, keeping the focused row rendered", () => {
     const h = host();
     h.press("PageDown");
-    expect(h.st.focus).toBe(VIEWPORT_ROWS);
+    expect(h.focus()).toBe(VIEWPORT_ROWS);
     h.press("End");
     expect(h.focused().map((r) => r.props["data-index"])).toEqual([1023]);
     expect(indices(h.render()).at(-1)).toBe(1023);
     h.press("PageUp");
-    expect(h.st.focus).toBe(1023 - VIEWPORT_ROWS);
+    expect(h.focus()).toBe(1023 - VIEWPORT_ROWS);
     expect(h.focused()).toHaveLength(1);
     h.press("Home");
     expect(h.focused().map((r) => r.props["data-index"])).toEqual([0]);
-    expect(h.st.scrollTop).toBe(0);
+    expect(indices(h.render())[0]).toBe(0); // scrolled back to the top
   });
 
   it("leaves other keys to the browser", () => {
     const h = host();
     expect(h.press("a")).toBe(false);
     expect(h.press("Tab")).toBe(false);
-    expect(h.st.focus).toBe(0);
+    expect(h.focus()).toBe(0);
   });
 
   it("makes the scroll region the tab stop while the focused row is scrolled out of the window", () => {
-    const grid = (scrollTop: number): WindowedGridProps<VoiceRow>["scrollTop"] => scrollTop;
-    const region = (scrollTop: number) => find(VoiceTableView({ data, grid: gridAt(grid(scrollTop), 0) }), (n) => n.props["data-scroll"] === true)[0]!;
-    expect(region(0).props.tabIndex).toBe(-1); // row 0 is rendered and is the tab stop
-    expect(region(15_000).props.tabIndex).toBe(0); // row 0 is far above the window
+    const t = voiceTable(data);
+    const scroller = (tree: unknown) => find(tree, (n) => n.props["data-scroll"] === true)[0]!;
+    expect(scroller(t.scroll(0)).props.tabIndex).toBe(-1); // row 0 is rendered and is the tab stop
+    expect(scroller(t.scroll(15_000)).props.tabIndex).toBe(0); // row 0 is far above the window
   });
 
   it("focuses a row on click", () => {
+    const t = voiceTable(data);
+    (rowsOf(t.tree())[2]!.props.onClick as () => void)();
+    expect(rowsOf(t.tree()).filter((r) => r.props.tabIndex === 0).map((r) => r.props["data-index"])).toEqual([2]);
+  });
+
+  it("the grid reports a clicked row", () => {
     let focused = -1;
     const tree = WindowedGridView({ label: "t", columns: [{ key: "a", title: "A" }], rows: ["x", "y", "z"], rowKey: (r) => r, cells: (r) => [r], scrollTop: 0, focus: 0, onScroll: () => {}, onKey: () => {}, onFocusRow: (i) => { focused = i; } });
     const second = find(tree, byClass("pgrid-row"))[1]!;
@@ -511,24 +528,20 @@ describe("keyboard focus moves through the rows", () => {
 // ---- the filter input and the slot ----
 
 describe("the filter input and the slot", () => {
-  const source = { summary: { names: { clips: new Map(), buses: new Map(), events: new Map() }, meta: {} }, truncated: false } as never;
-  const data = profilerTablesData(source, seekState(keyframe()), "");
-
-  it("has a search input that reports what is typed", () => {
-    const typed: string[] = [];
-    const tree = ProfilerTablesView({ data, filter: "abc", onFilter: (t) => typed.push(t) });
-    const input = findShallow(tree, (n) => n.type === "input")[0]!;
-    expect(input.props.value).toBe("abc");
-    expect(input.props["aria-label"]).toBe("Filter tables by name");
-    (input.props.onInput as (e: unknown) => void)({ currentTarget: { value: "jump" } });
-    expect(typed).toEqual(["jump"]);
+  it("has a search input that shows what is typed", () => {
+    const r = region(sourceOf({}), seekState(keyframe()));
+    const input = () => find(r.tree(), (n) => n.type === "input")[0]!;
+    expect(input().props.value).toBe("");
+    expect(input().props["aria-label"]).toBe("Filter tables by name");
+    r.filter("jump");
+    expect(input().props.value).toBe("jump");
   });
 
   it("composes the voice, bus, event and music tables under the filter, in that order", () => {
-    const tree = ProfilerTablesView({ data, filter: "", onFilter: () => {} });
+    const tree = region(sourceOf({}), seekState(keyframe())).tree() as Node;
     const kids = (tree.props.children as unknown[]).filter(Boolean) as Node[];
-    expect(kids.map((k) => (typeof k.type === "string" ? k.type : (k.type as { name: string }).name))).toEqual(["label", "VoiceTable", "BusTable", "RowsTable", "RowsTable"]);
-    expect(kids.slice(3).map((k) => k.props.label)).toEqual(["events", "music"]);
+    expect(kids[0]!.type).toBe("label");
+    expect(find(tree, (n) => n.type === "section").map((n) => n.props["data-table"])).toEqual(["voices", "buses", "events", "music"]);
   });
 
   it("fits the profiler's `tables` slot", () => {

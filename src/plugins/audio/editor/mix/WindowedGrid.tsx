@@ -3,7 +3,7 @@
 // tall as the whole list, so scrolling moves the window and 1,024 voices cost 64 DOM rows at most. Keyboard: the arrow,
 // page, Home and End keys move the focused row (`navigate`), and the scroll follows it.
 //
-// `WindowedGridView` is a pure function of its props (the tests call it with chosen scroll offsets); `useGridState` is the
+// `WindowedGridView` is a pure function of its props; `useGridState` is the
 // small hook the stateful tables use to feed it.
 import type { JSX } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";

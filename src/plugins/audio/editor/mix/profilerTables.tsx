@@ -19,13 +19,13 @@ import { WindowedGridView, useGridState, type GridColumn } from "./WindowedGrid"
 import { busParents, busTableRows, musicRows, tableEmptyText, type MusicRow, type TableEmptyInput } from "./profilerTablesModel";
 import { eventRows, nameLookup, reconstructVoices, type EventRow } from "./voiceTableModel";
 
-export const EVENT_COLUMNS: readonly GridColumn[] = [
+const EVENT_COLUMNS: readonly GridColumn[] = [
   { key: "id", title: "Instance", width: "64px", align: "end" },
   { key: "name", title: "Event", width: "minmax(100px, 2fr)" },
   { key: "voices", title: "Voices", width: "56px", align: "end" },
 ];
 
-export const MUSIC_COLUMNS: readonly GridColumn[] = [
+const MUSIC_COLUMNS: readonly GridColumn[] = [
   { key: "id", title: "Instance", width: "64px", align: "end" },
   { key: "segment", title: "Segment", width: "minmax(100px, 1.6fr)" },
   { key: "state", title: "State", width: "96px" },
@@ -36,14 +36,14 @@ export const MUSIC_COLUMNS: readonly GridColumn[] = [
 ];
 
 /** A small table's data: the rows after the filter, the text above them and its empty state. */
-export interface RowsData<T> {
+interface RowsData<T> {
   rows: readonly T[];
   summary: string;
   empty: string | null;
 }
 
 /** Everything the region draws. */
-export interface ProfilerTablesData {
+interface ProfilerTablesData {
   voices: VoiceTableData;
   buses: BusTableData;
   events: RowsData<EventRow>;
@@ -62,7 +62,7 @@ function rowsData<T>(kind: "events" | "music", rows: readonly T[] | null, unfilt
 }
 
 /** The four tables at `seek` (null before a seek answered: each shows its "place the cursor" text), filtered by name. */
-export function profilerTablesData(source: Pick<ProfileSource, "summary" | "truncated">, seek: CaptureSeekState | null, filter: string, playing = false): ProfilerTablesData {
+function profilerTablesData(source: Pick<ProfileSource, "summary" | "truncated">, seek: CaptureSeekState | null, filter: string, playing = false): ProfilerTablesData {
   const names = nameLookup(source.summary.names);
   const ctx = { playing, truncated: source.truncated, beforeFirstKeyframe: seek !== null && seek.keyframe === null };
   const voices = voiceTableData(seek ? reconstructVoices(seek, names) : null, filter, { playing, truncated: ctx.truncated });
@@ -105,7 +105,7 @@ function RowsTable<T>({ title, label, columns, data, rowKey, cells }: {
 }
 
 /** The section of a small table as a pure function of its data and grid state. */
-export function RowsTableView<T>({ title, label, columns, data, rowKey, cells, grid }: {
+function RowsTableView<T>({ title, label, columns, data, rowKey, cells, grid }: {
   title: string;
   label: string;
   columns: readonly GridColumn[];
@@ -127,14 +127,14 @@ export function RowsTableView<T>({ title, label, columns, data, rowKey, cells, g
   );
 }
 
-export const eventCells = (r: EventRow): string[] => [String(r.id), r.name, String(r.voices)];
-export const musicCells = (r: MusicRow): string[] => [
+const eventCells = (r: EventRow): string[] => [String(r.id), r.name, String(r.voices)];
+const musicCells = (r: MusicRow): string[] => [
   String(r.id), r.segment, r.state, String(r.pass), r.position ?? "-", r.tempo === null ? "-" : String(r.tempo),
   r.pendingTo === null ? "" : r.pendingTimeSec === null || r.pendingTimeSec === 0 ? `to ${r.pendingTo}` : `to ${r.pendingTo} at ${r.pendingTimeSec.toFixed(2)} s`,
 ];
 
-/** The region as a pure function of its data and the filter text (the tests inspect this tree without rendering the tables). */
-export function ProfilerTablesView({ data, filter, onFilter }: { data: ProfilerTablesData; filter: string; onFilter(text: string): void }) {
+/** The region from its data and the filter text. */
+function ProfilerTablesView({ data, filter, onFilter }: { data: ProfilerTablesData; filter: string; onFilter(text: string): void }) {
   return (
     <div class="ptables" aria-label="Profiler tables">
       <label class="ptables-filter">
