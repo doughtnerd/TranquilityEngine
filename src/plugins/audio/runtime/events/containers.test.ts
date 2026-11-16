@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { eventKit, clip, ev } from "./eventTestKit";
 import { events, type EventInstance } from "./eventRuntime";
+import { endAudioSession } from "../testing";
 
 const kit = eventKit();
 const fake = kit.fake;
@@ -54,7 +55,7 @@ describe("random", () => {
     expect(first.filter((p) => p === "a.wav").length).toBeGreaterThan(0);
     expect(first).not.toContain("c.wav"); // weight 0 is never picked
     // The same seed on a fresh boot gives the same picks.
-    events()._reset();
+    endAudioSession();
     await kit.boot({ "w.audioevent.json": root() });
     expect(picks("w.audioevent.json", 200)).toEqual(first);
   });

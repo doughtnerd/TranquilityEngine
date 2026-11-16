@@ -1,12 +1,12 @@
 // ADR 0166 P5: a silent stem's ring returns at the voice's end; solo gain. Fake backend, as P1's loopback test.
 import { afterEach, describe, expect, it } from "vitest";
 import { setAudioBackend } from "../backend";
-import { makeFakeBackend, type FakeBackend, type FakeVoice } from "../testing";
+import { makeFakeBackend, type FakeBackend, type FakeVoice, endAudioSession } from "../testing";
 import type { EventInstance } from "../events/eventRuntime";
 import { parseSegmentNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
-import { _resetMusicPlayers, createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
-import { _resetSegmentRuns, createSegmentRun, pollPrimed, primeRun, routeGroupEvent, setSegmentClipSource, stampRun, type SegmentRun } from "./segmentRun";
-import { releaseSilentRing, setAudibleStems, soloStem, tickStems } from "./stems";
+import { createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
+import { createSegmentRun, pollPrimed, primeRun, routeGroupEvent, setSegmentClipSource, stampRun, type SegmentRun } from "./segmentRun";
+import { setAudibleStems, tickStems } from "./stems";
 
 function rig(): { b: FakeBackend; player: MusicPlayer; run: SegmentRun; f: MusicFrame; voices: FakeVoice[] } {
   const b = makeFakeBackend();
@@ -31,26 +31,24 @@ function rig(): { b: FakeBackend; player: MusicPlayer; run: SegmentRun; f: Music
 }
 
 afterEach(() => {
-  _resetMusicPlayers();
-  _resetSegmentRuns();
+  endAudioSession();
   setAudioBackend(null);
 });
 
 describe("stems (ADR 0166 P5)", () => {
   it("a silent stem's ring returns at the voice's end", () => {
     const { player, run, f, voices } = rig();
-    tickStems(player, f); // the player's clock for soloStem
-    soloStem(player, "drums", 0.5);
+    tickStems(player, f); // the player's clock for the solo
+    setAudibleStems(player, ["drums"], null, 0.5);
     const fades = voices.map((v) => v.events.filter((e) => e.kind === "fade"));
     expect(fades).toEqual([[{ kind: "fade", to: 1, seconds: 0.5 }], [{ kind: "fade", to: 0, seconds: 0.5 }], [{ kind: "fade", to: 0, seconds: 0.5 }]]);
     // Silent but the voice is still alive: nothing to release.
-    expect(releaseSilentRing(run.stems[1]!, { ...f, now: 2 })).toBe(false);
-    voices[1]!.end(); // the core reports the voice's end (memberFreed returns the ring)
-    // Before the fade ends (1.5) it is not yet silent; after, it is.
-    expect(releaseSilentRing(run.stems[1]!, { ...f, now: 1.2 })).toBe(false);
+    const bass = voices[1]!;
+    tickStems(player, { ...f, now: 2 });
+    expect(run.stems[1]!.voice).toBe(bass);
+    bass.end(); // the core reports the voice's end (memberFreed returns the ring)
     tickStems(player, { ...f, now: 2 });
     expect(run.stems[1]!.voice).toBeNull();
-    expect(releaseSilentRing(run.stems[1]!, { ...f, now: 3 })).toBe(false); // once
     expect(run.stems[0]!.voice).toBe(voices[0]);
     expect(run.stems[2]!.voice).toBe(voices[2]); // alive, so held
   });
@@ -77,9 +75,9 @@ describe("stems (ADR 0166 P5)", () => {
 
   it("clearing the solo brings every stem back to 1", () => {
     const { player, f, voices } = rig();
-    soloStem(player, "bass", 0.1);
+    setAudibleStems(player, ["bass"], null, 0.1);
     tickStems(player, { ...f, now: 2 });
-    soloStem(player, null, 0.2);
+    setAudibleStems(player, null, null, 0.2);
     for (const v of voices) expect(v.events.filter((e) => e.kind === "fade").pop()).toMatchObject({ to: 1, seconds: 0.2 });
   });
 });

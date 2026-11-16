@@ -31,6 +31,7 @@ import { createClipRegistry } from "./clipRegistry";
 import { AudioHost, presetFromSettings } from "./context";
 import { createCoreBackend, type CoreBackend } from "./coreBackend";
 import { Unlock, type UnlockContext } from "./unlock";
+import { endAudioSession } from "../testing";
 
 const RATE = 48_000;
 const QUANTUM = 128;
@@ -52,7 +53,7 @@ const SLOT = { Master: 0, Music: 1, SFX: 2, Voice: 3 } as const;
 
 const hosts: AudioHost[] = [];
 afterEach(async () => {
-  events()._reset();
+  endAudioSession();
   setAudioBackend(null);
   for (const host of hosts.splice(0)) await host.close();
   vi.restoreAllMocks();
@@ -127,7 +128,7 @@ async function rig() {
   });
   mixer.configure(settings);
   const backend: CoreBackend = createCoreBackend(host, { clips, clock: loop.clock, mixer });
-  events()._reset();
+  endAudioSession();
   setAudioBackend(backend);
   const settle = async () => {
     for (let k = 0; k < 8; k++) await Promise.resolve();

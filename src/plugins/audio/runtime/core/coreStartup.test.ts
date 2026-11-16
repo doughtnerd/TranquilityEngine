@@ -2,8 +2,8 @@
 // loaded waits as a locked voice and moves onto the core when it registers; only a real failure falls back to
 // "babylon", with one warning, for the page.
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
-import { audioBackend, isPendingCoreBackend, mixer, noteCoreUnavailable, registerCoreBackend, registerDefaultBackend, resetCoreFallbackState, setAudioBackend, type PlayRequest } from "../backend";
-import { makeFakeBackend, type FakeBackend } from "../testing";
+import { audioBackend, isPendingCoreBackend, mixer, noteCoreUnavailable, registerCoreBackend, registerDefaultBackend, setAudioBackend, type PlayRequest } from "../backend";
+import { makeFakeBackend, type FakeBackend, endAudioSession } from "../testing";
 
 const loop = (): PlayRequest => ({ path: "music.ogg", url: "/music.ogg", loop: true, stream: false, bus: "Master", priority: 128 });
 const oneShot = (): PlayRequest => ({ path: "flap.wav", url: "/flap.wav", loop: false, stream: false, bus: "Master", oneShot: true });
@@ -17,7 +17,7 @@ describe("audio.backend core: start-up order", () => {
 
   beforeEach(() => {
     setAudioBackend(null);
-    resetCoreFallbackState();
+    endAudioSession();
     savedKind = mixer.audioSettings.backend;
     warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     fallback = makeFakeBackend();
@@ -29,7 +29,7 @@ describe("audio.backend core: start-up order", () => {
     undoCore?.();
     undoCore = null;
     setAudioBackend(null);
-    resetCoreFallbackState();
+    endAudioSession();
     mixer.audioSettings.backend = savedKind;
     warn.mockRestore();
     vi.restoreAllMocks();

@@ -15,12 +15,14 @@ import { parseAudioEvent } from "../audio/eventFormat";
 import { isMusicContainer, type MusicNode, type SegmentNode } from "../audio/musicFormat";
 import { validateMusic, type MusicClipFacts } from "../audio/musicValidate";
 import { setAudioBackend } from "../../plugins/audio/runtime/backend";
-import { makeFakeBackend } from "../../plugins/audio/runtime/testing";
+import { makeFakeBackend, endAudioSession } from "../../plugins/audio/runtime/testing";
 import { Audio } from "../../plugins/audio/runtime";
-import { calibrationSettled, initCalibration, resetCalibrationForTests, setCalibration } from "../../plugins/audio/runtime/music/calibration";
-import { _resetMusicPlayers } from "../../plugins/audio/runtime/music/musicSystem";
+import { initCalibration, setCalibration } from "../../plugins/audio/runtime/music/calibration";
 import { events } from "../../plugins/audio/runtime/events/eventRuntime";
 import type { RhythmLab, RhythmState, RhythmTap } from "../../../samples/sound-lab/scripts/behaviors/RhythmLab";
+
+/** Lets the calibration's storage read or write land (a few promise turns). */
+const settle = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
 
 const SAMPLE = fileURLToPath(new URL("../../../samples/sound-lab/", import.meta.url));
 const read = (path: string): Buffer => readFileSync(`${SAMPLE}${path}`);
@@ -125,8 +127,7 @@ beforeEach(() => {
   fake.ready = true;
   setAudioBackend(fake);
   events().now = () => clock.time;
-  events()._reset();
-  resetCalibrationForTests();
+  endAudioSession();
   warnings.length = 0;
   errors.length = 0;
   vi.spyOn(console, "warn").mockImplementation((...a: unknown[]) => void warnings.push(a.map(String).join(" ")));
@@ -138,10 +139,9 @@ afterEach(async () => {
   engine = null;
   Assets.clearSources();
   vi.restoreAllMocks();
-  _resetMusicPlayers();
-  events()._reset();
+  endAudioSession();
   setCalibration(0);
-  await calibrationSettled();
+  await settle();
   setAudioBackend(null);
 });
 
@@ -187,15 +187,14 @@ describe("the rhythm page's script", () => {
     expect(s.result?.offsetMs).toBeLessThan(44);
     expect(Audio.calibration * 1000).toBeCloseTo(s.result!.offsetMs, 6);
     expect(s.calibrationMs).toBeCloseTo(s.result!.offsetMs, 6);
-    // Stored per output device (the default one here), and read back after a "reload" (memory forgotten, Storage kept).
-    await calibrationSettled();
+    // Stored per output device (the default one here), and read back by the device's start (a reload with memory gone is
+    // `music/calibration.test.ts`'s, on a fresh module).
+    await settle();
     const stored = await Storage.load<{ seconds: number }>("audio.calibration.default", "settings");
     expect(stored?.seconds).toBeCloseTo(Audio.calibration, 9);
     const before = Audio.calibration;
-    resetCalibrationForTests();
-    expect(Audio.calibration).toBe(0);
     await initCalibration("");
-    await calibrationSettled();
+    await settle();
     expect(Audio.calibration).toBeCloseTo(before, 9);
     expect(Audio.calibrationStale).toBe(false);
     expect(errors).toEqual([]);

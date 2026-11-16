@@ -118,7 +118,7 @@ function enterText(enter: TransitionRule["enter"]): string {
 }
 
 /** R1: the index of a container's `transitions` (cached per asset and container id). */
-export function ruleIndexOf(container: MusicNodeRef): RuleIndex {
+function ruleIndexOf(container: MusicNodeRef): RuleIndex {
   const transitions = isMusicContainer(container) ? (container as MusicContainerNode).transitions : EMPTY_RULES;
   let index = indexCache.get(transitions);
   if (!index || index.container !== container.id) {

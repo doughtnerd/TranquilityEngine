@@ -8,19 +8,18 @@ import { defaultAudioSettings } from "../../../../engine/audio/settings";
 import { parseSegmentNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
 import type { EventInstance } from "../events/eventRuntime";
 import { setAudioBackend, type AudioBackend } from "../backend";
-import { makeFakeBackend } from "../testing";
+import { makeFakeBackend, endAudioSession } from "../testing";
 import { Audio } from "../Audio";
 import { audioLatency, rhythmModeSetting } from "./calibration";
-import { _resetMusicPlayers, createMusicPlayer, type MusicPlayer } from "./musicSystem";
-import { _resetMusicBackground, recoverGroups, updateBeatHolds } from "./background";
-import { createBeatState } from "./beatClock";
+import { createMusicPlayer, type MusicPlayer } from "./musicSystem";
+import { recoverGroups, updateBeatHolds } from "./background";
+import { seatBeats } from "./beatClock";
 import type { SegmentRun } from "./segmentRun";
 
 const pageSettings = mixer.audioSettings;
 afterEach(() => {
   mixer.configure(pageSettings);
-  _resetMusicPlayers();
-  _resetMusicBackground();
+  endAudioSession();
 });
 
 const rhythm = (on: boolean) => mixer.configure({ ...defaultAudioSettings(), rhythmMode: on });
@@ -78,7 +77,7 @@ describe("holding beat callbacks through a recovery (updateBeatHolds, architectu
   let group = 3;
   function player(): MusicPlayer {
     const p = createMusicPlayer({ group: group++, world: 1, path: "m.audioevent", asset: { bus: "Music", volume: 1 } } as unknown as EventInstance, segment());
-    p.beats = createBeatState();
+    seatBeats(p, 0); // the beat state, seated at 0
     p.run = { node: segment() } as unknown as SegmentRun;
     p.state = "playing";
     return p;

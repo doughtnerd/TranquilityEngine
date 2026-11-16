@@ -14,7 +14,7 @@
 // than reproduce the late case.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Assets, Engine, SceneManager } from "../../../../myco";
-import { mixer as globalMixer, registerCoreBackend, resetCoreFallbackState, setAudioBackend } from "../backend";
+import { mixer as globalMixer, registerCoreBackend, setAudioBackend } from "../backend";
 import { Audio } from "../index";
 import { createClipRegistry } from "../core/clipRegistry";
 import { fakeDecoder } from "../core/fakeDecoder";
@@ -24,6 +24,7 @@ import { AUDIO_SYSTEMS } from "../audioSystem";
 import { musicPlayers } from "../music/musicSystem";
 import { QUANTIZED_RAMP_SECONDS } from "./automation";
 import { events } from "./eventRuntime";
+import { endAudioSession } from "../testing";
 
 const RATE = 48_000;
 const BEAT = RATE / 2;
@@ -61,16 +62,15 @@ const INTENSITY = {
 let undo: (() => void) | null = null;
 beforeEach(() => {
   setAudioBackend(null);
-  resetCoreFallbackState();
-  events()._reset();
+  endAudioSession();
   vi.spyOn(console, "warn").mockImplementation(() => {});
 });
 afterEach(() => {
   undo?.();
   undo = null;
-  events()._reset();
+  endAudioSession();
   setAudioBackend(null);
-  resetCoreFallbackState();
+  endAudioSession();
   vi.restoreAllMocks();
 });
 

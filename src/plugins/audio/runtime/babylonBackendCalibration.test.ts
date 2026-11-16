@@ -5,7 +5,10 @@ import { parseAudioSettings } from "../../../engine/audio/settings";
 import { MemoryStorage, Storage } from "../../../engine/platform/Storage";
 import { babylonMock, makeFakeContext } from "../testing/babylonMocks";
 import { BabylonBackend } from "./babylonBackend";
-import { calibrationSettled, getCalibration, isCalibrationStale, resetCalibrationForTests, setCalibration } from "./music/calibration";
+import { getCalibration, isCalibrationStale, setCalibration } from "./music/calibration";
+
+/** Lets the calibration's storage read or write land (a few promise turns). */
+const settle = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
 
 vi.mock("@babylonjs/core/AudioV2/webAudio/webAudioEngine", async () => (await import("../testing/babylonMocks")).webAudioEngineModule);
 
@@ -43,7 +46,7 @@ async function start(ctx: ReturnType<typeof sinkContext>): Promise<BabylonBacken
   // The context is created lazily, on the first sound.
   backend.music!.admitGroup({ instance: 1, group: 1, members: [{ stem: "a", play: { path: "a.wav", url: "asset://a.wav", loop: false, stream: false, bus: "Music", group: 1 }, startFrame: 0, loop: false }] });
   for (let i = 0; i < 6; i++) await new Promise<void>((r) => setTimeout(r, 0));
-  await calibrationSettled();
+  await settle();
   return backend;
 }
 
@@ -51,7 +54,6 @@ beforeEach(async () => {
   babylonMock.reset();
   mixer.configure(parseAudioSettings({ buses: [{ name: "Master" }, { name: "Music", parent: "Master" }] }).settings);
   Storage.use(new MemoryStorage());
-  resetCalibrationForTests();
   media = new EventTarget();
   vi.stubGlobal("navigator", { mediaDevices: media });
   await Storage.save("audio.calibration.sinkA", { seconds: 0.045 }, "settings");
@@ -74,7 +76,7 @@ describe("Babylon fallback: saved calibration per output device", () => {
 
   it("leaves the value alone at start when the sink has none stored", async () => {
     setCalibration(0.01);
-    await calibrationSettled();
+    await settle();
     await start(sinkContext("sinkNew"));
     expect(getCalibration()).toBe(0.01);
   });
@@ -84,7 +86,7 @@ describe("Babylon fallback: saved calibration per output device", () => {
     await start(ctx);
     ctx.sinkId = "sinkB";
     ctx.fire("sinkchange");
-    await calibrationSettled();
+    await settle();
     expect(getCalibration()).toBe(-0.02);
     expect(isCalibrationStale()).toBe(false);
   });
@@ -94,13 +96,13 @@ describe("Babylon fallback: saved calibration per output device", () => {
     await start(ctx);
     ctx.sinkId = "sinkNew";
     ctx.fire("sinkchange");
-    await calibrationSettled();
+    await settle();
     expect(getCalibration()).toBe(0.045);
     expect(isCalibrationStale()).toBe(true);
     setCalibration(0.045); // recalibrated
     expect(isCalibrationStale()).toBe(false);
     media.dispatchEvent(new Event("devicechange"));
-    await calibrationSettled();
+    await settle();
     expect(isCalibrationStale()).toBe(true);
   });
 
@@ -113,7 +115,7 @@ describe("Babylon fallback: saved calibration per output device", () => {
     ctx.sinkId = "sinkB";
     ctx.fire("sinkchange");
     media.dispatchEvent(new Event("devicechange"));
-    await calibrationSettled();
+    await settle();
     expect(getCalibration()).toBe(0.045);
     expect(isCalibrationStale()).toBe(false);
   });

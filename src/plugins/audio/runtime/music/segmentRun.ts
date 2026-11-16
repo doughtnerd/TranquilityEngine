@@ -17,6 +17,7 @@ import type { EventOptions } from "../events/eventRuntime";
 import { audioBackend } from "../backend";
 import { applySlip, firstLoopOf, type MemberLoop } from "./anchors";
 import { stopLoopTails } from "./loopTail";
+import { CyclicIdCounter } from "./cyclicIds";
 
 /** The highest music group id (§3.2: ids 1..1023). */
 const MAX_MUSIC_GROUP_ID = 1023;
@@ -238,17 +239,9 @@ function loopDecodedMembers(run: SegmentRun, f: MusicFrame): void {
 
 /** Runs holding a group id, by id. An id is live from admission until cancel, abandon or every member's end. */
 const live = new Map<number, SegmentRun>();
-let counter = 1;
-
-/** P1: a free group id from the counter over 1..1023 that skips live ids; 0 when every id is live. */
-export function nextGroupId(isLive: (id: number) => boolean): number {
-  for (let n = 0; n < MAX_MUSIC_GROUP_ID; n++) {
-    const id = counter;
-    counter = counter >= MAX_MUSIC_GROUP_ID ? 1 : counter + 1;
-    if (!isLive(id)) return id;
-  }
-  return 0;
-}
+/** P1: free group ids from a counter over 1..1023 that skips live ids (0 when every id is live). */
+const groupIds = new CyclicIdCounter(MAX_MUSIC_GROUP_ID);
+const isLiveGroup = (id: number): boolean => live.has(id);
 
 /** @internal The live run of `group`, or undefined. */
 export function liveRun(group: number): SegmentRun | undefined {
@@ -276,7 +269,7 @@ function protectedPaths(player: MusicPlayer, extra: SegmentRun): string[] {
 export function primeRun(player: MusicPlayer, run: SegmentRun, f: MusicFrame): boolean {
   const music = f.music;
   if (!music || run.state !== "new") return false;
-  const group = nextGroupId((id) => live.has(id));
+  const group = groupIds.next(isLiveGroup);
   if (group === 0) return false;
   run.group = group;
   const req = groupRequest(player, run);
@@ -428,9 +421,3 @@ export function routeGroupEvent(e: MusicGroupEvent, sampleRate?: number): void {
   }
 }
 
-/** @internal Tests: forget every live run and group id, reset the id counter to 1 and the clip source to the default. */
-export function _resetSegmentRuns(): void {
-  clipSource = DEFAULT_CLIP_SOURCE;
-  live.clear();
-  counter = 1;
-}

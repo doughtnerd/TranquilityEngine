@@ -8,7 +8,7 @@
  * item is always primed ahead (a long run never shows an unprimed start).
  *
  * **Model.** A playlist has one cursor per nested playlist (the root's first), each an order over its children. The
- * next leaf segment is found by running the cursors on a *copy* (`computeNext`), so `peekNext` never moves anything and
+ * next leaf segment is found by running the cursors on a *copy* (`computeNext`), so a look ahead never moves anything and
  * an advance simply adopts the copy: the peek and the advance cannot disagree. A nested playlist starts a fresh cursor,
  * seeded from its parent's seed and visit count, every time it is entered (so `plays` replays it from the top).
  *
@@ -166,10 +166,6 @@ function advanceOf(state: PlaylistState): Advance {
   return (state.peek ??= computeNext(state));
 }
 
-/** P4: the item after the playing one (descending into nested containers), or null at the end of the last round. */
-export function peekNext(state: PlaylistState): MusicNodeRef | null {
-  return advanceOf(state).leaf;
-}
 
 /** Make `advance` the committed state: its leaf is now (or was, when skipped) the current item. */
 function commit(state: PlaylistState, advance: Advance, run: SegmentRun | null): void {

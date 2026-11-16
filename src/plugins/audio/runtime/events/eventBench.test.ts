@@ -19,12 +19,11 @@ import { mixer as globalMixer } from "../../../../engine/audio/mixer";
 import { setAudioBackend, type AudioBackend } from "../backend";
 import { Audio } from "../index";
 import { events } from "./eventRuntime";
-import { _resetHandleWarningsForTests } from "../core/handle";
 import { fakeDecoder, type PlanarClip } from "../core/fakeDecoder";
 import { createClipRegistry } from "../core/clipRegistry";
 import type { AudioHost, CoreLink } from "../core/context";
 import { CoreBackend, type CoreBackendHost } from "../core/coreBackend";
-import { makeFakeBackend } from "../testing";
+import { makeFakeBackend, endAudioSession } from "../testing";
 
 const FULL = process.env.AUDIO_BENCH === "1";
 const ITERS = Number(process.env.AUDIO_BENCH_ITERS) || (FULL ? 20_000 : 200);
@@ -91,7 +90,7 @@ const closers: (() => void)[] = [];
 afterEach(() => {
   for (const c of closers.splice(0)) c();
   vi.restoreAllMocks();
-  events()._reset();
+  endAudioSession();
   setAudioBackend(null);
 });
 
@@ -100,7 +99,7 @@ async function fakeRig(): Promise<Rig> {
   const fake = makeFakeBackend();
   fake.ready = true;
   setAudioBackend(fake);
-  events()._reset();
+  endAudioSession();
   const calls = () => fake.voices.reduce((n, v) => n + v.events.length, 0);
   return {
     name: "fake",
@@ -139,7 +138,7 @@ async function coreRig(): Promise<Rig | null> {
     auto[key] = (...a: unknown[]) => { sink++; return orig(...a); };
   }
   setAudioBackend(backend);
-  events()._reset();
+  endAudioSession();
   return {
     name: "core",
     backend,
@@ -215,7 +214,7 @@ describe("event runtime allocations per play (null backend)", () => {
       automation: { value: sink },
     }) as AudioBackend;
     setAudioBackend(backend);
-    events()._reset();
+    endAudioSession();
     const path = name === "clip" ? "a.wav" : `${name}.audioevent.json`;
     const op = () => { Audio.play(path).stop(0); };
     for (let i = 0; i < 2_000; i++) op();
@@ -253,7 +252,7 @@ describe.each(rigs)("event cost on main: %s backend", (label, make) => {
     const r = await make();
     if (!r) return ctx.skip();
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    _resetHandleWarningsForTests();
+    endAudioSession();
     // Let the clips load (the core backend queues a voice until its clip is decoded).
     const keeper = Audio.play("keep.audioevent.json"); // held: keeps the four clips resident (a clip with no voice is released)
     for (let k = 0; k < 40; k++) await r.frame();
@@ -357,7 +356,7 @@ describe.each(rigs)("event cost on main: %s backend", (label, make) => {
     const r = await make();
     if (!r) return ctx.skip();
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    _resetHandleWarningsForTests();
+    endAudioSession();
     const keeper = Audio.play("keep.audioevent.json"); // held: keeps the four clips resident (a clip with no voice is released)
     for (let k = 0; k < 40; k++) await r.frame();
     const handles = [];

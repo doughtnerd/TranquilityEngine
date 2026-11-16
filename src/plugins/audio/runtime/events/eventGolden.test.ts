@@ -16,12 +16,11 @@ import { Assets, Engine, SceneManager } from "../../../../myco";
 import { mixer } from "../../../../engine/audio/mixer";
 import { setAudioBackend } from "../backend";
 import { Audio } from "../index";
-import { _resetHandleWarningsForTests } from "../core/handle";
 import { createClipRegistry } from "../core/clipRegistry";
 import { fakeDecoder, type PlanarClip } from "../core/fakeDecoder";
 import type { AudioHost } from "../core/context";
 import { CoreBackend, type CoreBackendHost } from "../core/coreBackend";
-import { createLoopbackHost } from "../testing";
+import { createLoopbackHost, endAudioSession } from "../testing";
 import { events } from "./eventRuntime";
 import type { AudioEventHandle } from "../backend";
 
@@ -226,8 +225,7 @@ function explain(want: Golden, got: Golden): string {
 async function capture(name: string): Promise<Golden | null> {
   const scene = SCENES[name]!;
   vi.spyOn(console, "warn").mockImplementation(() => {});
-  _resetHandleWarningsForTests();
-  events()._reset();
+  endAudioSession();
   await boot(scene.assets);
   const r = await rig();
   if (!r) return null;
@@ -240,7 +238,7 @@ async function capture(name: string): Promise<Golden | null> {
 }
 
 afterEach(() => {
-  events()._reset();
+  endAudioSession();
   setAudioBackend(null);
   vi.restoreAllMocks();
 });
@@ -277,7 +275,7 @@ describe("event goldens (the real core on the loopback host)", () => {
 
   it("a render is repeatable within one process", { timeout: 60_000 }, async () => {
     const a = await capture("event-continuous");
-    events()._reset();
+    endAudioSession();
     setAudioBackend(null);
     const b = await capture("event-continuous");
     expect(a && b && a.sha256).toBe(b && b.sha256);

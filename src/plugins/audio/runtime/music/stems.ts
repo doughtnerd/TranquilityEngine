@@ -48,7 +48,7 @@ function gainOf(stem: StemRun): StemGain {
 const silentAt = new WeakMap<StemRun, number>();
 /**
  * Per-player solo: the audible tracks (null: every stem sounds), the segment the set is for (null: every segment) and the
- * stems it has been applied to. `soloStem` is the one-track case; `setAudibleStems` (editor audition) the general one.
+ * stems it has been applied to (`setAudibleStems`, the editor's audition; a solo is the one-track set).
  */
 interface SoloState { audible: readonly string[] | null; segment: string | null; applied: WeakSet<StemRun> }
 const solos = new WeakMap<MusicPlayer, SoloState>();
@@ -71,7 +71,7 @@ function voiceAlive(stem: StemRun): boolean {
  * drops the run's reference to the dead voice, once, for a streamed stem that was silent. Audible stems and voices still
  * alive are untouched.
  */
-export function releaseSilentRing(stem: StemRun, f: MusicFrame): boolean {
+function releaseSilentRing(stem: StemRun, f: MusicFrame): boolean {
   if (!stem.streamed || stem.voice === null) return false;
   const at = silentAt.get(stem);
   if (at === undefined || f.now < at || voiceAlive(stem)) return false;
@@ -105,15 +105,11 @@ function liveRuns(player: MusicPlayer): SegmentRun[] {
   return out;
 }
 
-/** P5: solo one stem (others to 0 with a fade), or clear the solo with null. */
-export function soloStem(player: MusicPlayer, track: string | null, fadeSeconds: number): void {
-  setAudibleStems(player, track === null ? null : [track], null, fadeSeconds);
-}
 
 /**
  * @internal Editor audition (F-14): only the stems named in `audible` sound (null: all do), in `segment` only (null: every
  * segment), with a `fadeSeconds` fade. Solo and mute both reduce to a set. Stem gain composes as `auto x solo` like
- * `soloStem`, so nothing is written to the event; a segment stamped later takes the set at once.
+ * before, so nothing is written to the event; a segment stamped later takes the set at once.
  */
 export function setAudibleStems(player: MusicPlayer, audible: readonly string[] | null, segment: string | null, fadeSeconds: number): void {
   const seconds = Math.max(0, Number.isFinite(fadeSeconds) ? fadeSeconds : 0);
@@ -122,7 +118,7 @@ export function setAudibleStems(player: MusicPlayer, audible: readonly string[] 
   for (const run of liveRuns(player)) applySolo(run, state, seconds, lastNow.get(player) ?? 0);
 }
 
-/** The heard time of the player's last tick (`soloStem` has no frame; solo is audition-grade, so one tick stale is fine). */
+/** The heard time of the player's last tick (`setAudibleStems` has no frame; solo is audition-grade, so one tick stale is fine). */
 const lastNow = new WeakMap<MusicPlayer, number>();
 
 function applySolo(run: SegmentRun, state: SoloState, seconds: number, now: number): void {

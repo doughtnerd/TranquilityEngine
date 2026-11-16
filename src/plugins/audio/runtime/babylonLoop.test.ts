@@ -6,7 +6,7 @@ import { parseAudioSettings } from "../../../engine/audio/settings";
 import { babylonMock, makeFakeContext, type MockSound } from "../testing/babylonMocks";
 import { setAudioBackend, type PlayRequest } from "./backend";
 import { BabylonBackend } from "./babylonBackend";
-import { _resetHandleWarningsForTests } from "./core/handle";
+import { endAudioSession } from "./testing";
 
 vi.mock("@babylonjs/core/AudioV2/webAudio/webAudioEngine", async () => (await import("../testing/babylonMocks")).webAudioEngineModule);
 
@@ -29,7 +29,7 @@ function make(): BabylonBackend {
 
 beforeEach(() => {
   babylonMock.reset();
-  _resetHandleWarningsForTests();
+  endAudioSession();
   mixer.configure(parseAudioSettings({ buses: [{ name: "Master" }] }).settings);
 });
 afterEach(() => {

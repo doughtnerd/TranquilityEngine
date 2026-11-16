@@ -5,17 +5,16 @@
 // planned heard time exactly, and every member starts at the run's file frame.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { setAudioBackend } from "../backend";
-import { makeFakeBackend, type FakeBackend } from "../testing";
+import { makeFakeBackend, type FakeBackend, endAudioSession } from "../testing";
 import type { EventInstance } from "../events/eventRuntime";
 import { parseSegmentNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
 import type { MusicClipFacts } from "../../../../engine/audio/musicValidate";
-import { _resetMusicPlayers, createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
+import { createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
+import { CyclicIdCounter } from "./cyclicIds";
 import {
-  _resetSegmentRuns,
   cancelRun,
   createSegmentRun,
   groupRequest,
-  nextGroupId,
   pollPrimed,
   primeRun,
   routeGroupEvent,
@@ -65,8 +64,7 @@ function rig(): { b: FakeBackend; player: MusicPlayer; node: SegmentNode; f: Mus
 }
 
 afterEach(() => {
-  _resetMusicPlayers();
-  _resetSegmentRuns();
+  endAudioSession();
   setAudioBackend(null);
   vi.restoreAllMocks();
 });
@@ -182,22 +180,21 @@ describe("SegmentRun on the fake backend (ADR 0166 P1, L-P1a)", () => {
     });
   });
 
-  it("nextGroupId counts over 1..1023, skips live ids, wraps, and gives 0 when every id is live", () => {
+  it("the group ids count over 1..1023, skip live ids, wrap, and give 0 when every id is live", () => {
+    const ids = new CyclicIdCounter(MAX_MUSIC_GROUP_ID);
+    const nextGroupId = (isLive: (id: number) => boolean): number => ids.next(isLive);
     const none = () => false;
-    _resetSegmentRuns();
     expect(nextGroupId(none)).toBe(1);
     expect(nextGroupId(none)).toBe(2);
     expect(nextGroupId((id) => id === 3)).toBe(4);
 
     // Walk the counter to the top of the range, then it wraps to 1.
-    _resetSegmentRuns();
     let last = 0;
-    for (let i = 0; i < MAX_MUSIC_GROUP_ID; i++) last = nextGroupId(none);
+    for (let id = 5; id <= MAX_MUSIC_GROUP_ID; id++) last = nextGroupId(none);
     expect(last).toBe(MAX_MUSIC_GROUP_ID);
     expect(nextGroupId(none)).toBe(1);
 
     // After the wrap a live id 1 is skipped.
-    _resetSegmentRuns();
     for (let i = 0; i < MAX_MUSIC_GROUP_ID; i++) nextGroupId(none);
     expect(nextGroupId((id) => id === 1)).toBe(2);
 

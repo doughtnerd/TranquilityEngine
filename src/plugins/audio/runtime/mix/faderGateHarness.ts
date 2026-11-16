@@ -25,6 +25,7 @@ import { createClipRegistry } from "../core/clipRegistry";
 import { AudioHost, presetFromSettings } from "../core/context";
 import { createCoreBackend, type CoreBackend } from "../core/coreBackend";
 import { Unlock, type UnlockContext } from "../core/unlock";
+import { endAudioSession } from "../testing";
 
 export const RATE = 48_000;
 export const QUANTUM = 128;
@@ -109,7 +110,7 @@ async function build() {
     sampleRate: RATE,
     destination: {},
     resume: () => Promise.resolve(),
-    close: () => {
+    close: async () => {
       ctx.state = "closed";
       return Promise.resolve();
     },
@@ -152,7 +153,7 @@ async function build() {
   });
   mixer.configure(settings);
   const backend: CoreBackend = createCoreBackend(host, { clips, clock: loop.clock, mixer });
-  events()._reset();
+  endAudioSession();
   setAudioBackend(backend);
   return {
     loop,
@@ -254,7 +255,7 @@ export async function runFaderGate(options: GateOptions): Promise<DragResult[] |
     let t = e0;
     for (let i = 1; i <= n; i++) {
       const v = volume + ((target - volume) * i) / n;
-      at(t, () => {
+      at(t, async () => {
         mixer.apply({ op: "setBus", bus: "Voice", key: "volume", value: v });
         if (preview) backend.flushNow();
       });
@@ -286,7 +287,7 @@ export async function runFaderGate(options: GateOptions): Promise<DragResult[] |
   }
   backend.dispose();
   setAudioBackend(null);
-  events()._reset();
+  endAudioSession();
   await host.close();
   return results;
 }

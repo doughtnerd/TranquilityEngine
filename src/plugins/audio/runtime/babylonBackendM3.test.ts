@@ -17,9 +17,9 @@ import { AudioReverbZone } from "./AudioReverbZone";
 import { babylonMock, makeFakeContext, type FakeContext, type MockEngine, type MockSound } from "../testing/babylonMocks";
 import { setAudioBackend, type PlayRequest } from "./backend";
 import { BabylonBackend } from "./babylonBackend";
-import { _resetHandleWarningsForTests } from "./core/handle";
 import { voiceGen } from "./core/ids";
 import { isSpatialPassHost, SpatialViewFlag } from "./core/spatial";
+import { endAudioSession } from "./testing";
 
 vi.mock("@babylonjs/core/AudioV2/webAudio/webAudioEngine", async () => (await import("../testing/babylonMocks")).webAudioEngineModule);
 
@@ -85,7 +85,7 @@ const warnings = (): string[] => warn.mock.calls.map((c: unknown[]) => String(c[
 beforeEach(() => {
   babylonMock.reset();
   mixer.configure(parseAudioSettings({ buses: [{ name: "Master" }, { name: "SFX", parent: "Master" }] }).settings);
-  _resetHandleWarningsForTests();
+  endAudioSession();
   Assets.clearSources();
   Assets.addSource(Assets.fromObject({ "s.json": { format: "myco.scene@1", nodes: [] } }));
   warn = vi.spyOn(console, "warn").mockImplementation(() => {});

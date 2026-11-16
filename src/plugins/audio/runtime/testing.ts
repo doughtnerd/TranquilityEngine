@@ -32,6 +32,7 @@ import type { HostClock } from "./core/hostClock";
 import { QUANTUM_FRAMES, type StatusBlock } from "./wire.generated";
 import { DEFAULT_LIMITER_LOOKAHEAD_MS } from "../../../engine/audio/settings";
 import { CoreDriver, instantiateCore, type CoreInstance, type CorePreset } from "./worklet/coreDriver";
+import { notifyEngineLifecycle } from "../../../engine/core/engineLifecycle";
 
 /** The controls a test has over a fake clock. */
 export interface FakeHostClock extends HostClock {
@@ -554,6 +555,18 @@ export function makeFakeZoneIrService(): FakeZoneIrService {
     },
   };
   return service;
+}
+
+// --- The audio session ------------------------------------------------------------------------------------------
+
+/**
+ * Ends the audio session as a game's exit does (ADR 0218): the Engines' lifecycle reports a game Engine disposed, so every
+ * listener of the release forgets the project's audio state (the event runtime's instances and groups, the music players,
+ * the files' loop points, the warn-once keys, the core fallback's warning, the capture). Call it between tests instead of
+ * resetting modules by hand. Nothing else about an Engine happens (no mixer reconfigure), so a rig may call it at any point.
+ */
+export function endAudioSession(): void {
+  notifyEngineLifecycle("disposed", "runtime");
 }
 
 // --- The loopback host ----------------------------------------------------------------------------------------

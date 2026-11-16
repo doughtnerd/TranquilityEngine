@@ -20,7 +20,7 @@ import "../../../../../samples/sound-lab/scripts/behaviors/PassBy";
 import "../../../../../samples/sound-lab/scripts/behaviors/SceneSwitch";
 import "../../../../../samples/sound-lab/scripts/behaviors/Toggle";
 import { Walker } from "../../../../../samples/sound-lab/scripts/behaviors/Walker";
-import { mixer as globalMixer, registerCoreBackend, resetCoreFallbackState, setAudioBackend } from "../backend";
+import { mixer as globalMixer, registerCoreBackend, setAudioBackend } from "../backend";
 import { createDecoderHandler } from "../decoder/handler";
 import type { DecoderReply, IrFailedMessage, IrPreparedMessage, StreamPortLike } from "../decoder/protocol";
 import hash from "../wasm/hash.json";
@@ -30,6 +30,7 @@ import { CoreBackend, type CoreBackendHost } from "./coreBackend";
 import { fakeDecoder } from "./fakeDecoder";
 import { createHrirLoader } from "./hrir";
 import { createZoneIrService } from "./zoneIr";
+import { endAudioSession } from "../testing";
 
 const SAMPLE = fileURLToPath(new URL("../../../../../samples/sound-lab", import.meta.url));
 const DECODER = readFileSync(fileURLToPath(new URL("../wasm/myco_audio_decode.wasm", import.meta.url)));
@@ -46,7 +47,7 @@ let undo: (() => void) | null = null;
 let engine: Engine | null = null;
 beforeEach(() => {
   setAudioBackend(null);
-  resetCoreFallbackState();
+  endAudioSession();
   vi.spyOn(console, "warn").mockImplementation(() => {});
 });
 afterEach(() => {
@@ -57,7 +58,7 @@ afterEach(() => {
   engine = null;
   Assets.clearSources();
   setAudioBackend(null);
-  resetCoreFallbackState();
+  endAudioSession();
   vi.restoreAllMocks();
 });
 

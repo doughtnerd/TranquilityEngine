@@ -6,13 +6,13 @@
 // (now 1 + the 100 ms first lead), so its bars are heard at 1.1, 3.1, 5.1, ...
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { setAudioBackend, type AudioVoice, type ShapedFade } from "../backend";
-import { makeFakeBackend, type FakeBackend } from "../testing";
+import { makeFakeBackend, type FakeBackend, endAudioSession } from "../testing";
 import type { EventInstance } from "../events/eventRuntime";
 import { parseAudioEvent } from "../../../../engine/audio/eventFormat";
 import type { MusicNode, MusicSwitchNode } from "../../../../engine/audio/musicFormat";
 import type { MusicClipFacts } from "../../../../engine/audio/musicValidate";
-import { _resetMusicPlayers, createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
-import { _resetSegmentRuns, setSegmentClipSource } from "./segmentRun";
+import { createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
+import { setSegmentClipSource } from "./segmentRun";
 import { planTick, requestStart } from "./planner";
 import { tickPlaylist } from "./playlist";
 import { cancelTransition, planImmediate, requestTransition, tickTransition, type Transition } from "./transition";
@@ -94,8 +94,7 @@ const voicesOf = (player: MusicPlayer, id: string): AudioVoice[] => {
 };
 
 afterEach(() => {
-  _resetMusicPlayers();
-  _resetSegmentRuns();
+  endAudioSession();
   setAudioBackend(null);
   vi.restoreAllMocks();
 });

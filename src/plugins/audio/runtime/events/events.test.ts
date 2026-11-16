@@ -3,8 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Assets, Engine, SceneManager } from "../../../../myco";
 import { setAudioBackend } from "../backend";
-import { _resetHandleWarningsForTests } from "../core/handle";
-import { makeFakeBackend } from "../testing";
+import { makeFakeBackend, endAudioSession } from "../testing";
 import { Audio } from "../index";
 import { events } from "./eventRuntime";
 
@@ -23,14 +22,13 @@ beforeEach(() => {
   fake.clear();
   fake.ready = true;
   setAudioBackend(fake);
-  events()._reset();
-  _resetHandleWarningsForTests();
+  endAudioSession();
   vi.spyOn(console, "warn").mockImplementation(() => {});
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
-  events()._reset();
+  endAudioSession();
   setAudioBackend(null);
 });
 

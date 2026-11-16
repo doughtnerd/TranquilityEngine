@@ -13,10 +13,11 @@ import { setAudioBackend, type AudioBackend, type AudioVoice } from "../backend"
 import type { EventInstance } from "../events/eventRuntime";
 import { parseAudioEvent } from "../../../../engine/audio/eventFormat";
 import type { MusicNode, MusicSwitchNode } from "../../../../engine/audio/musicFormat";
-import { _resetMusicPlayers, createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
-import { _resetSegmentRuns, routeGroupEvent, setSegmentClipSource } from "./segmentRun";
+import { createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
+import { routeGroupEvent, setSegmentClipSource } from "./segmentRun";
 import { planTick, requestStart } from "./planner";
 import { requestTransition, tickTransition, type Transition } from "./transition";
+import { endAudioSession } from "../testing";
 
 const RATE = 48_000;
 const FRAMES = 4 * RATE;
@@ -143,8 +144,7 @@ function maxError(out: readonly number[], from: number, to: number, ref: (i: num
 }
 
 afterEach(() => {
-  _resetMusicPlayers();
-  _resetSegmentRuns();
+  endAudioSession();
   setAudioBackend(null);
 });
 

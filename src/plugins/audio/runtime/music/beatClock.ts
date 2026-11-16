@@ -97,7 +97,7 @@ function blankAnchor(): MutableAnchor {
 }
 
 /** K1: a fresh beat state (nothing fired yet; `resyncBeats` seats it at the time it is first used). */
-export function createBeatState(): BeatState {
+function createBeatState(): BeatState {
   return {
     beat: newCursor(), bar: newCursor(), cue: newCursor(), held: false,
     liveRun: null, liveAnchor: blankAnchor(), recoveries: 0, lostRun: null, lostAnchor: blankAnchor(),
@@ -340,11 +340,10 @@ function adoptLost(c: BeatCursor, lost: SegmentRun, run: SegmentRun): void {
 
 /**
  * K1: re-seat the cursors after a slip, a seek, a transition or a recovery so the next dispatch neither doubles nor
- * skips (see the header). `predictDue` calls it itself; a caller needs it only to bring the state up to date without
- * dispatching (once per frame is enough, more is harmless). Makes the state on first use, seated at `now`: events
+ * skips (see the header). `predictDue` calls it itself, and `seatBeats` on a player with no state yet. Makes the state on first use, seated at `now`: events
  * heard before `now` aren't owed.
  */
-export function resyncBeats(player: MusicPlayer, now: number): void {
+function resyncBeats(player: MusicPlayer, now: number): void {
   let st = player.beats;
   if (!st) {
     st = player.beats = createBeatState();

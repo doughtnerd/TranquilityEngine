@@ -1,8 +1,9 @@
 // A0.6: the feature probes and the one-warning fallback (ADR 0157 Platforms; architecture §2.1, §7).
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
-import { audioBackend, mixer, registerDefaultBackend, resetCoreFallbackState, setAudioBackend, type AudioBackend } from "../backend";
+import { audioBackend, mixer, registerDefaultBackend, setAudioBackend, type AudioBackend } from "../backend";
 import { probeCoreSupport, type ProbeEnv } from "./probe";
 import { defaultBackend, parseAudioSettings } from "../../../../engine/audio/settings";
+import { endAudioSession } from "../testing";
 
 /** A full engine: every probe passes. Built fresh each call, so no test shares or mutates a stub. */
 const fullEnv = (): ProbeEnv => ({
@@ -34,7 +35,7 @@ async function missingFeatures(env: ProbeEnv): Promise<string[]> {
 }
 
 describe("the missing features a probe names", () => {
-  afterEach(() => resetCoreFallbackState());
+  afterEach(() => endAudioSession());
   it("is empty for a full engine (AudioContext with getOutputTimestamp, AudioWorkletNode, simd wasm, MessageChannel)", async () => {
     expect(await missingFeatures(fullEnv())).toEqual([]);
   });
@@ -64,7 +65,7 @@ describe("the missing features a probe names", () => {
 });
 
 describe("the refusal", () => {
-  afterEach(() => resetCoreFallbackState());
+  afterEach(() => endAudioSession());
   it("names the missing features, the minimum versions and the fallback to babylon", async () => {
     const msg = (await refusal(oldEngine()))!;
     for (const name of FEATURES) expect(msg).toContain(name);
@@ -80,7 +81,7 @@ describe("probeCoreSupport on a stubbed old engine", () => {
   let savedBackend: typeof mixer.audioSettings.backend;
 
   beforeEach(() => {
-    resetCoreFallbackState();
+    endAudioSession();
     setAudioBackend(null);
     savedBackend = mixer.audioSettings.backend;
     warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -89,7 +90,7 @@ describe("probeCoreSupport on a stubbed old engine", () => {
     warn.mockRestore();
     mixer.audioSettings.backend = savedBackend;
     setAudioBackend(null);
-    resetCoreFallbackState();
+    endAudioSession();
   });
 
   it("returns supported on a full engine and logs nothing", async () => {
@@ -124,14 +125,14 @@ describe("probeCoreSupport on a stubbed old engine", () => {
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn).toHaveBeenCalledWith(`[myco] ${(await refusal(oldEngine()))!}`);
   });
-  it("resetCoreFallbackState() lets the next refusal warn again", async () => {
+  it("a released audio session lets the next refusal warn again", async () => {
     const make = vi.fn(() => fakeBackend("babylon"));
     registerDefaultBackend(make);
     mixer.audioSettings.backend = "core";
     await probeCoreSupport(oldEngine());
     audioBackend();
     setAudioBackend(null);
-    resetCoreFallbackState();
+    endAudioSession();
     await probeCoreSupport(oldEngine());
     audioBackend();
     expect(warn).toHaveBeenCalledTimes(2);

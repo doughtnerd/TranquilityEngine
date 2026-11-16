@@ -17,12 +17,12 @@ import { createCoreBackend, type CoreBackend } from "./coreBackend";
 import { rebuildHost, watchForTraps, type RebuildOutcome } from "./recovery";
 import { BackgroundController, type VisibilitySource } from "./background";
 import { Unlock, type UnlockContext } from "./unlock";
-import { _resetMusicPlayers, createMusicPlayer, musicEarlyStep, musicPlanStep, type MusicPlayer } from "../music/musicSystem";
-import { _resetSegmentRuns, setSegmentClipSource } from "../music/segmentRun";
-import { _resetMusicBackground } from "../music/background";
+import { createMusicPlayer, musicEarlyStep, musicPlanStep, type MusicPlayer } from "../music/musicSystem";
+import { setSegmentClipSource } from "../music/segmentRun";
 import { predictDue, seatBeats } from "../music/beatClock";
 import { Audio } from "../Audio";
 import { setAudioBackend } from "../backend";
+import { endAudioSession } from "../testing";
 
 const RATE = 48_000;
 /** Stems are 6 s at 48 kHz (decoded: under the 30 s rule). */
@@ -49,9 +49,7 @@ const hosts: AudioHost[] = [];
 const pageSettings = pageMixer.audioSettings;
 afterEach(async () => {
   for (const host of hosts.splice(0)) await host.close();
-  _resetMusicPlayers();
-  _resetSegmentRuns();
-  _resetMusicBackground();
+  endAudioSession();
   pageMixer.configure(pageSettings);
   vi.restoreAllMocks();
 });

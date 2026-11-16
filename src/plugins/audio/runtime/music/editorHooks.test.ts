@@ -5,8 +5,23 @@ import { parseSegmentNode, type SegmentNode } from "../../../../engine/audio/mus
 import { startAtPosition, startAtSegment } from "./editorHooks";
 import type { PlanRequest } from "./planner";
 import { withStartPosition } from "./startPosition";
-import { _resetMusicPlayers, createMusicPlayer, type MusicNodeRef } from "./musicSystem";
-import { peekNext } from "./playlist";
+import { createMusicPlayer, type MusicFrame, type MusicNodeRef, type MusicPlayer } from "./musicSystem";
+import { tickPlaylist } from "./playlist";
+import { setSegmentClipSource } from "./segmentRun";
+import { setAudioBackend } from "../backend";
+import { endAudioSession, makeFakeBackend } from "../testing";
+
+/** The segment the playlist's first plan asks for: one playlist tick on a fake backend, as the planner's frame runs it. */
+function firstPlanned(p: MusicPlayer): string | undefined {
+  const b = makeFakeBackend();
+  setAudioBackend(b);
+  setSegmentClipSource({
+    url: (c) => `/assets/${c}`, settings: () => ({ volume: 1, stream: true }), bus: (o) => o ?? "Master",
+    facts: () => ({ frames: 120 * 48_000, rate: 48_000, channels: 2, gapless: true }),
+  });
+  tickPlaylist(p, { backend: b, music: b.music ?? null, now: 0, dt: 1 / 60, hidden: false } as unknown as MusicFrame);
+  return p.planned?.request.to.id;
+}
 
 function segment(id: string): SegmentNode {
   const node = parseSegmentNode({ type: "segment", id, tracks: [{ name: "t0", clip: `music/${id}.ogg` }] }, "test", { problems: [], ids: new Set() });
@@ -24,25 +39,29 @@ function playlist(id: string, children: unknown[], over: Record<string, unknown>
 let groups = 300;
 const player = (root: MusicNodeRef) => createMusicPlayer({ group: groups++, world: 1, path: "m.audioevent", asset: { bus: "Music" } } as unknown as EventInstance, root);
 
-afterEach(() => _resetMusicPlayers());
+afterEach(() => {
+  endAudioSession();
+  setSegmentClipSource(null);
+  setAudioBackend(null);
+});
 
 describe("startAtSegment", () => {
   it("makes the second item of a sequence the first to play", () => {
     const p = player(playlist("p", [segment("a"), segment("b"), segment("c")]));
     expect(startAtSegment(p.handle, "b")).toBe(true);
-    expect(peekNext(p.playlist!)?.id).toBe("b");
+    expect(firstPlanned(p)).toBe("b");
   });
 
   it("finds a segment inside a nested playlist", () => {
     const p = player(playlist("p", [segment("a"), playlist("n", [segment("b"), segment("c")]), segment("d")]));
     expect(startAtSegment(p.handle, "c")).toBe(true);
-    expect(peekNext(p.playlist!)?.id).toBe("c");
+    expect(firstPlanned(p)).toBe("c");
   });
 
   it("finds an item in a shuffled order", () => {
     const p = player(playlist("p", [segment("a"), segment("b"), segment("c"), segment("d")], { mode: "shuffle", rounds: 0 }));
     expect(startAtSegment(p.handle, "d")).toBe(true);
-    expect(peekNext(p.playlist!)?.id).toBe("d");
+    expect(firstPlanned(p)).toBe("d");
   });
 
   it("is true for the root segment itself and false for an unknown id, a handle with no player, or music already started", () => {

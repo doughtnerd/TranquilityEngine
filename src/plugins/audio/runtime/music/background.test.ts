@@ -3,15 +3,15 @@
 // group is primed. The loopback halves are `core/musicRecoveryLoopback.test.ts` and `core/musicHiddenLoopback.test.ts`.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { setAudioBackend } from "../backend";
-import { makeFakeBackend, type FakeBackend } from "../testing";
+import { makeFakeBackend, type FakeBackend, endAudioSession } from "../testing";
 import type { EventInstance } from "../events/eventRuntime";
 import { parseSegmentNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
 import type { MusicClipFacts } from "../../../../engine/audio/musicValidate";
-import { _resetMusicPlayers, createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
-import { _resetSegmentRuns, routeGroupEvent, setSegmentClipSource } from "./segmentRun";
+import { createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
+import { routeGroupEvent, setSegmentClipSource } from "./segmentRun";
 import { planTick } from "./planner";
 import { ticksAt } from "./anchors";
-import { _resetMusicBackground, groupAbandoned, noteHidden, recoverAbandoned, recoverGroups, tickHidden } from "./background";
+import { groupAbandoned, noteHidden, recoverAbandoned, recoverGroups, tickHidden } from "./background";
 
 const RATE = 48_000;
 const L = 1 / 30;
@@ -70,9 +70,7 @@ function playingPlayer(clips = ["music/a1.ogg", "music/a2.ogg"]): MusicPlayer {
 }
 
 afterEach(() => {
-  _resetMusicPlayers();
-  _resetSegmentRuns();
-  _resetMusicBackground();
+  endAudioSession();
   setAudioBackend(null);
   vi.restoreAllMocks();
 });

@@ -2,13 +2,13 @@
 // real core: a stem enters on the bar line, sample-exact). 120 bpm 4/4: a beat is 0.5 s, a bar 2 s.
 import { afterEach, describe, expect, it } from "vitest";
 import { setAudioBackend } from "../backend";
-import { makeFakeBackend, type FakeVoice } from "../testing";
+import { makeFakeBackend, type FakeVoice, endAudioSession } from "../testing";
 import type { EventInstance } from "../events/eventRuntime";
 import { AutoTarget, continuousBindings, evaluateQuantized, QUANTIZED_RAMP_SECONDS, TsAutomation, type Binding } from "../events/automation";
 import { parseSegmentNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
-import { _resetMusicPlayers, createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
-import { _resetSegmentRuns, setSegmentClipSource, type SegmentRun, type StemRun } from "./segmentRun";
-import { quantizedRamp, soloStem, tickStems, type StampedRamp } from "./stems";
+import { createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
+import { setSegmentClipSource, type SegmentRun, type StemRun } from "./segmentRun";
+import { quantizedRamp, setAudibleStems, tickStems, type StampedRamp } from "./stems";
 
 const RATE = 48_000;
 const QUANTUM_SAMPLES = 128;
@@ -35,8 +35,7 @@ function setup(stamped: boolean) {
 }
 
 afterEach(() => {
-  _resetMusicPlayers();
-  _resetSegmentRuns();
+  endAudioSession();
   setAudioBackend(null);
 });
 
@@ -82,7 +81,7 @@ describe("quantizedRamp (ADR 0166 R6)", () => {
     tickStems(player, frame(1.3));
     quantizedRamp(player, "bass", 0.5, "bar", 0.02, frame(1.3));
     ramps.length = 0;
-    soloStem(player, "drums", 0.1);
+    setAudibleStems(player, ["drums"], null, 0.1);
     // bass: now 1 x 0 = 0 (asap), then the waiting ramp re-stamped at 0.5 x 0 = 0; drums: 1 asap, 1 x 1 waiting none.
     expect(ramps.filter((x) => x.track === "bass").map((x) => [x.r.gain, x.r.at])).toEqual([[0, undefined], [0, 3]]);
     expect(ramps.filter((x) => x.track === "drums").map((x) => [x.r.gain, x.r.at])).toEqual([[1, undefined]]);

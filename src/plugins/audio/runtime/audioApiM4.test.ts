@@ -13,15 +13,15 @@ import type { World } from "../../../engine/core/World";
 import { Audio, _handleOf } from "./Audio";
 import { AUDIO_SYSTEMS } from "./audioSystem";
 import { setAudioBackend } from "./backend";
-import { makeFakeBackend, type FakeBackend } from "./testing";
+import { makeFakeBackend, type FakeBackend, endAudioSession } from "./testing";
 import type { EventInstance } from "./events/eventRuntime";
 import { parseSegmentNode, type SegmentNode } from "../../../engine/audio/musicFormat";
 import type { MusicClipFacts } from "../../../engine/audio/musicValidate";
 import { musicHandleOf } from "./music/handle";
 import {
-  _resetMusicPlayers, createMusicPlayer, disposeMusicPlayer, musicPlayers, type MusicFrame, type MusicPlayer,
+  createMusicPlayer, disposeMusicPlayer, musicPlayers, type MusicFrame, type MusicPlayer,
 } from "./music/musicSystem";
-import { _resetSegmentRuns, setSegmentClipSource } from "./music/segmentRun";
+import { setSegmentClipSource } from "./music/segmentRun";
 import { planTick, requestStart, type PlanRequest } from "./music/planner";
 import { requestTransition, tickTransition } from "./music/transition";
 
@@ -120,8 +120,7 @@ function playMusic(options: { at?: number } = {}) {
 }
 
 afterEach(() => {
-  _resetMusicPlayers();
-  _resetSegmentRuns();
+  endAudioSession();
   setAudioBackend(null);
   Assets.clearSources();
   Audio.calibration = 0;

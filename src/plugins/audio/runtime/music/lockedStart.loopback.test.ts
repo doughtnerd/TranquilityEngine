@@ -3,11 +3,11 @@
 // without music. An exported game autoloads its music before any gesture, so this is how every web export starts.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Assets, Engine, SceneManager } from "../../../../myco";
-import { audioBackend, isPendingCoreBackend, registerCoreBackend, resetCoreFallbackState, setAudioBackend } from "../backend";
+import { audioBackend, isPendingCoreBackend, registerCoreBackend, setAudioBackend } from "../backend";
 import { Audio } from "../index";
-import { makeFakeBackend } from "../testing";
+import { makeFakeBackend, endAudioSession } from "../testing";
 import { events } from "../events/eventRuntime";
-import { _resetMusicPlayers, musicPlanStep, musicPlayers } from "./musicSystem";
+import { musicPlanStep, musicPlayers } from "./musicSystem";
 import { musicLoopback, resetMusicLoopback } from "./testing/loopbackClock";
 import type { MusicEvent } from "../../../../engine/audio/musicTypes";
 
@@ -86,9 +86,7 @@ describe("music started before the unlock (F-35)", () => {
 describe("a resolved backend without music still refuses (F-35)", () => {
   async function boot(): Promise<void> {
     setAudioBackend(null);
-    resetCoreFallbackState();
-    events()._reset();
-    _resetMusicPlayers();
+    endAudioSession();
     vi.spyOn(console, "warn").mockImplementation(() => {});
     Assets.clearSources();
     Assets.addSource(Assets.fromObject({ "s.json": { format: "myco.scene@1", nodes: [] }, "a.wav": "data:,", "m.audioevent.json": EVENT }));

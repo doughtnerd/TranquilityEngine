@@ -28,13 +28,12 @@ import { mixer } from "../../../../engine/audio/mixer";
 import { evalCurve, type Curve } from "../../../../engine/core/curve";
 import { setAudioBackend, type AudioEventHandle } from "../backend";
 import { Audio } from "../index";
-import { _resetHandleWarningsForTests } from "../core/handle";
 import { createClipRegistry } from "../core/clipRegistry";
 import { fakeDecoder, type PlanarClip } from "../core/fakeDecoder";
 import type { AudioHost } from "../core/context";
 import { CoreBackend, type CoreBackendHost } from "../core/coreBackend";
 import { VoiceState } from "../core/voiceTable";
-import { createLoopbackHost } from "../testing";
+import { createLoopbackHost, endAudioSession } from "../testing";
 import { events } from "./eventRuntime";
 
 const SAMPLE = fileURLToPath(new URL("../../../../../samples/sound-lab/", import.meta.url));
@@ -120,8 +119,7 @@ interface Row {
 
 async function render(event: string, script: Record<number, number>, total: number, selection: Selection = "target"): Promise<Row[] | null> {
   vi.spyOn(console, "warn").mockImplementation(() => {});
-  _resetHandleWarningsForTests();
-  events()._reset();
+  endAudioSession();
   const engine = await boot();
   let loop;
   try {
@@ -180,7 +178,7 @@ async function render(event: string, script: Record<number, number>, total: numb
     }
   } finally {
     backend.dispose();
-    events()._reset();
+    endAudioSession();
     setAudioBackend(null);
     engine.dispose();
   }

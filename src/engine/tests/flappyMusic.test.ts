@@ -7,9 +7,8 @@ import { Assets, Engine, Input, SceneManager, Text } from "../../myco";
 import { readProject } from "../../server/project";
 import { Audio } from "../../plugins/audio/runtime";
 import { setAudioBackend } from "../../plugins/audio/runtime/backend";
-import { makeFakeBackend } from "../../plugins/audio/runtime/testing";
+import { makeFakeBackend, endAudioSession } from "../../plugins/audio/runtime/testing";
 import { events } from "../../plugins/audio/runtime/events/eventRuntime";
-import { _resetMusicPlayers } from "../../plugins/audio/runtime/music/musicSystem";
 import "../../editor/sampleTypes";
 import { BirdEvents } from "../../../samples/flappy/scripts/data";
 import { GameManager } from "../../../samples/flappy/scripts/behaviors/GameManager";
@@ -54,7 +53,7 @@ beforeEach(() => {
   fake.ready = true;
   setAudioBackend(fake);
   events().now = () => clock.time;
-  events()._reset();
+  endAudioSession();
   vi.spyOn(console, "warn").mockImplementation(() => {});
 });
 
@@ -63,8 +62,7 @@ afterEach(() => {
   engine = null;
   Assets.clearSources();
   vi.restoreAllMocks();
-  _resetMusicPlayers();
-  events()._reset();
+  endAudioSession();
   setAudioBackend(null);
 });
 

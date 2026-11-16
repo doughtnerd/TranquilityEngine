@@ -6,10 +6,9 @@ import { babylonMock, makeFakeContext, type FakeContext } from "../testing/babyl
 import { setAudioBackend } from "./backend";
 import { BabylonBackend } from "./babylonBackend";
 import { Audio } from "./Audio";
-import { _resetMusicPlayers } from "./music/musicSystem";
-import { _resetSegmentRuns } from "./music/segmentRun";
-import { _resetMusicBackground, updateBeatHolds } from "./music/background";
+import { updateBeatHolds } from "./music/background";
 import { drive, musicSegment, playingRun, rigClips, type Fired } from "./music/testing/beatRig";
+import { endAudioSession } from "./testing";
 
 vi.mock("@babylonjs/core/AudioV2/webAudio/webAudioEngine", async () => (await import("../testing/babylonMocks")).webAudioEngineModule);
 
@@ -32,9 +31,7 @@ beforeEach(async () => {
 afterEach(() => {
   backend.dispose();
   setAudioBackend(null);
-  _resetMusicPlayers();
-  _resetSegmentRuns();
-  _resetMusicBackground();
+  endAudioSession();
   mixer.configure(pageSettings);
   vi.restoreAllMocks();
 });
@@ -82,9 +79,9 @@ describe("Babylon fallback music: callbacks (§8 'Beat callbacks')", () => {
     }
   });
 
-  it("is uncorrected for output latency: a 60 ms output latency moves no callback", () => {
+  it("is uncorrected for output latency: a 60 ms output latency moves no callback", async () => {
     const plain = run(3).beats.map((f) => [f.frame, f.e.time]);
-    _resetMusicPlayers();
+    endAudioSession();
     const slow = run(3, 0.06).beats.map((f) => [f.frame, f.e.time]);
     expect(slow).toEqual(plain);
   });

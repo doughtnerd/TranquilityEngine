@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
-import { AudioHandle, _resetHandleWarningsForTests, warnOnce } from "./handle";
+import { AudioHandle, warnOnce } from "./handle";
 import { VoiceReason, VoiceState, type VoiceReasonCode, type VoiceTableHandleApi } from "./voiceTable";
+import { endAudioSession } from "../testing";
 
 // A1.1-L2 fills these (api-and-models §1 `AudioHandle`, §3 "Handle encoding"): `AudioHandle` against a small fake
 // `VoiceTableHandleApi` built in this file (typed arrays for gen, state and reason; `requestStop`, `requestFade` and
@@ -38,7 +39,7 @@ describe("AudioHandle against a fake table (§1)", () => {
 
   beforeEach(() => {
     warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    _resetHandleWarningsForTests();
+    endAudioSession();
   });
 
   afterEach(() => {
@@ -242,14 +243,14 @@ describe("AudioHandle against a fake table (§1)", () => {
     expect(() => stale.playing).not.toThrow();
   });
 
-  it("warnOnce warns once per key with the [myco] prefix until _resetHandleWarningsForTests", () => {
+  it("warnOnce warns once per key with the [myco] prefix until the audio session is released", async () => {
     warnOnce("test.key", "first message");
     warnOnce("test.key", "second message");
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn).toHaveBeenLastCalledWith("[myco] first message");
     warnOnce("test.other", "other");
     expect(warn).toHaveBeenCalledTimes(2);
-    _resetHandleWarningsForTests();
+    endAudioSession();
     warnOnce("test.key", "again");
     expect(warn).toHaveBeenCalledTimes(3);
     expect(warn).toHaveBeenLastCalledWith("[myco] again");

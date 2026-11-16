@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Assets } from "../../../engine/index";
 import { fileSampleRate } from "./loopPointsReader";
-import { loadFileLoopPoints, loopPointsFor, onLoopPoints, resetFileLoopPoints, scanFileLoopPoints, setFileLoopFrames, setFileLoopPoints } from "./loopPoints";
+import { loadFileLoopPoints, loopPointsFor, onLoopPoints, setFileLoopFrames, setFileLoopPoints } from "./loopPoints";
+import { endAudioSession } from "./testing";
 
 const le32 = (n: number): number[] => [n & 255, (n >> 8) & 255, (n >> 16) & 255, (n >>> 24) & 255];
 const ascii = (s: string): number[] => [...s].map((c) => c.charCodeAt(0));
@@ -18,7 +19,7 @@ function oggFirstPage(packet: number[]): Uint8Array {
   return new Uint8Array([...ascii("OggS"), 0, 2, ...new Array<number>(8).fill(0), ...le32(1), ...le32(0), ...le32(0), 1, packet.length, ...packet]);
 }
 
-beforeEach(() => resetFileLoopPoints());
+beforeEach(() => endAudioSession());
 afterEach(() => Assets.clearSources());
 
 describe("loopPoints", () => {
@@ -80,13 +81,19 @@ describe("loopPoints", () => {
     expect(loopPointsFor("c.wav")).toBeNull();
   });
 
-  it("reads a file's rate and a WAV's loop from its bytes", () => {
+  it("reads a file's rate and a WAV's loop from its bytes", async () => {
     const bytes = wav(8000, [4000, 11999]);
     expect(fileSampleRate(bytes)).toBe(8000);
-    scanFileLoopPoints("s.wav", bytes);
-    expect(loopPointsFor("s.wav")).toEqual({ start: 0.5, end: 1.5 });
-    scanFileLoopPoints("n.wav", wav(8000));
-    expect(loopPointsFor("n.wav")).toBeNull();
+    const files: Record<string, Uint8Array> = { s: bytes, n: wav(8000) };
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => ({ ok: true, arrayBuffer: async () => files[url]!.slice().buffer })));
+    try {
+      await loadFileLoopPoints("s.wav", "s");
+      expect(loopPointsFor("s.wav")).toEqual({ start: 0.5, end: 1.5 });
+      await loadFileLoopPoints("n.wav", "n");
+      expect(loopPointsFor("n.wav")).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
     expect(fileSampleRate(new Uint8Array([1, 2, 3]))).toBeNull();
     expect(fileSampleRate(new Uint8Array(0))).toBeNull();
     expect(fileSampleRate(oggFirstPage([...ascii("OpusHead"), 1, 2, 0, 0]))).toBe(48000);

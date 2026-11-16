@@ -11,7 +11,6 @@ import { setAudioBackend, type AudioVoice } from "../backend";
 import { Audio } from "../index";
 import { events } from "../events/eventRuntime";
 import { AutoTarget, TsAutomation, type Binding } from "../events/automation";
-import { _resetHandleWarningsForTests } from "./handle";
 import { fakeDecoder, type PlanarClip } from "./fakeDecoder";
 import { createClipRegistry } from "./clipRegistry";
 import { AudioHost, presetFromSettings, type CoreLink } from "./context";
@@ -19,6 +18,7 @@ import { CoreBackend, createCoreBackend, type CoreBackendHost } from "./coreBack
 import { CORE_CURVE_KEYS } from "./commandWriter";
 import { watchForTraps } from "./recovery";
 import { Unlock, type UnlockContext } from "./unlock";
+import { endAudioSession } from "../testing";
 
 const RATE = 48_000;
 const STEP = 3;
@@ -95,13 +95,13 @@ describe("event automation in the core (E3.1, loopback)", () => {
     await SceneManager.load("s.json");
     engine.world.render = {} as never;
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    _resetHandleWarningsForTests();
+    endAudioSession();
     const r = await loopbackRig({ mixer: globalMixer });
     if (!r) return ctx.skip();
     const { backend, step, out } = r;
     const evaluated = vi.spyOn(TsAutomation.prototype, "update");
     const applied = vi.spyOn(TsAutomation.prototype, "bindVoice");
-    events()._reset();
+    endAudioSession();
     setAudioBackend(backend);
     try {
       const h = Audio.play("e.audioevent.json");
@@ -134,7 +134,7 @@ describe("event automation in the core (E3.1, loopback)", () => {
       expect(applied).not.toHaveBeenCalled();
       h.stop();
     } finally {
-      events()._reset();
+      endAudioSession();
       setAudioBackend(null);
       engine.dispose?.();
     }

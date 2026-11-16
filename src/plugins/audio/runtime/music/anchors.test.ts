@@ -2,20 +2,19 @@
 // acceptance (a rebuild at a new sample rate leaves every predicted grid point within one frame at the new rate).
 import { afterEach, describe, expect, it } from "vitest";
 import { setAudioBackend } from "../backend";
-import { makeFakeBackend, type FakeBackend } from "../testing";
+import { makeFakeBackend, type FakeBackend, endAudioSession } from "../testing";
 import type { EventInstance } from "../events/eventRuntime";
 import { ClockMap } from "../core/clock";
 import type { HostClock, OutputTimestamp } from "../core/hostClock";
 import { parseSegmentNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
 import { compileSegmentGrid, ticksToSeconds } from "../../../../engine/audio/musicGrid";
 import type { MusicClipFacts } from "../../../../engine/audio/musicValidate";
-import { _resetMusicPlayers, createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
+import { createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
 import {
-  _resetSegmentRuns, createSegmentRun, groupRequest, pollPrimed, primeRun, routeGroupEvent, setSegmentClipSource, stampRun,
+  createSegmentRun, groupRequest, pollPrimed, primeRun, routeGroupEvent, setSegmentClipSource, stampRun,
   type SegmentRun,
 } from "./segmentRun";
 import { advanceAnchor, anchorRun, applySlip, heardTimeOf, playingGridOf, predictWrap, rebaseAnchors, ticksAt } from "./anchors";
-import { createRegionState } from "./regions";
 
 let facts: Record<string, MusicClipFacts> = {};
 
@@ -48,8 +47,7 @@ function rig(rate = 48_000, frames = 600 * 48_000): void {
 }
 
 afterEach(() => {
-  _resetMusicPlayers();
-  _resetSegmentRuns();
+  endAudioSession();
   setAudioBackend(null);
 });
 
@@ -127,7 +125,10 @@ describe("anchors: loop regions and predictWrap (§3.5)", () => {
   it("R4b's released region stops wrapping after now; regions past the exit cue are never reached", () => {
     rig();
     const { player } = playing(looped(0), 0, 10);
-    player.regions = { ...createRegionState(), region: 0, released: true };
+    player.regions = {
+      region: 0, passes: 0, commitAt: Number.NaN, released: true, lastPass: Number.NaN, releaseAt: Number.NaN, decided: Number.NaN,
+      run: player.run, reads: 0, releases: 0, late: 0,
+    };
     expect(predictWrap(player, 17)).toBeNaN();
     const late = playing(segment({ regions: [{ id: "r", from: "6:1:0", to: "7:1:0", count: 0 }], cues: [{ name: "exit", at: "5:1:0" }] }), 0, 0).player;
     expect(predictWrap(late, 0)).toBeNaN();

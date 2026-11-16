@@ -16,6 +16,7 @@ import { AudioHost, presetFromSettings } from "./context";
 import { createCoreBackend, type CoreBackend } from "./coreBackend";
 import { watchForTraps } from "./recovery";
 import { Unlock, type UnlockContext } from "./unlock";
+import { endAudioSession } from "../testing";
 
 const RATE = 48_000;
 const CLIP_FRAMES = 48_000;
@@ -30,7 +31,7 @@ function project(n: number, extra: Record<string, unknown> = {}) {
 
 const hosts: AudioHost[] = [];
 afterEach(async () => {
-  events()._reset();
+  endAudioSession();
   setAudioBackend(null);
   for (const host of hosts.splice(0)) await host.close();
   vi.restoreAllMocks();
@@ -105,7 +106,7 @@ async function rig(settingsJson: unknown) {
   mixer.configure(settings);
   const backend: CoreBackend = createCoreBackend(host, { clips, clock: loop.clock, mixer });
   watchForTraps(host, { now: () => 0, warn: () => {} });
-  events()._reset();
+  endAudioSession();
   setAudioBackend(backend);
   const settle = async () => {
     for (let k = 0; k < 8; k++) await Promise.resolve();

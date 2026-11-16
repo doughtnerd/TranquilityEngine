@@ -3,9 +3,7 @@
 // `timeAt(ms) = ms / 1000`, so a test names a heard time in milliseconds.
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { setAudioBackend } from "../backend";
-import { makeFakeBackend } from "../testing";
-import { _resetMusicPlayers } from "./musicSystem";
-import { _resetSegmentRuns } from "./segmentRun";
+import { makeFakeBackend, endAudioSession } from "../testing";
 import { positionAt } from "./handle";
 import { setCalibration } from "./calibration";
 import { musicSegment, playingRun, rigClips, stampedRun } from "./testing/beatRig";
@@ -21,8 +19,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   setCalibration(0);
-  _resetMusicPlayers();
-  _resetSegmentRuns();
+  endAudioSession();
   setAudioBackend(null);
 });
 

@@ -10,12 +10,12 @@
 // (`tools/audio-bench`, the metered music scenes); the main thread's line is only this.
 import { afterEach, describe, expect, it } from "vitest";
 import { setAudioBackend } from "../backend";
-import { makeFakeBackend, type FakeBackend } from "../testing";
+import { makeFakeBackend, type FakeBackend, endAudioSession } from "../testing";
 import type { EventInstance } from "../events/eventRuntime";
 import { parseSegmentNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
 import type { MusicClipFacts } from "../../../../engine/audio/musicValidate";
-import { _resetMusicPlayers, createMusicPlayer, musicPlanStep, type MusicFrame, type MusicPlayer } from "./musicSystem";
-import { _resetSegmentRuns, setSegmentClipSource } from "./segmentRun";
+import { createMusicPlayer, musicPlanStep, type MusicFrame, type MusicPlayer } from "./musicSystem";
+import { setSegmentClipSource } from "./segmentRun";
 import { planTick, requestStart, type PlanRequest } from "./planner";
 
 const RATE = 48_000;
@@ -74,8 +74,7 @@ function playingPlayer(): MusicPlayer {
 }
 
 afterEach(() => {
-  _resetMusicPlayers();
-  _resetSegmentRuns();
+  endAudioSession();
   setAudioBackend(null);
 });
 
@@ -92,7 +91,7 @@ function summarize(us: Float64Array): Result {
 }
 
 /** One attempt: `players` playing players, `FRAMES` timed steps (after a warm-up), microseconds per frame. */
-function steady(players: number): Result {
+async function steady(players: number): Promise<Result> {
   rig();
   for (let k = 0; k < players; k++) playingPlayer();
   const times = new Float64Array(FRAMES);
@@ -105,14 +104,13 @@ function steady(players: number): Result {
     if (k >= 300) times[k - 300] = (performance.now() - t0) * 1000;
   }
   const result = summarize(times);
-  _resetMusicPlayers();
-  _resetSegmentRuns();
+  endAudioSession();
   setAudioBackend(null);
   return result;
 }
 
 /** One attempt: a player changes to another segment on the bar; each frame of the run (request, priming, the stamp, the swap), microseconds. */
-function seam(): Result {
+async function seam(): Promise<Result> {
   rig();
   const player = playingPlayer();
   const bars = (nb: number): number => Math.ceil(nb / 0.5 - 1e-9) * 0.5;
@@ -136,17 +134,16 @@ function seam(): Result {
     now += 1;
   }
   const result = summarize(Float64Array.from(times));
-  _resetMusicPlayers();
-  _resetSegmentRuns();
+  endAudioSession();
   setAudioBackend(null);
   return result;
 }
 
 /** The best attempt by the case's own figure. */
-function best(run: () => Result, key: "p99" | "max"): Result {
+async function best(run: () => Promise<Result>, key: "p99" | "max"): Promise<Result> {
   let out: Result | null = null;
   for (let k = 0; k < ATTEMPTS; k++) {
-    const r = run();
+    const r = await run();
     if (out === null || r[key] < out[key]) out = r;
   }
   return out!;
@@ -154,15 +151,15 @@ function best(run: () => Result, key: "p99" | "max"): Result {
 
 describe("music on the main thread (ADR 0166 M4b Bench1, wall clock)", () => {
   for (const players of [1, 4, 16] as const) {
-    it(`steady: ${players} player${players === 1 ? "" : "s"} of ${STEMS} stems, one frame step`, () => {
-      const r = best(() => steady(players), "p99");
+    it(`steady: ${players} player${players === 1 ? "" : "s"} of ${STEMS} stems, one frame step`, async () => {
+      const r = await best(() => steady(players), "p99");
       console.log(`[bench] musicPlanStep, ${players} playing player(s): p50 ${r.p50.toFixed(2)} us, p99 ${r.p99.toFixed(2)} us, max ${r.max.toFixed(1)} us per frame`);
       expect(r.p99).toBeLessThan(GATE_STEADY_P99_US[players]);
     });
   }
 
-  it("seam: a change on the bar to another 8-stem segment, request to swap", () => {
-    const r = best(seam, "max");
+  it("seam: a change on the bar to another 8-stem segment, request to swap", async () => {
+    const r = await best(seam, "max");
     console.log(`[bench] a seam (request, priming, stamp, swap), per call: p50 ${r.p50.toFixed(2)} us, p99 ${r.p99.toFixed(2)} us, max ${r.max.toFixed(1)} us`);
     expect(r.max).toBeLessThan(GATE_SEAM_MAX_US);
   });

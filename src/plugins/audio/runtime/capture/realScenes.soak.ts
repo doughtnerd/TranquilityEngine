@@ -32,9 +32,8 @@ import { presetFromSettings } from "../core/context";
 import { CoreBackend, type CoreBackendHost } from "../core/coreBackend";
 import { createClipRegistry } from "../core/clipRegistry";
 import { fakeDecoder, type PlanarClip } from "../core/fakeDecoder";
-import { _resetHandleWarningsForTests } from "../core/handle";
 import { events } from "../events/eventRuntime";
-import { createLoopbackHost, type LoopbackHost } from "../testing";
+import { createLoopbackHost, type LoopbackHost, endAudioSession } from "../testing";
 import { audioCapture, releaseCapture, setCaptureProject } from "./capture";
 import { openCapture } from "./reader";
 import type { CaptureChunkControl } from "./testSupport";
@@ -138,7 +137,7 @@ afterEach(() => {
   engine?.dispose();
   engine = null;
   Assets.clearSources();
-  events()._reset();
+  endAudioSession();
   setAudioBackend(null);
   vi.restoreAllMocks();
 });
@@ -171,8 +170,7 @@ async function runScene(spec: SceneSpec): Promise<SceneResult | null> {
     return null;
   }
   vi.spyOn(console, "warn").mockImplementation(() => {});
-  _resetHandleWarningsForTests();
-  events()._reset();
+  endAudioSession();
   const link = loop.link;
   const clips = createClipRegistry({
     send: (m) => link.post(m), nextSeq: () => link.nextSeq(), fetchBytes: (p) => fetchFrom(dir, p), decodeWorker: fakeDecoder(async (b) => parseWav(b)),

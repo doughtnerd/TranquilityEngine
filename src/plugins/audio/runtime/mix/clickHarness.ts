@@ -18,6 +18,7 @@ import { AudioHost, presetFromSettings } from "../core/context";
 import { createCoreBackend, type CoreBackend } from "../core/coreBackend";
 import { watchForTraps } from "../core/recovery";
 import { Unlock, type UnlockContext } from "../core/unlock";
+import { endAudioSession } from "../testing";
 
 export const RATE = 48_000;
 export const QUANTUM = 128;
@@ -61,7 +62,7 @@ const hosts: AudioHost[] = [];
 
 /** Closes every rig's host and clears the page's backend. */
 export async function closeRigs(): Promise<void> {
-  events()._reset();
+  endAudioSession();
   setAudioBackend(null);
   for (const host of hosts.splice(0)) await host.close();
 }
@@ -125,7 +126,7 @@ export async function liveRig(project: unknown) {
     send: (m) => link.post(m),
     nextSeq: () => link.nextSeq(),
     fetchBytes: async (path) => new TextEncoder().encode(path).buffer as ArrayBuffer,
-    decodeWorker: fakeDecoder((bytes) => {
+    decodeWorker: fakeDecoder(async (bytes) => {
       const make = CLIPS[new TextDecoder().decode(bytes)] ?? CLIPS["const.wav"]!;
       return { frames: CLIP_FRAMES, channels: 1, sampleRate: RATE, channelData: [make()] };
     }),
@@ -135,7 +136,7 @@ export async function liveRig(project: unknown) {
   mixer.configure(settings);
   const backend: CoreBackend = createCoreBackend(host, { clips, clock: loop.clock, mixer });
   watchForTraps(host, { now: () => 0, warn: () => {} });
-  events()._reset();
+  endAudioSession();
   setAudioBackend(backend);
   const settle = async () => {
     for (let k = 0; k < 8; k++) await Promise.resolve();

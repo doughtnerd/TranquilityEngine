@@ -2,13 +2,13 @@
 // (the worker for streamed stems, the voice for decoded ones), and the anchor's pass walk agrees with them.
 import { afterEach, describe, expect, it } from "vitest";
 import { setAudioBackend } from "../backend";
-import { makeFakeBackend, type FakeBackend, type FakeVoice } from "../testing";
+import { makeFakeBackend, type FakeBackend, type FakeVoice, endAudioSession } from "../testing";
 import type { EventInstance } from "../events/eventRuntime";
 import { parseSegmentNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
 import { compileSegmentGrid, ticksToSeconds } from "../../../../engine/audio/musicGrid";
 import type { MusicClipFacts } from "../../../../engine/audio/musicValidate";
-import { _resetMusicPlayers, createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
-import { _resetSegmentRuns, createSegmentRun, groupRequest, pollPrimed, primeRun, setSegmentClipSource, stampRun, type SegmentRun } from "./segmentRun";
+import { createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
+import { createSegmentRun, groupRequest, pollPrimed, primeRun, setSegmentClipSource, stampRun, type SegmentRun } from "./segmentRun";
 import { advanceAnchor, anchorRun, heardTimeOf, predictWrap, ticksAt } from "./anchors";
 
 let facts: Record<string, MusicClipFacts | undefined> = {};
@@ -52,8 +52,7 @@ function stamped(b: FakeBackend, node: SegmentNode, at: number): { player: Music
 }
 
 afterEach(() => {
-  _resetMusicPlayers();
-  _resetSegmentRuns();
+  endAudioSession();
   setAudioBackend(null);
   streamed = true;
 });

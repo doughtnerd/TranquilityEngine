@@ -6,8 +6,7 @@
 import { afterEach, beforeEach, vi } from "vitest";
 import { Assets, Engine, SceneManager } from "../../../../myco";
 import { setAudioBackend } from "../backend";
-import { _resetHandleWarningsForTests } from "../core/handle";
-import { makeFakeBackend, type FakeBackend } from "../testing";
+import { makeFakeBackend, type FakeBackend, endAudioSession } from "../testing";
 import { events } from "./eventRuntime";
 
 /** The event asset format tag. */
@@ -28,7 +27,7 @@ export interface EventKit {
   setTime(seconds: number): void;
 }
 
-/** Registers the per-test setup and teardown (fresh fake, `events()._reset()`, handle warnings reset, `console.warn` silenced). Call at file top level. */
+/** Registers the per-test setup and teardown (fresh fake, the audio session ended (`endAudioSession`), `console.warn` silenced). Call at file top level. */
 export function eventKit(): EventKit {
   const fake = makeFakeBackend();
   beforeEach(() => {
@@ -36,13 +35,12 @@ export function eventKit(): EventKit {
     fake.ready = true;
     (fake as { time: number }).time = 0;
     setAudioBackend(fake);
-    events()._reset();
-    _resetHandleWarningsForTests();
+    endAudioSession();
     vi.spyOn(console, "warn").mockImplementation(() => {});
   });
   afterEach(() => {
     vi.restoreAllMocks();
-    events()._reset();
+    endAudioSession();
     setAudioBackend(null);
   });
   return {

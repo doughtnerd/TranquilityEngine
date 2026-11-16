@@ -9,8 +9,7 @@ import { readProject } from "../../../../server/project";
 // The sample's scripts, registered as loading the project's scripts would (ADR 0031).
 import.meta.glob("../../../../../samples/sound-lab/scripts/behaviors/*.ts", { eager: true });
 import { setAudioBackend } from "../backend";
-import { _resetHandleWarningsForTests } from "../core/handle";
-import { makeFakeBackend } from "../testing";
+import { makeFakeBackend, endAudioSession } from "../testing";
 import { events } from "../events/eventRuntime";
 
 const SAMPLE = fileURLToPath(new URL("../../../../../samples/sound-lab", import.meta.url));
@@ -51,8 +50,7 @@ beforeEach(() => {
   fake.ready = true;
   setAudioBackend(fake);
   events().now = () => (fake as { time: number }).time;
-  events()._reset();
-  _resetHandleWarningsForTests();
+  endAudioSession();
   warnings.length = 0;
   errors.length = 0;
   vi.spyOn(console, "warn").mockImplementation((...a: unknown[]) => void warnings.push(a.map(String).join(" ")));
@@ -65,7 +63,7 @@ afterEach(() => {
   engine = null;
   Assets.clearSources();
   vi.restoreAllMocks();
-  events()._reset();
+  endAudioSession();
   setAudioBackend(null);
 });
 

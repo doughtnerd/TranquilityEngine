@@ -12,11 +12,10 @@ import { CoreLink, type AudioHost, type HostLifecycleListener, type LinkPort } f
 import type { ClipInfo, ClipRegistry, ClipResidentListener, ClipState } from "./core/clipRegistry";
 import { CoreBackend, type CoreBackendHost } from "./core/coreBackend";
 import { makeStatusBlock } from "./core/mirror";
-import { _resetHandleWarningsForTests } from "./core/handle";
 import { VoiceFlag2 } from "./core/voiceTable";
 import { LowpassBy } from "./core/voiceFx";
 import { setAudioBackend, DEFAULT_SEND_CURVE, type AudioPanner, type SendCurve } from "./backend";
-import { makeFakeBackend } from "./testing";
+import { makeFakeBackend, endAudioSession } from "./testing";
 import { Audio, AudioListener, AudioOccluder, AudioReverbZone, AudioSource } from "./index";
 
 // --- The core rig (a trimmed copy of audioApi.test.ts's) ---------------------------------------------------------
@@ -80,7 +79,7 @@ beforeEach(async () => {
   fake.clear();
   fake.ready = true;
   setAudioBackend(fake);
-  _resetHandleWarningsForTests();
+  endAudioSession();
   warn = vi.spyOn(console, "warn").mockImplementation(() => {});
   Assets.clearSources();
   Assets.addSource(Assets.fromObject({ "s.json": { format: "myco.scene@1", nodes: [] }, "a.wav": "data:audio/wav;base64,AAAA" }));
