@@ -426,7 +426,7 @@ export async function save(): Promise<void> {
 }
 
 /** Play the open scene in an Engine built from the project's bootstrap, shown in the game view (ADR 0022, 0032). */
-export async function startPlaying(): Promise<void> {
+async function startPlaying(): Promise<void> {
   const scene = openScene.value, project = currentProject.value;
   if (!session || !scene || !project || playState.value !== "edit" || checkingScripts) return;
   // Type-check the scripts first (ADR 0125); with errors the user picks Play anyway or not.

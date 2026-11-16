@@ -4,61 +4,11 @@
 // colours…, kept readable against the panels). Tokens become CSS custom properties on :root; the
 // Code panel's Monaco theme and the viewport's overlay colours are made from the same tokens.
 import { computed, effect, signal } from "@preact/signals";
+import { alpha, contrast, ensureContrast, luminance, mix, parseHex, readableOn, rgb, toHex } from "./colorMath";
 import { persisted } from "./preferences";
 
-// --- Colour maths -----------------------------------------------------------------------------
+export { alpha, contrast, luminance, mix, parseHex } from "./colorMath";
 
-type RGB = [number, number, number];
-
-/** `#rgb` or `#rrggbb` to 0–255 channels (anything else: null). */
-export function parseHex(hex: string): RGB | null {
-  const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(hex.trim());
-  if (!m) return null;
-  const h = m[1].length === 3 ? [...m[1]].map((c) => c + c).join("") : m[1];
-  return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
-}
-
-const toHex = ([r, g, b]: RGB) => `#${[r, g, b].map((c) => Math.round(Math.min(255, Math.max(0, c))).toString(16).padStart(2, "0")).join("")}`;
-
-const rgb = (hex: string): RGB => parseHex(hex) ?? [0, 0, 0];
-
-/** `a` moved `t` (0–1) of the way to `b`. */
-export function mix(a: string, b: string, t: number): string {
-  const x = rgb(a), y = rgb(b);
-  return toHex([x[0] + (y[0] - x[0]) * t, x[1] + (y[1] - x[1]) * t, x[2] + (y[2] - x[2]) * t]);
-}
-
-/** A colour with alpha, as CSS `rgb(r g b / a)`. */
-export function alpha(hex: string, a: number): string {
-  const [r, g, b] = rgb(hex);
-  return `rgb(${r} ${g} ${b} / ${a})`;
-}
-
-/** WCAG relative luminance (0 black – 1 white). */
-export function luminance(hex: string): number {
-  const lin = (c: number) => {
-    const s = c / 255;
-    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
-  };
-  const [r, g, b] = rgb(hex);
-  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
-}
-
-/** WCAG contrast ratio between two colours (1–21). */
-export function contrast(a: string, b: string): number {
-  const la = luminance(a), lb = luminance(b);
-  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
-}
-
-/** `fg`, moved toward `toward` in small steps until it has `min` contrast against `bg` (or reaches it). */
-export function ensureContrast(fg: string, bg: string, min: number, toward: string): string {
-  let c = fg;
-  for (let t = 0.1; contrast(c, bg) < min && t <= 1.001; t += 0.1) c = mix(fg, toward, t);
-  return c;
-}
-
-/** Whichever of `light` and `dark` reads better on `bg`. */
-const readableOn = (bg: string, light: string, dark: string) => (contrast(light, bg) >= contrast(dark, bg) ? light : dark);
 
 // --- Tokens and presets -----------------------------------------------------------------------
 
@@ -194,7 +144,7 @@ const DEFAULT_PRESET = "myco-dark";
 export const customThemes = persisted<ThemePreset[]>("myco.editor.customThemes", []);
 
 /** A built-in preset or an imported theme by id (anything unknown: Myco Dark). */
-export const presetById = (id: string): ThemePreset => PRESETS.find((p) => p.id === id) ?? (Array.isArray(customThemes.value) ? customThemes.value.find((p) => p?.id === id) : undefined) ?? PRESETS[0];
+const presetById = (id: string): ThemePreset => PRESETS.find((p) => p.id === id) ?? (Array.isArray(customThemes.value) ? customThemes.value.find((p) => p?.id === id) : undefined) ?? PRESETS[0];
 
 /** Every theme to choose from: the built-in presets, then imported ones. */
 export const allPresets = computed<ThemePreset[]>(() => [...PRESETS, ...(Array.isArray(customThemes.value) ? customThemes.value : [])]);
@@ -214,7 +164,7 @@ function cleanOverrides(overrides: Partial<Record<string, unknown>> | null | und
 export const mergeBase = (preset: ThemePreset, overrides: Partial<Record<string, unknown>> | null | undefined): ThemeBase => ({ ...preset.base, ...cleanOverrides(overrides) });
 
 /** Every token, from a preset and the user's overrides of its key colours. */
-export function resolveTheme(preset: ThemePreset, overrides?: Partial<Record<string, unknown>> | null): ThemeTokens {
+function resolveTheme(preset: ThemePreset, overrides?: Partial<Record<string, unknown>> | null): ThemeTokens {
   const base = mergeBase(preset, overrides);
   const { bg, panel, text, accent: accentIn, accent2: accent2In } = base;
   const light = luminance(panel) > 0.4;
@@ -337,14 +287,14 @@ export function clampSize(value: unknown, range: { min: number; max: number }, f
 }
 
 /** A font family as stored: blank falls back to `fallback`; braces and semicolons can't break out of the CSS value. */
-export const cleanFamily = (value: unknown, fallback: string) => (typeof value === "string" && value.trim() ? value.replace(/[;{}<>]/g, "").trim() : fallback);
+const cleanFamily = (value: unknown, fallback: string) => (typeof value === "string" && value.trim() ? value.replace(/[;{}<>]/g, "").trim() : fallback);
 
 // --- Per-user settings and applying them -------------------------------------------------------
 
 /** The chosen theme preset's id. */
 export const themePreset = persisted<string>("myco.editor.theme", DEFAULT_PRESET);
 /** Overrides of the key colours, per preset id. */
-export const themeOverrides = persisted<Record<string, Partial<ThemeBase>>>("myco.editor.themeOverrides", {});
+const themeOverrides = persisted<Record<string, Partial<ThemeBase>>>("myco.editor.themeOverrides", {});
 export const uiFontFamily = persisted<string>("myco.editor.uiFontFamily", UI_FONTS[0].value);
 export const uiFontSize = persisted<number>("myco.editor.uiFontSize", DEFAULT_UI_FONT_SIZE);
 export const codeFontFamily = persisted<string>("myco.editor.codeFontFamily", CODE_FONTS[0].value);
@@ -393,7 +343,7 @@ export const fonts = computed(() => ({
 }));
 
 /** Set the theme's tokens and the UI font as CSS custom properties on `el` (normally :root). */
-export function applyTheme(el: HTMLElement, tokens: ThemeTokens, kind: ThemeKind, font: { ui: string; uiSize: number; code: string; codeSize: number }): void {
+function applyTheme(el: HTMLElement, tokens: ThemeTokens, kind: ThemeKind, font: { ui: string; uiSize: number; code: string; codeSize: number }): void {
   for (const [key, value] of Object.entries(tokens)) el.style.setProperty(cssVar(key), value);
   el.style.setProperty("--font-ui", font.ui);
   el.style.setProperty("--font-size-ui", `${font.uiSize}px`);

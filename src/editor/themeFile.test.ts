@@ -1,19 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { PRESETS, presetById, resolveTheme, luminance } from "./theme";
-import { cleanThemeName, parseThemeFile, serializeThemeFile, themeIdFor, THEME_FORMAT_ID, toThemeFile } from "./themeFile";
+import { PRESETS, luminance, projectTheme, theme as editorTheme } from "./theme";
+import { cleanThemeName, parseThemeFile, serializeThemeFile, themeIdFor, toThemeFile } from "./themeFile";
 
 const light = PRESETS.find((p) => p.kind === "light")!;
+const presetById = (id: string) => PRESETS.find((p) => p.id === id)!;
 
 describe("theme files (ADR 0116)", () => {
   it("round-trips a preset with overrides", () => {
     const file = toThemeFile(PRESETS[0], { accent: "#FF0000", bogus: "#123456", text: "nope" }, "My Theme");
-    expect(file.format).toBe(THEME_FORMAT_ID);
+    expect(file.format).toBe("myco.theme@1");
     expect(file.base.accent).toBe("#ff0000");
     expect(file.base.text).toBe(PRESETS[0].base.text); // invalid override ignored
     const { theme, problems } = parseThemeFile(serializeThemeFile(file));
     expect(problems).toEqual([]);
     expect(theme).toMatchObject({ id: "custom-my-theme", name: "My Theme", kind: "dark", base: file.base, danger: file.danger });
-    expect(Object.keys(resolveTheme(theme!)).length).toBeGreaterThan(40); // usable as a preset
+    projectTheme.value = theme; // usable as a preset: a project can bring it
+    expect(Object.keys(editorTheme.value).length).toBeGreaterThan(40);
+    expect(editorTheme.value.accent).toBe(file.base.accent);
+    projectTheme.value = null;
   });
 
   it("reads leniently: partial colours fall back to the same-kind built-in", () => {

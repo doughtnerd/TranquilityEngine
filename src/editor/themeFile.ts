@@ -7,7 +7,7 @@ import { BASE_KEYS, luminance, parseHex, PRESETS, mergeBase, type ThemeBase, typ
 
 const THEME_FORMAT = "myco.theme";
 const THEME_VERSION = 1;
-export const THEME_FORMAT_ID = `${THEME_FORMAT}@${THEME_VERSION}`;
+const THEME_FORMAT_ID = `${THEME_FORMAT}@${THEME_VERSION}`;
 
 /** Where a project's own theme lives, relative to the project root. */
 export const PROJECT_THEME_PATH = ".myco/theme.json";
