@@ -261,9 +261,9 @@ export const defaultNavAgentType = (id: string, name: string): NavAgentType => (
 export const defaultNavArea = (id: string, name: string): NavArea => ({ id, name, cost: 1, color: [0.2, 0.6, 1, 1] });
 
 /** The id of the agent type a new project starts with. */
-export const DEFAULT_NAV_AGENT_TYPE_ID = "6e2a0f1c-5b7d-4c3e-9a10-4d2f8b6c1e01";
+const DEFAULT_NAV_AGENT_TYPE_ID = "6e2a0f1c-5b7d-4c3e-9a10-4d2f8b6c1e01";
 
-export const defaultNavigationSettings = (): NavigationSettings => ({
+const defaultNavigationSettings = (): NavigationSettings => ({
   agentTypes: [defaultNavAgentType(DEFAULT_NAV_AGENT_TYPE_ID, "Humanoid")],
   areas: [],
   // Coverage 55 rather than Foxfire's 60: with the default agent (step 0.4 m, auto voxels 0.25 × 0.125 m) a voxel
@@ -323,7 +323,7 @@ export function describeNavAvoidanceMask(nav: Pick<NavigationSettings, "avoidanc
 }
 
 /** The lowest set bit of a mask (0 for none). */
-export const lowestNavLayerBit = (mask: number): number => ((mask >>> 0) & -(mask >>> 0)) >>> 0;
+const lowestNavLayerBit = (mask: number): number => ((mask >>> 0) & -(mask >>> 0)) >>> 0;
 
 // ---------------------------------------------------------------------------------------------------------
 // Lenient parsing

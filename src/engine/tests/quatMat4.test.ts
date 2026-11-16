@@ -1,7 +1,7 @@
 // ADR 0081 step 2: the internal maths that replaced three.js's outside the renderer (physics, the
 // editor's gizmo): the `Quat` helpers and `Mat4` on double-precision arrays.
 import { describe, expect, it } from "vitest";
-import { Mat4, Quat, Quaternion, Vector3 } from "../core/math";
+import { Mat4, Quat, Quaternion, Vector3, invertAffine } from "../core/math";
 
 const close = (v: { x: number; y: number; z: number }, x: number, y: number, z: number) => {
   expect(v.x).toBeCloseTo(x, 9);
@@ -43,5 +43,21 @@ describe("Mat4 on Float64Array (ADR 0081)", () => {
     Mat4.decompose(a, 0, p, 0, r, 0, s, 0);
     expect(p[0]).toBe(1234.56789); // a Float32Array would hold 1234.5678710...
     expect(s).toEqual([expect.closeTo(2, 12), expect.closeTo(3, 12), expect.closeTo(4, 12)]);
+  });
+});
+
+describe("invertAffine", () => {
+  it("inverts an affine matrix and returns null for a singular one", () => {
+    // A box 2 m wide centred on (10, 0, 0), rotated 90° about y.
+    const box = [0, 0, -2, 0, 0, 2, 0, 0, 2, 0, 0, 0, 10, 0, 0, 1];
+    const inv = invertAffine(box)!;
+    expect(inv[12]).toBeCloseTo(0, 5); // maps the centre to the origin
+    const scaled = [2, 0, 0, 0, 0, 4, 0, 0, 0, 0, 8, 0, 1, 2, 3, 1];
+    const product = new Float64Array(16);
+    Mat4.multiply(product, 0, Float64Array.from(scaled), 0, Float64Array.from(invertAffine(scaled)!), 0);
+    const identity = new Float64Array(16);
+    Mat4.identity(identity, 0);
+    for (let i = 0; i < 16; i++) expect(product[i]).toBeCloseTo(identity[i], 9);
+    expect(invertAffine([0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1])).toBeNull();
   });
 });

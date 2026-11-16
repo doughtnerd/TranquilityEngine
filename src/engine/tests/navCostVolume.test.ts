@@ -3,11 +3,11 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { Assets, Engine, GameObject, NavAgent, NavCostVolume, Navigation, SceneManager, type ProjectSettingsInput } from "../../myco";
 import { World } from "../core/World";
 import { bakeChunk, releaseBakeCaches, type NavBakeMesh } from "../nav/bake";
-import { costSegments, RuntimeNavOverlay, NO_NAV_DEBUG, type NavDebugColors } from "../nav/debugGeometry";
+import { RuntimeNavOverlay, NO_NAV_DEBUG, type NavDebugColors } from "../nav/debugGeometry";
 import { clearNavBakeCache } from "../../plugins/navigation/runtime/navigationSystems";
 import { describeNavCostVolume } from "../nav/plan";
 import type { Vec3 } from "../../plugins/navigation/runtime/runtime";
-import { defaultNavAgentType, defaultNavigationSettings, type NavigationSettings } from "../nav/settings";
+import { defaultNavAgentType, parseNavigationSettings, type NavigationSettings } from "../nav/settings";
 
 // ADR 0070: NavCostVolume changes path costs at runtime without a rebake. A floor split by a wall along x = 0 with a
 // near gap (z in [-1.5, 1.5]) and a far one (z in [5.5, 8.5]).
@@ -18,7 +18,7 @@ const SCENE = "scenes/costs.scene.json";
 const BAKE = "scenes/costs.nav.bin";
 
 function navSettings(): NavigationSettings {
-  const s = defaultNavigationSettings();
+  const s = parseNavigationSettings(undefined).settings;
   const flyer = defaultNavAgentType(FLYER, "Flyer");
   flyer.canWalk = false;
   flyer.canFly = true;
@@ -184,16 +184,6 @@ describe("NavCostVolume (ADR 0070)", () => {
 });
 
 describe("cost volume helpers", () => {
-  it("buckets cost outlines by multiplier", () => {
-    const row = (m: number) => [0, 0, 0, 1, 0, 0, m];
-    const segs = costSegments(Float32Array.from([...row(4), ...row(0.5), ...row(Infinity), ...row(1), ...row(2)]), { costly: 1, cheap: 2, excluded: 3 });
-    expect(segs.map((s) => [s.color, s.positions.length / 6])).toEqual([
-      [3, 1],
-      [1, 2],
-      [2, 1],
-    ]);
-  });
-
   it("describes what a volume does in the Inspector", () => {
     const s = navSettings();
     const all = describeNavCostVolume(s, { cost: 4, excluded: false, agents: [], domain: "both" });

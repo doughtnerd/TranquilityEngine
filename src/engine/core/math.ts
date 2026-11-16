@@ -814,6 +814,22 @@ export const Mat4 = {
   },
 };
 
+/** @internal The inverse of an affine column-major 4×4 matrix (bottom row 0, 0, 0, 1) as a new array; null if singular. */
+export function invertAffine(m: ArrayLike<number>): number[] | null {
+  const [a, b, c, d, e, f, g, h, i] = [m[0], m[1], m[2], m[4], m[5], m[6], m[8], m[9], m[10]];
+  const A = e * i - f * h, B = -(d * i - f * g), C = d * h - e * g;
+  const det = a * A + b * B + c * C;
+  if (Math.abs(det) < 1e-12) return null;
+  const inv = [A, -(b * i - c * h), b * f - c * e, B, a * i - c * g, -(a * f - c * d), C, -(a * h - b * g), a * e - b * d].map((x) => x / det);
+  // inv is row-major 3×3: inv[r * 3 + c].
+  const t = [m[12], m[13], m[14]];
+  const out = new Array<number>(16).fill(0);
+  for (let col = 0; col < 3; col++) for (let row = 0; row < 3; row++) out[col * 4 + row] = inv[row * 3 + col];
+  for (let row = 0; row < 3; row++) out[12 + row] = -(inv[row * 3] * t[0] + inv[row * 3 + 1] * t[1] + inv[row * 3 + 2] * t[2]);
+  out[15] = 1;
+  return out;
+}
+
 /** @internal A quaternion's components, read only. */
 export interface QuatLike {
   readonly x: number;
