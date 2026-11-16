@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addEditorOverlay, removeEditorOverlay, setEditorOverlay, setEditorOverlayFilter, shownEditorOverlays, type EditorOverlay } from "../editor";
+import { addEditorOverlay, removeEditorOverlay, setEditorOverlayFilter, shownEditorOverlays, type EditorOverlay } from "../editor";
 import type { World } from "../core/World";
 import { FakeRenderSurface } from "../render/fakeViewport";
 
@@ -30,7 +30,7 @@ describe("editor overlay kinds and the per-World filter", () => {
     setEditorOverlayFilter(world, (kind) => kind !== "navigation");
     addEditorOverlay(world, "nav", () => ({ lines: [line(1)], handles: [] }), "navigation");
     expect(state.provider).toBeNull(); // nothing shown: no provider, so the backend clears what it drew
-    setEditorOverlay(world, () => ({ lines: [line(4)], handles: [] }));
+    addEditorOverlay(world, "default", () => ({ lines: [line(4)], handles: [] }));
     expect(colors(state)).toEqual([4]);
     setEditorOverlayFilter(world, null);
     expect(colors(state)).toEqual([1, 4]);
