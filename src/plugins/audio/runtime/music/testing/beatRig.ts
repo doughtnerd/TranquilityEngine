@@ -4,7 +4,7 @@
 //   const node = musicSegment({ tempo: [{ at: "1:1:0", bpm: 120, beatsPerBar: 4, beatUnit: 4 }] });
 //   const { player } = playingRun(node, 0, 1.0);               // heard from 1.0 s
 //   const log = drive(player, frames(0.9, 3.0, 1 / 60));       // every call predictDue made
-import { newMusicContext, parseSegmentNode, type SegmentNode } from "../../../../../engine/audio/musicFormat";
+import { parseSegmentNode, type SegmentNode } from "../../../../../engine/audio/musicFormat";
 import type { MusicEvent, MusicKind } from "../../../../../engine/audio/musicTypes";
 import type { MusicClipFacts } from "../../../../../engine/audio/musicValidate";
 import type { EventInstance } from "../../events/eventRuntime";
@@ -23,7 +23,7 @@ let ids = 0;
 
 /** A parsed segment node (one track on `a.ogg`); `raw` adds or overrides fields (`tempo`, `cues`, `regions`, `id`). */
 export function musicSegment(raw: Record<string, unknown> = {}): SegmentNode {
-  const node = parseSegmentNode({ type: "segment", id: `S${++ids}`, tracks: [{ name: "t0", clip: "a.ogg" }], ...raw }, "test", newMusicContext());
+  const node = parseSegmentNode({ type: "segment", id: `S${++ids}`, tracks: [{ name: "t0", clip: "a.ogg" }], ...raw }, "test", { problems: [], ids: new Set() });
   if (!node) throw new Error("beatRig: the segment did not parse");
   return node;
 }

@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { setAudioBackend } from "../backend";
 import { makeFakeBackend, type FakeBackend, type FakeVoice } from "../testing";
 import type { EventInstance } from "../events/eventRuntime";
-import { newMusicContext, parseSegmentNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
+import { parseSegmentNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
 import { compileSegmentGrid, ticksToSeconds } from "../../../../engine/audio/musicGrid";
 import type { MusicClipFacts } from "../../../../engine/audio/musicValidate";
 import { _resetMusicPlayers, createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
@@ -26,7 +26,7 @@ function rig(rate: number | null, seconds = 4): FakeBackend {
 }
 
 function segment(regions: unknown[], extra: Record<string, unknown> = {}): SegmentNode {
-  const node = parseSegmentNode({ type: "segment", id: "A", tracks: [{ name: "t0", clip: "a.ogg" }, { name: "t1", clip: "b.ogg" }], regions, ...extra }, "test", newMusicContext());
+  const node = parseSegmentNode({ type: "segment", id: "A", tracks: [{ name: "t0", clip: "a.ogg" }, { name: "t1", clip: "b.ogg" }], regions, ...extra }, "test", { problems: [], ids: new Set() });
   if (!node) throw new Error("fixture segment did not parse");
   return node;
 }

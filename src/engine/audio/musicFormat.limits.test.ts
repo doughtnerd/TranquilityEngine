@@ -1,13 +1,13 @@
 /**
  * Every limit and message of `api-and-models.md` §2.3 for the `segment` node (L-F1aa fills these; the cases are named
  * and skipped in the skeleton). Each case parses a small raw segment with `parseMusicSegment` (or `parseSegmentNode`
- * with a shared `newMusicContext()` for ids) and asserts the value (clamped, dropped or kept) AND that `problems`
+ * with a shared `{ problems: [], ids: new Set() }` for ids) and asserts the value (clamped, dropped or kept) AND that `problems`
  * has one message naming the path (e.g. `segment.tempo[1].at`). Placement under non-music containers is F1b's, and
  * `transitions`, `stingers` and `library` limits are F2's: not here.
  */
 import { describe, expect, it, vi } from "vitest";
 import {
-  isMusicError, newMusicContext, parseMusicSegment, parseSegmentNode, segmentEntryPosition, segmentExitPosition,
+  parseMusicSegment, parseSegmentNode, segmentEntryPosition, segmentExitPosition,
   type MusicParseContext, type SegmentNode,
 } from "./musicFormat";
 
@@ -55,11 +55,11 @@ describe("musicFormat limits (L-F1aa)", () => {
     });
 
     it("L-F1aa: a repeated id in one shared context drops the later node; a fresh context accepts it", () => {
-      const ctx = newMusicContext();
+      const ctx: MusicParseContext = { problems: [], ids: new Set() };
       expect(parseSegmentNode(raw({ id: "x" }), "segment", ctx)).not.toBeNull();
       expect(parseSegmentNode(raw({ id: "x" }), "segment", ctx)).toBeNull();
       expect(ctx.problems).toContainEqual(problem("segment.id", "already named"));
-      expect(parseSegmentNode(raw({ id: "x" }), "segment", newMusicContext())).not.toBeNull();
+      expect(parseSegmentNode(raw({ id: "x" }), "segment", { problems: [], ids: new Set() })).not.toBeNull();
     });
 
     it("L-F1aa: ctx.admit returning false drops the node with a problem and does not take the id", () => {
@@ -523,10 +523,10 @@ describe("musicFormat limits (L-F1aa)", () => {
       expect(bad.problems).toContainEqual(problem("segment.tracks[0].automation[0].quantize", "follows the parameter"));
     });
 
-    it("L-F1aa: a pitch binding is dropped with an error-level problem (isMusicError) naming the path", () => {
+    it("L-F1aa: a pitch binding is dropped with an error-level problem (an error: prefix) naming the path", () => {
       const { node, problems } = kept({ tracks: [{ ...track, automation: [{ parameter: "P", target: "pitch", curve: [[0, 1]] }] }] });
       expect(node.tracks[0].automation).toEqual([]);
-      const errors = problems.filter(isMusicError);
+      const errors = problems.filter((p) => p.startsWith("error: "));
       expect(errors).toHaveLength(1);
       expect(errors[0]).toMatch(/^error: segment\.tracks\[0\]\.automation\[0\]\.target: /);
       expect(errors[0]).toContain("pitch");

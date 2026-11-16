@@ -5,7 +5,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { mixer } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings } from "../../../../engine/audio/settings";
-import { newMusicContext, parseSegmentNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
+import { parseSegmentNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
 import type { EventInstance } from "../events/eventRuntime";
 import { setAudioBackend, type AudioBackend } from "../backend";
 import { makeFakeBackend } from "../testing";
@@ -71,7 +71,7 @@ describe("Audio.rhythmMode (rhythmModeSetting)", () => {
 
 describe("holding beat callbacks through a recovery (updateBeatHolds, architecture §4.6)", () => {
   function segment(): SegmentNode {
-    const node = parseSegmentNode({ type: "segment", id: "s", gridOffset: 0, tracks: [{ name: "t", clip: "music/a.ogg" }] }, "test", newMusicContext());
+    const node = parseSegmentNode({ type: "segment", id: "s", gridOffset: 0, tracks: [{ name: "t", clip: "music/a.ogg" }] }, "test", { problems: [], ids: new Set() });
     if (!node) throw new Error("fixture segment did not parse");
     return node;
   }

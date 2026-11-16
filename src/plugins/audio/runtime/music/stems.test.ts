@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { setAudioBackend } from "../backend";
 import { makeFakeBackend, type FakeBackend, type FakeVoice } from "../testing";
 import type { EventInstance } from "../events/eventRuntime";
-import { newMusicContext, parseSegmentNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
+import { parseSegmentNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
 import { _resetMusicPlayers, createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
 import { _resetSegmentRuns, createSegmentRun, pollPrimed, primeRun, routeGroupEvent, setSegmentClipSource, stampRun, type SegmentRun } from "./segmentRun";
 import { releaseSilentRing, setAudibleStems, soloStem, tickStems } from "./stems";
@@ -15,7 +15,7 @@ function rig(): { b: FakeBackend; player: MusicPlayer; run: SegmentRun; f: Music
   const node = parseSegmentNode(
     { type: "segment", id: "s", tracks: [{ name: "drums", clip: "a.ogg" }, { name: "bass", clip: "b.ogg" }, { name: "pad", clip: "c.ogg" }] },
     "test",
-    newMusicContext(),
+    { problems: [], ids: new Set() },
   ) as SegmentNode;
   const inst = { group: 7, world: 1, path: "m.audioevent", asset: { bus: "Music", priority: 200, volume: 1 } } as unknown as EventInstance;
   const player = createMusicPlayer(inst, node);

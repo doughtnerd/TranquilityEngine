@@ -4,7 +4,7 @@
 // stored, with INDEX) opens, every record round-trips, and `assembleCapture` rebuilds it byte-equal.
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { encodeMixOp } from "../../../../engine/audio/mixOps";
+import { encodeMixOp } from "../../../../engine/audio/mixOpCodec";
 import { MAGIC, SCHEMA_HASH, STATUS_BUFFER_BYTES, STATUS_HEADER_BYTES } from "../wire.generated";
 import {
   CAPTURE_FLAG_COMPRESSED,

@@ -1,7 +1,7 @@
 // F-15: `startAtSegment` sets a playlist's cursors so the first plan starts the chosen segment and the list goes on from it.
 import { afterEach, describe, expect, it } from "vitest";
 import type { EventInstance } from "../events/eventRuntime";
-import { newMusicContext, parseSegmentNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
+import { parseSegmentNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
 import { startAtPosition, startAtSegment } from "./editorHooks";
 import type { PlanRequest } from "./planner";
 import { withStartPosition } from "./startPosition";
@@ -9,7 +9,7 @@ import { _resetMusicPlayers, createMusicPlayer, type MusicNodeRef } from "./musi
 import { peekNext } from "./playlist";
 
 function segment(id: string): SegmentNode {
-  const node = parseSegmentNode({ type: "segment", id, tracks: [{ name: "t0", clip: `music/${id}.ogg` }] }, "test", newMusicContext());
+  const node = parseSegmentNode({ type: "segment", id, tracks: [{ name: "t0", clip: `music/${id}.ogg` }] }, "test", { problems: [], ids: new Set() });
   if (!node) throw new Error("fixture segment did not parse");
   return node;
 }
@@ -61,7 +61,7 @@ describe("startAtPosition", () => {
     const node = parseSegmentNode({
       type: "segment", id: "s", tempo: [{ at: "1:1:0", bpm: 120, beatsPerBar: 4, beatUnit: 4 }],
       cues: [{ name: "entry", at: cue }], entry: "entry", tracks: [{ name: "t0", clip: "music/s.ogg" }],
-    }, "test", newMusicContext());
+    }, "test", { problems: [], ids: new Set() });
     if (!node) throw new Error("fixture segment did not parse");
     return node;
   };

@@ -184,7 +184,7 @@ export interface MusicSettings { rings: number }
 /** `audio.music.rings`' range (`MAX_MUSIC_RINGS` in the wire). */
 export const MUSIC_RINGS_LIMITS = [0, 16] as const;
 /** `audio.music.rings` when absent: the default preset's 12. */
-export const DEFAULT_MUSIC_RINGS = 12;
+const DEFAULT_MUSIC_RINGS = 12;
 /** The voice presets' music rings (api-and-models §2.1; the editor's `VOICE_PRESETS` writes them). */
 export const MUSIC_RINGS_PRESETS = { low: 8, default: 12, high: 16 } as const;
 
@@ -285,7 +285,7 @@ export const defaultBuses = (): BusSettings[] =>
  * The backend a project gets without `audio.backend` (B7, ADR 0157): the core. To revert the switch, set this to
  * "babylon" (and `MACOS_DESKTOP_DEFAULT_BACKEND` becomes redundant).
  */
-export const DEFAULT_BACKEND: "babylon" | "core" = "core";
+const DEFAULT_BACKEND: "babylon" | "core" = "core";
 
 /** The default on macOS desktop builds (ADR 0157 Gates): "babylon" until WKWebView passes the macOS gate. Drop it then. */
 export const MACOS_DESKTOP_DEFAULT_BACKEND: "babylon" | "core" = "babylon";
@@ -300,7 +300,7 @@ export interface BackendEnv extends PlatformEnv {
  * (WKWebView). A browser, Safari on macOS included, is not macOS desktop, and neither is Tauri on iOS/iPadOS (a touch
  * screen reporting as a Mac). macOS is read from `userAgentData.platform`, `navigator.platform` or the user agent.
  */
-export function isMacOSDesktop(env: BackendEnv = globalThis as BackendEnv): boolean {
+function isMacOSDesktop(env: BackendEnv = globalThis as BackendEnv): boolean {
   if (detectPlatform(env) !== "desktop") return false;
   const nav = env.navigator;
   if ((nav?.maxTouchPoints ?? 0) > 1 || /iPhone|iPad|iPod/i.test(nav?.userAgent ?? "")) return false;

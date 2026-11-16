@@ -40,13 +40,13 @@ export interface SlotConfigBus {
 }
 
 /** `BUS_ROOT` of the wire: a root's parent in `configWire()`. */
-export const SLOT_ROOT = 0xffff;
+const SLOT_ROOT = 0xffff;
 
 /** Frames a tombstone waits after its dip ended before it may recycle (R9: one quantum). */
 export const TOMBSTONE_TAIL_FRAMES = 128;
 
 /** The core's slot count (`MAX_BUSES`, `settings.ts`; repeated here so this module imports nothing at run time). Tombstones count. */
-export const SLOT_CAPACITY = 32;
+const SLOT_CAPACITY = 32;
 
 /** An add that found no free slot (R10): the edit is kept and retried at each recycle; the message says when it applies. */
 export interface SlotDeferred { deferred: string }

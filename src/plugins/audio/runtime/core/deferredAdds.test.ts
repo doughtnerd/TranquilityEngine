@@ -3,7 +3,8 @@
 // forgets (an add the table dropped, a bus the mixer already holds), and `clear`.
 import { describe, expect, it } from "vitest";
 import type { MixOp } from "../../../../engine/audio/mixOps";
-import { SLOT_CAPACITY, SlotTable } from "../../../../engine/audio/slotTable";
+import { SlotTable } from "../../../../engine/audio/slotTable";
+import { MAX_BUSES as SLOT_CAPACITY } from "../../../../engine/audio/settings";
 import { DeferredAdds, type DeferredAddsHost } from "./deferredAdds";
 
 const add = (name: string, parent = "Master"): MixOp => ({ op: "addBus", name, parent });

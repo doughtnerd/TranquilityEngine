@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { eventClips, formatAudioEvent, parseAudioEvent } from "./eventFormat";
 import {
-  formatMusicNode, isMusicError, musicClips, musicNodeToJson, newMusicContext, parseMusicSegment, parseSegmentNode,
+  musicClips, musicNodeToJson, parseMusicSegment, type MusicParseContext, parseSegmentNode,
   segmentEntryPosition, segmentExitPosition,
 } from "./musicFormat";
+
+/** One music node as JSON text, two-space indent, trailing newline (as the editor writes assets). */
+const asText = (node: Parameters<typeof musicNodeToJson>[0]): string => JSON.stringify(musicNodeToJson(node), null, 2) + "\n";
 
 const full = {
   type: "segment", id: "explore", value: "explore", gridOffset: 0.5, plays: 2, volume: 0.8, weight: 2,
@@ -22,11 +25,11 @@ describe("musicFormat writer", () => {
   it("round-trips a full segment: parse(write(x)) equals x and the text is idempotent", () => {
     const a = parseMusicSegment(full);
     expect(a.problems).toEqual([]);
-    const text = formatMusicNode(a.value!);
+    const text = asText(a.value!);
     const b = parseMusicSegment(JSON.parse(text));
     expect(b.problems).toEqual([]);
     expect(b.value).toEqual(a.value);
-    expect(formatMusicNode(b.value!)).toBe(text);
+    expect(asText(b.value!)).toBe(text);
   });
 
   it("writes type and id first and omits defaults and the ignored NodeBase keys", () => {
@@ -38,13 +41,13 @@ describe("musicFormat writer", () => {
 
   it("a written segment re-parses with no problems (no pitch/delay/fade keys leak)", () => {
     const { value } = parseMusicSegment({ ...full, pitch: 2, delay: 1, fade: 1, range: [0, 1] });
-    expect(parseMusicSegment(JSON.parse(formatMusicNode(value!))).problems).toEqual([]);
+    expect(parseMusicSegment(JSON.parse(asText(value!))).problems).toEqual([]);
   });
 
   it("round-trips a segment with no tracks and with problems fixed by the parse (idempotent after one pass)", () => {
     const first = parseMusicSegment({ type: "segment", id: "x", tempo: [{ at: "2:2:5", bpm: 90 }], cues: [{ name: "c", at: "01:1:000" }] });
     expect(first.problems.length).toBeGreaterThan(0);
-    const second = parseMusicSegment(JSON.parse(formatMusicNode(first.value!)));
+    const second = parseMusicSegment(JSON.parse(asText(first.value!)));
     expect(second.value).toEqual(first.value);
     expect(second.problems).toEqual(["segment.tracks: has no tracks; it plays nothing."]);
   });
@@ -61,7 +64,7 @@ describe("musicFormat writer", () => {
 
   it("a pitch binding is an error-level problem", () => {
     const { problems } = parseMusicSegment({ type: "segment", id: "s", tracks: [{ name: "a", clip: "a", automation: [{ parameter: "p", target: "pitch", curve: [[0, 1], [1, 2]] }] }] });
-    expect(problems.some(isMusicError)).toBe(true);
+    expect(problems.some((p) => p.startsWith("error: "))).toBe(true);
   });
 
   it("a metre change at the last bar is dropped rather than snapping past the position range", () => {
@@ -71,7 +74,7 @@ describe("musicFormat writer", () => {
   });
 
   it("shares ids across nodes through one context", () => {
-    const ctx = newMusicContext();
+    const ctx: MusicParseContext = { problems: [], ids: new Set() };
     expect(parseSegmentNode({ type: "segment", id: "a", tracks: [] }, "root", ctx)).not.toBeNull();
     expect(parseSegmentNode({ type: "segment", id: "a", tracks: [] }, "library[0]", ctx)).toBeNull();
   });

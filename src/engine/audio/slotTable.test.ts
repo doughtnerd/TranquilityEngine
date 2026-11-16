@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { AudioSettings, BusEffect } from "./settings";
-import { SLOT_CAPACITY, SLOT_ROOT, SlotTable, TOMBSTONE_TAIL_FRAMES } from "./slotTable";
+import { SlotTable, TOMBSTONE_TAIL_FRAMES } from "./slotTable";
+import { MAX_BUSES as SLOT_CAPACITY } from "./settings";
+
+/** The wire's `BUS_ROOT`: a root's parent in `configWire()`. */
+const SLOT_ROOT = 0xffff;
 
 type B = { name: string; parent?: string; effects?: BusEffect[] };
 

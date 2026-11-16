@@ -15,7 +15,7 @@ import { AUDIO_SYSTEMS } from "./audioSystem";
 import { setAudioBackend } from "./backend";
 import { makeFakeBackend, type FakeBackend } from "./testing";
 import type { EventInstance } from "./events/eventRuntime";
-import { newMusicContext, parseSegmentNode, type SegmentNode } from "../../../engine/audio/musicFormat";
+import { parseSegmentNode, type SegmentNode } from "../../../engine/audio/musicFormat";
 import type { MusicClipFacts } from "../../../engine/audio/musicValidate";
 import { musicHandleOf } from "./music/handle";
 import {
@@ -39,7 +39,7 @@ const FACTS: Record<string, MusicClipFacts> = {
 
 function segment(id: string, clips: string[], gridOffset = 0, extra: Record<string, unknown> = {}): SegmentNode {
   const tracks = clips.map((clip, k) => ({ name: `t${k}`, clip }));
-  const node = parseSegmentNode({ type: "segment", id, gridOffset, tracks, ...extra }, "test", newMusicContext());
+  const node = parseSegmentNode({ type: "segment", id, gridOffset, tracks, ...extra }, "test", { problems: [], ids: new Set() });
   if (!node) throw new Error("fixture segment did not parse");
   return node;
 }
@@ -204,7 +204,7 @@ describe("L-P7a: handle.music getters (§1.2)", () => {
         ],
       },
       "test",
-      newMusicContext(),
+      { problems: [], ids: new Set() },
     ) as SegmentNode;
     const player = playingPlayer(tempoNode);
 

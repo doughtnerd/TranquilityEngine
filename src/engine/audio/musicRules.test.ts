@@ -11,7 +11,7 @@ import { AUDIO_EVENT_FORMAT, eventClips, eventNodes, eventRootNode, formatAudioE
 import { musicClips, type PlaylistNode } from "./musicFormat";
 import {
   analyzeTransitionRules, buildRuleIndex, DEFAULT_TRANSITION_RULE, MAX_CONCURRENT_STINGERS, MAX_FADE_BEATS, MAX_FADE_SECONDS,
-  musicTriggers, resolveStinger, resolveTransition, ruleIndexFor, ruleTier, STINGER_STEAL_FADE_SECONDS, stingerToJson,
+  resolveStinger, resolveTransition, ruleIndexFor, STINGER_STEAL_FADE_SECONDS, stingerToJson,
   transitionToJson, type TransitionRule,
 } from "./musicRules";
 
@@ -174,13 +174,6 @@ describe("transitions: dangling ids (§2.4)", () => {
 });
 
 describe("transitions: precedence, duplicates and shadows (§2.4)", () => {
-  it("L-F2a: tier of a rule: pair 1, from named 2, to named 3, wildcard pair 4 (ruleTier)", () => {
-    expect(ruleTier({ from: "a", to: "b" })).toBe(1);
-    expect(ruleTier({ from: "a", to: "*" })).toBe(2);
-    expect(ruleTier({ from: "*", to: "b" })).toBe(3);
-    expect(ruleTier({ from: "*", to: "*" })).toBe(4);
-  });
-
   it("L-F2a: resolveTransition prefers tier 1 over 2 over 3 over 4 whatever the list order", () => {
     // Listed least specific first.
     const index = buildRuleIndex([rule("*", "*", { exit: "immediate" }), rule("*", "b", { exit: "nextCue" }), rule("a", "*", { exit: "exitCue" }), rule("a", "b", { exit: "beat" })]);
@@ -421,19 +414,6 @@ describe("stingers (§2.5)", () => {
     const inner = outer.children[0] as PlaylistNode;
     expect(resolveStinger([outer, inner], "nope")).toBeNull();
     expect(resolveStinger([outer, inner], "hit")?.container).toBe(inner);
-  });
-
-  it("L-F2a: musicTriggers lists every trigger of the tree once, sorted", () => {
-    const { value, problems } = parseAudioEvent({
-      format: AUDIO_EVENT_FORMAT,
-      root: {
-        type: "playlist", id: "outer", library: [seg("s")],
-        stingers: [{ trigger: "zeta", segment: "s" }, { trigger: "alpha", segment: "s" }],
-        children: [{ type: "playlist", id: "inner", library: [seg("t")], stingers: [{ trigger: "alpha", segment: "t" }, { trigger: "mid", segment: "t" }], children: [seg("leaf")] }],
-      },
-    });
-    expect(problems).toEqual([]);
-    expect(musicTriggers(eventRootNode(value))).toEqual(["alpha", "mid", "zeta"]);
   });
 
   it("L-F2a: the format limits MAX_CONCURRENT_STINGERS is 4 and the steal fade 5 ms", () => {

@@ -1,7 +1,7 @@
 // ADR 0162 D2b: compile, combine and cache of the occluder materials (§2.2, §1.5).
 import { describe, expect, it } from "vitest";
 import {
-  BUILTIN_MATERIALS, COMBINED_FLOOR_DB, HitAccumulator, OccluderCache, colliderLabel, compileHit, occlusionNote,
+  BUILTIN_MATERIALS, HitAccumulator, OccluderCache, colliderLabel, compileHit, occlusionNote,
   type HitCost, type OccluderParams, type ResolvedHit,
 } from "./occlusionMaterials";
 
@@ -52,7 +52,7 @@ describe("HitAccumulator", () => {
   it("floors the sum at -60 dB", () => {
     const a = new HitAccumulator().reset();
     a.add(hit(-30, 800, 0.6)).add(hit(-30, 800, 0.6)).add(hit(-30, 800, 0.6));
-    expect(a.transmissionDb).toBe(COMBINED_FLOOR_DB);
+    expect(a.transmissionDb).toBe(-60); // the combined floor
   });
   it("starts transparent and reset clears it", () => {
     const a = new HitAccumulator();

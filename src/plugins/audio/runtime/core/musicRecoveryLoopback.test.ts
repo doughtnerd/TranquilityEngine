@@ -7,7 +7,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Mixer } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings } from "../../../../engine/audio/settings";
-import { newMusicContext, parseSegmentNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
+import { parseSegmentNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
 import type { EventInstance } from "../events/eventRuntime";
 import type { AudioBackground } from "../backend";
 import { fakeDecoder } from "./fakeDecoder";
@@ -71,7 +71,7 @@ function segment(): SegmentNode {
   const node = parseSegmentNode(
     { type: "segment", id: "loop", gridOffset: 0, tempo: [{ at: "1:1:0", bpm: 240, beatsPerBar: 4, beatUnit: 4 }], tracks: STEMS.map((clip, k) => ({ name: `t${k}`, clip })) },
     "test",
-    newMusicContext(),
+    { problems: [], ids: new Set() },
   );
   if (!node) throw new Error("fixture segment did not parse");
   return node;

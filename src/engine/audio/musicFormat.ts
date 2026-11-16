@@ -92,8 +92,6 @@ export type AutomationQuantize = (typeof AUTOMATION_QUANTIZE)[number];
 
 /** A problem message that is an error, not a warning, begins with this (the pitch binding on a track, §2.3). */
 export const MUSIC_ERROR_PREFIX = "error: ";
-/** True for an error-level problem message. */
-export const isMusicError = (problem: string): boolean => problem.startsWith(MUSIC_ERROR_PREFIX);
 
 // --- the model ------------------------------------------------------------------------------------------------------
 
@@ -256,7 +254,7 @@ export interface MusicParseContext {
 }
 
 /** A fresh context for a stand-alone parse. */
-export const newMusicContext = (): MusicParseContext => ({ problems: [], ids: new Set() });
+const newMusicContext = (): MusicParseContext => ({ problems: [], ids: new Set() });
 
 // --- small readers (the 0158 `Reader`'s, repeated: see the header) -------------------------------------------------
 
@@ -761,9 +759,4 @@ export function musicNodeToJson(node: MusicNode): Record<string, unknown> {
   if (node.regions.length > 0) out.regions = node.regions.map((r) => ({ id: r.id, from: r.from, to: r.to, count: r.count, ...(r.tailBeats !== undefined ? { tailBeats: r.tailBeats } : {}), ...(r.while ? { while: r.while } : {}) }));
   out.tracks = node.tracks.map(trackToJson);
   return out;
-}
-
-/** One music node as JSON text, two-space indent, trailing newline (as the editor writes assets). */
-export function formatMusicNode(node: MusicNode): string {
-  return JSON.stringify(musicNodeToJson(node), null, 2) + "\n";
 }

@@ -5,7 +5,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AudioBackend } from "../backend";
 import type { EventInstance } from "../events/eventRuntime";
-import { newMusicContext, parseSegmentNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
+import { parseSegmentNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
 import type { MusicClipFacts } from "../../../../engine/audio/musicValidate";
 import { _resetMusicPlayers, createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
 import { _resetSegmentRuns, createSegmentRun, setSegmentClipSource, type SegmentRun } from "./segmentRun";
@@ -22,7 +22,7 @@ let facts: Record<string, MusicClipFacts> = {};
 const params: Record<string, number | string | undefined> = {};
 
 function segment(raw: Record<string, unknown>): SegmentNode {
-  const node = parseSegmentNode({ type: "segment", id: "A", tracks: [{ name: "t0", clip: "a.ogg" }], ...raw }, "test", newMusicContext());
+  const node = parseSegmentNode({ type: "segment", id: "A", tracks: [{ name: "t0", clip: "a.ogg" }], ...raw }, "test", { problems: [], ids: new Set() });
   if (!node) throw new Error("fixture segment did not parse");
   return node;
 }

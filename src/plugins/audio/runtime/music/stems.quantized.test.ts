@@ -5,7 +5,7 @@ import { setAudioBackend } from "../backend";
 import { makeFakeBackend, type FakeVoice } from "../testing";
 import type { EventInstance } from "../events/eventRuntime";
 import { AutoTarget, continuousBindings, evaluateQuantized, QUANTIZED_RAMP_SECONDS, TsAutomation, type Binding } from "../events/automation";
-import { newMusicContext, parseSegmentNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
+import { parseSegmentNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
 import { _resetMusicPlayers, createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
 import { _resetSegmentRuns, setSegmentClipSource, type SegmentRun, type StemRun } from "./segmentRun";
 import { quantizedRamp, soloStem, tickStems, type StampedRamp } from "./stems";
@@ -17,7 +17,7 @@ function setup(stamped: boolean) {
   const b = makeFakeBackend();
   setAudioBackend(b);
   setSegmentClipSource({ url: (p) => p, settings: () => ({ volume: 1, stream: true }), bus: (o) => o ?? "Master", facts: () => ({ frames: 120 * RATE, rate: RATE, channels: 2, gapless: true }) });
-  const node = parseSegmentNode({ type: "segment", id: "s", tracks: [{ name: "drums", clip: "a.ogg" }, { name: "bass", clip: "b.ogg" }] }, "test", newMusicContext()) as SegmentNode;
+  const node = parseSegmentNode({ type: "segment", id: "s", tracks: [{ name: "drums", clip: "a.ogg" }, { name: "bass", clip: "b.ogg" }] }, "test", { problems: [], ids: new Set() }) as SegmentNode;
   const inst = { group: 7, world: 1, path: "m.audioevent", asset: { bus: "Music", priority: 200, volume: 1 } } as unknown as EventInstance;
   const player = createMusicPlayer(inst, node);
   const ramps: { track: string; r: StampedRamp }[] = [];
@@ -178,7 +178,7 @@ describe("a quantised stem on the loopback host (ADR 0166 R6)", () => {
     voice.paramsShaped!({ gain: 0, seconds: 0 });
     await step(10);
 
-    const node = parseSegmentNode({ type: "segment", id: "s", tracks: [{ name: "bass", clip: "dc.wav" }] }, "test", newMusicContext()) as SegmentNode;
+    const node = parseSegmentNode({ type: "segment", id: "s", tracks: [{ name: "bass", clip: "dc.wav" }] }, "test", { problems: [], ids: new Set() }) as SegmentNode;
     const inst = { group: 7, world: 1, path: "m.audioevent", asset: { bus: "Music", priority: 200, volume: 1 } } as unknown as EventInstance;
     const player = createMusicPlayer(inst, node);
     // Heard clock: the group began at `t0` (file 0), so bars fall at t0 + 2k seconds. Pick t0 so the next bar is ~0.15 s ahead.

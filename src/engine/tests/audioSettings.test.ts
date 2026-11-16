@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_BACKEND, defaultAudioSettings, defaultBackend, isMacOSDesktop, parseAudioSettings } from "../audio/settings";
+import { defaultAudioSettings, defaultBackend, parseAudioSettings } from "../audio/settings";
 
 // §2 of docs/design/0157-audio-core/api-and-models.md, one block per key (K13).
 describe("audio settings: the §2 keys (ADR 0157)", () => {
@@ -267,19 +267,16 @@ describe("the default backend (B7)", () => {
   const tauri = { __TAURI_INTERNALS__: {} };
 
   it("is the core", () => {
-    expect(DEFAULT_BACKEND).toBe("core");
     expect(defaultBackend({ navigator: { userAgent: "Mozilla/5.0 (X11; Linux x86_64) Chrome/130", platform: "Linux x86_64" } })).toBe("core");
     expect(defaultBackend({ ...tauri, navigator: { userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Edg/130", platform: "Win32" } })).toBe("core");
     expect(defaultBackend({ ...tauri, navigator: { userAgent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15" } })).toBe("core");
   });
   it("is babylon in the Tauri shell on macOS only", () => {
-    expect(isMacOSDesktop({ ...tauri, ...mac })).toBe(true);
     expect(defaultBackend({ ...tauri, ...mac })).toBe("babylon");
     expect(defaultBackend({ ...tauri, navigator: { userAgent: "", userAgentData: { platform: "macOS" } } })).toBe("babylon");
     expect(defaultBackend({ ...tauri, navigator: { userAgent: "", platform: "MacIntel" } })).toBe("babylon");
   });
   it("Safari on macOS (a browser, not the desktop shell) and Tauri on iPadOS keep the core", () => {
-    expect(isMacOSDesktop(mac)).toBe(false);
     expect(defaultBackend(mac)).toBe("core");
     expect(defaultBackend({ ...tauri, navigator: { userAgent: MAC_UA, platform: "MacIntel", maxTouchPoints: 5 } })).toBe("core");
     expect(defaultBackend({ ...tauri, navigator: { userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)" } })).toBe("core");

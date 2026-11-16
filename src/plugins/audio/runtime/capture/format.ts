@@ -551,7 +551,7 @@ export interface NamesPayload {
   name: string;
 }
 
-/** A MIXOP: one `MixOp` in §6.2's byte form (`MixOpBytes` of `src/engine/audio/mixOps.ts`), then `perfMs` and `origin`. */
+/** A MIXOP: one `MixOp` in §6.2's byte form (`MixOpBytes` of `src/engine/audio/mixOpCodec.ts`), then `perfMs` and `origin`. */
 export interface MixOpPayload {
   op: number;
   class: number;

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { applyOpToSettings, deepEqual, diffOps, type ApplyResult, type MixOp } from "../../../../engine/audio/mixOps";
+import { applyOpToSettings, diffOps, type ApplyResult, type MixOp } from "../../../../engine/audio/mixOps";
+import { deepEqual } from "../../../../engine/audio/deepEqual";
 import { parseAudioSettings, type AudioSettings } from "../../../../engine/audio/settings";
 import { LoudnessHub } from "../../runtime/mix/loudnessHub";
 import { createCompareModel, type CompareHost } from "./compareModel";

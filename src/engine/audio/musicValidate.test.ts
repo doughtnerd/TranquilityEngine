@@ -7,7 +7,7 @@
 import { describe, expect, it } from "vitest";
 import { emptySegment, type MusicRegion, type MusicTrack, type SegmentNode } from "./musicFormat";
 import {
-  MUSIC_VALIDATE_LIMITS, segmentRingNeed, stemMode, validateMusic, validateSegment,
+  segmentRingNeed, stemMode, validateMusic, validateSegment,
   type MusicGraph, type MusicLintCode, type MusicLintIssue, type MusicValidation,
 } from "./musicValidate";
 import { FIXTURE_CLIPS, clip, lookup, secs } from "./__fixtures__/music/clips";
@@ -115,7 +115,6 @@ describe("validateMusic: gapless and codecs (L-F3a)", () => {
     const a = seg("A", [track("a0", "music/big-a.ogg"), track("a1", "music/big-b.ogg")]);
     const b = seg("B", [track("b0", "music/big-c.ogg"), track("b1", "music/big-d.ogg")]);
     const graph: MusicGraph = { segments: [a, b], edges: [{ from: "A", to: "B" }] };
-    expect(MUSIC_VALIDATE_LIMITS.encodedBudgetBytes.default).toBe(96 * MIB);
     expect(rowsOf(validateMusic(graph, facts, { preset: "low" }), "encodedOverBudget").length).toBeGreaterThan(0);
     expect(rowsOf(validateMusic(graph, facts, { preset: "default" }), "encodedOverBudget").length).toBeGreaterThan(0);
     expect(rowsOf(validateMusic(graph, facts, { preset: "high" }), "encodedOverBudget")).toEqual([]);

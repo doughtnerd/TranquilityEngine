@@ -154,7 +154,7 @@ export const CUTOFF_OPEN_HZ = 22000;
 /** A cutoff at or above this means the low-pass is off. */
 export const CUTOFF_OFF_HZ = 20000;
 /** Several hits on one ray never take more than this many dB (§2.2). */
-export const COMBINED_FLOOR_DB = -60;
+const COMBINED_FLOOR_DB = -60;
 
 /** What one ray hit costs: the gain through it in dB (<= 0), the low-pass cutoff in Hz, and the wet (reverb send) fraction it removes, 0..1. */
 export interface HitCost {

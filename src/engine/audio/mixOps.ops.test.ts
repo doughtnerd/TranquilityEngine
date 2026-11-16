@@ -3,9 +3,10 @@
 // table here also checks both on each case.
 import { describe, expect, it } from "vitest";
 import {
-  applyOpToDraft, applyOpToSettings, decodeMixOp, diffOps, encodeMixOp, invert, MAX_LOUDNESS_BUSES, MIX_OP_NAMES, opClass, opRefusal,
-  type MixOp, type MixOpNameTable, type OpClass,
+  applyOpToDraft, applyOpToSettings, diffOps, invert, MAX_LOUDNESS_BUSES, MIX_OP_NAMES, opClass, opRefusal,
+  type MixOp, type OpClass,
 } from "./mixOps";
+import { decodeMixOp, encodeMixOp, type MixOpNameTable } from "./mixOpCodec";
 import { defaultAudioSettings, type AudioSettings } from "./settings";
 
 /** Default settings plus a child bus, effects, a meter, a snapshot, a ducking rule, automation and authored targets. */

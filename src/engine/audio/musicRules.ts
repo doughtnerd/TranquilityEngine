@@ -297,7 +297,7 @@ export function admitLibrarySegments(ids: Set<string>, count: number, where: str
 // --- the specificity index -----------------------------------------------------------------------------------------
 
 /** The tier of a rule (§2.4). */
-export function ruleTier(rule: Pick<TransitionRule, "from" | "to">): RuleTier {
+function ruleTier(rule: Pick<TransitionRule, "from" | "to">): RuleTier {
   const f = rule.from !== RULE_WILDCARD, t = rule.to !== RULE_WILDCARD;
   return f && t ? 1 : f ? 2 : t ? 3 : 4;
 }
@@ -481,19 +481,6 @@ export function resolveStinger(containers: readonly MusicContainerNode[], trigge
     }
   }
   return null;
-}
-
-/** Every trigger name of an event's music tree (one namespace per event), sorted, once each. */
-export function musicTriggers(root: { type: string }): string[] {
-  const out = new Set<string>();
-  const walk = (n: { type: string }): void => {
-    const c = n as Partial<MusicContainerNode>;
-    if (!Array.isArray(c.stingers) || !Array.isArray(c.children)) return;
-    for (const s of c.stingers) out.add(s.trigger);
-    c.children.forEach(walk);
-  };
-  walk(root);
-  return [...out].sort();
 }
 
 // --- writing (called from `musicNodeToJson`) -----------------------------------------------------------------------

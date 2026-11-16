@@ -54,7 +54,7 @@ export type MusicFactsLookup = (path: string) => MusicClipFacts | undefined;
 
 // --- the rule's constants ---------------------------------------------------------------------------------------------
 
-export const MUSIC_VALIDATE_LIMITS = {
+const MUSIC_VALIDATE_LIMITS = {
   /** Stems of a segment may differ by this many frames (within: the shortest wins, warn; beyond: the segment refuses to play). */
   stemLengthSlackFrames: 1024,
   /** A clip up to this long is decoded; longer is streamed (R15: decoded stems, bridges and stingers cost no ring). */

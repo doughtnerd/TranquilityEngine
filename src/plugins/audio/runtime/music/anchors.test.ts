@@ -6,7 +6,7 @@ import { makeFakeBackend, type FakeBackend } from "../testing";
 import type { EventInstance } from "../events/eventRuntime";
 import { ClockMap } from "../core/clock";
 import type { HostClock, OutputTimestamp } from "../core/hostClock";
-import { newMusicContext, parseSegmentNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
+import { parseSegmentNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
 import { compileSegmentGrid, ticksToSeconds } from "../../../../engine/audio/musicGrid";
 import type { MusicClipFacts } from "../../../../engine/audio/musicValidate";
 import { _resetMusicPlayers, createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
@@ -20,7 +20,7 @@ import { createRegionState } from "./regions";
 let facts: Record<string, MusicClipFacts> = {};
 
 function segment(raw: Record<string, unknown>): SegmentNode {
-  const node = parseSegmentNode({ type: "segment", id: "A", tracks: [{ name: "t0", clip: "a.ogg" }, { name: "t1", clip: "b.ogg" }], ...raw }, "test", newMusicContext());
+  const node = parseSegmentNode({ type: "segment", id: "A", tracks: [{ name: "t0", clip: "a.ogg" }, { name: "t1", clip: "b.ogg" }], ...raw }, "test", { problems: [], ids: new Set() });
   if (!node) throw new Error("fixture segment did not parse");
   return node;
 }
