@@ -183,7 +183,7 @@ Added to today's checks (`settings.ts:366-367` refuses only `target === trigger`
 2. **Level-rule cycles (R5):** Kahn's algorithm over child-to-parent edges plus one trigger-to-target edge per **level** rule; a cycle (A ducks B and B ducks A, or A to B to C to A) drops the closing rule with a message **naming the rules in the cycle**. Presence rules add no edge and are exempt.
 3. **Counts:** at most `MAX_DUCK_RULES` (32) rules and at most `MAX_LEVEL_RULES` (8) of them level rules; the rest dropped with a problem.
 4. **Buses:** the parse cap stays `MAX_BUSES` 32 (`settings.ts:209,345`); during a session tombstones count (§6.3).
-5. **Where problems show:** the settings section lists them under the field (`audioProblems`, `audioSettingsModel.ts:51`), the Mixer panel banners any problem of a live key, `Engine.create` logs them (`Engine.ts:185`).
+5. **Where problems show:** the settings section lists them under the field (`audioSection(section).problems`, `engine/audio/audioSection.ts`), the Mixer panel banners any problem of a live key, `Engine.create` logs them (`Engine.ts:185`).
 
 The model functions refuse what the parse would drop and return the draft unchanged with a message (the ninth `meter` toggle: "At most 8 buses can be metered").
 

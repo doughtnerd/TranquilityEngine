@@ -25,7 +25,7 @@ We will have `gen_wire`'s TypeScript emitter (`gen/ts.rs`) emit everything that 
 - **`StatusHeader`**: the header's scalars by name (section counts excluded: they are the sections' lengths). `StatusBlock` now `extends StatusHeader` (the same type as before), with `newStatusHeader()`, `copyStatusHeader(dst, src)` and `newStatusBlock()`.
 - **`STATUS_HEADER_COLUMNS`**: every header scalar as `name: [byte offset from the envelope, type]`, `satisfies Record<keyof StatusHeader, …>`, with `readStatusHeaderField(view, off, field)` (in place, no allocation). The capture's `STATUS_COLUMNS` and `readStatusColumn` are these.
 - **`StatusBlockReader`**: decodes a whole STATUS into one preallocated `block`. Section arrays are warmed to each cap once and multi-field items are pooled objects; `readView(view)` allocates nothing, `read(buf)` builds one `DataView`. The same checks, codes and messages as `readStatus`, and every section is validated before the block is touched. A subclass adds semantic checks in a protected `check(view, limit)` hook, which runs after the structural checks and before any write, with `sectionAt` and `sectionCount` (indexed by the generated `STATUS_SECTION`) filled in.
-- `STATUS_SECTION_COUNT_AT`, `STATUS_SECTION_MAX` and, per multi-field section item, `STATUS_<SECTION>_ITEM_AT` (field offsets), for semantic checks and tests that work on the bytes.
+- `STATUS_<SECTION>_ITEM_AT` (field offsets) for the sections whose items hand code reads in place (today `loudBuses`, for the count-sum rule). Tests find count fields, caps and item fields through `writeStatus` and `readStatus` themselves (the per-section count-offset and cap tables were dropped: only a test read them).
 
 Hand code:
 

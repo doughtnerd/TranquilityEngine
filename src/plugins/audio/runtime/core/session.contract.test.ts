@@ -44,7 +44,7 @@ describe("CoreSession (ADR 0178)", () => {
     const log: string[] = [];
     const s = new CoreSession();
     for (const name of [...ALL_NAMES].reverse()) s.join(name, recorder(name, log));
-    expect(s.unimplemented()).toEqual([]);
+    expect(() => s.requireComplete()).not.toThrow();
     for (const phase of PHASES) {
       if (phase === "dispose") continue;
       log.length = 0;
@@ -61,10 +61,11 @@ describe("CoreSession (ADR 0178)", () => {
     expect(() => s.join("beds", { dispose: () => {} })).toThrow(/beds" implements dispose, but PHASE_ORDER.dispose doesn't list it/);
     s.join("beds", { replayHeader: () => {} });
     expect(() => s.join("beds", { replayHeader: () => {} })).toThrow(/joined twice/);
-    // The other direction is reported, not refused (a test may join a part of the backend).
+    // The other direction is refused once the owner says everything joined: a listed name missing, or joined without a phase.
     s.join("zones", { dispose: () => {} });
-    expect(s.unimplemented()).toContain("contextReplaced: zones");
-    expect(s.unimplemented()).toContain("replayHeader: zones");
+    expect(() => s.requireComplete()).toThrow(/contextReplaced: zones/);
+    expect(() => s.requireComplete()).toThrow(/replayHeader: zones/);
+    expect(() => s.requireComplete()).toThrow(/dispose: writer/);
   });
 
   it("owns recovering and disposed: set before the phase's participants run; recovery phases stop and dispose runs once after dispose", () => {
@@ -193,11 +194,10 @@ function queued(backend: CoreBackend, addName: string) {
     deferredAdd: backend.deferredAdds.waits(addName),
     lockedPlays: backend.lockedQueue.size,
     replayWaiting: backend.replayer.pending,
-    staleStems: backend.voices.staleStems,
     staged: backend.writer.pending,
   };
 }
-const NOTHING = { deferredAdd: false, lockedPlays: 0, replayWaiting: 0, staleStems: 0, staged: 0 };
+const NOTHING = { deferredAdd: false, lockedPlays: 0, replayWaiting: 0, staged: 0 };
 
 /** A rebuild under way with a voice waiting for its clip in the replayer, a play queued behind it, and a live add deferred. */
 function withEverythingQueued(r: ReturnType<typeof rig>) {
@@ -219,9 +219,8 @@ function withEverythingQueued(r: ReturnType<typeof rig>) {
 }
 
 describe("the core backend's session participants (ADR 0178)", () => {
-  it("every participant an order lists joins, with every phase it is listed for", () => {
-    const { backend } = rig();
-    expect(backend.session.unimplemented()).toEqual([]);
+  it("every participant an order lists joins, with every phase it is listed for (the backend's construction requires it)", () => {
+    expect(() => rig()).not.toThrow();
   });
 
   it("nothing queued survives dispose", () => {
@@ -279,7 +278,6 @@ describe("the core backend's session participants (ADR 0178)", () => {
     r.lifecycle.rebuildStart();
     disconnect.mockClear();
     r.lifecycle.contextReplaced(44_100);
-    expect(backend.session.participants("contextReplaced")).toEqual(["replayer", "clock", "hrir", "worklet", "zones", "mirror"]);
     expect(backend.replayer.waitingForClock).toBe(true); // replayer: anchors carried in seconds
     expect([backend.clockMap.sampleRate, backend.writer.sampleRate]).toEqual([44_100, 44_100]); // clock
     expect(r.hrir.retarget).toHaveBeenCalledWith(44_100); // hrir

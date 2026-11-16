@@ -5,6 +5,7 @@
 // event objects. No DOM, no timers.
 import type { VNode } from "preact";
 import { afterEach, describe, expect, it } from "vitest";
+import { audioSection } from "../../../engine/audio/audioSection";
 import type { ApplyResult, MixOp } from "../../../engine/audio/mixOps";
 import { parseAudioSettings, type DuckingRule } from "../../../engine/audio/settings";
 import { readDraft } from "../../../editor/projectSettingsModel";
@@ -13,7 +14,7 @@ import { onSectionChanged } from "../../../editor/sectionChanged";
 import { closeTestProject, openTestProject } from "../../../editor/testing";
 import type { SettingsDraft } from "../../../editor/sdk";
 import { DuckingEditor } from "./AudioSettingsSection";
-import { addDucking, audioOf, audioProblems, moveDucking, removeDucking, setDuckingValue } from "./audioSettingsModel";
+import { addDucking, audioOf, moveDucking, removeDucking, setDuckingValue } from "./audioSettingsModel";
 import { createOpLog, type MixApplier } from "./mix/opLog";
 import { newDuckRule } from "./mix/duckModel";
 
@@ -77,7 +78,7 @@ describe("add: a new rule is a level rule, RMS, -30 dBFS", () => {
     expect(r.rules()).toEqual([{ target: "Music", trigger: "Voice", mode: "level", detector: "rms", threshold: -30, amount: 0.4, attack: 0.1, release: 0.5 }]);
     expect(r.s.labels).toEqual(["Add ducking rule"]);
     expect(r.s.refusal).toBeNull();
-    expect(audioProblems(r.s.draft)).toEqual([]);
+    expect(audioSection(r.s.draft.audio).problems).toEqual([]);
   });
   it("the form shows the new rule's mode, detector and threshold", () => {
     const r = rig();
@@ -97,7 +98,7 @@ describe("add: a new rule is a level rule, RMS, -30 dBFS", () => {
     (r.addButton().props.onClick as () => void)();
     expect(r.rules()).toHaveLength(1);
     expect(r.rules()[0]).toMatchObject({ target: "Master", trigger: "Fx", mode: "level" });
-    expect(audioProblems(r.s.draft)).toEqual([]);
+    expect(audioSection(r.s.draft.audio).problems).toEqual([]);
   });
   it("the button is off with fewer than two buses", () => {
     const r = rig([], true, [{ name: "Master" }]);
@@ -117,7 +118,7 @@ describe("mode: each option", () => {
     expect(r.rules()[0]).toMatchObject({ mode: "level", detector: "rms", threshold: -30 });
     expect(r.value("Ducking 1 detector")).toBe("rms");
     expect(r.value("Ducking 1 threshold")).toBe(-30);
-    expect(audioProblems(r.s.draft)).toEqual([]);
+    expect(audioSection(r.s.draft.audio).problems).toEqual([]);
   });
   it("level to presence drops the detector and threshold, and their controls", () => {
     const r = rig([level("Music", "Voice", { detector: "peak", threshold: -12 })]);
@@ -125,7 +126,7 @@ describe("mode: each option", () => {
     expect("detector" in r.rules()[0]! || "threshold" in r.rules()[0]!).toBe(false);
     expect(has(r.view(), "Ducking 1 detector")).toBe(false);
     expect(has(r.view(), "Ducking 1 threshold")).toBe(false);
-    expect(audioProblems(r.s.draft)).toEqual([]);
+    expect(audioSection(r.s.draft.audio).problems).toEqual([]);
   });
   it("choosing the mode a rule already has changes nothing", () => {
     const r = rig([level("Music", "Voice")]);
@@ -153,7 +154,7 @@ describe("threshold: minimum, maximum, typical", () => {
     const r = rig([level("Music", "Voice", { threshold: n === -30 ? -6 : -30 })]);
     r.type("Ducking 1 threshold", n);
     expect(r.rules()[0]!.threshold).toBe(n);
-    expect(audioProblems(r.s.draft)).toEqual([]);
+    expect(audioSection(r.s.draft.audio).problems).toEqual([]);
   });
   it("the field's own limits are -80 and 0", () => {
     const r = rig([level("Music", "Voice")]);
@@ -166,7 +167,7 @@ describe("threshold: minimum, maximum, typical", () => {
     expect(r.rules()[0]!.threshold).toBe(-80);
     r.type("Ducking 1 threshold", 20);
     expect(r.rules()[0]!.threshold).toBe(0);
-    expect(audioProblems(r.s.draft)).toEqual([]);
+    expect(audioSection(r.s.draft.audio).problems).toEqual([]);
   });
 });
 
@@ -175,7 +176,7 @@ describe("amount, attack, release: each limit and a typical value", () => {
     const r = rig([level("Music", "Voice", { amount: 0.7, attack: 2, release: 3 })]);
     r.type(`Ducking 1 ${key}`, n);
     expect(r.rules()[0]![key]).toBe(n);
-    expect(audioProblems(r.s.draft)).toEqual([]);
+    expect(audioSection(r.s.draft.audio).problems).toEqual([]);
   });
   it("the same fields on a presence rule", () => {
     const r = rig([presence("Music", "Voice")]);
@@ -247,7 +248,7 @@ describe("remove and reorder", () => {
     r.click("Move ducking rule 3 up");
     expect(r.rules().map((x) => x.target)).toEqual(["SFX", "UI", "Music"]);
     expect(r.rules().map((x) => x.mode)).toEqual(["presence", "level", "level"]); // each rule moved whole
-    expect(audioProblems(r.s.draft)).toEqual([]);
+    expect(audioSection(r.s.draft.audio).problems).toEqual([]);
   });
   it("the first rule can't move up and the last can't move down", () => {
     const r = three();
@@ -275,7 +276,7 @@ describe("a rule that closes a level cycle is refused with the parse's message a
     expect(msg).toContain("ducking[0] (Voice ducks Music)");
     expect(msg).toContain("ducking[1] (Music ducks Voice)");
     expect(r.rules()[1]!.target).toBe("SFX");
-    expect(audioProblems(r.s.draft)).toEqual([]);
+    expect(audioSection(r.s.draft.audio).problems).toEqual([]);
   });
   it("three rules: A to B to C to A names all three", () => {
     const r = rig([level("Music", "Voice"), level("SFX", "Music"), level("UI", "SFX")]);
@@ -285,7 +286,7 @@ describe("a rule that closes a level cycle is refused with the parse's message a
   });
   it("switching a presence rule to level refuses when that closes the cycle", () => {
     const r = rig([level("Music", "Voice"), presence("Voice", "Music")]);
-    expect(audioProblems(r.s.draft)).toEqual([]); // presence rules add no edge
+    expect(audioSection(r.s.draft.audio).problems).toEqual([]); // presence rules add no edge
     r.pick("Ducking 2 mode", "level");
     expect(r.refusal()).toContain("ducking[1] (Music ducks Voice)");
     expect(r.rules()[1]!.mode).toBe("presence");

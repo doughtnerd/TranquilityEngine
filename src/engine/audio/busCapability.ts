@@ -59,9 +59,6 @@ export const BUS_RULES: Readonly<Record<BusRule, BusRuleSpec>> = {
   },
 };
 
-/** The rules in the order they are checked (an op breaking two answers the first). */
-export const BUS_RULE_ORDER: readonly BusRule[] = ["busCount", "compressorsPerBus", "effectsPerBus"];
-
 const compressors = (effects: readonly Pick<BusEffect, "type">[]): number => effects.filter((e) => e.type === "compressor").length;
 
 /** One rule a parsed bus list breaks: `bus` is the bus's index, or -1 for the list (`busCount`). */

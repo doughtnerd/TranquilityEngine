@@ -10,7 +10,7 @@ import type { PlayArgs } from "./commandWriter";
 import { Selection } from "./selection";
 import { Presence } from "./presence";
 import { VoiceReason, VoiceState, VoiceTable } from "./voiceTable";
-import { CoreVoices, effectiveDryGain, effectivePitch, reportedGain, type CoreVoicesHost } from "./voices";
+import { CoreVoices, dryGainBeforeStem, effectiveDryGain, effectivePitch, reportedGain, type CoreVoicesHost } from "./voices";
 
 type Rec = { op: string; id: number; mask?: number; gain?: number; pitch?: number; at?: number; mixed?: boolean; ramp?: number };
 
@@ -105,8 +105,9 @@ describe("CoreVoices (ADR 0176)", () => {
     const id = r.start({ volume: 0.5, pitch: 2 });
     expect(id).not.toBe(0);
     expect(r.take()).toEqual([{ op: "play", id, gain: 0.5, pitch: 2, at: undefined, mixed: true }]);
-    expect(r.voices.effectiveGainOf(id)).toBe(0.5);
-    expect(r.voices.effectivePitchOf(id)).toBe(2);
+    // The views the replay and Audio.debug() read agree with what was sent.
+    expect(effectiveDryGain(r.table, id & 0xffff)).toBe(0.5);
+    expect(effectivePitch(r.table, id & 0xffff)).toBe(2);
   });
 
   it("a clip still loading waits (waitingForData) and launches when resident; a failed clip frees it and reports the refusal", () => {
@@ -140,8 +141,8 @@ describe("CoreVoices (ADR 0176)", () => {
       ["setParams", SET_PARAMS_MASK_GAIN | SET_PARAMS_MASK_DIR, Math.fround(0.8) * 0.5],
       ["setParams", SET_PARAMS_MASK_GAIN | SET_PARAMS_MASK_DIR, Math.fround(0.4) * 0.5 * 0.25],
     ]);
-    expect(r.voices.effectiveGainOf(id)).toBe(effectiveDryGain(r.table, i));
-    expect(r.voices.dryGainBeforeStem(i)).toBe(Math.fround(0.4) * 0.5);
+    expect(effectiveDryGain(r.table, i)).toBe(sent[1]!.gain);
+    expect(dryGainBeforeStem(r.table, i)).toBe(Math.fround(0.4) * 0.5);
     // Debug's view: the audible stem level, no occlusion (its own column).
     expect(reportedGain(r.table, i, 1)).toBe(Math.fround(0.4) * 0.25);
     r.table.state[i] = VoiceState.VIRTUAL;
@@ -184,7 +185,6 @@ describe("CoreVoices (ADR 0176)", () => {
       [Math.fround(0.8), undefined],
       [0.5 * Math.fround(0.8), near],
     ]);
-    expect(r.voices.staleStems).toBe(1);
     r.voices.setOcclusion(id, 0.5, 20_000); // a later dry write: the far change now carries 0.4
     r.take();
     r.voices.resendStaleStems();
@@ -194,19 +194,21 @@ describe("CoreVoices (ADR 0176)", () => {
     expect(r.take().map((x) => [x.gain, x.at])).toEqual([[0.25 * Math.fround(0.8) * 0.5, far]]);
     r.clock.now = far + 1;
     r.voices.resendStaleStems();
-    expect(r.take()).toEqual([]);
-    expect(r.voices.staleStems).toBe(0);
+    expect(r.take()).toEqual([]); // sent once: nothing stale is left
   });
 
-  it("a rebuild forgets the stale stem changes (beginRecovery); recoveryFailed ends every voice as failed", () => {
+  it("a rebuild forgets the stale stem changes (beginRecovery): none is re-sent once within a lookahead; recoveryFailed ends every voice as failed", () => {
     const r = rig();
     const id = r.start();
     const i = id & 0xffff;
-    r.voices.setStemLevel(i, 0.5, r.clock.now + 5_000, r.clock.now, 0, 0);
+    const far = r.clock.now + 5_000;
+    r.voices.setStemLevel(i, 0.5, far, r.clock.now, 0, 0);
     r.voices.setVolume(id, 0.5);
-    expect(r.voices.staleStems).toBe(1);
     r.voices.beginRecovery();
-    expect(r.voices.staleStems).toBe(0);
+    r.take();
+    r.clock.now = far - 900; // within a lookahead: the stale change would go now (the case above)
+    r.voices.resendStaleStems();
+    expect(r.take()).toEqual([]);
     r.voices.recoveryFailed();
     expect(r.table.isLive(id)).toBe(false);
     expect(r.table.endedReason(id)).toBe(VoiceReason.FAILED);

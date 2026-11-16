@@ -4,9 +4,9 @@
 //
 // - **Participants.** A module joins with a name from `PHASE_ORDER` and implements only the phases it cares about
 //   (`SessionParticipant`, every member optional). `join` refuses a participant that implements a phase whose order
-//   doesn't list its name, so a new phase method can't run in an undeclared place; `unimplemented` reports the other
-//   direction (a name an order lists that never joined, or joined without that phase), which the core backend's
-//   contract test (`session.contract.test.ts`) asserts is empty.
+//   doesn't list its name, so a new phase method can't run in an undeclared place; `requireComplete` refuses the other
+//   direction (a name an order lists that never joined, or joined without that phase): the core backend calls it once
+//   every part has joined.
 // - **The order is data.** Each phase runs its participants in `PHASE_ORDER[phase]`'s order whatever order they joined
 //   in. The replay header's order is ADR 0157's §7 replay order as ADR 0162 (S10) and ADR 0171 (§4.2) extended it;
 //   the per-voice order is what follows each replayed PLAY. The comments on each list say what depends on it.
@@ -140,18 +140,16 @@ export class CoreSession {
     }
   }
 
-  /** The names that run in `phase`, in order (joined ones only). */
-  participants(phase: SessionPhase): ParticipantName[] {
-    return (PHASE_ORDER[phase] as readonly ParticipantName[]).filter((n) => typeof this.joined.get(n)?.[phase] === "function");
-  }
-
-  /** Each `phase: name` an order lists whose participant never joined or joined without that phase. */
-  unimplemented(): string[] {
+  /**
+   * The owner has joined everything: throws, naming each `phase: name`, when an order lists a participant that never
+   * joined or joined without that phase (its work would silently not run in that phase).
+   */
+  requireComplete(): void {
     const out: string[] = [];
     for (const phase of PHASES) {
       for (const n of PHASE_ORDER[phase] as readonly ParticipantName[]) if (typeof this.joined.get(n)?.[phase] !== "function") out.push(`${phase}: ${n}`);
     }
-    return out;
+    if (out.length > 0) throw new Error(`audio: session participants missing: ${out.join(", ")}`);
   }
 
   reconfigure(mixer: Mixer): void {

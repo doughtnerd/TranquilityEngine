@@ -53,7 +53,6 @@ export { EFFECT_TYPES, LIMITER_LOOKAHEAD_LIMITS, MAX_BUSES };
 
 /** The draft's section, parsed once per section object (`audioSection`, ADR 0175). Frozen: edits build a copy. */
 export const audioOf = (d: SettingsDraft): AudioSettings => audioSection(d.audio).settings;
-export const audioProblems = (d: SettingsDraft): readonly string[] => audioSection(d.audio).problems;
 
 /** The section as written to `project.json` (`withSettings`: built-in occlusion materials pruned). */
 const withAudio = (d: SettingsDraft, a: AudioSettings): SettingsDraft => withSettings(d, a);
