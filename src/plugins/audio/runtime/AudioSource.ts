@@ -61,7 +61,7 @@ _setEventClipStarter({
 
 // ADR 0166 P6: a music segment run resolves its stems' clips here (the event runtime's starter above is private to it):
 // the same URL, import settings (with the FuMa gain) and bus resolution. The clip facts come from the backend
-// (`AudioBackend.clipFacts`, G-1); until a clip is loaded the stream-or-decode rule falls back to the import setting `stream`.
+// (`AudioBackend.clipCache`, G-1); until a clip is loaded the stream-or-decode rule falls back to the import setting `stream`.
 setSegmentClipSource({
   url: (path) => Assets.url(path),
   settings: (path) => {
@@ -70,7 +70,7 @@ setSegmentClipSource({
     return gain === 1 ? settings : { volume: settings.volume * gain, stream: settings.stream };
   },
   bus: (output) => mixer.resolveOutput(output),
-  facts: (path) => audioBackend().clipFacts?.(path),
+  facts: (path) => audioBackend().clipCache?.clipFacts(path),
 });
 
 // ADR 0166 P8: the editor saving an asset reaches the music runtime here. `invalidateClip` drops the decoded clips and the
@@ -79,7 +79,7 @@ setSegmentClipSource({
 // the path, and each swaps at its next bar (`music/reload.ts`).
 setReloadHost({
   invalidateClip: (path) => {
-    if (hasAudioBackend()) audioBackend().invalidateClip?.(path);
+    if (hasAudioBackend()) audioBackend().clipCache?.invalidateClip(path);
   },
   eventRoot: (path) => (isAudioEventPath(path) ? loadAudioEvent(path)?.musicRoot ?? null : null),
 });

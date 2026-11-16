@@ -151,7 +151,7 @@ export interface MixerTap {
 }
 
 /**
- * What `mixer.apply` sends a checked op to (ADR 0175): the backend's live path (`AudioBackend.mixOpTarget`: the core's
+ * What `mixer.apply` sends a checked op to (ADR 0175): the backend's live path (`AudioBackend.mix.mixOpTarget`, ADR 0179: the core's
  * `LiveMix`, the fallback's `sendOp`). The Mixer does the rest: the refusal, the class, a no-op, the bus capability
  * rules against `liveCaps`, and the answer for a feature the target doesn't run.
  */

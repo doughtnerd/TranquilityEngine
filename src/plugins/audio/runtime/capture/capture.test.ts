@@ -287,7 +287,7 @@ describe("start, stop, mark and save", () => {
 
   it("start rejects with a message while the core isn't there (a pending or absent backend), and leaves state idle", async () => {
     const r = rig();
-    delete (r.fb as { recorderTap?: unknown }).recorderTap;
+    r.fb.capture = undefined; // a pending or absent backend has no capture source (ADR 0179)
     await expect(Audio.capture.start()).rejects.toThrow(/audio core/);
     expect(Audio.capture.state).toBe("idle");
     expect(r.loads).not.toHaveBeenCalled();
@@ -637,7 +637,7 @@ describe("owners: the Profiler panel's hold is distinct from a take (the LiveHos
 
   it("join rejects with a message while the core isn't there, and holds nothing", async () => {
     const r = rig();
-    delete (r.fb as { recorderTap?: unknown }).recorderTap;
+    r.fb.capture = undefined; // no capture source, whatever the mix caps say (ADR 0179)
     r.fb.mixCaps = { ...r.fb.mixCaps, capture: "full" };
     await expect(captureLiveHost.join()).rejects.toThrow(/audio core/);
     expect(captureOwners()).toEqual({ take: false, panels: 0 });

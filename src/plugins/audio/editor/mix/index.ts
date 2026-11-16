@@ -30,7 +30,7 @@ let mixerReady: Promise<typeof import("./MixerPanel")["MixerPanel"]> | null = nu
 function loadMixer(): Promise<typeof import("./MixerPanel")["MixerPanel"]> {
   mixerReady ??= (async () => {
     const [m, { audioBackend }, { opLogEntries }] = await Promise.all([import("./MixerPanel"), import("../../runtime/backend"), import("../index")]);
-    wireMixerHost(m.mixerHost, { flushNow: () => audioBackend().flushNow?.(), entries: opLogEntries });
+    wireMixerHost(m.mixerHost, { flushNow: () => audioBackend().mix?.flushNow(), entries: opLogEntries });
     // ADR 0173: the fader's one undo step goes into the Project Settings history, the panel's own.
     m.mixerHost.section = mixerSectionOf(editor.project.settings);
     return m.MixerPanel;

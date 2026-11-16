@@ -7,7 +7,7 @@
 // **The lazy chunk (ground rules).** Nothing imports this file statically: `capture/capture.ts` loads it through
 // `import()` on the first `start()` (Rc4 sets the loader), so a game that never captures loads no recorder.
 //
-// **Registering the tap.** `Recorder.attach(backend)` sets `backend.recorderTap` (the optional `AudioBackend` member;
+// **Registering the tap.** `Recorder.attach(capture)` sets `capture.recorderTap` (`AudioCaptureSource`, ADR 0179;
 // `CoreBackend` forwards it to `CoreLink.recorderTap`, K0) to the recorder's preallocated `tap`; `detach()` clears it.
 // Rc4 calls them from `capture.ts`'s start and stop.
 //

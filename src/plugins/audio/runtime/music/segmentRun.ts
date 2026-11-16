@@ -348,7 +348,7 @@ export function cancelRun(run: SegmentRun, f: MusicFrame): void {
  * outgoing runs too.
  */
 export function stopPlayerRuns(player: MusicPlayer, fadeSeconds: number, f: MusicFrame): void {
-  const at = Math.max(f.now, f.backend.horizon?.() ?? f.now);
+  const at = Math.max(f.now, f.backend.clock?.horizon() ?? f.now);
   const seconds = Math.max(0, fadeSeconds);
   for (const run of [player.run, player.next]) {
     if (!run || run.state === "cancelled" || run.state === "ending") continue;

@@ -164,7 +164,7 @@ const seconds = (x: unknown): number => (typeof x === "number" && Number.isFinit
  * reports none): zeros, not reliable. Rhythm mode promises no absolute latency (§1.5): this is what the browser gave.
  */
 export function audioLatency(): AudioLatency {
-  const l = audioBackend().latency?.();
+  const l = audioBackend().clock?.latency();
   if (!l) return { base: 0, output: 0, limiter: 0, total: 0, reliable: false };
   const base = seconds(l.base);
   const output = seconds(l.output);

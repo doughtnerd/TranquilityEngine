@@ -1,6 +1,6 @@
 # 0098. An internal audio backend interface, with Howler as the default implementation
 
-- **Status:** Proposed; amended by 0157 (the interface gains a status channel, handles and priority)
+- **Status:** Proposed; amended by 0157 (the interface gains a status channel, handles and priority); amended by 0179 (13 required members plus capability objects: clip cache, clock, music, automation, live mix, capture)
 - **Date:** 2026-11-07
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

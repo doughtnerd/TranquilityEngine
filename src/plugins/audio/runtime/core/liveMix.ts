@@ -33,10 +33,32 @@ import { events } from "../events/eventRuntime";
 import { loudnessHub, type LoudnessHubConfig } from "../mix/loudnessHub";
 import type { StructuralDip } from "./structuralDip";
 import type { DeferredAdds } from "./deferredAdds";
-import type { BusSlotWrite, LoudnessConfigWrite } from "../backend";
 import type { BusIndex } from "./busIndex";
 import type { CommandWriter } from "./commandWriter";
 import type { CoreAutomation } from "./coreAutomation";
+
+// ADR 0179: the slot and loudness writes live here (they left the backend seam: only `CoreBackend` writes them).
+/** One `BUS_SLOT` (§4.2, R7): one slot's configuration, so a parameter edit no longer resends the tree. */
+export interface BusSlotWrite {
+  slot: number;
+  /** Parent slot; `BUS_ROOT` (0xFFFF) for a root. */
+  parent: number;
+  /** In wire form; at most 4 are kept. */
+  effects: { type: number; p: number[] }[];
+  /** Applies at quantum granularity under the gate (a dip's middle record). */
+  structural?: boolean;
+  /** The slot starts zeroed with unity lanes (a re-add after recycling). */
+  fresh?: boolean;
+  sequenceId?: number;
+  /** Heard time it applies (omitted: asap). */
+  at?: number;
+}
+
+/** `LOUD_CONFIG` (§4.2) as main asks for it: the true-peak gate and the metered buses (master is implicit). */
+export interface LoudnessConfigWrite {
+  tpGateDbfs: number;
+  meters: readonly string[];
+}
 
 /** What the live path needs of the loudness hub (`mix/loudnessHub.ts`). */
 export type LiveLoudness = { configure(cfg: LoudnessHubConfig): void; readonly tpGateDbfs: number };

@@ -58,8 +58,7 @@
 import type { Vec3Like } from "../../../../engine/core/math";
 import { mixer as defaultMixer, type Mixer, type ResolvedBus } from "../../../../engine/audio/mixer";
 import { Assets } from "../../../../engine/scene/Assets";
-import type { Attenuation, AudioBackend, AudioBackground, AudioCpuDebug, AudioMixCaps, AudioMixDebug, AudioPanner, AudioStatus, AudioVoice, BusLaneRamp, BusSlotWrite, ClipSpanHold, FadeLaw, ListenerPose, LoudnessConfigWrite, MusicBackend, PlayRequest, RecorderTap, ShapedFade, VoiceSpatialOptions, ZoneIrService } from "../backend";
-import type { DuckingRule } from "../../../../engine/audio/settings";
+import type { Attenuation, AudioBackend, AudioBackground, AudioCaptureSource, AudioClipCache, AudioClock, AudioCpuDebug, AudioLiveMix, AudioMixCaps, AudioMixDebug, AudioPanner, AudioStatus, AudioVoice, ClipSpanHold, FadeLaw, ListenerPose, MusicBackend, PlayRequest, RecorderTap, ShapedFade, VoiceSpatialOptions, ZoneIrService } from "../backend";
 import type { AudioLatency } from "../../../../engine/audio/musicTypes";
 import { BUS_LP_OFF_HZ, AUX_BUS_NONE, readStatus, type BusConfigBuses } from "../wire.generated";
 import { AudioHandle, type AudioReason } from "./handle";
@@ -193,8 +192,23 @@ const clamp = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > 
 /** ADR 0171 (K0): the core backend that last registered its clock and op target on each mixer. */
 const mixerOwners = new WeakMap<Mixer, CoreBackend>();
 
-export class CoreBackend implements AudioBackend, StagedFrameHost {
+export class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLiveMix, AudioCaptureSource, StagedFrameHost {
   readonly name = "core";
+
+  // ADR 0179: the core has every capability, and each is the backend itself (its own members are the capability's: no
+  // object, no allocation). `music` and `automation` are its music ops and automation tables.
+  get clipCache(): AudioClipCache {
+    return this;
+  }
+  get clock(): AudioClock {
+    return this;
+  }
+  get mix(): AudioLiveMix {
+    return this;
+  }
+  get capture(): AudioCaptureSource {
+    return this;
+  }
   readonly table: VoiceTable;
   readonly mirror: StatusMirror;
   readonly writer: CommandWriter;
@@ -244,7 +258,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
   /** ADR 0166 (Q2): the music group operations (`music`); P1 and P9 fill them in `musicOps.ts`. */
   readonly musicOps: CoreMusicOps;
 
-  private readonly clock: HostClock;
+  private readonly hostClock: HostClock;
   private readonly reader = new StatusReader();
   private readonly cleanups: (() => void)[] = [];
   /**
@@ -323,7 +337,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
   ) {
     this.mixer = deps.mixer ?? defaultMixer;
     this.warnOnce = deps.warnOnce ?? createWarnOnce();
-    this.clock = deps.clock;
+    this.hostClock = deps.clock;
     this.clips = deps.clips;
     this.hrir = deps.hrir ?? createHrirLoader({ clips: deps.clips, sampleRate: host.sampleRate });
     this.magls = deps.magls ?? createMaglsLoader({ clips: deps.clips, sampleRate: host.sampleRate });
@@ -376,7 +390,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
       setOcclusion: (i, gain, lpHz) => this.voices.setOcclusionAt(i, gain, lpHz),
       setDopplerRate: (i, factor) => this.voices.setDopplerRateAt(i, factor),
     });
-    this.clockMap = new ClockMap(this.clock, host.sampleRate, limiterLatencyFrames(host.sampleRate, host.preset.limiterLookaheadMs));
+    this.clockMap = new ClockMap(this.hostClock, host.sampleRate, limiterLatencyFrames(host.sampleRate, host.preset.limiterLookaheadMs));
     const fetchBytes =
       streamDeps.fetchBytes ??
       (async (path: string) => {
@@ -980,7 +994,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
   /** §1.3: the core reports every flag true and `capture: "full"` (Dbg1 tests the flags per backend). */
   readonly mixCaps: AudioMixCaps = { loudness: true, levelDucking: true, cpu: true, cpuReason: null, stampedBusRamps: true, capture: "full" };
 
-  /** §1.3, architecture §4.3: Cp2 fills it from `mix/cpuMeter.ts`; until then "not yet measured". */
+  /** §1.3, architecture §4.3: Cp2 fills it from `mix/cpuMeter.ts`; until then "not yet measured". `debug()` reads it (not part of the seam, ADR 0179). */
   cpu(): AudioCpuDebug {
     return this.mirror.cpu.debug();
   }
@@ -1000,27 +1014,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     this.liveMix.flushNow();
   }
 
-  /** §4.2 `BUS_RAMP`: the lane writer (`laneWriter.ts`; Mx2). */
-  rampLane(r: BusLaneRamp): void {
-    this.lanes.rampLane(r);
-  }
-
-  /** §4.2 `BUS_SLOT` (`liveMix.ts`; Ma1, Ma2). */
-  writeSlot(w: BusSlotWrite): void {
-    this.liveMix.writeSlot(w);
-  }
-
-  /** §4.2 `BUS_DUCK` (`presence.ts`; Dp1, Sc1). */
-  writeDucking(rules: readonly DuckingRule[]): void {
-    this.presence.writeDucking(rules);
-  }
-
-  /** §4.2 `LOUD_CONFIG` (`liveMix.ts`; Ma1 with Ld2, Ld4). */
-  writeLoudnessConfig(c: LoudnessConfigWrite): void {
-    this.liveMix.writeLoudnessConfig(c);
-  }
-
-  /** §1.1 `Bus.duckGain`: the STATUS `busDuck` section's gain for `bus` (a block old); 1 when no rule ducks it. */
+  /** §1.1 `Bus.duckGain`: the STATUS `busDuck` section's gain for `bus` (a block old); 1 when no rule ducks it. The mixer reads it through `duckSource` (not part of the seam, ADR 0179). */
   duckGain(bus: string): number {
     const b = this.busIndexByName.get(bus);
     if (b === undefined) return 1;
@@ -1057,7 +1051,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
   private keyframes: KeyframeSource | null = null;
 
   /** §5.5 (G7b): the capture's KEYFRAME from main's tables, built by `keyframeSource.ts` (the voice table, the slot table and mixer lanes, the loudness hub, events, music). */
-  keyframe(nameId: Parameters<NonNullable<AudioBackend["keyframe"]>>[0], noName = 0xffffffff): KeyframePayload {
+  keyframe(nameId: Parameters<AudioCaptureSource["keyframe"]>[0], noName = 0xffffffff): KeyframePayload {
     return (this.keyframes ??= new KeyframeSource(this)).read(nameId, noName);
   }
 

@@ -185,7 +185,7 @@ export function quantizedRamp(player: MusicPlayer, track: string, to: number, gr
   if (!stem || !stem.voice || !voiceAlive(stem)) return Number.NaN;
   const dur = Math.max(0, Number.isFinite(seconds) ? seconds : 0);
   const level = Math.min(4, Math.max(0, to));
-  const horizon = Math.max(f.now, f.backend.horizon?.() ?? f.now);
+  const horizon = Math.max(f.now, f.backend.clock?.horizon() ?? f.now);
   const at = nextGridHeard(player, run, grid, horizon);
   if (!Number.isFinite(at)) return Number.NaN;
   const g = gainOf(stem);

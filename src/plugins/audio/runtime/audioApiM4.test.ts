@@ -65,7 +65,7 @@ function at(now: number): MusicFrame {
 /** A new display frame at `now`: the handle's snapshot is recomputed on its next read. */
 function frame(now: number): void {
   at(now);
-  b.beginFrame?.();
+  b.beginFrame();
 }
 
 function rig(): void {
@@ -373,9 +373,9 @@ describe("L-P7a: Audio clock members (§1.3)", () => {
     expect(Audio.calibration).toBe(0.05);
     expect(Audio.timeAt(1250)).toBeCloseTo(2.25, 9);
 
-    // A backend with no timeAt: Audio.time.
+    // A backend with no heard clock (the Babylon fallback): Audio.time.
     const bare = makeFakeBackend();
-    delete (bare as { timeAt?: unknown }).timeAt;
+    bare.clock = undefined;
     setAudioBackend(bare);
     (bare as { time: number }).time = 3;
     expect(Audio.timeAt(1250)).toBe(3);

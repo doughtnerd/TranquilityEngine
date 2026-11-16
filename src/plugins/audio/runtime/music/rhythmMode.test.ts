@@ -50,10 +50,10 @@ describe("Audio.latency (audioLatency)", () => {
     expect(audioLatency().reliable).toBe(true);
   });
 
-  it("a backend without latency() (the Babylon fallback) reads zeros, not reliable", () => {
-    const b = makeFakeBackend() as unknown as { latency?: unknown };
-    delete b.latency;
-    setAudioBackend(b as unknown as AudioBackend);
+  it("a backend without a heard clock (the Babylon fallback) reads zeros, not reliable", () => {
+    const b = makeFakeBackend();
+    b.clock = undefined;
+    setAudioBackend(b);
     expect(audioLatency()).toEqual({ base: 0, output: 0, limiter: 0, total: 0, reliable: false });
   });
 });

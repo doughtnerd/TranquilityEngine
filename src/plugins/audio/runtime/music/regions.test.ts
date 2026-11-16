@@ -50,7 +50,7 @@ function playing(node: SegmentNode, at: number): { player: MusicPlayer; run: Seg
 
 /** The frame step 9 hands the tick at heard time `now`. */
 function frame(now: number): MusicFrame {
-  const backend = { time: now, horizon: () => now + L, frameInterval: () => DBAR } as unknown as AudioBackend;
+  const backend = { time: now, clock: { horizon: () => now + L, frameInterval: () => DBAR } } as unknown as AudioBackend;
   return { backend, music: null, now, dt: DBAR, hidden: false };
 }
 

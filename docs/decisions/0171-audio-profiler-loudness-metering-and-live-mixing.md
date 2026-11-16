@@ -1,6 +1,6 @@
 # 0171. Audio M5: a profiler built on one recorded stream, loudness metering on chosen buses, live mixing that edits the project, and the mix's timing moved into the core
 
-- **Status:** Accepted (2026-11-12; "RFC round (revision 2)" and "Owner decisions (accepted)" at the end win over the text above them)
+- **Status:** Accepted (2026-11-12; "RFC round (revision 2)" and "Owner decisions (accepted)" at the end win over the text above them); amended by 0179 (the K0 backend members become the `mix` and `capture` capabilities; the lane, slot, ducking and loudness writers, `cpu` and `duckGain` leave the seam)
 - **Date:** 2026-11-12
 - **Amended by:** [0172](0172-audio-mix-design-corrections-and-owner-decisions.md) (the technical design: seven gain lanes, raw capture sizes, the sort's real benefit, the hook's name, and the owner's design decisions; 0172 wins where they disagree)
 - **Deciders:** Chris Carlson

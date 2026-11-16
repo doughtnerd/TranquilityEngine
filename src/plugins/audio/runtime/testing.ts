@@ -12,14 +12,18 @@
 // `MusicBackend`, `FakeMusicBackend`), a counting `beginFrame`, `timeAt` over `rafTime` and `latency` over `latencyValue`.
 //
 // ADR 0171 (K0 owns this file in M5 W1; the coordinator afterwards): the fake has every M5 member: `mixOpTarget.sendOp` (ADR
-// 0175: the ops the Mixer checked and sent) records the op and answers `applyResult`, `flushNow` counts, the lane, slot, ducking and loudness writers record, `duckGain` reads
-// `duckGains`, `mixCaps` and `cpu()` are settable, `recorderTap` and `setProfileSink` hold what they're given.
+// 0175: the ops the Mixer checked and sent) records the op and answers `applyResult`, `flushNow` counts, `mixCaps` is
+// settable, `recorderTap` and `setProfileSink` hold what they're given, and `keyframe` answers the recorder's empty one.
+//
+// ADR 0179: the fake has every capability (`clipCache`, `clock`, `music`, `mix`, `capture`; no `automation`, so the event
+// runtime evaluates on main), each the fake itself, as on the core. Each is a plain property a test sets to undefined for a
+// backend without it (the Babylon fallback has no `clock`; the pending backend has no `mix` or `capture`).
 
-import type { AudioBackend, AudioCpuDebug, AudioMixCaps, AudioPanner, Attenuation, AudioVoice, BusLaneRamp, BusSlotWrite, FadeLaw, ListenerPose, LoudnessConfigWrite, MusicAdmitResult, MusicBackend, MusicBackendCaps, MusicGroupEvent, MusicGroupRequest, MusicGroupStamp, PlayRequest, RecorderTap, VoiceSpatialOptions, ZoneIrService } from "./backend";
+import type { AudioBackend, AudioCaptureSource, AudioClipCache, AudioClock, AudioLiveMix, AudioMixCaps, AudioPanner, Attenuation, AudioVoice, FadeLaw, ListenerPose, MusicAdmitResult, MusicBackend, MusicBackendCaps, MusicGroupEvent, MusicGroupRequest, MusicGroupStamp, PlayRequest, RecorderTap, VoiceSpatialOptions, ZoneIrService } from "./backend";
 import type { AudioLatency } from "../../../engine/audio/musicTypes";
 import type { ApplyResult, MixOp } from "../../../engine/audio/mixOps";
 import { CORE_LIVE_CAPS } from "../../../engine/audio/busCapability";
-import type { DuckingRule } from "../../../engine/audio/settings";
+import type { KeyframePayload } from "./capture/format";
 import type { ProfileSink } from "./mix/profileSink";
 import { mixer, type Mixer, type ResolvedBus } from "../../../engine/audio/mixer";
 import type { Vec3Like } from "../../../engine/core/math";
@@ -89,8 +93,19 @@ export interface FakeVoice extends AudioVoice {
   setPanner(kind: AudioPanner): void;
 }
 
-/** The fake backend: an `AudioBackend` plus what a test inspects. */
-export interface FakeBackend extends AudioBackend {
+/** The recorder's empty keyframe (`capture/recorder.ts` `EMPTY_KEYFRAME`, repeated so the fake doesn't load the recorder chunk). */
+const FAKE_EMPTY_KEYFRAME: KeyframePayload = Object.freeze({
+  voices: [], buses: [], metered: [], events: [], music: [],
+  mix: Object.freeze({ slotTableVersion: 0, monitorActive: 0, loudnessPausedMask: 0, targetIndex: 0, snapshotName: 0, masterVolume: 1, hiddenMute: 0 }),
+});
+
+/** The fake backend: an `AudioBackend` with every capability (each the fake itself), plus what a test inspects. */
+export interface FakeBackend extends AudioBackend, AudioClipCache, AudioClock, AudioLiveMix, AudioCaptureSource {
+  // ADR 0179: the capabilities, each the fake itself; set one to undefined for a backend without it.
+  clipCache: AudioClipCache | undefined;
+  clock: AudioClock | undefined;
+  mix: AudioLiveMix | undefined;
+  capture: AudioCaptureSource | undefined;
   /** Every `play` request, in order (also those refused when `ready` is false). */
   readonly plays: PlayRequest[];
   /** Every voice handed out, in order. */
@@ -105,13 +120,13 @@ export interface FakeBackend extends AudioBackend {
   clear(): void;
   /** ADR 0158: clip lengths `clipDuration` reports (seconds); unlisted clips are unknown (null). */
   readonly durations: Map<string, number>;
-  /** ADR 0158: what `horizon()` returns; null: no `horizon` (as on the Babylon fallback). */
+  /** ADR 0158: what `clock.horizon()` returns; null: unknown, so callers take their no-clock path (as on the Babylon fallback). */
   horizonTime: number | null;
   /** ADR 0166 (G-1): what `clipFacts` reports per path; unlisted clips are unknown (undefined). */
   readonly facts: Map<string, { frames: number; rate: number; channels: number; gapless: boolean }>;
   /** ADR 0166 (G-1): whether the fake's voices have `paramsShaped` (default false: like the Babylon fallback, stem gain goes on `fade`). */
   stampedRamps: boolean;
-  /** ADR 0166 (G-1): Δ̄ in seconds; set it to give the fake a `frameInterval` (absent by default, as on a backend without one). */
+  /** ADR 0166 (G-1): what `clock.frameInterval()` returns, seconds; null (the default): unknown, so callers estimate it. */
   frameIntervalSeconds: number | null;
 
   // ADR 0166 (Q2): the music seam, so the P rows' loopback tests run on the fake.
@@ -131,17 +146,8 @@ export interface FakeBackend extends AudioBackend {
   applyResult: ApplyResult;
   /** `flushNow` calls so far. */
   flushes: number;
-  /** Every `rampLane`, `writeSlot`, `writeDucking` and `writeLoudnessConfig` call, in order per writer. */
-  readonly laneRamps: BusLaneRamp[];
-  readonly slotWrites: BusSlotWrite[];
-  readonly duckingWrites: (readonly DuckingRule[])[];
-  readonly loudnessConfigs: LoudnessConfigWrite[];
-  /** What `duckGain(bus)` reads; unlisted buses are 1. */
-  readonly duckGains: Map<string, number>;
   /** The fake's capability record (default: a core-like backend, every flag true). */
   mixCaps: AudioMixCaps;
-  /** What `cpu()` returns. */
-  cpuValue: AudioCpuDebug;
   recorderTap: RecorderTap | null;
   /** The sink `setProfileSink` was given (null: none). */
   profileSink: ProfileSink | null;
@@ -281,6 +287,11 @@ export function makeFakeBackend(): FakeBackend {
     },
     setBackground() {},
     update() {},
+    dispose() {},
+    clipCache: undefined,
+    clock: undefined,
+    mix: undefined,
+    capture: undefined,
     durations: new Map(),
     horizonTime: null,
     facts: new Map(),
@@ -293,29 +304,22 @@ export function makeFakeBackend(): FakeBackend {
     beginFrame() { backend.beginFrameCalls++; },
     timeAt(performanceTime: number) { return backend.time + (performanceTime - backend.rafTime) / 1000; },
     latency() { return { ...backend.latencyValue }; },
+    horizon() { return backend.horizonTime; },
+    frameInterval() { return backend.frameIntervalSeconds; },
     clipDuration(path: string) { return backend.durations.get(path) ?? null; },
     clipFacts(path: string) { return backend.facts.get(path); },
+    invalidateClip() {},
+    holdSpan() { return null; },
     ops: [],
     applyResult: { ok: true, class: "direct" },
     flushes: 0,
-    laneRamps: [],
-    slotWrites: [],
-    duckingWrites: [],
-    loudnessConfigs: [],
-    duckGains: new Map(),
     mixCaps: { loudness: true, levelDucking: true, cpu: true, cpuReason: null, stampedBusRamps: true, capture: "full" },
-    cpuValue: { loadPermille: null, windowMs: 0, clockStepMs: 0, clockSteps: 0, refitResidual: null, sections: null, hidden: null },
     recorderTap: null,
     profileSink: null,
     mixOpTarget: { liveCaps: CORE_LIVE_CAPS, sendOp(op: MixOp) { backend.ops.push(op); return { ...backend.applyResult }; } },
     flushNow() { backend.flushes++; },
-    rampLane(r: BusLaneRamp) { backend.laneRamps.push({ ...r }); },
-    writeSlot(w: BusSlotWrite) { backend.slotWrites.push({ ...w }); },
-    writeDucking(rules: readonly DuckingRule[]) { backend.duckingWrites.push(rules.map((r) => ({ ...r }))); },
-    writeLoudnessConfig(c: LoudnessConfigWrite) { backend.loudnessConfigs.push({ ...c, meters: [...c.meters] }); },
-    duckGain(bus: string) { return backend.duckGains.get(bus) ?? 1; },
-    cpu() { return { ...backend.cpuValue }; },
     setProfileSink(sink: ProfileSink | null) { backend.profileSink = sink; },
+    keyframe() { return FAKE_EMPTY_KEYFRAME; },
     play(request) {
       plays.push(request);
       if (!backend.ready) return null;
@@ -345,14 +349,12 @@ export function makeFakeBackend(): FakeBackend {
       backend.beginFrameCalls = 0;
       backend.ops.length = 0;
       backend.flushes = 0;
-      backend.laneRamps.length = 0;
-      backend.slotWrites.length = 0;
-      backend.duckingWrites.length = 0;
-      backend.loudnessConfigs.length = 0;
     },
   };
-  Object.defineProperty(backend, "horizon", { get: () => (backend.horizonTime === null ? undefined : () => backend.horizonTime!) });
-  Object.defineProperty(backend, "frameInterval", { get: () => (backend.frameIntervalSeconds === null ? undefined : () => backend.frameIntervalSeconds!) });
+  backend.clipCache = backend;
+  backend.clock = backend;
+  backend.mix = backend;
+  backend.capture = backend;
   backend.music = makeFakeMusicBackend(backend);
   return backend;
 }

@@ -1,7 +1,8 @@
 // Background modes, hidden-tab behaviour, device events and stall detection (ADR 0157 A3.4b; architecture §2.1, §3.7,
 // §3.8, §4.5, §7; api-and-models §2 `audio.background`).
 //
-// One controller per core backend. It watches `visibilitychange` and applies the project's `audio.background`:
+// One controller per core backend. It watches `visibilitychange` and applies the project's `audio.background` through the
+// hidden-tab policy both backends share (`../hiddenTab.ts`, ADR 0179):
 //   mute   MASTER to 0 over 50 ms, flushed at once (no frame will flush it), restored over 50 ms when visible again.
 //          Voices keep time, STATUS keeps flowing.
 //   pause  MASTER to 0 over 30 ms, then the context is suspended (the voices freeze with it); resumed when visible.
@@ -26,13 +27,9 @@ import type { AudioBackend, AudioBackground } from "../backend";
 import { classifyDeviceChange, INTERRUPTED_RETRY_MS, type DeviceSnapshot, type DeviceVerdict } from "./deviceChange";
 import { rebuild as rebuildCore, type RebuildOutcome, type RebuildReason } from "./recovery";
 import { noteHidden, tickHidden } from "../music/background";
+import { HiddenTabPolicy, MUTE_RAMP_MS } from "../hiddenTab";
 
-/** §3.8: MASTER ramp when muting or unmuting for `mute`, ms. */
-export const MUTE_RAMP_MS = 50;
-/** §3.8: MASTER ramp before a `pause` suspend, ms. */
-export const PAUSE_RAMP_MS = 30;
-/** §3.8: the suspend follows the fade after this long (ms), a little more than the ramp. */
-export const PAUSE_SUSPEND_DELAY_MS = 40;
+export { MUTE_RAMP_MS, PAUSE_RAMP_MS, PAUSE_SUSPEND_DELAY_MS } from "../hiddenTab";
 /** How often the heartbeat is judged (ms). A hidden page's timers run at 1 Hz at most, which only matters while visible. */
 export const HEALTH_CHECK_MS = 250;
 
@@ -109,11 +106,10 @@ export class BackgroundController {
   private readonly now: () => number;
 
   private hiddenNow = false;
-  /** The mode applied at `enter`, so `leave` undoes what was done even if the setting changed meanwhile. */
-  private applied: AudioBackground | null = null;
+  /** ADR 0179: what a hide does (the mode applied at `enter`, the `pause` suspend), shared with the Babylon fallback. */
+  private readonly policy: HiddenTabPolicy;
   /** Bumped by every visibility change: a late async step from an earlier one does nothing. */
   private epoch = 0;
-  private pauseTimer: ReturnType<typeof setTimeout> | null = null;
   private healthTimer: ReturnType<typeof setInterval> | null = null;
   private interruptTimer: ReturnType<typeof setTimeout> | null = null;
   private lastBlocks = 0;
@@ -145,6 +141,13 @@ export class BackgroundController {
     this.lastSnapshot = this.host.snapshot();
     this.lastBlocks = this.target.statusBlocks;
     this.lastBlockAt = this.now();
+    this.policy = new HiddenTabPolicy({
+      mode: () => this.target.backgroundMode,
+      mute: (rampMs) => this.target.hiddenMute(true, rampMs),
+      suspend: () => {
+        if (this.hiddenNow && !this.disposed) void this.host.suspendForBackground();
+      },
+    });
   }
 
   /** Whether the page is hidden as far as the controller knows. */
@@ -177,7 +180,7 @@ export class BackgroundController {
     this.offDevice = null;
     if (this.healthTimer !== null) clearInterval(this.healthTimer);
     this.healthTimer = null;
-    this.clearPauseTimer();
+    this.policy.dispose();
     this.clearInterruptTimer();
     if (this.hiddenNow) {
       this.target.setHidden(false);
@@ -207,31 +210,21 @@ export class BackgroundController {
   private enter(): void {
     if (this.hiddenNow) return;
     this.hiddenNow = true;
-    const epoch = ++this.epoch;
+    ++this.epoch;
     this.counters.backgroundEnters++;
     // Ended voices are freed in the STATUS handler from here on (no frame will do it).
     this.target.setHidden(true);
     const mode = this.target.backgroundMode;
-    this.applied = mode;
     if (mode === "play" || mode === "mute") this.startHiddenMusic();
-    if (mode === "mute") {
-      this.target.hiddenMute(true, MUTE_RAMP_MS);
-    } else if (mode === "pause") {
-      this.target.hiddenMute(true, PAUSE_RAMP_MS);
-      this.pauseTimer = setTimeout(() => {
-        this.pauseTimer = null;
-        if (this.hiddenNow && epoch === this.epoch && !this.disposed) void this.host.suspendForBackground();
-      }, PAUSE_SUSPEND_DELAY_MS);
-    }
+    // The policy mutes (mute, pause) and, for pause, suspends the context once the fade is done (a show first cancels it).
+    this.policy.hide();
   }
 
   private async leave(): Promise<void> {
     if (!this.hiddenNow) return;
     this.hiddenNow = false;
     const epoch = ++this.epoch;
-    this.clearPauseTimer();
-    const mode = this.applied;
-    this.applied = null;
+    const mode = this.policy.show();
     this.target.setHidden(false);
     this.stopHiddenMusic();
     if (mode === "pause") {
@@ -325,11 +318,6 @@ export class BackgroundController {
     this.lastBlockAt = this.now();
     if (this.interruptedSince !== null) this.interruptedSince = this.lastBlockAt;
     this.lastSnapshot = this.host.snapshot();
-  }
-
-  private clearPauseTimer(): void {
-    if (this.pauseTimer !== null) clearTimeout(this.pauseTimer);
-    this.pauseTimer = null;
   }
 
   private clearInterruptTimer(): void {

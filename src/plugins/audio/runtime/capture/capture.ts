@@ -15,7 +15,7 @@
 // service when the last Runtime World goes): the owners end, the ring is freed, except that a take (running or Held) is Held
 // once so a `save()` after Stop still works; it is freed at the next Play stop (or by `releaseCapture()`).
 //
-// **Keyframes (G7b).** The recorder's keyframe source is the backend's own (`AudioBackend.keyframe`), wired to the event sink's
+// **Keyframes (G7b).** The recorder's keyframe source is the backend's own (`AudioCaptureSource.keyframe`, ADR 0179), wired to the event sink's
 // name interning, so a keyframe and an EVENT name a clip by the same id. A backend with no STATUS (the Babylon fallback,
 // `mainSideOnly`) has no block to drive the recorder's clock, so a **frame pump** reads the backend's audio clock in frames and
 // calls `Recorder.advanceFrame`: events are stamped on it and the keyframe cadence runs on it, the tap's rule on the audio
@@ -278,7 +278,7 @@ class Capture implements AudioCapture {
       try {
         rec.stopLive();
         rec.detach();
-        this.backend?.setProfileSink?.(null);
+        this.backend?.capture?.setProfileSink(null);
       } catch {
         // The backend may already be disposed.
       }
@@ -373,8 +373,8 @@ class Capture implements AudioCapture {
     this.headInit = init;
     this.takeMeta = meta;
     this.takeDate = init.startDateMs;
-    if (!this.mainSideOnly) rec.attach(backend);
-    backend.setProfileSink?.(sink);
+    if (!this.mainSideOnly) rec.attach(backend.capture!);
+    backend.capture!.setProfileSink(sink);
     this.rec = rec;
     this.sink = sink;
     this.backend = backend;
@@ -384,11 +384,11 @@ class Capture implements AudioCapture {
 
   /** The recorder's keyframe source: the backend's own, interning its names through the sink (a backend without one leaves the recorder's empty keyframes). */
   private wireKeyframes(rec: Recorder, sink: EventSink, backend: AudioBackend): void {
-    const keyframe = backend.keyframe;
-    if (!keyframe) return;
+    const source = backend.capture;
+    if (!source) return;
     const noName = this.noName;
     const nameId = (table: "clips" | "snapshots" | "events", name: string): number => sink.name(table, name);
-    rec.setKeyframeSource(() => keyframe.call(backend, nameId, noName));
+    rec.setKeyframeSource(() => source.keyframe(nameId, noName));
   }
 
   /** A backend with no STATUS (`mainSideOnly`) is clocked by its audio clock: poll it and report the frames the clock has reached. */
@@ -411,12 +411,10 @@ class Capture implements AudioCapture {
   /** The backend a ring can record from; rejects with a message when there is none (the core still loading, or a device without it). */
   private target(): AudioBackend {
     const backend = audioBackend();
-    if ("recorderTap" in backend) {
-      this.mainSideOnly = false;
-      return backend;
-    }
-    if (backend.mixCaps?.capture === "mainSideOnly") {
-      this.mainSideOnly = true; // the Babylon fallback: main-side events and keyframes only (§9)
+    if (backend.capture) {
+      // ADR 0179: what a capture records is the live mix's `capture` flag: everything (STATUS through the recorder's tap), or
+      // main-side events and keyframes only (the Babylon fallback, which has no STATUS, §9).
+      this.mainSideOnly = backend.mix?.mixCaps.capture === "mainSideOnly";
       return backend;
     }
     throw new Error("audio capture isn't available yet: the audio core hasn't started (play a sound or click the page first, then call Audio.capture.start() again)");
@@ -439,11 +437,11 @@ class Capture implements AudioCapture {
       }
     }
     rec.newTake(frame, this.heldSince);
-    if (backend !== this.backend && this.backend) this.backend.setProfileSink?.(null);
+    if (backend !== this.backend && this.backend) this.backend.capture?.setProfileSink(null);
     if (backend !== this.backend) this.wireKeyframes(rec, sink, backend);
     this.backend = backend;
-    if (!this.mainSideOnly) rec.attach(backend);
-    backend.setProfileSink?.(sink);
+    if (!this.mainSideOnly) rec.attach(backend.capture!);
+    backend.capture!.setProfileSink(sink);
     this.ringState = "recording";
     this.startFramePump();
   }
@@ -509,7 +507,7 @@ class Capture implements AudioCapture {
     rec.stopLive();
     rec.detach();
     this.stopFramePump();
-    this.backend?.setProfileSink?.(null);
+    this.backend?.capture?.setProfileSink(null);
     this.ringState = "held";
     this.heldSince = performance.now();
     if (!this.hasTake) this.release();
@@ -563,7 +561,7 @@ class Capture implements AudioCapture {
     const d = backend.debug();
     const rate = finiteOr(d.sampleRate, 48_000);
     const frame = this.epochFrame ?? 0;
-    const lat = backend.latency?.();
+    const lat = backend.clock?.latency();
     const sec = (x: unknown): number => Math.max(0, finiteOr(x, 0));
     return {
       sampleRate: rate,

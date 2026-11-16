@@ -450,7 +450,7 @@ export class EventSystem {
   horizon(): number | null {
     if (this.starting && this.horizonMemo !== undefined) return this.horizonMemo;
     let h: number | null;
-    try { h = audioBackend().horizon?.() ?? null; } catch { h = null; }
+    try { h = audioBackend().clock?.horizon() ?? null; } catch { h = null; }
     if (this.starting) this.horizonMemo = h;
     return h;
   }
@@ -460,7 +460,7 @@ export class EventSystem {
 
   /** @internal A clip's length in seconds at pitch 1, or null. */
   clipLength(path: string): number | null {
-    try { return audioBackend().clipDuration?.(path) ?? null; } catch { return null; }
+    try { return audioBackend().clipCache?.clipDuration(path) ?? null; } catch { return null; }
   }
 
   /** @internal A random number from `world`'s generator. */

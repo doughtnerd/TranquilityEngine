@@ -11,7 +11,7 @@
  *   priority, stealing by priority and virtual voices are core-only: the fallback ignores them rather than fake them.
  * - A sound is one `StaticSound` (decoded once per URL, shared by every voice) or, for `stream` clips, one `StreamingSound`.
  *   `play` is synchronous but creating the sound is not, so the voice returned records its setters and applies them when
- *   the sound is ready (the pattern of `PendingVoice` in `backend.ts`).
+ *   the sound is ready (the pattern of `PendingVoice` in `pendingBackend.ts`).
  * - `maxVoices` maps to a cap on live voices per bus (the oldest is stopped), and to each sound's `maxInstances`.
  *
  * Babylon is imported module by module and only when a sound first plays, so servers and tests that never play don't load it.
@@ -26,7 +26,7 @@ import type { StreamingSound } from "@babylonjs/core/AudioV2/abstractAudio/strea
 import type { Vec3Like } from "../../../engine/core/math";
 import type { World } from "../../../engine/core/World";
 import { AudioReverbZone } from "./AudioReverbZone";
-import { Lane, type LaneId, type Mixer, type ResolvedBus } from "../../../engine/audio/mixer";
+import type { Mixer, ResolvedBus } from "../../../engine/audio/mixer";
 import type { ApplyResult, MixOp } from "../../../engine/audio/mixOps";
 import type { MixOpTarget } from "../../../engine/audio/mixer";
 import { FALLBACK_LIVE_CAPS, type SentClass } from "../../../engine/audio/busCapability";
@@ -35,13 +35,15 @@ import { BABYLON_CPU_REASON, babylonCpuDebug, babylonMixDebug } from "./mix/mixD
 import { NULL_PROFILE_SINK, type ProfileSink, type ProfileStopReason } from "./mix/profileSink";
 import { mixerTapFor, taps } from "./mix/profileTaps";
 import type { KeyframeBus, KeyframeEvent, KeyframePayload, KeyframeVoice } from "./capture/format";
-import { hasAudioBackend, mixer, registerDefaultBackend, resolveBackendKind, type AudioBackend, type AudioBackground, type AudioDebugInfo, type AudioM3Counters, type AudioMixCaps, type AudioReason, type AudioStatus, type AudioVoice, type Attenuation, type ListenerPose, type MusicAdmitResult, type MusicBackend, type MusicGroupEvent, type MusicGroupRequest, type MusicGroupStamp, type MusicPrimedState, type PlayRequest, type ShapedFade, type FadeLaw } from "./backend";
+import { hasAudioBackend, mixer, registerDefaultBackend, resolveBackendKind, zeroCounters, type AudioBackend, type AudioBackground, type AudioCaptureSource, type AudioClipCache, type AudioDebugInfo, type AudioLiveMix, type AudioM3Counters, type AudioMixCaps, type ClipSpanHold, type RecorderTap, type AudioReason, type AudioStatus, type AudioVoice, type Attenuation, type ListenerPose, type MusicAdmitResult, type MusicBackend, type MusicGroupEvent, type MusicGroupRequest, type MusicGroupStamp, type MusicPrimedState, type PlayRequest, type ShapedFade, type FadeLaw } from "./backend";
 import { AMBISONIC_DECODE_LIMIT_BYTES, busCreationSteps, decodedBytes, dopplerPlaybackRate, filterIsActive, listenerQuaternion, occludedVolume, planBuses, spatialParams, spatialSoundOptions, webAudioVector, type BusPlan } from "./babylonMapping";
 import { DistanceEffect, SendCurveTable, SpatialViewFlag, type SpatialPassHost, type SpatialVoiceView } from "./core/spatial";
 import { DopplerPass } from "./core/doppler";
 import { OcclusionPass } from "./core/occlusion";
 import { encodeVoiceId, voiceGen, voiceIndex } from "./core/ids";
 import type { VisibilitySource } from "./core/background";
+import { HiddenTabPolicy } from "./hiddenTab";
+import { writeKeyframeBusLanes } from "./mix/keyframeBus";
 import { Unlock, type UnlockContext } from "./core/unlock";
 import { warnOnce } from "./core/handle";
 import { calibrationDeviceChanged, initCalibration } from "./music/calibration";
@@ -58,9 +60,6 @@ export interface BabylonBackendOptions {
   /** The page's visibility, for `audio.background` (A3.4b). Default: `document`; null never hides. */
   visibility?: VisibilitySource | null;
 }
-
-/** A3.4b: `pause` suspends the context this long after muting, ms (as the core's, architecture §3.8). */
-const PAUSE_SUSPEND_DELAY_MS = 40;
 
 type Sound = StaticSound | StreamingSound;
 
@@ -793,8 +792,20 @@ class BabylonSpatialView implements SpatialVoiceView {
 }
 
 /** The fallback's decoded-clip memory ceiling for an ambisonic clip is in `babylonMapping.ts` (`AMBISONIC_DECODE_LIMIT_BYTES`). */
-export class BabylonBackend implements AudioBackend, SpatialPassHost {
+export class BabylonBackend implements AudioBackend, AudioClipCache, AudioLiveMix, AudioCaptureSource, SpatialPassHost {
   readonly name = "babylon";
+
+  // ADR 0179: the fallback's capabilities, each the backend itself (no object, no allocation): the clip cache (durations
+  // only), the music ops (`music` below), the live mix and the capture's main-side sources. No heard clock, no automation.
+  get clipCache(): AudioClipCache {
+    return this;
+  }
+  get mix(): AudioLiveMix {
+    return this;
+  }
+  get capture(): AudioCaptureSource {
+    return this;
+  }
 
   /**
    * ADR 0171 §1.3 / §9 (M5 Bb2): the fallback has no audio core, so no loudness meters, no level ducking, no CPU figure and
@@ -831,14 +842,33 @@ export class BabylonBackend implements AudioBackend, SpatialPassHost {
   private isMuted = false;
   private background: AudioBackground = "mute";
   private disposed = false;
+  /** ADR 0171 (capture): the fallback has no STATUS blocks, so a recorder never sets or calls this (`mixCaps.capture` is "mainSideOnly"). */
+  recorderTap: RecorderTap | null = null;
   private calibrationOff: (() => void) | null = null;
   private warned = false;
   /** A3.4b: the page is hidden and `audio.background` muted or paused the sound (the engine's volume is 0). */
   private hiddenMuted = false;
   /** True while this backend's own `pause` policy has suspended the context it owns. */
   private pageSuspended = false;
-  private suspendTimer: ReturnType<typeof setTimeout> | null = null;
-  private appliedBackground: AudioBackground | null = null;
+  /**
+   * A3.4b, ADR 0179: what a hide does, the policy the core shares. The fallback mutes at once (Babylon's engine volume, no
+   * ramp) and suspends only a context it made (a context shared with a core host is only muted: the host's policy owns it).
+   */
+  private readonly hiddenTab = new HiddenTabPolicy({
+    mode: () => this.background,
+    mute: (_rampMs, mode) => {
+      this.hiddenMuted = true;
+      this.applyMaster();
+      this._profile.hiddenTab(true);
+      if (mode === "pause") this._profile.gap("paused"); // §5.3: under `audio.background: "pause"` a hidden page records nothing until it shows
+    },
+    suspend: () => {
+      const ctx = this.ctx;
+      if (!ctx || !this.ownsContext || this.disposed || ctx.state !== "running") return;
+      this.pageSuspended = true;
+      ctx.suspend().catch(() => (this.pageSuspended = false));
+    },
+  });
   private readonly visibility: VisibilitySource | null;
   private readonly onVisibility = (): void => (this.visibility?.hidden ? this.enterBackground() : this.leaveBackground());
 
@@ -1072,16 +1102,10 @@ export class BabylonBackend implements AudioBackend, SpatialPassHost {
     for (const name of m.busNames) {
       const l = m._lanes(name);
       if (!l || buses.length >= 32) continue;
-      const pair = (lane: LaneId, to: number): number[] => [Math.fround(m.laneGain(name, lane)), Math.fround(to)];
-      buses.push({
-        slot: l.slot & 0xff, gen: 0,
-        flags: (l.authoredMute ? 1 : 0) | (l.runtimeMute ? 2 : 0) | (l.monitorMute ? 4 : 0) | (l.monitorSolo ? 8 : 0),
-        lanes: [
-          ...pair(Lane.authored, l.authoredMute ? 0 : l.authored.to), ...pair(Lane.runtime, l.runtimeMute ? 0 : l.runtime.to),
-          ...pair(Lane.snapshot, l.snapshot.to), ...pair(Lane.monitor, m.laneGain(name, Lane.monitor)), ...pair(Lane.dip, l.dip.to),
-        ],
-        duck: Math.fround(m.laneGain(name, Lane.duck)), automation: Math.fround(m.laneGain(name, Lane.automation)),
-      });
+      // The lanes as the core's keyframe source reads them (`mix/keyframeBus.ts`, ADR 0179).
+      const row: KeyframeBus = { slot: l.slot & 0xff, gen: 0, flags: 0, lanes: new Array<number>(10).fill(0), duck: 1, automation: 1 };
+      row.flags = writeKeyframeBusLanes(row, m, name);
+      buses.push(row);
     }
     const events: KeyframeEvent[] = [];
     for (const [id, n] of eventVoices) if (events.length < 1024) events.push({ id: id >>> 0, asset: noName, voices: Math.min(0xffff, n), state: 0, paramsHash: 0 });
@@ -1242,6 +1266,25 @@ export class BabylonBackend implements AudioBackend, SpatialPassHost {
     return this.liveNow?.durations.get(path) ?? null;
   }
 
+  /** The fallback keeps no clip facts (G-1): a stem's stream-or-decode rule uses its import setting here. */
+  clipFacts(path: string): undefined {
+    void path;
+    return undefined;
+  }
+
+  /** P8: nothing to drop here (Babylon's decoded buffers are per URL and reloaded with the page's next load). */
+  invalidateClip(path: string): void {
+    void path;
+  }
+
+  /** C14: no span clips on the fallback, so no loop tails (they need the core's decoded spans). */
+  holdSpan(path: string, startFrame: number, endFrame: number): ClipSpanHold | null {
+    void path;
+    void startFrame;
+    void endFrame;
+    return null;
+  }
+
   setListener(pose: ListenerPose): void {
     const copy = (p: Vec3Like): Vec3Like => ({ x: p.x, y: p.y, z: p.z });
     this.listenerPose = { position: copy(pose.position), forward: copy(pose.forward), up: copy(pose.up) };
@@ -1303,30 +1346,12 @@ export class BabylonBackend implements AudioBackend, SpatialPassHost {
   }
 
   private enterBackground(): void {
-    if (this.disposed || this.appliedBackground !== null) return;
-    const mode = this.background;
-    this.appliedBackground = mode;
-    if (mode === "play") return;
-    this.hiddenMuted = true;
-    this.applyMaster();
-    this._profile.hiddenTab(true);
-    if (mode === "pause") this._profile.gap("paused"); // §5.3: under `audio.background: "pause"` a hidden page records nothing until it shows
-    if (mode === "pause" && this.ownsContext) {
-      this.suspendTimer = setTimeout(() => {
-        this.suspendTimer = null;
-        const ctx = this.ctx;
-        if (!ctx || this.disposed || this.appliedBackground !== "pause" || ctx.state !== "running") return;
-        this.pageSuspended = true;
-        ctx.suspend().catch(() => (this.pageSuspended = false));
-      }, PAUSE_SUSPEND_DELAY_MS);
-    }
+    if (this.disposed) return;
+    this.hiddenTab.hide();
   }
 
   private leaveBackground(): void {
-    if (this.appliedBackground === null) return;
-    this.appliedBackground = null;
-    if (this.suspendTimer !== null) clearTimeout(this.suspendTimer);
-    this.suspendTimer = null;
+    if (this.hiddenTab.show() === null) return;
     const resume = this.pageSuspended;
     this.pageSuspended = false;
     if (resume) this.ctx?.resume().catch(() => this.unlock?.arm());
@@ -1378,7 +1403,7 @@ export class BabylonBackend implements AudioBackend, SpatialPassHost {
       sampleRate: this.ctx?.sampleRate ?? 0,
       time: this.time,
       background: this.background,
-      counters: { underruns: 0, lateCommands: 0, minSlackFrames: 0, workUnits: 0, workUnitsMax: 0, mixedVoices: n, mixedCap: 0, logicalVoices: n, queuedPlays: 0, droppedPlays: 0, traps: 0, refusedLoads: 0, hrtfVoices: 0, hrtfLoadFailure: 0, ...this.m3Counters() },
+      counters: { ...zeroCounters(), mixedVoices: n, logicalVoices: n, ...this.m3Counters() },
       buses: (this.mixerRef?.resolveAll() ?? []).map((b) => ({ name: b.name, gain: b.gain, effectiveGain: b.effectiveGain, peakL: 0, peakR: 0, voices: counts.get(b.name) ?? 0, maxVoices: this._cap(b.name) })),
       // Existing tests (and architecture 8 for this fallback) expect an empty list for plain voices: only event voices get rows.
       voices: [...this.voices].filter((v) => v.event !== null).map((v) => ({ id: v.id, clip: v.row.clip, bus: v.row.bus, world: null, state: "playing" as const, priority: 0, gain: v.row.gain, pitch: v.row.pitch, audibility: 1, playheadSeconds: null, owner: null, event: v.event })),
@@ -1451,8 +1476,7 @@ export class BabylonBackend implements AudioBackend, SpatialPassHost {
     this.calibrationOff?.();
     this.calibrationOff = null;
     this.visibility?.removeEventListener("visibilitychange", this.onVisibility);
-    if (this.suspendTimer !== null) clearTimeout(this.suspendTimer);
-    this.suspendTimer = null;
+    this.hiddenTab.dispose();
     this.unlock?.dispose();
     this.unlock = null;
     const live = this.liveNow;

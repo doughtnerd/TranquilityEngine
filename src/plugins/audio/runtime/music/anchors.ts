@@ -92,7 +92,7 @@ function factsOf(node: MusicNodeRef): { frames: number; rate: number } | { secon
   if (f && f.rate > 0) return f;
   let d: number | null | undefined;
   try {
-    d = audioBackend().clipDuration?.(clip);
+    d = audioBackend().clipCache?.clipDuration(clip);
   } catch {
     d = undefined;
   }
