@@ -15,6 +15,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { makeWav, signal } from "../decoder/testWav";
 import { FADE, FRAME_MS, QPF, RATE, rig } from "../../testing/streamRig";
+import { watchBatches } from "./batchWatch";
+import { Op, readPlay } from "../wire.generated";
 
 
 const WAV_FRAMES = 96_000; // 2 s
@@ -48,7 +50,7 @@ describe("streaming on the loopback host (B3)", () => {
     }
     expect(r.left.slice(at + WAV_FRAMES).every((s) => s === 0)).toBe(true);
     expect(voice.playing).toBe(false);
-    expect(r.backend.mirror.header.underruns).toBe(0);
+    expect(r.loop.link.lastStatus!.underruns).toBe(0);
     expect(r.backend.streams.stats.starves).toBe(0);
     expect(r.backend.streams.stats.eos).toBe(1);
     expect(r.backend.streams.size).toBe(0);
@@ -82,7 +84,7 @@ describe("streaming on the loopback host (B3)", () => {
     for (let k = 0; at + k < r.left.length && k < WAV_FRAMES; k++) {
       if (r.left[at + k] !== want(k, 0) || r.right[at + k] !== want(k, 1)) expect.fail(`frame ${k}: ${r.left[at + k]} vs ${want(k, 0)}`);
     }
-    expect(r.backend.mirror.header.underruns).toBe(0);
+    expect(r.loop.link.lastStatus!.underruns).toBe(0);
     expect(r.backend.streams.stats.starves).toBe(0);
     expect(voice.reason).toBeNull();
     // The chunk buffers circulated: the worker allocated about a window of them (8 chunks), not one per chunk.
@@ -135,11 +137,14 @@ describe("streaming on the loopback host (B3)", () => {
     const r = await rig({ "music/a.wav": stereo() });
     if (!r) return ctx.skip();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const posted = watchBatches(r.loop.link);
     const voice = r.backend.play({ path: "music/a.wav", url: "", loop: false, stream: true, bus: "Music" })!;
     await r.step(2);
     await r.waitOpen(1);
     await r.step(10);
-    const streamId = r.backend.table.clip[voice.id & 0xffff]!;
+    // The stream's id, as the voice's PLAY carried it to the core.
+    const play = posted.takeOps(Op.PLAY).find((p) => p.voiceId === voice.id)!;
+    const streamId = readPlay(play.view, play.off).clip;
     // The worker reports a decode error for the stream (as on a truncated or corrupt frame).
     const worker = r.worker();
     worker.onmessage?.({ data: { type: "error", streamId, asset: "music/a.wav", message: "decode error at frame 12345" } });
@@ -174,13 +179,13 @@ describe("streaming on the loopback host (B3)", () => {
     expect(a.reason).toBeNull();
     expect(b.reason).toBeNull();
     expect(r.loop.driver.openStreams).toBe(2);
-    expect(r.backend.mirror.header.liveVoices).toBe(2);
+    expect(r.loop.link.lastStatus!.liveVoices).toBe(2);
     a.stop(0.01);
     b.stop();
     await r.step(10);
     await r.settle();
     await r.step(2);
-    expect(r.backend.mirror.header.liveVoices).toBe(0);
+    expect(r.loop.link.lastStatus!.liveVoices).toBe(0);
     expect(r.loop.driver.openStreams).toBe(0);
     expect(r.backend.streams.size).toBe(0);
     expect(r.left.slice(-512).every((s) => s === 0)).toBe(true);
@@ -295,7 +300,7 @@ describe("stream seeks on the loopback host (B3b)", () => {
       expect(s0 - (f + FADE)).toBeLessThan(RATE / 10); // the new audio sounds within 100 ms
       expect(voice.playing).toBe(true);
       expect(voice.reason).toBeNull();
-      expect(r.backend.mirror.header.underruns).toBe(0);
+      expect(r.loop.link.lastStatus!.underruns).toBe(0);
       // Credits and buffers keep flowing: more chunks, from the pool.
       expect(r.handler.streamStats.chunks).toBeGreaterThan(chunksBefore);
       expect(r.handler.streamStats.allocated).toBeLessThanOrEqual(20);

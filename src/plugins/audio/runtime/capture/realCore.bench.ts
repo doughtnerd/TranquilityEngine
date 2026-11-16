@@ -12,7 +12,7 @@
 // size; the voices, their churn and the core's own reports do).
 //
 // **Two arms, same scene and seed.** `off`: no recorder. `on`: the recorder attached through `backend.recorderTap`, the
-// `EventSink` through `backend.setProfileSink`, a keyframe source over the real voice table. Each run: 10 s of audio to fill
+// `EventSink` through `backend.setProfileSink`, the backend's own keyframe source (`backend.keyframe`). Each run: 10 s of audio to fill
 // the scene (clips load, the cap fills), then 60 s measured (3,750 STATUS blocks).
 //
 // **Measured.** Per quantum, the loopback host's `renderQuanta(1)` (the core's `process` plus the delivery and handling of the
@@ -32,13 +32,11 @@ import type { AudioHost, CoreLink } from "../core/context";
 import { CoreBackend, type CoreBackendHost } from "../core/coreBackend";
 import { createClipRegistry } from "../core/clipRegistry";
 import { fakeDecoder } from "../core/fakeDecoder";
-import { encodeVoiceId } from "../core/ids";
-import { VoiceState } from "../core/voiceTable";
 import { createLoopbackHost, LOOPBACK_PRESET } from "../testing";
-import { KEYFRAME_BUS_LANES, RecordType, encodeKeyframe, keyframeBytes, type KeyframePayload, type KeyframeVoice } from "./format";
+import { RecordType } from "./format";
 import { openLiveCapture } from "./reader";
 import { createRecorder, type EpochContext } from "./recorder";
-import { createEventSink } from "./events";
+import { createEventSink, NO_NAME } from "./events";
 import { SAMPLE_RATE, liveHead } from "./testSupport";
 
 const RATE = 48_000;
@@ -147,19 +145,17 @@ async function runScene(scene: Scene, armed: boolean): Promise<Result | null> {
   };
   const mixer = new Mixer(settings);
   const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer });
-  const table = backend.table;
+  const capacity = host.preset.maxLogical;
   const names = backend.busNames;
 
   // --- the scene: top up to `live` voices each frame; a voice's life ends at its deadline (looped) or with its clip ---
-  const deadline = new Float64Array(table.capacity).fill(Infinity);
-  const handles: ({ stop(fade?: number): void } | null)[] = new Array(table.capacity).fill(null);
+  const deadline = new Float64Array(capacity).fill(Infinity);
+  const handles: ({ readonly playing: boolean; stop(fade?: number): void } | null)[] = new Array(capacity).fill(null);
   let audioSeconds = 0;
   const countLive = (): number => {
     let n = 0;
-    for (let i = 0; i < table.capacity; i++) {
-      const st = table.state[i]!;
-      if (st === VoiceState.PLAYING || st === VoiceState.VIRTUAL || st === VoiceState.WAITING_FOR_DATA || st === VoiceState.LOCKED) n++;
-    }
+    // A slot's newest handle (a reused slot's is replaced at spawn): playing covers locked, virtual and waiting voices.
+    for (let i = 0; i < capacity; i++) if (handles[i]?.playing) n++;
     return n;
   };
   const spawn = (): void => {
@@ -182,33 +178,6 @@ async function runScene(scene: Scene, armed: boolean): Promise<Result | null> {
   const sink = recorder ? createEventSink(recorder) : null;
   let tapNs: Float64Array | null = null;
   let tapN = 0;
-  const payloadVoices: KeyframeVoice[] = Array.from({ length: table.capacity }, () => ({ id: 0, clip: 0, slot: 0, state: 0, priority: 0, reason: 0, gain: 0, pitch: 4096, audibility: 0, playheadFrames: 0 }));
-  const payload: KeyframePayload = {
-    voices: [], buses: Array.from({ length: Math.min(32, names.length) }, (_, i) => ({ slot: i, gen: 1, flags: 0, lanes: new Array<number>(KEYFRAME_BUS_LANES).fill(1), duck: 1, automation: 1 })),
-    metered: [], events: [], music: [],
-    mix: { slotTableVersion: 1, monitorActive: 0, loudnessPausedMask: 0, targetIndex: 0, snapshotName: 0, masterVolume: 1, hiddenMute: 0 },
-  };
-  /** The real voice table as a keyframe's voice rows (§5.5), rows reused: the source allocates nothing per call. */
-  const rows = payload.voices as KeyframeVoice[];
-  const keyframeSource = (): KeyframePayload => {
-    let n = 0;
-    rows.length = 0;
-    for (let i = 0; i < table.capacity; i++) {
-      const st = table.state[i]!;
-      if (st === VoiceState.FREE) continue;
-      const row = payloadVoices[n++]!;
-      rows.push(row);
-      row.id = encodeVoiceId(i, table.gen[i]!);
-      row.clip = table.clip[i]!;
-      row.slot = table.bus[i]!;
-      row.state = st === VoiceState.PLAYING ? 0 : st === VoiceState.VIRTUAL ? 1 : st === VoiceState.LOCKED ? 5 : 3;
-      row.priority = table.priority[i]!;
-      row.reason = table.reason[i]!;
-      row.gain = table.gain[i]!;
-      row.audibility = Math.min(65535, Math.round(table.audibility[i]! * 65535));
-    }
-    return payload;
-  };
 
   const dt = (FRAME_QUANTA * QUANTUM) / RATE;
   const frameCount = Math.round((MEASURE_SECONDS * RATE) / (FRAME_QUANTA * QUANTUM));
@@ -228,7 +197,7 @@ async function runScene(scene: Scene, armed: boolean): Promise<Result | null> {
     mixer.update(dt);
     backend.update(dt);
     // Replace what ended (S3: the replacement starts in the same frame) and stop loopers at their deadline.
-    for (let i = 0; i < table.capacity; i++) {
+    for (let i = 0; i < capacity; i++) {
       if (deadline[i]! <= audioSeconds) {
         handles[i]?.stop(0.005);
         deadline[i] = Infinity;
@@ -257,7 +226,8 @@ async function runScene(scene: Scene, armed: boolean): Promise<Result | null> {
   if (recorder && sink) {
     const tap = recorder.tap;
     tapNs = new Float64Array(frameCount + 16);
-    recorder.setKeyframeSource(keyframeSource);
+    // The backend's own keyframe source (G7b, `keyframeSource.ts`), as `capture.ts` wires it.
+    recorder.setKeyframeSource(() => backend.keyframe((table, name) => sink.name(table, name), NO_NAME));
     backend.setProfileSink(sink);
     backend.recorderTap = (data, byteLength, view) => {
       const a = performance.now();

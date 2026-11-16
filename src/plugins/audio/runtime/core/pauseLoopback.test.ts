@@ -65,7 +65,7 @@ async function rig() {
       await Promise.resolve();
     }
   };
-  return { backend, step, out };
+  return { backend, step, out, link };
 }
 
 /** Expects `out[from + k]` to be `want(k)` for `k < n`. */
@@ -119,7 +119,7 @@ describe("pause and resume on the loopback host (A3.7)", () => {
     voice.pause(); // still loading: nothing is on the core yet
     await step(DWELL_FRAMES + 10);
     expect(out.every((s) => s === 0)).toBe(true);
-    expect(backend.mirror.header.liveVoices).toBe(1);
+    expect(r.link.lastStatus!.liveVoices).toBe(1);
     voice.resume();
     const resumedAt = out.length;
     await step(4);

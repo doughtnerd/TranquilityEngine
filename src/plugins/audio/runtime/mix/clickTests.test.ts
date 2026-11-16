@@ -18,7 +18,7 @@ import { mixer } from "../../../../engine/audio/mixer";
 import type { MixOp } from "../../../../engine/audio/mixOps";
 import { maxStep } from "../golden/maxStep";
 import { Op } from "../wire.generated";
-import { abrupt, closeRigs, CLICK, liveRig, QUANTUM, SMOOTH, type Rig } from "./clickHarness";
+import { abrupt, closeRigs, CLICK, liveRig, QUANTUM, sendRaw, sequencesIn, SMOOTH, type Rig } from "./clickHarness";
 
 afterEach(async () => {
   await closeRigs();
@@ -205,11 +205,11 @@ describe("Ck1: the send run-out and a sound's bus", () => {
     probe.backend.dispose();
     await closeRigs();
     const wet = await run({ name: "wet", kind: "dip", ops: [op] }, 0, true);
-    const seq = wet.r.backend.dip.last!;
+    const seq = sequencesIn(wet.r.batches).at(-1)!;
     const start = 0; // the rig renders from core frame 0
     wet.r.backend.dispose();
     const dry = await run({ name: "dry", kind: "dip", project: dryProject, ops: [op] }, 0, true);
-    expect(dry.r.backend.dip.last!.b).toBe(seq.b);
+    expect(sequencesIn(dry.r.batches).at(-1)!.b).toBe(seq.b);
     const diff = wet.out.map((x, i) => x - dry.out[i]!);
     const peakIn = (a: number, b: number) => diff.slice(a - start, b - start).reduce((m, x) => Math.max(m, Math.abs(x)), 0);
     const beforeF0 = peakIn(seq.f0 - 4 * QUANTUM, seq.f0);
@@ -242,10 +242,10 @@ describe("Ck1: the send run-out and a sound's bus", () => {
         const v = r.play("SFX", "toneB.wav")!;
         const out: number[] = [...(await r.step(WARM)).out, ...(await r.quanta(k))];
         const from = out.length;
-        const emitted = r.backend.dip.emitted;
+        const emitted = sequencesIn(r.batches).length;
         if (edit) v.setBus("Voice");
         out.push(...(await r.step(AFTER)).out);
-        expect(r.backend.dip.emitted, "no bus sequence: the voice dips alone").toBe(emitted);
+        expect(sequencesIn(r.batches).length, "no bus sequence: the voice dips alone").toBe(emitted);
         r.backend.dispose();
         await closeRigs();
         return { out, from };
@@ -371,7 +371,7 @@ describe("Ck1: the discontinuity check on the Mixer scene (sound-lab's mixer unt
     }
     // The control: Filters' two effects dropped abruptly (one asap BUS_SLOT, no dip) in place of their reorder.
     const k = edits.findIndex(([name]) => name === "Filters' effects reordered") + 1;
-    const control = await session(k, (r) => r.backend.writer.busSlot({ slot: r.backend.buses.slotOf("Filters"), parent: 0, effects: [] }));
+    const control = await session(k, (r) => sendRaw(r, (w) => w.busSlot({ slot: r.backend.buses.slotOf("Filters"), parent: 0, effects: [] })));
     const c = abrupt(runs[k - 1]!.x, control.x, control.at[k - 1]!);
     console.info(`[Ck1] Mixer scene (sound-lab's mixer): ${edits.length} live edits; worst abrupt ${worstAbrupt.toFixed(3)}, worst maxStep ${worstRatio.toFixed(3)} of the signal's; the abrupt control reads ${c.abrupt.toFixed(3)}`);
     expect(c.abrupt, "the same scene sent abruptly reads as a click").toBeGreaterThan(CLICK);

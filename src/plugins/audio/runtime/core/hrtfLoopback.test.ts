@@ -107,7 +107,7 @@ describe("HRTF for the nearest voices on the loopback host (H3)", { timeout: PAT
     if (!r) return ctx.skip();
     const { backend, step, fetches, hrtfSeen } = r;
     // Four spatial voices at distances 1..4 (nearest loudest) and one non-spatial voice.
-    for (let k = 0; k < 4; k++) backend.play(req(`s${k}.wav`, -(k + 1), -1));
+    const spatial = Array.from({ length: 4 }, (_, k) => backend.play(req(`s${k}.wav`, -(k + 1), -1))!);
     backend.play({ path: "flat.wav", url: "flat.wav", loop: true, stream: false, bus: "SFX" });
     await r.until(() => backend.debug().core.hrtfReady === true, "the HRIR table");
     await step(10);
@@ -119,8 +119,8 @@ describe("HRTF for the nearest voices on the loopback host (H3)", { timeout: PAT
     expect(d.counters.hrtfLoadFailure).toBe(0);
     expect(Math.max(...hrtfSeen)).toBeLessThanOrEqual(2);
     // The two nearest are the flagged ones.
-    const flagged = [...Array(backend.table.capacity).keys()].filter((i) => backend.hrtf.flag[i] === 1);
-    expect(flagged.map((i) => backend.table.posX[i])).toEqual(expect.arrayContaining([-1, -2]));
+    const flagged = backend.debug().voices.filter((v) => v.panner === "hrtf").map((v) => v.id);
+    expect(flagged.sort()).toEqual([spatial[0]!.id, spatial[1]!.id].sort());
     // Lowering the limit to 1 unflags one (the core crossfades it out over 45 ms, then frees it).
     r.mixer.audioSettings.voices.hrtf = 1;
     await step(12);

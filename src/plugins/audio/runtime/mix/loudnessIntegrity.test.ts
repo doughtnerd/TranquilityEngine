@@ -286,14 +286,14 @@ describe("loudness integrity on the loopback host (Ld8)", () => {
     };
     // The ladder's probe warms up for 1 s (the rig's warm-up passed it); underruns every half second until the metering step.
     await step(QUANTA_PER_SECOND);
-    expect([backend.mirror.header.loudShed, sfx.paused, master.paused, sfx.elapsed > 0]).toEqual([0, false, false, true]);
+    expect([loop.link.lastStatus!.loudShed, sfx.paused, master.paused, sfx.elapsed > 0]).toEqual([0, false, false, true]);
     let underruns = 0;
-    while (backend.mirror.header.loudShed === 0) {
+    while (loop.link.lastStatus!.loudShed === 0) {
       expect(++underruns, "the metering step within 20 s of underruns").toBeLessThan(40);
       underrun(60);
       await step(188);
     }
-    expect(backend.mirror.header.m3Shed, "the metering step comes before any audible one").toBe(0);
+    expect(loop.link.lastStatus!.m3Shed, "the metering step comes before any audible one").toBe(0);
 
     // From the step on, the bus's numbers stand still while master's go on.
     await step(94); // the pause has reached the hub
@@ -301,7 +301,7 @@ describe("loudness integrity on the loopback host (Ld8)", () => {
     expect(sfx.incomplete, "incomplete waits for the give-back").toBe(false);
     const frozen = { elapsed: sfx.elapsed, integrated: sfx.integrated, masterElapsed: master.elapsed, masterIntegrated: master.integrated };
     await step(8 * QUANTA_PER_SECOND);
-    expect(backend.mirror.header.loudShed, "still shed").toBe(1);
+    expect(loop.link.lastStatus!.loudShed, "still shed").toBe(1);
     expect([sfx.elapsed, sfx.integrated], "the bus meter is paused: nothing taken").toEqual([frozen.elapsed, frozen.integrated]);
     expect(master.elapsed, "master meters on, 8 s of it").toBeGreaterThan(frozen.masterElapsed + 7.5);
     expect(master.integrated).not.toBe(frozen.masterIntegrated);
@@ -309,7 +309,7 @@ describe("loudness integrity on the loopback host (Ld8)", () => {
 
     // Clean from here: the loudness step comes back last, 80 s after the last underrun; the bus resumes `incomplete`.
     let clean = 0;
-    while (backend.mirror.header.loudShed !== 0) {
+    while (loop.link.lastStatus!.loudShed !== 0) {
       expect(++clean, "the step is given back within 90 s").toBeLessThan((90 * QUANTA_PER_SECOND) / 4);
       await step(4);
     }

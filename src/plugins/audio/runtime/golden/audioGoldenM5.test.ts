@@ -17,7 +17,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { mixer } from "../../../../engine/audio/mixer";
-import { abrupt, closeRigs, liveRig, SMOOTH } from "../mix/clickHarness";
+import { abrupt, closeRigs, liveRig, sendRaw, SMOOTH } from "../mix/clickHarness";
 import { createLoopbackHost, LOOPBACK_PRESET, type LoopbackHost } from "../testing";
 import { BUS_LP_OFF_HZ, BUS_MASTER_OUT, BUS_RAMP_MASK_GAIN, Kind, LANE_RUNTIME, writeBatchHeader, writeClipBegin, writeClipChunk, writeEnvelope } from "../wire.generated";
 import { maxStep } from "./maxStep";
@@ -334,7 +334,7 @@ describe("DSd: the Mixer scene (Sa2) on the real core", () => {
     const settle = 4096;
     let strongest = 0;
     for (let k = 0; k < 8; k++) {
-      const control = await session(0, { at: 0, pre: k, run: (r) => r.backend.writer.busRampFrames(BUS_MASTER_OUT, LANE_RUNTIME, BUS_RAMP_MASK_GAIN, 0, BUS_LP_OFF_HZ, 1) });
+      const control = await session(0, { at: 0, pre: k, run: (r) => sendRaw(r, (w) => w.busRampFrames(BUS_MASTER_OUT, LANE_RUNTIME, BUS_RAMP_MASK_GAIN, 0, BUS_LP_OFF_HZ, 1)) });
       const from = control.at[0]!;
       const own = maxStep(control.x, from - settle, from);
       const inside = maxStep(control.x, from - 1, from + 4096);

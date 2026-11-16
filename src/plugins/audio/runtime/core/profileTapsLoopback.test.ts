@@ -1,6 +1,6 @@
 // ADR 0171 (Rc3, api-and-models §5.6): the voice, mixer and event taps in a scene on the loopback host (the real wasm core,
-// clip registry, shell and coreBackend), through a recording stub sink wired the way `CoreBackend.setProfileSink` wires
-// the real one (`wireProfileTaps`). Kinds and reasons reached here: voiceStart, voiceStop (ended, stopped, faded, failed,
+// clip registry, shell and coreBackend), through a recording stub sink handed to `CoreBackend.setProfileSink` (as the
+// recorder's is). Kinds and reasons reached here: voiceStart, voiceStop (ended, stopped, faded, failed,
 // worldReleased), voiceSteal (busMaxVoices by allocation and by selection; globalLimit), voiceVirtual (capDemoted,
 // worldInaudible), voiceReal (promoted), voiceRefused (busFull), voiceQueued (clipLoading), snapshot, busRamp. The rest
 // (capRaised, paused, belowAudibility, poolFull, streamPriming, priority) are in `voiceProfileTaps.test.ts` on the table
@@ -9,18 +9,17 @@
 import { describe, expect, it } from "vitest";
 import { Mixer } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings, type AudioSettings } from "../../../../engine/audio/settings";
-import type { AudioHost, CoreLink } from "./context";
+import type { AudioHost, CoreLink, HostLifecycleListener } from "./context";
 import { CoreBackend, type CoreBackendHost } from "./coreBackend";
 import { fakeDecoder } from "./fakeDecoder";
-import { VoiceReason } from "./voiceTable";
 import { recordingSink } from "../mix/recordingSink";
-import { wireProfileTaps } from "../mix/profileTaps";
 
 /** Frames a voice must lead before selection promotes it (selection.ts). */
 const DWELL_FRAMES = 3;
 
 const req = (path: string, extra: object = {}) => ({ path, url: path, loop: false, stream: false, bus: "SFX", ...extra });
-const busRefOf = (names: readonly string[], bus: string): number => (3 << 8) | names.indexOf(bus);
+/** A bus's `busRef` as the taps report it (the session slot table's `gen << 8 | slot`). */
+const busRefOf = (backend: CoreBackend, bus: string): number => backend.buses.slots.busRef(backend.buses.slotOf(bus));
 
 async function rig(opts: { maxMixed?: number; maxLogical?: number; settings?: AudioSettings; pending?: string[]; frames?: number } = {}) {
   const testing = await import("../testing");
@@ -42,19 +41,19 @@ async function rig(opts: { maxMixed?: number; maxLogical?: number; settings?: Au
     nextFrame: (cb) => cb(),
     nextQuantum: (cb) => cb(),
   });
+  const listeners: HostLifecycleListener[] = [];
   const host: CoreBackendHost = {
     link, status: "running", preset: { maxLogical: opts.maxLogical ?? 16, maxMixed: opts.maxMixed ?? 8 }, worldCount: 1, sampleRate: 48_000,
-    addLifecycleListener: (() => () => {}) as AudioHost["addLifecycleListener"],
+    addLifecycleListener: ((l: HostLifecycleListener) => {
+      listeners.push(l);
+      return () => {};
+    }) as AudioHost["addLifecycleListener"],
   };
   const mixer = new Mixer(opts.settings ?? defaultAudioSettings());
   const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer });
   const stub = recordingSink();
   const names = backend.busNames;
-  wireProfileTaps(stub.sink, {
-    table: backend.table, mixer, sampleRate: () => 48_000,
-    names: { clip: (id, stream) => (stream ? "" : backend.clips.info(id)?.path ?? ""), busRef: (i) => (3 << 8) | i },
-    busRef: (bus) => busRefOf(names, bus),
-  });
+  backend.setProfileSink(stub.sink);
   const step = async (n: number) => {
     for (let f = 0; f < n; f++) {
       mixer.update(0.003);
@@ -63,7 +62,7 @@ async function rig(opts: { maxMixed?: number; maxLogical?: number; settings?: Au
       await Promise.resolve();
     }
   };
-  return { backend, mixer, stub, step, names };
+  return { backend, mixer, stub, step, names, listeners };
 }
 
 const settingsWith = (patch: (s: AudioSettings) => void): AudioSettings => {
@@ -81,7 +80,7 @@ describe("the taps in a loopback scene", () => {
     const starts = r.stub.of("voiceStart");
     expect(starts).toHaveLength(1);
     expect(starts[0]!.slice(0, 2)).toEqual([v.id, "a.wav"]);
-    expect(starts[0]![2]).toBe(busRefOf(r.names, "SFX"));
+    expect(starts[0]![2]).toBe(busRefOf(r.backend, "SFX"));
     expect(starts[0]![5]).toBeCloseTo(0.5, 5); // gain
     await r.step(30); // 2,000 frames are four quanta of eight blocks: it ends
     expect(r.stub.of("voiceStop")).toEqual([[v.id, "ended"]]);
@@ -98,16 +97,18 @@ describe("the taps in a loopback scene", () => {
     await r.step(10);
     a.stop(0);
     b.stop(0.01);
-    const t = r.backend.table;
-    t.reason[c.id & 0xffff] = VoiceReason.FAILED;
-    t.requestStop(c.id, 0.01);
-    t.releaseWorld(7);
+    // The host releases World 7 (its scene unloaded).
+    for (const l of r.listeners) l.onWorldReleased?.(7, {});
     await r.step(20);
-    const stops = new Map(r.stub.of("voiceStop").map((x) => [x[0], x[1]]));
+    let stops = new Map(r.stub.of("voiceStop").map((x) => [x[0], x[1]]));
     expect(stops.get(a.id)).toBe("stopped");
     expect(stops.get(b.id)).toBe("faded");
-    expect(stops.get(c.id)).toBe("failed");
     expect(stops.get(w.id)).toBe("worldReleased");
+    // Recovery gives up: every voice still playing ends "failed".
+    expect(stops.has(c.id)).toBe(false);
+    for (const l of r.listeners) l.onRecoveryFailed?.();
+    stops = new Map(r.stub.of("voiceStop").map((x) => [x[0], x[1]]));
+    expect(stops.get(c.id)).toBe("failed");
     r.backend.dispose();
   });
 
@@ -124,10 +125,10 @@ describe("the taps in a loopback scene", () => {
     const ninth = r.backend.play(req("n.wav", { loop: true, priority: 250 }))!;
     expect(r.stub.of("voiceSteal")).toEqual([[sfx[0]!.id, ninth.id, "globalLimit"]]);
     // Selection: the bus limit lowered after the voices were placed.
-    r.backend.table.setBusLimits([0, 0, 0, 0, 0, 0]);
+    r.mixer.apply({ op: "setBus", bus: "Music", key: "maxVoices", value: null });
     const b2 = r.backend.play(req("m2.wav", { loop: true, bus: "Music", priority: 255 }))!;
     r.stub.clear();
-    r.backend.table.setBusLimits(Array.from({ length: 32 }, (_, i) => (i === r.names.indexOf("Music") ? 1 : 0)));
+    r.mixer.apply({ op: "setBus", bus: "Music", key: "maxVoices", value: 1 });
     await r.step(3);
     expect(r.stub.of("voiceSteal").some((x) => x[1] === 0 && x[2] === "busMaxVoices")).toBe(true);
     expect(b2.id).not.toBe(0);
@@ -141,7 +142,7 @@ describe("the taps in a loopback scene", () => {
     r.backend.play(req("a.wav", { loop: true, bus: "Music", priority: 255 }));
     r.stub.clear();
     expect(r.backend.play(req("b.wav", { loop: true, bus: "Music", priority: 0 }))).toBeNull();
-    expect(r.stub.of("voiceRefused")).toEqual([[expect.any(String), busRefOf(r.names, "Music"), "busFull"]]);
+    expect(r.stub.of("voiceRefused")).toEqual([[expect.any(String), busRefOf(r.backend, "Music"), "busFull"]]);
     r.backend.dispose();
   });
 
@@ -152,7 +153,7 @@ describe("the taps in a loopback scene", () => {
     r.backend.play(req("a.wav", { loop: true, bus: "Music", priority: 255 }));
     r.stub.clear();
     expect(r.backend.play(req("song.ogg", { stream: true, bus: "Music", priority: 0 }))).toBeNull();
-    expect(r.stub.of("voiceRefused")).toEqual([["song.ogg", busRefOf(r.names, "Music"), "busFull"]]);
+    expect(r.stub.of("voiceRefused")).toEqual([["song.ogg", busRefOf(r.backend, "Music"), "busFull"]]);
     r.backend.dispose();
   });
 
@@ -161,7 +162,7 @@ describe("the taps in a loopback scene", () => {
     if (!r) return ctx.skip();
     r.backend.play(req("slow.wav", { loop: true }));
     await r.step(2);
-    expect(r.stub.of("voiceQueued")).toEqual([["slow.wav", busRefOf(r.names, "SFX"), "clipLoading"]]);
+    expect(r.stub.of("voiceQueued")).toEqual([["slow.wav", busRefOf(r.backend, "SFX"), "clipLoading"]]);
     expect(r.stub.of("voiceStart")).toEqual([]);
     r.backend.dispose();
   });
@@ -200,8 +201,8 @@ describe("the taps in a loopback scene", () => {
     const sfx = r.names.indexOf("SFX");
     expect(r.stub.of("snapshot")).toEqual([["Paused", 0.5]]);
     expect(r.stub.of("busRamp")).toEqual(expect.arrayContaining([
-      [busRefOf(r.names, "SFX"), "snapshot", 24_000, 0.5],
-      [busRefOf(r.names, "Music"), "runtime", 48_000, 0.5],
+      [busRefOf(r.backend, "SFX"), "snapshot", 24_000, 0.5],
+      [busRefOf(r.backend, "Music"), "runtime", 48_000, 0.5],
     ]));
     expect(r.stub.of("monitor")).toEqual([[1 << sfx]]);
     r.backend.dispose();

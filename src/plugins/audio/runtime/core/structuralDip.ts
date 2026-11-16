@@ -74,25 +74,6 @@ export interface StructuralDipHost {
   defer?(fn: () => void): void;
 }
 
-/** One emitted sequence (tests and `Audio.debug()`): its id, frames and what it carried. */
-export interface DipSequence {
-  id: number;
-  /** The dip-down's start frame. */
-  f0: number;
-  /** The `BUS_SLOT` records' frame (a quantum start) and the dip-up's start. */
-  b: number;
-  /** b + `DIP_FRAMES`: the planned end. */
-  end: number;
-  /** Live roots: dipped down and up. */
-  roots: number[];
-  /** Tombstones: dipped down, then silent roots. */
-  tombstones: number[];
-  /** Slots with a structural `BUS_SLOT`. */
-  slots: number[];
-  /** Voices moved with the per-voice dip. */
-  voices: number;
-}
-
 /** The sequence being gathered in this task. */
 interface OpenSequence {
   roots: Set<number>;
@@ -103,10 +84,6 @@ interface OpenSequence {
 }
 
 export class StructuralDip {
-  /** Sequences emitted (tests and the debug view). */
-  emitted = 0;
-  /** The last sequence emitted, or null. */
-  last: DipSequence | null = null;
   private host: StructuralDipHost | null = null;
   private open: OpenSequence | null = null;
   private scheduled = false;
@@ -353,8 +330,6 @@ export class StructuralDip {
     if (sending && voices > 0 && w.pending > 0) w.flush(host.firstFrame());
     buses.settle(tombstones, end);
     this.lastEnd = end;
-    this.emitted++;
-    this.last = { id, f0, b, end, roots, tombstones, slots, voices };
   }
 }
 

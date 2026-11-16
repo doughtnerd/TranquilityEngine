@@ -72,7 +72,7 @@ export async function rig(opts: { spatial?: "hrtf" | "equalPower"; hrtf?: number
       mixer.update(0.003);
       backend.update(0.003);
       loop.renderQuanta(4);
-      hrtfSeen.push(backend.mirror.header.hrtfVoices);
+      hrtfSeen.push(link.lastStatus?.hrtfVoices ?? 0);
       await new Promise((r) => setImmediate(r)); // a macrotask turn for the HRIR file read; no timer, no clock
     }
   };

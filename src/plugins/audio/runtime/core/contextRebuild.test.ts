@@ -211,10 +211,9 @@ describe("the rebuild into a new context on the loopback host (A3.4c)", () => {
     expect(r.loop.cores).toBe(2);
     expect(host.health.rebuilds).toBe(1);
     expect(backend.debug().sampleRate).toBe(NEW_RATE);
-    // The clock map and the writer follow the new rate; the limiter latency is the new rate's.
+    // The clock map follows the new rate; the limiter latency is the new rate's.
     expect(backend.clockMap.sampleRate).toBe(NEW_RATE);
     expect(backend.clockMap.outputLatencyFrames).toBe(limiterLatencyFrames(NEW_RATE, host.preset.limiterLookaheadMs));
-    expect(backend.writer.sampleRate).toBe(NEW_RATE);
 
     expect(await r.untilSound()).toBeGreaterThan(0);
     await step(3);

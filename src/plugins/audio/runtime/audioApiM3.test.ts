@@ -32,7 +32,8 @@ class FakeRegistry implements ClipRegistry {
   release(): void {}
   state(): ClipState { return "ready"; }
   info(id: number): ClipInfo | null {
-    return { id, path: "", state: "ready", refs: 1, frames: 0, channels: 1, sampleRate: 48_000, format: 1, bytes: 0, failure: null };
+    const path = [...this.ids].find(([, v]) => v === id)?.[0] ?? "";
+    return { id, path: "", state: "ready", refs: 1, frames: 0, channels: path.includes("amb") ? 4 : 1, sampleRate: 48_000, format: 1, bytes: 0, failure: null };
   }
   onResident(_id: number, _l: ClipResidentListener): () => void { return () => {}; }
   releaseWorld(): void {}
@@ -146,7 +147,7 @@ describe("§1.1 types and handle members", () => {
   });
 
   it("on the core: panner and occlusion come from the main-thread tables", () => {
-    const r = coreRig();
+    const r = coreRig({ maxWide: 1 });
     setAudioBackend(r.backend);
     r.frame();
     const flat = Audio.playOneShot("asset:a.wav");
@@ -158,8 +159,9 @@ describe("§1.1 types and handle members", () => {
     const occluded = r.backend.play({ path: "asset:a.wav", url: "a.wav", loop: true, stream: false, bus: "Master", position: at })!;
     occluded.setOcclusion!(0.4, 2000);
     expect(occluded.occlusion).toBeCloseTo(0.4, 5);
-    r.backend.table.flags2[1] = VoiceFlag2.AMBISONIC;
-    expect(spatial.panner).toBe("ambisonic");
+    // An ambisonic clip's voice (the registry's "amb" clips have four channels) names its panner so.
+    const ambisonic = r.backend.play({ path: "asset:amb.wav", url: "amb.wav", loop: true, stream: false, bus: "Master", ambisonic: true })!;
+    expect(ambisonic.panner).toBe("ambisonic");
     spatial.stop();
     flat.stop();
   });

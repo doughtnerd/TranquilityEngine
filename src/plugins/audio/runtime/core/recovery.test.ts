@@ -245,7 +245,7 @@ describe("the hard rebuild on the loopback host (A3.4a)", () => {
     expect(shot.reason).toBeNull(); // ended, as it would have
     expect(keep.playing).toBe(true);
     expect(backend.debug().voices.map((v) => v.id)).toEqual([keep.id]);
-    expect(backend.table.liveCount).toBe(1);
+    expect(backend.debug().counters.logicalVoices).toBe(1);
     backend.dispose();
   });
 

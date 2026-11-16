@@ -56,7 +56,7 @@
 // `onFree` for members, `reopenStreams` (music voices skipped, then `musicOps.reopenGroups`), and `musicOps` on the
 // `DebugSource` (P10).
 import type { Vec3Like } from "../../../../engine/core/math";
-import { mixer as defaultMixer, type Mixer, type ResolvedBus } from "../../../../engine/audio/mixer";
+import { mixer as defaultMixer, type Mixer, type MixOpTarget, type ResolvedBus } from "../../../../engine/audio/mixer";
 import { Assets } from "../../../../engine/scene/Assets";
 import type { Attenuation, AudioBackend, AudioBackground, AudioCaptureSource, AudioClipCache, AudioClock, AudioCpuDebug, AudioLiveMix, AudioMixCaps, AudioMixDebug, AudioPanner, AudioStatus, AudioVoice, ClipSpanHold, FadeLaw, ListenerPose, MusicBackend, PlayRequest, RecorderTap, ShapedFade, VoiceSpatialOptions, ZoneIrService } from "../backend";
 import type { AudioLatency } from "../../../../engine/audio/musicTypes";
@@ -68,10 +68,10 @@ import { CommandWriter } from "./commandWriter";
 import { createHrirLoader, createMaglsLoader, type HrirLoader, type MaglsLoader } from "./hrir";
 import { createClipRegistry, type ClipInfo, type ClipRegistry } from "./clipRegistry";
 import { DEFAULT_CLIP_CEILING_MB, type AudioHost, type CoreLink, type HostHealth } from "./context";
-import { PlayheadTracker, Replayer, replayBusConfig, replayMaster } from "./replay";
+import { PlayheadTracker, Replayer, replayBusConfig, replayMaster, type ReplaySource } from "./replay";
 import { CoreSession } from "./session";
 import { CoreLoudness } from "./coreLoudness";
-import { buildDebugInfo, mixDebugInfo, type AudioDebugInfo } from "./debug";
+import { buildDebugInfo, mixDebugInfo, type AudioDebugInfo, type DebugSource } from "./debug";
 import { BackgroundController } from "./background";
 import { calibrationDeviceChanged, initCalibration } from "../music/calibration";
 import { browserHostClock, type HostClock } from "./hostClock";
@@ -96,9 +96,9 @@ import { ListenerFrame, SendCurveTable, SpatialViewFlag, type SpatialVoiceView, 
 import type { ReplayBuilder } from "./replay";
 import { BusIndex } from "./busIndex";
 import { LaneWriter } from "./laneWriter";
-import { KeyframeSource } from "./keyframeSource";
+import { KeyframeSource, type KeyframeHost } from "./keyframeSource";
 import type { KeyframePayload } from "../capture/format";
-import { Presence } from "./presence";
+import { Presence, type PresenceHost } from "./presence";
 import { LiveMix } from "./liveMix";
 import { StructuralDip } from "./structuralDip";
 import { DeferredAdds } from "./deferredAdds";
@@ -168,8 +168,6 @@ export interface CoreBackendDeps {
   clips?: ClipRegistry;
   clock?: HostClock;
   mixer?: Mixer;
-  /** The table; defaults to one of `host.preset.maxLogical` slots. */
-  table?: VoiceTable;
   /** The HRTF table loader (H2); defaults to one on `clips` at the host rate. Tests inject a fake. */
   hrir?: HrirLoader;
   /** ADR 0162 (A5): the MagLS bed filters' loader (default: the real one). */
@@ -186,6 +184,9 @@ export interface CoreBackendDeps {
 }
 
 const MAX_BUS = 32;
+
+/** What the backend's parts read of it through its private view (`CoreBackend.view`). */
+type CoreView = DebugSource & KeyframeHost & ReplaySource & PresenceHost;
 
 const clamp = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > hi ? hi : v);
 
@@ -209,9 +210,9 @@ export class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, Au
   get capture(): AudioCaptureSource {
     return this;
   }
-  readonly table: VoiceTable;
-  readonly mirror: StatusMirror;
-  readonly writer: CommandWriter;
+  private readonly table: VoiceTable;
+  private readonly mirror: StatusMirror;
+  private readonly writer: CommandWriter;
   readonly clockMap: ClockMap;
   readonly clips: ClipRegistry;
   readonly mixer: Mixer;
@@ -270,15 +271,21 @@ export class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, Au
   /** ADR 0171 (K0): the bus indexing (`busIndex.ts`; Ma1 moves it onto the slot table). */
   readonly buses: BusIndex;
   /** ADR 0171 (K0): the bus gain writer (`laneWriter.ts`; Wa2, then Mx2). */
-  readonly lanes: LaneWriter;
+  private readonly lanes: LaneWriter;
+  /**
+   * What the backend's own parts read of it: `debug()` (`debug.ts`), the capture's keyframe (`keyframeSource.ts`), the
+   * hard rebuild's replay (`replay.ts`) and presence ducking (`presence.ts`). The table, mirror and writer stay private
+   * to the backend; each part sees them through this view (getters over the backend, no allocation per read).
+   */
+  private readonly view: CoreView = this.createView();
   /** ADR 0171 (K0): presence ducking's hooks (`presence.ts`; Dp1). */
-  readonly presence = new Presence(this);
+  readonly presence = new Presence(this.view);
   /** ADR 0171 (K0): structural live edits (`structuralDip.ts`; Ma2). */
-  readonly dip = new StructuralDip();
+  private readonly dip = new StructuralDip();
   /** ADR 0171 (K0): deferred live adds (`deferredAdds.ts`; Ma3). */
-  readonly deferredAdds = new DeferredAdds();
+  private readonly deferredAdds = new DeferredAdds();
   /** ADR 0171 (K0), 0175: the live-edit path, `mixer.apply`'s target (`liveMix.ts`; Ma1). */
-  readonly liveMix = new LiveMix({
+  private readonly liveMix = new LiveMix({
     dip: this.dip,
     deferred: this.deferredAdds,
     mixer: () => this.mixer,
@@ -297,6 +304,9 @@ export class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, Au
     firstFrame: () => this.clockMap.nextFirstFrame(),
     framesNow: () => this.clockMap.framesNow(),
     stampAt: (t) => this.clockMap.stampFor(this.clockMap.frameOfTime(t)),
+    // §6.6: the preview path's coalescing window, on the page's clock.
+    nowMs: () => performance.now(),
+    setTimer: (fn, ms) => void setTimeout(fn, ms),
   });
   /** ADR 0171 (K0): the capture's event taps (`mix/profileSink.ts`); the null object until a recorder runs (Rc3). */
   profile: ProfileSink = NULL_PROFILE_SINK;
@@ -312,8 +322,8 @@ export class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, Au
   get lockedQueue(): UnlockQueue<number> {
     return this.voices.lockedQueue;
   }
-  /** @internal Each slot's `PlayRequest.owner`, for `debug()`'s voice rows (`voices.ts`). */
-  get owners(): readonly (string | null)[] {
+  /** Each slot's `PlayRequest.owner`, for `debug()`'s voice rows (`voices.ts`). */
+  private get owners(): readonly (string | null)[] {
     return this.voices.owners;
   }
   private idlePending = false;
@@ -341,7 +351,7 @@ export class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, Au
     this.clips = deps.clips;
     this.hrir = deps.hrir ?? createHrirLoader({ clips: deps.clips, sampleRate: host.sampleRate });
     this.magls = deps.magls ?? createMaglsLoader({ clips: deps.clips, sampleRate: host.sampleRate });
-    this.table = deps.table ?? new VoiceTable(host.preset.maxLogical);
+    this.table = new VoiceTable(host.preset.maxLogical);
     this.selection = new Selection(this.table);
     this.panners = new PannerPick(this.table);
     this.pannerSink = { setPanner: (i, kind) => this.sendPanner(i, kind) };
@@ -472,7 +482,7 @@ export class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, Au
         this.lanes.refreshBusGain();
       },
     });
-    this.replayer = new Replayer(this, host.link);
+    this.replayer = new Replayer(this.view, host.link);
     // ADR 0176: the core voice, over the parts above (closures read the backend lazily: the buses come next).
     this.voices = new CoreVoices({
       table: this.table,
@@ -969,14 +979,14 @@ export class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, Au
     return this.panners.panner(i);
   }
 
-  /** H3's name for the panner pick (`debug.ts`, tests). */
-  get hrtf(): PannerPick {
+  /** H3's name for the panner pick (`debug.ts`'s `hrtf`). */
+  private get hrtf(): PannerPick {
     return this.panners;
   }
 
   /** `Audio.debug()` (K10): delegates to `debug.ts`. */
   debug(): AudioDebugInfo {
-    const info = buildDebugInfo(this);
+    const info = buildDebugInfo(this.view);
     // ADR 0171 (Mx2): each bus row's last stamped BUS_RAMP start frame.
     info.buses.forEach((row, b) => {
       const frame = this.lanes.lastRampStartFrame(b);
@@ -1003,11 +1013,11 @@ export class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, Au
 
   /** §1.3 `Audio.debug().mix` (Dbg1): the slot table reads the identity layout until Ma1 wires the table in. */
   private mixDebug(): AudioMixDebug {
-    return mixDebugInfo(this, this.liveMix.refused, this.deferredAdds.count);
+    return mixDebugInfo(this.view, this.liveMix.refused, this.deferredAdds.count);
   }
 
   /** §6.2, ADR 0175: where `mixer.apply` sends a checked op (`liveMix.ts`). */
-  get mixOpTarget(): LiveMix {
+  get mixOpTarget(): MixOpTarget {
     return this.liveMix;
   }
 
@@ -1054,7 +1064,119 @@ export class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, Au
 
   /** §5.5 (G7b): the capture's KEYFRAME from main's tables, built by `keyframeSource.ts` (the voice table, the slot table and mixer lanes, the loudness hub, events, music). */
   keyframe(nameId: Parameters<AudioCaptureSource["keyframe"]>[0], noName = 0xffffffff): KeyframePayload {
-    return (this.keyframes ??= new KeyframeSource(this)).read(nameId, noName);
+    return (this.keyframes ??= new KeyframeSource(this.view)).read(nameId, noName);
+  }
+
+  /** The view `view` holds (built once, at construction; its getters read the backend's fields when called). */
+  private createView(): CoreView {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias -- the getters read the backend lazily
+    const b = this;
+    return {
+      get host() {
+        return b.host;
+      },
+      get status() {
+        return b.status;
+      },
+      get time() {
+        return b.time;
+      },
+      get backgroundMode() {
+        return b.backgroundMode;
+      },
+      get busNames() {
+        return b.busNames;
+      },
+      get mirror() {
+        return b.mirror;
+      },
+      get table() {
+        return b.table;
+      },
+      get writer() {
+        return b.writer;
+      },
+      get clips() {
+        return b.clips;
+      },
+      get owners() {
+        return b.owners;
+      },
+      get streams() {
+        return b.streams;
+      },
+      get mixer() {
+        return b.mixer;
+      },
+      get deferredAdds() {
+        return b.deferredAdds;
+      },
+      get lockedQueue() {
+        return b.lockedQueue;
+      },
+      get automation() {
+        return b.automation;
+      },
+      get playheads() {
+        return b.playheads;
+      },
+      get hrtfReady() {
+        return b.hrtfReady;
+      },
+      get hrtfLoadFailure() {
+        return b.hrtfLoadFailure;
+      },
+      get hrtf() {
+        return b.hrtf;
+      },
+      get beds() {
+        return b.beds;
+      },
+      get panners() {
+        return b.panners;
+      },
+      get voiceFx() {
+        return b.voiceFx;
+      },
+      get zones() {
+        return b.zones;
+      },
+      get occlusion() {
+        return b.occlusion;
+      },
+      get doppler() {
+        return b.doppler;
+      },
+      get maglsFailed() {
+        return b.maglsFailed;
+      },
+      get health() {
+        return b.health;
+      },
+      get pageHidden() {
+        return b.pageHidden;
+      },
+      mixedCap: () => b.mixedCap(),
+      get clockMap() {
+        return b.clockMap;
+      },
+      get musicOps() {
+        return b.musicOps;
+      },
+      get buses() {
+        return b.buses;
+      },
+      get masterVolume() {
+        return b.masterVolume;
+      },
+      get hiddenMuted() {
+        return b.hiddenMuted;
+      },
+      get session() {
+        return b.session;
+      },
+      hrtfPanner: (i) => b.hrtfPanner(i),
+    };
   }
 
   /** The session's `dispose` phase (once). */

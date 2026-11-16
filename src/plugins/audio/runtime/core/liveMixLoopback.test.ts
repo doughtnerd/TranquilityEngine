@@ -189,7 +189,7 @@ describe("the live-edit path on the loopback host (Ma1)", () => {
     await applied({ op: "setBus", bus: "SFX", key: "mute", value: false }, "direct");
     // direct: maxVoices is main's steal limit (the voice table), nothing on the wire.
     mixer.apply({ op: "setBus", bus: "Music", key: "maxVoices", value: 2 });
-    expect(backend.table.busMax[SLOT.Music]).toBe(2);
+    expect(backend.debug().buses[SLOT.Music]!.maxVoices).toBe(2);
     // direct: a meter on (LOUD_CONFIG, replace-all, with its slot).
     recs = await applied({ op: "setBus", bus: "Voice", key: "meter", value: "loudness" }, "direct");
     let loud = of(recs, Op.LOUD_CONFIG).map((x) => readLoudConfig(x.view, x.off));
@@ -317,7 +317,7 @@ describe("the live-edit path on the loopback host (Ma1)", () => {
     mixer.apply({ op: "setBus", bus: "Music", key: "volume", value: 0.5 });
     expect(mixer.apply({ op: "addBus", name: "Amb", parent: "Music", index: 1 })).toEqual({ ok: true, class: "direct" });
     const voice = play(backend, "Amb")!;
-    expect(backend.table.bus[voice.id & 0xffff]).toBe(4);
+    expect(backend.debug().voices.find((v) => v.id === voice.id)!.bus).toBe("Amb");
     await r.step(12);
     expect((await r.step(1)).last).toBeCloseTo(LEVEL * 0.5, 6);
     mixer.apply({ op: "setBus", bus: "Amb", key: "volume", value: 0.5 });

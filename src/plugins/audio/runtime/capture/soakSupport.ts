@@ -22,7 +22,6 @@ import type { AudioHost, CoreLink } from "../core/context";
 import { CoreBackend, type CoreBackendHost } from "../core/coreBackend";
 import { createClipRegistry } from "../core/clipRegistry";
 import { fakeDecoder } from "../core/fakeDecoder";
-import { VoiceState } from "../core/voiceTable";
 import { createLoopbackHost, LOOPBACK_PRESET, type LoopbackHost } from "../testing";
 import type { CorePreset } from "../worklet/coreDriver";
 import type { SaveEnv } from "./save";
@@ -57,6 +56,8 @@ export interface S3Rig {
   /** Audio seconds stepped so far (the loopback's rendered frames / rate). */
   readonly audioSeconds: number;
   countLive(): number;
+  /** The scene's voices stopped and fading out (their handles alive but no longer `playing`), by id. */
+  fading(): Set<number>;
   /** One main-thread frame (mixer, backend, the scene's replacements) then `FRAME_QUANTA` quanta. `afterMain` runs between the two. */
   frame(afterMain?: () => void): Promise<void>;
   dispose(): void;
@@ -111,17 +112,15 @@ export async function s3Rig(scene: S3Scene, seed = 1): Promise<S3Rig | null> {
   };
   const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer });
   setAudioBackend(backend);
-  const table = backend.table;
+  const capacity = host.preset.maxLogical;
   const names = backend.busNames;
-  const deadline = new Float64Array(table.capacity).fill(Infinity);
-  const handles: ({ stop(fade?: number): void } | null)[] = new Array(table.capacity).fill(null);
+  const deadline = new Float64Array(capacity).fill(Infinity);
+  const handles: ({ readonly id: number; readonly playing: boolean; readonly alive?: boolean; stop(fade?: number): void } | null)[] = new Array(capacity).fill(null);
   let audioSeconds = 0;
   const countLive = (): number => {
     let n = 0;
-    for (let i = 0; i < table.capacity; i++) {
-      const st = table.state[i]!;
-      if (st === VoiceState.PLAYING || st === VoiceState.VIRTUAL || st === VoiceState.WAITING_FOR_DATA || st === VoiceState.LOCKED) n++;
-    }
+    // A slot's newest handle (a reused slot's is replaced at spawn): playing covers locked, virtual and waiting voices.
+    for (let i = 0; i < capacity; i++) if (handles[i]?.playing) n++;
     return n;
   };
   const spawn = (): void => {
@@ -140,13 +139,18 @@ export async function s3Rig(scene: S3Scene, seed = 1): Promise<S3Rig | null> {
   };
   return {
     loop, backend, countLive,
+    fading() {
+      const out = new Set<number>();
+      for (const h of handles) if (h && h.alive === true && !h.playing) out.add(h.id);
+      return out;
+    },
     get audioSeconds() {
       return audioSeconds;
     },
     async frame(afterMain) {
       mixer.update(FRAME_SECONDS);
       backend.update(FRAME_SECONDS);
-      for (let i = 0; i < table.capacity; i++) {
+      for (let i = 0; i < capacity; i++) {
         if (deadline[i]! <= audioSeconds) {
           handles[i]?.stop(0.005);
           deadline[i] = Infinity;

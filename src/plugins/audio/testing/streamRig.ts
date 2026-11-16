@@ -143,7 +143,7 @@ export async function rig(files: Record<string, ArrayBuffer>, options: RigOption
     const linkPort = (link as unknown as { port: { onmessage: ((e: { data: unknown }) => void) | null } }).port;
     const held: unknown[] = [];
     const saved = linkPort.onmessage;
-    const blocks = backend.mirror.blocks;
+    const blocks = link.statusCount;
     if (opts.mainStalled) linkPort.onmessage = (e) => void held.push(e.data);
     for (let f = 0; f < n; f++) {
       if (!opts.mainStalled) {
@@ -159,7 +159,7 @@ export async function rig(files: Record<string, ArrayBuffer>, options: RigOption
       await Promise.resolve();
     }
     /** STATUS blocks main applied during these frames (before the held messages are delivered). */
-    const applied = backend.mirror.blocks - blocks;
+    const applied = link.statusCount - blocks;
     if (opts.mainStalled) {
       linkPort.onmessage = saved;
       for (const d of held) saved?.({ data: d });

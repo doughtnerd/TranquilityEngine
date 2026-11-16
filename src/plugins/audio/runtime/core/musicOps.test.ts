@@ -1,7 +1,7 @@
 // ADR 0166 (Q2): the core backend's music seam and the hooks `coreBackend.ts` and `streams.ts` leave for P1, P9 and
 // P10: `music` is `musicOps` with every capability, `beginFrame` is idempotent per frame, `timeAt` is the clock map's
 // raw heard clock, `latency` adds the limiter, stream event 4 and music members' events route to musicOps,
-// `reopenStreams` hands groups to `reopenGroups`, and the DebugSource exposes `musicOps`. On a fake host (no wasm).
+// `reopenStreams` hands groups to `reopenGroups`, and `Audio.debug()` reads `musicOps`. On a fake host (no wasm).
 import { describe, expect, it, vi } from "vitest";
 import { Mixer } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings } from "../../../../engine/audio/settings";
@@ -10,14 +10,19 @@ import { CoreLink, type LinkPort } from "./context";
 import type { ClipInfo, ClipRegistry, ClipState } from "./clipRegistry";
 import { CoreBackend, type CoreBackendHost } from "./coreBackend";
 import { STREAM_EVENT_MUSIC_FULL } from "./streams";
-import type { DebugSource } from "./debug";
-import { StreamEvent, gateGroupId, gateGroupSize, PLAY_FLAGS_FADE_ZERO } from "../wire.generated";
-import { makeStatusBlock } from "./mirror";
-import { encodedBudgetBytes } from "./musicOps";
+import { Op, StreamEvent, STATUS_BUFFER_BYTES, gateGroupId, gateGroupSize, PLAY_FLAGS_FADE_ZERO, readPlay, readSetParams, writeStatus } from "../wire.generated";
+import { makeStatusBlock, StatusMirror } from "./mirror";
+import { CoreMusicOps, encodedBudgetBytes } from "./musicOps";
 import type { MusicGroupEvent, MusicGroupRequest } from "../backend";
 import type { PrimeGroupOptions } from "../decoder/decoderClient";
 import type { MusicReply } from "../decoder/protocol";
-import type { PlayArgs } from "./commandWriter";
+import { CommandWriter } from "./commandWriter";
+import { ClockMap } from "./clock";
+import { createWarnOnce } from "./codecs";
+import { batchRecords } from "./batchRecords";
+import { watchBatches } from "./batchWatch";
+import { VoiceState, VoiceTable } from "./voiceTable";
+import { fakeHostClock } from "../testing";
 import { fakeDecoder } from "./fakeDecoder";
 
 /** The prime-latency average's seed before any prime has been measured, ms. */
@@ -77,8 +82,8 @@ describe("the core's music seam (ADR 0166 §4.6, Q2)", () => {
     expect(backend.music.primeEmaMs).toBe(40);
     expect(backend.music.primedState(1)).toBeNull();
     expect(backend.music.admitGroup({ instance: 1, group: 1, members: [] }).ok).toBe(false);
-    const src: DebugSource = backend;
-    expect(src.musicOps?.debugView().groups).toEqual([]);
+    expect(backend.debug().musicTotals).toBeDefined();
+    expect(backend.musicOps.debugView().groups).toEqual([]);
     backend.dispose();
   });
 
@@ -155,8 +160,10 @@ describe("the core's music seam (ADR 0166 §4.6, Q2)", () => {
 
 /** A backend on a fake host with a music pool of `rings` and an in-process decoder that records `primeGroup`s. */
 function musicRig(rings = 8, clips: ClipRegistry = fakeClips()) {
-  const port: LinkPort = { onmessage: null, postMessage: () => {} };
-  const link = new CoreLink(port);
+  // The fake core hands each BATCH buffer straight back (`handleMessage` returns it to the pool), as the real one does.
+  let link: CoreLink | null = null;
+  const port: LinkPort = { onmessage: null, postMessage: (m: unknown) => void (m instanceof ArrayBuffer && link?.handleMessage(m)) };
+  link = new CoreLink(port);
   let raf = 1000;
   let ctx = 0;
   const clock = {
@@ -229,7 +236,15 @@ function musicRig(rings = 8, clips: ClipRegistry = fakeClips()) {
   const say = (r: MusicReply) => {
     for (const l of music) l(r);
   };
-  return { backend, link, ops: backend.musicOps, clock, primes, invalidated: fake.invalidated, cancels, closes, fetched, events, ringsOf, say };
+  /** One STATUS block through the link, as the host's `onmessage` delivers it (the mirror and the stream manager read it). */
+  const status = (fields: Parameters<typeof makeStatusBlock>[0]) => {
+    const buffer = new ArrayBuffer(STATUS_BUFFER_BYTES);
+    writeStatus(new DataView(buffer), 0, makeStatusBlock(fields), 1);
+    link!.handleMessage(buffer);
+  };
+  /** What the backend posts on the link from now on (decoded). */
+  const posted = watchBatches(link);
+  return { backend, link, ops: backend.musicOps, clock, primes, invalidated: fake.invalidated, cancels, closes, fetched, events, ringsOf, say, status, posted };
 }
 
 const flush = async () => {
@@ -426,7 +441,7 @@ describe("the core's group operations (ADR 0166 P1)", () => {
     await flush();
     expect(r.ops.primedState(2)).toEqual({ group: 2, primed: 1, of: 3, ready: false });
     const ids = r.primes[0]!.members.map((m) => m.streamId);
-    r.backend.mirror.apply(makeStatusBlock({ musicRings: [{ streamId: ids[0]!, epochFlags: (1 << 30) | 1 }, { streamId: ids[1]!, epochFlags: 1 }] }));
+    r.status({ musicRings: [{ streamId: ids[0]!, epochFlags: (1 << 30) | 1 }, { streamId: ids[1]!, epochFlags: 1 }] });
     r.ops.beginFrame();
     expect(r.ops.primedState(2)!.primed).toBe(2);
     // Re-target to a new start frame: new epochs, and a STATUS of the old epoch doesn't count.
@@ -437,10 +452,10 @@ describe("the core's group operations (ADR 0166 P1)", () => {
     const rt = r.primes[1]!;
     expect(rt.retarget).toBe(true);
     expect(rt.members.map((m) => [m.epoch, m.startFrame])).toEqual([[2, 9600], [2, 9600]]);
-    r.backend.mirror.apply(makeStatusBlock({ musicRings: [{ streamId: ids[0]!, epochFlags: (1 << 30) | 1 }, { streamId: ids[1]!, epochFlags: (1 << 30) | 1 }] }));
+    r.status({ musicRings: [{ streamId: ids[0]!, epochFlags: (1 << 30) | 1 }, { streamId: ids[1]!, epochFlags: (1 << 30) | 1 }] });
     r.ops.beginFrame();
     expect(r.ops.primedState(2)!.primed).toBe(1);
-    r.backend.mirror.apply(makeStatusBlock({ musicRings: r.ringsOf(2).slice(-2) }));
+    r.status({ musicRings: r.ringsOf(2).slice(-2) });
     r.ops.beginFrame();
     expect(r.ops.primedState(2)).toEqual({ group: 2, primed: 3, of: 3, ready: true });
     r.backend.dispose();
@@ -457,11 +472,11 @@ describe("the core's group operations (ADR 0166 P1)", () => {
       r.ops.primeGroup(req);
       await flush();
       // A STATUS with half primed: no sample yet.
-      r.backend.mirror.apply(makeStatusBlock({ musicRings: r.ringsOf(group).slice(0, 1) }));
+      r.status({ musicRings: r.ringsOf(group).slice(0, 1) });
       now += ms / 2;
       r.ops.beginFrame();
       now += ms / 2;
-      r.backend.mirror.apply(makeStatusBlock({ musicRings: r.ringsOf(group) }));
+      r.status({ musicRings: r.ringsOf(group) });
       r.ops.beginFrame();
       r.ops.beginFrame(); // a second call in the frame: no second sample
       r.ops.cancelGroup(group);
@@ -489,30 +504,39 @@ describe("the core's group operations (ADR 0166 P1)", () => {
     r.ops.admitGroup(req);
     r.ops.primeGroup(req);
     await flush();
-    const plays: PlayArgs[] = [];
-    const fades: number[] = [];
-    vi.spyOn(r.backend.writer, "play").mockImplementation((a) => void plays.push({ ...a }));
-    vi.spyOn(r.backend.writer, "fadeShaped").mockImplementation((id) => void fades.push(id));
+    r.backend.update(0.016);
+    r.posted.take();
     const voices = r.ops.stampGroup({ group: 7, at: 2, fades: [{ member: 2, fade: { to: 1, seconds: 0.5, law: "equalPowerIn" } }] });
     expect(voices).toHaveLength(3);
     expect(voices.every((v) => v !== null)).toBe(true);
-    expect(plays).toHaveLength(3);
+    // An ordinary PLAY afterwards is ungated.
+    const sfx = r.backend.play({ path: "sfx.wav", url: "sfx.wav", loop: false, stream: false, bus: "SFX" })!;
+    r.backend.update(0.016);
+    const batches = r.posted.take();
+    const recs = batches.flatMap((b) => b.records);
+    const playOf = (id: number) => {
+      const x = recs.find((y) => y.opcode === Op.PLAY && y.voiceId === id)!;
+      return readPlay(x.view, x.off);
+    };
+    const ids = voices.map((v) => (v as { id: number }).id);
+    expect(recs.filter((x) => x.opcode === Op.PLAY)).toHaveLength(4);
+    // The group's PLAYs go in one batch (a group is never split across two).
+    expect(batches.filter((b) => b.records.some((x) => x.opcode === Op.PLAY && ids.includes(x.voiceId)))).toHaveLength(1);
+    const plays = ids.map(playOf);
+    // Each member's PLAY is gated with the group's id and size.
     for (const a of plays) {
-      expect(gateGroupId(a.gate!)).toBe(7);
-      expect(gateGroupSize(a.gate!)).toBe(3);
+      expect(gateGroupId(a.gate)).toBe(7);
+      expect(gateGroupSize(a.gate)).toBe(3);
       expect(a.startOffsetFrames).toBe(4800);
     }
-    expect(plays.map((a) => a.fadeZero)).toEqual([false, false, true]);
     expect(PLAY_FLAGS_FADE_ZERO).toBe(0x100);
+    expect(plays.map((a) => (a.flags & PLAY_FLAGS_FADE_ZERO) !== 0)).toEqual([false, false, true]);
     // Streamed members play the streams musicOps primed.
     expect(plays.slice(0, 2).map((a) => a.clip)).toEqual(r.primes[0]!.members.map((m) => m.streamId));
-    expect(fades).toEqual([(voices[2] as { id: number }).id]);
-    for (const v of voices) expect(r.ops.ownsVoice((v as { id: number }).id)).toBe(true);
-    // An ordinary PLAY afterwards is ungated.
-    r.backend.play({ path: "sfx.wav", url: "sfx.wav", loop: false, stream: false, bus: "SFX" });
-    expect(plays[3]!.gate).toBe(0);
-    expect(plays[3]!.fadeZero).toBe(false);
-    vi.restoreAllMocks();
+    expect(recs.filter((x) => x.opcode === Op.FADE).map((x) => x.voiceId)).toEqual([ids[2]]);
+    for (const id of ids) expect(r.ops.ownsVoice(id)).toBe(true);
+    expect(playOf(sfx.id).gate).toBe(0);
+    expect(playOf(sfx.id).flags & PLAY_FLAGS_FADE_ZERO).toBe(0);
     r.backend.dispose();
   });
 
@@ -523,15 +547,16 @@ describe("the core's group operations (ADR 0166 P1)", () => {
     r.ops.primeGroup(req);
     await flush();
     const voices = r.ops.stampGroup({ group: 5, at: 1 });
-    r.backend.mirror.apply(makeStatusBlock({ groupStarts: [{ groupId: 5, flags: 1, slipFrames: 256, startFrameLo: 1000, startFrameHi: 0 }] }));
+    r.status({ groupStarts: [{ groupId: 5, flags: 1, slipFrames: 256, startFrameLo: 1000, startFrameHi: 0 }] });
     r.ops.beginFrame();
     expect(r.events).toEqual([{ kind: "start", group: 5, late: true, slipFrames: 256, startFrame: 1000 }]);
     expect(r.ops.debugView().groups).toEqual([{ id: 5, state: "playing", primed: 1, of: 2 }]);
     const stream = r.primes[0]!.members[0]!.streamId;
     r.backend.streams.streamEvent(stream, StreamEvent.Starved);
     (voices[0] as { stop(f?: number): void }).stop(0);
-    r.backend.table.markEnded((voices[0] as { id: number }).id);
-    r.backend.table.freeEnded();
+    // The core reports it ended; the frame frees it.
+    r.status({ ended: [(voices[0] as { id: number }).id] });
+    r.backend.update(0.016);
     expect(r.closes).toContain(stream);
     expect(r.ops.debugView().poolUsed).toBe(0);
     r.ops.beginFrame();
@@ -544,56 +569,87 @@ describe("the core's group operations (ADR 0166 P1)", () => {
     r.backend.dispose();
   });
 
-  it("fadeShaped logs the stamped ramp with the level it starts from (Z4: REPLAY restores it)", async () => {
-    const r = musicRig(8);
-    const req = request(6, 0, 1);
-    r.ops.admitGroup(req);
-    const [v] = r.ops.stampGroup({ group: 6, at: 0 });
-    const id = (v as { id: number }).id;
+});
+
+/** CoreMusicOps alone, through its own interface: over a voice table and a command writer on a recording link the test owns. */
+function opsRig() {
+  const table = new VoiceTable(16);
+  const posted: ArrayBuffer[] = [];
+  const link = { batchPool: { acquire: () => new ArrayBuffer(64 * 1024), release: () => true }, nextSeq: () => 1, post: (b: ArrayBuffer) => void posted.push(b.slice(0)) };
+  const writer = new CommandWriter(link as never, 48_000);
+  const clockMap = new ClockMap(fakeHostClock(), 48_000);
+  const ops = new CoreMusicOps({
+    table,
+    writer,
+    mirror: new StatusMirror(table, 48_000),
+    clockMap,
+    streams: {} as never,
+    worklet: {} as never,
+    decoder: () => ({}) as never,
+    fetchBytes: async () => new ArrayBuffer(0),
+    clips: fakeClips(),
+    play: () => null,
+    sending: () => true,
+    musicRings: () => 0,
+    sampleRate: () => 48_000,
+    warnOnce: createWarnOnce(() => {}),
+    // As the backend's (`CoreVoices.setStemLevel`): the level into the table.
+    setStemLevel: (i, level, at, now, ramp, shape) => table.setStemLevel(i, level, at, now, ramp, shape),
+  });
+  /** A live voice on the Music bus. */
+  const voice = () => table.allocate(1, 128, 1, VoiceState.PLAYING, 1);
+  /** The SET_PARAMS records the writer sent since the last call: gain and absolute frame (-1 asap). */
+  const params = () => {
+    writer.flush(clockMap.nextFirstFrame());
+    return posted.splice(0).flatMap((b) => batchRecords(b)?.records ?? []).filter((x) => x.opcode === Op.SET_PARAMS).map((x) => ({ gain: readSetParams(x.view, x.off).gain, at: x.frame }));
+  };
+  return { table, ops, clockMap, voice, params };
+}
+
+describe("a voice's stamped ramps and stem level, as musicOps keeps them (ADR 0166 Z4, F-9b)", () => {
+  it("fadeShaped logs the stamped ramp with the level it starts from (Z4: REPLAY restores it)", () => {
+    const r = opsRig();
+    const id = r.voice();
     const i = id & 0xffff;
-    const t = r.backend.table;
-    expect(t.fadeGain[i]).toBe(0); // fadeZero
+    const t = r.table;
+    t.fadeGain[i] = 0; // a fadeZero member
     r.ops.fadeShaped(id, { to: 1, seconds: 0.5, law: "equalPowerIn" });
     expect(t.stampedCount[i]).toBe(1);
     expect(t.stampedFrom[i * 4]).toBe(0);
     expect(t.stampedTo[i * 4]).toBe(1);
     // A second fade at the first one's end starts from 1.
     const end = t.stampedEnd[i * 4]!;
-    vi.spyOn(r.backend.clockMap, "stampFor").mockImplementation((f) => f);
-    vi.spyOn(r.backend.clockMap, "frameOfTime").mockImplementation(() => end + 10);
+    vi.spyOn(r.clockMap, "stampFor").mockImplementation((f) => f);
+    vi.spyOn(r.clockMap, "frameOfTime").mockImplementation(() => end + 10);
     r.ops.fadeShaped(id, { to: 0, seconds: 1, law: "equalPowerOut", at: 99, stopAtEnd: true });
     expect(t.stampedCount[i]).toBe(2);
     expect(t.stampedFrom[i * 4 + 1]).toBe(1);
     expect(t.stampedFlags[i * 4 + 1]).toBe(1);
     vi.restoreAllMocks();
-    r.backend.dispose();
   });
 
-  it("F-9b: paramsShaped keeps the stem's level in the table; its multiplier is over the dry gain without it", async () => {
-    const r = musicRig(8);
-    r.ops.admitGroup(request(7, 0, 1));
-    const [v] = r.ops.stampGroup({ group: 7, at: 0 });
-    const id = (v as { id: number }).id;
+  it("F-9b: paramsShaped keeps the stem's level in the table; its multiplier is over the dry gain without it", () => {
+    const r = opsRig();
+    const id = r.voice();
     const i = id & 0xffff;
-    const t = r.backend.table;
+    const t = r.table;
     t.gain[i] = 0.8;
-    const sent: { gain: number; at?: number }[] = [];
-    vi.spyOn(r.backend.writer, "setParams").mockImplementation((_id, _mask, gain, _p, _x, _y, _z, _lp, _ramp, _bus, _shape, at) => void sent.push({ gain, at }));
     // Asap: the level at once, for the dry gain and audibility.
     r.ops.paramsShaped(id, { gain: 0.5, seconds: 0 });
     expect(t.stemDry[i]).toBe(0.5);
     expect(t.stemGain[i]).toBe(0.5);
+    const sent = r.params();
     expect(sent[0]!.gain).toBeCloseTo(0.4, 6); // 0.5 x 0.8, not x 0.5 again
     // Stamped fall: pending until its frame (dry and audibility stay 0.5); the multiplier is still over 0.8 alone.
-    const now = r.backend.clockMap.framesNow();
-    vi.spyOn(r.backend.clockMap, "stampFor").mockImplementation((f) => f);
-    vi.spyOn(r.backend.clockMap, "frameOfTime").mockImplementation(() => now + 48_000);
+    const now = r.clockMap.framesNow();
+    vi.spyOn(r.clockMap, "stampFor").mockImplementation((f) => f);
+    vi.spyOn(r.clockMap, "frameOfTime").mockImplementation(() => now + 48_000);
     r.ops.paramsShaped(id, { gain: 0.25, seconds: 0.02, at: 1 });
-    expect(sent[1]).toEqual({ gain: expect.closeTo(0.2, 6), at: now + 48_000 });
+    expect(r.params()).toEqual([{ gain: expect.closeTo(0.2, 6), at: now + 48_000 }]);
     expect(t.stemDry[i]).toBe(0.5);
     expect(t.stemGain[i]).toBe(0.5);
     expect(t.stemCount[i]).toBe(1);
-    expect(t.stemRamp[i * 4]).toBe(Math.round(0.02 * r.backend.clockMap.sampleRate));
+    expect(t.stemRamp[i * 4]).toBe(Math.round(0.02 * r.clockMap.sampleRate));
     // The logged ramp starts from the stem's level (0.5 x 0.8).
     expect(t.stampedFrom[i * 4 + t.stampedCount[i]! - 1]).toBeCloseTo(0.4, 6);
     // A stamped rise counts for audibility at once.
@@ -603,7 +659,6 @@ describe("the core's group operations (ADR 0166 P1)", () => {
     t.resolveStems(now + 48_000);
     expect(t.stemDry[i]).toBe(2);
     vi.restoreAllMocks();
-    r.backend.dispose();
   });
 });
 
@@ -668,8 +723,6 @@ describe("a stamped group on the loopback host (ADR 0166 P1)", () => {
 // --- F-16: a streamed stem's voice row (the core backend's `debug().voices`) ----------------------------------------------
 
 describe("a streamed music stem's voice (F-16)", () => {
-  /** One STATUS through the link, as the host's `onmessage` delivers it (the mirror, then the stream manager). */
-  const status = (link: CoreLink, fields: Parameters<typeof makeStatusBlock>[0]) => (link as unknown as { receive(s: ReturnType<typeof makeStatusBlock>): void }).receive(makeStatusBlock(fields));
 
   it("reads playing, with its clip and playhead, once STATUS shows it moving; a starve reads waitingForData until it moves again", async () => {
     const r = musicRig(8);
@@ -683,17 +736,16 @@ describe("a streamed music stem's voice (F-16)", () => {
     // Before it sounds: waiting for its data (the core holds the gated member until the group starts).
     expect(row().state).toBe("waitingForData");
     // Held at its start frame (the gate not yet open): still waiting.
-    status(r.link, { currentFrame: 1024, playheads: [{ id, clipFrame: 4800 }] });
+    r.status({ currentFrame: 1024, playheads: [{ id, clipFrame: 4800 }] });
     expect(row().state).toBe("waitingForData");
-    status(r.link, { currentFrame: 2048, playheads: [{ id, clipFrame: 4800 + 1024 }] });
+    r.status({ currentFrame: 2048, playheads: [{ id, clipFrame: 4800 + 1024 }] });
     expect(row().state).toBe("playing");
     expect(row().clip).toBe("music/s0.ogg");
     expect(row().playheadSeconds).toBeCloseTo((4800 + 1024) / 48_000, 9);
-    expect(r.backend.table.reason[id & 0xffff]).toBe(0);
     // A starve: waiting again (the mirror), and playing once the playhead moves on.
-    status(r.link, { currentFrame: 3072, starved: [id], playheads: [{ id, clipFrame: 4800 + 1024 }] });
+    r.status({ currentFrame: 3072, starved: [id], playheads: [{ id, clipFrame: 4800 + 1024 }] });
     expect(row().state).toBe("waitingForData");
-    status(r.link, { currentFrame: 4096, playheads: [{ id, clipFrame: 4800 + 2048 }] });
+    r.status({ currentFrame: 4096, playheads: [{ id, clipFrame: 4800 + 2048 }] });
     expect(row().state).toBe("playing");
     r.backend.dispose();
   });

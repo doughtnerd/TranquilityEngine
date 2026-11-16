@@ -138,16 +138,11 @@ const maxError = (out: readonly number[], from: number, to: number, level: numbe
   return m;
 };
 
-/** The live music member playing `clip`: its id and slot. */
-function stem(backend: CoreBackend, clip: "pulse" | "lead" | "pad"): { id: number; i: number } {
-  const t = backend.table;
-  for (let i = 0; i < t.capacity; i++) {
-    if (t.state[i] === 0 || t.musicGroup[i] === 0) continue;
-    const id = ((t.gen[i]! << 16) | i) >>> 0;
-    const r = Audio.debug().voices.find((v) => v.id === id);
-    if (r && r.clip.includes(clip)) return { id, i };
-  }
-  throw new Error(`no ${clip} stem`);
+/** The live music member playing `clip`. */
+function stem(backend: CoreBackend, clip: "pulse" | "lead" | "pad"): { id: number } {
+  const r = backend.debug().voices.find((v) => backend.musicOps.ownsVoice(v.id) && v.clip.includes(clip));
+  if (!r) throw new Error(`no ${clip} stem`);
+  return { id: r.id };
 }
 const row = (id: number) => Audio.debug().voices.find((v) => v.id === id)!;
 /** The mean of the last 2,000 samples (the stems are DC, so a settled mix is flat). */
@@ -192,9 +187,7 @@ describe("a quantised stem's level on main (F-9b, loopback host)", () => {
     await awayFromBeat();
     Audio.setParameter("Intensity", 1);
     await step(2);
-    expect(backend.table.stemCount[pulse.i]).toBe(1); // the beat hasn't come
-    // (The table's audibility: `Audio.debug()` clamps it to 1.)
-    const full = backend.table.audibility[pulse.i]!;
+    const full = row(pulse.id).audibility;
     expect(full).toBeGreaterThan(0);
     expect(row(lead.id).audibility).toBeGreaterThan(0);
     expect(maxError(out, out.length - 2000, out.length, LEVEL.pad)).toBeLessThan(1e-6);
@@ -207,11 +200,11 @@ describe("a quantised stem's level on main (F-9b, loopback host)", () => {
     await awayFromBeat();
     Audio.setParameter("Intensity", 0.4);
     await step(2);
-    expect(backend.table.stemCount[pulse.i]).toBe(1);
-    expect(backend.table.audibility[pulse.i]).toBeCloseTo(full, 5);
+    expect(row(pulse.id).audibility).toBeCloseTo(full, 5);
     expect(row(lead.id).audibility).toBeGreaterThan(0);
     await step(Math.ceil((2 * BEAT) / FRAME_FRAMES));
-    expect(backend.table.audibility[pulse.i]).toBeCloseTo(full * 0.5, 5);
+    // Its audibility falls with the level (`Audio.debug()` clamps audibility to 1, so the drop is checked, not its size).
+    expect(row(pulse.id).audibility).toBeLessThan(full);
     expect(row(pulse.id).gain).toBeCloseTo(0.5, 5);
     expect(row(lead.id).audibility).toBe(0);
     await step(4);
@@ -230,7 +223,6 @@ describe("a quantised stem's level on main (F-9b, loopback host)", () => {
     const pulse = stem(backend, "pulse");
     const pulseVoice = voiceOf(pulse.id);
     const half = LEVEL.pad + LEVEL.pulse * 0.5;
-    expect(backend.table.stemDry[pulse.i]).toBeCloseTo(0.5, 6);
     expect(settled(out)).toBeCloseTo(half, 5);
 
     // A promote: the Music bus at 0 makes every stem virtual; back at 1, the pulse's SET_MIXED carries its level.
@@ -281,14 +273,10 @@ describe("a quantised stem's level on main (F-9b, loopback host)", () => {
     }
     Audio.setParameter("Intensity", 0.6);
     await step(1);
-    expect(backend.table.stemCount[pulse.i]).toBe(1); // sent, stamped at the beat, not landed
     voiceOf(pulse.id).setVolume(0.4);
     await step(1);
-    expect(backend.table.stemCount[pulse.i]).toBe(1);
-    expect(settled(out)).toBeCloseTo(LEVEL.pad + LEVEL.pulse * 0.5 * 0.4, 5); // the old level at the new volume
+    expect(settled(out)).toBeCloseTo(LEVEL.pad + LEVEL.pulse * 0.5 * 0.4, 5); // the old level at the new volume: not landed yet
     await step(Math.ceil((2 * BEAT) / FRAME_FRAMES));
-    expect(backend.table.stemCount[pulse.i]).toBe(0);
-    expect(backend.table.stemDry[pulse.i]).toBeCloseTo(1, 6);
     // The pulse at level 1 times volume 0.4 (before F-12, the stamp put it back at volume 1).
     expect(settled(out)).toBeCloseTo(LEVEL.pad + LEVEL.pulse * 0.4, 5);
     backend.dispose();

@@ -13,10 +13,11 @@ import { CoreLink, type AudioHost, type HostLifecycleListener, type LinkPort } f
 import { CoreBackend, type CoreBackendHost } from "./core/coreBackend";
 import type { ClipInfo, ClipRegistry, ClipResidentListener, ClipState } from "./core/clipRegistry";
 import { voiceIndex } from "./core/ids";
-import { VoiceFlag, VoiceFlag2 } from "./core/voiceTable";
+import { SpatialViewFlag } from "./core/spatial";
+import { watchBatches } from "./core/batchWatch";
 import { mixer } from "../../../engine/audio/mixer";
 import { makeFakeBackend } from "./testing";
-import { PLAY_FLAGS_SPATIAL } from "./wire.generated";
+import { Op, PLAY_FLAGS_SPATIAL, readPlay } from "./wire.generated";
 
 let world: World;
 const system = AUDIO_SYSTEMS[0]!;
@@ -158,7 +159,7 @@ describe("AudioSource M3 fields reach a backend voice on the next frame (fake ba
   });
 });
 
-// --- The core backend: the edit lands in the voice table the passes read -----------------------------------------------
+// --- The core backend: the edit reaches what the passes read and what the core is sent -----------------------------------------------
 
 class Registry implements ClipRegistry {
   private ids = new Map<string, number>();
@@ -172,7 +173,9 @@ class Registry implements ClipRegistry {
     return "ready";
   }
   info(id: number): ClipInfo | null {
-    return { id, path: "", state: "ready", refs: 1, frames: 0, channels: 1, sampleRate: 48_000, format: 1, bytes: 0, failure: null };
+    // An ambisonic clip (first order, four channels) by its name; the rest mono.
+    const path = [...this.ids].find(([, v]) => v === id)?.[0] ?? "";
+    return { id, path: "", state: "ready", refs: 1, frames: 0, channels: path.includes("amb") ? 4 : 1, sampleRate: 48_000, format: 1, bytes: 0, failure: null };
   }
   onResident(_id: number, _l: ClipResidentListener): () => void {
     return () => {};
@@ -186,8 +189,10 @@ class Registry implements ClipRegistry {
 }
 
 function useCore() {
-  const port: LinkPort = { onmessage: null, postMessage: () => {} };
-  const link = new CoreLink(port);
+  // The fake core hands each BATCH buffer straight back (`handleMessage` returns it to the pool), as the real one does.
+  let link: CoreLink | null = null;
+  const port: LinkPort = { onmessage: null, postMessage: (m: unknown) => void (m instanceof ArrayBuffer && link?.handleMessage(m)) };
+  link = new CoreLink(port);
   const host: CoreBackendHost = {
     link,
     status: "running",
@@ -206,25 +211,33 @@ function useCore() {
   };
   const backend = new CoreBackend(host, { clips: new Registry(), clock, mixer });
   setAudioBackend(backend);
-  return backend;
+  return { core: backend, link };
+}
+
+/** The PLAY records the backend posts on `link` from now on (decoded off the link: what the core receives). */
+function watchPlays(link: CoreLink) {
+  const watch = watchBatches(link);
+  return () => watch.pending.flatMap((b) => b.records.filter((r) => r.opcode === Op.PLAY).map((r) => readPlay(r.view, r.off)));
 }
 
 describe("AudioSource M3 fields reach the core's voice table on the next frame", () => {
   it("occlusion, dopplerLevel, reverbSend, reverbSendCurve", () => {
-    const core = useCore();
+    const { core } = useCore();
     const src = spatialSource();
     src.play();
     frame();
     const i = voiceIndex(src._voiceId);
-    const t = core.table;
-    expect([!!(t.flags2[i]! & VoiceFlag2.OCCLUSION), t.dopplerLevel[i], t.reverbSend[i], t.sendCurve[i]]).toEqual([true, 1, 1, 0]);
+    // What the frame's passes read of the voice (`spatialVoices`, over the voice table).
+    const t = core.spatialVoices;
+    expect([!!(t.viewFlags[i]! & SpatialViewFlag.OCCLUSION), t.dopplerLevel[i], t.reverbSend[i], t.sendCurve[i]]).toEqual([true, 1, 1, 0]);
 
     src.occlusion = false;
     src.dopplerLevel = 3;
     src.reverbSend = 0.5;
     src.reverbSendCurve = [[0, 1], [1, 0]];
     frame();
-    expect(!!(t.flags2[i]! & VoiceFlag2.OCCLUSION)).toBe(false);
+    frame(); // the passes' list is collected before a frame's edits: it shows them on the next frame
+    expect(!!(t.viewFlags[i]! & SpatialViewFlag.OCCLUSION)).toBe(false);
     expect(t.dopplerLevel[i]).toBe(3);
     expect(t.reverbSend[i]).toBe(0.5);
     expect(core.spatialVoices.curves.get(t.sendCurve[i]!)).toEqual([[0, 1], [1, 0]]);
@@ -236,27 +249,29 @@ describe("AudioSource M3 fields reach the core's voice table on the next frame",
     src.occlusion = true;
     src.reverbSend = 0;
     frame();
-    expect(!!(t.flags2[i]! & VoiceFlag2.OCCLUSION)).toBe(true);
-    expect(!!(t.flags2[i]! & VoiceFlag2.SENDS)).toBe(false);
+    frame();
+    expect(!!(t.viewFlags[i]! & SpatialViewFlag.OCCLUSION)).toBe(true);
+    expect(!!(t.viewFlags[i]! & SpatialViewFlag.SENDS)).toBe(false);
     src.reverbSend = 1.5;
     frame();
-    expect(!!(t.flags2[i]! & VoiceFlag2.SENDS)).toBe(true);
+    frame();
+    expect(!!(t.viewFlags[i]! & SpatialViewFlag.SENDS)).toBe(true);
   });
 
   it("ambisonicYaw turns an ambisonic clip's voice", () => {
-    const core = useCore();
+    const { core } = useCore();
     const src = spatialSource({ clip: "asset:amb.wav", ambisonicYaw: 0 });
     src.play();
     frame();
     const i = voiceIndex(src._voiceId);
-    expect(core.table.yaw[i]).toBe(0);
-    // The table holds the native (right-handed) yaw: the engine's +90 (right, ADR 0164) is the core's -π/2.
+    expect(core.voiceFx.yaw(i)).toBe(0);
+    // The core gets the native (right-handed) yaw: the engine's +90 (right, ADR 0164) is the core's -π/2.
     src.ambisonicYaw = 90;
     frame();
-    expect(core.table.yaw[i]).toBeCloseTo(-Math.PI / 2, 5);
+    expect(core.voiceFx.yaw(i)).toBeCloseTo(-Math.PI / 2, 5);
     src.ambisonicYaw = -180;
     frame();
-    expect(core.table.yaw[i]).toBeCloseTo(Math.PI, 5);
+    expect(core.voiceFx.yaw(i)).toBeCloseTo(Math.PI, 5);
   });
 });
 
@@ -265,13 +280,8 @@ describe("AudioSource M3 fields reach the core's voice table on the next frame",
 // the request, or its replays play flat while main reports them as panned (HRTF).
 describe("a spatial AudioSource starts spatial on the core when its clip is resident (F-22)", () => {
   it("every PLAY carries the spatial flag, the distance gain and the direction, the replays too", () => {
-    const core = useCore();
-    const plays: { flags: number; gain: number; dir: number[] }[] = [];
-    const write = core.writer.play.bind(core.writer);
-    core.writer.play = (a, at) => {
-      plays.push({ flags: a.flags, gain: a.gain, dir: [a.dirX, a.dirY, a.dirZ] });
-      write(a, at);
-    };
+    const { link } = useCore();
+    const posted = watchPlays(link);
     const src = spatialSource({ minDistance: 1, maxDistance: 30 }); // 3 m to the right of the listener
     frame();
     for (let k = 0; k < 3; k++) {
@@ -280,6 +290,7 @@ describe("a spatial AudioSource starts spatial on the core when its clip is resi
       src.stop();
       frame();
     }
+    const plays = posted().map((a) => ({ flags: a.flags, gain: a.gain, dir: [a.dirX, a.dirY, a.dirZ] }));
     expect(plays).toHaveLength(3);
     for (const p of plays) {
       expect(p.flags & PLAY_FLAGS_SPATIAL).toBe(PLAY_FLAGS_SPATIAL);
@@ -289,16 +300,12 @@ describe("a spatial AudioSource starts spatial on the core when its clip is resi
   });
 
   it("a flat source's PLAY stays flat", () => {
-    const core = useCore();
-    const flags: number[] = [];
-    const write = core.writer.play.bind(core.writer);
-    core.writer.play = (a, at) => {
-      flags.push(a.flags);
-      write(a, at);
-    };
+    const { link } = useCore();
+    const posted = watchPlays(link);
     const src = spatialSource({ spatial: false });
     src.play();
     frame();
+    const flags = posted().map((a) => a.flags);
     expect(flags).toHaveLength(1);
     expect(flags[0]! & PLAY_FLAGS_SPATIAL).toBe(0);
   });
@@ -306,13 +313,8 @@ describe("a spatial AudioSource starts spatial on the core when its clip is resi
   // F-24: the core reads `spatial` from PLAY only, so a source that turns `spatial` on while playing flat stays flat on
   // the core. Main mustn't mark it spatial (pan, attenuate and report it), and says why once.
   it("turning spatial on while playing flat leaves the voice flat on main, with one warning; the next play is spatial", () => {
-    const core = useCore();
-    const flags: number[] = [];
-    const write = core.writer.play.bind(core.writer);
-    core.writer.play = (a, at) => {
-      flags.push(a.flags);
-      write(a, at);
-    };
+    const { core, link } = useCore();
+    const posted = watchPlays(link);
     const warn = vi.mocked(console.warn);
     const src = spatialSource({ spatial: false });
     src.play();
@@ -321,8 +323,8 @@ describe("a spatial AudioSource starts spatial on the core when its clip is resi
     src.spatial = true;
     frame();
     frame();
-    expect(core.table.flags[i]! & VoiceFlag.SPATIAL).toBe(0);
-    expect(core.table.gain[i]).toBeCloseTo(1, 6); // no distance gain on main for a voice the core plays flat
+    expect(core.spatialVoices.viewFlags[i]! & SpatialViewFlag.SPATIAL).toBe(0);
+    expect(core.debug().voices.find((v) => v.id === src._voiceId)!.gain).toBeCloseTo(1, 6); // no distance gain on main for a voice the core plays flat
     expect(src.panner).toBe("flat");
     const warned = warn.mock.calls.filter((c) => String(c[0]).includes("started flat"));
     expect(warned).toHaveLength(1);
@@ -331,6 +333,7 @@ describe("a spatial AudioSource starts spatial on the core when its clip is resi
     frame();
     src.play();
     frame();
+    const flags = posted().map((a) => a.flags);
     expect(flags).toHaveLength(2);
     expect(flags[1]! & PLAY_FLAGS_SPATIAL).toBe(PLAY_FLAGS_SPATIAL);
   });

@@ -9,7 +9,8 @@ import { fakeDecoder } from "./fakeDecoder";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Mixer } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings, type AudioSettings, type DuckingRule } from "../../../../engine/audio/settings";
-import { DUCK_FLAG_LEVEL, DUCK_FLAG_RMS } from "../wire.generated";
+import { DUCK_FLAG_LEVEL, DUCK_FLAG_RMS, Op, readBusDuck } from "../wire.generated";
+import { watchBatches } from "./batchWatch";
 import { createClipRegistry } from "./clipRegistry";
 import { AudioHost, presetFromSettings } from "./context";
 import { createCoreBackend, type CoreBackend } from "./coreBackend";
@@ -71,6 +72,7 @@ async function rig(ducking: DuckingRule[] = []) {
     nextQuantum: (cb) => cb(),
   });
   const mixer = new Mixer(settings);
+  const posted = watchBatches(link);
   const backend: CoreBackend = createCoreBackend(host, { clips, clock: loop.clock, mixer });
   watchForTraps(host, { now: () => 0, warn: () => {} });
   const settle = async () => {
@@ -90,7 +92,7 @@ async function rig(ducking: DuckingRule[] = []) {
     return { out, last: out[out.length - 1]! };
   };
   const sfxOn = (on: boolean) => void (sfxShare = on ? SFX_VOL : 0);
-  return { loop, backend, mixer, step, sfxOn };
+  return { loop, backend, mixer, step, sfxOn, posted };
 }
 
 const level = (amount: number, extra: Partial<DuckingRule> = {}): DuckingRule => ({ target: "Music", trigger: "SFX", mode: "level", amount, attack: 0.005, release: 0.05, ...extra });
@@ -119,11 +121,13 @@ describe("level ducking reaches the core from the project (G7a)", () => {
       const amount = 0.25;
       const r = await rig([level(amount, { detector, threshold: -30 })]);
       if (!r) return ctx.skip();
-      const ducks = vi.spyOn(r.backend.writer, "busDuck");
-      r.backend.presence.settingsChanged(r.mixer); // same list: nothing new goes
-      expect(ducks).not.toHaveBeenCalled();
-      const sent = r.backend.presence["rules"];
+      await r.step(1);
+      // The configure sent the rules (BUS_DUCK, the whole list).
+      const sent = r.posted.takeOps(Op.BUS_DUCK).map((x) => readBusDuck(x.view, x.off).rules).at(-1);
       expect(sent).toEqual([expect.objectContaining({ flags: DUCK_FLAG_LEVEL | (detector === "rms" ? DUCK_FLAG_RMS : 0), thresholdDb: -30, amount })]);
+      r.backend.presence.settingsChanged(r.mixer); // same list: nothing new goes
+      await r.step(1);
+      expect(r.posted.takeOps(Op.BUS_DUCK)).toEqual([]);
       const m = await duckRun(r);
       console.info(`[G7a] level ${detector}: Music before ${m.before}, during ${m.during.toFixed(5)} (duckGain ${m.duckGain.toFixed(5)}), after ${m.after.toFixed(5)}`);
       expect(m.before).toBe(1);
