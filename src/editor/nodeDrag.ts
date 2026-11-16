@@ -40,8 +40,8 @@ function wouldMove(doc: SceneDocument, id: string, t: HierarchyTarget): boolean 
   return at !== current;
 }
 
-/** Why dropping `key` (or all of `keys`) at `t` isn't allowed, or null if it is. Exported for tests. */
-export function nodeDropProblem(doc: SceneDocument, key: string, t: HierarchyTarget | null, keys: readonly string[] = [key]): string | null {
+/** Why dropping `key` (or all of `keys`) at `t` isn't allowed, or null if it is. */
+function nodeDropProblem(doc: SceneDocument, key: string, t: HierarchyTarget | null, keys: readonly string[] = [key]): string | null {
   if (keys.some(isInsidePrefab)) return "nodes inside a prefab are moved in the prefab";
   if (!t) return "drop it in the hierarchy";
   for (const k of keys) {
@@ -53,7 +53,7 @@ export function nodeDropProblem(doc: SceneDocument, key: string, t: HierarchyTar
 }
 
 /** What dragging the row `key` drags: the selection's topmost nodes when `key` is selected among others, else just it. */
-export function draggedKeys(doc: SceneDocument, key: string, selected: readonly string[]): string[] {
+function draggedKeys(doc: SceneDocument, key: string, selected: readonly string[]): string[] {
   if (selected.length < 2 || !selected.includes(key)) return [key];
   return subtreeRoots(doc, selected);
 }

@@ -5,11 +5,11 @@ import { filterHierarchy, parseHierarchyQuery } from "./hierarchyFilter";
 import { moveNodes } from "./hierarchyEdit";
 import { createNode, newNodeEntry, uniqueName } from "./nodeCreate";
 import { copyNodes, cutNodes, duplicateNodes, entriesForPaste, parseClipboardText, clipboardText, pasteNodes, pasteTarget, subtreeRoots, whyNotCopyable, whyNotPastable } from "./nodeClipboard";
-import { draggedKeys, nodeDropProblem } from "./nodeDrag";
+import { nodeDrag, startNodeDrag } from "./nodeDrag";
 import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile } from "./project";
 import { editorSettings, useProjectAssets } from "./projects";
-import { openScene, sceneCamera, type OpenScene } from "./state";
+import { openScene, sceneCamera, select, selectedKeys, type OpenScene } from "./state";
 import { sampleProject } from "./testing";
 
 let scene: OpenScene;
@@ -180,11 +180,38 @@ describe("moving several nodes", () => {
 
   it("drags the selection's topmost nodes when the row is selected", () => {
     const { doc } = scene;
-    expect(draggedKeys(doc, "bird", ["bird-sprite", "ceiling", "bird"])).toEqual(["ceiling", "bird"]);
-    expect(draggedKeys(doc, "camera", ["ceiling", "bird"])).toEqual(["camera"]);
-    const t = { kind: "hierarchy" as const, parent: "bird", row: "bird", mode: "into" as const, index: undefined };
-    expect(nodeDropProblem(doc, "ceiling", t, ["ceiling", "bird"])).toMatch(/inside itself/);
-    expect(nodeDropProblem(doc, "ceiling", { ...t, parent: "camera", row: "camera" }, ["ceiling", "bird"])).toBeNull();
+    // A hierarchy panel in a window of its own: rows 20px tall, one per key, the pointer at y = 20 * row + 10 (the middle).
+    const rows = ["bird", "camera", "ceiling"];
+    const rowAt = (y: number) => {
+      const key = rows[Math.floor(y / 20)];
+      const row = { dataset: { key }, getBoundingClientRect: () => ({ top: Math.floor(y / 20) * 20, height: 20 }) };
+      return { closest: (sel: string) => (sel === ".panel.hierarchy" ? {} : sel === ".tree .row" ? row : null) };
+    };
+    const win = Object.assign(new EventTarget(), { document: { elementFromPoint: (_x: number, y: number) => rowAt(y) } });
+    const pointer = (type: string, y: number) => Object.assign(new Event(type), { clientX: 0, clientY: y, button: 0, view: win });
+    const middleOf = (key: string) => rows.indexOf(key) * 20 + 10;
+
+    select(["bird-sprite", "ceiling", "bird"]);
+    startNodeDrag(pointer("pointerdown", middleOf("bird")) as unknown as PointerEvent, "bird");
+    win.dispatchEvent(pointer("pointermove", middleOf("bird") + 1)); // under the threshold: still a click
+    expect(nodeDrag.value).toBeNull();
+    win.dispatchEvent(pointer("pointermove", middleOf("bird") + 8)); // below Bird
+    expect(nodeDrag.value?.keys).toEqual(["ceiling", "bird"]);
+    win.dispatchEvent(pointer("pointermove", middleOf("bird"))); // into Bird
+    expect(nodeDrag.value?.problem).toMatch(/inside itself/);
+    win.dispatchEvent(pointer("pointermove", middleOf("camera")));
+    expect(nodeDrag.value).toMatchObject({ problem: null, target: { parent: "camera", mode: "into" } });
+    win.dispatchEvent(pointer("pointerup", middleOf("camera")));
+    expect(nodeDrag.value).toBeNull();
+    expect(doc.children("camera").slice(-2)).toEqual(["ceiling", "bird"]);
+    expect(selectedKeys.value).toEqual(["ceiling", "bird"]);
+
+    // A row outside the selection drags just itself.
+    startNodeDrag(pointer("pointerdown", middleOf("camera")) as unknown as PointerEvent, "camera");
+    win.dispatchEvent(pointer("pointermove", middleOf("camera") + 30));
+    expect(nodeDrag.value?.keys).toEqual(["camera"]);
+    win.dispatchEvent(pointer("pointercancel", 0));
+    expect(nodeDrag.value).toBeNull();
     expect(subtreeRoots(doc, ["bird-sprite", "bird"])).toEqual(["bird"]);
   });
 });
