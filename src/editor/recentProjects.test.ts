@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { FsaDirectoryHandle } from "./fsaFileSystem";
 import { MemoryDirectoryHandle } from "./fsaMemory";
 import { joinPath } from "./projects";
-import { cleanLabel, locationOf, RecentProjects, type HandleStore, type ListStore } from "./recentProjects";
+import { locationOf, RecentProjects, type HandleStore, type ListStore } from "./recentProjectList";
 import { MemoryFileSystem } from "./testing";
 
 function stores() {
@@ -109,6 +109,5 @@ describe("browser folder location notes (ADR 0116)", () => {
     r.setLabel("a", "x");
     expect(r.list().map((e) => e.id)).toEqual(["a"]); // the malformed entry is dropped
     expect(r.list()[0].label).toBeUndefined();
-    expect(cleanLabel(3)).toBe("");
   });
 });

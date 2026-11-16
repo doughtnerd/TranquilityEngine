@@ -339,7 +339,7 @@ export function readOnlyProject(
 }
 
 /** Every asset file under `root` (or the files `accept` takes), as project-relative paths. Skips hidden and build folders. */
-export async function listAssetFiles(
+async function listAssetFiles(
   fs: FileSystem,
   root: string,
   dir = "",
