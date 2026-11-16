@@ -8,9 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Assets } from "../index";
 import { MeshRenderer } from "../render/components";
 import { decodeBakedModel, encodeBakedModel } from "../scene/bakedModel";
-import { engineCamera, engineLight } from "../scene/gltf";
 import { parseImportSettings } from "../scene/importSettings";
-import { pinPartToModelSpace } from "../scene/pivotMigration";
 import { migrateSceneFile } from "../scene/SceneLoader";
 import { clearModelCache, drawnVariant, loadMeshes, loadModel, materialSlots } from "../scene/models";
 import { modelBaseMaterial, surfaceMaterial } from "../render/babylon/materials";
@@ -88,7 +86,8 @@ describe("scene format 1 → 2: part references keep model space (ADR 0118)", ()
 
   it("leaves models that opted into node pivots under version 1", () => {
     useCar({ pivots: "node" });
-    expect(pinPartToModelSpace("asset:models/car.gltf#Wheel")).toBe("asset:models/car.gltf#Wheel");
+    const file = migrateSceneFile({ format: "myco.scene@1", nodes: [{ id: "a", components: [{ type: "engine.MeshRenderer", data: { mesh: "asset:models/car.gltf#Wheel" } }] }] });
+    expect(file.nodes[0].components![0].data!.mesh).toBe("asset:models/car.gltf#Wheel");
   });
 });
 
@@ -122,10 +121,21 @@ describe("glTF lights and cameras (ADR 0118)", () => {
     expect(round(data.nodes!.find((n) => n.name === "Cam")!.pose.position)).toEqual([0, 4, 20]);
   });
 
-  it("converts light and camera definitions", () => {
-    expect(engineLight({ type: "directional" })).toEqual({ type: "directional", color: [1, 1, 1], intensity: 1, range: 0, spotAngle: 90, spotSoftness: 1 });
-    expect(engineCamera({ type: "orthographic", orthographic: { xmag: 4, ymag: 3, znear: 0.1, zfar: 50 } })).toEqual({ projection: "orthographic", fieldOfView: 60, orthographicSize: 3, near: 0.1, far: 50 });
-    expect(engineCamera({ type: "perspective" })).toBeNull();
+  it("converts light and camera definitions with their defaults", async () => {
+    // The car, plus a directional light with no values, and an orthographic camera.
+    const car = carGltf() as { extensions: { KHR_lights_punctual: { lights: object[] } }; nodes: { name: string; children?: number[] }[]; cameras: object[] };
+    car.extensions.KHR_lights_punctual.lights.push({ type: "directional" });
+    car.cameras.push({ type: "orthographic", orthographic: { xmag: 4, ymag: 3, znear: 0.1, zfar: 50 } });
+    const first = car.nodes.length;
+    car.nodes.push({ name: "Sun", extensions: { KHR_lights_punctual: { light: 2 } } } as never, { name: "Ortho", camera: 1 } as never);
+    car.nodes[0].children!.push(first, first + 1);
+    clearModelCache();
+    Assets.clearSources();
+    Assets.addSource(Assets.fromObject({ "models/more.gltf": dataUrl(new TextEncoder().encode(JSON.stringify(car))) }));
+    const data = await loadModel("models/more.gltf");
+    const node = (name: string) => data.nodes!.find((n) => n.name === name);
+    expect(node("Sun")!.light).toEqual({ type: "directional", color: [1, 1, 1], intensity: 1, range: 0, spotAngle: 90, spotSoftness: 1 });
+    expect(node("Ortho")!.camera).toEqual({ projection: "orthographic", fieldOfView: 60, orthographicSize: 3, near: 0.1, far: 50 });
   });
 });
 

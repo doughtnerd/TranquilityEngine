@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Assets } from "../index";
-import { BAKED_SUFFIX, decodeBakedModel, isBakedModel } from "../scene/bakedModel";
+import { BAKED_SUFFIX, decodeBakedModel } from "../scene/bakedModel";
 import { defaultImportSettings } from "../scene/importSettings";
 import { bakeModelFile, clearModelCache, loadMeshes } from "../scene/models";
 
@@ -30,7 +30,7 @@ describe("baked models (ADR 0090)", () => {
     use({ "models/lamp.glb": dataUrl(sample("models/lamp.glb")) });
     const { bytes, dropped } = await bakeModelFile("models/lamp.glb");
     expect(dropped).toEqual([]);
-    expect(isBakedModel(bytes.buffer as ArrayBuffer)).toBe(true);
+    expect(() => decodeBakedModel(new ArrayBuffer(32), defaultImportSettings(), (p) => p)).toThrow(/not a baked model/);
     const original = await loadMeshes("asset:models/lamp.glb");
     const baked = decodeBakedModel(bytes.buffer as ArrayBuffer, defaultImportSettings(), (p) => p)!;
     expect(baked.meshes.map((m) => m.name)).toEqual(original.map((m) => m.name));

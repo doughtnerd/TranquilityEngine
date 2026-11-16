@@ -59,7 +59,7 @@ export const numberKind = (v: ParticleNumber): ParticleNumberKind => (typeof v =
 export const colorKind = (v: ParticleColor): ParticleColorKind => (typeof v === "string" ? "constant" : "random" in v ? "random" : "gradient" in v ? "gradient" : "randomGradients");
 
 export type ShapeType = "point" | "sphere" | "hemisphere" | "cone" | "circle" | "donut" | "rectangle" | "grid";
-export const SHAPE_TYPES: readonly ShapeType[] = ["point", "sphere", "hemisphere", "cone", "circle", "donut", "rectangle", "grid"];
+const SHAPE_TYPES: readonly ShapeType[] = ["point", "sphere", "hemisphere", "cone", "circle", "donut", "rectangle", "grid"];
 export type ShapeMode = "random" | "loop" | "pingpong" | "burst";
 
 /** Where particles start, and which way they go. Emits along the shape's +Y axis (a cone opens up +Y). */
@@ -266,8 +266,6 @@ export const defaultEmitter = (name = "Emitter"): ParticleEmitterSettings => ({
   renderer: defaultRenderer(),
 });
 
-export const defaultParticleEffect = (): ParticleEffect => ({ emitters: [defaultEmitter()] });
-
 /** A behaviour of `type` with sensible starting values. */
 export function defaultBehavior(type: ParticleBehaviorType): ParticleBehavior {
   switch (type) {
@@ -306,7 +304,7 @@ export function defaultBehavior(type: ParticleBehaviorType): ParticleBehavior {
   }
 }
 
-export const BEHAVIOR_TYPES: readonly ParticleBehaviorType[] = [
+const BEHAVIOR_TYPES: readonly ParticleBehaviorType[] = [
   "colorOverLife",
   "sizeOverLife",
   "rotationOverLife",
@@ -667,18 +665,6 @@ export function parseParticleEffect(raw: unknown, where = "particle effect"): { 
   const effect: ParticleEffect = { emitters };
   if (isObj(raw.editor)) effect.editor = raw.editor;
   return { effect, problems };
-}
-
-/** The effect as JSON (the file's object, with the format tag). */
-export function particleEffectJSON(effect: ParticleEffect): Record<string, unknown> {
-  const out: Record<string, unknown> = { format: PARTICLES_FORMAT, emitters: effect.emitters };
-  if (effect.editor) out.editor = effect.editor;
-  return out;
-}
-
-/** The effect as file text. */
-export function formatParticleEffect(effect: ParticleEffect): string {
-  return `${JSON.stringify(particleEffectJSON(effect), null, 2)}\n`;
 }
 
 /** The emitters that only emit when another triggers them (named as some emitter's sub-emitter). */

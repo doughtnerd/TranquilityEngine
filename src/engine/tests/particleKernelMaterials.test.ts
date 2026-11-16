@@ -19,8 +19,11 @@ import type { ParticleCommand, ParticleSystem } from "../render/components";
 import { compileParticleGraph } from "../scene/particleCompile";
 import { defaultBlock } from "../scene/particleBlocks";
 import type { ContextKind, GraphInputValue, ParticleGraph, ParticleGraphSystem } from "../scene/particleGraph";
-import { newGraphId, particleGraphJSON, systemTemplate } from "../scene/particleGraphFormat";
+import { newGraphId, systemTemplate, formatParticleGraph } from "../scene/particleGraphFormat";
 import { compileParticleKernels } from "../scene/particleKernel";
+
+/** A graph as its file's JSON object. */
+const graphJSON = (graph: ParticleGraph): Record<string, unknown> => JSON.parse(formatParticleGraph(graph));
 
 function addBlock(g: ParticleGraph, sys: ParticleGraphSystem, c: ContextKind, type: string, inputs: Record<string, GraphInputValue> = {}) {
   const b = defaultBlock(type, newGraphId(g, "b"));
@@ -47,7 +50,7 @@ function fakeSystem(g: ParticleGraph): ParticleSystem {
   return {
     isActiveAndEnabled: true,
     effect: "",
-    embeddedEffect: particleGraphJSON(g),
+    embeddedEffect: graphJSON(g),
     overrides: {},
     playOnAwake: true,
     timeScale: 1,
@@ -164,7 +167,7 @@ describe("kernel outputs with material assets, and kernel warm-up (ADR 0126)", (
 
   it("warms kernel emitters' own draws (and pipelines) besides the CPU ones", () => {
     material = null;
-    const effect = particleGraphJSON(graph("", { trail: true }));
+    const effect = graphJSON(graph("", { trail: true }));
     const parts = player.warm(effect, "warm:fx", { x: 0, y: 0, z: 0 }, camera)!;
     expect(parts.systems).toHaveLength(0); // no CPU draw for the kernel system
     expect(parts.meshes).toHaveLength(2); // the quad output and the trail
@@ -175,7 +178,7 @@ describe("kernel outputs with material assets, and kernel warm-up (ADR 0126)", (
   });
 
   it("warms a material-asset kernel output with its material copy", () => {
-    const parts = player.warm(particleGraphJSON(graph("materials/fx.material.json")), "warm:fx", { x: 0, y: 0, z: 0 }, camera)!;
+    const parts = player.warm(graphJSON(graph("materials/fx.material.json")), "warm:fx", { x: 0, y: 0, z: 0 }, camera)!;
     expect(parts.meshes).toHaveLength(1);
     expect(parts.meshes[0]!.material?.pluginManager?.getPlugin("MycoKernelParticles")).toBeTruthy();
     parts.dispose();

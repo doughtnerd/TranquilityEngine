@@ -49,7 +49,7 @@ const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 
 const finite = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 const clone = <T>(v: T): T => structuredClone(v);
 
-export const emptyParticleGraph = (): ParticleGraph => ({ properties: [], systems: [], nodes: [], edges: [], events: [], notes: [], groups: [] });
+const emptyParticleGraph = (): ParticleGraph => ({ properties: [], systems: [], nodes: [], edges: [], events: [], notes: [], groups: [] });
 
 // --- ids ---------------------------------------------------------------------------------------------
 
@@ -223,7 +223,7 @@ function scalarOf(v: ParticleNumber): number {
 }
 
 /** Migrate a `myco.particles@1` effect: one emitter becomes one system, in order. */
-export function migrateParticleEffect(effect: ParticleEffect): ParticleGraph {
+function migrateParticleEffect(effect: ParticleEffect): ParticleGraph {
   let blockCount = 0;
   const mk = (type: string, inputs: Record<string, unknown>, enabled?: boolean): GraphBlock => {
     const b = defaultBlock(type, `b${++blockCount}`);
@@ -780,7 +780,7 @@ function systemJSON(s: ParticleGraphSystem): Record<string, unknown> {
 }
 
 /** The graph as JSON (the file's object, with the format tag first). */
-export function particleGraphJSON(graph: ParticleGraph): Record<string, unknown> {
+function particleGraphJSON(graph: ParticleGraph): Record<string, unknown> {
   const out: Record<string, unknown> = {
     format: PARTICLE_GRAPH_FORMAT,
     properties: graph.properties,

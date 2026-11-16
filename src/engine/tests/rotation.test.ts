@@ -4,8 +4,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { Assets, Engine, GameObject, Quaternion, SceneManager, Vector3, type RotationOrder } from "../index";
 import { migrateSceneFile, type SceneFile } from "../scene/SceneLoader";
-import { rotationToQuaternion } from "../scene/rotationMigration";
-import { mirrorField, migrateToUnityCoordinates } from "../scene/handednessMigration";
+import { migrateRotationsToQuaternions } from "../scene/rotationMigration";
+import { migrateToUnityCoordinates } from "../scene/handednessMigration";
 
 const D = Math.PI / 180; // degrees to radians, to keep the test angles readable
 
@@ -207,8 +207,11 @@ describe("scene format 3: quaternion rotations (ADR 0163)", () => {
     expectSameRotation(Quaternion.from(overrides[0].value as number[]), Quaternion.rotateY(120 * D));
     expect(overrides[1].value).toEqual([0, 1, 0]);
     expectSameRotation(Quaternion.from(overrides[2].addNodes![0].components![0].data!.rotation as number[]), legacyXYZ(-50, 30, 0));
-    expect(rotationToQuaternion([0, 0, 0])).toEqual([0, 0, 0, 1]);
-    expect(rotationToQuaternion("text")).toBe("text");
+    const plain = migrateRotationsToQuaternions({
+      format: "myco.scene@2",
+      nodes: [{ id: "z", components: [{ type: "engine.Transform", data: { rotation: [0, 0, 0] } }] }, { id: "t", components: [{ type: "engine.Transform", data: { rotation: "text" } }] }],
+    });
+    expect(plain.nodes.map((n) => n.components![0].data!.rotation)).toEqual([[0, 0, 0, 1], "text"]);
   });
 
   it("loads a version 2 scene mirrored into Unity's coordinates", async () => {
@@ -241,7 +244,16 @@ describe("scene format 4: Unity's coordinates (ADR 0164)", () => {
             { type: "engine.AudioSource", data: { clip: "asset:amb.wav", ambisonicYaw: 30, minDistance: 2 } },
           ],
         },
-        { id: "i", prefab: "p.json", overrides: [{ component: "engine.Transform", field: "position", value: [0, 0, 7] }, { component: "engine.AudioReverbZone", field: "center", value: [1, 1, 1] }] },
+        {
+          id: "i",
+          prefab: "p.json",
+          overrides: [
+            { component: "engine.Transform", field: "position", value: [0, 0, 7] },
+            { component: "engine.AudioReverbZone", field: "center", value: [1, 1, 1] },
+            { component: "engine.AudioSource", field: "ambisonicYaw", value: -180 },
+            { component: "engine.Transform", field: "rotation", value: [0, 0, 0.6, 0.8] },
+          ],
+        },
       ],
     };
     const out = migrateToUnityCoordinates(structuredClone(v3));
@@ -257,10 +269,10 @@ describe("scene format 4: Unity's coordinates (ADR 0164)", () => {
     expect(game.data).toEqual({ center: [0, 0, 5] }); // script fields aren't known here
     // An ambisonic clip's yaw turned left for +30 then; +30 now turns right, so the same sound is -30.
     expect(source.data).toEqual({ clip: "asset:amb.wav", ambisonicYaw: -30, minDistance: 2 });
-    expect(mirrorField("engine.AudioSource", "ambisonicYaw", -180)).toBe(180);
     expect(out.nodes[1].overrides![0].value).toEqual([0, 0, -7]);
     expect(out.nodes[1].overrides![1].value).toEqual([1, 1, -1]);
-    expect(mirrorField("engine.Transform", "rotation", [0, 0, 0.6, 0.8])).toEqual([0, 0, 0.6, 0.8]); // 2D turns unchanged
+    expect(out.nodes[1].overrides![2].value).toBe(180);
+    expect(out.nodes[1].overrides![3].value).toEqual([0, 0, 0.6, 0.8]); // 2D turns unchanged
   });
 
   it("reads hand-written Euler rotations in scene files as degrees", async () => {

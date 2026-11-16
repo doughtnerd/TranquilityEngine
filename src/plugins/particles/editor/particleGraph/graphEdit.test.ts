@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ParticleGraph } from "../../../../engine/scene/particleGraph";
-import { defaultParticleGraph, emptyParticleGraph } from "../../../../engine/scene/particleGraphFormat";
+import { defaultParticleGraph, parseParticleGraph } from "../../../../engine/scene/particleGraphFormat";
 import {
   addBlock,
   addOutput,
@@ -51,6 +51,9 @@ import {
   whyNotWire,
 } from "./graphEdit";
 import { indexProblems, locateProblem } from "./problems";
+
+/** A graph with nothing in it. */
+const emptyParticleGraph = (): ParticleGraph => parseParticleGraph({}).graph;
 
 /** Two Simple Loop systems (s1, s2), a gradient node and a time node. */
 function sample(): ParticleGraph {

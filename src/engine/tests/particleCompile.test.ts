@@ -3,9 +3,12 @@ import { compileParticleGraph } from "../scene/particleCompile";
 import { ProgramRunner, playTimes } from "../render/particles/programRunner";
 import { defaultBlock } from "../scene/particleBlocks";
 import { OUTPUT_TYPES, type ContextKind, type GraphEdge, type GraphEvent, type GraphInputValue, type GraphNode, type GraphProperty, type ParticleGraph, type ParticleGraphSystem } from "../scene/particleGraph";
-import { defaultParticleGraph, migrateParticleEffect, newGraphId, systemTemplate } from "../scene/particleGraphFormat";
-import { defaultEmitter, defaultShape, type ParticleEffect } from "../scene/particles";
+import { defaultParticleGraph, newGraphId, systemTemplate, parseParticleGraph } from "../scene/particleGraphFormat";
+import { defaultEmitter, defaultShape, type ParticleEffect, PARTICLES_FORMAT } from "../scene/particles";
 import type { EvalContext } from "../scene/particleNodes";
+
+/** A `myco.particles@1` effect as the graph reading its file gives (migrated). */
+const migratedGraph = (effect: ParticleEffect): ParticleGraph => parseParticleGraph({ format: PARTICLES_FORMAT, ...effect }).graph;
 
 const evalCtx = (over: Partial<EvalContext> = {}): EvalContext => ({ time: 0, deltaTime: 0, playTime: 0, properties: new Map(), random: () => 0.5, ...over });
 const node = (id: string, type: string, extra: Partial<GraphNode> = {}): GraphNode => ({ id, type, position: [0, 0], ...extra });
@@ -258,7 +261,7 @@ describe("migration round trip", () => {
 
   it("compiles to emitters equivalent to the original's settings", () => {
     const effect = rich();
-    const graph = migrateParticleEffect(effect);
+    const graph = migratedGraph(effect);
     const p = compileParticleGraph(graph);
     expect(p.problems).toEqual([]);
     expect(p.effect.emitters).toHaveLength(2);
@@ -289,7 +292,7 @@ describe("migration round trip", () => {
   it("migrates a disabled emitter to a skipped system", () => {
     const effect = rich();
     effect.emitters[1].enabled = false;
-    const p = compileParticleGraph(migrateParticleEffect(effect));
+    const p = compileParticleGraph(migratedGraph(effect));
     expect(p.systems).toEqual(["s1"]);
     // The sub-emitter targets a disabled system: reported, not routed.
     expect(p.effect.emitters[0].subEmitters).toEqual([]);
