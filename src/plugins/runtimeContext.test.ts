@@ -37,7 +37,6 @@ describe("runtime plugin activation (ADR 0135)", () => {
     runtimeActivator.activate(a);
     expect(log).toEqual(["t.a"]);
     expect(isRuntimePluginActive("t.a")).toBe(true);
-    expect(runtimeActivator.isActive("t.a")).toBe(true);
   });
 
   it("claims Components, and unregisters them when deactivated so scenes load them as missing", () => {
@@ -78,13 +77,13 @@ describe("runtime plugin activation (ADR 0135)", () => {
 
   it("disables a plugin by unregistering its Components, until it's activated", () => {
     runtimeActivator.deactivate("myco.sky");
-    runtimeActivator.disable(skyRuntimePlugin);
+    runtimeActivator.disable!(skyRuntimePlugin);
     expect(isRuntimePluginActive("myco.sky")).toBe(false);
     expect(getComponentClass("engine.Sky")).toBeUndefined();
     expect(_registeredRenderFeatures().some((r) => r.spec.name === "sky")).toBe(false);
     runtimeActivator.activate(skyRuntimePlugin);
     expect(getComponentClass("engine.Sky")).toBe(Sky);
-    runtimeActivator.disable(skyRuntimePlugin); // nothing happens to an active plugin
+    runtimeActivator.disable!(skyRuntimePlugin); // nothing happens to an active plugin
     expect(getComponentClass("engine.Sky")).toBe(Sky);
   });
 
