@@ -454,6 +454,10 @@ fn emit_status(o: &mut String, schema: &Schema) -> Result<(), String> {
     emit_status_extras(o, schema, &placed)
 }
 
+/// The STATUS sections whose item field offsets are emitted (`STATUS_<SECTION>_ITEM_AT`): those whose items hand code
+/// reads in place, here `statusReader.ts`'s count-sum rule over the `loudBuses` flags (ADR 0171 section 4.3).
+const ITEMS_READ_IN_PLACE: &[&str] = &["loudBuses"];
+
 fn col_ty(t: Ty) -> &'static str {
     match t {
         Ty::U8 => "u8",
@@ -533,8 +537,9 @@ fn emit_status_extras(o: &mut String, schema: &Schema, placed: &[Placed]) -> Res
     }
     o.push_str("  }\n}\n\n");
 
-    // Each multi-field section item's field offsets, for semantic checks that read the view before the block is written.
-    for s in st.sections.iter().filter(|s| s.item.len() > 1) {
+    // The item field offsets of the sections whose items hand code reads in place before the block is written (the
+    // semantic checks in `statusReader.ts`), and of no other section.
+    for s in st.sections.iter().filter(|s| s.item.len() > 1 && ITEMS_READ_IN_PLACE.contains(&s.name)) {
         let it = build_item(&item_name(s), 0, s.item, None)?;
         o.push_str(&format!("/** `{}` field offsets, bytes from the item's start (the item is `{}_FIXED_END` bytes). */\n", item_name(s), screaming(&item_name(s))));
         o.push_str(&format!("export const {}_AT = {{ ", screaming(&item_name(s))));
@@ -550,17 +555,6 @@ fn emit_status_extras(o: &mut String, schema: &Schema, placed: &[Placed]) -> Res
         o.push_str(&format!("  {}: {i},\n", s.name));
     }
     o.push_str("} as const;\n\n");
-    o.push_str("/** Each STATUS section's count field: its byte offset in the header (from the envelope's first byte). */\nexport const STATUS_SECTION_COUNT_AT = {\n");
-    for s in st.sections {
-        o.push_str(&format!("  {}: {},\n", s.name, count_at(s.count_field)?.offset));
-    }
-    o.push_str("} as const;\n\n");
-    o.push_str("/** Each STATUS section's per-block cap. */\nexport const STATUS_SECTION_MAX = {\n");
-    for s in st.sections {
-        o.push_str(&format!("  {}: {},\n", s.name, s.max));
-    }
-    o.push_str("} as const;\n\n");
-
     // The reader.
     let n_sec = st.sections.len();
     let (magic_at, magic_ty) = env_at("magic")?;

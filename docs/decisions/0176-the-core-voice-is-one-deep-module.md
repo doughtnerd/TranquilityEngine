@@ -42,7 +42,7 @@ We will keep a core voice's state and changes in one module, `core/voices.ts` (`
 
 ## Deprecates
 
-`CoreBackend._setVolume`, `_setPitch`, `_setOcclusion`, `_setDopplerRate`, `_setVelocity`, `_setSpatialOptions`, `_setPriority`, `_setAttenuation`, `_setPosition`, `_setBus`, `_setPaused`, `_seek`, `_pannerOf` and `_occlusionOf` are removed (tests call `backend.voices.*`). `CoreBackend.owners` and `lockedQueue` remain as read-only views of the module's.
+`CoreBackend._setVolume`, `_setPitch`, `_setOcclusion`, `_setDopplerRate`, `_setVelocity`, `_setSpatialOptions`, `_setPriority`, `_setAttenuation`, `_setPosition`, `_setBus`, `_setPaused`, `_seek`, `_pannerOf` and `_occlusionOf` are removed (tests drive a voice through the handle `backend.play` returns, or `CoreVoices` itself in `voices.test.ts`; `CoreBackend.voices` is private). `CoreBackend.owners` and `lockedQueue` remain as read-only views of the module's.
 
 ## Open questions
 

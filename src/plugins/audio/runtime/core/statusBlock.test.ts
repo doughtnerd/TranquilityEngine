@@ -14,8 +14,6 @@ import {
   STATUS_HEADER_BYTES,
   STATUS_HEADER_COLUMNS,
   STATUS_SECTION,
-  STATUS_SECTION_COUNT_AT,
-  STATUS_SECTION_MAX,
   StatusBlockReader,
   WireError,
   writeStatus,
@@ -34,9 +32,22 @@ const SECTIONS = Object.keys(STATUS_SECTION) as (keyof typeof STATUS_SECTION)[];
 /** The capture sample's first STATUS sits at frame 768; the block's `currentFrame` must match its record's frame. */
 const FRAME = 768;
 
-const screaming = (s: string): string => s.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toUpperCase();
-/** A multi-field section's item field offsets (the generated `STATUS_<SECTION>_ITEM_AT`); undefined for a number section. */
-const itemAt = (section: string): Record<string, number> | undefined => (wire as unknown as Record<string, Record<string, number> | undefined>)[`STATUS_${screaming(section)}_ITEM_AT`];
+/** A block with every header field 0 and `n` items in section `s` (`{}` items: the writer writes 0 for each missing field). */
+const withItems = (s: string, n: number): StatusBlock => ({ ...makeStatusBlock(), [s]: Array.from({ length: n }, () => ({})) }) as unknown as StatusBlock;
+/** A multi-field section's item field names, as the generated reader returns an item the writer wrote; undefined for a number section. */
+const itemKeys = (section: string): string[] | undefined => {
+  const item = (readStatus(encode(withItems(section, 1))) as unknown as Record<string, unknown[]>)[section]![0];
+  return typeof item === "object" && item !== null ? Object.keys(item) : undefined;
+};
+/** Section `s`'s count field: the first header byte after the envelope that one item more changes in what the writer wrote. */
+const countAt = (s: string): number => {
+  const a = new Uint8Array(encode(withItems(s, 1)));
+  const b = new Uint8Array(encode(withItems(s, 2)));
+  for (let i = 16; i < STATUS_HEADER_BYTES; i++) if (a[i] !== b[i]) return i;
+  throw new Error(`no count field for ${s}`);
+};
+/** Section `s`'s per-block cap, from the writer's refusal of a block over it ("STATUS: <s> over its cap <n>"). */
+const capOf = (s: string): number => Number(/over its cap (\d+)/.exec(codeOf(() => encode(withItems(s, 5000))))![1]);
 
 /** Distinct values in every header field (exact in its type) and `items` items in every section; loudBuses flags sum to the energies. */
 function fullBlock(items = 2): StatusBlock {
@@ -50,9 +61,9 @@ function fullBlock(items = 2): StatusBlock {
   let v = 1;
   const lists = block as unknown as Record<string, unknown[]>;
   for (const s of SECTIONS) {
-    const at = itemAt(s);
+    const keys = itemKeys(s);
     // Small integers: exact in every item type (u8 to f32).
-    lists[s] = Array.from({ length: items }, () => (at ? Object.fromEntries(Object.keys(at).map((k) => [k, v++ % 250])) : v++ % 250));
+    lists[s] = Array.from({ length: items }, () => (keys ? Object.fromEntries(keys.map((k) => [k, v++ % 250])) : v++ % 250));
   }
   block.loudBuses.forEach((b, i) => (b.flags = i + 1));
   block.loudEnergies = Array.from({ length: block.loudBuses.reduce((sum, b) => sum + (b.flags & LOUD_FLAG_NEW_BLOCKS_MASK), 0) }, (_, i) => i + 1);
@@ -121,10 +132,14 @@ describe("the STATUS block, generated once (ADR 0177)", () => {
     patch((v) => v.setUint16(6, wire.Kind.BATCH, true));
     patch((v) => v.setUint32(12, 100_000, true));
     patch((v) => v.setUint32(12, STATUS_HEADER_BYTES - 17, true));
-    // Every section over its cap, and every section past the body's end (the generated count offsets and caps).
+    // Every section over its cap, and every section past the body's end (each count field found in the writer's output,
+    // each cap in the writer's refusal).
     for (const s of SECTIONS) {
-      patch((v) => v.setUint16(STATUS_SECTION_COUNT_AT[s], STATUS_SECTION_MAX[s] + 1, true));
-      patch((v) => v.setUint16(STATUS_SECTION_COUNT_AT[s], Math.min(STATUS_SECTION_MAX[s], 3), true));
+      const at = countAt(s);
+      const cap = capOf(s);
+      expect([s, cap > 0]).toEqual([s, true]);
+      patch((v) => v.setUint16(at, cap + 1, true));
+      patch((v) => v.setUint16(at, Math.min(cap, 3), true));
     }
     const reader = new StatusBlockReader();
     const kept = reader.read(good);

@@ -9,7 +9,7 @@
 //   at 0.5 on the core. Before F-9b each reset the in-voice ramp to the plain dry gain (the stem back at full).
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Assets, Engine, SceneManager } from "../../../../myco";
-import { mixer as globalMixer, registerCoreBackend, resetCoreFallbackState, setAudioBackend } from "../backend";
+import { mixer as globalMixer, registerCoreBackend, resetCoreFallbackState, setAudioBackend, type AudioVoice } from "../backend";
 import { Audio } from "../index";
 import { createClipRegistry } from "../core/clipRegistry";
 import { fakeDecoder } from "../core/fakeDecoder";
@@ -101,6 +101,8 @@ async function rig() {
   const host: CoreBackendHost = { link, status: "running", preset: { maxLogical: 16, maxMixed: 8 }, worldCount: 1, sampleRate: RATE, addLifecycleListener: (() => () => {}) as AudioHost["addLifecycleListener"] };
   const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer: globalMixer });
   undo = registerCoreBackend(() => backend);
+  // The voices the backend hands out (the music system's stems among them), so a case can drive one through its own setters.
+  const played = vi.spyOn(backend, "play");
   // The out index is the core's frame: every rendered sample is kept from the first quantum.
   const out: number[] = [];
   const dt = FRAME_FRAMES / RATE;
@@ -116,7 +118,12 @@ async function rig() {
   for (const name of ["pad", "pulse", "lead"]) backend.play({ path: `${name}.wav`, url: Assets.url(`${name}.wav`), loop: false, stream: false, bus: "Music", volume: 0 } as never);
   Audio.setParameter("Intensity", 0);
   await step(30);
-  return { backend, out, step };
+  /** The voice `backend.play` returned for voice id `id`. */
+  const voiceOf = (id: number): AudioVoice => {
+    for (const r of played.mock.results) if (r.type === "return" && r.value && (r.value as AudioVoice & { id: number }).id === id) return r.value;
+    throw new Error(`no voice ${id}`);
+  };
+  return { backend, out, step, voiceOf };
 }
 
 /** The group's first sample (the first non-zero one after `from`), -1 while silent. */
@@ -216,11 +223,12 @@ describe("a quantised stem's level on main (F-9b, loopback host)", () => {
   it("a promote, a volume set and occlusion keep a stem at 0.5 at 0.5 on the core", { timeout: 60_000 }, async (ctx) => {
     const r = await rig();
     if (!r) return ctx.skip();
-    const { backend, out, step } = r;
+    const { backend, out, step, voiceOf } = r;
     Audio.setParameter("Intensity", 0.4);
     Audio.play("music-intensity.audioevent.json");
     await step(12);
     const pulse = stem(backend, "pulse");
+    const pulseVoice = voiceOf(pulse.id);
     const half = LEVEL.pad + LEVEL.pulse * 0.5;
     expect(backend.table.stemDry[pulse.i]).toBeCloseTo(0.5, 6);
     expect(settled(out)).toBeCloseTo(half, 5);
@@ -235,18 +243,18 @@ describe("a quantised stem's level on main (F-9b, loopback host)", () => {
     expect(settled(out)).toBeCloseTo(half, 5);
 
     // A volume set: the dry gain is the volume times the level (0.5 x 0.5 of the pulse), and back.
-    backend.voices.setVolume(pulse.id, 0.5);
+    pulseVoice.setVolume(0.5);
     await step(3);
     expect(settled(out)).toBeCloseTo(LEVEL.pad + LEVEL.pulse * 0.25, 5);
-    backend.voices.setVolume(pulse.id, 1);
+    pulseVoice.setVolume(1);
     await step(3);
     expect(settled(out)).toBeCloseTo(half, 5);
 
     // Occlusion: the smoothed dry occlusion gain times the level, and open again.
-    backend.voices.setOcclusion(pulse.id, 0.5, 0);
+    pulseVoice.setOcclusion!(0.5, 0);
     await step(3);
     expect(settled(out)).toBeCloseTo(LEVEL.pad + LEVEL.pulse * 0.25, 5);
-    backend.voices.setOcclusion(pulse.id, 1, 0);
+    pulseVoice.setOcclusion!(1, 0);
     await step(3);
     expect(settled(out)).toBeCloseTo(half, 5);
     backend.dispose();
@@ -257,7 +265,7 @@ describe("a quantised stem's level on main (F-9b, loopback host)", () => {
   it("a volume change between a stamped level's send and its stamp lands with the new volume", { timeout: 60_000 }, async (ctx) => {
     const r = await rig();
     if (!r) return ctx.skip();
-    const { backend, out, step } = r;
+    const { backend, out, step, voiceOf } = r;
     Audio.setParameter("Intensity", 0.4);
     Audio.play("music-intensity.audioevent.json");
     await step(12);
@@ -274,7 +282,7 @@ describe("a quantised stem's level on main (F-9b, loopback host)", () => {
     Audio.setParameter("Intensity", 0.6);
     await step(1);
     expect(backend.table.stemCount[pulse.i]).toBe(1); // sent, stamped at the beat, not landed
-    backend.voices.setVolume(pulse.id, 0.4);
+    voiceOf(pulse.id).setVolume(0.4);
     await step(1);
     expect(backend.table.stemCount[pulse.i]).toBe(1);
     expect(settled(out)).toBeCloseTo(LEVEL.pad + LEVEL.pulse * 0.5 * 0.4, 5); // the old level at the new volume

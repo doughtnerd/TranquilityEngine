@@ -88,7 +88,7 @@ fn status_with_a_short_body_is_refused() {
 }
 
 /// ADR 0177: the STATUS header is described once. Every header scalar (section counts aside) is a column and is read
-/// and copied by the generated reader and `copyStatusHeader`; every section is checked and has a cap.
+/// and copied by the generated reader and `copyStatusHeader`; every section is checked against its cap.
 #[test]
 fn status_header_columns_and_reader_cover_every_field() {
     let s = schema();
@@ -105,6 +105,6 @@ fn status_header_columns_and_reader_cover_every_field() {
     }
     for sec in s.status.sections {
         assert!(reader.contains(&format!("\"STATUS: {} overrun\"", sec.name)), "{}", sec.name);
-        assert!(ts.contains(&format!("  {}: {},\n", sec.name, sec.max)), "{}", sec.name);
+        assert!(reader.contains(&format!("if (c > {} || c * ", sec.max)), "{}", sec.name);
     }
 }

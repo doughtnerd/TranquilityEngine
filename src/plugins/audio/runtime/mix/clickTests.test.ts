@@ -227,7 +227,7 @@ describe("Ck1: the send run-out and a sound's bus", () => {
   // from F0). Ck1 found `CoreBackend._setBus` (now `CoreVoices.setBus`) sending one asap `SET_PARAMS bus` (abrupt ~0.97-0.99 here, as S4's
   // 0.94-1.0); G7a routes a sounding voice through `StructuralDip.dipVoice`: fade-out over DIP_FRAMES from F0, the bus
   // at B with the fade at 0, fade-in. F-40's `maxStep` over the edit's window also stays within the signal's own.
-  it("a sound's bus (Sound.bus while playing) dips: `voices.setBus` on a sounding voice goes through the per-voice dip", T, async (ctx) => {
+  it("a sound's bus (Sound.bus while playing) dips: `setBus` on a sounding voice goes through the per-voice dip", T, async (ctx) => {
     const probe = await liveRig(PROJECT);
     if (!probe) return ctx.skip();
     probe.backend.dispose();
@@ -243,7 +243,7 @@ describe("Ck1: the send run-out and a sound's bus", () => {
         const out: number[] = [...(await r.step(WARM)).out, ...(await r.quanta(k))];
         const from = out.length;
         const emitted = r.backend.dip.emitted;
-        if (edit) r.backend.voices.setBus(v.id, "Voice");
+        if (edit) v.setBus("Voice");
         out.push(...(await r.step(AFTER)).out);
         expect(r.backend.dip.emitted, "no bus sequence: the voice dips alone").toBe(emitted);
         r.backend.dispose();

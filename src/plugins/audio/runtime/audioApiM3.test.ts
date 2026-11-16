@@ -154,19 +154,16 @@ describe("§1.1 types and handle members", () => {
     r.frame();
     expect([flat.panner, spatial.panner]).toEqual(["flat", "hrtf"]); // a lone spatial voice is in the pick's top `voices.hrtf`
     expect(spatial.occlusion).toBe(1);
-    r.backend.voices.setOcclusion(r.backend.table.liveCount > 0 ? idOf(r.backend, 1) : 0, 0.4, 2000);
-    expect(spatial.occlusion).toBeCloseTo(0.4, 5);
+    // Occlusion results reach a voice through its own setter (the occlusion pass's path); the handle reads the table.
+    const occluded = r.backend.play({ path: "asset:a.wav", url: "a.wav", loop: true, stream: false, bus: "Master", position: at })!;
+    occluded.setOcclusion!(0.4, 2000);
+    expect(occluded.occlusion).toBeCloseTo(0.4, 5);
     r.backend.table.flags2[1] = VoiceFlag2.AMBISONIC;
     expect(spatial.panner).toBe("ambisonic");
     spatial.stop();
     flat.stop();
   });
 });
-
-/** The id of the voice in table slot `i`. */
-function idOf(backend: CoreBackend, i: number): number {
-  return ((backend.table.gen[i]! << 16) | i) >>> 0;
-}
 
 // --- §1.2 AudioSource additions ----------------------------------------------------------------------------------
 

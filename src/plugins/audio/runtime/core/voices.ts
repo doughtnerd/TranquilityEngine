@@ -201,28 +201,23 @@ export class CoreVoices {
   // --- The effective views, by slot (see the free functions) ---
 
   /** The dry gain the core gets for slot `i` (`effectiveDryGain`). */
-  dryGain(i: number): number {
+  private dryGain(i: number): number {
     return effectiveDryGain(this.t, i);
   }
 
   /** Slot `i`'s dry gain without its stem level (`dryGainBeforeStem`). */
-  dryGainBeforeStem(i: number): number {
+  private dryGainBeforeStem(i: number): number {
     return dryGainBeforeStem(this.t, i);
   }
 
   /** The pitch the core gets for slot `i` (`effectivePitch`). */
-  sentPitch(i: number): number {
+  private sentPitch(i: number): number {
     return effectivePitch(this.t, i);
   }
 
   /** Spatial voices live (the panner pick runs only with one). */
   get spatialCount(): number {
     return this.spatialVoices;
-  }
-
-  /** F-12: slots with stale stem changes still to re-send. */
-  get staleStems(): number {
-    return this.stemStaleCount;
   }
 
   // --- Start: allocate, fill, launch (or queue) ---
@@ -775,18 +770,6 @@ export class CoreVoices {
     return true;
   }
 
-  /** Voice `id`'s dry gain as the core gets it (1 when gone): for callers that name a voice, not a slot. */
-  effectiveGainOf(id: number): number {
-    const i = this.slot(id);
-    return i < 0 ? 1 : this.dryGain(i);
-  }
-
-  /** Voice `id`'s pitch as the core gets it (1 when gone). */
-  effectivePitchOf(id: number): number {
-    const i = this.slot(id);
-    return i < 0 ? 1 : this.sentPitch(i);
-  }
-
   // --- The listener and the frame's voice passes ---
 
   /** The listener pose the distance gains and directions are computed from; a change re-derives every spatial voice next frame. */
@@ -856,7 +839,7 @@ export class CoreVoices {
   // --- What gets sent ---
 
   /** `gain` = volume times the distance gain (spatial), and the direction for a spatial voice; audibility from both and priority. */
-  refreshGain(i: number): void {
+  private refreshGain(i: number): void {
     const t = this.t;
     let gain = t.volume[i]!;
     if ((t.flags[i]! & VoiceFlag.SPATIAL) !== 0) {

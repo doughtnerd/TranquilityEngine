@@ -54,7 +54,11 @@ export type Debug = {
   music?: Row[];
   musicTotals?: Totals;
 };
-/** The core's cumulative group counters (the STATUS mirror; `Audio.debug().musicTotals` carries `maxSlipFrames` and `splitQuanta`). */
+/**
+ * The group counters as `Audio.debug()` reports them: `groupsLate`, `groupsHeld` and `groupsAbandoned` summed over every music
+ * row `readLate` has seen in the page (each row's `lateGroups`, `groupsHeld`, `groupTimeouts`: main's count of the core's
+ * group-start reports), `maxSlipFrames` and `splitQuanta` from `musicTotals` (the core's STATUS header).
+ */
 export type Late = { groupsLate: number; groupsHeld: number; groupsAbandoned: number; maxSlipFrames: number; splitQuanta: number };
 /** What a page's handle says about its music, read in one go. */
 export type Snap = {
@@ -77,7 +81,7 @@ type Api = {
     bus(n: string): { peak: number; volume: number };
     buses: readonly string[];
     play(path: string, o?: object): { music?: unknown; stop(s?: number): void };
-    playOneShot(clip: string, o?: object): { voice?: { backend?: unknown; inner?: { backend?: unknown } } };
+    playOneShot(clip: string, o?: object): unknown;
   };
   Assets: { addSource(s: unknown): void; fromObject(m: Record<string, unknown>): unknown; has(path: string): boolean };
 };
@@ -101,19 +105,18 @@ export const peakOver = (page: Page, bus: string, ms = 300) =>
     [bus, ms] as const,
   );
 
-/** The core's group counters: `groupsLate`, `groupsHeld` and `groupsAbandoned` from the STATUS mirror, the slip and splits from `musicTotals`. */
+/** The group counters (`Late`) from `Audio.debug()`; null while it reports no music totals (not the core). */
 export const readLate = (page: Page): Promise<Late | null> =>
   page.evaluate(() => {
-    const g = globalThis as unknown as { __myco: Api; __e1Backend?: { mirror?: { header?: Record<string, number> } } };
-    if (!g.__e1Backend) {
-      // Any voice reaches its backend (TypeScript-private, a plain property at run time); a silent one-shot is the cheapest.
-      const clip = g.__myco.Assets.has("audio/beep.wav") ? "audio/beep.wav" : "music/foo.mp3";
-      const v = g.__myco.Audio.playOneShot(clip, { volume: 0.0001, bus: "UI" }).voice;
-      g.__e1Backend = (v?.backend ?? v?.inner?.backend) as typeof g.__e1Backend;
-    }
-    const m = g.__e1Backend?.mirror?.header;
-    if (!m) return null;
-    return { groupsLate: m.groupsLate!, groupsHeld: m.groupsHeld!, groupsAbandoned: m.groupsAbandoned!, maxSlipFrames: m.maxSlipFrames!, splitQuanta: m.splitQuanta! };
+    type Counts = { late: number; held: number; timeouts: number };
+    const g = globalThis as unknown as { __myco: Api; __lateRows?: Record<string, Counts> };
+    const d = g.__myco.Audio.debug() as Debug;
+    if (!d.musicTotals) return null;
+    // A row's counters only grow while it lives; a stopped player's row goes, so keep the last reading of every row seen.
+    const rows = (g.__lateRows ??= {});
+    for (const r of d.music ?? []) rows[`${r.id}:${r.asset}`] = { late: r.lateGroups, held: r.groupsHeld, timeouts: r.groupTimeouts };
+    const sum = (k: keyof Counts) => Object.values(rows).reduce((n, c) => n + c[k], 0);
+    return { groupsLate: sum("late"), groupsHeld: sum("held"), groupsAbandoned: sum("timeouts"), maxSlipFrames: d.musicTotals.maxSlipFrames, splitQuanta: d.musicTotals.splitQuanta };
   });
 
 /** Collects what a page logs that matters to music: errors, uncaught exceptions, and warnings from the engine or about audio. */

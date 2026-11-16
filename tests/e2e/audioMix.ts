@@ -15,7 +15,7 @@ export type MixDebug = {
   core: Record<string, number | string | boolean>;
 };
 type BusApi = { volume: number; mute: boolean; effectiveGain: number; exists: boolean; fadeTo(v: number, s: number): void };
-type Api = { Audio: { debug(): unknown; time: number; bus(n: string): BusApi; buses: readonly string[]; playOneShot(c: string, o?: object): { voice?: { backend?: unknown; inner?: { backend?: unknown } } } } };
+type Api = { Audio: { debug(): unknown; time: number; bus(n: string): BusApi; buses: readonly string[]; playOneShot(c: string, o?: object): unknown } };
 
 export const mixDebug = (page: Page) => page.evaluate(() => ((globalThis as unknown as { __myco?: Api }).__myco?.Audio.debug() as MixDebug | undefined) ?? null);
 
@@ -30,19 +30,17 @@ export async function bootMix(page: Page, url = LAB): Promise<void> {
 }
 
 /**
- * Installs `globalThis.__mixFrame()` in the page: the core's last rendered frame (STATUS `currentFrame`), read through a
- * voice's backend (TypeScript-private, a plain property at run time). `Audio.debug()` carries no frame field today; the
- * fallback is the audio clock in frames (`Audio.time` x the sample rate), the same clock at the update's granularity.
+ * Installs `globalThis.__mixFrame()` in the page: the core's last rendered frame (STATUS `currentFrame`), as
+ * `Audio.debug().core.currentFrame` reports it; before the first STATUS block, the audio clock in frames (`Audio.time` x
+ * the sample rate), the same clock at the update's granularity.
  */
 export async function installFrameClock(page: Page): Promise<void> {
   await page.evaluate(() => {
     const g = globalThis as unknown as { __myco: Api; __mixFrame?: () => { frame: number; source: string } };
-    const v = g.__myco.Audio.playOneShot("audio/beep.wav", { volume: 0.0001, bus: "UI" }).voice;
-    const backend = (v?.backend ?? v?.inner?.backend) as { mirror?: { header?: { currentFrame?: number } } } | undefined;
     g.__mixFrame = () => {
-      const f = backend?.mirror?.header?.currentFrame;
-      if (typeof f === "number" && f > 0) return { frame: f, source: "status.currentFrame" };
       const d = g.__myco.Audio.debug() as MixDebug;
+      const f = d.core.currentFrame;
+      if (typeof f === "number" && f > 0) return { frame: f, source: "status.currentFrame" };
       return { frame: Math.round(d.time * d.sampleRate), source: "Audio.time * sampleRate" };
     };
   });

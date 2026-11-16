@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { audioSection } from "../../../engine/audio/audioSection";
 import { parseAudioSettings } from "../../../engine/audio/settings";
 import { MAX_PARAMETERS } from "../../../engine/audio/eventFormat";
 import { readDraft, withSettings } from "../../../editor/projectSettingsModel";
 import {
-  addBus, addDucking, addEffect, addSnapshot, applyVoicesPreset, audioOf, audioProblems, VOICE_PRESETS, busTree, removeBus, renameBus, setBackend, setBackground, setBusMaxVoices, setBusParent, setBusValue,
+  addBus, addDucking, addEffect, addSnapshot, applyVoicesPreset, audioOf, VOICE_PRESETS, busTree, removeBus, renameBus, setBackend, setBackground, setBusMaxVoices, setBusParent, setBusValue,
   addBusAutomation, addParameter, removeBusAutomation, removeParameter, renameParameter, setBusAutomationBus, setBusAutomationCurve, setBusAutomationParameter,
   setBusAutomationTarget, setParameterDefaultLabel, setParameterLabelled, setParameterLabels, setParameterRange,
   setClipFormat, setClipMemory, setCodec, setLimiterLookahead, setSnapshotVolume, setSpatial, setVoices, voicesPreset, setMusicRings, setRhythmMode,
@@ -119,13 +120,13 @@ describe("audio settings model, the core keys (ADR 0157 §2, K13)", () => {
     const same = empty();
     expect(setMusicRings(same, NaN)).toBe(same);
     expect(setMusicRings(same, 12)).toBe(same);
-    expect(audioProblems(odd)).toEqual([]);
+    expect(audioSection(odd.audio).problems).toEqual([]);
   });
   it("rhythm mode persists and re-parses", () => {
     const on = setRhythmMode(empty(), true);
     expect(audioOf(on).rhythmMode).toBe(true);
     expect((on.audio as { rhythmMode: boolean }).rhythmMode).toBe(true);
-    expect(audioProblems(on)).toEqual([]);
+    expect(audioSection(on.audio).problems).toEqual([]);
     expect(audioOf(setRhythmMode(on, false)).rhythmMode).toBe(false);
     expect(setRhythmMode(on, true)).toBe(on);
   });

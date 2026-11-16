@@ -250,7 +250,7 @@ export class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, Au
   /** The listener frame `update(dt)` stages LISTENER from (the audio system passes its own to `frameStageListener`). */
   private readonly idleFrame = new ListenerFrame();
   /** ADR 0176: the core voice: start, launch, the setters, what is sent, stem re-sends and refusals (`voices.ts`). */
-  readonly voices: CoreVoices;
+  private readonly voices: CoreVoices;
   /** B3: the stream voices' main side (`streams.ts`). */
   readonly streams: StreamManager;
   /** ADR 0158 (E3.1): the event runtime's automation sink on the core, and its mirror for a rebuild (`coreAutomation.ts`). */
@@ -301,7 +301,7 @@ export class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, Au
   /** ADR 0171 (K0): the capture's event taps (`mix/profileSink.ts`); the null object until a recorder runs (Rc3). */
   profile: ProfileSink = NULL_PROFILE_SINK;
   /** Ld2: the page's loudness hub's wiring (`coreLoudness.ts`). */
-  readonly loudness: CoreLoudness;
+  private readonly loudness: CoreLoudness;
   private get names(): string[] {
     return this.buses.names;
   }
@@ -694,7 +694,7 @@ export class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, Au
     // A3.4a: while a hard rebuild runs, new plays wait in the locked queue and start once the new core is up.
     const id = this.voices.start(req, this.host.status === "running" && !this.recovering);
     if (id === 0) return null;
-    const voice = new Voice(this, id);
+    const voice = new Voice(this.voices, this.table, id);
     this.automation.onPlay(voice, req);
     return voice;
   }
@@ -916,6 +916,8 @@ export class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, Au
     });
     // A3.4a: after recovery gave up, or once disposed, no core keeps what is staged.
     s.join("writer", { recoveryFailed: () => this.writer.clear(), dispose: () => this.writer.clear() });
+    // Every place `PHASE_ORDER` declares is filled (the replayer joined in its constructor).
+    s.requireComplete();
   }
 
   /** `Bus.peak` (A2.3): the newest STATUS peaks (already decayed in the core) by bus name; 0 while locked and past the 32 the core reports. */
@@ -995,7 +997,7 @@ export class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, Au
   readonly mixCaps: AudioMixCaps = { loudness: true, levelDucking: true, cpu: true, cpuReason: null, stampedBusRamps: true, capture: "full" };
 
   /** §1.3, architecture §4.3: Cp2 fills it from `mix/cpuMeter.ts`; until then "not yet measured". `debug()` reads it (not part of the seam, ADR 0179). */
-  cpu(): AudioCpuDebug {
+  private cpu(): AudioCpuDebug {
     return this.mirror.cpu.debug();
   }
 
@@ -1015,7 +1017,7 @@ export class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, Au
   }
 
   /** §1.1 `Bus.duckGain`: the STATUS `busDuck` section's gain for `bus` (a block old); 1 when no rule ducks it. The mixer reads it through `duckSource` (not part of the seam, ADR 0179). */
-  duckGain(bus: string): number {
+  private duckGain(bus: string): number {
     const b = this.busIndexByName.get(bus);
     if (b === undefined) return 1;
     const m = this.mirror;
@@ -1229,11 +1231,11 @@ export class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, Au
  */
 class Voice extends AudioHandle implements CoreVoice {
   constructor(
-    /** Private like before ADR 0176: only the browser specs read it (from plain JS, to reach the writer and mirror). */
-    private readonly backend: CoreBackend,
+    private readonly voices: CoreVoices,
+    table: VoiceTable,
     id: number,
   ) {
-    super(backend.table, id);
+    super(table, id);
   }
 
   get handle(): AudioHandle {
@@ -1241,74 +1243,74 @@ class Voice extends AudioHandle implements CoreVoice {
   }
 
   setVolume(v: number): void {
-    this.backend.voices.setVolume(this.id, v);
+    this.voices.setVolume(this.id, v);
   }
 
   setPitch(rate: number): void {
-    this.backend.voices.setPitch(this.id, rate);
+    this.voices.setPitch(this.id, rate);
   }
 
   setAttenuation(a: Attenuation): void {
-    this.backend.voices.setAttenuation(this.id, a);
+    this.voices.setAttenuation(this.id, a);
   }
 
   setPosition(p: Vec3Like): void {
-    this.backend.voices.setPosition(this.id, p);
+    this.voices.setPosition(this.id, p);
   }
 
   setBus(bus: string): void {
-    this.backend.voices.setBus(this.id, bus);
+    this.voices.setBus(this.id, bus);
   }
 
   setPriority(priority: number): void {
-    this.backend.voices.setPriority(this.id, priority);
+    this.voices.setPriority(this.id, priority);
   }
 
   pause(): void {
-    this.backend.voices.setPaused(this.id, true);
+    this.voices.setPaused(this.id, true);
   }
 
   resume(): void {
-    this.backend.voices.setPaused(this.id, false);
+    this.voices.setPaused(this.id, false);
   }
 
   seek(seconds: number): void {
-    this.backend.voices.seek(this.id, seconds);
+    this.voices.seek(this.id, seconds);
   }
 
   /** ADR 0166 §4.2 (Q2): a shaped, stamped fade of the `fade` ramp (`musicOps.fadeShaped`, P1). */
   fadeShaped(f: ShapedFade): void {
-    this.backend.voices.fadeShaped(this.id, f);
+    this.voices.fadeShaped(this.id, f);
   }
 
   /** ADR 0166 (G-1): a stamped gain and/or low-pass ramp with a law (`musicOps.paramsShaped`). */
   paramsShaped(r: { gain?: number; lowpassHz?: number; seconds: number; law?: FadeLaw; at?: number }): void {
-    this.backend.voices.paramsShaped(this.id, r);
+    this.voices.paramsShaped(this.id, r);
   }
 
   // ADR 0162 (K0, K4): main's M3 results and options.
   setVelocity(v: Vec3Like): void {
-    this.backend.voices.setVelocity(this.id, v);
+    this.voices.setVelocity(this.id, v);
   }
 
   setOcclusion(gain: number, lpHz: number): void {
-    this.backend.voices.setOcclusion(this.id, gain, lpHz);
+    this.voices.setOcclusion(this.id, gain, lpHz);
   }
 
   get panner(): AudioPanner | null {
-    return this.backend.voices.pannerOf(this.id);
+    return this.voices.pannerOf(this.id);
   }
 
   get occlusion(): number {
-    return this.backend.voices.occlusionOf(this.id);
+    return this.voices.occlusionOf(this.id);
   }
 
   setDopplerRate(factor: number): void {
-    this.backend.voices.setDopplerRate(this.id, factor);
+    this.voices.setDopplerRate(this.id, factor);
   }
 
   setSpatialOptions(o: VoiceSpatialOptions): void {
-    this.backend.voices.setSpatialOptions(this.id, o);
+    this.voices.setSpatialOptions(this.id, o);
   }
 }
 

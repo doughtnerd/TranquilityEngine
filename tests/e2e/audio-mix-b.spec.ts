@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "./fixtures";
 import { bootMix } from "./audioMix";
+import { openMixer } from "./audioMixLive";
 
 // M5b loudness in the real editor app (ADR 0171 amended by 0172, task E2): the Sound Lab's loudness page (keys L, W, C, F, V, D;
 // `scripts/behaviors/Loudness.ts`) plays the project's reference (`audio/loudness-reference.wav`, the EBU Tech 3341 case 1
@@ -8,15 +9,14 @@ import { bootMix } from "./audioMix";
 //
 // Cases: a tone reads -22.99 LUFS in Play; the target verdict for every target and a hot signal (high, low, ok, waiting,
 // peak over); every reset option; pause and resume (by the F key and the API); the taint rules of the Mixer panel's monitor
-// mute, solo and Compare; the ladder's loudness step as the STATUS flag reaches the meters.
+// mute, solo and Compare, clicked in the panel during Play.
 //
 // **Timing is on the audio clock**: a reading waits on the meter's own `elapsed` (seconds of metered audio since its last reset,
 // counted in the core's rendered sub-blocks) or on `Audio.time`, never on a wall-clock span; the polls only pace the reads.
-// **Seams:** the Mixer panel (Mp2b) lands in parallel, so a monitor control is made as the panel's `monitorModel.ts` makes it
-// (`mixer.setMonitor`, then the hub's `noteMonitorMute` or `noteMonitorSolo`, then `setMonitorActive`), through the core backend
-// the page already holds. A real ladder step needs the adaptive cap at its floor and seconds of underruns, which a headless page
-// can't be made to have on demand: the ladder case sets the STATUS block's `loudShed` as the core reports it (the core's side,
-// the step order and the give-back, is `ladderRecoveryLoopback.test.ts` and `audio-core`'s tests).
+// **Not here:** a real ladder step needs the adaptive cap at its floor and seconds of underruns, which a headless page can't be
+// made to have on demand. The ladder's loudness step reaching the meters (non-master meters paused by "ladder", master metering
+// on, the give-back marking them incomplete) is `ladderRecoveryLoopback.test.ts` on the real wasm; `Audio.debug().mix`'s
+// `loudnessLadderStep` and `metersPaused` are `mixDebug.test.ts` and the hub's `loudnessHub.test.ts`.
 
 test.describe.configure({ timeout: 120_000 });
 
@@ -42,13 +42,9 @@ type Reading = {
   target: Target | null;
 };
 type Loud = { [K in keyof Reading]: Reading[K] } & { reset(what?: string): void; pause(): void; resume(): void };
-type Hub = { noteMonitorMute(bus: string): void; noteMonitorSolo(): void; setMonitorActive(on: boolean): void; setCompare(on: boolean): void; feed(s: { loudShed: number }): void };
-type Backend = { loudness: { hub: Hub }; mixer: { setMonitor(bus: string, c: { mute?: boolean; solo?: boolean }): void }; mirror: { header: { loudShed: number } } };
 type Debug = { status: string; counters: { underruns: number }; voices: { clip: string; bus: string; state: string }[]; mix: { metersPaused: number; loudnessLadderStep: number; monitorActive: boolean } };
 type Api = {
-  __myco: { Audio: { time: number; loudnessTarget: string | null; debug(): Debug; bus(n: string): { loudness: Loud; mute: boolean }; playOneShot(c: string, o?: object): { voice?: { backend?: Backend; inner?: { backend?: Backend } } } } };
-  __b: Backend;
-  __ladder: { on: boolean };
+  __myco: { Audio: { time: number; loudnessTarget: string | null; debug(): Debug; bus(n: string): { loudness: Loud; mute: boolean } } };
 };
 
 async function boot(page: Page): Promise<string[]> {
@@ -58,12 +54,6 @@ async function boot(page: Page): Promise<string[]> {
     if (msg.type() === "error") errors.push(msg.text());
   });
   await bootMix(page);
-  // The core backend the page holds, reached through a voice (a plain property at run time), for the seams above.
-  await page.evaluate(() => {
-    const g = globalThis as unknown as Api;
-    const v = g.__myco.Audio.playOneShot("audio/beep.wav", { volume: 0.0001, bus: "SFX" }).voice;
-    g.__b = (v?.backend ?? v?.inner?.backend)!;
-  });
   return errors;
 }
 
@@ -378,6 +368,7 @@ test("M5b: a paused meter holds its readings and counts no audio; resuming resta
 });
 
 test("M5b: a monitor mute taints its bus, its ancestors and master; a monitor solo or Compare taints every meter; reset clears it; the target check is suspended while a control is on", async ({ page }) => {
+  await page.setViewportSize({ width: 1600, height: 1000 }); // room for the Mixer panel's strips
   const errors = await boot(page);
   await referenceOn(page);
   await metered(page, "UI", 3);
@@ -385,18 +376,20 @@ test("M5b: a monitor mute taints its bus, its ancestors and master; a monitor so
   expect(base.map((m) => m.tainted)).toEqual([false, false]);
   expect(base.map((m) => m.state)).toEqual(["ok", "ok"]);
 
-  // As the Mixer panel's monitor model makes them (`monitorModel.ts`): the mixer's lane, the taint note, the active flag.
-  const monitor = (bus: string, c: { mute?: boolean; solo?: boolean }, note: "mute" | "solo" | null, active: boolean) =>
-    page.evaluate(
-      ([name, ctl, n, on]) => {
-        const b = (globalThis as unknown as Api).__b;
-        b.mixer.setMonitor(name as string, ctl as { mute?: boolean });
-        if (n === "mute") b.loudness.hub.noteMonitorMute(name as string);
-        if (n === "solo") b.loudness.hub.noteMonitorSolo();
-        b.loudness.hub.setMonitorActive(on as boolean);
-      },
-      [bus, c, note, active] as const,
-    );
+  // The Mixer panel's monitor controls (MM and S on each strip) and Compare, clicked as the user does during Play.
+  await openMixer(page);
+  const monitor = async (bus: string, c: { mute?: boolean; solo?: boolean }) => {
+    const on = c.mute ?? c.solo!;
+    const button = page.getByRole("button", { name: c.mute !== undefined ? `Monitor mute ${bus}` : `Solo ${bus}`, exact: true });
+    await expect(button).toHaveAttribute("aria-pressed", String(!on));
+    await button.click();
+    await expect(button).toHaveAttribute("aria-pressed", String(on));
+  };
+  const compare = async (on: boolean) => {
+    const button = page.getByRole("button", { name: "Compare", exact: true });
+    await button.click();
+    await expect(button).toHaveAttribute("aria-pressed", String(on));
+  };
   const debugMix = async () => (await page.evaluate(() => (globalThis as unknown as Api).__myco.Audio.debug())).mix;
   const clear = async () => {
     await run(page, `Audio.bus("Master").loudness.reset("all")`);
@@ -413,13 +406,13 @@ test("M5b: a monitor mute taints its bus, its ancestors and master; a monitor so
   });
 
   await test.step("a monitor mute of an unmetered bus (Ambience) taints master only, and suspends the target check", async () => {
-    await monitor("Ambience", { mute: true }, "mute", true);
+    await monitor("Ambience", { mute: true });
     const [m, u] = await readBoth(page, "Master", "UI");
     expect([m.tainted, u.tainted], "Master is the output, an ancestor of Ambience; UI is neither").toEqual([true, false]);
     expect([m.state, u.state], "the check is suspended on every meter while a control is on").toEqual(["suspended", "suspended"]);
     expect((await debugMix()).monitorActive).toBe(true);
     // Unmuting ends the suspension; the mark stays until a reset.
-    await monitor("Ambience", { mute: false }, null, false);
+    await monitor("Ambience", { mute: false });
     const after = await readBoth(page, "Master", "UI");
     expect(after.map((x) => x.state)).toEqual(["ok", "ok"]);
     expect(after.map((x) => x.tainted), "unmuting clears nothing").toEqual([true, false]);
@@ -427,7 +420,7 @@ test("M5b: a monitor mute taints its bus, its ancestors and master; a monitor so
   });
 
   await test.step("a monitor mute of a metered bus (UI) taints it and master; its level really goes silent", async () => {
-    await monitor("UI", { mute: true }, "mute", true);
+    await monitor("UI", { mute: true });
     expect((await readBoth(page, "Master", "UI")).map((x) => x.tainted)).toEqual([true, true]);
     const held = (await read(page, "UI")).integrated;
     // The meter reads post-fader, monitor lane included: 0.6 s of the audio clock on, its window holds silence.
@@ -438,7 +431,7 @@ test("M5b: a monitor mute taints its bus, its ancestors and master; a monitor so
     const after = (await read(page, "UI")).integrated;
     expect(after, "digital silence does not drag the integrated level to silence").toBeGreaterThan(held - 0.5);
     expect(after).toBeLessThanOrEqual(held + 1e-9);
-    await monitor("UI", { mute: false }, null, false);
+    await monitor("UI", { mute: false });
   });
 
   await test.step('reset("integrated") clears the mark on that meter only; reset("all") clears it too; reset("maxPeak") leaves it', async () => {
@@ -452,11 +445,11 @@ test("M5b: a monitor mute taints its bus, its ancestors and master; a monitor so
 
   await test.step("a monitor solo taints every meter, and the check is suspended while it is on", async () => {
     await clear();
-    await monitor("UI", { solo: true }, "solo", true);
+    await monitor("UI", { solo: true });
     const both = await readBoth(page, "Master", "UI");
     expect(both.map((x) => x.tainted)).toEqual([true, true]);
     expect(both.map((x) => x.state)).toEqual(["suspended", "suspended"]);
-    await monitor("UI", { solo: false }, null, false);
+    await monitor("UI", { solo: false });
     expect((await readBoth(page, "Master", "UI")).map((x) => x.tainted), "solo off clears nothing").toEqual([true, true]);
     await clear();
   });
@@ -465,11 +458,11 @@ test("M5b: a monitor mute taints its bus, its ancestors and master; a monitor so
     // The last reset left no integrated value (verdict waiting): meter a second of the tone first, so "off" can read ok.
     await metered(page, "Master", 1);
     await metered(page, "UI", 1);
-    await page.evaluate(() => (globalThis as unknown as Api).__b.loudness.hub.setCompare(true));
+    await compare(true);
     const on = await readBoth(page, "Master", "UI");
     expect(on.map((x) => x.tainted)).toEqual([true, true]);
     expect(on.map((x) => x.state)).toEqual(["suspended", "suspended"]);
-    await page.evaluate(() => (globalThis as unknown as Api).__b.loudness.hub.setCompare(false));
+    await compare(false);
     const off = await readBoth(page, "Master", "UI");
     expect(off.map((x) => x.state)).toEqual(["ok", "ok"]);
     expect(off.map((x) => x.tainted)).toEqual([true, true]);
@@ -489,64 +482,4 @@ test("M5b: a script mute, or MASTER not 1, suspends the target check without tai
   await run(page, `(Audio.bus("Ambience").mute = true)`);
   await expect.poll(async () => (await read(page, "Master")).target!.state, { timeout: 15_000 }).toBe("suspended");
   expect((await read(page, "Master")).tainted).toBe(false);
-});
-
-test("M5b: the ladder's loudness step, as STATUS reports it: non-master meters pause (pausedBy ladder), master keeps metering, the step is in Audio.debug(), and the resume marks incomplete", async ({ page }) => {
-  const errors = await boot(page);
-  await referenceOn(page);
-  await metered(page, "UI", 3);
-  const set = (on: boolean) =>
-    page.evaluate((v) => {
-      const g = globalThis as unknown as Api;
-      if (!g.__ladder) {
-        g.__ladder = { on: false };
-        // The seam: the STATUS block the core sends carries `loudShed` (0 or 1); it reaches the mirror and the hub in this order.
-        const hub = g.__b.loudness.hub as unknown as { feed(s: { loudShed: number }): void };
-        const feed = hub.feed.bind(hub);
-        hub.feed = (s) => {
-          if (g.__ladder.on) {
-            s.loudShed = 1;
-            g.__b.mirror.header.loudShed = 1;
-          }
-          feed(s);
-        };
-      }
-      g.__ladder.on = v;
-    }, on);
-  const mixOf = async () => (await page.evaluate(() => (globalThis as unknown as Api).__myco.Audio.debug())).mix;
-  expect(await mixOf()).toMatchObject({ loudnessLadderStep: 0, metersPaused: 0 });
-
-  await set(true);
-  await test.step("the step is in force: UI is paused by the ladder, Master is not, and Audio.debug() says so", async () => {
-    await expect.poll(async () => (await read(page, "UI")).pausedBy, { timeout: 15_000 }).toBe("ladder");
-    const [m, u] = await readBoth(page, "Master", "UI");
-    expect(u.paused).toBe(true);
-    expect(m.paused, "master never stops").toBe(false);
-    expect(m.pausedBy).toBeNull();
-    expect(await mixOf()).toMatchObject({ loudnessLadderStep: 1, metersPaused: 1 });
-    // On the audio clock: UI holds while master meters on.
-    const [m0, u0] = await readBoth(page, "Master", "UI");
-    await audioFor(page, 1.5);
-    const [m1, u1] = await readBoth(page, "Master", "UI");
-    expect(u1.elapsed, "UI counts no audio while shed").toBe(u0.elapsed);
-    expect(m1.elapsed, "Master kept metering").toBeGreaterThan(m0.elapsed + 1);
-    expect(u1.integrated, "the reading it had is kept").toBe(u0.integrated);
-    expect(u1.incomplete, "marked on the resume, not before").toBe(false);
-  });
-
-  await set(false);
-  await test.step("the step is given back: UI meters again, flagged incomplete (a shed span is a gap), Master untouched", async () => {
-    await expect.poll(async () => (await read(page, "UI")).paused, { timeout: 15_000 }).toBe(false);
-    expect(await mixOf()).toMatchObject({ loudnessLadderStep: 0, metersPaused: 0 });
-    const [m, u] = await readBoth(page, "Master", "UI");
-    expect(u.incomplete, "a shed span since the last reset").toBe(true);
-    expect(m.incomplete, "master never shed").toBe(false);
-    // Metering resumes from the audio that follows; the flag stays until a reset.
-    const e0 = u.elapsed;
-    await metered(page, "UI", e0 + 1);
-    expect((await read(page, "UI")).incomplete).toBe(true);
-    await run(page, `Audio.bus("UI").loudness.reset("all")`);
-    expect((await read(page, "UI")).incomplete).toBe(false);
-  });
-  expect(errors).toEqual([]);
 });

@@ -1,9 +1,10 @@
 // Ld5 (ADR 0171 §2.1, api-and-models §7): the logic behind the Audio section's meter toggle, loudness targets table and
 // reset option. The view is thin over these functions; a case per control option.
 import { describe, expect, it } from "vitest";
+import { audioSection } from "../../../engine/audio/audioSection";
 import { readDraft } from "../../../editor/projectSettingsModel";
 import {
-  addBus, addLoudnessTarget, audioOf, audioProblems, busMeterRefusal, isBusMetered, loudnessTargetRefusal, loudnessTargets, meteredBusCount,
+  addBus, addLoudnessTarget, audioOf, busMeterRefusal, isBusMetered, loudnessTargetRefusal, loudnessTargets, meteredBusCount,
   removeLoudnessTarget, setBusMeter, setLoudnessResetOnPlay, setLoudnessTarget, MAX_LOUDNESS_TARGETS,
 } from "./audioSettingsModel";
 
@@ -45,7 +46,7 @@ describe("the meter toggle", () => {
     expect(busMeterRefusal(d, all[8])).toBe(NINTH);
     const same = setBusMeter(d, all[8], true);
     expect(same).toBe(d);
-    expect(audioProblems(same)).toEqual([]);
+    expect(audioSection(same.audio).problems).toEqual([]);
     // Turning one off frees a place; already-metered buses are never refused.
     expect(busMeterRefusal(d, all[0])).toBeNull();
     expect(meteredBusCount(audioOf(setBusMeter(setBusMeter(d, all[0], false), all[8], true)))).toBe(8);

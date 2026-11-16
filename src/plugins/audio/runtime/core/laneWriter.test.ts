@@ -38,7 +38,10 @@ function settings(): AudioSettings {
       { name: "Music", parent: "Master", volume: 0.6, mute: false, effects: [] },
       { name: "SFX", parent: "Master", volume: 1, mute: false, effects: [] },
     ],
-    snapshots: [{ name: "Under", volumes: { Music: 0.5 }, lowpass: { Music: 800 } }],
+    snapshots: [
+      { name: "Under", volumes: { Music: 0.5 }, lowpass: { Music: 800 } },
+      { name: "Both", volumes: { Music: 0.5 }, lowpass: { Music: 800, SFX: 1500 } },
+    ],
   };
 }
 
@@ -197,6 +200,18 @@ describe("LaneWriter.sync: one BUS_RAMP per lane that moved", () => {
     r.mixer.clearSnapshot(0);
     r.lanes.sync();
     expect(r.take()).toEqual([{ bus: 1, lane: LANE_SNAPSHOT, mask: BUS_RAMP_MASK_GAIN | BUS_RAMP_MASK_LP_HZ, gain: 1, lpHz: BUS_LP_OFF_HZ, frames: RAMP, seq: 0, at: undefined }]);
+  });
+
+  it("a snapshot over several buses: each bus it touches gets its snapshot-lane record at the one stamp (a low-pass-only bus too)", () => {
+    const r = rig();
+    r.mixer.snapshot("Both", 0.5);
+    r.lanes.sync();
+    const at = NOW_FRAME + LOOKAHEAD;
+    expect(r.take()).toEqual([
+      { bus: 1, lane: LANE_SNAPSHOT, mask: BUS_RAMP_MASK_GAIN | BUS_RAMP_MASK_LP_HZ, gain: 0.5, lpHz: 800, frames: 24_000, seq: 0, at },
+      { bus: 2, lane: LANE_SNAPSHOT, mask: BUS_RAMP_MASK_LP_HZ, gain: 1, lpHz: 1500, frames: 24_000, seq: 0, at },
+    ]);
+    expect([r.lanes.lastRampStartFrame(1), r.lanes.lastRampStartFrame(2)]).toEqual([at, at]);
   });
 
   it("the dip lane is stamped like a fade", () => {

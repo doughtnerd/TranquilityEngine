@@ -3830,28 +3830,8 @@ export function readStatusHeaderField(view: DataView, off: number, field: Status
   }
 }
 
-/** `StatusPlayheadsItem` field offsets, bytes from the item's start (the item is `STATUS_PLAYHEADS_ITEM_FIXED_END` bytes). */
-export const STATUS_PLAYHEADS_ITEM_AT = { id: 0, clipFrame: 4 } as const;
-/** `StatusClipEventsItem` field offsets, bytes from the item's start (the item is `STATUS_CLIP_EVENTS_ITEM_FIXED_END` bytes). */
-export const STATUS_CLIP_EVENTS_ITEM_AT = { clipId: 0, code: 4 } as const;
-/** `StatusStreamEventsItem` field offsets, bytes from the item's start (the item is `STATUS_STREAM_EVENTS_ITEM_FIXED_END` bytes). */
-export const STATUS_STREAM_EVENTS_ITEM_AT = { id: 0, code: 4 } as const;
-/** `StatusPeaksItem` field offsets, bytes from the item's start (the item is `STATUS_PEAKS_ITEM_FIXED_END` bytes). */
-export const STATUS_PEAKS_ITEM_AT = { l: 0, r: 4 } as const;
-/** `StatusBedsItem` field offsets, bytes from the item's start (the item is `STATUS_BEDS_ITEM_FIXED_END` bytes). */
-export const STATUS_BEDS_ITEM_AT = { bus: 0, voices: 2, work: 4 } as const;
-/** `StatusZonesItem` field offsets, bytes from the item's start (the item is `STATUS_ZONES_ITEM_FIXED_END` bytes). */
-export const STATUS_ZONES_ITEM_AT = { kernelId: 0, state: 4, pad: 5, quantaSinceInput: 6, wetPeak: 8 } as const;
-/** `StatusZoneEventsItem` field offsets, bytes from the item's start (the item is `STATUS_ZONE_EVENTS_ITEM_FIXED_END` bytes). */
-export const STATUS_ZONE_EVENTS_ITEM_AT = { slot: 0, code: 1, reserved: 2 } as const;
-/** `StatusMusicRingsItem` field offsets, bytes from the item's start (the item is `STATUS_MUSIC_RINGS_ITEM_FIXED_END` bytes). */
-export const STATUS_MUSIC_RINGS_ITEM_AT = { streamId: 0, epochFlags: 4 } as const;
-/** `StatusGroupStartsItem` field offsets, bytes from the item's start (the item is `STATUS_GROUP_STARTS_ITEM_FIXED_END` bytes). */
-export const STATUS_GROUP_STARTS_ITEM_AT = { groupId: 0, flags: 2, slipFrames: 4, startFrameLo: 8, startFrameHi: 12 } as const;
 /** `StatusLoudBusesItem` field offsets, bytes from the item's start (the item is `STATUS_LOUD_BUSES_ITEM_FIXED_END` bytes). */
 export const STATUS_LOUD_BUSES_ITEM_AT = { slot: 0, flags: 2, firstSeq: 4, truePeak: 8, gatedQuanta: 12 } as const;
-/** `StatusBusDuckItem` field offsets, bytes from the item's start (the item is `STATUS_BUS_DUCK_ITEM_FIXED_END` bytes). */
-export const STATUS_BUS_DUCK_ITEM_AT = { slot: 0, pad: 2, gain: 4 } as const;
 
 /** Each STATUS section's index in `StatusBlockReader`'s `sectionAt` and `sectionCount`, in wire order. */
 export const STATUS_SECTION = {
@@ -3870,44 +3850,6 @@ export const STATUS_SECTION = {
   loudBuses: 12,
   loudEnergies: 13,
   busDuck: 14,
-} as const;
-
-/** Each STATUS section's count field: its byte offset in the header (from the envelope's first byte). */
-export const STATUS_SECTION_COUNT_AT = {
-  ended: 64,
-  demoted: 66,
-  starved: 68,
-  playheads: 70,
-  clipEvents: 74,
-  streamEvents: 76,
-  peaks: 72,
-  beds: 114,
-  zones: 128,
-  zoneEvents: 124,
-  musicRings: 144,
-  groupStarts: 146,
-  loudBuses: 232,
-  loudEnergies: 234,
-  busDuck: 236,
-} as const;
-
-/** Each STATUS section's per-block cap. */
-export const STATUS_SECTION_MAX = {
-  ended: 1024,
-  demoted: 1024,
-  starved: 1024,
-  playheads: 256,
-  clipEvents: 64,
-  streamEvents: 64,
-  peaks: 32,
-  beds: 4,
-  zones: 4,
-  zoneEvents: 16,
-  musicRings: 16,
-  groupStarts: 8,
-  loudBuses: 9,
-  loudEnergies: 288,
-  busDuck: 32,
 } as const;
 
 /**
