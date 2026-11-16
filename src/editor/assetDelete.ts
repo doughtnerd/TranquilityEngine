@@ -72,7 +72,7 @@ export function whyNotDeletableFolder(project: EditorProject, path: string, open
  * Delete files and folders (selection entries: folders end in "/"), asking first unless the user
  * turned that off; one question for all of them. References to the deleted files in scenes,
  * prefabs and project.json are removed, the open scene's as one undo step. Returns true if they
- * were deleted.
+ * were deleted (once their saved edit histories are gone too).
  */
 export async function deleteAssets(entries: readonly string[]): Promise<boolean> {
   const project = currentProject.value;
@@ -117,11 +117,12 @@ export async function deleteAssets(entries: readonly string[]): Promise<boolean>
     for (const path of loose) await project.deleteFile(path);
   } catch (err) {
     status.value = errorStatus(`Couldn't delete ${name}`, err);
-    assetDocumentsDeleted([...deleting].filter((p) => !project.files.includes(p) && !project.scripts.has(p)));
+    const histories = assetDocumentsDeleted([...deleting].filter((p) => !project.files.includes(p) && !project.scripts.has(p)));
     docVersion.value++;
+    await histories;
     return false;
   }
-  assetDocumentsDeleted([...loose, ...folders]); // open asset documents are dropped with their undo
+  const histories = assetDocumentsDeleted([...loose, ...folders]); // open asset documents are dropped with their undo
   const cleaned = new Set<string>();
   const stack = openScene.value?.stack;
   stack?.beginGroup(`Remove references to ${name}`);
@@ -129,6 +130,7 @@ export async function deleteAssets(entries: readonly string[]): Promise<boolean>
     for (const path of deleting) for (const f of await removeReferences(project, path, `Remove references to ${fileName(path)}`)) cleaned.add(f);
   } catch (err) {
     status.value = errorStatus(`Deleted ${name}, but couldn't remove references to it`, err);
+    await histories;
     return true;
   } finally {
     stack?.endGroup();
@@ -160,5 +162,6 @@ export async function deleteAssets(entries: readonly string[]): Promise<boolean>
       ? {}
       : { action: { label: "Ask before deleting", run: () => (askBeforeDeletingAssets.value = true), done: "You'll be asked before an asset is deleted." } }),
   };
+  await histories;
   return true;
 }

@@ -63,7 +63,7 @@ export interface AssetDocument<T> {
   edit(next: T, options?: EditOptions): void;
   undo(): void;
   redo(): void;
-  /** Write any pending coalesced edit now; resolves when every queued write has settled. */
+  /** Write any pending coalesced edit now; resolves when every queued write has settled, the edit history's included. */
   flush(): Promise<void>;
   /** The history tree, for the History panel. */
   readonly history: AssetHistoryView;
@@ -223,7 +223,12 @@ class Document<T> implements AssetDocument<T> {
 
   flush(): Promise<void> {
     this.endBurst();
-    return this.tail;
+    return Promise.all([this.tail, this.persistence?.written()]).then(() => undefined);
+  }
+
+  /** Resolves when the edit history's queued disk work so far is done. */
+  historyWritten(): Promise<void> {
+    return this.persistence?.written() ?? Promise.resolve();
   }
 
   /** Stop following the file and take no more edits. `write` writes a pending burst and queued writes (the project closed); otherwise they're discarded (the file was deleted). */
@@ -402,26 +407,37 @@ export function openAssetDocument<T>(project: EditorProject, path: string, forma
   return doc;
 }
 
-/** Called by moveAssets: documents (and their history, open or not) at `from`, or inside folder `from`, move to `to`. */
-export function assetDocumentsMoved(moves: readonly (readonly [string, string])[]): void {
+/**
+ * Called by moveAssets: documents (and their history, open or not) at `from`, or inside folder `from`,
+ * move to `to`. Resolves when the saved histories have moved and the open documents write theirs at
+ * the new paths.
+ */
+export function assetDocumentsMoved(moves: readonly (readonly [string, string])[]): Promise<void> {
   const project = documentsProject ?? currentProject.peek();
-  if (project) void moveAssetHistories(project, moves); // queued before the open documents write at their new paths
-  if (documents.size === 0) return;
-  const next = new Map<string, Document<unknown>>();
-  for (const doc of documents.values()) {
-    for (const [from, to] of moves) {
-      if (isWithin(doc.path, from)) {
-        doc.path = to + doc.path.slice(from.length);
-        break;
+  const work: Promise<void>[] = [];
+  if (project) work.push(moveAssetHistories(project, moves)); // queued before the open documents write at their new paths
+  if (documents.size > 0) {
+    const next = new Map<string, Document<unknown>>();
+    for (const doc of documents.values()) {
+      for (const [from, to] of moves) {
+        if (isWithin(doc.path, from)) {
+          doc.path = to + doc.path.slice(from.length);
+          work.push(doc.historyWritten());
+          break;
+        }
       }
+      next.set(doc.path, doc);
     }
-    next.set(doc.path, doc);
+    documents = next;
   }
-  documents = next;
+  return Promise.all(work).then(() => undefined);
 }
 
-/** Called by deleteAssets: documents at or inside these paths are dropped with their history; later edits on a held reference do nothing. */
-export function assetDocumentsDeleted(paths: readonly string[]): void {
+/**
+ * Called by deleteAssets: documents at or inside these paths are dropped with their history; later
+ * edits on a held reference do nothing. Resolves when the saved histories are deleted.
+ */
+export function assetDocumentsDeleted(paths: readonly string[]): Promise<void> {
   const project = documentsProject ?? currentProject.peek();
   for (const [path, doc] of [...documents]) {
     if (!paths.some((p) => isWithin(path, p.replace(/\/+$/, "")))) continue;
@@ -429,5 +445,5 @@ export function assetDocumentsDeleted(paths: readonly string[]): void {
     documents.delete(path);
   }
   documentsDropped.value++;
-  if (project) void deleteAssetHistories(project, paths); // saved histories too, open or not
+  return project ? deleteAssetHistories(project, paths) : Promise.resolve(); // saved histories too, open or not
 }

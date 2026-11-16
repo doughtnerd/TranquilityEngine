@@ -61,7 +61,7 @@ function whyNotScriptMove(project: EditorProject, moves: readonly (readonly [str
 /**
  * Rename or move files and folders: each pair is a project path and its new path (a folder moves
  * with everything in it). Checks them all first, then moves them on disk and updates references.
- * Returns true if they moved.
+ * Resolves, once saved edit histories have moved with their files, to true if they moved.
  */
 export async function moveAssets(moves: readonly (readonly [string, string])[], verb = "Moved"): Promise<boolean> {
   const project = currentProject.value;
@@ -89,12 +89,13 @@ export async function moveAssets(moves: readonly (readonly [string, string])[], 
     }
   } catch (err) {
     status.value = errorStatus(`Couldn't move ${fileName(moves[done.length][0])}`, err);
-    assetDocumentsMoved(done);
+    const histories = assetDocumentsMoved(done);
     if (done.length > 0) await updateReferences(project, done);
+    await histories;
     docVersion.value++;
     return false;
   }
-  assetDocumentsMoved(done); // open asset documents and their undo follow their files
+  const histories = assetDocumentsMoved(done); // open asset documents and their undo follow their files
   const { updated: cleaned, scriptUsers } = await updateReferences(project, done);
   // Open Code tabs follow their files.
   const rename = movedPath(done);
@@ -117,6 +118,7 @@ export async function moveAssets(moves: readonly (readonly [string, string])[], 
       ? { detail: [...done.map(([f, t]) => `${f} → ${t}`), ...cleaned.map((f) => `updated: ${f}`)].join("\n") }
       : {}),
   };
+  await histories;
   return true;
 }
 

@@ -129,9 +129,9 @@ describe("history files on disk", () => {
   });
 
   it("sets aside history that no longer matches the file", async () => {
-    await attachHistory(openScene.value!.stack, "scenes/main.scene.json", projectSlots(fs, ROOT, "scenes/main.scene.json"));
+    const first = await attachHistory(openScene.value!.stack, "scenes/main.scene.json", projectSlots(fs, ROOT, "scenes/main.scene.json"));
     setY(2);
-    await new Promise((r) => setTimeout(r, 0));
+    await first.flush();
     // Someone edits the scene outside the editor.
     const path = joinPath(ROOT, "scenes/main.scene.json");
     fs.files.set(path, (fs.files.get(path) as string).replace('"Ceiling"', '"Roof"'));
