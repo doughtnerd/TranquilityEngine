@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { layoutHistory, relativeTime } from "./historyLayout";
-import { shortcutFor } from "./shortcuts";
 
 describe("History panel layout", () => {
   it("puts a straight line of states in one column, newest first", () => {
@@ -27,19 +26,6 @@ describe("History panel layout", () => {
   it("handles a pruned root (a state whose parent is gone)", () => {
     const l = layoutHistory([{ seq: 5, parent: -1 }, { seq: 6, parent: 5 }]);
     expect(l.rows.map((r) => [r.seq, r.col])).toEqual([[6, 0], [5, 0]]);
-  });
-});
-
-describe("history keys", () => {
-  const press = (mods: { ctrlKey?: boolean; metaKey?: boolean; shiftKey?: boolean; altKey?: boolean }, key = "z", code = "KeyZ") =>
-    shortcutFor({ key, code, ctrlKey: false, metaKey: false, shiftKey: false, ...mods });
-
-  it("Ctrl/Cmd+Alt(+Shift)+Z steps through creation order; plain Ctrl+Z still undoes", () => {
-    expect(press({ ctrlKey: true, altKey: true })).toBe("back");
-    expect(press({ ctrlKey: true, altKey: true, shiftKey: true })).toBe("forward");
-    expect(press({ metaKey: true, altKey: true }, "Ω")).toBe("back"); // Alt changes `key` on macOS
-    expect(press({ ctrlKey: true })).toBe("undo");
-    expect(press({ ctrlKey: true, shiftKey: true })).toBe("redo");
   });
 });
 

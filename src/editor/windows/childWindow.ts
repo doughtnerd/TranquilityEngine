@@ -55,15 +55,15 @@ export interface ChildWindowHandle {
 }
 
 /** The child's page, beside editor.html (vite.editor.config.ts builds it). */
-export const PANEL_WINDOW_PAGE = "panel-window.html";
+const PANEL_WINDOW_PAGE = "panel-window.html";
 /** The element in panel-window.html that `container` is. */
-export const PANEL_WINDOW_ROOT = "panel-window-root";
+const PANEL_WINDOW_ROOT = "panel-window-root";
 
 /** What `onRefused` says when the browser blocked the pop-up. */
-export const POPUP_BLOCKED = "The browser blocked the new window: allow pop-ups for the editor and try again.";
+const POPUP_BLOCKED = "The browser blocked the new window: allow pop-ups for the editor and try again.";
 
-/** The `window.open` features for `bounds`: a pop-up (no tabs or toolbars), placed and sized when given. Exported for tests. */
-export function windowFeatures(bounds?: Partial<WindowBounds>): string {
+/** The `window.open` features for `bounds`: a pop-up (no tabs or toolbars), placed and sized when given. */
+function windowFeatures(bounds?: Partial<WindowBounds>): string {
   const parts = ["popup"];
   const px = (n: number | undefined) => (typeof n === "number" && Number.isFinite(n) ? Math.round(n) : null);
   const w = px(bounds?.w), h = px(bounds?.h), x = px(bounds?.x), y = px(bounds?.y);
@@ -74,8 +74,8 @@ export function windowFeatures(bounds?: Partial<WindowBounds>): string {
   return parts.join(",");
 }
 
-/** A window's bounds as `windowFeatures` takes them (outer position, inner size). Exported for tests. */
-export function boundsOf(win: Pick<Window, "screenX" | "screenY" | "innerWidth" | "innerHeight">): WindowBounds {
+/** A window's bounds as `windowFeatures` takes them (outer position, inner size). */
+function boundsOf(win: Pick<Window, "screenX" | "screenY" | "innerWidth" | "innerHeight">): WindowBounds {
   return { x: win.screenX, y: win.screenY, w: win.innerWidth, h: win.innerHeight };
 }
 
@@ -100,16 +100,6 @@ function closeChildrenWithPage(main: Window): void {
   if (closingWithPage) return;
   closingWithPage = true;
   main.addEventListener("pagehide", closeAllWithPage);
-}
-
-/** Every detached window open now (the raw windows, including ones still loading). */
-export function openChildWindows(): Window[] {
-  return [...open].map((c) => c.window);
-}
-
-/** Close every detached window (as the main window's pagehide does). */
-export function closeAllChildWindows(): void {
-  closeAllWithPage();
 }
 
 /**
@@ -217,8 +207,8 @@ function setUp(main: Window, win: Window, doc: Document, options: ChildWindowOpt
 
 // --- Stylesheets ------------------------------------------------------------------------------------
 
-/** Whether `node` is one of the stylesheets copied into children: a <style>, or a <link rel="stylesheet">. Exported for tests. */
-export function isStyleNode(node: Node): node is HTMLStyleElement | HTMLLinkElement {
+/** Whether `node` is one of the stylesheets copied into children: a <style>, or a <link rel="stylesheet">. */
+function isStyleNode(node: Node): node is HTMLStyleElement | HTMLLinkElement {
   const el = node as Element;
   if (el.nodeType !== 1) return false;
   const tag = el.tagName.toLowerCase();
@@ -231,7 +221,7 @@ export function isStyleNode(node: Node): node is HTMLStyleElement | HTMLLinkElem
  * removed, reordered and rewritten (HMR changes a <style>'s text, or swaps a <link>'s href) as they
  * change. Copies are marked `data-myco-copied`. Returns a function that stops following (the copies stay).
  */
-export function syncStyles(from: Document, to: Document): () => void {
+function syncStyles(from: Document, to: Document): () => void {
   const copies = new Map<Node, HTMLStyleElement | HTMLLinkElement>();
   const anchor = to.createComment(" the editor's stylesheets ");
   const reconcile = () => {
@@ -286,7 +276,7 @@ function copyAttributes(from: Element, to: Element, keep: readonly string[] = []
  * keeps the theme's custom properties, the fonts, the UI scale and the colour scheme in <html>'s `style`,
  * and its kind in `data-theme`. Returns a function that stops following.
  */
-export function syncRootAttributes(from: HTMLElement, to: HTMLElement): () => void {
+function syncRootAttributes(from: HTMLElement, to: HTMLElement): () => void {
   const copy = () => copyAttributes(from, to);
   copy();
   const View = from.ownerDocument.defaultView as (Window & typeof globalThis) | null;
@@ -301,9 +291,9 @@ export function syncRootAttributes(from: HTMLElement, to: HTMLElement): () => vo
 
 /**
  * Tracks whether Alt was pressed and released on its own (the menu bar's focus key, MenuBar.tsx):
- * anything else while it's held (another key, a click, the wheel) makes it a modifier. Exported for tests.
+ * anything else while it's held (another key, a click, the wheel) makes it a modifier.
  */
-export function bareAltTracker(): { down(e: Pick<KeyboardEvent, "key" | "repeat" | "ctrlKey" | "metaKey" | "shiftKey">): void; used(): void; up(e: Pick<KeyboardEvent, "key">): boolean } {
+function bareAltTracker(): { down(e: Pick<KeyboardEvent, "key" | "repeat" | "ctrlKey" | "metaKey" | "shiftKey">): void; used(): void; up(e: Pick<KeyboardEvent, "key">): boolean } {
   let alone = false;
   return {
     down: (e) => void (alone = e.key === "Alt" && !e.repeat && !e.ctrlKey && !e.metaKey && !e.shiftKey),
@@ -322,7 +312,7 @@ export function bareAltTracker(): { down(e: Pick<KeyboardEvent, "key" | "repeat"
  * if it had been pressed in the main window. (Keep MenuBar's own Alt listener on the main window only,
  * or it would run twice.) Returns a function that stops.
  */
-export function forwardMenuKey(child: Window, main: Window): () => void {
+function forwardMenuKey(child: Window, main: Window): () => void {
   const alt = bareAltTracker();
   const down = (e: KeyboardEvent) => alt.down(e);
   const used = () => alt.used();

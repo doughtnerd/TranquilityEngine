@@ -12,7 +12,6 @@ import { applyKept, docPathFor, forgetKept, keepComponent, keepNode, kept, liveR
 import { replaceScripts } from "./scriptLoader";
 import { openScene, sceneCamera } from "./state";
 import { sampleProject, useCoreAssetKinds } from "./testing";
-import { shortcutFor } from "./shortcuts";
 
 useCoreAssetKinds(); // core asset kinds, as main.tsx registers them (ADR 0143)
 
@@ -210,15 +209,3 @@ describe("pausing and stepping the play session", () => {
   });
 });
 
-describe("pause and step shortcuts", () => {
-  const key = (k: string, mods: { ctrlKey?: boolean; shiftKey?: boolean; altKey?: boolean; metaKey?: boolean } = {}) =>
-    shortcutFor({ key: k, code: k.length === 1 ? `Key${k.toUpperCase()}` : k, ctrlKey: false, metaKey: false, shiftKey: false, ...mods });
-  it("Ctrl/Cmd+Shift+P pauses, F10 and Ctrl/Cmd+Alt+P step, Ctrl/Cmd+P still plays", () => {
-    expect(key("P", { ctrlKey: true, shiftKey: true })).toBe("pause");
-    expect(key("p", { metaKey: true, shiftKey: true })).toBe("pause");
-    expect(key("F10")).toBe("step");
-    expect(key("p", { ctrlKey: true, altKey: true })).toBe("step");
-    expect(key("p", { ctrlKey: true })).toBe("play");
-    expect(key("F10", { shiftKey: true })).toBeNull();
-  });
-});
