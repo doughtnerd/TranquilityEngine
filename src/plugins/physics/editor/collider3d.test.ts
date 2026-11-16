@@ -18,17 +18,14 @@ import {
   sphereHandles3D,
   type Pose3D,
 } from "./collider3dMath";
-import { FakeRenderSurface } from "../../../engine/render/fakeViewport";
 import type { EditorOverlay } from "../../../engine/editor";
-import { createRegistry } from "../../../editor/sdk/registry";
-import type { ViewportToolContribution } from "../../../editor/sdk";
-import { createViewportToolHost } from "../../../editor/viewportTools";
+import { viewportTools } from "../../../editor/sdk/contributions";
 import { EDITABLE_COLLIDERS, colliderTool, editingCollider } from "./colliderGizmo";
 import { AddComponent, SetField } from "../../../editor/document";
 import { createNode } from "../../../editor/nodeCreate";
 import { openSceneFile } from "../../../editor/project";
 import { openScene, playState, selection } from "../../../editor/state";
-import { DEMO_SCENE, demoAssets, demoSettings } from "../../../editor/testing";
+import { DEMO_SCENE, demoAssets, demoSettings, sceneViewTools } from "../../../editor/testing";
 
 const close = (a: readonly number[], b: readonly number[]) => a.forEach((v, i) => expect(v).toBeCloseTo(b[i], 6));
 const identity: Pose3D = { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
@@ -189,11 +186,8 @@ describe("character controller and mesh collider gizmos", () => {
 
 /** The collider tool on `engine`'s scene view, over a fake viewport (ADR 0128): what it draws now, and a function that removes it. */
 function colliderView(engine: Engine): { overlay: () => EditorOverlay; stop: () => void } {
-  const tools = createRegistry<ViewportToolContribution>("Viewport tool");
-  tools.register(colliderTool);
-  const surface = new FakeRenderSurface();
-  engine.world.render = surface;
+  const off = viewportTools.register(colliderTool);
   playState.value = "edit";
-  const stop = createViewportToolHost({ engine, world: engine.world, canvas: null, keys: new EventTarget(), tools });
-  return { overlay: () => surface.adapter.overlay?.() ?? { lines: [], handles: [] }, stop: () => (stop(), (engine.world.render = null)) };
+  const view = sceneViewTools(engine);
+  return { overlay: view.overlay, stop: () => (view.stop(), off()) };
 }

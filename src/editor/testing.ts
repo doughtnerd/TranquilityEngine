@@ -2,8 +2,9 @@
 // its types registered (sampleTypes.ts), the core asset kinds (`useCoreAssetKinds`) and the built-in panels
 // (`useBuiltinPanels`).
 import type { VNode } from "preact";
-import type { AssetSource, ProjectSettingsInput } from "../engine";
-import type { ComponentInfo } from "../engine/editor";
+import type { AssetSource, Engine, ProjectSettingsInput } from "../engine";
+import type { ComponentInfo, EditorOverlay } from "../engine/editor";
+import { FakeRenderSurface } from "../engine/render/fakeViewport";
 import { afterAll, beforeAll } from "vitest";
 import "./sampleTypes";
 import { registerCoreAssetKinds } from "./assetKinds.builtin";
@@ -15,6 +16,7 @@ import { settingsKeys, type SettingsDraft } from "./projectSettingsModel";
 import { InspectorSections, type InspectorSectionProps } from "./ui/inspectorSections";
 import type { LazyComponent } from "./ui/lazy";
 import { currentProject, select, status } from "./state";
+import { installViewportTools } from "./viewportTools";
 
 export { MemoryFileSystem };
 
@@ -138,4 +140,55 @@ export const sectionsKey = (draft: SettingsDraft, keys: readonly string[] = sett
 export function inspectorSectionsFor(type: string, paths: InspectorSectionProps["paths"]): LazyComponent<InspectorSectionProps>[] {
   const drawn = InspectorSections({ info: { type } as ComponentInfo, paths } as InspectorSectionProps) as VNode<{ children: VNode[] }>;
   return drawn.props.children.map((view) => view.type as unknown as LazyComponent<InspectorSectionProps>);
+}
+
+/** The scene view's canvas in `sceneViewTools`: the fake surface's canvas, with a cursor and pointer capture. */
+export type SceneViewCanvas = HTMLCanvasElement & { readonly captured: number[] };
+
+/** The editor's viewport tool host running on a scene view, as `sceneViewTools` starts it. */
+export interface SceneViewTools {
+  /** The scene view's surface (draws nothing; `surface.adapter.overlay` is what the tools draw). */
+  readonly surface: FakeRenderSurface;
+  readonly canvas: SceneViewCanvas;
+  /** The page's `window`, where the host listens for keys. */
+  readonly window: EventTarget;
+  /** Whether a modal dialog (`.dialog`) is in the page. */
+  dialogOpen: boolean;
+  /** What the tools draw now. */
+  overlay(): EditorOverlay;
+  /** Remove the tools, the fake surface and the page stand-ins. */
+  stop(): void;
+}
+
+/**
+ * Start the editor's own viewport tool host (`installViewportTools`, as the session does) on
+ * `engine`'s scene view, over a fake render surface, with the page's `window` and `document`
+ * stood in for (Vitest runs without a DOM). It installs every registered viewport tool.
+ */
+export function sceneViewTools(engine: Engine): SceneViewTools {
+  const surface = new FakeRenderSurface();
+  const captured: number[] = [];
+  const canvas = Object.assign(surface.canvas, { style: { cursor: "" }, captured, setPointerCapture: (id: number) => void captured.push(id) }) as unknown as SceneViewCanvas;
+  const page = new EventTarget();
+  const tools: SceneViewTools = {
+    surface,
+    canvas,
+    window: page,
+    dialogOpen: false,
+    overlay: () => surface.adapter.overlay?.() ?? { lines: [], handles: [] },
+    stop: () => {
+      stopHost();
+      engine.world.render = null;
+      for (const [key, before] of saved) {
+        if (before) Object.defineProperty(globalThis, key, before);
+        else delete (globalThis as Record<string, unknown>)[key];
+      }
+    },
+  };
+  const stand: Record<string, unknown> = { window: page, document: { querySelector: (selector: string) => (selector === ".dialog" && tools.dialogOpen ? {} : null) } };
+  const saved = Object.keys(stand).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)] as const);
+  for (const key of Object.keys(stand)) Object.defineProperty(globalThis, key, { value: stand[key], configurable: true, writable: true });
+  engine.world.render = surface;
+  const stopHost = installViewportTools(engine);
+  return tools;
 }

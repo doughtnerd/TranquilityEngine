@@ -2,12 +2,12 @@
 // outline overlay is a "colliders" overlay, and its 2D outlines are selectable.
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Engine } from "../../../engine";
-import { createRegistry } from "../../../editor/sdk/registry";
-import type { ViewportToolContribution } from "../../../editor/sdk";
+import { viewportTools } from "../../../editor/sdk/contributions";
+import { setEditorOverlayFilter, shownEditorOverlays } from "../../../engine/editor";
 import { openSceneFile } from "../../../editor/project";
 import { activateViewportTool, activeViewportTool, pickTool, playState, selection } from "../../../editor/state";
-import { DEMO_SCENE, demoAssets, demoSettings } from "../../../editor/testing";
-import { createViewportToolHost, selectableOutlines } from "../../../editor/viewportTools";
+import { DEMO_SCENE, demoAssets, demoSettings, sceneViewTools } from "../../../editor/testing";
+import { selectableOutlines } from "../../../editor/viewportTools";
 import { colliderTool, editingCollider } from "./colliderGizmo";
 
 const COLLIDER_TOOL_ID = colliderTool.id;
@@ -16,23 +16,21 @@ import { editColliderAction } from "./EditColliderButton";
 describe("the collider tool", () => {
   let engine: Engine;
   let dispose: () => void;
-  const overlays = new Map<string, string>();
+  /** The scene view's overlays that draw collider outlines (kind "colliders"). */
+  const colliderOverlays = () => {
+    setEditorOverlayFilter(engine.world, (kind) => kind === "colliders");
+    const ids = shownEditorOverlays(engine.world);
+    setEditorOverlayFilter(engine.world, null);
+    return ids;
+  };
 
   beforeEach(async () => {
     engine = await Engine.create({ headless: true, kind: "editor", project: demoSettings(), assets: demoAssets() });
     openSceneFile(engine, DEMO_SCENE);
     playState.value = "edit";
-    const tools = createRegistry<ViewportToolContribution>("Viewport tool");
-    tools.register(colliderTool);
-    dispose = createViewportToolHost({
-      engine,
-      world: engine.world,
-      canvas: null,
-      keys: new EventTarget(),
-      tools,
-      addOverlay: (id, _provider, kind) => void overlays.set(id, kind),
-      removeOverlay: (id) => void overlays.delete(id),
-    });
+    const off = viewportTools.register(colliderTool);
+    const view = sceneViewTools(engine);
+    dispose = () => (view.stop(), off());
   });
 
   afterEach(() => {
@@ -43,7 +41,7 @@ describe("the collider tool", () => {
   });
 
   it("draws a colliders overlay and marks the 2D outlines selectable", () => {
-    expect(overlays.get(COLLIDER_TOOL_ID)).toBe("colliders");
+    expect(colliderOverlays()).toEqual([COLLIDER_TOOL_ID]);
     expect(selectableOutlines(engine.world).length).toBe(3); // ground, ceiling, bird
   });
 
@@ -75,6 +73,6 @@ describe("the collider tool", () => {
     dispose();
     dispose = () => {};
     expect(editingCollider.value).toBeNull();
-    expect(overlays.has(COLLIDER_TOOL_ID)).toBe(false);
+    expect(colliderOverlays()).toEqual([]);
   });
 });

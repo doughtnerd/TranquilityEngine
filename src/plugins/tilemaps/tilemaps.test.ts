@@ -10,14 +10,12 @@ import { select as selectAssets } from "../../editor/assetSelection";
 import { kindIcon, kindLabel, registeredKind, satisfiesFieldKind } from "../../editor/assetKindLookup";
 import { joinPath, openFolderProject } from "../../editor/projects";
 import { assetFormats, assetKinds, panels, viewportTools } from "../../editor/sdk/contributions";
-import { createViewportToolHost } from "../../editor/viewportTools";
 import type { Engine } from "../../engine";
-import type { World } from "../../engine/core/World";
 import { brushTool, pickBrushTool } from "./editor/brush";
 import { isPluginActive } from "../../editor/sdk/plugins";
 import { useEditorPlugins } from "../testEditorPlugins";
 import { activeViewportTool, currentProject, pickTool } from "../../editor/state";
-import { inspectorSectionsFor, MemoryFileSystem, ROOT, useCoreAssetKinds } from "../../editor/testing";
+import { inspectorSectionsFor, MemoryFileSystem, ROOT, sceneViewTools, useCoreAssetKinds } from "../../editor/testing";
 import { formatTileset } from "./editor/tilesetAssets";
 import { EDITOR_PLUGINS } from "../editor";
 import { RUNTIME_PLUGINS, isRuntimePluginActive } from "../runtime";
@@ -102,8 +100,9 @@ describe("the Tilemaps plugin's editor half (ADR 0134)", () => {
   });
 
   it("keeps the brush and the active viewport tool in step, and leaves the editor's keys alone", () => {
-    const canvas = Object.assign(new EventTarget(), { style: { cursor: "" }, getBoundingClientRect: () => ({ left: 0, top: 0 }) });
-    const dispose = createViewportToolHost({ engine: {} as Engine, world: {} as World, canvas, keys: new EventTarget(), addOverlay: () => {}, removeOverlay: () => {}, editable: () => false });
+    const view = sceneViewTools({ world: {} } as unknown as Engine);
+    const canvas = view.canvas;
+    const dispose = view.stop;
     try {
       pickBrushTool("pencil");
       expect(activeViewportTool.value).toBe(PAINT_TOOL_ID);
