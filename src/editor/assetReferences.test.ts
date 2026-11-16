@@ -3,20 +3,8 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input } from "../engine";
 import { meshesEditorPlugin } from "../plugins/meshes/editor";
-import {
-  assetDependencies,
-  assetRefPath,
-  assetUsers,
-  hasOwnReferences,
-  namesAsset,
-  parseAssetRef,
-  removeReferences,
-  rewriteReferences,
-  sceneWithoutAsset,
-  settingsWithoutAsset,
-  withMovedAssets,
-  type ReferenceSource,
-} from "./assetReferences";
+import { assetDependencies, assetUsers, hasOwnReferences, removeReferences, rewriteReferences, type ReferenceSource } from "./assetReferences";
+import { assetRefPath, namesAsset, parseAssetRef, sceneWithoutAsset, settingsWithoutAsset, withMovedAssets } from "./assetRefValues";
 import type { SceneFile } from "./document";
 import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile } from "./project";

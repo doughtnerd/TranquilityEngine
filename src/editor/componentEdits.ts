@@ -110,7 +110,7 @@ export function addComponentTo(scene: OpenScene, targets: readonly { path: NodeP
  * it is dropped (or, for one from the prefab, a `removeComponent` override is added), and field
  * overrides for that component go while later ones of the type shift down by one.
  */
-export function overridesWithout(list: readonly OverrideEntry[], target: readonly string[], type: string, index: number, liveCount: number): OverrideEntry[] {
+function overridesWithout(list: readonly OverrideEntry[], target: readonly string[], type: string, index: number, liveCount: number): OverrideEntry[] {
   const added = addedBy(list, target, type);
   const fromPrefab = liveCount - added.length;
   const dropAt = index >= fromPrefab ? added[index - fromPrefab] : -1;

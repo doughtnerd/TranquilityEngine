@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { Engine } from "../engine";
-import { knownEngineCategory } from "./componentCategories";
+import { buildMenuTree } from "./componentCategories";
 import { NEW_NODE_KINDS, newNodeEntry } from "./nodeCreate";
 import { openSceneFile } from "./project";
 import { openScene } from "./state";
@@ -16,7 +16,7 @@ afterEach(() => {
 
 describe("UI in the editor (ADR 0069)", () => {
   it("files the UI components under UI", () => {
-    for (const id of ["engine.UICanvas", "engine.UIPanel", "engine.UIText", "engine.UIImage", "engine.UIButton", "engine.UIInputField"]) expect(knownEngineCategory(id)).toBe("UI");
+    for (const id of ["engine.UICanvas", "engine.UIPanel", "engine.UIText", "engine.UIImage", "engine.UIButton", "engine.UIInputField"]) expect(buildMenuTree([{ id, name: id, group: "Engine" as const }], new Map())[0]!.label).toBe("UI");
   });
 
   it("creates each UI element with its component", async () => {

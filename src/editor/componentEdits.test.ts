@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input } from "../engine";
 import { componentCatalog, listComponents, type ComponentInfo } from "../engine/editor";
-import { addComponentTo, inFileOrder, moveComponent, newComponentEntry, overridesWithout, removeComponentFrom, setComponentEnabled, whyNotAddable, whyNotRemovable, whyNotReorderable, whyNotToggleable } from "./componentEdits";
+import { addComponentTo, inFileOrder, moveComponent, newComponentEntry, removeComponentFrom, setComponentEnabled, whyNotAddable, whyNotRemovable, whyNotReorderable, whyNotToggleable } from "./componentEdits";
 import { SetField, SetOverrides, type NodePath } from "./document";
 import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile } from "./project";
@@ -115,25 +115,19 @@ describe("on prefab instances", () => {
 
 describe("renumbering overrides after a removal", () => {
   it("drops the removed component's field overrides and shifts later ones down", () => {
+    const { doc, stack } = scene();
     const t = "engine.BoxCollider2D";
-    const list = [
+    // Two boxes the overrides added to the instance, each with a field override.
+    stack.execute(new SetOverrides("bg-a", "Boxes", [
+      { addComponent: { type: t } },
+      { addComponent: { type: t } },
       { component: t, field: "isTrigger", value: true }, // index 0
-      { component: t, index: 1, field: "isTrigger", value: true },
-      { component: t, index: 2, field: "isTrigger", value: false },
-      { target: ["top"], component: t, field: "isTrigger", value: true }, // another node
-      { addComponent: { type: t } }, // the live node's third box
-    ];
-    // Three live boxes: two from the prefab, then the one the override added. Remove the added one:
-    // its addComponent override and its field override go.
-    expect(overridesWithout(list, [], t, 2, 3)).toEqual([list[0], list[1], list[3]]);
-    // Remove the first (from the prefab): its field override goes, the others shift, and a removeComponent override is added.
-    expect(overridesWithout(list, [], t, 0, 3)).toEqual([
-      { component: t, field: "isTrigger", value: true },
       { component: t, index: 1, field: "isTrigger", value: false },
-      list[3],
-      list[4],
-      { removeComponent: t },
-    ]);
+    ]));
+    expect(removeComponentFrom(scene(), [{ ...target("bg-a"), info: info("bg-a", t, 0) }])).toBe(1);
+    // The first box's addComponent and field override go; the second's field override shifts to index 0.
+    expect(doc.node("bg-a").overrides).toEqual([{ addComponent: { type: t } }, { component: t, field: "isTrigger", value: false }]);
+    expect(info("bg-a", t, 0).fields.find((f) => f.name === "isTrigger")?.value).toBe(false);
   });
 });
 
