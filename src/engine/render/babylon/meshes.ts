@@ -18,6 +18,7 @@ import type { DrawnMaterial } from "../RenderSurface";
 import type { EditorMesh } from "./editorContext";
 import type { DrawnDescription, FeatureSyncContext, MeshesFeatureApi } from "./feature";
 import type { BabylonMaterialLibrary } from "./materialLibrary";
+import { matrixChanged } from "../changeDetection";
 import { MeshBatches, sameDraw, type DrawKey, type Drawable } from "./meshBatches";
 import type { ProbeHit } from "./probes";
 
@@ -55,23 +56,6 @@ interface MeshEntry {
 const tmpMatrix = new Matrix();
 /** The batch a renderer mesh wants this frame, refilled per mesh (ADR 0108). */
 const wantedKey: DrawKey = { src: null as unknown as ModelMesh, material: null as unknown as BabylonMaterial, receiveShadows: true, castShadows: true, mode: "auto", applyFog: true };
-
-/**
- * @internal Whether a world matrix (16 floats of `source` from `offset`) differs from the one an
- * entry's meshes were last frozen with; if so, it becomes the entry's.
- */
-export function matrixChanged(entry: { matrix: Float32Array | null }, source: ArrayLike<number>, offset: number): boolean {
-  let m = entry.matrix;
-  if (m) {
-    let i = 0;
-    while (i < 16 && m[i] === source[offset + i]) i++;
-    if (i === 16) return false;
-  } else {
-    m = entry.matrix = new Float32Array(16);
-  }
-  for (let i = 0; i < 16; i++) m[i] = source[offset + i];
-  return true;
-}
 
 /** A Babylon material in the engine's material terms (diagnostics, ADR 0128). */
 function drawnMaterial(m: BabylonMaterial): DrawnMaterial {

@@ -53,7 +53,8 @@ import type { Color4 } from "@babylonjs/core/Maths/math.color.js";
 import type { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import { ThinDepthOfFieldEffectBlurLevel } from "@babylonjs/core/PostProcesses/thinDepthOfFieldEffect.js";
-import { stackKey, type PostEffects, type ToneMappingName } from "../postEffects";
+import { refillIfChanged } from "../changeDetection";
+import { AO_SETTINGS, cameraPasses, stackKey, type PostEffects, type ToneMappingName } from "../postEffects";
 import { FINISH_SAMPLERS, FINISH_SHADER, FINISH_UNIFORMS, TONE_MAPPING_CODE } from "./finishShader";
 import { reclusterForNextCamera } from "./lighting";
 import { cascadeCasterList, type CustomRenderList } from "./shadowCulling";
@@ -220,52 +221,6 @@ interface ViewTargets {
   geometryDepth: FrameGraphTextureHandle | null;
 }
 
-/**
- * Ambient occlusion per quality (ADR 0111): sample count and the share of the camera's resolution it
- * runs at. Low and medium run at half resolution (a quarter of the pixels), then blur at full.
- */
-export const AO_SETTINGS = {
-  low: { samples: 8, ratio: 0.5 },
-  medium: { samples: 16, ratio: 0.5 },
-  high: { samples: 32, ratio: 1 },
-  ultra: { samples: 48, ratio: 1 },
-} as const;
-
-/**
- * @internal Refill the shadow casters' list only when its meshes changed, in one splice. Babylon
- * watches a shadow map's render list, and when it goes from empty to filled it marks every mesh in
- * the scene as needing its shader defines rebuilt: clearing and refilling it each frame did that
- * every frame.
- */
-export function setCasters(list: AbstractMesh[], casters: readonly AbstractMesh[]): boolean {
-  if (list.length === casters.length && list.every((m, i) => m === casters[i])) return false;
-  list.splice(0, list.length, ...casters);
-  return true;
-}
-
-/** @internal One kind of pass in a camera's part of the frame. */
-export type PassKind = "clear" | "render" | "geometry" | "ao" | "dof" | "bloom" | "ca" | "finish" | "fxaa";
-
-/**
- * @internal A camera's passes, in order, for its effects (null: none), and whether something asked for
- * the scene depth (ADR 0109). The builder follows this list; it's separate so the layout is tested
- * without a GPU. The geometry pass (view depth, and normals for ambient occlusion) runs before the
- * render pass, so what the render pass draws last (particles) can sample the opaque scene's depth.
- */
-export function cameraPasses(effects: PostEffects | null, depth = false): PassKind[] {
-  const passes: PassKind[] = ["clear"];
-  if (depth || effects?.ambientOcclusion || effects?.depthOfField) passes.push("geometry");
-  passes.push("render");
-  if (effects?.ambientOcclusion) passes.push("ao");
-  if (effects?.depthOfField) passes.push("dof");
-  if (effects?.bloom) passes.push("bloom");
-  if (effects?.chromaticAberration) passes.push("ca");
-  passes.push("finish");
-  // Babylon's frame graph has no SMAA: FXAA stands in for it.
-  if (effects?.antialias === "fxaa" || effects?.antialias === "smaa") passes.push("fxaa");
-  return passes;
-}
-
 /** Each scene's frame graph, for `requestSceneDepth` and `sceneDepth`. */
 const frames = new WeakMap<Scene, BabylonFrame>();
 
@@ -372,7 +327,7 @@ export class BabylonFrame {
 
   /** Draw a frame: rebuild the graph if its layout changed, update every value, run it. */
   render(views: CameraView[], shadows: ShadowRequest[], casters: readonly AbstractMesh[], samples: number): void {
-    setCasters(this.casterMeshes, casters);
+    refillIfChanged(this.casterMeshes, casters);
     const key = JSON.stringify({
       samples,
       depth: this.depthConsumers.size > 0,

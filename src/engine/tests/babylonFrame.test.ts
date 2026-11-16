@@ -1,11 +1,10 @@
 // ADR 0075 stage 3: the finish pass and each camera's pass layout on the Babylon backend, without a GPU.
 import { ShaderStore } from "@babylonjs/core/Engines/shaderStore.js";
 import { describe, expect, it } from "vitest";
-import { AO_SETTINGS, cameraPasses, setCasters } from "../render/babylon/frameGraph";
 import type { Mesh } from "@babylonjs/core/Meshes/mesh.js";
-import { matrixChanged } from "../render/babylon/meshes";
+import { matrixChanged, refillIfChanged } from "../render/changeDetection";
 import { FINISH_SAMPLERS, FINISH_SHADER, FINISH_UNIFORMS } from "../render/babylon/finishShader";
-import type { PostEffects } from "../render/postEffects";
+import { AO_SETTINGS, cameraPasses, type PostEffects } from "../render/postEffects";
 
 describe("the finish pass (ADR 0075)", () => {
   it("is registered in WGSL and GLSL, each declaring every uniform", () => {
@@ -136,10 +135,10 @@ describe("per-frame work the Babylon backend skips when nothing changed (ADR 007
         return f(...args);
       };
     }
-    expect(setCasters(list, [a, b])).toBe(true);
-    expect(setCasters(list, [a, b])).toBe(false);
+    expect(refillIfChanged(list, [a, b])).toBe(true);
+    expect(refillIfChanged(list, [a, b])).toBe(false);
     expect(calls).toEqual(["splice"]);
-    expect(setCasters(list, [a, c])).toBe(true);
+    expect(refillIfChanged(list, [a, c])).toBe(true);
     expect([...list]).toEqual([a, c]);
     expect(calls).toEqual(["splice", "splice"]); // never emptied then pushed: an emptied list dirties every mesh
   });

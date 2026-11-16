@@ -38,8 +38,8 @@ function rgbe(r: number, g: number, b: number, out: Uint8Array, at: number): voi
   out[at + 3] = e + 128;
 }
 
-/** @internal The studio room as a Radiance `.hdr` file (equirectangular, `width` × `width / 2`). */
-export function studioHdr(width = 256): Uint8Array {
+/** The studio room as a Radiance `.hdr` file (equirectangular, `width` × `width / 2`). */
+function studioHdr(width = 256): Uint8Array {
   const height = width / 2;
   const header = new TextEncoder().encode(`#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y ${height} +X ${width}\n`);
   const out = new Uint8Array(header.length + width * height * 4);

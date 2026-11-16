@@ -107,3 +107,36 @@ export function resolvePostEffects(s: PostSettings | null, tier: QualityTier): R
   const needsComposer = (post && anyEffect) || tier.antialias === "smaa" || tier.antialias === "fxaa";
   return { composer: needsComposer ? effects : null, toneMapping, exposure };
 }
+
+/**
+ * Ambient occlusion per quality (ADR 0111): sample count and the share of the camera's resolution it
+ * runs at. Low and medium run at half resolution (a quarter of the pixels), then blur at full.
+ */
+export const AO_SETTINGS = {
+  low: { samples: 8, ratio: 0.5 },
+  medium: { samples: 16, ratio: 0.5 },
+  high: { samples: 32, ratio: 1 },
+  ultra: { samples: 48, ratio: 1 },
+} as const;
+
+/** One kind of pass in a camera's part of the frame. */
+export type PassKind = "clear" | "render" | "geometry" | "ao" | "dof" | "bloom" | "ca" | "finish" | "fxaa";
+
+/**
+ * A camera's passes, in order, for its effects (null: none), and whether something asked for
+ * the scene depth (ADR 0109). The Babylon frame graph (`render/babylon/frameGraph.ts`) follows this
+ * list. The geometry pass (view depth, and normals for ambient occlusion) runs before the render pass, so what the render pass draws last (particles) can sample the opaque scene's depth.
+ */
+export function cameraPasses(effects: PostEffects | null, depth = false): PassKind[] {
+  const passes: PassKind[] = ["clear"];
+  if (depth || effects?.ambientOcclusion || effects?.depthOfField) passes.push("geometry");
+  passes.push("render");
+  if (effects?.ambientOcclusion) passes.push("ao");
+  if (effects?.depthOfField) passes.push("dof");
+  if (effects?.bloom) passes.push("bloom");
+  if (effects?.chromaticAberration) passes.push("ca");
+  passes.push("finish");
+  // Babylon's frame graph has no SMAA: FXAA stands in for it.
+  if (effects?.antialias === "fxaa" || effects?.antialias === "smaa") passes.push("fxaa");
+  return passes;
+}
