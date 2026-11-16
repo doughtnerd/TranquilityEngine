@@ -9,7 +9,7 @@ import { Scene } from "@babylonjs/core/scene.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Assets } from "../index";
 import { surfaceMaterial } from "../render/babylon/materials";
-import { clearModelCache, loadMeshes } from "../scene/models";
+import { loadMeshes } from "../scene/models";
 
 const file = (path: string) => readFileSync(new URL(`../../../samples/pirates/${path}`, import.meta.url));
 const dataUrl = (path: string, type = "application/octet-stream") => `data:${type};base64,${file(path).toString("base64")}`;
@@ -40,7 +40,6 @@ function stubDocument(): void {
 describe("model textures (ADR 0044, 0075)", () => {
   beforeEach(() => {
     stubDocument();
-    clearModelCache();
     Assets.clearSources();
     Assets.addSource(
       Assets.fromObject({
@@ -54,7 +53,6 @@ describe("model textures (ADR 0044, 0075)", () => {
   });
   afterEach(() => {
     vi.unstubAllGlobals();
-    clearModelCache();
     Assets.clearSources();
   });
 

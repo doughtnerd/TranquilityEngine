@@ -414,8 +414,8 @@ export class ClientPrediction {
 
 const predictions = new WeakMap<World, ClientPrediction>();
 
-/** @internal A client World's prediction, created on first use; null if the World isn't a network client. */
-export function clientPrediction(world: World): ClientPrediction | null {
+/** A client World's prediction, created on first use; null if the World isn't a network client. */
+function clientPrediction(world: World): ClientPrediction | null {
   const session = netSession(world);
   if (!session?.isClient) return null;
   let p = predictions.get(world);

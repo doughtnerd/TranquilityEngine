@@ -213,7 +213,7 @@ function sameIds(a: readonly string[], b: readonly string[]): boolean {
 // --- the per-connection string table (ADR 0100) --------------------------------------------------
 
 /** Entries a connection's string table holds at most; later strings go inline every time. */
-export const MAX_TABLE_STRINGS = 4096;
+const MAX_TABLE_STRINGS = 4096;
 
 /**
  * The server's string table for one connection. A string is sent inline with an index the first

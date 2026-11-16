@@ -43,7 +43,7 @@ interface Pending {
   unreliableSeq?: number;
 }
 
-export class LoopbackConnection implements TransportConnection {
+class LoopbackConnection implements TransportConnection {
   readonly id: number;
   readonly remote: string;
   /** @internal What the owning transport's `poll()` has returned: the open event, then the close. */
@@ -128,7 +128,7 @@ export class LoopbackConnection implements TransportConnection {
   }
 }
 
-export class LoopbackTransport implements Transport {
+class LoopbackTransport implements Transport {
   /** @internal */
   readonly now: () => number;
   /** @internal */

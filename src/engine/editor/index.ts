@@ -445,7 +445,7 @@ const overlayProviders = new WeakMap<World, Map<string, OverlayEntry>>();
 const overlayFilters = new WeakMap<World, (kind: EditorOverlayKind) => boolean>();
 
 /** Several overlays in one: lines, segments and handles concatenated in order. */
-export function mergeOverlays(overlays: readonly EditorOverlay[]): EditorOverlay {
+function mergeOverlays(overlays: readonly EditorOverlay[]): EditorOverlay {
   const merged: EditorOverlay = { lines: [], handles: [] };
   for (const o of overlays) {
     merged.lines.push(...o.lines);
@@ -496,12 +496,6 @@ function installOverlays(world: World, map: Map<string, OverlayEntry>): void {
   // None shown: no provider, so the backend clears what it drew and stops asking.
   if (shown.length === 0) return viewport(world).setOverlay(null);
   viewport(world).setOverlay(() => mergeOverlays(shown.map((p) => p())));
-}
-
-/** Draw an overlay (lines and handles) supplied by `provider` every frame; null stops. Shares the World with `addEditorOverlay`'s overlays (under the id "default"). */
-export function setEditorOverlay(world: World, provider: (() => EditorOverlay) | null): void {
-  if (provider) addEditorOverlay(world, "default", provider);
-  else removeEditorOverlay(world, "default");
 }
 
 // --- Play mode's Stats -------------------------------------------------------------------------

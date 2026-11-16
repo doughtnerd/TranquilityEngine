@@ -5,6 +5,7 @@
  * classification run the bake's own Rust code (`nav-wasm`'s `plan.rs`); the small rules here are ports of the
  * editors' own.
  */
+import { invertAffine } from "../core/math";
 import { loadNavigation } from "./loader";
 import type { NavGeometry } from "./geometry";
 import type { NavAgentType, NavigationSettings } from "./settings";
@@ -89,7 +90,7 @@ export function resolveAgentType(settings: NavigationSettings, idOrName: string)
 }
 
 /** `ToBakeFlyer` + `RequestedFlightCellSize`: the flight cell an agent type asks for (before rounding to voxels). */
-export function flightBaseCell(settings: NavigationSettings, type: NavAgentType): number {
+function flightBaseCell(settings: NavigationSettings, type: NavAgentType): number {
   const radius = Math.max(type.flight.radius, 0.01);
   const fixed = settings.flightVoxels === "fixed" ? settings.flightCellSize : 0;
   return fixed > 0 ? fixed : radius / Math.max(settings.flightCellsPerRadius, 0.25);
@@ -99,7 +100,7 @@ export function flightBaseCell(settings: NavigationSettings, type: NavAgentType)
 export const MAX_REGION_LEVELS = 3;
 
 /** How many halvings a resolution region gives a flight volume whose base cell is `baseCell` (0 = it does nothing). */
-export function resolutionRegionLevel(baseCell: number, regionCell: number): number {
+function resolutionRegionLevel(baseCell: number, regionCell: number): number {
   if (!(regionCell > 0) || !(baseCell > 0)) return 0;
   return Math.min(MAX_REGION_LEVELS, Math.max(0, Math.round(Math.log2(baseCell / regionCell))));
 }
@@ -203,22 +204,6 @@ export async function bakeVolumeGroups(bytes: Uint8Array): Promise<number[]> {
 /** A bake's flight leaves (stride 5: min xyz, edge, area), only those in `area` (an area id; "" = any), and with `refinedOnly` only those in resolution regions. */
 export async function debugBakeFlightLeaves(bytes: Uint8Array, group: number, area: string, refinedOnly: boolean): Promise<Float32Array> {
   return (await loadNavigation()).debugBakeFlightLeaves(bytes, group, area, refinedOnly);
-}
-
-/** The inverse of an affine column-major 4×4 matrix (null if singular). */
-export function invertAffine(m: ArrayLike<number>): number[] | null {
-  const [a, b, c, d, e, f, g, h, i] = [m[0], m[1], m[2], m[4], m[5], m[6], m[8], m[9], m[10]];
-  const A = e * i - f * h, B = -(d * i - f * g), C = d * h - e * g;
-  const det = a * A + b * B + c * C;
-  if (Math.abs(det) < 1e-12) return null;
-  const inv = [A, -(b * i - c * h), b * f - c * e, B, a * i - c * g, -(a * f - c * d), C, -(a * h - b * g), a * e - b * d].map((x) => x / det);
-  // inv is row-major 3×3: inv[r * 3 + c].
-  const t = [m[12], m[13], m[14]];
-  const out = new Array<number>(16).fill(0);
-  for (let col = 0; col < 3; col++) for (let row = 0; row < 3; row++) out[col * 4 + row] = inv[row * 3 + col];
-  for (let row = 0; row < 3; row++) out[12 + row] = -(inv[row * 3] * t[0] + inv[row * 3 + 1] * t[1] + inv[row * 3 + 2] * t[2]);
-  out[15] = 1;
-  return out;
 }
 
 /** Leaves (stride 5) whose centres are inside the oriented box `boxToWorld` (the unit box `[-0.5, 0.5]^3` to world). */

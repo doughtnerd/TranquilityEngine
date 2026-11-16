@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { importSettingsJSON, parseImportSettings, type ImportSettings } from "../../engine/scene/importSettings";
+import { formatImportSettings, parseImportSettings, type ImportSettings } from "../../engine/scene/importSettings";
 import { multichannelWarning, orderChoice, setAmbisonicConvention, setAmbisonicOrder, toggleAmbisonic } from "./ambisonicBlockLogic";
 
 const base = (): ImportSettings => parseImportSettings({ format: "myco.import@1" }).settings;
-const json = (s: ImportSettings) => importSettingsJSON(s);
+/** The sidecar file's JSON object for `s`. */
+const json = (s: ImportSettings): Record<string, unknown> => JSON.parse(formatImportSettings(s));
 
 describe("Ambisonic block edits", () => {
   it("toggling on with defaults writes an empty object; off removes the key", () => {

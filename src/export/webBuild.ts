@@ -69,7 +69,7 @@ const EDITOR_FILES = new Set(["tsconfig.json", "jsconfig.json", "sample.json"]);
  * dependency and build folders, editor-only files, and TypeScript (scripts ship compiled).
  * Asset sidecars (`<asset>.meta.json`) are ordinary files and go in.
  */
-export function isExportedFile(path: string): boolean {
+function isExportedFile(path: string): boolean {
   const parts = path.split("/");
   if (parts.some((p) => p.startsWith(".") || SKIP_DIRS.has(p))) return false;
   if (parts.length === 1 && EDITOR_FILES.has(path)) return false;
@@ -85,7 +85,7 @@ export const DEPS_DIR = "code/deps";
  * Compile every script and point its imports at build files; npm packages they import are bundled
  * into `code/deps/` (ADR 0125). Throws an `ExportError` listing every script that fails.
  */
-export async function compileForBuild(
+async function compileForBuild(
   scripts: ReadonlyMap<string, string>,
   json: ReadonlyMap<string, string>,
   packages?: PackageSource,

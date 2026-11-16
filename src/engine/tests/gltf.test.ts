@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Assets } from "../index";
-import { clearModelCache, isModelPath, loadMeshes, meshTriangles, modelMeshNames } from "../scene/models";
+import { isModelPath, loadMeshes, meshTriangles, loadModel } from "../scene/models";
 
 const bytesOf = (url: URL) => readFileSync(url);
 const fixture = (name: string) => bytesOf(new URL(`./fixtures/gltf/${name}`, import.meta.url));
@@ -9,7 +9,6 @@ const sample = (name: string) => bytesOf(new URL(`../../../samples/playground3d/
 const dataUrl = (bytes: Uint8Array | Buffer, type = "application/octet-stream") => `data:${type};base64,${Buffer.from(bytes).toString("base64")}`;
 
 function useAssets(files: Record<string, unknown>) {
-  clearModelCache();
   Assets.clearSources();
   Assets.addSource(Assets.fromObject(files));
 }
@@ -102,7 +101,7 @@ describe("glTF models (ADR 0088)", () => {
   it("loads an embedded .gltf: primitives merge into one mesh with a slot each, nodes give the path", async () => {
     const { json } = triangleGltf("embedded");
     useAssets({ "models/tri.gltf": dataUrl(new TextEncoder().encode(JSON.stringify(json))) });
-    expect(await modelMeshNames("models/tri.gltf")).toEqual(["Wing", "Decal"]);
+    expect((await loadModel("models/tri.gltf")).meshes.map((m) => m.name)).toEqual(["Wing", "Decal"]);
     const [wing] = await loadMeshes("asset:models/tri.gltf#Wing#model");
     expect(wing.path).toEqual(["Root"]);
     expect(wing.surfaces.map((s) => s.name)).toEqual(["Paint", "Glass"]);
@@ -143,7 +142,7 @@ describe("glTF models (ADR 0088)", () => {
       "models/ext/tri.bin": dataUrl(ext.bin),
       "models/ext/textures/sticker.png": `data:image/png;base64,${PNG}`,
     });
-    expect(await modelMeshNames("models/tri.glb")).toEqual(["Wing", "Decal"]);
+    expect((await loadModel("models/tri.glb")).meshes.map((m) => m.name)).toEqual(["Wing", "Decal"]);
     const meshes = await loadMeshes("asset:models/ext/tri.gltf");
     expect(meshes.map((m) => m.name)).toEqual(["Wing", "Decal"]);
     expect(meshes[1].surfaces[0].map?.src).toBe(Assets.url("models/ext/textures/sticker.png"));

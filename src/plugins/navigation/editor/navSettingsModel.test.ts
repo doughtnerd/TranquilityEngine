@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_NAV_AGENT_TYPE_ID } from "../../../engine/nav/settings";
 import {
   addNavAgentType,
   addNavArea,
@@ -38,6 +37,9 @@ import { navigationEditorPlugin } from "./index";
 // The Project panel's Navigation section (ADR 0065): editing project.json's `navigation` key, which the
 // section owns and checks (ADR 0151) while the plugin is on.
 useEditorPlugins([navigationEditorPlugin]);
+
+/** The default Humanoid agent type's id: fixed, since saved settings and scenes refer to it. */
+const DEFAULT_NAV_AGENT_TYPE_ID = "6e2a0f1c-5b7d-4c3e-9a10-4d2f8b6c1e01";
 
 describe("navigation settings draft", () => {
   it("reads the defaults without a section, and writes only the navigation key", () => {

@@ -69,12 +69,6 @@ export function pluginDependencies(manifests: readonly Named[], name: string): s
   return manifests.map((m) => m.name).filter((n) => out.has(n));
 }
 
-/** Names in `disabled` that no plugin has (a plugin that was removed, or a typo). Old names of renamed plugins count as known. */
-export function unknownPlugins(manifests: readonly Named[], disabled: readonly string[] = []): string[] {
-  const known = new Set(manifests.map((m) => m.name));
-  return disabled.filter((n) => !known.has(RENAMED_PLUGINS[n] ?? n));
-}
-
 /**
  * The `disabled` list after turning `name` on or off. Off lists the plugin and everything that needs
  * it; on removes the plugin and everything it needs. Other entries (unknown names included) are kept.

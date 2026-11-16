@@ -35,7 +35,7 @@ export interface TranscodeResult {
 export type ImageTranscoder = (bytes: Uint8Array, request: TranscodeRequest) => Promise<TranscodeResult>;
 
 /** The request for an image whose settings resolved for a platform are `s`, or null when they leave it alone. */
-export function transcodeRequest(path: string, s: { maxSize: number; compression: TextureCompression; filter: "linear" | "point" }): TranscodeRequest | null {
+function transcodeRequest(path: string, s: { maxSize: number; compression: TextureCompression; filter: "linear" | "point" }): TranscodeRequest | null {
   if (s.maxSize <= 0 && s.compression === "none") return null;
   const quality = s.compression === "none" ? null : COMPRESSION_QUALITY[s.compression];
   return {

@@ -28,7 +28,7 @@ export const PHYSICS_3D = "myco.physics3d";
 export const physics3DOf = (world: World): PhysicsWorld3D | null => world.service<PhysicsWorld3D>(PHYSICS_3D);
 
 /** Component types that start 3D physics: in a loaded scene (one not set to another physics dimension), or attaching later. */
-export const PHYSICS_3D_COMPONENTS: readonly string[] = ["engine.RigidBody", "engine.BoxCollider", "engine.SphereCollider", "engine.CapsuleCollider", "engine.MeshCollider", "engine.CharacterController", "engine.FixedJoint", "engine.HingeJoint", "engine.SliderJoint", "engine.BallJoint", "engine.RopeJoint", "engine.SpringJoint"];
+const PHYSICS_3D_COMPONENTS: readonly string[] = ["engine.RigidBody", "engine.BoxCollider", "engine.SphereCollider", "engine.CapsuleCollider", "engine.MeshCollider", "engine.CharacterController", "engine.FixedJoint", "engine.HingeJoint", "engine.SliderJoint", "engine.BallJoint", "engine.RopeJoint", "engine.SpringJoint"];
 
 /** @internal 3D physics as a World service (ADR 0135, 0137). */
 export const PHYSICS_3D_SERVICE = physicsWorldService<PhysicsWorld3D>({

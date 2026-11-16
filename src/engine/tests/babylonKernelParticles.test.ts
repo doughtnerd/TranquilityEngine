@@ -14,13 +14,16 @@ import { kernelExecutors } from "../render/babylon/gpuParticles";
 import type { ParticleCommand, ParticleSystem } from "../render/components";
 import { defaultBlock } from "../scene/particleBlocks";
 import type { ContextKind, GraphInputValue, ParticleGraph, ParticleGraphSystem } from "../scene/particleGraph";
-import { particleGraphJSON, newGraphId, systemTemplate } from "../scene/particleGraphFormat";
+import { newGraphId, systemTemplate, formatParticleGraph } from "../scene/particleGraphFormat";
+
+/** A graph as its file's JSON object. */
+const graphJSON = (graph: ParticleGraph): Record<string, unknown> => JSON.parse(formatParticleGraph(graph));
 
 function fakeSystem(graph: ParticleGraph, over: Partial<ParticleSystem> = {}) {
   return {
     isActiveAndEnabled: true,
     effect: "",
-    embeddedEffect: particleGraphJSON(graph),
+    embeddedEffect: graphJSON(graph),
     overrides: {},
     playOnAwake: true,
     timeScale: 1,

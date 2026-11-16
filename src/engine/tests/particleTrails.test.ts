@@ -1,7 +1,7 @@
 // ADR 0126: trails on kernel outputs (compiler, the JavaScript executor's history, the draw shaders).
 import { describe, expect, it } from "vitest";
 import { compileParticleGraph } from "../scene/particleCompile";
-import { compileParticleKernels, KERNEL_FLOATS, LUT_SAMPLES, MAX_TRAIL_HISTORY } from "../scene/particleKernel";
+import { compileParticleKernels, KERNEL_FLOATS, LUT_SAMPLES } from "../scene/particleKernel";
 import { defaultBlock } from "../scene/particleBlocks";
 import type { ContextKind, GraphInputValue, ParticleGraph, ParticleGraphSystem } from "../scene/particleGraph";
 import { newGraphId, systemTemplate } from "../scene/particleGraphFormat";
@@ -49,8 +49,9 @@ describe("kernel trails (ADR 0126)", () => {
   it("keeps the history within its budget, and points within 2 to 64", () => {
     const big = trailGraph(1_000_000, 64).g;
     const kp = compileParticleKernels(big, compileParticleGraph(big));
-    expect(kp.systems[0].trail! * 1_000_000).toBeLessThanOrEqual(MAX_TRAIL_HISTORY);
-    expect(kp.problems.some((p) => /points/.test(p.message))).toBe(true);
+    const budget = kp.problems.map((p) => /keep at most (\d+) points in all/.exec(p.message)).find(Boolean);
+    expect(budget).toBeTruthy(); // reported, naming the budget
+    expect(kp.systems[0].trail! * 1_000_000).toBeLessThanOrEqual(Number(budget![1]));
     const long = trailGraph(16, 500).g;
     expect(compileParticleKernels(long, compileParticleGraph(long)).systems[0].trail).toBe(64);
   });

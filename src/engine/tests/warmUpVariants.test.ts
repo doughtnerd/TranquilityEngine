@@ -18,9 +18,12 @@ import type { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { BabylonParticles } from "../render/babylon/particles";
 import { warmWorldCanvas } from "../render/babylon/ui";
 import { PipelineWarmer, WARM_PREFIX, type WarmCustom, type WarmParts } from "../render/babylon/warmUp";
-import { defaultEmitter, defaultShape, particleEffectJSON, type ParticleEffect, type ParticleEmitterSettings, type ParticleRenderer } from "../scene/particles";
+import { defaultEmitter, defaultShape, type ParticleEffect, type ParticleEmitterSettings, type ParticleRenderer, PARTICLES_FORMAT } from "../scene/particles";
 import { scriptAssetRefs } from "../scene/scriptAssetRefs";
 import { _setScriptAssetRefs, warmSet } from "../scene/warmUp";
+
+/** An effect as its `myco.particles@1` file's JSON object. */
+const legacyJSON = (effect: ParticleEffect): Record<string, unknown> => ({ format: PARTICLES_FORMAT, ...effect });
 
 /** GUI textures draw on a 2D canvas: one that draws nothing (NullEngine has no canvas in Node). */
 function fakeCanvas(width: number, height: number) {
@@ -53,7 +56,7 @@ describe("the warm set's particles and world UI (ADR 0080)", () => {
           format: "myco.scene@1",
           nodes: [
             { id: "fire", name: "Fire", components: [{ type: "engine.ParticleSystem", data: { effect: "asset:effects/fire.particles.json" } }] },
-            { id: "old", name: "Old", components: [{ type: "engine.ParticleSystem", data: { embeddedEffect: particleEffectJSON(fx) } }] },
+            { id: "old", name: "Old", components: [{ type: "engine.ParticleSystem", data: { embeddedEffect: legacyJSON(fx) } }] },
             { id: "sign", name: "Sign", components: [{ type: "engine.UICanvas", data: { mode: "world" } }] },
             { id: "hud", name: "Hud", components: [{ type: "engine.UICanvas", data: {} }] },
             { id: "rock", name: "Rock", components: [renderer({ mesh: "builtin:cube" })] },
@@ -61,9 +64,9 @@ describe("the warm set's particles and world UI (ADR 0080)", () => {
         },
         "scenes/plain.scene.json": { format: "myco.scene@1", nodes: [{ id: "hud", name: "Hud", components: [{ type: "engine.UICanvas", data: {} }] }] },
         "prefabs/smoke.prefab.json": { format: "myco.scene@1", nodes: [{ id: "s", name: "Smoke", components: [{ type: "engine.ParticleSystem", data: { effect: "asset:effects/smoke.particles.json" } }] }] },
-        "effects/fire.particles.json": particleEffectJSON(fx),
-        "effects/smoke.particles.json": particleEffectJSON(fx),
-        "effects/spark.particles.json": particleEffectJSON(fx),
+        "effects/fire.particles.json": legacyJSON(fx),
+        "effects/smoke.particles.json": legacyJSON(fx),
+        "effects/spark.particles.json": legacyJSON(fx),
       }),
     );
   });
@@ -222,7 +225,7 @@ describe("warming particle effects (ADR 0080)", () => {
   const quadsOf = (m: Mesh) => (m.isVisible ? m.subMeshes[0]!.indexCount / 6 : 0);
 
   it("builds each emitter's draw with one particle where it's told, too small to see", () => {
-    const effect = particleEffectJSON({ emitters: [emitter("Dots", { blending: "additive" }), emitter("Rocks", { mode: "mesh", mesh: "builtin:cube" }), emitter("Streaks", { mode: "trail" })] });
+    const effect = legacyJSON({ emitters: [emitter("Dots", { blending: "additive" }), emitter("Rocks", { mode: "mesh", mesh: "builtin:cube" }), emitter("Streaks", { mode: "trail" })] });
     const parts = player.warm(effect, `${WARM_PREFIX}fx`, at, camera)!;
     expect(parts.systems).toHaveLength(1);
     expect(parts.meshes.map((m) => m.hasThinInstances)).toEqual([true, false]); // the rocks' thin instances, the streaks' ribbon
@@ -245,7 +248,7 @@ describe("warming particle effects (ADR 0080)", () => {
   it("waits for a texture it needs, and draws material-asset emitters with the material", async () => {
     let resolve!: (t: RawTexture) => void;
     textures.set("images/spark.png", new Promise((r) => (resolve = r)));
-    const effect = particleEffectJSON({ emitters: [emitter("Sparks", { texture: "images/spark.png" })] });
+    const effect = legacyJSON({ emitters: [emitter("Sparks", { texture: "images/spark.png" })] });
     expect(player.warm(effect, "w", at, camera)).toBeNull(); // loading: ask again later
     resolve(RawTexture.CreateRGBATexture(new Uint8Array(4), 1, 1, scene));
     await Promise.resolve();
@@ -255,7 +258,7 @@ describe("warming particle effects (ADR 0080)", () => {
     expect(parts.meshes).toHaveLength(0);
     parts.dispose();
     material = new StandardMaterial("fx", scene);
-    const quads = player.warm(particleEffectJSON({ emitters: [emitter("Lit", { material: "materials/fx.material.json" })] }), "w", at, camera)!;
+    const quads = player.warm(legacyJSON({ emitters: [emitter("Lit", { material: "materials/fx.material.json" })] }), "w", at, camera)!;
     expect(quads.systems).toHaveLength(0);
     expect(quads.meshes[0]!.material).toBe(material);
     expect(quadsOf(quads.meshes[0]!)).toBe(1);

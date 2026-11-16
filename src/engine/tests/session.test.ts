@@ -2,8 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Assets, Connection, ConnectionState, Engine, GameObject, defineRpc, defineSystem, i32, u8, type BootstrapConfig, type LinkConfig } from "../index";
 import { World } from "../core/World";
 import { createBitWriter } from "../net/codec";
-import { NET_PROTOCOL_VERSION, netSession, registerNetMessage } from "../net/session";
-import { LoopbackTransport } from "../net/transport/loopback";
+import { netSession, registerNetMessage } from "../net/session";
+import { createTransport } from "../net/Transport";
 
 // ADR 0033, T10: connections, network ticks and RPCs, over the loopback transport on a fake clock
 // that advances with `engine.step`, so everything is deterministic.
@@ -131,7 +131,7 @@ describe("connections (T10)", () => {
 
     /** Connect by hand and send a hello; return the close reason the client hears. */
     const handshake = (version: number, rpcs: string[]) => {
-      const raw = new LoopbackTransport({ now });
+      const raw = createTransport("loopback", { now });
       const link = raw.connect("test-session-raw");
       step(engine, 1);
       raw.poll(); // open
@@ -148,8 +148,11 @@ describe("connections (T10)", () => {
       raw.close();
       return close?.kind === "close" ? close.reason : "";
     };
-    expect(handshake(NET_PROTOCOL_VERSION + 1, [])).toMatch(new RegExp(`Protocol version mismatch: World "Raw" speaks netcode version ${NET_PROTOCOL_VERSION + 1}`));
-    const reason = handshake(NET_PROTOCOL_VERSION, ["test.session.Shared(a:f32)", "test.session.Extra(x:u8)"]);
+    const mismatch = handshake(999, []);
+    expect(mismatch).toMatch(/Protocol version mismatch: World "Raw" speaks netcode version 999, the server World "Server" version \d+/);
+    const version = Number(/version (\d+)\.?$/.exec(mismatch)![1]); // the server's
+    expect(handshake(version + 1, [])).toMatch(new RegExp(`speaks netcode version ${version + 1}`));
+    const reason = handshake(version, ["test.session.Shared(a:f32)", "test.session.Extra(x:u8)"]);
     expect(reason).toMatch(/RPC mismatch: only the client defines "test.session.Extra"/);
     expect(reason).toMatch(/"test.session.Shared" differs \(client test.session.Shared\(a:f32\), server test.session.Shared\(a:i32\)\)/);
     expect(connections(world(engine, "Server"))).toHaveLength(1); // only the real client

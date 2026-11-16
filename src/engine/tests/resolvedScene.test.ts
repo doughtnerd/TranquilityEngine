@@ -1,15 +1,13 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { Assets } from "../index";
-import { NAV_RUNTIME_TYPES, navBakeRefs } from "../../plugins/navigation/runtime/navigationSystems";
-import { PHYSICS_3D_COMPONENTS } from "../../plugins/physics/runtime/systems3d";
-import { anyComponentOf, assetRefs, invalidateResolvedScenes, resolveScene, resolvedComponents } from "../scene/resolvedScene";
+import { navBakeBytesIfLoaded, preloadNavBakes } from "../../plugins/navigation/runtime/navigationSystems";
+import { assetRefs, resolveScene, resolvedComponents } from "../scene/resolvedScene";
 import { collectAssetRefs } from "../scene/SceneLoader";
 import { warmSet } from "../scene/warmUp";
 
 const F = "myco.scene@1";
-/** What the 3D physics World service's scene scan asks (ADR 0135). */
-const usesPhysics3D = (path: string) => anyComponentOf(path, PHYSICS_3D_COMPONENTS);
-const usesNavigation = (path: string) => anyComponentOf(path, NAV_RUNTIME_TYPES);
+/** Whether the scene at `path` has a component of `type`, as World services' scene scans ask (ADR 0135). */
+const hasComponent = (path: string, type: string) => resolvedComponents(path).some((c) => c.type === type);
 const files: Record<string, unknown> = {
   "scene.json": {
     nodes: [
@@ -87,8 +85,8 @@ describe("resolved scene view", () => {
     expect(out).not.toContain("i/deep/leaf");
   });
   it("helpers", () => {
-    expect(anyComponentOf("scene.json", ["game.LateOnAdded"], { read })).toBe(true);
-    expect(anyComponentOf("scene.json", new Set(["game.Nope"]), { read })).toBe(false);
+    expect(resolvedComponents("scene.json", { read }).some((c) => c.type === "game.LateOnAdded")).toBe(true);
+    expect(resolvedComponents("scene.json", { read }).some((c) => c.type === "game.Nope")).toBe(false);
     expect(resolvedComponents("scene.json", { read }).some((c) => c.type === "game.Loop")).toBe(true);
   });
 });
@@ -96,7 +94,6 @@ describe("resolved scene view", () => {
 describe("walkers see every override kind", () => {
   beforeEach(() => {
     Assets.clearSources();
-    invalidateResolvedScenes();
   });
   const use = (map: Record<string, unknown>) => Assets.addSource(Assets.fromObject(map));
   const prefab = { format: F, nodes: [{ id: "root", components: [] }] };
@@ -105,16 +102,18 @@ describe("walkers see every override kind", () => {
     nodes: [{ id: "i", prefab: "prefabs/p.prefab.json", overrides: [{ addNodes: [{ id: "n", components: [component] }] }] }],
   });
 
-  it("usesPhysics3D: a MeshCollider added via addNodes", () => {
+  it("3D physics' scan: a MeshCollider added via addNodes", () => {
     use({ "s.scene.json": added({ type: "engine.MeshCollider" }), "prefabs/p.prefab.json": prefab });
-    expect(usesPhysics3D("s.scene.json")).toBe(true);
+    expect(hasComponent("s.scene.json", "engine.MeshCollider")).toBe(true);
   });
-  it("usesNavigation and navBakeRefs: a NavAgent / NavChunk added via addNodes", () => {
+  it("navigation's scan and bake preload: a NavAgent / NavChunk added via addNodes", async () => {
     use({ "s.scene.json": added({ type: "engine.NavAgent" }), "prefabs/p.prefab.json": prefab });
-    expect(usesNavigation("s.scene.json")).toBe(true);
+    expect(hasComponent("s.scene.json", "engine.NavAgent")).toBe(true);
     Assets.clearSources();
-    use({ "s.scene.json": added({ type: "engine.NavChunk", data: { bake: "bakes/a.bin" } }), "prefabs/p.prefab.json": prefab });
-    expect(navBakeRefs("s.scene.json")).toEqual(["bakes/a.bin"]);
+    use({ "s.scene.json": added({ type: "engine.NavChunk", data: { bake: "bakes/a.bin" } }), "prefabs/p.prefab.json": prefab, "bakes/a.bin": "data:application/octet-stream;base64,AQID" });
+    expect(navBakeBytesIfLoaded("bakes/a.bin")).toBeNull(); // not loaded yet
+    await preloadNavBakes("s.scene.json");
+    expect(navBakeBytesIfLoaded("bakes/a.bin")).toEqual(new Uint8Array([1, 2, 3]));
   });
   it("collectAssetRefs follows a prefab inside addNodes", () => {
     use({
@@ -135,8 +134,8 @@ describe("walkers see every override kind", () => {
   it("the cache follows asset changes", () => {
     const src = { "s.scene.json": added({ type: "engine.MeshCollider" }), "prefabs/p.prefab.json": prefab };
     use(src);
-    expect(usesPhysics3D("s.scene.json")).toBe(true);
+    expect(hasComponent("s.scene.json", "engine.MeshCollider")).toBe(true);
     src["s.scene.json"] = added({ type: "game.None" });
-    expect(usesPhysics3D("s.scene.json")).toBe(false);
+    expect(hasComponent("s.scene.json", "engine.MeshCollider")).toBe(false);
   });
 });

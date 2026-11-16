@@ -5,7 +5,7 @@ import { Engine, GameObject, Input, defineInput, defineSystem, f32, i32, u8, typ
 import { World } from "../engine/core/World";
 import { engineWorld, netWorldInfo, worldViewStates } from "../engine/editor";
 import { netSession } from "../engine/net/session";
-import type { LoopbackTransport } from "../engine/net/transport/loopback";
+import type { LinkConditions } from "../engine/net/Transport";
 import { NetStatsSampler, byCategory, clampConditions, clientLayout, createThinInput, ghostTypeLabel, hostLayout, playBootstrap, trafficCategory, withConditions, playWorldSources } from "./netPlay";
 import { OrbitCamera } from "./OrbitCamera";
 import { startPlay } from "./playMode";
@@ -14,6 +14,9 @@ import { editorSettings, useProjectAssets, type EditorProject } from "./projects
 import { replaceScripts } from "./scriptLoader";
 import { openScene, sceneCamera } from "./state";
 import { sampleProject } from "./testing";
+
+/** A loopback transport: it simulates link conditions. */
+type LoopbackTransport = { readonly conditions: Readonly<LinkConditions> };
 
 // Multiplayer play mode (ADR 0033 §9, T15): the play-time bootstrap, thin clients and conditions.
 
@@ -380,7 +383,7 @@ describe("multiplayer play mode", () => {
     });
     try {
       const conditions = () =>
-        ["Client 1", "Client 2", "Server"].flatMap((name) => netSession(engineWorld(play.engine, name)!)!.transportList().map((t) => (t as LoopbackTransport).conditions));
+        ["Client 1", "Client 2", "Server"].flatMap((name) => netSession(engineWorld(play.engine, name)!)!.transportList().map((t) => (t as unknown as LoopbackTransport).conditions));
       expect(conditions()).toEqual(Array(3).fill({ latencyMs: 80, jitterMs: 10, loss: 0.05 }));
       play.setConditions({ latencyMs: 200, jitterMs: 0, lossPercent: 0 });
       expect(conditions()).toEqual(Array(3).fill({ latencyMs: 200, jitterMs: 0, loss: 0 }));

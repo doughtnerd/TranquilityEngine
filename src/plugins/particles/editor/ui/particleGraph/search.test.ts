@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { emptyParticleGraph } from "../../../../../engine/scene/particleGraphFormat";
 import { assetCanvasItems, blockItems, canvasItems } from "./search";
+import { parseParticleGraph } from "../../../../../engine/scene/particleGraphFormat";
+import type { ParticleGraph } from "../../../../../engine/scene/particleGraph";
+
+/** A graph with nothing in it. */
+const emptyParticleGraph = (): ParticleGraph => parseParticleGraph({}).graph;
 
 describe("particle graph search", () => {
   it("offers the Output blocks (also for extra outputs) and the new blocks", () => {

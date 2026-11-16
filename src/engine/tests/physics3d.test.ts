@@ -20,7 +20,6 @@ import {
   type Collider,
   type Collision,
 } from "../../myco";
-import { clearModelCache } from "../scene/models";
 import { boxHalfExtents, capsuleSize, sphereRadius } from "../physics/shape3d";
 
 const events: string[] = [];
@@ -42,7 +41,6 @@ const dataUrl = (path: string) => `data:application/octet-stream;base64,${readFi
 
 async function setup(settings: Record<string, unknown> = { physics: "3d" }) {
   events.length = 0;
-  clearModelCache();
   Assets.clearSources();
   Assets.addSource(
     Assets.fromObject({

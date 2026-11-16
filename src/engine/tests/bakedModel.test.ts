@@ -2,16 +2,15 @@
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Assets } from "../index";
-import { BAKED_SUFFIX, decodeBakedModel, isBakedModel } from "../scene/bakedModel";
+import { BAKED_SUFFIX, decodeBakedModel } from "../scene/bakedModel";
 import { defaultImportSettings } from "../scene/importSettings";
-import { bakeModelFile, clearModelCache, loadMeshes } from "../scene/models";
+import { bakeModelFile, loadMeshes } from "../scene/models";
 
 const sample = (p: string) => readFileSync(new URL(`../../../samples/playground3d/${p}`, import.meta.url));
 const dataUrl = (bytes: Uint8Array | Buffer) => `data:application/octet-stream;base64,${Buffer.from(bytes).toString("base64")}`;
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=";
 
 function use(files: Record<string, unknown>) {
-  clearModelCache();
   Assets.clearSources();
   Assets.addSource(Assets.fromObject(files));
 }
@@ -21,7 +20,6 @@ const MTL = "newmtl Painted\nKd 1 0.5 0\nmap_Kd textures/paint.png\n";
 
 describe("baked models (ADR 0090)", () => {
   afterEach(() => {
-    clearModelCache();
     Assets.clearSources();
     vi.restoreAllMocks();
   });
@@ -30,7 +28,7 @@ describe("baked models (ADR 0090)", () => {
     use({ "models/lamp.glb": dataUrl(sample("models/lamp.glb")) });
     const { bytes, dropped } = await bakeModelFile("models/lamp.glb");
     expect(dropped).toEqual([]);
-    expect(isBakedModel(bytes.buffer as ArrayBuffer)).toBe(true);
+    expect(() => decodeBakedModel(new ArrayBuffer(32), defaultImportSettings(), (p) => p)).toThrow(/not a baked model/);
     const original = await loadMeshes("asset:models/lamp.glb");
     const baked = decodeBakedModel(bytes.buffer as ArrayBuffer, defaultImportSettings(), (p) => p)!;
     expect(baked.meshes.map((m) => m.name)).toEqual(original.map((m) => m.name));

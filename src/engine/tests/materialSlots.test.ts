@@ -12,14 +12,13 @@ import { Assets } from "../index";
 import { MeshRenderer } from "../render/components";
 import { getFields } from "../core/registry";
 import { formatImportSettings, parseImportSettings } from "../scene/importSettings";
-import { DEFAULT_SLOT, clearModelCache, loadMeshes, materialSlots, type SurfaceInfo } from "../scene/models";
+import { DEFAULT_SLOT, loadMeshes, materialSlots, type SurfaceInfo } from "../scene/models";
 import { meshOf, modelMaterial, surfaceMaterial } from "../render/babylon/materials";
 
 const lamp = () => `data:application/octet-stream;base64,${readFileSync(new URL("../../../samples/playground3d/models/lamp.glb", import.meta.url)).toString("base64")}`;
 
 describe("material slots (ADR 0089)", () => {
   beforeEach(() => {
-    clearModelCache();
     Assets.clearSources();
     Assets.addSource(Assets.fromObject({ "models/lamp.glb": lamp() }));
   });

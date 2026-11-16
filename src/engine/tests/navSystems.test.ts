@@ -18,9 +18,8 @@ import {
 } from "../../myco";
 import { World } from "../core/World";
 import { bakeChunk, releaseBakeCaches, type NavBakeMesh } from "../nav/bake";
-import { clearNavBakeCache } from "../../plugins/navigation/runtime/navigationSystems";
 import { chunkIdOf, type Vec3 } from "../../plugins/navigation/runtime/runtime";
-import { defaultNavAgentType, defaultNavigationSettings, type NavigationSettings } from "../nav/settings";
+import { defaultNavAgentType, parseNavigationSettings, type NavigationSettings } from "../nav/settings";
 
 // ADR 0065, W6: navigation in the engine: components, the built-in systems and the Navigation facade, on a
 // headless Engine with a scene whose NavChunk references a bake made here (a floor split by a wall with a gated gap).
@@ -31,7 +30,7 @@ const BAKE = "scenes/nav.nav.bin";
 const GATE = "door";
 
 function navSettings(): NavigationSettings {
-  const s = defaultNavigationSettings();
+  const s = parseNavigationSettings(undefined).settings;
   s.agentTypes = [defaultNavAgentType(WALKER, "Walker")];
   return s;
 }
@@ -106,7 +105,6 @@ function sceneFile(options: SceneOptions) {
 }
 
 async function setup(options: SceneOptions = {}) {
-  clearNavBakeCache();
   Assets.clearSources();
   Assets.addSource(Assets.fromObject({ [SCENE]: sceneFile(options), [BAKE]: bakeUrl }));
   const engine = await Engine.create({ headless: true, project: project() });

@@ -3,13 +3,12 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { Assets } from "../index";
 import { defaultImportSettings, formatImportSettings, parseImportSettings } from "../scene/importSettings";
 import { colorHex, defaultMaterialSettings, formatMaterial, parseMaterial } from "../scene/material";
-import { clearModelCache, loadMeshes, meshesIfLoaded, meshTriangles, modelMeshNames } from "../scene/models";
+import { loadMeshes, loadModel, meshesIfLoaded, meshTriangles } from "../scene/models";
 
 const file = (path: string) => readFileSync(new URL(`../../../samples/playground3d/${path}`, import.meta.url));
 const dataUrl = (path: string) => `data:application/octet-stream;base64,${file(path).toString("base64")}`;
 
 function useAssets(extra: Record<string, unknown> = {}) {
-  clearModelCache();
   Assets.clearSources();
   Assets.addSource(
     Assets.fromObject({
@@ -41,7 +40,7 @@ describe("model assets (ADR 0044)", () => {
   });
 
   it("loads an FBX's meshes in model space with unique names, and picks one with #name", async () => {
-    expect(await modelMeshNames("models/robot.fbx")).toEqual(["Body", "Head"]);
+    expect((await loadModel("models/robot.fbx")).meshes.map((m) => m.name)).toEqual(["Body", "Head"]);
     const [head] = await loadMeshes("asset:models/robot.fbx#Head#model");
     expect(bounds(head.geometry!)).toEqual({ min: [-0.25, 1.25, -0.25], max: [0.25, 1.75, 0.25] }); // its place in the file is baked in
     expect(meshesIfLoaded("asset:models/robot.fbx")?.map((m) => m.name)).toEqual(["Body", "Head"]);
@@ -55,10 +54,11 @@ describe("model assets (ADR 0044)", () => {
   });
 
   it("reports meshes still loading as null and missing ones as empty", async () => {
-    expect(meshesIfLoaded("asset:models/crate.obj")).toBeNull();
-    await loadMeshes("asset:models/crate.obj");
-    expect(meshesIfLoaded("asset:models/crate.obj")).toHaveLength(1);
-    expect(meshesIfLoaded("asset:models/crate.obj#Nope")).toEqual([]);
+    useAssets({ "models/fresh.obj": dataUrl("models/crate.obj") }); // a model no other test has loaded
+    expect(meshesIfLoaded("asset:models/fresh.obj")).toBeNull();
+    await loadMeshes("asset:models/fresh.obj");
+    expect(meshesIfLoaded("asset:models/fresh.obj")).toHaveLength(1);
+    expect(meshesIfLoaded("asset:models/fresh.obj#Nope")).toEqual([]);
     expect(meshesIfLoaded("asset:models/missing.obj")).toEqual([]);
     expect(meshesIfLoaded("builtin:sphere")?.[0].name).toBe("sphere");
     expect(meshesIfLoaded("builtin:teapot")).toEqual([]);

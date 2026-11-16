@@ -4,13 +4,23 @@ import { PARTICLE_GRAPH_FORMAT, type ParticleGraph } from "../scene/particleGrap
 import {
   defaultParticleGraph,
   formatParticleGraph,
-  migrateParticleEffect,
   newGraphId,
   parseParticleGraph,
-  particleGraphJSON,
   systemTemplate,
 } from "../scene/particleGraphFormat";
-import { BEHAVIOR_TYPES, defaultBehavior, defaultEmitter, defaultParticleEffect, formatParticleEffect, type ParticleEffect } from "../scene/particles";
+import { defaultBehavior, defaultEmitter, type ParticleEffect, PARTICLES_FORMAT, type ParticleBehaviorType } from "../scene/particles";
+
+/** Every @1 behaviour type, in the format's order (a Record, so a behaviour added to the format must be added here too). */
+const BEHAVIOR_TYPES = Object.keys({
+  colorOverLife: 0, sizeOverLife: 0, rotationOverLife: 0, speedOverLife: 0, forceOverLife: 0, gravityPoint: 0, noise: 0, turbulence: 0,
+  orbit: 0, frameOverLife: 0, limitSpeed: 0, colorBySpeed: 0, sizeBySpeed: 0, widthOverLength: 0, collision: 0, collisionColliders: 0,
+} satisfies Record<ParticleBehaviorType, 0>) as ParticleBehaviorType[];
+/** A `myco.particles@1` effect as the graph reading its file gives (migrated). */
+const migratedGraph = (effect: ParticleEffect): ParticleGraph => parseParticleGraph({ format: PARTICLES_FORMAT, ...effect }).graph;
+/** An effect as its `myco.particles@1` file's JSON object. */
+const legacyJSON = (effect: ParticleEffect): Record<string, unknown> => ({ format: PARTICLES_FORMAT, ...effect });
+/** The default @1 effect: one default emitter. */
+const defaultParticleEffect = (): ParticleEffect => ({ emitters: [defaultEmitter()] });
 
 const ofType = (g: ParticleGraph, sys: number, ctx: "spawn" | "initialize" | "update" | "output", type: string) => g[ctx === "spawn" ? "systems" : "systems"][sys][ctx].blocks.filter((b) => b.type === type);
 
@@ -43,7 +53,7 @@ function richEffect(): ParticleEffect {
 
 describe("particle graph migration (@1 to @2)", () => {
   it("migrates the default effect", () => {
-    const g = migrateParticleEffect(defaultParticleEffect());
+    const g = migratedGraph(defaultParticleEffect());
     expect(g.systems).toHaveLength(1);
     const s = g.systems[0];
     expect(s.id).toBe("s1");
@@ -69,7 +79,7 @@ describe("particle graph migration (@1 to @2)", () => {
 
   it("migrates a rich effect", () => {
     const effect = richEffect();
-    const g = migrateParticleEffect(effect);
+    const g = migratedGraph(effect);
     expect(g.systems.map((s) => s.name)).toEqual(["Main", "Embers"]);
     expect(g.systems.map((s) => s.position)).toEqual([[0, 0], [420, 0]]);
     expect(g.systems[1].enabled).toBe(false);
@@ -125,7 +135,7 @@ describe("particle graph migration (@1 to @2)", () => {
     e.renderer.mode = "trail";
     e.renderer.trailLength = { random: [10, 30] };
     e.subEmitters = [{ emitter: "Missing", trigger: "birth", probability: 1, inheritVelocity: false }];
-    const g = migrateParticleEffect({ emitters: [e] });
+    const g = migratedGraph({ emitters: [e] });
     expect(g.systems[0].output.type).toBe("trail");
     expect(g.systems[0].output.settings.trailLength).toBe(20);
     expect(g.events).toEqual([]);
@@ -145,7 +155,7 @@ describe("particle graph migration (@1 to @2)", () => {
 
 describe("particle graph parsing and writing", () => {
   it("detects @1 documents, with or without a format", () => {
-    const text = JSON.parse(formatParticleEffect(defaultParticleEffect()));
+    const text = legacyJSON(defaultParticleEffect());
     expect(parseParticleGraph(text).migrated).toBe(true);
     delete text.format;
     const r = parseParticleGraph(text);
@@ -171,8 +181,7 @@ describe("particle graph parsing and writing", () => {
     expect(text.endsWith("\n")).toBe(true);
     expect(Object.keys(JSON.parse(text))[0]).toBe("format");
     expect(JSON.parse(text).format).toBe(PARTICLE_GRAPH_FORMAT);
-    expect(particleGraphJSON(defaultParticleGraph()).format).toBe(PARTICLE_GRAPH_FORMAT);
-  });
+      });
 
   it("round-trips every template, with notes, groups, properties, nodes and wires", () => {
     const g = defaultParticleGraph();

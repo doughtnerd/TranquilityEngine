@@ -7,7 +7,7 @@
 import { loadNavigation } from "./loader";
 
 /** Line kinds in `debugNavmeshLines` and `debugBakeLines` buffers (stride 7: a xyz, b xyz, kind). */
-export const LINE_KIND = { outline: 0, shared: 1, fold: 2, jump: 3, chunkFace: 4 } as const;
+const LINE_KIND = { outline: 0, shared: 1, fold: 2, jump: 3, chunkFace: 4 } as const;
 
 /** Which parts to draw. */
 export interface NavDebugFlags {
@@ -53,7 +53,7 @@ export interface DebugSegments {
 }
 
 /** Caps so a big bake can't make the scene view crawl (segments per drawing, leaves in total). */
-export const NAV_DEBUG_CAPS = { segments: 60_000, leaves: 4_000, arcSteps: 8 } as const;
+const NAV_DEBUG_CAPS = { segments: 60_000, leaves: 4_000, arcSteps: 8 } as const;
 
 /** Reads a flags object tolerantly: `true` turns everything but the volume on, objects set the keys they name. */
 export function readNavDebugFlags(input: unknown, base: NavDebugFlags = NO_NAV_DEBUG): NavDebugFlags {
@@ -153,7 +153,7 @@ export function leafSegments(leaves: Float32Array, color: number, maxLeaves: num
  * Runtime cost outlines (stride 7: a xyz, b xyz, multiplier; ADR 0070) as segments tinted by multiplier: one colour
  * for excluded polygons, one for costlier (> 1) and one for cheaper (< 1).
  */
-export function costSegments(buf: Float32Array, colors: Pick<NavDebugColors, "costly" | "cheap" | "excluded">, cap: number = NAV_DEBUG_CAPS.segments): DebugSegments[] {
+function costSegments(buf: Float32Array, colors: Pick<NavDebugColors, "costly" | "cheap" | "excluded">, cap: number = NAV_DEBUG_CAPS.segments): DebugSegments[] {
   const costly = new SegmentBuilder(colors.costly, cap);
   const cheap = new SegmentBuilder(colors.cheap, cap);
   const excluded = new SegmentBuilder(colors.excluded, cap);
@@ -166,7 +166,7 @@ export function costSegments(buf: Float32Array, colors: Pick<NavDebugColors, "co
 }
 
 /** Segments from a flat buffer of `stride` floats per row whose first six are a xyz, b xyz (landing links, seams, agent paths). */
-export function rowSegments(buf: Float32Array, stride: number, color: number, cap: number = NAV_DEBUG_CAPS.segments): DebugSegments[] {
+function rowSegments(buf: Float32Array, stride: number, color: number, cap: number = NAV_DEBUG_CAPS.segments): DebugSegments[] {
   const b = new SegmentBuilder(color, cap);
   for (let i = 0; i + stride <= buf.length; i += stride) if (!b.add(buf[i], buf[i + 1], buf[i + 2], buf[i + 3], buf[i + 4], buf[i + 5])) break;
   return b.count > 0 ? [b.done()] : [];

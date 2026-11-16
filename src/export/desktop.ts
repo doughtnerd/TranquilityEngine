@@ -35,7 +35,7 @@ export function slug(name: string): string {
 }
 
 /** The app identifier: `build.identifier`, else `com.myco.game.<slug>`. */
-export function appIdentifier(options: DesktopOptions): string {
+function appIdentifier(options: DesktopOptions): string {
   const given = options.settings.build?.identifier;
   if (given) {
     if (!/^[A-Za-z][\w-]*(\.[A-Za-z][\w-]*)+$/.test(given)) throw new Error(`project.json's build.identifier "${given}" isn't a reverse-DNS name like com.example.mygame.`);

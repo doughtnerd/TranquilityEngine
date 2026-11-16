@@ -68,8 +68,10 @@ describe("bootstrap contract (C1)", () => {
   });
 
   it("resolves the default and function bootstraps", async () => {
-    const { defaultBootstrap, resolveBootstrap } = await import("../core/bootstrap");
-    expect(await resolveBootstrap(undefined)).toBe(defaultBootstrap);
+    const { resolveBootstrap } = await import("../core/bootstrap");
+    const created: unknown[] = [];
+    await (await resolveBootstrap(undefined))({ createWorld: (config: unknown) => created.push(config) } as never);
+    expect(created).toEqual([{ name: "Default", tags: ["default", "local"] }]);
     const custom = () => {};
     expect(await resolveBootstrap(custom)).toBe(custom);
   });

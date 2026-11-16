@@ -4,7 +4,6 @@ import { World } from "../core/World";
 import type { GameObject } from "../scene/GameObject";
 import { bakeChunk, releaseBakeCaches, type NavBakeMesh } from "../nav/bake";
 import {
-  FORMATION_FORMAT,
   clearFormation,
   defaultFormation,
   fillFormation,
@@ -22,29 +21,25 @@ import {
   setFormationCell,
   type NavFormationAsset,
 } from "../nav/formation";
-import { clearNavBakeCache } from "../../plugins/navigation/runtime/navigationSystems";
 import {
   binColor,
   chunkBakesAgentType,
   classifySurfaceBins,
   describeNavBakePlan,
   describeSurfaceBins,
-  flightBaseCell,
-  invertAffine,
   leavesInBox,
   navBakePlan,
   resolutionRegionEffects,
-  resolutionRegionLevel,
   surfaceBinLayout,
 } from "../nav/plan";
-import { defaultNavAgentType, defaultNavigationSettings, type NavigationSettings } from "../nav/settings";
+import { defaultNavAgentType, parseNavigationSettings, type NavigationSettings } from "../nav/settings";
 
 // ADR 0065: formation assets (Foxfire's NavFormation), and the bake plan / bins helpers behind the editor's
 // navigation inspectors (Foxfire's custom editors).
 
 /** A formation from row strings. */
 function rows(lines: string[], shape: NavFormationAsset["shape"] = "mask"): NavFormationAsset {
-  return parseFormation({ format: FORMATION_FORMAT, shape, width: lines[0].length, height: lines.length, cells: lines }).formation;
+  return parseFormation({ format: "myco.formation@1", shape, width: lines[0].length, height: lines.length, cells: lines }).formation;
 }
 const text = (f: NavFormationAsset) => formatFormation(f).match(/"cells": \[([^\]]*)\]/)![1].replace(/[\s"]/g, "").split(",");
 
@@ -130,7 +125,7 @@ describe("formation assets", () => {
 
 describe("bake plan and inspector rules", () => {
   function settings(): NavigationSettings {
-    const s = defaultNavigationSettings();
+    const s = parseNavigationSettings(undefined).settings;
     const small = defaultNavAgentType("small", "Small");
     const twin = defaultNavAgentType("twin", "Twin");
     const big = defaultNavAgentType("big", "Big");
@@ -174,12 +169,13 @@ describe("bake plan and inspector rules", () => {
     expect(chunkBakesAgentType(s, [], "small")).toBe(true);
     expect(chunkBakesAgentType(s, ["small"], "small")).toBe(false);
     expect(chunkBakesAgentType(s, [], "nobody")).toBe(false);
-    const base = flightBaseCell(s, s.agentTypes[3]);
-    expect(base).toBeCloseTo(1 / s.flightCellsPerRadius);
-    expect(resolutionRegionLevel(1, 0.5)).toBe(1);
-    expect(resolutionRegionLevel(1, 0.1)).toBe(3);
-    expect(resolutionRegionLevel(1, 0.8)).toBe(0);
-    expect(resolutionRegionLevel(1, 0)).toBe(0);
+    const base = 1 / s.flightCellsPerRadius; // the bird's flight cell: radius 1 over cells per radius
+    const levelAt = (regionCell: number) => resolutionRegionEffects(s, [], regionCell, [])[0].level;
+    expect(resolutionRegionEffects(s, [], base / 2, [])[0].baseCell).toBeCloseTo(base);
+    expect(levelAt(base / 2)).toBe(1);
+    expect(levelAt(base / 10)).toBe(3); // capped at three halvings
+    expect(levelAt(base * 0.8)).toBe(0);
+    expect(levelAt(0)).toBe(0);
     const effects = resolutionRegionEffects(s, [], base / 4, []);
     expect(effects).toEqual([{ id: "bird", name: "Bird", baseCell: base, level: 2, cell: base / 4 }]);
     expect(resolutionRegionEffects(s, ["bird"], base / 4, [])).toEqual([]);
@@ -203,8 +199,6 @@ describe("bake plan and inspector rules", () => {
   it("keeps flight leaves whose centres are inside an oriented box", () => {
     // A box 2 m wide centred on (10, 0, 0), rotated 90° about y.
     const box = [0, 0, -2, 0, 0, 2, 0, 0, 2, 0, 0, 0, 10, 0, 0, 1];
-    const inv = invertAffine(box)!;
-    expect(inv[12] * 1).toBeCloseTo(0, 5); // maps the centre to the origin
     const leaves = new Float32Array([9.5, -0.5, -0.5, 1, 0, /* centre (10,0,0) inside */ 20, 0, 0, 1, 0 /* outside */]);
     expect(Array.from(leavesInBox(leaves, box))).toEqual([9.5, -0.5, -0.5, 1, 0]);
   });
@@ -217,7 +211,7 @@ const SCENE = "scenes/formation.scene.json";
 const BAKE = "scenes/formation.nav.bin";
 
 function walkSettings(): NavigationSettings {
-  const s = defaultNavigationSettings();
+  const s = parseNavigationSettings(undefined).settings;
   s.agentTypes = [defaultNavAgentType(WALKER, "Walker")];
   return s;
 }
@@ -252,7 +246,6 @@ function find(name: string): GameObject {
 
 /** Four agents join a group using `formation` and walk 30 m along +x; returns their final positions. */
 async function march(formation: NavFormationAsset): Promise<{ x: number; z: number }[]> {
-  clearNavBakeCache();
   Assets.clearSources();
   const members = ["a", "b", "c", "d"];
   Assets.addSource(

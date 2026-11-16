@@ -8,8 +8,12 @@ import { Scene } from "@babylonjs/core/scene.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { EffectPlayer, EffectResources, type EffectHost } from "../render/babylon/effectPlayer";
 import { compileParticleGraph, type ParticleProgram } from "../scene/particleCompile";
-import { migrateParticleEffect } from "../scene/particleGraphFormat";
-import { defaultEmitter, defaultRenderer, defaultShape, type ParticleEffect, type ParticleEmitterSettings, type ParticleRenderer } from "../scene/particles";
+import { defaultEmitter, defaultRenderer, defaultShape, type ParticleEffect, type ParticleEmitterSettings, type ParticleRenderer, PARTICLES_FORMAT } from "../scene/particles";
+import { parseParticleGraph } from "../scene/particleGraphFormat";
+import type { ParticleGraph } from "../scene/particleGraph";
+
+/** A `myco.particles@1` effect as the graph reading its file gives (migrated). */
+const migratedGraph = (effect: ParticleEffect): ParticleGraph => parseParticleGraph({ format: PARTICLES_FORMAT, ...effect }).graph;
 
 /** A steady emitter: `rate` particles a second that live ten seconds. */
 const steady = (name: string, rate = 30, renderer: Partial<ParticleRenderer> = {}): ParticleEmitterSettings => ({
@@ -30,7 +34,7 @@ const oneShot = (name: string, count = 5, life = 0.2): ParticleEmitterSettings =
   emission: { rateOverTime: 0, rateOverDistance: 0, bursts: [{ time: 0, count, cycles: 1, interval: 0.1, probability: 1 }] },
 });
 
-const program = (effect: ParticleEffect): ParticleProgram => compileParticleGraph(migrateParticleEffect(effect));
+const program = (effect: ParticleEffect): ParticleProgram => compileParticleGraph(migratedGraph(effect));
 
 describe("the effect player (ADR 0153)", () => {
   let engine: NullEngine;
@@ -56,7 +60,7 @@ describe("the effect player (ADR 0153)", () => {
   });
 
   it("starts the On Play systems on its own and the event-started ones on their event", () => {
-    const graph = migrateParticleEffect({ emitters: [steady("A"), steady("B")] });
+    const graph = migratedGraph({ emitters: [steady("A"), steady("B")] });
     graph.nodes.push({ id: "n1", type: "event.custom", position: [0, 0], settings: { name: "boom" } });
     graph.events.push({ from: "n1", to: `${graph.systems[1].id}.start` });
     const p = compileParticleGraph(graph);

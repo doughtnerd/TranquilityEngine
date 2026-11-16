@@ -1,19 +1,22 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { createServer } from "node:net";
 import { createTransport, type Transport, type TransportConnection, type TransportEvent } from "../net/Transport";
-import { DEFAULT_WEBSOCKET_LIMITS, WebSocketConnection, decodeFrame, encodeFrame, WebSocketTransport } from "../net/transport/websocket";
-import { NodeWebSocketTransport, parseListenAddress } from "../../server/websocketServer";
+import { WebSocketTransport, type SocketLike } from "../net/transport/websocket";
+import { parseListenAddress, type ListenAddress } from "../../server/websocketServer";
 
 // ADR 0033, T9: the WebSocket transport over real sockets on port 0. The client is the
 // browser-safe transport on Node's global WebSocket; the server is the Node side (ADR 0035).
+
+/** The Node server's "websocket" transport (registered once `src/server/websocketServer` is imported): it can listen. */
+type NodeWebSocketTransport = Transport & { readonly address: ListenAddress | null };
 
 const open: Transport[] = [];
 afterEach(() => {
   for (const transport of open.splice(0)) transport.close();
 });
 
-function server(): NodeWebSocketTransport {
-  const transport = new NodeWebSocketTransport();
+function server(options: Record<string, unknown> = {}): NodeWebSocketTransport {
+  const transport = createTransport("websocket", options) as NodeWebSocketTransport;
   open.push(transport);
   return transport;
 }
@@ -56,14 +59,55 @@ async function connected(): Promise<{ s: NodeWebSocketTransport; c: WebSocketTra
   return { s, c, toServer, toClient: accepted };
 }
 
+/**
+ * A client transport whose connections run over sockets it's handed, as the Node server's do over the sockets
+ * it accepts (`addConnection` is how a subclass makes one): the browser path's logic, without a network.
+ */
+class FakeSocketTransport extends WebSocketTransport {
+  connectOver(socket: SocketLike) {
+    return this.addConnection("fake", socket);
+  }
+}
+
+/** Small limits, so the tests can reach them. */
+const LIMITS = { maxMessageBytes: 16, maxQueuedBytes: 40, unreliableBacklogBytes: 100, maxBacklogBytes: 1000 };
+
+/** An open connection over a fake socket, with the small limits. */
+function fakeConnection(bufferedAmount = 0) {
+  const sent: Uint8Array[] = [];
+  const closes: [number | undefined, string | undefined][] = [];
+  const socket = { bufferedAmount, send: (d: Uint8Array) => void sent.push(d), close: (code?: number, reason?: string) => void closes.push([code, reason]) };
+  const transport = new FakeSocketTransport({ limits: LIMITS });
+  const c = transport.connectOver(socket);
+  c.handleOpen();
+  const events: TransportEvent[] = [];
+  return {
+    c,
+    socket,
+    sent,
+    closes,
+    /** Every event polled so far. */
+    get events() {
+      events.push(...transport.poll());
+      return events;
+    },
+  };
+}
+
 describe("WebSocket framing (T9)", () => {
   it("prefixes a 1-byte channel header and rejects reserved flags", () => {
-    expect([...encodeFrame("reliable", new Uint8Array([7, 8]))]).toEqual([0, 7, 8]);
-    expect([...encodeFrame("unreliable", new Uint8Array([7]))]).toEqual([1, 7]);
-    const decoded = decodeFrame(new Uint8Array([1, 9]));
-    expect(typeof decoded !== "string" && decoded.channel).toBe("unreliable");
-    expect(decodeFrame(new Uint8Array([0x02, 9]))).toMatch(/unknown frame flags/);
-    expect(decodeFrame(new Uint8Array([]))).toMatch(/empty/);
+    const f = fakeConnection();
+    f.c.send("reliable", new Uint8Array([7, 8]));
+    f.c.send("unreliable", new Uint8Array([7]));
+    expect(f.sent.map((frame) => [...frame])).toEqual([[0, 7, 8], [1, 7]]);
+    f.c.handleMessage(new Uint8Array([1, 9]));
+    expect(f.events.at(-1)).toMatchObject({ kind: "data", channel: "unreliable", data: new Uint8Array([9]) });
+    const flags = fakeConnection();
+    flags.c.handleMessage(new Uint8Array([0x02, 9]));
+    expect(flags.events.at(-1)).toMatchObject({ kind: "close", reason: expect.stringMatching(/unknown frame flags/) });
+    const empty = fakeConnection();
+    empty.c.handleMessage(new Uint8Array([]));
+    expect(empty.events.at(-1)).toMatchObject({ kind: "close", reason: expect.stringMatching(/empty/) });
   });
 
   it("parses listen addresses", () => {
@@ -192,33 +236,22 @@ describe("WebSocket transport (T9)", () => {
   it("registers as \"websocket\", with the Node server's listening transport once it's imported", async () => {
     const transport = createTransport("websocket");
     open.push(transport);
-    expect(transport).toBeInstanceOf(NodeWebSocketTransport);
-    await transport.listen("0");
+    await transport.listen("0"); // the browser transport can't
     expect((transport as NodeWebSocketTransport).address!.port).toBeGreaterThan(0);
   });
 });
 
 // Fixes from the wave 2 review: limits and back-pressure.
 describe("limits and back-pressure", () => {
-  /** A connection over a fake socket (the browser path's logic, without a network). */
-  function fakeConnection(bufferedAmount = 0) {
-    const sent: Uint8Array[] = [];
-    const closes: [number | undefined, string | undefined][] = [];
-    const socket = { bufferedAmount, send: (d: Uint8Array) => void sent.push(d), close: (code?: number, reason?: string) => void closes.push([code, reason]) };
-    const events: TransportEvent[] = [];
-    const c = new WebSocketConnection(1, "fake", socket, events, () => {}, { ...DEFAULT_WEBSOCKET_LIMITS, maxMessageBytes: 16, maxQueuedBytes: 40 });
-    c.handleOpen();
-    return { c, socket, sent, closes, events };
-  }
 
   it("drops unreliable sends while the send buffer is backed up, and closes when reliable data can't drain", () => {
-    const f = fakeConnection(DEFAULT_WEBSOCKET_LIMITS.unreliableBacklogBytes + 1);
+    const f = fakeConnection(LIMITS.unreliableBacklogBytes + 1);
     f.c.send("unreliable", new Uint8Array([1]));
     expect(f.sent).toHaveLength(0);
     expect(f.c.droppedUnreliable).toBe(1);
     f.c.send("reliable", new Uint8Array([2]));
     expect(f.sent).toHaveLength(1); // reliable data is never dropped
-    f.socket.bufferedAmount = DEFAULT_WEBSOCKET_LIMITS.maxBacklogBytes + 1;
+    f.socket.bufferedAmount = LIMITS.maxBacklogBytes + 1;
     f.c.send("reliable", new Uint8Array([3]));
     expect(f.c.state).toBe("closed");
     expect(f.events.at(-1)).toMatchObject({ kind: "close", reason: expect.stringMatching(/too slow/) });
@@ -226,16 +259,16 @@ describe("limits and back-pressure", () => {
 
   it("closes a connection that sends a message too big, or floods between polls", () => {
     const big = fakeConnection();
-    big.c.handleMessage(encodeFrame("reliable", new Uint8Array(17)).buffer);
+    big.c.handleMessage(new Uint8Array(1 + 17).buffer); // a reliable frame: header 0, then 17 bytes
     expect(big.closes[0]).toEqual([1009, expect.stringMatching(/too big/)]);
 
     const flood = fakeConnection();
-    for (let i = 0; i < 3; i++) flood.c.handleMessage(encodeFrame("reliable", new Uint8Array(15)).buffer);
+    for (let i = 0; i < 3; i++) flood.c.handleMessage(new Uint8Array(1 + 15).buffer);
     expect(flood.closes[0]).toEqual([1009, expect.stringMatching(/flooding/)]);
   });
 
   it("reports the browser's failed connect (no reason, code 1006) and a lost connection", () => {
-    const failing = new WebSocketConnection(2, "fake", { send() {}, close() {} }, [], () => {});
+    const failing = new FakeSocketTransport().connectOver({ send() {}, close() {} });
     failing.handleError("");
     failing.handleClose(1006, "");
     expect(failing.state).toBe("closed");
@@ -245,8 +278,7 @@ describe("limits and back-pressure", () => {
   });
 
   it("the Node server refuses frames over the size limit before buffering them", async () => {
-    const s = new NodeWebSocketTransport({ limits: { maxMessageBytes: 1024 } });
-    open.push(s);
+    const s = server({ limits: { maxMessageBytes: 1024 } });
     await s.listen("ws://127.0.0.1:0");
     const c = client();
     const connection = c.connect(s.address!.url);

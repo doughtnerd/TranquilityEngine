@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, it } from "vitest";
-import { BootstrapError, assertValidBootstrap, bootstrapLinks, defaultBootstrap, resolveBootstrap, selectSystems, templateConfig } from "../core/bootstrap";
+import { BootstrapError, assertValidBootstrap, bootstrapLinks, resolveBootstrap, selectSystems, templateConfig } from "../core/bootstrap";
 import { defaultSettings, validateBootstrap } from "../core/settings";
 import { _undefineSystem, defineSystem, listSystemCatalog } from "../core/systems";
 import type { BootstrapConfig, BootstrapEngine, WorldConfig, WorldHandle } from "../core/worlds";
@@ -41,7 +41,6 @@ describe("bootstraps (T4)", () => {
   it("the default bootstrap makes one Default World tagged default and local", async () => {
     const engine = fakeEngine();
     const bootstrap = await resolveBootstrap(undefined);
-    expect(bootstrap).toBe(defaultBootstrap);
     await bootstrap(engine);
     expect(engine.created).toEqual([{ config: { name: "Default", tags: ["default", "local"] }, systems: ["t4.Movement", "t4.ServerAI", "t4.ClientFX", "t4.DebugDraw"] }]);
   });

@@ -20,7 +20,7 @@ const TRANSFORM = "engine.Transform";
 const tidy = (n: number) => Math.round(n * 1e7) / 1e7 + 0;
 
 /** A version 2 Transform rotation as a version 3 quaternion array; anything else unchanged. */
-export function rotationToQuaternion(value: unknown): unknown {
+function rotationToQuaternion(value: unknown): unknown {
   let q: Quaternion;
   if (typeof value === "number") q = Quaternion.rotateZ(value * DEG2RAD);
   else if (Array.isArray(value) && value.length === 3 && value.every((n) => typeof n === "number")) q = Quaternion.euler(value[0] * DEG2RAD, value[1] * DEG2RAD, value[2] * DEG2RAD, "ZYX");

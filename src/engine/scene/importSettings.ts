@@ -136,7 +136,7 @@ export interface ImportSettings {
   materials: Record<string, string>;
 }
 
-export const DEFAULT_IMPORT_SETTINGS: Readonly<ImportSettings> = Object.freeze<ImportSettings>({
+const DEFAULT_IMPORT_SETTINGS: Readonly<ImportSettings> = Object.freeze<ImportSettings>({
   pixelsPerUnit: 0,
   filter: "linear",
   wrap: "clamp",
@@ -428,7 +428,7 @@ export function authoredSize(settings: ImportSettings, width: number, height: nu
 }
 
 /** The sidecar JSON for `settings`: the format, then only what differs from the defaults. */
-export function importSettingsJSON(settings: ImportSettings): Record<string, unknown> {
+function importSettingsJSON(settings: ImportSettings): Record<string, unknown> {
   const d = DEFAULT_IMPORT_SETTINGS;
   const out: Record<string, unknown> = { format: IMPORT_FORMAT };
   if (settings.pixelsPerUnit !== d.pixelsPerUnit) out.pixelsPerUnit = settings.pixelsPerUnit;

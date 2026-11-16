@@ -330,7 +330,7 @@ function tagLightsAndCameras(root: Object3D, parser: Parser): void {
 const toSrgb = (c: number) => Math.round((c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055) * 1e6) / 1e6;
 
 /** A KHR_lights_punctual light as the engine Light's values (ADR 0118). */
-export function engineLight(def: GltfLight): ModelLight {
+function engineLight(def: GltfLight): ModelLight {
   const [r, g, b] = def.color ?? [1, 1, 1];
   const outer = def.spot?.outerConeAngle ?? Math.PI / 4;
   const inner = def.spot?.innerConeAngle ?? 0;
@@ -345,7 +345,7 @@ export function engineLight(def: GltfLight): ModelLight {
 }
 
 /** A glTF camera as the engine Camera's values (ADR 0118), or null when it has no parameters. */
-export function engineCamera(def: GltfCamera): ModelCamera | null {
+function engineCamera(def: GltfCamera): ModelCamera | null {
   if (def.type === "perspective" && def.perspective) {
     const p = def.perspective;
     return { projection: "perspective", fieldOfView: (p.yfov * 180) / Math.PI, orthographicSize: 5, near: p.znear > 0 ? p.znear : 0.1, far: p.zfar ?? 1000 };

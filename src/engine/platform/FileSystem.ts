@@ -42,7 +42,7 @@ export interface FileSystem {
   reveal?(path: string): Promise<void>;
 }
 
-export class UnsupportedError extends Error {
+class UnsupportedError extends Error {
   constructor(operation: string) {
     super(`FileSystem.${operation} is not available in the browser; run the editor under Tauri.`);
     this.name = "UnsupportedError";
@@ -55,7 +55,7 @@ export function isTauri(): boolean {
 }
 
 /** Read-only file access over HTTP, for the editor in a plain browser. */
-export class BrowserFileSystem implements FileSystem {
+class BrowserFileSystem implements FileSystem {
   readonly canWrite = false;
 
   async readText(path: string): Promise<string> {

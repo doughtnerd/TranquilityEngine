@@ -334,7 +334,7 @@ const RENDER_TYPES: readonly OutputType[] = ["quad", "stretched", "horizontal", 
 
 /** Trail history points per slot at most, and in all (ADR 0126). */
 export const MAX_TRAIL_POINTS = 64;
-export const MAX_TRAIL_HISTORY = 4 * 1024 * 1024;
+const MAX_TRAIL_HISTORY = 4 * 1024 * 1024;
 const num = (v: unknown, fallback: number): number => (typeof v === "number" && Number.isFinite(v) ? v : fallback);
 
 /** Block types the kernel runs (others are reported and skipped; the CPU runs them). */

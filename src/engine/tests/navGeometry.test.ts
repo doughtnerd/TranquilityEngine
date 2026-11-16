@@ -3,7 +3,7 @@ import "../index";
 import { World } from "../core/World";
 import { instantiateDocument } from "../editor";
 import { collectNavGeometry, findNavChunks, loadNavGeometryMeshes, navBakeChunk, navBakePath, navInputSignature, type NavGeometry } from "../nav/geometry";
-import { defaultNavigationSettings } from "../nav/settings";
+import { parseNavigationSettings } from "../nav/settings";
 import type { NodeEntry, SceneFile } from "../scene/SceneLoader";
 import type { GameObject } from "../scene/GameObject";
 import { Assets } from "../scene/Assets";
@@ -157,7 +157,7 @@ describe("collectNavGeometry", () => {
       ]),
       node("wall", [t([60, 0, 0]), { type: "engine.MeshRenderer", data: { mesh: "builtin:cube" } }, { type: "engine.NavObstacle", data: { source: "mesh" } }]),
     ]);
-    const settings = defaultNavigationSettings();
+    const settings = parseNavigationSettings(undefined).settings;
     const g = collectNavGeometry(world, byId("nav"), settings);
     // "none" skips the plain node; the marked ones are collected anyway.
     expect(g.meshes.map((m) => [m.kind, m.area ?? null, m.walkableFor ?? null])).toEqual([
@@ -223,7 +223,7 @@ describe("collectNavGeometry", () => {
   it("names bake files after the scene, and signs inputs so a change shows", () => {
     expect(navBakePath("scenes/main.scene.json")).toBe("scenes/main.nav.bin");
     const { world, byId } = load([node("nav", [t([0, 0, 0]), CHUNK()]), node("ground", [t([0, 0, 0]), { type: "engine.MeshRenderer", data: { mesh: "builtin:plane" } }])]);
-    const settings = defaultNavigationSettings();
+    const settings = parseNavigationSettings(undefined).settings;
     const a = navInputSignature(collectNavGeometry(world, byId("nav")), settings, "scenes/main.scene.json", "nav");
     expect(navInputSignature(collectNavGeometry(world, byId("nav")), settings, "scenes/main.scene.json", "nav")).toBe(a);
     byId("ground").transform!.position.x = 1;

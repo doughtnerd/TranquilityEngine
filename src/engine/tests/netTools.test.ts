@@ -3,7 +3,10 @@ import { Engine, defineInput, defineRpc, f32, i32, u8, type BootstrapConfig } fr
 import { World } from "../core/World";
 import { inputStreams, netConditions, netWorldInfo, setNetConditions, unregisterScripts, withScriptRegistrations, writeWorldInput, type NetPeerInfo } from "../editor";
 import { netSession } from "../net/session";
-import type { LoopbackTransport } from "../net/transport/loopback";
+import type { LinkConditions } from "../net/Transport";
+
+/** A loopback transport: it simulates link conditions. */
+type LoopbackTransport = { readonly conditions: Readonly<LinkConditions> };
 
 // ADR 0033 §9, T15: what the editor's network tools read and set: per-connection traffic counters
 // (bytes and messages per kind), input stats, and loopback conditions on every link, both ways.
@@ -106,7 +109,7 @@ describe("conditions", () => {
     // The server's listening transport and each client's: three transports.
     expect(setNetConditions(engine, { latencyMs: 100, jitterMs: 0, loss: 0 })).toBe(3);
     for (const name of ["A", "B", "Server"]) {
-      for (const t of netSession(engine._world(name)!)!.transportList()) expect((t as LoopbackTransport).conditions).toEqual({ latencyMs: 100, jitterMs: 0, loss: 0 });
+      for (const t of netSession(engine._world(name)!)!.transportList()) expect((t as unknown as LoopbackTransport).conditions).toEqual({ latencyMs: 100, jitterMs: 0, loss: 0 });
     }
     expect(netConditions(engine)).toEqual({ latencyMs: 100, jitterMs: 0, loss: 0 });
     step(engine, 180);

@@ -10,8 +10,11 @@ import { CLEARCOAT_NORMAL_ANCHOR, SPECULAR_ANCHOR, enablePhysicalLayers, graphCu
 import { applyBuiltinSettings, builtinTextureSlots } from "../render/babylon/materials";
 import { compileShaderGraph } from "../render/shaderGraph/compile";
 import { Color } from "../core/math";
-import { MATERIAL_MAPS, defaultMaterialSettings, materialJSON, parseMaterial } from "../scene/material";
+import { MATERIAL_MAPS, defaultMaterialSettings, parseMaterial, formatMaterial, type MaterialSettings } from "../scene/material";
 import { defaultShaderGraph, type GraphNode, type ShaderGraph } from "../scene/shaderGraph";
+
+/** A material file's JSON object for `settings`. */
+const materialJSON = (settings: MaterialSettings): Record<string, unknown> => JSON.parse(formatMaterial(settings));
 
 describe("material asset maps (ADR 0118)", () => {
   it("reads and writes every texture slot and the new values, writing only what differs", () => {

@@ -19,7 +19,7 @@ import type { ComponentEntry, NodeEntry, SceneFile } from "./SceneLoader";
 const MESH_COMPONENTS = new Set(["engine.MeshRenderer", "engine.MeshCollider"]);
 
 /** A version 1 part reference pinned to model space; anything else unchanged. */
-export function pinPartToModelSpace(value: unknown): unknown {
+function pinPartToModelSpace(value: unknown): unknown {
   if (typeof value !== "string") return value;
   const { path, slice } = splitSpriteRef(value);
   // OBJ files have no node transforms: their parts are the same in node and model space.

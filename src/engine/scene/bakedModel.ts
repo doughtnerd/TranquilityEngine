@@ -164,8 +164,8 @@ function dataUriBytes(uri: string): Uint8Array | null {
   return out;
 }
 
-/** @internal True if `bytes` start like a baked model. */
-export function isBakedModel(bytes: ArrayBuffer): boolean {
+/** True if `bytes` start like a baked model. */
+function isBakedModel(bytes: ArrayBuffer): boolean {
   return bytes.byteLength >= 16 && new TextDecoder().decode(new Uint8Array(bytes, 0, 8)) === MAGIC;
 }
 

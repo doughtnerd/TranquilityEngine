@@ -54,7 +54,7 @@ export interface NavBakeCliResult {
 }
 
 /** Bake a project's chunks. `log` hears a line per scene and chunk. */
-export async function bakeProject(projectDir: string, scenes: readonly string[] = [], log: (line: string) => void = () => {}): Promise<NavBakeCliResult> {
+async function bakeProject(projectDir: string, scenes: readonly string[] = [], log: (line: string) => void = () => {}): Promise<NavBakeCliResult> {
   const project = await readProject(projectDir);
   const settings = parseNavigationSettings((project.settings as { navigation?: unknown }).navigation);
   for (const p of settings.problems) log(`warning: ${p}`);

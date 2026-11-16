@@ -284,11 +284,6 @@ interface Cached {
 }
 const cache = new Map<string, Cached>();
 
-/** Forget every cached view (tests, and anything that changes assets without replacing them). */
-export function invalidateResolvedScenes(): void {
-  cache.clear();
-}
-
 /**
  * The resolved view of the scene or prefab at `path`. With the default `read` the result is cached per
  * path and reused while the raw assets of every file it read are the same objects (`Assets` sources
@@ -314,12 +309,6 @@ export function resolveScene(path: string, options: ResolveOptions = {}): Resolv
 /** Every effective component entry of the scene at `path`. */
 export function resolvedComponents(path: string, options?: ResolveOptions): readonly ResolvedComponent[] {
   return resolveScene(path, options).components;
-}
-
-/** True if any effective component of the scene at `path` has one of `typeIds`. */
-export function anyComponentOf(path: string, typeIds: ReadonlySet<string> | readonly string[], options?: ResolveOptions): boolean {
-  const set = typeIds instanceof Set ? typeIds : new Set(typeIds);
-  return resolveScene(path, options).components.some((c) => set.has(c.type));
 }
 
 /**

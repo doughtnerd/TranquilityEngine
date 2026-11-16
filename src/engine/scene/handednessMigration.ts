@@ -73,7 +73,7 @@ const FIELDS: Readonly<Record<string, Readonly<Record<string, FieldMirror>>>> = 
 })();
 
 /** A component field's value mirrored, if the table knows it. */
-export function mirrorField(component: string, field: string, value: unknown): unknown {
+function mirrorField(component: string, field: string, value: unknown): unknown {
   const f = FIELDS[component]?.[field];
   return f ? f(value) : value;
 }

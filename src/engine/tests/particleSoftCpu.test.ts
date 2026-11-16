@@ -15,7 +15,10 @@ import { BabylonParticles } from "../render/babylon/particles";
 import { MycoSoftParticlePlugin } from "../render/babylon/softParticles";
 import { compileParticleGraph } from "../scene/particleCompile";
 import { defaultParticleGraph } from "../scene/particleGraphFormat";
-import { defaultEmitter, defaultShape, particleEffectJSON, parseParticleEffect, type ParticleEmitterSettings, type ParticleRenderer } from "../scene/particles";
+import { defaultEmitter, defaultShape, parseParticleEffect, type ParticleEmitterSettings, type ParticleRenderer, PARTICLES_FORMAT, type ParticleEffect } from "../scene/particles";
+
+/** An effect as its `myco.particles@1` file's JSON object. */
+const legacyJSON = (effect: ParticleEffect): Record<string, unknown> => ({ format: PARTICLES_FORMAT, ...effect });
 
 const emitter = (name: string, r: Partial<ParticleRenderer>): ParticleEmitterSettings => {
   const e = defaultEmitter(name);
@@ -58,12 +61,12 @@ describe("soft CPU particles and particle height fog (ADR 0126)", () => {
     const g = defaultParticleGraph();
     g.systems[0].output.settings.softness = 0.75;
     expect(compileParticleGraph(g).effect.emitters[0].renderer.softness).toBe(0.75);
-    const back = parseParticleEffect(particleEffectJSON({ emitters: [emitter("A", { softness: 0.5 })] }));
+    const back = parseParticleEffect(legacyJSON({ emitters: [emitter("A", { softness: 0.5 })] }));
     expect(back.effect.emitters[0].renderer.softness).toBe(0.5);
   });
 
   it("draws soft billboards as mesh quads with the fade, and hard ones through a Babylon particle system", () => {
-    const effect = particleEffectJSON({ emitters: [emitter("Soft", { softness: 0.5 }), emitter("Hard", {}), emitter("Rocks", { mode: "mesh", softness: 1 })] });
+    const effect = legacyJSON({ emitters: [emitter("Soft", { softness: 0.5 }), emitter("Hard", {}), emitter("Rocks", { mode: "mesh", softness: 1 })] });
     const parts = player.warm(effect, "w", at, camera)!;
     expect(parts.systems).toHaveLength(1); // the hard one
     const [soft, rocks] = parts.meshes;
@@ -76,7 +79,7 @@ describe("soft CPU particles and particle height fog (ADR 0126)", () => {
   it("fades a copy of a shared material asset, leaving the asset alone", () => {
     const shared = new PBRMaterial("fx", scene);
     material = shared;
-    const parts = player.warm(particleEffectJSON({ emitters: [emitter("Lit", { material: "materials/fx.material.json", softness: 2 })] }), "w", at, camera)!;
+    const parts = player.warm(legacyJSON({ emitters: [emitter("Lit", { material: "materials/fx.material.json", softness: 2 })] }), "w", at, camera)!;
     const used = parts.meshes[0]!.material!;
     expect(used).not.toBe(shared);
     expect(softPlugin(used)?.softness).toBe(2);
@@ -90,7 +93,7 @@ describe("soft CPU particles and particle height fog (ADR 0126)", () => {
     expect(heightFogOn(scene)).toBe(false);
     setHeightFog(scene, FOG_ON);
     expect(heightFogOn(scene)).toBe(true);
-    const parts = player.warm(particleEffectJSON({ emitters: [emitter("Dots", {})] }), "w", at, camera)!;
+    const parts = player.warm(legacyJSON({ emitters: [emitter("Dots", {})] }), "w", at, camera)!;
     expect(parts.systems).toHaveLength(0);
     // (After earlier tests disposed their engines: the plugin is registered again.)
     const mat = parts.meshes[0]!.material!;

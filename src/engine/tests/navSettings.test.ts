@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  defaultNavigationSettings,
   describeNavAvoidanceMask,
-  lowestNavLayerBit,
   navAvoidanceLayerName,
   navShownLayers,
   parseNavigationSettings,
@@ -12,7 +10,7 @@ import {
 
 describe("avoidance layer names", () => {
   it("default to Default on layer 0", () => {
-    expect(defaultNavigationSettings().avoidanceLayers).toEqual(["Default"]);
+    expect(parseNavigationSettings(undefined).settings.avoidanceLayers).toEqual(["Default"]);
     expect(parseNavigationSettings({}).settings.avoidanceLayers).toEqual(["Default"]);
   });
 
@@ -51,10 +49,11 @@ describe("avoidance layer names", () => {
 
 describe("an agent type's avoidance layer", () => {
   it("is one bit: several keep the lowest, with a problem", () => {
-    expect(lowestNavLayerBit(0b1100)).toBe(0b100);
-    expect(lowestNavLayerBit(0xffffffff)).toBe(1);
-    expect(lowestNavLayerBit(2 ** 31)).toBe(2 ** 31);
-    expect(lowestNavLayerBit(0)).toBe(0);
+    const layersOf = (layers: number) => parseNavigationSettings({ agentTypes: [{ id: "a", name: "A", avoidance: { layers } }] }).settings.agentTypes[0].avoidance!.layers;
+    expect(layersOf(0b1100)).toBe(0b100);
+    expect(layersOf(0xffffffff)).toBe(1);
+    expect(layersOf(2 ** 31)).toBe(2 ** 31);
+    expect(layersOf(0)).toBe(0);
 
     const one = parseNavigationSettings({ agentTypes: [{ id: "a", name: "A", avoidance: { layers: 4, avoidLayers: 0xffffffff } }] });
     expect(one.problems).toEqual([]);

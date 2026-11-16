@@ -15,7 +15,7 @@ import { resolvedComponents, type ResolvedComponent } from "../../../engine/scen
 import type { NavigationWorld } from "./NavigationWorld";
 
 /** Component types that start the World's navigation runtime: in a loaded scene, or attaching later. */
-export const NAV_RUNTIME_TYPES: readonly string[] = [
+const NAV_RUNTIME_TYPES: readonly string[] = [
   "engine.NavChunk",
   "engine.NavAgent",
   "engine.NavGroup",
@@ -31,8 +31,8 @@ function sceneComponents(path: string): readonly ResolvedComponent[] {
   return resolvedComponents(path);
 }
 
-/** @internal The bake assets a scene's NavChunks (and its prefabs') reference. */
-export function navBakeRefs(path: string): string[] {
+/** The bake assets a scene's NavChunks (and its prefabs') reference. */
+function navBakeRefs(path: string): string[] {
   const refs = new Set<string>();
   for (const c of sceneComponents(path)) {
     const bake = c.type === "engine.NavChunk" ? (c.data as { bake?: unknown } | undefined)?.bake : undefined;
@@ -93,11 +93,6 @@ export function loadNavBake(ref: string): Promise<Uint8Array | null> {
 /** @internal Preloads the bakes a scene's NavChunks reference (`SceneManager.load`), so they load synchronously. */
 export async function preloadNavBakes(path: string): Promise<void> {
   await Promise.all(navBakeRefs(path).map(loadNavBake));
-}
-
-/** @internal Forgets cached bake bytes (tests, the editor after a rebake to the same URL). */
-export function clearNavBakeCache(): void {
-  bakeBytes.clear();
 }
 
 // ------------------------------------------------------------------------------------------- the World's navigation

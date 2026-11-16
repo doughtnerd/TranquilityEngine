@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { getComponentClass } from "../engine";
-import { compileForBuild } from "../export/webBuild";
+import { planWebBuild } from "../export/webBuild";
 import { bundlePackages, isPackageSpecifier, packageName, packageTypes, PackageResolver, type PackageFiles, type PackageSource } from "./packages";
 import { loadScripts, replaceScripts } from "./scriptLoader";
-import { nodeEsbuild } from "../server/packages";
+import { nodePackageSource } from "../server/packages";
 
 /** A project folder's files in memory. */
 const filesOf = (files: Record<string, string>): PackageFiles => ({ read: async (path) => files[path] ?? null });
@@ -38,7 +38,7 @@ const source = (files: Record<string, string> = NODE_MODULES, mode: PackageSourc
   files: filesOf(files),
   mode,
   id: `test-${mode}`,
-  esbuild: nodeEsbuild,
+  esbuild: nodePackageSource(".", mode).esbuild, // esbuild-wasm's Node build, which the server and `npm run export` bundle with
 });
 
 afterEach(async () => {
@@ -127,11 +127,12 @@ export class UsesPackages extends GameBehavior {
 
   it("writes packages into code/deps/ in game builds, with scripts importing them by relative path", async () => {
     const scripts = new Map([["scripts/Game.ts", `import { add } from "esm-pkg";\nimport { GameBehavior } from "myco";\nexport const n = add(1, 1);\nexport class G extends GameBehavior {}\n`]]);
-    const { files } = await compileForBuild(scripts, new Map(), source(NODE_MODULES, "production"));
+    const build = (scripts: Map<string, string>, packages: PackageSource) => planWebBuild({ name: "t", settings: {}, files: ["project.json", ...scripts.keys()], scripts, json: new Map(), packages });
+    const { generated: files } = await build(scripts, source(NODE_MODULES, "production"));
     const deps = [...files.keys()].filter((p) => p.startsWith("code/deps/"));
     expect(deps.length).toBeGreaterThan(0);
     expect(files.get("code/scripts/Game.js")).toMatch(/from "\.\.\/deps\/pkg0_esm_pkg\.js"/);
-    await expect(compileForBuild(new Map([["scripts/X.ts", `import "left-pad";`]]), new Map(), source())).rejects.toThrow(/left-pad/);
+    await expect(build(new Map([["scripts/X.ts", `import "left-pad";`]]), source())).rejects.toThrow(/left-pad/);
   }, 30_000);
 });
 

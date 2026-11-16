@@ -104,7 +104,7 @@ import "./transport/websocket";
  * replication, ADR 0100. 5: relevancy leaves, relayouts, sibling order and disabled components,
  * ADR 0121.)
  */
-export const NET_PROTOCOL_VERSION = 5;
+const NET_PROTOCOL_VERSION = 5;
 
 /** How often a client pings its server, for RTT and the server-tick estimate. */
 export const PING_INTERVAL_MS = 100;

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input, getComponentClass } from "../engine";
 import { assetKind, opensInCodePanel } from "./assetBrowser";
 import { codeFiles } from "./code/codeState";
-import { isExportedFile } from "../export/webBuild";
+import { planWebBuild } from "../export/webBuild";
 import { OrbitCamera } from "./OrbitCamera";
 import { codeLanguageOf, isScriptPath, isTextAsset } from "./projectPaths";
 import { openSceneFile } from "./project";
@@ -71,11 +71,13 @@ describe("which files the Code panel edits", () => {
     expect(isScriptPath("scripts/Player.ts")).toBe(true);
   });
 
-  it("leaves TypeScript modules out of game builds (as scripts, which ship compiled) and copies the rest as files", () => {
-    expect(isExportedFile("tools/types.mts")).toBe(false);
-    expect(isExportedFile("tools/types.cts")).toBe(false);
-    expect(isExportedFile("tools/generate.mjs")).toBe(true);
-    expect(isExportedFile("tools/README.md")).toBe(true);
+  it("leaves TypeScript modules out of game builds (as scripts, which ship compiled) and copies the rest as files", async () => {
+    const files = ["project.json", "tools/types.mts", "tools/types.cts", "tools/generate.mjs", "tools/README.md"];
+    const { copies } = await planWebBuild({ name: "t", settings: {}, files, scripts: new Map(), json: new Map() });
+    expect(copies).not.toContain("tools/types.mts");
+    expect(copies).not.toContain("tools/types.cts");
+    expect(copies).toContain("tools/generate.mjs");
+    expect(copies).toContain("tools/README.md");
   });
 });
 

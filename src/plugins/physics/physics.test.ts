@@ -3,7 +3,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { Assets, BoxCollider, Engine, GameObject, RigidBody, SceneManager } from "../../myco";
 import { listSystemCatalog } from "../../engine/core/systems";
-import { _servicesNeededBy, _startWorldService, _worldServiceIds } from "../../engine/core/worldServices";
+import { _startWorldService, _startWorldServicesForScene, _worldServiceIds, _worldServiceOf } from "../../engine/core/worldServices";
 import { RUNTIME_PLUGINS } from "../runtime";
 import { physicsRuntimePlugin } from "./runtime";
 import { PHYSICS_3D, physics3DOf } from "./runtime/systems3d";
@@ -58,12 +58,17 @@ describe("the Physics plugin's 3D service (ADR 0135, 0137)", () => {
         "bodies2d.json": { format: "myco.scene@1", settings: { physics: "2d" }, nodes: [{ id: "a", components: [{ type: "engine.RigidBody" }] }] },
       }),
     );
-    const engine = await Engine.create({ headless: true });
-    const needs = (path: string, settings?: Record<string, unknown>) => _servicesNeededBy(engine.world, { path, settings, componentTypes: () => (path === "none" ? [] : ["engine.RigidBody"]) }).includes(PHYSICS_3D);
-    expect(needs("bodies.json")).toBe(true); // saying nothing, with a body
-    expect(needs("bodies2d.json", { physics: "2d" })).toBe(false); // another dimension chosen
-    expect(needs("none", { physics: "3d" })).toBe(true); // saying so
-    expect(needs("none")).toBe(false);
-    engine.dispose();
+    // Loading a scene starts the services it needs: physics runs in a fresh World only when the scene needs it.
+    const needs = async (path: string, settings?: Record<string, unknown>) => {
+      const engine = await Engine.create({ headless: true });
+      await _startWorldServicesForScene(engine.world, { path, settings, componentTypes: () => (path === "none" ? [] : ["engine.RigidBody"]) });
+      const started = _worldServiceOf(engine.world, PHYSICS_3D) !== null;
+      engine.dispose();
+      return started;
+    };
+    expect(await needs("bodies.json")).toBe(true); // saying nothing, with a body
+    expect(await needs("bodies2d.json", { physics: "2d" })).toBe(false); // another dimension chosen
+    expect(await needs("none", { physics: "3d" })).toBe(true); // saying so
+    expect(await needs("none")).toBe(false);
   });
 });

@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { LINE_KIND } from "../../../engine/nav/debugGeometry";
 import { NavBakeOverlay, bakePathsOf, cleanNavOverlay, navDebugColors, type NavOverlaySettings } from "./navGizmo";
 import { PRESETS, resolveTheme } from "../../../editor/theme";
+
+/** Line kinds in the wasm debug line buffers (stride 7: a xyz, b xyz, kind; `native/nav` debug.rs). */
+const LINE_KIND = { outline: 0, fold: 2 } as const;
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 const colors = navDebugColors(resolveTheme(PRESETS[0]));

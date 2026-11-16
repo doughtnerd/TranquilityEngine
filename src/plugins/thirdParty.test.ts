@@ -10,13 +10,12 @@ import { loadProjectCode as loadServerCode, readProject } from "../server/projec
 import { resolveEnabledPlugins } from "./enabled";
 import type { PluginManifest } from "./manifest";
 import { FIRST_PARTY_MANIFESTS } from "./manifests";
-import { activateRuntimePlugins, deactivateRuntimePlugin, isRuntimePluginActive } from "./runtimeContext";
+import { isRuntimePluginActive, runtimeActivator } from "./runtimeContext";
 import {
   SDK_VERSION,
   checkPlugins,
   discoverPlugins,
   npmPluginEntries,
-  parsePluginManifest,
   planPluginCode,
   satisfies,
   selectPluginCode,
@@ -49,6 +48,11 @@ function readFixture(dir = FIXTURE): { json: Map<string, string>; code: Map<stri
 }
 
 const manifest = (over: Partial<ThirdPartyManifest> & { name: string }): ThirdPartyManifest => ({ version: "1.0.0", sdk: "^1.0.0", runtime: "runtime/index.ts", ...over });
+/** What discovery makes of a project plugin whose plugin.json holds `raw`: its manifest, or null and every problem. */
+async function readManifest(raw: unknown): Promise<{ manifest: ThirdPartyManifest | null; problems: string[] }> {
+  const { plugins, problems } = await discoverPlugins({ json: new Map([["plugins/p/plugin.json", JSON.stringify(raw)]]), code: ["plugins/p/runtime/index.ts", "plugins/p/editor/index.ts"] });
+  return { manifest: plugins[0]?.manifest ?? null, problems: problems.flatMap((p) => p.message.split("; ")) };
+}
 const found = (m: ThirdPartyManifest): FoundPlugin => ({ manifest: m, source: { kind: "project", folder: `plugins/${m.name}` }, where: `plugins/${m.name}/plugin.json`, runtime: `plugins/${m.name}/runtime/index.ts` });
 
 describe("SDK version ranges", () => {
@@ -88,15 +92,15 @@ describe("SDK version ranges", () => {
 });
 
 describe("plugin.json validation", () => {
-  it("reads the fixture's manifest", () => {
-    const { manifest: m, problems } = parsePluginManifest(JSON.parse(readFixture().json.get("plugins/spinner/plugin.json")!));
+  it("reads the fixture's manifest", async () => {
+    const { manifest: m, problems } = await readManifest(JSON.parse(readFixture().json.get("plugins/spinner/plugin.json")!));
     expect(problems).toEqual([]);
     expect(m).toMatchObject({ name: "acme.spinner", version: "1.0.0", sdk: "^1.0.0", runtime: "runtime/index.ts", editor: "editor/index.ts" });
     expect(m!.assetKinds).toEqual([expect.objectContaining({ id: "spin", extensions: [".spin.json"], label: "Spin Preset" })]);
   });
 
-  it("lists every problem", () => {
-    const { manifest: m, problems } = parsePluginManifest({ name: "Bad Name", version: "1", sdk: "nope", dependencies: { x: 3 }, server: "no", assetKinds: [{ id: "k", extensions: ["json"], label: "K", icon: "M0 0" }] });
+  it("lists every problem", async () => {
+    const { manifest: m, problems } = await readManifest({ name: "Bad Name", version: "1", sdk: "nope", dependencies: { x: 3 }, server: "no", assetKinds: [{ id: "k", extensions: ["json"], label: "K", icon: "M0 0" }] });
     expect(m).toBeNull();
     expect(problems).toEqual(
       expect.arrayContaining([
@@ -111,10 +115,10 @@ describe("plugin.json validation", () => {
     );
   });
 
-  it("reserves myco. for first-party plugins and keeps entries inside the plugin", () => {
-    expect(parsePluginManifest(manifest({ name: "myco.spinner" })).problems).toEqual([expect.stringContaining('can\'t start with "myco."')]);
-    expect(parsePluginManifest(manifest({ name: "a", runtime: "../x.ts" })).problems).toEqual([expect.stringContaining("inside the plugin")]);
-    expect(parsePluginManifest("{}").problems).toEqual(["plugin.json must hold an object"]);
+  it("reserves myco. for first-party plugins and keeps entries inside the plugin", async () => {
+    expect((await readManifest(manifest({ name: "myco.spinner" }))).problems).toEqual([expect.stringContaining('can\'t start with "myco."')]);
+    expect((await readManifest(manifest({ name: "a", runtime: "../x.ts" }))).problems).toEqual([expect.stringContaining("inside the plugin")]);
+    expect((await readManifest("{}")).problems).toEqual(["plugin.json must hold an object"]);
   });
 });
 
@@ -228,7 +232,7 @@ describe("enabling", () => {
 });
 
 describe("loading through the script loader", () => {
-  afterEach(() => deactivateRuntimePlugin("acme.spinner"));
+  afterEach(() => runtimeActivator.deactivate("acme.spinner"));
 
   it("compiles a plugin's runtime half like scripts and activates it: its Component is claimed, and unregistered on deactivation", async () => {
     const { json, code } = readFixture();
@@ -239,11 +243,11 @@ describe("loading through the script loader", () => {
     expect(result.problems).toEqual([]);
     const spinner = plan.runtime[0]!;
     const module = await loadedScriptModule(spinner.runtime!);
-    activateRuntimePlugins([toRuntimePlugin(spinner, module)], { provided: plan.enabled });
+    runtimeActivator.activate(toRuntimePlugin(spinner, module));
     expect(isRuntimePluginActive("acme.spinner")).toBe(true);
     expect(getComponentClass("acme.Spinner")).toBe(module.Spinner);
     expect(((await loadedScriptModule("scripts/useSpinner.ts")) as { defaultSpeed: number }).defaultSpeed).toBe(90);
-    deactivateRuntimePlugin("acme.spinner");
+    runtimeActivator.deactivate("acme.spinner");
     expect(getComponentClass("acme.Spinner")).toBeUndefined();
   });
 
@@ -300,7 +304,7 @@ describe("game builds", () => {
 });
 
 describe("the dedicated server", () => {
-  afterEach(() => deactivateRuntimePlugin("acme.spinner"));
+  afterEach(() => runtimeActivator.deactivate("acme.spinner"));
 
   it("loads enabled runtime halves", async () => {
     const project = await readProject(FIXTURE);

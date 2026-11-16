@@ -243,8 +243,8 @@ export interface SceneNeeds {
   componentTypes(): Iterable<string>;
 }
 
-/** @internal The ids of the registered services `scene` needs in `world`. */
-export function _servicesNeededBy(world: World, scene: SceneNeeds): string[] {
+/** The ids of the registered services `scene` needs in `world`. */
+function servicesNeededBy(world: World, scene: SceneNeeds): string[] {
   let types: Set<string> | null = null;
   const out: string[] = [];
   for (const { def } of services.values()) {
@@ -270,7 +270,7 @@ export function _servicesNeededBy(world: World, scene: SceneNeeds): string[] {
 export async function _startWorldServicesForScene(world: World, scene: SceneNeeds): Promise<void> {
   if (services.size === 0) return;
   await Promise.all(
-    _servicesNeededBy(world, scene).flatMap((id) => {
+    servicesNeededBy(world, scene).flatMap((id) => {
       const prepare = services.get(id)!.def.prepareScene;
       return prepare ? [_startWorldService(world, id), prepare(world, scene.path)] : [_startWorldService(world, id)];
     }),

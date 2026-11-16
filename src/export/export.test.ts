@@ -2,11 +2,11 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
-import { appIdentifier, desktopProjectFiles, slug } from "./desktop";
+import { desktopProjectFiles, slug } from "./desktop";
 import { modulePath, relativeSpecifier, type GameManifest } from "./format";
 import { exportProject } from "./node";
 import { USAGE, parseArgs } from "./main";
-import { ExportError, isExportedFile, isOutputInsideProject, planWebBuild, type BuildSource } from "./webBuild";
+import { ExportError, isOutputInsideProject, planWebBuild, type BuildSource } from "./webBuild";
 import { typescript } from "../editor/moduleImports";
 
 const SAMPLES = join(__dirname, "..", "..", "samples");
@@ -29,14 +29,13 @@ function source(extra: Partial<BuildSource> & { scriptFiles?: Record<string, str
 }
 
 describe("file selection", () => {
-  it("exports assets, data and sidecars, and leaves out sources, editor files, hidden and build folders", () => {
-    for (const path of ["project.json", "scenes/main.scene.json", "images/bird.png", "images/bird.png.meta.json", "music/a.mp3", "data/levels.json", "lib/plain.js", "scripts/notes.json", "scenes/main.nav.bin"]) {
-      expect(isExportedFile(path), path).toBe(true);
-    }
-    for (const path of ["scripts/Bird.ts", "scripts/types.d.ts", "tsconfig.json", "sample.json", ".myco/history.json", ".myco/thumbnails/0123456789abcdef0123.webp", ".myco/nav/scenes/main.nav.bin.json", "images/.DS_Store", "node_modules/x/index.js", "dist/web/index.html", "src-tauri/target/a"]) {
-      expect(isExportedFile(path), path).toBe(false);
-    }
-    expect(isExportedFile("levels/sample.json")).toBe(true); // only the root sample.json is the editor's
+  it("exports assets, data and sidecars, and leaves out sources, editor files, hidden and build folders", async () => {
+    const shipped = ["project.json", "scenes/main.scene.json", "images/bird.png", "images/bird.png.meta.json", "music/a.mp3", "data/levels.json", "lib/plain.js", "scripts/notes.json", "scenes/main.nav.bin"];
+    const left = ["scripts/Bird.ts", "scripts/types.d.ts", "tsconfig.json", "sample.json", ".myco/history.json", ".myco/thumbnails/0123456789abcdef0123.webp", ".myco/nav/scenes/main.nav.bin.json", "images/.DS_Store", "node_modules/x/index.js", "dist/web/index.html", "src-tauri/target/a"];
+    const { copies } = await planWebBuild(source({ files: [...shipped, ...left, "levels/sample.json"] }));
+    for (const path of shipped) expect(copies, path).toContain(path);
+    for (const path of left) expect(copies, path).not.toContain(path);
+    expect(copies).toContain("levels/sample.json"); // only the root sample.json is the editor's
   });
 
   it("refuses an output folder inside the project, except in its hidden and build folders", () => {
@@ -149,7 +148,7 @@ describe("desktop project", () => {
   it("takes the identifier and version from project.json's build settings", () => {
     const config = JSON.parse(desktopProjectFiles({ name: "x", settings: { build: { identifier: "com.example.x", version: "1.2.3" } } }).get("tauri.conf.json")!);
     expect(config).toMatchObject({ identifier: "com.example.x", version: "1.2.3" });
-    expect(() => appIdentifier({ name: "x", settings: { build: { identifier: "not an id" } } })).toThrow(/reverse-DNS/);
+    expect(() => desktopProjectFiles({ name: "x", settings: { build: { identifier: "not an id" } } })).toThrow(/reverse-DNS/);
     expect(slug("3D Racer!")).toBe("game-3d-racer");
   });
 });

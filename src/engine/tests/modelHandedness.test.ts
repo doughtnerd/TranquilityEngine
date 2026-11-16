@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { Assets } from "../index";
 import { decodeBakedModel, encodeBakedModel } from "../scene/bakedModel";
 import { formatImportSettings, parseImportSettings, type ModelFacing } from "../scene/importSettings";
-import { clearModelCache, loadMeshes, loadModel, type ModelMesh } from "../scene/models";
+import { loadMeshes, loadModel, type ModelMesh } from "../scene/models";
 
 type V3 = [number, number, number];
 const S = Math.SQRT1_2;
@@ -73,7 +73,6 @@ function arrowGltf(): Record<string, unknown> {
 }
 
 function useArrow(sidecar: Record<string, unknown> = {}) {
-  clearModelCache();
   Assets.clearSources();
   Assets.addSource(
     Assets.fromObject({

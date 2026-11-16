@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { Color } from "../core/math";
-import { defaultMaterialSettings, formatMaterial, materialGraph, materialJSON, parseMaterial } from "../scene/material";
+import { defaultMaterialSettings, formatMaterial, materialGraph, parseMaterial, type MaterialSettings } from "../scene/material";
+
+/** A material file's JSON object for `settings`. */
+const materialJSON = (settings: MaterialSettings): Record<string, unknown> => JSON.parse(formatMaterial(settings));
 
 const parse = (raw: Record<string, unknown>) => parseMaterial({ format: "myco.material@1", ...raw });
 

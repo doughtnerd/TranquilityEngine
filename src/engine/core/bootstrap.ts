@@ -20,7 +20,7 @@ export class BootstrapError extends Error {
 }
 
 /** The default bootstrap: one World named Default, tagged default and local (it renders and takes input if the Engine can). */
-export const defaultBootstrap: Bootstrap = (engine) => {
+const defaultBootstrap: Bootstrap = (engine) => {
   engine.createWorld({ name: DEFAULT_WORLD_NAME, tags: DEFAULT_WORLD_TAGS });
 };
 

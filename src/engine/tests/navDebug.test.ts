@@ -1,20 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { addEditorOverlay, mergeOverlays, removeEditorOverlay, setEditorOverlay, type EditorOverlay } from "../editor";
+import { addEditorOverlay, removeEditorOverlay, type EditorOverlay } from "../editor";
 import { navigationOf } from "../../plugins/navigation/runtime/navigationSystems";
 import type { World } from "../core/World";
 import { FakeRenderSurface } from "../render/fakeViewport";
 import {
-  LINE_KIND,
-  NAV_DEBUG_CAPS,
   RuntimeNavOverlay,
   chunkIdsOf,
   leafSegments,
   navmeshLineSegments,
   readNavDebugFlags,
-  rowSegments,
   type NavDebugColors,
   type NavDebugSource,
 } from "../nav/debugGeometry";
+
+/** Line kinds in the wasm debug line buffers (stride 7: a xyz, b xyz, kind; `native/nav` debug.rs). */
+const LINE_KIND = { outline: 0, shared: 1, fold: 2, jump: 3, chunkFace: 4 } as const;
+/** The overlay's caps: segments per drawing, leaves in total. */
+const CAPS = { segments: 60_000, leaves: 4_000 };
 
 const colors: NavDebugColors = { outline: 1, shared: 2, fold: 3, jump: 4, chunkFace: 5, volume: 6, landing: 7, seam: 8, path: 9, costly: 10, cheap: 11, excluded: 12 };
 
@@ -51,17 +53,12 @@ describe("composable editor overlays", () => {
     removeEditorOverlay(world, "never-added"); // harmless
   });
 
-  it("keeps setEditorOverlay working beside other overlays", () => {
+  it("merges overlays without segments into one with no segments key", () => {
     const { world, state } = fakeWorld();
-    addEditorOverlay(world, "nav", () => ({ lines: [line(5)], handles: [] }));
-    setEditorOverlay(world, () => ({ lines: [line(6)], handles: [] }));
-    expect(state.provider!().lines.map((l) => l.color)).toEqual([5, 6]);
-    setEditorOverlay(world, null);
-    expect(state.provider!().lines.map((l) => l.color)).toEqual([5]);
-  });
-
-  it("merges nothing into an empty overlay with no segments key", () => {
-    expect(mergeOverlays([])).toEqual({ lines: [], handles: [] });
+    addEditorOverlay(world, "a", () => ({ lines: [line(1)], handles: [] }));
+    addEditorOverlay(world, "b", () => ({ lines: [], handles: [] }));
+    expect(state.provider!()).not.toHaveProperty("segments");
+    expect(state.provider!().lines.map((l) => l.color)).toEqual([1]);
   });
 
   it("reads a World's navigation through its World services (null while it has none)", () => {
@@ -102,7 +99,6 @@ describe("debug buffers to segments", () => {
     for (let i = 0; i < 1000; i++) many.set([i, 0, 0, i + 1, 0, 0, LINE_KIND.outline], i * 7);
     const out = navmeshLineSegments(many, { navmesh: true, links: true }, colors, 100);
     expect(out.reduce((n, s) => n + s.positions.length / 6, 0)).toBe(100);
-    expect(rowSegments(new Float32Array(7 * 500), 7, 9, 50)[0].positions.length / 6).toBe(50);
   });
 
   it("draws flight leaves as 12 cube edges each and thins them past the cap", () => {
@@ -110,8 +106,8 @@ describe("debug buffers to segments", () => {
     const leaves = new Float32Array(5 * 10_000);
     for (let i = 0; i < 10_000; i++) leaves.set([i, 0, 0, 1, 1], i * 5);
     const drawn = leafSegments(leaves, colors.volume)[0].positions.length / 6 / 12;
-    expect(drawn).toBeLessThanOrEqual(NAV_DEBUG_CAPS.leaves);
-    expect(drawn).toBeGreaterThan(NAV_DEBUG_CAPS.leaves / 2);
+    expect(drawn).toBeLessThanOrEqual(CAPS.leaves);
+    expect(drawn).toBeGreaterThan(CAPS.leaves / 2);
   });
 
   it("reads flags tolerantly", () => {
@@ -128,6 +124,33 @@ describe("debug buffers to segments", () => {
 });
 
 describe("the live runtime overlay", () => {
+  const quiet: NavDebugSource = {
+    debugNavmeshLines: () => new Float32Array(0),
+    debugVolumeLeaves: () => new Float32Array(0),
+    debugLandingLinks: () => new Float32Array(0),
+    debugSeams: () => new Float32Array(0),
+    debugAgentPaths: () => new Float32Array(0),
+  };
+
+  it("caps the seam segments it draws", () => {
+    const seams = new Float32Array(7 * (CAPS.segments + 500));
+    const overlay = new RuntimeNavOverlay({ ...quiet, debugSeams: () => seams }, () => [], () => [], () => readNavDebugFlags({ seams: true }), () => colors, () => 0);
+    const [drawn] = overlay.segments();
+    expect(drawn.color).toBe(colors.seam);
+    expect(drawn.positions.length / 6).toBe(CAPS.segments);
+  });
+
+  it("buckets runtime cost outlines by multiplier", () => {
+    const row = (m: number) => [0, 0, 0, 1, 0, 0, m];
+    const costs = Float32Array.from([...row(4), ...row(0.5), ...row(Infinity), ...row(1), ...row(2)]);
+    const overlay = new RuntimeNavOverlay({ ...quiet, debugCosts: () => costs }, () => ["c"], () => ["walker"], () => readNavDebugFlags({ costs: true }), () => colors, () => 0);
+    expect(overlay.segments().map((s) => [s.color, s.positions.length / 6])).toEqual([
+      [colors.excluded, 1],
+      [colors.costly, 2],
+      [colors.cheap, 1],
+    ]);
+  });
+
   it("draws what the flags ask for and refreshes slow and fast geometry on their own clocks", () => {
     let navmeshCalls = 0, pathCalls = 0;
     const source: NavDebugSource = {

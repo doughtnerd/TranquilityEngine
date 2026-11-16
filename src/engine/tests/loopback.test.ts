@@ -1,18 +1,22 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { createTransport, createWorldTransport, type TransportConnection, type TransportEvent } from "../net/Transport";
-import { LoopbackConnection, LoopbackTransport, type LoopbackOptions } from "../net/transport/loopback";
+import { createTransport, createWorldTransport, type LinkConditions, type Transport, type TransportConnection, type TransportEvent } from "../net/Transport";
+import "../net/transport/loopback"; // registers "loopback"
+import type { LoopbackOptions } from "../net/transport/loopback";
 import { World } from "../core/World";
 
 // ADR 0033, T7: the loopback transport, on a fake clock so delivery is deterministic.
 
 let clock = 0;
 const now = () => clock;
-const open: LoopbackTransport[] = [];
+/** Loopback transports and connections also simulate link conditions (what the editor's network sliders set). */
+type Conditioned<T> = T & { readonly conditions: Readonly<LinkConditions>; setConditions(conditions: LinkConditions | undefined): void };
+type LoopbackTransport = Conditioned<Transport>;
+const open: Transport[] = [];
 let addressCounter = 0;
 
 /** A transport on the fake clock, closed after each test so addresses don't leak between tests. */
 function transport(options: LoopbackOptions = {}): LoopbackTransport {
-  const t = new LoopbackTransport({ now, ...options });
+  const t = createTransport("loopback", { now, ...options }) as LoopbackTransport;
   open.push(t);
   return t;
 }
@@ -183,7 +187,7 @@ describe("loopback transport (T7)", () => {
     clock = sentAt + 100;
     expect(s.poll()).toHaveLength(1);
 
-    (remote as LoopbackConnection).setConditions({ latencyMs: 7 });
+    (remote as Conditioned<TransportConnection>).setConditions({ latencyMs: 7 });
     sentAt = clock;
     remote.send("reliable", bytes(2));
     clock = sentAt + 7;
@@ -249,8 +253,7 @@ describe("loopback transport (T7)", () => {
 
   it("is created by name", async () => {
     const t = createTransport("loopback", { now, latencyMs: 5 });
-    open.push(t as LoopbackTransport);
-    expect(t).toBeInstanceOf(LoopbackTransport);
+    open.push(t);
     expect((t as LoopbackTransport).conditions).toEqual({ latencyMs: 5 });
   });
 });

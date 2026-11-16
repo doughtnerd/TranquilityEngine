@@ -1,9 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Engine, defineInput, defineSystem, f32, i32, u8, type BootstrapConfig, type GameObject } from "../index";
 import { World } from "../core/World";
-import { inputAt } from "../net/input";
+import { setInputReplayTick } from "../net/input";
 import { netSession } from "../net/session";
-import type { LoopbackConnection } from "../net/transport/loopback";
+import type { LinkConditions, TransportConnection } from "../net/Transport";
+
+/** A loopback connection: it simulates link conditions for what its end sends. */
+type LoopbackConnection = TransportConnection & { setConditions(conditions: LinkConditions | undefined): void };
 
 // ADR 0033, T12: per-tick input streams, over the loopback transport on a fake clock that advances
 // with `engine.step`, so everything is deterministic.
@@ -140,7 +143,7 @@ describe("input streams (T12)", () => {
     const run = drive("gap");
     step(engine, 120);
     const server = netSession(world(engine, "Server"))!;
-    const link = netSession(world(engine, "Client"))!.serverPeer!.link as LoopbackConnection;
+    const link = netSession(world(engine, "Client"))!.serverPeer!.link as unknown as LoopbackConnection;
     const before = statsOf(engine);
     const gapStart = server.tick;
     link.setConditions({ loss: 1 }); // the client's packets are all lost for 12 frames
@@ -173,7 +176,7 @@ describe("input streams (T12)", () => {
     const run = drive("late");
     step(engine, 120);
     const server = netSession(world(engine, "Server"))!;
-    const links = [netSession(world(engine, "Client"))!.serverPeer!.link, server.openPeers()[0].link] as LoopbackConnection[];
+    const links = [netSession(world(engine, "Client"))!.serverPeer!.link, server.openPeers()[0].link] as unknown as LoopbackConnection[];
     const before = statsOf(engine);
     const from = server.tick;
     // Packets suddenly take 100 ms longer each way: until the client's estimate catches up, its inputs are late.
@@ -222,7 +225,14 @@ describe("input streams (T12)", () => {
     writes = [() => Move.write({ x: 1.5, y: 7, jump: 1 }), () => Move.write({ x: 2 }), () => (Move.local.y = -4)];
     step(engine, 3);
     const clientTicks = [...Array(3)].map((_, i) => client.time.network!.serverTick - 2 + i);
-    expect(clientTicks.map((t) => inputAt(Move, client, t))).toEqual([
+    // Prediction replays the client's own input for past ticks through of().
+    const inputAt = (tick: number) => {
+      setInputReplayTick(client, tick);
+      const input = World._runIn(client, () => ({ ...Move.of(netSession(client)!.serverPeer!.node!) }));
+      setInputReplayTick(client, null);
+      return input;
+    };
+    expect(clientTicks.map(inputAt)).toEqual([
       { x: 1.5, y: 7, jump: 1 },
       { x: 2, y: 7, jump: 1 },
       { x: 2, y: -4, jump: 1 },

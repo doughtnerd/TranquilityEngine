@@ -386,7 +386,7 @@ export function parseShaderGraph(raw: unknown, where = "shader graph"): { graph:
 }
 
 /** A shader graph file's JSON: the format, the settings that differ from the defaults, then the graph. */
-export function shaderGraphJSON(graph: ShaderGraph): Record<string, unknown> {
+function shaderGraphJSON(graph: ShaderGraph): Record<string, unknown> {
   const out: Record<string, unknown> = { format: graph.subgraph ? SHADER_SUBGRAPH_FORMAT : SHADER_GRAPH_FORMAT };
   if (graph.subgraph) out.outputs = graph.subgraph.outputs.map((p) => ({ ...p }));
   else {

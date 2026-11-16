@@ -14,8 +14,11 @@ import { compileShaderGraph } from "../render/shaderGraph/compile";
 import { compileShaderAsset } from "../render/shaderGraph/shaderAsset";
 import { formatMaterial, parseMaterial } from "../scene/material";
 import { formatShaderAsset, isShaderAssetPath, parseShaderAsset } from "../scene/shaderAsset";
-import { defaultShaderGraph, parseShaderGraph, shaderGraphJSON, type ShaderGraph } from "../scene/shaderGraph";
+import { defaultShaderGraph, parseShaderGraph, type ShaderGraph, formatShaderGraph } from "../scene/shaderGraph";
 import { allKeywordDefines, keywordConstantsWgsl, keywordDefines, parseKeywords, resolveKeywords, warmKeywordVariants, type ShaderKeyword } from "../scene/shaderKeywords";
+
+/** A shader graph file's JSON object. */
+const shaderGraphJSON = (graph: ShaderGraph): Record<string, unknown> => JSON.parse(formatShaderGraph(graph));
 
 const RIM: ShaderKeyword = { name: "RIM" };
 const QUALITY: ShaderKeyword = { name: "QUALITY", values: ["LOW", "MID", "HIGH"], variants: "all" };

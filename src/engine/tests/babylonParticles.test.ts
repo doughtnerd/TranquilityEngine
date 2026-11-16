@@ -15,14 +15,17 @@ import { Color as EngineColor } from "../core/math";
 import type { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { BabylonParticles, type BabylonParticleHost } from "../render/babylon/particles";
 import type { ParticleCommand, ParticleSystem } from "../render/components";
-import { defaultEmitter, defaultRenderer, defaultShape, particleEffectJSON, type ParticleEffect, type ParticleEmitterSettings, type ParticleRenderer } from "../scene/particles";
+import { defaultEmitter, defaultRenderer, defaultShape, type ParticleEffect, type ParticleEmitterSettings, type ParticleRenderer, PARTICLES_FORMAT } from "../scene/particles";
+
+/** An effect as its `myco.particles@1` file's JSON object. */
+const legacyJSON = (effect: ParticleEffect): Record<string, unknown> => ({ format: PARTICLES_FORMAT, ...effect });
 
 /** A stand-in ParticleSystem component: the fields and state the player reads and writes. */
 function fakeSystem(effect: ParticleEffect, over: Partial<ParticleSystem> = {}) {
   return {
     isActiveAndEnabled: true,
     effect: "",
-    embeddedEffect: particleEffectJSON(effect),
+    embeddedEffect: legacyJSON(effect),
     playOnAwake: true,
     timeScale: 1,
     tint: EngineColor.white,
@@ -216,7 +219,7 @@ describe("particles on the Babylon backend (ADR 0075 stage 5)", () => {
     const c = fakeSystem(steady(10));
     frames(p, c, 1);
     expect(scene.particleSystems).toHaveLength(1);
-    (c as { embeddedEffect: unknown }).embeddedEffect = particleEffectJSON({ emitters: [defaultEmitter("A"), defaultEmitter("B")] });
+    (c as { embeddedEffect: unknown }).embeddedEffect = legacyJSON({ emitters: [defaultEmitter("A"), defaultEmitter("B")] });
     frames(p, c, 1);
     expect(p.state().emitters).toBe(2);
     expect(scene.particleSystems).toHaveLength(2);

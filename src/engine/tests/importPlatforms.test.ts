@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { Assets } from "../index";
-import { authoredSize, clampTextureSize, defaultImportSettings, formatImportSettings, importSettingsJSON, parseImportSettings, resolveImportSettings, withPlatformOverride } from "../scene/importSettings";
+import { authoredSize, clampTextureSize, defaultImportSettings, formatImportSettings, parseImportSettings, resolveImportSettings, withPlatformOverride, type ImportSettings } from "../scene/importSettings";
+
+/** The sidecar file's JSON object for `settings`. */
+const importSettingsJSON = (settings: ImportSettings): Record<string, unknown> => JSON.parse(formatImportSettings(settings));
 
 afterEach(() => {
   Assets.clearSources();

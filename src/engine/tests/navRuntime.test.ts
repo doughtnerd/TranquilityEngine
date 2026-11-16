@@ -11,7 +11,7 @@ import {
   debugBakeLines,
   type Vec3,
 } from "../../plugins/navigation/runtime/runtime";
-import { defaultNavAgentType, defaultNavigationSettings, parseNavigationSettings, type NavigationSettings } from "../nav/settings";
+import { defaultNavAgentType, parseNavigationSettings, type NavigationSettings } from "../nav/settings";
 
 // ADR 0065: the WebAssembly boundary end to end in Node: bake a floor with a box on it, load it into a
 // runtime, walk and fly agents through the zero-copy views, and run the one-shot queries.
@@ -20,7 +20,7 @@ const WALKER = "walker";
 const FLYER = "flyer";
 
 function settings(): NavigationSettings {
-  const s = defaultNavigationSettings();
+  const s = parseNavigationSettings(undefined).settings;
   const flyer = defaultNavAgentType(FLYER, "Flyer");
   flyer.canWalk = false;
   flyer.canFly = true;
@@ -213,15 +213,18 @@ describe("navigation runtime", () => {
 
 describe("navigation settings", () => {
   it("defaults, and fills what a section leaves out", () => {
-    expect(parseNavigationSettings(undefined)).toEqual({ settings: defaultNavigationSettings(), problems: [] });
+    const defaults = parseNavigationSettings(undefined);
+    expect(defaults.problems).toEqual([]);
+    expect(defaults.settings.agentTypes.map((t) => t.name)).toEqual(["Humanoid"]);
+    expect(parseNavigationSettings({})).toEqual(defaults);
     const { settings: s, problems } = parseNavigationSettings({ agentTypes: [{ id: "a", name: "A", walk: { radius: 0.3 } }], tileSize: 32 });
     expect(problems).toEqual([]);
     expect(s.tileSize).toBe(32);
     expect(s.agentTypes).toHaveLength(1);
     expect(s.agentTypes[0].walk.radius).toBe(0.3);
-    expect(s.agentTypes[0].walk.height).toBe(defaultNavigationSettings().agentTypes[0].walk.height);
+    expect(s.agentTypes[0].walk.height).toBe(defaults.settings.agentTypes[0].walk.height);
     expect(s.agentTypes[0].avoidance).not.toBeNull();
-    expect(s.orientation).toEqual(defaultNavigationSettings().orientation);
+    expect(s.orientation).toEqual(defaults.settings.orientation);
   });
 
   it("reports bad values and keeps the defaults", () => {

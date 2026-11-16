@@ -12,7 +12,7 @@
  * Every edit function returns a new formation, so editors can keep snapshots for undo.
  */
 
-export const FORMATION_FORMAT = "myco.formation@1";
+const FORMATION_FORMAT = "myco.formation@1";
 export const FORMATION_SUFFIX = ".formation.json";
 /** `NavFormations.MaxMaskSize`: the largest mask side. */
 export const MAX_FORMATION_SIZE = 128;

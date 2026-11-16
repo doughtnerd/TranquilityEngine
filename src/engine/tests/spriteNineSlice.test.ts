@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { clampBorder, spriteFrame, spriteMeshData, SPRITE_GRID_INDICES } from "../render/spriteFrame";
-import { defaultImportSettings, importSettingsJSON, parseImportSettings } from "../scene/importSettings";
+import { defaultImportSettings, parseImportSettings, formatImportSettings, type ImportSettings } from "../scene/importSettings";
+
+/** The sidecar file's JSON object for `settings`. */
+const importSettingsJSON = (settings: ImportSettings): Record<string, unknown> => JSON.parse(formatImportSettings(settings));
 
 const frameOf = (border: [number, number, number, number] | undefined, size?: { x: number; y: number }) => {
   const settings = defaultImportSettings();

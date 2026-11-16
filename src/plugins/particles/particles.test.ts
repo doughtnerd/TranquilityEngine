@@ -23,7 +23,7 @@ import { previewKind } from "../../editor/thumbnails/keys";
 import { inspectorSectionsFor } from "../../editor/ui/inspectorSections";
 import { EDITOR_PLUGINS } from "../editor";
 import { RUNTIME_PLUGINS } from "../runtime";
-import { deactivateRuntimePlugin, isRuntimePluginActive } from "../runtimeContext";
+import { isRuntimePluginActive, runtimeActivator } from "../runtimeContext";
 import { applyTestPlugins } from "../testPlugins";
 import { particlesEditorPlugin } from "./editor";
 import { openParticleGraph, readEffect } from "./editor/particleAssets";
@@ -171,7 +171,7 @@ describe("the Particles plugin's runtime half (ADR 0135)", () => {
   });
 
   it("removes them when deactivated", () => {
-    deactivateRuntimePlugin("myco.particles");
+    runtimeActivator.deactivate("myco.particles");
     expect(getComponentClass("engine.ParticleSystem")).toBeUndefined();
     expect(_registeredRenderFeatures().some((f) => f.spec.name === "particles")).toBe(false);
   });

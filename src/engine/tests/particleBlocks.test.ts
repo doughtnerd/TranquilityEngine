@@ -1,8 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { BLOCKS, blockDef, blocksFor, defaultBlock } from "../scene/particleBlocks";
-import { CONTEXT_KINDS } from "../scene/particleGraph";
-import { parseParticleGraph, formatParticleGraph, emptyParticleGraph } from "../scene/particleGraphFormat";
-import { BEHAVIOR_TYPES, SHAPE_TYPES } from "../scene/particles";
+import { CONTEXT_KINDS, type ParticleGraph } from "../scene/particleGraph";
+import { parseParticleGraph, formatParticleGraph } from "../scene/particleGraphFormat";
+import type { ParticleBehaviorType, ShapeType } from "../scene/particles";
+
+/** Every @1 shape type (a Record, so a shape added to the format must be added here too). */
+const SHAPE_TYPES = Object.keys({ point: 0, sphere: 0, hemisphere: 0, cone: 0, circle: 0, donut: 0, rectangle: 0, grid: 0 } satisfies Record<ShapeType, 0>) as ShapeType[];
+/** Every @1 behaviour type, in the format's order (a Record, so a behaviour added to the format must be added here too). */
+const BEHAVIOR_TYPES = Object.keys({
+  colorOverLife: 0, sizeOverLife: 0, rotationOverLife: 0, speedOverLife: 0, forceOverLife: 0, gravityPoint: 0, noise: 0, turbulence: 0,
+  orbit: 0, frameOverLife: 0, limitSpeed: 0, colorBySpeed: 0, sizeBySpeed: 0, widthOverLength: 0, collision: 0, collisionColliders: 0,
+} satisfies Record<ParticleBehaviorType, 0>) as ParticleBehaviorType[];
+/** A graph with nothing in it. */
+const emptyParticleGraph = (): ParticleGraph => parseParticleGraph({}).graph;
 
 describe("particle block registry (ADR 0060)", () => {
   it("has unique types that name a known context", () => {
