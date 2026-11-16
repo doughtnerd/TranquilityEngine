@@ -1,11 +1,10 @@
-import { errorStatus } from "../messages";
 import { Panel } from "./panel/Panel";
 import { signal } from "@preact/signals";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 import { Color, GameObject, Quaternion } from "../../engine";
 import type { FieldChoice } from "../../engine/core/registry";
 import { listComponents, type ComponentInfo, type FieldValue } from "../../engine/editor";
-import { RevertOverrides, pathKey, type NodePath } from "../document";
+import { pathKey, type NodePath } from "../document";
 import { choicesFor, defaultItem, editorFor, fieldTitle, itemEditorFor, itemField, type FieldEditor } from "../fieldValues";
 import { fieldState, revertField, rotationViewOf, setField, setFieldAxis, setFieldEach, withAxis } from "../fieldEdits";
 import { MIXED, NumberInput, formatNumber } from "../fields/NumberInput";
@@ -21,6 +20,7 @@ import {
   setComponentWorlds,
   setNodeTags,
   tagsOverridden,
+  withWorldTag,
   worldsBadge,
   type WorldsSetting,
 } from "../inspectorEdits";
@@ -39,7 +39,6 @@ import {
   whyNotToggleable,
 } from "../componentEdits";
 import { deleteSelected } from "../deleteSelection";
-import { openPrefabFrom } from "../prefabTabs";
 import { AddComponentMenu } from "./AddComponentMenu";
 import { AssetInspector } from "./AssetInspector";
 import { showsAssetInspector } from "../assetImport";
@@ -53,12 +52,10 @@ import { addToPreload, preloadCandidates, removeFromPreload } from "../scenePrel
 import { RuntimeInspector } from "./RuntimeInspector";
 import { UIElementInspector } from "./UIElementInspector";
 import { openScript, scriptFor } from "../code/codeState";
-import { applyOverrides, applyOverridesTo, createPrefabFromNodes, createPrefab, findInner, isInnerPropertyOverridden, nodePropertyCommand, revertInnerProperty } from "../prefabs";
-import { currentProject, docVersion, openScene, scriptsVersion, selectedKeys, selectedUIElement, selection, status, type OpenScene } from "../state";
+import { applyPrefabOverrides, createPrefabFrom, existingPaths, nodeHeader, openPrefabOf, prefabActions, renameNode, revertAllOverrides, revertNameAndActive, setNodesActive } from "../nodeEdits";
+import { currentProject, docVersion, openScene, scriptsVersion, selectedKeys, selectedUIElement, status, type OpenScene } from "../state";
 import { componentHeaderActions, type ComponentHeaderActionContribution } from "../sdk/contributions";
 import { usePopover } from "./popover";
-
-const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 /**
  * The selected node's components with their declared fields and live values (ADR 0022, 0026).
@@ -75,14 +72,12 @@ export function Inspector() {
   docVersion.value; // re-render when the document changes
   const scene = openScene.value;
   if (!scene) return <Panel><p class="empty">Nothing selected</p></Panel>;
-  // Selected nodes that still exist (an undo may have removed some).
-  const paths = selectedKeys.value
-    .map((k) => k.split("/") as NodePath)
-    .filter((p) => scene.doc.has(p[0]) && (p.length === 1 || findInner(scene.doc, p)));
+  const paths = existingPaths(scene, selectedKeys.value);
   if (paths.length === 0) return <Panel><SceneSettings scene={scene} /></Panel>;
   if (paths.length > 1) return <Panel><MultiInspector scene={scene} paths={paths} /></Panel>;
   const path = paths[0];
-  const inner = path.length > 1 ? findInner(scene.doc, path) : null;
+  const header = nodeHeader(scene, paths);
+  const inner = header.inner;
 
   const id = path[0];
   const entry = scene.doc.node(id);
@@ -96,28 +91,24 @@ export function Inspector() {
         <div class="node-header">
           <input
             type="checkbox"
-            class={inner && isInnerPropertyOverridden(scene.doc, path, "active") ? "overridden" : undefined}
-            checked={inner ? inner.active : entry.active !== false}
+            class={header.activeOverridden ? "overridden" : undefined}
+            checked={header.active === true}
             aria-label="Active"
             title={inner ? "Inside a prefab instance: switching it is an override" : undefined}
-            onChange={(e) => scene.stack.execute(nodePropertyCommand(scene.doc, path, "active", (e.currentTarget as HTMLInputElement).checked))}
+            onChange={(e) => setNodesActive(scene, paths, (e.currentTarget as HTMLInputElement).checked)}
           />
           <TextInput
-            class={`node-name${inner ? " inner-name" : ""}${inner && isInnerPropertyOverridden(scene.doc, path, "name") ? " overridden" : ""}`}
-            value={inner ? inner.name : (entry.name ?? id)}
+            class={`node-name${inner ? " inner-name" : ""}${header.nameOverridden ? " overridden" : ""}`}
+            value={header.names[0]}
             label="Name"
-            onCommit={(name) => name !== (inner ? inner.name : (entry.name ?? id)) && scene.stack.execute(nodePropertyCommand(scene.doc, path, "name", name))}
+            onCommit={(name) => renameNode(scene, path, name)}
           />
-          {inner && (isInnerPropertyOverridden(scene.doc, path, "name") || isInnerPropertyOverridden(scene.doc, path, "active")) && (
+          {(header.nameOverridden || header.activeOverridden) && (
             <button
               class="revert node-revert"
               aria-label="Revert name and active"
               title="Name or active overridden in this scene. Revert to the prefab's"
-              onClick={() =>
-                inGroup(scene, "Revert name and active", () => {
-                  for (const key of ["name", "active"] as const) if (isInnerPropertyOverridden(scene.doc, path, key)) revertInnerProperty(scene, path, key);
-                })
-              }
+              onClick={() => revertNameAndActive(scene, paths)}
             >
               ↺
             </button>
@@ -139,14 +130,7 @@ export function Inspector() {
           )}
         </dl>
         <NodeTags scene={scene} paths={[path]} />
-        {entry.prefab && !inner && <PrefabActions scene={scene} id={id} />}
-        {entry.prefab && inner && (
-          <div class="prefab-actions">
-            <span class="override-count">Inside {entry.prefab.split("/").pop()}</span>
-            <OpenPrefabButton path={path} />
-          </div>
-        )}
-        {!entry.prefab && <CreatePrefabButton scene={scene} id={id} />}
+        <PrefabActionsBar scene={scene} paths={paths} />
         {components.map((c) => (
           <ComponentCard key={`${key}/${c.type}#${c.index}`} scene={scene} paths={[path]} infos={[c]} siblings={components} />
         ))}
@@ -228,28 +212,22 @@ function MultiInspector(props: { scene: OpenScene; paths: NodePath[] }) {
   const lists = nodes.map((n) => (n ? listComponents(n) : []));
   // Components every node has, matched by type and index, in the active (last) node's order.
   const shared = lists[lists.length - 1].filter((c) => lists.every((l) => l.some((o) => o.type === c.type && o.index === c.index)));
-  const names = paths.map((p, i) => nodes[i]?.name ?? p[p.length - 1]);
-  const anyInner = paths.some((p) => p.length > 1);
-  const actives = paths.map((p) => (p.length > 1 ? (findInner(scene.doc, p)?.active ?? true) : scene.doc.node(p[0]).active !== false));
-  const allActive = actives.every(Boolean);
+  const header = nodeHeader(scene, paths);
+  const names = header.names;
+  const anyInner = header.inner;
   const key = paths.map(pathKey).join("|");
   return (
     <div class="inspector-body">
       <AssetLists />
-      <MultiPrefabActions scene={scene} paths={paths} />
+      <PrefabActionsBar scene={scene} paths={paths} />
       <div class="node-header">
         <input
           type="checkbox"
-          checked={allActive}
-          indeterminate={!allActive && actives.some(Boolean)}
+          checked={header.active === true}
+          indeterminate={header.active === "mixed"}
           aria-label="Active"
           title={anyInner ? "Nodes inside a prefab instance are switched as overrides" : undefined}
-          onChange={(e) => {
-            const on = (e.currentTarget as HTMLInputElement).checked;
-            inGroup(scene, `${on ? "Activate" : "Deactivate"} ${paths.length} nodes`, () => {
-              for (const p of paths) scene.stack.execute(nodePropertyCommand(scene.doc, p, "active", on));
-            });
-          }}
+          onChange={(e) => setNodesActive(scene, paths, (e.currentTarget as HTMLInputElement).checked)}
         />
         <span class="node-name multi-name">{paths.length} nodes selected</span>
         {!anyInner && (
@@ -329,137 +307,55 @@ function MissingComponents(props: { scene: OpenScene; path: NodePath }) {
   );
 }
 
-/** Run `body` as one undo step. */
-function inGroup(scene: OpenScene, label: string, body: () => void): void {
-  scene.stack.beginGroup(label);
-  try {
-    body();
-  } finally {
-    scene.stack.endGroup();
-  }
-}
-
-/** Apply or revert all of an instance's overrides. */
-function PrefabActions(props: { scene: OpenScene; id: string }) {
+/**
+ * The prefab actions for the selection (ADR 0022, 0087, 0122): Create Prefab on plain nodes; on one
+ * instance its override count, Apply, Revert All and Open Prefab; on a node inside an instance, Open
+ * Prefab; on several instances, Apply. A disabled action's tooltip says why.
+ */
+function PrefabActionsBar(props: { scene: OpenScene; paths: NodePath[] }) {
   docVersion.value; // its props don't change when overrides do, so read the document version
-  const { scene, id } = props;
-  const project = currentProject.value;
-  const count = scene.doc.node(id).overrides?.length ?? 0;
-  const canApply = count > 0 && !!project?.canSave;
-  const applyTitle = !project?.canSave
-    ? "This project is read-only. Open a project folder to apply overrides."
-    : "Write this instance's overrides into the prefab file (updates every instance)";
-  return (
-    <div class="prefab-actions">
-      <span class="override-count">{count === 0 ? "No overrides" : `${count} override${count === 1 ? "" : "s"}`}</span>
-      <button
-        disabled={!canApply}
-        title={applyTitle}
-        onClick={async () => {
-          try {
-            const n = await applyOverrides(scene, project!, id);
-            const prefab = scene.doc.node(id).prefab;
-            status.value = { kind: "info", text: `Applied ${n} override${n === 1 ? "" : "s"} to ${prefab}. Undo restores them here; the prefab file keeps the change.` };
-          } catch (err) {
-            status.value = errorStatus(null, err);
-          }
-        }}
-      >
-        Apply
-      </button>
-      <button
-        disabled={count === 0}
-        title="Remove all overrides: back to the prefab's values"
-        onClick={() => scene.stack.execute(new RevertOverrides(id, "Revert all overrides"))}
-      >
-        Revert All
-      </button>
-      <OpenPrefabButton path={[id]} />
-    </div>
-  );
-}
-
-/** Open the prefab file in its own tab, with this node selected there (ADR 0122). */
-function OpenPrefabButton(props: { path: NodePath }) {
-  return (
-    <button title="Edit the prefab itself in its own tab (Back returns here)" onClick={() => void openPrefabFrom(props.path)}>
-      Open Prefab
-    </button>
-  );
-}
-
-/** Create Prefab for several sibling nodes, and Apply for several instances (ADR 0087). */
-function MultiPrefabActions(props: { scene: OpenScene; paths: NodePath[] }) {
-  docVersion.value;
   const { scene, paths } = props;
   const project = currentProject.value;
-  if (paths.some((p) => p.length > 1)) return null;
-  const ids = paths.map((p) => p[0]);
-  const plain = ids.filter((id) => !scene.doc.node(id).prefab);
-  const withOverrides = ids.filter((id) => scene.doc.node(id).prefab && (scene.doc.node(id).overrides?.length ?? 0) > 0);
-  const canSave = !!project?.canSave;
+  const actions = prefabActions(scene, project, paths);
+  const { create, apply, revertAll, open } = actions;
+  if (!create && !apply && !revertAll && !open) return null;
+  const several = paths.length > 1;
+  const count = actions.overrides;
   return (
     <div class="prefab-actions">
-      {plain.length === ids.length && (
+      {open && !revertAll && actions.prefab && <span class="override-count">Inside {actions.prefab.split("/").pop()}</span>}
+      {revertAll && <span class="override-count">{count === 0 ? "No overrides" : `${count} override${count === 1 ? "" : "s"}`}</span>}
+      {create && (
         <button
-          disabled={!canSave}
-          title={canSave ? "Save these nodes as one prefab (under a new Group root) and replace them with an instance" : "This project is read-only. Open a project folder to create prefabs."}
-          onClick={async () => {
-            try {
-              const path = await createPrefabFromNodes(scene, project!, ids);
-              status.value = { kind: "info", text: `Created ${path}. Undo turns the nodes back; the file stays on disk.` };
-            } catch (err) {
-              status.value = errorStatus(null, err);
-            }
-          }}
+          disabled={create.whyNot !== null}
+          title={
+            create.whyNot ??
+            (several ? "Save these nodes as one prefab (under a new Group root) and replace them with an instance" : "Save this node and its children as a prefab file, and make this node an instance of it")
+          }
+          onClick={() => void createPrefabFrom(scene, project, paths)}
         >
           Create Prefab
         </button>
       )}
-      {withOverrides.length > 0 && (
+      {apply && (
         <button
-          disabled={!canSave}
-          title="Write the selected instances' overrides into their prefab files"
-          onClick={async () => {
-            try {
-              const n = await applyOverridesTo(scene, project!, withOverrides);
-              status.value = { kind: "info", text: `Applied ${n} override${n === 1 ? "" : "s"} from ${withOverrides.length} instances.` };
-            } catch (err) {
-              status.value = errorStatus(null, err);
-            }
-          }}
+          disabled={apply.whyNot !== null}
+          title={apply.whyNot ?? (several ? "Write the selected instances' overrides into their prefab files" : "Write this instance's overrides into the prefab file (updates every instance)")}
+          onClick={() => void applyPrefabOverrides(scene, project, paths)}
         >
           Apply
         </button>
       )}
-    </div>
-  );
-}
-
-function CreatePrefabButton(props: { scene: OpenScene; id: string }) {
-  docVersion.value;
-  const { scene, id } = props;
-  const project = currentProject.value;
-  const title = project?.canSave
-    ? "Save this node and its children as a prefab file, and make this node an instance of it"
-    : "This project is read-only. Open a project folder to create prefabs.";
-  return (
-    <div class="prefab-actions">
-      <button
-        disabled={!project?.canSave}
-        title={title}
-        onClick={async () => {
-          try {
-            const path = await createPrefab(scene, project!, id);
-            selection.value = id;
-            status.value = { kind: "info", text: `Created ${path}. Undo turns the node back; the file stays on disk.` };
-          } catch (err) {
-            status.value = errorStatus(null, err);
-          }
-        }}
-      >
-        Create Prefab
-      </button>
+      {revertAll && (
+        <button disabled={revertAll.whyNot !== null} title={revertAll.whyNot ?? "Remove all overrides: back to the prefab's values"} onClick={() => revertAllOverrides(scene, paths)}>
+          Revert All
+        </button>
+      )}
+      {open && (
+        <button title="Edit the prefab itself in its own tab (Back returns here)" onClick={() => void openPrefabOf(scene, paths)}>
+          Open Prefab
+        </button>
+      )}
     </div>
   );
 }
@@ -1085,27 +981,8 @@ function ComponentMenu(props: { scene: OpenScene; title: string; worlds: { targe
   const tags = knownWorldTags(currentProject.value?.settings, all.flatMap((w) => w ?? []));
   const targets = worlds.map((w) => w.target);
   const anyOwn = worlds.some((w) => w.setting.own !== undefined);
-  const same = (a: readonly string[] | undefined, b: readonly string[] | undefined) =>
-    isEveryWorld(a) === isEveryWorld(b) && (isEveryWorld(a) || (a!.length === b!.length && a!.every((t) => b!.includes(t))));
-  /** Set `next` on every node; where it matches what a node inherits, drop the node's own setting instead. */
-  const set = (next: readonly string[]) => {
-    scene.stack.beginGroup(`Set Worlds of ${title}`);
-    try {
-      for (const { target, setting } of worlds) {
-        if (same(next, setting.inherited)) {
-          if (setting.own !== undefined) setComponentWorlds(scene, [target], undefined);
-        } else if (setting.own === undefined || !same(next, setting.own)) {
-          setComponentWorlds(scene, [target], next);
-        }
-      }
-    } finally {
-      scene.stack.endGroup();
-    }
-  };
-  const toggle = (tag: string, on: boolean) => {
-    const base = isEveryWorld(current) ? [] : current!.filter((t) => t !== tag);
-    set(on ? [...base, tag] : base);
-  };
+  const set = (next: readonly string[]) => setComponentWorlds(scene, targets, next, `Set Worlds of ${title}`);
+  const toggle = (tag: string, on: boolean) => set(withWorldTag(current, tag, on));
   const everyAll = all.every(isEveryWorld);
   const everySome = all.some(isEveryWorld);
   const describe = (w: readonly string[] | undefined) => (isEveryWorld(w) ? "every World" : w!.length === 0 ? "no Worlds" : w!.join(", "));

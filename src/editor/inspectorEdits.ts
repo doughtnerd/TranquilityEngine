@@ -59,18 +59,41 @@ export function worldsBadge(worlds: readonly string[] | undefined): string | nul
   return worlds!.length === 0 ? "no Worlds" : worlds!.join(", ");
 }
 
+/** True when two Worlds settings admit the same Worlds (every World, or the same tags in any order). */
+export const sameWorlds = (a: readonly string[] | undefined, b: readonly string[] | undefined): boolean =>
+  isEveryWorld(a) === isEveryWorld(b) && (isEveryWorld(a) || (a!.length === b!.length && a!.every((t) => b!.includes(t))));
+
+/** `worlds` with `tag` ticked or unticked; unticking from every World leaves no Worlds. */
+export function withWorldTag(worlds: readonly string[] | undefined, tag: string, on: boolean): string[] {
+  const base = isEveryWorld(worlds) ? [] : worlds!.filter((t) => t !== tag);
+  return on ? [...base, tag] : base;
+}
+
 /**
  * Limit each component to Worlds with these tags (`["*"]`: every World), or with `undefined`
- * go back to the inherited setting, as one undo step. Returns how many changed.
+ * go back to the inherited setting, as one undo step (labelled `label` when given). Where the
+ * tags match what a component inherits, its own setting is dropped instead of repeating it; a
+ * component already so is left alone. Returns how many changed.
  */
-export function setComponentWorlds(scene: OpenScene, targets: readonly { path: NodePath; node: GameObject; info: ComponentInfo }[], worlds: readonly string[] | undefined): number {
+export function setComponentWorlds(
+  scene: OpenScene,
+  targets: readonly { path: NodePath; node: GameObject; info: ComponentInfo }[],
+  worlds: readonly string[] | undefined,
+  label?: string,
+): number {
   const { doc, stack } = scene;
-  const able = targets.filter((t) => componentWorlds(doc, t.path, t.info, countOf(t.node, t.info.type)) !== null);
+  const able = targets.flatMap((t) => {
+    const setting = componentWorlds(doc, t.path, t.info, countOf(t.node, t.info.type));
+    if (!setting) return [];
+    const next = worlds === undefined || sameWorlds(worlds, setting.inherited) ? undefined : worlds;
+    const unchanged = next === undefined ? setting.own === undefined : setting.own !== undefined && sameWorlds(next, setting.own);
+    return unchanged ? [] : [{ ...t, next }];
+  });
   if (able.length === 0) return 0;
-  const label = worlds === undefined ? "Reset Worlds" : "Set Worlds";
-  stack.beginGroup(able.length === 1 ? label : `${label} on ${able.length} nodes`);
+  const verb = worlds === undefined ? "Reset Worlds" : "Set Worlds";
+  stack.beginGroup(label ?? (able.length === 1 ? verb : `${verb} on ${able.length} nodes`));
   try {
-    for (const { path, node, info } of able) {
+    for (const { path, node, info, next: worlds } of able) {
       const [id, ...target] = path;
       const origin = originOf(doc, path, info, countOf(node, info.type))!;
       if (origin.kind === "file") {
@@ -87,7 +110,7 @@ export function setComponentWorlds(scene: OpenScene, targets: readonly { path: N
         if (at >= 0) list.splice(at, 1);
         if (worlds !== undefined) list.push({ ...(target.length > 0 ? { target: [...target] } : {}), component: info.type, ...(info.index > 0 ? { index: info.index } : {}), worlds: [...worlds] });
       }
-      stack.execute(new SetOverrides(id, label, list));
+      stack.execute(new SetOverrides(id, verb, list));
     }
   } finally {
     stack.endGroup();
