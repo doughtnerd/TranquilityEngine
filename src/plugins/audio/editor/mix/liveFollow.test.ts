@@ -7,7 +7,10 @@ import { createCaptureWorkerHandler, type CaptureRequest, type CaptureResponse }
 import { createRecorder, type EpochContext, type Recorder } from "../../runtime/capture/recorder";
 import { SAMPLE_RATE, keyframeCodecForTests, liveHead, statusBytesWith } from "../../runtime/capture/testSupport";
 import type { CaptureWorkerLike } from "./profilerSource";
-import { LIVE_UPDATE_MS, LiveFollow, viewportAfterUpdate, type LiveFollowModel, type LiveHost, type LiveRecording, type LiveScheduler } from "./liveFollow";
+import { LiveFollow, type LiveFollowModel, type LiveHost, type LiveRecording, type LiveScheduler } from "./liveFollow";
+
+// The least time between two model updates.
+const LIVE_UPDATE_MS = 66;
 
 const MiB = 1024 * 1024;
 const BLOCK = 768;
@@ -356,14 +359,5 @@ describe("failures are states", () => {
     await settle(() => f.current.state === "error");
     expect(host.recording).toBe(false);
     expect(f.current.error).toMatch(/badSeq|seq/i);
-  });
-});
-
-describe("viewportAfterUpdate", () => {
-  it("keeps a following viewport on the live edge and leaves a free one alone", () => {
-    const model = { state: "following", source: null, duration: 12, segments: 12, error: null } as LiveFollowModel;
-    expect(viewportAfterUpdate({ start: 0, end: 4, followLive: true }, model)).toMatchObject({ start: 8, end: 12, followLive: true });
-    const free = { start: 1, end: 3, followLive: false };
-    expect(viewportAfterUpdate(free, model)).toBe(free);
   });
 });

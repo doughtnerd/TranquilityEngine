@@ -12,7 +12,7 @@ import { CaptureSource, type CaptureSourceOptions, type ProfileSource } from "./
 import { followLiveViewport, type Viewport } from "./timelineModel";
 
 /** The least time between two model updates, milliseconds (§7). */
-export const LIVE_UPDATE_MS = 66;
+const LIVE_UPDATE_MS = 66;
 
 /** What a joined owner holds: the recorder's live feed (`Recorder.startLive` / `stopLive` / `liveLost`) and its own hold. */
 export interface LiveRecording {
@@ -242,9 +242,4 @@ export class LiveFollow {
     this.dirty = false;
     this.onUpdate(this.current);
   }
-}
-
-/** The viewport after an update: a following viewport stays on the live edge; any other is left where the user put it. */
-export function viewportAfterUpdate(v: Viewport, model: LiveFollowModel): Viewport {
-  return v.followLive ? followLiveViewport(v, model.duration) : v;
 }

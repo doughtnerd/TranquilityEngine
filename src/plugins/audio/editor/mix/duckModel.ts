@@ -1,4 +1,4 @@
-// The ducking rule's editing model and the gain-reduction model (ADR 0171 §2.1, §7 amended by ADR 0172; task Dk1). Pure:
+// The ducking rule's editing model and the gain reduction (ADR 0171 §2.1, §7 amended by ADR 0172; task Dk1). Pure:
 // no Preact, no editor, no backend.
 //
 // Editing: a rule's fields and limits (`mode`, `detector`, `threshold`, `amount`, `attack`, `release`), a new rule's
@@ -7,10 +7,7 @@
 // whether a list of rules would lose one, so the section shows the parse's own message (a level cycle naming its rules,
 // the 9th level rule, the 33rd rule) and never saves the rule.
 //
-// Reading: per target bus, the duck lane's gain (STATUS `busDuck` through `Bus.duckGain`), the reduction in dB and which
-// rule leads. STATUS carries one gain per ducked bus (the min of its rules), not one per rule, so the lead is worked out
-// from the rules and what their triggers are doing: the engaged rule heading lowest, else (a release tail) the rule
-// heading lowest.
+// Reading: a ducked bus's reduction in dB from its duck lane's gain (STATUS `busDuck` through `Bus.duckGain`).
 import { reasonMessage } from "../../../../engine/audio/busCapability";
 import {
   DEFAULT_DUCK_DETECTOR,
@@ -41,7 +38,7 @@ export const DUCK_LIMITS = {
 } as const;
 
 /** A new rule's numbers (the parse's defaults). */
-export const DUCK_DEFAULTS = { amount: 0.4, attack: 0.1, release: 0.5 } as const;
+const DUCK_DEFAULTS = { amount: 0.4, attack: 0.1, release: 0.5 } as const;
 
 const clampTo = (n: number, [lo, hi]: readonly [number, number] | readonly number[]): number => Math.min(hi!, Math.max(lo!, n));
 
@@ -55,7 +52,7 @@ export function newDuckRule(target: string, trigger: string, mode: DuckingMode =
  * The rule in another mode. To level it keeps a detector and threshold it has and else takes the defaults; to presence it
  * drops both (the parse reports them on a presence rule).
  */
-export function ruleWithMode(rule: DuckingRule, mode: DuckingMode): DuckingRule {
+function ruleWithMode(rule: DuckingRule, mode: DuckingMode): DuckingRule {
   if (mode === "presence") {
     const { detector: _d, threshold: _t, ...rest } = rule;
     return { ...rest, mode };
@@ -82,7 +79,6 @@ export function ruleWithField(rule: DuckingRule, key: keyof DuckingRule, value: 
   }
 }
 
-export const levelRuleCount = (rules: readonly Pick<DuckingRule, "mode">[]): number => rules.filter((r) => r.mode === "level").length;
 
 /**
  * Why `rules` can't replace `a`'s ducking list, in the settings parse's own words, or null when the parse keeps every
@@ -103,96 +99,11 @@ export function levelDuckingAvailable(backend: AudioSettings["backend"], mixCaps
   return mixCaps ? mixCaps.levelDucking : backend !== "babylon";
 }
 
-// ---- the gain-reduction model ----
-
-/** What the model reads of one live bus (`Bus.duckGain`, `Bus.activeVoices`, and a level in dBFS when the caller has one). */
-export interface DuckBusReading {
-  /** The duck lane's gain, 1 = not ducked (`Bus.duckGain`). */
-  readonly duckGain: number;
-  /** Voices playing on the bus (a presence rule's trigger). */
-  readonly activeVoices: number;
-  /** The bus's level in dBFS (a level rule's trigger; `-Infinity` or absent: silent). */
-  readonly levelDb?: number;
-}
-
-/** `(name) => reading`, null while not playing. */
-export type ReadDuckBus = (name: string) => DuckBusReading | null;
-
-export interface DuckRuleRow {
-  /** The rule's index in `audio.ducking`. */
-  readonly index: number;
-  readonly trigger: string;
-  readonly mode: DuckingMode;
-  /** The trigger is doing what the rule listens for right now (voices for presence; level over the threshold for level). */
-  readonly engaged: boolean;
-  /** A level rule on a backend without level ducking: shows "Needs the audio core" and does nothing. */
-  readonly needsCore: boolean;
-}
-
-/** One ducked bus. */
-export interface DuckRow {
-  readonly bus: string;
-  /** The duck lane's gain, 1 = not ducked; 1 while not playing. */
-  readonly gain: number;
-  /** Gain reduction in dB, >= 0 (`gainReductionDb`). */
-  readonly reductionDb: number;
-  readonly reducing: boolean;
-  /** The rule heading lowest (see the file header), or null when not reducing or every rule needs the core. */
-  readonly lead: number | null;
-  /** The lead's trigger is engaged now; false in a release tail, where the lead is the rule heading lowest. */
-  readonly leadEngaged: boolean;
-  readonly rules: readonly DuckRuleRow[];
-  /** A level rule targets the bus, so its gain-reduction meter shows even while not reducing (`MixerHost.levelDucked`). */
-  readonly levelDucked: boolean;
-}
+// ---- the gain reduction ----
 
 /** Reduction in dB (>= 0) from a duck gain (1 = not ducked); NaN and over-unity read as none, gain 0 as 99. */
 export function gainReductionDb(duckGain: number): number {
   if (!(duckGain < 1)) return 0;
   if (!(duckGain > 0)) return 99;
   return Math.min(99, -20 * Math.log10(duckGain));
-}
-
-/** "-6.0 dB" for a reduction, "0.0 dB" for none. */
-export function formatReduction(reductionDb: number): string {
-  const r = Math.round(reductionDb * 10) / 10;
-  return r > 0 ? `-${r.toFixed(1)} dB` : "0.0 dB";
-}
-
-/**
- * One row per bus that is the target of a rule, in order of first appearance. `read` gives live buses (null: not playing,
- * every row at rest); `levelDucking` is whether the backend runs level rules (`levelDuckingAvailable`).
- */
-export function buildDuckRows(a: AudioSettings, read: ReadDuckBus = () => null, levelDucking = true): DuckRow[] {
-  const targets: string[] = [];
-  for (const r of a.ducking) if (!targets.includes(r.target)) targets.push(r.target);
-  return targets.map((bus) => {
-    const live = read(bus);
-    const gain = live && live.duckGain >= 0 && live.duckGain <= 1 ? live.duckGain : 1;
-    const rules: DuckRuleRow[] = [];
-    a.ducking.forEach((r, index) => {
-      if (r.target !== bus) return;
-      const mode: DuckingMode = r.mode === "level" ? "level" : "presence";
-      const t = read(r.trigger);
-      const needsCore = mode === "level" && !levelDucking;
-      const engaged = !t || needsCore ? false : mode === "presence" ? t.activeVoices > 0 : (t.levelDb ?? -Infinity) >= (r.threshold ?? DEFAULT_DUCK_THRESHOLD);
-      rules.push({ index, trigger: r.trigger, mode, engaged, needsCore });
-    });
-    const reducing = gain < 1;
-    const heading = (row: DuckRuleRow): number => a.ducking[row.index]!.amount;
-    const lowest = (rows: readonly DuckRuleRow[]): DuckRuleRow | undefined => rows.reduce<DuckRuleRow | undefined>((best, r) => (!best || heading(r) < heading(best) ? r : best), undefined);
-    const live1 = rules.filter((r) => !r.needsCore);
-    const engagedLead = reducing ? lowest(live1.filter((r) => r.engaged)) : undefined;
-    const lead = reducing ? engagedLead ?? lowest(live1) : undefined;
-    return {
-      bus,
-      gain,
-      reductionDb: gainReductionDb(gain),
-      reducing,
-      lead: lead ? lead.index : null,
-      leadEngaged: engagedLead !== undefined,
-      rules,
-      levelDucked: rules.some((r) => r.mode === "level"),
-    };
-  });
 }

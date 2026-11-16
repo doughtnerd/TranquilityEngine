@@ -8,12 +8,15 @@ import type { MixOp } from "../../../../engine/audio/mixOps";
 import { EMPTY_BUS_LOUDNESS, type BusLoudness, type LoudnessTargetReading, type LoudnessTargetState } from "../../../../engine/audio/loudnessTypes";
 import type { SettingsDraft } from "../../../../editor/sdk";
 import { FADER_MAX_DB, UNITY_POSITION, positionToGain } from "./faderModel";
-import { createMeter, readMeter, resetClip, tickMeter } from "./meterModel";
+import { createMeter, resetClip, tickMeter, type MeterState } from "./meterModel";
 import { meterFill } from "../meterFill";
 import { METER_FLOOR_DB, meterFill as meterFillFromView } from "../BusMeters";
 import { buildStrips, createMixerModel, type BusReading, type MixerHost, type MixerModel, type Strip } from "./mixerModel";
 import { parseAudioSettings } from "../../../../engine/audio/settings";
 import { GAIN_REDUCTION_MAX_DB, MixerStrip, faderHandlers, formatLufs, gainReductionDb, lufsFill, targetMarks, type MixerStripProps } from "./MixerStrip";
+
+/** What a view draws from a meter state and the live peak: the bar, the hold marker, the clip lamp. */
+const readMeter = (m: MeterState, peak: number) => ({ fill: meterFill(peak), holdFill: meterFill(m.hold), clipped: m.clipped });
 
 // ---- a rig: a real mixer model over an in-memory draft ----
 

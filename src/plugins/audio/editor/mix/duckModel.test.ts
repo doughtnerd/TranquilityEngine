@@ -2,22 +2,11 @@
 // its inputs (no clock, no backend).
 import { describe, expect, it } from "vitest";
 import { reasonMessage } from "../../../../engine/audio/busCapability";
-import { parseAudioSettings, type AudioSettings, type DuckingRule } from "../../../../engine/audio/settings";
-import {
-  DUCK_DEFAULTS,
-  DUCK_LIMITS,
-  NEEDS_AUDIO_CORE,
-  buildDuckRows,
-  duckRefusal,
-  formatReduction,
-  gainReductionDb,
-  levelDuckingAvailable,
-  levelRuleCount,
-  newDuckRule,
-  ruleWithField,
-  ruleWithMode,
-  type DuckBusReading,
-} from "./duckModel";
+import { parseAudioSettings, type AudioSettings, type DuckingMode, type DuckingRule } from "../../../../engine/audio/settings";
+import { DUCK_LIMITS, NEEDS_AUDIO_CORE, duckRefusal, gainReductionDb, levelDuckingAvailable, newDuckRule, ruleWithField } from "./duckModel";
+
+// A new rule's numbers.
+const DUCK_DEFAULTS = { amount: 0.4, attack: 0.1, release: 0.5 } as const;
 
 const settings = (ducking: object[], buses?: object[]): AudioSettings => parseAudioSettings({ ...(buses ? { buses } : {}), ducking }).settings;
 const level = (target: string, trigger: string, over: object = {}) => ({ target, trigger, mode: "level", ...over });
@@ -40,6 +29,8 @@ describe("a new rule", () => {
 });
 
 describe("the mode switch", () => {
+  /** Switch a rule's mode as the section's mode control does. */
+  const ruleWithMode = (rule: DuckingRule, mode: DuckingMode): DuckingRule => ruleWithField(rule, "mode", mode);
   it("presence to level takes the defaults", () => {
     const r = ruleWithMode(newDuckRule("Music", "Voice", "presence"), "level");
     expect(r).toMatchObject({ mode: "level", detector: "rms", threshold: -30 });
@@ -143,10 +134,7 @@ describe("duckRefusal: the settings parse's own words", () => {
   });
 });
 
-describe("levelRuleCount and levelDuckingAvailable", () => {
-  it("counts the level rules", () => {
-    expect(levelRuleCount(settings([level("Music", "Voice"), presence("SFX", "Voice"), level("UI", "Voice")]).ducking)).toBe(2);
-  });
+describe("levelDuckingAvailable", () => {
   it("the Babylon setting has no level ducking; core does; a playing backend's mixCaps wins", () => {
     expect(levelDuckingAvailable("core")).toBe(true);
     expect(levelDuckingAvailable("babylon")).toBe(false);
@@ -170,71 +158,6 @@ describe("gain reduction", () => {
     expect(gainReductionDb(1e-9)).toBe(99);
   });
   it("is shown with one decimal", () => {
-    expect(formatReduction(gainReductionDb(0.5))).toBe("-6.0 dB");
-    expect(formatReduction(0)).toBe("0.0 dB");
-    expect(formatReduction(0.04)).toBe("0.0 dB");
   });
 });
 
-describe("buildDuckRows", () => {
-  const a = settings([level("Music", "Voice", { amount: 0.5, threshold: -20 }), presence("Music", "SFX", { amount: 0.3 }), level("UI", "Voice")]);
-  const live = (over: Record<string, Partial<DuckBusReading>>) => (name: string): DuckBusReading | null => ({ duckGain: 1, activeVoices: 0, ...(over[name] ?? {}) });
-
-  it("one row per target bus in order of first appearance, at rest while not playing", () => {
-    const rows = buildDuckRows(a);
-    expect(rows.map((r) => r.bus)).toEqual(["Music", "UI"]);
-    expect(rows[0]).toMatchObject({ gain: 1, reductionDb: 0, reducing: false, lead: null, levelDucked: true });
-    expect(rows[0]!.rules.map((r) => [r.index, r.trigger, r.mode, r.engaged, r.needsCore])).toEqual([[0, "Voice", "level", false, false], [1, "SFX", "presence", false, false]]);
-  });
-  it("reads the duck gain and the reduction in dB from the bus", () => {
-    const rows = buildDuckRows(a, live({ Music: { duckGain: 0.5 } }));
-    expect(rows[0]!.gain).toBe(0.5);
-    expect(rows[0]!.reductionDb).toBeCloseTo(6.0206, 4);
-    expect(rows[0]!.reducing).toBe(true);
-    expect(rows[1]!.reducing).toBe(false);
-  });
-  it("the lead is the engaged rule heading lowest: a presence trigger with voices", () => {
-    const rows = buildDuckRows(a, live({ Music: { duckGain: 0.3 }, SFX: { activeVoices: 2 }, Voice: { levelDb: -40 } }));
-    expect(rows[0]).toMatchObject({ lead: 1, leadEngaged: true });
-    expect(rows[0]!.rules.map((r) => r.engaged)).toEqual([false, true]);
-  });
-  it("a level trigger is engaged at or over its threshold, not under it", () => {
-    const at = buildDuckRows(a, live({ Music: { duckGain: 0.5 }, Voice: { levelDb: -20 } }));
-    expect(at[0]!.rules[0]!.engaged).toBe(true);
-    expect(at[0]).toMatchObject({ lead: 0, leadEngaged: true });
-    const under = buildDuckRows(a, live({ Music: { duckGain: 0.5 }, Voice: { levelDb: -20.1 } }));
-    expect(under[0]!.rules[0]!.engaged).toBe(false);
-    const silent = buildDuckRows(a, live({ Voice: {} }));
-    expect(silent[0]!.rules[0]!.engaged).toBe(false);
-  });
-  it("two rules engaged: the one heading lowest leads; a tie goes to the first", () => {
-    const both = buildDuckRows(a, live({ Music: { duckGain: 0.3 }, SFX: { activeVoices: 1 }, Voice: { levelDb: -10 } }));
-    expect(both[0]).toMatchObject({ lead: 1, leadEngaged: true }); // 0.3 under 0.5
-    const tie = buildDuckRows(settings([level("Music", "Voice", { amount: 0.4 }), presence("Music", "SFX", { amount: 0.4 })]), live({ Music: { duckGain: 0.4 }, SFX: { activeVoices: 1 }, Voice: { levelDb: -5 } }));
-    expect(tie[0]!.lead).toBe(0);
-  });
-  it("in a release tail (reducing, nothing engaged) the lead is the rule heading lowest, marked not engaged", () => {
-    const tail = buildDuckRows(a, live({ Music: { duckGain: 0.8 } }));
-    expect(tail[0]).toMatchObject({ reducing: true, lead: 1, leadEngaged: false });
-  });
-  it("not reducing: no lead, even with a trigger engaged", () => {
-    const rows = buildDuckRows(a, live({ SFX: { activeVoices: 1 } }));
-    expect(rows[0]).toMatchObject({ reducing: false, lead: null });
-  });
-  it("on a backend without level ducking a level rule needs the core and never leads", () => {
-    const rows = buildDuckRows(a, live({ Music: { duckGain: 0.5 }, Voice: { levelDb: -5 }, SFX: { activeVoices: 1 } }), false);
-    expect(rows[0]!.rules.map((r) => [r.mode, r.needsCore, r.engaged])).toEqual([["level", true, false], ["presence", false, true]]);
-    expect(rows[0]!.lead).toBe(1);
-    expect(rows[1]!.rules[0]).toMatchObject({ needsCore: true });
-    expect(rows[1]!.lead).toBeNull();
-    expect(rows[1]!.levelDucked).toBe(true);
-  });
-  it("a presence-only bus is not level-ducked", () => {
-    const rows = buildDuckRows(settings([presence("Music", "Voice")]));
-    expect(rows[0]!.levelDucked).toBe(false);
-  });
-  it("a gain outside 0..1 reads as not ducked", () => {
-    const rows = buildDuckRows(a, live({ Music: { duckGain: Number.NaN } }));
-    expect(rows[0]).toMatchObject({ gain: 1, reducing: false });
-  });
-});

@@ -92,11 +92,6 @@ export function busFactors(bus: KeyframeBus): BusFactors {
   };
 }
 
-/** Every bus row of a keyframe, in the keyframe's order. */
-export function keyframeBusFactors(keyframe: Pick<KeyframePayload, "buses">): BusFactors[] {
-  return keyframe.buses.map(busFactors);
-}
-
 /** A bus's product times its ancestors' (the level reaching the output from it). */
 export interface BusTreeGain {
   slot: number;

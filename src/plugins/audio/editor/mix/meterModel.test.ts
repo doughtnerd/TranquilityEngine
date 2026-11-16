@@ -1,15 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { meterFill } from "../BusMeters";
-import {
-  CLIP_PEAK,
-  PEAK_FALL_DB_PER_S,
-  PEAK_HOLD_MS,
-  createMeter,
-  readMeter,
-  resetClip,
-  resetMeter,
-  tickMeter,
-} from "./meterModel";
+import { createMeter, resetClip, tickMeter, type MeterState } from "./meterModel";
+
+/** What a view draws from a meter state and the live peak: the bar, the hold marker, the clip lamp. */
+const readMeter = (m: MeterState, peak: number) => ({ fill: meterFill(peak), holdFill: meterFill(m.hold), clipped: m.clipped });
+
+const CLIP_PEAK = 1;
+
+const PEAK_FALL_DB_PER_S = 20;
+
+const PEAK_HOLD_MS = 1500;
 
 const db = (x: number) => Math.pow(10, x / 20);
 
@@ -82,9 +82,8 @@ describe("meter model", () => {
     expect(tickMeter(resetClip(tickMeter(createMeter(), 1.5, 0)), 1.5, 10).clipped).toBe(true);
   });
 
-  it("resetClip keeps the hold; resetMeter clears both", () => {
+  it("resetClip keeps the hold", () => {
     const m = tickMeter(createMeter(), 2, 0);
     expect(resetClip(m).hold).toBe(2);
-    expect(resetMeter()).toEqual(createMeter());
   });
 });

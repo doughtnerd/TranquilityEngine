@@ -19,7 +19,8 @@ import {
   MIXER_BANNER_TEXT, MixerPanelController, NOT_PLAYING, formatElapsed, mixerBanners, restartMessages, type MixerPanelDeps, type MixerView,
 } from "./mixerPanelModel";
 import type { OpLogEntry } from "./opLog";
-import { PEAK_HOLD_MS } from "./meterModel";
+
+const PEAK_HOLD_MS = 1500;
 
 const AUDIO = {
   buses: [{ name: "master" }, { name: "sfx", parent: "master" }, { name: "music", parent: "master", volume: 0.8, meter: "loudness" }],
