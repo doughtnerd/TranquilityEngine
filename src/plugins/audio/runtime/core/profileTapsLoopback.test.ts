@@ -12,10 +12,12 @@ import { defaultAudioSettings, type AudioSettings } from "../../../../engine/aud
 import type { AudioHost, CoreLink } from "./context";
 import { CoreBackend, type CoreBackendHost } from "./coreBackend";
 import { fakeDecoder } from "./fakeDecoder";
-import { DWELL_FRAMES } from "./selection";
 import { VoiceReason } from "./voiceTable";
 import { recordingSink } from "../mix/recordingSink";
 import { wireProfileTaps } from "../mix/profileTaps";
+
+/** Frames a voice must lead before selection promotes it (selection.ts). */
+const DWELL_FRAMES = 3;
 
 const req = (path: string, extra: object = {}) => ({ path, url: path, loop: false, stream: false, bus: "SFX", ...extra });
 const busRefOf = (names: readonly string[], bus: string): number => (3 << 8) | names.indexOf(bus);

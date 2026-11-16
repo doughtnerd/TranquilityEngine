@@ -3,8 +3,13 @@
 // weight, a dropping cap, MIN_AUDIBILITY, the core's demote, and steals past a bus's `maxVoices`.
 import { describe, expect, it } from "vitest";
 import { listenerSpaceDirection } from "./spatial";
-import { DWELL_FRAMES, effectiveMixedCap, HYSTERESIS, ListenerBasis, MIN_AUDIBILITY, priorityWeight, rankTop, SCORE_BUDGET, SCORE_RATIO, Selection, type SelectionSink } from "./selection";
+import { effectiveMixedCap, HYSTERESIS, ListenerBasis, MIN_AUDIBILITY, rankTop, Selection, type SelectionSink } from "./selection";
 import { VoiceFlag, VoiceReason, VoiceState, VoiceTable } from "./voiceTable";
+
+/** Frames a voice must lead before selection promotes it (selection.ts). */
+const DWELL_FRAMES = 3;
+/** Score updates selection sends a frame at most (selection.ts). */
+const SCORE_BUDGET = 64;
 
 /** A sink that records the changes and frees stolen slots as the backend does. */
 function recorder(table: VoiceTable) {
@@ -134,8 +139,6 @@ describe("Selection (A3.1)", () => {
     sel.busGain[2] = 0.8;
     run();
     expect(table.audibility[0]).toBeCloseTo(0.5 * 0.5 * 0.8 * 2, 6);
-    expect(priorityWeight(0)).toBe(1);
-    expect(priorityWeight(255)).toBe(2);
   });
 
   it("F-9b: a music stem's level multiplies in (with automation's gain); a stem at 0 goes virtual", () => {
@@ -341,7 +344,6 @@ describe("score refresh for the core's own demote (A3.3)", () => {
     scores.length = 0;
     run();
     expect(scores).toEqual([]);
-    expect(SCORE_RATIO).toBeCloseTo(Math.SQRT2);
   });
 
   it("only mixed voices: a virtual voice's score is sent when it is promoted and moves", () => {

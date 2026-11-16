@@ -66,7 +66,7 @@ export const STREAM_ERROR_FADE_SECONDS = 0.05;
  * must fetch, open and post the first chunk within it for the stream to resume exactly where it would be; a later
  * first chunk starts it late by the difference (STATUS `streamStartsLate`). Small beside the rebuild's 1–3 s gap.
  */
-export const STREAM_REOPEN_LEAD_SECONDS = 0.1;
+const STREAM_REOPEN_LEAD_SECONDS = 0.1;
 
 /**
  * @internal FU2: the context frame a stream reopened at context frame `framesNow` restarts on (stamped):

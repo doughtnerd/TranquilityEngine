@@ -14,7 +14,7 @@ import type { StatusMirror } from "./mirror";
 import { ReplayBuilder } from "./replay";
 import { ListenerFrame, SendCurveTable, SpatialViewFlag, type SpatialVoiceView } from "./spatial";
 import type { VoiceFx } from "./voiceFx";
-import { ZONE_IR_TIMEOUT_MS, ZoneManager } from "./zones";
+import { ZoneManager } from "./zones";
 
 beforeEach(async () => {
   Assets.clearSources();
@@ -346,7 +346,7 @@ describe("kernels", () => {
     r.place(0, 0);
     r.step(1, false);
     expect(r.irs.requests).toHaveLength(1);
-    r.setNow(ZONE_IR_TIMEOUT_MS + 100);
+    r.setNow(5000 + 100); // past the IR wait
     r.step(4, false);
     expect(stateOf(r, "A").why).toBe("IR failed: timed out after 5 s");
     expect(r.irs.released).toEqual([r.irs.requests[0]!.kernelId]);

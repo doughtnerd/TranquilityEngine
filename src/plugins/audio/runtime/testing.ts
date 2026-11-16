@@ -28,10 +28,46 @@ import type { ProfileSink } from "./mix/profileSink";
 import { mixer, type Mixer, type ResolvedBus } from "../../../engine/audio/mixer";
 import type { Vec3Like } from "../../../engine/core/math";
 import { CoreLink, type LinkPort } from "./core/context";
-import { fakeHostClock, type FakeHostClock } from "./core/hostClock";
+import type { HostClock } from "./core/hostClock";
 import { QUANTUM_FRAMES, type StatusBlock } from "./wire.generated";
 import { DEFAULT_LIMITER_LOOKAHEAD_MS } from "../../../engine/audio/settings";
 import { CoreDriver, instantiateCore, type CoreInstance, type CorePreset } from "./worklet/coreDriver";
+
+/** The controls a test has over a fake clock. */
+export interface FakeHostClock extends HostClock {
+  /** Moves every clock forward by `ms` (the context clock by `ms / 1000` seconds unless suspended). */
+  advance(ms: number): void;
+  /** Sets whether the context clock runs (a suspended context's `currentTime` stands still). */
+  setRunning(running: boolean): void;
+  /** A3.4c: a new context: its clock starts again at 0 (the page's clocks run on). */
+  restartContext(): void;
+}
+
+/** A fake clock starting at the given times (defaults: rAF 1000 ms, context 0 s, wall clock 1,000,000 ms). */
+export function fakeHostClock(start: { rafTime?: number; currentTime?: number; dateNow?: number } = {}): FakeHostClock {
+  let raf = start.rafTime ?? 1_000;
+  let current = start.currentTime ?? 0;
+  let date = start.dateNow ?? 1_000_000;
+  let running = true;
+  return {
+    rafTime: () => raf,
+    outputTimestamp: () => (running ? { contextTime: current, performanceTime: raf } : null),
+    currentTime: () => current,
+    dateNow: () => date,
+    fake: true,
+    advance(ms) {
+      raf += ms;
+      date += ms;
+      if (running) current += ms / 1000;
+    },
+    setRunning(value) {
+      running = value;
+    },
+    restartContext() {
+      current = 0;
+    },
+  };
+}
 
 // --- The fake backend -----------------------------------------------------------------------------------------
 

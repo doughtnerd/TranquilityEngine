@@ -101,7 +101,7 @@ export const MAX_STEM_PENDING = 4;
 export const VoiceRolloff = { LINEAR: 0, INVERSE: 1, EXPONENTIAL: 2 } as const;
 
 /** @internal Architecture §3.9: a released World's voices stop with 10 ms fades. */
-export const WORLD_RELEASE_FADE_SECONDS = 0.01;
+const WORLD_RELEASE_FADE_SECONDS = 0.01;
 
 /**
  * @internal What `AudioHandle` (`handle.ts`) needs from the table. The handle owns §1's semantics (what `playing` and

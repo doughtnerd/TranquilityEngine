@@ -19,7 +19,6 @@ import { createClipRegistry } from "./clipRegistry";
 import { AudioHost, presetFromSettings } from "./context";
 import { createCoreBackend, type CoreBackend } from "./coreBackend";
 import { watchForTraps } from "./recovery";
-import { dipFrames } from "./structuralDip";
 import { Unlock, type UnlockContext } from "./unlock";
 
 const RATE = 48_000;
@@ -36,7 +35,7 @@ const F32_ROUNDING = 1.01;
  */
 const FILTER_RESTART = 2.5;
 const LEVEL = 0.5;
-const D = dipFrames(RATE); // 960
+const D = Math.round(0.02 * RATE); // the dip: 20 ms, 960 frames at 48 kHz
 
 const PROJECT = {
   buses: [

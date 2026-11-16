@@ -9,7 +9,9 @@ import { Mixer } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings } from "../../../../engine/audio/settings";
 import type { AudioHost, CoreLink } from "./context";
 import { CoreBackend, type CoreBackendHost } from "./coreBackend";
-import { DWELL_FRAMES } from "./selection";
+
+/** Frames a voice must lead before selection promotes it (selection.ts). */
+const DWELL_FRAMES = 3;
 
 /** The ramp rises one int16 step every STEP frames, so it is exact through the int16 clip the worker gives. */
 const STEP = 3;

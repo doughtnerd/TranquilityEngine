@@ -406,7 +406,7 @@ export class VoiceFx {
 }
 
 /** @internal C3's level threshold: whether `next` differs from `sent` by more than 0.5 dB (a change from or to 0 always does). */
-export function levelMoved(next: number, sent: number): boolean {
+function levelMoved(next: number, sent: number): boolean {
   const nextOff = next <= 0;
   const sentOff = sent <= 0;
   if (nextOff || sentOff) return nextOff !== sentOff;

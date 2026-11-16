@@ -8,7 +8,9 @@ import { Mixer } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings, type AudioSettings } from "../../../../engine/audio/settings";
 import type { AudioHost, CoreLink } from "./context";
 import { CoreBackend, type CoreBackendHost } from "./coreBackend";
-import { DWELL_FRAMES } from "./selection";
+
+/** Frames a voice must lead before selection promotes it (selection.ts). */
+const DWELL_FRAMES = 3;
 
 const req = (path: string, extra: object = {}) => ({ path, url: path, loop: true, stream: false, bus: "SFX", ...extra });
 

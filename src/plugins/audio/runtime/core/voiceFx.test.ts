@@ -5,7 +5,7 @@ import type { VoiceFxArgs } from "./commandWriter";
 import { voiceIndex } from "./ids";
 import { ReplayBuilder } from "./replay";
 import { VoiceTable, VoiceState, type VoiceStateCode } from "./voiceTable";
-import { LowpassBy, VoiceFx, levelMoved } from "./voiceFx";
+import { LowpassBy, VoiceFx } from "./voiceFx";
 import {
   ASAP,
   AUX_BUS_NONE,
@@ -224,14 +224,26 @@ describe("VoiceFx thresholds and staging (C3)", () => {
     expect(writer.fx).toHaveLength(0);
   });
 
-  it("a send or aux level from or to 0 is always past the threshold (levelMoved)", () => {
-    expect(levelMoved(0.0001, 0)).toBe(true);
-    expect(levelMoved(0, 0.0001)).toBe(true);
-    expect(levelMoved(0, 0)).toBe(false);
-    expect(levelMoved(-1, 0)).toBe(false);
-    expect(levelMoved(0.5, 0.5)).toBe(false);
-    expect(levelMoved(1, 1.05)).toBe(false); // 0.42 dB
-    expect(levelMoved(1, 1.07)).toBe(true); // 0.59 dB
+  it("a send or aux level from or to 0 is always past the threshold", () => {
+    /** Whether a send moved from `sent` (already sent) to `next` is sent again. */
+    const resent = (sent: number, next: number): boolean => {
+      const { writer, fx, voice } = rig();
+      const i = slot(voice());
+      fx.onPlay(i);
+      fx.setSend(i, 0, sent);
+      fx.flush(0);
+      writer.fx.length = 0;
+      fx.setSend(i, 0, next);
+      fx.flush(0);
+      return writer.fx.length > 0;
+    };
+    expect(resent(0, 0.0001)).toBe(true);
+    expect(resent(0.0001, 0)).toBe(true);
+    expect(resent(0, 0)).toBe(false);
+    expect(resent(0, -1)).toBe(false);
+    expect(resent(0.5, 0.5)).toBe(false);
+    expect(resent(1.05, 1)).toBe(false); // 0.42 dB
+    expect(resent(1.07, 1)).toBe(true); // 0.59 dB
     const { writer, fx, voice } = rig();
     const i = slot(voice());
     fx.onPlay(i);

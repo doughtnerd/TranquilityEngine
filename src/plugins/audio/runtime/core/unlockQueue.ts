@@ -10,7 +10,7 @@
 // host reaches "running".
 
 /** D5: at most this many one-shots wait for the unlock. */
-export const MAX_QUEUED_ONE_SHOTS = 32;
+const MAX_QUEUED_ONE_SHOTS = 32;
 /** D5: a queued one-shot older than this (milliseconds) is dropped at the unlock. */
 export const ONE_SHOT_WINDOW_MS = 1000;
 

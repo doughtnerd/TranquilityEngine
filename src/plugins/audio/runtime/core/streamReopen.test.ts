@@ -1,11 +1,11 @@
-// FU2: where a stream reopens after a hard rebuild is frame-driven: a stamp `STREAM_REOPEN_LEAD_SECONDS` ahead of
+// FU2: where a stream reopens after a hard rebuild is frame-driven: a stamp 0.1 s ahead of
 // F_now, and the stream's own position there (its last STATUS playhead while it played, run on at its rate), not an
 // estimate anchored at its first PLAY, which counts the frames it waited for its first chunks. (The end-to-end case is
 // `streamRebuild.test.ts`.)
 import { describe, expect, it } from "vitest";
 import type { StatusBlock } from "../wire.generated";
 import { makeStatusBlock } from "./mirror";
-import { reopenStamp, STREAM_REOPEN_LEAD_SECONDS, StreamManager, type StreamDecoderLike } from "./streams";
+import { reopenStamp, StreamManager, type StreamDecoderLike } from "./streams";
 import { VoiceFlag, VoiceReason, VoiceState, VoiceTable } from "./voiceTable";
 
 const RATE = 48_000;
@@ -44,9 +44,8 @@ function rig() {
 
 describe("a stream's reopen after a hard rebuild (FU2)", () => {
   it("is stamped the lead ahead of F_now, and asap before the clock has an estimate", () => {
-    expect(STREAM_REOPEN_LEAD_SECONDS).toBeGreaterThan(0);
-    expect(reopenStamp(40_960, RATE)).toBe(40_960 + STREAM_REOPEN_LEAD_SECONDS * RATE);
-    expect(reopenStamp(1_000.4, RATE)).toBe(Math.round(1_000.4 + STREAM_REOPEN_LEAD_SECONDS * RATE));
+    expect(reopenStamp(40_960, RATE)).toBe(40_960 + 0.1 * RATE);
+    expect(reopenStamp(1_000.4, RATE)).toBe(Math.round(1_000.4 + 0.1 * RATE));
     expect(reopenStamp(0, RATE)).toBe(0);
   });
 

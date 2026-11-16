@@ -1,8 +1,7 @@
 // The K4 helpers themselves: the fake clock, the fake backend and the loopback host's cadence.
 import { describe, expect, it } from "vitest";
 import { Vector3 } from "../../../engine";
-import { fakeHostClock } from "./core/hostClock";
-import { createLoopbackHost, makeFakeBackend } from "./testing";
+import { createLoopbackHost, fakeHostClock, makeFakeBackend } from "./testing";
 
 describe("fakeHostClock", () => {
   it("advances every clock together, and the context clock only while running", () => {

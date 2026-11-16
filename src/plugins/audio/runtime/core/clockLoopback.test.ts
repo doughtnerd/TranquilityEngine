@@ -19,7 +19,7 @@ import { limiterLatencyFrames } from "./limiterLatency";
 import { QUANTUM_FRAMES } from "../wire.generated";
 import type { AudioHost } from "./context";
 import { CoreBackend, type CoreBackendHost } from "./coreBackend";
-import type { FakeHostClock } from "./hostClock";
+import type { FakeHostClock } from "../testing";
 
 const SR = 48_000;
 const QUANTUM_S = QUANTUM_FRAMES / SR;
@@ -169,7 +169,7 @@ describe.each([1.5, 0])("`at` on the loopback host (A3.2), limiter look-ahead %s
   });
 
   it("a stamped record that arrives after its frame starts at once and counts in lateCommands and maxLatenessFrames", async (ctx) => {
-    const testing = await import("./hostClock");
+    const testing = await import("../testing");
     // The host's clock runs 480 frames (10 ms) behind the core: its F_now lags, so a stamp 200 frames past it is
     // already 280 frames behind the core's frame when sent (and one quantum more when it arrives).
     const clock = testing.fakeHostClock({ currentTime: -0.01 });

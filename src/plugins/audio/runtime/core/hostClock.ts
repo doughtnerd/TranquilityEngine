@@ -1,6 +1,6 @@
 // Contract K4 (coordinator, MS2 wave 2): the host's view of time (architecture §4.6).
-// A1.7 writes the browser implementation and the fake; A1.4's clock map and the host take a HostClock,
-// so tests inject the fake and advance it explicitly. Don't change these signatures without the coordinator.
+// A1.7 writes the browser implementation; A1.4's clock map and the host take a HostClock, so tests inject the fake
+// (`fakeHostClock`, testing.ts) and advance it explicitly. Don't change these signatures without the coordinator.
 
 /** The context's output timestamp pair, as `AudioContext.getOutputTimestamp()` gives it. */
 export interface OutputTimestamp {
@@ -71,41 +71,5 @@ export function browserHostClock(context: AudioContext | (() => AudioContext)): 
     currentTime: () => contextNow().currentTime,
     dateNow: () => Date.now(),
     fake: false,
-  };
-}
-
-/** The controls a test has over a fake clock. */
-export interface FakeHostClock extends HostClock {
-  /** Moves every clock forward by `ms` (the context clock by `ms / 1000` seconds unless suspended). */
-  advance(ms: number): void;
-  /** Sets whether the context clock runs (a suspended context's `currentTime` stands still). */
-  setRunning(running: boolean): void;
-  /** A3.4c: a new context: its clock starts again at 0 (the page's clocks run on). */
-  restartContext(): void;
-}
-
-/** A fake clock starting at the given times (defaults: rAF 1000 ms, context 0 s, wall clock 1,000,000 ms). */
-export function fakeHostClock(start: { rafTime?: number; currentTime?: number; dateNow?: number } = {}): FakeHostClock {
-  let raf = start.rafTime ?? 1_000;
-  let current = start.currentTime ?? 0;
-  let date = start.dateNow ?? 1_000_000;
-  let running = true;
-  return {
-    rafTime: () => raf,
-    outputTimestamp: () => (running ? { contextTime: current, performanceTime: raf } : null),
-    currentTime: () => current,
-    dateNow: () => date,
-    fake: true,
-    advance(ms) {
-      raf += ms;
-      date += ms;
-      if (running) current += ms / 1000;
-    },
-    setRunning(value) {
-      running = value;
-    },
-    restartContext() {
-      current = 0;
-    },
   };
 }

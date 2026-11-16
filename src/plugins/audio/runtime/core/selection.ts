@@ -47,15 +47,15 @@ import { NULL_PROFILE_SINK, type ProfileVirtualReason } from "../mix/profileSink
 /** @internal §3: hysteresis 1.2x (a virtual voice must beat a mixed one by this factor). */
 export const HYSTERESIS = 1.2;
 /** @internal §3 (API §10 issue 9): a voice keeps a new state for at least 3 selection frames. */
-export const DWELL_FRAMES = 3;
+const DWELL_FRAMES = 3;
 /** @internal A3.3: a mixed voice's score is re-sent when its audibility moves more than this factor (3 dB) either way. */
-export const SCORE_RATIO = Math.SQRT2;
+const SCORE_RATIO = Math.SQRT2;
 /** @internal A3.3: at most this many score updates a frame (56 bytes each). */
-export const SCORE_BUDGET = 64;
+const SCORE_BUDGET = 64;
 /** @internal Audibility below this (-100 dB) is never promoted (it would cost a mixed voice and be inaudible). */
 export const MIN_AUDIBILITY = 1e-5;
 /** @internal §1: priority raises audibility by at most 2x (+6 dB). */
-export const priorityWeight = (priority: number): number => 1 + priority / 255;
+const priorityWeight = (priority: number): number => 1 + priority / 255;
 
 // The codes the hot loop compares with, as plain constants.
 const S_FREE = VoiceState.FREE;

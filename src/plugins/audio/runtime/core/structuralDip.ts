@@ -43,10 +43,10 @@ import type { CommandWriter } from "./commandWriter";
 import { LOOKAHEAD_MAX_SECONDS } from "./lookahead";
 
 /** The dip's length (R8): `DIP_FRAMES` = round(0.020 × sampleRate). */
-export const DIP_MS = 20;
+const DIP_MS = 20;
 
 /** `DIP_FRAMES` at `sampleRate`. */
-export function dipFrames(sampleRate: number): number {
+function dipFrames(sampleRate: number): number {
   return Math.round((DIP_MS / 1000) * sampleRate);
 }
 

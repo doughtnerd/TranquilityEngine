@@ -54,7 +54,7 @@ export const ZONE_SWAP_SECONDS = 0.5;
 /** @internal [ARCH §5.3]: kernels are prepared while the listener is within `blendDistance` + this, world units. */
 export const ZONE_PRELOAD_MARGIN = 20;
 /** @internal [ARCH §5.3]: a kernel not prepared after this long fails the zone, milliseconds. */
-export const ZONE_IR_TIMEOUT_MS = 5000;
+const ZONE_IR_TIMEOUT_MS = 5000;
 /** @internal ZONE_CONFIG ramp for `wet` and `sharedReturnGain`, seconds. */
 export const ZONE_RAMP_SECONDS = 0.05;
 /** @internal A shared-return change smaller than this is not sent. */

@@ -29,10 +29,9 @@ import {
 } from "../wire.generated";
 import { CoreBackend } from "./coreBackend";
 import { ReplayBuilder } from "./replay";
-import { DIP_MS, dipFrames } from "./structuralDip";
 
 const RATE = 48_000;
-const D = dipFrames(RATE); // 960
+const D = Math.round(0.02 * RATE); // the dip: 20 ms, 960 frames at 48 kHz
 
 const PROJECT = {
   buses: [
@@ -133,10 +132,7 @@ function sequenceOf(batch: Rec[]) {
 }
 
 describe("the structural dip's sequence (Ma2)", () => {
-  it("DIP_FRAMES is round(0.020 x sampleRate); the table's tail is the wire's", () => {
-    expect(DIP_MS).toBe(20);
-    expect(dipFrames(48_000)).toBe(960);
-    expect(dipFrames(44_100)).toBe(882);
+  it("the table's tail is the wire's", () => {
     expect(TABLE_TAIL).toBe(TOMBSTONE_TAIL_FRAMES);
   });
 

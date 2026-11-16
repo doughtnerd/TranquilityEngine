@@ -6,8 +6,11 @@
 import { describe, expect, it } from "vitest";
 import { recordingSink } from "../mix/recordingSink";
 import { NULL_PROFILE_SINK } from "../mix/profileSink";
-import { DWELL_FRAMES, Selection, type SelectionSink } from "./selection";
+import { Selection, type SelectionSink } from "./selection";
 import { VoiceFlag, VoiceReason, VoiceState, VoiceTable, type ProfileNames } from "./voiceTable";
+
+/** Frames a voice must lead before selection promotes it (selection.ts). */
+const DWELL_FRAMES = 3;
 
 const names: ProfileNames = { clip: (id, stream) => `${stream ? "stream" : "clip"}${id}`, busRef: (i) => (2 << 8) | i };
 

@@ -15,7 +15,7 @@ import type { StatusMirror } from "./mirror";
 import { ReplayBuilder } from "./replay";
 import { ListenerFrame, SendCurveTable, SpatialViewFlag, type SpatialVoiceView } from "./spatial";
 import type { VoiceFx } from "./voiceFx";
-import { ZONE_IR_TIMEOUT_MS, ZoneManager } from "./zones";
+import { ZoneManager } from "./zones";
 
 beforeEach(async () => {
   Assets.clearSources();

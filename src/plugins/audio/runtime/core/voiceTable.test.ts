@@ -4,7 +4,7 @@ import { MAX_BUSES } from "../../../../engine/audio/settings";
 import { AudioHost, CoreLink, presetFromSettings } from "./context";
 import { makeStatusBlock, StatusMirror } from "./mirror";
 import { Unlock, type UnlockContext } from "./unlock";
-import { connectVoiceTable, MAX_STEM_PENDING, VoiceFlag,VoiceReason, VoiceState, VoiceTable, WORLD_RELEASE_FADE_SECONDS, type VoiceCommandSink } from "./voiceTable";
+import { connectVoiceTable, MAX_STEM_PENDING, VoiceFlag,VoiceReason, VoiceState, VoiceTable, type VoiceCommandSink } from "./voiceTable";
 
 // A1.1 (lead): the voice table's slots, free list, generations, stealing, command queue and lifecycle hooks
 // (api-and-models §3; architecture §3.9; A0.8's host listener). Ids are decoded inline here (`ids.ts` is a leaf's).
@@ -220,8 +220,8 @@ describe("VoiceTable (§3)", () => {
     const s = sink();
     t.drainCommands(s);
     expect(s.stop.mock.calls).toEqual([
-      [mine, Math.fround(WORLD_RELEASE_FADE_SECONDS)],
-      [mineVirtual, Math.fround(WORLD_RELEASE_FADE_SECONDS)],
+      [mine, Math.fround(0.01) /* the world release fade */],
+      [mineVirtual, Math.fround(0.01) /* the world release fade */],
     ]);
   });
 

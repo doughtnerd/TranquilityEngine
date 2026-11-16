@@ -4,10 +4,12 @@
 //
 // What stays here is the work the selection does per frame, which a busy machine can't change: every voice on the core
 // is a candidate (the bookkeeping pass is O(L)), the ranking sorts only the gathered few (far under L, so selection
-// isn't an O(L log L) sort), the score updates sent stay within SCORE_BUDGET, and the mixed count obeys the cap.
+// isn't an O(L log L) sort), the score updates sent stay within and the mixed count obeys the cap.
 import { describe, expect, it } from "vitest";
-import { SCORE_BUDGET } from "./selection";
 import { runRig, VOICES } from "./selectionBenchRig";
+
+/** Score updates selection sends a frame at most (selection.ts). */
+const SCORE_BUDGET = 64;
 
 const WARMUP = 300;
 const FRAMES = 1000;

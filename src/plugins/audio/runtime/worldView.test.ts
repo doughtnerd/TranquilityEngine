@@ -13,8 +13,10 @@ import { worldKeyOf } from "./AudioSource";
 import { AUDIO, AUDIO_SERVICE, type AudioCoreModule } from "./core/service";
 import type { AudioHost, CoreLink } from "./core/context";
 import { CoreBackend, type CoreBackendHost } from "./core/coreBackend";
-import { DWELL_FRAMES } from "./core/selection";
 import { AUDIO_SYSTEMS } from "./audioSystem";
+
+/** Frames a voice must lead before selection promotes it (selection.ts). */
+const DWELL_FRAMES = 3;
 
 interface FakeWorld {
   render: object | null;

@@ -1,6 +1,6 @@
 // A1.6 L1: the locked queue (D5).
 import { describe, it, expect, vi } from "vitest";
-import { UnlockQueue, MAX_QUEUED_ONE_SHOTS } from "./unlockQueue";
+import { UnlockQueue } from "./unlockQueue";
 
 function recorder() {
   const started: string[] = [];
@@ -47,7 +47,7 @@ describe("UnlockQueue (D5)", () => {
     const onDrop = vi.fn();
     const q = new UnlockQueue<string>({ onDrop });
     const { started, start } = recorder();
-    for (let i = 0; i < MAX_QUEUED_ONE_SHOTS; i++) q.pushOneShot(`s${i}`, 0);
+    for (let i = 0; i < 32 /* the queue's most */; i++) q.pushOneShot(`s${i}`, 0);
     expect(q.oneShotCount).toBe(32);
     expect(q.droppedCount).toBe(0);
     q.pushOneShot("s32", 0);
