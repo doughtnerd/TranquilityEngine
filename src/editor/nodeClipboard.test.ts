@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input } from "../engine";
 import { SceneDocument, type SceneFile } from "./document";
-import { filterHierarchy, parseHierarchyQuery } from "./hierarchyFilter";
+import { filterHierarchy } from "./hierarchyFilter";
 import { moveNodes } from "./hierarchyEdit";
 import { createNode, newNodeEntry, uniqueName } from "./nodeCreate";
 import { copyNodes, cutNodes, duplicateNodes, entriesForPaste, clipboardText, pasteNodes, pasteTarget, subtreeRoots, whyNotCopyable, whyNotPastable } from "./nodeClipboard";
@@ -225,7 +225,6 @@ describe("hierarchy search", () => {
   });
 
   it("matches component types with t:", () => {
-    expect(parseHierarchyQuery("t:Camera bird")).toEqual({ words: ["bird"], types: ["camera"] });
     const cams = filterHierarchy(scene.doc, "t:camera")!;
     expect([...cams.matches]).toEqual(["camera"]);
     const colliders = filterHierarchy(scene.doc, "t:BoxCollider2D")!;
@@ -235,5 +234,9 @@ describe("hierarchy search", () => {
     const sprites = filterHierarchy(scene.doc, "t:spriterenderer")!;
     expect(sprites.matches.has("bg-a")).toBe(true);
     expect(sprites.matches.has("bird-sprite")).toBe(true);
+    // Types and words together, in any case: both must match.
+    const colliderCeiling = filterHierarchy(scene.doc, "T:BoxCollider2D  CEIL")!;
+    expect([...colliderCeiling.matches]).toEqual(["ceiling"]);
+    expect(filterHierarchy(scene.doc, "t:")).toBeNull(); // a bare "t:" is no query
   });
 });

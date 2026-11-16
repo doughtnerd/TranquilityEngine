@@ -99,7 +99,7 @@ export function choicesFor(field: FieldValue, settings?: ProjectSettingsInput): 
 }
 
 /** Scene-file JSON for a color: `#rrggbb`, or `#rrggbbaa` when not opaque. */
-export function colorToJSON(c: Color): string {
+function colorToJSON(c: Color): string {
   if (c.a >= 1) return c.toHex();
   return c.toHex() + Math.round(Math.min(Math.max(c.a, 0), 1) * 255).toString(16).padStart(2, "0");
 }

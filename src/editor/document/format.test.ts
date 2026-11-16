@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatSceneJSON, nodeTexts, originalLayout } from "./format";
+import { formatSceneJSON, originalLayout } from "./format";
 
 const raw = import.meta.glob("../../../samples/flappy/{scenes,prefabs}/*.json", { eager: true, query: "?raw", import: "default" }) as Record<string, string>;
 const files = Object.entries(raw).map(([key, text]) => ({ name: key.split("/").pop()!, text: text.replace(/\r\n/g, "\n") }));
@@ -53,7 +53,7 @@ describe("scene file formatting (ADR 0026)", () => {
   });
 
   it("finds each top-level node's source text", () => {
-    const texts = nodeTexts('{ "nodes": [ { "id": "a", "s": "}{" }, {"id":"b"} ], "x": { "nodes": [{ "id": "c" }] } }');
+    const texts = originalLayout('{ "nodes": [ { "id": "a", "s": "}{" }, {"id":"b"} ], "x": { "nodes": [{ "id": "c" }] } }').original;
     expect([...texts.keys()]).toEqual(["a", "b"]);
     expect(texts.get("a")).toBe('{ "id": "a", "s": "}{" }');
   });

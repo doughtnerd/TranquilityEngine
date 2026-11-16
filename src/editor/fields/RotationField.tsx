@@ -10,10 +10,10 @@ import "./rotation-field.css";
 const sessionViews = signal<ReadonlyMap<string, RotationView>>(new Map());
 
 /** The view a row shows: the one its toggle picked this session, else `fallback`. */
-export const rowRotationView = (key: string | undefined, fallback: RotationView): RotationView => (key !== undefined ? sessionViews.value.get(key) : undefined) ?? fallback;
+const rowRotationView = (key: string | undefined, fallback: RotationView): RotationView => (key !== undefined ? sessionViews.value.get(key) : undefined) ?? fallback;
 
 /** Switch a row to `view` for the rest of the session. */
-export function setRowRotationView(key: string, view: RotationView): void {
+function setRowRotationView(key: string, view: RotationView): void {
   sessionViews.value = new Map(sessionViews.value).set(key, view);
 }
 
@@ -22,7 +22,7 @@ const SHORT: Record<RotationView, string> = { radians: "rad", degrees: "deg", qu
 const LONG: Record<RotationView, string> = { radians: "Euler angles in radians", degrees: "Euler angles in degrees", quaternion: "a raw quaternion (x, y, z, w)" };
 
 /** Each shown axis shared by every row of `shown`, or null where they differ. */
-export function sharedAxes(shown: readonly (readonly number[])[]): (number | null)[] {
+function sharedAxes(shown: readonly (readonly number[])[]): (number | null)[] {
   return (shown[0] ?? []).map((n, i) => (shown.every((s) => s[i] === n) ? n : null));
 }
 

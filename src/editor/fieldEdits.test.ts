@@ -6,7 +6,7 @@ import { Engine, GameBehavior, GameObject, Input, Quaternion, behavior, field } 
 import { listComponents, type ComponentInfo } from "../engine/editor";
 import { AddComponent, type NodePath } from "./document";
 import { fieldChoicesFor, listedChoices, loadFieldChoices } from "./fieldChoices";
-import { fieldState, fieldValues, isMixed, revertField, setField, setFieldAxis } from "./fieldEdits";
+import { fieldState, fieldValues, revertField, setField, setFieldAxis } from "./fieldEdits";
 import { rotationCodec } from "./fields/rotationCodec";
 import { toSceneJSON } from "./fieldValues";
 import { OrbitCamera } from "./OrbitCamera";
@@ -120,8 +120,8 @@ describe("rotation angles in the Inspector (ADR 0163, 0165)", () => {
 describe("reporting and reverting", () => {
   it("tells differing values apart, quaternions by their rounded angles", () => {
     expect(fieldState(scene(), instances, TRANSFORM, "position").mixed).toBe(true);
-    expect(isMixed(scene(), [Quaternion.fromEuler(0, 0, 0.5), Quaternion.fromEuler(0, 0, 0.5 + 1e-9)])).toBe(false);
-    expect(isMixed(scene(), [Quaternion.fromEuler(0, 0, 0.5), Quaternion.fromEuler(0, 0, 0.51)])).toBe(true);
+    expect(fieldState(scene(), instances, TRANSFORM, "rotation", [Quaternion.fromEuler(0, 0, 0.5), Quaternion.fromEuler(0, 0, 0.5 + 1e-9)]).mixed).toBe(false);
+    expect(fieldState(scene(), instances, TRANSFORM, "rotation", [Quaternion.fromEuler(0, 0, 0.5), Quaternion.fromEuler(0, 0, 0.51)]).mixed).toBe(true);
     setFieldAxis(scene(), instances, TRANSFORM, fieldOf(["bg-a"], "engine.Transform", "position"), 0, 5);
     expect(fieldValues(scene(), instances, TRANSFORM, "position").map((v) => (v as { toArray(): number[] }).toArray())).toEqual([
       [5, 3, 0],

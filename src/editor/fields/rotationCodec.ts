@@ -39,7 +39,7 @@ function rememberEulerRadians(angles: readonly number[], q: QuatLike): void {
 }
 
 /** The Euler angles (radians) last typed for rotation `q`, if any. */
-export const rememberedEulerRadians = (q: QuatLike): readonly number[] | undefined => eulerHints.get(rotationKey(q));
+const rememberedEulerRadians = (q: QuatLike): readonly number[] | undefined => eulerHints.get(rotationKey(q));
 
 const roundTo = (n: number, decimals: number): number => {
   const f = 10 ** decimals;

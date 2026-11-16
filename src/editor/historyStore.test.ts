@@ -3,7 +3,7 @@ import { Engine, GameObject, Input } from "../engine";
 import { MemoryStorage } from "../engine/platform/Storage";
 import { CommandStack, SceneDocument, SetField, type HistoryFile } from "./document";
 import { attachHistory, slotsFor } from "./historyPersistence";
-import { HistoryStore, projectSlots, readSlot, userSlots, type SlotBackend } from "./historyStore";
+import { HistoryStore, projectSlots, userSlots, type SlotBackend } from "./historyStore";
 import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile, saveOpenScene } from "./project";
 import { editorSettings, joinPath, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
@@ -30,14 +30,19 @@ function memorySlots(): SlotBackend & { slots: Record<string, string>; tearNext:
   };
 }
 
+/** What a store finds when slot `a` holds `text` and slot `b` is empty. */
+const loadOne = (text: string | null) => new HistoryStore({ where: "memory", read: async (slot) => (slot === "a" ? text : null), write: async () => {} }).load();
+/** The generation a slot's envelope says it holds. */
+const generationIn = (text: string) => (JSON.parse(text) as { generation: number }).generation;
+
 const historyOf = (n: number): HistoryFile => ({ format: "myco.history@1", scene: "s", root: 0, current: n, saved: 0, nextSeq: n + 1, states: [] });
 
 describe("history slots (ADR 0027)", () => {
-  it("rejects torn and tampered slots", () => {
-    expect(readSlot(null)).toBeNull();
-    expect(readSlot('{"format":"myco.history-slot@1","gen')).toBeNull();
+  it("rejects torn and tampered slots", async () => {
+    expect(await loadOne(null)).toBeNull();
+    expect(await loadOne('{"format":"myco.history-slot@1","gen')).toBeNull();
     const good = JSON.stringify({ format: "myco.history-slot@1", generation: 1, checksum: "x", history: historyOf(1) });
-    expect(readSlot(good)).toBeNull(); // wrong checksum
+    expect(await loadOne(good)).toBeNull(); // wrong checksum
   });
 
   it("alternates between the two slots and loads the newest", async () => {
@@ -46,8 +51,8 @@ describe("history slots (ADR 0027)", () => {
     await store.save(historyOf(1));
     await store.save(historyOf(2));
     await store.save(historyOf(3));
-    expect(readSlot(backend.slots.a)!.generation).toBe(3);
-    expect(readSlot(backend.slots.b)!.generation).toBe(2);
+    expect(generationIn(backend.slots.a)).toBe(3);
+    expect(generationIn(backend.slots.b)).toBe(2);
     expect((await new HistoryStore(backend).load())!.current).toBe(3);
   });
 
@@ -58,7 +63,7 @@ describe("history slots (ADR 0027)", () => {
     await store.save(historyOf(2));
     backend.tearNext = true;
     await expect(store.save(historyOf(3))).rejects.toThrow(/mid-write/);
-    expect(readSlot(backend.slots.a)).toBeNull(); // the torn slot
+    expect(await loadOne(backend.slots.a)).toBeNull(); // the torn slot
     expect((await new HistoryStore(backend).load())!.current).toBe(2); // the other slot survives
   });
 
@@ -68,7 +73,7 @@ describe("history slots (ADR 0027)", () => {
     const store = new HistoryStore(backend);
     await store.load();
     await store.save(historyOf(2));
-    expect(readSlot(backend.slots.b)!.generation).toBe(2); // didn't overwrite generation 1
+    expect(generationIn(backend.slots.b)).toBe(2); // didn't overwrite generation 1
   });
 });
 

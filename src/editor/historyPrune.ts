@@ -6,7 +6,7 @@
 // left is old branches nobody has touched: whole subtrees whose every state is old.
 import type { HistoryFile, HistoryState } from "./document";
 
-export const DAY_MS = 86_400_000;
+const DAY_MS = 86_400_000;
 
 /** `days` as a setting: a whole number of days at least 0 (anything else: 0, which keeps everything). */
 export function cleanPruneDays(v: unknown): number {
