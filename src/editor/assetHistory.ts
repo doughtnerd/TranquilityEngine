@@ -15,7 +15,7 @@ import { historyLocation, historyPruneDays } from "./preferences";
 import { isWithin, joinPath, type EditorProject } from "./projects";
 
 /** Asset documents' history folder inside a project: `<dir>/<asset path>.history.<slot>.json`. */
-export const ASSET_HISTORY_DIR = ".myco/asset-history";
+const ASSET_HISTORY_DIR = ".myco/asset-history";
 
 /** One place asset histories are kept: slots per asset, and moving or removing an asset's (or a folder's). */
 interface SlotSpace {
@@ -101,15 +101,6 @@ let queue: Promise<void> = Promise.resolve();
 function enqueue(task: () => Promise<void>): Promise<void> {
   queue = queue.then(task).catch((err) => console.warn(`[editor] asset history: ${err instanceof Error ? err.message : String(err)}`));
   return queue;
-}
-
-/** Resolves when all queued history work (loads, saves, moves, deletes) is done. */
-export async function assetHistorySettled(): Promise<void> {
-  let seen: Promise<void>;
-  do {
-    seen = queue;
-    await seen;
-  } while (seen !== queue);
 }
 
 /** What an asset document gives its history's persistence. */

@@ -9,9 +9,8 @@ import { ParticleSystem } from "../../engine/render/components";
 import { _registeredRenderFeatures } from "../../engine/render/renderFeatures";
 import { defaultParticleGraph, formatParticleGraph } from "../../engine/scene/particleGraphFormat";
 import { assetKind } from "../../editor/assetBrowser";
-import { acceptsFile } from "../../editor/assetFieldKinds";
 import { inspectableAsset } from "../../editor/assetImport";
-import { canAddToScene, kindIcon, kindLabel, kindOpens, registeredKind } from "../../editor/assetKindLookup";
+import { canAddToScene, kindIcon, kindLabel, kindOpens, registeredKind, satisfiesFieldKind } from "../../editor/assetKindLookup";
 import { registeredPanels } from "../../editor/layout/registeredPanels";
 import { joinPath, openFolderProject } from "../../editor/projects";
 import { assetFormats, assetKinds, panels } from "../../editor/sdk/contributions";
@@ -78,9 +77,9 @@ describe("the Particles plugin's editor half (ADR 0134)", () => {
   });
 
   it("lets effect fields (ParticleSystem.effect) take effects only", () => {
-    expect(acceptsFile("particles", FX)).toBe(true);
-    expect(acceptsFile("particles", SUB)).toBe(false);
-    expect(acceptsFile("material", FX)).toBe(false);
+    expect(satisfiesFieldKind("particles", FX)).toBe(true);
+    expect(satisfiesFieldKind("particles", SUB)).toBe(false);
+    expect(satisfiesFieldKind("material", FX)).toBe(false);
   });
 
   it("opens each kind in the Particle Graph", () => {

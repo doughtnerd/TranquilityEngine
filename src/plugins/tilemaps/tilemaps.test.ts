@@ -5,9 +5,8 @@ import { getComponentClass } from "../../engine/core/registry";
 import { byPhase } from "../../engine/render/renderFeatures";
 import { assetKind } from "../../editor/assetBrowser";
 import { assetDocumentsDeleted, assetDocumentsMoved, openAssetDocument } from "../../editor/assetDocuments";
-import { acceptsFile } from "../../editor/assetFieldKinds";
 import { inspectableAsset } from "../../editor/assetImport";
-import { kindIcon, kindLabel, registeredKind } from "../../editor/assetKindLookup";
+import { kindIcon, kindLabel, registeredKind, satisfiesFieldKind } from "../../editor/assetKindLookup";
 import { joinPath, openFolderProject } from "../../editor/projects";
 import { assetFormats, assetKinds, panels, viewportTools } from "../../editor/sdk/contributions";
 import { inspectorSectionsFor } from "../../editor/ui/inspectorSections";
@@ -126,8 +125,8 @@ describe("the Tilemaps plugin's editor half (ADR 0134)", () => {
     expect(kindLabel("tileset")).toBe("Tileset");
     expect(kindIcon("tileset")).toMatch(/^M/);
     expect(inspectableAsset(TILESET)).toBe(TILESET);
-    expect(acceptsFile("tileset", TILESET)).toBe(true);
-    expect(acceptsFile("material", TILESET)).toBe(false);
+    expect(satisfiesFieldKind("tileset", TILESET)).toBe(true);
+    expect(satisfiesFieldKind("material", TILESET)).toBe(false);
     expect(assetKinds.get("tileset")?.referencedAs).toEqual(["tileset"]);
   });
 

@@ -4,9 +4,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { defaultFormation, formatFormation, setFormationCell, type NavFormationAsset } from "../../engine/nav/formation";
 import { assetKind } from "../../editor/assetBrowser";
 import { assetDocumentsMoved, openAssetDocument } from "../../editor/assetDocuments";
-import { acceptsFile } from "../../editor/assetFieldKinds";
 import { inspectableAsset } from "../../editor/assetImport";
-import { kindIcon, kindLabel, registeredKind } from "../../editor/assetKindLookup";
+import { kindIcon, kindLabel, registeredKind, satisfiesFieldKind } from "../../editor/assetKindLookup";
 import { joinPath, openFolderProject } from "../../editor/projects";
 import { inspectorSectionsFor } from "../../editor/ui/inspectorSections";
 import { assetFormats, assetKinds, panelExtensions, projectSettingsSections } from "../../editor/sdk/contributions";
@@ -52,8 +51,8 @@ describe("the Navigation plugin's editor half (ADR 0134)", () => {
     expect(kindLabel("formation")).toBe("Formation");
     expect(kindIcon("formation")).toMatch(/^M/);
     expect(inspectableAsset(FORMATION)).toBe(FORMATION);
-    expect(acceptsFile("formation", FORMATION)).toBe(true);
-    expect(acceptsFile("tileset", FORMATION)).toBe(false);
+    expect(satisfiesFieldKind("formation", FORMATION)).toBe(true);
+    expect(satisfiesFieldKind("tileset", FORMATION)).toBe(false);
     expect(assetKinds.get("formation")?.inspector).toBeTypeOf("function");
   });
 

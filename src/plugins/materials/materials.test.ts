@@ -6,9 +6,8 @@ import { defaultMaterialSettings, formatMaterial, type MaterialSettings } from "
 import { defaultShaderGraph, defaultShaderSubGraph, formatShaderGraph } from "../../engine/scene/shaderGraph";
 import { assetKind, opensInCodePanel } from "../../editor/assetBrowser";
 import { openAssetDocument } from "../../editor/assetDocuments";
-import { acceptsFile } from "../../editor/assetFieldKinds";
 import { inspectableAsset } from "../../editor/assetImport";
-import { kindIcon, kindLabel, kindOpens, registeredKind } from "../../editor/assetKindLookup";
+import { kindIcon, kindLabel, kindOpens, registeredKind, satisfiesFieldKind } from "../../editor/assetKindLookup";
 import { registeredPanels } from "../../editor/layout/registeredPanels";
 import { joinPath, openFolderProject } from "../../editor/projects";
 import { assetFormats, assetKinds, panels } from "../../editor/sdk/contributions";
@@ -65,11 +64,11 @@ describe("the Materials plugin's editor half (ADR 0134)", () => {
   });
 
   it("lets material fields take materials and shader graphs, not sub-graphs", () => {
-    expect(acceptsFile("material", MATERIAL)).toBe(true);
-    expect(acceptsFile("material", GRAPH)).toBe(true);
-    expect(acceptsFile("material", SUB)).toBe(false);
-    expect(acceptsFile("material", SHADER)).toBe(false);
-    expect(acceptsFile("environment", MATERIAL)).toBe(false);
+    expect(satisfiesFieldKind("material", MATERIAL)).toBe(true);
+    expect(satisfiesFieldKind("material", GRAPH)).toBe(true);
+    expect(satisfiesFieldKind("material", SUB)).toBe(false);
+    expect(satisfiesFieldKind("material", SHADER)).toBe(false);
+    expect(satisfiesFieldKind("environment", MATERIAL)).toBe(false);
   });
 
   it("registers the Shader Graph panel beside the Scene view, in the default layout", () => {
@@ -117,7 +116,7 @@ describe("the Materials plugin's editor half (ADR 0134)", () => {
       expect(assetKind(p), p).toBe("json");
       expect(previewKind(p), p).toBeNull();
       expect(inspectableAsset(p), p).toBeNull();
-      expect(acceptsFile("material", p), p).toBe(false);
+      expect(satisfiesFieldKind("material", p), p).toBe(false);
     }
     for (const k of KINDS) {
       expect(registeredKind(k), k).toBeUndefined();

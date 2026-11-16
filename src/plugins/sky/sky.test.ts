@@ -5,9 +5,8 @@ import { skyPreset } from "../../engine/sky/presets";
 import { formatSky, parseSky, type SkySettings } from "../../engine/sky/skyFormat";
 import { assetKind } from "../../editor/assetBrowser";
 import { openAssetDocument } from "../../editor/assetDocuments";
-import { acceptsFile } from "../../editor/assetFieldKinds";
 import { inspectableAsset } from "../../editor/assetImport";
-import { kindIcon, kindLabel, kindOpens, registeredKind } from "../../editor/assetKindLookup";
+import { kindIcon, kindLabel, kindOpens, registeredKind, satisfiesFieldKind } from "../../editor/assetKindLookup";
 import { registeredPanels } from "../../editor/layout/registeredPanels";
 import { joinPath } from "../../editor/projects";
 import { assetFormats, assetKinds, panels } from "../../editor/sdk/contributions";
@@ -48,8 +47,8 @@ describe("the Sky plugin's editor half (ADR 0134)", () => {
     expect(previewKind(SKY)).toBe("sky");
     expect(kindOpens(SKY)).toBe(true);
     expect(inspectableAsset(SKY)).toBe(SKY);
-    expect(acceptsFile("environment", SKY)).toBe(true);
-    expect(acceptsFile("material", SKY)).toBe(false);
+    expect(satisfiesFieldKind("environment", SKY)).toBe(true);
+    expect(satisfiesFieldKind("material", SKY)).toBe(false);
     expect(assetKinds.get("sky")?.create?.label).toBe("New Sky");
   });
 
@@ -88,7 +87,7 @@ describe("the Sky plugin's editor half (ADR 0134)", () => {
     expect(assetKind(SKY)).toBe("json");
     expect(registeredKind("sky")).toBeUndefined();
     expect(previewKind(SKY)).toBeNull();
-    expect(acceptsFile("environment", SKY)).toBe(false);
+    expect(satisfiesFieldKind("environment", SKY)).toBe(false);
     expect(inspectableAsset(SKY)).toBeNull();
     expect(assetFormats.get("sky")).toBeUndefined();
     expect(panels.get("sky")).toBeUndefined();

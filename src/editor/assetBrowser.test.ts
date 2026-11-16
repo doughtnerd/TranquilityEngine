@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input } from "../engine";
 import { SpriteRenderer } from "../engine/render/components";
-import { addAssetEntries, assetKind, idBase, nodeForAsset, opensInCodePanel, parentForAdd, prefabInstanceEntry, searchEntries, searchFiles, spriteNodeEntry, uniqueId, whyNotAddable } from "./assetBrowser";
+import { addAssetEntries, assetKind, idBase, opensInCodePanel, parentForAdd, prefabInstanceEntry, searchEntries, spriteNodeEntry, uniqueId, whyNotAddable } from "./assetBrowser";
 import { OrbitCamera } from "./OrbitCamera";
 import { navigationEditorPlugin } from "../plugins/navigation/editor";
 import { particlesEditorPlugin } from "../plugins/particles/editor";
@@ -25,10 +25,10 @@ afterAll(() => PLUGINS.forEach((p) => deactivatePlugin(p.manifest.name)));
 
 describe("asset browser: folders and search", () => {
   it("searches file names across folders, every word must match", () => {
-    expect(searchFiles(demo.files, "pipe").sort()).toEqual(["images/PipeDown.png", "images/PipeUp.png", "prefabs/pipe-pair.prefab.json"]);
-    expect(searchFiles(demo.files, "pipe prefab")).toEqual(["prefabs/pipe-pair.prefab.json"]);
-    expect(searchFiles(demo.files, "PIPEUP")).toEqual(["images/PipeUp.png"]);
-    expect(searchFiles(demo.files, "  ")).toEqual([]);
+    expect(searchEntries(demo.files, "pipe", () => []).sort()).toEqual(["images/PipeDown.png", "images/PipeUp.png", "prefabs/pipe-pair.prefab.json"]);
+    expect(searchEntries(demo.files, "pipe prefab", () => [])).toEqual(["prefabs/pipe-pair.prefab.json"]);
+    expect(searchEntries(demo.files, "PIPEUP", () => [])).toEqual(["images/PipeUp.png"]);
+    expect(searchEntries(demo.files, "  ", () => [])).toEqual([]);
   });
 
   it("knows asset kinds", () => {
@@ -137,20 +137,19 @@ describe("asset browser: adding to the scene (ADR 0026)", () => {
   });
 
   it("instances scenes and prefabs, placed when asked, and refuses self-nesting", () => {
-    const { doc } = openScene.value!;
-    expect(nodeForAsset(doc, "scenes/main.scene.json")).toMatchObject({ prefab: "scenes/main.scene.json" });
-    expect(nodeForAsset(doc, "prefabs/pipe-pair.prefab.json", { position: [3, 4, 0], placeInstances: true })).toMatchObject({
+    const scene = openScene.value!, { doc } = scene;
+    expect(addAssetEntries(scene, "prefabs/pipe-pair.prefab.json", { position: [3, 4, 0], placeInstances: true })[0]).toMatchObject({
       prefab: "prefabs/pipe-pair.prefab.json",
       overrides: [{ component: "engine.Transform", field: "position", value: [3, 4, 0] }],
     });
-    expect(nodeForAsset(doc, "prefabs/pipe-pair.prefab.json", { position: [3, 4, 0] })!.overrides).toBeUndefined();
+    expect(addAssetEntries(scene, "prefabs/pipe-pair.prefab.json", { position: [3, 4, 0] })[0].overrides).toBeUndefined();
     expect(whyNotAddable(doc, "scenes/main.scene.json")).toMatch(/inside itself/); // the open scene
+    expect(() => addAssetEntries(scene, "scenes/main.scene.json")).toThrow(/inside itself/);
     expect(whyNotAddable(doc, "prefabs/pipe-pair.prefab.json")).toBeNull();
   });
 
   it("adds a particle effect through the Particles plugin's addToScene policy", () => {
-    const { doc } = openScene.value!;
-    expect(nodeForAsset(doc, "fx/smoke-puff.particles.json", { position: [1, 2, 0] })).toEqual({
+    expect(addAssetEntries(openScene.value!, "fx/smoke-puff.particles.json", { position: [1, 2, 0] })[0]).toEqual({
       id: "smoke-puff-particles", // idBase drops only the last extension
       name: "Smoke-puff",
       components: [

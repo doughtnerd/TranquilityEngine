@@ -3,7 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input } from "../engine";
 import { parseImportSettings } from "../engine/scene/importSettings";
-import { assetKind, isSliceEntry, listedFiles, nodeForAsset, splitSliceEntry } from "./assetBrowser";
+import { addAssetEntries, assetKind, isSliceEntry, listedFiles, splitSliceEntry } from "./assetBrowser";
 import { deleteAssets } from "./assetDelete";
 import { assetUsers } from "./assetReferences";
 import { inspectedAsset, readImportSettings, showsAssetInspector, writeImportSettings } from "./assetImport";
@@ -87,7 +87,7 @@ describe("the Assets panel's view of sidecars and slices", () => {
     expect(isSliceEntry("images/PipeUp.png#a")).toBe(true);
     expect(isSliceEntry("music/town.mp3")).toBe(false);
     expect(splitSliceEntry("images/PipeUp.png#a")).toEqual({ image: "images/PipeUp.png", slice: "a" });
-    const entry = nodeForAsset(openScene.value!.doc, "images/PipeUp.png#walk_left", { position: [1, 2, 0] })!;
+    const [entry] = addAssetEntries(openScene.value!, "images/PipeUp.png#walk_left", { position: [1, 2, 0] });
     expect(entry.name).toBe("Walk_left"); // capitalized, like nodes from file names
     expect(entry.id).toBe("walk-left");
     expect(entry.components![1]).toEqual({ type: "engine.SpriteRenderer", data: { sprite: "asset:images/PipeUp.png#walk_left" } });

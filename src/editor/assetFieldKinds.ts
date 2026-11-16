@@ -17,9 +17,6 @@ const BUILTINS: Partial<Record<AssetFieldKind, readonly string[]>> = {
   mesh: BUILTIN_MESHES.map((m) => `builtin:${m}`),
 };
 
-/** Whether a file suits field kind `k`: an asset kind that declares `referencedAs` it, or a core rule (ADR 0143). */
-export const acceptsFile = (k: AssetFieldKind, file: string): boolean => satisfiesFieldKind(k, file);
-
 /** Field kinds already warned about. */
 const warned = new Set<string>();
 
@@ -38,7 +35,7 @@ export function assetsForKinds(kinds: readonly AssetFieldKind[], files: readonly
   if (kinds.length === 0) return [...files];
   kinds.forEach(warnUnknown);
   const builtins = [...new Set(kinds.flatMap((k) => BUILTINS[k] ?? []))];
-  return [...builtins, ...files.filter((f) => kinds.some((k) => acceptsFile(k, f)))];
+  return [...builtins, ...files.filter((f) => kinds.some((k) => satisfiesFieldKind(k, f)))];
 }
 
 /** The asset kinds a field (or one item of a list field) declares; empty when it takes any asset or isn't an asset field. */

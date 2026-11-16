@@ -2,8 +2,7 @@
 // kinds that were built into the editor's tables; disabling a plugin turns its files back into generic ones.
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { assetKind, canAddToScene, opensInCodePanel } from "../editor/assetBrowser";
-import { acceptsFile } from "../editor/assetFieldKinds";
-import { kindIcon, kindLabel, registeredKind } from "../editor/assetKindLookup";
+import { kindIcon, kindLabel, registeredKind, satisfiesFieldKind } from "../editor/assetKindLookup";
 import { inspectableAsset } from "../editor/assetImport";
 import { activatePlugins, deactivatePlugin, isPluginActive } from "../editor/sdk/plugins";
 import { previewKind } from "../editor/thumbnails/keys";
@@ -63,16 +62,16 @@ describe("the render plugins' asset kinds (ADR 0140)", () => {
     expect(registeredKind("model")?.inspector).toBeUndefined(); // the shell's import Inspector (ADR 0040) shows models
     expect(registeredKind("model")?.importSettings).toBeDefined(); // with the Meshes plugin's rows (ADR 0143)
     expect(inspectableAsset("models/ship.glb")).toBe("models/ship.glb");
-    expect(acceptsFile("mesh", "models/ship.glb")).toBe(true);
-    expect(acceptsFile("model", "models/ship.glb")).toBe(true);
-    expect(acceptsFile("environment", "env/studio.hdr")).toBe(true);
-    expect(acceptsFile("environment", "skies/box.cubemap.json")).toBe(true);
-    expect(acceptsFile("environment", "panoramas/sunset.jpg")).toBe(true);
-    expect(acceptsFile("envmap", "env/room.env")).toBe(true);
-    expect(acceptsFile("envmap", "env/studio.hdr")).toBe(false);
-    expect(acceptsFile("lut", "grading/warm.cube")).toBe(true);
-    expect(acceptsFile("uidocument", "ui/menu.ui.xml")).toBe(true);
-    expect(acceptsFile("uidocument", "ui/menu.ui.css")).toBe(false);
+    expect(satisfiesFieldKind("mesh", "models/ship.glb")).toBe(true);
+    expect(satisfiesFieldKind("model", "models/ship.glb")).toBe(true);
+    expect(satisfiesFieldKind("environment", "env/studio.hdr")).toBe(true);
+    expect(satisfiesFieldKind("environment", "skies/box.cubemap.json")).toBe(true);
+    expect(satisfiesFieldKind("environment", "panoramas/sunset.jpg")).toBe(true);
+    expect(satisfiesFieldKind("envmap", "env/room.env")).toBe(true);
+    expect(satisfiesFieldKind("envmap", "env/studio.hdr")).toBe(false);
+    expect(satisfiesFieldKind("lut", "grading/warm.cube")).toBe(true);
+    expect(satisfiesFieldKind("uidocument", "ui/menu.ui.xml")).toBe(true);
+    expect(satisfiesFieldKind("uidocument", "ui/menu.ui.css")).toBe(false);
     expect(canAddToScene("models/ship.glb")).toBe(true);
     for (const p of ["env/studio.hdr", "grading/warm.cube", "ui/menu.ui.xml"]) expect(canAddToScene(p), p).toBe(false);
   });
@@ -89,7 +88,7 @@ describe("the render plugins' asset kinds (ADR 0140)", () => {
       expect(assetKind("ui/menu.ui.css")).toBe("other");
       expect(canAddToScene("models/ship.glb")).toBe(false);
       expect(previewKind("models/ship.glb")).toBeNull();
-      expect(acceptsFile("mesh", "models/ship.glb")).toBe(false);
+      expect(satisfiesFieldKind("mesh", "models/ship.glb")).toBe(false);
     } finally {
       activatePlugins(PLUGINS);
     }
