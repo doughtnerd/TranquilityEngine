@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { ClipEvent, ClipFormat, Kind, readClipBegin } from "../wire.generated";
 import { createClipRegistry } from "./clipRegistry";
-import { HRIR_CLIP_ID, createHrirLoader, extractAverageGroupDelay, hrtfFftSize, readHrirHeader, resampleHrir, sincResample } from "./hrir";
+import { createHrirLoader } from "./hrir";
+import { extractAverageGroupDelay, hrtfFftSize, readHrirHeader, resampleHrir, sincResample } from "./hrirResample";
+import { HRIR_CLIP_ID_FIRST as HRIR_CLIP_ID } from "../wire.generated";
 
 const E = 10;
 const A = 24;

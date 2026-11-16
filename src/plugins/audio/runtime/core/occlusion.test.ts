@@ -8,7 +8,7 @@ import type { WorldRayInto, WorldRayQuery } from "../../../../engine/core/worldS
 import type { GameObject } from "../../../../engine/scene/GameObject";
 import { LP_TOP } from "../wire.generated";
 import { encodeVoiceId } from "./ids";
-import { OCCLUSION_DEFAULT_RAY_COST_US, OcclusionPass, type OcclusionEnvironment } from "./occlusion";
+import { OcclusionPass, type OcclusionEnvironment } from "./occlusion";
 import { ListenerFrame, SendCurveTable, SpatialViewFlag, type SpatialVoiceView } from "./spatial";
 
 const WORLD = { name: "listener world" } as unknown as World;
@@ -214,7 +214,7 @@ describe("the ray budget (R12) and staleness (S1)", () => {
     const view = new FakeView(64);
     for (let i = 0; i < 64; i++) view.add(i, 10, i, 0.5);
     const pass = new OcclusionPass(64, env);
-    expect(pass.debug().rayCostUs).toBe(OCCLUSION_DEFAULT_RAY_COST_US);
+    expect(pass.debug().rayCostUs).toBe(3.5) /* the default ray cost, µs */;
     const f = makeFrame();
     step(f);
     pass.run(f, view, settings());

@@ -66,7 +66,7 @@ import { VoiceFlag, VoiceState, type VoiceTable } from "./voiceTable";
 
 
 /** Most bytes of resync (curves, parameters, bus bindings) written per frame outside what a binding needs at once. */
-export const RESYNC_BYTES_PER_FRAME = 48 * 1024;
+const RESYNC_BYTES_PER_FRAME = 48 * 1024;
 /** Most bytes of curves in one CURVES record (as the writer's own split). */
 const CURVES_RECORD_BYTES = 32 * 1024;
 /** Every parameter slot, laid out as the core's table: the globals, then each group's locals. */

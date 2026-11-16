@@ -33,9 +33,9 @@ export function setRecoveryProfileSink(sink: ProfileSink | null): void {
 }
 
 /** @internal A3.4c: a stall rebuild in the same context fails if its core sends no first STATUS within this (ms). */
-export const STALL_REBUILD_STATUS_TIMEOUT_MS = 2_000;
+const STALL_REBUILD_STATUS_TIMEOUT_MS = 2_000;
 /** @internal A3.4c: a stall this soon (ms) after a same-context stall rebuild goes straight to a new context. */
-export const STALL_ESCALATE_WINDOW_MS = 10_000;
+const STALL_ESCALATE_WINDOW_MS = 10_000;
 
 /** @internal Why a rebuild was asked for (architecture §7: `traps`, `rebuilds`). */
 export type RebuildReason =
@@ -96,11 +96,6 @@ interface RecoveryState {
 class Limited extends Error {}
 
 const states = new WeakMap<RebuildableHost, RecoveryState>();
-
-/** @internal A3.4c: how many rebuilds of `host` made a new context. */
-export function contextRebuilds(host: RebuildableHost): number {
-  return states.get(host)?.contexts ?? 0;
-}
 
 function stateOf(host: RebuildableHost, options: RecoveryOptions = {}): RecoveryState {
   let state = states.get(host);

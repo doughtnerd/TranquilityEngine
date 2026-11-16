@@ -14,7 +14,7 @@ import { fakeDecoder } from "./fakeDecoder";
 import { createClipRegistry } from "./clipRegistry";
 import { AudioHost, presetFromSettings, type ContextOptions, type ContextParts, type LatencyHint } from "./context";
 import { createCoreBackend, type CoreBackend } from "./coreBackend";
-import { contextRebuilds, rebuildHost, watchForTraps, type RebuildOutcome } from "./recovery";
+import { rebuildHost, watchForTraps, type RebuildOutcome } from "./recovery";
 import { BackgroundController, type VisibilitySource } from "./background";
 import { Unlock, type UnlockContext } from "./unlock";
 import { _resetMusicPlayers, createMusicPlayer, musicEarlyStep, musicPlanStep, type MusicPlayer } from "../music/musicSystem";
@@ -309,7 +309,6 @@ describe("rhythm mode on the loopback host (ADR 0166 Rh1, architecture §4.6)", 
     // One mode rebuild, into a new context made with the numeric hint.
     expect(r.host.modeRebuilds).toBe(1);
     expect(r.hints).toEqual([0]);
-    expect(contextRebuilds(r.host)).toBe(1);
     expect(r.host.health.rebuilds).toBe(1);
     expect(r.host.rhythmMode).toBe(true);
     expect(r.host.pendingRhythmMode).toBeNull();

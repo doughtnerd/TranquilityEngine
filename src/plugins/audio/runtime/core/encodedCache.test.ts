@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createEncodedCache, ENCODED_CACHE_CAP_BYTES } from "./encodedCache";
+import { createEncodedCache } from "./encodedCache";
 
 const MB = 1024 * 1024;
 
@@ -83,7 +83,6 @@ describe("encodedCache (A1.3a-L2)", () => {
   });
 
   it("a default cache caps at 32 MB", () => {
-    expect(ENCODED_CACHE_CAP_BYTES).toBe(32 * MB);
     const cache = createEncodedCache();
     expect(cache.set("big.ogg", new ArrayBuffer(32 * MB))).toBe(true);
     expect(cache.bytes).toBe(32 * MB);

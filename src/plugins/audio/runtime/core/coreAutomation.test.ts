@@ -8,7 +8,7 @@ import { Kind, Op, readEnvelope, readRecordHead } from "../wire.generated";
 import type { AudioVoice } from "../backend";
 import { CommandWriter, CORE_CURVE_KEYS, AUTOMATION_GLOBAL } from "./commandWriter";
 import { BufferPool } from "./bufferPool";
-import { CoreAutomation, RESYNC_BYTES_PER_FRAME, wrapPosition, type CoreAutomationDeps } from "./coreAutomation";
+import { CoreAutomation, wrapPosition, type CoreAutomationDeps } from "./coreAutomation";
 import { ReplayBuilder } from "./replay";
 import { Selection } from "./selection";
 import { VoiceFlag, VoiceState, VoiceTable } from "./voiceTable";
@@ -233,7 +233,7 @@ describe("CoreAutomation: bulk uploads and the mirror's replay", () => {
     sent += curvesIn();
     expect(writer.stats.dropped).toBe(0);
     expect(sent).toBe(1024);
-    expect(frames).toBeGreaterThanOrEqual(Math.floor(total / RESYNC_BYTES_PER_FRAME) - 1);
+    expect(frames).toBeGreaterThanOrEqual(Math.floor(total / (48 * 1024)) - 1);
   });
 
   it("replays a 1,024-curve mirror, the parameters and the bus bindings in the header REPLAY; bindings and loops after each PLAY", () => {

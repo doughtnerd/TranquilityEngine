@@ -1,8 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { MAGIC, STATUS_BUFFER_BYTES, writeStatus } from "../wire.generated";
 import { CoreLink, type LinkPort } from "./context";
-import { makeStatusBlock, MIRROR_EVENT_CAPACITY, StatusMirror } from "./mirror";
+import { makeStatusBlock, StatusMirror } from "./mirror";
 import { VoiceReason, VoiceState, VoiceTable } from "./voiceTable";
+
+/** The mirror holds at most this many clip events between drains. */
+const MIRROR_EVENT_CAPACITY = 1024;
 
 // A1.1 (lead): the STATUS mirror applied in `onmessage` (api-and-models §3 "Status mirror", §4.3).
 const P = VoiceState.PLAYING;

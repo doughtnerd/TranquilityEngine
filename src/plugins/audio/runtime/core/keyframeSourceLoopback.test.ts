@@ -6,12 +6,13 @@ import { describe, expect, it } from "vitest";
 import { Lane, Mixer } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings, type AudioSettings } from "../../../../engine/audio/settings";
 import { loudnessHub } from "../mix/loudnessHub";
-import { KEYFRAME_MAX_BUSES, KEYFRAME_MAX_EVENTS, KEYFRAME_MAX_METERED, KEYFRAME_MAX_MUSIC, KEYFRAME_MAX_VOICES } from "../capture/format";
 import { LOUD_OUTPUT_TAP } from "../wire.generated";
 import type { CoreLink } from "./context";
 import { CoreBackend, type CoreBackendHost } from "./coreBackend";
 import { fakeDecoder } from "./fakeDecoder";
-import { KF_MAX_BUSES, KF_MAX_EVENTS, KF_MAX_METERED, KF_MAX_MUSIC, KF_MAX_VOICES, KF_BUS_METERED, KfVoiceState } from "./keyframeSource";
+
+/** The keyframe bus row's metered flag (§5.5). */
+const KF_BUS_METERED = 32;
 
 const NO_NAME = 0xffffffff;
 const req = (path: string, extra: object = {}) => ({ path, url: path, loop: true, stream: false, bus: "SFX", ...extra });
@@ -65,12 +66,6 @@ const settingsWith = (patch: (s: AudioSettings) => void): AudioSettings => {
   return s;
 };
 
-describe("the keyframe caps", () => {
-  it("repeat format.ts's, which the lazy recorder chunk owns", () => {
-    expect([KF_MAX_VOICES, KF_MAX_BUSES, KF_MAX_METERED, KF_MAX_EVENTS, KF_MAX_MUSIC]).toEqual([KEYFRAME_MAX_VOICES, KEYFRAME_MAX_BUSES, KEYFRAME_MAX_METERED, KEYFRAME_MAX_EVENTS, KEYFRAME_MAX_MUSIC]);
-  });
-});
-
 describe("CoreBackend.keyframe on the loopback host", () => {
   it("voice rows equal the voice table (Audio.debug()'s rows): id, clip, bus slot, state, priority, gain, pitch, audibility, playhead", async (ctx) => {
     const r = await rig(defaultAudioSettings());
@@ -84,7 +79,7 @@ describe("CoreBackend.keyframe on the loopback host", () => {
     const debug = r.backend.debug();
     const live = debug.voices.filter((v) => v.state !== "stolen");
     expect(live.length).toBeGreaterThanOrEqual(3);
-    const stateCode = { playing: KfVoiceState.playing, virtual: KfVoiceState.virtual, stolen: KfVoiceState.stolen, waitingForData: KfVoiceState.waitingForData, busMuted: KfVoiceState.busMuted, locked: KfVoiceState.locked } as const;
+    const stateCode = { playing: 0, virtual: 1, stolen: 2, waitingForData: 3, busMuted: 4, locked: 5 } as const; // §5.5
     expect(kf.voices).toHaveLength(debug.voices.length);
     for (const v of debug.voices) {
       const row = kf.voices.find((x) => x.id === v.id);

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
-import { AudioHandle, MAX_FADE_GAIN, REASON_NAMES, _resetHandleWarningsForTests, warnOnce } from "./handle";
+import { AudioHandle, _resetHandleWarningsForTests, warnOnce } from "./handle";
 import { VoiceReason, VoiceState, type VoiceReasonCode, type VoiceTableHandleApi } from "./voiceTable";
 
 // A1.1-L2 fills these (api-and-models §1 `AudioHandle`, §3 "Handle encoding"): `AudioHandle` against a small fake
@@ -106,11 +106,12 @@ describe("AudioHandle against a fake table (§1)", () => {
     expect(handle.playing).toBe(false);
   });
 
-  it("reason maps each code through REASON_NAMES while current; NONE reads null", () => {
+  it("reason maps each code to its name while current; NONE reads null", () => {
     const t = makeTable();
+    const names = [null, "virtual", "stolen", "busMuted", "locked", "failed", "waitingForData"];
     for (let code = 0; code <= 6; code++) {
       const id = setSlot(t, 0, VoiceState.PLAYING, code);
-      expect(new AudioHandle(t.table, id).reason).toBe(REASON_NAMES[code]);
+      expect(new AudioHandle(t.table, id).reason).toBe(names[code]);
     }
     setSlot(t, 0, VoiceState.PLAYING, VoiceReason.NONE);
     expect(new AudioHandle(t.table, idOf(0, 1)).reason).toBeNull();
@@ -207,7 +208,7 @@ describe("AudioHandle against a fake table (§1)", () => {
     const handle = new AudioHandle(t.table, id);
 
     handle.fade(9, 1);
-    expect(t.requestFade).toHaveBeenLastCalledWith(id, MAX_FADE_GAIN, 1);
+    expect(t.requestFade).toHaveBeenLastCalledWith(id, 4, 1) /* the fade gain cap */;
     handle.fade(-2, 1);
     expect(t.requestFade).toHaveBeenLastCalledWith(id, 0, 1);
     expect(warn).toHaveBeenCalledTimes(1);

@@ -3,7 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { ASSET_BYTES, convert, directionIndex, parseWav, sourceNames } from "../../../../../tools/hrir/convert.mjs";
-import { readHrirHeader, resampleHrir } from "./hrir";
+import { readHrirHeader, resampleHrir } from "./hrirResample";
 
 // Checks the committed myco_hrir.bin (H5: the header, then the responses as Chromium decodes them, delays in; hrir.ts
 // turns it into the wire's format 2, the layout audio-dsp's database.rs enforces).

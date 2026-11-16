@@ -10,11 +10,13 @@ import type { AudioHost, HostLifecycleListener } from "./context";
 import { CoreLink, type LinkPort } from "./context";
 import type { ClipInfo, ClipRegistry, ClipState } from "./clipRegistry";
 import { CoreBackend, type CoreBackendHost } from "./coreBackend";
-import { PRIME_EMA_SEED_MS } from "./musicOps";
 import { fakeDecoder } from "./fakeDecoder";
 import type { MusicGroupEvent, MusicGroupRequest } from "../backend";
 import type { PrimeGroupOptions, StreamReply } from "../decoder/decoderClient";
 import * as musicBackground from "../music/background";
+
+/** The prime-latency average's seed before any prime has been measured, ms. */
+const PRIME_EMA_SEED_MS = 40;
 
 function fakeClips(): ClipRegistry {
   const info = (id: number): ClipInfo => ({ id, path: "", state: "ready" as ClipState, refs: 0, frames: 0, channels: 1, sampleRate: 48_000, format: 1, bytes: 0, failure: null });

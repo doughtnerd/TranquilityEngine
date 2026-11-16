@@ -8,7 +8,10 @@ import { defaultAudioSettings, parseAudioSettings } from "../../../../engine/aud
 import { fakeDecoder } from "./fakeDecoder";
 import type { AudioHost } from "./context";
 import { CoreBackend, type CoreBackendHost } from "./coreBackend";
-import { createHrirLoader, createMaglsLoader, maglsUrl } from "./hrir";
+import { createHrirLoader, createMaglsLoader } from "./hrir";
+
+/** The MagLS asset (`src/engine/audio/magls-o3.bin`). */
+const maglsUrl = (): URL => new URL("../../../../engine/audio/magls-o3.bin", import.meta.url);
 
 const att = { minDistance: 1, maxDistance: 400, rolloff: "inverse" as const };
 const req = (path: string, x: number, z: number, bus = "SFX") => ({ path, url: path, loop: true, stream: false, bus, attenuation: att, position: { x, y: 0, z } });

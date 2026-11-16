@@ -6,8 +6,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Mixer } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings } from "../../../../engine/audio/settings";
 import { LOUD_OUTPUT_TAP } from "../wire.generated";
-import { KF_BUS_METERED, KeyframeSource, type KeyframeHost, type KeyframeNameId } from "./keyframeSource";
+import { KeyframeSource, type KeyframeHost, type KeyframeNameId } from "./keyframeSource";
 import { VoiceState, VoiceTable } from "./voiceTable";
+
+/** The keyframe bus row's metered flag (§5.5). */
+const KF_BUS_METERED = 32;
 
 const NO_NAME = 0xffffffff;
 

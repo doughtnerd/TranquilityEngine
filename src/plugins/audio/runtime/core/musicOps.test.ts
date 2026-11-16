@@ -9,17 +9,19 @@ import type { AudioHost, HostLifecycleListener } from "./context";
 import { CoreLink, type LinkPort } from "./context";
 import type { ClipInfo, ClipRegistry, ClipState } from "./clipRegistry";
 import { CoreBackend, type CoreBackendHost } from "./coreBackend";
-import { CORE_MUSIC_CAPS } from "./musicOps";
 import { STREAM_EVENT_MUSIC_FULL } from "./streams";
 import type { DebugSource } from "./debug";
 import { StreamEvent, gateGroupId, gateGroupSize, PLAY_FLAGS_FADE_ZERO } from "../wire.generated";
 import { makeStatusBlock } from "./mirror";
-import { encodedBudgetBytes, PRIME_EMA_SEED_MS } from "./musicOps";
+import { encodedBudgetBytes } from "./musicOps";
 import type { MusicGroupEvent, MusicGroupRequest } from "../backend";
 import type { PrimeGroupOptions } from "../decoder/decoderClient";
 import type { MusicReply } from "../decoder/protocol";
 import type { PlayArgs } from "./commandWriter";
 import { fakeDecoder } from "./fakeDecoder";
+
+/** The prime-latency average's seed before any prime has been measured, ms. */
+const PRIME_EMA_SEED_MS = 40;
 
 /** Just what the backend's constructor and these tests touch of a registry. */
 function fakeClips(over: Partial<ClipRegistry> = {}): ClipRegistry {
@@ -71,8 +73,7 @@ describe("the core's music seam (ADR 0166 §4.6, Q2)", () => {
   it("music is musicOps, with every capability the core will have, and stubs that refuse safely", () => {
     const { backend } = rig();
     expect(backend.music).toBe(backend.musicOps);
-    expect(backend.music.caps).toEqual(CORE_MUSIC_CAPS);
-    expect(CORE_MUSIC_CAPS).toEqual({ primes: true, stampedFades: true, heardClock: true, rhythm: true });
+    expect(backend.music.caps).toEqual({ primes: true, stampedFades: true, heardClock: true, rhythm: true });
     expect(backend.music.primeEmaMs).toBe(40);
     expect(backend.music.primedState(1)).toBeNull();
     expect(backend.music.admitGroup({ instance: 1, group: 1, members: [] }).ok).toBe(false);

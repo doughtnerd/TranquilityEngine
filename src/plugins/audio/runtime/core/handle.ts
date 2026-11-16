@@ -12,10 +12,10 @@ export type { AudioReason };
  * @internal §1's `AudioReason` for each `VoiceReason` code (index = code); `null` for NONE (0).
  * Codes: 0 none, 1 virtual, 2 stolen, 3 busMuted, 4 locked, 5 failed, 6 waitingForData.
  */
-export const REASON_NAMES: readonly (AudioReason | null)[] = [null, "virtual", "stolen", "busMuted", "locked", "failed", "waitingForData"];
+const REASON_NAMES: readonly (AudioReason | null)[] = [null, "virtual", "stolen", "busMuted", "locked", "failed", "waitingForData"];
 
 /** @internal §1: `fade`'s `to` is linear, 0..4. */
-export const MAX_FADE_GAIN = 4;
+const MAX_FADE_GAIN = 4;
 
 /** @internal `id` names a live slot: non-zero, `gen[index]` matches the id's generation, and the slot isn't FREE (§3). */
 function isCurrent(t: VoiceTableHandleApi, id: number): boolean {

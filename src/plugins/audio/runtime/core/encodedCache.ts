@@ -3,7 +3,7 @@
 // simply not kept and a rebuild refetches it from the HTTP cache).
 
 /** The default cap, 32 MB. */
-export const ENCODED_CACHE_CAP_BYTES = 32 * 1024 * 1024;
+const ENCODED_CACHE_CAP_BYTES = 32 * 1024 * 1024;
 
 /** Encoded asset bytes keyed by asset path. No eviction: an entry that doesn't fit is refused, not swapped in. */
 export interface EncodedCache {

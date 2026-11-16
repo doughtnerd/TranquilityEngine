@@ -21,12 +21,12 @@ export interface ProbeEnv {
  * @internal The smallest module that uses a `simd128` instruction (`i8x16.popcnt` on a zero v128); the feature
  * is present when `WebAssembly.validate` accepts it. Same bytes as the wasm-feature-detect library.
  */
-export const SIMD_PROBE_MODULE: Uint8Array = new Uint8Array([
+const SIMD_PROBE_MODULE: Uint8Array = new Uint8Array([
   0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 123, 3, 2, 1, 0, 10, 10, 1, 8, 0, 65, 0, 253, 15, 253, 98, 11,
 ]);
 
 /** @internal Names the required features (ADR 0157 Platforms "Minimum versions") the engine lacks; empty when none. */
-export function missingFeatures(env: ProbeEnv): readonly string[] {
+function missingFeatures(env: ProbeEnv): readonly string[] {
   const missing: string[] = [];
   if (env.AudioWorkletNode === undefined) missing.push("AudioWorklet");
   if (!hasSimd(env)) missing.push("WebAssembly simd128");
@@ -59,7 +59,7 @@ function hasOutputTimestamp(env: ProbeEnv): boolean {
  * @internal The one warning (§7 "Core fails to load"): names the missing features and says the minimum versions
  * (docs/guide/audio-minimum-versions.md), and that sound falls back to the "babylon" backend.
  */
-export function refusalMessage(missing: readonly string[]): string {
+function refusalMessage(missing: readonly string[]): string {
   const list = missing.join(", ");
   return (
     `Audio core unavailable: this engine lacks ${list}. ` +

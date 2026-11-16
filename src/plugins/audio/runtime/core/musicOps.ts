@@ -74,7 +74,7 @@ import { groupAbandoned, recoverAbandoned, recoverGroups } from "../music/backgr
 import { liveRun } from "../music/segmentRun";
 
 /** Ê's seed on a new context, milliseconds (architecture §4.1). */
-export const PRIME_EMA_SEED_MS = 40;
+const PRIME_EMA_SEED_MS = 40;
 /** Ê's gains (architecture §4.2, est.): a slower sample moves it half way, a faster one a tenth. */
 export const PRIME_EMA_UP = 0.5;
 export const PRIME_EMA_DOWN = 0.1;
@@ -85,7 +85,7 @@ const RING_PRIMED = 1 << 30;
 const RING_EPOCH_MASK = (1 << 30) - 1;
 
 /** What the core supports for music (§4.6): everything. The player branches on this record, never on the backend type. */
-export const CORE_MUSIC_CAPS: MusicBackendCaps = Object.freeze({ primes: true, stampedFades: true, heardClock: true, rhythm: true });
+const CORE_MUSIC_CAPS: MusicBackendCaps = Object.freeze({ primes: true, stampedFades: true, heardClock: true, rhythm: true });
 
 /**
  * A group member as `CorePlayRequest.music` carries it into `CoreBackend.play` (P1 makes these in `stampGroup`): the

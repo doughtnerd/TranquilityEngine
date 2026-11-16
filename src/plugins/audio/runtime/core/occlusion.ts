@@ -49,7 +49,7 @@ export const OCCLUSION_TIER = 16;
 /** @internal §3.2: rays end this far short of the source, metres (a source inside its own collider still sees the wall). */
 export const OCCLUSION_RAY_SHORTEN = 0.1;
 /** @internal §3.2: the ray cost assumed until measured, microseconds. */
-export const OCCLUSION_DEFAULT_RAY_COST_US = 3.5;
+const OCCLUSION_DEFAULT_RAY_COST_US = 3.5;
 /** @internal R12: the ray-cost EMA's α, and the fewest rays a sample is taken over. */
 export const RAY_COST_ALPHA = 0.1;
 export const RAY_COST_MIN_BATCH = 16;

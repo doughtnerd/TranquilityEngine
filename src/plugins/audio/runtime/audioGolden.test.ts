@@ -25,7 +25,8 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { HRIR_CLIP_ID, resampleHrir, resampleMagls } from "./core/hrir";
+import { resampleHrir, resampleMagls } from "./core/hrirResample";
+import { HRIR_CLIP_ID_FIRST as HRIR_CLIP_ID } from "./wire.generated";
 import { DecoderWasm } from "./decoder/wasm";
 import { maxStep } from "./golden/maxStep";
 import { createLoopbackHost, LOOPBACK_PRESET, LOOPBACK_RATE, type LoopbackHost } from "./testing";

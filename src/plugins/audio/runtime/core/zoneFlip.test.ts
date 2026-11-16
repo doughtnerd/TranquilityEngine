@@ -7,7 +7,13 @@ import { describe, expect, it } from "vitest";
 import { defaultAudioSettings, type ZoneSettings } from "../../../../engine/audio/settings";
 import { fixedRegionsHeadroomBytes, instantiateCore, MEMORY_INITIAL_PAGES, memoryMaximumPages, type CorePreset } from "../worklet/coreDriver";
 import { presetFromSettings } from "./context";
-import { zoneInitParams } from "./initParams";
+import { spatialInitParams } from "./initParams";
+
+/** The zone part of the core's spatial init parameters. */
+const zoneInitParams = (s: Parameters<typeof spatialInitParams>[0]) => {
+  const { maxZoneSlots, zoneMaxSeconds } = spatialInitParams(s);
+  return { maxZoneSlots, zoneMaxSeconds };
+};
 
 const WASM = readFileSync(fileURLToPath(new URL("../wasm/myco_audio.wasm", import.meta.url)));
 const RATE = 48_000;

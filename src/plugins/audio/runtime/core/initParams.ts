@@ -36,7 +36,7 @@ export function bedInitParams(settings: AudioSettings): Pick<SpatialInitParams, 
  * (OD2: 3 on high and default, the standby slot letting a released zone ring out; 1 on low) of `maxIrSeconds` each.
  * `maxActive` 0 makes zones inert: no slot is laid out.
  */
-export function zoneInitParams(settings: AudioSettings): Pick<SpatialInitParams, "maxZoneSlots" | "zoneMaxSeconds"> {
+function zoneInitParams(settings: AudioSettings): Pick<SpatialInitParams, "maxZoneSlots" | "zoneMaxSeconds"> {
   const z = settings.zones;
   const active = Math.max(0, Math.min(2, Math.floor(z.maxActive)));
   if (active === 0) return { maxZoneSlots: 0, zoneMaxSeconds: 0 };
@@ -45,7 +45,7 @@ export function zoneInitParams(settings: AudioSettings): Pick<SpatialInitParams,
 }
 
 /** @internal `max_wide` (B5, the wide memory flip: `audio.ambisonic.maxClips`, 0..4): that many wide stream rings and private decoders are laid out; 0 lays out none and refuses ambisonic clips. */
-export function wideInitParams(settings: AudioSettings): Pick<SpatialInitParams, "maxWide"> {
+function wideInitParams(settings: AudioSettings): Pick<SpatialInitParams, "maxWide"> {
   return { maxWide: settings.ambisonic.maxClips };
 }
 

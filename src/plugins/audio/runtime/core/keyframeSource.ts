@@ -1,5 +1,5 @@
 // ADR 0171 amended by 0172 (M5, task G7b; api-and-models §5.5): the core backend's KEYFRAME source. `capture.ts` hands the
-// recorder `() => backend.keyframe(nameId)`, which `CoreBackend.keyframe` delegates to `keyframePayload` here: the main-side
+// recorder `() => backend.keyframe(nameId)`, which `CoreBackend.keyframe` reads from the `KeyframeSource` here: the main-side
 // state at one instant, read from main's own tables.
 //
 // - **voices** from the voice table (the live slots, then the steals the debug view still lists): id, clip (interned through
@@ -40,21 +40,21 @@ import { VoiceFlag, VoiceReason, VoiceState, type VoiceTable } from "./voiceTabl
 import { reportedGain, reportedPitch } from "./voices";
 
 /** `KEYFRAME_MAX_VOICES`, `_BUSES`, `_METERED`, `_EVENTS`, `_MUSIC` of `capture/format.ts`. */
-export const KF_MAX_VOICES = 8_192;
-export const KF_MAX_BUSES = 32;
-export const KF_MAX_METERED = 9;
-export const KF_MAX_EVENTS = 1_024;
-export const KF_MAX_MUSIC = 16;
+const KF_MAX_VOICES = 8_192;
+const KF_MAX_BUSES = 32;
+const KF_MAX_METERED = 9;
+const KF_MAX_EVENTS = 1_024;
+const KF_MAX_MUSIC = 16;
 
 /** The NAMES tables a keyframe interns into (`capture/events.ts`: `clips`, `events` and `snapshots`). */
 export type KeyframeNameTable = "clips" | "snapshots" | "events";
 export type KeyframeNameId = (table: KeyframeNameTable, name: string) => number;
 
 /** The keyframe voice `state` codes (§5.5). */
-export const KfVoiceState = { playing: 0, virtual: 1, stolen: 2, waitingForData: 3, busMuted: 4, locked: 5 } as const;
+const KfVoiceState = { playing: 0, virtual: 1, stolen: 2, waitingForData: 3, busMuted: 4, locked: 5 } as const;
 /** The keyframe bus `flags` bits beyond the four lane gates (§5.5: tombstone, metered). */
 export const KF_BUS_TOMBSTONE = 16;
-export const KF_BUS_METERED = 32;
+const KF_BUS_METERED = 32;
 /** The keyframe metered `flags` bits (§5.5). */
 const KF_M_PAUSED = 1, KF_M_INCOMPLETE = 2, KF_M_TAINTED = 4, KF_M_LOWER_BOUND = 8;
 /** The keyframe music `state` codes, in `MusicDebugState`'s order. */
@@ -413,7 +413,3 @@ export class KeyframeSource {
   }
 }
 
-/** One source per host, for `CoreBackend.keyframe`. */
-export function keyframePayload(source: KeyframeSource, nameId: KeyframeNameId, noName: number): KeyframePayload {
-  return source.read(nameId, noName);
-}

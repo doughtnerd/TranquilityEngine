@@ -21,11 +21,12 @@ import {
   writeClipChunk,
   writeEnvelope,
   writeMaster,
+  HRIR_CLIP_ID_FIRST as HRIR_CLIP_ID,
   writePlay,
   type BusConfigBuses,
   type BusConfigBusesEffects,
 } from "../../../src/plugins/audio/runtime/wire.generated";
-import { HRIR_CLIP_ID, resampleHrir } from "../../../src/plugins/audio/runtime/core/hrir";
+import { resampleHrir } from "../../../src/plugins/audio/runtime/core/hrirResample";
 import { CoreDriver, instantiateCore, type CorePreset } from "../../../src/plugins/audio/runtime/worklet/coreDriver";
 import { makeClip, prerollFrames, QUANTUM, sceneBuses, sceneFrames, type Scene } from "./scenes";
 import type { BusEffect } from "../../../src/engine/audio/settings";

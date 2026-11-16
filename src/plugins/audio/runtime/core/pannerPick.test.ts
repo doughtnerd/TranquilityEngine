@@ -4,7 +4,7 @@
 // (R13): kind 2 where the bus has a bed, the 500 ms kind dwell in game time, the bed-to-HRTF exemption, the limit held
 // while a dwell holds a voice, a bed removed by a replan.
 import { describe, expect, it } from "vitest";
-import { KIND_DWELL_MS, MAX_HRTF_VOICES, PannerKind, PannerPick, type PannerSink } from "./pannerPick";
+import { PannerKind, PannerPick, type PannerSink } from "./pannerPick";
 import { HYSTERESIS } from "./selection";
 import { VoiceFlag, VoiceReason, VoiceState, VoiceTable } from "./voiceTable";
 
@@ -107,7 +107,7 @@ describe("PannerPick, HRTF (H3)", () => {
 
   it("a limit of 0 unflags everything; the limit is clamped to 32", () => {
     const { run, flagged, log, pick, sink } = setup(Array.from({ length: 40 }, (_, k) => 1 - k / 100));
-    expect(run(100)).toBe(MAX_HRTF_VOICES);
+    expect(run(100)).toBe(32); // the HRTF voice cap
     expect(flagged()).toHaveLength(32);
     log.length = 0;
     expect(run(0)).toBe(0);
@@ -170,7 +170,7 @@ describe("PannerPick, beds (ADR 0162 A5)", () => {
     const s = withBed([0.5, 0.4]);
     s.run(1);
     expect(kinds(s)).toEqual([PannerKind.HRTF, PannerKind.BED]);
-    s.advance(KIND_DWELL_MS - 100); // voice 0 has been HRTF for 400 ms
+    s.advance(500 - 100); // voice 0 has been HRTF for 400 ms
     s.table.audibility[0] = 0.1;
     s.table.audibility[1] = 0.9; // the other is now much louder
     s.log.length = 0;

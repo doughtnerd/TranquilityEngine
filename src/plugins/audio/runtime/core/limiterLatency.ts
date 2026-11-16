@@ -6,7 +6,7 @@
 import { DEFAULT_LIMITER_LOOKAHEAD_MS, LIMITER_LOOKAHEAD_LIMITS } from "../../../../engine/audio/settings";
 
 /** @internal The limiter's delay line in frames: 5 ms at 96 kHz (`MAX_LATENCY_FRAMES`); a higher rate is capped here. */
-export const LIMITER_MAX_LATENCY_FRAMES = 480;
+const LIMITER_MAX_LATENCY_FRAMES = 480;
 
 /**
  * @internal The core's output latency in frames for a look-ahead of `lookaheadMs` at `sampleRate`: round(ms·rate/1000)

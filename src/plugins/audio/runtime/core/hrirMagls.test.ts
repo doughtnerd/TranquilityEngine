@@ -14,7 +14,8 @@ import {
   writeMaglsHeader,
 } from "../wire.generated";
 import { createClipRegistry } from "./clipRegistry";
-import { createMaglsLoader, resampleMagls } from "./hrir";
+import { createMaglsLoader } from "./hrir";
+import { resampleMagls } from "./hrirResample";
 
 const RESPONSES = 32;
 const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));

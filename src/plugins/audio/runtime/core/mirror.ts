@@ -26,7 +26,7 @@ import type { VoiceTable } from "./voiceTable";
 import { CpuMeter } from "../mix/cpuMeter";
 
 /** @internal Clip and stream events held between frames before the oldest are dropped (and counted). */
-export const MIRROR_EVENT_CAPACITY = 1024;
+const MIRROR_EVENT_CAPACITY = 1024;
 
 /** @internal ADR 0166 (§4.4, Z4): where `drainGroupStarts` sends the queued group-start reports (musicOps, P1, once per frame). */
 export interface MirrorGroupStartSink {

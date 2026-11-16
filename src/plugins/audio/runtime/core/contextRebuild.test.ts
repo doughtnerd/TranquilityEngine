@@ -11,8 +11,12 @@ import { createClipRegistry } from "./clipRegistry";
 import { AudioHost, presetFromSettings, type ContextParts, type LinkPort } from "./context";
 import { createCoreBackend, type CoreBackend } from "./coreBackend";
 import { limiterLatencyFrames } from "./limiterLatency";
-import { contextRebuilds, rebuildHost, STALL_ESCALATE_WINDOW_MS, STALL_REBUILD_STATUS_TIMEOUT_MS, watchForTraps, type RebuildOutcome } from "./recovery";
+import { rebuildHost, watchForTraps, type RebuildOutcome } from "./recovery";
 import { Unlock, type UnlockContext } from "./unlock";
+
+/** Recovery timings (recovery.ts): a stall escalates to a new context outside a 10 s window, after a 2 s wait for the same-context node's first STATUS. */
+const STALL_ESCALATE_WINDOW_MS = 10_000;
+const STALL_REBUILD_STATUS_TIMEOUT_MS = 2_000;
 
 const RATE = 48_000;
 const NEW_RATE = 44_100;
@@ -206,7 +210,6 @@ describe("the rebuild into a new context on the loopback host (A3.4c)", () => {
     expect(host.context.sampleRate).toBe(NEW_RATE);
     expect(r.loop.cores).toBe(2);
     expect(host.health.rebuilds).toBe(1);
-    expect(contextRebuilds(host)).toBe(1);
     expect(backend.debug().sampleRate).toBe(NEW_RATE);
     // The clock map and the writer follow the new rate; the limiter latency is the new rate's.
     expect(backend.clockMap.sampleRate).toBe(NEW_RATE);
@@ -283,7 +286,6 @@ describe("the rebuild into a new context on the loopback host (A3.4c)", () => {
     expect(await r.rebuildAndWait("stall")).toBe("rebuilt");
     expect(contexts).toHaveLength(2);
     expect(host.status).toBe("running");
-    expect(contextRebuilds(host)).toBe(1);
     expect(contexts[0]!.count("statechange")).toBe(0);
     expect(contexts[0]!.count("sinkchange")).toBe(0);
     expect(contexts[1]!.count("sinkchange")).toBe(1);
@@ -305,7 +307,6 @@ describe("the rebuild into a new context on the loopback host (A3.4c)", () => {
     expect(await r.rebuildAndWait("stall")).toBe("rebuilt");
     expect(contexts).toHaveLength(1);
     expect(loop.cores).toBe(2);
-    expect(contextRebuilds(host)).toBe(0);
     expect(await r.untilSound()).toBeGreaterThan(0);
 
     // Outside the escalation window, a stall whose same-context node never answers: after its shorter first-STATUS
@@ -323,7 +324,6 @@ describe("the rebuild into a new context on the loopback host (A3.4c)", () => {
     vi.useRealTimers();
     expect(outcome).toBe("rebuilt");
     expect(contexts).toHaveLength(2);
-    expect(contextRebuilds(host)).toBe(1);
     expect(await r.untilSound()).toBeGreaterThan(0);
     await step(2);
     expect((await step(1)).last!.v).toBeCloseTo(0.5, 5);
@@ -340,7 +340,6 @@ describe("the rebuild into a new context on the loopback host (A3.4c)", () => {
     r.now.ms += 2_000;
     expect(await r.rebuildAndWait("stall")).toBe("rebuilt");
     expect(contexts).toHaveLength(2);
-    expect(contextRebuilds(host)).toBe(1);
     expect(host.health.rebuilds).toBe(2);
     backend.dispose();
   });

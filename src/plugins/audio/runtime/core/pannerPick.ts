@@ -25,10 +25,10 @@ import { HYSTERESIS, MIN_AUDIBILITY, rankTop } from "./selection";
 import { VoiceFlag, VoiceState, type VoiceTable } from "./voiceTable";
 
 /** @internal `voices.hrtf`'s range (api-and-models §2): the core's bank holds this many HRTF panners. */
-export const MAX_HRTF_VOICES = 32;
+const MAX_HRTF_VOICES = 32;
 
 /** @internal R13: a voice keeps a kind this long (game time, ms) before it may leave HRTF for the bed. */
-export const KIND_DWELL_MS = 500;
+const KIND_DWELL_MS = 500;
 
 /** @internal The panner kinds (C1, PLAY/SET_PARAMS `flags` bits 5–6). */
 export const PannerKind = {

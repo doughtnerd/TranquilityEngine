@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { defaultAudioSettings } from "../../../../engine/audio/settings";
 import { fixedRegionsHeadroomBytes, instantiateCore, MEMORY_INITIAL_PAGES, memoryMaximumPages, type CorePreset } from "../worklet/coreDriver";
 import { presetFromSettings } from "./context";
-import { wideInitParams } from "./initParams";
+import { spatialInitParams } from "./initParams";
 
 const WASM = readFileSync(fileURLToPath(new URL("../wasm/myco_audio.wasm", import.meta.url)));
 const RATE = 48_000;
@@ -19,9 +19,9 @@ const withClips = (maxClips: number) => {
 
 describe("the wide memory flip (B5)", () => {
   it("max_wide follows audio.ambisonic.maxClips, every project's core included", () => {
-    expect(wideInitParams(defaultAudioSettings()).maxWide).toBe(1);
+    expect(spatialInitParams(defaultAudioSettings()).maxWide).toBe(1);
     for (const n of [0, 1, 2, 4]) {
-      expect(wideInitParams(withClips(n)).maxWide).toBe(n);
+      expect(spatialInitParams(withClips(n)).maxWide).toBe(n);
       expect(presetFromSettings(withClips(n)).maxWide).toBe(n);
     }
   });
