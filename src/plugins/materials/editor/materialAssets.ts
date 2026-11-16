@@ -4,7 +4,7 @@
 import { defaultMaterialSettings, formatMaterial, parseMaterial, type MaterialSettings } from "../../../engine/scene/material";
 import { defaultShaderAsset, parseShaderAsset, type ShaderAsset } from "../../../engine/scene/shaderAsset";
 import type { KeywordValue, ShaderKeyword } from "../../../engine/scene/shaderKeywords";
-import { editor, openAssetDocument, type EditOptions, type EditorProject } from "../../../editor/sdk";
+import { editor, type EditorProject } from "../../../editor/sdk";
 
 export interface ReadMaterial {
   settings: MaterialSettings;

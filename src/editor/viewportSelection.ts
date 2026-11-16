@@ -9,7 +9,7 @@
 // outlined in the viewport, and the scene camera's F key frames it.
 import { effect } from "@preact/signals";
 import type { Engine, GameObject } from "../engine";
-import { type ScreenRect, viewport, viewportCanvas } from "../engine/editor";
+import { viewport, viewportCanvas } from "../engine/editor";
 import type { UIComponentType } from "../engine/ui/components";
 import { selectableOutlines } from "./viewportTools";
 import { pathKey } from "./document";
