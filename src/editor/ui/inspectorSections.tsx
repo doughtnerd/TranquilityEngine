@@ -49,11 +49,6 @@ export function inspectorSectionsFor(type: string, paths: readonly NodePath[]): 
     .map((s) => s.view);
 }
 
-/** Every section `inspectorSectionsFor(type, …)` could show, loaded or not (for tests and preloading). */
-export function registeredInspectorSections(type: string): readonly LazyComponent<InspectorSectionProps>[] {
-  return (sections.get(type) ?? []).map((s) => s.view);
-}
-
 /** The sections under a component's fields. */
 export function InspectorSections(props: InspectorSectionProps) {
   const views = inspectorSectionsFor(props.info.type, props.paths);
