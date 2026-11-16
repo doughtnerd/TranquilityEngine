@@ -135,8 +135,8 @@ function measureClockResolution(now: () => number): number {
 
 let engineEnv: OcclusionEnvironment | null = null;
 
-/** @internal The engine's environment: D0's ray query, the World's services, `AudioOccluder`s, `performance.now()`. */
-export function engineOcclusionEnvironment(): OcclusionEnvironment {
+/** The engine's environment: D0's ray query, the World's services, `AudioOccluder`s, `performance.now()`. */
+function engineOcclusionEnvironment(): OcclusionEnvironment {
   if (engineEnv) return engineEnv;
   const now = (): number => performance.now();
   engineEnv = {

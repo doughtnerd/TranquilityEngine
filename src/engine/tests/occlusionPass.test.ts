@@ -6,7 +6,7 @@ import { Assets, BoxCollider, Engine, GameObject, SceneManager } from "../../myc
 import { builtinMaterials } from "../audio/occlusionMaterials";
 import type { AudioSettings } from "../audio/settings";
 import { AudioOccluder } from "../../plugins/audio/runtime/AudioOccluder";
-import { OcclusionPass, engineOcclusionEnvironment } from "../../plugins/audio/runtime/core/occlusion";
+import { OcclusionPass } from "../../plugins/audio/runtime/core/occlusion";
 import { encodeVoiceId } from "../../plugins/audio/runtime/core/ids";
 import { ListenerFrame, SendCurveTable, SpatialViewFlag, type SpatialVoiceView } from "../../plugins/audio/runtime/core/spatial";
 
@@ -70,7 +70,7 @@ describe("the occlusion pass on a real 3D physics World", () => {
   });
 
   function cast(v: ReturnType<typeof view>, s = settings(), bind?: GameObject) {
-    const pass = new OcclusionPass(2, engineOcclusionEnvironment());
+    const pass = new OcclusionPass(2);
     if (bind) pass.bindSource(encodeVoiceId(0, 1), bind);
     const f = new ListenerFrame();
     f.set(engine.world, 1, null, { position: { x: 0, y: 0, z: 0 }, forward: { x: 0, y: 0, z: 1 }, up: { x: 0, y: 1, z: 0 } }, 1 / 60);
@@ -110,7 +110,7 @@ describe("the occlusion pass without 3D physics", () => {
   it("leaves the voice open with the 2D note", async () => {
     const engine = await setup("2d");
     const v = view();
-    const pass = new OcclusionPass(2, engineOcclusionEnvironment());
+    const pass = new OcclusionPass(2);
     const f = new ListenerFrame();
     f.set(engine.world, 1, null, { position: { x: 0, y: 0, z: 0 }, forward: { x: 0, y: 0, z: 1 }, up: { x: 0, y: 1, z: 0 } }, 1 / 60);
     pass.run(f, v, settings());

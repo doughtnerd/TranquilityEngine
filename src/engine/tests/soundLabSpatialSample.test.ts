@@ -26,7 +26,7 @@ import "../../../samples/sound-lab/scripts/behaviors/Tape";
 import "../../../samples/sound-lab/scripts/behaviors/LoopCycler";
 import { setAudioBackend } from "../../plugins/audio/runtime/backend";
 import { makeFakeBackend } from "../../plugins/audio/runtime/testing";
-import { engineOcclusionEnvironment, OcclusionPass } from "../../plugins/audio/runtime/core/occlusion";
+import { OcclusionPass } from "../../plugins/audio/runtime/core/occlusion";
 import { encodeVoiceId } from "../../plugins/audio/runtime/core/ids";
 import { ListenerFrame, SendCurveTable, SpatialViewFlag, type SpatialVoiceView } from "../../plugins/audio/runtime/core/spatial";
 
@@ -155,7 +155,7 @@ describe("the Sound Lab spatial page (ADR 0162 E8)", () => {
     /** One occlusion pass (smoothing starts settled) for a voice at (x, y, z) heard from (0, 1.6, listenerZ). */
     const cast = (src: [number, number, number], listenerZ: number) => {
       const v = view(...src);
-      const pass = new OcclusionPass(2, engineOcclusionEnvironment());
+      const pass = new OcclusionPass(2);
       const f = new ListenerFrame();
       f.set(engine!.world, 1, null, { position: { x: 0, y: 1.6, z: listenerZ }, forward: { x: 0, y: 0, z: 1 }, up: { x: 0, y: 1, z: 0 } }, 1 / 60);
       for (let i = 0; i < 400; i++) pass.run(f, v, settings);
