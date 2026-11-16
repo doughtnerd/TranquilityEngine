@@ -4,7 +4,7 @@ import { SceneInstance } from "../engine/scene/SceneLoader";
 import { addAssetEntries, whyNotAddable } from "./assetBrowser";
 import { dropDescription, hierarchyDrop } from "./assetDrag";
 import { OrbitCamera } from "./OrbitCamera";
-import { innerNodes } from "./prefabs";
+import { instanceInnerNodes } from "./prefabs";
 import { openSceneFile } from "./project";
 import { editorSettings, useProjectAssets } from "./projects";
 import { openScene, sceneCamera } from "./state";
@@ -77,7 +77,7 @@ describe("dropping a scene into another scene (ADR 0016)", () => {
     expect(node.transform!.position.toArray()).toEqual([0, 20, 0]); // placed where it was dropped
     expect(node.children.map((c) => c.name)).toContain("Bird");
     expect(scene.sync.nodeFor([id, "bird"])).not.toBeNull();
-    expect(innerNodes("scenes/main.scene.json", [id]).map((n) => n.path)).toContainEqual([id, "bird"]);
+    expect(instanceInnerNodes(openScene.value!.doc, id).map((n) => n.path)).toContainEqual([id, "bird"]);
   });
 
   it("refuses a prefab that would contain the scene being edited", () => {

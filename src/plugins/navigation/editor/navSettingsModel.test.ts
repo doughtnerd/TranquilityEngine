@@ -31,7 +31,8 @@ import {
   setNavAreaValue,
   setNavValue,
 } from "./navSettingsModel";
-import { readDraft, sectionsKey, settingsProblems, withSettings, type SettingsDraft } from "../../../editor/projectSettingsModel";
+import { settingsProblems, withSettings, type SettingsDraft } from "../../../editor/projectSettingsModel";
+import { readDraft, sectionsKey } from "../../../editor/testing";
 import { useEditorPlugins } from "../../testEditorPlugins";
 import { navigationEditorPlugin } from "./index";
 

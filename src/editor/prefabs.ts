@@ -64,7 +64,7 @@ function prefabFile(path: string): SceneFile | null {
  * and removed nodes show as the loader would make them (ADR 0122). Nested instances' own
  * overrides in the prefab files count too; the outer ones win.
  */
-export function innerNodes(prefabPath: string, path: NodePath, seen: ReadonlySet<string> = new Set(), overrides: readonly OverrideEntry[] = []): InnerNode[] {
+function innerNodes(prefabPath: string, path: NodePath, seen: ReadonlySet<string> = new Set(), overrides: readonly OverrideEntry[] = []): InnerNode[] {
   const file = prefabFile(prefabPath);
   if (!file || seen.has(prefabPath)) return []; // missing file, or a prefab that contains itself
   const nested = new Set(seen).add(prefabPath);
@@ -140,7 +140,7 @@ export function findInner(doc: SceneDocument, path: NodePath): InnerNode | null 
  * What a node inside an instance would show for `key` without the instance's own name or active
  * override for it: the prefab file's value, with nested instances' overrides (ADR 0122).
  */
-export function innerBaseValue(doc: SceneDocument, path: NodePath, key: "name" | "active"): string | boolean | undefined {
+function innerBaseValue(doc: SceneDocument, path: NodePath, key: "name" | "active"): string | boolean | undefined {
   const [id, ...target] = path;
   const others = doc.overrides(id).filter((o) => !isInnerPropertyOverride(o, target, key));
   const node = findIn(instanceInnerNodes(doc, id, others), pathKey(path));
@@ -349,7 +349,7 @@ export function instancesOf(doc: SceneDocument, prefab: string): string[] {
  * The scene change is one undo step; the prefab file itself stays as written. Returns how many
  * overrides were applied.
  */
-export async function applyOverrides(open: OpenScene, project: EditorProject, instance: string): Promise<number> {
+async function applyOverrides(open: OpenScene, project: EditorProject, instance: string): Promise<number> {
   const entry = open.doc.node(instance);
   if (!entry.prefab) throw new Error(`"${instance}" is not a prefab instance.`);
   if (!project.canSave) throw new Error(readOnlyMessage(project, "apply overrides"));
@@ -375,12 +375,12 @@ export async function applyOverrides(open: OpenScene, project: EditorProject, in
 }
 
 /** A file name from a node name: lower-case, dashes, safe characters only. */
-export function prefabFileName(name: string): string {
+function prefabFileName(name: string): string {
   return name.trim().replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "prefab";
 }
 
 /** `prefabs/<name>.prefab.json`, numbered if that file already exists. */
-export function newPrefabPath(project: EditorProject, name: string): string {
+function newPrefabPath(project: EditorProject, name: string): string {
   const base = `prefabs/${prefabFileName(name)}`;
   let path = `${base}.prefab.json`;
   for (let n = 2; project.files.includes(path); n++) path = `${base}-${n}.prefab.json`;

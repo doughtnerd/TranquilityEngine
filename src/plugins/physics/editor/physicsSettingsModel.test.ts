@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { CORE_SETTINGS_KEYS, readDraft, type SettingsDraft } from "../../../editor/projectSettingsModel";
-import { raw } from "../../../editor/testing";
+import { settingsKeys, type SettingsDraft } from "../../../editor/projectSettingsModel";
+import { raw, readDraft } from "../../../editor/testing";
 import { addLayer, collides, physicsSettingsProblems, removeLayer, renameLayer, setCollides, setGravity } from "./physicsSettingsModel";
 
 // The Physics settings section's model (ADR 0038, 0151): project.json's `physics` key, which the section owns.
 
 const FLAPPY = raw["../../samples/flappy/project.json"];
-const flappy = () => readDraft(JSON.parse(FLAPPY), [...CORE_SETTINGS_KEYS, "physics"]);
+const flappy = () => readDraft(JSON.parse(FLAPPY), [...settingsKeys(), "physics"]);
 const messages = (d: SettingsDraft) => physicsSettingsProblems(d).map((p) => p.message);
 
 describe("the Physics section's settings", () => {

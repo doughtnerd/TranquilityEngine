@@ -9,6 +9,7 @@ import { resetLayout } from "./layout/store";
 import { registerBuiltinPanels } from "./ui/panels.builtin";
 import { MemoryFileSystem } from "./memoryFs";
 import { editorSettings, joinPath, openFolderProject, readOnlyProject, type EditorProject } from "./projects";
+import { settingsKeys, type SettingsDraft } from "./projectSettingsModel";
 import { currentProject, select, status } from "./state";
 
 export { MemoryFileSystem };
@@ -115,3 +116,16 @@ export function useBuiltinPanels(): void {
     undo = null;
   });
 }
+
+/** A settings draft (the Project panel's sections of project.json) from parsed settings: each of `keys` that's set, copied. */
+export function readDraft(settings: ProjectSettingsInput | Record<string, unknown>, keys: readonly string[] = settingsKeys()): SettingsDraft {
+  const out: Record<string, unknown> = {};
+  for (const key of keys) {
+    const value = (settings as Record<string, unknown>)[key];
+    if (value !== undefined) out[key] = structuredClone(value);
+  }
+  return out as SettingsDraft;
+}
+
+/** A draft's sections as one comparable string. */
+export const sectionsKey = (draft: SettingsDraft, keys: readonly string[] = settingsKeys()) => JSON.stringify(keys.map((k) => draft[k] ?? null));

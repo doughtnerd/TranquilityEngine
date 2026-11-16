@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { audioSection } from "../../../engine/audio/audioSection";
 import { parseAudioSettings } from "../../../engine/audio/settings";
 import { MAX_PARAMETERS } from "../../../engine/audio/eventFormat";
-import { readDraft, withSettings } from "../../../editor/projectSettingsModel";
+import { withSettings } from "../../../editor/projectSettingsModel";
+import { readDraft } from "../../../editor/testing";
 import {
   addBus, addDucking, addEffect, addSnapshot, applyVoicesPreset, audioOf, VOICE_PRESETS, busTree, removeBus, renameBus, setBackend, setBackground, setBusMaxVoices, setBusParent, setBusValue,
   addBusAutomation, addParameter, removeBusAutomation, removeParameter, renameParameter, setBusAutomationBus, setBusAutomationCurve, setBusAutomationParameter,

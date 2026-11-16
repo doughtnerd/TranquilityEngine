@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { applyOpToDraft, type MixOp } from "../../../engine/audio/mixOps";
 import { parseAudioSettings } from "../../../engine/audio/settings";
-import { readDraft } from "../../../editor/projectSettingsModel";
+import { readDraft } from "../../../editor/testing";
 import {
   addBus, addBusAutomation, addDucking, addEffect, addLoudnessTarget, addParameter, addSnapshot, audioOf, loudnessTargets, mixOpRefusal, moveEffect,
   removeBus, removeDucking, removeEffect, removeLoudnessTarget, removeSnapshot, renameBus, renameSnapshot, setBusBed, setBusBedPriority,

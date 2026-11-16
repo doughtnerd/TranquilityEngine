@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input } from "../engine";
 import { OrbitCamera } from "./OrbitCamera";
 import { AddNode, SetOverrides, type SceneFile } from "./document";
-import { applyOverrides, findInner, innerBaseValue, instanceInnerNodes, isInnerPropertyOverridden, nodePropertyCommand, prefabTarget, revertInnerProperty } from "./prefabs";
+import { applyOverridesTo, findInner, instanceInnerNodes, isInnerPropertyOverridden, nodePropertyCommand, prefabTarget, revertInnerProperty } from "./prefabs";
 import { openSceneFile } from "./project";
 import { editorSettings, joinPath, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
 import { ancestorKeys, hierarchyEntries } from "./selectionModel";
@@ -103,7 +103,7 @@ describe("renaming and deactivating inside an instance", () => {
 
   it("compares with the nested instance's value: an outer rename wins over the prefab file's override", () => {
     const { doc, stack, sync } = openScene.value!;
-    expect(innerBaseValue(doc, ["d", "pp", "top"], "name")).toBe("Lid");
+    expect(findInner(doc, ["d", "pp", "top"])!.name).toBe("Lid"); // no rename of its own yet: the nested instance's value
     stack.execute(nodePropertyCommand(doc, ["d", "pp", "top"], "name", "Cap"));
     expect(doc.overrides("d")).toEqual([{ target: ["pp", "top"], name: "Cap" }]);
     expect(sync.nodeFor(["d", "pp", "top"])!.name).toBe("Cap");
@@ -131,7 +131,7 @@ describe("Apply writes names and active flags (ADR 0122)", () => {
     // A hand-written override on the instance root stays on the instance.
     stack.execute(new SetOverrides("d", "root", [...doc.overrides("d"), { active: false }]));
 
-    expect(await applyOverrides(scene, project, "d")).toBe(4);
+    expect(await applyOverridesTo(scene, project, ["d"])).toBe(4);
     const door = fileOf("prefabs/door.prefab.json");
     const byId = (id: string) => door.nodes.find((n) => n.id === id)!;
     expect(byId("knob").name).toBe("Handle");
@@ -152,7 +152,7 @@ describe("Apply writes names and active flags (ADR 0122)", () => {
     scene.stack.execute(new SetOverrides("d", "refresh", []));
     scene.stack.execute(nodePropertyCommand(scene.doc, ["d", "frame"], "active", true));
     expect(scene.doc.overrides("d")).toEqual([{ target: ["frame"], active: true }]);
-    await applyOverrides(scene, project, "d");
+    await applyOverridesTo(scene, project, ["d"]);
     expect(fileOf("prefabs/door.prefab.json").nodes.find((n) => n.id === "frame")!.active).toBeUndefined();
   });
 });
