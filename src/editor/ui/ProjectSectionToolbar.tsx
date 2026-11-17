@@ -2,7 +2,7 @@
 // read-only or there's nothing to step), and the marker saying where the section's edits stand (its `status`).
 // The Project Settings and Worlds panels both draw it, so they word the same state the same way.
 import type { ComponentChildren } from "preact";
-import { PROJECT_FILE } from "../projectFile";
+import { PROJECT_FILE } from "../projectPaths";
 import type { ProjectSectionSession, ProjectSectionStatus } from "../projectSection";
 import "./sectionToolbar.css";
 

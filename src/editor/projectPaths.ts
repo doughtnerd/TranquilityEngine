@@ -1,6 +1,9 @@
 // Project path helpers with no engine dependency, so the desktop editor's Projects window (ADR 0059)
 // can use them without loading the engine. projects.ts and scriptLoader.ts re-export them.
 
+/** The project's settings file, whose sections the Project Settings and Worlds panels edit (ADR 0038). */
+export const PROJECT_FILE = "project.json";
+
 /** Join a project-relative path onto a folder path, using the folder's separator. */
 export function joinPath(root: string, path: string): string {
   const sep = root.includes("\\") && !root.includes("/") ? "\\" : "/";
