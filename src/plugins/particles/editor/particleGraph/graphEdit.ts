@@ -1,6 +1,8 @@
 // Particle graph edits (ADR 0060): pure functions from one graph to the next, so the panel's undo
 // history is a list of graphs and every rule here is unit-tested. None of them change their input;
-// an edit that does nothing returns the graph it was given.
+// an edit that does nothing returns the graph it was given. The edits every graph editor shares
+// (properties, groups, notes, copy, paste and duplicate) come from the graph document (ADR 0228)
+// through `particleGraphEdits`, with what is the Particle Graph's own plugged in.
 //
 // Wire references (see particleGraph.ts):
 // - value wires go from a node output (`n1.out`) to a node input (`n2.a`) or a block input
@@ -33,7 +35,7 @@ import type {
 } from "../../../../engine/scene/particleGraph";
 import { PARTICLE_GRAPH_FORMAT } from "../../../../engine/scene/particleGraph";
 import { newGraphId, parseParticleGraph, systemTemplate } from "../../../../engine/scene/particleGraphFormat";
-import { readClipboard } from "../../../../editor/sdk";
+import { graphDocument } from "../../../../editor/sdk";
 import { nodeDef, type PortType } from "../../../../engine/scene/particleNodes";
 import { outputTypeResolved, whyNotConnectResolved, type AssetResolver } from "../../../../engine/scene/particleSubgraphs";
 import { blockInputs, editorNodeDef, wireRulesGraph } from "./assetDocs";
@@ -496,62 +498,15 @@ export function defaultPropertyValue(type: GraphPropertyType): GraphInputValue {
   }
 }
 
-/** Why `name` can't be the new name of property `old`, or null. */
-export function whyNotPropertyName(graph: ParticleGraph, old: string | null, name: string): string | null {
-  if (!name.trim()) return "a property needs a name";
-  if (name !== name.trim()) return "a name can't start or end with a space";
-  if (name !== old && graph.properties.some((p) => p.name === name)) return `there's already a property called ${name}`;
-  return null;
-}
-
-/** Add a property of `type`, named after its type (`Number`, `Number 2`…), exposed. */
-export function addProperty(graph: ParticleGraph, type: GraphPropertyType): { graph: ParticleGraph; name: string } {
-  const base = PROPERTY_LABELS[type];
-  let name = base;
-  for (let i = 2; graph.properties.some((p) => p.name === name); i++) name = `${base} ${i}`;
-  const g = clone(graph);
-  g.properties.push({ name, type, value: defaultPropertyValue(type), exposed: true });
-  return { graph: g, name };
-}
-
-function editProperty(graph: ParticleGraph, name: string, edit: (p: GraphProperty) => void): ParticleGraph {
+export const setPropertyExposed = (graph: ParticleGraph, name: string, exposed: boolean): ParticleGraph => {
   const i = graph.properties.findIndex((p) => p.name === name);
-  if (i < 0) return graph;
+  if (i < 0 || graph.properties[i].exposed === exposed) return graph;
   const g = clone(graph);
-  edit(g.properties[i]);
+  g.properties[i].exposed = exposed;
   return g;
-}
+};
 
-/** Rename a property and the Property nodes that read it. */
-export function renameProperty(graph: ParticleGraph, old: string, name: string): ParticleGraph {
-  if (old === name || whyNotPropertyName(graph, old, name)) return graph;
-  const g = editProperty(graph, old, (p) => (p.name = name));
-  for (const n of g.nodes) if (n.type === "property" && n.settings?.name === old) n.settings = { ...n.settings, name };
-  return g;
-}
-
-export const setPropertyValue = (graph: ParticleGraph, name: string, value: GraphInputValue): ParticleGraph => editProperty(graph, name, (p) => (p.value = clone(value)));
-export const setPropertyExposed = (graph: ParticleGraph, name: string, exposed: boolean): ParticleGraph => editProperty(graph, name, (p) => (p.exposed = exposed));
-
-/** Remove a property and the Property nodes that read it (with their wires). */
-export function removeProperty(graph: ParticleGraph, name: string): ParticleGraph {
-  if (!graph.properties.some((p) => p.name === name)) return graph;
-  const readers = graph.nodes.filter((n) => n.type === "property" && n.settings?.name === name).map((n) => n.id);
-  const g = removeItems(graph, readers);
-  return { ...clone(g), properties: g.properties.filter((p) => p.name !== name).map(clone) };
-}
-
-/** Move a property up (-1) or down (1) the Blackboard. */
-export function moveProperty(graph: ParticleGraph, name: string, by: -1 | 1): ParticleGraph {
-  const i = graph.properties.findIndex((p) => p.name === name);
-  const j = i + by;
-  if (i < 0 || j < 0 || j >= graph.properties.length) return graph;
-  const g = clone(graph);
-  [g.properties[i], g.properties[j]] = [g.properties[j], g.properties[i]];
-  return g;
-}
-
-// --- copy, paste, duplicate --------------------------------------------------------------------------
+// --- the graph document: properties, groups, notes, copy, paste, duplicate (ADR 0228) -------------------
 
 export const CLIPBOARD_FORMAT = "myco.particles.clipboard@1";
 
@@ -562,38 +517,6 @@ export interface ParticleClipboard {
   nodes: GraphNode[];
   edges: GraphEdge[];
   events: GraphEvent[];
-}
-
-/** Copy the selected systems and nodes, keeping only the wires and events between them. Null if nothing is selected. */
-export function copyItems(graph: ParticleGraph, ids: Iterable<string>): ParticleClipboard | null {
-  const set = new Set(ids);
-  const systems = graph.systems.filter((s) => set.has(s.id));
-  const nodes = graph.nodes.filter((n) => set.has(n.id));
-  if (systems.length + nodes.length === 0) return null;
-  const inside = (ref: string) => set.has(ref.split(".")[0]);
-  return {
-    format: CLIPBOARD_FORMAT,
-    systems: clone(systems),
-    nodes: clone(nodes),
-    edges: clone(graph.edges.filter((e) => inside(e.from) && inside(e.to))),
-    events: clone(graph.events.filter((e) => inside(e.from) && inside(e.to))),
-  };
-}
-
-/**
- * The copied systems and nodes in system clipboard text (ADR 0226), or null if it holds none. They
- * must be well formed: read as an effect file's systems, nodes, wires and events would be, with no
- * problems.
- */
-export function particleClipboardFromText(text: string): ParticleClipboard | null {
-  const raw = readClipboard<ParticleClipboard>(text, CLIPBOARD_FORMAT, (v) => {
-    const c = v as Partial<ParticleClipboard>;
-    return Array.isArray(c.systems) && Array.isArray(c.nodes) && c.systems.length + c.nodes.length > 0;
-  });
-  if (!raw) return null;
-  const { graph, problems } = parseParticleGraph({ format: PARTICLE_GRAPH_FORMAT, systems: raw.systems, nodes: raw.nodes, edges: raw.edges ?? [], events: raw.events ?? [] }, "clipboard");
-  if (problems.length || graph.systems.length !== raw.systems.length || graph.nodes.length !== raw.nodes.length) return null;
-  return { format: CLIPBOARD_FORMAT, systems: graph.systems, nodes: graph.nodes, edges: graph.edges, events: graph.events };
 }
 
 /** Ids for a paste: unused in the graph (systems, blocks, nodes, notes and groups share one id space), counting up per prefix. */
@@ -615,116 +538,89 @@ function allocator(graph: ParticleGraph) {
   };
 }
 
-/** Paste a clipboard with its top-left at `at`: every id is new, and the wires and events among the pasted items are kept. */
-export function pasteItems(graph: ParticleGraph, clip: ParticleClipboard, at: Vec2): { graph: ParticleGraph; ids: string[] } {
-  const items = [...clip.systems, ...clip.nodes];
-  if (items.length === 0) return { graph, ids: [] };
-  const x0 = Math.min(...items.map((i) => i.position[0])), y0 = Math.min(...items.map((i) => i.position[1]));
-  const dx = at[0] - x0, dy = at[1] - y0;
-  const take = allocator(graph);
-  const ids = new Map<string, string>();
-  const blockIds = new Map<string, string>(); // "oldSystem.oldBlock" → new block id
-  const g = clone(graph);
-  const out: string[] = [];
-  for (const s of clone(clip.systems)) {
-    const id = take("s");
-    ids.set(s.id, id);
-    for (const kind of KINDS) {
-      for (const b of s[kind].blocks) {
-        const nb = take("b");
-        blockIds.set(`${s.id}.${b.id}`, nb);
-        b.id = nb;
+/**
+ * The Particle Graph's graph document edits. Its canvas items are its systems and nodes (one id
+ * space with blocks, notes and groups). New properties are exposed. A copy takes the wires and
+ * events among the copied items; a paste gives every system, block and node a new id.
+ */
+export const particleGraphEdits = graphDocument<ParticleGraph, GraphNode, GraphProperty, ParticleClipboard>({
+  items: (g) => [...g.systems, ...g.nodes].map((i) => i.id),
+  remove: removeItems,
+  newId: (g, of) => newGraphId(g, of === "group" ? "g" : "note"),
+  groups: { get: (g) => g.groups, set: (g, list) => void (g.groups = list) },
+  notes: { get: (g) => g.notes, set: (g, list) => void (g.notes = list) },
+  property: {
+    label: (type) => PROPERTY_LABELS[type],
+    create: (name, type) => ({ name, type, value: defaultPropertyValue(type), exposed: true }),
+    reads: (n, name) => n.type === "property" && n.settings?.name === name,
+    retarget: (n, name) => void (n.settings = { ...n.settings, name }),
+  },
+  clipboard: {
+    format: CLIPBOARD_FORMAT,
+    copy(graph, set) {
+      const systems = graph.systems.filter((s) => set.has(s.id));
+      const nodes = graph.nodes.filter((n) => set.has(n.id));
+      if (systems.length + nodes.length === 0) return null;
+      const inside = (ref: string) => set.has(ref.split(".")[0]);
+      return {
+        systems: clone(systems),
+        nodes: clone(nodes),
+        edges: clone(graph.edges.filter((e) => inside(e.from) && inside(e.to))),
+        events: clone(graph.events.filter((e) => inside(e.from) && inside(e.to))),
+      };
+    },
+    // Well formed: read as an effect file's systems, nodes, wires and events would be, with no problems.
+    read(raw) {
+      if (!Array.isArray(raw.systems) || !Array.isArray(raw.nodes) || raw.systems.length + raw.nodes.length === 0) return null;
+      const { graph, problems } = parseParticleGraph({ format: PARTICLE_GRAPH_FORMAT, systems: raw.systems, nodes: raw.nodes, edges: raw.edges ?? [], events: raw.events ?? [] }, "clipboard");
+      if (problems.length || graph.systems.length !== raw.systems.length || graph.nodes.length !== raw.nodes.length) return null;
+      return { format: CLIPBOARD_FORMAT, systems: graph.systems, nodes: graph.nodes, edges: graph.edges, events: graph.events };
+    },
+    positions: (clip) => [...clip.systems, ...clip.nodes].map((i) => i.position),
+    paste(g, clip, [dx, dy]) {
+      const take = allocator(g);
+      const ids = new Map<string, string>();
+      const blockIds = new Map<string, string>(); // "oldSystem.oldBlock" → new block id
+      const out: string[] = [];
+      for (const s of clone(clip.systems)) {
+        const id = take("s");
+        ids.set(s.id, id);
+        for (const c of [...KINDS.map((kind) => s[kind]), ...(s.extraOutputs ?? [])]) {
+          for (const b of c.blocks) {
+            const nb = take("b");
+            blockIds.set(`${s.id}.${b.id}`, nb);
+            b.id = nb;
+          }
+        }
+        g.systems.push({ ...s, id, position: round([s.position[0] + dx, s.position[1] + dy]) });
+        out.push(id);
       }
-    }
-    for (const o of s.extraOutputs ?? []) {
-      for (const b of o.blocks) {
-        const nb = take("b");
-        blockIds.set(`${s.id}.${b.id}`, nb);
-        b.id = nb;
+      for (const n of clone(clip.nodes)) {
+        const id = take("n");
+        ids.set(n.id, id);
+        g.nodes.push({ ...n, id, position: round([n.position[0] + dx, n.position[1] + dy]) });
+        out.push(id);
       }
-    }
-    g.systems.push({ ...s, id, position: round([s.position[0] + dx, s.position[1] + dy]) });
-    out.push(id);
-  }
-  for (const n of clone(clip.nodes)) {
-    const id = take("n");
-    ids.set(n.id, id);
-    g.nodes.push({ ...n, id, position: round([n.position[0] + dx, n.position[1] + dy]) });
-    out.push(id);
-  }
-  /** Remap `system.block.rest` or `node.rest`. */
-  const remap = (ref: string): string | null => {
-    const parts = ref.split(".");
-    const head = ids.get(parts[0]);
-    if (!head) return null;
-    if (clip.systems.some((s) => s.id === parts[0]) && parts.length >= 2 && parts[1] !== "start" && parts[1] !== "stop") {
-      const block = blockIds.get(`${parts[0]}.${parts[1]}`);
-      return block ? [head, block, ...parts.slice(2)].join(".") : null;
-    }
-    return [head, ...parts.slice(1)].join(".");
-  };
-  for (const e of clip.edges) {
-    const from = remap(e.from), to = remap(e.to);
-    if (from && to) g.edges.push({ from, to });
-  }
-  for (const e of clip.events) {
-    const from = remap(e.from), to = remap(e.to);
-    if (from && to) g.events.push({ from, to });
-  }
-  return { graph: g, ids: out };
-}
-
-/** Copies of the selected systems and nodes, `offset` away. */
-export function duplicateItems(graph: ParticleGraph, ids: Iterable<string>, offset: Vec2 = [40, 40]): { graph: ParticleGraph; ids: string[] } {
-  const clip = copyItems(graph, ids);
-  if (!clip) return { graph, ids: [] };
-  const items = [...clip.systems, ...clip.nodes];
-  const x0 = Math.min(...items.map((i) => i.position[0])), y0 = Math.min(...items.map((i) => i.position[1]));
-  return pasteItems(graph, clip, [x0 + offset[0], y0 + offset[1]]);
-}
-
-// --- groups and notes --------------------------------------------------------------------------------
-
-/** Put systems and nodes in a new group (taking them out of any other). */
-export function groupItems(graph: ParticleGraph, ids: Iterable<string>, title = "Group"): { graph: ParticleGraph; id: string | null } {
-  const members = [...new Set(ids)].filter((id) => graph.systems.some((s) => s.id === id) || graph.nodes.some((n) => n.id === id));
-  if (members.length === 0) return { graph, id: null };
-  const id = newGraphId(graph, "g");
-  const g = clone(graph);
-  g.groups = g.groups.map((gr) => ({ ...gr, members: gr.members.filter((m) => !members.includes(m)) })).filter((gr) => gr.members.length > 0);
-  g.groups.push({ id, title, members });
-  return { graph: g, id };
-}
-
-export function ungroup(graph: ParticleGraph, id: string): ParticleGraph {
-  if (!graph.groups.some((g) => g.id === id)) return graph;
-  return { ...clone(graph), groups: graph.groups.filter((g) => g.id !== id).map(clone) };
-}
-
-export function setGroupTitle(graph: ParticleGraph, id: string, title: string): ParticleGraph {
-  const i = graph.groups.findIndex((g) => g.id === id);
-  if (i < 0 || graph.groups[i].title === title) return graph;
-  const g = clone(graph);
-  g.groups[i].title = title;
-  return g;
-}
-
-export function addNote(graph: ParticleGraph, position: Vec2, text = ""): { graph: ParticleGraph; id: string } {
-  const id = newGraphId(graph, "note");
-  const g = clone(graph);
-  g.notes.push({ id, position: round(position), size: [200, 100], text });
-  return { graph: g, id };
-}
-
-export function updateNote(graph: ParticleGraph, id: string, patch: Partial<Omit<GraphNote, "id">>): ParticleGraph {
-  const i = graph.notes.findIndex((n) => n.id === id);
-  if (i < 0) return graph;
-  const g = clone(graph);
-  const n = g.notes[i];
-  if (patch.position) n.position = round(patch.position);
-  if (patch.size) n.size = [Math.max(80, Math.round(patch.size[0])), Math.max(40, Math.round(patch.size[1]))];
-  if (patch.text !== undefined) n.text = patch.text;
-  return JSON.stringify(n) === JSON.stringify(graph.notes[i]) ? graph : g; // no change: no edit (and no undo step)
-}
-
-export const removeNote = (graph: ParticleGraph, id: string): ParticleGraph => removeItems(graph, [id]);
+      /** Remap `system.block.rest` or `node.rest`. */
+      const remap = (ref: string): string | null => {
+        const parts = ref.split(".");
+        const head = ids.get(parts[0]);
+        if (!head) return null;
+        if (clip.systems.some((s) => s.id === parts[0]) && parts.length >= 2 && parts[1] !== "start" && parts[1] !== "stop") {
+          const block = blockIds.get(`${parts[0]}.${parts[1]}`);
+          return block ? [head, block, ...parts.slice(2)].join(".") : null;
+        }
+        return [head, ...parts.slice(1)].join(".");
+      };
+      for (const e of clip.edges) {
+        const from = remap(e.from), to = remap(e.to);
+        if (from && to) g.edges.push({ from, to });
+      }
+      for (const e of clip.events) {
+        const from = remap(e.from), to = remap(e.to);
+        if (from && to) g.events.push({ from, to });
+      }
+      return out;
+    },
+  },
+});

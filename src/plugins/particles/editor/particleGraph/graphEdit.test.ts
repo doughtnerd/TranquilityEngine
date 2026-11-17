@@ -6,33 +6,22 @@ import {
   addBlock,
   addOutput,
   addNode,
-  addNote,
-  addProperty,
+  particleGraphEdits as edits,
   addSystem,
   canMoveBlock,
   connectWire,
-  copyItems,
   disconnect,
   disconnectEvent,
-  duplicateItems,
   findBlock,
-  groupItems,
   moveBlock,
   moveItems,
-  moveProperty,
-  particleClipboardFromText,
-  pasteItems,
   removeBlock,
   removeItems,
-  removeNote,
-  removeProperty,
-  renameProperty,
   renameSystem,
   collapsedSystems,
   setSystemCollapsed,
   setBlockEnabled,
   setBlockInput,
-  setGroupTitle,
   setNodeInput,
   setNodeSetting,
   setOutputSettings,
@@ -43,13 +32,9 @@ import {
   removeOutput,
   setOutputType,
   setPropertyExposed,
-  setPropertyValue,
   setSpawnSettings,
   setSystemEnabled,
   setSystemSettings,
-  ungroup,
-  updateNote,
-  whyNotPropertyName,
   whyNotWire,
 } from "./graphEdit";
 import { indexProblems, locateProblem } from "./problems";
@@ -202,7 +187,7 @@ describe("particle graph edits", () => {
     g = connectWire(g, "n1.out", `s2.${cb}.color`);
     g = addNode(g, "event.play", [0, 0]).graph; // n3
     g = connectWire(g, "n3.out", "s2.start");
-    g = groupItems(g, ["s2", "n1"]).graph;
+    g = edits.group(g, ["s2", "n1"]).graph;
     const noSystem = removeItems(g, ["s2"]);
     expect(noSystem.systems.map((s) => s.id)).toEqual(["s1"]);
     expect(noSystem.edges).toEqual([]);
@@ -232,28 +217,26 @@ describe("particle graph edits", () => {
     expect(g.nodes[0].settings?.gradient).toEqual({ colors: [[0, "#ff0000"]], alphas: [] });
   });
 
-  it("manages Blackboard properties and their nodes", () => {
+  it("exposes new properties, and renames and removes the Property nodes reading them", () => {
     let g = emptyParticleGraph();
-    let made = addProperty(g, "number");
+    let made = edits.addProperty(g, "number");
     g = made.graph;
     expect(made.name).toBe("Number");
-    made = addProperty(g, "number");
+    made = edits.addProperty(g, "number");
     g = made.graph;
     expect(made.name).toBe("Number 2");
-    g = addProperty(g, "gradient").graph;
+    g = edits.addProperty(g, "gradient").graph;
     expect(g.properties[2]).toMatchObject({ name: "Gradient", type: "gradient", exposed: true });
     g = addNode(g, "property", [0, 0], { name: "Number" }).graph;
-    expect(whyNotPropertyName(g, "Number", "Number 2")).toMatch(/already/);
-    expect(whyNotPropertyName(g, "Number", "")).toBeTruthy();
-    g = renameProperty(g, "Number", "Speed");
+    g = edits.renameProperty(g, "Number", "Speed");
     expect(g.properties[0].name).toBe("Speed");
     expect(g.nodes[0].settings?.name).toBe("Speed");
-    g = setPropertyValue(g, "Speed", 3);
+    g = edits.setPropertyValue(g, "Speed", 3);
     g = setPropertyExposed(g, "Speed", false);
     expect(g.properties[0]).toMatchObject({ value: 3, exposed: false });
-    g = moveProperty(g, "Speed", 1);
+    g = edits.moveProperty(g, "Speed", 1);
     expect(g.properties.map((p) => p.name)).toEqual(["Number 2", "Speed", "Gradient"]);
-    g = removeProperty(g, "Speed");
+    g = edits.removeProperty(g, "Speed");
     expect(g.properties.map((p) => p.name)).toEqual(["Number 2", "Gradient"]);
     expect(g.nodes).toEqual([]);
   });
@@ -264,10 +247,10 @@ describe("particle graph edits", () => {
     g = connectWire(g, "n1.out", `s2.${cb}.color`);
     const trig = addBlock(g, "s1", "update", "update.triggerEvent");
     g = connectWire(trig.graph, `s1.${trig.id}`, "s2.start");
-    const clip = copyItems(g, ["s1", "s2", "n1"])!;
+    const clip = edits.copy(g, ["s1", "s2", "n1"])!;
     expect(clip.edges).toHaveLength(1);
     expect(clip.events).toHaveLength(1);
-    const pasted = pasteItems(g, clip, [1000, 1000]);
+    const pasted = edits.paste(g, clip, [1000, 1000]);
     expect(pasted.ids).toEqual(["s3", "s4", "n3"]);
     const s4 = pasted.graph.systems.find((s) => s.id === "s4")!;
     expect(s4.position).toEqual([1800, 1000]); // the gradient node at x -300 lands at 1000
@@ -280,8 +263,8 @@ describe("particle graph edits", () => {
     const all = [...pasted.graph.systems.flatMap((s) => [s.id, ...[s.spawn, s.initialize, s.update, s.output].flatMap((c) => c.blocks.map((b) => b.id))]), ...pasted.graph.nodes.map((n) => n.id)];
     expect(new Set(all).size).toBe(all.length);
     // A wire from outside the selection isn't copied.
-    expect(copyItems(g, ["s2"])!.edges).toEqual([]);
-    expect(copyItems(g, [])).toBeNull();
+    expect(edits.copy(g, ["s2"])!.edges).toEqual([]);
+    expect(edits.copy(g, [])).toBeNull();
   });
 
   it("pastes systems and nodes into another effect from their clipboard text, and reads none from malformed text (ADR 0226)", () => {
@@ -290,45 +273,41 @@ describe("particle graph edits", () => {
     g = connectWire(g, "n1.out", `s2.${cb}.color`);
     const trig = addBlock(g, "s1", "update", "update.triggerEvent");
     g = connectWire(trig.graph, `s1.${trig.id}`, "s2.start");
-    const clip = copyItems(g, ["s1", "s2", "n1"])!;
-    const read = particleClipboardFromText(clipboardText(clip));
+    const clip = edits.copy(g, ["s1", "s2", "n1"])!;
+    const read = edits.clipboardFromText(clipboardText(clip));
     expect(read).toEqual(clip);
-    const into = pasteItems(emptyParticleGraph(), read!, [0, 0]);
+    const into = edits.paste(emptyParticleGraph(), read!, [0, 0]);
     expect(into.graph.systems).toHaveLength(2);
     expect(into.graph.edges).toHaveLength(1);
     expect(into.graph.events).toHaveLength(1);
     const text = (v: object) => JSON.stringify({ ...clip, ...v });
-    expect(particleClipboardFromText("s1")).toBeNull(); // plain text
-    expect(particleClipboardFromText(text({ format: "myco.shadergraph.clipboard@1" }))).toBeNull(); // another graph's
-    expect(particleClipboardFromText(text({ systems: [], nodes: [] }))).toBeNull();
-    expect(particleClipboardFromText(text({ nodes: [{ id: "n9", position: [0, 0] }] }))).toBeNull(); // a node with no type
-    expect(particleClipboardFromText(text({ edges: [{ from: "n7.out", to: `s2.${cb}.color` }] }))).toBeNull(); // a wire from a missing node
+    expect(edits.clipboardFromText("s1")).toBeNull(); // plain text
+    expect(edits.clipboardFromText(text({ format: "myco.shadergraph.clipboard@1" }))).toBeNull(); // another graph's
+    expect(edits.clipboardFromText(text({ systems: [], nodes: [] }))).toBeNull();
+    expect(edits.clipboardFromText(text({ nodes: [{ id: "n9", position: [0, 0] }] }))).toBeNull(); // a node with no type
+    expect(edits.clipboardFromText(text({ edges: [{ from: "n7.out", to: `s2.${cb}.color` }] }))).toBeNull(); // a wire from a missing node
   });
 
-  it("duplicates items offset from where they were", () => {
+  it("duplicates systems and nodes with fresh ids from the shared id space", () => {
     const g = sample();
-    const d = duplicateItems(g, ["n1", "n2"]);
-    expect(d.ids).toEqual(["n3", "n4"]);
-    expect(d.graph.nodes[2].position).toEqual([-260, 40]);
-    expect(duplicateItems(g, []).graph).toBe(g);
+    const d = edits.duplicate(g, ["s1", "n1", "n2"]);
+    expect(d.ids).toEqual(["s3", "n3", "n4"]);
+    const blocks = d.graph.systems.flatMap((s) => [s.spawn, s.initialize, s.update, s.output].flatMap((c) => c.blocks.map((b) => b.id)));
+    expect(new Set(blocks).size).toBe(blocks.length);
   });
 
-  it("groups items and edits notes", () => {
+  it("groups systems and nodes as `members`, and keeps empty group and note lists", () => {
     let g = sample();
-    const grp = groupItems(g, ["s1", "n1", "missing"], "Fire");
+    const grp = edits.group(g, ["s1", "n1", "missing"], "Fire");
     g = grp.graph;
     expect(g.groups).toEqual([{ id: grp.id, title: "Fire", members: ["s1", "n1"] }]);
-    g = setGroupTitle(g, grp.id!, "Flames");
-    expect(g.groups[0].title).toBe("Flames");
-    // Grouping again takes the items out of their old group.
-    g = groupItems(g, ["s1", "n1"]).graph;
-    expect(g.groups).toHaveLength(1);
-    g = ungroup(g, g.groups[0].id);
+    g = edits.ungroup(g, grp.id!);
     expect(g.groups).toEqual([]);
-    const note = addNote(g, [5.5, 6.5], "hi");
-    g = updateNote(note.graph, note.id, { text: "there", size: [10, 10] });
-    expect(g.notes[0]).toMatchObject({ text: "there", position: [6, 7], size: [80, 40] });
-    expect(removeNote(g, note.id).notes).toEqual([]);
+    const note = edits.addNote(g, [5, 6], "hi");
+    expect(note.graph.notes).toEqual([{ id: note.id, position: [5, 6], size: [200, 100], text: "hi" }]);
+    // Groups, notes, systems and nodes share one id space.
+    expect(new Set([grp.id, note.id, ...g.systems.map((s) => s.id), ...g.nodes.map((n) => n.id)]).size).toBe(2 + g.systems.length + g.nodes.length);
+    expect(edits.removeNote(note.graph, note.id).notes).toEqual([]);
   });
 });
 
