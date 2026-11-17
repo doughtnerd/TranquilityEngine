@@ -1,7 +1,6 @@
 // Stories (ADR 0219) for the profiler's bus table (Pf5): one row per bus with a cell per gain lane flagged unity or
 // active, the product and the product up the tree, a mute as silence, a tombstone as removed, a bus the capture never
 // named by its slot, and the empty state. Rendered through its real props, the `busTableData` of a keyframe's buses.
-// The same cases run headless in profilerTables.test.ts until the story tests have run green.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { expect } from "storybook/test";
 import type { KeyframeBus, KeyframePayload } from "../../runtime/capture/format";

@@ -1,8 +1,7 @@
 // Stories (ADR 0219) for the profiler's voice table (Pf5): 1,024 voices windowed to at most 64 rendered rows while the
 // region scrolls, keyboard focus through the rows (arrows, pages, Home and End), a click focusing a row, the filtered and
 // empty states, and a stolen voice's reason and thief on a recorded scene. Rendered through its real props, the
-// `voiceTableData` of a reconstructed seek state. The same cases run headless in profilerTables.test.ts until the story
-// tests have run green.
+// `voiceTableData` of a reconstructed seek state.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { expect, fireEvent, userEvent, waitFor } from "storybook/test";
 import type { KeyframePayload, KeyframeVoice } from "../../runtime/capture/format";
@@ -76,6 +75,7 @@ export const ManyVoices: Story = {
         firsts.push(idx[0]!);
       }
       expect(firsts).toEqual([...firsts].sort((a, b) => a - b));
+      expect(new Set(firsts).size).toBe(firsts.length - 1); // 20_480 and 99_999 both clamp to the end
     });
     await step("each row sits at its index; the spacer is sized for the whole list", async () => {
       await scrollTo(canvasElement, 10_000);

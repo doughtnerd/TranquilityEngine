@@ -2,8 +2,9 @@
 // refusals the parse makes (a bus ducking itself, a trigger above its target, a level cycle, the 9th level rule, the
 // 33rd rule), "Needs the audio core" on a backend without level ducking, and a live edit during Play reaching the play
 // mixer through the op log. The section is rendered through its real props: a draft, its problems and `set`, which a
-// story's harness keeps as the Project Settings panel does (each accepted edit is the next draft). The same cases run
-// headless in audioSettingsSection.ducking.test.ts until the story tests have run green.
+// story's harness keeps as the Project Settings panel does (each accepted edit is the next draft). The ducking edits'
+// own rules (the drafts they write, their refusals, the ops a live edit sends) are unit tests of the model, in
+// audioSettingsSection.ducking.test.ts.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";
 import { expect, fireEvent, fn, userEvent, waitFor, within } from "storybook/test";
