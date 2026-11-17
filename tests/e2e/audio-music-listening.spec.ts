@@ -272,7 +272,9 @@ test.describe("listening M4-0: in-voice stamped records", () => {
           expect(r.playingAfter.some((c) => c.includes("radio-loop")), "and plays on").toBe(true);
         } else if (key === "2") {
           expect(r.playingAfter.some((c) => c.includes("melody-loop")), "the stopped voice left the table").toBe(false);
-          expect(r.after, "its bus fell silent").toBeLessThan(0.002);
+          // The meter's peak is decayed for display (about 28 dB a second), so from the item's level it reads silent only some 1.5 s
+          // after the voice has gone: poll it, as the step below does.
+          await expect.poll(() => peakOver(page, "Tape", 200), { timeout: 8_000, message: "its bus fell silent (the meter holds a peak for a moment)" }).toBeLessThan(0.002);
         } else {
           expect(r.segmentAfter, "the switch moved to B").toBe("B");
           expect(r.playingAfter.some((c) => c.includes("music-lead")), "the incoming lead plays").toBe(true);
