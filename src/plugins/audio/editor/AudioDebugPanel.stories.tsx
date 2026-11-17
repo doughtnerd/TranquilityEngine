@@ -5,7 +5,7 @@
 // (`info.time`), so a story moves the audio clock by setting it, not by faking timers.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { expect, spyOn, userEvent, waitFor, within } from "storybook/test";
-import { playState } from "../../../editor/state";
+import { setPlayState } from "../../../editor/stories/editorStory";
 import { Audio } from "../runtime/Audio";
 import { AudioDebugPanel } from "./AudioDebugPanel";
 import { occlusionOverlayOn } from "./OcclusionOverlay";
@@ -19,8 +19,8 @@ const debugCalls = { n: 0 };
 /** Wait this long for the panel's next 250 ms sample to show. */
 const SAMPLE = { timeout: 3000 };
 
-const play = () => void (playState.value = "playing");
-const stop = () => void (playState.value = "edit");
+const play = () => setPlayState("playing");
+const stop = () => setPlayState("edit");
 /** The state cell of a label/value row in the panel. */
 const cellOf = (root: HTMLElement, row: string) => root.querySelector<HTMLElement>(`tr[data-row="${row}"] td[data-health]`);
 
@@ -37,7 +37,7 @@ const meta = {
     });
     return () => {
       spy.mockRestore();
-      playState.value = "edit";
+      setPlayState("edit");
       occlusionOverlayOn.value = false;
     };
   },

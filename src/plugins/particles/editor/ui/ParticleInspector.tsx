@@ -8,7 +8,7 @@ import { compileParticleGraph } from "../../../../engine/scene/particleCompile";
 import type { CurveKey, ParticleColor, ParticleGradient } from "../../../../engine/scene/particles";
 import { effectFileMigrated } from "../particleAssets";
 import { parseBlockAsset, parseSubgraphAsset, type AssetPort } from "../../../../engine/scene/particleSubgraphs";
-import { assetDocKind } from "../particleGraph/assetDocs";
+import { assetDocKind, docToAsset } from "../particleGraph/assetDocs";
 import { CurveEditor } from "./particles/ParticleCurve";
 import { GradientEditor } from "./particles/GradientEditor";
 import { NumField, ParticleColorInput, VecField } from "./particles/valueInputs";
@@ -82,7 +82,10 @@ export function ParticleAssetInspector(props: { path: string }) {
   const project = editor.project.current;
   if (!project) return null;
   const kind = assetDocKind(props.path);
-  const raw = project.assets.get(props.path);
+  // The current value (ADR 0233): the open Particle Graph's, unwritten edits included, else the file, read as a
+  // document by the kind's format; a file that isn't one reads with that as its problem.
+  const read = editor.assets.read<ParticleGraph>(project, props.path);
+  const raw = read.problems.length > 0 ? null : docToAsset(read.value);
   const sub = kind === "subgraph" ? parseSubgraphAsset(raw) : null;
   const block = kind === "block" ? parseBlockAsset(raw) : null;
   const asset = sub ?? block;
@@ -98,7 +101,9 @@ export function ParticleAssetInspector(props: { path: string }) {
       {!project.canSave && <p class="hint">Read-only: open a project folder (or copy the sample) to edit.</p>}
       {!asset ? (
         <ul class="material-problems">
-          <li>This file isn't a {kind === "block" ? "particle block" : "particle sub-graph"} (wrong or missing format).</li>
+          {read.problems.map((p) => (
+            <li key={p.message}>{p.message}</li>
+          ))}
         </ul>
       ) : (
         <dl class="particle-summary">

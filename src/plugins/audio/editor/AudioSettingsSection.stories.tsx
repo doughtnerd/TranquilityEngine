@@ -10,11 +10,8 @@ import { useState } from "preact/hooks";
 import { expect, fireEvent, fn, userEvent, waitFor, within } from "storybook/test";
 import type { MixOp } from "../../../engine/audio/mixOps";
 import type { DuckingRule } from "../../../engine/audio/settings";
-import { MemoryFileSystem } from "../../../editor/memoryFs";
-import { createProjectSettingsSection } from "../../../editor/projectSettingsSection";
-import { openFolderProject } from "../../../editor/projects";
-import type { SettingsDraft } from "../../../editor/sdk";
-import { currentProject, playState } from "../../../editor/state";
+import { editor, type SettingsDraft } from "../../../editor/sdk";
+import { setPlayState, withEditor, type EditorStoryParameters } from "../../../editor/stories/editorStory";
 import { AudioSettingsSection } from "./AudioSettingsSection";
 import { audioOf } from "./audioSettingsModel";
 import { newDuckRule } from "./mix/duckModel";
@@ -362,33 +359,26 @@ interface LiveArgs {
   apply: ReturnType<typeof fn<(op: MixOp) => { ok: true; class: "direct" }>>;
 }
 
-/** The section edited through the Project Settings section of an in-memory project, as the Project panel does. */
-function LiveSection({ section }: { section: ReturnType<ReturnType<typeof createProjectSettingsSection>["open"]> }) {
-  const [draft, setDraft] = useState(section.draft);
-  return <AudioSettingsSection draft={draft} problems={[]} set={(label, next) => void section.edit(label, next).then(() => setDraft(section.draft))} />;
+/** The section edited through the project's settings (`editor.project.settings`), the Project panel's own draft and history. */
+function LiveSection() {
+  const settings = editor.project.settings;
+  const [draft, setDraft] = useState(() => settings.draft());
+  return <AudioSettingsSection draft={draft} problems={[]} set={(label, next) => void settings.edit(label, next).then(() => setDraft(settings.draft()))} />;
 }
 
 export const LiveEditDuringPlay: StoryObj<LiveArgs> = {
   args: { apply: fn(() => ({ ok: true, class: "direct" }) as const) },
-  loaders: [
-    async () => {
-      const fs = new MemoryFileSystem();
-      fs.files.set("C:\\Games\\live\\project.json", JSON.stringify({ name: "G", audio: { ducking: [level("Music", "Voice")] } }));
-      const project = await openFolderProject(fs, "C:\\Games\\live");
-      currentProject.value = project;
-      return { section: createProjectSettingsSection().open(project) };
+  // An in-memory project with one level rule (the story harness, ADR 0235).
+  parameters: { editor: { files: { "project.json": { name: "G", audio: { ducking: [level("Music", "Voice")] } } } } satisfies EditorStoryParameters },
+  beforeEach: [
+    withEditor,
+    ({ args }) => {
+      setPlayState("playing"); // the op log is live only while Play runs
+      const log = startOpLog(() => ({ apply: args.apply }));
+      return () => log.dispose();
     },
   ],
-  beforeEach: ({ args }) => {
-    playState.value = "playing"; // the op log is live only while Play runs
-    const log = startOpLog(() => ({ apply: args.apply }));
-    return () => {
-      log.dispose();
-      playState.value = "edit";
-      currentProject.value = null;
-    };
-  },
-  render: (_args, { loaded }) => <LiveSection section={loaded.section} />,
+  render: () => <LiveSection />,
   play: async ({ canvasElement, args }) => {
     const c = controls(canvasElement);
     await c.type("Ducking 1 threshold", -20);
