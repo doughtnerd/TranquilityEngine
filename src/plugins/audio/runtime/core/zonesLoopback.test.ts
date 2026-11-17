@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { createDecoderHandler } from "../decoder/handler";
 import type { DecoderReply, IrFailedMessage, IrPreparedMessage, StreamPortLike } from "../decoder/protocol";
-import { createLoopbackHost, LOOPBACK_PRESET, LOOPBACK_RATE, type LoopbackHost } from "../testing";
+import { createLoopbackHost, LOOPBACK_PRESET, LOOPBACK_RATE, type LoopbackHost, type LoopbackStreamPort } from "../testing";
 import hash from "../wasm/hash.json";
 import {
   ASAP,
@@ -66,7 +66,7 @@ function clip(): Float32Array {
   return out;
 }
 
-/** The loopback host with zone slots, the clip, and the decoder worker's IR path wired to the worklet. */
+/** The loopback host with zone slots, the clip from main, and the decoder worker's IR path on its stream port to the worklet. */
 class Rig {
   private seq = 1;
   private token = 1;
@@ -91,7 +91,18 @@ class Rig {
       },
     });
     await r.handler.handle({ type: "init", wasmBytes: DECODER.buffer.slice(DECODER.byteOffset, DECODER.byteOffset + DECODER.byteLength) as ArrayBuffer });
-    const port: StreamPortLike = { onmessage: null, postMessage: (m: unknown) => r.toWorklet(m as ArrayBuffer) };
+    // The decoder worker's channel, owned here: its worklet end goes to the shell as the backend hands it over
+    // (`CoreLink.connectStreamPort`, ADR 0223), and the kernels cross it at once, both ways. The clip comes from main.
+    const worklet: LoopbackStreamPort = { onmessage: null, postMessage: (m: unknown) => port.onmessage?.({ data: m }) };
+    const port: StreamPortLike = {
+      onmessage: null,
+      postMessage: (m: unknown) => {
+        if (!worklet.onmessage) throw new Error("the loopback didn't take the stream port");
+        r.noteBegun(m as ArrayBuffer);
+        worklet.onmessage({ data: m });
+      },
+    };
+    r.host.link.connectStreamPort(worklet as unknown as MessagePort);
     await r.handler.handle({ type: "connectWorklet", port } as never);
     r.loadClip();
     return r;
@@ -103,7 +114,7 @@ class Rig {
     const view = new DataView(begin);
     writeEnvelope(view, 0, { kind: Kind.CLIP_BEGIN, seq: this.seq++, bodyBytes: 20 });
     writeClipBegin(view, 0, { clipId: CLIP, frames: CLIP_FRAMES, channels: 1, sampleRate: LOOPBACK_RATE, format: 0 });
-    this.toWorklet(begin);
+    this.fromMain(begin);
     for (let frame = 0; frame < CLIP_FRAMES; frame += 2048) {
       const n = Math.min(2048, CLIP_FRAMES - frame);
       const chunk = new ArrayBuffer(16 + 16 + n * 4);
@@ -111,14 +122,19 @@ class Rig {
       writeEnvelope(cv, 0, { kind: Kind.CLIP_CHUNK, seq: this.seq++, bodyBytes: 16 + n * 4 });
       writeClipChunk(cv, 0, { clipId: CLIP, frameOffset: frame, frames: n, reserved: 0 });
       new Uint8Array(chunk, 32).set(new Uint8Array(data.buffer, frame * 4, n * 4));
-      this.toWorklet(chunk);
+      this.fromMain(chunk);
     }
   }
 
-  /** A clip message to the worklet, noting each clip it begins. */
-  toWorklet(buffer: ArrayBuffer): void {
+  /** Notes the clip a clip message begins, if it begins one. */
+  private noteBegun(buffer: ArrayBuffer): void {
     const view = new DataView(buffer);
     if (view.getUint16(6, true) === Kind.CLIP_BEGIN) this.begun.add(readClipBegin(view, 0).clipId);
+  }
+
+  /** A clip message from main, as the clip registry sends it (over the link). */
+  private fromMain(buffer: ArrayBuffer): void {
+    this.noteBegun(buffer);
     this.host.send(buffer);
   }
 
