@@ -1,6 +1,6 @@
 # 0228. One graph-document module owns the edits and shortcuts both graph editors share
 
-- **Status:** Accepted
+- **Status:** Accepted; its `freeName` was replaced by 0232's `uniqueName` in pass 5's follow-ups
 - **Date:** 2026-11-17
 - **Deciders:** Chris Carlson
 - **Supersedes:** part of 0060 (the shared graph layer held only the canvas; each panel kept its own node edits)
