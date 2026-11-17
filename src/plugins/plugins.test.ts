@@ -136,8 +136,6 @@ describe("plugin editor halves reach the editor through its SDK (ADR 0147)", () 
   const INTERNAL = new Set([
     // Baking builds a hidden editor World from the project's settings (ADR 0065): same reason.
     "plugins/navigation/editor/navBake.ts -> editor/projects",
-    // The collider gizmo snaps like the transform gizmo (ADR 0142): the scene view's snapping is viewport-tool internals.
-    "plugins/physics/editor/colliderGizmo.ts -> editor/sceneTools",
     // Polygon area and hit tests, shared with the shell's marquee selection: geometry, not editor API.
     "plugins/physics/editor/colliderMath.ts -> editor/polygonMath",
     // The Physics section owns project.json's `physics` (ADR 0151), but renaming a layer rewrites the scenes
@@ -199,6 +197,12 @@ describe("plugin editor halves reach the editor through its SDK (ADR 0147)", () 
   it("keeps the internal tier's list current: an entry goes once its import does", () => {
     const used = new Set(shellImports.map((i) => `${i.file} -> ${i.module}`));
     expect([...INTERNAL].filter((e) => !used.has(e))).toEqual([]);
+  });
+
+  it("opens undo steps through the SDK, never the command stack's groups (ADR 0231)", () => {
+    // `editor.scene.edit` / `beginEdit` and a viewport tool's `edit` / `gesture` close what they open (Escape reverts a gesture).
+    const bad = editorHalves.filter((f) => /\.(beginGroup|endGroup|cancelGroup)\(/.test(readFileSync(f, "utf8"))).map(rel);
+    expect(bad).toEqual([]);
   });
 });
 

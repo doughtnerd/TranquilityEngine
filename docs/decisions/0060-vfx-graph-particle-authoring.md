@@ -1,6 +1,6 @@
 # 0060. Particle effects are VFX-Graph-style graph assets, authored only in the Particle Graph
 
-- **Status:** Accepted
+- **Status:** Accepted; partly superseded by 0228 (node edits)
 - **Date:** 2026-11-03
 - **Deciders:** Chris Carlson
 - **Supersedes:** 0058; part of 0057 (the effect format, embedded effects, the effect editor in the Inspector)

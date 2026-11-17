@@ -2,24 +2,16 @@ import { describe, expect, it } from "vitest";
 import { defaultShaderGraph, defaultShaderSubGraph, type ShaderGraph } from "../../../../engine/scene/shaderGraph";
 import {
   addNode,
-  addNote,
-  addProperty,
+  shaderGraphEdits as edits,
   addSubGraphOutput,
   connect,
-  copyNodes,
   defaultFunction,
-  groupNodes,
-  pasteNodes,
   removeNodes,
-  removeNote,
   removeSubGraphOutput,
   renameSubGraphOutput,
   setFunction,
-  setGroupTitle,
   setPreview,
   setSubGraphOutputType,
-  ungroup,
-  updateNote,
   whyNotPortName,
 } from "./graphEdit";
 import { nodeBox, PREVIEW } from "./nodeLayout";
@@ -29,7 +21,7 @@ import { nodeBox, PREVIEW } from "./nodeLayout";
 /** Output ← Add ← Time, with a Color property node. */
 function sample(): ShaderGraph {
   let g = defaultShaderGraph();
-  g = addProperty(g, "color").graph;
+  g = edits.addProperty(g, "color").graph;
   g = addNode(g, "add", [100, 0]).graph;
   g = addNode(g, "time", [0, 50]).graph;
   g = addNode(g, "property", [0, 150], { property: "Color" }).graph;
@@ -39,20 +31,20 @@ function sample(): ShaderGraph {
 
 describe("copy and paste", () => {
   it("copies nodes with the connections between them and the properties they read", () => {
-    const clip = copyNodes(sample(), ["add1", "time1", "property1", "output"])!;
+    const clip = edits.copy(sample(), ["add1", "time1", "property1", "output"])!;
     expect(clip.nodes.map((n) => n.id)).toEqual(["add1", "time1", "property1"]);
     expect(clip.edges).toEqual([{ from: "time1.time", to: "add1.a" }]);
     expect(clip.properties.map((p) => p.name)).toEqual(["Color"]);
-    expect(copyNodes(sample(), ["output"])).toBeNull();
+    expect(edits.copy(sample(), ["output"])).toBeNull();
   });
 
   it("pastes with new ids at a point, adding missing properties", () => {
-    const clip = copyNodes(sample(), ["add1", "time1", "property1"])!;
-    const made = pasteNodes(defaultShaderGraph(), clip, [500, 500]);
+    const clip = edits.copy(sample(), ["add1", "time1", "property1"])!;
+    const made = edits.paste(defaultShaderGraph(), clip, [500, 500]);
     expect(made.ids).toEqual(["add1", "time1", "property1"]); // free in the empty graph
     expect(made.graph.properties.map((p) => p.name)).toEqual(["Color"]);
     expect(made.graph.nodes.find((n) => n.id === "time1")!.position).toEqual([500, 550]); // the copy's top-left at the point
-    const again = pasteNodes(made.graph, clip, [0, 0]);
+    const again = edits.paste(made.graph, clip, [0, 0]);
     expect(again.ids).toEqual(["add2", "time2", "property2"]);
     expect(again.graph.edges).toContainEqual({ from: "time2.time", to: "add2.a" });
     expect(again.graph.properties).toHaveLength(1);
@@ -60,27 +52,25 @@ describe("copy and paste", () => {
 });
 
 describe("groups and notes", () => {
-  it("groups nodes, moving them out of other groups, and drops nodes and empty groups as nodes go", () => {
-    let g = groupNodes(sample(), ["add1", "time1"], "Math").graph;
-    g = groupNodes(g, ["time1"]).graph;
+  it("stores groups as `nodes` lists, drops nodes and empty groups as nodes go, and leaves `groups` out when there are none", () => {
+    let g = edits.group(sample(), ["add1", "time1"], "Math").graph;
+    g = edits.group(g, ["time1"]).graph;
     expect(g.groups).toEqual([
       { id: "group1", title: "Math", nodes: ["add1"] },
       { id: "group2", title: "Group", nodes: ["time1"] },
     ]);
-    g = setGroupTitle(g, "group2", "Clock");
+    g = edits.setGroupTitle(g, "group2", "Clock");
     expect(g.groups![1].title).toBe("Clock");
     g = removeNodes(g, ["time1"]);
     expect(g.groups).toEqual([{ id: "group1", title: "Math", nodes: ["add1"] }]);
-    expect(ungroup(g, "group1").groups).toBeUndefined();
+    expect(edits.ungroup(g, "group1").groups).toBeUndefined();
   });
 
-  it("adds, edits and removes notes", () => {
-    let g = addNote(defaultShaderGraph(), [10.4, 20.6], "Hi").graph;
-    expect(g.notes).toEqual([{ id: "note1", position: [10, 21], size: [200, 100], text: "Hi" }]);
-    g = updateNote(g, "note1", { text: "Bye", size: [10, 10] });
-    expect(g.notes![0]).toMatchObject({ text: "Bye", size: [80, 40] }); // a smallest size
-    expect(updateNote(g, "note1", { text: "Bye" })).toBe(g);
-    expect(removeNote(g, "note1").notes).toBeUndefined();
+  it("stores notes in `notes`, left out of the graph when there are none", () => {
+    const made = edits.addNote(defaultShaderGraph(), [10, 20], "Hi");
+    expect(made.id).toBe("note1");
+    expect(made.graph.notes).toEqual([{ id: "note1", position: [10, 20], size: [200, 100], text: "Hi" }]);
+    expect(edits.removeNote(made.graph, "note1").notes).toBeUndefined();
   });
 });
 

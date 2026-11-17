@@ -15,7 +15,7 @@
 // `events` (ADR 0227) answers the typed EVENTs after a record cursor in one pass, so the Profiler's event tracks read the
 // capture once (and a live view only what was appended) instead of sweeping it with seeks.
 import {
-  CaptureError, EpochReason, RecordType, decodeKeyframe,
+  CaptureError, EpochReason, RecordType, decodeKeyframe, readKeyframeMetered,
   type CaptureErrorInfo, type CaptureLoudnessColumns, type CaptureWorkerRequest, type CaptureWorkerResponse,
 } from "./format";
 import { readCaptureEvent, type CaptureEventType } from "./events";
@@ -102,7 +102,7 @@ function loudnessOf(s: Session): LoudnessTrackModel {
         if (d.kind !== "keyframe") break;
         const p = d.payload;
         const kf = decodeKeyframe(new DataView(p.buffer, p.byteOffset, p.byteLength), 0, p.byteLength);
-        if (kf.metered.length > 0) L.model.addKeyframe(time, kf.metered);
+        if (kf.metered.length > 0) L.model.addKeyframe(time, kf.metered.map(readKeyframeMetered));
         break;
       }
       case RecordType.EPOCH: {

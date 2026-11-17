@@ -5,7 +5,7 @@ import { LoudnessHub } from "../../runtime/mix/loudnessHub";
 import { LoudnessTrackModel } from "../../runtime/mix/loudnessTrackModel";
 import { LOUD_OUTPUT_TAP, readStatus } from "../../runtime/wire.generated";
 import {
-  RecordType, assembleCapture, type CaptureRecordInit, type KeyframeMetered, type KeyframePayload,
+  KeyframeMeteredFlag, NO_NAME, RecordType, assembleCapture, readCaptureKeyframe, type CaptureRecordInit, type KeyframeMetered, type KeyframePayload,
 } from "../../runtime/capture/format";
 import { EMPTY_KEYFRAME_PAYLOAD, SAMPLE_HEADER, SAMPLE_META, SAMPLE_RATE, statusBytesWith } from "../../runtime/capture/testSupport";
 
@@ -14,7 +14,6 @@ export const MUSIC_SLOT = 1;
 export const STATUSES = 80;
 export const PER_STATUS = 5;
 export const FRAMES_PER_STATUS = (SAMPLE_RATE * PER_STATUS) / 10;
-const NO_NAME = 0xffffffff;
 const PARAM_MUSIC = 7;
 const PARAM_MASTER = 8;
 
@@ -106,7 +105,7 @@ export function buildScene(opts: SceneOptions = {}): Scene {
         const r = read(hub, name);
         // As stored on the wire: f32.
         const m: KeyframeMetered = {
-          slot, flags: r.incomplete ? 2 : 0, momentary: Math.fround(r.momentary), shortTerm: Math.fround(r.shortTerm), integrated: Math.fround(r.integrated),
+          slot, flags: r.incomplete ? KeyframeMeteredFlag.incomplete : 0, momentary: Math.fround(r.momentary), shortTerm: Math.fround(r.shortTerm), integrated: Math.fround(r.integrated),
           lra: Math.fround(r.lra), maxTruePeak: Math.fround(r.maxTruePeak), maxMomentary: 0, elapsed: 0,
         };
         metered.push(m);
@@ -114,7 +113,7 @@ export function buildScene(opts: SceneOptions = {}): Scene {
       const payload: KeyframePayload = { ...EMPTY_KEYFRAME_PAYLOAD, metered };
       push({ type: RecordType.KEYFRAME, epoch: 0, frame, payload });
       if (kept()) {
-        reference.addKeyframe(time, metered);
+        reference.addKeyframe(time, readCaptureKeyframe(payload).metered);
         for (const m of metered) lastKeyframe.set(m.slot, m);
       }
     }

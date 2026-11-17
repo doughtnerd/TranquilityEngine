@@ -5,14 +5,12 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { Mixer } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings } from "../../../../engine/audio/settings";
+import { readCaptureKeyframe } from "../capture/format";
+import { NO_NAME } from "../capture/keyframeLayout";
 import { LOUD_OUTPUT_TAP } from "../wire.generated";
 import { KeyframeSource, type KeyframeHost, type KeyframeNameId } from "./keyframeSource";
 import { VoiceState, VoiceTable } from "./voiceTable";
 
-/** The keyframe bus row's metered flag (§5.5). */
-const KF_BUS_METERED = 32;
-
-const NO_NAME = 0xffffffff;
 
 function loudness(paused: boolean) {
   return { paused, incomplete: false, tainted: false, truePeakBound: "exact", momentary: -20, shortTerm: -21, integrated: -22, lra: 3, maxTruePeak: -1, maxMomentary: -18, elapsed: 5 };
@@ -100,10 +98,11 @@ describe("KeyframeSource: no allocation per keyframe (FU5)", () => {
     source.read(nameId, NO_NAME);
     const p = source.read(nameId, NO_NAME);
     expect(p.metered.map((m) => m.slot)).toEqual([LOUD_OUTPUT_TAP, 1]);
-    expect(p.metered.map((m) => m.flags)).toEqual([0, 1]);
+    const named = readCaptureKeyframe(p);
+    expect(named.metered.map((m) => m.paused)).toEqual([false, true]);
     expect(p.metered[0]).toMatchObject({ momentary: -20, shortTerm: -21, integrated: -22, lra: 3, maxTruePeak: -1, maxMomentary: -18, elapsed: 5 });
     expect(p.mix.loudnessPausedMask).toBe(2);
-    expect(p.buses.map((b) => (b.flags & KF_BUS_METERED) !== 0)).toEqual([true, true, false, false, false]);
+    expect(named.buses.map((b) => b.metered)).toEqual([true, true, false, false, false]);
     expect(p.mix.targetIndex).toBe(0);
   });
 });

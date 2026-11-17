@@ -4,9 +4,9 @@
 // "Edit Zone" on (the Inspector's header action), the zone gets handles: a box's six face centres resize it (Alt: both
 // faces move), a sphere's rim handles set the radius, and the blend handle on the outside of the volume's x/y edge sets
 // `blendDistance`. Each drag is one undo step (the fields are written through `SetField`, an override on prefab
-// instances). Editing a zone is the tool being active: picking a transform tool, Escape, play or another tool ends it,
-// and so do selecting another node and switching scenes.
-import { effect, signal } from "@preact/signals";
+// instances; Escape mid-drag puts it back). Editing a zone is the tool's mode (ADR 0231), which the viewport tool host
+// ends: picking a transform tool, Escape, play, another tool, selecting another node or switching scenes.
+import type { ReadonlySignal } from "@preact/signals";
 import { GameObject, type Engine } from "../../../engine";
 import { type EditorOverlay, viewport } from "../../../engine/editor";
 import { AudioReverbZone } from "../runtime";
@@ -29,10 +29,10 @@ import {
   type ZoneFace,
   type ZoneGeometry,
 } from "./zoneMath";
-import { type ViewportDrag, type ViewportPointer, type ViewportToolContribution, editor, SetField, type OpenScene, theme, viewportColors } from "../../../editor/sdk";
+import { type ViewportDrag, type ViewportPointer, type ViewportToolContext, type ViewportToolContribution, editor, SetField, type OpenScene, theme, viewportColors } from "../../../editor/sdk";
 
 /** The zone tool's id: also its overlay id and its active-tool id. */
-const ZONE_TOOL_ID = "myco.audio.zones";
+export const ZONE_TOOL_ID = "myco.audio.zones";
 /** The component type the tool and the Edit Zone action work on. */
 export const ZONE_TYPE = "engine.AudioReverbZone";
 
@@ -43,8 +43,8 @@ export interface EditingZone {
   /** Which `AudioReverbZone` on the node. */
   index: number;
 }
-/** Set by the Inspector's Edit Zone button; non-null exactly while the zone tool is active. */
-export const editingZone = signal<EditingZone | null>(null);
+/** The zone tool's mode: entered by the Inspector's Edit Zone button, non-null exactly while the tool is active. */
+export const editingZone: ReadonlySignal<EditingZone | null> = editor.viewport.mode<EditingZone>(ZONE_TOOL_ID);
 
 // Volume cyan and shell amber (the faded part of the zone), bright when the node is selected, dim otherwise.
 const VOLUME = 0x4cc9f0;
@@ -98,33 +98,14 @@ function zoneOverlay(engine: Engine): EditorOverlay {
 }
 
 /** The scene view's zone tool: outlines and handles, handle drags. */
-export const zoneTool: ViewportToolContribution = {
+export const zoneTool: ViewportToolContribution<EditingZone> = {
   id: ZONE_TOOL_ID,
+  // Editing ends when the selection moves to another node (the host also ends it on a transform tool, Escape, play,
+  // another tool and another scene).
+  endsOnSelection: () => true,
   install(view) {
     const { engine, world } = view;
     view.overlay(() => zoneOverlay(engine), { kind: "other" });
-
-    // Editing a zone makes the tool active; anything else becoming active ends editing.
-    const stopEditing = effect(() => {
-      if (editingZone.value) {
-        if (!view.active.peek()) view.activate();
-      } else view.deactivate();
-    });
-    const stopActive = effect(() => {
-      if (!view.active.value && editingZone.peek()) editingZone.value = null;
-    });
-    // Edit mode ends when the selection moves elsewhere or another scene opens.
-    const stopWatch = effect(() => {
-      const key = editor.scene.selection.active, editing = editingZone.peek();
-      if (editing && editing.key !== key) editingZone.value = null;
-    });
-    let scene = editor.scene.peekOpen();
-    const stopScene = effect(() => {
-      const next = editor.scene.open;
-      if (next === scene) return;
-      scene = next;
-      editingZone.value = null;
-    });
 
     view.onPress((p) => {
       if (p.button !== 0) return null;
@@ -134,16 +115,8 @@ export const zoneTool: ViewportToolContribution = {
       const handle = viewport(world).pickOverlayHandle(p.x, p.y);
       if (!handle) return null;
       // A press on a handle never also selects, orbits or starts the transform gizmo, even when it changes nothing.
-      return startZoneDrag((x, y) => viewport(world).rayAt(x, y), open, p, handle, edited.node, edited.zone, edited.editing) ?? {};
+      return startZoneDrag((x, y) => viewport(world).rayAt(x, y), view.gesture, open, p, handle, edited.node, edited.zone, edited.editing) ?? {};
     });
-
-    return () => {
-      stopEditing();
-      stopActive();
-      stopWatch();
-      stopScene();
-      editingZone.value = null;
-    };
   },
 };
 
@@ -159,17 +132,6 @@ function fieldWriter(scene: OpenScene, editing: EditingZone): (field: string, va
   };
 }
 
-/** A drag that is one undo step named `label`: the group closes on release and on cancel. */
-function grouped(scene: OpenScene, label: string, move: (p: ViewportPointer) => void): ViewportDrag {
-  scene.stack.beginGroup(label);
-  let open = true;
-  const close = () => {
-    if (open) scene.stack.endGroup();
-    open = false;
-  };
-  return { move, end: close, cancel: close };
-}
-
 /** The pointer ray at a canvas point, as the viewport gives it. */
 type RayAt = (x: number, y: number) => { origin: readonly number[]; direction: readonly number[] } | null;
 
@@ -179,7 +141,7 @@ type RayAt = (x: number, y: number) => { origin: readonly number[]; direction: r
  * `center` (box), `radius` (sphere) or `blendDistance`. Null when the handle isn't on this zone or its axis can't be
  * worked out.
  */
-function startZoneDrag(rayAt: RayAt, scene: OpenScene, press: { x: number; y: number }, handle: string, node: GameObject, zone: AudioReverbZone, editing: EditingZone): ViewportDrag | null {
+function startZoneDrag(rayAt: RayAt, gesture: ViewportToolContext["gesture"], scene: OpenScene, press: { x: number; y: number }, handle: string, node: GameObject, zone: AudioReverbZone, editing: EditingZone): ViewportDrag | null {
   const pose = zonePoseOf(node); // fixed for the drag
   const g = geometryOf(node, zone);
   const handles = zoneHandles(g, zone.blendDistance);
@@ -204,7 +166,7 @@ function startZoneDrag(rayAt: RayAt, scene: OpenScene, press: { x: number; y: nu
   const t0 = closestOnAxis(ray0.origin, ray0.direction, origin, axis);
   if (t0 === null) return null;
   const write = fieldWriter(scene, editing);
-  return grouped(scene, handle === BLEND_HANDLE ? "Resize zone blend" : "Resize zone", (p) => {
+  const move = (p: ViewportPointer) => {
     const ray = rayAt(p.x, p.y);
     const t = ray ? closestOnAxis(ray.origin, ray.direction, origin, axis) : null;
     if (t === null) return;
@@ -216,5 +178,6 @@ function startZoneDrag(rayAt: RayAt, scene: OpenScene, press: { x: number; y: nu
       write("size", r.size.map(tidy));
       if (!p.alt || r.center.some((v, i) => v !== startCenter[i])) write("center", r.center.map(tidy));
     }
-  });
+  };
+  return gesture(handle === BLEND_HANDLE ? "Resize zone blend" : "Resize zone", { move });
 }

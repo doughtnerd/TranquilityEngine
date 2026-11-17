@@ -1,5 +1,5 @@
 // Shared editor UI state (ADR 0025). Signals so Preact panels re-render when it changes.
-import { batch, signal, type ReadonlySignal } from "@preact/signals";
+import { batch, computed, signal, type ReadonlySignal } from "@preact/signals";
 import { selectedAssets } from "./assetSelection";
 import type { GameObject } from "../engine";
 import type { CommandStack, NodePath, SceneDocument, WorldSync } from "./document";
@@ -158,15 +158,19 @@ export function selectedNodes(): { key: string; path: NodePath; node: GameObject
 export const playing = signal<PlaySession | null>(null);
 
 /**
- * The active viewport tool's id (ADR 0138), or null for the transform tools. At most one tool is
- * active (editing a collider is the Physics plugin's tool, ADR 0142), and the transform gizmo steps aside while it's set.
+ * The active viewport tool (ADR 0138) and its mode (ADR 0231: the collider being edited, the brush), or null for
+ * the transform tools. At most one tool is active (editing a collider is the Physics plugin's tool, ADR 0142), and
+ * the transform gizmo steps aside while one is. The mode lives exactly as long as the tool stays active.
  */
-const activeTool = signal<string | null>(null);
-export const activeViewportTool: ReadonlySignal<string | null> = activeTool;
+const activeTool = signal<{ readonly id: string; readonly mode: unknown } | null>(null);
+/** The active viewport tool's id, or null. */
+export const activeViewportTool: ReadonlySignal<string | null> = computed(() => activeTool.value?.id ?? null);
+/** The active viewport tool and its mode, or null. */
+export const activeViewportToolMode: ReadonlySignal<{ readonly id: string; readonly mode: unknown } | null> = activeTool;
 
-/** Make a viewport tool the active one, or give the scene view back to the transform tools (null). */
-export function activateViewportTool(id: string | null): void {
-  activeTool.value = id;
+/** Make a viewport tool the active one, in `mode` (null: none), or give the scene view back to the transform tools (null). */
+export function activateViewportTool(id: string | null, mode: unknown = null): void {
+  activeTool.value = id === null ? null : { id, mode: mode ?? null };
 }
 
 /** Pick a tool. Picking any tool, even the current one, ends the active viewport tool (collider editing, painting) so its gizmo comes back. */
