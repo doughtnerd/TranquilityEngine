@@ -122,6 +122,45 @@ test("with the Move tool, clicking the gizmo on the selection keeps it selected"
   await expect(selectedRow(page)).toHaveText("Bird");
 });
 
+test("a Move gizmo drag is one undo step, and Escape during it puts the node back", async ({ page }) => {
+  await openEditor(page);
+  const canvas = page.locator("#viewport canvas");
+  const box = (await canvas.boundingBox())!;
+  const centre = { x: box.width / 2, y: box.height / 2 };
+  await page.evaluate(() => window.orbit!.focus([-4, 1, 0]));
+  await afterFrames(page);
+  await canvas.click({ position: centre });
+  await expect(selectedRow(page)).toHaveText("Bird");
+  await expect.poll(() => page.evaluate(([x, y]) => (window as unknown as { engine: { world: { render: { editorViewport(): { gizmoActiveAt(x: number, y: number): boolean } } } } }).engine.world.render.editorViewport().gizmoActiveAt(x, y), [centre.x, centre.y]), { timeout: 20_000 }).toBe(true);
+  const x = page.getByRole("textbox", { name: "position x" }), y = page.getByRole("textbox", { name: "position y" });
+  const position = async () => [await x.inputValue(), await y.inputValue()];
+  await expect.poll(position).toEqual(["-4", "1"]);
+  const drag = async () => {
+    await page.mouse.move(box.x + centre.x, box.y + centre.y);
+    await page.mouse.down();
+    await page.mouse.move(box.x + centre.x + 40, box.y + centre.y - 30, { steps: 5 });
+  };
+
+  await drag();
+  await expect.poll(position).not.toEqual(["-4", "1"]);
+  await page.keyboard.press("Escape");
+  await expect.poll(position).toEqual(["-4", "1"]);
+  await page.mouse.move(box.x + centre.x + 60, box.y + centre.y - 40, { steps: 3 }); // the handle was let go
+  await page.mouse.up();
+  await afterFrames(page);
+  expect(await position()).toEqual(["-4", "1"]);
+  await expect(selectedRow(page)).toHaveText("Bird");
+  await expect(page.locator(".scene-name")).not.toContainText("•");
+
+  await drag();
+  await page.mouse.up();
+  await expect.poll(position).not.toEqual(["-4", "1"]);
+  await expect(await undoItem(page)).toContainText(/Move Bird/);
+  await closeMenus(page);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(position).toEqual(["-4", "1"]);
+});
+
 test("scene cameras show an icon that selects the camera", async ({ page }) => {
   await openEditor(page);
   await page.keyboard.press("q");

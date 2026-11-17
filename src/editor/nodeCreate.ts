@@ -9,6 +9,7 @@ import { hierarchyCreateEntries, type HierarchyCreateContribution } from "./sdk/
 import type { OpenScene } from "./state";
 import { WATER_PRESET } from "../engine/render/water/gerstner";
 import { BRACKETED, uniqueName } from "../engine/core/uniqueName";
+import { undoStep } from "./undoStep";
 
 /** The editor's own node kinds. */
 export type NewNodeKind = "empty" | "sprite" | "camera" | "text" | Shape3D | `${LightKind}-light` | "fog" | "reflection-probe" | "water" | `ui-${UIKind}` | "ui-document";
@@ -199,11 +200,8 @@ export function createNode(scene: OpenScene, kind: NodeKind, options: CreateOpti
     return path.join("/");
   }
   const entry = newNodeEntry(scene.doc, kind, parent, options.position, options.effect);
-  scene.stack.beginGroup(`Create ${entry.name}`);
-  try {
+  undoStep(scene.stack, `Create ${entry.name}`, () => {
     scene.stack.execute(new AddNode(entry, { parent, index: options.index }));
-  } finally {
-    scene.stack.endGroup();
-  }
+  });
   return entry.id;
 }

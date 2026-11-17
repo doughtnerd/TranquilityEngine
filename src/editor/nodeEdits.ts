@@ -13,6 +13,7 @@ import { openPrefabFrom } from "./prefabTabs";
 import type { EditorProject } from "./projects";
 import { whyReadOnly } from "./readOnly";
 import { selection, status, type OpenScene } from "./state";
+import { undoStep } from "./undoStep";
 
 /**
  * The selection keys (`id` or `id/inner/…`) of nodes that still exist in the open scene, as paths (an
@@ -60,15 +61,6 @@ export function nodeHeader(scene: OpenScene, paths: readonly NodePath[]): NodeHe
   };
 }
 
-function inGroup(scene: OpenScene, label: string, body: () => void): void {
-  scene.stack.beginGroup(label);
-  try {
-    body();
-  } finally {
-    scene.stack.endGroup();
-  }
-}
-
 /**
  * Switch every node on or off, as one undo step; nodes already so are left alone. Inside a prefab
  * instance it's an override, which goes away when the value matches the prefab's. Returns how many changed.
@@ -79,7 +71,7 @@ export function setNodesActive(scene: OpenScene, paths: readonly NodePath[], on:
     for (const p of changing) scene.stack.execute(nodePropertyCommand(scene.doc, p, "active", on));
   };
   if (changing.length === 1) write();
-  else if (changing.length > 1) inGroup(scene, `${on ? "Activate" : "Deactivate"} ${changing.length} nodes`, write);
+  else if (changing.length > 1) undoStep(scene.stack, `${on ? "Activate" : "Deactivate"} ${changing.length} nodes`, write);
   return changing.length;
 }
 
@@ -96,7 +88,7 @@ export function renameNode(scene: OpenScene, path: NodePath, name: string): bool
 /** Remove the name and active overrides of the nodes inside instances, as one undo step. Returns how many were removed. */
 export function revertNameAndActive(scene: OpenScene, paths: readonly NodePath[]): number {
   const found = paths.flatMap((p) => (["name", "active"] as const).filter((key) => isInnerPropertyOverridden(scene.doc, p, key)).map((key) => ({ p, key })));
-  if (found.length > 0) inGroup(scene, "Revert name and active", () => found.forEach(({ p, key }) => revertInnerProperty(scene, p, key)));
+  if (found.length > 0) undoStep(scene.stack, "Revert name and active", () => found.forEach(({ p, key }) => revertInnerProperty(scene, p, key)));
   return found.length;
 }
 

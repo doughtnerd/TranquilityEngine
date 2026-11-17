@@ -1,5 +1,6 @@
 // Transform gizmo (ADR 0022, 0026): the move/rotate/scale handles on the selection. Each drag is
-// one undo step: a command group of SetField edits to the nodes' Transforms. With several nodes
+// one undo step (ADR 0231's `UndoStep`) of SetField edits to the nodes' Transforms, and Escape during
+// the drag puts the nodes back, as it does for the viewport tools' gestures. With several nodes
 // selected the gizmo sits at their centre (or on the active node's origin, with the pivot toggle)
 // and acts on the topmost ones (a child of a selected node moves with it); turning or scaling
 // around that point moves them too. Space, pivot and snap steps come from the scene tools.
@@ -10,7 +11,9 @@ import { SetField, type NodePath, type SceneDocument } from "./document";
 import { toSceneJSON } from "./fieldValues";
 import { topmostKeys } from "./selectionModel";
 import { cleanSnap, gizmoPivot, gizmoSpace, snapActive, snapSettings } from "./sceneTools";
+import { isEditable } from "./editable";
 import { activeViewportTool, docVersion, openScene, selectedNodes, tool, viewMode, type Tool } from "./state";
+import { beginUndoStep, type UndoStep } from "./undoStep";
 
 type Mode = GizmoOptions["mode"];
 
@@ -58,18 +61,18 @@ export function installGizmo(engine: Engine): () => void {
   const world = engine.world;
   /** The nodes the gizmo is on (set by the effect below), and the drag in progress. */
   let targets: { path: NodePath; name: string }[] = [];
-  let drag: { targets: typeof targets; mode: Mode; last: Map<string, string> } | null = null;
+  let drag: { targets: typeof targets; mode: Mode; last: Map<string, string>; step: UndoStep } | null = null;
 
   const handlers: GizmoHandlers = {
     onStart() {
       const scene = openScene.value, mode = gizmoMode(tool.value);
       if (!scene || !mode || targets.length === 0) return;
-      scene.stack.beginGroup(`${LABELS[mode]} ${targets.length === 1 ? targets[0].name : `${targets.length} nodes`}`);
-      drag = { targets, mode, last: new Map() };
+      const step = beginUndoStep(scene.stack, `${LABELS[mode]} ${targets.length === 1 ? targets[0].name : `${targets.length} nodes`}`);
+      drag = { targets, mode, last: new Map(), step };
     },
     onChange(poses) {
       const scene = openScene.value;
-      if (!scene || !drag) return;
+      if (!scene || !drag?.step.open) return;
       // Several nodes turn or scale around their centre, so their positions change too.
       const fields = new Set([FIELDS[drag.mode], ...(drag.targets.length > 1 ? (["position"] as const) : [])]);
       drag.targets.forEach((t, i) => {
@@ -83,13 +86,33 @@ export function installGizmo(engine: Engine): () => void {
       });
     },
     onEnd() {
-      if (!drag) return;
+      const d = drag;
       drag = null;
-      openScene.value?.stack.endGroup();
+      d?.step.end();
     },
   };
 
-  const stop = effect(() => {
+  /** Put the nodes on the gizmo where they were when the drag began, and let go of the handle. */
+  const cancelDrag = () => {
+    const d = drag;
+    if (!d) return;
+    drag = null;
+    d.step.cancel();
+    viewport(world).setGizmo([], { mode: d.mode, planar: false, snap: false }, null); // releases the handle
+    place();
+  };
+  const onKey = (event: Event) => {
+    const e = event as KeyboardEvent;
+    if (e.key !== "Escape" || !drag || isEditable(e.target)) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    cancelDrag();
+  };
+  const keys: EventTarget | null = typeof window === "undefined" ? null : window;
+  keys?.addEventListener("keydown", onKey, true);
+
+  /** Put the gizmo on the selection's topmost nodes, with the mode and options the tools choose. */
+  const place = () => {
     docVersion.value; // nodes are rebuilt by structural edits; re-target the gizmo
     const scene = openScene.value;
     // While a viewport tool is active (ADR 0138: editing a collider, painting tiles, ADR 0142), the transform gizmo steps aside.
@@ -99,9 +122,12 @@ export function installGizmo(engine: Engine): () => void {
     const chosen = selected.filter((s) => top.has(s.key));
     targets = chosen.map((s) => ({ path: s.path, name: s.node.name }));
     viewport(world).setGizmo(chosen.map((s) => s.node), gizmoOptions(mode ?? "translate", chosen.map((s) => s.key), selected.at(-1)?.key ?? null), handlers);
-  });
+  };
+  const stop = effect(place);
   return () => {
     stop();
+    keys?.removeEventListener("keydown", onKey, true);
+    handlers.onEnd(); // a drag cut short by removal keeps what it did
     viewport(world).setGizmo([], { mode: "translate", planar: false, snap: false }, null);
   };
 }

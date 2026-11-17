@@ -11,6 +11,7 @@ import { uniqueNodeName } from "./nodeCreate";
 import { wouldNest } from "./prefabs";
 import { hierarchyEntries, topmostKeys } from "./selectionModel";
 import type { OpenScene } from "./state";
+import { undoStep } from "./undoStep";
 
 /** Copied nodes. */
 export interface NodeClipboard {
@@ -215,12 +216,9 @@ function addCopies(scene: OpenScene, clip: NodeClipboard, target: PasteTarget, v
   if (reason) throw new Error(reason);
   const subtrees = entriesForPaste(doc, clip, target.parent);
   const roots = subtrees.map((s) => s[0].id);
-  stack.beginGroup(subtrees.length === 1 ? `${verb} ${subtrees[0][0].name ?? roots[0]}` : `${verb} ${subtrees.length} nodes`);
-  try {
+  undoStep(stack, subtrees.length === 1 ? `${verb} ${subtrees[0][0].name ?? roots[0]}` : `${verb} ${subtrees.length} nodes`, () => {
     subtrees.forEach((s, i) => stack.execute(new AddNode(s, { parent: target.parent, index: target.index === undefined ? undefined : target.index + i })));
-  } finally {
-    stack.endGroup();
-  }
+  });
   return roots;
 }
 
@@ -231,16 +229,13 @@ export function duplicateNodes(scene: OpenScene, keys: readonly string[]): strin
   if (reason) throw new Error(reason);
   const roots = subtreeRoots(doc, keys);
   const made: string[] = [];
-  stack.beginGroup(describe(doc, roots, "Duplicate"));
-  try {
+  undoStep(stack, describe(doc, roots, "Duplicate"), () => {
     for (const id of roots) {
       const parent = doc.parentOf(id);
       // Not a paste: an instance of a missing prefab duplicates as it is (the scene already has one).
       made.push(...addCopies(scene, copyNodes(doc, [id]), { parent, index: doc.children(parent).indexOf(id) + 1 }, "Duplicate"));
     }
-  } finally {
-    stack.endGroup();
-  }
+  });
   return made;
 }
 
@@ -249,11 +244,8 @@ export function cutNodes(scene: OpenScene, keys: readonly string[]): NodeClipboa
   const { doc, stack } = scene;
   const clip = copyNodes(doc, keys);
   const roots = subtreeRoots(doc, keys);
-  stack.beginGroup(describe(doc, roots, "Cut"));
-  try {
+  undoStep(stack, describe(doc, roots, "Cut"), () => {
     deleteNodes(scene, roots);
-  } finally {
-    stack.endGroup();
-  }
+  });
   return clip;
 }

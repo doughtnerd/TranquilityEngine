@@ -9,6 +9,7 @@ import { listComponents, type ComponentInfo } from "../engine/editor";
 import { originOf, prefabNodeEntry } from "./componentEdits";
 import { SetComponentWorlds, SetOverrides, SetTags, sameTarget, type NodePath, type OverrideEntry, type SceneDocument } from "./document";
 import type { OpenScene } from "./state";
+import { undoStep } from "./undoStep";
 
 /** Where a component's Worlds come from. */
 export interface WorldsSetting {
@@ -91,8 +92,7 @@ export function setComponentWorlds(
   });
   if (able.length === 0) return 0;
   const verb = worlds === undefined ? "Reset Worlds" : "Set Worlds";
-  stack.beginGroup(label ?? (able.length === 1 ? verb : `${verb} on ${able.length} nodes`));
-  try {
+  undoStep(stack, label ?? (able.length === 1 ? verb : `${verb} on ${able.length} nodes`), () => {
     for (const { path, node, info, next: worlds } of able) {
       const [id, ...target] = path;
       const origin = originOf(doc, path, info, countOf(node, info.type))!;
@@ -112,9 +112,7 @@ export function setComponentWorlds(
       }
       stack.execute(new SetOverrides(id, verb, list));
     }
-  } finally {
-    stack.endGroup();
-  }
+  });
   return able.length;
 }
 
@@ -148,8 +146,7 @@ export function tagsOverridden(doc: SceneDocument, path: NodePath): boolean {
  */
 export function setNodeTags(scene: OpenScene, paths: readonly NodePath[], tagsFor: (current: readonly string[]) => readonly string[] | undefined, label = "Set tags"): void {
   const { doc, stack } = scene;
-  stack.beginGroup(paths.length === 1 ? label : `${label} on ${paths.length} nodes`);
-  try {
+  undoStep(stack, paths.length === 1 ? label : `${label} on ${paths.length} nodes`, () => {
     for (const path of paths) {
       const [id, ...target] = path;
       const current = scene.sync.nodeFor(path)?.tags ?? [];
@@ -164,9 +161,7 @@ export function setNodeTags(scene: OpenScene, paths: readonly NodePath[], tagsFo
       if (next !== undefined) list.push({ target: [...target], tags: [...next] });
       stack.execute(new SetOverrides(id, label, list));
     }
-  } finally {
-    stack.endGroup();
-  }
+  });
 }
 
 /** A tag typed by a person, cleaned: trimmed, inner whitespace collapsed. Empty if nothing's left. */

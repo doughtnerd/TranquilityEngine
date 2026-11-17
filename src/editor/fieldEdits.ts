@@ -12,6 +12,7 @@ import { rotationCodec, rotationFrom, withRotationAxis, type RotationView } from
 import { rotationAngles } from "./preferences";
 import { isOverridden } from "./prefabs";
 import type { OpenScene } from "./state";
+import { undoStep } from "./undoStep";
 
 /** Which component a field belongs to: its type and its index among the node's components of that type. */
 export type ComponentRef = Pick<ComponentInfo, "type" | "index">;
@@ -79,15 +80,6 @@ export function fieldState(scene: OpenScene, paths: readonly NodePath[], compone
   return { values, mixed: isMixed(scene, values), overridden: isFieldOverridden(scene.doc, paths, component, field) };
 }
 
-function inGroup(scene: OpenScene, label: string, body: () => void): void {
-  scene.stack.beginGroup(label);
-  try {
-    body();
-  } finally {
-    scene.stack.endGroup();
-  }
-}
-
 /**
  * Set the field on each node to `valueFor(i)` (i: the node's index in `paths`), as one undo step. The
  * value is converted to its scene-file form against what the file holds now: the instance's override
@@ -109,7 +101,7 @@ export function setFieldEach(scene: OpenScene, paths: readonly NodePath[], compo
       scene.stack.execute(new SetField(id, component.type, field.name, json, { index: component.index, target }));
     });
   if (paths.length === 1) write();
-  else inGroup(scene, `Set ${field.name} on ${paths.length} nodes`, write);
+  else undoStep(scene.stack, `Set ${field.name} on ${paths.length} nodes`, write);
 }
 
 /** Set the field to `value` on every node, as one undo step. */
@@ -138,7 +130,7 @@ export function setFieldAxis(
 /** Remove the field's override from every node that has one, as one undo step. Plain nodes are skipped. */
 export function revertField(scene: OpenScene, paths: readonly NodePath[], component: ComponentRef, field: string): void {
   const label = `Revert ${field}`;
-  inGroup(scene, label, () => {
+  undoStep(scene.stack, label, () => {
     for (const [id, ...target] of paths) {
       if (!scene.doc.isPrefabInstance(id)) continue;
       scene.stack.execute(new RevertOverrides(id, label, (o) => isFieldOverride(o, target, component.type, field, component.index)));
