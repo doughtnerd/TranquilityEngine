@@ -25,6 +25,7 @@ import {
   type SceneFile,
 } from "./document";
 import type { OpenScene } from "./state";
+import { undoStep } from "./undoStep";
 
 /** Components a node can have only one of. Colliders, audio sources and scripts can repeat. */
 const SINGLE = new Set(["engine.RigidBody2D", "engine.SpriteRenderer", "engine.Camera", "engine.Text", "engine.UICanvas", "engine.UIPanel", "engine.UIText", "engine.UIImage", "engine.UIButton", "engine.UIInputField"]);
@@ -87,8 +88,7 @@ export function addComponentTo(scene: OpenScene, targets: readonly { path: NodeP
   const able = targets.filter((t) => whyNotAddable(t.node, type) === null);
   if (able.length === 0) return 0;
   const { doc, stack } = scene;
-  stack.beginGroup(able.length === 1 ? `Add ${shortName(type)}` : `Add ${shortName(type)} to ${able.length} nodes`);
-  try {
+  undoStep(stack, able.length === 1 ? `Add ${shortName(type)}` : `Add ${shortName(type)} to ${able.length} nodes`, () => {
     for (const { path, node } of able) {
       const [id, ...target] = path;
       const entry = newComponentEntry(node, type);
@@ -99,9 +99,7 @@ export function addComponentTo(scene: OpenScene, targets: readonly { path: NodeP
         stack.execute(new SetOverrides(id, `Add ${shortName(type)}`, [...structuredClone(doc.node(id).overrides ?? []), add]));
       }
     }
-  } finally {
-    stack.endGroup();
-  }
+  });
   return able.length;
 }
 
@@ -146,8 +144,7 @@ export function removeComponentFrom(scene: OpenScene, targets: readonly { path: 
   const able = targets.filter((t) => whyNotRemovable(doc, t.path, t.info, countOf(t.node, t.info.type)) === null);
   if (able.length === 0) return 0;
   const type = shortName(able[0].info.type);
-  stack.beginGroup(able.length === 1 ? `Remove ${type}` : `Remove ${type} from ${able.length} nodes`);
-  try {
+  undoStep(stack, able.length === 1 ? `Remove ${type}` : `Remove ${type} from ${able.length} nodes`, () => {
     for (const { path, node, info } of able) {
       const [id, ...target] = path;
       if (!doc.isPrefabInstance(id)) {
@@ -160,9 +157,7 @@ export function removeComponentFrom(scene: OpenScene, targets: readonly { path: 
         stack.execute(new SetOverrides(id, `Remove ${type}`, next));
       }
     }
-  } finally {
-    stack.endGroup();
-  }
+  });
   return able.length;
 }
 
@@ -195,8 +190,7 @@ export function setComponentEnabled(scene: OpenScene, targets: readonly { path: 
   if (able.length === 0) return 0;
   const type = shortName(able[0].info.type);
   const label = `${enabled ? "Enable" : "Disable"} ${type}${able.length > 1 ? ` on ${able.length} nodes` : ""}`;
-  stack.beginGroup(label);
-  try {
+  undoStep(stack, label, () => {
     for (const { path, node, info } of able) {
       const [id, ...target] = path;
       const origin = originOf(doc, path, info, countOf(node, info.type))!;
@@ -218,9 +212,7 @@ export function setComponentEnabled(scene: OpenScene, targets: readonly { path: 
       }
       stack.execute(new SetOverrides(id, label, list));
     }
-  } finally {
-    stack.endGroup();
-  }
+  });
   return able.length;
 }
 

@@ -54,6 +54,7 @@ import { UIElementInspector } from "./UIElementInspector";
 import { openScript, scriptFor } from "../code/codeState";
 import { applyPrefabOverrides, createPrefabFrom, existingPaths, nodeHeader, openPrefabOf, prefabActions, renameNode, revertAllOverrides, revertNameAndActive, setNodesActive } from "../nodeEdits";
 import { currentProject, docVersion, openScene, scriptsVersion, selectedKeys, selectedUIElement, status, type OpenScene } from "../state";
+import { beginUndoStep, type UndoStep } from "../undoStep";
 import { componentHeaderActions, type ComponentHeaderActionContribution } from "../sdk/contributions";
 import { usePopover } from "./popover";
 
@@ -1110,32 +1111,49 @@ function NodeTags(props: { scene: OpenScene; paths: NodePath[] }) {
  * step. Shift drags 10× faster, Alt 10× slower.
  */
 function ScrubLabel(props: { name: string; title?: string; scene: OpenScene; value: number | null; onScrub: (value: number) => void }) {
-  const drag = useRef<{ x: number; start: number; total: number } | null>(null);
+  const drag = useRef<{ x: number; start: number; total: number; step: UndoStep; stopKeys: () => void } | null>(null);
   const { value, onScrub, scene } = props;
+  /** End the drag: keep what it did, or (Escape) put the value back. */
+  const finish = (keep: boolean) => {
+    const d = drag.current;
+    if (!d) return;
+    drag.current = null;
+    d.stopKeys();
+    if (keep) d.step.end();
+    else d.step.cancel();
+  };
+  useEffect(() => () => finish(true), []);
   return (
     <label
       title={props.title ?? props.name}
       class={value !== null ? "scrub" : undefined}
       onPointerDown={(e) => {
         if (value === null || e.button !== 0) return;
-        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-        drag.current = { x: e.clientX, start: value, total: 0 };
-        scene.stack.beginGroup(`Drag ${props.name}`);
+        const label = e.currentTarget as HTMLElement;
+        label.setPointerCapture(e.pointerId);
+        // Escape during the drag puts the value back, as it does for a scene-view drag (ADR 0231).
+        const view = label.ownerDocument.defaultView ?? window;
+        const onKey = (k: KeyboardEvent) => {
+          if (k.key !== "Escape") return;
+          k.preventDefault();
+          k.stopImmediatePropagation();
+          finish(false);
+        };
+        view.addEventListener("keydown", onKey, true);
+        finish(true);
+        drag.current = { x: e.clientX, start: value, total: 0, step: beginUndoStep(scene.stack, `Drag ${props.name}`), stopKeys: () => view.removeEventListener("keydown", onKey, true) };
       }}
       onPointerMove={(e) => {
         const d = drag.current;
-        if (!d) return;
+        if (!d?.step.open) return;
         const dx = e.clientX - d.x;
         if (dx === 0) return;
         d.x = e.clientX;
         d.total += dx * 0.05 * (e.shiftKey ? 10 : e.altKey ? 0.1 : 1);
         onScrub(Math.round((d.start + d.total) * 1000) / 1000);
       }}
-      onPointerUp={() => {
-        if (!drag.current) return;
-        drag.current = null;
-        scene.stack.endGroup();
-      }}
+      onPointerUp={() => finish(true)}
+      onPointerCancel={() => finish(true)}
     >
       {humanize(props.name)}
     </label>

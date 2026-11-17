@@ -131,7 +131,8 @@ const orFlags = (a: NavDebugFlags, b: NavDebugFlags): NavDebugFlags => ({
 });
 
 /** A provider drawing `world`'s live navigation runtime; empty while the World has none. */
-function runtimeNavProvider(world: World, settings: () => NavDebugFlags = () => cleanNavOverlay(navOverlaySettings.peek())): () => EditorOverlay {
+function runtimeNavProvider(world: World): () => EditorOverlay {
+  const settings = (): NavDebugFlags => cleanNavOverlay(navOverlaySettings.peek());
   let overlay: RuntimeNavOverlay | null = null;
   let forRuntime: unknown = null;
   return () => {
@@ -175,18 +176,6 @@ function installNavGizmo(view: Pick<ViewportToolContext, "overlay">): () => void
     for (const w of playWorlds) addEditorOverlay(w, PLAY_ID, runtimeNavProvider(w), "navigation");
   });
 
-  // End-to-end test hook: what the scene view and the play Worlds draw.
-  if (typeof window !== "undefined") {
-    Object.assign(window, {
-      navOverlay: () => ({
-        ...bake.stats,
-        play: playWorlds.map((w) => {
-          const o = runtimeNavProvider(w, () => cleanNavOverlay(navOverlaySettings.peek()))();
-          return (o.segments ?? []).reduce((n, s) => n + s.positions.length / 6, 0);
-        }),
-      }),
-    });
-  }
   return () => {
     stopPlay();
     for (const w of playWorlds) removeEditorOverlay(w, PLAY_ID);

@@ -1,23 +1,23 @@
 import { expect, test, type Page } from "./fixtures";
 import { installFakeFolders, nextFolder } from "./fakeFolders";
+import { captureView, pixelsChanged, type ViewCapture } from "./viewCapture";
 
 // Navigation debug drawing (ADR 0065): a scene with a NavChunk over a floor is baked with the
 // chunk's Bake button; the scene view's Nav menu then draws the baked navmesh as overlay segments.
-// The test hook `window.navOverlay()` (src/plugins/navigation/editor/navGizmo.ts) reports what the scene view draws.
+// What the scene view draws is read from captures of it, compared with one taken before the toggle.
 //
-// NOT YET RUN. It needs the engine.NavChunk component and its Inspector "Bake" button (the editor
-// bake wave). Until the coordinator adds the navigation sample, the scene is built here as a fake
-// folder; the test skips itself when the component or button isn't there yet.
+// The scene is built here as a fake folder; the test skips itself when the Bake button isn't there.
 
 test.describe.configure({ timeout: 90_000 });
 
 type Hooks = {
   engine?: { world: { time: { frameCount: number } } };
-  navOverlay?: () => { bakes: number; loaded: number; segments: number; byColor: Record<number, number>; failed: string[] };
 };
 
 const waitForEngine = (page: Page) => page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
-const overlay = (page: Page) => page.evaluate(() => (window as unknown as Hooks).navOverlay?.() ?? null);
+const sceneView = (page: Page) => captureView(page.locator(".panel.scene #viewport canvas"));
+/** How many of the scene view's pixels changed since `before`. */
+const changedSince = async (page: Page, before: ViewCapture) => pixelsChanged(before, await sceneView(page));
 
 /** A floor (a 20 m box mesh renderer) and a NavChunk covering it. */
 const SCENE = {
@@ -44,24 +44,22 @@ test("Baking a NavChunk and toggling Navmesh draws its polygon outlines in the s
   await page.getByRole("dialog", { name: "Start" }).getByRole("button", { name: "Open Project…" }).click();
   await waitForEngine(page);
 
-  // Select the chunk and bake it (the Inspector's button belongs to the editor bake wave).
+  // Select the chunk and bake it.
   await page.locator(".tree .row", { hasText: "Nav Chunk" }).first().click();
   const bake = page.getByRole("button", { name: /^Bake/ });
-  test.skip((await bake.count()) === 0, "engine.NavChunk's Bake button isn't in the Inspector yet");
+  test.skip((await bake.count()) === 0, "engine.NavChunk's Bake button isn't in the Inspector");
   await bake.first().click();
   await expect(page.locator(".status-bar")).not.toContainText(/fail|error/i, { timeout: 60_000 });
 
-  // Navmesh off: nothing drawn. On: outlines (and the colour set by the theme) appear.
-  expect((await overlay(page))?.segments ?? 0).toBe(0);
+  // Navmesh off: the view as it was. On: the baked polygons' outlines are drawn over it.
   await page.getByRole("button", { name: "Navigation overlay" }).click();
+  const before = await sceneView(page);
   await page.getByRole("checkbox", { name: "Navmesh" }).check();
-  await expect.poll(async () => (await overlay(page))?.segments ?? 0, { timeout: 30_000 }).toBeGreaterThan(10);
-  const drawn = await overlay(page);
-  expect(drawn?.bakes).toBe(1);
-  expect(drawn?.failed).toEqual([]);
+  await expect.poll(() => changedSince(page, before), { timeout: 30_000 }).toBeGreaterThan(300);
+  await expect(page.locator(".status-bar")).not.toContainText(/fail|error/i);
 
-  // Links add their own colours; turning Navmesh off again clears the outlines.
+  // Turning Navmesh off again clears the outlines.
   await page.getByRole("checkbox", { name: "Navmesh" }).uncheck();
-  await expect.poll(async () => (await overlay(page))?.segments ?? 0).toBe(0);
+  await expect.poll(() => changedSince(page, before)).toBeLessThan(60);
   expect(errors).toEqual([]);
 });

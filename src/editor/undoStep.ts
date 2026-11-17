@@ -1,7 +1,8 @@
 // Long-running undo steps (ADR 0231): a step that stays open across events (a drag, a pointer gesture on an
 // Inspector control, an edit that waits on file writes) and closes once, recording everything done meanwhile as
-// one step, or is cancelled, putting the document back. The editor SDK's `editor.scene.beginEdit` and the viewport
-// tools' gestures open them; nothing outside the shell calls `CommandStack.beginGroup` itself.
+// one step, or is cancelled, putting the document back. The editor SDK's `editor.scene.edit`/`beginEdit`, the viewport
+// tools' gestures and the shell's own edits (the transform gizmo, Inspector scrubs, UI handle drags, every multi-command
+// edit) open them; only this module calls `CommandStack.beginGroup` itself.
 import type { CommandStack } from "./document";
 
 /** An open undo step. Closing it twice, or cancelling a closed one, does nothing. */
@@ -35,11 +36,11 @@ export function beginUndoStep(stack: CommandStack, label: string): UndoStep {
   };
 }
 
-/** Run `fn` as one undo step named `label` on `stack`; the step closes even when `fn` throws. */
-export function undoStep(stack: CommandStack, label: string, fn: () => void): void {
+/** Run `fn` as one undo step named `label` on `stack` and return what it returns; the step closes even when `fn` throws. */
+export function undoStep<T>(stack: CommandStack, label: string, fn: () => T): T {
   const step = beginUndoStep(stack, label);
   try {
-    fn();
+    return fn();
   } finally {
     step.end();
   }

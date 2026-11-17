@@ -8,6 +8,7 @@ import { openScene, playState, select, selectedKeys, status } from "./state";
 import { confirmInEditor } from "./ui/ConfirmDialog";
 import { deleteUIElement } from "./uiDocumentEdits";
 import { selectedUIRef } from "./uiDocuments";
+import { undoStep } from "./undoStep";
 
 /** Delete the selected nodes (and their children) as one undo step. Returns true if they were deleted. */
 export async function deleteSelected(): Promise<boolean> {
@@ -18,12 +19,9 @@ export async function deleteSelected(): Promise<boolean> {
   const keys = topmostKeys(scene.doc, selectedKeys.value); // children go with their parents
   if (keys.length > 0 && keys.every(isInsidePrefab)) {
     // Nodes inside prefab instances go as `removeNode` overrides (ADR 0086).
-    scene.stack.beginGroup(keys.length === 1 ? "Remove node" : `Remove ${keys.length} nodes`);
-    try {
+    undoStep(scene.stack, keys.length === 1 ? "Remove node" : `Remove ${keys.length} nodes`, () => {
       for (const key of keys) removeInnerNode(scene, key.split("/"));
-    } finally {
-      scene.stack.endGroup();
-    }
+    });
     select([]);
     status.value = { kind: "info", text: `Removed ${keys.length === 1 ? "the node" : `${keys.length} nodes`} from the prefab instance. Undo restores them.` };
     return true;

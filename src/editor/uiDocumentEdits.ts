@@ -40,6 +40,7 @@ import {
   type SourceElement,
 } from "./uiEdit/markupText";
 import { formatValue, kebab, resolveUIElement, selectUIElement, type UIElementRef } from "./uiDocuments";
+import { beginUndoStep, type UndoStep } from "./undoStep";
 
 // --- Where an element is written ------------------------------------------------------------------
 
@@ -155,7 +156,6 @@ function commit(scene: OpenScene, label: string, build: (edits: FileEdits) => vo
     build(edits);
     const writes = edits.writes;
     if (writes.length === 0) return false;
-    if (gesture) for (const w of writes) if (!gesture.before.has(w.path)) gesture.before.set(w.path, host.read(w.path));
     scene.stack.execute(new WriteFiles(label, writes));
     return true;
   } catch (err) {
@@ -183,19 +183,18 @@ function editableElement(scene: OpenScene, ref: UIElementRef): UIDocumentElement
 export function beginUIEdit(label: string): boolean {
   const scene = editableScene();
   if (!scene) return false;
-  scene.stack.beginGroup(label);
-  gesture = { scene, before: new Map() };
+  gesture?.end();
+  gesture = beginUndoStep(scene.stack, label);
   return true;
 }
 
-/** The gesture in progress: the files it wrote, as they were before it. */
-let gesture: { scene: OpenScene; before: Map<string, string | null> } | null = null;
+/** The gesture in progress: its undo step (ADR 0231). */
+let gesture: UndoStep | null = null;
 
 /** End the gesture `beginUIEdit` started. */
 export function endUIEdit(): void {
-  const scene = gesture?.scene ?? openScene.peek();
+  gesture?.end();
   gesture = null;
-  scene?.stack.endGroup();
 }
 
 /**
@@ -203,16 +202,8 @@ export function endUIEdit(): void {
  * handle drag). The step then changed nothing, so nothing is recorded.
  */
 export function cancelUIEdit(): void {
-  const g = gesture;
+  gesture?.cancel();
   gesture = null;
-  if (!g) return;
-  const host = g.scene.stack.files;
-  const writes = host ? [...g.before].filter(([path, text]) => host.read(path) !== text).map(([path, text]) => ({ path, text })) : [];
-  try {
-    if (writes.length) g.scene.stack.execute(new WriteFiles("Cancel", writes));
-  } finally {
-    g.scene.stack.endGroup();
-  }
 }
 
 // --- Names and paths ------------------------------------------------------------------------------

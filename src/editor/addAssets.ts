@@ -9,6 +9,7 @@ import { sceneNodesAt } from "./assetKindLookup";
 import type { NodeEntry } from "./document";
 import { errorStatus, logMessage } from "./messages";
 import { openScene, playState, type OpenScene, type Status } from "./state";
+import { undoStep } from "./undoStep";
 
 type Vec3 = readonly [number, number, number];
 
@@ -77,13 +78,10 @@ export async function addAssets(paths: readonly string[], target: AssetAddTarget
   const after = whyNotAddAssets(paths, scene);
   if (after) return refuse(after);
   const added: { path: string; entries: readonly NodeEntry[] }[] = [];
-  scene.stack.beginGroup(`Add ${name}`);
   try {
-    paths.forEach((path, i) => added.push({ path, entries: addAssetEntries(scene, path, optionsFor(scene, target, i)) }));
+    undoStep(scene.stack, `Add ${name}`, () => paths.forEach((path, i) => added.push({ path, entries: addAssetEntries(scene, path, optionsFor(scene, target, i)) })));
   } catch (err) {
     return { ids: added.map((a) => a.entries[0]!.id), message: errorStatus(`Couldn't add ${name}`, err) };
-  } finally {
-    scene.stack.endGroup();
   }
   for (const { path, entries } of added) {
     const note = sceneNodesAt(path)?.note?.(path, entries);

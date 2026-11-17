@@ -9,6 +9,7 @@
 // (so it adds no undo step).
 import { readClipboard, type ClipboardPayload } from "../clipboard";
 import type { NoteData } from "./canvas";
+import { uniqueName } from "../../engine/core/uniqueName";
 
 /** A position or size on the canvas, in graph units. */
 export type GraphVec = [number, number];
@@ -124,13 +125,7 @@ export const DUPLICATE_OFFSET: GraphVec = [40, 40];
 /** The smallest a note can be resized to. */
 const NOTE_MIN: GraphVec = [80, 40];
 
-/** `base` if `taken` doesn't hold it, else the first free `base<sep>2`, `base<sep>3`…: `Color 2`, `KEYWORD_2`, `Out2`. */
-export function freeName(base: string, taken: (name: string) => boolean, sep = " "): string {
-  if (!taken(base)) return base;
-  for (let i = 2; ; i++) if (!taken(`${base}${sep}${i}`)) return `${base}${sep}${i}`;
-}
-
-/** The first of `prefix1`, `prefix2`… that `taken` doesn't hold. */
+/** The first of `prefix1`, `prefix2`… that `taken` doesn't hold (never the bare prefix, unlike `uniqueName`). */
 export function freeId(prefix: string, taken: (id: string) => boolean): string {
   for (let i = 1; ; i++) if (!taken(`${prefix}${i}`)) return `${prefix}${i}`;
 }
@@ -183,7 +178,7 @@ export function graphDocument<G extends { nodes: N[]; properties: P[] }, N exten
     // --- properties -------------------------------------------------------------------------------------
 
     addProperty(graph, type) {
-      const name = freeName(kind.property.label(type), (n) => graph.properties.some((p) => p.name === n));
+      const name = uniqueName(kind.property.label(type), graph.properties.map((p) => p.name)); // `Color`, `Color 2`…
       const g = clone(graph);
       g.properties.push(kind.property.create(name, type));
       return { graph: g, name };

@@ -24,7 +24,8 @@ import {
   parseShaderGraph,
 } from "../../../../engine/scene/shaderGraph";
 import { KEYWORD_NAME, type ShaderKeyword } from "../../../../engine/scene/shaderKeywords";
-import { freeId, freeName, graphDocument } from "../../../../editor/sdk";
+import { freeId, graphDocument } from "../../../../editor/sdk";
+import { uniqueName, type Numbering } from "../../../../engine/core/uniqueName";
 
 const clone = (g: ShaderGraph): ShaderGraph => structuredClone(g);
 
@@ -184,7 +185,9 @@ export function setPropertyType(graph: ShaderGraph, name: string, type: GraphPro
 // --- keywords (ADR 0106) ----------------------------------------------------------------------------
 
 /** A keyword name the graph doesn't use: `KEYWORD`, `KEYWORD_2`… */
-const freeKeywordName = (graph: ShaderGraph, base = "KEYWORD"): string => freeName(base, (n) => (graph.keywords ?? []).some((k) => k.name === n), "_");
+/** `KEYWORD`, `KEYWORD_2`…: a keyword stays a GLSL-style identifier. */
+const UNDERSCORED: Numbering = { format: (stem, n) => `${stem}_${n}`, first: 2 };
+const freeKeywordName = (graph: ShaderGraph, base = "KEYWORD"): string => uniqueName(base, (graph.keywords ?? []).map((k) => k.name), UNDERSCORED);
 
 /** Add an on/off keyword. */
 export function addKeyword(graph: ShaderGraph): { graph: ShaderGraph; name: string } {
@@ -352,7 +355,9 @@ export const shaderGraphEdits = graphDocument<ShaderGraph, GraphNode, GraphPrope
 // --- sub-graph outputs and custom functions -----------------------------------------------------------
 
 /** A port name not in `names`: `Out`, `Out2`… */
-export const freePortName = (names: readonly string[], base: string): string => freeName(base, (n) => names.includes(n), "");
+/** `Out`, `Out2`…: a port name stays an identifier. */
+const JOINED: Numbering = { format: (stem, n) => `${stem}${n}`, first: 2 };
+export const freePortName = (names: readonly string[], base: string): string => uniqueName(base, names, JOINED);
 
 /** Why `name` can't name a port among `others`, or null. */
 export function whyNotPortName(name: string, others: readonly string[]): string | null {

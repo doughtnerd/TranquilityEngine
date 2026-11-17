@@ -12,7 +12,6 @@ test.describe.configure({ timeout: 90_000 });
 type Hooks = {
   engine?: { world: { time: { frameCount: number } } };
   thumbnails?: { renders(): number; reset(): void; where(): string | null };
-  assetAudio?: { state(): { path: string; paused: boolean; time: number } | null };
 };
 
 function trackErrors(page: Page): string[] {
@@ -70,15 +69,17 @@ test("audio tiles show a waveform and play; the Inspector's player stops", { tag
   await expect(tile(page, "town.mp3").locator("svg.asset-waveform rect").first()).toBeAttached({ timeout: 30_000 });
   await tile(page, "town.mp3").hover();
   await tile(page, "town.mp3").getByRole("button", { name: /^Play town/ }).click();
-  await expect.poll(() => page.evaluate(() => (window as unknown as Hooks).assetAudio!.state()?.path ?? null)).toBe("music/town.mp3");
 
-  // The Inspector shows the clip's player; Stop forgets the clip.
+  // The Inspector shows the clip's player, whose Stop is enabled while the clip is the one loaded (Auto-play is off,
+  // so selecting it didn't start it); Stop forgets the clip.
   await tile(page, "town.mp3").click();
   const player = page.getByLabel("Audio preview");
   await expect(player).toBeVisible();
   await expect(player).toContainText(/Hz/, { timeout: 15_000 });
-  await player.getByRole("button", { name: "Stop" }).click();
-  await expect.poll(() => page.evaluate(() => (window as unknown as Hooks).assetAudio!.state())).toBeNull();
+  const stop = player.getByRole("button", { name: "Stop" });
+  await expect(stop).toBeEnabled();
+  await stop.click();
+  await expect(stop).toBeDisabled();
   // Autoplay may be blocked in headless browsers; a failed play() isn't an error.
   expect(errors.filter((e) => !/play\(\)|NotAllowedError/.test(e))).toEqual([]);
 });

@@ -434,5 +434,8 @@ describe("myco-server's command line", () => {
     const bad = spawnSync(process.execPath, [cli, join(FIXTURE, "missing")], { encoding: "utf8" });
     expect(bad.status).toBe(1);
     expect(bad.stderr).toMatch(/myco-server: There's no folder/);
-  }, 20_000);
+    // Each start loads about 260 engine files through tsLoader.mjs. Its compile cache makes that about half a second;
+    // the first start without it (a fresh checkout) compiles them all: about 4 s on its own, several times that beside
+    // the rest of `npm test`.
+  }, 60_000);
 });
