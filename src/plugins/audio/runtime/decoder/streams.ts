@@ -189,8 +189,6 @@ export class StreamDecoder {
   /** The one fork every stream shares (opens that wait together must land on the same instance). */
   private forking: Promise<DecoderWasm> | null = null;
   private seq = 0;
-  /** Chunks posted, buffers allocated (not from the pool), credits received: for tests. */
-  readonly stats = { chunks: 0, allocated: 0, credits: 0 };
 
   constructor(private readonly host: StreamHost) {}
 
@@ -217,11 +215,6 @@ export class StreamDecoder {
         this.changeLoop(request);
         return;
     }
-  }
-
-  /** Open streams (for tests). */
-  get openCount(): number {
-    return this.streams.size;
   }
 
   /** The port to the worklet; a new one replaces the old (whose streams main closes). */
@@ -554,7 +547,6 @@ export class StreamDecoder {
       if (pool && pool.length < POOL_MAX) pool.push(b);
     }
     if (!credit) return;
-    this.stats.credits++;
     const s = this.streams.get(credit.streamId);
     if (s) this.credit(s, credit.epoch, credit.consumedFrames);
   }
@@ -630,7 +622,6 @@ export class StreamDecoder {
         new Float32Array(buffer, STREAM_CHUNK_FIXED_END, n * ch).set(w.f32(s.scratch, n * fc));
       }
       port.postMessage(buffer, [buffer]);
-      this.stats.chunks++;
       s.credit.sent(n);
       s.sent += n;
       if (flags & STREAM_CHUNK_FLAGS_LAST) {
@@ -656,7 +647,6 @@ export class StreamDecoder {
   private take(bytes: number): ArrayBuffer {
     const b = this.pool.get(bytes)?.pop();
     if (b) return b;
-    this.stats.allocated++;
     return new ArrayBuffer(bytes);
   }
 

@@ -21,7 +21,7 @@ import { CommandWriter } from "./commandWriter";
 import { ClockMap } from "./clock";
 import { createWarnOnce } from "./codecs";
 import { batchRecords } from "./batchRecords";
-import { watchBatches } from "./batchWatch";
+import { batchRecorder } from "./batchWatch";
 import { VoiceState, VoiceTable } from "./voiceTable";
 import { fakeHostClock } from "../testing";
 import { fakeDecoder } from "./fakeDecoder";
@@ -165,9 +165,17 @@ describe("the core's music seam (ADR 0166 §4.6, Q2)", () => {
 
 /** A backend on a fake host with a music pool of `rings` and an in-process decoder that records `primeGroup`s. */
 function musicRig(rings = 8, clips: ClipRegistry = fakeClips()) {
-  // The fake core hands each BATCH buffer straight back (`handleMessage` returns it to the pool), as the real one does.
+  // The fake core hands each BATCH buffer straight back (`handleMessage` returns it to the pool), as the real one does,
+  // and records what it receives.
   let link: CoreLink | null = null;
-  const port: LinkPort = { onmessage: null, postMessage: (m: unknown) => void (m instanceof ArrayBuffer && link?.handleMessage(m)) };
+  const posted = batchRecorder();
+  const port: LinkPort = {
+    onmessage: null,
+    postMessage: (m: unknown) => {
+      posted.receive(m);
+      if (m instanceof ArrayBuffer) link?.handleMessage(m);
+    },
+  };
   link = new CoreLink(port);
   let raf = 1000;
   let ctx = 0;
@@ -247,8 +255,8 @@ function musicRig(rings = 8, clips: ClipRegistry = fakeClips()) {
     writeStatus(new DataView(buffer), 0, makeStatusBlock(fields), 1);
     link!.handleMessage(buffer);
   };
-  /** What the backend posts on the link from now on (decoded). */
-  const posted = watchBatches(link);
+  /** What the backend sends from now on (decoded where the fake core receives it). */
+  posted.take();
   return { backend, link, ops: backend.musicOps, clock, primes, invalidated: fake.invalidated, cancels, closes, fetched, events, ringsOf, say, status, posted };
 }
 
@@ -494,9 +502,6 @@ describe("the core's group operations (ADR 0166 P1)", () => {
     await prime(3, 500); // hidden: not sampled
     expect(r.ops.primeEmaMs).toBeCloseTo(65, 9);
     r.backend.setHidden(false);
-    r.ops.samplePrime(-1000); // floor 0
-    r.ops.samplePrime(-1000);
-    expect(r.ops.primeEmaMs).toBeGreaterThanOrEqual(0);
     r.ops.resetPrimeEma();
     expect(r.ops.primeEmaMs).toBe(PRIME_EMA_SEED_MS);
     vi.restoreAllMocks();

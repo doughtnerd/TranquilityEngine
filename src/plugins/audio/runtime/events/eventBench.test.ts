@@ -9,8 +9,8 @@
 // (`audio-bench mode=scene name=automation-probe`, `npm run check:audio-metered`).
 //
 // Timings are never gated (a shared machine makes them noise). The cases below always run, at a small size, and gate
-// only on deterministic quantities: how many batches and bytes main sends per operation, and that a steady frame sends
-// nothing and calls the sink zero times. With `AUDIO_BENCH=1` they run at full size and print median / p99 timings and
+// only on deterministic quantities: how many batches main sends per operation and how many automation records they
+// carry (read off the loopback's watch, where the core receives them), and that a steady frame sends nothing. With `AUDIO_BENCH=1` they run at full size and print median / p99 timings and
 // approximate allocations (`AUDIO_BENCH=1 npx vitest run src/plugins/audio/runtime/events/eventBench.test.ts`;
 // `AUDIO_BENCH_ITERS` overrides the iteration count).
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -20,6 +20,7 @@ import { setAudioBackend, type AudioBackend } from "../backend";
 import { Audio } from "../index";
 import { events } from "./eventRuntime";
 import { CoreBackend } from "../core/coreBackend";
+import { Op } from "../wire.generated";
 import { makeFakeBackend, endAudioSession, loopbackAudio, closeLoopbackAudio } from "../testing";
 
 const FULL = process.env.AUDIO_BENCH === "1";
@@ -61,9 +62,9 @@ interface Rig {
   name: string;
   /** One frame of the audio system, as the engine's per-frame step does (untimed). */
   frame(): Promise<void>;
-  /** Batches and bytes main has posted to the core so far (the fake backend sends none). */
-  sent(): { batches: number; bytes: number };
-  /** The sink calls so far (the core's `automation` methods, or the fake voices' recorded events). */
+  /** Batches the core has received from main so far (the fake backend sends none). */
+  sent(): { batches: number };
+  /** The sink's work so far: on the core, the automation records it received (AUTOMATE, PARAM, CURVES, BUS_AUTOMATE, SET_LOOP); on the fake, its voices' recorded events. */
   sinkCalls(): number;
   backend: AudioBackend;
   /** Times the backend's own per-frame step. */
@@ -101,7 +102,7 @@ async function fakeRig(): Promise<Rig> {
     name: "fake",
     backend: fake,
     async frame() { globalMixer.update(0.0107); fake.update?.(0.0107); events().update(0.0107); },
-    sent: () => ({ batches: 0, bytes: 0 }),
+    sent: () => ({ batches: 0 }),
     sinkCalls: calls,
     backendUpdate: () => fake.update?.(0.0107),
     evaluations: () => 0,
@@ -117,18 +118,18 @@ async function coreRig(): Promise<Rig | null> {
     decode: () => ({ channelData: [new Float32Array(CLIP_FRAMES).fill(0.25)] }),
   });
   if (!loop) return null;
-  const { backend, link } = loop;
+  const { backend } = loop;
   closers.push(() => backend.dispose?.());
+  // What the core receives (ADR 0223: the loopback's watch, never a wrapped link or sink).
+  const received = loop.watch();
   let batches = 0;
-  let bytes = 0;
-  const post = link.post.bind(link);
-  link.post = (buffer: ArrayBuffer) => { batches++; bytes += buffer.byteLength; post(buffer); };
   let sink = 0;
-  const auto = backend.automation as unknown as Record<string, (...a: unknown[]) => unknown>;
-  for (const key of ["bindVoice", "bindBus", "setParam", "defineCurve", "setLoop"]) {
-    const orig = auto[key]!.bind(backend.automation);
-    auto[key] = (...a: unknown[]) => { sink++; return orig(...a); };
-  }
+  const count = () => {
+    for (const batch of received.take()) {
+      batches++;
+      for (const r of batch.records) if (AUTOMATION_OPS.has(r.opcode)) sink++;
+    }
+  };
   setAudioBackend(backend);
   endAudioSession();
   return {
@@ -141,8 +142,8 @@ async function coreRig(): Promise<Rig | null> {
       loop.render(4);
       for (let k = 0; k < 4; k++) await Promise.resolve();
     },
-    sent: () => ({ batches, bytes }),
-    sinkCalls: () => sink,
+    sent: () => (count(), { batches }),
+    sinkCalls: () => (count(), sink),
     backendUpdate: () => backend.update(0.0107),
     evaluations: () => backend.automation.stats.evaluations,
   };
@@ -185,6 +186,9 @@ async function allocPerPlay(r: Rig, op: () => void, batches = 40): Promise<numbe
 // results); at full size (`AUDIO_BENCH=1`) 3.0 KB and 7.3 KB. The ceilings sit between.
 const CORE_EVALUATIONS_PER_PLAY: Record<string, number> = { rand4: 1, layer3: 3 };
 const CORE_BYTES_PER_PLAY: Record<string, number> = { rand4: 6_000, layer3: 10_500 };
+
+/** The records the core's automation sink writes (`CoreAutomation` through the command writer). */
+const AUTOMATION_OPS: ReadonlySet<number> = new Set([Op.AUTOMATE, Op.PARAM, Op.CURVES, Op.BUS_AUTOMATE, Op.SET_LOOP]);
 
 const rigs: [string, () => Promise<Rig | null>][] = [["core (loopback)", coreRig], ["fake", fakeRig]];
 
@@ -277,7 +281,7 @@ describe.each(rigs)("event cost on main: %s backend", (label, make) => {
       const playSink = r.sinkCalls() - k0;
       expect(h).toBeTruthy();
       if (label.startsWith("core")) {
-        // One batch per frame however many bindings (not one per binding); the sink gets one PARAM for the local
+        // One batch per frame however many bindings (not one per binding); the core gets one PARAM for the local
         // parameter and one AUTOMATE per clip voice (rand4: 1 voice; layer3: 3, each with both its bindings in one call).
         expect(playBatches).toBeLessThanOrEqual(2);
         expect(playSink).toBe(name === "rand4" ? 2 : 4);
@@ -285,7 +289,7 @@ describe.each(rigs)("event cost on main: %s backend", (label, make) => {
       }
       for (let i = 0; i < ITERS; i++) { playOnce(true, i); if (i % 16 === 15) await r.frame(); }
       const st = stats(times);
-      let line = `play ${name}: ${fmt(st)}; ${playBatches} batch and ${playSink} sink calls per play (core: the writer's staging buffer is posted whole, so bytes say nothing)`;
+      let line = `play ${name}: ${fmt(st)}; ${playBatches} batch and ${playSink} sink records per play`;
       const playStop = () => { Audio.play(path)?.stop(0); };
       for (let w = 0; w < (FULL ? 0 : 1_500); w++) { playStop(); if (w % 16 === 15) await r.frame(); } // the JIT settles (an unoptimised path allocates more)
       const a = await allocPerPlay(r, playStop, FULL ? 200 : 40);
@@ -320,7 +324,7 @@ describe.each(rigs)("event cost on main: %s backend", (label, make) => {
       // Deterministic: on the core one PARAM per call (the curves are evaluated there); on the fallback none (it
       // evaluates once per frame in `update`, and a steady value costs no voice call).
       if (label.startsWith("core")) expect(calls).toBe(WARMUP + ITERS);
-      let line = `setParameter ${name} (instance): ${fmt(st)}; ${(calls / (WARMUP + ITERS)).toFixed(2)} sink calls per call, ${s1.batches - s0.batches} batches over ${Math.round((WARMUP + ITERS) / 16)} frames`;
+      let line = `setParameter ${name} (instance): ${fmt(st)}; ${(calls / (WARMUP + ITERS)).toFixed(2)} sink records per call, ${s1.batches - s0.batches} batches over ${Math.round((WARMUP + ITERS) / 16)} frames`;
       if (FULL) line += `; ~${allocPerOp(() => h.setParameter("Speed", Math.random())).toFixed(0)} B heap per call`;
       report.push(line);
       h.stop(0);
@@ -376,17 +380,14 @@ describe.each(rigs)("event cost on main: %s backend", (label, make) => {
       await r.frame();
     }
     const s1 = r.sent();
-    // The deterministic gate: a steady frame posts nothing to the core and makes no sink call (the fake backend's voices
-    // record no event either).
+    // The deterministic gate: a steady frame sends the core nothing and no automation (the fake backend's voices record
+    // no event either).
     expect(r.sinkCalls() - c0).toBe(0);
-    if (label.startsWith("core")) {
-      expect(s1.bytes - s0.bytes).toBe(0);
-      expect(s1.batches - s0.batches).toBe(0);
-    }
+    if (label.startsWith("core")) expect(s1.batches - s0.batches).toBe(0);
     expect(handles.filter((h) => h.playing).length).toBe(STEADY);
     if (FULL) {
       console.log(
-        `[eventBench] ${label}, ${STEADY} steady instances, ${FRAMES} frames (pre-E3.5-fix scan):\n  events().update: ${fmt(stats(evT))}\n  backend.update:  ${fmt(stats(beT))}\n  posted per ${FRAMES} frames: ${s1.batches - s0.batches} batches, ${s1.bytes - s0.bytes} B; sink calls ${r.sinkCalls() - c0}`,
+        `[eventBench] ${label}, ${STEADY} steady instances, ${FRAMES} frames (pre-E3.5-fix scan):\n  events().update: ${fmt(stats(evT))}\n  backend.update:  ${fmt(stats(beT))}\n  received per ${FRAMES} frames: ${s1.batches - s0.batches} batches; automation records ${r.sinkCalls() - c0}`,
       );
     }
     for (const h of handles) h.stop(0); keeper?.stop(0);

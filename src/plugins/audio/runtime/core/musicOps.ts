@@ -72,6 +72,7 @@ import type { StreamReply } from "../decoder/decoderClient";
 import { MUSIC_RINGS_PRESETS } from "../../../../engine/audio/settings";
 import { groupAbandoned, recoverAbandoned, recoverGroups } from "../music/background";
 import { liveRun } from "../music/segmentRun";
+import { asymmetricEmaStep } from "./asymmetricEma";
 
 /** Ê's seed on a new context, milliseconds (architecture §4.1). */
 const PRIME_EMA_SEED_MS = 40;
@@ -275,13 +276,6 @@ export class CoreMusicOps implements MusicBackend {
   /** A new context (P9 calls it on a rebuild): Ê goes back to its seed. */
   resetPrimeEma(): void {
     this.ema = PRIME_EMA_SEED_MS;
-  }
-
-  /** @internal One Ê sample, milliseconds (exposed for tests of the estimator's gains). */
-  samplePrime(ms: number): void {
-    if (!Number.isFinite(ms)) return;
-    const gain = ms > this.ema ? PRIME_EMA_UP : PRIME_EMA_DOWN;
-    this.ema = Math.max(0, this.ema + gain * (ms - this.ema));
   }
 
   // --- MusicBackend (P1) ---
@@ -861,7 +855,8 @@ export class CoreMusicOps implements MusicBackend {
     for (const g of this.groups.values()) {
       if (g.state !== "priming" || g.sampled || !g.members.every((m) => m.primed)) continue;
       g.sampled = true;
-      if (!hidden) this.samplePrime(performance.now() - g.postedMs);
+      // One Ê sample, milliseconds.
+      if (!hidden) this.ema = asymmetricEmaStep(this.ema, performance.now() - g.postedMs, PRIME_EMA_UP, PRIME_EMA_DOWN);
     }
   }
 

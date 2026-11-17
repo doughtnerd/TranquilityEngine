@@ -74,11 +74,6 @@ export class MusicGroups {
     }
   }
 
-  /** Live groups (for tests). */
-  get groupCount(): number {
-    return this.groups.size;
-  }
-
   /** The stream ids open in `group`, in open order (for tests and D1b). */
   membersOf(group: number): number[] {
     return [...(this.groups.get(group)?.members.keys() ?? [])];

@@ -1,6 +1,6 @@
 # 0221. The audio core is assembled in one place, and the loopback tests use that assembly
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0223 (the loopback serves `streamPort`; link patches removed)
 - **Date:** 2026-11-17
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

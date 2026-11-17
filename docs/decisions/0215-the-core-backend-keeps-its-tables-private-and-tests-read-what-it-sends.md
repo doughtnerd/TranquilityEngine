@@ -1,6 +1,6 @@
 # 0215. The core backend keeps its tables private, and tests read what it sends
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0223 (`core/batchWatch.ts` no longer wraps a link's `post`)
 - **Date:** 2026-11-16
 - **Deciders:** Chris Carlson
 - **Supersedes:** — (amends 0171, 0176, 0179)

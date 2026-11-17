@@ -9,23 +9,12 @@
 // frame, for releases asked 5 to 6,000 frames before a seam, through a splice (a region shorter than the ring) and
 // without one (a region longer than the ring).
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { Mixer } from "../../../../engine/audio/mixer";
-import { defaultAudioSettings } from "../../../../engine/audio/settings";
-import hash from "../wasm/hash.json";
-import { createDecoderHandler } from "../decoder/handler";
-import { createDecoderClient, type WorkerLike } from "../decoder/decoderClient";
-import type { DecoderReply, StreamPortLike } from "../decoder/protocol";
 import { makeWav, signal } from "../decoder/testWav";
+import { closeLoopbackAudio } from "../testing";
 import { RATE, rig } from "../../testing/streamRig";
-import { createClipRegistry } from "./clipRegistry";
-import { AudioHost, presetFromSettings } from "./context";
-import { assembleCore } from "./assembly";
 import { CoreAutomation, type CoreAutomationDeps, type LoopRecord } from "./coreAutomation";
 import { VoiceFlag, VoiceState, VoiceTable } from "./voiceTable";
 import type { AudioVoice } from "../backend";
-import { Unlock, type UnlockContext } from "./unlock";
 
 const FILE_FRAMES = 2 * RATE;
 const want = (k: number) => signal(k, 0) / 32768;
@@ -42,7 +31,10 @@ function onsetOf(out: readonly number[]): number {
   return first - lead;
 }
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(async () => {
+  vi.restoreAllMocks();
+  await closeLoopbackAudio();
+});
 
 /**
  * Plays `music/s.wav` streamed, looping `start..end` seconds; steps until the release would be asked for `before`
@@ -87,7 +79,7 @@ async function releaseRun(start: number, end: number, pass: number, before: numb
     lateness: tailAt === undefined ? Number.NaN : tailAt - expected,
     ahead: expected - requested,
     playing: voice.playing,
-    underruns: r.loop.link.lastStatus!.underruns,
+    underruns: r.link.lastStatus!.underruns,
     starves: r.backend.streams.stats.starves,
   };
   r.backend.dispose();
@@ -111,7 +103,7 @@ describe("stream region loops on the loopback host (E4.4)", () => {
     for (let k = 0; k < n; k++) if (r.left[at + k] !== want(looped(k, 12_000, 24_000))) expect.fail(`stream frame ${k}: ${r.left[at + k]} vs file frame ${looped(k, 12_000, 24_000)}`);
     expect(voice.playing).toBe(true);
     expect(r.backend.streams.stats.starves).toBe(0);
-    expect(r.loop.link.lastStatus!.underruns).toBe(0);
+    expect(r.link.lastStatus!.underruns).toBe(0);
     r.backend.dispose();
   });
 
@@ -141,113 +133,51 @@ describe("stream region loops on the loopback host (E4.4)", () => {
     });
   }
 
-  it("a hard rebuild mid-loop reopens the stream inside its region, and it keeps looping", async () => {
-    const testing = await import("../testing");
-    const loop = await testing.createLoopbackHost({ preset: { ...testing.LOOPBACK_PRESET, limiterLookaheadMs: 0 } });
-    const context = {
-      state: "running",
-      sampleRate: RATE,
-      destination: {},
-      resume: () => Promise.resolve(),
-      close: () => Promise.resolve(),
-      addEventListener() {},
-      removeEventListener() {},
-    };
-    const node = Object.assign(new EventTarget(), { connect() {}, disconnect() {} }) as unknown as AudioWorkletNode;
-    const unlock = new Unlock({ target: new EventTarget(), context: context as unknown as UnlockContext });
-    const host = AudioHost._create({ context: context as unknown as AudioContext, node, link: loop.link, unlock, preset: { ...presetFromSettings(defaultAudioSettings()), limiterLookaheadMs: 0 }, respawn: () => loop.respawn() });
-    const link = loop.link;
-    const WASM = readFileSync(fileURLToPath(new URL("../wasm/myco_audio_decode.wasm", import.meta.url)));
-    const worker: WorkerLike = { onmessage: null, onerror: null, postMessage: (m) => void handler.handle(m), terminate() {} };
-    const handler = createDecoderHandler({ post: (reply: DecoderReply) => worker.onmessage?.({ data: reply }), expectedSourceHash: hash.sourceHash });
-    const decoder = createDecoderClient({ workerFactory: () => worker, wasmBytes: WASM.buffer.slice(WASM.byteOffset, WASM.byteOffset + WASM.byteLength) as ArrayBuffer });
-    const pumps: (() => void)[] = [];
-    const bytes = file();
-    const mixer = new Mixer(defaultAudioSettings());
-    // ADR 0221: the production assembly over this host.
-    const backend = assembleCore(host, {
-      recovery: { now: () => 0, warn: () => {} },
-      clips: createClipRegistry({ send: (m) => link.post(m), nextSeq: () => link.nextSeq(), fetchBytes: async () => new ArrayBuffer(8), clipFormat: 0 }),
-      clock: loop.clock,
-      mixer,
-      streams: {
-        decoder: () => decoder,
-        channel: () => {
-          const toA: unknown[] = [];
-          const toB: unknown[] = [];
-          const a: StreamPortLike = { onmessage: null, postMessage: (m) => void toB.push(m) };
-          const b: StreamPortLike = { onmessage: null, postMessage: (m) => void toA.push(m) };
-          pumps.push(() => {
-            for (let g = 0; g < 1000 && (toA.length || toB.length); g++) {
-              for (const m of toB.splice(0)) b.onmessage?.({ data: m });
-              for (const m of toA.splice(0)) a.onmessage?.({ data: m });
-            }
-          });
-          return { worker: a, worklet: b };
-        },
-        connectWorklet: (port) => {
-          const driver = loop.driver;
-          (port as StreamPortLike).onmessage = (e) => driver.onStreamMessage(e.data, loop.frame, loop.clock.dateNow());
-          driver.setStreamPost((message, transfer) => (port as StreamPortLike).postMessage(message, transfer));
-        },
-        fetchBytes: async () => bytes.slice(0),
-      },
-    }).createBackend();
-    const out: number[] = [];
-    const step = async (n: number) => {
-      for (let f = 0; f < n; f++) {
-        mixer.update(0.01);
-        backend.update(0.01);
-        for (let q = 0; q < 4; q++) {
-          for (const s of loop.renderQuanta(1).left) out.push(s);
-          for (const p of pumps) p();
-        }
-        for (let k = 0; k < 4; k++) await Promise.resolve();
-      }
-    };
-    try {
-      const [a, b] = [12_000, 24_000];
-      const voice = backend.play({ path: "music/s.wav", url: "", loop: true, stream: true, bus: "Music" })!;
-      backend.automation.setLoop(voice, a / RATE, b / RATE, true);
-      await vi.waitFor(async () => {
-        await step(1);
-        expect(loop.driver.stats.streamFrames).toBeGreaterThan(0);
-      });
-      // Into the third pass (stream frames past 48,000), then a trap.
-      await step(110);
-      const at = onsetOf(out);
-      expect(out.length - at).toBeGreaterThan(b + 2 * (b - a));
-      for (let k = 0; at + k < out.length; k++) if (out[at + k] !== want(looped(k, a, b))) expect.fail(`before the trap, stream frame ${k}`);
-      loop.trapNext();
-      await step(2);
-      expect(host.health.traps).toBe(1);
-      const restartAt = out.length;
-      await vi.waitFor(async () => {
-        await step(1);
-        expect(out.slice(restartAt).some((s) => s !== 0)).toBe(true);
-      });
-      await step(80);
-      expect(loop.cores).toBe(2);
-      expect(voice.playing).toBe(true);
-      let on = restartAt;
-      while (out[on] === 0) on++;
-      // The new core's output is the region from some frame inside it, then loops on (across at least two seams).
-      let pos = -1;
-      for (let p = a; p < b && pos < 0; p++) {
-        let ok = true;
-        for (let k = 0; k < 64 && ok; k++) ok = out[on + k] === want(looped(p - a + k, 0, b - a) + a);
-        if (ok) pos = p;
-      }
-      expect(pos).toBeGreaterThanOrEqual(a);
-      expect(pos).toBeLessThan(b);
-      expect(out.length - on).toBeGreaterThan(2 * (b - a));
-      for (let k = 0; on + k < out.length; k++) {
-        const f = a + ((pos - a + k) % (b - a));
-        if (out[on + k] !== want(f)) expect.fail(`after the reopen, frame ${k}: want file frame ${f}`);
-      }
-      backend.dispose();
-    } finally {
-      await host.close();
+  it("a hard rebuild mid-loop reopens the stream inside its region, and it keeps looping", async (ctx) => {
+    // ADR 0223: the stream rig (the production assembly; the backend connects its stream port, the loopback serves it).
+    const r = await rig({ "music/s.wav": file() });
+    if (!r) return ctx.skip();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const out = r.left;
+    const health = r.audio.host.health;
+    const [a, b] = [12_000, 24_000];
+    const voice = r.backend.play({ path: "music/s.wav", url: "", loop: true, stream: true, bus: "Music" })!;
+    r.backend.automation.setLoop(voice, a / RATE, b / RATE, true);
+    await vi.waitFor(async () => {
+      await r.step(1);
+      expect(r.worklet().frames).toBeGreaterThan(0);
+    });
+    // Into the third pass (stream frames past 48,000), then a trap.
+    await r.step(110);
+    const at = onsetOf(out);
+    expect(out.length - at).toBeGreaterThan(b + 2 * (b - a));
+    for (let k = 0; at + k < out.length; k++) if (out[at + k] !== want(looped(k, a, b))) expect.fail(`before the trap, stream frame ${k}`);
+    r.audio.trap();
+    await r.step(2);
+    expect(health.traps).toBe(1);
+    const restartAt = out.length;
+    await vi.waitFor(async () => {
+      await r.step(1);
+      expect(out.slice(restartAt).some((s) => s !== 0)).toBe(true);
+    });
+    await r.step(80);
+    expect(health.recoveries).toBe(1);
+    expect(voice.playing).toBe(true);
+    let on = restartAt;
+    while (out[on] === 0) on++;
+    // The new core's output is the region from some frame inside it, then loops on (across at least two seams).
+    let pos = -1;
+    for (let p = a; p < b && pos < 0; p++) {
+      let ok = true;
+      for (let k = 0; k < 64 && ok; k++) ok = out[on + k] === want(looped(p - a + k, 0, b - a) + a);
+      if (ok) pos = p;
+    }
+    expect(pos).toBeGreaterThanOrEqual(a);
+    expect(pos).toBeLessThan(b);
+    expect(out.length - on).toBeGreaterThan(2 * (b - a));
+    for (let k = 0; on + k < out.length; k++) {
+      const f = a + ((pos - a + k) % (b - a));
+      if (out[on + k] !== want(f)) expect.fail(`after the reopen, frame ${k}: want file frame ${f}`);
     }
   }, 30_000);
 });

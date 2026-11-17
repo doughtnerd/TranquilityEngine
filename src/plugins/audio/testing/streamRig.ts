@@ -1,18 +1,17 @@
-// The loopback rig for streams (B3, shared with B4's loop-seam test): the core backend on the loopback host (the real
-// mixer wasm in Node) with the real decoder handler in process behind a WorkerLike, and a stream port straight from
-// the "worker" to the shell. Test-only (imports vitest); moved here from streamLoopback.test.ts.
+// The loopback rig for streams (B3, shared with B4's loop-seam test): the core as production assembles it
+// (`loopbackAudio`, ADR 0221) with the real decoder handler in process behind a WorkerLike, and the backend's own channel
+// from the "worker" to the shell. ADR 0223: the backend hands the shell its end with `CoreLink.connectStreamPort`, as in a
+// page, and the loopback serves that `streamPort` control as `worklet/processor.ts` does; nothing here wires the driver.
+// Test-only (imports vitest).
 import { expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { Mixer } from "../../../engine/audio/mixer";
 import { defaultAudioSettings } from "../../../engine/audio/settings";
 import hash from "../runtime/wasm/hash.json";
 import { createDecoderHandler } from "../runtime/decoder/handler";
 import { createDecoderClient, type WorkerLike } from "../runtime/decoder/decoderClient";
 import type { DecoderReply, StreamPortLike } from "../runtime/decoder/protocol";
-import type { AudioHost, CoreLink } from "../runtime/core/context";
-import { CoreBackend, type CoreBackendHost } from "../runtime/core/coreBackend";
-import type { CoreDriver } from "../runtime/worklet/coreDriver";
+import { ClipFormat, CLIP_CHUNK_FIXED_END, Kind, readClipBegin, readClipChunk, readClipUnload, readEnvelope, readStreamChunk, readStreamClose, readStreamOpen } from "../runtime/wire.generated";
 
 const WASM = readFileSync(fileURLToPath(new URL("../runtime/wasm/myco_audio_decode.wasm", import.meta.url)));
 export const decoderWasm = () => WASM.buffer.slice(WASM.byteOffset, WASM.byteOffset + WASM.byteLength) as ArrayBuffer;
@@ -23,8 +22,24 @@ export const FRAME_MS = (QPF * 128 * 1000) / RATE;
 /** 5 ms at 48 kHz: the starvation fade. */
 export const FADE = 240;
 
+/** What the worklet received on its port from the decoder worker (read off the channel: the wire between them). */
+export interface WorkletReceived {
+  /** Streams opened and not closed on the current port (a new port starts again at none, as the shell closes the old). */
+  readonly open: number;
+  /** STREAM_CHUNKs received, over every port. */
+  readonly chunks: number;
+  /** Stream frames those chunks carried. */
+  readonly frames: number;
+  /** Distinct chunk buffers among them: the worker's allocations (the rest came back with credits and were reused). */
+  readonly buffers: number;
+  /** Zone kernels begun (CLIP_BEGIN format 3) and not unloaded on the current port. */
+  readonly kernels: number;
+  /** Kernel bytes the CLIP_CHUNKs carried, over every port. */
+  readonly kernelBytes: number;
+}
+
 /** A queued two-ended port pair: `pump()` delivers what was posted, both ways, until both queues are empty. */
-export function channel() {
+export function channel(onDeliverToB?: (message: unknown) => void) {
   const toA: unknown[] = [];
   const toB: unknown[] = [];
   const a: StreamPortLike = { onmessage: null, postMessage: (m) => void toB.push(m) };
@@ -35,7 +50,10 @@ export function channel() {
     /** Delivers queued messages; `aStalled` holds those to `a` (the worker) back. */
     pump(aStalled = false) {
       for (let guard = 0; guard < 1000 && (toB.length || (!aStalled && toA.length)); guard++) {
-        for (const m of toB.splice(0)) b.onmessage?.({ data: m });
+        for (const m of toB.splice(0)) {
+          onDeliverToB?.(m);
+          b.onmessage?.({ data: m });
+        }
         if (!aStalled) for (const m of toA.splice(0)) a.onmessage?.({ data: m });
       }
     },
@@ -46,30 +64,22 @@ export function channel() {
 export interface RigOptions {
   /** The decoder wasm's bytes (default the committed `myco_audio_decode.wasm`; B4 passes the AAC build). */
   readonly decoderWasm?: ArrayBuffer;
-  /** The clip registry's format (default 0, f32). */
+  /** The clip registry's format (default 0, f32; 1 is i16): `audio.clipFormat`. */
   readonly clipFormat?: number;
   /** Files the clip registry fetches (default: none, every clip fetch gives 8 bytes). */
   readonly clipFiles?: Record<string, ArrayBuffer>;
-  /** `audio.codecs.aac` for the registry and the backend's settings (B4). */
+  /** `audio.codecs.aac` (B4). */
   readonly aac?: boolean;
-  /** ADR 0162 zone slots for the core and the backend (default none). */
+  /** ADR 0162 zone slots for the core (default none). */
   readonly zones?: { readonly maxZoneSlots: number; readonly zoneMaxSeconds: number };
-  /** ADR 0166 (R4b): the music ring pool (`audio.music.rings`) for the core and the backend (default 0: none). */
+  /** ADR 0166 (R4b): the music ring pool (`audio.music.rings`) for the core (default 0: none). */
   readonly musicRings?: number;
 }
 
 export async function rig(files: Record<string, ArrayBuffer>, options: RigOptions = {}) {
-  const testing = await import("../runtime/testing");
-  let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>> & { link: CoreLink };
-  try {
-    loop = (await testing.createLoopbackHost({ preset: { ...testing.LOOPBACK_PRESET, limiterLookaheadMs: 0, ...options.zones, maxMusicRings: options.musicRings ?? 0 } })) as typeof loop;
-  } catch {
-    return null;
-  }
-  const link = loop.link;
+  const { loopbackAudio, closeLoopbackAudio } = await import("../runtime/testing");
   // The decoder worker, in process: the real handler behind a WorkerLike, a fresh one per spawn (B6 respawns after a
   // crash); a terminated one says nothing more.
-  let handler!: ReturnType<typeof createDecoderHandler>;
   let worker!: WorkerLike;
   let spawned = 0;
   const spawn = (): WorkerLike => {
@@ -83,110 +93,139 @@ export async function rig(files: Record<string, ArrayBuffer>, options: RigOption
       },
     };
     const h = createDecoderHandler({ post: (reply: DecoderReply) => void (dead || w.onmessage?.({ data: reply })), expectedSourceHash: hash.sourceHash, yieldToEvents: async () => {} });
-    handler = h;
     worker = w;
     spawned++;
     return w;
   };
   const decoder = createDecoderClient({ workerFactory: spawn, wasmBytes: options.decoderWasm ?? decoderWasm() });
-  let streamPort: ReturnType<typeof channel> | null = null;
-  const host: CoreBackendHost = {
-    link,
-    status: "running",
-    preset: { maxLogical: 16, maxMixed: 8, ...options.zones, ...(options.musicRings ? { maxMusicRings: options.musicRings } : {}) },
-    worldCount: 1,
-    sampleRate: RATE,
-    addLifecycleListener: (() => () => {}) as AudioHost["addLifecycleListener"],
+
+  // What the worklet receives on its port, read off the channel.
+  const open = new Set<number>();
+  const kernels = new Set<number>();
+  const chunkBuffers = new Set<ArrayBuffer>();
+  const received = { chunks: 0, frames: 0, kernelBytes: 0 };
+  const observe = (m: unknown) => {
+    if (!(m instanceof ArrayBuffer) || m.byteLength < 16) return;
+    const view = new DataView(m);
+    const envelope = readEnvelope(view, 0);
+    switch (envelope.kind) {
+      case Kind.STREAM_OPEN:
+        open.add(readStreamOpen(view, 0).streamId);
+        return;
+      case Kind.STREAM_CLOSE:
+        open.delete(readStreamClose(view, 0).streamId);
+        return;
+      case Kind.STREAM_CHUNK:
+        received.chunks++;
+        received.frames += readStreamChunk(view, 0).frames;
+        chunkBuffers.add(m);
+        return;
+      case Kind.CLIP_BEGIN: {
+        const begin = readClipBegin(view, 0);
+        if (begin.format === ClipFormat.ZoneKernel) kernels.add(begin.clipId);
+        return;
+      }
+      case Kind.CLIP_CHUNK:
+        if (kernels.has(readClipChunk(view, 0).clipId)) received.kernelBytes += 16 + envelope.bodyBytes - CLIP_CHUNK_FIXED_END;
+        return;
+      case Kind.CLIP_UNLOAD:
+        kernels.delete(readClipUnload(view, 0).clipId);
+        return;
+    }
   };
+  let streamPort: ReturnType<typeof channel> | null = null;
+  /** `workerStalled`: the worker doesn't see the worklet's credits (it can't decode). The worker→worklet port flows otherwise. */
+  let workerStalled = false;
+
   const settings = defaultAudioSettings();
+  settings.clipFormat = (options.clipFormat ?? 0) === 0 ? "f32" : "i16";
   if (options.aac) settings.codecs = { aac: true };
-  const mixer = new Mixer(settings);
-  const backend = new CoreBackend(host, {
-    clips: (await import("../runtime/core/clipRegistry")).createClipRegistry({
-      send: (m) => link.post(m),
-      nextSeq: () => link.nextSeq(),
+  const audio = await loopbackAudio({
+    mixer: "own",
+    settings,
+    preset: { limiterLookaheadMs: 0, ...options.zones, maxMusicRings: options.musicRings ?? 0 },
+    quantaPerFrame: QPF,
+    dt: FRAME_MS / 1000,
+    clipRegistry: {
       fetchBytes: async (path) => options.clipFiles?.[path]?.slice(0) ?? new ArrayBuffer(8),
       decodeWorker: decoder,
-      clipFormat: options.clipFormat ?? 0,
-      aac: options.aac,
-    }),
-    clock: loop.clock,
-    mixer,
-    streams: {
-      decoder: () => decoder,
-      channel: () => {
-        streamPort = channel();
-        return { worker: streamPort.a, worklet: streamPort.b };
-      },
-      connectWorklet: (port) => {
-        const driver: CoreDriver = loop.driver;
-        (port as StreamPortLike).onmessage = (e) => driver.onStreamMessage(e.data, loop.frame, loop.clock.dateNow());
-        driver.setStreamPost((message, transfer) => (port as StreamPortLike).postMessage(message, transfer));
-      },
-      fetchBytes: async (path) => {
-        const f = files[path];
-        if (!f) throw new Error(`HTTP 404 (${path})`);
-        return f.slice(0);
+    },
+    backend: {
+      streams: {
+        decoder: () => decoder,
+        channel: () => {
+          streamPort = channel(observe);
+          open.clear();
+          kernels.clear();
+          return { worker: streamPort.a, worklet: streamPort.b };
+        },
+        fetchBytes: async (path) => {
+          const f = files[path];
+          if (!f) throw new Error(`HTTP 404 (${path})`);
+          return f.slice(0);
+        },
       },
     },
+    eachQuantum: () => streamPort?.pump(workerStalled),
   });
+  if (!audio) return null;
+  const { backend, link, mixer } = audio;
   const left: number[] = [];
   const right: number[] = [];
+  const keep = (out: { left: Float32Array; right: Float32Array }) => {
+    for (const s of out.left) left.push(s);
+    for (const s of out.right) right.push(s);
+  };
   const settle = async () => {
     for (let k = 0; k < 4; k++) await new Promise((r) => setTimeout(r, 0));
   };
   /**
-   * `n` frames of `QPF` quanta. `mainStalled`: no frame runs on main and main's `onmessage` holds STATUS (the stall);
-   * `workerStalled`: the worker doesn't see credits (it can't decode). The worker→worklet port flows otherwise.
+   * `n` frames of `QPF` quanta. `mainStalled`: the loopback's main-thread stall (`stallMain`): no frame runs on main and
+   * what the core sends main waits until the stall ends; `workerStalled`: the worker doesn't see credits.
    */
   const step = async (n: number, opts: { mainStalled?: boolean; workerStalled?: boolean } = {}) => {
-    const linkPort = (link as unknown as { port: { onmessage: ((e: { data: unknown }) => void) | null } }).port;
-    const held: unknown[] = [];
-    const saved = linkPort.onmessage;
-    const blocks = link.statusCount;
-    if (opts.mainStalled) linkPort.onmessage = (e) => void held.push(e.data);
-    for (let f = 0; f < n; f++) {
+    workerStalled = opts.workerStalled === true;
+    try {
       if (!opts.mainStalled) {
-        mixer.update(FRAME_MS / 1000);
-        backend.update(FRAME_MS / 1000);
+        keep(await audio.step(n));
+        return { applied: 0, held: 0 };
       }
-      for (let q = 0; q < QPF; q++) {
-        const out = loop.renderQuanta(1);
-        for (const s of out.left) left.push(s);
-        for (const s of out.right) right.push(s);
-        streamPort?.pump(opts.workerStalled);
+      const blocks = link.statusCount;
+      const stall = audio.stallMain();
+      for (let f = 0; f < n; f++) {
+        keep(audio.render(QPF));
+        await Promise.resolve();
       }
-      await Promise.resolve();
+      /** STATUS blocks main applied during these frames (before the held messages are delivered). */
+      const applied = link.statusCount - blocks;
+      const held = stall.held;
+      stall.release();
+      return { applied, held };
+    } finally {
+      workerStalled = false;
     }
-    /** STATUS blocks main applied during these frames (before the held messages are delivered). */
-    const applied = link.statusCount - blocks;
-    if (opts.mainStalled) {
-      linkPort.onmessage = saved;
-      for (const d of held) saved?.({ data: d });
-    }
-    return { applied, held: held.length };
   };
-  /** Waits (real time: the wasm compiles, the fetch resolves) until the worklet holds `n` open streams. */
+  /** Waits (real time: the wasm compiles, the fetch resolves) until the worklet's port has opened `n` streams. */
   const waitOpen = async (n: number) => {
     await vi.waitFor(
       () => {
         streamPort?.pump();
-        expect(loop.driver.openStreams).toBe(n);
+        expect(open.size).toBe(n);
       },
       { timeout: 5_000, interval: 5 },
     );
   };
   await settle();
   return {
-    loop,
+    audio,
+    link,
     backend,
     decoder,
-    get handler() {
-      return handler;
-    },
     /** The current "worker" and how many were spawned. */
     worker: () => worker,
     spawned: () => spawned,
+    /** What the worklet has received on its port so far. */
+    worklet: (): WorkletReceived => ({ open: open.size, chunks: received.chunks, frames: received.frames, buffers: chunkBuffers.size, kernels: kernels.size, kernelBytes: received.kernelBytes }),
     step,
     settle,
     waitOpen,
@@ -194,5 +233,7 @@ export async function rig(files: Record<string, ArrayBuffer>, options: RigOption
     right,
     mixer,
     streamPort: () => streamPort!,
+    /** Closes the backend and the host (also `closeLoopbackAudio` in an `afterEach`). */
+    close: () => closeLoopbackAudio(),
   };
 }
