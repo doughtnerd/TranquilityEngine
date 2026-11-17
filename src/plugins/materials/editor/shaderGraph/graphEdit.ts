@@ -18,8 +18,11 @@ import {
   type InputValue,
   type NodePreviewShape,
   type ShaderGraph,
+  SHADER_GRAPH_FORMAT,
+  parseShaderGraph,
 } from "../../../../engine/scene/shaderGraph";
 import { KEYWORD_NAME, type ShaderKeyword } from "../../../../engine/scene/shaderKeywords";
+import { readClipboard } from "../../../../editor/sdk";
 
 const clone = (g: ShaderGraph): ShaderGraph => structuredClone(g);
 
@@ -366,6 +369,23 @@ export function copyNodes(graph: ShaderGraph, ids: Iterable<string>): GraphClipb
     edges: graph.edges.filter((e) => picked.has(splitPortRef(e.from).node) && picked.has(splitPortRef(e.to).node)).map((e) => ({ ...e })),
     properties: graph.properties.filter((p) => used.has(p.name)).map((p) => structuredClone(p)),
   };
+}
+
+/**
+ * The copied nodes in system clipboard text (ADR 0226), or null if it holds none. They must be well
+ * formed: read as a graph file's nodes, edges, properties and keywords would be, with no problems.
+ */
+export function graphClipboardFromText(text: string): GraphClipboard | null {
+  const raw = readClipboard<GraphClipboard>(text, CLIPBOARD_FORMAT, (v) => Array.isArray((v as GraphClipboard).nodes) && (v as GraphClipboard).nodes.length > 0);
+  if (!raw) return null;
+  try {
+    const { graph, problems } = parseShaderGraph({ format: SHADER_GRAPH_FORMAT, nodes: raw.nodes, edges: raw.edges ?? [], properties: raw.properties ?? [], keywords: raw.keywords });
+    const nodes = graph.nodes.filter((n) => n.type !== OUTPUT_NODE_TYPE);
+    if (problems.length || nodes.length !== raw.nodes.length) return null;
+    return { format: CLIPBOARD_FORMAT, ...(graph.keywords?.length ? { keywords: graph.keywords } : {}), nodes, edges: graph.edges, properties: graph.properties };
+  } catch {
+    return null;
+  }
 }
 
 /**

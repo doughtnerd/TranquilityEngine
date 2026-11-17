@@ -33,8 +33,10 @@ export { setValue, type SettingsDraft, type SettingsProblem } from "../projectSe
 export { persisted } from "../preferences";
 // The editor theme's tokens (ADR 0025): `theme.value` tracks the Settings > Appearance theme.
 export { theme, mix, parseHex, viewportColors, type ThemeTokens } from "../theme";
-// The shared graph view (ADR 0060): canvas, wires, notes, minimap, search popup and clipboard.
+// The shared graph view (ADR 0060): canvas, wires, notes, minimap and search popup.
 export * from "../graph";
+// The editor's clipboard text (ADR 0226): tagged JSON written to the system clipboard and read back by a paste.
+export { clipboardForPaste, clipboardText, expectPaste, readClipboard, takePaste, writeClipboard, type ClipboardPayload } from "../clipboard";
 // The Assets panel's selected entries (read it, don't set it): what an asset browser drag carries (ADR 0022), for
 // plugin panels that take dropped assets (the Event editor).
 export { selectedAssets } from "../assetSelection";
