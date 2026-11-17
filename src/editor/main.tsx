@@ -25,7 +25,6 @@ import "./ui/editor.css";
 import "./ui/fonts";
 import { NewProjectDialog } from "./ui/NewProjectDialog";
 import { StartScreen } from "./ui/StartScreen";
-import { installChildWindowHook } from "./windows/childWindowHook";
 import { forEachChildWindow } from "./windows/editorWindows";
 
 // The core asset kinds (ADR 0143): every per-kind question is answered from the registered kinds.
@@ -70,7 +69,6 @@ async function main(): Promise<void> {
   render(<App />, root);
   installShortcuts();
   forEachChildWindow((win) => installShortcuts(win)); // and in each detached panel window (ADR 0174)
-  installChildWindowHook();
   installCloseGuard();
   if (isTauri()) await (await import("./launcher/editorWindow")).serveDesktopProjectsWindow();
   // A sample to open goes first; the background loading waits for it so as not to compete.

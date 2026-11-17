@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { childWindows, dialogOpenAnywhere, editorWindows, forEachEditorWindow, registerEditorWindow } from "./editorWindows";
+import { dialogOpenAnywhere, editorWindows, forEachEditorWindow, registerEditorWindow } from "./editorWindows";
 
 function fakeWindow(dialog = false) {
   const win = { document: { querySelector: (sel: string) => (sel === ".dialog" && dialog ? {} : null) } } as unknown as Window;
@@ -16,11 +16,10 @@ describe("the editor's windows (ADR 0174, detached windows)", () => {
     const offA = registerEditorWindow(a);
     const offB = registerEditorWindow(b);
     cleanups.push(offA, offB);
-    expect(childWindows.value).toEqual([a, b]);
     expect(editorWindows()).toEqual([a, b]); // no main window in Node
     expect(editorWindows().includes(a)).toBe(true);
     offA();
-    expect(childWindows.value).toEqual([b]);
+    expect(editorWindows()).toEqual([b]);
     expect(editorWindows().includes(a)).toBe(false);
   });
 
@@ -49,7 +48,7 @@ describe("the editor's windows (ADR 0174, detached windows)", () => {
     cleanups.push(registerEditorWindow(a));
     registerEditorWindow(a)();
     expect(seen).toHaveBeenCalledTimes(1);
-    expect(childWindows.value).toEqual([a]);
+    expect(editorWindows()).toEqual([a]);
   });
 
   it("sees a dialog open in any window", () => {

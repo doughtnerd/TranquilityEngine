@@ -1,18 +1,18 @@
 import { expect, type Page, play, test } from "./fixtures";
+import { captureView, pixelsChanged, steadyView, type ViewCapture } from "./viewCapture";
 
 // Play mode's play bar tools: the Stats overlay (frame rate, timings, render counters, nodes) and
 // the Gizmos toggle, which hides the editor's drawing on the play Worlds (overlays and the live
-// selection outline). Read through `window.playEditorDrawing()` (src/editor/playGizmos.ts).
+// selection outline). What the game view draws is read from captures of it (viewCapture.ts); which
+// overlays each setting shows is unit-tested in src/editor/playStats.test.ts.
 const FLAPPY = "/editor.html?sample=flappy"; // relative to baseURL (E2E_PORT)
 
 // Play type-checks the scripts first (ADR 0125); in a full WebKit run (CPU rendering) that alone can take 20 s.
 test.describe.configure({ timeout: 60_000 });
 
-type Drawing = { world: string; overlays: string[]; drawn: { segments: number; handles: number; outlines: number } | null };
 type Hooks = {
   engine?: { world: { time: { frameCount: number } } };
   playEngine?: { world: { name: string } } | null;
-  playEditorDrawing?: () => Drawing[];
 };
 
 function trackErrors(page: Page): string[] {
@@ -24,9 +24,20 @@ function trackErrors(page: Page): string[] {
   return errors;
 }
 
-const drawing = (page: Page) => page.evaluate(() => (window as unknown as Hooks).playEditorDrawing?.() ?? []);
-const drawnTotal = async (page: Page) =>
-  (await drawing(page)).reduce((n, d) => n + (d.drawn ? d.drawn.segments + d.drawn.handles + d.drawn.outlines : 0), 0);
+const gameView = (page: Page) => page.locator("#game-view canvas").first();
+/**
+ * The game view after two steps of the paused game (a paused game isn't drawn again; the editor's drawing follows a
+ * change a frame later). Once the bird has fallen (game over) nothing in the game moves, so only the editor's drawing
+ * changes between frames.
+ */
+async function stepped(page: Page): Promise<ViewCapture> {
+  const step = page.getByRole("button", { name: "Step", exact: true });
+  await step.click();
+  await step.click();
+  return captureView(gameView(page));
+}
+/** The selection outline round the bird changes at least this many pixels of the game view. */
+const OUTLINE = 100;
 
 test.beforeEach(async ({ page }) => {
   // Start from the defaults: Gizmos on, Stats off.
@@ -81,20 +92,24 @@ test("Gizmos off hides every gizmo and debug drawing in the play view; the menu 
   await page.goto(FLAPPY);
   await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
   await play(page);
+  // A tap starts the game; untouched, the bird falls and the game is over, and the view holds still.
+  await gameView(page).click();
+  await steadyView(gameView(page), { tolerance: 0 });
 
   // Something to hide: the live selection outline around the bird (World picker, live Hierarchy).
   const hierarchy = page.locator(".panel.hierarchy");
   const worldName = await page.evaluate(() => (window as unknown as Hooks).playEngine!.world.name);
   await hierarchy.getByRole("combobox", { name: "Inspect World" }).selectOption(worldName);
   await hierarchy.getByRole("tree", { name: "Live nodes" }).locator('.row[data-name="Bird"]').click();
-  await expect.poll(() => drawnTotal(page)).toBeGreaterThan(0);
+  await page.getByRole("button", { name: "❚❚ Pause", exact: true }).click();
+  const outlined = await stepped(page);
 
   const gizmos = page.locator(".play-tools").getByRole("button", { name: "Gizmos", exact: true });
   await expect(gizmos).toHaveAttribute("aria-pressed", "true");
   await gizmos.click();
   await expect(gizmos).toHaveAttribute("aria-pressed", "false");
-  await expect.poll(() => drawnTotal(page)).toBe(0);
-  for (const d of await drawing(page)) expect(d.overlays).toEqual([]);
+  const hidden = await stepped(page);
+  expect(pixelsChanged(outlined, hidden), "the outline goes").toBeGreaterThan(OUTLINE);
 
   // The menu lists the kinds that exist in play; a kind unticked stays hidden with Gizmos on again.
   await page.getByRole("button", { name: "Gizmo kinds" }).click();
@@ -105,12 +120,12 @@ test("Gizmos off hides every gizmo and debug drawing in the play view; the menu 
   await page.keyboard.press("Escape");
   await gizmos.click();
   await expect(gizmos).toHaveAttribute("aria-pressed", "true");
-  await page.waitForTimeout(300);
-  expect((await drawing(page)).reduce((n, d) => n + (d.drawn?.outlines ?? 0), 0)).toBe(0);
+  expect(pixelsChanged(hidden, await stepped(page)), "the outline stays hidden").toBeLessThan(20);
 
   // Ticking it again brings the outline back.
   await page.getByRole("button", { name: "Gizmo kinds" }).click();
   await menu.getByRole("checkbox", { name: "Selection outline" }).check();
-  await expect.poll(async () => (await drawing(page)).reduce((n, d) => n + (d.drawn?.outlines ?? 0), 0)).toBeGreaterThan(0);
+  await page.keyboard.press("Escape");
+  expect(pixelsChanged(hidden, await stepped(page)), "the outline is back").toBeGreaterThan(OUTLINE);
   expect(errors).toEqual([]);
 });

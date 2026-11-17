@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "./fixtures";
+import { captureArea, captureView, pixelsChanged, steadyView, type ViewCapture } from "./viewCapture";
 
 const EDITOR = "/editor.html?sample=flappy"; // opens the Flappy sample (ADR 0031); relative to baseURL (E2E_PORT)
 
@@ -8,13 +9,17 @@ interface Handle {
   y: number;
 }
 
-/** The editor's debug hooks on `window` (see session.ts, cameraPreview.ts). Page callbacks are serialized, so each casts `window` itself. */
+/** The editor's debug hooks on `window` (see session.ts). Page callbacks are serialized, so each casts `window` itself. */
 type Hooks = {
   engine?: { world: { time: { frameCount: number }; root: unknown } };
   orbit: { focus(point?: [number, number, number], distance?: number): void };
   overlayHandles?: () => Handle[];
-  sceneView: { grid(): { cellSize: number; visible: boolean; divisions: number } | null; previewDrawn(): boolean };
 };
+
+/** The scene view's canvas; what it draws (the grid, the camera preview) is read from captures of it. */
+const sceneCanvas = (page: Page) => page.locator(".panel.scene #viewport canvas");
+/** How many of the scene view's pixels changed since `before`. The grid's lines are faint, so a small difference counts. */
+const changedSince = async (page: Page, before: ViewCapture) => pixelsChanged(before, await captureView(sceneCanvas(page)), 8);
 
 async function openEditor(page: Page): Promise<void> {
   await page.goto(EDITOR);
@@ -68,18 +73,27 @@ test("space and pivot toggle from the toolbar and with X / Z, and are remembered
 
 test("snap settings set the grid and steps; Always snap toggles; settings are remembered", async ({ page }) => {
   await openEditor(page);
-  // The grid is an editor helper, loaded lazily: null until it has loaded.
-  await expect.poll(() => page.evaluate(() => (window as unknown as Hooks).sceneView.grid())).toMatchObject({ cellSize: 1, visible: true });
+  // The grid is an editor helper, loaded lazily: wait until the view has stopped changing. The popover stays open (and
+  // still) over the view meanwhile, so each change shows in the view's pixels.
   await toolbar(page).getByRole("button", { name: "Snap settings" }).click();
   const popover = page.getByRole("dialog", { name: "Snap settings" });
   await expect(popover).toBeVisible();
-  await popover.getByRole("textbox", { name: "Grid size" }).fill("0.5");
+  const view = sceneCanvas(page);
+  const atOne = await steadyView(view);
+  await popover.getByRole("textbox", { name: "Grid size" }).fill("4");
   await popover.getByRole("textbox", { name: "Grid size" }).press("Enter");
   await popover.getByRole("textbox", { name: "Move step" }).fill("2");
   await popover.getByRole("textbox", { name: "Move step" }).press("Enter");
-  await expect.poll(() => page.evaluate(() => (window as unknown as Hooks).sceneView.grid()?.cellSize)).toBe(0.5);
+  await expect.poll(() => changedSince(page, atOne), { message: "a coarser grid is drawn" }).toBeGreaterThan(300);
+  const atFour = await steadyView(view);
   await popover.getByRole("checkbox", { name: "Show grid" }).uncheck();
-  await expect.poll(() => page.evaluate(() => (window as unknown as Hooks).sceneView.grid()?.visible)).toBe(false);
+  await expect.poll(() => changedSince(page, atFour), { message: "the grid is hidden" }).toBeGreaterThan(300);
+  // Shown again at 4, the view is as it was; hidden again for the reload below.
+  const hidden = await steadyView(view);
+  await popover.getByRole("checkbox", { name: "Show grid" }).check();
+  await expect.poll(() => changedSince(page, atFour)).toBeLessThan(60);
+  await popover.getByRole("checkbox", { name: "Show grid" }).uncheck();
+  await expect.poll(() => changedSince(page, hidden)).toBeLessThan(60);
   await popover.press("Escape");
   await expect(popover).toHaveCount(0);
 
@@ -90,9 +104,10 @@ test("snap settings set the grid and steps; Always snap toggles; settings are re
 
   await page.reload();
   await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
-  await expect.poll(() => page.evaluate(() => (window as unknown as Hooks).sceneView.grid())).toMatchObject({ cellSize: 0.5, visible: false });
   await expect(toolbar(page).locator(".snap-toggle")).toHaveAttribute("aria-pressed", "true");
   await toolbar(page).getByRole("button", { name: "Snap settings" }).click();
+  await expect(page.getByRole("textbox", { name: "Grid size" })).toHaveValue("4");
+  await expect(page.getByRole("checkbox", { name: "Show grid" })).not.toBeChecked();
   await expect(page.getByRole("textbox", { name: "Move step" })).toHaveValue("2");
 });
 
@@ -164,13 +179,19 @@ test("selecting a camera shows its preview inset; the toolbar toggle hides it", 
   await page.locator('.tree .row[data-key="camera"]').click();
   await expect(page.locator(".camera-preview")).toBeVisible();
   await expect(page.locator(".camera-preview-label")).toHaveText("Camera");
-  await expect.poll(() => page.evaluate(() => (window as unknown as Hooks).sceneView.previewDrawn())).toBe(true);
+  // The engine draws what the camera sees inside the inset's frame: most of the inset changes when the preview is
+  // turned off and the scene view shows through (the frame's border and label alone are a small part of it).
+  await steadyView(sceneCanvas(page));
+  const box = (await page.locator(".camera-preview").boundingBox())!;
+  const inset = await captureArea(page, box);
 
   const toggle = toolbar(page).locator(".camera-preview-toggle");
   await toggle.click();
   await expect(toggle).toHaveAttribute("aria-pressed", "false");
   await expect(page.locator(".camera-preview")).toHaveCount(0);
-  await expect.poll(() => page.evaluate(() => (window as unknown as Hooks).sceneView.previewDrawn())).toBe(false);
+  await expect
+    .poll(async () => pixelsChanged(inset, await captureArea(page, box)) / (inset.width * inset.height), { message: "share of the inset that changed" })
+    .toBeGreaterThan(0.3);
   await toggle.click();
   await page.locator('.tree .row[data-key="bird"]').click();
   await expect(page.locator(".camera-preview")).toHaveCount(0);

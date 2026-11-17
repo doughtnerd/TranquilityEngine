@@ -1,6 +1,7 @@
 import { expect, type Page, play, test } from "./fixtures";
 import { inspector, openSpatial, SPATIAL_SCENE } from "./audioSpatial";
 import { showTab } from "./tabs";
+import { captureView, pixelsChanged, type ViewCapture } from "./viewCapture";
 
 // The M3 editor work that needs a running game (ADR 0162 E4, E7, E9), on the spatial scene of audioSpatial.ts: the Audio
 // Debug panel's Beds, Zones, Occlusion and Memory sections and the occlusion overlay in the game view, and live tuning
@@ -15,12 +16,17 @@ type Voice = {
   filter?: { lowpassHz: number; lowpassBy: string | null };
 };
 type Debug = { voices: Voice[]; zones?: { node: string; ir: string; state: string; why: string | null; irSeconds: number }[]; occlusion?: { enabled: boolean; rays: number; note: string }; memory?: Record<string, number> };
-type Drawing = { world: string; overlays: string[]; drawn: { segments: number } };
-type Hooks = { playEditorDrawing?: () => Drawing[]; playEngine?: { world: { name: string } } | null };
+type Hooks = { playEngine?: { world: { name: string } } | null };
 
 const debug = (page: Page) => page.evaluate(() => (globalThis as unknown as { __myco: { Audio: { debug(): unknown } } }).__myco.Audio.debug() as Debug);
 const emitter = async (page: Page) => (await debug(page)).voices.find((v) => v.clip === "music/foo.mp3");
-const drawing = (page: Page) => page.evaluate(() => (window as unknown as Hooks).playEditorDrawing?.() ?? []);
+/** The game view after two steps of the paused game (a paused game isn't drawn again; the editor's drawing follows a change a frame later). */
+async function stepped(page: Page): Promise<ViewCapture> {
+  const step = page.getByRole("button", { name: "Step", exact: true });
+  await step.click();
+  await step.click();
+  return captureView(page.locator("#game-view canvas").first());
+}
 const panel = (page: Page) => page.locator(".audio-debug");
 
 /** Start Play and wait until the emitter's voice has an occlusion result for the wall (physics is up and a ray has hit). */
@@ -70,19 +76,17 @@ test("the occlusion overlay draws rays in the game view while the panel's toggle
   await showTab(page, /^Audio Debug/);
   const toggle = panel(page).getByRole("checkbox", { name: /Show occlusion rays/ });
   await expect(toggle).not.toBeChecked();
-  // The overlay is always installed on the play World; it draws nothing until the toggle is on.
-  const segments = async () => {
-    const worlds = await drawing(page);
-    expect(worlds.some((w) => w.overlays.includes("audio-occlusion"))).toBe(true);
-    return Math.max(0, ...worlds.map((w) => w.drawn.segments));
-  };
-  expect(await segments()).toBe(0);
+  // The game is paused and stepped, and the game view captured: the ray and its hit marker are the only change the
+  // toggle makes (the occlusion keeps being worked out while paused frames step).
+  await page.getByRole("button", { name: "❚❚ Pause", exact: true }).click();
+  const off = await stepped(page);
+  expect(pixelsChanged(off, await stepped(page)), "the paused scene holds still").toBeLessThan(20);
 
   await toggle.check();
-  await expect.poll(segments, { message: "the ray and its hit marker draw" }).toBeGreaterThan(0);
+  await expect.poll(async () => pixelsChanged(off, await stepped(page)), { message: "the ray and its hit marker draw" }).toBeGreaterThan(40);
 
   await toggle.uncheck();
-  await expect.poll(segments).toBe(0);
+  await expect.poll(async () => pixelsChanged(off, await stepped(page))).toBeLessThan(20);
 
   // The choice is remembered across a reload of the editor.
   await toggle.check();
