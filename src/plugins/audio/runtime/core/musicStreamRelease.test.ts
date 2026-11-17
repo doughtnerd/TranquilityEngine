@@ -9,11 +9,20 @@ import { closeLoopbackAudio } from "../testing";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { makeWav, signal } from "../decoder/testWav";
 import { RATE, rig } from "../../testing/streamRig";
-import type { MusicGroupRequest } from "../backend";
+import type { AudioClock, MusicGroupRequest } from "../backend";
 
 const FILE_FRAMES = 2 * RATE;
 const want = (k: number) => signal(k, 0) / 32768;
 const file = () => makeWav(FILE_FRAMES, 2, RATE, signal);
+/**
+ * The core frame of the audio clock's horizon (ADR 0158): *F*_now + L rounded up, where a record sent now with `at` lands
+ * exactly, so where a loop record sent now is stamped. `horizon()` is that frame's time on `frameMap()`'s timeline.
+ */
+function horizonFrame(clock: AudioClock): number {
+  const map = clock.frameMap()!;
+  return Math.round((clock.horizon()! - map.timeOffset) * map.sampleRate);
+}
+
 /** The file frame a stream started at 0 plays at stream frame `k`, looping `start..end`. */
 const looped = (k: number, start: number, end: number) => (k < end ? k : start + ((k - start) % (end - start)));
 
@@ -57,9 +66,7 @@ async function memberRelease(start: number, end: number, pass: number, before: n
   at -= lead;
   expect(at).toBeGreaterThan(0);
   const seam = at + b + pass * (b - a); // output index of the seam ending pass `pass + 1`
-  // biome-ignore lint: test-only access to the backend's clock
-  const clock = (r.backend as unknown as { clockMap: { framesNow(): number; lookaheadFrames(): number } }).clockMap;
-  const asked = () => clock.framesNow() + clock.lookaheadFrames();
+  const asked = () => horizonFrame(r.backend.clock);
   while (asked() + 512 < seam - before) await r.step(1);
   const requested = asked();
   r.backend.automation.setLoop(voice!, start, end, false);
@@ -140,9 +147,7 @@ describe("a streamed music member's tracked playhead runs at its stream's rate (
     await r.step(12);
     const i = voice!.id & 0xffff;
     expect(r.backend.playheads.rate[i]).toBeCloseTo(STEM_RATE / RATE, 9);
-    // biome-ignore lint: test-only access to the backend's clock
-    const clock = (r.backend as unknown as { clockMap: { framesNow(): number } }).clockMap;
-    const f0 = clock.framesNow();
+    const f0 = horizonFrame(r.backend.clock);
     const p0 = r.backend.playheads.positionNow(i, f0);
     expect(r.backend.playheads.positionNow(i, f0 + RATE) - p0).toBeCloseTo(STEM_RATE, 3);
     r.backend.dispose();

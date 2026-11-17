@@ -105,21 +105,24 @@ describe("coreDriver CPU counters (Cp1)", () => {
     expect(r.posted.length - before).toBeGreaterThanOrEqual(7);
     expect(r.posted.at(-1)!.callsBefore - r.posted.at(-2)!.callsBefore).toBe(STATUS_EVERY_QUANTA);
     expectCumulative(r.posted, 1);
-    expect(r.driver.stats.skipped).toBe(0);
+    // None skipped: each post is one cadence after the last (the batch's arrival restarts the count once, at `before`).
+    for (let i = 1; i < r.posted.length; i++) {
+      if (i !== before) expect([STATUS_EVERY_QUANTA, STATUS_IDLE_EVERY_QUANTA]).toContain(r.posted[i]!.callsBefore - r.posted[i - 1]!.callsBefore);
+    }
   });
 
   it("are cumulative across posts skipped for an empty pool", () => {
     const r = rig();
     // 2 ms between calls keeps the whole run under the idle cadence's 250 ms.
     r.run(12, 1, 2);
+    expect(r.posted).toHaveLength(2);
     r.state.hold = true;
     r.run(6 * 12, 1, 2); // eight buffers, then every post is skipped
-    expect(r.driver.stats.skipped).toBeGreaterThan(0);
-    const skipped = r.driver.stats.skipped;
+    expect(r.posted).toHaveLength(2 + 8); // of 12 STATUS points
     r.state.hold = false;
     r.release();
     r.run(6, 1, 2);
-    expect(r.driver.stats.skipped).toBe(skipped);
+    expect(r.posted).toHaveLength(2 + 8 + 1); // the next point posts again
     const last = r.posted.at(-1)!;
     expect(last.block.quantaTotal).toBe(12 + 72 + 5);
     expectCumulative(r.posted, 1);

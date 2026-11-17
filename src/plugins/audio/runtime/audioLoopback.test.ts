@@ -79,6 +79,11 @@ function loadSineClip(host: LoopbackHost, clipId: number): void {
   host.send(chunk);
 }
 
+/** No STATUS post was skipped for an empty pool: consecutive blocks are one cadence apart (6 quanta, or 48 once idle). */
+function expectNoSkips(statuses: readonly { readonly currentFrame: number }[]): void {
+  for (let i = 1; i < statuses.length; i++) expect([6 * QUANTUM_FRAMES, 48 * QUANTUM_FRAMES]).toContain(statuses[i]!.currentFrame - statuses[i - 1]!.currentFrame);
+}
+
 function peak(samples: Float32Array): number {
   let max = 0;
   for (const s of samples) max = Math.max(max, Math.abs(s));
@@ -112,7 +117,7 @@ describe("loopback host: raw BATCH records (runs now)", () => {
   it("status buffers return at once: 10,000 quanta, none skipped, the STATUS pool back at 8", async () => {
     const host = await createLoopbackHost();
     host.renderQuanta(10_000);
-    expect(host.driver.stats.skipped).toBe(0);
+    expectNoSkips(host.statuses);
     expect(host.driver.pool.available).toBe(8);
   });
 
@@ -128,7 +133,7 @@ describe("loopback host: raw BATCH records (runs now)", () => {
     for (let i = 1; i < grown.length; i++) {
       expect(grown[i]!.currentFrame - grown[i - 1]!.currentFrame).toBe(48 * QUANTUM_FRAMES);
     }
-    expect(host.driver.stats.skipped).toBe(0);
+    expectNoSkips(host.statuses);
   });
 
   it("no starvation at 20 Hz frames: a batch every 50 ms keeps the 6-quantum cadence and the pool at 8", async () => {
@@ -144,7 +149,7 @@ describe("loopback host: raw BATCH records (runs now)", () => {
     for (let i = 1; i < host.statuses.length; i++) {
       expect(host.statuses[i]!.currentFrame - host.statuses[i - 1]!.currentFrame).toBe(6 * QUANTUM_FRAMES);
     }
-    expect(host.driver.stats.skipped).toBe(0);
+    expectNoSkips(host.statuses);
     expect(host.driver.pool.available).toBe(8);
   });
 
@@ -154,7 +159,7 @@ describe("loopback host: raw BATCH records (runs now)", () => {
     const before = host.statuses.length;
     host.renderQuanta(300);
     expect(host.statuses.length - before).toBeGreaterThanOrEqual(5);
-    expect(host.driver.stats.skipped).toBe(0);
+    expectNoSkips(host.statuses);
     expect(host.driver.pool.available).toBe(8);
   });
 });

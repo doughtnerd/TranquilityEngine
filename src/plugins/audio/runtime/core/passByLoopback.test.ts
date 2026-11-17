@@ -27,7 +27,7 @@ import hash from "../wasm/hash.json";
 import { presetFromSettings } from "./context";
 import { createHrirLoader } from "./hrir";
 import { createZoneIrService } from "./zoneIr";
-import { closeLoopbackAudio, endAudioSession, loopbackAudio, type LoopbackAudio } from "../testing";
+import { closeLoopbackAudio, endAudioSession, loopbackAudio, type LoopbackAudio, type LoopbackStreamPort } from "../testing";
 
 const SAMPLE = fileURLToPath(new URL("../../../../../samples/sound-lab", import.meta.url));
 const DECODER = readFileSync(fileURLToPath(new URL("../wasm/myco_audio_decode.wasm", import.meta.url)));
@@ -65,7 +65,8 @@ async function passBy(station: "room" | "corridor"): Promise<{ left: number[]; r
   engine = await Engine.create({ headless: true, project: project.settings });
   engine.world.render = { release() {}, warmUp: async () => {}, preloadTextures: async () => {} } as never;
   const preset = presetFromSettings(globalMixer.audioSettings);
-  // The decoder worker in-process (the zones' kernels), its worklet port delivering into the shell (`workletPort`).
+  // The decoder worker in-process (the zones' kernels) on a channel this test owns: its worklet end goes to the shell as the
+  // backend hands it over (`CoreLink.connectStreamPort`, ADR 0223), and messages cross it at once, both ways.
   let audio: LoopbackAudio | null = null;
   const irListeners: ((r: IrPreparedMessage | IrFailedMessage) => void)[] = [];
   const handler = createDecoderHandler({
@@ -78,7 +79,14 @@ async function passBy(station: "room" | "corridor"): Promise<{ left: number[]; r
     },
   });
   await handler.handle({ type: "init", wasmBytes: slice(DECODER) });
-  const port: StreamPortLike = { onmessage: null, postMessage: (m: unknown) => audio!.workletPort.postMessage(m) };
+  const worklet: LoopbackStreamPort = { onmessage: null, postMessage: (m: unknown) => port.onmessage?.({ data: m }) };
+  const port: StreamPortLike = {
+    onmessage: null,
+    postMessage: (m: unknown) => {
+      if (!worklet.onmessage) throw new Error("the loopback didn't take the stream port");
+      worklet.onmessage({ data: m });
+    },
+  };
   await handler.handle({ type: "connectWorklet", port } as never);
   const pending: Promise<void>[] = [];
   const zoneIr = createZoneIrService({ sampleRate: RATE, decoder: { postIr: (req) => void pending.push(handler.handle(req)), onIr: (l) => (irListeners.push(l), () => {}) } });
@@ -91,6 +99,7 @@ async function passBy(station: "room" | "corridor"): Promise<{ left: number[]; r
     backend: (clips) => ({ zoneIr, hrir: createHrirLoader({ clips, sampleRate: RATE, warn: () => {}, fetchBytes: async () => slice(HRIR) }) }),
   });
   if (!audio) throw new Error("the loopback core did not load");
+  audio.link.connectStreamPort(worklet as unknown as MessagePort);
   const loop = audio;
   const backend = audio.backend;
   await SceneManager.load("scenes/spatial.scene.json");
