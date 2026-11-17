@@ -6,7 +6,7 @@
 // `WindowedGridView` is a pure function of its props; `useGridState` is the
 // small hook the stateful tables use to feed it.
 import type { JSX } from "preact";
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useLayoutEffect, useRef, useState } from "preact/hooks";
 import { MAX_RENDERED_ROWS, ROW_HEIGHT, VIEWPORT_HEIGHT, navigate, windowRows } from "./gridWindow";
 import "./profilerTables.css";
 
@@ -121,23 +121,36 @@ export interface GridState {
 
 /**
  * Scroll offset and focus for a grid of `total` rows. A key moves the focus and the scroll; the scroll region is set to the
- * new offset and the focused row takes DOM focus once it is rendered. The grid element is found from `rootRef`.
+ * new offset and the focused row takes DOM focus once it is rendered. A scroll the user makes only follows into the
+ * state (the region is never set back). The grid element is found from `rootRef`.
  */
 export function useGridState(total: number, rootRef: { current: HTMLElement | null }): GridState {
   const [scrollTop, setScrollTop] = useState(0);
   const [focus, setFocus] = useState(0);
-  const wantFocus = useRef(false);
+  // The row and the scroll offset a key last moved to, until the effect has applied them. Refs, not the render's values,
+  // so the region is only ever set to an offset a key asked for: a re-render for other reasons (new data) must not set
+  // it back over a scroll the user made that the state hasn't caught up with.
+  const wantFocus = useRef<number | null>(null);
+  const wantScroll = useRef<number | null>(null);
   const scrollRef = useRef<HTMLElement | null>(null);
   const last = Math.max(0, total - 1);
   const clampedFocus = Math.min(focus, last);
 
-  useEffect(() => {
+  // At commit, not after the paint: a key that moves the focus off the rendered window removes the row holding DOM
+  // focus, and until the new row is focused the next key would go to the page instead of the grid.
+  useLayoutEffect(() => {
     const scroller = rootRef.current?.querySelector<HTMLElement>("[data-scroll]") ?? null;
     scrollRef.current = scroller;
-    if (scroller && Math.abs(scroller.scrollTop - scrollTop) > 0.5) scroller.scrollTop = scrollTop;
-    if (wantFocus.current) {
-      wantFocus.current = false;
-      rootRef.current?.querySelector<HTMLElement>(`[data-index="${clampedFocus}"]`)?.focus();
+    if (scroller && wantScroll.current !== null) {
+      if (Math.abs(scroller.scrollTop - wantScroll.current) > 0.5) scroller.scrollTop = wantScroll.current;
+      wantScroll.current = null;
+    }
+    if (wantFocus.current !== null) {
+      const row = rootRef.current?.querySelector<HTMLElement>(`[data-index="${wantFocus.current}"]`);
+      if (row) {
+        wantFocus.current = null; // cleared first: focusing the row runs its onFocus, which sets the same focus
+        row.focus();
+      }
     }
   });
 
@@ -150,7 +163,8 @@ export function useGridState(total: number, rootRef: { current: HTMLElement | nu
       const next = navigate({ focus: clampedFocus, scrollTop }, key, total);
       if (!next) return;
       preventDefault();
-      wantFocus.current = true;
+      wantFocus.current = next.focus;
+      wantScroll.current = next.scrollTop;
       setFocus(next.focus);
       setScrollTop(next.scrollTop);
     },

@@ -34,13 +34,13 @@ const cells = (row: HTMLElement) => [...row.querySelectorAll<HTMLElement>(".pgri
 const focused = (root: HTMLElement) => rows(root).filter((r) => r.tabIndex === 0).map((r) => Number(r.dataset.index));
 const region = (root: HTMLElement) => root.querySelector<HTMLElement>("[data-scroll]")!;
 const grid = (root: HTMLElement) => root.querySelector<HTMLElement>("[role=grid]")!;
-/** Scroll the region as a wheel or scrollbar does, and let the table follow. */
+/** Scroll the region as a wheel or scrollbar does, and let the table follow: its window starts where the offset's does. */
 async function scrollTo(root: HTMLElement, top: number): Promise<void> {
   const r = region(root);
   r.scrollTop = top;
   await fireEvent.scroll(r);
-  const expected = Math.floor(windowRows({ total: 1024, scrollTop: r.scrollTop }).scrollTop / ROW_HEIGHT);
-  await waitFor(() => expect(indices(root)).toContain(expected));
+  const start = windowRows({ total: 1024, scrollTop: r.scrollTop }).start;
+  await waitFor(() => expect(indices(root)[0]).toBe(start));
 }
 /** Press `key` on the grid; whether the table took it (prevented the browser's default). */
 const press = async (root: HTMLElement, key: string): Promise<boolean> => !(await fireEvent.keyDown(grid(root), { key }));
@@ -100,7 +100,7 @@ export const Keyboard: Story = {
       await waitFor(() => expect(focused(canvasElement)).toEqual([1]));
       for (let i = 0; i < 29; i++) await userEvent.keyboard("{ArrowDown}");
       await waitFor(() => expect(focused(canvasElement)).toEqual([30]));
-      expect(document.activeElement).toBe(rows(canvasElement).find((r) => r.dataset.index === "30"));
+      expect(document.activeElement).toBe(rows(canvasElement).find((r) => r.dataset.index === "30")); // focused at commit
       expect(indices(canvasElement).length).toBeLessThanOrEqual(MAX_RENDERED_ROWS);
       await userEvent.keyboard("{ArrowUp}");
       await waitFor(() => expect(focused(canvasElement)).toEqual([29]));
