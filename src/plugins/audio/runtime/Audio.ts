@@ -18,8 +18,12 @@ import { events, type EventDebugRow, type EventInstance, type EventOptions } fro
 import { audioCapture, captureDebug, type AudioCapture } from "./capture/capture";
 import { loudnessTarget, setLoudnessTarget } from "./mix/loudnessHub";
 
-/** `Audio.debug()`: the backend's state plus the event runtime's rows (`AudioDebugInfo.events` with the late-start count each row carries). */
-export type AudioDebugState = Omit<AudioDebugInfo, "events"> & { events: EventDebugRow[] };
+/**
+ * `Audio.debug()`: the backend's state plus the event runtime's rows (`AudioDebugInfo.events` with the late-start count each
+ * row carries) and its session totals (ADR 0220: `eventTotals.lateStarts` counts the clips every instance started late, the
+ * ended ones included, where the rows only hold the playing instances').
+ */
+export type AudioDebugState = Omit<AudioDebugInfo, "events"> & { events: EventDebugRow[]; eventTotals: { lateStarts: number } };
 
 /** Options for `Audio.playOneShot` (ADR 0074, api-and-models §1). */
 export interface OneShotOptions {
@@ -332,6 +336,7 @@ export const Audio = {
     const listed = new Map<number, number>();
     for (const v of info.voices) if (v.event != null && v.state !== "stolen") listed.set(v.event, (listed.get(v.event) ?? 0) + 1);
     // Rc4: the shared capture ring (null while none runs).
-    return { ...info, events: events().debugRows(listed), recorder: captureDebug() };
+    const rows = events();
+    return { ...info, events: rows.debugRows(listed), eventTotals: { lateStarts: rows.lateStartTotal }, recorder: captureDebug() };
   },
 };

@@ -141,5 +141,7 @@ describe("Audio.debug()", () => {
     expect(rowOf(first).lateStarts).toBe(1);
     expect(rowOf(second).lateStarts).toBe(1);
     expect(events().lateStartTotal).toBe(2);
+    // ADR 0220: Audio.debug() carries the total, the count of ended instances included, for the debug panel.
+    expect(Audio.debug().eventTotals.lateStarts).toBe(2);
   });
 });

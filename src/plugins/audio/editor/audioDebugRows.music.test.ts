@@ -48,6 +48,10 @@ const totals = (over: Partial<MusicDebugTotals> = {}): MusicDebugTotals => ({
   curvePoolFull: 0,
   groupTableFull: 0,
   encodedOverBudget: 0,
+  replans: {},
+  refusals: {},
+  recoveries: {},
+  stingers: { played: 0, late: 0, skipped: 0, dropped: 0 },
   ...over,
 });
 

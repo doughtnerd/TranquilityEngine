@@ -5,7 +5,7 @@ import { buildMixDebug } from "../mix/mixDebug";
 import type { AudioBackground, AudioDebugInfo, AudioMixDebug,AudioMemoryDebug, AudioM3Counters, AudioStatus, AudioVoiceM3Debug, MusicDebugRow, MusicDebugState, MusicDebugTotals } from "../backend";
 import { ticksToPosition, spanAtTicks } from "../../../../engine/audio/musicGrid";
 import { playingGridOf, ticksAt } from "../music/anchors";
-import { musicPlayers, type MusicPlayer, type MusicPlayerState } from "../music/musicSystem";
+import { musicCounterTotals, musicPlayers, type MusicPlayer, type MusicPlayerState } from "../music/musicSystem";
 import type { Mixer } from "../../../../engine/audio/mixer";
 import { MAX_BUSES } from "../../../../engine/audio/settings";
 import { AUX_BUS_NONE } from "../wire.generated";
@@ -628,5 +628,7 @@ function musicTotals(backend: DebugSource): MusicDebugTotals {
     curvePoolFull: m.header.curvePoolFull,
     groupTableFull: v.groupTableFull ?? 0,
     encodedOverBudget: v.encodedOverBudget ?? 0,
+    // ADR 0220: main's own counters, summed over the session so they outlive the instances that counted them.
+    ...musicCounterTotals(),
   };
 }

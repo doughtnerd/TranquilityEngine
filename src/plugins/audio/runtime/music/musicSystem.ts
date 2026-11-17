@@ -177,6 +177,42 @@ export function playerOf(instance: object): MusicPlayer | null {
   return byInstance.get(instance) ?? null;
 }
 
+/** The cause-keyed counts `MusicDebugTotals` carries for main's own music counters (`Audio.debug().musicTotals`, ADR 0220). */
+export interface MusicCounterTotals {
+  replans: Record<string, number>;
+  refusals: Record<string, number>;
+  recoveries: Record<string, number>;
+  stingers: { played: number; late: number; skipped: number; dropped: number };
+}
+
+const noCounterTotals = (): MusicCounterTotals => ({ replans: {}, refusals: {}, recoveries: {}, stingers: { played: 0, late: 0, skipped: 0, dropped: 0 } });
+
+/** The counters of the music instances that ended this session, folded together so a total outlives its instance (ADR 0220). */
+let retired = noCounterTotals();
+
+const addInto = (into: Record<string, number>, from: Readonly<Record<string, number>>): void => {
+  for (const [k, v] of Object.entries(from)) if (Number.isFinite(v)) into[k] = (into[k] ?? 0) + v;
+};
+
+function foldCounters(into: MusicCounterTotals, c: Readonly<MusicCounterTotals>): void {
+  addInto(into.replans, c.replans);
+  addInto(into.refusals, c.refusals);
+  addInto(into.recoveries, c.recoveries);
+  for (const k of ["played", "late", "skipped", "dropped"] as const) into.stingers[k] += c.stingers[k];
+}
+
+/**
+ * Main's music counters summed over the audio session (ADR 0220): every instance that ended plus every one playing. The core
+ * keeps no total of these and an instance's row goes when it ends, so this is what a total of re-plans, refusals, recoveries
+ * or stingers reads. Cleared when the audio session is released. Allocates; debug only.
+ */
+export function musicCounterTotals(): MusicCounterTotals {
+  const out = noCounterTotals();
+  foldCounters(out, retired);
+  for (const p of players) foldCounters(out, p.counters);
+  return out;
+}
+
 /** True while any music instance plays: the steps do nothing otherwise. */
 export function musicActive(): boolean {
   return players.length > 0;
@@ -249,6 +285,7 @@ export function disposeMusicPlayer(player: MusicPlayer, backend: AudioBackend | 
   if (k < 0) return;
   players.splice(k, 1);
   byInstance.delete(player.instance);
+  foldCounters(retired, player.counters);
   player.state = "stopped";
   player.listeners = null;
   player.subscribed = 0;
@@ -261,6 +298,7 @@ export function disposeMusicPlayer(player: MusicPlayer, backend: AudioBackend | 
 function forgetMusicPlayers(): void {
   for (const p of players) byInstance.delete(p.instance);
   players.length = 0;
+  retired = noCounterTotals();
 }
 onAudioSessionReleased(forgetMusicPlayers);
 
