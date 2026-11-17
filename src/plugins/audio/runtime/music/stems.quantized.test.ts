@@ -2,7 +2,7 @@
 // real core: a stem enters on the bar line, sample-exact). 120 bpm 4/4: a beat is 0.5 s, a bar 2 s.
 import { afterEach, describe, expect, it } from "vitest";
 import { setAudioBackend } from "../backend";
-import { makeFakeBackend, type FakeVoice, endAudioSession } from "../testing";
+import { makeFakeBackend, type FakeVoice, endAudioSession, loopbackAudio, closeLoopbackAudio } from "../testing";
 import type { EventInstance } from "../events/eventRuntime";
 import { AutoTarget, continuousBindings, evaluateQuantized, QUANTIZED_RAMP_SECONDS, TsAutomation, type Binding } from "../events/automation";
 import { parseSegmentNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
@@ -38,6 +38,8 @@ afterEach(() => {
   endAudioSession();
   setAudioBackend(null);
 });
+
+afterEach(closeLoopbackAudio);
 
 describe("quantizedRamp (ADR 0166 R6)", () => {
   it("stamps an in-voice ramp at the next bar or beat line, on that stem only", () => {
@@ -129,40 +131,20 @@ describe("quantised bindings (events/automation.ts)", () => {
 
 describe("a quantised stem on the loopback host (ADR 0166 R6)", () => {
   it("enters on the bar line: silent through the sample before it, audible from it", async (ctx) => {
-    const testing = await import("../testing");
-    let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>>;
-    try {
-      loop = await testing.createLoopbackHost({ preset: { ...testing.LOOPBACK_PRESET, limiterLookaheadMs: 0 } });
-    } catch {
-      return ctx.skip();
-    }
-    const [{ createClipRegistry }, { CoreBackend }, { Mixer }, { defaultAudioSettings }, { fakeDecoder }] = await Promise.all([
-      import("../core/clipRegistry"),
-      import("../core/coreBackend"),
-      import("../../../../engine/audio/mixer"),
-      import("../../../../engine/audio/settings"),
-      import("../core/fakeDecoder"),
-    ]);
-    const link = loop.link;
     const FRAMES = 4 * RATE;
     const dc = new Float32Array(FRAMES).fill(0.25);
-    const clips = createClipRegistry({
-      send: (m) => link.post(m),
-      nextSeq: () => link.nextSeq(),
-      fetchBytes: async () => new ArrayBuffer(8),
-      decodeWorker: fakeDecoder(async () => ({ frames: FRAMES, channels: 1, sampleRate: RATE, channelData: [dc] })),
-      nextFrame: (cb) => cb(),
-      nextQuantum: (cb) => cb(),
-    });
-    const host = { link, status: "running" as const, preset: { maxLogical: 16, maxMixed: 8 }, worldCount: 1, sampleRate: RATE, addLifecycleListener: (() => () => {}) as never };
-    const mixer = new Mixer(defaultAudioSettings());
-    const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer });
-    const out: number[] = [];
+    // ADR 0221: the production assembly on the loopback, with its own mixer; no limiter look-ahead (output frames are core frames).
+    const loop = await loopbackAudio({ mixer: "own", preset: { maxLogical: 16, maxMixed: 8, limiterLookaheadMs: 0 }, decode: () => ({ channelData: [dc] }) });
+    if (!loop) return ctx.skip();
+    const mixer = loop.mixer;
+    const backend = loop.backend;
+    // The core's frames before the rig rendered silence: `out` holds them as zeros, so an index is a frame.
+    const out: number[] = new Array<number>(loop.frame).fill(0);
     const step = async (n: number) => {
       for (let i = 0; i < n; i++) {
         mixer.update(0.003);
         backend.update(0.003);
-        for (const s of loop.renderQuanta(4).left) out.push(s);
+        for (const s of loop.render(4).left) out.push(s);
         await Promise.resolve();
       }
     };

@@ -2,9 +2,9 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { Mixer } from "../../../engine/audio/mixer";
 import { defaultAudioSettings } from "../../../engine/audio/settings";
-import { debugSections } from "./audioDebugRows";
+import { AudioDebugMonitor } from "./audioDebugMonitor";
 import type { EventInstance } from "../runtime/events/eventRuntime";
-import { createMusicPlayer } from "../runtime/music/musicSystem";
+import { createMusicPlayer, disposeMusicPlayer } from "../runtime/music/musicSystem";
 import { buildDebugInfo, type DebugSource } from "../runtime/core/debug";
 import { StatusMirror } from "../runtime/core/mirror";
 import { UnlockQueue } from "../runtime/core/unlockQueue";
@@ -44,13 +44,38 @@ describe("Audio.debug() music (P10, §1.6)", () => {
     Object.assign(mirror.header, { streamStartsLate: 3, groupsLate: 6, groupsHeld: 1, groupsAbandoned: 5, maxSlipFrames: 700, splitQuanta: 9, voiceSplits: 11, curvePoolFull: 2 });
     expect(buildDebugInfo(src).musicTotals).toEqual({
       poolUsed: 2, poolSize: 8, poolHighWater: 5, musicRingRefused: 1, streamStartsLate: 3, groupsLate: 6, groupsHeld: 1, groupsAbandoned: 5, maxSlipFrames: 700, splitQuanta: 9, voiceSplits: 11, curvePoolFull: 2, groupTableFull: 4, encodedOverBudget: 0,
+      replans: {}, refusals: {}, recoveries: {}, stingers: { played: 0, late: 0, skipped: 0, dropped: 0 },
     });
   });
 
   it("with no music playing: music is [] and totals are zero", () => {
     const info = buildDebugInfo(source().src);
     expect(info.music).toEqual([]);
-    expect(Object.values(info.musicTotals!).every((v) => v === 0)).toBe(true);
+    const { replans, refusals, recoveries, stingers, ...counts } = info.musicTotals!;
+    expect(Object.values(counts).every((v) => v === 0)).toBe(true);
+    expect([replans, refusals, recoveries]).toEqual([{}, {}, {}]);
+    expect(stingers).toEqual({ played: 0, late: 0, skipped: 0, dropped: 0 });
+  });
+
+  it("ADR 0220: musicTotals sums main's counters over every instance, the ended ones included, until the session ends", () => {
+    const { src } = source();
+    const a = createMusicPlayer({ group: 7, path: "a.audioevent.json" } as unknown as EventInstance, { id: "verse", type: "segment" });
+    const b = createMusicPlayer({ group: 8, path: "b.audioevent.json" } as unknown as EventInstance, { id: "verse", type: "segment" });
+    a.counters.refusals.neverFits = 1;
+    a.counters.recoveries.hidden = 2;
+    a.counters.replans.deadline = 3;
+    a.counters.stingers.skipped = 1;
+    b.counters.refusals.neverFits = 1;
+    b.counters.refusals.poolFull = 4;
+    const expected = { replans: { deadline: 3 }, refusals: { neverFits: 2, poolFull: 4 }, recoveries: { hidden: 2 }, stingers: { played: 0, late: 0, skipped: 1, dropped: 0 } };
+    expect(buildDebugInfo(src).musicTotals).toMatchObject(expected);
+    disposeMusicPlayer(a, null);
+    const after = buildDebugInfo(src);
+    expect(after.music!.map((r) => r.id)).toEqual([8]);
+    expect(after.musicTotals).toMatchObject(expected);
+    endAudioSession();
+    const fresh = buildDebugInfo(source().src).musicTotals!;
+    expect([fresh.refusals, fresh.recoveries, fresh.replans, fresh.stingers.skipped]).toEqual([{}, {}, {}, 0]);
   });
 
   it("a row carries every player counter and Ê, and the groups of its runs", () => {
@@ -75,7 +100,9 @@ describe("Audio.debug() music (P10, §1.6)", () => {
   it("the panel's Music sections list the row and the totals", () => {
     const { src } = source({ poolUsed: 1, poolSize: 8, poolHighWater: 1, musicRingRefused: 0 });
     createMusicPlayer({ group: 7, path: "bgm.audioevent.json" } as unknown as EventInstance, { id: "verse", type: "segment" });
-    const sections = debugSections(buildDebugInfo(src));
+    const monitor = new AudioDebugMonitor();
+    monitor.observe(buildDebugInfo(src));
+    const sections = monitor.view()!.sections;
     expect(sections.find((s) => s.id === "music")!.rows).toHaveLength(1);
     expect(sections.find((s) => s.id === "musicTotals")!.rows.length).toBeGreaterThan(0);
   });

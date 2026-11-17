@@ -4,10 +4,10 @@ import { missingBlobMasks, paintTerrain } from "./autotile";
 import { floodCells, lineCells, rectCells } from "./brushes";
 import { greedyRectangles, rowRuns, traceOutlines } from "./cellRegions";
 import { buildTileShapes } from "./collision";
-import { CHUNK_CELLS, cellToChunk, cellValue, decodeChunk, encodeChunk, migrateLayer, newLayer, rotateFlagsClockwise, FLIP_Y } from "./format";
+import { CHUNK_CELLS, cellToChunk, cellValue, decodeChunk, encodeChunk, migrateLayer, newLayer, FLIP_Y } from "./format";
 import { buildChunkMeshes, type TileFrame } from "./mesh";
 import { blobMasks, canonicalBlob, maskToPattern, neighbourMask, patternScore, pickTerrainTile, sidesPattern } from "./neighbourPatterns";
-import { flipPoint, sourceCorner } from "./tileFlips";
+import { flipPoint, rotateClockwise, sourceCorner } from "./tileFlips";
 import { Tileset, newTileset, parseTileset, pickWeighted, tileAnchor, type TileDef } from "./tileset";
 
 const TILESET = {
@@ -55,11 +55,11 @@ describe("tilemap format (ADR 0103)", () => {
     const seen = new Set<number>();
     for (let i = 0; i < 4; i++) {
       seen.add(f);
-      f = rotateFlagsClockwise(f);
+      f = rotateClockwise(f);
     }
     expect(f).toBe(0);
     expect(seen.size).toBe(4);
-    expect(rotateFlagsClockwise(0)).toBe(FLIP_DIAGONAL | FLIP_X);
+    expect(rotateClockwise(0)).toBe(FLIP_DIAGONAL | FLIP_X);
   });
 });
 

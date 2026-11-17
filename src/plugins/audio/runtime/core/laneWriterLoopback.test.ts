@@ -3,89 +3,40 @@
 // stamp: the first rendered sample that changes is at the stamped frame, and the target is reached `frames` later, with
 // no quantum split and no record applied early; a rebuild mid-fade continues the remaining ramp; MASTER through the
 // output's runtime lane.
-import { fakeDecoder } from "./fakeDecoder";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Mixer } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings } from "../../../../engine/audio/settings";
-import { watchBatches } from "./batchWatch";
 import { Op } from "../wire.generated";
-import { createClipRegistry } from "./clipRegistry";
-import { AudioHost, presetFromSettings } from "./context";
-import { createCoreBackend, type CoreBackend } from "./coreBackend";
-import { watchForTraps } from "./recovery";
-import { Unlock, type UnlockContext } from "./unlock";
+import { presetFromSettings } from "./context";
+import { loopbackAudio, closeLoopbackAudio } from "../testing";
 
-const RATE = 48_000;
 const CLIP_FRAMES = 48_000;
 const LEVEL = 0.5;
 const req = (path: string, extra: object = {}) => ({ path, url: path, loop: true, stream: false, bus: "SFX", ...extra });
 
-const hosts: AudioHost[] = [];
 afterEach(async () => {
-  for (const host of hosts.splice(0)) await host.close();
+  await closeLoopbackAudio();
   vi.restoreAllMocks();
 });
 
-function fakeContext() {
-  const ctx = {
-    state: "running",
-    sampleRate: RATE,
-    destination: {},
-    resume: () => Promise.resolve(),
-    close: () => {
-      ctx.state = "closed";
-      return Promise.resolve();
-    },
-    addEventListener() {},
-    removeEventListener() {},
-  };
-  return ctx;
-}
-
 /** The real host and core backend on the loopback, a constant 0.5 clip, the limiter's look-ahead 0 so output frames are core frames. */
 async function rig() {
-  const testing = await import("../testing");
-  const preset = { ...presetFromSettings(defaultAudioSettings()), limiterLookaheadMs: 0 };
-  let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>>;
-  try {
-    loop = await testing.createLoopbackHost({ preset });
-  } catch {
-    return null;
-  }
-  const context = fakeContext();
-  const node = Object.assign(new EventTarget(), { connect() {}, disconnect() {} }) as unknown as AudioWorkletNode;
-  const unlock = new Unlock({ target: new EventTarget(), context: context as unknown as UnlockContext });
-  const host = AudioHost._create({ context: context as unknown as AudioContext, node, link: loop.link, unlock, preset, respawn: () => loop.respawn() });
-  hosts.push(host);
-  const link = loop.link;
-  const clips = createClipRegistry({
-    send: (m) => link.post(m),
-    nextSeq: () => link.nextSeq(),
-    fetchBytes: async (path) => new TextEncoder().encode(path).buffer as ArrayBuffer,
-    decodeWorker: fakeDecoder(() => ({ frames: CLIP_FRAMES, channels: 1, sampleRate: RATE, channelData: [new Float32Array(CLIP_FRAMES).fill(LEVEL)] })),
-    nextFrame: (cb) => cb(),
-    nextQuantum: (cb) => cb(),
+  // ADR 0221: the production assembly on the loopback, with its own mixer; no limiter look-ahead (output frames are core frames).
+  const audio = await loopbackAudio({
+    mixer: "own",
+    preset: { ...presetFromSettings(defaultAudioSettings()), limiterLookaheadMs: 0 },
+    decode: () => ({ channelData: [new Float32Array(CLIP_FRAMES).fill(LEVEL)] }),
+    recovery: { now: () => 0, warn: () => {} },
+    dt: 0.003,
   });
-  const mixer = new Mixer(defaultAudioSettings());
-  const backend: CoreBackend = createCoreBackend(host, { clips, clock: loop.clock, mixer });
-  watchForTraps(host, { now: () => 0, warn: () => {} });
-  const settle = async () => {
-    for (let k = 0; k < 8; k++) await Promise.resolve();
-  };
+  if (!audio) return null;
+  const { host, backend, mixer } = audio;
   /** Rendered left samples with the core frame of the first, over `n` frames of 4 quanta. */
   const step = async (n: number) => {
-    const start = loop.frame;
-    const out: number[] = [];
-    for (let f = 0; f < n; f++) {
-      mixer.update(0.003);
-      backend.update(0.003);
-      const { left } = loop.renderQuanta(4);
-      for (const v of left) out.push(v);
-      await settle();
-    }
+    const start = audio.frame;
+    const out = Array.from((await audio.step(n)).left);
     return { start, out, last: out[out.length - 1]! };
   };
-  return { loop, host, backend, mixer, step };
+  return { loop: audio, host, backend, mixer, step };
 }
 
 /** SFX's index in the default tree (Master, Music, SFX, Voice, UI). */
@@ -157,7 +108,7 @@ describe("the lane writer on the loopback host (Mx2)", () => {
     const before = (await step(1)).last;
     expect(before).toBeLessThan(LEVEL * 0.8);
     expect(before).toBeGreaterThan(LEVEL * 0.6);
-    loop.trapNext();
+    loop.trap();
     let resumed = -1;
     for (let f = 0; f < 60 && resumed < 0; f++) {
       const s = await step(1);
@@ -166,7 +117,7 @@ describe("the lane writer on the loopback host (Mx2)", () => {
     expect(resumed, "sound again on the new core").toBeGreaterThan(0);
     expect(r.host.health.recoveries).toBe(1);
     // From here the new core runs the replayed remaining ramp itself: main sends no further bus ramp.
-    const posted = watchBatches(loop.link);
+    const posted = loop.watch();
     // Neither back at the fade's start nor jumped to its end: where main's ramp is now, on the heard clock.
     const now = await step(1);
     const expected = mixer.bus("SFX").volume * LEVEL;

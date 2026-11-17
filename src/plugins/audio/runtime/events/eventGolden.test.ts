@@ -16,11 +16,9 @@ import { Assets, Engine, SceneManager } from "../../../../myco";
 import { mixer } from "../../../../engine/audio/mixer";
 import { setAudioBackend } from "../backend";
 import { Audio } from "../index";
-import { createClipRegistry } from "../core/clipRegistry";
 import { fakeDecoder, type PlanarClip } from "../core/fakeDecoder";
-import type { AudioHost } from "../core/context";
-import { CoreBackend, type CoreBackendHost } from "../core/coreBackend";
-import { createLoopbackHost, endAudioSession } from "../testing";
+import { CoreBackend } from "../core/coreBackend";
+import { endAudioSession, loopbackAudio, closeLoopbackAudio } from "../testing";
 import { events } from "./eventRuntime";
 import type { AudioEventHandle } from "../backend";
 
@@ -59,16 +57,14 @@ interface Rig {
 }
 
 async function rig(): Promise<Rig | null> {
-  let loop;
-  try {
-    loop = await createLoopbackHost({ preset: { maxLogical: 64, maxMixed: 32, maxBuses: 8, arenaInitialBytes: 1 << 20, clipCeilingBytes: 16 << 20, limiterLookaheadMs: 0, maxBeds: 0, maxZoneSlots: 0, zoneMaxSeconds: 0, maxWide: 0, maxMusicRings: 0 } });
-  } catch {
-    return null;
-  }
-  const link = loop.link;
-  const clips = createClipRegistry({ send: (m) => link.post(m), nextSeq: () => link.nextSeq(), fetchBytes, decodeWorker: decode, nextFrame: (cb) => cb(), nextQuantum: (cb) => cb() });
-  const host: CoreBackendHost = { link, status: "running", preset: { maxLogical: 64, maxMixed: 32 }, worldCount: 1, sampleRate: RATE, addLifecycleListener: (() => () => {}) as AudioHost["addLifecycleListener"] };
-  const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer });
+  // ADR 0221: the production assembly on the loopback, on the page's mixer (the Engine configured it); the test registers it.
+  const loop = await loopbackAudio({
+    register: false,
+    preset: { maxLogical: 64, maxMixed: 32, maxBuses: 8, arenaInitialBytes: 1 << 20, clipCeilingBytes: 16 << 20, limiterLookaheadMs: 0, maxBeds: 0, maxZoneSlots: 0, zoneMaxSeconds: 0, maxWide: 0, maxMusicRings: 0 },
+    clipRegistry: { fetchBytes, decodeWorker: decode },
+  });
+  if (!loop) return null;
+  const backend = loop.backend;
   const left: number[] = [];
   const right: number[] = [];
   let frame = 0;
@@ -79,7 +75,7 @@ async function rig(): Promise<Rig | null> {
         each?.(frame);
         events().update(0.0107);
         backend.update(0.0107);
-        const out = loop.renderQuanta(FRAME_QUANTA);
+        const out = loop.render(FRAME_QUANTA);
         for (const s of out.left) left.push(s);
         for (const s of out.right) right.push(s);
         await new Promise<void>((r) => setTimeout(r, 0));
@@ -242,6 +238,8 @@ afterEach(() => {
   setAudioBackend(null);
   vi.restoreAllMocks();
 });
+
+afterEach(closeLoopbackAudio);
 
 describe("event goldens (the real core on the loopback host)", () => {
   it.each(Object.keys(SCENES))("%s matches its golden digest", { timeout: 60_000 }, async (name, ctx) => {

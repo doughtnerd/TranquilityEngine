@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { Engine, GameObject, Input, defineInput, defineSystem, f32, i32, u8, type BootstrapConfig, type BootstrapSetting, type ProjectSettingsInput } from "../engine";
 import { World } from "../engine/core/World";
-import { engineWorld, netWorldInfo, worldViewStates } from "../engine/editor";
+import { engineWorld, netWorldInfo, type NetTrafficInfo, worldViewStates } from "../engine/editor";
 import { netSession } from "../engine/net/session";
 import { NetStatsSampler, byCategory, clampConditions, clientLayout, createThinInput, ghostTypeLabel, hostLayout, playBootstrap, withConditions, playWorldSources } from "./netPlay";
 import { OrbitCamera } from "./OrbitCamera";
@@ -390,6 +390,39 @@ describe("multiplayer play mode", () => {
       run(4);
       expect(rtts()).toHaveLength(4);
       between(150, 600); // 80 ms each way, up to 10 ms jitter, a frame's wait (a lost message retried costs a round trip more)
+
+      // Loss shows in the traffic the Network panel reports: the server sends each client one unreliable snapshot per
+      // step, and a client counts the ones that arrive. Summed over the two links, over a window of traffic.
+      const snapshots = () => {
+        const info = netWorldInfo(play.engine);
+        const count = (t: NetTrafficInfo) => t.byKind["net.snapshot"]?.messages ?? 0;
+        return {
+          sent: info.find((w) => w.world === "Server")!.peers.reduce((n, p) => n + count(p.sent), 0),
+          received: info.filter((w) => w.role === "client").reduce((n, w) => n + w.peers.reduce((m, p) => m + count(p.received), 0), 0),
+        };
+      };
+      /** Snapshots sent but not received over `seconds` of play. */
+      const missing = (seconds: number) => {
+        const before = snapshots();
+        run(seconds);
+        const after = snapshots();
+        return { sent: after.sent - before.sent, gap: after.sent - before.sent - (after.received - before.received) };
+      };
+      // 20 s is 2400 snapshots over the two links at 5% loss: about 120 lost (sd 11). A window's edges hold the snapshots in
+      // flight (90 ms is at most 6 steps per link, 12 in all), which can hide or add that many to the gap. So the gap must
+      // exceed 12: P(at most 24 of 2400 lost) < 1e-18, so a false failure can't happen. And it must stay under 15% of what
+      // was sent (360 lost, 21 sd out), while all-lost would be 2400 and so would fail.
+      const lossy = missing(20);
+      expect(lossy.sent).toBeGreaterThan(2000);
+      expect(lossy.gap).toBeGreaterThan(12);
+      expect(lossy.gap).toBeLessThan(lossy.sent * 0.15);
+
+      // Lossless, a link holds a fixed number of snapshots in flight (a constant latency is a constant number of steps), so
+      // once the lossy ones have landed the window's edges match and every snapshot sent arrives.
+      play.setConditions({ latencyMs: 70, jitterMs: 0, lossPercent: 0 });
+      run(1);
+      expect(missing(5).gap).toBe(0);
+
       play.setConditions({ latencyMs: 200, jitterMs: 0, lossPercent: 0 });
       run(4);
       between(380, 460);

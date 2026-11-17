@@ -9,7 +9,8 @@ import { nodeDrag, startNodeDrag } from "./nodeDrag";
 import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile } from "./project";
 import { editorSettings, useProjectAssets } from "./projects";
-import { openScene, sceneCamera, select, selectedKeys, type OpenScene } from "./state";
+import { openScene, playState, sceneCamera, select, selectedKeys, type OpenScene } from "./state";
+import { copySelection, pasteClipboard, whyNotPasteAt, whyNotPasteHere } from "./hierarchyActions";
 import { sampleProject } from "./testing";
 
 /** A scene that isn't open in the editor, to paste into: its document and an undo stack. */
@@ -241,5 +242,22 @@ describe("hierarchy search", () => {
     const colliderCeiling = filterHierarchy(scene.doc, "T:BoxCollider2D  CEIL")!;
     expect([...colliderCeiling.matches]).toEqual(["ceiling"]);
     expect(filterHierarchy(scene.doc, "t:")).toBeNull(); // a bare "t:" is no query
+  });
+});
+
+describe("the hierarchy's paste action", () => {
+  it("says paste is unavailable while playing, as pasting refuses then", () => {
+    select(["camera"]);
+    expect(copySelection()).toBe(true);
+    expect(whyNotPasteHere()).toBeNull();
+    playState.value = "playing";
+    try {
+      expect(whyNotPasteHere()).toBe("stop playing to edit the scene");
+      expect(whyNotPasteAt(null)).toBe("stop playing to edit the scene");
+      expect(pasteClipboard()).toBe(false);
+    } finally {
+      playState.value = "edit";
+    }
+    expect(pasteClipboard()).toBe(true);
   });
 });

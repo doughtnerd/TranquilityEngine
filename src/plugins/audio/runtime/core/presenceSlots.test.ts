@@ -6,7 +6,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mixer } from "../../../../engine/audio/mixer";
 import { Op, readBusDuck } from "../wire.generated";
-import { watchBatches } from "./batchWatch";
 import { closeRigs, liveRig } from "../mix/clickHarness";
 
 const LEVEL = 0.5;
@@ -27,7 +26,7 @@ describe("presence rules by slot after live structural edits (Ck1)", () => {
   it("a rule sent after a remove still names the trigger's slot, and ducks", { timeout: 60_000 }, async (ctx) => {
     const r = await liveRig(PROJECT);
     if (!r) return ctx.skip();
-    const posted = watchBatches(r.loop.link);
+    const posted = r.audio.watch();
     const ducks = () => posted.takeOps(Op.BUS_DUCK).map((x) => readBusDuck(x.view, x.off).rules);
     r.play("Music");
     await r.step(12);
@@ -47,7 +46,7 @@ describe("presence rules by slot after live structural edits (Ck1)", () => {
   it("a bus added into a recycled slot: a rule triggered by it names its slot and ducks", { timeout: 60_000 }, async (ctx) => {
     const r = await liveRig(PROJECT);
     if (!r) return ctx.skip();
-    const posted = watchBatches(r.loop.link);
+    const posted = r.audio.watch();
     const ducks = () => posted.takeOps(Op.BUS_DUCK).map((x) => readBusDuck(x.view, x.off).rules);
     r.play("Music");
     await r.step(12);

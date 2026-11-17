@@ -1,26 +1,22 @@
 // ADR 0162 E4 acceptance (api-and-models §10 E4): the §7 debug-panel rows against the loopback host. `Audio.debug()`
-// is built by the real core backend over the real mixer wasm (two bed-capable buses, zone slots, wide rings), a zone
+// is built by the real core backend (ADR 0221: the production assembly, `loopbackAudio`) over the real mixer wasm (two bed-capable buses, zone slots, wide rings), a zone
 // preset kernel from the real decoder, and the real occlusion pass with a wall at x = 5 between the listener and one
-// of the voices. The rows model (`debugSections`, `voiceCells`) is rendered from it and every §7 row must appear with
-// a sane value; then the overlay is built from the same data.
+// of the voices. Every sample goes to the panel's monitor (ADR 0220), and every §7 row of its view must appear with a sane
+// value; then the overlay is built from the same data.
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Mixer } from "../../../engine/audio/mixer";
 import { defaultAudioSettings } from "../../../engine/audio/settings";
 import { Assets, BoxCollider, Engine, GameObject, SceneManager } from "../../../myco";
 import { AudioOccluder } from "../runtime/AudioOccluder";
 import { AudioReverbZone } from "../runtime/AudioReverbZone";
-import type { AudioHost } from "../runtime/core/context";
-import type { CoreBackendHost } from "../runtime/core/coreBackend";
-import { fakeDecoder } from "../runtime/core/fakeDecoder";
 import { ListenerFrame } from "../runtime/core/spatial";
 import { createZoneIrService } from "../runtime/core/zoneIr";
 import { createDecoderHandler } from "../runtime/decoder/handler";
 import type { DecoderReply, IrFailedMessage, IrPreparedMessage, StreamPortLike } from "../runtime/decoder/protocol";
 import hash from "../runtime/wasm/hash.json";
-import { LOOPBACK_PRESET } from "../runtime/testing";
-import { CounterWatch, VOICE_COLUMNS, debugSections, voiceCells, type Section } from "./audioDebugRows";
+import { type LoopbackAudio, loopbackAudio, closeLoopbackAudio } from "../runtime/testing";
+import { AudioDebugMonitor, type Section } from "./audioDebugMonitor";
 import { gainColor, occlusionColors, occlusionOverlay, occludedVoices, type OcclusionScene } from "./occlusionRays";
 import { theme } from "../../../editor/sdk";
 
@@ -31,9 +27,8 @@ async function rig(slots: number, maxActive: number, standby: number) {
   Assets.addSource(Assets.fromObject({ "s.json": { format: "myco.scene@1", settings: { physics: "3d" }, nodes: [] } }));
   const engine = await Engine.create({ headless: true, project: { physics: { gravity: [0, -10], layers: ["Default"], collisionMatrix: { Default: ["Default"] } } } });
   await SceneManager.load("s.json");
-  const testing = await import("../runtime/testing");
-  const loop = await testing.createLoopbackHost({ preset: { ...LOOPBACK_PRESET, maxZoneSlots: slots, zoneMaxSeconds: 1, maxBeds: 1, maxWide: 1 } });
-  // The decoder worker in-process: its worklet port delivers into the shell as the real port would.
+  // The decoder worker in-process: its worklet port delivers into the shell as the real port would (`workletPort`).
+  let audio: LoopbackAudio | null = null;
   const listeners: ((r: IrPreparedMessage | IrFailedMessage) => void)[] = [];
   const handler = createDecoderHandler({
     post: (r: DecoderReply) => {
@@ -45,7 +40,7 @@ async function rig(slots: number, maxActive: number, standby: number) {
     },
   });
   await handler.handle({ type: "init", wasmBytes: DECODER.buffer.slice(DECODER.byteOffset, DECODER.byteOffset + DECODER.byteLength) as ArrayBuffer });
-  const port: StreamPortLike = { onmessage: null, postMessage: (m: unknown) => loop.send(m as ArrayBuffer) };
+  const port: StreamPortLike = { onmessage: null, postMessage: (m: unknown) => audio!.workletPort.postMessage(m) };
   await handler.handle({ type: "connectWorklet", port } as never);
   const pending: Promise<void>[] = [];
   const zoneIr = createZoneIrService({
@@ -55,33 +50,23 @@ async function rig(slots: number, maxActive: number, standby: number) {
       onIr: (l) => (listeners.push(l), () => {}),
     },
   });
-  const { createClipRegistry } = await import("../runtime/core/clipRegistry");
-  const { CoreBackend } = await import("../runtime/core/coreBackend");
-  const link = loop.link;
   const tone = new Float32Array(48_000).map((_, i) => 0.2 * Math.sin((2 * Math.PI * 440 * i) / 48_000));
-  const clips = createClipRegistry({
-    send: (m) => link.post(m),
-    nextSeq: () => link.nextSeq(),
-    fetchBytes: async () => new ArrayBuffer(8),
-    decodeWorker: fakeDecoder(async () => ({ frames: tone.length, channels: 1, sampleRate: 48_000, channelData: [tone] })),
-    nextFrame: (cb) => cb(),
-    nextQuantum: (cb) => cb(),
-  });
-  const host: CoreBackendHost = {
-    link,
-    status: "running",
-    preset: { ...LOOPBACK_PRESET, maxZoneSlots: slots, zoneMaxSeconds: 1, maxBeds: 1, maxWide: 1 },
-    worldCount: 1,
-    sampleRate: 48_000,
-    addLifecycleListener: (() => () => {}) as AudioHost["addLifecycleListener"],
-  };
   const settings = defaultAudioSettings();
   settings.zones = { maxActive, standby, maxIrSeconds: 1 };
-  const mixer = new Mixer(settings);
   const warnings: string[] = [];
   const warn = console.warn;
   console.warn = (m: string) => void warnings.push(String(m));
-  const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer, zoneIr });
+  // ADR 0221: the production assembly on the loopback, on the page's mixer with the backend registered, so the panel's
+  // monitor reads `Audio.debug()` as it does in the editor. The test runs the frame's passes itself (a fixed listener pose).
+  audio = await loopbackAudio({
+    settings,
+    preset: { maxZoneSlots: slots, zoneMaxSeconds: 1, maxBeds: 1, maxWide: 1 },
+    decode: () => ({ channelData: [tone] }),
+    backend: { zoneIr },
+  });
+  if (!audio) throw new Error("the loopback core did not load");
+  const loop = audio;
+  const { backend, mixer } = audio;
   const frame = new ListenerFrame();
   let world: import("../../../engine/core/World").World | null = null;
   const pose = { position: { x: 0, y: 0, z: 0 }, forward: { x: 0, y: 0, z: 1 }, up: { x: 0, y: 1, z: 0 } };
@@ -97,7 +82,7 @@ async function rig(slots: number, maxActive: number, standby: number) {
     backend.frameStageFx();
     backend.frameStageListener(frame);
     backend.frameCommit();
-    loop.renderQuanta(6);
+    loop.render(6);
     await Promise.all(pending.splice(0));
     await new Promise((r) => setTimeout(r, 0));
   };
@@ -113,11 +98,13 @@ async function rig(slots: number, maxActive: number, standby: number) {
     world = node.world;
     return node.addBehavior(AudioReverbZone, { preset });
   };
-  return { loop, backend, step, zone, pose, warnings, restore: () => (console.warn = warn) };
+  return { Audio: audio.Audio, backend, step, zone, pose, warnings, restore: () => (console.warn = warn) };
 }
 
-
-afterEach(() => vi.restoreAllMocks());
+afterEach(async () => {
+  await closeLoopbackAudio();
+  vi.restoreAllMocks();
+});
 
 const req = (x: number) => ({ path: "tone", url: "tone", loop: true, stream: false, bus: "SFX", attenuation: { minDistance: 1, maxDistance: 50, rolloff: "inverse" as const }, position: { x, y: 0, z: 0 } });
 const section = (s: Section[], id: Section["id"]) => s.find((x) => x.id === id)!;
@@ -133,15 +120,16 @@ describe("E4: the §7 debug rows against the loopback host", () => {
       r.backend.play(req(30));
       const behindWall = r.backend.play(req(10))!;
       expect(behindWall).not.toBeNull();
-      const watch = new CounterWatch();
-      let info = r.backend.debug();
+      const monitor = new AudioDebugMonitor();
+      let info = r.Audio.debug();
       for (let f = 0; f < 120; f++) {
         await r.step();
-        info = r.backend.debug();
-        watch.observe(info);
+        info = r.Audio.debug();
+        monitor.observe(info);
       }
-      const sections = debugSections(info, watch);
-      expect(sections.map((s) => s.id)).toEqual(["m3Counters", "ladder", "beds", "zones", "occlusion", "memory", "musicTotals", "music"]);
+      const view = monitor.view()!;
+      const sections = view.sections;
+      expect(sections.map((s) => s.id)).toEqual(["m3Counters", "ladder", "beds", "zones", "occlusion", "memory", "musicTotals", "music", "mixCaps", "cpu", "mix", "mixSlots", "ducking", "recorder"]);
       for (const s of sections) expect(s.tip.length, s.id).toBeGreaterThan(20);
 
       // Counters: the numbers the loopback run produced, each with a health.
@@ -192,19 +180,25 @@ describe("E4: the §7 debug rows against the loopback host", () => {
       for (const row of memory.rows) expect(row.cells[1]!.text, row.id).toMatch(/KB|MB/);
 
       // Voice columns: the row of the voice behind the wall carries its occlusion gain, cutoff and low-pass owner.
+      const table = view.voices;
+      const voiceRows = [...table.groups.flatMap((g) => g.voices), ...table.ungrouped];
+      const cellsOf = (id: number) => {
+        const row = voiceRows.find((x) => x.id === String(id))!;
+        expect(row.cells).toHaveLength(table.columns.length);
+        return Object.fromEntries(table.columns.map((c, i) => [c.label, row.cells[i]!]));
+      };
       const mine = info.voices.find((v) => v.id === behindWall.id)!;
-      const cells = voiceCells(mine);
-      expect(cells).toHaveLength(VOICE_COLUMNS.length);
+      const cells = cellsOf(mine.id);
       expect(mine.occlusion!.gain).toBeLessThan(1);
-      expect(cells[2]!.text).toMatch(/^\d\.\d\d · /);
-      expect(cells[2]!.tip).toMatch(/concrete/);
-      expect(cells[3]!.text).toMatch(/\(occlusion\)$/);
-      expect(["flat", "equalPower", "hrtf", "bed", "ambisonic"]).toContain(cells[0]!.text);
+      expect(cells.Occlusion!.text).toMatch(/^\d\.\d\d · /);
+      expect(cells.Occlusion!.tip).toMatch(/concrete/);
+      expect(cells["Low-pass"]!.text).toMatch(/\(occlusion\)$/);
+      expect(["flat", "equalPower", "hrtf", "bed", "ambisonic"]).toContain(cells.Panner!.text);
       // A voice in the open reads "open".
       const open = info.voices.find((v) => v.occlusion && v.occlusion.gain >= 0.9995)!;
-      expect(voiceCells(open)[2]!.text).toBe("open");
+      expect(cellsOf(open.id).Occlusion!.text).toBe("open");
       // The zone sends of the voice at the listener name the zone.
-      expect(info.voices.some((v) => v.sends?.some((s) => s.zone === "A") && voiceCells(v)[4]!.text.includes("A "))).toBe(true);
+      expect(info.voices.some((v) => v.sends?.some((s) => s.zone === "A") && cellsOf(v.id).Sends!.text.includes("A "))).toBe(true);
 
       // The overlay, from the same debug data: one ray (to the listener) and a hit cross at the wall for the occluded voice.
       // (The rig's World has no audio key, so its voices read world null; the overlay matches voices by the World's key.)

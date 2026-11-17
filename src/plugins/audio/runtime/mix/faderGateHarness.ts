@@ -20,15 +20,9 @@ import { vi } from "vitest";
 import { mixer, DRAG_RAMP_MS } from "../../../../engine/audio/mixer";
 import { parseAudioSettings } from "../../../../engine/audio/settings";
 import { Kind, LANE_AUTHORED, Op, readBusRamp } from "../wire.generated";
-import { batchRecords } from "../core/batchRecords";
-import { setAudioBackend } from "../backend";
 import { events } from "../events/eventRuntime";
-import { fakeDecoder } from "../core/fakeDecoder";
-import { createClipRegistry } from "../core/clipRegistry";
-import { AudioHost, presetFromSettings } from "../core/context";
-import { createCoreBackend, type CoreBackend } from "../core/coreBackend";
-import { Unlock, type UnlockContext } from "../core/unlock";
-import { endAudioSession } from "../testing";
+import { presetFromSettings } from "../core/context";
+import { loopbackAudio } from "../testing";
 
 export const RATE = 48_000;
 export const QUANTUM = 128;
@@ -97,73 +91,34 @@ interface Ev {
   fn: () => void;
 }
 
-/** Builds the loopback rig (as `liveMixLoopback.test.ts`'s `rig`); null where the wasm cannot be built. */
+/** Builds the loopback rig (ADR 0221: `loopbackAudio`, the production assembly); null where the wasm cannot be built. */
 async function build() {
-  const testing = await import("../testing");
   const settings = parseAudioSettings(PROJECT).settings;
-  const preset = { ...presetFromSettings(settings), limiterLookaheadMs: 0 };
-  let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>>;
-  try {
-    loop = await testing.createLoopbackHost({ preset });
-  } catch {
-    return null;
-  }
-  const ctx = {
-    state: "running",
-    sampleRate: RATE,
-    destination: {},
-    resume: () => Promise.resolve(),
-    close: async () => {
-      ctx.state = "closed";
-      return Promise.resolve();
-    },
-    addEventListener() {},
-    removeEventListener() {},
-  };
-  const node = Object.assign(new EventTarget(), { connect() {}, disconnect() {} }) as unknown as AudioWorkletNode;
-  const unlock = new Unlock({ target: new EventTarget(), context: ctx as unknown as UnlockContext });
-  const host = AudioHost._create({ context: ctx as unknown as AudioContext, node, link: loop.link, unlock, preset, respawn: () => loop.respawn() });
-  const link = loop.link;
-  /** Every BATCH posted: its virtual post time (set by the sim), the core frame it arrived at and its Voice authored ramps. */
-  const posts: { atMs: number; frame: number; voiceRamp: boolean }[] = [];
-  let simNow = 0;
-  const post = link.post.bind(link);
-  link.post = ((buffer: ArrayBuffer, ...rest: unknown[]) => {
-    const batch = batchRecords(buffer);
-    if (batch?.kind === Kind.BATCH) {
-      const voiceRamp = batch.records.some((x) => x.opcode === Op.BUS_RAMP && x.voiceId === VOICE_SLOT && readBusRamp(x.view, x.off).lane === LANE_AUTHORED);
-      posts.push({ atMs: simNow, frame: loop.frame, voiceRamp });
-    }
-    return (post as (b: ArrayBuffer, ...r: unknown[]) => void)(buffer, ...rest);
-  }) as typeof link.post;
-  const clips = createClipRegistry({
-    send: (m) => link.post(m),
-    nextSeq: () => link.nextSeq(),
-    fetchBytes: async (path) => new TextEncoder().encode(path).buffer as ArrayBuffer,
-    decodeWorker: fakeDecoder(() => ({ frames: CLIP_FRAMES, channels: 1, sampleRate: RATE, channelData: [new Float32Array(CLIP_FRAMES).fill(LEVEL)] })),
-    nextFrame: (cb) => cb(),
-    nextQuantum: (cb) => cb(),
+  const audio = await loopbackAudio({
+    settings,
+    preset: { ...presetFromSettings(settings), limiterLookaheadMs: 0 },
+    decode: () => ({ channelData: [new Float32Array(CLIP_FRAMES).fill(LEVEL)] }),
   });
-  mixer.configure(settings);
-  const backend: CoreBackend = createCoreBackend(host, { clips, clock: loop.clock, mixer });
-  endAudioSession();
-  setAudioBackend(backend);
-  return {
-    loop,
-    host,
-    backend,
-    posts,
-    setNow: (t: number) => {
-      simNow = t;
-    },
+  if (!audio) return null;
+  /** Every BATCH the core received: its virtual post time (the sim's at the post), the core frame it arrived at and its Voice authored ramps. */
+  const posts: { atMs: number; frame: number; voiceRamp: boolean }[] = [];
+  const watch = audio.watch();
+  /** Moves what was posted since the last call into `posts`, at virtual time `atMs` (called after each main-thread event). */
+  const collect = (atMs: number) => {
+    for (const { frame, batch } of watch.takeReceived()) {
+      if (batch.kind !== Kind.BATCH) continue;
+      const voiceRamp = batch.records.some((x) => x.opcode === Op.BUS_RAMP && x.voiceId === VOICE_SLOT && readBusRamp(x.view, x.off).lane === LANE_AUTHORED);
+      posts.push({ atMs, frame, voiceRamp });
+    }
   };
+  return { audio, posts, collect };
 }
-
 /** Runs the seeded drags on a fresh loopback rig and returns one result per drag; null when the wasm is unavailable. */
 export async function runFaderGate(options: GateOptions): Promise<DragResult[] | null> {
   const rig = await build();
   if (!rig) return null;
-  const { loop, host, backend, posts, setNow } = rig;
+  const { audio, posts, collect } = rig;
+  const backend = audio.backend;
   const preview = options.preview ?? true;
   const rand = rng(options.seed);
   const between = (lo: number, hi: number) => lo + rand() * (hi - lo);
@@ -188,35 +143,32 @@ export async function runFaderGate(options: GateOptions): Promise<DragResult[] |
 
   const trace: number[] = [];
   let traceBase = 0;
-  const settle = async () => {
-    for (let k = 0; k < 8; k++) await Promise.resolve();
-  };
   /** Runs the main thread and renders until the host's next quantum starts at or after `untilMs`. */
   const runTo = async (untilMs: number) => {
-    while ((loop.frame * 1000) / RATE < untilMs) {
-      const start = (loop.frame * 1000) / RATE;
+    while ((audio.frame * 1000) / RATE < untilMs) {
+      const start = (audio.frame * 1000) / RATE;
       for (;;) {
         const e = queue[0];
         const tickDue = nextTick <= start && (!e || nextTick <= e.t);
         if (tickDue) {
           now = nextTick;
-          setNow(now);
           mixer.update(cadence / 1000);
           backend.update(cadence / 1000);
           events().update(cadence / 1000);
+          collect(now);
           nextTick += cadence;
         } else if (e && e.t <= start) {
           queue.shift();
           now = e.t;
-          setNow(now);
           e.fn();
+          collect(now);
         } else break;
       }
       now = start;
-      setNow(now);
-      const { left } = loop.renderQuanta(1);
+      const { left } = audio.render(1);
       for (let i = 0; i < left.length; i++) trace.push(left[i]!);
-      await settle();
+      await audio.settle();
+      collect(now);
     }
   };
 
@@ -229,7 +181,7 @@ export async function runFaderGate(options: GateOptions): Promise<DragResult[] |
     // The no-edit render: the output holds one value since the last settle.
     const base = trace[trace.length - 1]!;
     trace.length = 0;
-    traceBase = loop.frame;
+    traceBase = audio.frame;
     const postsBefore = posts.length;
     cadence = pick(CADENCES_MS);
     const e0 = now + between(8, 40);
@@ -282,10 +234,7 @@ export async function runFaderGate(options: GateOptions): Promise<DragResult[] |
   }
   clockSpy.mockRestore();
   timerSpy.mockRestore();
-  backend.dispose();
-  setAudioBackend(null);
-  endAudioSession();
-  await host.close();
+  await audio.close();
   return results;
 }
 

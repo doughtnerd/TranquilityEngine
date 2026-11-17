@@ -16,14 +16,12 @@
 //   r.dispose();
 import { vi } from "vitest";
 import { Assets, Engine, SceneManager } from "../../../../../myco";
-import { mixer as globalMixer, registerCoreBackend, setAudioBackend } from "../../backend";
+import { registerCoreBackend, setAudioBackend } from "../../backend";
 import { Audio } from "../../index";
-import { createClipRegistry } from "../../core/clipRegistry";
-import { fakeDecoder } from "../../core/fakeDecoder";
-import type { AudioHost } from "../../core/context";
-import { CoreBackend, type CoreBackendHost } from "../../core/coreBackend";
+import type { CoreBackend } from "../../core/coreBackend";
 import { AUDIO_SYSTEMS } from "../../audioSystem";
 import { musicPlayers, type MusicPlayer } from "../musicSystem";
+import { closeLoopbackAudio, loopbackAudio } from "../../testing";
 
 export const RATE = 48_000;
 export const QUANTUM = 128;
@@ -102,6 +100,7 @@ export function resetMusicLoopback(): void {
   liveEngine?.dispose();
   liveEngine = null;
   setAudioBackend(null);
+  void closeLoopbackAudio(); // the rig's host (its close is synchronous up to the fake context's)
   vi.restoreAllMocks();
 }
 
@@ -124,14 +123,6 @@ export async function musicLoopback(options: MusicLoopbackOptions): Promise<Musi
   liveEngine = engine;
   engine.world.render = {} as never;
 
-  const testing = await import("../../testing");
-  let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>>;
-  try {
-    loop = await testing.createLoopbackHost({ preset: { ...testing.LOOPBACK_PRESET, limiterLookaheadMs: 0 } });
-  } catch {
-    return null;
-  }
-  const link = loop.link;
   const signals = new Map<string, Float32Array>();
   const signalOf = (path: string): Float32Array => {
     let s = signals.get(path);
@@ -144,56 +135,34 @@ export async function musicLoopback(options: MusicLoopbackOptions): Promise<Musi
     }
     return s;
   };
-  const clips = createClipRegistry({
-    send: (m) => link.post(m),
-    nextSeq: () => link.nextSeq(),
-    fetchBytes: async (url: string) => {
-      const path = Object.keys(options.clips).find((p) => url.endsWith(p));
-      return new TextEncoder().encode(path ?? url).buffer as ArrayBuffer;
-    },
-    decodeWorker: fakeDecoder((bytes) => {
-      const data = signalOf(new TextDecoder().decode(bytes));
-      return { frames: data.length, channels: 1, sampleRate: RATE, channelData: [data] };
-    }),
-    nextFrame: (cb) => cb(),
-    nextQuantum: (cb) => cb(),
+  // ADR 0221: the production assembly on the loopback, on the page's mixer (the Engine configured it). The fixture registers
+  // it (`registerCoreBackend`, as the service does) now, or at `unlock` when `locked`.
+  const loop = await loopbackAudio({
+    register: false,
+    preset: { maxLogical: 32, maxMixed: 16, limiterLookaheadMs: 0 },
+    decode: (path) => ({ channelData: [signalOf(Object.keys(options.clips).find((p) => path.endsWith(p)) ?? path)] }),
   });
-  const host: CoreBackendHost = { link, status: "running", preset: { maxLogical: 32, maxMixed: 16 }, worldCount: 1, sampleRate: RATE, addLifecycleListener: (() => () => {}) as AudioHost["addLifecycleListener"] };
-  const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer: globalMixer });
+  if (!loop) return null;
+  const { backend, link } = loop;
   const register = (): void => { undo ??= registerCoreBackend(() => backend); };
   if (!options.locked) register();
 
-  const out: number[] = [];
+  // The core's frames before the fixture's first step rendered silence: `out` holds them as zeros, so an index is a frame.
+  const out: number[] = new Array<number>(loop.frame).fill(0);
   const dt = frameFrames / RATE;
-  // F-25 (`delayBatches`): BATCHes held back from the core, each with the quantum count it is delivered at.
-  let rendered = 0;
-  let delay: { quanta: number; once: boolean } | null = null;
-  const held: { buffer: ArrayBuffer; due: number }[] = [];
-  const post = link.post.bind(link);
-  link.post = (buffer: ArrayBuffer): void => {
-    const batch = buffer.byteLength >= 8 && new DataView(buffer).getUint16(6, true) === 1; // the envelope's kind: BATCH
-    if (batch && (delay || held.length > 0)) held.push({ buffer, due: Math.max(rendered + (delay?.quanta ?? 0), held.at(-1)?.due ?? 0) });
-    else post(buffer);
-  };
-  const render = (quanta: number): void => {
-    if (held.length === 0) {
-      for (const s of loop.renderQuanta(quanta).left) out.push(s);
-      rendered += quanta;
-      return;
-    }
-    // Delivered after the quantum before its due count renders, as a posted batch is (the loopback drains after each quantum).
-    for (let q = 0; q < quanta; q++) {
-      while (held.length > 0 && held[0]!.due <= rendered) post(held.shift()!.buffer);
-      for (const s of loop.renderQuanta(1).left) out.push(s);
-      rendered++;
-    }
-  };
+  // F-25 (`delayBatches`): the loopback's hitch between main and the core, for the next frame or until another call.
+  let delay: { stop(): void } | null = null;
+  let delayOnce = false;
   const step = async (n: number): Promise<void> => {
     for (let f = 0; f < n; f++) {
       AUDIO_SYSTEMS[1]!.run(engine.world, dt);
       AUDIO_SYSTEMS[0]!.run(engine.world, dt);
-      if (delay?.once) delay = null;
-      render(quantaPerFrame);
+      if (delayOnce) {
+        delay?.stop();
+        delay = null;
+        delayOnce = false;
+      }
+      for (const s of loop.render(quantaPerFrame).left) out.push(s);
       for (let k = 0; k < 4; k++) await Promise.resolve();
     }
   };
@@ -215,7 +184,7 @@ export async function musicLoopback(options: MusicLoopbackOptions): Promise<Musi
     step,
     stepUntil,
     stepToFrame: (frame) => stepUntil(() => out.length >= frame),
-    frameOfTime: (t) => (backend as unknown as { clockMap: { frameOfTime(t: number): number } }).clockMap.frameOfTime(t),
+    frameOfTime: (t) => backend.clockMap.frameOfTime(t),
     play: (path) => Audio.play(path),
     player: (n = 0) => musicPlayers()[n],
     firstDeparture(from, level, tolerance = 1e-6) {
@@ -228,11 +197,14 @@ export async function musicLoopback(options: MusicLoopbackOptions): Promise<Musi
       return m;
     },
     late() {
-      const mirror = (backend as unknown as { mirror: { header: { groupsLate: number; maxSlipFrames: number } } }).mirror;
-      return { groupsLate: mirror.header.groupsLate, maxSlipFrames: mirror.header.maxSlipFrames };
+      // ADR 0215: STATUS through the link the backend was built with.
+      const status = link.lastStatus;
+      return { groupsLate: status?.groupsLate ?? 0, maxSlipFrames: status?.maxSlipFrames ?? 0 };
     },
     delayBatches(quanta, once = true) {
-      delay = quanta > 0 ? { quanta: Math.round(quanta), once } : null;
+      delay?.stop();
+      delay = quanta > 0 ? loop.delayBatches(quanta) : null;
+      delayOnce = delay !== null && once;
     },
     unlock: register,
     dispose() {

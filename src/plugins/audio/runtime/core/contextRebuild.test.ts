@@ -8,9 +8,10 @@ import { Mixer } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings } from "../../../../engine/audio/settings";
 import { createClipRegistry } from "./clipRegistry";
 import { AudioHost, presetFromSettings, type ContextParts, type LinkPort } from "./context";
-import { createCoreBackend, type CoreBackend } from "./coreBackend";
+import { type CoreBackend } from "./coreBackend";
+import { assembleCore } from "./assembly";
 import { limiterLatencyFrames } from "./limiterLatency";
-import { rebuildHost, watchForTraps, type RebuildOutcome } from "./recovery";
+import { rebuildHost, type RebuildOutcome } from "./recovery";
 import { Unlock, type UnlockContext } from "./unlock";
 
 /** Recovery timings (recovery.ts): a stall escalates to a new context outside a 10 s window, after a 2 s wait for the same-context node's first STATUS. */
@@ -131,10 +132,10 @@ async function rig(options: RigOptions = {}) {
     nextQuantum: (cb) => cb(),
   });
   const mixer = new Mixer(defaultAudioSettings());
-  const backend: CoreBackend = createCoreBackend(host, { clips, clock: loop.clock, mixer });
   const now = { ms: 0 };
   const warn = vi.fn();
-  watchForTraps(host, { now: () => now.ms, warn });
+  // ADR 0221: the production assembly over this host.
+  const backend: CoreBackend = assembleCore(host, { clips, clock: loop.clock, mixer, recovery: { now: () => now.ms, warn } }).createBackend();
   const settle = async () => {
     for (let k = 0; k < 8; k++) await Promise.resolve();
   };

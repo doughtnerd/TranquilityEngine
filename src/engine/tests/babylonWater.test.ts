@@ -15,7 +15,6 @@ import { WaterSurface } from "../render/water/WaterSurface";
 import { BabylonWater } from "../render/babylon/water";
 import { GERSTNER_BODY, MAX_WAVES, gerstner } from "../render/water/gerstner";
 import { waterTime } from "../render/water/WaterSurface";
-import { ALBEDO_ANCHOR } from "../render/babylon/graphMaterial";
 
 type ShaderCode = { [point: string]: string };
 /** The code the water material's wave plugin gives Babylon's PBR shaders, and its uniform buffer: read through Babylon's plugin API. */
@@ -186,13 +185,13 @@ describe("the water WGSL", () => {
     all = [...Object.values(vertex), ...Object.values(fragment), ...Object.keys(vertex), ...Object.keys(fragment)].join("\n");
   });
 
-  it("goes in the injection points Babylon's PBR shaders have", () => {
+  // Where each point sits in Babylon's shaders is pbrInjection.test.ts's; here, what the water puts in them.
+  it("injects at Babylon's named points and at the PBR points, re-declaring what it replaces (ADR 0222)", () => {
     expect(Object.keys(vertex)).toContain("CUSTOM_VERTEX_DEFINITIONS");
-    expect(Object.keys(vertex).some((k) => k.startsWith("!var\\s+worldPos"))).toBe(true);
-    expect(Object.keys(fragment)).toEqual(expect.arrayContaining(["CUSTOM_FRAGMENT_DEFINITIONS", "CUSTOM_FRAGMENT_UPDATE_ALPHA", ALBEDO_ANCHOR, "!reflectivityBlock\\(\\s*uniforms\\.vReflectivityColor"]));
-    // The vertex regex matches Babylon's own line.
-    const key = Object.keys(vertex).find((k) => k.startsWith("!"))!;
-    expect(new RegExp(key.slice(1)).test("var worldPos: vec4f = finalWorld * vec4f(positionUpdated, 1.0);")).toBe(true);
+    expect(Object.keys(fragment)).toEqual(expect.arrayContaining(["CUSTOM_FRAGMENT_DEFINITIONS", "CUSTOM_FRAGMENT_UPDATE_ALPHA"]));
+    expect(Object.values(vertex).some((v) => v.includes("var worldPos: vec4f = finalWorld * vec4f(positionUpdated, 1.0);"))).toBe(true);
+    expect(Object.values(fragment).some((v) => v.includes("mycoFoam") && v.endsWith("var albedoOpacityOut: albedoOpacityOutParams;"))).toBe(true);
+    expect(Object.values(fragment)).toContain("reflectivityBlock(vec4f(0.0, mix(uniforms.vReflectivityColor.y, 0.9, mycoFoam), uniforms.vReflectivityColor.zw)");
   });
 
   it("displaces the vertex and sets the normal before the world position, with two varyings", () => {
@@ -229,12 +228,10 @@ describe("the water GLSL (WebGL2 fallback)", () => {
     fragment = waterCode("fragment", ShaderLanguage.GLSL);
   });
 
-  it("matches the lines of Babylon's GLSL PBR shaders it replaces", () => {
-    const pos = Object.keys(vertex).find((k) => k.startsWith("!"))!;
-    expect(new RegExp(pos.slice(1)).test("vec4 worldPos=finalWorld*vec4(positionUpdated,1.0);vPositionW=vec3(worldPos);")).toBe(true);
-    const keys = Object.keys(fragment).filter((k) => k.startsWith("!"));
-    expect(keys.some((k) => new RegExp(k.slice(1)).test("albedoOpacityOutParams albedoOpacityOut;"))).toBe(true);
-    expect(keys.some((k) => new RegExp(k.slice(1)).test("reflectivityOut=reflectivityBlock(\nvReflectivityColor"))).toBe(true);
+  it("re-declares the lines of Babylon's GLSL PBR shaders it replaces (ADR 0222)", () => {
+    expect(Object.values(vertex).some((v) => v.includes("vec4 worldPos = finalWorld * vec4(positionUpdated, 1.0);"))).toBe(true);
+    expect(Object.values(fragment).some((v) => v.includes("mycoFoamK") && v.endsWith("albedoOpacityOutParams albedoOpacityOut;"))).toBe(true);
+    expect(Object.values(fragment)).toContain("reflectivityBlock(vec4(0.0, mix(vReflectivityColor.y, 0.9, mycoFoamK), vReflectivityColor.zw)");
   });
 
   it("sums the waves with GERSTNER_BODY itself, reads every packed uniform, and shadows none of them", () => {

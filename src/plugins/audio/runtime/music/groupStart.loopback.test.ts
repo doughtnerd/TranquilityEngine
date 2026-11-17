@@ -11,7 +11,7 @@ import type { MusicNode } from "../../../../engine/audio/musicFormat";
 import { createMusicPlayer, type MusicFrame } from "./musicSystem";
 import { routeGroupEvent, setSegmentClipSource } from "./segmentRun";
 import { planTick, requestStart } from "./planner";
-import { endAudioSession } from "../testing";
+import { endAudioSession, loopbackAudio, closeLoopbackAudio } from "../testing";
 
 const RATE = 48_000;
 const FRAMES = 4 * RATE;
@@ -24,47 +24,28 @@ afterEach(() => {
   setAudioBackend(null);
 });
 
+afterEach(closeLoopbackAudio);
+
 describe("C2b: the group gate on the loopback host (ADR 0166 §4.3)", () => {
   it("8 stems start on one frame, and the group start turns the run to playing", async (ctx) => {
-    const testing = await import("../testing");
-    let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>>;
-    try {
-      loop = await testing.createLoopbackHost({ preset: { ...testing.LOOPBACK_PRESET, limiterLookaheadMs: 0 } });
-    } catch {
-      return ctx.skip();
-    }
-    const [{ createClipRegistry }, { CoreBackend }, { Mixer }, { defaultAudioSettings }, { fakeDecoder }] = await Promise.all([
-      import("../core/clipRegistry"),
-      import("../core/coreBackend"),
-      import("../../../../engine/audio/mixer"),
-      import("../../../../engine/audio/settings"),
-      import("../core/fakeDecoder"),
-    ]);
-    const link = loop.link;
-    const clips = createClipRegistry({
-      send: (m) => link.post(m),
-      nextSeq: () => link.nextSeq(),
-      fetchBytes: async (url: string) => new ArrayBuffer((Number(/s(\d)/.exec(url)![1]) + 1) * 8),
-      decodeWorker: fakeDecoder(async (bytes) => ({ frames: FRAMES, channels: 1, sampleRate: RATE, channelData: [new Float32Array(FRAMES).fill(level(bytes.byteLength / 8 - 1))] })),
-      nextFrame: (cb) => cb(),
-      nextQuantum: (cb) => cb(),
-    });
-    const host = { link, status: "running" as const, preset: { maxLogical: 64, maxMixed: 32 }, worldCount: 1, sampleRate: RATE, addLifecycleListener: (() => () => {}) as never };
-    const mixer = new Mixer(defaultAudioSettings());
-    const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer }) as unknown as AudioBackend & {
+    // ADR 0221: the production assembly on the loopback, with its own mixer; no limiter look-ahead (output frames are core frames).
+    const loop = await loopbackAudio({ mixer: "own", preset: { maxLogical: 64, maxMixed: 32, limiterLookaheadMs: 0 }, decode: (path) => ({ channelData: [new Float32Array(FRAMES).fill(level(Number(/s(\d)/.exec(path)![1])))] }) });
+    if (!loop) return ctx.skip();
+    const mixer = loop.mixer;
+    const backend = loop.backend as unknown as AudioBackend & {
       clockMap: { frameOfTime(t: number): number };
       music: NonNullable<AudioBackend["music"]>;
-      mirror: { header: { groupsLate: number; maxSlipFrames: number } };
       dispose(): void;
     };
     setAudioBackend(backend);
     backend.music.onGroupEvent = routeGroupEvent;
-    const out: number[] = [];
+    // The core's frames before the rig rendered silence: `out` holds them as zeros, so an index is a frame.
+    const out: number[] = new Array<number>(loop.frame).fill(0);
     const step = async (n: number): Promise<void> => {
       for (let i = 0; i < n; i++) {
         mixer.update(0.003);
         backend.update(0.003);
-        for (const s of loop.renderQuanta(4).left) out.push(s);
+        for (const s of loop.render(4).left) out.push(s);
         await Promise.resolve();
       }
     };
@@ -110,7 +91,7 @@ describe("C2b: the group gate on the loopback host (ADR 0166 §4.3)", () => {
     console.info(`C2b loopback: 8 stems at frame ${start}, onset ${onset.toFixed(6)} (sum of levels ${sum.toFixed(2)}), max deviation after ${flat}`);
     expect(flat).toBe(0);
     expect(onset).toBeCloseTo(sum, 4); // every stem is in the first sample
-    expect(backend.mirror.header.groupsLate).toBe(0);
+    expect(loop.link.lastStatus!.groupsLate).toBe(0);
     backend.dispose();
   });
 });

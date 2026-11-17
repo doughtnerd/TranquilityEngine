@@ -10,15 +10,11 @@
 // recovery gives it back last, which marks the paused meters `incomplete`. With only master metered (the first case:
 // main always meters master) the step is skipped and the ladder runs as before.
 import { afterEach, describe, expect, it } from "vitest";
-import { Mixer } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings, type AudioSettings } from "../../../../engine/audio/settings";
 import { NULL_PROFILE_SINK } from "../mix/profileSink";
 import { taps } from "../mix/profileTaps";
 import { recordingSink } from "../mix/recordingSink";
-import type { AudioHost, CoreLink } from "./context";
-import { CoreBackend, type CoreBackendHost } from "./coreBackend";
-import { createClipRegistry } from "./clipRegistry";
-import { fakeDecoder } from "./fakeDecoder";
+import { loopbackAudio, closeLoopbackAudio } from "../testing";
 
 /** Quanta per frame and frames per second in this rig (4 quanta of 128 at 48 kHz ≈ 10.7 ms). */
 const QUANTA_PER_FRAME = 4;
@@ -26,46 +22,26 @@ const FRAMES_PER_SECOND = Math.round(48_000 / 128 / QUANTA_PER_FRAME);
 const MAX_MIXED = 32;
 
 async function rig(settings: AudioSettings = defaultAudioSettings()) {
-  const testing = await import("../testing");
-  let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>> & { link: CoreLink };
-  try {
-    // One bed slot, so the ladder has its bed-idle step (no bed needs to be configured for it).
-    loop = (await testing.createLoopbackHost({ preset: { ...testing.LOOPBACK_PRESET, maxMixed: MAX_MIXED, maxBeds: 1 } })) as typeof loop;
-  } catch {
-    return null;
-  }
-  const link = loop.link;
-  const clips = createClipRegistry({
-    send: (m) => link.post(m),
-    nextSeq: () => link.nextSeq(),
-    fetchBytes: async () => new ArrayBuffer(8),
-    decodeWorker: fakeDecoder(async () => ({ frames: 480, channels: 1, sampleRate: 48_000, channelData: [new Float32Array(480)] })),
-    nextFrame: (cb) => cb(),
-    nextQuantum: (cb) => cb(),
-  });
-  const host: CoreBackendHost = {
-    link,
-    status: "running",
+  // ADR 0221: the production assembly on the loopback, with its own mixer. One bed slot, so the ladder has its bed-idle
+  // step (no bed needs to be configured for it).
+  const audio = await loopbackAudio({
+    mixer: "own",
+    settings,
     preset: { maxLogical: 64, maxMixed: MAX_MIXED, maxBeds: 1 },
-    worldCount: 1,
-    sampleRate: 48_000,
-    addLifecycleListener: (() => () => {}) as AudioHost["addLifecycleListener"],
-  };
-  const mixer = new Mixer(settings);
-  const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer });
+    decode: () => ({ channelData: [new Float32Array(480)] }),
+    quantaPerFrame: QUANTA_PER_FRAME,
+    dt: 0.01,
+  });
+  if (!audio) return null;
+  const { backend, mixer, link } = audio;
   const step = async (n: number) => {
-    for (let f = 0; f < n; f++) {
-      mixer.update(0.01);
-      backend.update(0.01);
-      loop.renderQuanta(QUANTA_PER_FRAME);
-      await Promise.resolve();
-    }
+    await audio.step(n);
   };
   /** The render falls `ms` behind the wall clock (the context clock stands still meanwhile): one underrun. */
   const stall = (ms: number) => {
-    loop.clock.setRunning(false);
-    loop.clock.advance(ms);
-    loop.clock.setRunning(true);
+    audio.clock.setRunning(false);
+    audio.clock.advance(ms);
+    audio.clock.setRunning(true);
   };
   return { backend, mixer, step, stall, link };
 }
@@ -79,6 +55,8 @@ function metered(names: string[]): AudioSettings {
 afterEach(() => {
   taps.sink = NULL_PROFILE_SINK;
 });
+
+afterEach(closeLoopbackAudio);
 
 describe("the load-shedding ladder on the loopback host (ADR 0170)", () => {
   it("sheds under sustained underruns, then gives its step back and the cap returns to its preset once they stop", { timeout: 120_000 }, async (ctx) => {

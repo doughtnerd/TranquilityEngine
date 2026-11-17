@@ -15,8 +15,7 @@ import { watchBatches } from "./batchWatch";
 import { Op, readPlay } from "../wire.generated";
 import { createClipRegistry } from "./clipRegistry";
 import { AudioHost, presetFromSettings } from "./context";
-import { createCoreBackend } from "./coreBackend";
-import { watchForTraps } from "./recovery";
+import { assembleCore } from "./assembly";
 import { Unlock, type UnlockContext } from "./unlock";
 
 const RATE = 48_000;
@@ -52,7 +51,6 @@ describe("a stream across a hard rebuild (B3)", () => {
     const unlock = new Unlock({ target: new EventTarget(), context: context as unknown as UnlockContext });
     const host = AudioHost._create({ context: context as unknown as AudioContext, node, link: loop.link, unlock, preset: { ...presetFromSettings(defaultAudioSettings()), limiterLookaheadMs: 0 }, respawn: () => loop.respawn() });
     hosts.push(host);
-    watchForTraps(host, { now: () => 0, warn: () => {} });
     const link = loop.link;
     const worker: WorkerLike = { onmessage: null, onerror: null, postMessage: (m) => void handler.handle(m), terminate() {} };
     const handler = createDecoderHandler({ post: (reply: DecoderReply) => worker.onmessage?.({ data: reply }), expectedSourceHash: hash.sourceHash });
@@ -60,7 +58,9 @@ describe("a stream across a hard rebuild (B3)", () => {
     const pumps: (() => void)[] = [];
     const file = makeWav(6 * RATE, 2, RATE, signal);
     const mixer = new Mixer(defaultAudioSettings());
-    const backend = createCoreBackend(host, {
+    // ADR 0221: the production assembly over this host.
+    const backend = assembleCore(host, {
+      recovery: { now: () => 0, warn: () => {} },
       clips: createClipRegistry({ send: (m) => link.post(m), nextSeq: () => link.nextSeq(), fetchBytes: async () => new ArrayBuffer(8), clipFormat: 0 }),
       clock: loop.clock,
       mixer,
@@ -86,7 +86,7 @@ describe("a stream across a hard rebuild (B3)", () => {
         },
         fetchBytes: async () => file.slice(0),
       },
-    });
+    }).createBackend();
     const out: number[] = [];
     const step = async (n: number) => {
       for (let f = 0; f < n; f++) {

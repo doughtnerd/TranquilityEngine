@@ -26,7 +26,7 @@ async function time(hrtf: number, moving: boolean) {
       r.backend.update(0.01);
     }
     const t0 = performance.now();
-    r.loop.renderQuanta(4);
+    r.loop.render(4);
     const dt = performance.now() - t0;
     spent += dt;
     blocks.push(dt);

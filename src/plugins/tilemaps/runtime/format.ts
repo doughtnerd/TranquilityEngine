@@ -29,13 +29,6 @@ export const cellValue = (id: number, flags = 0): number => (id & TILE_ID_MASK) 
 export const tileIdOf = (value: number): number => value & TILE_ID_MASK;
 export const flagsOf = (value: number): number => value & FLIP_MASK;
 
-/** Flags for a quarter turn clockwise applied to `flags` (as Tiled does: diagonal flip, then a horizontal flip). */
-export function rotateFlagsClockwise(flags: number): number {
-  const x = (flags & FLIP_X) !== 0, y = (flags & FLIP_Y) !== 0, d = (flags & FLIP_DIAGONAL) !== 0;
-  // Rotating clockwise maps (d, x, y) → (!d, !y, x).
-  return (!d ? FLIP_DIAGONAL : 0) | (!y ? FLIP_X : 0) | (x ? FLIP_Y : 0);
-}
-
 /** One layer of a Tilemap as stored in scene files. */
 export interface TilemapLayerData {
   /** Format version; absent means 1. */

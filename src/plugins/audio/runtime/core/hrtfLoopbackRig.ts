@@ -1,12 +1,8 @@
 // The HRTF loopback rig, shared by hrtfLoopback.test.ts (state and frame counts, in `npm test`) and
 // hrtfCost.bench.ts (the wall-clock cost of an HRTF voice, run apart from `npm test`).
-import { fakeDecoder } from "./fakeDecoder";
-import { Mixer } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings } from "../../../../engine/audio/settings";
-import type { AudioHost } from "./context";
-import { type CoreLink } from "./context";
-import { CoreBackend, type CoreBackendHost } from "./coreBackend";
 import { createHrirLoader } from "./hrir";
+import { loopbackAudio } from "../testing";
 
 /** The most frames `until` steps before it gives up (an escape hatch for a hung load, not a time budget). */
 const UNTIL_FRAMES = 20_000;
@@ -21,57 +17,41 @@ export async function readAsset(): Promise<ArrayBuffer> {
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 }
 
-export async function rig(opts: { spatial?: "hrtf" | "equalPower"; hrtf?: number; failFetch?: boolean } = {}) {
-  const testing = await import("../testing");
-  let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>> & { link: CoreLink };
-  try {
-    loop = (await testing.createLoopbackHost()) as typeof loop;
-  } catch {
-    return null;
-  }
-  const { createClipRegistry } = await import("./clipRegistry");
-  const link = loop.link;
+export async function rig(opts: { spatial?: "hrtf" | "equalPower"; hrtf?: number; failFetch?: boolean; clip?: Float32Array } = {}) {
   const frames = 48_000;
-  const tone = new Float32Array(frames).map((_, i) => 0.2 * Math.sin((2 * Math.PI * 440 * i) / 48_000));
-  const clips = createClipRegistry({
-    send: (m) => link.post(m),
-    nextSeq: () => link.nextSeq(),
-    fetchBytes: async () => new ArrayBuffer(8),
-    decodeWorker: fakeDecoder(async () => ({ frames, channels: 1, sampleRate: 48_000, channelData: [tone] })),
-    nextFrame: (cb) => cb(),
-    nextQuantum: (cb) => cb(),
-  });
+  const tone = opts.clip ?? new Float32Array(frames).map((_, i) => 0.2 * Math.sin((2 * Math.PI * 440 * i) / 48_000));
   let fetches = 0;
   const warnings: string[] = [];
-  const hrir = createHrirLoader({
-    clips,
-    sampleRate: 48_000,
-    warn: (m) => warnings.push(m),
-    fetchBytes: async () => {
-      fetches++;
-      if (opts.failFetch) throw new Error("HTTP 404");
-      return readAsset();
-    },
-  });
-  const host: CoreBackendHost = {
-    link,
-    status: "running",
-    preset: { maxLogical: 256, maxMixed: 32 },
-    worldCount: 1,
-    sampleRate: 48_000,
-    addLifecycleListener: (() => () => {}) as AudioHost["addLifecycleListener"],
-  };
   const settings = defaultAudioSettings();
   settings.spatial = opts.spatial ?? "hrtf";
   settings.voices = { ...settings.voices, hrtf: opts.hrtf ?? 16 };
-  const mixer = new Mixer(settings);
-  const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer, hrir });
+  // ADR 0221: the production assembly on the loopback, with its own mixer; the HRIR loader on the rig's registry.
+  const audio = await loopbackAudio({
+    mixer: "own",
+    settings,
+    decode: () => ({ channelData: [tone] }),
+    recovery: { now: () => 0, warn: () => {} },
+    backend: (clips) => ({
+      hrir: createHrirLoader({
+        clips,
+        sampleRate: 48_000,
+        warn: (m) => warnings.push(m),
+        fetchBytes: async () => {
+          fetches++;
+          if (opts.failFetch) throw new Error("HTTP 404");
+          return readAsset();
+        },
+      }),
+    }),
+  });
+  if (!audio) return null;
+  const { backend, mixer, link } = audio;
   const hrtfSeen: number[] = [];
   const step = async (n: number) => {
     for (let f = 0; f < n; f++) {
       mixer.update(0.003);
       backend.update(0.003);
-      loop.renderQuanta(4);
+      audio.render(4);
       hrtfSeen.push(link.lastStatus?.hrtfVoices ?? 0);
       await new Promise((r) => setImmediate(r)); // a macrotask turn for the HRIR file read; no timer, no clock
     }
@@ -88,5 +68,5 @@ export async function rig(opts: { spatial?: "hrtf" | "equalPower"; hrtf?: number
     }
     if (!done()) throw new Error(`gave up waiting for ${what}`);
   };
-  return { loop, backend, mixer, step, until, fetches: () => fetches, warnings, hrtfSeen };
+  return { loop: audio, host: audio.host, backend, mixer, step, until, fetches: () => fetches, warnings, hrtfSeen };
 }

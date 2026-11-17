@@ -5,20 +5,18 @@
 // whole. Plus the selection half (decision 14): a voice fading to 0 stays audible to selection until its fade ends.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Assets } from "../../../engine/index";
-import { Mixer, mixer } from "../../../engine/audio/mixer";
-import { defaultAudioSettings, parseAudioSettings } from "../../../engine/audio/settings";
+import { mixer } from "../../../engine/audio/mixer";
+import { parseAudioSettings } from "../../../engine/audio/settings";
 import { babylonMock, makeFakeContext, type MockSound } from "../testing/babylonMocks";
 import { RATE, rig } from "../testing/streamRig";
 import { setAudioBackend, type PlayRequest } from "./backend";
 import { BabylonBackend } from "./babylonBackend";
 import { fakeDecoder } from "./core/fakeDecoder";
-import { CoreBackend, type CoreBackendHost } from "./core/coreBackend";
-import type { AudioHost, CoreLink } from "./core/context";
 import { CoreAutomation, type CoreAutomationDeps } from "./core/coreAutomation";
 import { VoiceState, VoiceTable } from "./core/voiceTable";
 import { makeWav, signal } from "./decoder/testWav";
 import type { AudioVoice } from "./backend";
-import { endAudioSession } from "./testing";
+import { endAudioSession, loopbackAudio, closeLoopbackAudio } from "./testing";
 
 vi.mock("@babylonjs/core/AudioV2/webAudio/webAudioEngine", async () => (await import("../testing/babylonMocks")).webAudioEngineModule);
 
@@ -56,47 +54,31 @@ const clipAt = (k: number): number => Math.floor(k / STEP) / 32768;
 const looped = (k: number, start: number, end: number) => (k < end ? k : start + ((k - start) % (end - start)));
 
 async function clipRig(points: { start: number; end: number } | null) {
-  const testing = await import("./testing");
-  let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>> & { link: CoreLink };
-  try {
-    loop = (await testing.createLoopbackHost({ preset: { ...testing.LOOPBACK_PRESET, limiterLookaheadMs: 0 } })) as typeof loop;
-  } catch {
-    return null;
-  }
-  const { createClipRegistry } = await import("./core/clipRegistry");
-  const link = loop.link;
   const ramp = Float32Array.from({ length: CLIP_FRAMES }, (_, k) => Math.floor(k / STEP) / 32767);
   const inner = fakeDecoder(async () => ({ frames: CLIP_FRAMES, channels: 1, sampleRate: 48_000, channelData: [ramp] }));
-  const clips = createClipRegistry({
-    send: (m) => link.post(m),
-    nextSeq: () => link.nextSeq(),
-    fetchBytes: async () => new ArrayBuffer(8),
-    // The wasm's info carries the file's loop points in frames; the fake adds them.
-    decodeWorker: {
-      async decodeClip(...args: Parameters<typeof inner.decodeClip>) {
-        const r = await inner.decodeClip(...args);
-        return points ? { ...r, info: { ...r.info, loopStartFrame: points.start, loopEndFrame: points.end } } : r;
+  // ADR 0221: the production assembly on the loopback, with its own mixer. The wasm's info carries the file's loop points
+  // in frames; the fake decode adds them.
+  const loop = await loopbackAudio({
+    mixer: "own",
+    preset: { maxLogical: 16, maxMixed: 8, limiterLookaheadMs: 0 },
+    clipRegistry: {
+      decodeWorker: {
+        async decodeClip(...args: Parameters<typeof inner.decodeClip>) {
+          const r = await inner.decodeClip(...args);
+          return points ? { ...r, info: { ...r.info, loopStartFrame: points.start, loopEndFrame: points.end } } : r;
+        },
       },
     },
-    nextFrame: (cb) => cb(),
-    nextQuantum: (cb) => cb(),
+    dt: 0.003,
   });
-  const host: CoreBackendHost = {
-    link,
-    status: "running",
-    preset: { maxLogical: 16, maxMixed: 8 },
-    worldCount: 1,
-    sampleRate: 48_000,
-    addLifecycleListener: (() => () => {}) as AudioHost["addLifecycleListener"],
-  };
-  const m = new Mixer(defaultAudioSettings());
-  const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer: m });
+  if (!loop) return null;
+  const { backend } = loop;
   const out: number[] = [];
   const step = async (n: number) => {
     for (let f = 0; f < n; f++) {
-      m.update(0.003);
+      loop.mixer.update(0.003);
       backend.update(0.003);
-      for (const s of loop.renderQuanta(4).left) out.push(s);
+      for (const s of loop.render(4).left) out.push(s);
       await Promise.resolve();
     }
   };
@@ -113,6 +95,8 @@ function expectLoops(out: number[], start: number, end: number): void {
     if (Math.abs(out[j]! - want) > 1e-6) expect.fail(`output ${j} (clip frame ${j - at}): ${out[j]} vs ${want} (region ${start}..${end})`);
   }
 }
+
+afterEach(closeLoopbackAudio);
 
 describe("a plain looping clip on the core uses its loop points (E4.5)", () => {
   it("loops the file's region (the points arrive after onPlay, with the decode)", async (ctx) => {

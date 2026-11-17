@@ -36,15 +36,12 @@
 //   (`CoreAutomation.reevaluate`, which feeds selection) went silent at once instead of ramping down with the
 //   parameter, so no scene seeks toward a target that silences a voice.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mixer as globalMixer, Mixer } from "../../../../engine/audio/mixer";
-import { defaultAudioSettings } from "../../../../engine/audio/settings";
+import { mixer as globalMixer } from "../../../../engine/audio/mixer";
 import type { Curve } from "../../../../engine/core/curve";
 import type { AudioVoice } from "../backend";
-import { createClipRegistry } from "../core/clipRegistry";
-import { fakeDecoder, type PlanarClip } from "../core/fakeDecoder";
-import type { AudioHost, CoreLink } from "../core/context";
-import { CoreBackend, type CoreBackendHost } from "../core/coreBackend";
+import { CoreBackend } from "../core/coreBackend";
 import { AutoTarget, evaluate, TsAutomation, type Binding } from "./automation";
+import { loopbackAudio, closeLoopbackAudio } from "../testing";
 
 const RATE = 48_000;
 const Q = 128;
@@ -66,40 +63,28 @@ const rampClip = Float32Array.from({ length: CLIP_FRAMES }, (_, k) => (k < RAMP_
 const sineClip = Float32Array.from({ length: CLIP_FRAMES }, (_, k) => SINE_AMP * Math.sin((2 * Math.PI * SINE_HZ * k) / RATE));
 const CLIPS = { dc: dcClip, ramp: rampClip, sine: sineClip } as const;
 type ClipKind = keyof typeof CLIPS;
-const BYTES: Record<ClipKind, number> = { dc: 16, ramp: 8, sine: 24 };
-const decode = fakeDecoder(async (bytes): Promise<PlanarClip> => {
-  const kind = (Object.keys(BYTES) as ClipKind[]).find((k) => BYTES[k] === bytes.byteLength)!;
-  return { frames: CLIP_FRAMES, channels: 1, sampleRate: RATE, channelData: [CLIPS[kind]] };
-});
-const fetchBytes = async (path: string) => new ArrayBuffer(BYTES[path.replace(".wav", "") as ClipKind]);
 
-// --- The core rig (a loopback host and a CoreBackend; skipped where the wasm isn't built) ---
+// --- The core rig (loopbackAudio: the production assembly on the loopback; skipped where the wasm isn't built) ---
 
-const closers: (() => void)[] = [];
-afterEach(() => {
-  for (const c of closers.splice(0)) c();
+afterEach(async () => {
+  await closeLoopbackAudio();
   vi.restoreAllMocks();
 });
 
 async function coreRig() {
-  const testing = await import("../testing");
-  let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>> & { link: CoreLink };
-  try {
-    loop = (await testing.createLoopbackHost({ preset: { ...testing.LOOPBACK_PRESET, limiterLookaheadMs: 0 } })) as typeof loop;
-  } catch {
-    return null;
-  }
-  const link = loop.link;
-  const clips = createClipRegistry({ send: (m) => link.post(m), nextSeq: () => link.nextSeq(), fetchBytes, decodeWorker: decode, nextFrame: (cb) => cb(), nextQuantum: (cb) => cb() });
-  const host: CoreBackendHost = { link, status: "running", preset: { maxLogical: 16, maxMixed: 8 }, worldCount: 1, sampleRate: RATE, addLifecycleListener: (() => () => {}) as AudioHost["addLifecycleListener"] };
-  const mixer = new Mixer(defaultAudioSettings());
-  const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer });
-  closers.push(() => backend.dispose());
+  // ADR 0221: the production assembly on the loopback, with its own mixer; no limiter look-ahead.
+  const loop = await loopbackAudio({
+    mixer: "own",
+    preset: { maxLogical: 16, maxMixed: 8, limiterLookaheadMs: 0 },
+    decode: (path) => ({ channelData: [CLIPS[path.replace(".wav", "") as ClipKind]] }),
+  });
+  if (!loop) return null;
+  const { backend, mixer } = loop;
   /** One quantum: the backend's frame work, then the core's render; the left channel. */
   const quantum = async (): Promise<Float32Array> => {
     mixer.update(DT);
     backend.update(DT);
-    const out = loop.renderQuanta(1).left;
+    const out = loop.render(1).left;
     for (let k = 0; k < 4; k++) await Promise.resolve();
     return out;
   };

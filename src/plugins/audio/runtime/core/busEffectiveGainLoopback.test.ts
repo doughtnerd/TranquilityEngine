@@ -4,30 +4,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Assets, Engine, SceneManager } from "../../../../myco";
 import { mixer as globalMixer } from "../../../../engine/audio/mixer";
-import { setAudioBackend } from "../backend";
 import { Audio } from "../index";
-import { events } from "../events/eventRuntime";
-import { fakeDecoder, type PlanarClip } from "./fakeDecoder";
-import { createClipRegistry } from "./clipRegistry";
-import type { AudioHost, CoreLink } from "./context";
-import { CoreBackend, type CoreBackendHost } from "./coreBackend";
-import { endAudioSession } from "../testing";
+import { endAudioSession, loopbackAudio, closeLoopbackAudio } from "../testing";
 
-const RATE = 48_000;
 const LONG = 96_000;
 const SHORT = 4_800; // 0.1 s
 const F = "myco.audioevent@1";
-const decode = fakeDecoder(async (bytes): Promise<PlanarClip> => {
-  const frames = bytes.byteLength === 8 ? SHORT : LONG;
-  return { frames, channels: 1, sampleRate: RATE, channelData: [new Float32Array(frames).fill(0.25)] };
-});
-const fetchBytes = async (path: string) => new ArrayBuffer(path.startsWith("short") ? 8 : 16);
 
-const closers: (() => void)[] = [];
-afterEach(() => {
-  for (const c of closers.splice(0)) c();
-  endAudioSession();
-  setAudioBackend(null);
+afterEach(async () => {
+  await closeLoopbackAudio();
   vi.restoreAllMocks();
 });
 
@@ -66,28 +51,18 @@ async function rig() {
   engine.world.render = {} as never;
   vi.spyOn(console, "warn").mockImplementation(() => {});
   endAudioSession();
-  const testing = await import("../testing");
-  let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>> & { link: CoreLink };
-  try {
-    loop = (await testing.createLoopbackHost({ preset: { ...testing.LOOPBACK_PRESET, limiterLookaheadMs: 0 } })) as typeof loop;
-  } catch {
-    return null;
-  }
-  const link = loop.link;
-  const clips = createClipRegistry({ send: (m) => link.post(m), nextSeq: () => link.nextSeq(), fetchBytes, decodeWorker: decode, nextFrame: (cb) => cb(), nextQuantum: (cb) => cb() });
-  const host: CoreBackendHost = { link, status: "running", preset: { maxLogical: 16, maxMixed: 8 }, worldCount: 1, sampleRate: RATE, addLifecycleListener: (() => () => {}) as AudioHost["addLifecycleListener"] };
-  const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer: globalMixer });
-  closers.push(() => backend.dispose());
-  endAudioSession();
-  setAudioBackend(backend);
+  // ADR 0221: the production assembly on the loopback, on the page's mixer (the Engine configured it), registered.
+  const audio = await loopbackAudio({
+    preset: { maxLogical: 16, maxMixed: 8, limiterLookaheadMs: 0 },
+    decode: (path) => ({ channelData: [new Float32Array(path.startsWith("short") ? SHORT : LONG).fill(0.25)] }),
+    dt: 0.0107,
+  });
+  if (!audio) return null;
+  const { backend } = audio;
   /** `n` frames of 4 quanta (about 10.7 ms each), as the engine's audio step runs them. */
   const step = async (n: number, each?: () => void) => {
     for (let f = 0; f < n; f++) {
-      globalMixer.update(0.0107);
-      backend.update(0.0107);
-      events().update(0.0107);
-      loop.renderQuanta(4);
-      for (let k = 0; k < 4; k++) await Promise.resolve();
+      await audio.step();
       each?.();
     }
   };

@@ -9,7 +9,8 @@ import { openSceneFile } from "../../../editor/project";
 import { openScene } from "../../../editor/state";
 import { DEMO_SCENE, demoAssets, demoSettings } from "../../../editor/testing";
 import { activeLayer, brushFlags, brushRandom, brushStamp, brushTerrain, commitTilemap, fillAt, paintCells, pickFromMap, strokeCells } from "./brush";
-import { brushValueAt, combineFlags } from "./brushCells";
+import { brushValueAt } from "./brushCells";
+import { compose } from "../runtime/tileFlips";
 
 const TILESET = {
   format: "myco.tileset@1",
@@ -27,13 +28,13 @@ const TILESET = {
 
 describe("tilemap brushes (ADR 0103)", () => {
   it("composes flips: two of the same cancel, four turns come back", () => {
-    expect(combineFlags(FLIP_X, FLIP_X)).toBe(0);
-    expect(combineFlags(FLIP_X, FLIP_Y)).toBe(FLIP_X | FLIP_Y);
+    expect(compose(FLIP_X, FLIP_X)).toBe(0);
+    expect(compose(FLIP_X, FLIP_Y)).toBe(FLIP_X | FLIP_Y);
     const turn = FLIP_DIAGONAL | FLIP_X;
     let f = 0;
-    for (let i = 0; i < 4; i++) f = combineFlags(f, turn);
+    for (let i = 0; i < 4; i++) f = compose(f, turn);
     expect(f).toBe(0);
-    expect(combineFlags(0, turn)).toBe(turn);
+    expect(compose(0, turn)).toBe(turn);
   });
 
   it("tiles a stamp from its origin, or picks at random from it", () => {

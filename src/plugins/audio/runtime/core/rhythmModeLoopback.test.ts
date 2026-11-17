@@ -13,8 +13,9 @@ import type { EventInstance } from "../events/eventRuntime";
 import { fakeDecoder } from "./fakeDecoder";
 import { createClipRegistry } from "./clipRegistry";
 import { AudioHost, presetFromSettings, type ContextOptions, type ContextParts, type LatencyHint } from "./context";
-import { createCoreBackend, type CoreBackend } from "./coreBackend";
-import { rebuildHost, watchForTraps, type RebuildOutcome } from "./recovery";
+import { type CoreBackend } from "./coreBackend";
+import { assembleCore } from "./assembly";
+import { rebuildHost, type RebuildOutcome } from "./recovery";
 import { BackgroundController, type VisibilitySource } from "./background";
 import { Unlock, type UnlockContext } from "./unlock";
 import { createMusicPlayer, musicEarlyStep, musicPlanStep, type MusicPlayer } from "../music/musicSystem";
@@ -143,9 +144,9 @@ async function rig(startInRhythm: boolean) {
   });
   const mixer = new Mixer(withRhythm(startInRhythm));
   pageMixer.configure(withRhythm(startInRhythm)); // `Audio.rhythmMode` and the hold read the page's mixer
-  const backend: CoreBackend = createCoreBackend(host, { clips, clock: loop.clock, mixer });
+  // ADR 0221: the production assembly over this host.
+  const backend: CoreBackend = assembleCore(host, { clips, clock: loop.clock, mixer, recovery: { now: () => 0, warn: () => {} } }).createBackend();
   setAudioBackend(backend);
-  watchForTraps(host, { now: () => 0, warn: () => {} });
   host.reconfigure(withRhythm(startInRhythm)); // as `service.ts` does at start: nothing to rebuild
   setSegmentClipSource({
     url: (p) => p,

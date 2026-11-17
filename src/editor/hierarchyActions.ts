@@ -96,6 +96,7 @@ export function whyNotPasteHere(asChild = false): string | null {
 export function whyNotPasteAt(key: string | null, asChild = false): string | null {
   const scene = openScene.value;
   if (!scene) return "no scene open";
+  if (playState.value !== "edit") return "stop playing to edit the scene";
   if (asChild && !key) return "select a node to paste into";
   return whyNotPastable(scene.doc, nodeClipboard.value, pasteTarget(scene.doc, key, asChild).parent);
 }

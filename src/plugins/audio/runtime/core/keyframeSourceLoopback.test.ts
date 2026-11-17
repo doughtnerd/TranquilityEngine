@@ -2,14 +2,13 @@
 // host (the real wasm core, clip registry, shell and coreBackend). The payload `CoreBackend.keyframe` builds is compared with
 // the tables it reads: the voice rows with `Audio.debug()`'s voices, the bus rows with the mixer's lanes and the slot table,
 // the metered rows with the loudness hub's readings, the mix section with the mixer. Time is the loopback's rendered frames.
-import { describe, expect, it } from "vitest";
-import { Lane, Mixer } from "../../../../engine/audio/mixer";
+import { afterEach, describe, expect, it } from "vitest";
+import { Lane } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings, type AudioSettings } from "../../../../engine/audio/settings";
 import { loudnessHub } from "../mix/loudnessHub";
 import { LOUD_OUTPUT_TAP } from "../wire.generated";
-import type { CoreLink } from "./context";
-import { CoreBackend, type CoreBackendHost } from "./coreBackend";
-import { fakeDecoder } from "./fakeDecoder";
+import { CoreBackend } from "./coreBackend";
+import { loopbackAudio, closeLoopbackAudio } from "../testing";
 
 /** The keyframe bus row's metered flag (§5.5). */
 const KF_BUS_METERED = 32;
@@ -18,36 +17,12 @@ const NO_NAME = 0xffffffff;
 const req = (path: string, extra: object = {}) => ({ path, url: path, loop: true, stream: false, bus: "SFX", ...extra });
 
 async function rig(settings: AudioSettings) {
-  const testing = await import("../testing");
-  let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>> & { link: CoreLink };
-  try {
-    loop = (await testing.createLoopbackHost()) as typeof loop;
-  } catch {
-    return null;
-  }
-  const { createClipRegistry } = await import("./clipRegistry");
-  const link = loop.link;
-  const clips = createClipRegistry({
-    send: (m) => link.post(m),
-    nextSeq: () => link.nextSeq(),
-    fetchBytes: async () => new ArrayBuffer(8),
-    decodeWorker: fakeDecoder(async () => ({ frames: 96_000, channels: 1, sampleRate: 48_000, channelData: [new Float32Array(96_000).fill(0.25)] })),
-    nextFrame: (cb) => cb(),
-    nextQuantum: (cb) => cb(),
-  });
-  const host: CoreBackendHost = {
-    link, status: "running", preset: { maxLogical: 16, maxMixed: 8 }, worldCount: 1, sampleRate: 48_000,
-    addLifecycleListener: (() => () => {}) as CoreBackendHost["addLifecycleListener"],
-  };
-  const mixer = new Mixer(settings);
-  const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer });
+  // ADR 0221: the production assembly on the loopback, with its own mixer.
+  const audio = await loopbackAudio({ mixer: "own", settings, preset: { maxLogical: 16, maxMixed: 8 }, decode: () => ({ channelData: [new Float32Array(96_000).fill(0.25)] }), dt: 0.003 });
+  if (!audio) return null;
+  const { backend, mixer } = audio;
   const step = async (n: number) => {
-    for (let f = 0; f < n; f++) {
-      mixer.update(0.003);
-      backend.update(0.003);
-      loop.renderQuanta(4);
-      await Promise.resolve();
-    }
+    await audio.step(n);
   };
   /** The sink's interning, as a map the test can read back. */
   const interned = new Map<string, number>();
@@ -65,6 +40,8 @@ const settingsWith = (patch: (s: AudioSettings) => void): AudioSettings => {
   patch(s);
   return s;
 };
+
+afterEach(closeLoopbackAudio);
 
 describe("CoreBackend.keyframe on the loopback host", () => {
   it("voice rows equal the voice table (Audio.debug()'s rows): id, clip, bus slot, state, priority, gain, pitch, audibility, playhead", async (ctx) => {

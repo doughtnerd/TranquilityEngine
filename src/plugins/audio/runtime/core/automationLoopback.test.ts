@@ -4,23 +4,14 @@
 // rebuild mid-automation restores curves (a full 1,024-curve table), parameters, bindings and loops.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Assets, Engine, SceneManager } from "../../../../myco";
-import { mixer as globalMixer, Mixer } from "../../../../engine/audio/mixer";
-import { defaultAudioSettings } from "../../../../engine/audio/settings";
 import type { Curve } from "../../../../engine/core/curve";
 import { setAudioBackend, type AudioVoice } from "../backend";
 import { Audio } from "../index";
 import { events } from "../events/eventRuntime";
 import { AutoTarget, TsAutomation, type Binding } from "../events/automation";
-import { fakeDecoder, type PlanarClip } from "./fakeDecoder";
-import { createClipRegistry } from "./clipRegistry";
-import { AudioHost, presetFromSettings, type CoreLink } from "./context";
-import { CoreBackend, createCoreBackend, type CoreBackendHost } from "./coreBackend";
 import { CORE_CURVE_KEYS } from "./commandWriter";
-import { watchBatches } from "./batchWatch";
 import { BATCH_FLAGS_OVERFLOWED } from "../wire.generated";
-import { watchForTraps } from "./recovery";
-import { Unlock, type UnlockContext } from "./unlock";
-import { endAudioSession } from "../testing";
+import { endAudioSession, loopbackAudio, closeLoopbackAudio } from "../testing";
 
 const RATE = 48_000;
 const STEP = 3;
@@ -32,8 +23,6 @@ const dc = new Float32Array(CLIP_FRAMES).fill(DC);
 /** The clip frame (to 3 frames) the output at `v` is at, for the ramp at unity gain. */
 const frameOf = (v: number): number => Math.round(v * 32768) * STEP;
 
-const decode = fakeDecoder(async (bytes): Promise<PlanarClip> => ({ frames: CLIP_FRAMES, channels: 1, sampleRate: RATE, channelData: [bytes.byteLength === 8 ? ramp : dc] }));
-const fetchBytes = async (path: string) => new ArrayBuffer(path.startsWith("ramp") ? 8 : 16);
 
 /** The mean absolute level of `out[from..to)`. */
 function level(out: readonly number[], from: number, to: number): number {
@@ -42,32 +31,21 @@ function level(out: readonly number[], from: number, to: number): number {
   return s / Math.max(1, to - from);
 }
 
-const hosts: AudioHost[] = [];
 afterEach(async () => {
-  for (const host of hosts.splice(0)) await host.close();
+  await closeLoopbackAudio();
   vi.restoreAllMocks();
 });
 
-async function loopbackRig(options: { mixer?: Mixer } = {}) {
-  const testing = await import("../testing");
-  let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>> & { link: CoreLink };
-  try {
-    loop = (await testing.createLoopbackHost({ preset: { ...testing.LOOPBACK_PRESET, limiterLookaheadMs: 0 } })) as typeof loop;
-  } catch {
-    return null;
-  }
-  const link = loop.link;
-  const clips = createClipRegistry({ send: (m) => link.post(m), nextSeq: () => link.nextSeq(), fetchBytes, decodeWorker: decode, nextFrame: (cb) => cb(), nextQuantum: (cb) => cb() });
-  const host: CoreBackendHost = {
-    link,
-    status: "running",
-    preset: { maxLogical: 16, maxMixed: 8 },
-    worldCount: 1,
-    sampleRate: RATE,
-    addLifecycleListener: (() => () => {}) as AudioHost["addLifecycleListener"],
-  };
-  const mixer = options.mixer ?? new Mixer(defaultAudioSettings());
-  const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer });
+async function loopbackRig(options: { pageMixer?: boolean } = {}) {
+  // ADR 0221: the production assembly on the loopback (the page's mixer registered, or its own); no limiter look-ahead.
+  const loop = await loopbackAudio({
+    mixer: options.pageMixer ? "page" : "own",
+    preset: { maxLogical: 16, maxMixed: 8, limiterLookaheadMs: 0 },
+    decode: (path) => ({ channelData: [path.startsWith("ramp") ? ramp : dc] }),
+    recovery: { now: () => 0, warn: () => {} },
+  });
+  if (!loop) return null;
+  const { backend, mixer, host } = loop;
   const out: number[] = [];
   /** `n` frames of 4 quanta (≈ 10.7 ms each). */
   const step = async (n: number, perFrame?: () => void) => {
@@ -75,11 +53,11 @@ async function loopbackRig(options: { mixer?: Mixer } = {}) {
       perFrame?.();
       mixer.update(0.0107);
       backend.update(0.0107);
-      for (const s of loop.renderQuanta(4).left) out.push(s);
+      for (const s of loop.render(4).left) out.push(s);
       for (let k = 0; k < 4; k++) await Promise.resolve();
     }
   };
-  return { backend, step, out, loop };
+  return { backend, step, out, loop, host };
 }
 
 const vol = (slot: number, curve: number, global = false): Binding => ({ param: { global, slot }, curve, target: AutoTarget.Volume });
@@ -98,13 +76,11 @@ describe("event automation in the core (E3.1, loopback)", () => {
     engine.world.render = {} as never;
     vi.spyOn(console, "warn").mockImplementation(() => {});
     endAudioSession();
-    const r = await loopbackRig({ mixer: globalMixer });
+    const r = await loopbackRig({ pageMixer: true });
     if (!r) return ctx.skip();
     const { backend, step, out } = r;
     const evaluated = vi.spyOn(TsAutomation.prototype, "update");
     const applied = vi.spyOn(TsAutomation.prototype, "bindVoice");
-    endAudioSession();
-    setAudioBackend(backend);
     try {
       const h = Audio.play("e.audioevent.json");
       expect(h.playing).toBe(true);
@@ -199,49 +175,11 @@ describe("event automation in the core (E3.1, loopback)", () => {
   });
 });
 
-function fakeContext() {
-  const ctx = {
-    state: "running",
-    sampleRate: RATE,
-    destination: {},
-    resume: () => Promise.resolve(),
-    close: () => {
-      ctx.state = "closed";
-      return Promise.resolve();
-    },
-    addEventListener() {},
-    removeEventListener() {},
-  };
-  return ctx;
-}
-
 describe("a hard rebuild mid-automation (E3.1, loopback)", () => {
   it("restores a full 1,024-curve table, parameters, bindings and loops on the new core", { timeout: 30_000 }, async () => {
-    const testing = await import("../testing");
-    const loop = await testing.createLoopbackHost({ preset: { ...testing.LOOPBACK_PRESET, limiterLookaheadMs: 0 } });
-    const context = fakeContext();
-    const node = Object.assign(new EventTarget(), { connect() {}, disconnect() {} }) as unknown as AudioWorkletNode;
-    const unlock = new Unlock({ target: new EventTarget(), context: context as unknown as UnlockContext });
-    const host = AudioHost._create({ context: context as unknown as AudioContext, node, link: loop.link, unlock, preset: { ...presetFromSettings(defaultAudioSettings()), limiterLookaheadMs: 0 }, respawn: () => loop.respawn() });
-    hosts.push(host);
-    watchForTraps(host, { now: () => 0, warn: () => {} });
-    const link = loop.link;
-    const mixer = new Mixer(defaultAudioSettings());
-    const backend = createCoreBackend(host, {
-      clips: createClipRegistry({ send: (m) => link.post(m), nextSeq: () => link.nextSeq(), fetchBytes, decodeWorker: decode, nextFrame: (cb) => cb(), nextQuantum: (cb) => cb() }),
-      clock: loop.clock,
-      mixer,
-    });
-    const out: number[] = [];
-    const step = async (n: number) => {
-      for (let f = 0; f < n; f++) {
-        mixer.update(0.0107);
-        backend.update(0.0107);
-        for (const s of loop.renderQuanta(4).left) out.push(s);
-        for (let k = 0; k < 4; k++) await Promise.resolve();
-      }
-    };
-    const posted = watchBatches(link);
+    const r = (await loopbackRig())!;
+    const { backend, step, out, loop, host } = r;
+    const posted = loop.watch();
     const a = backend.automation;
     // A full table (past the writer's 256 KB staging area): curve id k is flat at 1 except the two used below.
     const full = (y: (x: number) => number): Curve => Array.from({ length: CORE_CURVE_KEYS }, (_, k) => [k / (CORE_CURVE_KEYS - 1), y(k / (CORE_CURVE_KEYS - 1))] as const);
@@ -266,7 +204,7 @@ describe("a hard rebuild mid-automation (E3.1, loopback)", () => {
     const before = level(out, out.length - 2048, out.length);
     expect(before / DC).toBeCloseTo(0.25, 2);
 
-    loop.trapNext();
+    loop.trap();
     await step(2);
     expect(host.health.traps).toBe(1);
     const restartAt = out.length;
@@ -275,7 +213,7 @@ describe("a hard rebuild mid-automation (E3.1, loopback)", () => {
       expect(out.slice(restartAt).some((s) => s !== 0)).toBe(true);
     });
     await step(20);
-    expect(loop.cores).toBe(2);
+    expect(host.health.recoveries).toBe(1);
     expect(steady.playing).toBe(true);
     expect(looping.playing).toBe(true);
     // Curves (the last id), the instance's parameter and the binding came back: still 0.25, the loop voice still silent.

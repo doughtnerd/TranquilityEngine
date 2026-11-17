@@ -3,12 +3,8 @@
 // is playing: a paused voice fades out over 5 ms, is silent and holds while paused, and after `resume()` fades in from
 // exactly the frame it held (not from where a virtual voice, which keeps time, would be). A voice paused before its
 // clip was resident waits on the core and starts from its beginning when resumed.
-import { fakeDecoder } from "./fakeDecoder";
-import { describe, expect, it } from "vitest";
-import { Mixer } from "../../../../engine/audio/mixer";
-import { defaultAudioSettings } from "../../../../engine/audio/settings";
-import type { AudioHost, CoreLink } from "./context";
-import { CoreBackend, type CoreBackendHost } from "./coreBackend";
+import { afterEach, describe, expect, it } from "vitest";
+import { loopbackAudio, closeLoopbackAudio } from "../testing";
 
 /** Frames a voice must lead before selection promotes it (selection.ts). */
 const DWELL_FRAMES = 3;
@@ -25,45 +21,15 @@ const clipAt = (k: number): number => Math.floor(k / STEP) / 32768;
 const rampAt = (a: number, b: number, n: number, k: number): number => (k + 1 >= n ? b : a + ((b - a) * (k + 1)) / n);
 
 async function rig() {
-  const testing = await import("../testing");
-  let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>> & { link: CoreLink };
-  try {
-    // No limiter look-ahead: output frames are core frames.
-    loop = (await testing.createLoopbackHost({ preset: { ...testing.LOOPBACK_PRESET, limiterLookaheadMs: 0 } })) as typeof loop;
-  } catch {
-    return null;
-  }
-  const { createClipRegistry } = await import("./clipRegistry");
-  const link = loop.link;
+  // ADR 0221: the production assembly on the loopback, with its own mixer; no limiter look-ahead.
   const ramp = Float32Array.from({ length: CLIP_FRAMES }, (_, k) => Math.floor(k / STEP) / 32767);
-  const clips = createClipRegistry({
-    send: (m) => link.post(m),
-    nextSeq: () => link.nextSeq(),
-    fetchBytes: async () => new ArrayBuffer(8),
-    decodeWorker: fakeDecoder(async () => ({ frames: CLIP_FRAMES, channels: 1, sampleRate: 48_000, channelData: [ramp] })),
-    nextFrame: (cb) => cb(),
-    nextQuantum: (cb) => cb(),
-  });
-  const host: CoreBackendHost = {
-    link,
-    status: "running",
-    preset: { maxLogical: 16, maxMixed: 8 },
-    worldCount: 1,
-    sampleRate: 48_000,
-    addLifecycleListener: (() => () => {}) as AudioHost["addLifecycleListener"],
-  };
-  const mixer = new Mixer(defaultAudioSettings());
-  const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer });
+  const audio = await loopbackAudio({ mixer: "own", preset: { maxLogical: 16, maxMixed: 8, limiterLookaheadMs: 0 }, decode: () => ({ channelData: [ramp] }), dt: 0.003 });
+  if (!audio) return null;
+  const { backend, link } = audio;
   const out: number[] = [];
   /** `n` frames of 4 quanta; the left channel is appended to `out`. */
   const step = async (n: number) => {
-    for (let f = 0; f < n; f++) {
-      mixer.update(0.003);
-      backend.update(0.003);
-      const { left } = loop.renderQuanta(4);
-      for (const s of left) out.push(s);
-      await Promise.resolve();
-    }
+    for (let f = 0; f < n; f++) for (const s of (await audio.step()).left) out.push(s);
   };
   return { backend, step, out, link };
 }
@@ -75,6 +41,8 @@ function expectFrames(out: number[], from: number, n: number, want: (k: number) 
     if (Math.abs(got - want(k)) > TOL) expect.fail(`${what}: frame ${k} (output ${from + k}): ${got}, expected ${want(k)}`);
   }
 }
+
+afterEach(closeLoopbackAudio);
 
 describe("pause and resume on the loopback host (A3.7)", () => {
   it("resume() continues from the paused position, with 5 ms fades out and in", async (ctx) => {

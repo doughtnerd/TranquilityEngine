@@ -295,6 +295,15 @@ export interface MusicDebugTotals {
   groupTableFull: number;
   /** The worker's encoded music cache went over its budget with nothing evictable (F-5; counts). */
   encodedOverBudget: number;
+  /**
+   * ADR 0220: main's per-instance counters summed over the audio session, the instances that ended included (the core keeps
+   * no total of these, and a row's own counts go with its instance): re-plans by reason, refusals by cause, recoveries by
+   * cause and stinger outcomes; counts.
+   */
+  replans: Record<string, number>;
+  refusals: Record<string, number>;
+  recoveries: Record<string, number>;
+  stingers: { played: number; late: number; skipped: number; dropped: number };
 }
 
 /** `AudioDebugInfo.counters`' fourteen base fields at zero: the start of a backend's counters where it has no core (the Babylon fallback, the pending backend, the fake). */

@@ -11,15 +11,12 @@
 // 0 ms), so the frame where sound first appears in the output is the heard frame, D after the core frame it was
 // rendered at. `Audio.time` is the heard clock in core frames, so at the heard frame h it reads (h − D) / sr: an `at`
 // lands exactly when the first sound is heard at round(at·sr) + D. Every case runs with 1.5 ms and with 0 ms.
-import { fakeDecoder } from "./fakeDecoder";
 import { describe, expect, it } from "vitest";
-import { Mixer } from "../../../../engine/audio/mixer";
-import { defaultAudioSettings } from "../../../../engine/audio/settings";
 import { limiterLatencyFrames } from "./limiterLatency";
 import { QUANTUM_FRAMES } from "../wire.generated";
-import type { AudioHost } from "./context";
-import { CoreBackend, type CoreBackendHost } from "./coreBackend";
+import { CoreBackend } from "./coreBackend";
 import type { FakeHostClock } from "../testing";
+import { loopbackAudio } from "../testing";
 
 const SR = 48_000;
 const QUANTUM_S = QUANTUM_FRAMES / SR;
@@ -27,35 +24,17 @@ const QUANTUM_S = QUANTUM_FRAMES / SR;
 const req = (path: string, extra: object = {}) => ({ path, url: path, loop: false, stream: false, bus: "SFX", oneShot: true, ...extra });
 
 async function rig(lookaheadMs: number, clock?: FakeHostClock) {
-  const testing = await import("../testing");
-  let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>>;
-  const preset = { ...testing.LOOPBACK_PRESET, limiterLookaheadMs: lookaheadMs };
-  try {
-    loop = await testing.createLoopbackHost(clock ? { clock, preset } : { preset });
-  } catch {
-    return null;
-  }
-  const { createClipRegistry } = await import("./clipRegistry");
-  const link = loop.link;
-  const clips = createClipRegistry({
-    send: (m) => link.post(m),
-    nextSeq: () => link.nextSeq(),
-    fetchBytes: async () => new ArrayBuffer(8),
-    // 0.1 s of a constant 0.5: the first non-zero sample is the voice's first frame.
-    decodeWorker: fakeDecoder(async () => ({ frames: 4_800, channels: 1, sampleRate: SR, channelData: [new Float32Array(4_800).fill(0.5)] })),
-    nextFrame: (cb) => cb(),
-    nextQuantum: (cb) => cb(),
-  });
-  const host: CoreBackendHost = {
-    link,
-    status: "running",
+  // ADR 0221: the production assembly on the loopback, with its own mixer. 0.1 s of a constant 0.5: the first non-zero
+  // sample is the voice's first frame.
+  const loop = await loopbackAudio({
+    mixer: "own",
+    clock,
     preset: { maxLogical: 256, limiterLookaheadMs: lookaheadMs },
-    worldCount: 1,
-    sampleRate: SR,
-    addLifecycleListener: (() => () => {}) as AudioHost["addLifecycleListener"],
-  };
-  const mixer = new Mixer(defaultAudioSettings());
-  const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer });
+    decode: () => ({ channelData: [new Float32Array(4_800).fill(0.5)] }),
+  });
+  if (!loop) return null;
+  const { backend, link } = loop;
+  const clips = backend.clips;
   // STATUS blocks are decoded into one reused block: copy what the tests read.
   const slack: number[] = [];
   const lateness: number[] = [];
@@ -70,7 +49,7 @@ async function rig(lookaheadMs: number, clock?: FakeHostClock) {
     for (let q = 0; q < quanta; q++) {
       backend.update(QUANTUM_S);
       const start = loop.frame;
-      const { left, right } = loop.renderQuanta(1);
+      const { left, right } = loop.render(1);
       if (first < 0) {
         for (let i = 0; i < left.length; i++) {
           if (left[i] !== 0 || right[i] !== 0) {
@@ -132,7 +111,7 @@ describe.each([1.5, 0])("`at` on the loopback host (A3.2), limiter look-ahead %s
       voice.stop();
       await step(4);
     }
-    expect(loop.statuses.at(-1)!.lateCommands).toBe(0);
+    expect(loop.link.lastStatus!.lateCommands).toBe(0);
     backend.dispose();
   });
 
@@ -148,7 +127,7 @@ describe.each([1.5, 0])("`at` on the loopback host (A3.2), limiter look-ahead %s
     // Posted in this frame, delivered after one quantum, applied at the start of the next; heard D later.
     expect(first).toBe(frame + QUANTUM_FRAMES + D);
     await step(12);
-    expect(loop.statuses.at(-1)!.lateCommands).toBe(0);
+    expect(loop.link.lastStatus!.lateCommands).toBe(0);
     backend.dispose();
   });
 
@@ -178,7 +157,7 @@ describe.each([1.5, 0])("`at` on the loopback host (A3.2), limiter look-ahead %s
     const { backend, step, preload, loop, slack, lateness } = r;
     await preload("tone.wav");
     await step(6);
-    const lateBefore = loop.statuses.at(-1)!.lateCommands;
+    const lateBefore = loop.link.lastStatus!.lateCommands;
     expect(Math.max(...lateness)).toBe(0);
     slack.length = 0;
     backend.update(QUANTUM_S);
@@ -190,7 +169,7 @@ describe.each([1.5, 0])("`at` on the loopback host (A3.2), limiter look-ahead %s
     const first = await step(12);
     // Applied at offset 0 of the quantum it reached (one quantum after posting), not skipped ahead; heard D later.
     expect(first).toBe(frame + QUANTUM_FRAMES + D);
-    const status = loop.statuses.at(-1)!;
+    const status = loop.link.lastStatus!;
     expect(status.lateCommands).toBe(lateBefore + 1);
     // 280 frames late when sent, plus the quantum it waited for delivery.
     expect(Math.max(...lateness)).toBe(280 + QUANTUM_FRAMES);
