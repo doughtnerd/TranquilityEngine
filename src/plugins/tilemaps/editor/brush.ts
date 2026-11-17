@@ -5,8 +5,9 @@ import { signal } from "@preact/signals";
 import { type GameObject } from "../../../engine";
 import { Tilemap } from "../runtime";
 import { floodCells, lineCells, rectCells, type Cell, type Stamp } from "../runtime/brushes";
-import { FLIP_X, FLIP_Y, cellValue, flagsOf, rotateFlagsClockwise, tileIdOf } from "../runtime/format";
-import { brushValueAt, combineFlags } from "./brushCells";
+import { FLIP_X, FLIP_Y, cellValue, flagsOf, tileIdOf } from "../runtime/format";
+import { brushValueAt } from "./brushCells";
+import { compose, rotateClockwise } from "../runtime/tileFlips";
 import { SetField, type OpenScene } from "../../../editor/sdk";
 
 export type BrushTool = "pencil" | "rect" | "fill" | "erase" | "pick";
@@ -46,7 +47,7 @@ export function brushTile(id: number): void {
 
 export function flipBrush(axis: "x" | "y" | "rotate"): void {
   const f = brushFlags.peek();
-  brushFlags.value = axis === "x" ? f ^ FLIP_X : axis === "y" ? f ^ FLIP_Y : rotateFlagsClockwise(f);
+  brushFlags.value = axis === "x" ? f ^ FLIP_X : axis === "y" ? f ^ FLIP_Y : rotateClockwise(f);
 }
 
 /** The cells a stroke from `a` to `b` covers. Pencil and erase follow the pointer; a rectangle spans the two corners. */
@@ -93,7 +94,7 @@ export function paintCells(map: Tilemap, tool: BrushTool, cells: readonly Cell[]
       for (let r = 0; r < stamp.height; r++) {
         for (let c = 0; c < stamp.width; c++) {
           const v = stamp.values[r * stamp.width + c];
-          if (v) map.setCell(sx + c, sy + r, cellValue(tileIdOf(v), combineFlags(flagsOf(v), flags)), layer);
+          if (v) map.setCell(sx + c, sy + r, cellValue(tileIdOf(v), compose(flagsOf(v), flags)), layer);
         }
       }
     }
