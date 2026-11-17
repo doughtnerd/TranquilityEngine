@@ -352,6 +352,22 @@ const DUCK_MODE_LABELS: Record<DuckingMode, string> = { presence: "presence (voi
 const DUCK_DETECTOR_LABELS: Record<DuckingDetector, string> = { peak: "peak", rms: "RMS" };
 
 /**
+ * A ducking rule's target or trigger: every bus. A component of its own (not one declared in `DuckingEditor`'s render),
+ * so a re-render keeps the same `<select>` and the keyboard focus on it.
+ */
+function DuckBusSelect(p: { label: string; value: string; buses: readonly { name: string }[]; onPick: (bus: string) => void }) {
+  return (
+    <select aria-label={p.label} value={p.value} onChange={(e) => p.onPick((e.currentTarget as HTMLSelectElement).value)}>
+      {p.buses.map((b) => (
+        <option key={b.name} value={b.name}>
+          {b.name}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+/**
  * The ducking rules (api-and-models §2; task Dk1): mode, trigger, target, detector and threshold on a level rule, amount,
  * attack, release, reorder, remove, add. `Ducking` keeps the refusal. An edit the settings
  * parse would drop (a level cycle, the 9th level rule) is not saved: `onRefusal` gets the parse's message instead.
@@ -363,15 +379,6 @@ function DuckingEditor(props: { a: AudioSettings; draft: SettingsDraft; set: Set
     if (!edit.refusal && edit.draft !== draft) set(label, edit.draft);
   };
   const change = (i: number, key: keyof DuckingRule, label: string, value: string | number) => apply(label, setDuckingValueEdit(draft, i, key, value));
-  const BusSelect = (p: { label: string; value: string; index: number; field: "target" | "trigger" }) => (
-    <select aria-label={p.label} value={p.value} onChange={(e) => change(p.index, p.field, `Set ducking ${p.field}`, (e.currentTarget as HTMLSelectElement).value)}>
-      {a.buses.map((b) => (
-        <option key={b.name} value={b.name}>
-          {b.name}
-        </option>
-      ))}
-    </select>
-  );
   return (
     <>
       <div class="project-settings-list-head">
@@ -390,11 +397,11 @@ function DuckingEditor(props: { a: AudioSettings; draft: SettingsDraft; set: Set
               </label>
               <label>
                 Target
-                <BusSelect label={`Ducking ${i + 1} target`} value={r.target} index={i} field="target" />
+                <DuckBusSelect label={`Ducking ${i + 1} target`} value={r.target} buses={a.buses} onPick={(v) => change(i, "target", "Set ducking target", v)} />
               </label>
               <label>
                 Trigger
-                <BusSelect label={`Ducking ${i + 1} trigger`} value={r.trigger} index={i} field="trigger" />
+                <DuckBusSelect label={`Ducking ${i + 1} trigger`} value={r.trigger} buses={a.buses} onPick={(v) => change(i, "trigger", "Set ducking trigger", v)} />
               </label>
               <button class="icon" aria-label={`Move ducking rule ${i + 1} up`} title="Move this rule up the list" disabled={i === 0} onClick={() => set("Move ducking rule up", moveDucking(draft, i, -1))}>
                 ↑

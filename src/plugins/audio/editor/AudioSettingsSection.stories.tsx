@@ -67,6 +67,12 @@ function controls(canvasElement: HTMLElement) {
     click: (label: string) => userEvent.click(canvas.getByLabelText(label)),
     add: () => canvas.getByRole("button", { name: /Ducking rule/ }),
     refusal: () => canvasElement.querySelector("[data-duck-refusal]")?.textContent ?? null,
+    /** The Ducking list's "None" line (each list in the section has its own), or null. */
+    duckingNone: () => {
+      const head = [...canvasElement.querySelectorAll(".project-settings-list-head")].find((h) => h.firstElementChild?.textContent === "Ducking");
+      const next = head?.nextElementSibling ?? null;
+      return next?.textContent === "None" ? next : null;
+    },
     needsCore: () => [...canvasElement.querySelectorAll("[data-needs-core]")].map((n) => [Number(n.getAttribute("data-needs-core")), n.textContent]),
   };
 }
@@ -242,7 +248,7 @@ export const ThreeRules: Story = {
       expect(rulesOf(args).map((x) => x.target)).toEqual(["Music"]);
       await c.click("Remove ducking rule 1");
       expect(rulesOf(args)).toEqual([]);
-      expect(c.canvas.getByText("None")).toBeVisible();
+      expect(c.duckingNone()).toBeVisible();
     });
   },
 };
@@ -388,8 +394,10 @@ export const LiveEditDuringPlay: StoryObj<LiveArgs> = {
     await waitFor(() => expect(args.apply).toHaveBeenCalledWith({ op: "setDucking", index: 0, rule: { ...newDuckRule("Music", "Voice"), threshold: -20 } }));
     expect(args.apply).toHaveBeenCalledTimes(1);
     // A refused edit never reaches the section, so nothing reaches the mixer.
+    // The edit before re-rendered the section while Play runs; the trigger is the same control, and keeps the focus.
     await c.pick("Ducking 1 trigger", "Music");
     expect(c.refusal()).toContain("a bus can't duck itself");
+    expect(c.field("Ducking 1 trigger")).toHaveFocus();
     expect(args.apply).toHaveBeenCalledTimes(1);
   },
 };
