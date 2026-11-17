@@ -388,14 +388,17 @@ describe("worker-sourced clips play on the loopback host (B5)", () => {
     return { backend, step, out, client };
   }
 
-  it("a FLAC clip loaded by the worker plays through the real core, equal to a straight decode", async (ctx) => {
+  // The patience is the harness's, not a measure: the decoder's wasm compile and decode run off the rendered frames, so the
+  // test renders until the clip is heard (counted in frames, with an escape hatch) rather than a fixed number of frames.
+  it("a FLAC clip loaded by the worker plays through the real core, equal to a straight decode", { timeout: 60_000 }, async (ctx) => {
     const name = "tone-48000-stereo.flac";
     const r = await loopRig(name);
     if (!r) return ctx.skip();
     const want = await straight(name);
     const voice = r.backend.play({ path: name, url: name, loop: false, stream: false, bus: "SFX" })!;
-    await r.step(40);
-    const first = r.out.findIndex((s) => s !== 0);
+    const heard = () => r.out.findIndex((s) => s !== 0);
+    for (let f = 0; f < 5_000 && (heard() < 0 || r.out.length < heard() + 6_000); f++) await r.step(1);
+    const first = heard();
     expect(first).toBeGreaterThan(0);
     // The tone starts at 0, so the first non-zero output is clip frame 1: the output is the clip, sample for sample.
     const start = first - 1;

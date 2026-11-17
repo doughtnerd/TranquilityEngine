@@ -19,7 +19,7 @@ import { mixer as globalMixer } from "../../../../engine/audio/mixer";
 import { setAudioBackend, type AudioBackend } from "../backend";
 import { Audio } from "../index";
 import { events } from "./eventRuntime";
-import { CoreBackend } from "../core/coreBackend";
+import type { CoreBackend } from "../core/coreBackend";
 import { Op } from "../wire.generated";
 import { makeFakeBackend, endAudioSession, loopbackAudio, closeLoopbackAudio } from "../testing";
 

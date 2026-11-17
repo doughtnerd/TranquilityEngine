@@ -41,7 +41,7 @@ async function rig() {
     await Promise.resolve();
     return left[left.length - 1]!;
   };
-  return { backend: audio.backend, view, other, frame };
+  return { backend: audio.backend, host: audio.host, view, other, frame };
 }
 
 const req = (path: string, extra: object = {}) => ({ path, url: path, loop: true, stream: false, bus: "SFX", ...extra });
@@ -110,5 +110,24 @@ describe("the World that has the view plays (A3.4b)", () => {
     setAudioBackend(null);
     // (a new backend would be made by `audioBackend()`; the system must not call it before first sound)
     expect(() => AUDIO_SYSTEMS[0]!.run(asWorld(r.other), 0.01)).not.toThrow();
+  });
+});
+
+describe("the loopback as the page's host (ADR 0234)", () => {
+  it("idling between renders past the stall window asks no rebuild: the stall check reads the rig's rendered time", async (ctx) => {
+    const r = await rig();
+    if (!r) return ctx.skip();
+    for (let i = 0; i < 4; i++) await r.frame([r.view]);
+    const rebuilds = r.host.health.rebuilds;
+    // Longer than the stall window (1 s) of wall time, across several of the controller's health checks (every 250 ms).
+    await new Promise((done) => setTimeout(done, 1_600));
+    // It still plays, and no rebuild ran (one asked during the idle would finish in these renders and be counted).
+    const a = r.backend.play(req("a.wav", { volume: 0.5, world: worldKeyOf(asWorld(r.view)) }))!;
+    let level = 0;
+    for (let i = 0; i < 12; i++) level = await r.frame([r.view]);
+    expect(level).toBeCloseTo(0.25, 5);
+    expect(a.reason).toBeNull();
+    expect(r.host.health.rebuilds).toBe(rebuilds);
+    expect(r.host.status).toBe("running");
   });
 });

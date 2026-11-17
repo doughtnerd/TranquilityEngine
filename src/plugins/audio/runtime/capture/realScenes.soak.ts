@@ -39,6 +39,26 @@ import { FRAME_QUANTA, FRAME_SECONDS, RATE, bytesByType, memorySaveEnv, stat, ti
 const chunk = vi.hoisted((): CaptureChunkControl => ({ options: {}, recorders: [], saveEnv: null }));
 vi.mock("./recorder", async (real) => (await import("./testSupport")).captureRecorderModule(await real(), chunk));
 vi.mock("./save", async (real) => (await import("./testSupport")).captureSaveModule(await real(), chunk));
+// The events chunk is the real one too. Its `createEventSink` is where `Audio.capture` gets the sink it hands the backend, so
+// the sink is timed there (`timedSink`) on the capture's own path, and the real `EventSink` is kept for its counts. Nothing
+// on the backend is patched. (The recorder tap, below, is still re-wrapped: the capture installs it as `backend.recorderTap`.)
+const sinks = vi.hoisted(() => ({
+  timer: { ms: 0, calls: 0 },
+  made: [] as import("./events").EventSink[],
+  wrap: null as null | (<T extends object>(sink: T) => T),
+}));
+vi.mock("./events", async (real) => {
+  const mod = await real<typeof import("./events")>();
+  return {
+    ...mod,
+    createEventSink: (...args: Parameters<typeof mod.createEventSink>) => {
+      const sink = mod.createEventSink(...args);
+      sinks.made.push(sink);
+      return sinks.wrap ? sinks.wrap(sink) : sink;
+    },
+  };
+});
+sinks.wrap = (sink) => timedSink(sink, sinks.timer);
 
 // The Stress readout draws into the DOM; the soak runs in Node, so it is a no-op here (the storm itself is unchanged).
 vi.mock("../../../../../samples/stress/scripts/hud", () => ({
@@ -166,15 +186,7 @@ async function runScene(spec: SceneSpec): Promise<SceneResult | null> {
   });
   if (!audio) return null;
   const { backend, link } = audio;
-  // The sink `Audio.capture` installs, wrapped to time each call (`timedSink`).
-  const sinkTimer = { ms: 0, calls: 0 };
-  const setSink = backend.setProfileSink.bind(backend);
-  let sinkTarget: { eventsWritten: number } | null = null;
-  backend.setProfileSink = (sink) => {
-    if (!sink) return setSink(null);
-    sinkTarget = sink as unknown as { eventsWritten: number };
-    setSink(timedSink(sink, sinkTimer));
-  };
+  sinks.made.length = 0;
 
   Assets.clearSources();
   Assets.addSource(project.assets);
@@ -236,15 +248,18 @@ async function runScene(spec: SceneSpec): Promise<SceneResult | null> {
     if (r.lastKeyframeFrame !== kf) keyframeMs += dt;
     else tapUs.push(dt * 1000);
   };
-  sinkTimer.ms = 0;
-  sinkTimer.calls = 0;
-  const startEvents = sinkTarget ? (sinkTarget as { eventsWritten: number }).eventsWritten : 0;
+  // The take's sink, as `audioCapture.start` made it and handed it to the backend.
+  const sink = sinks.made.at(-1);
+  if (!sink) throw new Error("the capture made no event sink");
+  sinks.timer.ms = 0;
+  sinks.timer.calls = 0;
+  const startEvents = sink.eventsWritten;
   const frames = Math.round(MEASURE_SECONDS / FRAME_SECONDS);
   for (let f = 0; f < frames; f++) await step(true);
   const seconds = (r.newestStatusFrame - firstTapFrame) / RATE + (FRAME_QUANTA * 128) / RATE; // blocks from the first one taken to the last, each 768 frames
-  const sinkMsTotal = sinkTimer.ms;
-  const sinkCalls = sinkTimer.calls;
-  const eventCount = (sinkTarget ? (sinkTarget as { eventsWritten: number }).eventsWritten : 0) - startEvents;
+  const sinkMsTotal = sinks.timer.ms;
+  const sinkCalls = sinks.timer.calls;
+  const eventCount = sink.eventsWritten - startEvents;
   backend.recorderTap = tap;
   audioCapture.stop();
   const ringBytes = r.ring.usedBytes;

@@ -1129,6 +1129,10 @@ export async function loopbackAudio(options: LoopbackAudioOptions = {}): Promise
     preset: { ...presetFromSettings(settings), ...preset },
     respawn,
     recreate,
+    // The host's clock is the rig's: it moves only as the rig renders (or the test advances it), as a page's moves with
+    // its audio. The background controller's stall check reads it, so a test idling between renders sees no stall, while
+    // rendering a second with no STATUS reaching main is one, as in a page.
+    now: () => loop.clock.rafTime(),
   });
   if (options.world !== false) host.attachWorld({ kind: "runtime" });
 

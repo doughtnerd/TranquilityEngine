@@ -272,7 +272,9 @@ describe("ambisonic clips on the loopback host (B6)", { timeout: PATIENCE_MS }, 
   it("maxClips steals the lowest priority on main, and refuses a play that doesn't outrank them all (B5)", async () => {
     const r = await rig("decoder", { "s.wav": wavs(1, 0).ambix });
     Assets.addSource(Assets.fromObject({ "s.wav.meta.json": { format: "myco.import@1", ambisonic: { convention: "ambix" } } }));
-    r.clips.acquire("s.wav");
+    // Loaded first, counted by its state (not a number of frames: the decoder's wasm compile runs off the test's clock).
+    const id = r.clips.acquire("s.wav");
+    await r.until(() => r.clips.state(id) === "ready", "s.wav to load");
     await r.step(20);
     const play = (priority: number) => r.backend.play({ path: "s.wav", url: "s.wav", loop: true, stream: false, bus: "Master", ambisonic: true, priority });
     const low = play(100)!;
@@ -283,8 +285,9 @@ describe("ambisonic clips on the loopback host (B6)", { timeout: PATIENCE_MS }, 
     expect(high).not.toBeNull();
     expect(low.playing).toBe(false); // stolen by main
     expect(high.playing).toBe(true);
+    await r.until(() => (r.loop.link.lastStatus?.ambisonicVoices ?? 0) >= 1, "the voice to play");
     await r.step(40);
-    expect(r.loop.link.lastStatus!.ambisonicVoices).toBe(1);
+    expect(r.loop.link.lastStatus!.ambisonicVoices).toBe(1); // the high one alone: the stolen one never reached the core
     r.client.dispose();
   });
 

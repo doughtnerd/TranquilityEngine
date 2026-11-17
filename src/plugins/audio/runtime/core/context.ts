@@ -419,7 +419,10 @@ export interface HostParts {
   readonly recreate?: (options: ContextOptions) => Promise<ContextParts>;
   /** ADR 0166 §4.6: whether `context` was made in rhythm mode (`latencyHint: 0`). Absent: false. */
   readonly rhythmMode?: boolean;
-  /** The host's clock, ms (the latency evidence window and the mode rebuild interval); default `performance.now`. */
+  /**
+   * The host's clock, ms (the latency evidence window, the mode rebuild interval and the background controller's stall
+   * check); default `performance.now`. The test loopback passes its rendered time, which moves only as it renders.
+   */
   readonly now?: () => number;
 }
 
@@ -479,8 +482,9 @@ export class AudioHost {
   private recoveryFailed = false;
   /** §8 health counters (A3.4a's `recovery.ts` writes them). */
   readonly health: HostHealth = { traps: 0, recoveries: 0, rebuilds: 0 };
+  /** The host's clock, ms (`HostParts.now`): also the stall check's (`coreBackend.ts` `attachBackground`). */
+  readonly now: () => number;
   // --- ADR 0166 §4.6 rhythm mode (Rh1) ---
-  private readonly now: () => number;
   /** The mode the current context was made with. */
   private contextRhythm: boolean;
   /** The mode the settings ask for (`reconfigure`); differs from `contextRhythm` until the mode rebuild lands. */
