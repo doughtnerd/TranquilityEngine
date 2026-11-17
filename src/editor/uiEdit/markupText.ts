@@ -8,6 +8,7 @@
 // is its used document's root). `<Style>`, `<Template>` and comments aren't counted.
 import { Parser } from "htmlparser2";
 import type { SourceSpan } from "../../engine/ui/document/types";
+import { DASHED, uniqueName } from "../../engine/core/uniqueName";
 
 export interface SourceAttribute {
   readonly name: string;
@@ -365,13 +366,6 @@ export function idsIn(text: string): Set<string> {
   return out;
 }
 
-/** `base`, or `base-2`, `base-3`… whichever isn't in `taken`. */
-export function uniqueName(base: string, taken: ReadonlySet<string>): string {
-  if (!taken.has(base)) return base;
-  const stem = base.replace(/-\d+$/, "");
-  for (let n = 2; ; n++) if (!taken.has(`${stem}-${n}`)) return `${stem}-${n}`;
-}
-
 /** `snippet` with every `id` in it changed to one not in `taken` (which grows). */
 function withUniqueIds(snippet: string, taken: Set<string>): string {
   const spans: { span: SourceSpan; value: string }[] = [];
@@ -382,7 +376,7 @@ function withUniqueIds(snippet: string, taken: Set<string>): string {
   parseTopLevel(snippet).forEach(walk);
   let out = snippet;
   const fresh = spans.map((s) => {
-    const id = uniqueName(s.value, taken);
+    const id = uniqueName(s.value, taken, DASHED);
     taken.add(id);
     return id;
   });
