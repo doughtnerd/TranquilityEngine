@@ -1,18 +1,16 @@
 // ADR 0171/0172 (M5, task G7b; api-and-models §5.5, §7): a capture recorded through the real recorder on the core backend
-// (the real wasm core on the loopback host), with the backend's own keyframe source wired the way `capture.ts` wires it. The
+// (the real wasm core on the loopback host, assembled as production assembles it: ADR 0221's `loopbackAudio`), with the backend's own keyframe source wired the way `capture.ts` wires it. The
 // keyframe in the ring carries the voice table and the mixer's bus lanes; opened as a live capture through the Worker handler,
 // the profiler's `reconstructVoices` at the keyframe gives the rows the table has. Time is the loopback's rendered frames.
-import { describe, expect, it } from "vitest";
-import { Lane, Mixer } from "../../../../engine/audio/mixer";
+import { afterEach, describe, expect, it } from "vitest";
+import { Lane } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings, type AudioSettings } from "../../../../engine/audio/settings";
 import { createEventSink, NO_NAME } from "../../runtime/capture/events";
 import { assembleCapture, decodeKeyframe } from "../../runtime/capture/format";
 import { createRecorder } from "../../runtime/capture/recorder";
 import { decodeRecordAt, openLiveCapture } from "../../runtime/capture/reader";
 import { SAMPLE_HEADER, SAMPLE_META } from "../../runtime/capture/testSupport";
-import type { CoreLink } from "../../runtime/core/context";
-import { CoreBackend, type CoreBackendHost } from "../../runtime/core/coreBackend";
-import { fakeDecoder } from "../../runtime/core/fakeDecoder";
+import { closeLoopbackAudio, loopbackAudio } from "../../runtime/testing";
 import { CaptureSource } from "./profilerSource";
 import { inProcessWorker } from "./voiceSceneSupport";
 import { nameLookup, reconstructVoices } from "./voiceTableModel";
@@ -21,40 +19,21 @@ const MiB = 1024 * 1024;
 const RATE = 48_000;
 const req = (path: string, extra: object = {}) => ({ path, url: path, loop: true, stream: false, bus: "SFX", ...extra });
 
+/** ADR 0221: the core as production assembles it, on the loopback with its own mixer; null when the wasm can't be loaded here. */
 async function rig(settings: AudioSettings) {
-  const testing = await import("../../runtime/testing");
-  let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>> & { link: CoreLink };
-  try {
-    loop = (await testing.createLoopbackHost()) as typeof loop;
-  } catch {
-    return null;
-  }
-  const { createClipRegistry } = await import("../../runtime/core/clipRegistry");
-  const link = loop.link;
-  const clips = createClipRegistry({
-    send: (m) => link.post(m),
-    nextSeq: () => link.nextSeq(),
-    fetchBytes: async () => new ArrayBuffer(8),
-    decodeWorker: fakeDecoder(async () => ({ frames: 96_000, channels: 1, sampleRate: RATE, channelData: [new Float32Array(96_000).fill(0.25)] })),
-    nextFrame: (cb) => cb(),
-    nextQuantum: (cb) => cb(),
+  const audio = await loopbackAudio({
+    mixer: "own",
+    settings,
+    preset: { maxLogical: 16, maxMixed: 8 },
+    decode: () => ({ channelData: [new Float32Array(96_000).fill(0.25)] }),
+    quantaPerFrame: 4,
+    dt: 0.003,
   });
-  const host: CoreBackendHost = {
-    link, status: "running", preset: { maxLogical: 16, maxMixed: 8 }, worldCount: 1, sampleRate: RATE,
-    addLifecycleListener: (() => () => {}) as CoreBackendHost["addLifecycleListener"],
-  };
-  const mixer = new Mixer(settings);
-  const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer });
-  const step = async (n: number) => {
-    for (let f = 0; f < n; f++) {
-      mixer.update(0.003);
-      backend.update(0.003);
-      loop.renderQuanta(4);
-      await Promise.resolve();
-    }
-  };
-  return { backend, mixer, step };
+  if (!audio) return null;
+  return { backend: audio.backend, mixer: audio.mixer, step: async (n: number) => void (await audio.step(n)) };
 }
+
+afterEach(closeLoopbackAudio);
 
 describe("a capture recorded on the core backend carries the real keyframe", () => {
   it("voice rows equal the voice table and bus lanes equal the mixer's; reconstructVoices at the keyframe equals the table", async (ctx) => {

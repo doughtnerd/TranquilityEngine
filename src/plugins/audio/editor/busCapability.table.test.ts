@@ -1,8 +1,9 @@
 // ADR 0175: one row per bus capability rule, asserting together what used to be checked in several places: the parse's
 // severity and text, Project Settings' problems and warnings, the live answer on the core (`LiveMix` through
-// `mixer.apply`, counted) and on the fallback's capabilities, and the one message. The wire's `BUS_SLOT_MAX_EFFECTS` is
-// held equal to the rule's limit here, from the plugin side (the engine can't import the wire).
-import { describe, expect, it } from "vitest";
+// `mixer.apply`, counted; ADR 0221: the production assembly on the loopback) and on the fallback's capabilities, and the
+// one message. The wire's `BUS_SLOT_MAX_EFFECTS` is held equal to the rule's limit here, from the plugin side (the engine
+// can't import the wire).
+import { afterEach, describe, expect, it } from "vitest";
 import {
   BUS_RULES, FALLBACK_LIVE_CAPS, MAX_BUSES, MAX_CORE_BUS_EFFECTS, atBusLimit, reasonMessage, type BusRule,
 } from "../../../engine/audio/busCapability";
@@ -11,18 +12,18 @@ import { opRefusal, type ApplyResult, type MixOp } from "../../../engine/audio/m
 import { parseAudioSettings, type BusEffect } from "../../../engine/audio/settings";
 import { settingsProblems, settingsWarnings } from "../../../editor/projectSettingsModel";
 import { BUS_SLOT_MAX_EFFECTS } from "../runtime/wire.generated";
-import { CoreBackend } from "../runtime/core/coreBackend";
+import { closeLoopbackAudio, loopbackAudio } from "../runtime/testing";
 
-/** A core backend with a recording link (no wasm) over its own mixer holding `audio`. */
+/**
+ * ADR 0221: the core as production assembles it, on the loopback (`loopbackAudio`), over the page's mixer configured with
+ * `audio` and the backend registered, so the refusal count is read where callers read it (`Audio.debug().mix.liveRefused`).
+ * Null when the wasm can't be loaded here.
+ */
 function coreRig(audio: object) {
-  const mixer = new Mixer(parseAudioSettings(audio).settings);
-  const link = { batchPool: { acquire: () => new ArrayBuffer(64 * 1024), release() {} }, nextSeq: () => 1, post() {}, onStatus: () => () => {}, statusDecoder: null };
-  const host = { link, status: "running" as const, preset: { maxLogical: 16 }, worldCount: 1, sampleRate: 48_000, addLifecycleListener: () => () => {} };
-  const clock = { rafTime: () => 0, outputTimestamp: () => ({ contextTime: 0, performanceTime: 0 }), currentTime: () => 0, dateNow: () => 0, fake: true as const };
-  const clips = { acquire: () => 1, release() {}, state: () => "ready", info: () => null, onResident: () => () => {}, releaseWorld() {}, applyClipEvent() {}, residentIds: () => [], acquireReserved() {} };
-  const backend = new CoreBackend(host as never, { clips: clips as never, clock: clock as never, mixer });
-  return { backend, mixer };
+  return loopbackAudio({ settings: parseAudioSettings(audio).settings });
 }
+
+afterEach(closeLoopbackAudio);
 
 /** The fallback's answers: a mixer whose target has `FALLBACK_LIVE_CAPS` and applies what it is sent. */
 function fallbackApply(audio: object, op: MixOp): ApplyResult {
@@ -81,7 +82,7 @@ describe("bus capability rules (ADR 0175)", () => {
     expect(ROWS.map((r) => r.rule).sort()).toEqual(Object.keys(BUS_RULES).sort());
   });
 
-  it.each(ROWS)("$rule: parse severity, Project Settings, the live answer on the core and the fallback, and the message", ({ rule, over, finding, at, ops }) => {
+  it.for(ROWS)("$rule: parse severity, Project Settings, the live answer on the core and the fallback, and the message", { timeout: 30_000 }, async ({ rule, over, finding, at, ops }, ctx) => {
     const spec = BUS_RULES[rule];
     // The parse: a problem drops the rest; a warning keeps the section as authored (R10).
     const parsed = parseAudioSettings(over);
@@ -96,11 +97,13 @@ describe("bus capability rules (ADR 0175)", () => {
     expect(parseAudioSettings(at)).toMatchObject({ problems: [], warnings: [] });
 
     for (const [op, cls] of ops) {
-      const { backend, mixer } = coreRig(at);
+      const core = await coreRig(at);
+      if (!core) return ctx.skip();
+      const { Audio, mixer } = core;
       const before = mixer.audioSettings;
       const r = mixer.apply(op);
       expect(mixer.audioSettings, "the running model is untouched").toBe(before);
-      expect(backend.debug().mix!.liveRefused, "counted (Audio.debug().mix.liveRefused)").toBe(1);
+      expect(Audio.debug().mix!.liveRefused, "counted (Audio.debug().mix.liveRefused)").toBe(1);
       const fallback = fallbackApply(at, op);
       if (spec.live === "refused") {
         expect(r).toEqual({ ok: false, class: "none" });
@@ -112,7 +115,7 @@ describe("bus capability rules (ADR 0175)", () => {
         // Only the core has the limit: the fallback runs every effect.
         expect(fallback).toEqual(spec.coreOnly ? { ok: true, class: cls } : r);
       }
-      backend.dispose();
+      await core.close();
     }
   });
 
