@@ -8,9 +8,8 @@ import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { expect, fireEvent, spyOn, userEvent, waitFor, within } from "storybook/test";
 import { editor, type EditorPluginContext, type SettingsDraft } from "../../../../editor/sdk";
 import { projectSettings } from "../../../../editor/projectSettingsInstance";
-import { MemoryFileSystem } from "../../../../editor/memoryFs";
-import { openFolderProject, type EditorProject } from "../../../../editor/projects";
-import { currentProject, playState } from "../../../../editor/state";
+import type { EditorProject } from "../../../../editor/projects";
+import { setPlayState, storyProject, withEditor } from "../../../../editor/stories/editorStory";
 import { reasonMessage } from "../../../../engine/audio/busCapability";
 import { EMPTY_BUS_LOUDNESS, type LoudnessResetWhat } from "../../../../engine/audio/loudnessTypes";
 import { mixer, type Bus, type MonitorControls } from "../../../../engine/audio/mixer";
@@ -61,12 +60,10 @@ async function loadMixerPanel(): Promise<void> {
   await views.get("audiomixer")!();
 }
 
-/** Open a project with `audio` in memory, load the panel and spy on the engine it talks to. Returns the cleanup. */
-async function openRig(audio: unknown): Promise<() => void> {
-  const fs = new MemoryFileSystem();
-  fs.files.set("C:\\Games\\mix\\project.json", JSON.stringify({ name: "Game", audio }, null, 2));
-  const project = await openFolderProject(fs, "C:\\Games\\mix");
-  currentProject.value = project;
+/** Open a project with `audio` in memory (the story harness, ADR 0235), load the panel and spy on the engine it talks to. Returns the cleanup. */
+async function openRig(audio: unknown): Promise<() => Promise<void>> {
+  const close = await withEditor({ parameters: { editor: { files: { "project.json": { name: "Game", audio } }, root: "C:\\Games\\mix" } } });
+  const project = storyProject();
   await loadMixerPanel();
   let live: AudioSettings = parseAudioSettings(audio).settings;
   let snapshot: string | null = null;
@@ -112,14 +109,13 @@ async function openRig(audio: unknown): Promise<() => void> {
   return () => {
     for (const s of spies) s.mockRestore();
     Object.assign(mixerHost, host);
-    playState.value = "edit";
-    currentProject.value = null;
     engine = null;
+    return close();
   };
 }
 
 /** Start Play: the panel samples on its own timer. */
-const play = () => void (playState.value = "playing");
+const play = () => setPlayState("playing");
 const snapshots = (root: HTMLElement) => [...root.querySelectorAll<HTMLButtonElement>(".mixer-snapshot")];
 const one = (root: HTMLElement, cls: string) => root.querySelector<HTMLElement>(`.${cls}`);
 

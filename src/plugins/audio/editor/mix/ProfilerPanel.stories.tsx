@@ -7,9 +7,7 @@
 // no props, as the shell renders it, over its real deps; the stories count the capture Workers it spawns (one per open).
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { expect, fn, userEvent, waitFor } from "storybook/test";
-import { MemoryFileSystem } from "../../../../editor/memoryFs";
-import { openFolderProject } from "../../../../editor/projects";
-import { currentProject } from "../../../../editor/state";
+import { withEditor, type EditorStoryParameters } from "../../../../editor/stories/editorStory";
 import { CAPTURE_ABI_VERSION, assembleCapture } from "../../runtime/capture/format";
 import { SAMPLE_HEADER, SAMPLE_META, sampleCapture } from "../../runtime/capture/testSupport";
 import { ProfilerPanel, profilerSlots, type BannersSlotProps, type BarSlotProps, type ProfilerSlots, type TablesSlotProps } from "./ProfilerPanel";
@@ -131,15 +129,9 @@ export const Truncated: Story = {
 };
 
 export const ProjectMismatch: Story = {
-  loaders: [
-    async () => {
-      const fs = new MemoryFileSystem();
-      fs.files.set("C:\\Games\\other\\project.json", JSON.stringify({ name: "Other", audio: { buses: [{ name: "Other" }] } }));
-      currentProject.value = await openFolderProject(fs, "C:\\Games\\other");
-      return {};
-    },
-  ],
-  beforeEach: () => () => void (currentProject.value = null),
+  // Another project is open (the story harness, ADR 0235): its buses aren't the capture's.
+  parameters: { editor: { files: { "project.json": { name: "Other", audio: { buses: [{ name: "Other" }] } } }, root: "C:\\Games\\other" } satisfies EditorStoryParameters },
+  beforeEach: withEditor,
   play: async ({ canvasElement }) => {
     await drop(canvasElement, fileOf("other.mycap", capture()));
     await opened(canvasElement); // still opens
