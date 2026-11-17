@@ -1,6 +1,6 @@
 # 0138. Viewport tools are an editor contribution point: installed per scene view, input routed by one host, at most one active tool
 
-- **Status:** Accepted
+- **Status:** Accepted; amended by 0232 (the SDK lists the play session's Worlds on `editor.scene`)
 - **Date:** 2026-11-08
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

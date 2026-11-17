@@ -2,7 +2,6 @@ import { signal } from "@preact/signals";
 import { useEffect, useState } from "preact/hooks";
 import { navigationOf } from "../runtime/navigationSystems";
 import type { NavTickStats } from "../runtime/runtime";
-import { playing } from "../../../editor/session";
 import { editor } from "../../../editor/sdk";
 import "./navdebug.css";
 
@@ -32,18 +31,15 @@ interface Sample {
 }
 
 function sample(): Sample {
-  const session = playing.peek();
-  if (!session) return { stats: null, world: null };
-  for (const h of session.engine.worlds()) {
-    const world = session.engine._world(h.name);
-    const nav = world && navigationOf(world);
+  for (const world of editor.scene.peekPlayWorlds()) {
+    const nav = navigationOf(world);
     if (!nav) continue;
     try {
       const warnings = nav.runtime.drainWarnings();
       if (warnings.length > 0) navWarnings.value = [...navWarnings.peek(), ...warnings].slice(-MAX_WARNINGS);
-      return { stats: nav.runtime.tickStats(), world: h.name };
+      return { stats: nav.runtime.tickStats(), world: world.name };
     } catch {
-      return { stats: null, world: h.name };
+      return { stats: null, world: world.name };
     }
   }
   return { stats: null, world: null };
@@ -52,13 +48,14 @@ function sample(): Sample {
 /** Navigation counters while playing: agents, searches, slices, rebuilds, ms per stage, and the runtime's warnings (ADR 0065). */
 export function NavDebugPanel() {
   const [s, setS] = useState<Sample>({ stats: null, world: null });
-  const isPlaying = editor.scene.playState === "playing" && playing.value !== null;
+  const worlds = editor.scene.playWorlds;
+  const isPlaying = editor.scene.playState === "playing" && worlds.length > 0;
   useEffect(() => {
     if (!isPlaying) return;
     setS(sample());
     const t = setInterval(() => setS(sample()), REFRESH_MS);
     return () => clearInterval(t);
-  }, [isPlaying, playing.value]);
+  }, [isPlaying, worlds]);
   if (!isPlaying) return null;
   if (!s.stats) return null;
   const rows = statRows(s.stats);

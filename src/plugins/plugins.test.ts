@@ -134,14 +134,6 @@ describe("plugin editor halves reach the editor through its SDK (ADR 0147)", () 
    * removed once its import goes (the test fails on stale entries), so the list only shrinks.
    */
   const INTERNAL = new Set([
-    // The play session's Worlds, for Navigation's debug overlays and panel. Internal like viewport tools,
-    // which are handed the World (ADR 0138): a play World is engine internals.
-    "plugins/navigation/editor/NavDebugPanel.tsx -> editor/session",
-    "plugins/navigation/editor/navGizmo.ts -> editor/playMode",
-    "plugins/navigation/editor/navGizmo.ts -> editor/state",
-    // The Audio plugin's occlusion overlay (ADR 0162 E4) draws in every World of the play session, as Navigation's does.
-    "plugins/audio/editor/OcclusionOverlay.ts -> editor/playMode",
-    "plugins/audio/editor/OcclusionOverlay.ts -> editor/state",
     // Baking builds a hidden editor World from the project's settings (ADR 0065): same reason.
     "plugins/navigation/editor/navBake.ts -> editor/projects",
     // The collider gizmo snaps like the transform gizmo (ADR 0142): the scene view's snapping is viewport-tool internals.

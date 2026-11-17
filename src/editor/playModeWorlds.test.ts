@@ -1,3 +1,4 @@
+import { computed } from "@preact/signals";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Assets, Engine, GameObject, Input, type BootstrapSetting, type ProjectSettingsInput } from "../engine";
 import { World } from "../engine/core/World";
@@ -9,7 +10,8 @@ import { startPlay } from "./playMode";
 import { openSceneFile } from "./project";
 import { editorSettings, useProjectAssets, type EditorProject } from "./projects";
 import { replaceScripts } from "./scriptLoader";
-import { openScene, sceneCamera } from "./state";
+import { editor as sdk } from "./sdk";
+import { openScene, playing, sceneCamera } from "./state";
 import { sampleProject } from "./testing";
 
 let editor: Engine;
@@ -91,6 +93,18 @@ describe("play mode with several Worlds (ADR 0032)", () => {
     expect(engineWorld(play.engine, "Client")!.sceneNodes).toHaveLength(1);
     expect(engineWorld(play.engine, "Lobby")!.sceneNodes).toHaveLength(0);
     play.stop();
+  });
+
+  it("lists the session's Worlds on editor.scene.playWorlds, tracked, and none once it stops (ADR 0232)", async () => {
+    const names = computed(() => sdk.scene.playWorlds.map((w) => w.name));
+    expect(names.value).toEqual([]);
+    const play = await startPlay({ editor, scene: openScene.value!, project: withBootstrap(CLIENT_SERVER) });
+    playing.value = play; // as session.ts does once the session runs
+    expect(names.value).toEqual(["Client", "Server"]);
+    expect(sdk.scene.peekPlayWorlds()).toEqual(["Client", "Server"].map((n) => engineWorld(play.engine, n)));
+    play.stop();
+    playing.value = null;
+    expect(names.value).toEqual([]);
   });
 
   it("Stop disposes every World and resumes the editor", async () => {
