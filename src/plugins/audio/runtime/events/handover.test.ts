@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Assets, Engine, SceneManager } from "../../../../myco";
 import { registerCoreBackend, setAudioBackend, type AudioBackend } from "../backend";
 import { Audio } from "../index";
-import { CoreBackend } from "../core/coreBackend";
+import type { CoreBackend } from "../core/coreBackend";
 import { makeFakeBackend, endAudioSession, loopbackAudio, closeLoopbackAudio } from "../testing";
 import { events } from "./eventRuntime";
 import { TsAutomation, type AutomationSink } from "./automation";

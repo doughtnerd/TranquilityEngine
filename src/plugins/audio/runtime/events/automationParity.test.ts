@@ -39,7 +39,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { mixer as globalMixer } from "../../../../engine/audio/mixer";
 import type { Curve } from "../../../../engine/core/curve";
 import type { AudioVoice } from "../backend";
-import { CoreBackend } from "../core/coreBackend";
+import type { CoreBackend } from "../core/coreBackend";
 import { AutoTarget, evaluate, TsAutomation, type Binding } from "./automation";
 import { loopbackAudio, closeLoopbackAudio } from "../testing";
 

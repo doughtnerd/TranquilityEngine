@@ -10,7 +10,7 @@ import { readCaptureKeyframe } from "../capture/format";
 import { NO_NAME } from "../capture/keyframeLayout";
 import { loudnessHub } from "../mix/loudnessHub";
 import { LOUD_OUTPUT_TAP } from "../wire.generated";
-import { CoreBackend } from "./coreBackend";
+import type { CoreBackend } from "./coreBackend";
 import { loopbackAudio, closeLoopbackAudio } from "../testing";
 
 const req = (path: string, extra: object = {}) => ({ path, url: path, loop: true, stream: false, bus: "SFX", ...extra });

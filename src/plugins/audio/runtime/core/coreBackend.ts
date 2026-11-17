@@ -127,8 +127,11 @@ export interface CoreVoice extends AudioVoice {
   stop(fadeSeconds?: number): void;
 }
 
-/** What the backend needs of the host: `createCoreBackend` adapts the `AudioHost` to it (every test goes through that assembly, ADR 0234). */
-export interface CoreBackendHost {
+/**
+ * What the backend needs of the host: `createCoreBackend` adapts the `AudioHost` to it. Module-private, as is the class's
+ * value: a backend is made only by `createCoreBackend`, which only `assembleCore` calls (ADR 0221, 0234).
+ */
+interface CoreBackendHost {
   readonly link: Pick<CoreLink, "batchPool" | "nextSeq" | "post" | "onStatus"> & { statusDecoder: CoreLink["statusDecoder"] } & Partial<Pick<CoreLink, "connectStreamPort">>;
   readonly status: "locked" | "running" | "failed";
   /**
@@ -192,7 +195,12 @@ const clamp = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > 
 /** ADR 0171 (K0): the core backend that last registered its clock and op target on each mixer. */
 const mixerOwners = new WeakMap<Mixer, CoreBackend>();
 
-export class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLiveMix, AudioCaptureSource, StagedFrameHost {
+/**
+ * The core backend. Exported as a type only (below the class): the one way to make one is `assembleCore`
+ * (`core/assembly.ts`) through `createCoreBackend`, so no caller builds it over a hand-made host or without its clip
+ * registry and background controller.
+ */
+class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLiveMix, AudioCaptureSource, StagedFrameHost {
   readonly name = "core";
 
   // ADR 0179: the core has every capability, and each is the backend itself (its own members are the capability's: no
@@ -1510,8 +1518,10 @@ class TableSpatialView implements SpatialVoiceView {
   }
 }
 
+export type { CoreBackend };
+
 /**
- * The factory `service.ts` registers with `registerCoreBackend`: wires the registry to the host (its messages go
+ * `assembleCore`'s backend factory (its only caller, ADR 0221): wires the registry to the host (its messages go
  * through `CoreLink.post` with the link's `seq`, clips are fetched from the project's asset URLs and decoded on the
  * decoder worker) and the clock to the context.
  */
