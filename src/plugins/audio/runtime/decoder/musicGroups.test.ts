@@ -213,16 +213,19 @@ describe("music groups: cancel and re-target (D1b)", () => {
     const groups = new MusicGroups({ post: (r) => void replies.push(r), streams: streams as never, cache });
     const bytes = new ArrayBuffer(16);
     await groups.handle({ type: "primeGroup", instance: 1, group: 7, retarget: false, members: [member(1, bytes), member(2, bytes.slice(0))] });
-    expect(groups.groupCount).toBe(1);
     expect(groups.membersOf(7)).toEqual([1, 2]);
     // The decoder reports each close back through `closed` (StreamHost.closed), as `closeMember` does.
     streams.closeMember.mockImplementation((id: number) => groups.closed(id));
     await groups.handle({ type: "cancelGroup", group: 7 });
     expect(streams.closeMember.mock.calls).toEqual([[1], [2]]);
-    expect(groups.groupCount).toBe(0);
     expect(groups.membersOf(7)).toEqual([]);
     groups.closed(1); // a late close of a forgotten member is a no-op
-    expect(groups.groupCount).toBe(0);
+    expect(groups.membersOf(7)).toEqual([]);
+    // The group and its stream ids are free again: the same group opens on them anew.
+    streams.closeMember.mockReset();
+    await groups.handle({ type: "primeGroup", instance: 1, group: 7, retarget: false, members: [member(1, bytes.slice(0)), member(2, bytes.slice(0))] });
+    expect(groups.membersOf(7)).toEqual([1, 2]);
+    expect(streams.closeMember).not.toHaveBeenCalled();
   });
 
   it("a cancel that arrives while the group is still opening closes the member being opened and posts no groupOpened", async () => {

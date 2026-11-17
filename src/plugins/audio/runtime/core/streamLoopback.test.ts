@@ -4,7 +4,7 @@
 // decoded samples exactly once the voice sounds.
 //
 // - a stream plays to its end, matching a straight decode, and its ring is freed;
-// - a 300 ms main-thread stall (no frame, no `onmessage` on main) while the worker→worklet port keeps flowing:
+// - a 300 ms main-thread stall (the loopback's `stallMain`: no frame, nothing handled on main) while the worker→worklet port keeps flowing:
 //   no starve, the output is still exact, no underrun;
 // - starvation (the worker stalled past the 0.68 s ring): a 5 ms fade to silence, `reason === "waitingForData"`, then a
 //   clean 5 ms fade-in from the held frame when the worker resumes, and the reason clears;
@@ -15,8 +15,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { makeWav, signal } from "../decoder/testWav";
 import { FADE, FRAME_MS, QPF, RATE, rig } from "../../testing/streamRig";
-import { watchBatches } from "./batchWatch";
 import { Op, readPlay } from "../wire.generated";
+import { closeLoopbackAudio } from "../testing";
 
 
 const WAV_FRAMES = 96_000; // 2 s
@@ -32,7 +32,10 @@ function onsetOf(out: number[]): number {
   return first - lead;
 }
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(async () => {
+  vi.restoreAllMocks();
+  await closeLoopbackAudio();
+});
 
 describe("streaming on the loopback host (B3)", () => {
   it("a stream plays to its end matching a straight decode; its voice ends and its ring is freed", async (ctx) => {
@@ -50,14 +53,14 @@ describe("streaming on the loopback host (B3)", () => {
     }
     expect(r.left.slice(at + WAV_FRAMES).every((s) => s === 0)).toBe(true);
     expect(voice.playing).toBe(false);
-    expect(r.loop.link.lastStatus!.underruns).toBe(0);
+    expect(r.link.lastStatus!.underruns).toBe(0);
     expect(r.backend.streams.stats.starves).toBe(0);
     expect(r.backend.streams.stats.eos).toBe(1);
     expect(r.backend.streams.size).toBe(0);
     await r.settle();
     await r.step(2);
-    expect(r.loop.driver.openStreams).toBe(0);
-    expect(r.loop.driver.stats.streamFrames).toBe(WAV_FRAMES);
+    expect(r.worklet().open).toBe(0);
+    expect(r.worklet().frames).toBe(WAV_FRAMES);
     r.backend.dispose();
   });
 
@@ -71,25 +74,25 @@ describe("streaming on the loopback host (B3)", () => {
     expect(voice.reason).toBeNull();
     const stallFrames = Math.ceil(300 / FRAME_MS); // 300 ms with no main thread at all
     const before = r.left.length;
-    const chunksBefore = r.handler.streamStats.chunks;
+    const chunksBefore = r.worklet().chunks;
     const stall = await r.step(stallFrames, { mainStalled: true });
     const stalledMs = ((r.left.length - before) / RATE) * 1000;
     expect(stalledMs).toBeGreaterThanOrEqual(300);
     // Main saw nothing during the stall, while the worker kept sending chunks on credits from the worklet.
     expect(stall.applied).toBe(0);
     expect(stall.held).toBeGreaterThan(0);
-    expect(r.handler.streamStats.chunks - chunksBefore).toBeGreaterThanOrEqual(Math.floor((0.3 * RATE) / 4096));
+    expect(r.worklet().chunks - chunksBefore).toBeGreaterThanOrEqual(Math.floor((0.3 * RATE) / 4096));
     await r.step(40);
     const at = onsetOf(r.left);
     for (let k = 0; at + k < r.left.length && k < WAV_FRAMES; k++) {
       if (r.left[at + k] !== want(k, 0) || r.right[at + k] !== want(k, 1)) expect.fail(`frame ${k}: ${r.left[at + k]} vs ${want(k, 0)}`);
     }
-    expect(r.loop.link.lastStatus!.underruns).toBe(0);
+    expect(r.link.lastStatus!.underruns).toBe(0);
     expect(r.backend.streams.stats.starves).toBe(0);
     expect(voice.reason).toBeNull();
     // The chunk buffers circulated: the worker allocated about a window of them (8 chunks), not one per chunk.
-    expect(r.handler.streamStats.chunks).toBeGreaterThan(15);
-    expect(r.handler.streamStats.allocated).toBeLessThanOrEqual(10);
+    expect(r.worklet().chunks).toBeGreaterThan(15);
+    expect(r.worklet().buffers).toBeLessThanOrEqual(10);
     r.backend.dispose();
   });
 
@@ -137,7 +140,7 @@ describe("streaming on the loopback host (B3)", () => {
     const r = await rig({ "music/a.wav": stereo() });
     if (!r) return ctx.skip();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const posted = watchBatches(r.loop.link);
+    const posted = r.audio.watch();
     const voice = r.backend.play({ path: "music/a.wav", url: "", loop: false, stream: true, bus: "Music" })!;
     await r.step(2);
     await r.waitOpen(1);
@@ -178,15 +181,15 @@ describe("streaming on the loopback host (B3)", () => {
     await r.step(30);
     expect(a.reason).toBeNull();
     expect(b.reason).toBeNull();
-    expect(r.loop.driver.openStreams).toBe(2);
-    expect(r.loop.link.lastStatus!.liveVoices).toBe(2);
+    expect(r.worklet().open).toBe(2);
+    expect(r.link.lastStatus!.liveVoices).toBe(2);
     a.stop(0.01);
     b.stop();
     await r.step(10);
     await r.settle();
     await r.step(2);
-    expect(r.loop.link.lastStatus!.liveVoices).toBe(0);
-    expect(r.loop.driver.openStreams).toBe(0);
+    expect(r.link.lastStatus!.liveVoices).toBe(0);
+    expect(r.worklet().open).toBe(0);
     expect(r.backend.streams.size).toBe(0);
     expect(r.left.slice(-512).every((s) => s === 0)).toBe(true);
     r.backend.dispose();
@@ -211,7 +214,7 @@ describe("streaming on the loopback host (B3)", () => {
     expect(warned[0]).toContain("music/a.wav");
     expect(warned[1]).toContain("sfx/b.wav");
     // The dead worker's rings are still open in the worklet: nobody sent their STREAM_CLOSE.
-    expect(r.loop.driver.openStreams).toBe(2);
+    expect(r.worklet().open).toBe(2);
     // The next stream spawns a worker and connects it; the worklet closes the old rings, and the new stream plays.
     const c = r.backend.play({ path: "music/a.wav", url: "", loop: false, stream: true, bus: "Music" })!;
     await r.step(2);
@@ -289,7 +292,7 @@ describe("stream seeks on the loopback host (B3b)", () => {
       const at = onsetOf(r.left);
       expect(voice.reason).toBeNull();
       const mark = r.left.length;
-      const chunksBefore = r.handler.streamStats.chunks;
+      const chunksBefore = r.worklet().chunks;
       voice.seek!(c.seconds);
       expect(voice.reason).toBe("waitingForData");
       await r.step(60);
@@ -300,16 +303,16 @@ describe("stream seeks on the loopback host (B3b)", () => {
       expect(s0 - (f + FADE)).toBeLessThan(RATE / 10); // the new audio sounds within 100 ms
       expect(voice.playing).toBe(true);
       expect(voice.reason).toBeNull();
-      expect(r.loop.link.lastStatus!.underruns).toBe(0);
+      expect(r.link.lastStatus!.underruns).toBe(0);
       // Credits and buffers keep flowing: more chunks, from the pool.
-      expect(r.handler.streamStats.chunks).toBeGreaterThan(chunksBefore);
-      expect(r.handler.streamStats.allocated).toBeLessThanOrEqual(20);
+      expect(r.worklet().chunks).toBeGreaterThan(chunksBefore);
+      expect(r.worklet().buffers).toBeLessThanOrEqual(20);
       expect(r.backend.streams.stats.seeks).toBe(1);
       voice.stop();
       await r.step(4);
       await r.settle();
       await r.step(2);
-      expect(r.loop.driver.openStreams).toBe(0);
+      expect(r.worklet().open).toBe(0);
       r.backend.dispose();
     });
   }
@@ -348,7 +351,7 @@ describe("stream seeks on the loopback host (B3b)", () => {
     expect(r.backend.streams.stats.eos).toBe(1);
     await r.settle();
     await r.step(2);
-    expect(r.loop.driver.openStreams).toBe(0);
+    expect(r.worklet().open).toBe(0);
     r.backend.dispose();
   });
 
@@ -410,7 +413,7 @@ describe("stream seeks on the loopback host (B3b)", () => {
     await r.step(4);
     await r.settle();
     await r.step(2);
-    expect(r.loop.driver.openStreams).toBe(0);
+    expect(r.worklet().open).toBe(0);
     r.backend.dispose();
   });
 

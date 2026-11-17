@@ -513,11 +513,6 @@ export class CoreDriver {
     this.drainClips();
   }
 
-  /** Zone kernels the decoder worker's port brought that are still loaded or loading (for tests). */
-  get workerClips(): number {
-    return this.portKernels.size;
-  }
-
   /** STREAM_CLOSE for every open stream, through the inbox as the worker's would come. */
   private closeAllStreams(): void {
     if (this.dead) return this.streams.clear();
@@ -529,11 +524,6 @@ export class CoreDriver {
       this.submitSmall(buffer);
     }
     this.streams.clear();
-  }
-
-  /** Open streams (for tests). */
-  get openStreams(): number {
-    return this.streams.size;
   }
 
   /**

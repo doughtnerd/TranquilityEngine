@@ -10,10 +10,13 @@
 // - the clip and the stream agree within int16 rounding (exactly, for the 16-bit lossless files).
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { hintFromName } from "../decoder/protocol";
 import { DecoderWasm } from "../decoder/wasm";
 import { rig } from "../../testing/streamRig";
+import { closeLoopbackAudio } from "../testing";
+
+afterEach(closeLoopbackAudio);
 
 const FIXTURES = new URL("../../../../../native/audio/crates/audio-decode/tests/fixtures/", import.meta.url);
 const read = (path: string | URL): ArrayBuffer => {
@@ -72,7 +75,7 @@ async function renderLoop(name: string, wasm: ArrayBuffer, aac: boolean, stream:
   const at = first - lead;
   while (r.left.length < at + frames) await r.step(8);
   expect(voice.playing).toBe(true);
-  expect(r.loop.link.lastStatus!.underruns).toBe(0);
+  expect(r.link.lastStatus!.underruns).toBe(0);
   if (stream) expect(r.backend.streams.stats.starves).toBe(0);
   const left = r.left.slice(at, at + frames);
   const right = r.right.slice(at, at + frames);

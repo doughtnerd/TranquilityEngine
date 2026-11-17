@@ -5,6 +5,7 @@
 // the end of the voice's current pass. Before R4b the stream manager dropped it (no entry for a member's stream) and the
 // member looped for ever. The file is a 16-bit WAV at the context rate and the limiter has no look-ahead, so the output
 // is the file's samples exactly and output index = core frame.
+import { closeLoopbackAudio } from "../testing";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { makeWav, signal } from "../decoder/testWav";
 import { RATE, rig } from "../../testing/streamRig";
@@ -16,7 +17,10 @@ const file = () => makeWav(FILE_FRAMES, 2, RATE, signal);
 /** The file frame a stream started at 0 plays at stream frame `k`, looping `start..end`. */
 const looped = (k: number, start: number, end: number) => (k < end ? k : start + ((k - start) % (end - start)));
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(async () => {
+  vi.restoreAllMocks();
+  await closeLoopbackAudio();
+});
 
 /**
  * Plays `music/s.wav` as a streamed music group member looping `start..end` seconds; steps until the release would be
@@ -77,7 +81,7 @@ async function memberRelease(start: number, end: number, pass: number, before: n
     lateness: tailAt === undefined ? Number.NaN : tailAt - expected,
     ahead: expected - requested,
     playing: voice!.playing,
-    underruns: r.loop.link.lastStatus!.underruns,
+    underruns: r.link.lastStatus!.underruns,
   };
   r.backend.dispose();
   return result;

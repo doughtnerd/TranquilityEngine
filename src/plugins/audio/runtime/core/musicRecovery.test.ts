@@ -14,6 +14,8 @@ import { fakeDecoder } from "./fakeDecoder";
 import type { MusicGroupEvent, MusicGroupRequest } from "../backend";
 import type { PrimeGroupOptions, StreamReply } from "../decoder/decoderClient";
 import * as musicBackground from "../music/background";
+import { STATUS_BUFFER_BYTES, writeStatus } from "../wire.generated";
+import { makeStatusBlock } from "./statusFixtures";
 
 /** The prime-latency average's seed before any prime has been measured, ms. */
 const PRIME_EMA_SEED_MS = 40;
@@ -100,7 +102,13 @@ function rig(rings = 8) {
   const failAll = (message: string) => {
     for (const p of primes) for (const m of p.members) for (const l of streamListeners) l({ type: "error", streamId: m.streamId, asset: m.asset, message });
   };
-  return { backend, ops: backend.musicOps, clock, decoder, primes, cancels, closes, events, failAll, lifecycle: () => lifecycle! };
+  /** One STATUS block through the link, as the host's `onmessage` delivers it. */
+  const status = (fields: Parameters<typeof makeStatusBlock>[0]) => {
+    const buffer = new ArrayBuffer(STATUS_BUFFER_BYTES);
+    writeStatus(new DataView(buffer), 0, makeStatusBlock(fields), 1);
+    link.handleMessage(buffer);
+  };
+  return { backend, ops: backend.musicOps, clock, decoder, primes, cancels, closes, events, failAll, status, lifecycle: () => lifecycle! };
 }
 
 const flush = async () => {
@@ -132,7 +140,12 @@ describe("musicOps recovery (ADR 0166 P9)", () => {
     const voices = r.ops.stampGroup({ group: 3, at: r.backend.time + 0.5 }) as { id: number }[];
     expect(voices.every((v) => v !== null)).toBe(true);
     expect(r.ops.debugView().poolUsed).toBe(3);
-    r.ops.samplePrime(200);
+    // Group 4's member shows primed 200 ms after its primeGroup: one Ê sample, above the seed.
+    vi.spyOn(performance, "now").mockReturnValue(performance.now() + 200);
+    const member = r.primes[1]!.members[0]!;
+    r.status({ musicRings: [{ streamId: member.streamId, epochFlags: (1 << 30) | member.epoch }] });
+    r.ops.beginFrame();
+    expect(r.ops.primedState(4)?.ready).toBe(true);
     expect(r.ops.primeEmaMs).toBeGreaterThan(PRIME_EMA_SEED_MS);
 
     r.ops.reopenGroups();

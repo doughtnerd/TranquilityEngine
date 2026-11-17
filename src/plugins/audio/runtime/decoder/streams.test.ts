@@ -152,13 +152,14 @@ describe("stream decoder (B3)", () => {
     expect(heads[2]!.flags & STREAM_CHUNK_FLAGS_WRAPPED).toBeTruthy(); // 5,000 frames: the third chunk wraps
     const got = framesOf(chunks, 16);
     for (let k = 0; k < got.length / 16; k += 37) for (let c = 0; c < 16; c += 5) expect(got[16 * k + c]).toBe((((k % frames) % 1000) * 16 + c) / 32768);
-    // A credit of 4,096 frames, with the emptied buffers: two more chunks, in those buffers.
-    const before = handler.streamStats.allocated;
+    // A credit of 4,096 frames, with the emptied buffers: two more chunks, in those buffers (none allocated).
+    const returned = chunks.slice(0, 2);
     toWorklet.length = 0;
-    credit(2, 1, 4_096, chunks.slice(0, 2));
+    credit(2, 1, 4_096, returned);
     chunks = toWorklet.filter((b) => kindOf(b) === Kind.STREAM_CHUNK);
     expect(chunks.length).toBe(2);
-    expect(handler.streamStats.allocated).toBe(before);
+    expect(chunks.every((b) => returned.includes(b))).toBe(true);
+    expect(new Set(chunks).size).toBe(2);
   });
 
   it("B4: more than two channels need the ambisonic convention, and 4, 9 or 16 of them", async () => {

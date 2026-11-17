@@ -493,9 +493,6 @@ describe("the core's group operations (ADR 0166 P1)", () => {
     await prime(3, 500); // hidden: not sampled
     expect(r.ops.primeEmaMs).toBeCloseTo(65, 9);
     r.backend.setHidden(false);
-    r.ops.samplePrime(-1000); // floor 0
-    r.ops.samplePrime(-1000);
-    expect(r.ops.primeEmaMs).toBeGreaterThanOrEqual(0);
     r.ops.resetPrimeEma();
     expect(r.ops.primeEmaMs).toBe(PRIME_EMA_SEED_MS);
     vi.restoreAllMocks();
