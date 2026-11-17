@@ -2,18 +2,17 @@
 // host (the real wasm core, clip registry, shell and coreBackend). The payload `CoreBackend.keyframe` builds is compared with
 // the tables it reads: the voice rows with `Audio.debug()`'s voices, the bus rows with the mixer's lanes and the slot table,
 // the metered rows with the loudness hub's readings, the mix section with the mixer. Time is the loopback's rendered frames.
+// Codes, flags and quantised fields are read back through the capture reader (`readCaptureKeyframe`, ADR 0230), not by bit.
 import { afterEach, describe, expect, it } from "vitest";
 import { Lane } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings, type AudioSettings } from "../../../../engine/audio/settings";
+import { readCaptureKeyframe } from "../capture/format";
+import { NO_NAME } from "../capture/keyframeLayout";
 import { loudnessHub } from "../mix/loudnessHub";
 import { LOUD_OUTPUT_TAP } from "../wire.generated";
 import { CoreBackend } from "./coreBackend";
 import { loopbackAudio, closeLoopbackAudio } from "../testing";
 
-/** The keyframe bus row's metered flag (§5.5). */
-const KF_BUS_METERED = 32;
-
-const NO_NAME = 0xffffffff;
 const req = (path: string, extra: object = {}) => ({ path, url: path, loop: true, stream: false, bus: "SFX", ...extra });
 
 async function rig(settings: AudioSettings) {
@@ -56,25 +55,25 @@ describe("CoreBackend.keyframe on the loopback host", () => {
     const debug = r.backend.debug();
     const live = debug.voices.filter((v) => v.state !== "stolen");
     expect(live.length).toBeGreaterThanOrEqual(3);
-    const stateCode = { playing: 0, virtual: 1, stolen: 2, waitingForData: 3, busMuted: 4, locked: 5 } as const; // §5.5
-    expect(kf.voices).toHaveLength(debug.voices.length);
+    const named = readCaptureKeyframe(kf);
+    expect(named.voices).toHaveLength(debug.voices.length);
     for (const v of debug.voices) {
-      const row = kf.voices.find((x) => x.id === v.id);
+      const row = named.voices.find((x) => x.id === v.id);
       expect(row, `voice ${v.id}`).toBeDefined();
       expect(r.nameOf("clips", row!.clip) ?? "").toBe(v.clip);
       expect(row!.slot).toBe(debug.buses.findIndex((x) => x.name === v.bus));
-      expect(row!.state).toBe(stateCode[v.state]);
+      expect(row!.state).toBe(v.state);
       expect(row!.priority).toBe(v.priority);
       expect(row!.gain).toBe(Math.fround(v.gain));
-      expect(row!.pitch).toBe(Math.min(0xffff, Math.round(v.pitch * 4096)));
-      expect(row!.audibility).toBe(Math.min(0xffff, Math.round(v.audibility * 65536)));
+      expect(row!.pitch).toBeCloseTo(v.pitch, 3); // u4.12 on the wire
+      expect(row!.audibility).toBeCloseTo(v.audibility, 4); // u0.16
       const clipRate = 48_000;
       if (v.playheadSeconds !== null) expect(row!.playheadFrames / clipRate).toBeCloseTo(v.playheadSeconds, 3);
     }
     // The clip names the voices carry were interned through the callback, once each.
     expect(r.nameOf("clips", kf.voices.find((x) => x.id === a.id)!.clip)).toBe("a.wav");
     expect(kf.voices.find((x) => x.id === b.id)!.slot).toBe(debug.buses.findIndex((x) => x.name === "Music"));
-    expect(kf.voices.find((x) => x.id === b.id)!.pitch).toBe(8192);
+    expect(named.voices.find((x) => x.id === b.id)!.pitch).toBe(2);
     expect(kf.voices.some((x) => x.id === c.id)).toBe(true);
     r.backend.dispose();
   });
@@ -123,11 +122,13 @@ describe("CoreBackend.keyframe on the loopback host", () => {
     expect(row("Music").lanes[6]).toBe(0); // monitor: silenced by SFX's solo
     expect(row("Voice").lanes[3]).toBeCloseTo(0.25, 5); // the fade's target
     expect(row("Voice").lanes[2]).toBeGreaterThan(0.25); // its value is still on the way
-    expect(row("SFX").flags & 8).toBe(8); // monitor solo
-    expect(row("SFX").flags & KF_BUS_METERED).toBe(KF_BUS_METERED);
-    expect(row("Music").flags & KF_BUS_METERED).toBe(0);
-    expect(kf.mix.monitorActive).toBe(1);
-    expect(kf.mix.snapshotName).toBe(r.nameId("snapshots", "Hush"));
+    const named = readCaptureKeyframe(kf);
+    const namedRow = (name: string) => named.buses.find((x) => x.slot === slots.findIndex((s) => s.name === name))!;
+    expect(namedRow("SFX").monitorSolo).toBe(true);
+    expect(namedRow("SFX").metered).toBe(true);
+    expect(namedRow("Music").metered).toBe(false);
+    expect(named.mix.monitorActive).toBe(true);
+    expect(named.mix.snapshot).toBe(r.nameId("snapshots", "Hush"));
     r.backend.dispose();
   });
 
@@ -154,7 +155,7 @@ describe("CoreBackend.keyframe on the loopback host", () => {
     }
     expect(kf.metered[0]!.elapsed).toBeGreaterThan(0); // the meters ran
     expect(kf.mix.masterVolume).toBe(0.5);
-    expect(kf.mix.hiddenMute).toBe(0);
+    expect(readCaptureKeyframe(kf).mix.hiddenMute).toBe(false);
     expect(kf.mix.slotTableVersion).toBe(r.backend.buses.slots.version);
     r.backend.dispose();
   });

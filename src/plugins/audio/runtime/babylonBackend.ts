@@ -35,6 +35,7 @@ import { BABYLON_CPU_REASON, babylonCpuDebug, babylonMixDebug } from "./mix/mixD
 import { NULL_PROFILE_SINK, type ProfileSink, type ProfileStopReason } from "./mix/profileSink";
 import { mixerTapFor, taps } from "./mix/profileTaps";
 import type { KeyframeBus, KeyframeEvent, KeyframePayload, KeyframeVoice } from "./capture/format";
+import { KEYFRAME_BUS_LANES, KEYFRAME_MAX_BUSES, KEYFRAME_MAX_EVENTS, KEYFRAME_MAX_VOICES, NO_NAME, keyframeAudibility, keyframePitch } from "./capture/keyframeLayout";
 import { hasAudioBackend, mixer, registerDefaultBackend, resolveBackendKind, zeroCounters, type AudioBackend, type AudioBackground, type AudioCaptureSource, type AudioClipCache, type AudioDebugInfo, type AudioLiveMix, type AudioM3Counters, type AudioMixCaps, type ClipSpanHold, type RecorderTap, type AudioReason, type AudioStatus, type AudioVoice, type Attenuation, type ListenerPose, type MusicAdmitResult, type MusicBackend, type MusicGroupEvent, type MusicGroupRequest, type MusicGroupStamp, type MusicPrimedState, type PlayRequest, type ShapedFade, type FadeLaw } from "./backend";
 import { AMBISONIC_DECODE_LIMIT_BYTES, busCreationSteps, decodedBytes, dopplerPlaybackRate, filterIsActive, listenerQuaternion, occludedVolume, planBuses, spatialParams, spatialSoundOptions, webAudioVector, type BusPlan } from "./babylonMapping";
 import { DistanceEffect, SendCurveTable, SpatialViewFlag, type SpatialPassHost, type SpatialVoiceView } from "./core/spatial";
@@ -1084,16 +1085,16 @@ export class BabylonBackend implements AudioBackend, AudioClipCache, AudioLiveMi
    * snapshot name into the capture's NAMES table (`EventSink` does), `noName` is the id for none. The payload is built
    * fresh per call: a keyframe is once a second, and the fallback is best effort.
    */
-  keyframe(nameId: (table: "clips" | "snapshots" | "events", name: string) => number, noName = 0xffffffff): KeyframePayload {
+  keyframe(nameId: (table: "clips" | "snapshots" | "events", name: string) => number, noName = NO_NAME): KeyframePayload {
     const m = this.mixerRef ?? mixer;
     const voices: KeyframeVoice[] = [];
     const eventVoices = new Map<number, number>();
     for (const v of this.voices) {
-      if (voices.length < 8192) {
+      if (voices.length < KEYFRAME_MAX_VOICES) {
         const row = v.row;
         voices.push({
           id: v.id >>> 0, clip: nameId("clips", row.clip), slot: this._busRef(row.bus) & 0xff, state: 0, priority: 0, reason: 0,
-          gain: Math.fround(row.gain), pitch: Math.min(0xffff, Math.max(0, Math.round(row.pitch * 4096))), audibility: 0xffff, playheadFrames: 0,
+          gain: Math.fround(row.gain), pitch: keyframePitch(row.pitch), audibility: keyframeAudibility(1), playheadFrames: 0,
         });
       }
       if (v.event !== null) eventVoices.set(v.event, (eventVoices.get(v.event) ?? 0) + 1);
@@ -1101,14 +1102,14 @@ export class BabylonBackend implements AudioBackend, AudioClipCache, AudioLiveMi
     const buses: KeyframeBus[] = [];
     for (const name of m.busNames) {
       const l = m._lanes(name);
-      if (!l || buses.length >= 32) continue;
+      if (!l || buses.length >= KEYFRAME_MAX_BUSES) continue;
       // The lanes as the core's keyframe source reads them (`mix/keyframeBus.ts`, ADR 0179).
-      const row: KeyframeBus = { slot: l.slot & 0xff, gen: 0, flags: 0, lanes: new Array<number>(10).fill(0), duck: 1, automation: 1 };
+      const row: KeyframeBus = { slot: l.slot & 0xff, gen: 0, flags: 0, lanes: new Array<number>(KEYFRAME_BUS_LANES).fill(0), duck: 1, automation: 1 };
       row.flags = writeKeyframeBusLanes(row, m, name);
       buses.push(row);
     }
     const events: KeyframeEvent[] = [];
-    for (const [id, n] of eventVoices) if (events.length < 1024) events.push({ id: id >>> 0, asset: noName, voices: Math.min(0xffff, n), state: 0, paramsHash: 0 });
+    for (const [id, n] of eventVoices) if (events.length < KEYFRAME_MAX_EVENTS) events.push({ id: id >>> 0, asset: noName, voices: Math.min(0xffff, n), state: 0, paramsHash: 0 });
     const snapshot = m.currentSnapshot;
     return {
       voices, buses, metered: [], events, music: [],

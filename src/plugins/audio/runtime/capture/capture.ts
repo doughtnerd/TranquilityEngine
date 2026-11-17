@@ -31,6 +31,7 @@ import { mixer } from "../../../../engine/audio/mixer";
 import { loudnessTarget } from "../mix/loudnessHub";
 import type { EpochContext } from "./events";
 import type { CaptureHeaderInit, CaptureMetaInit, NameTable } from "./format";
+import { NO_NAME } from "./keyframeLayout";
 import type { RingSpan } from "./ring";
 import type { SaveTake } from "./save";
 
@@ -149,8 +150,6 @@ class Capture implements AudioCapture {
   private stopPump: (() => void) | null = null;
   /** A take was kept through a Play stop (Held for the save); the next Play stop frees it. */
   private keptAcrossStop = false;
-  /** The id for "no name" (`events.NO_NAME`), known once the events module loaded. */
-  private noName = 0xffffffff;
   /** The frame the next EPOCH names (a start, or a core made while Held); null: 0, a rebuilt core's first frame. */
   private epochFrame: number | null = null;
 
@@ -328,7 +327,6 @@ class Capture implements AudioCapture {
     const [mod, events, save] = await Promise.all([import("./recorder"), import("./events"), import("./save")]);
     const rec = mod.createRecorder({});
     const sink = events.createEventSink(rec, { epochContext: () => this.epochContext(backend) });
-    this.noName = events.NO_NAME;
     this.wireKeyframes(rec, sink, backend);
     const meta = this.buildMeta(backend, rec.ring.capacity);
     for (const table of TABLES) for (const [id, name] of namesOf(meta.names[table])) sink.seed(table, id, name);
@@ -356,9 +354,8 @@ class Capture implements AudioCapture {
   private wireKeyframes(rec: Recorder, sink: EventSink, backend: AudioBackend): void {
     const source = backend.capture;
     if (!source) return;
-    const noName = this.noName;
     const nameId = (table: "clips" | "snapshots" | "events", name: string): number => sink.name(table, name);
-    rec.setKeyframeSource(() => source.keyframe(nameId, noName));
+    rec.setKeyframeSource(() => source.keyframe(nameId, NO_NAME));
   }
 
   /** A backend with no STATUS (`mainSideOnly`) is clocked by its audio clock: poll it and report the frames the clock has reached. */

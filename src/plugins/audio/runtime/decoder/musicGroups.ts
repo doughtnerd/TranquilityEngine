@@ -74,11 +74,6 @@ export class MusicGroups {
     }
   }
 
-  /** The stream ids open in `group`, in open order (for tests and D1b). */
-  membersOf(group: number): number[] {
-    return [...(this.groups.get(group)?.members.keys() ?? [])];
-  }
-
   /** `StreamHost.closed`: stream `streamId` closed; if it was a member, it leaves its group and releases its cache reference. */
   closed(streamId: number): void {
     const id = this.byStream.get(streamId);
