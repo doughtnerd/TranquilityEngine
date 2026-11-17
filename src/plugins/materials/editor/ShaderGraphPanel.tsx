@@ -5,64 +5,44 @@ import { NODES, nodeDef, type PortDef, type SettingDef, type ValueType } from ".
 import { GRAPH_PREVIEW_MESHES, GRAPH_PROPERTY_TYPES, NODE_PREVIEW_SHAPES, nodePreviewShape, type NodePreviewShape, isPortName, portRef, splitPortRef, type CustomFunction, type FunctionPort, type GraphGroup, type GraphNode, type GraphPreviewMesh, type GraphPropertyType, type InputValue, type ShaderGraph } from "../../../engine/scene/shaderGraph";
 import {
   addNode,
-  addNote,
+  shaderGraphEdits,
   addKeyword,
-  addProperty,
   addSubGraphOutput,
-  copyNodes,
   defaultFunction,
   freePortName,
-  groupNodes,
-  graphClipboardFromText,
-  pasteNodes,
-  removeNote,
   removeSubGraphOutput,
   renameSubGraphOutput,
   setFunction,
-  setGroupTitle,
   setPreview,
   setGraphPreviewMesh,
   setGraphPreviewShape,
   setNodePreviewShape,
   setSubGraphOutputType,
-  ungroup,
-  updateNote,
   whyNotPortName,
-  type GraphClipboard,
   categoryRank,
   connect,
   disconnect,
-  duplicateNodes,
   firstInputFor,
   firstOutputFor,
   moveNodes,
-  moveProperty,
-  removeNodes,
   removeKeyword,
-  removeProperty,
   renameKeyword,
   setKeyword,
   whyNotKeywordName,
-  renameProperty,
   setGraphOptions,
   setInput,
   setPropertyType,
-  setPropertyValue,
   setSetting,
   sourceOf,
   whyNotConnect,
-  whyNotPropertyName,
 } from "./shaderGraph/graphEdit";
 import { HEADER, PREVIEW, ROW, inlineFields, nodeBox, nodeTitle, portOffset, settingValue, type NodeBox } from "./shaderGraph/nodeLayout";
 import { createMaterialForGraph, openShaderGraph, createShaderGraph, openShaderGraphAsset, shaderGraphDocument } from "./shaderGraphAssets";
 import { searchGraph, cycleIndex } from "./shaderGraph/graphSearch";
 import { PropertyValue, numberValue, toHex2 } from "./ShaderPropertyValue";
-import { editor, type EditorProject, NO_DRAG, NO_PAN, NO_WHEEL, NoteView, NodeSearchPopup, Minimap, SelectionBox, createNodeDrag, handleProps, isFieldTarget, px, startBoxSelect, startConnection, startPointerDrag, toGraph, useGraphCanvas, wirePath, clipboardForPaste, expectPaste, takePaste, writeClipboard, type CanvasNode, type DraftWire, type Point, type SearchItem, type View, Panel } from "../../../editor/sdk";
+import { editor, type EditorProject, NO_DRAG, NO_PAN, NO_WHEEL, NoteView, NodeSearchPopup, Minimap, SelectionBox, createNodeDrag, handleProps, isFieldTarget, px, startConnection, startPointerDrag, toGraph, useGraphCanvas, useGraphSelection, wirePath, type CanvasNode, type DraftWire, type Point, type SearchItem, type View, Panel } from "../../../editor/sdk";
 import "../../../editor/graph/graph.css";
 import "./shaderGraph.css";
-
-/** Nodes copied with Ctrl+C or cut with Ctrl+X, pasted into any graph (ADR 0048). */
-let clipboard: GraphClipboard | null = null;
 
 /** What a dropped connection or the node search connects a new node to. */
 type Pending = { side: "output" | "input"; ref: string; type: ValueType | "dynamic" } | null;
@@ -103,13 +83,11 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
   const graph = doc.value.value;
   const parseProblems = doc.problems.value.map((p) => p.message);
   useEffect(() => () => void doc.flush(), [doc]); // write a pending drag or value change when the panel closes
-  const [selection, setSelection] = useState<ReadonlySet<string>>(new Set());
   const [selectedEdge, setSelectedEdge] = useState<string | null>(null);
   const [dragging, setDragging] = useState<Map<string, Point> | null>(null);
   const [draft, setDraft] = useState<DraftWire | null>(null);
   const [detached, setDetached] = useState<string | null>(null);
   const [search, setSearch] = useState<{ at: Point; pending: Pending } | null>(null);
-  const [box, setBox] = useState<{ a: Point; b: Point } | null>(null);
   /** The Ctrl+F find box (ADR 0117): the query and the result shown. */
   const [find, setFind] = useState<{ query: string; index: number } | null>(null);
   const findInput = useRef<HTMLInputElement>(null);
@@ -118,6 +96,34 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
   const [shaderError, setShaderError] = useState<string | null>(null);
 
   const root = useRef<HTMLDivElement>(null);
+  // Selection, box select and the shared shortcuts (ADR 0228); a selected wire is this panel's own.
+  const keys = useGraphSelection({
+    edits: shaderGraphEdits,
+    graph: () => doc.value.peek(),
+    commit: (next) => commit(next),
+    readOnly,
+    root,
+    canvas: () => canvas,
+    nodes: () => live.current.nodes,
+    paneIgnore: ".sg-node, .sg-search, .sg-find, .sg-wire-hit, .sg-note, .sg-group-head, .sg-minimap",
+    openSearch: () => openSearch(paneCenter(), null),
+    deleteOther: () => {
+      if (!selectedEdge) return false;
+      commit(disconnect(doc.value.peek(), selectedEdge));
+      setSelectedEdge(null);
+      return true;
+    },
+    onItemDown: () => setSelectedEdge(null),
+    onPaneDown: () => {
+      setSearch(null);
+      setSelectedEdge(null);
+    },
+    onEscape: () => {
+      setSearch(null);
+      setSelectedEdge(null);
+    },
+  });
+  const { selection, setSelection, box } = keys;
   const flowId = useMemo(() => `sg${Math.random().toString(36).slice(2, 8)}`, []);
 
   const compiled: CompiledShaderGraph = useMemo(() => compileShaderGraph(graph), [graph]);
@@ -224,55 +230,9 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
     startConnection(e, e.currentTarget as Element, node.id, port.id, side, connectOptions((from, to) => commit(connect(live.current.graph, from, to)), (at) => openSearch(at, { side, ref, type })));
   };
 
-  const onNodeDown = (e: PointerEvent, id: string) => {
-    if (e.button !== 0) return;
-    root.current?.focus({ preventScroll: true });
-    setSelectedEdge(null);
-    if (e.shiftKey || e.ctrlKey || e.metaKey) {
-      const next = new Set(selection);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      setSelection(next);
-    } else if (!selection.has(id)) setSelection(new Set([id]));
-  };
-
-  const onPaneDown = (e: PointerEvent) => {
-    if (e.button !== 0 || (e.target as Element).closest(".sg-node, .sg-search, .sg-find, .sg-wire-hit, .sg-note, .sg-group-head, .sg-minimap")) return;
-    root.current?.focus({ preventScroll: true });
-    setSearch(null);
-    setSelectedEdge(null);
-    startBoxSelect(e, { pane: pane.current!, view: () => canvas.viewRef.current, nodes: () => live.current.nodes, selection, onSelection: setSelection, onBox: setBox });
-  };
-
-  const deleteSelection = () => {
-    if (selectedEdge) {
-      commit(disconnect(graph, selectedEdge));
-      setSelectedEdge(null);
-    } else if (selection.size) {
-      commit(removeNodes(graph, selection));
-      setSelection(new Set());
-    }
-  };
-
-  /** Paste nodes copied in any graph: the system clipboard's `text` (a paste event's) when another editor process copied them since, else this editor's (ADR 0226). */
-  const pasteHere = (text: string | null) => {
-    const clip = clipboardForPaste(text, clipboard, graphClipboardFromText);
-    if (!clip || readOnly) return;
-    clipboard = clip;
-    const at = toGraph(canvas.pointer.current ?? paneCenter(), canvas.viewRef.current);
-    const made = pasteNodes(graph, clip, [at.x, at.y]);
-    commit(made.graph);
-    setSelection(new Set(made.ids));
-  };
-
-  const groupSelection = () => {
-    if (selection.size === 0) return;
-    commit(groupNodes(graph, selection).graph);
-  };
-
   const addNoteHere = () => {
     const at = toGraph(paneCenter(), canvas.viewRef.current);
-    commit(addNote(graph, [at.x - 100, at.y - 50]).graph);
+    commit(shaderGraphEdits.addNote(live.current.graph, [at.x - 100, at.y - 50]).graph);
   };
 
   /** Drag a group by its title: its nodes move together, as one undo step. */
@@ -321,57 +281,15 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
     root.current?.focus({ preventScroll: true });
   };
 
-  const onPaste = (e: ClipboardEvent) => {
-    if (isFieldTarget(e.target)) return;
-    e.stopPropagation();
-    takePaste(e, pasteHere);
-  };
-
   const onKeyDown = (e: KeyboardEvent) => {
     const key = (e.key ?? "").toLowerCase();
-    const mod = e.ctrlKey || e.metaKey;
-    if (mod && key === "f" && !e.altKey) {
+    if ((e.ctrlKey || e.metaKey) && key === "f" && !e.altKey) {
       e.preventDefault();
       e.stopPropagation();
       openFind();
       return;
     }
-    if (isFieldTarget(e.target)) return;
-    let handled = true;
-    // Ctrl/Cmd+Z / Shift+Z / Y reach the editor's shortcuts, which undo the active history: this graph's document (ADR 0145).
-    if (mod && key === "d") {
-      const made = duplicateNodes(graph, selection);
-      commit(made.graph);
-      setSelection(new Set(made.ids));
-    } else if (mod && key === "a") setSelection(new Set(graph.nodes.map((n) => n.id)));
-    else if (mod && (key === "c" || key === "x")) {
-      const clip = copyNodes(graph, selection);
-      if (clip) {
-        clipboard = clip;
-        writeClipboard(clip);
-        if (key === "x") {
-          commit(removeNodes(graph, selection));
-          setSelection(new Set());
-        }
-      }
-    } else if (mod && key === "v") {
-      // Not prevented, so the browser fires `paste` with the system clipboard's text (onPaste).
-      expectPaste(pasteHere);
-      e.stopPropagation();
-      return;
-    } else if (mod && key === "g") groupSelection();
-    else if (!mod && (key === "delete" || key === "backspace")) deleteSelection();
-    else if (!mod && key === " ") openSearch(paneCenter(), null);
-    else if (!mod && key === "f") frameAll();
-    else if (key === "escape") {
-      setSearch(null);
-      setSelection(new Set());
-      setSelectedEdge(null);
-    } else handled = false;
-    if (handled) {
-      e.preventDefault();
-      e.stopPropagation();
-    }
+    keys.onKeyDown(e);
   };
 
   const addFromSearch = (type: string, settings: Record<string, string> | undefined, at: Point, pending: Pending) => {
@@ -481,7 +399,7 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
   };
 
   return (
-    <div class={`shader-graph${maximized ? " maximized" : ""}`} data-asset-document={doc.path} ref={root} tabIndex={0} onKeyDown={onKeyDown} onPaste={onPaste} aria-label="Shader Graph">
+    <div class={`shader-graph${maximized ? " maximized" : ""}`} data-asset-document={doc.path} ref={root} tabIndex={0} onKeyDown={onKeyDown} onPaste={keys.onPaste} aria-label="Shader Graph">
       <div class="sg-toolbar">
         <span class="sg-name" title={path}>
           {editor.assets.fileName(path)}
@@ -545,7 +463,7 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
         <button title="Add a node (Space, or right-click the canvas)" disabled={readOnly} onClick={() => openSearch(paneCenter(), null)}>
           Add Node
         </button>
-        <button title="Put the selected nodes in a group (Ctrl+G)" disabled={readOnly || selection.size === 0} onClick={groupSelection}>
+        <button title="Put the selected nodes in a group (Ctrl+G)" disabled={readOnly || selection.size === 0} onClick={keys.groupSelection}>
           Group
         </button>
         <button title="Add a sticky note" disabled={readOnly} onClick={addNoteHere}>
@@ -600,7 +518,7 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
         <div
           class="sg-pane"
           ref={pane}
-          onPointerDown={onPaneDown}
+          onPointerDown={keys.onPaneDown}
           onPointerMove={canvas.onPointerMove}
           onContextMenu={(e) => e.preventDefault()}
         >
@@ -611,8 +529,8 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
               return (
                 <div key={g.id} class="sg-group" style={{ left: px(r.x), top: px(r.y), width: px(r.w), height: px(r.h) }} aria-label={`Group ${g.title}`}>
                   <div class={`sg-group-head ${NO_PAN}`} onPointerDown={(e) => startGroupDrag(e, g)}>
-                    <input type="text" class={NO_DRAG} aria-label="Group title" disabled={readOnly} value={g.title} onChange={(e) => commit(setGroupTitle(graph, g.id, (e.currentTarget as HTMLInputElement).value))} />
-                    <button title="Ungroup (the nodes stay)" aria-label={`Ungroup ${g.title}`} disabled={readOnly} onClick={() => commit(ungroup(graph, g.id))}>
+                    <input type="text" class={NO_DRAG} aria-label="Group title" disabled={readOnly} value={g.title} onChange={(e) => commit(shaderGraphEdits.setGroupTitle(live.current.graph, g.id, (e.currentTarget as HTMLInputElement).value))} />
+                    <button title="Ungroup (the nodes stay)" aria-label={`Ungroup ${g.title}`} disabled={readOnly} onClick={() => commit(shaderGraphEdits.ungroup(live.current.graph, g.id))}>
                       ✕
                     </button>
                   </div>
@@ -620,7 +538,7 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
               );
             })}
             {graph.notes?.map((n) => (
-              <NoteView key={n.id} note={n} zoom={view.zoom} readOnly={readOnly} onChange={(patch) => commit(updateNote(live.current.graph, n.id, patch), !("text" in patch))} onRemove={() => commit(removeNote(live.current.graph, n.id))} />
+              <NoteView key={n.id} note={n} zoom={view.zoom} readOnly={readOnly} onChange={(patch) => commit(shaderGraphEdits.updateNote(live.current.graph, n.id, patch), !("text" in patch))} onRemove={() => commit(shaderGraphEdits.removeNote(live.current.graph, n.id))} />
             ))}
             <svg class="sg-wires">
               {graph.edges.map((e) => {
@@ -654,7 +572,7 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
                 images={images}
                 subgraphs={subgraphs}
                 readOnly={readOnly}
-                onDown={onNodeDown}
+                onDown={keys.onItemDown}
                 onPortDown={onPortDown}
                 commit={commit}
                 drag={{
@@ -948,7 +866,7 @@ function Blackboard(props: { sub: boolean; graph: ShaderGraph; images: string[];
           onChange={(e) => {
             const type = (e.currentTarget as HTMLSelectElement).value as GraphPropertyType;
             (e.currentTarget as HTMLSelectElement).value = "";
-            if (type) commit(addProperty(graph, type).graph);
+            if (type) commit(shaderGraphEdits.addProperty(graph, type).graph);
           }}
         >
           <option value="">+ Add…</option>
@@ -970,11 +888,11 @@ function Blackboard(props: { sub: boolean; graph: ShaderGraph; images: string[];
               value={p.name}
               onChange={(e) => {
                 const name = (e.currentTarget as HTMLInputElement).value;
-                const why = whyNotPropertyName(graph, p.name, name);
+                const why = shaderGraphEdits.whyNotPropertyName(graph, p.name, name);
                 if (why) {
                   editor.messages.error(`Can't rename ${p.name}: ${why}.`);
                   (e.currentTarget as HTMLInputElement).value = p.name;
-                } else commit(renameProperty(graph, p.name, name));
+                } else commit(shaderGraphEdits.renameProperty(graph, p.name, name));
               }}
             />
             <select aria-label={`${p.name} type`} disabled={readOnly} value={p.type} onChange={(e) => commit(setPropertyType(graph, p.name, (e.currentTarget as HTMLSelectElement).value as GraphPropertyType))}>
@@ -986,19 +904,19 @@ function Blackboard(props: { sub: boolean; graph: ShaderGraph; images: string[];
             </select>
           </div>
           <div class="sg-property-row">
-            <PropertyValue name={p.name} type={p.type} value={p.value} images={props.images} disabled={readOnly} onValue={(v) => commit(setPropertyValue(graph, p.name, v), true)} />
+            <PropertyValue name={p.name} type={p.type} value={p.value} images={props.images} disabled={readOnly} onValue={(v) => commit(shaderGraphEdits.setPropertyValue(graph, p.name, v), true)} />
           </div>
           <div class="sg-property-row sg-property-actions">
             <button title="Place a node that reads this property" disabled={readOnly} onClick={() => props.placeNode(p.name)}>
               Place
             </button>
-            <button title="Move up" aria-label={`Move ${p.name} up`} disabled={readOnly || i === 0} onClick={() => commit(moveProperty(graph, p.name, -1))}>
+            <button title="Move up" aria-label={`Move ${p.name} up`} disabled={readOnly || i === 0} onClick={() => commit(shaderGraphEdits.moveProperty(graph, p.name, -1))}>
               ↑
             </button>
-            <button title="Move down" aria-label={`Move ${p.name} down`} disabled={readOnly || i === graph.properties.length - 1} onClick={() => commit(moveProperty(graph, p.name, 1))}>
+            <button title="Move down" aria-label={`Move ${p.name} down`} disabled={readOnly || i === graph.properties.length - 1} onClick={() => commit(shaderGraphEdits.moveProperty(graph, p.name, 1))}>
               ↓
             </button>
-            <button class="danger" title="Remove the property and its nodes" aria-label={`Remove ${p.name}`} disabled={readOnly} onClick={() => commit(removeProperty(graph, p.name))}>
+            <button class="danger" title="Remove the property and its nodes" aria-label={`Remove ${p.name}`} disabled={readOnly} onClick={() => commit(shaderGraphEdits.removeProperty(graph, p.name))}>
               ✕
             </button>
           </div>
