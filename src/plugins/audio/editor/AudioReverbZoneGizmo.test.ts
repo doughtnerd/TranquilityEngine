@@ -7,7 +7,7 @@ import { createNode } from "../../../editor/nodeCreate";
 import { openSceneFile } from "../../../editor/project";
 import { editor, SetField, viewportTools } from "../../../editor/sdk";
 import { DEMO_SCENE, demoAssets, demoSettings, sceneViewTools, type SceneViewCanvas } from "../../../editor/testing";
-import { shownEditorOverlays, type EditorOverlay } from "../../../engine/editor";
+import type { EditorOverlay } from "../../../engine/editor";
 import type { FakeRenderSurface } from "../../../engine/render/fakeViewport";
 import { ZONE_TYPE, zoneTool, type EditingZone } from "./AudioReverbZoneGizmo";
 import { editZoneAction } from "./EditZoneButton";
@@ -32,7 +32,6 @@ describe("the reverb zone tool", () => {
   let keys: EventTarget;
   /** What the zone tool draws this frame. */
   const zoneOverlay = (): EditorOverlay => drawn();
-  const zoneOverlayShown = () => shownEditorOverlays(engine.world).includes(ZONE_TOOL_ID);
 
   beforeEach(async () => {
     engine = await Engine.create({ headless: true, kind: "editor", project: demoSettings(), assets: demoAssets() });
@@ -89,7 +88,6 @@ describe("the reverb zone tool", () => {
   }
 
   it("registers its overlay, and draws every zone: bright when selected, dim when not", () => {
-    expect(zoneOverlayShown()).toBe(true);
     const { id } = zoneNode();
     const dim = zoneOverlay();
     expect(dim.lines.length).toBe(12 + 3); // twelve box edges, three shell loops
@@ -247,6 +245,6 @@ describe("the reverb zone tool", () => {
     dispose();
     dispose = () => {};
     expect(editing()).toBeNull();
-    expect(zoneOverlayShown()).toBe(false);
+    expect(surface.adapter.overlay).toBeNull(); // the tool's overlay went with it: the scene view draws none
   });
 });

@@ -62,7 +62,6 @@ describe("the editor viewport's Babylon adapter (ADR 0128)", () => {
     loaded = true;
     hooks = {
       setClearColor: vi.fn(),
-      cameraPreviewDrawn: vi.fn(() => true),
       spriteSize: vi.fn(() => [3, 4] as [number, number]),
       ui: vi.fn(() => null),
       bakeReflectionProbe: vi.fn(async () => new Uint8Array([1, 2]).buffer),
@@ -104,7 +103,7 @@ describe("the editor viewport's Babylon adapter (ADR 0128)", () => {
     expect(viewport.ready).toBe(true);
     expect(hooks.setClearColor).toHaveBeenCalledWith(0x112233);
     tools!.sync(World.require());
-    expect(viewport.drawn().outlines).toBe(1); // the selection arrived
+    expect(layer.utilityLayerScene.meshes.filter((m) => m.name === "myco.editor.boxOutline" && m.isVisible)).toHaveLength(1); // the selection arrived
 
     viewport.pick(400, 300); // a later query doesn't replay again
     expect(hooks.setClearColor).toHaveBeenCalledTimes(1);
@@ -139,7 +138,6 @@ describe("the editor viewport's Babylon adapter (ADR 0128)", () => {
     expect(handles.map((h) => h.id)).toEqual(["a", "b"]);
     expect(viewport.pickOverlayHandle(handles[1].x + 3, handles[1].y)).toBe("b");
     expect(viewport.pickOverlayHandle(handles[1].x + 30, handles[1].y)).toBeNull();
-    expect(viewport.drawn()).toMatchObject({ handles: 2, cameraPreview: true });
   });
 
   it("forwards renderer-level features: sprite sizes, probe bakes and the UI", async () => {

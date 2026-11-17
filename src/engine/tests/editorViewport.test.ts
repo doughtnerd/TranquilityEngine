@@ -39,7 +39,6 @@ describe("the editor viewport handle (ADR 0128)", () => {
     expect(handle.pick(10, 10)).toEqual([]);
     expect(handle.rayAt(10, 10)).toBeNull();
     expect(handle.grid()).toBeNull();
-    expect(handle.drawn()).toEqual({ segments: 0, handles: 0, outlines: 0, drawnObjects: 0, lightWires: 0, cameraPreview: false });
     await expect(handle.bakeReflectionProbe({} as never)).rejects.toThrow(/hasn't started/);
     expect(adapter.calls).toEqual([]);
     loaded = true;

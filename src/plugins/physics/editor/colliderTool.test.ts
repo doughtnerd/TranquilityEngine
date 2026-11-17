@@ -4,7 +4,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Engine } from "../../../engine";
 import { editor, viewportTools, type SelectableOutline, type ViewportToolContext } from "../../../editor/sdk";
-import { setEditorOverlayFilter, shownEditorOverlays } from "../../../engine/editor";
+import { setEditorOverlayFilter, type EditorOverlayKind } from "../../../engine/editor";
 import { openSceneFile } from "../../../editor/project";
 import { DEMO_SCENE, demoAssets, demoSettings, sceneViewTools, type SceneViewTools } from "../../../editor/testing";
 import { colliderTool, type EditingCollider } from "./colliderGizmo";
@@ -19,12 +19,12 @@ describe("the collider tool", () => {
   let engine: Engine;
   let view: SceneViewTools;
   let dispose: () => void;
-  /** The scene view's overlays that draw collider outlines (kind "colliders"). */
-  const colliderOverlays = () => {
-    setEditorOverlayFilter(engine.world, (kind) => kind === "colliders");
-    const ids = shownEditorOverlays(engine.world);
+  /** How many lines the scene view draws when only overlays of kinds `shown` accepts are drawn (as play mode's Gizmos menu filters). */
+  const linesDrawn = (shown: (kind: EditorOverlayKind) => boolean) => {
+    setEditorOverlayFilter(engine.world, shown);
+    const lines = view.overlay().lines.length;
     setEditorOverlayFilter(engine.world, null);
-    return ids;
+    return lines;
   };
 
   beforeEach(async () => {
@@ -43,7 +43,8 @@ describe("the collider tool", () => {
   });
 
   it("draws a colliders overlay and marks the 2D outlines selectable", () => {
-    expect(colliderOverlays()).toEqual([COLLIDER_TOOL_ID]);
+    expect(linesDrawn((kind) => kind === "colliders")).toBeGreaterThan(0); // the collider outlines are a "colliders" overlay
+    expect(linesDrawn((kind) => kind !== "colliders")).toBe(0); // and nothing else draws them
     // What the tool hands the host as selectable, read through its own install.
     const outlines: (() => Iterable<SelectableOutline>)[] = [];
     const ctx = { engine, world: engine.world, overlay: () => {}, onPress: () => {}, selectable: (o: () => Iterable<SelectableOutline>) => void outlines.push(o) };
@@ -78,7 +79,7 @@ describe("the collider tool", () => {
     dispose();
     dispose = () => {};
     expect(editing()).toBeNull();
-    expect(colliderOverlays()).toEqual([]);
+    expect(view.surface.adapter.overlay).toBeNull(); // its overlay went with it: the scene view draws none
   });
 
   it("makes a handle drag one undo step, and Escape puts it back", () => {

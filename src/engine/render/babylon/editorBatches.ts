@@ -64,13 +64,12 @@ export class LineBatch {
   /** Vertices in the buffers at the last upload. */
   private uploaded = 0;
 
-  constructor(scene: Scene, name: string, group: number, alpha: boolean, onDraw?: () => void) {
+  constructor(scene: Scene, name: string, group: number, alpha: boolean) {
     this.mesh = new LinesMesh(name, scene, null, null, undefined, true, alpha);
     this.mesh.renderingGroupId = group;
     this.mesh.isPickable = false;
     this.mesh.alwaysSelectAsActiveMesh = true; // bounds aren't kept in step with the data
     this.mesh.isVisible = false;
-    if (onDraw) this.mesh.onAfterRenderObservable.add(onDraw);
   }
 
   set visible(v: boolean) {
