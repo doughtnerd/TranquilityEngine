@@ -349,13 +349,14 @@ describe("coreDriver clip routing with the real wasm", () => {
     const send = (m: ArrayBuffer) => r.driver.onMessage(m, r.clock.frame, r.clock.now);
     const before = r.core.memory.buffer.byteLength;
     const frames = CLIP_BYTES_PER_QUANTUM / 2; // one budget of mono int16 per chunk
-    const chunks = 6; // 1.5 MB: past the 1 MB initial arena
+    const chunks = 10; // 2.5 MB: past the 1 MB initial arena
     send(clipBegin(5, frames * chunks, 1, ClipFormat.I16));
     for (let k = 0; k < chunks; k++) send(clipChunk(5, k * frames, frames, new Int16Array(frames).fill(k)));
     expect(r.core.memory.buffer.byteLength).toBeGreaterThan(before);
-    expect(r.driver.pendingClipMessages).toBe(chunks - 1); // one budget copied on arrival, the rest wait
-    r.run(chunks - 1);
-    expect(r.driver.pendingClipMessages).toBe(0);
+    // One budget is copied on arrival and one per quantum after, so the clip is whole only after 9 more quanta:
+    // the STATUS at quantum 6 doesn't report it yet, the one at quantum 12 does.
+    r.run(6);
+    expect(clipEvents(r.blocks)).toEqual([]);
     r.run(6);
     expect(clipEvents(r.blocks)).toEqual([[5, ClipEvent.Resident]]);
   });

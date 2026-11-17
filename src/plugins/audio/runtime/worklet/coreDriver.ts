@@ -393,11 +393,6 @@ export class CoreDriver {
     }
   }
 
-  /** Clip messages still waiting for a quantum's copy budget. */
-  get pendingClipMessages(): number {
-    return this.clipQueue.length;
-  }
-
   /**
    * Applies queued clip messages in order while this quantum's budget (`CLIP_BYTES_PER_QUANTUM`) lasts; `process`
    * resets the budget and drains again. The main side already paces its chunks to the same budget, so the queue is
