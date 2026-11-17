@@ -1,5 +1,5 @@
 // The Inspector's number box: commits on Enter or blur, reverts on Escape, accepts simple arithmetic.
-import { useLayoutEffect, useState } from "preact/hooks";
+import { useDraftText } from "../ui/draftText";
 import { parseNumber } from "../fieldValues";
 
 /** Shown for values that differ between the selected nodes. */
@@ -19,32 +19,13 @@ export function formatNumber(n: number, decimals = 3): string {
  */
 export function NumberInput(props: { value: number | null; integer?: boolean; decimals?: number; label: string; onCommit: (v: number) => void }) {
   const shown = props.value === null ? MIXED : formatNumber(props.value, props.decimals);
-  const [draft, setDraft] = useState(shown);
-  useLayoutEffect(() => setDraft(shown), [shown]);
-  const commit = () => {
+  const { setDraft, input } = useDraftText(shown, (draft) => {
     if (draft === shown) return;
     const n = parseNumber(draft);
     if (n === null) return setDraft(shown);
     const value = props.integer ? Math.round(n) : n;
     if (value !== props.value) props.onCommit(value);
     else setDraft(shown);
-  };
-  return (
-    <input
-      type="text"
-      inputMode="decimal"
-      class="num-input"
-      aria-label={props.label}
-      value={draft}
-      onInput={(e) => setDraft((e.currentTarget as HTMLInputElement).value)}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur();
-        if (e.key === "Escape") {
-          setDraft(shown);
-          (e.currentTarget as HTMLInputElement).blur();
-        }
-      }}
-    />
-  );
+  });
+  return <input type="text" inputMode="decimal" class="num-input" aria-label={props.label} {...input} />;
 }
