@@ -7,7 +7,6 @@
 import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
 import type { Material } from "@babylonjs/core/Materials/material.js";
 import { MaterialDefines } from "@babylonjs/core/Materials/materialDefines.js";
-import { MaterialPluginBase } from "@babylonjs/core/Materials/materialPluginBase.js";
 import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
 import { ShaderLanguage } from "@babylonjs/core/Materials/shaderLanguage.js";
 import type { BaseTexture } from "@babylonjs/core/Materials/Textures/baseTexture.js";
@@ -20,6 +19,7 @@ import type { ModelMesh } from "../../scene/models";
 import type { KernelSystem } from "../../scene/particleKernel";
 import { outputSorts } from "../../scene/particleGraph";
 import { DRAW_MODE, materialVertexCode } from "../particles/gpu/kernelShader";
+import { MycoMaterialPlugin } from "./mycoMaterialPlugin";
 import type { Draw } from "./particleDraw";
 
 /** The textures a material draw reads, from the run (latest state, uniforms, look-up table, sorted pairs). */
@@ -62,35 +62,20 @@ interface PluginConfig {
   opts: { sorted: boolean; interleaved: boolean };
 }
 
-/**
- * The config of the plugin being constructed: Babylon asks a plugin for its code and samplers from inside
- * `MaterialPluginBase`'s constructor, before a subclass can set its own fields.
- */
-let constructing: PluginConfig | null = null;
-
 /** Places a material's vertices from kernel particle state (one per output draw). */
-class MycoKernelParticlePlugin extends MaterialPluginBase {
+class MycoKernelParticlePlugin extends MycoMaterialPlugin {
   /** Set each frame by the draw. */
   current: KernelTextures | null = null;
-  private readonly cfg: PluginConfig;
+  private readonly config: PluginConfig;
 
   constructor(material: PBRMaterial, kernel: KernelSystem, output: number, opts: { sorted: boolean; interleaved: boolean }) {
-    constructing = { kernel, output, opts };
-    super(material, "MycoKernelParticles", 100, new KernelParticleDefines(), true, true);
-    this.cfg = constructing;
-    constructing = null;
-  }
-
-  private get config(): PluginConfig {
-    return this.cfg ?? constructing!;
+    super(material, "MycoKernelParticles", 100, new KernelParticleDefines());
+    this.config = { kernel, output, opts };
+    this.register();
   }
 
   override getClassName(): string {
     return "MycoKernelParticlePlugin";
-  }
-
-  override isCompatible(shaderLanguage: ShaderLanguage): boolean {
-    return shaderLanguage === ShaderLanguage.WGSL || shaderLanguage === ShaderLanguage.GLSL;
   }
 
   private hash = 0;

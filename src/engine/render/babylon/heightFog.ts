@@ -19,7 +19,6 @@ import type { ShaderMaterial } from "@babylonjs/core/Materials/shaderMaterial.js
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial.js";
 import { EngineStore } from "@babylonjs/core/Engines/engineStore.js";
 import { MaterialDefines } from "@babylonjs/core/Materials/materialDefines.js";
-import { MaterialPluginBase } from "@babylonjs/core/Materials/materialPluginBase.js";
 import { RegisterMaterialPlugin } from "@babylonjs/core/Materials/materialPluginManager.js";
 import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
 import { ShaderLanguage } from "@babylonjs/core/Materials/shaderLanguage.js";
@@ -27,6 +26,7 @@ import type { UniformBuffer } from "@babylonjs/core/Materials/uniformBuffer.js";
 import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh.js";
 import type { SubMesh } from "@babylonjs/core/Meshes/subMesh.js";
 import type { Scene } from "@babylonjs/core/scene.js";
+import { MycoMaterialPlugin } from "./mycoMaterialPlugin";
 
 /** A scene's height fog: off, or its values (colour linear). */
 export interface HeightFogState {
@@ -97,25 +97,18 @@ class HeightFogDefines extends MaterialDefines {
 }
 
 /** @internal Height fog on one PBR or standard material. */
-export class MycoHeightFogPlugin extends MaterialPluginBase {
-  constructor(material: PBRMaterial | StandardMaterial) {
-    super(material, "MycoHeightFog", 220, new HeightFogDefines(), true, true);
-  }
+export class MycoHeightFogPlugin extends MycoMaterialPlugin {
+  /** Standard materials fog `color` before Babylon's own fog; PBR ones `finalColor` at the end. */
+  private readonly standard: boolean;
 
-  /**
-   * Standard materials fog `color` before Babylon's own fog; PBR ones `finalColor` at the end. Read from the
-   * material, not a field: Babylon asks for the code's injection points inside the base constructor.
-   */
-  private get standard(): boolean {
-    return this._material instanceof StandardMaterial;
+  constructor(material: PBRMaterial | StandardMaterial) {
+    super(material, "MycoHeightFog", 220, new HeightFogDefines());
+    this.standard = material instanceof StandardMaterial;
+    this.register();
   }
 
   override getClassName(): string {
     return "MycoHeightFogPlugin";
-  }
-
-  override isCompatible(shaderLanguage: ShaderLanguage): boolean {
-    return shaderLanguage === ShaderLanguage.WGSL || shaderLanguage === ShaderLanguage.GLSL;
   }
 
   override prepareDefines(defines: HeightFogDefines, scene: Scene, mesh: AbstractMesh): void {

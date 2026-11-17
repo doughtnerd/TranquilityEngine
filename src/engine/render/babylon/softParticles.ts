@@ -11,7 +11,6 @@
 import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
 import type { Camera } from "@babylonjs/core/Cameras/camera.js";
 import { MaterialDefines } from "@babylonjs/core/Materials/materialDefines.js";
-import { MaterialPluginBase } from "@babylonjs/core/Materials/materialPluginBase.js";
 import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
 import { ShaderLanguage } from "@babylonjs/core/Materials/shaderLanguage.js";
 import type { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial.js";
@@ -19,6 +18,7 @@ import type { BaseTexture } from "@babylonjs/core/Materials/Textures/baseTexture
 import type { UniformBuffer } from "@babylonjs/core/Materials/uniformBuffer.js";
 import type { SubMesh } from "@babylonjs/core/Meshes/subMesh.js";
 import type { Scene } from "@babylonjs/core/scene.js";
+import { MycoMaterialPlugin } from "./mycoMaterialPlugin";
 
 /** Where the scene's depth comes from (`SceneDepth` in `gpuParticles.ts`). */
 export interface DepthSource {
@@ -30,26 +30,23 @@ class SoftDefines extends MaterialDefines {
 }
 
 /** @internal Soft particles on one (unshared) standard or PBR material. */
-export class MycoSoftParticlePlugin extends MaterialPluginBase {
-  /** Read from the material: Babylon asks for the code's injection points inside the base constructor. */
-  private get pbr(): boolean {
-    return this._material instanceof PBRMaterial;
-  }
+export class MycoSoftParticlePlugin extends MycoMaterialPlugin {
+  /** Whether the material is PBR, which fades `finalColor` (standard materials fade `color`). */
+  private readonly pbr: boolean;
+
   constructor(
     material: StandardMaterial | PBRMaterial,
     /** Metres over which particles fade in front of surfaces. */
     public softness: number,
     private readonly depth: DepthSource,
   ) {
-    super(material, "MycoSoftParticles", 230, new SoftDefines(), true, true);
+    super(material, "MycoSoftParticles", 230, new SoftDefines());
+    this.pbr = material instanceof PBRMaterial;
+    this.register();
   }
 
   override getClassName(): string {
     return "MycoSoftParticlePlugin";
-  }
-
-  override isCompatible(shaderLanguage: ShaderLanguage): boolean {
-    return shaderLanguage === ShaderLanguage.WGSL || shaderLanguage === ShaderLanguage.GLSL;
   }
 
   override prepareDefines(defines: SoftDefines): void {

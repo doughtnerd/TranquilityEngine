@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { heightFogOn, heightFogShader, setHeightFog, useHeightFog } from "../render/babylon/heightFog";
 import { BabylonParticles } from "../render/babylon/particles";
 import { MycoSoftParticlePlugin } from "../render/babylon/softParticles";
+import { nullEngine, shaderText } from "./pbrShaderSource";
 import { runShader, vec, type Vec } from "./shaderMaths";
 import { compileParticleGraph } from "../scene/particleCompile";
 import { defaultParticleGraph } from "../scene/particleGraphFormat";
@@ -102,14 +103,36 @@ describe("soft CPU particles and particle height fog (ADR 0126)", () => {
     parts.dispose();
   });
 
-  it("splices height fog into standard materials before Babylon's own fog", () => {
-    // Babylon collects a plugin's injection points inside its base constructor, before fields are set.
-    const m = new StandardMaterial("s", scene);
-    const points = (m.pluginManager as unknown as { _codeInjectionPoints: { fragment?: Record<string, unknown> } })._codeInjectionPoints;
-    expect(points.fragment?.CUSTOM_FRAGMENT_BEFORE_FOG).toBeTruthy();
-    const pbr = new PBRMaterial("p2", scene);
-    const pp = (pbr.pluginManager as unknown as { _codeInjectionPoints: { fragment?: Record<string, unknown> } })._codeInjectionPoints;
-    expect(pp.fragment?.CUSTOM_FRAGMENT_BEFORE_FRAGCOLOR).toBeTruthy();
+  it.each(["wgsl", "glsl"] as const)("compiles height fog into standard materials before Babylon's own fog, and into PBR ones (%s)", async (language) => {
+    const engine = nullEngine(language);
+    const fogScene = new Scene(engine);
+    const wgsl = language === "wgsl";
+    const standard = (await shaderText(new StandardMaterial("s", fogScene))).fragment;
+    const fogged = standard.lastIndexOf(wgsl ? "mycoHeightFogAmount(fragmentInputs.vPositionW" : "mycoHeightFogAmount(vPositionW");
+    expect(fogged).toBeGreaterThan(0);
+    expect(standard.indexOf(wgsl ? "mix(uniforms.vFogColor,color.rgb,fog)" : "mix(vFogColor,color.rgb,fog)")).toBeGreaterThan(fogged);
+    const pbr = (await shaderText(new PBRMaterial("p", fogScene))).fragment;
+    expect(pbr).toContain(wgsl ? "finalColor = vec4f(mix(finalColor.rgb, uniforms.mycoHeightFogColor.rgb" : "finalColor = vec4(mix(finalColor.rgb, mycoHeightFogColor.rgb");
+    fogScene.dispose();
+    engine.dispose();
+  });
+
+  it.each(["wgsl", "glsl"] as const)("compiles the fade into the standard or PBR material it is on (%s)", async (language) => {
+    const engine = nullEngine(language);
+    const softScene = new Scene(engine);
+    const wgsl = language === "wgsl";
+    const standard = new StandardMaterial("s", softScene);
+    new MycoSoftParticlePlugin(standard, 1, { map: () => null });
+    const pbr = new PBRMaterial("p", softScene);
+    new MycoSoftParticlePlugin(pbr, 1, { map: () => null });
+    const plain = new PBRMaterial("plain", softScene);
+    const [s, p, none] = await Promise.all([standard, pbr, plain].map((m) => shaderText(m)));
+    expect(s.fragment).toMatch(wgsl ? /\bcolor = vec4f\(color\.rgb, color\.a \* mycoFade\)/ : /\bcolor\.a \*= mycoFade/);
+    expect(p.fragment).toContain(wgsl ? "finalColor = vec4f(finalColor.rgb, finalColor.a * mycoFade)" : "finalColor.a *= mycoFade");
+    for (const t of [s, p]) expect(t.defines).toContain("#define MYCO_SOFT_PARTICLES");
+    expect(none.fragment).not.toContain("mycoFade");
+    softScene.dispose();
+    engine.dispose();
   });
 
   it("emits the fade code in both shading languages", () => {
