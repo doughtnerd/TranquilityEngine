@@ -14,7 +14,8 @@ import type { Engine } from "../../engine";
 import { brushTool, pickBrushTool } from "./editor/brush";
 import { isPluginActive } from "../../editor/sdk/plugins";
 import { useEditorPlugins } from "../testEditorPlugins";
-import { activeViewportTool, currentProject, pickTool } from "../../editor/state";
+import { currentProject, pickTool } from "../../editor/state";
+import { editor } from "../../editor/sdk";
 import { inspectorSectionsFor, MemoryFileSystem, ROOT, sceneViewTools, useCoreAssetKinds } from "../../editor/testing";
 import { formatTileset } from "./editor/tilesetAssets";
 import { EDITOR_PLUGINS } from "../editor";
@@ -99,26 +100,26 @@ describe("the Tilemaps plugin's editor half (ADR 0134)", () => {
     expect(inspectorSectionsFor("engine.Tilemap", [["root"]])).toHaveLength(0);
   });
 
-  it("keeps the brush and the active viewport tool in step, and leaves the editor's keys alone", () => {
+  it("makes the brush the paint tool's mode (ADR 0231): picking one activates the tool, which another tool ends", () => {
     const view = sceneViewTools({ world: {} } as unknown as Engine);
     const canvas = view.canvas;
     const dispose = view.stop;
     try {
       pickBrushTool("pencil");
-      expect(activeViewportTool.value).toBe(PAINT_TOOL_ID);
+      expect(editor.viewport.activeTool).toBe(PAINT_TOOL_ID);
+      expect(editor.viewport.mode(PAINT_TOOL_ID).value).toBe("pencil");
       expect(canvas.style.cursor).toBe("crosshair");
       pickTool("move"); // Q/W/E/R or the toolbar
       expect(brushTool.value).toBeNull();
       pickBrushTool("rect");
       pickBrushTool(null);
-      expect(activeViewportTool.value).toBeNull();
+      expect(editor.viewport.activeTool).toBeNull();
       pickBrushTool("fill");
     } finally {
       dispose();
     }
-    expect(activeViewportTool.value).toBeNull(); // uninstalled with the scene view
-    expect(brushTool.value).toBe("fill");
-    pickBrushTool(null);
+    expect(editor.viewport.activeTool).toBeNull(); // uninstalled with the scene view, which ends the brush
+    expect(brushTool.value).toBeNull();
   });
 
   it("registers the tileset asset kind: matching, label, icon, inspector and tileset fields", () => {

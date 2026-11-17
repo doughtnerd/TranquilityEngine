@@ -1,17 +1,15 @@
 // Scene view tilemap painting (ADR 0103), a viewport tool (ADR 0138): while a Tilemap node is selected
-// and the Tile Palette has a brush, the tool is active and left presses in the scene view paint
-// instead of selecting. Draws the map's grid around the pointer and the brush's footprint as an overlay.
+// and the Tile Palette has a brush, the tool is active in that brush's mode (ADR 0231) and left presses in
+// the scene view paint instead of selecting. Each stroke is one undo step (Escape mid-stroke puts it back).
+// Draws the map's grid around the pointer and the brush's footprint as an overlay.
 import { effect } from "@preact/signals";
 import type { Tilemap } from "../runtime";
 import { Quat } from "../../../engine/core/math";
 import { viewport } from "../../../engine/editor";
 import type { EditorOverlay } from "../../../engine/editor";
 import type { Cell } from "../runtime/brushes";
-import { activeLayer, brushStamp, brushTerrain, brushTool, commitTilemap, fillAt, flipBrush, paintCells, pickBrushTool, pickFromMap, strokeCells, tilemapOf, type BrushTool } from "./brush";
-import { type ViewportToolContribution, editor, activeViewportTool } from "../../../editor/sdk";
-
-/** The paint tool's id: also its overlay id and its active-tool id. */
-const PAINT_TOOL_ID = "myco.tilemaps.paint";
+import { PAINT_TOOL_ID, activeLayer, brushStamp, brushTerrain, brushTool, commitTilemap, fillAt, flipBrush, paintCells, pickBrushTool, pickFromMap, strokeCells, tilemapOf, type BrushTool } from "./brush";
+import { type ViewportToolContribution, editor } from "../../../editor/sdk";
 
 const GRID = 0x5a6270;
 const BRUSH = 0x4fc3f7;
@@ -48,30 +46,22 @@ interface PaintState {
 const PAINT_TOOL_KEYS: Record<string, BrushTool> = { b: "pencil", u: "rect", g: "fill", i: "pick" };
 
 /** The scene view tilemap paint tool. */
-export const paintTool: ViewportToolContribution = {
+export const paintTool: ViewportToolContribution<BrushTool> = {
   id: PAINT_TOOL_ID,
+  // Selecting something that isn't a tilemap ends painting (the host also ends it on a transform tool, collider
+  // editing, Escape, play and another scene).
+  endsOnSelection: () => !paintTarget(),
   install(view) {
     const state: PaintState = { hover: null, stroke: null };
     view.overlay(() => paintOverlay(state));
     view.setCursor("crosshair");
 
-    // A brush makes the tool active; anything else becoming active (a transform tool, collider
-    // editing, Escape, play) drops the brush.
-    const stopBrush = effect(() => {
-      const t = brushTool.value;
-      if (t && activeViewportTool.peek() !== PAINT_TOOL_ID) view.activate();
-      else if (!t) view.deactivate();
-    });
-    const stopActive = effect(() => {
-      if (activeViewportTool.value !== PAINT_TOOL_ID && brushTool.peek()) pickBrushTool(null);
-    });
-    // Selecting something that isn't a tilemap ends painting.
+    // Another node selected paints its first layer.
     let lastKey = editor.scene.selection.peekActive();
     const stopSelection = effect(() => {
       const key = editor.scene.selection.active;
       if (key === lastKey) return;
       lastKey = key;
-      if (brushTool.peek() && !paintTarget()) pickBrushTool(null);
       activeLayer.value = 0;
     });
 
@@ -110,12 +100,8 @@ export const paintTool: ViewportToolContribution = {
       const cell = cellAt(map, p.x, p.y);
       if (!cell) return null;
       const strokeTool: BrushTool = p.alt ? "pick" : current;
-      state.stroke = { tool: strokeTool, start: cell, last: cell };
-      state.hover = cell;
-      if (strokeTool === "fill") fillAt(map, cell[0], cell[1]);
-      else if (strokeTool === "pencil" || strokeTool === "erase") paintCells(map, strokeTool, [cell], cell);
-
-      // Released or cancelled, the stroke commits what it painted as one undo step.
+      const label = strokeTool === "erase" ? "Erase tiles" : strokeTool === "fill" ? "Fill tiles" : strokeTool === "pick" ? "Pick tiles" : brushTerrain.peek() ? "Paint terrain" : "Paint tiles";
+      // Released, the stroke commits what it painted, as the gesture's one undo step; Escape puts it back.
       const finish = () => {
         const s = state.stroke;
         state.stroke = null;
@@ -125,10 +111,9 @@ export const paintTool: ViewportToolContribution = {
           return;
         }
         if (s.tool === "rect") paintCells(map, "rect", strokeCells("rect", s.start, s.last), [Math.min(s.start[0], s.last[0]), Math.min(s.start[1], s.last[1])]);
-        const label = s.tool === "erase" ? "Erase tiles" : s.tool === "fill" ? "Fill tiles" : brushTerrain.peek() ? "Paint terrain" : "Paint tiles";
         commitTilemap(scene, path, map, label);
       };
-      return {
+      const drag = view.gesture(label, {
         move(m) {
           const s = state.stroke;
           if (!s) return;
@@ -139,15 +124,21 @@ export const paintTool: ViewportToolContribution = {
           state.hover = c;
         },
         end: finish,
-        cancel: finish,
-      };
+        // A cancelled stroke still commits what the World shows (the host reverts it on Escape); a pick is just dropped.
+        cancel: (reason) => {
+          if (reason === "escape" && state.stroke?.tool === "pick") state.stroke = null;
+          else finish();
+        },
+      });
+      if (!drag) return null;
+      state.stroke = { tool: strokeTool, start: cell, last: cell };
+      state.hover = cell;
+      if (strokeTool === "fill") fillAt(map, cell[0], cell[1]);
+      else if (strokeTool === "pencil" || strokeTool === "erase") paintCells(map, strokeTool, [cell], cell);
+      return drag;
     });
 
-    return () => {
-      stopBrush();
-      stopActive();
-      stopSelection();
-    };
+    return stopSelection;
   },
 };
 

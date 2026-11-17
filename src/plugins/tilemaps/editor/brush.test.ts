@@ -6,9 +6,9 @@ import { createNode } from "../../../editor/nodeCreate";
 import { useEditorPlugins } from "../../testEditorPlugins";
 import { tilemapsEditorPlugin } from ".";
 import { openSceneFile } from "../../../editor/project";
-import { openScene } from "../../../editor/state";
-import { DEMO_SCENE, demoAssets, demoSettings } from "../../../editor/testing";
-import { activeLayer, brushFlags, brushRandom, brushStamp, brushTerrain, commitTilemap, fillAt, paintCells, pickFromMap, strokeCells } from "./brush";
+import { editor } from "../../../editor/sdk";
+import { DEMO_SCENE, demoAssets, demoSettings, sceneViewTools } from "../../../editor/testing";
+import { activeLayer, brushFlags, brushRandom, brushStamp, brushTerrain, brushTool, commitTilemap, fillAt, paintCells, pickBrushTool, pickFromMap, strokeCells } from "./brush";
 import { brushValueAt } from "./brushCells";
 import { compose } from "../runtime/tileFlips";
 
@@ -70,7 +70,7 @@ describe("painting a tilemap in the editor (ADR 0103)", () => {
   });
 
   function newMap() {
-    const scene = openScene.value!;
+    const scene = editor.scene.peekOpen()!;
     const id = createNode(scene, "tilemap", { effect: "asset:t.tileset.json" });
     const map = scene.sync.nodeFor([id])!.getBehavior(Tilemap)!;
     return { scene, id, map };
@@ -92,6 +92,39 @@ describe("painting a tilemap in the editor (ADR 0103)", () => {
     // Committing again with nothing changed adds no step.
     commitTilemap(scene, [id], scene.sync.nodeFor([id])!.getBehavior(Tilemap)!, "Again");
     expect(scene.stack.undoLabel).toBe("Paint tiles");
+  });
+
+  it("paints a stroke in the scene view as one undo step, and Escape mid-stroke puts it back (ADR 0231)", () => {
+    const { scene, id } = newMap();
+    const view = sceneViewTools(engine);
+    try {
+      editor.scene.selection.set([id]);
+      pickBrushTool("pencil");
+      // The fake surface's camera looks along +z: the canvas point (400 + 100x, 300 - 100y) is the world point (x, y).
+      const pointer = (type: string, x: number) =>
+        view.canvas.dispatchEvent(Object.assign(new Event(type, { cancelable: true }), { clientX: 400 + 100 * x, clientY: 300 - 100 * 0.5, button: 0, altKey: false, shiftKey: false, ctrlKey: false, metaKey: false, pointerId: 1 }));
+      const live = () => scene.sync.nodeFor([id])!.getBehavior(Tilemap)!;
+      const steps = scene.stack.allStates.length;
+      pointer("pointerdown", 0.5);
+      pointer("pointermove", 1.5);
+      pointer("pointermove", 2.5);
+      pointer("pointerup", 2.5);
+      expect([0, 1, 2].map((x) => live().getTile(x, 0))).toEqual([1, 1, 1]);
+      expect(scene.stack.allStates.length).toBe(steps + 1);
+      expect(scene.stack.undoLabel).toBe("Paint tiles");
+      pointer("pointerdown", 4.5);
+      pointer("pointermove", 6.5);
+      expect(live().getTile(6, 0)).toBe(1); // shown while the stroke goes on
+      view.window.dispatchEvent(Object.assign(new Event("keydown", { cancelable: true }), { key: "Escape" }));
+      expect(live().getTile(6, 0)).toBe(0);
+      expect(live().getTile(2, 0)).toBe(1);
+      expect(scene.stack.allStates.length).toBe(steps + 1);
+      expect(brushTool.value).toBe("pencil"); // Escape ended the stroke, not painting
+    } finally {
+      pickBrushTool(null);
+      editor.scene.selection.set([]);
+      view.stop();
+    }
   });
 
   it("paints stamps, fills, erases, picks and paints terrains", () => {

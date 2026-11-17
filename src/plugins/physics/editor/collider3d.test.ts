@@ -19,17 +19,19 @@ import {
   type Pose3D,
 } from "./collider3dMath";
 import type { EditorOverlay } from "../../../engine/editor";
-import { viewportTools } from "../../../editor/sdk/contributions";
-import { EDITABLE_COLLIDERS, colliderTool, editingCollider } from "./colliderGizmo";
+import { editor, viewportTools } from "../../../editor/sdk";
+import { EDITABLE_COLLIDERS, colliderTool, type EditingCollider } from "./colliderGizmo";
 import { AddComponent, SetField } from "../../../editor/document";
 import { createNode } from "../../../editor/nodeCreate";
 import { openSceneFile } from "../../../editor/project";
-import { openScene, playState, selection } from "../../../editor/state";
 import { DEMO_SCENE, demoAssets, demoSettings, sceneViewTools } from "../../../editor/testing";
 
 const close = (a: readonly number[], b: readonly number[]) => a.forEach((v, i) => expect(v).toBeCloseTo(b[i], 6));
 const identity: Pose3D = { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
 const turnY90: [number, number, number, number] = [0, Math.SQRT1_2, 0, Math.SQRT1_2];
+/** Edit a collider, as the Inspector's Edit Collider button does. */
+const editCollider = (editing: EditingCollider) => editor.viewport.enter(colliderTool.id, editing);
+const select = (key: string | null) => editor.scene.selection.set(key ? [key] : []);
 
 describe("3D collider wireframes and handles (ADR 0045)", () => {
   it("turns vectors by quaternions", () => {
@@ -97,31 +99,31 @@ describe("3D colliders in the editor", () => {
 
   afterEach(() => {
     view.stop();
-    editingCollider.value = null;
-    selection.value = null;
+    editor.viewport.leave(colliderTool.id);
+    select(null);
     engine.dispose();
   });
 
   it("outlines a new cube's box collider and shows face handles while editing it", () => {
-    const scene = openScene.value!;
+    const scene = editor.scene.peekOpen()!;
     const id = createNode(scene, "cube", { position: [0, 0, 0] });
     const node = scene.sync.nodeFor(id)!;
     expect(node.getBehavior(BoxCollider)).not.toBeNull();
-    selection.value = id;
+    select(id);
     const before = view.overlay().lines.length;
     expect(before).toBeGreaterThanOrEqual(3 + 12); // the 2D colliders, and the cube's twelve edges
-    editingCollider.value = { key: id, type: "engine.BoxCollider", index: 0 };
+    editCollider({ key: id, type: "engine.BoxCollider", index: 0 });
     expect(view.overlay().handles.map((h) => h.id).sort()).toEqual(["center", "x+", "x-", "y+", "y-", "z+", "z-"]);
     scene.stack.execute(new SetField(id, "engine.BoxCollider", "size", [2, 1, 1]));
     close(view.overlay().handles.find((h) => h.id === "x+")!.position, [1, 0, 0]);
   });
 
   it("adds sphere and capsule colliders with their own handles", () => {
-    const scene = openScene.value!;
+    const scene = editor.scene.peekOpen()!;
     const id = createNode(scene, "empty");
     scene.stack.execute(new AddComponent(id, { type: "engine.CapsuleCollider", data: { direction: "x" } }));
-    selection.value = id;
-    editingCollider.value = { key: id, type: "engine.CapsuleCollider", index: 0 };
+    select(id);
+    editCollider({ key: id, type: "engine.CapsuleCollider", index: 0 });
     expect(view.overlay().handles.map((h) => h.id).sort()).toEqual(["center", "height+", "height-", "radius:u+", "radius:u-", "radius:v+", "radius:v-"]);
   });
 });
@@ -139,18 +141,18 @@ describe("character controller and mesh collider gizmos", () => {
 
   afterEach(() => {
     view.stop();
-    editingCollider.value = null;
-    selection.value = null;
+    editor.viewport.leave(colliderTool.id);
+    select(null);
     engine.dispose();
   });
 
   it("draws the controller's capsule upright even when the node is turned, and puts handles on it", () => {
-    const scene = openScene.value!;
+    const scene = editor.scene.peekOpen()!;
     const id = createNode(scene, "empty", { position: [1, 2, 3] });
     scene.stack.execute(new SetField(id, "engine.Transform", "rotation", [0, 0, 90]));
     const before = view.overlay().lines.length; // the 2D colliders
     scene.stack.execute(new AddComponent(id, { type: "engine.CharacterController", data: { center: [0, 0.5, 0], radius: 0.5, height: 2 } }));
-    selection.value = id;
+    select(id);
     const wire = view.overlay().lines.slice(before).map((l) => l.points); // the controller's capsule, drawn after them
     expect(wire.length).toBeGreaterThan(0);
     const shapes = [{ wire }];
@@ -158,7 +160,7 @@ describe("character controller and mesh collider gizmos", () => {
     close([Math.min(...ys), Math.max(...ys)], [2.5 - 1, 2.5 + 1]); // centre y 2.5, half the 2 height each way
     const xs = shapes[0].wire.flat().map((p) => p[0]);
     close([Math.min(...xs), Math.max(...xs)], [0.5, 1.5]); // radius 0.5 around x = 1
-    editingCollider.value = { key: id, type: "engine.CharacterController", index: 0 };
+    editCollider({ key: id, type: "engine.CharacterController", index: 0 });
     const handles = Object.fromEntries(view.overlay().handles.map((h) => [h.id, h.position]));
     expect(Object.keys(handles).sort()).toEqual(["center", "height+", "height-", "radius:u+", "radius:u-", "radius:v+", "radius:v-"]);
     close(handles.center, [1, 2.5, 3]);
@@ -172,11 +174,11 @@ describe("character controller and mesh collider gizmos", () => {
   });
 
   it("edits a mesh collider's centre only", () => {
-    const scene = openScene.value!;
+    const scene = editor.scene.peekOpen()!;
     const id = createNode(scene, "plane");
-    selection.value = id;
+    select(id);
     expect(EDITABLE_COLLIDERS.has("engine.MeshCollider")).toBe(true);
-    editingCollider.value = { key: id, type: "engine.MeshCollider", index: 0 };
+    editCollider({ key: id, type: "engine.MeshCollider", index: 0 });
     scene.stack.execute(new SetField(id, "engine.MeshCollider", "center", [0, 1, 0]));
     const handles = view.overlay().handles;
     expect(handles.map((h) => h.id)).toEqual(["center"]);
@@ -187,7 +189,6 @@ describe("character controller and mesh collider gizmos", () => {
 /** The collider tool on `engine`'s scene view, over a fake viewport (ADR 0128): what it draws now, and a function that removes it. */
 function colliderView(engine: Engine): { overlay: () => EditorOverlay; stop: () => void } {
   const off = viewportTools.register(colliderTool);
-  playState.value = "edit";
   const view = sceneViewTools(engine);
   return { overlay: view.overlay, stop: () => (view.stop(), off()) };
 }
