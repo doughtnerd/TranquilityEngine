@@ -142,7 +142,8 @@ const FALLBACK_RATE = 48_000;
  * not heard this pass (R4b re-asks after the wrap).
  */
 function nextGridHeard(player: MusicPlayer, run: SegmentRun, grid: GridSpec, from: number): number {
-  const node = run.node as unknown as SegmentNode;
+  const node = run.node;
+  if (node.type !== "segment") return Number.NaN;
   let map = grids.get(node);
   if (!map) grids.set(node, (map = compileSegmentGrid(node)));
   const a = player.anchor;

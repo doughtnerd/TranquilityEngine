@@ -33,9 +33,9 @@
  * `requestStart` (nothing plays to leave).
  */
 import { compileSegmentGrid, ticksToSeconds, type SegmentGrid } from "../../../../engine/audio/musicGrid";
-import type { PlaylistNode, SegmentNode } from "../../../../engine/audio/musicFormat";
+import { musicChildById, type PlaylistNode, type SegmentNode, type MusicNode } from "../../../../engine/audio/musicFormat";
 import { playingGridOf, predictWrap, anchorRun, heardTimeOf, ticksAt } from "./anchors";
-import type { MusicFrame, MusicNodeRef, MusicPlayer } from "./musicSystem";
+import type { MusicFrame, MusicPlayer } from "./musicSystem";
 import { childFor, createSwitchState } from "./musicSwitch";
 import { requestStart, type PlanRequest } from "./planner";
 import { requestTransition, ringingOut, type Transition } from "./transition";
@@ -44,7 +44,7 @@ import { segmentClipSource, type SegmentRun } from "./segmentRun";
 
 /** One playlist container's cursor (nesting keeps one per playlist node). P4 may add fields here. */
 export interface PlaylistCursor {
-  readonly node: MusicNodeRef;
+  readonly node: PlaylistNode;
   readonly order: PlaylistOrder;
   /** Index of the playing item in the node's item list, -1 before the first. */
   item: number;
@@ -61,7 +61,7 @@ export interface PlaylistCursor {
 /** What the cursors would be, and the leaf they land on, after one advance (null leaf: the list has ended). */
 interface Advance {
   readonly cursors: PlaylistCursor[];
-  readonly leaf: MusicNodeRef | null;
+  readonly leaf: MusicNode | null;
 }
 
 /** The successor asked of the planner: adopted when it plays (or is skipped when it can't). */
@@ -79,7 +79,7 @@ interface Request {
 export interface PlaylistState {
   readonly cursors: PlaylistCursor[];
   /** P4: the leaf last committed (playing, or entered through `enterPlaylist`); null before the first. */
-  current: MusicNodeRef | null;
+  current: MusicNode | null;
   /** P4: the run of `current` once it is the player's run. */
   currentRun: SegmentRun | null;
   /** P4: the cached next advance (cleared by every commit). */
@@ -102,25 +102,24 @@ const MAX_WRAPS = 70;
 const WRAP_PROBE = 1e-4;
 const EPS = 1e-7;
 
-const playlistOf = (node: MusicNodeRef): PlaylistNode | null => (node.type === "playlist" ? (node as unknown as PlaylistNode) : null);
+const playlistOf = (node: MusicNode): PlaylistNode | null => (node.type === "playlist" ? node : null);
 
-const playable = (node: MusicNodeRef): boolean => {
-  const tracks = (node as unknown as { tracks?: { clip?: string }[] }).tracks;
-  return Array.isArray(tracks) && tracks.some((t) => !!t.clip);
+const playable = (node: MusicNode): boolean => {
+  return node.type === "segment" && node.tracks.some((t) => !!t.clip);
 };
 
 const mix = (a: number, b: number): number => (Math.imul((a ^ 0x9e3779b9) >>> 0, 0x85ebca6b) + Math.imul(b + 1, 0x27d4eb2d)) >>> 0;
 
 function makeCursor(node: PlaylistNode, seed: number): PlaylistCursor {
   const order = createOrder(
-    (node.children ?? []).map((c) => ({ weight: c.weight, plays: c.plays })), // a bare node (tests, a broken asset) has none
+    node.children.map((c) => ({ weight: c.weight, plays: c.plays })),
     { mode: node.mode, avoidRepeat: node.avoidRepeat, rounds: node.rounds, seed },
   );
   return { node, order, item: -1, plays: 0, rounds: 0, seed, entered: 0 };
 }
 
 /** P4: the playlist state for a root (or nested) playlist node, seeded per instance; null when `node` isn't a playlist. */
-export function createPlaylistState(node: MusicNodeRef, seed: number): PlaylistState | null {
+export function createPlaylistState(node: MusicNode, seed: number): PlaylistState | null {
   const pl = playlistOf(node);
   if (!pl) return null;
   return { cursors: [makeCursor(pl, seed >>> 0)], current: null, currentRun: null, peek: null, req: null, lateFor: null, now: 0, advances: 0 };
@@ -129,10 +128,10 @@ export function createPlaylistState(node: MusicNodeRef, seed: number): PlaylistS
 const cloneCursor = (c: PlaylistCursor): PlaylistCursor => ({ ...c, order: structuredClone(c.order) });
 
 /** A switch inside a playlist plays its default child (the switch isn't ticked below the root). */
-function switchChild(node: MusicNodeRef): MusicNodeRef | null {
+function switchChild(node: MusicNode): MusicNode | null {
   const st = createSwitchState(node);
   const id = st ? childFor(st, undefined) : null;
-  return (node as unknown as { children: MusicNodeRef[] }).children.find((c) => c.id === id) ?? null;
+  return id === null ? null : musicChildById(node, id) ?? null;
 }
 
 /** Run the cursors one item on a copy: the next playable leaf (descending into nested playlists), or null at the end. */
@@ -148,7 +147,7 @@ function computeNext(state: PlaylistState): Advance {
     cur.item = idx;
     cur.plays = cur.order.playsLeft;
     cur.rounds = cur.order.round;
-    let child: MusicNodeRef | null = (cur.node as unknown as PlaylistNode).children[idx] ?? null;
+    let child: MusicNode | null = cur.node.children[idx] ?? null;
     if (child && child.type === "musicSwitch") child = switchChild(child);
     if (!child) continue;
     const nested = playlistOf(child);
@@ -182,7 +181,7 @@ function commit(state: PlaylistState, advance: Advance, run: SegmentRun | null):
  * state whose first item is chosen now; it becomes `player.playlist` when that leaf is the player's run (a later
  * tick), so a refused or replaced change leaves the playing playlist alone. Null: nothing playable.
  */
-export function enterPlaylist(player: MusicPlayer, node: MusicNodeRef): MusicNodeRef | null {
+export function enterPlaylist(player: MusicPlayer, node: MusicNode): MusicNode | null {
   if (node.type === "segment") return playable(node) ? node : null;
   const st = createPlaylistState(node, mix(player.instance.group, hashId(node.id)));
   if (!st) return null;
@@ -231,7 +230,7 @@ function naturalExit(player: MusicPlayer, now: number): number {
 const grids = new WeakMap<object, SegmentGrid | null>();
 
 /** A segment's compiled grid (G1) cached per node (the same compile as the planner's, whose cache is private). */
-function segmentGrid(node: MusicNodeRef): SegmentGrid | null {
+function segmentGrid(node: MusicNode): SegmentGrid | null {
   const cached = grids.get(node);
   if (cached !== undefined) return cached;
   let grid: SegmentGrid | null = null;

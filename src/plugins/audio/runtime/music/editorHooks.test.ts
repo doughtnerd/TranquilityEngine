@@ -1,11 +1,11 @@
 // F-15: `startAtSegment` sets a playlist's cursors so the first plan starts the chosen segment and the list goes on from it.
 import { afterEach, describe, expect, it } from "vitest";
 import type { EventInstance } from "../events/eventRuntime";
-import { parseSegmentNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
+import { parseSegmentNode, type SegmentNode, type MusicNode } from "../../../../engine/audio/musicFormat";
 import { startAtPosition, startAtSegment } from "./editorHooks";
 import type { PlanRequest } from "./planner";
 import { withStartPosition } from "./startPosition";
-import { createMusicPlayer, type MusicFrame, type MusicNodeRef, type MusicPlayer } from "./musicSystem";
+import { createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
 import { tickPlaylist } from "./playlist";
 import { setSegmentClipSource } from "./segmentRun";
 import { setAudioBackend } from "../backend";
@@ -29,15 +29,15 @@ function segment(id: string): SegmentNode {
   return node;
 }
 
-function playlist(id: string, children: unknown[], over: Record<string, unknown> = {}): MusicNodeRef {
+function playlist(id: string, children: unknown[], over: Record<string, unknown> = {}): MusicNode {
   return {
     type: "playlist", id, mode: "sequence", rounds: 1, avoidRepeat: 0, weight: 1, plays: 1, transitions: [], stingers: [], library: [],
     children, ...over,
-  } as unknown as MusicNodeRef;
+  } as unknown as MusicNode;
 }
 
 let groups = 300;
-const player = (root: MusicNodeRef) => createMusicPlayer({ group: groups++, world: 1, path: "m.audioevent", asset: { bus: "Music" } } as unknown as EventInstance, root);
+const player = (root: MusicNode) => createMusicPlayer({ group: groups++, world: 1, path: "m.audioevent", asset: { bus: "Music" } } as unknown as EventInstance, root);
 
 afterEach(() => {
   endAudioSession();

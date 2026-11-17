@@ -14,12 +14,12 @@
  * read from the playing run's segment, so a nested segment counts as its direct child of the switch.
  */
 import { isMusicContainer, type MusicNode, type MusicSwitchNode } from "../../../../engine/audio/musicFormat";
-import type { MusicFrame, MusicNodeRef, MusicPlayer } from "./musicSystem";
+import type { MusicFrame, MusicPlayer } from "./musicSystem";
 import { cancelTransition, requestTransition, type Transition } from "./transition";
 
 /** One switch container's state. R2 may add fields here. */
 export interface SwitchState {
-  readonly node: MusicNodeRef;
+  readonly node: MusicNode;
   /** The parameter's name. */
   readonly parameter: string;
   /** The value last read (number or label). */
@@ -30,11 +30,11 @@ export interface SwitchState {
   target: string | null;
 }
 
-const asSwitch = (node: MusicNodeRef): MusicSwitchNode | null =>
-  node.type === "musicSwitch" ? (node as MusicSwitchNode) : null;
+const asSwitch = (node: MusicNode): MusicSwitchNode | null =>
+  node.type === "musicSwitch" ? node : null;
 
 /** R2: the state for a `musicSwitch` node, or null when `node` isn't one. */
-export function createSwitchState(node: MusicNodeRef): SwitchState | null {
+export function createSwitchState(node: MusicNode): SwitchState | null {
   const sw = asSwitch(node);
   if (!sw) return null;
   return { node, parameter: sw.parameter, value: undefined, playing: null, target: null };

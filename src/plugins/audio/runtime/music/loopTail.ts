@@ -29,11 +29,11 @@
  * stops it and the instance counts its voices, like the tail voices (`eventRuntime.ts` `musicVoices`; F-7e).
  */
 import type { AudioVoice, ClipSpanHold, PlayRequest } from "../backend";
-import type { SegmentNode } from "../../../../engine/audio/musicFormat";
+import type { SegmentNode, MusicNode } from "../../../../engine/audio/musicFormat";
 import { compileSegmentGrid, positionTextToTicks, ticksToSeconds, type SegmentGrid } from "../../../../engine/audio/musicGrid";
 import { MUSIC_TICKS_PER_BEAT } from "../../../../engine/audio/musicPosition";
 import { warnOnce } from "../core/handle";
-import type { MusicFrame, MusicNodeRef, MusicPlayer } from "./musicSystem";
+import type { MusicFrame, MusicPlayer } from "./musicSystem";
 import { firstLoopOf, nextWrapOf, regionFramesOf } from "./anchors";
 import { frameIntervalSeconds, lookaheadSeconds } from "./planner";
 import { groupRequest, segmentClipSource, type SegmentRun } from "./segmentRun";
@@ -102,7 +102,7 @@ function runRate(run: SegmentRun): number {
 const grids = new WeakMap<object, SegmentGrid | null>();
 
 /** The segment's grid (positions only: a tail never needs the file's end). */
-function gridOf(node: MusicNodeRef): SegmentGrid | null {
+function gridOf(node: MusicNode): SegmentGrid | null {
   if (grids.has(node)) return grids.get(node) ?? null;
   const seg = node as Partial<SegmentNode>;
   const grid = node.type === "segment" && Array.isArray(seg.tempo) ? compileSegmentGrid({ ...seg, cues: seg.cues ?? [] } as SegmentNode) : null;
@@ -114,7 +114,7 @@ function gridOf(node: MusicNodeRef): SegmentGrid | null {
  * The tail span of region `index` in file frames of `rate`: from the region's `to` (as the members loop it) for its
  * `tailBeats` beats. Null without a tail, or when the region ends at the file's end (nothing follows it).
  */
-export function tailSpanOf(node: MusicNodeRef, index: number, rate: number): { startFrame: number; endFrame: number } | null {
+export function tailSpanOf(node: MusicNode, index: number, rate: number): { startFrame: number; endFrame: number } | null {
   const reg = (node as Partial<SegmentNode>).regions?.[index];
   const beats = reg?.tailBeats ?? 0;
   if (!reg || !(beats > 0) || reg.to === "end" || reg.to === "start") return null;

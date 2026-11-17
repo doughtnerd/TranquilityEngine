@@ -10,14 +10,13 @@
  * (the rule supplies `enter`, fades and bridge). Fades in beats are converted under the tempo map at their point.
  *
  * **R1's contract amendment (skeleton, before any caller):** Q2's `exitTime`, `enterFrame` and `resolveFades` had no
- * way to reach a segment's tempo map or the heard clock (`MusicNodeRef` is `{ id, type }`), so each now takes the
+ * way to reach a segment's tempo map or the heard clock (`MusicNode` is `{ id, type }`), so each now takes the
  * compiled grids (`SegmentGrid`, G1) and, for the playing side, its anchor as a `PlayingGrid`. `RuleMatch` gains
  * `transition` (the rule itself, for its fades and bridge). Names and the `findRule`/`ruleIndexOf` signatures are Q2's.
  *
  * Clocks: *heard* seconds are `Audio.time`'s clock; *file* seconds and ticks are G1's (`musicGrid.ts`). A `PlayingGrid`
  * maps between them inside one pass: heard(t) = `anchorTime` + file(t) - file(`anchorTicks`).
  */
-import type { MusicNodeRef } from "./musicSystem";
 import {
   DEFAULT_TRANSITION_RULE, buildRuleIndex, resolveTransition, ruleIndexFor, ruleKey as formatRuleKey,
   type RuleIndex as FormatRuleIndex, type TransitionExit, type TransitionFade, type TransitionRule,
@@ -118,7 +117,7 @@ function enterText(enter: TransitionRule["enter"]): string {
 }
 
 /** R1: the index of a container's `transitions` (cached per asset and container id). */
-function ruleIndexOf(container: MusicNodeRef): RuleIndex {
+function ruleIndexOf(container: MusicNode): RuleIndex {
   const transitions = isMusicContainer(container) ? (container as MusicContainerNode).transitions : EMPTY_RULES;
   let index = indexCache.get(transitions);
   if (!index || index.container !== container.id) {
@@ -133,7 +132,7 @@ function ruleIndexOf(container: MusicNodeRef): RuleIndex {
  * R1: the rule a change from the direct child `fromChild` to the direct child `toChild` of `container` resolves to in
  * that container's own table (F2's `resolveTransition`, cached per pair). The editor's rules table (Ed6) reads the same.
  */
-export function matchInContainer(container: MusicNodeRef, fromChild: string, toChild: string): RuleMatch {
+export function matchInContainer(container: MusicNode, fromChild: string, toChild: string): RuleMatch {
   const index = ruleIndexOf(container);
   const key = `${fromChild}>${toChild}`;
   let match = index.pairs.get(key);
@@ -194,7 +193,7 @@ function ancestors(root: MusicNode, parents: Map<string, MusicNode | null>, id: 
  * node to itself, or to a container that holds it, names the same child on both sides. An unknown id, or a segment
  * root, gives the default rule with parent `""`.
  */
-export function findRule(root: MusicNodeRef, from: string, to: string): RuleMatch {
+export function findRule(root: MusicNode, from: string, to: string): RuleMatch {
   const tree = root as MusicNode;
   if (!isMusicContainer(tree)) return defaultMatch("");
   const parents = parentsOf(tree);

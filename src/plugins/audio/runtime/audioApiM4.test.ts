@@ -15,7 +15,8 @@ import { AUDIO_SYSTEMS } from "./audioSystem";
 import { setAudioBackend } from "./backend";
 import { makeFakeBackend, type FakeBackend, endAudioSession } from "./testing";
 import type { EventInstance } from "./events/eventRuntime";
-import { parseSegmentNode, type SegmentNode } from "../../../engine/audio/musicFormat";
+import { emptySegment, parseSegmentNode, type MusicNode, type SegmentNode } from "../../../engine/audio/musicFormat";
+import { parseAudioEvent } from "../../../engine/audio/eventFormat";
 import type { MusicClipFacts } from "../../../engine/audio/musicValidate";
 import { musicHandleOf } from "./music/handle";
 import {
@@ -119,6 +120,13 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+/** A real parsed container root (the format's own parser fills every field). */
+function musicRootOf(type: "playlist" | "musicSwitch", id: string): MusicNode {
+  const root = parseAudioEvent({ format: "myco.audioevent@1", root: { type, id, parameter: "p", children: [{ type: "segment", id: "a", tracks: [{ name: "t", clip: "a.ogg" }] }] } }).value.musicRoot;
+  if (!root) throw new Error("fixture root did not parse");
+  return root;
+}
+
 describe("E3: one public handle per instance", () => {
   it("the handle MusicEvent.handle carries is the object Audio.play returned (e.handle === h), one per instance", () => {
     rig();
@@ -141,11 +149,11 @@ describe("L-P7a: handle.music getters (§1.2)", () => {
     expect(playMusic().music).toBeDefined();
 
     const playlist = { group: 90 } as unknown as EventInstance;
-    createMusicPlayer(playlist, { id: "P", type: "playlist" });
+    createMusicPlayer(playlist, musicRootOf("playlist", "P"));
     expect(musicHandleOf(playlist)).toBeDefined();
 
     const musicSwitch = { group: 91 } as unknown as EventInstance;
-    createMusicPlayer(musicSwitch, { id: "S", type: "musicSwitch" });
+    createMusicPlayer(musicSwitch, musicRootOf("musicSwitch", "S"));
     expect(musicHandleOf(musicSwitch)).toBeDefined();
   });
 
@@ -422,7 +430,7 @@ describe("P7-lead: Audio.time in update() (§1.7, §6 step 0)", () => {
     expect(b.beginFrameCalls).toBe(0);
     expect(Audio.time).toBe(0);
     // Music playing: the early step runs `beginFrame` before `UpdateScripts`, so `update()` reads this frame's time.
-    createMusicPlayer({ group: 3 } as unknown as EventInstance, { id: "s", type: "segment" });
+    createMusicPlayer({ group: 3 } as unknown as EventInstance, emptySegment("s"));
     step.run(world, 1 / 60);
     expect(b.beginFrameCalls).toBe(1);
     expect(Audio.time).toBe(2);

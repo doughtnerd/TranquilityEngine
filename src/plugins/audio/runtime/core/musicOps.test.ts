@@ -26,6 +26,7 @@ import { VoiceState, VoiceTable } from "./voiceTable";
 import { fakeHostClock } from "../testing";
 import { fakeDecoder } from "./fakeDecoder";
 import { endAudioSession, loopbackAudio, closeLoopbackAudio } from "../testing";
+import { emptySegment } from "../../../../engine/audio/musicFormat";
 
 /** The prime-latency average's seed before any prime has been measured, ms. */
 const PRIME_EMA_SEED_MS = 40;
@@ -747,9 +748,9 @@ describe("a music debug row's pending change", () => {
   it("is set while the transition is pending, stamped or running (past T - L), and null once done", async () => {
     const { createMusicPlayer } = await import("../music/musicSystem");
     const { backend } = rig();
-    const player = createMusicPlayer({ group: 4, path: "m.audioevent.json" } as never, { id: "A", type: "segment" });
+    const player = createMusicPlayer({ group: 4, path: "m.audioevent.json" } as never, emptySegment("A"));
     const match = { rule: 1, ruleKey: "A>B", tier: 2, parent: null, exit: "nextBar", enter: "start" };
-    player.transition = { to: { id: "B", type: "segment" }, match, state: "pending", exitAt: Number.NaN, cancelBy: Number.NaN, incoming: null, bridge: null, outgoing: null, after: null, immediate: null } as never;
+    player.transition = { to: emptySegment("B"), match, state: "pending", exitAt: Number.NaN, cancelBy: Number.NaN, incoming: null, bridge: null, outgoing: null, after: null, immediate: null } as never;
     const pending = () => backend.debug().music![0]!.pending;
     for (const state of ["pending", "stamped", "running", "bridging"]) {
       (player.transition as { state: string }).state = state;

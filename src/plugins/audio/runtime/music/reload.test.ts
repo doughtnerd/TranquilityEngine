@@ -5,9 +5,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { setAudioBackend, type AudioVoice, type ShapedFade } from "../backend";
 import { makeFakeBackend, type FakeBackend, endAudioSession } from "../testing";
 import type { EventInstance } from "../events/eventRuntime";
-import { parseSegmentNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
+import { parseSegmentNode, type SegmentNode, type MusicNode } from "../../../../engine/audio/musicFormat";
 import type { MusicClipFacts } from "../../../../engine/audio/musicValidate";
-import { createMusicPlayer, tickPlayer, type MusicFrame, type MusicNodeRef, type MusicPlayer } from "./musicSystem";
+import { createMusicPlayer, tickPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
 import { setSegmentClipSource } from "./segmentRun";
 import { requestStart } from "./planner";
 import { noteAssetChanged, setReloadHost } from "./reload";
@@ -41,7 +41,7 @@ function at(now: number): MusicFrame {
 }
 
 const invalidated: string[] = [];
-let eventRoot: MusicNodeRef | null = null;
+let eventRoot: MusicNode | null = null;
 
 function rig(): void {
   b = makeFakeBackend();

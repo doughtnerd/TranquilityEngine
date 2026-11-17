@@ -71,9 +71,9 @@
  * playlist becomes `player.playlist` once its leaf plays) and through the parameter for a `musicSwitch`.
  */
 import type { FadeLaw, MusicGroupStamp, ShapedFade } from "../backend";
-import type { MusicSwitchNode, SegmentNode } from "../../../../engine/audio/musicFormat";
+import { isMusicContainer, musicChildrenOf, type SegmentNode, type MusicNode } from "../../../../engine/audio/musicFormat";
 import { compileSegmentGrid, exitSeconds, type SegmentGrid } from "../../../../engine/audio/musicGrid";
-import type { MusicFrame, MusicNodeRef, MusicPlayer } from "./musicSystem";
+import type { MusicFrame, MusicPlayer } from "./musicSystem";
 import {
   cancelPlanned, frameIntervalSeconds, lookaheadSeconds, primeLeadSeconds, requestStart, type PlanGrid, type PlannedStart,
   type PlanReason, type PlanRequest,
@@ -94,7 +94,7 @@ export type TransitionState = "pending" | "stamped" | "running" | "bridging" | "
 /** §3.2 `Transition`. R3a and R3b may add fields here. */
 export interface Transition {
   /** Target node (the child the switch, playlist or seek asked for). */
-  readonly to: MusicNodeRef;
+  readonly to: MusicNode;
   /** R3a: the matched rule (a queued transition's is matched from the incoming segment it will leave). */
   match: RuleMatch;
   /**
@@ -157,7 +157,7 @@ const PRIME_EMA_FALLBACK_MS = 40;
  */
 interface Leg {
   readonly index: 0 | 1;
-  readonly target: MusicNodeRef;
+  readonly target: MusicNode;
   readonly grid: SegmentGrid;
   readonly rate: number;
   /** The match whose `enter` places the target (the bridge enters at its entry cue). */
@@ -194,7 +194,7 @@ const unstamped = new WeakMap<Leg, { at: number; seconds: number }>();
 const grids = new WeakMap<object, SegmentGrid | null>();
 
 /** A segment's compiled grid (G1), cached per node object (the clip's length, when known, resolves an `"end"` exit). */
-function gridOf(node: MusicNodeRef): SegmentGrid | null {
+function gridOf(node: MusicNode): SegmentGrid | null {
   const cached = grids.get(node);
   if (cached) return cached;
   const seg = node as Partial<SegmentNode>;
@@ -207,7 +207,7 @@ function gridOf(node: MusicNodeRef): SegmentGrid | null {
 }
 
 /** The clip rate (Hz) of a segment's file frames: its first stem's facts, else 48 kHz (as `anchors.ts`). */
-function rateOf(node: MusicNodeRef): number {
+function rateOf(node: MusicNode): number {
   for (const t of (node as Partial<SegmentNode>).tracks ?? []) {
     const f = t.clip ? segmentClipSource().facts(t.clip) : undefined;
     if (f && f.rate > 0) return f.rate;
@@ -216,7 +216,7 @@ function rateOf(node: MusicNodeRef): number {
 }
 
 /** Seconds of a segment's file (its first stem with facts), NaN when unknown. */
-function fileSecondsOf(node: MusicNodeRef): number {
+function fileSecondsOf(node: MusicNode): number {
   for (const t of (node as Partial<SegmentNode>).tracks ?? []) {
     const f = t.clip ? segmentClipSource().facts(t.clip) : undefined;
     if (f && f.rate > 0) return f.frames / f.rate;
@@ -228,27 +228,24 @@ function fileSecondsOf(node: MusicNodeRef): number {
  * The segment a target starts: itself; for a `musicSwitch`, the child its parameter picks (else its default, else the
  * first); for a `playlist`, the first item its order picks (P4's `enterPlaylist`). Null when none is a segment.
  */
-function resolveSegment(player: MusicPlayer, node: MusicNodeRef, depth = 0): MusicNodeRef | null {
+function resolveSegment(player: MusicPlayer, node: MusicNode, depth = 0): MusicNode | null {
   if (node.type === "segment") return node;
   if (depth >= MAX_DEPTH) return null;
   if (node.type === "playlist") return enterPlaylist(player, node);
-  const children = (node as { children?: MusicNodeRef[] }).children;
-  if (!Array.isArray(children) || children.length === 0) return null;
-  let child: MusicNodeRef | undefined = children[0];
-  if (node.type === "musicSwitch") {
-    const sw = node as MusicSwitchNode;
-    const value = player.instance.getParameter?.(sw.parameter);
-    const byValue = (v: unknown): MusicNodeRef | undefined => (v === undefined ? undefined : sw.children.find((c) => c.value === String(v)));
-    child = byValue(value) ?? byValue(sw.default) ?? child;
-  }
+  let child: MusicNode | undefined = node.children[0];
+  if (!child) return null;
+  const sw = node;
+  const value = player.instance.getParameter?.(sw.parameter);
+  const byValue = (v: unknown): MusicNode | undefined => (v === undefined ? undefined : sw.children.find((c) => c.value === String(v)));
+  child = byValue(value) ?? byValue(sw.default) ?? child;
   return child ? resolveSegment(player, child, depth + 1) : null;
 }
 
 /** The container with id `id` in the music tree under `node` (children only), or null. */
-function containerById(node: MusicNodeRef, id: string, depth = 0): MusicNodeRef | null {
+function containerById(node: MusicNode, id: string, depth = 0): MusicNode | null {
   if (node.id === id) return node;
   if (depth >= MAX_DEPTH) return null;
-  for (const c of (node as { children?: MusicNodeRef[] }).children ?? []) {
+  for (const c of musicChildrenOf(node)) {
     const found = containerById(c, id, depth + 1);
     if (found) return found;
   }
@@ -256,10 +253,10 @@ function containerById(node: MusicNodeRef, id: string, depth = 0): MusicNodeRef 
 }
 
 /** R3b: the bridge segment a match names, from the `library` of the container whose table matched; null for none. */
-function bridgeOf(player: MusicPlayer, match: RuleMatch): MusicNodeRef | null {
+function bridgeOf(player: MusicPlayer, match: RuleMatch): MusicNode | null {
   if (!match.bridge || !match.parent) return null;
   const container = containerById(player.root, match.parent);
-  const library = (container as { library?: MusicNodeRef[] } | null)?.library ?? [];
+  const library = container && isMusicContainer(container) ? container.library : [];
   return library.find((s) => s.id === match.bridge && s.type === "segment") ?? null;
 }
 
@@ -419,7 +416,7 @@ function isOpen(t: Transition | null): t is Transition {
   return t !== null && t.state !== "done" && t.state !== "cancelled";
 }
 
-function newTransition(to: MusicNodeRef, match: RuleMatch, immediate: Transition["immediate"], natural: boolean, reason: PlanReason): Transition {
+function newTransition(to: MusicNode, match: RuleMatch, immediate: Transition["immediate"], natural: boolean, reason: PlanReason): Transition {
   return {
     to, match, state: "pending", exitAt: Number.NaN, cancelBy: Number.NaN, incoming: null, bridge: null, outgoing: null,
     after: null, immediate, natural, reason, cause: null,
@@ -433,7 +430,7 @@ function canLeave(player: MusicPlayer): boolean {
   return run !== null && run.state !== "cancelled" && run.state !== "new" && anchorOf(player) !== null;
 }
 
-function newLeg(index: 0 | 1, target: MusicNodeRef, grid: SegmentGrid, enter: RuleMatch, fadeLeg: FadeLeg, from: SegmentRun | null): Leg {
+function newLeg(index: 0 | 1, target: MusicNode, grid: SegmentGrid, enter: RuleMatch, fadeLeg: FadeLeg, from: SegmentRun | null): Leg {
   return {
     index, target, grid, rate: rateOf(target), enter, fadeLeg, from, request: null, planned: null, stamped: false,
     committed: false, landed: false, deferred: false, failed: false,
@@ -856,7 +853,7 @@ function queueAfter(player: MusicPlayer, cur: Transition, t: Transition): Transi
  * refusal still returns the transition: the planner retries it at each allowed point. A rule with a `bridge` plays
  * A → bridge → B (R3b, see the file header).
  */
-export function requestTransition(player: MusicPlayer, to: MusicNodeRef, f: MusicFrame, options: TransitionOptions = {}): Transition | null {
+export function requestTransition(player: MusicPlayer, to: MusicNode, f: MusicFrame, options: TransitionOptions = {}): Transition | null {
   if (!canLeave(player)) return null;
   const natural = options.natural === true;
   const reason = options.reason ?? "transition";
@@ -891,7 +888,7 @@ export function requestTransition(player: MusicPlayer, to: MusicNodeRef, f: Musi
  * its cancel point; after it, this is queued and planned (from now + lead then) when that change lands, in the incoming
  * segment. `startFrame` is in `to`'s clip frames, pre-entry included (no extra pre-entry is added). Never bridged.
  */
-export function planImmediate(player: MusicPlayer, to: MusicNodeRef, startFrame: number, fadeMs: number, f: MusicFrame): Transition | null {
+export function planImmediate(player: MusicPlayer, to: MusicNode, startFrame: number, fadeMs: number, f: MusicFrame): Transition | null {
   if (!canLeave(player)) return null;
   const immediate = { startFrame: Math.max(0, startFrame), fadeSeconds: Math.max(0, fadeMs) / 1000 };
   const reason: PlanReason = "seek";
