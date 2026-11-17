@@ -4,7 +4,7 @@
 // to the panel's own element (`attachProfilerKeys`), found from the bar's DOM node. Open still goes through
 // `profilerSlots.onDropFile` (X2's route). Fill: `profilerSlots.bar = ProfilerBar`.
 import type { ComponentChild } from "preact";
-import { useEffect, useReducer, useRef } from "preact/hooks";
+import { useEffect, useLayoutEffect, useReducer, useRef } from "preact/hooks";
 import { profilerSlots, type BarSlotProps, type ProfilerController, type ProfilerView } from "./ProfilerPanel";
 import { describeFlow, profilerFlow, syncFlow, type FlowStatus, type FlowViewInput } from "./openSaveFlow";
 import { KEY_BINDINGS, attachProfilerKeys } from "./profilerKeys";
@@ -114,7 +114,8 @@ export function ProfilerBar({ view, controller }: BarSlotProps): ComponentChild 
     syncFlow(profilerFlow, prevBusy.current, input);
     prevBusy.current = view.busy;
   }
-  useEffect(() => profilerFlow.subscribe(() => rerender(0)), []);
+  // Subscribed at commit, not in a passive effect (which runs after paint): a report landing in between would be lost.
+  useLayoutEffect(() => profilerFlow.subscribe(() => rerender(0)), []);
   useEffect(() => {
     const el = root.current?.closest(".profiler") as HTMLElement | null;
     return el ? attachProfilerKeys(el, controller) : undefined;
