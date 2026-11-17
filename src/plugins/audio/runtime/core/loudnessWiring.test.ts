@@ -1,52 +1,14 @@
 // Ld2 (ADR 0171 amended by 0172, M5; api-and-models §3.2, §4.2; the stubs file's Ld2 row): the core backend wires the
 // page's loudness hub: `configure` and `LOUD_CONFIG` at configure, on a settings edit and in a rebuild's replay; `feed`
 // in the STATUS handler; `epoch` on an EPOCH; `play` at each Engine's audio configure; `attach` once; the gate sink.
-// A real `CoreLink` on a recording port, a fake clip registry, no wasm.
+// The recording host (`recordingAudio`, ADR 0234): the production assembly, a fake clip registry, no wasm.
 import { afterEach, describe, expect, it } from "vitest";
-import { Mixer } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings, type AudioSettings, type LoudnessTarget } from "../../../../engine/audio/settings";
 import { notifyAudioConfigured } from "../../../../engine/core/audioConfigure";
-import { Kind, LOUD_OUTPUT_TAP, Op, readBatchHeader, readEnvelope, readLoudConfig, readRecordHead, STATUS_BUFFER_BYTES, writeStatus, type LoudConfig, type StatusLoudBusesItem } from "../wire.generated";
-import type { AudioHost, HostLifecycleListener } from "./context";
-import { CoreLink, type LinkPort } from "./context";
-import type { ClipInfo, ClipRegistry, ClipState } from "./clipRegistry";
-import { CoreBackend, type CoreBackendHost } from "./coreBackend";
-import { makeStatusBlock } from "./statusFixtures";
+import { LOUD_OUTPUT_TAP, Op, readLoudConfig, readRecordHead, type LoudConfig, type StatusLoudBusesItem } from "../wire.generated";
+import { closeRecordingAudio, recordingAudio } from "../testing";
 import type { ReplayBuilder } from "./replay";
 import { loudnessHub, setLoudnessTarget } from "../mix/loudnessHub";
-
-function fakeClips(): ClipRegistry {
-  const states = new Map<number, ClipState>();
-  return {
-    acquire: () => 1,
-    release: () => {},
-    state: (id: number) => states.get(id) ?? "ready",
-    info: (id: number): ClipInfo => ({ id, path: "", state: "ready", refs: 0, frames: 0, channels: 1, sampleRate: 48_000, format: 1, bytes: 0, failure: null }),
-    onResident: () => () => {},
-    releaseWorld: () => {},
-    applyClipEvent: () => {},
-    residentIds: () => [],
-    acquireReserved: () => {},
-  } as unknown as ClipRegistry;
-}
-
-function fakeClock() {
-  let raf = 1000;
-  let ctx = 0;
-  let date = 1_000_000;
-  return {
-    rafTime: () => raf,
-    outputTimestamp: () => ({ contextTime: ctx, performanceTime: raf }),
-    currentTime: () => ctx,
-    dateNow: () => date,
-    fake: true as const,
-    advance(ms: number) {
-      raf += ms;
-      date += ms;
-      ctx += ms / 1000;
-    },
-  };
-}
 
 /** Master, Music, SFX, UI, Voice (the defaults, slots 0-4) with `meter: "loudness"` on the names given. */
 function settings(metered: string[], extra: Partial<AudioSettings> = {}): AudioSettings {
@@ -54,59 +16,18 @@ function settings(metered: string[], extra: Partial<AudioSettings> = {}): AudioS
   return { ...s, buses: s.buses.map((b) => (metered.includes(b.name) ? { ...b, meter: "loudness" as const } : b)), ...extra };
 }
 
-const backends: CoreBackend[] = [];
-afterEach(() => {
-  for (const b of backends.splice(0)) b.dispose();
-});
+afterEach(closeRecordingAudio);
 
+/** The core backend on the recording host (ADR 0234), over its own mixer. */
 function rig(start: AudioSettings) {
-  const sent: ArrayBuffer[] = [];
-  const port: LinkPort = { onmessage: null, postMessage: (m) => sent.push(m as ArrayBuffer) };
-  const link = new CoreLink(port);
-  const listeners: HostLifecycleListener[] = [];
-  const host: CoreBackendHost = {
-    link,
-    status: "running",
-    preset: { maxLogical: 16 },
-    worldCount: 1,
-    sampleRate: 48_000,
-    addLifecycleListener: ((l: HostLifecycleListener) => {
-      listeners.push(l);
-      return () => void listeners.splice(listeners.indexOf(l), 1);
-    }) as AudioHost["addLifecycleListener"],
-  };
-  const clock = fakeClock();
-  const mixer = new Mixer(start);
-  const backend = new CoreBackend(host, { clips: fakeClips(), clock, mixer });
-  backends.push(backend);
+  const r = recordingAudio({ mixer: "own", settings: start, preset: { maxLogical: 16 } });
   /** LOUD_CONFIG records posted since the last call, in order (other records' opcodes in `ops`). */
   const posted = () => {
-    const ops: number[] = [];
-    const loud: LoudConfig[] = [];
-    for (const m of sent.splice(0)) {
-      const view = new DataView(m);
-      if (readEnvelope(view, 0).kind !== Kind.BATCH) continue;
-      const header = readBatchHeader(view, 0);
-      let off = 32;
-      for (let i = 0; i < header.count; i++) {
-        const head = readRecordHead(view, off);
-        ops.push(head.opcode);
-        if (head.opcode === Op.LOUD_CONFIG) loud.push(readLoudConfig(view, off));
-        off += head.words * 4;
-      }
-    }
-    return { ops, loud };
+    const records = r.posted.takeRecords();
+    return { ops: records.map((x) => x.opcode), loud: records.filter((x) => x.opcode === Op.LOUD_CONFIG).map((x) => readLoudConfig(x.view, x.off)) };
   };
-  const frame = () => {
-    clock.advance(16);
-    backend.update(0.016);
-  };
-  const status = (loudBuses: StatusLoudBusesItem[], loudEnergies: number[]) => {
-    const buffer = new ArrayBuffer(STATUS_BUFFER_BYTES);
-    writeStatus(new DataView(buffer), 0, makeStatusBlock({ loudBuses, loudEnergies }), 1);
-    link.handleMessage(buffer);
-  };
-  return { backend, mixer, listeners, posted, frame, status };
+  const status = (loudBuses: StatusLoudBusesItem[], loudEnergies: number[]) => r.status({ loudBuses, loudEnergies });
+  return { backend: r.backend, mixer: r.mixer, host: r.host, posted, frame: () => r.frame(), status, rebuild: () => r.rebuild("trap") };
 }
 
 const slots = (c: LoudConfig) => c.meters.map((m) => m.slot);
@@ -152,7 +73,11 @@ describe("the loudness hub's wiring in the core backend (Ld2)", () => {
     const r = rig(settings(["Voice"]));
     r.frame();
     r.posted();
-    for (const l of r.listeners) l.onBusRemap?.({ epoch: 2, from: [], to: [], map: new Int32Array(0) } as never);
+    // Another Engine's tree (UI renamed): the mixer takes it, then the host remaps, as `Engine.create` does.
+    const next = settings(["Voice"]);
+    next.buses = next.buses.map((b) => (b.name === "UI" ? { ...b, name: "Menu" } : b));
+    r.mixer.configure(next);
+    r.host.reconfigure(next);
     r.frame();
     expect(r.posted().loud.map(slots)).toEqual([[], [4]]);
   });
@@ -184,15 +109,14 @@ describe("the loudness hub's wiring in the core backend (Ld2)", () => {
     expect(r.mixer.bus("Voice").loudness.momentary).toBe(Number.NEGATIVE_INFINITY);
   });
 
-  it("an EPOCH (the rebuild's new core answered) reseeds the feeds and marks them incomplete", () => {
+  it("an EPOCH (the rebuild's new core answered) reseeds the feeds and marks them incomplete", async () => {
     const r = rig(settings([]));
     r.frame();
     const e = 10 ** ((-20 + 0.691) / 10);
     r.status([item(LOUD_OUTPUT_TAP, 0, 4)], [e, e, e, e]);
     r.mixer.bus("Master").loudness.reset("all");
     expect(r.mixer.bus("Master").loudness.incomplete).toBe(false);
-    for (const l of r.listeners) l.onRebuildStart?.("trap");
-    for (const l of r.listeners) l.onRebuilt?.();
+    expect(await r.rebuild()).toBe("rebuilt");
     expect(r.mixer.bus("Master").loudness.incomplete).toBe(true);
   });
 

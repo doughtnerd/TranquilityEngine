@@ -1,7 +1,7 @@
 // ADR 0171 amended by 0172 (M5d, task So1, soak 4; architecture §4.2, §6, §7.3, §7.4 "real-scene capture rates"; record
 // change 15): spike S3's capture measurement re-run on real scenes through the REAL core. Each sample's project is read from
 // disk, its scene loaded in a headless Engine with its own scripts (ADR 0031), and the audio is the committed wasm on the
-// loopback host behind a real `CoreBackend` (the project's buses, effects, rules and preset); `Audio.capture` records it as
+// loopback, assembled as production assembles it (`loopbackAudio`: the project's buses, effects, rules and preset); `Audio.capture` records it as
 // it records a game (the default ring, G7b's keyframe source, the real `EventSink`). Scenes:
 //
 // - **Sound Lab, Mixer page** (`samples/sound-lab`, `scenes/mixer.scene.json`): the page's beds plus its tour (key 3: the
@@ -26,13 +26,9 @@ import { Assets, Engine, Input, SceneManager } from "../../../../myco";
 import { mixer } from "../../../../engine/audio/mixer";
 import { parseAudioSettings } from "../../../../engine/audio/settings";
 import { readProject } from "../../../../server/project";
-import { setAudioBackend, type AudioBackend } from "../backend";
-import type { AudioHost, CoreLink } from "../core/context";
 import { presetFromSettings } from "../core/context";
-import { CoreBackend, type CoreBackendHost } from "../core/coreBackend";
-import { createClipRegistry } from "../core/clipRegistry";
 import { fakeDecoder, type PlanarClip } from "../core/fakeDecoder";
-import { createLoopbackHost, type LoopbackHost, endAudioSession } from "../testing";
+import { closeLoopbackAudio, loopbackAudio } from "../testing";
 import { audioCapture, releaseCapture, setCaptureProject } from "./capture";
 import { openCapture } from "./reader";
 import type { CaptureChunkControl } from "./testSupport";
@@ -130,14 +126,13 @@ interface SceneResult {
 }
 
 let engine: Engine | null = null;
-afterEach(() => {
+afterEach(async () => {
   releaseCapture();
   if (engine) engine.world.render = undefined as never;
   engine?.dispose();
   engine = null;
   Assets.clearSources();
-  endAudioSession();
-  setAudioBackend(null);
+  await closeLoopbackAudio();
   vi.restoreAllMocks();
 });
 
@@ -161,26 +156,16 @@ async function runScene(spec: SceneSpec): Promise<SceneResult | null> {
   const project = await readProject(dir);
   const parsed = parseAudioSettings((project.settings as { audio?: unknown }).audio ?? {});
   const settings = parsed.settings;
-  const preset = presetFromSettings(settings);
-  let loop: LoopbackHost & { link: CoreLink };
-  try {
-    loop = (await createLoopbackHost({ preset })) as typeof loop;
-  } catch {
-    return null;
-  }
   vi.spyOn(console, "warn").mockImplementation(() => {});
-  endAudioSession();
-  const link = loop.link;
-  const clips = createClipRegistry({
-    send: (m) => link.post(m), nextSeq: () => link.nextSeq(), fetchBytes: (p) => fetchFrom(dir, p), decodeWorker: fakeDecoder(async (b) => parseWav(b)),
-    nextFrame: (cb) => cb(), nextQuantum: (cb) => cb(),
+  // The production assembly on the loopback (ADR 0221, 0234): the global mixer configured with the project's settings and
+  // the backend registered, so the game's Engine plays through it and `Audio.capture` records it; the clips are the sample's files.
+  const audio = await loopbackAudio({
+    settings,
+    preset: presetFromSettings(settings),
+    clipRegistry: { fetchBytes: (p) => fetchFrom(dir, p), decodeWorker: fakeDecoder(async (b) => parseWav(b)) },
   });
-  mixer.configure(settings);
-  const host: CoreBackendHost = {
-    link, status: "running", preset: { maxLogical: preset.maxLogical, maxMixed: preset.maxMixed }, worldCount: 1, sampleRate: RATE,
-    addLifecycleListener: (() => () => {}) as AudioHost["addLifecycleListener"],
-  };
-  const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer });
+  if (!audio) return null;
+  const { backend, link } = audio;
   // The sink `Audio.capture` installs, wrapped to time each call (`timedSink`).
   const sinkTimer = { ms: 0, calls: 0 };
   const setSink = backend.setProfileSink.bind(backend);
@@ -190,7 +175,6 @@ async function runScene(spec: SceneSpec): Promise<SceneResult | null> {
     sinkTarget = sink as unknown as { eventsWritten: number };
     setSink(timedSink(sink, sinkTimer));
   };
-  setAudioBackend(backend as AudioBackend);
 
   Assets.clearSources();
   Assets.addSource(project.assets);
@@ -203,19 +187,21 @@ async function runScene(spec: SceneSpec): Promise<SceneResult | null> {
   let liveMax = 0;
   let mixedSum = 0;
   let statusN = 0;
+  let recording = false;
+  // Each STATUS as it arrives (the backend's decoder reuses one block, so a block is read in the listener, never kept).
+  link.onStatus((s) => {
+    if (!recording) return;
+    liveSum += s.liveVoices;
+    mixedSum += s.mixedVoices;
+    liveMax = Math.max(liveMax, s.liveVoices);
+    statusN++;
+  });
   const step = async (record: boolean): Promise<void> => {
     engine!.step(FRAME_SECONDS);
     await new Promise<void>((r) => setImmediate(r)); // clip fetches and decodes resolve
-    loop.renderQuanta(FRAME_QUANTA);
-    if (record) {
-      for (const s of loop.statuses) {
-        liveSum += s.liveVoices;
-        mixedSum += s.mixedVoices;
-        liveMax = Math.max(liveMax, s.liveVoices);
-        statusN++;
-      }
-    }
-    loop.statuses.length = 0;
+    recording = record;
+    audio.render(FRAME_QUANTA);
+    recording = false;
     audioSeconds += FRAME_SECONDS;
   };
   await step(false);
@@ -275,7 +261,6 @@ async function runScene(spec: SceneSpec): Promise<SceneResult | null> {
     tapMsPerS: tapMs / seconds, keyframeMsPerS: keyframeMs / seconds, sinkMsPerS: sinkMsTotal / seconds, sinkCallsPerS: sinkCalls / seconds, overheadUs: timedCallOverheadUs(), byType: bytesByType(opened, RecordType), tap: stat(tapUs), events: eventCount, keyframes: opened.keyframes.length, warmSeconds,
     wall: (performance.now() - wall0) / 1000,
   };
-  backend.dispose();
   return result;
 }
 

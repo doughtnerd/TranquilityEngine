@@ -127,7 +127,7 @@ export interface CoreVoice extends AudioVoice {
   stop(fadeSeconds?: number): void;
 }
 
-/** What the backend needs of the host (an `AudioHost`, or a fake in tests). */
+/** What the backend needs of the host: `createCoreBackend` adapts the `AudioHost` to it (every test goes through that assembly, ADR 0234). */
 export interface CoreBackendHost {
   readonly link: Pick<CoreLink, "batchPool" | "nextSeq" | "post" | "onStatus"> & { statusDecoder: CoreLink["statusDecoder"] } & Partial<Pick<CoreLink, "connectStreamPort">>;
   readonly status: "locked" | "running" | "failed";

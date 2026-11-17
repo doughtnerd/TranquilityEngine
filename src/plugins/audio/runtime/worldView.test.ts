@@ -1,19 +1,13 @@
 // A3.4b: "only the World that has the view plays sound" reaches the core (architecture §3.9). Plays carry their World's
 // key (`worldKeyOf`), and the audio system reports every attached World's view to `CoreBackend.setWorldAudible`, so the
 // voices of a World without the view go virtual (in time, silent) and come back in time when the view returns. Run on the
-// loopback host with fake Worlds (only `render` is looked at).
-import { fakeDecoder } from "./core/fakeDecoder";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { Mixer } from "../../../engine/audio/mixer";
-import { defaultAudioSettings } from "../../../engine/audio/settings";
+// loopback (`loopbackAudio`, the real World service over its host: ADR 0234) with fake Worlds (only `render` is looked at).
+import { afterEach, describe, expect, it } from "vitest";
 import type { World } from "../../../engine/core/World";
-import { _registerWorldService, _startWorldService } from "../../../engine/core/worldServices";
 import { setAudioBackend } from "./backend";
 import { worldKeyOf } from "./AudioSource";
-import { AUDIO, AUDIO_SERVICE, type AudioCoreModule } from "./core/service";
-import type { AudioHost, CoreLink } from "./core/context";
-import { CoreBackend, type CoreBackendHost } from "./core/coreBackend";
 import { AUDIO_SYSTEMS } from "./audioSystem";
+import { closeLoopbackAudio, loopbackAudio } from "./testing";
 
 /** Frames a voice must lead before selection promotes it (selection.ts). */
 const DWELL_FRAMES = 3;
@@ -25,86 +19,29 @@ interface FakeWorld {
 const makeWorld = (render: object | null): FakeWorld => ({ render, _componentsOfType: () => [] });
 const asWorld = (w: FakeWorld): World => w as unknown as World;
 
-/** A host that only does what the service and the audio system use of it: shares and `forEachWorld`. One for the file: the service caches what `load` gave. */
-const shares = new Map<number, object>();
-let next = 1;
-const hostLike = {
-    closed: false,
-    attachWorld(owner: object) {
-      const key = next++;
-      shares.set(key, owner);
-      return { key, owner, released: false };
-    },
-    releaseWorld(key: number) {
-      return shares.delete(key);
-    },
-    forEachWorld(fn: (key: number, owner: object) => void) {
-      for (const [k, o] of shares) fn(k, o);
-    },
-};
+afterEach(closeLoopbackAudio);
 
-let unregister: (() => void) | null = null;
-afterEach(() => {
-  vi.restoreAllMocks();
-  unregister?.();
-  unregister = null;
-  setAudioBackend(null);
-  shares.clear();
-  next = 1;
-});
-
+/**
+ * The loopback (ADR 0234) as the World service's core for two Worlds: each starts the real `myco.audio` service while it has
+ * a view, then `other` hands its view back, as `Engine._handView` does when the view moves to another World.
+ */
 async function rig() {
-  const testing = await import("./testing");
-  let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>> & { link: CoreLink };
-  try {
-    loop = (await testing.createLoopbackHost()) as typeof loop;
-  } catch {
-    return null;
-  }
-  const { createClipRegistry } = await import("./core/clipRegistry");
-  const link = loop.link;
-  const frames = 48_000;
-  const clips = createClipRegistry({
-    send: (m) => link.post(m),
-    nextSeq: () => link.nextSeq(),
-    fetchBytes: async () => new ArrayBuffer(8),
-    decodeWorker: fakeDecoder(async () => ({ frames, channels: 1, sampleRate: 48_000, channelData: [new Float32Array(frames).fill(0.5)] })),
-    nextFrame: (cb) => cb(),
-    nextQuantum: (cb) => cb(),
-  });
-  const host: CoreBackendHost = {
-    link,
-    status: "running",
-    preset: { maxLogical: 64, maxMixed: 32 },
-    worldCount: 2,
-    sampleRate: 48_000,
-    addLifecycleListener: (() => () => {}) as AudioHost["addLifecycleListener"],
-  };
-  const mixer = new Mixer(defaultAudioSettings());
-  const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer });
-  setAudioBackend(backend);
-  const core: AudioCoreModule = { ready: true, host: hostLike as unknown as AudioHost };
-  // The plugin registers the real service (the test setup activates it); its `load` and `runsIn` are what a Node test can't run.
-  try {
-    unregister = _registerWorldService(AUDIO_SERVICE);
-  } catch {
-    /* already registered */
-  }
-  vi.spyOn(AUDIO_SERVICE, "load").mockResolvedValue(core);
-  vi.spyOn(AUDIO_SERVICE, "runsIn").mockReturnValue(true);
+  const audio = await loopbackAudio({ world: false });
+  if (!audio) return null;
   const view = makeWorld({});
-  const other = makeWorld(null);
-  await _startWorldService(asWorld(view), AUDIO);
-  await _startWorldService(asWorld(other), AUDIO);
+  const other = makeWorld({});
+  await audio.startWorld(asWorld(view));
+  await audio.startWorld(asWorld(other));
+  other.render = null;
   const system = AUDIO_SYSTEMS[0]!;
   /** One engine frame: the system runs in each World the way `Engine.step` does (a World with no view only reports), then 4 quanta. */
   const frame = async (worlds: FakeWorld[]): Promise<number> => {
     for (const w of worlds) system.run(asWorld(w), 0.003);
-    const { left } = loop.renderQuanta(4);
+    const { left } = audio.render(4);
     await Promise.resolve();
     return left[left.length - 1]!;
   };
-  return { loop, backend, view, other, frame };
+  return { backend: audio.backend, view, other, frame };
 }
 
 const req = (path: string, extra: object = {}) => ({ path, url: path, loop: true, stream: false, bus: "SFX", ...extra });
@@ -147,7 +84,6 @@ describe("the World that has the view plays (A3.4b)", () => {
     expect(level).toBeCloseTo(0.5 * 0.5, 4);
     expect(a.reason).toBeNull();
     expect(b.reason).toBe("virtual");
-    backend.dispose();
   });
 
   it("a World that no longer steps (paused) is silenced by the one that does", async (ctx) => {
@@ -166,7 +102,6 @@ describe("the World that has the view plays (A3.4b)", () => {
     for (let i = 0; i < 2; i++) level = await frame([view]); // `other` is paused and isn't stepped
     expect(level).toBe(0);
     expect(b.reason).toBe("virtual");
-    backend.dispose();
   });
 
   it("does nothing, and creates no backend, while none exists", async (ctx) => {
