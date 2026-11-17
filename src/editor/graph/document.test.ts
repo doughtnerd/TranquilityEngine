@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { clipboardText } from "../clipboard";
-import { DUPLICATE_OFFSET, freeId, freeName, graphDocument, type GraphGroupData, type GraphNoteData } from "./document";
+import { DUPLICATE_OFFSET, freeId, graphDocument, type GraphGroupData, type GraphNoteData } from "./document";
 
 // The graph document's edits, driven through a small graph kind of the test's own: nodes that may
 // read a property (`settings.reads`), wires between them, optional groups (stored as `boxes`, so the
@@ -105,13 +105,10 @@ function sample(): Graph {
   };
 }
 
-describe("free names", () => {
-  it("counts up from 2 with a separator, and ids from 1", () => {
+describe("free ids", () => {
+  it("count from 1 and never use the bare prefix", () => {
     const taken = (names: string[]) => (n: string) => names.includes(n);
-    expect(freeName("Color", taken([]))).toBe("Color");
-    expect(freeName("Color", taken(["Color", "Color 2"]))).toBe("Color 3");
-    expect(freeName("KEYWORD", taken(["KEYWORD"]), "_")).toBe("KEYWORD_2");
-    expect(freeName("Out", taken(["Out"]), "")).toBe("Out2");
+    expect(freeId("note", taken([]))).toBe("note1");
     expect(freeId("note", taken(["note1"]))).toBe("note2");
   });
 });
