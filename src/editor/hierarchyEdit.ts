@@ -5,6 +5,7 @@ import { localPoseUnder } from "../engine/editor";
 import { RemoveNode, ReparentNode, SetField, type NodeReference, type SceneDocument } from "./document";
 import { toSceneJSON } from "./fieldValues";
 import type { OpenScene } from "./state";
+import { undoStep } from "./undoStep";
 
 const EPSILON = 1e-4;
 
@@ -45,8 +46,7 @@ export function moveNode(scene: OpenScene, id: string, parent: string | null, in
   const node = sync.nodeFor(id);
   const pose = oldParent !== parent && node ? localPoseUnder(node, parent === null ? null : sync.nodeFor(parent)) : null;
   const name = doc.node(id).name ?? id;
-  stack.beginGroup(oldParent === parent ? `Reorder ${name}` : `Move ${name}`);
-  try {
+  undoStep(stack, oldParent === parent ? `Reorder ${name}` : `Move ${name}`, () => {
     stack.execute(new ReparentNode(id, parent, at));
     if (pose && node?.transform) {
       const t = node.transform;
@@ -59,9 +59,7 @@ export function moveNode(scene: OpenScene, id: string, parent: string | null, in
         stack.execute(new SetField(id, "engine.Transform", field, toSceneJSON(field === "rotation" ? "quaternion" : "vector3", pose[field], { field, previous })));
       }
     }
-  } finally {
-    stack.endGroup();
-  }
+  });
   return true;
 }
 
@@ -83,15 +81,12 @@ export function moveNodes(scene: OpenScene, ids: readonly string[], parent: stri
   let anchor: string | null = null;
   if (index !== undefined) anchor = siblings.slice(index).find((s) => !moving.has(s)) ?? null;
   let moved = false;
-  stack.beginGroup(`Move ${ids.length} nodes`);
-  try {
+  undoStep(stack, `Move ${ids.length} nodes`, () => {
     for (const id of ids) {
       const at = anchor === null ? undefined : doc.children(parent).indexOf(anchor);
       if (moveNode(scene, id, parent, at)) moved = true;
     }
-  } finally {
-    stack.endGroup();
-  }
+  });
   return moved;
 }
 
@@ -125,8 +120,7 @@ export function deleteNodes(scene: OpenScene, ids: readonly string[]): NodeRefer
     if (reason) throw new Error(reason);
   }
   const refs = referencesInto(doc, ids);
-  stack.beginGroup(ids.length === 1 ? `Delete ${doc.node(ids[0]).name ?? ids[0]}` : `Delete ${ids.length} nodes`);
-  try {
+  undoStep(stack, ids.length === 1 ? `Delete ${doc.node(ids[0]).name ?? ids[0]}` : `Delete ${ids.length} nodes`, () => {
     for (const r of refs) {
       let value: unknown = null;
       if (r.element !== undefined) {
@@ -138,9 +132,7 @@ export function deleteNodes(scene: OpenScene, ids: readonly string[]): NodeRefer
       stack.execute(new SetField(r.path[0], r.type, r.field, value, { index: r.index, target: r.path.slice(1) }));
     }
     for (const id of ids) stack.execute(new RemoveNode(id));
-  } finally {
-    stack.endGroup();
-  }
+  });
   return refs;
 }
 

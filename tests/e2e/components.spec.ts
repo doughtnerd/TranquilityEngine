@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "./fixtures";
+import { expect, openTestProject, test, type Page } from "./fixtures";
 
 const EDITOR = "/editor.html?sample=flappy"; // opens the Flappy sample (ADR 0031); relative to baseURL (E2E_PORT)
 
@@ -100,6 +100,36 @@ test("a component's checkbox switches it off and on; Transform and data componen
   await expect(page.getByRole("checkbox", { name: "Transform enabled" })).toBeDisabled();
   await row(page, "bg-a").click();
   await expect(page.getByRole("checkbox", { name: "Scroller enabled" })).toBeDisabled();
+});
+
+test("dragging a number field's label scrubs it as one undo step; Escape during the drag puts it back", async ({ page }) => {
+  await openTestProject(page); // writable
+  await row(page, "bird").click();
+  const circle = card(page, "CircleCollider2D");
+  const radius = circle.getByRole("textbox", { name: "radius" });
+  await expect(radius).toHaveValue("0.7");
+  const label = circle.locator("label.scrub", { hasText: /^Radius$/ });
+  await label.scrollIntoViewIfNeeded();
+  const box = (await label.boundingBox())!;
+  const x = box.x + box.width / 2, y = box.y + box.height / 2;
+  const drag = async () => {
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + 20, y, { steps: 4 });
+  };
+
+  await drag();
+  await expect(radius).not.toHaveValue("0.7");
+  await page.keyboard.press("Escape");
+  await expect(radius).toHaveValue("0.7");
+  await page.mouse.up();
+  await expect(page.locator(".tree .row.selected")).toHaveCount(1); // Escape went to the drag, not the selection
+
+  await drag();
+  await page.mouse.up();
+  await expect(radius).not.toHaveValue("0.7");
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(radius).toHaveValue("0.7");
 });
 
 test("components reorder by dragging the grip, or with Alt+arrow keys", async ({ page }) => {

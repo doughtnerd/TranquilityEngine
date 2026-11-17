@@ -22,6 +22,7 @@
 import { ruleRefusal, type ApplyReason } from "./busCapability";
 import { LIVE_KEYS, audioSection, withLiveKeys } from "./audioSection";
 import { deepEqual } from "./deepEqual";
+import { uniqueName } from "../core/uniqueName";
 import {
   BED_PRIORITY_LIMITS, BUS_BEDS, DEFAULT_BED_PRIORITY, DEFAULT_LOUDNESS_TARGETS, EFFECT_TYPES, MAX_LOUDNESS_BUSES,
   MAX_LOUDNESS_TARGETS, MAX_TARGET_NAME, ROOT_BED_PRIORITY,
@@ -112,11 +113,6 @@ const isInsertIndex = (i: unknown, len: number): i is number => Number.isInteger
 const busOf = (a: AudioSettings, name: string): BusSettings | undefined => a.buses.find((b) => b.name === name);
 const isRoot = (a: AudioSettings, name: string): boolean => a.buses[0]?.name === name;
 const insertAt = <T>(list: readonly T[], index: number, item: T): T[] => [...list.slice(0, index), item, ...list.slice(index)];
-
-function uniqueName(base: string, taken: readonly string[]): string {
-  if (!taken.includes(base)) return base;
-  for (let i = 2; ; i++) if (!taken.includes(`${base} ${i}`)) return `${base} ${i}`;
-}
 
 /** A bus's descendants, by name (depth first, as the model's `descendants`). */
 function descendantsOf(a: AudioSettings, name: string): string[] {

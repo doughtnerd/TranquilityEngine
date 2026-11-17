@@ -3,19 +3,19 @@
 export * from "./registry";
 export * from "./contributions";
 export * from "./plugins";
-export { openAssetDocument, type AssetDocument, type EditOptions } from "../assetDocuments";
+export { openAssetDocument, type AssetDocument, type AssetRead, type EditOptions } from "../assetDocuments";
 export type { InspectorSectionProps, InspectorSectionOptions } from "../ui/inspectorSections";
-export { activeViewportTool, activateViewportTool } from "../state";
 // Undo and Redo act on the active history (ADR 0145). An editor root marked `data-asset-document={doc.path}`
 // makes its asset document the active history while focused; a panel with its own history registers it.
 export { activeHistory, providePanelHistory, usePanelHistory, type ActiveHistory, type HistoryTree, type UndoHistory } from "../activeHistory";
 
 // The project and editor surface (ADR 0147): `editor.project`, `editor.assets`, `editor.messages`,
-// `editor.scene` and `editor.showPanel`, over the shell's state, which plugins never import.
+// `editor.scene`, `editor.viewport` (ADR 0231) and `editor.showPanel`, over the shell's state, which plugins never import.
 export { editor, type EditorSurface } from "./editor";
-export type { ProjectSurface, ProjectSettingsSurface, AssetsSurface, CreateFileOptions, SectionChange, AssetImportSettings, AssetKind, EditorProject } from "./project";
+export type { ProjectSurface, ProjectSettingsSurface, AssetsSurface, CreateFileOptions, CreateAssetOptions, SectionChange, AssetImportSettings, AssetKind, EditorProject } from "./project";
 export type { MessagesSurface, MessageAction } from "./messages";
-export type { SceneSurface, SelectionSurface, PlayState, OpenScene } from "./scene";
+export type { SceneSurface, SelectionSurface, PlayState, OpenScene, UndoStep } from "./scene";
+export type { ViewportSurface } from "./viewport";
 // Editing scene documents (ADR 0026): node paths and entries, and the field command inspector sections push.
 export { SetField, pathKey, type NodePath, type NodeEntry, type SceneDocument } from "../document";
 // Building blocks for panels, inspectors and settings sections.
@@ -24,6 +24,7 @@ export { Panel, usePanel, usePanelState, usePanelValue, PanelInstanceContext, ty
 export { sectionField } from "../ui/inspectorSections";
 export { LargePreview } from "../ui/AssetPreview";
 export { NameList, NumberField, ProblemList, Row, TextField } from "../ui/settingsControls";
+export { useDraftText, type DraftText, type DraftInputProps } from "../ui/draftText";
 // ADR 0158 §7: the shared curve widget (particles, audio events, later animation) and its pure key helpers.
 export { CurveEditor, CurvePreview, type CurveEditorProps } from "../ui/CurveEditor";
 export { addKey as addCurveKey, moveKey as moveCurveKey, removeKey as removeCurveKey, setKeyInterp as setCurveKeyInterp, type Key as CurveEditKey } from "../ui/curveEdit";

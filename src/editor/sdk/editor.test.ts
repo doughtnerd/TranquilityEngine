@@ -31,14 +31,14 @@ describe("editor.project", () => {
   });
 
   it("creates a file under a free name, reports it and bumps the version", async () => {
-    const { project, fs } = await openTestProject({ "skies/New Sky.sky.json": "{}" });
+    const { project, fs } = await openTestProject({ "scenes/Level.scene.json": "{}" });
     const version = editor.project.version;
-    const path = await editor.project.createFile({ folder: "skies", name: "New Sky.sky.json", what: "skies", write: (p, at) => p.writeText(at, '{"a":1}') });
-    expect(path).toBe("skies/New Sky 2.sky.json");
+    const path = await editor.project.createFile({ folder: "scenes", name: "Level.scene.json", what: "scenes", write: (p, at) => p.writeText(at, '{"a":1}') });
+    expect(path).toBe("scenes/Level 2.scene.json");
     expect([...fs.files.values()]).toContain('{"a":1}');
     expect(project.files).toContain(path);
     expect(editor.project.version).toBe(version + 1);
-    expect(status.value).toMatchObject({ kind: "info", text: "Created New Sky 2.sky.json." });
+    expect(status.value).toMatchObject({ kind: "info", text: "Created Level 2.scene.json." });
   });
 
   it("reports a failed write as an error and returns null", async () => {

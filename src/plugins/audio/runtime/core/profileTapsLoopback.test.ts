@@ -8,7 +8,7 @@
 // capRefused are `coreBackend`'s lines (the coordinator's).
 import { afterEach, describe, expect, it } from "vitest";
 import { defaultAudioSettings, type AudioSettings } from "../../../../engine/audio/settings";
-import { CoreBackend } from "./coreBackend";
+import type { CoreBackend } from "./coreBackend";
 import { recordingSink } from "../mix/recordingSink";
 import { loopbackAudio, closeLoopbackAudio } from "../testing";
 

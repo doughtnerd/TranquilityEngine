@@ -17,7 +17,7 @@ import { mixer } from "../../../../engine/audio/mixer";
 import { setAudioBackend } from "../backend";
 import { Audio } from "../index";
 import { fakeDecoder, type PlanarClip } from "../core/fakeDecoder";
-import { CoreBackend } from "../core/coreBackend";
+import type { CoreBackend } from "../core/coreBackend";
 import { endAudioSession, loopbackAudio, closeLoopbackAudio } from "../testing";
 import { events } from "./eventRuntime";
 import type { AudioEventHandle } from "../backend";

@@ -1,18 +1,13 @@
 // ADR 0166 (Q2): the core backend's music seam and the hooks `coreBackend.ts` and `streams.ts` leave for P1, P9 and
 // P10: `music` is `musicOps` with every capability, `beginFrame` is idempotent per frame, `timeAt` is the clock map's
 // raw heard clock, `latency` adds the limiter, stream event 4 and music members' events route to musicOps,
-// `reopenStreams` hands groups to `reopenGroups`, and `Audio.debug()` reads `musicOps`. On a fake host (no wasm).
+// `reopenStreams` hands groups to `reopenGroups`, and `Audio.debug()` reads `musicOps`. On the recording host (`recordingAudio`,
+// ADR 0234; no wasm).
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Mixer } from "../../../../engine/audio/mixer";
-import { defaultAudioSettings } from "../../../../engine/audio/settings";
-import type { AudioHost, HostLifecycleListener } from "./context";
-import { CoreLink, type LinkPort } from "./context";
 import type { ClipInfo, ClipRegistry, ClipState } from "./clipRegistry";
-import { CoreBackend, type CoreBackendHost } from "./coreBackend";
 import { STREAM_EVENT_MUSIC_FULL } from "./streams";
-import { Op, StreamEvent, STATUS_BUFFER_BYTES, gateGroupId, gateGroupSize, PLAY_FLAGS_FADE_ZERO, readPlay, readSetParams, writeStatus } from "../wire.generated";
+import { Op, StreamEvent, gateGroupId, gateGroupSize, PLAY_FLAGS_FADE_ZERO, readPlay, readSetParams } from "../wire.generated";
 import { StatusMirror } from "./mirror";
-import { makeStatusBlock } from "./statusFixtures";
 import { CoreMusicOps, encodedBudgetBytes } from "./musicOps";
 import type { MusicGroupEvent, MusicGroupRequest } from "../backend";
 import type { PrimeGroupOptions } from "../decoder/decoderClient";
@@ -21,11 +16,9 @@ import { CommandWriter } from "./commandWriter";
 import { ClockMap } from "./clock";
 import { createWarnOnce } from "./codecs";
 import { batchRecords } from "./batchRecords";
-import { batchRecorder } from "./batchWatch";
 import { VoiceState, VoiceTable } from "./voiceTable";
-import { fakeHostClock } from "../testing";
 import { fakeDecoder } from "./fakeDecoder";
-import { endAudioSession, loopbackAudio, closeLoopbackAudio } from "../testing";
+import { closeLoopbackAudio, closeRecordingAudio, endAudioSession, fakeHostClock, loopbackAudio, recordingAudio } from "../testing";
 import { emptySegment } from "../../../../engine/audio/musicFormat";
 
 /** The prime-latency average's seed before any prime has been measured, ms. */
@@ -48,36 +41,20 @@ function fakeClips(over: Partial<ClipRegistry> = {}): ClipRegistry {
   } as unknown as ClipRegistry;
 }
 
+/**
+ * The core backend on the recording host (ADR 0234), over its own mixer. `latency` is the context's read-back; its clock has
+ * then run (a stamped output timestamp), so the host's `reliable` rule has its evidence.
+ */
 function rig(latency?: { base: number; output: number }) {
-  const port: LinkPort = { onmessage: null, postMessage: () => {} };
-  const link = new CoreLink(port);
-  let raf = 1000;
-  let ctx = 0;
-  const clock = {
-    rafTime: () => raf,
-    outputTimestamp: () => ({ contextTime: ctx, performanceTime: raf }),
-    currentTime: () => ctx,
-    dateNow: () => 1_000_000 + raf,
-    fake: true as const,
-    advance(ms: number) {
-      raf += ms;
-      ctx += ms / 1000;
-    },
-  };
-  const host: CoreBackendHost = {
-    link,
-    status: "running",
-    preset: { maxLogical: 16, limiterLookaheadMs: 1.5 },
-    worldCount: 1,
-    sampleRate: 48_000,
-    addLifecycleListener: ((l: HostLifecycleListener) => () => void l) as AudioHost["addLifecycleListener"],
-    ...(latency ? { latency: () => latency } : {}),
-  };
-  const backend = new CoreBackend(host, { clips: fakeClips(), clock, mixer: new Mixer(defaultAudioSettings()) });
-  return { backend, clock, raf: () => raf };
+  const clock = fakeHostClock(latency ? { currentTime: 1 } : {});
+  const r = recordingAudio({ mixer: "own", preset: { maxLogical: 16, limiterLookaheadMs: 1.5 }, clips: fakeClips(), clock, latency });
+  return { backend: r.backend, clock, raf: () => clock.rafTime() };
 }
 
-afterEach(closeLoopbackAudio);
+afterEach(async () => {
+  await closeRecordingAudio();
+  await closeLoopbackAudio();
+});
 
 describe("the core's music seam (ADR 0166 §4.6, Q2)", () => {
   it("music is musicOps, with every capability the core will have, and stubs that refuse safely", () => {
@@ -161,35 +138,10 @@ describe("the core's music seam (ADR 0166 §4.6, Q2)", () => {
   });
 });
 
-// --- P1: the group lifecycle on a fake host (no wasm) -----------------------------------------------------------------
+// --- P1: the group lifecycle on the recording host (no wasm) -----------------------------------------------------------------
 
-/** A backend on a fake host with a music pool of `rings` and an in-process decoder that records `primeGroup`s. */
+/** A backend on the recording host (ADR 0234) with a music pool of `rings` and an in-process decoder that records `primeGroup`s. */
 function musicRig(rings = 8, clips: ClipRegistry = fakeClips()) {
-  // The fake core hands each BATCH buffer straight back (`handleMessage` returns it to the pool), as the real one does,
-  // and records what it receives.
-  let link: CoreLink | null = null;
-  const posted = batchRecorder();
-  const port: LinkPort = {
-    onmessage: null,
-    postMessage: (m: unknown) => {
-      posted.receive(m);
-      if (m instanceof ArrayBuffer) link?.handleMessage(m);
-    },
-  };
-  link = new CoreLink(port);
-  let raf = 1000;
-  let ctx = 0;
-  const clock = {
-    rafTime: () => raf,
-    outputTimestamp: () => ({ contextTime: ctx, performanceTime: raf }),
-    currentTime: () => ctx,
-    dateNow: () => 1_000_000 + raf,
-    fake: true as const,
-    advance(ms: number) {
-      raf += ms;
-      ctx += ms / 1000;
-    },
-  };
   const fake = fakeDecoder(() => ({ frames: 0, channels: 1, sampleRate: 48_000, channelData: [] }));
   const primes: PrimeGroupOptions[] = [];
   const music = new Set<(r: MusicReply) => void>();
@@ -215,29 +167,24 @@ function musicRig(rings = 8, clips: ClipRegistry = fakeClips()) {
     },
   };
   const fetched: string[] = [];
-  const host: CoreBackendHost = {
-    link,
-    status: "running",
-    preset: { maxLogical: 16, limiterLookaheadMs: 1.5, maxMusicRings: rings },
-    worldCount: 1,
-    sampleRate: 48_000,
-    addLifecycleListener: ((l: HostLifecycleListener) => () => void l) as AudioHost["addLifecycleListener"],
-  };
   const dummyPort = () => ({ onmessage: null, postMessage() {} });
-  const backend = new CoreBackend(host, {
+  const r = recordingAudio({
+    mixer: "own",
+    preset: { maxLogical: 16, limiterLookaheadMs: 1.5, maxMusicRings: rings },
     clips,
-    clock,
-    mixer: new Mixer(defaultAudioSettings()),
-    streams: {
-      decoder: () => decoder as never,
-      connectWorklet: () => {},
-      channel: () => ({ worker: dummyPort(), worklet: dummyPort() }),
-      fetchBytes: async (path: string) => {
-        fetched.push(path);
-        return new ArrayBuffer(16);
+    backend: {
+      streams: {
+        decoder: () => decoder as never,
+        connectWorklet: () => {},
+        channel: () => ({ worker: dummyPort(), worklet: dummyPort() }),
+        fetchBytes: async (path: string) => {
+          fetched.push(path);
+          return new ArrayBuffer(16);
+        },
       },
     },
   });
+  const { backend, clock, posted } = r;
   const events: MusicGroupEvent[] = [];
   backend.music.onGroupEvent = (e) => events.push(e);
   /** One STATUS: every open member ring of `group` at its current epoch, primed. */
@@ -246,18 +193,12 @@ function musicRig(rings = 8, clips: ClipRegistry = fakeClips()) {
     for (const p of primes.filter((x) => x.group === group)) for (const m of p.members) out.push({ streamId: m.streamId, epochFlags: (1 << 30) | m.epoch });
     return out;
   };
-  const say = (r: MusicReply) => {
-    for (const l of music) l(r);
+  const say = (reply: MusicReply) => {
+    for (const l of music) l(reply);
   };
-  /** One STATUS block through the link, as the host's `onmessage` delivers it (the mirror and the stream manager read it). */
-  const status = (fields: Parameters<typeof makeStatusBlock>[0]) => {
-    const buffer = new ArrayBuffer(STATUS_BUFFER_BYTES);
-    writeStatus(new DataView(buffer), 0, makeStatusBlock(fields), 1);
-    link!.handleMessage(buffer);
-  };
-  /** What the backend sends from now on (decoded where the fake core receives it). */
+  /** What the backend sends from now on (decoded where the core would receive it). */
   posted.take();
-  return { backend, link, ops: backend.musicOps, clock, primes, invalidated: fake.invalidated, cancels, closes, fetched, events, ringsOf, say, status, posted };
+  return { backend, ops: backend.musicOps, clock, primes, invalidated: fake.invalidated, cancels, closes, fetched, events, ringsOf, say, status: r.status, posted };
 }
 
 const flush = async () => {
@@ -752,10 +693,12 @@ describe("a streamed music stem's voice (F-16)", () => {
 describe("a music debug row's pending change", () => {
   it("is set while the transition is pending, stamped or running (past T - L), and null once done", async () => {
     const { createMusicPlayer } = await import("../music/musicSystem");
+    const { beginTransition } = await import("../music/musicPlayer");
     const { backend } = rig();
     const player = createMusicPlayer({ group: 4, path: "m.audioevent.json" } as never, emptySegment("A"));
     const match = { rule: 1, ruleKey: "A>B", tier: 2, parent: null, exit: "nextBar", enter: "start" };
-    player.transition = { to: emptySegment("B"), match, state: "pending", exitAt: Number.NaN, cancelBy: Number.NaN, incoming: null, bridge: null, outgoing: null, after: null, immediate: null } as never;
+    const t = { to: emptySegment("B"), match, state: "pending", exitAt: Number.NaN, cancelBy: Number.NaN, incoming: null, bridge: null, outgoing: null, after: null, immediate: null } as never;
+    beginTransition(player, t);
     const pending = () => backend.debug().music![0]!.pending;
     for (const state of ["pending", "stamped", "running", "bridging"]) {
       (player.transition as { state: string }).state = state;

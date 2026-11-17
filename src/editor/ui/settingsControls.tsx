@@ -2,7 +2,7 @@
 // a list of problems, an editable list of names, and text and number fields that commit on Enter or blur.
 import type { ComponentChildren } from "preact";
 import type { SettingsProblem } from "../projectSettingsModel";
-import { useLayoutEffect, useState } from "preact/hooks";
+import { useDraftText } from "./draftText";
 import "./worlds.css"; // NumberField's worlds-number and worlds-hint
 
 export function ProblemList(props: { list: readonly string[]; label: string; warning?: boolean }) {
@@ -77,30 +77,21 @@ export function NameList(props: {
 
 /** Text that commits on Enter or blur and reverts on Escape (an empty value field clears itself after committing). */
 export function TextField(props: { value: string; label: string; class?: string; placeholder?: string; onCommit: (v: string) => void }) {
-  const [draft, setDraft] = useState(props.value);
-  useLayoutEffect(() => setDraft(props.value), [props.value]); // in the same commit: a mount effect run after paint would overwrite typing that came first
-  const commit = () => {
+  const commit = (draft: string) => {
     if (draft !== props.value) props.onCommit(draft);
     if (props.value === "") setDraft("");
   };
+  const { draft, setDraft, input } = useDraftText(props.value, commit);
   return (
     <input
       type="text"
       class={props.class}
       aria-label={props.label}
       placeholder={props.placeholder}
-      value={draft}
-      onInput={(e) => setDraft((e.currentTarget as HTMLInputElement).value)}
-      onBlur={commit}
+      {...input}
       onKeyDown={(e) => {
-        if (e.key === "Enter") {
-          if (props.value === "") commit(); // keep focus to type the next one
-          else (e.currentTarget as HTMLInputElement).blur();
-        }
-        if (e.key === "Escape") {
-          setDraft(props.value);
-          (e.currentTarget as HTMLInputElement).blur();
-        }
+        if (e.key === "Enter" && props.value === "") commit(draft); // keep focus to type the next one
+        else input.onKeyDown(e);
       }}
     />
   );
@@ -109,16 +100,14 @@ export function TextField(props: { value: string; label: string; class?: string;
 /** An optional number: empty means the default (shown as the placeholder); text that isn't a number reverts. */
 export function NumberField(props: { id: string; value: number | undefined; placeholder: string; label: string; suffix?: string; onCommit: (v: number | undefined) => void }) {
   const shown = props.value === undefined ? "" : String(props.value);
-  const [draft, setDraft] = useState(shown);
-  useLayoutEffect(() => setDraft(shown), [shown]);
-  const commit = () => {
+  const { setDraft, input } = useDraftText(shown, (draft) => {
     const text = draft.trim();
     if (text === shown) return;
     if (text === "") return props.onCommit(undefined);
     const n = Number(text);
     if (Number.isFinite(n)) props.onCommit(n);
     else setDraft(shown);
-  };
+  });
   return (
     <span class="worlds-number">
       <input
@@ -127,16 +116,7 @@ export function NumberField(props: { id: string; value: number | undefined; plac
         inputMode="decimal"
         aria-label={props.label}
         placeholder={props.placeholder}
-        value={draft}
-        onInput={(e) => setDraft((e.currentTarget as HTMLInputElement).value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur();
-          if (e.key === "Escape") {
-            setDraft(shown);
-            (e.currentTarget as HTMLInputElement).blur();
-          }
-        }}
+        {...input}
       />
       {props.suffix && <span class="worlds-hint">{props.suffix}</span>}
     </span>

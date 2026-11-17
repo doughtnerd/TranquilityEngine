@@ -1,5 +1,8 @@
 // Shader graph edits (ADR 0046): pure functions from one graph to the next, so the panel's undo
 // history is a list of graphs and every rule here is unit-tested. None of them change their input.
+// The edits every graph editor shares (properties, groups, notes, copy and paste) come from the
+// graph document (ADR 0228) through `shaderGraphEdits`, with what is the Shader Graph's own
+// plugged in; the rest (nodes, connections, keywords, sub-graph ports) are here.
 import { canConnectTypes, nodeDef, nodePorts, type ValueType } from "../../../../engine/render/shaderGraph/nodes";
 import {
   OUTPUT_NODE_TYPE,
@@ -10,7 +13,6 @@ import {
   type CustomFunction,
   type FunctionPort,
   type GraphNode,
-  type GraphNote,
   type GraphPreviewMesh,
   type GraphProperty,
   type GraphPropertyType,
@@ -22,7 +24,8 @@ import {
   parseShaderGraph,
 } from "../../../../engine/scene/shaderGraph";
 import { KEYWORD_NAME, type ShaderKeyword } from "../../../../engine/scene/shaderKeywords";
-import { readClipboard } from "../../../../editor/sdk";
+import { freeId, graphDocument } from "../../../../editor/sdk";
+import { uniqueName, type Numbering } from "../../../../engine/core/uniqueName";
 
 const clone = (g: ShaderGraph): ShaderGraph => structuredClone(g);
 
@@ -57,28 +60,6 @@ export function removeNodes(graph: ShaderGraph, ids: Iterable<string>): ShaderGr
     if (g.groups.length === 0) delete g.groups;
   }
   return g;
-}
-
-/** Copies of nodes (not the output node), `offset` away, keeping the connections between them. */
-export function duplicateNodes(graph: ShaderGraph, ids: Iterable<string>, offset: [number, number] = [30, 30]): { graph: ShaderGraph; ids: string[] } {
-  const g = clone(graph);
-  const map = new Map<string, string>();
-  const taken = new Set<string>();
-  for (const id of ids) {
-    const n = graph.nodes.find((m) => m.id === id);
-    if (!n || n.type === OUTPUT_NODE_TYPE) continue;
-    const copy: GraphNode = structuredClone(n);
-    copy.id = newNodeId(graph, n.type, taken);
-    taken.add(copy.id);
-    copy.position = [n.position[0] + offset[0], n.position[1] + offset[1]];
-    map.set(id, copy.id);
-    g.nodes.push(copy);
-  }
-  for (const e of graph.edges) {
-    const from = splitPortRef(e.from), to = splitPortRef(e.to);
-    if (map.has(from.node) && map.has(to.node)) g.edges.push({ from: portRef(map.get(from.node)!, from.port), to: portRef(map.get(to.node)!, to.port) });
-  }
-  return { graph: g, ids: [...map.values()] };
 }
 
 /** Move nodes to new positions (rounded to whole pixels). */
@@ -191,55 +172,6 @@ export function setGraphOptions(graph: ShaderGraph, patch: Partial<Pick<ShaderGr
 
 const TYPE_LABELS: Record<GraphPropertyType, string> = { float: "Float", vector2: "Vector2", vector3: "Vector3", vector4: "Vector4", color: "Color", texture: "Texture" };
 
-/** A property name the graph doesn't use: `Color`, `Color 2`… */
-function freePropertyName(graph: ShaderGraph, base: string): string {
-  if (!graph.properties.some((p) => p.name === base)) return base;
-  for (let i = 2; ; i++) if (!graph.properties.some((p) => p.name === `${base} ${i}`)) return `${base} ${i}`;
-}
-
-/** Add a property of `type` with its default value. */
-export function addProperty(graph: ShaderGraph, type: GraphPropertyType): { graph: ShaderGraph; name: string } {
-  const name = freePropertyName(graph, TYPE_LABELS[type]);
-  const g = clone(graph);
-  g.properties.push({ name, type, value: defaultPropertyValue(type) });
-  return { graph: g, name };
-}
-
-/** Why a property can't be renamed to `name`, or null. */
-export function whyNotPropertyName(graph: ShaderGraph, from: string, name: string): string | null {
-  if (!name.trim()) return "a property needs a name";
-  if (name !== name.trim()) return "a name can't start or end with a space";
-  if (name !== from && graph.properties.some((p) => p.name === name)) return `there's already a property named "${name}"`;
-  return null;
-}
-
-/** Rename a property, and the property nodes reading it. */
-export function renameProperty(graph: ShaderGraph, from: string, to: string): ShaderGraph {
-  if (from === to || whyNotPropertyName(graph, from, to)) return graph;
-  const g = clone(graph);
-  const p = g.properties.find((q) => q.name === from);
-  if (!p) return graph;
-  p.name = to;
-  for (const n of g.nodes) if (n.type === "property" && n.settings?.property === from) n.settings = { ...n.settings, property: to };
-  return g;
-}
-
-/** Remove a property and the property nodes reading it. */
-export function removeProperty(graph: ShaderGraph, name: string): ShaderGraph {
-  const g = clone(graph);
-  g.properties = g.properties.filter((p) => p.name !== name);
-  return removeNodes(g, g.nodes.filter((n) => n.type === "property" && n.settings?.property === name).map((n) => n.id));
-}
-
-/** Set a property's default value. */
-export function setPropertyValue(graph: ShaderGraph, name: string, value: GraphValue): ShaderGraph {
-  const g = clone(graph);
-  const p = g.properties.find((q) => q.name === name);
-  if (!p) return graph;
-  p.value = Array.isArray(value) ? [...value] : value;
-  return g;
-}
-
 /** Change a property's type (its value goes back to the type's default). */
 export function setPropertyType(graph: ShaderGraph, name: string, type: GraphPropertyType): ShaderGraph {
   const g = clone(graph);
@@ -250,24 +182,12 @@ export function setPropertyType(graph: ShaderGraph, name: string, type: GraphPro
   return dropInvalidEdges(g);
 }
 
-/** Move a property up or down the Blackboard. */
-export function moveProperty(graph: ShaderGraph, name: string, delta: -1 | 1): ShaderGraph {
-  const i = graph.properties.findIndex((p) => p.name === name);
-  const j = i + delta;
-  if (i < 0 || j < 0 || j >= graph.properties.length) return graph;
-  const g = clone(graph);
-  [g.properties[i], g.properties[j]] = [g.properties[j], g.properties[i]];
-  return g;
-}
-
 // --- keywords (ADR 0106) ----------------------------------------------------------------------------
 
 /** A keyword name the graph doesn't use: `KEYWORD`, `KEYWORD_2`… */
-function freeKeywordName(graph: ShaderGraph, base = "KEYWORD"): string {
-  const taken = (n: string) => (graph.keywords ?? []).some((k) => k.name === n);
-  if (!taken(base)) return base;
-  for (let i = 2; ; i++) if (!taken(`${base}_${i}`)) return `${base}_${i}`;
-}
+/** `KEYWORD`, `KEYWORD_2`…: a keyword stays a GLSL-style identifier. */
+const UNDERSCORED: Numbering = { format: (stem, n) => `${stem}_${n}`, first: 2 };
+const freeKeywordName = (graph: ShaderGraph, base = "KEYWORD"): string => uniqueName(base, (graph.keywords ?? []).map((k) => k.name), UNDERSCORED);
 
 /** Add an on/off keyword. */
 export function addKeyword(graph: ShaderGraph): { graph: ShaderGraph; name: string } {
@@ -340,7 +260,7 @@ export function firstOutputFor(nodeType: string, type: ValueType | "dynamic", gr
   return ports.outputs.find((p) => canConnectTypes(p.type, type))?.id ?? null;
 }
 
-// --- copy and paste (ADR 0048) ----------------------------------------------------------------------
+// --- the graph document: properties, groups, notes, copy and paste (ADR 0228, 0048) ---------------------
 
 const CLIPBOARD_FORMAT = "myco.shadergraph.clipboard@1";
 
@@ -354,136 +274,90 @@ export interface GraphClipboard {
   keywords?: ShaderKeyword[];
 }
 
-/** Copy nodes (not the output node) with the connections between them and the properties they read. */
-export function copyNodes(graph: ShaderGraph, ids: Iterable<string>): GraphClipboard | null {
-  const picked = new Set([...ids].filter((id) => graph.nodes.some((n) => n.id === id && n.type !== OUTPUT_NODE_TYPE)));
-  if (picked.size === 0) return null;
-  const nodes = graph.nodes.filter((n) => picked.has(n.id)).map((n) => structuredClone(n));
-  const used = new Set(nodes.filter((n) => n.type === "property").map((n) => n.settings?.property));
-  const usedKeywords = new Set(nodes.filter((n) => n.type === "keyword").map((n) => n.settings?.keyword));
-  const keywords = (graph.keywords ?? []).filter((k) => usedKeywords.has(k.name)).map((k) => structuredClone(k));
-  return {
+/**
+ * The Shader Graph's graph document edits. Its canvas items are its nodes; the output node can't be
+ * removed, copied or duplicated. Groups and notes are left out of the file when there are none. A
+ * copy takes the properties and keywords its nodes read, and a paste adds those the graph lacks.
+ */
+export const shaderGraphEdits = graphDocument<ShaderGraph, GraphNode, GraphProperty, GraphClipboard>({
+  items: (g) => g.nodes.map((n) => n.id),
+  remove: removeNodes,
+  newId: (g, of) => (of === "group" ? freeId("group", (id) => !!g.groups?.some((x) => x.id === id)) : freeId("note", (id) => !!g.notes?.some((x) => x.id === id))),
+  groups: {
+    get: (g) => (g.groups ?? []).map((gr) => ({ id: gr.id, title: gr.title, members: gr.nodes })),
+    set(g, list) {
+      if (list.length) g.groups = list.map((gr) => ({ id: gr.id, title: gr.title, nodes: gr.members }));
+      else delete g.groups;
+    },
+  },
+  notes: {
+    get: (g) => g.notes ?? [],
+    set(g, list) {
+      if (list.length) g.notes = list;
+      else delete g.notes;
+    },
+  },
+  property: {
+    label: (type) => TYPE_LABELS[type],
+    create: (name, type) => ({ name, type, value: defaultPropertyValue(type) }),
+    reads: (n, name) => n.type === "property" && n.settings?.property === name,
+    retarget: (n, name) => void (n.settings = { ...n.settings, property: name }),
+  },
+  clipboard: {
     format: CLIPBOARD_FORMAT,
-    ...(keywords.length ? { keywords } : {}),
-    nodes,
-    edges: graph.edges.filter((e) => picked.has(splitPortRef(e.from).node) && picked.has(splitPortRef(e.to).node)).map((e) => ({ ...e })),
-    properties: graph.properties.filter((p) => used.has(p.name)).map((p) => structuredClone(p)),
-  };
-}
-
-/**
- * The copied nodes in system clipboard text (ADR 0226), or null if it holds none. They must be well
- * formed: read as a graph file's nodes, edges, properties and keywords would be, with no problems.
- */
-export function graphClipboardFromText(text: string): GraphClipboard | null {
-  const raw = readClipboard<GraphClipboard>(text, CLIPBOARD_FORMAT, (v) => Array.isArray((v as GraphClipboard).nodes) && (v as GraphClipboard).nodes.length > 0);
-  if (!raw) return null;
-  try {
-    const { graph, problems } = parseShaderGraph({ format: SHADER_GRAPH_FORMAT, nodes: raw.nodes, edges: raw.edges ?? [], properties: raw.properties ?? [], keywords: raw.keywords });
-    const nodes = graph.nodes.filter((n) => n.type !== OUTPUT_NODE_TYPE);
-    if (problems.length || nodes.length !== raw.nodes.length) return null;
-    return { format: CLIPBOARD_FORMAT, ...(graph.keywords?.length ? { keywords: graph.keywords } : {}), nodes, edges: graph.edges, properties: graph.properties };
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Paste copied nodes with new ids, their top-left corner at `at`, keeping their connections;
- * properties they read that the graph lacks are added.
- */
-export function pasteNodes(graph: ShaderGraph, clip: GraphClipboard, at: [number, number]): { graph: ShaderGraph; ids: string[] } {
-  const g = clone(graph);
-  for (const p of clip.properties ?? []) if (!g.properties.some((q) => q.name === p.name)) g.properties.push(structuredClone(p));
-  for (const k of clip.keywords ?? []) if (!g.keywords?.some((q) => q.name === k.name)) g.keywords = [...(g.keywords ?? []), structuredClone(k)];
-  const x0 = Math.min(...clip.nodes.map((n) => n.position[0])), y0 = Math.min(...clip.nodes.map((n) => n.position[1]));
-  const map = new Map<string, string>();
-  const taken = new Set<string>();
-  for (const n of clip.nodes) {
-    if (n.type === OUTPUT_NODE_TYPE) continue;
-    const copy = structuredClone(n);
-    copy.id = newNodeId(g, n.type, taken);
-    taken.add(copy.id);
-    copy.position = [Math.round(at[0] + n.position[0] - x0), Math.round(at[1] + n.position[1] - y0)];
-    map.set(n.id, copy.id);
-    g.nodes.push(copy);
-  }
-  for (const e of clip.edges) {
-    const from = splitPortRef(e.from), to = splitPortRef(e.to);
-    if (map.has(from.node) && map.has(to.node)) g.edges.push({ from: portRef(map.get(from.node)!, from.port), to: portRef(map.get(to.node)!, to.port) });
-  }
-  return { graph: dropInvalidEdges(g), ids: [...map.values()] };
-}
-
-// --- groups and notes -------------------------------------------------------------------------------
-
-const newId = (prefix: string, taken: readonly { id: string }[]) => {
-  for (let i = 1; ; i++) if (!taken.some((t) => t.id === `${prefix}${i}`)) return `${prefix}${i}`;
-};
-
-/** Put nodes in a new group (taking them out of any other). */
-export function groupNodes(graph: ShaderGraph, ids: Iterable<string>, title = "Group"): { graph: ShaderGraph; id: string | null } {
-  const members = [...ids].filter((id) => graph.nodes.some((n) => n.id === id));
-  if (members.length === 0) return { graph, id: null };
-  const g = clone(graph);
-  const groups = (g.groups ?? []).map((gr) => ({ ...gr, nodes: gr.nodes.filter((id) => !members.includes(id)) })).filter((gr) => gr.nodes.length > 0);
-  const id = newId("group", graph.groups ?? []);
-  groups.push({ id, title, nodes: members });
-  g.groups = groups;
-  return { graph: g, id };
-}
-
-/** Remove a group (its nodes stay). */
-export function ungroup(graph: ShaderGraph, id: string): ShaderGraph {
-  if (!graph.groups?.some((gr) => gr.id === id)) return graph;
-  const g = clone(graph);
-  g.groups = g.groups!.filter((gr) => gr.id !== id);
-  if (g.groups.length === 0) delete g.groups;
-  return g;
-}
-
-export function setGroupTitle(graph: ShaderGraph, id: string, title: string): ShaderGraph {
-  const g = clone(graph);
-  const gr = g.groups?.find((x) => x.id === id);
-  if (!gr || gr.title === title) return graph;
-  gr.title = title;
-  return g;
-}
-
-/** Add a sticky note at `position`. */
-export function addNote(graph: ShaderGraph, position: [number, number], text = ""): { graph: ShaderGraph; id: string } {
-  const g = clone(graph);
-  const id = newId("note", graph.notes ?? []);
-  (g.notes ??= []).push({ id, position: [Math.round(position[0]), Math.round(position[1])], size: [200, 100], text });
-  return { graph: g, id };
-}
-
-/** Change a note's text, position or size. */
-export function updateNote(graph: ShaderGraph, id: string, patch: Partial<Omit<GraphNote, "id">>): ShaderGraph {
-  const g = clone(graph);
-  const n = g.notes?.find((x) => x.id === id);
-  if (!n) return graph;
-  if (patch.text !== undefined) n.text = patch.text;
-  if (patch.position) n.position = [Math.round(patch.position[0]), Math.round(patch.position[1])];
-  if (patch.size) n.size = [Math.max(80, Math.round(patch.size[0])), Math.max(40, Math.round(patch.size[1]))];
-  return JSON.stringify(n) === JSON.stringify(graph.notes!.find((x) => x.id === id)) ? graph : g;
-}
-
-export function removeNote(graph: ShaderGraph, id: string): ShaderGraph {
-  if (!graph.notes?.some((n) => n.id === id)) return graph;
-  const g = clone(graph);
-  g.notes = g.notes!.filter((n) => n.id !== id);
-  if (g.notes.length === 0) delete g.notes;
-  return g;
-}
+    copy(graph, ids) {
+      const picked = new Set([...ids].filter((id) => graph.nodes.some((n) => n.id === id && n.type !== OUTPUT_NODE_TYPE)));
+      if (picked.size === 0) return null;
+      const nodes = graph.nodes.filter((n) => picked.has(n.id)).map((n) => structuredClone(n));
+      const used = new Set(nodes.filter((n) => n.type === "property").map((n) => n.settings?.property));
+      const usedKeywords = new Set(nodes.filter((n) => n.type === "keyword").map((n) => n.settings?.keyword));
+      const keywords = (graph.keywords ?? []).filter((k) => usedKeywords.has(k.name)).map((k) => structuredClone(k));
+      return {
+        ...(keywords.length ? { keywords } : {}),
+        nodes,
+        edges: graph.edges.filter((e) => picked.has(splitPortRef(e.from).node) && picked.has(splitPortRef(e.to).node)).map((e) => ({ ...e })),
+        properties: graph.properties.filter((p) => used.has(p.name)).map((p) => structuredClone(p)),
+      };
+    },
+    // Well formed: read as a graph file's nodes, edges, properties and keywords would be, with no problems.
+    read(raw) {
+      if (!Array.isArray(raw.nodes) || raw.nodes.length === 0) return null;
+      const { graph, problems } = parseShaderGraph({ format: SHADER_GRAPH_FORMAT, nodes: raw.nodes, edges: raw.edges ?? [], properties: raw.properties ?? [], keywords: raw.keywords });
+      const nodes = graph.nodes.filter((n) => n.type !== OUTPUT_NODE_TYPE);
+      if (problems.length || nodes.length !== raw.nodes.length) return null;
+      return { format: CLIPBOARD_FORMAT, ...(graph.keywords?.length ? { keywords: graph.keywords } : {}), nodes, edges: graph.edges, properties: graph.properties };
+    },
+    positions: (clip) => clip.nodes.map((n) => n.position),
+    paste(g, clip, by) {
+      for (const p of clip.properties ?? []) if (!g.properties.some((q) => q.name === p.name)) g.properties.push(structuredClone(p));
+      for (const k of clip.keywords ?? []) if (!g.keywords?.some((q) => q.name === k.name)) g.keywords = [...(g.keywords ?? []), structuredClone(k)];
+      const map = new Map<string, string>();
+      const taken = new Set<string>();
+      for (const n of clip.nodes) {
+        if (n.type === OUTPUT_NODE_TYPE) continue;
+        const copy = structuredClone(n);
+        copy.id = newNodeId(g, n.type, taken);
+        taken.add(copy.id);
+        copy.position = [Math.round(n.position[0] + by[0]), Math.round(n.position[1] + by[1])];
+        map.set(n.id, copy.id);
+        g.nodes.push(copy);
+      }
+      for (const e of clip.edges) {
+        const from = splitPortRef(e.from), to = splitPortRef(e.to);
+        if (map.has(from.node) && map.has(to.node)) g.edges.push({ from: portRef(map.get(from.node)!, from.port), to: portRef(map.get(to.node)!, to.port) });
+      }
+      dropInvalidEdges(g);
+      return [...map.values()];
+    },
+  },
+});
 
 // --- sub-graph outputs and custom functions -----------------------------------------------------------
 
 /** A port name not in `names`: `Out`, `Out2`… */
-export function freePortName(names: readonly string[], base: string): string {
-  if (!names.includes(base)) return base;
-  for (let i = 2; ; i++) if (!names.includes(`${base}${i}`)) return `${base}${i}`;
-}
+/** `Out`, `Out2`…: a port name stays an identifier. */
+const JOINED: Numbering = { format: (stem, n) => `${stem}${n}`, first: 2 };
+export const freePortName = (names: readonly string[], base: string): string => uniqueName(base, names, JOINED);
 
 /** Why `name` can't name a port among `others`, or null. */
 export function whyNotPortName(name: string, others: readonly string[]): string | null {

@@ -9,7 +9,9 @@ import { openSceneFile } from "./project";
 import { editorSettings, joinPath, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
 import { replaceScripts } from "./scriptLoader";
 import { currentProject, openScene, sceneCamera, status } from "./state";
-import { MemoryFileSystem, ROOT, demoFolder } from "./testing";
+import { MemoryFileSystem, ROOT, demoFolder, useCoreAssetKinds } from "./testing";
+
+useCoreAssetKinds();
 
 let fs: MemoryFileSystem;
 let project: EditorProject;
@@ -36,7 +38,7 @@ afterEach(async () => {
 });
 
 describe("names", () => {
-  it("splits extensions, counting .scene.json and .prefab.json as one", () => {
+  it("splits extensions, counting a kind's compound extension (.prefab.json) as one", () => {
     expect(splitExtension("bird.png")).toEqual(["bird", ".png"]);
     expect(splitExtension("pipe-pair.prefab.json")).toEqual(["pipe-pair", ".prefab.json"]);
     expect(splitExtension("README")).toEqual(["README", ""]);

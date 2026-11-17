@@ -94,7 +94,7 @@ test("closing a tab with unsaved changes asks first", async ({ page }) => {
   await expect(page.locator(".panel.hierarchy")).toContainText("No scene open");
 });
 
-test("New Scene in the Assets panel writes a scene with a camera and opens it; Save saves the active tab", async ({ page }) => {
+test("New Scene in the Assets panel writes a scene with a camera in scenes/ (the kind's folder, ADR 0233) and opens it; Save saves the active tab", async ({ page }) => {
   await openProject(page);
   const empty = (await assets(page).locator(".asset-items").boundingBox())!;
   await page.mouse.click(empty.x + empty.width - 10, empty.y + empty.height - 10, { button: "right" });
@@ -102,7 +102,7 @@ test("New Scene in the Assets panel writes a scene with a camera and opens it; S
   await expect.poll(() => tabs(page)).toEqual(["main.scene.json", "New Scene.scene.json"]); // the scene kind's creator loads on first use
   await expect(page.locator(".scene-name")).toHaveText("New Scene.scene.json");
   await expect(row(page, "camera")).toHaveCount(1);
-  const text = await page.evaluate(() => (window as unknown as Hooks).testFolder.read("New Scene.scene.json"));
+  const text = await page.evaluate(() => (window as unknown as Hooks).testFolder.read("scenes/New Scene.scene.json"));
   expect(JSON.parse(text!)).toMatchObject({ format: "myco.scene@1", nodes: [{ id: "camera", components: [{ type: "engine.Transform" }, { type: "engine.Camera" }] }] });
 
   // The clipboard survives switching scenes: copy Bird from the main scene, paste it here.
@@ -117,7 +117,7 @@ test("New Scene in the Assets panel writes a scene with a camera and opens it; S
 
   await page.keyboard.press("ControlOrMeta+s");
   await expect(tab(page, "New Scene")).not.toContainText("•");
-  const saved = await page.evaluate(() => (window as unknown as Hooks).testFolder.read("New Scene.scene.json"));
+  const saved = await page.evaluate(() => (window as unknown as Hooks).testFolder.read("scenes/New Scene.scene.json"));
   expect(saved).toContain('"bird"');
   expect(await page.evaluate(() => (window as unknown as Hooks).testFolder.read("scenes/main.scene.json"))).not.toContain('"bird-2"');
 });

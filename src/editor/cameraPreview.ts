@@ -30,8 +30,6 @@ export function installSceneView(engine: Engine): () => void {
   });
   const stopPreview = effect(() => viewport(world).setCameraPreview(previewCamera.value?.getBehavior(Camera) ?? null, previewFrame.value));
   const stopKeys = typeof window === "undefined" ? () => {} : installSceneToolKeys(window);
-  // Debug and end-to-end test hooks.
-  if (typeof window !== "undefined") Object.assign(window, { sceneView: { grid: () => viewport(world).grid(), previewDrawn: () => viewport(world).drawn().cameraPreview } });
   return () => {
     stopGrid();
     stopPreview();

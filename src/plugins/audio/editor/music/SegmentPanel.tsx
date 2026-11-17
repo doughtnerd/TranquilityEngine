@@ -7,7 +7,7 @@
 //
 // Interpretations: solo and mute are audition-only editor state (`stemAudition.ts`), never written to the asset. Tap tempo is the median interval of the current run (`tempoTools.ts`).
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
-import { editor, openAssetDocument, registerAssetDropTarget, Panel } from "../../../../editor/sdk";
+import { editor, openAssetDocument, registerAssetDropTarget, useDraftText, Panel } from "../../../../editor/sdk";
 import type { AudioEventAsset } from "../../../../engine/audio/eventFormat";
 import {
   BEAT_UNITS, MAX_BPM, MIN_BPM, MUSIC_LIMITS, TRACK_PICKS, type MusicRegion, type SegmentNode, type TrackPick,
@@ -118,25 +118,15 @@ type Apply = (e: Edit, label: string) => boolean;
 /** A number that commits on Enter or blur, reverts on Escape; a refused edit puts the old value back. */
 function Num(props: { label: string; value: number; onCommit: (n: number) => void; suffix?: string; narrow?: boolean; disabled?: boolean }) {
   const shown = String(props.value);
-  const [draft, setDraft] = useState(shown);
-  useEffect(() => setDraft(shown), [shown]);
-  const commit = () => {
+  const { setDraft, input } = useDraftText(shown, (draft) => {
     const n = Number(draft);
     if (draft.trim() === shown) return;
     if (draft.trim() !== "" && Number.isFinite(n)) props.onCommit(n);
     setDraft(shown);
-  };
+  });
   return (
     <span class="sp-num">
-      <input
-        type="text" inputMode="decimal" aria-label={props.label} class={props.narrow ? "narrow" : ""} value={draft} disabled={props.disabled}
-        onInput={(e) => setDraft((e.currentTarget as HTMLInputElement).value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur();
-          if (e.key === "Escape") { setDraft(shown); (e.currentTarget as HTMLInputElement).blur(); }
-        }}
-      />
+      <input type="text" inputMode="decimal" aria-label={props.label} class={props.narrow ? "narrow" : ""} disabled={props.disabled} {...input} />
       {props.suffix && <span class="sp-suffix">{props.suffix}</span>}
     </span>
   );
@@ -144,23 +134,11 @@ function Num(props: { label: string; value: number; onCommit: (n: number) => voi
 
 /** Text that commits on Enter or blur and reverts on Escape. */
 function Txt(props: { label: string; value: string; onCommit: (s: string) => void; disabled?: boolean; narrow?: boolean; placeholder?: string }) {
-  const [draft, setDraft] = useState(props.value);
-  useEffect(() => setDraft(props.value), [props.value]);
-  const commit = () => {
+  const { setDraft, input } = useDraftText(props.value, (draft) => {
     if (draft !== props.value) props.onCommit(draft);
     setDraft(props.value);
-  };
-  return (
-    <input
-      type="text" aria-label={props.label} class={props.narrow ? "narrow" : ""} value={draft} disabled={props.disabled} placeholder={props.placeholder}
-      onInput={(e) => setDraft((e.currentTarget as HTMLInputElement).value)}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur();
-        if (e.key === "Escape") { setDraft(props.value); (e.currentTarget as HTMLInputElement).blur(); }
-      }}
-    />
-  );
+  });
+  return <input type="text" aria-label={props.label} class={props.narrow ? "narrow" : ""} disabled={props.disabled} placeholder={props.placeholder} {...input} />;
 }
 
 function TempoSection(props: { segment: SegmentNode; peaks: PeaksService; version: number; readOnly: boolean; apply: Apply }) {

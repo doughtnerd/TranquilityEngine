@@ -14,6 +14,7 @@
 import { blockDef, defaultBlock, type BlockInputDef } from "../../../../engine/scene/particleBlocks";
 import type { ContextKind, GraphBlock, GraphEdge, GraphInputValue, GraphNode, GraphProblem, ParticleGraph, Vec2 } from "../../../../engine/scene/particleGraph";
 import { newGraphId } from "../../../../engine/scene/particleGraphFormat";
+import { uniqueName } from "../../../../engine/core/uniqueName";
 import { nodeDef, type NodeDef, type PortDef, type PortType } from "../../../../engine/scene/particleNodes";
 import {
   BLOCK_FORMAT,
@@ -328,10 +329,7 @@ export function whyNotPortName(graph: ParticleGraph, id: string, name: string): 
 
 /** A free port name for a new Input or Output node: `base`, else `base 2`… */
 export function freePortName(graph: ParticleGraph, type: string, base: string): string {
-  const taken = new Set(graph.nodes.filter((n) => n.type === type).map((n) => portNameOf(n, "")));
-  let name = base;
-  for (let k = 2; taken.has(name); k++) name = `${base} ${k}`;
-  return name;
+  return uniqueName(base, graph.nodes.filter((n) => n.type === type).map((n) => portNameOf(n, "")));
 }
 
 /** Add an Input, Output or block pseudo-node (`settings.block` names the block type). */

@@ -15,7 +15,7 @@
 import { ClockMap } from "../../core/clock";
 import type { HostClock, OutputTimestamp } from "../../core/hostClock";
 import type { TempoMarker } from "../../../../../engine/audio/musicFormat";
-import { anchorRun } from "../anchors";
+import { adoptSuccessor, promote } from "../musicPlayer";
 import type { MusicPlayer } from "../musicSystem";
 import { drive, musicSegment, playingRun, stampedRun, type Fired } from "./beatRig";
 import recorded from "./traces/s3-interactive-60s.json";
@@ -228,15 +228,13 @@ export function runScenario(tr: JitterTrace, clock = replayClock(tr)): { fired: 
     // Step 9 of the previous frame: a successor heard by then is promoted (as the planner, playlist and transition do).
     const next = player?.next;
     if (player && next && i > 0 && clock.time[i - 1]! >= next.startAt - 1e-6) {
-      player.run = next;
-      player.anchor = anchorRun(next, next.startAt);
-      player.next = null;
+      promote(player, next, next.startAt);
     }
     // Main learns of an epoch (stamped, or an asap seek's STATUS confirmation in the recorded run).
     while (known < tr.scenario.epochs.length && tr.p[i]! >= tr.scenario.epochs[known]!.knownAt) {
       const e = tr.scenario.epochs[known]!;
       if (!player) player = playingRun(nodes[known]!, 0, e.start).player;
-      else player.next = stampedRun(player, nodes[known]!, 0, e.start, 10 + known);
+      else adoptSuccessor(player, stampedRun(player, nodes[known]!, 0, e.start, 10 + known));
       known++;
     }
     if (player) for (const f of drive(player, [{ now: clock.time[i]!, interval: clock.interval[i]! }])) fired.push({ ...f, frame: i });

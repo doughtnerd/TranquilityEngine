@@ -5,17 +5,21 @@ import { AudioReverbZone, Engine } from "../../../myco";
 import { AddComponent } from "../../../editor/document";
 import { createNode } from "../../../editor/nodeCreate";
 import { openSceneFile } from "../../../editor/project";
-import { viewportTools } from "../../../editor/sdk/contributions";
-import { SetField } from "../../../editor/document";
-import { activateViewportTool, activeViewportTool, openScene, pickTool, playState, selection } from "../../../editor/state";
+import { editor, SetField, viewportTools } from "../../../editor/sdk";
 import { DEMO_SCENE, demoAssets, demoSettings, sceneViewTools, type SceneViewCanvas } from "../../../editor/testing";
-import { shownEditorOverlays, type EditorOverlay } from "../../../engine/editor";
+import type { EditorOverlay } from "../../../engine/editor";
 import type { FakeRenderSurface } from "../../../engine/render/fakeViewport";
-import { ZONE_TYPE, editingZone, zoneTool } from "./AudioReverbZoneGizmo";
+import { ZONE_TYPE, zoneTool, type EditingZone } from "./AudioReverbZoneGizmo";
 import { editZoneAction } from "./EditZoneButton";
 
 const close = (a: readonly number[], b: readonly number[]) => a.forEach((v, i) => expect(v).toBeCloseTo(b[i]!, 6));
 const ZONE_TOOL_ID = zoneTool.id;
+/** The zone being edited: the zone tool's mode. */
+const editing = () => editor.viewport.mode<EditingZone>(ZONE_TOOL_ID).value;
+/** Edit a zone, as the Edit Zone button does. */
+const editZone = (zone: EditingZone) => editor.viewport.enter(ZONE_TOOL_ID, zone);
+const select = (key: string | null) => editor.scene.selection.set(key ? [key] : []);
+const escape = (target: EventTarget) => target.dispatchEvent(Object.assign(new Event("keydown", { cancelable: true }), { key: "Escape" }));
 
 describe("the reverb zone tool", () => {
   let engine: Engine;
@@ -24,28 +28,28 @@ describe("the reverb zone tool", () => {
   /** The canvas the tool host listens on: pointer events are dispatched to it, at client = canvas coordinates. */
   let canvas: SceneViewCanvas;
   let drawn: () => EditorOverlay;
+  /** Where the tool host listens for keys. */
+  let keys: EventTarget;
   /** What the zone tool draws this frame. */
   const zoneOverlay = (): EditorOverlay => drawn();
-  const zoneOverlayShown = () => shownEditorOverlays(engine.world).includes(ZONE_TOOL_ID);
 
   beforeEach(async () => {
     engine = await Engine.create({ headless: true, kind: "editor", project: demoSettings(), assets: demoAssets() });
     openSceneFile(engine, DEMO_SCENE);
-    playState.value = "edit";
     // The fake surface's fixed camera looks along +z: the canvas point (400 + 100x, 300 - 100y) is the world point (x, y).
     const off = viewportTools.register(zoneTool);
     const view = sceneViewTools(engine);
     surface = view.surface;
     canvas = view.canvas;
     drawn = view.overlay;
+    keys = view.window;
     dispose = () => (view.stop(), off());
   });
 
   afterEach(() => {
     dispose();
-    editingZone.value = null;
-    selection.value = null;
-    activateViewportTool(null);
+    editor.viewport.leave(ZONE_TOOL_ID);
+    select(null);
     engine.dispose();
   });
 
@@ -67,8 +71,8 @@ describe("the reverb zone tool", () => {
   const world = (x: number, y: number): Pointer => ({ x: 400 + 100 * x, y: 300 - 100 * y });
   /** Select a zone's node and edit its zone (the Edit zone button does this). */
   const edit = (id: string) => {
-    selection.value = id;
-    editingZone.value = { key: id, index: 0 };
+    select(id);
+    editZone({ key: id, index: 0 });
   };
 
   /** The zone as the live scene has it now: undo and redo rebuild the node, so a held reference goes stale. */
@@ -76,7 +80,7 @@ describe("the reverb zone tool", () => {
 
   /** A node at the origin with a zone: a 4 x 2 x 6 box (blend 2) or a radius 5 sphere. */
   function zoneNode(data: Record<string, unknown> = {}) {
-    const scene = openScene.value!;
+    const scene = editor.scene.peekOpen()!;
     const id = createNode(scene, "empty", { position: [0, 0, 0] });
     scene.stack.execute(new AddComponent(id, { type: ZONE_TYPE, data: { size: [4, 2, 6], blendDistance: 2, ...data } }));
     const node = scene.sync.nodeFor(id)!;
@@ -84,11 +88,10 @@ describe("the reverb zone tool", () => {
   }
 
   it("registers its overlay, and draws every zone: bright when selected, dim when not", () => {
-    expect(zoneOverlayShown()).toBe(true);
     const { id } = zoneNode();
     const dim = zoneOverlay();
     expect(dim.lines.length).toBe(12 + 3); // twelve box edges, three shell loops
-    selection.value = id;
+    select(id);
     const bright = zoneOverlay();
     expect(bright.lines.length).toBe(15);
     expect(bright.lines[0]!.color).not.toBe(dim.lines[0]!.color);
@@ -104,8 +107,8 @@ describe("the reverb zone tool", () => {
 
   it("shows the face handles and the blend handle while editing, and the rim handles for a sphere", () => {
     const box = zoneNode();
-    selection.value = box.id;
-    editingZone.value = { key: box.id, index: 0 };
+    select(box.id);
+    editZone({ key: box.id, index: 0 });
     const handles = zoneOverlay().handles;
     expect(handles.map((h) => h.id).sort()).toEqual(["blend", "x+", "x-", "y+", "y-", "z+", "z-"]);
     close(handles.find((h) => h.id === "x+")!.position, [2, 0, 0]);
@@ -113,8 +116,8 @@ describe("the reverb zone tool", () => {
     box.scene.stack.execute(new SetField(box.id, ZONE_TYPE, "size", [8, 2, 6]));
     close(zoneOverlay().handles.find((h) => h.id === "x+")!.position, [4, 0, 0]); // follows the field
     const sphere = zoneNode({ shape: "sphere" });
-    selection.value = sphere.id;
-    editingZone.value = { key: sphere.id, index: 0 };
+    select(sphere.id);
+    editZone({ key: sphere.id, index: 0 });
     expect(zoneOverlay().handles.map((h) => h.id).sort()).toEqual(["blend", "radius:x+", "radius:x-", "radius:y+", "radius:y-", "radius:z+", "radius:z-"]);
   });
 
@@ -137,7 +140,7 @@ describe("the reverb zone tool", () => {
     expect(live(scene, id).center.x).toBeCloseTo(1.5, 6);
   });
 
-  it("moves both faces with Alt, and a cancelled drag still closes its undo group", () => {
+  it("moves both faces with Alt, and a cancelled drag still closes its undo step", () => {
     const { scene, id, zone } = zoneNode();
     edit(id);
     pointer("pointerdown", handleAt("x+"));
@@ -199,36 +202,49 @@ describe("the reverb zone tool", () => {
     expect(turned.size.z).toBeCloseTo(7, 6);
   });
 
+  it("puts a drag back on Escape, recording nothing, and keeps editing", () => {
+    const { scene, id, zone } = zoneNode();
+    edit(id);
+    const undo = scene.stack.undoLabel;
+    pointer("pointerdown", handleAt("x+"));
+    pointer("pointermove", world(5, 0));
+    expect(zone.size.x).toBeCloseTo(7, 6);
+    escape(keys);
+    expect(live(scene, id).size.x).toBeCloseTo(4, 6);
+    expect(scene.stack.undoLabel).toBe(undo);
+    expect(editing()).toEqual({ key: id, index: 0 });
+  });
+
   it("is active exactly while a zone is edited", () => {
     const { id } = zoneNode();
-    selection.value = id;
-    editingZone.value = { key: id, index: 0 };
-    expect(activeViewportTool.value).toBe(ZONE_TOOL_ID);
-    pickTool("move"); // a transform tool ends editing
-    expect(editingZone.value).toBeNull();
-    editingZone.value = { key: id, index: 0 };
-    activateViewportTool("another.tool");
-    expect(editingZone.value).toBeNull();
-    editingZone.value = { key: id, index: 0 };
-    selection.value = null; // and selecting another node
-    expect(editingZone.value).toBeNull();
-    expect(activeViewportTool.value).toBeNull();
+    select(id);
+    editZone({ key: id, index: 0 });
+    expect(editor.viewport.activeTool).toBe(ZONE_TOOL_ID);
+    escape(keys); // Escape ends editing
+    expect(editing()).toBeNull();
+    editZone({ key: id, index: 0 });
+    editor.viewport.enter("another.tool", null); // so does another tool
+    expect(editing()).toBeNull();
+    editZone({ key: id, index: 0 });
+    select(null); // and selecting another node
+    expect(editing()).toBeNull();
+    expect(editor.viewport.activeTool).toBeNull();
   });
 
   it("ends editing when the edited zone is removed from its card, and when uninstalled", () => {
     const { id } = zoneNode();
-    selection.value = id;
-    const editing = { key: id, index: 0 };
-    editingZone.value = editing;
+    select(id);
+    const zone = { key: id, index: 0 };
+    editZone(zone);
     const info = { type: ZONE_TYPE, index: 0 } as Parameters<NonNullable<typeof editZoneAction.onRemove>>[0]["info"];
     editZoneAction.onRemove!({ scene: null!, paths: [[id]], info: { ...info, index: 1 } }); // another zone: no change
-    expect(editingZone.value).toEqual(editing);
+    expect(editing()).toEqual(zone);
     editZoneAction.onRemove!({ scene: null!, paths: [[id]], info });
-    expect(editingZone.value).toBeNull();
-    editingZone.value = editing;
+    expect(editing()).toBeNull();
+    editZone(zone);
     dispose();
     dispose = () => {};
-    expect(editingZone.value).toBeNull();
-    expect(zoneOverlayShown()).toBe(false);
+    expect(editing()).toBeNull();
+    expect(surface.adapter.overlay).toBeNull(); // the tool's overlay went with it: the scene view draws none
   });
 });

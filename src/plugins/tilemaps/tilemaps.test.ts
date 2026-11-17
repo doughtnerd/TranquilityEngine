@@ -9,14 +9,14 @@ import { inspectedAsset } from "../../editor/assetImport";
 import { select as selectAssets } from "../../editor/assetSelection";
 import { kindIcon, kindLabel, registeredKind, satisfiesFieldKind } from "../../editor/assetKindLookup";
 import { joinPath, openFolderProject } from "../../editor/projects";
-import { assetFormats, assetKinds, panels, viewportTools } from "../../editor/sdk/contributions";
+import { assetKinds, panels, viewportTools } from "../../editor/sdk/contributions";
 import type { Engine } from "../../engine";
 import { brushTool, pickBrushTool } from "./editor/brush";
 import { isPluginActive } from "../../editor/sdk/plugins";
 import { useEditorPlugins } from "../testEditorPlugins";
-import { activeViewportTool, currentProject, pickTool } from "../../editor/state";
+import { currentProject, pickTool } from "../../editor/state";
+import { editor } from "../../editor/sdk";
 import { inspectorSectionsFor, MemoryFileSystem, ROOT, sceneViewTools, useCoreAssetKinds } from "../../editor/testing";
-import { formatTileset } from "./editor/tilesetAssets";
 import { EDITOR_PLUGINS } from "../editor";
 import { RUNTIME_PLUGINS, isRuntimePluginActive } from "../runtime";
 import { applyTestPlugins } from "../testPlugins";
@@ -48,6 +48,8 @@ async function open(files: Record<string, string>) {
   return { project, fs };
 }
 
+/** A tileset's file text, written by the kind's format. */
+const formatTileset = (data: TilesetData): string => assetKinds.get("tileset")!.format!.format(data);
 const tileset = (tiles: number, tileSize: [number, number] = [16, 16]): TilesetData => ({
   ...newTileset(),
   tileSize,
@@ -99,26 +101,26 @@ describe("the Tilemaps plugin's editor half (ADR 0134)", () => {
     expect(inspectorSectionsFor("engine.Tilemap", [["root"]])).toHaveLength(0);
   });
 
-  it("keeps the brush and the active viewport tool in step, and leaves the editor's keys alone", () => {
+  it("makes the brush the paint tool's mode (ADR 0231): picking one activates the tool, which another tool ends", () => {
     const view = sceneViewTools({ world: {} } as unknown as Engine);
     const canvas = view.canvas;
     const dispose = view.stop;
     try {
       pickBrushTool("pencil");
-      expect(activeViewportTool.value).toBe(PAINT_TOOL_ID);
+      expect(editor.viewport.activeTool).toBe(PAINT_TOOL_ID);
+      expect(editor.viewport.mode(PAINT_TOOL_ID).value).toBe("pencil");
       expect(canvas.style.cursor).toBe("crosshair");
       pickTool("move"); // Q/W/E/R or the toolbar
       expect(brushTool.value).toBeNull();
       pickBrushTool("rect");
       pickBrushTool(null);
-      expect(activeViewportTool.value).toBeNull();
+      expect(editor.viewport.activeTool).toBeNull();
       pickBrushTool("fill");
     } finally {
       dispose();
     }
-    expect(activeViewportTool.value).toBeNull(); // uninstalled with the scene view
-    expect(brushTool.value).toBe("fill");
-    pickBrushTool(null);
+    expect(editor.viewport.activeTool).toBeNull(); // uninstalled with the scene view, which ends the brush
+    expect(brushTool.value).toBeNull();
   });
 
   it("registers the tileset asset kind: matching, label, icon, inspector and tileset fields", () => {
@@ -133,15 +135,16 @@ describe("the Tilemaps plugin's editor half (ADR 0134)", () => {
     expect(assetKinds.get("tileset")?.referencedAs).toEqual(["tileset"]);
   });
 
-  it("registers a format that round-trips a tileset and reports problems as messages", () => {
-    const format = assetFormats.get("tileset")!;
+  it("declares a format that round-trips a tileset and reports problems as messages", async () => {
+    const { project } = await open({ [TILESET]: '"nope"' });
+    const format = assetKinds.get("tileset")!.format!;
     const ts = tileset(3, [8, 12]);
     const read = format.parse(JSON.parse(formatTileset(ts)), TILESET);
     expect(read.problems).toEqual([]);
     expect(read.value.tiles).toHaveLength(3);
     expect(format.format(read.value)).toBe(formatTileset(ts));
     expect(format.writeDelay).toBe(150);
-    const bad = format.parse("nope", TILESET);
+    const bad = editor.assets.read(project, TILESET);
     expect(bad.problems.length).toBeGreaterThan(0);
     expect(Object.keys(bad.problems[0]!)).toEqual(["message"]);
   });
@@ -218,7 +221,6 @@ describe("the Tilemaps plugin's editor half (ADR 0134)", () => {
     editorHalf.off();
     expect(isPluginActive("myco.tilemaps")).toBe(false);
     expect(registeredKind("tileset")).toBeUndefined();
-    expect(assetFormats.get("tileset")).toBeUndefined();
     expect(inspectedFor(TILESET)).toBeNull(); // a disabled plugin's files show as generic files
   });
 });

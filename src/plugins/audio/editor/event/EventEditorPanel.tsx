@@ -15,11 +15,11 @@ import { EventTree } from "./EventTree";
 import { EventProperties, MusicNodeProperties, NodeProperties, type FieldContext } from "./NodeProperties";
 import { openRulesTable, openSegmentView } from "../music";
 import { ParametersPane } from "./ParametersPane";
-import { openEvent } from "./openEventEditor";
+import { EVENT_EDITOR_PANEL } from "./openEventEditor";
 import "./eventEditor.css";
 
 export function EventEditorPanel() {
-  const path = openEvent.value;
+  const path = editor.assets.openIn(EVENT_EDITOR_PANEL);
   const project = editor.project.current;
   editor.project.version; // the file list changes with it
   if (!project || !path) return <Panel><p class="empty">Double-click an audio event (.audioevent.json) in the Assets panel, or create one with New Event.</p></Panel>;

@@ -7,6 +7,7 @@ import { gizmoEdit } from "./gizmo";
 import { topmostKeys } from "./selectionModel";
 import { openScene, selectedNodes, status } from "./state";
 import { alignOffsets, distributeOffsets, type Axis, type Edge } from "./boxAlign";
+import { undoStep } from "./undoStep";
 
 export type { Axis, Edge } from "./boxAlign";
 
@@ -57,11 +58,8 @@ export function runAlign(action: AlignAction, planar: boolean): number {
     return [{ path: t.path, position }];
   });
   if (moves.length === 0) return 0;
-  scene.stack.beginGroup(`${actionLabel(action, planar)} (${targets.length} nodes)`);
-  try {
+  undoStep(scene.stack, `${actionLabel(action, planar)} (${targets.length} nodes)`, () => {
     for (const m of moves) scene.stack.execute(gizmoEdit(scene.doc, m.path, "translate", { position: m.position, rotation: [0, 0, 0, 1], scale: [1, 1, 1] }, "position"));
-  } finally {
-    scene.stack.endGroup();
-  }
+  });
   return moves.length;
 }

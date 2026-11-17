@@ -241,6 +241,35 @@ describe("text files in the history (ADR 0077)", () => {
     expect(h.files.get("ui/a.ui.xml")).toBe("changed elsewhere");
   });
 
+  it("cancels a group: the document and its files go back, nothing is recorded, a nested group just closes (ADR 0231)", () => {
+    const doc = new SceneDocument(file());
+    const stack = new CommandStack(doc);
+    const h = host();
+    h.files.set("ui/a.ui.xml", "<Canvas/>");
+    stack.files = h;
+    const events: string[] = [];
+    stack.subscribe((e) => events.push(`${e.reason}:${e.changes.length}`));
+    stack.beginGroup("Drag");
+    setX(stack, 4);
+    stack.execute(new WriteFiles("Set width", [{ path: "ui/a.ui.xml", text: `<Canvas width="4"/>` }, { path: "ui/new.css", text: "x" }]));
+    expect(stack.cancelGroup()).toBe(true);
+    expect(x(doc)).toBe(0);
+    expect(h.files.get("ui/a.ui.xml")).toBe("<Canvas/>");
+    expect(h.files.has("ui/new.css")).toBe(false);
+    expect(stack.allStates.length).toBe(1);
+    expect(stack.canUndo).toBe(false);
+    expect(events.at(-1)).toBe("cancel:1"); // the World rebuilds what went back
+    stack.beginGroup("Outer");
+    setX(stack, 1);
+    stack.beginGroup("Inner");
+    setX(stack, 2);
+    expect(stack.cancelGroup()).toBe(false);
+    stack.endGroup();
+    expect(x(doc)).toBe(2);
+    expect(stack.undoLabel).toBe("Outer");
+    expect(() => stack.cancelGroup()).toThrow();
+  });
+
   it("diffs text to the differing middle", () => {
     expect(diffText("abcXdef", "abcYYdef")).toEqual({ start: 3, before: "X", after: "YY" });
     expect(diffText("aaa", "aaaa")).toEqual({ start: 3, before: "", after: "a" });

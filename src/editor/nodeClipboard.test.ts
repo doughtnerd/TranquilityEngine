@@ -3,7 +3,7 @@ import { Engine, GameObject, Input } from "../engine";
 import { CommandStack, SceneDocument, type SceneFile } from "./document";
 import { filterHierarchy } from "./hierarchyFilter";
 import { moveNodes } from "./hierarchyEdit";
-import { createNode, uniqueName } from "./nodeCreate";
+import { createNode, uniqueNodeName } from "./nodeCreate";
 import { copyNodes, cutNodes, duplicateNodes, nodeClipboardFromText, nodeClipboardPayload, pasteNodes, pasteTarget, subtreeRoots, whyNotCopyable, whyNotPastable } from "./nodeClipboard";
 import { clipboardText } from "./clipboard";
 import { nodeDrag, startNodeDrag } from "./nodeDrag";
@@ -60,9 +60,9 @@ describe("creating nodes", () => {
 
   it("numbers names among siblings only", () => {
     const doc = new SceneDocument({ format: "myco.scene@1", nodes: [{ id: "a", name: "Node" }, { id: "b", name: "Node (1)" }, { id: "c", name: "Node", parent: "a" }] });
-    expect(uniqueName(doc, null, "Node")).toBe("Node (2)");
-    expect(uniqueName(doc, "b", "Node")).toBe("Node");
-    expect(uniqueName(doc, null, "Node (1)")).toBe("Node (2)");
+    expect(uniqueNodeName(doc, null, "Node")).toBe("Node (2)");
+    expect(uniqueNodeName(doc, "b", "Node")).toBe("Node");
+    expect(uniqueNodeName(doc, null, "Node (1)")).toBe("Node (2)");
     expect(doc.node(createNode(sceneOf(doc), "empty", { parent: "a" })).name).toBe("Node (1)");
   });
 });

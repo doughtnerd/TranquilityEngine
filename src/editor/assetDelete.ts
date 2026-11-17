@@ -14,6 +14,7 @@ import { isWithin, type EditorProject } from "./projects";
 import { reloadScripts } from "./session";
 import { currentProject, docVersion, openScene, openScenes, playState, scriptsVersion, status } from "./state";
 import { confirmInEditor } from "./ui/ConfirmDialog";
+import { beginUndoStep } from "./undoStep";
 
 /** The scenes open in tabs, the active one first: none of them may be deleted or moved out from under the editor. */
 export function openScenePaths(): string[] {
@@ -125,7 +126,7 @@ export async function deleteAssets(entries: readonly string[]): Promise<boolean>
   const histories = assetDocumentsDeleted([...loose, ...folders]); // open asset documents are dropped with their undo
   const cleaned = new Set<string>();
   const stack = openScene.value?.stack;
-  stack?.beginGroup(`Remove references to ${name}`);
+  const step = stack ? beginUndoStep(stack, `Remove references to ${name}`) : null; // open across the file writes
   try {
     for (const path of deleting) for (const f of await removeReferences(project, path, `Remove references to ${fileName(path)}`)) cleaned.add(f);
   } catch (err) {
@@ -133,7 +134,7 @@ export async function deleteAssets(entries: readonly string[]): Promise<boolean>
     await histories;
     return true;
   } finally {
-    stack?.endGroup();
+    step?.end();
   }
   // What's left: scripts, mostly. (The open scene's file changes when it's saved.)
   const remaining = [...new Set([...deleting].flatMap((path) => assetUsers(project, path)))].filter((u) => u !== openScene.value?.path);

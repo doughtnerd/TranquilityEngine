@@ -12,7 +12,6 @@ import type { ReflectionProbe, SpriteRenderer } from "./components";
 import {
   ViewportHandle,
   type EditorColors,
-  type EditorDrawing,
   type EditorOverlay,
   type EditorViewport,
   type GizmoHandlers,
@@ -141,13 +140,6 @@ export class FakeViewportAdapter implements ViewportAdapter {
 
   ui(): ViewportUI | null {
     return this.uiCore;
-  }
-
-  drawn(): EditorDrawing {
-    const o = this.overlay?.();
-    const segments = (o?.lines.reduce((n, l) => n + l.points.length - (l.closed ? 0 : 1), 0) ?? 0) + (o?.segments?.reduce((n, s) => n + s.positions.length / 6, 0) ?? 0);
-    const outlines = this.selectionShown ? this.selection.length : 0;
-    return { segments, handles: o?.handles.length ?? 0, outlines, drawnObjects: 0, lightWires: 0, cameraPreview: false };
   }
 
   bakeReflectionProbe(_probe: ReflectionProbe): Promise<ArrayBuffer> {

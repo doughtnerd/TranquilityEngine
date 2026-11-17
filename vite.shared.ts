@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSy
 import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
-import type { Plugin, UserConfig } from "vite";
+import type { Plugin, Rollup, UserConfig } from "vite";
 
 /**
  * Compile TypeScript (and TSX) with tsc instead of Vite's default transformer (oxc), which does
@@ -272,6 +272,58 @@ export function playerFileList(): Plugin {
     },
   };
 }
+
+/** Source modules a build must only load on demand (by `import()`), and why. */
+export interface LazyOnlyRule {
+  /** Whether a module id (an absolute source path, `/` separated) is one of them. */
+  readonly matches: (id: string) => boolean;
+  /** Why they must stay lazy, for the build error. */
+  readonly why: string;
+}
+
+/**
+ * Fail the build when an entry chunk's static imports reach a module one of `rules` names: code that should load on
+ * demand (ADR 0230: the audio capture codec, which once leaked into the player's main chunk unnoticed). It reads the
+ * bundle's chunks and the source modules in each, so it doesn't depend on how chunks are named or split.
+ */
+export function lazyOnly(rules: readonly LazyOnlyRule[]): Plugin {
+  return {
+    name: "myco:lazy-only",
+    apply: "build",
+    enforce: "post",
+    generateBundle(_options, bundle) {
+      const chunks = new Map<string, Rollup.OutputChunk>();
+      for (const out of Object.values(bundle)) if (out.type === "chunk") chunks.set(out.fileName, out);
+      const problems: string[] = [];
+      for (const entry of chunks.values()) {
+        if (!entry.isEntry) continue;
+        const seen = new Set<string>();
+        const walk = (file: string) => {
+          const chunk = chunks.get(file);
+          if (!chunk || seen.has(file)) return;
+          seen.add(file);
+          for (const raw of chunk.moduleIds) {
+            const id = raw.replaceAll("\\", "/");
+            for (const rule of rules) if (rule.matches(id)) problems.push(`${entry.fileName} statically imports ${id} (in ${chunk.fileName}): ${rule.why}`);
+          }
+          for (const next of chunk.imports) walk(next);
+        };
+        walk(entry.fileName);
+      }
+      if (problems.length > 0) this.error(`Code that must load on demand is in an entry's static imports:\n${problems.join("\n")}`);
+    },
+  };
+}
+
+/**
+ * The audio capture codec (ADR 0171, 0172, 0230): everything in `capture/` but the service a game always has
+ * (`capture.ts`) and the keyframe row layout the writers share (`keyframeLayout.ts`). The player loads it on the first
+ * `Audio.capture.start()`.
+ */
+export const CAPTURE_CODEC: LazyOnlyRule = {
+  matches: (id) => /\/src\/plugins\/audio\/runtime\/capture\/(?!capture\.ts$|keyframeLayout\.ts$)[^/]+\.ts$/.test(id),
+  why: "the audio capture codec loads with Audio.capture.start(), by import() (ADR 0230)",
+};
 
 /** The player's files as `dist/player/files.json` lists them, or null if the player isn't built. */
 export function playerManifest(): { files: string[] } | null {

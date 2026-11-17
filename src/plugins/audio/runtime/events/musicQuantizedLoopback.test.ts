@@ -16,7 +16,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Assets, Engine, SceneManager } from "../../../../myco";
 import { registerCoreBackend, setAudioBackend } from "../backend";
 import { Audio } from "../index";
-import { CoreBackend } from "../core/coreBackend";
+import type { CoreBackend } from "../core/coreBackend";
 import { AUDIO_SYSTEMS } from "../audioSystem";
 import { musicPlayers } from "../music/musicSystem";
 import { QUANTIZED_RAMP_SECONDS } from "./automation";

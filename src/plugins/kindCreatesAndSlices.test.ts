@@ -2,7 +2,8 @@
 // Document is the UI plugin's and goes with it), and slicing is a kind's capability, not the id "image".
 import { afterEach, describe, expect, it } from "vitest";
 import { searchEntries } from "../editor/assetBrowser";
-import { assetKind, canAddToScene, hasSlices, kindCreators, kindOpens, sceneNodesAt } from "../editor/assetKindLookup";
+import { assetKind, canAddToScene, hasSlices, kindOpens, sceneNodesAt } from "../editor/assetKindLookup";
+import { kindCreators } from "../editor/assetKindHost";
 import { assetKinds, type AssetKindContribution } from "../editor/sdk/contributions";
 import { useCoreAssetKinds } from "../editor/testing";
 import { materialsEditorPlugin } from "./materials/editor";

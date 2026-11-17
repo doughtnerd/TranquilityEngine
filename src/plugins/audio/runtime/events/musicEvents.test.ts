@@ -9,6 +9,7 @@ import { musicPlayers, playerOf } from "../music/musicSystem";
 import { segmentClipSource } from "../music/segmentRun";
 import { events } from "./eventRuntime";
 import { eventKit, ev } from "./eventTestKit";
+import { commitStart, noteStartHeard, refuseStart } from "../music/musicPlayer";
 
 const kit = eventKit();
 const fake = kit.fake;
@@ -57,7 +58,7 @@ describe("a music event in the event runtime", () => {
   it("a refused player ends the instance on the next end scan", async () => {
     await kit.boot({ "m.audioevent.json": ev(seg()) });
     const h = Audio.play("m.audioevent.json");
-    musicPlayers()[0]!.state = "refused";
+    refuseStart(musicPlayers()[0]!);
     expect(h.playing).toBe(false);
   });
 
@@ -124,8 +125,8 @@ describe("a music event in the event runtime", () => {
     const p = musicPlayers()[0]!;
     // As P1/P2 leave it: a stamped run with a stem voice.
     const voice = fake.play({ path: "a.wav", url: "", loop: false, stream: false, bus: "", volume: 1, pitch: 1, priority: 128, world: 0, group: 0 })!;
-    p.run = { node: p.root, player: p, state: "playing", group: 1, stems: [{ track: "a", alternative: 0, clip: "a.wav", streamed: false, voice, primed: true }], startAt: 0, startFrame: 0, loopsDone: 0, prime: null };
-    p.state = "playing";
+    commitStart(p, { node: p.root, player: p, state: "playing", group: 1, stems: [{ track: "a", alternative: 0, clip: "a.wav", streamed: false, voice, primed: true }], startAt: 0, startFrame: 0, loopsDone: 0, prime: null }, 0);
+    noteStartHeard(p, 0);
     expect(h.playing).toBe(true);
     expect(h.panner).toBe(voice.panner ?? null);
     voice.stop(0);
@@ -143,8 +144,8 @@ describe("quantised stem automation on a stamped run (G-1)", () => {
     const calls: { gain: number; seconds: number; at?: number }[] = [];
     (voice as { paramsShaped?: unknown }).paramsShaped = (r: { gain: number; seconds: number; at?: number }) => void calls.push(r);
     // The run as P1 leaves it before the core reports the group started: "stamped", default 120 bpm grid from 1.0 s.
-    p.run = { node: p.root, player: p, state: "stamped", group: 1, stems: [{ track: "a", alternative: 0, clip: "a.wav", streamed: false, voice, primed: true }], startAt: 1, startFrame: 0, loopsDone: 0, prime: null };
-    p.state = "playing";
+    commitStart(p, { node: p.root, player: p, state: "stamped", group: 1, stems: [{ track: "a", alternative: 0, clip: "a.wav", streamed: false, voice, primed: true }], startAt: 1, startFrame: 0, loopsDone: 0, prime: null }, 1);
+    noteStartHeard(p, 1);
     (fake as { time: number }).time = 1.2;
     const inst = [...(events() as unknown as { live: Set<{ tickMusicAutomation(): void }> }).live][0]!;
     inst.tickMusicAutomation();

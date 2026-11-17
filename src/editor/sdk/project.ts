@@ -15,10 +15,10 @@ import { currentProject, docVersion } from "../state";
 import { onSectionChanged, type SectionChange } from "../sectionChanged";
 import { projectSettings } from "../projectSettingsInstance";
 import type { SettingsDraft } from "../projectSettingsModel";
-import { messages } from "./messages";
-import { readOnlyMessage } from "../readOnly";
+import { createAsset, createProjectFile, openAsset, openIn, refuseReadOnly, type CreateAssetOptions, type CreateFileOptions } from "../assetKindHost";
+import { readAsset, type AssetRead } from "../assetDocuments";
 
-export type { AssetKind, EditorProject, SectionChange, SettingsDraft };
+export type { AssetKind, EditorProject, SectionChange, SettingsDraft, AssetRead, CreateAssetOptions, CreateFileOptions };
 
 /**
  * The project's settings as the Project Settings panel edits them (ADR 0173): its draft, one-step edits and its undo
@@ -38,18 +38,6 @@ export interface ProjectSettingsSurface {
   canRedo(): boolean;
   /** Bumped on every draft change (an edit, an undo, an outside change). Tracks, like `version`. */
   readonly version: number;
-}
-
-/** What `project.createFile` writes: a new file in `folder`, named `name` or the first free "<base> 2", "<base> 3"… */
-export interface CreateFileOptions {
-  folder: string;
-  name: string;
-  /** What the file is, plural, for the read-only message: "materials", "skies". */
-  what: string;
-  /** Write the file's first contents at `path` (throws on failure). */
-  write(project: EditorProject, path: string): Promise<void>;
-  /** The status message once it's written (default "Created <file name>."). */
-  created?(path: string): string;
 }
 
 export interface ProjectSurface {
@@ -142,25 +130,8 @@ export const project: ProjectSurface = {
   },
   onSectionChanged,
   settings,
-  refuseReadOnly(p, what) {
-    if (p.canSave) return false;
-    messages.info(readOnlyMessage(p, `add ${what}`));
-    return true;
-  },
-  async createFile(options) {
-    const p = currentProject.peek();
-    if (!p || project.refuseReadOnly(p, options.what)) return null;
-    const path = freePath(p, options.folder, options.name);
-    try {
-      await options.write(p, path);
-    } catch (err) {
-      messages.failed(`Couldn't create ${path}`, err);
-      return null;
-    }
-    project.changed();
-    messages.info(options.created ? options.created(path) : `Created ${fileName(path)}.`);
-    return path;
-  },
+  refuseReadOnly,
+  createFile: createProjectFile,
   freePath,
   joinPath,
 };
@@ -191,6 +162,21 @@ export interface AssetsSurface {
   reveal(path: string): void;
   /** Open a script in the Code panel, optionally at a 1-based line and column. */
   openScript(path: string, at?: { line: number; column: number }): void;
+  /**
+   * Create a file of a registered asset kind (ADR 0233), written with its format: in `folder`, else the kind's own
+   * folder when the project has it, else the root; named `name`, else its New… entry's. Its path, or null when nothing
+   * was written (read-only, the write failed).
+   */
+  create<T>(kind: string, options?: CreateAssetOptions<T>): Promise<string | null>;
+  /**
+   * The current value of an asset file (ADR 0233): its open asset document's (edits not yet written included), else
+   * what the file holds, read with its kind's format. Read it with `project.version` to follow file changes.
+   */
+  read<T>(project: EditorProject, path: string): AssetRead<T>;
+  /** Open a file as its kind says: the kind's `open`, its panel, or the Code panel. False when its kind doesn't open. */
+  open(path: string): boolean;
+  /** The file opened in the panel `panel` (a kind's `panel`) in the open project, or null. Tracks. */
+  openIn(panel: string): string | null;
 }
 
 export const assets: AssetsSurface = {
@@ -202,4 +188,8 @@ export const assets: AssetsSurface = {
   importSettings: readImportSettings,
   reveal: showAsset,
   openScript,
+  create: createAsset,
+  read: (project, path) => readAsset(project, path),
+  open: openAsset,
+  openIn,
 };

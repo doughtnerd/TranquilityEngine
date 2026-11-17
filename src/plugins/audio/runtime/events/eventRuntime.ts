@@ -25,6 +25,7 @@ import { NULL_PROFILE_SINK } from "../mix/profileSink";
 import { loopPointsFor, onLoopPoints } from "../loopPoints";
 import { onAudioSessionReleased } from "../audioSession";
 import { createMusicPlayer, disposeMusicPlayer, type MusicFrame, type MusicPlayer } from "../music/musicSystem";
+import { musicPending, stopPlayer } from "../music/musicPlayer";
 import { segmentClipSource, stopPlayerRuns, type StemRun } from "../music/segmentRun";
 import { quantizedRamp } from "../music/stems";
 import { loopTailVoices } from "../music/loopTail";
@@ -956,17 +957,10 @@ export class EventInstance {
    * group primes or a transition is pending, or while any stem voice plays. A refused or stopped player is over.
    */
   private musicPlaying(p: MusicPlayer): boolean {
-    switch (p.state) {
-      case "stopped": case "refused": return false;
-      case "starting": case "waiting": case "committed": case "pending": case "transitioning": case "recovering": return true;
-      default: break; // playing, stopping: the voices say
-    }
-    if (p.state === "playing" && p.planned !== null) return true;
-    for (const run of [p.run, p.next]) {
-      if (!run) continue;
-      if (run.state === "new" || run.state === "admitted" || run.state === "priming") return p.state !== "stopping";
-      for (const s of run.stems) if (s.voice?.playing) return true;
-    }
+    if (musicPending(p)) return true;
+    if (p.state === "stopped" || p.state === "refused") return false;
+    // Playing or stopping: the voices say.
+    for (const run of [p.run, p.next]) if (run) for (const s of run.stems) if (s.voice?.playing) return true;
     // R5: a queued or sounding stinger keeps the player alive past its stems.
     if (p.stingers) {
       if (p.stingers.queued.length > 0) return true;
@@ -1113,7 +1107,7 @@ export class EventInstance {
       const f: MusicFrame = { backend, music: backend.music ?? null, now: backend.time, dt: 0, hidden: false };
       stopPlayerRuns(p, fadeSeconds, f);
     }
-    if (p.state !== "stopped" && p.state !== "refused") p.state = "stopping";
+    stopPlayer(p);
   }
 
   /** Change the pitch option of the playing instance: every playing voice (and later clips) follows, automation still multiplying on top. */

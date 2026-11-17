@@ -2,6 +2,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { expect, type Locator, type Page, play, test } from "./fixtures";
 import { binarySeed, installFakeFolders, nextFolder, readFile } from "./fakeFolders";
+import { captureView, pixelsNear, steadyView, themeColor } from "./viewCapture";
 
 // 3D in the editor (ADR 0043–0045): importing OBJ and FBX models into a scene, materials and model
 // import settings in the Asset Inspector, 3D shapes, lights and colliders from the Hierarchy, and
@@ -35,7 +36,7 @@ type Hooks = {
       time: { frameCount: number };
       render: {
         diagnostics(): { drawn: { meshes: { node: { name: string } }[] } }; // ADR 0128
-        editorViewport(): { lightIcons(): { node: { name: string }; x: number; y: number }[]; drawn(): { lightWires: number } };
+        editorViewport(): { lightIcons(): { node: { name: string }; x: number; y: number }[] };
       };
     };
   };
@@ -130,7 +131,13 @@ test("the 3D Playground draws its models, shapes and lights", async ({ page }) =
     return (window as unknown as Hooks).engine!.world.render.editorViewport().lightIcons().map((i) => i.node.name).sort();
   });
   expect(icons).toEqual(["Ambient Light", "Lamp", "Sun"]);
-  expect(await page.evaluate(() => (window as unknown as Hooks).engine!.world.render.editorViewport().drawn().lightWires)).toBeGreaterThan(0);
+  // A point light draws its range as a wireframe sphere while selected, in the selection colour (the theme's
+  // accent). The Lamp has no mesh, so nothing else of it is outlined: the accent pixels that appear are its wires.
+  const view = page.locator(".viewport canvas");
+  const accent = await themeColor(page, "--accent");
+  const before = pixelsNear(await steadyView(view), accent);
+  await row(page, "Lamp").click();
+  await expect.poll(async () => pixelsNear(await captureView(view), accent) - before, { message: "accent pixels the Lamp's range wireframe adds", timeout: 15_000 }).toBeGreaterThan(200);
   expect(errors).toEqual([]);
 });
 

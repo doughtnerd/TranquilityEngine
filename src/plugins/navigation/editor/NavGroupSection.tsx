@@ -3,7 +3,6 @@
 // asset's own Inspector view (painting the mask and so on) is the Navigation plugin's (`src/plugins/navigation/editor/`).
 import { useLayoutEffect, useRef } from "preact/hooks";
 import { defaultFormation, formationSlotCount, formationFillOrder, type NavFormationAsset } from "../../../engine/nav/formation";
-import { createFormation, readFormation } from "./formationAssets";
 import { editor, SetField, type OpenScene, theme, sectionField, type InspectorSectionProps } from "../../../editor/sdk";
 import "../../../editor/ui/assetInspector.css";
 import "./navFormation.css";
@@ -70,10 +69,10 @@ function NavGroupFormation(props: { scene: OpenScene; nodeId: string; index: num
   const ref = props.formationAsset.replace(/^asset:/, "");
   if (!ref && props.formation !== "mask") return null;
   const exists = ref !== "" && project.files.includes(ref);
-  const asset = exists ? readFormation(project, ref).formation : null;
+  const asset = exists ? editor.assets.read<NavFormationAsset>(project, ref).value : null;
   const create = async () => {
     const name = props.scene.doc.has(props.nodeId) ? props.scene.doc.node(props.nodeId).name : "";
-    const made = await createFormation("", { ...defaultFormation(), shape: "mask" }, name ? `${name} Formation` : "New Formation");
+    const made = await editor.assets.create<NavFormationAsset>("formation", { value: { ...defaultFormation(), shape: "mask" }, name: name ? `${name} Formation` : "New Formation" });
     if (!made) return;
     props.scene.stack.execute(new SetField(props.nodeId, "engine.NavGroup", "formationAsset", `asset:${made}`, { index: props.index }));
     editor.assets.reveal(made);

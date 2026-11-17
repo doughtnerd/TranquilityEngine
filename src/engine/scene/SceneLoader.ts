@@ -553,7 +553,9 @@ function convertValue(t: ScalarFieldType, raw: unknown, current: unknown, ref: (
   }
   if (t === Color) return raw === null ? null : Color.from(raw as string);
   if (t === AssetRef) return typeof raw === "string" ? raw.replace(/^asset:/, "") : raw;
-  if (t === PlainObject) return mergeDeep(current, raw);
+  // A plain JSON value replaces the field's whole value (a deep copy, ADR 0039); merging into the old one would keep
+  // keys the new value dropped, so a reverted override or a removed key would linger.
+  if (t === PlainObject) return structuredClone(raw);
   return raw;
 }
 
@@ -577,17 +579,6 @@ export function applyTransform(node: GameObject, data: Record<string, unknown>):
     t.rotation = rotationFromFile(data.rotation);
   }
   if (data.scale !== undefined) t.scale = data.scale as number[];
-}
-
-function mergeDeep(base: unknown, patch: unknown): unknown {
-  if (!isPlainObject(base) || !isPlainObject(patch)) return structuredClone(patch);
-  const out: Record<string, unknown> = { ...base };
-  for (const [k, v] of Object.entries(patch)) out[k] = mergeDeep(out[k], v);
-  return out;
-}
-
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
 /** @internal Instantiate every node of `file` under `parent`, then run awake/onEnable in tree order. */

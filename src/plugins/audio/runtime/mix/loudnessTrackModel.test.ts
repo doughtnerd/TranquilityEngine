@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { LOUD_FLAG_RESET, LOUD_OUTPUT_TAP, type StatusBlock } from "../wire.generated";
 import { LoudnessHub } from "./loudnessHub";
-import type { KeyframeMetered } from "../capture/format";
+import type { CaptureKeyframeMetered } from "../capture/format";
 import { LoudnessStats, SUB_BLOCK_SECONDS, energyToLufs, linearToDb } from "./loudnessStats";
 import { LoudnessTrackModel, type LoudnessStatusInput } from "./loudnessTrackModel";
 
@@ -286,10 +286,10 @@ describe("against a real LoudnessHub (G7d: the hub's rules since Ld7, through th
 
 describe("seek from a keyframe", () => {
   /** A keyframe's metered reading of `slot` from the replay model's state at `t` (f32, as the file stores it). */
-  function reading(full: LoudnessTrackModel, t: number): KeyframeMetered {
+  function reading(full: LoudnessTrackModel, t: number): CaptureKeyframeMetered {
     const v = full.valuesAt(SLOT, t)!;
     return {
-      slot: SLOT, flags: v.incomplete ? 2 /* incomplete */ : 0, momentary: Math.fround(v.momentary), shortTerm: Math.fround(v.shortTerm),
+      slot: SLOT, paused: false, incomplete: v.incomplete, tainted: false, lowerBound: false, momentary: Math.fround(v.momentary), shortTerm: Math.fround(v.shortTerm),
       integrated: Math.fround(v.integrated), lra: Math.fround(v.lra), maxTruePeak: Math.fround(v.truePeak), maxMomentary: 0, elapsed: 0,
     };
   }

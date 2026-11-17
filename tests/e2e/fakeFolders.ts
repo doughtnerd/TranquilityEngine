@@ -21,6 +21,8 @@ export interface FakeFolders {
   list(folder: string): string[];
   /** Delete a file or folder by `folder/path`. */
   remove(path: string): void;
+  /** Write a file by `folder/path` (its bytes in base64), as if outside the editor. */
+  write(path: string, base64: string): void;
   /** How many times the picker was shown. */
   picks: number;
 }
@@ -151,6 +153,14 @@ export async function installFakeFolders(page: Page, seed: FolderSeed = {}): Pro
         const at = walk(path, false);
         at?.dir.entries.delete(at.name);
       },
+      write(path: string, base64: string) {
+        const at = walk(path, true);
+        if (!at) throw new Error(`no folder for ${path}`);
+        let f = at.dir.entries.get(at.name);
+        if (!(f instanceof FileHandle)) at.dir.entries.set(at.name, (f = new FileHandle(at.name)));
+        f.data = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+        f.modified = clock++;
+      },
     };
     Object.assign(window, {
       fakeFolders: fake,
@@ -184,3 +194,6 @@ export const readFile = (page: Page, path: string) => page.evaluate((p) => (wind
 export const listFolder = (page: Page, folder: string) => page.evaluate((f) => (window as unknown as Win).fakeFolders.list(f), folder);
 /** Delete a file or folder by `folder/path`, as if outside the editor. */
 export const removeFile = (page: Page, path: string) => page.evaluate((p) => (window as unknown as Win).fakeFolders.remove(p), path);
+/** Write a binary file by `folder/path`, as if outside the editor. */
+export const writeFile = (page: Page, path: string, bytes: Uint8Array) =>
+  page.evaluate(([p, b]) => (window as unknown as Win).fakeFolders.write(p, b), [path, Buffer.from(bytes).toString("base64")] as const);

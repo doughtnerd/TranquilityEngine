@@ -2,7 +2,7 @@
 // each ParticleSystem as per-instance overrides and scripts set them with `setProperty`. Drag a
 // property onto the canvas (or click Place) to read it with a Property node.
 import { GRAPH_PROPERTY_TYPES, type GraphProperty, type GraphPropertyType } from "../../../../../engine/scene/particleGraph";
-import { PROPERTY_LABELS, addProperty, moveProperty, removeProperty, renameProperty, setPropertyExposed, setPropertyValue, whyNotPropertyName } from "../../particleGraph/graphEdit";
+import { PROPERTY_LABELS, particleGraphEdits, setPropertyExposed } from "../../particleGraph/graphEdit";
 import { useGraphEditor } from "./editorContext";
 import { AssetValue, ColorSwatch, CurveValue, GradientValue, NumberValue, VectorValue, asGradient, asKeys, fieldOf } from "./valueFields";
 import { editor } from "../../../../../editor/sdk";
@@ -13,7 +13,7 @@ export const PROPERTY_DRAG = "application/x-myco-particle-property";
 function PropertyValue(props: { prop: GraphProperty }) {
   const { graph, readOnly, commit, assets } = useGraphEditor();
   const { prop } = props;
-  const set = (v: GraphProperty["value"]) => commit(setPropertyValue(graph, prop.name, v));
+  const set = (v: GraphProperty["value"]) => commit(particleGraphEdits.setPropertyValue(graph, prop.name, v));
   const label = `${prop.name} value`;
   switch (prop.type) {
     case "number":
@@ -58,7 +58,7 @@ export function Blackboard(props: { collapsed: boolean; onCollapse(collapsed: bo
           onChange={(e) => {
             const type = (e.currentTarget as HTMLSelectElement).value as GraphPropertyType;
             (e.currentTarget as HTMLSelectElement).value = "";
-            if (type) commit(addProperty(graph, type).graph);
+            if (type) commit(particleGraphEdits.addProperty(graph, type).graph);
           }}
         >
           <option value="">+ Add…</option>
@@ -94,11 +94,11 @@ export function Blackboard(props: { collapsed: boolean; onCollapse(collapsed: bo
               onKeyDown={(e) => e.stopPropagation()}
               onChange={(e) => {
                 const name = (e.currentTarget as HTMLInputElement).value;
-                const why = whyNotPropertyName(graph, p.name, name);
+                const why = particleGraphEdits.whyNotPropertyName(graph, p.name, name);
                 if (why) {
                   editor.messages.error(`Can't rename ${p.name}: ${why}.`);
                   (e.currentTarget as HTMLInputElement).value = p.name;
-                } else commit(renameProperty(graph, p.name, name));
+                } else commit(particleGraphEdits.renameProperty(graph, p.name, name));
               }}
             />
             <span class="pg-property-type">{PROPERTY_LABELS[p.type]}</span>
@@ -114,13 +114,13 @@ export function Blackboard(props: { collapsed: boolean; onCollapse(collapsed: bo
             <button type="button" title="Place a node that reads this property" disabled={readOnly} onClick={() => props.placeNode(p.name)}>
               Place
             </button>
-            <button type="button" title="Move up" aria-label={`Move ${p.name} up`} disabled={readOnly || i === 0} onClick={() => commit(moveProperty(graph, p.name, -1))}>
+            <button type="button" title="Move up" aria-label={`Move ${p.name} up`} disabled={readOnly || i === 0} onClick={() => commit(particleGraphEdits.moveProperty(graph, p.name, -1))}>
               ↑
             </button>
-            <button type="button" title="Move down" aria-label={`Move ${p.name} down`} disabled={readOnly || i === graph.properties.length - 1} onClick={() => commit(moveProperty(graph, p.name, 1))}>
+            <button type="button" title="Move down" aria-label={`Move ${p.name} down`} disabled={readOnly || i === graph.properties.length - 1} onClick={() => commit(particleGraphEdits.moveProperty(graph, p.name, 1))}>
               ↓
             </button>
-            <button type="button" class="danger" title="Remove the property and the nodes that read it" aria-label={`Remove ${p.name}`} disabled={readOnly} onClick={() => commit(removeProperty(graph, p.name))}>
+            <button type="button" class="danger" title="Remove the property and the nodes that read it" aria-label={`Remove ${p.name}`} disabled={readOnly} onClick={() => commit(particleGraphEdits.removeProperty(graph, p.name))}>
               ×
             </button>
           </div>

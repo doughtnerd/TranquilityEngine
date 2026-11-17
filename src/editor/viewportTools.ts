@@ -2,17 +2,23 @@
 // routes input among them. Presses go to the active tool first, then the others in registration
 // order; a tool that returns a drag owns that pointer until it's released, and selection, the
 // transform gizmo and orbiting never see the press. Keys skip text fields, dialogs, Ctrl/Cmd/Alt
-// chords and play mode once for every tool. At most one tool is active (`activeViewportTool`);
-// play, Escape and the transform tools end it. The host follows the registry, so a
-// plugin enabled or disabled while a project is open adds or removes its tools.
+// chords and play mode once for every tool. At most one tool is active (`activeViewportTool`), in a
+// mode the host owns (ADR 0231); play, Escape, the transform tools, another scene and (where the
+// tool asks) the selection end it. A gesture is a drag that is one undo step: it opens on the press
+// and closes on release; Escape reverts it, and the window losing focus, a tool switch or play
+// close it. The host follows the registry, so a plugin enabled or disabled while a project is open
+// adds or removes its tools.
 import { computed, effect, signal, untracked } from "@preact/signals";
 import type { Engine } from "../engine";
 import type { World } from "../engine/core/World";
 import { addEditorOverlay, removeEditorOverlay, viewportCanvas, type EditorOverlay, type EditorOverlayKind } from "../engine/editor";
 import { isEditable } from "./editable";
 import { errorStatus } from "./messages";
-import { viewportTools, type SelectableOutline, type ViewportDrag, type ViewportPointer, type ViewportToolContext, type ViewportToolContribution } from "./sdk/contributions";
-import { activateViewportTool, activeViewportTool, openScene, playState, status } from "./state";
+import { cleanSnap, snapActive, snapSettings, snapTo } from "./sceneTools";
+import { viewportTools, type SelectableOutline, type ViewportCancel, type ViewportDrag, type ViewportPointer, type ViewportToolContext, type ViewportToolContribution } from "./sdk/contributions";
+import { viewport } from "./sdk/viewport";
+import { activateViewportTool, activeViewportTool, activeViewportToolMode, openScene, playState, selection, status } from "./state";
+import { beginUndoStep } from "./undoStep";
 
 /** Each scene view's selectable outlines (ADR 0142), by its World. */
 const selectables = new Map<World, () => SelectableOutline[]>();
@@ -78,10 +84,10 @@ export function installViewportTools(engine: Engine): () => void {
     return { x: e.clientX - r.left, y: e.clientY - r.top, button: e.button, alt: e.altKey, shift: e.shiftKey, ctrl: e.ctrlKey, meta: e.metaKey, pointerId: e.pointerId };
   };
 
-  const cancelDrag = () => {
+  const cancelDrag = (reason: ViewportCancel) => {
     const d = drag;
     drag = null;
-    d?.drag.cancel?.();
+    d?.drag.cancel?.(reason);
   };
 
   const install = (tool: ViewportToolContribution) => {
@@ -91,10 +97,9 @@ export function installViewportTools(engine: Engine): () => void {
       engine,
       world,
       active: computed(() => activeViewportTool.value === tool.id),
-      activate: () => activateViewportTool(tool.id),
-      deactivate: () => {
-        if (activeViewportTool.peek() === tool.id) activateViewportTool(null);
-      },
+      mode: viewport.mode(tool.id),
+      enter: (mode) => viewport.enter(tool.id, mode ?? null),
+      leave: () => viewport.leave(tool.id),
       onPress: (h) => void inst.press.push(h),
       onHover: (h) => void inst.hover.push(h),
       onKey: (h) => void inst.keys.push(h),
@@ -111,14 +116,40 @@ export function installViewportTools(engine: Engine): () => void {
       edit: (label, fn) => {
         const scene = openScene.peek();
         if (!scene) return false;
-        scene.stack.beginGroup(label);
+        const step = beginUndoStep(scene.stack, label);
         try {
           fn(scene);
         } finally {
-          scene.stack.endGroup();
+          step.end();
         }
         return true;
       },
+      gesture: (label, d) => {
+        const scene = openScene.peek();
+        if (!scene) return null;
+        const step = beginUndoStep(scene.stack, label);
+        return {
+          move: (p) => {
+            if (step.open) d.move?.(p);
+          },
+          end: (p) => {
+            try {
+              d.end?.(p);
+            } finally {
+              step.end();
+            }
+          },
+          cancel: (reason) => {
+            try {
+              d.cancel?.(reason);
+            } finally {
+              if (reason === "escape") step.cancel();
+              else step.end();
+            }
+          },
+        };
+      },
+      snap: (value) => (snapActive.peek() ? snapTo(value, cleanSnap(snapSettings.peek()).move) : value),
     };
     try {
       const cleanup = tool.install(context);
@@ -132,7 +163,7 @@ export function installViewportTools(engine: Engine): () => void {
 
   const uninstall = (inst: Install) => {
     if (installs.get(inst.tool.id) === inst) installs.delete(inst.tool.id);
-    if (drag?.install === inst) cancelDrag();
+    if (drag?.install === inst) cancelDrag("removed");
     for (const id of inst.overlays) removeOverlay(id);
     inst.press = [];
     inst.hover = [];
@@ -167,8 +198,39 @@ export function installViewportTools(engine: Engine): () => void {
   const stopPlay = effect(() => {
     if (playState.value === "edit") return;
     untracked(() => {
-      cancelDrag();
+      cancelDrag("play");
       if (activeViewportTool.peek() !== null) activateViewportTool(null);
+    });
+  });
+
+  // Another tool (or a transform tool) taking the scene view cancels a drag.
+  let lastTool = activeViewportTool.peek();
+  const stopToolSwitch = effect(() => {
+    const id = activeViewportTool.value;
+    if (id === lastTool) return;
+    lastTool = id;
+    untracked(() => cancelDrag("tool"));
+  });
+
+  // Another scene opening ends the active tool; so does a new active node, where the tool asks for that.
+  let lastScene = openScene.peek();
+  const stopScene = effect(() => {
+    const next = openScene.value;
+    if (next === lastScene) return;
+    lastScene = next;
+    untracked(() => {
+      if (activeViewportTool.peek() !== null) activateViewportTool(null);
+    });
+  });
+  let lastKey = selection.peek();
+  const stopSelection = effect(() => {
+    const key = selection.value;
+    if (key === lastKey) return;
+    lastKey = key;
+    untracked(() => {
+      const a = activeViewportToolMode.peek();
+      const tool = a ? installs.get(a.id)?.tool : undefined;
+      if (a && tool?.endsOnSelection?.(a.mode)) activateViewportTool(null);
     });
   });
 
@@ -191,6 +253,12 @@ export function installViewportTools(engine: Engine): () => void {
   const onKey = (event: Event) => {
     const e = event as KeyboardEvent;
     if (!editing() || e.ctrlKey || e.metaKey || e.altKey || isEditable(e.target) || dialogOpen()) return;
+    if (e.key === "Escape" && drag) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      cancelDrag("escape");
+      return;
+    }
     for (const inst of ordered()) {
       for (const h of inst.keys) {
         if (h(e)) {
@@ -207,6 +275,8 @@ export function installViewportTools(engine: Engine): () => void {
     }
   };
   keys.addEventListener("keydown", onKey, true);
+  const onBlur = () => cancelDrag("blur");
+  keys.addEventListener("blur", onBlur);
 
   const hover = (p: ViewportPointer | null) => {
     for (const inst of [...installs.values()]) for (const h of inst.hover) h(p);
@@ -243,7 +313,7 @@ export function installViewportTools(engine: Engine): () => void {
     d.drag.end?.(pointer(e));
   };
   const onCancel = (event: Event) => {
-    if (drag && drag.pointerId === (event as PointerEvent).pointerId) cancelDrag();
+    if (drag && drag.pointerId === (event as PointerEvent).pointerId) cancelDrag("pointer");
   };
   const onLeave = () => {
     if (!drag) hover(null);
@@ -259,11 +329,15 @@ export function installViewportTools(engine: Engine): () => void {
   return () => {
     stopRegistry();
     stopPlay();
+    stopToolSwitch();
+    stopScene();
+    stopSelection();
     if (selectables.get(world) === collectOutlines) selectables.delete(world);
     for (const inst of [...installs.values()].reverse()) uninstall(inst);
     stopCursor();
     if (canvas && cursorSet) canvas.style.cursor = "";
     keys.removeEventListener("keydown", onKey, true);
+    keys.removeEventListener("blur", onBlur);
     if (canvas) {
       canvas.removeEventListener("pointerdown", onDown, { capture: true });
       canvas.removeEventListener("pointermove", onMove);

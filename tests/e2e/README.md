@@ -45,7 +45,8 @@ and the CPU is what limits the suite. For that case (the last three apply on the
 - **No trace per test.** Traces are recorded on CI's retry of a failure only; rerun a failure
   locally with `--trace on`.
 - **No Code panel warm-up.** An open project doesn't load Monaco and its TypeScript worker in the
-  background (`codePreload: false`); opening a file or pressing Play loads it. A spec that tests the
+  background (`codePreload: false` stores the user's setting, Settings > General > Code, as off before the editor
+  loads); opening a file or pressing Play loads it. A spec that tests the
   warm-up sets `test.use({ codePreload: true })`.
 - **No compression.** `scripts/e2e-server.mjs` serves `dist/editor/` as it is (`vite preview`
   gzipped every script for every test's fresh browser context).

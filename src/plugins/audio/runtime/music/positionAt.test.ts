@@ -7,6 +7,7 @@ import { makeFakeBackend, endAudioSession } from "../testing";
 import { positionAt } from "./handle";
 import { setCalibration } from "./calibration";
 import { musicSegment, playingRun, rigClips, stampedRun } from "./testing/beatRig";
+import { adoptSuccessor, stopPlayer } from "./musicPlayer";
 
 const T120 = [{ at: "1:1:0", bpm: 120, beatsPerBar: 4, beatUnit: 4 }];
 const ms = (s: number) => s * 1000;
@@ -61,7 +62,7 @@ describe("positionAt", () => {
     expect(positionAt(player, ms(2))).toEqual(off);
     run.state = "playing";
     expect(positionAt(player, ms(2)).segment).toBe(run.node.id);
-    player.state = "stopping";
+    stopPlayer(player);
     expect(positionAt(player, ms(2))).toEqual(off);
   });
 
@@ -70,7 +71,7 @@ describe("positionAt", () => {
     const b = musicSegment({ tempo: T120, cues: [{ name: "entry", at: "2:1:0" }] });
     const { player, run } = playingRun(a, 0, 1);
     const succ = stampedRun(player, b, 48_000, 3.0, 6); // B's bar 2 beat 1 (its entry) is heard at 4.0
-    player.next = succ;
+    adoptSuccessor(player, succ);
     const before = positionAt(player, ms(3.9));
     expect(before.segment).toBe(run.node.id);
     const after = positionAt(player, ms(4.1));

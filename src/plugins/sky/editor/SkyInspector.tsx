@@ -1,5 +1,4 @@
 // The Inspector's view of a selected sky asset (ADR 0112, 0134): a look at it, and a way into the Sky panel.
-import { openSkyAsset } from "./skyAssets";
 import { editor, LargePreview } from "../../../editor/sdk";
 
 export function SkyInspector(props: { path: string }) {
@@ -9,7 +8,7 @@ export function SkyInspector(props: { path: string }) {
       <p class="hint">A procedural sky (ADR 0112). Use it as an Environment's map.</p>
       <LargePreview path={props.path} />
       <div class="asset-inspector-actions">
-        <button class="primary" onClick={() => openSkyAsset(props.path)}>
+        <button class="primary" onClick={() => editor.assets.open(props.path)}>
           Edit in Sky panel
         </button>
       </div>

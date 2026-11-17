@@ -10,37 +10,26 @@ import { expandParticleGraph, outputTypeResolved, portRateResolved } from "../..
 import { compileParticleGraph } from "../../../../../engine/scene/particleCompile";
 import type { ContextKind, GraphGroup, GraphNode, GraphProblem, ParticleGraph, Vec2 } from "../../../../../engine/scene/particleGraph";
 import type { PortType } from "../../../../../engine/scene/particleNodes";
-import { usePanelHistory, type UndoHistory, editor, NO_DRAG, NO_PAN, NoteView, NodeSearchPopup, Minimap, SelectionBox, isFieldTarget, px, startBoxSelect, startConnection, startPointerDrag, toGraph, useGraphCanvas, clipboardForPaste, expectPaste, takePaste, writeClipboard, type CanvasNode, type DraftWire, type Point, type EditorProject } from "../../../../../editor/sdk";
-import { createParticleSubgraph, particleDocument, readEffect } from "../../particleAssets";
-import { ASSET_INPUT, BLOCK_CONTEXTS, addPseudoNode, assetMeta, canMoveToAsset, editorNodeDef, extractSubgraph, isPseudo, setAssetMeta, wireRulesGraph } from "../../particleGraph/assetDocs";
+import { usePanelHistory, type UndoHistory, editor, NO_DRAG, NO_PAN, NoteView, NodeSearchPopup, Minimap, SelectionBox, isFieldTarget, px, startConnection, startPointerDrag, toGraph, useGraphCanvas, useGraphSelection, type CanvasNode, type DraftWire, type Point, type EditorProject } from "../../../../../editor/sdk";
+import { effectFileMigrated, particleDocument } from "../../particleAssets";
+import { ASSET_INPUT, BLOCK_CONTEXTS, addPseudoNode, assetMeta, assetToDoc, canMoveToAsset, editorNodeDef, extractSubgraph, isPseudo, setAssetMeta, wireRulesGraph } from "../../particleGraph/assetDocs";
 import {
   addBlock,
   addNode,
-  addNote,
   addSystem,
   canMoveBlock,
   connectWire,
-  copyItems,
   disconnect,
   disconnectEvent,
-  duplicateItems,
-  groupItems,
   moveBlock,
   moveItems,
-  particleClipboardFromText,
-  pasteItems,
+  particleGraphEdits,
   removeBlock,
-  removeItems,
-  removeNote,
   collapsedSystems,
-  setGroupTitle,
   setSystemCollapsed,
   sourceOf,
   splitRef,
-  ungroup,
-  updateNote,
   whyNotWire,
-  type ParticleClipboard,
 } from "../../particleGraph/graphEdit";
 import { indexProblems, locateProblem } from "../../particleGraph/problems";
 import { Blackboard, PROPERTY_DRAG } from "./Blackboard";
@@ -54,8 +43,6 @@ import { Wires, type WireSelection } from "./Wires";
 import "../../../../../editor/graph/graph.css";
 import "./particleGraph.css";
 
-/** Systems and nodes copied with Ctrl+C or cut with Ctrl+X, pasted into any effect. */
-let clipboard: ParticleClipboard | null = null;
 /** Effects framed once this session (the first view fits the graph as measured). */
 const framed = new Set<string>();
 /** The preview card's size, kept while the panel is open. */
@@ -73,12 +60,12 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
   const readOnly = doc.readOnly;
   const version = editor.project.version; // sub-graph and block assets this graph uses may change on disk or elsewhere in the editor
   const graph = doc.value.value;
-  // Its parse problems: `GraphProblem`s (they say where), as the plugin's formats report them.
-  const parseProblems = doc.problems.value as readonly GraphProblem[];
+  // Its parse problems: `GraphProblem`s (they say where), as the plugin's formats report them; a file that couldn't
+  // be read at all has one problem without a severity (the asset kind host's, ADR 0233), an error.
+  const parseProblems = useMemo(() => doc.problems.value.map((p): GraphProblem => ("severity" in p ? (p as GraphProblem) : { severity: "error", message: p.message })), [doc.problems.value]);
   // An old-format file (written as a graph by the first edit).
-  const migrated = useMemo(() => readEffect(project, path).migrated, [version, path]);
+  const migrated = useMemo(() => effectFileMigrated(project, path), [version, path]);
   useEffect(() => () => void doc.flush(), [doc]); // write a pending gesture's edits when the panel closes
-  const [selection, setSelection] = useState<ReadonlySet<string>>(new Set());
   const [selectedBlock, setSelectedBlock] = useState<string | null>(null);
   const [selectedWire, setSelectedWire] = useState<WireSelection | null>(null);
   const [dragging, setDragging] = useState<Map<string, Point> | null>(null);
@@ -86,7 +73,6 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
   const [detached, setDetached] = useState<string | null>(null);
   const [hint, setHint] = useState<string | null>(null);
   const [search, setSearch] = useState<{ at: Point; target: SearchTarget; pending: Pending } | null>(null);
-  const [box, setBox] = useState<{ a: Point; b: Point } | null>(null);
   const [blockDrag, setBlockDrag] = useState<{ key: string; drop: BlockDrop | null } | null>(null);
   const [maximized, setMaximized] = useState(false);
   const [showMinimap, setShowMinimap] = useState(true);
@@ -96,6 +82,48 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
   const [measured, setMeasured] = useState<Map<string, Measured>>(new Map());
 
   const root = useRef<HTMLDivElement>(null);
+  // Selection, box select and the shared shortcuts (ADR 0228); a selected wire or block is this panel's own.
+  const keys = useGraphSelection({
+    edits: particleGraphEdits,
+    graph: () => doc.value.peek(),
+    commit: (next) => commit(next),
+    readOnly,
+    root,
+    canvas: () => canvas,
+    nodes: () => live.current.nodes,
+    paneIgnore: ".pg-system, .pg-node, .sg-search, .sg-wire-hit, .sg-note, .sg-group-head, .sg-minimap, .pg-previewcard, .pg-popover",
+    openSearch: () => openSearchAtPointer(),
+    deleteOther: () => {
+      const g = doc.value.peek();
+      if (selectedWire) {
+        commit(selectedWire.kind === "edge" ? disconnect(g, selectedWire.to) : disconnectEvent(g, selectedWire.from, selectedWire.to));
+        setSelectedWire(null);
+      } else if (selectedBlock) {
+        const [system, block] = selectedBlock.split(".");
+        commit(removeBlock(g, system, block));
+        setSelectedBlock(null);
+      } else return false;
+      return true;
+    },
+    onItemDown: (e) => {
+      setSelectedWire(null);
+      setProblemsOpen(false);
+      if (!(e.target as Element).closest(".pg-block")) setSelectedBlock(null);
+    },
+    onPaneDown: () => {
+      setSearch(null);
+      setSelectedWire(null);
+      setSelectedBlock(null);
+      setProblemsOpen(false);
+    },
+    onEscape: () => {
+      setSearch(null);
+      setSelectedBlock(null);
+      setSelectedWire(null);
+      setProblemsOpen(false);
+    },
+  });
+  const { selection, setSelection, box } = keys;
   const viewport = useRef<HTMLDivElement>(null);
   const flowId = useMemo(() => `pg${Math.random().toString(36).slice(2, 8)}`, []);
   /** A pointer gesture or colour pick in progress: its edits coalesce into one undo step (written when it ends). */
@@ -415,30 +443,6 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
 
   // --- selection and drags ---------------------------------------------------------------------------
 
-  const onItemDown = (e: PointerEvent, id: string) => {
-    if (e.button !== 0) return;
-    if (!isFieldTarget(e.target)) root.current?.focus({ preventScroll: true });
-    setSelectedWire(null);
-    setProblemsOpen(false);
-    if (!(e.target as Element).closest(".pg-block")) setSelectedBlock(null);
-    if (e.shiftKey || e.ctrlKey || e.metaKey) {
-      const next = new Set(selection);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      setSelection(next);
-    } else if (!selection.has(id)) setSelection(new Set([id]));
-  };
-
-  const onPaneDown = (e: PointerEvent) => {
-    if (e.button !== 0 || (e.target as Element).closest(".pg-system, .pg-node, .sg-search, .sg-wire-hit, .sg-note, .sg-group-head, .sg-minimap, .pg-previewcard, .pg-popover")) return;
-    root.current?.focus({ preventScroll: true });
-    setSearch(null);
-    setSelectedWire(null);
-    setSelectedBlock(null);
-    setProblemsOpen(false);
-    startBoxSelect(e, { pane: pane.current!, view: () => canvas.viewRef.current, nodes: () => live.current.nodes, selection, onSelection: setSelection, onBox: setBox });
-  };
-
   const dragHooks: DragHooks = {
     pane: () => pane.current!,
     nodes: () => live.current.nodes,
@@ -509,32 +513,6 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
 
   // --- commands --------------------------------------------------------------------------------------
 
-  const deleteSelection = () => {
-    const g = live.current.graph;
-    if (selectedWire) {
-      commit(selectedWire.kind === "edge" ? disconnect(g, selectedWire.to) : disconnectEvent(g, selectedWire.from, selectedWire.to));
-      setSelectedWire(null);
-    } else if (selectedBlock) {
-      const [system, block] = selectedBlock.split(".");
-      commit(removeBlock(g, system, block));
-      setSelectedBlock(null);
-    } else if (selection.size) {
-      commit(removeItems(g, selection));
-      setSelection(new Set());
-    }
-  };
-
-  /** Paste items copied in any effect: the system clipboard's `text` (a paste event's) when another editor process copied them since, else this editor's (ADR 0226). */
-  const pasteHere = (text: string | null) => {
-    const clip = clipboardForPaste(text, clipboard, particleClipboardFromText);
-    if (!clip || readOnly) return;
-    clipboard = clip;
-    const at = toGraph(canvas.pointer.current ?? paneCenter(), canvas.viewRef.current);
-    const made = pasteItems(live.current.graph, clip, [at.x, at.y]);
-    commit(made.graph);
-    setSelection(new Set(made.ids));
-  };
-
   /** Move the selected operator nodes into a new sub-graph asset beside this file, replaced by a Sub-graph node (one undo step; the asset file stays). */
   const saveAsSubgraph = async () => {
     if (readOnly) return;
@@ -544,7 +522,7 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
       return;
     }
     const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
-    const made = await createParticleSubgraph(folder, probe.asset, "Sub-graph");
+    const made = await editor.assets.create("particlesubgraph", { folder, value: assetToDoc(probe.asset, "subgraph").graph, name: "Sub-graph" });
     if (!made) return;
     const done = extractSubgraph(live.current.graph, selection, `asset:${made}`, resolve);
     if (!done) return;
@@ -552,14 +530,9 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
     setSelection(new Set([done.node]));
   };
 
-  const groupSelection = () => {
-    if (selection.size === 0) return;
-    commit(groupItems(live.current.graph, selection).graph);
-  };
-
   const addNoteHere = () => {
     const at = toGraph(paneCenter(), canvas.viewRef.current);
-    commit(addNote(live.current.graph, [at.x - 100, at.y - 50]).graph);
+    commit(particleGraphEdits.addNote(live.current.graph, [at.x - 100, at.y - 50]).graph);
   };
 
   const placeProperty = (name: string, at: Point = paneCenter()) => {
@@ -580,55 +553,6 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
     if (collapsed.has(id)) setCollapsed(id, false);
     const n = live.current.nodes.find((c) => c.id === id);
     if (n) frameAll([n]);
-  };
-
-  const onPaste = (e: ClipboardEvent) => {
-    if (isFieldTarget(e.target)) return;
-    e.stopPropagation();
-    takePaste(e, pasteHere);
-  };
-
-  const onKeyDown = (e: KeyboardEvent) => {
-    if (isFieldTarget(e.target)) return;
-    const key = (e.key ?? "").toLowerCase();
-    const mod = e.ctrlKey || e.metaKey;
-    let handled = true;
-    // Ctrl/Cmd+Z / Shift+Z / Y reach the editor's shortcuts, which undo the active history: the panel's (below, ADR 0145).
-    if (mod && key === "d") {
-      const made = duplicateItems(live.current.graph, selection);
-      commit(made.graph);
-      setSelection(new Set(made.ids));
-    } else if (mod && key === "a") setSelection(new Set([...graph.systems, ...graph.nodes].map((n) => n.id)));
-    else if (mod && (key === "c" || key === "x")) {
-      const clip = copyItems(live.current.graph, selection);
-      if (clip) {
-        clipboard = clip;
-        writeClipboard(clip);
-        if (key === "x") {
-          commit(removeItems(live.current.graph, selection));
-          setSelection(new Set());
-        }
-      }
-    } else if (mod && key === "v") {
-      // Not prevented, so the browser fires `paste` with the system clipboard's text (onPaste).
-      expectPaste(pasteHere);
-      e.stopPropagation();
-      return;
-    } else if (mod && key === "g") groupSelection();
-    else if (!mod && (key === "delete" || key === "backspace")) deleteSelection();
-    else if (!mod && key === " ") openSearchAtPointer();
-    else if (!mod && key === "f") frameAll();
-    else if (key === "escape") {
-      setSearch(null);
-      setSelection(new Set());
-      setSelectedBlock(null);
-      setSelectedWire(null);
-      setProblemsOpen(false);
-    } else handled = false;
-    if (handled) {
-      e.preventDefault();
-      e.stopPropagation();
-    }
   };
 
   // --- drawing ---------------------------------------------------------------------------------------
@@ -702,8 +626,8 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
         data-asset-document={doc.path}
         ref={root}
         tabIndex={0}
-        onKeyDown={onKeyDown}
-        onPaste={onPaste}
+        onKeyDown={keys.onKeyDown}
+        onPaste={keys.onPaste}
         onPointerDownCapture={startGesture}
         onInputCapture={(e) => {
           if (isColorInput(e.target)) gesture.current.color = true;
@@ -792,7 +716,7 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
           >
             Save as sub-graph
           </button>
-          <button title="Put the selected systems and nodes in a group (Ctrl+G)" disabled={readOnly || selection.size === 0} onClick={groupSelection}>
+          <button title="Put the selected systems and nodes in a group (Ctrl+G)" disabled={readOnly || selection.size === 0} onClick={keys.groupSelection}>
             Group
           </button>
           <button title="Add a sticky note" disabled={readOnly} onClick={addNoteHere}>
@@ -820,7 +744,7 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
           <div
             class="sg-pane pg-pane"
             ref={pane}
-            onPointerDown={onPaneDown}
+            onPointerDown={keys.onPaneDown}
             onPointerMove={canvas.onPointerMove}
             onContextMenu={(e) => e.preventDefault()}
             onDragOver={(e) => {
@@ -841,8 +765,8 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
                 return (
                   <div key={g.id} class="sg-group" style={{ left: px(r.x), top: px(r.y), width: px(r.w), height: px(r.h) }} aria-label={`Group ${g.title}`}>
                     <div class={`sg-group-head ${NO_PAN}`} onPointerDown={(e) => startGroupDrag(e, g)}>
-                      <input type="text" class={NO_DRAG} aria-label="Group title" disabled={readOnly} value={g.title} onChange={(e) => commit(setGroupTitle(live.current.graph, g.id, (e.currentTarget as HTMLInputElement).value))} />
-                      <button title="Ungroup (the systems and nodes stay)" aria-label={`Ungroup ${g.title}`} disabled={readOnly} onClick={() => commit(ungroup(live.current.graph, g.id))}>
+                      <input type="text" class={NO_DRAG} aria-label="Group title" disabled={readOnly} value={g.title} onChange={(e) => commit(particleGraphEdits.setGroupTitle(live.current.graph, g.id, (e.currentTarget as HTMLInputElement).value))} />
+                      <button title="Ungroup (the systems and nodes stay)" aria-label={`Ungroup ${g.title}`} disabled={readOnly} onClick={() => commit(particleGraphEdits.ungroup(live.current.graph, g.id))}>
                         ✕
                       </button>
                     </div>
@@ -850,7 +774,7 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
                 );
               })}
               {graph.notes.map((n) => (
-                <NoteView key={n.id} note={n} zoom={view.zoom} readOnly={readOnly} onChange={(patch) => commit(updateNote(live.current.graph, n.id, patch))} onRemove={() => commit(removeNote(live.current.graph, n.id))} />
+                <NoteView key={n.id} note={n} zoom={view.zoom} readOnly={readOnly} onChange={(patch) => commit(particleGraphEdits.updateNote(live.current.graph, n.id, patch))} onRemove={() => commit(particleGraphEdits.removeNote(live.current.graph, n.id))} />
               ))}
               {graph.systems.map((s) => (
                 <SystemView
@@ -860,12 +784,12 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
                   selected={selection.has(s.id)}
                   collapsed={collapsed.has(s.id)}
                   onCollapse={(c) => setCollapsed(s.id, c)}
-                  onDown={onItemDown}
+                  onDown={keys.onItemDown}
                   drag={dragHooks}
                 />
               ))}
               {graph.nodes.map((n) => (
-                <NodeView key={n.id} node={n} at={position(n)} selected={selection.has(n.id)} onDown={onItemDown} drag={dragHooks} />
+                <NodeView key={n.id} node={n} at={position(n)} selected={selection.has(n.id)} onDown={keys.onItemDown} drag={dragHooks} />
               ))}
               <Wires
                 graph={graph}

@@ -34,6 +34,7 @@ import { compileSegmentGrid, positionTextToTicks, ticksToSeconds, type SegmentGr
 import { MUSIC_TICKS_PER_BEAT } from "../../../../engine/audio/musicPosition";
 import { warnOnce } from "../core/handle";
 import type { MusicFrame, MusicPlayer } from "./musicSystem";
+import { attachState } from "./musicPlayer";
 import { firstLoopOf, nextWrapOf, regionFramesOf } from "./anchors";
 import { frameIntervalSeconds, lookaheadSeconds } from "./planner";
 import { groupRequest, segmentClipSource, type SegmentRun } from "./segmentRun";
@@ -221,7 +222,8 @@ export function tickLoopTails(player: MusicPlayer, f: MusicFrame): void {
   let st = player.tails;
   if (!st) {
     if (!player.run) return;
-    st = player.tails = createLoopTailState();
+    st = createLoopTailState();
+    attachState(player, "tails", st);
   }
   // Forget what ended.
   let w = 0;

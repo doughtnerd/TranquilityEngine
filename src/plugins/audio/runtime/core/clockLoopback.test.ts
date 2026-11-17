@@ -14,7 +14,7 @@
 import { describe, expect, it } from "vitest";
 import { limiterLatencyFrames } from "./limiterLatency";
 import { QUANTUM_FRAMES } from "../wire.generated";
-import { CoreBackend } from "./coreBackend";
+import type { CoreBackend } from "./coreBackend";
 import type { FakeHostClock } from "../testing";
 import { loopbackAudio } from "../testing";
 

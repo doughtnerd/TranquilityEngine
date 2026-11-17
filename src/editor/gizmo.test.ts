@@ -55,18 +55,6 @@ describe("gizmo edits (ADR 0026)", () => {
     expect(gizmoEdit(doc, "bird", "scale", asPose()).value).toEqual([1.5, 1.5, 1]);
   });
 
-  it("a drag is one undo step that moves the node in the World", () => {
-    const { doc, stack, sync } = openScene.value!;
-    const before = JSON.stringify(doc.toJSON());
-    stack.beginGroup("Move Bird");
-    for (const y of [1.5, 2, 2.5]) stack.execute(gizmoEdit(doc, "bird", "translate", { ...asPose(), position: [-4, y, 0] }));
-    stack.endGroup();
-    expect(sync.nodeFor("bird")!.transform!.position.toArray()).toEqual([-4, 2.5, 0]);
-    expect(stack.undoLabel).toBe("Move Bird");
-    stack.undo();
-    expect(JSON.stringify(doc.toJSON())).toBe(before);
-  });
-
   it("writes a rotation as a quaternion, 2D ones too (ADR 0163)", () => {
     const { doc, stack, sync } = openScene.value!;
     stack.execute(gizmoEdit(doc, "bird", "rotate", asPose()));
@@ -87,6 +75,8 @@ describe("gizmo edits (ADR 0026)", () => {
 describe("the gizmo on the selection, over a fake viewport (ADR 0128)", () => {
   let surface: FakeRenderSurface;
   let stop: () => void;
+  /** The page's window, where the gizmo listens for Escape (Vitest runs without a DOM). */
+  let page: EventTarget;
 
   beforeEach(async () => {
     Input.reset();
@@ -95,12 +85,55 @@ describe("the gizmo on the selection, over a fake viewport (ADR 0128)", () => {
     engine.world.render = surface;
     sceneCamera.value = OrbitCamera.create(GameObject.create("SceneCamera", { parent: engine.world.root }));
     openSceneFile(engine, DEMO_SCENE);
+    page = new EventTarget();
+    Object.defineProperty(globalThis, "window", { value: page, configurable: true, writable: true });
     stop = installGizmo(engine);
     return () => {
       stop();
+      delete (globalThis as { window?: unknown }).window;
       tool.value = "move";
       engine.world.render = null;
     };
+  });
+
+  const z45 = Quaternion.rotateZ(Math.PI / 4).toArray();
+  const at = (y: number): LocalPose => ({ position: [-4, y, 0], rotation: z45, scale: [1, 1, 1] });
+  const escape = () => page.dispatchEvent(Object.assign(new Event("keydown", { cancelable: true }), { key: "Escape" }));
+
+  it("makes a drag one undo step that moves the node in the World", () => {
+    const { doc, stack, sync } = openScene.value!;
+    select(["bird"]);
+    tool.value = "move";
+    const before = JSON.stringify(doc.toJSON());
+    const handlers = surface.adapter.gizmo!.handlers!;
+    handlers.onStart();
+    for (const y of [1.5, 2, 2.5]) handlers.onChange([at(y)]);
+    handlers.onEnd();
+    expect(sync.nodeFor("bird")!.transform!.position.toArray()).toEqual([-4, 2.5, 0]);
+    expect(stack.undoLabel).toBe("Move Bird");
+    stack.undo();
+    expect(JSON.stringify(doc.toJSON())).toBe(before);
+  });
+
+  it("puts the nodes back on Escape during a drag, recording nothing", () => {
+    const { doc, stack, sync } = openScene.value!;
+    select(["bird"]);
+    tool.value = "move";
+    const before = JSON.stringify(doc.toJSON()), undoBefore = stack.undoLabel;
+    const position = sync.nodeFor("bird")!.transform!.position.toArray();
+    const handlers = surface.adapter.gizmo!.handlers!;
+    handlers.onStart();
+    handlers.onChange([at(1.5)]);
+    expect(escape()).toBe(false); // consumed
+    expect(JSON.stringify(doc.toJSON())).toBe(before);
+    expect(sync.nodeFor("bird")!.transform!.position.toArray()).toEqual(position);
+    // The handle was let go: what the renderer still reports of the drag changes nothing.
+    handlers.onChange([at(3)]);
+    handlers.onEnd();
+    expect(JSON.stringify(doc.toJSON())).toBe(before);
+    expect(stack.undoLabel).toBe(undoBefore);
+    expect(surface.adapter.gizmo?.nodes.map((n) => n.name)).toEqual([sync.nodeFor("bird")!.name]); // shown again
+    expect(escape()).toBe(true); // no drag: Escape is left to others
   });
 
   it("select shows no gizmo; the others pick a mode", () => {

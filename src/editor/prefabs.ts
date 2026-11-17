@@ -33,6 +33,7 @@ import { writeSceneFile } from "./project";
 import type { EditorProject } from "./projects";
 import type { OpenScene } from "./state";
 import { readOnlyMessage } from "./readOnly";
+import { undoStep } from "./undoStep";
 
 /** A node inside a prefab instance, from the prefab file (nested prefabs included) and the instance's overrides. */
 export interface InnerNode {
@@ -415,13 +416,10 @@ export async function createPrefab(scene: OpenScene, project: EditorProject, id:
   const parent = doc.parentOf(id);
   const index = doc.children(parent).indexOf(id);
   const instance: NodeEntry = { id, ...(entry.name !== undefined ? { name: entry.name } : {}), prefab: path };
-  stack.beginGroup(`Create prefab ${path.split("/").pop()}`);
-  try {
+  undoStep(stack, `Create prefab ${path.split("/").pop()}`, () => {
     stack.execute(new RemoveNode(id));
     stack.execute(new AddNode(instance, { parent, index }));
-  } finally {
-    stack.endGroup();
-  }
+  });
   return path;
 }
 
@@ -463,13 +461,10 @@ export async function createPrefabFromNodes(scene: OpenScene, project: EditorPro
   const path = newPrefabPath(project, name);
   await writeSceneFile(project, path, { format: doc.format, nodes });
   const index = order.indexOf(sorted[0]);
-  stack.beginGroup(`Create prefab ${path.split("/").pop()}`);
-  try {
+  undoStep(stack, `Create prefab ${path.split("/").pop()}`, () => {
     for (const id of sorted) stack.execute(new RemoveNode(id));
     stack.execute(new AddNode({ id: rootId, name, prefab: path }, { parent, index }));
-  } finally {
-    stack.endGroup();
-  }
+  });
   return path;
 }
 

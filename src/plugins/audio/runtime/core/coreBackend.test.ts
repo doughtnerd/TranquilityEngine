@@ -1,139 +1,31 @@
-// A1.4 (lead): `CoreBackend` against a fake ClipRegistry and a real `CoreLink` on a recording port (no wasm), plus the
+// A1.4 (lead): `CoreBackend` on the recording host (`recordingAudio`, ADR 0234: a fake ClipRegistry, no wasm), plus the
 // loopback check (`loopbackAudio`, ADR 0221).
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Mixer } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings, type AudioSettings } from "../../../../engine/audio/settings";
-import { ASAP, Kind, LANE_RUNTIME, LANE_SNAPSHOT, Op, readBatchHeader, readBusConfig, readBusDuck, readBusPresence, readBusRamp, readEnvelope, readPlay, readRecordHead, readReset, readSetParams, readStop, readFade, SET_PARAMS_MASK_BUS, SET_PARAMS_MASK_SCORE, STATUS_BUFFER_BYTES, writeStatus } from "../wire.generated";
-import type { AudioHost, BusRemap, HostLifecycleListener } from "./context";
-import { CoreLink, type LinkPort } from "./context";
-import type { ClipInfo, ClipRegistry, ClipResidentListener, ClipState } from "./clipRegistry";
+import { ASAP, Kind, LANE_RUNTIME, LANE_SNAPSHOT, Op, readBusConfig, readBusDuck, readBusPresence, readBusRamp, readEnvelope, readPlay, readReset, readSetParams, readStop, readFade, SET_PARAMS_MASK_BUS, SET_PARAMS_MASK_SCORE } from "../wire.generated";
 import type { HrirLoader } from "./hrir";
-import { CoreBackend, type CoreBackendDeps, type CoreBackendHost } from "./coreBackend";
-import { makeStatusBlock } from "./statusFixtures";
-import { loopbackAudio, closeLoopbackAudio } from "../testing";
+import type { CoreBackend, CoreBackendDeps } from "./coreBackend";
+import { closeLoopbackAudio, closeRecordingAudio, loopbackAudio, recordingAudio } from "../testing";
+import type { PostedBatch } from "./batchRecords";
 
-class FakeRegistry implements ClipRegistry {
-  readonly ids = new Map<string, number>();
-  readonly states = new Map<number, ClipState>();
-  readonly refs = new Map<number, number>();
-  readonly listeners = new Map<number, ClipResidentListener[]>();
-  readonly events: [number, number][] = [];
-  resident: number[] = [];
-  private next = 1;
-  acquire(path: string): number {
-    let id = this.ids.get(path);
-    if (id === undefined) {
-      id = this.next++;
-      this.ids.set(path, id);
-      this.states.set(id, "ready");
-    }
-    this.refs.set(id, (this.refs.get(id) ?? 0) + 1);
-    return id;
-  }
-  release(id: number): void {
-    this.refs.set(id, (this.refs.get(id) ?? 0) - 1);
-  }
-  state(id: number): ClipState {
-    return this.states.get(id) ?? "idle";
-  }
-  info(id: number): ClipInfo | null {
-    return { id, path: "", state: this.state(id), refs: this.refs.get(id) ?? 0, frames: 0, channels: 1, sampleRate: 48_000, format: 1, bytes: 0, failure: null };
-  }
-  onResident(id: number, listener: ClipResidentListener): () => void {
-    const list = this.listeners.get(id) ?? [];
-    list.push(listener);
-    this.listeners.set(id, list);
-    return () => {};
-  }
-  releaseWorld(): void {}
-  applyClipEvent(id: number, code: number): void {
-    this.events.push([id, code]);
-  }
-  residentIds(): readonly number[] {
-    return this.resident;
-  }
-  acquireReserved(): void {}
-  settle(id: number, state: ClipState): void {
-    this.states.set(id, state);
-    for (const l of this.listeners.get(id) ?? []) l(this.info(id)!);
-    this.listeners.delete(id);
-  }
-}
-
+/**
+ * The core backend on the recording host (ADR 0234), over its own mixer, with a fake clip registry: `status` sets the host's
+ * starting state as the context gives it ("locked": an interruption only a gesture resumes; "failed": a closed context).
+ */
 function rig(options: { status?: "locked" | "running" | "failed"; settings?: AudioSettings; hrir?: HrirLoader; streams?: CoreBackendDeps["streams"] } = {}) {
-  const sent: ArrayBuffer[] = [];
-  const port: LinkPort = { onmessage: null, postMessage: (m) => sent.push(m as ArrayBuffer) };
-  const link = new CoreLink(port);
-  const listeners: HostLifecycleListener[] = [];
-  const state = { status: options.status ?? "running", worlds: 1 };
-  const host: CoreBackendHost = {
-    link,
-    get status() {
-      return state.status;
-    },
-    preset: { maxLogical: 16 },
-    get worldCount() {
-      return state.worlds;
-    },
-    sampleRate: 48_000,
-    addLifecycleListener: ((l: HostLifecycleListener) => {
-      listeners.push(l);
-      return () => void listeners.splice(listeners.indexOf(l), 1);
-    }) as AudioHost["addLifecycleListener"],
-  };
-  const clock = fakeClock();
-  const mixer = new Mixer(options.settings ?? defaultAudioSettings());
-  const clips = new FakeRegistry();
-  const backend = new CoreBackend(host, { clips, clock, mixer, hrir: options.hrir, streams: options.streams });
+  const r = recordingAudio({ mixer: "own", settings: options.settings ?? defaultAudioSettings(), preset: { maxLogical: 16 }, backend: { hrir: options.hrir, streams: options.streams } });
+  if (options.status === "locked") r.lock();
+  if (options.status === "failed") void r.host.context.close();
   /** Batches posted since the last call, as record lists. */
-  const batches = () => {
-    const out: ReturnType<typeof decode>[] = [];
-    for (const m of sent.splice(0)) if (readEnvelope(new DataView(m), 0).kind === Kind.BATCH) out.push(decode(m));
-    return out;
-  };
+  const batches = () => r.posted.take().filter((b) => b.kind === Kind.BATCH).map(decode);
   const ops = () => batches().flatMap((b) => b.records);
-  const status = (fields: Parameters<typeof makeStatusBlock>[0]) => {
-    const buffer = new ArrayBuffer(STATUS_BUFFER_BYTES);
-    writeStatus(new DataView(buffer), 0, makeStatusBlock(fields), 1);
-    link.handleMessage(buffer);
-  };
-  const frame = () => {
-    clock.advance(16);
-    backend.update(0.016);
-  };
-  return { backend, link, sent, batches, ops, state, clock, mixer, clips, listeners, status, frame };
+  return { ...r, backend: r.backend, batches, ops, frame: () => r.frame() };
 }
 
-function decode(buffer: ArrayBuffer) {
-  const view = new DataView(buffer);
-  const header = readBatchHeader(view, 0);
-  const records: { op: number; voiceId: number; frameOffset: number; off: number; view: DataView }[] = [];
-  let off = 32;
-  for (let i = 0; i < header.count; i++) {
-    const head = readRecordHead(view, off);
-    records.push({ op: head.opcode, voiceId: head.voiceId, frameOffset: head.frameOffset, off, view });
-    off += head.words * 4;
-  }
-  return { header, records };
-}
-
-/** A tiny fake HostClock (hostClock.ts's fake is A1.7's): the context clock advances with rAF time. */
-function fakeClock() {
-  let raf = 1000;
-  let ctx = 0;
-  let date = 1_000_000;
-  return {
-    rafTime: () => raf,
-    outputTimestamp: () => ({ contextTime: ctx, performanceTime: raf }),
-    currentTime: () => ctx,
-    dateNow: () => date,
-    fake: true as const,
-    advance(ms: number) {
-      raf += ms;
-      date += ms;
-      ctx += ms / 1000;
-    },
-  };
+/** A posted batch's records, each with its frame offset from the batch's first frame (`ASAP` kept). */
+function decode(batch: PostedBatch) {
+  const records = batch.records.map((x) => ({ op: x.opcode, voiceId: x.voiceId, frameOffset: x.frame === -1 ? ASAP : x.frame - batch.firstFrame, off: x.off, view: x.view }));
+  return { header: { firstFrame: batch.firstFrame }, records };
 }
 
 const req = (path = "a.wav", extra: object = {}) => ({ path, url: path, loop: false, stream: false, bus: "SFX", ...extra });
@@ -142,7 +34,10 @@ const idx = (id: number) => id & 0xffff;
 const row = (r: { backend: CoreBackend }, id: number) => r.backend.debug().voices.find((v) => v.id === id);
 const only = (list: ReturnType<typeof decode>["records"], op: number) => list.filter((x) => x.op === op);
 
-afterEach(closeLoopbackAudio);
+afterEach(async () => {
+  await closeRecordingAudio();
+  await closeLoopbackAudio();
+});
 
 describe("CoreBackend (api-and-models §3, §6)", () => {
   it("a stream: true play is a stream voice: never acquired as a whole clip, no warning, its PLAY flagged stream and spatial (B3, B6)", async () => {
@@ -315,9 +210,9 @@ describe("CoreBackend (api-and-models §3, §6)", () => {
     const settings = defaultAudioSettings();
     settings.buses = settings.buses.filter((b) => b.name !== "Music");
     settings.buses.find((b) => b.name === "SFX")!.maxVoices = 3;
+    // The mixer takes the new tree, then the host remaps (Master, Music, SFX, UI, Voice to Master, SFX, UI, Voice), as `Engine.create` does.
     r.mixer.configure(settings);
-    const remap: BusRemap = { epoch: 2, from: ["Master", "Music", "SFX", "UI", "Voice"], to: settings.buses.map((b) => b.name), map: new Uint8Array([0, 0, 1, 2, 3]) };
-    for (const l of [...r.listeners]) l.onBusRemap?.(remap);
+    expect(r.host.reconfigure(settings)!.map).toEqual(new Uint8Array([0, 0, 1, 2, 3]));
     expect(r.backend.debug().buses.slice(1, 3).map((b) => b.maxVoices)).toEqual([3, null]);
     r.frame();
     const ops = r.ops();
@@ -343,8 +238,7 @@ describe("CoreBackend (api-and-models §3, §6)", () => {
     const v = r.backend.play(req())!;
     r.frame();
     r.ops();
-    r.state.worlds = 0;
-    for (const l of [...r.listeners]) l.onIdle?.();
+    r.host.releaseWorld(r.share!.key); // the last World goes: the host is idle
     r.frame();
     expect(only(r.ops(), Op.RESET)).toHaveLength(0); // a voice is still live
     r.clips.resident = [5];
@@ -366,9 +260,8 @@ describe("CoreBackend (api-and-models §3, §6)", () => {
     const r = rig();
     r.frame();
     r.ops();
-    r.state.worlds = 0;
-    for (const l of [...r.listeners]) l.onIdle?.();
-    r.state.worlds = 1;
+    r.host.releaseWorld(r.share!.key);
+    r.host.attachWorld({ kind: "runtime" });
     r.frame();
     r.frame();
     expect(only(r.ops(), Op.RESET)).toHaveLength(0);
@@ -501,7 +394,7 @@ describe("CoreBackend (api-and-models §3, §6)", () => {
     expect(row(r, v.id)!.state).toBe("locked");
     r.frame();
     expect(only(r.ops(), Op.PLAY)).toHaveLength(0);
-    r.state.status = "running";
+    r.gesture();
     r.frame();
     expect(only(r.ops(), Op.PLAY)).toHaveLength(1);
     expect(v.reason).toBeNull();
@@ -544,7 +437,8 @@ describe("CoreBackend (api-and-models §3, §6)", () => {
     r.frame();
     r.backend.play(req());
     r.frame();
-    const kinds = r.sent.map((m) => readEnvelope(new DataView(m), 0));
+    const kinds = r.posted.take().map((b) => readEnvelope(b.records[0]!.view, 0));
+    expect(kinds.length).toBeGreaterThan(0);
     expect(kinds.every((e) => e.kind === Kind.BATCH)).toBe(true);
     const seqs = kinds.map((e) => e.seq);
     expect(seqs).toEqual([...seqs].sort((a, b) => a - b));
@@ -562,8 +456,10 @@ describe("CoreBackend (api-and-models §3, §6)", () => {
     r.backend.play(req());
     r.backend.dispose();
     r.frame();
-    expect(r.sent).toHaveLength(0);
-    expect(r.listeners).toHaveLength(0);
+    // The host's lifecycle no longer reaches it: the last World leaving sends no idle reset.
+    r.host.releaseWorld(r.share!.key);
+    r.frame();
+    expect(r.posted.pending).toHaveLength(0);
     expect(r.backend.play(req())).toBeNull();
   });
 
@@ -673,7 +569,7 @@ describe("CoreBackend: ducking counts and Bus.peak (A2.3)", () => {
     expect(r.mixer.bus("Music").peak).toBeCloseTo(0.5, 6);
     expect(r.mixer.bus("SFX").peak).toBeCloseTo(0.75, 6);
     expect(r.mixer.bus("Voice").peak).toBe(0);
-    r.state.status = "locked";
+    r.lock();
     r.frame();
     expect(r.mixer.bus("Music").peak).toBe(0);
   });
@@ -799,23 +695,12 @@ describe("CoreBackend on the loopback host (loopbackAudio, ADR 0221)", () => {
 });
 
 /** The records of every REPLAY message posted since the last call (the rebuild's replay, `replay.ts`). */
-function replayRecords(sent: ArrayBuffer[]) {
-  const out: { op: number; voiceId: number; off: number; view: DataView }[] = [];
-  for (const m of sent.splice(0)) {
-    const view = new DataView(m);
-    if (readEnvelope(view, 0).kind !== Kind.REPLAY) continue;
-    let off = 32;
-    while (off < view.byteLength) {
-      const head = readRecordHead(view, off);
-      out.push({ op: head.opcode, voiceId: head.voiceId, off, view });
-      off += head.words * 4;
-    }
-  }
-  return out;
+function replayRecords(r: ReturnType<typeof rig>) {
+  return r.posted.take().filter((b) => b.kind === Kind.REPLAY).flatMap((b) => b.records.map((x) => ({ op: x.opcode, voiceId: x.voiceId, off: x.off, view: x.view })));
 }
 
 describe("a stem voice across a hard rebuild (F-9b)", () => {
-  it("replays at the dry gain the core held: volume × occlusion × the stem's level", () => {
+  it("replays at the dry gain the core held: volume × occlusion × the stem's level", async () => {
     const r = rig();
     r.frame();
     const voice = r.backend.play({ ...req("stem.wav"), volume: 0.8, loop: true })!;
@@ -826,12 +711,11 @@ describe("a stem voice across a hard rebuild (F-9b)", () => {
     for (let k = 0; k < 10; k++) r.frame();
     voice.fadeShaped!({ to: 1, seconds: 0, law: "linear" });
     r.frame();
-    r.sent.length = 0;
-    for (const l of r.listeners) l.onRebuildStart?.("trap");
-    for (const l of r.listeners) l.onRebuilt?.();
+    r.posted.take();
+    expect(await r.rebuild()).toBe("rebuilt");
     r.clips.settle(r.clips.ids.get("stem.wav")!, "ready");
     r.frame();
-    const records = replayRecords(r.sent).filter((x) => x.voiceId === voice.id);
+    const records = replayRecords(r).filter((x) => x.voiceId === voice.id);
     const play = records.find((x) => x.op === Op.PLAY)!;
     expect(play).toBeDefined();
     expect(readPlay(play.view, play.off).gain).toBeCloseTo(0.8 * 0.5 * 0.25, 6);

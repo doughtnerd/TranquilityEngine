@@ -5,7 +5,7 @@
 // comes from the playing AudioSource whose voice id it is (a one-shot or event voice has no node and isn't drawn); the
 // hit point is a fresh ray from the same query the pass uses, since the debug row carries only the collider's name.
 // Toggled from the Audio Debug panel (`occlusionOverlayOn`, remembered per user). Off, it draws and costs nothing.
-// What is drawn from the voices is `occlusionRays.ts`; this module gives it the play World.
+// What is drawn from the voices is `occlusionRays.ts`; this module gives it the play Worlds (`editor.scene.playWorlds`, ADR 0232).
 import { effect } from "@preact/signals";
 import type { ReadonlySignal } from "@preact/signals";
 import type { GameObject } from "../../../engine";
@@ -17,9 +17,7 @@ import { Camera } from "../../../engine/render/components";
 import { Audio } from "../runtime/Audio";
 import { AudioListener, listenerPose } from "../runtime/AudioListener";
 import { AudioSource, worldKeyOf } from "../runtime/AudioSource";
-import type { PlaySession } from "../../../editor/playMode";
-import { playing as playSession } from "../../../editor/state";
-import { type ViewportToolContribution, persisted, theme } from "../../../editor/sdk";
+import { type ViewportToolContribution, editor, persisted, theme } from "../../../editor/sdk";
 import { occludedVoices, occlusionColors, occlusionOverlay, type OcclusionColors } from "./occlusionRays";
 
 /** The tool's id. */
@@ -97,12 +95,11 @@ function worldOcclusionOverlay(world: World, colors: OcclusionColors, enabled: b
 }
 
 /** Draws the overlay in every World of the play session while `enabled` is on. Returns the function that removes it. */
-function installOcclusionOverlay(playing: ReadonlySignal<PlaySession | null>, enabled: ReadonlySignal<boolean>): () => void {
-  let playWorlds: World[] = [];
+function installOcclusionOverlay(enabled: ReadonlySignal<boolean>): () => void {
+  let playWorlds: readonly World[] = [];
   const stop = effect(() => {
     for (const w of playWorlds) removeEditorOverlay(w, PLAY_ID);
-    const session = playing.value;
-    playWorlds = session ? session.engine.worlds().flatMap((h) => session.engine._world(h.name) ?? []) : [];
+    playWorlds = editor.scene.playWorlds;
     for (const w of playWorlds) addEditorOverlay(w, PLAY_ID, () => worldOcclusionOverlay(w, occlusionColors(theme.peek()), enabled.peek()), "other");
   });
   return () => {
@@ -115,5 +112,5 @@ function installOcclusionOverlay(playing: ReadonlySignal<PlaySession | null>, en
 /** The scene view's occlusion tool: rays to occluded sources while playing, toggled from the Audio Debug panel. */
 export const occlusionTool: ViewportToolContribution = {
   id: OCCLUSION_TOOL_ID,
-  install: () => installOcclusionOverlay(playSession, occlusionOverlayOn),
+  install: () => installOcclusionOverlay(occlusionOverlayOn),
 };

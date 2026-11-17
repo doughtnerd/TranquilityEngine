@@ -1,7 +1,8 @@
 import { signal } from "@preact/signals";
 import { describe, expect, it } from "vitest";
 import { Engine } from "../engine";
-import { addEditorOverlay, shownEditorOverlays } from "../engine/editor";
+import { addEditorOverlay } from "../engine/editor";
+import { FakeRenderSurface } from "../engine/render/fakeViewport";
 import { FrameWindow } from "./frameWindow";
 import { StatsCollector } from "./playStats";
 import { cleanPlayGizmos, installPlayGizmos, outlineShown, playGizmos, updatePlayGizmos } from "./playGizmos";
@@ -67,16 +68,26 @@ describe("play view gizmos settings", () => {
   it("shows a kind only with the master toggle on and the kind's box ticked", async () => {
     const engine = await Engine.create({ headless: true });
     const world = engine.world;
-    for (const kind of ["navigation", "colliders", "other"] as const) addEditorOverlay(world, kind, () => ({ lines: [], handles: [] }), kind);
+    const surface = new FakeRenderSurface(); // the game view: its viewport keeps the overlay it is given
+    world.render = surface;
+    // Each overlay's draw function records that it ran; `drawn` runs what the game view would draw this frame.
+    const ran: string[] = [];
+    for (const kind of ["navigation", "colliders", "other"] as const) addEditorOverlay(world, kind, () => (ran.push(kind), { lines: [], handles: [] }), kind);
+    const drawn = (): string[] => {
+      ran.length = 0;
+      surface.adapter.overlay?.();
+      return [...ran];
+    };
     const stop = installPlayGizmos(signal<PlaySession | null>({ engine } as unknown as PlaySession));
-    expect(shownEditorOverlays(world)).toEqual(["navigation", "colliders", "other"]);
+    expect(drawn()).toEqual(["navigation", "colliders", "other"]);
     updatePlayGizmos({ navigation: false });
-    expect(shownEditorOverlays(world)).toEqual(["colliders", "other"]);
+    expect(drawn()).toEqual(["colliders", "other"]);
     updatePlayGizmos({ navigation: true, other: false });
-    expect(shownEditorOverlays(world)).toEqual(["navigation", "colliders"]);
+    expect(drawn()).toEqual(["navigation", "colliders"]);
     updatePlayGizmos({ other: true, enabled: false });
-    expect(shownEditorOverlays(world)).toEqual([]); // colliders too follow the master toggle
+    expect(drawn()).toEqual([]); // colliders too follow the master toggle
     stop();
+    world.render = null;
     playGizmos.value = cleanPlayGizmos(null);
     engine.dispose();
     const off = { ...DEFAULT_PLAY_GIZMOS, enabled: false };

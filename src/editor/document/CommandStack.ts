@@ -4,7 +4,7 @@ import type { SceneDocument, SceneFile } from "./SceneDocument";
 
 /** What happened, passed to `CommandStack` listeners. */
 export interface StackEvent {
-  readonly reason: "execute" | "group" | "undo" | "redo" | "jump" | "save" | "load";
+  readonly reason: "execute" | "group" | "cancel" | "undo" | "redo" | "jump" | "save" | "load";
   readonly label: string;
   readonly changes: readonly Change[];
 }
@@ -149,6 +149,26 @@ export class CommandStack {
     if (--this.groupDepth > 0) return;
     // Undo/redo availability and dirtiness change only now; the group's edits were already emitted.
     if (this.commit(this.groupLabel)) this.emit({ reason: "group", label: this.groupLabel, changes: [] });
+  }
+
+  /**
+   * Close the open group without recording it (ADR 0231: a cancelled gesture). The outermost group puts the
+   * document, and the text files its commands wrote, back as they were when it began, and tells listeners what
+   * changed; a nested group can't be taken out of the one around it, so it just closes. Returns whether the
+   * edits were reverted.
+   */
+  cancelGroup(): boolean {
+    if (this.groupDepth === 0) throw new Error("cancelGroup() without beginGroup().");
+    if (--this.groupDepth > 0) return false;
+    const before = this.stepBefore, filesBefore = this.filesBefore;
+    this.stepBefore = null;
+    this.filesBefore = null;
+    if (filesBefore && this.files) for (const [path, was] of filesBefore) was === null ? this.files.remove(path) : this.files.write(path, was);
+    const now = this.doc.toJSON();
+    const changes = before ? changesBetween(now, before) : [];
+    if (changes.length) this.doc._replace(before!);
+    this.emit({ reason: "cancel", label: this.groupLabel, changes });
+    return true;
   }
 
   private writeFiles(writes: readonly FileWrite[]): void {

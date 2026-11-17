@@ -2,7 +2,7 @@
 // that edits tiles, terrains and collision, accepted by Tilemap's tileset field; New Tileset is its `create`) and
 // its asset format, the Tile Palette panel, the scene-view paint tool, the Tilemap's Inspector section, the
 // Hierarchy's Create Tilemap and the Assets panel's Create Tileset from Slices.
-import { createTileset, createTilesetFromSlices, hasSlices } from "./tilesetAssets";
+import { createTilesetFromSlices, hasSlices } from "./tilesetAssets";
 import { tilemapsManifest } from "../manifest";
 import { paintTool } from "./paintTool";
 import { tilesetFormat } from "./tilesetFormat";
@@ -19,11 +19,11 @@ export const tilemapsEditorPlugin: EditorPlugin = {
       extensions: [".tileset.json"],
       label: "Tileset",
       icon: TILESET_ICON,
+      format: tilesetFormat,
       inspector: () => import("./TilesetInspector").then((m) => m.TilesetInspector),
-      create: { label: "New Tileset", create: (folder) => createTileset(folder) },
+      create: { label: "New Tileset", what: "tilesets" },
       referencedAs: ["tileset"],
     });
-    context.registerAssetFormat(tilesetFormat);
     // Same id as when it was built in, so saved layouts keep the tab; after Code, so the default tabs stay Assets, Code, Tile Palette.
     context.registerPanel({ id: "tilepalette", title: "Tile Palette", view: () => import("./TilePalettePanel").then((m) => m.TilePalettePanel), beside: "code" });
     context.registerViewportTool(paintTool);

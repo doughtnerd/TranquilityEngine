@@ -6,7 +6,12 @@
 //
 // ADR 0221: `loopbackAudio()` is the core as production assembles it (`core/assembly.ts`) over a real `AudioHost` on that
 // loopback, with the public `Audio` on top and the faults a real host can see (a trap, a rate change, a rebuild, a main
-// stall, a main-to-core hitch). Rigs build on it; `createLoopbackHost()` stays the one lower tier, for wire-level tests.
+// stall, a main-to-core hitch), and `startWorld` runs the real World service over it (ADR 0234). Rigs build on it;
+// `createLoopbackHost()` stays the lower tier for tests of the wasm wire itself (bytes in, STATUS out, no backend).
+//
+// ADR 0234: `recordingAudio()` is the third adapter of the same assembly: a real `AudioHost` whose node runs no core. What
+// main posts is recorded and read as `watch()` reads it, the test hands main its STATUS blocks, and the clock and the clips
+// (`makeFakeClipRegistry()`) are the test's. The backend's wire-tier unit tests use it; none builds a `CoreBackend` by hand.
 //
 // ADR 0162 (K4 owns this file in M3; the coordinator afterwards): the fake implements every K0 member: fake voices take
 // `setVelocity`, `setOcclusion` and `setDopplerRate` (recorded like the other setters, latest values readable), and
@@ -31,18 +36,22 @@ import type { KeyframePayload } from "./capture/format";
 import type { ProfileSink } from "./mix/profileSink";
 import { mixer, Mixer, type ResolvedBus } from "../../../engine/audio/mixer";
 import type { Vec3Like } from "../../../engine/core/math";
-import { CoreLink, type AudioHost, type LinkPort } from "./core/context";
+import { AudioHost as CoreAudioHost, CoreLink, presetFromSettings as presetOf, type AudioHost, type LinkPort, type WorldShare } from "./core/context";
 import type { HostClock } from "./core/hostClock";
-import { Kind, QUANTUM_FRAMES, readEnvelope, type StatusBlock } from "./wire.generated";
+import { Kind, QUANTUM_FRAMES, readEnvelope, STATUS_BUFFER_BYTES, STATUS_FLAGS_READY, writeStatus, type StatusBlock } from "./wire.generated";
 import { DEFAULT_LIMITER_LOOKAHEAD_MS, defaultAudioSettings, type AudioSettings } from "../../../engine/audio/settings";
-import { CoreDriver, instantiateCore, type CoreInstance, type CorePreset } from "./worklet/coreDriver";
+import { CORE_ABI_MAJOR, CoreDriver, instantiateCore, type CoreInstance, type CorePreset } from "./worklet/coreDriver";
 import { notifyEngineLifecycle } from "../../../engine/core/engineLifecycle";
 import { batchRecords, type PostedBatch } from "./core/batchRecords";
-import type { BatchWatch } from "./core/batchWatch";
+import { batchRecorder, type BatchRecorder, type BatchWatch } from "./core/batchWatch";
 import type { CoreBackend, CoreBackendDeps } from "./core/coreBackend";
-import type { ClipRegistry, ClipRegistryDeps } from "./core/clipRegistry";
-import type { RebuildOutcome, RebuildReason, RecoveryOptions } from "./core/recovery";
-import type { UnlockContext } from "./core/unlock";
+import type { ClipInfo, ClipRegistry, ClipRegistryDeps, ClipResidentListener, ClipState } from "./core/clipRegistry";
+import { rebuildHost, type RebuildOutcome, type RebuildReason, type RecoveryOptions } from "./core/recovery";
+import { Unlock as CoreUnlock, type UnlockContext } from "./core/unlock";
+import { assembleCore } from "./core/assembly";
+import { setAudioBackend as registerBackend } from "./backend";
+import { makeStatusBlock } from "./core/statusFixtures";
+import type { World } from "../../../engine/core/World";
 
 /** The controls a test has over a fake clock. */
 export interface FakeHostClock extends HostClock {
@@ -664,7 +673,7 @@ export const LOOPBACK_RATE = 48_000;
 
 
 /** Builds a loopback host on the committed wasm, with the given (or a new) fake clock and preset. */
-export async function createLoopbackHost(options: { clock?: FakeHostClock; preset?: CorePreset } = {}): Promise<LoopbackHost> {
+export async function createLoopbackHost(options: { clock?: FakeHostClock; preset?: CorePreset; keepStatuses?: boolean } = {}): Promise<LoopbackHost> {
   // A variable specifier: the engine's declaration build (tsconfig.engine.json) has no Node types, and this file only runs in Node tests.
   const nodeFs = "node:fs/promises";
   const { readFile } = (await import(/* @vite-ignore */ nodeFs)) as { readFile(url: URL): Promise<Uint8Array> };
@@ -735,7 +744,8 @@ export async function createLoopbackHost(options: { clock?: FakeHostClock; prese
   let cores = 1;
   const link = new CoreLink(current.port);
   const statuses: StatusBlock[] = [];
-  link.onStatus((s) => statuses.push(s));
+  // `loopbackAudio` reads STATUS through its link and keeps none (a long soak would hold every block).
+  if (options.keepStatuses !== false) link.onStatus((s) => statuses.push(s));
   let frame = 0;
 
   /** Quanta rendered so far, over every core (the `delayBatches` clock). */
@@ -998,6 +1008,14 @@ export interface LoopbackAudio {
   stallMain(): LoopbackStall;
   /** Fault: a hitch between main and the core: BATCHes posted until `stop` reach the core `quanta` quanta late (`LoopbackHost.delayBatches`). */
   delayBatches(quanta: number): { stop(): void };
+  /**
+   * ADR 0234: starts the real `myco.audio` World service in `world`, over this rig's host, and resolves the World's key (its
+   * share). The service's own `load` hands over the page's host, so the first call makes this rig's host the page's
+   * (`acquireAudioHost`, as the service's start would) and registers the service again (the plugin set with audio off, then
+   * on), since a registration loads once. Any number of Worlds may start after it; each needs a view (`render`), as the
+   * service's `runsIn` asks, and the page mixer's `audio.backend` must be "core". Nothing is mocked.
+   */
+  startWorld(world: World): Promise<number>;
   /** Disposes the backend (unregistering it on the page mixer), closes the host and ends the audio session. A second call does nothing. */
   close(): Promise<void>;
 }
@@ -1083,7 +1101,7 @@ export async function loopbackAudio(options: LoopbackAudioOptions = {}): Promise
   const preset: CorePreset = { ...LOOPBACK_PRESET, ...options.preset };
   let loop: LoopbackHost;
   try {
-    loop = await createLoopbackHost({ clock: options.clock, preset });
+    loop = await createLoopbackHost({ clock: options.clock, preset, keepStatuses: false });
   } catch (error) {
     // Only a wasm that isn't there (or doesn't compile) here skips; a preset the core refuses is the test's error.
     if ((error as { code?: string }).code === "ENOENT" || error instanceof WebAssembly.CompileError) return null;
@@ -1111,6 +1129,10 @@ export async function loopbackAudio(options: LoopbackAudioOptions = {}): Promise
     preset: { ...presetFromSettings(settings), ...preset },
     respawn,
     recreate,
+    // The host's clock is the rig's: it moves only as the rig renders (or the test advances it), as a page's moves with
+    // its audio. The background controller's stall check reads it, so a test idling between renders sees no stall, while
+    // rendering a second with no STATUS reaching main is one, as in a page.
+    now: () => loop.clock.rafTime(),
   });
   if (options.world !== false) host.attachWorld({ kind: "runtime" });
 
@@ -1176,6 +1198,25 @@ export async function loopbackAudio(options: LoopbackAudioOptions = {}): Promise
   const quantaPerFrame = options.quantaPerFrame ?? 4;
   const dtOf = () => options.dt ?? (quantaPerFrame * QUANTUM_FRAMES) / loop.sampleRate;
   let closed = false;
+  /** Whether this rig's host is the page's and the World service was registered again to load it (`startWorld`). */
+  let servesWorlds = false;
+  const startWorld = async (world: World): Promise<number> => {
+    const [{ acquireAudioHost }, { AUDIO }, { _startWorldService }, { applyTestPlugins }] = await Promise.all([
+      import("./core/context"),
+      import("./core/service"),
+      import("../../../engine/core/worldServices"),
+      import("../../testPlugins"),
+    ]);
+    if (!servesWorlds) {
+      if ((await acquireAudioHost(async () => host)) !== host) throw new Error("loopbackAudio: another audio host is the page's");
+      applyTestPlugins(["myco.audio"]);
+      applyTestPlugins();
+      servesWorlds = true;
+    }
+    const service = (await _startWorldService(world, AUDIO)) as import("./core/service").AudioWorldService | null;
+    if (!service || service.key === 0) throw new Error(`loopbackAudio: the World took no share of the host (no view, or audio.backend is "${mixer.audioSettings.backend}")`);
+    return service.key;
+  };
   const audio: LoopbackAudio = {
     Audio,
     backend,
@@ -1232,6 +1273,7 @@ export async function loopbackAudio(options: LoopbackAudioOptions = {}): Promise
     watched,
     stallMain: () => loop.stallMain(),
     delayBatches: (quanta) => loop.delayBatches(quanta),
+    startWorld,
     async close() {
       if (closed) return;
       closed = true;
@@ -1244,4 +1286,352 @@ export async function loopbackAudio(options: LoopbackAudioOptions = {}): Promise
   };
   openLoopbacks.add(audio);
   return audio;
+}
+
+// --- The fake clip registry (ADR 0234) ---------------------------------------------------------------------------------
+
+/** A `ClipRegistry` a test drives: what was acquired and released, each clip's state, the clip events STATUS brought. */
+export interface FakeClipRegistry extends ClipRegistry {
+  /** Each path acquired, with its id (1, 2, ... in order). */
+  readonly ids: Map<string, number>;
+  /** Each id's state (a new path starts in the registry's `state`, default "ready"); set one to change what plays see. */
+  readonly states: Map<number, ClipState>;
+  /** Each id's references (acquires less releases). */
+  readonly refs: Map<number, number>;
+  /** Every `applyClipEvent` (the STATUS mirror's clip events), as `[id, code]`. */
+  readonly events: [number, number][];
+  /** What `residentIds` answers (a rebuild's re-send, the idle reset's check); default none. */
+  resident: number[];
+  /** Moves `id` to `state` and calls its `onResident` listeners once, as a load that finished (or failed) does. */
+  settle(id: number, state: ClipState): void;
+}
+
+/**
+ * ADR 0234: the recording host's clip registry (no fetch, no decode, no core): every path gets an id, starting in
+ * `options.state` ("ready" by default, so plays start at once); `settle` finishes a load by hand. `options.info` adds to
+ * the `ClipInfo` it reports for a path (its channels, its frames).
+ */
+export function makeFakeClipRegistry(options: { state?: ClipState; info?: (path: string) => Partial<ClipInfo> } = {}): FakeClipRegistry {
+  const ids = new Map<string, number>();
+  const states = new Map<number, ClipState>();
+  const refs = new Map<number, number>();
+  const listeners = new Map<number, ClipResidentListener[]>();
+  const pathOf = (id: number): string => [...ids].find(([, v]) => v === id)?.[0] ?? "";
+  let next = 1;
+  const registry: FakeClipRegistry = {
+    ids,
+    states,
+    refs,
+    events: [],
+    resident: [],
+    acquire(path) {
+      let id = ids.get(path);
+      if (id === undefined) {
+        id = next++;
+        ids.set(path, id);
+        states.set(id, options.state ?? "ready");
+      }
+      refs.set(id, (refs.get(id) ?? 0) + 1);
+      return id;
+    },
+    release(id) {
+      refs.set(id, (refs.get(id) ?? 0) - 1);
+    },
+    state: (id) => states.get(id) ?? "idle",
+    info(id) {
+      const path = pathOf(id);
+      return { id, path, state: registry.state(id), refs: refs.get(id) ?? 0, frames: 0, channels: 1, sampleRate: LOOPBACK_RATE, format: 1, bytes: 0, failure: null, ...options.info?.(path) };
+    },
+    onResident(id, listener) {
+      const list = listeners.get(id) ?? [];
+      list.push(listener);
+      listeners.set(id, list);
+      return () => {
+        const at = list.indexOf(listener);
+        if (at >= 0) list.splice(at, 1);
+      };
+    },
+    releaseWorld() {},
+    acquireReserved() {},
+    applyClipEvent(id, code) {
+      registry.events.push([id, code]);
+    },
+    residentIds: () => registry.resident,
+    settle(id, state) {
+      states.set(id, state);
+      const list = listeners.get(id) ?? [];
+      listeners.delete(id);
+      for (const l of list) l(registry.info(id)!);
+    },
+  };
+  return registry;
+}
+
+// --- The recording host (ADR 0234) -------------------------------------------------------------------------------------
+
+/** How a core the recording host makes in a rebuild answers: its first ready STATUS, a shell error, or nothing. */
+export type RecordingNewCore = "answers" | "fails" | "silent";
+
+/** What `recordingAudio` builds. Every field is optional; the defaults are `loopbackAudio`'s where it has one. */
+export interface RecordingAudioOptions<C extends ClipRegistry = FakeClipRegistry> {
+  /** The audio settings (as `loopbackAudio`'s): the mixer is configured with them and the host from them. */
+  readonly settings?: AudioSettings;
+  /** `"page"` (default): the page's mixer, and the backend registered with `setAudioBackend` (unless `register` is false). `"own"`: a new `Mixer`. */
+  readonly mixer?: "page" | "own";
+  /** On the page's mixer, whether the rig registers the backend (default true). */
+  readonly register?: boolean;
+  /** Overrides of the preset (`LOOPBACK_PRESET` underneath) the host reports: `maxLogical`, `maxBeds`, `maxMusicRings`, the limiter look-ahead. */
+  readonly preset?: Partial<CorePreset>;
+  /** The injected clock (default a new `fakeHostClock()`); `frame` advances it. */
+  readonly clock?: FakeHostClock;
+  /** The clip registry (default `makeFakeClipRegistry()`). */
+  readonly clips?: C;
+  /** The backend's other dependencies (`hrir`, `magls`, `streams`, `zoneIr`, `warnOnce`). */
+  readonly backend?: Omit<LoopbackBackendDeps, "clips">;
+  /** Recovery's options (default: the fake clock's rAF time as its clock). */
+  readonly recovery?: RecoveryOptions;
+  /** Whether one World holds a share (default true; `share` is it). */
+  readonly world?: boolean;
+  /** The context's `baseLatency` and `outputLatency`, seconds (default none: the host reads 0). */
+  readonly latency?: { readonly base: number; readonly output: number };
+}
+
+/**
+ * ADR 0234: the third adapter of `assembleCore`. A real `AudioHost` whose node runs no core: everything main posts to the
+ * link is recorded (BATCH and REPLAY decoded, read as `loopbackAudio().watch()` reads them), BATCH buffers go back to the
+ * link's pool as the shell returns them, and the test plays the core's part: `status` hands main a STATUS block, and the
+ * cores a rebuild makes answer as told. The clock and the clips are the test's (`clock`, `clips`). For the backend's own
+ * logic at the wire: what it sends for a call, a STATUS or a lifecycle event, with no wasm.
+ */
+export interface RecordingAudio<C extends ClipRegistry = FakeClipRegistry> {
+  /** The backend the assembly made. */
+  readonly backend: CoreBackend;
+  readonly mixer: Mixer;
+  /** The production host over the recording node: World shares (`attachWorld`, `releaseWorld`), its context (`suspend`, `resume`, `close`), status. */
+  readonly host: AudioHost;
+  readonly link: CoreLink;
+  readonly clock: FakeHostClock;
+  readonly clips: C;
+  /** The World share the rig took (`world`), or null. */
+  readonly share: WorldShare | null;
+  /** Every BATCH and REPLAY posted from before the backend was made, decoded (a `BatchWatch`: `take`, `takeRecords`, `takeOps`, `pending`). */
+  readonly posted: BatchWatch;
+  /** Another watch, from now on. */
+  watch(): BatchWatch;
+  /** The core's STATUS reaching main: a block with every field 0 but `fields` (`makeStatusBlock`), through the link as the port delivers it. */
+  status(fields?: Partial<StatusBlock>): void;
+  /** One main-thread frame: the clock moves `dt` seconds (default 0.016) and the backend's `update(dt)` runs. */
+  frame(dt?: number): void;
+  /**
+   * The context stops and only a user gesture resumes it (an interruption, or autoplay): the host reads "locked", and the
+   * page's own resumes (the background controller's) do nothing until `gesture()`.
+   */
+  lock(): void;
+  /** A user gesture (a pointerdown on the page): the host's unlock layer resumes the context, which then runs. */
+  gesture(): void;
+  /** How the next core a rebuild makes answers once main listens (default "answers"; a microtask after the rebind). */
+  newCore: RecordingNewCore;
+  /** A rebuild for `reason` (default "trap"), as recovery runs one (`rebuildHost`): `onRebuildStart` has run when this returns, `onRebuilt` once it resolves. */
+  rebuild(reason?: RebuildReason): Promise<RebuildOutcome>;
+  /** A rate rebuild into a new context at `rate` (`onContextReplaced(rate)`); the clock's context time starts again at 0. */
+  changeRate(rate: number): Promise<RebuildOutcome>;
+  /** A few microtask turns. */
+  settle(): Promise<void>;
+  /** Disposes the backend (unregistering it on the page mixer), closes the host and ends the audio session. A second call does nothing. */
+  close(): Promise<void>;
+}
+
+/** Every recording audio not yet closed (`closeRecordingAudio`). */
+const openRecordings = new Set<{ close(): Promise<void> }>();
+
+/** Closes every `recordingAudio` still open (an `afterEach`), then ends the audio session. */
+export async function closeRecordingAudio(): Promise<void> {
+  for (const audio of [...openRecordings]) await audio.close();
+  endAudioSession();
+}
+
+/** A STATUS buffer as the shell posts it. */
+function statusBuffer(fields: Partial<StatusBlock>): ArrayBuffer {
+  const buffer = new ArrayBuffer(STATUS_BUFFER_BYTES);
+  writeStatus(new DataView(buffer), 0, makeStatusBlock(fields), 1);
+  return buffer;
+}
+
+/** The first STATUS of a core that started: the ready flag and this ABI. */
+const readyStatus = (): ArrayBuffer => statusBuffer({ flags: STATUS_FLAGS_READY, abiVersion: CORE_ABI_MAJOR << 8 });
+
+/**
+ * ADR 0234: the core backend as production assembles it (`assembleCore`) over a recording host: no wasm, no core, no
+ * audio. Synchronous: the host's first core answers at once, and the backend is made as the service makes it, once the
+ * core answered. Close it, or call `closeRecordingAudio` in an `afterEach`.
+ */
+export function recordingAudio<C extends ClipRegistry = FakeClipRegistry>(options: RecordingAudioOptions<C> = {}): RecordingAudio<C> {
+  const own = options.mixer === "own";
+  const settings = options.settings ?? (own ? defaultAudioSettings() : mixer.audioSettings);
+  const rigMixer = own ? new Mixer(settings) : mixer;
+  if (!own && options.settings) rigMixer.configure(settings);
+  const clock = options.clock ?? fakeHostClock();
+  const clips = (options.clips ?? makeFakeClipRegistry()) as C;
+  const recorders = new Set<BatchRecorder>();
+  let newCore: RecordingNewCore = "answers";
+
+  /** The current node's port: records what main posts, returns BATCH buffers, and answers once main listens (a rebuild's core). */
+  let current: LinkPort | null = null;
+  const recordingPort = (answer: RecordingNewCore | null): LinkPort => {
+    let handler: ((event: { data: unknown }) => void) | null = null;
+    const port: LinkPort = {
+      get onmessage() {
+        return handler;
+      },
+      set onmessage(listener) {
+        handler = listener;
+        if (!listener || answer === null) return;
+        const how = answer;
+        answer = null;
+        // After the rebind, as a new core's first message arrives (`onContextReplaced` has run by then).
+        queueMicrotask(() => {
+          if (current !== port || how === "silent") return;
+          handler?.({ data: how === "answers" ? readyStatus() : { type: "error", message: "the new core failed to start" } });
+        });
+      },
+      postMessage(message) {
+        if (current !== port || !(message instanceof ArrayBuffer)) return;
+        for (const r of recorders) r.receive(message);
+        // The shell returns each BATCH buffer to the link's pool (a STATUS's RECYCLE stays with the shell).
+        if (message.byteLength >= 8 && readEnvelope(new DataView(message), 0).kind === Kind.BATCH) handler?.({ data: message });
+      },
+    };
+    return port;
+  };
+  const deliver = (message: unknown): void => current?.onmessage?.({ data: message });
+
+  const target = new EventTarget();
+  /** Autoplay's rule (`lock`): a blocked context resumes only inside a gesture, and a gesture's resume lifts the block. */
+  const gate = { blocked: false, inGesture: false };
+  let nextRate = LOOPBACK_RATE;
+  const respawn = () => {
+    current = recordingPort(newCore);
+    return { node: fakeNode(), port: current };
+  };
+  const recordingContext = (rate: number) => {
+    const context = loopbackContext(rate);
+    const resume = context.resume;
+    return Object.assign(context, {
+      baseLatency: options.latency?.base ?? 0,
+      outputLatency: options.latency?.output ?? 0,
+      getOutputTimestamp: () => clock.outputTimestamp() ?? { contextTime: 0, performanceTime: 0 },
+      resume: (): Promise<void> => {
+        if (gate.blocked && !gate.inGesture) return Promise.resolve();
+        gate.blocked = false;
+        return resume();
+      },
+    });
+  };
+  const recreate = async () => {
+    const context = recordingContext(nextRate);
+    clock.restartContext();
+    const { port } = respawn();
+    const unlock = new CoreUnlock({ target, context: context as unknown as UnlockContext });
+    return { context: context as unknown as AudioContext, node: fakeNode(), port, unlock, respawn };
+  };
+  const first = recordingContext(LOOPBACK_RATE);
+  current = recordingPort(null);
+  const link = new CoreLink(current);
+  const host = CoreAudioHost._create({
+    context: first as unknown as AudioContext,
+    node: fakeNode(),
+    link,
+    unlock: new CoreUnlock({ target, context: first as unknown as UnlockContext }),
+    preset: { ...presetOf(settings), ...LOOPBACK_PRESET, ...options.preset },
+    respawn,
+    recreate,
+  });
+  const share = options.world !== false ? host.attachWorld({ kind: "runtime" }) : null;
+  const posted = batchRecorder();
+  recorders.add(posted);
+  const core = assembleCore(host, {
+    ...options.backend,
+    clips,
+    mixer: rigMixer,
+    clock,
+    recovery: options.recovery ?? { now: () => clock.rafTime() },
+  });
+  // As the service does: the backend is made once the core answered.
+  deliver(readyStatus());
+  if (link.readyState !== "ready") throw new Error("recordingAudio: the core did not start");
+  const backend = core.createBackend();
+  const registered = !own && options.register !== false;
+  if (registered) {
+    endAudioSession();
+    registerBackend(backend);
+  }
+  let closed = false;
+  const rig: RecordingAudio<C> = {
+    backend,
+    mixer: rigMixer,
+    host,
+    link,
+    clock,
+    clips,
+    share,
+    posted,
+    get newCore() {
+      return newCore;
+    },
+    set newCore(how) {
+      newCore = how;
+    },
+    watch() {
+      const watch = batchRecorder();
+      recorders.add(watch);
+      return {
+        take: watch.take,
+        takeRecords: watch.takeRecords,
+        takeOps: watch.takeOps,
+        get pending() {
+          return watch.pending;
+        },
+        stop: () => {
+          watch.stop();
+          recorders.delete(watch);
+        },
+      };
+    },
+    status: (fields = {}) => deliver(statusBuffer(fields)),
+    frame(dt = 0.016) {
+      clock.advance(dt * 1000);
+      backend.update(dt);
+    },
+    lock() {
+      gate.blocked = true;
+      void host.context.suspend();
+    },
+    gesture() {
+      gate.inGesture = true;
+      try {
+        target.dispatchEvent(new Event("pointerdown"));
+      } finally {
+        gate.inGesture = false;
+      }
+    },
+    rebuild: (reason = "trap") => rebuildHost(host, reason),
+    changeRate(rate) {
+      nextRate = rate;
+      return rebuildHost(host, "rate");
+    },
+    async settle() {
+      for (let k = 0; k < 8; k++) await Promise.resolve();
+    },
+    async close() {
+      if (closed) return;
+      closed = true;
+      openRecordings.delete(rig);
+      if (registered) registerBackend(null);
+      backend.dispose();
+      await host.close();
+      endAudioSession();
+    },
+  };
+  openRecordings.add(rig);
+  return rig;
 }

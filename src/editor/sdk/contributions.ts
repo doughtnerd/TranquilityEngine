@@ -25,7 +25,8 @@ export type LoadComponent<P extends object> = () => Promise<FunctionComponent<P>
  * prefabs, images, audio, scripts, text…) register through this too, from `assetKinds.builtin.ts`
  * (ADR 0143); `assetKindLookup.ts` answers every per-kind question from the registered kinds.
  */
-export interface AssetKindContribution {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- kinds' values differ; a registry holds every T
+export interface AssetKindContribution<T = any> {
   /** The kind's id, e.g. "sky". Also what `assetKind(path)` returns. */
   readonly id: string;
   /** File-name endings, lower case with the dot, e.g. [".sky.json"]. The longest match over all kinds wins; of equal ones, the kind registered last (so a plugin can take over a core extension). */
@@ -34,15 +35,32 @@ export interface AssetKindContribution {
   readonly label: string;
   /** An SVG path (`d`) drawn in a 24×24 box, stroked, like the built-in asset icons. */
   readonly icon: string;
-  /** Double-click / Open. Absent: the file only selects. */
+  /** Double-click / Open, done by the kind itself. Absent: `panel` opens it, or `codeEditor`, else the file only selects. */
   open?(path: string): void;
+  /**
+   * The panel that edits files of this kind (ADR 0233). Opening a file (double-click, `editor.assets.open`) makes it
+   * the panel's file, which the panel reads with `editor.assets.openIn(panel)`, and brings the panel forward.
+   * Ignored when `open` is set.
+   */
+  readonly panel?: string;
+  /**
+   * The kind's document format (ADR 0134, 0233): what its asset documents (`openAssetDocument`), the current value
+   * (`editor.assets.read`) and a new file (`editor.assets.create`) are made from.
+   */
+  readonly format?: AssetFormat<T>;
+  /**
+   * The project folder new files of this kind go in when no folder is asked for (ADR 0233), e.g. "materials": used
+   * when the project has it, else the project root. The New… menu asks for none at the project root.
+   */
+  readonly folder?: string;
   /** The Inspector's view of a selected file of this kind, loaded on first use. */
   readonly inspector?: LoadComponent<{ path: string }>;
   /**
    * An entry in the Assets panel's New… menu, the only source of its file entries (ADR 0149): core kinds
-   * (scenes, render textures) declare theirs here as plugins do. `create` returns the new file's path, or null.
+   * (scenes, render textures) declare theirs here as plugins do. With a `format`, the host writes the file
+   * (ADR 0233); otherwise the kind's own `create` does.
    */
-  readonly create?: { readonly label: string; create(folder: string): Promise<string | null> };
+  readonly create?: AssetKindCreate<T>;
   /**
    * Capability (ADR 0149): files of this kind are images that can be cut into slices (ADR 0040). A
    * `#slice` entry of one is a `sprite` that adds and opens as its file does, the Assets panel shows the
@@ -131,17 +149,43 @@ export interface AssetProblem {
   readonly message: string;
 }
 
-/** How an asset kind's file becomes a value and back: what an asset document is made from. */
-export interface AssetFormatContribution<T = unknown> {
-  /** The asset kind id this format is for. */
-  readonly id: string;
-  /** The file's parsed JSON (or undefined when missing) to a value; never throws, reports problems instead. */
+/**
+ * How an asset kind's file becomes a value and back (ADR 0134, 0233): what an asset document is made from. Declared
+ * as the kind's `format`.
+ */
+export interface AssetFormat<T> {
+  /**
+   * The file's parsed JSON (or undefined when missing) to a value, reporting bad values as problems. It may throw for
+   * a file it can't read at all: the host then reads `empty()`, with the error's message as the one problem.
+   */
   parse(raw: unknown, path: string): { value: T; problems: readonly AssetProblem[] };
   /** A value to the file's text. */
   format(value: T): string;
+  /** The value of a file that can't be read, and of a new file unless `create.value` says otherwise. */
+  empty(): T;
   /** Milliseconds to wait after the last coalesced edit before writing (sliders). Default 150. */
   readonly writeDelay?: number;
 }
+
+/**
+ * A kind's New… entry (ADR 0149, 0233). Either the host writes it from the kind's `format` (`<name><extension>` in
+ * the folder asked for, else the kind's `folder`), or the kind writes it itself with `create`, given that folder.
+ */
+export type AssetKindCreate<T> =
+  | {
+      readonly label: string;
+      /** The new file's name without the extension (default: `label`), e.g. "New Formation". */
+      readonly name?: string;
+      /** What the files are, plural, for the read-only message: "skies". */
+      readonly what: string;
+      /** A new file's value (default: the format's `empty()`). */
+      value?(): T;
+    }
+  | {
+      readonly label: string;
+      /** Write the new file(s) in `folder` (the kind's `folder` already applied); the new file's path, or null. */
+      create(folder: string): Promise<string | null>;
+    };
 
 /** A dock of the editor's default layout: one of the side docks, or the one filling the middle (the Scene view's). */
 export type PanelDock = "left" | "right" | "bottom" | "fill";
@@ -240,27 +284,40 @@ export interface ViewportPointer {
   readonly pointerId: number;
 }
 
+/**
+ * Why a drag stopped without its release (ADR 0231): Escape, the pointer was cancelled, the window lost focus,
+ * another tool or a transform tool took the scene view, play started, or the tool was removed.
+ */
+export type ViewportCancel = "escape" | "pointer" | "blur" | "tool" | "play" | "removed";
+
 /** A press a tool claimed: it alone gets that pointer's moves and release. */
 export interface ViewportDrag {
   move?(p: ViewportPointer): void;
   end?(p: ViewportPointer): void;
-  /** Play started, Escape is not involved: the tool was removed or the pointer was cancelled. Undo any preview. */
-  cancel?(): void;
+  /** The drag stopped without a release (see `ViewportCancel`). Undo any preview. */
+  cancel?(reason: ViewportCancel): void;
 }
 
 /**
  * What a viewport tool installs through, once per scene view (ADR 0138). Everything registered here
  * is removed when the install is disposed. Internal tier (ADR 0133): it exposes the Engine.
  */
-export interface ViewportToolContext {
+export interface ViewportToolContext<M = unknown> {
   readonly engine: Engine;
   readonly world: World;
   /** Whether this tool is the active tool. */
   readonly active: ReadonlySignal<boolean>;
-  /** Become the active tool (the transform gizmo and collider editing step aside). */
-  activate(): void;
-  /** Give the scene view back to the transform tools, if this tool is active. */
-  deactivate(): void;
+  /**
+   * The tool's mode while it is active (ADR 0231): what `enter` gave it (the collider being edited, the brush),
+   * else null. The host owns it and ends it on its own: when a transform tool or another tool takes the scene
+   * view, on Escape, when play starts, when another scene opens and, where the contribution's `endsOnSelection`
+   * says so, when the selection changes. `editor.viewport` reads and sets the same mode from outside the install.
+   */
+  readonly mode: ReadonlySignal<M | null>;
+  /** Become the active tool, in `mode` (none: null). The transform gizmo and other tools step aside. Ignored while playing. */
+  enter(mode?: M): void;
+  /** Give the scene view back to the transform tools, if this tool is active (its mode ends). */
+  leave(): void;
   /**
    * Presses on the scene view while editing: the active tool is asked first, then the others in
    * registration order, then selection and the transform gizmo. Return a drag to claim the press.
@@ -270,15 +327,25 @@ export interface ViewportToolContext {
   onHover(handler: (p: ViewportPointer | null) => void): void;
   /**
    * Keys while editing, outside text fields and dialogs, without Ctrl/Cmd/Alt: the active tool first.
-   * Return true to consume the key. Q, W, E, R and F belong to the editor; don't take them.
+   * Return true to consume the key. Q, W, E, R and F belong to the editor; don't take them. Escape during
+   * a drag cancels the drag and isn't passed on.
    */
   onKey(handler: (e: KeyboardEvent) => boolean): void;
   /** An editor overlay on the Editor World, id `${tool id}` or `${tool id}:${suffix}`. */
   overlay(provider: () => EditorOverlay, options?: { kind?: EditorOverlayKind; suffix?: string }): void;
   /** The scene view's CSS cursor while this tool is active (null: the default). */
   setCursor(cursor: string | null): void;
-  /** One undo step on the open scene's command stack: begins a group, runs `fn`, always ends it. False with no open scene. */
+  /** One undo step on the open scene's command stack: every command `fn` executes, closed even when it throws. False with no open scene. */
   edit(label: string, fn: (scene: OpenScene) => void): boolean;
+  /**
+   * A drag that is one undo step named `label` on the open scene (ADR 0231); return it from `onPress`. The step
+   * opens now; every command executed on the scene's stack from now on (by the press, then the handlers) joins
+   * it, and it closes after `end` runs on release. Cancelled, `cancel` runs first; then Escape reverts the step
+   * and every other reason keeps it. Null, opening nothing, with no open scene.
+   */
+  gesture(label: string, drag: ViewportDrag): ViewportDrag | null;
+  /** `value` snapped to the scene view's move step while snapping is on (Ctrl/Cmd held, or "always snap"), as the transform gizmo snaps; else `value`. */
+  snap(value: number): number;
   /**
    * Outlines that select their node (ADR 0142): a plain click inside one picks the node before renderers
    * (smallest outline first), and they count as part of the node for the selection box and the Alt+click list.
@@ -293,12 +360,17 @@ export interface SelectableOutline {
   readonly points: readonly (readonly [number, number, number])[];
 }
 
-/** A scene-view tool (ADR 0138): painting, handles, overlays. */
-export interface ViewportToolContribution {
+/** A scene-view tool (ADR 0138): painting, handles, overlays. `M` is its mode (ADR 0231). */
+export interface ViewportToolContribution<M = unknown> {
   /** e.g. "myco.tilemaps.paint". Also its overlay id and its active-tool id. */
   readonly id: string;
+  /**
+   * Whether a change of the selected (active) node ends the tool's mode while it is active, given the mode
+   * (ADR 0231). Absent: it never does.
+   */
+  endsOnSelection?(mode: M): boolean;
   /** Called for each scene view, and at once when registered while one is open. May return extra cleanup. */
-  install(view: ViewportToolContext): void | (() => void);
+  install(view: ViewportToolContext<M>): void | (() => void);
 }
 
 /**
@@ -441,7 +513,6 @@ export interface FieldChoicesContribution {
 
 export const componentNotes = createRegistry<ComponentNoteContribution>("Component note");
 export const assetKinds = createRegistry<AssetKindContribution>("Asset kind");
-export const assetFormats = createRegistry<AssetFormatContribution<any>>("Asset format"); // eslint-disable-line @typescript-eslint/no-explicit-any -- formats differ in T
 export const panels = createRegistry<PanelContribution>("Panel");
 export const projectSettingsSections = createRegistry<ProjectSettingsSectionContribution>("Project settings section");
 export const panelExtensions = createRegistry<PanelExtensionContribution>("Panel extension");

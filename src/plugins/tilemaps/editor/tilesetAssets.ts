@@ -1,19 +1,10 @@
-// Tileset assets in the editor (ADR 0103; the Tilemaps plugin's since 0146): creating `*.tileset.json` files
-// (empty, or one tile per slice of an image), reading them, and the slice helpers the Assets panel's Create Tileset
-// from Slices action and the Tile Palette use. Editing goes through the tileset's asset document (ADR 0134), made
-// by this plugin's `tileset` format (`tilesetFormat.ts`).
-import { newTileset, TILESET_SUFFIX, type TileDef, type TilesetData } from "../runtime/tileset";
+// Tileset assets in the editor (ADR 0103; the Tilemaps plugin's since 0146): a tileset with one tile per slice of
+// an image, and the slice helpers the Assets panel's Create Tileset from Slices action and the Tile Palette use.
+// Creating, reading and editing tilesets goes through the asset kind host and the tileset's asset document (ADR
+// 0134, 0233), over this plugin's `tileset` format (`tilesetFormat.ts`).
+import { newTileset, type TileDef, type TilesetData } from "../runtime/tileset";
 import type { ImportSettings } from "../../../engine/scene/importSettings";
 import { editor, type EditorProject } from "../../../editor/sdk";
-
-export interface ReadTileset {
-  tileset: TilesetData;
-  /** What's wrong with the file (bad tiles are skipped). */
-  problems: string[];
-}
-
-/** The file text of a tileset: pretty JSON, 2-space indent. */
-export const formatTileset = (data: TilesetData): string => `${JSON.stringify(data, null, 2)}\n`;
 
 /** A tile's sprite reference split into its image and slice (null for a reference that isn't `asset:<image>#<slice>`). */
 export function splitSprite(sprite: string): { image: string; slice: string } | null {
@@ -50,16 +41,8 @@ function tilesetFromSlices(imagePath: string, project: EditorProject | null = ed
 /** True if an image has slices to make tiles from. */
 export const hasSlices = (project: EditorProject, imagePath: string) => editor.assets.importSettings(project, imagePath).settings.sprites.length > 0;
 
-/**
- * Create `New Tileset.tileset.json` (or `… 2`) in `folder`: empty, or `data`. Returns its path, or null if the
- * project is read-only or writing failed.
- */
-export async function createTileset(folder: string, data: TilesetData = newTileset(), name = "New Tileset"): Promise<string | null> {
-  return editor.project.createFile({ folder, name: `${name}${TILESET_SUFFIX}`, what: "tilesets", write: (project, path) => project.writeText(path, formatTileset(data)) });
-}
-
-/** Create a tileset named after an image from its slices (Create Tileset from Slices). */
+/** Create a tileset named after an image from its slices, in `folder` (Create Tileset from Slices). Its path, or null. */
 export function createTilesetFromSlices(folder: string, imagePath: string): Promise<string | null> {
   const base = editor.assets.fileName(imagePath).replace(/\.[^.]+$/, "");
-  return createTileset(folder, tilesetFromSlices(imagePath), base);
+  return editor.assets.create("tileset", { folder, value: tilesetFromSlices(imagePath), name: base });
 }

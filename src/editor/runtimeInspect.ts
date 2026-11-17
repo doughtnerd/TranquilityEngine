@@ -12,6 +12,7 @@ import { SetField, pathKey, type NodePath, type SceneDocument } from "./document
 import { editorFor, toSceneJSON } from "./fieldValues";
 import { findInner } from "./prefabs";
 import { playState, type OpenScene } from "./state";
+import { undoStep } from "./undoStep";
 
 /** The World the Hierarchy and Inspector show while playing: a live World's name, or null for the edited scene. */
 export const inspectedWorld = signal<string | null>(null);
@@ -295,12 +296,9 @@ export function applyKept(scene: OpenScene, list: readonly KeptValues[]): KeptRe
     }
   }
   if (commands.length > 0) {
-    scene.stack.beginGroup("Keep play-mode changes");
-    try {
+    undoStep(scene.stack, "Keep play-mode changes", () => {
       for (const c of commands) scene.stack.execute(c);
-    } finally {
-      scene.stack.endGroup();
-    }
+    });
   }
   return { written: commands.length, skipped };
 }

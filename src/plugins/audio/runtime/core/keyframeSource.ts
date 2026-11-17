@@ -23,8 +23,13 @@
 // parameter values hash through.
 //
 // **Chunk boundary.** The recorder chunk (`capture/format.ts`) is lazy and this file is in every game that uses the core, so it
-// imports the keyframe types only; the caps below repeat `format.ts`'s `KEYFRAME_MAX_*` (a test holds them equal).
+// imports the keyframe types only from there; the row layout (caps, codes, flag bits, quantising) is `capture/keyframeLayout.ts`
+// (ADR 0230), which the reader decodes with too.
 import type { KeyframeBus, KeyframeEvent, KeyframeMetered, KeyframeMusic, KeyframePayload, KeyframeVoice } from "../capture/format";
+import {
+  KEYFRAME_BUS_LANES, KEYFRAME_MAX_BUSES, KEYFRAME_MAX_EVENTS, KEYFRAME_MAX_METERED, KEYFRAME_MAX_MUSIC, KEYFRAME_MAX_VOICES, KEYFRAME_PITCH_ONE,
+  KeyframeBusFlag, KeyframeMeteredFlag, KeyframeMusicState, KeyframeVoiceState, keyframeAudibility, keyframePitch, keyframeU16,
+} from "../capture/keyframeLayout";
 import type { Mixer } from "../../../../engine/audio/mixer";
 import { writeKeyframeBusLanes } from "../mix/keyframeBus";
 import type { SlotTable } from "../../../../engine/audio/slotTable";
@@ -39,26 +44,9 @@ import { STOLEN_LISTED_FRAMES, type DebugSource } from "./debug";
 import { VoiceFlag, VoiceReason, VoiceState, type VoiceTable } from "./voiceTable";
 import { reportedGain, reportedPitch } from "./voices";
 
-/** `KEYFRAME_MAX_VOICES`, `_BUSES`, `_METERED`, `_EVENTS`, `_MUSIC` of `capture/format.ts`. */
-const KF_MAX_VOICES = 8_192;
-const KF_MAX_BUSES = 32;
-const KF_MAX_METERED = 9;
-const KF_MAX_EVENTS = 1_024;
-const KF_MAX_MUSIC = 16;
-
 /** The NAMES tables a keyframe interns into (`capture/events.ts`: `clips`, `events` and `snapshots`). */
 export type KeyframeNameTable = "clips" | "snapshots" | "events";
 export type KeyframeNameId = (table: KeyframeNameTable, name: string) => number;
-
-/** The keyframe voice `state` codes (§5.5). */
-const KfVoiceState = { playing: 0, virtual: 1, stolen: 2, waitingForData: 3, busMuted: 4, locked: 5 } as const;
-/** The keyframe bus `flags` bits beyond the four lane gates (§5.5: tombstone, metered). */
-export const KF_BUS_TOMBSTONE = 16;
-const KF_BUS_METERED = 32;
-/** The keyframe metered `flags` bits (§5.5). */
-const KF_M_PAUSED = 1, KF_M_INCOMPLETE = 2, KF_M_TAINTED = 4, KF_M_LOWER_BOUND = 8;
-/** The keyframe music `state` codes, in `MusicDebugState`'s order. */
-export const KfMusicState = { priming: 0, playing: 1, transitioning: 2, recovering: 3, ending: 4 } as const;
 
 /** What the source reads of the core backend; `CoreBackend` satisfies it. */
 export interface KeyframeHost extends Pick<DebugSource, "table" | "clips" | "streams" | "musicOps" | "playheads" | "automation" | "clockMap"> {
@@ -69,14 +57,11 @@ export interface KeyframeHost extends Pick<DebugSource, "table" | "clips" | "str
   readonly hiddenMuted: boolean;
 }
 
-const clamp01 = (v: number): number => (Number.isFinite(v) ? (v < 0 ? 0 : v > 1 ? 1 : v) : 0);
-const u16 = (v: number): number => Math.min(0xffff, Math.max(0, Math.round(v)));
-
 function voiceRow(): KeyframeVoice {
-  return { id: 0, clip: 0, slot: 0, state: 0, priority: 0, reason: 0, gain: 1, pitch: 4096, audibility: 0, playheadFrames: 0 };
+  return { id: 0, clip: 0, slot: 0, state: 0, priority: 0, reason: 0, gain: 1, pitch: KEYFRAME_PITCH_ONE, audibility: 0, playheadFrames: 0 };
 }
 function busRow(): KeyframeBus {
-  return { slot: 0, gen: 0, flags: 0, lanes: new Array<number>(10).fill(0), duck: 1, automation: 1 };
+  return { slot: 0, gen: 0, flags: 0, lanes: new Array<number>(KEYFRAME_BUS_LANES).fill(0), duck: 1, automation: 1 };
 }
 
 function meteredRow(): KeyframeMetered {
@@ -96,15 +81,15 @@ function stateOf(table: VoiceTable, i: number): number {
   const reason = table.reason[i];
   switch (table.state[i]) {
     case VoiceState.LOCKED:
-      return KfVoiceState.locked;
+      return KeyframeVoiceState.locked;
     case VoiceState.WAITING_FOR_DATA:
-      return KfVoiceState.waitingForData;
+      return KeyframeVoiceState.waitingForData;
     case VoiceState.VIRTUAL:
-      return reason === VoiceReason.BUS_MUTED ? KfVoiceState.busMuted : reason === VoiceReason.WAITING_FOR_DATA ? KfVoiceState.waitingForData : KfVoiceState.virtual;
+      return reason === VoiceReason.BUS_MUTED ? KeyframeVoiceState.busMuted : reason === VoiceReason.WAITING_FOR_DATA ? KeyframeVoiceState.waitingForData : KeyframeVoiceState.virtual;
     case VoiceState.PLAYING:
-      return reason === VoiceReason.BUS_MUTED ? KfVoiceState.busMuted : reason === VoiceReason.WAITING_FOR_DATA ? KfVoiceState.waitingForData : KfVoiceState.playing;
+      return reason === VoiceReason.BUS_MUTED ? KeyframeVoiceState.busMuted : reason === VoiceReason.WAITING_FOR_DATA ? KeyframeVoiceState.waitingForData : KeyframeVoiceState.playing;
     default:
-      return KfVoiceState.playing; // STOPPING and ENDING still read as playing
+      return KeyframeVoiceState.playing; // STOPPING and ENDING still read as playing
   }
 }
 
@@ -126,17 +111,17 @@ function musicStateOf(s: MusicPlayerState): number {
   switch (s) {
     case "playing":
     case "pending":
-      return KfMusicState.playing;
+      return KeyframeMusicState.playing;
     case "transitioning":
-      return KfMusicState.transitioning;
+      return KeyframeMusicState.transitioning;
     case "recovering":
-      return KfMusicState.recovering;
+      return KeyframeMusicState.recovering;
     case "stopping":
     case "stopped":
     case "refused":
-      return KfMusicState.ending;
+      return KeyframeMusicState.ending;
     default:
-      return KfMusicState.priming;
+      return KeyframeMusicState.priming;
   }
 }
 
@@ -155,7 +140,7 @@ export class KeyframeSource {
   /** The parameter names `paramsHash` sorts in place. */
   private readonly keys: string[] = [];
   /** Slot flags of the metered buses (grown with the slot table). */
-  private meteredFlags = new Uint8Array(KF_MAX_BUSES);
+  private meteredFlags = new Uint8Array(KEYFRAME_MAX_BUSES);
   private readonly listed = new Map<number, number>();
   /** The event runtime's pooled debug rows, refilled per keyframe. */
   private readonly debugOut: EventDebugRow[] = [];
@@ -182,7 +167,7 @@ export class KeyframeSource {
     mix.loudnessPausedMask = 0;
     const metered = this.meteredOut;
     for (let k = 0; k < metered.length && k < 8; k++) {
-      if ((metered[k]!.flags & KF_M_PAUSED) !== 0) mix.loudnessPausedMask |= 1 << k;
+      if ((metered[k]!.flags & KeyframeMeteredFlag.paused) !== 0) mix.loudnessPausedMask |= 1 << k;
     }
     const targets = m.audioSettings.loudnessTargets ?? NO_TARGETS;
     const inForce = this.hub.target;
@@ -200,7 +185,7 @@ export class KeyframeSource {
 
   private nextVoice(): KeyframeVoice | null {
     const n = this.voices.length;
-    if (n >= KF_MAX_VOICES) return null;
+    if (n >= KEYFRAME_MAX_VOICES) return null;
     const row = (this.voicePool[n] ??= voiceRow());
     this.voices.push(row);
     return row;
@@ -228,10 +213,10 @@ export class KeyframeSource {
       row.slot = table.bus[i]! & 0xff;
       row.state = stateOf(table, i);
       row.priority = table.priority[i]!;
-      row.reason = (row.state === KfVoiceState.virtual && table.reason[i] === VoiceReason.VIRTUAL) || row.state === KfVoiceState.waitingForData ? 1 : 0;
+      row.reason = (row.state === KeyframeVoiceState.virtual && table.reason[i] === VoiceReason.VIRTUAL) || row.state === KeyframeVoiceState.waitingForData ? 1 : 0;
       row.gain = Math.fround(reportedGain(table, i, automated ? auto.gain : 1));
-      row.pitch = u16(reportedPitch(table, i, automated ? auto.pitch : 1) * 4096);
-      row.audibility = u16(clamp01(table.audibility[i]!) * 65536);
+      row.pitch = keyframePitch(reportedPitch(table, i, automated ? auto.pitch : 1));
+      row.audibility = keyframeAudibility(table.audibility[i]!);
       let playhead = 0;
       if ((flags & VoiceFlag.WANTS_PLAYHEAD) !== 0) playhead = table.playhead[i]!;
       else if (group !== 0 && host.playheads && rateNow) {
@@ -255,11 +240,11 @@ export class KeyframeSource {
       row.id = table.stolenIds[r]!;
       row.clip = path ? nameId("clips", path) : noName;
       row.slot = table.stolenBus[r]! & 0xff;
-      row.state = KfVoiceState.stolen;
+      row.state = KeyframeVoiceState.stolen;
       row.priority = table.stolenPriority[r]!;
       row.reason = 0;
       row.gain = 0;
-      row.pitch = 4096;
+      row.pitch = KEYFRAME_PITCH_ONE;
       row.audibility = 0;
       row.playheadFrames = 0;
     }
@@ -277,7 +262,7 @@ export class KeyframeSource {
 
   private addBus(slot: number, name: string | null, tombstone: boolean, gen: number, root: string | undefined): void {
     const out = this.buses;
-    if (out.length >= KF_MAX_BUSES) return;
+    if (out.length >= KEYFRAME_MAX_BUSES) return;
     const m = this.host.mixer;
     const row = (this.busPool[out.length] ??= busRow());
     row.slot = slot & 0xff;
@@ -286,11 +271,11 @@ export class KeyframeSource {
     const gates = name === null ? -1 : writeKeyframeBusLanes(row, m, name);
     if (gates < 0) {
       (row.lanes as number[]).fill(0);
-      row.flags = tombstone ? KF_BUS_TOMBSTONE : 0;
+      row.flags = tombstone ? KeyframeBusFlag.tombstone : 0;
       row.duck = 1;
       row.automation = 1;
     } else {
-      row.flags = gates | (tombstone ? KF_BUS_TOMBSTONE : 0) | (this.isMetered(slot) || name === root ? KF_BUS_METERED : 0);
+      row.flags = gates | (tombstone ? KeyframeBusFlag.tombstone : 0) | (this.isMetered(slot) || name === root ? KeyframeBusFlag.metered : 0);
     }
     out.push(row);
   }
@@ -332,10 +317,11 @@ export class KeyframeSource {
   private meteredRow(slot: number, name: string): void {
     const out = this.meteredOut;
     const l = this.hub.busLoudness(name);
-    if (!l || out.length >= KF_MAX_METERED) return;
+    if (!l || out.length >= KEYFRAME_MAX_METERED) return;
     const row = (this.meteredPool[out.length] ??= meteredRow());
     row.slot = slot;
-    row.flags = (l.paused ? KF_M_PAUSED : 0) | (l.incomplete ? KF_M_INCOMPLETE : 0) | (l.tainted ? KF_M_TAINTED : 0) | (l.truePeakBound === "lowerBound" ? KF_M_LOWER_BOUND : 0);
+    row.flags = (l.paused ? KeyframeMeteredFlag.paused : 0) | (l.incomplete ? KeyframeMeteredFlag.incomplete : 0) | (l.tainted ? KeyframeMeteredFlag.tainted : 0)
+      | (l.truePeakBound === "lowerBound" ? KeyframeMeteredFlag.lowerBound : 0);
     row.momentary = Math.fround(l.momentary);
     row.shortTerm = Math.fround(l.shortTerm);
     row.integrated = Math.fround(l.integrated);
@@ -366,7 +352,7 @@ export class KeyframeSource {
     const rows = events().debugRows(this.listed, this.debugOut);
     for (let i = 0; i < rows.length; i++) {
       const e = rows[i]!;
-      if (out.length >= KF_MAX_EVENTS) break;
+      if (out.length >= KEYFRAME_MAX_EVENTS) break;
       const row = (this.eventsPool[out.length] ??= eventRow());
       row.id = e.id >>> 0;
       row.asset = nameId("events", e.asset);
@@ -385,7 +371,7 @@ export class KeyframeSource {
     const time = this.host.mixer.time; // the heard clock (`Audio.time`'s base)
     for (let i = 0; i < players.length; i++) {
       const p = players[i]!;
-      if (out.length >= KF_MAX_MUSIC) break;
+      if (out.length >= KEYFRAME_MAX_MUSIC) break;
       const a = p.anchor;
       const pg = a ? playingGridOf(a) : null;
       let bar = 1, beat = 1, tick = 0, tempo = 0;
@@ -402,10 +388,10 @@ export class KeyframeSource {
       row.segment = p.run ? nameId("events", p.run.node.id) : noName;
       row.state = musicStateOf(p.state);
       row.pass = Math.min(255, Math.max(0, a?.pass ?? 1));
-      row.bar = u16(bar);
+      row.bar = keyframeU16(bar);
       row.beat = Math.min(255, Math.max(0, beat));
       row.tick = Math.min(255, Math.max(0, Math.round(tick)));
-      row.tempo = u16(tempo);
+      row.tempo = keyframeU16(tempo);
       row.pendingTo = pending ? nameId("events", t.to.id) : noName;
       row.pendingTimeSec = pending && Number.isFinite(t.exitAt) ? Math.fround(t.exitAt) : 0;
       out.push(row);

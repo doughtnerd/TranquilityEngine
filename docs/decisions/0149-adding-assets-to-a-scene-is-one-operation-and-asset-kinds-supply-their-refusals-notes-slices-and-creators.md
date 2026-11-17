@@ -1,6 +1,6 @@
 # 0149. Adding assets to a scene is one operation; asset kinds supply their refusals, notes, slicing and New… entries
 
-- **Status:** Accepted
+- **Status:** Accepted; amended by 0233 (the New… entries move to the asset kind host, which applies the kind's default folder)
 - **Date:** 2026-11-09
 - **Deciders:** Chris Carlson
 - **Supersedes:** — (completes 0143 and 0146 for the Assets panel)

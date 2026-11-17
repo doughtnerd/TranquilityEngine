@@ -52,7 +52,7 @@ describe("the scene view's navigation overlay", () => {
     expect(overlay.segments()).toEqual([]); // loading
     await tick();
     const drawn = overlay.segments();
-    expect(overlay.stats).toMatchObject({ bakes: 1, loaded: 1, segments: 2 });
+    expect(drawn.reduce((n, s) => n + s.positions.length / 6, 0)).toBe(2);
     expect(drawn.map((s) => s.color).sort()).toEqual([colors.outline, colors.fold].sort());
     expect(overlay.segments()).toBe(drawn); // memoised
     expect(reads).toBe(1);
@@ -79,14 +79,16 @@ describe("the scene view's navigation overlay", () => {
     expect(reads).toBeGreaterThan(before);
   });
 
-  it("draws nothing with every toggle off, and reports a bake that does not read", async () => {
+  it("draws nothing with every toggle off, and reads a bake that does not read only once", async () => {
     const off = new NavBakeOverlay(() => cleanNavOverlay({}), () => colors, () => 0, async () => new Uint8Array(0), async () => new Float32Array(0), async () => new Float32Array(0), () => null, groupsByIndex);
     expect(off.segments()).toEqual([]);
+    let failedReads = 0;
     const broken = new NavBakeOverlay(
       () => ({ ...cleanNavOverlay({}), navmesh: true }),
       () => colors,
       () => 0,
       async () => {
+        failedReads++;
         throw new Error("404");
       },
       async () => new Float32Array(0),
@@ -96,7 +98,9 @@ describe("the scene view's navigation overlay", () => {
     );
     broken.segments();
     await tick();
+    expect(broken.segments()).toEqual([]);
+    await tick();
     broken.segments();
-    expect(broken.stats.failed).toEqual(["404"]);
+    expect(failedReads).toBe(1); // not retried every frame
   });
 });

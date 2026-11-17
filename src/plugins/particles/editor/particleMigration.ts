@@ -2,7 +2,6 @@
 // 0060: effects are always assets). Done when the editor opens a scene in a project it can save to: the
 // Particles plugin's scene-open migration (ADR 0146).
 import { parseParticleGraph } from "../../../engine/scene/particleGraphFormat";
-import { createParticleEffect } from "./particleAssets";
 import { editor, SetField, type SceneDocument, type OpenScene } from "../../../editor/sdk";
 
 const TYPE = "engine.ParticleSystem";
@@ -55,22 +54,23 @@ export async function migrateEmbeddedEffects(scene: OpenScene): Promise<number> 
     } catch {
       continue; // unreadable: leave it for the runtime to report
     }
-    const path = await createParticleEffect("effects", graph, f.name);
+    const path = await editor.assets.create("particles", { folder: "effects", value: graph, name: f.name });
     if (path) moves.push({ found: f, path });
   }
   if (moves.length === 0) return 0;
   // The scene may have changed or closed while the files were written.
   const live = moves.filter((m) => scene.doc.has(m.found.node));
-  scene.stack.beginGroup("Move embedded particle effects into assets");
-  try {
-    for (const m of live) {
-      const options = { index: m.found.index };
-      scene.stack.execute(new SetField(m.found.node, TYPE, "effect", `asset:${m.path}`, options));
-      scene.stack.execute(new SetField(m.found.node, TYPE, "embeddedEffect", null, options));
-    }
-  } finally {
-    scene.stack.endGroup();
-  }
+  editor.scene.edit(
+    "Move embedded particle effects into assets",
+    () => {
+      for (const m of live) {
+        const options = { index: m.found.index };
+        scene.stack.execute(new SetField(m.found.node, TYPE, "effect", `asset:${m.path}`, options));
+        scene.stack.execute(new SetField(m.found.node, TYPE, "embeddedEffect", null, options));
+      }
+    },
+    scene,
+  );
   editor.messages.info(migrationMessage(live.length));
   return live.length;
 }

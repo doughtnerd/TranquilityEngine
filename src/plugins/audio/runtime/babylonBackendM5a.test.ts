@@ -9,7 +9,7 @@ import { parseAudioSettings } from "../../../engine/audio/settings";
 import { babylonMock, makeFakeContext } from "../testing/babylonMocks";
 import { setAudioBackend, type PlayRequest } from "./backend";
 import { BabylonBackend } from "./babylonBackend";
-import { decodeKeyframe, encodeKeyframe, keyframeBytes, KEYFRAME_BUS_LANES } from "./capture/format";
+import { decodeKeyframe, encodeKeyframe, keyframeBytes, readCaptureKeyframe, KEYFRAME_BUS_LANES, NO_NAME } from "./capture/format";
 import { NULL_PROFILE_SINK } from "./mix/profileSink";
 import { recordingSink } from "./mix/recordingSink";
 import { taps } from "./mix/profileTaps";
@@ -194,22 +194,24 @@ describe("BabylonBackend keyframes from main's tables (§9, §5.5)", () => {
     mixer.snapshot("Quiet", 0);
     mixer.update(0.1);
     const k = roundTrip(b);
+    const named = readCaptureKeyframe(k);
 
     expect(k.voices).toHaveLength(2);
-    const sfx = k.voices.find((v) => v.clip === nameId("clips", "a.wav"))!;
-    expect(sfx).toMatchObject({ slot: SLOT.SFX, state: 0, gain: 0.5, pitch: 2 * 4096, audibility: 0xffff });
+    const sfx = named.voices.find((v) => v.clip === nameId("clips", "a.wav"))!;
+    expect(sfx).toMatchObject({ slot: SLOT.SFX, state: "playing", gain: 0.5, pitch: 2 });
+    expect(sfx.audibility).toBeCloseTo(1, 4); // full: the fallback doesn't know audibility
     expect(k.voices.find((v) => v.clip === nameId("clips", "m.wav"))!.slot).toBe(SLOT.Music);
     expect(k.buses.map((x) => x.slot)).toEqual([0, 1, 2, 3]);
     const music = k.buses[SLOT.Music]!;
-    expect(music.flags & 2).toBe(2); // runtime mute
+    expect(named.buses[SLOT.Music]!.runtimeMute).toBe(true);
     expect(music.lanes).toHaveLength(KEYFRAME_BUS_LANES);
     expect(music.lanes[4]).toBeCloseTo(0.5, 6); // snapshot lane value (after the 0 s snapshot's minimum ramp)
     expect(music.lanes[5]).toBeCloseTo(0.5, 6); // and its target
-    expect(k.buses[SLOT.SFX]!.flags & 8).toBe(8); // monitor solo
-    expect(k.events).toEqual([{ id: 7, asset: 0xffffffff, voices: 1, state: 0, paramsHash: 0 }]);
+    expect(named.buses[SLOT.SFX]!.monitorSolo).toBe(true);
+    expect(named.events).toEqual([{ id: 7, asset: NO_NAME, voices: 1, paramsHash: 0 }]);
     expect(k.metered).toEqual([]);
     expect(k.music).toEqual([]);
-    expect(k.mix).toMatchObject({ monitorActive: 1, masterVolume: 0.5, hiddenMute: 0, snapshotName: nameId("snapshots", "Quiet") });
+    expect(named.mix).toMatchObject({ monitorActive: true, masterVolume: 0.5, hiddenMute: false, snapshot: nameId("snapshots", "Quiet") });
   });
 
   it("an empty fallback encodes: no voices, the buses at their authored values, no snapshot", () => {
@@ -217,7 +219,7 @@ describe("BabylonBackend keyframes from main's tables (§9, §5.5)", () => {
     expect(k.voices).toEqual([]);
     expect(k.buses).toHaveLength(4);
     expect(k.buses[0]!.lanes.slice(0, 2)).toEqual([1, 1]);
-    expect(k.mix).toMatchObject({ monitorActive: 0, snapshotName: 0xffffffff, masterVolume: 1 });
+    expect(readCaptureKeyframe(k).mix).toMatchObject({ monitorActive: false, snapshot: null, masterVolume: 1 });
   });
 
   it("a removed bus drops out of the keyframe, and another bus's fade continues across the removal", async () => {

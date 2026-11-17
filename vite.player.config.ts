@@ -5,10 +5,14 @@
 // the exporters (`npm run export`, and the editor, which serves a copy at player/).
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
-import { playerFileList, typescriptTranspile } from "./vite.shared.ts";
+import { CAPTURE_CODEC, lazyOnly, playerFileList, typescriptTranspile } from "./vite.shared.ts";
 
 export default defineConfig({
-  plugins: [typescriptTranspile(), playerFileList()],
+  plugins: [
+    typescriptTranspile(),
+    playerFileList(),
+    lazyOnly([CAPTURE_CODEC]), // a game that never records loads none of the capture codec
+  ],
   oxc: false,
   base: "./", // a build runs from any folder of any host
   build: {

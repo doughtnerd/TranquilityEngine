@@ -1,7 +1,8 @@
 // The `audioEvent` asset format and its reference handling (ADR 0158 §1, ADR 0148): reading and writing
 // `*.audioevent.json` through the editor's asset documents, and listing the clips an event names. The parser itself is the engine's (`engine/audio/eventFormat.ts`).
-import type { AssetFormatContribution, AssetReferenceExtractor } from "../../../editor/sdk";
+import type { AssetFormat, AssetReferenceExtractor } from "../../../editor/sdk";
 import {
+  emptyAudioEvent,
   eventClips,
   formatAudioEvent,
   parseAudioEvent,
@@ -9,17 +10,17 @@ import {
 } from "../../../engine/audio/eventFormat";
 
 /**
- * The format registered with `registerAssetFormat` (id `"audioEvent"`): `parse` is `parseAudioEvent` (its problem
- * strings become `{ message }`; it never throws, `raw` undefined reads as an empty event), `format` is
- * `formatAudioEvent`.
+ * The `audioEvent` kind's format (ADR 0233): `parse` is `parseAudioEvent` (its problem strings become `{ message }`;
+ * it never throws, `raw` undefined reads as an empty event), `format` is `formatAudioEvent`, and a new event is
+ * `emptyAudioEvent()` (a layer with no children, which plays nothing) to fill in the Event editor.
  */
-export const audioEventFormat: AssetFormatContribution<AudioEventAsset> = {
-  id: "audioEvent",
+export const audioEventFormat: AssetFormat<AudioEventAsset> = {
   parse: (raw, _path) => {
     const read = parseAudioEvent(raw);
     return { value: read.value, problems: read.problems.map((message) => ({ message })) };
   },
   format: (value) => formatAudioEvent(value),
+  empty: emptyAudioEvent,
 };
 
 /**

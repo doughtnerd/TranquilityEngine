@@ -1,6 +1,6 @@
 # 0219. Storybook is the editor's component library, and stories test its components through their real props
 
-- **Status:** Accepted
+- **Status:** Accepted; amended by 0235 (stories get the editor from one harness and reach its state through the SDK surface)
 - **Date:** 2026-11-16
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

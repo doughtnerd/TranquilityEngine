@@ -4,12 +4,11 @@
 // the Shader Graph panel. Other editor code still compares these kind ids (dropping a material on a
 // mesh, model material slots, the particle graph's material list); only the definitions live here.
 import { materialsManifest } from "../manifest";
-import { createMaterial } from "./materialAssets";
-import { materialFormat } from "./materialFormat";
+import { materialFormat, shaderAssetFormat } from "./materialFormat";
 import { createShader } from "./shaderAssets";
-import { createShaderGraph, createShaderSubGraph, openShaderGraphAsset } from "./shaderGraphAssets";
+import { SHADER_GRAPH_PANEL } from "./shaderGraphAssets";
 import { shaderGraphFormat, shaderSubgraphFormat } from "./shaderGraphFormat";
-import { type EditorPlugin, editor } from "../../../editor/sdk";
+import { editor, type EditorPlugin } from "../../../editor/sdk";
 
 /** A sphere with a highlight, stroked in a 24×24 box. */
 const MATERIAL_ICON = "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM6 9a7 7 0 0 1 6-4";
@@ -29,8 +28,10 @@ export const materialsEditorPlugin: EditorPlugin = {
       extensions: [".material.json"],
       label: "Material",
       icon: MATERIAL_ICON,
+      format: materialFormat,
+      folder: "materials",
       inspector: () => import("./MaterialInspector").then((m) => m.MaterialInspector),
-      create: { label: "New Material", create: (folder) => createMaterial(folder) },
+      create: { label: "New Material", what: "materials" },
       referencedAs: ["material"],
       preview: "material",
     });
@@ -39,18 +40,22 @@ export const materialsEditorPlugin: EditorPlugin = {
       extensions: [".shader.json"],
       label: "Shader",
       icon: SHADER_ICON,
-      // The asset's JSON opens in the Code panel, as `.shader.json` always has.
+      // The asset's JSON opens in the Code panel, as `.shader.json` always has; the Material inspector reads it.
       open: (path) => editor.assets.openScript(path),
-      create: { label: "New Shader", create: (folder) => createShader(folder) },
+      format: shaderAssetFormat,
+      folder: "shaders",
+      create: { label: "New Shader", create: createShader },
     });
     context.registerAssetKind({
       id: "shadergraph",
       extensions: [".shadergraph.json"],
       label: "Shader Graph",
       icon: GRAPH_ICON,
-      open: (path) => openShaderGraphAsset(path),
+      format: shaderGraphFormat,
+      folder: "shaders",
+      panel: SHADER_GRAPH_PANEL,
       inspector: shaderGraphInspector,
-      create: { label: "New Shader Graph", create: (folder) => createShaderGraph(folder) },
+      create: { label: "New Shader Graph", what: "shader graphs" },
       // A material field takes a graph too: it draws with the graph's defaults.
       referencedAs: ["material"],
       preview: "shadergraph",
@@ -60,15 +65,14 @@ export const materialsEditorPlugin: EditorPlugin = {
       extensions: [".shadersubgraph.json"],
       label: "Sub Graph",
       icon: GRAPH_ICON,
-      open: (path) => openShaderGraphAsset(path),
+      format: shaderSubgraphFormat,
+      folder: "shaders",
+      panel: SHADER_GRAPH_PANEL,
       inspector: shaderGraphInspector,
-      create: { label: "New Shader Sub Graph", create: (folder) => createShaderSubGraph(folder) },
+      create: { label: "New Shader Sub Graph", name: "New Sub Graph", what: "sub-graphs" },
     });
-    context.registerAssetFormat(materialFormat);
-    context.registerAssetFormat(shaderGraphFormat);
-    context.registerAssetFormat(shaderSubgraphFormat);
     context.registerPanel({
-      id: "shadergraph",
+      id: SHADER_GRAPH_PANEL,
       title: "Shader Graph",
       view: () => import("./ShaderGraphPanel").then((m) => m.ShaderGraphPanel),
       // In the default layout, the tab after the Scene view.

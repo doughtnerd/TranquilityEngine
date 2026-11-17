@@ -6,6 +6,7 @@ import type { BootstrapConfig, LinkConfig, ReplicationSettings, SystemSelection,
 import { validateBootstrap } from "../engine/core/settings";
 import type { SystemCatalogEntry } from "../engine/core/systems";
 import { DEFAULT_WORLD_NAME, DEFAULT_WORLD_TAGS, worldsMatch } from "../engine/core/worlds";
+import { uniqueName } from "../engine/core/uniqueName";
 
 /** Tags offered as one-click chips; projects can type their own. */
 export const PRESET_TAGS: readonly WorldTag[] = ["default", "client", "server", "local", "editor"];
@@ -148,12 +149,6 @@ export function withReplicationSetting(
   if (value === undefined) delete next[key];
   else next[key] = value;
   return Object.keys(next).length > 0 ? (next as ReplicationSettings) : undefined;
-}
-
-/** `base`, else `base 2`, `base 3`… : the first not in `taken`. */
-export function uniqueName(base: string, taken: readonly string[]): string {
-  if (!taken.includes(base)) return base;
-  for (let i = 2; ; i++) if (!taken.includes(`${base} ${i}`)) return `${base} ${i}`;
 }
 
 /** `config` with `patch` applied (undefined removes a key), keys in the order project.json lists them. */

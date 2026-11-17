@@ -6,12 +6,11 @@
 // and height, polygon and edge vertices drag (snapping with Ctrl or "always snap"), a press on an
 // edge's middle handle adds a vertex there and drags it, Ctrl+click on a vertex removes it, and
 // the centre handle moves the offset. Each drag or click is one undo step (an override on prefab
-// instances). Editing a collider is the tool being active: picking a transform tool, Escape, play or
-// another tool ends it, and so do selecting another node and switching scenes. 2D collider outlines are
-// also selectable: a click inside one picks its node.
+// instances; Escape mid-drag puts it back). Editing a collider is the tool's mode (ADR 0231), which the
+// viewport tool host ends: picking a transform tool, Escape, play, another tool, selecting another node
+// or switching scenes. 2D collider outlines are also selectable: a click inside one picks its node.
 import { RAD2DEG } from "../../../engine/core/math";
-import { effect, signal } from "@preact/signals";
-import type { World } from "../../../engine/core/World";
+import type { ReadonlySignal } from "@preact/signals";
 import { GameObject, type Engine } from "../../../engine";
 import { BoxCollider, BoxCollider2D, CapsuleCollider, CharacterController, CharacterController2D, CircleCollider2D, Collider, Collider2D, EdgeCollider2D, MeshCollider, PolygonCollider2D, SphereCollider } from "../runtime";
 import { type EditorOverlay, meshTriangleData, viewport } from "../../../engine/editor";
@@ -62,11 +61,10 @@ import {
   type Pose2D,
   type V2,
 } from "./colliderMath";
-import { cleanSnap, snapActive, snapSettings, snapTo } from "../../../editor/sceneTools";
-import { type ViewportDrag, type ViewportPointer, type ViewportToolContribution, editor, SetField, type OpenScene, theme, viewportColors } from "../../../editor/sdk";
+import { type ViewportDrag, type ViewportPointer, type ViewportToolContext, type ViewportToolContribution, editor, SetField, type OpenScene, theme, viewportColors } from "../../../editor/sdk";
 
 /** The collider tool's id: also its overlay id and its active-tool id. */
-const COLLIDER_TOOL_ID = "myco.physics.colliders";
+export const COLLIDER_TOOL_ID = "myco.physics.colliders";
 
 /** The collider whose handles are showing ("Edit Collider", like Unity), or null. */
 export interface EditingCollider {
@@ -76,8 +74,8 @@ export interface EditingCollider {
   /** Which collider of that type on the node. */
   index: number;
 }
-/** Set by the Inspector's Edit Collider button; non-null exactly while the collider tool is active. */
-export const editingCollider = signal<EditingCollider | null>(null);
+/** The collider tool's mode: entered by the Inspector's Edit Collider button, non-null exactly while the tool is active. */
+export const editingCollider: ReadonlySignal<EditingCollider | null> = editor.viewport.mode<EditingCollider>(COLLIDER_TOOL_ID);
 
 const COLOR = 0x3fae5a;
 const COLOR_SELECTED = 0x9dff9d;
@@ -249,35 +247,15 @@ function colliderOverlay(engine: Engine): EditorOverlay {
 }
 
 /** The scene view's collider tool: outlines and handles, handle drags, 2D outlines selectable. */
-export const colliderTool: ViewportToolContribution = {
+export const colliderTool: ViewportToolContribution<EditingCollider> = {
   id: COLLIDER_TOOL_ID,
+  // Editing ends when the selection moves to another node (the host also ends it on a transform tool, Escape,
+  // play, another tool and another scene).
+  endsOnSelection: () => true,
   install(view) {
     const { engine, world } = view;
     view.overlay(() => colliderOverlay(engine), { kind: "colliders" });
     view.selectable(() => colliderShapes(engine));
-
-    // Editing a collider makes the tool active; anything else becoming active (a transform tool, Escape,
-    // play, painting) ends editing.
-    const stopEditing = effect(() => {
-      if (editingCollider.value) {
-        if (!view.active.peek()) view.activate();
-      } else view.deactivate();
-    });
-    const stopActive = effect(() => {
-      if (!view.active.value && editingCollider.peek()) editingCollider.value = null;
-    });
-    // Edit mode ends when the selection moves elsewhere or another scene opens.
-    const stopWatch = effect(() => {
-      const key = editor.scene.selection.active, editing = editingCollider.peek();
-      if (editing && editing.key !== key) editingCollider.value = null;
-    });
-    let scene = editor.scene.peekOpen();
-    const stopScene = effect(() => {
-      const next = editor.scene.open;
-      if (next === scene) return;
-      scene = next;
-      editingCollider.value = null;
-    });
 
     view.onPress((p) => {
       if (p.button !== 0) return null;
@@ -287,17 +265,9 @@ export const colliderTool: ViewportToolContribution = {
       const handle = viewport(world).pickOverlayHandle(p.x, p.y);
       if (!handle) return null;
       // A press on a handle never also selects, orbits or starts the transform gizmo, even when it changes nothing.
-      const drag = is3D(edited.collider) ? drag3D(world, scene, p, handle, edited.node, edited.collider, edited.editing) : drag2D(world, scene, p, handle, edited.node, edited.collider as EditableCollider2D, edited.editing);
+      const drag = is3D(edited.collider) ? drag3D(view, scene, p, handle, edited.node, edited.collider, edited.editing) : drag2D(view, scene, p, handle, edited.node, edited.collider as EditableCollider2D, edited.editing);
       return drag ?? {};
     });
-
-    return () => {
-      stopEditing();
-      stopActive();
-      stopWatch();
-      stopScene();
-      editingCollider.value = null;
-    };
   },
 };
 
@@ -313,19 +283,9 @@ function fieldWriter(scene: OpenScene, editing: EditingCollider): (field: string
   };
 }
 
-/** A drag that is one undo step named `label`: the group closes on release and on cancel. */
-function grouped(scene: OpenScene, label: string, move: (p: ViewportPointer) => void): ViewportDrag {
-  scene.stack.beginGroup(label);
-  let open = true;
-  const close = () => {
-    if (open) scene.stack.endGroup();
-    open = false;
-  };
-  return { move, end: close, cancel: close };
-}
-
 /** Press on a 2D collider's handle: resize, move the centre, or move, add or (Ctrl+click) remove a vertex. */
-function drag2D(world: World, scene: OpenScene, press: ViewportPointer, handle: string, node: GameObject, collider: EditableCollider2D, editing: EditingCollider): ViewportDrag | null {
+function drag2D(view: ViewportToolContext<EditingCollider>, scene: OpenScene, press: ViewportPointer, handle: string, node: GameObject, collider: EditableCollider2D, editing: EditingCollider): ViewportDrag | null {
+  const { world } = view;
   const pose = colliderPose2D(node, collider); // fixed for the drag
   const startCenter: V2 = [collider.center.x, collider.center.y];
   const startSize: V2 = collider instanceof BoxCollider2D ? [collider.size.x, collider.size.y] : [0, 0];
@@ -349,9 +309,7 @@ function drag2D(world: World, scene: OpenScene, press: ViewportPointer, handle: 
       editor.messages.info(`A ${closed ? "polygon" : "edge"} collider needs at least ${closed ? 3 : 2} points.`);
       return null;
     }
-    scene.stack.beginGroup("Remove collider vertex");
-    write("points", next);
-    scene.stack.endGroup();
+    view.edit("Remove collider vertex", () => write("points", next));
     return null;
   }
   let label = handle === "center" ? "Move collider center" : "Resize collider";
@@ -363,14 +321,13 @@ function drag2D(world: World, scene: OpenScene, press: ViewportPointer, handle: 
     vertex = parsed.index + 1;
     label = "Add collider vertex";
   }
-  const drag = grouped(scene, label, (m) => {
+  const move = (m: ViewportPointer) => {
     const p = pointer(m);
     if (!p) return;
     if (handle === "center") {
       write("center", [tidy(p[0] - offset[0]), tidy(p[1] - offset[1])]);
     } else if (vertex >= 0) {
-      const step = snapActive.value ? cleanSnap(snapSettings.value).move : 0;
-      const q: V2 = [snapTo(p[0] - startCenter[0], step), snapTo(p[1] - startCenter[1], step)];
+      const q: V2 = [view.snap(p[0] - startCenter[0]), view.snap(p[1] - startCenter[1])];
       write("points", movePoint(points, vertex, q).map((v) => v.map(tidy)));
     } else if (collider instanceof BoxCollider2D) {
       const r = dragBoxEdge(handle as Exclude<BoxHandle, "center">, p, startCenter, startSize, m.alt);
@@ -382,8 +339,9 @@ function drag2D(world: World, scene: OpenScene, press: ViewportPointer, handle: 
       if (handle.startsWith("height")) write("height", tidy(dragCapsule2DHeight(p, startCenter)));
       else write("radius", tidy(dragCapsule2DRadius(p, startCenter)));
     }
-  });
-  if (parsed?.kind === "insert") write("points", points.map((p) => p.map(tidy)));
+  };
+  const drag = view.gesture(label, { move });
+  if (drag && parsed?.kind === "insert") write("points", points.map((p) => p.map(tidy)));
   return drag;
 }
 
@@ -391,7 +349,8 @@ function drag2D(world: World, scene: OpenScene, press: ViewportPointer, handle: 
  * Drag a 3D collider's handle along its axis (to the point nearest the pointer's ray), or the
  * centre handle across the plane through it that faces the camera.
  */
-function drag3D(world: World, scene: OpenScene, press: ViewportPointer, handle: string, node: GameObject, collider: EditableCollider3D, editing: EditingCollider): ViewportDrag | null {
+function drag3D(view: ViewportToolContext<EditingCollider>, scene: OpenScene, press: ViewportPointer, handle: string, node: GameObject, collider: EditableCollider3D, editing: EditingCollider): ViewportDrag | null {
+  const { world } = view;
   const pose = colliderPose3D(node, collider); // fixed for the drag
   const startCenter: V3 = [collider.center.x, collider.center.y, collider.center.z];
   const c0 = worldCenter(pose, startCenter);
@@ -418,7 +377,7 @@ function drag3D(world: World, scene: OpenScene, press: ViewportPointer, handle: 
   const normal: V3 = [-ray0.direction[0], -ray0.direction[1], -ray0.direction[2]];
   const grab0 = handle === "center" ? viewport(world).pointOnPlane(press.x, press.y, normal, c0) : null;
   const startSize: V3 = collider instanceof BoxCollider ? [collider.size.x, collider.size.y, collider.size.z] : [0, 0, 0];
-  return grouped(scene, handle === "center" ? "Move collider center" : "Resize collider", (p) => {
+  const move = (p: ViewportPointer) => {
     if (handle === "center") {
       const hit = viewport(world).pointOnPlane(p.x, p.y, normal, c0);
       if (!hit || !grab0) return;
@@ -444,5 +403,6 @@ function drag3D(world: World, scene: OpenScene, press: ViewportPointer, handle: 
       if (handle.startsWith("height")) write("height", tidy(dragCapsuleHeight(reach, pose, direction)));
       else write("radius", tidy(dragCapsuleRadius(reach, pose, direction)));
     }
-  });
+  };
+  return view.gesture(handle === "center" ? "Move collider center" : "Resize collider", { move });
 }

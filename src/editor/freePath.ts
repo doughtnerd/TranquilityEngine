@@ -2,12 +2,24 @@
 // editor SDK reaches them without loading the Assets panel's file operations (and their imports of
 // the session, which loads the plugins).
 import type { EditorProject } from "./projects";
+import { assetKinds } from "./sdk/contributions";
 
 const join = (folder: string, name: string) => (folder ? `${folder}/${name}` : name);
 
-/** Split a file name at its extension; `.scene.json` and `.prefab.json` count as one. */
+/**
+ * Split a file name at its extension. The extension is the longest one a registered asset kind
+ * declares (`.scene.json`, `.tileset.json`, `.audioevent.json` count as one), else the last `.ext`.
+ */
 export function splitExtension(name: string): [string, string] {
-  const m = /^(.+?)((?:\.(?:scene|prefab|material|sky|cubemap|particles|particlesubgraph|particleblock|formation|shadergraph|shadersubgraph))?\.[^.]+)$/i.exec(name);
+  const lower = name.toLowerCase();
+  let best = 0;
+  for (const kind of assetKinds.list()) {
+    for (const ext of kind.extensions) {
+      if (ext.length > best && ext.length < name.length && lower.endsWith(ext.toLowerCase())) best = ext.length;
+    }
+  }
+  if (best) return [name.slice(0, -best), name.slice(-best)];
+  const m = /^(.+?)(\.[^.]+)$/.exec(name);
   return m ? [m[1], m[2]] : [name, ""];
 }
 

@@ -85,12 +85,21 @@ export const test = base.extend<{ fps: number; editFps: number; codePreload: boo
   /**
    * Whether an open project warms up the Code panel in the background (Monaco and, with scripts,
    * its TypeScript worker): seconds of CPU per page, so off unless a spec tests it; opening a file
-   * or pressing Play loads it when needed. Set on `window.mycoE2E` (src/editor/code/codeState.ts).
+   * or pressing Play loads it when needed. Off is the user's setting (Settings > General > Code), stored before the
+   * editor loads unless the page has already chosen one.
    */
   codePreload: [false, { option: true }],
   context: async ({ context, fps, editFps, codePreload }, use) => {
     if (fps > 0) await context.addInitScript(capFrames, { play: fps, edit: editFps || fps });
-    if (!codePreload) await context.addInitScript(() => Object.assign(window, { mycoE2E: { codePreload: false } }));
+    if (!codePreload) {
+      await context.addInitScript(() => {
+        try {
+          if (localStorage.getItem("myco.editor.preloadCodeEditor") === null) localStorage.setItem("myco.editor.preloadCodeEditor", "false");
+        } catch {
+          // no storage on this page (about:blank): nothing to warm up either
+        }
+      });
+    }
     await use(context);
   },
   /**

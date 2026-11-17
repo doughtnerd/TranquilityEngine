@@ -2,7 +2,7 @@ import { signal } from "@preact/signals";
 import { settingsOpen } from "./dialogState";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { PRODUCT_NAME } from "../brand";
-import { askBeforeClearingReferences, askBeforeDeletingAssets, checkScriptsBeforePlay, historyLocation, historyPruneDays, rotationAngles } from "../preferences";
+import { askBeforeClearingReferences, askBeforeDeletingAssets, checkScriptsBeforePlay, historyLocation, historyPruneDays, preloadCodeEditor, rotationAngles } from "../preferences";
 import { cleanPruneDays } from "../historyPrune";
 import { currentProject } from "../state";
 import { removeProjectTheme, writeProjectTheme } from "../projectTheme";
@@ -172,6 +172,13 @@ function GeneralSettings() {
             onChange={(e) => (checkScriptsBeforePlay.value = (e.currentTarget as HTMLInputElement).checked)}
           />
           Check scripts for type errors before Play
+        </label>
+      </fieldset>
+      <fieldset>
+        <legend>Code</legend>
+        <label>
+          <input type="checkbox" checked={preloadCodeEditor.value} onChange={(e) => (preloadCodeEditor.value = (e.currentTarget as HTMLInputElement).checked)} />
+          Load the code editor in the background when a project opens
         </label>
       </fieldset>
     </>

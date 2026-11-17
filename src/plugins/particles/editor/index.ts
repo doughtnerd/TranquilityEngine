@@ -4,9 +4,9 @@
 // the Particle Graph panel and the ParticleSystem's Inspector section; and (ADR 0146) the Hierarchy's Create
 // Particle System, the scene view's particle preview with its overlay, and moving embedded effects into
 // assets when a scene opens.
-import type { EditorPlugin } from "../../../editor/sdk";
+import { editor, type EditorPlugin } from "../../../editor/sdk";
 import { particlesManifest } from "../manifest";
-import { createParticleBlock, createParticleEffect, createParticleSubgraph, openParticleGraphAsset, particleNodeEntry } from "./particleAssets";
+import { PARTICLE_GRAPH_PANEL, particleNodeEntry } from "./particleAssets";
 import { migrateEmbeddedEffects } from "./particleMigration";
 import { installParticlePreview } from "./particlePreview";
 import { particleBlockFormat, particlesFormat, particleSubgraphFormat } from "./particleFormat";
@@ -28,9 +28,11 @@ export const particlesEditorPlugin: EditorPlugin = {
       extensions: [".particles.json"],
       label: "Particle Effect",
       icon: EFFECT_ICON,
-      open: (path) => openParticleGraphAsset(path),
+      format: particlesFormat,
+      folder: "effects",
+      panel: PARTICLE_GRAPH_PANEL,
       inspector: () => import("./ui/ParticleInspector").then((m) => m.ParticleEffectInspector),
-      create: { label: "New Particle Effect", create: (folder) => createParticleEffect(folder) },
+      create: { label: "New Particle Effect", what: "particle effects" },
       referencedAs: ["particles"],
       preview: "particles",
       addToScene: { nodes: (doc, path, position) => [particleNodeEntry(doc, path, position)] },
@@ -40,24 +42,25 @@ export const particlesEditorPlugin: EditorPlugin = {
       extensions: [".particlesubgraph.json"],
       label: "Particle Sub-graph",
       icon: SUBGRAPH_ICON,
-      open: (path) => openParticleGraphAsset(path),
+      format: particleSubgraphFormat,
+      folder: "effects",
+      panel: PARTICLE_GRAPH_PANEL,
       inspector: assetInspector,
-      create: { label: "New Particle Sub-graph", create: (folder) => createParticleSubgraph(folder) },
+      create: { label: "New Particle Sub-graph", what: "particle sub-graphs" },
     });
     context.registerAssetKind({
       id: "particleblock",
       extensions: [".particleblock.json"],
       label: "Particle Block",
       icon: BLOCK_ICON,
-      open: (path) => openParticleGraphAsset(path),
+      format: particleBlockFormat,
+      folder: "effects",
+      panel: PARTICLE_GRAPH_PANEL,
       inspector: assetInspector,
-      create: { label: "New Particle Block", create: (folder) => createParticleBlock(folder) },
+      create: { label: "New Particle Block", what: "particle blocks" },
     });
-    context.registerAssetFormat(particlesFormat);
-    context.registerAssetFormat(particleSubgraphFormat);
-    context.registerAssetFormat(particleBlockFormat);
     context.registerPanel({
-      id: "particlegraph",
+      id: PARTICLE_GRAPH_PANEL,
       title: "Particle Graph",
       view: () => import("./ui/ParticleGraphPanel").then((m) => m.ParticleGraphPanel),
       // In the default layout, a tab beside the Scene view.
@@ -72,7 +75,7 @@ export const particlesEditorPlugin: EditorPlugin = {
       label: "Particle System",
       name: "Particle System",
       after: "reflection-probe",
-      createAsset: () => createParticleEffect("", undefined, "Particle System"),
+      createAsset: () => editor.assets.create("particles", { name: "Particle System" }),
       components: (position, effect) => [
         { type: "engine.Transform", data: { position } },
         { type: "engine.ParticleSystem", data: effect ? { effect } : {} },

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addEditorOverlay, removeEditorOverlay, setEditorOverlayFilter, shownEditorOverlays, type EditorOverlay } from "../editor";
+import { addEditorOverlay, removeEditorOverlay, setEditorOverlayFilter, type EditorOverlay } from "../editor";
 import type { World } from "../core/World";
 import { FakeRenderSurface } from "../render/fakeViewport";
 
@@ -22,7 +22,6 @@ describe("editor overlay kinds and the per-World filter", () => {
     expect(colors(state)).toEqual([1, 2, 3]);
     setEditorOverlayFilter(world, (kind) => kind === "other");
     expect(colors(state)).toEqual([3]);
-    expect(shownEditorOverlays(world)).toEqual(["game"]);
   });
 
   it("filters overlays added after the filter was set, and clearing the filter shows them all again", () => {
@@ -34,7 +33,6 @@ describe("editor overlay kinds and the per-World filter", () => {
     expect(colors(state)).toEqual([4]);
     setEditorOverlayFilter(world, null);
     expect(colors(state)).toEqual([1, 4]);
-    expect(shownEditorOverlays(world)).toEqual(["nav", "default"]);
   });
 
   it("hides everything when the filter rejects every kind, and removal still works under a filter", () => {
@@ -43,7 +41,6 @@ describe("editor overlay kinds and the per-World filter", () => {
     addEditorOverlay(world, "b", () => ({ lines: [line(2)], handles: [] }));
     setEditorOverlayFilter(world, () => false);
     expect(state.provider).toBeNull();
-    expect(shownEditorOverlays(world)).toEqual([]);
     removeEditorOverlay(world, "a");
     setEditorOverlayFilter(world, () => true);
     expect(colors(state)).toEqual([2]);

@@ -208,10 +208,9 @@ interface IconKind<C extends IconComponent> {
   /** A look's material name and its pixels. */
   materialName(look: string): string;
   pixels(look: string): Uint8Array;
-  /** A wireframe: its batch's mesh name, whether its draws count as overlay objects drawn (`EditorDrawing.drawnObjects`), and one component's segments (world matrix `m` at `o`). */
+  /** A wireframe: its batch's mesh name and one component's segments (world matrix `m` at `o`). */
   readonly wires?: {
     readonly mesh: string;
-    readonly counted: boolean;
     emit(c: C, m: ArrayLike<number>, o: number, selected: boolean, aspect: number, emit: Emit): void;
   };
 }
@@ -229,7 +228,6 @@ const CAMERA_ICONS: IconKind<Camera> = {
   pixels: cameraIconPixels,
   wires: {
     mesh: "myco.editor.cameraWires",
-    counted: false,
     emit(c, m, o, _selected, aspect, emit) {
       const local = frustumSegments({ projection: c.projection, orthographicSize: c.orthographicSize, fieldOfView: c.fieldOfView, aspect, near: c.near, far: c.far });
       for (let i = 0; i < local.length; i += 6) emit(...transformPoint(m, o, local[i], local[i + 1], local[i + 2]), ...transformPoint(m, o, local[i + 3], local[i + 4], local[i + 5]));
@@ -245,7 +243,7 @@ const LIGHT_ICONS: IconKind<Light> = {
   look: (l) => l.type,
   materialName: (type) => `myco.editor.lightIcon.${type}`,
   pixels: lightIconPixels,
-  wires: { mesh: "myco.editor.lightWires", counted: true, emit: (l, m, o, selected, _aspect, emit) => emitLightSegments(l, m, o, selected, emit) },
+  wires: { mesh: "myco.editor.lightWires", emit: (l, m, o, selected, _aspect, emit) => emitLightSegments(l, m, o, selected, emit) },
 };
 
 /** Particle systems have no mesh to click, so the icon is how they're picked. */
@@ -275,8 +273,6 @@ export interface IconStyle {
   readonly colors: EditorColors;
   /** True if the node or an ancestor is selected. */
   isOutlined(node: GameObject): boolean;
-  /** Counts one overlay object drawn this frame. */
-  readonly countDraw: () => void;
 }
 
 /** @internal The camera, light and particle system icons of one Babylon surface's edited scene. */
@@ -305,7 +301,7 @@ export class BabylonEditorIcons {
     const { kind, icons } = set, seen = this.seen;
     seen.clear();
     const wireKind = kind.wires;
-    const wires = wireKind ? (set.wires ??= new LineBatch(this.utility, wireKind.mesh, OVERLAY_GROUP.wires, true, wireKind.counted ? this.style.countDraw : undefined)) : null;
+    const wires = wireKind ? (set.wires ??= new LineBatch(this.utility, wireKind.mesh, OVERLAY_GROUP.wires, true)) : null;
     wires?.begin();
     for (const c of world._componentsOfType(kind.type)) {
       if (!world.inEditMode(c.node.entity)) continue; // the editor's own camera has no icon
@@ -392,12 +388,6 @@ export class BabylonEditorIcons {
       const s = view.worldToScreenPoint(new EngineVector3(p.x, p.y, p.z));
       if (s.z >= view.near && s.z <= view.far) visit(c.node, s.x, s.y);
     }
-  }
-
-  /** Light wireframe segments the last frame drew. */
-  lightWireCount(): number {
-    const wires = this.lights.wires;
-    return wires?.visible ? wires.count / 2 : 0;
   }
 
   dispose(): void {

@@ -9,9 +9,11 @@ import { useEditorPlugins } from "../../testEditorPlugins";
 import { currentProject, status } from "../../../editor/state";
 import { MemoryFileSystem, ROOT } from "../../../editor/testing";
 import { particlesEditorPlugin } from ".";
-import { createParticleBlock, createParticleSubgraph, particleDocument, readEffect } from "./particleAssets";
+import { particleDocument } from "./particleAssets";
+import { editor } from "../../../editor/sdk";
+import type { ParticleGraph } from "../../../engine/scene/particleGraph";
 import { formatAsset, subgraphTemplate } from "./particleGraph/assetDocs";
-import { addNote, moveItems, setSystemCollapsed, updateNote } from "./particleGraph/graphEdit";
+import { moveItems, particleGraphEdits as edits, setSystemCollapsed } from "./particleGraph/graphEdit";
 
 const FX = "effects/a.particles.json";
 const SUB = "effects/b.particlesubgraph.json";
@@ -46,7 +48,7 @@ function countWrites(): string[] {
 
 describe("particle documents (ADR 0134)", () => {
   it("open effects, sub-graphs and blocks with their own format", async () => {
-    const block = (await createParticleBlock(""))!;
+    const block = (await editor.assets.create("particleblock"))!;
     expect(particleDocument(project, block).problems.value).toEqual([]);
     expect(particleDocument(project, FX).value.value.systems.length).toBeGreaterThan(0);
     expect(particleDocument(project, SUB).value.value.nodes.some((n) => n.type === "asset.input")).toBe(true);
@@ -55,12 +57,12 @@ describe("particle documents (ADR 0134)", () => {
   it("write an edit once", async () => {
     const doc = particleDocument(project, FX);
     const writes = countWrites();
-    const next = addNote(doc.value.value, [10, 20]).graph;
+    const next = edits.addNote(doc.value.value, [10, 20]).graph;
     doc.edit(next);
     await doc.flush();
     expect(writes).toEqual([FX]);
     expect(onDisk(FX)).toBe(formatParticleGraph(next));
-    expect(readEffect(project, FX).graph.notes).toHaveLength(1);
+    expect(editor.assets.read<ParticleGraph>(project, FX).value.notes).toHaveLength(1);
   });
 
   it("make a drag one undo step and one write", async () => {
@@ -81,17 +83,17 @@ describe("particle documents (ADR 0134)", () => {
 
   it("add no undo step for an edit that changes nothing (a note patched to what it holds)", async () => {
     const doc = particleDocument(project, FX);
-    doc.edit(addNote(doc.value.value, [0, 0]).graph);
+    doc.edit(edits.addNote(doc.value.value, [0, 0]).graph);
     await doc.flush();
     doc.undo();
     doc.redo();
     await doc.flush();
     const g = doc.value.value;
     const note = g.notes[0]!;
-    expect(updateNote(g, note.id, { position: note.position, text: note.text })).toBe(g);
+    expect(edits.updateNote(g, note.id, { position: note.position, text: note.text })).toBe(g);
     const before = doc.canUndo.value;
     const writes = countWrites();
-    doc.edit(updateNote(g, note.id, { position: note.position }));
+    doc.edit(edits.updateNote(g, note.id, { position: note.position }));
     doc.edit({ ...g });
     await doc.flush();
     expect(writes).toEqual([]);
@@ -112,7 +114,7 @@ describe("particle documents (ADR 0134)", () => {
   it("keep an effect's history through a rename", async () => {
     const doc = particleDocument(project, FX);
     const start = doc.value.value;
-    doc.edit(addNote(start, [0, 0]).graph);
+    doc.edit(edits.addNote(start, [0, 0]).graph);
     await doc.flush();
     const to = "effects/c.particles.json";
     expect(await moveAssets([[FX, to]])).toBe(true);
@@ -125,7 +127,7 @@ describe("particle documents (ADR 0134)", () => {
 
   it("follow a change made elsewhere", async () => {
     const doc = particleDocument(project, FX);
-    const changed = addNote(defaultParticleGraph(), [5, 5]).graph;
+    const changed = edits.addNote(defaultParticleGraph(), [5, 5]).graph;
     await project.writeText(FX, formatParticleGraph(changed));
     const { docVersion } = await import("../../../editor/state");
     docVersion.value++;
@@ -135,18 +137,18 @@ describe("particle documents (ADR 0134)", () => {
   it("refuse edits in a read-only project", async () => {
     Object.defineProperty(project, "canSave", { value: false });
     const doc = particleDocument(project, FX);
-    doc.edit(addNote(doc.value.value, [0, 0]).graph);
+    doc.edit(edits.addNote(doc.value.value, [0, 0]).graph);
     expect(doc.value.value.notes).toHaveLength(0);
   });
 });
 
 describe("New Particle Sub-graph and Block", () => {
   it("create parseable assets beside effects", async () => {
-    const sub = await createParticleSubgraph("");
-    const block = await createParticleBlock("");
+    const sub = await editor.assets.create("particlesubgraph");
+    const block = await editor.assets.create("particleblock");
     expect(sub).toBe("effects/New Particle Sub-graph.particlesubgraph.json");
     expect(block).toBe("effects/New Particle Block.particleblock.json");
-    expect(readEffect(project, sub!).problems).toEqual([]);
-    expect(readEffect(project, block!).problems).toEqual([]);
+    expect(editor.assets.read(project, sub!).problems).toEqual([]);
+    expect(editor.assets.read(project, block!).problems).toEqual([]);
   });
 });

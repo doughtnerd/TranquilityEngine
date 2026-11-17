@@ -1,56 +1,20 @@
-// ADR 0166 P9: `musicOps`'s half of music recovery on a fake host (no wasm): `reopenGroups` drops every live group
+// ADR 0166 P9: `musicOps`'s half of music recovery on the recording host (`recordingAudio`, ADR 0234; no wasm): `reopenGroups` drops every live group
 // without events (voices freed, rings returned, the worker's groups cancelled, Ê reset) and hands the players to
 // `music/background.ts`; the Replayer hands off once per rebuild even with no member voice; a worker crash is told from
 // a stem failure by the decoder's generation and recovered at the next `beginFrame`. The loopback halves are in
 // `musicRecoveryLoopback.test.ts`.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Mixer } from "../../../../engine/audio/mixer";
-import { defaultAudioSettings } from "../../../../engine/audio/settings";
-import type { AudioHost, HostLifecycleListener } from "./context";
-import { CoreLink, type LinkPort } from "./context";
-import type { ClipInfo, ClipRegistry, ClipState } from "./clipRegistry";
-import { CoreBackend, type CoreBackendHost } from "./coreBackend";
 import { fakeDecoder } from "./fakeDecoder";
 import type { MusicGroupEvent, MusicGroupRequest } from "../backend";
 import type { PrimeGroupOptions, StreamReply } from "../decoder/decoderClient";
 import * as musicBackground from "../music/background";
-import { STATUS_BUFFER_BYTES, writeStatus } from "../wire.generated";
-import { makeStatusBlock } from "./statusFixtures";
+import { closeRecordingAudio, recordingAudio } from "../testing";
 
 /** The prime-latency average's seed before any prime has been measured, ms. */
 const PRIME_EMA_SEED_MS = 40;
 
-function fakeClips(): ClipRegistry {
-  const info = (id: number): ClipInfo => ({ id, path: "", state: "ready" as ClipState, refs: 0, frames: 0, channels: 1, sampleRate: 48_000, format: 1, bytes: 0, failure: null });
-  return {
-    acquire: () => 1,
-    release() {},
-    state: () => "ready",
-    info,
-    onResident: () => () => {},
-    releaseWorld() {},
-    applyClipEvent() {},
-    residentIds: () => [],
-    acquireReserved() {},
-    resend() {},
-  } as unknown as ClipRegistry;
-}
-
+/** The core backend on the recording host (ADR 0234) with `rings` music rings and an in-process decoder that records primes and cancels. */
 function rig(rings = 8) {
-  const link = new CoreLink({ onmessage: null, postMessage: () => {} } as LinkPort);
-  let raf = 1000;
-  let ctx = 0;
-  const clock = {
-    rafTime: () => raf,
-    outputTimestamp: () => ({ contextTime: ctx, performanceTime: raf }),
-    currentTime: () => ctx,
-    dateNow: () => 1_000_000 + raf,
-    fake: true as const,
-    advance(ms: number) {
-      raf += ms;
-      ctx += ms / 1000;
-    },
-  };
   const fake = fakeDecoder(() => ({ frames: 0, channels: 1, sampleRate: 48_000, channelData: [] }));
   const primes: PrimeGroupOptions[] = [];
   const cancels: number[] = [];
@@ -69,30 +33,20 @@ function rig(rings = 8) {
     primeGroup: (o: PrimeGroupOptions) => void primes.push(o),
     cancelGroup: (g: number) => void cancels.push(g),
   };
-  let lifecycle: HostLifecycleListener | null = null;
-  const host: CoreBackendHost = {
-    link,
-    status: "running",
-    preset: { maxLogical: 16, limiterLookaheadMs: 1.5, maxMusicRings: rings },
-    worldCount: 1,
-    sampleRate: 48_000,
-    addLifecycleListener: ((l: HostLifecycleListener) => {
-      lifecycle = l;
-      return () => {};
-    }) as AudioHost["addLifecycleListener"],
-  };
   const dummyPort = () => ({ onmessage: null, postMessage() {} });
-  const backend = new CoreBackend(host, {
-    clips: fakeClips(),
-    clock,
-    mixer: new Mixer(defaultAudioSettings()),
-    streams: {
-      decoder: () => decoder as never,
-      connectWorklet: () => {},
-      channel: () => ({ worker: dummyPort(), worklet: dummyPort() }),
-      fetchBytes: async () => new ArrayBuffer(16),
+  const r = recordingAudio({
+    mixer: "own",
+    preset: { maxLogical: 16, limiterLookaheadMs: 1.5, maxMusicRings: rings },
+    backend: {
+      streams: {
+        decoder: () => decoder as never,
+        connectWorklet: () => {},
+        channel: () => ({ worker: dummyPort(), worklet: dummyPort() }),
+        fetchBytes: async () => new ArrayBuffer(16),
+      },
     },
   });
+  const { backend, clock } = r;
   const events: MusicGroupEvent[] = [];
   backend.music.onGroupEvent = (e) => events.push(e);
   for (let k = 0; k < 3; k++) {
@@ -102,13 +56,7 @@ function rig(rings = 8) {
   const failAll = (message: string) => {
     for (const p of primes) for (const m of p.members) for (const l of streamListeners) l({ type: "error", streamId: m.streamId, asset: m.asset, message });
   };
-  /** One STATUS block through the link, as the host's `onmessage` delivers it. */
-  const status = (fields: Parameters<typeof makeStatusBlock>[0]) => {
-    const buffer = new ArrayBuffer(STATUS_BUFFER_BYTES);
-    writeStatus(new DataView(buffer), 0, makeStatusBlock(fields), 1);
-    link.handleMessage(buffer);
-  };
-  return { backend, ops: backend.musicOps, clock, decoder, primes, cancels, closes, events, failAll, status, lifecycle: () => lifecycle! };
+  return { backend, ops: backend.musicOps, clock, decoder, primes, cancels, closes, events, failAll, status: r.status, rebuild: () => r.rebuild("trap") };
 }
 
 const flush = async () => {
@@ -122,8 +70,9 @@ function request(group: number, streamed: number, decoded = 0): MusicGroupReques
   return { instance: 9, group, members };
 }
 
-afterEach(() => {
+afterEach(async () => {
   vi.restoreAllMocks();
+  await closeRecordingAudio();
 });
 
 describe("musicOps recovery (ADR 0166 P9)", () => {
@@ -174,8 +123,7 @@ describe("musicOps recovery (ADR 0166 P9)", () => {
     r.ops.admitGroup(a);
     r.ops.primeGroup(a);
     await flush();
-    r.lifecycle().onRebuildStart?.("trap");
-    r.lifecycle().onRebuilt?.();
+    expect(await r.rebuild()).toBe("rebuilt");
     r.clock.advance(16);
     r.backend.update(0.016);
     expect(reopen).toHaveBeenCalledTimes(1);

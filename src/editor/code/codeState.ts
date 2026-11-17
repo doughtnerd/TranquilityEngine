@@ -5,6 +5,7 @@
 import { signal } from "@preact/signals";
 import { showPanel } from "../layout/store";
 import { isTextAsset, type EditorProject } from "../projects";
+import { preloadCodeEditor as preloadCodeEditorSetting } from "../preferences";
 
 /**
  * Every file the Code panel can show, by project path, with its text on disk: the scripts, and
@@ -42,9 +43,8 @@ export const loadMonaco = () => (loading ??= import("./monaco").then((m) => (loa
  */
 export function preloadCodeEditor(project: EditorProject): void {
   if (typeof window === "undefined" || typeof document === "undefined") return; // headless tests
-  // End-to-end test hook: tests/e2e/fixtures.ts turns the warm-up off for specs that don't need it
-  // (it costs each page seconds of CPU with software rendering). A file or Play still loads Monaco.
-  if ((window as { mycoE2E?: { codePreload?: boolean } }).mycoE2E?.codePreload === false) return;
+  // Settings > General can turn the warm-up off (it costs seconds of CPU on a slow machine); a file or Play still loads Monaco.
+  if (!preloadCodeEditorSetting.peek()) return;
   const idle = (run: () => void) => ("requestIdleCallback" in window ? requestIdleCallback(run, { timeout: 5000 }) : setTimeout(run, 2000));
   idle(() => {
     loadMonaco()

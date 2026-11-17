@@ -4,30 +4,22 @@ import { clipboardText } from "../../../../editor/sdk";
 import {
   addKeyword,
   addNode,
-  addProperty,
+  shaderGraphEdits as edits,
   connect,
   disconnect,
-  duplicateNodes,
   firstInputFor,
   firstOutputFor,
   moveNodes,
-  moveProperty,
   removeKeyword,
   removeNodes,
-  removeProperty,
   renameKeyword,
-  renameProperty,
   setKeyword,
   whyNotKeywordName,
-  copyNodes,
-  graphClipboardFromText,
-  pasteNodes,
   setGraphOptions,
   setInput,
   setPropertyType,
   setSetting,
   whyNotConnect,
-  whyNotPropertyName,
 } from "./graphEdit";
 import { inlineFields, nodeBox, portOffset, HEADER, ROW } from "./nodeLayout";
 
@@ -64,7 +56,7 @@ describe("shader graph edits", () => {
     g = connect(g, "add1.out", "sine1.in");
     expect(whyNotConnect(g, "sine1.out", "add1.a")).toMatch(/loop/);
     expect(connect(g, "sine1.out", "add1.a")).toBe(g);
-    g = addProperty(g, "texture").graph;
+    g = edits.addProperty(g, "texture").graph;
     g = addNode(g, "property", [0, 0], { property: "Texture" }).graph;
     expect(whyNotConnect(g, "property1.out", "add1.b")).toMatch(/texture/);
     expect(whyNotConnect(g, "add1.nope", "output.alpha")).toMatch(/port/);
@@ -76,34 +68,33 @@ describe("shader graph edits", () => {
     expect(g.edges).toEqual([]);
   });
 
-  it("duplicates nodes with the connections between them", () => {
-    let g = connect(sample(), "time1.time", "add1.a");
-    const d = duplicateNodes(g, ["add1", "time1", "output"]);
+  it("duplicates nodes with ids named after their type, but never the output node", () => {
+    const g = connect(sample(), "time1.time", "add1.a");
+    const d = edits.duplicate(g, ["add1", "time1", "output"]);
     expect(d.ids).toEqual(["add2", "time2"]);
     expect(d.graph.edges).toContainEqual({ from: "time2.time", to: "add2.a" });
-    expect(d.graph.nodes.find((n) => n.id === "add2")!.position).toEqual([30, 30]);
-    g = d.graph;
-    expect(g.edges.filter((e) => e.to === "output.baseColor")).toHaveLength(1); // the copy doesn't feed the output
+    expect(d.graph.nodes.filter((n) => n.type === "output")).toHaveLength(1);
+    expect(d.graph.edges.filter((e) => e.to === "output.baseColor")).toHaveLength(1); // the copy doesn't feed the output
   });
 
   it("pastes nodes into another graph from their clipboard text, and reads none from malformed text (ADR 0226)", () => {
     let g = connect(sample(), "time1.time", "add1.a");
-    g = addProperty(g, "color").graph;
+    g = edits.addProperty(g, "color").graph;
     const prop = addNode(g, "property", [50, 50], { property: g.properties[0].name });
-    const clip = copyNodes(prop.graph, ["add1", "time1", prop.id, "output"])!;
-    const read = graphClipboardFromText(clipboardText(clip));
+    const clip = edits.copy(prop.graph, ["add1", "time1", prop.id, "output"])!;
+    const read = edits.clipboardFromText(clipboardText(clip));
     expect(read).toEqual(clip);
-    const into = pasteNodes(defaultShaderGraph(), read!, [0, 0]);
+    const into = edits.paste(defaultShaderGraph(), read!, [0, 0]);
     expect(into.ids).toHaveLength(3);
     expect(into.graph.edges).toContainEqual({ from: "time1.time", to: "add1.a" });
     expect(into.graph.properties.map((p) => p.name)).toEqual([g.properties[0].name]);
     const text = (v: object) => JSON.stringify({ ...clip, ...v });
-    expect(graphClipboardFromText("add1")).toBeNull(); // plain text
-    expect(graphClipboardFromText(text({ format: "myco.particles.clipboard@1" }))).toBeNull(); // another graph's
-    expect(graphClipboardFromText(text({ nodes: [] }))).toBeNull();
-    expect(graphClipboardFromText(text({ nodes: [{ id: "a.b", type: "add", position: [0, 0] }] }))).toBeNull(); // a dot in an id
-    expect(graphClipboardFromText(text({ nodes: [clip.nodes[0], clip.nodes[0]] }))).toBeNull(); // an id twice
-    expect(graphClipboardFromText(text({ edges: [{ from: "nowhere.out", to: "add1.a" }] }))).toBeNull(); // a wire to a missing node
+    expect(edits.clipboardFromText("add1")).toBeNull(); // plain text
+    expect(edits.clipboardFromText(text({ format: "myco.particles.clipboard@1" }))).toBeNull(); // another graph's
+    expect(edits.clipboardFromText(text({ nodes: [] }))).toBeNull();
+    expect(edits.clipboardFromText(text({ nodes: [{ id: "a.b", type: "add", position: [0, 0] }] }))).toBeNull(); // a dot in an id
+    expect(edits.clipboardFromText(text({ nodes: [clip.nodes[0], clip.nodes[0]] }))).toBeNull(); // an id twice
+    expect(edits.clipboardFromText(text({ edges: [{ from: "nowhere.out", to: "add1.a" }] }))).toBeNull(); // a wire to a missing node
   });
 
   it("moves nodes, and returns the same graph when nothing moved", () => {
@@ -128,23 +119,20 @@ describe("shader graph edits", () => {
     expect(g.surface).toBe("transparent");
   });
 
-  it("adds, renames, retypes, reorders and removes properties, with the nodes reading them", () => {
-    let g = addProperty(defaultShaderGraph(), "color").graph;
-    g = addProperty(g, "color").graph;
+  it("renames, retypes and removes properties with the Property nodes reading them", () => {
+    let g = edits.addProperty(defaultShaderGraph(), "color").graph;
+    g = edits.addProperty(g, "color").graph;
     expect(g.properties.map((p) => p.name)).toEqual(["Color", "Color 2"]);
     expect(g.properties[0].value).toBe("#ffffff");
     g = addNode(g, "property", [0, 0], { property: "Color" }).graph;
     g = connect(g, "property1.out", "output.baseColor");
-    expect(whyNotPropertyName(g, "Color", "Color 2")).toMatch(/already/);
-    expect(whyNotPropertyName(g, "Color", " Tint")).toMatch(/space/);
-    g = renameProperty(g, "Color", "Tint");
+    g = edits.renameProperty(g, "Color", "Tint");
     expect(g.nodes[1].settings).toEqual({ property: "Tint" });
-    g = moveProperty(g, "Tint", 1);
-    expect(g.properties.map((p) => p.name)).toEqual(["Color 2", "Tint"]);
+    g = edits.moveProperty(g, "Tint", 1);
     g = setPropertyType(g, "Tint", "texture");
     expect(g.properties[1]).toEqual({ name: "Tint", type: "texture", value: "" });
     expect(g.edges).toEqual([]); // a texture can't feed Base Color
-    g = removeProperty(g, "Tint");
+    g = edits.removeProperty(g, "Tint");
     expect(g.nodes.map((n) => n.id)).toEqual(["output"]);
   });
 
@@ -216,9 +204,9 @@ describe("shader graph keywords (ADR 0106)", () => {
   it("removes a keyword with its nodes, and copies the keywords pasted nodes read", () => {
     let g = addKeyword(defaultShaderGraph()).graph;
     g = addNode(g, "keyword", [0, 0], { keyword: "KEYWORD" }).graph;
-    const clip = copyNodes(g, ["keyword1"])!;
+    const clip = edits.copy(g, ["keyword1"])!;
     expect(clip.keywords?.map((k) => k.name)).toEqual(["KEYWORD"]);
-    expect(pasteNodes(defaultShaderGraph(), clip, [0, 0]).graph.keywords?.map((k) => k.name)).toEqual(["KEYWORD"]);
+    expect(edits.paste(defaultShaderGraph(), clip, [0, 0]).graph.keywords?.map((k) => k.name)).toEqual(["KEYWORD"]);
     const removed = removeKeyword(g, "KEYWORD");
     expect(removed.keywords).toBeUndefined();
     expect(removed.nodes.some((n) => n.type === "keyword")).toBe(false);

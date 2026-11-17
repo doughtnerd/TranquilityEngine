@@ -1,4 +1,5 @@
-import { useLayoutEffect, useState } from "preact/hooks";
+import { useState } from "preact/hooks";
+import { useDraftText } from "./draftText";
 import { Color } from "../../engine";
 import type { UIDocumentElement } from "../../engine/ui/UIDocument";
 import { openScript } from "../code/codeState";
@@ -128,26 +129,8 @@ function MoveToClass(props: { el: UIDocumentElement; uiRef: UIElementRef }) {
 
 /** A text box that commits on Enter or blur and reverts on Escape. */
 function DraftInput(props: { value: string; label: string; placeholder?: string; class?: string; onCommit: (v: string) => void }) {
-  const [draft, setDraft] = useState(props.value);
-  useLayoutEffect(() => setDraft(props.value), [props.value]);
-  return (
-    <input
-      type="text"
-      class={props.class}
-      aria-label={props.label}
-      placeholder={props.placeholder}
-      value={draft}
-      onInput={(e) => setDraft((e.currentTarget as HTMLInputElement).value)}
-      onBlur={() => draft !== props.value && props.onCommit(draft)}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur();
-        if (e.key === "Escape") {
-          setDraft(props.value);
-          (e.currentTarget as HTMLInputElement).blur();
-        }
-      }}
-    />
-  );
+  const { input } = useDraftText(props.value, (draft) => draft !== props.value && props.onCommit(draft));
+  return <input type="text" class={props.class} aria-label={props.label} placeholder={props.placeholder} {...input} />;
 }
 
 /** What the field's editor starts with: the attribute as written, the text content, or the current value. */

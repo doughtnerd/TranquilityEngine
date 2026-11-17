@@ -3,7 +3,7 @@
 import type { Tilemap } from "../runtime";
 import type { Stamp } from "../runtime/brushes";
 import type { TilemapLayerData } from "../runtime/format";
-import { SetField, type OpenScene } from "../../../editor/sdk";
+import { SetField, editor, type OpenScene } from "../../../editor/sdk";
 
 /**
  * The stamp for the block of the palette grid between tile positions `a` and `b` (indices into `ids`, laid out
@@ -34,15 +34,11 @@ export function commitLayers(scene: OpenScene, path: readonly string[], layers: 
   const [id, ...target] = path;
   const previous = scene.doc.isPrefabInstance(id) ? scene.doc.overrideValue(id, target, "engine.Tilemap", "layers", 0) : scene.doc.fieldValue(id, "engine.Tilemap", "layers", 0);
   if (JSON.stringify(previous) === JSON.stringify(layers)) return;
-  scene.stack.beginGroup(label);
-  scene.stack.execute(new SetField(id, "engine.Tilemap", "layers", layers, { index: 0, target }));
-  scene.stack.endGroup();
+  editor.scene.edit(label, () => scene.stack.execute(new SetField(id, "engine.Tilemap", "layers", layers, { index: 0, target })), scene);
 }
 
 /** Set the node's Tilemap tileset to a project path (or clear it). */
 export function commitTileset(scene: OpenScene, path: readonly string[], tilesetPath: string): void {
   const [id, ...target] = path;
-  scene.stack.beginGroup("Set tileset");
-  scene.stack.execute(new SetField(id, "engine.Tilemap", "tileset", tilesetPath ? `asset:${tilesetPath}` : "", { index: 0, target }));
-  scene.stack.endGroup();
+  editor.scene.edit("Set tileset", () => scene.stack.execute(new SetField(id, "engine.Tilemap", "tileset", tilesetPath ? `asset:${tilesetPath}` : "", { index: 0, target })), scene);
 }

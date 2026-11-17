@@ -1,55 +1,11 @@
-// Material assets in the editor (ADR 0043, the Materials plugin since 0134): creating
-// `*.material.json` files, reading them, and editing them through their asset document (the
-// `material` format, registered by the plugin's `editor/index.ts`) for the Material inspector.
-import { defaultMaterialSettings, formatMaterial, parseMaterial, type MaterialSettings } from "../../../engine/scene/material";
-import { defaultShaderAsset, parseShaderAsset, type ShaderAsset } from "../../../engine/scene/shaderAsset";
+// Material assets in the editor (ADR 0043, the Materials plugin since 0134): what the Material inspector needs
+// beyond its asset document (the `material` kind's format, `materialFormat.ts`). Creating and reading materials is
+// the asset kind host's (ADR 0233: `editor.assets.create("material")`, `editor.assets.read`).
+import { formatMaterial, type MaterialSettings } from "../../../engine/scene/material";
 import type { KeywordValue, ShaderKeyword } from "../../../engine/scene/shaderKeywords";
-import { editor, type EditorProject } from "../../../editor/sdk";
-
-export interface ReadMaterial {
-  settings: MaterialSettings;
-  /** What's wrong with the file (bad values read as the defaults). */
-  problems: string[];
-}
-
-/** A material asset's settings as the file holds them now. */
-export function readMaterial(project: EditorProject, path: string): ReadMaterial {
-  try {
-    return parseMaterial(project.assets.get(path), path);
-  } catch (err) {
-    return { settings: defaultMaterialSettings(), problems: [(err as Error).message] };
-  }
-}
-
-/** Write a material asset's file directly (New Material and other creators; edits go through the material's asset document). Throws for a read-only project. */
-export async function writeMaterial(project: EditorProject, path: string, settings: MaterialSettings): Promise<void> {
-  await project.writeText(path, formatMaterial(settings));
-}
 
 /** True if two settings would write the same file. */
 export const sameMaterial = (a: MaterialSettings, b: MaterialSettings) => formatMaterial(a) === formatMaterial(b);
-
-/** Where New Material goes by default: `materials/` if the project has it, else the folder given. */
-function materialFolder(folder: string): string {
-  return folder === "" && editor.project.current?.folders.includes("materials") ? "materials" : folder;
-}
-
-/**
- * Create `New Material.material.json` (or `New Material 2`…) in `folder`: the default lit
- * material. Returns its path, or null if the project is read-only or writing failed.
- */
-export async function createMaterial(folder: string): Promise<string | null> {
-  return editor.project.createFile({ folder: materialFolder(folder), name: "New Material.material.json", what: "materials", write: (project, path) => writeMaterial(project, path, defaultMaterialSettings()) });
-}
-
-/** A shader asset (`*.shader.json`, ADR 0106) as its file holds it now; the default one if it can't be read. */
-export function readShaderAsset(project: EditorProject, path: string): { shader: ShaderAsset; problems: string[] } {
-  try {
-    return parseShaderAsset(project.assets.get(path), path);
-  } catch (err) {
-    return { shader: defaultShaderAsset(), problems: [(err as Error).message] };
-  }
-}
 
 /**
  * A material's keyword values with `name` set to `value`; a value equal to the keyword's default

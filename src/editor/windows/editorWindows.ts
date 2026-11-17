@@ -2,7 +2,7 @@
 // it has open. Code that must listen in every window the editor's UI renders in (the shell's
 // keyboard shortcuts, the active history following focus) subscribes with `forEachEditorWindow`
 // instead of listening on the global `window` alone; childWindow.ts registers each child it opens.
-import { signal, type ReadonlySignal } from "@preact/signals";
+import { signal } from "@preact/signals";
 import { isWindowLike } from "./dom";
 
 const mainWindow = (): Window | null => {
@@ -13,9 +13,6 @@ const mainWindow = (): Window | null => {
 const children = signal<readonly Window[]>([]);
 type Subscriber = (win: Window) => void | (() => void);
 const subscribers = new Set<{ fn: Subscriber; cleanups: Map<Window, () => void> }>();
-
-/** The detached windows open now (not the main window), in the order they opened. */
-export const childWindows: ReadonlySignal<readonly Window[]> = children;
 
 /** The main window and every detached window open now. */
 export function editorWindows(): Window[] {

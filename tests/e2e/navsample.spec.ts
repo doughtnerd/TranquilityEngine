@@ -1,9 +1,10 @@
 import { expect, type Page, play, test } from "./fixtures";
+import { captureView, pixelsNear, themeColor } from "./viewCapture";
 
 // The navigation sample (ADR 0065, samples/navigation: Foxfire's Streaming Demo on the built-in navigation): listed
 // on the start screen, played with Play. The streamer loads the chunk scenes around the agents (additively), the
 // crowds walk, fly and hop to spots round the touring goal, and the Nav overlay draws the live navigation of the
-// play World (the test hook `window.navOverlay()`, src/plugins/navigation/editor/navGizmo.ts).
+// play World, read from captures of the game view taken while the game is paused and stepped.
 //
 // The play World is read through the editor's hooks: `window.playEngine` (the running game) and
 // `globalThis.__myco` (the engine module project scripts import as "myco").
@@ -13,7 +14,6 @@ test.describe.configure({ timeout: 120_000 });
 
 type Hooks = {
   engine?: { world: { time: { frameCount: number } } };
-  navOverlay?: () => { bakes: number; loaded: number; segments: number; failed: string[]; play: number[] };
 };
 
 function trackErrors(page: Page): string[] {
@@ -59,7 +59,7 @@ const playState = (page: Page) =>
     } satisfies PlayState;
   });
 
-const overlay = (page: Page) => page.evaluate(() => (window as unknown as Hooks).navOverlay?.() ?? null);
+const gameView = (page: Page) => captureView(page.locator("#game-view canvas").first());
 
 test("the start screen lists Navigation", async ({ page }) => {
   await page.goto(START);
@@ -105,23 +105,37 @@ test("Play: chunks stream in round the agents, agents of every kind move, the Na
   // The crowds head for the south-east through the door: its chunk streams in.
   await expect.poll(async () => (await playState(page))?.chunkScenes ?? [], { timeout: 45_000 }).toContain("chunk-3-south-east");
 
-  // The Nav overlay draws the play World's navigation (navmesh outlines, seams, paths) while it's on.
-  await page.getByRole("button", { name: "Navigation overlay" }).click();
-  await page.getByRole("checkbox", { name: "Navmesh" }).check();
-  await expect.poll(async () => (await overlay(page))?.play[0] ?? 0, { timeout: 15_000 }).toBeGreaterThan(50);
-  await page.getByRole("checkbox", { name: "Navmesh" }).uncheck();
-  const withoutNavmesh = (await overlay(page))?.play[0] ?? 0;
-  await page.getByRole("checkbox", { name: "Navmesh" }).check();
-  await expect.poll(async () => (await overlay(page))?.play[0] ?? 0).toBeGreaterThan(withoutNavmesh);
+  // The Nav overlay draws the play World's navigation (navmesh outlines over the seams and paths) while it's on. The
+  // game is paused and stepped a frame at a time (a paused game isn't drawn again); a frame with Navmesh on has many
+  // more pixels of the outline colour (the theme's `--success`) than one with it off. The camera moves, so frames
+  // aren't compared pixel by pixel.
+  await page.getByRole("button", { name: "❚❚ Pause", exact: true }).click();
+  const navmesh = page.getByRole("checkbox", { name: "Navmesh" });
+  /** Tick Navmesh in the Nav popover (a step closes it). */
+  const setNavmesh = async (on: boolean) => {
+    if (!(await navmesh.isVisible())) await page.getByRole("button", { name: "Navigation overlay" }).click();
+    await navmesh.setChecked(on);
+  };
+  /** The game view after two steps (the editor's drawing follows a change a frame later). */
+  const stepped = async () => {
+    const step = page.getByRole("button", { name: "Step", exact: true });
+    await step.click();
+    await step.click();
+    return gameView(page);
+  };
+  const outline = await themeColor(page, "--success");
+  const toggles = async () => {
+    const off = pixelsNear(await stepped(), outline);
+    await setNavmesh(true);
+    const on = pixelsNear(await stepped(), outline);
+    await setNavmesh(false);
+    const offAgain = pixelsNear(await stepped(), outline);
+    expect(on, `outline-coloured pixels: ${off} off, ${on} on, ${offAgain} off again`).toBeGreaterThan(Math.max(60, 4 * Math.max(off, offAgain)));
+  };
+  await toggles();
 
   // Post-processing on the camera keeps the debug drawing: it's drawn back after the effects (a bloom pass used to
   // hide it for good in play Worlds).
-  const drawnObjects = () =>
-    page.evaluate(() => {
-      const rows = (window as unknown as { playEditorDrawing?: () => { drawn: { drawnObjects: number } | null }[] }).playEditorDrawing?.() ?? [];
-      return rows.reduce((n, r) => n + (r.drawn?.drawnObjects ?? 0), 0);
-    });
-  await expect.poll(drawnObjects).toBeGreaterThan(0);
   const added = await page.evaluate(() => {
     type C = { node: { addBehavior(type: unknown, init?: object): unknown } };
     const myco = (globalThis as unknown as { __myco?: { Camera: unknown; PostProcessing: unknown } }).__myco;
@@ -133,8 +147,8 @@ test("Play: chunks stream in round the agents, agents of every kind move, the Na
   });
   expect(added).toBe(true);
   await page.waitForTimeout(1_000); // the post-processing libraries load, then frames go through the composer
-  await expect.poll(drawnObjects, { timeout: 10_000 }).toBeGreaterThan(0);
-  await page.getByRole("checkbox", { name: "Navmesh" }).uncheck();
+  await stepped();
+  await toggles();
 
   await page.getByRole("button", { name: /Stop/ }).click();
   await expect(page.getByRole("button", { name: "▶ Play" })).toBeVisible();

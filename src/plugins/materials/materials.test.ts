@@ -11,8 +11,10 @@ import { select as selectAssets } from "../../editor/assetSelection";
 import { kindIcon, kindLabel, kindOpens, registeredKind, satisfiesFieldKind } from "../../editor/assetKindLookup";
 import { registeredPanels } from "../../editor/layout/registeredPanels";
 import { joinPath, openFolderProject } from "../../editor/projects";
-import { assetFormats, assetKinds, panels } from "../../editor/sdk/contributions";
+import { assetKinds, panels } from "../../editor/sdk/contributions";
 import { isPluginActive } from "../../editor/sdk/plugins";
+import { editor } from "../../editor/sdk";
+import { kindCreators } from "../../editor/assetKindHost";
 import { useEditorPlugins } from "../testEditorPlugins";
 import { currentProject } from "../../editor/state";
 import { MemoryFileSystem, ROOT, useCoreAssetKinds } from "../../editor/testing";
@@ -77,19 +79,23 @@ describe("the Materials plugin's editor half (ADR 0134)", () => {
     expect(registeredPanels().get("shadergraph")).toEqual({ title: "Shader Graph", beside: "scene", owner: { plugin: "myco.materials", pluginTitle: "Materials" } });
   });
 
-  it("registers formats that round-trip and report problems as messages", () => {
-    const material = assetFormats.get("material")!;
+  it("declares formats that round-trip and report problems as messages", async () => {
+    const fs = new MemoryFileSystem();
+    fs.files.set(joinPath(ROOT, "project.json"), "{}");
+    for (const p of [MATERIAL, GRAPH, SUB]) fs.files.set(joinPath(ROOT, p), '"nope"');
+    const project = await openFolderProject(fs, ROOT);
+    const material = assetKinds.get("material")!.format!;
     const settings: MaterialSettings = { ...defaultMaterialSettings(), metalness: 0.25 };
     const read = material.parse(JSON.parse(formatMaterial(settings)), MATERIAL);
     expect(read.problems).toEqual([]);
     expect(material.format(read.value)).toBe(formatMaterial(settings));
     expect(material.writeDelay).toBe(150);
     for (const [id, graph, path] of [["shadergraph", defaultShaderGraph(), GRAPH], ["shadersubgraph", defaultShaderSubGraph(), SUB]] as const) {
-      const format = assetFormats.get(id)!;
+      const format = assetKinds.get(id)!.format!;
       const back = format.parse(JSON.parse(formatShaderGraph(graph)), path);
       expect(back.problems, id).toEqual([]);
       expect(format.format(back.value), id).toBe(formatShaderGraph(graph));
-      const bad = format.parse("nope", path);
+      const bad = editor.assets.read(project, path);
       expect(bad.problems.length, id).toBeGreaterThan(0);
       expect(Object.keys(bad.problems[0]!)).toEqual(["message"]);
     }
@@ -121,7 +127,6 @@ describe("the Materials plugin's editor half (ADR 0134)", () => {
     }
     for (const k of KINDS) {
       expect(registeredKind(k), k).toBeUndefined();
-      expect(assetFormats.get(k), k).toBeUndefined();
     }
     expect(panels.get("shadergraph")).toBeUndefined();
     expect(registeredPanels().has("shadergraph")).toBe(false);
@@ -135,10 +140,13 @@ describe("New… entries", () => {
     fs.files.set(joinPath(ROOT, "materials/old.material.json"), "{}");
     fs.files.set(joinPath(ROOT, "shaders/old.shadergraph.json"), "{}");
     currentProject.value = await openFolderProject(fs, ROOT);
-    expect(await assetKinds.get("material")!.create!.create("")).toBe("materials/New Material.material.json");
-    expect(await assetKinds.get("shader")!.create!.create("")).toBe("shaders/New Shader.shader.json");
-    expect(await assetKinds.get("shadergraph")!.create!.create("")).toBe("shaders/New Shader Graph.shadergraph.json");
-    expect(await assetKinds.get("shadersubgraph")!.create!.create("")).toBe("shaders/New Sub Graph.shadersubgraph.json");
+    const newEntry = (kind: string) => kindCreators().find((c) => c.kind === kind)!.create("");
+    expect(await newEntry("material")).toBe("materials/New Material.material.json");
+    expect(await newEntry("shader")).toBe("shaders/New Shader.shader.json");
+    expect(await newEntry("shadergraph")).toBe("shaders/New Shader Graph.shadergraph.json");
+    expect(await newEntry("shadersubgraph")).toBe("shaders/New Sub Graph.shadersubgraph.json");
+    // In a folder of its own, a new file goes where it's asked for.
+    expect(await kindCreators().find((c) => c.kind === "material")!.create("art")).toBe("art/New Material.material.json");
   });
 });
 
