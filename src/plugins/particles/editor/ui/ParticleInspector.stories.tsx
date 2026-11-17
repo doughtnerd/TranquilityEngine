@@ -138,9 +138,9 @@ export const SystemOverrides: Story = {
     await step("Revert removes the override from the scene", async () => {
       await userEvent.click(c.getByRole("button", { name: "Revert Rate" }));
       expect(overrides()).toEqual({});
-      // The section still shows 5: writing `{}` to the Editor World's component merges into the old overrides
-      // (`assignField` deep-merges a plain-object field), so the World keeps Rate until the scene is rebuilt. Known; see
-      // ADR 0235's notes. Once fixed, assert the field shows 30 and Revert is disabled again.
+      // The Editor World's component takes the new (empty) overrides, so the field shows the effect's value again.
+      await waitFor(() => expect(rate.value).toBe("30"));
+      expect(c.getByRole("button", { name: "Revert Rate" })).toBeDisabled();
     });
     await step("undo on the scene brings the override back", async () => {
       editor.scene.open!.stack.undo();

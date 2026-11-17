@@ -2,6 +2,7 @@
 // of `ruleEdits.ts`; the component applies a result through the event's asset document (one undo step per edit) and shows
 // the lint rows of the rule and the "audition this transition" action.
 import { useEffect, useState } from "preact/hooks";
+import { useDraftText } from "../../../../editor/sdk";
 import { FADE_CURVES, RULE_WILDCARD, type FadeCurve, type TransitionEnter, type TransitionExit, type TransitionFade } from "../../../../engine/audio/musicRules";
 import type { MusicContainerNode } from "../../../../engine/audio/musicFormat";
 import { endSegments, type RuleLintIssue } from "./ruleLint";
@@ -15,24 +16,12 @@ const fail = (error: string): RuleEdit => ({ error });
 /** A number that commits on Enter or blur, reverts on Escape. */
 function Num(props: { label: string; value: number; onCommit: (n: number) => void; disabled?: boolean }) {
   const shown = String(props.value);
-  const [draft, setDraft] = useState(shown);
-  useEffect(() => setDraft(shown), [shown]);
-  const commit = () => {
+  const { setDraft, input } = useDraftText(shown, (draft) => {
     const n = Number(draft);
     if (draft.trim() !== shown && draft.trim() !== "" && Number.isFinite(n)) props.onCommit(n);
     setDraft(shown);
-  };
-  return (
-    <input
-      type="text" inputMode="decimal" class="narrow" aria-label={props.label} value={draft} disabled={props.disabled}
-      onInput={(e) => setDraft((e.currentTarget as HTMLInputElement).value)}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur();
-        if (e.key === "Escape") { setDraft(shown); (e.currentTarget as HTMLInputElement).blur(); }
-      }}
-    />
-  );
+  });
+  return <input type="text" inputMode="decimal" class="narrow" aria-label={props.label} disabled={props.disabled} {...input} />;
 }
 
 const val = (e: Event): string => (e.currentTarget as HTMLSelectElement).value;

@@ -26,6 +26,12 @@ export function persisted<T>(key: string, fallback: T): Signal<T> {
 /** Ask before deleting an asset or script file from the project (it can't be undone). */
 export const askBeforeDeletingAssets = persisted("myco.editor.askBeforeDeletingAssets", true);
 
+/**
+ * Load the Code panel's editor (Monaco and, with scripts, its TypeScript worker) in the background when a project opens,
+ * so the first file opens without the wait. Off saves seconds of CPU on a slow machine; opening a file or Play loads it.
+ */
+export const preloadCodeEditor = persisted("myco.editor.preloadCodeEditor", true);
+
 /** Type-check project scripts before Play, stopping at a dialog when there are errors (ADR 0125). */
 export const checkScriptsBeforePlay = persisted("myco.editor.checkScriptsBeforePlay", true);
 

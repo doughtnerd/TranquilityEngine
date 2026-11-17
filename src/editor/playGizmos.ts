@@ -11,7 +11,7 @@
 // Worlds created while playing are picked up by a light poll.
 import { effect, type ReadonlySignal } from "@preact/signals";
 import type { World } from "../engine/core/World";
-import { type EditorOverlayKind, setEditorOverlayFilter, shownEditorOverlays, viewport } from "../engine/editor";
+import { type EditorOverlayKind, setEditorOverlayFilter, viewport } from "../engine/editor";
 import type { PlaySession } from "./playMode";
 import { persisted } from "./preferences";
 
@@ -101,19 +101,6 @@ export function installPlayGizmos(playing: ReadonlySignal<PlaySession | null>): 
       }
     }, NEW_WORLDS_MS);
   });
-  // End-to-end test hook: what each play World's view draws of the editor's drawing now, and which overlays it shows.
-  if (typeof window !== "undefined") {
-    Object.assign(window, {
-      playEditorDrawing: () => {
-        const session = playing.peek();
-        if (!session) return [];
-        return session.engine.worlds().flatMap((h) => {
-          const world = session.engine._world(h.name);
-          return world ? [{ world: h.name, overlays: shownEditorOverlays(world), drawn: viewport(world).drawn() }] : [];
-        });
-      },
-    });
-  }
   return () => {
     stop();
     if (timer) clearInterval(timer);

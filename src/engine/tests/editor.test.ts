@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { listComponents, listNodes, instantiateDocument, writeField } from "../editor";
-import { Assets, Color, Engine, GameBehavior, GameObject, Vector3, behavior, defineComponent, defineSystem, f32, field } from "../index";
+import { Assets, Color, Engine, GameBehavior, GameObject, PlainObject, Vector3, behavior, defineComponent, defineSystem, f32, field } from "../index";
 import { SpriteRenderer } from "../render/components";
 import type { SceneFile } from "../scene/SceneLoader";
 
@@ -10,6 +10,7 @@ const calls: string[] = [];
 class Probe extends GameBehavior {
   @field(Number) speed = 1;
   @field(GameObject) target: GameObject | null = null;
+  @field(PlainObject) settings: Record<string, unknown> = { gain: 1, nested: { a: 1, b: 2 } };
   awake() { calls.push("awake"); }
   start() { calls.push("start"); }
   update() { calls.push("update"); }
@@ -78,7 +79,7 @@ describe("editor engine access (ADR 0026)", () => {
     expect(aComps[1].fields).toEqual([{ name: "rate", type: f32, value: 2 }]);
 
     const probe = listComponents(a.find("B")!).find((c) => c.type === "test.editor.Probe")!;
-    expect(probe.fields.map((f) => f.name)).toEqual(["speed", "target"]);
+    expect(probe.fields.map((f) => f.name)).toEqual(["speed", "target", "settings"]);
     expect(probe.fields[0].value).toBe(4);
     expect((probe.fields[1].value as GameObject).name).toBe("A");
   });
@@ -98,5 +99,17 @@ describe("editor engine access (ADR 0026)", () => {
     expect(b.getBehavior(Probe)!.target).toBe(thing);
     expect(writeField(b, "test.editor.Probe", 0, "nope", 1)).toBe(false);
     expect(writeField(b, "engine.Camera", 0, "fieldOfView", 1)).toBe(false);
+  });
+
+  it("replaces a plain-object field's whole value rather than merging into the old one", () => {
+    const b = instantiateDocument(engine.world, scene, "scenes/test.json").find("A")!.find("B")!;
+    const probe = b.getBehavior(Probe)!;
+    const value = { Rate: 5, nested: { a: 3 } };
+    expect(writeField(b, "test.editor.Probe", 0, "settings", value)).toBe(true);
+    expect(probe.settings).toEqual({ Rate: 5, nested: { a: 3 } });
+    value.nested.a = 9; // a copy: the caller's object isn't shared with the component
+    expect(probe.settings).toEqual({ Rate: 5, nested: { a: 3 } });
+    expect(writeField(b, "test.editor.Probe", 0, "settings", {})).toBe(true);
+    expect(probe.settings).toEqual({});
   });
 });

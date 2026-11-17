@@ -1,6 +1,7 @@
 import type { ComponentChildren } from "preact";
 import { Panel } from "./panel/Panel";
-import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
+import { useDraftText } from "./draftText";
 import { ANTIALIAS_MODES, PLATFORMS, PARTICLE_QUALITIES, PROBE_QUALITIES, SHADER_LEVELS, SHADOW_QUALITIES } from "../../engine/core/graphics";
 import { defaultSettings } from "../../engine/core/settings";
 import { allPluginManifests } from "../../plugins/thirdPartyEditor";
@@ -349,13 +350,11 @@ function Section(props: { title: string; children: ComponentChildren }) {
 
 /** A colour: the picker, and a hex text box (empty: the default). */
 function ColorField(props: { value: string | undefined; fallback: string; onCommit: (v: string | undefined) => void }) {
-  const [text, setText] = useState(props.value ?? "");
-  useLayoutEffect(() => setText(props.value ?? ""), [props.value]); // in the same commit: a mount effect run after paint would overwrite typing that came first
-  const commit = () => {
+  const { input } = useDraftText(props.value ?? "", (text) => {
     const t = text.trim();
     if (t === (props.value ?? "")) return;
     props.onCommit(t === "" ? undefined : t);
-  };
+  });
   const shown = /^#[0-9a-f]{6}$/i.test(props.value ?? "") ? props.value! : props.fallback;
   return (
     <span class="project-settings-color">
@@ -364,16 +363,7 @@ function ColorField(props: { value: string | undefined; fallback: string; onComm
         type="text"
         aria-label="Background colour"
         placeholder={props.fallback}
-        value={text}
-        onInput={(e) => setText((e.currentTarget as HTMLInputElement).value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur();
-          if (e.key === "Escape") {
-            setText(props.value ?? "");
-            (e.currentTarget as HTMLInputElement).blur();
-          }
-        }}
+        {...input}
       />
     </span>
   );

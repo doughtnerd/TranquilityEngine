@@ -16,7 +16,29 @@ export interface ViewCapture {
 }
 
 export async function captureView(view: Locator): Promise<ViewCapture> {
-  const { data, info } = await sharp(await view.screenshot()).raw().toBuffer({ resolveWithObject: true });
+  return decode(await view.screenshot());
+}
+
+/** A capture of an area of the page (CSS pixels), such as where an element was before it went away. */
+export async function captureArea(page: Page, area: { x: number; y: number; width: number; height: number }): Promise<ViewCapture> {
+  return decode(await page.screenshot({ clip: area }));
+}
+
+/** Wait until two captures of `view` in a row barely differ (the view has loaded and stopped changing), and return the last. */
+export async function steadyView(view: Locator, { tolerance = 30, timeout = 30_000 } = {}): Promise<ViewCapture> {
+  const until = Date.now() + timeout;
+  let last = await captureView(view);
+  for (;;) {
+    await new Promise((r) => setTimeout(r, 250));
+    const next = await captureView(view);
+    if (pixelsChanged(last, next) <= tolerance) return next;
+    if (Date.now() > until) throw new Error("the view kept changing");
+    last = next;
+  }
+}
+
+async function decode(png: Buffer): Promise<ViewCapture> {
+  const { data, info } = await sharp(png).raw().toBuffer({ resolveWithObject: true });
   return { data, width: info.width, height: info.height, channels: info.channels };
 }
 

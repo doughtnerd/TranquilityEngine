@@ -44,8 +44,6 @@ function previewFailed(err: unknown): false {
 }
 
 let current: { project: EditorProject; service: ThumbnailService } | null = null;
-/** Thumbnails drawn this session (end-to-end tests check a reopened project reads its cache instead). */
-let renders = 0;
 
 /** The open project as the thumbnail service reads it. */
 function adapt(project: EditorProject): ThumbnailProject {
@@ -110,10 +108,7 @@ function service(): ThumbnailService | null {
       ? {
           project,
           service: new ThumbnailService(adapt(project), storeFor(project), {
-            render: async (kind, path) => {
-              renders++;
-              return (await getRenderer()).render(kind, path);
-            },
+            render: async (kind, path) => (await getRenderer()).render(kind, path),
             decodeAudio: decodeAudioSummary,
           }),
         }
@@ -216,8 +211,7 @@ export function previewAsset(path: string, canvas: HTMLCanvasElement): AssetPrev
 
 /**
  * Follow the open project: start its service, and prune unused thumbnails a few seconds after it
- * opens (idle time). Returns a function that stops. Also installs the `window.thumbnails` debug and
- * end-to-end hook.
+ * opens (idle time). Returns a function that stops.
  */
 export function installThumbnails(): () => void {
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -232,23 +226,6 @@ export function installThumbnails(): () => void {
       timer = setTimeout(() => idle(() => void s.prune().catch(() => undefined)), 5000);
     }
   });
-  if (typeof window !== "undefined") {
-    Object.assign(window, {
-      thumbnails: {
-        thumbnailFor,
-        audioSummaryFor,
-        keyFor: (path: string) => service()?.keyFor(path) ?? Promise.resolve(null),
-        prune: () => service()?.prune() ?? Promise.resolve(0),
-        where: () => service()?.store.where ?? null,
-        renders: () => renders,
-        /** Drop the service, as reopening the project would: the next request reads the cache afresh. */
-        reset: () => {
-          current?.service.dispose();
-          current = null;
-        },
-      },
-    });
-  }
   return () => {
     stopEffect();
     if (timer !== null) clearTimeout(timer);

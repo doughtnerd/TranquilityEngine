@@ -68,8 +68,14 @@ export const NodeHeader: Story = {
     editor.scene.selection.set(["a"]);
     const c = within(canvasElement);
     await waitFor(() => expect(c.getByRole("textbox", { name: "Name" })).toHaveValue("Crate A"), { timeout: 30000 });
-    // Not covered yet: Escape while typing a name should drop the draft, but the name field's blur commits the draft its
-    // keydown handler was rendered with, so the typed name is saved (ADR 0235's notes).
+    await step("Escape while typing a name drops it", async () => {
+      const name = c.getByRole("textbox", { name: "Name" });
+      await userEvent.clear(name);
+      await userEvent.type(name, "Barrel{Escape}");
+      expect(doc().node("a").name).toBe("Crate A");
+      expect(editor.scene.open!.stack.canUndo).toBe(false);
+      await waitFor(() => expect(c.getByRole("textbox", { name: "Name" })).toHaveValue("Crate A"));
+    });
     await step("renaming commits on Enter, one undo step", async () => {
       const name = c.getByRole("textbox", { name: "Name" });
       await userEvent.clear(name);

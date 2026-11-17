@@ -1,7 +1,9 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { expect, test, type Page } from "./fixtures";
-import { installFakeFolders, listFolder, nextFolder } from "./fakeFolders";
+import sharp from "sharp";
+import { installFakeFolders, listFolder, nextFolder, writeFile } from "./fakeFolders";
+import { menu } from "./menus";
 
 // Asset previews (ADR 0061): rendered thumbnails on the Assets panel's tiles, hover animation,
 // audio waveforms and playback, the Inspector's clip player, and the `.myco/thumbnails/` cache a
@@ -11,7 +13,6 @@ test.describe.configure({ timeout: 90_000 });
 
 type Hooks = {
   engine?: { world: { time: { frameCount: number } } };
-  thumbnails?: { renders(): number; reset(): void; where(): string | null };
 };
 
 function trackErrors(page: Page): string[] {
@@ -260,24 +261,27 @@ test("a writable project caches thumbnails in .myco/thumbnails/ and reads them b
   for (const m of ["glow", "ground", "metal"]) await expect.poll(() => renderedWidth(page, `${m}.material.json`), { timeout: 30_000 }).toBeGreaterThan(0);
   await expect.poll(async () => (await listFolder(page, "Playground")).filter((f) => /^\.myco\/thumbnails\/[0-9a-f]+\.(webp|png)$/.test(f)).length, { timeout: 15_000 }).toBeGreaterThanOrEqual(3);
 
-  // Reopened (a fresh service), the same thumbnails come from the cache: nothing renders. The
-  // folder's other materials render (and cache) after these three, so wait until rendering stops.
-  const renders = () => page.evaluate(() => (window as unknown as Hooks).thumbnails!.renders());
+  // Reopened, the same thumbnails come from the cache rather than being rendered again. To tell them apart, every
+  // cached file is replaced (as if outside the editor) with a 7 × 5 image no render makes. The folder's other materials
+  // render (and cache) after these three, so wait until the cache stops growing first.
+  const cached = async () => (await listFolder(page, "Playground")).filter((f) => f.startsWith(".myco/thumbnails/"));
   let before = -1;
   await expect
     .poll(
       async () => {
         const previous = before;
-        before = await renders();
+        before = (await cached()).length;
         return before === previous;
       },
       { timeout: 30_000, intervals: [1_000] },
     )
     .toBe(true);
-  await page.evaluate(() => (window as unknown as Hooks).thumbnails!.reset());
-  await page.locator(".asset-folder").first().click(); // the project's root: folders, no previews
+  const marker = await sharp({ create: { width: 7, height: 5, channels: 3, background: { r: 255, g: 0, b: 255 } } }).png().toBuffer();
+  for (const f of await cached()) await writeFile(page, `Playground/${f}`, marker);
+  await nextFolder(page, "Playground");
+  await menu(page, "File", "Open Project…");
+  await expect(tile(page, "glow.material.json")).toHaveCount(0); // reopened: the Assets panel is back at the root
   await page.locator(".asset-folder", { hasText: /^materials$/ }).click();
-  for (const m of ["glow", "ground", "metal"]) await expect.poll(() => renderedWidth(page, `${m}.material.json`), { timeout: 30_000 }).toBeGreaterThan(0);
-  expect(await renders()).toBe(before);
+  for (const m of ["glow", "ground", "metal"]) await expect.poll(() => renderedWidth(page, `${m}.material.json`), { timeout: 30_000 }).toBe(7);
   expect(errors).toEqual([]);
 });
