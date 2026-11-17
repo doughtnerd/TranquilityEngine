@@ -19,6 +19,7 @@ import type { UniformBuffer } from "@babylonjs/core/Materials/uniformBuffer.js";
 import type { SubMesh } from "@babylonjs/core/Meshes/subMesh.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import type { BlendBox } from "../probeBoxes";
+import { pbrInjections } from "./pbrInjection";
 
 /** What a probe copy blends towards. */
 export interface ProbeBlendState {
@@ -31,12 +32,8 @@ export interface ProbeBlendState {
   box: BlendBox | null;
 }
 
-/** The point after Babylon computes the primary probe's reflection (unique in pbr.fragment, both languages). */
-const ANCHOR = "!#define CUSTOM_REFLECTION\\s*#endif\\s*#endif";
-
-const WGSL = /* wgsl */ `#define CUSTOM_REFLECTION
-#endif
-#endif
+/** The blend, after Babylon computes the primary probe's reflection (the `probeReflection` point, ADR 0222). */
+const WGSL = /* wgsl */ `
 #if defined(MYCO_PROBE_BLEND) && defined(REFLECTION) && defined(REFLECTIONMAP_3D)
 {
   var mycoCoords: vec3f;
@@ -68,9 +65,7 @@ const WGSL = /* wgsl */ `#define CUSTOM_REFLECTION
 #endif
 `;
 
-const GLSL = /* glsl */ `#define CUSTOM_REFLECTION
-#endif
-#endif
+const GLSL = /* glsl */ `
 #if defined(MYCO_PROBE_BLEND) && defined(REFLECTION) && defined(REFLECTIONMAP_3D)
 {
   vec3 mycoCoords;
@@ -166,7 +161,7 @@ export class MycoProbeBlendPlugin extends MaterialPluginBase {
       CUSTOM_FRAGMENT_DEFINITIONS: wgsl
         ? "#ifdef MYCO_PROBE_BLEND\nvar mycoBlendSamplerSampler: sampler;\nvar mycoBlendSampler: texture_cube<f32>;\n#endif\n"
         : "#ifdef MYCO_PROBE_BLEND\nuniform samplerCube mycoBlendSampler;\n#endif\n",
-      [ANCHOR]: wgsl ? WGSL : GLSL,
+      ...pbrInjections(wgsl ? "wgsl" : "glsl", "fragment", { probeReflection: wgsl ? WGSL : GLSL }), // ADR 0222
     };
   }
 }

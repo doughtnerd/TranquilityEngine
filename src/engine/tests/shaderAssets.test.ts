@@ -6,9 +6,8 @@ import type { Effect } from "@babylonjs/core/Materials/effect.js";
 import { CreateBox } from "@babylonjs/core/Meshes/Builders/boxBuilder.js";
 import { Scene } from "@babylonjs/core/scene.js";
 import { pbrPixelShader } from "@babylonjs/core/Shaders/pbr.fragment.js";
-import { pbrVertexShader } from "@babylonjs/core/Shaders/pbr.vertex.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createGraphMaterial, GLSL_ALBEDO_ANCHOR, type GraphShared } from "../render/babylon/graphMaterial";
+import { createGraphMaterial, type GraphShared } from "../render/babylon/graphMaterial";
 import { graphCode, graphPlugins } from "./graphPluginCode";
 import { ShaderLanguage } from "@babylonjs/core/Materials/shaderLanguage.js";
 import { compileShaderGraph } from "../render/shaderGraph/compile";
@@ -175,17 +174,16 @@ describe("hand-written shader assets (ADR 0106)", () => {
     expect(graphPlugins(compileShaderAsset(shader, { wgsl: WGSL }), ShaderLanguage.GLSL).main).toBeNull();
   });
 
-  it("puts GLSL where Babylon's GLSL PBR shaders have the anchors", () => {
+  it("puts GLSL in the points Babylon's GLSL PBR shaders have (where the patterns match is pbrInjection.test.ts's)", () => {
     const { shader } = parseShaderAsset(ASSET);
     const c = compileShaderAsset(shader, { wgsl: WGSL, glsl: GLSL });
     const vertex = graphCode(c, "vertex", ShaderLanguage.GLSL);
-    const [vx, inject] = Object.entries(vertex).find(([k]) => k.startsWith("!"))!;
-    expect(new RegExp(vx.slice(1)).test(pbrVertexShader.shader)).toBe(true);
+    const inject = Object.values(vertex).find((v) => v.includes("vec4 worldPos"))!;
     expect(inject).toContain("positionUpdated = positionUpdated + (mycoOffset);");
     expect(inject.indexOf("mycoOffset =")).toBeLessThan(inject.indexOf("vec4 worldPos"));
     const fragment = graphCode(c, "fragment", ShaderLanguage.GLSL);
-    for (const k of Object.keys(fragment).filter((k) => k.startsWith("!"))) expect(new RegExp(k.slice(1)).test(pbrPixelShader.shader), k).toBe(true);
-    expect(Object.keys(fragment)).toContain(GLSL_ALBEDO_ANCHOR);
+    // The GLSL sets the normal: it goes before the albedo block, which is re-declared.
+    expect(Object.values(fragment).some((v) => v.includes("normalW = normalize(mycoBabylonTangentFrame(normalW, vPositionW, vMycoUv) * (mycoS.normal));") && v.endsWith("albedoOpacityOutParams albedoOpacityOut;"))).toBe(true);
     for (const point of ["CUSTOM_FRAGMENT_DEFINITIONS", "CUSTOM_FRAGMENT_MAIN_BEGIN", "CUSTOM_FRAGMENT_UPDATE_ALPHA", "CUSTOM_FRAGMENT_BEFORE_FINALCOLORCOMPOSITION"]) expect(pbrPixelShader.shader).toContain(`#define ${point}`);
     expect(fragment.CUSTOM_FRAGMENT_BEFORE_FINALCOLORCOMPOSITION).toBe("finalEmissive = mycoS.emission;");
   });

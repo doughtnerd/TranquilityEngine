@@ -36,8 +36,8 @@ import type { World } from "../../core/World";
 import { Graphics } from "../Graphics";
 import { GERSTNER_BODY, MAX_WAVES, WAVE_STRIDE, maxAmplitude } from "../water/gerstner";
 import { waterTime, type WaterSurface } from "../water/WaterSurface";
-import { ALBEDO_ANCHOR } from "./graphMaterial";
 import { useEngineLightFalloff } from "./materials";
+import { pbrInjections } from "./pbrInjection";
 
 /** A reflection probe's map and strength (ADR 0054), or null for the scene's environment only. */
 export type BabylonWaterProbe = (x: number, y: number, z: number) => { texture: BaseTexture; intensity: number } | null;
@@ -163,67 +163,63 @@ vec3 mycoNoise(vec2 p) {
 }
 `;
 
-/** Babylon's GLSL PBR fragment: the albedo block's declaration, just after the normal is final. */
-const GLSL_ALBEDO_ANCHOR = "!albedoOpacityOutParams\\s+albedoOpacityOut\\s*;";
-
 /**
- * Where the water's code goes in Babylon's PBR shaders, by injection point (keys starting
- * with "!" are regular expressions Babylon replaces; see the file's header). WGSL on WebGPU, GLSL
- * on the WebGL2 fallback.
+ * Where the water's code goes in Babylon's PBR shaders, by injection point (the regular-expression
+ * ones are `pbrInjection.ts`'s, ADR 0222). WGSL on WebGPU, GLSL on the WebGL2 fallback.
  */
 function waterCustomCode(shaderType: string, language: ShaderLanguage = ShaderLanguage.WGSL): { [point: string]: string } {
   if (language === ShaderLanguage.GLSL) return waterCustomCodeGLSL(shaderType);
   if (shaderType === "vertex") {
     return {
       CUSTOM_VERTEX_DEFINITIONS: `${WGSL_GERSTNER}\nvarying vMycoW: vec4f;\nvarying vMycoX: vec3f;`,
-      // Replaces the world position's computation, so the displacement moves the vertex before it.
-      "!var\\s+worldPos\\s*:\\s*vec4f\\s*=\\s*finalWorld\\s*\\*\\s*vec4f\\(\\s*positionUpdated\\s*,\\s*1\\.0\\s*\\)\\s*;": [
+      // Before the world position's computation, so the displacement moves the vertex first.
+      ...pbrInjections("wgsl", "vertex", { worldPosition: { before: [
         "let mycoG: mat3x3f = mycoGerstner(positionUpdated.x, positionUpdated.z);",
         "let mycoRest: vec2f = positionUpdated.xz;",
         "#ifdef NORMAL",
         "normalUpdated = normalize(cross(mycoG[2], mycoG[1]));",
         "#endif",
         "positionUpdated = positionUpdated + mycoG[0];",
-        "var worldPos: vec4f = finalWorld * vec4f(positionUpdated, 1.0);",
+      ].join("\n"), after: [
         "vertexOutputs.vMycoW = vec4f(mycoRest, mycoG[0].y, mycoG[1].x * mycoG[2].z - mycoG[1].z * mycoG[2].x);",
         "vertexOutputs.vMycoX = normalize((finalWorld * vec4f(1.0, 0.0, 0.0, 0.0)).xyz);",
-      ].join("\n"),
+      ].join("\n") } }),
     };
   }
   return {
     CUSTOM_FRAGMENT_DEFINITIONS: `varying vMycoW: vec4f;\nvarying vMycoX: vec3f;\n${WGSL_NOISE}`,
     // Ripples bend the normal (in world space; the node is level, so its Z axis is X cross up), then
-    // the colour and foam are worked out from the bent normal. Anchored on the albedo block's
-    // declaration, just after the normal is final: Babylon expands its includes before plugin code
-    // goes in, so "#include<pbrBlockNormalFinal>" isn't there to match.
-    [ALBEDO_ANCHOR]: [
-      "var mycoFoam: f32 = 0.0;",
-      "var mycoShallow: f32 = 0.0;",
-      "{",
-      "  let rest = fragmentInputs.vMycoW.xy;",
-      "  let t = uniforms.mycoWaterA.y;",
-      "  let r1 = mycoNoise(rest * 0.35 + vec2f(t * 0.11, t * 0.07));",
-      "  let r2 = mycoNoise(rest * 0.9 + vec2f(-t * 0.05, t * 0.13));",
-      "  let slope = (r1.yz * 0.35 + r2.yz * 0.9 * 0.5) * uniforms.mycoWaterA.w * 0.25;",
-      "  let axisX = normalize(fragmentInputs.vMycoX);",
-      "  let axisZ = normalize(cross(axisX, vec3f(0.0, 1.0, 0.0)));",
-      "  normalW = normalize(normalW - axisX * slope.x - axisZ * slope.y);",
-      "  let view = normalize(scene.vEyePosition.xyz - fragmentInputs.vPositionW);",
-      "  let facing = clamp(dot(normalW, view), 0.0, 1.0);",
-      "  let maxH = uniforms.mycoWaterB.x;",
-      "  let crest = select(0.5, clamp(fragmentInputs.vMycoW.z / max(maxH, 1e-6) * 0.5 + 0.5, 0.0, 1.0), maxH > 0.0);",
-      "  mycoShallow = clamp(0.55 * crest + 0.45 * (1.0 - facing), 0.0, 1.0);",
-      "  // Foam where the surface is compressed (the Jacobian falls toward 0 where crests fold).",
-      "  let fold = 1.0 - fragmentInputs.vMycoW.w + (r1.x - 0.5) * 0.15;",
-      "  let amount = clamp(uniforms.mycoWaterA.z, 0.0, 1.0);",
-      "  let threshold = 1.0 - amount;",
-      "  mycoFoam = select(0.0, smoothstep(threshold, threshold + 0.35, fold), amount > 0.0);",
-      "}",
-      "var albedoOpacityOut: albedoOpacityOutParams;",
-    ].join("\n"),
+    // the colour and foam are worked out from the bent normal. Before the albedo block, just after
+    // the normal is final.
+    ...pbrInjections("wgsl", "fragment", {
+      albedoBlock: [
+        "var mycoFoam: f32 = 0.0;",
+        "var mycoShallow: f32 = 0.0;",
+        "{",
+        "  let rest = fragmentInputs.vMycoW.xy;",
+        "  let t = uniforms.mycoWaterA.y;",
+        "  let r1 = mycoNoise(rest * 0.35 + vec2f(t * 0.11, t * 0.07));",
+        "  let r2 = mycoNoise(rest * 0.9 + vec2f(-t * 0.05, t * 0.13));",
+        "  let slope = (r1.yz * 0.35 + r2.yz * 0.9 * 0.5) * uniforms.mycoWaterA.w * 0.25;",
+        "  let axisX = normalize(fragmentInputs.vMycoX);",
+        "  let axisZ = normalize(cross(axisX, vec3f(0.0, 1.0, 0.0)));",
+        "  normalW = normalize(normalW - axisX * slope.x - axisZ * slope.y);",
+        "  let view = normalize(scene.vEyePosition.xyz - fragmentInputs.vPositionW);",
+        "  let facing = clamp(dot(normalW, view), 0.0, 1.0);",
+        "  let maxH = uniforms.mycoWaterB.x;",
+        "  let crest = select(0.5, clamp(fragmentInputs.vMycoW.z / max(maxH, 1e-6) * 0.5 + 0.5, 0.0, 1.0), maxH > 0.0);",
+        "  mycoShallow = clamp(0.55 * crest + 0.45 * (1.0 - facing), 0.0, 1.0);",
+        "  // Foam where the surface is compressed (the Jacobian falls toward 0 where crests fold).",
+        "  let fold = 1.0 - fragmentInputs.vMycoW.w + (r1.x - 0.5) * 0.15;",
+        "  let amount = clamp(uniforms.mycoWaterA.z, 0.0, 1.0);",
+        "  let threshold = 1.0 - amount;",
+        "  mycoFoam = select(0.0, smoothstep(threshold, threshold + 0.35, fold), amount > 0.0);",
+        "}",
+      ].join("\n"),
+      // vReflectivityColor holds metallic, roughness, IOR and F0 in the metallic workflow.
+      reflectivity: "vec4f(0.0, mix(uniforms.vReflectivityColor.y, 0.9, mycoFoam), uniforms.vReflectivityColor.zw)",
+    }),
     CUSTOM_FRAGMENT_UPDATE_ALPHA: "surfaceAlbedo = mix(mix(uniforms.mycoDeep.rgb, uniforms.mycoShallow.rgb, mycoShallow), uniforms.mycoFoam.rgb, mycoFoam);",
-    // vReflectivityColor holds metallic, roughness, IOR and F0 in the metallic workflow.
-    "!reflectivityBlock\\(\\s*uniforms\\.vReflectivityColor": "reflectivityBlock(vec4f(0.0, mix(uniforms.vReflectivityColor.y, 0.9, mycoFoam), uniforms.vReflectivityColor.zw)",
   };
 }
 
@@ -232,7 +228,7 @@ function waterCustomCodeGLSL(shaderType: string): { [point: string]: string } {
   if (shaderType === "vertex") {
     return {
       CUSTOM_VERTEX_DEFINITIONS: `${GLSL_GERSTNER}\nvarying vec4 vMycoW;\nvarying vec3 vMycoX;`,
-      "!vec4\\s+worldPos\\s*=\\s*finalWorld\\s*\\*\\s*vec4\\(\\s*positionUpdated\\s*,\\s*1\\.0\\s*\\)\\s*;": [
+      ...pbrInjections("glsl", "vertex", { worldPosition: { before: [
         "vec3 mycoDisp; vec3 mycoTangent; vec3 mycoBinormal;",
         "mycoGerstner(positionUpdated.x, positionUpdated.z, mycoDisp, mycoTangent, mycoBinormal);",
         "vec2 mycoRest = positionUpdated.xz;",
@@ -240,40 +236,41 @@ function waterCustomCodeGLSL(shaderType: string): { [point: string]: string } {
         "normalUpdated = normalize(cross(mycoBinormal, mycoTangent));",
         "#endif",
         "positionUpdated = positionUpdated + mycoDisp;",
-        "vec4 worldPos = finalWorld * vec4(positionUpdated, 1.0);",
+      ].join("\n"), after: [
         "vMycoW = vec4(mycoRest, mycoDisp.y, mycoTangent.x * mycoBinormal.z - mycoTangent.z * mycoBinormal.x);",
         "vMycoX = normalize((finalWorld * vec4(1.0, 0.0, 0.0, 0.0)).xyz);",
-      ].join("\n"),
+      ].join("\n") } }),
     };
   }
   return {
     CUSTOM_FRAGMENT_DEFINITIONS: `varying vec4 vMycoW;\nvarying vec3 vMycoX;\n${GLSL_NOISE}`,
-    [GLSL_ALBEDO_ANCHOR]: [
-      "float mycoFoamK = 0.0;",
-      "float mycoShallowK = 0.0;",
-      "{",
-      "  vec2 rest = vMycoW.xy;",
-      "  float t = mycoWaterA.y;",
-      "  vec3 r1 = mycoNoise(rest * 0.35 + vec2(t * 0.11, t * 0.07));",
-      "  vec3 r2 = mycoNoise(rest * 0.9 + vec2(-t * 0.05, t * 0.13));",
-      "  vec2 slope = (r1.yz * 0.35 + r2.yz * 0.9 * 0.5) * mycoWaterA.w * 0.25;",
-      "  vec3 axisX = normalize(vMycoX);",
-      "  vec3 axisZ = normalize(cross(axisX, vec3(0.0, 1.0, 0.0)));",
-      "  normalW = normalize(normalW - axisX * slope.x - axisZ * slope.y);",
-      "  vec3 view = normalize(vEyePosition.xyz - vPositionW);",
-      "  float facing = clamp(dot(normalW, view), 0.0, 1.0);",
-      "  float maxH = mycoWaterB.x;",
-      "  float crest = maxH > 0.0 ? clamp(vMycoW.z / max(maxH, 1e-6) * 0.5 + 0.5, 0.0, 1.0) : 0.5;",
-      "  mycoShallowK = clamp(0.55 * crest + 0.45 * (1.0 - facing), 0.0, 1.0);",
-      "  float fold = 1.0 - vMycoW.w + (r1.x - 0.5) * 0.15;",
-      "  float amount = clamp(mycoWaterA.z, 0.0, 1.0);",
-      "  float threshold = 1.0 - amount;",
-      "  mycoFoamK = amount > 0.0 ? smoothstep(threshold, threshold + 0.35, fold) : 0.0;",
-      "}",
-      "albedoOpacityOutParams albedoOpacityOut;",
-    ].join("\n"),
+    ...pbrInjections("glsl", "fragment", {
+      albedoBlock: [
+        "float mycoFoamK = 0.0;",
+        "float mycoShallowK = 0.0;",
+        "{",
+        "  vec2 rest = vMycoW.xy;",
+        "  float t = mycoWaterA.y;",
+        "  vec3 r1 = mycoNoise(rest * 0.35 + vec2(t * 0.11, t * 0.07));",
+        "  vec3 r2 = mycoNoise(rest * 0.9 + vec2(-t * 0.05, t * 0.13));",
+        "  vec2 slope = (r1.yz * 0.35 + r2.yz * 0.9 * 0.5) * mycoWaterA.w * 0.25;",
+        "  vec3 axisX = normalize(vMycoX);",
+        "  vec3 axisZ = normalize(cross(axisX, vec3(0.0, 1.0, 0.0)));",
+        "  normalW = normalize(normalW - axisX * slope.x - axisZ * slope.y);",
+        "  vec3 view = normalize(vEyePosition.xyz - vPositionW);",
+        "  float facing = clamp(dot(normalW, view), 0.0, 1.0);",
+        "  float maxH = mycoWaterB.x;",
+        "  float crest = maxH > 0.0 ? clamp(vMycoW.z / max(maxH, 1e-6) * 0.5 + 0.5, 0.0, 1.0) : 0.5;",
+        "  mycoShallowK = clamp(0.55 * crest + 0.45 * (1.0 - facing), 0.0, 1.0);",
+        "  float fold = 1.0 - vMycoW.w + (r1.x - 0.5) * 0.15;",
+        "  float amount = clamp(mycoWaterA.z, 0.0, 1.0);",
+        "  float threshold = 1.0 - amount;",
+        "  mycoFoamK = amount > 0.0 ? smoothstep(threshold, threshold + 0.35, fold) : 0.0;",
+        "}",
+      ].join("\n"),
+      reflectivity: "vec4(0.0, mix(vReflectivityColor.y, 0.9, mycoFoamK), vReflectivityColor.zw)",
+    }),
     CUSTOM_FRAGMENT_UPDATE_ALPHA: "surfaceAlbedo = mix(mix(mycoDeep.rgb, mycoShallow.rgb, mycoShallowK), mycoFoam.rgb, mycoFoamK);",
-    "!reflectivityBlock\\(\\s*vReflectivityColor": "reflectivityBlock(vec4(0.0, mix(vReflectivityColor.y, 0.9, mycoFoamK), vReflectivityColor.zw)",
   };
 }
 

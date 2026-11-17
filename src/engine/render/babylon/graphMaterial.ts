@@ -14,7 +14,7 @@
  *   before the final colour is composed;
  * - physical graphs (ADR 0052): each layer the graph uses is switched on in the material
  *   (`enablePhysicalLayers`) and its uniform reads in the fragment shader are replaced by the graph's
- *   values (`physicalCustomCode`): clear coat and its roughness, sheen colour and roughness,
+ *   values (`physicalPoints`): clear coat and its roughness, sheen colour and roughness,
  *   transmission and thickness (the sub-surface block's refraction), IOR (F0 and the refraction),
  *   iridescence, and specular intensity (the F0 factor).
  *
@@ -45,6 +45,7 @@ import type { Scene } from "@babylonjs/core/scene.js";
 import type { SubMesh } from "@babylonjs/core/Meshes/subMesh.js";
 import { checkPropertyValue, type GraphValue } from "../../scene/shaderGraph";
 import { useEngineLightFalloff } from "./materials";
+import { pbrInjections, type PbrCode, type PbrPoint } from "./pbrInjection";
 import { allKeywordDefines, keywordDefines, type KeywordValue } from "../../scene/shaderKeywords";
 import { linearColor, SHARED_UNIFORMS, srgbToLinear, type CompiledShaderGraph, type CompiledUniform, type PhysicalInput } from "../shaderGraph/compile";
 
@@ -77,14 +78,6 @@ export interface BabylonGraphMaterial {
   setKeywords(values: Record<string, KeywordValue>): void;
   dispose(): void;
 }
-
-/**
- * Where code needing the final normal goes (a regular-expression key): Babylon's albedo block
- * declaration, which follows it in the PBR fragment shader. Babylon expands its includes before
- * plugin code goes in, so `#include<pbrBlockNormalFinal>` itself is no longer there to match.
- * The replacement must end by re-declaring `var albedoOpacityOut: albedoOpacityOutParams;`.
- */
-export const ALBEDO_ANCHOR = "!var\\s+albedoOpacityOut\\s*:\\s*albedoOpacityOutParams\\s*;";
 
 const UBO_SIZE ={ float: 1, vec2: 2, vec3: 3, vec4: 4 } as const;
 
@@ -173,8 +166,8 @@ function graphCustomCode(c: CompiledShaderGraph, shaderType: string): { [point: 
     const v = c.vertex;
     return {
       CUSTOM_VERTEX_DEFINITIONS: v.declarations,
-      // Replaces the world position's computation, so the offset moves the vertex before it.
-      "!var\\s+worldPos\\s*:\\s*vec4f\\s*=\\s*finalWorld\\s*\\*\\s*vec4f\\(\\s*positionUpdated\\s*,\\s*1\\.0\\s*\\)\\s*;": [
+      // Before the world position's computation, so the offset moves the vertex first (ADR 0222).
+      ...pbrInjections("wgsl", "vertex", { worldPosition: { before: [
         // The position before the offset: the compiler's varyings add the offset themselves.
         "let mycoVPos: vec3f = positionUpdated;",
         "#ifdef NORMAL",
@@ -190,9 +183,7 @@ function graphCustomCode(c: CompiledShaderGraph, shaderType: string): { [point: 
         ...(usesColor(v.body, v.varyings, v.offset ?? "") ? VERTEX_COLOR_VERTEX : []),
         v.body,
         v.offset ? `positionUpdated = positionUpdated + (${v.offset});` : "",
-        "var worldPos: vec4f = finalWorld * vec4f(positionUpdated, 1.0);",
-        v.varyings,
-      ].join("\n"),
+      ].join("\n"), after: v.varyings } }),
     };
   }
   const f = c.fragment;
@@ -202,67 +193,60 @@ function graphCustomCode(c: CompiledShaderGraph, shaderType: string): { [point: 
     CUSTOM_FRAGMENT_UPDATE_ALPHA: [`surfaceAlbedo = ${f.baseColor};`, `alpha = ${f.alpha};`, f.alphaClip ? `if (alpha < ${f.alphaClip}) { discard; }` : ""].join("\n"),
   };
   if (c.target !== "unlit") {
+    const points: { [P in PbrPoint]?: PbrCode } = {};
     const ior = f.physical?.ior;
     if (f.metalness || f.roughness || ior) {
       // vReflectivityColor holds metallic, roughness, IOR and F0 in the metallic workflow; a physical
       // graph's IOR replaces the last two (F0 as Babylon derives it: ((ior - 1) / (ior + 1))², against air).
       const iorF0 = ior ? `${ior}, pow((${ior} - 1.0) / (${ior} + 1.0), 2.0)` : "uniforms.vReflectivityColor.zw";
-      code[REFLECTIVITY_ANCHOR] = `reflectivityBlock(vec4f(${f.metalness ?? "uniforms.vReflectivityColor.x"}, ${f.roughness ?? "uniforms.vReflectivityColor.y"}, ${iorF0})`;
+      points.reflectivity = `vec4f(${f.metalness ?? "uniforms.vReflectivityColor.x"}, ${f.roughness ?? "uniforms.vReflectivityColor.y"}, ${iorF0})`;
     }
     if (f.emission) code.CUSTOM_FRAGMENT_BEFORE_FINALCOLORCOMPOSITION = `finalEmissive = ${f.emission};`;
-    if (f.normal) code[ALBEDO_ANCHOR] = `normalW = normalize(mycoBabylonTangentFrame(normalW, fragmentInputs.vPositionW, fragmentInputs.vMycoUv) * (${f.normal}));\nvar albedoOpacityOut: albedoOpacityOutParams;`;
-    if (f.physical) Object.assign(code, physicalCustomCode(f.physical));
+    if (f.normal) points.albedoBlock = `normalW = normalize(mycoBabylonTangentFrame(normalW, fragmentInputs.vPositionW, fragmentInputs.vMycoUv) * (${f.normal}));`;
+    if (f.physical) Object.assign(points, physicalPoints(f.physical));
+    Object.assign(code, pbrInjections("wgsl", "fragment", points));
   }
   return code;
 }
 
-/** Where metallic and roughness (and a physical graph's IOR) go: the first argument of Babylon's `reflectivityBlock`. */
-const REFLECTIVITY_ANCHOR = "!reflectivityBlock\\(\\s*uniforms\\.vReflectivityColor";
-
 /**
- * @internal A physical graph's layers (ADR 0052) in Babylon's PBR fragment shader. Each layer's
+ * A physical graph's layers (ADR 0052) in Babylon's PBR fragment shader. Each layer's
  * uniform is read inside `main` (where the graph's `mOut_*` locals live), so the plugin replaces those
  * reads with the graph's values; `createGraphMaterial` switches the layers on so Babylon compiles
- * them in. Keys are regular expressions over the include-expanded shader (Babylon replaces every match).
+ * them in (ADR 0222: the points are `pbrInjection.ts`'s).
  */
-export function physicalCustomCode(p: Partial<Record<PhysicalInput, string>>): { [point: string]: string } {
-  const code: { [point: string]: string } = {};
+function physicalPoints(p: Partial<Record<PhysicalInput, string>>): { [P in PbrPoint]?: string } {
+  const points: { [P in PbrPoint]?: string } = {};
   // Clear coat: (intensity, roughness); the iridescence block reads it too.
-  if (p.clearcoat) code["!uniforms\\.vClearCoatParams\\b"] = `vec2f(${p.clearcoat}, ${p.clearcoatRoughness ?? "0.0"})`;
+  if (p.clearcoat) points.clearcoatParams = `vec2f(${p.clearcoat}, ${p.clearcoatRoughness ?? "0.0"})`;
   // The clear coat's own normal (ADR 0118): the block starts from the normal it's handed (no clear coat bump map on graphs).
-  if (p.clearcoatNormal) code[CLEARCOAT_NORMAL_ANCHOR] = `clearcoatOut = clearcoatBlock(fragmentInputs.vPositionW, normalize(mycoBabylonTangentFrame(geometricNormalW, fragmentInputs.vPositionW, fragmentInputs.vMycoUv) * (${p.clearcoatNormal}))`;
+  if (p.clearcoatNormal) points.clearcoatNormal = `normalize(mycoBabylonTangentFrame(geometricNormalW, fragmentInputs.vPositionW, fragmentInputs.vMycoUv) * (${p.clearcoatNormal}))`;
   // Sheen: (linear colour, intensity) and its roughness (SHEEN_ROUGHNESS: the material's roughness is set).
   if (p.sheenColor) {
-    code["!uniforms\\.vSheenColor\\b"] = `vec4f(${p.sheenColor}, 1.0)`;
-    if (p.sheenRoughness) code["!uniforms\\.vSheenRoughness\\b"] = p.sheenRoughness;
+    points.sheenColor = `vec4f(${p.sheenColor}, 1.0)`;
+    if (p.sheenRoughness) points.sheenRoughness = p.sheenRoughness;
   }
   // Transmission is the sub-surface block's refraction intensity (x; translucency, y, stays off); with no
   // thickness map the block's thickness is the parameters' y.
   if (p.transmission) {
-    code["!uniforms\\.vSubSurfaceIntensity\\b"] = `vec3f(${p.transmission}, 0.0, 0.0)`;
-    code["!uniforms\\.vThicknessParam\\b"] = `vec2f(0.0, ${p.thickness ?? "0.0"})`;
+    points.subSurfaceIntensity = `vec3f(${p.transmission}, 0.0, 0.0)`;
+    points.thicknessParam = `vec2f(0.0, ${p.thickness ?? "0.0"})`;
   }
   // The refraction's IOR (y holds 1 / IOR); the surface's F0 is set at the reflectivity block.
-  if (p.ior) code["!uniforms\\.vRefractionInfos\\b"] = `vec4f(uniforms.vRefractionInfos.x, 1.0 / ${p.ior}, uniforms.vRefractionInfos.zw)`;
+  if (p.ior) points.refractionInfos = `vec4f(uniforms.vRefractionInfos.x, 1.0 / ${p.ior}, uniforms.vRefractionInfos.zw)`;
   // Iridescence: (intensity, IOR, minimum and maximum thickness); the graph sets the intensity.
   // The film's thickness (ADR 0118) as both ends of the range: with no thickness map Babylon uses the maximum.
   if (p.iridescence) {
     const t = p.iridescenceThickness;
-    code["!uniforms\\.vIridescenceParams\\b"] = t ? `vec4f(${p.iridescence}, uniforms.vIridescenceParams.y, ${t}, ${t})` : `vec4f(${p.iridescence}, uniforms.vIridescenceParams.yzw)`;
+    points.iridescenceParams = t ? `vec4f(${p.iridescence}, uniforms.vIridescenceParams.y, ${t}, ${t})` : `vec4f(${p.iridescence}, uniforms.vIridescenceParams.yzw)`;
   }
   // Anisotropy (ADR 0118): (direction in tangent space, strength).
-  if (p.anisotropy) code["!uniforms\\.vAnisotropy\\b"] = `vec3f(${p.anisotropyDirection ?? "vec2f(1.0, 0.0)"}, ${p.anisotropy})`;
+  if (p.anisotropy) points.anisotropy = `vec3f(${p.anisotropyDirection ?? "vec2f(1.0, 0.0)"}, ${p.anisotropy})`;
   // Specular colour and intensity are the metallic workflow's reflectance factors (F0 tint, and its factor in alpha).
   if (p.specularIntensity || p.specularColor)
-    code[SPECULAR_ANCHOR] = `var metallicReflectanceFactors: vec4f = vec4f(${p.specularColor ?? "uniforms.vMetallicReflectanceFactors.rgb"}, ${p.specularIntensity ?? "uniforms.vMetallicReflectanceFactors.a"});`;
-  return code;
+    points.reflectanceFactors = `vec4f(${p.specularColor ?? "uniforms.vMetallicReflectanceFactors.rgb"}, ${p.specularIntensity ?? "uniforms.vMetallicReflectanceFactors.a"})`;
+  return points;
 }
-
-/** Where Babylon's PBR fragment shader calls the clear coat block with the geometric normal (ADR 0118: a graph's clear coat normal replaces it). */
-const CLEARCOAT_NORMAL_ANCHOR = "!clearcoatOut\\s*=\\s*clearcoatBlock\\(\\s*fragmentInputs\\.vPositionW\\s*,\\s*geometricNormalW";
-
-/** Babylon's reflectance factors (metallic workflow), where a physical graph's specular intensity goes. */
-const SPECULAR_ANCHOR = "!var\\s+metallicReflectanceFactors\\s*:\\s*vec4f\\s*=\\s*uniforms\\.vMetallicReflectanceFactors\\s*;";
 
 /**
  * @internal The graph's code in the shadow-depth material (graphs with a vertex offset): the vertex code
@@ -284,7 +268,7 @@ function glslCustomCode(c: CompiledShaderGraph, shaderType: string, depth = fals
     const v = g.vertex;
     return {
       CUSTOM_VERTEX_DEFINITIONS: v.declarations,
-      "!vec4\\s+worldPos\\s*=\\s*finalWorld\\s*\\*\\s*vec4\\(\\s*positionUpdated\\s*,\\s*1\\.0\\s*\\)\\s*;": [
+      ...pbrInjections("glsl", "vertex", { worldPosition: { before: [
         "vec3 mycoVPos = positionUpdated;",
         "#ifdef NORMAL",
         "vec3 mycoVNormal = normalUpdated;",
@@ -298,9 +282,7 @@ function glslCustomCode(c: CompiledShaderGraph, shaderType: string, depth = fals
         "#endif",
         v.body,
         v.offset ? `positionUpdated = positionUpdated + (${v.offset});` : "",
-        "vec4 worldPos = finalWorld * vec4(positionUpdated, 1.0);",
-        v.varyings,
-      ].join("\n"),
+      ].join("\n"), after: v.varyings } }),
     };
   }
   const f = g.fragment;
@@ -311,15 +293,14 @@ function glslCustomCode(c: CompiledShaderGraph, shaderType: string, depth = fals
     CUSTOM_FRAGMENT_UPDATE_ALPHA: [`surfaceAlbedo = ${f.baseColor};`, `alpha = ${f.alpha};`].join("\n"),
   };
   if (c.target !== "unlit") {
-    if (f.metalness || f.roughness) code["!reflectivityBlock\\(\\s*vReflectivityColor"] = `reflectivityBlock(vec4(${f.metalness ?? "vReflectivityColor.x"}, ${f.roughness ?? "vReflectivityColor.y"}, vReflectivityColor.zw)`;
+    const points: { [P in PbrPoint]?: PbrCode } = {};
+    if (f.metalness || f.roughness) points.reflectivity = `vec4(${f.metalness ?? "vReflectivityColor.x"}, ${f.roughness ?? "vReflectivityColor.y"}, vReflectivityColor.zw)`;
     if (f.emission) code.CUSTOM_FRAGMENT_BEFORE_FINALCOLORCOMPOSITION = `finalEmissive = ${f.emission};`;
-    if (f.normal) code[GLSL_ALBEDO_ANCHOR] = `normalW = normalize(mycoBabylonTangentFrame(normalW, vPositionW, vMycoUv) * (${f.normal}));\nalbedoOpacityOutParams albedoOpacityOut;`;
+    if (f.normal) points.albedoBlock = `normalW = normalize(mycoBabylonTangentFrame(normalW, vPositionW, vMycoUv) * (${f.normal}));`;
+    Object.assign(code, pbrInjections("glsl", "fragment", points));
   }
   return code;
 }
-
-/** `ALBEDO_ANCHOR` in Babylon's GLSL PBR fragment shader. */
-export const GLSL_ALBEDO_ANCHOR = "!albedoOpacityOutParams\\s+albedoOpacityOut\\s*;";
 
 /**
  * @internal Names Babylon's injected shadow-map vertex code reads, remapped to the PBR vertex shader's:
@@ -527,7 +508,7 @@ export function createGraphMaterial(scene: Scene, name: string, c: CompiledShade
 
 /**
  * @internal Switch on the PBR layers a physical graph uses (ADR 0052), so Babylon compiles their code
- * in; the plugin then replaces the layers' uniform reads with the graph's values (`physicalCustomCode`).
+ * in; the plugin then replaces the layers' uniform reads with the graph's values (`physicalPoints`).
  * The values set here are what Babylon binds, and only matter where the graph leaves one alone (the
  * iridescence IOR and thickness range stay Babylon's defaults, as built-in physical materials have them).
  */
