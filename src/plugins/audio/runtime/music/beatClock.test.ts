@@ -7,8 +7,9 @@
 // steps). The invariant everywhere: every beat is delivered once, fired or counted in a `missed`, none doubled or phantom.
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { setAudioBackend } from "../backend";
-import { type MusicPlayer } from "./musicSystem";
-import { anchorRun } from "./anchors";
+import { disposeMusicPlayer, type MusicPlayer } from "./musicSystem";
+import { applySlip } from "./anchors";
+import { adoptSuccessor, beginRecovery, cancelSuccessor, commitStart } from "./musicPlayer";
 import { predictDue, seatBeats } from "./beatClock";
 import { drive, frames, musicSegment, playingRun, rigClips, stampedRun, type DriveFrame, type Fired } from "./testing/beatRig";
 import { runScenario, score, synthTrace } from "./testing/jitterTrace";
@@ -172,7 +173,7 @@ describe("transitions landing on beats", () => {
     const a = musicSegment({ tempo: T120 });
     const b = musicSegment({ tempo: B() });
     const { player } = playingRun(a, 0, 0);
-    player.next = stampedRun(player, b, 0, 2.5, 6); // A's beat at 2.5 s
+    adoptSuccessor(player, stampedRun(player, b, 0, 2.5, 6)); // A's beat at 2.5 s
     const beats = of(drive(player, frames(-0.05, 4, DT), ["beat"]), "beat");
     expect(beats.map((f) => [nameOf(f.e.segment, a), f.e.time])).toEqual(
       [0, 0.5, 1, 1.5, 2].map((t) => ["A", close(t)]).concat([2.5, 3, 3.5, 4].map((t) => ["B", close(t)])),
@@ -184,7 +185,7 @@ describe("transitions landing on beats", () => {
     const a = musicSegment({ tempo: T120 });
     const b = musicSegment({ tempo: B(90) });
     const { player } = playingRun(a, 0, 0);
-    player.next = stampedRun(player, b, 0, 2.25, 6);
+    adoptSuccessor(player, stampedRun(player, b, 0, 2.25, 6));
     const beats = of(drive(player, frames(-0.05, 4, DT), ["beat"]), "beat");
     const bt = 60 / 90;
     expect(beats.map((f) => [nameOf(f.e.segment, a), f.e.time])).toEqual([
@@ -196,7 +197,7 @@ describe("transitions landing on beats", () => {
     const a = musicSegment({ tempo: T120 });
     const b = musicSegment({ tempo: B() });
     const { player } = playingRun(a, 0, 0);
-    player.next = stampedRun(player, b, 0, 2.5, 6);
+    adoptSuccessor(player, stampedRun(player, b, 0, 2.5, 6));
     const fired = drive(player, [{ now: -0.05, interval: DT }, { now: 4.2, interval: DT }], ["beat", "bar"]);
     expect(of(fired, "beat").at(-1)!.e).toMatchObject({ segment: b.id, time: close(4), bar: 1, beat: 4 });
     expect(delivered(fired, "beat")).toBe(9); // A: 0 .. 2, B: 2.5 .. 4
@@ -208,7 +209,7 @@ describe("transitions landing on beats", () => {
     const a = musicSegment({ tempo: T120 });
     const b = musicSegment({ tempo: B(), regions: [{ id: "r", from: "1:1:0", to: "1:3:0", count: 0 }] });
     const { player } = playingRun(a, 0, 0);
-    player.next = stampedRun(player, b, 0, 2, 6);
+    adoptSuccessor(player, stampedRun(player, b, 0, 2, 6));
     const beats = of(drive(player, frames(-0.05, 5.2, DT), ["beat"]), "beat");
     expect(beats.map((f) => f.e.time)).toEqual(Array.from({ length: 11 }, (_, k) => close(k * 0.5)));
     expect(beats.slice(4, 11).map((f) => [f.e.bar, f.e.beat])).toEqual([[1, 1], [1, 2], [1, 1], [1, 2], [1, 1], [1, 2], [1, 1]]);
@@ -219,11 +220,11 @@ describe("transitions landing on beats", () => {
     const b = musicSegment({ tempo: B(60) });
     const { player } = playingRun(a, 0, 0);
     const succ = stampedRun(player, b, 0, 2.5, 6);
-    player.next = succ;
+    adoptSuccessor(player, succ);
     const list = frames(-0.05, 4, DT);
     list[60]!.before = () => {
       succ.state = "cancelled";
-      player.next = null;
+      cancelSuccessor(player, succ);
     };
     const beats = of(drive(player, list, ["beat"]), "beat");
     expect(beats.map((f) => f.e.time)).toEqual(Array.from({ length: 9 }, (_, k) => close(k * 0.5)));
@@ -266,12 +267,12 @@ describe("loop wraps", () => {
     const a = musicSegment({ tempo: T120, regions: [{ id: "r", from: "1:1:0", to: "2:1:0", count: 2 }] });
     const b = musicSegment({ tempo: T120 });
     const { player } = playingRun(a, 0, 0);
-    player.next = stampedRun(player, b, 0, 4, 6); // two passes of 2 s, then B at 4
+    adoptSuccessor(player, stampedRun(player, b, 0, 4, 6)); // two passes of 2 s, then B at 4
     const stepped = drive(player, frames(-0.05, 6.1, DT), ["beat"]);
     expect(of(stepped, "beat").map((f) => nameOf(f.e.segment, a)).join("")).toBe("AAAAAAAABBBBB");
     expect(delivered(stepped)).toBe(13);
     const { player: p2 } = playingRun(a, 0, 0);
-    p2.next = stampedRun(p2, b, 0, 4, 6);
+    adoptSuccessor(p2, stampedRun(p2, b, 0, 4, 6));
     const hitch = drive(p2, [{ now: -0.05, interval: DT }, { now: 6.2, interval: DT }], ["beat"]);
     expect(hitch.at(-1)!.e).toMatchObject({ segment: b.id, time: close(6), missed: 12 }); // 0 .. 6.0: 13 beats
   });
@@ -292,7 +293,7 @@ describe("a held clock's backlog", () => {
     });
     const b = musicSegment({ tempo: T120, cues: [{ name: "bq", at: "1:2:0" }] });
     const { player } = playingRun(a, 0, 0);
-    player.next = stampedRun(player, b, 0, 8, 6); // lands after four passes of A
+    adoptSuccessor(player, stampedRun(player, b, 0, 8, 6)); // lands after four passes of A
     seatBeats(player, -0.05);
     const list = frames(-0.05, 12.4, DT);
     list[idx(list, 0.4)]!.before = () => (player.beats!.held = true);
@@ -314,10 +315,8 @@ describe("a held clock's backlog", () => {
     seatBeats(player, 0.95);
     const list = frames(0.95, 6, DT);
     list[20]!.before = () => (player.beats!.held = true);
-    list[40]!.before = () => {
-      run.startAt += 0.2;
-      player.anchor = anchorRun(run, run.startAt);
-    };
+    // The core reports the start 0.2 s late: the run and its anchor slip (P3).
+    list[40]!.before = () => applySlip(player, { kind: "start", group: run.group, late: true, slipFrames: 9600, startFrame: 0 }, 48_000);
     list[200]!.before = () => (player.beats!.held = false);
     const fired = drive(player, list, ["beat"]);
     strictlyIncreasing(fired);
@@ -344,7 +343,7 @@ describe("a held clock's backlog", () => {
     seatBeats(player, -0.05);
     player.beats!.held = true;
     expect(drive(player, frames(-0.05, 2, DT))).toEqual([]);
-    player.state = "stopped";
+    disposeMusicPlayer(player, null);
     player.beats!.held = false;
     expect(drive(player, frames(2, 3, DT))).toEqual([]);
   });
@@ -359,13 +358,11 @@ describe("recovery re-entry", () => {
       list[idx(list, dieAt)]!.before = () => {
         player.counters.recoveries.rebuild = ++n;
         cur.state = "cancelled";
-        player.state = "recovering";
+        beginRecovery(player);
       };
       list[idx(list, reAt)]!.before = () => {
         const re = stampedRun(player, node, frame, reAt, 20 + n);
-        player.run = re;
-        player.anchor = anchorRun(re, reAt);
-        player.state = "committed";
+        commitStart(player, re, reAt);
         cur = re;
       };
     };
@@ -441,9 +438,9 @@ describe("recovery re-entry", () => {
     drive(player, frames(-0.05, 1.1, DT));
     player.counters.recoveries.rebuild = 1;
     run.state = "cancelled";
-    player.state = "recovering";
+    beginRecovery(player);
     expect(drive(player, frames(1.1, 5, DT))).toEqual([]);
-    player.state = "stopped";
+    disposeMusicPlayer(player, null);
     expect(drive(player, frames(5, 6, DT))).toEqual([]);
   });
 });

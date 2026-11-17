@@ -34,7 +34,8 @@
  */
 import { compileSegmentGrid, ticksToSeconds, type SegmentGrid } from "../../../../engine/audio/musicGrid";
 import { musicChildById, type PlaylistNode, type SegmentNode, type MusicNode } from "../../../../engine/audio/musicFormat";
-import { playingGridOf, predictWrap, anchorRun, heardTimeOf, ticksAt } from "./anchors";
+import { playingGridOf, predictWrap, heardTimeOf, ticksAt } from "./anchors";
+import { attachState, promote } from "./musicPlayer";
 import type { MusicFrame, MusicPlayer } from "./musicSystem";
 import { childFor, createSwitchState } from "./musicSwitch";
 import { requestStart, type PlanRequest } from "./planner";
@@ -318,7 +319,7 @@ export function tickPlaylist(player: MusicPlayer, f: MusicFrame): void {
   const cand = candidates.get(player);
   if (cand && player.run && player.run.node === cand.current && cand.currentRun === null) {
     cand.currentRun = player.run;
-    player.playlist = cand;
+    attachState(player, "playlist", cand);
     candidates.delete(player);
   }
   const state = player.playlist;
@@ -348,10 +349,7 @@ export function tickPlaylist(player: MusicPlayer, f: MusicFrame): void {
       } else if (f.now + EPS >= req.run.startAt) {
         // Promotion: the stamped successor is heard.
         const next = req.run;
-        player.run = next;
-        if (player.next === next) player.next = null;
-        player.anchor = anchorRun(next, next.startAt);
-        player.regions = null; // the new segment's regions start fresh (R4b)
+        promote(player, next, next.startAt);
         state.req = null;
         commit(state, req.advance, next);
       }

@@ -14,7 +14,8 @@ import { audioLatency, rhythmModeSetting } from "./calibration";
 import { createMusicPlayer, type MusicPlayer } from "./musicSystem";
 import { recoverGroups, updateBeatHolds } from "./background";
 import { seatBeats } from "./beatClock";
-import type { SegmentRun } from "./segmentRun";
+import { beginRecovery, commitStart, noteStartHeard, stopPlayer } from "./musicPlayer";
+import { createSegmentRun } from "./segmentRun";
 
 const pageSettings = mixer.audioSettings;
 afterEach(() => {
@@ -75,11 +76,16 @@ describe("holding beat callbacks through a recovery (updateBeatHolds, architectu
     return node;
   }
   let group = 3;
-  function player(): MusicPlayer {
+  /** A player playing from heard 0 (`playing: false`: nothing started), its beat state seated at 0 unless `seated` is false. */
+  function player({ playing = true, seated = true } = {}): MusicPlayer {
     const p = createMusicPlayer({ group: group++, world: 1, path: "m.audioevent", asset: { bus: "Music", volume: 1 } } as unknown as EventInstance, segment());
-    seatBeats(p, 0); // the beat state, seated at 0
-    p.run = { node: segment() } as unknown as SegmentRun;
-    p.state = "playing";
+    if (seated) seatBeats(p, 0);
+    if (playing) {
+      const run = createSegmentRun(p, p.root, 0)!;
+      run.startAt = 0;
+      commitStart(p, run, 0);
+      noteStartHeard(p, 0);
+    }
     return p;
   }
   /** A backend view: `caps.rhythm` (the core: true; Babylon: false) and the core backend's `isRecovering`. */
@@ -89,8 +95,7 @@ describe("holding beat callbacks through a recovery (updateBeatHolds, architectu
   it("in rhythm mode: held while the backend rebuilds, until re-planned and stamped", () => {
     rhythm(true);
     const p = player();
-    const idle = player();
-    idle.run = null; // nothing playing: nothing to recover
+    const idle = player({ playing: false }); // nothing playing: nothing to recover
     updateBeatHolds(backend(true, false));
     expect(p.beats!.held).toBe(false);
     updateBeatHolds(backend(true, true));
@@ -101,12 +106,12 @@ describe("holding beat callbacks through a recovery (updateBeatHolds, architectu
     expect(p.beats!.held).toBe(true);
     expect(idle.beats!.held).toBe(false);
     // Re-planned: its own state holds it until the stamp (`recoverPlayer` sets `recovering`, the stamp `committed`).
-    p.state = "stopping"; // recoverPlayer skips a stopping player: only the awaiting mark goes
+    stopPlayer(p); // recoverPlayer skips a stopping player: only the awaiting mark goes
     recoverGroups(backend(true, false), "rebuild");
-    p.state = "recovering";
+    beginRecovery(p);
     updateBeatHolds(backend(true, false));
     expect(p.beats!.held).toBe(true);
-    p.state = "committed";
+    commitStart(p, p.run!, 0);
     updateBeatHolds(backend(true, false));
     expect(p.beats!.held).toBe(false);
   });
@@ -114,7 +119,7 @@ describe("holding beat callbacks through a recovery (updateBeatHolds, architectu
   it("an abandon or crash recovery holds too, while the re-entry is unstamped", () => {
     rhythm(true);
     const p = player();
-    p.state = "recovering";
+    beginRecovery(p);
     updateBeatHolds(backend(true, false));
     expect(p.beats!.held).toBe(true);
   });
@@ -124,7 +129,7 @@ describe("holding beat callbacks through a recovery (updateBeatHolds, architectu
     const p = player();
     updateBeatHolds(backend(true, true));
     expect(p.beats!.held).toBe(false);
-    p.state = "recovering";
+    beginRecovery(p);
     updateBeatHolds(backend(true, false));
     expect(p.beats!.held).toBe(false);
     rhythm(true);
@@ -139,8 +144,7 @@ describe("holding beat callbacks through a recovery (updateBeatHolds, architectu
 
   it("a player not yet predicted (no beat state) is left alone", () => {
     rhythm(true);
-    const p = player();
-    p.beats = null;
+    const p = player({ seated: false });
     updateBeatHolds(backend(true, true));
     expect(p.beats).toBeNull();
   });

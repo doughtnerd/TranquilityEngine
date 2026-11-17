@@ -47,8 +47,9 @@ function playlist(id: string, children: MusicNode[], over: Partial<Pick<Playlist
 }
 
 let groupIds = 70;
-const instance = (): EventInstance =>
-  ({ group: groupIds++, world: 1, path: "music.audioevent", asset: { bus: "Music", volume: 1 } }) as unknown as EventInstance;
+/** An instance; its group seeds the player's playlist order (`createPlaylistState(root, group)`). */
+const instance = (group = groupIds++): EventInstance =>
+  ({ group, world: 1, path: "music.audioevent", asset: { bus: "Music", volume: 1 } }) as unknown as EventInstance;
 
 let b: FakeBackend;
 const f = { backend: null as unknown as FakeBackend, music: null as FakeBackend["music"] | null, now: 0, dt: DT, hidden: false };
@@ -116,8 +117,7 @@ describe("playlist: the state across an advance (D18)", () => {
   it("a gapless advance reads playing throughout; the next item shows as the pending change, never as transitioning", () => {
     rig();
     const root = playlist("p", ["a", "b", "c"].map((id) => segment(id)));
-    const player = createMusicPlayer(instance(), root);
-    player.playlist = createPlaylistState(root, 11);
+    const player = createMusicPlayer(instance(11), root);
     let playing = 0, scheduled = 0, other = 0;
     run(player, 1, 1 + 3 * SEG_SECONDS, () => {
       if (player.state === "playing" || player.state === "pending") playing++;
@@ -135,8 +135,7 @@ describe("playlist: the long run (acceptance)", () => {
     rig();
     const ids = ["a", "b", "c", "d", "e", "f", "g", "h"];
     const root = playlist("p", ids.map((id) => segment(id)), { rounds: 5 });
-    const player = createMusicPlayer(instance(), root);
-    player.playlist = createPlaylistState(root, 11);
+    const player = createMusicPlayer(instance(11), root);
     run(player, 1, 1 + 40 * SEG_SECONDS + 5);
     expect(stamps.length).toBe(40);
     expect(order()).toEqual(Array.from({ length: 40 }, (_, k) => ids[k % 8]));
@@ -155,8 +154,7 @@ describe("playlist: the long run (acceptance)", () => {
       [segment("a", 2), segment("b"), playlist("n", [segment("c"), segment("d")], { mode: "shuffle", plays: 2 }), segment("e")],
       { mode: "shuffle", rounds: 4, avoidRepeat: 1 },
     );
-    const player = createMusicPlayer(instance(), root);
-    player.playlist = createPlaylistState(root, 99);
+    const player = createMusicPlayer(instance(99), root);
     run(player, 1, 1 + 80 * SEG_SECONDS);
     // Per round: a x2, b, (c d in some order) x2, e = 2 + 1 + 4 + 1 = 8 items; 4 rounds.
     expect(stamps.length).toBe(32);
@@ -169,8 +167,7 @@ describe("playlist: the long run (acceptance)", () => {
   it("random mode with a heavy prime (4 frames inside a 6 frame lead) still starts every item primed", () => {
     rig();
     const root = playlist("p", ["a", "b", "c"].map((id) => segment(id)), { mode: "random", rounds: 0, avoidRepeat: 1 });
-    const player = createMusicPlayer(instance(), root);
-    player.playlist = createPlaylistState(root, 5);
+    const player = createMusicPlayer(instance(5), root);
     run(player, 1, 1 + 30 * SEG_SECONDS);
     expect(stamps.length).toBeGreaterThanOrEqual(29);
     for (const s of stamps) expect(s.primedAtStamp).toBe(true);
@@ -194,8 +191,7 @@ describe("playlist: the descent", () => {
 
   it("an empty playlist plays nothing and the playlist ends after its last round", () => {
     rig();
-    const player = createMusicPlayer(instance(), playlist("p", []));
-    player.playlist = createPlaylistState(player.root, 1);
+    const player = createMusicPlayer(instance(1), playlist("p", []));
     run(player, 1, 3);
     expect(stamps.length).toBe(0);
   });

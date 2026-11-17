@@ -83,6 +83,9 @@ import {
   type RuleMatch,
 } from "./transitionRules";
 import { advanceAnchor, anchorRun, playingGridOf, predictWrap, ticksAt, type GridAnchor } from "./anchors";
+import {
+  abandonTransition, adoptSuccessor, beginTransition, cancelSuccessor, clearTransition, finishTransition, markPending, promote, syncOverlap,
+} from "./musicPlayer";
 import { cancelRun, segmentClipSource, type SegmentRun } from "./segmentRun";
 import { enterPlaylist } from "./playlist";
 import { taps } from "../mix/profileTaps";
@@ -470,7 +473,7 @@ function plan(player: MusicPlayer, t: Transition, f: MusicFrame, onDropped: ((ca
   }
   contexts.set(t, { legs, onDropped, frame: f });
   t.state = "pending";
-  player.transition = t;
+  beginTransition(player, t);
   const leg = legs[0]!;
   const request = legRequest(player, t, leg, f, false);
   leg.request = request;
@@ -481,7 +484,7 @@ function plan(player: MusicPlayer, t: Transition, f: MusicFrame, onDropped: ((ca
   if (legs.length === 2) t.bridge = p;
   else t.incoming = p;
   refresh(player, t, f);
-  if (player.state === "playing" || player.state === "committed") player.state = "pending";
+  markPending(player);
   return true;
 }
 
@@ -629,10 +632,7 @@ function dropped(player: MusicPlayer, t: Transition, leg: Leg, cause: string): v
   }
   t.state = "cancelled";
   t.cause = cause;
-  if (player.transition === t) {
-    player.transition = null;
-    if (player.state === "pending" || player.state === "transitioning") player.state = "playing";
-  }
+  if (player.transition === t) abandonTransition(player, t);
   ctx.onDropped?.(cause);
 }
 
@@ -747,8 +747,7 @@ function syncAudible(player: MusicPlayer, f: MusicFrame): void {
   if (s !== "playing" && s !== "pending" && s !== "transitioning") return;
   const w = audible.get(player);
   const on = !!w && f.now >= w.from - EPS && f.now < w.to - EPS;
-  if (on) player.state = "transitioning";
-  else if (s === "transitioning") player.state = isOpen(player.transition) ? "pending" : "playing";
+  syncOverlap(player, on, isOpen(player.transition));
   if (w && !on && f.now >= w.to - EPS) audible.delete(player);
 }
 
@@ -767,12 +766,9 @@ function land(player: MusicPlayer, t: Transition, leg: Leg, f: MusicFrame): void
   const inc = leg.planned?.run;
   if (inc) {
     const out = leg.from;
-    player.run = inc;
-    player.anchor = anchorRun(inc, inc.startAt);
-    player.regions = null; // the new segment's regions start fresh (R4b)
-    if (player.next === inc) player.next = null;
+    promote(player, inc, inc.startAt);
     if (out && out !== inc && sounding(out) && (player.next === null || (ringing.has(player.next) && !sounding(player.next)))) {
-      player.next = out;
+      adoptSuccessor(player, out);
       ringing.add(out);
     }
   }
@@ -782,8 +778,7 @@ function land(player: MusicPlayer, t: Transition, leg: Leg, f: MusicFrame): void
     return;
   }
   t.state = "done";
-  if (player.transition === t) player.transition = null;
-  if (player.state === "pending" || player.state === "committed") player.state = "playing";
+  finishTransition(player, t);
   const win = audible.get(player);
   if (win && win.to === Number.POSITIVE_INFINITY) win.to = Math.max(f.now, win.from); // a bridge that failed to chain: it ends the change
   const after = t.after;
@@ -793,7 +788,7 @@ function land(player: MusicPlayer, t: Transition, leg: Leg, f: MusicFrame): void
     const actx = contextOf(after);
     if (!plan(player, after, f, actx?.onDropped ?? queuedDrops.get(after) ?? null)) {
       after.state = "cancelled";
-      if (player.transition === after) player.transition = null;
+      clearTransition(player, after);
     }
   }
 }
@@ -814,14 +809,13 @@ function abandon(player: MusicPlayer, t: Transition, f: MusicFrame, cause: strin
     if (player.planned === p) cancelPlanned(player, f);
     else if (leg.stamped) {
       cancelRun(p.run, f);
-      if (player.next === p.run) player.next = null;
+      cancelSuccessor(player, p.run);
     }
     unstamped.delete(leg);
   }
   t.state = "cancelled";
   t.cause = cause;
-  if (player.transition === t) player.transition = null;
-  if (player.state === "pending" || player.state === "transitioning") player.state = "playing";
+  abandonTransition(player, t);
   if (cause) ctx?.onDropped?.(cause);
 }
 
@@ -876,7 +870,7 @@ export function requestTransition(player: MusicPlayer, to: MusicNode, f: MusicFr
   const t = newTransition(to, findRule(player.root, player.run!.node.id, to.id), null, natural, reason);
   if (plan(player, t, f, onDropped)) return t;
   t.state = "cancelled";
-  if (player.transition === t) player.transition = null;
+  clearTransition(player, t);
   return null;
 }
 
@@ -900,7 +894,7 @@ export function planImmediate(player: MusicPlayer, to: MusicNode, startFrame: nu
   const t = newTransition(to, findRule(player.root, player.run!.node.id, to.id), immediate, false, reason);
   if (plan(player, t, f, null)) return t;
   t.state = "cancelled";
-  if (player.transition === t) player.transition = null;
+  clearTransition(player, t);
   return null;
 }
 
@@ -940,7 +934,7 @@ function stopTransition(player: MusicPlayer, t: Transition, f: MusicFrame): void
     else if (leg.stamped && p.run !== player.run && p.run !== player.next) cancelRun(p.run, f); // the stop fades run and next
   }
   t.state = "cancelled";
-  player.transition = null;
+  clearTransition(player, t);
 }
 
 /** R3a, R3b, step 9: stamp the incoming group when primed, fade the outgoing, chain the bridge, end the outgoing run. */
@@ -954,12 +948,12 @@ function tickChange(player: MusicPlayer, f: MusicFrame): void {
   const next = player.next;
   if (next && ringing.has(next) && !sounding(next)) {
     ringing.delete(next);
-    player.next = null;
+    cancelSuccessor(player, next);
   }
   const t = player.transition;
   if (!t) return;
   if (!isOpen(t)) {
-    player.transition = null;
+    clearTransition(player, t);
     return;
   }
   const ctx = contextOf(t);

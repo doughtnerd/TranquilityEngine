@@ -11,6 +11,7 @@ import { UnlockQueue } from "../runtime/core/unlockQueue";
 import { VoiceTable } from "../runtime/core/voiceTable";
 import { endAudioSession } from "../runtime/testing";
 import { emptySegment } from "../../../engine/audio/musicFormat";
+import { promote } from "../runtime/music/musicPlayer";
 
 afterEach(() => endAudioSession());
 
@@ -87,7 +88,7 @@ describe("Audio.debug() music (P10, §1.6)", () => {
     player.counters.refusals.poolFull = 1;
     player.counters.recoveries.hidden = 1;
     Object.assign(player.counters.stingers, { played: 1, late: 2, skipped: 3, dropped: 4 });
-    player.run = { node: emptySegment("verse"), group: 5, stems: [{ track: "drums", streamed: true, primed: true }, { track: "pad", streamed: false, primed: true }] } as never;
+    promote(player, { node: emptySegment("verse"), group: 5, stems: [{ track: "drums", streamed: true, primed: true }, { track: "pad", streamed: false, primed: true }] } as never, 0);
     const [row] = buildDebugInfo(src).music!;
     expect(row).toMatchObject({
       id: 7, asset: "bgm.audioevent.json", segment: "verse", pending: null,

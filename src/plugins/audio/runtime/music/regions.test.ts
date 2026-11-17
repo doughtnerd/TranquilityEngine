@@ -9,10 +9,11 @@ import { parseSegmentNode, type SegmentNode } from "../../../../engine/audio/mus
 import type { MusicClipFacts } from "../../../../engine/audio/musicValidate";
 import { createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
 import { createSegmentRun, setSegmentClipSource, type SegmentRun } from "./segmentRun";
-import { advanceAnchor, anchorRun, nextWrapOf, predictWrap, ticksAt } from "./anchors";
+import { advanceAnchor, nextWrapOf, predictWrap, ticksAt } from "./anchors";
 import { tickRegions } from "./regions";
 import { conditionHolds } from "./regionCondition";
 import { endAudioSession } from "../testing";
+import { commitStart, noteStartHeard, promote } from "./musicPlayer";
 
 const L = 0.05;
 const DBAR = 0.016;
@@ -44,9 +45,8 @@ function playing(node: SegmentNode, at: number): { player: MusicPlayer; run: Seg
   run.group = 5;
   run.startAt = at;
   run.state = "playing";
-  player.run = run;
-  player.state = "playing";
-  player.anchor = anchorRun(run, at);
+  commitStart(player, run, at);
+  noteStartHeard(player, at);
   return { player, run };
 }
 
@@ -216,8 +216,7 @@ describe("while regions: the commit point and the release (architecture §3.5)",
     seeked.group = 6;
     seeked.startAt = 30;
     seeked.state = "playing";
-    player.run = seeked;
-    player.anchor = anchorRun(seeked, 30);
+    promote(player, seeked, 30);
     params.Loop = "hold";
     tickAt(player, 31);
     expect(player.regions).toMatchObject({ released: false, reads: 0, run: seeked });

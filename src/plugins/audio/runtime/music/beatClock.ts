@@ -42,8 +42,10 @@ import {
 } from "../../../../engine/audio/musicGrid";
 import { MUSIC_TICKS_PER_BEAT, type BarBeatTick } from "../../../../engine/audio/musicPosition";
 import { advanceAnchor, anchorRun, heardTimeOf, predictWrap, type GridAnchor } from "./anchors";
+import type { RegionState } from "./regions";
 import { segmentGrid } from "./handle";
 import type { MusicPlayer } from "./musicSystem";
+import { attachState } from "./musicPlayer";
 import type { SegmentRun } from "./segmentRun";
 
 /** Two events of one kind closer than this (seconds) are the same event: far under a frame at any rate. */
@@ -194,9 +196,9 @@ function sources(player: MusicPlayer, st: BeatState): boolean {
 
 // --- The walk ----------------------------------------------------------------------------------------------------------
 
-/** The scratch anchor a walk moves through loop passes, and the player-shaped view `anchors.ts` reads it through. */
+/** The scratch anchor a walk moves through loop passes, and the position `anchors.ts` walks it through. */
 const work: MutableAnchor = blankAnchor();
-const view = { anchor: work as GridAnchor, run: null, regions: null } as unknown as MusicPlayer;
+const view: { readonly anchor: GridAnchor; readonly run: null; regions: RegionState | null } = { anchor: work as GridAnchor, run: null, regions: null };
 
 /** An event a walk found. */
 interface Found {
@@ -251,7 +253,7 @@ function nextOn(src: Source, kind: MusicKind, after: number, out: Found): boolea
   const a = src.anchor;
   if (!g || !a || !Number.isFinite(a.time)) return false;
   Object.assign(work, a);
-  (view as { regions: unknown }).regions = src.playing ? src.run?.player.regions ?? null : null;
+  view.regions = src.playing ? src.run?.player.regions ?? null : null;
   const lo = Math.max(after, src.from - TIME_EPS);
   // To the pass heard at `lo`, when a wrap really comes before it.
   if (lo > work.time) {
@@ -346,7 +348,8 @@ function adoptLost(c: BeatCursor, lost: SegmentRun, run: SegmentRun): void {
 function resyncBeats(player: MusicPlayer, now: number): void {
   let st = player.beats;
   if (!st) {
-    st = player.beats = createBeatState();
+    st = createBeatState();
+    attachState(player, "beats", st);
     seat(st.beat, now);
     seat(st.bar, now);
     seat(st.cue, now);

@@ -16,6 +16,7 @@ import {
   type SegmentRun,
 } from "./segmentRun";
 import { advanceAnchor, anchorRun, applySlip, heardTimeOf, playingGridOf, predictWrap, rebaseAnchors, ticksAt } from "./anchors";
+import { adoptSuccessor, attachState, promote } from "./musicPlayer";
 
 let facts: Record<string, MusicClipFacts> = {};
 
@@ -37,8 +38,7 @@ function playing(node: SegmentNode, startFrame: number, at: number): { player: M
   run.group = 5;
   run.startAt = at;
   run.state = "playing";
-  player.run = run;
-  player.anchor = anchorRun(run, at);
+  promote(player, run, at);
   return { player, run };
 }
 
@@ -133,10 +133,10 @@ describe("anchors: loop regions and predictWrap (§3.5)", () => {
   it("R4b's released region stops wrapping after now; regions past the exit cue are never reached", () => {
     rig();
     const { player } = playing(looped(0), 0, 10);
-    player.regions = {
+    attachState(player, "regions", {
       region: 0, passes: 0, commitAt: Number.NaN, released: true, lastPass: Number.NaN, releaseAt: Number.NaN, decided: Number.NaN,
       run: player.run, reads: 0, releases: 0, late: 0,
-    };
+    });
     expect(predictWrap(player, 17)).toBeNaN();
     const late = playing(segment({ regions: [{ id: "r", from: "6:1:0", to: "7:1:0", count: 0 }], cues: [{ name: "exit", at: "5:1:0" }] }), 0, 0).player;
     expect(predictWrap(late, 0)).toBeNaN();
@@ -192,7 +192,7 @@ describe("anchors: slips from group events (§3.6, §4.3)", () => {
     const next = createSegmentRun(player, player.root, 0)!;
     next.group = 6;
     next.startAt = 20;
-    player.next = next;
+    adoptSuccessor(player, next);
     applySlip(player, { kind: "start", group: 6, late: true, slipFrames: 4800, startFrame: 0 }, 48_000);
     expect(next.startAt).toBeCloseTo(20.1, 12);
     expect(player.anchor!.time).toBe(10);
@@ -210,18 +210,17 @@ describe("anchors: slips from group events (§3.6, §4.3)", () => {
     b.music!.setPrimed(run.group);
     pollPrimed(run, f);
     stampRun(player, run, 1.5, f);
-    player.run = run;
-    player.anchor = anchorRun(run, 1.5);
+    promote(player, run, 1.5);
     routeGroupEvent({ kind: "start", group: run.group, late: true, slipFrames: 441, startFrame: 0 }, 44_100);
     expect(run.state).toBe("playing");
-    expect(player.anchor.time).toBeCloseTo(1.51, 12);
+    expect(player.anchor!.time).toBeCloseTo(1.51, 12);
     // No rate given (bound as the step binds it): the fake has no clock map, so 48 kHz.
     b.music!.onGroupEvent = routeGroupEvent;
     b.music!.emit({ kind: "resume", group: run.group, late: true, slipFrames: 480, startFrame: 0 });
-    expect(player.anchor.time).toBeCloseTo(1.52, 12);
+    expect(player.anchor!.time).toBeCloseTo(1.52, 12);
     b.frameMapValue = { sampleRate: 96_000, timeOffset: 0, carryPending: false }; // a context rebuild changed the rate
     routeGroupEvent({ kind: "resume", group: run.group, late: true, slipFrames: 960, startFrame: 0 });
-    expect(player.anchor.time).toBeCloseTo(1.53, 12);
+    expect(player.anchor!.time).toBeCloseTo(1.53, 12);
     expect(player.counters).toMatchObject({ lateGroups: 1, groupsHeld: 2, lastSlipFrames: 960 });
   });
 
@@ -238,22 +237,21 @@ describe("anchors: slips from group events (§3.6, §4.3)", () => {
     pollPrimed(run, f);
     const at = 2.0000071; // frame (2.0000071 - 0.25) * 48000 = 84000.34 → the core starts at 84000 + slip
     stampRun(player, run, at, f);
-    player.run = run;
-    player.anchor = anchorRun(run, at);
+    promote(player, run, at);
     routeGroupEvent({ kind: "start", group: run.group, late: true, slipFrames: 100, startFrame: 84_100 });
-    expect(player.anchor.time).toBeCloseTo(84_100 / 48_000 + 0.25, 12);
+    expect(player.anchor!.time).toBeCloseTo(84_100 / 48_000 + 0.25, 12);
     expect(run.startAt).toBeCloseTo(84_100 / 48_000 + 0.25, 12);
     // A start frame that disagrees with the slip by more than a frame is not trusted: the slip alone applies.
-    const before = player.anchor.time;
+    const before = player.anchor!.time;
     const run2 = createSegmentRun(player, player.root, 0)!;
     primeRun(player, run2, f);
     b.music!.setPrimed(run2.group);
     pollPrimed(run2, f);
     stampRun(player, run2, 3, f);
-    player.next = run2;
+    adoptSuccessor(player, run2);
     routeGroupEvent({ kind: "start", group: run2.group, late: false, slipFrames: 0, startFrame: 1 });
     expect(run2.startAt).toBe(3);
-    expect(player.anchor.time).toBe(before);
+    expect(player.anchor!.time).toBe(before);
   });
 });
 

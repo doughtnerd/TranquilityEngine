@@ -16,6 +16,7 @@ import { setSegmentClipSource } from "./segmentRun";
 import { planTick, requestStart } from "./planner";
 import { tickPlaylist } from "./playlist";
 import { cancelTransition, planImmediate, requestTransition, tickTransition, type Transition } from "./transition";
+import { stopPlayer } from "./musicPlayer";
 
 const RATE = 48_000;
 const L = 1 / 30;
@@ -332,7 +333,7 @@ describe("R3a: replace, queue and cancel", () => {
     const r = root(rules);
     const player = playing(r);
     const t: Transition = requestTransition(player, child(r, "B"), at(1.5))!;
-    player.state = "stopping";
+    stopPlayer(player);
     tickTransition(player, at(1.6));
     expect(t.state).toBe("cancelled");
     expect(player.transition).toBeNull();

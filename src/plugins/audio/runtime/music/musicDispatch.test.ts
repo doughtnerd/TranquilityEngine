@@ -85,12 +85,11 @@ describe("dispatchMusic (K2)", () => {
 
   it("asks only the kinds some active behavior defines, with the frame's Audio.time and interval", () => {
     const b = active(new Beater());
-    const p = rig([b, active(new Plain())]);
+    rig([b, active(new Plain())]);
     script.set("beat", [{ bar: 2, beat: 3 }]);
     dispatchMusic(frame(1));
     expect(asked).toEqual([{ kind: "beat", now: 1, interval: expect.any(Number) }]);
     expect(b.log).toEqual(["beat 2.3 missed 0"]);
-    expect(p.hooks).toBe(1);
   });
 
   it("ignores a disabled or inactive behavior", () => {
@@ -147,7 +146,8 @@ describe("dispatchMusic (K2)", () => {
     const b = active(new Beater());
     const p = rig([b]);
     const order: string[] = [];
-    p.listeners = { beat: [() => { order.push("l1"); throw new Error("x"); }, () => order.push("l2")], bar: [], cue: [] };
+    onMusicOf(p.instance, "beat", () => { order.push("l1"); throw new Error("x"); });
+    onMusicOf(p.instance, "beat", () => order.push("l2"));
     script.set("beat", [{}]);
     dispatchMusic(frame(1));
     expect(order).toEqual(["l1", "l2"]);
@@ -156,13 +156,12 @@ describe("dispatchMusic (K2)", () => {
 
   it("a player with only listeners is predicted for their kinds; a destroyed source costs nothing", () => {
     const p = rig([]);
-    p.subscribed = 2;
-    p.listeners = { beat: [], bar: [(e) => expect(e.bar).toBe(4)], cue: [] };
+    const off = onMusicOf(p.instance, "bar", (e) => expect(e.bar).toBe(4));
     script.set("bar", [{ bar: 4 }]);
     dispatchMusic(frame(1));
     expect(asked.map((a) => a.kind)).toEqual(["bar"]);
     (p.instance.musicSource as unknown as { _destroyed: boolean })._destroyed = true;
-    p.subscribed = 0;
+    off();
     asked.length = 0;
     dispatchMusic(frame(2));
     expect(asked).toEqual([]);
@@ -174,13 +173,12 @@ describe("dispatchMusic (K2)", () => {
       const got: string[] = [];
       const offBeat = onMusicOf(p.instance, "beat", (e) => got.push(`beat ${e.beat}`));
       onMusicOf(p.instance, "cue", () => got.push("cue"));
-      expect(p.subscribed).toBe(1 | 4);
       script.set("beat", [{ beat: 2 }, { beat: 3 }]);
       dispatchMusic(frame(1));
+      expect(asked.map((a) => a.kind)).toEqual(["beat", "cue"]);
       expect(got).toEqual(["beat 2"]);
       offBeat();
       offBeat();
-      expect(p.subscribed).toBe(4);
       asked.length = 0;
       dispatchMusic(frame(2));
       expect(asked.map((a) => a.kind)).toEqual(["cue"]); // beat is no longer predicted
@@ -231,11 +229,13 @@ describe("dispatchMusic (K2)", () => {
       dispatchMusic(frame(2));
       expect(seen[0]).toBe(seen[1]);
       disposeMusicPlayer(p, null);
-      expect(p.listeners).toBeNull();
       expect(() => off()).not.toThrow();
-      expect(p.subscribed).toBe(0);
-      onMusicOf(p.instance, "beat", () => {})();
-      expect(p.listeners).toBeNull();
+      expect(() => onMusicOf(p.instance, "beat", () => {})()).not.toThrow();
+      script.set("beat", [{}]);
+      asked.length = 0;
+      dispatchMusic(frame(3));
+      expect(asked).toEqual([]); // the ended instance is predicted no more
+      expect(seen).toHaveLength(2);
     });
 
     it("onMusicOf on a non-music instance returns a no-op", () => {

@@ -39,6 +39,7 @@ import type { SegmentNode } from "../../../../engine/audio/musicFormat";
 import { conditionHolds } from "./regionCondition";
 import { warnOnce } from "../core/handle";
 import type { MusicFrame, MusicPlayer } from "./musicSystem";
+import { attachState } from "./musicPlayer";
 import { anchorPastRegion, bindRelease, nextWrapOf } from "./anchors";
 import { frameIntervalSeconds, lookaheadSeconds } from "./planner";
 import type { SegmentRun } from "./segmentRun";
@@ -89,8 +90,9 @@ export function tickRegions(player: MusicPlayer, f: MusicFrame): void {
   if (!run) return;
   let rs = player.regions;
   if (!rs || rs.run !== run) {
-    rs = player.regions = createRegionState();
+    rs = createRegionState();
     rs.run = run;
+    attachState(player, "regions", rs);
   }
   if (run.state !== "stamped" && run.state !== "playing") return;
   if (player.state === "stopping" || player.state === "stopped" || player.state === "refused") return;

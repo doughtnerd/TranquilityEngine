@@ -1,12 +1,16 @@
 /**
  * R2: `musicSwitch` parameter to child, latest wins, return cancels, unknown value keeps the playing child. The
- * transition stubs (R3a) are mocked; the player is a plain object with only the fields `tickSwitch` reads.
+ * transition stubs (R3a) are mocked; the player is a real one whose playing run is promoted through the player module.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { parseAudioEvent } from "../../../../engine/audio/eventFormat";
 import { emptySegment, type MusicNode } from "../../../../engine/audio/musicFormat";
-import type { MusicFrame, MusicPlayer } from "./musicSystem";
+import type { EventInstance } from "../events/eventRuntime";
+import type { MusicFrame } from "./musicSystem";
+import type * as SystemModule from "./musicSystem";
+import type * as PlayerModule from "./musicPlayer";
 import type * as SwitchModule from "./musicSwitch";
+import type { SegmentRun } from "./segmentRun";
 import type * as TransitionModule from "./transition";
 import type { Transition } from "./transition";
 
@@ -32,20 +36,21 @@ const world = (): MusicNode => music({
 
 const frame = { now: 0 } as MusicFrame;
 
+let groups = 40;
+
 /** A player on `root` with `params` as the instance's parameters and `playing` the playing run's segment id. */
 function fixture(root: MusicNode, playing: string | null) {
   const params: Record<string, number | string | undefined> = { State: "explore" };
-  const player = {
-    state: "playing",
-    instance: { getParameter: (n: string) => params[n] },
-    run: playing ? { node: { id: playing, type: "segment" } } : null,
-    musicSwitch: createSwitchState(root),
-  } as unknown as MusicPlayer;
-  return { player, params, play: (id: string) => { (player as { run: unknown }).run = { node: emptySegment(id) }; } };
+  const player = createMusicPlayer({ group: groups++, getParameter: (n: string) => params[n] } as unknown as EventInstance, root);
+  /** `id`'s run is promoted to the playing one, as a landed transition does. */
+  const play = (id: string): void => promote(player, { node: emptySegment(id), stems: [], startFrame: 0 } as unknown as SegmentRun, 0);
+  if (playing) play(playing);
+  return { player, params, play };
 }
 
 // The test setup already loaded the real modules, so reset and import fresh ones that see the mock.
 let childFor: typeof SwitchModule.childFor, createSwitchState: typeof SwitchModule.createSwitchState, tickSwitch: typeof SwitchModule.tickSwitch;
+let createMusicPlayer: typeof SystemModule.createMusicPlayer, promote: typeof PlayerModule.promote, stopPlayer: typeof PlayerModule.stopPlayer;
 let requestTransition: typeof TransitionModule.requestTransition, cancelTransition: typeof TransitionModule.cancelTransition;
 
 const asTransition = (id: string): Transition => ({ to: emptySegment(id) } as unknown as Transition);
@@ -53,6 +58,8 @@ const asTransition = (id: string): Transition => ({ to: emptySegment(id) } as un
 beforeEach(async () => {
   vi.resetModules();
   ({ childFor, createSwitchState, tickSwitch } = await import("./musicSwitch"));
+  ({ createMusicPlayer } = await import("./musicSystem"));
+  ({ promote, stopPlayer } = await import("./musicPlayer"));
   ({ requestTransition, cancelTransition } = await import("./transition"));
   vi.mocked(requestTransition).mockReset().mockImplementation((_p, to) => asTransition(to.id));
   vi.mocked(cancelTransition).mockReset();
@@ -155,11 +162,11 @@ describe("tickSwitch", () => {
   it("is idle for a player that is stopping and for a non-switch root", () => {
     const f = fixture(world(), "explore");
     f.params.State = "combat";
-    (f.player as { state: string }).state = "stopping";
+    stopPlayer(f.player);
     expect(tickSwitch(f.player, frame)).toBeNull();
     expect(requestTransition).not.toHaveBeenCalled();
-    const none = fixture(world(), "explore");
-    (none.player as { musicSwitch: unknown }).musicSwitch = null;
+    const none = fixture(emptySegment("explore"), "explore");
+    expect(none.player.musicSwitch).toBeNull();
     expect(tickSwitch(none.player, frame)).toBeNull();
   });
 });
