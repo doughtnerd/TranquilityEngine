@@ -19,7 +19,8 @@
 //   histogram, so only M, S and the peak since the start point come from the sub-blocks (exact once 4 and 30 sub-blocks have
 //   arrived). I, LRA, the maximum true peak and `incomplete` are held at the latest keyframe's reading (api §5.5: "holds I
 //   and LRA at the last keyframe's value, at most 1 s stale"); before the first keyframe they read `-Infinity` / false.
-// `keyframes` may be added in either mode; a replay model ignores their readings but keeps them (`keyframeAt`).
+// `keyframes` may be added in either mode; a replay model ignores their readings but keeps them (`keyframeAt`). A keyframe
+// comes as the reader names it (`CaptureKeyframeMetered`, from `readKeyframeMetered`), never as raw flag bits (ADR 0230).
 //
 // Time. All times are seconds on the viewport axis. `feed`'s `time` is when the STATUS's newest sub-block completed;
 // sub-block j of n is at `time - (n - 1 - j) * 0.1`. Times must not go backwards (the axis is continuous across epochs,
@@ -27,15 +28,9 @@
 //
 // Marks warn and nothing more: this module holds no setter on the mixer, the buses or the target (a target is read, never
 // written), and `targetMarks` returns data.
-import type { KeyframeMetered } from "../capture/format";
+import type { CaptureKeyframeMetered } from "../capture/format";
 import { LOUD_FLAG_NEW_BLOCKS_MASK, LOUD_FLAG_RESET, LOUD_OUTPUT_TAP } from "../wire.generated";
 import { LoudnessFeedControl, LoudnessStats, SUB_BLOCK_SECONDS, linearToDb, type LoudnessStatsResetWhat } from "./loudnessStats";
-
-/** Keyframe `metered` flag bits (format.ts `KeyframeMetered.flags`). */
-export const KF_METERED_PAUSED = 1;
-const KF_METERED_INCOMPLETE = 2;
-export const KF_METERED_TAINTED = 4;
-export const KF_METERED_LOWER_BOUND = 8;
 
 export type LoudnessModelMode = "replay" | "seek";
 
@@ -162,13 +157,13 @@ export class LoudnessBusModel implements LoudnessSeries {
   /** The hub's pause bookkeeping and first-take rule (the same class the live meter uses). */
   private readonly feedControl = new LoudnessFeedControl(this.stats);
   /** The newest keyframe reading seen (any mode). */
-  private held: KeyframeMetered | null = null;
+  private held: CaptureKeyframeMetered | null = null;
   private lastPeak = Number.NEGATIVE_INFINITY;
 
   constructor(readonly slot: number, readonly mode: LoudnessModelMode = "replay") {}
 
   /** The newest keyframe reading added, or null. */
-  get keyframe(): KeyframeMetered | null {
+  get keyframe(): CaptureKeyframeMetered | null {
     return this.held;
   }
 
@@ -218,7 +213,7 @@ export class LoudnessBusModel implements LoudnessSeries {
    * A KEYFRAME's reading for this bus at `time`. It applies to the samples after it; one at exactly `time` (the STATUS the
    * keyframe was written with) is patched, so a seek landing on a keyframe reads the keyframe's I.
    */
-  addKeyframe(time: number, reading: KeyframeMetered): void {
+  addKeyframe(time: number, reading: CaptureKeyframeMetered): void {
     this.held = reading;
     const n = this.time.length;
     if (this.mode === "seek" && n > 0 && this.time[n - 1] === time) this.patch(n - 1);
@@ -242,7 +237,7 @@ export class LoudnessBusModel implements LoudnessSeries {
   }
 
   private heldIncomplete(): boolean {
-    return this.stats.incomplete || (this.held !== null && (this.held.flags & KF_METERED_INCOMPLETE) !== 0);
+    return this.stats.incomplete || (this.held !== null && this.held.incomplete);
   }
 
   private sample(time: number): void {
@@ -360,7 +355,7 @@ export class LoudnessTrackModel {
   }
 
   /** A KEYFRAME's `metered` section at `time` (seconds on the axis). */
-  addKeyframe(time: number, metered: readonly KeyframeMetered[]): void {
+  addKeyframe(time: number, metered: readonly CaptureKeyframeMetered[]): void {
     for (const m of metered) this.ensure(m.slot).addKeyframe(time, m);
   }
 

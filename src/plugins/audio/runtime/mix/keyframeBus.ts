@@ -2,7 +2,10 @@
 // core's keyframe source (`core/keyframeSource.ts`, pooled rows over the session slot table) and the Babylon fallback's
 // `keyframe()` (fresh rows over the mixer's own slots). Values come from `Mixer.laneGain`, targets from the lane's
 // `Ramp.to` (a muted lane's target is 0), the duck and automation lanes' values, and the four gate bits. No allocation.
-import { KeyframeBusFlag, type KeyframeBus } from "../capture/format";
+// The bits are `capture/keyframeLayout.ts`'s (ADR 0230): a value import of `capture/format.ts` would pull the lazy recorder
+// chunk's codecs into every game.
+import type { KeyframeBus } from "../capture/format";
+import { KeyframeBusFlag } from "../capture/keyframeLayout";
 import { Lane, type Mixer } from "../../../../engine/audio/mixer";
 
 /** What the row reads of the mixer. */

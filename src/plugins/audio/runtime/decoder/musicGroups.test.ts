@@ -208,13 +208,13 @@ describe("music groups: cancel and re-target (D1b)", () => {
 
   it("a cancelled group leaves nothing behind: its holds are released once, a second cancel does nothing, and its stream ids open anew", async () => {
     const replies: DecoderReply[] = [];
-    const streams = { closeMember: vi.fn(), openMember: vi.fn(async () => true as const), prime: vi.fn() };
+    const streams = { closeMember: vi.fn(), openMember: vi.fn(async (_open: { streamId: number }) => true as const), prime: vi.fn() };
     const cache = new MusicCache();
     const release = vi.spyOn(cache, "release");
     const groups = new MusicGroups({ post: (r) => void replies.push(r), streams: streams as never, cache });
     const bytes = new ArrayBuffer(16);
     await groups.handle({ type: "primeGroup", instance: 1, group: 7, retarget: false, members: [member(1, bytes), member(2, bytes.slice(0))] });
-    expect(streams.openMember.mock.calls.map(([o]) => (o as { streamId: number }).streamId)).toEqual([1, 2]);
+    expect(streams.openMember.mock.calls.map(([o]) => o.streamId)).toEqual([1, 2]);
     // The decoder reports each close back through `closed` (StreamHost.closed), as `closeMember` does.
     streams.closeMember.mockImplementation((id: number) => groups.closed(id));
     await groups.handle({ type: "cancelGroup", group: 7 });
@@ -232,7 +232,7 @@ describe("music groups: cancel and re-target (D1b)", () => {
     // released, and the open is not taken for a cancelled one), and a cancel then closes exactly those two.
     streams.openMember.mockClear();
     await groups.handle({ type: "primeGroup", instance: 1, group: 7, retarget: false, members: [member(1, bytes.slice(0)), member(2, bytes.slice(0))] });
-    expect(streams.openMember.mock.calls.map(([o]) => (o as { streamId: number }).streamId)).toEqual([1, 2]);
+    expect(streams.openMember.mock.calls.map(([o]) => o.streamId)).toEqual([1, 2]);
     expect(streams.closeMember).not.toHaveBeenCalled();
     expect(release).toHaveBeenCalledTimes(2);
     expect(replies.filter((r) => r.type === "groupOpened").map((r) => (r as GroupOpenedMessage).members.map((m) => m.streamId))).toEqual([[1, 2]]);

@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Lane } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings, type AudioSettings } from "../../../../engine/audio/settings";
 import { createEventSink, NO_NAME } from "../../runtime/capture/events";
-import { assembleCapture, decodeKeyframe } from "../../runtime/capture/format";
+import { assembleCapture, decodeKeyframe, readCaptureKeyframe } from "../../runtime/capture/format";
 import { createRecorder } from "../../runtime/capture/recorder";
 import { decodeRecordAt, openLiveCapture } from "../../runtime/capture/reader";
 import { SAMPLE_HEADER, SAMPLE_META } from "../../runtime/capture/testSupport";
@@ -87,7 +87,7 @@ describe("a capture recorded on the core backend carries the real keyframe", () 
       expect(row.slot).toBe(debug.buses.findIndex((x) => x.name === v.bus));
       expect(row.priority).toBe(v.priority);
       expect(row.gain).toBe(Math.fround(v.gain));
-      expect(row.pitch).toBe(Math.round(v.pitch * 4096));
+      expect(readCaptureKeyframe(kf).voices.find((x) => x.id === v.id)!.pitch).toBeCloseTo(v.pitch, 3); // u4.12
     }
     for (const bus of kf.buses) {
       const name = slots[bus.slot]!.name!;

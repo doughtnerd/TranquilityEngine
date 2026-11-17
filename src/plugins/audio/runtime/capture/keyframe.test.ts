@@ -27,6 +27,7 @@ import {
   encodeNames,
   keyframeBytes,
   namesBytes,
+  NO_NAME,
   type CaptureRecordInit,
   type KeyframeBus,
   type KeyframeEvent,
@@ -277,7 +278,7 @@ describe("KEYFRAME codec (Rc1b, §5.5)", () => {
 
 describe("a seek answers the KEYFRAME by name (ADR 0227's follow-up)", () => {
   it("reads states by name, pitch as a rate, audibility 0..1, each flag as a boolean, the lanes by name and no name as null", async () => {
-    const NONE = 0xffffffff; // the wire's no-name id
+    const NONE = NO_NAME;
     const lanes = [0.5, 0.25, 1, 0.75, 0.125, 0.125, 1, 1, 0.5, 1];
     const p: KeyframePayload = {
       voices: [

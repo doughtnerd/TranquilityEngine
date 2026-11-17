@@ -10,7 +10,17 @@
 // Owners: Rc1 (header, framing, every record codec but KEYFRAME, META, INDEX, the Worker protocol); Rc1b fills the
 // KEYFRAME codec stubs tagged `Rc1b` (§5.5) without changing their signatures; Rc2 writes keyframes into the ring
 // against them.
+import {
+  KEYFRAME_AUDIBILITY_ONE, KEYFRAME_BUS_FLAGS_KNOWN, KEYFRAME_BUS_LANES, KEYFRAME_MAX_BUSES, KEYFRAME_MAX_EVENTS, KEYFRAME_MAX_METERED,
+  KEYFRAME_MAX_MUSIC, KEYFRAME_MAX_VOICES, KEYFRAME_METERED_FLAGS_KNOWN, KEYFRAME_MUSIC_STATES, KEYFRAME_PITCH_ONE, KEYFRAME_VOICE_STATES,
+  KEYFRAME_VOICE_STATE_MAX, KeyframeBusFlag, KeyframeMeteredFlag, NO_NAME, type CaptureMusicState, type CaptureVoiceState,
+} from "./keyframeLayout";
 import { Kind, MAGIC, QUANTUM_FRAMES, SCHEMA_HASH, STATUS_BUFFER_BYTES, STATUS_EVERY_QUANTA, STATUS_HEADER_BYTES, STATUS_HEADER_COLUMNS, VERSION_MAJOR, VERSION_MINOR } from "../wire.generated";
+export {
+  KEYFRAME_AUDIBILITY_ONE, KEYFRAME_BUS_LANES, KEYFRAME_MAX_BUSES, KEYFRAME_MAX_EVENTS, KEYFRAME_MAX_METERED,
+  KEYFRAME_MAX_MUSIC, KEYFRAME_MAX_VOICES, KEYFRAME_MUSIC_STATES, KEYFRAME_PITCH_ONE, KEYFRAME_VOICE_STATES,
+  KEYFRAME_VOICE_STATE_MAX, KeyframeBusFlag, KeyframeMeteredFlag, NO_NAME, type CaptureMusicState, type CaptureVoiceState,
+} from "./keyframeLayout";
 
 // --- constants (§5.1, §5.7) -------------------------------------------------------------------------------------------
 
@@ -113,12 +123,7 @@ export const EVENT_REASON_MAX: ReadonlyMap<number, number> = new Map([
   [2, 5], [3, 3], [4, 4], [5, 2], [6, 5], [7, 2], [16, 4], [17, 3],
 ]);
 
-/** The KEYFRAME section caps (§5.5; Rc1b enforces them in the codec). */
-export const KEYFRAME_MAX_VOICES = 8_192;
-export const KEYFRAME_MAX_BUSES = 32;
-export const KEYFRAME_MAX_METERED = 9;
-export const KEYFRAME_MAX_EVENTS = 1_024;
-export const KEYFRAME_MAX_MUSIC = 16;
+// The KEYFRAME section caps and `KEYFRAME_BUS_LANES` are `keyframeLayout.ts`'s (ADR 0230), re-exported at the top.
 export const KEYFRAME_VOICE_BYTES = 24;
 export const KEYFRAME_BUS_BYTES = 56;
 export const KEYFRAME_METERED_BYTES = 36;
@@ -128,8 +133,6 @@ export const KEYFRAME_MUSIC_BYTES = 40;
 export const KEYFRAME_MIX_BYTES = 17;
 /** The six sections' `u16 count`s. */
 export const KEYFRAME_COUNT_BYTES = 2;
-/** Floats per bus row: [value, target] x five lanes, then duck and automation (§5.5). */
-export const KEYFRAME_BUS_LANES = 10;
 
 // --- errors -----------------------------------------------------------------------------------------------------------
 
@@ -885,28 +888,9 @@ export interface KeyframePayload {
 //                  u32 snapshotName, f32 masterVolume, u8 hiddenMute
 // Pads and reserved bytes are written 0 and ignored on read. At every cap the payload is 215,777 B (< 256 KB).
 
-// What the row encodings mean, for the writers (`core/keyframeSource.ts`, `mix/keyframeBus.ts`, the Babylon fallback) and
-// for `readCaptureKeyframe` below, which turns a decoded payload back into named values for the reader's answers.
-
-/** The id a name field carries for no name (a music row's segment or pending target, the mix's cleared snapshot, and the EVENT args `capture/events.ts` writes). */
-export const NO_NAME = 0xffffffff;
-/** The `voice.state` codes by name, in code order (0 playing … 5 locked). */
-export const KEYFRAME_VOICE_STATES = ["playing", "virtual", "stolen", "waitingForData", "busMuted", "locked"] as const;
-export type CaptureVoiceState = (typeof KEYFRAME_VOICE_STATES)[number];
-export const KEYFRAME_VOICE_STATE_MAX = KEYFRAME_VOICE_STATES.length - 1;
-/** The `music.state` codes by name, in code order (`MusicDebugState`'s; `pending` is written as playing). */
-export const KEYFRAME_MUSIC_STATES = ["priming", "playing", "transitioning", "recovering", "ending"] as const;
-export type CaptureMusicState = (typeof KEYFRAME_MUSIC_STATES)[number];
-/** `voice.pitch` is u4.12: the playback rate times this. */
-export const KEYFRAME_PITCH_ONE = 4096;
-/** `voice.audibility` is u0.16: the 0..1 audibility times this (clamped to `0xffff`). */
-export const KEYFRAME_AUDIBILITY_ONE = 65536;
-/** The bus row's `flags` bits. */
-export const KeyframeBusFlag = { authoredMute: 1, runtimeMute: 2, monitorMute: 4, monitorSolo: 8, tombstone: 16, metered: 32 } as const;
-/** The metered row's `flags` bits. */
-export const KeyframeMeteredFlag = { paused: 1, incomplete: 2, tainted: 4, lowerBound: 8 } as const;
-const KEYFRAME_BUS_FLAGS_KNOWN = 0x3f;
-const KEYFRAME_METERED_FLAGS_KNOWN = 0xf;
+// What the row encodings mean (caps, state codes, flag bits, NO_NAME, the quantising steps) is `keyframeLayout.ts` (ADR 0230):
+// its writers (`core/keyframeSource.ts`, `mix/keyframeBus.ts`, the Babylon fallback) are in every game, so they import it,
+// not this lazy chunk. `readCaptureKeyframe` below turns a decoded payload back into named values; it is the only decoder.
 
 /** Each section's cap and row size, in wire order (mix last, exactly one). */
 const KEYFRAME_SECTIONS: readonly { name: string; cap: number; row: number }[] = [
@@ -1246,7 +1230,21 @@ export interface CaptureKeyframe {
 const named = (id: number): number | null => (id === NO_NAME ? null : id);
 const lane = (l: readonly number[], k: number): CaptureLane => ({ value: l[2 * k]!, target: l[2 * k + 1]! });
 
-/** The inverse of the row encodings above, over a payload `decodeKeyframe` already checked. */
+/**
+ * One metered row by name: `readCaptureKeyframe`'s, for a reader that wants only the metered section (the Worker's loudness
+ * lane reads one per KEYFRAME and would otherwise name every voice row).
+ */
+export function readKeyframeMetered(m: KeyframeMetered): CaptureKeyframeMetered {
+  return {
+    slot: m.slot,
+    paused: (m.flags & KeyframeMeteredFlag.paused) !== 0, incomplete: (m.flags & KeyframeMeteredFlag.incomplete) !== 0,
+    tainted: (m.flags & KeyframeMeteredFlag.tainted) !== 0, lowerBound: (m.flags & KeyframeMeteredFlag.lowerBound) !== 0,
+    momentary: m.momentary, shortTerm: m.shortTerm, integrated: m.integrated, lra: m.lra, maxTruePeak: m.maxTruePeak,
+    maxMomentary: m.maxMomentary, elapsed: m.elapsed,
+  };
+}
+
+/** The inverse of the row encodings (`keyframeLayout.ts`), over a payload `decodeKeyframe` already checked. */
 export function readCaptureKeyframe(p: KeyframePayload): CaptureKeyframe {
   return {
     voices: p.voices.map((v) => ({
@@ -1261,13 +1259,7 @@ export function readCaptureKeyframe(p: KeyframePayload): CaptureKeyframe {
       monitorMute: (b.flags & KeyframeBusFlag.monitorMute) !== 0, monitorSolo: (b.flags & KeyframeBusFlag.monitorSolo) !== 0,
       tombstone: (b.flags & KeyframeBusFlag.tombstone) !== 0, metered: (b.flags & KeyframeBusFlag.metered) !== 0,
     })),
-    metered: p.metered.map((m) => ({
-      slot: m.slot,
-      paused: (m.flags & KeyframeMeteredFlag.paused) !== 0, incomplete: (m.flags & KeyframeMeteredFlag.incomplete) !== 0,
-      tainted: (m.flags & KeyframeMeteredFlag.tainted) !== 0, lowerBound: (m.flags & KeyframeMeteredFlag.lowerBound) !== 0,
-      momentary: m.momentary, shortTerm: m.shortTerm, integrated: m.integrated, lra: m.lra, maxTruePeak: m.maxTruePeak,
-      maxMomentary: m.maxMomentary, elapsed: m.elapsed,
-    })),
+    metered: p.metered.map(readKeyframeMetered),
     events: p.events.map((e) => ({ id: e.id, asset: e.asset, voices: e.voices, paramsHash: e.paramsHash })),
     music: p.music.map((m) => ({
       id: m.id, segment: named(m.segment), state: KEYFRAME_MUSIC_STATES[m.state] ?? null, pass: m.pass, bar: m.bar, beat: m.beat,
