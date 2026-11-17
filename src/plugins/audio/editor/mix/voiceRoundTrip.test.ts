@@ -58,7 +58,7 @@ describe("voices through the real EventSink, a recorder ring and the reader", ()
     }, { [MUSIC]: "Music", [SFX]: "SFX" });
     const state = await source.seek(2304 / SAMPLE_RATE);
     const replay = reconstructVoices(state, nameLookup(source.summary.names));
-    const rows = replay.rows.map((r) => ({ id: r.id, clip: r.clipName, bus: r.busName, slot: r.slot, state: r.stateName, reason: r.reasonText, thief: r.thief, gain: r.gain }));
+    const rows = replay.rows.map((r) => ({ id: r.id, clip: r.clipName, bus: r.busName, slot: r.slot, state: r.state, reason: r.reasonText, thief: r.thief, gain: r.gain }));
     expect(rows.sort((a, b) => a.id - b.id)).toEqual([
       { id: 1, clip: "jump.ogg", bus: "Music", slot: MUSIC, state: "playing", reason: "", thief: null, gain: 0.5 },
       { id: 3, clip: "step.ogg", bus: "SFX", slot: SFX, state: "virtual", reason: "below audibility", thief: null, gain: 1 },

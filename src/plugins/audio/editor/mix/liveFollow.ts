@@ -7,7 +7,10 @@
 //
 // The 66 ms is a UI cadence: the throttle is a window opened by the first change, closed by one update, driven by an
 // injectable scheduler. Segments are never throttled; they go to the Worker the moment the recorder posts them.
-import { CaptureError, type CaptureWorkerRequest } from "../../runtime/capture/format";
+// The recorder's live-ring messages (`CaptureWorkerRequest`) are forwarded to the Worker unread: capture plumbing, so the
+// one import from the wire module.
+import type { CaptureWorkerRequest } from "../../runtime/capture/format";
+import { CaptureError } from "../../runtime/capture/reader";
 import { CaptureSource, type CaptureSourceOptions, type ProfileSource } from "./profilerSource";
 
 /** The least time between two model updates, milliseconds (§7). */

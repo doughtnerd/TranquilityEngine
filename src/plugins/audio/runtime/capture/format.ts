@@ -885,8 +885,26 @@ export interface KeyframePayload {
 //                  u32 snapshotName, f32 masterVolume, u8 hiddenMute
 // Pads and reserved bytes are written 0 and ignored on read. At every cap the payload is 215,777 B (< 256 KB).
 
-/** The `voice.state` codes (0 playing … 5 locked). */
-export const KEYFRAME_VOICE_STATE_MAX = 5;
+// What the row encodings mean, for the writers (`core/keyframeSource.ts`, `mix/keyframeBus.ts`, the Babylon fallback) and
+// for `readCaptureKeyframe` below, which turns a decoded payload back into named values for the reader's answers.
+
+/** The id a name field carries for no name (a music row's segment or pending target, the mix's cleared snapshot, and the EVENT args `capture/events.ts` writes). */
+export const NO_NAME = 0xffffffff;
+/** The `voice.state` codes by name, in code order (0 playing … 5 locked). */
+export const KEYFRAME_VOICE_STATES = ["playing", "virtual", "stolen", "waitingForData", "busMuted", "locked"] as const;
+export type CaptureVoiceState = (typeof KEYFRAME_VOICE_STATES)[number];
+export const KEYFRAME_VOICE_STATE_MAX = KEYFRAME_VOICE_STATES.length - 1;
+/** The `music.state` codes by name, in code order (`MusicDebugState`'s; `pending` is written as playing). */
+export const KEYFRAME_MUSIC_STATES = ["priming", "playing", "transitioning", "recovering", "ending"] as const;
+export type CaptureMusicState = (typeof KEYFRAME_MUSIC_STATES)[number];
+/** `voice.pitch` is u4.12: the playback rate times this. */
+export const KEYFRAME_PITCH_ONE = 4096;
+/** `voice.audibility` is u0.16: the 0..1 audibility times this (clamped to `0xffff`). */
+export const KEYFRAME_AUDIBILITY_ONE = 65536;
+/** The bus row's `flags` bits. */
+export const KeyframeBusFlag = { authoredMute: 1, runtimeMute: 2, monitorMute: 4, monitorSolo: 8, tombstone: 16, metered: 32 } as const;
+/** The metered row's `flags` bits. */
+export const KeyframeMeteredFlag = { paused: 1, incomplete: 2, tainted: 4, lowerBound: 8 } as const;
 const KEYFRAME_BUS_FLAGS_KNOWN = 0x3f;
 const KEYFRAME_METERED_FLAGS_KNOWN = 0xf;
 
@@ -1123,6 +1141,143 @@ export function decodeKeyframe(view: DataView, off: number, len: number, base = 
     masterVolume: notNaN(view.getFloat32(at + 12, true), base + at + 12, "KEYFRAME mix masterVolume"), hiddenMute: view.getUint8(at + 16),
   };
   return { voices, buses, metered, events, music, mix };
+}
+
+// --- KEYFRAME read back by name (ADR 0227's follow-up) -------------------------------------------------------------------
+
+/** A lane's value now and where it is heading. */
+export interface CaptureLane {
+  value: number;
+  target: number;
+}
+
+/** A voice row by name: the state as its name, pitch as a playback rate, audibility 0..1. */
+export interface CaptureKeyframeVoice {
+  id: number;
+  clip: number;
+  slot: number;
+  state: CaptureVoiceState;
+  priority: number;
+  /** §5.6's code for the state (0 none), as EVENT `reason`s carry it. */
+  reason: number;
+  gain: number;
+  /** Playback rate (1 is the clip's own). */
+  pitch: number;
+  /** 0..1. */
+  audibility: number;
+  playheadFrames: number;
+}
+
+/** A bus row by name: the five main-written lanes, the core-reported `duck` and `automation` values, and each flag as a boolean. */
+export interface CaptureKeyframeBus {
+  slot: number;
+  gen: number;
+  lanes: { authored: CaptureLane; runtime: CaptureLane; snapshot: CaptureLane; monitor: CaptureLane; dip: CaptureLane };
+  duck: number;
+  automation: number;
+  authoredMute: boolean;
+  runtimeMute: boolean;
+  monitorMute: boolean;
+  monitorSolo: boolean;
+  /** A removed bus kept silent in its slot. */
+  tombstone: boolean;
+  metered: boolean;
+}
+
+/** A metered bus's readings, with its flags as booleans. */
+export interface CaptureKeyframeMetered {
+  slot: number;
+  paused: boolean;
+  incomplete: boolean;
+  tainted: boolean;
+  /** `maxTruePeak` is a lower bound. */
+  lowerBound: boolean;
+  momentary: number;
+  shortTerm: number;
+  integrated: number;
+  lra: number;
+  maxTruePeak: number;
+  maxMomentary: number;
+  elapsed: number;
+}
+
+/** An event instance (the wire's `state` byte is reserved and always 0, so it is not read). */
+export interface CaptureKeyframeEvent {
+  id: number;
+  asset: number;
+  voices: number;
+  paramsHash: number;
+}
+
+/** A music instance: names as ids or null, the state by name (null for a code this build doesn't know), a pending transition or null. */
+export interface CaptureKeyframeMusic {
+  id: number;
+  segment: number | null;
+  state: CaptureMusicState | null;
+  pass: number;
+  bar: number;
+  beat: number;
+  tick: number;
+  tempo: number;
+  pending: { to: number; seconds: number } | null;
+}
+
+/** The mix section. (The wire's `loudnessPausedMask` repeats the metered rows' `paused`, so it is not read.) */
+export interface CaptureKeyframeMix {
+  slotTableVersion: number;
+  monitorActive: boolean;
+  targetIndex: number;
+  /** The snapshot in force, by its `snapshots` id; null for none. */
+  snapshot: number | null;
+  masterVolume: number;
+  hiddenMute: boolean;
+}
+
+/** A KEYFRAME by name: what the reader answers for the Profiler (`CaptureSeekState.keyframe`). */
+export interface CaptureKeyframe {
+  voices: readonly CaptureKeyframeVoice[];
+  buses: readonly CaptureKeyframeBus[];
+  metered: readonly CaptureKeyframeMetered[];
+  events: readonly CaptureKeyframeEvent[];
+  music: readonly CaptureKeyframeMusic[];
+  mix: CaptureKeyframeMix;
+}
+
+const named = (id: number): number | null => (id === NO_NAME ? null : id);
+const lane = (l: readonly number[], k: number): CaptureLane => ({ value: l[2 * k]!, target: l[2 * k + 1]! });
+
+/** The inverse of the row encodings above, over a payload `decodeKeyframe` already checked. */
+export function readCaptureKeyframe(p: KeyframePayload): CaptureKeyframe {
+  return {
+    voices: p.voices.map((v) => ({
+      id: v.id, clip: v.clip, slot: v.slot, state: KEYFRAME_VOICE_STATES[v.state]!, priority: v.priority, reason: v.reason, gain: v.gain,
+      pitch: v.pitch / KEYFRAME_PITCH_ONE, audibility: v.audibility / KEYFRAME_AUDIBILITY_ONE, playheadFrames: v.playheadFrames,
+    })),
+    buses: p.buses.map((b) => ({
+      slot: b.slot, gen: b.gen,
+      lanes: { authored: lane(b.lanes, 0), runtime: lane(b.lanes, 1), snapshot: lane(b.lanes, 2), monitor: lane(b.lanes, 3), dip: lane(b.lanes, 4) },
+      duck: b.duck, automation: b.automation,
+      authoredMute: (b.flags & KeyframeBusFlag.authoredMute) !== 0, runtimeMute: (b.flags & KeyframeBusFlag.runtimeMute) !== 0,
+      monitorMute: (b.flags & KeyframeBusFlag.monitorMute) !== 0, monitorSolo: (b.flags & KeyframeBusFlag.monitorSolo) !== 0,
+      tombstone: (b.flags & KeyframeBusFlag.tombstone) !== 0, metered: (b.flags & KeyframeBusFlag.metered) !== 0,
+    })),
+    metered: p.metered.map((m) => ({
+      slot: m.slot,
+      paused: (m.flags & KeyframeMeteredFlag.paused) !== 0, incomplete: (m.flags & KeyframeMeteredFlag.incomplete) !== 0,
+      tainted: (m.flags & KeyframeMeteredFlag.tainted) !== 0, lowerBound: (m.flags & KeyframeMeteredFlag.lowerBound) !== 0,
+      momentary: m.momentary, shortTerm: m.shortTerm, integrated: m.integrated, lra: m.lra, maxTruePeak: m.maxTruePeak,
+      maxMomentary: m.maxMomentary, elapsed: m.elapsed,
+    })),
+    events: p.events.map((e) => ({ id: e.id, asset: e.asset, voices: e.voices, paramsHash: e.paramsHash })),
+    music: p.music.map((m) => ({
+      id: m.id, segment: named(m.segment), state: KEYFRAME_MUSIC_STATES[m.state] ?? null, pass: m.pass, bar: m.bar, beat: m.beat,
+      tick: m.tick, tempo: m.tempo, pending: m.pendingTo === NO_NAME ? null : { to: m.pendingTo, seconds: m.pendingTimeSec },
+    })),
+    mix: {
+      slotTableVersion: p.mix.slotTableVersion, monitorActive: p.mix.monitorActive !== 0, targetIndex: p.mix.targetIndex,
+      snapshot: named(p.mix.snapshotName), masterVolume: p.mix.masterVolume, hiddenMute: p.mix.hiddenMute !== 0,
+    },
+  };
 }
 
 // --- a whole record, and a whole file (writers and tests) -------------------------------------------------------------

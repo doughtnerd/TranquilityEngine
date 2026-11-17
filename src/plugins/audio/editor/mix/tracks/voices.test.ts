@@ -56,15 +56,15 @@ describe("the voices track", () => {
       const state = await source.seek(seconds(kf) + source.startSeconds);
       const replay = reconstructVoices(state, ctx.names);
       expect(replay.fromKeyframe).toBe(true);
-      const byState = (rows: readonly { state: number }[], s: number): number => rows.filter((r) => r.state === s).length;
+      const byState = (rows: readonly { state: string }[], s: string): number => rows.filter((r) => r.state === s).length;
       const keyRows = state.keyframe!.voices;
       const t = seconds(kf) - source.startSeconds;
       // The voice table and the keyframe's own rows agree with each other and with the track.
-      expect(byState(replay.rows, 0)).toBe(byState(keyRows, 0));
-      expect(byState(replay.rows, 1)).toBe(byState(keyRows, 1));
-      expect(at(0, t), `playing at keyframe ${kf}`).toBe(byState(replay.rows, 0));
-      expect(at(1, t), `virtual at keyframe ${kf}`).toBe(byState(replay.rows, 1));
-      checked += byState(replay.rows, 0) + byState(replay.rows, 1);
+      expect(byState(replay.rows, "playing")).toBe(byState(keyRows, "playing"));
+      expect(byState(replay.rows, "virtual")).toBe(byState(keyRows, "virtual"));
+      expect(at(0, t), `playing at keyframe ${kf}`).toBe(byState(replay.rows, "playing"));
+      expect(at(1, t), `virtual at keyframe ${kf}`).toBe(byState(replay.rows, "virtual"));
+      checked += byState(replay.rows, "playing") + byState(replay.rows, "virtual");
     }
     expect(checked).toBeGreaterThan(0);
     source.close();

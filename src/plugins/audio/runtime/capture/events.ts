@@ -33,7 +33,7 @@ import type {
   ProfileSink, ProfileStealReason, ProfileStopReason, ProfileVirtualReason,
 } from "../mix/profileSink";
 import {
-  CAPTURE_MAX_NAMES, CAPTURE_NAME_MAX_BYTES, EpochReason, EventKind, GapReason, NAME_TABLES, RECORD_FLAG_DEFERRED, RecordType,
+  CAPTURE_MAX_NAMES, CAPTURE_NAME_MAX_BYTES, EpochReason, EventKind, GapReason, NAME_TABLES, NO_NAME, RECORD_FLAG_DEFERRED, RecordType,
   cutUtf8, encodeEvent, encodeNames, eventBytes, namesBytes, type EventPayload, type NameTable,
 } from "./format";
 import type { EpochPayload } from "./format";
@@ -55,8 +55,8 @@ export interface EventSinkRecorder {
   marker(text: string, frame: number): void;
 }
 
-/** The id an absent name or instance carries (`null` instance, `null` bus or `from`, a name the ring couldn't take). */
-export const NO_NAME = 0xffffffff;
+/** The id an absent name or instance carries (`null` instance, `null` bus or `from`, a name the ring couldn't take); `format.ts` declares it, beside the KEYFRAME rows that use it too. */
+export { NO_NAME };
 
 /** EVENT `reason` codes (§5.6), by the sink's reason strings. */
 export const STOP_REASON: Readonly<Record<ProfileStopReason, number>> = { ended: 1, stopped: 2, faded: 3, worldReleased: 4, failed: 5 };

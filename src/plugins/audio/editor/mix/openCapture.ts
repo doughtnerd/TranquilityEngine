@@ -5,20 +5,14 @@
 // no menu hook to register and the ground rules forbid a menu entry) both call `profilerSlots.onDropFile`, which
 // `installOpenCapture` fills with `routeCaptureFile`. That reads nothing it will refuse: a name that isn't `.mycap`, or a
 // file too big to be a capture, is turned away with a banner before its bytes are read; everything else goes to the
-// controller's `openBlob`, whose decode (the Worker, with the security caps in `capture/format.ts`) produces the banners
-// for a truncated, foreign, bomb or other-wire file. Nothing here raises a decode cap.
-import { CAPTURE_HEADER_BYTES, CAPTURE_MAX_UNCOMPRESSED_BYTES, CAPTURE_META_MAX_BYTES } from "../../runtime/capture/format";
+// controller's `openBlob`, whose decode (the Worker, with the security caps in `capture/format.ts`; the file-size bound
+// is the reader's `CAPTURE_MAX_FILE_BYTES`) produces the banners for a truncated, foreign, bomb or other-wire file.
+// Nothing here raises a decode cap.
+import { CAPTURE_MAX_FILE_BYTES } from "../../runtime/capture/reader";
 import type { ProfilerController, ProfilerSlots } from "./ProfilerPanel";
 
 /** The file extension a capture is saved with (`capture/save.ts`). */
 export const CAPTURE_EXTENSION = ".mycap";
-
-/**
- * The largest file the route reads: the header, a META chunk and an uncompressed payload at its cap, which a stored
- * (uncompressed) capture can reach and deflate output never exceeds by more than the same slack. Past it the file can't be
- * a capture the decoder would accept, so it is refused unread rather than loaded into memory first.
- */
-const OPEN_MAX_FILE_BYTES = CAPTURE_HEADER_BYTES + CAPTURE_META_MAX_BYTES + CAPTURE_MAX_UNCOMPRESSED_BYTES;
 
 /** What the route needs of a file (a `File`, or a Tauri-read stand-in). */
 export interface CaptureFileLike {
@@ -41,7 +35,7 @@ const isCaptureFileName = (name: string): boolean => {
 /** The refusal texts (the tests assert them). */
 export const OPEN_REFUSALS = {
   notCapture: (name: string): string => `${name} is not a capture file; the Profiler opens ${CAPTURE_EXTENSION} files recorded by Audio.capture.`,
-  tooBig: (name: string, size: number): string => `${name} is ${size} B, more than any capture this build can open (${OPEN_MAX_FILE_BYTES} B).`,
+  tooBig: (name: string, size: number): string => `${name} is ${size} B, more than any capture this build can open (${CAPTURE_MAX_FILE_BYTES} B).`,
 } as const;
 
 /** Opens `file` through the controller, or refuses it with a banner. Resolves true when a capture is now open. */
@@ -50,7 +44,7 @@ async function routeCaptureFile(controller: CaptureOpener, file: CaptureFileLike
     controller.refuseFile(file.name, "notCapture", OPEN_REFUSALS.notCapture(file.name));
     return false;
   }
-  if (file.size !== undefined && file.size > OPEN_MAX_FILE_BYTES) {
+  if (file.size !== undefined && file.size > CAPTURE_MAX_FILE_BYTES) {
     controller.refuseFile(file.name, "tooLarge", OPEN_REFUSALS.tooBig(file.name, file.size));
     return false;
   }

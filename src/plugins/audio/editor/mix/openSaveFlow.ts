@@ -9,7 +9,7 @@
 //      the controller's view.
 // A cancelled open leaves the previous capture open (the controller's rule); this model only says so. Saving has no
 // progress from the recorder (`capture/save.ts` reports none), so a save is running without a fraction.
-import { CAPTURE_ERROR_CODES, type CaptureErrorCode } from "../../runtime/capture/format";
+import { CAPTURE_ERROR_CODES, type CaptureErrorCode } from "../../runtime/capture/reader";
 
 /** Codes the open route adds beside the reader's (`openCapture.ts`, the controller): not `.mycap`, and any other failure. */
 export type OpenRouteCode = "notCapture" | "open";

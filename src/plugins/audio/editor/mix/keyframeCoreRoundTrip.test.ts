@@ -1,7 +1,9 @@
 // ADR 0171/0172 (M5, task G7b; api-and-models §5.5, §7): a capture recorded through the real recorder on the core backend
 // (the real wasm core on the loopback host, assembled as production assembles it: ADR 0221's `loopbackAudio`), with the backend's own keyframe source wired the way `capture.ts` wires it. The
 // keyframe in the ring carries the voice table and the mixer's bus lanes; opened as a live capture through the Worker handler,
-// the profiler's `reconstructVoices` at the keyframe gives the rows the table has. Time is the loopback's rendered frames.
+// the profiler's `reconstructVoices` at the keyframe gives the rows the table has, and the seek's keyframe reads by name
+// (ADR 0227's follow-up): state names, pitch and audibility as numbers, each bus flag as the mixer holds it, the snapshot
+// by id. Time is the loopback's rendered frames.
 import { afterEach, describe, expect, it } from "vitest";
 import { Lane } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings, type AudioSettings } from "../../../../engine/audio/settings";
@@ -101,10 +103,79 @@ describe("a capture recorded on the core backend carries the real keyframe", () 
     expect(state.keyframe).not.toBeNull();
     const replay = reconstructVoices(state, nameLookup(source.summary.names));
     expect(replay.fromKeyframe).toBe(true);
-    const rows = replay.rows.map((x) => ({ id: x.id, clip: x.clipName, bus: x.busName, state: x.stateName, priority: x.priority, gain: x.gain })).sort((p, q) => p.id - q.id);
+    const rows = replay.rows.map((x) => ({ id: x.id, clip: x.clipName, bus: x.busName, state: x.state, priority: x.priority, gain: x.gain })).sort((p, q) => p.id - q.id);
     const table = debug.voices.map((v) => ({ id: v.id, clip: v.clip, bus: v.bus, state: v.state, priority: v.priority, gain: Math.fround(v.gain) })).sort((p, q) => p.id - q.id);
     expect(rows).toEqual(table);
     expect(rows.map((x) => x.id)).toEqual([a.id, b.id, c.id].sort((p, q) => p - q));
+    source.close();
+    rec.detach();
+    backend.dispose();
+  });
+
+  it("the seek answers the keyframe by name: pitch as a rate, audibility 0..1, the bus flags as booleans, the snapshot by id", async (ctx) => {
+    const settings = defaultAudioSettings();
+    settings.snapshots = [{ name: "Hush", volumes: { Music: 0.3 }, lowpass: {} }];
+    settings.buses.find((x) => x.name === "UI")!.mute = true; // an authored mute
+    const r = await rig(settings);
+    if (!r) return ctx.skip();
+    const { backend, mixer } = r;
+    const rec = createRecorder({ ringBytes: 8 * MiB });
+    const sink = createEventSink(rec, { epochContext: () => ({ sampleRate: RATE, limiterLatencyFrames: 0, outputLatencyFrames: 0, timeOffset: 0, frame: backend.debug().core.currentFrame as number }) });
+    rec.setKeyframeSource(() => backend.keyframe((table, name) => sink.name(table, name), NO_NAME));
+    sink.epoch("start");
+    rec.attach(backend);
+    backend.setProfileSink(sink);
+
+    backend.play(req("a.wav", { priority: 50, volume: 0.5 }));
+    backend.play(req("c.wav", { priority: 90, bus: "Voice", pitch: 2 }));
+    mixer.bus("Music").mute = true; // a runtime mute
+    mixer.setMonitor("SFX", { solo: true });
+    mixer.snapshot("Hush", 0);
+    await r.step(20);
+    rec.requestKeyframe();
+    await r.step(2);
+    const frame = rec.newestStatusFrame;
+    const debug = backend.debug();
+    const slots = backend.buses.slots.slots;
+    const metaBuses: Record<number, string> = {};
+    slots.forEach((s, i) => { if (s.name !== null && s.state !== "free") metaBuses[i] = s.name; });
+    const headBytes = assembleCapture({ ...SAMPLE_HEADER, sampleRate: RATE }, { ...SAMPLE_META, names: { ...SAMPLE_META.names, clips: {}, buses: metaBuses } }, []);
+
+    const source = await CaptureSource.openLive(headBytes.slice().buffer, { worker: inProcessWorker() });
+    await source.appendSegment(rec.takeSpan().bytes.slice().buffer);
+    const kf = (await source.seek(frame / RATE)).keyframe!;
+    expect(kf).not.toBeNull();
+
+    // Voices: the table's state name, pitch and audibility (u4.12 and u0.16 on the wire, so within one step of each).
+    expect(kf.voices).toHaveLength(2);
+    for (const v of debug.voices) {
+      const row = kf.voices.find((x) => x.id === v.id)!;
+      expect(row.state).toBe(v.state);
+      expect(Math.abs(row.pitch - v.pitch)).toBeLessThanOrEqual(1 / 4096);
+      expect(Math.abs(row.audibility - v.audibility)).toBeLessThanOrEqual(1 / 65536);
+      expect(row.audibility).toBeGreaterThanOrEqual(0);
+      expect(row.audibility).toBeLessThanOrEqual(1);
+    }
+    expect(kf.voices.find((x) => x.slot === slots.findIndex((s) => s.name === "Voice"))!.pitch).toBe(2);
+
+    // Buses: each flag by name, as the mixer holds it.
+    const byName = new Map(kf.buses.map((x) => [slots[x.slot]!.name!, x]));
+    for (const [name, row] of byName) {
+      const lanes = mixer._lanes(name)!;
+      expect({ name, authoredMute: row.authoredMute, runtimeMute: row.runtimeMute, monitorMute: row.monitorMute, monitorSolo: row.monitorSolo, tombstone: row.tombstone })
+        .toEqual({ name, authoredMute: lanes.authoredMute, runtimeMute: lanes.runtimeMute, monitorMute: lanes.monitorMute, monitorSolo: lanes.monitorSolo, tombstone: false });
+      expect(row.lanes.snapshot.value).toBe(Math.fround(mixer.laneGain(name, Lane.snapshot)));
+    }
+    expect(byName.get("UI")!.authoredMute).toBe(true);
+    expect(byName.get("Music")!.runtimeMute).toBe(true);
+    expect(byName.get("SFX")!.monitorSolo).toBe(true);
+    expect(byName.get("Voice")).toMatchObject({ authoredMute: false, runtimeMute: false, monitorMute: false, monitorSolo: false });
+
+    // The mix: the snapshot by its NAMES id, the monitor as a boolean.
+    expect(kf.mix.snapshot).not.toBeNull();
+    expect(new Map(source.summary.names.snapshots).get(kf.mix.snapshot!)).toBe("Hush");
+    expect(kf.mix.monitorActive).toBe(true);
+    expect(kf.mix.hiddenMute).toBe(false);
     source.close();
     rec.detach();
     backend.dispose();
