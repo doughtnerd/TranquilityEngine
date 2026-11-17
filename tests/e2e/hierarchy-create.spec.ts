@@ -76,6 +76,26 @@ test("copy, paste, duplicate and cut nodes with the keyboard and the menu", asyn
   expect(await row(page, "ceiling").evaluate((el) => parseFloat((el as HTMLElement).style.paddingLeft))).toBeGreaterThan(4);
 });
 
+test("Ctrl/Cmd+V pastes nodes another editor put on the system clipboard (ADR 0226)", async ({ page, context, browserName }) => {
+  test.skip(browserName !== "chromium", "clipboard permissions are Chromium's");
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await openEditor(page);
+  await row(page, "bird").click();
+  await page.keyboard.press("ControlOrMeta+c"); // this editor's own copy, older than the text below
+  // Another editor process copies a node: its clipboard text lands on the system clipboard.
+  const text = JSON.stringify({ format: "myco.nodes@1", source: "scenes/far.scene.json", subtrees: [[{ id: "lamp", name: "Lamp" }]] });
+  await page.evaluate((t) => navigator.clipboard.writeText(t), text);
+  await row(page, "bird").click();
+  await page.keyboard.press("ControlOrMeta+v");
+  await expect(row(page, "lamp").locator(".name")).toHaveText("Lamp");
+  expect(await selected(page)).toEqual(["lamp"]);
+  await expect(row(page, "bird-2")).toHaveCount(0);
+  // Text that isn't nodes leaves the editor's clipboard (now the lamp) to paste.
+  await page.evaluate(() => navigator.clipboard.writeText("just words"));
+  await page.keyboard.press("ControlOrMeta+v");
+  await expect(row(page, "lamp-2").locator(".name")).toHaveText("Lamp (1)");
+});
+
 test("prefab instances copy with their overrides", async ({ page }) => {
   await openEditor(page);
   await row(page, "bg-b").click({ button: "right" });

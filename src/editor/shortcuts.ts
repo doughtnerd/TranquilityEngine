@@ -1,7 +1,8 @@
 // Editor keyboard shortcuts. Text fields keep their own keys (and undo), so shortcuts skip them.
 import { activeHistory, redo, stepBack, stepForward, undo } from "./activeHistory";
 import { deleteSelected } from "./deleteSelection";
-import { copySelection, cutSelection, duplicateSelection, pasteClipboard } from "./hierarchyActions";
+import { expectPaste, takePaste } from "./clipboard";
+import { copySelection, cutSelection, duplicateSelection, pasteClipboardText } from "./hierarchyActions";
 import { closeScene, save, togglePlaying } from "./session";
 import { stepFrame, togglePause } from "./playDebug";
 import { openScene, pickTool, snapping, type Tool } from "./state";
@@ -100,10 +101,15 @@ export function installShortcuts(target: Window = window): () => void {
     }
     if (CLIPBOARD_SHORTCUTS.includes(action)) {
       if ((e.target as Element | null)?.closest?.(".asset-browser, .dialog") || dialogOpenAnywhere()) return;
+      if (action === "paste" || action === "paste-child") {
+        // Not prevented: the browser's `paste` event carries the system clipboard's text (ADR 0226).
+        const asChild = action === "paste-child";
+        expectPaste((text) => void pasteClipboardText(text, asChild));
+        return;
+      }
       e.preventDefault(); // Ctrl+D would bookmark the page
       if (action === "copy") copySelection();
       else if (action === "cut") cutSelection();
-      else if (action === "paste" || action === "paste-child") pasteClipboard(action === "paste-child");
       else duplicateSelection();
       return;
     }
@@ -123,10 +129,19 @@ export function installShortcuts(target: Window = window): () => void {
     if (e.key === "Control" || e.key === "Meta") snapping.value = false;
   };
   const onBlur = () => (snapping.value = false);
+  // A paste the keys above are waiting for, or one from the Edit menu of the browser or the desktop window: nodes,
+  // where the node shortcuts would act (text fields, the Assets panel, dialogs and the graph panels paste their own).
+  const onPaste = (e: Event) => {
+    const at = e.target as Element | null;
+    if (isEditable(at) || at?.closest?.(".monaco-editor, .shader-graph, .particle-graph, .asset-browser, .dialog") || dialogOpenAnywhere()) return;
+    takePaste(e as ClipboardEvent, (text) => void pasteClipboardText(text));
+  };
   target.addEventListener("keydown", onKeyDown);
   target.addEventListener("keyup", onKeyUp);
   target.addEventListener("blur", onBlur);
+  target.addEventListener("paste", onPaste);
   return () => {
+    target.removeEventListener("paste", onPaste);
     target.removeEventListener("keydown", onKeyDown);
     target.removeEventListener("keyup", onKeyUp);
     target.removeEventListener("blur", onBlur);

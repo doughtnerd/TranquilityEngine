@@ -10,7 +10,7 @@ import { expandParticleGraph, outputTypeResolved, portRateResolved } from "../..
 import { compileParticleGraph } from "../../../../../engine/scene/particleCompile";
 import type { ContextKind, GraphGroup, GraphNode, GraphProblem, ParticleGraph, Vec2 } from "../../../../../engine/scene/particleGraph";
 import type { PortType } from "../../../../../engine/scene/particleNodes";
-import { usePanelHistory, type UndoHistory, editor, NO_DRAG, NO_PAN, NoteView, NodeSearchPopup, Minimap, SelectionBox, isFieldTarget, px, startBoxSelect, startConnection, startPointerDrag, toGraph, useGraphCanvas, writeGraphClipboard, type CanvasNode, type DraftWire, type Point, type EditorProject } from "../../../../../editor/sdk";
+import { usePanelHistory, type UndoHistory, editor, NO_DRAG, NO_PAN, NoteView, NodeSearchPopup, Minimap, SelectionBox, isFieldTarget, px, startBoxSelect, startConnection, startPointerDrag, toGraph, useGraphCanvas, clipboardForPaste, expectPaste, takePaste, writeClipboard, type CanvasNode, type DraftWire, type Point, type EditorProject } from "../../../../../editor/sdk";
 import { createParticleSubgraph, particleDocument, readEffect } from "../../particleAssets";
 import { ASSET_INPUT, BLOCK_CONTEXTS, addPseudoNode, assetMeta, canMoveToAsset, editorNodeDef, extractSubgraph, isPseudo, setAssetMeta, wireRulesGraph } from "../../particleGraph/assetDocs";
 import {
@@ -27,6 +27,7 @@ import {
   groupItems,
   moveBlock,
   moveItems,
+  particleClipboardFromText,
   pasteItems,
   removeBlock,
   removeItems,
@@ -523,10 +524,13 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
     }
   };
 
-  const pasteHere = () => {
-    if (!clipboard || readOnly) return;
+  /** Paste items copied in any effect: the system clipboard's `text` (a paste event's) when another editor process copied them since, else this editor's (ADR 0226). */
+  const pasteHere = (text: string | null) => {
+    const clip = clipboardForPaste(text, clipboard, particleClipboardFromText);
+    if (!clip || readOnly) return;
+    clipboard = clip;
     const at = toGraph(canvas.pointer.current ?? paneCenter(), canvas.viewRef.current);
-    const made = pasteItems(live.current.graph, clipboard, [at.x, at.y]);
+    const made = pasteItems(live.current.graph, clip, [at.x, at.y]);
     commit(made.graph);
     setSelection(new Set(made.ids));
   };
@@ -578,6 +582,12 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
     if (n) frameAll([n]);
   };
 
+  const onPaste = (e: ClipboardEvent) => {
+    if (isFieldTarget(e.target)) return;
+    e.stopPropagation();
+    takePaste(e, pasteHere);
+  };
+
   const onKeyDown = (e: KeyboardEvent) => {
     if (isFieldTarget(e.target)) return;
     const key = (e.key ?? "").toLowerCase();
@@ -593,14 +603,18 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
       const clip = copyItems(live.current.graph, selection);
       if (clip) {
         clipboard = clip;
-        writeGraphClipboard(clip);
+        writeClipboard(clip);
         if (key === "x") {
           commit(removeItems(live.current.graph, selection));
           setSelection(new Set());
         }
       }
-    } else if (mod && key === "v") pasteHere();
-    else if (mod && key === "g") groupSelection();
+    } else if (mod && key === "v") {
+      // Not prevented, so the browser fires `paste` with the system clipboard's text (onPaste).
+      expectPaste(pasteHere);
+      e.stopPropagation();
+      return;
+    } else if (mod && key === "g") groupSelection();
     else if (!mod && (key === "delete" || key === "backspace")) deleteSelection();
     else if (!mod && key === " ") openSearchAtPointer();
     else if (!mod && key === "f") frameAll();
@@ -689,6 +703,7 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
         ref={root}
         tabIndex={0}
         onKeyDown={onKeyDown}
+        onPaste={onPaste}
         onPointerDownCapture={startGesture}
         onInputCapture={(e) => {
           if (isColorInput(e.target)) gesture.current.color = true;

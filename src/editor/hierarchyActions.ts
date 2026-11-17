@@ -1,15 +1,18 @@
 // Hierarchy commands on the selection (ADR 0022): create, copy, cut, paste and duplicate nodes,
 // for the shortcuts and the Hierarchy's menus. Each edit is one undo step and selects its result;
 // problems go to the status bar. The clipboard is in memory, so it survives switching scenes and
-// pastes into any of them; copies also go on the system clipboard as JSON.
+// pastes into any of them; copies also go on the system clipboard as JSON, which a paste with a
+// `paste` event reads back (ADR 0226), so nodes copied in another editor process paste here.
 import { signal } from "@preact/signals";
+import { clipboardForPaste, writeClipboard } from "./clipboard";
 import { errorStatus } from "./messages";
 import { contributedKind, createNode, type NodeKind } from "./nodeCreate";
 import {
-  clipboardText,
   copyNodes,
   cutNodes,
   duplicateNodes,
+  nodeClipboardFromText,
+  nodeClipboardPayload,
   pasteNodes,
   pasteTarget,
   whyNotCopyable,
@@ -37,13 +40,7 @@ function editableScene(what: string): OpenScene | null {
 }
 
 /** Put the clipboard on the system clipboard too (best effort: it may be unavailable). */
-function toSystemClipboard(clip: NodeClipboard): void {
-  try {
-    void globalThis.navigator?.clipboard?.writeText(clipboardText(clip)).catch(() => {});
-  } catch {
-    // no system clipboard: the editor's own still works
-  }
-}
+const toSystemClipboard = (clip: NodeClipboard) => writeClipboard(nodeClipboardPayload(clip));
 
 const count = (n: number) => (n === 1 ? "1 node" : `${n} nodes`);
 
@@ -94,11 +91,15 @@ export function whyNotPasteHere(asChild = false): string | null {
 
 /** Why pasting relative to the row `key` (into it with `asChild`) isn't possible, or null. */
 export function whyNotPasteAt(key: string | null, asChild = false): string | null {
+  return whyNotPasteOf(nodeClipboard.value, key, asChild);
+}
+
+function whyNotPasteOf(clip: NodeClipboard | null, key: string | null, asChild: boolean): string | null {
   const scene = openScene.value;
   if (!scene) return "no scene open";
   if (playState.value !== "edit") return "stop playing to edit the scene";
   if (asChild && !key) return "select a node to paste into";
-  return whyNotPastable(scene.doc, nodeClipboard.value, pasteTarget(scene.doc, key, asChild).parent);
+  return whyNotPastable(scene.doc, clip, pasteTarget(scene.doc, key, asChild).parent);
 }
 
 /**
@@ -109,12 +110,23 @@ export function pasteClipboard(asChild = false): boolean {
   return pasteClipboardAt(selection.value, asChild);
 }
 
+/**
+ * `pasteClipboard` for a paste with the system clipboard's `text` (a `paste` event's; null for
+ * none): the nodes in it when it holds some this editor didn't write (copied in another editor
+ * process since), which then become this editor's clipboard; else the clipboard in memory.
+ */
+export function pasteClipboardText(text: string | null, asChild = false): boolean {
+  const clip = clipboardForPaste(text, nodeClipboard.peek(), nodeClipboardFromText);
+  if (clip && clip !== nodeClipboard.peek()) nodeClipboard.value = clip;
+  return pasteClipboardAt(selection.value, asChild);
+}
+
 /** `pasteClipboard` relative to the row `key` (null: the end of the scene) instead of the selection. */
 export function pasteClipboardAt(key: string | null, asChild = false): boolean {
   const scene = editableScene("paste nodes");
   const clip = nodeClipboard.value;
   if (!scene) return false;
-  const reason = whyNotPasteAt(key, asChild);
+  const reason = whyNotPasteOf(clip, key, asChild);
   if (reason || !clip) {
     status.value = { kind: "info", text: `Can't paste: ${reason ?? "nothing copied"}.` };
     return false;

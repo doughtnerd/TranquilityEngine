@@ -2,8 +2,10 @@
 // listens on, and the test reads the open demo scene, its history, the tool and the event.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Engine, GameObject, Input } from "../engine";
-import { SetField } from "./document";
+import { clipboardText } from "./clipboard";
+import { SceneDocument, SetField } from "./document";
 import { nodeClipboard } from "./hierarchyActions";
+import { copyNodes, nodeClipboardPayload } from "./nodeClipboard";
 import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile } from "./project";
 import { installShortcuts } from "./shortcuts";
@@ -121,14 +123,37 @@ describe("node shortcuts", () => {
     expect(count()).toBe(n);
   });
 
-  it("Ctrl/Cmd+C copies and Ctrl/Cmd+V pastes", () => {
+  it("Ctrl/Cmd+C copies and Ctrl/Cmd+V pastes (from memory when the browser fires no paste event)", async () => {
     nodeClipboard.value = null;
     const n = openScene.value!.doc.nodes.length, bird = openScene.value!.doc.subtree("bird").length;
     select(["bird"]);
     press("c", { metaKey: true });
     expect(nodeClipboard.peek()?.subtrees).toHaveLength(1);
-    press("v", { metaKey: true });
-    expect(openScene.value!.doc.nodes.length).toBe(n + bird);
+    expect(press("v", { metaKey: true })).toBe(false); // left to the browser, which fires `paste`
+    await vi.waitFor(() => expect(openScene.value!.doc.nodes.length).toBe(n + bird));
+  });
+
+  it("Ctrl/Cmd+V pastes nodes in the paste event's text, copied in another editor", () => {
+    nodeClipboard.value = null;
+    select(["bird"]);
+    const far = new SceneDocument({ format: "myco.scene@1", nodes: [{ id: "lamp", name: "Lamp" }] }, "scenes/far.scene.json");
+    const text = clipboardText(nodeClipboardPayload(copyNodes(far, ["lamp"])));
+    press("v", { ctrlKey: true, shiftKey: true }); // as a child of the bird
+    const e = Object.assign(new Event("paste"), { clipboardData: { getData: () => text }, preventDefault: vi.fn() });
+    Object.defineProperty(e, "target", { value: null });
+    keys.dispatchEvent(e);
+    expect(e.preventDefault).toHaveBeenCalled();
+    const doc = openScene.value!.doc;
+    expect(doc.children("bird").map((id) => doc.node(id).name)).toContain("Lamp");
+  });
+
+  it("leaves a paste in a text field to the field", () => {
+    nodeClipboard.value = null;
+    const field = { nodeType: 1, tagName: "INPUT", type: "text", closest: () => null };
+    const e = Object.assign(new Event("paste"), { clipboardData: { getData: () => "x" }, preventDefault: vi.fn() });
+    Object.defineProperty(e, "target", { value: field });
+    keys.dispatchEvent(e);
+    expect(e.preventDefault).not.toHaveBeenCalled();
   });
 });
 
