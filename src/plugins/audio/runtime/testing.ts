@@ -4,6 +4,10 @@
 // `makeFakeBackend()` replaces the per-test fakes and the library mocks: an `AudioBackend` that records what the
 // engine tells it. `createLoopbackHost()` runs the real committed wasm in Node with no AudioContext.
 //
+// ADR 0221: `loopbackAudio()` is the core as production assembles it (`core/assembly.ts`) over a real `AudioHost` on that
+// loopback, with the public `Audio` on top and the faults a real host can see (a trap, a rate change, a rebuild, a main
+// stall, a main-to-core hitch). Rigs build on it; `createLoopbackHost()` stays the one lower tier, for wire-level tests.
+//
 // ADR 0162 (K4 owns this file in M3; the coordinator afterwards): the fake implements every K0 member: fake voices take
 // `setVelocity`, `setOcclusion` and `setDopplerRate` (recorded like the other setters, latest values readable), and
 // `makeFakeZoneIrService()` is a `ZoneIrService` a test drives by hand.
@@ -577,7 +581,12 @@ export function endAudioSession(): void {
 
 // --- The loopback host ----------------------------------------------------------------------------------------
 
-/** The real wasm core run in Node with no AudioContext (architecture §4.6). */
+/**
+ * The real wasm core run in Node with no AudioContext (architecture §4.6): the worklet side of the loopback. ADR 0221:
+ * this is the one lower tier. Tests that read the wire itself (ADR 0215: the bytes `send` hands the shell, the STATUS
+ * blocks in `statuses`, the shell's `driver`) use it directly; everything else uses `loopbackAudio`, which puts the
+ * production `AudioHost` and the production assembly (`assembleCore`) on top of it.
+ */
 export interface LoopbackHost {
   /** The injected clock; `renderQuanta` advances it by 128 frames per quantum. */
   readonly clock: FakeHostClock;
@@ -590,8 +599,6 @@ export interface LoopbackHost {
   readonly link: CoreLink;
   /** The shell's driver: stats, the STATUS pool, the probe. (Addition to K4.) */
   readonly driver: CoreDriver;
-  /** The instantiated core. (Addition to K4.) */
-  readonly core: CoreInstance;
   /** Every STATUS block received, in order. (Addition to K4.) */
   readonly statuses: StatusBlock[];
   /** Hands a wire buffer (BATCH, REPLAY, TIME_PING...) to the shell at the current frame, as `port.postMessage` would; buffers it returns reach the link. (Addition to K4.) */
@@ -731,9 +738,6 @@ export async function createLoopbackHost(options: { clock?: FakeHostClock; prese
     link,
     get driver() {
       return current.driver;
-    },
-    get core() {
-      return current.core;
     },
     statuses,
     get frame() {
