@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { Mixer } from "../../../engine/audio/mixer";
 import { defaultAudioSettings } from "../../../engine/audio/settings";
-import { debugSections } from "./audioDebugRows";
+import { AudioDebugMonitor } from "./audioDebugMonitor";
 import type { EventInstance } from "../runtime/events/eventRuntime";
 import { createMusicPlayer, disposeMusicPlayer } from "../runtime/music/musicSystem";
 import { buildDebugInfo, type DebugSource } from "../runtime/core/debug";
@@ -100,7 +100,9 @@ describe("Audio.debug() music (P10, §1.6)", () => {
   it("the panel's Music sections list the row and the totals", () => {
     const { src } = source({ poolUsed: 1, poolSize: 8, poolHighWater: 1, musicRingRefused: 0 });
     createMusicPlayer({ group: 7, path: "bgm.audioevent.json" } as unknown as EventInstance, { id: "verse", type: "segment" });
-    const sections = debugSections(buildDebugInfo(src));
+    const monitor = new AudioDebugMonitor();
+    monitor.observe(buildDebugInfo(src));
+    const sections = monitor.view()!.sections;
     expect(sections.find((s) => s.id === "music")!.rows).toHaveLength(1);
     expect(sections.find((s) => s.id === "musicTotals")!.rows.length).toBeGreaterThan(0);
   });

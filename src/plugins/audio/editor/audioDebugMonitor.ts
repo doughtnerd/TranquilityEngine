@@ -1,6 +1,13 @@
-// The Audio Debug panel's M3 rows (ADR 0162 E4, api-and-models §1.6 and §7, architecture §9): `AudioDebugInfo` turned
-// into plain sections (a title, a tooltip, columns and rows of text cells with a health colour) that the panel only
-// has to draw. Pure: no Preact, no Audio, so the rows are tested against a real loopback run.
+// The Audio Debug panel's monitor (ADR 0220; the rows are ADR 0157, 0158, 0162 E4, 0166 P10 and 0171 Dbg1): it sees every
+// `Audio.debug()` sample the panel takes (`observe`) and turns the latest into what the panel draws (`view`): a summary,
+// the buses, plain sections (a title, a tooltip, columns and rows of text cells with a health colour) and the voices
+// table. Pure: no Preact, no Audio, so it is tested by feeding it snapshots, and against a real loopback run.
+//
+// One rule for totals (ADR 0220): a total comes from a cumulative counter that outlives the instance that counted it: the
+// core's (`musicTotals.groupsLate`, `groupsHeld`, `groupsAbandoned`, ...) or main's session sums (`musicTotals.refusals`,
+// `recoveries`, `replans`, `stingers`; `eventTotals.lateStarts`). Per-instance values appear only in the per-instance
+// table, never summed into a total: a sum over the playing rows drops when an instance ends, and the rows count a hold
+// only once it resumes.
 //
 // Health follows the S8 thresholds (architecture §9):
 //
@@ -12,9 +19,19 @@
 //   bedSwitches per voice-second                green <= 2      amber > 2         -
 //   m3Shed                                      green 0         amber recovering  red on any step
 //
-// "Per second" and "any increment" need the previous samples, so a `CounterWatch` sees every sample the panel takes.
-import type { AudioDebugInfo, MusicDebugRow, MusicDebugTotals } from "../runtime/backend";
-import type { EventDebugRow } from "../runtime/events/eventRuntime";
+// "Per second", "per minute" and "any increment" need the previous samples, so the monitor sees every sample the panel
+// takes and keeps two watches: `CounterWatch` (the spatial counters) and `MusicWatch` (the music rates).
+import type { AudioDebugInfo, AudioStatus, MusicDebugRow, MusicDebugTotals } from "../runtime/backend";
+
+/**
+ * What the monitor reads: `Audio.debug()` (`AudioDebugState`) or a backend's own `AudioDebugInfo`. The event runtime adds
+ * each instance's `lateStarts` and the session's `eventTotals`; without them the late-start row says it counts the playing
+ * instances only.
+ */
+export type AudioDebugSnapshot = Omit<AudioDebugInfo, "events"> & {
+  events?: (NonNullable<AudioDebugInfo["events"]>[number] & { lateStarts?: number })[];
+  eventTotals?: { lateStarts: number };
+};
 
 /** green, amber, red; "info" is a number with no threshold (a gauge, not a fault). */
 export type Health = "ok" | "warn" | "bad" | "info";
@@ -34,10 +51,11 @@ export interface Row {
   health?: Health;
 }
 
-/** A column header with a plain-language tooltip. */
+/** A column header with a plain-language tooltip ("" for none). `kind` marks the voices table's clip-like and state columns. */
 export interface Column {
   label: string;
   tip: string;
+  kind?: "clip" | "state";
 }
 
 /** A panel section. `columns` absent: a label/value list. */
@@ -52,13 +70,79 @@ export interface Section {
   empty: string;
 }
 
+/** An event instance's header in the voices table, and its voices among those shown (ADR 0158). */
+export interface VoiceGroupView {
+  id: number;
+  /** The event asset (also the header's tooltip). */
+  name: string;
+  /** " #5 · 2 voices · Speed 0.50 · 1 late". */
+  meta: string;
+  voices: Row[];
+}
+
+/** The voices table: the most audible voices, grouped under their event instance, and a count of the rest by state. */
+export interface VoicesView {
+  /** "Voices", or "Voices (the 64 most audible of 4096)" when some are left out. */
+  title: string;
+  columns: readonly Column[];
+  groups: VoiceGroupView[];
+  /** Voices of no listed instance, after the groups. */
+  ungrouped: Row[];
+  /** "12 more: 3 virtual, 9 playing" when some are left out, else null. */
+  more: string | null;
+  /** "No voices" when there are none, else null. */
+  empty: string | null;
+}
+
+/** What the panel draws for the latest sample. */
+export interface AudioDebugView {
+  status: AudioStatus;
+  /** Label/value rows: backend, sample rate, the base counters, event instances and clips started late. */
+  summary: Row[];
+  buses: { columns: readonly Column[]; rows: Row[] };
+  /** Every section, in the order the panel shows them. A section the backend has no data for has `empty` set. */
+  sections: Section[];
+  voices: VoicesView;
+}
+
+/**
+ * The Audio Debug panel's model (ADR 0220). Feed it every `Audio.debug()` the panel takes; `view()` is what to draw for the
+ * latest one. It keeps the samples the rate-based and sticky health needs, and takes every total from a cumulative counter
+ * (see the file's head). A clock that goes backwards (a rebuild, a new session) starts the history over.
+ */
+export class AudioDebugMonitor {
+  private readonly counters = new CounterWatch();
+  private readonly music = new MusicWatch();
+  private last: AudioDebugSnapshot | null = null;
+
+  /** Records one sample (`info.time` is the audio clock, seconds). */
+  observe(info: AudioDebugSnapshot): void {
+    this.counters.observe(info);
+    this.music.observe(info.time, info.music ?? [], info.musicTotals);
+    this.last = info;
+  }
+
+  /** What the panel draws for the latest sample; null before the first. */
+  view(): AudioDebugView | null {
+    const info = this.last;
+    if (!info) return null;
+    return {
+      status: info.status,
+      summary: summaryRows(info),
+      buses: { columns: BUS_COLUMNS, rows: busRows(info) },
+      sections: [...debugSections(info, this.counters, this.music), ...mixSections(info)],
+      voices: voicesView(info),
+    };
+  }
+}
+
 /** How long a counter that rose stays red, seconds (the panel refreshes at 4 Hz, so a blink would be missed). */
 const STICKY_SECONDS = 5;
 /** The window the per-second rates are measured over, seconds. */
 const RATE_WINDOW = 1;
 
-/** The S8 thresholds (architecture §9), exported so tests and docs name the numbers. */
-export const HEALTH = { occlusionAgeAmber: 8, occlusionAgeRed: 30, overrunsPerSecondRed: 1, bedSwitchesPerVoiceSecond: 2 } as const;
+/** The S8 thresholds (architecture §9). */
+const HEALTH = { occlusionAgeAmber: 8, occlusionAgeRed: 30, overrunsPerSecondRed: 1, bedSwitchesPerVoiceSecond: 2 } as const;
 
 type Counters = AudioDebugInfo["counters"];
 type CounterKey = keyof Counters;
@@ -66,15 +150,15 @@ type CounterKey = keyof Counters;
 /**
  * Remembers recent samples of the counters whose health is a rate or an increment: `occlusionOverruns` (per second),
  * `bedSwitches` (per voice-second), and `wideStarved` and `m3Shed` (red for `STICKY_SECONDS` after a rise).
- * Feed it every `Audio.debug()` the panel takes.
+ * The monitor feeds it every sample.
  */
-export class CounterWatch {
+class CounterWatch {
   private readonly history = new Map<string, { t: number; v: number }[]>();
   private readonly lastRise = new Map<string, number>();
   private now = 0;
 
   /** Records one sample (`info.time` is the audio clock, seconds). A clock that went backwards (a rebuild) clears the history. */
-  observe(info: AudioDebugInfo): void {
+  observe(info: AudioDebugSnapshot): void {
     const t = info.time;
     if (t < this.now) {
       this.history.clear();
@@ -114,7 +198,7 @@ const num = (v: number | undefined): number => (typeof v === "number" && Number.
 const fmt = (v: number, digits = 0): string => v.toLocaleString("en-US", { maximumFractionDigits: digits });
 
 /** Bytes as KB or MB. */
-export function formatBytes(bytes: number): string {
+function formatBytes(bytes: number): string {
   if (!(bytes > 0)) return "0";
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -146,7 +230,7 @@ const nonZeroBad = (v: number): Health => (v > 0 ? "bad" : "ok");
 const kv = (id: string, label: string, text: string, tip: string, health?: Health): Row => ({ id, cells: [{ text: label, tip }, { text, tip, health }], health });
 
 /** The M3 counters (§1.6, C24) with their health. Counters a backend doesn't have are left out. */
-function counterRows(info: AudioDebugInfo, watch: CounterWatch | undefined): Row[] {
+function counterRows(info: AudioDebugSnapshot, watch: CounterWatch): Row[] {
   const c = info.counters;
   const rows: Row[] = [];
   const add = (key: keyof Counters, label: string, tip: string, health?: (v: number) => Health, text?: (v: number) => string): void => {
@@ -181,31 +265,31 @@ function counterRows(info: AudioDebugInfo, watch: CounterWatch | undefined): Row
 
   // The rate-based ones: overruns per second and switches per voice-second need the samples.
   if (typeof c.occlusionOverruns === "number") {
-    const rate = watch?.rate("occlusionOverruns") ?? 0;
+    const rate = watch.rate("occlusionOverruns");
     const health: Health = rate > HEALTH.overrunsPerSecondRed ? "bad" : rate > 0 ? "warn" : "ok";
     rows.push(kv("occlusionOverruns", "Occlusion overruns", `${fmt(c.occlusionOverruns)} (${fmt(rate, 1)}/s)`, "Passes that took more than twice the ray budget; the next pass casts fewer rays. Amber up to 1 per second, red above.", health));
   }
   if (typeof c.bedSwitches === "number") {
     const voices = Math.max(1, num(c.bedVoices));
-    const perVoice = (watch?.rate("bedSwitches") ?? 0) / voices;
+    const perVoice = watch.rate("bedSwitches") / voices;
     const row = rows.find((r) => r.id === "bedSwitches")!;
     const health: Health = perVoice > HEALTH.bedSwitchesPerVoiceSecond ? "warn" : "ok";
     row.cells[1] = { ...row.cells[1]!, text: `${fmt(c.bedSwitches)} (${fmt(perVoice, 1)}/voice/s)`, health };
     row.health = health;
   }
   if (typeof c.wideStarved === "number") {
-    const bad = watch?.rose("wideStarved") === true;
+    const bad = watch.rose("wideStarved");
     rows.push(kv("wideStarved", "Wide streams starved", fmt(c.wideStarved), "A 16-channel ambisonic stream ran out of decoded data and dropped out. Red for a few seconds after any increase.", bad ? "bad" : "ok"));
   }
   return rows;
 }
 
 /** The load-shedding ladder and `m3Shed` (OD3, architecture §7.3; ADR 0170: the steps come back). */
-function ladderRows(info: AudioDebugInfo, watch: CounterWatch | undefined): Row[] {
+function ladderRows(info: AudioDebugSnapshot, watch: CounterWatch): Row[] {
   const steps = num(info.counters.m3Shed);
   const state = typeof info.core.ladderState === "string" ? info.core.ladderState : "unknown";
   const recovering = state.startsWith("recovering");
-  const shed = (steps > 0 && !recovering) || watch?.rose("m3Shed") === true;
+  const shed = (steps > 0 && !recovering) || watch.rose("m3Shed");
   const health: Health = shed ? "bad" : recovering ? "warn" : "ok";
   return [
     kv("ladderState", "Ladder", state, "The load-shedding ladder. idle: nothing shed. cap at floor: the mixer is already at its lowest voice cap, so the ladder is the next resort. shedding: beds idle sooner, reverb tails are cut, then one active zone fewer. recovering: the underruns stopped, and a step comes back after each 20 s without one (longer after a step that tripped again).", shed ? "bad" : recovering || state === "cap at floor" ? "warn" : "ok"),
@@ -215,7 +299,7 @@ function ladderRows(info: AudioDebugInfo, watch: CounterWatch | undefined): Row[
 }
 
 /** `beds[]`: one row per bed slot. */
-function bedRows(info: AudioDebugInfo): Row[] {
+function bedRows(info: AudioDebugSnapshot): Row[] {
   return (info.beds ?? []).map((b) => ({
     id: `bed${b.slot}`,
     cells: [
@@ -231,7 +315,7 @@ function bedRows(info: AudioDebugInfo): Row[] {
 }
 
 /** `zones[]`: one row per zone slot, with its `why`. */
-function zoneRows(info: AudioDebugInfo): Row[] {
+function zoneRows(info: AudioDebugSnapshot): Row[] {
   return (info.zones ?? []).map((z, k) => {
     const failed = z.why.startsWith("IR failed");
     const faded = z.why.startsWith("faded");
@@ -256,7 +340,7 @@ function zoneRows(info: AudioDebugInfo): Row[] {
 }
 
 /** `occlusion`: the pass's state. */
-function occlusionRows(info: AudioDebugInfo): Row[] {
+function occlusionRows(info: AudioDebugSnapshot): Row[] {
   const o = info.occlusion;
   if (!o) return [];
   const age = o.oldestAgeFrames;
@@ -269,7 +353,7 @@ function occlusionRows(info: AudioDebugInfo): Row[] {
 }
 
 /** `memory`: the fixed M3 memory. */
-function memoryRows(info: AudioDebugInfo): Row[] {
+function memoryRows(info: AudioDebugSnapshot): Row[] {
   const m = info.memory;
   if (!m) return [];
   const used = m.kernelBudget > 0 ? m.kernels / m.kernelBudget : 0;
@@ -282,7 +366,7 @@ function memoryRows(info: AudioDebugInfo): Row[] {
 }
 
 /** All M3 sections, in the order the panel shows them. A section the backend has no data for is still returned (with `empty` set). */
-export function debugSections(info: AudioDebugInfo, watch?: CounterWatch, musicWatch?: MusicWatch): Section[] {
+function debugSections(info: AudioDebugSnapshot, watch: CounterWatch, musicWatch: MusicWatch): Section[] {
   const music = info.music ?? [];
   return [
     {
@@ -351,8 +435,8 @@ export function debugSections(info: AudioDebugInfo, watch?: CounterWatch, musicW
     {
       id: "musicTotals",
       title: "Music totals",
-      tip: "Engine-wide interactive music counters: the stream pool, late starts, split quanta and refusals. Red and amber follow architecture 9.",
-      rows: info.musicTotals ? musicTotalsRows(music, info.musicTotals, musicWatch) : [],
+      tip: "Engine-wide interactive music counters since the audio started, the music that ended included: the stream pool, late starts, split quanta and refusals. Red and amber follow architecture 9.",
+      rows: info.musicTotals ? musicTotalsRows(info.musicTotals, musicWatch) : [],
       empty: "No music on this backend",
     },
     {
@@ -370,7 +454,7 @@ export function debugSections(info: AudioDebugInfo, watch?: CounterWatch, musicW
 
 const NO_MIX = "No mix data on this backend";
 
-function mixCapsRows(info: AudioDebugInfo): Row[] {
+function mixCapsRows(info: AudioDebugSnapshot): Row[] {
   const c = info.mixCaps;
   if (!c) return [];
   const flag = (id: string, label: string, on: boolean, tip: string, off = "no"): Row => kv(id, label, on ? "yes" : off, tip, on ? "ok" : "info");
@@ -383,7 +467,7 @@ function mixCapsRows(info: AudioDebugInfo): Row[] {
   ];
 }
 
-function cpuRows(info: AudioDebugInfo): Row[] {
+function cpuRows(info: AudioDebugSnapshot): Row[] {
   const c = info.cpu;
   if (!c) return [];
   const load = c.hidden ? c.hidden : c.loadPermille === null ? "CPU not yet measured" : `${(c.loadPermille / 10).toFixed(1)}%`;
@@ -402,7 +486,7 @@ function cpuRows(info: AudioDebugInfo): Row[] {
   return rows;
 }
 
-function mixRows(info: AudioDebugInfo): Row[] {
+function mixRows(info: AudioDebugSnapshot): Row[] {
   const m = info.mix;
   if (!m) return [];
   const count = (id: string, label: string, v: number, tip: string): Row => kv(id, label, fmt(v), tip, v > 0 ? "warn" : "ok");
@@ -417,14 +501,14 @@ function mixRows(info: AudioDebugInfo): Row[] {
   ];
 }
 
-function slotRows(info: AudioDebugInfo): Row[] {
+function slotRows(info: AudioDebugSnapshot): Row[] {
   return (info.mix?.slots ?? []).map((s) => ({
     id: `slot${s.slot}`,
     cells: [{ text: String(s.slot) }, { text: s.name ?? "-" }, { text: s.state, health: s.state === "live" ? undefined : "info" }],
   }));
 }
 
-function duckingRows(info: AudioDebugInfo): Row[] {
+function duckingRows(info: AudioDebugSnapshot): Row[] {
   return (info.mix?.ducking ?? []).map((d, k) => {
     const ducked = d.gain < 0.9995;
     return {
@@ -439,7 +523,7 @@ function duckingRows(info: AudioDebugInfo): Row[] {
   });
 }
 
-function recorderRows(info: AudioDebugInfo): Row[] {
+function recorderRows(info: AudioDebugSnapshot): Row[] {
   const r = info.recorder;
   if (!r) return [];
   return [
@@ -453,7 +537,7 @@ function recorderRows(info: AudioDebugInfo): Row[] {
 }
 
 /** The M5 mix sections, after the M3 ones: backend flags, CPU, mix counters, the slot table, ducking, the recorder. A section the backend has no data for has `empty` set. */
-export function mixSections(info: AudioDebugInfo): Section[] {
+function mixSections(info: AudioDebugSnapshot): Section[] {
   return [
     { id: "mixCaps", title: "Mix capabilities", tip: "What this backend can do for the mix: the Babylon fallback has no audio core, so it has no meters, level ducking, CPU figure or stamped ramps.", rows: mixCapsRows(info), empty: NO_MIX },
     { id: "cpu", title: "CPU", tip: "The audio thread's load, measured over a short window.", rows: cpuRows(info), empty: NO_MIX },
@@ -491,8 +575,14 @@ export function mixSections(info: AudioDebugInfo): Section[] {
 
 type DebugVoice = AudioDebugInfo["voices"][number];
 
-/** Headers for the voice columns M3 adds, in order. */
-export const VOICE_COLUMNS: readonly Column[] = [
+/** The voices table's headers, in order: the base columns (ADR 0157), then the ones M3 adds. */
+const VOICE_COLUMNS: readonly Column[] = [
+  { label: "Source", tip: "The node whose AudioSource plays the voice; - for one-shots and event voices", kind: "clip" },
+  { label: "Clip", tip: "", kind: "clip" },
+  { label: "Bus", tip: "" },
+  { label: "State", tip: "", kind: "state" },
+  { label: "Priority", tip: "" },
+  { label: "Gain", tip: "" },
   { label: "Panner", tip: "How the voice is placed: flat (not spatial), equalPower, hrtf (head-related, the nearest voices), bed (shared ambisonic mix, the distant ones) or ambisonic (a clip with its own decoder). Hover a cell for the bed slot and how long it has held that panner." },
   { label: "Doppler", tip: "The pitch factor the source's and listener's motion adds. 1 is none." },
   { label: "Occlusion", tip: "The gain walls leave the voice (1 is open) and the cutoff they add, with the wall material. Hover for the hit count, material and the collider hit." },
@@ -500,9 +590,20 @@ export const VOICE_COLUMNS: readonly Column[] = [
   { label: "Sends", tip: "Reverb zones the voice sends to with the level, and its aux bus send." },
 ];
 
-/** The cells of one voice row for `VOICE_COLUMNS`. A voice from a backend without a field shows "-". */
-export function voiceCells(v: DebugVoice): Cell[] {
+/** Two decimals, or "0" for a value that is exactly zero. */
+const level = (v: number): string => (v === 0 ? "0" : v.toFixed(2));
+
+/** The cells of one voice row for `VOICE_COLUMNS`. A voice from a backend without an M3 field shows "-" there. */
+function voiceCells(v: DebugVoice): Cell[] {
   const dash: Cell = { text: "-" };
+  const base: Cell[] = [
+    { text: v.owner ?? "-", tip: v.owner ?? "No node: a one-shot or an event voice" },
+    { text: v.clip, tip: v.clip },
+    { text: v.bus },
+    { text: v.state },
+    { text: String(v.priority) },
+    { text: level(v.gain) },
+  ];
   const panner: Cell = v.panner
     ? { text: v.panner, tip: `${v.bed !== null && v.bed !== undefined ? `Bed slot ${v.bed}. ` : ""}${v.kindDwellMs !== undefined ? `Held this panner for ${fmt(v.kindDwellMs)} ms.` : ""}`.trim() || undefined }
     : dash;
@@ -519,7 +620,7 @@ export function voiceCells(v: DebugVoice): Cell[] {
   const lowpass: Cell = f ? { text: `${formatHz(f.lowpassHz)}${f.lowpassBy ? ` (${f.lowpassBy})` : ""}`, tip: `High-pass ${f.highpassHz > 20 ? formatHz(f.highpassHz) : "off"}.` } : dash;
   const parts = [...(v.sends ?? []).map((s) => `${s.zone} ${s.level.toFixed(2)}`), ...(v.aux ? [`aux ${v.aux.bus} ${v.aux.level.toFixed(2)}`] : [])];
   const sends: Cell = v.sends === undefined && v.aux === undefined ? dash : { text: parts.join(", ") || "-" };
-  return [panner, doppler, occlusion, lowpass, sends];
+  return [...base, panner, doppler, occlusion, lowpass, sends];
 }
 
 // --- ADR 0166 interactive music (M4, P10): the Music section's rows -----------------------------------------------
@@ -528,8 +629,8 @@ export function voiceCells(v: DebugVoice): Cell[] {
 // `MusicDebugTotals` in `runtime/backend.ts`) and architecture §9 (the thresholds in `MUSIC_HEALTH` below). Pure, like the
 // builders above. P10's lead wires them into `debugSections` (a "music" and a "musicTotals" section) and the panel.
 
-/** The architecture §9 music thresholds, exported so tests and docs name the numbers. */
-export const MUSIC_HEALTH = {
+/** The architecture §9 music thresholds. */
+const MUSIC_HEALTH = {
   /** `replans.deadline` per 100 transitions: green below `deadlineAmber`, amber up to `deadlineRed`, red above. */
   deadlineAmber: 1,
   deadlineRed: 10,
@@ -543,26 +644,14 @@ export const MUSIC_HEALTH = {
 /** The window the per-minute rates and the deadline ratio are measured over, seconds. */
 const MUSIC_WINDOW = 60;
 
-/** Cumulative counts at one sample: transitions (any row's pass rose or its segment changed) and the summed counters. */
+/** Cumulative counts at one sample: transitions (the watch's own count) and the totals' counters the rates read. */
 interface MusicSample {
   t: number;
   transitions: number;
   deadline: number;
-  groupTimeouts: number;
+  abandoned: number;
   recoveries: number;
 }
-
-/** What the watch remembers of a row between samples: its pass and segment, and its counters as last seen. */
-interface MusicSeen {
-  pass: number;
-  segment: string | null;
-  deadline: number;
-  groupTimeouts: number;
-  recoveries: number;
-}
-
-/** A row's counter rise since it was last seen; a row new to the watch counts from zero. */
-const riseSince = (prev: number | undefined, v: number): number => (prev === undefined ? num(v) : Math.max(0, num(v) - prev));
 
 /** Sum of a count record's values (a missing or non-finite value counts 0). */
 const recordTotal = (rec: Record<string, number>): number => Object.values(rec).reduce((a, v) => a + num(v), 0);
@@ -603,54 +692,51 @@ function deadlineHealth(per100: number): Health {
 const stemLabel = (s: MusicDebugRow["stems"][number]): string => `${s.name} ${s.ring === null ? "decoded" : `ring ${s.ring}`}${s.primed ? "" : " (unprimed)"}`;
 
 /**
- * Remembers recent samples of the music counters whose health is a rate (`replans.deadline` per 100 transitions,
- * `groupTimeouts` and `recoveries` per minute). Feed it every `Audio.debug()` the panel takes.
+ * Remembers recent samples of the music counters whose health is a rate: deadline re-plans per 100 transitions, groups
+ * abandoned and recoveries per minute. The counts come from the cumulative totals (ADR 0220: `musicTotals.replans.deadline`,
+ * `groupsAbandoned` and `recoveries`), so an instance that ends between two samples still counts. A transition (a row's
+ * `pass` rose or its `segment` changed) has no counter, so the watch counts those itself from the rows.
  */
-export class MusicWatch {
+class MusicWatch {
   private readonly samples: MusicSample[] = [];
-  private seen = new Map<number, MusicSeen>();
+  private seen = new Map<number, { pass: number; segment: string | null }>();
   private transitions = 0;
-  private deadline = 0;
-  private groupTimeouts = 0;
-  private recoveries = 0;
+  private hasTotals = false;
   private now = 0;
 
   /** Records one sample (`time` is the audio clock, seconds); a clock that went backwards clears the history. */
-  observe(time: number, rows: readonly MusicDebugRow[], _totals: MusicDebugTotals | undefined): void {
+  observe(time: number, rows: readonly MusicDebugRow[], totals: MusicDebugTotals | undefined): void {
     if (time < this.now) this.reset();
     this.now = time;
-    const seen = new Map<number, MusicSeen>();
+    const seen = new Map<number, { pass: number; segment: string | null }>();
     for (const r of rows) {
       const prev = this.seen.get(r.id);
       if (prev && (r.pass > prev.pass || r.segment !== prev.segment)) this.transitions += 1;
-      const deadline = num(r.replans.deadline);
-      const groupTimeouts = num(r.groupTimeouts);
-      const recoveries = recordTotal(r.recoveries);
-      this.deadline += riseSince(prev?.deadline, deadline);
-      this.groupTimeouts += riseSince(prev?.groupTimeouts, groupTimeouts);
-      this.recoveries += riseSince(prev?.recoveries, recoveries);
-      seen.set(r.id, { pass: r.pass, segment: r.segment, deadline, groupTimeouts, recoveries });
+      seen.set(r.id, { pass: r.pass, segment: r.segment });
     }
     this.seen = seen;
-    this.samples.push({ t: time, transitions: this.transitions, deadline: this.deadline, groupTimeouts: this.groupTimeouts, recoveries: this.recoveries });
+    this.hasTotals = totals !== undefined;
+    if (!totals) return;
+    this.samples.push({ t: time, transitions: this.transitions, deadline: num(totals.replans.deadline), abandoned: num(totals.groupsAbandoned), recoveries: recordTotal(totals.recoveries) });
     while (this.samples.length > 2 && time - this.samples[1]!.t >= MUSIC_WINDOW) this.samples.shift();
   }
 
-  /** `groupTimeouts` rise per minute, summed over rows, over the last minute or so. */
-  groupTimeoutsPerMinute(): number {
-    return this.perMinute("groupTimeouts");
+  /** Groups abandoned per minute over the last minute or so; undefined without totals. */
+  groupsAbandonedPerMinute(): number | undefined {
+    return this.perMinute("abandoned");
   }
 
-  /** Recoveries (every cause, every row) rise per minute. */
-  recoveriesPerMinute(): number {
+  /** Recoveries (every cause) per minute; undefined without totals. */
+  recoveriesPerMinute(): number | undefined {
     return this.perMinute("recoveries");
   }
 
   /**
-   * `replans.deadline` per 100 transitions over the window; a transition is a rise of any row's `pass` or a change of its
-   * `segment`. 0 before the first transition; Infinity when re-plans rise with no transition (red).
+   * Deadline re-plans per 100 transitions over the window. 0 before the first transition; Infinity when re-plans rise with
+   * no transition (red); undefined without totals.
    */
-  deadlineReplansPer100(): number {
+  deadlineReplansPer100(): number | undefined {
+    if (!this.hasTotals) return undefined;
     const first = this.samples[0];
     const last = this.samples[this.samples.length - 1];
     if (this.samples.length < 2 || !first || !last) return 0;
@@ -660,8 +746,9 @@ export class MusicWatch {
     return (Math.max(0, replans) * 100) / transitions;
   }
 
-  /** A cumulative counter's rise per minute across the window, or 0 before two samples. */
-  private perMinute(key: "groupTimeouts" | "recoveries"): number {
+  /** A cumulative counter's rise per minute across the window: 0 before two samples, undefined without totals. */
+  private perMinute(key: "abandoned" | "recoveries"): number | undefined {
+    if (!this.hasTotals) return undefined;
     const first = this.samples[0];
     const last = this.samples[this.samples.length - 1];
     if (this.samples.length < 2 || !first || !last) return 0;
@@ -673,9 +760,6 @@ export class MusicWatch {
     this.samples.length = 0;
     this.seen = new Map();
     this.transitions = 0;
-    this.deadline = 0;
-    this.groupTimeouts = 0;
-    this.recoveries = 0;
   }
 }
 
@@ -697,8 +781,8 @@ function pendingText(p: MusicDebugRow["pending"]): string {
  * pass, bar:beat:tick, tempo, pending, groups primed n/N, stems primed n/N, prime last / Ê / lead in ms with lead health,
  * re-plans, refusals, late / held / timeouts, last slip in frames and ms, recoveries, missed beats, stingers).
  */
-function musicInstanceRows(rows: readonly MusicDebugRow[], sampleRate: number, watch?: MusicWatch): Row[] {
-  const deadline = watch?.deadlineReplansPer100();
+function musicInstanceRows(rows: readonly MusicDebugRow[], sampleRate: number, watch: MusicWatch): Row[] {
+  const deadline = watch.deadlineReplansPer100();
   return rows.map((r): Row => {
     const groupsPrimed = r.groups.reduce((a, g) => a + num(g.primed), 0);
     const groupsOf = r.groups.reduce((a, g) => a + num(g.of), 0);
@@ -742,11 +826,11 @@ function musicInstanceRows(rows: readonly MusicDebugRow[], sampleRate: number, w
       },
       {
         text: `${fmt(r.lateGroups)} / ${fmt(r.groupsHeld)} / ${fmt(timeouts)}`,
-        tip: "Groups that started late, groups held by a starving member, and groups the core gave up on (counts). Timeouts: amber up to 1 per minute, red above.",
+        tip: "This instance's groups that started late, were held by a starving member (counted once the hold ends), and the core gave up on (counts). Timeouts: amber up to 1 per minute across all music, red above.",
         health: worstOf(
           r.lateGroups > 0 ? "bad" : "ok",
           r.groupsHeld > 0 ? "bad" : "ok",
-          perMinuteHealth(timeouts, timeouts > 0 ? watch?.groupTimeoutsPerMinute() : undefined),
+          perMinuteHealth(timeouts, timeouts > 0 ? watch.groupsAbandonedPerMinute() : undefined),
         ),
       },
       {
@@ -756,7 +840,7 @@ function musicInstanceRows(rows: readonly MusicDebugRow[], sampleRate: number, w
       {
         text: causesText(r.recoveries),
         tip: "Recoveries by cause (counts): rebuild, hidden, reload, crash. Amber up to 1 per minute, red above.",
-        health: perMinuteHealth(recovered, recovered > 0 ? watch?.recoveriesPerMinute() : undefined),
+        health: perMinuteHealth(recovered, recovered > 0 ? watch.recoveriesPerMinute() : undefined),
       },
       { text: `${fmt(r.missedBeats)} beats`, tip: "Beats coalesced into missed since the instance started (beats)." },
       {
@@ -790,15 +874,16 @@ const MUSIC_COLUMNS: readonly Column[] = [
 ];
 
 /**
- * The "Music totals" section's label/value rows with the §9 health: pool used of size and high-water (info; amber at
- * `poolUsed >= poolSize`), `musicRingRefused`, `splitQuanta`, `groupTableFull` (red when non-zero), `streamStartsLate`
- * (red), `curvePoolFull` (amber), `voiceSplits` and `maxSlipFrames` (info), plus rows summed from the instance rows:
- * late groups (red), holds (red), timeouts and recoveries (`watch`), `refusals.poolFull` / `leadOverBeat` / `tailRefused`
- * and `stingers.skipped` (amber), `refusals.neverFits` and other permanent refusals (red).
+ * The "Music totals" section's label/value rows with the §9 health, every one from a cumulative counter (ADR 0220): pool
+ * used of size and high-water (info; amber at `poolUsed >= poolSize`), `musicRingRefused`, `splitQuanta`, `groupTableFull`
+ * (red when non-zero), `streamStartsLate` (red), `curvePoolFull` (amber), `voiceSplits` and `maxSlipFrames` (info), the
+ * core's `groupsAbandoned` (per minute), `groupsLate` and `groupsHeld` (red: a hold counts when it begins, so one in
+ * progress shows), and main's session sums: recoveries (per minute), deadline re-plans per 100 transitions,
+ * `refusals.poolFull` / `leadOverBeat` / `tailRefused` and `stingers.skipped` (amber), `refusals.neverFits` and other
+ * permanent refusals (red).
  */
-function musicTotalsRows(rows: readonly MusicDebugRow[], totals: MusicDebugTotals, watch?: MusicWatch): Row[] {
+function musicTotalsRows(totals: MusicDebugTotals, watch: MusicWatch): Row[] {
   const out: Row[] = [];
-  const sum = (f: (r: MusicDebugRow) => number): number => rows.reduce((a, r) => a + num(f(r)), 0);
   const size = num(totals.poolSize);
   const used = num(totals.poolUsed);
   out.push(
@@ -824,56 +909,54 @@ function musicTotalsRows(rows: readonly MusicDebugRow[], totals: MusicDebugTotal
   out.push(kv("groupTableFull", "Group table full", fmt(table), "A PLAY whose group found no core table entry (counts). Red on any: a bug.", nonZeroBad(table)));
   const over = num(totals.encodedOverBudget);
   out.push(kv("encodedOverBudget", "Encoded cache over budget", fmt(over), "Times the worker's encoded music cache exceeded its budget with nothing evictable (counts). Amber when non-zero.", nonZeroWarn(over)));
-  const timeouts = sum((r) => r.groupTimeouts);
-  const timeoutRate = watch?.groupTimeoutsPerMinute();
+  const abandoned = num(totals.groupsAbandoned);
+  const abandonedRate = watch.groupsAbandonedPerMinute();
   out.push(
     kv(
       "groupTimeouts",
       "Groups abandoned",
-      `${fmt(timeouts)}${timeoutRate === undefined ? "" : ` (${fmt(timeoutRate, 1)}/min)`}`,
-      "Groups the core gave up on, summed over the music instances (counts; the rate is over the last minute). Green at 0, amber up to 1 per minute, red above.",
-      perMinuteHealth(timeouts, timeoutRate),
+      `${fmt(abandoned)}${abandonedRate === undefined ? "" : ` (${fmt(abandonedRate, 1)}/min)`}`,
+      "Groups the core gave up on, cumulative (counts; the rate is over the last minute). Green at 0, amber up to 1 per minute, red above.",
+      perMinuteHealth(abandoned, abandonedRate),
     ),
   );
-  const recovered = sum((r) => recordTotal(r.recoveries));
-  const recoveryRate = watch?.recoveriesPerMinute();
+  const recovered = recordTotal(totals.recoveries);
+  const recoveryRate = watch.recoveriesPerMinute();
   out.push(
     kv(
       "recoveries",
       "Music recoveries",
       `${fmt(recovered)}${recoveryRate === undefined ? "" : ` (${fmt(recoveryRate, 1)}/min)`}`,
-      "Recoveries of every cause, summed over the music instances (counts; the rate is over the last minute). Green at 0, amber up to 1 per minute, red above.",
+      "Recoveries of every cause, across all music since the audio started, ended music included (counts; the rate is over the last minute). Green at 0, amber up to 1 per minute, red above.",
       perMinuteHealth(recovered, recoveryRate),
     ),
   );
-  const late = sum((r) => r.lateGroups);
-  out.push(kv("lateGroups", "Late groups", fmt(late), "Groups that started late, summed over the music instances (counts). Red on any.", nonZeroBad(late)));
-  const held = sum((r) => r.groupsHeld);
-  out.push(kv("groupsHeld", "Groups held", fmt(held), "Groups held by a starving member, summed (counts). Red on any.", nonZeroBad(held)));
-  if (watch) {
-    const per100 = watch.deadlineReplansPer100();
-    out.push(
-      kv(
-        "replansDeadline",
-        "Deadline re-plans",
-        `${fmt(per100, 1)} per 100 transitions`,
-        "Deadline re-plans per 100 transitions over the last minute (a transition: a row's pass rises or its segment changes). Green below 1, amber 1 to 10, red above 10; re-plans with no transition read red.",
-        deadlineHealth(per100),
-      ),
-    );
-  }
-  // Refusals by cause: the named causes always, then any other cause the instances report.
+  const late = num(totals.groupsLate);
+  out.push(kv("lateGroups", "Late groups", fmt(late), "Groups that started late, cumulative (counts). Red on any.", nonZeroBad(late)));
+  const held = num(totals.groupsHeld);
+  out.push(kv("groupsHeld", "Groups held", fmt(held), "Groups held by a starving member, cumulative; a hold counts when it begins, so one in progress shows (counts). Red on any.", nonZeroBad(held)));
+  const per100 = watch.deadlineReplansPer100() ?? 0;
+  out.push(
+    kv(
+      "replansDeadline",
+      "Deadline re-plans",
+      `${fmt(per100, 1)} per 100 transitions`,
+      "Deadline re-plans per 100 transitions over the last minute (a transition: a music instance's pass rises or its segment changes). Green below 1, amber 1 to 10, red above 10; re-plans with no transition read red.",
+      deadlineHealth(per100),
+    ),
+  );
+  // Refusals by cause: the named causes always, then any other cause main counted.
   const causes = new Map<string, number>();
   for (const k of ["poolFull", "leadOverBeat", "tailRefused", "neverFits"]) causes.set(k, 0);
-  for (const r of rows) for (const [k, v] of Object.entries(r.refusals)) causes.set(k, (causes.get(k) ?? 0) + num(v));
+  for (const [k, v] of Object.entries(totals.refusals)) causes.set(k, (causes.get(k) ?? 0) + num(v));
   for (const [k, v] of causes) {
     const tip = AMBER_REFUSALS.includes(k)
-      ? `Refusals with cause ${k}, summed over the music instances (counts). Amber when non-zero.`
-      : `Refusals with cause ${k}, summed over the music instances (counts). Red on any: permanent, or a cause the panel does not know.`;
+      ? `Refusals with cause ${k}, across all music since the audio started, ended music included (counts). Amber when non-zero.`
+      : `Refusals with cause ${k}, across all music since the audio started, ended music included (counts). Red on any: permanent, or a cause the panel does not know.`;
     out.push(kv(`refusal:${k}`, `Refusals: ${k}`, fmt(v), tip, refusalHealth(k, v)));
   }
-  const skipped = sum((r) => r.stingers.skipped);
-  out.push(kv("stingersSkipped", "Stingers skipped", fmt(skipped), "Stingers skipped, summed over the music instances (counts). Amber when non-zero.", nonZeroWarn(skipped)));
+  const skipped = num(totals.stingers.skipped);
+  out.push(kv("stingersSkipped", "Stingers skipped", fmt(skipped), "Stingers skipped, across all music since the audio started, ended music included (counts). Amber when non-zero.", nonZeroWarn(skipped)));
   return out;
 }
 
@@ -883,45 +966,115 @@ function musicTotalsRows(rows: readonly MusicDebugRow[], totals: MusicDebugTotal
  * At most this many voice rows. A game can hold thousands of voices (4,096 logical at the default preset); rendering a
  * row for each four times a second made the editor crawl, so the table shows the most audible ones and counts the rest.
  */
-export const MAX_VOICE_ROWS = 64;
+const MAX_VOICE_ROWS = 64;
 
 /** The voices the table shows: the `MAX_VOICE_ROWS` most audible (ties by priority), and how many of each state are left out. */
-export function voiceRows(voices: readonly DebugVoice[], max = MAX_VOICE_ROWS): { rows: DebugVoice[]; hidden: number; hiddenByState: Record<string, number> } {
-  if (voices.length <= max) return { rows: voices.slice(), hidden: 0, hiddenByState: {} };
+function shownVoices(voices: readonly DebugVoice[]): { rows: DebugVoice[]; hidden: number; hiddenByState: Record<string, number> } {
+  if (voices.length <= MAX_VOICE_ROWS) return { rows: voices.slice(), hidden: 0, hiddenByState: {} };
   const sorted = voices.slice().sort((a, b) => b.audibility - a.audibility || b.priority - a.priority || a.id - b.id);
   const hiddenByState: Record<string, number> = {};
-  for (let i = max; i < sorted.length; i++) {
+  for (let i = MAX_VOICE_ROWS; i < sorted.length; i++) {
     const s = sorted[i]!.state;
     hiddenByState[s] = (hiddenByState[s] ?? 0) + 1;
   }
-  return { rows: sorted.slice(0, max), hidden: sorted.length - max, hiddenByState };
+  return { rows: sorted.slice(0, MAX_VOICE_ROWS), hidden: sorted.length - MAX_VOICE_ROWS, hiddenByState };
 }
 
-/** A playing event instance and its voices among the rows shown. */
-export interface VoiceGroup {
-  event: EventDebugRow;
-  voices: DebugVoice[];
+type EventRow = NonNullable<AudioDebugSnapshot["events"]>[number];
+
+/** "Name 0.50, Other Grass": an instance's parameters on one line. */
+const parameterText = (p: Record<string, number | string>): string =>
+  Object.entries(p).map(([k, v]) => `${k} ${typeof v === "number" ? level(v) : v}`).join(", ");
+
+/** The header line after an instance's asset: " #5 · 2 voices · Speed 0.50 · 1 late". */
+function eventMeta(e: EventRow): string {
+  const late = e.lateStarts ?? 0;
+  return ` #${e.id} · ${e.voices} voice${e.voices === 1 ? "" : "s"}${Object.keys(e.parameters).length > 0 ? ` · ${parameterText(e.parameters)}` : ""}${late > 0 ? ` · ${late} late` : ""}`;
 }
+
+const voiceRow = (v: DebugVoice): Row => ({ id: String(v.id), cells: voiceCells(v) });
 
 /**
- * The shown rows split by event instance (`voices[].event` against `Audio.debug().events`): the groups in the order their
- * first voice appears, and the voices that belong to no listed instance as they were (an instance that already ended
- * counts as none).
+ * The voices table: the shown voices split by event instance (`voices[].event` against `events`): the groups in the order
+ * their first voice appears, then the voices of no listed instance as they were (an instance that already ended counts as
+ * none).
  */
-export function groupByEvent(rows: readonly DebugVoice[], events: readonly EventDebugRow[] | undefined): { groups: VoiceGroup[]; ungrouped: DebugVoice[] } {
-  const byId = new Map<number, EventDebugRow>();
-  for (const e of events ?? []) byId.set(e.id, e);
-  const groups = new Map<number, VoiceGroup>();
-  const ungrouped: DebugVoice[] = [];
-  for (const v of rows) {
+function voicesView(info: AudioDebugSnapshot): VoicesView {
+  const shown = shownVoices(info.voices);
+  const byId = new Map<number, EventRow>();
+  for (const e of info.events ?? []) byId.set(e.id, e);
+  const groups = new Map<number, VoiceGroupView>();
+  const ungrouped: Row[] = [];
+  for (const v of shown.rows) {
     const e = v.event !== undefined && v.event !== null ? byId.get(v.event) : undefined;
-    if (!e) { ungrouped.push(v); continue; }
+    if (!e) {
+      ungrouped.push(voiceRow(v));
+      continue;
+    }
     let g = groups.get(e.id);
-    if (!g) groups.set(e.id, (g = { event: e, voices: [] }));
-    g.voices.push(v);
+    if (!g) groups.set(e.id, (g = { id: e.id, name: e.asset, meta: eventMeta(e), voices: [] }));
+    g.voices.push(voiceRow(v));
   }
-  return { groups: [...groups.values()], ungrouped };
+  return {
+    title: `Voices${shown.hidden > 0 ? ` (the ${shown.rows.length} most audible of ${info.voices.length})` : ""}`,
+    columns: VOICE_COLUMNS,
+    groups: [...groups.values()],
+    ungrouped,
+    more: shown.hidden > 0 ? `${shown.hidden} more: ${Object.entries(shown.hiddenByState).map(([state, n]) => `${n} ${state}`).join(", ")}` : null,
+    empty: info.voices.length === 0 ? "No voices" : null,
+  };
 }
 
-/** How many continuous-container clips the playing event instances started a frame late (0158 §6). */
-export const lateStartCount = (events: readonly EventDebugRow[] | undefined): number => (events ?? []).reduce((n, e) => n + (e.lateStarts ?? 0), 0);
+// --- The summary and the buses -----------------------------------------------------------------------------------
+
+const LATE_STARTS_TIP = "Clips of a continuous container started on the previous clip's end, one frame late, because their length wasn't known yet";
+
+/**
+ * The summary rows. "Clips started late" is the event runtime's session total (ADR 0220: `eventTotals.lateStarts`, ended
+ * instances included); a snapshot without it (a backend's own `debug()`) shows the playing instances' sum and says so.
+ */
+function summaryRows(info: AudioDebugSnapshot): Row[] {
+  const c = info.counters;
+  const row = (id: string, label: string, text: string, tip?: string): Row => ({ id, cells: [{ text: label, tip }, { text }] });
+  const total = info.eventTotals;
+  const late = total ? total.lateStarts : (info.events ?? []).reduce((n, e) => n + (e.lateStarts ?? 0), 0);
+  return [
+    row("backend", "Backend", String(info.core.backend ?? "unknown")),
+    row("sampleRate", "Sample rate", `${info.sampleRate} Hz`),
+    row("underruns", "Underruns", String(c.underruns)),
+    row("logicalVoices", "Logical voices", String(c.logicalVoices)),
+    row("mixedVoices", "Mixed voices", `${c.mixedVoices} / ${c.mixedCap}`),
+    row("hrtfVoices", "HRTF voices", `${c.hrtfVoices}${c.hrtfLoadFailure === 1 ? " (HRTF data failed to load)" : c.hrtfLoadFailure === 2 ? " (HRTF data invalid)" : ""}`),
+    row("droppedPlays", "Dropped plays", String(c.droppedPlays)),
+    row("eventInstances", "Event instances", String((info.events ?? []).length)),
+    total
+      ? row("lateStarts", "Clips started late", String(late), `${LATE_STARTS_TIP}. Counts every event since the audio started, ended ones included.`)
+      : row("lateStarts", "Clips started late (playing instances)", String(late), `${LATE_STARTS_TIP}. This backend reports no total, so this counts the playing instances only.`),
+  ];
+}
+
+const BUS_COLUMNS: readonly Column[] = [
+  { label: "Bus", tip: "" },
+  { label: "Gain", tip: "" },
+  { label: "Peak", tip: "" },
+  { label: "Voices", tip: "" },
+  { label: "Bed", tip: "Which ambisonic bed the bus mixes into: its own, its parent's, or none. A warning means it asked for a bed and has none." },
+];
+
+/** One row per bus: gain (hover for the effective gain), the louder channel's peak, voices of the cap, and its bed. */
+function busRows(info: AudioDebugSnapshot): Row[] {
+  return info.buses.map((b) => ({
+    id: b.name,
+    cells: [
+      { text: b.name },
+      { text: level(b.gain), tip: `Effective ${level(b.effectiveGain)}` },
+      { text: level(Math.max(b.peakL, b.peakR)) },
+      { text: `${b.voices}${b.maxVoices !== null ? ` / ${b.maxVoices}` : ""}` },
+      {
+        text: b.bed === undefined ? "-" : b.bedHost && b.bedHost !== b.name ? `${b.bed} (${b.bedHost})` : b.bed,
+        tip: b.bedLost ? "Asked for a bed and has none" : undefined,
+        health: b.bedLost ? "warn" : undefined,
+      },
+    ],
+  }));
+}
