@@ -3,7 +3,6 @@
 import { TargetCamera } from "@babylonjs/core/Cameras/targetCamera.js";
 import { NullEngine } from "@babylonjs/core/Engines/nullEngine.js";
 import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
-import { ShaderLanguage } from "@babylonjs/core/Materials/shaderLanguage.js";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial.js";
 import type { Material } from "@babylonjs/core/Materials/material.js";
 import type { Mesh } from "@babylonjs/core/Meshes/mesh.js";
@@ -22,6 +21,7 @@ import { defaultBlock } from "../scene/particleBlocks";
 import type { ContextKind, GraphInputValue, ParticleGraph, ParticleGraphSystem } from "../scene/particleGraph";
 import { newGraphId, systemTemplate, formatParticleGraph } from "../scene/particleGraphFormat";
 import { compileParticleKernels } from "../scene/particleKernel";
+import { shaderText } from "./pbrShaderSource";
 
 /** A graph as its file's JSON object. */
 const graphJSON = (graph: ParticleGraph): Record<string, unknown> => JSON.parse(formatParticleGraph(graph));
@@ -152,7 +152,7 @@ describe("kernel outputs with material assets, and kernel warm-up (ADR 0126)", (
     warn.mockRestore();
   });
 
-  it("splices placement code into both shading languages, with a define that differs per output", () => {
+  it("splices placement code into both shading languages, with a define that differs per output", async () => {
     const g = graph("m");
     const k = compileParticleKernels(g, compileParticleGraph(g)).systems[0];
     const wgsl = materialVertexCode(k, 0, "wgsl", { sorted: true, interleaved: true });
@@ -168,14 +168,18 @@ describe("kernel outputs with material assets, and kernel warm-up (ADR 0126)", (
     addBlock(other, other.systems[0], "output", "attribute.size", { mode: "multiply", value: 2 });
     player.sync([fakeSystem(graph("materials/fx.material.json")), { ...fakeSystem(other), node: { name: "Gx" } } as unknown as ParticleSystem], 1 / 30, 1 / 30);
     const meshOf = (name: string) => scene.meshes.find((m) => m.name.startsWith(`particles:${name}:`))!;
-    const [a, b] = [placement(meshOf("Fx")), placement(meshOf("Gx"))];
-    const da = { MYCO_KERNEL_PARTICLES: 0 };
-    const db = { MYCO_KERNEL_PARTICLES: 0 };
-    a.prepareDefines(da as never, scene, null as never);
-    b.prepareDefines(db as never, scene, null as never);
-    expect(da.MYCO_KERNEL_PARTICLES).not.toBe(0);
-    expect(da.MYCO_KERNEL_PARTICLES).not.toBe(db.MYCO_KERNEL_PARTICLES);
-    expect(a.getCustomCode("vertex", ShaderLanguage.GLSL)?.CUSTOM_VERTEX_UPDATE_WORLDPOS).toBeTruthy();
+    // What Babylon compiles for each draw's material (GLSL on this NullEngine): the placement code in the
+    // vertex shader, after Babylon's own position update, and a define of its own per output.
+    const [a, b] = await Promise.all([meshOf("Fx"), meshOf("Gx")].map((m) => shaderText(m.material!, m)));
+    for (const t of [a, b]) {
+      expect(t.vertex).toContain("uniform highp sampler2D kps0;");
+      const place = t.vertex.indexOf("k_kpPlace(positionUpdated, normalUpdated, gl_InstanceID);");
+      expect(place).toBeGreaterThan(t.vertex.indexOf("vec3 positionUpdated"));
+      expect(t.vertex.indexOf("worldPos = vec4(positionUpdated, 1.0);")).toBeGreaterThan(place);
+    }
+    const kernelDefine = (defines: string) => /#define MYCO_KERNEL_PARTICLES (\d+)/.exec(defines)?.[1];
+    expect(kernelDefine(a.defines)).toMatch(/^[1-9]/);
+    expect(kernelDefine(a.defines)).not.toBe(kernelDefine(b.defines));
   });
 
   it("warms kernel emitters' own draws (and pipelines) besides the CPU ones", () => {

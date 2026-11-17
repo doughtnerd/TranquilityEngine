@@ -1,6 +1,6 @@
 /**
  * The base of the engine's Babylon material plugins whose code depends on their own fields (ADR 0225):
- * graph materials, water, probe blending and sprite UVs.
+ * graph materials, water, probe blending, sprite UVs, height fog, soft particles and kernel particles.
  *
  * Babylon's `MaterialPluginBase` constructor registers a plugin with its material, and registering asks
  * the plugin for its code and defines (`getCustomCode`, `collectDefines`), before a subclass's
