@@ -55,6 +55,8 @@ Each layer is scene data:
 - Each **layer has a sorting layer and order** (0014), so layers can sit behind and in front of sprites. One tileset serves all of a map's layers; a second tileset means a second Tilemap node.
 - **Versioning:** a layer carries `v` (absent = 1). Readers run registered layer migrations (`registerTilemapLayerMigration`) up to the current version and refuse newer ones. The scene format version (0013) is unchanged: the tilemap's data versions on its own, so a tilemap format change doesn't migrate every scene.
 
+  **Note (2026-11-17), on flip flags.** The 8 orientations' algebra lives in one module, `src/plugins/tilemaps/runtime/tileFlips.ts`, which states the convention above once: `compose(first, second)`, `inverse`, `rotateClockwise` (`TURN_CLOCKWISE` is diagonal then X), `flipPoint` and `sourceCorner`. `rotateFlagsClockwise` left `format.ts` (now only the bits), and the brush's matrix search (`combineFlags`) is gone.
+
   **Note (2026-11-16), on layer migrations.** `registerTilemapLayerMigration` is gone: nothing outside the format called it, and the layer is still at version 1. The upgrades live in `layerMigrations`, private to `src/plugins/tilemaps/runtime/format.ts`, keyed by the version they upgrade from; `migrateLayer` runs them up to `TILEMAP_LAYER_VERSION` and refuses newer layers, as above. A version 2 adds its upgrade there, beside the format change.
 
 At runtime the component decodes chunks into `Int32Array`s, keeping a version number per chunk. Replacing the `layers` field (scene load, editor undo and paint commits) re-decodes it, keeping the arrays and versions of chunks whose cells are unchanged, so the renderer and colliders rebuild only what changed.
