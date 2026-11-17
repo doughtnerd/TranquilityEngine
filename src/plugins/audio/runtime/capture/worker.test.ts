@@ -11,7 +11,7 @@ import { CAPTURE_FLAG_COMPRESSED, CAPTURE_HEADER_BYTES, RecordType, assembleCapt
 import {
   CaptureTimeIndex, decodeRecordAt, openCapture, rangeCapture, recordSeconds, seekCapture, type CaptureContents,
 } from "./reader";
-import { EMPTY_KEYFRAME_PAYLOAD, SAMPLE_HEADER, SAMPLE_META, longCapture, longCaptureRecords, longStatusFields, sampleCapture, sampleRecords } from "./testSupport";
+import { SAMPLE_HEADER, SAMPLE_META, longCapture, longCaptureRecords, longStatusFields, sampleCapture, sampleRecords } from "./testSupport";
 import { createCaptureWorkerHandler, type CaptureRequest, type CaptureResponse } from "./worker";
 
 function compress(file: Uint8Array): Uint8Array {
@@ -69,7 +69,11 @@ describe("seekCapture and rangeCapture on the sample (every record type, two epo
     const a = seekCapture(c, idx, 1300 / 48_000);
     expect([a.epoch, a.frame, a.seq, a.keyframeSeq]).toEqual([0, 768, 3, 2]);
     expect(a.status?.currentFrame).toBe(768);
-    expect(a.keyframe).toEqual(EMPTY_KEYFRAME_PAYLOAD); // the sample's keyframes are empty ones (Rc1b's codec)
+    // The sample's keyframes are empty ones (`EMPTY_KEYFRAME_PAYLOAD`), answered by name.
+    expect(a.keyframe).toEqual({
+      voices: [], buses: [], metered: [], events: [], music: [],
+      mix: { slotTableVersion: 0, monitorActive: false, targetIndex: 0, snapshot: 0, masterVolume: 1, hiddenMute: false },
+    });
     expect(a.records.map((r) => [r.kind, r.seq])).toEqual([["event", 4], ["event", 5], ["mixop", 8], ["event", 9]]);
     const b = seekCapture(c, idx, 99);
     expect([b.epoch, b.frame, b.seq, b.keyframeSeq]).toEqual([1, 768, 15, 14]);

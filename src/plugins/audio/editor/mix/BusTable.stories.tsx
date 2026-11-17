@@ -3,18 +3,25 @@
 // named by its slot, and the empty state. Rendered through its real props, the `busTableData` of a keyframe's buses.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { expect } from "storybook/test";
-import type { KeyframeBus, KeyframePayload } from "../../runtime/capture/format";
+import type { CaptureKeyframe, CaptureKeyframeBus } from "../../runtime/capture/reader";
 import { BusTable, busTableData } from "./BusTable";
 import { busParents, busTableRows } from "./profilerTablesModel";
 import { nameLookup } from "./voiceTableModel";
 
-const EMPTY_MIX = { slotTableVersion: 1, monitorActive: 0, loudnessPausedMask: 0, targetIndex: 0, snapshotName: 0, masterVolume: 1, hiddenMute: 0 };
-const keyframe = (over: Partial<KeyframePayload> = {}): KeyframePayload => ({ voices: [], buses: [], metered: [], events: [], music: [], mix: EMPTY_MIX, ...over });
-const bus = (slot: number, over: Partial<KeyframeBus> = {}): KeyframeBus => ({ slot, gen: 1, flags: 0, lanes: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1], duck: 1, automation: 1, ...over });
+const EMPTY_MIX = { slotTableVersion: 1, monitorActive: false, targetIndex: 0, snapshot: null, masterVolume: 1, hiddenMute: false };
+const keyframe = (over: Partial<CaptureKeyframe> = {}): CaptureKeyframe => ({ voices: [], buses: [], metered: [], events: [], music: [], mix: EMPTY_MIX, ...over });
+/** A bus row at unity whose authored lane sits at `authored` (value and target), with the given flags. */
+const bus = (slot: number, { authored = 1, ...over }: Partial<CaptureKeyframeBus> & { authored?: number } = {}): CaptureKeyframeBus => {
+  const at = (g: number) => ({ value: g, target: g });
+  return {
+    slot, gen: 1, lanes: { authored: at(authored), runtime: at(1), snapshot: at(1), monitor: at(1), dip: at(1) }, duck: 1, automation: 1,
+    authoredMute: false, runtimeMute: false, monitorMute: false, monitorSolo: false, tombstone: false, metered: false, ...over,
+  };
+};
 const NAMES = nameLookup({ clips: new Map(), buses: new Map([[0, "Master"], [1, "Music"], [2, "SFX"]]), events: new Map(), parameters: new Map(), snapshots: new Map(), targets: new Map() } as never);
 const parents = busParents({ buses: [{ name: "Master" }, { name: "Music", parent: "Master" }, { name: "SFX", parent: "Music" }] }, [[0, "Master"], [1, "Music"], [2, "SFX"]]);
 const CTX = { playing: false, truncated: false, beforeFirstKeyframe: false };
-const dataOf = (buses: KeyframeBus[]) => busTableData(busTableRows(keyframe({ buses }), NAMES, parents), buses.length, "", CTX);
+const dataOf = (buses: CaptureKeyframeBus[]) => busTableData(busTableRows(keyframe({ buses }), NAMES, parents), buses.length, "", CTX);
 
 const rows = (root: HTMLElement) => [...root.querySelectorAll<HTMLElement>(".pgrid-row")];
 const cells = (row: HTMLElement) => [...row.querySelectorAll<HTMLElement>(".pgrid-cell")];
@@ -22,7 +29,7 @@ const cells = (row: HTMLElement) => [...row.querySelectorAll<HTMLElement>(".pgri
 const meta = {
   title: "Audio/Profiler/Bus table",
   component: BusTable,
-  args: { data: dataOf([bus(1, { lanes: [0.5, 0.5, 1, 1, 1, 1, 1, 1, 1, 1] })]) },
+  args: { data: dataOf([bus(1, { authored: 0.5 })]) },
 } satisfies Meta<typeof BusTable>;
 export default meta;
 type Story = StoryObj<typeof meta>;
@@ -43,7 +50,7 @@ export const OneBus: Story = {
 };
 
 export const MutedRemovedAndUnnamed: Story = {
-  args: { data: dataOf([bus(1, { flags: 1 }), bus(2, { flags: 1 << 4 }), bus(7)]) },
+  args: { data: dataOf([bus(1, { authoredMute: true }), bus(2, { tombstone: true }), bus(7)]) },
   play: async ({ canvasElement }) => {
     expect(rows(canvasElement).map((r) => r.dataset.state)).toEqual(["active", "removed", "unity"]);
     expect(cells(rows(canvasElement)[0]!).at(-2)).toHaveTextContent("-inf dB"); // a mute is silence

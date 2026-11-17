@@ -10,12 +10,12 @@
 // none passes the caps.
 import {
   CAPTURE_DISORDER_SECONDS, CAPTURE_FLAG_COMPRESSED, CAPTURE_FLAG_HAS_INDEX, CAPTURE_FLAG_MAIN_SIDE_ONLY, CAPTURE_FLAG_TRUNCATED,
-  CAPTURE_HEADER_BYTES, CAPTURE_MAX_NAMES, CAPTURE_MAX_UNCOMPRESSED_BYTES, CAPTURE_RECORD_HEAD_BYTES, CaptureError,
+  CAPTURE_HEADER_BYTES, CAPTURE_MAX_NAMES, CAPTURE_MAX_UNCOMPRESSED_BYTES, CAPTURE_META_MAX_BYTES, CAPTURE_RECORD_HEAD_BYTES, CaptureError,
   DEFERRED_STAMP_BYTES, NAME_TABLES, RECORD_FLAG_DEFERRED, RecordType, checkKeyframe, checkStatusPayload, decodeCaptureMeta,
   decodeEpoch, decodeEvent, decodeGap, decodeIndex, decodeMarker, decodeMixOpRecord, decodeNames, readCaptureHeader,
-  readRecordHead, CAPTURE_KEYFRAME_INTERVAL_MS, decodeKeyframe,
+  readRecordHead, CAPTURE_KEYFRAME_INTERVAL_MS, decodeKeyframe, readCaptureKeyframe, type CaptureKeyframe,
   type CaptureHeader, type CaptureMeta, type CaptureSnapshot, type CaptureSummary, type EpochPayload, type EventPayload,
-  type GapPayload, type IndexPayload, type KeyframePayload, type MarkerPayload, type MixOpPayload, type NameTable,
+  type GapPayload, type IndexPayload, type MarkerPayload, type MixOpPayload, type NameTable,
   type NamesPayload, type RecordHead,
 } from "./format";
 import { LOUD_OUTPUT_TAP, readStatus, readStatusHeaderField, STATUS_HEADER_COLUMNS, type StatusBlock, type StatusHeaderField } from "../wire.generated";
@@ -23,12 +23,19 @@ import { readCaptureEvent, type CaptureEvent, type CaptureEventType } from "./ev
 
 // The Profiler's vocabulary (ADR 0227): what the reader and its Worker answer is importable from here, so the editor's
 // views depend on the reader and never on the binary layout (`format.ts`, `wire.generated.ts`).
-export { CaptureError } from "./format";
+export { CAPTURE_ERROR_CODES, CaptureError } from "./format";
 export type {
-  CaptureErrorInfo, CaptureLoudnessColumns, CaptureLoudnessGap, CaptureLoudnessMark, CaptureLoudnessTarget, CaptureLoudnessValues,
-  KeyframeBus, KeyframePayload, KeyframeVoice,
+  CaptureErrorCode, CaptureErrorInfo, CaptureLoudnessColumns, CaptureLoudnessGap, CaptureLoudnessMark, CaptureLoudnessTarget, CaptureLoudnessValues,
+  CaptureKeyframe, CaptureKeyframeBus, CaptureKeyframeEvent, CaptureKeyframeMetered, CaptureKeyframeMix, CaptureKeyframeMusic,
+  CaptureKeyframeVoice, CaptureLane, CaptureMusicState, CaptureVoiceState,
 } from "./format";
 export type { CaptureEvent, CaptureEventType } from "./events";
+/**
+ * The largest file the reader can accept: the header, a META chunk and an uncompressed payload, each at its cap (a stored
+ * capture can reach it, and deflate output never exceeds it by more than the same slack). A file past it is refused, so
+ * an open route can turn it away before reading its bytes.
+ */
+export const CAPTURE_MAX_FILE_BYTES = CAPTURE_HEADER_BYTES + CAPTURE_META_MAX_BYTES + CAPTURE_MAX_UNCOMPRESSED_BYTES;
 /** The slot the final output is metered under (STATUS loudness rows and the loudness answers), beside the buses' own slots. */
 export const CAPTURE_OUTPUT_SLOT = LOUD_OUTPUT_TAP;
 
@@ -649,7 +656,7 @@ export type CaptureSeekRecord =
 /**
  * The table at one instant (`seek`). The cursor fields are the last STATUS at or before t (or, before any STATUS, the
  * first record). The state is the keyframe at or before t plus the records from it to t (§5.5): `keyframe` is
- * `decodeKeyframe`'s payload (null without one, and until Rc1b fills the codec), `records` the EVENTs and MIXOPs after
+ * `readCaptureKeyframe`'s, its rows by name (null without one), `records` the EVENTs and MIXOPs after
  * it, in seq order, for the models to apply (Pf2's voice table, Pf6's loudness). Without a keyframe at or before t the
  * base is the STATUS one keyframe interval before t (the records of that last second only).
  */
@@ -658,7 +665,7 @@ export interface CaptureSeekState extends CaptureSnapshot {
   seconds: number;
   /** -1 when there is no keyframe at or before t. */
   keyframeSeq: number;
-  keyframe: KeyframePayload | null;
+  keyframe: CaptureKeyframe | null;
   /** The last STATUS at or before t, parsed; null before the first. */
   status: StatusBlock | null;
   records: CaptureSeekRecord[];
@@ -748,11 +755,11 @@ export function eventsCapture(c: CaptureContents, from: number, types?: readonly
   return { events, next: Math.max(start, tbl.count) };
 }
 
-/** KEYFRAME `i`'s payload (Rc1b's codec; a malformed keyframe throws its `CaptureError`). */
-function keyframeAt(c: CaptureContents, i: number): KeyframePayload {
+/** KEYFRAME `i` by name (Rc1b's codec, then `readCaptureKeyframe`; a malformed keyframe throws its `CaptureError`). */
+function keyframeAt(c: CaptureContents, i: number): CaptureKeyframe {
   const t = c.records;
   const seg = c.segments[t.segment[i]!]!;
-  return decodeKeyframe(new DataView(seg.buffer, seg.byteOffset, seg.byteLength), t.offset[i]!, t.len[i]!);
+  return readCaptureKeyframe(decodeKeyframe(new DataView(seg.buffer, seg.byteOffset, seg.byteLength), t.offset[i]!, t.len[i]!));
 }
 
 /** `range`'s answer: typed arrays keyed by column (transferred by the Worker). */

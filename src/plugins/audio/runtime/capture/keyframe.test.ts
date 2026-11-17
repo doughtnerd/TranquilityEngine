@@ -35,8 +35,8 @@ import {
   type KeyframePayload,
   type KeyframeVoice,
 } from "./format";
-import { decodeRecordAt, openCapture } from "./reader";
-import { EMPTY_KEYFRAME_PAYLOAD, SAMPLE_HEADER, SAMPLE_META } from "./testSupport";
+import { CaptureTimeIndex, decodeRecordAt, openCapture, seekCapture } from "./reader";
+import { EMPTY_KEYFRAME_PAYLOAD, SAMPLE_HEADER, SAMPLE_META, statusBytes } from "./testSupport";
 
 const f32 = Math.fround;
 
@@ -271,6 +271,58 @@ describe("KEYFRAME codec (Rc1b, §5.5)", () => {
       p.metered[0]!.maxTruePeak = Number.POSITIVE_INFINITY;
       const { view, len } = encoded(p);
       expect(decodeKeyframe(view, 0, len)).toEqual(p);
+    });
+  });
+});
+
+describe("a seek answers the KEYFRAME by name (ADR 0227's follow-up)", () => {
+  it("reads states by name, pitch as a rate, audibility 0..1, each flag as a boolean, the lanes by name and no name as null", async () => {
+    const NONE = 0xffffffff; // the wire's no-name id
+    const lanes = [0.5, 0.25, 1, 0.75, 0.125, 0.125, 1, 1, 0.5, 1];
+    const p: KeyframePayload = {
+      voices: [
+        { id: 7, clip: 3, slot: 2, state: 1, priority: 90, reason: 2, gain: 0.5, pitch: 8192, audibility: 49152, playheadFrames: 480 },
+        { id: 8, clip: 4, slot: 1, state: 5, priority: 10, reason: 0, gain: 1, pitch: 2048, audibility: 0, playheadFrames: 0 },
+      ],
+      buses: [
+        { slot: 1, gen: 3, flags: 0b101010, lanes, duck: 0.5, automation: 0.25 }, // runtime mute, monitor solo, metered
+        { slot: 4, gen: 1, flags: 0b010101, lanes, duck: 1, automation: 1 }, // authored mute, monitor mute, tombstone
+      ],
+      metered: [{ slot: 1, flags: 0b1001, momentary: -23, shortTerm: -22, integrated: -24, lra: 3, maxTruePeak: -1, maxMomentary: -18, elapsed: 12 }],
+      events: [{ id: 100, asset: 5, voices: 2, state: 0, paramsHash: 77 }],
+      music: [
+        { id: 1, segment: 6, state: 2, pass: 2, bar: 4, beat: 3, tick: 120, tempo: 128, pendingTo: 9, pendingTimeSec: 12.5 },
+        { id: 2, segment: NONE, state: 200, pass: 1, bar: 1, beat: 1, tick: 0, tempo: 0, pendingTo: NONE, pendingTimeSec: 0 },
+      ],
+      mix: { slotTableVersion: 4, monitorActive: 1, loudnessPausedMask: 1, targetIndex: 2, snapshotName: NONE, masterVolume: 0.5, hiddenMute: 0 },
+    };
+    const records: CaptureRecordInit[] = [
+      { type: RecordType.EPOCH, epoch: 0, seq: 1, frame: 0, payload: { reason: 0, sampleRate: 48_000, limiterLatencyFrames: 0, outputLatencyFrames: 0, timeOffset: 0, perfMs: 1 } },
+      { type: RecordType.KEYFRAME, epoch: 0, seq: 2, frame: 768, payload: p },
+      { type: RecordType.STATUS, epoch: 0, seq: 3, frame: 768, payload: statusBytes(768) },
+    ];
+    const c = await openCapture(assembleCapture(SAMPLE_HEADER, SAMPLE_META, records));
+    const idx = new CaptureTimeIndex();
+    idx.extend(c);
+    const kf = seekCapture(c, idx, idx.endSeconds).keyframe!;
+    const lane = (v: number, t: number) => ({ value: v, target: t });
+    const named = { authored: lane(0.5, 0.25), runtime: lane(1, 0.75), snapshot: lane(0.125, 0.125), monitor: lane(1, 1), dip: lane(0.5, 1) };
+    expect(kf).toEqual({
+      voices: [
+        { id: 7, clip: 3, slot: 2, state: "virtual", priority: 90, reason: 2, gain: 0.5, pitch: 2, audibility: 0.75, playheadFrames: 480 },
+        { id: 8, clip: 4, slot: 1, state: "locked", priority: 10, reason: 0, gain: 1, pitch: 0.5, audibility: 0, playheadFrames: 0 },
+      ],
+      buses: [
+        { slot: 1, gen: 3, lanes: named, duck: 0.5, automation: 0.25, authoredMute: false, runtimeMute: true, monitorMute: false, monitorSolo: true, tombstone: false, metered: true },
+        { slot: 4, gen: 1, lanes: named, duck: 1, automation: 1, authoredMute: true, runtimeMute: false, monitorMute: true, monitorSolo: false, tombstone: true, metered: false },
+      ],
+      metered: [{ slot: 1, paused: true, incomplete: false, tainted: false, lowerBound: true, momentary: -23, shortTerm: -22, integrated: -24, lra: 3, maxTruePeak: -1, maxMomentary: -18, elapsed: 12 }],
+      events: [{ id: 100, asset: 5, voices: 2, paramsHash: 77 }],
+      music: [
+        { id: 1, segment: 6, state: "transitioning", pass: 2, bar: 4, beat: 3, tick: 120, tempo: 128, pending: { to: 9, seconds: 12.5 } },
+        { id: 2, segment: null, state: null, pass: 1, bar: 1, beat: 1, tick: 0, tempo: 0, pending: null },
+      ],
+      mix: { slotTableVersion: 4, monitorActive: true, targetIndex: 2, snapshot: null, masterVolume: 0.5, hiddenMute: false },
     });
   });
 });

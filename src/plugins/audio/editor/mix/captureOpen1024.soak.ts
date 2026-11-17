@@ -158,7 +158,7 @@ describe("soak 2: a 1,024-voice capture opens through the Worker (§3.7)", () =>
       const ms = performance.now() - s0;
       expect(state.keyframe).not.toBeNull();
       const replay = reconstructVoices(state, lookup);
-      const rows = replay.rows.map((x) => ({ id: x.id, clip: x.clipName, bus: x.busName, state: x.stateName, priority: x.priority, gain: x.gain })).sort((p, q) => p.id - q.id);
+      const rows = replay.rows.map((x) => ({ id: x.id, clip: x.clipName, bus: x.busName, state: x.state, priority: x.priority, gain: x.gain })).sort((p, q) => p.id - q.id);
       if (rows.length !== truth.rows.length || rows.some((r, i) => r.id !== truth.rows[i]!.id)) {
         // A mismatch: name each id on one side only, with the game's row and every record the capture holds for it.
         const mine = new Set(rows.map((r) => r.id));

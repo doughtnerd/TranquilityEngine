@@ -1,9 +1,15 @@
 import { describe, expect, it } from "vitest";
-import type { KeyframeBus } from "../../runtime/capture/format";
+import type { CaptureKeyframeBus } from "../../runtime/capture/reader";
 import { FACTOR_LANES, busFactors, formatDb, gainToDb, treeProducts } from "./busFactorsModel";
 
-function row(over: Partial<KeyframeBus> = {}): KeyframeBus {
-  return { slot: 0, gen: 1, flags: 0, lanes: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1], duck: 1, automation: 1, ...over };
+/** A bus row: `lanes` as [value, target] for authored, runtime, snapshot, monitor, dip (unity when absent). */
+type RowOver = Partial<Omit<CaptureKeyframeBus, "lanes">> & { lanes?: readonly number[] };
+function row({ lanes = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1], ...over }: RowOver = {}): CaptureKeyframeBus {
+  const at = (k: number) => ({ value: lanes[2 * k]!, target: lanes[2 * k + 1]! });
+  return {
+    slot: 0, gen: 1, lanes: { authored: at(0), runtime: at(1), snapshot: at(2), monitor: at(3), dip: at(4) }, duck: 1, automation: 1,
+    authoredMute: false, runtimeMute: false, monitorMute: false, monitorSolo: false, tombstone: false, metered: false, ...over,
+  };
 }
 
 describe("busFactors", () => {
@@ -44,7 +50,7 @@ describe("busFactors", () => {
   });
 
   it("mute flags zero the authored and runtime factors; a tombstone is reported", () => {
-    const b = busFactors(row({ flags: 0b10011, lanes: [0.5, 0.5, 0.5, 0.5, 1, 1, 1, 1, 1, 1] }));
+    const b = busFactors(row({ authoredMute: true, runtimeMute: true, tombstone: true, lanes: [0.5, 0.5, 0.5, 0.5, 1, 1, 1, 1, 1, 1] }));
     expect(b.factors[0].value).toBe(0);
     expect(b.factors[1].value).toBe(0);
     expect(b.product).toBe(0);

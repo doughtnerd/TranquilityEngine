@@ -4,8 +4,7 @@
 // real props (`TablesSlotProps`: a source, a seek state, the cursor, no live follow).
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { expect, userEvent, within } from "storybook/test";
-import type { KeyframeBus, KeyframePayload } from "../../runtime/capture/format";
-import type { CaptureSeekState } from "../../runtime/capture/reader";
+import type { CaptureKeyframe, CaptureKeyframeBus, CaptureKeyframeMusic, CaptureSeekState } from "../../runtime/capture/reader";
 import { SAMPLE_RATE } from "../../runtime/capture/testSupport";
 import type { TablesSlotProps } from "./ProfilerPanel";
 import type { ProfileSource } from "./profilerSource";
@@ -19,11 +18,18 @@ const TABLE_EMPTY = {
   noVoices: "No voices at the cursor",
 } as const;
 
-const EMPTY_MIX = { slotTableVersion: 1, monitorActive: 0, loudnessPausedMask: 0, targetIndex: 0, snapshotName: 0, masterVolume: 1, hiddenMute: 0 };
-const keyframe = (over: Partial<KeyframePayload> = {}): KeyframePayload => ({ voices: [], buses: [], metered: [], events: [], music: [], mix: EMPTY_MIX, ...over });
-const seekState = (kf: KeyframePayload | null): CaptureSeekState =>
+const EMPTY_MIX = { slotTableVersion: 1, monitorActive: false, targetIndex: 0, snapshot: null, masterVolume: 1, hiddenMute: false };
+const keyframe = (over: Partial<CaptureKeyframe> = {}): CaptureKeyframe => ({ voices: [], buses: [], metered: [], events: [], music: [], mix: EMPTY_MIX, ...over });
+const seekState = (kf: CaptureKeyframe | null): CaptureSeekState =>
   ({ seconds: 0, keyframeSeq: kf ? 1 : -1, keyframe: kf, status: null, records: [], recordsScanned: 0 }) as unknown as CaptureSeekState;
-const bus = (slot: number, over: Partial<KeyframeBus> = {}): KeyframeBus => ({ slot, gen: 1, flags: 0, lanes: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1], duck: 1, automation: 1, ...over });
+/** A bus row at unity whose authored lane sits at `authored` (value and target), with the given flags. */
+const bus = (slot: number, { authored = 1, ...over }: Partial<CaptureKeyframeBus> & { authored?: number } = {}): CaptureKeyframeBus => {
+  const at = (g: number) => ({ value: g, target: g });
+  return {
+    slot, gen: 1, lanes: { authored: at(authored), runtime: at(1), snapshot: at(1), monitor: at(1), dip: at(1) }, duck: 1, automation: 1,
+    authoredMute: false, runtimeMute: false, monitorMute: false, monitorSolo: false, tombstone: false, metered: false, ...over,
+  };
+};
 /** A source with these names that never answers a seek (the region asks for one only when it has none). */
 const sourceOf = (names: { buses?: Map<number, string>; events?: Map<number, string> }, audio?: unknown): ProfileSource =>
   ({ summary: { names: { clips: new Map(), buses: names.buses ?? new Map(), events: names.events ?? new Map() }, meta: audio === undefined ? {} : { audio } }, truncated: false, startSeconds: 0, seek: () => new Promise(() => {}) }) as unknown as ProfileSource;
@@ -73,7 +79,7 @@ export const NoCursorYet: Story = {
 export const FilterTyping: Story = {
   args: {
     source: sourceOf({ buses: new Map([[0, "Master"], [1, "Music"]]), events: new Map([[5, "PlayerJump"], [6, "Ambience"]]) }, { buses: [{ name: "Master" }] }),
-    seek: seekState(keyframe({ buses: [bus(0), bus(1)], events: [{ id: 1, asset: 5, voices: 2, state: 1, paramsHash: 0 }, { id: 2, asset: 6, voices: 1, state: 1, paramsHash: 0 }] })),
+    seek: seekState(keyframe({ buses: [bus(0), bus(1)], events: [{ id: 1, asset: 5, voices: 2, paramsHash: 0 }, { id: 2, asset: 6, voices: 1, paramsHash: 0 }] })),
   },
   play: async ({ canvasElement }) => {
     expect(rowsOf(canvasElement, "buses")).toHaveLength(2);
@@ -92,9 +98,9 @@ export const FilterTyping: Story = {
   },
 };
 
-const music = [
-  { id: 7, segment: 1, state: 1, pass: 2, bar: 4, beat: 3, tick: 120, tempo: 120, pendingTo: 2, pendingTimeSec: 12.5 },
-  { id: 8, segment: 3, state: 4, pass: 1, bar: 1, beat: 1, tick: 0, tempo: 90, pendingTo: 0xffffffff, pendingTimeSec: 0 },
+const music: CaptureKeyframeMusic[] = [
+  { id: 7, segment: 1, state: "playing", pass: 2, bar: 4, beat: 3, tick: 120, tempo: 120, pending: { to: 2, seconds: 12.5 } },
+  { id: 8, segment: 3, state: "ending", pass: 1, bar: 1, beat: 1, tick: 0, tempo: 90, pending: null },
 ];
 
 export const Music: Story = {
