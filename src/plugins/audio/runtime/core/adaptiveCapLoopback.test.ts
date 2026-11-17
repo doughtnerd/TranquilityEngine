@@ -4,12 +4,8 @@
 // drops at once and demotes the lowest-score voices itself. STATUS carries `mixedCap` and `demoted`, selection runs at
 // the lower cap without promoting past it, `Audio.debug()` shows the cap, and after 5 s of calm the cap climbs back
 // once a second and selection re-promotes.
-import { fakeDecoder } from "./fakeDecoder";
-import { describe, expect, it } from "vitest";
-import { Mixer } from "../../../../engine/audio/mixer";
-import { defaultAudioSettings } from "../../../../engine/audio/settings";
-import type { AudioHost, CoreLink } from "./context";
-import { CoreBackend, type CoreBackendHost } from "./coreBackend";
+import { afterEach, describe, expect, it } from "vitest";
+import { closeLoopbackAudio, loopbackAudio } from "../testing";
 
 const req = (path: string, extra: object = {}) => ({ path, url: path, loop: true, stream: false, bus: "SFX", ...extra });
 
@@ -18,54 +14,26 @@ const QUANTA_PER_FRAME = 4;
 const FRAMES_PER_SECOND = Math.round(48_000 / 128 / QUANTA_PER_FRAME);
 
 async function rig(maxMixed: number) {
-  const testing = await import("../testing");
-  let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>> & { link: CoreLink };
-  try {
-    loop = (await testing.createLoopbackHost({ preset: { ...testing.LOOPBACK_PRESET, maxMixed } })) as typeof loop;
-  } catch {
-    return null;
-  }
-  const { createClipRegistry } = await import("./clipRegistry");
-  const link = loop.link;
-  const frames = 48_000;
-  const clips = createClipRegistry({
-    send: (m) => link.post(m),
-    nextSeq: () => link.nextSeq(),
-    fetchBytes: async () => new ArrayBuffer(8),
-    decodeWorker: fakeDecoder(async () => ({ frames, channels: 1, sampleRate: 48_000, channelData: [new Float32Array(frames).fill(0.5)] })),
-    nextFrame: (cb) => cb(),
-    nextQuantum: (cb) => cb(),
-  });
-  const host: CoreBackendHost = {
-    link,
-    status: "running",
-    preset: { maxLogical: 64, maxMixed },
-    worldCount: 1,
-    sampleRate: 48_000,
-    addLifecycleListener: (() => () => {}) as AudioHost["addLifecycleListener"],
-  };
-  const mixer = new Mixer(defaultAudioSettings());
-  const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer });
+  // ADR 0221: the production assembly on the loopback, with its own mixer.
+  const audio = await loopbackAudio({ mixer: "own", preset: { maxLogical: 64, maxMixed }, quantaPerFrame: QUANTA_PER_FRAME, dt: 0.01 });
+  if (!audio) return null;
+  const { backend } = audio;
   /** `n` frames; returns the last quantum's left level. */
   const step = async (n: number) => {
     let level = NaN;
-    for (let f = 0; f < n; f++) {
-      mixer.update(0.01);
-      backend.update(0.01);
-      const { left } = loop.renderQuanta(QUANTA_PER_FRAME);
-      level = left[left.length - 1]!;
-      await Promise.resolve();
-    }
+    for (let f = 0; f < n; f++) level = (await audio.step()).left.at(-1)!;
     return level;
   };
   /** The render falls `ms` behind the wall clock (the context clock stands still meanwhile): one underrun. */
   const stall = (ms: number) => {
-    loop.clock.setRunning(false);
-    loop.clock.advance(ms);
-    loop.clock.setRunning(true);
+    audio.clock.setRunning(false);
+    audio.clock.advance(ms);
+    audio.clock.setRunning(true);
   };
-  return { loop, backend, step, stall };
+  return { loop: audio, backend, step, stall };
 }
+
+afterEach(closeLoopbackAudio);
 
 describe("the adaptive mixed-voice cap on the loopback host (A3.3)", () => {
   it("drops on an underrun, demotes the quietest voices in the core, and recovers after the load ends", { timeout: 60_000 }, async (ctx) => {

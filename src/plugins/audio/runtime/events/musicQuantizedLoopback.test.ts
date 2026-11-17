@@ -14,16 +14,13 @@
 // than reproduce the late case.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Assets, Engine, SceneManager } from "../../../../myco";
-import { mixer as globalMixer, registerCoreBackend, setAudioBackend } from "../backend";
+import { registerCoreBackend, setAudioBackend } from "../backend";
 import { Audio } from "../index";
-import { createClipRegistry } from "../core/clipRegistry";
-import { fakeDecoder } from "../core/fakeDecoder";
-import type { AudioHost } from "../core/context";
-import { CoreBackend, type CoreBackendHost } from "../core/coreBackend";
+import { CoreBackend } from "../core/coreBackend";
 import { AUDIO_SYSTEMS } from "../audioSystem";
 import { musicPlayers } from "../music/musicSystem";
 import { QUANTIZED_RAMP_SECONDS } from "./automation";
-import { endAudioSession } from "../testing";
+import { endAudioSession, loopbackAudio, closeLoopbackAudio } from "../testing";
 
 const RATE = 48_000;
 const BEAT = RATE / 2;
@@ -86,34 +83,24 @@ async function rig() {
   });
   await SceneManager.load("s.json");
   engine.world.render = {} as never;
-  const testing = await import("../testing");
-  let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>>;
-  try {
-    loop = await testing.createLoopbackHost({ preset: { ...testing.LOOPBACK_PRESET, limiterLookaheadMs: 0 } });
-  } catch {
-    return null;
-  }
-  const link = loop.link;
+  // ADR 0221: the production assembly on the loopback, on the page's mixer (the Engine configured it); registered below.
   const bytes = (url: string): number => (url.includes("pulse") ? BYTES.pulse : url.includes("lead") ? BYTES.lead : BYTES.pad);
-  const clips = createClipRegistry({
-    send: (m) => link.post(m),
-    nextSeq: () => link.nextSeq(),
-    fetchBytes: async (url: string) => new ArrayBuffer(bytes(url)),
-    decodeWorker: fakeDecoder(async (b) => ({ frames: CLIP_FRAMES, channels: 1, sampleRate: RATE, channelData: [new Float32Array(CLIP_FRAMES).fill(DC[b.byteLength]!)] })),
-    nextFrame: (cb) => cb(),
-    nextQuantum: (cb) => cb(),
+  const loop = await loopbackAudio({
+    register: false,
+    preset: { maxLogical: 16, maxMixed: 8, limiterLookaheadMs: 0 },
+    decode: (path) => ({ channelData: [new Float32Array(CLIP_FRAMES).fill(DC[bytes(path)]!)] }),
   });
-  const host: CoreBackendHost = { link, status: "running", preset: { maxLogical: 16, maxMixed: 8 }, worldCount: 1, sampleRate: RATE, addLifecycleListener: (() => () => {}) as AudioHost["addLifecycleListener"] };
-  const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer: globalMixer });
+  if (!loop) return null;
+  const backend = loop.backend;
   undo = registerCoreBackend(() => backend);
-  // The out index is the core's frame: every rendered sample is kept from the first quantum.
-  const out: number[] = [];
+  // The out index is the core's frame: every rendered sample is kept, and the quanta before the backend (silent) are zeros.
+  const out: number[] = new Array<number>(loop.frame).fill(0);
   const dt = FRAME_FRAMES / RATE;
   const step = async (n: number): Promise<void> => {
     for (let f = 0; f < n; f++) {
       AUDIO_SYSTEMS[1]!.run(engine.world, dt); // engine.AudioMusic: the early step
       AUDIO_SYSTEMS[0]!.run(engine.world, dt); // engine.Audio: the frame, the music plan, the commit, the event runtime
-      for (const s of loop.renderQuanta(QUANTA_PER_FRAME).left) out.push(s);
+      for (const s of loop.render(QUANTA_PER_FRAME).left) out.push(s);
       for (let k = 0; k < 4; k++) await Promise.resolve();
     }
   };
@@ -135,6 +122,8 @@ const maxError = (out: readonly number[], from: number, to: number, level: numbe
   for (let i = from; i < to; i++) m = Math.max(m, Math.abs(out[i]! - level));
   return m;
 };
+
+afterEach(closeLoopbackAudio);
 
 describe("quantised stem automation on the core (F-9, loopback host)", () => {
   it("pulse and lead start at their automated level and move to it on the beat, sample-exact", { timeout: 60_000 }, async (ctx) => {

@@ -2,12 +2,8 @@
 // applied now): the clip is a ramp (sample k = floor(k / 3) / 32767), so the output says which clip frame is playing.
 // A seek fades the voice out over 5 ms, jumps, and fades in from the target; a loop wraps the time; a one-shot clamps
 // it to the end (the voice then ends); a seek before the clip is on the core does nothing.
-import { fakeDecoder } from "./fakeDecoder";
-import { describe, expect, it } from "vitest";
-import { Mixer } from "../../../../engine/audio/mixer";
-import { defaultAudioSettings } from "../../../../engine/audio/settings";
-import type { AudioHost, CoreLink } from "./context";
-import { CoreBackend, type CoreBackendHost } from "./coreBackend";
+import { afterEach, describe, expect, it } from "vitest";
+import { loopbackAudio, closeLoopbackAudio } from "../testing";
 
 const STEP = 3;
 const CLIP_FRAMES = 96_000;
@@ -18,45 +14,17 @@ const clipAt = (k: number): number => Math.floor(k / STEP) / 32768;
 const rampAt = (a: number, b: number, n: number, k: number): number => (k + 1 >= n ? b : a + ((b - a) * (k + 1)) / n);
 
 async function rig() {
-  const testing = await import("../testing");
-  let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>> & { link: CoreLink };
-  try {
-    loop = (await testing.createLoopbackHost({ preset: { ...testing.LOOPBACK_PRESET, limiterLookaheadMs: 0 } })) as typeof loop;
-  } catch {
-    return null;
-  }
-  const { createClipRegistry } = await import("./clipRegistry");
-  const link = loop.link;
+  // ADR 0221: the production assembly on the loopback, with its own mixer; no limiter look-ahead.
   const ramp = Float32Array.from({ length: CLIP_FRAMES }, (_, k) => Math.floor(k / STEP) / 32767);
-  const clips = createClipRegistry({
-    send: (m) => link.post(m),
-    nextSeq: () => link.nextSeq(),
-    fetchBytes: async () => new ArrayBuffer(8),
-    decodeWorker: fakeDecoder(async () => ({ frames: CLIP_FRAMES, channels: 1, sampleRate: 48_000, channelData: [ramp] })),
-    nextFrame: (cb) => cb(),
-    nextQuantum: (cb) => cb(),
-  });
-  const host: CoreBackendHost = {
-    link,
-    status: "running",
-    preset: { maxLogical: 16, maxMixed: 8 },
-    worldCount: 1,
-    sampleRate: 48_000,
-    addLifecycleListener: (() => () => {}) as AudioHost["addLifecycleListener"],
-  };
-  const mixer = new Mixer(defaultAudioSettings());
-  const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer });
+  const audio = await loopbackAudio({ mixer: "own", preset: { maxLogical: 16, maxMixed: 8, limiterLookaheadMs: 0 }, decode: () => ({ channelData: [ramp] }), dt: 0.003 });
+  if (!audio) return null;
+  const { backend, link } = audio;
   const out: number[] = [];
+  /** `n` frames of 4 quanta; the left channel is appended to `out`. */
   const step = async (n: number) => {
-    for (let f = 0; f < n; f++) {
-      mixer.update(0.003);
-      backend.update(0.003);
-      const { left } = loop.renderQuanta(4);
-      for (const s of left) out.push(s);
-      await Promise.resolve();
-    }
+    for (let f = 0; f < n; f++) for (const s of (await audio.step()).left) out.push(s);
   };
-  return { backend, step, out };
+  return { backend, step, out, link };
 }
 
 /** The clip frame the output is at index `j`, found from a run of three samples (a ramp is monotonic). */
@@ -64,6 +32,8 @@ function frameAt(out: number[], j: number): number {
   const v = out[j]!;
   return Math.floor(v * 32768 + 0.5) * STEP;
 }
+
+afterEach(closeLoopbackAudio);
 
 describe("seek on a clip voice on the loopback host (B3b)", () => {
   it("fades out over 5 ms, jumps to the target and fades in from it", async (ctx) => {

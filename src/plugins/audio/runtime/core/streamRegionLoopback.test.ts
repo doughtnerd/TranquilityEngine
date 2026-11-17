@@ -21,11 +21,10 @@ import { makeWav, signal } from "../decoder/testWav";
 import { RATE, rig } from "../../testing/streamRig";
 import { createClipRegistry } from "./clipRegistry";
 import { AudioHost, presetFromSettings } from "./context";
-import { createCoreBackend } from "./coreBackend";
+import { assembleCore } from "./assembly";
 import { CoreAutomation, type CoreAutomationDeps, type LoopRecord } from "./coreAutomation";
 import { VoiceFlag, VoiceState, VoiceTable } from "./voiceTable";
 import type { AudioVoice } from "../backend";
-import { watchForTraps } from "./recovery";
 import { Unlock, type UnlockContext } from "./unlock";
 
 const FILE_FRAMES = 2 * RATE;
@@ -157,7 +156,6 @@ describe("stream region loops on the loopback host (E4.4)", () => {
     const node = Object.assign(new EventTarget(), { connect() {}, disconnect() {} }) as unknown as AudioWorkletNode;
     const unlock = new Unlock({ target: new EventTarget(), context: context as unknown as UnlockContext });
     const host = AudioHost._create({ context: context as unknown as AudioContext, node, link: loop.link, unlock, preset: { ...presetFromSettings(defaultAudioSettings()), limiterLookaheadMs: 0 }, respawn: () => loop.respawn() });
-    watchForTraps(host, { now: () => 0, warn: () => {} });
     const link = loop.link;
     const WASM = readFileSync(fileURLToPath(new URL("../wasm/myco_audio_decode.wasm", import.meta.url)));
     const worker: WorkerLike = { onmessage: null, onerror: null, postMessage: (m) => void handler.handle(m), terminate() {} };
@@ -166,7 +164,9 @@ describe("stream region loops on the loopback host (E4.4)", () => {
     const pumps: (() => void)[] = [];
     const bytes = file();
     const mixer = new Mixer(defaultAudioSettings());
-    const backend = createCoreBackend(host, {
+    // ADR 0221: the production assembly over this host.
+    const backend = assembleCore(host, {
+      recovery: { now: () => 0, warn: () => {} },
       clips: createClipRegistry({ send: (m) => link.post(m), nextSeq: () => link.nextSeq(), fetchBytes: async () => new ArrayBuffer(8), clipFormat: 0 }),
       clock: loop.clock,
       mixer,
@@ -192,7 +192,7 @@ describe("stream region loops on the loopback host (E4.4)", () => {
         },
         fetchBytes: async () => bytes.slice(0),
       },
-    });
+    }).createBackend();
     const out: number[] = [];
     const step = async (n: number) => {
       for (let f = 0; f < n; f++) {

@@ -1,15 +1,12 @@
 // A3.4b end to end: the background modes on the loopback host (the real wasm, clip registry, shell and coreBackend).
 // `mute` ramps MASTER to silence and back with no frame running; `pause` suspends after the fade and resumes; `play`
 // leaves the output alone; and a voice that ends while hidden is freed from STATUS handling alone (no `update()`).
-import { fakeDecoder } from "./fakeDecoder";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Mixer } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings, type AudioSettings } from "../../../../engine/audio/settings";
 import type { AudioBackground } from "../backend";
 import { BackgroundController, PAUSE_SUSPEND_DELAY_MS, type BackgroundHost, type VisibilitySource } from "./background";
-import type { AudioHost, CoreLink } from "./context";
-import { CoreBackend, type CoreBackendHost } from "./coreBackend";
 import type { DeviceSnapshot } from "./deviceChange";
+import { loopbackAudio, closeLoopbackAudio } from "../testing";
 
 const req = (path: string, extra: object = {}) => ({ path, url: path, loop: true, stream: false, bus: "SFX", ...extra });
 
@@ -62,57 +59,33 @@ class FakeContextHost implements BackgroundHost {
 }
 
 async function rig(mode: AudioBackground, opts: { settings?: AudioSettings; frames?: number } = {}) {
-  const testing = await import("../testing");
-  let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>> & { link: CoreLink };
-  try {
-    loop = (await testing.createLoopbackHost()) as typeof loop;
-  } catch {
-    return null;
-  }
-  const { createClipRegistry } = await import("./clipRegistry");
-  const link = loop.link;
   const frames = opts.frames ?? 48_000;
-  const clips = createClipRegistry({
-    send: (m) => link.post(m),
-    nextSeq: () => link.nextSeq(),
-    fetchBytes: async () => new ArrayBuffer(8),
-    decodeWorker: fakeDecoder(async () => ({ frames, channels: 1, sampleRate: 48_000, channelData: [new Float32Array(frames).fill(0.5)] })),
-    nextFrame: (cb) => cb(),
-    nextQuantum: (cb) => cb(),
-  });
-  const host: CoreBackendHost = {
-    link,
-    status: "running",
+  // ADR 0221: the production assembly on the loopback, with its own mixer. The controller under test is driven by a fake page.
+  const audio = await loopbackAudio({
+    mixer: "own",
+    settings: opts.settings ?? defaultAudioSettings(),
     preset: { maxLogical: 64, maxMixed: 32 },
-    worldCount: 1,
-    sampleRate: 48_000,
-    addLifecycleListener: (() => () => {}) as AudioHost["addLifecycleListener"],
-  };
-  const mixer = new Mixer(opts.settings ?? defaultAudioSettings());
-  const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer });
+    decode: () => ({ channelData: [new Float32Array(frames).fill(0.5)] }),
+    dt: 0.003,
+  });
+  if (!audio) return null;
+  const { backend } = audio;
   backend.setBackground(mode);
   const page = new Page();
   const ctx = new FakeContextHost();
   const controller = new BackgroundController({ host: ctx, target: backend, visibility: page, now: () => performance.now() }).start();
   /** A frame: `update` then 4 quanta; returns the last quantum's left level. */
-  const frame = async () => {
-    mixer.update(0.003);
-    backend.update(0.003);
-    const { left } = loop.renderQuanta(4);
-    await Promise.resolve();
-    return left[left.length - 1]!;
-  };
+  const frame = async () => (await audio.step()).left.at(-1)!;
   /** Frames until `voice` is on the core (its clip loaded and the PLAY sent). */
   const settle = async (voice: { id: number }) => {
     for (let i = 0; i < 30 && backend.debug().voices.find((v) => v.id === voice.id)?.state === "waitingForData"; i++) await frame();
   };
   /** Quanta with no `update()`, as a hidden tab runs. */
-  const quanta = (n: number) => {
-    const { left } = loop.renderQuanta(n);
-    return left[left.length - 1]!;
-  };
-  return { loop, backend, page, ctx, controller, frame, quanta, settle };
+  const quanta = (n: number) => audio.render(n).left.at(-1)!;
+  return { loop: audio, backend, page, ctx, controller, frame, quanta, settle };
 }
+
+afterEach(closeLoopbackAudio);
 
 describe("background modes on the loopback host (A3.4b)", () => {
   beforeEach(() => vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] }));
@@ -152,7 +125,7 @@ describe("background modes on the loopback host (A3.4b)", () => {
     backend.play(req("a.wav", { volume: 0.5 }));
     for (let i = 0; i < 8; i++) await frame();
     page.set(true);
-    const { left } = loop.renderQuanta(24);
+    const { left } = loop.render(24);
     let maxStep = 0;
     for (let i = 1; i < left.length; i++) maxStep = Math.max(maxStep, Math.abs(left[i]! - left[i - 1]!));
     expect(maxStep).toBeLessThan(0.001);

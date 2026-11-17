@@ -6,21 +6,12 @@ import { fakeDecoder } from "./fakeDecoder";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Mixer } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings } from "../../../../engine/audio/settings";
-import {
-  Kind,
-  readBatchHeader,
-  readEnvelope,
-  readRecordHead,
-  REPLAY_FLAGS_FIRST_CHUNK,
-  REPLAY_FLAGS_LAST_CHUNK,
-  writePlay,
-  ASAP,
-  readClipBegin,
-} from "../wire.generated";
+import { Kind, readBatchHeader, readEnvelope, readRecordHead, REPLAY_FLAGS_FIRST_CHUNK, REPLAY_FLAGS_LAST_CHUNK, writePlay, ASAP, readClipBegin } from "../wire.generated";
 import { createClipRegistry } from "./clipRegistry";
 import { CLIP_ID_RESERVED_FIRST as RESERVED_CLIP_FIRST } from "../wire.generated";
 import { AudioHost, presetFromSettings } from "./context";
-import { createCoreBackend, type CoreBackend } from "./coreBackend";
+import { type CoreBackend } from "./coreBackend";
+import { assembleCore } from "./assembly";
 import { rebuildHost, watchForTraps } from "./recovery";
 import { NULL_PROFILE_SINK } from "../mix/profileSink";
 import { PlayheadTracker, ReplayBuilder } from "./replay";
@@ -95,10 +86,10 @@ async function rig() {
     nextQuantum: (cb) => cb(),
   });
   const mixer = new Mixer(defaultAudioSettings());
-  const backend: CoreBackend = createCoreBackend(host, { clips, clock: loop.clock, mixer });
   const now = { ms: 0 };
   const warn = vi.fn();
-  watchForTraps(host, { now: () => now.ms, warn });
+  // ADR 0221: the production assembly over this host.
+  const backend: CoreBackend = assembleCore(host, { clips, clock: loop.clock, mixer, recovery: { now: () => now.ms, warn } }).createBackend();
   const settle = async () => {
     for (let k = 0; k < 8; k++) await Promise.resolve();
   };

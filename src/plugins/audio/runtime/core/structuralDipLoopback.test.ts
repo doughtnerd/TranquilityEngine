@@ -5,23 +5,17 @@
 // reach silence before the `BUS_SLOT` applies, land on the end state, and never step more than the dip ramp's own slope
 // (`maxStep`); the same change sent abruptly (one asap `BUS_SLOT`, no dip) steps by the full level difference. Two
 // structural ops in a row queue; a rebuild mid-dip lands on the end state; a tombstone recycles after its tail.
-import { fakeDecoder } from "./fakeDecoder";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mixer } from "../../../../engine/audio/mixer";
 import type { MixOp } from "../../../../engine/audio/mixOps";
 import { parseAudioSettings } from "../../../../engine/audio/settings";
 import { TOMBSTONE_TAIL_FRAMES } from "../../../../engine/audio/slotTable";
-import { BUS_ROOT, Kind, Op, readBatchHeader, readBusRamp, readBusSlot, readEnvelope, readRecordHead, readSetParams, rampSequenceId } from "../wire.generated";
+import { BUS_ROOT, Kind, Op, readBusRamp, readBusSlot, readSetParams, rampSequenceId } from "../wire.generated";
 import { sendRaw } from "../mix/clickHarness";
-import { setAudioBackend } from "../backend";
-import { events } from "../events/eventRuntime";
 import { maxStep } from "../golden/maxStep";
-import { createClipRegistry } from "./clipRegistry";
-import { AudioHost, presetFromSettings } from "./context";
-import { createCoreBackend, type CoreBackend } from "./coreBackend";
-import { watchForTraps } from "./recovery";
-import { Unlock, type UnlockContext } from "./unlock";
-import { endAudioSession } from "../testing";
+import { presetFromSettings } from "./context";
+import type { CoreBackend } from "./coreBackend";
+import { closeLoopbackAudio, loopbackAudio } from "../testing";
 
 const RATE = 48_000;
 const CLIP_FRAMES = 48_000;
@@ -49,29 +43,10 @@ const PROJECT = {
 };
 const SLOT = { Master: 0, Music: 1, SFX: 2, Voice: 3 } as const;
 
-const hosts: AudioHost[] = [];
 afterEach(async () => {
-  endAudioSession();
-  setAudioBackend(null);
-  for (const host of hosts.splice(0)) await host.close();
+  await closeLoopbackAudio();
   vi.restoreAllMocks();
 });
-
-function fakeContext() {
-  const ctx = {
-    state: "running",
-    sampleRate: RATE,
-    destination: {},
-    resume: () => Promise.resolve(),
-    close: () => {
-      ctx.state = "closed";
-      return Promise.resolve();
-    },
-    addEventListener() {},
-    removeEventListener() {},
-  };
-  return ctx;
-}
 
 interface Rec {
   op: number;
@@ -82,77 +57,60 @@ interface Rec {
   off: number;
 }
 
-/** The real host and core backend on the loopback over the page's mixer, a constant 0.5 clip, no limiter look-ahead (output frames are core frames). */
+/** The core on the loopback (ADR 0221's assembly) over the page's mixer, a constant 0.5 clip, no limiter look-ahead (output frames are core frames). */
 async function rig() {
-  const testing = await import("../testing");
   const settings = parseAudioSettings(PROJECT).settings;
-  const preset = { ...presetFromSettings(settings), limiterLookaheadMs: 0 };
-  let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>>;
-  try {
-    loop = await testing.createLoopbackHost({ preset });
-  } catch {
-    return null;
-  }
-  const context = fakeContext();
-  const node = Object.assign(new EventTarget(), { connect() {}, disconnect() {} }) as unknown as AudioWorkletNode;
-  const unlock = new Unlock({ target: new EventTarget(), context: context as unknown as UnlockContext });
-  const host = AudioHost._create({ context: context as unknown as AudioContext, node, link: loop.link, unlock, preset, respawn: () => loop.respawn() });
-  hosts.push(host);
-  const link = loop.link;
-  // Every BATCH posted, decoded (a copy: the shell recycles the buffer), each record with its absolute frame (-1 asap).
-  const batches: { frame: number; records: Rec[] }[] = [];
-  const post = link.post.bind(link);
-  link.post = ((buffer: ArrayBuffer, ...rest: unknown[]) => {
-    const view = new DataView(buffer);
-    if (readEnvelope(view, 0).kind === Kind.BATCH) {
-      const header = readBatchHeader(view, 0);
-      const copy = new DataView(buffer.slice(0));
-      const records: Rec[] = [];
-      let off = 32;
-      for (let i = 0; i < header.count; i++) {
-        const head = readRecordHead(view, off);
-        const seq = head.opcode === Op.BUS_RAMP ? rampSequenceId(readBusRamp(view, off).shape) : head.opcode === Op.BUS_SLOT ? readBusSlot(view, off).sequenceId : 0;
-        records.push({ op: head.opcode, voiceId: head.voiceId, seq, frame: head.frameOffset === 0xffffffff ? -1 : header.firstFrame + head.frameOffset, view: copy, off });
-        off += head.words * 4;
-      }
-      batches.push({ frame: loop.frame, records });
-    }
-    return (post as (b: ArrayBuffer, ...r: unknown[]) => void)(buffer, ...rest);
-  }) as typeof link.post;
-  const clips = createClipRegistry({
-    send: (m) => link.post(m),
-    nextSeq: () => link.nextSeq(),
-    fetchBytes: async (path) => new TextEncoder().encode(path).buffer as ArrayBuffer,
-    decodeWorker: fakeDecoder(() => ({ frames: CLIP_FRAMES, channels: 1, sampleRate: RATE, channelData: [new Float32Array(CLIP_FRAMES).fill(LEVEL)] })),
-    nextFrame: (cb) => cb(),
-    nextQuantum: (cb) => cb(),
+  const audio = await loopbackAudio({
+    settings,
+    preset: { ...presetFromSettings(settings), limiterLookaheadMs: 0 },
+    decode: () => ({ channelData: [new Float32Array(CLIP_FRAMES).fill(LEVEL)] }),
+    recovery: { now: () => 0, warn: () => {} },
+    dt: 0.003,
   });
-  mixer.configure(settings);
-  const backend: CoreBackend = createCoreBackend(host, { clips, clock: loop.clock, mixer });
-  watchForTraps(host, { now: () => 0, warn: () => {} });
-  endAudioSession();
-  setAudioBackend(backend);
+  if (!audio) return null;
+  const { backend, host } = audio;
+  // Every BATCH the core received, decoded, each record with its absolute frame (-1 asap).
+  const batches: { frame: number; records: Rec[] }[] = [];
+  const watch = audio.watch();
+  const collect = () => {
+    for (const { frame, batch } of watch.takeReceived()) {
+      if (batch.kind !== Kind.BATCH) continue;
+      const records = batch.records.map((x) => ({
+        op: x.opcode,
+        voiceId: x.voiceId,
+        seq: x.opcode === Op.BUS_RAMP ? rampSequenceId(readBusRamp(x.view, x.off).shape) : x.opcode === Op.BUS_SLOT ? readBusSlot(x.view, x.off).sequenceId : 0,
+        frame: x.frame,
+        view: x.view,
+        off: x.off,
+      }));
+      batches.push({ frame, records });
+    }
+  };
   const settle = async () => {
-    for (let k = 0; k < 8; k++) await Promise.resolve();
+    await audio.settle();
+    collect();
   };
   /** Frames of 4 quanta: the rendered left samples, the core frame of the first, the batches posted meanwhile. */
   const step = async (n: number) => {
+    collect();
     const from = batches.length;
-    const out: number[] = [];
-    const start = loop.frame;
-    for (let f = 0; f < n; f++) {
-      mixer.update(0.003);
-      backend.update(0.003);
-      events().update(0.003);
-      const { left } = loop.renderQuanta(4);
-      out.push(...left);
-      await settle();
-    }
+    const start = audio.frame;
+    const out = Array.from((await audio.step(n)).left);
+    collect();
     return { start, out, last: out[out.length - 1]!, posted: batches.slice(from) };
   };
-  return { loop, host, backend, step, settle, batches };
+  return {
+    audio,
+    host,
+    backend,
+    step,
+    settle,
+    get batches() {
+      collect();
+      return batches;
+    },
+  };
 }
-
 const play = (backend: CoreBackend, bus: string) => backend.play({ path: "const.wav", url: "const.wav", loop: true, stream: false, bus });
 
 /**
@@ -205,7 +163,7 @@ describe("the structural dip on the loopback host (Ma2)", () => {
     await r.step(12);
     const before = (await r.step(1)).last;
     expect(before).toBeCloseTo(LEVEL * 0.5, 6);
-    const late = r.loop.link.lastStatus!.lateCommands;
+    const late = r.audio.link.lastStatus!.lateCommands;
     const m = await structural(r, { op: "moveBus", bus: "SFX", parent: "Music" });
     // On the audio clock: arrived before F0, the first changed sample at F0, silence from F0 + D through B, the end level.
     expect(m.arrivedAt).toBeLessThan(m.seq.f0);
@@ -214,7 +172,7 @@ describe("the structural dip on the loopback host (Ma2)", () => {
     for (let f = m.seq.f0 + D - 1; f < m.seq.b; f++) expect(m.at(f)).toBe(0);
     expect(m.at(m.seq.end)).toBeCloseTo(LEVEL * 0.25, 6);
     expect(m.last).toBeCloseTo(LEVEL * 0.25, 6);
-    expect(r.loop.link.lastStatus!.lateCommands, "on time: no shift").toBe(late);
+    expect(r.audio.link.lastStatus!.lateCommands, "on time: no shift").toBe(late);
     // The click test: the largest neighbour step is the dip-down's slope (0.25 / 960 = 2.6e-4).
     const slope = before / D;
     const worst = maxStep(m.out);
@@ -338,9 +296,9 @@ describe("the structural dip on the loopback host (Ma2)", () => {
       expect(seq.roots).toEqual([SLOT.Voice]);
       expect(seq.tombstones).toEqual([SLOT.SFX]);
       // Render up to the trap point, then the core traps.
-      if (into >= 0) while (r.loop.frame < seq.f0 + into) await r.step(1);
-      const trappedAt = r.loop.frame;
-      r.loop.trapNext();
+      if (into >= 0) while (r.audio.frame < seq.f0 + into) await r.step(1);
+      const trappedAt = r.audio.frame;
+      r.audio.trap();
       let resumed = -1;
       for (let f = 0; f < 80 && resumed < 0; f++) {
         const s = await r.step(1);

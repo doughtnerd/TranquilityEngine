@@ -27,11 +27,9 @@ import { Assets, Engine, SceneManager } from "../../../../myco";
 import { mixer } from "../../../../engine/audio/mixer";
 import { setAudioBackend, type AudioEventHandle } from "../backend";
 import { Audio } from "../index";
-import { createClipRegistry } from "../core/clipRegistry";
 import { fakeDecoder, type PlanarClip } from "../core/fakeDecoder";
-import type { AudioHost } from "../core/context";
-import { CoreBackend, type CoreBackendHost } from "../core/coreBackend";
-import { createLoopbackHost, endAudioSession } from "../testing";
+import { CoreBackend } from "../core/coreBackend";
+import { endAudioSession, loopbackAudio, closeLoopbackAudio } from "../testing";
 import { events } from "./eventRuntime";
 
 const SAMPLE = fileURLToPath(new URL("../../../../../samples/sound-lab/", import.meta.url));
@@ -103,17 +101,17 @@ async function render(event: string, script: Record<number, number>, total: numb
   vi.spyOn(console, "warn").mockImplementation(() => {});
   endAudioSession();
   const engine = await boot();
-  let loop;
-  try {
-    loop = await createLoopbackHost({ preset: { maxLogical: 64, maxMixed: 32, maxBuses: 8, arenaInitialBytes: 1 << 20, clipCeilingBytes: 16 << 20, limiterLookaheadMs: 0, maxBeds: 0, maxZoneSlots: 0, zoneMaxSeconds: 0, maxWide: 0, maxMusicRings: 0 } });
-  } catch {
+  // ADR 0221: the production assembly on the loopback, on the page's mixer (the Engine configured it); the test registers it.
+  const loop = await loopbackAudio({
+    register: false,
+    preset: { maxLogical: 64, maxMixed: 32, maxBuses: 8, arenaInitialBytes: 1 << 20, clipCeilingBytes: 16 << 20, limiterLookaheadMs: 0, maxBeds: 0, maxZoneSlots: 0, zoneMaxSeconds: 0, maxWide: 0, maxMusicRings: 0 },
+    clipRegistry: { fetchBytes, decodeWorker: decode },
+  });
+  if (!loop) {
     engine.dispose();
     return null;
   }
-  const link = loop.link;
-  const clips = createClipRegistry({ send: (m) => link.post(m), nextSeq: () => link.nextSeq(), fetchBytes, decodeWorker: decode, nextFrame: (cb) => cb(), nextQuantum: (cb) => cb() });
-  const host: CoreBackendHost = { link, status: "running", preset: { maxLogical: 64, maxMixed: 32 }, worldCount: 1, sampleRate: RATE, addLifecycleListener: (() => () => {}) as AudioHost["addLifecycleListener"] };
-  const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer });
+  const backend = loop.backend;
   setAudioBackend(backend);
   const rows: Row[] = [];
   let h!: AudioEventHandle;
@@ -125,7 +123,7 @@ async function render(event: string, script: Record<number, number>, total: numb
       }
       events().update(FRAME_SECONDS);
       backend.update(FRAME_SECONDS);
-      const out = loop.renderQuanta(FRAME_QUANTA);
+      const out = loop.render(FRAME_QUANTA);
       const rms: number[] = [];
       for (let q = 0; q < FRAME_QUANTA; q++) {
         let s = 0;
@@ -187,6 +185,8 @@ const SMOOTH_MS = 10;
 afterEach(() => {
   vi.restoreAllMocks();
 });
+
+afterEach(closeLoopbackAudio);
 
 describe("throttle changes on the Sound Lab engines (the core, loopback)", () => {
   it("T (one clip, volume 0.6..1): both sequences are gapless and the voice stays mixed", { timeout: 120_000 }, async (ctx) => {

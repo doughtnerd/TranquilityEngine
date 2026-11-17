@@ -1,38 +1,16 @@
 // A1.4 (lead): `CoreBackend` against a fake ClipRegistry and a real `CoreLink` on a recording port (no wasm), plus the
-// loopback check (skipped until A1.7's `createLoopbackHost` is merged).
-import { fakeDecoder } from "./fakeDecoder";
-import { describe, expect, it, vi } from "vitest";
+// loopback check (`loopbackAudio`, ADR 0221).
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Mixer } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings, type AudioSettings } from "../../../../engine/audio/settings";
-import {
-  ASAP,
-  Kind,
-  LANE_RUNTIME,
-  LANE_SNAPSHOT,
-  Op,
-  readBatchHeader,
-  readBusConfig,
-  readBusDuck,
-  readBusPresence,
-  readBusRamp,
-  readEnvelope,
-  readPlay,
-  readRecordHead,
-  readReset,
-  readSetParams,
-  readStop,
-  readFade,
-  SET_PARAMS_MASK_BUS,
-  SET_PARAMS_MASK_SCORE,
-  STATUS_BUFFER_BYTES,
-  writeStatus,
-} from "../wire.generated";
+import { ASAP, Kind, LANE_RUNTIME, LANE_SNAPSHOT, Op, readBatchHeader, readBusConfig, readBusDuck, readBusPresence, readBusRamp, readEnvelope, readPlay, readRecordHead, readReset, readSetParams, readStop, readFade, SET_PARAMS_MASK_BUS, SET_PARAMS_MASK_SCORE, STATUS_BUFFER_BYTES, writeStatus } from "../wire.generated";
 import type { AudioHost, BusRemap, HostLifecycleListener } from "./context";
 import { CoreLink, type LinkPort } from "./context";
 import type { ClipInfo, ClipRegistry, ClipResidentListener, ClipState } from "./clipRegistry";
 import type { HrirLoader } from "./hrir";
 import { CoreBackend, type CoreBackendDeps, type CoreBackendHost } from "./coreBackend";
 import { makeStatusBlock } from "./statusFixtures";
+import { loopbackAudio, closeLoopbackAudio } from "../testing";
 
 class FakeRegistry implements ClipRegistry {
   readonly ids = new Map<string, number>();
@@ -163,6 +141,8 @@ const idx = (id: number) => id & 0xffff;
 /** Voice `id`'s `Audio.debug()` row. */
 const row = (r: { backend: CoreBackend }, id: number) => r.backend.debug().voices.find((v) => v.id === id);
 const only = (list: ReturnType<typeof decode>["records"], op: number) => list.filter((x) => x.op === op);
+
+afterEach(closeLoopbackAudio);
 
 describe("CoreBackend (api-and-models §3, §6)", () => {
   it("a stream: true play is a stream voice: never acquired as a whole clip, no warning, its PLAY flagged stream and spatial (B3, B6)", async () => {
@@ -709,38 +689,15 @@ describe("CoreBackend: ducking counts and Bus.peak (A2.3)", () => {
   });
 
   it("on the loopback host a voice gives a non-zero peak that decays after it stops; a muted bus reads ~0", async (ctx) => {
-    const testing = await import("../testing");
-    let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>>;
-    try {
-      loop = await testing.createLoopbackHost();
-    } catch {
-      return ctx.skip();
-    }
-    const { createClipRegistry } = await import("./clipRegistry");
-    const link = loop.link;
-    const clips = createClipRegistry({
-      send: (m) => link.post(m),
-      nextSeq: () => link.nextSeq(),
-      fetchBytes: async () => new ArrayBuffer(8),
-      decodeWorker: fakeDecoder(async () => ({ frames: 4_800, channels: 1, sampleRate: 48_000, channelData: [new Float32Array(4_800).fill(0.5)] })),
-      nextFrame: (cb) => cb(),
-      nextQuantum: (cb) => cb(),
-    });
-    const host: CoreBackendHost = {
-      link,
-      status: "running",
-      preset: { maxLogical: 256 },
-      worldCount: 1,
-      sampleRate: 48_000,
-      addLifecycleListener: (() => () => {}) as AudioHost["addLifecycleListener"],
-    };
-    const mixer = new Mixer(defaultAudioSettings());
-    const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer });
+    // ADR 0221: the production assembly on the loopback, with its own mixer.
+    const loop = await loopbackAudio({ mixer: "own", preset: { maxLogical: 256 }, decode: () => ({ channelData: [new Float32Array(4_800).fill(0.5)] }) });
+    if (!loop) return ctx.skip();
+    const { backend, mixer } = loop;
     const step = async (frames: number) => {
       for (let f = 0; f < frames; f++) {
         mixer.update(0.003);
         backend.update(0.003);
-        loop.renderQuanta(4);
+        loop.render(4);
         await Promise.resolve();
       }
     };
@@ -763,38 +720,13 @@ describe("CoreBackend: ducking counts and Bus.peak (A2.3)", () => {
   });
 });
 
-describe("CoreBackend on the loopback host (A1.7's createLoopbackHost)", () => {
-  /** The real wasm, the real clip registry and shell routing, the real coreBackend; a clip of a constant 0.5. Null when the loopback host can't load. */
+describe("CoreBackend on the loopback host (loopbackAudio, ADR 0221)", () => {
+  /** The real wasm, clip registry and shell routing, the core assembled as production does it; a clip of a constant 0.5. Null when the wasm can't load. */
   async function loopback(frames: number) {
-    const testing = await import("../testing");
-    // A1.7 adds `link` to K4's LoopbackHost; this branch's declaration doesn't have it yet.
-    let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>> & { link: CoreLink };
-    try {
-      loop = (await testing.createLoopbackHost()) as typeof loop;
-    } catch {
-      return null;
-    }
-    const { createClipRegistry } = await import("./clipRegistry");
-    const link = loop.link;
-    const clips = createClipRegistry({
-      send: (m) => link.post(m),
-      nextSeq: () => link.nextSeq(),
-      fetchBytes: async () => new ArrayBuffer(8),
-      decodeWorker: fakeDecoder(async () => ({ frames, channels: 1, sampleRate: 48_000, channelData: [new Float32Array(frames).fill(0.5)] })),
-      nextFrame: (cb) => cb(),
-      nextQuantum: (cb) => cb(),
-    });
-    const host: CoreBackendHost = {
-      link,
-      status: "running",
-      preset: { maxLogical: 256 },
-      worldCount: 1,
-      sampleRate: 48_000,
-      addLifecycleListener: (() => () => {}) as AudioHost["addLifecycleListener"],
-    };
-    const mixer = new Mixer(defaultAudioSettings());
-    const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer });
-    return { loop, backend, mixer };
+    // ADR 0221: the production assembly on the loopback, with its own mixer.
+    const loop = await loopbackAudio({ mixer: "own", preset: { maxLogical: 256 }, decode: () => ({ channelData: [new Float32Array(frames).fill(0.5)] }) });
+    if (!loop) return null;
+    return { loop, backend: loop.backend, mixer: loop.mixer };
   }
 
   // MS2's acceptance check (api-and-models §9, A1.4: "loopback plays a WAV").
@@ -808,7 +740,7 @@ describe("CoreBackend on the loopback host (A1.7's createLoopbackHost)", () => {
     let ended = false;
     for (let q = 0; q < 120; q++) {
       backend.update(0.003);
-      const { left, right } = loop.renderQuanta(1);
+      const { left, right } = loop.render(1);
       for (let i = 0; i < left.length; i++) {
         peakL = Math.max(peakL, Math.abs(left[i]!));
         peakR = Math.max(peakR, Math.abs(right[i]!));
@@ -840,7 +772,7 @@ describe("CoreBackend on the loopback host (A1.7's createLoopbackHost)", () => {
         mixer.update(0.003);
         backend.update(0.003);
         for (let q = 0; q < 4; q++) {
-          const { left, right } = loop.renderQuanta(1);
+          const { left, right } = loop.render(1);
           level = left[0]!;
           if (f === n - 1 && q === 3) {
             for (let i = 0; i < left.length; i++) {

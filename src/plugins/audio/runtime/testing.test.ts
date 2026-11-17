@@ -1,7 +1,8 @@
 // The K4 helpers themselves: the fake clock, the fake backend and the loopback host's cadence.
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { Vector3 } from "../../../engine";
-import { createLoopbackHost, fakeHostClock, makeFakeBackend } from "./testing";
+import { closeLoopbackAudio, createLoopbackHost, fakeHostClock, loopbackAudio, makeFakeBackend } from "./testing";
+import { Op } from "./wire.generated";
 
 describe("fakeHostClock", () => {
   it("advances every clock together, and the context clock only while running", () => {
@@ -54,5 +55,50 @@ describe("createLoopbackHost", () => {
     expect(host.statuses).toHaveLength(2);
     expect(host.clock.currentTime() - t0).toBeCloseTo((12 * 128) / 48_000, 6);
     expect(host.driver.pool.available).toBe(8);
+  });
+});
+
+// ADR 0221: the loopback entry point is the production assembly over the loopback node.
+describe("loopbackAudio", () => {
+  afterEach(closeLoopbackAudio);
+  const req = (path: string) => ({ path, url: path, loop: true, stream: false, bus: "Master" });
+
+  it("starts with the core running, and the public Audio reaches it", async (ctx) => {
+    const audio = await loopbackAudio();
+    if (!audio) return ctx.skip();
+    expect(audio.Audio.status).toBe("running");
+    expect(audio.Audio.debug().core.backend).toBe("core");
+    expect(audio.link.lastStatus).not.toBeNull();
+    const voice = audio.backend.play(req("a.wav"))!;
+    let level = 0;
+    for (let f = 0; f < 20 && level === 0; f++) level = (await audio.step()).left.at(-1)!;
+    expect(voice.playing).toBe(true);
+    expect(level).toBeCloseTo(0.5, 2);
+  });
+
+  it("watches what reaches the core", async (ctx) => {
+    const audio = await loopbackAudio({ mixer: "own" });
+    if (!audio) return ctx.skip();
+    const watch = audio.watch();
+    audio.backend.play(req("a.wav"));
+    await audio.step(10);
+    expect(watch.takeOps(Op.PLAY).length).toBeGreaterThan(0);
+  });
+
+  it("rebuilds after a trap and after a rate change, as the real host does", async (ctx) => {
+    const audio = await loopbackAudio();
+    if (!audio) return ctx.skip();
+    audio.backend.play(req("a.wav"));
+    await audio.step(10);
+    audio.trap();
+    audio.render(1);
+    await audio.settle();
+    expect(audio.host.health.traps).toBe(1);
+    await audio.step(40);
+    expect(audio.host.health.recoveries).toBe(1);
+    expect((await audio.step()).left.at(-1)).toBeCloseTo(0.5, 2);
+    expect(await audio.until(audio.changeRate(44_100))).toBe("rebuilt");
+    expect(audio.sampleRate).toBe(44_100);
+    expect(audio.Audio.debug().sampleRate).toBe(44_100);
   });
 });

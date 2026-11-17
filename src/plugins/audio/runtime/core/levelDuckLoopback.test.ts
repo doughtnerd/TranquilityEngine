@@ -5,94 +5,48 @@
 // constant 0.5 (-6 dBFS) on the trigger is over a -30 dBFS threshold, so the target settles at `amount` while it plays
 // and back at 1 once it stops; under a threshold above -6 dBFS nothing ducks. A live
 // `setDucking` adding a level rule takes effect the same way.
-import { fakeDecoder } from "./fakeDecoder";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Mixer } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings, type AudioSettings, type DuckingRule } from "../../../../engine/audio/settings";
 import { DUCK_FLAG_LEVEL, DUCK_FLAG_RMS, Op, readBusDuck } from "../wire.generated";
-import { watchBatches } from "./batchWatch";
-import { createClipRegistry } from "./clipRegistry";
-import { AudioHost, presetFromSettings } from "./context";
-import { createCoreBackend, type CoreBackend } from "./coreBackend";
-import { watchForTraps } from "./recovery";
-import { Unlock, type UnlockContext } from "./unlock";
+import { presetFromSettings } from "./context";
+import { loopbackAudio, closeLoopbackAudio } from "../testing";
 
-const RATE = 48_000;
 const CLIP_FRAMES = 48_000;
 const LEVEL = 0.5;
 /** The trigger bus's fader: heard at this share of the clip, pre-fader for the detector. */
 const SFX_VOL = 0.125;
 const req = (bus: string) => ({ path: "const.wav", url: "const.wav", loop: true, stream: false, bus });
 
-const hosts: AudioHost[] = [];
 afterEach(async () => {
-  for (const host of hosts.splice(0)) await host.close();
+  await closeLoopbackAudio();
   vi.restoreAllMocks();
 });
 
-function fakeContext() {
-  const ctx = {
-    state: "running",
-    sampleRate: RATE,
-    destination: {},
-    resume: () => Promise.resolve(),
-    close: () => {
-      ctx.state = "closed";
-      return Promise.resolve();
-    },
-    addEventListener() {},
-    removeEventListener() {},
-  };
-  return ctx;
-}
-
 /** The real host and core backend on the loopback with `ducking`, a constant 0.5 clip, output frames = core frames. */
 async function rig(ducking: DuckingRule[] = []) {
-  const testing = await import("../testing");
   const settings: AudioSettings = { ...defaultAudioSettings(), ducking };
-  const preset = { ...presetFromSettings(settings), limiterLookaheadMs: 0 };
-  let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>>;
-  try {
-    loop = await testing.createLoopbackHost({ preset });
-  } catch {
-    return null;
-  }
-  const context = fakeContext();
-  const node = Object.assign(new EventTarget(), { connect() {}, disconnect() {} }) as unknown as AudioWorkletNode;
-  const unlock = new Unlock({ target: new EventTarget(), context: context as unknown as UnlockContext });
-  const host = AudioHost._create({ context: context as unknown as AudioContext, node, link: loop.link, unlock, preset, respawn: () => loop.respawn() });
-  hosts.push(host);
-  const link = loop.link;
-  const clips = createClipRegistry({
-    send: (m) => link.post(m),
-    nextSeq: () => link.nextSeq(),
-    fetchBytes: async (path) => new TextEncoder().encode(path).buffer as ArrayBuffer,
-    decodeWorker: fakeDecoder(() => ({ frames: CLIP_FRAMES, channels: 1, sampleRate: RATE, channelData: [new Float32Array(CLIP_FRAMES).fill(LEVEL)] })),
-    nextFrame: (cb) => cb(),
-    nextQuantum: (cb) => cb(),
+  // ADR 0221: the production assembly on the loopback, with its own mixer; what reaches the core is watched from the start.
+  const audio = await loopbackAudio({
+    mixer: "own",
+    settings,
+    preset: { ...presetFromSettings(settings), limiterLookaheadMs: 0 },
+    decode: () => ({ channelData: [new Float32Array(CLIP_FRAMES).fill(LEVEL)] }),
+    recovery: { now: () => 0, warn: () => {} },
+    watchFromStart: true,
+    dt: 0.003,
   });
-  const mixer = new Mixer(settings);
-  const posted = watchBatches(link);
-  const backend: CoreBackend = createCoreBackend(host, { clips, clock: loop.clock, mixer });
-  watchForTraps(host, { now: () => 0, warn: () => {} });
-  const settle = async () => {
-    for (let k = 0; k < 8; k++) await Promise.resolve();
-  };
+  if (!audio) return null;
+  const { backend, mixer } = audio;
+  const posted = audio.watched!;
   /** `n` frames of 4 quanta: the left output over the clip's level, less the trigger's share once it plays (the target's gain as heard). */
   let sfxShare = 0;
   const step = async (n: number) => {
     const out: number[] = [];
-    for (let f = 0; f < n; f++) {
-      mixer.update(0.003);
-      backend.update(0.003);
-      const { left } = loop.renderQuanta(4);
-      for (const v of left) out.push(v / LEVEL - sfxShare);
-      await settle();
-    }
+    for (let f = 0; f < n; f++) for (const v of (await audio.step()).left) out.push(v / LEVEL - sfxShare);
     return { out, last: out[out.length - 1]! };
   };
   const sfxOn = (on: boolean) => void (sfxShare = on ? SFX_VOL : 0);
-  return { loop, backend, mixer, step, sfxOn, posted };
+  return { loop: audio, backend, mixer, step, sfxOn, posted };
 }
 
 const level = (amount: number, extra: Partial<DuckingRule> = {}): DuckingRule => ({ target: "Music", trigger: "SFX", mode: "level", amount, attack: 0.005, release: 0.05, ...extra });

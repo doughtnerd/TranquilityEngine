@@ -6,19 +6,14 @@
 // for a frame the compressor (its makeup gain) and the detector heard the tone at full scale. `AudioSource.play` now
 // starts the voice at its volume and pitch. Run on the real wasm (the loopback host), with E3's buses and rule, timed
 // in rendered frames: the duck gain is read from every STATUS (each 6 quanta).
-import { fakeDecoder } from "./fakeDecoder";
 import { afterEach, expect, it, vi } from "vitest";
 import { Assets, Engine, GameObject, SceneManager } from "../../../../myco";
 import { mixer } from "../../../../engine/audio/mixer";
 import type { DuckingRule } from "../../../../engine/audio/settings";
 import { setAudioBackend } from "../backend";
-import { makeFakeBackend } from "../testing";
+import { makeFakeBackend, loopbackAudio, closeLoopbackAudio } from "../testing";
 import { AudioSource } from "../AudioSource";
-import { createClipRegistry } from "./clipRegistry";
-import { AudioHost, presetFromSettings } from "./context";
-import { createCoreBackend } from "./coreBackend";
-import { watchForTraps } from "./recovery";
-import { Unlock, type UnlockContext } from "./unlock";
+import { presetFromSettings } from "./context";
 
 const RATE = 48_000;
 const CLIP_FRAMES = 48_000;
@@ -29,54 +24,35 @@ const LEVEL: DuckingRule = { target: "Music", trigger: "SFX", mode: "level", det
 /** E3's SFX compressor (`audioMixLive.ts` `BUSES`). */
 const COMPRESSOR = { type: "compressor", threshold: -24, knee: 30, ratio: 8, attack: 0.003, release: 0.25 };
 
-const hosts: AudioHost[] = [];
 afterEach(async () => {
-  setAudioBackend(null);
-  for (const host of hosts.splice(0)) await host.close();
+  await closeLoopbackAudio();
   vi.restoreAllMocks();
 });
 
 /** A headless engine with E3's buses and rule, its audio on the real core over the loopback host. */
 async function rig() {
-  const testing = await import("../testing");
   Assets.clearSources();
   Assets.addSource(Assets.fromObject({ "s.json": { format: "myco.scene@1", nodes: [] }, "tone.wav": "data:audio/wav;base64,AAAA" }));
   const audio = { buses: [{ name: "Master" }, { name: "Music", parent: "Master" }, { name: "SFX", parent: "Master", effects: [COMPRESSOR] }], ducking: [LEVEL] };
   const engine = await Engine.create({ headless: true, project: { audio } });
   await SceneManager.load("s.json");
   engine.world.render = {} as never;
-  const preset = { ...presetFromSettings(mixer.audioSettings), limiterLookaheadMs: 0 };
-  let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>>;
-  try {
-    loop = await testing.createLoopbackHost({ preset });
-  } catch {
-    return null;
-  }
-  const context = { state: "running", sampleRate: RATE, destination: {}, resume: () => Promise.resolve(), close: () => Promise.resolve(), addEventListener() {}, removeEventListener() {} };
-  const node = Object.assign(new EventTarget(), { connect() {}, disconnect() {} }) as unknown as AudioWorkletNode;
-  const unlock = new Unlock({ target: new EventTarget(), context: context as unknown as UnlockContext });
-  const host = AudioHost._create({ context: context as unknown as AudioContext, node, link: loop.link, unlock, preset, respawn: () => loop.respawn() });
-  hosts.push(host);
-  const link = loop.link;
   const tone = new Float32Array(CLIP_FRAMES).map((_, i) => PEAK * Math.sin((2 * Math.PI * 1000 * i) / RATE));
-  const clips = createClipRegistry({
-    send: (m) => link.post(m),
-    nextSeq: () => link.nextSeq(),
-    fetchBytes: async (path) => new TextEncoder().encode(path).buffer as ArrayBuffer,
-    decodeWorker: fakeDecoder(() => ({ frames: CLIP_FRAMES, channels: 1, sampleRate: RATE, channelData: [tone] })),
-    nextFrame: (cb) => cb(),
-    nextQuantum: (cb) => cb(),
+  // ADR 0221: the production assembly on the loopback, on the page's mixer (the Engine configured it), registered.
+  const loop = await loopbackAudio({
+    preset: { ...presetFromSettings(mixer.audioSettings), limiterLookaheadMs: 0 },
+    decode: () => ({ channelData: [tone] }),
+    recovery: { now: () => 0, warn: () => {} },
   });
-  const backend = createCoreBackend(host, { clips, clock: loop.clock, mixer });
-  watchForTraps(host, { now: () => 0, warn: () => {} });
-  setAudioBackend(backend);
+  if (!loop) return null;
+  const backend = loop.backend;
   /** `n` frames of 6 quanta (one STATUS each); returns Music's lowest duck gain over them. */
   const frames = async (n: number) => {
     let min = 1;
     for (let f = 0; f < n; f++) {
       mixer.update(0.016);
       backend.update(0.016);
-      loop.renderQuanta(6);
+      loop.render(6);
       for (let k = 0; k < 8; k++) await Promise.resolve();
       min = Math.min(min, mixer.bus("Music").duckGain);
     }

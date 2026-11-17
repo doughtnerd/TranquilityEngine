@@ -10,20 +10,17 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Assets } from "../../../../engine/scene/Assets";
-import { Mixer } from "../../../../engine/audio/mixer";
-import { defaultAudioSettings } from "../../../../engine/audio/settings";
 // @ts-expect-error a plain ES module with no declarations: the Sound Lab's generator
 import { ambisonicWav, channelsOf, encodeTone, fumaFromAmbix, tone } from "../../../../../samples/sound-lab/tools/makeAmbisonic.mjs";
 import { createDecoderClient, type WorkerLike } from "../decoder/decoderClient";
 import { createDecoderHandler } from "../decoder/handler";
 import type { DecoderRequest } from "../decoder/protocol";
 import hash from "../wasm/hash.json";
-import type { AudioHost } from "./context";
-import { ambisonicImportGain, ambisonicStreamsByDefault, createClipRegistry } from "./clipRegistry";
-import { CoreBackend, type CoreBackendHost } from "./coreBackend";
+import { ambisonicImportGain, ambisonicStreamsByDefault } from "./clipRegistry";
 import { ListenerFrame } from "./spatial";
 import type { World } from "../../../../engine/core/World";
 import type { GameObject } from "../../../../engine/scene/GameObject";
+import { loopbackAudio, closeLoopbackAudio } from "../testing";
 
 const RATE = 48_000;
 /** The most frames `until` steps before it gives up (an escape hatch for a hung decoder, not a time budget). */
@@ -62,40 +59,31 @@ const MONO = tone(440, 0.4, RATE, 0.5) as Float32Array;
 type Where = "bed" | "decoder";
 
 async function rig(where: Where, files: Record<string, ArrayBuffer>) {
-  const testing = await import("../testing");
-  const preset = { ...testing.LOOPBACK_PRESET, limiterLookaheadMs: 0, maxBeds: where === "bed" ? 1 : 0, maxWide: 1 };
-  const loop = await testing.createLoopbackHost({ preset });
-  const link = loop.link;
   const client = createDecoderClient({ workerFactory: inProcessWorker(), wasmBytes: wasmBytes() });
-  const clips = createClipRegistry({
-    send: (m) => link.post(m),
-    nextSeq: () => link.nextSeq(),
-    fetchBytes: async (path: string) => {
-      const f = files[path];
-      if (!f) throw new Error("HTTP 404");
-      return f.slice(0);
+  // ADR 0221: the production assembly on the loopback, with its own mixer; the clips decode on the real decoder.
+  const audio = await loopbackAudio({
+    mixer: "own",
+    preset: { maxLogical: 16, maxMixed: 8, limiterLookaheadMs: 0, maxBeds: where === "bed" ? 1 : 0, maxWide: 1 },
+    clipRegistry: {
+      fetchBytes: async (path: string) => {
+        const f = files[path];
+        if (!f) throw new Error("HTTP 404");
+        return f.slice(0);
+      },
+      decodeWorker: client,
     },
-    decodeWorker: client,
-    nextFrame: (cb) => cb(),
-    nextQuantum: (cb) => cb(),
   });
-  const host: CoreBackendHost = {
-    link,
-    status: "running",
-    preset: { maxLogical: 16, maxMixed: 8, maxBeds: preset.maxBeds, maxWide: preset.maxWide },
-    worldCount: 1,
-    sampleRate: RATE,
-    addLifecycleListener: (() => () => {}) as AudioHost["addLifecycleListener"],
-  };
-  const mixer = new Mixer(defaultAudioSettings());
-  const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer });
+  if (!audio) throw new Error("the loopback core did not load");
+  const { backend, mixer } = audio;
+  const clips = backend.clips;
+  const loop = audio;
   const left: number[] = [];
   const right: number[] = [];
   const step = async (n: number) => {
     for (let f = 0; f < n; f++) {
       mixer.update(0.003);
       backend.update(0.003);
-      const out = loop.renderQuanta(4);
+      const out = audio.render(4);
       left.push(...out.left);
       right.push(...out.right);
       await new Promise((r) => setImmediate(r)); // a macrotask turn for the in-process decoder; no timer, no clock
@@ -176,6 +164,8 @@ async function image(where: Where, order: 1 | 2 | 3, az: number, turn = 0) {
   r.client.dispose();
   return m;
 }
+
+afterEach(closeLoopbackAudio);
 
 describe("ambisonic clips on the loopback host (B6)", { timeout: PATIENCE_MS }, () => {
   for (const where of ["bed", "decoder"] as const) {

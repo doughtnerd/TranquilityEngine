@@ -5,8 +5,6 @@
 // share of the one page host and releases it on teardown (architecture §3.9), and the host follows every
 // Engine's mixer reconfigure (`Engine._onAudioConfigured`).
 import { mixer } from "../../../../engine/audio/mixer";
-import type { AudioSettings } from "../../../../engine/audio/settings";
-import { onAudioConfigured } from "../../../../engine/core/audioConfigure";
 import type { World } from "../../../../engine/core/World";
 import type { WorldServiceDef } from "../../../../engine/core/worldServices";
 import { noteCoreUnavailable, registerCoreBackend } from "../backend";
@@ -72,34 +70,7 @@ function hasRuntimeShare(host: AudioHost | undefined): boolean {
   return found;
 }
 
-/**
- * Connects a freshly started host to the Engines (`Engine.ts` reconfigure): applies the mixer's current settings
- * (`host.reconfigure(mixer.audioSettings)`), then follows every later `Engine.create`'s `_onAudioConfigured` until the
- * host closes. Connecting the same host again (the service registered again, so `load` ran again) adds nothing.
- */
-function connectHostToEngines(host: AudioHost): void {
-  if (connections.has(host) || host.closed) return;
-  const stopFollowing = onAudioConfigured((settings: AudioSettings) => {
-    if (!host.closed) host.reconfigure(settings);
-  });
-  let removeListener: () => void = () => {};
-  const disconnect = () => {
-    if (connections.get(host) !== disconnect) return;
-    connections.delete(host);
-    stopFollowing();
-    removeListener();
-  };
-  connections.set(host, disconnect);
-  removeListener = host.addLifecycleListener({ onClose: disconnect });
-  host.reconfigure(mixer.audioSettings);
-}
-
 const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error));
-
-/** Hosts connected to the Engines, with their disconnect. */
-const connections = new WeakMap<AudioHost, () => void>();
-/** Hosts whose traps start a rebuild (A3.4a), so a second `load` doesn't watch twice. */
-const armed = new WeakSet<AudioHost>();
 
 /** @internal The World service (K3): whether `audio.backend` is `"core"` decides if a World runs it at all. */
 export const AUDIO_SERVICE: WorldServiceDef<AudioCoreModule, AudioWorldService> = {
@@ -123,24 +94,19 @@ export const AUDIO_SERVICE: WorldServiceDef<AudioCoreModule, AudioWorldService> 
     const probe = await probeCoreSupport();
     if (!probe.supported) return { ready: false, reason: probe.reason };
     try {
-      const { startAudioHost } = await import("./context");
+      // ADR 0221: the assembly (`assembly.ts`) connects the host to the Engines' reconfigure and arms trap recovery (A3.4a: a
+      // trap starts the hard rebuild, 3 per 60 s, then silent "failed"); the loopback tests build the same stack on it.
+      const [{ startAudioHost }, { assembleCore }] = await Promise.all([import("./context"), import("./assembly")]);
       const host = await startAudioHost(mixer.audioSettings);
-      connectHostToEngines(host);
-      // A3.4a: a trap in the core starts the hard rebuild (3 per 60 s, then silent "failed").
-      const { watchForTraps } = await import("./recovery");
-      if (!armed.has(host)) {
-        armed.add(host);
-        watchForTraps(host);
-      }
+      const core = assembleCore(host);
       // A1.4: the core backend, made by `audioBackend()` (the registry and voice table belong to it). It registers once
       // the core has answered (the first STATUS with the ready flag and this ABI, §3.1); until then `audioBackend()` is
       // the pending stand-in whose plays wait as locked voices, so sound never settles on "babylon" just because the
       // core was slower than the first play. An ABI mismatch, a shell error or no first STATUS in 5 s is a failed load
       // (§2.1 fallback rule): one warning, then "babylon" for the page. Not awaited: a locked context answers only after
       // the gesture, and scene loads mustn't wait for it.
-      const { createCoreBackend } = await import("./coreBackend");
-      host.link.ready.then(
-        () => registerCoreBackend(() => createCoreBackend(host)),
+      core.ready.then(
+        () => registerCoreBackend(() => core.createBackend()),
         (error: unknown) => noteCoreUnavailable(`audio core couldn't start (${errorText(error)}); using "babylon".`),
       );
       return { ready: true, host };
