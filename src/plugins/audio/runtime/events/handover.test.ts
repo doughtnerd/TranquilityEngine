@@ -2,13 +2,10 @@
 // real CoreBackend over the loopback host (the wasm core in Node).
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Assets, Engine, SceneManager } from "../../../../myco";
-import { mixer as globalMixer, registerCoreBackend, setAudioBackend, type AudioBackend } from "../backend";
+import { registerCoreBackend, setAudioBackend, type AudioBackend } from "../backend";
 import { Audio } from "../index";
-import { createClipRegistry } from "../core/clipRegistry";
-import { fakeDecoder, type PlanarClip } from "../core/fakeDecoder";
-import type { AudioHost } from "../core/context";
-import { CoreBackend, type CoreBackendHost } from "../core/coreBackend";
-import { makeFakeBackend, endAudioSession } from "../testing";
+import { CoreBackend } from "../core/coreBackend";
+import { makeFakeBackend, endAudioSession, loopbackAudio, closeLoopbackAudio } from "../testing";
 import { events } from "./eventRuntime";
 import { TsAutomation, type AutomationSink } from "./automation";
 
@@ -18,7 +15,6 @@ const CLIP_FRAMES = 96_000;
 const STEP = 3;
 const ramp = Float32Array.from({ length: CLIP_FRAMES }, (_, k) => Math.floor(k / STEP) / 32767);
 const frameOf = (v: number): number => Math.round(v * 32768) * STEP;
-const decode = fakeDecoder(async (): Promise<PlanarClip> => ({ frames: CLIP_FRAMES, channels: 1, sampleRate: RATE, channelData: [ramp] }));
 
 async function boot(assets: Record<string, unknown>): Promise<void> {
   Assets.clearSources();
@@ -44,6 +40,8 @@ afterEach(() => {
   endAudioSession();
   vi.restoreAllMocks();
 });
+
+afterEach(closeLoopbackAudio);
 
 describe("PendingVoice", () => {
   it("records setLoop without a TsAutomation warning while the core loads, and keeps group and bindings across the hand-over", async () => {
@@ -91,23 +89,16 @@ describe("PendingVoice", () => {
 });
 
 async function rig() {
-  const testing = await import("../testing");
-  let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>>;
-  try {
-    loop = await testing.createLoopbackHost({ preset: { ...testing.LOOPBACK_PRESET, limiterLookaheadMs: 0 } });
-  } catch {
-    return null;
-  }
-  const link = loop.link;
-  const clips = createClipRegistry({ send: (m) => link.post(m), nextSeq: () => link.nextSeq(), fetchBytes: async () => new ArrayBuffer(8), decodeWorker: decode, nextFrame: (cb) => cb(), nextQuantum: (cb) => cb() });
-  const host: CoreBackendHost = { link, status: "running", preset: { maxLogical: 16, maxMixed: 8 }, worldCount: 1, sampleRate: RATE, addLifecycleListener: (() => () => {}) as AudioHost["addLifecycleListener"] };
-  const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer: globalMixer });
+  // ADR 0221: the production assembly on the loopback, on the page's mixer; the test registers it (the hand-over).
+  const loop = await loopbackAudio({ register: false, preset: { maxLogical: 16, maxMixed: 8, limiterLookaheadMs: 0 }, decode: () => ({ channelData: [ramp] }) });
+  if (!loop) return null;
+  const { backend } = loop;
   const out: number[] = [];
   const step = async (n: number, perFrame?: () => void) => {
     for (let f = 0; f < n; f++) {
       perFrame?.();
       backend.update(0.0107);
-      for (const s of loop.renderQuanta(4).left) out.push(s);
+      for (const s of loop.render(4).left) out.push(s);
       for (let k = 0; k < 4; k++) await Promise.resolve();
     }
   };

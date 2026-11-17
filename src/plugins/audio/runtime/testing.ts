@@ -847,6 +847,11 @@ export interface LoopbackAudioOptions {
    * public `Audio` / `Bus` / music API reach the core. `"own"`: a new `Mixer` the rig alone drives; nothing is registered.
    */
   readonly mixer?: "page" | "own";
+  /**
+   * On the page's mixer, whether the rig registers the backend with `setAudioBackend` (default true). False leaves it to the
+   * test, as the service leaves it to `registerCoreBackend` (the pending backend's hand-over).
+   */
+  readonly register?: boolean;
   /** Overrides of the core's preset (`LOOPBACK_PRESET` underneath); the host and the core get the same one. */
   readonly preset?: Partial<CorePreset>;
   /** The injected clock (default a new `fakeHostClock()`); each rendered quantum advances it by 128 frames. */
@@ -1078,7 +1083,8 @@ export async function loopbackAudio(options: LoopbackAudioOptions = {}): Promise
   await core.ready;
   const watched = options.watchFromStart ? loop.watch() : null;
   const backend = core.createBackend();
-  if (!own) {
+  const registered = !own && options.register !== false;
+  if (registered) {
     endAudioSession();
     setAudioBackend(backend);
   }
@@ -1146,8 +1152,8 @@ export async function loopbackAudio(options: LoopbackAudioOptions = {}): Promise
       if (closed) return;
       closed = true;
       openLoopbacks.delete(audio);
-      if (own) backend.dispose();
-      else setAudioBackend(null);
+      if (registered) setAudioBackend(null);
+      backend.dispose();
       await host.close();
       endAudioSession();
     },

@@ -19,11 +19,8 @@ import { mixer as globalMixer } from "../../../../engine/audio/mixer";
 import { setAudioBackend, type AudioBackend } from "../backend";
 import { Audio } from "../index";
 import { events } from "./eventRuntime";
-import { fakeDecoder, type PlanarClip } from "../core/fakeDecoder";
-import { createClipRegistry } from "../core/clipRegistry";
-import type { AudioHost, CoreLink } from "../core/context";
-import { CoreBackend, type CoreBackendHost } from "../core/coreBackend";
-import { makeFakeBackend, endAudioSession } from "../testing";
+import { CoreBackend } from "../core/coreBackend";
+import { makeFakeBackend, endAudioSession, loopbackAudio, closeLoopbackAudio } from "../testing";
 
 const FULL = process.env.AUDIO_BENCH === "1";
 const ITERS = Number(process.env.AUDIO_BENCH_ITERS) || (FULL ? 20_000 : 200);
@@ -31,7 +28,6 @@ const WARMUP = FULL ? 2_000 : 50;
 const FRAMES = FULL ? 3_000 : 60;
 const FRAME_WARMUP = FULL ? 500 : 20;
 const STEADY = 100;
-const RATE = 48_000;
 const F = "myco.audioevent@1";
 const CLIP_FRAMES = 96_000;
 
@@ -114,18 +110,14 @@ async function fakeRig(): Promise<Rig> {
 
 async function coreRig(): Promise<Rig | null> {
   await boot();
-  const testing = await import("../testing");
-  let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>> & { link: CoreLink };
-  try {
-    loop = (await testing.createLoopbackHost({ preset: { ...testing.LOOPBACK_PRESET, limiterLookaheadMs: 0 } })) as typeof loop;
-  } catch {
-    return null;
-  }
-  const link = loop.link;
-  const decode = fakeDecoder(async (): Promise<PlanarClip> => ({ frames: CLIP_FRAMES, channels: 1, sampleRate: RATE, channelData: [new Float32Array(CLIP_FRAMES).fill(0.25)] }));
-  const clips = createClipRegistry({ send: (m) => link.post(m), nextSeq: () => link.nextSeq(), fetchBytes: async () => new ArrayBuffer(16), decodeWorker: decode, nextFrame: (cb) => cb(), nextQuantum: (cb) => cb() });
-  const host: CoreBackendHost = { link, status: "running", preset: { maxLogical: 256, maxMixed: 32 }, worldCount: 1, sampleRate: RATE, addLifecycleListener: (() => () => {}) as AudioHost["addLifecycleListener"] };
-  const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer: globalMixer });
+  // ADR 0221: the production assembly on the loopback, on the page's mixer; registered below.
+  const loop = await loopbackAudio({
+    register: false,
+    preset: { maxLogical: 256, maxMixed: 32, limiterLookaheadMs: 0 },
+    decode: () => ({ channelData: [new Float32Array(CLIP_FRAMES).fill(0.25)] }),
+  });
+  if (!loop) return null;
+  const { backend, link } = loop;
   closers.push(() => backend.dispose?.());
   let batches = 0;
   let bytes = 0;
@@ -146,7 +138,7 @@ async function coreRig(): Promise<Rig | null> {
       globalMixer.update(0.0107);
       backend.update(0.0107);
       events().update(0.0107);
-      loop.renderQuanta(4);
+      loop.render(4);
       for (let k = 0; k < 4; k++) await Promise.resolve();
     },
     sent: () => ({ batches, bytes }),
@@ -203,6 +195,8 @@ const rigs: [string, () => Promise<Rig | null>][] = [["core (loopback)", coreRig
 // ceilings below are stable under load; they sit about 1.5x over the measured values after E5.3b (before it: rand4 about
 // 4.4 KB, layer3 about 9 KB). A change that adds a closure, a spread or a table per play shows up here.
 const RUNTIME_BYTES_PER_PLAY: Record<string, number> = { rand4: 3_600, layer3: 6_500, clip: 2_600 };
+afterEach(closeLoopbackAudio);
+
 describe("event runtime allocations per play (null backend)", () => {
   it.each(Object.keys(RUNTIME_BYTES_PER_PLAY))("%s stays under its ceiling", { timeout: 60_000 }, async (name) => {
     await boot();
