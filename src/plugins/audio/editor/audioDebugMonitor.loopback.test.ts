@@ -1,8 +1,8 @@
 // ADR 0162 E4 acceptance (api-and-models §10 E4): the §7 debug-panel rows against the loopback host. `Audio.debug()`
 // is built by the real core backend over the real mixer wasm (two bed-capable buses, zone slots, wide rings), a zone
 // preset kernel from the real decoder, and the real occlusion pass with a wall at x = 5 between the listener and one
-// of the voices. The rows model (`debugSections`, `voiceCells`) is rendered from it and every §7 row must appear with
-// a sane value; then the overlay is built from the same data.
+// of the voices. Every sample goes to the panel's monitor (ADR 0220), and every §7 row of its view must appear with a sane
+// value; then the overlay is built from the same data.
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -20,7 +20,7 @@ import { createDecoderHandler } from "../runtime/decoder/handler";
 import type { DecoderReply, IrFailedMessage, IrPreparedMessage, StreamPortLike } from "../runtime/decoder/protocol";
 import hash from "../runtime/wasm/hash.json";
 import { LOOPBACK_PRESET } from "../runtime/testing";
-import { CounterWatch, VOICE_COLUMNS, debugSections, voiceCells, type Section } from "./audioDebugRows";
+import { AudioDebugMonitor, type Section } from "./audioDebugMonitor";
 import { gainColor, occlusionColors, occlusionOverlay, occludedVoices, type OcclusionScene } from "./occlusionRays";
 import { theme } from "../../../editor/sdk";
 
@@ -133,15 +133,16 @@ describe("E4: the §7 debug rows against the loopback host", () => {
       r.backend.play(req(30));
       const behindWall = r.backend.play(req(10))!;
       expect(behindWall).not.toBeNull();
-      const watch = new CounterWatch();
+      const monitor = new AudioDebugMonitor();
       let info = r.backend.debug();
       for (let f = 0; f < 120; f++) {
         await r.step();
         info = r.backend.debug();
-        watch.observe(info);
+        monitor.observe(info);
       }
-      const sections = debugSections(info, watch);
-      expect(sections.map((s) => s.id)).toEqual(["m3Counters", "ladder", "beds", "zones", "occlusion", "memory", "musicTotals", "music"]);
+      const view = monitor.view()!;
+      const sections = view.sections;
+      expect(sections.map((s) => s.id)).toEqual(["m3Counters", "ladder", "beds", "zones", "occlusion", "memory", "musicTotals", "music", "mixCaps", "cpu", "mix", "mixSlots", "ducking", "recorder"]);
       for (const s of sections) expect(s.tip.length, s.id).toBeGreaterThan(20);
 
       // Counters: the numbers the loopback run produced, each with a health.
@@ -192,19 +193,25 @@ describe("E4: the §7 debug rows against the loopback host", () => {
       for (const row of memory.rows) expect(row.cells[1]!.text, row.id).toMatch(/KB|MB/);
 
       // Voice columns: the row of the voice behind the wall carries its occlusion gain, cutoff and low-pass owner.
+      const table = view.voices;
+      const voiceRows = [...table.groups.flatMap((g) => g.voices), ...table.ungrouped];
+      const cellsOf = (id: number) => {
+        const row = voiceRows.find((x) => x.id === String(id))!;
+        expect(row.cells).toHaveLength(table.columns.length);
+        return Object.fromEntries(table.columns.map((c, i) => [c.label, row.cells[i]!]));
+      };
       const mine = info.voices.find((v) => v.id === behindWall.id)!;
-      const cells = voiceCells(mine);
-      expect(cells).toHaveLength(VOICE_COLUMNS.length);
+      const cells = cellsOf(mine.id);
       expect(mine.occlusion!.gain).toBeLessThan(1);
-      expect(cells[2]!.text).toMatch(/^\d\.\d\d · /);
-      expect(cells[2]!.tip).toMatch(/concrete/);
-      expect(cells[3]!.text).toMatch(/\(occlusion\)$/);
-      expect(["flat", "equalPower", "hrtf", "bed", "ambisonic"]).toContain(cells[0]!.text);
+      expect(cells.Occlusion!.text).toMatch(/^\d\.\d\d · /);
+      expect(cells.Occlusion!.tip).toMatch(/concrete/);
+      expect(cells["Low-pass"]!.text).toMatch(/\(occlusion\)$/);
+      expect(["flat", "equalPower", "hrtf", "bed", "ambisonic"]).toContain(cells.Panner!.text);
       // A voice in the open reads "open".
       const open = info.voices.find((v) => v.occlusion && v.occlusion.gain >= 0.9995)!;
-      expect(voiceCells(open)[2]!.text).toBe("open");
+      expect(cellsOf(open.id).Occlusion!.text).toBe("open");
       // The zone sends of the voice at the listener name the zone.
-      expect(info.voices.some((v) => v.sends?.some((s) => s.zone === "A") && voiceCells(v)[4]!.text.includes("A "))).toBe(true);
+      expect(info.voices.some((v) => v.sends?.some((s) => s.zone === "A") && cellsOf(v.id).Sends!.text.includes("A "))).toBe(true);
 
       // The overlay, from the same debug data: one ray (to the listener) and a hit cross at the wall for the occluded voice.
       // (The rig's World has no audio key, so its voices read world null; the overlay matches voices by the World's key.)

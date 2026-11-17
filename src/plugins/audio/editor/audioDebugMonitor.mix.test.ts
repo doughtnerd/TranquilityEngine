@@ -1,7 +1,9 @@
-// ADR 0171 (Dbg1): `mixSections`, the panel's M5 rows: one case per field, for the core's and the fallback's values.
+// ADR 0171 (Dbg1) through the monitor (ADR 0220): the panel's M5 mix sections, one case per field, for the core's and the
+// fallback's values.
 import { describe, expect, it } from "vitest";
-import type { AudioDebugInfo, AudioMixCaps, AudioMixDebug, AudioCpuDebug, AudioRecorderDebug } from "../runtime/backend";
-import { mixSections } from "./audioDebugRows";
+import type { AudioMixCaps, AudioMixDebug, AudioCpuDebug, AudioRecorderDebug } from "../runtime/backend";
+import type { AudioDebugSnapshot, Section } from "./audioDebugMonitor";
+import { sectionOf, snapshot, viewAfter } from "./testing/debugSnapshot";
 
 const CORE_CAPS: AudioMixCaps = { loudness: true, levelDucking: true, cpu: true, cpuReason: null, stampedBusRamps: true, capture: "full" };
 const BABYLON_CAPS: AudioMixCaps = { loudness: false, levelDucking: false, cpu: false, cpuReason: "Babylon fallback has no audio core", stampedBusRamps: false, capture: "mainSideOnly" };
@@ -12,15 +14,15 @@ const mix = (over: Partial<AudioMixDebug> = {}): AudioMixDebug => ({
   monitorActive: false, metersPaused: 0, loudnessLadderStep: 0, busRecordsEarly: 0, sidechainLate: 0, liveRefused: 0, liveDeferred: 0, liveDeferredPending: 0, ducking: [], ...over,
 });
 
-function info(over: Partial<AudioDebugInfo> = {}): AudioDebugInfo {
-  return { status: "running", sampleRate: 48_000, time: 0, background: "mute", counters: {} as AudioDebugInfo["counters"], buses: [], voices: [], core: {}, ...over };
-}
+const info = (over: Omit<Partial<AudioDebugSnapshot>, "counters"> = {}): AudioDebugSnapshot => snapshot({ background: "mute", ...over });
 
-const section = (i: AudioDebugInfo, id: string) => mixSections(i).find((s) => s.id === id)!;
-const row = (i: AudioDebugInfo, sec: string, id: string) => section(i, sec).rows.find((r) => r.id === id)!;
-const value = (i: AudioDebugInfo, sec: string, id: string) => row(i, sec, id).cells[1]!;
+const MIX_SECTIONS: readonly Section["id"][] = ["mixCaps", "cpu", "mix", "mixSlots", "ducking", "recorder"];
+const mixSections = (i: AudioDebugSnapshot): Section[] => viewAfter(i).sections.filter((s) => MIX_SECTIONS.includes(s.id));
+const section = (i: AudioDebugSnapshot, id: Section["id"]) => sectionOf(viewAfter(i), id);
+const row = (i: AudioDebugSnapshot, sec: Section["id"], id: string) => section(i, sec).rows.find((r) => r.id === id)!;
+const value = (i: AudioDebugSnapshot, sec: Section["id"], id: string) => row(i, sec, id).cells[1]!;
 
-describe("mixSections: no data", () => {
+describe("mix sections: no data", () => {
   it("returns the six sections with every table empty and the 'no mix data' text", () => {
     const s = mixSections(info());
     expect(s.map((x) => x.id)).toEqual(["mixCaps", "cpu", "mix", "mixSlots", "ducking", "recorder"]);
@@ -31,7 +33,7 @@ describe("mixSections: no data", () => {
   });
 });
 
-describe("mixSections: mixCaps", () => {
+describe("mix sections: mixCaps", () => {
   it("shows the core's flags as yes, capture full", () => {
     const i = info({ mixCaps: CORE_CAPS });
     for (const id of ["loudness", "levelDucking", "cpu", "stampedBusRamps"]) expect(value(i, "mixCaps", id)).toMatchObject({ text: "yes", health: "ok" });
@@ -45,7 +47,7 @@ describe("mixSections: mixCaps", () => {
   });
 });
 
-describe("mixSections: cpu", () => {
+describe("mix sections: cpu", () => {
   it("shows the load as a percentage of permille", () => {
     expect(value(info({ cpu: cpu({ loadPermille: 123 }) }), "cpu", "cpuLoad").text).toBe("12.3%");
   });
@@ -76,7 +78,7 @@ describe("mixSections: cpu", () => {
   });
 });
 
-describe("mixSections: mix", () => {
+describe("mix sections: mix", () => {
   it("shows a quiet mix as all ok", () => {
     const i = info({ mix: mix() });
     expect(value(i, "mix", "monitorActive")).toMatchObject({ text: "off", health: "ok" });
@@ -100,7 +102,7 @@ describe("mixSections: mix", () => {
   });
 });
 
-describe("mixSections: slot table", () => {
+describe("mix sections: slot table", () => {
   it("lists a row per slot with slot, name and state", () => {
     const s = section(info({ mix: mix({ slots: [{ name: "Master", slot: 0, state: "live" }, { name: null, slot: 1, state: "tombstone" }, { name: null, slot: 2, state: "free" }] }) }), "mixSlots");
     expect(s.rows.map((r) => r.cells.map((c) => c.text))).toEqual([["0", "Master", "live"], ["1", "-", "tombstone"], ["2", "-", "free"]]);
@@ -110,7 +112,7 @@ describe("mixSections: slot table", () => {
   });
 });
 
-describe("mixSections: ducking", () => {
+describe("mix sections: ducking", () => {
   it("lists each rule with its mode and gain, amber while ducked", () => {
     const s = section(info({ mix: mix({ ducking: [{ target: "Music", trigger: "Voice", mode: "presence", gain: 0.4 }, { target: "Amb", trigger: "Voice", mode: "level", gain: 1 }] }) }), "ducking");
     expect(s.rows.map((r) => r.cells.map((c) => c.text))).toEqual([["Music", "Voice", "presence", "0.40 (-8 dB)"], ["Amb", "Voice", "level", "1 (open)"]]);
@@ -123,7 +125,7 @@ describe("mixSections: ducking", () => {
   });
 });
 
-describe("mixSections: recorder", () => {
+describe("mix sections: recorder", () => {
   const rec = (over: Partial<AudioRecorderDebug> = {}): AudioRecorderDebug => ({ state: "recording", owners: 2, bytes: 2048, segments: 3, evicted: 0, truncated: false, ...over });
   it("is empty ('No capture running') while the recorder is null", () => {
     const s = section(info({ mix: mix(), recorder: null }), "recorder");
