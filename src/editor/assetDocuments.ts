@@ -13,7 +13,8 @@ import { AssetHistoryPersistence, deleteAssetHistories, moveAssetHistories } fro
 import { TextHistory, type HistoryState } from "./document";
 import { errorStatus } from "./messages";
 import { isWithin, type EditorProject } from "./projects";
-import { assetFormats, type AssetFormatContribution, type AssetProblem } from "./sdk/contributions";
+import { assetKinds, type AssetFormat, type AssetProblem } from "./sdk/contributions";
+import { assetKind } from "./assetKindLookup";
 import { currentProject, docVersion, status } from "./state";
 import { editorFocus } from "./windows/editorFocus";
 import { readOnlyMessage } from "./readOnly";
@@ -107,9 +108,9 @@ class Document<T> implements AssetDocument<T> {
   constructor(
     readonly project: EditorProject,
     path: string,
-    private readonly format: AssetFormatContribution<T>,
+    private readonly format: AssetFormat<T>,
   ) {
-    const read = format.parse(project.assets.get(path), path);
+    const read = parseWith(format, project.assets.get(path), path);
     this.value = signal<T>(read.value);
     this.problems = signal<readonly AssetProblem[]>(read.problems);
     this.lastText = format.format(read.value);
@@ -216,7 +217,7 @@ class Document<T> implements AssetDocument<T> {
     } catch {
       raw = undefined;
     }
-    const value = this.format.parse(raw, this.path).value;
+    const value = parseWith(this.format, raw, this.path).value;
     this.values.set(seq, value);
     return value;
   }
@@ -334,7 +335,7 @@ class Document<T> implements AssetDocument<T> {
   /** The file changed (docVersion moved): take what it holds now if someone else changed it. */
   private reread(): void {
     if (this.closed || this.burst || this.inFlight > 0 || this.writeFailed) return;
-    const read = this.format.parse(this.project.assets.get(this.path), this.path);
+    const read = parseWith(this.format, this.project.assets.get(this.path), this.path);
     const text = this.format.format(read.value);
     if (text === this.lastText) return;
     this.lastText = text;
@@ -386,14 +387,46 @@ function followProject(): void {
   });
 }
 
+/** What reading an asset file gives: its value and what's wrong with it (bad values read as defaults). */
+export interface AssetRead<T> {
+  readonly value: T;
+  readonly problems: readonly AssetProblem[];
+}
+
+/** `format.parse`, with a throw read as the format's `empty()` and the error's message as the problem (ADR 0233). */
+function parseWith<T>(format: AssetFormat<T>, raw: unknown, path: string): AssetRead<T> {
+  try {
+    return format.parse(raw, path);
+  } catch (err) {
+    return { value: format.empty(), problems: [{ message: (err as Error).message }] };
+  }
+}
+
+/** The format of the registered asset kind `kindId`. Throws when the kind isn't registered or has no format. */
+function formatOf<T>(kindId: string): AssetFormat<T> {
+  const format = assetKinds.get(kindId)?.format as AssetFormat<T> | undefined;
+  if (!format) throw new Error(`No asset kind "${kindId}" with a format is registered.`);
+  return format;
+}
+
 /**
- * The document for `path`, made from the registered format `formatId` (an asset kind id). Same
- * object for the same project and path until the file is deleted or the project changes. Throws
- * if no such format.
+ * The current value of the asset file at `path` (ADR 0233): its open document's value, edits not yet written
+ * included, else what the file holds now, read with its kind's format (`kindId`, default the kind of `path`).
+ * Reading an open document's value tracks it. Throws when the kind has no format.
  */
-export function openAssetDocument<T>(project: EditorProject, path: string, formatId: string): AssetDocument<T> {
-  const format = assetFormats.get(formatId) as AssetFormatContribution<T> | undefined;
-  if (!format) throw new Error(`No asset format "${formatId}" is registered.`);
+export function readAsset<T>(project: EditorProject, path: string, kindId: string = assetKind(path)): AssetRead<T> {
+  const doc = documentsProject === project ? (documents.get(path) as Document<T> | undefined) : undefined;
+  if (doc) return { value: doc.value.value, problems: doc.problems.value };
+  return parseWith(formatOf<T>(kindId), project.assets.get(path), path);
+}
+
+/**
+ * The document for `path`, made from the format of the asset kind `kindId` (default: the kind of `path`). Same
+ * object for the same project and path until the file is deleted or the project changes. Throws if the kind has no
+ * format.
+ */
+export function openAssetDocument<T>(project: EditorProject, path: string, kindId: string = assetKind(path)): AssetDocument<T> {
+  const format = formatOf<T>(kindId);
   followProject();
   if (documentsProject !== project) {
     dropAll(true);

@@ -33,6 +33,7 @@ const CORE_ASSET_KINDS: readonly AssetKindContribution[] = [
     open: switchScene,
     referencedAs: ["scene"],
     preview: "scene",
+    folder: "scenes",
     create: { label: "New Scene", create: (folder) => import("./newScene").then((m) => m.createScene(folder)) },
     addToScene: instanceNodes,
   },

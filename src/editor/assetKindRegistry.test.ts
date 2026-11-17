@@ -12,11 +12,11 @@ import {
   kindInspector,
   kindLabel,
   kindOpens,
-  openAsset,
   opensInCodePanel,
   previewOf,
   satisfiesFieldKind,
 } from "./assetKindLookup";
+import { openAsset } from "./assetKindHost";
 import { inspectedAsset } from "./assetImport";
 import { select as selectAssets } from "./assetSelection";
 import { SceneDocument } from "./document";

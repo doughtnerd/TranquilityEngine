@@ -9,7 +9,9 @@ import { useEditorPlugins } from "../../testEditorPlugins";
 import { currentProject, status } from "../../../editor/state";
 import { MemoryFileSystem, ROOT } from "../../../editor/testing";
 import { particlesEditorPlugin } from ".";
-import { createParticleBlock, createParticleSubgraph, particleDocument, readEffect } from "./particleAssets";
+import { particleDocument } from "./particleAssets";
+import { editor } from "../../../editor/sdk";
+import type { ParticleGraph } from "../../../engine/scene/particleGraph";
 import { formatAsset, subgraphTemplate } from "./particleGraph/assetDocs";
 import { moveItems, particleGraphEdits as edits, setSystemCollapsed } from "./particleGraph/graphEdit";
 
@@ -46,7 +48,7 @@ function countWrites(): string[] {
 
 describe("particle documents (ADR 0134)", () => {
   it("open effects, sub-graphs and blocks with their own format", async () => {
-    const block = (await createParticleBlock(""))!;
+    const block = (await editor.assets.create("particleblock"))!;
     expect(particleDocument(project, block).problems.value).toEqual([]);
     expect(particleDocument(project, FX).value.value.systems.length).toBeGreaterThan(0);
     expect(particleDocument(project, SUB).value.value.nodes.some((n) => n.type === "asset.input")).toBe(true);
@@ -60,7 +62,7 @@ describe("particle documents (ADR 0134)", () => {
     await doc.flush();
     expect(writes).toEqual([FX]);
     expect(onDisk(FX)).toBe(formatParticleGraph(next));
-    expect(readEffect(project, FX).graph.notes).toHaveLength(1);
+    expect(editor.assets.read<ParticleGraph>(project, FX).value.notes).toHaveLength(1);
   });
 
   it("make a drag one undo step and one write", async () => {
@@ -142,11 +144,11 @@ describe("particle documents (ADR 0134)", () => {
 
 describe("New Particle Sub-graph and Block", () => {
   it("create parseable assets beside effects", async () => {
-    const sub = await createParticleSubgraph("");
-    const block = await createParticleBlock("");
+    const sub = await editor.assets.create("particlesubgraph");
+    const block = await editor.assets.create("particleblock");
     expect(sub).toBe("effects/New Particle Sub-graph.particlesubgraph.json");
     expect(block).toBe("effects/New Particle Block.particleblock.json");
-    expect(readEffect(project, sub!).problems).toEqual([]);
-    expect(readEffect(project, block!).problems).toEqual([]);
+    expect(editor.assets.read(project, sub!).problems).toEqual([]);
+    expect(editor.assets.read(project, block!).problems).toEqual([]);
   });
 });

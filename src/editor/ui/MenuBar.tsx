@@ -15,7 +15,7 @@ import { manageLayoutsOpen, saveLayoutAsOpen } from "../layout/layoutDialogs";
 import { scopeLabel, scopesOf } from "../layout/saved";
 import { buildMenus, DOCS_URL, SEPARATOR, type Menu, type MenuActions, type MenuEntry, type MenuState } from "../menuBar";
 import { logOpen, unseenErrors } from "../messages";
-import { createScene } from "../newScene";
+import { createAsset } from "../assetKindHost";
 import { canOpenFolders } from "../projectFs";
 import { recentProjects, recentVersion } from "../recentProjects";
 import { closeProject, openProjectFolder, openRecentProject, reloadScripts, save } from "../session";
@@ -94,7 +94,7 @@ const ACTIONS: MenuActions = {
     if (entry) void openRecentProject(entry);
   },
   save: () => void save(),
-  newScene: () => void createScene(),
+  newScene: () => void createAsset("scene"),
   reloadScripts: () => void reloadScripts(),
   exportBuild: () => (exportOpen.value = true),
   showPanel,

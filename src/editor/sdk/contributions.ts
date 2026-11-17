@@ -25,7 +25,8 @@ export type LoadComponent<P extends object> = () => Promise<FunctionComponent<P>
  * prefabs, images, audio, scripts, text…) register through this too, from `assetKinds.builtin.ts`
  * (ADR 0143); `assetKindLookup.ts` answers every per-kind question from the registered kinds.
  */
-export interface AssetKindContribution {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- kinds' values differ; a registry holds every T
+export interface AssetKindContribution<T = any> {
   /** The kind's id, e.g. "sky". Also what `assetKind(path)` returns. */
   readonly id: string;
   /** File-name endings, lower case with the dot, e.g. [".sky.json"]. The longest match over all kinds wins; of equal ones, the kind registered last (so a plugin can take over a core extension). */
@@ -34,15 +35,32 @@ export interface AssetKindContribution {
   readonly label: string;
   /** An SVG path (`d`) drawn in a 24×24 box, stroked, like the built-in asset icons. */
   readonly icon: string;
-  /** Double-click / Open. Absent: the file only selects. */
+  /** Double-click / Open, done by the kind itself. Absent: `panel` opens it, or `codeEditor`, else the file only selects. */
   open?(path: string): void;
+  /**
+   * The panel that edits files of this kind (ADR 0233). Opening a file (double-click, `editor.assets.open`) makes it
+   * the panel's file, which the panel reads with `editor.assets.openIn(panel)`, and brings the panel forward.
+   * Ignored when `open` is set.
+   */
+  readonly panel?: string;
+  /**
+   * The kind's document format (ADR 0134, 0233): what its asset documents (`openAssetDocument`), the current value
+   * (`editor.assets.read`) and a new file (`editor.assets.create`) are made from.
+   */
+  readonly format?: AssetFormat<T>;
+  /**
+   * The project folder new files of this kind go in when no folder is asked for (ADR 0233), e.g. "materials": used
+   * when the project has it, else the project root. The New… menu asks for none at the project root.
+   */
+  readonly folder?: string;
   /** The Inspector's view of a selected file of this kind, loaded on first use. */
   readonly inspector?: LoadComponent<{ path: string }>;
   /**
    * An entry in the Assets panel's New… menu, the only source of its file entries (ADR 0149): core kinds
-   * (scenes, render textures) declare theirs here as plugins do. `create` returns the new file's path, or null.
+   * (scenes, render textures) declare theirs here as plugins do. With a `format`, the host writes the file
+   * (ADR 0233); otherwise the kind's own `create` does.
    */
-  readonly create?: { readonly label: string; create(folder: string): Promise<string | null> };
+  readonly create?: AssetKindCreate<T>;
   /**
    * Capability (ADR 0149): files of this kind are images that can be cut into slices (ADR 0040). A
    * `#slice` entry of one is a `sprite` that adds and opens as its file does, the Assets panel shows the
@@ -131,17 +149,43 @@ export interface AssetProblem {
   readonly message: string;
 }
 
-/** How an asset kind's file becomes a value and back: what an asset document is made from. */
-export interface AssetFormatContribution<T = unknown> {
-  /** The asset kind id this format is for. */
-  readonly id: string;
-  /** The file's parsed JSON (or undefined when missing) to a value; never throws, reports problems instead. */
+/**
+ * How an asset kind's file becomes a value and back (ADR 0134, 0233): what an asset document is made from. Declared
+ * as the kind's `format`.
+ */
+export interface AssetFormat<T> {
+  /**
+   * The file's parsed JSON (or undefined when missing) to a value, reporting bad values as problems. It may throw for
+   * a file it can't read at all: the host then reads `empty()`, with the error's message as the one problem.
+   */
   parse(raw: unknown, path: string): { value: T; problems: readonly AssetProblem[] };
   /** A value to the file's text. */
   format(value: T): string;
+  /** The value of a file that can't be read, and of a new file unless `create.value` says otherwise. */
+  empty(): T;
   /** Milliseconds to wait after the last coalesced edit before writing (sliders). Default 150. */
   readonly writeDelay?: number;
 }
+
+/**
+ * A kind's New… entry (ADR 0149, 0233). Either the host writes it from the kind's `format` (`<name><extension>` in
+ * the folder asked for, else the kind's `folder`), or the kind writes it itself with `create`, given that folder.
+ */
+export type AssetKindCreate<T> =
+  | {
+      readonly label: string;
+      /** The new file's name without the extension (default: `label`), e.g. "New Formation". */
+      readonly name?: string;
+      /** What the files are, plural, for the read-only message: "skies". */
+      readonly what: string;
+      /** A new file's value (default: the format's `empty()`). */
+      value?(): T;
+    }
+  | {
+      readonly label: string;
+      /** Write the new file(s) in `folder` (the kind's `folder` already applied); the new file's path, or null. */
+      create(folder: string): Promise<string | null>;
+    };
 
 /** A dock of the editor's default layout: one of the side docks, or the one filling the middle (the Scene view's). */
 export type PanelDock = "left" | "right" | "bottom" | "fill";
@@ -469,7 +513,6 @@ export interface FieldChoicesContribution {
 
 export const componentNotes = createRegistry<ComponentNoteContribution>("Component note");
 export const assetKinds = createRegistry<AssetKindContribution>("Asset kind");
-export const assetFormats = createRegistry<AssetFormatContribution<any>>("Asset format"); // eslint-disable-line @typescript-eslint/no-explicit-any -- formats differ in T
 export const panels = createRegistry<PanelContribution>("Panel");
 export const projectSettingsSections = createRegistry<ProjectSettingsSectionContribution>("Project settings section");
 export const panelExtensions = createRegistry<PanelExtensionContribution>("Panel extension");

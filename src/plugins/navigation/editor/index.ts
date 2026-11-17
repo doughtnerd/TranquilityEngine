@@ -10,7 +10,6 @@ import type { EditorPlugin } from "../../../editor/sdk";
 import { parseNavigationSettings } from "../../../engine/nav/settings";
 import { navigationManifest } from "../manifest";
 import { navAgentCount } from "../runtime";
-import { createFormation } from "./formationAssets";
 import { formationFormat } from "./formationFormat";
 import { navOverlayTool } from "./navGizmo";
 import { navPreviewTool } from "./navPreviews";
@@ -26,11 +25,12 @@ export const navigationEditorPlugin: EditorPlugin = {
       extensions: [".formation.json"],
       label: "Formation",
       icon: FORMATION_ICON,
+      format: formationFormat,
+      folder: "navigation",
       inspector: () => import("./FormationInspector").then((m) => m.NavFormationInspector),
-      create: { label: "New Navigation Formation", create: (folder) => createFormation(folder) },
+      create: { label: "New Navigation Formation", name: "New Formation", what: "formations" },
       referencedAs: ["formation"],
     });
-    context.registerAssetFormat(formationFormat);
     // Project settings > Navigation, after Graphics as it has always been; it owns project.json's `navigation` (ADR 0151).
     context.registerProjectSettingsSection({
       id: "navigation",

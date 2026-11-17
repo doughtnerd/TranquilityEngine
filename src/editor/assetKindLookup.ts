@@ -79,32 +79,19 @@ export function kindIcon(kind: AssetKind | "folder"): string {
   return registeredKind(kind)?.icon ?? FILE_ICON;
 }
 
-/** True if a kind's files open in the Code panel (`codeEditor` without `open`, ADR 0140). */
+/** True if a kind's files open in the Code panel (`codeEditor` without `open` or `panel`, ADR 0140). */
 export function opensInCodePanel(kind: AssetKind | "folder"): boolean {
   const k = registeredKind(kind);
-  return k?.codeEditor === true && k.open === undefined;
+  return k?.codeEditor === true && k.open === undefined && k.panel === undefined;
 }
 
-/** True if opening (double-clicking) the file at `path` does something: its kind has `open`, opens in the Code panel, or it is a slice of an image that opens. */
+/**
+ * True if opening (double-clicking) the file at `path` does something: its kind has `open` or a `panel`, opens in
+ * the Code panel, or it is a slice of an image that opens. Opening is the asset kind host's (`assetKindHost.ts`).
+ */
 export function kindOpens(path: string): boolean {
   const k = behaviourAt(path);
-  return k?.open !== undefined || (!path.includes("#") && opensInCodePanel(assetKind(path)));
-}
-
-/** Open the file at `path` as its kind says (a slice opens its image). False when its kind doesn't open. */
-export function openAsset(path: string): boolean {
-  const kind = assetKind(path);
-  const k = behaviourAt(path);
-  const file = kind === "sprite" ? path.slice(0, path.indexOf("#")) : path;
-  if (k?.open) {
-    k.open(file);
-    return true;
-  }
-  if (kind !== "sprite" && opensInCodePanel(kind)) {
-    void import("./code/codeState").then((m) => m.openScript(file));
-    return true;
-  }
-  return false;
+  return k?.open !== undefined || k?.panel !== undefined || (!path.includes("#") && opensInCodePanel(assetKind(path)));
 }
 
 /** What adding the entry at `path` to a scene makes, if anything (a slice adds as its file does). */
@@ -112,23 +99,6 @@ export const sceneNodesAt = (path: string): AssetSceneNodes | undefined => behav
 
 /** True if the file at `path` has a scene node to become. */
 export const canAddToScene = (path: string): boolean => sceneNodesAt(path) !== undefined;
-
-/** An entry of the Assets panel's New… menu: a registered kind's `create` (ADR 0149). */
-export interface KindCreator {
-  /** The kind that creates. */
-  readonly kind: string;
-  readonly label: string;
-  create(folder: string): Promise<string | null>;
-}
-
-/**
- * The New… menu's file entries (ADR 0149): every registered kind's `create`, in registration order
- * (the core kinds first). A disabled plugin's kinds, and so its entries, are gone.
- */
-export function kindCreators(): KindCreator[] {
-  void assetKinds.version.value;
-  return assetKinds.list().flatMap((k) => (k.create ? [{ kind: k.id, label: k.create.label, create: (folder: string) => k.create!.create(folder) }] : []));
-}
 
 /** A kind's own Inspector view, if it has one. */
 export const kindInspector = (kind: AssetKind): LoadComponent<{ path: string }> | undefined => registeredKind(kind)?.inspector;

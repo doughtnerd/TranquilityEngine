@@ -14,7 +14,9 @@ import { select as selectAssets } from "../../editor/assetSelection";
 import { canAddToScene, kindIcon, kindLabel, kindOpens, registeredKind, satisfiesFieldKind } from "../../editor/assetKindLookup";
 import { registeredPanels } from "../../editor/layout/registeredPanels";
 import { joinPath, openFolderProject } from "../../editor/projects";
-import { assetFormats, assetKinds, panels } from "../../editor/sdk/contributions";
+import { assetKinds, panels } from "../../editor/sdk/contributions";
+import { editor } from "../../editor/sdk";
+import type { ParticleGraph } from "../../engine/scene/particleGraph";
 import { isPluginActive } from "../../editor/sdk/plugins";
 import { useEditorPlugins } from "../testEditorPlugins";
 import { currentProject } from "../../editor/state";
@@ -25,8 +27,7 @@ import { RUNTIME_PLUGINS } from "../runtime";
 import { isRuntimePluginActive, runtimeActivator } from "../runtimeContext";
 import { applyTestPlugins } from "../testPlugins";
 import { particlesEditorPlugin } from "./editor";
-import { openParticleGraph, readEffect } from "./editor/particleAssets";
-import { particleBlockFormat, particlesFormat, particleSubgraphFormat } from "./editor/particleFormat";
+import { effectFileMigrated } from "./editor/particleAssets";
 import { blockTemplate, formatAsset, subgraphTemplate } from "./editor/particleGraph/assetDocs";
 import { particlesRuntimePlugin } from "./runtime";
 
@@ -48,7 +49,6 @@ async function open(files: Record<string, string>) {
 const editorHalf = useEditorPlugins([particlesEditorPlugin], "each");
 afterEach(() => {
   currentProject.value = null;
-  openParticleGraph.value = null;
 });
 
 describe("the Particles plugin's editor half (ADR 0134)", () => {
@@ -82,9 +82,12 @@ describe("the Particles plugin's editor half (ADR 0134)", () => {
     expect(satisfiesFieldKind("material", FX)).toBe(false);
   });
 
-  it("opens each kind in the Particle Graph", () => {
-    assetKinds.get("particlesubgraph")!.open!(SUB);
-    expect(openParticleGraph.value).toBe(SUB);
+  it("opens each kind in the Particle Graph", async () => {
+    await open({ [SUB]: formatAsset(subgraphTemplate()) });
+    expect(editor.assets.openIn("particlegraph")).toBeNull();
+    expect(editor.assets.open(SUB)).toBe(true);
+    expect(editor.assets.openIn("particlegraph")).toBe(SUB);
+    expect(kindOpens(BLOCK)).toBe(true);
   });
 
   it("loads each kind's Inspector view", async () => {
@@ -103,10 +106,8 @@ describe("the Particles plugin's editor half (ADR 0134)", () => {
     expect(section!.loaded).toBe(true);
   });
 
-  it("registers formats that round-trip effects, sub-graphs and blocks", () => {
-    expect(assetFormats.get("particles")).toBe(particlesFormat);
-    expect(assetFormats.get("particlesubgraph")).toBe(particleSubgraphFormat);
-    expect(assetFormats.get("particleblock")).toBe(particleBlockFormat);
+  it("declares formats that round-trip effects, sub-graphs and blocks", () => {
+    const [particlesFormat, particleSubgraphFormat, particleBlockFormat] = ["particles", "particlesubgraph", "particleblock"].map((k) => assetKinds.get(k)!.format!);
     const text = formatParticleGraph(defaultParticleGraph());
     const fx = particlesFormat.parse(JSON.parse(text), FX);
     expect(fx.problems).toEqual([]);
@@ -122,16 +123,18 @@ describe("the Particles plugin's editor half (ADR 0134)", () => {
     }
   });
 
-  it("never throws parsing: a foreign file reads as a graph with problems", () => {
-    const bad = particlesFormat.parse("nope", FX);
+  it("reads a foreign file as a graph with problems", async () => {
+    const { project } = await open({ [FX]: '"nope"', [SUB]: '{ "format": "nope" }' });
+    const bad = editor.assets.read<ParticleGraph>(project, FX);
     expect(bad.problems.length).toBeGreaterThan(0);
     expect(bad.value.systems).toBeDefined();
-    expect(particleSubgraphFormat.parse({ format: "nope" }, SUB).problems.length).toBeGreaterThan(0);
+    expect(editor.assets.read(project, SUB).problems.length).toBeGreaterThan(0);
   });
 
   it("reads old-format effects as migrated graphs", async () => {
-    const { project } = await open({ [FX]: JSON.stringify({ format: "myco.particles@1", emitters: [] }) });
-    expect(readEffect(project, FX).migrated).toBe(true);
+    const { project } = await open({ [FX]: JSON.stringify({ format: "myco.particles@1", emitters: [] }), "b.particles.json": formatParticleGraph(defaultParticleGraph()) });
+    expect(effectFileMigrated(project, FX)).toBe(true);
+    expect(effectFileMigrated(project, "b.particles.json")).toBe(false);
   });
 
   it("removes everything when deactivated", () => {
@@ -139,7 +142,6 @@ describe("the Particles plugin's editor half (ADR 0134)", () => {
     expect(isPluginActive("myco.particles")).toBe(false);
     for (const k of ["particles", "particlesubgraph", "particleblock"]) {
       expect(registeredKind(k)).toBeUndefined();
-      expect(assetFormats.get(k)).toBeUndefined();
     }
     expect(assetKind(FX)).toBe("json"); // a generic file again: it opens in the Code panel and adds to no scene
     expect(canAddToScene(FX)).toBe(false);

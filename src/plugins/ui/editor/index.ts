@@ -20,7 +20,8 @@ export const uiEditorPlugin: EditorPlugin = {
       icon: UI_DOCUMENT_ICON,
       codeEditor: true,
       referencedAs: ["uidocument"],
-      // The New… menu's entry, and what the Hierarchy's Create > UI Document writes first (ADR 0149).
+      // The New… menu's entry, and what the Hierarchy's Create > UI Document writes first (ADR 0149), in ui/ (ADR 0233).
+      folder: "ui",
       create: { label: "New UI Document", create: (folder) => createUIDocument(folder) },
     });
     context.registerAssetKind({ id: "stylesheet", extensions: [".css"], label: "Stylesheet", icon: STYLESHEET_ICON, codeEditor: true });

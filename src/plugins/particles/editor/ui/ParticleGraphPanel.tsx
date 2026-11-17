@@ -1,11 +1,11 @@
-import { openParticleGraph } from "../particleAssets";
+import { PARTICLE_GRAPH_PANEL } from "../particleAssets";
 import { ParticleGraphEditor } from "./particleGraph/GraphEditor";
 import { editor, Panel } from "../../../../editor/sdk";
 import "./particleGraph/particleGraph.css";
 
 /** The Particle Graph panel (ADR 0060): the effect open from the Assets panel or a Particle System, or how to open one. */
 export function ParticleGraphPanel() {
-  const path = openParticleGraph.value;
+  const path = editor.assets.openIn(PARTICLE_GRAPH_PANEL);
   const project = editor.project.current;
   if (!project) return <Panel><p class="empty">No project open</p></Panel>;
   if (!path || !project.files.includes(path)) {

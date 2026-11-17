@@ -4,7 +4,8 @@ import { useEditorPlugins } from "../../testEditorPlugins";
 import { materialsEditorPlugin } from ".";
 import { moveAssets } from "../../../editor/assetOps";
 import type { MaterialSettings } from "../../../engine/scene/material";
-import { readMaterial, withKeywordValue } from "./materialAssets";
+import { withKeywordValue } from "./materialAssets";
+import { parseMaterial } from "../../../engine/scene/material";
 import { joinPath, openFolderProject } from "../../../editor/projects";
 import { currentProject } from "../../../editor/state";
 import { MemoryFileSystem, ROOT } from "../../../editor/testing";
@@ -84,7 +85,7 @@ describe("material keywords and instancing (ADR 0106)", () => {
   it("writes keywords and instancing to the file", async () => {
     const { fs, project, doc } = await openMaterial();
     await edit(doc, (now) => ({ keywords: withKeywordValue(now.keywords, { name: "RIM" }, true), instancing: "thin" }));
-    const { settings } = readMaterial(project, "m.material.json");
+    const { settings } = parseMaterial(JSON.parse(fs.files.get(joinPath(ROOT, "m.material.json")) as string), "m.material.json");
     expect([settings.keywords, settings.instancing]).toEqual([{ RIM: true }, "thin"]);
     await edit(doc, (now) => ({ keywords: withKeywordValue(now.keywords, { name: "RIM" }, false), instancing: "auto" }));
     expect(fs.files.get(joinPath(ROOT, "m.material.json"))).not.toMatch(/keywords|instancing/);

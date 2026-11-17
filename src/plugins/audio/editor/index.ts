@@ -4,10 +4,10 @@
 import { editor, type EditorPlugin } from "../../../editor/sdk";
 import { audioManifest } from "../manifest";
 import { Audio } from "../runtime";
-import { AUDIO_EVENT_SUFFIX, emptyAudioEvent, formatAudioEvent } from "../../../engine/audio/eventFormat";
+import { AUDIO_EVENT_SUFFIX } from "../../../engine/audio/eventFormat";
 import { createEventFromClips } from "./createEventFromClips";
 import { audioEventFormat, audioEventReferences } from "./eventAsset";
-import { EVENT_EDITOR_PANEL, openEventEditor } from "./event/openEventEditor";
+import { EVENT_EDITOR_PANEL } from "./event/openEventEditor";
 import { zoneTool } from "./AudioReverbZoneGizmo";
 import { editZoneAction } from "./EditZoneButton";
 import { occluderTool } from "./AudioOccluderGizmo";
@@ -27,18 +27,6 @@ export const opLogEntries = (): readonly OpLogEntry[] => opLog?.entries ?? [];
 
 /** A speaker with waves over a page corner: an event is a sound that plays one of several. */
 const EVENT_ICON = "M5 9v6h4l5 4V5L9 9zM17.5 8.5a5 5 0 0 1 0 7M20 6a8.5 8.5 0 0 1 0 12";
-
-/** Where New Event goes by default: `audio/` if the project has it, else the folder given. */
-const eventFolder = (folder: string): string => (folder === "" && editor.project.current?.folders.includes("audio") ? "audio" : folder);
-
-/** Create `New Event.audioevent.json`: a valid, empty event (a layer with no children, which plays nothing) to fill in the Event editor. */
-const createEvent = (folder: string): Promise<string | null> =>
-  editor.project.createFile({
-    folder: eventFolder(folder),
-    name: `New Event${AUDIO_EVENT_SUFFIX}`,
-    what: "audio events",
-    write: (project, path) => project.writeText(path, formatAudioEvent(emptyAudioEvent())),
-  });
 
 export const audioEditorPlugin: EditorPlugin = {
   manifest: audioManifest,
@@ -74,12 +62,14 @@ export const audioEditorPlugin: EditorPlugin = {
       extensions: [AUDIO_EVENT_SUFFIX],
       label: "Audio Event",
       icon: EVENT_ICON,
-      open: (path) => openEventEditor(path),
-      create: { label: "New Event", create: createEvent },
+      format: audioEventFormat,
+      folder: "audio",
+      panel: EVENT_EDITOR_PANEL,
+      // New Event: a valid, empty event to fill in the Event editor.
+      create: { label: "New Event", what: "audio events" },
       referencedAs: ["audioEvent"],
       references: { ...audioEventReferences, extensions: [AUDIO_EVENT_SUFFIX] },
     });
-    context.registerAssetFormat(audioEventFormat);
     // A clip's (or several clips') context menu: one event playing one of them per play.
     context.registerAssetAction({
       id: "myco.audio.event-from-clips",
@@ -88,12 +78,7 @@ export const audioEditorPlugin: EditorPlugin = {
       appliesTo: (_project, targets) => targets.length > 0 && targets.every((t) => t.slice === undefined && editor.assets.kindOf(t.path) === "audio"),
       run: async (_project, targets) => {
         const { name, event } = createEventFromClips(targets.map((t) => t.path));
-        const made = await editor.project.createFile({
-          folder: editor.assets.folderOf(targets[0]!.path),
-          name: `${name}${AUDIO_EVENT_SUFFIX}`,
-          what: "audio events",
-          write: (project, path) => project.writeText(path, formatAudioEvent(event)),
-        });
+        const made = await editor.assets.create("audioEvent", { folder: editor.assets.folderOf(targets[0]!.path), value: event, name });
         return made ? [made] : [];
       },
     });

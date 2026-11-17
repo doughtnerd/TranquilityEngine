@@ -1,5 +1,6 @@
 // New Shader (ADR 0106): a `*.shader.json` shader asset with its WGSL and GLSL code beside it.
-// The `shader` asset kind's `create` (ADR 0134): the Materials plugin owns `.shader.json`.
+// The `shader` asset kind's own `create` (ADR 0134): it writes three files, so the host gives it the folder
+// (`shaders/` by the kind's `folder`, ADR 0233) and it writes them itself.
 import { defaultShaderAsset, formatShaderAsset, type ShaderAsset } from "../../../engine/scene/shaderAsset";
 import { editor } from "../../../editor/sdk";
 
@@ -17,20 +18,14 @@ void surface(MycoSurfaceInput s, inout MycoSurface o) {
 }
 `;
 
-/** Where New Shader goes by default: `shaders/` if the project has it, else the folder given. */
-function shaderFolder(folder: string): string {
-  return folder === "" && editor.project.current?.folders.includes("shaders") ? "shaders" : folder;
-}
-
 /**
  * Create `New Shader.shader.json` (or `New Shader 2`…) with `New Shader.wgsl` and `New Shader.glsl`
  * beside it: a minimal surface shader with a `Tint` colour property. Returns the JSON's path, or
  * null if the project is read-only or writing failed.
  */
-export async function createShader(folder: string): Promise<string | null> {
+export async function createShader(dir: string): Promise<string | null> {
   const project = editor.project.current;
   if (!project || editor.project.refuseReadOnly(project, "shaders")) return null;
-  const dir = shaderFolder(folder);
   const at = (stem: string, ext: string) => (dir ? `${dir}/${stem}${ext}` : `${stem}${ext}`);
   const free = (stem: string) => [".shader.json", ".wgsl", ".glsl"].every((ext) => editor.project.freePath(project, dir, `${stem}${ext}`) === at(stem, ext));
   let stem = "New Shader";

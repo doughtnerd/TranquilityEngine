@@ -4,9 +4,11 @@ import { useEditorPlugins } from "../../testEditorPlugins";
 import { materialsEditorPlugin } from ".";
 import { moveAssets } from "../../../editor/assetOps";
 import { joinPath, openFolderProject, type EditorProject } from "../../../editor/projects";
-import { assetFormats } from "../../../editor/sdk/contributions";
+import { assetKinds } from "../../../editor/sdk/contributions";
+import { editor } from "../../../editor/sdk";
+import type { ShaderGraph } from "../../../engine/scene/shaderGraph";
 import { addNode, moveNodes } from "./shaderGraph/graphEdit";
-import { readShaderGraph, shaderGraphDocument } from "./shaderGraphAssets";
+import { shaderGraphDocument } from "./shaderGraphAssets";
 import { shaderGraphFormat, shaderSubgraphFormat } from "./shaderGraphFormat";
 import { currentProject, status } from "../../../editor/state";
 import { MemoryFileSystem, ROOT } from "../../../editor/testing";
@@ -35,17 +37,18 @@ afterEach(() => {
 });
 
 describe("shader graph formats (ADR 0134)", () => {
-  it("are registered once, by kind", () => {
-    expect(assetFormats.get("shadergraph")).toBe(shaderGraphFormat);
-    expect(assetFormats.get("shadersubgraph")).toBe(shaderSubgraphFormat);
+  it("are declared by their kinds", () => {
+    expect(assetKinds.get("shadergraph")!.format).toBe(shaderGraphFormat);
+    expect(assetKinds.get("shadersubgraph")!.format).toBe(shaderSubgraphFormat);
   });
 
-  it("never throw: a missing or foreign file is the default graph with a problem", () => {
-    const missing = shaderGraphFormat.parse(undefined, PATH);
+  it("read a missing or foreign file as the kind's default graph with a problem", async () => {
+    const missing = editor.assets.read<ShaderGraph>(project, "shaders/gone.shadergraph.json");
     expect(missing.value).toEqual(defaultShaderGraph());
     expect(missing.problems.length).toBe(1);
-    expect(shaderSubgraphFormat.parse({ format: "nope" }, SUB).value.subgraph).toBeDefined();
-    expect(readShaderGraph(project, SUB).graph.subgraph).toBeDefined();
+    await project.writeText("shaders/c.shadersubgraph.json", '{ "format": "nope" }');
+    expect(editor.assets.read<ShaderGraph>(project, "shaders/c.shadersubgraph.json").value.subgraph).toBeDefined();
+    expect(editor.assets.read<ShaderGraph>(project, SUB).value.subgraph).toBeDefined();
   });
 
   it("round-trip a graph and a sub-graph", () => {
@@ -74,7 +77,7 @@ describe("shader graph documents", () => {
     await doc.flush();
     expect(writes).toEqual([PATH]);
     expect(onDisk(PATH)).toBe(formatShaderGraph(next));
-    expect(readShaderGraph(project, PATH).graph.nodes.length).toBe(next.nodes.length);
+    expect(editor.assets.read<ShaderGraph>(project, PATH).value.nodes.length).toBe(next.nodes.length);
   });
 
   it("adds no undo step for an edit that changes nothing", () => {

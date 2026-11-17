@@ -37,7 +37,7 @@ import {
   whyNotConnect,
 } from "./shaderGraph/graphEdit";
 import { HEADER, PREVIEW, ROW, inlineFields, nodeBox, nodeTitle, portOffset, settingValue, type NodeBox } from "./shaderGraph/nodeLayout";
-import { createMaterialForGraph, openShaderGraph, createShaderGraph, openShaderGraphAsset, shaderGraphDocument } from "./shaderGraphAssets";
+import { createMaterialForGraph, SHADER_GRAPH_PANEL, shaderGraphDocument } from "./shaderGraphAssets";
 import { searchGraph, cycleIndex } from "./shaderGraph/graphSearch";
 import { PropertyValue, numberValue, toHex2 } from "./ShaderPropertyValue";
 import { editor, type EditorProject, NO_DRAG, NO_PAN, NO_WHEEL, NoteView, NodeSearchPopup, Minimap, SelectionBox, createNodeDrag, handleProps, isFieldTarget, px, startConnection, startPointerDrag, toGraph, useGraphCanvas, useGraphSelection, wirePath, type CanvasNode, type DraftWire, type Point, type SearchItem, type View, Panel } from "../../../editor/sdk";
@@ -49,7 +49,7 @@ type Pending = { side: "output" | "input"; ref: string; type: ValueType | "dynam
 
 /** The Shader Graph panel (ADR 0046): the graph open from the Assets panel, or how to open one. */
 export function ShaderGraphPanel() {
-  const path = openShaderGraph.value;
+  const path = editor.assets.openIn(SHADER_GRAPH_PANEL);
   const project = editor.project.current;
   if (!project) return <Panel><p class="empty">No project open</p></Panel>;
   if (!path || !project.files.includes(path)) {
@@ -57,7 +57,7 @@ export function ShaderGraphPanel() {
       <Panel>
         <div class="shader-graph-empty">
           <p>Double-click a shader graph (<code>*.shadergraph.json</code>) in the Assets panel to edit it here.</p>
-          <button disabled={!project.canSave} onClick={() => void createShaderGraph("").then((made) => made && openShaderGraphAsset(made))}>
+          <button disabled={!project.canSave} onClick={() => void editor.assets.create("shadergraph").then((made) => made && editor.assets.open(made))}>
             New Shader Graph
           </button>
         </div>

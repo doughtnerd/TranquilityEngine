@@ -3,7 +3,7 @@ import { activeHistory, providePanelHistory, redo, stepBack, undo, type UndoHist
 import { openAssetDocument, type AssetDocument } from "./assetDocuments";
 import { joinPath, openFolderProject, type EditorProject } from "./projects";
 import { installShortcuts } from "./shortcuts";
-import { assetFormats } from "./sdk/contributions";
+import { assetKinds, type AssetKindContribution } from "./sdk/contributions";
 import { currentProject, openScene, type OpenScene } from "./state";
 import { MemoryFileSystem, ROOT } from "./testing";
 import { KEEPS_HISTORY_FOCUS } from "./windows/editorFocus";
@@ -90,10 +90,16 @@ let unregister: () => void;
 beforeEach(async () => {
   page = editorWindow();
   focus(element()); // nothing with a history of its own
-  unregister = assetFormats.register({
+  unregister = assetKinds.register(<AssetKindContribution<Thing>>{
     id: "thing",
-    parse: (raw) => ({ value: { n: (raw as { n?: number } | undefined)?.n ?? 0 }, problems: [] }),
-    format: (value: Thing) => `${JSON.stringify(value)}\n`,
+    extensions: [".thing.json"],
+    label: "Thing",
+    icon: "",
+    format: {
+      parse: (raw) => ({ value: { n: (raw as { n?: number } | undefined)?.n ?? 0 }, problems: [] }),
+      format: (value) => `${JSON.stringify(value)}\n`,
+      empty: () => ({ n: 0 }),
+    },
   });
   const fs = new MemoryFileSystem();
   fs.files.set(joinPath(ROOT, "project.json"), "{}");
