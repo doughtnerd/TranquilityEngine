@@ -28,6 +28,7 @@ import {
 } from "../../../../engine/audio/musicRules";
 import { warnOnce } from "../core/handle";
 import { playerOf, type MusicFrame, type MusicPlayer } from "./musicSystem";
+import { attachState } from "./musicPlayer";
 import { cancelRun, createSegmentRun, pollPrimed, primeRun, segmentClipSource, stampRun, type SegmentRun } from "./segmentRun";
 import { decideStinger } from "./stingerPolicy";
 
@@ -149,7 +150,8 @@ function triggerStinger(player: MusicPlayer, name: string): boolean {
     bump(player, "stingerUnknown");
     return false;
   }
-  const st = (player.stingers ??= createStingerState());
+  let st = player.stingers;
+  if (!st) attachState(player, "stingers", (st = createStingerState()));
   const def = hit.stinger;
   const counters = player.counters.stingers;
 

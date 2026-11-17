@@ -8,6 +8,7 @@ import { addInnerNode } from "./prefabs";
 import { hierarchyCreateEntries, type HierarchyCreateContribution } from "./sdk/contributions";
 import type { OpenScene } from "./state";
 import { WATER_PRESET } from "../engine/render/water/gerstner";
+import { BRACKETED, uniqueName } from "../engine/core/uniqueName";
 
 /** The editor's own node kinds. */
 export type NewNodeKind = "empty" | "sprite" | "camera" | "text" | Shape3D | `${LightKind}-light` | "fog" | "reflection-probe" | "water" | `ui-${UIKind}` | "ui-document";
@@ -91,11 +92,8 @@ const nameOf = (doc: SceneDocument, id: string) => doc.node(id).name ?? id;
  * `base`, or `base (1)`, `base (2)`… whichever none of `parent`'s children (null: the top level)
  * is called yet, so new and pasted nodes are told apart in the hierarchy.
  */
-export function uniqueName(doc: SceneDocument, parent: string | null, base: string, taken: Iterable<string> = []): string {
-  const names = new Set([...doc.children(parent).map((id) => nameOf(doc, id)), ...taken]);
-  if (!names.has(base)) return base;
-  const stem = base.replace(/ \(\d+\)$/, "");
-  for (let n = 1; ; n++) if (!names.has(`${stem} (${n})`)) return `${stem} (${n})`;
+export function uniqueNodeName(doc: SceneDocument, parent: string | null, base: string, taken: Iterable<string> = []): string {
+  return uniqueName(base, [...doc.children(parent).map((id) => nameOf(doc, id)), ...taken], BRACKETED);
 }
 
 /** The scene entry for a new node of `kind` under `parent`, at `position` in the parent's space. */
@@ -104,7 +102,7 @@ function newNodeEntry(doc: SceneDocument, kind: NodeKind, parent: string | null,
   const info = contributed ?? NEW_NODE_KINDS.find((k) => k.kind === kind);
   if (!info) throw new Error(`there is no "${kind}" node kind (is its plugin disabled?)`);
   const id = uniqueId(doc, info.name.toLowerCase().replace(/ /g, "-"));
-  const name = uniqueName(doc, parent, info.name);
+  const name = uniqueNodeName(doc, parent, info.name);
   const at: [number, number, number] = [position[0], position[1], position[2]];
   if (contributed) return { id, name, components: contributed.components(at, effect) };
   const builtin = kind as NewNodeKind;

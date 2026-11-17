@@ -12,17 +12,12 @@ import {
   type ParameterDef,
 } from "../../../../engine/audio/eventFormat";
 import { renameParameter } from "./eventTreeModel";
-
-/** The first free name of the form "Parameter", "Parameter 2"… among `taken`. */
-function freeParameterName(taken: readonly string[], base = "Parameter"): string {
-  if (!taken.includes(base)) return base;
-  for (let i = 2; ; i++) if (!taken.includes(`${base} ${i}`)) return `${base} ${i}`;
-}
+import { uniqueName } from "../../../../engine/core/uniqueName";
 
 /** The event with a new numeric parameter (0..1, default 0, seek 0) at the end; unchanged at `MAX_LOCAL_PARAMETERS`. */
 export function addParameter(event: AudioEventAsset): AudioEventAsset {
   if (event.parameters.length >= MAX_LOCAL_PARAMETERS) return event;
-  const p: NumericParameter = { name: freeParameterName(event.parameters.map((q) => q.name)), min: 0, max: 1, default: 0, seekSpeed: 0 };
+  const p: NumericParameter = { name: uniqueName("Parameter", event.parameters.map((q) => q.name)), min: 0, max: 1, default: 0, seekSpeed: 0 };
   return { ...event, parameters: [...event.parameters, p] };
 }
 

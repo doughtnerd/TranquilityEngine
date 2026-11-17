@@ -7,7 +7,7 @@ import { Assets } from "../engine";
 import { readClipboard } from "./clipboard";
 import { AddNode, type NodeEntry, type SceneDocument } from "./document";
 import { deleteNodes, isInsidePrefab } from "./hierarchyEdit";
-import { uniqueName } from "./nodeCreate";
+import { uniqueNodeName } from "./nodeCreate";
 import { wouldNest } from "./prefabs";
 import { hierarchyEntries, topmostKeys } from "./selectionModel";
 import type { OpenScene } from "./state";
@@ -134,7 +134,7 @@ function entriesForPaste(doc: SceneDocument, clip: NodeClipboard, parent: string
       if (i === 0) {
         delete entry.parent;
         if (entry.name !== undefined) {
-          entry.name = uniqueName(doc, parent, entry.name, names);
+          entry.name = uniqueNodeName(doc, parent, entry.name, names);
           names.push(entry.name);
         }
       } else if (entry.parent != null) {

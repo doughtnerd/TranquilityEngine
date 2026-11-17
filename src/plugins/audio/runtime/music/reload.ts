@@ -24,7 +24,8 @@
 import type { AudioVoice } from "../backend";
 import { isMusicContainer, type SegmentNode, type MusicNode } from "../../../../engine/audio/musicFormat";
 import { compileSegmentGrid, entrySeconds, exitSeconds, ticksToSeconds, type SegmentGrid, type TempoMap } from "../../../../engine/audio/musicGrid";
-import { advanceAnchor, anchorRun, ticksAt } from "./anchors";
+import { advanceAnchor, ticksAt } from "./anchors";
+import { promote } from "./musicPlayer";
 import { musicPlayers, type MusicFrame, type MusicPlayer } from "./musicSystem";
 import { lookaheadSeconds, requestStart, type PlannedStart } from "./planner";
 import { cancelRun, segmentClipSource, type SegmentRun } from "./segmentRun";
@@ -202,16 +203,14 @@ function planSwap(player: MusicPlayer, st: ReloadState, node: MusicNode, f: Musi
 }
 
 /** Take over at T: the incoming run is the player's, anchored from its own start. */
-function promote(player: MusicPlayer, st: ReloadState): void {
+function takeOver(player: MusicPlayer, st: ReloadState): void {
   const swap = st.swap!;
   st.swap = null;
   if (player.state === "stopping" || player.state === "stopped") return;
   if (swap.run.state === "cancelled") return;
   const old = player.run;
   if (old && old !== swap.run) old.state = "ending";
-  player.run = swap.run;
-  if (player.next === swap.run) player.next = null;
-  player.anchor = anchorRun(swap.run, Number.isFinite(swap.run.startAt) ? swap.run.startAt : swap.at);
+  promote(player, swap.run, Number.isFinite(swap.run.startAt) ? swap.run.startAt : swap.at);
 }
 
 /** P8, step 9 (first in the tick): plan the swap at the next bar for a marked player. */
@@ -235,7 +234,7 @@ export function applyReloads(player: MusicPlayer, f: MusicFrame): void {
     }
   }
 
-  if (st.swap && f.now + EPS >= st.swap.at) promote(player, st);
+  if (st.swap && f.now + EPS >= st.swap.at) takeOver(player, st);
 
   if (!st.event && st.clips.size === 0) return;
   if (st.swap || player.state === "stopping" || player.state === "stopped" || player.state === "refused") return;

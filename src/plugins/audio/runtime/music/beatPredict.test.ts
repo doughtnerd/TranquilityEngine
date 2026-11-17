@@ -4,7 +4,8 @@
 // core is `beatClock.loopback.test.ts`.
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { setAudioBackend } from "../backend";
-import { anchorRun, applySlip, ticksAt } from "./anchors";
+import { applySlip, ticksAt } from "./anchors";
+import { adoptSuccessor, attachState, beginRecovery, commitStart, promote, stopPlayer } from "./musicPlayer";
 import { heardRunAt, predictDue, seatBeats } from "./beatClock";
 import { drive, frames, musicSegment, playingRun, rigClips, stampedRun, type Fired } from "./testing/beatRig";
 import type { MusicEvent } from "../../../../engine/audio/musicTypes";
@@ -54,7 +55,7 @@ describe("window firing (§4.5 dispatch)", () => {
     run.state = "priming";
     expect(drive(player, frames(0.9, 1.6, DT))).toEqual([]);
     run.state = "playing";
-    player.state = "stopping";
+    stopPlayer(player);
     expect(drive(player, frames(1.6, 3, DT))).toEqual([]);
   });
 
@@ -154,7 +155,7 @@ describe("loop passes", () => {
   it("a released while region stops wrapping (R4b's state is read)", () => {
     const node = musicSegment({ tempo: T120, regions: [{ id: "r", from: "1:1:0", to: "2:1:0", count: 0 }] });
     const { player } = playingRun(node, 0, 0);
-    player.regions = { region: 0, released: true } as never;
+    attachState(player, "regions", { region: 0, released: true } as never); // as R4b leaves a released region
     const bars = of(drive(player, frames(-0.05, 4.2, DT), ["bar"]), "bar");
     expect(bars.map((f) => f.e.bar)).toEqual([1, 2, 3]);
   });
@@ -169,13 +170,12 @@ describe("successors and corrections", () => {
     let succ: ReturnType<typeof stampedRun> | null = null;
     list[60]!.before = () => {
       succ = stampedRun(player, b, 0, 4.0, 6); // lands on bar 3 of A
-      player.next = succ;
+      adoptSuccessor(player, succ);
     };
     // Promoted once heard (as the planner, playlist or transition does), A ringing out as `next`.
     list[245]!.before = () => {
-      player.run = succ;
-      player.anchor = anchorRun(succ!, succ!.startAt);
-      player.next = run;
+      promote(player, succ!, succ!.startAt);
+      adoptSuccessor(player, run);
     };
     const beats = of(drive(player, list), "beat");
     const want = [...Array.from({ length: 8 }, (_, k) => k * 0.5), ...Array.from({ length: 4 }, (_, k) => 4 + k * 0.6)];
@@ -190,7 +190,7 @@ describe("successors and corrections", () => {
     const { player } = playingRun(a, 0, 0);
     // B stamped at 3.0 from bar 1 beat 3 (one bar less a half of pre-entry), so its entry is heard at 4.0.
     const succ = stampedRun(player, b, 48_000, 3.0, 6);
-    player.next = succ;
+    adoptSuccessor(player, succ);
     const beats = of(drive(player, frames(-0.05, 5.1, DT), ["beat"]), "beat");
     expect(beats.map((f) => [f.e.segment, f.e.bar, f.e.beat, Math.round(f.e.time * 100) / 100])).toEqual([
       ...Array.from({ length: 8 }, (_, k) => [a.id, 1 + Math.floor(k / 4), 1 + (k % 4), k * 0.5]),
@@ -198,9 +198,8 @@ describe("successors and corrections", () => {
     ]);
     // A seek to bar 7 beat 2 at 5.25: B's own beats from there, A's stop.
     const seek = stampedRun(player, a, Math.round(((6 * 4 + 1) / 2) * 48_000), 5.25, 7);
-    player.run = succ;
-    player.anchor = anchorRun(succ, succ.startAt);
-    player.next = seek;
+    promote(player, succ, succ.startAt);
+    adoptSuccessor(player, seek);
     const after = of(drive(player, frames(5.1 + DT, 6.3, DT), ["beat"]), "beat");
     expect(after.map((f) => [f.e.segment, f.e.bar, f.e.beat, Math.round(f.e.time * 100) / 100])).toEqual([
       [a.id, 7, 2, 5.25], [a.id, 7, 3, 5.75], [a.id, 7, 4, 6.25],
@@ -214,7 +213,7 @@ describe("successors and corrections", () => {
     expect(heardRunAt(player, 0.5)).toBeNull();
     expect(heardRunAt(player, 2)!.run).toBe(run);
     const succ = stampedRun(player, b, 48_000, 3.0, 6); // entry heard at 4.0
-    player.next = succ;
+    adoptSuccessor(player, succ);
     expect(heardRunAt(player, 3.5)!.run).toBe(run);
     const at = heardRunAt(player, 4.25)!;
     expect(at.run).toBe(succ);
@@ -247,14 +246,9 @@ describe("successors and corrections", () => {
     list[129]!.before = () => {
       player.counters.recoveries.rebuild = 1;
       run.state = "cancelled";
-      player.state = "recovering";
+      beginRecovery(player);
     };
-    list[200]!.before = () => {
-      const re = stampedRun(player, node, 4.0 * 48_000, 4.0, 9);
-      player.run = re;
-      player.anchor = anchorRun(re, 4.0);
-      player.state = "committed";
-    };
+    list[200]!.before = () => commitStart(player, stampedRun(player, node, 4.0 * 48_000, 4.0, 9), 4.0);
     const fired = drive(player, list);
     const beats = of(fired, "beat");
     expect(beats.map((f) => [f.e.bar, f.e.beat, f.e.missed])).toEqual([

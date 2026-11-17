@@ -21,6 +21,7 @@ import { Assets, normalizeAssetPath, sidecarValue } from "./Assets";
 import { BAKED_SUFFIX, decodeBakedModel, encodeBakedModel } from "./bakedModel";
 import { BUILTIN_MESHES, builtinMeshData, type BuiltinMesh } from "./builtinMeshes";
 import { Mat4 } from "../core/math";
+import { uniqueName } from "../core/uniqueName";
 import { splitSpriteRef, type ImportSettings } from "./importSettings";
 
 let three: typeof import("three") | null = null;
@@ -922,7 +923,7 @@ export function bakeMeshes(root: Object3D, settings: Pick<ImportSettings, "scale
     }
     addGroups(mesh);
     meshes.push({
-      name: uniqueName(mesh.name || mesh.parent?.name || "mesh", used),
+      name: meshName(mesh.name || mesh.parent?.name || "mesh", used),
       geometry,
       materials,
       ...neutral,
@@ -1021,10 +1022,9 @@ function flipV(attr: BufferAttribute | undefined): void {
   for (let i = 0; i < attr.count; i++) attr.setY(i, 1 - attr.getY(i));
 }
 
-function uniqueName(raw: string, used: Set<string>): string {
-  const base = raw.replace(/[#/\\"']/g, "_").trim() || "mesh";
-  let name = base;
-  for (let n = 2; used.has(name); n++) name = `${base}_${n}`;
+/** A mesh name not in `used` (which it joins): `raw` made safe, else with `_2`, `_3`… */
+function meshName(raw: string, used: Set<string>): string {
+  const name = uniqueName(raw.replace(/[#/\\"']/g, "_").trim() || "mesh", used, { format: (stem, n) => `${stem}_${n}`, first: 2 });
   used.add(name);
   return name;
 }

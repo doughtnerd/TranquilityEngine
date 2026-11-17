@@ -25,7 +25,7 @@
 // - Stats: per-connection byte rates (overall and per kind of message) from the session counters.
 import type { BootstrapConfig, BootstrapSetting, Engine, LinkConfig, WorldConfig } from "../engine";
 import { inputStreams, setNetConditions, writeWorldInput, type NetPeerInfo, type NetTrafficInfo, type NetWorldInfo } from "../engine/editor";
-import { uniqueName } from "./worldsConfig";
+import { uniqueName } from "../engine/core/uniqueName";
 import { transportCanListen } from "../engine/net/Transport";
 
 export const MAX_CLIENTS = 4;

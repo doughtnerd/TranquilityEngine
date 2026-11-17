@@ -42,12 +42,7 @@ import { isLabelled, MAX_CURVE_KEYS, MAX_PARAMETERS, parameterDefault, parameter
 import type { SettingsDraft } from "../../../editor/sdk";
 import { duckRefusal, newDuckRule, ruleWithField } from "./mix/duckModel";
 import { applyOpToDraft, loudnessTargetsOf, MAX_LOUDNESS_TARGETS, opRefusal, type MixOp } from "../../../engine/audio/mixOps";
-
-/** A name not in `taken`: `base`, else `base 2`, `base 3`… */
-function uniqueName(base: string, taken: readonly string[]): string {
-  if (!taken.includes(base)) return base;
-  for (let i = 2; ; i++) if (!taken.includes(`${base} ${i}`)) return `${base} ${i}`;
-}
+import { uniqueName } from "../../../engine/core/uniqueName";
 
 export { EFFECT_TYPES, LIMITER_LOOKAHEAD_LIMITS, MAX_BUSES };
 

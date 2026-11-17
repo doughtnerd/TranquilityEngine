@@ -10,7 +10,7 @@ import {
   type SegmentNode,
 } from "../../../../engine/audio/musicFormat";
 import { startAtPosition, startAtSegment } from "./editorHooks";
-import type { PlanRequest } from "./planner";
+import { planTick, type PlanRequest } from "./planner";
 import { withStartPosition } from "./startPosition";
 import { createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
 import { tickPlaylist } from "./playlist";
@@ -20,13 +20,20 @@ import { endAudioSession, makeFakeBackend } from "../testing";
 
 /** The segment the playlist's first plan asks for: one playlist tick on a fake backend, as the planner's frame runs it. */
 function firstPlanned(p: MusicPlayer): string | undefined {
+  return firstFrame(p, false);
+}
+
+/** One frame of the first start on a fake backend: the playlist's tick, then (`plan`) the planner's, which starts a segment root. */
+function firstFrame(p: MusicPlayer, plan: boolean): string | undefined {
   const b = makeFakeBackend();
   setAudioBackend(b);
   setSegmentClipSource({
     url: (c) => `/assets/${c}`, settings: () => ({ volume: 1, stream: true }), bus: (o) => o ?? "Master",
     facts: () => ({ frames: 120 * 48_000, rate: 48_000, channels: 2, gapless: true }),
   });
-  tickPlaylist(p, { backend: b, music: b.music ?? null, now: 0, dt: 1 / 60, hidden: false } as unknown as MusicFrame);
+  const f = { backend: b, music: b.music ?? null, now: 0, dt: 1 / 60, hidden: false } as unknown as MusicFrame;
+  tickPlaylist(p, f);
+  if (plan) planTick(p, f);
   return p.planned?.request.to.id;
 }
 
@@ -79,7 +86,7 @@ describe("startAtSegment", () => {
     const p = player(playlist("p", [segment("a"), segment("b")]));
     expect(startAtSegment(p.handle, "zzz")).toBe(false);
     expect(startAtSegment({} as never, "a")).toBe(false);
-    p.planned = {} as never;
+    firstPlanned(p); // the music started: its first segment is planned
     expect(startAtSegment(p.handle, "b")).toBe(false);
   });
 });
@@ -127,7 +134,7 @@ describe("startAtPosition", () => {
     startAtPosition(p.handle, "1:9:0");
     expect(withStartPosition(p, request(node, 0))).toEqual(request(node, 0));
     expect(startAtPosition({} as never, "1:1:0")).toBe(false);
-    p.planned = {} as never;
+    expect(firstFrame(p, true)).toBe("s"); // the music started: its first segment is planned
     expect(startAtPosition(p.handle, "2:1:0")).toBe(false);
   });
 });

@@ -9,6 +9,7 @@ import { parseSegmentNode, type SegmentNode } from "../../../../engine/audio/mus
 import { createMusicPlayer, type MusicFrame } from "./musicSystem";
 import { setSegmentClipSource, type SegmentRun, type StemRun } from "./segmentRun";
 import { quantizedRamp, setAudibleStems, tickStems, type StampedRamp } from "./stems";
+import { commitStart } from "./musicPlayer";
 
 const RATE = 48_000;
 const QUANTUM_SAMPLES = 128;
@@ -29,7 +30,7 @@ function setup(stamped: boolean) {
     return { track: t.name, alternative: 0, clip: t.clip, streamed: true, voice, primed: true, k } as unknown as StemRun;
   });
   const run = { node, player, state: "playing", group: 1, stems, startAt: 1, startFrame: 0, loopsDone: 0, prime: null } as unknown as SegmentRun;
-  player.run = run;
+  commitStart(player, run, 1);
   const frame = (now: number): MusicFrame => ({ backend: b, music: b.music ?? null, now, dt: 1 / 60, hidden: false });
   return { b, player, run, stems, ramps, frame };
 }
@@ -165,7 +166,7 @@ describe("a quantised stem on the loopback host (ADR 0166 R6)", () => {
     // Heard clock: the group began at `t0` (file 0), so bars fall at t0 + 2k seconds. Pick t0 so the next bar is ~0.15 s ahead.
     const now = backend.time;
     const t0 = now + 0.15 - 2;
-    player.run = { node, player, state: "playing", group: 1, stems: [{ track: "bass", alternative: 0, clip: "dc.wav", streamed: false, voice: voice as never, primed: true }], startAt: t0, startFrame: 0, loopsDone: 0, prime: null } as unknown as SegmentRun;
+    commitStart(player, { node, player, state: "playing", group: 1, stems: [{ track: "bass", alternative: 0, clip: "dc.wav", streamed: false, voice: voice as never, primed: true }], startAt: t0, startFrame: 0, loopsDone: 0, prime: null } as unknown as SegmentRun, t0);
     const f: MusicFrame = { backend, music: backend.music, now, dt: 0.003, hidden: false };
     const at = quantizedRamp(player, "bass", 1, "bar", QUANTIZED_RAMP_SECONDS, f);
     expect(at).toBeCloseTo(t0 + 2, 9);

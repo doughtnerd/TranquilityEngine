@@ -262,6 +262,16 @@ export function nextWrapOf(player: MusicPlayer, now: number): NextWrap {
   return out;
 }
 
+/**
+ * What the pass walk reads of a player: its anchor, its playing run and the region release. A `MusicPlayer` is one; the
+ * beat clock walks its own scratch anchor through the same reads.
+ */
+export interface PlayingPosition {
+  readonly anchor: GridAnchor | null;
+  readonly run: SegmentRun | null;
+  readonly regions: RegionState | null;
+}
+
 /** The clip rate of a run: its first stem's facts, else 48 kHz. */
 function runRate(run: SegmentRun): number {
   for (const s of run.stems) {
@@ -327,7 +337,7 @@ export function ticksAt(anchor: GridAnchor, time: number): number {
  * (no region ahead that wraps, its passes used up, released by R4b, or past the exit cue). The region may be one the
  * playhead hasn't reached yet (R4b's first commit point). R4a stamps tails at it; R4b's commit point is one lead before.
  */
-export function predictWrap(player: MusicPlayer, now: number): number {
+export function predictWrap(player: PlayingPosition, now: number): number {
   const a = anchorOfPlaying(player);
   if (!a || !Number.isFinite(now)) return Number.NaN;
   const c = compiledOf(a);
@@ -342,7 +352,7 @@ export function predictWrap(player: MusicPlayer, now: number): number {
  * `from` (the first integer tick at or after it), the pass counted on. Returns true when it moved. Call it once per
  * frame before code that reads the anchor linearly (see the file header).
  */
-export function advanceAnchor(player: MusicPlayer, now: number): boolean {
+export function advanceAnchor(player: PlayingPosition, now: number): boolean {
   const a = player.anchor;
   if (!a || !Number.isFinite(now) || !(now > a.time)) return false;
   const c = compiledOf(a);
@@ -383,7 +393,7 @@ export function anchorPastRegion(player: MusicPlayer, region: number, releaseAt:
 }
 
 /** The anchor of the playing run: the player's when it is for that run's segment, else one from the run's stamp. */
-function anchorOfPlaying(player: MusicPlayer): GridAnchor | null {
+function anchorOfPlaying(player: PlayingPosition): GridAnchor | null {
   const a = player.anchor;
   const run = player.run;
   if (a && (!run || a.segment === run.node.id)) return a;

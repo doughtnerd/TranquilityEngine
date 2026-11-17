@@ -7,6 +7,7 @@ import { parseSegmentNode, type SegmentNode } from "../../../../engine/audio/mus
 import { createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
 import { createSegmentRun, pollPrimed, primeRun, routeGroupEvent, setSegmentClipSource, stampRun, type SegmentRun } from "./segmentRun";
 import { setAudibleStems, tickStems } from "./stems";
+import { commitStart } from "./musicPlayer";
 
 function rig(): { b: FakeBackend; player: MusicPlayer; run: SegmentRun; f: MusicFrame; voices: FakeVoice[] } {
   const b = makeFakeBackend();
@@ -26,7 +27,7 @@ function rig(): { b: FakeBackend; player: MusicPlayer; run: SegmentRun; f: Music
   pollPrimed(run, f);
   stampRun(player, run, 1, f);
   routeGroupEvent({ kind: "start", group: run.group, late: false, slipFrames: 0, startFrame: 48_000 });
-  player.run = run;
+  commitStart(player, run, run.startAt);
   return { b, player, run, f, voices: b.voices as FakeVoice[] };
 }
 

@@ -9,6 +9,7 @@ import { Audio } from "./Audio";
 import { updateBeatHolds } from "./music/background";
 import { drive, musicSegment, playingRun, rigClips, type Fired } from "./music/testing/beatRig";
 import { endAudioSession } from "./testing";
+import { beginRecovery } from "./music/musicPlayer";
 
 vi.mock("@babylonjs/core/AudioV2/webAudio/webAudioEngine", async () => (await import("../testing/babylonMocks")).webAudioEngineModule);
 
@@ -117,7 +118,7 @@ describe("Babylon fallback music: rhythm mode (§8 'Rhythm mode')", () => {
     expect(Audio.rhythmMode).toBe(true);
     expect(Audio.latency.reliable).toBe(false);
     const { player } = playingRun(musicSegment({ tempo: T120 }), 0, 0.5);
-    player.state = "recovering";
+    beginRecovery(player);
     updateBeatHolds(backend);
     expect(player.beats?.held ?? false).toBe(false);
     const fired = drive(player, [{ now: 0.49, interval: DT }], ["beat"]);

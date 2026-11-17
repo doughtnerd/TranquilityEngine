@@ -18,123 +18,53 @@
  */
 import { isPendingCoreBackend, type AudioBackend, type MusicBackend } from "../backend";
 import { onAudioSessionReleased } from "../audioSession";
-import type { MusicEvent, MusicEventHandle, MusicHandle, MusicKind } from "../../../../engine/audio/musicTypes";
+import type { MusicEvent, MusicEventHandle, MusicKind } from "../../../../engine/audio/musicTypes";
 import { GameBehavior } from "../../../../engine/core/Component";
 import type { EventInstance } from "../events/eventRuntime";
-import { createMusicHandle, segmentGrid } from "./handle";
+import { segmentGrid } from "./handle";
 import { entrySeconds } from "../../../../engine/audio/musicGrid";
 import { applyReloads } from "./reload";
-import { childFor, createSwitchState, tickSwitch, type SwitchState } from "./musicSwitch";
-import { createPlaylistState, enterPlaylist, tickPlaylist, type PlaylistState } from "./playlist";
-import { tickRegions, type RegionState } from "./regions";
-import { tickTransition, type Transition } from "./transition";
-import { frameIntervalSeconds, planTick, requestStart, type PlannedStart } from "./planner";
-import { tickLoopTails, type LoopTailState } from "./loopTail";
-import { tickStingers, type StingerState } from "./stingers";
+import { childFor, tickSwitch } from "./musicSwitch";
+import { enterPlaylist, tickPlaylist } from "./playlist";
+import { tickRegions } from "./regions";
+import { tickTransition } from "./transition";
+import { frameIntervalSeconds, planTick, requestStart } from "./planner";
+import { tickLoopTails } from "./loopTail";
+import { tickStingers } from "./stingers";
 import { tickStems } from "./stems";
-import { routeGroupEvent, type SegmentRun } from "./segmentRun";
+import { routeGroupEvent } from "./segmentRun";
 import { updateBeatHolds } from "./background";
-import type { GridAnchor } from "./anchors";
-import { predictDue, seatBeats, type BeatState } from "./beatClock";
+import { predictDue, seatBeats } from "./beatClock";
+import { endPlayer, newMusicPlayer, refuseStart, type MusicPlayer } from "./musicPlayer";
 import { taps } from "../mix/profileTaps";
 import { NULL_PROFILE_SINK } from "../mix/profileSink";
 import { musicChildById, type MusicNode } from "../../../../engine/audio/musicFormat";
 
-/** The player's lifecycle (architecture §2.1's state diagram). `Pending` is a planned change (`transition`); `Transitioning` only while two segments are audible together (D18). */
-export type MusicPlayerState =
-  | "starting"
-  | "waiting"
-  | "refused"
-  | "committed"
-  | "playing"
-  | "pending"
-  | "transitioning"
-  | "recovering"
-  | "stopping"
-  | "stopped";
+export type { MusicCounters, MusicPlayer, MusicPlayerState } from "./musicPlayer";
 
-/**
- * Per-instance counters (§1.6 `MusicDebugRow`; P10 reads them, each owner increments its own). Counts unless stated.
- * Reason and cause keys are the warning causes of §1.6 (`poolFull`, `neverFits`, `primeLate`, `groupLate`, ...).
- */
-export interface MusicCounters {
-  /** P2: re-plans by reason. */
-  readonly replans: Record<string, number>;
-  /** P2, R4a, R5: refusals by cause. */
-  readonly refusals: Record<string, number>;
-  /** P3: groups that started late, held by a starving member, or given up by the core. */
-  lateGroups: number;
-  groupsHeld: number;
-  groupTimeouts: number;
-  /** P3: audio frames, the slip of the last late or held group. */
-  lastSlipFrames: number;
-  /** P9: recoveries by cause (`rebuild`, `hidden`, `reload`, `crash`). */
-  readonly recoveries: Record<string, number>;
-  /** K1: beats coalesced into `missed` since the instance started. */
-  missedBeats: number;
-  /** R5: stinger outcomes. */
-  readonly stingers: { played: number; late: number; skipped: number; dropped: number };
-  /** P1, P2: milliseconds, the last group prime time and the lead it was planned with. */
-  primeLastMs: number;
-  leadMs: number;
+/** K5: `handle.onMusic` listeners of one instance, in subscription order per kind. Copy on write: a subscribe or unsubscribe replaces the array, so a dispatch in progress walks the one it began with. */
+interface MusicListeners {
+  beat: readonly ((e: MusicEvent) => void)[];
+  bar: readonly ((e: MusicEvent) => void)[];
+  cue: readonly ((e: MusicEvent) => void)[];
 }
 
-/**
- * One playing music instance (§3.2 `MusicPlayer`). Each field's sub-state type lives in, and is filled by, its owner's
- * file; an owner may add fields to its own sub-state type, never to this one (ask the coordinator).
- */
-export interface MusicPlayer {
-  /** The event instance that plays it (P6). Its `group` is the instance id the backend's encoded cache keys on (R16). */
-  readonly instance: EventInstance;
-  /** The event's music root (`segment`, `playlist` or `musicSwitch`). */
-  readonly root: MusicNode;
-  state: MusicPlayerState;
-  /** Heard time (seconds) `Audio.play`'s `at` asked the first entry for; NaN: as soon as possible (R12). */
-  readonly requestedAt: number;
-  /** P1: the playing segment's run; null while priming the first one. */
-  run: SegmentRun | null;
-  /** P1, P2: the committed or priming successor's run (at most one per container). */
-  next: SegmentRun | null;
-  /** P2: the next planned start, or null. */
-  planned: PlannedStart | null;
-  /** P3: the playing segment's grid anchor. */
-  anchor: GridAnchor | null;
-  /** R3a, R3b: the pending or running transition. */
-  transition: Transition | null;
-  /** P4: playlist cursors and shuffle bags, when the root (or a child) is a playlist. */
-  playlist: PlaylistState | null;
-  /** R2: the switch value, when the root (or a child) is a musicSwitch. */
-  musicSwitch: SwitchState | null;
-  /** R4b: `count` and `while` region state of the playing segment. */
-  regions: RegionState | null;
-  /** R4a: loop tails ringing over a wrap. */
-  tails: LoopTailState | null;
-  /** R5: the stinger queue and `dontRepeat` stamps. */
-  stingers: StingerState | null;
-  /** K1: beat prediction cursors. */
-  beats: BeatState | null;
-  /** K5: `handle.onMusic` listeners, by kind; null until the first subscription. */
+/** K2, K5: one player's beat-callback subscriptions, the dispatch's own (no other module reads them). */
+interface Subscriptions {
+  /** K5: `handle.onMusic` listeners, by kind; null until the first subscription, and again once the instance ends. */
   listeners: MusicListeners | null;
-  /** K2: the subscription mask (bit 0 beat, 1 bar, 2 cue): component hooks on the source's node, plus listeners. 0: not predicted. */
+  /** The subscription mask (bit 0 beat, 1 bar, 2 cue) of the listeners. */
   subscribed: number;
-  /** K2: the component hooks' share of the mask, read from the source's node each dispatch (`subscribed` is K5's listeners). */
+  /** K2: the component hooks' share of the mask, read from the source's node each dispatch. */
   hooks: number;
   /** K2: the mask the last dispatch predicted for; a bit that appears in `subscribed | hooks` seats its cursor first. */
   predicted: number;
   /** K2: the public handle `MusicEvent.handle` carries; made on first use by the factory `Audio.ts` registers. */
   eventHandle: MusicEventHandle | null;
-  /** P7: `handle.music`. */
-  readonly handle: MusicHandle;
-  /** Debug counters (§1.6). */
-  readonly counters: MusicCounters;
 }
 
-/** K5: `handle.onMusic` listeners of one instance, in subscription order per kind. Copy on write: a subscribe or unsubscribe replaces the array, so a dispatch in progress walks the one it began with. */
-export interface MusicListeners {
-  beat: readonly ((e: MusicEvent) => void)[];
-  bar: readonly ((e: MusicEvent) => void)[];
-  cue: readonly ((e: MusicEvent) => void)[];
-}
+/** Each live player's subscriptions (made with the player, dropped when it ends). */
+const subs = new WeakMap<MusicPlayer, Subscriptions>();
 
 /** What a step hands each player's tick. One object, rewritten each frame (nothing allocates per frame). */
 export interface MusicFrame {
@@ -149,8 +79,8 @@ export interface MusicFrame {
   readonly hidden: boolean;
 }
 
-/** Bits of `MusicPlayer.subscribed` (K2). */
-export const MusicSubscription = { BEAT: 1, BAR: 2, CUE: 4 } as const;
+/** Bits of a subscription mask (K2). */
+const MusicSubscription = { BEAT: 1, BAR: 2, CUE: 4 } as const;
 
 // --- The registry (Q2) ---------------------------------------------------------------------------------------------
 
@@ -208,23 +138,6 @@ export function musicActive(): boolean {
   return players.length > 0;
 }
 
-/** Fresh counters for a new player. */
-function newCounters(): MusicCounters {
-  return {
-    replans: {},
-    refusals: {},
-    lateGroups: 0,
-    groupsHeld: 0,
-    groupTimeouts: 0,
-    lastSlipFrames: 0,
-    recoveries: {},
-    missedBeats: 0,
-    stingers: { played: 0, late: 0, skipped: 0, dropped: 0 },
-    primeLastMs: 0,
-    leadMs: 0,
-  };
-}
-
 /**
  * P6 calls this when `EventInstance.playNode` reaches a music root: the player starts in `starting`, and step 9's
  * planner (P2) primes and stamps its first segment. `at` is `Audio.play`'s option (heard seconds); omitted or non-finite:
@@ -234,31 +147,8 @@ export function createMusicPlayer(instance: EventInstance, root: MusicNode, opti
   const existing = byInstance.get(instance);
   if (existing) return existing;
   const at = options.at;
-  const player: MusicPlayer = {
-    instance,
-    root,
-    state: "starting",
-    requestedAt: typeof at === "number" && Number.isFinite(at) ? at : Number.NaN,
-    run: null,
-    next: null,
-    planned: null,
-    anchor: null,
-    transition: null,
-    playlist: createPlaylistState(root, instance.group),
-    musicSwitch: createSwitchState(root),
-    regions: null,
-    tails: null,
-    stingers: null,
-    beats: null,
-    listeners: null,
-    subscribed: 0,
-    hooks: 0,
-    predicted: 0,
-    eventHandle: null,
-    handle: undefined as unknown as MusicHandle, // set below: the handle reads the player
-    counters: newCounters(),
-  };
-  (player as { handle: MusicHandle }).handle = createMusicHandle(player);
+  const player = newMusicPlayer(instance, root, typeof at === "number" && Number.isFinite(at) ? at : Number.NaN);
+  subs.set(player, { listeners: null, subscribed: 0, hooks: 0, predicted: 0, eventHandle: null });
   players.push(player);
   byInstance.set(instance, player);
   // Rc3: a player that began before a recorder did has no "first segment" to report when the recorder starts (the keyframe has its state).
@@ -276,11 +166,8 @@ export function disposeMusicPlayer(player: MusicPlayer, backend: AudioBackend | 
   players.splice(k, 1);
   byInstance.delete(player.instance);
   foldCounters(retired, player.counters);
-  player.state = "stopped";
-  player.listeners = null;
-  player.subscribed = 0;
-  player.hooks = 0;
-  player.predicted = 0;
+  endPlayer(player);
+  subs.delete(player); // its listeners end with it
   backend?.music?.releaseInstance(player.instance.group);
 }
 
@@ -426,7 +313,7 @@ function startSwitchRoot(player: MusicPlayer, f: MusicFrame): void {
   // P4: a playlist child (however nested) descends to its first playable leaf.
   const leaf = child ? enterPlaylist(player, child) : null;
   if (!child || !leaf) {
-    player.state = "refused";
+    refuseStart(player);
     if (!warnedRoots.has(player)) {
       warnedRoots.add(player);
       console.warn(`[myco] Music "${player.instance.path}": the switch's first child "${id}" has nothing playable; nothing plays.`);
@@ -525,31 +412,32 @@ export function dispatchMusic(f: MusicFrame): void {
   const interval = frameIntervalSeconds(f);
   for (let k = 0; k < list.length; k++) {
     const p = list[k]!;
-    if (p.state === "stopped") continue;
-    p.hooks = hookMask(p);
-    const mask = p.subscribed | p.hooks;
-    const fresh = mask & ~p.predicted;
-    p.predicted = mask;
+    const s = subs.get(p);
+    if (p.state === "stopped" || !s) continue;
+    s.hooks = hookMask(p);
+    const mask = s.subscribed | s.hooks;
+    const fresh = mask & ~s.predicted;
+    s.predicted = mask;
     if (mask === 0) continue;
     if (fresh !== 0) {
       // From nothing: forget the whole backlog; one more kind among running ones: only that kind's.
       if ((mask & ~fresh) === 0) seatBeats(p, f.now);
       else for (const d of KINDS) if (fresh & d.bit) seatBeats(p, f.now, d.kind);
     }
-    if (p.eventHandle === null && makeHandle) p.eventHandle = makeHandle(p.instance);
+    if (s.eventHandle === null && makeHandle) s.eventHandle = makeHandle(p.instance);
     for (const d of KINDS) {
       if (!(mask & d.bit)) continue;
       const e = scratch[d.kind];
-      e.handle = p.eventHandle as MusicEventHandle;
+      e.handle = s.eventHandle as MusicEventHandle;
       if (!predictDue(p, d.kind, f.now, interval, e)) continue;
-      if (p.hooks & d.bit) deliverToComponents(p, d.hook, e);
-      const ls = p.listeners?.[d.kind];
+      if (s.hooks & d.bit) deliverToComponents(p, d.hook, e);
+      const ls = s.listeners?.[d.kind];
       if (ls) {
         // K5 (D15): walks the array as it stood at this event, so a listener added during the loop first hears the next
         // event; one unsubscribed during it (itself or a later one) is not called again, even this frame.
         for (let i = 0, n = ls.length; i < n; i++) {
           const fn = ls[i]!;
-          if (p.listeners?.[d.kind] !== ls && !p.listeners?.[d.kind].includes(fn)) continue;
+          if (s.listeners?.[d.kind] !== ls && !s.listeners?.[d.kind].includes(fn)) continue;
           try {
             fn(e);
           } catch (err) {
@@ -568,26 +456,27 @@ const NOOP = (): void => {};
  * the returned function removes it. A listener added during a dispatch first hears the next event (§1.2).
  */
 function subscribeMusic(player: MusicPlayer, kind: MusicKind, fn: (e: MusicEvent) => void): () => void {
-  if (typeof fn !== "function" || player.state === "stopped") return NOOP;
-  const ls = (player.listeners ??= { beat: [], bar: [], cue: [] });
+  const s = subs.get(player);
+  if (typeof fn !== "function" || player.state === "stopped" || !s) return NOOP;
+  const ls = (s.listeners ??= { beat: [], bar: [], cue: [] });
   ls[kind] = [...ls[kind], fn];
-  refreshSubscribed(player);
+  refreshSubscribed(s);
   let live = true;
   return () => {
     if (!live) return; // a second call does nothing
     live = false;
-    const cur = player.listeners;
-    if (!cur) return; // the instance ended: its listeners already went with it
+    const cur = s.listeners;
+    if (!cur || !subs.has(player)) return; // the instance ended: its listeners already went with it
     const at = cur[kind].indexOf(fn);
     if (at >= 0) cur[kind] = cur[kind].filter((_, i) => i !== at);
-    refreshSubscribed(player);
+    refreshSubscribed(s);
   };
 }
 
 /** `subscribed` is the kinds that have a listener; a kind no hook and no listener wants leaves the mask (dispatch stops predicting it). */
-function refreshSubscribed(player: MusicPlayer): void {
-  const ls = player.listeners;
-  player.subscribed = ls ? (ls.beat.length ? MusicSubscription.BEAT : 0) | (ls.bar.length ? MusicSubscription.BAR : 0) | (ls.cue.length ? MusicSubscription.CUE : 0) : 0;
+function refreshSubscribed(s: Subscriptions): void {
+  const ls = s.listeners;
+  s.subscribed = ls ? (ls.beat.length ? MusicSubscription.BEAT : 0) | (ls.bar.length ? MusicSubscription.BAR : 0) | (ls.cue.length ? MusicSubscription.CUE : 0) : 0;
 }
 
 /** `handle.onMusic` on any event handle (`Audio.ts`): a non-music handle returns a no-op function (§1.2). */
