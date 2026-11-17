@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { queueProjectFileWrite } from "./projectFile";
 import { addAutoload, addSortingLayer, addTier, graphicsOf, moveTier, removeTier, renameTier, setPlatformDefault, setAutoDetect, setDefaultTier, setTargetFrameRate, setTierValue, moveAutoload, moveSortingLayer, setName, settingsProblems, settingsWarnings, setValue, withSettings, type SettingsDraft } from "./projectSettingsModel";
 import { raw, readDraft } from "./testing";
 
@@ -102,19 +101,6 @@ describe("the Project panel's settings", () => {
     expect(fields({ build: { identifier: "game", version: "1.0", icon: "icon.jpg" } }, files)).toEqual(["build.identifier", "build.version", "build.icon"]);
     expect(messages({ build: { icon: "gone.png" } }, files)).toEqual(["gone.png isn't in the project."]);
     expect(setValue({ build: { version: "1.0.0" } }, "build", "version", undefined).build).toBeUndefined();
-  });
-
-  it("runs project.json writes one at a time, even when one fails", async () => {
-    const order: string[] = [];
-    const slow = queueProjectFileWrite(async () => {
-      await new Promise((r) => setTimeout(r, 20));
-      order.push("first");
-      throw new Error("disk full");
-    });
-    const next = queueProjectFileWrite(async () => void order.push("second"));
-    await expect(slow).rejects.toThrow("disk full");
-    await next;
-    expect(order).toEqual(["first", "second"]);
   });
 
   describe("graphics tiers", () => {

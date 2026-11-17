@@ -61,6 +61,46 @@ describe("a project section", () => {
     expect(fileOf(project).bootstrap).toBeDefined();
   });
 
+  it("keeps both sections' keys when two save at once, whether the first write is slow or fails", async () => {
+    const { project, fs } = await openTestProject({ "project.json": PROJECT });
+    const s = createProjectSettingsSection().open(project);
+    const w = createWorldsSection().open(project);
+    const write = fs.writeText.bind(fs);
+    let calls = 0;
+    fs.writeText = async (path, text) => {
+      if (calls++ === 0) await new Promise((r) => setTimeout(r, 30));
+      return write(path, text);
+    };
+    await Promise.all([
+      s.edit("Rename project", { ...s.draft, name: "Slow" }),
+      w.edit("Add World", editedWorlds(addWorld(graphModel(w.draft)))),
+    ]);
+    expect(s.error).toBeNull();
+    expect(w.error).toBeNull();
+    expect(fileOf(project).name).toBe("Slow");
+    expect(fileOf(project).bootstrap).toBeDefined();
+
+    // The first write fails: the second still runs, on the file as it is, and the first draft stays unsaved.
+    let failed = false;
+    fs.writeText = async (path, text) => {
+      if (!failed) {
+        failed = true;
+        await new Promise((r) => setTimeout(r, 30));
+        throw new Error("disk full");
+      }
+      return write(path, text);
+    };
+    await Promise.all([
+      s.edit("Rename again", { ...s.draft, name: "Lost" }),
+      w.edit("Add another World", editedWorlds(addWorld(graphModel(w.draft)))),
+    ]);
+    expect(s.status).toMatchObject({ kind: "failed" });
+    expect(w.error).toBeNull();
+    expect(fileOf(project).name).toBe("Slow");
+    expect(w.unsaved).toBe(false);
+    expect(s.unsaved).toBe(true);
+  });
+
   it("keeps the draft and its undo when another panel's key changes", async () => {
     const { project } = await openTestProject({ "project.json": PROJECT });
     const settings = createProjectSettingsSection();

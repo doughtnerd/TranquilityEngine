@@ -45,7 +45,7 @@ import {
   type WorldsModel,
   withReplicationSetting,
 } from "../worldsConfig";
-import { PROJECT_FILE } from "../projectFile";
+import { PROJECT_FILE } from "../projectPaths";
 import { DEFAULT_LAYOUT, layoutGraph, type LayoutLinkIn, type LayoutNodeIn } from "../worldsLayout";
 import "./worlds.css";
 import { usePanelState } from "./panel/Panel";

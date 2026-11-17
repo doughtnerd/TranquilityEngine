@@ -8,11 +8,22 @@
 import { signal, type ReadonlySignal } from "@preact/signals";
 import type { UndoHistory } from "./activeHistory";
 import { errorStatus } from "./messages";
-import { PROJECT_FILE, queueProjectFileWrite } from "./projectFile";
+import { PROJECT_FILE } from "./projectPaths";
 import type { EditorProject } from "./projects";
 import { emitSectionChanged } from "./sectionChanged";
 import { status } from "./state";
 import { EditHistory, withMember } from "./worldsConfig";
+
+// Writes to `project.json` run one at a time: each writes only its own keys into the file's current text, so
+// two built from the same text would drop one another's change (ADR 0038, 0151).
+let writeQueue: Promise<void> = Promise.resolve();
+
+/** Run `task` after every write queued before it (a failing task doesn't stop later ones). */
+function queueProjectFileWrite(task: () => Promise<void>): Promise<void> {
+  const run = writeQueue.then(task);
+  writeQueue = run.catch(() => {});
+  return run;
+}
 
 /** Top-level `project.json` values by key. */
 export type SectionValues = Readonly<Record<string, unknown>>;
