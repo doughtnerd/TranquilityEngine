@@ -30,7 +30,7 @@ import {
 import type { SegmentNode, MusicNode } from "../../../../engine/audio/musicFormat";
 import { segmentRingNeed } from "../../../../engine/audio/musicValidate";
 import { musicPlayers, planStepDone, type MusicFrame, type MusicPlayer } from "./musicSystem";
-import { anchorRun } from "./anchors";
+import { adoptPlan, adoptSuccessor, cancelSuccessor, clearPlan, commitStart, noteStartHeard, primeStart, refuseStart, waitForRoom } from "./musicPlayer";
 import { withStartPosition } from "./startPosition";
 import {
   cancelRun, createSegmentRun, groupRequest, pollPrimed, primeRun, segmentClipSource, stampRun, type SegmentRun,
@@ -346,7 +346,7 @@ function evictionCandidates(player: MusicPlayer, at: number): MusicPlayer[] {
 function evict(q: MusicPlayer, f: MusicFrame): void {
   const qp = q.planned!;
   cancelRun(qp.run, f);
-  if (q.next === qp.run) q.next = null;
+  cancelSuccessor(q, qp.run);
   qp.status = "waiting";
   qp.refusal = "evicted";
   bump(q.counters.refusals, "evicted");
@@ -381,7 +381,7 @@ function admit(player: MusicPlayer, p: PlannedStart, f: MusicFrame): AdmitOutcom
   if (res.ok) {
     p.status = "priming";
     p.refusal = null;
-    player.next = run;
+    adoptSuccessor(player, run);
     return "ok";
   }
   bump(player.counters.refusals, res.reason);
@@ -462,9 +462,9 @@ function retarget(player: MusicPlayer, p: PlannedStart, f: MusicFrame): void {
 /** Drop the plan (the music plays on); a first start that is dropped leaves the player `refused`. */
 function drop(player: MusicPlayer, p: PlannedStart, cause: string, f: MusicFrame): void {
   cancelRun(p.run, f);
-  if (player.next === p.run) player.next = null;
-  if (player.planned === p) player.planned = null;
-  if (p.first) player.state = "refused";
+  cancelSuccessor(player, p.run);
+  clearPlan(player, p);
+  if (p.first) refuseStart(player);
   p.request.onDropped?.(p, cause);
 }
 
@@ -491,13 +491,13 @@ export function requestStart(player: MusicPlayer, plain: PlanRequest, f: MusicFr
   if (!run) {
     bump(player.counters.refusals, "noTrack");
     warnPlayer(player, `noTrack:${req.to.id}`, `"${req.to.id}" has no playable track; the change is dropped.`);
-    if (first) player.state = "refused";
+    if (first) refuseStart(player);
     req.onDropped?.(p, "noTrack");
     return null;
   }
   if (!f.music) {
     warnPlayer(player, "noMusic", "this audio backend has no music support; the music plays nothing.");
-    if (first) player.state = "refused";
+    if (first) refuseStart(player);
     req.onDropped?.(p, "noMusic");
     return null;
   }
@@ -511,18 +511,17 @@ export function requestStart(player: MusicPlayer, plain: PlanRequest, f: MusicFr
     return null;
   }
   followStartFrame(p);
-  player.planned = p;
-  player.next = run;
+  adoptPlan(player, p);
   const outcome = admit(player, p, f);
   if (outcome === "permanent") {
     drop(player, p, "refused", f);
     return null;
   }
   if (outcome === "temporary") {
-    if (first) player.state = "waiting";
+    if (first) waitForRoom(player);
     return null;
   }
-  if (first) player.state = "starting";
+  if (first) primeStart(player);
   return p;
 }
 
@@ -530,22 +529,17 @@ export function requestStart(player: MusicPlayer, plain: PlanRequest, f: MusicFr
 export function cancelPlanned(player: MusicPlayer, f: MusicFrame): void {
   const p = player.planned;
   if (!p) return;
-  player.planned = null;
+  clearPlan(player, p);
   cancelRun(p.run, f);
-  if (player.next === p.run) player.next = null;
+  cancelSuccessor(player, p.run);
 }
 
 /** Stamp the primed plan at its start; the first segment becomes the player's run and anchors the grid. */
 function stamp(player: MusicPlayer, p: PlannedStart, f: MusicFrame): void {
   const fades = p.request.fades?.(p);
   stampRun(player, p.run, p.at, f, fades);
-  player.planned = null;
-  if (p.first) {
-    player.run = p.run;
-    if (player.next === p.run) player.next = null;
-    player.anchor = anchorRun(p.run, p.at);
-    player.state = "committed";
-  }
+  clearPlan(player, p);
+  if (p.first) commitStart(player, p.run, p.at);
   p.request.onStamped?.(p, f);
 }
 
@@ -579,7 +573,7 @@ function replan(player: MusicPlayer, p: PlannedStart, f: MusicFrame): void {
  * primed in time, re-plan when late, retry a temporary refusal at the next allowed point.
  */
 export function planTick(player: MusicPlayer, f: MusicFrame): void {
-  if (player.state === "committed" && player.run && f.now + EPS >= player.run.startAt) player.state = "playing";
+  noteStartHeard(player, f.now);
   if (player.state === "stopping" || player.state === "stopped" || player.state === "refused") return;
   if (!player.planned && player.run === null && player.state === "starting" && player.root.type === "segment") {
     const g = gridOf(player.root);
@@ -610,7 +604,7 @@ export function planTick(player: MusicPlayer, f: MusicFrame): void {
     bump(player.counters.replans, "retry");
     const outcome = admit(player, p, f);
     if (outcome === "permanent") return drop(player, p, "refused", f);
-    if (outcome === "ok" && p.first) player.state = "starting";
+    if (outcome === "ok" && p.first) primeStart(player);
     return;
   }
   const ready = pollPrimed(p.run, f);

@@ -752,10 +752,12 @@ describe("a streamed music stem's voice (F-16)", () => {
 describe("a music debug row's pending change", () => {
   it("is set while the transition is pending, stamped or running (past T - L), and null once done", async () => {
     const { createMusicPlayer } = await import("../music/musicSystem");
+    const { beginTransition } = await import("../music/musicPlayer");
     const { backend } = rig();
     const player = createMusicPlayer({ group: 4, path: "m.audioevent.json" } as never, emptySegment("A"));
     const match = { rule: 1, ruleKey: "A>B", tier: 2, parent: null, exit: "nextBar", enter: "start" };
-    player.transition = { to: emptySegment("B"), match, state: "pending", exitAt: Number.NaN, cancelBy: Number.NaN, incoming: null, bridge: null, outgoing: null, after: null, immediate: null } as never;
+    const t = { to: emptySegment("B"), match, state: "pending", exitAt: Number.NaN, cancelBy: Number.NaN, incoming: null, bridge: null, outgoing: null, after: null, immediate: null } as never;
+    beginTransition(player, t);
     const pending = () => backend.debug().music![0]!.pending;
     for (const state of ["pending", "stamped", "running", "bridging"]) {
       (player.transition as { state: string }).state = state;

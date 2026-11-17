@@ -10,6 +10,7 @@ import type { MusicNode, SegmentNode } from "../../../../engine/audio/musicForma
 import { createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
 import { createSegmentRun, setSegmentClipSource } from "./segmentRun";
 import { tickStingers, triggerOn } from "./stingers";
+import { commitStart, noteStartHeard, promote, stopPlayer } from "./musicPlayer";
 
 type Raw = Record<string, unknown>;
 
@@ -37,9 +38,12 @@ function rig(root: MusicNode): void {
   const inst = { group: 7, world: 1, path: "m.audioevent", asset: { bus: "Music" } } as unknown as EventInstance;
   player = createMusicPlayer(inst, root);
   const a = (root as unknown as { children: SegmentNode[] }).children[0]!;
-  player.run = createSegmentRun(player, a, 0);
-  player.state = "playing";
-  player.anchor = { segment: "a", ticks: 0, time: 0, pass: 1, node: a, rate: 48000 };
+  const run = createSegmentRun(player, a, 0); // null when the first child is itself a container
+  if (run) {
+    run.startAt = 0;
+    commitStart(player, run, 0);
+    noteStartHeard(player, 0);
+  }
   (b as { time: number }).time = 0.1;
   b.horizonTime = 0.1;
   f = { backend: b, music: b.music ?? null, now: 0.1, dt: 1 / 60, hidden: false };
@@ -75,7 +79,7 @@ describe("trigger namespace", () => {
     rig(value.musicRoot!);
     // The playing segment is the inner playlist's child.
     const a = ((value.musicRoot as unknown as { children: { children: SegmentNode[] }[] }).children[0]!).children[0]!;
-    player.run = createSegmentRun(player, a, 0);
+    promote(player, createSegmentRun(player, a, 0)!, 0);
     expect(triggerOn(player.instance, "hit")).toBe(true);
     expect(b.music!.admitted[0]!.members[0]!.play.path).toBe("music/deep.ogg");
   });
@@ -240,9 +244,9 @@ describe("the pool", () => {
     expect(player.stingers!.queued).toHaveLength(0);
   });
 
-  it("a trigger before any tick, or on a stopped player, is false", () => {
+  it("a trigger before any tick, or on a stopping player, is false", () => {
     rig(rootOf([stinger()]));
-    player.state = "stopped";
+    stopPlayer(player);
     expect(triggerOn(player.instance, "hit")).toBe(false);
   });
 });

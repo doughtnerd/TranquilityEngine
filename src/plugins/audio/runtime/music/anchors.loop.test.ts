@@ -9,7 +9,8 @@ import { compileSegmentGrid, ticksToSeconds } from "../../../../engine/audio/mus
 import type { MusicClipFacts } from "../../../../engine/audio/musicValidate";
 import { createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
 import { createSegmentRun, groupRequest, pollPrimed, primeRun, setSegmentClipSource, stampRun, type SegmentRun } from "./segmentRun";
-import { advanceAnchor, anchorRun, heardTimeOf, predictWrap, ticksAt } from "./anchors";
+import { advanceAnchor, heardTimeOf, predictWrap, ticksAt } from "./anchors";
+import { promote } from "./musicPlayer";
 
 let facts: Record<string, MusicClipFacts | undefined> = {};
 let streamed = true;
@@ -46,8 +47,7 @@ function stamped(b: FakeBackend, node: SegmentNode, at: number): { player: Music
   b.music!.setPrimed(run.group);
   pollPrimed(run, f);
   stampRun(player, run, at, f);
-  player.run = run;
-  player.anchor = anchorRun(run, at);
+  promote(player, run, at);
   return { player, run };
 }
 

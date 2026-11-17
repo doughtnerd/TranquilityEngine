@@ -8,8 +8,8 @@ import { parseSegmentNode, type SegmentNode } from "../../../../../engine/audio/
 import type { MusicEvent, MusicKind } from "../../../../../engine/audio/musicTypes";
 import type { MusicClipFacts } from "../../../../../engine/audio/musicValidate";
 import type { EventInstance } from "../../events/eventRuntime";
-import { anchorRun } from "../anchors";
 import { predictDue } from "../beatClock";
+import { commitStart, noteStartHeard } from "../musicPlayer";
 import { createMusicPlayer, type MusicPlayer } from "../musicSystem";
 import { createSegmentRun, setSegmentClipSource, type SegmentRun } from "../segmentRun";
 
@@ -42,14 +42,13 @@ export function stampedRun(player: MusicPlayer, node: SegmentNode, startFrame: n
   return run;
 }
 
-/** A player playing `node` from clip frame `startFrame`, heard from `at`, anchored there. */
+/** A player playing `node` from clip frame `startFrame`, heard from `at`, anchored there (its first start stamped and heard). */
 export function playingRun(node: SegmentNode, startFrame: number, at: number): { player: MusicPlayer; run: SegmentRun } {
   const player = createMusicPlayer(instance(), node);
   const run = stampedRun(player, node, startFrame, at);
   run.state = "playing";
-  player.run = run;
-  player.anchor = anchorRun(run, at);
-  player.state = "playing";
+  commitStart(player, run, at);
+  noteStartHeard(player, at);
   return { player, run };
 }
 

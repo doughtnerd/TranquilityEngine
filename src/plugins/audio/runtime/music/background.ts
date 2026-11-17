@@ -43,7 +43,8 @@ import { rhythmModeSetting } from "./calibration";
 import { exitSeconds, nextGridSeconds, ticksToSeconds } from "../../../../engine/audio/musicGrid";
 import { RateLimit, RECOVERY_LIMIT, RECOVERY_WINDOW_MS } from "../core/rateLimit";
 import { hiddenFrame, musicPlayers, tickPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
-import { anchorRun, playingGridOf, rebaseAnchors, ticksAt } from "./anchors";
+import { playingGridOf, rebaseAnchors, ticksAt } from "./anchors";
+import { beginRecovery, cancelSuccessor, commitStart, restartFirst, stopPlayer } from "./musicPlayer";
 import { cancelPlanned, requestStart, type PlanRequest } from "./planner";
 import { cancelRun, routeGroupEvent } from "./segmentRun";
 
@@ -132,7 +133,7 @@ export function groupAbandoned(player: MusicPlayer, group: number): void {
     return;
   }
   // A successor the core gave up on: the router cancelled it; the container that asked for it asks again (R3a, P4).
-  if (player.next !== null && player.next.group === group && player.next.state === "cancelled") player.next = null;
+  if (player.next !== null && player.next.group === group && player.next.state === "cancelled") cancelSuccessor(player, player.next);
 }
 
 /** P9: recover the players `groupAbandoned` noted (`musicOps` calls it right after delivering the group events). */
@@ -172,13 +173,13 @@ function refuse(player: MusicPlayer, f: MusicFrame): void {
     console.warn(`[myco] Music "${player.instance.path}": more than ${RECOVERY_LIMIT} recoveries within ${RECOVERY_WINDOW_MS / 1000} s; the music stops.`);
   }
   dropRuns(player, f);
-  player.state = "stopping";
+  stopPlayer(player);
 }
 
 function dropRuns(player: MusicPlayer, f: MusicFrame): void {
   cancelPlanned(player, f);
   for (const run of [player.run, player.next]) if (run) cancelRun(run, f);
-  player.next = null;
+  cancelSuccessor(player, null);
 }
 
 /** One player's recovery (see the header). False when nothing was planned (stopped, refused, or nothing to play). */
@@ -198,17 +199,15 @@ function recoverPlayer(player: MusicPlayer, f: MusicFrame, cause: MusicRecoveryC
   // The successor and any plan go with the dead groups (a cancel of a group musicOps already forgot does nothing).
   cancelPlanned(player, f);
   if (player.next && player.next !== old) cancelRun(player.next, f);
-  player.next = null;
+  cancelSuccessor(player, null);
   if (!old || !anchor || anchor.segment !== old.node.id || !Number.isFinite(old.startAt)) {
     // Nothing stamped yet: the first start runs again from `starting` (step 9's planner).
     if (old) cancelRun(old, f);
-    player.run = null;
-    player.anchor = null;
-    player.state = "starting";
+    restartFirst(player);
     return true;
   }
   cancelRun(old, f);
-  player.state = "recovering";
+  beginRecovery(player);
   const grid = playingGridOf(anchor)?.grid ?? null;
   const fileRate = anchor.rate;
   /** File seconds heard at `t` on the old anchor (loop passes unrolled); without a grid, linear from the old stamp. */
@@ -234,15 +233,10 @@ function recoverPlayer(player: MusicPlayer, f: MusicFrame, cause: MusicRecoveryC
     startFrame: startFrameAt(f.now),
     points,
     startFrameAt,
-    onStamped: (p) => {
-      player.run = p.run;
-      if (player.next === p.run) player.next = null;
-      player.anchor = anchorRun(p.run, p.at);
-      player.state = "committed";
-    },
+    onStamped: (p) => commitStart(player, p.run, p.at),
     onDropped: () => {
       // Past the exit cue (the segment ended in the gap) or refused for good: nothing re-enters; the player ends.
-      if (player.state === "recovering") player.state = "stopping";
+      if (player.state === "recovering") stopPlayer(player);
     },
   };
   requestStart(player, req, f);
