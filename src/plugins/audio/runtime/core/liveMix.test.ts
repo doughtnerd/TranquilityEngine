@@ -1,13 +1,12 @@
 // ADR 0171 amended by 0172 (Ma1; api-and-models §6.2, §6.6): the live path's answers per class, the preview path's
 // coalescing, and its routing. The core-level cases (each class's records in its frame's batch, on the audio clock) are in
 // `liveMixLoopback.test.ts`.
-import { describe, expect, it, vi } from "vitest";
-import { DRAG_RAMP_MS, Mixer } from "../../../../engine/audio/mixer";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { DRAG_RAMP_MS } from "../../../../engine/audio/mixer";
 import { MIX_OP_NAMES, opClass, type MixOp } from "../../../../engine/audio/mixOps";
 import { parseAudioSettings } from "../../../../engine/audio/settings";
 import { BUS_SLOT_FLAGS_STRUCTURAL, DRAG_RAMP_MS as WIRE_DRAG_RAMP_MS, FADER_COALESCE_MS, Op, readBusSlot } from "../wire.generated";
-import { batchRecords } from "./batchRecords";
-import { CoreBackend } from "./coreBackend";
+import { closeRecordingAudio, recordingAudio } from "../testing";
 import { DeferredAdds } from "./deferredAdds";
 import { LiveMix, type LiveMixHost } from "./liveMix";
 import { StructuralDip } from "./structuralDip";
@@ -47,30 +46,13 @@ const OPS: [MixOp, string][] = [
   [{ op: "setOption", key: "loudnessResetOnPlay", value: false }, "config"],
 ];
 
-/** A backend with a recording link (no wasm), over its own mixer. */
+/** A backend on the recording host (no wasm, ADR 0234), over its own mixer. */
 function backendRig() {
-  const posted: ArrayBuffer[] = [];
-  const mixer = new Mixer(parseAudioSettings(PROJECT).settings);
-  const link = {
-    batchPool: { acquire: () => new ArrayBuffer(64 * 1024), release() {} },
-    nextSeq: () => 1,
-    post: (b: ArrayBuffer) => void posted.push(b),
-    onStatus: () => () => {},
-    statusDecoder: null,
-  };
-  const host = {
-    link,
-    status: "running" as const,
-    preset: { maxLogical: 16 },
-    worldCount: 1,
-    sampleRate: 48_000,
-    addLifecycleListener: () => () => {},
-  };
-  const clock = { rafTime: () => 0, outputTimestamp: () => ({ contextTime: 0, performanceTime: 0 }), currentTime: () => 0, dateNow: () => 0, fake: true as const };
-  const clips = { acquire: () => 1, release() {}, state: () => "ready", info: () => null, onResident: () => () => {}, releaseWorld() {}, applyClipEvent() {}, residentIds: () => [], acquireReserved() {} };
-  const backend = new CoreBackend(host as never, { clips: clips as never, clock: clock as never, mixer });
-  return { backend, mixer, posted };
+  const r = recordingAudio({ mixer: "own", settings: parseAudioSettings(PROJECT).settings, preset: { maxLogical: 16 } });
+  return { backend: r.backend, mixer: r.mixer, posted: r.posted, lock: () => r.lock() };
 }
+
+afterEach(closeRecordingAudio);
 
 describe("liveMix (Ma1)", () => {
   it("covers every op name, and the wire's DRAG_RAMP_MS is the mixer's", () => {
@@ -90,9 +72,9 @@ describe("liveMix (Ma1)", () => {
       expect(backend.debug().mix!.liveRefused).toBe(0);
       if (cls === "dip") {
         // The frame emits the open sequence: a structural BUS_SLOT tagged with its sequence id.
-        posted.length = 0;
+        posted.take();
         backend.update(0.016);
-        const slots = posted.flatMap((b) => batchRecords(b)?.records ?? []).filter((x) => x.opcode === Op.BUS_SLOT).map((x) => readBusSlot(x.view, x.off));
+        const slots = posted.takeOps(Op.BUS_SLOT).map((x) => readBusSlot(x.view, x.off));
         expect(slots.some((x) => x.sequenceId > 0 && (x.flags & BUS_SLOT_FLAGS_STRUCTURAL) !== 0), op.op).toBe(true);
       }
       backend.dispose();
@@ -251,12 +233,12 @@ describe("flushNow (the preview path, §6.6)", () => {
   });
 
   it("posts nothing while the backend can't send (locked, recovering, disposed)", () => {
-    const { backend, mixer, posted } = backendRig();
-    (backend.host as { status: string }).status = "locked";
+    const { backend, mixer, posted, lock } = backendRig();
+    lock();
     mixer.apply({ op: "setBus", bus: "Music", key: "volume", value: 0.5 });
-    posted.length = 0;
+    posted.take();
     backend.flushNow();
-    expect(posted).toHaveLength(0);
+    expect(posted.pending).toHaveLength(0);
     backend.dispose();
   });
 });

@@ -1,6 +1,7 @@
 // ADR 0171 amended by 0172 (M5a, task Bn2; architecture §7.4 "S3 re-run idle", api-and-models §4.4 R15): spike S3's
-// capture scene re-run through the REAL core. The loopback host (`testing.ts`) runs the committed wasm in Node, delivers the
-// real STATUS blocks through `CoreLink` (the recorder's `recorderTap` fires where it does in production), and the real
+// capture scene re-run through the REAL core. The loopback (`testing.ts` `loopbackAudio`, the production assembly) runs the
+// committed wasm in Node, delivers the real STATUS blocks through `CoreLink` (the recorder's `recorderTap` fires where it
+// does in production), and the real
 // `CoreBackend`, voice table, mixer, clip registry, `EventSink` and recorder run on main. Run alone (about 3 minutes):
 //
 //   npx vitest run --config tools/audio-bench/capture.vitest.config.mts realCore.bench
@@ -25,14 +26,9 @@
 // voices near the target), and the sizes' arithmetic.
 import { describe, expect, it } from "vitest";
 import { deflateRawSync } from "node:zlib";
-import { Mixer } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings, type AudioSettings, type BusSettings } from "../../../../engine/audio/settings";
 import type { CorePreset } from "../worklet/coreDriver";
-import type { AudioHost, CoreLink } from "../core/context";
-import { CoreBackend, type CoreBackendHost } from "../core/coreBackend";
-import { createClipRegistry } from "../core/clipRegistry";
-import { fakeDecoder } from "../core/fakeDecoder";
-import { createLoopbackHost, LOOPBACK_PRESET } from "../testing";
+import { loopbackAudio } from "../testing";
 import { RecordType } from "./format";
 import { openLiveCapture } from "./reader";
 import { createRecorder, type EpochContext } from "./recorder";
@@ -102,13 +98,7 @@ interface Result {
 }
 
 async function runScene(scene: Scene, armed: boolean): Promise<Result | null> {
-  const preset: CorePreset = { ...LOOPBACK_PRESET, maxLogical: scene.live + 32, maxMixed: scene.mixed, maxBuses: Math.max(8, scene.buses), arenaInitialBytes: 4 * MiB, clipCeilingBytes: 96 * MiB };
-  let loop: Awaited<ReturnType<typeof createLoopbackHost>> & { link: CoreLink };
-  try {
-    loop = (await createLoopbackHost({ preset })) as typeof loop;
-  } catch {
-    return null;
-  }
+  const preset: Partial<CorePreset> = { maxLogical: scene.live + 32, maxMixed: scene.mixed, maxBuses: Math.max(8, scene.buses), arenaInitialBytes: 4 * MiB, clipCeilingBytes: 96 * MiB };
   const rand = rng(1);
   // Clips: one-shot lengths spread over 0.25 s .. (2 x life - 0.25) s (mean = life), plus short loop clips.
   const ONE_SHOTS = 40;
@@ -118,34 +108,37 @@ async function runScene(scene: Scene, armed: boolean): Promise<Result | null> {
   const loopClip = (i: number) => `loop${i}.wav`;
   for (let i = 0; i < ONE_SHOTS; i++) frames.set(oneShot(i), Math.round((0.25 + (i / (ONE_SHOTS - 1)) * (2 * scene.life - 0.5)) * RATE));
   for (let i = 0; i < LOOPS; i++) frames.set(loopClip(i), Math.round((0.6 + i * 0.15) * RATE));
-  const link = loop.link;
-  const clips = createClipRegistry({
-    send: (m) => link.post(m),
-    nextSeq: () => link.nextSeq(),
-    fetchBytes: async (path) => {
-      const bytes = new ArrayBuffer(8);
-      new DataView(bytes).setUint32(0, frames.get(path) ?? RATE, true);
-      return bytes;
-    },
-    decodeWorker: fakeDecoder(async (encoded) => {
-      const n = new DataView(encoded).getUint32(0, true);
-      return { frames: n, channels: 1, sampleRate: RATE, channelData: [new Float32Array(n).fill(0.1)] };
-    }),
-    nextFrame: (cb) => cb(),
-    nextQuantum: (cb) => cb(),
-  });
   const settings: AudioSettings = defaultAudioSettings();
   const buses: BusSettings[] = [{ name: "Master", volume: 1, mute: false, effects: [] }];
   for (let i = 1; i < scene.buses; i++) buses.push({ name: `Bus${i}`, parent: "Master", volume: 1, mute: false, effects: [] });
   settings.buses = buses;
   settings.voices = { mixed: scene.mixed, logical: scene.live + 32, hrtf: 8 };
-  const host: CoreBackendHost = {
-    link, status: "running", preset: { maxLogical: scene.live + 32, maxMixed: scene.mixed }, worldCount: 1, sampleRate: RATE,
-    addLifecycleListener: (() => () => {}) as AudioHost["addLifecycleListener"],
-  };
-  const mixer = new Mixer(settings);
-  const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer });
-  const capacity = host.preset.maxLogical;
+  // The production assembly on the loopback (ADR 0221, 0234), on its own mixer; each clip's length is its path's.
+  const audio = await loopbackAudio({
+    mixer: "own",
+    settings,
+    preset,
+    decode: (path) => {
+      const n = frames.get(path) ?? RATE;
+      return { channelData: [new Float32Array(n).fill(0.1)] };
+    },
+  });
+  if (!audio) return null;
+  const { backend, mixer, link } = audio;
+  // Each STATUS as it arrives (the backend's decoder reuses one block, so a block is read in the listener, never kept).
+  let statusSeen = 0;
+  let liveSum = 0;
+  let mixedSum = 0;
+  let statusCount = 0;
+  let counting = false;
+  const offStatus = link.onStatus((s) => {
+    statusSeen++;
+    if (!counting) return;
+    liveSum += s.liveVoices;
+    mixedSum += s.mixedVoices;
+    statusCount++;
+  });
+  const capacity = preset.maxLogical!;
   const names = backend.busNames;
 
   // --- the scene: top up to `live` voices each frame; a voice's life ends at its deadline (looped) or with its clip ---
@@ -187,9 +180,6 @@ async function runScene(scene: Scene, armed: boolean): Promise<Result | null> {
   let nPlain = 0;
   let nStatus = 0;
   let nMain = 0;
-  let liveSum = 0;
-  let mixedSum = 0;
-  let statusCount = 0;
   let startFrame = 0;
 
   const frameStep = async (measure: boolean): Promise<void> => {
@@ -208,12 +198,12 @@ async function runScene(scene: Scene, armed: boolean): Promise<Result | null> {
     if (measure) mainMs[nMain++] = t1 - t0;
     await Promise.resolve();
     for (let k = 0; k < FRAME_QUANTA; k++) {
-      const before = loop.statuses.length;
+      const before = statusSeen;
       const a = performance.now();
-      loop.renderQuanta(1);
+      audio.render(1);
       const b = performance.now();
       if (measure) {
-        if (loop.statuses.length > before) withStatus[nStatus++] = (b - a) * 1000;
+        if (statusSeen > before) withStatus[nStatus++] = (b - a) * 1000;
         else plain[nPlain++] = (b - a) * 1000;
       }
     }
@@ -234,16 +224,13 @@ async function runScene(scene: Scene, armed: boolean): Promise<Result | null> {
       tap(data, byteLength, view);
       tapNs![tapN++] = (performance.now() - a) * 1000;
     };
-    startFrame = loop.frame;
+    startFrame = audio.frame;
     recorder.begin(startFrame, CONTEXT);
   }
-  const statusesBefore = loop.statuses.length;
+  counting = true;
   for (let f = 0; f < frameCount; f++) await frameStep(true);
-  for (const s of loop.statuses.slice(statusesBefore)) {
-    liveSum += s.liveVoices;
-    mixedSum += s.mixedVoices;
-    statusCount++;
-  }
+  counting = false;
+  offStatus();
 
   let result: Result;
   const base = { scene, armed, quantaPlain: stat(plain, nPlain), quantaStatus: stat(withStatus, nStatus), mainFrame: stat(mainMs.map((v) => v * 1000), nMain), mainMsPerS: mainMs.slice(0, nMain).reduce((a, b) => a + b, 0) / MEASURE_SECONDS, liveAvg: liveSum / Math.max(1, statusCount), mixedAvg: mixedSum / Math.max(1, statusCount) };
@@ -283,7 +270,7 @@ async function runScene(scene: Scene, armed: boolean): Promise<Result | null> {
   } else {
     result = { ...base, tap: null, statusBytesAvg: 0, seconds: MEASURE_SECONDS, ringBytes: 0, statusBytes: 0, keyframeBytes: 0, eventBytes: 0, otherBytes: 0, records: {}, deflated: 0, eventsPerSecond: 0, keyframeBytesEach: 0, tapMsPerS: 0 };
   }
-  backend.dispose();
+  await audio.close();
   return result;
 }
 

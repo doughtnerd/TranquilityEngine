@@ -3,13 +3,10 @@
 // names the host reports no remap, so the core backend must re-plan the beds itself (beds.ts: "runs when the bus tree,
 // `audio.bed.maxBeds`, a bus's `bed` or `bedPriority` changes"). `maxBeds` above the slots the core laid out stays
 // capped by them (the core's memory is sized at init: it applies at the next rebuild).
-import { describe, expect, it } from "vitest";
-import { Mixer } from "../../../../engine/audio/mixer";
+import { afterEach, describe, expect, it } from "vitest";
 import { defaultAudioSettings, type AudioSettings, type BusSettings } from "../../../../engine/audio/settings";
 import { BED_HOST_NONE, BED_SLOT_NONE } from "../wire.generated";
-import { CoreLink, type AudioHost, type HostLifecycleListener, type LinkPort } from "./context";
-import { CoreBackend, type CoreBackendHost } from "./coreBackend";
-import type { ClipRegistry } from "./clipRegistry";
+import { closeRecordingAudio, fakeHostClock, recordingAudio } from "../testing";
 
 const bus = (name: string, parent?: string, extra: Partial<BusSettings> = {}): BusSettings => ({ name, ...(parent ? { parent } : null), volume: 1, mute: false, effects: [], ...extra });
 
@@ -20,21 +17,10 @@ function settingsWith(buses: BusSettings[], maxBeds = 4): AudioSettings {
   return s;
 }
 
+/** The core backend on the recording host (ADR 0234), over its own mixer, with `laidOut` bed slots in the core. */
 function rig(first: AudioSettings, laidOut = 2) {
-  const port: LinkPort = { onmessage: null, postMessage: () => {} };
-  const lifecycle: HostLifecycleListener[] = [];
-  const host: CoreBackendHost = {
-    link: new CoreLink(port),
-    status: "running",
-    preset: { maxLogical: 16, maxBeds: laidOut },
-    worldCount: 1,
-    sampleRate: 48_000,
-    addLifecycleListener: ((l: HostLifecycleListener) => (lifecycle.push(l), () => {})) as AudioHost["addLifecycleListener"],
-  };
-  const mixer = new Mixer(first);
-  const clock = { rafTime: () => 1000, outputTimestamp: () => ({ contextTime: 1, performanceTime: 1000 }), currentTime: () => 1, dateNow: () => 1_001_000, fake: true as const };
-  const clips = { acquire: () => 1, release() {}, state: () => "ready", info: () => null, onResident: () => () => {}, releaseWorld() {}, acquireReserved() {}, applyClipEvent() {}, residentIds: () => [] } as unknown as ClipRegistry;
-  const backend = new CoreBackend(host, { clips, clock, mixer });
+  const r = recordingAudio({ mixer: "own", settings: first, preset: { maxLogical: 16, maxBeds: laidOut }, clock: fakeHostClock({ currentTime: 1 }) });
+  const { backend, mixer } = r;
   /** What `Engine.create` does to a running audio system: the mixer takes the new settings, then the next frame runs. */
   const reconfigure = (next: AudioSettings) => {
     mixer.configure(next);
@@ -46,6 +32,8 @@ function rig(first: AudioSettings, laidOut = 2) {
 }
 
 const NONE = BED_SLOT_NONE;
+
+afterEach(closeRecordingAudio);
 
 describe("bed settings after a settings change with the same buses", () => {
   const tree = (amb: Partial<BusSettings> = {}) => [bus("Master"), bus("Ambience", "Master", amb), bus("SFX", "Master")];

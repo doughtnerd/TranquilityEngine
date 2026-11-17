@@ -9,14 +9,11 @@ import { setAudioBackend, type VoiceSpatialOptions } from "./backend";
 import { AUDIO_SYSTEMS } from "./audioSystem";
 import { AudioListener } from "./AudioListener";
 import { AudioSource } from "./AudioSource";
-import { CoreLink, type AudioHost, type HostLifecycleListener, type LinkPort } from "./core/context";
-import { CoreBackend, type CoreBackendHost } from "./core/coreBackend";
-import type { ClipInfo, ClipRegistry, ClipResidentListener, ClipState } from "./core/clipRegistry";
 import { voiceIndex } from "./core/ids";
 import { SpatialViewFlag } from "./core/spatial";
-import { batchRecorder, type BatchRecorder } from "./core/batchWatch";
+import type { BatchWatch } from "./core/batchWatch";
 import { mixer } from "../../../engine/audio/mixer";
-import { makeFakeBackend } from "./testing";
+import { closeRecordingAudio, fakeHostClock, makeFakeBackend, makeFakeClipRegistry, recordingAudio } from "./testing";
 import { Op, PLAY_FLAGS_SPATIAL, readPlay } from "./wire.generated";
 
 let world: World;
@@ -40,9 +37,10 @@ beforeEach(async () => {
   engine.world.render = {} as never;
   world = engine.world;
 });
-afterEach(() => {
+afterEach(async () => {
   vi.restoreAllMocks();
   setAudioBackend(null);
+  await closeRecordingAudio();
 });
 
 const spatialSource = (fields: Record<string, unknown> = {}): AudioSource => {
@@ -161,69 +159,18 @@ describe("AudioSource M3 fields reach a backend voice on the next frame (fake ba
 
 // --- The core backend: the edit reaches what the passes read and what the core is sent -----------------------------------------------
 
-class Registry implements ClipRegistry {
-  private ids = new Map<string, number>();
-  acquire(path: string): number {
-    let id = this.ids.get(path);
-    if (id === undefined) this.ids.set(path, (id = this.ids.size + 1));
-    return id;
-  }
-  release(): void {}
-  state(): ClipState {
-    return "ready";
-  }
-  info(id: number): ClipInfo | null {
-    // An ambisonic clip (first order, four channels) by its name; the rest mono.
-    const path = [...this.ids].find(([, v]) => v === id)?.[0] ?? "";
-    return { id, path: "", state: "ready", refs: 1, frames: 0, channels: path.includes("amb") ? 4 : 1, sampleRate: 48_000, format: 1, bytes: 0, failure: null };
-  }
-  onResident(_id: number, _l: ClipResidentListener): () => void {
-    return () => {};
-  }
-  releaseWorld(): void {}
-  acquireReserved(): void {}
-  applyClipEvent(): void {}
-  residentIds(): readonly number[] {
-    return [];
-  }
-}
-
+/**
+ * The core backend on the recording host (ADR 0234), on the page's mixer and registered; its clips are resident, an
+ * ambisonic one (first order, four channels) by its name, the rest mono. `received` is what reaches the core.
+ */
 function useCore() {
-  // The fake core hands each BATCH buffer straight back (`handleMessage` returns it to the pool), as the real one does,
-  // and records what it receives.
-  let link: CoreLink | null = null;
-  const received = batchRecorder();
-  const port: LinkPort = {
-    onmessage: null,
-    postMessage: (m: unknown) => {
-      received.receive(m);
-      if (m instanceof ArrayBuffer) link?.handleMessage(m);
-    },
-  };
-  link = new CoreLink(port);
-  const host: CoreBackendHost = {
-    link,
-    status: "running",
-    preset: { maxLogical: 16, maxWide: 2 },
-    worldCount: 1,
-    sampleRate: 48_000,
-    addLifecycleListener: ((_l: HostLifecycleListener) => () => {}) as AudioHost["addLifecycleListener"],
-  };
-  const t = 1000;
-  const clock = {
-    rafTime: () => t,
-    outputTimestamp: () => ({ contextTime: t / 1000, performanceTime: t }),
-    currentTime: () => t / 1000,
-    dateNow: () => 1_000_000 + t,
-    fake: true as const,
-  };
-  const backend = new CoreBackend(host, { clips: new Registry(), clock, mixer });
-  setAudioBackend(backend);
-  return { core: backend, received };
+  const clips = makeFakeClipRegistry({ info: (path) => ({ channels: path.includes("amb") ? 4 : 1 }) });
+  const r = recordingAudio({ preset: { maxLogical: 16, maxWide: 2 }, clips, clock: fakeHostClock({ currentTime: 1 }) });
+  return { core: r.backend, received: r.posted };
 }
 
 /** The PLAY records the backend sends from now on (decoded where the fake core receives them). */
-function watchPlays(received: BatchRecorder) {
+function watchPlays(received: BatchWatch) {
   received.take();
   return () => received.pending.flatMap((b) => b.records.filter((r) => r.opcode === Op.PLAY).map((r) => readPlay(r.view, r.off)));
 }

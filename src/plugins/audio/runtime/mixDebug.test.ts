@@ -1,59 +1,17 @@
 // ADR 0171 (Dbg1; api-and-models §1.3, §9): `Audio.debug()`'s `mixCaps`, `cpu`, `mix` and `recorder`, one case per field
-// and per backend. The core runs on a real `CoreBackend` over a recording port; the fallback on a `BabylonBackend` with
+// and per backend. The core runs on the recording host (`recordingAudio`, ADR 0234); the fallback on a `BabylonBackend` with
 // the audio context absent (the debug shape needs no sound).
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Mixer, mixer } from "../../../engine/audio/mixer";
 import { defaultAudioSettings, parseAudioSettings, type AudioSettings } from "../../../engine/audio/settings";
-import { STATUS_BUFFER_BYTES, writeStatus } from "./wire.generated";
-import { CoreLink, type AudioHost, type HostLifecycleListener, type LinkPort } from "./core/context";
-import type { ClipInfo, ClipRegistry, ClipResidentListener, ClipState } from "./core/clipRegistry";
-import { CoreBackend, type CoreBackendHost } from "./core/coreBackend";
-import { makeStatusBlock } from "./core/statusFixtures";
+import { closeRecordingAudio, recordingAudio } from "./testing";
 import { BabylonBackend } from "./babylonBackend";
 import { BABYLON_CPU_REASON, babylonCpuDebug, babylonMixDebug, buildMixDebug } from "./mix/mixDebug";
 
-class FakeRegistry implements ClipRegistry {
-  acquire(): number { return 1; }
-  release(): void {}
-  state(): ClipState { return "ready"; }
-  info(id: number): ClipInfo | null {
-    return { id, path: "", state: "ready", refs: 1, frames: 0, channels: 1, sampleRate: 48_000, format: 1, bytes: 0, failure: null };
-  }
-  onResident(_id: number, _l: ClipResidentListener): () => void { return () => {}; }
-  releaseWorld(): void {}
-  acquireReserved(): void {}
-  applyClipEvent(): void {}
-  residentIds(): readonly number[] { return []; }
-}
-
+/** The core backend on the recording host (ADR 0234), on the page's mixer, not registered. */
 function coreRig() {
-  const port: LinkPort = { onmessage: null, postMessage: () => {} };
-  const link = new CoreLink(port);
-  const host: CoreBackendHost = {
-    link,
-    status: "running",
-    preset: { maxLogical: 16 },
-    worldCount: 1,
-    sampleRate: 48_000,
-    addLifecycleListener: ((l: HostLifecycleListener) => () => void l) as AudioHost["addLifecycleListener"],
-  };
-  let raf = 1000;
-  let ctx = 0;
-  const clock = {
-    rafTime: () => raf,
-    outputTimestamp: () => ({ contextTime: ctx, performanceTime: raf }),
-    currentTime: () => ctx,
-    dateNow: () => 1_000_000 + raf,
-    fake: true as const,
-  };
-  const backend = new CoreBackend(host, { clips: new FakeRegistry(), clock, mixer });
-  const status = (fields: Parameters<typeof makeStatusBlock>[0]) => {
-    const buffer = new ArrayBuffer(STATUS_BUFFER_BYTES);
-    writeStatus(new DataView(buffer), 0, makeStatusBlock(fields), 1);
-    link.handleMessage(buffer);
-  };
-  const frame = () => { raf += 16; ctx += 0.016; backend.update(0.016); };
-  return { backend, status, frame };
+  const r = recordingAudio({ register: false, preset: { maxLogical: 16 } });
+  return { backend: r.backend, status: r.status, frame: () => r.frame() };
 }
 
 function withBuses(duck: boolean): AudioSettings {
@@ -64,7 +22,10 @@ function withBuses(duck: boolean): AudioSettings {
 }
 
 beforeEach(() => mixer.configure(withBuses(true)));
-afterEach(() => mixer.configure(defaultAudioSettings()));
+afterEach(async () => {
+  await closeRecordingAudio();
+  mixer.configure(defaultAudioSettings());
+});
 
 describe("core backend: mixCaps (§1.3)", () => {
   it("reports every flag true, no CPU reason and a full capture", () => {

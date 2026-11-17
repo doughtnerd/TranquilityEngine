@@ -2,8 +2,9 @@
 // the host follows the mixer's settings (and every Engine's reconfigure of the page mixer), a trap in the core starts the
 // hard rebuild (A3.4a), and the core backend is made over the host (ADR 0178's session, 0179's capabilities) once the core
 // has answered. The seam is the host: `service.ts` passes the AudioWorklet host (`startAudioHost`), the loopback tests
-// (`runtime/testing.ts` `loopbackAudio`) an `AudioHost` whose node runs the committed wasm in Node. Any change to how the
-// core is put together is made here, so no rig assembles it slightly differently.
+// (`runtime/testing.ts` `loopbackAudio`) an `AudioHost` whose node runs the committed wasm in Node, and the wire-tier unit
+// tests (`recordingAudio`, ADR 0234) one whose node runs no core and records what main posts. Any change to how the core is
+// put together is made here, so no rig assembles it slightly differently.
 import { mixer as pageMixer, type Mixer } from "../../../../engine/audio/mixer";
 import type { AudioSettings } from "../../../../engine/audio/settings";
 import { onAudioConfigured } from "../../../../engine/core/audioConfigure";

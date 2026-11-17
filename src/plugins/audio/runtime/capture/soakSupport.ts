@@ -2,8 +2,9 @@
 // (`ringWrap.bench.ts`, `openAt1024.bench.ts`, `realScenes.bench.ts`, `loudnessDrift.bench.ts`), run with
 // `tools/audio-bench/capture.vitest.config.mts`. Never imported by runtime code.
 //
-// - `s3Rig`: spike S3's capture scene (Bn2's `realCore.bench.ts`) through the REAL core on the loopback host, on the global
-//   mixer and set as the audio backend, so `Audio.capture` (`capture.ts`) records it exactly as it records a game.
+// - `s3Rig`: spike S3's capture scene (Bn2's `realCore.bench.ts`) through the REAL core on the loopback, assembled as production
+//   assembles it (`loopbackAudio`, ADR 0221 and 0234), on the global mixer and set as the audio backend, so `Audio.capture`
+//   (`capture.ts`) records it exactly as it records a game.
 // - `AllocationCounter`: Bn2's constructor count (a `Proxy` over each allocating global), swapped in only around the calls
 //   it measures, so the core and the loopback host run on the real constructors.
 // - `threadWorker`: the capture Worker (`worker.ts`) bundled with esbuild-wasm onto a `node:worker_threads` thread
@@ -17,12 +18,8 @@ import { Worker } from "node:worker_threads";
 import { deflateRawSync } from "node:zlib";
 import { mixer } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings, type AudioSettings, type BusSettings } from "../../../../engine/audio/settings";
-import { setAudioBackend } from "../backend";
-import type { AudioHost, CoreLink } from "../core/context";
-import { CoreBackend, type CoreBackendHost } from "../core/coreBackend";
-import { createClipRegistry } from "../core/clipRegistry";
-import { fakeDecoder } from "../core/fakeDecoder";
-import { createLoopbackHost, LOOPBACK_PRESET, type LoopbackHost } from "../testing";
+import type { CoreBackend } from "../core/coreBackend";
+import { loopbackAudio, type LoopbackAudio } from "../testing";
 import type { CorePreset } from "../worklet/coreDriver";
 import type { SaveEnv } from "./save";
 import type { CaptureRequest, CaptureResponse } from "./worker";
@@ -51,7 +48,7 @@ export function rng(seed: number): () => number {
 }
 
 export interface S3Rig {
-  loop: LoopbackHost & { link: CoreLink };
+  audio: LoopbackAudio;
   backend: CoreBackend;
   /** Audio seconds stepped so far (the loopback's rendered frames / rate). */
   readonly audioSeconds: number;
@@ -60,7 +57,7 @@ export interface S3Rig {
   fading(): Set<number>;
   /** One main-thread frame (mixer, backend, the scene's replacements) then `FRAME_QUANTA` quanta. `afterMain` runs between the two. */
   frame(afterMain?: () => void): Promise<void>;
-  dispose(): void;
+  dispose(): Promise<void>;
 }
 
 /**
@@ -69,13 +66,7 @@ export interface S3Rig {
  * on the global mixer (configured here), so `Audio.capture` records it. Null when the wasm isn't built.
  */
 export async function s3Rig(scene: S3Scene, seed = 1): Promise<S3Rig | null> {
-  const preset: CorePreset = { ...LOOPBACK_PRESET, maxLogical: scene.live + 32, maxMixed: scene.mixed, maxBuses: Math.max(8, scene.buses), arenaInitialBytes: 4 * MiB, clipCeilingBytes: 96 * MiB };
-  let loop: LoopbackHost & { link: CoreLink };
-  try {
-    loop = (await createLoopbackHost({ preset })) as typeof loop;
-  } catch {
-    return null;
-  }
+  const preset: Partial<CorePreset> = { maxLogical: scene.live + 32, maxMixed: scene.mixed, maxBuses: Math.max(8, scene.buses), arenaInitialBytes: 4 * MiB, clipCeilingBytes: 96 * MiB };
   const rand = rng(seed);
   const ONE_SHOTS = 40;
   const LOOPS = 8;
@@ -84,35 +75,23 @@ export async function s3Rig(scene: S3Scene, seed = 1): Promise<S3Rig | null> {
   const loopClip = (i: number) => `loop${i}.wav`;
   for (let i = 0; i < ONE_SHOTS; i++) frames.set(oneShot(i), Math.round((0.25 + (i / (ONE_SHOTS - 1)) * (2 * scene.life - 0.5)) * RATE));
   for (let i = 0; i < LOOPS; i++) frames.set(loopClip(i), Math.round((0.6 + i * 0.15) * RATE));
-  const link = loop.link;
-  const clips = createClipRegistry({
-    send: (m) => link.post(m),
-    nextSeq: () => link.nextSeq(),
-    fetchBytes: async (path) => {
-      const bytes = new ArrayBuffer(8);
-      new DataView(bytes).setUint32(0, frames.get(path) ?? RATE, true);
-      return bytes;
-    },
-    decodeWorker: fakeDecoder(async (encoded) => {
-      const n = new DataView(encoded).getUint32(0, true);
-      return { frames: n, channels: 1, sampleRate: RATE, channelData: [new Float32Array(n).fill(0.1)] };
-    }),
-    nextFrame: (cb) => cb(),
-    nextQuantum: (cb) => cb(),
-  });
   const settings: AudioSettings = defaultAudioSettings();
   const buses: BusSettings[] = [{ name: "Master", volume: 1, mute: false, effects: [] }];
   for (let i = 1; i < scene.buses; i++) buses.push({ name: `Bus${i}`, parent: "Master", volume: 1, mute: false, effects: [] });
   settings.buses = buses;
   settings.voices = { mixed: scene.mixed, logical: scene.live + 32, hrtf: 8 };
-  mixer.configure(settings);
-  const host: CoreBackendHost = {
-    link, status: "running", preset: { maxLogical: scene.live + 32, maxMixed: scene.mixed }, worldCount: 1, sampleRate: RATE,
-    addLifecycleListener: (() => () => {}) as AudioHost["addLifecycleListener"],
-  };
-  const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer });
-  setAudioBackend(backend);
-  const capacity = host.preset.maxLogical;
+  // The global mixer, the backend registered on it (`Audio.capture` records it), one World's share; each clip's length is its path's.
+  const audio = await loopbackAudio({
+    settings,
+    preset,
+    decode: (path) => {
+      const n = frames.get(path) ?? RATE;
+      return { channelData: [new Float32Array(n).fill(0.1)] };
+    },
+  });
+  if (!audio) return null;
+  const backend = audio.backend;
+  const capacity = preset.maxLogical!;
   const names = backend.busNames;
   const deadline = new Float64Array(capacity).fill(Infinity);
   const handles: ({ readonly id: number; readonly playing: boolean; readonly alive?: boolean; stop(fade?: number): void } | null)[] = new Array(capacity).fill(null);
@@ -138,7 +117,7 @@ export async function s3Rig(scene: S3Scene, seed = 1): Promise<S3Rig | null> {
     }
   };
   return {
-    loop, backend, countLive,
+    audio, backend, countLive,
     fading() {
       const out = new Set<number>();
       for (const h of handles) if (h && h.alive === true && !h.playing) out.add(h.id);
@@ -159,14 +138,10 @@ export async function s3Rig(scene: S3Scene, seed = 1): Promise<S3Rig | null> {
       for (let n = countLive(); n < scene.live; n++) spawn();
       afterMain?.();
       await Promise.resolve();
-      loop.renderQuanta(FRAME_QUANTA);
-      loop.statuses.length = 0; // the loopback keeps every block; a 10-minute soak would hold them all
+      audio.render(FRAME_QUANTA);
       audioSeconds += FRAME_SECONDS;
     },
-    dispose() {
-      setAudioBackend(null);
-      backend.dispose();
-    },
+    dispose: () => audio.close(),
   };
 }
 

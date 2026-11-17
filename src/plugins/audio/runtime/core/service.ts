@@ -90,6 +90,12 @@ export const AUDIO_SERVICE: WorldServiceDef<AudioCoreModule, AudioWorldService> 
    */
   load: async (variant: string): Promise<AudioCoreModule> => {
     if (variant === "babylon") return { ready: false, reason: `audio.backend is "babylon"` };
+    // ADR 0234: the page's host already runs (the service was registered again, or a test's loopback is the page's host):
+    // it is assembled and its core answered, so this load only hands it over. No second probe and no second registration
+    // (the backend the first one registered, or the one already set, serves it).
+    const { currentAudioHost } = await import("./context");
+    const running = currentAudioHost();
+    if (running && running.link.readyState === "ready") return { ready: true, host: running };
     const { probeCoreSupport } = await import("./probe");
     const probe = await probeCoreSupport();
     if (!probe.supported) return { ready: false, reason: probe.reason };

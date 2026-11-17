@@ -1,73 +1,25 @@
 // ADR 0162 D5 / L-D5a: one case per row of api-and-models §1 (§1.1 types and handle members, §1.2 `AudioSource`
 // additions, §1.3 `playOneShot` options, §1.4 `AudioListener`, §1.5 components, §1.6 debug additions), plus the check
 // that every `@field` of the audio components carries a description (ADR 0159). Request-shaped rows run on the fake
-// backend; handle and debug rows run on a real `CoreBackend` over a recording port.
+// backend; handle and debug rows run on a real `CoreBackend` on the recording host (`recordingAudio`, ADR 0234).
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import { Assets, Engine, GameObject, SceneManager } from "../../../myco";
 import * as myco from "../../../myco";
 import { getComponentClass, getFields } from "../../../engine/core/registry";
 import { mixer } from "../../../engine/audio/mixer";
-import { STATUS_BUFFER_BYTES, writeStatus } from "./wire.generated";
-import { CoreLink, type AudioHost, type HostLifecycleListener, type LinkPort } from "./core/context";
-import type { ClipInfo, ClipRegistry, ClipResidentListener, ClipState } from "./core/clipRegistry";
-import { CoreBackend, type CoreBackendHost } from "./core/coreBackend";
-import { makeStatusBlock } from "./core/statusFixtures";
 import { LowpassBy } from "./core/voiceFx";
 import { setAudioBackend, DEFAULT_SEND_CURVE, type AudioPanner, type SendCurve } from "./backend";
-import { makeFakeBackend, endAudioSession } from "./testing";
+import { closeRecordingAudio, makeFakeBackend, endAudioSession, makeFakeClipRegistry, recordingAudio } from "./testing";
+import type { CorePreset } from "./worklet/coreDriver";
 import { Audio, AudioListener, AudioOccluder, AudioReverbZone, AudioSource } from "./index";
 
-// --- The core rig (a trimmed copy of audioApi.test.ts's) ---------------------------------------------------------
+// --- The core rig ----------------------------------------------------------------------------------------------
 
-class FakeRegistry implements ClipRegistry {
-  readonly ids = new Map<string, number>();
-  private next = 1;
-  acquire(path: string): number {
-    let id = this.ids.get(path);
-    if (id === undefined) this.ids.set(path, (id = this.next++));
-    return id;
-  }
-  release(): void {}
-  state(): ClipState { return "ready"; }
-  info(id: number): ClipInfo | null {
-    const path = [...this.ids].find(([, v]) => v === id)?.[0] ?? "";
-    return { id, path: "", state: "ready", refs: 1, frames: 0, channels: path.includes("amb") ? 4 : 1, sampleRate: 48_000, format: 1, bytes: 0, failure: null };
-  }
-  onResident(_id: number, _l: ClipResidentListener): () => void { return () => {}; }
-  releaseWorld(): void {}
-  acquireReserved(): void {}
-  applyClipEvent(): void {}
-  residentIds(): readonly number[] { return []; }
-}
-
-function coreRig(preset: Partial<CoreBackendHost["preset"]> = {}) {
-  const port: LinkPort = { onmessage: null, postMessage: () => {} };
-  const link = new CoreLink(port);
-  const host: CoreBackendHost = {
-    link,
-    status: "running",
-    preset: { maxLogical: 16, ...preset },
-    worldCount: 1,
-    sampleRate: 48_000,
-    addLifecycleListener: ((l: HostLifecycleListener) => () => void l) as AudioHost["addLifecycleListener"],
-  };
-  let raf = 1000;
-  let ctx = 0;
-  const clock = {
-    rafTime: () => raf,
-    outputTimestamp: () => ({ contextTime: ctx, performanceTime: raf }),
-    currentTime: () => ctx,
-    dateNow: () => 1_000_000 + raf,
-    fake: true as const,
-  };
-  const backend = new CoreBackend(host, { clips: new FakeRegistry(), clock, mixer });
-  const status = (fields: Parameters<typeof makeStatusBlock>[0]) => {
-    const buffer = new ArrayBuffer(STATUS_BUFFER_BYTES);
-    writeStatus(new DataView(buffer), 0, makeStatusBlock(fields), 1);
-    link.handleMessage(buffer);
-  };
-  const frame = () => { raf += 16; ctx += 0.016; backend.update(0.016); };
-  return { backend, status, frame };
+/** The core backend on the recording host (ADR 0234), on the page's mixer, not registered; the registry's "amb" clips have four channels. */
+function coreRig(preset: Partial<CorePreset> = {}) {
+  const clips = makeFakeClipRegistry({ info: (path) => ({ channels: path.includes("amb") ? 4 : 1 }) });
+  const r = recordingAudio({ register: false, preset: { maxLogical: 16, ...preset }, clips });
+  return { backend: r.backend, status: r.status, frame: () => r.frame() };
 }
 
 // --- Setup -------------------------------------------------------------------------------------------------------
@@ -88,8 +40,10 @@ beforeEach(async () => {
   engine.world.render = {} as never;
 });
 
-afterEach(() => {
+afterEach(async () => {
   vi.restoreAllMocks();
+  setAudioBackend(null);
+  await closeRecordingAudio();
 });
 
 const at = { x: 1, y: 0, z: 2 };
@@ -370,7 +324,7 @@ describe("every @field of the audio components has a description (ADR 0159)", ()
 // --- §1.6 debug additions ----------------------------------------------------------------------------------------
 
 describe("§1.6 AudioDebugInfo additions (core backend)", () => {
-  const useCore = (preset: Partial<CoreBackendHost["preset"]> = {}) => {
+  const useCore = (preset: Partial<CorePreset> = {}) => {
     const r = coreRig({ maxBeds: 2, maxZoneSlots: 3, zoneMaxSeconds: 2, maxWide: 1, maxMixed: 16, ...preset });
     setAudioBackend(r.backend);
     r.frame();

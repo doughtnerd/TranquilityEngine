@@ -1,147 +1,32 @@
 // A1.6 L2: one case per row of api-and-models §1 (K10). Request-shaped rows use the fake backend; handle, locked,
-// clock and status rows use a real `CoreBackend` on a recording port (the rig below, copied from coreBackend.test.ts);
+// clock and status rows use a real `CoreBackend` on the recording host (`recordingAudio`, ADR 0234);
 // the babylon-backend row runs the Babylon backend on a mocked AudioV2 engine and a stand-in AudioContext.
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi, type MockInstance } from "vitest";
 import { Assets, Engine, GameObject, SceneManager, Time } from "../../../myco";
 import * as myco from "../../../myco";
 import { mixer } from "../../../engine/audio/mixer";
-import { Kind, Op, readBatchHeader, readEnvelope, readFade, readRecordHead, readStop, STATUS_BUFFER_BYTES, writeStatus } from "./wire.generated";
-import type { AudioHost, HostLifecycleListener } from "./core/context";
-import { CoreLink, type LinkPort } from "./core/context";
-import type { ClipInfo, ClipRegistry, ClipResidentListener, ClipState } from "./core/clipRegistry";
-import { CoreBackend, type CoreBackendHost } from "./core/coreBackend";
-import { makeStatusBlock } from "./core/statusFixtures";
+import { Kind, Op, readFade, readStop } from "./wire.generated";
 import { setAudioBackend } from "./backend";
 import { babylonMock, makeFakeContext } from "../testing/babylonMocks";
-import { makeFakeBackend, endAudioSession } from "./testing";
+import { closeRecordingAudio, makeFakeBackend, endAudioSession, recordingAudio } from "./testing";
 import { Audio, AudioListener, AudioSource } from "./index";
 
 vi.mock("@babylonjs/core/AudioV2/webAudio/webAudioEngine", async () => (await import("../testing/babylonMocks")).webAudioEngineModule);
 
 // --- The core rig (copied from coreBackend.test.ts; not exported from there) --------------------------------------
 
-class FakeRegistry implements ClipRegistry {
-  readonly ids = new Map<string, number>();
-  readonly states = new Map<number, ClipState>();
-  readonly refs = new Map<number, number>();
-  readonly listeners = new Map<number, ClipResidentListener[]>();
-  readonly events: [number, number][] = [];
-  resident: number[] = [];
-  private next = 1;
-  acquire(path: string): number {
-    let id = this.ids.get(path);
-    if (id === undefined) {
-      id = this.next++;
-      this.ids.set(path, id);
-      this.states.set(id, "ready");
-    }
-    this.refs.set(id, (this.refs.get(id) ?? 0) + 1);
-    return id;
-  }
-  release(id: number): void {
-    this.refs.set(id, (this.refs.get(id) ?? 0) - 1);
-  }
-  state(id: number): ClipState {
-    return this.states.get(id) ?? "idle";
-  }
-  info(id: number): ClipInfo | null {
-    return { id, path: "", state: this.state(id), refs: this.refs.get(id) ?? 0, frames: 0, channels: 1, sampleRate: 48_000, format: 1, bytes: 0, failure: null };
-  }
-  onResident(id: number, listener: ClipResidentListener): () => void {
-    const list = this.listeners.get(id) ?? [];
-    list.push(listener);
-    this.listeners.set(id, list);
-    return () => {};
-  }
-  releaseWorld(): void {}
-  acquireReserved(): void {}
-  applyClipEvent(id: number, code: number): void {
-    this.events.push([id, code]);
-  }
-  residentIds(): readonly number[] {
-    return this.resident;
-  }
-  settle(id: number, state: ClipState): void {
-    this.states.set(id, state);
-    for (const l of this.listeners.get(id) ?? []) l(this.info(id)!);
-    this.listeners.delete(id);
-  }
-}
-
+/**
+ * The core backend on the recording host (ADR 0234), on the page's mixer (so `Audio.bus(name)` and the core's voice counts
+ * are the same buses), not registered: `useCore` registers it. `status` sets the host's state as the context gives it.
+ */
 function rig(options: { status?: "locked" | "running" | "failed" } = {}) {
-  const sent: ArrayBuffer[] = [];
-  const port: LinkPort = { onmessage: null, postMessage: (m) => sent.push(m as ArrayBuffer) };
-  const link = new CoreLink(port);
-  const listeners: HostLifecycleListener[] = [];
-  const state = { status: options.status ?? "running", worlds: 1 };
-  const host: CoreBackendHost = {
-    link,
-    get status() {
-      return state.status;
-    },
-    preset: { maxLogical: 16 },
-    get worldCount() {
-      return state.worlds;
-    },
-    sampleRate: 48_000,
-    addLifecycleListener: ((l: HostLifecycleListener) => {
-      listeners.push(l);
-      return () => void listeners.splice(listeners.indexOf(l), 1);
-    }) as AudioHost["addLifecycleListener"],
-  };
-  const clock = fakeClock();
-  const clips = new FakeRegistry();
-  // The global mixer, so `Audio.bus(name)` and the core's voice counts are the same buses.
-  const backend = new CoreBackend(host, { clips, clock, mixer });
+  const r = recordingAudio({ register: false, preset: { maxLogical: 16 } });
+  if (options.status === "locked") r.lock();
+  if (options.status === "failed") void r.host.context.close();
   /** Batches posted since the last call, as record lists. */
-  const batches = () => {
-    const out: ReturnType<typeof decode>[] = [];
-    for (const m of sent.splice(0)) if (readEnvelope(new DataView(m), 0).kind === Kind.BATCH) { out.push(decode(m)); link.batchPool.release(m); } // the shell would recycle it; the decoded views are read before the next flush
-    return out;
-  };
-  const ops = () => batches().flatMap((b) => b.records);
-  const status = (fields: Parameters<typeof makeStatusBlock>[0]) => {
-    const buffer = new ArrayBuffer(STATUS_BUFFER_BYTES);
-    writeStatus(new DataView(buffer), 0, makeStatusBlock(fields), 1);
-    link.handleMessage(buffer);
-  };
-  const frame = () => {
-    clock.advance(16);
-    backend.update(0.016);
-  };
-  return { backend, link, sent, batches, ops, state, clock, mixer, clips, listeners, status, frame };
-}
-
-function decode(buffer: ArrayBuffer) {
-  const view = new DataView(buffer);
-  const header = readBatchHeader(view, 0);
-  const records: { op: number; voiceId: number; frameOffset: number; off: number; view: DataView }[] = [];
-  let off = 32;
-  for (let i = 0; i < header.count; i++) {
-    const head = readRecordHead(view, off);
-    records.push({ op: head.opcode, voiceId: head.voiceId, frameOffset: head.frameOffset, off, view });
-    off += head.words * 4;
-  }
-  return { header, records };
-}
-
-/** A tiny fake HostClock: the context clock advances with rAF time. */
-function fakeClock() {
-  let raf = 1000;
-  let ctx = 0;
-  let date = 1_000_000;
-  return {
-    rafTime: () => raf,
-    outputTimestamp: () => ({ contextTime: ctx, performanceTime: raf }),
-    currentTime: () => ctx,
-    dateNow: () => date,
-    fake: true as const,
-    advance(ms: number) {
-      raf += ms;
-      date += ms;
-      ctx += ms / 1000;
-    },
-  };
+  const batches = () => r.posted.take().filter((b) => b.kind === Kind.BATCH).map((b) => b.records.map((x) => ({ op: x.opcode, voiceId: x.voiceId, off: x.off, view: x.view })));
+  const ops = () => batches().flat();
+  return { ...r, backend: r.backend, ops, frame: () => r.frame() };
 }
 
 /** Sets the core rig as the page's backend, with the first BUS_CONFIG and bus lanes (BUS_RAMP) already sent. */
@@ -174,10 +59,11 @@ beforeEach(async () => {
   engine.world.render = {} as never;
 });
 
-afterEach(() => {
+afterEach(async () => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   setAudioBackend(null);
+  await closeRecordingAudio();
 });
 
 describe("Audio public surface (api-and-models §1)", () => {
@@ -469,9 +355,9 @@ describe("Audio public surface (api-and-models §1)", () => {
     it("status reflects the backend: locked, running, failed", () => {
       const r = useCore("running");
       expect(Audio.status).toBe("running");
-      r.state.status = "locked";
+      r.lock();
       expect(Audio.status).toBe("locked");
-      r.state.status = "failed";
+      void r.host.context.close();
       expect(Audio.status).toBe("failed");
     });
 

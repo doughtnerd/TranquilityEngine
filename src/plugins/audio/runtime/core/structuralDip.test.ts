@@ -1,12 +1,12 @@
 // ADR 0171 amended by 0172 (Ma2; api-and-models §6.5, §4.2; architecture §3.3, §2.3, §4.7; R8, R9, R12): the structural
-// dip's records, decoded from the batches a core backend posts on a recording link (no wasm). A move, a remove and a
+// dip's records, decoded from the batches a core backend posts on the recording host (no wasm, ADR 0234). A move, a remove and a
 // mid-list insert each post one stamped sequence (dip-down, BUS_SLOT, dip-up under one sequenceId) alone in one batch;
 // same-task ops coalesce, later ones queue after the planned end; a direct edit of a pending slot rides the sequence; a
 // freed slot is taken fresh; a rebuild's replay carries the end state. `StructuralDip` alone (over a real bus index and
 // command writer, its clock in the test's hands): a sequence is in flight until its planned end, a tombstone recycles
 // only after its tail with no voice on it, and `replayEndState` forgets the queue. The sound of each case (maxStep on
 // the real core, a rebuild mid-dip) is in `structuralDipLoopback.test.ts`.
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { Mixer } from "../../../../engine/audio/mixer";
 import type { MixOp } from "../../../../engine/audio/mixOps";
 import { parseAudioSettings } from "../../../../engine/audio/settings";
@@ -16,32 +16,29 @@ import {
   BUS_ROOT,
   BUS_SLOT_FLAGS_STRUCTURAL,
   FadeLaw,
-  Kind,
   SET_PARAMS_MASK_BUS,
   LANE_DIP,
   Op,
   QUANTUM_FRAMES,
   TOMBSTONE_TAIL_FRAMES,
   rampSequenceId,
-  readBatchHeader,
   readBusRamp,
   packShape,
   readBusSlot,
-  readEnvelope,
   readFade,
-  readRecordHead,
   readSetParams,
 } from "../wire.generated";
-import { batchRecords, type BatchRecord } from "./batchRecords";
+import { batchRecords, type BatchRecord, type PostedBatch } from "./batchRecords";
 import { BusIndex } from "./busIndex";
 import { CommandWriter } from "./commandWriter";
-import type { HostLifecycleListener } from "./context";
-import { CoreBackend } from "./coreBackend";
+import { closeRecordingAudio, fakeHostClock, recordingAudio } from "../testing";
 import { Presence } from "./presence";
 import { StructuralDip } from "./structuralDip";
 import { VoiceTable } from "./voiceTable";
 
 const RATE = 48_000;
+
+afterEach(closeRecordingAudio);
 const D = Math.round(0.02 * RATE); // the dip: 20 ms, 960 frames at 48 kHz
 
 const PROJECT = {
@@ -60,70 +57,45 @@ type Rec =
   | { op: "slot"; slot: number; parent: number; flags: number; seq: number; frame: number; effects: number[] }
   | { op: "other"; code: number; frame: number };
 
-/** Decodes one BATCH: each record with its absolute frame (`ASAP` stays -1). */
-function decode(buffer: ArrayBuffer): Rec[] | null {
-  const view = new DataView(buffer);
-  const kind = readEnvelope(view, 0).kind;
-  if (kind !== Kind.BATCH && kind !== Kind.REPLAY) return null;
-  const header = readBatchHeader(view, 0);
-  const out: Rec[] = [];
-  let off = 32;
-  for (let i = 0; i < header.count; i++) {
-    const head = readRecordHead(view, off);
-    const frame = head.frameOffset === ASAP ? -1 : header.firstFrame + head.frameOffset;
-    if (head.opcode === Op.BUS_RAMP) {
-      const r = readBusRamp(view, off);
-      out.push({ op: "ramp", slot: r.voiceId, lane: r.lane, gain: r.gain, frames: r.frames, seq: rampSequenceId(r.shape), frame });
-    } else if (head.opcode === Op.BUS_SLOT) {
-      const s = readBusSlot(view, off);
-      out.push({ op: "slot", slot: s.slot, parent: s.parent, flags: s.flags, seq: s.sequenceId, frame, effects: s.effects.map((e) => e.type) });
-    } else out.push({ op: "other", code: head.opcode, frame });
-    off += head.words * 4;
-  }
-  return out;
+/** One posted BATCH or REPLAY, each record with its absolute frame (`ASAP` stays -1). */
+function decode(batch: PostedBatch): Rec[] {
+  return batch.records.map((x): Rec => {
+    if (x.opcode === Op.BUS_RAMP) {
+      const r = readBusRamp(x.view, x.off);
+      return { op: "ramp", slot: r.voiceId, lane: r.lane, gain: r.gain, frames: r.frames, seq: rampSequenceId(r.shape), frame: x.frame };
+    }
+    if (x.opcode === Op.BUS_SLOT) {
+      const b = readBusSlot(x.view, x.off);
+      return { op: "slot", slot: b.slot, parent: b.parent, flags: b.flags, seq: b.sequenceId, frame: x.frame, effects: b.effects.map((e) => e.type) };
+    }
+    return { op: "other", code: x.opcode, frame: x.frame };
+  });
 }
 
-/** A core backend on a recording link over its own mixer; `batches()` decodes what was posted since the last call. */
+/** A core backend on the recording host (ADR 0234) over its own mixer; `batches()` decodes what was posted since the last call. */
 function rig() {
-  const posted: ArrayBuffer[] = [];
-  const mixer = new Mixer(parseAudioSettings(PROJECT).settings);
-  const link = {
-    batchPool: { acquire: () => new ArrayBuffer(64 * 1024), release() {} },
-    nextSeq: () => 1,
-    post: (b: ArrayBuffer) => void posted.push(b.slice(0)),
-    onStatus: () => () => {},
-    statusDecoder: null,
-  };
-  const listeners: HostLifecycleListener[] = [];
-  const addLifecycleListener = (l: HostLifecycleListener) => {
-    listeners.push(l);
-    return () => {};
-  };
-  const host = { link, status: "running" as const, preset: { maxLogical: 16 }, worldCount: 1, sampleRate: RATE, addLifecycleListener };
   // The context's clock, which the test moves on (`advance`): its output timestamp follows, so F_now does.
-  let ms = 0;
-  const clock = { rafTime: () => ms, outputTimestamp: () => ({ contextTime: ms / 1000, performanceTime: ms }), currentTime: () => ms / 1000, dateNow: () => ms, fake: true as const };
-  const clips = { acquire: () => 1, release() {}, state: () => "ready", info: () => null, onResident: () => () => {}, releaseWorld() {}, applyClipEvent() {}, residentIds: () => [], acquireReserved() {} };
-  const backend = new CoreBackend(host as never, { clips: clips as never, clock: clock as never, mixer });
+  const clock = fakeHostClock({ rafTime: 0, currentTime: 0, dateNow: 0 });
+  const r = recordingAudio({ mixer: "own", settings: parseAudioSettings(PROJECT).settings, preset: { maxLogical: 16 }, clock });
+  const { backend, mixer, posted } = r;
   backend.update(0.016); // the configure's records go out
-  posted.length = 0;
-  const batches = () => posted.splice(0).map(decode).filter((b): b is Rec[] => b !== null);
+  posted.take();
+  const batches = () => posted.take().map(decode);
   /** Every record posted since the last call (any opcode), for the generated readers. */
-  const records = () => posted.splice(0).flatMap((b) => batchRecords(b)?.records ?? []);
+  const records = () => posted.takeRecords();
   const settle = async () => {
     for (let k = 0; k < 4; k++) await Promise.resolve();
   };
   /** Frames on the context's clock, `ms` at a time, each followed by the backend's frame. */
   const advance = (frames: number, step = 16) => {
     for (let t = 0; t < frames; t++) {
-      ms += step;
+      clock.advance(step);
       backend.update(step / 1000);
     }
   };
   /** A hard rebuild as the host runs it: the old core is gone, the new one answers (its REPLAY goes on the link). */
-  const rebuild = () => {
-    for (const l of listeners) l.onRebuildStart?.("trap");
-    for (const l of listeners) l.onRebuilt?.();
+  const rebuild = async () => {
+    expect(await r.rebuild("trap")).toBe("rebuilt");
   };
   return { backend, mixer, batches, records, settle, advance, rebuild };
 }
@@ -222,7 +194,7 @@ describe("the structural dip's sequence (Ma2)", () => {
     ]);
     // The replay's BUS_CONFIG carries them as silent roots; the dip lane replays at its end state, 0.
     expect(backend.busConfigWire().slice(2, 4)).toEqual([{ parent: BUS_ROOT, effects: [] }, { parent: BUS_ROOT, effects: [] }]);
-    rebuild();
+    await rebuild();
     const replayed = batches().flat();
     const dips = replayed.filter((r): r is Extract<Rec, { op: "ramp" }> => r.op === "ramp" && r.lane === LANE_DIP).map((r) => [r.slot, r.gain]);
     expect(dips).toEqual([[SLOT.SFX, 0], [SLOT.Steps, 0], [SLOT.Master, 1], [SLOT.Music, 1], [SLOT.UI, 1]]);
@@ -394,7 +366,7 @@ function dipRig() {
   dip.bind({ mixer: () => mixer, buses: () => buses, writer: () => writer, sending: () => true, firstFrame: () => now + LOOKAHEAD, framesNow: () => now });
   posted.length = 0;
   /** The sequences posted since the last call. */
-  const sequences = () => sequenceBatches(posted.splice(0).map(decode).filter((b): b is Rec[] => b !== null)).map(sequenceOf);
+  const sequences = () => sequenceBatches(posted.splice(0).flatMap((b) => { const batch = batchRecords(b); return batch ? [decode(batch)] : []; })).map(sequenceOf);
   const settle = async () => {
     for (let k = 0; k < 4; k++) await Promise.resolve();
   };
