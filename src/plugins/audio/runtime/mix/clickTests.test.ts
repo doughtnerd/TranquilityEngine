@@ -206,7 +206,7 @@ describe("Ck1: the send run-out and a sound's bus", () => {
     await closeRigs();
     const wet = await run({ name: "wet", kind: "dip", ops: [op] }, 0, true);
     const seq = sequencesIn(wet.r.batches).at(-1)!;
-    const start = 0; // the rig renders from core frame 0
+    const start = wet.r.audio.frame - wet.out.length; // the core frame the run's output starts at
     wet.r.backend.dispose();
     const dry = await run({ name: "dry", kind: "dip", project: dryProject, ops: [op] }, 0, true);
     expect(sequencesIn(dry.r.batches).at(-1)!.b).toBe(seq.b);

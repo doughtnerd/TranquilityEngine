@@ -14,14 +14,8 @@
 //    `core/ladderRecoveryLoopback.test.ts`): the bus meter pauses and its numbers stand still, master keeps
 //    metering, and the give-back sets `incomplete` on the bus and not on master.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Mixer } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings, type AudioSettings } from "../../../../engine/audio/settings";
-import { createClipRegistry } from "../core/clipRegistry";
-import { AudioHost } from "../core/context";
-import { createCoreBackend, type CoreBackend } from "../core/coreBackend";
-import { fakeDecoder } from "../core/fakeDecoder";
-import { watchForTraps } from "../core/recovery";
-import { Unlock, type UnlockContext } from "../core/unlock";
+import { closeLoopbackAudio, loopbackAudio } from "../testing";
 import { LOUD_FLAG_NEW_BLOCKS_MASK, LOUD_FLAG_RESET, LOUD_OUTPUT_TAP, LOUD_RING_SUBBLOCKS, STATUS_POOL_BUFFERS } from "../wire.generated";
 import { loudnessHub } from "./loudnessHub";
 import type { LoudnessStats } from "./loudnessStats";
@@ -43,28 +37,11 @@ function programme(): Float32Array {
   return out;
 }
 
-const hosts: AudioHost[] = [];
 afterEach(async () => {
   taps.sink = NULL_PROFILE_SINK;
-  for (const host of hosts.splice(0)) await host.close();
+  await closeLoopbackAudio();
   vi.restoreAllMocks();
 });
-
-function fakeContext() {
-  const ctx = {
-    state: "running",
-    sampleRate: RATE,
-    destination: {},
-    resume: () => Promise.resolve(),
-    close: () => {
-      ctx.state = "closed";
-      return Promise.resolve();
-    },
-    addEventListener() {},
-    removeEventListener() {},
-  };
-  return ctx;
-}
 
 /** The default buses with SFX metered (master always is). */
 function metered(): AudioSettings {
@@ -80,77 +57,53 @@ interface TakeItem {
   reset: boolean;
 }
 
-/** The real host and core backend on the loopback host, one voice looping the programme on SFX; both meters start clean. */
+/** The core on the loopback (ADR 0221's assembly) with its own mixer, one voice looping the programme on SFX; both meters start clean. */
 async function rig() {
-  const testing = await import("../testing");
-  const preset = { ...testing.LOOPBACK_PRESET, maxMixed: MAX_MIXED, maxBeds: 1, limiterLookaheadMs: 0 };
-  let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>>;
-  try {
-    loop = await testing.createLoopbackHost({ preset });
-  } catch {
-    return null;
-  }
-  const context = fakeContext();
-  const node = Object.assign(new EventTarget(), { connect() {}, disconnect() {} }) as unknown as AudioWorkletNode;
-  const unlock = new Unlock({ target: new EventTarget(), context: context as unknown as UnlockContext });
-  const host = AudioHost._create({ context: context as unknown as AudioContext, node, link: loop.link, unlock, preset, respawn: () => loop.respawn() });
-  hosts.push(host);
-  const link = loop.link;
-  const clips = createClipRegistry({
-    send: (m) => link.post(m),
-    nextSeq: () => link.nextSeq(),
-    fetchBytes: async (path) => new TextEncoder().encode(path).buffer as ArrayBuffer,
-    decodeWorker: fakeDecoder(() => ({ frames: CLIP_FRAMES, channels: 1, sampleRate: RATE, channelData: [programme()] })),
-    nextFrame: (cb) => cb(),
-    nextQuantum: (cb) => cb(),
+  const audio = await loopbackAudio({
+    settings: metered(),
+    mixer: "own",
+    preset: { maxMixed: MAX_MIXED, maxBeds: 1, limiterLookaheadMs: 0 },
+    decode: () => ({ channelData: [programme()] }),
+    recovery: { now: () => 0, warn: () => {} },
   });
-  const mixer = new Mixer(metered());
-  const backend: CoreBackend = createCoreBackend(host, { clips, clock: loop.clock, mixer });
-  watchForTraps(host, { now: () => 0, warn: () => {} });
+  if (!audio) return null;
+  const { host, backend, mixer, link } = audio;
   const takes: TakeItem[] = [];
   link.onStatus((s) => {
     for (const it of s.loudBuses) takes.push({ slot: it.slot, firstSeq: it.firstSeq, count: it.flags & LOUD_FLAG_NEW_BLOCKS_MASK, reset: (it.flags & LOUD_FLAG_RESET) !== 0 });
   });
-  const settle = async () => {
-    for (let k = 0; k < 8; k++) await Promise.resolve();
-  };
   /** `quanta` rendered with main running: frames of 4 quanta, the page's update before each render. */
   const step = async (quanta: number) => {
     for (let q = 0; q < quanta; q += 4) {
       mixer.update(0.01);
       backend.update(0.01);
-      loop.renderQuanta(Math.min(4, quanta - q));
-      await settle();
+      audio.render(Math.min(4, quanta - q));
+      await audio.settle();
     }
   };
   /** Main running until the core has rendered up to frame `target` (the same audio frame in every run). */
-  const stepTo = (target: number) => step(Math.max(0, Math.ceil((target - loop.frame) / QUANTUM)));
+  const stepTo = (target: number) => step(Math.max(0, Math.ceil((target - audio.frame) / QUANTUM)));
   /**
    * A main stall of `frames` audio frames counted from the last take that got out. The port's messages queue (every STATUS
    * buffer stays with main) and main runs no update. Once the pool is out the core takes nothing; rendering goes on until
    * `frames` have passed since the last take. Then main handles what queued, in order.
    */
   const stall = async (frames: number) => {
-    const queued: unknown[] = [];
-    const real = link.handleMessage.bind(link);
-    let lastTake = loop.frame;
-    link.handleMessage = (data: unknown) => {
-      queued.push(data);
-      lastTake = loop.frame;
-    };
+    const main = audio.stallMain();
+    const result = { takes: 0, stalledFrames: 0 };
     try {
       let guard = 0;
-      while (queued.length < STATUS_POOL_BUFFERS || loop.frame - lastTake < frames) {
+      while (main.held < STATUS_POOL_BUFFERS || audio.frame - main.lastFrame < frames) {
         expect(++guard, "the stall ends").toBeLessThan(10 * QUANTA_PER_SECOND);
-        loop.renderQuanta(1);
+        audio.render(1);
       }
+      result.takes = main.held;
+      result.stalledFrames = audio.frame - main.lastFrame;
     } finally {
-      link.handleMessage = real;
+      main.release();
     }
-    const stalledFrames = loop.frame - lastTake;
-    for (const data of queued) real(data);
-    await settle();
-    return { takes: queued.length, stalledFrames };
+    await audio.settle();
+    return result;
   };
   backend.play({ path: "p.wav", url: "p.wav", loop: true, stream: false, bus: "SFX" });
   // Warm up: the meters' first takes, a whole programme. The hub is the page's and outlives a rig: start both clean.
@@ -163,9 +116,8 @@ async function rig() {
   // `lost` counts for the life of the page's meter (a reset leaves it): readings take it from here.
   const lost0 = { SFX: stats("SFX").lost, Master: stats("Master").lost };
   const lost = (name: "SFX" | "Master") => stats(name).lost - lost0[name];
-  return { loop, host, backend, mixer, step, stepTo, stall, sfx, master, stats, lost, takes };
+  return { audio, host, backend, mixer, step, stepTo, stall, sfx, master, stats, lost, takes };
 }
-
 /** One scenario's readings: what the meters said at its end. */
 type Rig = NonNullable<Awaited<ReturnType<typeof rig>>>;
 const readings = (r: Rig) => ({
@@ -188,7 +140,7 @@ describe("loudness integrity on the loopback host (Ld8)", () => {
     const ref = (await rig())!;
     await ref.stepTo(END);
     const base = readings(ref);
-    const refFrame = ref.loop.frame;
+    const refFrame = ref.audio.frame;
     ref.backend.dispose();
     expect(base.sfx.integrated, "the programme reads a loudness").toBeGreaterThan(-30);
     expect(base.sfx.elapsed, "about 14 s of programme since the clear (the last sub-block may still be in the core)").toBeGreaterThan(13.8);
@@ -201,10 +153,10 @@ describe("loudness integrity on the loopback host (Ld8)", () => {
     expect(s3.takes, "the pool was exhausted").toBe(STATUS_POOL_BUFFERS);
     expect(s3.stalledFrames, "3 s on the audio clock since the last take").toBeGreaterThanOrEqual(3 * RATE);
     expect(s3.stalledFrames).toBeLessThan(3 * RATE + QUANTUM);
-    expect(three.loop.frame, "the stall is inside the run").toBeLessThan(END);
+    expect(three.audio.frame, "the stall is inside the run").toBeLessThan(END);
     await three.stepTo(END);
     const got3 = readings(three);
-    expect(three.loop.frame).toBe(refFrame);
+    expect(three.audio.frame).toBe(refFrame);
     three.backend.dispose();
     expect([got3.sfx.lost, got3.master.lost], "no sub-block lost").toEqual([0, 0]);
     expect([got3.sfx.incomplete, got3.master.incomplete], "not incomplete").toEqual([false, false]);
@@ -232,7 +184,7 @@ describe("loudness integrity on the loopback host (Ld8)", () => {
   it("an EPOCH (a trap, then the rebuild on a new core) restarts seq, keeps integrated and elapsed, and sets incomplete", { timeout: 60_000 }, async (ctx) => {
     const r = await rig();
     if (!r) return ctx.skip();
-    const { loop, host, step, sfx, master, takes } = r;
+    const { audio, host, step, sfx, master, takes } = r;
     const sfxSlot = takes.find((t) => t.slot !== LOUD_OUTPUT_TAP)!.slot;
     await step(6 * QUANTA_PER_SECOND);
     const before = readings(r);
@@ -248,10 +200,10 @@ describe("loudness integrity on the loopback host (Ld8)", () => {
       if (s.loudBuses.some((it) => it.slot === sfxSlot && (it.flags & LOUD_FLAG_RESET) !== 0)) atReset.push({ integrated: sfx.integrated, elapsed: sfx.elapsed, incomplete: sfx.incomplete });
     });
     const mark = takes.length;
-    loop.trapNext();
+    audio.trap();
     for (let f = 0; f < 120 && host.health.recoveries === 0; f++) await step(4);
     expect(host.health.recoveries, "the host rebuilt").toBe(1);
-    expect(loop.cores, "on a new core").toBe(2);
+    expect(host.health.traps, "after the one trap").toBe(1);
     await step(QUANTA_PER_SECOND);
 
     const after = takes.slice(mark).filter((t) => t.slot === sfxSlot);
@@ -277,23 +229,23 @@ describe("loudness integrity on the loopback host (Ld8)", () => {
   it("a shed span pauses the bus meter and not master's, and the give-back sets incomplete on the bus alone", { timeout: 120_000 }, async (ctx) => {
     const r = await rig();
     if (!r) return ctx.skip();
-    const { loop, backend, step, sfx, master } = r;
+    const { audio, backend, step, sfx, master } = r;
     /** The render falls `ms` behind the wall clock (the context clock stands still meanwhile): one underrun, the ladder's input. */
     const underrun = (ms: number) => {
-      loop.clock.setRunning(false);
-      loop.clock.advance(ms);
-      loop.clock.setRunning(true);
+      audio.clock.setRunning(false);
+      audio.clock.advance(ms);
+      audio.clock.setRunning(true);
     };
     // The ladder's probe warms up for 1 s (the rig's warm-up passed it); underruns every half second until the metering step.
     await step(QUANTA_PER_SECOND);
-    expect([loop.link.lastStatus!.loudShed, sfx.paused, master.paused, sfx.elapsed > 0]).toEqual([0, false, false, true]);
+    expect([audio.link.lastStatus!.loudShed, sfx.paused, master.paused, sfx.elapsed > 0]).toEqual([0, false, false, true]);
     let underruns = 0;
-    while (loop.link.lastStatus!.loudShed === 0) {
+    while (audio.link.lastStatus!.loudShed === 0) {
       expect(++underruns, "the metering step within 20 s of underruns").toBeLessThan(40);
       underrun(60);
       await step(188);
     }
-    expect(loop.link.lastStatus!.m3Shed, "the metering step comes before any audible one").toBe(0);
+    expect(audio.link.lastStatus!.m3Shed, "the metering step comes before any audible one").toBe(0);
 
     // From the step on, the bus's numbers stand still while master's go on.
     await step(94); // the pause has reached the hub
@@ -301,7 +253,7 @@ describe("loudness integrity on the loopback host (Ld8)", () => {
     expect(sfx.incomplete, "incomplete waits for the give-back").toBe(false);
     const frozen = { elapsed: sfx.elapsed, integrated: sfx.integrated, masterElapsed: master.elapsed, masterIntegrated: master.integrated };
     await step(8 * QUANTA_PER_SECOND);
-    expect(loop.link.lastStatus!.loudShed, "still shed").toBe(1);
+    expect(audio.link.lastStatus!.loudShed, "still shed").toBe(1);
     expect([sfx.elapsed, sfx.integrated], "the bus meter is paused: nothing taken").toEqual([frozen.elapsed, frozen.integrated]);
     expect(master.elapsed, "master meters on, 8 s of it").toBeGreaterThan(frozen.masterElapsed + 7.5);
     expect(master.integrated).not.toBe(frozen.masterIntegrated);
@@ -309,7 +261,7 @@ describe("loudness integrity on the loopback host (Ld8)", () => {
 
     // Clean from here: the loudness step comes back last, 80 s after the last underrun; the bus resumes `incomplete`.
     let clean = 0;
-    while (loop.link.lastStatus!.loudShed !== 0) {
+    while (audio.link.lastStatus!.loudShed !== 0) {
       expect(++clean, "the step is given back within 90 s").toBeLessThan((90 * QUANTA_PER_SECOND) / 4);
       await step(4);
     }

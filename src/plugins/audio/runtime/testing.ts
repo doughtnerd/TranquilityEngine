@@ -619,6 +619,11 @@ export interface LoopbackHost {
   recreate(sampleRate: number): { readonly node: AudioWorkletNode; readonly port: LinkPort };
   /** The current context's rate (`LOOPBACK_RATE` until a `recreate`). (Addition to K4.) */
   readonly sampleRate: number;
+  /**
+   * ADR 0221: a main-thread stall: from now on what the shell sends main (STATUS, recycled buffers) queues on the port and
+   * main handles none of it, so once its STATUS pool is out the shell takes nothing. `release` hands main what queued, in order.
+   */
+  stallMain(): LoopbackStall;
   /** ADR 0221: watches what reaches the shell: every BATCH or REPLAY posted from now on, decoded, with the frame it was posted at. */
   watch(): LoopbackWatch;
 }
@@ -684,11 +689,19 @@ export async function createLoopbackHost(options: { clock?: FakeHostClock; prese
   link.onStatus((s) => statuses.push(s));
   let frame = 0;
 
+  /** A main-thread stall (`stallMain`): what the shell sent main meanwhile, and the frame the last of it arrived at. */
+  let stalled: { held: unknown[]; lastFrame: number } | null = null;
+
   // Both directions drain synchronously, so a STATUS is received (and RECYCLEd) inside the quantum that posted it.
   const flush = (): void => {
     const { toMain, toWorklet, port, driver } = current;
     while (toMain.length || toWorklet.length) {
-      for (const message of toMain.splice(0)) port.onmessage?.({ data: message });
+      for (const message of toMain.splice(0)) {
+        if (stalled) {
+          stalled.held.push(message);
+          stalled.lastFrame = frame;
+        } else port.onmessage?.({ data: message });
+      }
       for (const message of toWorklet.splice(0)) {
         if (message instanceof ArrayBuffer) driver.onMessage(message, frame, clock.dateNow());
         else if ((message as { type?: unknown }).type === "debugTone") driver.onControl(message as never);
@@ -733,6 +746,24 @@ export async function createLoopbackHost(options: { clock?: FakeHostClock; prese
     trapNext() {
       trapPending = true;
     },
+    stallMain() {
+      const stall = { held: [] as unknown[], lastFrame: frame };
+      stalled = stall;
+      return {
+        get held() {
+          return stall.held.length;
+        },
+        get lastFrame() {
+          return stall.lastFrame;
+        },
+        release() {
+          if (stalled !== stall) return;
+          stalled = null;
+          for (const message of stall.held.splice(0)) current.port.onmessage?.({ data: message });
+          flush();
+        },
+      };
+    },
     watch() {
       const received: { frame: number; batch: PostedBatch }[] = [];
       watchers.add(received);
@@ -765,6 +796,16 @@ export async function createLoopbackHost(options: { clock?: FakeHostClock; prese
 export interface LoopbackReceived {
   readonly frame: number;
   readonly batch: PostedBatch;
+}
+
+/** A main-thread stall on the loopback (`stallMain`). */
+export interface LoopbackStall {
+  /** Messages the shell sent main since the stall began. */
+  readonly held: number;
+  /** The frame the last of them arrived at (the stall's start before any). */
+  readonly lastFrame: number;
+  /** Main runs again: it handles what queued, in order. */
+  release(): void;
 }
 
 /** The batches the loopback shell received since the watch began (or the last `take`). */
@@ -852,6 +893,8 @@ export interface LoopbackAudio {
   rebuild(reason: RebuildReason): Promise<RebuildOutcome>;
   /** Watches what reaches the core: every BATCH or REPLAY posted to the shell from now on, decoded, with its frame. */
   watch(): LoopbackWatch;
+  /** Fault: a main-thread stall: what the core sends main queues until `release` (its STATUS pool runs out meanwhile). */
+  stallMain(): LoopbackStall;
   /** Disposes the backend (unregistering it on the page mixer), closes the host and ends the audio session. A second call does nothing. */
   close(): Promise<void>;
 }
@@ -1057,6 +1100,7 @@ export async function loopbackAudio(options: LoopbackAudioOptions = {}): Promise
     },
     rebuild: (reason) => rebuildHost(host, reason),
     watch: () => loop.watch(),
+    stallMain: () => loop.stallMain(),
     async close() {
       if (closed) return;
       closed = true;

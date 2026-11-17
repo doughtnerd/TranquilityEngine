@@ -7,20 +7,13 @@
 // Timing is the audio clock's: `step(n)` runs n main-thread frames of 4 quanta each (`mixer.update`, `backend.update`,
 // `events().update`, then the loopback renders), never a wall clock. Two rigs given the same steps render the same
 // samples, so a run without the edit is the reference S4's `abrupt` compares with.
-import { mixer } from "../../../../engine/audio/mixer";
+//
+// ADR 0221: the rig is `loopbackAudio` (the production assembly on the loopback); this file keeps only the measurement.
 import { parseAudioSettings } from "../../../../engine/audio/settings";
 import { Kind, Op, readBusRamp, readBusSlot, rampSequenceId } from "../wire.generated";
-import { batchRecords } from "../core/batchRecords";
-import { setAudioBackend } from "../backend";
-import { events } from "../events/eventRuntime";
-import { fakeDecoder } from "../core/fakeDecoder";
-import { createClipRegistry } from "../core/clipRegistry";
-import { AudioHost, presetFromSettings, type CoreLink } from "../core/context";
+import { presetFromSettings, type CoreLink } from "../core/context";
 import { CommandWriter } from "../core/commandWriter";
-import { createCoreBackend, type CoreBackend } from "../core/coreBackend";
-import { watchForTraps } from "../core/recovery";
-import { Unlock, type UnlockContext } from "../core/unlock";
-import { endAudioSession } from "../testing";
+import { closeLoopbackAudio, loopbackAudio } from "../testing";
 
 export const RATE = 48_000;
 export const QUANTUM = 128;
@@ -59,120 +52,86 @@ export interface PostedBatch {
   records: PostedRecord[];
 }
 
-/** Every host the rigs made, for `closeRigs` in an `afterEach`. */
-const hosts: AudioHost[] = [];
-
-/** Closes every rig's host and clears the page's backend. */
+/** Closes every rig (its backend and host) and ends the audio session. */
 export async function closeRigs(): Promise<void> {
-  endAudioSession();
-  setAudioBackend(null);
-  for (const host of hosts.splice(0)) await host.close();
-}
-
-function fakeContext() {
-  const ctx = {
-    state: "running",
-    sampleRate: RATE,
-    destination: {},
-    resume: () => Promise.resolve(),
-    close: () => {
-      ctx.state = "closed";
-      return Promise.resolve();
-    },
-    addEventListener() {},
-    removeEventListener() {},
-  };
-  return ctx;
+  await closeLoopbackAudio();
 }
 
 export type Rig = NonNullable<Awaited<ReturnType<typeof liveRig>>>;
 
 /** The rig over `project`'s audio settings (`parseAudioSettings`); null when the wasm isn't built. */
 export async function liveRig(project: unknown) {
-  const testing = await import("../testing");
   const parsed = parseAudioSettings(project);
   if (parsed.problems.length > 0) throw new Error(parsed.problems.join("; "));
   const settings = parsed.settings;
-  const preset = { ...presetFromSettings(settings), limiterLookaheadMs: 0 };
-  let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>>;
-  try {
-    loop = await testing.createLoopbackHost({ preset });
-  } catch {
-    return null;
-  }
-  const context = fakeContext();
-  const node = Object.assign(new EventTarget(), { connect() {}, disconnect() {} }) as unknown as AudioWorkletNode;
-  const unlock = new Unlock({ target: new EventTarget(), context: context as unknown as UnlockContext });
-  const host = AudioHost._create({ context: context as unknown as AudioContext, node, link: loop.link, unlock, preset, respawn: () => loop.respawn() });
-  hosts.push(host);
-  const link = loop.link;
+  const audio = await loopbackAudio({
+    settings,
+    preset: { ...presetFromSettings(settings), limiterLookaheadMs: 0 },
+    decode: (path) => ({ channelData: [(CLIPS[path] ?? CLIPS["const.wav"]!)()] }),
+    recovery: { now: () => 0, warn: () => {} },
+    dt: 0.003,
+  });
+  if (!audio) return null;
+  const { backend, host } = audio;
   const batches: PostedBatch[] = [];
-  const post = link.post.bind(link);
-  link.post = ((buffer: ArrayBuffer, ...rest: unknown[]) => {
-    const batch = batchRecords(buffer);
-    if (batch?.kind === Kind.BATCH) {
+  const watch = audio.watch();
+  /** Moves what the core received since the last call into `batches`: each BATCH's records with their sequence tags. */
+  const collect = () => {
+    for (const { frame, batch } of watch.take()) {
+      if (batch.kind !== Kind.BATCH) continue;
       const records: PostedRecord[] = batch.records.map((x) => ({
         op: x.opcode,
         seq: x.opcode === Op.BUS_RAMP ? rampSequenceId(readBusRamp(x.view, x.off).shape) : x.opcode === Op.BUS_SLOT ? readBusSlot(x.view, x.off).sequenceId : 0,
         frame: x.frame,
       }));
-      batches.push({ frame: loop.frame, records });
+      batches.push({ frame, records });
     }
-    return (post as (b: ArrayBuffer, ...r: unknown[]) => void)(buffer, ...rest);
-  }) as typeof link.post;
-  const clips = createClipRegistry({
-    send: (m) => link.post(m),
-    nextSeq: () => link.nextSeq(),
-    fetchBytes: async (path) => new TextEncoder().encode(path).buffer as ArrayBuffer,
-    decodeWorker: fakeDecoder(async (bytes) => {
-      const make = CLIPS[new TextDecoder().decode(bytes)] ?? CLIPS["const.wav"]!;
-      return { frames: CLIP_FRAMES, channels: 1, sampleRate: RATE, channelData: [make()] };
-    }),
-    nextFrame: (cb) => cb(),
-    nextQuantum: (cb) => cb(),
-  });
-  mixer.configure(settings);
-  const backend: CoreBackend = createCoreBackend(host, { clips, clock: loop.clock, mixer });
-  watchForTraps(host, { now: () => 0, warn: () => {} });
-  endAudioSession();
-  setAudioBackend(backend);
+  };
   const settle = async () => {
-    for (let k = 0; k < 8; k++) await Promise.resolve();
+    await audio.settle();
+    collect();
   };
   /** `n` main-thread frames of 4 quanta: the rendered left samples, the core frame of the first, the batches posted meanwhile. */
   const step = async (n: number) => {
+    collect();
     const from = batches.length;
-    const out: number[] = [];
-    const start = loop.frame;
-    for (let f = 0; f < n; f++) {
-      mixer.update(0.003);
-      backend.update(0.003);
-      events().update(0.003);
-      const { left } = loop.renderQuanta(4);
-      for (const v of left) out.push(v);
-      await settle();
-    }
+    const start = audio.frame;
+    const out = Array.from((await audio.step(n)).left);
+    collect();
     return { start, out, last: out[out.length - 1]!, posted: batches.slice(from) };
   };
   /** Renders `n` single quanta with no main-thread frame (shifts the next frame's phase against the tones). */
   const quanta = async (n: number) => {
     const out: number[] = [];
-    for (let k = 0; k < n; k++) for (const v of loop.renderQuanta(1).left) out.push(v);
+    for (let k = 0; k < n; k++) for (const v of audio.render(1).left) out.push(v);
     await settle();
     return out;
   };
   const play = (bus: string, path = "const.wav") => backend.play({ path, url: path, loop: true, stream: false, bus });
-  return { loop, host, backend, step, quanta, settle, batches, play };
+  return {
+    audio,
+    host,
+    backend,
+    step,
+    quanta,
+    settle,
+    /** Every BATCH the core received so far. */
+    get batches() {
+      collect();
+      return batches;
+    },
+    play,
+  };
 }
 
 /**
  * The abrupt controls: `write`'s records go out on the rig's link now, in one batch of their own (asap), as a second
  * sender's would, past the backend (no dip, no lane writer).
  */
-export function sendRaw(r: { readonly loop: { readonly link: CoreLink; readonly frame: number } }, write: (w: CommandWriter) => void): void {
-  const w = new CommandWriter(r.loop.link, RATE);
+export function sendRaw(r: { readonly audio: { readonly link: CoreLink; readonly frame: number } }, write: (w: CommandWriter) => void): void {
+  const w = new CommandWriter(r.audio.link, RATE);
   write(w);
-  w.flush(r.loop.frame);
+  w.flush(r.audio.frame);
 }
 
 /**
