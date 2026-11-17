@@ -96,3 +96,14 @@ controller, the op log, colour-literal checks) stay unit tests.
 
 - `src/editor/testRender.ts`; `.storybook/`; `vitest.stories.config.mts`; `vite.shared.ts` (`componentViteConfig`).
 - Storybook 10 and its Vitest addon: https://storybook.js.org/docs/writing-tests/integrations/vitest-addon
+
+## Notes from building (2026-11-17)
+
+- The story tests ran green (51 of 51, twice, in headless Chromium), so `src/editor/testRender.ts` and every
+  `vi.mock("preact/hooks", ...)` that used it are gone. `mix/mixerPanelView.test.ts` rendered and nothing else, so it
+  was deleted whole; the six other files keep their cases that render nothing. Where a story didn't yet assert what a
+  rendering case did, it was extended first: the fader drag's undo from the Project Settings panel and the SDK's redo
+  (`FaderDrag`), the capture Workers each open spawns and a drag over the panel (`ProfilerPanel.stories.tsx`), the
+  slots handed the controller's own view state (`SlotsAsComponents`), a file input change with no file (`ChooseFile`).
+- The ducking section's cases split: its controls are the stories; the drafts its edits write, their clamping and the
+  parse's refusals are unit tests of `audioSettingsModel` (`audioSettingsSection.ducking.test.ts`).
