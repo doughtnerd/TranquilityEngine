@@ -3,6 +3,7 @@
 // `formatAudioEvent` / `parseAudioEvent`. `SegmentPanel.tsx` applies a result through the event's asset document (one
 // undo step per edit).
 import { BEAT_UNITS, MAX_BPM, MIN_BPM, MUSIC_LIMITS, TRACK_PICKS, type MusicRegion, type MusicTrack, type RegionCondition, type SegmentNode, type TrackPick } from "../../../../engine/audio/musicFormat";
+import { uniqueName } from "../../../../engine/core/uniqueName";
 import { compileSegmentGrid, positionTextToTicks } from "../../../../engine/audio/musicGrid";
 import { canonicalPosition, comparePositions, isBarBeatTick, parsePosition, positionProblem } from "../../../../engine/audio/musicPosition";
 
@@ -95,12 +96,6 @@ export function promoteAlternative(seg: SegmentNode, name: string, clip: string)
   return withTrack(seg, name, (s) => ({ ...s, clip, alternatives: s.alternatives.map((a) => (a === clip ? s.clip : a)) }));
 }
 
-/** A free name `base`, `base 2`, ... not in `taken`. */
-function freeName(base: string, taken: ReadonlySet<string>): string {
-  if (!taken.has(base)) return base;
-  for (let i = 2; ; i++) if (!taken.has(`${base} ${i}`)) return `${base} ${i}`;
-}
-
 /** Canonical stored text of a position the user typed, checked against the segment's metre; null `why` means fine. */
 function readPosition(seg: SegmentNode, text: string, words: { start?: boolean; end?: boolean }): { text: string } | { why: string } {
   const raw = text.trim();
@@ -120,7 +115,7 @@ export function addCue(seg: SegmentNode, at = "1:1:0", name?: string): Edit {
   if (seg.cues.length >= MUSIC_LIMITS.cues) return fail(`a segment holds at most ${MUSIC_LIMITS.cues} cues`);
   const pos = readPosition(seg, at, { start: true, end: true });
   if ("why" in pos) return fail(pos.why);
-  const cueName = (name ?? "").trim() || freeName("cue", new Set(seg.cues.map((c) => c.name)));
+  const cueName = (name ?? "").trim() || uniqueName("cue", seg.cues.map((c) => c.name));
   if (seg.cues.some((c) => c.name === cueName)) return fail(`another cue is already named "${cueName}"`);
   return ok({ ...seg, cues: [...seg.cues, { name: cueName, at: pos.text }] });
 }
@@ -167,7 +162,7 @@ function setEnd(seg: SegmentNode, key: "entry" | "exit", cue: string | undefined
 
 export function addRegion(seg: SegmentNode, region?: Partial<MusicRegion>): Edit {
   if (seg.regions.length >= MUSIC_LIMITS.regions) return fail(`a segment holds at most ${MUSIC_LIMITS.regions} regions`);
-  const id = (region?.id ?? "").trim() || freeName("loop", new Set(seg.regions.map((r) => r.id)));
+  const id = (region?.id ?? "").trim() || uniqueName("loop", seg.regions.map((r) => r.id));
   if (seg.regions.some((r) => r.id === id)) return fail(`another region is already named "${id}"`);
   const base: MusicRegion = { id, from: "start", to: "end", count: 0 };
   return checkRegion(seg, { ...base, ...region, id }, null);
