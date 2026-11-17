@@ -25,16 +25,12 @@ function newSceneFile(): SceneFile {
   };
 }
 
-/** Where File > New Scene goes: `scenes/` if the project has it, else the project root. */
-function defaultSceneFolder(): string {
-  return currentProject.value?.folders.includes("scenes") ? "scenes" : "";
-}
-
 /**
- * Create `New Scene.scene.json` (or `New Scene 2`…) in `folder` and open it. Returns its path, or
- * null if the project is read-only or writing failed (the status bar says why).
+ * Create `New Scene.scene.json` (or `New Scene 2`…) in `folder` and open it: the `scene` kind's `create`, so File >
+ * New Scene and the New… menu put it in the kind's folder (`scenes/`) by the asset kind host's rule (ADR 0233).
+ * Returns its path, or null if the project is read-only or writing failed (the status bar says why).
  */
-export async function createScene(folder: string = defaultSceneFolder()): Promise<string | null> {
+export async function createScene(folder: string): Promise<string | null> {
   const project = currentProject.value;
   if (!project) return null;
   if (!project.canSave) {

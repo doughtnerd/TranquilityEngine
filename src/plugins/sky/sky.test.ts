@@ -10,7 +10,9 @@ import { select as selectAssets } from "../../editor/assetSelection";
 import { kindIcon, kindLabel, kindOpens, registeredKind, satisfiesFieldKind } from "../../editor/assetKindLookup";
 import { registeredPanels } from "../../editor/layout/registeredPanels";
 import { joinPath } from "../../editor/projects";
-import { assetFormats, assetKinds, panels } from "../../editor/sdk/contributions";
+import { assetKinds, panels } from "../../editor/sdk/contributions";
+import { editor } from "../../editor/sdk";
+import { kindCreators } from "../../editor/assetKindHost";
 import { isPluginActive } from "../../editor/sdk/plugins";
 import { useEditorPlugins } from "../testEditorPlugins";
 import { closeTestProject, openTestProject, ROOT, useCoreAssetKinds } from "../../editor/testing";
@@ -18,7 +20,6 @@ import { previewKind } from "../../editor/thumbnails/keys";
 import { EDITOR_PLUGINS } from "../editor";
 import { RUNTIME_PLUGINS } from "../runtime";
 import { skyEditorPlugin } from "./editor";
-import { createSky } from "./editor/skyAssets";
 import { skyRuntimePlugin } from "./runtime";
 
 useCoreAssetKinds(); // core asset kinds, as main.tsx registers them (ADR 0143)
@@ -53,13 +54,20 @@ describe("the Sky plugin's editor half (ADR 0134)", () => {
     expect(assetKinds.get("sky")?.create?.label).toBe("New Sky");
   });
 
+  it("opens a sky in the Sky panel", async () => {
+    await openTestProject({ [SKY]: formatSky(skyPreset("clearDay")) });
+    expect(kindOpens(SKY)).toBe(true);
+    expect(editor.assets.open(SKY)).toBe(true);
+    expect(editor.assets.openIn("sky")).toBe(SKY);
+  });
+
   it("registers the Sky panel, on demand beside the graph editors", () => {
     expect(registeredPanels().has("sky")).toBe(true);
     expect(registeredPanels().get("sky")).toEqual({ title: "Sky", beside: "particlegraph", onDemand: true, owner: { plugin: "myco.sky", pluginTitle: "Sky" } });
   });
 
   it("registers a format that round-trips a preset and reports problems as messages", () => {
-    const format = assetFormats.get("sky")!;
+    const format = assetKinds.get("sky")!.format!;
     const preset = skyPreset("sunset");
     const read = format.parse(JSON.parse(formatSky(preset)), SKY);
     expect(read.problems).toEqual([]);
@@ -90,7 +98,6 @@ describe("the Sky plugin's editor half (ADR 0134)", () => {
     expect(previewKind(SKY)).toBeNull();
     expect(satisfiesFieldKind("environment", SKY)).toBe(false);
     expect(inspectedFor(SKY)).toBeNull();
-    expect(assetFormats.get("sky")).toBeUndefined();
     expect(panels.get("sky")).toBeUndefined();
     expect(registeredPanels().has("sky")).toBe(false);
   });
@@ -99,20 +106,21 @@ describe("the Sky plugin's editor half (ADR 0134)", () => {
 describe("New Sky (ADR 0112)", () => {
   it("writes a parseable sky in skies/ when the project has that folder, and picks a free name", async () => {
     const { project } = await open({ "skies/New Sky.sky.json": JSON.stringify(skyPreset("night")) });
-    const first = await createSky("");
+    const first = await editor.assets.create("sky");
     expect(first).toBe("skies/New Sky 2.sky.json");
     expect(parseSky(project.assets.get(first!), first!).problems).toEqual([]);
-    expect(await createSky("", "sunset")).toBe("skies/New Sky 3.sky.json");
+    expect(parseSky(project.assets.get(first!), first!).settings).toEqual(parseSky(JSON.parse(formatSky(skyPreset("clearDay")))).settings);
+    expect(await editor.assets.create("sky", { value: skyPreset("sunset") })).toBe("skies/New Sky 3.sky.json");
   });
 
   it("uses the given folder when there is no skies/ folder", async () => {
     await open({});
-    expect(await createSky("")).toBe("New Sky.sky.json");
+    expect(await editor.assets.create("sky")).toBe("New Sky.sky.json");
   });
 
   it("is the kind's New… entry", async () => {
     await open({});
-    expect(await assetKinds.get("sky")!.create!.create("")).toBe("New Sky.sky.json");
+    expect(await kindCreators().find((c) => c.kind === "sky")!.create("")).toBe("New Sky.sky.json");
   });
 });
 

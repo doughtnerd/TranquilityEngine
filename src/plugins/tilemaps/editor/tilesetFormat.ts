@@ -1,19 +1,15 @@
-// The `tileset` asset format (ADR 0103, 0134): `*.tileset.json` as TilesetData, for asset documents
-// (assetDocuments.ts). Built from the runtime's parse function and the editor's pretty-JSON formatter.
-import { formatTileset } from "./tilesetAssets";
-import type { AssetFormatContribution } from "../../../editor/sdk";
+// The `tileset` asset format (ADR 0103, 0134, 0233): `*.tileset.json` as TilesetData, the kind's `format`. Built
+// from the runtime's parse function; written as pretty JSON. A file the runtime can't read is an empty tileset (the
+// asset kind host's rule), which is also New Tileset's.
+import type { AssetFormat } from "../../../editor/sdk";
 import { newTileset, parseTileset, type TilesetData } from "../runtime/tileset";
 
-export const tilesetFormat: AssetFormatContribution<TilesetData> = {
-  id: "tileset",
+export const tilesetFormat: AssetFormat<TilesetData> = {
   parse(raw, path) {
-    try {
-      const { tileset, problems } = parseTileset(raw, path);
-      return { value: tileset, problems: problems.map((message) => ({ message })) };
-    } catch (err) {
-      return { value: newTileset(), problems: [{ message: (err as Error).message }] };
-    }
+    const { tileset, problems } = parseTileset(raw, path);
+    return { value: tileset, problems: problems.map((message) => ({ message })) };
   },
-  format: (value) => formatTileset(value), // late-bound: a cycle through the editor modules may not have evaluated it yet
+  format: (data) => `${JSON.stringify(data, null, 2)}\n`,
+  empty: newTileset,
   writeDelay: 150,
 };

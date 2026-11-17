@@ -8,7 +8,6 @@ import { SKY_PRESETS, skyPreset, type SkyPresetId } from "../../../engine/sky/pr
 import { cloneSky, defaultCloudLayer, MAX_CLOUD_LAYERS, type SkySettings } from "../../../engine/sky/skyFormat";
 import { skyLight, sunAngles } from "../../../engine/sky/skyMath";
 import { openAssetDocument, editor, LargePreview, Panel } from "../../../editor/sdk";
-import { openSky } from "./skyAssets";
 import "./skyPanel.css";
 
 type Path = readonly (string | number)[];
@@ -127,7 +126,7 @@ function set<T>(o: T, path: Path, value: unknown): T {
 }
 
 export function SkyPanel() {
-  const path = openSky.value;
+  const path = editor.assets.openIn("sky");
   const project = editor.project.current;
   editor.project.version; // the file list changes with it
   if (!project || !path) return <Panel><p class="empty">Double-click a sky asset (.sky.json) in the Assets panel, or create one with New Sky.</p></Panel>;

@@ -20,9 +20,10 @@ import {
   type NodeClipboard,
   type PasteTarget,
 } from "./nodeClipboard";
-import { currentProject, openScene, playState, sceneCamera, select, selectedKeys, selection, status, viewMode, type OpenScene } from "./state";
+import { openScene, playState, sceneCamera, select, selectedKeys, selection, status, viewMode, type OpenScene } from "./state";
 import { duplicateUIElement } from "./uiDocumentEdits";
 import { registeredKind } from "./assetKindLookup";
+import { createAsset } from "./assetKindHost";
 import { selectedUIRef } from "./uiDocuments";
 
 /** The copied nodes, or null. */
@@ -196,12 +197,10 @@ export function createNodeIn(kind: NodeKind, parent: string | null, index?: numb
     });
     return null;
   }
-  const createDocument = kind === "ui-document" && effect === undefined ? registeredKind("uidocument")?.create : undefined;
-  if (createDocument) {
-    // A new UI document (ADR 0077) with its stylesheet, written by the UI plugin's kind (ADR 0149), then the
-    // node showing it. A read-only project gets the node with no document (`create` says why in the status).
-    const folder = currentProject.peek()?.folders.includes("ui") ? "ui" : "";
-    void createDocument.create(folder).then((made) => {
+  if (kind === "ui-document" && effect === undefined && registeredKind("uidocument")?.create) {
+    // A new UI document (ADR 0077) with its stylesheet, written by the UI plugin's kind (ADR 0149) in its folder
+    // (ADR 0233), then the node showing it. A read-only project gets the node with no document (`create` says why).
+    void createAsset("uidocument").then((made) => {
       const note = status.peek();
       if (openScene.peek() !== scene) return;
       createNodeIn(kind, parent, index, made ? `asset:${made}` : "");

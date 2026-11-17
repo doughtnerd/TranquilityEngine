@@ -11,8 +11,8 @@ import { compileParticleGraph } from "../../../../../engine/scene/particleCompil
 import type { ContextKind, GraphGroup, GraphNode, GraphProblem, ParticleGraph, Vec2 } from "../../../../../engine/scene/particleGraph";
 import type { PortType } from "../../../../../engine/scene/particleNodes";
 import { usePanelHistory, type UndoHistory, editor, NO_DRAG, NO_PAN, NoteView, NodeSearchPopup, Minimap, SelectionBox, isFieldTarget, px, startConnection, startPointerDrag, toGraph, useGraphCanvas, useGraphSelection, type CanvasNode, type DraftWire, type Point, type EditorProject } from "../../../../../editor/sdk";
-import { createParticleSubgraph, particleDocument, readEffect } from "../../particleAssets";
-import { ASSET_INPUT, BLOCK_CONTEXTS, addPseudoNode, assetMeta, canMoveToAsset, editorNodeDef, extractSubgraph, isPseudo, setAssetMeta, wireRulesGraph } from "../../particleGraph/assetDocs";
+import { effectFileMigrated, particleDocument } from "../../particleAssets";
+import { ASSET_INPUT, BLOCK_CONTEXTS, addPseudoNode, assetMeta, assetToDoc, canMoveToAsset, editorNodeDef, extractSubgraph, isPseudo, setAssetMeta, wireRulesGraph } from "../../particleGraph/assetDocs";
 import {
   addBlock,
   addNode,
@@ -60,10 +60,11 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
   const readOnly = doc.readOnly;
   const version = editor.project.version; // sub-graph and block assets this graph uses may change on disk or elsewhere in the editor
   const graph = doc.value.value;
-  // Its parse problems: `GraphProblem`s (they say where), as the plugin's formats report them.
-  const parseProblems = doc.problems.value as readonly GraphProblem[];
+  // Its parse problems: `GraphProblem`s (they say where), as the plugin's formats report them; a file that couldn't
+  // be read at all has one problem without a severity (the asset kind host's, ADR 0233), an error.
+  const parseProblems = useMemo(() => doc.problems.value.map((p): GraphProblem => ("severity" in p ? (p as GraphProblem) : { severity: "error", message: p.message })), [doc.problems.value]);
   // An old-format file (written as a graph by the first edit).
-  const migrated = useMemo(() => readEffect(project, path).migrated, [version, path]);
+  const migrated = useMemo(() => effectFileMigrated(project, path), [version, path]);
   useEffect(() => () => void doc.flush(), [doc]); // write a pending gesture's edits when the panel closes
   const [selectedBlock, setSelectedBlock] = useState<string | null>(null);
   const [selectedWire, setSelectedWire] = useState<WireSelection | null>(null);
@@ -521,7 +522,7 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
       return;
     }
     const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
-    const made = await createParticleSubgraph(folder, probe.asset, "Sub-graph");
+    const made = await editor.assets.create("particlesubgraph", { folder, value: assetToDoc(probe.asset, "subgraph").graph, name: "Sub-graph" });
     if (!made) return;
     const done = extractSubgraph(live.current.graph, selection, `asset:${made}`, resolve);
     if (!done) return;

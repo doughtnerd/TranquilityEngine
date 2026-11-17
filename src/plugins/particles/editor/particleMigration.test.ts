@@ -3,6 +3,10 @@ import { CommandStack, SceneDocument } from "../../../editor/document";
 import { status, type OpenScene } from "../../../editor/state";
 import { closeTestProject, openTestProject } from "../../../editor/testing";
 import { migrateEmbeddedEffects } from "./particleMigration";
+import { useEditorPlugins } from "../../testEditorPlugins";
+import { particlesEditorPlugin } from ".";
+
+useEditorPlugins([particlesEditorPlugin], "each"); // the migration writes through the plugin's `particles` kind
 
 const doc = () =>
   new SceneDocument(

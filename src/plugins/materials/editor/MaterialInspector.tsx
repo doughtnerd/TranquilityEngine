@@ -3,11 +3,11 @@ import { useEffect } from "preact/hooks";
 import { Color } from "../../../engine";
 import { compileShaderGraph } from "../../../engine/render/shaderGraph/compile";
 import { MATERIAL_MAPS, colorHex, materialGraph, type MaterialAlphaMode, type MaterialInstancing, type MaterialMapKey, type MaterialSettings } from "../../../engine/scene/material";
-import { isShaderAssetPath } from "../../../engine/scene/shaderAsset";
-import type { GraphProperty, GraphValue } from "../../../engine/scene/shaderGraph";
+import { isShaderAssetPath, type ShaderAsset } from "../../../engine/scene/shaderAsset";
+import type { GraphProperty, GraphValue, ShaderGraph } from "../../../engine/scene/shaderGraph";
 import type { ShaderKeyword } from "../../../engine/scene/shaderKeywords";
-import { readShaderAsset, sameMaterial, withKeywordValue } from "./materialAssets";
-import { createMaterialForGraph, openShaderGraphAsset, readShaderGraph } from "./shaderGraphAssets";
+import { sameMaterial, withKeywordValue } from "./materialAssets";
+import { createMaterialForGraph } from "./shaderGraphAssets";
 import { PropertyValue } from "./ShaderPropertyValue";
 import { editor, openAssetDocument, LargePreview } from "../../../editor/sdk";
 import "../../../editor/ui/assetInspector.css";
@@ -36,8 +36,9 @@ export function MaterialInspector(props: { path: string }) {
   const graphFile = graphPath?.replace(/^asset:/, "") ?? null;
   const shaders = project.files.filter(isShaderAssetPath);
   const isShaderAsset = !!graphFile && isShaderAssetPath(graphFile);
-  const shaderFile = graphFile && isShaderAsset && project.files.includes(graphFile) ? readShaderAsset(project, graphFile).shader : null;
-  const graph = graphFile && !isShaderAsset && project.files.includes(graphFile) ? readShaderGraph(project, graphFile).graph : null;
+  const sourceKind = graphFile && project.files.includes(graphFile) ? editor.assets.kindOf(graphFile) : null;
+  const shaderFile = sourceKind === "shader" ? editor.assets.read<ShaderAsset>(project, graphFile!).value : null;
+  const graph = sourceKind === "shadergraph" || sourceKind === "shadersubgraph" ? editor.assets.read<ShaderGraph>(project, graphFile!).value : null;
   // The properties and keywords the material sets: the graph's (with the keywords its sub-graphs add), or the shader asset's.
   const graphKeywords = graph ? compileShaderGraph(graph).keywords : [];
   const source: { properties: GraphProperty[]; keywords: ShaderKeyword[]; what: string } | null = shaderFile
@@ -257,7 +258,7 @@ export function MaterialInspector(props: { path: string }) {
                 })}
               </>
             )}
-            {sourceExists && graphFile && !isShaderAsset && <button onClick={() => openShaderGraphAsset(graphFile)}>Edit Shader Graph</button>}
+            {sourceExists && graphFile && !isShaderAsset && <button onClick={() => editor.assets.open(graphFile)}>Edit Shader Graph</button>}
           </>
         )}
         {!graphPath && (
@@ -372,8 +373,8 @@ export function ShaderGraphInspector(props: { path: string }) {
   editor.project.version;
   const project = editor.project.current;
   if (!project) return <p class="empty">Nothing selected</p>;
-  const { graph, problems } = readShaderGraph(project, props.path);
-  const all = [...problems, ...compileShaderGraph(graph).problems];
+  const { value: graph, problems } = editor.assets.read<ShaderGraph>(project, props.path);
+  const all = [...problems.map((p) => p.message), ...compileShaderGraph(graph).problems];
   const sub = !!graph.subgraph;
   return (
     <div class="inspector-body asset-inspector" aria-label="Shader Graph">
@@ -399,7 +400,7 @@ export function ShaderGraphInspector(props: { path: string }) {
             : `${graph.target === "lit" ? "Lit" : "Unlit"}, ${graph.surface}${graph.doubleSided ? ", double-sided" : ""}; ${graph.nodes.length} nodes, ${graph.properties.length} properties.`}
         </p>
         <div class="material-pair">
-          <button class="primary" onClick={() => openShaderGraphAsset(props.path)}>Open in Shader Graph</button>
+          <button class="primary" onClick={() => editor.assets.open(props.path)}>Open in Shader Graph</button>
           {!sub && <button disabled={!project.canSave} onClick={() => void createMaterialForGraph(props.path)}>New Material</button>}
         </div>
       </div>

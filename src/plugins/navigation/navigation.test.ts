@@ -8,7 +8,8 @@ import { inspectedAsset } from "../../editor/assetImport";
 import { select as selectAssets } from "../../editor/assetSelection";
 import { kindIcon, kindLabel, registeredKind, satisfiesFieldKind } from "../../editor/assetKindLookup";
 import { joinPath, openFolderProject } from "../../editor/projects";
-import { assetFormats, assetKinds, panelExtensions, projectSettingsSections } from "../../editor/sdk/contributions";
+import { assetKinds, panelExtensions, projectSettingsSections } from "../../editor/sdk/contributions";
+import { editor } from "../../editor/sdk";
 import { isPluginActive } from "../../editor/sdk/plugins";
 import { useEditorPlugins } from "../testEditorPlugins";
 import { currentProject } from "../../editor/state";
@@ -56,14 +57,15 @@ describe("the Navigation plugin's editor half (ADR 0134)", () => {
     expect(assetKinds.get("formation")?.inspector).toBeTypeOf("function");
   });
 
-  it("registers a format that round-trips a formation and reports problems as messages", () => {
-    const format = assetFormats.get("formation")!;
+  it("declares a format that round-trips a formation and reports problems as messages", async () => {
+    const { project } = await open({ [FORMATION]: '"nope"' });
+    const format = assetKinds.get("formation")!.format!;
     const painted = setFormationCell(mask(), 2, 1, true);
     const read = format.parse(JSON.parse(formatFormation(painted)), FORMATION);
     expect(read.problems).toEqual([]);
     expect(read.value).toEqual(painted);
     expect(format.format(read.value)).toBe(formatFormation(painted));
-    const bad = format.parse("nope", FORMATION);
+    const bad = editor.assets.read(project, FORMATION);
     expect(bad.problems.length).toBeGreaterThan(0);
     expect(Object.keys(bad.problems[0]!)).toEqual(["message"]);
   });
@@ -111,7 +113,6 @@ describe("the Navigation plugin's editor half (ADR 0134)", () => {
     editorHalf.off();
     expect(isPluginActive("myco.navigation")).toBe(false);
     expect(registeredKind("formation")).toBeUndefined();
-    expect(assetFormats.get("formation")).toBeUndefined();
     expect(projectSettingsSections.list()).toEqual([]);
     expect(panelExtensions.list()).toEqual([]);
     for (const type of ["engine.NavChunk", "engine.NavAgent", "engine.NavGroup", "engine.NavCostVolume"]) expect(inspectorSectionsFor(type, [["root"]]), type).toEqual([]);

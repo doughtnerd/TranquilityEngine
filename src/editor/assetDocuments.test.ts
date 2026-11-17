@@ -6,7 +6,7 @@ import type { StorageBackend } from "../engine/platform/Storage";
 import { defaultHistoryPlatform } from "./historyPersistence";
 import { askBeforeDeletingAssets, historyLocation } from "./preferences";
 import { joinPath, openFolderProject, readOnlyProject, type EditorProject } from "./projects";
-import { assetFormats } from "./sdk/contributions";
+import { assetKinds, type AssetKindContribution } from "./sdk/contributions";
 import { currentProject, docVersion, status } from "./state";
 import { MemoryFileSystem, ROOT } from "./testing";
 import { KEEPS_HISTORY_FOCUS } from "./windows/editorFocus";
@@ -34,14 +34,20 @@ const open = (path = PATH) => {
 const ASSET_HISTORY_DIR = ".myco/asset-history";
 
 beforeEach(async () => {
-  unregister = assetFormats.register({
+  unregister = assetKinds.register(<AssetKindContribution<Thing>>{
     id: "thing",
-    parse: (raw) => {
-      const n = (raw as { n?: unknown } | undefined)?.n;
-      return typeof n === "number" ? { value: { n }, problems: [] } : { value: { n: 0 }, problems: raw === undefined ? [] : [{ message: "n isn't a number" }] };
+    extensions: [".thing.json"],
+    label: "Thing",
+    icon: "",
+    format: {
+      parse: (raw) => {
+        const n = (raw as { n?: unknown } | undefined)?.n;
+        return typeof n === "number" ? { value: { n }, problems: [] } : { value: { n: 0 }, problems: raw === undefined ? [] : [{ message: "n isn't a number" }] };
+      },
+      format: (value) => `${JSON.stringify(value)}\n`,
+      empty: () => ({ n: 0 }),
+      writeDelay: 100,
     },
-    format: (value: Thing) => `${JSON.stringify(value)}\n`,
-    writeDelay: 100,
   });
   fs = new MemoryFileSystem();
   fs.files.set(joinPath(ROOT, "project.json"), "{}");

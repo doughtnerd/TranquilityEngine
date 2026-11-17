@@ -4,15 +4,15 @@
 import type { PluginManifest } from "../../plugins/manifest";
 import { orderPlugins } from "../../plugins/order";
 import { setPanelOwner } from "./panelOwners";
-import { fieldChoices, type FieldChoicesContribution, assetActions, assetFormats, assetKinds, componentHeaderActions, hierarchyCreateEntries, idlePrefetches, playStatsCounters, sceneOpenMigrations, type AssetActionContribution, type HierarchyCreateContribution, type IdlePrefetchContribution, type PlayStatsCounterContribution, type SceneOpenMigrationContribution, componentNotes, panelExtensions, panels, projectSettingsSections, sceneToolbarItems, viewportTools, type AssetFormatContribution, type ComponentHeaderActionContribution, type SceneToolbarItemContribution, type ComponentNoteContribution, type AssetKindContribution, type PanelContribution, type PanelExtensionContribution, type ProjectSettingsSectionContribution, type ViewportToolContribution } from "./contributions";
+import { fieldChoices, type FieldChoicesContribution, assetActions, assetKinds, componentHeaderActions, hierarchyCreateEntries, idlePrefetches, playStatsCounters, sceneOpenMigrations, type AssetActionContribution, type HierarchyCreateContribution, type IdlePrefetchContribution, type PlayStatsCounterContribution, type SceneOpenMigrationContribution, componentNotes, panelExtensions, panels, projectSettingsSections, sceneToolbarItems, viewportTools, type ComponentHeaderActionContribution, type SceneToolbarItemContribution, type ComponentNoteContribution, type AssetKindContribution, type PanelContribution, type PanelExtensionContribution, type ProjectSettingsSectionContribution, type ViewportToolContribution } from "./contributions";
 import { registerInspectorSection, type InspectorSectionOptions, type InspectorSectionProps } from "../ui/inspectorSections";
 import type { LoadComponent } from "./contributions";
 import { checkSettingsSectionKeys } from "../projectSettingsModel";
 
 
 export interface EditorPluginContext {
-  registerAssetKind(kind: AssetKindContribution): void;
-  registerAssetFormat<T>(format: AssetFormatContribution<T>): void;
+  /** An asset kind (ADR 0134, 0143, 0233), with its format, default folder and panel when it declares them. */
+  registerAssetKind<T>(kind: AssetKindContribution<T>): void;
   registerPanel(panel: PanelContribution): void;
   /**
    * A category of the Project settings panel (listed after the built-in ones unless `after` places it), owning
@@ -61,7 +61,6 @@ export function activatePlugin(plugin: EditorPlugin): void {
   active.set(name, undo);
   const context: EditorPluginContext = {
     registerAssetKind: (k) => void undo.push(assetKinds.register(k)),
-    registerAssetFormat: (f) => void undo.push(assetFormats.register(f)),
     registerPanel: (p) => {
       // The owner first, so the panel catalog built when the registry changes names it; a taken id changes neither.
       if (panels.get(p.id)) throw new Error(`Panel "${p.id}" is already registered.`);
