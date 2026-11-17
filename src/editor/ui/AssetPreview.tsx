@@ -209,13 +209,6 @@ effect(() => {
   lastProject = project;
 });
 
-/** The playing clip with its position (the end-to-end test hook). */
-const clipState = () => {
-  const clip = playingClip.peek();
-  return clip ? { ...clip, time: clipTime.peek() } : null;
-};
-if (typeof window !== "undefined") Object.assign(window, { assetAudio: { state: clipState } });
-
 /** A clip's summary (waveform peaks, length…), loaded while `active`. */
 function useAudioSummary(path: string, active: boolean): AudioSummary | null {
   const version = docVersion.value;

@@ -55,16 +55,6 @@ interface BakeEntry {
   failed: string | null;
 }
 
-/** What the scene view drew last (the test hook `navOverlay()` and the status). */
-export interface NavOverlayStats {
-  bakes: number;
-  loaded: number;
-  segments: number;
-  /** Segment count by colour (0xRRGGBB). */
-  byColor: Record<number, number>;
-  failed: string[];
-}
-
 /** The baked chunks of the open scene: their asset paths, each one's URL, and what changes when they might have. */
 export interface SceneBakes {
   paths: string[];
@@ -86,7 +76,6 @@ export class NavBakeOverlay {
   private scannedScene: unknown = null;
   private memoKey = "";
   private memo: DebugSegments[] = [];
-  stats: NavOverlayStats = { bakes: 0, loaded: 0, segments: 0, byColor: {}, failed: [] };
 
   constructor(
     private readonly settings: () => NavOverlaySettings,
@@ -102,9 +91,9 @@ export class NavBakeOverlay {
   /** The segments to draw this frame (empty unless a toggle is on). */
   segments(): DebugSegments[] {
     const s = this.settings();
-    if (!s.navmesh && !s.links && !s.volume) return this.finish([], 0);
+    if (!s.navmesh && !s.links && !s.volume) return [];
     const scene = this.sceneBakes();
-    if (!scene) return this.finish([], 0);
+    if (!scene) return [];
     const now = this.clock();
     // Rescan the scene's chunks when its document changes, and now and then for rewritten assets.
     if (scene.token !== this.scannedScene || scene.version !== this.scannedVersion || now - this.scannedAt > 1000) {
@@ -140,20 +129,7 @@ export class NavBakeOverlay {
       }
       this.memo = out;
     }
-    return this.finish(this.memo, this.paths.length);
-  }
-
-  private finish(segments: DebugSegments[], bakes: number): DebugSegments[] {
-    const byColor: Record<number, number> = {};
-    let total = 0;
-    for (const g of segments) {
-      const n = g.positions.length / 6;
-      byColor[g.color] = (byColor[g.color] ?? 0) + n;
-      total += n;
-    }
-    const failed = [...this.entries.values()].flatMap((e) => (e.failed ? [e.failed] : []));
-    this.stats = { bakes, loaded: [...this.entries.values()].filter((e) => e.lines.size > 0).length, segments: total, byColor, failed };
-    return segments;
+    return this.memo;
   }
 
   private load(e: BakeEntry, group: number, volume: boolean): void {
