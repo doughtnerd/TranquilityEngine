@@ -6,7 +6,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Engine } from "../engine";
 import type { World } from "../engine/core/World";
 import type { GameObject } from "../engine/scene/GameObject";
-import { shownEditorOverlays } from "../engine/editor";
 import { CommandStack, SceneDocument, SetField, type SceneFile } from "./document";
 import { viewportTools, type ViewportCancel, type ViewportDrag, type ViewportToolContext, type ViewportToolContribution } from "./sdk/contributions";
 import { editor } from "./sdk/editor";
@@ -20,6 +19,11 @@ const keyEvent = (key: string, props: Partial<KeyboardEvent> = {}) =>
   Object.assign(new Event("keydown", { cancelable: true }), { key, ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, ...props });
 /** A key pressed in a text field. */
 const keyInField = (key: string) => Object.defineProperty(keyEvent(key), "target", { value: { nodeType: 1, tagName: "INPUT", type: "text" } });
+
+/** An overlay line in `color`, so a test can tell which overlays drew. */
+const line = (color: number) => ({ points: [[0, 0, 0], [1, 0, 0]] as [number, number, number][], closed: false, color });
+/** The colours of the lines the scene view draws now, in order. */
+const drawnColors = () => view.overlay().lines.map((l) => l.color);
 
 let view: SceneViewTools;
 let canvas: SceneViewCanvas;
@@ -70,17 +74,17 @@ describe("viewport tool host", () => {
   it("follows the registry: installs tools registered later and uninstalls removed ones", () => {
     const cleanup = vi.fn();
     const t = tool("t.a", (ctx) => {
-      ctx.overlay(() => ({ lines: [], handles: [] }));
-      ctx.overlay(() => ({ lines: [], handles: [] }), { suffix: "extra" });
+      ctx.overlay(() => ({ lines: [line(1)], handles: [] }));
+      ctx.overlay(() => ({ lines: [line(2)], handles: [] }), { suffix: "extra" });
       return cleanup;
     });
     const remove = register(t.contribution);
-    expect(shownEditorOverlays(world)).toEqual(["t.a", "t.a:extra"]);
+    expect(drawnColors()).toEqual([1, 2]); // both of its overlays draw, in the order added
     t.ctx().enter();
     expect(activeViewportTool.value).toBe("t.a");
     remove();
     expect(cleanup).toHaveBeenCalledOnce();
-    expect(shownEditorOverlays(world)).toEqual([]);
+    expect(drawnColors()).toEqual([]);
     expect(activeViewportTool.value).toBeNull(); // removing the active tool gives the scene view back
   });
 

@@ -41,7 +41,7 @@ describe("Babylon editor viewport drawing (ADR 0075 stage 8, 0128)", () => {
       sprites: () => sprites,
       meshes: () => meshes,
       texts: () => [],
-      renderer: { setClearColor() {}, cameraPreviewDrawn: () => false, spriteSize: () => null, ui: () => null, bakeReflectionProbe: async () => new ArrayBuffer(0) },
+      renderer: { setClearColor() {}, spriteSize: () => null, ui: () => null, bakeReflectionProbe: async () => new ArrayBuffer(0) },
     } as unknown as BabylonEditorContext;
     vp = new BabylonEditorViewport(ctx);
   };
@@ -84,11 +84,21 @@ describe("Babylon editor viewport drawing (ADR 0075 stage 8, 0128)", () => {
   };
   const named = (s: Scene, name: string) => s.meshes.filter((m) => m.name === name);
   const colorsOf = (m: Mesh) => Array.from(m.getVerticesData(VertexBuffer.ColorKind)!);
+  /** What the overlay scene draws, read from its meshes as Babylon gets them: visible meshes named `prefix`… */
+  const shown = (prefix: string) => layer.utilityLayerScene.meshes.filter((m) => m.name.startsWith(prefix) && m.isVisible);
+  /** …and how many indices each draws (a batch draws only the part of its buffers in use). */
+  const indices = (prefix: string) => shown(prefix).reduce((n, m) => n + (m.subMeshes[0]?.indexCount ?? 0), 0);
+  /** Selection outlines shown: one mesh each, a sprite's loop or a mesh's box. */
+  const outlines = () => shown("myco.editor.outline").length + shown("myco.editor.boxOutline").length;
+  /** Overlay line segments shown: the lines batch and each segment group, two indices a segment. */
+  const segments = () => (indices("myco.editor.overlayLines") + indices("myco.editor.segments.")) / 2;
+  /** Overlay handles shown: six indices (two triangles) a handle. */
+  const handles = () => indices("myco.editor.handles") / 6;
   /** The light wireframes drawn: each segment's two ends, from the overlay's line mesh. */
   const lightWires = (): number[][][] => {
-    const wires = named(layer.utilityLayerScene, "myco.editor.lightWires")[0] as Mesh | undefined;
+    const wires = shown("myco.editor.lightWires")[0] as Mesh | undefined;
     const p = wires?.getVerticesData(VertexBuffer.PositionKind) ?? [];
-    return Array.from({ length: vp.drawn().lightWires }, (_, i) => [[p[i * 6], p[i * 6 + 1], p[i * 6 + 2]], [p[i * 6 + 3], p[i * 6 + 4], p[i * 6 + 5]]]);
+    return Array.from({ length: indices("myco.editor.lightWires") / 2 }, (_, i) => [[p[i * 6], p[i * 6 + 1], p[i * 6 + 2]], [p[i * 6 + 3], p[i * 6 + 4], p[i * 6 + 5]]]);
   };
 
   it("draws a grid and axes in the main scene, not the overlay scene", () => {
@@ -145,19 +155,19 @@ describe("Babylon editor viewport drawing (ADR 0075 stage 8, 0128)", () => {
     meshes.push({ component: { node: meshNode } as never, meshes: [box] });
     vp.setSelection([spriteNode, meshNode], true);
     step();
-    expect(vp.drawn().outlines).toBe(2);
+    expect(outlines()).toBe(2);
     const outline = named(layer.utilityLayerScene, "myco.editor.boxOutline")[0];
     expect(outline.position.x).toBeCloseTo(1);
     expect(outline.scaling.x).toBeCloseTo(2);
     vp.setSelection([spriteNode, meshNode], false);
     step();
-    expect(vp.drawn().outlines).toBe(0);
+    expect(outlines()).toBe(0);
     vp.setSelection([spriteNode, meshNode], true);
     step();
-    expect(vp.drawn().outlines).toBe(2);
+    expect(outlines()).toBe(2);
     vp.setSelection([], true);
     step();
-    expect(vp.drawn().outlines).toBe(0);
+    expect(outlines()).toBe(0);
   });
 
   it("outlines descendants of a selected node", () => {
@@ -166,10 +176,10 @@ describe("Babylon editor viewport drawing (ADR 0075 stage 8, 0128)", () => {
     child.setParent(parent);
     meshes.push({ component: { node: child } as never, meshes: [MeshBuilder.CreateBox("b", { size: 1 }, scene)] });
     step();
-    expect(vp.drawn().outlines).toBe(0);
+    expect(outlines()).toBe(0);
     vp.setSelection([parent], true);
     step();
-    expect(vp.drawn().outlines).toBe(1);
+    expect(outlines()).toBe(1);
   });
 
   it("draws the live selection outline and overlay on a game's surface, but no gizmos", () => {
@@ -181,9 +191,8 @@ describe("Babylon editor viewport drawing (ADR 0075 stage 8, 0128)", () => {
     vp.setSelection([node], true);
     vp.setOverlay(() => ({ lines: [{ points: [[0, 0, 0], [1, 0, 0]], closed: false, color: 0xff0000 }], handles: [] }));
     step();
-    const shown = vp.drawn();
-    expect(shown.outlines).toBe(1);
-    expect(shown.segments).toBe(1);
+    expect(outlines()).toBe(1);
+    expect(segments()).toBe(1);
     expect(vp.pick(400, 300)).toEqual([node]); // the sprite, and no camera icon
     expect(named(layer.utilityLayerScene, "myco.editor.cameraGizmo")).toHaveLength(0);
   });
@@ -229,10 +238,10 @@ describe("Babylon editor viewport drawing (ADR 0075 stage 8, 0128)", () => {
     const o = overlay();
     vp.setOverlay(() => o);
     step();
-    expect(vp.drawn()).toMatchObject({ segments: 2 + 3 + 2, handles: 2 });
+    expect([segments(), handles()]).toEqual([2 + 3 + 2, 2]);
     vp.setOverlay(() => ({ lines: [], handles: [] }));
     step();
-    expect(vp.drawn()).toMatchObject({ segments: 0, handles: 0 });
+    expect([segments(), handles()]).toEqual([0, 0]);
     expect(named(layer.utilityLayerScene, "myco.editor.segments.0")).toHaveLength(0);
   });
 
@@ -306,15 +315,15 @@ describe("Babylon editor viewport drawing (ADR 0075 stage 8, 0128)", () => {
     editNode("amb", [0, 2, 0]).addBehavior(Light, { type: "ambient" });
     step();
     // Directional: 1 + 4 * 2 = 9. Spot: 4 + 32 = 36. Point (unselected) and ambient: none.
-    expect(vp.drawn().lightWires).toBe(9 + 36);
+    expect(lightWires().length).toBe(9 + 36);
     expect(vp.lightIcons()).toHaveLength(4);
     vp.setSelection([point], true);
     step();
-    expect(vp.drawn().lightWires).toBe(9 + 36 + 96);
+    expect(lightWires().length).toBe(9 + 36 + 96);
     point.setActive(false);
     step();
     expect(vp.lightIcons()).toHaveLength(3);
-    expect(vp.drawn().lightWires).toBe(9 + 36);
+    expect(lightWires().length).toBe(9 + 36);
   });
 
   it("draws a directional light's rays along its +Z axis (ADR 0164)", () => {

@@ -60,13 +60,12 @@ export interface BabylonEditorContext {
 }
 
 /**
- * @internal Renderer-level editor features: the background, whether the camera inset drew, sprite sizes,
+ * @internal Renderer-level editor features: the background, sprite sizes,
  * UI and probe bakes. The camera inset, selection and particle preview are render policy (ADR 0129),
  * set through the surface's `RenderPolicyPort`, not here.
  */
 export interface BabylonEditorRendererHooks {
   setClearColor(color: number): void;
-  cameraPreviewDrawn(): boolean;
   spriteSize(s: SpriteRenderer): [number, number] | null;
   ui(): ViewportUI | null;
   bakeReflectionProbe(probe: ReflectionProbe): Promise<ArrayBuffer>;

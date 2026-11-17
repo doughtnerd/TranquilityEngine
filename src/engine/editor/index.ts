@@ -265,7 +265,7 @@ export function viewport(world: World): EditorViewport {
   return v;
 }
 
-export type { EditorColors, EditorDrawing, EditorGrid, EditorOverlay, EditorViewport, GizmoHandlers, GizmoOptions, ScreenRect, ViewRay, WorldBox } from "../render/editorViewport";
+export type { EditorColors, EditorGrid, EditorOverlay, EditorViewport, GizmoHandlers, GizmoOptions, ScreenRect, ViewRay, WorldBox } from "../render/editorViewport";
 export type { LocalPose } from "../render/gizmoMath";
 export type { RenderDiagnostics, RenderStats } from "../render/RenderSurface";
 
@@ -481,12 +481,6 @@ export function setEditorOverlayFilter(world: World, filter: ((kind: EditorOverl
   else overlayFilters.delete(world);
   const map = overlayProviders.get(world);
   if (map) installOverlays(world, map);
-}
-
-/** The ids of `world`'s overlays that are drawn under its filter, in order (tests and tools). */
-export function shownEditorOverlays(world: World): string[] {
-  const filter = overlayFilters.get(world);
-  return [...(overlayProviders.get(world) ?? [])].filter(([, e]) => !filter || filter(e.kind)).map(([id]) => id);
 }
 
 function installOverlays(world: World, map: Map<string, OverlayEntry>): void {

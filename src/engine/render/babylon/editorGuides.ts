@@ -1,8 +1,7 @@
 /**
  * The editor's guides on the Babylon backend (ADR 0022, 0065, 0075 stage 8, 0128): the grid and axes,
  * selection outlines, and the overlay the editor supplies every frame (collider outlines, handles,
- * bulk segments such as navigation debug drawing). Also keeps the count of overlay objects drawn
- * (`EditorDrawing.drawnObjects`), which the icons' light wireframes add to.
+ * bulk segments such as navigation debug drawing).
  *
  * The grid and axes are in the main scene (editor Worlds only); the rest is in the overlay scene
  * (`editorBatches.ts`). A game's surface has no grid but draws the overlay and the live selection outline.
@@ -128,7 +127,6 @@ export class BabylonEditorGuides implements IconStyle {
   private handleIds: string[] = [];
   private handlePositions = new Float32Array(0);
   private readonly overlaySegments: { positions: Float32Array; color: number; batch: LineBatch }[] = [];
-  private readonly draws = { count: 0, last: 0 };
 
   constructor(private readonly ctx: BabylonEditorContext) {
     this.utility = ctx.overlay.utilityLayerScene;
@@ -139,9 +137,6 @@ export class BabylonEditorGuides implements IconStyle {
   get colors(): EditorColors {
     return this.colorsNow;
   }
-
-  /** Counts one overlay object drawn this frame (`drawn().drawnObjects` reports the last whole frame's). */
-  readonly countDraw = (): void => void this.draws.count++;
 
   // --- Grid and axes (main scene) ---------------------------------------------------------------
 
@@ -290,8 +285,6 @@ export class BabylonEditorGuides implements IconStyle {
    * (navigation debug drawing, ADR 0065) and the live selection outline.
    */
   sync(view: View | null): void {
-    this.draws.last = this.draws.count; // what the last whole frame drew (drawn)
-    this.draws.count = 0;
     if (this.ctx.editor) {
       this.syncOutlines();
       this.syncOverlay(view);
@@ -311,7 +304,7 @@ export class BabylonEditorGuides implements IconStyle {
   private syncOverlay(view: View | null): void {
     const overlay = this.provider?.() ?? { lines: [], handles: [] };
     // Lines: one batch with per-vertex colours, refilled each frame.
-    this.overlayLines ??= new LineBatch(this.utility, "myco.editor.overlayLines", OVERLAY_GROUP.lines, true, this.countDraw);
+    this.overlayLines ??= new LineBatch(this.utility, "myco.editor.overlayLines", OVERLAY_GROUP.lines, true);
     const lines = this.overlayLines;
     lines.begin();
     for (const line of overlay.lines) {
@@ -357,7 +350,7 @@ export class BabylonEditorGuides implements IconStyle {
       let slot = this.overlaySegments[i];
       if (slot && slot.positions === group.positions && slot.color === group.color) continue;
       if (!slot) {
-        slot = { positions: group.positions, color: group.color, batch: new LineBatch(this.utility, `myco.editor.segments.${i}`, OVERLAY_GROUP.lines, true, this.countDraw) };
+        slot = { positions: group.positions, color: group.color, batch: new LineBatch(this.utility, `myco.editor.segments.${i}`, OVERLAY_GROUP.lines, true) };
         this.overlaySegments.push(slot);
       }
       const vertices = Math.floor(group.positions.length / 3);
@@ -381,15 +374,6 @@ export class BabylonEditorGuides implements IconStyle {
       if (s.z >= view.near && s.z <= view.far) out.push({ id, x: s.x, y: s.y });
     });
     return out;
-  }
-
-  /** How much shows now: overlay line segments (lines and bulk groups), handles, outlines, and overlay objects the last frame drew. */
-  drawn(): { segments: number; handles: number; outlines: number; drawnObjects: number } {
-    let segments = this.overlayLines?.visible ? Math.floor(this.overlayLines.count / 2) : 0;
-    for (const s of this.overlaySegments) if (s.batch.visible) segments += Math.floor(s.batch.count / 2);
-    const outlines = this.spriteOutlines.filter((o) => o.batch.visible).length + this.boxOutlines.filter((o) => o.batch.visible).length;
-    const handles = this.handles?.mesh.isVisible ? this.handles.count : 0;
-    return { segments, handles, outlines, drawnObjects: this.draws.last };
   }
 
   dispose(): void {

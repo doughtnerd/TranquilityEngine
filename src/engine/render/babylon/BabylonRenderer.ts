@@ -184,7 +184,7 @@ export class BabylonRenderer {
   private toolsLoading: Promise<BabylonEditorViewport | null> | null = null;
   private overlayLayer: UtilityLayerRenderer | null = null;
   /** Editor: whether the last frame drew the camera preview. */
-  cameraPreviewDrawn = false;
+  private cameraPreviewDrawn = false;
   /** What reflection probes capture: the scene's meshes minus editor-only ones, refilled each frame. */
   private readonly probeMeshes: AbstractMesh[] = [];
 
@@ -386,7 +386,6 @@ export class BabylonRenderer {
       texts: () => [], // Text draws from stage 9
       renderer: {
         setClearColor: (color) => this.setClearColor(color),
-        cameraPreviewDrawn: () => this.cameraPreviewDrawn,
         spriteSize: (sprite) => this.spriteSize(sprite),
         ui: () => this.uiState(),
         bakeReflectionProbe: (probe) => this.bakeReflectionProbe(probe),

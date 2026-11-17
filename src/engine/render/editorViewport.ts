@@ -98,22 +98,6 @@ export interface EditorGrid {
   divisions: number;
 }
 
-/** @internal How much editor drawing the view shows now (tests and play mode's Gizmos menu). */
-export interface EditorDrawing {
-  /** Overlay line segments shown. */
-  segments: number;
-  /** Overlay handles shown. */
-  handles: number;
-  /** Selection outlines shown. */
-  outlines: number;
-  /** Overlay objects the last frame drew. */
-  drawnObjects: number;
-  /** Light wireframe segments the last frame drew. */
-  lightWires: number;
-  /** Whether the last frame drew the camera preview inset. */
-  cameraPreview: boolean;
-}
-
 /** @internal The UI core queries the editor needs (ADR 0069, 0077, 0117). */
 export type ViewportUI = Pick<UICoreLike, "pickAll" | "pickCanvases" | "cornersOf">;
 
@@ -176,8 +160,6 @@ export interface EditorViewport {
   pickUICanvases(x: number, y: number): UICanvas[];
   /** A UI element's four corners on the canvas and its size in UI pixels, or null (not laid out, or behind the camera). */
   uiElementBox(c: UIComponentType): { points: [number, number][]; size: readonly [number, number] } | null;
-  /** How much editor drawing shows now. */
-  drawn(): EditorDrawing;
   /** Editor (ADR 0110): a reflection probe's current capture as a prefiltered `.env` file. Rejects until ready. */
   bakeReflectionProbe(probe: ReflectionProbe): Promise<ArrayBuffer>;
 }
@@ -206,11 +188,8 @@ export interface ViewportAdapter {
   lightIcons(): { node: GameObject; x: number; y: number }[];
   /** The UI core once loaded, or null. */
   ui(): ViewportUI | null;
-  drawn(): EditorDrawing;
   bakeReflectionProbe(probe: ReflectionProbe): Promise<ArrayBuffer>;
 }
-
-const NOTHING_DRAWN: EditorDrawing = { segments: 0, handles: 0, outlines: 0, drawnObjects: 0, lightWires: 0, cameraPreview: false };
 
 /**
  * @internal The renderer-independent half of the editor viewport (ADR 0128). `connect` returns the
@@ -432,10 +411,6 @@ export class ViewportHandle implements EditorViewport {
       out.push(q);
     }
     return { points: out, size: corners.size };
-  }
-
-  drawn(): EditorDrawing {
-    return this.live()?.drawn() ?? { ...NOTHING_DRAWN };
   }
 
   bakeReflectionProbe(probe: ReflectionProbe): Promise<ArrayBuffer> {

@@ -19,7 +19,7 @@ import { Vector2, Vector3 } from "../../core/math";
 import type { World } from "../../core/World";
 import type { GameObject } from "../../scene/GameObject";
 import type { Camera, ReflectionProbe, SpriteRenderer } from "../components";
-import type { EditorColors, EditorDrawing, EditorOverlay, GizmoHandlers, GizmoOptions, ScreenRect, ViewportAdapter, ViewportUI, ViewRay, WorldBox } from "../editorViewport";
+import type { EditorColors, EditorOverlay, GizmoHandlers, GizmoOptions, ScreenRect, ViewportAdapter, ViewportUI, ViewRay, WorldBox } from "../editorViewport";
 import { readView } from "./editorBatches";
 import type { BabylonEditorContext } from "./editorContext";
 import { BabylonEditorGizmo } from "./editorGizmo";
@@ -103,10 +103,6 @@ export class BabylonEditorViewport implements ViewportAdapter {
 
   lightIcons(): { node: GameObject; x: number; y: number }[] {
     return this.ctx.world() ? this.icons.lightIcons() : [];
-  }
-
-  drawn(): EditorDrawing {
-    return { ...this.guides.drawn(), lightWires: this.icons.lightWireCount(), cameraPreview: this.ctx.renderer.cameraPreviewDrawn() };
   }
 
   // --- Renderer-level features -------------------------------------------------------------------
