@@ -17,7 +17,7 @@ import { createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSys
 import { routeGroupEvent, setSegmentClipSource } from "./segmentRun";
 import { planTick, requestStart } from "./planner";
 import { requestTransition, tickTransition, type Transition } from "./transition";
-import { endAudioSession } from "../testing";
+import { endAudioSession, loopbackAudio, closeLoopbackAudio } from "../testing";
 
 const RATE = 48_000;
 const FRAMES = 4 * RATE;
@@ -43,41 +43,20 @@ interface Rig {
 
 /** The loopback core with A and B loaded (silent voices) and the clock settled; null when the wasm can't load. */
 async function loopbackRig(): Promise<Rig | null> {
-  const testing = await import("../testing");
-  let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>>;
-  try {
-    loop = await testing.createLoopbackHost({ preset: { ...testing.LOOPBACK_PRESET, limiterLookaheadMs: 0 } });
-  } catch {
-    return null;
-  }
-  const [{ createClipRegistry }, { CoreBackend }, { Mixer }, { defaultAudioSettings }, { fakeDecoder }] = await Promise.all([
-    import("../core/clipRegistry"),
-    import("../core/coreBackend"),
-    import("../../../../engine/audio/mixer"),
-    import("../../../../engine/audio/settings"),
-    import("../core/fakeDecoder"),
-  ]);
-  const link = loop.link;
-  // The "encoded" bytes say which clip: 8 bytes A, 16 bytes B.
-  const clips = createClipRegistry({
-    send: (m) => link.post(m),
-    nextSeq: () => link.nextSeq(),
-    fetchBytes: async (url: string) => new ArrayBuffer(url.startsWith("b") ? 16 : 8),
-    decodeWorker: fakeDecoder(async (bytes) => ({ frames: FRAMES, channels: 1, sampleRate: RATE, channelData: [new Float32Array(FRAMES).fill(bytes.byteLength === 16 ? LEVEL.B : LEVEL.A)] })),
-    nextFrame: (cb) => cb(),
-    nextQuantum: (cb) => cb(),
-  });
-  const host = { link, status: "running" as const, preset: { maxLogical: 16, maxMixed: 8 }, worldCount: 1, sampleRate: RATE, addLifecycleListener: (() => () => {}) as never };
-  const mixer = new Mixer(defaultAudioSettings());
-  const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer }) as unknown as Rig["backend"];
+  // ADR 0221: the production assembly on the loopback, with its own mixer; no limiter look-ahead (output frames are core frames).
+  const loop = await loopbackAudio({ mixer: "own", preset: { maxLogical: 16, maxMixed: 8, limiterLookaheadMs: 0 }, decode: (path) => ({ channelData: [new Float32Array(FRAMES).fill(path.startsWith("b") ? LEVEL.B : LEVEL.A)] }) });
+  if (!loop) return null;
+  const mixer = loop.mixer;
+  const backend = loop.backend as unknown as Rig["backend"];
   setAudioBackend(backend);
   backend.music.onGroupEvent = routeGroupEvent;
-  const out: number[] = [];
+  // The core's frames before the rig rendered silence: `out` holds them as zeros, so an index is a frame.
+  const out: number[] = new Array<number>(loop.frame).fill(0);
   const step = async (n: number): Promise<void> => {
     for (let i = 0; i < n; i++) {
       mixer.update(0.003);
       backend.update(0.003);
-      for (const s of loop.renderQuanta(4).left) out.push(s);
+      for (const s of loop.render(4).left) out.push(s);
       await Promise.resolve();
     }
   };
@@ -147,6 +126,8 @@ afterEach(() => {
   endAudioSession();
   setAudioBackend(null);
 });
+
+afterEach(closeLoopbackAudio);
 
 describe("R3a seams on the loopback host (ADR 0166 §10 R3a)", () => {
   it("a cut is sample-exact: A through frame(T) - 1, B from frame(T), nothing of either across the seam", async (ctx) => {

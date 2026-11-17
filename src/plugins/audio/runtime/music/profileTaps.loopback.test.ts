@@ -12,7 +12,7 @@ import { requestTransition } from "./transition";
 import { NULL_PROFILE_SINK } from "../mix/profileSink";
 import { taps } from "../mix/profileTaps";
 import { recordingSink } from "../mix/recordingSink";
-import { endAudioSession } from "../testing";
+import { endAudioSession, closeLoopbackAudio, loopbackAudio } from "../testing";
 
 const RATE = 48_000;
 const FRAMES = 4 * RATE;
@@ -30,34 +30,18 @@ const instance = (): EventInstance =>
   ({ group: 7, world: 1, path: "music.audioevent", asset: { bus: "Music", volume: 1 }, getParameter: () => undefined }) as unknown as EventInstance;
 
 async function rig() {
-  const testing = await import("../testing");
-  let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>>;
-  try {
-    loop = await testing.createLoopbackHost({ preset: { ...testing.LOOPBACK_PRESET, limiterLookaheadMs: 0 } });
-  } catch {
-    return null;
-  }
-  const [{ createClipRegistry }, { CoreBackend }, { Mixer }, { defaultAudioSettings }, { fakeDecoder }] = await Promise.all([
-    import("../core/clipRegistry"), import("../core/coreBackend"), import("../../../../engine/audio/mixer"),
-    import("../../../../engine/audio/settings"), import("../core/fakeDecoder"),
-  ]);
-  const link = loop.link;
-  const clips = createClipRegistry({
-    send: (m) => link.post(m), nextSeq: () => link.nextSeq(),
-    fetchBytes: async () => new ArrayBuffer(8),
-    decodeWorker: fakeDecoder(async () => ({ frames: FRAMES, channels: 1, sampleRate: RATE, channelData: [new Float32Array(FRAMES).fill(0.25)] })),
-    nextFrame: (cb) => cb(), nextQuantum: (cb) => cb(),
-  });
-  const host = { link, status: "running" as const, preset: { maxLogical: 16, maxMixed: 8 }, worldCount: 1, sampleRate: RATE, addLifecycleListener: (() => () => {}) as never };
-  const mixer = new Mixer(defaultAudioSettings());
-  const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer }) as unknown as AudioBackend & { dispose(): void; music: NonNullable<AudioBackend["music"]> };
+  // ADR 0221: the production assembly on the loopback, with its own mixer (registered with the page below, as before).
+  const loop = await loopbackAudio({ mixer: "own", preset: { maxLogical: 16, maxMixed: 8, limiterLookaheadMs: 0 }, decode: () => ({ channelData: [new Float32Array(FRAMES).fill(0.25)] }) });
+  if (!loop) return null;
+  const mixer = loop.mixer;
+  const backend = loop.backend as unknown as AudioBackend & { dispose(): void; music: NonNullable<AudioBackend["music"]> };
   setAudioBackend(backend);
   backend.music.onGroupEvent = routeGroupEvent;
   const step = async (n: number): Promise<void> => {
     for (let i = 0; i < n; i++) {
       mixer.update(0.003);
       backend.update(0.003);
-      loop.renderQuanta(4);
+      loop.render(4);
       await Promise.resolve();
     }
   };
@@ -82,6 +66,8 @@ async function run(r: NonNullable<Awaited<ReturnType<typeof rig>>>, player: Retu
     await r.step(1);
   }
 }
+
+afterEach(closeLoopbackAudio);
 
 describe("musicTransition taps (§5.6 kind 13)", () => {
   it("the first segment is a transition from nothing; the change to B is reported once, with the segments' ids", async (ctx) => {

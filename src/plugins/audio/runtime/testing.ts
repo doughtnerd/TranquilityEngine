@@ -29,7 +29,7 @@ import { mixer, Mixer, type ResolvedBus } from "../../../engine/audio/mixer";
 import type { Vec3Like } from "../../../engine/core/math";
 import { CoreLink, type AudioHost, type LinkPort } from "./core/context";
 import type { HostClock } from "./core/hostClock";
-import { QUANTUM_FRAMES, type StatusBlock } from "./wire.generated";
+import { Kind, QUANTUM_FRAMES, readEnvelope, type StatusBlock } from "./wire.generated";
 import { DEFAULT_LIMITER_LOOKAHEAD_MS, defaultAudioSettings, type AudioSettings } from "../../../engine/audio/settings";
 import { CoreDriver, instantiateCore, type CoreInstance, type CorePreset } from "./worklet/coreDriver";
 import { notifyEngineLifecycle } from "../../../engine/core/engineLifecycle";
@@ -626,6 +626,12 @@ export interface LoopbackHost {
    * main handles none of it, so once its STATUS pool is out the shell takes nothing. `release` hands main what queued, in order.
    */
   stallMain(): LoopbackStall;
+  /**
+   * ADR 0221: a hitch between main and the core: from now until `stop`, each BATCH posted reaches the shell `quanta` quanta
+   * later, in order (a later batch waits behind a held one, also after `stop`), as when a thread stalls after a frame
+   * commits. Nothing tells the clock map; it learns of it from the next STATUS, as in a page.
+   */
+  delayBatches(quanta: number): { stop(): void };
   /** ADR 0221: watches what reaches the shell: every BATCH or REPLAY posted from now on, decoded, with the frame it was posted at. */
   watch(): LoopbackWatch;
 }
@@ -679,6 +685,10 @@ export async function createLoopbackHost(options: { clock?: FakeHostClock; prese
           const batch = batchRecords(message.slice(0));
           if (batch) for (const w of watchers) w.push({ frame, batch });
         }
+        if (message instanceof ArrayBuffer && (batchDelay !== null || heldBatches.length > 0) && isBatch(message)) {
+          heldBatches.push({ message, due: Math.max(quanta + (batchDelay ?? 0), heldBatches.at(-1)?.due ?? 0) });
+          return;
+        }
         toWorklet.push(message);
       },
     };
@@ -691,6 +701,11 @@ export async function createLoopbackHost(options: { clock?: FakeHostClock; prese
   link.onStatus((s) => statuses.push(s));
   let frame = 0;
 
+  /** Quanta rendered so far, over every core (the `delayBatches` clock). */
+  let quanta = 0;
+  /** `delayBatches`: the delay in quanta while one is active, and the BATCHes held back with the quantum count each is due at. */
+  let batchDelay: number | null = null;
+  const heldBatches: { message: ArrayBuffer; due: number }[] = [];
   /** A main-thread stall (`stallMain`): what the shell sent main meanwhile, and the frame the last of it arrived at. */
   let stalled: { held: unknown[]; lastFrame: number } | null = null;
 
@@ -748,6 +763,14 @@ export async function createLoopbackHost(options: { clock?: FakeHostClock; prese
     trapNext() {
       trapPending = true;
     },
+    delayBatches(delay) {
+      batchDelay = Math.max(0, Math.round(delay));
+      return {
+        stop: () => {
+          batchDelay = null;
+        },
+      };
+    },
     stallMain() {
       const stall = { held: [] as unknown[], lastFrame: frame };
       stalled = stall;
@@ -789,6 +812,9 @@ export async function createLoopbackHost(options: { clock?: FakeHostClock; prese
       const left = new Float32Array(n * QUANTUM_FRAMES);
       const right = new Float32Array(n * QUANTUM_FRAMES);
       for (let i = 0; i < n; i++) {
+        // Held BATCHes due by now reach the shell with this quantum's messages (after it renders), as a posted batch does.
+        while (heldBatches.length > 0 && heldBatches[0]!.due <= quanta) current.toWorklet.push(heldBatches.shift()!.message);
+        quanta++;
         const { driver } = current;
         driver.process(frame, clock.dateNow());
         left.set(driver.left, i * QUANTUM_FRAMES);
@@ -928,6 +954,8 @@ export interface LoopbackAudio {
   readonly watched: LoopbackWatch | null;
   /** Fault: a main-thread stall: what the core sends main queues until `release` (its STATUS pool runs out meanwhile). */
   stallMain(): LoopbackStall;
+  /** Fault: a hitch between main and the core: BATCHes posted until `stop` reach the core `quanta` quanta late (`LoopbackHost.delayBatches`). */
+  delayBatches(quanta: number): { stop(): void };
   /**
    * The worklet's end of the decoder worker's port (in a browser, the `MessagePort` the backend hands `connectStreamPort`):
    * a buffer posted on it (stream data, zone kernels) reaches the shell at the current frame.
@@ -981,6 +1009,9 @@ function loopbackContext(rate: number) {
   };
   return ctx;
 }
+
+/** Whether a message is a BATCH (its envelope's kind). */
+const isBatch = (message: ArrayBuffer): boolean => message.byteLength >= 8 && readEnvelope(new DataView(message), 0).kind === Kind.BATCH;
 
 const fakeNode = (): AudioWorkletNode => Object.assign(new EventTarget(), { connect() {}, disconnect() {} }) as unknown as AudioWorkletNode;
 
@@ -1147,6 +1178,7 @@ export async function loopbackAudio(options: LoopbackAudioOptions = {}): Promise
     watch: () => loop.watch(),
     watched,
     stallMain: () => loop.stallMain(),
+    delayBatches: (quanta) => loop.delayBatches(quanta),
     workletPort: { onmessage: null, postMessage: (message) => loop.send(message as ArrayBuffer) },
     async close() {
       if (closed) return;
