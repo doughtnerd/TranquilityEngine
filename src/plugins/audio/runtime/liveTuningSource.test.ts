@@ -14,7 +14,7 @@ import { CoreBackend, type CoreBackendHost } from "./core/coreBackend";
 import type { ClipInfo, ClipRegistry, ClipResidentListener, ClipState } from "./core/clipRegistry";
 import { voiceIndex } from "./core/ids";
 import { SpatialViewFlag } from "./core/spatial";
-import { watchBatches } from "./core/batchWatch";
+import { batchRecorder, type BatchRecorder } from "./core/batchWatch";
 import { mixer } from "../../../engine/audio/mixer";
 import { makeFakeBackend } from "./testing";
 import { Op, PLAY_FLAGS_SPATIAL, readPlay } from "./wire.generated";
@@ -189,9 +189,17 @@ class Registry implements ClipRegistry {
 }
 
 function useCore() {
-  // The fake core hands each BATCH buffer straight back (`handleMessage` returns it to the pool), as the real one does.
+  // The fake core hands each BATCH buffer straight back (`handleMessage` returns it to the pool), as the real one does,
+  // and records what it receives.
   let link: CoreLink | null = null;
-  const port: LinkPort = { onmessage: null, postMessage: (m: unknown) => void (m instanceof ArrayBuffer && link?.handleMessage(m)) };
+  const received = batchRecorder();
+  const port: LinkPort = {
+    onmessage: null,
+    postMessage: (m: unknown) => {
+      received.receive(m);
+      if (m instanceof ArrayBuffer) link?.handleMessage(m);
+    },
+  };
   link = new CoreLink(port);
   const host: CoreBackendHost = {
     link,
@@ -211,13 +219,13 @@ function useCore() {
   };
   const backend = new CoreBackend(host, { clips: new Registry(), clock, mixer });
   setAudioBackend(backend);
-  return { core: backend, link };
+  return { core: backend, received };
 }
 
-/** The PLAY records the backend posts on `link` from now on (decoded off the link: what the core receives). */
-function watchPlays(link: CoreLink) {
-  const watch = watchBatches(link);
-  return () => watch.pending.flatMap((b) => b.records.filter((r) => r.opcode === Op.PLAY).map((r) => readPlay(r.view, r.off)));
+/** The PLAY records the backend sends from now on (decoded where the fake core receives them). */
+function watchPlays(received: BatchRecorder) {
+  received.take();
+  return () => received.pending.flatMap((b) => b.records.filter((r) => r.opcode === Op.PLAY).map((r) => readPlay(r.view, r.off)));
 }
 
 describe("AudioSource M3 fields reach the core's voice table on the next frame", () => {
@@ -280,8 +288,8 @@ describe("AudioSource M3 fields reach the core's voice table on the next frame",
 // the request, or its replays play flat while main reports them as panned (HRTF).
 describe("a spatial AudioSource starts spatial on the core when its clip is resident (F-22)", () => {
   it("every PLAY carries the spatial flag, the distance gain and the direction, the replays too", () => {
-    const { link } = useCore();
-    const posted = watchPlays(link);
+    const { received } = useCore();
+    const posted = watchPlays(received);
     const src = spatialSource({ minDistance: 1, maxDistance: 30 }); // 3 m to the right of the listener
     frame();
     for (let k = 0; k < 3; k++) {
@@ -300,8 +308,8 @@ describe("a spatial AudioSource starts spatial on the core when its clip is resi
   });
 
   it("a flat source's PLAY stays flat", () => {
-    const { link } = useCore();
-    const posted = watchPlays(link);
+    const { received } = useCore();
+    const posted = watchPlays(received);
     const src = spatialSource({ spatial: false });
     src.play();
     frame();
@@ -313,8 +321,8 @@ describe("a spatial AudioSource starts spatial on the core when its clip is resi
   // F-24: the core reads `spatial` from PLAY only, so a source that turns `spatial` on while playing flat stays flat on
   // the core. Main mustn't mark it spatial (pan, attenuate and report it), and says why once.
   it("turning spatial on while playing flat leaves the voice flat on main, with one warning; the next play is spatial", () => {
-    const { core, link } = useCore();
-    const posted = watchPlays(link);
+    const { core, received } = useCore();
+    const posted = watchPlays(received);
     const warn = vi.mocked(console.warn);
     const src = spatialSource({ spatial: false });
     src.play();

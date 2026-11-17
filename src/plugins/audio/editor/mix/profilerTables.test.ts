@@ -5,8 +5,7 @@
 // BusTable.stories.tsx and profilerTables.stories.tsx. No wall clock anywhere.
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { EventKind, type KeyframeBus, type KeyframePayload, type KeyframeVoice } from "../../runtime/capture/format";
-import type { CaptureSeekState } from "../../runtime/capture/reader";
+import type { CaptureKeyframe, CaptureKeyframeBus, CaptureKeyframeMusic, CaptureKeyframeVoice, CaptureSeekState } from "../../runtime/capture/reader";
 import { SAMPLE_RATE } from "../../runtime/capture/testSupport";
 import { type ProfilerSlots, profilerSlots } from "./ProfilerPanel";
 import { voiceTableData } from "./VoiceTable";
@@ -25,15 +24,15 @@ const TABLE_EMPTY = {
 
 // ---- synthetic seek states ----
 
-const EMPTY_MIX = { slotTableVersion: 1, monitorActive: 0, loudnessPausedMask: 0, targetIndex: 0, snapshotName: 0, masterVolume: 1, hiddenMute: 0 };
-function keyframe(over: Partial<KeyframePayload> = {}): KeyframePayload {
+const EMPTY_MIX = { slotTableVersion: 1, monitorActive: false, targetIndex: 0, snapshot: null, masterVolume: 1, hiddenMute: false };
+function keyframe(over: Partial<CaptureKeyframe> = {}): CaptureKeyframe {
   return { voices: [], buses: [], metered: [], events: [], music: [], mix: EMPTY_MIX, ...over };
 }
-function seekState(kf: KeyframePayload | null, records: unknown[] = []): CaptureSeekState {
+function seekState(kf: CaptureKeyframe | null, records: unknown[] = []): CaptureSeekState {
   return { seconds: 0, keyframeSeq: kf ? 1 : -1, keyframe: kf, status: null, records, recordsScanned: 0 } as unknown as CaptureSeekState;
 }
-const voice = (id: number, over: Partial<KeyframeVoice> = {}): KeyframeVoice => ({
-  id, clip: 1 + (id % 3), slot: id % 3, state: 0, priority: id % 5, reason: 0, gain: 0.5, pitch: 4096, audibility: 65535 - id * 8, playheadFrames: id * 10, ...over,
+const voice = (id: number, over: Partial<CaptureKeyframeVoice> = {}): CaptureKeyframeVoice => ({
+  id, clip: 1 + (id % 3), slot: id % 3, state: "playing", priority: id % 5, reason: 0, gain: 0.5, pitch: 1, audibility: 1 - id / 8192, playheadFrames: id * 10, ...over,
 });
 const thousand = (): CaptureSeekState => seekState(keyframe({ voices: Array.from({ length: 1024 }, (_, i) => voice(i + 1)) }));
 const NAMES_LOOKUP = nameLookup({ clips: new Map([[1, "jump.ogg"], [2, "Land.ogg"], [3, "footstep.ogg"]]), buses: new Map([[0, "Master"], [1, "Music"], [2, "SFX"]]), events: new Map(), parameters: new Map(), snapshots: new Map(), targets: new Map() } as never);
@@ -145,7 +144,7 @@ describe("the voice table on a recorded scene: reasons and the thief", () => {
     const replay = reconstructVoices(state, names);
     const byId = new Map(replay.rows.map((r) => [r.id, r]));
     const victim = byId.get(1)!;
-    expect(victim.stateName).toBe("stolen");
+    expect(victim.state).toBe("stolen");
     expect(voiceCells(victim, byId)).toMatchObject({ state: "stolen", reason: "priority, by voice 3 (jump.ogg)", clip: "jump.ogg", bus: "Music" });
 
     s.close();
@@ -164,7 +163,7 @@ describe("the voice table on a recorded scene: reasons and the thief", () => {
   });
 
   it("names the thief by id when it isn't in the table, and prints '-' for fields a later voice doesn't have", () => {
-    const row = { thief: 99, reasonText: "", clipName: "x", busName: "y", stateName: "stolen", priority: null, pitch: null, audibility: null, gain: 1, playheadFrames: 0, id: 1 } as unknown as VoiceRow;
+    const row = { thief: 99, reasonText: "", clipName: "x", busName: "y", state: "stolen", priority: null, pitch: null, audibility: null, gain: 1, playheadFrames: 0, id: 1 } as unknown as VoiceRow;
     expect(voiceCells(row, new Map())).toMatchObject({ reason: "by voice 99", priority: "-", pitch: "-", audibility: "-", gain: "0.0 dB" });
   });
 });
@@ -186,9 +185,17 @@ describe("the filter", () => {
 
 // ---- the bus table ----
 
-const bus = (slot: number, over: Partial<KeyframeBus> = {}): KeyframeBus => ({
-  slot, gen: 1, flags: 0, lanes: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1], duck: 1, automation: 1, ...over,
-});
+/** A bus row whose lanes sit at the given gains (value and target alike; unity when absent), with the given flags. */
+type BusOver = Partial<Record<"authored" | "runtime" | "snapshot" | "monitor" | "dip" | "duck" | "automation", number>> &
+  Partial<Pick<CaptureKeyframeBus, "authoredMute" | "runtimeMute" | "tombstone">>;
+const bus = (slot: number, o: BusOver = {}): CaptureKeyframeBus => {
+  const at = (g = 1) => ({ value: g, target: g });
+  return {
+    slot, gen: 1, lanes: { authored: at(o.authored), runtime: at(o.runtime), snapshot: at(o.snapshot), monitor: at(o.monitor), dip: at(o.dip) },
+    duck: o.duck ?? 1, automation: o.automation ?? 1, authoredMute: o.authoredMute ?? false, runtimeMute: o.runtimeMute ?? false,
+    monitorMute: false, monitorSolo: false, tombstone: o.tombstone ?? false, metered: false,
+  };
+};
 
 describe("the bus table", () => {
   const parents = busParents({ buses: [{ name: "Master" }, { name: "Music", parent: "Master" }, { name: "SFX", parent: "Music" }] }, [[0, "Master"], [1, "Music"], [2, "SFX"]]);
@@ -202,9 +209,9 @@ describe("the bus table", () => {
   it("shows each bus's seven factors in dB, their product and the product up the tree", () => {
     const kf = keyframe({
       buses: [
-        bus(0, { lanes: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1] }),
-        bus(1, { lanes: [0.5, 0.5, 1, 1, 1, 1, 1, 1, 1, 1], duck: 0.5 }), // authored 0.5 and duck 0.5: product 0.25
-        bus(2, { lanes: [1, 1, 1, 1, 1, 1, 0.5, 0.5, 1, 1], automation: 0.5 }), // snapshot... lane 3 (monitor) 0.5, automation 0.5
+        bus(0),
+        bus(1, { authored: 0.5, duck: 0.5 }), // authored 0.5 and duck 0.5: product 0.25
+        bus(2, { monitor: 0.5, automation: 0.5 }),
       ],
     });
     const rows = busTableRows(kf, NAMES_LOOKUP, parents);
@@ -221,7 +228,7 @@ describe("the bus table", () => {
   });
 
   it("shows a mute as silence, a tombstone as removed, and a missing name by slot", () => {
-    const kf = keyframe({ buses: [bus(1, { flags: 1 }), bus(2, { flags: 1 << 4 }), bus(7)] });
+    const kf = keyframe({ buses: [bus(1, { authoredMute: true }), bus(2, { tombstone: true }), bus(7)] });
     const rows = busTableRows(kf, NAMES_LOOKUP, parents);
     expect(rows[0]!.productText).toBe("-inf dB");
     expect(rows[2]!.name).toBe("bus 7");
@@ -232,11 +239,11 @@ describe("the bus table", () => {
 
 describe("music rows", () => {
   const eventName = (id: number): string | undefined => ({ 1: "Intro", 2: "Loop", 3: "Outro" } as Record<number, string>)[id];
-  const music = [
-    { id: 7, segment: 1, state: 1, pass: 2, bar: 4, beat: 3, tick: 120, tempo: 120, pendingTo: 2, pendingTimeSec: 12.5 },
-    { id: 8, segment: 3, state: 4, pass: 1, bar: 1, beat: 1, tick: 0, tempo: 90, pendingTo: 0xffffffff, pendingTimeSec: 0 },
+  const music: CaptureKeyframeMusic[] = [
+    { id: 7, segment: 1, state: "playing", pass: 2, bar: 4, beat: 3, tick: 120, tempo: 120, pending: { to: 2, seconds: 12.5 } },
+    { id: 8, segment: 3, state: "ending", pass: 1, bar: 1, beat: 1, tick: 0, tempo: 90, pending: null },
   ];
-  const transition = (instance: number, from: number, to: number) => ({ kind: "event", payload: { kind: EventKind.musicTransition, reason: 0, args: [instance, from, to], perfMs: 0 } });
+  const transition = (instance: number, from: number | null, to: number) => ({ kind: "event", event: { type: "musicTransition", reason: 0, perfMs: 0, instance, from, to } });
 
   it("reads the keyframe's music rows: segment, state, position, tempo and the pending transition", () => {
     const rows = musicRows(seekState(keyframe({ music })), eventName);
@@ -247,7 +254,7 @@ describe("music rows", () => {
   });
 
   it("applies a musicTransition after the keyframe (the instance moves, its pending transition clears) and starts new instances", () => {
-    const rows = musicRows(seekState(keyframe({ music }), [transition(7, 1, 2), transition(9, 0xffffffff, 3)]), eventName);
+    const rows = musicRows(seekState(keyframe({ music }), [transition(7, 1, 2), transition(9, null, 3)]), eventName);
     expect(rows.find((r) => r.id === 7)).toMatchObject({ segment: "Loop", pendingTo: null, position: "4:3.120" });
     expect(rows.find((r) => r.id === 9)).toMatchObject({ segment: "Outro", position: null, tempo: null });
     expect(rows).toHaveLength(3);

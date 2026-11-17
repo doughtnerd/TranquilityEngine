@@ -5,8 +5,7 @@
 // - xyflow: the `@xyflow/system` adapter: pan and zoom, node drags, wiring from ports, wire curves.
 // - canvas: `useGraphCanvas` (the pane and its view), `startBoxSelect` and `SelectionBox`,
 //   `startPointerDrag` (group and note drags), `NoteView`, `Minimap` and `NodeSearchPopup`.
-// - clipboard: copying a tagged JSON payload through the system clipboard as text.
+// Copy and paste go through the editor's clipboard text (`../clipboard.ts`, ADR 0226), shared with the node clipboard.
 // Styles are in graph.css (import it from the panel).
 export * from "./xyflow";
 export * from "./canvas";
-export * from "./clipboard";

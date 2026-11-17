@@ -49,7 +49,7 @@ export function startSeconds(segment: SegmentNode, to: string): { seconds: numbe
 export function withStartPosition(player: MusicPlayer, req: PlanRequest): PlanRequest {
   const to = startPositions.get(player);
   if (to === undefined || req.to.type !== "segment") return req;
-  const at = startSeconds(req.to as unknown as SegmentNode, to);
+  const at = startSeconds(req.to, to);
   if (!at) return req;
   // The lead-in before the entry cue shrinks by what the start skips; a start at the file's start is the plain start.
   const preEntry = Math.max(0, (req.preEntry ?? 0) - at.seconds);

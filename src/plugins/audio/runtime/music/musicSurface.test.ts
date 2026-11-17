@@ -10,6 +10,7 @@ import { Calibration } from "./calibration";
 import { musicHandleOf } from "./handle";
 import { createMusicPlayer, onMusicOf } from "./musicSystem";
 import { triggerOn } from "./stingers";
+import { emptySegment } from "../../../../engine/audio/musicFormat";
 
 afterEach(() => {
   endAudioSession();
@@ -44,7 +45,7 @@ describe("the ADR 0166 §1 surface (Q2)", () => {
   it("a music instance has a handle that delegates seek and positionAt", () => {
     setAudioBackend(makeFakeBackend());
     const instance = { group: 2 } as unknown as EventInstance;
-    const player = createMusicPlayer(instance, { id: "s", type: "segment" });
+    const player = createMusicPlayer(instance, emptySegment("s"));
     const music: MusicHandle = musicHandleOf(instance)!;
     expect(music).toBe(player.handle);
     expect(music.segment).toBeNull();

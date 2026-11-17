@@ -6,6 +6,7 @@
 //   supported list, and its voices read "failed", as a clip and as a stream.
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { closeLoopbackAudio } from "../testing";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { aacRefusal, createWarnOnce, unsupportedFormat } from "./codecs";
 import { rig } from "../../testing/streamRig";
@@ -17,7 +18,10 @@ const read = (name: string): ArrayBuffer => {
   return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer;
 };
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(async () => {
+  vi.restoreAllMocks();
+  await closeLoopbackAudio();
+});
 
 describe("codecs.ts", () => {
   it("knows AAC by its extension and refuses it only while the setting is off", () => {

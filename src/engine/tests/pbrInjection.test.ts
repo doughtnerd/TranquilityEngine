@@ -1,41 +1,26 @@
 // ADR 0222: the points where this engine patches Babylon's PBR shaders. Every named point must match
 // the shipped, include-expanded PBR shader exactly where the module says it does, in both languages;
 // a Babylon upgrade that moves one fails here and not as a plain-PBR material at run time.
-import { ProcessIncludes } from "@babylonjs/core/Engines/Processors/shaderProcessor.js";
-import { ShaderStore } from "@babylonjs/core/Engines/shaderStore.js";
-import "@babylonjs/core/Shaders/pbr.fragment.js";
-import "@babylonjs/core/Shaders/pbr.vertex.js";
-import "@babylonjs/core/ShadersWGSL/pbr.fragment.js";
-import "@babylonjs/core/ShadersWGSL/pbr.vertex.js";
+import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
+import { Scene } from "@babylonjs/core/scene.js";
 import { beforeAll, describe, expect, it } from "vitest";
-import { PBR_POINTS, pbrInjections, type PbrLanguage, type PbrPoint, type PbrStage } from "../render/babylon/pbrInjection";
+import { PBR_POINTS, pbrInjections, type PbrLanguage, type PbrPoint } from "../render/babylon/pbrInjection";
+import { nullEngine, shaderText, type ShaderText } from "./pbrShaderSource";
 
-/** Babylon's PBR shader of `language` and `stage` with its includes expanded, as plugin code meets it. */
-function expanded(language: PbrLanguage, stage: PbrStage): string {
-  const wgsl = language === "wgsl";
-  const name = stage === "vertex" ? "pbrVertexShader" : "pbrPixelShader";
-  let out = "";
-  ProcessIncludes(
-    (wgsl ? ShaderStore.ShadersStoreWGSL : ShaderStore.ShadersStore)[name],
-    {
-      defines: [],
-      indexParameters: { maxSimultaneousLights: 4 },
-      isFragment: stage === "fragment",
-      shouldUseHighPrecisionShader: true,
-      supportsUniformBuffers: true,
-      shadersRepository: "",
-      includesShadersStore: wgsl ? ShaderStore.IncludesShadersStoreWGSL : ShaderStore.IncludesShadersStore,
-      processor: null,
-      version: "",
-      platformName: "",
-      processingContext: null,
-      isNDCHalfZRange: false,
-      useReverseDepthBuffer: false,
-    },
-    (code: string) => (out = code),
-  );
-  expect(out.length).toBeGreaterThan(1000);
-  return out;
+/** Babylon's PBR shaders of `language` as plugin code meets them: a plain PBR material's, includes expanded (ADR 0225). */
+async function expanded(language: PbrLanguage): Promise<ShaderText> {
+  const engine = nullEngine(language);
+  const scene = new Scene(engine);
+  try {
+    const text = await shaderText(new PBRMaterial("plain", scene));
+    expect(text.vertex.length).toBeGreaterThan(1000);
+    expect(text.fragment.length).toBeGreaterThan(1000);
+    expect(text.fragment).not.toContain("#include<");
+    return text;
+  } finally {
+    scene.dispose();
+    engine.dispose();
+  }
 }
 
 const noSpace = (s: string): string => s.replace(/\s+/g, "");
@@ -55,9 +40,8 @@ describe("PBR injection points match Babylon's shipped shaders (ADR 0222)", () =
   for (const language of ["wgsl", "glsl"] as const) {
     describe(language, () => {
       const source = { vertex: "", fragment: "" };
-      beforeAll(() => {
-        source.vertex = expanded(language, "vertex");
-        source.fragment = expanded(language, "fragment");
+      beforeAll(async () => {
+        ({ vertex: source.vertex, fragment: source.fragment } = await expanded(language));
       });
 
       for (const point of points) {

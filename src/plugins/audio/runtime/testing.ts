@@ -23,7 +23,7 @@
 // runtime evaluates on main), each the fake itself, as on the core. Each is a plain property a test sets to undefined for a
 // backend without it (the Babylon fallback has no `clock`; the pending backend has no `mix` or `capture`).
 
-import type { AudioBackend, AudioCaptureSource, AudioClipCache, AudioClock, AudioLiveMix, AudioMixCaps, AudioPanner, Attenuation, AudioVoice, FadeLaw, ListenerPose, MusicAdmitResult, MusicBackend, MusicBackendCaps, MusicGroupEvent, MusicGroupRequest, MusicGroupStamp, PlayRequest, RecorderTap, VoiceSpatialOptions, ZoneIrService } from "./backend";
+import type { AudioBackend, AudioCaptureSource, AudioClipCache, AudioClock, AudioFrameMap, AudioLiveMix, AudioMixCaps, AudioPanner, Attenuation, AudioVoice, FadeLaw, ListenerPose, MusicAdmitResult, MusicBackend, MusicBackendCaps, MusicGroupEvent, MusicGroupRequest, MusicGroupStamp, PlayRequest, RecorderTap, VoiceSpatialOptions, ZoneIrService } from "./backend";
 import type { AudioLatency } from "../../../engine/audio/musicTypes";
 import type { ApplyResult, MixOp } from "../../../engine/audio/mixOps";
 import { CORE_LIVE_CAPS } from "../../../engine/audio/busCapability";
@@ -175,6 +175,8 @@ export interface FakeBackend extends AudioBackend, AudioClipCache, AudioClock, A
   stampedRamps: boolean;
   /** ADR 0166 (G-1): what `clock.frameInterval()` returns, seconds; null (the default): unknown, so callers estimate it. */
   frameIntervalSeconds: number | null;
+  /** ADR 0224: what `clock.frameMap()` returns; null (the default): no frame map, as on a backend that doesn't have one. */
+  frameMapValue: AudioFrameMap | null;
 
   // ADR 0166 (Q2): the music seam, so the P rows' loopback tests run on the fake.
   /** The fake's `MusicBackend`; set it to undefined for a backend without music. */
@@ -343,6 +345,7 @@ export function makeFakeBackend(): FakeBackend {
     horizonTime: null,
     facts: new Map(),
     frameIntervalSeconds: null,
+    frameMapValue: null,
     stampedRamps: false,
     music: undefined,
     beginFrameCalls: 0,
@@ -353,6 +356,7 @@ export function makeFakeBackend(): FakeBackend {
     latency() { return { ...backend.latencyValue }; },
     horizon() { return backend.horizonTime; },
     frameInterval() { return backend.frameIntervalSeconds; },
+    frameMap() { return backend.frameMapValue; },
     clipDuration(path: string) { return backend.durations.get(path) ?? null; },
     clipFacts(path: string) { return backend.facts.get(path); },
     invalidateClip() {},
@@ -586,6 +590,10 @@ export function endAudioSession(): void {
  * this is the one lower tier. Tests that read the wire itself (ADR 0215: the bytes `send` hands the shell, the STATUS
  * blocks in `statuses`, the shell's `driver`) use it directly; everything else uses `loopbackAudio`, which puts the
  * production `AudioHost` and the production assembly (`assembleCore`) on top of it.
+ *
+ * ADR 0223: the shell answers the link's controls as `worklet/processor.ts` does: `debugTone`, and `streamPort`
+ * (`CoreLink.connectStreamPort`), whose port then carries the decoder worker's streams and zone kernels to the current
+ * shell and its credits back, never through main. Nothing else reaches the shell's driver from outside.
  */
 export interface LoopbackHost {
   /** The injected clock; `renderQuanta` advances it by 128 frames per quantum. */
@@ -597,7 +605,7 @@ export interface LoopbackHost {
   renderQuanta(n: number): { readonly left: Float32Array; readonly right: Float32Array };
   /** The main side's link: ping, status listeners, `lastStatus`, the BATCH pool. (Addition to K4.) */
   readonly link: CoreLink;
-  /** The shell's driver: stats, the STATUS pool, the probe. (Addition to K4.) */
+  /** The shell's driver: the STATUS pool, the probe. (Addition to K4.) */
   readonly driver: CoreDriver;
   /** Every STATUS block received, in order. (Addition to K4.) */
   readonly statuses: StatusBlock[];
@@ -641,6 +649,12 @@ export interface LoopbackHost {
   delayBatches(quanta: number): { stop(): void };
   /** ADR 0221: watches what reaches the shell: every BATCH or REPLAY posted from now on, decoded, with the frame it was posted at. */
   watch(): LoopbackWatch;
+}
+
+/** The worklet's end of the decoder worker's channel, as `CoreLink.connectStreamPort` hands it over (a `MessagePort` in a page). */
+export interface LoopbackStreamPort {
+  onmessage: ((event: { data: unknown }) => void) | null;
+  postMessage(message: unknown, transfer?: Transferable[]): void;
 }
 
 /** The default preset: roomy enough for the §8 loopback cases. */
@@ -699,7 +713,23 @@ export async function createLoopbackHost(options: { clock?: FakeHostClock; prese
         toWorklet.push(message);
       },
     };
-    return { core, driver, toMain, toWorklet, port };
+    return { core, driver, toMain, toWorklet, port, streamPort: null as LoopbackStreamPort | null };
+  };
+  type Spawned = ReturnType<typeof spawn>;
+  /**
+   * `{type:"streamPort"}` (`CoreLink.connectStreamPort`), as `worklet/processor.ts`'s `connectStreams` does: the shell
+   * takes the decoder worker's messages on that port at the current frame and posts its credits back on it. Bound to
+   * the shell it reached; a new one replaces the old, and a respawned or recreated shell waits for its own.
+   */
+  const connectStreams = (shell: Spawned, port: LoopbackStreamPort): void => {
+    if (shell.streamPort) shell.streamPort.onmessage = null;
+    shell.streamPort = port;
+    port.onmessage = (event) => shell.driver.onStreamMessage(event.data, frame, clock.dateNow());
+    shell.driver.setStreamPost((message, transfer) => port.postMessage(message, transfer));
+  };
+  /** The old shell gets nothing more (as `retire` does in the worklet): its stream port goes quiet. */
+  const retire = (shell: Spawned): void => {
+    if (shell.streamPort) shell.streamPort.onmessage = null;
   };
   let current = spawn();
   let cores = 1;
@@ -729,6 +759,7 @@ export async function createLoopbackHost(options: { clock?: FakeHostClock; prese
       for (const message of toWorklet.splice(0)) {
         if (message instanceof ArrayBuffer) driver.onMessage(message, frame, clock.dateNow());
         else if ((message as { type?: unknown }).type === "debugTone") driver.onControl(message as never);
+        else if ((message as { type?: unknown }).type === "streamPort") connectStreams(current, (message as { port: LoopbackStreamPort }).port);
       }
     }
   };
@@ -750,6 +781,7 @@ export async function createLoopbackHost(options: { clock?: FakeHostClock; prese
       return rate;
     },
     respawn() {
+      retire(current);
       current = spawn();
       cores++;
       const node = { connect() {}, disconnect() {} } as unknown as AudioWorkletNode;
@@ -759,6 +791,7 @@ export async function createLoopbackHost(options: { clock?: FakeHostClock; prese
       rate = sampleRate;
       frame = 0;
       clock.restartContext();
+      retire(current);
       current = spawn();
       cores++;
       const node = { connect() {}, disconnect() {} } as unknown as AudioWorkletNode;
@@ -905,6 +938,11 @@ export interface LoopbackAudioOptions {
   readonly quantaPerFrame?: number;
   /** The `dt` (seconds) `step` hands `update` (default the frame's audio time). */
   readonly dt?: number;
+  /**
+   * ADR 0223: another thread's turn after each rendered quantum (`render`, `step`, `until`): a decoder worker in process
+   * delivering what it and the worklet posted on their channel, as their own thread would between render calls.
+   */
+  readonly eachQuantum?: () => void;
 }
 
 /** The backend dependencies a loopback rig may set (the rest are the rig's). */
@@ -960,11 +998,6 @@ export interface LoopbackAudio {
   stallMain(): LoopbackStall;
   /** Fault: a hitch between main and the core: BATCHes posted until `stop` reach the core `quanta` quanta late (`LoopbackHost.delayBatches`). */
   delayBatches(quanta: number): { stop(): void };
-  /**
-   * The worklet's end of the decoder worker's port (in a browser, the `MessagePort` the backend hands `connectStreamPort`):
-   * a buffer posted on it (stream data, zone kernels) reaches the shell at the current frame.
-   */
-  readonly workletPort: { onmessage: null; postMessage(message: unknown): void };
   /** Disposes the backend (unregistering it on the page mixer), closes the host and ends the audio session. A second call does nothing. */
   close(): Promise<void>;
 }
@@ -1095,6 +1128,8 @@ export async function loopbackAudio(options: LoopbackAudioOptions = {}): Promise
         return { frames: clip.channelData[0]!.length, channels: clip.channelData.length, sampleRate: clip.sampleRate ?? LOOPBACK_RATE, channelData: clip.channelData };
       }),
       clipFormat: settings.clipFormat === "f32" ? 0 : 1,
+      // As `createCoreBackend`'s registry: `audio.codecs.aac`.
+      aac: settings.codecs?.aac === true,
       nextFrame: (cb) => cb(),
       nextQuantum: (cb) => cb(),
       ...options.clipRegistry,
@@ -1124,6 +1159,20 @@ export async function loopbackAudio(options: LoopbackAudioOptions = {}): Promise
     setAudioBackend(backend);
   }
 
+  const eachQuantum = options.eachQuantum;
+  /** `n` quanta, with the other thread's turn after each when there is one. */
+  const renderQuanta = (n: number): LoopbackOutput => {
+    if (!eachQuantum) return loop.renderQuanta(n);
+    const left = new Float32Array(n * QUANTUM_FRAMES);
+    const right = new Float32Array(left.length);
+    for (let q = 0; q < n; q++) {
+      const out = loop.renderQuanta(1);
+      left.set(out.left, q * QUANTUM_FRAMES);
+      right.set(out.right, q * QUANTUM_FRAMES);
+      eachQuantum();
+    }
+    return { left, right };
+  };
   const quantaPerFrame = options.quantaPerFrame ?? 4;
   const dtOf = () => options.dt ?? (quantaPerFrame * QUANTUM_FRAMES) / loop.sampleRate;
   let closed = false;
@@ -1143,7 +1192,7 @@ export async function loopbackAudio(options: LoopbackAudioOptions = {}): Promise
     get dt() {
       return dtOf();
     },
-    render: (quanta) => loop.renderQuanta(quanta),
+    render: (quanta) => renderQuanta(quanta),
     async step(frames = 1) {
       const left = new Float32Array(frames * quantaPerFrame * QUANTUM_FRAMES);
       const right = new Float32Array(left.length);
@@ -1152,7 +1201,7 @@ export async function loopbackAudio(options: LoopbackAudioOptions = {}): Promise
         rigMixer.update(dt);
         backend.update(dt);
         if (!own) events().update(dt);
-        const out = loop.renderQuanta(quantaPerFrame);
+        const out = renderQuanta(quantaPerFrame);
         left.set(out.left, f * out.left.length);
         right.set(out.right, f * out.right.length);
         await settle();
@@ -1168,7 +1217,7 @@ export async function loopbackAudio(options: LoopbackAudioOptions = {}): Promise
       await settle();
       for (let q = 0; !done; q++) {
         if (q >= maxQuanta) throw new Error(`loopbackAudio: still waiting after ${maxQuanta} quanta`);
-        loop.renderQuanta(1);
+        renderQuanta(1);
         await settle();
       }
       return result;
@@ -1183,7 +1232,6 @@ export async function loopbackAudio(options: LoopbackAudioOptions = {}): Promise
     watched,
     stallMain: () => loop.stallMain(),
     delayBatches: (quanta) => loop.delayBatches(quanta),
-    workletPort: { onmessage: null, postMessage: (message) => loop.send(message as ArrayBuffer) },
     async close() {
       if (closed) return;
       closed = true;

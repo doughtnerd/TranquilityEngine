@@ -1,5 +1,5 @@
 // Test support for the Audio Debug monitor (ADR 0220): typed `Audio.debug()` snapshots for its tests to feed it, so they
-// build `AudioDebugSnapshot`s without casts. Only tests import this.
+// build `AudioDebugSnapshot`s without casts. Only tests and stories import this (ADR 0219 counts stories as tests).
 import type { AudioDebugInfo, MusicDebugRow, MusicDebugTotals } from "../../runtime/backend";
 import { zeroCounters } from "../../runtime/debugTypes";
 import { AudioDebugMonitor, type AudioDebugSnapshot, type AudioDebugView, type Row, type Section } from "../audioDebugMonitor";

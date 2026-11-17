@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { defaultShaderGraph, type ShaderGraph } from "../../../../engine/scene/shaderGraph";
+import { clipboardText } from "../../../../editor/sdk";
 import {
   addKeyword,
   addNode,
@@ -19,6 +20,7 @@ import {
   setKeyword,
   whyNotKeywordName,
   copyNodes,
+  graphClipboardFromText,
   pasteNodes,
   setGraphOptions,
   setInput,
@@ -82,6 +84,26 @@ describe("shader graph edits", () => {
     expect(d.graph.nodes.find((n) => n.id === "add2")!.position).toEqual([30, 30]);
     g = d.graph;
     expect(g.edges.filter((e) => e.to === "output.baseColor")).toHaveLength(1); // the copy doesn't feed the output
+  });
+
+  it("pastes nodes into another graph from their clipboard text, and reads none from malformed text (ADR 0226)", () => {
+    let g = connect(sample(), "time1.time", "add1.a");
+    g = addProperty(g, "color").graph;
+    const prop = addNode(g, "property", [50, 50], { property: g.properties[0].name });
+    const clip = copyNodes(prop.graph, ["add1", "time1", prop.id, "output"])!;
+    const read = graphClipboardFromText(clipboardText(clip));
+    expect(read).toEqual(clip);
+    const into = pasteNodes(defaultShaderGraph(), read!, [0, 0]);
+    expect(into.ids).toHaveLength(3);
+    expect(into.graph.edges).toContainEqual({ from: "time1.time", to: "add1.a" });
+    expect(into.graph.properties.map((p) => p.name)).toEqual([g.properties[0].name]);
+    const text = (v: object) => JSON.stringify({ ...clip, ...v });
+    expect(graphClipboardFromText("add1")).toBeNull(); // plain text
+    expect(graphClipboardFromText(text({ format: "myco.particles.clipboard@1" }))).toBeNull(); // another graph's
+    expect(graphClipboardFromText(text({ nodes: [] }))).toBeNull();
+    expect(graphClipboardFromText(text({ nodes: [{ id: "a.b", type: "add", position: [0, 0] }] }))).toBeNull(); // a dot in an id
+    expect(graphClipboardFromText(text({ nodes: [clip.nodes[0], clip.nodes[0]] }))).toBeNull(); // an id twice
+    expect(graphClipboardFromText(text({ edges: [{ from: "nowhere.out", to: "add1.a" }] }))).toBeNull(); // a wire to a missing node
   });
 
   it("moves nodes, and returns the same graph when nothing moved", () => {

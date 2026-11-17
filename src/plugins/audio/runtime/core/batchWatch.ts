@@ -1,45 +1,47 @@
-// Test support: what a core backend sends the core, read off the link it was constructed with. `watchBatches(link)` wraps
-// the link's `post` (the message still goes on to the core) and keeps a decoded copy of every BATCH and REPLAY
-// (`batchRecords.ts`): tests read the records the backend wrote, never its command writer.
+// Test support: what a core backend sends the core, read where the core receives it. ADR 0223: nothing wraps a link.
+// On the loopback, `LoopbackAudio.watch()` / `LoopbackHost.watch()` (`runtime/testing.ts`) is the watch; a unit test
+// whose fake port stands in for the core feeds a `batchRecorder` from that port's `postMessage`. Either keeps a decoded
+// copy of every BATCH and REPLAY (`batchRecords.ts`): tests read the records the backend wrote, never its command writer.
 import { batchRecords, type BatchRecord, type PostedBatch } from "./batchRecords";
 
-/** Anything with a `post(buffer, ...)` (a `CoreLink`, a recording fake). */
-export interface PostingLink {
-  post(buffer: ArrayBuffer, ...rest: never[]): unknown;
-}
-
 export interface BatchWatch {
-  /** The batches posted since the last `take` (or since the watch began), oldest first; `take` empties the list. */
+  /** The batches received since the last `take` (or since the watch began), oldest first; `take` empties the list. */
   take(): PostedBatch[];
-  /** Every record of the batches posted since the last `take`, in order (empties the list). */
+  /** Every record of the batches received since the last `take`, in order (empties the list). */
   takeRecords(): BatchRecord[];
-  /** The records of opcode `op` posted since the last `take`, in order (empties the list). */
+  /** The records of opcode `op` received since the last `take`, in order (empties the list). */
   takeOps(op: number): BatchRecord[];
-  /** The batches posted since the last `take`, without taking them. */
+  /** The batches received since the last `take`, without taking them. */
   readonly pending: readonly PostedBatch[];
-  /** Puts the link's own `post` back. */
+  /** Stops watching. */
   stop(): void;
 }
 
-export function watchBatches(link: PostingLink): BatchWatch {
-  const posted: PostedBatch[] = [];
-  const own = link.post;
-  link.post = function (this: unknown, buffer: ArrayBuffer, ...rest: never[]) {
-    // A copy: pooled BATCH buffers are transferred to the core and come back reused.
-    const batch = buffer instanceof ArrayBuffer ? batchRecords(buffer.slice(0)) : null;
-    if (batch) posted.push(batch);
-    return own.call(link, buffer, ...rest);
-  } as PostingLink["post"];
-  const take = () => posted.splice(0);
+/** A watch fed by hand: a fake core port's `postMessage` hands it every message (`receive`), as the core would get it. */
+export interface BatchRecorder extends BatchWatch {
+  /** A message the port was handed; BATCH and REPLAY buffers are decoded (from a copy) and kept, the rest ignored. */
+  receive(message: unknown): void;
+}
+
+export function batchRecorder(): BatchRecorder {
+  const received: PostedBatch[] = [];
+  let watching = true;
+  const take = () => received.splice(0);
   return {
+    receive(message) {
+      if (!watching || !(message instanceof ArrayBuffer)) return;
+      // A copy: pooled BATCH buffers go back to the link and are reused.
+      const batch = batchRecords(message.slice(0));
+      if (batch) received.push(batch);
+    },
     take,
     takeRecords: () => take().flatMap((b) => b.records),
     takeOps: (op) => take().flatMap((b) => b.records.filter((r) => r.opcode === op)),
     get pending() {
-      return posted;
+      return received;
     },
     stop() {
-      link.post = own;
+      watching = false;
     },
   };
 }

@@ -236,26 +236,6 @@ const FLAG_TRAP_CAUGHT = 1 << 5;
 /** @internal How the driver posts: `port.postMessage(buffer, transfer)` in the worklet, a fake in tests. */
 export type CorePost = (message: ArrayBuffer | CoreShellEvent, transfer?: Transferable[]) => void;
 
-/** @internal Counts for tests and the dev page. */
-export interface CoreDriverStats {
-  /** `process` calls. */
-  quanta: number;
-  /** STATUS blocks posted. */
-  posted: number;
-  /** STATUS posts skipped because the pool was empty. */
-  skipped: number;
-  /** RECYCLE messages taken back into the pool. */
-  recycled: number;
-  /** Non-RECYCLE buffers returned to the host. */
-  returned: number;
-  /** CLIP_CHUNK bytes copied into the arena. */
-  clipBytes: number;
-  /** B3: STREAM_CHUNK frames committed to rings, chunks refused or dropped, and STREAM_CREDITs sent. */
-  streamFrames: number;
-  streamRefused: number;
-  streamCredits: number;
-}
-
 /** @internal Most clip bytes the shell copies per quantum (architecture §3.5, api-and-models §5: 256 KB). */
 export const CLIP_BYTES_PER_QUANTUM = 256 * 1024;
 
@@ -280,7 +260,6 @@ const TWO_PI = 2 * Math.PI;
 
 /** @internal The shell's logic over one core instance. */
 export class CoreDriver {
-  readonly stats: CoreDriverStats = { quanta: 0, posted: 0, skipped: 0, recycled: 0, returned: 0, clipBytes: 0, streamFrames: 0, streamRefused: 0, streamCredits: 0 };
   /** The STATUS pool (§4.3: 8 × 16 KB). */
   readonly pool: BufferPool = createStatusPool();
   /** The underrun probe (§4.7); its counts go into every STATUS. */
@@ -357,7 +336,6 @@ export class CoreDriver {
   }
 
   private giveBack(buffer: ArrayBuffer): void {
-    this.stats.returned++;
     this.post(buffer, [buffer]);
   }
 
@@ -377,13 +355,13 @@ export class CoreDriver {
       // Nothing reaches a trapped core. STATUS buffers go back to the pool (they're the shell's), clip buffers are the
       // main side's and simply dropped (it re-sends every clip to the new core), the rest return to the host.
       if (kind === Kind.RECYCLE) {
-        if (this.pool.release(buffer)) this.stats.recycled++;
+        this.pool.release(buffer);
       } else if (kind !== Kind.CLIP_BEGIN && kind !== Kind.CLIP_CHUNK && kind !== Kind.CLIP_UNLOAD) this.giveBack(buffer);
       return;
     }
     switch (kind) {
       case Kind.RECYCLE:
-        if (this.pool.release(buffer)) this.stats.recycled++;
+        this.pool.release(buffer);
         return;
       case Kind.TIME_PING:
         if (buffer.byteLength >= 20) {
@@ -413,11 +391,6 @@ export class CoreDriver {
       default:
         return this.giveBack(buffer);
     }
-  }
-
-  /** Clip messages still waiting for a quantum's copy budget. */
-  get pendingClipMessages(): number {
-    return this.clipQueue.length;
   }
 
   /**
@@ -473,7 +446,7 @@ export class CoreDriver {
     if (ptr === 0) return;
     this.views();
     this.u8.set(new Uint8Array(view.buffer, CLIP_CHUNK_FIXED_END, bytes), ptr);
-    if (exports.myco_audio_clip_commit(chunk.clipId, chunk.frameOffset, bytes) === 0) this.stats.clipBytes += bytes;
+    exports.myco_audio_clip_commit(chunk.clipId, chunk.frameOffset, bytes);
   }
 
   /** CLIP_UNLOAD → `myco_audio_clip_free`. */
@@ -513,11 +486,6 @@ export class CoreDriver {
     this.drainClips();
   }
 
-  /** Zone kernels the decoder worker's port brought that are still loaded or loading (for tests). */
-  get workerClips(): number {
-    return this.portKernels.size;
-  }
-
   /** STREAM_CLOSE for every open stream, through the inbox as the worker's would come. */
   private closeAllStreams(): void {
     if (this.dead) return this.streams.clear();
@@ -529,11 +497,6 @@ export class CoreDriver {
       this.submitSmall(buffer);
     }
     this.streams.clear();
-  }
-
-  /** Open streams (for tests). */
-  get openStreams(): number {
-    return this.streams.size;
   }
 
   /**
@@ -618,28 +581,20 @@ export class CoreDriver {
     const buffer = view.buffer as ArrayBuffer;
     if (!shape) {
       // A stream the core doesn't hold (its open was refused, or it closed): drop the chunk, hand the buffer back.
-      this.stats.streamRefused++;
       this.postBuffers([buffer], chunk.streamId, chunk.epoch);
       return;
     }
     shape.returned.push(buffer);
     const bytes = chunk.frames * shape.channels * 4;
-    if (STREAM_CHUNK_FIXED_END + bytes > view.byteLength || chunk.epoch !== shape.epoch) {
-      this.stats.streamRefused++;
-      return;
-    }
+    if (STREAM_CHUNK_FIXED_END + bytes > view.byteLength || chunk.epoch !== shape.epoch) return;
     const { exports } = this.core;
     if (chunk.frames > 0) {
       const ptr = exports.myco_audio_stream_chunk_ptr(chunk.streamId, chunk.frames);
-      if (ptr === 0) {
-        this.stats.streamRefused++;
-        return;
-      }
+      if (ptr === 0) return;
       this.views();
       this.u8.set(new Uint8Array(buffer, STREAM_CHUNK_FIXED_END, bytes), ptr);
     }
-    if (exports.myco_audio_stream_commit(chunk.streamId, chunk.frames, chunk.epoch, chunk.flags) === 0) this.stats.streamFrames += chunk.frames;
-    else this.stats.streamRefused++;
+    exports.myco_audio_stream_commit(chunk.streamId, chunk.frames, chunk.epoch, chunk.flags);
   }
 
   /** After a quantum: what each stream consumed; a credit every 4,096 frames (`credit.ts`). */
@@ -666,7 +621,6 @@ export class CoreDriver {
     const view = new DataView(head);
     writeEnvelope(view, 0, { kind: Kind.STREAM_CREDIT, seq: 0, bodyBytes: STREAM_CREDIT_FIXED_END - 16 });
     writeStreamCredit(view, 0, { streamId, epoch, consumedFrames, returnedBuffers: buffers.length - 1 });
-    this.stats.streamCredits++;
     post(buffers, buffers);
   }
 
@@ -713,7 +667,6 @@ export class CoreDriver {
   }
 
   private renderQuantum(currentFrame: number, dateNow: number): Float32Array {
-    this.stats.quanta++;
     if (this.dead) {
       this.output.fill(0);
       return this.output;
@@ -789,10 +742,7 @@ export class CoreDriver {
   /** §4.3: only with a pooled buffer in hand is the block taken, so a skipped post keeps the core's queues. */
   private postStatus(dateNow: number): void {
     const buffer = this.pool.acquire();
-    if (!buffer) {
-      this.stats.skipped++;
-      return;
-    }
+    if (!buffer) return;
     const { exports } = this.core;
     let n = 0;
     try {
@@ -819,7 +769,6 @@ export class CoreDriver {
     view.setUint32(SHELL_FIELD.underrunFrames, this.probe.underrunFrames, true);
     view.setUint16(SHELL_FIELD.traps, Math.min(this.traps, 0xffff), true);
     if (this.traps > 0) view.setUint32(SHELL_FIELD.flags, view.getUint32(SHELL_FIELD.flags, true) | FLAG_TRAP_CAUGHT, true);
-    this.stats.posted++;
     this.post(buffer, this.pool.transferList(buffer));
   }
 }

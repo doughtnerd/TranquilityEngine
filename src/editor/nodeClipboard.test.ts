@@ -1,16 +1,17 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Engine, GameObject, Input } from "../engine";
 import { CommandStack, SceneDocument, type SceneFile } from "./document";
 import { filterHierarchy } from "./hierarchyFilter";
 import { moveNodes } from "./hierarchyEdit";
 import { createNode, uniqueName } from "./nodeCreate";
-import { copyNodes, cutNodes, duplicateNodes, clipboardText, pasteNodes, pasteTarget, subtreeRoots, whyNotCopyable, whyNotPastable } from "./nodeClipboard";
+import { copyNodes, cutNodes, duplicateNodes, nodeClipboardFromText, nodeClipboardPayload, pasteNodes, pasteTarget, subtreeRoots, whyNotCopyable, whyNotPastable } from "./nodeClipboard";
+import { clipboardText } from "./clipboard";
 import { nodeDrag, startNodeDrag } from "./nodeDrag";
 import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile } from "./project";
 import { editorSettings, useProjectAssets } from "./projects";
-import { openScene, playState, sceneCamera, select, selectedKeys, type OpenScene } from "./state";
-import { copySelection, pasteClipboard, whyNotPasteAt, whyNotPasteHere } from "./hierarchyActions";
+import { openScene, playState, sceneCamera, select, selectedKeys, status, type OpenScene } from "./state";
+import { copySelection, nodeClipboard, pasteClipboard, pasteClipboardText, whyNotPasteAt, whyNotPasteHere } from "./hierarchyActions";
 import { sampleProject } from "./testing";
 
 /** A scene that isn't open in the editor, to paste into: its document and an undo stack. */
@@ -151,9 +152,42 @@ describe("copy, paste, duplicate and cut", () => {
     expect(doc.fieldValue("bird", "game.Bird", "visual")).toEqual({ $node: "bird-sprite" });
   });
 
-  it("writes the copied nodes to system clipboard text, tagged with their format", () => {
+  it("pastes nodes copied in another editor from their clipboard text", () => {
     const clip = copyNodes(scene.doc, ["bird"]);
-    expect(JSON.parse(clipboardText(clip))).toEqual({ format: "myco.nodes@1", ...clip });
+    const read = nodeClipboardFromText(clipboardText(nodeClipboardPayload(clip)));
+    expect(read).toEqual(clip);
+    const other = new SceneDocument({ format: "myco.scene@1", nodes: [] }, "scenes/empty.scene.json");
+    const [root] = pasteNodes(sceneOf(other), read!, { parent: null });
+    const names = (doc: SceneDocument, id: string) => doc.subtree(id).map((i) => doc.node(i).name);
+    expect(names(other, root)).toEqual(names(scene.doc, "bird"));
+    expect(other.fieldValue(root, "game.Bird", "visual")).toEqual({ $node: "bird-sprite" }); // re-pointed inside the copy
+  });
+
+  it("reads no nodes from text that isn't well-formed copied nodes", () => {
+    const [bird, sprite] = copyNodes(scene.doc, ["bird"]).subtrees[0];
+    const text = (subtrees: unknown, extra: object = {}) => JSON.stringify({ format: "myco.nodes@1", source: "scenes/a.scene.json", subtrees, ...extra });
+    expect(nodeClipboardFromText(text([[bird, sprite]]))).not.toBeNull();
+    expect(nodeClipboardFromText("Bird")).toBeNull(); // plain text
+    expect(nodeClipboardFromText(text([[bird, sprite]], { format: "myco.shadergraph.clipboard@1" }))).toBeNull(); // another kind
+    expect(nodeClipboardFromText(text([]))).toBeNull(); // nothing in it
+    expect(nodeClipboardFromText(text([[sprite, bird]]))).toBeNull(); // a child before its parent
+    expect(nodeClipboardFromText(text([[bird], [bird]]))).toBeNull(); // an id twice
+    expect(nodeClipboardFromText(text([[{ name: "No id" }]]))).toBeNull();
+    expect(nodeClipboardFromText(text([[{ ...bird, components: "none" }]]))).toBeNull();
+    expect(nodeClipboardFromText(text([[bird, sprite]], { source: 3 }))).toBeNull();
+  });
+
+  it("refuses to paste an instance of a prefab the project lacks, naming it; duplicating one keeps it", () => {
+    const clip = copyNodes(scene.doc, ["bg-b"]);
+    const elsewhere = { ...clip, subtrees: [[{ ...clip.subtrees[0][0], prefab: "prefabs/hills.prefab.json" }]] };
+    expect(whyNotPastable(scene.doc, elsewhere, null)).toBe("the prefab prefabs/hills.prefab.json isn't in this project");
+    expect(() => pasteNodes(scene, elsewhere, { parent: null })).toThrow(/hills\.prefab\.json/);
+    const nested = { ...clip, subtrees: [[{ id: "n", overrides: [{ addNodes: [{ id: "x", prefab: "prefabs/a.prefab.json" }, { id: "y", prefab: "prefabs/b.prefab.json" }] }] }]] };
+    expect(whyNotPastable(scene.doc, nested, null)).toBe("the prefabs prefabs/a.prefab.json, prefabs/b.prefab.json aren't in this project");
+    expect(whyNotPastable(scene.doc, clip, null)).toBeNull();
+    const broken = new SceneDocument({ format: "myco.scene@1", nodes: [{ id: "hills", prefab: "prefabs/hills.prefab.json" }] }, "scenes/b.scene.json");
+    expect(duplicateNodes(sceneOf(broken), ["hills"])).toEqual(["hills-2"]);
+    expect(broken.node("hills-2").prefab).toBe("prefabs/hills.prefab.json");
   });
 
   it("refuses to paste a prefab into itself", () => {
@@ -259,5 +293,47 @@ describe("the hierarchy's paste action", () => {
       playState.value = "edit";
     }
     expect(pasteClipboard()).toBe(true);
+  });
+
+  describe("with the system clipboard's text", () => {
+    let system = "";
+    beforeEach(() => {
+      system = "";
+      vi.stubGlobal("navigator", { clipboard: { writeText: (t: string) => ((system = t), Promise.resolve()) } });
+    });
+    afterEach(() => void vi.unstubAllGlobals());
+
+    /** Nodes copied in another editor process: a scene of its own, written as that editor writes them. */
+    const copiedElsewhere = () => {
+      const doc = new SceneDocument({ format: "myco.scene@1", nodes: [{ id: "lamp", name: "Lamp" }] }, "scenes/far.scene.json");
+      return clipboardText(nodeClipboardPayload(copyNodes(doc, ["lamp"])));
+    };
+
+    it("pastes nodes copied in another editor since this one's copy, which become its clipboard", async () => {
+      select(["camera"]);
+      copySelection();
+      await Promise.resolve();
+      expect(pasteClipboardText(copiedElsewhere())).toBe(true);
+      expect(selectedKeys.value.map(name)).toEqual(["Lamp"]);
+      expect(nodeClipboard.value?.source).toBe("scenes/far.scene.json");
+    });
+
+    it("pastes its own copy when the text is what it wrote, or isn't nodes", async () => {
+      select(["camera"]);
+      copySelection();
+      await Promise.resolve();
+      expect(pasteClipboardText(system)).toBe(true);
+      expect(selectedKeys.value.map(name)).toEqual(["Camera (1)"]);
+      expect(pasteClipboardText('{"format":"myco.nodes@1","subtrees":"broken"}')).toBe(true);
+      expect(pasteClipboardText("hello")).toBe(true);
+      expect(scene.doc.roots().filter((id) => name(id).startsWith("Camera"))).toHaveLength(4);
+    });
+
+    it("says why when the text's nodes instance a prefab this project lacks", () => {
+      nodeClipboard.value = null;
+      const text = JSON.stringify({ format: "myco.nodes@1", source: "scenes/far.scene.json", subtrees: [[{ id: "hills", prefab: "prefabs/hills.prefab.json" }]] });
+      expect(pasteClipboardText(text)).toBe(false);
+      expect(status.value?.text).toBe("Can't paste: the prefab prefabs/hills.prefab.json isn't in this project.");
+    });
   });
 });

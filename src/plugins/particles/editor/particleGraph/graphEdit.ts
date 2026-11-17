@@ -31,7 +31,9 @@ import type {
   SystemSettings,
   Vec2,
 } from "../../../../engine/scene/particleGraph";
-import { newGraphId, systemTemplate } from "../../../../engine/scene/particleGraphFormat";
+import { PARTICLE_GRAPH_FORMAT } from "../../../../engine/scene/particleGraph";
+import { newGraphId, parseParticleGraph, systemTemplate } from "../../../../engine/scene/particleGraphFormat";
+import { readClipboard } from "../../../../editor/sdk";
 import { nodeDef, type PortType } from "../../../../engine/scene/particleNodes";
 import { outputTypeResolved, whyNotConnectResolved, type AssetResolver } from "../../../../engine/scene/particleSubgraphs";
 import { blockInputs, editorNodeDef, wireRulesGraph } from "./assetDocs";
@@ -576,6 +578,22 @@ export function copyItems(graph: ParticleGraph, ids: Iterable<string>): Particle
     edges: clone(graph.edges.filter((e) => inside(e.from) && inside(e.to))),
     events: clone(graph.events.filter((e) => inside(e.from) && inside(e.to))),
   };
+}
+
+/**
+ * The copied systems and nodes in system clipboard text (ADR 0226), or null if it holds none. They
+ * must be well formed: read as an effect file's systems, nodes, wires and events would be, with no
+ * problems.
+ */
+export function particleClipboardFromText(text: string): ParticleClipboard | null {
+  const raw = readClipboard<ParticleClipboard>(text, CLIPBOARD_FORMAT, (v) => {
+    const c = v as Partial<ParticleClipboard>;
+    return Array.isArray(c.systems) && Array.isArray(c.nodes) && c.systems.length + c.nodes.length > 0;
+  });
+  if (!raw) return null;
+  const { graph, problems } = parseParticleGraph({ format: PARTICLE_GRAPH_FORMAT, systems: raw.systems, nodes: raw.nodes, edges: raw.edges ?? [], events: raw.events ?? [] }, "clipboard");
+  if (problems.length || graph.systems.length !== raw.systems.length || graph.nodes.length !== raw.nodes.length) return null;
+  return { format: CLIPBOARD_FORMAT, systems: graph.systems, nodes: graph.nodes, edges: graph.edges, events: graph.events };
 }
 
 /** Ids for a paste: unused in the graph (systems, blocks, nodes, notes and groups share one id space), counting up per prefix. */

@@ -9,18 +9,10 @@
 // playhead is the STATUS's (the last STATUS at or before t carries up to 256 round-robin playheads). A seek with no
 // keyframe at or before t (`fromKeyframe` false) replays only the last second's events, so voices started earlier are
 // missing and the view says so. A voice that stopped is gone from the table (voiceStop is the free).
-import { EventKind, type KeyframeVoice } from "../../runtime/capture/format";
-import type { CaptureOpenSummary, CaptureSeekState } from "../../runtime/capture/reader";
+import type { CaptureKeyframeVoice, CaptureOpenSummary, CaptureSeekState, CaptureVoiceState } from "../../runtime/capture/reader";
 
 /** The most voice rows rendered (as the live debug table); the rest are counted. */
 export const MAX_VOICE_ROWS = 64;
-
-/** The `state` byte of a keyframe voice (§5.5). */
-export const VoiceStateName = ["playing", "virtual", "stolen", "waitingForData", "busMuted", "locked"] as const;
-export type VoiceStateText = (typeof VoiceStateName)[number];
-const STATE_PLAYING = 0;
-const STATE_VIRTUAL = 1;
-const STATE_STOLEN = 2;
 
 /** Names by id, from META and every NAMES record (`CaptureOpenSummary.names`). */
 export interface NameLookup {
@@ -42,12 +34,11 @@ export interface VoiceRow {
   id: number;
   clip: number;
   clipName: string;
-  /** The bus's slot (`busRef & 0xff`; a keyframe row has the slot only). */
+  /** The bus's slot (a keyframe row and a voiceStart both carry the slot only). */
   slot: number;
   busName: string;
-  /** 0 playing, 1 virtual, 2 stolen, 3 waitingForData, 4 busMuted, 5 locked. */
-  state: number;
-  stateName: VoiceStateText;
+  /** The keyframe's state, or the one the voice events after it moved the voice to. */
+  state: CaptureVoiceState;
   /** Null for a voice born from an event after the keyframe. */
   priority: number | null;
   /** §5.6's reason code for the state (0 none). */
@@ -66,13 +57,13 @@ export interface VoiceRow {
 }
 
 /** §5.6's reason texts for the state a row is in. */
-export function reasonText(state: number, reason: number): string {
+export function reasonText(state: CaptureVoiceState, reason: number): string {
   if (reason === 0) return "";
   const table: readonly (string | undefined)[] =
-    state === STATE_STOLEN ? [undefined, "bus max voices", "global limit", "priority"]
-    : state === STATE_VIRTUAL ? [undefined, "demoted by the cap", "below audibility", "paused", "world inaudible"]
-    : state === STATE_PLAYING ? [undefined, "promoted", "cap raised"]
-    : state === 3 ? [undefined, "clip loading", "stream priming"]
+    state === "stolen" ? [undefined, "bus max voices", "global limit", "priority"]
+    : state === "virtual" ? [undefined, "demoted by the cap", "below audibility", "paused", "world inaudible"]
+    : state === "playing" ? [undefined, "promoted", "cap raised"]
+    : state === "waitingForData" ? [undefined, "clip loading", "stream priming"]
     : [];
   return table[reason] ?? `reason ${reason}`;
 }
@@ -89,25 +80,21 @@ function labelBus(names: NameLookup, slot: number): string {
   return names.bus(slot) ?? `bus ${slot}`;
 }
 
-function makeRow(names: NameLookup, v: { id: number; clip: number; slot: number; state: number; priority: number | null; reason: number; gain: number; pitch: number | null; audibility: number | null; playheadFrames: number; thief: number | null; fromKeyframe: boolean }): VoiceRow {
+function makeRow(names: NameLookup, v: { id: number; clip: number; slot: number; state: CaptureVoiceState; priority: number | null; reason: number; gain: number; pitch: number | null; audibility: number | null; playheadFrames: number; thief: number | null; fromKeyframe: boolean }): VoiceRow {
   return {
     ...v,
     clipName: labelClip(names, v.clip),
     busName: labelBus(names, v.slot),
-    stateName: VoiceStateName[v.state] ?? VoiceStateName[STATE_PLAYING],
     reasonText: reasonText(v.state, v.reason),
   };
 }
 
-function fromKeyframeVoice(names: NameLookup, v: KeyframeVoice): VoiceRow {
-  return makeRow(names, {
-    id: v.id, clip: v.clip, slot: v.slot, state: v.state, priority: v.priority, reason: v.reason, gain: v.gain,
-    pitch: v.pitch / 4096, audibility: v.audibility / 65536, playheadFrames: v.playheadFrames, thief: null, fromKeyframe: true,
-  });
+function fromKeyframeVoice(names: NameLookup, v: CaptureKeyframeVoice): VoiceRow {
+  return makeRow(names, { ...v, thief: null, fromKeyframe: true });
 }
 
 /** Rewrites a row's state and reason (and its derived texts), keeping everything else. */
-function withState(names: NameLookup, r: VoiceRow, state: number, reason: number, thief: number | null): VoiceRow {
+function withState(names: NameLookup, r: VoiceRow, state: CaptureVoiceState, reason: number, thief: number | null): VoiceRow {
   return makeRow(names, { ...r, state, reason, thief });
 }
 
@@ -124,32 +111,30 @@ export function reconstructVoices(state: CaptureSeekState, names: NameLookup): V
   for (const v of state.keyframe?.voices ?? []) rows.set(v.id, fromKeyframeVoice(names, v));
   for (const rec of state.records) {
     if (rec.kind !== "event") continue;
-    const p = rec.payload;
-    const a = p.args;
-    switch (p.kind) {
-      case EventKind.voiceStart:
-        // args: id, clip, busRef (gen << 8 | slot), flags, atFrameLo; f32 gain
-        rows.set(a[0]!, makeRow(names, {
-          id: a[0]!, clip: a[1]!, slot: (a[2]! & 0xff), state: STATE_PLAYING, priority: null, reason: 0, gain: p.f32 ?? 1,
+    const e = rec.event;
+    switch (e.type) {
+      case "voiceStart":
+        rows.set(e.voice, makeRow(names, {
+          id: e.voice, clip: e.clip, slot: e.slot, state: "playing", priority: null, reason: 0, gain: e.gain,
           pitch: null, audibility: null, playheadFrames: 0, thief: null, fromKeyframe: false,
         }));
         break;
-      case EventKind.voiceStop:
-        rows.delete(a[0]!);
+      case "voiceStop":
+        rows.delete(e.voice);
         break;
-      case EventKind.voiceSteal: {
-        const victim = rows.get(a[0]!);
-        if (victim) rows.set(victim.id, withState(names, victim, STATE_STOLEN, p.reason, a[1]!));
-        break;
-      }
-      case EventKind.voiceVirtual: {
-        const v = rows.get(a[0]!);
-        if (v) rows.set(v.id, withState(names, v, STATE_VIRTUAL, p.reason, null));
+      case "voiceSteal": {
+        const victim = rows.get(e.voice);
+        if (victim) rows.set(victim.id, withState(names, victim, "stolen", e.reason, e.thief));
         break;
       }
-      case EventKind.voiceReal: {
-        const v = rows.get(a[0]!);
-        if (v) rows.set(v.id, withState(names, v, STATE_PLAYING, p.reason, null));
+      case "voiceVirtual": {
+        const v = rows.get(e.voice);
+        if (v) rows.set(v.id, withState(names, v, "virtual", e.reason, null));
+        break;
+      }
+      case "voiceReal": {
+        const v = rows.get(e.voice);
+        if (v) rows.set(v.id, withState(names, v, "playing", e.reason, null));
         break;
       }
       default:
@@ -202,7 +187,7 @@ export function voiceTable(replay: VoiceReplay, filter = "", max = MAX_VOICE_ROW
   kept.sort((a, b) => audibilityKey(b) - audibilityKey(a) || priorityKey(b) - priorityKey(a) || a.id - b.id);
   const hiddenByState: Record<string, number> = {};
   for (let i = max; i < kept.length; i++) {
-    const s = kept[i]!.stateName;
+    const s = kept[i]!.state;
     hiddenByState[s] = (hiddenByState[s] ?? 0) + 1;
   }
   return {
@@ -220,19 +205,18 @@ export interface EventRow {
   name: string;
   /** Voices the keyframe counted for it (0 for one started after the keyframe: the stream does not carry a count). */
   voices: number;
-  state: number;
 }
 
 /** The event instances at `state`'s instant, filtered by event name. eventStart's args are read as `id, asset`, eventStop's as `id`. */
 export function eventRows(state: CaptureSeekState, names: NameLookup, filter = ""): EventRow[] {
   const rows = new Map<number, EventRow>();
-  const make = (id: number, asset: number, voices: number, st: number): EventRow => ({ id, asset, name: names.event(asset) ?? `event ${asset}`, voices, state: st });
-  for (const e of state.keyframe?.events ?? []) rows.set(e.id, make(e.id, e.asset, e.voices, e.state));
+  const make = (id: number, asset: number, voices: number): EventRow => ({ id, asset, name: names.event(asset) ?? `event ${asset}`, voices });
+  for (const e of state.keyframe?.events ?? []) rows.set(e.id, make(e.id, e.asset, e.voices));
   for (const rec of state.records) {
     if (rec.kind !== "event") continue;
-    const p = rec.payload;
-    if (p.kind === EventKind.eventStart) rows.set(p.args[0]!, make(p.args[0]!, p.args[1]!, 0, 0));
-    else if (p.kind === EventKind.eventStop) rows.delete(p.args[0]!);
+    const e = rec.event;
+    if (e.type === "eventStart") rows.set(e.instance, make(e.instance, e.asset, 0));
+    else if (e.type === "eventStop") rows.delete(e.instance);
   }
   const match = nameFilter(filter);
   return [...rows.values()].filter((r) => match(r.name)).sort((x, y) => x.id - y.id);

@@ -1,12 +1,11 @@
 // ADR 0171/0172 (Pf3d; api-and-models §5.6, §7): the event, parameter and state tracks over events recorded through the real
 // `EventSink`. Spans and ticks sit at the STATUS frame an event was recorded at; each tooltip is the string its model function
-// builds; the sweep reads every keyframe interval (an event just before a keyframe included) in a bounded number of seeks.
+// builds; every event is read once, typed (ADR 0227).
 import { describe, expect, it } from "vitest";
 import { EMPTY_KEYFRAME_PAYLOAD as EMPTY_KEYFRAME } from "../../../runtime/capture/testSupport";
 import { SAMPLE_RATE } from "../../../runtime/capture/testSupport";
 import type { CaptureSource } from "../profilerSource";
 import { MAX_TOOLTIP_LINES, eventLogFor, eventTracks, formatSeconds, formatValue, parameterChanges, eventNames, type HoverTrackModule } from "./events";
-import { EventKind } from "../../../runtime/capture/format";
 import { recordScene, viewportTime, type Scene } from "./recordScene";
 
 const names = (s: CaptureSource) => ({ clip: () => undefined, bus: () => undefined, event: () => undefined, source: s });
@@ -86,7 +85,7 @@ describe("event instance spans, parameters and state changes through the real Ev
     expect(instances.tooltipAt!(tIn)).toContain("Ambience #2  ");
     expect(instances.tooltipAt!(tIn)).toContain("still running");
 
-    const changes = parameterChanges(log.ofKind(EventKind.parameter), eventNames(source));
+    const changes = parameterChanges(log.ofKind("parameter"), eventNames(source));
     expect(changes.map((c) => [c.name, c.instance, formatValue(c.value)])).toEqual([["intensity", null, "0.3"], ["pitch", 2, "1.25"]]);
     const tp = viewportTime(source, marks.explosionStart!);
     parameters.tolerance = 0.005;
@@ -112,9 +111,9 @@ describe("event instance spans, parameters and state changes through the real Ev
     source.close();
   });
 
-  it("every keyframe interval is read, an event stamped just before a keyframe included, in a bounded number of seeks", async () => {
+  it("every event of every keyframe interval is read once, typed, at its recorded time", async () => {
     const stamped: number[] = [];
-    // One event per STATUS block over 5 s: any boundary the sweep mis-places loses at least one of them.
+    // One event per STATUS block over 5 s, across several keyframes: a lost or doubled record shows in the values.
     const { source, log } = await open((s) => {
       const end = 5 * SAMPLE_RATE;
       for (let k = 1; s.frame() < end; k++) {
@@ -123,22 +122,20 @@ describe("event instance spans, parameters and state changes through the real Ev
         s.step();
       }
     });
-    const seen = log.ofKind(EventKind.parameter).map((e) => e.args[0]!);
-    expect(seen).toHaveLength(stamped.length);
-    expect(new Set(log.ofKind(EventKind.parameter).map((e) => e.seq)).size).toBe(stamped.length);
-    const statuses = log.statusTimes.length;
-    expect(statuses).toBeGreaterThan(300);
-    expect(log.seeks).toBeLessThanOrEqual(Math.ceil(source.duration) * 12); // work done: a dozen seeks a captured second, not one per STATUS
-    expect(log.seeks).toBeLessThan(statuses / 4);
+    expect(log.statusTimes.length).toBeGreaterThan(300);
+    const seen = log.ofKind("parameter");
+    expect(seen.map((e) => e.event.value)).toEqual(stamped.map((_, i) => i + 1));
+    expect(seen.map((e) => e.time)).toEqual(stamped.map((f) => viewportTime(source, f)));
+    expect(seen.every((e) => e.event.instance === null)).toBe(true);
     source.close();
   });
 
   it("refreshing again reads the capture once more without duplicating an event", async () => {
     const marks: Record<string, number> = {};
     const { source, instances, parameters, log } = await open(script(marks));
-    const before = log.ofKind(EventKind.parameter).length;
+    const before = log.ofKind("parameter").length;
     await Promise.all([instances.refresh(), parameters.refresh()]);
-    expect(log.ofKind(EventKind.parameter)).toHaveLength(before);
+    expect(log.ofKind("parameter")).toHaveLength(before);
     expect(Array.from(parameters.data()!.ticks!)).toHaveLength(2);
     source.close();
   });

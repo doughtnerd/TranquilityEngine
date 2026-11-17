@@ -13,6 +13,7 @@ import {
   defaultFunction,
   freePortName,
   groupNodes,
+  graphClipboardFromText,
   pasteNodes,
   removeNote,
   removeSubGraphOutput,
@@ -56,7 +57,7 @@ import { HEADER, PREVIEW, ROW, inlineFields, nodeBox, nodeTitle, portOffset, set
 import { createMaterialForGraph, openShaderGraph, createShaderGraph, openShaderGraphAsset, shaderGraphDocument } from "./shaderGraphAssets";
 import { searchGraph, cycleIndex } from "./shaderGraph/graphSearch";
 import { PropertyValue, numberValue, toHex2 } from "./ShaderPropertyValue";
-import { editor, type EditorProject, NO_DRAG, NO_PAN, NO_WHEEL, NoteView, NodeSearchPopup, Minimap, SelectionBox, createNodeDrag, handleProps, isFieldTarget, px, startBoxSelect, startConnection, startPointerDrag, toGraph, useGraphCanvas, wirePath, writeGraphClipboard, type CanvasNode, type DraftWire, type Point, type SearchItem, type View, Panel } from "../../../editor/sdk";
+import { editor, type EditorProject, NO_DRAG, NO_PAN, NO_WHEEL, NoteView, NodeSearchPopup, Minimap, SelectionBox, createNodeDrag, handleProps, isFieldTarget, px, startBoxSelect, startConnection, startPointerDrag, toGraph, useGraphCanvas, wirePath, clipboardForPaste, expectPaste, takePaste, writeClipboard, type CanvasNode, type DraftWire, type Point, type SearchItem, type View, Panel } from "../../../editor/sdk";
 import "../../../editor/graph/graph.css";
 import "./shaderGraph.css";
 
@@ -253,10 +254,13 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
     }
   };
 
-  const pasteHere = () => {
-    if (!clipboard || readOnly) return;
+  /** Paste nodes copied in any graph: the system clipboard's `text` (a paste event's) when another editor process copied them since, else this editor's (ADR 0226). */
+  const pasteHere = (text: string | null) => {
+    const clip = clipboardForPaste(text, clipboard, graphClipboardFromText);
+    if (!clip || readOnly) return;
+    clipboard = clip;
     const at = toGraph(canvas.pointer.current ?? paneCenter(), canvas.viewRef.current);
-    const made = pasteNodes(graph, clipboard, [at.x, at.y]);
+    const made = pasteNodes(graph, clip, [at.x, at.y]);
     commit(made.graph);
     setSelection(new Set(made.ids));
   };
@@ -317,6 +321,12 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
     root.current?.focus({ preventScroll: true });
   };
 
+  const onPaste = (e: ClipboardEvent) => {
+    if (isFieldTarget(e.target)) return;
+    e.stopPropagation();
+    takePaste(e, pasteHere);
+  };
+
   const onKeyDown = (e: KeyboardEvent) => {
     const key = (e.key ?? "").toLowerCase();
     const mod = e.ctrlKey || e.metaKey;
@@ -338,14 +348,18 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
       const clip = copyNodes(graph, selection);
       if (clip) {
         clipboard = clip;
-        writeGraphClipboard(clip);
+        writeClipboard(clip);
         if (key === "x") {
           commit(removeNodes(graph, selection));
           setSelection(new Set());
         }
       }
-    } else if (mod && key === "v") pasteHere();
-    else if (mod && key === "g") groupSelection();
+    } else if (mod && key === "v") {
+      // Not prevented, so the browser fires `paste` with the system clipboard's text (onPaste).
+      expectPaste(pasteHere);
+      e.stopPropagation();
+      return;
+    } else if (mod && key === "g") groupSelection();
     else if (!mod && (key === "delete" || key === "backspace")) deleteSelection();
     else if (!mod && key === " ") openSearch(paneCenter(), null);
     else if (!mod && key === "f") frameAll();
@@ -467,7 +481,7 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
   };
 
   return (
-    <div class={`shader-graph${maximized ? " maximized" : ""}`} data-asset-document={doc.path} ref={root} tabIndex={0} onKeyDown={onKeyDown} aria-label="Shader Graph">
+    <div class={`shader-graph${maximized ? " maximized" : ""}`} data-asset-document={doc.path} ref={root} tabIndex={0} onKeyDown={onKeyDown} onPaste={onPaste} aria-label="Shader Graph">
       <div class="sg-toolbar">
         <span class="sg-name" title={path}>
           {editor.assets.fileName(path)}

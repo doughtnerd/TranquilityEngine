@@ -2,20 +2,15 @@
 // cursor's keyframe, their product (the bus's own effective gain), the factors not at unity, dB for each, and the product
 // up the tree. Pure: no DOM, types-only imports.
 //
-// The keyframe's bus row (§5.5) holds `[value, target]` for the five main-written lanes (authored, runtime, snapshot,
-// monitor, dip) and one last-reported value each for the core-owned `duck` and `automation`. Those two have no target on
-// the wire, so their target here equals their value.
+// The keyframe's bus row (§5.5, read by name by the capture reader) holds a value and target for the five main-written
+// lanes (authored, runtime, snapshot, monitor, dip) and one last-reported value each for the core-owned `duck` and
+// `automation`. Those two have no target on the wire, so their target here equals their value.
 
-import type { KeyframeBus } from "../../runtime/capture/format";
+import type { CaptureKeyframeBus } from "../../runtime/capture/reader";
 
 /** The seven lanes in wire order (`LANE_AUTHORED` 0 … `LANE_AUTOMATION` 6; `Lane` in `engine/audio/mixer.ts`). */
 export const FACTOR_LANES = ["authored", "runtime", "snapshot", "monitor", "dip", "duck", "automation"] as const;
 export type FactorLane = (typeof FACTOR_LANES)[number];
-
-/** Keyframe bus flag bits (§5.5): authored mute, runtime mute, tombstone. */
-const FLAG_AUTHORED_MUTE = 1 << 0;
-const FLAG_RUNTIME_MUTE = 1 << 1;
-const FLAG_TOMBSTONE = 1 << 4;
 
 /** One lane's factor on one bus. */
 export interface BusFactor {
@@ -59,23 +54,18 @@ export function formatDb(db: number): string {
 }
 
 /** Build one bus's factors from its keyframe row. */
-export function busFactors(bus: KeyframeBus): BusFactors {
-  const raw = (lane: number, which: 0 | 1): number => {
-    const v = bus.lanes[lane * 2 + which];
-    return v === undefined || Number.isNaN(v) ? 1 : v;
-  };
-  const muted = [bus.flags & FLAG_AUTHORED_MUTE, bus.flags & FLAG_RUNTIME_MUTE];
-  const factors: BusFactor[] = FACTOR_LANES.map((lane, i) => {
+export function busFactors(bus: CaptureKeyframeBus): BusFactors {
+  const finite = (v: number): number => (Number.isNaN(v) ? 1 : v);
+  const factors: BusFactor[] = FACTOR_LANES.map((lane) => {
     let value: number;
     let target: number;
-    if (i < 5) {
-      const mute = i < 2 && muted[i] !== 0;
-      value = mute ? 0 : raw(i, 0);
-      target = mute ? 0 : raw(i, 1);
-    } else {
-      const v = i === 5 ? bus.duck : bus.automation;
-      value = Number.isNaN(v) ? 1 : v;
+    if (lane === "duck" || lane === "automation") {
+      value = finite(bus[lane]);
       target = value;
+    } else {
+      const mute = (lane === "authored" && bus.authoredMute) || (lane === "runtime" && bus.runtimeMute);
+      value = mute ? 0 : finite(bus.lanes[lane].value);
+      target = mute ? 0 : finite(bus.lanes[lane].target);
     }
     return { lane, value, target, unity: value === 1, db: gainToDb(value) };
   });
@@ -88,7 +78,7 @@ export function busFactors(bus: KeyframeBus): BusFactors {
     product,
     productDb: gainToDb(product),
     nonUnity: factors.filter((f) => !f.unity).map((f) => f.lane),
-    tombstone: (bus.flags & FLAG_TOMBSTONE) !== 0,
+    tombstone: bus.tombstone,
   };
 }
 

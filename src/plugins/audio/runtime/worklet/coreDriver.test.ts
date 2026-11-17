@@ -31,7 +31,11 @@ const RATE = 48_000;
 const QUANTUM_MS = (128 / RATE) * 1000;
 const PRESET: CorePreset = { maxLogical: 256, maxMixed: 32, maxBuses: 8, arenaInitialBytes: 1 << 20, clipCeilingBytes: 16 << 20, limiterLookaheadMs: 1.5, maxBeds: 0, maxZoneSlots: 0, zoneMaxSeconds: 0, maxWide: 0, maxMusicRings: 0 };
 
-/** A driver and a link joined by queues; `recycle: false` makes main keep every STATUS buffer. */
+/**
+ * A driver and a link joined by queues; `recycle: false` makes main keep every STATUS buffer. `counts.posted` counts the
+ * STATUS buffers the driver posts, `counts.recycled` the RECYCLEs main sends back, and `returned` holds every other
+ * buffer the driver hands main (the host's own, back to its pool).
+ */
 function rig(options: { recycle?: boolean; core?: CoreInstance } = {}) {
   const clock = { frame: 0, now: 1_000_000 };
   const toMain: unknown[] = [];
@@ -43,19 +47,24 @@ function rig(options: { recycle?: boolean; core?: CoreInstance } = {}) {
   const blocks: StatusBlock[] = [];
   link.onStatus((s) => blocks.push(s));
   const statusBuffers = new Set<ArrayBuffer>();
+  const returned: ArrayBuffer[] = [];
+  const counts = { posted: 0, recycled: 0 };
+  const kind = (m: unknown) => (m instanceof ArrayBuffer && m.byteLength >= 16 ? new DataView(m).getUint16(6, true) : -1);
   const flush = () => {
     while (toMain.length || toWorklet.length) {
       for (const m of toMain.splice(0)) {
-        if (m instanceof ArrayBuffer && new DataView(m).getUint16(6, true) === Kind.STATUS) {
-          statusBuffers.add(m);
+        if (kind(m) === Kind.STATUS) {
+          counts.posted++;
+          statusBuffers.add(m as ArrayBuffer);
           if (options.recycle === false) {
-            blocks.push(readStatus(m));
+            blocks.push(readStatus(m as ArrayBuffer));
             continue;
           }
-        }
+        } else if (m instanceof ArrayBuffer) returned.push(m);
         port.onmessage?.({ data: m });
       }
       for (const m of toWorklet.splice(0)) {
+        if (kind(m) === Kind.RECYCLE) counts.recycled++;
         if (m instanceof ArrayBuffer) driver.onMessage(m, clock.frame, clock.now);
         else driver.onControl(m as never);
       }
@@ -69,7 +78,12 @@ function rig(options: { recycle?: boolean; core?: CoreInstance } = {}) {
       flush();
     }
   };
-  return { clock, core, driver, link, blocks, statusBuffers, run, flush, toMain };
+  return { clock, core, driver, link, blocks, statusBuffers, returned, counts, run, flush, toMain };
+}
+
+/** No STATUS post was skipped: consecutive blocks are one cadence apart (6 quanta, or 48 once idle), never more. */
+function expectNoSkips(blocks: readonly StatusBlock[]): void {
+  for (let i = 1; i < blocks.length; i++) expect([6 * 128, 48 * 128]).toContain(blocks[i]!.currentFrame - blocks[i - 1]!.currentFrame);
 }
 
 function batch(): ArrayBuffer {
@@ -128,17 +142,17 @@ describe("coreDriver with the real wasm", () => {
   it("RECYCLE returns buffers to the pool: 8 buffers circulate for 10,000 quanta with none skipped", () => {
     const r = rig();
     r.run(10_000);
-    expect(r.driver.stats.skipped).toBe(0);
-    expect(r.driver.stats.recycled).toBe(r.driver.stats.posted);
+    expectNoSkips(r.blocks);
+    expect(r.counts.posted).toBe(r.blocks.length);
+    expect(r.counts.recycled).toBe(r.counts.posted);
     expect(r.driver.pool.available).toBe(8);
     expect(r.statusBuffers.size).toBeLessThanOrEqual(8);
   });
 
   it("without RECYCLE the pool runs dry after 8 posts and later posts are skipped", () => {
     const r = rig({ recycle: false });
-    r.run(6 * 20);
-    expect(r.driver.stats.posted).toBe(8);
-    expect(r.driver.stats.skipped).toBeGreaterThan(0);
+    r.run(6 * 20); // 20 STATUS points
+    expect(r.counts.posted).toBe(8);
     expect(r.driver.pool.available).toBe(0);
   });
 
@@ -152,7 +166,7 @@ describe("coreDriver with the real wasm", () => {
     expect(r.link.statusCount - before).toBeGreaterThanOrEqual(99);
     expect(r.link.statusCount - before).toBeLessThanOrEqual(101);
     expect(r.link.lastStatus!.currentFrame).toBeGreaterThan(r.clock.frame - 49 * 128);
-    expect(r.driver.stats.skipped).toBe(0);
+    expectNoSkips(r.blocks);
   });
 
   it("a batch brings the 6-quantum cadence back, and its buffer returns to the host's pool", () => {
@@ -207,7 +221,7 @@ describe("coreDriver with the real wasm", () => {
     const events: string[] = [];
     r.link.onShellEvent((e) => events.push(e.type));
     r.run(12);
-    const posted = r.driver.stats.posted;
+    const posted = r.counts.posted;
     expect(posted).toBe(2);
     trap = true;
     r.driver.onControl({ type: "debugTone", hz: 440, gain: 0.5 });
@@ -219,15 +233,15 @@ describe("coreDriver with the real wasm", () => {
     // One process call trapped; after it nothing reaches the core: no render, no STATUS, no batch.
     expect(calls.process).toBe(13);
     const statusCalls = calls.status;
-    expect(r.driver.stats.posted).toBe(posted);
+    expect(r.counts.posted).toBe(posted);
     const batch = new ArrayBuffer(32);
     const view = new DataView(batch);
     writeEnvelope(view, 0, { kind: Kind.BATCH, seq: 1, bodyBytes: 16 });
     writeBatchHeader(view, 0, { firstFrame: 0, count: 0, flags: 0 });
-    const returned = r.driver.stats.returned;
     r.driver.onMessage(batch, 0, 0);
+    r.flush();
     expect(calls.submit).toBe(0);
-    expect(r.driver.stats.returned).toBe(returned + 1); // the buffer still goes back to the host's pool
+    expect(r.returned).toContain(batch); // the buffer still goes back to the host's pool
     r.run(48);
     expect(calls.status).toBe(statusCalls);
     expect(calls.process).toBe(13);
@@ -288,9 +302,8 @@ describe("coreDriver clip routing with the real wasm", () => {
     send(clipChunk(7, 600, 400, new Float32Array(800).fill(0.5)));
     r.run(6);
     expect(clipEvents(r.blocks)).toEqual([[7, ClipEvent.Resident]]);
-    expect(r.driver.stats.clipBytes).toBe(1_000 * 2 * 4);
     expect(r.link.lastStatus!.arenaUsedKB).toBe(8); // 8,000 bytes round up to the 8 KB class
-    expect(r.driver.stats.returned).toBe(0);
+    expect(r.returned).toEqual([]);
   });
 
   it("an odd-sample int16 chunk copies only its samples, not the padding", () => {
@@ -303,7 +316,6 @@ describe("coreDriver clip routing with the real wasm", () => {
     send(chunk);
     r.run(6);
     expect(clipEvents(r.blocks)).toEqual([[9, ClipEvent.Resident]]);
-    expect(r.driver.stats.clipBytes).toBe(6);
     // The clip's samples sit at its block's start; the bytes after them stay zero (the block is zeroed).
     const at = r.core.exports.myco_audio_clip_chunk_ptr(9, 0, 6);
     const arena = new DataView(r.core.memory.buffer, at, 8);
@@ -320,8 +332,8 @@ describe("coreDriver clip routing with the real wasm", () => {
     send(clipUnload(3));
     send(clipChunk(3, 0, 16, new Int16Array(16)));
     r.run(6);
-    expect(r.link.lastStatus!.arenaUsedKB).toBe(0);
-    expect(r.driver.stats.clipBytes).toBe(8_192);
+    expect(r.link.lastStatus!.arenaUsedKB).toBe(0); // the late chunk landed nowhere
+    expect(clipEvents(r.blocks)).toEqual([[3, ClipEvent.Resident]]);
     // The id can be loaded again after its unload.
     send(clipBegin(3, 2, 1, ClipFormat.I16));
     send(clipChunk(3, 0, 2, Int16Array.of(1, 2)));
@@ -337,15 +349,14 @@ describe("coreDriver clip routing with the real wasm", () => {
     const send = (m: ArrayBuffer) => r.driver.onMessage(m, r.clock.frame, r.clock.now);
     const before = r.core.memory.buffer.byteLength;
     const frames = CLIP_BYTES_PER_QUANTUM / 2; // one budget of mono int16 per chunk
-    const chunks = 6; // 1.5 MB: past the 1 MB initial arena
+    const chunks = 10; // 2.5 MB: past the 1 MB initial arena
     send(clipBegin(5, frames * chunks, 1, ClipFormat.I16));
     for (let k = 0; k < chunks; k++) send(clipChunk(5, k * frames, frames, new Int16Array(frames).fill(k)));
     expect(r.core.memory.buffer.byteLength).toBeGreaterThan(before);
-    expect(r.driver.stats.clipBytes).toBe(CLIP_BYTES_PER_QUANTUM);
-    expect(r.driver.pendingClipMessages).toBe(chunks - 1);
-    r.run(chunks - 1);
-    expect(r.driver.pendingClipMessages).toBe(0);
-    expect(r.driver.stats.clipBytes).toBe(chunks * CLIP_BYTES_PER_QUANTUM);
+    // One budget is copied on arrival and one per quantum after, so the clip is whole only after 9 more quanta:
+    // the STATUS at quantum 6 doesn't report it yet, the one at quantum 12 does.
+    r.run(6);
+    expect(clipEvents(r.blocks)).toEqual([]);
     r.run(6);
     expect(clipEvents(r.blocks)).toEqual([[5, ClipEvent.Resident]]);
   });
@@ -358,7 +369,7 @@ describe("coreDriver clip routing with the real wasm", () => {
     send(clipChunk(11, 0, 4, new Int16Array(4)));
     r.run(6);
     expect(clipEvents(r.blocks)).toEqual([[11, ClipEvent.RefusedGrow]]);
-    expect(r.driver.stats.clipBytes).toBe(0);
+    expect(r.link.lastStatus!.arenaUsedKB).toBe(0);
   });
 });
 

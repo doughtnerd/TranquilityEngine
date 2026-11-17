@@ -600,12 +600,6 @@ export class CoreAutomation implements AutomationSink {
     return this.busGainNow(name);
   }
 
-  /** @internal The parameter target the mirror holds (tests). */
-  paramTarget(group: number, slot: number): number | undefined {
-    const k = paramKey(group, slot);
-    return k >= 0 && this.paramSet[k] ? this.paramValue[k] : undefined;
-  }
-
   // --- Internals --------------------------------------------------------------------------------------------------
 
   private idOf(i: number): number {

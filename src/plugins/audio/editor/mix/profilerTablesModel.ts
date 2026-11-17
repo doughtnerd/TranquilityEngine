@@ -6,8 +6,7 @@
 //     section, which names the parent of each bus by name) and the music rows (the keyframe's, with `musicTransition`
 //     events after it applied).
 // No DOM: the tests drive it directly.
-import { EventKind, type KeyframePayload } from "../../runtime/capture/format";
-import type { CaptureSeekState } from "../../runtime/capture/reader";
+import type { CaptureKeyframe, CaptureSeekState } from "../../runtime/capture/reader";
 import { audioSection } from "../../../../engine/audio/audioSection";
 import { chooseEmptyState } from "./emptyStates";
 import { busFactors, formatDb, treeProducts, type BusFactors } from "./busFactorsModel";
@@ -48,7 +47,7 @@ export function voiceCells(row: VoiceRow, byId: ReadonlyMap<number, VoiceRow>): 
     id: String(row.id),
     clip: row.clipName,
     bus: row.busName,
-    state: row.stateName,
+    state: row.state,
     reason,
     priority: row.priority === null ? DASH : String(row.priority),
     gain: formatDb(row.gain > 0 ? 20 * Math.log10(row.gain) : -Infinity),
@@ -92,7 +91,7 @@ export function busParents(audio: unknown, busNames: Iterable<readonly [number, 
 
 /** The bus rows at a keyframe (in its order), filtered by bus name. A bus the names don't cover reads "bus <slot>". */
 export function busTableRows(
-  keyframe: Pick<KeyframePayload, "buses"> | null,
+  keyframe: Pick<CaptureKeyframe, "buses"> | null,
   names: NameLookup,
   parents: ReadonlyMap<number, number | null>,
   filter = "",
@@ -113,12 +112,6 @@ export function busTableRows(
 
 // --- music rows --------------------------------------------------------------------------------------------------------
 
-/** The `state` codes of a keyframe music row (`KfMusicState`). */
-export const MusicStateName = ["priming", "playing", "transitioning", "recovering", "ending"] as const;
-
-/** The id a keyframe or event carries for no name (`capture/events.ts`' `NO_NAME`). */
-const NO_NAME = 0xffffffff;
-
 export interface MusicRow {
   id: number;
   segment: string;
@@ -134,23 +127,23 @@ export interface MusicRow {
 
 /** The music instances at `state`'s instant: the keyframe's rows with each `musicTransition` after it moving the instance to its new segment (args `instance, from, to`). Filtered by segment name. */
 export function musicRows(state: CaptureSeekState, eventName: (id: number) => string | undefined, filter = ""): MusicRow[] {
-  const nameOf = (id: number): string => (id === NO_NAME ? "none" : (eventName(id) ?? `segment ${id}`));
+  const nameOf = (id: number | null): string => (id === null ? "none" : (eventName(id) ?? `segment ${id}`));
   const rows = new Map<number, MusicRow>();
   for (const m of state.keyframe?.music ?? []) {
     rows.set(m.id, {
       id: m.id,
       segment: nameOf(m.segment),
-      state: MusicStateName[m.state] ?? `state ${m.state}`,
+      state: m.state ?? "unknown",
       pass: m.pass,
       position: `${m.bar}:${m.beat}.${m.tick}`,
       tempo: m.tempo,
-      pendingTo: m.pendingTo === NO_NAME ? null : nameOf(m.pendingTo),
-      pendingTimeSec: m.pendingTo === NO_NAME ? null : m.pendingTimeSec,
+      pendingTo: m.pending === null ? null : nameOf(m.pending.to),
+      pendingTimeSec: m.pending === null ? null : m.pending.seconds,
     });
   }
   for (const rec of state.records) {
-    if (rec.kind !== "event" || rec.payload.kind !== EventKind.musicTransition) continue;
-    const [instance, , to] = rec.payload.args as [number, number, number];
+    if (rec.kind !== "event" || rec.event.type !== "musicTransition") continue;
+    const { instance, to } = rec.event;
     const prev = rows.get(instance);
     rows.set(instance, prev
       ? { ...prev, segment: nameOf(to), pendingTo: null, pendingTimeSec: null }

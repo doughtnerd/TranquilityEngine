@@ -6,7 +6,7 @@
 // one import and one line each, so no task edits `ProfilerPanel.tsx`.
 import { editor, type EditorPluginContext, type ProjectSettingsSurface, type SettingsDraft } from "../../../../editor/sdk";
 import type { OpLogEntry } from "./opLog";
-import type { CaptureLoudnessTarget } from "../../runtime/capture/format";
+import type { CaptureLoudnessTarget } from "../../runtime/capture/reader";
 
 const PROFILER_PANEL = "audioprofiler";
 const MIXER_PANEL = "audiomixer";

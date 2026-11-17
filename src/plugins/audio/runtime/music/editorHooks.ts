@@ -8,11 +8,12 @@
  * Both take the `MusicHandle` the public handle exposes (`handle.music`) and find the player behind it.
  */
 import type { MusicHandle } from "../../../../engine/audio/musicTypes";
-import { musicPlayers, type MusicNodeRef, type MusicPlayer } from "./musicSystem";
+import { musicPlayers, type MusicPlayer } from "./musicSystem";
 import { createPlaylistState, type PlaylistCursor } from "./playlist";
 import { nextIndex } from "./playlistOrder";
 import { setAudibleStems } from "./stems";
 import { startPositions } from "./startPosition";
+import type { MusicNode } from "../../../../engine/audio/musicFormat";
 
 const playerOfHandle = (music: MusicHandle): MusicPlayer | null => musicPlayers().find((p) => p.handle === music) ?? null;
 
@@ -27,13 +28,13 @@ export function auditionStems(music: MusicHandle, segment: string, audible: read
   return true;
 }
 
-interface Step { readonly node: MusicNodeRef; readonly index: number }
+interface Step { readonly node: MusicNode; readonly index: number }
 
 /** The playlists from `node` down to the segment `id`, with the item index taken in each; null when it isn't under a playlist chain. */
-function pathTo(node: MusicNodeRef, id: string): Step[] | null {
+function pathTo(node: MusicNode, id: string): Step[] | null {
   if (node.id === id) return [];
   if (node.type !== "playlist") return null;
-  const children = (node as unknown as { children?: MusicNodeRef[] }).children ?? [];
+  const children = node.children;
   for (let i = 0; i < children.length; i++) {
     const rest = pathTo(children[i]!, id);
     if (rest) return [{ node, index: i }, ...rest];

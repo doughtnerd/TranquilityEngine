@@ -4,10 +4,9 @@ import { NullEngine } from "@babylonjs/core/Engines/nullEngine.js";
 import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
 import { Texture } from "@babylonjs/core/Materials/Textures/texture.js";
 import { Scene } from "@babylonjs/core/scene.js";
-import { pbrPixelShaderWGSL } from "@babylonjs/core/ShadersWGSL/pbr.fragment.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createGraphMaterial } from "../render/babylon/graphMaterial";
-import { codeAt, graphCode } from "./graphPluginCode";
+import { graphShaders } from "./graphPluginCode";
 import { applyBuiltinSettings, builtinTextureSlots } from "../render/babylon/materials";
 import { compileShaderGraph } from "../render/shaderGraph/compile";
 import { Color } from "../core/math";
@@ -112,25 +111,14 @@ describe("physical shader graph layer inputs (ADR 0118)", () => {
     nodes: [{ id: "output", type: "output", position: [0, 0], inputs: inputs as GraphNode["inputs"] }, ...nodes],
     edges: edges.map(([from, to]) => ({ from, to })),
   });
-  /** Babylon's raw PBR WGSL with the plugin's injections applied, checking each anchor matches. */
-  const inject = (code: Record<string, string>): string => {
-    let src = pbrPixelShaderWGSL.shader;
-    for (const [key, value] of Object.entries(code)) {
-      if (!key.startsWith("!")) continue;
-      expect(new RegExp(key.slice(1), "g").test(src), `${key} matches Babylon's PBR fragment shader`).toBe(true);
-      src = src.replace(new RegExp(key.slice(1), "g"), () => value);
-    }
-    return src;
-  };
-
-  it("compiles specular colour, iridescence thickness, anisotropy and its direction into Babylon's shader", () => {
+  it("compiles specular colour, iridescence thickness, anisotropy and its direction into Babylon's shader", async () => {
     const c = compileShaderGraph(graph({ specularColor: [1, 0.5, 0], iridescence: 1, iridescenceThickness: 250, anisotropy: 0.7, anisotropyDirection: [0, 1] }));
     expect(c.problems).toEqual([]);
     const p = c.fragment.physical!;
     expect(Object.keys(p).sort()).toEqual(["anisotropy", "anisotropyDirection", "iridescence", "iridescenceThickness", "specularColor"]);
-    const code = graphCode(c, "fragment");
-    expect(codeAt(code, "!var\\s+metallicReflectanceFactors")).toBe(`var metallicReflectanceFactors: vec4f = vec4f(${p.specularColor}, uniforms.vMetallicReflectanceFactors.a);`);
-    const src = inject(code);
+    const src = (await graphShaders(c)).main.fragment;
+    expect(src).toContain(`var metallicReflectanceFactors: vec4f = vec4f(${p.specularColor}, uniforms.vMetallicReflectanceFactors.a);`);
+    expect(src).not.toMatch(/metallicReflectanceFactors\s*:\s*vec4f\s*=\s*uniforms\.vMetallicReflectanceFactors;/);
     expect(src).toContain(`vec4f(${p.iridescence}, uniforms.vIridescenceParams.y, ${p.iridescenceThickness}, ${p.iridescenceThickness})`);
     expect(src).toContain(`vec3f(${p.anisotropyDirection}, ${p.anisotropy})`);
     expect(src).not.toMatch(/uniforms\.vAnisotropy\b/);
@@ -150,16 +138,17 @@ describe("physical shader graph layer inputs (ADR 0118)", () => {
     }
   });
 
-  it("hands a connected clearcoat normal to the clear coat block, with the tangent frame", () => {
+  it("hands a connected clearcoat normal to the clear coat block, with the tangent frame", async () => {
     const c = compileShaderGraph(graph({ clearcoat: 1 }, [["n.out", "output.clearcoatNormal"]], [{ id: "n", type: "vector3", position: [0, 0], inputs: { x: 0, y: 0.2, z: 1 } }]));
     expect(c.problems).toEqual([]);
     expect(c.fragment.physical).toHaveProperty("clearcoatNormal");
-    const code = graphCode(c, "fragment");
-    expect(code.CUSTOM_FRAGMENT_DEFINITIONS).toContain("fn mycoBabylonTangentFrame");
     expect(c.vertex.varyings).toContain("vMycoUv");
-    const src = inject(code);
-    expect(codeAt(code, "!clearcoatOut")).toContain(`* (${c.fragment.physical!.clearcoatNormal})`);
-    expect(src).toContain("clearcoatOut = clearcoatBlock(fragmentInputs.vPositionW, normalize(mycoBabylonTangentFrame(");
+    const src = (await graphShaders(c)).main.fragment;
+    expect(src).toContain("fn mycoBabylonTangentFrame");
+    const call = src.slice(src.indexOf("clearcoatOut = clearcoatBlock(")).split("\n")[0];
+    expect(call).toContain("clearcoatOut = clearcoatBlock(fragmentInputs.vPositionW, normalize(mycoBabylonTangentFrame(");
+    expect(call).toContain(`* (${c.fragment.physical!.clearcoatNormal})`);
+    expect(src).not.toMatch(/clearcoatBlock\(\s*fragmentInputs\.vPositionW\s*,\s*geometricNormalW/);
     // Unconnected, it compiles nothing.
     expect(compileShaderGraph(graph({ clearcoat: 1 })).fragment.physical).not.toHaveProperty("clearcoatNormal");
   });

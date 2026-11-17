@@ -4,20 +4,19 @@
 // `voiceTableData` of a reconstructed seek state.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { expect, fireEvent, userEvent, waitFor } from "storybook/test";
-import type { KeyframePayload, KeyframeVoice } from "../../runtime/capture/format";
-import type { CaptureSeekState } from "../../runtime/capture/reader";
+import type { CaptureKeyframe, CaptureKeyframeVoice, CaptureSeekState } from "../../runtime/capture/reader";
 import { SAMPLE_RATE } from "../../runtime/capture/testSupport";
 import { MAX_RENDERED_ROWS, ROW_HEIGHT, VIEWPORT_ROWS, windowRows } from "./gridWindow";
 import { VoiceTable, voiceTableData, type VoiceTableData } from "./VoiceTable";
 import { nameLookup, reconstructVoices } from "./voiceTableModel";
 import { openScene } from "./voiceSceneSupport";
 
-const EMPTY_MIX = { slotTableVersion: 1, monitorActive: 0, loudnessPausedMask: 0, targetIndex: 0, snapshotName: 0, masterVolume: 1, hiddenMute: 0 };
-const keyframe = (over: Partial<KeyframePayload> = {}): KeyframePayload => ({ voices: [], buses: [], metered: [], events: [], music: [], mix: EMPTY_MIX, ...over });
-const seekState = (kf: KeyframePayload | null): CaptureSeekState =>
+const EMPTY_MIX = { slotTableVersion: 1, monitorActive: false, targetIndex: 0, snapshot: null, masterVolume: 1, hiddenMute: false };
+const keyframe = (over: Partial<CaptureKeyframe> = {}): CaptureKeyframe => ({ voices: [], buses: [], metered: [], events: [], music: [], mix: EMPTY_MIX, ...over });
+const seekState = (kf: CaptureKeyframe | null): CaptureSeekState =>
   ({ seconds: 0, keyframeSeq: kf ? 1 : -1, keyframe: kf, status: null, records: [], recordsScanned: 0 }) as unknown as CaptureSeekState;
-const voice = (id: number, over: Partial<KeyframeVoice> = {}): KeyframeVoice => ({
-  id, clip: 1 + (id % 3), slot: id % 3, state: 0, priority: id % 5, reason: 0, gain: 0.5, pitch: 4096, audibility: 65535 - id * 8, playheadFrames: id * 10, ...over,
+const voice = (id: number, over: Partial<CaptureKeyframeVoice> = {}): CaptureKeyframeVoice => ({
+  id, clip: 1 + (id % 3), slot: id % 3, state: "playing", priority: id % 5, reason: 0, gain: 0.5, pitch: 1, audibility: (65535 - id * 8) / 65536, playheadFrames: id * 10, ...over,
 });
 const NAMES = nameLookup({ clips: new Map([[1, "jump.ogg"], [2, "Land.ogg"], [3, "footstep.ogg"]]), buses: new Map([[0, "Master"], [1, "Music"], [2, "SFX"]]), events: new Map(), parameters: new Map(), snapshots: new Map(), targets: new Map() } as never);
 const CTX = { playing: false, truncated: false };

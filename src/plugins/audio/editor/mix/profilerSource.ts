@@ -6,8 +6,13 @@
 //
 // Requests are matched to responses by id. Errors reject with a `CaptureError` (the Worker's `code`, `offset`,
 // `message`); a cancelled open rejects with code `cancelled`. A Worker that dies rejects everything pending.
-import { CaptureError, type CaptureErrorInfo } from "../../runtime/capture/format";
-import { RANGE_SECONDS, type CaptureMarkerAt, type CaptureOpenSummary, type CaptureRangeColumns, type CaptureSeekState } from "../../runtime/capture/reader";
+//
+// Typed events (ADR 0227): `events(from, types)` answers the capture's EVENTs by name (`CaptureEvent`) after a record cursor,
+// so a track reads the whole capture once and a live view only what was appended; no view reads the EVENT arg layout.
+import {
+  CaptureError, RANGE_SECONDS, type CaptureErrorInfo, type CaptureEventsPage, type CaptureEventType, type CaptureMarkerAt, type CaptureOpenSummary,
+  type CaptureRangeColumns, type CaptureSeekState,
+} from "../../runtime/capture/reader";
 import type { CaptureRequest, CaptureResponse } from "../../runtime/capture/worker";
 
 /** `Omit` that keeps a union's members apart. */
@@ -30,6 +35,8 @@ export interface ProfileSource {
   seek(t: number): Promise<CaptureSeekState>;
   /** STATUS columns over [t0, t1]; with `buckets`, min/max per bucket (`rangeCapture`). The arrays are transferred, so the caller owns them. */
   range(t0: number, t1: number, columns: readonly string[], buckets?: number): Promise<CaptureRangeColumns>;
+  /** The typed EVENTs after record cursor `from` (0 for the first; then the last answer's `next`), only `types` when given, with axis seconds. */
+  events(from: number, types?: readonly CaptureEventType[]): Promise<CaptureEventsPage>;
   close(): void;
 }
 
@@ -145,6 +152,12 @@ export class CaptureSource implements ProfileSource {
     const r = await this.request({ type: "seek", id: this.nextId++, seconds: t }, []);
     if (r.type !== "snapshot") throw new Error(`capture worker: unexpected ${r.type}`);
     return r.snapshot;
+  }
+
+  async events(from: number, types?: readonly CaptureEventType[]): Promise<CaptureEventsPage> {
+    const r = await this.request({ type: "events", id: this.nextId++, from, ...(types === undefined ? {} : { types: [...types] }) }, []);
+    if (r.type !== "events") throw new Error(`capture worker: unexpected ${r.type}`);
+    return { events: r.events, next: r.next };
   }
 
   async range(t0: number, t1: number, columns: readonly string[], buckets?: number): Promise<CaptureRangeColumns> {

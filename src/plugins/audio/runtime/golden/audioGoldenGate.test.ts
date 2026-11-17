@@ -15,7 +15,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { createLoopbackHost, LOOPBACK_PRESET, type LoopbackHost } from "../testing";
+import { createLoopbackHost, LOOPBACK_PRESET, type LoopbackHost, type LoopbackStreamPort } from "../testing";
 import { Kind, STREAM_CHUNK_FIXED_END, writeBatchHeader, writeClipBegin, writeClipChunk, writeEnvelope, writeStreamChunk } from "../wire.generated";
 
 const GOLDEN_DIR = fileURLToPath(new URL("./", import.meta.url));
@@ -106,6 +106,15 @@ const fromHex = (hex: string): Uint8Array => Uint8Array.from(hex.match(/../g) ??
 /** Plays the fixture on a loopback host; returns the output and the host. */
 async function renderFixture(fixture: GateFixture): Promise<{ readonly left: Float32Array; readonly right: Float32Array; readonly host: LoopbackHost }> {
   const host = await createLoopbackHost({ preset: { ...LOOPBACK_PRESET, ...fixture.preset } });
+  // ADR 0223: the streams come on the worklet's own port, handed over as the backend hands it (`connectStreamPort`); the
+  // loopback serves it as the processor does. The first `send` below delivers the control.
+  const streamPort: LoopbackStreamPort = { onmessage: null, postMessage: () => {} };
+  host.link.connectStreamPort(streamPort as unknown as MessagePort);
+  /** The decoder worker's side: a message on the stream port, at the current frame. */
+  const postStream = (message: ArrayBuffer) => {
+    if (!streamPort.onmessage) throw new Error("the loopback didn't take the stream port");
+    streamPort.onmessage({ data: message });
+  };
   let seq = 1;
   const lefts: Float32Array[] = [];
   const rights: Float32Array[] = [];
@@ -143,7 +152,7 @@ async function renderFixture(fixture: GateFixture): Promise<{ readonly left: Flo
       host.send(buffer);
     } else if ("open" in step) {
       const bytes = fromHex(step.open);
-      host.driver.onStreamMessage(bytes.buffer, host.frame, host.clock.dateNow());
+      postStream(bytes.buffer as ArrayBuffer);
     } else {
       const c = step.chunk;
       const samples = new Float32Array(c.frames * 2);
@@ -156,7 +165,7 @@ async function renderFixture(fixture: GateFixture): Promise<{ readonly left: Flo
       writeEnvelope(view, 0, { kind: Kind.STREAM_CHUNK, seq: seq++, bodyBytes: STREAM_CHUNK_FIXED_END - 16 + samples.byteLength });
       writeStreamChunk(view, 0, { streamId: c.stream, chunkSeq: 0, frames: c.frames, flags: c.flags, epoch: c.epoch });
       new Uint8Array(buffer, STREAM_CHUNK_FIXED_END).set(new Uint8Array(samples.buffer));
-      host.driver.onStreamMessage(buffer, host.frame, host.clock.dateNow());
+      postStream(buffer);
     }
   }
 

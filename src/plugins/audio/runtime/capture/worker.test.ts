@@ -11,7 +11,7 @@ import { CAPTURE_FLAG_COMPRESSED, CAPTURE_HEADER_BYTES, RecordType, assembleCapt
 import {
   CaptureTimeIndex, decodeRecordAt, openCapture, rangeCapture, recordSeconds, seekCapture, type CaptureContents,
 } from "./reader";
-import { EMPTY_KEYFRAME_PAYLOAD, SAMPLE_HEADER, SAMPLE_META, longCapture, longCaptureRecords, longStatusFields, sampleCapture, sampleRecords } from "./testSupport";
+import { SAMPLE_HEADER, SAMPLE_META, longCapture, longCaptureRecords, longStatusFields, sampleCapture, sampleRecords } from "./testSupport";
 import { createCaptureWorkerHandler, type CaptureRequest, type CaptureResponse } from "./worker";
 
 function compress(file: Uint8Array): Uint8Array {
@@ -69,7 +69,11 @@ describe("seekCapture and rangeCapture on the sample (every record type, two epo
     const a = seekCapture(c, idx, 1300 / 48_000);
     expect([a.epoch, a.frame, a.seq, a.keyframeSeq]).toEqual([0, 768, 3, 2]);
     expect(a.status?.currentFrame).toBe(768);
-    expect(a.keyframe).toEqual(EMPTY_KEYFRAME_PAYLOAD); // the sample's keyframes are empty ones (Rc1b's codec)
+    // The sample's keyframes are empty ones (`EMPTY_KEYFRAME_PAYLOAD`), answered by name.
+    expect(a.keyframe).toEqual({
+      voices: [], buses: [], metered: [], events: [], music: [],
+      mix: { slotTableVersion: 0, monitorActive: false, targetIndex: 0, snapshot: 0, masterVolume: 1, hiddenMute: false },
+    });
     expect(a.records.map((r) => [r.kind, r.seq])).toEqual([["event", 4], ["event", 5], ["mixop", 8], ["event", 9]]);
     const b = seekCapture(c, idx, 99);
     expect([b.epoch, b.frame, b.seq, b.keyframeSeq]).toEqual([1, 768, 15, 14]);
@@ -150,7 +154,7 @@ describe("the 10-minute capture (Rc5's acceptance: jump under 16 ms, open under 
         const events: number[] = [];
         for (let i = kf + 1; i < c.records.count; i++) if (c.records.type[i] === RecordType.EVENT && recordSeconds(c, i) <= t) events.push(c.records.seq[i]!);
         expect(s.records.map((r) => r.seq)).toEqual(events);
-        expect(s.records.every((r) => r.kind === "event" && (r.payload.kind === 1 || r.payload.kind === 2))).toBe(true);
+        expect(s.records.every((r) => r.kind === "event" && (r.event.type === "voiceStart" || r.event.type === "voiceStop"))).toBe(true);
       }
     }
     expect(maxScanned).toBeLessThanOrEqual(2 * maxPerSecond + 2);

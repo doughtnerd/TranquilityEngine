@@ -55,7 +55,7 @@ type GridHandlers = Pick<GridState, "scrollTop" | "focus" | "onScroll" | "onKey"
 function cellsOf(byId: ReadonlyMap<number, VoiceRow>): (row: VoiceRow) => GridCell[] {
   return (row) => {
     const c = voiceCells(row, byId);
-    return [c.id, c.clip, c.bus, { text: c.state, flag: row.stateName }, c.reason, c.priority, c.gain, c.pitch, c.audibility, c.playhead];
+    return [c.id, c.clip, c.bus, { text: c.state, flag: row.state }, c.reason, c.priority, c.gain, c.pitch, c.audibility, c.playhead];
   };
 }
 
@@ -74,7 +74,7 @@ function VoiceTableView({ data, grid }: { data: VoiceTableData; grid: GridHandle
           rows={data.rows}
           rowKey={(r) => r.id}
           cells={cellsOf(data.byId)}
-          rowState={(r) => r.stateName}
+          rowState={(r) => r.state}
           {...grid}
         />
       )}

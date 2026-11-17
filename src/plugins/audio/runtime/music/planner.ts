@@ -27,9 +27,9 @@ import { isPendingCoreBackend, type MusicAdmitResult, type MusicBackend, type Mu
 import {
   compileSegmentGrid, entrySeconds, exitSeconds, nextGridSeconds, spanAtTicks, ticksToSeconds, type SegmentGrid,
 } from "../../../../engine/audio/musicGrid";
-import type { SegmentNode } from "../../../../engine/audio/musicFormat";
+import type { SegmentNode, MusicNode } from "../../../../engine/audio/musicFormat";
 import { segmentRingNeed } from "../../../../engine/audio/musicValidate";
-import { musicPlayers, planStepDone, type MusicFrame, type MusicNodeRef, type MusicPlayer } from "./musicSystem";
+import { musicPlayers, planStepDone, type MusicFrame, type MusicPlayer } from "./musicSystem";
 import { anchorRun } from "./anchors";
 import { withStartPosition } from "./startPosition";
 import {
@@ -58,7 +58,7 @@ export type PlanGrid = "immediate" | "beat" | "bar" | "grid" | "nextCue" | "exit
 /** What a container asks the planner for. P2 added the optional fields after `startFrame`. */
 export interface PlanRequest {
   /** The node to start (a segment, or a container the transition resolves to one). */
-  readonly to: MusicNodeRef;
+  readonly to: MusicNode;
   readonly reason: PlanReason;
   readonly grid: PlanGrid;
   /** Earliest heard time (seconds) wanted for T (the entry point); NaN: as soon as the lead allows. */
@@ -158,7 +158,7 @@ function leadFor(run: SegmentRun, f: MusicFrame): number {
 const grids = new WeakMap<object, SegmentGrid | null>();
 
 /** A segment's compiled grid (G1), cached per node object; null for a node that isn't a segment. */
-function gridOf(node: MusicNodeRef): SegmentGrid | null {
+function gridOf(node: MusicNode): SegmentGrid | null {
   const cached = grids.get(node);
   if (cached !== undefined) return cached;
   let grid: SegmentGrid | null = null;
@@ -173,7 +173,7 @@ function gridOf(node: MusicNodeRef): SegmentGrid | null {
 }
 
 /** Seconds of one beat at the segment's entry, NaN without a grid. */
-function beatSecondsOf(node: MusicNodeRef): number {
+function beatSecondsOf(node: MusicNode): number {
   const g = gridOf(node);
   if (!g) return Number.NaN;
   const bpm = g.bpm[spanAtTicks(g, Number.isFinite(g.entryTicks) ? g.entryTicks : 0)] ?? 0;

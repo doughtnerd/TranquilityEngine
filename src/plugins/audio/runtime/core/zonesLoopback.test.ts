@@ -12,15 +12,16 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { createDecoderHandler } from "../decoder/handler";
 import type { DecoderReply, IrFailedMessage, IrPreparedMessage, StreamPortLike } from "../decoder/protocol";
-import { createLoopbackHost, LOOPBACK_PRESET, LOOPBACK_RATE, type LoopbackHost } from "../testing";
+import { createLoopbackHost, LOOPBACK_PRESET, LOOPBACK_RATE, type LoopbackHost, type LoopbackStreamPort } from "../testing";
 import hash from "../wasm/hash.json";
 import {
   ASAP,
-  CLIP_CHUNK_FIXED_END,
+  ClipEvent,
   Kind,
   PLAY_FLAGS_LOOP,
   PLAY_FLAGS_MIXED,
   PLAY_FLAGS_SPATIAL,
+  readClipBegin,
   SET_VOICE_FX_MASK_SENDS,
   writeBatchHeader,
   writeClipBegin,
@@ -65,15 +66,15 @@ function clip(): Float32Array {
   return out;
 }
 
-/** The loopback host with zone slots, the clip, and the decoder worker's IR path wired to the worklet. */
+/** The loopback host with zone slots, the clip from main, and the decoder worker's IR path on its stream port to the worklet. */
 class Rig {
   private seq = 1;
   private token = 1;
   private readonly lefts: Float32Array[] = [];
   private readonly rights: Float32Array[] = [];
   private readonly replies: (IrPreparedMessage | IrFailedMessage)[] = [];
-  /** Clip sample bytes handed to the worklet (the clip's and the kernels' chunks). */
-  private clipBytesSent = 0;
+  /** Clips begun on the worklet (the clip and the kernels). */
+  private readonly begun = new Set<number>();
   private handler!: ReturnType<typeof createDecoderHandler>;
   host!: LoopbackHost;
 
@@ -90,7 +91,18 @@ class Rig {
       },
     });
     await r.handler.handle({ type: "init", wasmBytes: DECODER.buffer.slice(DECODER.byteOffset, DECODER.byteOffset + DECODER.byteLength) as ArrayBuffer });
-    const port: StreamPortLike = { onmessage: null, postMessage: (m: unknown) => r.toWorklet(m as ArrayBuffer) };
+    // The decoder worker's channel, owned here: its worklet end goes to the shell as the backend hands it over
+    // (`CoreLink.connectStreamPort`, ADR 0223), and the kernels cross it at once, both ways. The clip comes from main.
+    const worklet: LoopbackStreamPort = { onmessage: null, postMessage: (m: unknown) => port.onmessage?.({ data: m }) };
+    const port: StreamPortLike = {
+      onmessage: null,
+      postMessage: (m: unknown) => {
+        if (!worklet.onmessage) throw new Error("the loopback didn't take the stream port");
+        r.noteBegun(m as ArrayBuffer);
+        worklet.onmessage({ data: m });
+      },
+    };
+    r.host.link.connectStreamPort(worklet as unknown as MessagePort);
     await r.handler.handle({ type: "connectWorklet", port } as never);
     r.loadClip();
     return r;
@@ -102,7 +114,7 @@ class Rig {
     const view = new DataView(begin);
     writeEnvelope(view, 0, { kind: Kind.CLIP_BEGIN, seq: this.seq++, bodyBytes: 20 });
     writeClipBegin(view, 0, { clipId: CLIP, frames: CLIP_FRAMES, channels: 1, sampleRate: LOOPBACK_RATE, format: 0 });
-    this.host.send(begin);
+    this.fromMain(begin);
     for (let frame = 0; frame < CLIP_FRAMES; frame += 2048) {
       const n = Math.min(2048, CLIP_FRAMES - frame);
       const chunk = new ArrayBuffer(16 + 16 + n * 4);
@@ -110,19 +122,30 @@ class Rig {
       writeEnvelope(cv, 0, { kind: Kind.CLIP_CHUNK, seq: this.seq++, bodyBytes: 16 + n * 4 });
       writeClipChunk(cv, 0, { clipId: CLIP, frameOffset: frame, frames: n, reserved: 0 });
       new Uint8Array(chunk, 32).set(new Uint8Array(data.buffer, frame * 4, n * 4));
-      this.toWorklet(chunk);
+      this.fromMain(chunk);
     }
   }
 
-  /** A clip message to the worklet, counting a chunk's sample bytes (what follows its header). */
-  toWorklet(buffer: ArrayBuffer): void {
-    if (new DataView(buffer).getUint16(6, true) === Kind.CLIP_CHUNK) this.clipBytesSent += buffer.byteLength - CLIP_CHUNK_FIXED_END;
+  /** Notes the clip a clip message begins, if it begins one. */
+  private noteBegun(buffer: ArrayBuffer): void {
+    const view = new DataView(buffer);
+    if (view.getUint16(6, true) === Kind.CLIP_BEGIN) this.begun.add(readClipBegin(view, 0).clipId);
+  }
+
+  /** A clip message from main, as the clip registry sends it (over the link). */
+  private fromMain(buffer: ArrayBuffer): void {
+    this.noteBegun(buffer);
     this.host.send(buffer);
   }
 
-  /** Clip bytes the worklet hasn't committed yet: it drains clip chunks at 256 KB a quantum (`CLIP_BYTES_PER_QUANTUM`). */
-  clipBytesPending(): number {
-    return this.clipBytesSent - this.host.driver.stats.clipBytes;
+  /**
+   * Whether a STATUS has reported every clip begun resident. The worklet commits clip chunks at 256 KB a quantum
+   * (`CLIP_BYTES_PER_QUANTUM`) and the core reports the last one's commit in the next STATUS, so this turns true up to
+   * a STATUS interval (6 quanta) after the last chunk lands.
+   */
+  allResident(): boolean {
+    const resident = new Set(this.host.statuses.flatMap((s) => s.clipEvents.filter((e) => e.code === ClipEvent.Resident).map((e) => e.clipId)));
+    return [...this.begun].every((id) => resident.has(id));
   }
 
   /** `generateIr`: the decoder worker prepares `preset`'s kernel and sends it to the worklet as format 3 chunks. Returns its frames. */
@@ -294,18 +317,19 @@ async function arrival(order: Order, when: "blend" | "resident", quanta: number)
   const frames = new Map<number, number>();
   for (const [id, preset] of order) frames.set(id, await r.kernel(id, preset));
   r.run(4);
-  while (when === "resident" && r.clipBytesPending() > 0) r.run(1);
+  while (when === "resident" && !r.allResident()) r.run(1);
   const configured = r.host.frame;
   r.send(play(voice(1), 0.1), play(voice(2), 0.1));
   r.send(sends(voice(1), [0.5, 0, 0, 0]), sends(voice(2), [0, 0.5, 0, 0]));
   r.send(config([slot(K1, ZoneSlotState.Active, 1, frames.get(K1)!), slot(K2, ZoneSlotState.Active, 0.5, frames.get(K2)!)]));
   let landed = configured;
   for (let q = 0; q < quanta; q++) {
-    // A chunk committed while rendering this quantum makes its slot start before the convolution (drained first).
-    if (r.clipBytesPending() > 0) landed = r.host.frame + Q;
+    // A chunk committed while rendering this quantum makes its slot start before the convolution (drained first). The
+    // STATUS that reports the last kernel resident bounds that from above (by at most its 6-quantum interval).
+    if (!r.allResident()) landed = r.host.frame + Q;
     r.run(1);
   }
-  expect(r.clipBytesPending()).toBe(0);
+  expect(r.allResident()).toBe(true);
   const partitions = (n: number): number => 4096 + Math.ceil(Math.max(0, n - 4096) / 2048) * 2048;
   const support = Math.max(...[...frames.values()].map(partitions));
   return Object.assign(r, { configured, landed, support });

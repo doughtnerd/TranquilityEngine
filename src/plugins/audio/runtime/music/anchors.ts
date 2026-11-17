@@ -25,11 +25,11 @@
  * are right only within the anchor's pass: `advanceAnchor(player, now)` moves the anchor to the pass heard at `now`.
  */
 import { audioBackend, type MusicGroupEvent } from "../backend";
-import type { SegmentNode } from "../../../../engine/audio/musicFormat";
+import type { SegmentNode, MusicNode } from "../../../../engine/audio/musicFormat";
 import {
   compileSegmentGrid, positionTextToTicks, secondsToTicks, ticksToSeconds, type SegmentGrid,
 } from "../../../../engine/audio/musicGrid";
-import type { MusicNodeRef, MusicPlayer } from "./musicSystem";
+import type { MusicPlayer } from "./musicSystem";
 import type { RegionState } from "./regions";
 import { segmentClipSource, type SegmentRun } from "./segmentRun";
 import { heardTimeAt, type PlayingGrid } from "./transitionRules";
@@ -45,7 +45,7 @@ export interface GridAnchor {
   /** The loop pass the anchor is in, from 1 (1 outside any region). */
   pass: number;
   /** P3: the anchored segment node (its grid and regions). */
-  readonly node: MusicNodeRef;
+  readonly node: MusicNode;
   /** P3: the clip's own rate (Hz) the worker loops regions in (file frames): the first stem's facts, else 48 kHz. */
   readonly rate: number;
 }
@@ -85,7 +85,7 @@ const compiled = new WeakMap<object, Compiled>();
  * (`clipDuration`: a decoded clip loops at its buffer's end, so the seconds are the pass length itself). Undefined
  * while neither is known.
  */
-function factsOf(node: MusicNodeRef): { frames: number; rate: number } | { seconds: number } | undefined {
+function factsOf(node: MusicNode): { frames: number; rate: number } | { seconds: number } | undefined {
   const clip = (node as Partial<SegmentNode>).tracks?.find((t) => t.clip)?.clip;
   if (!clip) return undefined;
   const f = segmentClipSource().facts(clip);
@@ -113,7 +113,7 @@ const OPEN_END_SECONDS = 1e7;
  * with `openEnd` and no facts yet, an `"end"` bound is `OPEN_END_SECONDS` instead of dropping its region, and the
  * result isn't cached (only `firstLoopOf` asks: which region wraps first doesn't depend on where the file ends).
  */
-function compile(node: MusicNodeRef, rate?: number, openEnd = false): Compiled | null {
+function compile(node: MusicNode, rate?: number, openEnd = false): Compiled | null {
   const cached = compiled.get(node);
   const facts = factsOf(node);
   const provisional = openEnd && !facts;
@@ -187,7 +187,7 @@ export interface MemberLoop {
  * R4a: a region of the node (`index` in its `regions`) in file frames of `rate`, rounded as the anchor's pass walk rounds them
  * (`"start"` 0, `"end"` 0 = the file's end); null when a bound isn't a position or the region is empty.
  */
-export function regionFramesOf(node: MusicNodeRef, index: number, rate: number): MemberLoop | null {
+export function regionFramesOf(node: MusicNode, index: number, rate: number): MemberLoop | null {
   const reg = (node as Partial<SegmentNode>).regions?.[index];
   const c = reg ? compile(node) : null;
   if (!reg || !c || !(rate > 0)) return null;
@@ -207,7 +207,7 @@ export function regionFramesOf(node: MusicNodeRef, index: number, rate: number):
  * region loops by its `count` until R4b releases it). Null when no wrap is ahead. Later regions are set as the walk
  * reaches them (`loopTail.ts`).
  */
-export function firstLoopOf(node: MusicNodeRef, rate: number, startFrame: number): (MemberLoop & { region: number }) | null {
+export function firstLoopOf(node: MusicNode, rate: number, startFrame: number): (MemberLoop & { region: number }) | null {
   // F-23: a run is admitted (and its PLAYs' loops decided) before its decoded clips are, so the file's length may be
   // unknown here: a region to `"end"` must still loop its members (`regionFramesOf` gives the end as 0, the file's end).
   const c = compile(node, undefined, true);
@@ -231,7 +231,7 @@ export interface NextWrap {
   /** The pass that wrap ends (1 for the region's first). */
   pass: number;
   /** The anchored segment node. */
-  node: MusicNodeRef | null;
+  node: MusicNode | null;
 }
 
 const nextWrapScratch: NextWrap = { at: Number.NaN, region: -1, pass: 0, node: null };

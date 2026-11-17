@@ -13,7 +13,7 @@
  * stamped start is heard. Grid points are at or after `Audio.time`.
  */
 import type { GridPoint, GridSpec, MusicHandle, MusicPositionAt, MusicSeekResult } from "../../../../engine/audio/musicTypes";
-import type { SegmentNode } from "../../../../engine/audio/musicFormat";
+import type { SegmentNode, MusicNode } from "../../../../engine/audio/musicFormat";
 import {
   compileSegmentGrid, entrySeconds, exitSeconds, nextGridSeconds, secondsToNearestTick, spanAtTicks, ticksToPosition,
   ticksToSeconds, type SegmentGrid,
@@ -23,7 +23,7 @@ import { audioBackend } from "../backend";
 import { heardTimeOf, ticksAt, type GridAnchor } from "./anchors";
 import { heardRunAt } from "./beatClock";
 import { getCalibration } from "./calibration";
-import { musicFrameSerial, playerOf, type MusicNodeRef, type MusicPlayer } from "./musicSystem";
+import { musicFrameSerial, playerOf, type MusicPlayer } from "./musicSystem";
 import { seekMusic } from "./seek";
 import { segmentClipSource, type SegmentRun } from "./segmentRun";
 import type { Transition } from "./transition";
@@ -38,7 +38,7 @@ const grids = new WeakMap<object, SegmentGrid | null>();
  * A segment's compiled grid (G1), cached per node object; null for a node that isn't a segment. The same compile as the
  * planner's (whose cache is private); the clip's length, when known, resolves an `"end"` exit.
  */
-export function segmentGrid(node: MusicNodeRef): SegmentGrid | null {
+export function segmentGrid(node: MusicNode): SegmentGrid | null {
   const cached = grids.get(node);
   if (cached !== undefined) return cached;
   let grid: SegmentGrid | null = null;

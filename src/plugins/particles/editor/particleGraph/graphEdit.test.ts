@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ParticleGraph } from "../../../../engine/scene/particleGraph";
 import { defaultParticleGraph, parseParticleGraph } from "../../../../engine/scene/particleGraphFormat";
+import { clipboardText } from "../../../../editor/sdk";
 import {
   addBlock,
   addOutput,
@@ -19,6 +20,7 @@ import {
   moveBlock,
   moveItems,
   moveProperty,
+  particleClipboardFromText,
   pasteItems,
   removeBlock,
   removeItems,
@@ -280,6 +282,27 @@ describe("particle graph edits", () => {
     // A wire from outside the selection isn't copied.
     expect(copyItems(g, ["s2"])!.edges).toEqual([]);
     expect(copyItems(g, [])).toBeNull();
+  });
+
+  it("pastes systems and nodes into another effect from their clipboard text, and reads none from malformed text (ADR 0226)", () => {
+    let g = sample();
+    const cb = colorBlock(g, "s2");
+    g = connectWire(g, "n1.out", `s2.${cb}.color`);
+    const trig = addBlock(g, "s1", "update", "update.triggerEvent");
+    g = connectWire(trig.graph, `s1.${trig.id}`, "s2.start");
+    const clip = copyItems(g, ["s1", "s2", "n1"])!;
+    const read = particleClipboardFromText(clipboardText(clip));
+    expect(read).toEqual(clip);
+    const into = pasteItems(emptyParticleGraph(), read!, [0, 0]);
+    expect(into.graph.systems).toHaveLength(2);
+    expect(into.graph.edges).toHaveLength(1);
+    expect(into.graph.events).toHaveLength(1);
+    const text = (v: object) => JSON.stringify({ ...clip, ...v });
+    expect(particleClipboardFromText("s1")).toBeNull(); // plain text
+    expect(particleClipboardFromText(text({ format: "myco.shadergraph.clipboard@1" }))).toBeNull(); // another graph's
+    expect(particleClipboardFromText(text({ systems: [], nodes: [] }))).toBeNull();
+    expect(particleClipboardFromText(text({ nodes: [{ id: "n9", position: [0, 0] }] }))).toBeNull(); // a node with no type
+    expect(particleClipboardFromText(text({ edges: [{ from: "n7.out", to: `s2.${cb}.color` }] }))).toBeNull(); // a wire from a missing node
   });
 
   it("duplicates items offset from where they were", () => {

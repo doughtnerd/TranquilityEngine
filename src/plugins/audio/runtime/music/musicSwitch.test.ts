@@ -4,7 +4,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { parseAudioEvent } from "../../../../engine/audio/eventFormat";
-import type { MusicNode } from "../../../../engine/audio/musicFormat";
+import { emptySegment, type MusicNode } from "../../../../engine/audio/musicFormat";
 import type { MusicFrame, MusicPlayer } from "./musicSystem";
 import type * as SwitchModule from "./musicSwitch";
 import type * as TransitionModule from "./transition";
@@ -41,14 +41,14 @@ function fixture(root: MusicNode, playing: string | null) {
     run: playing ? { node: { id: playing, type: "segment" } } : null,
     musicSwitch: createSwitchState(root),
   } as unknown as MusicPlayer;
-  return { player, params, play: (id: string) => { (player as { run: unknown }).run = { node: { id, type: "segment" } }; } };
+  return { player, params, play: (id: string) => { (player as { run: unknown }).run = { node: emptySegment(id) }; } };
 }
 
 // The test setup already loaded the real modules, so reset and import fresh ones that see the mock.
 let childFor: typeof SwitchModule.childFor, createSwitchState: typeof SwitchModule.createSwitchState, tickSwitch: typeof SwitchModule.tickSwitch;
 let requestTransition: typeof TransitionModule.requestTransition, cancelTransition: typeof TransitionModule.cancelTransition;
 
-const asTransition = (id: string): Transition => ({ to: { id, type: "segment" } } as unknown as Transition);
+const asTransition = (id: string): Transition => ({ to: emptySegment(id) } as unknown as Transition);
 
 beforeEach(async () => {
   vi.resetModules();
@@ -60,7 +60,7 @@ beforeEach(async () => {
 
 describe("createSwitchState and childFor", () => {
   it("is null for a node that is not a musicSwitch", () => {
-    expect(createSwitchState({ id: "x", type: "playlist" })).toBeNull();
+    expect(createSwitchState(emptySegment("x"))).toBeNull();
   });
 
   it("picks the child by value, the default child for an unknown value, else the first", () => {
