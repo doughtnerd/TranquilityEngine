@@ -223,8 +223,9 @@ export const EveryBanner: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     play();
-    rig().log.entries.push({ seq: 1, cause: "edit", source: "recorded", ops: [], results: [{ ok: false, class: "direct", reason: "effectsPerBus" }], restartRequired: [] });
     await waitFor(() => expect(one(canvasElement, "mixer-compare")).toBeEnabled());
+    // An edit answered during this Play (the panel has seen Play start: an entry from before it is an earlier Play's).
+    rig().log.entries.push({ seq: 1, cause: "edit", source: "recorded", ops: [], results: [{ ok: false, class: "direct", reason: "effectsPerBus" }], restartRequired: [] });
     await userEvent.click(canvas.getByLabelText("Solo music"));
     await userEvent.click(one(canvasElement, "mixer-compare")!);
     const byId = (id: string) => [...canvasElement.querySelectorAll<HTMLElement>(`.mixer-banner[data-banner="${id}"]`)];
