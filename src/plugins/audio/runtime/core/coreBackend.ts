@@ -1579,8 +1579,9 @@ function attachBackground(backend: CoreBackend, host: AudioHost): void {
   // Rh2: `Audio.calibration` is stored per output device: load this sink's offset, and on a device event adopt the new
   // sink's stored offset or mark the value stale (re-ask).
   void initCalibration(host.snapshot().sink);
+  // The stall check's heartbeat age is on the host's clock (`performance.now` in a page; the loopback's rendered time).
   const controller = new BackgroundController({
-    host, target: backend, onDevice: () => void calibrationDeviceChanged(host.snapshot().sink),
+    host, target: backend, now: host.now, onDevice: () => void calibrationDeviceChanged(host.snapshot().sink),
   });
   backend.health = controller.counters;
   backend.addCleanup(() => controller.dispose());
