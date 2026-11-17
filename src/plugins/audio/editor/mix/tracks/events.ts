@@ -1,33 +1,26 @@
 // ADR 0171 amended by 0172 (M5a, task Pf3d; api-and-models §5.6, §7): the profiler's event tracks, pure (no DOM; the canvas
 // draws `TrackData`, Pf4 mounts the modules). Three tracks:
 //
-//   - `events.instances` (lanes): event instance spans from eventStart and eventStop (args `instance, asset`; `instance`),
-//     one lane per concurrent instance (at most `MAX_INSTANCE_LANES`; a later one shares the last lane and is counted).
-//     A lane is 1 while an instance runs and 0 between, sampled on the STATUS times plus each span's own start and end
-//     (the canvas draws samples, so a span needs samples inside it).
-//   - `events.parameters` (ticks): a parameter event (args `name, instance, f32 bits`; the instance is `NO_NAME` for a
-//     global parameter).
-//   - `events.states` (ticks): a stateChange (args `parameter, label`, both ids in the `parameters` table).
+//   - `events.instances` (lanes): event instance spans from eventStart and eventStop, one lane per concurrent instance (at
+//     most `MAX_INSTANCE_LANES`; a later one shares the last lane and is counted). A lane is 1 while an instance runs and 0
+//     between, sampled on the STATUS times plus each span's own start and end (the canvas draws samples, so a span needs
+//     samples inside it).
+//   - `events.parameters` (ticks): a parameter event (a null instance is a global parameter).
+//   - `events.states` (ticks): a stateChange (parameter and label, both ids in the `parameters` table).
 //
-// **Where the events come from.** `ProfileSource` has no "events in [t0, t1]" request: `seek(t)` answers the EVENT records
-// from the keyframe at or before `t` up to `t` (`reader.ts`), so `EventLog` sweeps the capture with seeks. A record written
-// before a keyframe and stamped after the previous one is reachable only by a seek made before that keyframe, so the sweep
-// finds each keyframe boundary by galloping and then bisecting over the STATUS times (the `keyframeSeq` of the answer
-// changes there) and reads the last seek of every keyframe interval: about seven seeks per captured second, none per STATUS.
-// A live capture resumes from the start of its last (open) interval. Instances alive at the capture's first keyframe
-// (a truncated ring's start) are spans from 0.
+// **Where the events come from** (ADR 0227). `EventLog` asks `ProfileSource.events` for the typed EVENTs (`CaptureEvent`)
+// after its record cursor: the whole capture once, then a live view's appended records on each refresh, every EVENT exactly
+// once. One seek at the first STATUS gives the instances alive at the capture's first keyframe (a truncated ring's start),
+// which are spans from 0.
 //
 // Every tooltip is built by an exported pure function here (`instanceTooltip`, `parameterTooltip`, `stateTooltip`); a
 // module's `tooltipAt` returns exactly its result.
-import { EventKind } from "../../../runtime/capture/format";
-import type { CaptureSeekState } from "../../../runtime/capture/reader";
+import type { CaptureEvent, CaptureEventType } from "../../../runtime/capture/reader";
 import type { LineSeries, TrackData } from "../drawTimeline";
 import { statusColumns, type ProfileSource } from "../profilerSource";
 import { assignLanes } from "./lanes";
 import type { TrackContext, TrackFactory, TrackModule } from "./types";
 
-/** The id an absent name or instance carries in an EVENT (`capture/events.ts`' `NO_NAME`). */
-export const NO_NAME = 0xffffffff;
 /** Lanes the instances track draws; a deeper overlap shares the last lane. */
 const MAX_INSTANCE_LANES = 6;
 /** The hover reach (seconds each side) until the panel sets `tolerance` from its pixel scale. */
@@ -100,17 +93,18 @@ export function mergeTimes(a: ArrayLike<number>, b: ArrayLike<number>): Float64A
 
 // --- the event log -----------------------------------------------------------------------------------------------------
 
-/** The EVENT kinds the tracks read. */
-const WANTED = new Set<number>([EventKind.eventStart, EventKind.eventStop, EventKind.parameter, EventKind.stateChange, EventKind.musicTransition]);
+/** The EVENT types the tracks read. */
+const WANTED: readonly CaptureEventType[] = ["eventStart", "eventStop", "parameter", "stateChange", "musicTransition"];
+
+/** The typed event of one type. */
+export type EventOf<T extends CaptureEventType> = Extract<CaptureEvent, { type: T }>;
 
 /** One EVENT record on the viewport axis. */
-export interface LoggedEvent {
+export interface LoggedEvent<T extends CaptureEventType = CaptureEventType> {
   readonly seq: number;
   /** Seconds on the viewport axis (0 = the capture's first record). */
   readonly time: number;
-  readonly kind: number;
-  readonly args: readonly number[];
-  readonly f32: number | undefined;
+  readonly event: EventOf<T>;
 }
 
 /** An instance the capture's first keyframe already counted. */
@@ -119,22 +113,15 @@ export interface InitialInstance {
   readonly asset: number;
 }
 
-/** Index of the last element <= t, or -1. */
-function lastAtOrBefore(a: ArrayLike<number>, t: number): number {
-  return upperBound(a, t) - 1;
-}
-
-/** The events of a capture, swept with seeks (see the header). One per `ProfileSource` (`eventLogFor`). */
+/** The events of a capture, read through `ProfileSource.events` (see the header). One per `ProfileSource` (`eventLogFor`). */
 export class EventLog {
-  private readonly bySeq = new Map<number, LoggedEvent>();
-  private sorted: LoggedEvent[] = [];
+  private logged: LoggedEvent[] = [];
   private dirty = false;
-  private resume = 0;
+  /** The record cursor the next read continues from (`CaptureEventsPage.next`). */
+  private next = 0;
   private running: Promise<void> | null = null;
   private times: Float64Array = new Float64Array(0);
   private first: InitialInstance[] | null = null;
-  /** Seeks made so far (tests assert the work done). */
-  seeks = 0;
 
   constructor(private readonly source: ProfileSource) {}
 
@@ -148,70 +135,38 @@ export class EventLog {
     return this.first ?? [];
   }
 
-  /** Every logged event of `kind`, by time then seq. */
-  ofKind(kind: number): LoggedEvent[] {
+  /** Every logged event of `type`, by time then seq. */
+  ofKind<T extends CaptureEventType>(type: T): LoggedEvent<T>[] {
     if (this.dirty) {
-      this.sorted = [...this.bySeq.values()].sort((a, b) => a.time - b.time || a.seq - b.seq);
+      this.logged.sort((a, b) => a.time - b.time || a.seq - b.seq);
       this.dirty = false;
     }
-    return this.sorted.filter((e) => e.kind === kind);
+    return this.logged.filter((e) => e.event.type === type) as unknown as LoggedEvent<T>[];
   }
 
   /** Reads what the source gained since the last refresh. Calls made while one runs share it. */
   refresh(): Promise<void> {
-    this.running ??= this.sweep().finally(() => {
+    this.running ??= this.read().finally(() => {
       this.running = null;
     });
     return this.running;
   }
 
-  private collect(state: CaptureSeekState, index: number): void {
-    const start = this.source.startSeconds;
-    if (this.first === null && index === 0) this.first = (state.keyframe?.events ?? []).map((e) => ({ id: e.id, asset: e.asset }));
-    for (const rec of state.records) {
-      if (rec.kind !== "event" || !WANTED.has(rec.payload.kind) || this.bySeq.has(rec.seq)) continue;
-      this.bySeq.set(rec.seq, { seq: rec.seq, time: rec.seconds - start, kind: rec.payload.kind, args: rec.payload.args, f32: rec.payload.f32 });
-      this.dirty = true;
-    }
-  }
-
-  private async sweep(): Promise<void> {
+  private async read(): Promise<void> {
     const src = this.source;
     const times = (await statusColumns(src, [])).seconds as Float64Array;
     this.times = times;
-    const n = times.length;
-    const probe = async (i: number): Promise<number> => {
-      const s = await src.seek(times[i]! + src.startSeconds);
-      this.seeks++;
-      this.collect(s, i);
-      return s.keyframeSeq;
-    };
-    let i = Math.min(this.resume, Math.max(0, n - 1));
-    while (n > 0 && i < n) {
-      this.resume = i;
-      const base = await probe(i);
-      let good = i;
-      let bad = -1;
-      // Gallop by half seconds to the first probe in another keyframe interval (or the end).
-      while (good < n - 1 && bad < 0) {
-        const j = Math.min(n - 1, Math.max(good + 1, lastAtOrBefore(times, times[good]! + 0.5)));
-        if ((await probe(j)) === base) good = j;
-        else bad = j;
-      }
-      if (bad < 0) break;
-      // Bisect for the last STATUS before the keyframe: its seek holds the whole interval.
-      let lo = good;
-      let hi = bad;
-      while (hi - lo > 1) {
-        const mid = (lo + hi) >>> 1;
-        if ((await probe(mid)) === base) lo = mid;
-        else hi = mid;
-      }
-      i = hi;
+    if (this.first === null && times.length > 0) {
+      const s = await src.seek(times[0]! + src.startSeconds);
+      this.first = (s.keyframe?.events ?? []).map((e) => ({ id: e.id, asset: e.asset }));
     }
+    const page = await src.events(this.next, WANTED);
+    this.next = page.next;
+    const start = src.startSeconds;
+    for (const e of page.events) this.logged.push({ seq: e.seq, time: e.seconds - start, event: e.event });
+    if (page.events.length) this.dirty = true;
   }
 }
-
 const logs = new WeakMap<ProfileSource, EventLog>();
 
 /** The one log of a source, shared by the event, music and (through it) any other track reading EVENT records. */
@@ -250,11 +205,10 @@ export interface EventSpan {
 }
 
 /**
- * Spans from the sorted eventStart and eventStop events (args `instance, asset`; `instance`). A start of an instance that is
- * still open ends the earlier span there; a stop of an unknown instance is ignored. `initial` seeds the instances the first
- * keyframe counted as running from 0.
+ * Spans from the eventStart and eventStop events. A start of an instance that is still open ends the earlier span there; a
+ * stop of an unknown instance is ignored. `initial` seeds the instances the first keyframe counted as running from 0.
  */
-function eventSpans(starts: readonly LoggedEvent[], stops: readonly LoggedEvent[], initial: readonly InitialInstance[], names: EventNames): EventSpan[] {
+function eventSpans(starts: readonly LoggedEvent<"eventStart">[], stops: readonly LoggedEvent<"eventStop">[], initial: readonly InitialInstance[], names: EventNames): EventSpan[] {
   const spans: { instance: number; asset: number; start: number; end: number | null; fromKeyframe: boolean }[] = [];
   const open = new Map<number, (typeof spans)[number]>();
   const open1 = (instance: number, asset: number, start: number, fromKeyframe: boolean): void => {
@@ -264,16 +218,16 @@ function eventSpans(starts: readonly LoggedEvent[], stops: readonly LoggedEvent[
   };
   for (const e of initial) open1(e.id, e.asset, 0, true);
   const all = [...starts, ...stops].sort((a, b) => a.time - b.time || a.seq - b.seq);
-  for (const e of all) {
-    const id = e.args[0]!;
-    if (e.kind === EventKind.eventStart) {
+  for (const { event: e, time } of all) {
+    const id = e.instance;
+    if (e.type === "eventStart") {
       const prev = open.get(id);
-      if (prev) prev.end = e.time;
-      open1(id, e.args[1]!, e.time, false);
+      if (prev) prev.end = time;
+      open1(id, e.asset, time, false);
     } else {
       const s = open.get(id);
       if (s) {
-        s.end = e.time;
+        s.end = time;
         open.delete(id);
       }
     }
@@ -321,14 +275,9 @@ export interface ParameterChange {
   readonly value: number;
 }
 
-/** The parameter events (args `name, instance, f32 bits`) as changes. */
-export function parameterChanges(events: readonly LoggedEvent[], names: EventNames): ParameterChange[] {
-  const f = new Float32Array(1);
-  const bits = new Uint32Array(f.buffer);
-  return events.map((e) => {
-    bits[0] = e.args[2]!;
-    return { time: e.time, name: names.parameter(e.args[0]!), instance: e.args[1]! === NO_NAME ? null : e.args[1]!, value: f[0]! };
-  });
+/** The parameter events as changes. */
+export function parameterChanges(events: readonly LoggedEvent<"parameter">[], names: EventNames): ParameterChange[] {
+  return events.map(({ time, event: e }) => ({ time, name: names.parameter(e.name), instance: e.instance, value: e.value }));
 }
 
 export function parameterText(c: ParameterChange): string {
@@ -342,9 +291,9 @@ export interface StateChange {
   readonly label: string;
 }
 
-/** The stateChange events (args `parameter, label`) as changes. */
-function stateChanges(events: readonly LoggedEvent[], names: EventNames): StateChange[] {
-  return events.map((e) => ({ time: e.time, parameter: names.parameter(e.args[0]!), label: names.parameter(e.args[1]!) }));
+/** The stateChange events as changes. */
+function stateChanges(events: readonly LoggedEvent<"stateChange">[], names: EventNames): StateChange[] {
+  return events.map(({ time, event: e }) => ({ time, parameter: names.parameter(e.parameter), label: names.parameter(e.label) }));
 }
 
 export function stateText(c: StateChange): string {
@@ -394,7 +343,7 @@ export const eventTracks: TrackFactory = (ctx: TrackContext) => {
   const source = ctx.source;
   const log = eventLogFor(source);
   const instances = hoverModule({ id: "events.instances", label: "Event instances", kind: "lanes", height: 48, visible: true }, log, () => {
-    const spans = eventSpans(log.ofKind(EventKind.eventStart), log.ofKind(EventKind.eventStop), log.initial, eventNames(source));
+    const spans = eventSpans(log.ofKind("eventStart"), log.ofKind("eventStop"), log.initial, eventNames(source));
     const duration = source.duration;
     return {
       data: spans.length ? { lines: instanceLines(spans, log.statusTimes, duration).lines } : undefined,
@@ -402,14 +351,14 @@ export const eventTracks: TrackFactory = (ctx: TrackContext) => {
     };
   });
   const parameters = hoverModule({ id: "events.parameters", label: "Parameters", kind: "ticks", height: 22, visible: true }, log, () => {
-    const changes = parameterChanges(log.ofKind(EventKind.parameter), eventNames(source));
+    const changes = parameterChanges(log.ofKind("parameter"), eventNames(source));
     return {
       data: changes.length ? { ticks: Float64Array.from(changes, (c) => c.time), tickColor: "accent2" } : undefined,
       tooltip: (t, tol) => parameterTooltip(changes, t, tol),
     };
   });
   const states = hoverModule({ id: "events.states", label: "State changes", kind: "ticks", height: 22, visible: true }, log, () => {
-    const changes = stateChanges(log.ofKind(EventKind.stateChange), eventNames(source));
+    const changes = stateChanges(log.ofKind("stateChange"), eventNames(source));
     return {
       data: changes.length ? { ticks: Float64Array.from(changes, (c) => c.time), tickColor: "accent" } : undefined,
       tooltip: (t, tol) => stateTooltip(changes, t, tol),

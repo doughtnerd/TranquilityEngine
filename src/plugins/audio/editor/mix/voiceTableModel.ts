@@ -9,8 +9,7 @@
 // playhead is the STATUS's (the last STATUS at or before t carries up to 256 round-robin playheads). A seek with no
 // keyframe at or before t (`fromKeyframe` false) replays only the last second's events, so voices started earlier are
 // missing and the view says so. A voice that stopped is gone from the table (voiceStop is the free).
-import { EventKind, type KeyframeVoice } from "../../runtime/capture/format";
-import type { CaptureOpenSummary, CaptureSeekState } from "../../runtime/capture/reader";
+import type { CaptureOpenSummary, CaptureSeekState, KeyframeVoice } from "../../runtime/capture/reader";
 
 /** The most voice rows rendered (as the live debug table); the rest are counted. */
 export const MAX_VOICE_ROWS = 64;
@@ -124,32 +123,30 @@ export function reconstructVoices(state: CaptureSeekState, names: NameLookup): V
   for (const v of state.keyframe?.voices ?? []) rows.set(v.id, fromKeyframeVoice(names, v));
   for (const rec of state.records) {
     if (rec.kind !== "event") continue;
-    const p = rec.payload;
-    const a = p.args;
-    switch (p.kind) {
-      case EventKind.voiceStart:
-        // args: id, clip, busRef (gen << 8 | slot), flags, atFrameLo; f32 gain
-        rows.set(a[0]!, makeRow(names, {
-          id: a[0]!, clip: a[1]!, slot: (a[2]! & 0xff), state: STATE_PLAYING, priority: null, reason: 0, gain: p.f32 ?? 1,
+    const e = rec.event;
+    switch (e.type) {
+      case "voiceStart":
+        rows.set(e.voice, makeRow(names, {
+          id: e.voice, clip: e.clip, slot: e.slot, state: STATE_PLAYING, priority: null, reason: 0, gain: e.gain,
           pitch: null, audibility: null, playheadFrames: 0, thief: null, fromKeyframe: false,
         }));
         break;
-      case EventKind.voiceStop:
-        rows.delete(a[0]!);
+      case "voiceStop":
+        rows.delete(e.voice);
         break;
-      case EventKind.voiceSteal: {
-        const victim = rows.get(a[0]!);
-        if (victim) rows.set(victim.id, withState(names, victim, STATE_STOLEN, p.reason, a[1]!));
-        break;
-      }
-      case EventKind.voiceVirtual: {
-        const v = rows.get(a[0]!);
-        if (v) rows.set(v.id, withState(names, v, STATE_VIRTUAL, p.reason, null));
+      case "voiceSteal": {
+        const victim = rows.get(e.voice);
+        if (victim) rows.set(victim.id, withState(names, victim, STATE_STOLEN, e.reason, e.thief));
         break;
       }
-      case EventKind.voiceReal: {
-        const v = rows.get(a[0]!);
-        if (v) rows.set(v.id, withState(names, v, STATE_PLAYING, p.reason, null));
+      case "voiceVirtual": {
+        const v = rows.get(e.voice);
+        if (v) rows.set(v.id, withState(names, v, STATE_VIRTUAL, e.reason, null));
+        break;
+      }
+      case "voiceReal": {
+        const v = rows.get(e.voice);
+        if (v) rows.set(v.id, withState(names, v, STATE_PLAYING, e.reason, null));
         break;
       }
       default:
@@ -230,9 +227,9 @@ export function eventRows(state: CaptureSeekState, names: NameLookup, filter = "
   for (const e of state.keyframe?.events ?? []) rows.set(e.id, make(e.id, e.asset, e.voices, e.state));
   for (const rec of state.records) {
     if (rec.kind !== "event") continue;
-    const p = rec.payload;
-    if (p.kind === EventKind.eventStart) rows.set(p.args[0]!, make(p.args[0]!, p.args[1]!, 0, 0));
-    else if (p.kind === EventKind.eventStop) rows.delete(p.args[0]!);
+    const e = rec.event;
+    if (e.type === "eventStart") rows.set(e.instance, make(e.instance, e.asset, 0, 0));
+    else if (e.type === "eventStop") rows.delete(e.instance);
   }
   const match = nameFilter(filter);
   return [...rows.values()].filter((r) => match(r.name)).sort((x, y) => x.id - y.id);

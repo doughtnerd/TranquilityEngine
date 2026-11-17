@@ -6,8 +6,7 @@
 //     section, which names the parent of each bus by name) and the music rows (the keyframe's, with `musicTransition`
 //     events after it applied).
 // No DOM: the tests drive it directly.
-import { EventKind, type KeyframePayload } from "../../runtime/capture/format";
-import type { CaptureSeekState } from "../../runtime/capture/reader";
+import type { CaptureSeekState, KeyframePayload } from "../../runtime/capture/reader";
 import { audioSection } from "../../../../engine/audio/audioSection";
 import { chooseEmptyState } from "./emptyStates";
 import { busFactors, formatDb, treeProducts, type BusFactors } from "./busFactorsModel";
@@ -149,8 +148,8 @@ export function musicRows(state: CaptureSeekState, eventName: (id: number) => st
     });
   }
   for (const rec of state.records) {
-    if (rec.kind !== "event" || rec.payload.kind !== EventKind.musicTransition) continue;
-    const [instance, , to] = rec.payload.args as [number, number, number];
+    if (rec.kind !== "event" || rec.event.type !== "musicTransition") continue;
+    const { instance, to } = rec.event;
     const prev = rows.get(instance);
     rows.set(instance, prev
       ? { ...prev, segment: nameOf(to), pendingTo: null, pendingTimeSec: null }

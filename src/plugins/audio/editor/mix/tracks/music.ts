@@ -3,16 +3,15 @@
 //   - `music.state` (lanes): one lane per music instance (at most `MAX_MUSIC_LANES`, by first appearance), a step line
 //     whose level is the playing segment (its number among the capture's segments), sampled on the STATUS times plus each
 //     change; the hover names the segment and how it was entered.
-//   - `music.transitions` (ticks): one per `musicTransition` event (args `instance, from, to`; segments are ids in the
-//     `events` table, `from` is `NO_NAME` for the first segment, `capture/events.ts`).
+//   - `music.transitions` (ticks): one per `musicTransition` event (segments are ids in the `events` table; `from` is null
+//     for the first segment).
 //
 // **The rule.** A `musicTransition` records the change as `from` to `to` and carries no rule id (`transition.ts`' `commit` and
 // `noteFirstSegment` write the segments only), so the rule is named by what a rule matches on, the segment pair: "rule A -> B",
 // and "first segment, from nothing" for the start. The tooltips are `transitionText` and `musicStateTooltip`.
-import { EventKind } from "../../../runtime/capture/format";
 import type { LineSeries } from "../drawTimeline";
 import {
-  NO_NAME, eventLogFor, eventNames, formatSeconds, hoverModule, indicesNear, listText, lowerBound, mergeTimes, MAX_TOOLTIP_LINES,
+  eventLogFor, eventNames, formatSeconds, hoverModule, indicesNear, listText, lowerBound, mergeTimes, MAX_TOOLTIP_LINES,
   type EventNames, type LoggedEvent,
 } from "./events";
 import type { TrackContext, TrackFactory } from "./types";
@@ -30,12 +29,12 @@ export interface MusicTransition {
 }
 
 /** The musicTransition events as transitions. */
-function musicTransitions(events: readonly LoggedEvent[], names: EventNames): MusicTransition[] {
-  return events.map((e) => ({
-    time: e.time,
-    instance: e.args[0]!,
-    from: e.args[1]! === NO_NAME ? null : names.event(e.args[1]!),
-    to: names.event(e.args[2]!),
+function musicTransitions(events: readonly LoggedEvent<"musicTransition">[], names: EventNames): MusicTransition[] {
+  return events.map(({ time, event: e }) => ({
+    time,
+    instance: e.instance,
+    from: e.from === null ? null : names.event(e.from),
+    to: names.event(e.to),
   }));
 }
 
@@ -112,14 +111,14 @@ export const musicTracks: TrackFactory = (ctx: TrackContext) => {
   const source = ctx.source;
   const log = eventLogFor(source);
   const state = hoverModule({ id: "music.state", label: "Music state", kind: "lanes", height: 40, visible: true }, log, () => {
-    const segments = musicSegments(musicTransitions(log.ofKind(EventKind.musicTransition), eventNames(source)));
+    const segments = musicSegments(musicTransitions(log.ofKind("musicTransition"), eventNames(source)));
     return {
       data: segments.length ? { lines: musicStateLines(segments, log.statusTimes, source.duration) } : undefined,
       tooltip: (t) => musicStateTooltip(segments, t),
     };
   });
   const transitions = hoverModule({ id: "music.transitions", label: "Music transitions", kind: "ticks", height: 22, visible: true }, log, () => {
-    const list = musicTransitions(log.ofKind(EventKind.musicTransition), eventNames(source));
+    const list = musicTransitions(log.ofKind("musicTransition"), eventNames(source));
     return {
       data: list.length ? { ticks: Float64Array.from(list, (x) => x.time), tickColor: "accent" } : undefined,
       tooltip: (t, tol) => transitionTooltip(list, t, tol),

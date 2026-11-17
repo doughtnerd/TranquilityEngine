@@ -6,7 +6,7 @@
 // Series arrays are transferred, so the caller owns them.
 import type {
   CaptureLoudnessColumns, CaptureLoudnessGap, CaptureLoudnessMark, CaptureLoudnessTarget, CaptureLoudnessValues,
-} from "../../runtime/capture/format";
+} from "../../runtime/capture/reader";
 import type { CaptureRequest, CaptureResponse } from "../../runtime/capture/worker";
 import type { DistributiveOmit } from "./profilerSource";
 

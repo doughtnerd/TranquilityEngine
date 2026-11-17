@@ -22,8 +22,7 @@ import { editor, theme, Panel } from "../../../../editor/sdk";
 import { audioSection } from "../../../../engine/audio/audioSection";
 import { Audio } from "../../runtime/Audio";
 import type { AudioCapture } from "../../runtime/capture/capture";
-import { CAPTURE_FLAG_MAIN_SIDE_ONLY, CaptureError } from "../../runtime/capture/format";
-import type { CaptureSeekState } from "../../runtime/capture/reader";
+import { CaptureError, type CaptureSeekState } from "../../runtime/capture/reader";
 import { CursorModel, cursorTargets, CURSOR_COLUMNS, seekAtCursor, type CursorSnapshot } from "./cursorModel";
 import { cssVarReader, readTimelineColors, RULER_HEIGHT, TimelineCanvas, type TrackData } from "./drawTimeline";
 import { chooseEmptyState } from "./emptyStates";
@@ -97,7 +96,7 @@ export function profilerBanners(input: BannerInput): ProfilerBanner[] {
   }
   if (source) {
     if (source.truncated) out.push({ id: "truncated", severity: "warn", text: BANNER_TEXT.truncated });
-    if (source.summary.header.flags & CAPTURE_FLAG_MAIN_SIDE_ONLY) out.push({ id: "babylon", severity: "warn", text: BANNER_TEXT.babylon });
+    if (source.summary.mainSideOnly) out.push({ id: "babylon", severity: "warn", text: BANNER_TEXT.babylon });
     if (!source.live && input.projectAudio !== undefined && !sameAudioSettings(source.summary.meta.audio, input.projectAudio)) {
       out.push({ id: "projectMismatch", severity: "warn", text: BANNER_TEXT.projectMismatch });
     }
@@ -446,7 +445,7 @@ export class ProfilerController {
     return chooseEmptyState("cpu", {
       playing,
       hasCapture: source !== null,
-      mainSideOnly: source ? (source.summary.header.flags & CAPTURE_FLAG_MAIN_SIDE_ONLY) !== 0 : false,
+      mainSideOnly: source?.summary.mainSideOnly ?? false,
       cpuLoadPermille: 0,
     });
   }

@@ -12,21 +12,26 @@
 // Cancel: the open is async and awaits `pause` after each inflate chunk and every 4,096 records; `pause` yields a
 // macrotask once `PAUSE_SLICE_MS` have passed since the last yield, so a `cancel` message runs between slices and the
 // open ends with `cancelled`. `seek` and `range` are synchronous and short (one keyframe interval, or the span asked).
+// `events` (ADR 0227) answers the typed EVENTs after a record cursor in one pass, so the Profiler's event tracks read the
+// capture once (and a live view only what was appended) instead of sweeping it with seeks.
 import {
-  CaptureError, EpochReason, EventKind, RecordType, decodeKeyframe,
+  CaptureError, EpochReason, RecordType, decodeKeyframe,
   type CaptureErrorInfo, type CaptureLoudnessColumns, type CaptureWorkerRequest, type CaptureWorkerResponse,
 } from "./format";
+import { readCaptureEvent, type CaptureEventType } from "./events";
 import {
-  CaptureTimeIndex, decodeRecordAt, openCapture, openLiveCapture, rangeCapture, recordSeconds, seekCapture, summarizeCapture,
-  type CaptureContents, type CaptureDecoder, type CaptureOpenSummary, type CaptureRangeColumns, type CaptureSeekState,
+  CaptureTimeIndex, decodeRecordAt, eventsCapture, openCapture, openLiveCapture, rangeCapture, recordSeconds, seekCapture, summarizeCapture,
+  type CaptureContents, type CaptureDecoder, type CaptureEventsPage, type CaptureOpenSummary, type CaptureRangeColumns, type CaptureSeekState,
 } from "./reader";
 import { LoudnessTrackModel, type LoudnessControl } from "../mix/loudnessTrackModel";
 import { LOUD_OUTPUT_TAP, readStatus } from "../wire.generated";
 
 /** `range` with Rc5's bucket count (H3's request has none yet; omitted, the answer is one sample per STATUS). */
 export type CaptureRangeRequest = Extract<CaptureWorkerRequest, { type: "range" }> & { buckets?: number };
-/** Every request the Worker takes (H3's, with `range`'s buckets). */
-export type CaptureRequest = Exclude<CaptureWorkerRequest, { type: "range" }> | CaptureRangeRequest;
+/** ADR 0227: the typed EVENTs from record cursor `from` on (`eventsCapture`), only `types` when given. */
+export type CaptureEventsRequest = { type: "events"; id: number; from: number; types?: readonly CaptureEventType[] };
+/** Every request the Worker takes (H3's, with `range`'s buckets, and `events`). */
+export type CaptureRequest = Exclude<CaptureWorkerRequest, { type: "range" }> | CaptureRangeRequest | CaptureEventsRequest;
 
 /** H3's responses with Rc5's fuller payloads (each a subtype of H3's, so H3's `CaptureWorkerResponse` still describes them). */
 export type CaptureResponse =
@@ -34,7 +39,8 @@ export type CaptureResponse =
   | { type: "opened"; id: number; summary: CaptureOpenSummary }
   | { type: "appended"; id: number; summary: CaptureOpenSummary }
   | { type: "snapshot"; id: number; snapshot: CaptureSeekState }
-  | { type: "range"; id: number; t0: number; t1: number; columns: CaptureRangeColumns };
+  | { type: "range"; id: number; t0: number; t1: number; columns: CaptureRangeColumns }
+  | ({ type: "events"; id: number } & CaptureEventsPage);
 
 /** The longest the open runs between yields to the Worker's event loop. */
 export const PAUSE_SLICE_MS = 8;
@@ -68,12 +74,6 @@ interface LoudnessBuild {
   /** The newest STATUS or KEYFRAME time, as `CaptureTimeIndex`'s clamped key, so the model's times rise as the index's do. */
   lastKey: number;
 }
-
-/** The `NO_NAME` of `events.ts` (a loudnessControl EVENT without a bus: every meter). */
-const NO_NAME = 0xffffffff;
-const LOUDNESS_RESET = 1;
-const LOUDNESS_PAUSE = 2;
-const LOUDNESS_RESUME = 3;
 
 /**
  * Pf6: feeds `s.loud.model` the records after the last one read, in order: STATUS (its `loudBuses` and `loudEnergies`
@@ -112,14 +112,14 @@ function loudnessOf(s: Session): LoudnessTrackModel {
       }
       case RecordType.EVENT: {
         const d = decodeRecordAt(c, i);
-        if (d.kind !== "event" || d.payload.kind !== EventKind.loudnessControl) break;
-        const reason = d.payload.reason;
-        const what: LoudnessControl | null =
-          reason === LOUDNESS_RESET ? { kind: "reset" } : reason === LOUDNESS_PAUSE ? { kind: "pause" } : reason === LOUDNESS_RESUME ? { kind: "resume" } : null;
-        if (!what) break; // reason 4 (the target changed) alters no meter
-        const id = d.payload.args[0] ?? NO_NAME;
+        const e = d.kind === "event" ? readCaptureEvent(d.payload) : null;
+        if (e?.type !== "loudnessControl") break;
+        const control = e.control;
+        if (control !== "reset" && control !== "pause" && control !== "resume") break; // `target` (the target changed) alters no meter
+        const what: LoudnessControl = { kind: control };
+        const id = e.bus;
         let slot: number | undefined;
-        if (id !== NO_NAME) {
+        if (id !== null) {
           // The bus arrives as a name in the parameters table; the buses table maps slot to name. A name no slot carries is the root (the final-output tap).
           const name = c.names.parameters.get(id);
           if (slotOfName === null) slotOfName = new Map([...c.names.buses].map(([k, v]) => [v, k]));
@@ -248,6 +248,14 @@ export function createCaptureWorkerHandler(opts: CaptureWorkerHandlerOptions): C
           try {
             const s = need(req.id);
             post({ type: "snapshot", id: req.id, snapshot: seekCapture(s.contents, s.index, req.seconds) });
+          } catch (e) {
+            fail(req.id, e);
+          }
+          return;
+        case "events":
+          try {
+            const s = need(req.id);
+            post({ type: "events", id: req.id, ...eventsCapture(s.contents, req.from, req.types) });
           } catch (e) {
             fail(req.id, e);
           }

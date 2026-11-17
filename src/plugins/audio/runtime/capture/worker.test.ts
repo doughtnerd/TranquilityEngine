@@ -150,7 +150,7 @@ describe("the 10-minute capture (Rc5's acceptance: jump under 16 ms, open under 
         const events: number[] = [];
         for (let i = kf + 1; i < c.records.count; i++) if (c.records.type[i] === RecordType.EVENT && recordSeconds(c, i) <= t) events.push(c.records.seq[i]!);
         expect(s.records.map((r) => r.seq)).toEqual(events);
-        expect(s.records.every((r) => r.kind === "event" && (r.payload.kind === 1 || r.payload.kind === 2))).toBe(true);
+        expect(s.records.every((r) => r.kind === "event" && (r.event.type === "voiceStart" || r.event.type === "voiceStop"))).toBe(true);
       }
     }
     expect(maxScanned).toBeLessThanOrEqual(2 * maxPerSecond + 2);

@@ -24,6 +24,10 @@
 // **No allocation per event.** The payload is one reused `EventPayload` whose `args` array is picked from fixed arrays by
 // length, written straight into the ring through `encodeEvent`; an f32 parameter value goes through one scratch pair of
 // typed arrays. Only a first-use name (NAMES) and a marker (its text) allocate.
+//
+// **Reading back** (ADR 0227). `readCaptureEvent` is the inverse of the writes: it turns a decoded EVENT payload into a
+// `CaptureEvent` by name (`NO_NAME` as null, `busRef` as slot and generation, the parameter's f32 bits as a number), so the
+// arg layouts above are known here and nowhere else. The reader hands the Profiler only typed events.
 import type {
   ProfileEpochReason, ProfileGapReason, ProfileLoudnessControl, ProfileQueuedReason, ProfileRealReason, ProfileRefusedReason,
   ProfileSink, ProfileStealReason, ProfileStopReason, ProfileVirtualReason,
@@ -344,4 +348,90 @@ export class EventSink implements ProfileSink {
 /** The sink for a recorder: set it with `backend.setProfileSink(sink)` (Rc4, once the recorder runs). */
 export function createEventSink(recorder: EventSinkRecorder, opts: EventSinkOptions = {}): EventSink {
   return new EventSink(recorder, opts);
+}
+
+// --- reading an EVENT back (ADR 0227) ------------------------------------------------------------------------------------
+
+/** What every typed EVENT carries: §5.6's `reason` code (0 for a kind without reasons) and the main-thread clock. */
+interface CaptureEventBase {
+  readonly reason: number;
+  readonly perfMs: number;
+}
+
+/**
+ * One EVENT record read back by name: the inverse of the sink's writes above, so the arg layouts live in this one module.
+ * Name fields are ids in the NAMES tables (`CaptureOpenSummary.names`); `null` stands for `NO_NAME`. A bus is its slot and
+ * generation (the sink's `busRef`, `gen << 8 | slot`).
+ */
+export type CaptureEvent = CaptureEventBase & (
+  | { readonly type: "voiceStart"; readonly voice: number; readonly clip: number; readonly slot: number; readonly busGen: number; readonly flags: number; readonly atFrameLo: number; readonly gain: number }
+  | { readonly type: "voiceStop"; readonly voice: number }
+  | { readonly type: "voiceSteal"; readonly voice: number; readonly thief: number }
+  | { readonly type: "voiceVirtual"; readonly voice: number }
+  | { readonly type: "voiceReal"; readonly voice: number }
+  | { readonly type: "voiceRefused" | "voiceQueued"; readonly clip: number; readonly slot: number; readonly busGen: number }
+  | { readonly type: "eventStart"; readonly instance: number; readonly asset: number }
+  | { readonly type: "eventStop"; readonly instance: number }
+  /** `name` in the `parameters` table; `instance` null for a global parameter. */
+  | { readonly type: "parameter"; readonly name: number; readonly instance: number | null; readonly value: number }
+  /** `name` null for the cleared snapshot. */
+  | { readonly type: "snapshot"; readonly name: number | null; readonly seconds: number }
+  /** Both ids in the `parameters` table. */
+  | { readonly type: "stateChange"; readonly parameter: number; readonly label: number }
+  /** Segments are ids in the `events` table; `from` null for the first segment. */
+  | { readonly type: "musicTransition"; readonly instance: number; readonly from: number | null; readonly to: number }
+  /** `lane` the index in `BUS_RAMP_LANES` order, null for a lane the writer didn't know. */
+  | { readonly type: "busRamp"; readonly slot: number; readonly busGen: number; readonly lane: number | null; readonly frames: number; readonly target: number }
+  | { readonly type: "monitor"; readonly mutes: number; readonly solos: number }
+  /** `bus` a name id in the `parameters` table, null for every meter; `control` null for a reason this build doesn't know. */
+  | { readonly type: "loudnessControl"; readonly control: ProfileLoudnessControl | null; readonly bus: number | null }
+  | { readonly type: "ladder"; readonly step: number; readonly shed: boolean }
+  | { readonly type: "masterChange"; readonly muted: boolean; readonly volume: number }
+  | { readonly type: "hiddenTab"; readonly hidden: boolean }
+);
+
+/** Every EVENT type name (one per §5.6 kind). */
+export type CaptureEventType = CaptureEvent["type"];
+
+const KIND_TYPE = Object.fromEntries(Object.entries(EventKind).map(([type, kind]) => [kind, type])) as Record<number, CaptureEventType>;
+/** The fewest args each kind's layout has (a writer may append more; a record with fewer is not read). */
+const MIN_ARGS: Readonly<Record<CaptureEventType, number>> = {
+  voiceStart: 5, voiceStop: 1, voiceSteal: 2, voiceVirtual: 1, voiceReal: 1, voiceRefused: 2, voiceQueued: 2, eventStart: 2, eventStop: 1,
+  parameter: 3, snapshot: 1, stateChange: 2, musicTransition: 3, busRamp: 3, monitor: 1, loudnessControl: 0, ladder: 1, masterChange: 1, hiddenTab: 1,
+};
+const LOUDNESS_CONTROL = Object.fromEntries(Object.entries(LOUDNESS_CONTROL_REASON).map(([k, v]) => [v, k])) as Record<number, ProfileLoudnessControl>;
+const orNull = (id: number): number | null => (id === NO_NAME ? null : id);
+const readF32 = new Float32Array(1);
+const readF32Bits = new Uint32Array(readF32.buffer);
+
+/**
+ * A decoded EVENT payload (`format.ts`' `decodeEvent`) by name. Null for a record too short for its kind's layout: the open
+ * accepts any arg count, so a malformed or foreign record is skipped rather than read as zeros.
+ */
+export function readCaptureEvent(p: EventPayload): CaptureEvent | null {
+  const type = KIND_TYPE[p.kind];
+  if (type === undefined || p.args.length < MIN_ARGS[type]) return null;
+  const a = p.args;
+  const base = { reason: p.reason, perfMs: p.perfMs };
+  const f32 = p.f32 ?? 0;
+  switch (type) {
+    case "voiceStart": return { ...base, type, voice: a[0]!, clip: a[1]!, slot: a[2]! & 0xff, busGen: a[2]! >>> 8, flags: a[3]!, atFrameLo: a[4]!, gain: f32 };
+    case "voiceStop": case "voiceVirtual": case "voiceReal": return { ...base, type, voice: a[0]! };
+    case "voiceSteal": return { ...base, type, voice: a[0]!, thief: a[1]! };
+    case "voiceRefused": case "voiceQueued": return { ...base, type, clip: a[0]!, slot: a[1]! & 0xff, busGen: a[1]! >>> 8 };
+    case "eventStart": return { ...base, type, instance: a[0]!, asset: a[1]! };
+    case "eventStop": return { ...base, type, instance: a[0]! };
+    case "parameter":
+      readF32Bits[0] = a[2]!;
+      return { ...base, type, name: a[0]!, instance: orNull(a[1]!), value: readF32[0]! };
+    case "snapshot": return { ...base, type, name: orNull(a[0]!), seconds: f32 };
+    case "stateChange": return { ...base, type, parameter: a[0]!, label: a[1]! };
+    case "musicTransition": return { ...base, type, instance: a[0]!, from: orNull(a[1]!), to: a[2]! };
+    case "busRamp": return { ...base, type, slot: a[0]! & 0xff, busGen: a[0]! >>> 8, lane: orNull(a[1]!), frames: a[2]!, target: f32 };
+    case "monitor": return { ...base, type, mutes: a[0]! & 0xffff, solos: a[0]! >>> 16 };
+    case "loudnessControl": return { ...base, type, control: LOUDNESS_CONTROL[p.reason] ?? null, bus: orNull(a[0] ?? NO_NAME) };
+    case "ladder": return { ...base, type, step: a[0]!, shed: p.reason === LADDER_REASON.shed };
+    case "masterChange": return { ...base, type, muted: a[0]! !== 0, volume: f32 };
+    case "hiddenTab": return { ...base, type, hidden: a[0]! !== 0 };
+  }
 }

@@ -8,7 +8,7 @@ import { assembleCapture } from "./format";
 import { CAPTURE_MARKER_MAX_BYTES, CAPTURE_NAME_MAX_BYTES, EpochReason, EventKind, GapReason, RECORD_FLAG_DEFERRED, RecordType, type EventPayload, type NameTable } from "./format";
 import { EventSink, NO_NAME, createEventSink, type EventSinkOptions } from "./events";
 import type { ProfileEpochReason, ProfileGapReason } from "../mix/profileSink";
-import { decodeRecordAt, openLiveCapture, type CaptureContents, type DecodedRecord } from "./reader";
+import { decodeRecordAt, eventsCapture, openCapture, openLiveCapture, type CaptureContents, type DecodedRecord } from "./reader";
 import { Recorder, createRecorder, type EpochContext } from "./recorder";
 import { SAMPLE_HEADER, SAMPLE_META, SAMPLE_RATE, keyframeCodecForTests, statusBytes } from "./testSupport";
 
@@ -439,5 +439,93 @@ describe("EventSink: ring pressure", () => {
     spy.mockRestore();
     expect(g.sink.eventsDropped).toBe(before + 2);
     expect(g.sink.namesWritten).toBe(0);
+  });
+});
+
+describe("reading EVENTs back by name (ADR 0227): the reader's typed events invert the sink's writes", () => {
+  it("every kind reads back with its fields named, NO_NAME as null, busRef as slot and generation, f32 bits as a value", () => {
+    const g = rig();
+    g.feed(768);
+    const s = g.sink;
+    s.voiceStart(7, "hop.ogg", BGM, 3, 800, 0.5);
+    s.voiceStop(9, "faded");
+    s.voiceSteal(4, 5, "priority");
+    s.voiceVirtual(11, "paused");
+    s.voiceReal(12, "capRaised");
+    s.voiceRefused("land.ogg", SFX, "poolFull");
+    s.voiceQueued("theme.ogg", BGM, "streamPriming");
+    s.eventStart(21, "footsteps");
+    s.eventStop(21);
+    s.parameter("intensity", 0.3, null);
+    s.parameter("pitch", 1.25, 2);
+    s.snapshot("", 0.5);
+    s.snapshot("Underwater", 1.5);
+    s.stateChange("Surface", "Water");
+    s.musicTransition(2, null, "Intro");
+    s.musicTransition(2, "Intro", "Loop");
+    s.busRamp(SFX, "duck", 480, 0.25);
+    s.busRamp(SFX, "future", 96, 1);
+    s.monitor(((0b100 << 16) | 0b011) >>> 0);
+    s.loudnessControl("pause", "Bgm");
+    s.loudnessControl("reset", null);
+    s.ladder(3, true);
+    s.ladder(2, false);
+    s.masterChange(0.75, true);
+    s.hiddenTab(true);
+    const c = g.decode();
+    const id = (table: NameTable, name: string) => idOf(c, table, name);
+    const { events: read, next } = eventsCapture(c, 0);
+    expect(next).toBe(c.records.count);
+    expect(read.every((e) => e.event.perfMs > 1000)).toBe(true);
+    expect(read.map((e) => ({ ...e.event, perfMs: 0 }))).toEqual([
+      { type: "voiceStart", reason: 0, perfMs: 0, voice: 7, clip: id("clips", "hop.ogg"), slot: 1, busGen: 2, flags: 3, atFrameLo: 800, gain: 0.5 },
+      { type: "voiceStop", reason: 3, perfMs: 0, voice: 9 },
+      { type: "voiceSteal", reason: 3, perfMs: 0, voice: 4, thief: 5 },
+      { type: "voiceVirtual", reason: 3, perfMs: 0, voice: 11 },
+      { type: "voiceReal", reason: 2, perfMs: 0, voice: 12 },
+      { type: "voiceRefused", reason: 2, perfMs: 0, clip: id("clips", "land.ogg"), slot: 2, busGen: 1 },
+      { type: "voiceQueued", reason: 2, perfMs: 0, clip: id("clips", "theme.ogg"), slot: 1, busGen: 2 },
+      { type: "eventStart", reason: 0, perfMs: 0, instance: 21, asset: id("events", "footsteps") },
+      { type: "eventStop", reason: 0, perfMs: 0, instance: 21 },
+      { type: "parameter", reason: 0, perfMs: 0, name: id("parameters", "intensity"), instance: null, value: f32(0.3) },
+      { type: "parameter", reason: 0, perfMs: 0, name: id("parameters", "pitch"), instance: 2, value: 1.25 },
+      { type: "snapshot", reason: 0, perfMs: 0, name: null, seconds: 0.5 },
+      { type: "snapshot", reason: 0, perfMs: 0, name: id("snapshots", "Underwater"), seconds: 1.5 },
+      { type: "stateChange", reason: 0, perfMs: 0, parameter: id("parameters", "Surface"), label: id("parameters", "Water") },
+      { type: "musicTransition", reason: 0, perfMs: 0, instance: 2, from: null, to: id("events", "Intro") },
+      { type: "musicTransition", reason: 0, perfMs: 0, instance: 2, from: id("events", "Intro"), to: id("events", "Loop") },
+      { type: "busRamp", reason: 0, perfMs: 0, slot: 2, busGen: 1, lane: 5, frames: 480, target: 0.25 },
+      { type: "busRamp", reason: 0, perfMs: 0, slot: 2, busGen: 1, lane: null, frames: 96, target: 1 },
+      { type: "monitor", reason: 0, perfMs: 0, mutes: 0b011, solos: 0b100 },
+      { type: "loudnessControl", reason: 2, perfMs: 0, control: "pause", bus: id("parameters", "Bgm") },
+      { type: "loudnessControl", reason: 1, perfMs: 0, control: "reset", bus: null },
+      { type: "ladder", reason: 2, perfMs: 0, step: 3, shed: true },
+      { type: "ladder", reason: 3, perfMs: 0, step: 2, shed: false },
+      { type: "masterChange", reason: 0, perfMs: 0, muted: true, volume: 0.75 },
+      { type: "hiddenTab", reason: 0, perfMs: 0, hidden: true },
+    ]);
+  });
+
+  it("a read continues from the last answer's cursor and keeps only the asked types", () => {
+    const g = rig();
+    g.feed(768);
+    g.sink.eventStart(1, "a");
+    g.sink.parameter("p", 2, null);
+    const c = g.decode();
+    const first = eventsCapture(c, 0, ["eventStart"]);
+    expect(first.events.map((e) => e.event.type)).toEqual(["eventStart"]);
+    expect(eventsCapture(c, first.next).events).toEqual([]);
+    expect(eventsCapture(c, 0).events.map((e) => e.event.type)).toEqual(["eventStart", "parameter"]);
+  });
+
+  it("an EVENT too short for its kind's layout opens but is not read (a foreign or malformed writer)", async () => {
+    const epoch = { reason: 0, sampleRate: SAMPLE_RATE, limiterLatencyFrames: 0, outputLatencyFrames: 0, timeOffset: 0, perfMs: 1 };
+    const file = assembleCapture(SAMPLE_HEADER, SAMPLE_META, [
+      { type: RecordType.EPOCH, epoch: 0, seq: 1, frame: 0, payload: epoch },
+      { type: RecordType.EVENT, epoch: 0, seq: 2, frame: 10, payload: { perfMs: 1, kind: EventKind.voiceStart, reason: 0, args: [7], f32: 1 } },
+      { type: RecordType.EVENT, epoch: 0, seq: 3, frame: 20, payload: { perfMs: 1, kind: EventKind.voiceStop, reason: 1, args: [7] } },
+    ]);
+    const c = await openCapture(file);
+    expect(eventsCapture(c, 0).events.map((e) => [e.seq, e.event.type])).toEqual([[3, "voiceStop"]]);
   });
 });

@@ -6,7 +6,7 @@
 // monitor, dip) and one last-reported value each for the core-owned `duck` and `automation`. Those two have no target on
 // the wire, so their target here equals their value.
 
-import type { KeyframeBus } from "../../runtime/capture/format";
+import type { KeyframeBus } from "../../runtime/capture/reader";
 
 /** The seven lanes in wire order (`LANE_AUTHORED` 0 … `LANE_AUTOMATION` 6; `Lane` in `engine/audio/mixer.ts`). */
 export const FACTOR_LANES = ["authored", "runtime", "snapshot", "monitor", "dip", "duck", "automation"] as const;

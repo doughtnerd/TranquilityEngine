@@ -10,7 +10,6 @@
 // Both read the CPU columns through `statusColumns` and feed `CpuTrack` one sample at a time, so the per-sample sections
 // are the model's own (`CpuTrack.debug()` after each sample), not a second computation. `refresh` re-reads only the
 // samples after the newest one taken (the meter keeps its window between calls). Pure TypeScript; the canvas draws.
-import { CAPTURE_FLAG_MAIN_SIDE_ONLY } from "../../../runtime/capture/format";
 import { RANGE_SECONDS, type CaptureRangeColumns } from "../../../runtime/capture/reader";
 import { CPU_WINDOW_QUANTA, CPU_QUANTUM_FRAMES } from "../../../runtime/mix/cpuMeter";
 import type { TimelineColorKey, TrackData, LineSeries } from "../drawTimeline";
@@ -161,7 +160,7 @@ class CpuData {
 
   /** A Babylon-fallback capture has no STATUS, so no CPU samples: both tracks say why they are empty (FU3; was the controller's fallback). */
   private get mainSideOnly(): boolean {
-    return (this.ctx.source.summary.header.flags & CAPTURE_FLAG_MAIN_SIDE_ONLY) !== 0;
+    return this.ctx.source.summary.mainSideOnly;
   }
 
   loadTooltip(t: number): string | null {
