@@ -50,6 +50,7 @@ The domain terms used in Myco Engine's code, decision records and reviews. Add a
 ## Audio
 
 - **Audio debug monitor:** the editor module behind the Audio Debug panel (ADR 0220, `audioDebugMonitor.ts`): snapshots of `Audio.debug()` in, the panel's sections out. Its rule: a **total** comes from a counter that outlives the instance that counted it (the core's, or main's session totals); a per-instance value appears only in the per-instance table. _Avoid:_ summing playing rows into a total.
+- **Core assembly:** connecting an audio host to its mixer, arming trap recovery and making the core backend, done only by `assembleCore` (ADR 0221, `runtime/core/assembly.ts`). The AudioWorklet host (the service) and the loopback host (`loopbackAudio`, tests) are its two adapters. _Avoid:_ building a `CoreBackend` by hand in a test.
 
 ## Tilemaps (ADR 0103)
 
