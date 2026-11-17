@@ -14,9 +14,8 @@
 //
 // The panel gives the factory the target in force (`audio.loudnessTargets` through `Audio.loudnessTarget`); without one the
 // track has no target line and no marks.
-import { LOUD_OUTPUT_TAP } from "../../../runtime/wire.generated";
+import { CAPTURE_OUTPUT_SLOT, type CaptureLoudnessMark, type CaptureLoudnessTarget, type CaptureLoudnessValues } from "../../../runtime/capture/reader";
 import { SUB_BLOCK_SECONDS } from "../../../runtime/mix/loudnessStats";
-import type { CaptureLoudnessMark, CaptureLoudnessTarget, CaptureLoudnessValues } from "../../../runtime/capture/format";
 import type { LineSeries, TrackData } from "../drawTimeline";
 import { LoudnessSource, canAskLoudness, type LoudnessInfo, type LoudnessSeriesData } from "../loudnessSource";
 import type { ProfileSource } from "../profilerSource";
@@ -113,7 +112,7 @@ class LoudnessTrack implements LoudnessTrackModule {
   constructor(private readonly ctx: TrackContext, private readonly client: LoudnessSource | null, private readonly options: LoudnessTrackOptions) {}
 
   private busName(slot: number): string {
-    return this.ctx.names.bus(slot) ?? (slot === LOUD_OUTPUT_TAP ? "Master" : `Bus ${slot}`);
+    return this.ctx.names.bus(slot) ?? (slot === CAPTURE_OUTPUT_SLOT ? "Master" : `Bus ${slot}`);
   }
 
   mode(): LoudnessInfo["mode"] | null {

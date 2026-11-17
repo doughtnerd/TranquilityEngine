@@ -5,7 +5,7 @@
 // BusTable.stories.tsx and profilerTables.stories.tsx. No wall clock anywhere.
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { EventKind, type KeyframeBus, type KeyframePayload, type KeyframeVoice } from "../../runtime/capture/format";
+import type { KeyframeBus, KeyframePayload, KeyframeVoice } from "../../runtime/capture/reader";
 import type { CaptureSeekState } from "../../runtime/capture/reader";
 import { SAMPLE_RATE } from "../../runtime/capture/testSupport";
 import { type ProfilerSlots, profilerSlots } from "./ProfilerPanel";
@@ -236,7 +236,7 @@ describe("music rows", () => {
     { id: 7, segment: 1, state: 1, pass: 2, bar: 4, beat: 3, tick: 120, tempo: 120, pendingTo: 2, pendingTimeSec: 12.5 },
     { id: 8, segment: 3, state: 4, pass: 1, bar: 1, beat: 1, tick: 0, tempo: 90, pendingTo: 0xffffffff, pendingTimeSec: 0 },
   ];
-  const transition = (instance: number, from: number, to: number) => ({ kind: "event", payload: { kind: EventKind.musicTransition, reason: 0, args: [instance, from, to], perfMs: 0 } });
+  const transition = (instance: number, from: number | null, to: number) => ({ kind: "event", event: { type: "musicTransition", reason: 0, perfMs: 0, instance, from, to } });
 
   it("reads the keyframe's music rows: segment, state, position, tempo and the pending transition", () => {
     const rows = musicRows(seekState(keyframe({ music })), eventName);
@@ -247,7 +247,7 @@ describe("music rows", () => {
   });
 
   it("applies a musicTransition after the keyframe (the instance moves, its pending transition clears) and starts new instances", () => {
-    const rows = musicRows(seekState(keyframe({ music }), [transition(7, 1, 2), transition(9, 0xffffffff, 3)]), eventName);
+    const rows = musicRows(seekState(keyframe({ music }), [transition(7, 1, 2), transition(9, null, 3)]), eventName);
     expect(rows.find((r) => r.id === 7)).toMatchObject({ segment: "Loop", pendingTo: null, position: "4:3.120" });
     expect(rows.find((r) => r.id === 9)).toMatchObject({ segment: "Outro", position: null, tempo: null });
     expect(rows).toHaveLength(3);
