@@ -2,12 +2,9 @@
 // coreBackend). The mixed cap holds in the core's counts and the output, a louder voice is promoted after the dwell,
 // an inaudible World's voices go silent and come back in time, a bus past `maxVoices` steals (the handle reads
 // "stolen" and `Audio.debug()` lists it), and a voice stolen for a sound still loading is stopped on the core.
-import { fakeDecoder } from "./fakeDecoder";
-import { describe, expect, it } from "vitest";
-import { Mixer } from "../../../../engine/audio/mixer";
+import { afterEach, describe, expect, it } from "vitest";
 import { defaultAudioSettings, type AudioSettings } from "../../../../engine/audio/settings";
-import type { AudioHost, CoreLink } from "./context";
-import { CoreBackend, type CoreBackendHost } from "./coreBackend";
+import { loopbackAudio, closeLoopbackAudio } from "../testing";
 
 /** Frames a voice must lead before selection promotes it (selection.ts). */
 const DWELL_FRAMES = 3;
@@ -16,49 +13,27 @@ const req = (path: string, extra: object = {}) => ({ path, url: path, loop: true
 
 /** A rig on the loopback host with `maxMixed` and `maxLogical`; clips are a constant 0.5 (paths in `pending` never finish loading). */
 async function rig(opts: { maxMixed: number; maxLogical?: number; settings?: AudioSettings; pending?: string[] }) {
-  const testing = await import("../testing");
-  let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>> & { link: CoreLink };
-  try {
-    loop = (await testing.createLoopbackHost()) as typeof loop;
-  } catch {
-    return null;
-  }
-  const { createClipRegistry } = await import("./clipRegistry");
-  const link = loop.link;
+  // ADR 0221: the production assembly on the loopback, with its own mixer.
   const pending = new Set(opts.pending ?? []);
-  const frames = 48_000;
-  const clips = createClipRegistry({
-    send: (m) => link.post(m),
-    nextSeq: () => link.nextSeq(),
-    fetchBytes: async (path) => (pending.has(path) ? new Promise<ArrayBuffer>(() => {}) : new ArrayBuffer(8)),
-    decodeWorker: fakeDecoder(async () => ({ frames, channels: 1, sampleRate: 48_000, channelData: [new Float32Array(frames).fill(0.5)] })),
-    nextFrame: (cb) => cb(),
-    nextQuantum: (cb) => cb(),
+  const audio = await loopbackAudio({
+    mixer: "own",
+    settings: opts.settings ?? defaultAudioSettings(),
+    preset: { maxLogical: opts.maxLogical ?? 64, maxMixed: Math.min(opts.maxMixed, opts.maxLogical ?? 64) },
+    decode: (path) => (pending.has(path) ? new Promise<never>(() => {}) : { channelData: [new Float32Array(48_000).fill(0.5)] }),
+    dt: 0.003,
   });
-  const host: CoreBackendHost = {
-    link,
-    status: "running",
-    preset: { maxLogical: opts.maxLogical ?? 64, maxMixed: opts.maxMixed },
-    worldCount: 1,
-    sampleRate: 48_000,
-    addLifecycleListener: (() => () => {}) as AudioHost["addLifecycleListener"],
-  };
-  const mixer = new Mixer(opts.settings ?? defaultAudioSettings());
-  const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer });
+  if (!audio) return null;
+  const { backend, mixer } = audio;
   /** `n` frames of 4 quanta; returns the last quantum's left level. */
   const step = async (n: number) => {
     let level = NaN;
-    for (let f = 0; f < n; f++) {
-      mixer.update(0.003);
-      backend.update(0.003);
-      const { left } = loop.renderQuanta(4);
-      level = left[left.length - 1]!;
-      await Promise.resolve();
-    }
+    for (let f = 0; f < n; f++) level = (await audio.step()).left.at(-1)!;
     return level;
   };
-  return { loop, backend, mixer, step };
+  return { loop: audio, backend, mixer, step };
 }
+
+afterEach(closeLoopbackAudio);
 
 describe("selection on the loopback host (A3.1)", () => {
   it("mixes at most `voices.mixed`: the core's count and the output are the loudest voices'", async (ctx) => {

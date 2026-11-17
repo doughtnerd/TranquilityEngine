@@ -35,6 +35,7 @@ import { CoreDriver, instantiateCore, type CoreInstance, type CorePreset } from 
 import { notifyEngineLifecycle } from "../../../engine/core/engineLifecycle";
 import { batchRecords, type PostedBatch } from "./core/batchRecords";
 import type { CoreBackend, CoreBackendDeps } from "./core/coreBackend";
+import type { ClipRegistry, ClipRegistryDeps } from "./core/clipRegistry";
 import type { RebuildOutcome, RebuildReason, RecoveryOptions } from "./core/recovery";
 import type { UnlockContext } from "./core/unlock";
 
@@ -824,7 +825,10 @@ export interface LoopbackClip {
 
 /** What `loopbackAudio` builds. Every field is optional: the default is the project's default audio on the page mixer. */
 export interface LoopbackAudioOptions {
-  /** The audio settings (default `defaultAudioSettings()`); the mixer is configured with them and the host reconfigured from them. */
+  /**
+   * The audio settings: the mixer is configured with them and the host reconfigured from them. Default: on the page's mixer,
+   * the settings it has (an Engine's `create` configured it); on its own mixer, `defaultAudioSettings()`.
+   */
   readonly settings?: AudioSettings;
   /**
    * `"page"` (default): the page's mixer, configured with `settings`, and the backend registered with `setAudioBackend`, so the
@@ -837,8 +841,13 @@ export interface LoopbackAudioOptions {
   readonly clock?: FakeHostClock;
   /** Decodes a clip by path (default: one second of 0.5, mono at 48 kHz). The registry "fetches" the path's own bytes. */
   readonly decode?: (path: string) => LoopbackClip | Promise<LoopbackClip>;
-  /** The backend's other dependencies (`createCoreBackend`'s: `hrir`, `magls`, `streams`, `zoneIr`, `warnOnce`, or `clips` to replace the registry). */
-  readonly backend?: Omit<CoreBackendDeps, "mixer" | "clock">;
+  /** Parts of the rig's clip registry to replace instead (a real decoder client and its fetch, a warning spy). */
+  readonly clipRegistry?: Partial<Pick<ClipRegistryDeps, "fetchBytes" | "decodeWorker" | "warn" | "nextQuantum">>;
+  /**
+   * The backend's other dependencies (`createCoreBackend`'s: `hrir`, `magls`, `streams`, `zoneIr`, `warnOnce`, or `clips` to
+   * replace the registry), or a function of the rig's clip registry that gives them (an HRIR loader on it).
+   */
+  readonly backend?: LoopbackBackendDeps | ((clips: ClipRegistry) => LoopbackBackendDeps);
   /** Recovery's options (default: the fake clock's rAF time as its clock, `console.warn`). */
   readonly recovery?: RecoveryOptions;
   /** Whether one World holds a share of the host (default true), as while a scene with audio runs. */
@@ -848,6 +857,9 @@ export interface LoopbackAudioOptions {
   /** The `dt` (seconds) `step` hands `update` (default the frame's audio time). */
   readonly dt?: number;
 }
+
+/** The backend dependencies a loopback rig may set (the rest are the rig's). */
+export type LoopbackBackendDeps = Omit<CoreBackendDeps, "mixer" | "clock">;
 
 /** The rendered audio, planar. */
 export interface LoopbackOutput {
@@ -971,17 +983,20 @@ export async function loopbackAudio(options: LoopbackAudioOptions = {}): Promise
     import("./Audio"),
     import("./events/eventRuntime"),
   ]);
-  const settings = options.settings ?? defaultAudioSettings();
+  const own = options.mixer === "own";
+  // On the page's mixer without `settings`, whatever configured it (an Engine's create) stands.
+  const settings = options.settings ?? (own ? defaultAudioSettings() : mixer.audioSettings);
   const preset: CorePreset = { ...LOOPBACK_PRESET, ...options.preset };
   let loop: LoopbackHost;
   try {
     loop = await createLoopbackHost({ clock: options.clock, preset });
-  } catch {
-    return null;
+  } catch (error) {
+    // Only a wasm that isn't there (or doesn't compile) here skips; a preset the core refuses is the test's error.
+    if ((error as { code?: string }).code === "ENOENT" || error instanceof WebAssembly.CompileError) return null;
+    throw error;
   }
-  const own = options.mixer === "own";
   const rigMixer = own ? new Mixer(settings) : mixer;
-  if (!own) rigMixer.configure(settings);
+  if (!own && options.settings) rigMixer.configure(settings);
 
   // The host's parts: a fake context per core context, a fake node, the unlock layer; the loopback serves respawn and recreate.
   const target = new EventTarget();
@@ -1007,8 +1022,9 @@ export async function loopbackAudio(options: LoopbackAudioOptions = {}): Promise
 
   const decode = options.decode ?? defaultClip;
   const link = loop.link;
+  const given = typeof options.backend === "function" ? undefined : options.backend;
   const clips =
-    options.backend?.clips ??
+    given?.clips ??
     createClipRegistry({
       send: (m) => link.post(m),
       nextSeq: () => link.nextSeq(),
@@ -1020,9 +1036,10 @@ export async function loopbackAudio(options: LoopbackAudioOptions = {}): Promise
       clipFormat: settings.clipFormat === "f32" ? 0 : 1,
       nextFrame: (cb) => cb(),
       nextQuantum: (cb) => cb(),
+      ...options.clipRegistry,
     });
   const core = assembleCore(host, {
-    ...options.backend,
+    ...(typeof options.backend === "function" ? options.backend(clips) : given),
     clips,
     mixer: rigMixer,
     clock: loop.clock,

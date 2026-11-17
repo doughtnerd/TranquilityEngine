@@ -6,13 +6,11 @@
 // (capRaised, paused, belowAudibility, poolFull, streamPriming, priority) are in `voiceProfileTaps.test.ts` on the table
 // and selection directly: the loopback's cap and a stream voice are not reachable from here. neverFits, loadFailed and
 // capRefused are `coreBackend`'s lines (the coordinator's).
-import { describe, expect, it } from "vitest";
-import { Mixer } from "../../../../engine/audio/mixer";
+import { afterEach, describe, expect, it } from "vitest";
 import { defaultAudioSettings, type AudioSettings } from "../../../../engine/audio/settings";
-import type { AudioHost, CoreLink, HostLifecycleListener } from "./context";
-import { CoreBackend, type CoreBackendHost } from "./coreBackend";
-import { fakeDecoder } from "./fakeDecoder";
+import { CoreBackend } from "./coreBackend";
 import { recordingSink } from "../mix/recordingSink";
+import { loopbackAudio, closeLoopbackAudio } from "../testing";
 
 /** Frames a voice must lead before selection promotes it (selection.ts). */
 const DWELL_FRAMES = 3;
@@ -22,47 +20,27 @@ const req = (path: string, extra: object = {}) => ({ path, url: path, loop: fals
 const busRefOf = (backend: CoreBackend, bus: string): number => backend.buses.slots.busRef(backend.buses.slotOf(bus));
 
 async function rig(opts: { maxMixed?: number; maxLogical?: number; settings?: AudioSettings; pending?: string[]; frames?: number } = {}) {
-  const testing = await import("../testing");
-  let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>> & { link: CoreLink };
-  try {
-    loop = (await testing.createLoopbackHost()) as typeof loop;
-  } catch {
-    return null;
-  }
-  const { createClipRegistry } = await import("./clipRegistry");
-  const link = loop.link;
   const pending = new Set(opts.pending ?? []);
   const frames = opts.frames ?? 2_000;
-  const clips = createClipRegistry({
-    send: (m) => link.post(m),
-    nextSeq: () => link.nextSeq(),
-    fetchBytes: async (path) => (pending.has(path) ? new Promise<ArrayBuffer>(() => {}) : new ArrayBuffer(8)),
-    decodeWorker: fakeDecoder(async () => ({ frames, channels: 1, sampleRate: 48_000, channelData: [new Float32Array(frames).fill(0.25)] })),
-    nextFrame: (cb) => cb(),
-    nextQuantum: (cb) => cb(),
+  // ADR 0221: the production assembly on the loopback, with its own mixer. Recovery has one rebuild to spend, so a second
+  // trap makes the host give up (`onRecoveryFailed`), as a fourth trap in a minute would.
+  const audio = await loopbackAudio({
+    mixer: "own",
+    settings: opts.settings ?? defaultAudioSettings(),
+    preset: { maxLogical: opts.maxLogical ?? 16, maxMixed: opts.maxMixed ?? 8 },
+    decode: (path) => (pending.has(path) ? new Promise<never>(() => {}) : { channelData: [new Float32Array(frames).fill(0.25)] }),
+    recovery: { limit: 1, warn: () => {} },
+    dt: 0.003,
   });
-  const listeners: HostLifecycleListener[] = [];
-  const host: CoreBackendHost = {
-    link, status: "running", preset: { maxLogical: opts.maxLogical ?? 16, maxMixed: opts.maxMixed ?? 8 }, worldCount: 1, sampleRate: 48_000,
-    addLifecycleListener: ((l: HostLifecycleListener) => {
-      listeners.push(l);
-      return () => {};
-    }) as AudioHost["addLifecycleListener"],
-  };
-  const mixer = new Mixer(opts.settings ?? defaultAudioSettings());
-  const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer });
+  if (!audio) return null;
+  const { backend, mixer, host } = audio;
   const stub = recordingSink();
   const names = backend.busNames;
   backend.setProfileSink(stub.sink);
   const step = async (n: number) => {
-    for (let f = 0; f < n; f++) {
-      mixer.update(0.003);
-      backend.update(0.003);
-      loop.renderQuanta(4);
-      await Promise.resolve();
-    }
+    await audio.step(n);
   };
-  return { backend, mixer, stub, step, names, listeners };
+  return { audio, host, backend, mixer, stub, step, names };
 }
 
 const settingsWith = (patch: (s: AudioSettings) => void): AudioSettings => {
@@ -70,6 +48,8 @@ const settingsWith = (patch: (s: AudioSettings) => void): AudioSettings => {
   patch(s);
   return s;
 };
+
+afterEach(closeLoopbackAudio);
 
 describe("the taps in a loopback scene", () => {
   it("voiceStart: id, clip path, bus, flags and gain once the clip is loaded; voiceStop ended when the clip runs out", async (ctx) => {
@@ -93,12 +73,13 @@ describe("the taps in a loopback scene", () => {
     const a = r.backend.play(req("a.wav", { loop: true }))!;
     const b = r.backend.play(req("b.wav", { loop: true }))!;
     const c = r.backend.play(req("c.wav", { loop: true }))!;
-    const w = r.backend.play(req("w.wav", { loop: true, world: 7 }))!;
+    const world = r.host.attachWorld({}).key; // a second World's share
+    const w = r.backend.play(req("w.wav", { loop: true, world }))!;
     await r.step(10);
     a.stop(0);
     b.stop(0.01);
-    // The host releases World 7 (its scene unloaded).
-    for (const l of r.listeners) l.onWorldReleased?.(7, {});
+    // The host releases that World (its scene unloaded).
+    r.host.releaseWorld(world);
     await r.step(20);
     let stops = new Map(r.stub.of("voiceStop").map((x) => [x[0], x[1]]));
     expect(stops.get(a.id)).toBe("stopped");
@@ -106,7 +87,13 @@ describe("the taps in a loopback scene", () => {
     expect(stops.get(w.id)).toBe("worldReleased");
     // Recovery gives up: every voice still playing ends "failed".
     expect(stops.has(c.id)).toBe(false);
-    for (const l of r.listeners) l.onRecoveryFailed?.();
+    r.audio.trap();
+    for (let f = 0; f < 60 && r.host.health.recoveries === 0; f++) await r.step(1);
+    expect(r.host.health.recoveries, "the one rebuild").toBe(1);
+    r.audio.trap();
+    r.audio.render(1);
+    await r.audio.settle();
+    expect(r.host.status, "the second trap: recovery gives up").toBe("failed");
     stops = new Map(r.stub.of("voiceStop").map((x) => [x[0], x[1]]));
     expect(stops.get(c.id)).toBe("failed");
     r.backend.dispose();

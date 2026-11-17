@@ -2,13 +2,10 @@
 // core backend): the bed planner's BED_CONFIG reaches the core, the voices past `voices.hrtf` mix into their bus's bed
 // (`Audio.debug()` shows `beds[]`, `counters.bedVoices` and the bus rows), and the plan follows a bus edit. `audio.spatial:
 // "equalPower"` keeps beds and fetches neither table (R9); the MagLS filters load once, the first time a bed is hosted.
-import { describe, expect, it } from "vitest";
-import { Mixer } from "../../../../engine/audio/mixer";
+import { afterEach, describe, expect, it } from "vitest";
 import { defaultAudioSettings, parseAudioSettings } from "../../../../engine/audio/settings";
-import { fakeDecoder } from "./fakeDecoder";
-import type { AudioHost } from "./context";
-import { CoreBackend, type CoreBackendHost } from "./coreBackend";
 import { createHrirLoader, createMaglsLoader } from "./hrir";
+import { loopbackAudio, closeLoopbackAudio } from "../testing";
 
 /** The MagLS asset (`src/engine/audio/magls-o3.bin`). */
 const maglsUrl = (): URL => new URL("../../../../engine/audio/magls-o3.bin", import.meta.url);
@@ -24,37 +21,9 @@ async function readBytes(url: URL): Promise<ArrayBuffer> {
 }
 
 async function rig(opts: { spatial?: "hrtf" | "equalPower"; hrtf?: number; maxBeds?: number } = {}) {
-  const testing = await import("../testing");
-  const preset = { ...testing.LOOPBACK_PRESET, maxBeds: 4 };
-  let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>>;
-  try {
-    loop = await testing.createLoopbackHost({ preset });
-  } catch {
-    return null;
-  }
-  const { createClipRegistry } = await import("./clipRegistry");
-  const link = loop.link;
   const frames = 48_000;
   const tone = new Float32Array(frames).map((_, i) => 0.2 * Math.sin((2 * Math.PI * 440 * i) / 48_000));
-  const clips = createClipRegistry({
-    send: (m) => link.post(m),
-    nextSeq: () => link.nextSeq(),
-    fetchBytes: async () => new ArrayBuffer(8),
-    decodeWorker: fakeDecoder(async () => ({ frames, channels: 1, sampleRate: 48_000, channelData: [tone] })),
-    nextFrame: (cb) => cb(),
-    nextQuantum: (cb) => cb(),
-  });
   const fetches = { hrir: 0, magls: 0 };
-  const hrir = createHrirLoader({ clips, sampleRate: 48_000, fetchBytes: async () => (fetches.hrir++, readBytes(new URL("../wasm/myco_hrir.bin", import.meta.url))) });
-  const magls = createMaglsLoader({ clips, sampleRate: 48_000, fetchBytes: async () => (fetches.magls++, readBytes(maglsUrl())) });
-  const host: CoreBackendHost = {
-    link: link as CoreBackendHost["link"],
-    status: "running",
-    preset,
-    worldCount: 1,
-    sampleRate: 48_000,
-    addLifecycleListener: (() => () => {}) as AudioHost["addLifecycleListener"],
-  };
   const settings = defaultAudioSettings();
   Object.assign(
     settings,
@@ -65,18 +34,31 @@ async function rig(opts: { spatial?: "hrtf" | "equalPower"; hrtf?: number; maxBe
   );
   settings.spatial = opts.spatial ?? "hrtf";
   settings.voices = { ...settings.voices, hrtf: opts.hrtf ?? 1 };
-  const mixer = new Mixer(settings);
-  const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer, hrir, magls });
+  // ADR 0221: the production assembly on the loopback, with its own mixer; the HRIR and MagLS loaders on the rig's registry.
+  const audio = await loopbackAudio({
+    mixer: "own",
+    settings,
+    preset: { maxBeds: 4 },
+    decode: () => ({ channelData: [tone] }),
+    backend: (clips) => ({
+      hrir: createHrirLoader({ clips, sampleRate: 48_000, fetchBytes: async () => (fetches.hrir++, readBytes(new URL("../wasm/myco_hrir.bin", import.meta.url))) }),
+      magls: createMaglsLoader({ clips, sampleRate: 48_000, fetchBytes: async () => (fetches.magls++, readBytes(maglsUrl())) }),
+    }),
+  });
+  if (!audio) return null;
+  const { backend, mixer } = audio;
   const step = async (n: number) => {
     for (let f = 0; f < n; f++) {
       mixer.update(0.003);
       backend.update(0.003);
-      loop.renderQuanta(4);
+      audio.render(4);
       await new Promise((r) => setTimeout(r, 0));
     }
   };
-  return { loop, backend, mixer, settings, step, fetches };
+  return { loop: audio, backend, mixer, settings, step, fetches };
 }
+
+afterEach(closeLoopbackAudio);
 
 describe("beds on the loopback host (A5 + A6b)", () => {
   it("BED_CONFIG reaches the core, and the voice past voices.hrtf mixes into its bus's bed", async (ctx) => {

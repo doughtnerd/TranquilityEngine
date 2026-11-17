@@ -3,15 +3,11 @@
 // class stands in where Node has no Web Audio), and the core's sources are scanned for the call.
 import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { Mixer } from "../../../../engine/audio/mixer";
-import { defaultAudioSettings } from "../../../../engine/audio/settings";
+import { afterEach, afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createDecoderClient, type WorkerLike } from "../decoder/decoderClient";
 import { createDecoderHandler } from "../decoder/handler";
 import hash from "../wasm/hash.json";
-import { createClipRegistry } from "./clipRegistry";
-import type { AudioHost, CoreLink } from "./context";
-import { CoreBackend, type CoreBackendHost } from "./coreBackend";
+import { loopbackAudio, closeLoopbackAudio } from "../testing";
 
 const FIXTURES = fileURLToPath(new URL("../../../../../native/audio/crates/audio-decode/tests/fixtures/", import.meta.url));
 const WASM = readFileSync(fileURLToPath(new URL("../wasm/myco_audio_decode.wasm", import.meta.url)));
@@ -44,6 +40,8 @@ function inProcessWorker(): () => WorkerLike {
 
 const FORMATS = ["tone-48000-stereo.wav", "tone-48000-stereo.flac", "tone-44100-mono.mp3", "tone-44100-mono.ogg", "tone-22050-stereo-s24.flac", "tone-48000-stereo-vbr-noxing.mp3"];
 
+afterEach(closeLoopbackAudio);
+
 describe("no decodeAudioData on the core path (B6)", () => {
   let restore: () => void = () => {};
   let spy: ReturnType<typeof vi.fn>;
@@ -66,41 +64,24 @@ describe("no decodeAudioData on the core path (B6)", () => {
   afterAll(() => restore());
 
   it("loads and plays WAV, FLAC, MP3 (with and without a length header) and Ogg Vorbis without calling it", async (ctx) => {
-    const testing = await import("../testing");
-    let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>> & { link: CoreLink };
-    try {
-      loop = (await testing.createLoopbackHost()) as typeof loop;
-    } catch {
-      return ctx.skip();
-    }
-    const link = loop.link;
     const client = createDecoderClient({ workerFactory: inProcessWorker(), wasmBytes: wasmBytes() });
     const warn = vi.fn();
-    const clips = createClipRegistry({
-      send: (m) => link.post(m),
-      nextSeq: () => link.nextSeq(),
-      fetchBytes: async (path) => fixture(path),
-      decodeWorker: client,
-      warn,
-      nextFrame: (cb) => cb(),
-    });
-    const host: CoreBackendHost = {
-      link,
-      status: "running",
+    // ADR 0221: the production assembly on the loopback; the registry fetches the fixtures and decodes on the real decoder.
+    const audio = await loopbackAudio({
+      mixer: "own",
       preset: { maxLogical: 16, maxMixed: 8 },
-      worldCount: 1,
-      sampleRate: 48_000,
-      addLifecycleListener: (() => () => {}) as AudioHost["addLifecycleListener"],
-    };
-    const mixer = new Mixer(defaultAudioSettings());
-    const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer });
+      clipRegistry: { fetchBytes: async (path) => fixture(path), decodeWorker: client, warn, nextQuantum: (cb) => void setTimeout(cb, 0) },
+    });
+    if (!audio) return ctx.skip();
+    const { backend, mixer } = audio;
+    const clips = backend.clips;
     FORMATS.forEach((name) => backend.play({ path: name, url: name, loop: false, stream: false, bus: "SFX" }));
     let peak = 0;
     let mostResident = 0;
     for (let f = 0; f < 60; f++) {
       mixer.update(0.003);
       backend.update(0.003);
-      const { left } = loop.renderQuanta(4);
+      const { left } = audio.render(4);
       for (const s of left) peak = Math.max(peak, Math.abs(s));
       mostResident = Math.max(mostResident, clips.residentIds().length);
       await new Promise((r) => setTimeout(r, 1));
