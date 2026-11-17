@@ -605,7 +605,7 @@ export interface LoopbackHost {
   renderQuanta(n: number): { readonly left: Float32Array; readonly right: Float32Array };
   /** The main side's link: ping, status listeners, `lastStatus`, the BATCH pool. (Addition to K4.) */
   readonly link: CoreLink;
-  /** The shell's driver: stats, the STATUS pool, the probe. (Addition to K4.) */
+  /** The shell's driver: the STATUS pool, the probe. (Addition to K4.) */
   readonly driver: CoreDriver;
   /** Every STATUS block received, in order. (Addition to K4.) */
   readonly statuses: StatusBlock[];
@@ -998,11 +998,6 @@ export interface LoopbackAudio {
   stallMain(): LoopbackStall;
   /** Fault: a hitch between main and the core: BATCHes posted until `stop` reach the core `quanta` quanta late (`LoopbackHost.delayBatches`). */
   delayBatches(quanta: number): { stop(): void };
-  /**
-   * The worklet's end of the decoder worker's port (in a browser, the `MessagePort` the backend hands `connectStreamPort`):
-   * a buffer posted on it (stream data, zone kernels) reaches the shell at the current frame.
-   */
-  readonly workletPort: { onmessage: null; postMessage(message: unknown): void };
   /** Disposes the backend (unregistering it on the page mixer), closes the host and ends the audio session. A second call does nothing. */
   close(): Promise<void>;
 }
@@ -1237,7 +1232,6 @@ export async function loopbackAudio(options: LoopbackAudioOptions = {}): Promise
     watched,
     stallMain: () => loop.stallMain(),
     delayBatches: (quanta) => loop.delayBatches(quanta),
-    workletPort: { onmessage: null, postMessage: (message) => loop.send(message as ArrayBuffer) },
     async close() {
       if (closed) return;
       closed = true;
