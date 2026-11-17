@@ -1,18 +1,17 @@
 // ADR 0171/0172 (X2; api-and-models §7): opening a capture from a file. Each message is asserted on a fixture capture read
 // through the real `CaptureSource` and the capture Worker's real handler: the wire mismatch naming both ABI versions, the
 // project mismatch warning, truncated (the ring wrapped, and a file cut short), a file that isn't a capture, and the
-// decode caps (a header past the cap, a deflate bomb, a file too big to read). Drop and Open share one route. Nothing here
-// reads a wall clock.
+// decode caps (a header past the cap, a deflate bomb, a file too big to read). Drop and Open share one route, the slot
+// `installOpenCapture` fills; a drop on the rendered panel and the bar's file input reaching it are ProfilerPanel.stories.tsx.
+// Nothing here reads a wall clock.
 import { describe, expect, it, vi } from "vitest";
 import { deflateRawSync } from "node:zlib";
-import { h } from "preact";
-import { byClass, find, render } from "../../../../editor/testRender";
 import { CAPTURE_ABI_VERSION, CAPTURE_FLAG_COMPRESSED, CAPTURE_HEADER_BYTES, CAPTURE_MAX_UNCOMPRESSED_BYTES, CAPTURE_META_MAX_BYTES, assembleCapture } from "../../runtime/capture/format";
 import { SAMPLE_HEADER, SAMPLE_META, sampleCapture } from "../../runtime/capture/testSupport";
 import type { AudioCapture } from "../../runtime/capture/capture";
 import { CaptureSource, type CaptureWorkerLike, type ProfileSource } from "./profilerSource";
 import { createCaptureWorkerHandler, type CaptureRequest, type CaptureResponse } from "../../runtime/capture/worker";
-import { ProfilerController, ProfilerPanel, profilerSlots, type BarSlotProps, type ProfilerDeps, type ProfilerSlots } from "./ProfilerPanel";
+import { ProfilerController, profilerSlots, type ProfilerDeps, type ProfilerSlots } from "./ProfilerPanel";
 import { OPEN_REFUSALS, installOpenCapture, type CaptureFileLike } from "./openCapture";
 
 // The banners' words.
@@ -44,9 +43,6 @@ function inProcessWorker(): CaptureWorkerLike {
   });
   return w;
 }
-
-// The panel is rendered with its hooks and no DOM (`testRender`).
-vi.mock("preact/hooks", () => import("../../../../editor/testRender"));
 
 /** The largest file the route reads: the header, a META chunk and an uncompressed payload at its cap. */
 const OPEN_MAX_FILE_BYTES = CAPTURE_HEADER_BYTES + CAPTURE_META_MAX_BYTES + CAPTURE_MAX_UNCOMPRESSED_BYTES;
@@ -227,41 +223,12 @@ describe("drop and Open reach the same controller path", () => {
     expect(await isCaptureFileName("mycap")).toBe(false);
   });
 
-  it("both fill from profilerSlots.onDropFile: a drop on the panel and the bar's file input open the same capture; uninstall restores", async () => {
-    const original = { ...profilerSlots };
+  it("installOpenCapture fills profilerSlots.onDropFile, the slot both the drop and Open call; its undo restores the slot", () => {
+    const original = profilerSlots.onDropFile;
     const undo = installOpenCapture(profilerSlots);
-    // The registered panel over its real deps: each open spawns a capture Worker, here the real handler in process.
-    let opened = 0;
-    vi.stubGlobal("Worker", class { constructor() { opened++; return inProcessWorker(); } });
-    let bar: BarSlotProps | null = null;
-    profilerSlots.bar = (p) => ((bar = p), h(original.bar, p));
-    const panel = render(() => h(ProfilerPanel, {}));
-    try {
-      expect(profilerSlots.onDropFile).not.toBe(original.onDropFile);
-      const tree = () => panel.tree();
-      const controller = (): ProfilerController => (tree(), bar!.controller);
-      // The drop.
-      (find(tree(), byClass("profiler"))[0]!.props.onDrop as (e: unknown) => void)({ preventDefault() {}, dataTransfer: { files: [fileOf("d.mycap", good())] } });
-      await vi.waitFor(() => expect(controller().view.source).not.toBeNull());
-      expect(controller().view.fileName).toBe("d.mycap");
-      controller().closeFile();
-      // Open: the bar's file input, found in the rendered tree, calls the same slot.
-      const input = () => find(tree(), (n) => n.type === "input" && n.props.type === "file")[0]!.props.onChange as (e: unknown) => void;
-      input()({ currentTarget: { files: [fileOf("p.mycap", good())], value: "x" } });
-      await vi.waitFor(() => expect(controller().view.source).not.toBeNull());
-      expect(controller().view.fileName).toBe("p.mycap");
-      expect(opened).toBe(2);
-      // A non-capture through Open gets the same refusal as through the drop.
-      input()({ currentTarget: { files: [fileOf("x.wav", new ArrayBuffer(0))], value: "x" } });
-      await vi.waitFor(() => expect(ids(controller())).toContain("error"));
-      expect(textOf(controller(), "error")).toContain("notCapture");
-    } finally {
-      panel.unmount();
-      vi.unstubAllGlobals();
-      undo();
-      profilerSlots.bar = original.bar;
-    }
-    expect(profilerSlots.onDropFile).toBe(original.onDropFile);
+    expect(profilerSlots.onDropFile).not.toBe(original);
+    undo();
+    expect(profilerSlots.onDropFile).toBe(original);
   });
 });
 

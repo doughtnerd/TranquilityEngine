@@ -1,75 +1,37 @@
-// Dk1: the ducking section's controls, each with each option (mode, detector, threshold, amount, attack, release, trigger,
-// target, add, remove, reorder), the refusals the parse makes (a level cycle naming its rules, the 9th level rule, the 33rd
-// rule), "Needs the audio core" on a backend without level ducking, and a live edit reaching a fake mixer through the op
-// log. The Audio section is rendered whole (`testRender`, hooks and all, no DOM) and its tree walked; handlers get plain
-// event objects. No timers.
-import { h } from "preact";
-import { afterEach, describe, expect, it, vi } from "vitest";
+// Dk1: the ducking edits the Audio section makes (`audioSettingsModel`'s `addDuckingEdit`, `setDuckingValueEdit`,
+// `moveDucking`, `removeDucking`), each with each option (mode, detector, threshold, amount, attack, release, trigger,
+// target, add, remove, reorder): the drafts they write parse back clean, numbers are clamped to their limits, and the
+// refusals the parse makes (a bus ducking itself, a trigger above its target, a level cycle naming its rules, the 9th
+// level rule, the 33rd rule) leave the draft as it was; then a live edit reaching a fake mixer through the op log. The
+// section's controls, their options and "Needs the audio core" on a backend without level ducking are
+// AudioSettingsSection.stories.tsx. No timers.
+import { afterEach, describe, expect, it } from "vitest";
 import { audioSection } from "../../../engine/audio/audioSection";
 import type { ApplyResult, MixOp } from "../../../engine/audio/mixOps";
 import { parseAudioSettings, type DuckingRule } from "../../../engine/audio/settings";
 import { createProjectSettingsSection } from "../../../editor/projectSettingsSection";
 import { closeTestProject, openTestProject, readDraft } from "../../../editor/testing";
 import type { SettingsDraft } from "../../../editor/sdk";
-import { byLabel, find, render, text, type HostNode, type Rendered } from "../../../editor/testRender";
-import { AudioSettingsSection } from "./AudioSettingsSection";
-import { addDuckingEdit, audioOf, moveDucking, removeDucking, setDuckingValueEdit } from "./audioSettingsModel";
+import { addDuckingEdit, audioOf, moveDucking, removeDucking, setDuckingValueEdit, type DuckEdit } from "./audioSettingsModel";
 import { playState } from "../../../editor/state";
 import { startOpLog, type MixApplier } from "./mix/opLog";
 import { newDuckRule } from "./mix/duckModel";
-
-vi.mock("preact/hooks", () => import("../../../editor/testRender"));
 
 /** Add a ducking rule as the section's button does (a refused add leaves the draft). */
 const addDucking = (d: SettingsDraft): SettingsDraft => addDuckingEdit(d).draft;
 /** Set one field of a rule as the section's controls do (a refused edit leaves the draft). */
 const setDuckingValue = (d: SettingsDraft, index: number, key: keyof DuckingRule, value: string | number): SettingsDraft => setDuckingValueEdit(d, index, key, value).draft;
 
-type Node = HostNode;
-const has = (tree: unknown, label: string): boolean => find(tree, byLabel(label)).length > 0;
-const refusalOf = (tree: unknown): string | null => {
-  const shown = find(tree, (n) => n.props["data-duck-refusal"] !== undefined);
-  return shown.length === 0 ? null : text(shown);
-};
-
-// ---- a rig: the Audio section over an in-memory draft; each handler re-renders, so a stale one would show ----
-
-const mounted: Rendered[] = [];
-afterEach(() => {
-  while (mounted.length) mounted.pop()!.unmount();
-});
-
-/** `levelDucking` false: the project plays on the Babylon backend, which has no level ducking. */
-function rig(ducking: object[] = [], levelDucking = true, buses?: object[]) {
-  const audio = { ...(buses ? { buses } : {}), ...(levelDucking ? {} : { backend: "babylon" }), ducking };
-  const draft = { value: readDraft({ audio }) as SettingsDraft };
-  const labels: string[] = [];
-  const section = render(() => h(AudioSettingsSection, { draft: draft.value, problems: [], set: (label: string, next: SettingsDraft) => { labels.push(label); draft.value = next; } }));
-  mounted.push(section);
-  const view = (): unknown => section.tree();
-  const s = {
-    get draft(): SettingsDraft { return draft.value; },
-    labels,
-    /** The refusal the section shows, or null. */
-    get refusal(): string | null { return refusalOf(view()); },
-  };
-  const one = (label: string): Node => {
-    const f = find(view(), byLabel(label));
-    expect(f, label).toHaveLength(1);
-    return f[0]!;
-  };
-  return {
-    s,
-    view,
-    rules: (): DuckingRule[] => audioOf(draft.value).ducking,
-    pick: (label: string, value: string) => (one(label).props.onChange as (e: unknown) => void)({ currentTarget: { value } }),
-    type: (label: string, n: number) => (one(label).props.onChange as (e: unknown) => void)({ currentTarget: { valueAsNumber: n, value: String(n) } }),
-    click: (label: string) => (one(label).props.onClick as () => void)(),
-    options: (label: string): string[] => find(one(label), (n) => n.type === "option").map((o) => String(o.props.value)),
-    value: (label: string): unknown => one(label).props.value,
-    addButton: (): Node => find(view(), (n) => n.type === "button" && text(n).includes("Ducking rule"))[0]!,
-    refusal: (): string => refusalOf(view()) ?? "",
-  };
+/** A draft whose audio section has these ducking rules (and these buses, else the default ones). */
+const draftOf = (ducking: object[] = [], buses?: object[]): SettingsDraft => readDraft({ audio: { ...(buses ? { buses } : {}), ducking } }) as SettingsDraft;
+const rulesOf = (d: SettingsDraft): DuckingRule[] => audioOf(d).ducking;
+/** The draft parses with no problem: the parse keeps every rule the edit wrote. */
+const expectClean = (d: SettingsDraft): void => expect(audioSection(d.audio).problems).toEqual([]);
+/** The edit was refused: the draft is the one it was given, and the refusal is the parse's message. */
+function expectRefused(e: DuckEdit, d: SettingsDraft, message: string | RegExp): void {
+  expect(e.draft).toBe(d);
+  if (typeof message === "string") expect(e.refusal).toContain(message);
+  else expect(e.refusal).toMatch(message);
 }
 
 const level = (target: string, trigger: string, over: object = {}) => ({ target, trigger, mode: "level", ...over });
@@ -77,192 +39,125 @@ const presence = (target: string, trigger: string, over: object = {}) => ({ targ
 
 describe("add: a new rule is a level rule, RMS, -30 dBFS", () => {
   it("the first rule added to a fresh project", () => {
-    const r = rig();
-    (r.addButton().props.onClick as () => void)();
-    expect(r.rules()).toEqual([{ target: "Music", trigger: "Voice", mode: "level", detector: "rms", threshold: -30, amount: 0.4, attack: 0.1, release: 0.5 }]);
-    expect(r.s.labels).toEqual(["Add ducking rule"]);
-    expect(r.s.refusal).toBeNull();
-    expect(audioSection(r.s.draft.audio).problems).toEqual([]);
+    const e = addDuckingEdit(draftOf());
+    expect(e.refusal).toBeNull();
+    expect(rulesOf(e.draft)).toEqual([{ target: "Music", trigger: "Voice", mode: "level", detector: "rms", threshold: -30, amount: 0.4, attack: 0.1, release: 0.5 }]);
+    expectClean(e.draft);
   });
-  it("the form shows the new rule's mode, detector and threshold", () => {
-    const r = rig();
-    (r.addButton().props.onClick as () => void)();
-    expect(r.value("Ducking 1 mode")).toBe("level");
-    expect(r.value("Ducking 1 detector")).toBe("rms");
-    expect(r.value("Ducking 1 threshold")).toBe(-30);
-  });
-  it("each press adds another, in order", () => {
-    const r = rig();
-    for (let i = 0; i < 3; i++) (r.addButton().props.onClick as () => void)();
-    expect(r.rules()).toHaveLength(3);
-    expect(r.rules().every((x) => x.mode === "level" && x.detector === "rms" && x.threshold === -30)).toBe(true);
+  it("each add appends another, in order", () => {
+    let d = draftOf();
+    for (let i = 0; i < 3; i++) d = addDucking(d);
+    expect(rulesOf(d)).toHaveLength(3);
+    expect(rulesOf(d).every((x) => x.mode === "level" && x.detector === "rms" && x.threshold === -30)).toBe(true);
+    expectClean(d);
   });
   it("a project with two buses gets a pair the parse keeps (the child ducked by nothing above it)", () => {
-    const r = rig([], true, [{ name: "Master" }, { name: "Fx", parent: "Master" }]);
-    (r.addButton().props.onClick as () => void)();
-    expect(r.rules()).toHaveLength(1);
-    expect(r.rules()[0]).toMatchObject({ target: "Master", trigger: "Fx", mode: "level" });
-    expect(audioSection(r.s.draft.audio).problems).toEqual([]);
+    const d = addDucking(draftOf([], [{ name: "Master" }, { name: "Fx", parent: "Master" }]));
+    expect(rulesOf(d)).toHaveLength(1);
+    expect(rulesOf(d)[0]).toMatchObject({ target: "Master", trigger: "Fx", mode: "level" });
+    expectClean(d);
   });
-  it("the button is off with fewer than two buses", () => {
-    const r = rig([], true, [{ name: "Master" }]);
-    expect(r.addButton().props.disabled).toBe(true);
+  it("is refused with fewer than two buses", () => {
+    const d = draftOf([], [{ name: "Master" }]);
+    expectRefused(addDuckingEdit(d), d, "A ducking rule needs two buses.");
   });
 });
 
-describe("mode: each option", () => {
-  it("offers presence and level", () => {
-    expect(rig([presence("Music", "Voice")]).options("Ducking 1 mode")).toEqual(["presence", "level"]);
+describe("mode", () => {
+  it("presence to level adds the detector and threshold with the defaults", () => {
+    const d = setDuckingValue(draftOf([presence("Music", "Voice")]), 0, "mode", "level");
+    expect(rulesOf(d)[0]).toMatchObject({ mode: "level", detector: "rms", threshold: -30 });
+    expectClean(d);
   });
-  it("presence to level adds the detector and threshold controls with the defaults", () => {
-    const r = rig([presence("Music", "Voice")]);
-    expect(has(r.view(), "Ducking 1 detector")).toBe(false);
-    expect(has(r.view(), "Ducking 1 threshold")).toBe(false);
-    r.pick("Ducking 1 mode", "level");
-    expect(r.rules()[0]).toMatchObject({ mode: "level", detector: "rms", threshold: -30 });
-    expect(r.value("Ducking 1 detector")).toBe("rms");
-    expect(r.value("Ducking 1 threshold")).toBe(-30);
-    expect(audioSection(r.s.draft.audio).problems).toEqual([]);
-  });
-  it("level to presence drops the detector and threshold, and their controls", () => {
-    const r = rig([level("Music", "Voice", { detector: "peak", threshold: -12 })]);
-    r.pick("Ducking 1 mode", "presence");
-    expect("detector" in r.rules()[0]! || "threshold" in r.rules()[0]!).toBe(false);
-    expect(has(r.view(), "Ducking 1 detector")).toBe(false);
-    expect(has(r.view(), "Ducking 1 threshold")).toBe(false);
-    expect(audioSection(r.s.draft.audio).problems).toEqual([]);
+  it("level to presence drops the detector and threshold", () => {
+    const d = setDuckingValue(draftOf([level("Music", "Voice", { detector: "peak", threshold: -12 })]), 0, "mode", "presence");
+    expect("detector" in rulesOf(d)[0]! || "threshold" in rulesOf(d)[0]!).toBe(false);
+    expectClean(d);
   });
   it("choosing the mode a rule already has changes nothing", () => {
-    const r = rig([level("Music", "Voice")]);
-    const before = r.s.draft;
-    r.pick("Ducking 1 mode", "level");
-    expect(r.s.draft).toBe(before);
-    expect(r.s.labels).toEqual([]);
+    const d = draftOf([level("Music", "Voice")]);
+    const e = setDuckingValueEdit(d, 0, "mode", "level");
+    expect(e.draft).toBe(d);
+    expect(e.refusal).toBeNull();
   });
 });
 
-describe("detector: each option", () => {
-  it("offers peak and rms; each is written", () => {
-    const r = rig([level("Music", "Voice")]);
-    expect(r.options("Ducking 1 detector")).toEqual(["peak", "rms"]);
-    r.pick("Ducking 1 detector", "peak");
-    expect(r.rules()[0]!.detector).toBe("peak");
-    expect(r.value("Ducking 1 detector")).toBe("peak");
-    r.pick("Ducking 1 detector", "rms");
-    expect(r.rules()[0]!.detector).toBe("rms");
+describe("detector and the numbers: each option, each limit, a typical value", () => {
+  it("the detector is written as peak or rms", () => {
+    let d = setDuckingValue(draftOf([level("Music", "Voice")]), 0, "detector", "peak");
+    expect(rulesOf(d)[0]!.detector).toBe("peak");
+    d = setDuckingValue(d, 0, "detector", "rms");
+    expect(rulesOf(d)[0]!.detector).toBe("rms");
   });
-});
-
-describe("threshold: minimum, maximum, typical", () => {
-  it.each([[-80, "the minimum"], [0, "the maximum"], [-30, "the typical value"], [-18, "a hot mix"]])("%d dBFS (%s)", (n) => {
-    const r = rig([level("Music", "Voice", { threshold: n === -30 ? -6 : -30 })]);
-    r.type("Ducking 1 threshold", n);
-    expect(r.rules()[0]!.threshold).toBe(n);
-    expect(audioSection(r.s.draft.audio).problems).toEqual([]);
+  it.each([[-80, "the minimum"], [0, "the maximum"], [-30, "the typical value"], [-18, "a hot mix"]])("threshold %d dBFS (%s)", (n) => {
+    const d = setDuckingValue(draftOf([level("Music", "Voice", { threshold: n === -30 ? -6 : -30 })]), 0, "threshold", n);
+    expect(rulesOf(d)[0]!.threshold).toBe(n);
+    expectClean(d);
   });
-  it("the field's own limits are -80 and 0", () => {
-    const r = rig([level("Music", "Voice")]);
-    const f = find(r.view(), byLabel("Ducking 1 threshold"))[0]!;
-    expect([f.props.min, f.props.max]).toEqual([-80, 0]);
+  it("a threshold outside -80..0 is clamped, not saved as it was typed", () => {
+    const d = draftOf([level("Music", "Voice")]);
+    expect(rulesOf(setDuckingValue(d, 0, "threshold", -200))[0]!.threshold).toBe(-80);
+    expect(rulesOf(setDuckingValue(d, 0, "threshold", 20))[0]!.threshold).toBe(0);
+    expectClean(setDuckingValue(d, 0, "threshold", -200));
   });
-  it("a value outside the limits is clamped, not saved as it was typed", () => {
-    const r = rig([level("Music", "Voice")]);
-    r.type("Ducking 1 threshold", -200);
-    expect(r.rules()[0]!.threshold).toBe(-80);
-    r.type("Ducking 1 threshold", 20);
-    expect(r.rules()[0]!.threshold).toBe(0);
-    expect(audioSection(r.s.draft.audio).problems).toEqual([]);
-  });
-});
-
-describe("amount, attack, release: each limit and a typical value", () => {
   it.each([["amount", 0], ["amount", 1], ["amount", 0.4], ["attack", 0], ["attack", 10], ["attack", 0.1], ["release", 0], ["release", 10], ["release", 0.5]] as const)("%s = %d", (key, n) => {
-    const r = rig([level("Music", "Voice", { amount: 0.7, attack: 2, release: 3 })]);
-    r.type(`Ducking 1 ${key}`, n);
-    expect(r.rules()[0]![key]).toBe(n);
-    expect(audioSection(r.s.draft.audio).problems).toEqual([]);
+    const d = setDuckingValue(draftOf([level("Music", "Voice", { amount: 0.7, attack: 2, release: 3 })]), 0, key, n);
+    expect(rulesOf(d)[0]![key]).toBe(n);
+    expectClean(d);
   });
   it("the same fields on a presence rule", () => {
-    const r = rig([presence("Music", "Voice")]);
-    r.type("Ducking 1 amount", 0.25);
-    r.type("Ducking 1 attack", 0.02);
-    r.type("Ducking 1 release", 1.5);
-    expect(r.rules()[0]).toMatchObject({ mode: "presence", amount: 0.25, attack: 0.02, release: 1.5 });
+    let d = draftOf([presence("Music", "Voice")]);
+    d = setDuckingValue(d, 0, "amount", 0.25);
+    d = setDuckingValue(d, 0, "attack", 0.02);
+    d = setDuckingValue(d, 0, "release", 1.5);
+    expect(rulesOf(d)[0]).toMatchObject({ mode: "presence", amount: 0.25, attack: 0.02, release: 1.5 });
   });
   it("values past the limits are clamped to them", () => {
-    const r = rig([level("Music", "Voice")]);
-    r.type("Ducking 1 amount", 2);
-    r.type("Ducking 1 attack", 50);
-    r.type("Ducking 1 release", -1);
-    expect(r.rules()[0]).toMatchObject({ amount: 1, attack: 10, release: 0 });
+    let d = draftOf([level("Music", "Voice")]);
+    d = setDuckingValue(d, 0, "amount", 2);
+    d = setDuckingValue(d, 0, "attack", 50);
+    d = setDuckingValue(d, 0, "release", -1);
+    expect(rulesOf(d)[0]).toMatchObject({ amount: 1, attack: 10, release: 0 });
   });
 });
 
 describe("target and trigger", () => {
-  it("each lists every bus and each choice is written", () => {
-    const r = rig([level("Music", "Voice")]);
-    expect(r.options("Ducking 1 target")).toEqual(["Master", "Music", "SFX", "UI", "Voice"]);
-    expect(r.options("Ducking 1 trigger")).toEqual(["Master", "Music", "SFX", "UI", "Voice"]);
-    r.pick("Ducking 1 target", "SFX");
-    r.pick("Ducking 1 trigger", "UI");
-    expect(r.rules()[0]).toMatchObject({ target: "SFX", trigger: "UI" });
-    expect(r.s.refusal).toBeNull();
+  it("each choice is written, on a level or a presence rule", () => {
+    const e = setDuckingValueEdit(draftOf([level("Music", "Voice")]), 0, "target", "SFX");
+    expect(e.refusal).toBeNull();
+    const f = setDuckingValueEdit(e.draft, 0, "trigger", "UI");
+    expect(f.refusal).toBeNull();
+    expect(rulesOf(f.draft)[0]).toMatchObject({ target: "SFX", trigger: "UI" });
+    expect(rulesOf(setDuckingValue(draftOf([presence("Music", "Voice")]), 0, "target", "UI"))[0]).toMatchObject({ mode: "presence", target: "UI" });
   });
   it("a bus can't duck itself: refused with the parse's message, the rule stays", () => {
-    const r = rig([level("Music", "Voice")]);
-    const before = r.s.draft;
-    r.pick("Ducking 1 trigger", "Music");
-    expect(r.s.draft).toBe(before);
-    expect(r.refusal()).toContain("a bus can't duck itself");
+    const d = draftOf([level("Music", "Voice")]);
+    expectRefused(setDuckingValueEdit(d, 0, "trigger", "Music"), d, "a bus can't duck itself");
   });
   it("a trigger above its target is refused (its level can't be measured before the target mixes)", () => {
-    const r = rig([level("Music", "Voice")]);
-    r.pick("Ducking 1 trigger", "Master");
-    expect(r.refusal()).toContain("Master is above Music in the tree");
-    expect(r.rules()[0]!.trigger).toBe("Voice");
-  });
-  it("a presence rule takes the same choices", () => {
-    const r = rig([presence("Music", "Voice")]);
-    r.pick("Ducking 1 target", "UI");
-    expect(r.rules()[0]).toMatchObject({ mode: "presence", target: "UI" });
+    const d = draftOf([level("Music", "Voice")]);
+    expectRefused(setDuckingValueEdit(d, 0, "trigger", "Master"), d, "Master is above Music in the tree");
   });
 });
 
 describe("remove and reorder", () => {
-  const three = () => rig([level("Music", "Voice"), presence("SFX", "Voice"), level("UI", "Voice", { threshold: -12 })]);
-  it("remove drops that rule and clears a showing refusal", () => {
-    const r = three();
-    r.pick("Ducking 1 trigger", "Music"); // a bus can't duck itself: refused, the message shows
-    expect(r.s.refusal).not.toBeNull();
-    r.click("Remove ducking rule 2");
-    expect(r.rules().map((x) => x.target)).toEqual(["Music", "UI"]);
-    expect(r.s.refusal).toBeNull();
-    expect(r.s.labels).toEqual(["Remove ducking rule"]);
+  const three = () => draftOf([level("Music", "Voice"), presence("SFX", "Voice"), level("UI", "Voice", { threshold: -12 })]);
+  it("remove drops that rule: the second, the first, the last", () => {
+    expect(rulesOf(removeDucking(three(), 1)).map((x) => x.target)).toEqual(["Music", "UI"]);
+    const d = removeDucking(three(), 0);
+    expect(rulesOf(d).map((x) => x.target)).toEqual(["SFX", "UI"]);
+    expect(rulesOf(removeDucking(d, 1)).map((x) => x.target)).toEqual(["SFX"]);
   });
-  it("remove the first and the last", () => {
-    const r = three();
-    r.click("Remove ducking rule 1");
-    expect(r.rules().map((x) => x.target)).toEqual(["SFX", "UI"]);
-    r.click("Remove ducking rule 2");
-    expect(r.rules().map((x) => x.target)).toEqual(["SFX"]);
-  });
-  it("move down and move up swap neighbours", () => {
-    const r = three();
-    r.click("Move ducking rule 1 down");
-    expect(r.rules().map((x) => x.target)).toEqual(["SFX", "Music", "UI"]);
-    r.click("Move ducking rule 3 up");
-    expect(r.rules().map((x) => x.target)).toEqual(["SFX", "UI", "Music"]);
-    expect(r.rules().map((x) => x.mode)).toEqual(["presence", "level", "level"]); // each rule moved whole
-    expect(audioSection(r.s.draft.audio).problems).toEqual([]);
-  });
-  it("the first rule can't move up and the last can't move down", () => {
-    const r = three();
-    expect(find(r.view(), byLabel("Move ducking rule 1 up"))[0]!.props.disabled).toBe(true);
-    expect(find(r.view(), byLabel("Move ducking rule 3 down"))[0]!.props.disabled).toBe(true);
-    expect(find(r.view(), byLabel("Move ducking rule 2 up"))[0]!.props.disabled).toBe(false);
+  it("move down and move up swap neighbours, each rule moved whole", () => {
+    let d = moveDucking(three(), 0, 1);
+    expect(rulesOf(d).map((x) => x.target)).toEqual(["SFX", "Music", "UI"]);
+    d = moveDucking(d, 2, -1);
+    expect(rulesOf(d).map((x) => x.target)).toEqual(["SFX", "UI", "Music"]);
+    expect(rulesOf(d).map((x) => x.mode)).toEqual(["presence", "level", "level"]);
+    expectClean(d);
   });
   it("a move past the end changes nothing", () => {
-    const d = three().s.draft;
+    const d = three();
     expect(moveDucking(d, 0, -1)).toBe(d);
     expect(moveDucking(d, 2, 1)).toBe(d);
     expect(moveDucking(d, 5, 1)).toBe(d);
@@ -271,116 +166,56 @@ describe("remove and reorder", () => {
 
 describe("a rule that closes a level cycle is refused with the parse's message and isn't saved", () => {
   it("two rules: A ducks B and B ducks A", () => {
-    const r = rig([level("Music", "Voice"), level("SFX", "Music")]);
-    const before = r.s.draft;
-    r.pick("Ducking 2 target", "Voice"); // rule 2 becomes: Music ducks Voice
-    expect(r.s.draft).toBe(before);
-    expect(r.s.labels).toEqual([]);
-    const msg = r.refusal();
-    expect(msg).toContain("level rules can't form a cycle");
-    expect(msg).toContain("ducking[0] (Voice ducks Music)");
-    expect(msg).toContain("ducking[1] (Music ducks Voice)");
-    expect(r.rules()[1]!.target).toBe("SFX");
-    expect(audioSection(r.s.draft.audio).problems).toEqual([]);
+    const d = draftOf([level("Music", "Voice"), level("SFX", "Music")]);
+    const e = setDuckingValueEdit(d, 1, "target", "Voice"); // rule 2 becomes: Music ducks Voice
+    expectRefused(e, d, "level rules can't form a cycle");
+    expect(e.refusal).toContain("ducking[0] (Voice ducks Music)");
+    expect(e.refusal).toContain("ducking[1] (Music ducks Voice)");
+    expectClean(d);
   });
   it("three rules: A to B to C to A names all three", () => {
-    const r = rig([level("Music", "Voice"), level("SFX", "Music"), level("UI", "SFX")]);
-    r.pick("Ducking 3 target", "Voice"); // SFX ducks Voice, closing Voice > Music > SFX > Voice
-    expect(r.refusal()).toMatch(/ducking\[0\] \(Voice ducks Music\).*ducking\[1\] \(Music ducks SFX\).*ducking\[2\] \(SFX ducks Voice\)/);
-    expect(r.rules()[2]!.target).toBe("UI");
+    const d = draftOf([level("Music", "Voice"), level("SFX", "Music"), level("UI", "SFX")]);
+    expectRefused(setDuckingValueEdit(d, 2, "target", "Voice"), d, /ducking\[0\] \(Voice ducks Music\).*ducking\[1\] \(Music ducks SFX\).*ducking\[2\] \(SFX ducks Voice\)/);
   });
   it("switching a presence rule to level refuses when that closes the cycle", () => {
-    const r = rig([level("Music", "Voice"), presence("Voice", "Music")]);
-    expect(audioSection(r.s.draft.audio).problems).toEqual([]); // presence rules add no edge
-    r.pick("Ducking 2 mode", "level");
-    expect(r.refusal()).toContain("ducking[1] (Music ducks Voice)");
-    expect(r.rules()[1]!.mode).toBe("presence");
+    const d = draftOf([level("Music", "Voice"), presence("Voice", "Music")]);
+    expectClean(d); // presence rules add no edge
+    expectRefused(setDuckingValueEdit(d, 1, "mode", "level"), d, "ducking[1] (Music ducks Voice)");
   });
   it("the same pair as presence is accepted", () => {
-    const r = rig([level("Music", "Voice"), level("SFX", "Music")]);
-    r.pick("Ducking 2 mode", "presence");
-    r.pick("Ducking 2 target", "Voice");
-    expect(r.s.refusal).toBeNull();
-    expect(r.rules()[1]).toMatchObject({ mode: "presence", target: "Voice", trigger: "Music" });
-  });
-  it("the next successful edit clears the message", () => {
-    const r = rig([level("Music", "Voice"), level("SFX", "Music")]);
-    r.pick("Ducking 2 target", "Voice");
-    expect(r.s.refusal).not.toBeNull();
-    r.type("Ducking 1 amount", 0.2);
-    expect(r.s.refusal).toBeNull();
-    expect(text(find(r.view(), (n) => n.props["data-duck-refusal"] !== undefined))).toBe("");
+    const d = setDuckingValue(draftOf([level("Music", "Voice"), level("SFX", "Music")]), 1, "mode", "presence");
+    const e = setDuckingValueEdit(d, 1, "target", "Voice");
+    expect(e.refusal).toBeNull();
+    expect(rulesOf(e.draft)[1]).toMatchObject({ mode: "presence", target: "Voice", trigger: "Music" });
   });
 });
 
 describe("the limits", () => {
   const eightLevel = () => Array.from({ length: 8 }, () => level("Music", "Voice"));
   it("the 8th level rule is added; the 9th is refused with its message and isn't saved", () => {
-    const r = rig(eightLevel().slice(0, 7));
-    (r.addButton().props.onClick as () => void)();
-    expect(r.rules()).toHaveLength(8);
-    expect(r.s.refusal).toBeNull();
-    const before = r.s.draft;
-    (r.addButton().props.onClick as () => void)();
-    expect(r.s.draft).toBe(before);
-    expect(r.rules()).toHaveLength(8);
-    expect(r.refusal()).toContain("at most 8 level rules");
+    const e = addDuckingEdit(draftOf(eightLevel().slice(0, 7)));
+    expect(e.refusal).toBeNull();
+    expect(rulesOf(e.draft)).toHaveLength(8);
+    expectRefused(addDuckingEdit(e.draft), e.draft, "at most 8 level rules");
   });
   it("a presence rule can't be switched to level as the 9th level rule", () => {
-    const r = rig([...eightLevel(), presence("SFX", "Voice")]);
-    r.pick("Ducking 9 mode", "level");
-    expect(r.refusal()).toContain("at most 8 level rules");
-    expect(r.rules()[8]!.mode).toBe("presence");
+    const d = draftOf([...eightLevel(), presence("SFX", "Voice")]);
+    expectRefused(setDuckingValueEdit(d, 8, "mode", "level"), d, "at most 8 level rules");
   });
   it("removing a level rule makes room again", () => {
-    const r = rig(eightLevel());
-    (r.addButton().props.onClick as () => void)();
-    expect(r.s.refusal).not.toBeNull();
-    r.click("Remove ducking rule 1");
-    (r.addButton().props.onClick as () => void)();
-    expect(r.s.refusal).toBeNull();
-    expect(r.rules()).toHaveLength(8);
+    const e = addDuckingEdit(removeDucking(draftOf(eightLevel()), 0));
+    expect(e.refusal).toBeNull();
+    expect(rulesOf(e.draft)).toHaveLength(8);
   });
   it("the 33rd rule of either mode is refused", () => {
-    const r = rig(Array.from({ length: 32 }, () => presence("Music", "Voice")));
-    const before = r.s.draft;
-    (r.addButton().props.onClick as () => void)();
-    expect(r.s.draft).toBe(before);
-    expect(r.refusal()).toContain("at most 32 rules");
-  });
-  it("the model functions say the same without the view", () => {
-    const d = rig(eightLevel()).s.draft;
-    expect(addDucking(d)).toBe(d);
-    expect(audioOf(setDuckingValue(rig([...eightLevel(), presence("SFX", "Voice")]).s.draft, 8, "mode", "level")).ducking[8]!.mode).toBe("presence");
-  });
-});
-
-describe("a backend without level ducking", () => {
-  it("level rules show \"Needs the audio core\"; presence rules don't", () => {
-    const r = rig([level("Music", "Voice"), presence("SFX", "Voice"), level("UI", "Voice")], false);
-    const notes = find(r.view(), (n) => n.props["data-needs-core"] !== undefined);
-    expect(notes.map((n) => [n.props["data-needs-core"], text(n)])).toEqual([[0, "Needs the audio core"], [2, "Needs the audio core"]]);
-  });
-  it("the core backend shows no note", () => {
-    const r = rig([level("Music", "Voice")], true);
-    expect(find(r.view(), (n) => n.props["data-needs-core"] !== undefined)).toHaveLength(0);
-  });
-  it("the rule is kept and still editable there (it does nothing until the core runs)", () => {
-    const r = rig([level("Music", "Voice")], false);
-    r.type("Ducking 1 threshold", -24);
-    r.pick("Ducking 1 detector", "peak");
-    expect(r.rules()[0]).toMatchObject({ mode: "level", detector: "peak", threshold: -24 });
-  });
-  it("switching to presence removes the note", () => {
-    const r = rig([level("Music", "Voice")], false);
-    r.pick("Ducking 1 mode", "presence");
-    expect(find(r.view(), (n) => n.props["data-needs-core"] !== undefined)).toHaveLength(0);
+    const d = draftOf(Array.from({ length: 32 }, () => presence("Music", "Voice")));
+    expectRefused(addDuckingEdit(d), d, "at most 32 rules");
   });
 });
 
 describe("the model functions are pure and agree with the parse", () => {
   it("every rule the editor writes parses back to itself", () => {
-    let d = rig().s.draft;
+    let d = draftOf();
     d = addDucking(d);
     d = setDuckingValue(d, 0, "detector", "peak");
     d = setDuckingValue(d, 0, "threshold", -12);

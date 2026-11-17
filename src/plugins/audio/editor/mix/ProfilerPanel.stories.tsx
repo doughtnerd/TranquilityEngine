@@ -4,8 +4,7 @@
 // capture Worker (viewing, truncated, project mismatch, another wire naming both ABI versions, a file cut short, a file
 // that isn't a capture, a .mycap of other bytes), a refused file leaving the open capture open, a filled drop slot
 // getting the file instead, and the tables and banners slots handed the controller's state. The panel is rendered with
-// no props, as the shell renders it, over its real deps. The same cases run headless in ProfilerPanel.test.ts and
-// openCapture.test.ts until the story tests have run green.
+// no props, as the shell renders it, over its real deps; the stories count the capture Workers it spawns (one per open).
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { expect, fn, userEvent, waitFor } from "storybook/test";
 import { MemoryFileSystem } from "../../../../editor/memoryFs";
@@ -13,7 +12,7 @@ import { openFolderProject } from "../../../../editor/projects";
 import { currentProject } from "../../../../editor/state";
 import { CAPTURE_ABI_VERSION, assembleCapture } from "../../runtime/capture/format";
 import { SAMPLE_HEADER, SAMPLE_META, sampleCapture } from "../../runtime/capture/testSupport";
-import { ProfilerPanel, profilerSlots, type BannersSlotProps, type ProfilerSlots, type TablesSlotProps } from "./ProfilerPanel";
+import { ProfilerPanel, profilerSlots, type BannersSlotProps, type BarSlotProps, type ProfilerSlots, type TablesSlotProps } from "./ProfilerPanel";
 import { OPEN_REFUSALS, installOpenCapture } from "./openCapture";
 
 // The banners' words.
@@ -55,8 +54,25 @@ const banner = (root: HTMLElement, id: string): HTMLElement | null => root.query
 const bannerIds = (root: HTMLElement): string[] => [...root.querySelectorAll<HTMLElement>("[data-banner]")].map((b) => b.dataset.banner!);
 const opened = (root: HTMLElement): Promise<void> => waitFor(() => expect(root.querySelector(".profiler-timeline")).not.toBeNull(), { timeout: 5000 });
 
-/** Open the route as the registration does; undo it after the story. */
-const withOpenRoute = () => installOpenCapture(profilerSlots);
+/** The capture Workers spawned in the running story: each open of a file spawns one. */
+let workers = 0;
+
+/** Open the route as the registration does, and count the Workers the opens spawn; undo both after the story. */
+function withOpenRoute(): () => void {
+  const undo = installOpenCapture(profilerSlots);
+  const RealWorker = globalThis.Worker;
+  workers = 0;
+  globalThis.Worker = class extends RealWorker {
+    constructor(url: string | URL, options?: WorkerOptions) {
+      super(url, options);
+      workers++;
+    }
+  };
+  return () => {
+    globalThis.Worker = RealWorker;
+    undo();
+  };
+}
 
 const meta = {
   title: "Audio/Profiler/Panel",
@@ -77,6 +93,8 @@ export const Empty: Story = {
 
 export const DropCapture: Story = {
   play: async ({ canvasElement }) => {
+    // A drag over the panel is taken too, so the browser offers the drop.
+    expect(chrome(canvasElement).dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true }))).toBe(false);
     const prevented = !(await drop(canvasElement, fileOf("d.mycap", capture())));
     expect(prevented).toBe(true); // the panel takes the drop (the browser doesn't navigate to the file)
     await opened(canvasElement);
@@ -84,6 +102,7 @@ export const DropCapture: Story = {
     expect(bannerIds(canvasElement)).toEqual(["viewing"]);
     expect(banner(canvasElement, "viewing")).toHaveTextContent(BANNER_TEXT.viewing);
     expect(canvasElement.querySelector(".profiler-status")).toHaveTextContent("d.mycap");
+    expect(workers).toBe(1);
   },
 };
 
@@ -93,10 +112,12 @@ export const OpenThroughTheBar: Story = {
     await userEvent.upload(input, fileOf("p.mycap", capture()));
     await opened(canvasElement);
     expect(canvasElement.querySelector(".profiler-status")).toHaveTextContent("p.mycap");
+    expect(workers).toBe(1);
     // A non-capture through Open (the picker's "All files") gets the same refusal as through the drop. `accept` only
     // filters what the picker offers first, so the upload doesn't apply it.
     await userEvent.setup({ applyAccept: false }).upload(input, fileOf("x.wav", new Uint8Array(0)));
     await waitFor(() => expect(banner(canvasElement, "error")).toHaveTextContent("notCapture"));
+    expect(workers).toBe(1); // refused unread
   },
 };
 
@@ -204,20 +225,24 @@ export const FilledDropSlot: StoryObj<{ onDropFile: ProfilerSlots["onDropFile"] 
     expect(args.onDropFile).toHaveBeenCalledTimes(1);
     expect((args.onDropFile as ReturnType<typeof fn>).mock.calls[0]![1].name).toBe("d.mycap");
     expect(canvasElement.querySelector(".profiler-empty")).toHaveTextContent("Not playing");
+    expect(workers).toBe(0);
   },
 };
 
 interface SlotArgs {
   banners: ReturnType<typeof fn<(p: BannersSlotProps) => void>>;
   tables: ReturnType<typeof fn<(p: TablesSlotProps) => void>>;
+  bar: ReturnType<typeof fn<(p: BarSlotProps) => void>>;
 }
 
 export const SlotsAsComponents: StoryObj<SlotArgs> = {
-  args: { banners: fn(), tables: fn() },
+  args: { banners: fn(), tables: fn(), bar: fn() },
   beforeEach: ({ args }) => {
-    const original = { banners: profilerSlots.banners, tables: profilerSlots.tables };
+    const original = { banners: profilerSlots.banners, tables: profilerSlots.tables, bar: profilerSlots.bar };
+    const DefaultBar = original.bar;
     profilerSlots.banners = (b) => (args.banners(b), <div class="fake-banners">{b.banners.map((x) => x.id).join(",")}</div>);
     profilerSlots.tables = (t) => (args.tables(t), <div class="fake-tables" />);
+    profilerSlots.bar = (p) => (args.bar(p), <DefaultBar {...p} />); // the default bar, its props seen
     return () => void Object.assign(profilerSlots, original);
   },
   play: async ({ canvasElement, args }) => {
@@ -227,10 +252,15 @@ export const SlotsAsComponents: StoryObj<SlotArgs> = {
     await waitFor(() => expect(canvasElement.querySelector(".fake-tables")).not.toBeNull(), { timeout: 5000 });
     // Each slot is a component prop rendered in its region with the controller's state.
     expect(canvasElement.querySelector(".fake-banners")!.textContent).toContain("truncated");
+    // The panel's controller is the one the bar is handed: the slots get its view's state.
+    const view = args.bar.mock.calls.at(-1)![0].controller.view;
     const tables = args.tables.mock.calls.at(-1)![0];
     expect(tables.source).not.toBeNull();
-    expect(tables.cursor).toBeDefined();
-    expect(args.banners.mock.calls.at(-1)![0].banners.map((b) => b.id)).toContain("truncated");
+    expect(tables.source).toBe(view.source);
+    expect(tables.cursor).toBe(view.cursor);
+    const banners = args.banners.mock.calls.at(-1)![0].banners;
+    expect(banners).toBe(view.banners);
+    expect(banners.map((b) => b.id)).toContain("truncated");
     expect(canvasElement.querySelectorAll(".profiler-bar")).toHaveLength(1); // the default bar, handed the same controller
   },
 };

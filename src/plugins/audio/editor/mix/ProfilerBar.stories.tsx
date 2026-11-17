@@ -2,9 +2,9 @@
 // open's reports), saving, a failed flow, and the legend. Rendered through its real props, a view and a real
 // `ProfilerController` over stub deps, with the shared `profilerFlow`. Plays check a label on every control, Cancel
 // cancelling the flow and the open, Open clicking the file input, and a chosen file going through X2's
-// `profilerSlots.onDropFile`. The same cases run headless in ProfilerBar.test.ts until the story tests have run green.
+// `profilerSlots.onDropFile`.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
-import { expect, spyOn, userEvent, waitFor, within } from "storybook/test";
+import { expect, fireEvent, spyOn, userEvent, waitFor, within } from "storybook/test";
 import type { AudioCapture } from "../../runtime/capture/capture";
 import { ProfilerBar } from "./ProfilerBar";
 import { ProfilerController, profilerSlots, type ProfilerDeps, type ProfilerView } from "./ProfilerPanel";
@@ -93,6 +93,10 @@ export const ChooseFile: Story = {
     expect(input.value).toBe("");
     expect(seen).toEqual(["a.mycap"]);
     expect(profilerFlow.state.phase).toBe("idle");
+    // A change with no file chosen routes nothing.
+    await fireEvent.change(input);
+    expect(input.files).toHaveLength(0);
+    expect(seen).toEqual(["a.mycap"]);
   },
 };
 

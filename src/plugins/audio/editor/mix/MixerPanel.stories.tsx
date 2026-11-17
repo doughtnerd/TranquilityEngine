@@ -3,11 +3,11 @@
 // note, a strip's solo through the monitor, and a fader drag committing one undo step in the Project Settings history.
 // The panel is loaded as the shell loads it (`registerMixPanels`, then its `view()`) over an in-memory project and its
 // real deps; the play mixer, the audio clock, the loudness target and hub, and the capture marker are spied on their
-// public surfaces so a play can read what the panel asked of them. The same cases run headless in
-// mixerPanelView.test.ts and mixerSettings.test.ts until the story tests have run green.
+// public surfaces so a play can read what the panel asked of them.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { expect, fireEvent, spyOn, userEvent, waitFor, within } from "storybook/test";
 import { editor, type EditorPluginContext, type SettingsDraft } from "../../../../editor/sdk";
+import { projectSettings } from "../../../../editor/projectSettingsInstance";
 import { MemoryFileSystem } from "../../../../editor/memoryFs";
 import { openFolderProject, type EditorProject } from "../../../../editor/projects";
 import { currentProject, playState } from "../../../../editor/state";
@@ -19,6 +19,7 @@ import { parseAudioSettings, type AudioSettings } from "../../../../engine/audio
 import type { AudioCapture } from "../../runtime/capture/capture";
 import { Audio } from "../../runtime/Audio";
 import { loudnessHub } from "../../runtime/mix/loudnessHub";
+import { positionToGain } from "./faderModel";
 import { registerMixPanels } from "./index";
 import { MixerPanel, mixerHost } from "./MixerPanel";
 import { NOT_PLAYING } from "./mixerPanelModel";
@@ -203,7 +204,7 @@ export const Compare: Story = {
     // The sfx fader to the bottom from the keyboard: one committed edit.
     canvas.getByLabelText("sfx volume").focus();
     await userEvent.keyboard("{Home}");
-    await waitFor(() => expect(rig().liveVolume("sfx")).toBeLessThan(1));
+    await waitFor(() => expect(rig().liveVolume("sfx")).toBe(positionToGain(0)));
     const edited = rig().liveVolume("sfx");
     expect(one(canvasElement, "mixer-compare")).toHaveAttribute("aria-pressed", "false");
     await userEvent.click(one(canvasElement, "mixer-compare")!);
@@ -243,10 +244,17 @@ export const EveryBanner: Story = {
 
 const sfxVolumeOf = (d: SettingsDraft): number | undefined => (d.audio as { buses: Array<{ name: string; volume?: number }> }).buses.find((b) => b.name === "sfx")!.volume;
 
+/** The op log of the running FaderDrag story: what reached the play mixer, and why. */
+let opLog: ReturnType<typeof startOpLog> | null = null;
+
 export const FaderDrag: Story = {
   beforeEach: () => {
     play(); // the op log is live only while Play runs
-    return startOpLog(() => mixer).dispose;
+    opLog = startOpLog(() => mixer);
+    return () => {
+      opLog!.dispose();
+      opLog = null;
+    };
   },
   play: async ({ canvasElement }) => {
     const fader = within(canvasElement).getByLabelText("sfx volume");
@@ -263,12 +271,23 @@ export const FaderDrag: Story = {
     const g = sfxVolumeOf(editor.project.settings.draft())!;
     expect(g).toBeLessThan(1);
     expect(editor.project.settings.version).toBeGreaterThan(v);
+    expect(sfxVolumeOf(JSON.parse(rig().project.textOf("project.json")!) as SettingsDraft)).toBeCloseTo(g, 9);
     expect(mixer.bus("sfx").volume).toBeCloseTo(g, 9);
     expect(mixerHost.section!.history.name).toBe("Project Settings");
+    // One step in the Project Settings panel's history: its Undo puts the value back, and the heard value follows.
+    const panel = projectSettings.open(rig().project);
+    expect(panel.undoLabel).toBeTruthy();
+    await panel.undo();
+    expect(sfxVolumeOf(editor.project.settings.draft())).toBeUndefined();
+    expect(mixer.bus("sfx").volume).toBe(1);
+    expect(panel.canUndo).toBe(false); // it was one step
+    expect(opLog!.entries.at(-1)!.cause).toBe("undo");
+    // And the other way: the SDK redoes, the Mixer's Ctrl+Z (its history, the Project Settings one) undoes.
+    editor.project.settings.redo();
+    expect(mixer.bus("sfx").volume).toBeCloseTo(g, 9);
     expect(mixerHost.section!.history.canUndo).toBe(true);
-    // The Mixer's Ctrl+Z (its history, the Project Settings one) undoes it; the heard value follows.
     mixerHost.section!.history.undo();
-    await waitFor(() => expect(sfxVolumeOf(editor.project.settings.draft())).toBeUndefined());
+    await waitFor(() => expect(sfxVolumeOf(panel.draft)).toBeUndefined());
     expect(mixer.bus("sfx").volume).toBe(1);
   },
 };

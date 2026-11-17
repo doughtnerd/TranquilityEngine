@@ -1,10 +1,9 @@
 // ADR 0171/0172 (Pf4; api-and-models §7): the Profiler panel's chrome. Cases: every banner on a real fixture capture (read
-// through the real `CaptureSource` and Worker handler), the flows (record, stop, save, open, drop) wired to injected
-// functions, the slots (H5), the track modules mounted from a fake factory, and no Preact render per STATUS block (the
-// controller's change count, with `LiveFollow`'s scheduler driven by hand). No assertion reads a wall clock.
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { h } from "preact";
-import { byClass, find, render, text, type HostNode } from "../../../../editor/testRender";
+// through the real `CaptureSource` and Worker handler), the flows (record, stop, save, open, cancel) wired to injected
+// functions, the track modules mounted from a fake factory, and no Preact render per STATUS block (the controller's change
+// count, with `LiveFollow`'s scheduler driven by hand). No assertion reads a wall clock. The rendered panel (a drop, the
+// slots handed the controller's state) is ProfilerPanel.stories.tsx.
+import { describe, expect, it, vi } from "vitest";
 import { CaptureError, CAPTURE_FLAG_MAIN_SIDE_ONLY } from "../../runtime/capture/format";
 import { createCaptureWorkerHandler, type CaptureRequest, type CaptureResponse } from "../../runtime/capture/worker";
 import { SAMPLE_HEADER, SAMPLE_META, liveHead, sampleCapture } from "../../runtime/capture/testSupport";
@@ -14,9 +13,7 @@ import { CaptureSource, type CaptureWorkerLike, type ProfileSource } from "./pro
 import type { LiveHost, LiveRecording, LiveScheduler } from "./liveFollow";
 import type { TrackFactory } from "./tracks/types";
 import { cpuTracks } from "./tracks/cpu";
-import { ProfilerController, ProfilerPanel, profilerBanners, profilerSlots, type BannersSlotProps, type BarSlotProps, type ProfilerDeps, type TablesSlotProps } from "./ProfilerPanel";
-
-vi.mock("preact/hooks", () => import("../../../../editor/testRender"));
+import { ProfilerController, profilerBanners, type ProfilerDeps } from "./ProfilerPanel";
 
 // The banners' words.
 const BANNER_TEXT = {
@@ -104,41 +101,6 @@ function deps(over: Partial<ProfilerDeps> = {}): ProfilerDeps & { capture: FakeC
     playing: () => false,
     ...over,
   } as ProfilerDeps & { capture: FakeCapture };
-}
-
-const cleanups: Array<() => void> = [];
-afterEach(() => {
-  while (cleanups.length) cleanups.pop()!();
-});
-
-/**
- * The registered panel, rendered with its hooks over its real deps: `Audio.capture`, `CaptureSource.openFile` (the
- * capture Worker is the real handler in process, through a stubbed `Worker`) and no project. Its controller is the one
- * the bar slot is handed (`BarSlotProps`); the default bar still draws.
- */
-function panel() {
-  const original = { ...profilerSlots };
-  let bar: BarSlotProps | null = null;
-  profilerSlots.bar = (p) => {
-    bar = p;
-    return h(original.bar, p);
-  };
-  let workers = 0;
-  vi.stubGlobal("Worker", class { constructor() { workers++; return inProcessWorker(); } });
-  const r = render(() => h(ProfilerPanel, {}));
-  cleanups.push(() => {
-    r.unmount();
-    Object.assign(profilerSlots, original);
-    vi.unstubAllGlobals();
-  });
-  const tree = (): unknown => r.tree();
-  return {
-    tree,
-    /** The panel's own controller (renders first). */
-    controller: (): ProfilerController => (tree(), bar!.controller),
-    chrome: (): HostNode => find(tree(), byClass("profiler"))[0]!,
-    workers: () => workers,
-  };
 }
 
 const ids = (c: ProfilerController): string[] => c.view.banners.map((b) => b.id);
@@ -282,7 +244,7 @@ describe("record, stop, save", () => {
   });
 });
 
-describe("open, cancel, drop", () => {
+describe("open, cancel", () => {
   it("a second open closes the first file's source; closing the file closes it; dispose closes what's left", async () => {
     const closed: ProfileSource[] = [];
     const open = async (b: ArrayBuffer) => {
@@ -322,32 +284,9 @@ describe("open, cancel, drop", () => {
     expect(c.view.banners).toEqual([]);
     c.dispose();
   });
-
-  it("a file dropped on the panel opens through the default slot; a filled slot gets it instead", async () => {
-    const p = panel();
-    const bytes = file();
-    const dropped = { name: "d.mycap", arrayBuffer: async () => bytes };
-    const chrome = p.chrome() as HostNode & { props: { onDrop: (e: unknown) => void; onDragOver: (e: unknown) => void } };
-    let prevented = 0;
-    chrome.props.onDragOver({ preventDefault: () => prevented++ });
-    chrome.props.onDrop({ preventDefault: () => prevented++, dataTransfer: { files: [dropped] } });
-    expect(prevented).toBe(2);
-    await vi.waitFor(() => expect(p.controller().view.source).not.toBeNull());
-    expect(p.workers()).toBe(1);
-    expect(p.controller().view.fileName).toBe("d.mycap");
-    expect(find(p.tree(), byClass("profiler-timeline"))).toHaveLength(1); // the capture's timeline replaced the empty state
-    expect(find(p.tree(), byClass("profiler-empty"))).toHaveLength(0);
-
-    // A filled slot gets the file instead (X2's route).
-    const seen: string[] = [];
-    profilerSlots.onDropFile = (_c, f) => void seen.push(f.name);
-    (p.chrome().props.onDrop as (e: unknown) => void)({ preventDefault() {}, dataTransfer: { files: [dropped] } });
-    expect(seen).toEqual(["d.mycap"]);
-    expect(p.workers()).toBe(1);
-  });
 });
 
-describe("slots (H5) and track modules", () => {
+describe("track modules", () => {
   const factory: TrackFactory = (ctx) => [
     {
       track: { id: "fake.line", label: "Fake", kind: "line", height: 40, visible: true },
@@ -373,27 +312,6 @@ describe("slots (H5) and track modules", () => {
     expect(c.view.source).toBeNull();
     expect(textOf(c, "error")).toContain('duplicate track id "fake.line"');
     c.dispose();
-  });
-
-  it("each slot is a component prop: tables, bar and banners render in their regions with the controller's state", async () => {
-    const p = panel();
-    let banners: BannersSlotProps | null = null;
-    let tables: TablesSlotProps | null = null;
-    profilerSlots.banners = (b) => ((banners = b), h("div", { class: "fake-banners" }));
-    profilerSlots.tables = (t) => ((tables = t), h("div", { class: "fake-tables" }));
-    expect(find(p.tree(), byClass("fake-tables"))).toHaveLength(0); // no capture: no tables
-    expect(text(find(p.tree(), byClass("profiler-empty")))).toBe("Not playing");
-    const bytes = file({ truncated: true });
-    (p.chrome().props.onDrop as (e: unknown) => void)({ preventDefault() {}, dataTransfer: { files: [{ name: "a.mycap", arrayBuffer: async () => bytes }] } });
-    await vi.waitFor(() => expect(p.controller().view.source).not.toBeNull());
-    const c = p.controller();
-    expect(banners!.banners).toBe(c.view.banners);
-    expect(banners!.banners.map((b) => b.id)).toContain("truncated");
-    expect(tables!.source).toBe(c.view.source);
-    expect(tables!.cursor).toBe(c.view.cursor);
-    expect(find(p.tree(), byClass("fake-banners"))).toHaveLength(1);
-    expect(find(p.tree(), byClass("fake-tables"))).toHaveLength(1);
-    expect(find(p.tree(), byClass("profiler-bar"))).toHaveLength(1); // the default bar, handed the same controller
   });
 
   it("without a capture the chrome shows the design's empty state, not the tables", () => {

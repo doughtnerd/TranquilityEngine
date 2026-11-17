@@ -1,8 +1,7 @@
 // Stories (ADR 0219) for the profiler's tables region, the panel's `tables` slot (Pf5): the voice, bus, event and music
 // tables under one filter, typing in the filter, the music rows with a pending transition, the event instances of a
 // recorded scene, and the empty states (no cursor yet, nothing at the cursor, nothing matching). Rendered through its
-// real props (`TablesSlotProps`: a source, a seek state, the cursor, no live follow). The same cases run headless in
-// profilerTables.test.ts until the story tests have run green.
+// real props (`TablesSlotProps`: a source, a seek state, the cursor, no live follow).
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { expect, userEvent, within } from "storybook/test";
 import type { KeyframeBus, KeyframePayload } from "../../runtime/capture/format";
