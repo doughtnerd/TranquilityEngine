@@ -6,7 +6,8 @@ import { defaultSettings, pluginSettingsProblems, SCALE_MODES, type ProjectSetti
 import { defaultTier, parseGraphics, PLATFORMS, type GraphicsSettings, type Platform, type PlatformDefaults, type QualityTier } from "../engine/core/graphics";
 import { audioSection } from "../engine/audio/audioSection";
 import { projectSettingsSections } from "./sdk/contributions";
-import { uniqueName, withMember } from "./worldsConfig";
+import { withMember } from "./worldsConfig";
+import { uniqueName } from "../engine/core/uniqueName";
 
 /** The top-level keys the shell's own Project panel categories edit (the Worlds panel edits `bootstrap`). */
 const CORE_SETTINGS_KEYS = ["name", "display", "time", "render", "autoload", "graphics", "audio", "plugins", "build"] as const;

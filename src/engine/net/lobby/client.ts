@@ -24,6 +24,7 @@ import { _matchOf } from "./match";
 import { hostLobby, lobbyFromConfig, lobbyServerOf } from "./server";
 import { C2S, S2C, cleanName, readMap, readMatch, readView, writeMap, type LobbyMe, type LobbyOptions, type LobbyRoom, type LobbyRoomInfo, type LobbyState, type MatchTicket } from "./protocol";
 import { LOBBY_C2S, LOBBY_S2C, declaredBootstrap, engineOf, type LobbyEngine } from "./wire";
+import { uniqueName } from "../../core/uniqueName";
 
 /** The player as the lobby shows them to others. */
 export interface LobbyProfile {
@@ -114,7 +115,7 @@ class LobbyClient {
         transport = "loopback";
         target = this.startLocal(engine);
       }
-      const world = engine.createWorld({ name: uniqueName(engine, "Lobby Client"), tags: [LOBBY_CLIENT_TAG], renders: false, input: false });
+      const world = engine.createWorld({ name: freeWorldName(engine, "Lobby Client"), tags: [LOBBY_CLIENT_TAG], renders: false, input: false });
       this.world = world;
       clients.set(_worldOf(world)!, this);
       this.address = target;
@@ -140,7 +141,7 @@ class LobbyClient {
     if (!handle) {
       const config = lobbyConfig(engine);
       if (!config) throw new Error('the project has no World or template with a "lobby" config to run locally.');
-      handle = engine.createWorld({ ...config, name: uniqueName(engine, config.name) });
+      handle = engine.createWorld({ ...config, name: freeWorldName(engine, config.name) });
       this.localServer = handle;
     }
     const world = _worldOf(handle)!;
@@ -299,7 +300,7 @@ class LobbyClient {
     let handle: WorldHandle;
     try {
       const template = templateConfig(declaredBootstrap(engine) as never, m.clientTemplate);
-      handle = engine.createWorld({ ...template, name: uniqueName(engine, `Match ${m.matchId} Client`) });
+      handle = engine.createWorld({ ...template, name: freeWorldName(engine, `Match ${m.matchId} Client`) });
     } catch (err) {
       this.error = `Couldn't create the match client World from template "${m.clientTemplate}": ${(err as Error).message}`;
       return;
@@ -407,10 +408,8 @@ class LobbyClient {
 }
 
 /** `base`, or `base 2`, `base 3`… if a World of that name exists. */
-function uniqueName(engine: LobbyEngine, base: string): string {
-  let name = base;
-  for (let i = 2; engine._world(name); i++) name = `${base} ${i}`;
-  return name;
+function freeWorldName(engine: LobbyEngine, base: string): string {
+  return uniqueName(base, (n) => engine._world(n) !== null);
 }
 
 /** The project's lobby World config: a template with `"lobby"`, else a start-up World with one. */

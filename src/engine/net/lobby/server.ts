@@ -26,6 +26,7 @@ import { netSession, type NetPeer, type NetSession } from "../session";
 import { MatchState, _setMatch } from "./match";
 import { C2S, S2C, cleanName, readMap, resolveLobbyOptions, writeMap, writeMatch, writeView, type LobbyOptions, type LobbyRoom, type LobbyRoomInfo, type LobbyRoomState, type ResolvedLobbyOptions } from "./protocol";
 import { LOBBY_C2S, LOBBY_S2C, declaredBootstrap, engineOf, randomHex, type LobbyEngine } from "./wire";
+import { uniqueName } from "../../core/uniqueName";
 
 const CODE_LETTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ";
 
@@ -376,7 +377,7 @@ export class LobbyServer {
     const listener = netSession(this.world)?.listening()[0];
     if (!listener) return this.failStart(room, `The lobby World "${this.world.name}" isn't listening.`);
     const id = this.nextMatchId++;
-    const name = uniqueName(engine, `Match ${id}`);
+    const name = uniqueName(`Match ${id}`, (n) => engine._world(n) !== null, { format: (stem, n) => `${stem} (${n})`, first: 2 });
     let handle: WorldHandle;
     try {
       const template = templateConfig(declaredBootstrap(engine) as never, this.options.matchTemplate);
@@ -500,13 +501,6 @@ export class LobbyServer {
 
 function members(room: Room): Member[] {
   return room.slots.filter((m): m is Member => m !== null);
-}
-
-/** `base`, or `base (2)`, `base (3)`… if a World of that name exists. */
-function uniqueName(engine: LobbyEngine, base: string): string {
-  let name = base;
-  for (let i = 2; engine._world(name); i++) name = `${base} (${i})`;
-  return name;
 }
 
 /**

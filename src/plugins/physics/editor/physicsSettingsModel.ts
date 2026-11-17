@@ -4,16 +4,12 @@
 // `projectSettingsModel.ts` when settings sections began declaring their keys.
 import { defaultSettings, physicsBackendProblems } from "../../../engine/core/settings";
 import { setValue, type SettingsDraft, type SettingsProblem } from "../../../editor/sdk";
+import { uniqueName } from "../../../engine/core/uniqueName";
 
 /** Physics layers are bits in a 16-bit collision mask. */
 export const MAX_LAYERS = 16;
 
 export const layersOf = (d: SettingsDraft): string[] => d.physics?.layers ?? defaultSettings.physics.layers;
-
-function uniqueName(base: string, taken: readonly string[]): string {
-  if (!taken.includes(base)) return base;
-  for (let i = 2; ; i++) if (!taken.includes(`${base} ${i}`)) return `${base} ${i}`;
-}
 
 /** Pair key for two layer names, order-free. */
 const pairKey = (a: string, b: string) => (a < b ? `${a}\u0000${b}` : `${b}\u0000${a}`);

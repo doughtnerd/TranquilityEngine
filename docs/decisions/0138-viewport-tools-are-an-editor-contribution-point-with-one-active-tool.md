@@ -1,6 +1,6 @@
 # 0138. Viewport tools are an editor contribution point: installed per scene view, input routed by one host, at most one active tool
 
-- **Status:** Accepted; amended by 0231 (tool modes, gestures, `activate`/`deactivate` become `enter`/`leave`, `activeViewportTool`/`activateViewportTool` leave the SDK for `editor.viewport`)
+- **Status:** Accepted; amended by 0231 (tool modes, gestures, `activate`/`deactivate` become `enter`/`leave`, `activeViewportTool`/`activateViewportTool` leave the SDK for `editor.viewport`) and 0232 (the SDK lists the play session's Worlds on `editor.scene`)
 - **Date:** 2026-11-08
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
