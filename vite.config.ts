@@ -4,7 +4,7 @@
 // vite.engine.config.ts. Games build from the prebuilt player (vite.player.config.ts, ADR 0041), served
 // here at /player/ once built, for the editor's Export.
 import { defineConfig } from "vite";
-import { engineTypes, playerFiles, samples, typescriptTranspile } from "./vite.shared.ts";
+import { engineTypes, playerFiles, samples, typescriptTranspile, UNWATCHED } from "./vite.shared.ts";
 
 export default defineConfig({
   plugins: [typescriptTranspile(), engineTypes(), samples(), playerFiles()],
@@ -12,12 +12,13 @@ export default defineConfig({
   // are ES modules; worker bundles get their own plugins, so TypeScript is transpiled there too.
   worker: { format: "es", plugins: () => [typescriptTranspile()] },
   oxc: false,
-  // Tauri (src-tauri/) expects a fixed dev port, its own output left on screen, and Rust sources unwatched.
+  // Tauri (src-tauri/) expects a fixed dev port, its own output left on screen, and Rust sources unwatched
+  // (UNWATCHED also keeps Rust build output and agent worktrees out of the watcher, which stalled start-up).
   clearScreen: false,
   server: {
     port: 3000,
     strictPort: true,
-    watch: { ignored: ["**/src-tauri/**"] },
+    watch: { ignored: UNWATCHED },
     // Start-up (ADR 0082): transform the Projects window's and the editor's entries as the server
     // starts, before a window asks for them. Projects first: it is the window shown first.
     warmup: { clientFiles: ["./src/editor/launcher/main.tsx", "./src/editor/main.tsx"] },

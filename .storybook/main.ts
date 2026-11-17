@@ -4,6 +4,7 @@
 // with oxc off, the `"myco"` alias, ES-module workers (the profiler's capture Worker) and the engine's declarations.
 import { fileURLToPath } from "node:url";
 import type { StorybookConfig } from "@storybook/preact-vite";
+import { UNWATCHED } from "../vite.shared.ts";
 
 const config: StorybookConfig = {
   framework: {
@@ -13,6 +14,10 @@ const config: StorybookConfig = {
   stories: ["../src/**/*.stories.tsx"],
   addons: ["@storybook/addon-vitest"],
   core: { disableTelemetry: true },
+  // Storybook replaces the Vite config's whole `server` block with its own, dropping componentViteConfig's watch
+  // settings, so they go back in here: without them the watcher walked Rust build output and agent worktrees and
+  // start-up sat on "optimizing dependencies" for minutes.
+  viteFinal: (config) => ({ ...config, server: { ...config.server, watch: { ...config.server?.watch, ignored: UNWATCHED } } }),
 };
 
 export default config;

@@ -368,6 +368,16 @@ export const MYCO_ALIASES: Record<string, string> = {
 };
 
 /**
+ * Folders the dev servers (`npm run dev`, Storybook) never watch. Vite's watcher walks everything under the root that
+ * isn't ignored as the server starts, competing with the dependency optimizer for the disk and the event loop, so big
+ * trees of non-source files kept start-up on "optimizing dependencies" for minutes: Rust build output (`src-tauri/target`
+ * and the crates' `target` folders under `native/`, hundreds of thousands of files once built) and agent worktrees in
+ * `.claude/worktrees/`, each a full checkout with its own build output. Vite already skips `.git`, `node_modules`,
+ * `test-results` and the build's outDir.
+ */
+export const UNWATCHED = ["**/src-tauri/**", "**/target/**", "**/.claude/**", "**/playwright-report/**"];
+
+/**
  * The editor's Vite settings for rendering its components outside the editor page (ADR 0219): Storybook's build and
  * the story tests. tsc compiles TypeScript and JSX as in the editor (`oxc` off), workers are ES modules with the same
  * transpile, the engine's declarations and the `"myco"` alias resolve, and Preact's JSX runtime is pre-bundled (the
@@ -376,6 +386,7 @@ export const MYCO_ALIASES: Record<string, string> = {
 export function componentViteConfig(): UserConfig {
   return {
     plugins: [typescriptTranspile(), engineTypes()],
+    server: { watch: { ignored: UNWATCHED } },
     worker: { format: "es", plugins: () => [typescriptTranspile()] },
     oxc: false,
     resolve: { alias: MYCO_ALIASES },
