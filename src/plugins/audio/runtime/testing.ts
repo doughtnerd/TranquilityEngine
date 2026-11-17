@@ -25,14 +25,18 @@ import type { ApplyResult, MixOp } from "../../../engine/audio/mixOps";
 import { CORE_LIVE_CAPS } from "../../../engine/audio/busCapability";
 import type { KeyframePayload } from "./capture/format";
 import type { ProfileSink } from "./mix/profileSink";
-import { mixer, type Mixer, type ResolvedBus } from "../../../engine/audio/mixer";
+import { mixer, Mixer, type ResolvedBus } from "../../../engine/audio/mixer";
 import type { Vec3Like } from "../../../engine/core/math";
-import { CoreLink, type LinkPort } from "./core/context";
+import { CoreLink, type AudioHost, type LinkPort } from "./core/context";
 import type { HostClock } from "./core/hostClock";
 import { QUANTUM_FRAMES, type StatusBlock } from "./wire.generated";
-import { DEFAULT_LIMITER_LOOKAHEAD_MS } from "../../../engine/audio/settings";
+import { DEFAULT_LIMITER_LOOKAHEAD_MS, defaultAudioSettings, type AudioSettings } from "../../../engine/audio/settings";
 import { CoreDriver, instantiateCore, type CoreInstance, type CorePreset } from "./worklet/coreDriver";
 import { notifyEngineLifecycle } from "../../../engine/core/engineLifecycle";
+import { batchRecords, type PostedBatch } from "./core/batchRecords";
+import type { CoreBackend, CoreBackendDeps } from "./core/coreBackend";
+import type { RebuildOutcome, RebuildReason, RecoveryOptions } from "./core/recovery";
+import type { UnlockContext } from "./core/unlock";
 
 /** The controls a test has over a fake clock. */
 export interface FakeHostClock extends HostClock {
@@ -615,6 +619,8 @@ export interface LoopbackHost {
   recreate(sampleRate: number): { readonly node: AudioWorkletNode; readonly port: LinkPort };
   /** The current context's rate (`LOOPBACK_RATE` until a `recreate`). (Addition to K4.) */
   readonly sampleRate: number;
+  /** ADR 0221: watches what reaches the shell: every BATCH or REPLAY posted from now on, decoded, with the frame it was posted at. */
+  watch(): LoopbackWatch;
 }
 
 /** The default preset: roomy enough for the §8 loopback cases. */
@@ -634,6 +640,8 @@ export async function createLoopbackHost(options: { clock?: FakeHostClock; prese
   const module = new WebAssembly.Module(wasm as Uint8Array<ArrayBuffer>);
 
   let rate = LOOPBACK_RATE;
+  /** The open `watch`es: each gets every BATCH or REPLAY posted to the shell, decoded. */
+  const watchers = new Set<{ frame: number; batch: PostedBatch }[]>();
   /** Set by `trapNext`: the current core's next render call throws, as a trap inside it would. */
   let trapPending = false;
   /** The real instance with `myco_audio_process` wrapped (`trapNext`); every other export is the instance's own. */
@@ -656,7 +664,17 @@ export async function createLoopbackHost(options: { clock?: FakeHostClock; prese
     const toMain: unknown[] = [];
     const toWorklet: unknown[] = [];
     const driver = new CoreDriver(core, (message) => toMain.push(message), clock.dateNow());
-    const port: LinkPort = { onmessage: null, postMessage: (message) => toWorklet.push(message) };
+    const port: LinkPort = {
+      onmessage: null,
+      postMessage: (message) => {
+        if (watchers.size > 0 && message instanceof ArrayBuffer) {
+          // A copy: pooled BATCH buffers come back to the link and are reused.
+          const batch = batchRecords(message.slice(0));
+          if (batch) for (const w of watchers) w.push({ frame, batch });
+        }
+        toWorklet.push(message);
+      },
+    };
     return { core, driver, toMain, toWorklet, port };
   };
   let current = spawn();
@@ -715,6 +733,11 @@ export async function createLoopbackHost(options: { clock?: FakeHostClock; prese
     trapNext() {
       trapPending = true;
     },
+    watch() {
+      const received: { frame: number; batch: PostedBatch }[] = [];
+      watchers.add(received);
+      return { take: () => received.splice(0), stop: () => void watchers.delete(received) };
+    },
     send(buffer) {
       current.port.postMessage(buffer, [buffer]);
       flush();
@@ -734,4 +757,316 @@ export async function createLoopbackHost(options: { clock?: FakeHostClock; prese
       return { left, right };
     },
   };
+}
+
+// --- The loopback audio (ADR 0221) -------------------------------------------------------------------------------
+
+/** What a loopback watch got: a BATCH or REPLAY posted to the shell, decoded, and the frame it was posted at. */
+export interface LoopbackReceived {
+  readonly frame: number;
+  readonly batch: PostedBatch;
+}
+
+/** The batches the loopback shell received since the watch began (or the last `take`). */
+export interface LoopbackWatch {
+  /** Takes the batches received so far, oldest first. */
+  take(): LoopbackReceived[];
+  /** Ends the watch. */
+  stop(): void;
+}
+
+/** A clip `loopbackAudio` decodes: planar f32 at `sampleRate` (default 48 kHz). */
+export interface LoopbackClip {
+  readonly channelData: readonly Float32Array[];
+  readonly sampleRate?: number;
+}
+
+/** What `loopbackAudio` builds. Every field is optional: the default is the project's default audio on the page mixer. */
+export interface LoopbackAudioOptions {
+  /** The audio settings (default `defaultAudioSettings()`); the mixer is configured with them and the host reconfigured from them. */
+  readonly settings?: AudioSettings;
+  /**
+   * `"page"` (default): the page's mixer, configured with `settings`, and the backend registered with `setAudioBackend`, so the
+   * public `Audio` / `Bus` / music API reach the core. `"own"`: a new `Mixer` the rig alone drives; nothing is registered.
+   */
+  readonly mixer?: "page" | "own";
+  /** Overrides of the core's preset (`LOOPBACK_PRESET` underneath); the host and the core get the same one. */
+  readonly preset?: Partial<CorePreset>;
+  /** The injected clock (default a new `fakeHostClock()`); each rendered quantum advances it by 128 frames. */
+  readonly clock?: FakeHostClock;
+  /** Decodes a clip by path (default: one second of 0.5, mono at 48 kHz). The registry "fetches" the path's own bytes. */
+  readonly decode?: (path: string) => LoopbackClip | Promise<LoopbackClip>;
+  /** The backend's other dependencies (`createCoreBackend`'s: `hrir`, `magls`, `streams`, `zoneIr`, `warnOnce`, or `clips` to replace the registry). */
+  readonly backend?: Omit<CoreBackendDeps, "mixer" | "clock">;
+  /** Recovery's options (default: the fake clock's rAF time as its clock, `console.warn`). */
+  readonly recovery?: RecoveryOptions;
+  /** Whether one World holds a share of the host (default true), as while a scene with audio runs. */
+  readonly world?: boolean;
+  /** Quanta per main-thread frame in `step` (default 4). */
+  readonly quantaPerFrame?: number;
+  /** The `dt` (seconds) `step` hands `update` (default the frame's audio time). */
+  readonly dt?: number;
+}
+
+/** The rendered audio, planar. */
+export interface LoopbackOutput {
+  readonly left: Float32Array;
+  readonly right: Float32Array;
+}
+
+/** The core on the loopback through the production assembly (`assembleCore`), and the controls a test has over it. */
+export interface LoopbackAudio {
+  /** The public audio API (`Audio`; `Audio.bus(name)`, `Audio.debug()`), over this backend when the rig is on the page mixer. */
+  readonly Audio: typeof import("./Audio").Audio;
+  /** The backend the assembly made: the `AudioBackend` the engine's callers use. */
+  readonly backend: CoreBackend;
+  /** The rig's mixer (the page's, or its own). */
+  readonly mixer: Mixer;
+  /** The production host over the loopback node (World shares, status, health). */
+  readonly host: AudioHost;
+  /** The host's link (ADR 0215: STATUS through `lastStatus` and `statusCount`). */
+  readonly link: CoreLink;
+  readonly clock: FakeHostClock;
+  /** The first frame of the next quantum (0 again in each new context). */
+  readonly frame: number;
+  /** The current context's rate. */
+  readonly sampleRate: number;
+  /** The `dt` `step` hands `update`. */
+  readonly dt: number;
+  /** Renders `quanta` quanta with no main-thread frame. */
+  render(quanta: number): LoopbackOutput;
+  /**
+   * `frames` main-thread frames (default 1), each `mixer.update`, `backend.update` and, on the page mixer, the event runtime's
+   * `update`, then `quantaPerFrame` quanta and a few microtask turns. Returns what all of them rendered.
+   */
+  step(frames?: number): Promise<LoopbackOutput>;
+  /** A few microtask turns (clip loads, the host's promises). */
+  settle(): Promise<void>;
+  /** Renders one quantum at a time, with microtask turns, until `promise` settles; throws after `maxQuanta` (default 2,000). */
+  until<T>(promise: Promise<T>, maxQuanta?: number): Promise<T>;
+  /** Fault: the next rendered quantum traps inside the core's render call, as a wasm trap does; the host's recovery rebuilds. */
+  trap(): void;
+  /** Fault: the output device changed to `rate`: the host rebuilds into a new context at that rate (`rebuildHost(host, "rate")`). */
+  changeRate(rate: number): Promise<RebuildOutcome>;
+  /** Fault: a rebuild for `reason` (a stall, a device change), as the background controller asks for one. */
+  rebuild(reason: RebuildReason): Promise<RebuildOutcome>;
+  /** Watches what reaches the core: every BATCH or REPLAY posted to the shell from now on, decoded, with its frame. */
+  watch(): LoopbackWatch;
+  /** Disposes the backend (unregistering it on the page mixer), closes the host and ends the audio session. A second call does nothing. */
+  close(): Promise<void>;
+}
+
+/** Every loopback audio not yet closed (`closeLoopbackAudio`). */
+const openLoopbacks = new Set<LoopbackAudio>();
+
+/** Closes every `loopbackAudio` still open (an `afterEach`), then ends the audio session. */
+export async function closeLoopbackAudio(): Promise<void> {
+  for (const audio of [...openLoopbacks]) await audio.close();
+  endAudioSession();
+}
+
+/** A fake AudioContext: state, rate, listeners and `statechange` fired by close, suspend and resume. */
+function loopbackContext(rate: number) {
+  const listeners = new Map<string, Set<() => void>>();
+  const fire = (type: string) => {
+    for (const fn of [...(listeners.get(type) ?? [])]) fn();
+  };
+  const ctx = {
+    state: "running" as string,
+    sampleRate: rate,
+    destination: {},
+    resume: () => {
+      ctx.state = "running";
+      fire("statechange");
+      return Promise.resolve();
+    },
+    suspend: () => {
+      ctx.state = "suspended";
+      fire("statechange");
+      return Promise.resolve();
+    },
+    close: () => {
+      ctx.state = "closed";
+      fire("statechange");
+      return Promise.resolve();
+    },
+    addEventListener(type: string, fn: () => void) {
+      if (!listeners.has(type)) listeners.set(type, new Set());
+      listeners.get(type)!.add(fn);
+    },
+    removeEventListener(type: string, fn: () => void) {
+      listeners.get(type)?.delete(fn);
+    },
+  };
+  return ctx;
+}
+
+const fakeNode = (): AudioWorkletNode => Object.assign(new EventTarget(), { connect() {}, disconnect() {} }) as unknown as AudioWorkletNode;
+
+/** One second of 0.5, mono at 48 kHz. */
+const defaultClip = (): LoopbackClip => ({ channelData: [new Float32Array(LOOPBACK_RATE).fill(0.5)] });
+
+/**
+ * ADR 0221: the audio core on the loopback, assembled as production assembles it (`core/assembly.ts` `assembleCore`, the
+ * seam `service.ts` uses with the AudioWorklet host), over a real `AudioHost` whose node is the committed wasm run in
+ * Node (`createLoopbackHost`). Like the service, it waits for the core's first ready STATUS before it makes the backend,
+ * so a rig starts with the core running (6 quanta in). Resolves null when the wasm can't be loaded here (tests skip).
+ * Close it, or call `closeLoopbackAudio` in an `afterEach`, so the host stops following the page's mixer.
+ *
+ * The one lower tier is `createLoopbackHost` itself, for the tests that check the wire bytes (ADR 0215: what is sent and
+ * the STATUS blocks received) with no backend.
+ */
+export async function loopbackAudio(options: LoopbackAudioOptions = {}): Promise<LoopbackAudio | null> {
+  const [{ assembleCore }, { AudioHost, presetFromSettings }, { Unlock }, { createClipRegistry }, { fakeDecoder }, { rebuildHost }, { setAudioBackend }, { Audio }, { events }] = await Promise.all([
+    import("./core/assembly"),
+    import("./core/context"),
+    import("./core/unlock"),
+    import("./core/clipRegistry"),
+    import("./core/fakeDecoder"),
+    import("./core/recovery"),
+    import("./backend"),
+    import("./Audio"),
+    import("./events/eventRuntime"),
+  ]);
+  const settings = options.settings ?? defaultAudioSettings();
+  const preset: CorePreset = { ...LOOPBACK_PRESET, ...options.preset };
+  let loop: LoopbackHost;
+  try {
+    loop = await createLoopbackHost({ clock: options.clock, preset });
+  } catch {
+    return null;
+  }
+  const own = options.mixer === "own";
+  const rigMixer = own ? new Mixer(settings) : mixer;
+  if (!own) rigMixer.configure(settings);
+
+  // The host's parts: a fake context per core context, a fake node, the unlock layer; the loopback serves respawn and recreate.
+  const target = new EventTarget();
+  let nextRate = LOOPBACK_RATE;
+  const respawn = () => ({ node: fakeNode(), port: loop.respawn().port });
+  const recreate = async () => {
+    const context = loopbackContext(nextRate);
+    const { port } = loop.recreate(nextRate);
+    const unlock = new Unlock({ target, context: context as unknown as UnlockContext });
+    return { context: context as unknown as AudioContext, node: fakeNode(), port, unlock, respawn };
+  };
+  const first = loopbackContext(LOOPBACK_RATE);
+  const host = AudioHost._create({
+    context: first as unknown as AudioContext,
+    node: fakeNode(),
+    link: loop.link,
+    unlock: new Unlock({ target, context: first as unknown as UnlockContext }),
+    preset: { ...presetFromSettings(settings), ...preset },
+    respawn,
+    recreate,
+  });
+  if (options.world !== false) host.attachWorld({ kind: "runtime" });
+
+  const decode = options.decode ?? defaultClip;
+  const link = loop.link;
+  const clips =
+    options.backend?.clips ??
+    createClipRegistry({
+      send: (m) => link.post(m),
+      nextSeq: () => link.nextSeq(),
+      fetchBytes: async (path) => new TextEncoder().encode(path).buffer as ArrayBuffer,
+      decodeWorker: fakeDecoder(async (bytes) => {
+        const clip = await decode(new TextDecoder().decode(bytes));
+        return { frames: clip.channelData[0]!.length, channels: clip.channelData.length, sampleRate: clip.sampleRate ?? LOOPBACK_RATE, channelData: clip.channelData };
+      }),
+      clipFormat: settings.clipFormat === "f32" ? 0 : 1,
+      nextFrame: (cb) => cb(),
+      nextQuantum: (cb) => cb(),
+    });
+  const core = assembleCore(host, {
+    ...options.backend,
+    clips,
+    mixer: rigMixer,
+    clock: loop.clock,
+    recovery: options.recovery ?? { now: () => loop.clock.rafTime() },
+  });
+
+  const settle = async () => {
+    for (let k = 0; k < 8; k++) await Promise.resolve();
+  };
+  // As the service does: the backend is made once the core answered.
+  for (let q = 0; link.readyState === "pending"; q++) {
+    if (q >= 64) throw new Error("loopbackAudio: the core sent no ready STATUS");
+    loop.renderQuanta(1);
+  }
+  await core.ready;
+  const backend = core.createBackend();
+  if (!own) {
+    endAudioSession();
+    setAudioBackend(backend);
+  }
+
+  const quantaPerFrame = options.quantaPerFrame ?? 4;
+  const dtOf = () => options.dt ?? (quantaPerFrame * QUANTUM_FRAMES) / loop.sampleRate;
+  let closed = false;
+  const audio: LoopbackAudio = {
+    Audio,
+    backend,
+    mixer: rigMixer,
+    host,
+    link,
+    clock: loop.clock,
+    get frame() {
+      return loop.frame;
+    },
+    get sampleRate() {
+      return loop.sampleRate;
+    },
+    get dt() {
+      return dtOf();
+    },
+    render: (quanta) => loop.renderQuanta(quanta),
+    async step(frames = 1) {
+      const left = new Float32Array(frames * quantaPerFrame * QUANTUM_FRAMES);
+      const right = new Float32Array(left.length);
+      for (let f = 0; f < frames; f++) {
+        const dt = dtOf();
+        rigMixer.update(dt);
+        backend.update(dt);
+        if (!own) events().update(dt);
+        const out = loop.renderQuanta(quantaPerFrame);
+        left.set(out.left, f * out.left.length);
+        right.set(out.right, f * out.right.length);
+        await settle();
+      }
+      return { left, right };
+    },
+    settle,
+    async until(promise, maxQuanta = 2_000) {
+      let done = false;
+      const result = promise.finally(() => {
+        done = true;
+      });
+      await settle();
+      for (let q = 0; !done; q++) {
+        if (q >= maxQuanta) throw new Error(`loopbackAudio: still waiting after ${maxQuanta} quanta`);
+        loop.renderQuanta(1);
+        await settle();
+      }
+      return result;
+    },
+    trap: () => loop.trapNext(),
+    changeRate(rate) {
+      nextRate = rate;
+      return rebuildHost(host, "rate");
+    },
+    rebuild: (reason) => rebuildHost(host, reason),
+    watch: () => loop.watch(),
+    async close() {
+      if (closed) return;
+      closed = true;
+      openLoopbacks.delete(audio);
+      if (own) backend.dispose();
+      else setAudioBackend(null);
+      await host.close();
+      endAudioSession();
+    },
+  };
+  openLoopbacks.add(audio);
+  return audio;
 }
