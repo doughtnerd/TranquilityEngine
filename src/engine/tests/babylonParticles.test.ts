@@ -2,7 +2,7 @@
 // headless on Babylon's NullEngine. The simulation has its own tests (particleSimulation.test.ts);
 // these check the player's lifecycle, commands and the Babylon particle systems it drives.
 import { TargetCamera } from "@babylonjs/core/Cameras/targetCamera.js";
-import { NullEngine } from "@babylonjs/core/Engines/nullEngine.js";
+import type { NullEngine } from "@babylonjs/core/Engines/nullEngine.js";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial.js";
 import { RawTexture } from "@babylonjs/core/Materials/Textures/rawTexture.js";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector.js";
@@ -15,6 +15,7 @@ import { Color as EngineColor } from "../core/math";
 import type { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { BabylonParticles, type BabylonParticleHost } from "../render/babylon/particles";
 import type { ParticleCommand, ParticleSystem } from "../render/components";
+import { nullEngine } from "./pbrShaderSource";
 import { defaultEmitter, defaultRenderer, defaultShape, type ParticleEffect, type ParticleEmitterSettings, type ParticleRenderer, PARTICLES_FORMAT } from "../scene/particles";
 
 /** An effect as its `myco.particles@1` file's JSON object. */
@@ -50,8 +51,9 @@ describe("particles on the Babylon backend (ADR 0075 stage 5)", () => {
   /** What the draws last sent each GPU vertex buffer (the NullEngine keeps no copy of a partial update). */
   let uploads: WeakMap<object, Float32Array>;
 
-  beforeEach(() => {
-    engine = new NullEngine();
+  /** A fresh engine, its materials in `language`, and scene, recording uploads, with the camera. */
+  function setUp(language: "wgsl" | "glsl"): void {
+    engine = nullEngine(language);
     uploads = new WeakMap();
     const upload = engine.updateDynamicVertexBuffer.bind(engine);
     engine.updateDynamicVertexBuffer = (buffer, vertices, ...rest) => {
@@ -64,7 +66,8 @@ describe("particles on the Babylon backend (ADR 0075 stage 5)", () => {
     camera.setTarget(Vector3.Zero());
     scene.activeCamera = camera;
     players = [];
-  });
+  }
+  beforeEach(() => setUp("glsl"));
 
   afterEach(() => {
     for (const p of players) p.dispose();
@@ -372,7 +375,9 @@ describe("particles on the Babylon backend (ADR 0075 stage 5)", () => {
   it("gives a graph material's particle draws the per-particle colours it reads", () => {
     // Quads carry a vertex colour buffer, mesh instances a thin-instance colour buffer: Babylon defines
     // VERTEXCOLOR / INSTANCESCOLOR from them, which the Particle Color node (mycoVColor) reads.
-    (engine as unknown as { _isWebGPU: boolean })._isWebGPU = true;
+    scene.dispose();
+    engine.dispose();
+    setUp("wgsl"); // a WGSL material, so the graph plugin attaches
     const graphMaterial = createGraphMaterial(scene, "fx", colorGraph(), {}, { time: 0, resolution: [1, 1] }, () => Promise.reject(new Error("no textures"))).material;
     const p = make(false, true, { material: () => graphMaterial });
     const c = fakeSystem({ emitters: [still("Q", { material: "fx.mat" }), still("M", { mode: "mesh", material: "fx.mat" })] });

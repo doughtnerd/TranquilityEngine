@@ -15,17 +15,20 @@ import { WaterSurface } from "../render/water/WaterSurface";
 import { BabylonWater } from "../render/babylon/water";
 import { GERSTNER_BODY, MAX_WAVES, gerstner } from "../render/water/gerstner";
 import { waterTime } from "../render/water/WaterSurface";
+import { nullEngine, shaderText, type ShaderText } from "./pbrShaderSource";
 
 type ShaderCode = { [point: string]: string };
 /** The code the water material's wave plugin gives Babylon's PBR shaders, and its uniform buffer: read through Babylon's plugin API. */
 let waterCode: (shaderType: string, language?: ShaderLanguage) => ShaderCode;
 let waterUbo: { name: string; size: number; type: string }[];
+/** The WGSL Babylon makes for a water surface, with the plugin's code in place (ADR 0225). */
+let waterText: ShaderText;
 beforeAll(async () => {
   Assets.clearSources();
   Assets.addSource(Assets.fromObject({ "s.json": { format: "myco.scene@1", nodes: [] } }));
   const engine = await Engine.create({ headless: true });
   await SceneManager.load("s.json");
-  const babylon = new NullEngine();
+  const babylon = nullEngine("wgsl");
   const scene = new Scene(babylon);
   const water = new BabylonWater(scene);
   const w = GameObject.create("sea").addBehavior(WaterSurface);
@@ -37,6 +40,7 @@ beforeAll(async () => {
   for (const language of [ShaderLanguage.WGSL, ShaderLanguage.GLSL]) for (const type of ["vertex", "fragment"]) code.set(`${type}|${language}`, plugin.getCustomCode(type, language)!);
   waterCode = (type, language = ShaderLanguage.WGSL) => code.get(`${type}|${language}`)!;
   waterUbo = (plugin.getUniforms() as { ubo: typeof waterUbo }).ubo;
+  waterText = await shaderText(mesh.material!, mesh);
   water.dispose();
   scene.dispose();
   babylon.dispose();
@@ -189,15 +193,17 @@ describe("the water WGSL", () => {
   it("injects at Babylon's named points and at the PBR points, re-declaring what it replaces (ADR 0222)", () => {
     expect(Object.keys(vertex)).toContain("CUSTOM_VERTEX_DEFINITIONS");
     expect(Object.keys(fragment)).toEqual(expect.arrayContaining(["CUSTOM_FRAGMENT_DEFINITIONS", "CUSTOM_FRAGMENT_UPDATE_ALPHA"]));
-    expect(Object.values(vertex).some((v) => v.includes("var worldPos: vec4f = finalWorld * vec4f(positionUpdated, 1.0);"))).toBe(true);
-    expect(Object.values(fragment).some((v) => v.includes("mycoFoam") && v.endsWith("var albedoOpacityOut: albedoOpacityOutParams;"))).toBe(true);
-    expect(Object.values(fragment)).toContain("reflectivityBlock(vec4f(0.0, mix(uniforms.vReflectivityColor.y, 0.9, mycoFoam), uniforms.vReflectivityColor.zw)");
+    const { vertex: v, fragment: f } = waterText;
+    expect(v.match(/var worldPos: vec4f = finalWorld \* vec4f\(positionUpdated, 1\.0\);/g)).toHaveLength(1);
+    const albedo = f.indexOf("var albedoOpacityOut: albedoOpacityOutParams;");
+    expect(f.lastIndexOf("mycoFoam", albedo)).toBeGreaterThan(-1);
+    expect(f).toContain("reflectivityBlock(vec4f(0.0, mix(uniforms.vReflectivityColor.y, 0.9, mycoFoam), uniforms.vReflectivityColor.zw)");
   });
 
   it("displaces the vertex and sets the normal before the world position, with two varyings", () => {
-    const body = Object.entries(vertex).find(([k]) => k.startsWith("!"))![1];
+    const body = waterText.vertex.slice(0, waterText.vertex.indexOf("var worldPos: vec4f = finalWorld"));
     expect(body.indexOf("normalUpdated =")).toBeGreaterThan(-1);
-    expect(body.indexOf("positionUpdated = positionUpdated + mycoG[0]")).toBeLessThan(body.indexOf("var worldPos"));
+    expect(body.indexOf("positionUpdated = positionUpdated + mycoG[0]")).toBeGreaterThan(-1);
     expect(body).toContain("#ifdef NORMAL");
     expect(vertex.CUSTOM_VERTEX_DEFINITIONS.match(/^varying /gm)).toHaveLength(2);
     expect(fragment.CUSTOM_FRAGMENT_DEFINITIONS.match(/^varying /gm)).toHaveLength(2);

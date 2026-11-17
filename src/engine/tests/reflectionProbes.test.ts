@@ -70,31 +70,33 @@ describe("blending between reflection probes (ADR 0110)", () => {
   });
 
   it("adds a second cube sample to a probe copy's shader only while it blends", async () => {
-    const { NullEngine } = await import("@babylonjs/core/Engines/nullEngine.js");
     const { Scene } = await import("@babylonjs/core/scene.js");
     const { PBRMaterial } = await import("@babylonjs/core/Materials/PBR/pbrMaterial.js");
-    const { ShaderLanguage } = await import("@babylonjs/core/Materials/shaderLanguage.js");
+    const { Texture } = await import("@babylonjs/core/Materials/Textures/texture.js");
     const { MycoProbeBlendPlugin } = await import("../render/babylon/probeBlend");
-    const engine = new NullEngine();
-    const scene = new Scene(engine);
-    const m = new PBRMaterial("m", scene);
-    const state = { texture: null, weight: 0.5, intensityRatio: 1, box: null };
-    const plugin = new MycoProbeBlendPlugin(m, state);
-    const defines = { MYCO_PROBE_BLEND: true } as unknown as Parameters<typeof plugin.prepareDefines>[0];
-    (plugin.prepareDefines as (d: unknown) => void)(defines);
-    expect((defines as unknown as { MYCO_PROBE_BLEND: boolean }).MYCO_PROBE_BLEND).toBe(false); // no neighbour texture
-    for (const lang of [ShaderLanguage.WGSL, ShaderLanguage.GLSL]) {
-      const code = plugin.getCustomCode("fragment", lang)!;
-      const anchor = Object.keys(code).find((k) => k.startsWith("!"))!;
-      // The anchor is found once in Babylon's PBR fragment shader, and the replacement keeps what it matched.
-      const { ShaderStore } = await import("@babylonjs/core/Engines/shaderStore.js");
-      await (lang === ShaderLanguage.WGSL ? import("@babylonjs/core/ShadersWGSL/pbr.fragment.js") : import("@babylonjs/core/Shaders/pbr.fragment.js"));
-      const source = (lang === ShaderLanguage.WGSL ? ShaderStore.ShadersStoreWGSL : ShaderStore.ShadersStore)["pbrPixelShader"];
-      expect(source.match(new RegExp(anchor.slice(1), "g"))).toHaveLength(1);
-      expect(code[anchor]).toMatch(/^#define CUSTOM_REFLECTION\n#endif\n#endif\n/);
-      expect(code[anchor]).toContain("sampleReflectionTexture(");
+    const { nullEngine, shaderText } = await import("./pbrShaderSource");
+    for (const language of ["wgsl", "glsl"] as const) {
+      const engine = nullEngine(language);
+      const scene = new Scene(engine);
+      // Any ready texture stands for the neighbour's capture (the define asks only that there is one); NullEngine textures are ready at once.
+      const neighbour = new Texture("neighbour.png", scene);
+      const probeCopy = (texture: InstanceType<typeof Texture> | null, weight: number) => {
+        const m = new PBRMaterial(`m${weight}${texture ? "t" : ""}`, scene);
+        new MycoProbeBlendPlugin(m, { texture, weight, intensityRatio: 1, box: null });
+        return shaderText(m);
+      };
+      // Blending: the define is on, and the second sample follows Babylon's own reflection, which is kept.
+      const blending = await probeCopy(neighbour, 0.5);
+      expect(blending.defines).toMatch(/^#define MYCO_PROBE_BLEND\b/m);
+      const blend = blending.fragment.indexOf("#if defined(MYCO_PROBE_BLEND)");
+      expect(blending.fragment.match(/#if defined\(MYCO_PROBE_BLEND\)/g)).toHaveLength(1);
+      expect(blending.fragment.lastIndexOf("#define CUSTOM_REFLECTION", blend)).toBeGreaterThan(-1);
+      expect(blending.fragment.slice(blend)).toMatch(/sampleReflectionTexture\([^;]*mycoBlendSampler/);
+      // No neighbour texture, or all of the primary: the define is off, so the sample compiles away.
+      expect((await probeCopy(null, 0.5)).defines).not.toMatch(/MYCO_PROBE_BLEND/);
+      expect((await probeCopy(neighbour, 1)).defines).not.toMatch(/MYCO_PROBE_BLEND/);
+      scene.dispose();
+      engine.dispose();
     }
-    scene.dispose();
-    engine.dispose();
   });
 });

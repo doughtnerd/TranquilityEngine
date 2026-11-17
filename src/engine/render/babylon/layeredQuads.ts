@@ -24,7 +24,6 @@
 import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
 import { Constants } from "@babylonjs/core/Engines/constants.js";
 import type { MaterialDefines } from "@babylonjs/core/Materials/materialDefines.js";
-import { MaterialPluginBase } from "@babylonjs/core/Materials/materialPluginBase.js";
 import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
 import { ShaderLanguage } from "@babylonjs/core/Materials/shaderLanguage.js";
 import type { Texture } from "@babylonjs/core/Materials/Textures/texture.js";
@@ -35,6 +34,7 @@ import "@babylonjs/core/Meshes/thinInstanceMesh.js"; // Mesh.thinInstance*
 import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import { pbr } from "./materials";
+import { MycoMaterialPlugin } from "./mycoMaterialPlugin";
 
 // --- the material ----------------------------------------------------------------------------------
 
@@ -97,17 +97,13 @@ function spriteUvCode(shaderType: string, language: ShaderLanguage): { [point: s
 }
 
 /** Reads each instance's UV rectangle: a sprite's slice of its atlas. */
-class SpriteUvPlugin extends MaterialPluginBase {
+class SpriteUvPlugin extends MycoMaterialPlugin {
   constructor(material: PBRMaterial) {
-    super(material, "MycoSpriteUv", 210, { MYCO_SPRITE_UV: true }, false);
-    (this._pluginManager as unknown as { _addPlugin(p: MaterialPluginBase): boolean })._addPlugin(this);
-    this._enable(true);
+    super(material, "MycoSpriteUv", 210, { MYCO_SPRITE_UV: true });
+    this.register();
   }
   override getClassName(): string {
     return "MycoSpriteUvPlugin";
-  }
-  override isCompatible(): boolean {
-    return true;
   }
   override prepareDefines(defines: MaterialDefines): void {
     defines.MYCO_SPRITE_UV = true;
