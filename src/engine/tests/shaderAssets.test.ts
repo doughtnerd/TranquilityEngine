@@ -5,10 +5,9 @@ import { NullEngine } from "@babylonjs/core/Engines/nullEngine.js";
 import type { Effect } from "@babylonjs/core/Materials/effect.js";
 import { CreateBox } from "@babylonjs/core/Meshes/Builders/boxBuilder.js";
 import { Scene } from "@babylonjs/core/scene.js";
-import { pbrPixelShader } from "@babylonjs/core/Shaders/pbr.fragment.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createGraphMaterial, type GraphShared } from "../render/babylon/graphMaterial";
-import { graphCode, graphPlugins } from "./graphPluginCode";
+import { graphPlugins, graphShaders } from "./graphPluginCode";
 import { ShaderLanguage } from "@babylonjs/core/Materials/shaderLanguage.js";
 import { compileShaderGraph } from "../render/shaderGraph/compile";
 import { compileShaderAsset } from "../render/shaderGraph/shaderAsset";
@@ -174,18 +173,18 @@ describe("hand-written shader assets (ADR 0106)", () => {
     expect(graphPlugins(compileShaderAsset(shader, { wgsl: WGSL }), ShaderLanguage.GLSL).main).toBeNull();
   });
 
-  it("puts GLSL in the points Babylon's GLSL PBR shaders have (where the patterns match is pbrInjection.test.ts's)", () => {
+  it("puts GLSL in Babylon's GLSL PBR shaders, where it belongs (where the patterns match is pbrInjection.test.ts's)", async () => {
     const { shader } = parseShaderAsset(ASSET);
     const c = compileShaderAsset(shader, { wgsl: WGSL, glsl: GLSL });
-    const vertex = graphCode(c, "vertex", ShaderLanguage.GLSL);
-    const inject = Object.values(vertex).find((v) => v.includes("vec4 worldPos"))!;
-    expect(inject).toContain("positionUpdated = positionUpdated + (mycoOffset);");
-    expect(inject.indexOf("mycoOffset =")).toBeLessThan(inject.indexOf("vec4 worldPos"));
-    const fragment = graphCode(c, "fragment", ShaderLanguage.GLSL);
-    // The GLSL sets the normal: it goes before the albedo block, which is re-declared.
-    expect(Object.values(fragment).some((v) => v.includes("normalW = normalize(mycoBabylonTangentFrame(normalW, vPositionW, vMycoUv) * (mycoS.normal));") && v.endsWith("albedoOpacityOutParams albedoOpacityOut;"))).toBe(true);
-    for (const point of ["CUSTOM_FRAGMENT_DEFINITIONS", "CUSTOM_FRAGMENT_MAIN_BEGIN", "CUSTOM_FRAGMENT_UPDATE_ALPHA", "CUSTOM_FRAGMENT_BEFORE_FINALCOLORCOMPOSITION"]) expect(pbrPixelShader.shader).toContain(`#define ${point}`);
-    expect(fragment.CUSTOM_FRAGMENT_BEFORE_FINALCOLORCOMPOSITION).toBe("finalEmissive = mycoS.emission;");
+    const { vertex, fragment } = (await graphShaders(c, ShaderLanguage.GLSL)).main;
+    const worldPos = vertex.indexOf("vec4 worldPos = finalWorld * vec4(positionUpdated, 1.0);");
+    expect(vertex.indexOf("mycoOffset =")).toBeGreaterThan(-1);
+    expect(vertex.indexOf("mycoOffset =")).toBeLessThan(worldPos);
+    expect(vertex.indexOf("positionUpdated = positionUpdated + (mycoOffset);")).toBeLessThan(worldPos);
+    // The GLSL sets the normal: it goes just before the albedo block, which is re-declared.
+    expect(fragment).toContain("normalW = normalize(mycoBabylonTangentFrame(normalW, vPositionW, vMycoUv) * (mycoS.normal));\nalbedoOpacityOutParams albedoOpacityOut;");
+    // Babylon's named points stay in the text, with the shader's code before them.
+    expect(fragment).toContain("finalEmissive = mycoS.emission;\n\n#define CUSTOM_FRAGMENT_BEFORE_FINALCOLORCOMPOSITION");
   });
 });
 

@@ -34,7 +34,6 @@ import { Constants } from "@babylonjs/core/Engines/constants.js";
 import { DrawWrapper } from "@babylonjs/core/Materials/drawWrapper.js";
 import type { Effect } from "@babylonjs/core/Materials/effect.js";
 import type { MaterialDefines } from "@babylonjs/core/Materials/materialDefines.js";
-import { MaterialPluginBase } from "@babylonjs/core/Materials/materialPluginBase.js";
 import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
 import { ShaderLanguage } from "@babylonjs/core/Materials/shaderLanguage.js";
 import type { BaseTexture } from "@babylonjs/core/Materials/Textures/baseTexture.js";
@@ -45,6 +44,7 @@ import type { Scene } from "@babylonjs/core/scene.js";
 import type { SubMesh } from "@babylonjs/core/Meshes/subMesh.js";
 import { checkPropertyValue, type GraphValue } from "../../scene/shaderGraph";
 import { useEngineLightFalloff } from "./materials";
+import { MycoMaterialPlugin } from "./mycoMaterialPlugin";
 import { pbrInjections, type PbrCode, type PbrPoint } from "./pbrInjection";
 import { allKeywordDefines, keywordDefines, type KeywordValue } from "../../scene/shaderKeywords";
 import { linearColor, SHARED_UNIFORMS, srgbToLinear, type CompiledShaderGraph, type CompiledUniform, type PhysicalInput } from "../shaderGraph/compile";
@@ -334,7 +334,7 @@ function graphSupports(c: CompiledShaderGraph, language: ShaderLanguage): boolea
 }
 
 /** The material plugin carrying one compiled graph or shader asset (WGSL, and GLSL for shader assets that ship it). */
-class MycoGraphPlugin extends MaterialPluginBase {
+class MycoGraphPlugin extends MycoMaterialPlugin {
   constructor(
     material: PBRMaterial,
     private readonly compiled: CompiledShaderGraph,
@@ -345,10 +345,8 @@ class MycoGraphPlugin extends MaterialPluginBase {
   ) {
     // A define per graph, so materials with different graphs never share a compiled program (Babylon
     // caches effects by defines, not by plugin code: the depth variant needs a define of its own too).
-    // Registered after the fields are set: registering reads the plugin's code, which needs `compiled`.
-    super(material, "MycoGraph", 200, { [`MYCO_GRAPH_${depth ? "DEPTH_" : ""}${compiled.key.replace(/[^A-Za-z0-9_]/g, "_")}`]: true, ...Object.fromEntries(allKeywordDefines(compiled.keywords ?? []).map((d) => [d, false])) }, false);
-    (this._pluginManager as unknown as { _addPlugin(p: MaterialPluginBase): boolean })._addPlugin(this);
-    this._enable(true);
+    super(material, "MycoGraph", 200, { [`MYCO_GRAPH_${depth ? "DEPTH_" : ""}${compiled.key.replace(/[^A-Za-z0-9_]/g, "_")}`]: true, ...Object.fromEntries(allKeywordDefines(compiled.keywords ?? []).map((d) => [d, false])) });
+    this.register();
   }
 
   override getClassName(): string {

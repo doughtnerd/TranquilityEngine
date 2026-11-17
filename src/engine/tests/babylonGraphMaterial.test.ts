@@ -1,15 +1,15 @@
 // ADR 0075 stage 4: shader graph materials on the Babylon backend — where the plugin puts a graph's
 // WGSL in Babylon's PBR shaders, its uniforms and textures, and property overrides (ADR 0049).
 // Headless on Babylon's NullEngine with a hand-made compiled graph, so it doesn't depend on the compiler.
-import { NullEngine } from "@babylonjs/core/Engines/nullEngine.js";
+import type { NullEngine } from "@babylonjs/core/Engines/nullEngine.js";
 import { ShaderLanguage } from "@babylonjs/core/Materials/shaderLanguage.js";
 import type { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
 import { CreatePlane } from "@babylonjs/core/Meshes/Builders/planeBuilder.js";
 import { Scene } from "@babylonjs/core/scene.js";
-import { pbrVertexShaderWGSL } from "@babylonjs/core/ShadersWGSL/pbr.vertex.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createGraphMaterial, type GraphShared } from "../render/babylon/graphMaterial";
-import { graphCode, graphPlugins } from "./graphPluginCode";
+import { graphCode, graphPlugins, graphShaders } from "./graphPluginCode";
+import { nullEngine, shaderText } from "./pbrShaderSource";
 import type { CompiledShaderGraph } from "../render/shaderGraph/compile";
 
 function compiled(overrides: Partial<CompiledShaderGraph> = {}): CompiledShaderGraph {
@@ -54,39 +54,46 @@ describe("shader graph materials on Babylon (ADR 0075 stage 4)", () => {
   const noTextures = () => Promise.reject(new Error("no textures in tests"));
 
   beforeEach(() => {
-    engine = new NullEngine();
+    engine = nullEngine("glsl");
     scene = new Scene(engine);
   });
+  /** From here on the test's materials are WGSL, so the graph plugin attaches (NullEngine materials are otherwise GLSL); nothing draws. */
+  const asWebGPU = () => {
+    scene.dispose();
+    engine.dispose();
+    engine = nullEngine("wgsl");
+    scene = new Scene(engine);
+  };
   afterEach(() => {
     scene.dispose();
     engine.dispose();
   });
 
-  it("puts the vertex code before the world position, with the graph's inputs and offset", () => {
-    const code = graphCode(compiled(), "vertex");
-    expect(code.CUSTOM_VERTEX_DEFINITIONS).toContain("varying vMycoUv");
-    const [rx, inject] = Object.entries(code).find(([k]) => k.startsWith("!"))!;
-    expect(new RegExp(rx.slice(1)).test("var worldPos: vec4f=finalWorld* vec4f(positionUpdated,1.0);")).toBe(true);
-    expect(inject).toContain("let mycoVUv: vec2f");
-    expect(inject).toContain("positionUpdated = positionUpdated + (vec3f(0.0, n1, 0.0));");
-    expect(inject.indexOf("var n1")).toBeLessThan(inject.indexOf("var worldPos"));
-    expect(inject).toContain("vertexOutputs.vMycoUv = mycoVUv;");
+  it("puts the vertex code before the world position, with the graph's inputs and offset", async () => {
+    const src = (await graphShaders(compiled())).main.vertex;
+    expect(src).toContain("varying vMycoUv");
+    expect(src).toContain("let mycoVUv: vec2f");
+    const worldPos = src.indexOf("var worldPos: vec4f = finalWorld * vec4f(positionUpdated, 1.0);");
+    expect(src.indexOf("var n1")).toBeGreaterThan(-1);
+    expect(src.indexOf("var n1")).toBeLessThan(worldPos);
+    expect(src.indexOf("positionUpdated = positionUpdated + (vec3f(0.0, n1, 0.0));")).toBeLessThan(worldPos);
+    expect(src.indexOf("vertexOutputs.vMycoUv = mycoVUv;")).toBeGreaterThan(worldPos);
   });
 
-  it("sets the surface from the fragment code: albedo, alpha, clip, metallic, roughness, emission", () => {
+  it("sets the surface from the fragment code: albedo, alpha, clip, metallic, roughness, emission", async () => {
     const code = graphCode(compiled(), "fragment");
     expect(code.CUSTOM_FRAGMENT_MAIN_BEGIN).toBe("var n2: vec4f = uniforms.uTint;");
     expect(code.CUSTOM_FRAGMENT_UPDATE_ALPHA).toContain("surfaceAlbedo = n2.rgb;");
     expect(code.CUSTOM_FRAGMENT_UPDATE_ALPHA).toContain("if (alpha < 0.5) { discard; }");
-    expect(code["!reflectivityBlock\\(\\s*uniforms\\.vReflectivityColor"]).toBe("reflectivityBlock(vec4f(0.25, 0.75, uniforms.vReflectivityColor.zw)");
+    expect((await graphShaders(compiled())).main.fragment).toContain("reflectivityBlock(vec4f(0.25, 0.75, uniforms.vReflectivityColor.zw)");
     expect(code.CUSTOM_FRAGMENT_BEFORE_FINALCOLORCOMPOSITION).toBe("finalEmissive = vec3f(0.0);");
   });
 
-  it("draws an unlit graph's colour directly, without the lit hooks", () => {
+  it("draws an unlit graph's colour directly, without the lit hooks", async () => {
     const m = createGraphMaterial(scene, "g", compiled({ target: "unlit" }), {}, shared, noTextures);
     expect(m.material.unlit).toBe(true);
     const code = graphCode(compiled({ target: "unlit" }), "fragment");
-    expect(Object.keys(code).some((k) => k.startsWith("!reflectivity"))).toBe(false);
+    expect((await graphShaders(compiled({ target: "unlit" }))).main.fragment).not.toContain("vec4f(0.25, 0.75, uniforms.vReflectivityColor.zw)");
     expect(code.CUSTOM_FRAGMENT_BEFORE_FINALCOLORCOMPOSITION).toBeUndefined();
   });
 
@@ -112,7 +119,7 @@ describe("shader graph materials on Babylon (ADR 0075 stage 4)", () => {
   });
 
   it("asks for the mesh's UVs when the graph reads them, even with no texture (the ripple preview drew flat)", () => {
-    (engine as unknown as { _isWebGPU: boolean })._isWebGPU = true; // a WGSL material, so the plugin attaches
+    asWebGPU();
     const noTexture = { uniforms: [], fragment: { ...compiled().fragment, declarations: "varying vMycoUv: vec2f;" } };
     const reads = compiled({ ...noTexture, vertex: { ...compiled().vertex, offset: null } });
     const ignores = compiled({ ...noTexture, key: "def456", vertex: { declarations: "", body: "", offset: null, varyings: "" } });
@@ -141,7 +148,7 @@ describe("shader graph materials on Babylon (ADR 0075 stage 4)", () => {
   });
 
   it("is given vertex colours by meshes that have them (instance colours: see babylonParticles), with the graph material", () => {
-    (engine as unknown as { _isWebGPU: boolean })._isWebGPU = true;
+    asWebGPU();
     const m = createGraphMaterial(scene, "g", compiled(), {}, shared, noTextures).material;
     const defines = (mesh: ReturnType<typeof CreatePlane>) => {
       mesh.material = m;
@@ -155,12 +162,10 @@ describe("shader graph materials on Babylon (ADR 0075 stage 4)", () => {
   });
 
   describe("shadows follow the vertex offset", () => {
-    /** Materials made after this are WGSL (NullEngine materials are otherwise GLSL); nothing compiles. */
-    const asWebGPU = () => ((engine as unknown as { _isWebGPU: boolean })._isWebGPU = true);
     const plugin = (m: PBRMaterial) =>
       m.pluginManager?.getPlugin("MycoGraph") as unknown as { getCustomCode(t: string, l: ShaderLanguage): Record<string, string> | null; _pluginDefineNames?: Record<string, unknown> } | null;
 
-    it("gives a graph with an offset a standalone shadow-depth wrapper whose material runs the graph's vertex code", () => {
+    it("gives a graph with an offset a standalone shadow-depth wrapper whose material runs the graph's vertex code", async () => {
       asWebGPU();
       const m = createGraphMaterial(scene, "g", compiled(), {}, shared, noTextures);
       const wrapper = m.material.shadowDepthWrapper!;
@@ -171,8 +176,7 @@ describe("shader graph materials on Babylon (ADR 0075 stage 4)", () => {
       expect(depth.unlit).toBe(true);
       const vertex = plugin(depth)!.getCustomCode("vertex", ShaderLanguage.WGSL)!;
       expect(vertex.CUSTOM_VERTEX_DEFINITIONS).toContain("varying vMycoUv");
-      const inject = Object.entries(vertex).find(([k]) => k.startsWith("!"))![1];
-      expect(inject).toContain("positionUpdated = positionUpdated + (vec3f(0.0, n1, 0.0));");
+      expect((await shaderText(depth)).vertex).toContain("positionUpdated = positionUpdated + (vec3f(0.0, n1, 0.0));");
       // No surface code in the shadow pass: only the declarations.
       const fragment = plugin(depth)!.getCustomCode("fragment", ShaderLanguage.WGSL)!;
       expect(Object.keys(fragment)).toEqual(["CUSTOM_FRAGMENT_DEFINITIONS"]);
@@ -236,10 +240,9 @@ describe("shader graph materials on Babylon (ADR 0075 stage 4)", () => {
       expect(tokens.length).toBe(3);
     });
 
-    it("finds the spots Babylon's shadow-map code goes in the PBR vertex shader, after the graph's offset", () => {
-      const graph = new RegExp(Object.keys(graphPlugins(compiled()).shadow!.getCustomCode("vertex", ShaderLanguage.WGSL)!).find((k) => k.startsWith("!"))!.slice(1));
-      const src = pbrVertexShaderWGSL.shader;
-      const at = src.search(graph);
+    it("finds the spots Babylon's shadow-map code goes in the PBR vertex shader, after the graph's offset", async () => {
+      const src = (await graphShaders(compiled())).shadow!.vertex;
+      const at = src.indexOf("positionUpdated = positionUpdated + (vec3f(0.0, n1, 0.0));");
       expect(at).toBeGreaterThan(-1);
       // The normal bias goes at CUSTOM_VERTEX_UPDATE_WORLDPOS, reading the world normal varying.
       expect(src.indexOf("#define CUSTOM_VERTEX_UPDATE_WORLDPOS")).toBeGreaterThan(at);

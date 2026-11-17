@@ -9,8 +9,6 @@ import type { MaterialPluginBase } from "@babylonjs/core/Materials/materialPlugi
 import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh.js";
 import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { Scene } from "@babylonjs/core/scene.js";
-import { pbrVertexShader } from "@babylonjs/core/Shaders/pbr.vertex.js";
-import { pbrVertexShaderWGSL } from "@babylonjs/core/ShadersWGSL/pbr.vertex.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { World } from "../core/World";
 import { Assets, Camera, Color, Engine, GameObject, SceneManager, Vector2 } from "../index";
@@ -18,6 +16,7 @@ import { SpriteRenderer } from "../render/components";
 import { BabylonSprites } from "../render/babylon/sprites";
 import type { FeatureSyncContext } from "../render/babylon/feature";
 import { SpriteBatcher, type SpriteItem } from "../render/babylon/layeredQuads";
+import { nullEngine, shaderText } from "./pbrShaderSource";
 import { _registeredRenderFeatures } from "../render/renderFeatures";
 
 /** A plugin's render feature spec, as its activation registered it. */
@@ -107,16 +106,23 @@ describe("the sprite batcher (ADR 0108)", () => {
     expect(instance(mesh, uvAttribute(mesh), 0, 4)).toEqual([0.25, 0, 0.25, 0.5]);
   });
 
-  it("puts the UV rectangle where both PBR vertex shaders have the UV", () => {
-    batcher.update([item(null, 0)]);
-    const plugin = uvPlugin(batches(scene)[0]!);
-    for (const [language, source] of [[ShaderLanguage.GLSL, pbrVertexShader.shader], [ShaderLanguage.WGSL, pbrVertexShaderWGSL.shader]] as const) {
-      const code = plugin.getCustomCode("vertex", language)!;
-      for (const point of Object.keys(code)) expect(source, point).toContain(`#define ${point}`);
-      // The update point comes after the UV is read.
-      expect(source.indexOf("#define CUSTOM_VERTEX_UPDATE_POSITION")).toBeGreaterThan(source.search(/uvUpdated\s*[:=]/));
+  it("puts the UV rectangle in both PBR vertex shaders, after the UV is read", async () => {
+    for (const language of ["glsl", "wgsl"] as const) {
+      const e = nullEngine(language);
+      const s = new Scene(e);
+      const b = new SpriteBatcher(s);
+      b.update([item(null, 0)]);
+      const mesh = batches(s)[0]!;
+      const { vertex, fragment } = await shaderText(mesh.material!, mesh);
+      const attribute = uvAttribute(mesh);
+      expect(vertex).toContain(language === "wgsl" ? `attribute ${attribute}: vec4f;` : `attribute vec4 ${attribute};`);
+      const update = vertex.indexOf(language === "wgsl" ? `uvUpdated = vertexInputs.${attribute}.xy` : `uvUpdated = ${attribute}.xy`);
+      expect(update).toBeGreaterThan(vertex.search(/uvUpdated\s*[:=]/));
+      expect(fragment).not.toContain(attribute); // vertex only
+      b.dispose();
+      s.dispose();
+      e.dispose();
     }
-    expect(plugin.getCustomCode("fragment", ShaderLanguage.GLSL)).toBeNull();
   });
 });
 

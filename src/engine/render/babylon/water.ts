@@ -21,7 +21,6 @@
  * while ships rode the sampled waves, so troughs hid their hulls.
  */
 import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
-import { MaterialPluginBase } from "@babylonjs/core/Materials/materialPluginBase.js";
 import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
 import { ShaderLanguage } from "@babylonjs/core/Materials/shaderLanguage.js";
 import type { BaseTexture } from "@babylonjs/core/Materials/Textures/baseTexture.js";
@@ -37,6 +36,7 @@ import { Graphics } from "../Graphics";
 import { GERSTNER_BODY, MAX_WAVES, WAVE_STRIDE, maxAmplitude } from "../water/gerstner";
 import { waterTime, type WaterSurface } from "../water/WaterSurface";
 import { useEngineLightFalloff } from "./materials";
+import { MycoMaterialPlugin } from "./mycoMaterialPlugin";
 import { pbrInjections } from "./pbrInjection";
 
 /** A reflection probe's map and strength (ADR 0054), or null for the scene's environment only. */
@@ -275,23 +275,17 @@ function waterCustomCodeGLSL(shaderType: string): { [point: string]: string } {
 }
 
 /** The material plugin carrying the water shader. */
-class MycoWaterPlugin extends MaterialPluginBase {
+class MycoWaterPlugin extends MycoMaterialPlugin {
   constructor(
     material: PBRMaterial,
     private readonly state: WaterState,
   ) {
-    // Registered after the fields are set: registering reads the plugin's code.
-    super(material, "MycoWater", 200, { MYCO_WATER: true }, false);
-    (this._pluginManager as unknown as { _addPlugin(p: MaterialPluginBase): boolean })._addPlugin(this);
-    this._enable(true);
+    super(material, "MycoWater", 200, { MYCO_WATER: true });
+    this.register();
   }
 
   override getClassName(): string {
     return "MycoWaterPlugin";
-  }
-
-  override isCompatible(shaderLanguage: ShaderLanguage): boolean {
-    return shaderLanguage === ShaderLanguage.WGSL || shaderLanguage === ShaderLanguage.GLSL;
   }
 
   override getUniforms(): { ubo: { name: string; size: number; type: string }[] } {

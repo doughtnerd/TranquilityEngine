@@ -11,7 +11,6 @@
  */
 import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
 import { MaterialDefines } from "@babylonjs/core/Materials/materialDefines.js";
-import { MaterialPluginBase } from "@babylonjs/core/Materials/materialPluginBase.js";
 import type { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
 import { ShaderLanguage } from "@babylonjs/core/Materials/shaderLanguage.js";
 import type { BaseTexture } from "@babylonjs/core/Materials/Textures/baseTexture.js";
@@ -19,6 +18,7 @@ import type { UniformBuffer } from "@babylonjs/core/Materials/uniformBuffer.js";
 import type { SubMesh } from "@babylonjs/core/Meshes/subMesh.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import type { BlendBox } from "../probeBoxes";
+import { MycoMaterialPlugin } from "./mycoMaterialPlugin";
 import { pbrInjections } from "./pbrInjection";
 
 /** What a probe copy blends towards. */
@@ -104,22 +104,17 @@ class ProbeBlendDefines extends MaterialDefines {
 }
 
 /** @internal The plugin on a probe copy that blends towards a neighbour's cube map. */
-export class MycoProbeBlendPlugin extends MaterialPluginBase {
+export class MycoProbeBlendPlugin extends MycoMaterialPlugin {
   constructor(
     material: PBRMaterial,
     readonly state: ProbeBlendState,
   ) {
-    super(material, "MycoProbeBlend", 210, new ProbeBlendDefines(), false);
-    (this._pluginManager as unknown as { _addPlugin(p: MaterialPluginBase): boolean })._addPlugin(this);
-    this._enable(true);
+    super(material, "MycoProbeBlend", 210, new ProbeBlendDefines());
+    this.register();
   }
 
   override getClassName(): string {
     return "MycoProbeBlendPlugin";
-  }
-
-  override isCompatible(shaderLanguage: ShaderLanguage): boolean {
-    return shaderLanguage === ShaderLanguage.WGSL || shaderLanguage === ShaderLanguage.GLSL;
   }
 
   override isReadyForSubMesh(): boolean {

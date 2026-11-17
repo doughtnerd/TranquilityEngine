@@ -1,9 +1,8 @@
 import { NullEngine } from "@babylonjs/core/Engines/nullEngine.js";
 import { Scene } from "@babylonjs/core/scene.js";
-import { pbrPixelShaderWGSL } from "@babylonjs/core/ShadersWGSL/pbr.fragment.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createGraphMaterial, type GraphShared } from "../render/babylon/graphMaterial";
-import { codeAt, graphCode } from "./graphPluginCode";
+import { graphShaders } from "./graphPluginCode";
 import { defaultShaderGraph, type GraphNode, type ShaderGraph } from "../scene/shaderGraph";
 import { compileShaderGraph } from "../render/shaderGraph/compile";
 import { nodePorts } from "../render/shaderGraph/nodes";
@@ -70,30 +69,19 @@ describe("physical shader graphs", () => {
 // The graph's physical values reach Babylon's PBR shader (ADR 0052): the plugin replaces each layer's
 // uniform reads in the fragment shader, and the material switches the layers on so Babylon compiles them.
 describe("physical shader graphs on Babylon", () => {
+  /** The line of the shader text that calls Babylon's reflectivity block. */
+  const reflectivityCall = (src: string): string => src.slice(src.indexOf("reflectivityOut=reflectivityBlock(")).split("\n")[0];
   const allFeatures = (): ShaderGraph => {
     const g = graph([node("f", "float", { inputs: { x: 0.7 } })], [["f.out", "output.clearcoat"]], { target: "physical" });
     outputOf(g).inputs = { clearcoatRoughness: 0.2, sheenColor: [1, 0.5, 0.25], sheenRoughness: 0.4, transmission: 0.8, thickness: 0.3, ior: 1.33, iridescence: 0.6, specularIntensity: 0.5 };
     return g;
   };
-  /** Babylon's raw PBR WGSL with the plugin's regular-expression injections applied, as Babylon applies them. */
-  const inject = (code: Record<string, string>): string => {
-    let src = pbrPixelShaderWGSL.shader;
-    for (const [key, value] of Object.entries(code)) {
-      if (!key.startsWith("!")) continue;
-      const rx = new RegExp(key.slice(1), "g");
-      expect(rx.test(src), `${key} matches Babylon's PBR fragment shader`).toBe(true);
-      src = src.replace(new RegExp(key.slice(1), "g"), () => value);
-    }
-    return src;
-  };
-
-  it("replaces every layer's uniform with the graph's values, in Babylon's own fragment shader", () => {
+  it("replaces every layer's uniform with the graph's values, in Babylon's own fragment shader", async () => {
     const c = compileShaderGraph(allFeatures());
     expect(c.problems).toEqual([]);
     const p = c.fragment.physical!;
     expect(Object.keys(p).sort()).toEqual(["clearcoat", "clearcoatRoughness", "ior", "iridescence", "sheenColor", "sheenRoughness", "specularIntensity", "thickness", "transmission"]);
-    const code = graphCode(c, "fragment");
-    const src = inject(code);
+    const src = (await graphShaders(c)).main.fragment;
     expect(src).toContain(`vec2f(${p.clearcoat}, ${p.clearcoatRoughness})`);
     expect(src).not.toMatch(/uniforms\.vClearCoatParams\b/);
     expect(src).toContain(`vec4f(${p.sheenColor}, 1.0)`);
@@ -105,20 +93,20 @@ describe("physical shader graphs on Babylon", () => {
     expect(src).toContain(`vec4f(${p.iridescence}, uniforms.vIridescenceParams.yzw)`);
     expect(src).toContain(`vec4f(uniforms.vMetallicReflectanceFactors.rgb, ${p.specularIntensity})`);
     // The IOR also sets the base layer's F0 at the reflectivity block, beside metallic and roughness.
-    expect(codeAt(code, "!reflectivityBlock")).toContain(`${p.ior}, pow((${p.ior} - 1.0) / (${p.ior} + 1.0), 2.0)`);
+    expect(reflectivityCall(src)).toContain(`${p.ior}, pow((${p.ior} - 1.0) / (${p.ior} + 1.0), 2.0)`);
     // Each value is computed in the fragment body, at the start of main, before the layers read it.
     for (const v of Object.values(p)) expect(c.fragment.body).toContain(`${v}`);
   });
 
-  it("injects nothing for physical features the graph leaves off, and keeps the material's IOR", () => {
+  it("injects nothing for physical features the graph leaves off, and keeps the material's IOR", async () => {
     const g = graph([node("f", "float", { inputs: { x: 0.7 } })], [["f.out", "output.clearcoat"]], { target: "physical" });
-    const code = graphCode(compileShaderGraph(g), "fragment");
-    const keys = Object.keys(code).join(" ");
-    expect(keys).toContain("vClearCoatParams");
-    for (const k of ["vSheenColor", "vSubSurfaceIntensity", "vThicknessParam", "vRefractionInfos", "vIridescenceParams", "vMetallicReflectanceFactors"]) expect(keys).not.toContain(k);
-    expect(codeAt(code, "!reflectivityBlock")).toContain("uniforms.vReflectivityColor.zw");
+    const src = (await graphShaders(compileShaderGraph(g))).main.fragment;
+    expect(src).not.toMatch(/uniforms\.vClearCoatParams\b/);
+    for (const u of ["vSheenColor", "vSubSurfaceIntensity", "vThicknessParam", "vRefractionInfos", "vIridescenceParams"]) expect(src).toMatch(new RegExp(`uniforms\\.${u}\\b`));
+    expect(src).toMatch(/var\s+metallicReflectanceFactors\s*:\s*vec4f\s*=\s*uniforms\.vMetallicReflectanceFactors\s*;/);
+    expect(reflectivityCall(src)).toContain("uniforms.vReflectivityColor.zw");
     // Lit graphs have no physical part at all.
-    expect(Object.keys(graphCode(compileShaderGraph(defaultShaderGraph()), "fragment")).join(" ")).not.toContain("vClearCoatParams");
+    expect((await graphShaders(compileShaderGraph(defaultShaderGraph()))).main.fragment).toMatch(/uniforms\.vClearCoatParams\b/);
   });
 
   describe("on the NullEngine", () => {
