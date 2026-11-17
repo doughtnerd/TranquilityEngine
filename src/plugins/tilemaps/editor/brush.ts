@@ -1,14 +1,14 @@
 // Tilemap painting in the editor (ADR 0103): the brush the Tile Palette sets up, and the edits a
 // stroke makes. Strokes paint the Editor World's Tilemap at once (so painting shows while the
 // pointer moves) and commit to the scene document as one SetField of `layers` when they end.
-import { signal } from "@preact/signals";
+import { signal, type ReadonlySignal } from "@preact/signals";
 import { type GameObject } from "../../../engine";
 import { Tilemap } from "../runtime";
 import { floodCells, lineCells, rectCells, type Cell, type Stamp } from "../runtime/brushes";
 import { FLIP_X, FLIP_Y, cellValue, flagsOf, tileIdOf } from "../runtime/format";
 import { brushValueAt } from "./brushCells";
 import { compose, rotateClockwise } from "../runtime/tileFlips";
-import { SetField, type OpenScene } from "../../../editor/sdk";
+import { SetField, editor, type OpenScene } from "../../../editor/sdk";
 
 export type BrushTool = "pencil" | "rect" | "fill" | "erase" | "pick";
 
@@ -20,8 +20,11 @@ export const BRUSH_TOOLS: readonly { tool: BrushTool; label: string; key: string
   { tool: "pick", label: "Pick", key: "I", title: "Pick a tile from the map; drag to pick a stamp (I, or Alt-click)" },
 ];
 
-/** The active brush tool; null when the scene view is selecting as usual. */
-export const brushTool = signal<BrushTool | null>(null);
+/** The paint tool's id (ADR 0138): also its overlay id and its active-tool id. */
+export const PAINT_TOOL_ID = "myco.tilemaps.paint";
+
+/** The active brush tool, the paint tool's mode (ADR 0231); null when the scene view is selecting as usual. */
+export const brushTool: ReadonlySignal<BrushTool | null> = editor.viewport.mode<BrushTool>(PAINT_TOOL_ID);
 /** What the brush paints: a block of cell values (a single tile is 1 × 1). */
 export const brushStamp = signal<Stamp>({ width: 1, height: 1, values: [1] });
 /** Paint each cell with one of the stamp's tiles at random (by the tiles' weights) instead of the block. */
@@ -33,16 +36,17 @@ export const brushFlags = signal(0);
 /** The layer painted, by index. */
 export const activeLayer = signal(0);
 
-/** Pick a brush tool (null ends painting). */
+/** Pick a brush tool: the paint tool becomes the active viewport tool in that mode (null ends painting). */
 export function pickBrushTool(t: BrushTool | null): void {
-  brushTool.value = t;
+  if (t) editor.viewport.enter(PAINT_TOOL_ID, t);
+  else editor.viewport.leave(PAINT_TOOL_ID);
 }
 
 /** Brush a single tile. */
 export function brushTile(id: number): void {
   brushStamp.value = { width: 1, height: 1, values: [id] };
   brushTerrain.value = null;
-  if (!brushTool.peek() || brushTool.peek() === "erase" || brushTool.peek() === "pick") brushTool.value = "pencil";
+  if (!brushTool.peek() || brushTool.peek() === "erase" || brushTool.peek() === "pick") pickBrushTool("pencil");
 }
 
 export function flipBrush(axis: "x" | "y" | "rotate"): void {
@@ -125,7 +129,7 @@ export function pickFromMap(map: Tilemap, a: Cell, b: Cell = a): void {
   brushStamp.value = { width: w, height: h, values };
   brushTerrain.value = null;
   brushFlags.value = 0;
-  brushTool.value = "pencil";
+  pickBrushTool("pencil");
 }
 
 /** The Tilemap on a World node (the first, with its index for SetField). */
@@ -142,7 +146,5 @@ export function commitTilemap(scene: OpenScene, path: readonly string[], map: Ti
   const value = map.toLayerData();
   const previous = scene.doc.isPrefabInstance(id) ? scene.doc.overrideValue(id, target, "engine.Tilemap", "layers", 0) : scene.doc.fieldValue(id, "engine.Tilemap", "layers", 0);
   if (JSON.stringify(previous) === JSON.stringify(value)) return;
-  scene.stack.beginGroup(label);
-  scene.stack.execute(new SetField(id, "engine.Tilemap", "layers", value, { index: 0, target }));
-  scene.stack.endGroup();
+  editor.scene.edit(label, () => scene.stack.execute(new SetField(id, "engine.Tilemap", "layers", value, { index: 0, target })), scene);
 }

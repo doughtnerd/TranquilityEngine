@@ -285,11 +285,12 @@ function PropertyRow(props: { name: string; overridden: boolean; onRevert: () =>
  * group opens on pointer down and closes on the pointer's release.
  */
 function groupGesture(scene: OpenScene): void {
-  scene.stack.beginGroup("Edit particle property");
+  const step = editor.scene.beginEdit("Edit particle property", scene);
+  if (!step) return;
   const end = () => {
     window.removeEventListener("pointerup", end, true);
     window.removeEventListener("pointercancel", end, true);
-    scene.stack.endGroup();
+    step.end();
   };
   window.addEventListener("pointerup", end, true);
   window.addEventListener("pointercancel", end, true);

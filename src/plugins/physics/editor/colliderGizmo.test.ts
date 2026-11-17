@@ -2,17 +2,18 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Engine, PolygonCollider2D } from "../../../myco";
 import { AddComponent, SetField } from "../../../editor/document";
 import type { EditorOverlay } from "../../../engine/editor";
-import { viewportTools } from "../../../editor/sdk/contributions";
-import { selectableOutlines } from "../../../editor/viewportTools";
-import { colliderTool, editingCollider } from "./colliderGizmo";
+import { editor, viewportTools } from "../../../editor/sdk";
+import { colliderTool, type EditingCollider } from "./colliderGizmo";
 import { MIN_EXTENT, capsule2DHandles, capsule2DPoints, dragCapsule2DHeight, dragCapsule2DRadius, boxCorners, boxHandles, circleHandles, circlePoints, dragBoxEdge, dragCircleRadius, pointInPolygon, polygonArea, toLocal, toWorld, type Pose2D } from "./colliderMath";
 import { openSceneFile } from "../../../editor/project";
-import { openScene, playState, selection } from "../../../editor/state";
 import { DEMO_SCENE, demoAssets, demoSettings, sceneViewTools } from "../../../editor/testing";
 
 const close = (a: readonly number[], b: readonly number[]) => a.forEach((v, i) => expect(v).toBeCloseTo(b[i], 6));
 const identity: Pose2D = { position: [0, 0, 0], rotation: 0, scale: [1, 1] };
 const posed: Pose2D = { position: [2, 1, -3], rotation: 90, scale: [2, 3] };
+/** Edit a collider, as the Inspector's Edit Collider button does. */
+const editCollider = (editing: EditingCollider) => editor.viewport.enter(colliderTool.id, editing);
+const select = (key: string | null) => editor.scene.selection.set(key ? [key] : []);
 
 describe("collider shapes in world space", () => {
   it("scales, rotates and offsets local points, and maps them back", () => {
@@ -102,13 +103,13 @@ describe("the overlay with the demo scene open", () => {
 
   afterEach(() => {
     view.stop();
-    editingCollider.value = null;
-    selection.value = null;
+    editor.viewport.leave(colliderTool.id);
+    select(null);
     engine.dispose();
   });
 
   it("outlines every collider, the selected one brighter, with no handles until editing", () => {
-    selection.value = "bird";
+    select("bird");
     const overlay = view.overlay();
     expect(overlay.lines).toHaveLength(3); // ground, ceiling, bird
     const bird = overlay.lines.find((l) => l.points.length > 4)!;
@@ -118,40 +119,40 @@ describe("the overlay with the demo scene open", () => {
   });
 
   it("outlines a 2D character controller upright and gives it radius, height and centre handles", () => {
-    const { stack, sync } = openScene.value!;
+    const { stack, sync } = editor.scene.peekOpen()!;
     stack.execute(new AddComponent("bird", { type: "engine.CharacterController2D", data: { radius: 0.5, height: 2 } }));
     const node = sync.nodeFor("bird")!;
     stack.execute(new SetField("bird", "engine.Transform", "rotation", 90));
-    const shape = selectableOutlines(engine.world).filter((s) => s.node === node).find((s) => s.points.length === 34)!;
+    const shape = view.overlay().lines.find((l) => l.points.length === 34)!;
     const ys = shape.points.map((p) => p[1]), xs = shape.points.map((p) => p[0]);
     expect(Math.max(...ys) - Math.min(...ys)).toBeCloseTo(2 * Math.abs(node.transform!.worldScale.y));
     expect(Math.max(...xs) - Math.min(...xs)).toBeCloseTo(1 * Math.abs(node.transform!.worldScale.x));
-    selection.value = "bird";
-    editingCollider.value = { key: "bird", type: "engine.CharacterController2D", index: 0 };
+    select("bird");
+    editCollider({ key: "bird", type: "engine.CharacterController2D", index: 0 });
     expect(view.overlay().handles.map((h) => h.id).sort()).toEqual(["center", "height-bottom", "height-top", "radius-left", "radius-right"]);
   });
 
   it("adds handles for the collider being edited", () => {
-    selection.value = "ground-collider";
-    editingCollider.value = { key: "ground-collider", type: "engine.BoxCollider2D", index: 0 };
+    select("ground-collider");
+    editCollider({ key: "ground-collider", type: "engine.BoxCollider2D", index: 0 });
     const ids = view.overlay().handles.map((h) => h.id);
     expect(ids.sort()).toEqual(["bottom", "center", "left", "right", "top"]);
 
-    selection.value = "bird"; // a stale edit target draws nothing
+    select("bird"); // selecting another node ends editing: no handles
     expect(view.overlay().handles).toEqual([]);
   });
 
   it("outlines polygon (closed) and edge (open) colliders, with vertex and insert handles when edited (ADR 0039)", () => {
-    const { stack, sync } = openScene.value!;
+    const { stack, sync } = editor.scene.peekOpen()!;
     stack.execute(new AddComponent("bird", { type: "engine.PolygonCollider2D", data: { points: [[0, 0], [1, 0], [0, 1]] } }));
     stack.execute(new AddComponent("bird", { type: "engine.EdgeCollider2D", data: { points: [[0, 0], [2, 0]] } }));
     const node = sync.nodeFor("bird")!;
     expect(node.getBehavior(PolygonCollider2D)!.points).toEqual([[0, 0], [1, 0], [0, 1]]);
-    selection.value = "bird";
+    select("bird");
     const lines = view.overlay().lines;
     expect(lines.filter((l) => l.points.length === 3 && l.closed)).toHaveLength(1);
     expect(lines.filter((l) => l.points.length === 2 && !l.closed)).toHaveLength(1);
-    editingCollider.value = { key: "bird", type: "engine.PolygonCollider2D", index: 0 };
+    editCollider({ key: "bird", type: "engine.PolygonCollider2D", index: 0 });
     const ids = view.overlay().handles.map((h) => h.id).sort();
     expect(ids).toEqual(["center", "insert:0", "insert:1", "insert:2", "vertex:0", "vertex:1", "vertex:2"]);
     stack.execute(new SetField("bird", "engine.PolygonCollider2D", "points", [[0, 0], [1, 0], [1, 1], [0, 1]]));
@@ -162,7 +163,6 @@ describe("the overlay with the demo scene open", () => {
 /** The collider tool on `engine`'s scene view, over a fake viewport (ADR 0128): what it draws now, and a function that removes it. */
 function colliderView(engine: Engine): { overlay: () => EditorOverlay; stop: () => void } {
   const off = viewportTools.register(colliderTool);
-  playState.value = "edit";
   const view = sceneViewTools(engine);
   return { overlay: view.overlay, stop: () => (view.stop(), off()) };
 }
