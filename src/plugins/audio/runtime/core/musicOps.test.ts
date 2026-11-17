@@ -2,7 +2,7 @@
 // P10: `music` is `musicOps` with every capability, `beginFrame` is idempotent per frame, `timeAt` is the clock map's
 // raw heard clock, `latency` adds the limiter, stream event 4 and music members' events route to musicOps,
 // `reopenStreams` hands groups to `reopenGroups`, and `Audio.debug()` reads `musicOps`. On a fake host (no wasm).
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Mixer } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings } from "../../../../engine/audio/settings";
 import type { AudioHost, HostLifecycleListener } from "./context";
@@ -25,7 +25,7 @@ import { watchBatches } from "./batchWatch";
 import { VoiceState, VoiceTable } from "./voiceTable";
 import { fakeHostClock } from "../testing";
 import { fakeDecoder } from "./fakeDecoder";
-import { endAudioSession } from "../testing";
+import { endAudioSession, loopbackAudio, closeLoopbackAudio } from "../testing";
 
 /** The prime-latency average's seed before any prime has been measured, ms. */
 const PRIME_EMA_SEED_MS = 40;
@@ -75,6 +75,8 @@ function rig(latency?: { base: number; output: number }) {
   const backend = new CoreBackend(host, { clips: fakeClips(), clock, mixer: new Mixer(defaultAudioSettings()) });
   return { backend, clock, raf: () => raf };
 }
+
+afterEach(closeLoopbackAudio);
 
 describe("the core's music seam (ADR 0166 §4.6, Q2)", () => {
   it("music is musicOps, with every capability the core will have, and stubs that refuse safely", () => {
@@ -668,34 +670,20 @@ describe("a voice's stamped ramps and stem level, as musicOps keeps them (ADR 01
 
 describe("a stamped group on the loopback host (ADR 0166 P1)", () => {
   it("every decoded member starts on the stamp's frame, together", async (ctx) => {
-    const testing = await import("../testing");
-    let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>>;
-    try {
-      loop = await testing.createLoopbackHost({ preset: { ...testing.LOOPBACK_PRESET, limiterLookaheadMs: 0 } });
-    } catch {
-      return ctx.skip();
-    }
-    const { createClipRegistry } = await import("./clipRegistry");
-    const link = loop.link;
     const FRAMES = 48_000;
     const dc = new Float32Array(FRAMES).fill(0.25);
-    const clips = createClipRegistry({
-      send: (m) => link.post(m),
-      nextSeq: () => link.nextSeq(),
-      fetchBytes: async () => new ArrayBuffer(8),
-      decodeWorker: fakeDecoder(async () => ({ frames: FRAMES, channels: 1, sampleRate: 48_000, channelData: [dc] })),
-      nextFrame: (cb) => cb(),
-      nextQuantum: (cb) => cb(),
-    });
-    const host: CoreBackendHost = { link, status: "running", preset: { maxLogical: 16, maxMixed: 8 }, worldCount: 1, sampleRate: 48_000, addLifecycleListener: (() => () => {}) as AudioHost["addLifecycleListener"] };
-    const mixer = new Mixer(defaultAudioSettings());
-    const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer });
+    // ADR 0221: the production assembly on the loopback, with its own mixer; no limiter look-ahead (output frames are core frames).
+    const loop = await loopbackAudio({ mixer: "own", preset: { maxLogical: 16, maxMixed: 8, limiterLookaheadMs: 0 }, decode: () => ({ channelData: [dc] }) });
+    if (!loop) return ctx.skip();
+    const { backend, mixer } = loop;
+    /** The core frame `out[0]` was rendered at. */
+    const origin = loop.frame;
     const out: number[] = [];
     const step = async (n: number) => {
       for (let f = 0; f < n; f++) {
         mixer.update(0.003);
         backend.update(0.003);
-        const { left } = loop.renderQuanta(4);
+        const { left } = loop.render(4);
         for (const s of left) out.push(s);
         await Promise.resolve();
       }
@@ -714,7 +702,7 @@ describe("a stamped group on the loopback host (ADR 0166 P1)", () => {
     expect(voices.filter((v) => v !== null)).toHaveLength(2);
     await step(30);
     const first = out.findIndex((s) => s !== 0);
-    expect(first).toBe(planned);
+    expect(origin + first).toBe(planned);
     // Both members from that frame on: twice the clip's level (bus and master at unity).
     expect(out[first]).toBeCloseTo(out[first + 1000]!, 6);
     expect(out[first]!).toBeGreaterThan(0.25 * 1.5);

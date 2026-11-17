@@ -5,17 +5,14 @@
 // cleanly; an unload mid-decode cancels; a worker that cannot run fails the clip loads, one warning each.
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it, vi } from "vitest";
-import { Mixer } from "../../../../engine/audio/mixer";
-import { defaultAudioSettings } from "../../../../engine/audio/settings";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDecoderHandler } from "../decoder/handler";
 import { createDecoderClient, type DecoderClient, type WorkerLike } from "../decoder/decoderClient";
 import { hintFromName, type DecoderRequest } from "../decoder/protocol";
 import hash from "../wasm/hash.json";
 import { CLIP_CHUNK_FIXED_END, ClipEvent, ClipFormat, Kind, readClipBegin, readClipChunk } from "../wire.generated";
-import type { AudioHost, CoreLink } from "./context";
 import { createClipRegistry, type ClipRegistryDeps } from "./clipRegistry";
-import { CoreBackend, type CoreBackendHost } from "./coreBackend";
+import { loopbackAudio, closeLoopbackAudio } from "../testing";
 
 const FIXTURES = fileURLToPath(new URL("../../../../../native/audio/crates/audio-decode/tests/fixtures/", import.meta.url));
 const WASM = readFileSync(fileURLToPath(new URL("../wasm/myco_audio_decode.wasm", import.meta.url)));
@@ -138,6 +135,8 @@ async function straight(name: string) {
   client.dispose();
   return clip;
 }
+
+afterEach(closeLoopbackAudio);
 
 describe("clip registry on the decoder worker (B5)", () => {
   for (const name of ["tone-48000-stereo.wav", "tone-48000-stereo.flac", "tone-44100-mono.mp3", "tone-44100-mono.ogg", "tone-22050-stereo-s24.flac"]) {
@@ -367,38 +366,21 @@ describe("clip registry on the decoder worker (B5)", () => {
 
 describe("worker-sourced clips play on the loopback host (B5)", () => {
   async function loopRig(file: string) {
-    const testing = await import("../testing");
-    let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>> & { link: CoreLink };
-    try {
-      loop = (await testing.createLoopbackHost({ preset: { ...testing.LOOPBACK_PRESET, limiterLookaheadMs: 0 } })) as typeof loop;
-    } catch {
-      return null;
-    }
-    const link = loop.link;
     const client = createDecoderClient({ workerFactory: inProcessWorker({ posted: [] }), wasmBytes: wasmBytes() });
-    const clips = createClipRegistry({
-      send: (m) => link.post(m),
-      nextSeq: () => link.nextSeq(),
-      fetchBytes: async () => fixture(file),
-      decodeWorker: client,
-      nextFrame: (cb) => cb(),
+    // ADR 0221: the production assembly on the loopback, with its own mixer; the registry decodes on the worker.
+    const loop = await loopbackAudio({
+      mixer: "own",
+      preset: { maxLogical: 16, maxMixed: 8, limiterLookaheadMs: 0 },
+      clipRegistry: { fetchBytes: async () => fixture(file), decodeWorker: client, nextQuantum: (cb) => void setTimeout(cb, 0) },
     });
-    const host: CoreBackendHost = {
-      link,
-      status: "running",
-      preset: { maxLogical: 16, maxMixed: 8 },
-      worldCount: 1,
-      sampleRate: 48_000,
-      addLifecycleListener: (() => () => {}) as AudioHost["addLifecycleListener"],
-    };
-    const mixer = new Mixer(defaultAudioSettings());
-    const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer });
+    if (!loop) return null;
+    const { backend, mixer } = loop;
     const out: number[] = [];
     const step = async (n: number) => {
       for (let f = 0; f < n; f++) {
         mixer.update(0.003);
         backend.update(0.003);
-        const { left } = loop.renderQuanta(4);
+        const { left } = loop.render(4);
         for (const s of left) out.push(s);
         await new Promise((r) => setTimeout(r, 1));
       }

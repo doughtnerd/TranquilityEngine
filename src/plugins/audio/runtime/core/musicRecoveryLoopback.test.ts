@@ -13,8 +13,9 @@ import type { AudioBackground } from "../backend";
 import { fakeDecoder } from "./fakeDecoder";
 import { createClipRegistry } from "./clipRegistry";
 import { AudioHost, presetFromSettings, type ContextParts } from "./context";
-import { createCoreBackend, type CoreBackend } from "./coreBackend";
-import { rebuildHost, watchForTraps, type RebuildOutcome } from "./recovery";
+import { type CoreBackend } from "./coreBackend";
+import { assembleCore } from "./assembly";
+import { rebuildHost, type RebuildOutcome } from "./recovery";
 import { BackgroundController, type VisibilitySource } from "./background";
 import { Unlock, type UnlockContext } from "./unlock";
 import { createMusicPlayer, musicEarlyStep, musicPlanStep, type MusicPlayer } from "../music/musicSystem";
@@ -125,8 +126,8 @@ async function rig() {
     nextQuantum: (cb) => cb(),
   });
   const mixer = new Mixer(defaultAudioSettings());
-  const backend: CoreBackend = createCoreBackend(host, { clips, clock: loop.clock, mixer });
-  watchForTraps(host, { now: () => 0, warn: () => {} });
+  // ADR 0221: the production assembly over this host.
+  const backend: CoreBackend = assembleCore(host, { clips, clock: loop.clock, mixer, recovery: { now: () => 0, warn: () => {} } }).createBackend();
   setSegmentClipSource({
     url: (p) => p,
     settings: () => ({ volume: 1, stream: false }),
