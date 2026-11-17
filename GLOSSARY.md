@@ -56,6 +56,7 @@ The domain terms used in Myco Engine's code, decision records and reviews. Add a
 - **Stream port:** the worklet's end of the channel to the decoder worker, handed over with `CoreLink.connectStreamPort` (`{type:"streamPort"}`). Streams and zone kernels reach the audio thread on it and its credits go back on it, never through main (ADR 0223). The test loopback serves it as the AudioWorklet processor does.
 - **Frame map:** how the core maps context time to its frames: sample rate, `timeOffset` and whether a carry is pending (ADR 0224), read through `AudioClock.frameMap()`; null where the backend has no core clock.
 - **Capture event:** one EVENT record of a capture, decoded into the typed `CaptureEvent` union by the capture reader (ADR 0227, `capture/events.ts` beside the writer). The Profiler reads only capture events, never the EVENT arg layout. _Avoid:_ `args[n]` outside `capture/events.ts`.
+- **Keyframe layout:** the KEYFRAME row encoding of a capture (caps, state codes, flag bits, `NO_NAME`, u4.12 pitch, u0.16 audibility), owned by `capture/keyframeLayout.ts` (ADR 0230), which imports nothing so the core can use it without loading the recorder. Writers quantise through it; readers decode only through `readCaptureKeyframe`. _Avoid:_ repeating its bits or the 4096 / 65536 scales.
 
 ## Tilemaps (ADR 0103)
 
