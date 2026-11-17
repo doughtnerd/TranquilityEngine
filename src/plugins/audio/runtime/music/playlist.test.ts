@@ -4,9 +4,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { setAudioBackend } from "../backend";
 import { makeFakeBackend, type FakeBackend, endAudioSession } from "../testing";
 import type { EventInstance } from "../events/eventRuntime";
-import { parseSegmentNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
+import { parseSegmentNode, type SegmentNode, type MusicNode } from "../../../../engine/audio/musicFormat";
 import type { MusicClipFacts } from "../../../../engine/audio/musicValidate";
-import { createMusicPlayer, type MusicFrame, type MusicNodeRef, type MusicPlayer } from "./musicSystem";
+import { createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
 import { planTick } from "./planner";
 import { tickTransition } from "./transition";
 import { createPlaylistState, enterPlaylist, tickPlaylist } from "./playlist";
@@ -29,11 +29,11 @@ function segment(id: string, plays = 1, stems = 2): SegmentNode {
   return node;
 }
 
-function playlist(id: string, children: unknown[], over: Record<string, unknown> = {}): MusicNodeRef {
+function playlist(id: string, children: unknown[], over: Record<string, unknown> = {}): MusicNode {
   return {
     type: "playlist", id, mode: "sequence", rounds: 1, avoidRepeat: 0, weight: 1, plays: 1, transitions: [], stingers: [], library: [],
     children, ...over,
-  } as unknown as MusicNodeRef;
+  } as unknown as MusicNode;
 }
 
 let groupIds = 70;

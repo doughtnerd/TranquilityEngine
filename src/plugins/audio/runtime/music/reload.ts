@@ -22,11 +22,10 @@
  * - A change that arrives while another change is planned waits until that plan has been stamped.
  */
 import type { AudioVoice } from "../backend";
-import { eventNodes, type AnyEventNode } from "../../../../engine/audio/eventFormat";
-import type { SegmentNode } from "../../../../engine/audio/musicFormat";
+import { isMusicContainer, type SegmentNode, type MusicNode } from "../../../../engine/audio/musicFormat";
 import { compileSegmentGrid, entrySeconds, exitSeconds, ticksToSeconds, type SegmentGrid, type TempoMap } from "../../../../engine/audio/musicGrid";
 import { advanceAnchor, anchorRun, ticksAt } from "./anchors";
-import { musicPlayers, type MusicFrame, type MusicNodeRef, type MusicPlayer } from "./musicSystem";
+import { musicPlayers, type MusicFrame, type MusicPlayer } from "./musicSystem";
 import { lookaheadSeconds, requestStart, type PlannedStart } from "./planner";
 import { cancelRun, segmentClipSource, type SegmentRun } from "./segmentRun";
 
@@ -42,7 +41,7 @@ export interface ReloadHost {
   /** Drop what is cached for the clip file `path` (the clip registry's decoded slot, the worker's encoded bytes). */
   invalidateClip(path: string): void;
   /** The event asset's current music root, or null when the asset is missing or isn't a music event. */
-  eventRoot(path: string): MusicNodeRef | null;
+  eventRoot(path: string): MusicNode | null;
 }
 
 let host: ReloadHost | null = null;
@@ -122,21 +121,23 @@ function sameTempoMap(a: TempoMap, b: TempoMap): boolean {
     sameArray(a.beatsPerBar, b.beatsPerBar, a.count) && sameArray(a.beatUnit, b.beatUnit, a.count);
 }
 
-function gridOfNode(node: MusicNodeRef): { grid: SegmentGrid; rate: number } | null {
-  const seg = node as Partial<SegmentNode>;
-  if (node.type !== "segment" || !Array.isArray(seg.tempo)) return null;
-  const clip = seg.tracks?.find((t) => t.clip)?.clip;
+function gridOfNode(node: MusicNode): { grid: SegmentGrid; rate: number } | null {
+  if (node.type !== "segment") return null;
+  const seg = node;
+  const clip = seg.tracks.find((t) => t.clip)?.clip;
   const facts = clip ? segmentClipSource().facts(clip) : undefined;
   const known = facts && facts.rate > 0 ? facts : undefined;
-  const grid = compileSegmentGrid({ ...seg, cues: seg.cues ?? [] } as SegmentNode, known ? { endSeconds: known.frames / known.rate } : {});
+  const grid = compileSegmentGrid(seg, known ? { endSeconds: known.frames / known.rate } : {});
   return { grid, rate: known?.rate ?? 48_000 };
 }
 
 /** A segment node by id in an event's music tree (children and library), or null. */
-function findNode(root: MusicNodeRef, id: string): MusicNodeRef | null {
-  for (const n of eventNodes(root as unknown as AnyEventNode)) {
-    const ref = n as unknown as MusicNodeRef;
-    if (ref.id === id && ref.type === "segment") return ref;
+function findNode(root: MusicNode, id: string): MusicNode | null {
+  if (root.id === id && root.type === "segment") return root;
+  if (!isMusicContainer(root)) return null;
+  for (const n of [...root.children, ...root.library]) {
+    const found = findNode(n, id);
+    if (found) return found;
   }
   return null;
 }
@@ -156,7 +157,7 @@ function fadeOutgoing(run: SegmentRun, at: number, seconds: number): AudioVoice[
 }
 
 /** Plan the swap of the playing segment for `node` at the next bar. False when nothing could be planned yet. */
-function planSwap(player: MusicPlayer, st: ReloadState, node: MusicNodeRef, f: MusicFrame): boolean {
+function planSwap(player: MusicPlayer, st: ReloadState, node: MusicNode, f: MusicFrame): boolean {
   const old = player.run;
   const anchor = player.anchor;
   if (!old || !anchor) return false;
@@ -243,8 +244,8 @@ export function applyReloads(player: MusicPlayer, f: MusicFrame): void {
   if (player.planned && player.planned !== st.planned) return; // another change is planned: wait for its stamp
 
   // The segment as it is now: the new event's node, or this node when only a clip file changed.
-  let node: MusicNodeRef = run.node;
-  let root: MusicNodeRef | null = null;
+  let node: MusicNode = run.node;
+  let root: MusicNode | null = null;
   let changedNode = false;
   if (st.event) {
     st.event = false;
@@ -261,9 +262,9 @@ export function applyReloads(player: MusicPlayer, f: MusicFrame): void {
   let clipsChanged = false;
   for (const p of st.clips) if (usesClip(run, p)) clipsChanged = true;
   st.clips.clear();
-  if (root) (player as { root: MusicNodeRef }).root = root; // rules, playlists, switches and stingers apply to the next decision
+  if (root) (player as { root: MusicNode }).root = root; // rules, playlists, switches and stingers apply to the next decision
   if (!changedNode && !clipsChanged) return;
   // A fresh node object when only a file changed: the length and tempo caches are keyed by node, and the file's length may differ.
-  if (!changedNode) node = { ...(node as object) } as MusicNodeRef;
+  if (!changedNode) node = { ...node };
   planSwap(player, st, node, f);
 }

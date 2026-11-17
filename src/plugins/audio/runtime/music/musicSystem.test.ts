@@ -10,6 +10,7 @@ import { makeFakeBackend, type FakeBackend, endAudioSession } from "../testing";
 import type { EventInstance } from "../events/eventRuntime";
 import { createMusicPlayer, disposeMusicPlayer, musicActive, musicPlanStep, musicPlayers, playerOf } from "./musicSystem";
 import { routeGroupEvent } from "./segmentRun";
+import { emptySegment } from "../../../../engine/audio/musicFormat";
 
 const step = AUDIO_SYSTEMS.find((s) => s.name === "engine.AudioMusic")!;
 const viewWorld = { render: {}, _componentsOfType: () => [] } as unknown as World;
@@ -49,8 +50,8 @@ describe("engine.AudioMusic (ADR 0166 §6 step 0, ADR 0167 §2)", () => {
   it("runs while a music instance plays, only in the World with the view, and stops when it ends", () => {
     const b = rig();
     const instance = fakeInstance(7);
-    const player = createMusicPlayer(instance, { id: "explore", type: "segment" }, { at: 3 });
-    expect(createMusicPlayer(instance, { id: "explore", type: "segment" })).toBe(player);
+    const player = createMusicPlayer(instance, emptySegment("explore"), { at: 3 });
+    expect(createMusicPlayer(instance, emptySegment("explore"))).toBe(player);
     expect(player.state).toBe("starting");
     expect(player.requestedAt).toBe(3);
     expect(playerOf(instance)).toBe(player);
@@ -73,8 +74,8 @@ describe("engine.AudioMusic (ADR 0166 §6 step 0, ADR 0167 §2)", () => {
 
   it("a player disposed during step 9 doesn't skip the next one", () => {
     const b = rig();
-    const a = createMusicPlayer(fakeInstance(1), { id: "a", type: "segment" });
-    createMusicPlayer(fakeInstance(2), { id: "b", type: "segment" });
+    const a = createMusicPlayer(fakeInstance(1), emptySegment("a"));
+    createMusicPlayer(fakeInstance(2), emptySegment("b"));
     expect(a.requestedAt).toBeNaN();
     disposeMusicPlayer(a, b);
     musicPlanStep(b, 0);

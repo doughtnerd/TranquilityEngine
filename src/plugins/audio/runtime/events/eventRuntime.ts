@@ -17,14 +17,14 @@ import {
   AUDIO_EVENT_FORMAT, REVERB_SEND_KEY, eventRootNode, isLabelled, parameterDefault, parameterRange, parseAudioEvent, sustainReleaseFade,
   type AnyEventNode, type AudioEventAsset, type Automation, type EventNode, type ParameterDef, type SustainNode, type SwitchNode,
 } from "../../../../engine/audio/eventFormat";
-import { isMusicNodeType, type MusicAutomation } from "../../../../engine/audio/musicFormat";
+import { isMusicNodeType, type MusicAutomation, type MusicNode } from "../../../../engine/audio/musicFormat";
 import { audioBackend, type AudioBackend, type AudioPanner, type AudioReason, type AudioVoice, type PlayRequest } from "../backend";
 import { warnOnce } from "../core/handle";
 import { taps } from "../mix/profileTaps";
 import { NULL_PROFILE_SINK } from "../mix/profileSink";
 import { loopPointsFor, onLoopPoints } from "../loopPoints";
 import { onAudioSessionReleased } from "../audioSession";
-import { createMusicPlayer, disposeMusicPlayer, type MusicFrame, type MusicNodeRef, type MusicPlayer } from "../music/musicSystem";
+import { createMusicPlayer, disposeMusicPlayer, type MusicFrame, type MusicPlayer } from "../music/musicSystem";
 import { segmentClipSource, stopPlayerRuns, type StemRun } from "../music/segmentRun";
 import { quantizedRamp } from "../music/stems";
 import { loopTailVoices } from "../music/loopTail";
@@ -1238,7 +1238,7 @@ export class EventInstance {
     if (isMusicNodeType(anyNode.type)) {
       // ADR 0166 P6: a segment, playlist or musicSwitch root hands the event to its music player (`music/*` plans, primes and
       // stamps the stems); nothing of the 0158 tree walk applies. `at` is `Audio.play`'s option.
-      if (!this.music) this.music = createMusicPlayer(this, anyNode as MusicNodeRef, parent.at !== null ? { at: parent.at } : {});
+      if (!this.music) this.music = createMusicPlayer(this, anyNode as MusicNode, parent.at !== null ? { at: parent.at } : {});
       return null;
     }
     const node = anyNode as EventNode;

@@ -38,17 +38,7 @@ import type { GridAnchor } from "./anchors";
 import { predictDue, seatBeats, type BeatState } from "./beatClock";
 import { taps } from "../mix/profileTaps";
 import { NULL_PROFILE_SINK } from "../mix/profileSink";
-
-/**
- * A music node as the runtime sees it before F1a/F1b's format types land: every `segment`, `playlist` and `musicSwitch`
- * node of `engine/audio/musicFormat.ts` satisfies this. Owners narrow it with the format's own guards.
- */
-export interface MusicNodeRef {
-  /** The node's id (§2.3), unique in its event. */
-  readonly id: string;
-  /** `"segment"`, `"playlist"` or `"musicSwitch"` for a music root; the format's node kinds for children. */
-  readonly type: string;
-}
+import { musicChildById, type MusicNode } from "../../../../engine/audio/musicFormat";
 
 /** The player's lifecycle (architecture §2.1's state diagram). `Pending` is a planned change (`transition`); `Transitioning` only while two segments are audible together (D18). */
 export type MusicPlayerState =
@@ -97,7 +87,7 @@ export interface MusicPlayer {
   /** The event instance that plays it (P6). Its `group` is the instance id the backend's encoded cache keys on (R16). */
   readonly instance: EventInstance;
   /** The event's music root (`segment`, `playlist` or `musicSwitch`). */
-  readonly root: MusicNodeRef;
+  readonly root: MusicNode;
   state: MusicPlayerState;
   /** Heard time (seconds) `Audio.play`'s `at` asked the first entry for; NaN: as soon as possible (R12). */
   readonly requestedAt: number;
@@ -240,7 +230,7 @@ function newCounters(): MusicCounters {
  * planner (P2) primes and stamps its first segment. `at` is `Audio.play`'s option (heard seconds); omitted or non-finite:
  * as soon as possible. A second call for the same instance returns the existing player.
  */
-export function createMusicPlayer(instance: EventInstance, root: MusicNodeRef, options: { at?: number } = {}): MusicPlayer {
+export function createMusicPlayer(instance: EventInstance, root: MusicNode, options: { at?: number } = {}): MusicPlayer {
   const existing = byInstance.get(instance);
   if (existing) return existing;
   const at = options.at;
@@ -432,7 +422,7 @@ function startSwitchRoot(player: MusicPlayer, f: MusicFrame): void {
   const state = player.musicSwitch;
   if (!state || player.root.type !== "musicSwitch" || player.state !== "starting" || player.run || player.planned) return;
   const id = childFor(state, player.instance.getParameter(state.parameter));
-  const child = (player.root as unknown as { children: MusicNodeRef[] }).children.find((c) => c.id === id);
+  const child = id === null ? undefined : musicChildById(player.root, id);
   // P4: a playlist child (however nested) descends to its first playable leaf.
   const leaf = child ? enterPlaylist(player, child) : null;
   if (!child || !leaf) {

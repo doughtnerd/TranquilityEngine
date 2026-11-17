@@ -36,14 +36,14 @@
  * `skippedCues` and the successor's anchor once per successor.
  */
 import type { MusicEvent, MusicKind } from "../../../../engine/audio/musicTypes";
-import type { SegmentNode } from "../../../../engine/audio/musicFormat";
+import { emptySegment, type SegmentNode, type MusicNode } from "../../../../engine/audio/musicFormat";
 import {
   compileSegmentGrid, nextBarTicks, secondsToTicks, spanAtTicks, ticksToPosition, ticksToSeconds, type SegmentGrid,
 } from "../../../../engine/audio/musicGrid";
 import { MUSIC_TICKS_PER_BEAT, type BarBeatTick } from "../../../../engine/audio/musicPosition";
 import { advanceAnchor, anchorRun, heardTimeOf, predictWrap, type GridAnchor } from "./anchors";
 import { segmentGrid } from "./handle";
-import type { MusicNodeRef, MusicPlayer } from "./musicSystem";
+import type { MusicPlayer } from "./musicSystem";
 import type { SegmentRun } from "./segmentRun";
 
 /** Two events of one kind closer than this (seconds) are the same event: far under a frame at any rate. */
@@ -93,7 +93,7 @@ function newCursor(): BeatCursor {
 }
 
 function blankAnchor(): MutableAnchor {
-  return { segment: "", ticks: 0, time: Number.NaN, pass: 1, node: { id: "", type: "" }, rate: 48_000 };
+  return { segment: "", ticks: 0, time: Number.NaN, pass: 1, node: emptySegment(""), rate: 48_000 };
 }
 
 /** K1: a fresh beat state (nothing fired yet; `resyncBeats` seats it at the time it is first used). */
@@ -110,7 +110,7 @@ function createBeatState(): BeatState {
 const fallbackGrids = new WeakMap<object, SegmentGrid | null>();
 
 /** The segment's grid: `handle.ts`'s cached compile; a node without a `cues` list compiles here, once. */
-function gridOf(node: MusicNodeRef): SegmentGrid | null {
+function gridOf(node: MusicNode): SegmentGrid | null {
   const g = segmentGrid(node);
   if (g) return g;
   let f = fallbackGrids.get(node);

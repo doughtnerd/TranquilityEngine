@@ -9,10 +9,10 @@
  * (`primeGroup`, one batch per group), watches `primedState`, and stamps it at the planner's time (`stampGroup`). Every
  * voice it starts is an ordinary voice tagged with its group.
  */
-import type { AudioVoice, MusicGroupEvent, MusicGroupMember, MusicGroupRequest, MusicGroupStamp, PlayRequest } from "../backend";
-import type { MusicTrack, SegmentNode } from "../../../../engine/audio/musicFormat";
+import type { AudioFrameMap, AudioVoice, MusicGroupEvent, MusicGroupMember, MusicGroupRequest, MusicGroupStamp, PlayRequest } from "../backend";
+import type { MusicTrack, SegmentNode, MusicNode } from "../../../../engine/audio/musicFormat";
 import { stemMode, type MusicClipFacts } from "../../../../engine/audio/musicValidate";
-import type { MusicFrame, MusicNodeRef, MusicPlayer } from "./musicSystem";
+import type { MusicFrame, MusicPlayer } from "./musicSystem";
 import type { EventOptions } from "../events/eventRuntime";
 import { audioBackend } from "../backend";
 import { applySlip, firstLoopOf, type MemberLoop } from "./anchors";
@@ -78,7 +78,7 @@ export type SegmentRunState = "new" | "admitted" | "priming" | "stamped" | "play
 /** One segment's run (§3.2 `SegmentRun`). P1 may add fields here. */
 export interface SegmentRun {
   /** The segment node. */
-  readonly node: MusicNodeRef;
+  readonly node: MusicNode;
   /** The player the run belongs to (P1: its counters, its instance). */
   readonly player: MusicPlayer;
   state: SegmentRunState;
@@ -113,7 +113,7 @@ export interface PrimeJob {
  * P1: a run for `node`: picks alternatives (seeded by the instance), resolves clips and the stream-or-decode rule. Does
  * not admit, prime or start anything. Null when the node has no playable track.
  */
-export function createSegmentRun(player: MusicPlayer, node: MusicNodeRef, startFrame: number): SegmentRun | null {
+export function createSegmentRun(player: MusicPlayer, node: MusicNode, startFrame: number): SegmentRun | null {
   const tracks = (node as Partial<SegmentNode>).tracks;
   if (node.type !== "segment" || !Array.isArray(tracks) || tracks.length === 0) return null;
   const stems: StemRun[] = [];
@@ -360,17 +360,10 @@ export function stopPlayerRuns(player: MusicPlayer, fadeSeconds: number, f: Musi
   stopLoopTails(player, seconds, at); // R4a: loop tails and outgoing runs still ringing stop with the same fade
 }
 
-/** What the router reads of the core backend's clock map (absent on other backends). */
-interface EventClock {
-  readonly sampleRate?: number;
-  readonly timeOffset?: number;
-  readonly carryPending?: boolean;
-}
-
-/** The core backend's clock map (a rebuild may change its rate), or null. */
-function eventClock(): EventClock | null {
+/** The backend's frame map (ADR 0224; a rebuild may change its rate), or null. */
+function eventClock(): AudioFrameMap | null {
   try {
-    return (audioBackend() as unknown as { clockMap?: EventClock }).clockMap ?? null;
+    return audioBackend().clock?.frameMap() ?? null;
   } catch {
     return null;
   }
@@ -390,9 +383,9 @@ export function routeGroupEvent(e: MusicGroupEvent, sampleRate?: number): void {
     case "start":
     case "resume": {
       const clock = sampleRate === undefined ? eventClock() : null;
-      const sr = sampleRate ?? (clock?.sampleRate && clock.sampleRate > 0 ? clock.sampleRate : 48_000);
+      const sr = sampleRate ?? (clock && clock.sampleRate > 0 ? clock.sampleRate : 48_000);
       const heard = e.kind === "start" && clock && !clock.carryPending && Number.isFinite(clock.timeOffset)
-        ? e.startFrame / sr + clock.timeOffset!
+        ? e.startFrame / sr + clock.timeOffset
         : undefined;
       applySlip(run.player, e, sr, heard);
       if (run.state === "stamped") run.state = "playing";

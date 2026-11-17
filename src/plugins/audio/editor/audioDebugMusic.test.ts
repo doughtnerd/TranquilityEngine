@@ -10,6 +10,7 @@ import { StatusMirror } from "../runtime/core/mirror";
 import { UnlockQueue } from "../runtime/core/unlockQueue";
 import { VoiceTable } from "../runtime/core/voiceTable";
 import { endAudioSession } from "../runtime/testing";
+import { emptySegment } from "../../../engine/audio/musicFormat";
 
 afterEach(() => endAudioSession());
 
@@ -59,8 +60,8 @@ describe("Audio.debug() music (P10, §1.6)", () => {
 
   it("ADR 0220: musicTotals sums main's counters over every instance, the ended ones included, until the session ends", () => {
     const { src } = source();
-    const a = createMusicPlayer({ group: 7, path: "a.audioevent.json" } as unknown as EventInstance, { id: "verse", type: "segment" });
-    const b = createMusicPlayer({ group: 8, path: "b.audioevent.json" } as unknown as EventInstance, { id: "verse", type: "segment" });
+    const a = createMusicPlayer({ group: 7, path: "a.audioevent.json" } as unknown as EventInstance, emptySegment("verse"));
+    const b = createMusicPlayer({ group: 8, path: "b.audioevent.json" } as unknown as EventInstance, emptySegment("verse"));
     a.counters.refusals.neverFits = 1;
     a.counters.recoveries.hidden = 2;
     a.counters.replans.deadline = 3;
@@ -80,13 +81,13 @@ describe("Audio.debug() music (P10, §1.6)", () => {
 
   it("a row carries every player counter and Ê, and the groups of its runs", () => {
     const { src } = source();
-    const player = createMusicPlayer({ group: 7, path: "bgm.audioevent.json" } as unknown as EventInstance, { id: "verse", type: "segment" });
+    const player = createMusicPlayer({ group: 7, path: "bgm.audioevent.json" } as unknown as EventInstance, emptySegment("verse"));
     Object.assign(player.counters, { lateGroups: 1, groupsHeld: 2, groupTimeouts: 3, lastSlipFrames: 480, missedBeats: 4, primeLastMs: 55, leadMs: 210 });
     player.counters.replans.deadline = 2;
     player.counters.refusals.poolFull = 1;
     player.counters.recoveries.hidden = 1;
     Object.assign(player.counters.stingers, { played: 1, late: 2, skipped: 3, dropped: 4 });
-    player.run = { node: { id: "verse", type: "segment" }, group: 5, stems: [{ track: "drums", streamed: true, primed: true }, { track: "pad", streamed: false, primed: true }] } as never;
+    player.run = { node: emptySegment("verse"), group: 5, stems: [{ track: "drums", streamed: true, primed: true }, { track: "pad", streamed: false, primed: true }] } as never;
     const [row] = buildDebugInfo(src).music!;
     expect(row).toMatchObject({
       id: 7, asset: "bgm.audioevent.json", segment: "verse", pending: null,
@@ -99,7 +100,7 @@ describe("Audio.debug() music (P10, §1.6)", () => {
 
   it("the panel's Music sections list the row and the totals", () => {
     const { src } = source({ poolUsed: 1, poolSize: 8, poolHighWater: 1, musicRingRefused: 0 });
-    createMusicPlayer({ group: 7, path: "bgm.audioevent.json" } as unknown as EventInstance, { id: "verse", type: "segment" });
+    createMusicPlayer({ group: 7, path: "bgm.audioevent.json" } as unknown as EventInstance, emptySegment("verse"));
     const monitor = new AudioDebugMonitor();
     monitor.observe(buildDebugInfo(src));
     const sections = monitor.view()!.sections;

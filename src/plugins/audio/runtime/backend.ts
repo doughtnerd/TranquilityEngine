@@ -435,6 +435,20 @@ export interface AudioClock {
   timeAt(performanceTime: number): number;
   /** §1.3 `Audio.latency`, seconds. */
   latency(): AudioLatency;
+  /**
+   * ADR 0224: how the core's frames map to the heard clock, read afresh each call (a context rebuild may change the rate):
+   * frame f is heard when `Audio.time` = f / `sampleRate` + `timeOffset`. `carryPending` is true from a context swap until
+   * the new context's clock gave its first estimate (`timeOffset` is not known yet). Null when the backend has no frame
+   * map (a fake without one); callers then assume 48 kHz and the event's own times.
+   */
+  frameMap(): AudioFrameMap | null;
+}
+
+/** ADR 0224: a snapshot of the core's frame-to-heard-time map (`AudioClock.frameMap`). */
+export interface AudioFrameMap {
+  readonly sampleRate: number;
+  readonly timeOffset: number;
+  readonly carryPending: boolean;
 }
 
 /**

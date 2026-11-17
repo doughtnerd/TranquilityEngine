@@ -160,7 +160,7 @@ function frameOf(backend: AudioBackend): MusicFrame {
 
 /** The context's rate (the core backend's clock map), or 0 when the backend doesn't say. */
 function contextRate(backend: AudioBackend): number {
-  const sr = (backend as { clockMap?: { sampleRate?: number } }).clockMap?.sampleRate;
+  const sr = backend.clock?.frameMap()?.sampleRate;
   return sr !== undefined && sr > 0 ? sr : 0;
 }
 

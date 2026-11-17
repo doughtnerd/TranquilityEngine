@@ -6,7 +6,8 @@ import { makeFakeBackend, type FakeBackend, endAudioSession } from "../testing";
 import type { EventInstance } from "../events/eventRuntime";
 import { ClockMap } from "../core/clock";
 import type { HostClock, OutputTimestamp } from "../core/hostClock";
-import { parseSegmentNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
+import { parseAudioEvent } from "../../../../engine/audio/eventFormat";
+import { emptySegment, parseSegmentNode, type MusicNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
 import { compileSegmentGrid, ticksToSeconds } from "../../../../engine/audio/musicGrid";
 import type { MusicClipFacts } from "../../../../engine/audio/musicValidate";
 import { createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
@@ -51,6 +52,13 @@ afterEach(() => {
   setAudioBackend(null);
 });
 
+/** A parsed playlist: a node with no grid. */
+function playlistRoot(): MusicNode {
+  const root = parseAudioEvent({ format: "myco.audioevent@1", root: { type: "playlist", id: "x", children: [{ type: "segment", id: "a", tracks: [{ name: "t", clip: "a.ogg" }] }] } }).value.musicRoot;
+  if (!root) throw new Error("fixture root did not parse");
+  return root;
+}
+
 describe("anchors: ticks plus heard time (§3.2)", () => {
   it("anchors at the start frame's tick, pre-entry included (a pickup is negative ticks)", () => {
     rig();
@@ -90,7 +98,7 @@ describe("anchors: ticks plus heard time (§3.2)", () => {
 
   it("an anchor made elsewhere without a grid answers NaN", () => {
     rig();
-    const a = { segment: "x", ticks: 0, time: 1, pass: 1, node: { id: "x", type: "playlist" }, rate: 48_000 };
+    const a = { segment: "x", ticks: 0, time: 1, pass: 1, node: playlistRoot(), rate: 48_000 };
     expect(heardTimeOf(a, 960)).toBeNaN();
     expect(ticksAt(a, 2)).toBeNaN();
   });
@@ -211,7 +219,7 @@ describe("anchors: slips from group events (§3.6, §4.3)", () => {
     b.music!.onGroupEvent = routeGroupEvent;
     b.music!.emit({ kind: "resume", group: run.group, late: true, slipFrames: 480, startFrame: 0 });
     expect(player.anchor.time).toBeCloseTo(1.52, 12);
-    (b as unknown as { clockMap: { sampleRate: number } }).clockMap = { sampleRate: 96_000 };
+    b.frameMapValue = { sampleRate: 96_000, timeOffset: 0, carryPending: false }; // a context rebuild changed the rate
     routeGroupEvent({ kind: "resume", group: run.group, late: true, slipFrames: 960, startFrame: 0 });
     expect(player.anchor.time).toBeCloseTo(1.53, 12);
     expect(player.counters).toMatchObject({ lateGroups: 1, groupsHeld: 2, lastSlipFrames: 960 });
@@ -220,7 +228,7 @@ describe("anchors: slips from group events (§3.6, §4.3)", () => {
   it("with a clock map, a start pins t0 to its start frame's heard time (the stamp's rounding goes)", () => {
     rig();
     const b: FakeBackend = makeFakeBackend();
-    (b as unknown as { clockMap: object }).clockMap = { sampleRate: 48_000, timeOffset: 0.25, carryPending: false };
+    b.frameMapValue = { sampleRate: 48_000, timeOffset: 0.25, carryPending: false };
     setAudioBackend(b);
     const player = createMusicPlayer(instance(), segment({}));
     const f: MusicFrame = { backend: b, music: b.music ?? null, now: 1, dt: 1 / 60, hidden: false };

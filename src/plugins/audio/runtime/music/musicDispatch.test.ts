@@ -5,6 +5,7 @@ import type { MusicEvent, MusicKind } from "../../../../engine/audio/musicTypes"
 import type { GameBehavior as GameBehaviorType } from "../../../../engine/core/Component";
 import type { EventInstance } from "../events/eventRuntime";
 import { endAudioSession } from "../testing";
+import { emptySegment } from "../../../../engine/audio/musicFormat";
 
 const asked: { kind: MusicKind; now: number; interval: number }[] = [];
 const seated: { now: number; kind?: MusicKind }[] = [];
@@ -46,7 +47,7 @@ function rig(comps: GameBehavior[]) {
   const world = { _componentsOf: (e: number) => (e === 7 ? comps : []) };
   const source = { _destroyed: false, node: { isValid: true, entity: 7 }, owner: { entity: 7 }, _world: world };
   const instance = { group: 1, musicSource: source } as unknown as EventInstance;
-  return createMusicPlayer(instance, { id: "r", type: "segment" });
+  return createMusicPlayer(instance, emptySegment("r"));
 }
 
 beforeEach(async () => {

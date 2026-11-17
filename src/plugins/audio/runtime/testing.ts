@@ -23,7 +23,7 @@
 // runtime evaluates on main), each the fake itself, as on the core. Each is a plain property a test sets to undefined for a
 // backend without it (the Babylon fallback has no `clock`; the pending backend has no `mix` or `capture`).
 
-import type { AudioBackend, AudioCaptureSource, AudioClipCache, AudioClock, AudioLiveMix, AudioMixCaps, AudioPanner, Attenuation, AudioVoice, FadeLaw, ListenerPose, MusicAdmitResult, MusicBackend, MusicBackendCaps, MusicGroupEvent, MusicGroupRequest, MusicGroupStamp, PlayRequest, RecorderTap, VoiceSpatialOptions, ZoneIrService } from "./backend";
+import type { AudioBackend, AudioCaptureSource, AudioClipCache, AudioClock, AudioFrameMap, AudioLiveMix, AudioMixCaps, AudioPanner, Attenuation, AudioVoice, FadeLaw, ListenerPose, MusicAdmitResult, MusicBackend, MusicBackendCaps, MusicGroupEvent, MusicGroupRequest, MusicGroupStamp, PlayRequest, RecorderTap, VoiceSpatialOptions, ZoneIrService } from "./backend";
 import type { AudioLatency } from "../../../engine/audio/musicTypes";
 import type { ApplyResult, MixOp } from "../../../engine/audio/mixOps";
 import { CORE_LIVE_CAPS } from "../../../engine/audio/busCapability";
@@ -175,6 +175,8 @@ export interface FakeBackend extends AudioBackend, AudioClipCache, AudioClock, A
   stampedRamps: boolean;
   /** ADR 0166 (G-1): what `clock.frameInterval()` returns, seconds; null (the default): unknown, so callers estimate it. */
   frameIntervalSeconds: number | null;
+  /** ADR 0224: what `clock.frameMap()` returns; null (the default): no frame map, as on a backend that doesn't have one. */
+  frameMapValue: AudioFrameMap | null;
 
   // ADR 0166 (Q2): the music seam, so the P rows' loopback tests run on the fake.
   /** The fake's `MusicBackend`; set it to undefined for a backend without music. */
@@ -343,6 +345,7 @@ export function makeFakeBackend(): FakeBackend {
     horizonTime: null,
     facts: new Map(),
     frameIntervalSeconds: null,
+    frameMapValue: null,
     stampedRamps: false,
     music: undefined,
     beginFrameCalls: 0,
@@ -353,6 +356,7 @@ export function makeFakeBackend(): FakeBackend {
     latency() { return { ...backend.latencyValue }; },
     horizon() { return backend.horizonTime; },
     frameInterval() { return backend.frameIntervalSeconds; },
+    frameMap() { return backend.frameMapValue; },
     clipDuration(path: string) { return backend.durations.get(path) ?? null; },
     clipFacts(path: string) { return backend.facts.get(path); },
     invalidateClip() {},
