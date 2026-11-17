@@ -147,7 +147,7 @@ describe("the banners slot", () => {
 });
 
 describe("the open and save flow", () => {
-  const idle: FlowViewInput = { busy: null, flowError: null, savedAs: null, fileName: null, origin: "none", openRefused: false };
+  const idle: FlowViewInput = { busy: null, flowError: null, savedAs: null, fileName: null, openName: null, origin: "none", openRefused: false };
 
   it("open: begins, reports progress as a rising fraction across both steps, then finishes", () => {
     const f = new OpenSaveFlow();
@@ -185,7 +185,7 @@ describe("the open and save flow", () => {
     f.progress("records", 1, 2);
     f.finish();
     expect(f.state.phase).toBe("cancelled");
-    const s = describeFlow(f.state, { ...idle, origin: "file", fileName: "prev.mycap" });
+    const s = describeFlow(f.state, { ...idle, origin: "file", fileName: "next.mycap", openName: "prev.mycap" });
     expect(s).toMatchObject({ phase: "cancelled", cancellable: false });
     expect(s.text).toBe("Open cancelled. prev.mycap stays open.");
     expect(describeFlow(f.state, idle).text).toBe("Open cancelled. The previous capture is unchanged.");
@@ -221,7 +221,7 @@ describe("the open and save flow", () => {
   it("a refused open points at the notice; an open file shows its name; nothing shows nothing", () => {
     const f = new OpenSaveFlow();
     expect(describeFlow(f.state, { ...idle, openRefused: true, fileName: "x.mycap" })).toMatchObject({ phase: "failed", text: "Couldn't open x.mycap; see the notice below.", severity: "error" });
-    expect(describeFlow(f.state, { ...idle, origin: "file", fileName: "x.mycap" }).text).toBe("x.mycap");
+    expect(describeFlow(f.state, { ...idle, origin: "file", fileName: "x.mycap", openName: "x.mycap" }).text).toBe("x.mycap");
     expect(describeFlow(f.state, idle)).toMatchObject({ phase: "idle", text: "", fraction: undefined });
   });
 

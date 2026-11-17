@@ -172,7 +172,10 @@ export interface FlowViewInput {
   readonly busy: "opening" | "saving" | null;
   readonly flowError: string | null;
   readonly savedAs: string | null;
+  /** The file last asked for: the one opening, or the one refused. */
   readonly fileName: string | null;
+  /** The open file capture's name, which a refused or cancelled open leaves open. */
+  readonly openName: string | null;
   readonly origin: "none" | "file" | "live";
   /** An error banner (`error` or `wireMismatch`) is up: the last open was refused. */
   readonly openRefused: boolean;
@@ -212,12 +215,12 @@ export function describeFlow(state: FlowState, view: FlowViewInput): FlowStatus 
   if (view.busy === "saving") return { phase: "running", kind: "save", text: "Saving", fraction: null, cancellable: false, severity: "info" };
   if (view.flowError !== null) return { phase: "failed", kind: state.kind, text: view.flowError, fraction: undefined, cancellable: false, severity: "error" };
   if (state.phase === "cancelled" && state.kind === "open") {
-    const keep = view.origin === "file" && view.fileName ? ` ${view.fileName} stays open.` : " The previous capture is unchanged.";
+    const keep = view.origin === "file" && view.openName ? ` ${view.openName} stays open.` : " The previous capture is unchanged.";
     return { phase: "cancelled", kind: "open", text: `Open cancelled.${keep}`, fraction: undefined, cancellable: false, severity: "info" };
   }
   if (view.savedAs) return { phase: "done", kind: "save", text: `Saved ${view.savedAs}`, fraction: undefined, cancellable: false, severity: "info" };
   if (view.openRefused) return { phase: "failed", kind: "open", text: `Couldn't open ${file}; see the notice below.`, fraction: undefined, cancellable: false, severity: "error" };
-  if (view.origin === "file" && view.fileName) return { phase: "done", kind: "open", text: view.fileName, fraction: undefined, cancellable: false, severity: "info" };
+  if (view.origin === "file" && view.openName) return { phase: "done", kind: "open", text: view.openName, fraction: undefined, cancellable: false, severity: "info" };
   return { phase: "idle", kind: null, text: "", fraction: undefined, cancellable: false, severity: "info" };
 }
 

@@ -134,7 +134,13 @@ export interface ProfilerView {
   readonly recording: AudioCapture["state"];
   readonly source: ProfileSource | null;
   readonly origin: "none" | "file" | "live";
+  /** The file last asked for: the one opening, or the one refused while its banner is up. */
   readonly fileName: string | null;
+  /**
+   * The open file capture's name (origin "file"), else null. A refused or cancelled open leaves it on the capture that
+   * stays open, where `fileName` names the file that didn't open.
+   */
+  readonly openName: string | null;
   readonly busy: "opening" | "saving" | null;
   readonly savedAs: string | null;
   readonly flowError: string | null;
@@ -260,7 +266,7 @@ export class ProfilerController {
       return false;
     }
     try {
-      this.attach(source, "file");
+      this.attach(source, "file", { openName: name });
     } catch (e) {
       source.close();
       this.openError = { code: "open", message: messageOf(e) };
@@ -382,7 +388,7 @@ export class ProfilerController {
     }
     if (origin === "live") this.cursor.goLive();
     else if (origin === "file") this.cursor.seekTo(0);
-    this.patch({ ...extra, origin, source, tracks, version: this.cur.sourceVersion + 1, seek: null });
+    this.patch({ ...extra, openName: origin === "file" ? (extra.openName ?? null) : null, origin, source, tracks, version: this.cur.sourceVersion + 1, seek: null });
     void Promise.all(modules.map((m) => m.refresh())).then(() => this.listener?.dataChanged(), () => {});
   }
 
@@ -418,6 +424,7 @@ export class ProfilerController {
       source,
       origin: p.origin,
       fileName: null,
+      openName: null,
       busy: null,
       savedAs: null,
       flowError: null,
@@ -537,7 +544,7 @@ function DefaultBar({ view, controller }: BarSlotProps) {
         }}
       />
       <span class="profiler-status" role="status">
-        {view.busy === "saving" ? "Saving" : view.flowError ?? (view.savedAs ? `Saved ${view.savedAs}` : view.fileName && view.origin === "file" ? view.fileName : "")}
+        {view.busy === "saving" ? "Saving" : view.flowError ?? (view.savedAs ? `Saved ${view.savedAs}` : view.openName && view.origin === "file" ? view.openName : "")}
       </span>
     </div>
   );

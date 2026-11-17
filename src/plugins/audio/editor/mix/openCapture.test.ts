@@ -181,6 +181,7 @@ describe("each message on a fixture capture", () => {
     const before = c.view.source;
     await routeCaptureFile(c, fileOf("b.txt", new ArrayBuffer(0)));
     expect(c.view.source).toBe(before);
+    expect(c.view.openName).toBe("a.mycap"); // the status keeps naming the capture that is open
     expect(ids(c)).toContain("error");
     c.dispose();
   });

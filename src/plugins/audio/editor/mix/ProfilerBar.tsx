@@ -17,6 +17,7 @@ function flowInput(view: ProfilerView): FlowViewInput {
     flowError: view.flowError,
     savedAs: view.savedAs,
     fileName: view.fileName,
+    openName: view.openName,
     origin: view.origin,
     openRefused: view.banners.some((b) => b.id === "error" || b.id === "wireMismatch"),
   };

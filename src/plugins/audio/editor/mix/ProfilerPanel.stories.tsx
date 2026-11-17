@@ -7,7 +7,7 @@
 // no props, as the shell renders it, over its real deps. The same cases run headless in ProfilerPanel.test.ts and
 // openCapture.test.ts until the story tests have run green.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
-import { expect, fireEvent, fn, userEvent, waitFor } from "storybook/test";
+import { expect, fn, userEvent, waitFor } from "storybook/test";
 import { MemoryFileSystem } from "../../../../editor/memoryFs";
 import { openFolderProject } from "../../../../editor/projects";
 import { currentProject } from "../../../../editor/state";
@@ -39,8 +39,18 @@ const fileOf = (name: string, bytes: Uint8Array): File => new File([bytes.slice(
 
 /** The panel's own element, which takes drops. */
 const chrome = (root: HTMLElement): HTMLElement => root.querySelector<HTMLElement>("section.profiler")!;
-/** Drop `file` on the panel as a file manager does. */
-const drop = (root: HTMLElement, file: File): Promise<boolean> => fireEvent.drop(chrome(root), { dataTransfer: { files: [file], types: ["Files"] } });
+/**
+ * Drop `file` on the panel as a file manager does: a real DragEvent carrying a real DataTransfer with the file. (A
+ * DragEvent takes no other kind of DataTransfer, and `fireEvent.drop` swaps the one it is given for an empty copy.)
+ * Resolves false when the panel took the drop (the default, navigating to the file, was prevented).
+ */
+async function drop(root: HTMLElement, file: File): Promise<boolean> {
+  const dataTransfer = new DataTransfer();
+  dataTransfer.items.add(file);
+  const notPrevented = chrome(root).dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer }));
+  await Promise.resolve();
+  return notPrevented;
+}
 const banner = (root: HTMLElement, id: string): HTMLElement | null => root.querySelector<HTMLElement>(`[data-banner="${id}"]`);
 const bannerIds = (root: HTMLElement): string[] => [...root.querySelectorAll<HTMLElement>("[data-banner]")].map((b) => b.dataset.banner!);
 const opened = (root: HTMLElement): Promise<void> => waitFor(() => expect(root.querySelector(".profiler-timeline")).not.toBeNull(), { timeout: 5000 });
@@ -83,8 +93,9 @@ export const OpenThroughTheBar: Story = {
     await userEvent.upload(input, fileOf("p.mycap", capture()));
     await opened(canvasElement);
     expect(canvasElement.querySelector(".profiler-status")).toHaveTextContent("p.mycap");
-    // A non-capture through Open gets the same refusal as through the drop.
-    await userEvent.upload(input, fileOf("x.wav", new Uint8Array(0)));
+    // A non-capture through Open (the picker's "All files") gets the same refusal as through the drop. `accept` only
+    // filters what the picker offers first, so the upload doesn't apply it.
+    await userEvent.setup({ applyAccept: false }).upload(input, fileOf("x.wav", new Uint8Array(0)));
     await waitFor(() => expect(banner(canvasElement, "error")).toHaveTextContent("notCapture"));
   },
 };
