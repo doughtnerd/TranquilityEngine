@@ -47,6 +47,10 @@ The domain terms used in Myco Engine's code, decision records and reviews. Add a
 - **Thumbnail renderer:** a `BabylonRenderer` made with `forThumbnail` that draws a prefab's, scene's, environment map's or sky's headless World with the real render features on the thumbnail engine (ADR 0153, 0189), under the thumbnail policy (no warm-up machinery, a shared studio room, an engine it doesn't own). The thumbnail code only frames and captures.
 - **PBR injection point:** a named place in Babylon's include-expanded PBR shader where the engine puts code (ADR 0222), such as `albedoBlock` or `worldPosition`, asked for through `pbrInjections` in `render/babylon/pbrInjection.ts`, which owns its pattern per shader language and re-declares what it replaces. _Avoid:_ anchor (for anything outside that module).
 
+## Audio
+
+- **Audio debug monitor:** the editor module behind the Audio Debug panel (ADR 0220, `audioDebugMonitor.ts`): snapshots of `Audio.debug()` in, the panel's sections out. Its rule: a **total** comes from a counter that outlives the instance that counted it (the core's, or main's session totals); a per-instance value appears only in the per-instance table. _Avoid:_ summing playing rows into a total.
+
 ## Tilemaps (ADR 0103)
 
 - **Orientation:** one of a tile's 8 flips and turns, its flip flags read as a transform of the cell, diagonal first, then X, then Y (as Tiled). `runtime/tileFlips.ts` is the one place that convention lives: `compose`, `inverse`, `rotateClockwise`, `flipPoint`, `sourceCorner`.
