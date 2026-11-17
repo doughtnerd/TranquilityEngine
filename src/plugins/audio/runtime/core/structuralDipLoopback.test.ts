@@ -73,7 +73,7 @@ async function rig() {
   const batches: { frame: number; records: Rec[] }[] = [];
   const watch = audio.watch();
   const collect = () => {
-    for (const { frame, batch } of watch.take()) {
+    for (const { frame, batch } of watch.takeReceived()) {
       if (batch.kind !== Kind.BATCH) continue;
       const records = batch.records.map((x) => ({
         op: x.opcode,

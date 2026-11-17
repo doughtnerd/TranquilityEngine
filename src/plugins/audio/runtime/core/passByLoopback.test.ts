@@ -20,17 +20,14 @@ import "../../../../../samples/sound-lab/scripts/behaviors/PassBy";
 import "../../../../../samples/sound-lab/scripts/behaviors/SceneSwitch";
 import "../../../../../samples/sound-lab/scripts/behaviors/Toggle";
 import { Walker } from "../../../../../samples/sound-lab/scripts/behaviors/Walker";
-import { mixer as globalMixer, registerCoreBackend, setAudioBackend } from "../backend";
+import { mixer as globalMixer, setAudioBackend } from "../backend";
 import { createDecoderHandler } from "../decoder/handler";
 import type { DecoderReply, IrFailedMessage, IrPreparedMessage, StreamPortLike } from "../decoder/protocol";
 import hash from "../wasm/hash.json";
-import { createClipRegistry } from "./clipRegistry";
-import { presetFromSettings, type AudioHost } from "./context";
-import { CoreBackend, type CoreBackendHost } from "./coreBackend";
-import { fakeDecoder } from "./fakeDecoder";
+import { presetFromSettings } from "./context";
 import { createHrirLoader } from "./hrir";
 import { createZoneIrService } from "./zoneIr";
-import { endAudioSession } from "../testing";
+import { closeLoopbackAudio, endAudioSession, loopbackAudio, type LoopbackAudio } from "../testing";
 
 const SAMPLE = fileURLToPath(new URL("../../../../../samples/sound-lab", import.meta.url));
 const DECODER = readFileSync(fileURLToPath(new URL("../wasm/myco_audio_decode.wasm", import.meta.url)));
@@ -43,16 +40,14 @@ const SECONDS = 4;
 const BOUND = 5e-3;
 const slice = (b: Buffer): ArrayBuffer => b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer;
 
-let undo: (() => void) | null = null;
 let engine: Engine | null = null;
 beforeEach(() => {
   setAudioBackend(null);
   endAudioSession();
   vi.spyOn(console, "warn").mockImplementation(() => {});
 });
-afterEach(() => {
-  undo?.();
-  undo = null;
+afterEach(async () => {
+  await closeLoopbackAudio();
   if (engine) engine.world.render = undefined as never;
   engine?.dispose();
   engine = null;
@@ -70,10 +65,8 @@ async function passBy(station: "room" | "corridor"): Promise<{ left: number[]; r
   engine = await Engine.create({ headless: true, project: project.settings });
   engine.world.render = { release() {}, warmUp: async () => {}, preloadTextures: async () => {} } as never;
   const preset = presetFromSettings(globalMixer.audioSettings);
-  const testing = await import("../testing");
-  const loop = await testing.createLoopbackHost({ preset });
-  const link = loop.link;
-  // The decoder worker in-process (the zones' kernels), its worklet port delivering into the shell.
+  // The decoder worker in-process (the zones' kernels), its worklet port delivering into the shell (`workletPort`).
+  let audio: LoopbackAudio | null = null;
   const irListeners: ((r: IrPreparedMessage | IrFailedMessage) => void)[] = [];
   const handler = createDecoderHandler({
     post: (r: DecoderReply) => {
@@ -85,24 +78,21 @@ async function passBy(station: "room" | "corridor"): Promise<{ left: number[]; r
     },
   });
   await handler.handle({ type: "init", wasmBytes: slice(DECODER) });
-  const port: StreamPortLike = { onmessage: null, postMessage: (m: unknown) => loop.send(m as ArrayBuffer) };
+  const port: StreamPortLike = { onmessage: null, postMessage: (m: unknown) => audio!.workletPort.postMessage(m) };
   await handler.handle({ type: "connectWorklet", port } as never);
   const pending: Promise<void>[] = [];
   const zoneIr = createZoneIrService({ sampleRate: RATE, decoder: { postIr: (req) => void pending.push(handler.handle(req)), onIr: (l) => (irListeners.push(l), () => {}) } });
   // Every clip decodes to a 200 Hz sine (a whole number of cycles: it loops without a seam).
   const tone = new Float32Array(RATE).map((_, i) => 0.3 * Math.sin((2 * Math.PI * 200 * i) / RATE));
-  const clips = createClipRegistry({
-    send: (m) => link.post(m),
-    nextSeq: () => link.nextSeq(),
-    fetchBytes: async () => new ArrayBuffer(8),
-    decodeWorker: fakeDecoder(async () => ({ frames: tone.length, channels: 1, sampleRate: RATE, channelData: [tone] })),
-    nextFrame: (cb) => cb(),
-    nextQuantum: (cb) => cb(),
+  // ADR 0221: the production assembly on the loopback, on the page's mixer (the Engine configured it), registered.
+  audio = await loopbackAudio({
+    preset,
+    decode: () => ({ channelData: [tone] }),
+    backend: (clips) => ({ zoneIr, hrir: createHrirLoader({ clips, sampleRate: RATE, warn: () => {}, fetchBytes: async () => slice(HRIR) }) }),
   });
-  const hrir = createHrirLoader({ clips, sampleRate: RATE, warn: () => {}, fetchBytes: async () => slice(HRIR) });
-  const host: CoreBackendHost = { link, status: "running", preset, worldCount: 1, sampleRate: RATE, addLifecycleListener: (() => () => {}) as AudioHost["addLifecycleListener"] };
-  const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer: globalMixer, zoneIr, hrir });
-  undo = registerCoreBackend(() => backend);
+  if (!audio) throw new Error("the loopback core did not load");
+  const loop = audio;
+  const backend = audio.backend;
   await SceneManager.load("scenes/spatial.scene.json");
   const walker = GameObject.findObjectOfType(Walker)!;
   const left: number[] = [];
@@ -111,7 +101,7 @@ async function passBy(station: "room" | "corridor"): Promise<{ left: number[]; r
     for (let f = 0; f < frames; f++) {
       walker.transform.position.z = walker[station];
       engine!.step(DT);
-      const out = loop.renderQuanta(QUANTA_PER_FRAME);
+      const out = loop.render(QUANTA_PER_FRAME);
       if (record) {
         for (const s of out.left) left.push(s);
         for (const s of out.right) right.push(s);

@@ -105,7 +105,7 @@ async function build() {
   const watch = audio.watch();
   /** Moves what was posted since the last call into `posts`, at virtual time `atMs` (called after each main-thread event). */
   const collect = (atMs: number) => {
-    for (const { frame, batch } of watch.take()) {
+    for (const { frame, batch } of watch.takeReceived()) {
       if (batch.kind !== Kind.BATCH) continue;
       const voiceRamp = batch.records.some((x) => x.opcode === Op.BUS_RAMP && x.voiceId === VOICE_SLOT && readBusRamp(x.view, x.off).lane === LANE_AUTHORED);
       posts.push({ atMs, frame, voiceRamp });

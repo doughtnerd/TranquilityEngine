@@ -2,36 +2,15 @@
 // real wasm (the loopback host), timed on the audio clock. Every op class `opClass` names reaches the core in the BATCH of
 // the frame it was applied in; a fader edit ramps over `DRAG_RAMP_MS` from the first quantum after that batch, with no
 // step (`maxStep`); a script's runtime `volume` survives an authored-volume edit; an added bus plays at once on its new slot.
-import { fakeDecoder } from "./fakeDecoder";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mixer, DRAG_RAMP_MS } from "../../../../engine/audio/mixer";
 import type { MixOp } from "../../../../engine/audio/mixOps";
 import { parseAudioSettings } from "../../../../engine/audio/settings";
-import {
-  BUS_SLOT_FLAGS_FRESH,
-  BUS_SLOT_FLAGS_STRUCTURAL,
-  Kind,
-  LANE_AUTHORED,
-  LANE_RUNTIME,
-  LANE_SNAPSHOT,
-  Op,
-  readBatchHeader,
-  readBusAutomate,
-  readBusDuck,
-  readBusRamp,
-  readBusSlot,
-  readEnvelope,
-  readLoudConfig,
-  readRecordHead,
-} from "../wire.generated";
-import { setAudioBackend } from "../backend";
-import { events } from "../events/eventRuntime";
+import { BUS_SLOT_FLAGS_FRESH, BUS_SLOT_FLAGS_STRUCTURAL, Kind, LANE_AUTHORED, LANE_RUNTIME, LANE_SNAPSHOT, Op, readBusAutomate, readBusDuck, readBusRamp, readBusSlot, readLoudConfig } from "../wire.generated";
 import { maxStep } from "../golden/maxStep";
-import { createClipRegistry } from "./clipRegistry";
-import { AudioHost, presetFromSettings } from "./context";
-import { createCoreBackend, type CoreBackend } from "./coreBackend";
-import { Unlock, type UnlockContext } from "./unlock";
-import { endAudioSession } from "../testing";
+import { presetFromSettings } from "./context";
+import { type CoreBackend } from "./coreBackend";
+import { loopbackAudio, closeLoopbackAudio } from "../testing";
 
 const RATE = 48_000;
 const QUANTUM = 128;
@@ -51,29 +30,10 @@ const PROJECT = {
 };
 const SLOT = { Master: 0, Music: 1, SFX: 2, Voice: 3 } as const;
 
-const hosts: AudioHost[] = [];
 afterEach(async () => {
-  endAudioSession();
-  setAudioBackend(null);
-  for (const host of hosts.splice(0)) await host.close();
+  await closeLoopbackAudio();
   vi.restoreAllMocks();
 });
-
-function fakeContext() {
-  const ctx = {
-    state: "running",
-    sampleRate: RATE,
-    destination: {},
-    resume: () => Promise.resolve(),
-    close: () => {
-      ctx.state = "closed";
-      return Promise.resolve();
-    },
-    addEventListener() {},
-    removeEventListener() {},
-  };
-  return ctx;
-}
 
 interface Rec {
   op: number;
@@ -84,64 +44,31 @@ interface Rec {
 
 /** The real host and core backend on the loopback, over the page's mixer (the event runtime reads it), a constant 0.5 clip, no limiter look-ahead. */
 async function rig() {
-  const testing = await import("../testing");
   const settings = parseAudioSettings(PROJECT).settings;
-  const preset = { ...presetFromSettings(settings), limiterLookaheadMs: 0 };
-  let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>>;
-  try {
-    loop = await testing.createLoopbackHost({ preset });
-  } catch {
-    return null;
-  }
-  const context = fakeContext();
-  const node = Object.assign(new EventTarget(), { connect() {}, disconnect() {} }) as unknown as AudioWorkletNode;
-  const unlock = new Unlock({ target: new EventTarget(), context: context as unknown as UnlockContext });
-  const host = AudioHost._create({ context: context as unknown as AudioContext, node, link: loop.link, unlock, preset, respawn: () => loop.respawn() });
-  hosts.push(host);
-  const link = loop.link;
-  // Every BATCH posted, decoded before it is handed to the shell, with the core frame it arrived at.
-  const batches: { frame: number; records: Rec[] }[] = [];
-  const post = link.post.bind(link);
-  link.post = ((buffer: ArrayBuffer, ...rest: unknown[]) => {
-    const view = new DataView(buffer);
-    if (readEnvelope(view, 0).kind === Kind.BATCH) {
-      const header = readBatchHeader(view, 0);
-      const records: Rec[] = [];
-      const copy = new DataView(buffer.slice(0)); // the shell may recycle the buffer
-      let off = 32;
-      for (let i = 0; i < header.count; i++) {
-        const head = readRecordHead(view, off);
-        records.push({ op: head.opcode, voiceId: head.voiceId, view: copy, off });
-        off += head.words * 4;
-      }
-      batches.push({ frame: loop.frame, records });
-    }
-    return (post as (b: ArrayBuffer, ...r: unknown[]) => void)(buffer, ...rest);
-  }) as typeof link.post;
-  const clips = createClipRegistry({
-    send: (m) => link.post(m),
-    nextSeq: () => link.nextSeq(),
-    fetchBytes: async (path) => new TextEncoder().encode(path).buffer as ArrayBuffer,
-    decodeWorker: fakeDecoder(() => ({ frames: CLIP_FRAMES, channels: 1, sampleRate: RATE, channelData: [new Float32Array(CLIP_FRAMES).fill(LEVEL)] })),
-    nextFrame: (cb) => cb(),
-    nextQuantum: (cb) => cb(),
+  // ADR 0221: the production assembly on the loopback, on the page's mixer, registered; no limiter look-ahead.
+  const audio = await loopbackAudio({
+    settings,
+    preset: { ...presetFromSettings(settings), limiterLookaheadMs: 0 },
+    decode: () => ({ channelData: [new Float32Array(CLIP_FRAMES).fill(LEVEL)] }),
+    dt: 0.003,
   });
-  mixer.configure(settings);
-  const backend: CoreBackend = createCoreBackend(host, { clips, clock: loop.clock, mixer });
-  endAudioSession();
-  setAudioBackend(backend);
-  const settle = async () => {
-    for (let k = 0; k < 8; k++) await Promise.resolve();
+  if (!audio) return null;
+  const { backend } = audio;
+  // Every BATCH the core received, decoded, with the core frame it arrived at.
+  const batches: { frame: number; records: Rec[] }[] = [];
+  const watch = audio.watch();
+  const collect = () => {
+    for (const { frame, batch } of watch.takeReceived()) {
+      if (batch.kind === Kind.BATCH) batches.push({ frame, records: batch.records.map((x) => ({ op: x.opcode, voiceId: x.voiceId, view: x.view, off: x.off })) });
+    }
   };
   /** One frame of 4 quanta: the batches it posted, its rendered left samples and the core frame of the first. */
   const frame = async () => {
+    collect();
     const from = batches.length;
-    mixer.update(0.003);
-    backend.update(0.003);
-    events().update(0.003);
-    const start = loop.frame;
-    const { left } = loop.renderQuanta(4);
-    await settle();
+    const start = audio.frame;
+    const { left } = await audio.step();
+    collect();
     return { start, out: Array.from(left), records: batches.slice(from).flatMap((b) => b.records), posted: batches.slice(from) };
   };
   const step = async (n: number) => {
@@ -154,7 +81,16 @@ async function rig() {
     }
     return { start, out, last: out[out.length - 1]! };
   };
-  return { loop, backend, frame, step, batches };
+  return {
+    loop: audio,
+    backend,
+    frame,
+    step,
+    get batches() {
+      collect();
+      return batches;
+    },
+  };
 }
 
 const play = (backend: CoreBackend, bus: string) => backend.play({ path: "const.wav", url: "const.wav", loop: true, stream: false, bus });

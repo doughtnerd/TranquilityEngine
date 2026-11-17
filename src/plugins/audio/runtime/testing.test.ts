@@ -82,7 +82,7 @@ describe("loopbackAudio", () => {
     const watch = audio.watch();
     audio.backend.play(req("a.wav"));
     await audio.step(10);
-    expect(watch.take().some((r) => r.batch.records.some((x) => x.opcode === Op.PLAY))).toBe(true);
+    expect(watch.takeOps(Op.PLAY).length).toBeGreaterThan(0);
   });
 
   it("rebuilds after a trap and after a rate change, as the real host does", async (ctx) => {

@@ -34,6 +34,7 @@ import { DEFAULT_LIMITER_LOOKAHEAD_MS, defaultAudioSettings, type AudioSettings 
 import { CoreDriver, instantiateCore, type CoreInstance, type CorePreset } from "./worklet/coreDriver";
 import { notifyEngineLifecycle } from "../../../engine/core/engineLifecycle";
 import { batchRecords, type PostedBatch } from "./core/batchRecords";
+import type { BatchWatch } from "./core/batchWatch";
 import type { CoreBackend, CoreBackendDeps } from "./core/coreBackend";
 import type { ClipRegistry, ClipRegistryDeps } from "./core/clipRegistry";
 import type { RebuildOutcome, RebuildReason, RecoveryOptions } from "./core/recovery";
@@ -647,7 +648,7 @@ export async function createLoopbackHost(options: { clock?: FakeHostClock; prese
 
   let rate = LOOPBACK_RATE;
   /** The open `watch`es: each gets every BATCH or REPLAY posted to the shell, decoded. */
-  const watchers = new Set<{ frame: number; batch: PostedBatch }[]>();
+  const watchers = new Set<LoopbackReceived[]>();
   /** Set by `trapNext`: the current core's next render call throws, as a trap inside it would. */
   let trapPending = false;
   /** The real instance with `myco_audio_process` wrapped (`trapNext`); every other export is the instance's own. */
@@ -766,9 +767,19 @@ export async function createLoopbackHost(options: { clock?: FakeHostClock; prese
       };
     },
     watch() {
-      const received: { frame: number; batch: PostedBatch }[] = [];
+      const received: LoopbackReceived[] = [];
       watchers.add(received);
-      return { take: () => received.splice(0), stop: () => void watchers.delete(received) };
+      const take = () => received.splice(0).map((r) => r.batch);
+      return {
+        takeReceived: () => received.splice(0),
+        take,
+        takeRecords: () => take().flatMap((b) => b.records),
+        takeOps: (op) => take().flatMap((b) => b.records.filter((r) => r.opcode === op)),
+        get pending() {
+          return received.map((r) => r.batch);
+        },
+        stop: () => void watchers.delete(received),
+      };
     },
     send(buffer) {
       current.port.postMessage(buffer, [buffer]);
@@ -809,12 +820,13 @@ export interface LoopbackStall {
   release(): void;
 }
 
-/** The batches the loopback shell received since the watch began (or the last `take`). */
-export interface LoopbackWatch {
-  /** Takes the batches received so far, oldest first. */
-  take(): LoopbackReceived[];
-  /** Ends the watch. */
-  stop(): void;
+/**
+ * What the loopback shell received since the watch began (or the last take): a `BatchWatch` (`take`, `takeRecords`,
+ * `takeOps`, `pending`) read where the core receives the batches, plus each batch's arrival frame.
+ */
+export interface LoopbackWatch extends BatchWatch {
+  /** Takes the batches received so far with the frame each arrived at, oldest first. */
+  takeReceived(): LoopbackReceived[];
 }
 
 /** A clip `loopbackAudio` decodes: planar f32 at `sampleRate` (default 48 kHz). */
@@ -852,6 +864,8 @@ export interface LoopbackAudioOptions {
   readonly recovery?: RecoveryOptions;
   /** Whether one World holds a share of the host (default true), as while a scene with audio runs. */
   readonly world?: boolean;
+  /** Whether `watched` watches what reaches the core from before the backend is made (its first BUS_CONFIG, ...); default false. */
+  readonly watchFromStart?: boolean;
   /** Quanta per main-thread frame in `step` (default 4). */
   readonly quantaPerFrame?: number;
   /** The `dt` (seconds) `step` hands `update` (default the frame's audio time). */
@@ -905,8 +919,15 @@ export interface LoopbackAudio {
   rebuild(reason: RebuildReason): Promise<RebuildOutcome>;
   /** Watches what reaches the core: every BATCH or REPLAY posted to the shell from now on, decoded, with its frame. */
   watch(): LoopbackWatch;
+  /** With `watchFromStart`, the watch begun before the backend was made; else null. */
+  readonly watched: LoopbackWatch | null;
   /** Fault: a main-thread stall: what the core sends main queues until `release` (its STATUS pool runs out meanwhile). */
   stallMain(): LoopbackStall;
+  /**
+   * The worklet's end of the decoder worker's port (in a browser, the `MessagePort` the backend hands `connectStreamPort`):
+   * a buffer posted on it (stream data, zone kernels) reaches the shell at the current frame.
+   */
+  readonly workletPort: { onmessage: null; postMessage(message: unknown): void };
   /** Disposes the backend (unregistering it on the page mixer), closes the host and ends the audio session. A second call does nothing. */
   close(): Promise<void>;
 }
@@ -1055,6 +1076,7 @@ export async function loopbackAudio(options: LoopbackAudioOptions = {}): Promise
     loop.renderQuanta(1);
   }
   await core.ready;
+  const watched = options.watchFromStart ? loop.watch() : null;
   const backend = core.createBackend();
   if (!own) {
     endAudioSession();
@@ -1117,7 +1139,9 @@ export async function loopbackAudio(options: LoopbackAudioOptions = {}): Promise
     },
     rebuild: (reason) => rebuildHost(host, reason),
     watch: () => loop.watch(),
+    watched,
     stallMain: () => loop.stallMain(),
+    workletPort: { onmessage: null, postMessage: (message) => loop.send(message as ArrayBuffer) },
     async close() {
       if (closed) return;
       closed = true;

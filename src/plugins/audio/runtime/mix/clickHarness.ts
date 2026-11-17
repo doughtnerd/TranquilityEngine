@@ -77,7 +77,7 @@ export async function liveRig(project: unknown) {
   const watch = audio.watch();
   /** Moves what the core received since the last call into `batches`: each BATCH's records with their sequence tags. */
   const collect = () => {
-    for (const { frame, batch } of watch.take()) {
+    for (const { frame, batch } of watch.takeReceived()) {
       if (batch.kind !== Kind.BATCH) continue;
       const records: PostedRecord[] = batch.records.map((x) => ({
         op: x.opcode,

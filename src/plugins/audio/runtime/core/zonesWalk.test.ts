@@ -6,18 +6,14 @@
 // the slot and its kernel). The sends reach the slots only in a wasm with C4 (core sends): run it on a build that has it.
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
-import { Mixer } from "../../../../engine/audio/mixer";
+import { afterEach, describe, expect, it } from "vitest";
 import { defaultAudioSettings } from "../../../../engine/audio/settings";
 import { Assets, Engine, GameObject, SceneManager } from "../../../../myco";
 import { AudioReverbZone } from "../AudioReverbZone";
-import type { AudioHost } from "./context";
-import type { CoreBackendHost } from "./coreBackend";
-import { fakeDecoder } from "./fakeDecoder";
 import { createDecoderHandler } from "../decoder/handler";
 import type { DecoderReply, IrFailedMessage, IrPreparedMessage, StreamPortLike } from "../decoder/protocol";
 import hash from "../wasm/hash.json";
-import { LOOPBACK_PRESET } from "../testing";
+import { type LoopbackAudio, loopbackAudio, closeLoopbackAudio } from "../testing";
 import { ZoneState } from "../wire.generated";
 import { ListenerFrame } from "./spatial";
 import { createZoneIrService } from "./zoneIr";
@@ -29,9 +25,8 @@ async function rig(slots: number, maxActive: number, standby: number) {
   Assets.addSource(Assets.fromObject({ "s.json": { format: "myco.scene@1", nodes: [] } }));
   await Engine.create({ headless: true });
   await SceneManager.load("s.json");
-  const testing = await import("../testing");
-  const loop = await testing.createLoopbackHost({ preset: { ...LOOPBACK_PRESET, maxZoneSlots: slots, zoneMaxSeconds: 1 } });
-  // The decoder worker in-process: its worklet port delivers into the shell as the real port would.
+  // The decoder worker in-process: its worklet port delivers into the shell as the real port would (`workletPort`).
+  let audio: LoopbackAudio | null = null;
   const listeners: ((r: IrPreparedMessage | IrFailedMessage) => void)[] = [];
   const handler = createDecoderHandler({
     post: (r: DecoderReply) => {
@@ -43,7 +38,7 @@ async function rig(slots: number, maxActive: number, standby: number) {
     },
   });
   await handler.handle({ type: "init", wasmBytes: DECODER.buffer.slice(DECODER.byteOffset, DECODER.byteOffset + DECODER.byteLength) as ArrayBuffer });
-  const port: StreamPortLike = { onmessage: null, postMessage: (m: unknown) => loop.send(m as ArrayBuffer) };
+  const port: StreamPortLike = { onmessage: null, postMessage: (m: unknown) => audio!.workletPort.postMessage(m) };
   await handler.handle({ type: "connectWorklet", port } as never);
   const pending: Promise<void>[] = [];
   const zoneIr = createZoneIrService({
@@ -53,33 +48,17 @@ async function rig(slots: number, maxActive: number, standby: number) {
       onIr: (l) => (listeners.push(l), () => {}),
     },
   });
-  const { createClipRegistry } = await import("./clipRegistry");
-  const { CoreBackend } = await import("./coreBackend");
-  const link = loop.link;
   const tone = new Float32Array(48_000).map((_, i) => 0.2 * Math.sin((2 * Math.PI * 440 * i) / 48_000));
-  const clips = createClipRegistry({
-    send: (m) => link.post(m),
-    nextSeq: () => link.nextSeq(),
-    fetchBytes: async () => new ArrayBuffer(8),
-    decodeWorker: fakeDecoder(async () => ({ frames: tone.length, channels: 1, sampleRate: 48_000, channelData: [tone] })),
-    nextFrame: (cb) => cb(),
-    nextQuantum: (cb) => cb(),
-  });
-  const host: CoreBackendHost = {
-    link,
-    status: "running",
-    preset: { ...LOOPBACK_PRESET, maxZoneSlots: slots, zoneMaxSeconds: 1 },
-    worldCount: 1,
-    sampleRate: 48_000,
-    addLifecycleListener: (() => () => {}) as AudioHost["addLifecycleListener"],
-  };
   const settings = defaultAudioSettings();
   settings.zones = { maxActive, standby, maxIrSeconds: 1 };
-  const mixer = new Mixer(settings);
   const warnings: string[] = [];
   const warn = console.warn;
   console.warn = (m: string) => void warnings.push(String(m));
-  const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer, zoneIr });
+  // ADR 0221: the production assembly on the loopback, with its own mixer; this test runs the frame's passes itself.
+  audio = await loopbackAudio({ mixer: "own", settings, preset: { maxZoneSlots: slots, zoneMaxSeconds: 1 }, decode: () => ({ channelData: [tone] }), backend: { zoneIr } });
+  if (!audio) throw new Error("the loopback core did not load");
+  const loop = audio;
+  const { backend, mixer } = audio;
   const frame = new ListenerFrame();
   let world: import("../../../../engine/core/World").World | null = null;
   const pose = { position: { x: 0, y: 0, z: 0 }, forward: { x: 0, y: 0, z: 1 }, up: { x: 0, y: 1, z: 0 } };
@@ -94,7 +73,7 @@ async function rig(slots: number, maxActive: number, standby: number) {
     backend.frameStageFx();
     backend.frameStageListener(frame);
     backend.frameCommit();
-    loop.renderQuanta(6);
+    loop.render(6);
     await Promise.all(pending.splice(0));
     await new Promise((r) => setTimeout(r, 0));
   };
@@ -129,6 +108,8 @@ async function walk(r: Awaited<ReturnType<typeof rig>>, framesPerRoom: number) {
   }
   return { tables, wetHeard, debug: r.backend.zones.debug()! };
 }
+
+afterEach(closeLoopbackAudio);
 
 describe("zone walk A → B → C on the real wasm (C5 acceptance)", () => {
   it("high and default: the standby slot takes the incoming zone while the outgoing one rings out", async () => {

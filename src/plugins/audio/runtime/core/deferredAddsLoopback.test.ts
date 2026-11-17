@@ -3,21 +3,15 @@
 // tombstone) answers `deferred`, stays queued and is finished at the recycle that frees a slot: the slot's `fresh`
 // `BUS_SLOT` is posted, the mixer's model gains the bus, and a constant 0.5 clip played on it is heard at the full
 // level. A fifth effect on a bus answers that it applies at the next Play.
-import { fakeDecoder } from "./fakeDecoder";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mixer } from "../../../../engine/audio/mixer";
 import { parseAudioSettings } from "../../../../engine/audio/settings";
 import { TOMBSTONE_TAIL_FRAMES } from "../../../../engine/audio/slotTable";
 import { BUS_ROOT, BUS_SLOT_FLAGS_FRESH, Kind, Op, readBusSlot } from "../wire.generated";
-import { batchRecords, type BatchRecord } from "./batchRecords";
-import { setAudioBackend } from "../backend";
-import { events } from "../events/eventRuntime";
-import { createClipRegistry } from "./clipRegistry";
-import { AudioHost, presetFromSettings } from "./context";
-import { createCoreBackend, type CoreBackend } from "./coreBackend";
-import { watchForTraps } from "./recovery";
-import { Unlock, type UnlockContext } from "./unlock";
-import { endAudioSession } from "../testing";
+import { type BatchRecord } from "./batchRecords";
+import { presetFromSettings } from "./context";
+import { type CoreBackend } from "./coreBackend";
+import { loopbackAudio, closeLoopbackAudio } from "../testing";
 
 const RATE = 48_000;
 const CLIP_FRAMES = 48_000;
@@ -30,86 +24,52 @@ function project(n: number, extra: Record<string, unknown> = {}) {
   return { buses };
 }
 
-const hosts: AudioHost[] = [];
 afterEach(async () => {
-  endAudioSession();
-  setAudioBackend(null);
-  for (const host of hosts.splice(0)) await host.close();
+  await closeLoopbackAudio();
   vi.restoreAllMocks();
 });
 
-function fakeContext() {
-  const ctx = {
-    state: "running",
-    sampleRate: RATE,
-    destination: {},
-    resume: () => Promise.resolve(),
-    close: () => {
-      ctx.state = "closed";
-      return Promise.resolve();
-    },
-    addEventListener() {},
-    removeEventListener() {},
-  };
-  return ctx;
-}
-
-
 /** The real host and core backend on the loopback over the page's mixer, a constant 0.5 clip, no limiter look-ahead (output frames are core frames). */
 async function rig(settingsJson: unknown) {
-  const testing = await import("../testing");
   const settings = parseAudioSettings(settingsJson).settings;
-  const preset = { ...presetFromSettings(settings), limiterLookaheadMs: 0 };
-  let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>>;
-  try {
-    loop = await testing.createLoopbackHost({ preset });
-  } catch {
-    return null;
-  }
-  const context = fakeContext();
-  const node = Object.assign(new EventTarget(), { connect() {}, disconnect() {} }) as unknown as AudioWorkletNode;
-  const unlock = new Unlock({ target: new EventTarget(), context: context as unknown as UnlockContext });
-  const host = AudioHost._create({ context: context as unknown as AudioContext, node, link: loop.link, unlock, preset, respawn: () => loop.respawn() });
-  hosts.push(host);
-  const link = loop.link;
-  // Every BATCH posted, decoded (a copy: the shell recycles the buffer), with the core frame it was posted at.
-  const batches: { frame: number; records: BatchRecord[] }[] = [];
-  const post = link.post.bind(link);
-  link.post = ((buffer: ArrayBuffer, ...rest: unknown[]) => {
-    const batch = batchRecords(buffer.slice(0));
-    if (batch?.kind === Kind.BATCH) batches.push({ frame: loop.frame, records: batch.records });
-    return (post as (b: ArrayBuffer, ...r: unknown[]) => void)(buffer, ...rest);
-  }) as typeof link.post;
-  const clips = createClipRegistry({
-    send: (m) => link.post(m),
-    nextSeq: () => link.nextSeq(),
-    fetchBytes: async (path) => new TextEncoder().encode(path).buffer as ArrayBuffer,
-    decodeWorker: fakeDecoder(() => ({ frames: CLIP_FRAMES, channels: 1, sampleRate: RATE, channelData: [new Float32Array(CLIP_FRAMES).fill(LEVEL)] })),
-    nextFrame: (cb) => cb(),
-    nextQuantum: (cb) => cb(),
+  // ADR 0221: the production assembly on the loopback, on the page's mixer, registered; no limiter look-ahead.
+  const audio = await loopbackAudio({
+    settings,
+    preset: { ...presetFromSettings(settings), limiterLookaheadMs: 0 },
+    decode: () => ({ channelData: [new Float32Array(CLIP_FRAMES).fill(LEVEL)] }),
+    recovery: { now: () => 0, warn: () => {} },
+    dt: 0.003,
   });
-  mixer.configure(settings);
-  const backend: CoreBackend = createCoreBackend(host, { clips, clock: loop.clock, mixer });
-  watchForTraps(host, { now: () => 0, warn: () => {} });
-  endAudioSession();
-  setAudioBackend(backend);
+  if (!audio) return null;
+  const { host, backend } = audio;
+  // Every BATCH the core received, decoded, with the core frame it arrived at.
+  const batches: { frame: number; records: BatchRecord[] }[] = [];
+  const watch = audio.watch();
+  const collect = () => {
+    for (const { frame, batch } of watch.takeReceived()) if (batch.kind === Kind.BATCH) batches.push({ frame, records: batch.records });
+  };
   const settle = async () => {
-    for (let k = 0; k < 8; k++) await Promise.resolve();
+    await audio.settle();
+    collect();
   };
   /** Frames of 4 quanta: the last rendered left sample. */
   const step = async (n: number) => {
     let last = 0;
-    for (let f = 0; f < n; f++) {
-      mixer.update(0.003);
-      backend.update(0.003);
-      events().update(0.003);
-      const { left } = loop.renderQuanta(4);
-      last = left[left.length - 1]!;
-      await settle();
-    }
+    for (let f = 0; f < n; f++) last = (await audio.step()).left.at(-1)!;
+    collect();
     return { last };
   };
-  return { loop, host, backend, step, settle, batches };
+  return {
+    loop: audio,
+    host,
+    backend,
+    step,
+    settle,
+    get batches() {
+      collect();
+      return batches;
+    },
+  };
 }
 
 type Rig = NonNullable<Awaited<ReturnType<typeof rig>>>;
