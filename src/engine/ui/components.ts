@@ -229,11 +229,6 @@ export class UIInputField extends UIPanel {
   get submitted(): boolean {
     return this._submitFrame === this._world.time.frameCount;
   }
-
-  /** @internal Tests and headless Worlds: report Enter, like `UIButton._simulateClick`. */
-  _simulateSubmit(): void {
-    this._submitFrame = nextFrame(this);
-  }
 }
 
 /** The World frame whose scripts see an event that happens now: this one inside a frame, else the next. */

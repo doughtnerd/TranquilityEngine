@@ -103,7 +103,7 @@ Only a World that takes local input routes the pointer. The editor's scene view 
 
 ## Headless Worlds and tests
 
-UI components hold their data in any World. Only a World with a render backend builds and lays them out, so a server or a test can create UI without WebGL; there `clicked` and `submitted` stay false. Tests can report a click with `button._simulateClick()` and Enter with `field._simulateSubmit()` (internal): inside a frame, scripts see it that frame; between frames, in the next.
+UI components hold their data in any World. Only a World with a render backend builds and lays them out, so a server or a test can create UI without WebGL; there `clicked` and `submitted` stay false. Tests click, hover and type through a UI core and `Input`, as a player does (`engine/tests/uiPointer.ts`).
 
 ## Known gaps
 

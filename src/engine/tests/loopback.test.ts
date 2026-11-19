@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { createTransport, createWorldTransport, type LinkConditions, type Transport, type TransportConnection, type TransportEvent } from "../net/Transport";
+import { createTransport, type LinkConditions, type Transport, type TransportConnection, type TransportEvent } from "../net/Transport";
 import "../net/transport/loopback"; // registers "loopback"
 import type { LoopbackOptions } from "../net/transport/loopback";
-import { World } from "../core/World";
+import { Engine } from "../core/Engine";
 
 // ADR 0033, T7: the loopback transport, on a fake clock so delivery is deterministic.
 
@@ -261,11 +261,16 @@ describe("loopback transport (T7)", () => {
 // Fix from the wave 2 review: transports go with the World that owns them.
 describe("transports owned by a World", () => {
   it("are closed with it, freeing a loopback address for the next run", async () => {
-    const first = new World("server");
-    await createWorldTransport(first, "loopback").listen("review:game");
-    first._destroyAll(); // e.g. play mode's Stop disposing the Engine
-    const second = new World("server");
-    await expect(createWorldTransport(second, "loopback").listen("review:game")).resolves.toBeUndefined();
-    second._destroyAll();
+    const engine = await Engine.create({ headless: true });
+    try {
+      const first = engine.createWorld({ name: "First", tags: ["server"] });
+      await first.listen("loopback", { address: "review:game" });
+      first.destroy(); // e.g. play mode's Stop disposing the Engine
+      engine.step(1 / 60);
+      const second = engine.createWorld({ name: "Second", tags: ["server"] });
+      await expect(second.listen("loopback", { address: "review:game" })).resolves.toBe("review:game");
+    } finally {
+      engine.dispose();
+    }
   });
 });

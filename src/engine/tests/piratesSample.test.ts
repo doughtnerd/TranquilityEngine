@@ -4,6 +4,7 @@ import { Assets, Engine, GameObject, Lobby, Replicated, SceneInstance } from "..
 import { UIButton, UIPanel, UIText } from "../ui/components";
 import { World } from "../core/World";
 import { readProject } from "../../server/project";
+import { UIPointer } from "./uiPointer";
 import "../../server/websocketServer"; // the Node "websocket" transport, which can listen
 // The sample's scripts, registered as loading the project's scripts would (ADR 0031).
 import { CLOUD_PREFAB, CLOUD_RADIUS, Cloud, inCloudAmong, FlagState, Game, Phase, Ship, TEAM_COLORS, type CloudView, type FlagView, type GameView, type ShipView } from "../../../samples/pirates/scripts/data";
@@ -35,9 +36,20 @@ const SAMPLE = fileURLToPath(new URL("../../../samples/pirates", import.meta.url
 const STEP = 1 / 60;
 
 const engines: Engine[] = [];
+const pointers: UIPointer[] = [];
+
+/** Click a button in `world` through a UI core and Input, as the renderer routes a player's click (seen next frame). */
+async function click(world: World, button: UIButton): Promise<void> {
+  for (const old of pointers.splice(0)) old.dispose(); // one core routes at a time, as one renderer does
+  const p = await UIPointer.create(world);
+  pointers.push(p);
+  p.click(button);
+}
+
 /** Other players' pages, stepped with this one. */
 const pages: OtherPage[] = [];
 afterEach(() => {
+  for (const p of pointers.splice(0)) p.dispose();
   for (const p of pages.splice(0)) {
     p.Lobby.disconnect();
     p.engine.dispose();
@@ -129,7 +141,7 @@ describe("the King of Pirates sample", () => {
     const menu = engine._world("Menu")!;
     await stepUntil(engine, () => Lobby.state === "lobby", "the menu's lobby");
     // Practice, as the player would click it.
-    menu._componentsOfType(Menu)[0].node.find("Screen/Home/Left/Practice")!.getBehavior(UIButton)!._simulateClick();
+    await click(menu, menu._componentsOfType(Menu)[0].node.find("Screen/Home/Left/Practice")!.getBehavior(UIButton)!);
     await stepUntil(engine, () => Lobby.state === "match", "the practice match");
     expect(Lobby.room).toMatchObject({ name: "Practice", public: false, settings: { arena: "bay", ships: "6", length: "300" } });
     const server = engine._world("Match 1")!, client = engine._world("Match 1 Client")!;
@@ -304,7 +316,7 @@ describe("the King of Pirates sample", () => {
     await stepUntil(engine, () => Lobby.state === "lobby", "the menu's lobby");
     expect(engine.findWorld("Lobby 2")).toBeNull();
     // This page creates a room (Create Room, as clicked); Anne joins it by its code; the host starts it.
-    menu.find("Screen/Home/Left/CreateRoom")!.getBehavior(UIButton)!._simulateClick();
+    await click(menuWorld, menu.find("Screen/Home/Left/CreateRoom")!.getBehavior(UIButton)!);
     await stepUntil(engine, () => Lobby.state === "room", "the room");
     const anne = (await otherPage(project, url, "Anne")).Lobby;
     await stepUntil(engine, () => anne.state === "lobby", "Anne's lobby");
@@ -331,17 +343,17 @@ describe("the King of Pirates sample", () => {
     expect(hud.node.find("Leave/Box/Title")!.getBehavior(UIText)!.text).toBe("Leave the match?");
     expect(hud.node.find("Leave/Box/Buttons/Leave")!.active).toBe(true);
     // Keep sailing closes it.
-    hud.node.find("Leave/Box/Buttons/Stay")!.getBehavior(UIButton)!._simulateClick();
+    await click(client, hud.node.find("Leave/Box/Buttons/Stay")!.getBehavior(UIButton)!);
     engine.step(STEP);
     expect(hud.leaving).toBe(false);
     expect(dialog.active).toBe(false);
     // Open it again and leave.
     hud.leaving = true;
     engine.step(STEP);
-    hud.node.find("Leave/Box/Buttons/Leave")!.getBehavior(UIButton)!._simulateClick();
+    await click(client, hud.node.find("Leave/Box/Buttons/Leave")!.getBehavior(UIButton)!);
     engine.step(STEP);
     expect(Lobby.matchWorld).toBeNull();
-    expect(engine._world(client.name)).toBeNull();
+    expect(engine.findWorld(client.name)).toBeNull();
     // Back in the room (its match still on for Anne), the menu World has the screen again and says so.
     expect(["room", "starting"]).toContain(Lobby.state);
     expect(Lobby.room!.state).toBe("playing");
@@ -356,7 +368,7 @@ describe("the King of Pirates sample", () => {
     const slot = shipsIn(server).find((s) => s.data.team === myTeam)!;
     expect(slot.data.bot).toBe(1);
     expect(shipsIn(server).filter((s) => !s.data.bot).map((s) => s.data.team)).toEqual([anneTeam]);
-    expect(engine._world("Match 1")).not.toBeNull();
+    expect(engine.findWorld("Match 1")).not.toBeNull();
     expect(anne.state).toBe("match");
     expect(errors).toEqual([]);
   });
@@ -399,7 +411,7 @@ describe("the King of Pirates sample", () => {
     await stepUntil(engine, () => match.phase === Phase.over, "the end of the match", 30 * 60);
     expect(anne.state).toBe("match");
     await stepUntil(engine, () => anne.state === "room", "back in the room", 12 * 60);
-    expect(engine._world("Match 1")).toBeNull();
+    expect(engine.findWorld("Match 1")).toBeNull();
     expect(anne.matchWorld).toBeNull();
     const results = anne.room!.results!;
     expect(results.winner).toMatch(/\S/);

@@ -540,11 +540,6 @@ export class UIDocument extends Component {
     return this.sheets;
   }
 
-  /** @internal Editor: every file the last build read (the markup, used documents, stylesheets). */
-  get _files(): readonly string[] {
-    return [...this.sources.keys()];
-  }
-
   /** Rebuild from the files now (the engine does this by itself when one of them changes). */
   reload(): void {
     if (this.isActiveAndEnabled) this.rebuild();
