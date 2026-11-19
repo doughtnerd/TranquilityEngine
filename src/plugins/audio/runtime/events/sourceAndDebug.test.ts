@@ -26,9 +26,9 @@ describe("AudioSource with an event asset", () => {
     expect(fake.plays).toHaveLength(1);
     expect(fake.voices[0].attenuation).toEqual({ minDistance: 1, maxDistance: 30, rolloff: "inverse" });
     expect(fake.voices[0].position).toEqual({ x: 1, y: 2, z: 3 });
-    // Moving the node reaches the instance's voice on the next sync (the audio system calls _sync each frame).
+    // Moving the node reaches the instance's voice on the next frame (the audio system syncs every source).
     transform.position = { x: 4, y: 5, z: 6 };
-    src._sync();
+    kit.frame();
     expect(fake.voices[0].position).toEqual({ x: 4, y: 5, z: 6 });
     expect(fake.voices[0].events.filter((e) => e.kind === "position").at(-1)).toEqual({ kind: "position", value: { x: 4, y: 5, z: 6 } });
   });
@@ -62,13 +62,13 @@ describe("AudioSource with an event asset", () => {
     const voice = fake.voices[0];
     const volumeEvents = voice.events.filter((e) => e.kind === "volume").length;
     src.volume = 0.5;
-    src._sync();
+    kit.frame();
     expect(voice.events.at(-1)).toEqual({ kind: "fade", to: 0.5, seconds: 0 });
     // The voice's own gain is not set: the fade carries it.
     expect(voice.events.filter((e) => e.kind === "volume")).toHaveLength(volumeEvents);
     // A sync with no change adds nothing.
     const count = voice.events.length;
-    src._sync();
+    kit.frame();
     expect(voice.events).toHaveLength(count);
   });
 
@@ -79,7 +79,7 @@ describe("AudioSource with an event asset", () => {
     src.play();
     expect(fake.voices).toHaveLength(2);
     src.pitch = 0.5;
-    src._sync();
+    kit.frame();
     for (const v of fake.voices) expect(v.pitch).toBeCloseTo(0.5);
     // A later play starts at the new pitch.
     src.stop();

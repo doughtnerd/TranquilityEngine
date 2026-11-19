@@ -29,8 +29,7 @@ describe("the mixer's duck lane (Dp1)", () => {
     m.update(0.1);
     expect(notified, "a moved core duck notifies listeners (selection re-reads it)").toBe(1);
     expect(m.bus("Music").duckGain).toBe(0.25);
-    expect(m.laneGain("Music", Lane.duck)).toBe(0.25);
-    expect(m._lanes("Music")!.duck).toBe(0.25);
+    expect(m.laneGain("Music", Lane.duck)).toBe(0.25); // the lane writer's duck lane reads the same (`_duckOf`)
     expect(m.resolve("Music")!.gain).toBeCloseTo(0.25, 6);
     expect(m.bus("Music").effectiveGain).toBeCloseTo(0.25, 6);
     core.set("Music", Number.NaN);
@@ -63,17 +62,27 @@ describe("the mixer's duck lane (Dp1)", () => {
     t = 0.5;
     s = 0.52;
     m2.bus("SFX").fadeTo(1, 1);
-    expect(m2._lanes("SFX")!.runtime).toMatchObject({ start: 0.52, from: expect.closeTo(0.5, 9), to: 1 });
+    // From the first fade's value at the stamp (0.5, not 0.52 now), starting at the stamp: heard as 0.5 until then.
+    expect(m2.bus("SFX").volume).toBeCloseTo(0.5, 9);
+    t = 0.52;
+    expect(m2.bus("SFX").volume).toBeCloseTo(0.5, 9);
+    t = 1.02;
+    expect(m2.bus("SFX").volume).toBeCloseTo(0.75, 9);
+    t = 1.52;
+    expect(m2.bus("SFX").volume).toBe(1);
     // A set is asap (no length): the target at once.
     m2.bus("SFX").volume = 0.3;
     expect(m2.bus("SFX").volume).toBe(0.3);
     // No stamp (NaN) or the mixer's own clock: the ramp starts now.
     const m3 = new Mixer(defaultAudioSettings());
-    m3.setClock(() => 5, () => Number.NaN);
+    let n = 5;
+    m3.setClock(() => n, () => Number.NaN);
     m3.bus("SFX").fadeTo(0, 1);
-    expect(m3._lanes("SFX")!.runtime.start).toBe(5);
+    n = 5.5;
+    expect(m3.bus("SFX").volume).toBeCloseTo(0.5, 9); // started at 5
     m3.setClock(null, () => 99);
     m3.bus("Music").fadeTo(0, 1);
-    expect(m3._lanes("Music")!.runtime.start).toBe(m3.time);
+    m3.update(0.5);
+    expect(m3.bus("Music").volume).toBeCloseTo(0.5, 9); // started at the own clock's time, not at 99
   });
 });

@@ -856,7 +856,7 @@ describe("the engine on BabylonBackend", () => {
     const music = Audio.bus("Music");
     const before = music.activeVoices;
     src.output = "Music";
-    src._sync();
+    game.step(1 / 60); // the audio system syncs the source
     expect(sound().outBus).toBe(bus("Music"));
     expect(music.activeVoices).toBe(before + 1);
     sound().finish();

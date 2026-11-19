@@ -111,8 +111,7 @@ describe("Mixer._applyLive (Ma1)", () => {
     expect(m.busNames).toEqual(["Master", "SFX"]);
     expect(m.resolveAll().map((b) => b.name)).toEqual(["Master", "SFX"]);
     expect(m.has("Music")).toBe(false);
-    expect(m.has("Stems")).toBe(false);
-    expect(m._lanes("Stems")).toBeUndefined();
+    expect(m.has("Stems")).toBe(false); // nor in the lanes (`_lanes` reads the same map)
 
     // The fade on Master is the same ramp, unrestarted: it continues from where it was and lands at its target.
     expect(m._lanes("Master")!.runtime).toEqual(fade);
@@ -121,7 +120,7 @@ describe("Mixer._applyLive (Ma1)", () => {
     expect(m.bus("Master").volume).toBeCloseTo(0.2, 9);
     expect(m.bus("SFX").mute).toBe(true);
     expect(m.bus("Master").solo).toBe(true);
-    expect(m._state("SFX")!.voices).toBe(2);
+    expect(m.bus("SFX").activeVoices).toBe(2);
   });
 
   it("a bus added with no slot after a removal takes a slot no remaining bus holds", () => {
@@ -138,7 +137,7 @@ describe("Mixer._applyLive (Ma1)", () => {
     m._applyLive({ op: "renameBus", from: "SFX", to: "Fx" });
     m._applyLive({ op: "removeBus", bus: "Fx" });
     expect(m.busNames).toEqual(["Master", "Music"]);
-    expect(m._state("SFX")).toBeUndefined();
+    expect(m.bus("SFX").exists).toBe(false);
   });
 
   it("G7c: without keepTombstones (the fallback) a removed bus holds nothing; with it (the core's dip) its state is held by slot, out of the model, until released", () => {
@@ -152,8 +151,7 @@ describe("Mixer._applyLive (Ma1)", () => {
     // Out of the model at once, as on the fallback.
     expect(m.busNames).toEqual(["Master", "SFX"]);
     expect(m.resolveAll().map((b) => b.name)).toEqual(["Master", "SFX"]);
-    expect(m.has("Music")).toBe(false);
-    expect(m._lanes("Music")).toBeUndefined();
+    expect(m.has("Music")).toBe(false); // nor in the lanes (`_lanes` reads the same map)
     // Held by its slot with its dip at the end state, for the replay.
     expect(m._tombstoneLanes().map((l) => [l.slot, l.dip.to])).toEqual([[1, 0]]);
     // Released when the table recycles the slot.

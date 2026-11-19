@@ -40,7 +40,7 @@ describe("audio backend interface (ADR 0098)", () => {
     src.play();
     const voice = fake.voices.at(-1)!;
     src.output = "Music";
-    src._sync();
+    engine.step(1 / 60); // the audio system syncs the source
     expect(voice.events).toContainEqual({ kind: "bus", value: "Music" });
     expect(voice.bus).toBe("Music");
   });

@@ -54,10 +54,13 @@ beforeEach(async () => {
   warn = vi.spyOn(console, "warn").mockImplementation(() => {});
   Assets.clearSources();
   Assets.addSource(Assets.fromObject({ "s.json": { format: "myco.scene@1", nodes: [] }, "a.wav": "data:audio/wav;base64,AAAA", "bad.wav": "data:audio/wav;base64,AAAA" }));
-  const engine = await Engine.create({ headless: true, project: { audio: { buses: [{ name: "Master" }, { name: "Music", parent: "Master" }] } } });
+  engine = await Engine.create({ headless: true, project: { audio: { buses: [{ name: "Master" }, { name: "Music", parent: "Master" }] } } });
   await SceneManager.load("s.json");
   engine.world.render = {} as never;
 });
+let engine: Engine;
+/** One frame: the audio system syncs every AudioSource. */
+const frame = (): void => engine.step(1 / 60);
 
 afterEach(async () => {
   vi.restoreAllMocks();
@@ -458,8 +461,8 @@ describe("Audio public surface (api-and-models §1)", () => {
       const req = fake.plays.at(-1)!;
       expect(req.ambisonic).toBe(true);
       expect(req.yaw).toBe(30);
-      src._sync();
-      src._sync();
+      frame();
+      frame();
       expect(fake.voices.at(-1)!.position).toBeNull();
       src.stop();
       src.play();

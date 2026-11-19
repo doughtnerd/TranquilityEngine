@@ -174,8 +174,8 @@ describe("pitch on music", () => {
     const inst = [...(events() as unknown as { live: Set<{ pitchOption: number }> }).live][0]!;
     expect(inst.pitchOption).toBe(1);
     src.pitch = 2;
-    src._sync();
-    src._sync();
+    kit.frame();
+    kit.frame();
     expect(inst.pitchOption).toBe(1);
     expect(warnCount("pitch is ignored for music")).toBe(1);
   });
@@ -184,7 +184,7 @@ describe("pitch on music", () => {
     await kit.boot({ "m.audioevent.json": ev(seg()) });
     const src = GameObject.create("n").addBehavior(AudioSource, { clip: "m.audioevent.json", playOnAwake: false });
     src.play();
-    src._sync();
+    kit.frame();
     expect(src.isPlaying).toBe(true);
     expect(warnCount("pitch is ignored")).toBe(0);
   });
