@@ -154,10 +154,8 @@ describe("reparenting (ADR 0100)", () => {
     step(engine, 60);
 
     const check = (parentName: string) => {
-      server._propagateTransforms();
       for (const name of ["P1", "P2"]) {
         const client = world(engine, name);
-        client._propagateTransforms();
         const g = ghostIn(client, crate)!;
         expect(g.parent!.name).toBe(parentName);
         expect(g.transform!.worldPosition.x).toBeCloseTo(crate.transform!.worldPosition.x, 2);
@@ -200,7 +198,6 @@ describe("reparenting (ADR 0100)", () => {
     inWorld(server, () => crate.setParent(tank)); // local x becomes -9
     for (let i = 0; i < 40; i++) {
       step(engine);
-      client._propagateTransforms();
       expect(ghost.transform!.worldPosition.x).toBeCloseTo(1, 2);
     }
     expect(ghost.parent!.name).toBe("Tank");

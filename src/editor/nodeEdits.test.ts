@@ -8,7 +8,6 @@ import { AddNode, SetField, type NodePath, type SceneFile } from "./document";
 import {
   applyPrefabOverrides,
   createPrefabFrom,
-  existingPaths,
   nodeHeader,
   prefabActions,
   renameNode,
@@ -21,6 +20,7 @@ import { openSceneFile } from "./project";
 import { editorSettings, joinPath, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
 import { readOnlyMessage } from "./readOnly";
 import { currentProject, openScene, sceneCamera, selection, status } from "./state";
+import { inspectorTarget, select } from "./inspectorTarget";
 import { MemoryFileSystem, ROOT, closeTestProject, demoFolder, sampleProject } from "./testing";
 
 let fs: MemoryFileSystem;
@@ -48,8 +48,10 @@ const live = (path: NodePath) => scene().sync.nodeFor(path)!;
 const pipeOverrides = () => scene().doc.node("pipe").overrides ?? [];
 
 describe("which selected nodes exist", () => {
-  it("keeps top-level nodes and inner nodes the scene still has, as paths", () => {
-    expect(existingPaths(scene(), ["bird", "gone", "pipe/top", "pipe/nope", "bird/bird-sprite"])).toEqual([["bird"], ["pipe", "top"]]);
+  it("the Inspector keeps top-level nodes and inner nodes the scene still has, as paths (ADR 0242)", () => {
+    select(["bird", "gone", "pipe/top", "pipe/nope", "bird/bird-sprite"]);
+    expect(inspectorTarget.value).toMatchObject({ kind: "nodes", paths: [["bird"], ["pipe", "top"]] });
+    select([]);
   });
 });
 

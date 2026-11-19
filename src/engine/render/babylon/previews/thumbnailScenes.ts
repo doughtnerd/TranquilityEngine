@@ -269,8 +269,9 @@ export class ThumbnailScenes {
         beforeDraw: (camera) => renderer.beforeStill(camera),
         step: sky && live
           ? (dt) => {
-              world.time.realtimeSinceStartup += dt; // what the sky's clouds and stars move with
+              world.advanceClock(dt); // the sky's clouds and stars move with its clock (ADR 0239)
               sync();
+              world.advanceClock(0);
             }
           : undefined,
         dispose,
@@ -413,9 +414,11 @@ export class ThumbnailScenes {
       frame();
     }
     if (!world._componentsOfType(ParticleSystem).length) return;
-    world.time.deltaTime = world.time.unscaledDeltaTime = PARTICLE_DT;
-    for (let t = 0; t < PARTICLE_TIME; t += PARTICLE_DT) World._runIn(world, () => renderer.sync(world));
-    world.time.deltaTime = world.time.unscaledDeltaTime = 0;
+    for (let t = 0; t < PARTICLE_TIME; t += PARTICLE_DT) {
+      world.advanceClock(PARTICLE_DT); // the World is drawn, never stepped: only its clock moves (ADR 0239)
+      World._runIn(world, () => renderer.sync(world));
+    }
+    world.advanceClock(0);
   }
 
   /** The studio room, once: ready for every scene, or not at all (thumbnails then have no reflections). */

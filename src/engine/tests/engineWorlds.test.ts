@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Assets, Engine, GameBehavior, GameObject, SceneManager, Time, defineSystem, type WorldConfig } from "../index";
+import { Assets, Engine, GameBehavior, GameObject, Input, SceneManager, Time, defineSystem, type WorldConfig } from "../index";
 import { _undefineSystem } from "../core/systems";
 import { World } from "../core/World";
 import { _worldOf } from "../core/WorldHandle";
@@ -18,6 +18,8 @@ interface Seen {
   fixedDeltaTime: number;
   current: boolean;
   scenes: string[];
+  /** Whether its scripts saw the space key held in its last frame (local input reaches it). */
+  space: boolean;
 }
 
 let seen: Record<string, Seen>;
@@ -26,7 +28,7 @@ const PROBE_UPDATE = "test.engineWorlds.updateProbe";
 const probeWorlds = ["default", "local", "client", "server"];
 
 function entry(name: string): Seen {
-  return (seen[name] ??= { fixedSteps: 0, frames: 0, fixedDeltaTime: 0, current: true, scenes: [] });
+  return (seen[name] ??= { fixedSteps: 0, frames: 0, fixedDeltaTime: 0, current: true, scenes: [], space: false });
 }
 
 beforeEach(() => {
@@ -52,6 +54,7 @@ beforeEach(() => {
       s.frames++;
       s.current &&= World.active === ctx.world && Time.frameCount === ctx.time.frameCount;
       s.scenes = SceneManager.scenes.map((n) => n.name);
+      s.space = Input.getKey("space");
     },
   });
 });
@@ -285,9 +288,11 @@ describe("wave 1 review fixes", () => {
   });
 
   it("hands the view and input to the next World when the World that has them is destroyed", async () => {
+    Input.reset();
     const engine = await Engine.create({ headless: true });
-    const menu = engine.world;
-    expect(menu._takesInput).toBe(true);
+    Input.simulate("down", "space");
+    engine.step(1 / 60);
+    expect(seen.Default.space).toBe(true); // the menu has the view, and input
     // The Host flow: the menu makes a server World and a match World, then destroys itself.
     const server = engine.createWorld({ name: "Server", tags: ["server"] });
     const match = engine.createWorld({ name: "Match", tags: ["client"] });
@@ -296,10 +301,10 @@ describe("wave 1 review fixes", () => {
     expect(engine.world.name).toBe("Server"); // the next World is the default...
     // ...but the view, and with it input, goes to the first World that wants it: not the server.
     engine.step(1 / 60);
-    const takesInput = (name: string) => (engine as unknown as { list: World[] }).list.find((w) => w.name === name)!._takesInput;
-    expect(takesInput("Match")).toBe(true);
-    expect(takesInput("Server")).toBe(false);
+    expect(seen.Match.space).toBe(true); // space is still held
+    expect(seen.Server.space).toBe(false);
     engine.dispose();
+    Input.reset();
   });
 
   it("leaves the Engine as it was when a World config is bad", async () => {
@@ -326,7 +331,7 @@ describe("wave 1 review fixes", () => {
       }
     }
     const engine = await Engine.create({ headless: true, bootstrap: { worlds: [{ name: "Client", tags: ["client"] }, { name: "Server", tags: ["server"] }] } });
-    const serverWorld = (engine as unknown as { list: World[] }).list[1];
+    const serverWorld = engine._world("Server")!;
     World._runIn(serverWorld, () => GameObject.create("spawner").addBehavior(Spawner));
     // After an await the frame is over and the default (Client) World is current.
     expect(World.active!.name).toBe("Client");

@@ -120,7 +120,7 @@ describe("copying", () => {
     expect(status.value?.text).toMatch(/already exists/);
     assetClipboard.value = { entries: ["images/"], cut: false };
     expect(await pasteAssets("images")).toEqual([]);
-    expect(status.value?.text).toMatch(/into itself/);
+    expect(status.value?.text).toBe("Can't paste here: images can't go inside itself."); // refused up front (ADR 0241)
     assetClipboard.value = { entries: ["images/PipeUp.png"], cut: true };
     expect(await pasteAssets("")).toEqual(["PipeUp.png"]);
     expect(project.files).toContain("PipeUp.png");

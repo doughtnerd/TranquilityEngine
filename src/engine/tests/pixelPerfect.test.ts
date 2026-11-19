@@ -59,21 +59,23 @@ describe("Camera pixelPerfect", () => {
     node.transform!.position.set(0, 0, 10);
     return node.addBehavior(Camera, props);
   };
+  /** The half-height an orthographic camera at y = 0 shows: where the ray through the screen's top edge starts. */
+  const halfHeight = (cam: Camera) => cam.screenPointToRay(new Vector2(0, 0)).origin.y;
 
   it("uses the plain size when pixelPerfect is off or perspective", () => {
-    expect(camera({ orthographicSize: 5 })._effectiveOrthographicSize()).toBe(5);
+    expect(halfHeight(camera({ orthographicSize: 5 }))).toBeCloseTo(5);
     expect(camera({ pixelPerfect: true, projection: "perspective", orthographicSize: 5 })._effectiveOrthographicSize()).toBe(5);
   });
 
   it("uses the integer-zoom size when on (400px, size 5, ppu 16 -> zoom 2)", () => {
     const cam = camera({ pixelPerfect: true, orthographicSize: 5 });
     expect(cam.pixelSnapping).toBe(true);
-    expect(cam._effectiveOrthographicSize()).toBeCloseTo(400 / (2 * 16 * 2));
+    expect(halfHeight(cam)).toBeCloseTo(400 / (2 * 16 * 2));
   });
 
   it("worldToScreenPoint and screenPointToRay agree with the effective size", () => {
     const cam = camera({ pixelPerfect: true, orthographicSize: 5 });
-    const size = cam._effectiveOrthographicSize(); // 6.25
+    const size = 400 / (2 * 16 * 2); // 6.25
     const top = cam.worldToScreenPoint(new Vector3(0, size, 0));
     expect(top.y).toBeCloseTo(0);
     const right = cam.worldToScreenPoint(new Vector3(size * 2, 0, 0));
@@ -97,11 +99,11 @@ describe("Camera pixelPerfect", () => {
       const cam = camera({ pixelPerfect: true, orthographicSize: 5 });
       // 601 CSS px * 0.75 = 451 device px: zoom floor(451 / 160) = 2, not the 3 the CSS height would give.
       expect(cam._devicePixelSize()).toEqual({ width: 600, height: 451 });
-      expect(cam._effectiveOrthographicSize()).toBeCloseTo(451 / (2 * 16 * 2));
+      expect(halfHeight(cam)).toBeCloseTo(451 / (2 * 16 * 2));
       // One device pixel is 1 / (ppu * zoom) units; the odd height puts the camera half a pixel up, the even width doesn't.
       expect(cam._pixelSnap()).toEqual({ unit: expect.closeTo(1 / 32, 9), offsetX: 0, offsetY: expect.closeTo(1 / 64, 9) });
       // The rays and screen points agree with the same grid (CSS pixels in, CSS pixels out).
-      expect(cam.worldToScreenPoint(new Vector3(0, cam._effectiveOrthographicSize(), 0)).y).toBeCloseTo(0);
+      expect(cam.worldToScreenPoint(new Vector3(0, 451 / (2 * 16 * 2), 0)).y).toBeCloseTo(0);
     });
 
     it("caps the screen ratio at 2", () => {
@@ -110,7 +112,7 @@ describe("Camera pixelPerfect", () => {
       engine.world.render = surface;
       const cam = camera({ pixelPerfect: true, orthographicSize: 5 });
       expect(cam._devicePixelSize().height).toBe(800); // not 1200
-      expect(cam._effectiveOrthographicSize()).toBeCloseTo(800 / (2 * 16 * 5));
+      expect(halfHeight(cam)).toBeCloseTo(800 / (2 * 16 * 5));
       expect(cam._pixelSnap()!.unit).toBeCloseTo(1 / 80);
     });
 

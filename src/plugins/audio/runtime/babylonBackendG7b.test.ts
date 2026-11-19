@@ -42,8 +42,7 @@ afterEach(() => {
   vi.useRealTimers();
   chunk.saveEnv = null;
   setAudioBackend(null);
-  for (const b of made.splice(0)) b.dispose();
-  mixer._setTap(null);
+  for (const b of made.splice(0)) b.dispose(); // a disposed backend takes its tap off the mixer
   taps.sink = NULL_PROFILE_SINK;
   vi.restoreAllMocks();
 });

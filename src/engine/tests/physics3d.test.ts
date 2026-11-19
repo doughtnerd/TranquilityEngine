@@ -164,10 +164,13 @@ describe("3D physics on Rapier (ADR 0045)", () => {
     crate.transform!.position.y = 3;
     crate.addBehavior(RigidBody);
     crate.addBehavior(MeshCollider, { mesh: "asset:models/crate.obj", convex: true });
-    for (let i = 0; i < 20 && !crate.getBehavior(MeshCollider)!._state; i++) {
-      await new Promise((r) => setTimeout(r, 10)); // the model loads
+    // The model loads, then the crate's collider is in the physics world: a ray down hits it above the ground.
+    const crateBuilt = () => (Physics.raycast({ x: 0, y: 10, z: 0 }, { x: 0, y: -1, z: 0 })?.distance ?? Infinity) < 9;
+    for (let i = 0; i < 20 && !crateBuilt(); i++) {
+      await new Promise((r) => setTimeout(r, 10));
       steps(engine, 1);
     }
+    expect(crateBuilt()).toBe(true);
     steps(engine, 150);
     expect(crate.transform!.position.y).toBeCloseTo(0.5, 1); // a 1 m crate on the plane
   });

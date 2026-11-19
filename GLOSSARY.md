@@ -19,6 +19,10 @@ The domain terms used in Myco Engine's code, decision records and reviews. Add a
 - **Core asset kind:** an asset kind the editor shell itself registers (ADR 0143): scenes, prefabs, images, audio, render textures and the code and text kinds, in `src/editor/assetKinds.builtin.ts`. It is an ordinary asset kind contribution, registered at boot; it can't be disabled and is in no manifest. Folders, sprite slices and plain files are answered by the asset kind module (`assetKindLookup.ts`) itself.
 - **Asset reference:** a string in a project file naming a project path: optionally `asset:` and a leading `./` or `/`, the path, and optionally `#slice` (ADR 0040), such as `asset:images/sheet.png#walk_0`. The asset reference module (`assetReferences.ts`, ADR 0148) is the one place that parses them and answers who **uses** an asset (files quoting a reference to it), what an asset **depends on**, and rewrites or removes references when files move or go. _Avoid:_ stripping `asset:` by hand.
 - **Reference extractor:** an asset kind's `references` (ADR 0148): how files in the kind's own format name other files, such as an .obj's material libraries or a .gltf's buffers. JSON files need none.
+- **Asset entry:** an Assets panel item as a string: a file (`images/a.png`), a folder (`images/`) or a slice (`images/sheet.png#walk_0`). `assetEntry.ts` is the one place that knows the encoding (ADR 0241).
+- **Assets command:** Open, Rename, Duplicate, Copy, Cut, Paste or Delete on the Assets panel's selection (`assetActions.ts`, ADR 0241). Each has one rule (`whyNotAsset`), the same check its operation makes, used by the panel's menu, its keys and the menu bar.
+- **Inspector target:** what the Inspector shows: a live World's node, an asset, a UI element, nodes, or scene settings (`inspectorTarget.ts`, ADR 0242). Every selection (nodes, Assets panel entries, a UI element) goes through its functions, which keep them apart. _Avoid:_ clearing another selection by hand, or writing `selectedKeys`, `selectedAssets` or `selectedUIElement` directly.
+- **Field target:** what an Inspector field row edits: one component field on one or more nodes (`src/editor/fieldTarget.ts`, ADR 0243). It has two adapters: the edited document (undoable, overrides on instances) and a live World (play only). Both Inspectors render the same field rows (`ui/fieldRows.tsx`) over it.
 - **Adding assets:** putting project files into the open scene as nodes, always through one operation, `addAssets(paths, target)` (ADR 0149): it prepares them (a model's meshes), checks a scene is open and in edit mode, adds to the scene that was open when asked or to none, makes one undo step and returns the new nodes and a status message. The target is a scene-view point, a Hierarchy slot or the selection (the Assets panel's +). An asset kind can refuse an add (`addToScene.whyNot`) and leave a note about it (`addToScene.note`).
 - **Slices capability:** an asset kind's `slices` flag (ADR 0149): its files are images that can be cut into slices (ADR 0040), whose `#slice` entries are sprites. The core image kind has it. _Avoid:_ comparing a kind with `"image"` to mean "has slices".
 - **Asset policies:** an asset kind's rules for use: which fields may reference it, whether and as what node it can be added to a scene, how exports process it, and whether it is read-only or an importer sidecar.
@@ -49,10 +53,13 @@ The domain terms used in Myco Engine's code, decision records and reviews. Add a
 - **Editor service:** the editor-side counterpart of a World service, a named, typed object a plugin publishes for other plugins to use if it is enabled.
 - **Core:** what is never a plugin. In the engine: World, ECS, GameObject and Transform, scene files, prefabs and overrides, assets, time, input, `Engine`, the renderer core and netcode. In the editor (the **editor shell**): panels and docking, Hierarchy, Viewport, the Inspector and Assets frames, undo, the scene document, the Code panel, Play, Export, and the graph view.
 
-## Rendering (ADR 0153)
+## Rendering (ADR 0153, 0240, 0244)
 
 - **Effect player:** one particle effect at one transform on the Babylon backend (`render/babylon/effectPlayer.ts`): its runner, CPU simulation and kernel systems, their draws and fallbacks, and how it plays (restart, event-started systems, events, emit, stop, seeding). A World's ParticleSystems (one player each, through `BabylonParticles`), the particle graph's preview and the particle thumbnails all play through it. The players of one scene share **effect resources** (texture cache, dot, scene depth, kernel host). _Avoid:_ particle player (for anything but `BabylonParticles`, the World adapter).
 - **Thumbnail renderer:** a `BabylonRenderer` made with `forThumbnail` that draws a prefab's, scene's, environment map's or sky's headless World with the real render features on the thumbnail engine (ADR 0153, 0189), under the thumbnail policy (no warm-up machinery, a shared studio room, an engine it doesn't own). The thumbnail code only frames and captures.
+- **Engine factory:** `createEngine` (`render/babylon/createEngine.ts`, ADR 0244), the one place a Babylon engine that draws into a canvas is made, for a World's surface and every preview and thumbnail: WebGPU, else, or when WebGPU can't start, WebGL2.
+- **Pipeline readiness:** a World's renderer module that warms shader pipelines, re-warms them on a tier change or new probe captures, and holds the World's first frames until what it draws is ready (`render/babylon/pipelineReadiness.ts`; ADR 0080, 0120, 0240). Thumbnail renderers have none.
+- **Preview inset:** where the editor's camera preview sits on the canvas, as fractions (`PreviewInset`, ADR 0240). The editor's viewport handle measures it once a frame; the renderer never reads the DOM for it.
 - **PBR injection point:** a named place in Babylon's include-expanded PBR shader where the engine puts code (ADR 0222), such as `albedoBlock` or `worldPosition`, asked for through `pbrInjections` in `render/babylon/pbrInjection.ts`, which owns its pattern per shader language and re-declares what it replaces. _Avoid:_ anchor (for anything outside that module).
 - **Myco material plugin:** one of the engine's own Babylon material plugins (graph, water, probe blend, sprite UV), all extending `MycoMaterialPlugin` (ADR 0225, `render/babylon/mycoMaterialPlugin.ts`), which registers it only after its fields are set and declares WGSL and GLSL. Render tests check what such a plugin does through the **compiled shader text** (`engine/tests/pbrShaderSource.ts` `shaderText`), the source Babylon builds after expanding includes and injecting plugin code. _Avoid:_ reading a plugin's `"!"` keys outside the pin test.
 
@@ -70,3 +77,17 @@ The domain terms used in Myco Engine's code, decision records and reviews. Add a
 ## Tilemaps (ADR 0103)
 
 - **Orientation:** one of a tile's 8 flips and turns, its flip flags read as a transform of the cell, diagonal first, then X, then Y (as Tiled). `runtime/tileFlips.ts` is the one place that convention lives: `compose`, `inverse`, `rotateClockwise`, `flipPoint`, `sourceCorner`.
+
+## Hosts (ADR 0236)
+
+- **Launch:** the ordered start of a game every host shares, through `launchGame` (`src/engine/launch.ts`): the asset source, scripts, plugin activation (passed in by the host), the Engine, then the entry scene; `dispose()` undoes it in reverse. The player, the dedicated server and play mode are its adapters. _Avoid:_ boot, bootstrap (that is a World's start-up plan, ADR 0032).
+- **Entry scene:** the scene that empty start-up Worlds (no `scenes` key and no nodes) load at launch: a build's main scene, or play mode's open scene. The dedicated server has none.
+
+## Play mode (ADR 0237)
+
+- **Play controller:** the editor's one play session (`createPlaySession` in `playSession.ts`, ADR 0237). It owns the edit, starting and playing states and the work deferred to Stop: kept values, plugin settings and script reloads. Not the same as `PlaySession` in `playMode.ts`, which is one running game.
+
+## Engine (ADR 0238, 0239)
+
+- **View allocator:** what decides which surface (the main view, a tile, or none after a hand-over) and which input target each World has (`core/viewAllocator.ts`, ADR 0238). The Engine asks it `surfaceOf(world)`.
+- **End of frame:** the last step of a World's frame (ADR 0011, 0239). Work queued with `World.atFrameEnd` runs there, after deferred destroys; outside a frame it runs at once. _Avoid:_ checking `inFrame` by hand.

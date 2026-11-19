@@ -9,9 +9,10 @@ import type { SceneDocument } from "./document";
 import { addAssets, whyNotAddAssets, type AssetAddTarget } from "./addAssets";
 import { fileName } from "./assetBrowser";
 import { dropTargetFor, setDraggedAssets, type AssetDropPoint, type AssetDropTargetSpec } from "./assetDropTargets";
-import { entryPath } from "./assetDelete";
-import { moveAssetsTo, whyNotMoveTarget } from "./assetOps";
-import { currentProject, openScene, playState, sceneCamera, selectedKeys, status, viewMode } from "./state";
+import { entryPath, isSliceEntry } from "./assetEntry";
+import { moveAssetsTo, whyNotMovable, whyNotMoveTarget } from "./assetOps";
+import { select } from "./inspectorTarget";
+import { currentProject, openScene, playState, sceneCamera, status, viewMode } from "./state";
 import { eventWindow } from "./windows/dom";
 
 /** Pointer travel (CSS px) before pressing an asset tile becomes a drag. */
@@ -130,10 +131,11 @@ function addTarget(target: Exclude<AssetDropTarget, { kind: "folder" | "plugin" 
 function problemFor(paths: readonly string[], target: AssetDropTarget): string | null {
   if (target.kind === "plugin") return null; // its own `accepts` and `label` decided (pluginTargetAt)
   if (target.kind === "folder") {
-    if (!currentProject.value?.canSave) return "this project is read-only";
+    const project = currentProject.value;
+    if (!project?.canSave) return "this project is read-only";
     if (playState.value !== "edit") return "stop playing to move files";
-    if (paths.some((p) => p.includes("#"))) return "slices live in their image; move the image instead"; // ADR 0040
-    return whyNotMoveTarget(paths, target.folder);
+    if (paths.some(isSliceEntry)) return "slices live in their image; move the image instead"; // ADR 0040
+    return whyNotMoveTarget(paths, target.folder) ?? whyNotMovable(project, paths);
   }
   return whyNotAddAssets(paths);
 }
@@ -201,7 +203,7 @@ export function startAssetDrag(e: PointerEvent, paths: readonly string[]): void 
     const point = target.kind === "viewport" ? viewportDropPoint(target.x, target.y) : ([0, 0, 0] as const);
     // One operation (ADR 0149): prepares (a model's meshes), adds to the scene open now or to none, one undo step.
     void addAssets(paths, addTarget(target, point)).then(({ ids, message }) => {
-      if (ids.length > 0) selectedKeys.value = [...ids];
+      if (ids.length > 0) select(ids); // through the Inspector rule (ADR 0242): a selected UI element or asset gives way
       status.value = message;
     });
   };

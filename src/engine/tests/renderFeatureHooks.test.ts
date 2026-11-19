@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { NullEngine } from "@babylonjs/core/Engines/nullEngine.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { World } from "../core/World";
-import { Assets, Engine, GameObject, Graphics, SceneManager } from "../index";
+import { Assets, Camera, Engine, GameObject, Graphics, SceneManager } from "../index";
 import { BabylonRenderer, type PluginFeature } from "../render/babylon/BabylonRenderer";
 import { BabylonSurface } from "../render/babylon/BabylonSurface";
 import { describeDrawn, type BabylonFeature, type BabylonFeatureFactory, type BabylonFeatureHost, type BabylonWarmFactory } from "../render/babylon/feature";
@@ -88,6 +88,20 @@ describe("render feature hooks (ADR 0154)", () => {
     expect(host.pixelGrid()).toMatchObject({ pixelRatio: 1 });
     renderer.resize(0.75);
     expect(host.pixelGrid().pixelRatio).toBe(0.75);
+  });
+
+  it("hands features the camera preview inset the policy carries, without the DOM, while its camera draws (ADR 0240)", () => {
+    const f = fakeFeature();
+    make([f.plugged]);
+    const shown = GameObject.create("shown").addBehavior(Camera);
+    const inset = { x: 0.75, top: 0.5, width: 0.2, height: 0.25, aspect: 1.6 };
+    renderer.setPolicy({ cameraPreview: { camera: shown, inset } });
+    expect(f.host().previewRect()).toBeNull(); // its camera isn't synced yet
+    renderer.sync(world);
+    expect(f.host().previewRect()).toEqual(inset);
+    shown.enabled = false; // a disabled camera has no preview
+    renderer.sync(world);
+    expect(f.host().previewRect()).toBeNull();
   });
 
   it("loads a lazy feature its spec says warms the content, then asks it", async () => {

@@ -3,8 +3,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { assetKind, canAddToScene, opensInCodePanel } from "../editor/assetBrowser";
 import { kindIcon, kindLabel, registeredKind, satisfiesFieldKind } from "../editor/assetKindLookup";
-import { inspectedAsset } from "../editor/assetImport";
-import { select as selectAssets } from "../editor/assetSelection";
+import { inspectorTarget, selectAssets } from "../editor/inspectorTarget";
 import { activatePlugins, deactivatePlugin, isPluginActive } from "../editor/sdk/plugins";
 import { previewKind } from "../editor/thumbnails/keys";
 import { EDITOR_PLUGINS } from "./editor";
@@ -100,7 +99,8 @@ describe("the render plugins' asset kinds (ADR 0140)", () => {
 /** The file the Inspector shows with `entry` alone selected in the Assets panel (null: none). */
 function inspectedFor(entry: string): string | null {
   selectAssets([entry]);
-  const shown = inspectedAsset.peek();
+  const target = inspectorTarget.peek();
+  const shown = target.kind === "asset" ? target.path : null;
   selectAssets([]);
   return shown;
 }

@@ -76,7 +76,7 @@ Every chunk shows a feature:
 |---|---|
 | 7, 8, 9 (north row) | A chasm across the row, bridged only in the north-east. Walkers go round by the bridge; flyers and walk-and-fly agents cross |
 | 1, 2, 3 (south row) | A wall on the face between the south and middle rows (it belongs to the south chunks but stands across the face: overlays), with a door only in chunk 2 |
-| 5 (centre) | A raised platform across the east face with a ramp up each side; a swamp (a ground `NavModifierVolume`, Mud); a storm cloud (an air volume, Storm); a fence with an 8 m gap covered by a `NavGate`, which `GateTimer` opens and closes, lifting its barrier |
+| 5 (centre) | A raised platform across the east face with a ramp up each side; a swamp (a ground `NavModifierVolume`, Mud); a storm cloud (an air volume, Storm); a fence with an 8 m gap covered by a `NavGate`, which `GateTimer` opens and closes, lifting its barrier (the gate's `Gate` behaviour takes the timer's state as soon as the chunk streams in) |
 | 6 (east) | Pillars and a ramp with only `BoxCollider`s: the chunk's NavChunk collects colliders (`collect: "colliders"`) |
 | 1 (south-west) | A terrain: hills, a pond hole, a Mud patch and trees (`NavObstacle`s). Myco has no terrain component yet, so it's an OBJ (`models/terrain.obj`) with Grass and Mud meshes |
 | 4 (west) | The jump course: blocks, a pit and a one-way drop, crossed only by jumping. The climb course: a 5 m wall to walk over, then a roof over Lava (for the Climber only) that climbers pass along the walls and ceiling. The course walls have obstacle caps |

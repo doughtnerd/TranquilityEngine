@@ -14,6 +14,9 @@ const MODE_REBUILD_RETRY_MS = 5_000;
 import { rebuildHost, watchForTraps, type RebuildableHost } from "./recovery";
 import { Unlock, type UnlockContext } from "./unlock";
 import type { CoreWasm } from "./loader";
+import { makeStatusBlock } from "./statusFixtures";
+import { STATUS_BUFFER_BYTES, STATUS_FLAGS_READY, writeStatus } from "../wire.generated";
+import { CORE_ABI_MAJOR } from "../worklet/coreDriver";
 
 const hosts: AudioHost[] = [];
 afterEach(async () => {
@@ -60,14 +63,38 @@ function fakeContext(extra: Partial<FakeCtx> = {}): FakeCtx {
 }
 
 const fakePort = (): LinkPort => ({ postMessage() {}, onmessage: null });
+
+/** A new core's port: once main listens, it answers with the first STATUS of a core that started (ready, this ABI). */
+function answeringPort(): LinkPort {
+  let handler: LinkPort["onmessage"] = null;
+  return {
+    postMessage() {},
+    get onmessage() {
+      return handler;
+    },
+    set onmessage(listener) {
+      handler = listener;
+      if (!listener) return;
+      const buffer = new ArrayBuffer(STATUS_BUFFER_BYTES);
+      writeStatus(new DataView(buffer), 0, makeStatusBlock({ flags: STATUS_FLAGS_READY, abiVersion: CORE_ABI_MAJOR << 8 }), 1);
+      queueMicrotask(() => handler?.({ data: buffer }));
+    },
+  };
+}
 const fakeNode = () => Object.assign(new EventTarget(), { connect() {}, disconnect() {} }) as unknown as AudioWorkletNode;
 
-/** A host on fakes: `recreate` given unless `recreate: false`; the clock is `clock.now`. */
-function host(options: { ctx?: FakeCtx; rhythmMode?: boolean; recreate?: boolean } = {}) {
+/**
+ * A host on fakes: `recreate` given unless `recreate: false` (`answers`: it makes a new fake context whose core starts,
+ * else it throws); the clock is `clock.now`.
+ */
+function host(options: { ctx?: FakeCtx; rhythmMode?: boolean; recreate?: boolean; answers?: boolean } = {}) {
   const clock = { now: 0 };
   const ctx = options.ctx ?? fakeContext();
   const recreate = vi.fn(async (): Promise<ContextParts> => {
-    throw new Error("not in these tests");
+    if (!options.answers) throw new Error("not in these tests");
+    const context = fakeContext() as unknown as AudioContext;
+    const unlock = new Unlock({ target: new EventTarget(), context: context as unknown as UnlockContext });
+    return { context, node: fakeNode(), port: answeringPort(), unlock };
   });
   const h = AudioHost._create({
     context: ctx as unknown as AudioContext,
@@ -232,15 +259,12 @@ describe("a change of audio.rhythmMode queues a mode rebuild (§4.6, rate-limite
 
   it("a second change within the interval waits for its rest, and the settings then decide", async () => {
     vi.useFakeTimers();
-    const r = host();
-    const ctxMode = r.h as unknown as { contextRhythm: boolean; wantRhythm: boolean };
-    // As a real rebuild does: the new context has the mode wanted when it was made.
-    const start = vi.fn(async () => {
-      ctxMode.contextRhythm = ctxMode.wantRhythm;
-      return "rebuilt";
-    });
+    const r = host({ answers: true });
+    // A real rebuild (recovery.ts's): the new context has the mode wanted when it was made.
+    const start = vi.fn(() => rebuildHost(r.h, "latency"));
     r.h._setModeRebuild(start);
     r.h.reconfigure(settings(true));
+    await flush();
     await flush();
     expect(start).toHaveBeenCalledTimes(1);
     expect(r.h.rhythmMode).toBe(true);
@@ -256,7 +280,9 @@ describe("a change of audio.rhythmMode queues a mode rebuild (§4.6, rate-limite
     expect(start).toHaveBeenCalledTimes(1);
     vi.advanceTimersByTime(1);
     await flush();
+    await flush();
     expect(start).toHaveBeenCalledTimes(2);
+    expect(r.recreate).toHaveBeenCalledTimes(2);
     expect(r.h.rhythmMode).toBe(false);
     expect(r.h.pendingRhythmMode).toBeNull();
   });

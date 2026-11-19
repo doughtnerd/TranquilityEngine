@@ -218,7 +218,7 @@ describe("MeshRenderer material properties", () => {
     r.clearMaterialProperty("Speed");
     expect(r.getMaterialProperty("Speed")).toBeUndefined();
     r.clearMaterialProperties();
-    expect(r._materialProperties.size).toBe(0);
+    expect(r.getMaterialProperty("Tint")).toBeUndefined(); // the one left
   });
 });
 

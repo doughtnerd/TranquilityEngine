@@ -4,8 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { defaultFormation, formatFormation, setFormationCell, type NavFormationAsset } from "../../engine/nav/formation";
 import { assetKind } from "../../editor/assetBrowser";
 import { assetDocumentsMoved, openAssetDocument } from "../../editor/assetDocuments";
-import { inspectedAsset } from "../../editor/assetImport";
-import { select as selectAssets } from "../../editor/assetSelection";
+import { inspectorTarget, selectAssets } from "../../editor/inspectorTarget";
 import { kindIcon, kindLabel, registeredKind, satisfiesFieldKind } from "../../editor/assetKindLookup";
 import { joinPath, openFolderProject } from "../../editor/projects";
 import { assetKinds, panelExtensions, projectSettingsSections } from "../../editor/sdk/contributions";
@@ -122,7 +121,8 @@ describe("the Navigation plugin's editor half (ADR 0134)", () => {
 /** The file the Inspector shows with `entry` alone selected in the Assets panel (null: none). */
 function inspectedFor(entry: string): string | null {
   selectAssets([entry]);
-  const shown = inspectedAsset.peek();
+  const target = inspectorTarget.peek();
+  const shown = target.kind === "asset" ? target.path : null;
   selectAssets([]);
   return shown;
 }

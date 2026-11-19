@@ -5,6 +5,7 @@ import { UIButton, UIInputField, UIPanel, UIText } from "../ui/components";
 import { UIDocument, type UIDocumentElement } from "../ui/UIDocument";
 import type { World } from "../core/World";
 import { readProject } from "../../server/project";
+import { UIPointer } from "./uiPointer";
 // The sample's scripts, registered as loading the project's scripts would (ADR 0031).
 import "../../../samples/pirates/scripts/data";
 import "../../../samples/pirates/scripts/systems";
@@ -35,7 +36,9 @@ const SCENE = "scenes/menu-document.scene.json";
 const STEP = 1 / 60;
 
 const engines: Engine[] = [];
+const pointers: UIPointer[] = [];
 afterEach(() => {
+  for (const p of pointers.splice(0)) p.dispose();
   Lobby.disconnect();
   for (const e of engines.splice(0)) e.dispose();
   Assets.clearSources();
@@ -54,7 +57,7 @@ async function stepUntil(engine: Engine, done: () => boolean, what: string, maxF
 }
 
 /** The sample with its Menu World on the document version of the menu. */
-async function openMenu(warnings: string[]): Promise<{ engine: Engine; menu: World; ui: UIDocument }> {
+async function openMenu(warnings: string[]): Promise<{ engine: Engine; menu: World; ui: UIDocument; click(el: UIDocumentElement): void }> {
   vi.spyOn(console, "warn").mockImplementation((...args: unknown[]) => void warnings.push(args.map(String).join(" ")));
   const project = await readProject(SAMPLE);
   Assets.addSource(project.assets);
@@ -66,7 +69,10 @@ async function openMenu(warnings: string[]): Promise<{ engine: Engine; menu: Wor
   await stepUntil(engine, () => Lobby.state === "lobby", "the menu's lobby");
   engine.step(STEP); // the script shows the state it's in from the next frame
   const ui = menu._componentsOfType(UIDocument)[0];
-  return { engine, menu, ui };
+  // The buttons are pressed through a UI core and Input, as the renderer routes a player's clicks.
+  const pointer = await UIPointer.create(menu);
+  pointers.push(pointer);
+  return { engine, menu, ui, click: (el) => pointer.click(el.as(UIButton)) };
 }
 
 /** Laid out and drawn: its node active, and neither it nor an element above it `display: none` (the script's `.hidden`). */
@@ -117,8 +123,8 @@ describe("the pirates menu as a UI document", () => {
   });
 
   it("creates a room from its button: the crew and settings rows come from list(), and the host steps a setting", { timeout: 60_000 }, async () => {
-    const { engine, ui } = await openMenu([]);
-    ui.query("#create-room")!.as(UIButton)._simulateClick();
+    const { engine, ui, click } = await openMenu([]);
+    click(ui.query("#create-room")!);
     await stepUntil(engine, () => Lobby.state === "room", "the room");
     engine.step(STEP);
     expect(Lobby.room).toMatchObject({ public: true, settings: { arena: "bay", ships: "6" } });
@@ -141,14 +147,14 @@ describe("the pirates menu as a UI document", () => {
     const settings = ui.queryAll("#setting-rows > .setting");
     expect(settings.map((r) => textOf(r.query(".setting-label")))).toEqual(["Arena", "Match length", "Ships"]);
     expect(settings[0].query(".next")!.as(UIButton).visible).toBe(true); // the host's: not :disabled
-    settings[0].query(".next")!.as(UIButton)._simulateClick();
+    click(settings[0].query(".next")!);
     await stepUntil(engine, () => Lobby.room?.settings.arena === "open", "the arena setting");
     engine.step(STEP);
     expect(textOf(ui.query("#setting-rows > .setting .setting-value"))).toBe("Open Ocean");
 
     // Ships 6 -> 5 drops a bot row; the rows by slot are kept.
     const before = ui.queryAll("#slots > .slot");
-    settings[2].query(".prev")!.as(UIButton)._simulateClick();
+    click(settings[2].query(".prev")!);
     await stepUntil(engine, () => Lobby.room?.settings.ships === "5", "the ships setting");
     engine.step(STEP);
     const after = ui.queryAll("#slots > .slot");
@@ -156,20 +162,20 @@ describe("the pirates menu as a UI document", () => {
     expect(after).toEqual(before.slice(0, 5));
 
     // Ready, then Leave goes home.
-    ui.query("#ready")!.as(UIButton)._simulateClick();
+    click(ui.query("#ready")!);
     await stepUntil(engine, () => textOf(ui.query("#ready Text")) === "Ready!", "ready");
     expect(Lobby.room!.members.find((m) => m.slot === Lobby.me!.slot)!.ready).toBe(true);
     expect(ui.query("#ready")!.classList.contains("on")).toBe(true);
     expect(ui.query("#ready")!.as(UIButton).backgroundColor!.toHex().toLowerCase()).toBe("#3f8f4a");
-    ui.query("#leave")!.as(UIButton)._simulateClick();
+    click(ui.query("#leave")!);
     await stepUntil(engine, () => Lobby.state === "lobby", "back in the lobby");
     engine.step(STEP);
     expect(shown(ui.query("#home"))).toBe(true);
   });
 
   it("starts a practice match from its button, as the original menu does", { timeout: 120_000 }, async () => {
-    const { engine, ui } = await openMenu([]);
-    ui.query("#practice")!.as(UIButton)._simulateClick();
+    const { engine, ui, click } = await openMenu([]);
+    click(ui.query("#practice")!);
     await stepUntil(engine, () => Lobby.state === "match", "the practice match");
     expect(Lobby.room).toMatchObject({ name: "Practice", public: false, settings: { arena: "bay", ships: "6", length: "300" } });
     expect(engine.findWorld("Menu")!.paused).toBe(true); // the match World has the screen

@@ -163,7 +163,7 @@ describe("shader graph materials on Babylon (ADR 0075 stage 4)", () => {
 
   describe("shadows follow the vertex offset", () => {
     const plugin = (m: PBRMaterial) =>
-      m.pluginManager?.getPlugin("MycoGraph") as unknown as { getCustomCode(t: string, l: ShaderLanguage): Record<string, string> | null; _pluginDefineNames?: Record<string, unknown> } | null;
+      m.pluginManager?.getPlugin("MycoGraph") as unknown as { getCustomCode(t: string, l: ShaderLanguage): Record<string, string> | null } | null;
 
     it("gives a graph with an offset a standalone shadow-depth wrapper whose material runs the graph's vertex code", async () => {
       asWebGPU();
@@ -182,8 +182,9 @@ describe("shader graph materials on Babylon (ADR 0075 stage 4)", () => {
       expect(Object.keys(fragment)).toEqual(["CUSTOM_FRAGMENT_DEFINITIONS"]);
       expect(fragment.CUSTOM_FRAGMENT_DEFINITIONS).toContain("var tex1: texture_2d<f32>;");
       // Its own define: Babylon caches effects by defines, so it never shares the drawing material's program.
-      expect(Object.keys(plugin(depth)!._pluginDefineNames ?? {})).toEqual(["MYCO_GRAPH_DEPTH_abc123"]);
-      expect(Object.keys(plugin(m.material)!._pluginDefineNames ?? {})).toEqual(["MYCO_GRAPH_abc123"]);
+      const graphDefines = async (material: PBRMaterial) => (await shaderText(material)).defines.match(/\bMYCO_GRAPH\w*/g);
+      expect(await graphDefines(depth)).toEqual(["MYCO_GRAPH_DEPTH_abc123"]);
+      expect(await graphDefines(m.material)).toEqual(["MYCO_GRAPH_abc123"]);
       m.dispose();
       expect(scene.materials.includes(depth)).toBe(false);
     });
@@ -197,46 +198,44 @@ describe("shader graph materials on Babylon (ADR 0075 stage 4)", () => {
       expect(still.material.shadowDepthWrapper).toBeNull();
     });
 
-    it("compiles one shadow program for every mesh and shadow generator, not one each", () => {
+    it("compiles one shadow program for every mesh and shadow generator, not one each", async () => {
       asWebGPU();
       const m = createGraphMaterial(scene, "g", compiled(), {}, shared, noTextures);
       const wrapper = m.material.shadowDepthWrapper!;
-      const internals = wrapper as unknown as { _subMeshToEffect: Map<unknown, [unknown, number]>; _subMeshToDepthWrapper: { mm: Map<unknown, Map<unknown, unknown>> }; _makeEffect(s: unknown, d: string[], g: unknown, p: number): unknown };
-      // The depth material's effect, as Babylon records it when the effect is made (no GPU here).
-      const base = {
-        uniqueId: 42,
-        isReady: () => true,
-        defines: "#define NORMAL",
-        shaderLanguage: ShaderLanguage.WGSL,
-        vertexSourceCodeBeforeMigration: "@vertex\nfn main(input: VertexInputs) -> FragmentInputs {\n#define CUSTOM_VERTEX_UPDATE_WORLDPOS\n}",
-        fragmentSourceCodeBeforeMigration: "@fragment\nfn main(input: FragmentInputs) -> FragmentOutputs {\n}",
-        getUniformNames: () => [],
-        getAttributesNames: () => ["position"],
-        getUniformBuffersNames: () => [],
-        getSamplers: () => [],
-        getIndexParameters: () => ({}),
-      };
+      const depth = wrapper.baseMaterial;
+      const a = CreatePlane("a", { size: 1 }, scene).subMeshes[0];
+      const b = CreatePlane("b", { size: 1 }, scene).subMeshes[0];
+      // The depth material's own effect for each mesh first: the wrapper builds its shadow effect from it.
+      for (const subMesh of [a, b]) {
+        for (let tries = 0; !depth.isReadyForSubMesh(subMesh.getMesh(), subMesh); tries++) {
+          if (tries >= 200) throw new Error("the depth material never became ready");
+          await new Promise((resolve) => setTimeout(resolve, 5));
+        }
+      }
+      expect(b.effect).toBe(a.effect); // one program for both meshes
       const tokens: string[] = [];
-      const made = { isReady: () => true };
       let vertexSource = "";
-      vi.spyOn(engine, "createEffect").mockImplementation(((source: { vertexToken: string; vertexSource: string }) => (tokens.push(source.vertexToken), (vertexSource = source.vertexSource), made)) as never);
-      const subMesh = () => ({ _getDrawWrapper: () => undefined });
-      const a = subMesh();
-      const b = subMesh();
-      internals._subMeshToEffect.set(a, [base, 0]);
-      internals._subMeshToEffect.set(b, [base, 0]);
-      const live = { getShadowMap: () => ({}) };
-      const disposed = { getShadowMap: () => null };
-      internals._makeEffect(a, ["#define SM_FLOAT 1"], disposed, 1);
-      internals._makeEffect(a, ["#define SM_FLOAT 1"], live, 1);
-      internals._makeEffect(b, ["#define SM_FLOAT 1"], live, 1);
-      expect(tokens).toEqual(["myco-graph-shadow-42", "myco-graph-shadow-42", "myco-graph-shadow-42"]);
+      const create = engine.createEffect.bind(engine);
+      vi.spyOn(engine, "createEffect").mockImplementation(((source: { vertexToken: string; vertexSource: string }, ...rest: unknown[]) => {
+        tokens.push(source.vertexToken);
+        vertexSource = source.vertexSource;
+        return (create as (...args: unknown[]) => unknown)(source, ...rest);
+      }) as never);
+      const live = { getShadowMap: () => ({}) } as never;
+      const disposed = { getShadowMap: () => null } as never;
+      const shadowDefines = ["#define SM_FLOAT 1"];
+      wrapper.isReadyForSubMesh(a, shadowDefines, disposed, false, 1);
+      wrapper.isReadyForSubMesh(a, shadowDefines, live, false, 1);
+      wrapper.isReadyForSubMesh(b, shadowDefines, live, false, 1);
+      const token = `myco-graph-shadow-${a.effect!.uniqueId}`;
+      expect(tokens).toEqual([token, token, token]);
       // Babylon's normal bias, reading the PBR shader's world normal.
       expect(vertexSource).toContain("#include<shadowMapVertexNormalBias>(vNormalW,vertexOutputs.vNormalW)");
       // Meeting a new generator drops the disposed one's entry.
-      expect([...internals._subMeshToDepthWrapper.mm.get(a)!.keys()]).toEqual([live]);
+      expect(wrapper.getEffect(a, disposed, 1)).toBeNull();
+      expect(wrapper.getEffect(a, live, 1)).not.toBeNull();
       // Once made, the next draws reuse it.
-      internals._makeEffect(b, ["#define SM_FLOAT 1"], live, 1);
+      wrapper.isReadyForSubMesh(b, shadowDefines, live, false, 1);
       expect(tokens.length).toBe(3);
     });
 

@@ -24,11 +24,14 @@ export interface EventKit {
   boot(assets: Record<string, unknown>, audio?: Record<string, unknown>): Promise<void>;
   /** Sets the fake backend's heard clock (`fake.time`). */
   setTime(seconds: number): void;
+  /** Steps the booted Engine one frame of `dt` seconds: the audio system syncs every `AudioSource` (position, volume, pitch, output). */
+  frame(dt?: number): void;
 }
 
 /** Registers the per-test setup and teardown (fresh fake, the audio session ended (`endAudioSession`), `console.warn` silenced). Call at file top level. */
 export function eventKit(): EventKit {
   const fake = makeFakeBackend();
+  let engine: Engine | null = null;
   beforeEach(() => {
     fake.clear();
     fake.ready = true;
@@ -47,10 +50,14 @@ export function eventKit(): EventKit {
     async boot(assets, audio = {}) {
       Assets.clearSources();
       Assets.addSource(Assets.fromObject({ "s.json": { format: "myco.scene@1", nodes: [] }, "a.wav": "data:,", "b.wav": "data:,", "c.wav": "data:,", "d.wav": "data:,", ...assets }));
-      const engine = await Engine.create({ headless: true, project: { audio: { buses: [{ name: "Master" }, { name: "SFX", parent: "Master" }], seed: 7, ...audio } } });
+      engine = await Engine.create({ headless: true, project: { audio: { buses: [{ name: "Master" }, { name: "SFX", parent: "Master" }], seed: 7, ...audio } } });
       await SceneManager.load("s.json");
       engine.world.render = {} as never;
     },
     setTime(seconds) { (fake as { time: number }).time = seconds; },
+    frame(dt = 1 / 60) {
+      if (!engine) throw new Error("eventKit: boot() first");
+      engine.step(dt);
+    },
   };
 }

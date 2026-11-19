@@ -3,7 +3,7 @@
 // listening-pass item P1); and game over dips the Music bus, which comes back when the next run starts.
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Assets, Engine, Input, SceneManager, Text } from "../../myco";
+import { Assets, Engine, GameObject, Input, SceneManager, Text } from "../../myco";
 import { readProject } from "../../server/project";
 import { Audio } from "../../plugins/audio/runtime";
 import { setAudioBackend } from "../../plugins/audio/runtime/backend";
@@ -42,7 +42,7 @@ async function boot(): Promise<void> {
   advance(0.2);
 }
 
-const manager = () => engine!.world._componentsOfType(GameManager)[0] as GameManager;
+const manager = () => GameObject.findObjectOfType(GameManager)!;
 const readout = () => manager().musicLabel!.getBehavior(Text)!.text;
 
 beforeEach(() => {

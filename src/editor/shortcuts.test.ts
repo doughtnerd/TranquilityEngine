@@ -9,7 +9,8 @@ import { copyNodes, nodeClipboardPayload } from "./nodeClipboard";
 import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile } from "./project";
 import { installShortcuts } from "./shortcuts";
-import { openScene, openScenes, pickTool, sceneCamera, select, selectedKeys, tool } from "./state";
+import { openScene, openScenes, pickTool, sceneCamera, selectedKeys, tool } from "./state";
+import { select } from "./inspectorTarget";
 import { DEMO_SCENE, demoAssets, demoSettings } from "./testing";
 
 type Mods = Partial<{ ctrlKey: boolean; metaKey: boolean; shiftKey: boolean; altKey: boolean; code: string }>;

@@ -17,14 +17,13 @@ import { ThumbnailScenes } from "../render/babylon/previews/thumbnailScenes";
 import { MaterialPreview } from "../render/previewRouting";
 
 /**
- * `ThumbnailRenderer.create` makes its engine with `createPreviewEngine` (WebGPU, else WebGL2): here it gets
- * a NullEngine, kept so a test can take its context away.
+ * `ThumbnailRenderer.create` makes its engine with the engine factory (`createEngine`, ADR 0244: WebGPU, else
+ * WebGL2): here it gets a NullEngine, kept so a test can take its context away.
  */
 const previewEngines = vi.hoisted(() => [] as NullEngine[]);
-vi.mock("../render/babylon/previews/common", async (importOriginal) => {
+vi.mock("../render/babylon/createEngine", async () => {
   const { NullEngine } = await import("@babylonjs/core/Engines/nullEngine.js");
-  const original = await importOriginal<typeof import("../render/babylon/previews/common")>();
-  return { ...original, createPreviewEngine: async () => previewEngines[previewEngines.push(new NullEngine()) - 1] };
+  return { createEngine: async () => previewEngines[previewEngines.push(new NullEngine()) - 1] };
 });
 
 /** The scene's Babylon particle systems (CPU ones, which hold their particle list). */

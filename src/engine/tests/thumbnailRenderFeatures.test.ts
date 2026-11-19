@@ -7,10 +7,10 @@ import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { World } from "../core/World";
-import { Assets, Engine, SceneManager } from "../index";
+import { Assets, Engine, GameObject, SceneManager } from "../index";
 import { Camera, Light, SpriteRenderer } from "../render/components";
 import { BabylonRenderer, loadPluginFeatures } from "../render/babylon/BabylonRenderer";
-import { _registeredRenderFeatures, type RenderFeatureRegistration } from "../render/renderFeatures";
+import { applyTestPlugins } from "../../plugins/testPlugins";
 import { ThumbnailScenes } from "../render/babylon/previews/thumbnailScenes";
 
 const TEXTURE = 512; // NullEngine's texture size
@@ -74,7 +74,7 @@ describe("thumbnails through the render features (ADR 0153)", () => {
     const sprites = (await loadPluginFeatures()).filter((p) => p.registration.spec.name === "sprites");
     const renderer = BabylonRenderer.forThumbnail(nullEngine, world.settings, sprites, { studio: null });
     renderer.setPolicy({ drawPolicy: "perObject" });
-    const sized = () => world._componentsOfType(SpriteRenderer).every((s) => renderer.spriteSize(s));
+    const sized = () => GameObject.findObjectsOfType(SpriteRenderer).every((s) => renderer.spriteSize(s));
     for (let i = 0; i < 100 && !(renderer.contentReady() && sized()); i++) {
       renderer.sync(world);
       await new Promise((r) => setTimeout(r, 5));
@@ -96,7 +96,7 @@ describe("thumbnails through the render features (ADR 0153)", () => {
     expect(p).not.toBeNull();
     const ref = await inWorld("sprites.prefab.json");
     try {
-      const [a, b] = ref.world._componentsOfType(SpriteRenderer);
+      const [a, b] = GameObject.findObjectsOfType(SpriteRenderer);
       // The World's sizes: the slice's 8 pixels at the project's 16 per unit; the whole texture at the sprite's own 50.
       expect(ref.renderer.spriteSize(a)).toEqual([8 / PROJECT_PPU, 8 / PROJECT_PPU]);
       expect(ref.renderer.spriteSize(b)).toEqual([TEXTURE / 50, TEXTURE / 50]);
@@ -126,11 +126,7 @@ describe("thumbnails through the render features (ADR 0153)", () => {
     const thumbnails = new ThumbnailScenes(new NullEngine(), 64, { studio: false, readyTimeout: 200, settings: () => ({}) });
     const p = (await thumbnails.prepare("scene", "defaults.scene.json", false))!;
     try {
-      const world = new World("editor");
-      const defaults = World._runIn(world, () => {
-        const node = world._createNode("defaults", world.root.entity);
-        return { light: node.addBehavior(Light), camera: node.addBehavior(Camera) };
-      });
+      const defaults = { light: new Light(), camera: new Camera() }; // the Components' own defaults
       const spot = p.scene.lights.find((l) => l.getClassName() === "SpotLight" && l.isEnabled()) as SpotLight;
       expect(spot).toBeTruthy();
       expect(spot.angle).toBeCloseTo((defaults.light.spotAngle * Math.PI) / 180, 6);
@@ -147,14 +143,12 @@ describe("thumbnails through the render features (ADR 0153)", () => {
 
   it("leaves out what a disabled plugin draws", async () => {
     const thumbnails = new ThumbnailScenes(new NullEngine(), 64, { studio: false, readyTimeout: 200, settings: () => ({ render: { pixelsPerUnit: PROJECT_PPU } }) });
-    // As if the Sprites plugin were off: its render feature isn't registered.
-    const registered = _registeredRenderFeatures() as RenderFeatureRegistration[];
-    const at = registered.findIndex((r) => r.spec.name === "sprites");
-    const [sprites] = registered.splice(at, 1);
+    // The Sprites plugin off: its render feature isn't registered.
+    applyTestPlugins(["myco.sprites"]);
     try {
       expect(await thumbnails.prepare("prefab", "sprites.prefab.json", false)).toBeNull(); // nothing to draw
     } finally {
-      registered.splice(at, 0, sprites);
+      applyTestPlugins(); // as Vitest's setup file leaves it
       thumbnails.dispose();
     }
   });

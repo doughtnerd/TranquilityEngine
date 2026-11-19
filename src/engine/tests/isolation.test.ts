@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   Assets,
   BoxCollider2D,
+  Engine,
   GameBehavior,
   GameObject,
   Input,
@@ -13,6 +14,7 @@ import {
   behavior,
   defineBuffer,
   defineComponent,
+  defineSystem,
   f32,
   field,
 } from "../../myco";
@@ -21,7 +23,8 @@ import { instantiateFile, loadSceneFile } from "../scene/SceneLoader";
 
 // ADR 0032, T3: Worlds share no nodes, data, buffers or physics; references and reparenting never
 // cross Worlds; local input reaches only Worlds that take it. Worlds are built directly and made
-// current the way the Engine's loop does, so these tests don't depend on the Engine (T1).
+// current the way the Engine's loop does, so these tests don't depend on the Engine (T1); only the
+// input test uses one, since which Worlds take input is the Engine's to decide (`WorldConfig.input`).
 
 @behavior("test.isolation.Pointer")
 class Pointer extends GameBehavior {
@@ -57,22 +60,9 @@ function inWorld<T>(world: World, fn: () => T): T {
   }
 }
 
-/** One frame of `world` (the parts of ADR 0011 these tests need), with it current. */
+/** One frame of `world` (ADR 0011, through `World.step`, ADR 0239): one fixed step at the default rate, with it current. */
 function frame(world: World, dt = 1 / 60): void {
-  inWorld(world, () => {
-    world._inFrame = true;
-    try {
-      world.time.fixedStepCount++;
-      world.scheduler.run("fixedUpdate", dt);
-      world._runPendingStarts();
-      world.scheduler.run("update", dt);
-      world._propagateTransforms();
-    } finally {
-      world._flushDestroyed();
-      world._clearBuffers();
-      world._inFrame = false;
-    }
-  });
+  world.step(dt);
 }
 
 beforeEach(() => {
@@ -199,38 +189,58 @@ describe("references and reparenting never cross Worlds (T3)", () => {
   });
 });
 
-describe("input reaches only Worlds that take it (T3)", () => {
-  it("shows nothing pressed and no movement in a World that doesn't take input", () => {
-    b._takesInput = false;
-    Input.simulate("down", "space");
-    Input.simulate("down", "mouse0");
-    Input.simulateMouseMove(4, 2);
-    Input.simulateScroll(0, 10);
-    Input.beginFrame();
+/** What scripts in a World read from `Input` in its last frame, by World name (`inputReads`). */
+interface InputRead {
+  keyDown: boolean;
+  key: boolean;
+  keyUp: boolean;
+  anyKeyDown: boolean;
+  mouse: boolean;
+  mouseDown: boolean;
+  mouseDeltaX: number;
+  scrollY: number;
+  mouseX: number;
+}
+const inputReads: Record<string, InputRead> = {};
+defineSystem({
+  name: "test.isolation.inputProbe",
+  phase: "update",
+  worlds: ["client", "server"],
+  run(_rows, ctx) {
+    inputReads[ctx.world.name] = {
+      keyDown: Input.getKeyDown("space"),
+      key: Input.getKey("space"),
+      keyUp: Input.getKeyUp("space"),
+      anyKeyDown: Input.anyKeyDown,
+      mouse: Input.getMouseButton(),
+      mouseDown: Input.getMouseButtonDown(),
+      mouseDeltaX: Input.mouseDelta.x,
+      scrollY: Input.mouseScrollDelta.y,
+      mouseX: Input.mousePosition.x,
+    };
+  },
+});
 
-    inWorld(a, () => {
-      expect(Input.getKeyDown("space")).toBe(true);
-      expect(Input.getKey("space")).toBe(true);
-      expect(Input.anyKeyDown).toBe(true);
-      expect(Input.getMouseButtonDown()).toBe(true);
-      expect(Input.mouseDelta.x).toBe(4);
-      expect(Input.mouseScrollDelta.y).toBe(10);
-    });
-    inWorld(b, () => {
-      expect(Input.getKeyDown("space")).toBe(false);
-      expect(Input.getKey("space")).toBe(false);
-      expect(Input.anyKeyDown).toBe(false);
-      expect(Input.getMouseButton()).toBe(false);
-      expect(Input.getMouseButtonDown()).toBe(false);
-      expect(Input.mouseDelta.x).toBe(0);
-      expect(Input.mouseScrollDelta.y).toBe(0);
-      expect(Input.mousePosition.x).toBe(0);
-    });
-    // Reading in B consumed nothing: A still sees the key this frame, and the release next frame.
-    inWorld(a, () => expect(Input.getKeyDown("space")).toBe(true));
-    Input.simulate("up", "space");
-    Input.beginFrame();
-    inWorld(a, () => expect(Input.getKeyUp("space")).toBe(true));
-    inWorld(b, () => expect(Input.getKeyUp("space")).toBe(false));
+describe("input reaches only Worlds that take it (T3)", () => {
+  // Through an Engine, whose World configs say which Worlds take input (`WorldConfig.input`).
+  it("shows nothing pressed and no movement in a World that doesn't take input", async () => {
+    // B steps first, so A's reads show that B's consumed nothing.
+    const engine = await Engine.create({ headless: true, bootstrap: { worlds: [{ name: "B", tags: ["server"], input: false }, { name: "A", tags: ["client"] }] } });
+    try {
+      Input.simulate("down", "space");
+      Input.simulate("down", "mouse0");
+      Input.simulateMouseMove(4, 2);
+      Input.simulateScroll(0, 10);
+      engine.step(1 / 60);
+      expect(inputReads.A).toMatchObject({ keyDown: true, key: true, anyKeyDown: true, mouseDown: true, mouseDeltaX: 4, scrollY: 10 });
+      expect(inputReads.B).toEqual({ keyDown: false, key: false, keyUp: false, anyKeyDown: false, mouse: false, mouseDown: false, mouseDeltaX: 0, scrollY: 0, mouseX: 0 });
+      // The release next frame, in A only.
+      Input.simulate("up", "space");
+      engine.step(1 / 60);
+      expect(inputReads.A.keyUp).toBe(true);
+      expect(inputReads.B.keyUp).toBe(false);
+    } finally {
+      engine.dispose();
+    }
   });
 });

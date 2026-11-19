@@ -59,8 +59,9 @@ describe("front faces in Babylon's left-handed default (ADR 0164)", () => {
     scene.updateTransformMatrix(true);
     const vp = scene.getTransformMatrix();
     const pos = mesh.getVerticesData("position")!, nrm = mesh.getVerticesData("normal")!, idx = mesh.getIndices()!;
-    // The face GL treats as front: counter-clockwise on screen unless Babylon's orientation reverses it (Material._preBind).
-    const orientation = mesh.material!._getEffectiveOrientation(mesh);
+    // The face GL treats as front: counter-clockwise on screen unless Babylon's orientation reverses it
+    // (as it binds a material: the material's sideOrientation when set, otherwise the mesh's).
+    const orientation = mesh.material!.sideOrientation ?? mesh.sideOrientation;
     const ccwFront = orientation !== Material.ClockWiseSideOrientation;
     const out: boolean[] = [];
     for (let t = 0; t < idx.length; t += 3) {

@@ -176,14 +176,6 @@ export class UIButton extends UIPanel {
   get clicked(): boolean {
     return this._clickFrame === this._world.time.frameCount && this.interactable;
   }
-
-  /**
-   * @internal Tests and headless Worlds: report a click. Inside a frame, scripts see it this frame;
-   * between frames, in the next one.
-   */
-  _simulateClick(): void {
-    this._clickFrame = nextFrame(this);
-  }
 }
 
 /**
@@ -229,17 +221,6 @@ export class UIInputField extends UIPanel {
   get submitted(): boolean {
     return this._submitFrame === this._world.time.frameCount;
   }
-
-  /** @internal Tests and headless Worlds: report Enter, like `UIButton._simulateClick`. */
-  _simulateSubmit(): void {
-    this._submitFrame = nextFrame(this);
-  }
-}
-
-/** The World frame whose scripts see an event that happens now: this one inside a frame, else the next. */
-function nextFrame(c: Component): number {
-  const world = c._world;
-  return world._inFrame ? world.time.frameCount : world.time.frameCount + 1;
 }
 
 /** Every UI component type, for the render backend and the routing. */

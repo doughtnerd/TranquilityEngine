@@ -35,7 +35,7 @@ const state = (over: Partial<MenuState> = {}): MenuState => ({
   pasteBlocked: null,
   selectionInPrefab: false,
   hasSelection: true,
-  clipboard: "nodes",
+  assets: null,
   createItems: [{ label: "Empty", run: noop }],
   layouts: { saved: [], active: null, modified: false, saveBlocked: "the Default layout can't be changed; use Save Layout As…" },
   ...over,
@@ -54,10 +54,13 @@ describe("menu bar", () => {
     for (const l of ["Cut", "Paste", "Duplicate", "Delete"]) expect(item(playing, "edit", l).disabled, l).toBe(STOP_PLAYING);
   });
 
-  it("with the Assets panel focused, Edit's clipboard items act on assets", () => {
+  it("with the Assets panel focused, Edit's clipboard items act on assets, with the Assets commands' reasons", () => {
     const a = actions();
-    const m = buildMenus(state({ project, scene, hasSelection: false, clipboard: "assets" }), a);
-    for (const l of ["Cut", "Copy", "Paste", "Duplicate", "Delete"]) expect(item(m, "edit", l).disabled, l).toBeFalsy();
+    const assets = { cut: null, copy: null, paste: "nothing copied", duplicate: null, delete: "it's open in another scene tab; close that tab first" };
+    const m = buildMenus(state({ project, scene, hasSelection: false, assets }), a);
+    for (const l of ["Cut", "Copy", "Duplicate"]) expect(item(m, "edit", l).disabled, l).toBeFalsy();
+    expect(item(m, "edit", "Paste").disabled).toBe("nothing copied");
+    expect(item(m, "edit", "Delete").disabled).toMatch(/another scene tab/);
     item(m, "edit", "Copy").run!();
     expect(a.copy).toHaveBeenCalled();
   });

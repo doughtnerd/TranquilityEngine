@@ -71,3 +71,8 @@ from the start screen rather than after booting the read-only sample.
   skips before booting the editor where there's no adapter (software GL, WebKit).
 - Typing into something that takes focus in an effect (a search box that just opened): wait for
   `toBeFocused()` first.
+- Read the running game through the public `myco` API, never engine internals (`_world`,
+  `_componentsOfType`…): `inLiveWorld(page, world, fn)` (`./liveWorld`) hands `fn` a World of the
+  play Engine (the default World for `null`, another by name, once it has stepped a frame), found
+  the way a script finds it (a system's `ctx.world`), and walks nodes through `root`, `children`
+  and `getComponents`. View and input state come from the game view's tiles and Worlds strip.

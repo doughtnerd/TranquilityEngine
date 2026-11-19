@@ -1,6 +1,6 @@
 /**
- * What the editor's Babylon preview renderers share (ADR 0061, 0075 stage 7): making an engine on a
- * canvas (WebGPU, else the WebGL2 fallback), a scene lit like the editor's default one, the studio
+ * What the editor's Babylon preview renderers share (ADR 0061, 0075 stage 7): a scene lit like the
+ * editor's default one (their engines come from the engine factory, `createEngine.ts`, ADR 0244), the studio
  * environment, and a preview scene's material library (the World renderer's, ADR 0127). Babylon types
  * stay inside `render/babylon/` (ADR 0010).
  *
@@ -30,24 +30,6 @@ import { BabylonMaterialLibrary } from "../materialLibrary";
 export const LIGHT_AMBIENT = 0.45;
 export const LIGHT_SUN = 1.6;
 export const LIGHT_ENVIRONMENT = 0.5;
-
-/**
- * A Babylon engine drawing into `canvas`: WebGPU where the browser has it, else the WebGL2 engine (loaded
- * only then). `alpha` keeps the canvas transparent where nothing is drawn.
- */
-export async function createPreviewEngine(canvas: HTMLCanvasElement, antialias = true): Promise<AbstractEngine> {
-  if (await WebGPUEngine.IsSupportedAsync) {
-    try {
-      const gpu = new WebGPUEngine(canvas, { antialias, adaptToDeviceRatio: false, setMaximumLimits: true }); // as BabylonRenderer.create
-      await gpu.initAsync();
-      return gpu;
-    } catch (err) {
-      console.warn("[myco] preview: WebGPU couldn't start; using WebGL2:", err);
-    }
-  }
-  const { Engine } = await import("@babylonjs/core/Engines/engine.js");
-  return new Engine(canvas, antialias, { adaptToDeviceRatio: false, alpha: true, preserveDrawingBuffer: true });
-}
 
 /** A scene in Babylon's default left-handed mode (the engine's convention, ADR 0164) that clears to transparent. */
 export function createPreviewScene(engine: AbstractEngine): Scene {

@@ -540,11 +540,6 @@ export class UIDocument extends Component {
     return this.sheets;
   }
 
-  /** @internal Editor: every file the last build read (the markup, used documents, stylesheets). */
-  get _files(): readonly string[] {
-    return [...this.sources.keys()];
-  }
-
   /** Rebuild from the files now (the engine does this by itself when one of them changes). */
   reload(): void {
     if (this.isActiveAndEnabled) this.rebuild();
@@ -987,7 +982,7 @@ function destroyNode(node: GameObject, flush = true): void {
   if (!node.isValid) return;
   const world = node.world;
   world._destroyNode(node.entity);
-  if (flush && !world._inFrame) world._flushDestroyed(); // outside a frame (the editor, tests): now
+  if (flush) world.applyDestroys(); // outside a frame (the editor, tests): now
 }
 
 function documentsOf(world: World): UIDocument[] {

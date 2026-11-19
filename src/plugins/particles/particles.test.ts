@@ -9,8 +9,7 @@ import { ParticleSystem } from "../../engine/render/components";
 import { _registeredRenderFeatures } from "../../engine/render/renderFeatures";
 import { defaultParticleGraph, formatParticleGraph } from "../../engine/scene/particleGraphFormat";
 import { assetKind } from "../../editor/assetBrowser";
-import { inspectedAsset } from "../../editor/assetImport";
-import { select as selectAssets } from "../../editor/assetSelection";
+import { inspectorTarget, selectAssets } from "../../editor/inspectorTarget";
 import { canAddToScene, kindIcon, kindLabel, kindOpens, registeredKind, satisfiesFieldKind } from "../../editor/assetKindLookup";
 import { registeredPanels } from "../../editor/layout/registeredPanels";
 import { joinPath, openFolderProject } from "../../editor/projects";
@@ -180,7 +179,8 @@ describe("the Particles plugin's runtime half (ADR 0135)", () => {
 /** The file the Inspector shows with `entry` alone selected in the Assets panel (null: none). */
 function inspectedFor(entry: string): string | null {
   selectAssets([entry]);
-  const shown = inspectedAsset.peek();
+  const target = inspectorTarget.peek();
+  const shown = target.kind === "asset" ? target.path : null;
   selectAssets([]);
   return shown;
 }

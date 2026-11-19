@@ -363,6 +363,10 @@
             ],
             "open": true
           }
+        },
+        {
+          "type": "navdemo.Gate",
+          "data": {}
         }
       ]
     },

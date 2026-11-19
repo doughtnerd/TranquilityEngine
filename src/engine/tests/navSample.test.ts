@@ -10,6 +10,7 @@ import { Streamer } from "../../../samples/navigation/scripts/behaviors/Streamer
 import { Tour } from "../../../samples/navigation/scripts/behaviors/Tour";
 import { Hud, spawners } from "../../../samples/navigation/scripts/behaviors/Hud";
 import "../../../samples/navigation/scripts/behaviors/CameraRig";
+import "../../../samples/navigation/scripts/behaviors/Gate";
 
 // ADR 0065, W7: the navigation sample (samples/navigation, a port of Foxfire's Streaming Demo) played headless: the
 // project read from disk as the dedicated server reads it, its main scene run for 75 s of fixed steps. Every kind
@@ -70,8 +71,12 @@ describe("the navigation sample (ADR 0065)", () => {
     let gatesSeen = 0;
     let maxLoaded = 0;
     for (let i = 0; i < SECONDS * 60; i++) {
-      engine.step(STEP);
+      // Settle before the step, not after: a chunk scene whose load finishes here is instantiated now,
+      // and its gates start at the component default until the GateTimer's next fixedUpdate syncs them.
+      // Checked straight after a settle, a gate could be caught that frame early (when the machine was
+      // busy enough for a load to land on a checking frame).
       if (i % 4 === 0) await settle();
+      engine.step(STEP);
       if (tracks.length === 0) {
         for (const s of spawners()) {
           for (const agent of s.agents) {

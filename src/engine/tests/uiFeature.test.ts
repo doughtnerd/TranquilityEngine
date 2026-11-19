@@ -115,11 +115,19 @@ describe("BabylonUIFeature", () => {
     const f = await make();
     const { play } = menu();
     f.sync(World.require());
-    const core = f.core() as unknown as { interactiveMode: boolean };
-    expect(core.interactiveMode).toBe(false);
+    // A press on Play: not interactive (the editor's scene view, where clicks select), it doesn't press it.
+    Input.simulatePointer(100, 25);
+    Input.simulate("down", "mouse0");
+    engine.step(1 / 60);
+    expect(play.pressed).toBe(false);
+    expect(Input.pointerOverUI).toBe(false);
+    Input.simulate("up", "mouse0");
+    engine.step(1 / 60);
     state.interactive = true;
     f.sync(World.require());
-    expect(core.interactiveMode).toBe(true);
+    Input.simulate("down", "mouse0");
+    engine.step(1 / 60);
+    expect(play.pressed).toBe(true);
     expect(play.isActiveAndEnabled).toBe(true);
   });
 

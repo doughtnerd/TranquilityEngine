@@ -16,10 +16,13 @@ const clip = (c: string, extra: Record<string, unknown> = {}) => ({ type: "clip"
 async function boot(assets: Record<string, unknown>, audio: Record<string, unknown> = {}): Promise<void> {
   Assets.clearSources();
   Assets.addSource(Assets.fromObject({ "s.json": { format: "myco.scene@1", nodes: [] }, "a.wav": "data:,", "b.wav": "data:,", "c.wav": "data:,", ...assets }));
-  const engine = await Engine.create({ headless: true, project: { audio: { buses: [{ name: "Master" }], seed: 7, ...audio } } });
+  engine = await Engine.create({ headless: true, project: { audio: { buses: [{ name: "Master" }], seed: 7, ...audio } } });
   await SceneManager.load("s.json");
   engine.world.render = {} as never;
 }
+let engine: Engine;
+/** One frame: the audio system syncs every AudioSource. */
+const frame = (): void => engine.step(1 / 60);
 
 beforeEach(() => {
   fake.clear();
@@ -164,9 +167,9 @@ describe("pitch reaches a playing event", () => {
     src.play();
     expect(fake.voices[0].pitch).toBeCloseTo(1.5);
     src.pitch = 2;
-    src._sync();
+    frame();
     expect(fake.voices[0].pitch).toBeCloseTo(3);
-    src._sync();
+    frame();
     expect(fake.voices[0].events.filter((e) => e.kind === "pitch")).toHaveLength(2); // the request's and the change
   });
 

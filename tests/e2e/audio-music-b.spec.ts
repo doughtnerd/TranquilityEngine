@@ -19,12 +19,7 @@ test.describe.configure({ timeout: 150_000 });
 type Pend = { to: string; ruleKey: string; rule: number; tier: number; parent: string; exit: string; enter: string };
 type Sample = { t: number; asset: string; state: string; seg: string | null; bar: number; beat: number; n: number; pend: Pend | null; heads: Record<string, number>; played: number };
 type Api = { Audio: { time: number; debug(): unknown }; getComponentClass(id: string): unknown; GameBehavior: new () => object; AudioSource: unknown };
-type Lab = {
-  node: { addBehavior(type: unknown, init?: object): unknown };
-  handle: { setParameter(n: string, v: string): void; stop(s?: number): void; music?: { seek(to: string): { ok: boolean; time?: number; reason?: string; permanent?: boolean }; segment: string | null } } | null;
-  mode: string;
-};
-type G = { __myco: Api; playEngine: { world: { _componentsOfType(c: unknown): Lab[] } }; __rec: Sample[]; __lis?: Listener };
+type G = { __myco: Api; __rec: Sample[]; __lis?: Listener };
 type Listener = { beats: Beat[]; bars: Beat[]; src: { stop(): void } };
 type Beat = { bar: number; beat: number; time: number; heardIn: number; missed: number; segment: string; tempo: number; now: number };
 
@@ -246,7 +241,7 @@ test("M4b: a switch changed again before it lands goes where it was last sent, b
 });
 
 /** The music page's MusicLab behaviour (its `handle` is a TypeScript-private field, a plain property at run time). */
-const MUSIC_LAB = `(() => { const g = globalThis; return g.playEngine.world._componentsOfType(g.__myco.getComponentClass("lab.MusicLab"))[0]; })()`;
+const MUSIC_LAB = `(() => { const g = globalThis; const T = g.__myco.getComponentClass("lab.MusicLab"); const find = (n) => n.getComponent(T) ?? n.children.map(find).find(Boolean) ?? null; return find(g.playEngine.world.root); })()`;
 
 test("M4b: a seek lands at the position asked for, in the playing segment, and the music carries on from there", async ({ page }, info) => {
   const seen = watchConsole(page);

@@ -7,6 +7,7 @@ import { parseBindings, parseMarkup } from "../ui/document/markup";
 import { matchSelector, parseStylesheet, resolveStyle } from "../ui/document/stylesheet";
 import type { MarkupElement, StyleTarget, UIPseudo, UITag } from "../ui/document/types";
 import { loadUIDocumentSupport } from "../ui/UIDocument";
+import { UIPointer, stubDocument } from "./uiPointer";
 
 // ADR 0077: UI documents: markup, stylesheets, the cascade, and the UIDocument runtime.
 
@@ -181,6 +182,7 @@ describe("stylesheets", () => {
 const DT = 1 / 60;
 let engine: Engine;
 let files: Record<string, unknown>;
+let pointers: UIPointer[] = [];
 
 beforeEach(async () => {
   Input.reset();
@@ -192,11 +194,20 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  for (const p of pointers.splice(0)) p.dispose();
+  vi.unstubAllGlobals();
   engine.dispose();
   Assets.clearSources();
   Input.reset();
   vi.restoreAllMocks();
 });
+
+/** A UI core laying out and routing the World's UI, as the renderer's does: clicks and hovers go through it. */
+async function pointer(): Promise<UIPointer> {
+  const p = await UIPointer.create(World.require());
+  pointers.push(p);
+  return p;
+}
 
 async function open(path = "ui/menu.ui.xml"): Promise<UIDocument> {
   const node = GameObject.create("UI");
@@ -290,7 +301,7 @@ describe("UIDocument", () => {
     expect(doc.query("#home")!.as(UIPanel).display).toBe("none");
     // A pseudo-class can toggle it too.
     const hoverHide = doc.query("#hover-hide")!.as(UIButton);
-    hoverHide._hovered = true;
+    (await pointer()).hover(hoverHide);
     engine.step(DT);
     expect(hoverHide.display).toBe("none");
   });
@@ -299,11 +310,14 @@ describe("UIDocument", () => {
     const doc = await open();
     const play = doc.query("#play")!;
     const button = play.as(UIButton);
-    button._hovered = true;
+    const p = await pointer();
+    p.hover(button);
     engine.step(DT);
+    expect(button.hovered).toBe(true);
     expect(play.query("Text")!.as(UIText).color).toEqual(Color.from("#ffff00"));
-    button._hovered = false;
+    p.leave();
     engine.step(DT);
+    expect(button.hovered).toBe(false);
     expect(play.query("Text")!.as(UIText).color).toEqual(Color.white);
   });
 
@@ -314,19 +328,26 @@ describe("UIDocument", () => {
     let buffered: readonly UIEvent[] = [];
     play.on("click", (e) => seen.push(`click ${e.element.id}`));
     const name = doc.query("#name")!;
-    name.on("change", (e) => seen.push(`change ${e.element.value}`)).on("submit", () => seen.push("submit"));
     let polled = false;
-    play.as(UIButton)._simulateClick();
-    name.as(UIInputField).value = "Ada"; // between frames: as typing does
-    name.as(UIInputField)._simulateSubmit();
-    // Read the buffer and the polled state at the end of the frame, before the buffer is cleared.
-    const world = World.require();
-    const original = world._clearBuffers.bind(world);
-    world._clearBuffers = () => {
-      buffered = [...world._buffer(UIEvents)];
+    // The last handler of the frame reads the buffer and the polled state, as a script would that frame.
+    name.on("change", (e) => seen.push(`change ${e.element.value}`)).on("submit", () => {
+      seen.push("submit");
+      buffered = [...UIEvents.read()];
       polled ||= play.clicked && name.changed && name.submitted;
-      original();
-    };
+    });
+    const dom = stubDocument();
+    const p = await pointer();
+    // The press on Play (a press takes focus from fields, so a script focuses the name field after it).
+    p.hover(play.as(UIButton));
+    Input.simulate("down", "mouse0");
+    engine.step(DT);
+    expect(seen).toEqual([]);
+    // Between frames: the player types and presses Enter in the field, and releases over Play.
+    name.as(UIInputField).focused = true;
+    p.sync(); // the renderer's sync gives the field DOM focus
+    dom.typeText("Ada");
+    dom.emit("keydown", { key: "Enter" });
+    Input.simulate("up", "mouse0");
     engine.step(DT);
     expect(seen).toEqual(["click play", "change Ada", "submit"]);
     expect(buffered.map((e) => e.type)).toEqual(["click", "change", "submit"]);
@@ -373,7 +394,7 @@ describe("UIDocument", () => {
     const doc = await open();
     const picked: unknown[] = [];
     const rows = doc.list("#list", [{ label: "One" }, { label: "Two" }], (row) => row.on("click", (e) => picked.push(e.item)));
-    rows[1].as(UIButton)._simulateClick();
+    (await pointer()).click(rows[1].as(UIButton));
     engine.step(DT);
     expect(picked).toEqual([{ label: "Two" }]);
     expect(rows[1].query("Text")!.as(UIText).text).toBe("Two");
@@ -396,7 +417,7 @@ describe("UIDocument", () => {
     expect(rebuilt.as(UIButton).backgroundColor).toEqual(Color.from("#000000"));
     expect(doc.query("#title")!.as(UIText).text).toBe("Score: 5");
     expect(doc.queryAll(".row")).toHaveLength(1);
-    rebuilt.as(UIButton)._simulateClick();
+    (await pointer()).click(rebuilt.as(UIButton));
     engine.step(DT);
     expect(clicks).toEqual(["play"]);
   });
@@ -447,8 +468,11 @@ describe("UIDocument in the editor (ADR 0077 wave B)", () => {
     expect(doc.root).not.toBeNull(); // no await: built as the component activated
     expect(doc.query("#play")!.as(UIButton).backgroundColor).toEqual(Color.from("#336699"));
     expect(doc._markupPath).toBe("ui/menu.ui.xml");
-    expect(doc._files).toEqual(["ui/menu.ui.xml", "ui/menu.ui.css"]);
     expect(doc._sheets.map((s) => s.file)).toEqual(["ui/menu.ui.css"]);
+    // It watches the markup it read as well as the stylesheet (the stylesheet: the next test).
+    files["ui/menu.ui.xml"] = MENU.replace(">Play<", ">Go<");
+    engine.step(DT);
+    expect(doc.query("#play Text")!.as(UIText).text).toBe("Go");
   });
 
   it("hot-reloads in edit mode when a file's asset value changes", () => {
@@ -496,14 +520,15 @@ describe("UIDocument in the editor (ADR 0077 wave B)", () => {
     expect(again.component).not.toBe(oldComp);
   });
 
-  it("collects no events and runs no handlers in a scene being edited", () => {
+  it("collects no events and runs no handlers in a scene being edited", async () => {
     const { doc } = editing();
     const play = doc.query("#play")!;
     const handler = vi.fn();
     play.on("click", handler);
-    play.as(UIButton)._clickFrame = World.require().time.frameCount + 1;
+    (await pointer()).click(play.as(UIButton));
     engine.step(DT);
-    expect(handler).not.toHaveBeenCalled();
+    expect(play.clicked).toBe(true); // the button was clicked...
+    expect(handler).not.toHaveBeenCalled(); // ...but the document collects no events while edited
   });
 
   it("removes its tree with the component, and listeners hear it", () => {

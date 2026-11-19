@@ -45,13 +45,6 @@ export class TilemapRenderer {
     for (const map of world._componentsOfType(Tilemap)) this.syncMap(world, map);
   }
 
-  /** @internal The batches drawn for a tilemap (tests). */
-  batchesOf(map: Tilemap): QuadBatch[] {
-    const e = this.maps.get(map);
-    if (!e) return [];
-    return e.layers.flatMap((l) => [...l.chunks.values()].flatMap((c) => c.batches));
-  }
-
   private syncMap(world: World, map: Tilemap): void {
     let entry = this.maps.get(map);
     if (!entry) {
