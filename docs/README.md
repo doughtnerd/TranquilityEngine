@@ -255,6 +255,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0234](decisions/0234-the-recording-host-is-the-third-core-assembly-adapter-and-the-loopback-serves-the-world-service.md) | The recording host (`recordingAudio`, a real `AudioHost` whose node runs no core) is the third core-assembly adapter and the audio wire tier; the loopback serves the real World service for any number of Worlds (`startWorld`); no test builds a `CoreBackend` by hand. Amends 0221 | Accepted |
 | [0235](decisions/0235-one-story-harness-builds-the-editor-for-stories.md) | One story harness (`src/editor/stories/editorStory.tsx`, `withEditor`) builds the editor a story renders in (in-memory project, plugins, real scene tabs, a real play session); stories reach state only through the editor SDK surface. Amends 0219 | Accepted |
 | [0236](decisions/0236-one-launch-module-starts-a-game-for-the-player-the-dedicated-server-and-play-mode.md) | One launch module (`launchGame`) starts a game for the player, the dedicated server and play mode; hosts are adapters, the server fills no empty Worlds | Proposed |
+| [0237](decisions/0237-one-play-session-module-owns-play-mode-and-the-work-deferred-to-stop.md) | One play-session module (`playSession.ts`) owns play mode's edit/starting/playing states and the work deferred to Stop (kept values, plugin settings, script reload), with the game view and the pre-play script check as ports; `session.ts` keeps the project lifecycle | Proposed, built |
 
 ## Working with decisions
 

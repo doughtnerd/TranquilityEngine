@@ -75,3 +75,7 @@ The domain terms used in Myco Engine's code, decision records and reviews. Add a
 
 - **Launch:** the ordered start of a game every host shares, through `launchGame` (`src/engine/launch.ts`): the asset source, scripts, plugin activation (passed in by the host), the Engine, then the entry scene; `dispose()` undoes it in reverse. The player, the dedicated server and play mode are its adapters. _Avoid:_ boot, bootstrap (that is a World's start-up plan, ADR 0032).
 - **Entry scene:** the scene that empty start-up Worlds (no `scenes` key and no nodes) load at launch: a build's main scene, or play mode's open scene. The dedicated server has none.
+
+## Play mode (ADR 0237)
+
+- **Play controller:** the editor's one play session (`createPlaySession` in `playSession.ts`, ADR 0237). It owns the edit, starting and playing states and the work deferred to Stop: kept values, plugin settings and script reloads. Not the same as `PlaySession` in `playMode.ts`, which is one running game.

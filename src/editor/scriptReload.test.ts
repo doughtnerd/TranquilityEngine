@@ -8,6 +8,7 @@ import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile } from "./project";
 import { editorSettings, joinPath, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
 import { replaceScripts } from "./scriptLoader";
+import { createPlaySession } from "./playSession";
 import { reloadScripts, saveScript } from "./session";
 import { currentProject, openScene, playState, sceneCamera, scriptProblems, status } from "./state";
 import { MemoryFileSystem, ROOT, demoFolder } from "./testing";
@@ -23,6 +24,7 @@ export class Wheel extends GameBehavior {
 
 let fs: MemoryFileSystem;
 let project: EditorProject;
+let editor: Engine | null = null;
 const file = (path: string) => joinPath(ROOT, path);
 
 /** Open the demo folder (plus `scripts`) the way the session does, headless. */
@@ -40,7 +42,7 @@ async function open(scripts: Record<string, string>, addWheelNode = true): Promi
   currentProject.value = project;
   const result = await replaceScripts(project.scripts);
   scriptProblems.value = result.problems;
-  const engine = await Engine.create({ headless: true, kind: "editor", project: editorSettings(project) });
+  const engine = (editor = await Engine.create({ headless: true, kind: "editor", project: editorSettings(project) }));
   sceneCamera.value = OrbitCamera.create(GameObject.create("SceneCamera", { parent: engine.world.root }));
   openSceneFile(engine, project.mainScene!);
 }
@@ -49,7 +51,8 @@ const wheelComponent = () => listComponents(openScene.value!.sync.nodeFor("wheel
 const valueOf = (field: string) => wheelComponent()?.fields.find((f) => f.name === field)?.value;
 
 afterEach(async () => {
-  playState.value = "edit";
+  editor?.dispose();
+  editor = null;
   await replaceScripts(new Map()); // unload, so the next test starts from the editor build's types
 });
 
@@ -90,13 +93,27 @@ describe("reloading scripts (ADR 0030)", () => {
     expect(openScene.value!.sync.missingComponents(["wheel"])).toHaveLength(1);
   });
 
-  it("waits until play mode stops", async () => {
+  it("waits while the game starts, and reloads when play stops", async () => {
+    const play = createPlaySession({ editor: () => editor, checkBeforePlay: async () => true });
     const before = getComponentClass("game.Wheel");
-    playState.value = "playing";
-    fs.files.set(file("scripts/Wheel.ts"), wheel(`@field(Number) power = 5;`));
-    await reloadScripts();
+    let reloading: Promise<void> | null = null;
+    let said: string | undefined;
+    const off = playState.subscribe((s) => {
+      if (s !== "starting") return;
+      fs.files.set(file("scripts/Wheel.ts"), wheel(`@field(Number) power = 5;`));
+      reloading = play.reloadScripts();
+      said = status.peek()?.text;
+    });
+    await play.start();
+    off();
+    await reloading;
+    expect(said).toMatch(/reload when you stop playing/);
+    expect(playState.value).toBe("playing");
     expect(getComponentClass("game.Wheel")).toBe(before);
-    expect(status.value?.text).toMatch(/reload when you stop playing/);
+    await play.stop();
+    expect(getComponentClass("game.Wheel")).not.toBe(before);
+    expect(valueOf("power")).toBe(5);
+    expect(status.value?.text).toBe("Reloaded 1 script.");
   });
 
   it("reloads on a change from outside the editor, but not when the files match what's loaded", async () => {
