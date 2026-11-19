@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input, getComponentClass } from "../engine";
-import { World } from "../engine/core/World";
-import { engineWorld } from "../engine/editor";
+import { engineWorld, listComponents } from "../engine/editor";
 import type { SceneFile } from "./document";
 import { OrbitCamera } from "./OrbitCamera";
 import type { PlaySession } from "./playMode";
@@ -84,7 +83,7 @@ interface CounterLike {
 function counterIn(engine: Engine): { counter: CounterLike; instance: unknown } {
   const world = engineWorld(engine, engine.world.name)!;
   const cls = getComponentClass("game.Counter")!;
-  const counter = World._runIn(world, () => GameObject.findObjectOfType(cls as never)) as unknown as CounterLike;
+  const counter = world.root.getComponentInChildren(cls as never) as unknown as CounterLike;
   return { counter, instance: (cls as unknown as { instance: unknown }).instance };
 }
 
@@ -152,8 +151,8 @@ describe("reloading scripts into a running game (ADR 0125)", () => {
   it("moves data component rows to the new definition, and systems run their new code", async () => {
     const speed = () => {
       const { counter: c } = counterIn(play.engine);
-      const def = c.node.world._dataComponentsOf(c.node.entity).find((d) => d.id === "game.Speed")!;
-      return c.node.getData(def) as unknown as { v: number; w?: number };
+      const row = listComponents(c.node).find((i) => i.kind === "data" && i.type === "game.Speed")!; // the editor SDK's view of the node's data rows
+      return Object.fromEntries(row.fields.map((f) => [f.name, f.value])) as { v: number; w?: number };
     };
     expect(speed().v).toBe(13); // 10, plus 1 a frame
     await reloadWith(counter({ gain: 1, speedFields: ", w: f32", speedUp: 100 }));

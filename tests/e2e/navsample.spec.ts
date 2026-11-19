@@ -43,7 +43,7 @@ const playState = (page: Page) =>
     return {
       frame: w.time.frameCount,
       chunkScenes: w.sceneNodes.map((s) => s.name).filter((n) => n.startsWith("chunk-")),
-      runtimeChunks: w.service<{ loadedChunks(): string[] }>("myco.navigation")?.loadedChunks().length ?? 0, // the Navigation plugin's World service (ADR 0135)
+      runtimeChunks: (myco.Navigation.loadedChunks as string[]).length, // the current World's: between frames, the play Engine's default World
       agents: componentsOf<Agent>(w.root, myco.NavAgent)
         .filter((a) => a.node.isValid && a.node.transform)
         .map((a) => ({ name: a.node.name, x: a.node.transform!.position.x, y: a.node.transform!.position.y, z: a.node.transform!.position.z, mode: a.mode })),

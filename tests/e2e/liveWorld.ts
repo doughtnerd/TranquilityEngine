@@ -31,7 +31,6 @@ export interface LiveWorld {
   readonly root: LiveNode;
   readonly time: { frameCount: number };
   readonly sceneNodes: LiveNode[];
-  service<T = unknown>(id: string): T | null;
 }
 
 /** The engine module scripts import as "myco", loosely typed: page callbacks pick what they use. */

@@ -161,12 +161,13 @@ describe("the live adapter", () => {
   });
 
   it("offers the World's nodes by entity for references and list items, and refuses others", () => {
-    const keys = live().nodes.choices().map((c) => c.key);
-    expect(keys).toEqual(expect.arrayContaining([String(node.entity), String(other.entity)]));
-    expect(live().set(fieldOf(live(), "target"), String(other.entity))).toBeNull();
+    const choices = live().nodes.choices();
+    const otherKey = choices.find((c) => c.label === "Other")!.key;
+    expect(choices.map((c) => c.key)).toEqual(expect.arrayContaining([live().nodes.keyOf(node), otherKey]));
+    expect(live().set(fieldOf(live(), "target"), otherKey)).toBeNull();
     expect(probe().target).toBe(other);
-    expect(live().nodes.keyOf(probe().target)).toBe(String(other.entity));
-    live().set(fieldOf(live(), "stops"), [String(other.entity), null, node]);
+    expect(live().nodes.keyOf(probe().target)).toBe(otherKey);
+    live().set(fieldOf(live(), "stops"), [otherKey, null, node]);
     expect(probe().stops).toEqual([other, null, node]);
     expect(live().set(fieldOf(live(), "target"), "999999")).toMatch(/isn't in World/);
     expect(probe().target).toBe(other);
