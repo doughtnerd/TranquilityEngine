@@ -24,7 +24,6 @@ import {
 } from "../assetActions";
 import { entryKind, entryName, entryPath, fileEntries, isFolderEntry, isSliceEntry, splitSliceEntry } from "../assetEntry";
 import { canAddToScene, hasSlices, kindLabel, type AssetKind } from "../assetKindLookup";
-import { inspectSelectedAsset } from "../assetImport";
 import { assetDrag, startAssetDrag } from "../assetDrag";
 import { assetClipboard, renameAsset, splitExtension } from "../assetOps";
 import {
@@ -38,10 +37,10 @@ import {
   lastAssetBrowser,
   parentFolder,
   renamingAsset,
-  select,
   selectedAssets,
   type Modifiers,
 } from "../assetSelection";
+import { previewAssets, select, selectAssets } from "../inspectorTarget";
 import { installOsDrop, osDragFolder, osDragOver } from "../osDrop";
 import { newScript, scriptFolderFor } from "../newScript";
 import { assetTileSize, assetView } from "../preferences";
@@ -370,17 +369,16 @@ function AssetItems(props: { project: EditorProject; entries: string[]; selected
     const moved = arrowSelection(entries, assetCursor.value, assetAnchor.value, e.key, columns(), e.shiftKey);
     if (moved) {
       handled();
-      select(moved.selected, moved.focus, moved.anchor);
-      inspectSelectedAsset();
+      selectAssets(moved.selected, moved.focus, moved.anchor);
       list.current?.querySelector<HTMLElement>(`[data-entry="${CSS.escape(moved.focus)}"]`)?.focus();
       return;
     }
-    if (toggleKey(e) && !e.altKey && (e.key ?? "").toLowerCase() === "a") return (handled(), select(entries, assetCursor.value));
+    if (toggleKey(e) && !e.altKey && (e.key ?? "").toLowerCase() === "a") return (handled(), selectAssets(entries, assetCursor.value));
     // A mapped key is the panel's even when its command refuses (it says why), so a refused Delete never
     // reaches the editor's delete-node shortcut (ADR 0241).
     const command = assetKeyCommand(e);
     if (command) return (handled(), void runAsset(command, { project, entries: listed }));
-    if (e.key === "Escape" && listed.length > 0) return (handled(), select([]));
+    if (e.key === "Escape" && listed.length > 0) return (handled(), selectAssets([]));
   };
 
   /** Press on empty space: drag a selection box (Shift adds, Ctrl/Cmd toggles); a click clears the selection. */
@@ -403,15 +401,16 @@ function AssetItems(props: { project: EditorProject; entries: string[]; selected
           return b.left < r.right && b.right > r.left && b.top < r.bottom && b.bottom > r.top;
         })
         .map((item) => item.dataset.entry!);
-      select(boxSelection(before, hits, mods));
+      previewAssets(boxSelection(before, hits, mods)); // the Inspector follows once the box is let go
     };
     const finish = (keep: boolean) => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
       window.removeEventListener("keydown", key, true);
       box.value = null;
-      if (!keep) select(before);
-      else if (!moved && !mods.shift && !mods.toggle) select([]);
+      if (!keep) previewAssets(before);
+      else if (!moved && !mods.shift && !mods.toggle) selectAssets([]);
+      else if (moved) selectAssets(selectedAssets.peek());
     };
     const up = () => finish(true);
     const key = (k: KeyboardEvent) => {
@@ -442,7 +441,7 @@ function AssetItems(props: { project: EditorProject; entries: string[]; selected
         onContextMenu={(e) => {
           if ((e.target as HTMLElement).closest(".asset-item")) return;
           e.preventDefault();
-          select([]);
+          selectAssets([]);
           menu.value = { x: e.clientX, y: e.clientY, items: menuItems(project, []), owner: assetsView };
         }}
       >
@@ -509,12 +508,12 @@ function AssetItem(props: { project: EditorProject; entry: string; entries: stri
         press.current = { x: e.clientX, y: e.clientY };
         const sel = selectedAssets.value.filter((x) => entries.includes(x));
         if (e.button === 2) {
-          if (!sel.includes(entry)) select([entry]);
+          if (!sel.includes(entry)) selectAssets([entry]);
           return;
         }
         if (e.button !== 0 || renamingAsset.value === entry) return;
         // A plain press on an unselected item selects it alone, so dragging it drags just it.
-        if (!e.shiftKey && !toggleKey(e) && !sel.includes(entry)) select([entry]);
+        if (!e.shiftKey && !toggleKey(e) && !sel.includes(entry)) selectAssets([entry]);
         if (e.shiftKey || toggleKey(e)) return;
         startAssetDrag(e, selectedAssets.value.filter((x) => entries.includes(x)));
       }}
@@ -524,9 +523,8 @@ function AssetItem(props: { project: EditorProject; entry: string; entries: stri
         const sel = selectedAssets.value.filter((x) => entries.includes(x));
         const mods = { shift: e.shiftKey, toggle: toggleKey(e) };
         const next = clickSelection(entries, sel, assetAnchor.value, entry, mods);
-        select(next.selected, entry, next.anchor);
-        // Selecting one asset with an inspector shows it, in place of the selected node (ADR 0040).
-        inspectSelectedAsset();
+        // Selecting one asset with an inspector shows it, in place of the selected node (ADR 0040, 0242).
+        selectAssets(next.selected, entry, next.anchor);
       }}
       onDblClick={() => opens && void runAsset("open", { project, entries: [entry] })}
       onContextMenu={(e) => {
@@ -636,7 +634,7 @@ function RenameInput(props: { entry: string }) {
     void renameAsset(entry, value).then((ok) => {
       if (!ok) return;
       const to = `${folderOf(entryPath(entry)) ? `${folderOf(entryPath(entry))}/` : ""}${value}${isFolderEntry(entry) ? "/" : ""}`;
-      select([to]);
+      selectAssets([to]);
     });
   };
   return (
@@ -694,6 +692,6 @@ function ContextMenu() {
 async function addToScene(path: string): Promise<void> {
   const focus = sceneCamera.peek()?.focusPoint;
   const { ids, message } = await addAssets([path], { kind: "selection", selected: selection.peek(), position: focus ? [focus.x, focus.y, focus.z] : [0, 0, 0] });
-  if (ids[0]) selection.value = ids[0];
+  if (ids[0]) select([ids[0]]);
   status.value = message;
 }

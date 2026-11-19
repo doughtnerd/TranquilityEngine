@@ -42,42 +42,51 @@ import {
 import { deleteSelected } from "../deleteSelection";
 import { AddComponentMenu } from "./AddComponentMenu";
 import { AssetInspector } from "./AssetInspector";
-import { showsAssetInspector } from "../assetImport";
+import { inspectorTarget } from "../inspectorTarget";
 import { listedFiles } from "../assetBrowser";
 import { assetKindsOf, assetListId, assetsForKinds, isHiddenField } from "../assetFieldKinds";
 import { ASSET_FIELD_KINDS, AssetRef, getComponentClass, getFields, isListType, listComponentIds, type AssetFieldKind } from "../../engine/core/registry";
 import { InspectorSections } from "./inspectorSections";
 import "./inspectorSections.builtin";
-import { liveInspecting } from "../runtimeInspect";
 import { addToPreload, preloadCandidates, removeFromPreload } from "../scenePreload";
 import { RuntimeInspector } from "./RuntimeInspector";
 import { UIElementInspector } from "./UIElementInspector";
 import { openScript, scriptFor } from "../code/codeState";
-import { applyPrefabOverrides, createPrefabFrom, existingPaths, nodeHeader, openPrefabOf, prefabActions, renameNode, revertAllOverrides, revertNameAndActive, setNodesActive } from "../nodeEdits";
-import { currentProject, docVersion, openScene, scriptsVersion, selectedKeys, selectedUIElement, status, type OpenScene } from "../state";
+import { applyPrefabOverrides, createPrefabFrom, nodeHeader, openPrefabOf, prefabActions, renameNode, revertAllOverrides, revertNameAndActive, setNodesActive } from "../nodeEdits";
+import { currentProject, docVersion, openScene, scriptsVersion, status, type OpenScene } from "../state";
 import { beginUndoStep, type UndoStep } from "../undoStep";
 import { componentHeaderActions, type ComponentHeaderActionContribution } from "../sdk/contributions";
 import { usePopover } from "./popover";
 
 /**
+ * What the Inspector shows (ADR 0242, `inspectorTarget`): a live World's node while playing, an
+ * asset, a UI document element, the selected nodes or the open scene's settings.
+ */
+export function Inspector() {
+  const target = inspectorTarget.value;
+  switch (target.kind) {
+    case "live": return <Panel><RuntimeInspector /></Panel>; // a live World of the running game (ADR 0022, 0124)
+    case "asset": return <Panel><AssetInspector path={target.path} /></Panel>; // a file selected in the Assets panel (ADR 0040, 0143)
+    case "uiElement": return <Panel><UIElementInspector /></Panel>; // an element of a UI document (ADR 0077)
+    case "nodes":
+      return target.paths.length > 1 ? <Panel><MultiInspector scene={target.scene} paths={[...target.paths]} /></Panel> : <NodeInspector scene={target.scene} path={target.paths[0]} />;
+    case "sceneSettings": return <Panel><SceneSettings scene={target.scene} /></Panel>;
+    case "nothing": return <Panel><p class="empty">Nothing selected</p></Panel>;
+  }
+}
+
+/**
  * The selected node's components with their declared fields and live values (ADR 0022, 0026).
  * Every edit is a command on the open document, so it can be undone. On a prefab instance, or a
  * node inside one, edits become overrides: overridden fields are marked and can be reverted, and
- * the instance's overrides can be applied to the prefab file. With several nodes selected it
- * shows the components they all have; fields that differ show a dash, and an edit sets every
- * selected node in one undo step.
+ * the instance's overrides can be applied to the prefab file. With several nodes selected
+ * (`MultiInspector`) it shows the components they all have; fields that differ show a dash, and
+ * an edit sets every selected node in one undo step.
  */
-export function Inspector() {
-  if (liveInspecting()) return <Panel><RuntimeInspector /></Panel>; // a live World of the running game
-  if (showsAssetInspector()) return <Panel><AssetInspector /></Panel>; // an image or audio file selected in the Assets panel (ADR 0040)
-  if (selectedUIElement.value !== null) return <Panel><UIElementInspector /></Panel>; // an element of a UI document (ADR 0077)
+function NodeInspector(props: { scene: OpenScene; path: NodePath }) {
+  const { scene, path } = props;
   docVersion.value; // re-render when the document changes
-  const scene = openScene.value;
-  if (!scene) return <Panel><p class="empty">Nothing selected</p></Panel>;
-  const paths = existingPaths(scene, selectedKeys.value);
-  if (paths.length === 0) return <Panel><SceneSettings scene={scene} /></Panel>;
-  if (paths.length > 1) return <Panel><MultiInspector scene={scene} paths={paths} /></Panel>;
-  const path = paths[0];
+  const paths = [path];
   const header = nodeHeader(scene, paths);
   const inner = header.inner;
 

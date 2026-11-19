@@ -15,7 +15,8 @@ import { editorSettings, joinPath, openFolderProject, readOnlyProject, type Edit
 import { settingsKeys, type SettingsDraft } from "./projectSettingsModel";
 import { InspectorSections, type InspectorSectionProps } from "./ui/inspectorSections";
 import type { LazyComponent } from "./ui/lazy";
-import { currentProject, select, status } from "./state";
+import { currentProject, status } from "./state";
+import { select } from "./inspectorTarget";
 import { installViewportTools } from "./viewportTools";
 
 export { MemoryFileSystem };

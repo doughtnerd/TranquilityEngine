@@ -5,8 +5,7 @@ import { skyPreset } from "../../engine/sky/presets";
 import { formatSky, parseSky, type SkySettings } from "../../engine/sky/skyFormat";
 import { assetKind } from "../../editor/assetBrowser";
 import { openAssetDocument } from "../../editor/assetDocuments";
-import { inspectedAsset } from "../../editor/assetImport";
-import { select as selectAssets } from "../../editor/assetSelection";
+import { inspectorTarget, selectAssets } from "../../editor/inspectorTarget";
 import { kindIcon, kindLabel, kindOpens, registeredKind, satisfiesFieldKind } from "../../editor/assetKindLookup";
 import { registeredPanels } from "../../editor/layout/registeredPanels";
 import { joinPath } from "../../editor/projects";
@@ -127,7 +126,8 @@ describe("New Sky (ADR 0112)", () => {
 /** The file the Inspector shows with `entry` alone selected in the Assets panel (null: none). */
 function inspectedFor(entry: string): string | null {
   selectAssets([entry]);
-  const shown = inspectedAsset.peek();
+  const target = inspectorTarget.peek();
+  const shown = target.kind === "asset" ? target.path : null;
   selectAssets([]);
   return shown;
 }

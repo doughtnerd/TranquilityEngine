@@ -7,7 +7,8 @@ import { SetField } from "./document";
 import { OrbitCamera } from "./OrbitCamera";
 import { sceneOpenMigrations } from "./sdk/contributions";
 import { createSceneTabs, tabsToClose, type SceneTabs } from "./sceneTabs";
-import { openScene, openScenes, sceneCamera, select, selectedKeys, status, type OpenScene } from "./state";
+import { openScene, openScenes, sceneCamera, selectedKeys, status, type OpenScene } from "./state";
+import { select } from "./inspectorTarget";
 import { DEMO_SCENE, demoAssets, demoSettings, sampleProject } from "./testing";
 import type { ConfirmOptions } from "./ui/ConfirmDialog";
 

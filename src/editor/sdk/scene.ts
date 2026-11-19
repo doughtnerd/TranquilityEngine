@@ -9,7 +9,8 @@ import type { GameObject } from "../../engine/scene/GameObject";
 import { idBase, uniqueId } from "../assetNodes";
 import type { NodePath, SceneDocument } from "../document";
 import { beginUndoStep, undoStep, type UndoStep } from "../undoStep";
-import { openScene, openScenes, playing, playState, select, selectedKeys, selectedNodes, selectedPath, selectedWorldNode, selection, type OpenScene } from "../state";
+import { openScene, openScenes, playing, playState, selectedKeys, selectedNodes, selectedPath, selectedWorldNode, selection, type OpenScene } from "../state";
+import { select } from "../inspectorTarget";
 
 export type { OpenScene, UndoStep };
 

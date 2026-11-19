@@ -11,7 +11,8 @@ import { fileName } from "./assetBrowser";
 import { dropTargetFor, setDraggedAssets, type AssetDropPoint, type AssetDropTargetSpec } from "./assetDropTargets";
 import { entryPath, isSliceEntry } from "./assetEntry";
 import { moveAssetsTo, whyNotMovable, whyNotMoveTarget } from "./assetOps";
-import { currentProject, openScene, playState, sceneCamera, selectedKeys, status, viewMode } from "./state";
+import { select } from "./inspectorTarget";
+import { currentProject, openScene, playState, sceneCamera, status, viewMode } from "./state";
 import { eventWindow } from "./windows/dom";
 
 /** Pointer travel (CSS px) before pressing an asset tile becomes a drag. */
@@ -202,7 +203,7 @@ export function startAssetDrag(e: PointerEvent, paths: readonly string[]): void 
     const point = target.kind === "viewport" ? viewportDropPoint(target.x, target.y) : ([0, 0, 0] as const);
     // One operation (ADR 0149): prepares (a model's meshes), adds to the scene open now or to none, one undo step.
     void addAssets(paths, addTarget(target, point)).then(({ ids, message }) => {
-      if (ids.length > 0) selectedKeys.value = [...ids];
+      if (ids.length > 0) select(ids); // through the Inspector rule (ADR 0242): a selected UI element or asset gives way
       status.value = message;
     });
   };

@@ -3,6 +3,7 @@ import { Engine, GameObject, Input } from "../engine";
 import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile } from "./project";
 import { openScene, sceneCamera, selection, viewMode } from "./state";
+import { select } from "./inspectorTarget";
 import { DEMO_SCENE, demoAssets, demoSettings } from "./testing";
 
 let engine: Engine;
@@ -15,7 +16,7 @@ beforeEach(async () => {
   engine = await Engine.create({ headless: true, kind: "editor", project: demoSettings(), assets: demoAssets() });
   orbit = OrbitCamera.create(GameObject.create("SceneCamera", { parent: engine.world.root }));
   sceneCamera.value = orbit;
-  selection.value = "bird";
+  select(["bird"]);
   openSceneFile(engine, DEMO_SCENE);
 });
 

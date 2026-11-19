@@ -89,7 +89,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0037](decisions/0037-rename-to-myco-engine.md) | The engine is renamed Myco Engine, by Foxfire Studios | Accepted |
 | [0038](decisions/0038-browser-editor-opens-folders.md) | The browser editor opens project folders through the File System Access API | Accepted, amended by 0063 (the menu bar replaces the toolbar Project menu) |
 | [0039](decisions/0039-polygon-edge-colliders.md) | Polygon and edge colliders for 2D physics | Accepted |
-| [0040](decisions/0040-asset-import-sidecars.md) | Per-asset import settings live in sidecar files beside each asset | Accepted, extended by 0115 (proposed) |
+| [0040](decisions/0040-asset-import-sidecars.md) | Per-asset import settings live in sidecar files beside each asset | Accepted, extended by 0115 (proposed), amended by 0242 (proposed: any selection of one inspectable asset shows it in the Inspector) |
 | [0041](decisions/0041-game-builds.md) | Games build to a static web player, packaged for desktop through Tauri | Accepted |
 | [0042](decisions/0042-inspector-field-types.md) | List fields, field choices, and per-instance Worlds and tags overrides | Accepted, amended by 0163 |
 | [0043](decisions/0043-meshes-lights-materials.md) | Meshes, lights and material assets: a default lit material and default lighting | Proposed |
@@ -255,6 +255,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0234](decisions/0234-the-recording-host-is-the-third-core-assembly-adapter-and-the-loopback-serves-the-world-service.md) | The recording host (`recordingAudio`, a real `AudioHost` whose node runs no core) is the third core-assembly adapter and the audio wire tier; the loopback serves the real World service for any number of Worlds (`startWorld`); no test builds a `CoreBackend` by hand. Amends 0221 | Accepted |
 | [0235](decisions/0235-one-story-harness-builds-the-editor-for-stories.md) | One story harness (`src/editor/stories/editorStory.tsx`, `withEditor`) builds the editor a story renders in (in-memory project, plugins, real scene tabs, a real play session); stories reach state only through the editor SDK surface. Amends 0219 | Accepted |
 | [0241](decisions/0241-the-assets-panel-commands-are-one-module-and-an-asset-entry-has-one-encoding.md) | The Assets panel's commands are one module (`assetActions.ts`), each with one `whyNotAsset` rule, shared by the panel's menu, its keys and the menu bar; an asset entry has one encoding (`assetEntry.ts`); the node builders move beside `addAssets` (`assetNodes.ts`). Rebuilt on master: per-panel listing (0174), the asset kind host's New… entries (0233) | Proposed |
+| [0242](decisions/0242-one-inspector-target-module-owns-what-the-inspector-shows-and-every-selection-goes-through-it.md) | One Inspector target module (`inspectorTarget.ts`) says what the Inspector shows (live node, asset, UI element, nodes or scene settings) and owns the rule between the node, asset and UI element selections; every selection source goes through it (amends 0040) | Proposed |
 
 ## Working with decisions
 

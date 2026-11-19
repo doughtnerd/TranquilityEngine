@@ -8,15 +8,16 @@ import { isSliceEntry, splitSliceEntry } from "./assetEntry";
 import { addAssetEntries } from "./assetNodes";
 import { deleteAssets } from "./assetDelete";
 import { assetUsers } from "./assetReferences";
-import { inspectedAsset, readImportSettings, showsAssetInspector, writeImportSettings } from "./assetImport";
+import { readImportSettings, writeImportSettings } from "./assetImport";
 import { selectedAssets } from "./assetSelection";
+import { inspectorTarget, select, selectAssets } from "./inspectorTarget";
 import { assetClipboard, duplicateAssets, moveAssetsTo, pasteAssets, renameAsset, renameSliceReferences } from "./assetOps";
 import { OrbitCamera } from "./OrbitCamera";
 import { askBeforeDeletingAssets } from "./preferences";
 import { openSceneFile } from "./project";
 import { editorSettings, joinPath, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
 import { replaceScripts } from "./scriptLoader";
-import { currentProject, openScene, sceneCamera, select } from "./state";
+import { currentProject, openScene, sceneCamera } from "./state";
 import { MemoryFileSystem, ROOT, demoFolder, useCoreAssetKinds } from "./testing";
 
 useCoreAssetKinds(); // core asset kinds, as main.tsx registers them (ADR 0143)
@@ -95,21 +96,21 @@ describe("the Assets panel's view of sidecars and slices", () => {
     expect(entry.components![1]).toEqual({ type: "engine.SpriteRenderer", data: { sprite: "asset:images/PipeUp.png#walk_left" } });
   });
 
-  it("inspects one selected image or audio file (a slice shows its image) when no node is selected", () => {
-    selectedAssets.value = ["images/PipeUp.png#a"];
-    expect(inspectedAsset.value).toBe("images/PipeUp.png");
-    expect(showsAssetInspector()).toBe(true);
+  it("inspects one selected image or audio file (a slice shows its image); a node selected after it takes the Inspector", () => {
+    const shown = () => (inspectorTarget.value.kind === "asset" ? (inspectorTarget.value as { path: string }).path : null);
+    selectAssets(["images/PipeUp.png#a"]);
+    expect(shown()).toBe("images/PipeUp.png");
     select(["bg-a"]);
-    expect(showsAssetInspector()).toBe(false);
+    expect(inspectorTarget.value.kind).toBe("nodes");
     select([]);
-    selectedAssets.value = ["music/town.mp3"];
-    expect(inspectedAsset.value).toBe("music/town.mp3");
-    selectedAssets.value = ["prefabs/slice.prefab.json"];
-    expect(inspectedAsset.value).toBe("prefabs/slice.prefab.json"); // a preview (ADR 0061)
-    selectedAssets.value = ["scenes/main.scene.json"];
-    expect(inspectedAsset.value).toBeNull();
-    selectedAssets.value = ["images/PipeUp.png", "images/PipeDown.png"];
-    expect(inspectedAsset.value).toBeNull();
+    selectAssets(["music/town.mp3"]);
+    expect(shown()).toBe("music/town.mp3");
+    selectAssets(["prefabs/slice.prefab.json"]);
+    expect(shown()).toBe("prefabs/slice.prefab.json"); // a preview (ADR 0061)
+    selectAssets(["scenes/main.scene.json"]);
+    expect(shown()).toBeNull();
+    selectAssets(["images/PipeUp.png", "images/PipeDown.png"]);
+    expect(shown()).toBeNull();
   });
 });
 

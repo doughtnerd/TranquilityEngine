@@ -22,14 +22,14 @@ import { useMemo } from "preact/hooks";
 import { Engine, GameObject } from "../../engine";
 import { applyEditorPlugins } from "../../plugins/editorPlugins";
 import { registerCoreAssetKinds } from "../assetKinds.builtin";
-import { selectedAssets } from "../assetSelection";
+import { showSceneSettings } from "../inspectorTarget";
 import { resetLayout } from "../layout/store";
 import { MemoryFileSystem } from "../memoryFs";
 import { OrbitCamera } from "../OrbitCamera";
 import { startPlay, type PlaySession } from "../playMode";
 import { editorSettings, joinPath, openFolderProject, useProjectAssets, type EditorProject } from "../projects";
 import { createSceneTabs } from "../sceneTabs";
-import { currentProject, openScene, playing, playState, sceneCamera, select, status } from "../state";
+import { currentProject, openScene, playing, playState, sceneCamera, status } from "../state";
 import { PanelInstanceContext, type PanelInstance } from "../ui/panel/Panel";
 import { panelView } from "../ui/panels";
 import { registerBuiltinPanels } from "../ui/panels.builtin";
@@ -90,8 +90,7 @@ export async function withEditor({ parameters }: StoryContextLike): Promise<() =
   return async () => {
     stopPlaying();
     setPlayState("edit");
-    select([]);
-    selectedAssets.value = [];
+    showSceneSettings(); // clears the nodes, the Assets panel's entries and a UI element
     await tabs?.closeAll();
     tabs = null;
     sceneCamera.value = null;

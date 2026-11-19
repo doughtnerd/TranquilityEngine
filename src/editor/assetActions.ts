@@ -10,7 +10,8 @@ import { readImportSettings } from "./assetImport";
 import { kindCreators, openAsset } from "./assetKindHost";
 import { assetKind, hasSlices, kindOpens } from "./assetKindLookup";
 import { assetClipboard, duplicateAssets, newFolder, pasteAssets, whyNotMovable, whyNotPaste } from "./assetOps";
-import { lastAssetBrowser, openFolder, parentFolder, renamingAsset, select, selectedAssets, type AssetBrowserView } from "./assetSelection";
+import { lastAssetBrowser, openFolder, parentFolder, renamingAsset, selectedAssets, type AssetBrowserView } from "./assetSelection";
+import { selectAssets } from "./inspectorTarget";
 import { newScript } from "./newScript";
 import type { EditorProject } from "./projects";
 import { assetActions, type AssetActionTarget } from "./sdk/contributions";
@@ -148,13 +149,13 @@ export function whyNotAsset(id: AssetCommandId, target: AssetTarget): string | n
 
 /** Select what an operation made, if anything. True if it made something. */
 function selectMade(made: readonly string[]): boolean {
-  if (made.length > 0) select([...made]);
+  if (made.length > 0) selectAssets([...made]);
   return made.length > 0;
 }
 
 /** Start renaming `entry` in place (the panel shows a text field; Enter renames). */
 function startRename(entry: AssetEntry): void {
-  select([entry]);
+  selectAssets([entry]);
   renamingAsset.value = entry;
 }
 
@@ -215,7 +216,7 @@ export function assetCreateItems(target: AssetTarget): AssetMenuItem[] {
   return [
     { label: "New Folder", whyNot, run: () => void makeFolder(folder) },
     // Every file entry is a registered kind's `create`, core kinds' (scenes, render textures) first.
-    ...kindCreators().map((c) => ({ label: c.label, whyNot, run: () => void c.create(folder).then((made) => made && select([made])) })),
+    ...kindCreators().map((c) => ({ label: c.label, whyNot, run: () => void c.create(folder).then((made) => made && selectAssets([made])) })),
     ...(project.root !== null ? [{ label: "New Script…", whyNot, run: () => void newScript({ assetFolder: folder }) }] : []),
   ];
 }

@@ -12,16 +12,9 @@ import { applyOverridesTo, createPrefab, createPrefabFromNodes, findInner, isInn
 import { openPrefabFrom } from "./prefabTabs";
 import type { EditorProject } from "./projects";
 import { whyReadOnly } from "./readOnly";
-import { selection, status, type OpenScene } from "./state";
+import { select } from "./inspectorTarget";
+import { status, type OpenScene } from "./state";
 import { undoStep } from "./undoStep";
-
-/**
- * The selection keys (`id` or `id/inner/…`) of nodes that still exist in the open scene, as paths (an
- * undo may have removed some, or the prefab no longer has an inner node).
- */
-export function existingPaths(scene: OpenScene, keys: readonly string[]): NodePath[] {
-  return keys.map((k) => k.split("/") as NodePath).filter((p) => scene.doc.has(p[0]) && (p.length === 1 || findInner(scene.doc, p) !== null));
-}
 
 const isInner = (path: NodePath) => path.length > 1;
 
@@ -177,7 +170,7 @@ export async function createPrefabFrom(scene: OpenScene, project: EditorProject 
   const ids = paths.map((p) => p[0]);
   try {
     const path = ids.length === 1 ? await createPrefab(scene, project, ids[0]) : await createPrefabFromNodes(scene, project, ids);
-    if (ids.length === 1) selection.value = ids[0];
+    if (ids.length === 1) select([ids[0]]);
     status.value = { kind: "info", text: `Created ${path}. Undo turns the node${ids.length === 1 ? "" : "s"} back; the file stays on disk.` };
     return path;
   } catch (err) {
