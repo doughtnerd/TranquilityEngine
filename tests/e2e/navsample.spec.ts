@@ -37,14 +37,14 @@ interface PlayState {
 
 /** The running game's World: its scenes, navigation chunks and agents. */
 const playState = (page: Page) =>
-  inLiveWorld(page, null, (w, { myco, componentsOf }) => {
+  inLiveWorld(page, null, (w, { myco }) => {
     type Agent = { node: LiveNode; mode: string };
     if (!w || !myco.NavAgent) return null;
     return {
       frame: w.time.frameCount,
       chunkScenes: w.sceneNodes.map((s) => s.name).filter((n) => n.startsWith("chunk-")),
       runtimeChunks: (myco.Navigation.loadedChunks as string[]).length, // the current World's: between frames, the play Engine's default World
-      agents: componentsOf<Agent>(w.root, myco.NavAgent)
+      agents: (myco.GameObject.findObjectsOfType(myco.NavAgent) as Agent[]) // the current World's, as a script finds them
         .filter((a) => a.node.isValid && a.node.transform)
         .map((a) => ({ name: a.node.name, x: a.node.transform!.position.x, y: a.node.transform!.position.y, z: a.node.transform!.position.z, mode: a.mode })),
     } satisfies PlayState;
@@ -127,8 +127,8 @@ test("Play: chunks stream in round the agents, agents of every kind move, the Na
 
   // Post-processing on the camera keeps the debug drawing: it's drawn back after the effects (a bloom pass used to
   // hide it for good in play Worlds).
-  const added = await inLiveWorld(page, null, (w, { myco, componentsOf }) => {
-    const camera = w && myco.Camera ? componentsOf<{ node: LiveNode }>(w.root, myco.Camera)[0] : undefined;
+  const added = await inLiveWorld(page, null, (w, { myco }) => {
+    const camera = w && myco.Camera ? (myco.GameObject.findObjectsOfType(myco.Camera) as { node: LiveNode }[])[0] : undefined;
     if (!camera) return false;
     camera.node.addBehavior(myco.PostProcessing, { bloom: true });
     return true;
