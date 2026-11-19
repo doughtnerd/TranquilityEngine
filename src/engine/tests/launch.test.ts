@@ -1,4 +1,4 @@
-// The game launch (ADR 0155), headless with in-memory ports: the order of its steps, the entry scene rule
+// The game launch (ADR 0236), headless with in-memory ports: the order of its steps, the entry scene rule
 // for empty start-up Worlds, teardown in reverse, and failures that undo what was done.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Assets, Engine, type AssetSource, type Bootstrap, type BootstrapConfig } from "../index";

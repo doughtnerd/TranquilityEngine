@@ -1,6 +1,6 @@
 // Play mode (ADR 0022, 0032): run the open scene in a fresh Engine without touching what's being
 // edited. Play snapshots the scene document (unsaved edits included), pauses the Editor World and
-// launches the game as a build does (`launchGame`, ADR 0155): an Engine from the project's bootstrap
+// launches the game as a build does (`launchGame`, ADR 0236): an Engine from the project's bootstrap
 // (the default one: a single World, unless the project says otherwise), with the project's real
 // settings (autoloads and all), in the game view. Every start-up World whose config names no scenes
 // plays the open scene (one that says `scenes: []` starts empty, as in a build). Stop disposes the

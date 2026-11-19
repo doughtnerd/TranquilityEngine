@@ -1,5 +1,5 @@
 // The game hosts' plugin step (ADR 0139, 0144): the player and the dedicated server pass
-// `activateGamePlugins` to the launch (ADR 0155) as its plugin port, and a plugin that fails to activate
+// `activateGamePlugins` to the launch (ADR 0236) as its plugin port, and a plugin that fails to activate
 // stops the game with its message, as a broken script does (the launch's own failure handling is tested
 // in `src/engine/tests/launch.test.ts`).
 import { describe, expect, it } from "vitest";

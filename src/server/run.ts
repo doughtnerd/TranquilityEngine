@@ -71,7 +71,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   const plan = await serverBootstrap(project);
   let game: LaunchedGame;
   try {
-    // The launch (ADR 0155), with the scripts loaded above (the bootstrap plan needs them) and the filtered bootstrap.
+    // The launch (ADR 0236), with the scripts loaded above (the bootstrap plan needs them) and the filtered bootstrap.
     game = await launchGame({
       assets: project.assets,
       // The plugin set (ADR 0144): first-party runtime halves (ADR 0135) and the third-party ones (ADR 0139),

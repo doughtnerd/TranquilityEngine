@@ -1,7 +1,7 @@
 // The game player (ADR 0041): a prebuilt page that runs whichever project is exported beside it.
 // It reads game.json, fetches the project's JSON files and points its binary assets at their
 // URLs (scene loading looks assets up synchronously), and launches the game as play mode does
-// (`launchGame`, ADR 0155): the compiled scripts register their components and systems, the plugins
+// (`launchGame`, ADR 0236): the compiled scripts register their components and systems, the plugins
 // activate, the Engine is built full-window from the project's bootstrap, and start-up Worlds whose
 // bootstrap config names no scenes load the manifest's main scene. Saves go to the platform's
 // storage (ADR 0024): IndexedDB in a browser, the app data folder in a desktop package.
@@ -48,7 +48,7 @@ async function boot(): Promise<void> {
   const moduleOf = (path: string) => manifest.scripts.find((s) => s.source === path.replace(/^\.?\//, ""))?.module;
   document.body.style.background = settings.display?.backgroundColor ?? "#000";
   const container = document.getElementById("game")!;
-  // The launch (ADR 0155): the build's files, its scripts and plugins, then the Engine; start-up Worlds whose
+  // The launch (ADR 0236): the build's files, its scripts and plugins, then the Engine; start-up Worlds whose
   // bootstrap config names no scenes load the manifest's main scene. The page never stops the game, so
   // nothing disposes the launch here (a failed launch undoes itself).
   const { engine: runtime } = await launchGame({

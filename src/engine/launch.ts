@@ -1,4 +1,4 @@
-// Starting a game (ADR 0155): the one ordered launch the player, the dedicated server and the editor's play
+// Starting a game (ADR 0236): the one ordered launch the player, the dedicated server and the editor's play
 // mode share. Each host is an adapter that supplies the ports: where the files come from, how its scripts
 // load, which plugin set it activates, the entry scene and its Engine flags. The engine knows nothing of
 // plugins (ADR 0135), so activation is a function the host passes.
