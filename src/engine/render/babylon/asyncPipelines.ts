@@ -10,7 +10,7 @@
  * async compile with the state Babylon has just set up for it, and that one draw is skipped; once the
  * pipeline is in Babylon's cache, draws with that state find it there.
  *
- * A World's first frames (`FirstFrames`, ADR 0120) use the same path for every draw of the frame graph,
+ * A World's first frames (`FirstFrames` below, run by `pipelineReadiness.ts`, ADR 0120, 0240) use the same path for every draw of the frame graph,
  * Babylon's own post-process passes and the screen UI layer included, and are held on the clear colour
  * while any was skipped.
  *
@@ -132,18 +132,11 @@ const HOLD_MS = 3000;
  * (`AsyncPipelines`), and every frame is covered with the clear colour, as the frames before its graph
  * was ready were. A time limit ends it too, after which pipelines compile as Babylon makes them.
  * Rebuilding the graph later (a resize, a camera's effects changing) doesn't hold: there's a picture on
- * screen to keep.
+ * screen to keep. Pipeline readiness (`pipelineReadiness.ts`, ADR 0240) runs it around each frame.
  */
 export class FirstFrames {
   private started = -1;
   private over = false;
-
-  constructor(private readonly maxMs = HOLD_MS) {}
-
-  /** Whether the World's first frames are over. */
-  get done(): boolean {
-    return this.over;
-  }
 
   /** Before a frame: whether its graph runs with missing pipelines compiled asynchronously (`graphReady`: the frame graph will run this frame). */
   begin(graphReady: boolean, now: number): boolean {
@@ -162,7 +155,7 @@ export class FirstFrames {
       this.over = true; // complete: show it
       return false;
     }
-    if (now - this.started < this.maxMs) return true;
+    if (now - this.started < HOLD_MS) return true;
     this.over = true; // give up holding: later frames compile as they draw
     return skipped;
   }
