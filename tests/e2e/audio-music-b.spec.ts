@@ -19,12 +19,7 @@ test.describe.configure({ timeout: 150_000 });
 type Pend = { to: string; ruleKey: string; rule: number; tier: number; parent: string; exit: string; enter: string };
 type Sample = { t: number; asset: string; state: string; seg: string | null; bar: number; beat: number; n: number; pend: Pend | null; heads: Record<string, number>; played: number };
 type Api = { Audio: { time: number; debug(): unknown }; getComponentClass(id: string): unknown; GameBehavior: new () => object; AudioSource: unknown };
-type Lab = {
-  node: { addBehavior(type: unknown, init?: object): unknown };
-  handle: { setParameter(n: string, v: string): void; stop(s?: number): void; music?: { seek(to: string): { ok: boolean; time?: number; reason?: string; permanent?: boolean }; segment: string | null } } | null;
-  mode: string;
-};
-type G = { __myco: Api; playEngine: { world: { _componentsOfType(c: unknown): Lab[] } }; __rec: Sample[]; __lis?: Listener };
+type G = { __myco: Api; __rec: Sample[]; __lis?: Listener };
 type Listener = { beats: Beat[]; bars: Beat[]; src: { stop(): void } };
 type Beat = { bar: number; beat: number; time: number; heardIn: number; missed: number; segment: string; tempo: number; now: number };
 
