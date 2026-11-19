@@ -55,8 +55,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   setAudioBackend(null);
-  for (const b of made.splice(0)) b.dispose();
-  mixer._setTap(null);
+  for (const b of made.splice(0)) b.dispose(); // a disposed backend takes its tap off the mixer
   taps.sink = NULL_PROFILE_SINK;
   vi.restoreAllMocks();
 });
@@ -133,17 +132,18 @@ describe("BabylonBackend events, main-side (§9 Profiler and capture, §5.6)", (
     expect(rec.of("hiddenTab")).toEqual([[true], [false]]);
   });
 
-  it("the page-wide taps (events, music) point at the sink, and null puts every null object back", () => {
+  it("the page-wide taps (events, music) point at the sink, and null puts every null object back", async () => {
     const b = newBackend();
     const rec = recordingSink();
     b.setProfileSink(rec.sink);
     expect(taps.sink).toBe(rec.sink);
     b.setProfileSink(null);
     expect(taps.sink).toBe(NULL_PROFILE_SINK);
-    expect(b._profile).toBe(NULL_PROFILE_SINK);
     rec.clear();
     mixer.bus("Music").volume = 0.7;
     b.masterVolume = 0.5;
+    b.play(req()); // the backend's own sink: a voice's start reaches nothing
+    await flush();
     expect(rec.calls).toEqual([]);
   });
 
@@ -161,7 +161,13 @@ describe("BabylonBackend events, main-side (§9 Profiler and capture, §5.6)", (
     mixer.apply({ op: "removeBus", bus: "SFX" });
     mixer.apply({ op: "addBus", name: "Amb", parent: "Master" });
     await flush();
-    const slots = mixer.busNames.map((n) => b._busRef(n));
+    // The busRef each bus's voices carry to the sink.
+    const rec = recordingSink();
+    b.setProfileSink(rec.sink);
+    for (const bus of mixer.busNames) b.play(req({ bus }));
+    await flush();
+    const slots = rec.of("voiceStart").map((c) => c[2]);
+    expect(slots).toHaveLength(mixer.busNames.length);
     expect(new Set(slots).size).toBe(slots.length);
   });
 });

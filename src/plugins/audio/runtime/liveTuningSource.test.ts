@@ -169,6 +169,13 @@ function useCore() {
   return { core: r.backend, received: r.posted };
 }
 
+/** The id of the one voice playing (`debug().voices`): the source's. */
+function onlyVoiceId(core: { debug(): { voices: readonly { id: number }[] } }): number {
+  const voices = core.debug().voices;
+  expect(voices).toHaveLength(1);
+  return voices[0]!.id;
+}
+
 /** The PLAY records the backend sends from now on (decoded where the fake core receives them). */
 function watchPlays(received: BatchWatch) {
   received.take();
@@ -181,7 +188,7 @@ describe("AudioSource M3 fields reach the core's voice table on the next frame",
     const src = spatialSource();
     src.play();
     frame();
-    const i = voiceIndex(src._voiceId);
+    const i = voiceIndex(onlyVoiceId(core));
     // What the frame's passes read of the voice (`spatialVoices`, over the voice table).
     const t = core.spatialVoices;
     expect([!!(t.viewFlags[i]! & SpatialViewFlag.OCCLUSION), t.dopplerLevel[i], t.reverbSend[i], t.sendCurve[i]]).toEqual([true, 1, 1, 0]);
@@ -218,7 +225,7 @@ describe("AudioSource M3 fields reach the core's voice table on the next frame",
     const src = spatialSource({ clip: "asset:amb.wav", ambisonicYaw: 0 });
     src.play();
     frame();
-    const i = voiceIndex(src._voiceId);
+    const i = voiceIndex(onlyVoiceId(core));
     expect(core.voiceFx.yaw(i)).toBe(0);
     // The core gets the native (right-handed) yaw: the engine's +90 (right, ADR 0164) is the core's -π/2.
     src.ambisonicYaw = 90;
@@ -274,12 +281,13 @@ describe("a spatial AudioSource starts spatial on the core when its clip is resi
     const src = spatialSource({ spatial: false });
     src.play();
     frame();
-    const i = voiceIndex(src._voiceId);
+    const id = onlyVoiceId(core);
+    const i = voiceIndex(id);
     src.spatial = true;
     frame();
     frame();
     expect(core.spatialVoices.viewFlags[i]! & SpatialViewFlag.SPATIAL).toBe(0);
-    expect(core.debug().voices.find((v) => v.id === src._voiceId)!.gain).toBeCloseTo(1, 6); // no distance gain on main for a voice the core plays flat
+    expect(core.debug().voices.find((v) => v.id === id)!.gain).toBeCloseTo(1, 6); // no distance gain on main for a voice the core plays flat
     expect(src.panner).toBe("flat");
     const warned = warn.mock.calls.filter((c) => String(c[0]).includes("started flat"));
     expect(warned).toHaveLength(1);
