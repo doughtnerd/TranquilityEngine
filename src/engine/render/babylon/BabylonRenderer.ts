@@ -51,7 +51,7 @@ import type { PixelGrid, RenderDiagnostics, RenderFeatureDiagnostics } from "../
 import { Graphics } from "../Graphics";
 import type { PostSettings } from "../postEffects";
 import { canvasCameras, planFrame, type FrameCamera, type PlannedView, type Rgb, type ViewRect } from "../framePlan";
-import { GAME_POLICY, type RenderPolicy } from "../renderPolicy";
+import { GAME_POLICY, type PreviewInset, type RenderPolicy } from "../renderPolicy";
 import type { PostEffects, ToneMappingName } from "../postEffects";
 import { BabylonFrame, type CameraView } from "./frameGraph";
 import { BabylonLighting } from "./lighting";
@@ -399,33 +399,20 @@ export class BabylonRenderer {
   }
 
   /**
-   * The camera preview inset as fractions of the canvas (x and width from the left, top and height from
-   * the top), or null when there's none to draw.
+   * The camera preview inset the editor measured (ADR 0240: fractions of the canvas, from its top-left),
+   * or null when there's none to draw (no preview, or its camera is gone, disabled or not synced yet).
    */
-  private previewRect(): { x: number; top: number; width: number; height: number } | null {
+  private previewRect(): PreviewInset | null {
     const p = this.policy.cameraPreview;
-    const entry = p && p.camera.node.isValid && p.camera.isActiveAndEnabled ? this.cameras.get(p.camera) : undefined;
-    if (!p || !entry) return null;
-    const canvas = this.engine.getRenderingCanvas();
-    if (!canvas) return null;
-    const c = canvas.getBoundingClientRect(), r = p.frame.getBoundingClientRect();
-    const cw = canvas.clientWidth, ch = canvas.clientHeight;
-    if (r.width < 2 || r.height < 2 || cw <= 0 || ch <= 0) return null;
-    const clamp = (n: number) => Math.min(1, Math.max(0, n));
-    const x = clamp((r.left - c.left) / cw), top = clamp((r.top - c.top) / ch);
-    const w = Math.min(clamp(r.width / cw), 1 - x), h = Math.min(clamp(r.height / ch), 1 - top);
-    if (w <= 0.001 || h <= 0.001) return null;
-    return { x, top, width: w, height: h };
+    return p && p.camera.node.isValid && p.camera.isActiveAndEnabled && this.cameras.has(p.camera) ? p.inset : null;
   }
 
   /** The frame plan's preview input (ADR 0129): the inset from the bottom-left, its aspect ratio, and whether its overlay layer is set. */
   private previewInput(): { camera: Camera; rect: { x: number; y: number; width: number; height: number }; aspect: number; ui: boolean } | null {
-    const p = this.policy.cameraPreview;
-    const rect = p ? this.previewRect() : null;
-    if (!p || !rect) return null;
-    const r = p.frame.getBoundingClientRect();
-    const y = Math.min(1, Math.max(0, 1 - rect.top - rect.height));
-    return { camera: p.camera, rect: { x: rect.x, y, width: rect.width, height: rect.height }, aspect: r.width / r.height, ui: this.frame.previewUI !== null };
+    const r = this.previewRect();
+    if (!r) return null;
+    const y = Math.min(1, Math.max(0, 1 - r.top - r.height));
+    return { camera: this.policy.cameraPreview!.camera, rect: { x: r.x, y, width: r.width, height: r.height }, aspect: r.aspect, ui: this.frame.previewUI !== null };
   }
 
   /** Sets the editor background (editor Worlds) and clear colour. */
