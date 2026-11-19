@@ -10,7 +10,8 @@ import { nodeDrag, startNodeDrag } from "./nodeDrag";
 import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile } from "./project";
 import { editorSettings, useProjectAssets } from "./projects";
-import { openScene, playState, sceneCamera, select, selectedKeys, status, type OpenScene } from "./state";
+import { openScene, playState, sceneCamera, selectedKeys, status, type OpenScene } from "./state";
+import { select } from "./inspectorTarget";
 import { copySelection, nodeClipboard, pasteClipboard, pasteClipboardText, whyNotPasteAt, whyNotPasteHere } from "./hierarchyActions";
 import { sampleProject } from "./testing";
 

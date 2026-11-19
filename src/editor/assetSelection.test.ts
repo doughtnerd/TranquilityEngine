@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { boxSelection, canGoBack, canGoForward, clickSelection, folderPath, goBack, goForward, moveCursor, openFolder, resetAssetBrowser, select, selectedAssets } from "./assetSelection";
+import { boxSelection, canGoBack, canGoForward, clickSelection, folderPath, goBack, goForward, moveCursor, openFolder, resetAssetBrowser, selectedAssets } from "./assetSelection";
+import { selectAssets } from "./inspectorTarget";
 
 const items = ["a/", "b/", "x.png", "y.png", "z.png"];
 const none = { shift: false, toggle: false };
@@ -35,7 +36,7 @@ describe("folders", () => {
 
   it("goes back and forward, and keeps the selection only where it was made", () => {
     openFolder("images");
-    select(["images/a.png"]);
+    selectAssets(["images/a.png"]);
     openFolder("music");
     expect(selectedAssets.value).toEqual([]);
     expect(canGoBack()).toBe(true);

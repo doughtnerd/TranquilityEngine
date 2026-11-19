@@ -17,7 +17,6 @@
 .runtime-inspector .component h3 .remove-live { margin-left: auto; font-size: 10px; padding: 0 6px; }
 .runtime-inspector .component.kept { border-color: var(--accent); }
 .runtime-inspector .kept-badge { color: var(--accent); }
-.runtime-inspector .live-json { font-family: ui-monospace, monospace; font-size: 11px; word-break: break-all; }
 .kept-list { margin: 4px 0 8px; font-size: 11px; color: var(--muted); }
 .kept-list summary { cursor: pointer; }
 .kept-list ul { margin: 2px 0; padding-left: 16px; }

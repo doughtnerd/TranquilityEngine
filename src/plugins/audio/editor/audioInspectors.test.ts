@@ -9,7 +9,8 @@ import { openSceneFile } from "../../../editor/project";
 import { componentNotes } from "../../../editor/sdk";
 import { choicesFor } from "../../../editor/fieldValues";
 import { getFields } from "../../../engine/core/registry";
-import { openScene, playState, selection } from "../../../editor/state";
+import { openScene, playState } from "../../../editor/state";
+import { select } from "../../../editor/inspectorTarget";
 import { DEMO_SCENE, demoAssets, demoSettings, sceneViewTools } from "../../../editor/testing";
 import { parseAudioSettings } from "../../../engine/audio/settings";
 import { occluderTool } from "./AudioOccluderGizmo";
@@ -32,7 +33,7 @@ describe("audio inspector sections", () => {
     playState.value = "edit";
   });
   afterEach(() => {
-    selection.value = null;
+    select([]);
     engine.dispose();
   });
 
@@ -158,7 +159,7 @@ describe("audio inspector sections", () => {
       node([[BOX]]); // no occluder: not drawn here
       const dim = occluderOverlay();
       expect(dim.lines).toHaveLength(12); // one box
-      selection.value = wall.id;
+      select([wall.id]);
       const bright = occluderOverlay();
       expect(bright.lines).toHaveLength(12);
       expect(bright.lines[0]!.color).toBe(materialTint(defaults, "glass"));
@@ -181,10 +182,10 @@ describe("audio inspector sections", () => {
       const scene = room.scene;
       const door = createNode(scene, "empty", { position: [0, 0, 0], parent: room.id } as never);
       scene.stack.execute(new AddComponent(door, { type: BOX, data: {} }));
-      selection.value = room.id;
+      select([room.id]);
       expect(occluderOverlay().lines[0]!.color).toBe(materialTint(defaults, "wood"));
       scene.stack.execute(new AddComponent(door, { type: OCC, data: { material: "glass" } }));
-      selection.value = door;
+      select([door]);
       expect(occluderOverlay().lines[0]!.color).toBe(materialTint(defaults, "glass"));
     });
   });

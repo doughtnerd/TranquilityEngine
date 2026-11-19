@@ -5,6 +5,7 @@
 // Plugins reach all of it through `editor.assets` (sdk/project.ts).
 import { signal } from "@preact/signals";
 import { fileName } from "./assetBrowser";
+import { isSliceEntry, splitSliceEntry } from "./assetEntry";
 import { assetKind, opensInCodePanel, registeredKind } from "./assetKindLookup";
 import { freePath } from "./freePath";
 import { showPanel } from "./layout/store";
@@ -119,7 +120,7 @@ export function openIn(panel: string): string | null {
 /** Open the file at `path` as its kind says (a slice opens its file): its `open`, its panel, or the Code panel. False when its kind doesn't open. */
 export function openAsset(path: string): boolean {
   const kind = assetKind(path);
-  const file = kind === "sprite" ? path.slice(0, path.indexOf("#")) : path;
+  const file = isSliceEntry(path) ? splitSliceEntry(path).image : path;
   const k = registeredKind(assetKind(file));
   if (k?.open) {
     k.open(file);

@@ -5,7 +5,8 @@ import { alignOffsets, distributeOffsets, type Box } from "./boxAlign";
 import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile } from "./project";
 import { cleanSnap, gizmoPivot, gizmoSpace, installSceneToolKeys, snapActive, snapSettings, snapTo, updateSnap } from "./sceneTools";
-import { openScene, sceneCamera, select, snapping } from "./state";
+import { openScene, sceneCamera, snapping } from "./state";
+import { select } from "./inspectorTarget";
 import { DEMO_SCENE, demoAssets, demoSettings } from "./testing";
 
 /** The snap settings a fresh editor starts with. */

@@ -4,7 +4,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input } from "../engine";
 import { addAssets, whyNotAddAssets } from "./addAssets";
-import { uniqueId } from "./assetBrowser";
+import { uniqueId } from "./assetNodes";
 import { messageLog } from "./messages";
 import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile } from "./project";

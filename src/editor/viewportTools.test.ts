@@ -10,6 +10,7 @@ import { CommandStack, SceneDocument, SetField, type SceneFile } from "./documen
 import { viewportTools, type ViewportCancel, type ViewportDrag, type ViewportToolContext, type ViewportToolContribution } from "./sdk/contributions";
 import { editor } from "./sdk/editor";
 import { activateViewportTool, activeViewportTool, openScene, pickTool, playState, selection, snapping, type OpenScene } from "./state";
+import { select } from "./inspectorTarget";
 import { selectableOutlines } from "./viewportTools";
 import { sceneViewTools, type SceneViewCanvas, type SceneViewTools } from "./testing";
 
@@ -301,16 +302,16 @@ describe("tool modes (ADR 0231)", () => {
     openScene.value = sceneOf();
     expect(keep.ctx().mode.value).toBeNull();
     keep.ctx().enter("m");
-    selection.value = "a";
+    select(["a"]);
     expect(keep.ctx().mode.value).toBe("m"); // it didn't ask
     ends.ctx().enter("lenient");
-    selection.value = null;
+    select([]);
     expect(ends.ctx().mode.value).toBe("lenient"); // asked, with this mode: keep
     ends.ctx().enter("strict");
-    selection.value = "a";
+    select(["a"]);
     expect(ends.ctx().mode.value).toBeNull();
     expect(editor.viewport.activeTool).toBeNull();
-    selection.value = null;
+    select([]);
   });
 
   it("ends the mode when the tool is removed", () => {

@@ -20,7 +20,8 @@ import {
   type NodeClipboard,
   type PasteTarget,
 } from "./nodeClipboard";
-import { openScene, playState, sceneCamera, select, selectedKeys, selection, status, viewMode, type OpenScene } from "./state";
+import { openScene, playState, sceneCamera, selectedKeys, selection, status, viewMode, type OpenScene } from "./state";
+import { select } from "./inspectorTarget";
 import { duplicateUIElement } from "./uiDocumentEdits";
 import { registeredKind } from "./assetKindLookup";
 import { createAsset } from "./assetKindHost";

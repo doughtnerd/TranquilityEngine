@@ -10,9 +10,9 @@ import { isHidden, isLocked, nodeFlags, setHidden, setLocked } from "../nodeVisi
 import { instanceInnerNodes, type InnerNode } from "../prefabs";
 import { openPrefabFrom } from "../prefabTabs";
 import { ancestorKeys, combineSelection, rangeBetween } from "../selectionModel";
-import { selectedAssets } from "../assetSelection";
-import { docVersion, isSelected, openScene, select, selectedKeys, selectedUIElement } from "../state";
-import { documentRows, resolveUIElement, rowAncestry, selectUIElement, selectedUIRef, uiBuildVersion, watchUIDocumentBuilds, type UIDocumentRows, type UIElementRow } from "../uiDocuments";
+import { select, selectUIElement, showSceneSettings } from "../inspectorTarget";
+import { docVersion, isSelected, openScene, selectedKeys, selectedUIElement } from "../state";
+import { documentRows, resolveUIElement, rowAncestry, selectedUIRef, uiBuildVersion, watchUIDocumentBuilds, type UIDocumentRows, type UIElementRow } from "../uiDocuments";
 import { HierarchyMenu, openCreateMenu, openHierarchyMenu, openUIElementMenu } from "./HierarchyMenu";
 import { renameUIElement, whyNotEditableUI } from "../uiDocumentEdits";
 import { renamingUIElement, startUIElementDrag, uiDropDescription, uiElementDrag } from "../uiElementDrag";
@@ -20,12 +20,6 @@ import "./hierarchy.css";
 import { liveInspecting } from "../runtimeInspect";
 import { RuntimeHierarchy, WorldPicker } from "./RuntimeHierarchy";
 import { activeElementOf } from "../windows/dom";
-
-/** The Inspector shows the open scene's settings when nothing is selected: clear the node and asset selections. */
-function showSceneSettings(): void {
-  select([]);
-  if (selectedAssets.peek().length) selectedAssets.value = [];
-}
 
 /**
  * One Hierarchy panel's view state (ADR 0174): each copy of the panel has its own, so expanding a row or

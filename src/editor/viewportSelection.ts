@@ -16,8 +16,9 @@ import { pathKey } from "./document";
 import type { OrbitCamera } from "./OrbitCamera";
 import { isLocked } from "./nodeVisibility";
 import { combineSelection, selectModeFor, withDescendants, type SelectMode } from "./selectionModel";
-import { docVersion, openScene, refineList, select, selectedKeys, selectedNodes, selectedUIElement, selection } from "./state";
-import { elementOfComponent, parseUIRefKey, refOfElement, selectUIElement, uiRefKey, type NodeLookup } from "./uiDocuments";
+import { docVersion, openScene, refineList, selectedKeys, selectedNodes, selectedUIElement, selection } from "./state";
+import { select, selectUIElement } from "./inspectorTarget";
+import { elementOfComponent, parseUIRefKey, refOfElement, uiRefKey, type NodeLookup } from "./uiDocuments";
 import { pressOnSelectedUI } from "./uiHandles";
 import { orderClickHits, partitionUIHits } from "./uiPicking";
 import { boxBetween, chooseSelection, colliderBounds, colliderHits, hitIds, idsInBox, isPlainClick, keysNear, type PointerSample } from "./viewportPicks";
@@ -50,7 +51,7 @@ function uiHitKeys(comps: readonly UIComponentType[], lookup: NodeLookup & { nod
 function applyClickSelection(key: string | null): void {
   const ref = key ? parseUIRefKey(key) : null;
   if (ref) selectUIElement(ref);
-  else selection.value = key;
+  else select(key === null ? [] : [key]);
 }
 
 /** Hook selection up to the viewport. Returns a function that removes it. */

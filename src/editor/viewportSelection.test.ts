@@ -3,6 +3,7 @@ import { Engine, GameObject, Input } from "../engine";
 import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile } from "./project";
 import { openScene, sceneCamera, selectedKeys, selection } from "./state";
+import { select } from "./inspectorTarget";
 import { installViewportSelection } from "./viewportSelection";
 import { chooseSelection, hitIds, isPlainClick } from "./viewportPicks";
 import { DEMO_SCENE, demoAssets, demoSettings } from "./testing";
@@ -62,7 +63,7 @@ describe("with the demo scene open", () => {
   });
 
   it("F and Focus frame the selected node, or the origin with nothing selected", () => {
-    selection.value = "bird";
+    select(["bird"]);
     orbit.focus();
     expect(orbit.focusPoint.toArray()).toEqual([-4, 1, 0]);
 
@@ -71,7 +72,7 @@ describe("with the demo scene open", () => {
     engine.step(1 / 60);
     expect(orbit.focusPoint.toArray()).toEqual([-4, 1, 0]);
 
-    selection.value = null;
+    select([]);
     orbit.focus();
     expect(orbit.focusPoint.toArray()).toEqual([0, 0, 0]);
   });
@@ -100,7 +101,7 @@ describe("clicking in the viewport, over a fake viewport (ADR 0128)", () => {
     sceneCamera.value = orbit;
     openSceneFile(engine, DEMO_SCENE);
     uninstall = installViewportSelection(engine, orbit);
-    selection.value = null;
+    select([]);
   });
 
   afterEach(() => {

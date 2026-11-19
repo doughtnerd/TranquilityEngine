@@ -1,7 +1,10 @@
 // The Assets panel's state: the folder each copy shows (with Back/Forward history, ADR 0174), the selection of
-// files and folders, and how clicks, box selection and arrow keys change it. Entries are project
-// paths, folders ending in "/" (assetDelete.ts). The logic is pure; ui/Assets.tsx renders it.
+// files and folders, and how clicks, box selection and arrow keys change it. Entries are Assets panel
+// entries (assetEntry.ts). The logic is pure; ui/Assets.tsx renders it, and assetActions.ts runs the
+// panel's commands on it (ADR 0241). Selecting entries goes through inspectorTarget.ts
+// (`selectAssets`), which keeps the Assets panel's selection apart from the scene's (ADR 0242).
 import { computed, signal } from "@preact/signals";
+import { entryFolder } from "./assetEntry";
 
 /**
  * One Assets panel's browsing (ADR 0174): the folder it shows, its Back/Forward history and its
@@ -12,6 +15,8 @@ export class AssetBrowserView {
   readonly folder = signal("");
   /** Search text; when set, the panel lists matching files from every folder. */
   readonly query = signal("");
+  /** Images whose slices are listed under them (ADR 0040). */
+  readonly expandedImages = signal<ReadonlySet<string>>(new Set());
   /** Bumped when the history stacks change, so the Back/Forward buttons re-render. */
   readonly historyVersion = signal(0);
   private readonly back: string[] = [];
@@ -57,7 +62,7 @@ export class AssetBrowserView {
 
   private show(path: string): void {
     // The selection is kept when the folder showing is where it was made (going back to it).
-    if (selectedAssets.value.some((e) => !isIn(e, path))) select([]);
+    if (selectedAssets.value.some((e) => !isIn(e, path))) setPanelSelection([]);
     this.folder.value = path;
     this.historyVersion.value++;
   }
@@ -72,7 +77,7 @@ export const lastAssetBrowser = signal<AssetBrowserView>(defaultAssetBrowser);
 
 /** The last-used Assets panel's folder. */
 export const folderPath = computed(() => lastAssetBrowser.value.folder.value);
-/** Selected entries, in selection order. */
+/** Selected entries, in selection order. Written through inspectorTarget.ts (`selectAssets`). */
 export const selectedAssets = signal<readonly string[]>([]);
 /** Where Shift ranges start: the entry last clicked or moved to without Shift. */
 export const assetAnchor = signal<string | null>(null);
@@ -91,10 +96,7 @@ export const goForward = (): void => lastAssetBrowser.peek().goForward();
 /** The parent of a folder: `a/b` → `a`, `a` → `""`. Null for the root. */
 export const parentFolder = (path: string) => (path === "" ? null : path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
 
-const isIn = (entry: string, folder: string) => {
-  const p = entry.endsWith("/") ? entry.slice(0, -1) : entry;
-  return (p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "") === folder;
-};
+const isIn = (entry: string, folder: string) => entryFolder(entry) === folder;
 
 /** Forget every Assets panel's history, and the selection (another project opened). */
 export function resetAssetBrowser(): void {
@@ -104,11 +106,15 @@ export function resetAssetBrowser(): void {
     else views.delete(ref);
   }
   renamingAsset.value = null;
-  select([]);
+  setPanelSelection([]);
 }
 
-/** Set the selection; the cursor and anchor go to `focus` (the last entry by default). */
-export function select(entries: readonly string[], focus: string | null = entries.at(-1) ?? null, anchor: string | null = focus): void {
+/**
+ * Set the selection; the cursor and anchor go to `focus` (the last entry by default). Only
+ * inspectorTarget.ts calls this with entries, applying the rule between the selections (ADR 0242);
+ * clearing here needs no rule.
+ */
+export function setPanelSelection(entries: readonly string[], focus: string | null = entries.at(-1) ?? null, anchor: string | null = focus): void {
   selectedAssets.value = entries;
   assetCursor.value = focus;
   assetAnchor.value = anchor;
@@ -169,4 +175,24 @@ export function moveCursor(items: readonly string[], cursor: string | null, key:
     case "End": return items.at(-1)!;
     default: return null;
   }
+}
+
+/**
+ * The selection after an arrow key (or Home/End) among `items` laid out `columns` wide: the cursor
+ * moves (`moveCursor`) and selects that entry alone, or with Shift the range from the anchor to it.
+ * Null for keys that don't move the cursor. `focus` is the new cursor.
+ */
+export function arrowSelection(
+  items: readonly string[],
+  cursor: string | null,
+  anchor: string | null,
+  key: string,
+  columns: number,
+  shift: boolean,
+): { selected: string[]; focus: string; anchor: string } | null {
+  const next = moveCursor(items, cursor, key, columns);
+  if (next === null) return null;
+  if (!shift || !anchor) return { selected: [next], focus: next, anchor: next };
+  const range = clickSelection(items, [], anchor, next, { shift: true, toggle: false });
+  return { selected: range.selected, focus: next, anchor: range.anchor };
 }

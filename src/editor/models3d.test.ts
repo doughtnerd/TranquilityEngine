@@ -3,7 +3,8 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { Assets, Engine, MeshRenderer } from "../myco";
-import { addAssetEntries, assetKind, prepareAssets, whyNotAddable } from "./assetBrowser";
+import { assetKind } from "./assetBrowser";
+import { addAssetEntries, prepareAssets, whyNotAddable } from "./assetNodes";
 import { newComponentEntry } from "./componentEdits";
 import { createNode, type NodeKind } from "./nodeCreate";
 import { openSceneFile } from "./project";

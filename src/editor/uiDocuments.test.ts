@@ -11,7 +11,8 @@ import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile, saveOpenScene } from "./project";
 import { createPrefab } from "./prefabs";
 import { editorSettings, joinPath, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
-import { currentProject, openScene, sceneCamera, select, selectedKeys, selectedUIElement, selection } from "./state";
+import { currentProject, openScene, sceneCamera, selectedKeys, selectedUIElement, selection } from "./state";
+import { select, selectUIElement } from "./inspectorTarget";
 import {
   describeOrigin,
   documentRows,
@@ -22,7 +23,6 @@ import {
   refOfElement,
   resolveUIElement,
   rowAncestry,
-  selectUIElement,
   selectedUIRef,
   uiRefKey,
   type FieldSourceRow,

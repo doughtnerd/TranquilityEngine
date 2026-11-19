@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input, type BootstrapSetting, type ProjectSettingsInput } from "../engine";
 import { World } from "../engine/core/World";
 import { engineWorld, listComponents, listNodes, writeField } from "../engine/editor";
-import { addAssetEntries } from "./assetBrowser";
+import { addAssetEntries } from "./assetNodes";
 import { RemoveNode, SetField } from "./document";
 import { OrbitCamera } from "./OrbitCamera";
 import { startPlay, type PlaySession } from "./playMode";

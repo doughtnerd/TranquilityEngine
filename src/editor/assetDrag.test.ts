@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input } from "../engine";
 import { SceneInstance } from "../engine/scene/SceneLoader";
-import { addAssetEntries, whyNotAddable } from "./assetBrowser";
+import { addAssetEntries, whyNotAddable } from "./assetNodes";
 import { dropDescription, hierarchyDrop } from "./assetDrag";
 import { OrbitCamera } from "./OrbitCamera";
 import { instanceInnerNodes } from "./prefabs";

@@ -10,7 +10,8 @@ import { MemoryFileSystem } from "./memoryFs";
 import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile } from "./project";
 import { editorSettings, joinPath, openFolderProject, readOnlyProject, useProjectAssets, type EditorProject } from "./projects";
-import { currentProject, openScene, playState, sceneCamera, select, status } from "./state";
+import { currentProject, openScene, playState, sceneCamera, status } from "./state";
+import { select } from "./inspectorTarget";
 import { editorTextFiles } from "./textFiles";
 import {
   beginUIEdit,
@@ -26,7 +27,8 @@ import {
   setUIElementField,
   whyNotMovable,
 } from "./uiDocumentEdits";
-import { fieldSources, resolveUIElement, selectedUIRef, selectUIElement, type UIElementRef } from "./uiDocuments";
+import { fieldSources, resolveUIElement, selectedUIRef, type UIElementRef } from "./uiDocuments";
+import { selectUIElement } from "./inspectorTarget";
 import { createUIDocument } from "../plugins/ui/editor/uiDocumentAssets";
 
 const ROOT = "C:\\Games\\ui";

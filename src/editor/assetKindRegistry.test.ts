@@ -17,8 +17,7 @@ import {
   satisfiesFieldKind,
 } from "./assetKindLookup";
 import { openAsset } from "./assetKindHost";
-import { inspectedAsset } from "./assetImport";
-import { select as selectAssets } from "./assetSelection";
+import { inspectorTarget, selectAssets } from "./inspectorTarget";
 import { SceneDocument } from "./document";
 import { assetKinds, type AssetKindContribution } from "./sdk/contributions";
 import { useCoreAssetKinds } from "./testing";
@@ -134,7 +133,8 @@ describe("core kinds", () => {
 /** The file the Inspector shows with `entry` alone selected in the Assets panel (null: none). */
 function inspectedFor(entry: string): string | null {
   selectAssets([entry]);
-  const shown = inspectedAsset.peek();
+  const target = inspectorTarget.peek();
+  const shown = target.kind === "asset" ? target.path : null;
   selectAssets([]);
   return shown;
 }

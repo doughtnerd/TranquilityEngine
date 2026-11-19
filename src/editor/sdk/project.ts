@@ -4,7 +4,8 @@
 // tracks it, as reading the signal would.
 import { computed, untracked } from "@preact/signals";
 import type { ImportSettings } from "../../engine/scene/importSettings";
-import { readImportSettings, showAsset } from "../assetImport";
+import { readImportSettings } from "../assetImport";
+import { showAsset } from "../inspectorTarget";
 import { assetKind, type AssetKind } from "../assetKindLookup";
 import { freePath } from "../freePath";
 import { openScript } from "../code/codeState";
