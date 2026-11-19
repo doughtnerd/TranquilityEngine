@@ -123,7 +123,7 @@ defineSystem({
   worlds: ["server"],
   run(_rows, ctx) {
     const session = netSession(ctx.world)!;
-    for (const rep of ctx.world._componentsOfType(Replicated)) {
+    for (const rep of GameObject.findObjectsOfType(Replicated)) {
       const node = rep.node;
       if (!node.getData(Body)) continue;
       serverLog.set(session.tick, { x: node.transform!.position.x, vx: node.getData(Body)!.vx, fuel: node.getBehavior(Fuel)!.fuel });
