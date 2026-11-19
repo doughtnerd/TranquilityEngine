@@ -105,8 +105,7 @@ function rig(settings: AudioSettings = defaultAudioSettings()) {
   // A rebuild's clips never come back here (no `settle`): their voices wait in the replayer.
   const r = recordingAudio({ mixer: "own", settings, preset: { maxLogical: 16 }, backend: { hrir, magls } });
   const { backend, mixer } = r;
-  // `mixer.apply` sends to the backend's live path, as `setAudioBackend` wires it (the backend's `mix.mixOpTarget`).
-  mixer._setOpTarget(backend.mix!.mixOpTarget);
+  // `mixer.apply` sends to the backend's live path: the core backend wires it on its mixer (`mix.mixOpTarget`, its LiveMix).
   /** The opcodes of each REPLAY message posted since the last call. */
   const replays = () => r.posted.take().filter((b) => b.kind === Kind.REPLAY).map((b) => b.records.map((x) => x.opcode));
   return { r, backend, mixer, frame: () => r.frame(), replays, hrir, magls };
