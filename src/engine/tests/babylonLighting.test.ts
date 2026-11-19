@@ -15,11 +15,24 @@ import { Environment } from "../render/components";
 import { TargetCamera } from "@babylonjs/core/Cameras/targetCamera.js";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector.js";
 import { CreateBox } from "@babylonjs/core/Meshes/Builders/boxBuilder.js";
+import { MaterialDefines } from "@babylonjs/core/Materials/materialDefines.js";
 import type { ShadowRequest } from "../render/babylon/frameGraph";
 import { BabylonLighting, reclusterForNextCamera } from "../render/babylon/lighting";
 import { resolveObjectURL } from "node:buffer";
 import { studioHdrUrl } from "../render/babylon/studioEnvironment";
 import { pbr } from "../render/babylon/materials";
+
+/**
+ * A box under `scene`'s lights with clean shader defines. The returned function says whether anything
+ * has since marked them dirty, as a light change marks every mesh it lights.
+ */
+function litProbe(scene: Scene): () => boolean {
+  const box = CreateBox("light probe", {}, scene);
+  const defines = new MaterialDefines();
+  defines.markAsProcessed();
+  box.subMeshes[0].materialDefines = defines;
+  return () => defines.isDirty;
+}
 
 describe("the studio environment (ADR 0075)", () => {
   it("is a Radiance .hdr image Babylon reads, brighter overhead than below", async () => {
@@ -333,16 +346,11 @@ describe("lights on the Babylon backend (ADR 0075 stage 2)", () => {
     expect(byName("light:light point")!.shadowEnabled).toBe(false);
     expect(byName("myco.default.sun")!.shadowEnabled).toBe(false);
     // A frame changes nothing, so no mesh is marked as needing its shader defines rebuilt.
-    let marked = 0;
-    for (const l of scene.lights) {
-      const mark = l._markMeshesAsLightDirty.bind(l);
-      l._markMeshesAsLightDirty = () => {
-        marked++;
-        mark();
-      };
-    }
+    const dirty = litProbe(scene);
     sync();
-    expect(marked).toBe(0);
+    expect(dirty()).toBe(false);
+    byName("light:light point")!.shadowEnabled = true; // what the probe sees when a toggle does dirty meshes
+    expect(dirty()).toBe(true);
   });
 });
 
@@ -359,7 +367,7 @@ describe("clustered point and spot lights (ADR 0079)", () => {
     await SceneManager.load("s.json");
     babylon = new NullEngine();
     // What Babylon checks before clustering on WebGL2 (NullEngine says no to all of it).
-    Object.assign((babylon as unknown as { _caps: object })._caps, { texelFetch: true, colorBufferFloat: true, blendFloat: true, shaderFloatPrecision: 23, maxVaryingVectors: 28 });
+    Object.assign(babylon.getCaps(), { texelFetch: true, colorBufferFloat: true, blendFloat: true, shaderFloatPrecision: 23, maxVaryingVectors: 28 });
     Object.defineProperty(babylon, "version", { get: () => 2 });
     scene = new Scene(babylon);
     lighting = new BabylonLighting(scene);
@@ -402,16 +410,11 @@ describe("clustered point and spot lights (ADR 0079)", () => {
     const first = light({ type: "point" }, "first");
     sync();
     const before = [...scene.lights];
-    let marked = 0;
-    for (const l of scene.lights) {
-      const mark = l._markMeshesAsLightDirty.bind(l);
-      l._markMeshesAsLightDirty = () => {
-        marked++;
-        mark();
-      };
-    }
     const lanterns = Array.from({ length: 12 }, (_, i) => light({ type: "point" }, `lantern ${i}`, [i, 0, 0])); // past 8: no limit
     sync();
+    // A new lantern's Babylon light joins the scene for a moment before the container takes it, which
+    // marks the meshes; switching off, parking and reusing lights doesn't.
+    const dirty = litProbe(scene);
     first.enabled = false;
     sync();
     const babylonFirst = container()!.lights.find((l) => l.name === "light:first") as PointLight;
@@ -423,7 +426,7 @@ describe("clustered point and spot lights (ADR 0079)", () => {
     }
     sync();
     expect(scene.lights).toEqual(before);
-    expect(marked).toBe(0);
+    expect(dirty()).toBe(false);
     expect(container()!.lights).toHaveLength(13); // gone ones parked in the container
     light({ type: "point", intensity: 2 }, "late");
     sync();
@@ -432,7 +435,7 @@ describe("clustered point and spot lights (ADR 0079)", () => {
   });
 
   it("keeps regular lights on a device with only WebGPU's minimum 16 values between shader stages", () => {
-    (babylon as unknown as { _caps: { maxVaryingVectors: number } })._caps.maxVaryingVectors = 16;
+    babylon.getCaps().maxVaryingVectors = 16;
     light({ type: "point" }, "lantern");
     sync();
     expect(container()).toBeUndefined();

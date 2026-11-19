@@ -8,7 +8,7 @@ import type { ShaderMaterial } from "@babylonjs/core/Materials/shaderMaterial.js
 import type { Scene } from "@babylonjs/core/scene.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Assets } from "../index";
-import { _registeredRenderFeatures, type RenderFeatureRegistration } from "../render/renderFeatures";
+import { applyTestPlugins } from "../../plugins/testPlugins";
 import { ThumbnailScenes } from "../render/babylon/previews/thumbnailScenes";
 import { defaultSky, formatSky } from "../sky/skyFormat";
 
@@ -132,15 +132,13 @@ describe("environment and sky thumbnails through the render features (ADR 0189)"
   });
 
   it("draws no sky when the Sky plugin's feature isn't registered: core draws it only through the feature", async () => {
-    const registered = _registeredRenderFeatures() as RenderFeatureRegistration[];
-    const at = registered.findIndex((r) => r.spec.name === "sky");
-    const [sky] = registered.splice(at, 1);
+    applyTestPlugins(["myco.sky"]);
     try {
       const p = (await scenes.prepare("sky", "skies/flat.sky.json", false))!;
       expect(enabled(p.scene, "myco.sky")).toHaveLength(0);
       p.dispose();
     } finally {
-      registered.splice(at, 0, sky);
+      applyTestPlugins(); // as Vitest's setup file leaves it
     }
   });
 

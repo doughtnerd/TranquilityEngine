@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Color as EngineColor } from "../core/math";
 import { BabylonParticles } from "../render/babylon/particles";
 import { kernelExecutors } from "../render/babylon/gpuParticles";
-import type { ParticleCommand, ParticleSystem } from "../render/components";
+import { ParticleSystem } from "../render/components";
 import { defaultBlock } from "../scene/particleBlocks";
 import type { ContextKind, GraphInputValue, ParticleGraph, ParticleGraphSystem } from "../scene/particleGraph";
 import { newGraphId, systemTemplate, formatParticleGraph } from "../scene/particleGraphFormat";
@@ -20,22 +20,11 @@ import { newGraphId, systemTemplate, formatParticleGraph } from "../scene/partic
 const graphJSON = (graph: ParticleGraph): Record<string, unknown> => JSON.parse(formatParticleGraph(graph));
 
 function fakeSystem(graph: ParticleGraph, over: Partial<ParticleSystem> = {}) {
-  return {
-    isActiveAndEnabled: true,
-    effect: "",
-    embeddedEffect: graphJSON(graph),
-    overrides: {},
-    playOnAwake: true,
-    timeScale: 1,
-    tint: EngineColor.white,
-    emissionScale: 1,
-    destroyOnFinish: false,
-    seed: 3,
-    _commands: [] as ParticleCommand[],
-    _state: { playing: false, paused: false, time: 0, count: 0, alive: false },
-    node: { name: "Fx" },
-    ...over,
-  } as unknown as ParticleSystem;
+  const c = new ParticleSystem();
+  // In a World the node and its activity come from the scene; here the player only reads the node's name.
+  const { node = { name: "Fx" }, ...fields } = over as Record<string, unknown>;
+  Object.defineProperties(c, { node: { value: node }, isActiveAndEnabled: { value: true } });
+  return Object.assign(c, { embeddedEffect: graphJSON(graph), seed: 3 }, fields);
 }
 
 function addBlock(g: ParticleGraph, sys: ParticleGraphSystem, c: ContextKind, type: string, inputs: Record<string, GraphInputValue> = {}) {
@@ -124,26 +113,26 @@ describe("kernel particle systems in the World player (ADR 0094)", () => {
     g.systems[0].spawn.settings.duration = 0.5;
     const c = fakeSystem(g);
     frames(p, c, 20);
-    expect(c._state.count).toBeGreaterThan(15);
-    expect(c._state.playing).toBe(true);
+    expect(c.particleCount).toBeGreaterThan(15);
+    expect(c.isPlaying).toBe(true);
     frames(p, c, 20);
-    expect(c._state.playing).toBe(false); // the cycle ended
-    expect(c._state.alive).toBe(true); // particles still live
+    expect(c.isPlaying).toBe(false); // the cycle ended
+    expect(c.isAlive).toBe(true); // particles still live
     frames(p, c, 120);
-    expect(c._state.alive).toBe(false);
-    expect(c._state.count).toBe(0);
+    expect(c.isAlive).toBe(false);
+    expect(c.particleCount).toBe(0);
   });
 
   it("stops and clears kernel systems by command", () => {
     const p = make();
     const c = fakeSystem(graph("gpu"));
     frames(p, c, 10);
-    expect(c._state.count).toBeGreaterThan(0);
-    c._commands.push({ op: "stop", clear: true });
+    expect(c.particleCount).toBeGreaterThan(0);
+    c.stop({ clear: true });
     frames(p, c, 1);
-    expect(c._state.playing).toBe(false);
-    expect(c._state.count).toBe(0);
-    expect(c._state.alive).toBe(false); // not emitting, nothing left
+    expect(c.isPlaying).toBe(false);
+    expect(c.particleCount).toBe(0);
+    expect(c.isAlive).toBe(false); // not emitting, nothing left
   });
 
   it("doesn't report CPU-only problems for systems a kernel runs", () => {
@@ -164,10 +153,11 @@ describe("kernel particle systems in the World player (ADR 0094)", () => {
     frames(p, c, 2);
     const d = meshesOf("Fx")[0];
     expect(d.material!.getActiveTextures().length).toBeGreaterThan(0);
-    const renderers = (scene as unknown as { _depthRenderer?: Record<string, unknown> })._depthRenderer ?? {};
-    expect(Object.keys(renderers).length).toBe(1);
+    // A depth renderer draws into a render target the scene lists by its name.
+    const depthMaps = () => scene.textures.filter((t) => t.name === "DepthRenderer");
+    expect(depthMaps()).toHaveLength(1);
     p.dispose();
-    expect(Object.keys((scene as unknown as { _depthRenderer?: Record<string, unknown> })._depthRenderer ?? {}).length).toBe(0);
+    expect(depthMaps()).toHaveLength(0);
   });
 
   it("disposes kernel draws with the system", () => {
