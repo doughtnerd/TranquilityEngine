@@ -35,10 +35,13 @@ beforeEach(async () => {
   warn = vi.spyOn(console, "warn").mockImplementation(() => {});
   Assets.clearSources();
   Assets.addSource(Assets.fromObject({ "s.json": { format: "myco.scene@1", nodes: [] }, "a.wav": "data:audio/wav;base64,AAAA" }));
-  const engine = await Engine.create({ headless: true, project: { audio: { buses: [{ name: "Master" }, { name: "Music", parent: "Master" }] } } });
+  engine = await Engine.create({ headless: true, project: { audio: { buses: [{ name: "Master" }, { name: "Music", parent: "Master" }] } } });
   await SceneManager.load("s.json");
   engine.world.render = {} as never;
 });
+let engine: Engine;
+/** One frame: the audio system syncs every AudioSource. */
+const frame = (): void => engine.step(1 / 60);
 
 afterEach(async () => {
   vi.restoreAllMocks();
@@ -181,7 +184,7 @@ describe("§1.2 AudioSource additions", () => {
   it("Play edits reach the playing voice next frame, only when one changed (apply and applyEvent keep the options)", () => {
     const s = source({ spatial: true });
     s.play();
-    s._sync();
+    frame();
     const edits = () => lastVoice().events.filter((e) => e.kind === "spatialOptions");
     expect(edits()).toHaveLength(0);
     s.occlusion = false;
@@ -189,9 +192,9 @@ describe("§1.2 AudioSource additions", () => {
     s.reverbSend = 0.5;
     s.reverbSendCurve = [[0, 1], [1, 0]];
     s.ambisonicYaw = -30;
-    s._sync();
+    frame();
     expect(edits()).toEqual([{ kind: "spatialOptions", options: { occlusion: false, dopplerLevel: 0, reverbSend: 0.5, reverbSendCurve: [[0, 1], [1, 0]], yaw: -30 } }]);
-    s._sync();
+    frame();
     expect(edits()).toHaveLength(1);
   });
 
