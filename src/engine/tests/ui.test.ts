@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Color, Engine, GameBehavior, GameObject, Input, Vector2, getComponentClass, getFields } from "../index";
+import { Color, Engine, GameObject, Input, Vector2, getComponentClass, getFields } from "../index";
 import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UILength } from "../ui/components";
 import { World } from "../core/World";
 
@@ -55,50 +55,28 @@ describe("UI components (ADR 0069)", () => {
     expect(getFields(UIInputField).map((f) => f.name)).toEqual(expect.arrayContaining(["value", "placeholder", "maxLength"]));
   });
 
-  it("hold data in a headless World without building anything; clicks are simulated", () => {
+  it("hold data in a headless World without building anything: with no UI core, nothing clicks or submits", () => {
     const { play } = menu();
     const field = node("Name", null, UIInputField, { placeholder: "Your name" } as Partial<UIInputField>);
     expect(world().render).toBeNull();
     engine.step(DT);
-    expect(play.clicked).toBe(false);
-    play._simulateClick(); // between frames: scripts see it next frame
-    expect(play.clicked).toBe(false);
+    // A press and release where Play would be laid out (uiCore.test.ts clicks it with a core).
+    Input.simulatePointer(100, 40);
+    Input.simulate("down", "mouse0");
+    Input.simulate("up", "mouse0");
     engine.step(DT);
-    expect(play.clicked).toBe(true);
+    expect(play.hovered).toBe(false);
+    expect(play.clicked).toBe(false);
+    expect(Input.pointerOverUI).toBe(false);
+    expect(Input.getMouseButtonDown(0)).toBe(true); // the game gets the press: no UI claimed it
     engine.step(DT);
     expect(play.clicked).toBe(false);
 
     field.focused = true;
     expect(field.focused).toBe(true);
-    field._simulateSubmit();
-    engine.step(DT);
-    expect(field.submitted).toBe(true);
     engine.step(DT);
     expect(field.submitted).toBe(false);
-  });
-
-  it("a click simulated inside a frame is seen by scripts that frame", () => {
-    const { play } = menu();
-    const seen: boolean[] = [];
-    class Clicker extends GameBehavior {
-      update() {
-        if (this.time.frameCount === 2) play._simulateClick();
-        seen.push(play.clicked);
-      }
-    }
-    GameObject.create("Script").addBehavior(Clicker);
-    engine.step(DT);
-    engine.step(DT);
-    engine.step(DT);
-    expect(seen).toEqual([false, true, false]);
-  });
-
-  it("a disabled button never reports a click", () => {
-    const { play } = menu();
-    play.interactable = false;
-    play._simulateClick();
-    engine.step(DT);
-    expect(play.clicked).toBe(false);
+    expect(Input.keyboardOverUI).toBe(false); // no core routes, so no field claims the keyboard
   });
 });
 

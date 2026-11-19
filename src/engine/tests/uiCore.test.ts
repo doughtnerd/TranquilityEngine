@@ -5,6 +5,7 @@ import { World } from "../core/World";
 import { UICore, canvasScale, uiLength } from "../ui/UICore";
 import type { TextMeasureRequest } from "../ui/uiCoreTypes";
 import { Assets } from "../scene/Assets";
+import { FakeInput, fakeDocument, stubDocument } from "./uiPointer";
 import { UI_FONT_FAMILY, fontEpoch, fontFamilyOf, loadBundledFont, onFontLoaded } from "../ui/fonts";
 
 // ADR 0076: the renderer-neutral UI core: Yoga layout and UI-first routing, no renderer, no GPU.
@@ -755,12 +756,17 @@ describe("UICore pointer routing", () => {
     expect(play.pressed).toBe(false);
     mouse("up", 100, 40);
 
+    editor.dispose();
+
+    // A World whose config says it takes no input (WorldConfig.input) doesn't route either.
+    engine.dispose();
+    engine = await Engine.create({ headless: true, project: { bootstrap: { worlds: [{ name: "Default", input: false }] } } });
+    const { play: unrouted } = menu();
     const c = await core();
     sync(c);
-    world()._takesInput = false;
     mouse("down", 100, 40);
-    expect(play.pressed).toBe(false);
-    world()._takesInput = true;
+    expect(unrouted.pressed).toBe(false);
+    expect(Input.pointerOverUI).toBe(false);
   });
 
   it("stops routing once disposed", async () => {
@@ -828,18 +834,6 @@ describe("UICore input fields", () => {
     expect(Input.getKey("space")).toBe(true);
   });
 
-  it("reports a submit for the frame after Enter in the focused field", async () => {
-    const { field } = await form();
-    mouse("down", 50, 20);
-    mouse("up", 50, 20);
-    expect(field.focused).toBe(true);
-    field._simulateSubmit();
-    engine.step(DT);
-    expect(field.submitted).toBe(true);
-    engine.step(DT);
-    expect(field.submitted).toBe(false);
-  });
-
   it("lays out at its size with a value or a placeholder, and has no caret without a DOM", async () => {
     const { field, c } = await form();
     expect(c.rectOf(field)).toEqual({ x: 0, y: 0, width: 300, height: 40 });
@@ -853,50 +847,9 @@ describe("UICore input fields", () => {
 });
 
 describe("UICore typing (DOM)", () => {
-  // Node has no document: a minimal stand-in for the one hidden <input> the core makes.
-  class FakeInput {
-    value = "";
-    maxLength = -1;
-    type = "";
-    autocomplete = "";
-    tabIndex = 0;
-    selectionStart: number | null = 0;
-    style = { cssText: "" };
-    listeners = new Map<string, ((e: unknown) => void)[]>();
-    removed = false;
-    setAttribute() {}
-    removeAttribute(n: string) {
-      if (n === "maxlength") this.maxLength = -1;
-    }
-    addEventListener(t: string, f: (e: unknown) => void) {
-      this.listeners.set(t, [...(this.listeners.get(t) ?? []), f]);
-    }
-    removeEventListener(t: string, f: (e: unknown) => void) {
-      this.listeners.set(t, (this.listeners.get(t) ?? []).filter((x) => x !== f));
-    }
-    emit(t: string, e: unknown = {}) {
-      for (const f of this.listeners.get(t) ?? []) f(e);
-    }
-    focus() {
-      (globalThis as unknown as { document: { activeElement: unknown } }).document.activeElement = this;
-    }
-    blur() {
-      const d = (globalThis as unknown as { document: { activeElement: unknown } }).document;
-      if (d.activeElement === this) d.activeElement = null;
-      this.emit("blur");
-    }
-    setSelectionRange(a: number) {
-      this.selectionStart = a;
-    }
-    remove() {
-      this.removed = true;
-    }
-  }
-
   let fake: FakeInput;
   beforeEach(() => {
-    fake = new FakeInput();
-    vi.stubGlobal("document", { activeElement: null, body: { appendChild() {} }, createElement: () => fake });
+    fake = stubDocument();
   });
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -911,7 +864,7 @@ describe("UICore typing (DOM)", () => {
 
     field.focused = true;
     sync(c);
-    expect((globalThis as unknown as { document: { activeElement: unknown } }).document.activeElement).toBe(fake);
+    expect(fakeDocument().activeElement).toBe(fake);
     expect(fake.value).toBe("Ad");
     expect(fake.maxLength).toBe(5);
     expect(c.caretOf(field)).toBe(2);
@@ -934,8 +887,26 @@ describe("UICore typing (DOM)", () => {
     fake.emit("keydown", { key: "Escape" });
     expect(field.focused).toBe(false);
     sync(c);
-    expect((globalThis as unknown as { document: { activeElement: unknown } }).document.activeElement).toBeNull();
+    expect(fakeDocument().activeElement).toBeNull();
     expect(c.caretOf(field)).toBeNull();
+  });
+
+  it("reports a submit for the frame after Enter in a field focused by a click", async () => {
+    const canvas = node("Canvas", null, UICanvas);
+    const field = node("Name", canvas.node, UIInputField, { width: 300, height: 40 } as Partial<UIInputField>);
+    const c = await core();
+    sync(c);
+    mouse("down", 50, 20);
+    mouse("up", 50, 20);
+    expect(field.focused).toBe(true);
+    sync(c); // the renderer syncs every frame: DOM focus moves to the hidden input
+    expect(fakeDocument().activeElement).toBe(fake);
+    fake.emit("keydown", { key: "Enter" });
+    expect(field.submitted).toBe(false);
+    engine.step(DT);
+    expect(field.submitted).toBe(true);
+    engine.step(DT);
+    expect(field.submitted).toBe(false);
   });
 
   it("unfocuses the field when the DOM input loses focus on its own", async () => {
