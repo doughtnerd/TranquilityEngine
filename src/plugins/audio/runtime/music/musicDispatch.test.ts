@@ -36,7 +36,7 @@ let engine: import("../../../../engine/core/Engine").Engine | null = null;
 
 const frame = (now: number): Frame => ({ backend: { frameInterval: () => 1 / 60 } as never, music: null, now, dt: 1 / 60, hidden: false });
 
-interface Beater extends GameBehavior { log: string[] }
+interface Beater extends GameBehavior { log: string[]; onMusicBeat(e: MusicEvent): void }
 interface Barer extends GameBehavior { log: string[]; onMusicBar(e: MusicEvent): void }
 let Plain: new () => GameBehavior, Beater: new () => Beater, Barer: new () => Barer;
 

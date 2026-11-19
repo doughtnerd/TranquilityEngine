@@ -344,7 +344,7 @@ describe("L-P7a: nextGrid (§1.2)", () => {
     for (const s of specs) expect(stopped.handle.nextGrid(s)).toBeNull();
 
     // Refused: a first segment that can never fit the pool.
-    (b.music as unknown as { ringPool: number }).ringPool = 1;
+    b.music!.ringPool = 1;
     const refused = createMusicPlayer(instance(), segment("R", ["music/a1.ogg", "music/a2.ogg"]));
     planTick(refused, at(1));
     expect(refused.state).toBe("refused");
