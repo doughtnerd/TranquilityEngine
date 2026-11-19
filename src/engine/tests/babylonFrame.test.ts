@@ -1,6 +1,8 @@
 // ADR 0075 stage 3: the finish pass and each camera's pass layout on the Babylon backend, without a GPU.
 import { ShaderStore } from "@babylonjs/core/Engines/shaderStore.js";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { FrameGraph } from "@babylonjs/core/FrameGraph/frameGraph.js";
+import type { FrameGraphGeometryRendererTask } from "@babylonjs/core/FrameGraph/Tasks/Rendering/geometryRendererTask.js";
 import type { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { matrixChanged, refillIfChanged } from "../render/changeDetection";
 import { FINISH_SAMPLERS, FINISH_SHADER, FINISH_UNIFORMS } from "../render/babylon/finishShader";
@@ -106,15 +108,18 @@ describe("the geometry pass's depth (ADR 0075)", () => {
       toneMapping: "agx" as const,
       exposure: 1,
     };
+    // The tasks, in the order the frame adds them to its graph (which runs them in that order).
+    const added = vi.spyOn(FrameGraph.prototype, "addTask");
     try {
       frame.render([view], [], [], 1); // builds the tasks; the GPU build itself fails on NullEngine, and is logged
-      const views = (frame as unknown as { views: { geometry: { depthTexture?: number; _frameGraph: { tasks: { name: string }[] } } | null }[] }).views;
-      const geometry = views[0].geometry!;
+      const tasks = added.mock.calls.map(([task]) => task);
+      const geometry = tasks.find((t) => t.name === "geometry0") as FrameGraphGeometryRendererTask;
       expect(geometry.depthTexture).toBeDefined();
-      const names = geometry._frameGraph.tasks.map((t) => t.name);
+      const names = tasks.map((t) => t.name);
       expect(names).toContain("geometryClear0");
       expect(names.indexOf("geometryClear0")).toBeLessThan(names.indexOf("geometry0"));
     } finally {
+      added.mockRestore();
       frame.dispose();
       scene.dispose();
       engine.dispose();
