@@ -70,3 +70,7 @@ The domain terms used in Myco Engine's code, decision records and reviews. Add a
 ## Tilemaps (ADR 0103)
 
 - **Orientation:** one of a tile's 8 flips and turns, its flip flags read as a transform of the cell, diagonal first, then X, then Y (as Tiled). `runtime/tileFlips.ts` is the one place that convention lives: `compose`, `inverse`, `rotateClockwise`, `flipPoint`, `sourceCorner`.
+
+## Play mode (ADR 0237)
+
+- **Play controller:** the editor's one play session (`createPlaySession` in `playSession.ts`, ADR 0237). It owns the edit, starting and playing states and the work deferred to Stop: kept values, plugin settings and script reloads. Not the same as `PlaySession` in `playMode.ts`, which is one running game.
