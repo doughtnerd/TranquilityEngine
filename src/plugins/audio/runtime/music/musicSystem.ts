@@ -347,7 +347,7 @@ type HandleFactory = (instance: EventInstance) => MusicEventHandle;
 let makeHandle: HandleFactory | null = null;
 
 /** `Audio.ts` registers how an instance becomes its public handle (it owns the class); `MusicEvent.handle` uses it. */
-export function _setMusicHandleFactory(f: HandleFactory | null): void {
+export function _setMusicHandleFactory(f: HandleFactory): void {
   makeHandle = f;
 }
 
