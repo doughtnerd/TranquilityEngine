@@ -1,5 +1,5 @@
 /**
- * Babylon.js renderer, stage 1 of ADR 0075: the engine (WebGPU, WebGL2 fallback), cameras, meshes
+ * Babylon.js renderer, stage 1 of ADR 0075: the engine (WebGPU, WebGL2 fallback: `createEngine.ts`, ADR 0244), cameras, meshes
  * (built-in and imported), sprites and material assets. Loaded on demand by `BabylonSurface`.
  * Internal: game code never sees anything here.
  *
@@ -30,7 +30,6 @@
 import "./register";
 import { TargetCamera } from "@babylonjs/core/Cameras/targetCamera.js";
 import { Camera as BabylonCamera } from "@babylonjs/core/Cameras/camera.js";
-import { WebGPUEngine } from "@babylonjs/core/Engines/webgpuEngine.js";
 import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
 import type { HDRCubeTexture } from "@babylonjs/core/Materials/Textures/hdrCubeTexture.js";
 import { Color3, Color4 } from "@babylonjs/core/Maths/math.color.js";
@@ -66,6 +65,7 @@ import { ENVIRONMENT_SPEC, EnvironmentFeature, FOG_SPEC, LIGHTS_SPEC, LightsFeat
 import { FogFeature } from "./fog";
 import { sortingOrder, unknownLayerMessage } from "../sortOrder";
 import { snapToGrid } from "../pixelPerfect";
+import { createEngine } from "./createEngine";
 import { PipelineReadiness } from "./pipelineReadiness";
 import type { WarmItem } from "./warmUp";
 import type { WarmContent } from "../../scene/warmUp";
@@ -169,19 +169,9 @@ export class BabylonRenderer {
   /** What reflection probes capture: the scene's meshes minus editor-only ones, refilled each frame. */
   private readonly probeMeshes: AbstractMesh[] = [];
 
-  /** Creates the engine (WebGPU, else the WebGL2 fallback, loaded only then) and the scene. */
+  /** Creates the engine (the engine factory: WebGPU, else, or when it can't start, WebGL2; ADR 0244) and the scene. */
   static async create(canvas: HTMLCanvasElement, settings: ProjectSettings): Promise<BabylonRenderer> {
-    let engine: AbstractEngine;
-    if (await WebGPUEngine.IsSupportedAsync) {
-      // The adapter's limits rather than WebGPU's minimums: a material with clustered lights (ADR 0079),
-      // cascaded shadows and two-sided lighting passes more than the minimum 16 values between its stages.
-      const gpu = new WebGPUEngine(canvas, { antialias: true, adaptToDeviceRatio: false, setMaximumLimits: true });
-      await gpu.initAsync();
-      engine = gpu;
-    } else {
-      const { Engine } = await import("@babylonjs/core/Engines/engine.js");
-      engine = new Engine(canvas, true, { adaptToDeviceRatio: false });
-    }
+    const engine = await createEngine(canvas);
     return new BabylonRenderer(engine, settings, await loadPluginFeatures());
   }
 

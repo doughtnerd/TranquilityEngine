@@ -16,7 +16,8 @@ import { Color4 } from "@babylonjs/core/Maths/math.color.js";
 import { materialGraph } from "../../../scene/material";
 import { moveOrbit, orbitOf, orbitPosition, previewPixels, type Orbit } from "../../thumbnailMath";
 import type { ThumbnailKind, ThumbnailPreview, ThumbnailRendererApi } from "../../previewTypes";
-import { aimCamera, createPreviewEngine, ensureCanvasSize, readGraph, readMaterial, renderFrame, usesTime } from "./common";
+import { aimCamera, ensureCanvasSize, readGraph, readMaterial, renderFrame, usesTime } from "./common";
+import { createEngine } from "../createEngine";
 import { ThumbnailScenes, type ThumbnailOptions, type ThumbnailScene } from "./thumbnailScenes";
 
 export { frameView, seededRandom } from "../../thumbnailMath";
@@ -50,7 +51,7 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
   static async create(size = THUMBNAIL_SIZE, options: ThumbnailOptions = {}): Promise<ThumbnailRenderer> {
     const canvas = document.createElement("canvas");
     canvas.width = canvas.height = size;
-    const engine = await createPreviewEngine(canvas, true);
+    const engine = await createEngine(canvas, { transparent: true });
     return new ThumbnailRenderer(engine, size, options);
   }
 

@@ -27,7 +27,6 @@ import { appliedPixelRatio } from "../../RenderSurface";
 import {
   addPreviewLights,
   aimCamera,
-  createPreviewEngine,
   createPreviewScene,
   createStudioTexture,
   previewMaterials,
@@ -35,6 +34,7 @@ import {
   renderFrameChecked,
   useWhenReady,
 } from "./common";
+import { createEngine } from "../createEngine";
 
 export type PreviewMesh = Extract<BuiltinMesh, "sphere" | "cube" | "capsule" | "plane" | "quad">;
 
@@ -87,7 +87,7 @@ export class MaterialPreview {
 
   private async init(): Promise<void> {
     try {
-      const engine = await createPreviewEngine(this.canvas, true);
+      const engine = await createEngine(this.canvas, { antialias: true, transparent: true });
       if (this.disposed) {
         engine.dispose();
         return;
@@ -246,7 +246,7 @@ export class NodePreviewRenderer {
 
   private async init(): Promise<void> {
     try {
-      const engine = await createPreviewEngine(this.canvas, false);
+      const engine = await createEngine(this.canvas, { antialias: false, transparent: true });
       if (this.disposed) {
         engine.dispose();
         return;
