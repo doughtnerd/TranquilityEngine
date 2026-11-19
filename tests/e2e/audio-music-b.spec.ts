@@ -246,7 +246,7 @@ test("M4b: a switch changed again before it lands goes where it was last sent, b
 });
 
 /** The music page's MusicLab behaviour (its `handle` is a TypeScript-private field, a plain property at run time). */
-const MUSIC_LAB = `(() => { const g = globalThis; return g.playEngine.world._componentsOfType(g.__myco.getComponentClass("lab.MusicLab"))[0]; })()`;
+const MUSIC_LAB = `(() => { const g = globalThis; const T = g.__myco.getComponentClass("lab.MusicLab"); const find = (n) => n.getComponent(T) ?? n.children.map(find).find(Boolean) ?? null; return find(g.playEngine.world.root); })()`;
 
 test("M4b: a seek lands at the position asked for, in the playing segment, and the music carries on from there", async ({ page }, info) => {
   const seen = watchConsole(page);

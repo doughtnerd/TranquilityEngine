@@ -34,10 +34,11 @@ const toolbar = (page: Page) => page.getByRole("toolbar", { name: "Scene tools" 
 /** A node of the edited scene, found by its scene-file id: its world position and its points collider's points, if any. */
 async function nodeState(page: Page, id: string): Promise<{ x: number; y: number; points: number[][] | null }> {
   return page.evaluate((id) => {
-    type N = { id: string; children: N[]; entity: number; world: { _componentsOf(e: number): unknown[] }; transform: { worldPosition: { x: number; y: number } } };
+    type N = { id: string; children: N[]; getComponent(type: unknown): unknown; transform: { worldPosition: { x: number; y: number } } };
     const find = (n: N): N | null => (n.id === id ? n : n.children.reduce<N | null>((f, c) => f ?? find(c), null));
     const node = find((window as unknown as Hooks).engine!.world.root as N)!;
-    const poly = node.world._componentsOf(node.entity).find((c) => Array.isArray((c as { points?: unknown }).points)) as { points: number[][] } | undefined;
+    const myco = (globalThis as unknown as { __myco: { PolygonCollider2D: unknown } }).__myco; // the engine module scripts import as "myco"
+    const poly = node.getComponent(myco.PolygonCollider2D) as { points: number[][] } | null;
     const p = node.transform.worldPosition;
     return { x: p.x, y: p.y, points: poly ? poly.points.map((q) => [...q]) : null };
   }, id);

@@ -1,4 +1,5 @@
 import { expect, type Page, play, test } from "./fixtures";
+import { inLiveWorld, type LiveNode } from "./liveWorld";
 import { captureView, pixelsNear, themeColor } from "./viewCapture";
 
 // The navigation sample (ADR 0065, samples/navigation: Foxfire's Streaming Demo on the built-in navigation): listed
@@ -36,24 +37,14 @@ interface PlayState {
 
 /** The running game's World: its scenes, navigation chunks and agents. */
 const playState = (page: Page) =>
-  page.evaluate(() => {
-    type Node = { name: string; isValid: boolean; transform: { position: { x: number; y: number; z: number } } | null };
-    type Agent = { node: Node; mode: string };
-    type W = {
-      time: { frameCount: number };
-      sceneNodes: Node[];
-      service(id: string): { loadedChunks(): string[] } | null;
-      _componentsOfType(type: unknown): Agent[];
-    };
-    const myco = (globalThis as unknown as { __myco?: { NavAgent: unknown } }).__myco;
-    const w = (window as unknown as { playEngine?: { world: W } | null }).playEngine?.world;
-    if (!myco || !w) return null;
+  inLiveWorld(page, null, (w, { myco, componentsOf }) => {
+    type Agent = { node: LiveNode; mode: string };
+    if (!w || !myco.NavAgent) return null;
     return {
       frame: w.time.frameCount,
       chunkScenes: w.sceneNodes.map((s) => s.name).filter((n) => n.startsWith("chunk-")),
-      runtimeChunks: w.service("myco.navigation")?.loadedChunks().length ?? 0, // the Navigation plugin's World service (ADR 0135)
-      agents: w
-        ._componentsOfType(myco.NavAgent)
+      runtimeChunks: w.service<{ loadedChunks(): string[] }>("myco.navigation")?.loadedChunks().length ?? 0, // the Navigation plugin's World service (ADR 0135)
+      agents: componentsOf<Agent>(w.root, myco.NavAgent)
         .filter((a) => a.node.isValid && a.node.transform)
         .map((a) => ({ name: a.node.name, x: a.node.transform!.position.x, y: a.node.transform!.position.y, z: a.node.transform!.position.z, mode: a.mode })),
     } satisfies PlayState;
@@ -136,11 +127,8 @@ test("Play: chunks stream in round the agents, agents of every kind move, the Na
 
   // Post-processing on the camera keeps the debug drawing: it's drawn back after the effects (a bloom pass used to
   // hide it for good in play Worlds).
-  const added = await page.evaluate(() => {
-    type C = { node: { addBehavior(type: unknown, init?: object): unknown } };
-    const myco = (globalThis as unknown as { __myco?: { Camera: unknown; PostProcessing: unknown } }).__myco;
-    const w = (window as unknown as { playEngine?: { world: { _componentsOfType(type: unknown): C[] } } | null }).playEngine?.world;
-    const camera = myco && w?._componentsOfType(myco.Camera)[0];
+  const added = await inLiveWorld(page, null, (w, { myco, componentsOf }) => {
+    const camera = w && myco.Camera ? componentsOf<{ node: LiveNode }>(w.root, myco.Camera)[0] : undefined;
     if (!camera) return false;
     camera.node.addBehavior(myco.PostProcessing, { bloom: true });
     return true;

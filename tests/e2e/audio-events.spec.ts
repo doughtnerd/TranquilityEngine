@@ -95,9 +95,12 @@ const live = async (page: Page, re: string) =>
 /** `handle.music.segment` of the playing music event, read from the AudioSource that plays it (the page's only one with a music player). */
 const musicSegment = (page: Page) =>
   page.evaluate(() => {
-    const w = window as unknown as { playEngine?: { world: unknown }; engine?: { world: unknown }; __myco: { AudioSource: unknown } };
-    const world = (w.playEngine ?? w.engine)!.world as { _componentsOfType(t: unknown): { instance?: { music?: { handle: { segment: string | null } } } }[] };
-    return world._componentsOfType(w.__myco.AudioSource).map((c) => c.instance?.music?.handle.segment ?? null).find((x) => x !== null) ?? null;
+    type Source = { instance?: { music?: { handle: { segment: string | null } } } };
+    type Node = { children: Node[]; getComponents(t: unknown): Source[] };
+    const w = window as unknown as { playEngine?: { world: { root: Node } }; engine?: { world: { root: Node } }; __myco: { AudioSource: unknown } };
+    // Every AudioSource in the World, through the public node tree (`Engine.world.root`).
+    const sources = (n: Node): Source[] => [...n.getComponents(w.__myco.AudioSource), ...n.children.flatMap(sources)];
+    return sources((w.playEngine ?? w.engine)!.world.root).map((c) => c.instance?.music?.handle.segment ?? null).find((x) => x !== null) ?? null;
   });
 
 /** On Babylon: the native nodes the sample's sounds play through, and a level tap on the output. Installed before the page's scripts. */

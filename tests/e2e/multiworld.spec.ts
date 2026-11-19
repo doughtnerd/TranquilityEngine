@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, openTestProject, type Page, play, PLAY_START, test } from "./fixtures";
+import { inLiveWorld } from "./liveWorld";
 
 // Play mode with several Worlds (ADR 0032, 0034): the Engine comes from the project's bootstrap,
 // the game view tiles the Worlds that render, clicking a tile gives its World input, and a strip
@@ -126,15 +127,18 @@ const LINKED = JSON.stringify({
 
 /** Open connections (`net.Connection` nodes in state open) in a World of the running game. */
 const openConnections = (page: Page, world: string) =>
-  page.evaluate((name) => {
-    type Rows = Iterable<{ connection: { state: number } }>;
-    const t = (globalThis as unknown as { __myco?: { Connection: unknown } }).__myco;
-    const w = (window as unknown as { playEngine?: { _world(n: string): { _query(terms: unknown[]): Rows } | null } | null }).playEngine?._world(name);
-    if (!t || !w) return -1;
+  inLiveWorld(page, world, (w, { myco }) => {
+    type Node = { isValid: boolean; children: Node[]; getData(def: unknown): { state: number } | null };
+    if (!w) return -1;
     let n = 0;
-    for (const row of w._query([t.Connection])) if (row.connection.state === 1) n++;
+    const visit = (node: Node) => {
+      if (!node.isValid) return;
+      if (node.getData(myco.Connection)?.state === 1) n++;
+      node.children.forEach(visit);
+    };
+    visit(w.root as unknown as Node);
     return n;
-  }, world);
+  });
 
 test("Play connects linked Worlds, and Stop and Play again reconnect them", async ({ page }) => {
   const errors = trackErrors(page);

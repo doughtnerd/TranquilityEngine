@@ -1,4 +1,5 @@
 import { expect, type Page, play, PLAY_START, test } from "./fixtures";
+import { inLiveWorld } from "./liveWorld";
 import { showTab } from "./tabs";
 import { menu } from "./menus";
 
@@ -14,9 +15,8 @@ type LiveNode = { name: string; children: LiveNode[]; transform: { position: { x
 type Hooks = {
   engine?: { world: { time: { frameCount: number } } };
   playEngine?: {
-    world: { name: string; time: { frameCount: number } };
+    world: { name: string; root: LiveNode; time: { frameCount: number } };
     worlds(): { name: string }[];
-    _world(name: string): { root: LiveNode; time: { frameCount: number } } | null;
   } | null;
 };
 
@@ -34,22 +34,15 @@ async function open(page: Page, url: string): Promise<void> {
   await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
 }
 
-/** The x of the first live node named `name` in a World of the running game (the default World unless named). */
-const liveX = (page: Page, name: string, world?: string) =>
-  page.evaluate(
-    ([n, w]) => {
-      const engine = (window as unknown as Hooks).playEngine!;
-      const find = (node: LiveNode): LiveNode | null => (node.name === n ? node : node.children.reduce<LiveNode | null>((hit, c) => hit ?? find(c), null));
-      return find(engine._world(w ?? engine.world.name)!.root)?.transform?.position.x ?? null;
-    },
-    [name, world ?? null] as const,
-  );
+/** The x of the first live node named `name` in the running game's default World (`Engine.world`, its public root). */
+const liveX = (page: Page, name: string) =>
+  page.evaluate((n) => {
+    const find = (node: LiveNode): LiveNode | null => (node.name === n ? node : node.children.reduce<LiveNode | null>((hit, c) => hit ?? find(c), null));
+    return find((window as unknown as Hooks).playEngine!.world.root)?.transform?.position.x ?? null;
+  }, name);
 
-const frames = (page: Page, world?: string) =>
-  page.evaluate((w) => {
-    const engine = (window as unknown as Hooks).playEngine!;
-    return engine._world(w ?? engine.world.name)!.time.frameCount;
-  }, world ?? null);
+/** The running game's default World's frame count. */
+const frames = (page: Page) => page.evaluate(() => (window as unknown as Hooks).playEngine!.world.time.frameCount);
 
 test("the World picker shows the running game; live edits; Keep values writes them on Stop, undoably", async ({ page }) => {
   const errors = trackErrors(page);
@@ -128,10 +121,9 @@ test("the World picker shows the running game; live edits; Keep values writes th
 /** The name of the live node `name`'s parent in the running game's default World, or null if there's no such node. */
 const liveParent = (page: Page, name: string) =>
   page.evaluate((n) => {
-    const engine = (window as unknown as Hooks).playEngine!;
     const find = (node: LiveNode, parent: LiveNode | null): LiveNode | null | undefined =>
       node.name === n ? parent : node.children.reduce<LiveNode | null | undefined>((hit, c) => (hit !== undefined ? hit : find(c, node)), undefined);
-    const parent = find(engine._world(engine.world.name)!.root, null);
+    const parent = find((window as unknown as Hooks).playEngine!.world.root, null);
     return parent === undefined ? null : (parent?.name ?? "(root)");
   }, name);
 
@@ -270,25 +262,24 @@ test("Host pattern: Arena plays with 2 clients and a thin client on a server mad
 
   // Every client joined directly: the server has a player per connection, the thin client's included.
   const serverPlayers = () =>
-    page.evaluate(() => {
-      const engine = (window as unknown as Hooks).playEngine!;
+    inLiveWorld(page, "Server", (w) => {
       const out: number[] = [];
       const visit = (n: LiveNode) => {
         if (n.name === "Player" && n.transform) out.push(n.transform.position.x);
         n.children.forEach(visit);
       };
-      visit(engine._world("Server")!.root);
+      if (w) visit(w.root);
       return out;
     });
   await expect.poll(async () => (await serverPlayers()).length, { timeout: 20_000 }).toBe(3);
 
   // The thin client's synthetic input moves its player (the game's keyboard system writes zeros there).
-  const thinPlayerX = () => page.evaluate(() => {
-    type Rep = { node: LiveNode; ownerId: number; isOwnedLocally: boolean };
-    const t = (globalThis as unknown as { __myco: { Replicated: unknown } }).__myco;
-    const w = (window as unknown as { playEngine: { _world(n: string): { _componentsOfType(type: unknown): Rep[] } } }).playEngine._world("Thin 1");
-    return w._componentsOfType(t.Replicated).find((r) => r.isOwnedLocally && r.node.name === "Player")?.node.transform?.position.x ?? null;
-  });
+  const thinPlayerX = () =>
+    inLiveWorld(page, "Thin 1", (w, { myco, componentsOf }) => {
+      type Rep = { node: LiveNode; isOwnedLocally: boolean };
+      if (!w) return null;
+      return componentsOf<Rep>(w.root, myco.Replicated).find((r) => r.isOwnedLocally && r.node.name === "Player")?.node.transform?.position.x ?? null;
+    });
   await expect.poll(thinPlayerX, { timeout: 15_000 }).not.toBeNull();
   const start = (await thinPlayerX())!;
   await expect.poll(async () => Math.abs(((await thinPlayerX()) ?? start) - start), { timeout: 15_000 }).toBeGreaterThan(0.2);

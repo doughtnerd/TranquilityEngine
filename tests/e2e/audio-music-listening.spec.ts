@@ -684,7 +684,9 @@ test.describe("listening M4b: transitions, stingers and loop exits", () => {
       // the cancel point is most of a bar (2 s) away and the case under test is the one that runs.
       await page.evaluate(`(() => {
         const g = globalThis;
-        const lab = g.playEngine.world._componentsOfType(g.__myco.getComponentClass("lab.MusicLab"))[0];
+        const MusicLab = g.__myco.getComponentClass("lab.MusicLab");
+        const find = (n) => n.getComponent(MusicLab) ?? n.children.map(find).find(Boolean) ?? null;
+        const lab = find(g.playEngine.world.root);
         class SwitchLog extends g.__myco.GameBehavior {
           update() {
             if (!g.__myco.Input.getKeyDown("2")) return;
