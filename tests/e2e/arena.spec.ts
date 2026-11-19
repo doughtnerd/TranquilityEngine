@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { expect, type Page, PLAY_START, test } from "./fixtures";
+import { inLiveWorld, type LiveNode } from "./liveWorld";
 import { showTab } from "./tabs";
 
 // The Arena sample (T16, ADR 0032/0033): listed on the start screen, played with Play. Its
@@ -34,27 +35,21 @@ interface PlayerState {
 }
 
 /** The players (prefab ghosts named Player, or the server's players) in a World of the running game. */
-const playersIn = (page: Page, world: string) =>
-  page.evaluate((name) => {
-    type Rep = { node: { name: string; isValid: boolean; transform: { position: { x: number; y: number } } }; ownerId: number; isOwnedLocally: boolean };
-    const t = (globalThis as unknown as { __myco?: { Replicated: unknown } }).__myco;
-    const w = (window as unknown as { playEngine?: { _world(n: string): { _componentsOfType(type: unknown): Rep[] } | null } | null }).playEngine?._world(name);
-    if (!t || !w) return [];
-    return w
-      ._componentsOfType(t.Replicated)
+const playersIn = (page: Page, world: string): Promise<PlayerState[]> =>
+  inLiveWorld(page, world, (w, { myco, componentsOf }) => {
+    type Rep = { node: LiveNode; ownerId: number; isOwnedLocally: boolean };
+    if (!w) return [];
+    return componentsOf<Rep>(w.root, myco.Replicated)
       .filter((r) => r.node.isValid && r.node.name === "Player")
-      .map((r) => ({ owner: r.ownerId, x: r.node.transform.position.x, y: r.node.transform.position.y, mine: r.isOwnedLocally }))
+      .map((r) => ({ owner: r.ownerId, x: r.node.transform!.position.x, y: r.node.transform!.position.y, mine: r.isOwnedLocally }))
       .sort((a, b) => a.owner - b.owner);
-  }, world) as Promise<PlayerState[]>;
+  });
 
 /** The scoreboard line a client World shows. */
 const scoreboard = (page: Page, world: string) =>
-  page.evaluate((name) => {
-    type TextC = { node: { name: string }; text: string };
-    const t = (globalThis as unknown as { __myco?: { Text: unknown } }).__myco;
-    const w = (window as unknown as { playEngine?: { _world(n: string): { _componentsOfType(type: unknown): TextC[] } | null } | null }).playEngine?._world(name);
-    return w?._componentsOfType(t!.Text).find((c) => c.node.name === "Scoreboard")?.text ?? null;
-  }, world);
+  inLiveWorld(page, world, (w, { myco, componentsOf }) =>
+    w ? (componentsOf<{ node: LiveNode; text: string }>(w.root, myco.Text).find((c) => c.node.name === "Scoreboard")?.text ?? null) : null,
+  );
 
 /** The x of the player a client World owns. */
 const myX = async (page: Page, world: string) => (await playersIn(page, world)).find((p) => p.mine)?.x ?? NaN;
@@ -116,13 +111,10 @@ test("Play: Host makes the server World, P adds a second player, input moves pla
   await expect.poll(async () => (await playersIn(page, "Server"))[1].x).toBeLessThan(x2 - 1);
 
   // A hit: line the players up on the server (P1 aiming at P2), give Client the keyboard, fire.
-  await page.evaluate(() => {
-    type Node = { name: string; isValid: boolean; transform: { position: { set(x: number, y: number, z: number): void } } };
-    const t = (globalThis as unknown as { __myco: { Replicated: unknown } }).__myco;
-    const w = (window as unknown as { playEngine: { _world(n: string): { _componentsOfType(type: unknown): { node: Node; ownerId: number }[] } } }).playEngine._world("Server");
-    for (const rep of w._componentsOfType(t.Replicated)) {
+  await inLiveWorld(page, "Server", (w, { myco, componentsOf }) => {
+    for (const rep of componentsOf<{ node: LiveNode; ownerId: number }>(w!.root, myco.Replicated)) {
       if (rep.node.name !== "Player") continue;
-      rep.node.transform.position.set(rep.ownerId === 1 ? -3 : 3, 0, 0);
+      rep.node.transform!.position.set(rep.ownerId === 1 ? -3 : 3, 0, 0);
     }
   });
   await tile(page, "Client").click();
@@ -179,11 +171,15 @@ test("Play: Join connects to a dedicated server, which spawns a player the keybo
     await page.getByRole("button", { name: "▶ Play" }).click();
     await expect.poll(() => worldNames(page), { timeout: PLAY_START }).toEqual(["Client"]);
     // Point Join at this server (the scene says ws://localhost:7777, the server's default port).
-    await page.evaluate((url) => {
-      const t = (globalThis as unknown as { __myco: { getComponentClass(id: string): unknown } }).__myco;
-      const w = (window as unknown as { playEngine: { _world(n: string): { _componentsOfType(type: unknown): { serverUrl: string }[] } } }).playEngine._world("Client");
-      w._componentsOfType(t.getComponentClass("arena.Menu"))[0].serverUrl = url;
-    }, server.url);
+    await expect.poll(() => inLiveWorld(page, "Client", (w) => w !== null)).toBe(true);
+    await inLiveWorld(
+      page,
+      "Client",
+      (w, { myco, componentsOf }, url) => {
+        componentsOf<{ serverUrl: string }>(w!.root, myco.getComponentClass("arena.Menu"))[0].serverUrl = url;
+      },
+      server.url,
+    );
 
     await tile(page, "Client").click();
     await page.keyboard.press("j");

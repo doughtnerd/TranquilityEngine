@@ -186,11 +186,6 @@ export class ThumbnailService {
     };
   }
 
-  /** How many images the service holds (tests: edited assets don't pile up). */
-  get imageCount(): number {
-    return this.images.size;
-  }
-
   /** Count a caller waiting for `entry`; when every one that can go away has, drop the render. */
   private join(entry: ImageEntry, signal?: AbortSignal): void {
     if (!signal) {

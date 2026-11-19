@@ -307,8 +307,7 @@ describe("multiplayer play mode", () => {
       // Every World plays the open scene; the thin client too.
       expect(engineWorld(play.engine, "Thin 1")!.sceneNodes.length).toBe(1);
       for (let i = 0; i < 60; i++) {
-        play.updateThinInput();
-        play.engine.step(frame);
+        play.step(); // Step: the thin clients' input, then a frame (what the game view's loop does each frame)
         await new Promise((r) => setTimeout(r, 2)); // loopback runs on the real clock here
       }
       const server = netWorldInfo(play.engine).find((w) => w.world === "Server")!;

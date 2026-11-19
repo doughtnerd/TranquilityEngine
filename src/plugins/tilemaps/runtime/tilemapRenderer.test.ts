@@ -1,7 +1,6 @@
 // ADR 0136: the tile renderer is renderer-neutral, so it's tested against a fake quad-batch host.
 import { afterEach, describe, expect, it } from "vitest";
 import { Assets, Engine, GameObject, SceneManager } from "../../../myco";
-import { World } from "../../../engine/core/World";
 import type { QuadBatch, QuadBatchHost } from "../../../engine/render/quadBatches";
 import { newLayer } from "./format";
 import { Tilemap } from "./Tilemap";
@@ -63,32 +62,38 @@ describe("the tile renderer (ADR 0103, 0136)", () => {
     engines.push(engine);
     await SceneManager.load("s.json");
     const { host, batches, load } = fakeHost();
+    const live = () => batches.filter((b) => !b.disposed); // the batches drawn (the test has one tilemap)
     const tiles = new TilemapRenderer(host);
     const node = GameObject.create("map");
     const map = node.addBehavior(Tilemap, { tileset: "ts.tileset.json", layers: [{ ...newLayer("G", "Back"), orderInLayer: 3, tint: "#ff0000", opacity: 0.5 }] });
     map.fillRect(0, 0, 20, 2, 1); // two chunks
-    const world = World.require();
+    const world = engine.world;
     tiles.sync(world);
-    expect(tiles.batchesOf(map)).toHaveLength(0); // texture still loading
+    expect(live()).toHaveLength(0); // texture still loading
     load();
     tiles.sync(world);
-    const first = tiles.batchesOf(map) as FakeBatch[];
+    const first = live();
     expect(first.map((b) => b.quads).sort((a, b) => a - b)).toEqual([4 * 2, 16 * 2]);
     expect(first.every((b) => b.texture === "t.png" && b.order === 3 && b.visible && b.tint[0] === "#ff0000" && b.tint[1] === 0.5)).toBe(true);
     // Editing one chunk rebuilds only that chunk.
     map.setTile(18, 0, 0);
     tiles.sync(world);
-    const after = tiles.batchesOf(map);
-    expect(after.filter((b) => first.includes(b as FakeBatch))).toHaveLength(1);
+    const after = live();
+    expect(after.filter((b) => first.includes(b))).toHaveLength(1);
     expect(batches.filter((b) => b.disposed)).toHaveLength(1);
     // Moving the node moves the batches.
     node.transform!.position.x = 5;
     tiles.sync(world);
-    expect((after as FakeBatch[]).every((b) => b.matrix[12] === 5)).toBe(true);
+    expect(after.every((b) => b.matrix[12] === 5)).toBe(true);
+    // Replacing the field with the same cells (as the editor does) keeps the unchanged chunks: nothing is rebuilt.
+    map.layers = map.toLayerData();
+    tiles.sync(world);
+    expect(live().every((b, i) => b === after[i])).toBe(true);
+    expect(batches.filter((b) => b.disposed)).toHaveLength(1);
     // Hiding the layer hides its batches; releasing the tilemap disposes them.
     map.layers = map.toLayerData().map((l) => ({ ...l, visible: false }));
     tiles.sync(world);
-    expect((tiles.batchesOf(map) as FakeBatch[]).every((b) => !b.visible)).toBe(true);
+    expect(live().every((b) => !b.visible)).toBe(true);
     tiles.release(map);
     expect(batches.every((b) => b.disposed)).toBe(true);
   });

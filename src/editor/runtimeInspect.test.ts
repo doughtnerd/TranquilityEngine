@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input, type BootstrapSetting, type ProjectSettingsInput } from "../engine";
-import { World } from "../engine/core/World";
 import { engineWorld, listComponents, listNodes, writeField } from "../engine/editor";
 import { addAssetEntries } from "./assetNodes";
 import { RemoveNode, SetField } from "./document";
@@ -74,9 +73,9 @@ describe("mapping live nodes to the edited document", () => {
     const engine = play.engine;
     const world = engineWorld(engine, engine.world.name)!;
     const sceneNode = world.sceneNodes[0];
-    const made = World._runIn(world, () => GameObject.create("Made", { parent: sceneNode }));
-    const outside = World._runIn(world, () => GameObject.create("Outside", { parent: world.root }));
-    const pipe = World._runIn(world, () => GameObject.instantiate("prefabs/pipe-pair.prefab.json", { parent: sceneNode }));
+    const made = GameObject.create("Made", { parent: sceneNode });
+    const outside = GameObject.create("Outside", { parent: world.root });
+    const pipe = GameObject.instantiate("prefabs/pipe-pair.prefab.json", { parent: sceneNode });
     const reason = (n: GameObject) => (docPathFor(n, SCENE, scene.doc) as { reason: string }).reason;
     expect(reason(made)).toMatch(/made at runtime/);
     expect(reason(outside)).toMatch(/outside any scene/);
@@ -94,7 +93,7 @@ describe("the live tree", () => {
     play = await startPlay({ editor, scene: openScene.value!, project: sample });
     const world = engineWorld(play.engine, play.engine.world.name)!;
     const sceneNode = world.sceneNodes[0];
-    World._runIn(world, () => GameObject.instantiate("prefabs/pipe-pair.prefab.json", { parent: sceneNode }));
+    GameObject.instantiate("prefabs/pipe-pair.prefab.json", { parent: sceneNode });
     const rows = liveRows(world);
     const sceneRow = rows.find((r) => r.node === sceneNode)!;
     expect(sceneRow).toMatchObject({ depth: 0, kind: "scene", badge: "main" });
@@ -174,7 +173,7 @@ describe("keeping values from play mode", () => {
     const scene = openScene.value!;
     play = await startPlay({ editor, scene, project: sample });
     const world = engineWorld(play.engine, play.engine.world.name)!;
-    const pipe = World._runIn(world, () => GameObject.instantiate("prefabs/pipe-pair.prefab.json", { parent: world.sceneNodes[0] }));
+    const pipe = GameObject.instantiate("prefabs/pipe-pair.prefab.json", { parent: world.sceneNodes[0] });
     expect(keepComponent(scene, pipe, transformOf(pipe))).toMatch(/instantiated at runtime/);
     expect(keepNode(scene, pipe)).toMatch(/instantiated at runtime/);
     expect(kept.value.size).toBe(0);

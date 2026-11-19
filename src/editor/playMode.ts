@@ -37,8 +37,6 @@ export interface PlaySession {
    * too). All zero turns simulation off: links open now get zero, links made later keep their own.
    */
   setConditions(conditions: NetConditionValues): void;
-  /** Write the thin clients' synthetic input once (done every frame with a game view; headless tests call it). */
-  updateThinInput(): void;
   /** True while the whole session is paused (see `setPaused`). */
   readonly paused: boolean;
   /** Pause or resume the whole session: the Engine's loop stops and every World holds still (input, network and all). */
@@ -176,9 +174,6 @@ export async function startPlay({ editor, scene, project, container, netPlay: ne
       applyNetConditions(engine, c);
       conditions = conditionsOff(c) ? null : c; // off: no refreshing, so links made later keep their own settings
       startLoop();
-    },
-    updateThinInput() {
-      if (!stopped) thin?.update();
     },
     stop() {
       if (stopped) return;

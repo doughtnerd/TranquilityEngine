@@ -35,7 +35,7 @@ const CLIENT_SERVER: BootstrapSetting = {
 /** The bird's x in a World of `engine`: the GameManager's bird, found in that World. */
 function birdX(engine: Engine, name: string): number {
   const world = engineWorld(engine, name)!;
-  const manager = World._runIn(world, () => GameObject.findObjectOfType(GameManager))!;
+  const manager = world.root.getComponentInChildren(GameManager)!;
   return manager.bird!.transform!.position.x;
 }
 
@@ -110,7 +110,7 @@ describe("play mode with several Worlds (ADR 0032)", () => {
   it("Stop disposes every World and resumes the editor", async () => {
     const play = await startPlay({ editor, scene: openScene.value!, project: withBootstrap(CLIENT_SERVER) });
     const handles = play.engine.worlds();
-    const managers = handles.map((h) => World._runIn(engineWorld(play.engine, h.name)!, () => GameObject.findObjectOfType(GameManager))!);
+    const managers = handles.map((h) => engineWorld(play.engine, h.name)!.root.getComponentInChildren(GameManager)!);
     for (let i = 0; i < 10; i++) play.engine.step(frame);
     play.stop();
     expect(handles.every((h) => !h.alive)).toBe(true);

@@ -3,10 +3,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { Assets, BoxCollider, Engine, GameObject, RigidBody, SceneManager } from "../../myco";
 import { listSystemCatalog } from "../../engine/core/systems";
-import { _startWorldService, _startWorldServicesForScene, _worldServiceIds, _worldServiceOf } from "../../engine/core/worldServices";
+import { _startWorldServicesForScene } from "../../engine/core/worldServices";
 import { RUNTIME_PLUGINS } from "../runtime";
 import { physicsRuntimePlugin } from "./runtime";
-import { PHYSICS_3D, physics3DOf } from "./runtime/systems3d";
+import { physics3DOf } from "./runtime/systems3d";
 
 const steps = (engine: Engine, n: number) => {
   for (let i = 0; i < n; i++) engine.step(1 / 60);
@@ -21,8 +21,8 @@ describe("the Physics plugin's 3D service (ADR 0135, 0137)", () => {
     expect(physics3DOf(worldA)).toBeNull();
     a.dispose(); // torn down mid-load
     const b = await Engine.create({ headless: true });
-    expect(await _startWorldService(b.world, PHYSICS_3D)).not.toBeNull(); // the same load, now finished
-    expect(physics3DOf(b.world)).not.toBeNull();
+    GameObject.create("body").addBehavior(RigidBody); // the same load, now finished
+    await vi.waitFor(() => expect(physics3DOf(b.world)).not.toBeNull());
     expect(physics3DOf(worldA)).toBeNull();
     b.dispose();
   });
@@ -48,8 +48,7 @@ describe("the Physics plugin's 3D service (ADR 0135, 0137)", () => {
   });
 
   it("is a first-party runtime half with its service, systems and the scene scan's rules", async () => {
-    expect(RUNTIME_PLUGINS).toContain(physicsRuntimePlugin);
-    expect(_worldServiceIds()).toContain(PHYSICS_3D);
+    expect(RUNTIME_PLUGINS).toContain(physicsRuntimePlugin); // its service: the scenes below start it
     expect(listSystemCatalog().find((s) => s.name === "engine.Physics3DStep")).toMatchObject({ builtin: true, worlds: ["*"] });
     Assets.clearSources();
     Assets.addSource(
@@ -59,10 +58,11 @@ describe("the Physics plugin's 3D service (ADR 0135, 0137)", () => {
       }),
     );
     // Loading a scene starts the services it needs: physics runs in a fresh World only when the scene needs it.
+    // (The scene scan alone: a scene's RigidBody would start the service anyway as it attaches.)
     const needs = async (path: string, settings?: Record<string, unknown>) => {
       const engine = await Engine.create({ headless: true });
       await _startWorldServicesForScene(engine.world, { path, settings, componentTypes: () => (path === "none" ? [] : ["engine.RigidBody"]) });
-      const started = _worldServiceOf(engine.world, PHYSICS_3D) !== null;
+      const started = physics3DOf(engine.world) !== null;
       engine.dispose();
       return started;
     };
