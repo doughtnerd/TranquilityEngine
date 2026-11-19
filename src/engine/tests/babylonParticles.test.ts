@@ -14,7 +14,7 @@ import type { CompiledShaderGraph } from "../render/shaderGraph/compile";
 import { Color as EngineColor } from "../core/math";
 import type { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { BabylonParticles, type BabylonParticleHost } from "../render/babylon/particles";
-import type { ParticleCommand, ParticleSystem } from "../render/components";
+import { ParticleSystem } from "../render/components";
 import { nullEngine } from "./pbrShaderSource";
 import { defaultEmitter, defaultRenderer, defaultShape, type ParticleEffect, type ParticleEmitterSettings, type ParticleRenderer, PARTICLES_FORMAT } from "../scene/particles";
 
@@ -23,21 +23,11 @@ const legacyJSON = (effect: ParticleEffect): Record<string, unknown> => ({ forma
 
 /** A stand-in ParticleSystem component: the fields and state the player reads and writes. */
 function fakeSystem(effect: ParticleEffect, over: Partial<ParticleSystem> = {}) {
-  return {
-    isActiveAndEnabled: true,
-    effect: "",
-    embeddedEffect: legacyJSON(effect),
-    playOnAwake: true,
-    timeScale: 1,
-    tint: EngineColor.white,
-    emissionScale: 1,
-    destroyOnFinish: false,
-    seed: 0,
-    _commands: [] as ParticleCommand[],
-    _state: { playing: false, paused: false, time: 0, count: 0, alive: false },
-    node: { name: "Fx" },
-    ...over,
-  } as unknown as ParticleSystem;
+  const c = new ParticleSystem();
+  // In a World the node and its activity come from the scene; here the player only reads the node's name.
+  const { node = { name: "Fx" }, ...fields } = over as Record<string, unknown>;
+  Object.defineProperties(c, { node: { value: node }, isActiveAndEnabled: { value: true } });
+  return Object.assign(c, { embeddedEffect: legacyJSON(effect) }, fields);
 }
 
 const steady = (rate: number, max = 1000): ParticleEffect => ({
@@ -107,12 +97,12 @@ describe("particles on the Babylon backend (ADR 0075 stage 5)", () => {
     const p = make();
     const c = fakeSystem(steady(100, 50));
     frames(p, c, 60);
-    expect(c._state.count).toBeGreaterThanOrEqual(50);
-    expect(c._state.count).toBeLessThanOrEqual(52);
-    expect(c._state.playing).toBe(true);
-    expect(c._state.time).toBeCloseTo(1, 1);
+    expect(c.particleCount).toBeGreaterThanOrEqual(50);
+    expect(c.particleCount).toBeLessThanOrEqual(52);
+    expect(c.isPlaying).toBe(true);
+    expect(c.playTime).toBeCloseTo(1, 1);
     expect(scene.particleSystems).toHaveLength(1);
-    expect(systems()[0].particles).toHaveLength(c._state.count);
+    expect(systems()[0].particles).toHaveLength(c.particleCount);
     expect(p.state()).toMatchObject({ systems: 1, emitters: 1, batches: 1 });
     // A drawn particle carries the simulation's size and colour.
     const b = systems()[0].particles[0];
@@ -140,7 +130,7 @@ describe("particles on the Babylon backend (ADR 0075 stage 5)", () => {
       expect(a.at.length).toBeGreaterThan(10);
       expect(play(12).at).toEqual(a.at);
       expect(play(13).at).not.toEqual(a.at);
-      a.c._commands.push({ op: "restart" } as ParticleCommand);
+      a.c.restart();
       frames(a.p, a.c, 30);
       expect(snapshot(a.p, a.c)).toEqual(a.at);
     });
@@ -155,45 +145,46 @@ describe("particles on the Babylon backend (ADR 0075 stage 5)", () => {
     const effect: ParticleEffect = { emitters: [{ ...defaultEmitter("E"), startLife: 10, maxParticles: 10, emission: { rateOverTime: 0, rateOverDistance: 0, bursts: [{ time: 0, count: 200, cycles: 1, interval: 0.1, probability: 1 }] } }] };
     const c = fakeSystem(effect);
     frames(p, c, 10);
-    expect(c._state.count).toBe(10);
+    expect(c.particleCount).toBe(10);
   });
 
   it("scales emission with emissionScale and the tier, and pauses with the World's time", () => {
     const p = make(false, true, { tierScale: () => 0.5 });
     const c = fakeSystem(steady(100), { emissionScale: 0.5 } as Partial<ParticleSystem>);
     frames(p, c, 60);
-    expect(c._state.count).toBeGreaterThan(20);
-    expect(c._state.count).toBeLessThan(30);
-    const before = c._state.count;
+    expect(c.particleCount).toBeGreaterThan(20);
+    expect(c.particleCount).toBeLessThan(30);
+    const before = c.particleCount;
     frames(p, c, 30, 0, 1 / 60); // timeScale 0
-    expect(c._state.count).toBe(before);
+    expect(c.particleCount).toBe(before);
   });
 
   it("runs script commands: pause, play, stop, emit and clear", () => {
     const p = make();
     const c = fakeSystem(steady(0), { playOnAwake: false } as Partial<ParticleSystem>);
     frames(p, c, 1);
-    expect(c._state.playing).toBe(false);
-    c._commands.push({ op: "play" }, { op: "emit", count: 25 });
+    expect(c.isPlaying).toBe(false);
+    c.play();
+    c.emit(25);
     frames(p, c, 1);
-    expect(c._state.playing).toBe(true);
-    expect(c._state.count).toBe(25);
-    c._commands.push({ op: "pause" });
+    expect(c.isPlaying).toBe(true);
+    expect(c.particleCount).toBe(25);
+    c.pause();
     frames(p, c, 1);
-    expect(c._state.paused).toBe(true);
-    const t = c._state.time;
+    expect(c.isPlaying).toBe(false); // paused: not playing, and the clock holds still
+    const t = c.playTime;
     frames(p, c, 5);
-    expect(c._state.time).toBe(t);
-    c._commands.push({ op: "play" });
+    expect(c.playTime).toBe(t);
+    c.play();
     frames(p, c, 1);
-    expect(c._state.playing).toBe(true);
-    c._commands.push({ op: "stop", clear: false });
+    expect(c.isPlaying).toBe(true);
+    c.stop();
     frames(p, c, 1);
-    expect(c._state.playing).toBe(false);
-    expect(c._state.alive).toBe(true); // particles live out their lives
-    c._commands.push({ op: "clear" });
+    expect(c.isPlaying).toBe(false);
+    expect(c.isAlive).toBe(true); // particles live out their lives
+    c.clear();
     frames(p, c, 1);
-    expect(c._state.count).toBe(0);
+    expect(c.particleCount).toBe(0);
     expect(systems()[0].particles).toHaveLength(0);
   });
 
@@ -201,11 +192,11 @@ describe("particles on the Babylon backend (ADR 0075 stage 5)", () => {
     const p = make();
     const c = fakeSystem(steady(60));
     frames(p, c, 30);
-    expect(c._state.count).toBeGreaterThan(10);
-    c._commands.push({ op: "restart" });
+    expect(c.particleCount).toBeGreaterThan(10);
+    c.restart();
     frames(p, c, 1);
-    expect(c._state.time).toBeCloseTo(1 / 60, 3);
-    expect(c._state.count).toBeLessThan(3);
+    expect(c.playTime).toBeCloseTo(1 / 60, 3);
+    expect(c.particleCount).toBeLessThan(3);
   });
 
   it("finishes a one-shot effect", () => {
@@ -213,8 +204,8 @@ describe("particles on the Babylon backend (ADR 0075 stage 5)", () => {
     const effect: ParticleEffect = { emitters: [{ ...defaultEmitter("E"), looping: false, duration: 0.5, startLife: 0.2, emission: { rateOverTime: 50, rateOverDistance: 0, bursts: [] } }] };
     const c = fakeSystem(effect);
     frames(p, c, 90);
-    expect(c._state.playing).toBe(false);
-    expect(c._state.alive).toBe(false);
+    expect(c.isPlaying).toBe(false);
+    expect(c.isAlive).toBe(false);
   });
 
   it("rebuilds when the effect changes and releases systems that are gone", () => {
@@ -247,18 +238,18 @@ describe("particles on the Babylon backend (ADR 0075 stage 5)", () => {
     const shown = make(true, true);
     const a = fakeSystem(steady(60));
     frames(shown, a, 30, 0, 1 / 60);
-    expect(a._state.count).toBeGreaterThan(20);
+    expect(a.particleCount).toBeGreaterThan(20);
     const hidden = make(true, false);
     const b = fakeSystem(steady(60));
     frames(hidden, b, 30, 0, 1 / 60);
-    expect(b._state.count).toBe(0);
+    expect(b.particleCount).toBe(0);
     previews.get(hidden)!.simulateAll = true;
     frames(hidden, b, 30, 0, 1 / 60);
-    expect(b._state.count).toBeGreaterThan(20);
+    expect(b.particleCount).toBeGreaterThan(20);
     previews.get(hidden)!.playing = false;
-    const n = b._state.count;
+    const n = b.particleCount;
     frames(hidden, b, 30, 0, 1 / 60);
-    expect(b._state.count).toBe(n);
+    expect(b.particleCount).toBe(n);
   });
 
   it("waits for a texture to load, then builds with it", async () => {
