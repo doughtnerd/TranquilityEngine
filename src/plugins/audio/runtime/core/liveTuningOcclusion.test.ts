@@ -163,7 +163,7 @@ describe("AudioOccluder fields apply next frame", () => {
     const r = rig();
     expect(r.settle().gain).toBeCloseTo(db(-8), 4);
     r.wall.removeBehavior(r.occluder);
-    r.world._flushDestroyed(); // the end of the frame
+    r.world.applyDestroys(); // the end of the frame
     r.run(1);
     expect(r.view.gain).toBeLessThan(db(-8)); // the default material, at once
     expect(r.settle().gain).toBeCloseTo(db(-30), 4);
@@ -176,7 +176,7 @@ describe("AudioOccluder fields apply next frame", () => {
   it("reparenting a collider under another occluder is found by the 120-frame sweep (documented: hierarchy changes aren't tracked)", () => {
     const r = rig();
     r.wall.removeBehavior(r.occluder);
-    r.world._flushDestroyed();
+    r.world.applyDestroys();
     expect(r.settle().gain).toBeCloseTo(db(-30), 4); // a bare collider: the default material
     const door = GameObject.create("Door");
     door.addBehavior(AudioOccluder, { material: "cloth" });

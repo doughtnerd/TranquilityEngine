@@ -314,19 +314,16 @@ describe("UIDocument", () => {
     let buffered: readonly UIEvent[] = [];
     play.on("click", (e) => seen.push(`click ${e.element.id}`));
     const name = doc.query("#name")!;
-    name.on("change", (e) => seen.push(`change ${e.element.value}`)).on("submit", () => seen.push("submit"));
     let polled = false;
+    // The last handler of the frame reads the buffer and the polled state, as a script would that frame.
+    name.on("change", (e) => seen.push(`change ${e.element.value}`)).on("submit", () => {
+      seen.push("submit");
+      buffered = [...UIEvents.read()];
+      polled ||= play.clicked && name.changed && name.submitted;
+    });
     play.as(UIButton)._simulateClick();
     name.as(UIInputField).value = "Ada"; // between frames: as typing does
     name.as(UIInputField)._simulateSubmit();
-    // Read the buffer and the polled state at the end of the frame, before the buffer is cleared.
-    const world = World.require();
-    const original = world._clearBuffers.bind(world);
-    world._clearBuffers = () => {
-      buffered = [...world._buffer(UIEvents)];
-      polled ||= play.clicked && name.changed && name.submitted;
-      original();
-    };
     engine.step(DT);
     expect(seen).toEqual(["click play", "change Ada", "submit"]);
     expect(buffered.map((e) => e.type)).toEqual(["click", "change", "submit"]);

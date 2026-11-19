@@ -987,7 +987,7 @@ function destroyNode(node: GameObject, flush = true): void {
   if (!node.isValid) return;
   const world = node.world;
   world._destroyNode(node.entity);
-  if (flush && !world._inFrame) world._flushDestroyed(); // outside a frame (the editor, tests): now
+  if (flush) world.applyDestroys(); // outside a frame (the editor, tests): now
 }
 
 function documentsOf(world: World): UIDocument[] {

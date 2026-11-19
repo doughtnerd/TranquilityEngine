@@ -68,10 +68,8 @@ describe("live nodes", () => {
     const b = createLiveNode(world, null, undefined, "B");
     a.transform!.position.set(5, 0, 0);
     b.transform!.position.set(1, 2, 0);
-    world._propagateTransforms();
     expect(moveLive(b, a)).toBeNull();
     expect(b.parent).toBe(a);
-    world._propagateTransforms();
     expect(b.transform!.worldPosition.toArray()).toEqual([1, 2, 0]);
     expect(whyNotMoveLive(a, b)).toBe("it can't go inside itself");
     expect(moveLive(a, a)).toBe("it can't go inside itself");
