@@ -22,7 +22,8 @@ import type { ParticleEffectPreviewApi, PreviewBackground } from "../../previewT
 import { appliedPixelRatio } from "../../RenderSurface";
 import type { GraphShared } from "../graphMaterial";
 import { EffectPlayer, EffectResources, libraryEffectHost } from "../effectPlayer";
-import { addPreviewLights, aimCamera, createPreviewEngine, createPreviewScene, previewMaterials, renderFrame } from "./common";
+import { addPreviewLights, aimCamera, createPreviewScene, previewMaterials, renderFrame } from "./common";
+import { createEngine } from "../createEngine";
 import type { BabylonMaterialLibrary } from "../materialLibrary";
 
 export type { PreviewBackground } from "../../previewTypes";
@@ -101,7 +102,7 @@ export class ParticleEffectPreview implements ParticleEffectPreviewApi {
 
   private async init(): Promise<void> {
     try {
-      const engine = await createPreviewEngine(this.canvas, true);
+      const engine = await createEngine(this.canvas, { transparent: true });
       if (this.disposed) {
         engine.dispose();
         return;

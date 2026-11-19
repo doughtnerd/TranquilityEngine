@@ -102,7 +102,7 @@ describe("a World's first frames (ADR 0120)", () => {
   });
 
   it("holds every frame until the content has loaded and a frame draws complete, then never again", () => {
-    const ff = new FirstFrames(3000);
+    const ff = new FirstFrames();
     expect(ff.begin(false, 0)).toBe(false); // the graph isn't ready: the view shows the clear colour anyway
     expect(ff.begin(true, 100)).toBe(true);
     expect(ff.end(true, true, 100)).toBe(true); // a draw was skipped: held
@@ -110,19 +110,17 @@ describe("a World's first frames (ADR 0120)", () => {
     expect(ff.end(false, false, 116)).toBe(true); // complete, but textures are still loading: held
     expect(ff.begin(true, 132)).toBe(true);
     expect(ff.end(false, true, 132)).toBe(false); // complete and loaded: shown
-    expect(ff.done).toBe(true);
-    expect(ff.begin(true, 148)).toBe(false); // later frames (a rebuilt graph) compile as they draw
+    expect(ff.begin(true, 148)).toBe(false); // over: later frames (a rebuilt graph) compile as they draw
     expect(ff.end(true, true, 148)).toBe(false);
   });
 
-  it("stops holding after its time limit, counted from the first frame", () => {
-    const ff = new FirstFrames(1000);
+  it("stops holding after its time limit (3 s), counted from the first frame", () => {
+    const ff = new FirstFrames();
     ff.begin(false, 0);
-    expect(ff.begin(true, 900)).toBe(true);
-    expect(ff.end(true, false, 900)).toBe(true);
-    expect(ff.begin(true, 1001)).toBe(true);
-    expect(ff.end(true, false, 1001)).toBe(true); // this frame is still missing draws: covered
-    expect(ff.done).toBe(true);
-    expect(ff.begin(true, 1017)).toBe(false);
+    expect(ff.begin(true, 2900)).toBe(true);
+    expect(ff.end(true, false, 2900)).toBe(true);
+    expect(ff.begin(true, 3001)).toBe(true);
+    expect(ff.end(true, false, 3001)).toBe(true); // this frame is still missing draws: covered
+    expect(ff.begin(true, 3017)).toBe(false); // over
   });
 });
