@@ -72,6 +72,7 @@ class FakeWorld implements PhysicsWorld2DBackend {
   readonly bodies: FakeBody[] = [];
   readonly colliders = new Map<number, ColliderDesc<Dim2>>();
   readonly joints: JointDesc<Dim2>[] = [];
+  removedJoints = 0;
   readonly events: [number, number, boolean][] = [];
   onStep: (() => void) | null = null;
   private nextId = 1;
@@ -110,7 +111,9 @@ class FakeWorld implements PhysicsWorld2DBackend {
     this.joints.push(desc);
     return { configure() {} };
   }
-  removeJoint(): void {}
+  removeJoint(): void {
+    this.removedJoints++;
+  }
   createCharacter() {
     return { configure() {}, move: (_c: unknown, motion: { x: number; y: number }) => ({ movement: motion, grounded: false, hits: [] }) };
   }
@@ -161,8 +164,12 @@ const step = (engine: Engine, n = 1) => {
   for (let i = 0; i < n; i++) engine.step(1 / 60);
 };
 
-/** The fake body behind a RigidBody2D. */
-const fakeOf = (rb: RigidBody2D) => rb._state!.body as FakeBody;
+/** The fake body the core made for the test's one RigidBody2D of a body type (what the backend was handed). */
+const fakeOf = (bodyType: RigidBody2D["bodyType"] = "dynamic") => {
+  const found = fake!.bodies.filter((b) => b.type === bodyType && !b.removed);
+  expect(found).toHaveLength(1);
+  return found[0];
+};
 
 async function body(engine: Engine, name: string, data: { bodyType?: RigidBody2D["bodyType"] } = {}) {
   const node = GameObject.create(name);
@@ -187,17 +194,17 @@ describe("the shared physics core over a fake backend (ADR 0137)", () => {
     const dyn = await body(engine, "dynamic");
     const kin = await body(engine, "kinematic", { bodyType: "kinematic" });
     step(engine);
-    fakeOf(dyn.rb).log.length = 0;
-    fakeOf(kin.rb).log.length = 0;
+    fakeOf("dynamic").log.length = 0;
+    fakeOf("kinematic").log.length = 0;
     step(engine);
-    expect(fakeOf(dyn.rb).log).toEqual([]); // untouched: no sync
+    expect(fakeOf("dynamic").log).toEqual([]); // untouched: no sync
     dyn.node.transform!.position.x = 3;
     kin.node.transform!.position.x = 4;
     step(engine);
-    expect(fakeOf(dyn.rb).log).toEqual(["teleport"]);
-    expect(fakeOf(dyn.rb).position.x).toBe(3);
-    expect(fakeOf(kin.rb).log).toEqual(["kinematic"]);
-    expect(fakeOf(kin.rb).position.x).toBe(4); // reached its target in the step
+    expect(fakeOf("dynamic").log).toEqual(["teleport"]);
+    expect(fakeOf("dynamic").position.x).toBe(3);
+    expect(fakeOf("kinematic").log).toEqual(["kinematic"]);
+    expect(fakeOf("kinematic").position.x).toBe(4); // reached its target in the step
     engine.dispose();
   });
 
@@ -213,7 +220,9 @@ describe("the shared physics core over a fake backend (ADR 0137)", () => {
     a.node.addBehavior(Probe);
     const b = await body(engine, "b");
     step(engine);
-    const ia = a.col._state!.collider.id, ib = b.col._state!.collider.id;
+    // The two colliders' backend ids, as the core created them: a contact pair reaches both nodes, whichever comes first.
+    expect(fake!.colliders.size).toBe(2);
+    const [ia, ib] = [...fake!.colliders.keys()];
     fake!.events.push([ia, ib, true]);
     step(engine);
     expect(calls).toEqual(["enter:b"]);
@@ -230,11 +239,11 @@ describe("the shared physics core over a fake backend (ADR 0137)", () => {
     expect(wrapAngle(3 * Math.PI)).toBeCloseTo(Math.PI);
     expect(wrapAngle(-3.2)).toBeCloseTo(-3.2 + 2 * Math.PI);
     const engine = await setup();
-    const { node, rb } = await body(engine, "spinner");
+    const { node } = await body(engine, "spinner");
     step(engine);
-    fakeOf(rb).rotation = 3.1;
+    fakeOf().rotation = 3.1;
     step(engine);
-    fakeOf(rb).rotation = -3.1; // 0.083 rad further on, wrapped
+    fakeOf().rotation = -3.1; // 0.083 rad further on, wrapped
     step(engine);
     physics2DOf(engine.world)!.interpolate(0.5);
     const angle = node.transform!.worldRotation2D; // radians (ADR 0164)
@@ -250,23 +259,24 @@ describe("the shared physics core over a fake backend (ADR 0137)", () => {
     class Listener extends GameBehavior {
       onJointBreak(_j: Joint2D, force: number) { broken.push(force); }
     }
-    const { node, rb } = await body(engine, "door");
-    const joint = node.addBehavior(HingeJoint2D, { breakForce: 50 });
+    const { node } = await body(engine, "door");
+    node.addBehavior(HingeJoint2D, { breakForce: 50 });
     node.addBehavior(Listener);
     step(engine);
     expect(fake!.joints).toHaveLength(1);
     expect(fake!.joints[0].kind).toBe("revolute");
     // A gentle tug: 1 unit/s in a step is 60 N for a 1 kg body.
-    fake!.onStep = () => (fakeOf(rb).velocity = { x: 0.5, y: 0 });
+    fake!.onStep = () => (fakeOf().velocity = { x: 0.5, y: 0 });
     step(engine);
     expect(broken).toEqual([]);
-    fake!.onStep = () => (fakeOf(rb).velocity = { x: 10, y: 0 });
+    fake!.onStep = () => (fakeOf().velocity = { x: 10, y: 0 });
     step(engine);
     expect(broken).toHaveLength(1);
     expect(broken[0]).toBeGreaterThan(50);
-    expect(joint._broken).toBe(true);
+    expect(fake!.removedJoints).toBe(1); // broken: taken out of the backend world
     step(engine, 3);
     expect(broken).toHaveLength(1);
+    expect(fake!.joints).toHaveLength(1); // and never rebuilt
     expect(node.getBehavior(HingeJoint2D)).toBeNull(); // destroyed
     engine.dispose();
   });
@@ -288,8 +298,7 @@ describe("with no physics backend enabled (ADR 0137)", () => {
       step(engine, 10);
       await new Promise((r) => setTimeout(r, 10));
       expect(physics2DOf(engine.world)).toBeNull();
-      expect(rb._state).toBeNull();
-      expect(rb.velocity.x).toBe(2); // kept for when physics runs
+      expect(rb.velocity.x).toBe(2); // no backend body: kept for when physics runs
       expect(node.transform!.position.x).toBe(0); // nothing moves it
       expect(warn.mock.calls.filter((c) => String(c[0]).includes("No 2D physics backend"))).toHaveLength(1);
       engine.dispose();

@@ -336,9 +336,7 @@ describe("thumbnail service", () => {
     const files = project({ "a.material.json": '{"color":"#ff0000"}', "b.material.json": '{"color":"#00ff00"}' });
     const { queue, tick } = manualQueue();
     const service = new ThumbnailService(files, memoryStore(), maker(), queue);
-    const revoked: string[] = [];
-    const original = URL.revokeObjectURL;
-    URL.revokeObjectURL = (u: string) => (revoked.push(u), original(u));
+    const { created, revoked, restore } = trackObjectUrls();
     try {
       const first = (await runAll(tick, service.thumbnailFor("a.material.json"))) as { url: string } | null;
       // Ten edits in a row (a colour being dragged): each makes a new image, the previous one goes.
@@ -346,7 +344,7 @@ describe("thumbnail service", () => {
         files.set("a.material.json", `{"color":"#0000${i}${i}"}`);
         await runAll(tick, service.thumbnailFor("a.material.json"));
       }
-      expect(service.imageCount).toBe(1);
+      expect(created.length - revoked.length).toBe(1); // one image alive: they don't pile up
       expect(revoked).toContain(first!.url);
       expect(revoked.length).toBe(10);
 
@@ -356,9 +354,9 @@ describe("thumbnail service", () => {
       files.set("b.material.json", '{"color":"#123456"}');
       await runAll(tick, service.thumbnailFor("b.material.json"));
       expect(revoked).not.toContain(shared!.url);
-      expect(service.imageCount).toBe(2);
+      expect(created.length - revoked.length).toBe(2);
     } finally {
-      URL.revokeObjectURL = original;
+      restore();
     }
   });
 
@@ -366,9 +364,7 @@ describe("thumbnail service", () => {
     const files = project({ "a.material.json": '{"color":"#ff0000"}' });
     const { queue, tick } = manualQueue();
     const service = new ThumbnailService(files, memoryStore(), maker(), queue);
-    const revoked: string[] = [];
-    const original = URL.revokeObjectURL;
-    URL.revokeObjectURL = (u: string) => (revoked.push(u), original(u));
+    const { created, revoked, restore } = trackObjectUrls();
     try {
       // A tile shows the first image, then the asset is edited twice quickly (Sort on, off): the
       // tile still shows the first while the newer images are made, and its <img> may refetch it.
@@ -380,7 +376,7 @@ describe("thumbnail service", () => {
       files.set("a.material.json", '{"color":"#0000ff"}');
       const both = (await runAll(tick, Promise.all([second, service.thumbnailFor("a.material.json")]))) as (Thumbnail | null)[];
       const third = both[1]!;
-      expect(service.imageCount).toBe(1);
+      expect(created).toHaveLength(3);
       expect(revoked).not.toContain(first.url); // held: the tile's <img> can still load it
       expect(revoked.length).toBe(1); // the second image, which nothing showed
 
@@ -390,15 +386,37 @@ describe("thumbnail service", () => {
       release(); // a second call does nothing
       expect(revoked).toContain(first.url);
       expect(revoked.length).toBe(2);
+      expect(created.length - revoked.length).toBe(1); // only the current image is alive
 
       // A held image that's still current isn't revoked when let go.
       releaseThird();
       expect(revoked).not.toContain(third.url);
     } finally {
-      URL.revokeObjectURL = original;
+      restore();
     }
   });
 });
+
+/** Watch the object URLs made and revoked (each image the service holds is one), until `restore`. */
+function trackObjectUrls(): { created: string[]; revoked: string[]; restore(): void } {
+  const created: string[] = [];
+  const revoked: string[] = [];
+  const { createObjectURL, revokeObjectURL } = URL;
+  URL.createObjectURL = (b: Blob) => {
+    const url = createObjectURL(b);
+    created.push(url);
+    return url;
+  };
+  URL.revokeObjectURL = (u: string) => (revoked.push(u), revokeObjectURL(u));
+  return {
+    created,
+    revoked,
+    restore() {
+      URL.createObjectURL = createObjectURL;
+      URL.revokeObjectURL = revokeObjectURL;
+    },
+  };
+}
 
 describe("thumbnail store", () => {
   it("writes .myco/thumbnails in the project folder", async () => {

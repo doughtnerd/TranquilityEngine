@@ -237,10 +237,9 @@ describe("Tilemap component (ADR 0103)", () => {
     expect(seen).toEqual([1, cellValue(4, FLIP_Y)]);
     const data = map.toLayerData();
     expect(Object.keys(data[0].chunks)).toEqual(["-2,0"]);
-    // Replacing the field (as the editor does) re-decodes and keeps unchanged chunks.
-    const before = map._layers()[0].chunks.get("-2,0");
+    // Replacing the field (as the editor does) re-decodes it (that unchanged chunks are kept, so nothing redraws, is
+    // the tile renderer's test).
     map.layers = data;
-    expect(map._layers()[0].chunks.get("-2,0")).toBe(before);
     expect(map.getCell(-20, 0)).toBe(cellValue(4, FLIP_Y));
     expect(() => map.setTile(0, 0, 1, "nope")).toThrow();
     map.layers = [...data, newLayer("Top")];
