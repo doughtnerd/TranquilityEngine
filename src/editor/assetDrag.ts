@@ -9,8 +9,8 @@ import type { SceneDocument } from "./document";
 import { addAssets, whyNotAddAssets, type AssetAddTarget } from "./addAssets";
 import { fileName } from "./assetBrowser";
 import { dropTargetFor, setDraggedAssets, type AssetDropPoint, type AssetDropTargetSpec } from "./assetDropTargets";
-import { entryPath } from "./assetDelete";
-import { moveAssetsTo, whyNotMoveTarget } from "./assetOps";
+import { entryPath, isSliceEntry } from "./assetEntry";
+import { moveAssetsTo, whyNotMovable, whyNotMoveTarget } from "./assetOps";
 import { currentProject, openScene, playState, sceneCamera, selectedKeys, status, viewMode } from "./state";
 import { eventWindow } from "./windows/dom";
 
@@ -130,10 +130,11 @@ function addTarget(target: Exclude<AssetDropTarget, { kind: "folder" | "plugin" 
 function problemFor(paths: readonly string[], target: AssetDropTarget): string | null {
   if (target.kind === "plugin") return null; // its own `accepts` and `label` decided (pluginTargetAt)
   if (target.kind === "folder") {
-    if (!currentProject.value?.canSave) return "this project is read-only";
+    const project = currentProject.value;
+    if (!project?.canSave) return "this project is read-only";
     if (playState.value !== "edit") return "stop playing to move files";
-    if (paths.some((p) => p.includes("#"))) return "slices live in their image; move the image instead"; // ADR 0040
-    return whyNotMoveTarget(paths, target.folder);
+    if (paths.some(isSliceEntry)) return "slices live in their image; move the image instead"; // ADR 0040
+    return whyNotMoveTarget(paths, target.folder) ?? whyNotMovable(project, paths);
   }
   return whyNotAddAssets(paths);
 }
