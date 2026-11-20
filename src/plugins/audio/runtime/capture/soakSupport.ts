@@ -128,7 +128,7 @@ export async function s3Rig(scene: S3Scene, seed = 1): Promise<S3Rig | null> {
     },
     async frame(afterMain) {
       mixer.update(FRAME_SECONDS);
-      backend.update(FRAME_SECONDS);
+      audio.tick(FRAME_SECONDS);
       for (let i = 0; i < capacity; i++) {
         if (deadline[i]! <= audioSeconds) {
           handles[i]?.stop(0.005);

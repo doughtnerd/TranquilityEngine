@@ -40,7 +40,7 @@ async function rig() {
   const step = async (n: number): Promise<void> => {
     for (let i = 0; i < n; i++) {
       mixer.update(0.003);
-      backend.update(0.003);
+      loop.tick(0.003);
       loop.render(4);
       await Promise.resolve();
     }

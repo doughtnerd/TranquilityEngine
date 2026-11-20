@@ -438,8 +438,8 @@ export interface ZonePass {
 }
 
 /**
- * @internal The core backend's frame, split at the passes so the audio system runs the whole M3 order in one place.
- * `update(dt)` still runs every stage (without the passes) for callers that drive the backend directly.
+ * @internal The core backend's frame, split at the passes so the whole M3 order is written once: these stages are the
+ * contract between the core and the frame step (`audioFrame.ts` `runAudioFrame`, ADR 0270), their only caller.
  */
 export interface StagedFrameHost extends SpatialPassHost {
   readonly zones: ZoneManager;

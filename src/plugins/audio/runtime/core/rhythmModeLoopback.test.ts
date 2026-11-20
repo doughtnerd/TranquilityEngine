@@ -18,7 +18,7 @@ import { assembleCore } from "./assembly";
 import { rebuildHost, type RebuildOutcome } from "./recovery";
 import { BackgroundController, type VisibilitySource } from "./background";
 import { Unlock, type UnlockContext } from "./unlock";
-import { createMusicPlayer, musicEarlyStep, musicPlanStep, type MusicPlayer } from "../music/musicSystem";
+import { createMusicPlayer, musicEarlyStep, type MusicPlayer } from "../music/musicSystem";
 import { setSegmentClipSource } from "../music/segmentRun";
 import { predictDue, seatBeats } from "../music/beatClock";
 import { Audio } from "../Audio";
@@ -146,6 +146,8 @@ async function rig(startInRhythm: boolean) {
   pageMixer.configure(withRhythm(startInRhythm)); // `Audio.rhythmMode` and the hold read the page's mixer
   // ADR 0221: the production assembly over this host.
   const backend: CoreBackend = assembleCore(host, { clips, clock: loop.clock, mixer, recovery: { now: () => 0, warn: () => {} } }).createBackend();
+  /** ADR 0270: the backend frame as the audio system runs it (the music plan, step 9, inside it). */
+  const tick = testing.audioFrameDriver(backend, mixer);
   setAudioBackend(backend);
   host.reconfigure(withRhythm(startInRhythm)); // as `service.ts` does at start: nothing to rebuild
   setSegmentClipSource({
@@ -177,7 +179,7 @@ async function rig(startInRhythm: boolean) {
   const settle = async () => {
     for (let k = 0; k < 8; k++) await Promise.resolve();
   };
-  /** One rendered frame of 4 quanta; the frame steps first (step 0 with the beat dispatch, step 9, the backend's update). */
+  /** One rendered frame of 4 quanta; the audio systems' steps first (step 0 with the beat dispatch, then the backend frame with step 9). */
   const step = async (n: number) => {
     for (let f = 0; f < n; f++) {
       const dt = 512 / loop.sampleRate;
@@ -188,9 +190,8 @@ async function rig(startInRhythm: boolean) {
         if (rebuildingNow) rebuilding.push({ now, held: beatsOf.beats!.held });
         if (predictDue(beatsOf, "beat", now, dt, ev)) fired.push({ time: ev.time, now, missed: ev.missed, bar: ev.bar, beat: ev.beat });
       }
-      musicPlanStep(backend, dt);
       mixer.update(dt);
-      backend.update(dt);
+      tick(dt);
       for (let q = 0; q < 4; q++) {
         const start = loop.frame;
         const { left } = loop.renderQuanta(1);

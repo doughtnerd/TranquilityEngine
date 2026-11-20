@@ -52,7 +52,7 @@ async function loopbackRig(options: { pageMixer?: boolean } = {}) {
     for (let f = 0; f < n; f++) {
       perFrame?.();
       mixer.update(0.0107);
-      backend.update(0.0107);
+      loop.tick(0.0107);
       for (const s of loop.render(4).left) out.push(s);
       for (let k = 0; k < 4; k++) await Promise.resolve();
     }

@@ -379,7 +379,7 @@ describe("worker-sourced clips play on the loopback host (B5)", () => {
     const step = async (n: number) => {
       for (let f = 0; f < n; f++) {
         mixer.update(0.003);
-        backend.update(0.003);
+        loop.tick(0.003);
         const { left } = loop.render(4);
         for (const s of left) out.push(s);
         await new Promise((r) => setTimeout(r, 1));

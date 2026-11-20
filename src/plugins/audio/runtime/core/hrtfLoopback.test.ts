@@ -133,7 +133,7 @@ describe("HRTF for the nearest voices on the loopback host (H3)", { timeout: PAT
     for (let f = 0; f < frames; f++) {
       const a = (f * 3 * Math.PI) / 180;
       r.backend.setListener({ position: { x: 0, y: 0, z: 0 }, forward: { x: Math.sin(a), y: 0, z: -Math.cos(a) }, up: { x: 0, y: 1, z: 0 } });
-      r.backend.update(0.01);
+      r.loop.tick(0.01);
       const out = r.loop.render(4);
       for (const s of out.left) peak = Math.max(peak, Math.abs(s));
     }

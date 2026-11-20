@@ -18,9 +18,9 @@ import { assembleCore } from "./assembly";
 import { rebuildHost, type RebuildOutcome } from "./recovery";
 import { BackgroundController, type VisibilitySource } from "./background";
 import { Unlock, type UnlockContext } from "./unlock";
-import { createMusicPlayer, musicEarlyStep, musicPlanStep, type MusicPlayer } from "../music/musicSystem";
+import { createMusicPlayer, musicEarlyStep, type MusicPlayer } from "../music/musicSystem";
 import { setSegmentClipSource } from "../music/segmentRun";
-import { endAudioSession } from "../testing";
+import { audioFrameDriver, endAudioSession } from "../testing";
 
 const RATE = 48_000;
 const NEW_RATE = 44_100;
@@ -144,16 +144,16 @@ async function rig() {
   const settle = async () => {
     for (let k = 0; k < 8; k++) await Promise.resolve();
   };
-  /** One rendered frame of 4 quanta; visible, the frame steps run first (step 0, step 9, the backend's update). */
+  /** ADR 0270: the backend frame as the audio system runs it. */
+  const tick = audioFrameDriver(backend, mixer);
+  /** One rendered frame of 4 quanta; visible, the audio systems' steps run first (step 0, then the backend frame with step 9). */
   const step = async (n: number) => {
     for (let f = 0; f < n; f++) {
       if (!page.hidden) {
         const dt = 512 / loop.sampleRate;
         musicEarlyStep(backend, dt);
-        backend.beginFrame();
-        musicPlanStep(backend, dt);
         mixer.update(dt);
-        backend.update(dt);
+        tick(dt);
       }
       for (let q = 0; q < 4; q++) {
         const start = loop.frame;

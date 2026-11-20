@@ -83,7 +83,7 @@ async function coreRig() {
   /** One quantum: the backend's frame work, then the core's render; the left channel. */
   const quantum = async (): Promise<Float32Array> => {
     mixer.update(DT);
-    backend.update(DT);
+    loop.tick(DT);
     const out = loop.render(1).left;
     for (let k = 0; k < 4; k++) await Promise.resolve();
     return out;

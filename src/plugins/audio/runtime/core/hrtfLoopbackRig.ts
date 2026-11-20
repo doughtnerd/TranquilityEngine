@@ -50,7 +50,7 @@ export async function rig(opts: { spatial?: "hrtf" | "equalPower"; hrtf?: number
   const step = async (n: number) => {
     for (let f = 0; f < n; f++) {
       mixer.update(0.003);
-      backend.update(0.003);
+      audio.tick(0.003);
       audio.render(4);
       hrtfSeen.push(link.lastStatus?.hrtfVoices ?? 0);
       await new Promise((r) => setImmediate(r)); // a macrotask turn for the HRIR file read; no timer, no clock

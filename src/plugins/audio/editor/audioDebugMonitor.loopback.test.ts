@@ -10,6 +10,7 @@ import { defaultAudioSettings } from "../../../engine/audio/settings";
 import { Assets, BoxCollider, Engine, GameObject, SceneManager } from "../../../myco";
 import { AudioOccluder } from "../runtime/AudioOccluder";
 import { AudioReverbZone } from "../runtime/AudioReverbZone";
+import { runAudioFrame } from "../runtime/audioFrame";
 import { ListenerFrame } from "../runtime/core/spatial";
 import { createZoneIrService } from "../runtime/core/zoneIr";
 import { createDecoderHandler } from "../runtime/decoder/handler";
@@ -65,7 +66,8 @@ async function rig(slots: number, maxActive: number, standby: number) {
   const warn = console.warn;
   console.warn = (m: string) => void warnings.push(String(m));
   // ADR 0221: the production assembly on the loopback, on the page's mixer with the backend registered, so the panel's
-  // monitor reads `Audio.debug()` as it does in the editor. The test runs the frame's passes itself (a fixed listener pose).
+  // monitor reads `Audio.debug()` as it does in the editor. ADR 0270: each step runs the production frame (`runAudioFrame`)
+  // with this test's own listener frame (the zones' World, a fixed listener pose).
   audio = await loopbackAudio({
     settings,
     preset: { maxZoneSlots: slots, zoneMaxSeconds: 1, maxBeds: 1, maxWide: 1 },
@@ -81,16 +83,8 @@ async function rig(slots: number, maxActive: number, standby: number) {
   const pose = { position: { x: 0, y: 0, z: 0 }, forward: { x: 0, y: 0, z: 1 }, up: { x: 0, y: 1, z: 0 } };
   const step = async () => {
     mixer.update(0.016);
-    backend.frameAttenuate(0.016);
-    backend.collectSpatialVoices();
     frame.set(world, 0, null, pose, 0.016);
-    backend.zones.run(frame, backend.spatialVoices, mixer.audioSettings);
-    backend.occlusion.run(frame, backend.spatialVoices, mixer.audioSettings);
-    backend.frameSelect();
-    backend.framePickPanners();
-    backend.frameStageFx();
-    backend.frameStageListener(frame);
-    backend.frameCommit();
+    runAudioFrame(backend, frame, 0.016, mixer.audioSettings);
     loop.render(6);
     await Promise.all(pending.splice(0));
     await new Promise((r) => setTimeout(r, 0));

@@ -187,7 +187,7 @@ interface WorldOcclusion {
   readonly listenerOnly: Set<GameObject>;
 }
 
-/** @internal The occlusion pass over one backend's voices (constructed by the backend, run by the audio system). */
+/** @internal The occlusion pass over one backend's voices (constructed by the backend, run by the frame step, `audioFrame.ts`). */
 export class OcclusionPass {
   readonly counters: OcclusionCounters = { occlusionRays: 0, occlusionUsedMs: 0, occlusionOverruns: 0, occlusionSources: 0, occlusionNoPhysics: 0, oldestOcclusionAgeFrames: 0 };
   /** Per slot: the smoothed dry gain last handed back (1 open). */

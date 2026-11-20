@@ -80,7 +80,7 @@ describe("no decodeAudioData on the core path (B6)", () => {
     let mostResident = 0;
     for (let f = 0; f < 60; f++) {
       mixer.update(0.003);
-      backend.update(0.003);
+      audio.tick(0.003);
       const { left } = audio.render(4);
       for (const s of left) peak = Math.max(peak, Math.abs(s));
       mostResident = Math.max(mostResident, clips.residentIds().length);

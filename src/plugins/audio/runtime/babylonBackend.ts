@@ -850,7 +850,7 @@ export class BabylonBackend implements AudioBackend, AudioClipCache, AudioLiveMi
   /** ADR 0175: where `mixer.apply` sends a checked op (`sendOp`); no core chain, no level ducking. */
   readonly mixOpTarget: MixOpTarget = { liveCaps: FALLBACK_LIVE_CAPS, sendOp: (op, cls) => this.sendOp(op, cls) };
 
-  /** ADR 0162 (K4, F1): main runs Doppler and occlusion over this view (`audioSystem.ts`), then `update`. */
+  /** ADR 0162 (K4, F1): main runs Doppler and occlusion over this view (`audioFrame.ts`), then `update`. */
   readonly spatialVoices = new BabylonSpatialView();
   readonly doppler = new DopplerPass(SPATIAL_SLOTS);
   readonly occlusion = new OcclusionPass(SPATIAL_SLOTS);

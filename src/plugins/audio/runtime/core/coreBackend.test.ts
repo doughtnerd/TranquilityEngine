@@ -102,7 +102,7 @@ describe("CoreBackend (api-and-models §3, §6)", () => {
 
   it("the constructor's BUS_CONFIG, the presence rules and mask (Dp1) and every bus lane (Mx2: authored, runtime, snapshot, monitor, dip per bus) go out at the first update", () => {
     const sentRig = rig();
-    sentRig.backend.update(0);
+    sentRig.tick(0);
     // Ld2: LOUD_CONFIG follows BUS_CONFIG at configure (master metered; its records: loudnessWiring.test.ts).
     const sent = sentRig.ops();
     expect(sent.filter((o) => o.op === Op.LOUD_CONFIG)).toHaveLength(1);
@@ -592,7 +592,7 @@ describe("CoreBackend: ducking counts and Bus.peak (A2.3)", () => {
     const step = async (frames: number) => {
       for (let f = 0; f < frames; f++) {
         mixer.update(0.003);
-        backend.update(0.003);
+        loop.tick(0.003);
         loop.render(4);
         await Promise.resolve();
       }
@@ -635,7 +635,7 @@ describe("CoreBackend on the loopback host (loopbackAudio, ADR 0221)", () => {
     let peakR = 0;
     let ended = false;
     for (let q = 0; q < 120; q++) {
-      backend.update(0.003);
+      loop.tick(0.003);
       const { left, right } = loop.render(1);
       for (let i = 0; i < left.length; i++) {
         peakL = Math.max(peakL, Math.abs(left[i]!));
@@ -666,7 +666,7 @@ describe("CoreBackend on the loopback host (loopbackAudio, ADR 0221)", () => {
       let level = NaN;
       for (let f = 0; f < n; f++) {
         mixer.update(0.003);
-        backend.update(0.003);
+        loop.tick(0.003);
         for (let q = 0; q < 4; q++) {
           const { left, right } = loop.render(1);
           level = left[0]!;

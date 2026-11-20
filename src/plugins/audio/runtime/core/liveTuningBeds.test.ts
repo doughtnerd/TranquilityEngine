@@ -25,7 +25,7 @@ function rig(first: AudioSettings, laidOut = 2) {
   const reconfigure = (next: AudioSettings) => {
     mixer.configure(next);
     mixer.update(0.016);
-    backend.update(0.016);
+    r.tick(0.016);
   };
   const planned = () => ({ slots: [...backend.beds.bedSlot.subarray(0, mixer.audioSettings.buses.length)], hosts: [...backend.beds.hostBus.subarray(0, backend.beds.slotCount)], count: backend.beds.slotCount });
   return { backend, reconfigure, planned };
