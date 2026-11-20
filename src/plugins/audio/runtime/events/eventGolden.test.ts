@@ -69,7 +69,7 @@ async function rig(): Promise<Rig | null> {
       for (let f = 0; f < n; f++, frame++) {
         each?.(frame);
         events().update(0.0107);
-        backend.update(0.0107);
+        loop.tick(0.0107);
         const out = loop.render(FRAME_QUANTA);
         for (const s of out.left) left.push(s);
         for (const s of out.right) right.push(s);

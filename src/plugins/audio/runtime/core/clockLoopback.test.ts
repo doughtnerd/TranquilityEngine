@@ -47,7 +47,7 @@ async function rig(lookaheadMs: number, clock?: FakeHostClock) {
   const step = async (quanta: number): Promise<number> => {
     let first = -1;
     for (let q = 0; q < quanta; q++) {
-      backend.update(QUANTUM_S);
+      loop.tick(QUANTUM_S);
       const start = loop.frame;
       const { left, right } = loop.render(1);
       if (first < 0) {
@@ -93,7 +93,7 @@ describe.each([1.5, 0])("`at` on the loopback host (A3.2), limiter look-ahead %s
     // Under the fake clock the heard clock is the loopback's frame (Λ = 0).
     expect(backend.clockMap.leadFrames).toBe(0);
     for (const ahead of [3.3, 5.75, 9.01]) {
-      backend.update(QUANTUM_S);
+      loop.tick(QUANTUM_S);
       const now = backend.time;
       // The heard clock: the frame at the output, less the core's latency.
       expect(Math.abs(now * SR - (loop.frame - D))).toBeLessThan(1e-6 * SR);
@@ -120,7 +120,7 @@ describe.each([1.5, 0])("`at` on the loopback host (A3.2), limiter look-ahead %s
     if (!r) return ctx.skip();
     const { backend, step, preload, loop } = r;
     await preload("tone.wav");
-    backend.update(QUANTUM_S);
+    loop.tick(QUANTUM_S);
     const frame = loop.frame;
     backend.play(req("tone.wav", { at: backend.time - 0.5 }));
     const first = await step(4);
@@ -134,9 +134,9 @@ describe.each([1.5, 0])("`at` on the loopback host (A3.2), limiter look-ahead %s
   it("a far-future `at` waits, playing silently, then starts on its frame", async (ctx) => {
     const r = await rig(ms);
     if (!r) return ctx.skip();
-    const { backend, step, preload } = r;
+    const { backend, step, preload, loop } = r;
     await preload("tone.wav");
-    backend.update(QUANTUM_S);
+    loop.tick(QUANTUM_S);
     const at = backend.time + 1.0;
     const voice = backend.play(req("tone.wav", { at }))!;
     // Half a second: nothing yet, and the voice exists the whole time.
@@ -160,7 +160,7 @@ describe.each([1.5, 0])("`at` on the loopback host (A3.2), limiter look-ahead %s
     const lateBefore = loop.link.lastStatus!.lateCommands;
     expect(Math.max(...lateness)).toBe(0);
     slack.length = 0;
-    backend.update(QUANTUM_S);
+    loop.tick(QUANTUM_S);
     const frame = loop.frame;
     // 200 frames past F_now: Audio.time is D frames behind F_now's clock (the latency), so add it back.
     const at = backend.time + (200 + D) / SR;

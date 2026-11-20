@@ -3,7 +3,7 @@
 // clips through the clip registry (K9), and keeps time with the clock map. `service.ts` registers a factory for it
 // (`registerCoreBackend`) once the core has loaded.
 //
-// Frame flow (`update(dt)`, called by the audio system once per frame): clock.beginFrame, mirror.beginFrame, free ended
+// Frame flow (the stages `audioFrame.ts` `runAudioFrame` runs once per frame, ADR 0270): clock.beginFrame, mirror.beginFrame, free ended
 // voices, apply clip events to the registry, start voices that were waiting for the unlock, move spatial voices, run
 // the voice selection (A3.1, `selection.ts`: SET_MIXED for changes, steals over a bus's `maxVoices`), drain the table's
 // STOP and FADE commands into the writer, flush the batch at `clock.nextFirstFrame()`. Everything the mirror does
@@ -42,7 +42,7 @@
 // direction, `audibility0`), then the passes on `spatialVoices` (Doppler, zones, occlusion: `doppler.ts`, `zones.ts`,
 // `occlusion.ts`), then `frameSelect` (audibility = `audibility0` × `occGain`), `framePickPanners` (`pannerPick.ts`),
 // `frameStageFx` (`voiceFx.ts`), `frameStageListener` (`listener.ts`) and `frameCommit` (idle, queued commands, the
-// BATCH). `update(dt)` runs the same stages without the passes. The backend constructs every M3 part here: the bed
+// BATCH). ADR 0270: `runAudioFrame` is the only caller of the stages; the backend has no `update`. The backend constructs every M3 part here: the bed
 // planner (`beds.ts`, planned after each BUS_CONFIG), the panner pick, the zone manager over the zone IR service
 // (`zoneIr.ts`, K0's `ZoneIrService`), the occlusion and Doppler passes, the LISTENER stage and the per-voice fx staging.
 // Main's results come back through `voices.setOcclusion` (the dry gain is `gain × occGain`, the cutoff a `voiceFx` low-pass)
@@ -91,7 +91,7 @@ import { OcclusionPass } from "./occlusion";
 import { DopplerPass } from "./doppler";
 import { ListenerStage } from "./listener";
 import { LowpassBy, VoiceFx } from "./voiceFx";
-import { ListenerFrame, SendCurveTable, SpatialViewFlag, type SpatialVoiceView, type StagedFrameHost } from "./spatial";
+import { type ListenerFrame, SendCurveTable, SpatialViewFlag, type SpatialVoiceView, type StagedFrameHost } from "./spatial";
 import { BusIndex } from "./busIndex";
 import { LaneWriter } from "./laneWriter";
 import { KeyframeSource, type KeyframeHost } from "./keyframeSource";
@@ -254,9 +254,9 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
   readonly worklet: WorkletChannel<StreamDecoderLike>;
   /** ADR 0162 (K4): the zone manager (`zones.ts`). */
   readonly zones: ZoneManager;
-  /** ADR 0162 (K4): main's occlusion pass (`occlusion.ts`), run by the audio system. */
+  /** ADR 0162 (K4): main's occlusion pass (`occlusion.ts`), run by the frame step (`audioFrame.ts`). */
   readonly occlusion: OcclusionPass;
-  /** ADR 0162 (K4): main's Doppler pass (`doppler.ts`), run by the audio system. */
+  /** ADR 0162 (K4): main's Doppler pass (`doppler.ts`), run by the frame step (`audioFrame.ts`). */
   readonly doppler: DopplerPass;
   /** ADR 0162 (K4): LISTENER staging (`listener.ts`). */
   readonly listener: ListenerStage;
@@ -264,8 +264,6 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
   readonly sendCurves = new SendCurveTable();
   /** ADR 0162 (K4): the voices as main's passes see them (`spatial.ts`). */
   readonly spatialVoices: TableSpatialView;
-  /** The listener frame `update(dt)` stages LISTENER from (the audio system passes its own to `frameStageListener`). */
-  private readonly idleFrame = new ListenerFrame();
   /** ADR 0176: the core voice: start, launch, the setters, what is sent, stem re-sends and refusals (`voices.ts`). */
   private readonly voices: CoreVoices;
   /** B3: the stream voices' main side (`streams.ts`). */
@@ -785,17 +783,6 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
   /** B4: `audio.codecs.aac` (read when used, like the rest of the settings). */
   private get aac(): boolean {
     return this.mixer.audioSettings.codecs?.aac === true;
-  }
-
-  /** The per-frame step; see the header. The audio system runs the same stages with main's M3 passes between them. */
-  update(dt: number): void {
-    if (this.disposed) return;
-    this.frameAttenuate(dt);
-    this.frameSelect();
-    this.framePickPanners();
-    this.frameStageFx();
-    this.frameStageListener(this.idleFrame);
-    this.frameCommit();
   }
 
   /** ADR 0162 (K4) `StagedFrameHost`: frame start through attenuation (gain, direction, `audibility0`). */

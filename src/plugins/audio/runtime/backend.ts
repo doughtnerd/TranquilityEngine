@@ -572,8 +572,12 @@ export interface AudioBackend {
   readonly time: number;
   debug(): AudioDebugInfo;
   setBackground(mode: AudioBackground): void;
-  /** Per-frame hook. */
-  update(dt: number): void;
+  /**
+   * ADR 0270: the backend's own part of the frame, run last by the frame step (`audioFrame.ts` `runAudioFrame`, after main's
+   * passes and the music plan). Absent: the backend has none. The core has none: its frame is the frame step's stages
+   * (`StagedFrameHost`). Callers drive a frame through `runAudioFrame`, never through this.
+   */
+  update?(dt: number): void;
   /** Stop every voice and let go of the library (`setAudioBackend` calls it on the backend it replaces). */
   dispose(): void;
 

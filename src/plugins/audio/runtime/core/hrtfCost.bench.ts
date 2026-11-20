@@ -23,7 +23,7 @@ async function time(hrtf: number, moving: boolean) {
     if (moving) {
       const a = (f * 3 * Math.PI) / 180;
       r.backend.setListener({ position: { x: 0, y: 0, z: 0 }, forward: { x: Math.sin(a), y: 0, z: -Math.cos(a) }, up: { x: 0, y: 1, z: 0 } });
-      r.backend.update(0.01);
+      r.loop.tick(0.01);
     }
     const t0 = performance.now();
     r.loop.render(4);

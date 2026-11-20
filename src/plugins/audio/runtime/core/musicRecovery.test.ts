@@ -52,13 +52,12 @@ function rig(rings = 8) {
   const lifecycle: MusicLifecycleEvent[] = [];
   backend.music.onLifecycle = (e) => lifecycle.push(e);
   for (let k = 0; k < 3; k++) {
-    clock.advance(16);
-    backend.update(0.016);
+    r.frame(0.016);
   }
   const failAll = (message: string) => {
     for (const p of primes) for (const m of p.members) for (const l of streamListeners) l({ type: "error", streamId: m.streamId, asset: m.asset, message });
   };
-  return { backend, ops: backend.musicOps, clock, decoder, primes, cancels, closes, events, lifecycle, failAll, status: r.status, rebuild: () => r.rebuild("trap") };
+  return { backend, ops: backend.musicOps, clock, decoder, primes, cancels, closes, events, lifecycle, failAll, status: r.status, frame: (dt: number) => r.frame(dt), rebuild: () => r.rebuild("trap") };
 }
 
 const flush = async () => {
@@ -124,16 +123,14 @@ describe("musicOps recovery (ADR 0166 P9)", () => {
     r.ops.primeGroup(a);
     await flush();
     expect(await r.rebuild()).toBe("rebuilt");
-    r.clock.advance(16);
-    r.backend.update(0.016);
+    r.frame(0.016);
     expect(reopen).toHaveBeenCalledTimes(1);
     // The rebuild's begin and end, then the groups' recovery (the music side's beat holds and re-plan, ADR 0248).
     expect(r.lifecycle).toEqual([{ kind: "rebuild", active: true }, { kind: "rebuild", active: false }, { kind: "recover", cause: "rebuild" }]);
     expect(r.cancels).toEqual([6]);
     expect(r.ops.primedState(6)).toBeNull();
     // Once: the next frame doesn't hand off again.
-    r.clock.advance(16);
-    r.backend.update(0.016);
+    r.frame(0.016);
     expect(reopen).toHaveBeenCalledTimes(1);
     r.backend.dispose();
   });

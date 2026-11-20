@@ -142,7 +142,7 @@ describe("a quantised stem on the loopback host (ADR 0166 R6)", () => {
     const step = async (n: number) => {
       for (let i = 0; i < n; i++) {
         mixer.update(0.003);
-        backend.update(0.003);
+        loop.tick(0.003);
         for (const s of loop.render(4).left) out.push(s);
         await Promise.resolve();
       }

@@ -78,7 +78,7 @@ function rig() {
   const clock = fakeHostClock({ rafTime: 0, currentTime: 0, dateNow: 0 });
   const r = recordingAudio({ mixer: "own", settings: parseAudioSettings(PROJECT).settings, preset: { maxLogical: 16 }, clock });
   const { backend, mixer, posted } = r;
-  backend.update(0.016); // the configure's records go out
+  r.tick(0.016); // the configure's records go out
   posted.take();
   const batches = () => posted.take().map(decode);
   /** Every record posted since the last call (any opcode), for the generated readers. */
@@ -90,14 +90,14 @@ function rig() {
   const advance = (frames: number, step = 16) => {
     for (let t = 0; t < frames; t++) {
       clock.advance(step);
-      backend.update(step / 1000);
+      r.tick(step / 1000);
     }
   };
   /** A hard rebuild as the host runs it: the old core is gone, the new one answers (its REPLAY goes on the link). */
   const rebuild = async () => {
     expect(await r.rebuild("trap")).toBe("rebuilt");
   };
-  return { backend, mixer, batches, records, settle, advance, rebuild };
+  return { backend, mixer, batches, records, settle, advance, rebuild, tick: r.tick };
 }
 
 /** Voice `id`'s per-voice dip among `recs`: its FADE records, its `SET_PARAMS bus` records, and whether any bus sequence went. */
@@ -249,7 +249,7 @@ describe("the structural dip's sequence (Ma2)", () => {
   });
 
   it("a direct effect edit of a slot whose structural change is open rides the sequence; one in a later task is stamped at its B", async () => {
-    const { backend, mixer, batches, settle } = rig();
+    const { backend, mixer, batches, settle, tick } = rig();
     mixer.apply({ op: "moveEffect", bus: "Music", from: 0, to: 1 });
     expect(mixer.apply({ op: "setEffect", bus: "Music", index: 1, key: "frequency", value: 1200 })).toEqual({ ok: true, class: "direct" });
     await settle();
@@ -266,7 +266,7 @@ describe("the structural dip's sequence (Ma2)", () => {
     expect(later).toEqual([expect.objectContaining({ slot: SLOT.Music, frame: b, seq: slots[0]!.seq })]);
     // Another bus's direct edit stays asap.
     mixer.apply({ op: "addEffect", bus: "UI", index: 0, effect: { type: "lowpass", frequency: 500, q: 1 } });
-    backend.update(0.016); // the frame's batch (flushNow is inside its coalescing window)
+    tick(0.016); // the frame's batch (flushNow is inside its coalescing window)
     const asap = batches().flat().filter((r) => r.op === "slot");
     expect(asap).toEqual([expect.objectContaining({ slot: SLOT.UI, frame: -1, seq: 0 })]);
     backend.dispose();
@@ -294,12 +294,12 @@ describe("a sound's bus: the per-voice dip (G7a, §4.7)", () => {
   const req = (bus: string, at?: number) => ({ path: "a.wav", url: "a.wav", loop: true, stream: false, bus, ...(at !== undefined ? { at } : {}) });
 
   it("a sounding voice fades out over DIP_FRAMES from F0, changes bus at B with its fade at 0 and fades back in; no bus sequence", () => {
-    const { backend, records } = rig();
+    const { backend, records, tick } = rig();
     const v = backend.play(req("SFX"))!;
-    backend.update(0.016);
+    tick(0.016);
     records();
     v.setBus("UI");
-    backend.update(0.016);
+    tick(0.016);
     const first = voiceDip(records(), v.id);
     expect(first.sequenced, "no bus sequence").toBe(false);
     expect(first.fades).toHaveLength(3);
@@ -313,7 +313,7 @@ describe("a sound's bus: the per-voice dip (G7a, §4.7)", () => {
     expect(first.buses).toEqual([{ bus: SLOT.UI, frame: b }]);
     // A second move before the first one's end starts at that end (its fade-in is never cut to 0).
     v.setBus("Music");
-    backend.update(0.016);
+    tick(0.016);
     const second = voiceDip(records(), v.id);
     expect(second.fades[0]).toEqual({ target: 0, frames: D, shape: LINEAR, frame: b + D });
     const b2 = Math.ceil((b + 2 * D) / QUANTUM_FRAMES) * QUANTUM_FRAMES;
@@ -322,14 +322,14 @@ describe("a sound's bus: the per-voice dip (G7a, §4.7)", () => {
   });
 
   it("a voice whose stamped start is still ahead changes bus at once, at its start frame, with no fade", () => {
-    const { backend, records } = rig();
+    const { backend, records, tick } = rig();
     const v = backend.play(req("SFX", 1))!;
-    backend.update(0.016);
+    tick(0.016);
     const start = backend.playheads.anchorFrame[v.id & 0xffff]!;
     expect(start).toBeGreaterThan(backend.clockMap.framesNow());
     records();
     v.setBus("UI");
-    backend.update(0.016);
+    tick(0.016);
     const moved = voiceDip(records(), v.id);
     expect(moved.fades).toEqual([]);
     expect(moved.buses).toEqual([{ bus: SLOT.UI, frame: start }]);

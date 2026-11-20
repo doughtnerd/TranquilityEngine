@@ -49,7 +49,7 @@ function fakeClips(over: Partial<ClipRegistry> = {}): ClipRegistry {
 function rig(latency?: { base: number; output: number }) {
   const clock = fakeHostClock(latency ? { currentTime: 1 } : {});
   const r = recordingAudio({ mixer: "own", preset: { maxLogical: 16, limiterLookaheadMs: 1.5 }, clips: fakeClips(), clock, latency });
-  return { backend: r.backend, clock, raf: () => clock.rafTime() };
+  return { backend: r.backend, clock, raf: () => clock.rafTime(), tick: r.tick };
 }
 
 afterEach(async () => {
@@ -78,8 +78,8 @@ describe("the core's music seam (ADR 0166 §4.6, Q2)", () => {
       b.clock.advance(16);
       a.backend.beginFrame();
       a.backend.beginFrame();
-      a.backend.update(0.016);
-      b.backend.update(0.016);
+      a.tick(0.016);
+      b.tick(0.016);
       expect(a.backend.time).toBe(b.backend.time);
     }
     a.backend.dispose();
@@ -87,11 +87,11 @@ describe("the core's music seam (ADR 0166 §4.6, Q2)", () => {
   });
 
   it("timeAt maps a performance.now() instant to the raw heard clock", () => {
-    const { backend, clock, raf } = rig();
+    const { backend, clock, raf, tick } = rig();
     expect(backend.timeAt(raf())).toBe(backend.time); // no estimate yet: Audio.time
     for (let k = 0; k < 3; k++) {
       clock.advance(16);
-      backend.update(0.016);
+      tick(0.016);
     }
     expect(backend.timeAt(raf())).toBeCloseTo(backend.time, 9);
     expect(backend.timeAt(raf() + 100) - backend.timeAt(raf())).toBeCloseTo(0.1, 9);
@@ -199,7 +199,7 @@ function musicRig(rings = 8, clips: ClipRegistry = fakeClips()) {
   };
   /** What the backend sends from now on (decoded where the core would receive it). */
   posted.take();
-  return { backend, ops: backend.musicOps, clock, primes, invalidated: fake.invalidated, cancels, closes, fetched, events, ringsOf, say, status: r.status, posted };
+  return { backend, ops: backend.musicOps, clock, primes, invalidated: fake.invalidated, cancels, closes, fetched, events, ringsOf, say, status: r.status, posted, tick: r.tick };
 }
 
 const flush = async () => {
@@ -456,14 +456,14 @@ describe("the core's group operations (ADR 0166 P1)", () => {
     r.ops.admitGroup(req);
     r.ops.primeGroup(req);
     await flush();
-    r.backend.update(0.016);
+    r.tick(0.016);
     r.posted.take();
     const voices = r.ops.stampGroup({ group: 7, at: 2, fades: [{ member: 2, fade: { to: 1, seconds: 0.5, law: "equalPowerIn" } }] });
     expect(voices).toHaveLength(3);
     expect(voices.every((v) => v !== null)).toBe(true);
     // An ordinary PLAY afterwards is ungated.
     const sfx = r.backend.play({ path: "sfx.wav", url: "sfx.wav", loop: false, stream: false, bus: "SFX" })!;
-    r.backend.update(0.016);
+    r.tick(0.016);
     const batches = r.posted.take();
     const recs = batches.flatMap((b) => b.records);
     const playOf = (id: number) => {
@@ -508,7 +508,7 @@ describe("the core's group operations (ADR 0166 P1)", () => {
     (voices[0] as { stop(f?: number): void }).stop(0);
     // The core reports it ended; the frame frees it.
     r.status({ ended: [(voices[0] as { id: number }).id] });
-    r.backend.update(0.016);
+    r.tick(0.016);
     expect(r.closes).toContain(stream);
     expect(r.ops.debugView().poolUsed).toBe(0);
     r.ops.beginFrame();
@@ -630,7 +630,7 @@ describe("a stamped group on the loopback host (ADR 0166 P1)", () => {
     const step = async (n: number) => {
       for (let f = 0; f < n; f++) {
         mixer.update(0.003);
-        backend.update(0.003);
+        loop.tick(0.003);
         const { left } = loop.render(4);
         for (const s of left) out.push(s);
         await Promise.resolve();
