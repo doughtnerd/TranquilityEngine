@@ -14,7 +14,7 @@ import {
   type KernelSystem,
 } from "../../../scene/particleKernel";
 import { hsv, krand, particleSeed, srgbToLinear, valueNoise } from "./kernelMath";
-import { KERNEL_STEPS, type StepFrame } from "./kernelSteps";
+import { KERNEL_STEPS, type ParticleRaycast, type StepFrame } from "./kernelSteps";
 
 type Fn = () => Float64Array;
 
@@ -53,14 +53,14 @@ export class JsKernel {
 
   constructor(
     readonly kernel: KernelSystem,
-    opts: { deadList?: boolean } = {},
+    opts: { deadList?: boolean; raycast?: ParticleRaycast } = {},
   ) {
     this.state = new Float32Array(kernel.capacity * KERNEL_FLOATS);
     this.uniforms = new Float32Array(kernel.uniformVec4 * 4);
     this.lut = new Float32Array(Math.max(1, kernel.luts.length) * LUT_SAMPLES * 4);
     const loc = {} as Record<KLocal, Float64Array>;
     for (const k of Object.keys(LOCAL_WIDTH) as KLocal[]) loc[k] = new Float64Array(LOCAL_WIDTH[k]);
-    this.f = { s: this.state, o: 0, idx: 0, rel: 0, u: this.uniforms, lut: this.lut, loc, step: 0, dies: false, parent: null, capacity: kernel.capacity };
+    this.f = { s: this.state, o: 0, idx: 0, rel: 0, u: this.uniforms, lut: this.lut, loc, step: 0, dies: false, parent: null, capacity: kernel.capacity, raycast: opts.raycast ?? null, prev: new Float64Array(3) };
     this.init = kernel.init.map((s) => this.stmt(s));
     this.update = kernel.update.map((s) => this.stmt(s));
     this.outputs = kernel.outputs.map((o) => o.stmts.map((s) => this.stmt(s)));

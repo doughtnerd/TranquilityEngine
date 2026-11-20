@@ -58,7 +58,8 @@ interface Case {
 }
 
 describe("the kernel steps: one KSL and one JavaScript per step, in agreement (ADR 0251)", () => {
-  const steps = Object.keys(KERNEL_STEPS) as (keyof typeof KERNEL_STEPS)[];
+  // Collider collision is JavaScript only (no KSL): its tests are particleColliders.test.ts.
+  const steps = (Object.keys(KERNEL_STEPS) as (keyof typeof KERNEL_STEPS)[]).filter((k) => KERNEL_STEPS[k].ksl !== "");
 
   for (const name of steps) {
     it(`${name}`, () => {
@@ -93,7 +94,7 @@ describe("the kernel steps: one KSL and one JavaScript per step, in agreement (A
         const sdir = [f32(r() - 0.5), f32(r() - 0.5), f32(r() - 0.5)];
         const v3 = () => [f32(r() * 4 - 2), f32(r() * 4 - 2), f32(r() * 4 - 2)];
         const sc = () => f32(r() * 3);
-        const cases: Record<typeof name, () => Case> = {
+        const cases: Partial<Record<typeof name, () => Case>> = {
           age: () => ({ args: [], st: builtin("age"), call: "k_age" }),
           gravity: () => ({ args: [[sc()]], st: builtin("gravity"), call: "k_gravity" }),
           force: () => ({ args: [v3()], st: builtin("force"), call: "k_force" }),
@@ -112,7 +113,7 @@ describe("the kernel steps: one KSL and one JavaScript per step, in agreement (A
             call: "k_shape",
           }),
         };
-        const c = cases[name]();
+        const c = cases[name]!();
 
         // JavaScript.
         const loc = {} as Record<KLocal, Float64Array>;
@@ -121,7 +122,7 @@ describe("the kernel steps: one KSL and one JavaScript per step, in agreement (A
         loc.spos.set(spos);
         loc.sdir.set(sdir);
         const js = new Float32Array(s);
-        const frame: StepFrame = { s: js, o: 0, idx: 0, rel, u, lut: new Float32Array(4), loc, step, dies: false, parent: null, capacity: 64 };
+        const frame: StepFrame = { s: js, o: 0, idx: 0, rel, u, lut: new Float32Array(4), loc, step, dies: false, parent: null, capacity: 64, raycast: null, prev: new Float64Array(3) };
         KERNEL_STEPS[name].js(frame, c.args.map((a) => Float64Array.from(a)), c.st);
 
         // KSL.

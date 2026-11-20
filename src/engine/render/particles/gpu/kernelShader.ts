@@ -235,6 +235,9 @@ class Emitter {
       case "plane":
         this.lines.push(`k_plane(${arg(0, 1)}, ${arg(1, 1)}, ${arg(2, 1)});`);
         return;
+      case "collidersStart":
+      case "colliders":
+        return; // JavaScript only (ADR 0251): GPU executors skip collider collision
       case "depth":
         this.lines.push(`k_depthCollide(${arg(0, 1)}, ${arg(1, 1)}, ${arg(2, 1)});`);
         return;

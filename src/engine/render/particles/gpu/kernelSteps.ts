@@ -31,7 +31,41 @@ export interface StepFrame {
   parent: Float64Array | null;
   /** The system's capacity. */
   capacity: number;
+  /** The World's ray cast (collider collision, JavaScript only); null without one. */
+  raycast: ParticleRaycast | null;
+  /** Collider collision: the particle's world position before it moved this step. */
+  prev: Float64Array;
 }
+
+/** A world-space ray cast: the nearest hit within `maxDistance` along the unit direction, or null. */
+export type ParticleRaycast = (
+  ox: number,
+  oy: number,
+  oz: number,
+  dx: number,
+  dy: number,
+  dz: number,
+  maxDistance: number,
+) => { point: [number, number, number]; normal: [number, number, number]; distance: number } | null;
+
+/** The particle's position in world space, into `out`. */
+function worldPosition(f: StepFrame, out: Float64Array): void {
+  const s = f.s;
+  const o = f.o;
+  if (f.u[U.flags * 4 + 2] === 1) {
+    out[0] = s[o];
+    out[1] = s[o + 1];
+    out[2] = s[o + 2];
+    return;
+  }
+  const u = f.u;
+  const m = U.matrix * 4;
+  out[0] = u[m] * s[o] + u[m + 4] * s[o + 1] + u[m + 8] * s[o + 2] + u[m + 12];
+  out[1] = u[m + 1] * s[o] + u[m + 5] * s[o + 1] + u[m + 9] * s[o + 2] + u[m + 13];
+  out[2] = u[m + 2] * s[o] + u[m + 6] * s[o + 1] + u[m + 10] * s[o + 2] + u[m + 14];
+}
+
+const hitAt = new Float64Array(3);
 
 export type BuiltinStmt = Extract<KStmt, { s: "builtin" }>;
 
@@ -93,6 +127,95 @@ FN(KV3, k_inverseDir, KV3 v) {
 
 /** The built-in steps but depth collision (GPU only, `DEPTH_STEP_KSL`). */
 export const KERNEL_STEPS: Record<Exclude<BuiltinStmt["b"], "depth">, KernelStep> = {
+  /**
+   * Collider collision, first half (ADR 0096, 0251): keep the world position before the particle moves.
+   * JavaScript only: GPU executors can't ray cast the World's colliders (they collide with the depth buffer).
+   */
+  collidersStart: {
+    ksl: "",
+    js(f) {
+      if (f.raycast) worldPosition(f, f.prev);
+    },
+  },
+  /**
+   * Collider collision: casts from the position `collidersStart` kept to the new one and bounces off (or
+   * dies at) the nearest hit, in world space. args: bounce, friction, kill (0/1), radius. JavaScript only.
+   */
+  colliders: {
+    ksl: "",
+    js(f, arg) {
+      const raycast = f.raycast;
+      if (!raycast) return;
+      const bounce = arg[0][0];
+      const friction = Math.min(1, Math.max(0, arg[1][0]));
+      const kill = arg[2][0] > 0.5;
+      const radius = Math.max(0, arg[3][0]);
+      const a = f.prev;
+      const w = hitAt;
+      worldPosition(f, w);
+      const dx = w[0] - a[0];
+      const dy = w[1] - a[1];
+      const dz = w[2] - a[2];
+      const len = Math.hypot(dx, dy, dz);
+      if (len < 1e-9) return;
+      const hit = raycast(a[0], a[1], a[2], dx / len, dy / len, dz / len, len + radius);
+      if (!hit || hit.distance > len + radius) return;
+      const s = f.s;
+      const o = f.o;
+      if (kill) {
+        f.dies = true;
+        s[o + 3] = s[o + 7];
+        return;
+      }
+      const n = hit.normal;
+      const nl = Math.hypot(n[0], n[1], n[2]) || 1;
+      const nx = n[0] / nl;
+      const ny = n[1] / nl;
+      const nz = n[2] / nl;
+      const off = Math.max(radius, 0.001);
+      const hx = hit.point[0] + nx * off;
+      const hy = hit.point[1] + ny * off;
+      const hz = hit.point[2] + nz * off;
+      const u = f.u;
+      const local = u[U.flags * 4 + 2] !== 1;
+      const m = U.matrix * 4;
+      let vx = s[o + 4];
+      let vy = s[o + 5];
+      let vz = s[o + 6];
+      if (local) {
+        const x = vx;
+        const y = vy;
+        const z = vz;
+        vx = u[m] * x + u[m + 4] * y + u[m + 8] * z;
+        vy = u[m + 1] * x + u[m + 5] * y + u[m + 9] * z;
+        vz = u[m + 2] * x + u[m + 6] * y + u[m + 10] * z;
+      }
+      const vn = vx * nx + vy * ny + vz * nz;
+      if (vn < 0) {
+        const k = 1 - friction;
+        const r = -vn * bounce;
+        vx = (vx - vn * nx) * k + nx * r;
+        vy = (vy - vn * ny) * k + ny * r;
+        vz = (vz - vn * nz) * k + nz * r;
+      }
+      if (!local) {
+        s[o] = hx;
+        s[o + 1] = hy;
+        s[o + 2] = hz;
+        s[o + 4] = vx;
+        s[o + 5] = vy;
+        s[o + 6] = vz;
+        return;
+      }
+      const iv = U.inverse * 4;
+      s[o] = u[iv] * hx + u[iv + 4] * hy + u[iv + 8] * hz + u[iv + 12];
+      s[o + 1] = u[iv + 1] * hx + u[iv + 5] * hy + u[iv + 9] * hz + u[iv + 13];
+      s[o + 2] = u[iv + 2] * hx + u[iv + 6] * hy + u[iv + 10] * hz + u[iv + 14];
+      s[o + 4] = u[iv] * vx + u[iv + 4] * vy + u[iv + 8] * vz;
+      s[o + 5] = u[iv + 1] * vx + u[iv + 5] * vy + u[iv + 9] * vz;
+      s[o + 6] = u[iv + 2] * vx + u[iv + 6] * vy + u[iv + 10] * vz;
+    },
+  },
   /** Age the particle; marks it dying when its life runs out this step. */
   age: {
     ksl: /* KSL */ `FN(void, k_age) {

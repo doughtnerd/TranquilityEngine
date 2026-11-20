@@ -6,6 +6,7 @@ import type { EvalContext } from "../../../scene/particleNodes";
 import type { ParticleEmitterSettings } from "../../../scene/particles";
 import type { LiveBox } from "../simulation";
 import { JsKernel } from "./kernelJs";
+import type { ParticleRaycast } from "./kernelSteps";
 import { KernelSpawner } from "./spawner";
 
 /** Camera data for depth collision (null when there's no depth texture). */
@@ -51,8 +52,8 @@ export class JsRun implements KernelRun {
   readonly kind = "js" as const;
   readonly js: JsKernel;
   /** `deadList` (default on, ADR 0126): full systems stop spawning instead of replacing their oldest particles. */
-  constructor(kernel: KernelSystem, opts: { deadList?: boolean } = {}) {
-    this.js = new JsKernel(kernel, { deadList: opts.deadList ?? true });
+  constructor(kernel: KernelSystem, opts: { deadList?: boolean; raycast?: ParticleRaycast } = {}) {
+    this.js = new JsKernel(kernel, { deadList: opts.deadList ?? true, raycast: opts.raycast });
   }
   get alive(): number {
     return this.js.aliveCount;
