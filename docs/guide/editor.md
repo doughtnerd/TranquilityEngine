@@ -31,6 +31,8 @@ Disabled items say why in their tooltip ("nothing selected", "stop playing to ed
 
 **Play shortcuts.** Ctrl+P plays and stops. Ctrl+Shift+P pauses and resumes; F10 or Ctrl+Alt+P steps one frame (Cmd instead of Ctrl on macOS).
 
+**Editing while playing.** As in Unity, Play switches the Hierarchy and Inspector to the running game (the World playing the scene; the **Show** list picks another). Changes made there affect the running game and are gone when you stop, unless you choose **Keep values**. The scene file can't be changed while playing: pick **Scene file (read-only)** to look at it, and every edit says "Stop playing to edit the scene."
+
 **Keyboard.** Press and release **Alt** on its own to focus the first menu. Then:
 
 - Left and Right move between menus (and switch the open one).

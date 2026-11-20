@@ -147,7 +147,7 @@ export function createNote(folder: string): Promise<string | null> {
   scene, `createFile`, `freePath`.
 - `editor.assets`: a path's kind (`kindOf`), `fileName`, `folderOf`, import settings, `reveal`.
 - `editor.messages`: `info`, `error` and `failed(context, err)` in the status bar.
-- `editor.scene`: the open scene (`open`), its tabs, the selection and the play state.
+- `editor.scene`: the open scene (`open`), its tabs, the selection and the play state; `writeField(place, field, value)` sets a component field (an override inside a prefab instance, refused while playing, when the scene file is read-only), `edit`/`beginEdit` make several writes one undo step, and `useFieldDrag` makes a drag on an Inspector control one step.
 
 Reading `editor.project.current` or `editor.project.version` in a component re-renders it when they
 change. `myco/editor` also has the Inspector and settings fields (`TextField`, `NumberField`, `Row`),

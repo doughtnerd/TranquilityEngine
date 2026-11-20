@@ -1,6 +1,6 @@
 # 0246. One node insertion module puts new, pasted, duplicated and added nodes into a scene
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0258 (Hierarchy drops on rows inside an instance insert `addNodes` overrides; drop geometry has its own module)
 - **Date:** 2026-11-20
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
@@ -63,7 +63,7 @@ Removed: `createNode`, `whyNotCreatable`, `uniqueNodeName`, `newNodeEntry` (`nod
 
 ## Open questions
 
-- Should Hierarchy drops on rows inside an instance become overrides too? That needs drop geometry for inner rows, shared with node moves, which stay refused there.
+- ~~Should Hierarchy drops on rows inside an instance become overrides too? That needs drop geometry for inner rows, shared with node moves, which stay refused there.~~ Yes (ADR 0258): `hierarchyDrop.ts` owns the geometry; the middle of an inner row inserts into it, its edges into its parent; moving scene nodes there is refused with one reason.
 
 ## References
 
