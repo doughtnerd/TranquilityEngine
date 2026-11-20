@@ -11,9 +11,10 @@ import { openSegment } from "./index";
 import { beginDrag, dragLabel, type DragHandle, type DragSession } from "./segmentDrag";
 import { SNAP_MODES, type SnapMode } from "./segmentSnap";
 import {
-  clampViewport, findSegment, fitViewport, followPlayhead, gridLines, positionAtX, replaceSegment, scrollBy, secondsToX, tempoLane,
+  clampViewport, fitViewport, followPlayhead, gridLines, positionAtX, scrollBy, secondsToX, tempoLane,
   ticksToX, xToSeconds, zoomAt, type Viewport,
 } from "./segmentViewModel";
+import { findMusicSegment, replaceMusicNode } from "../../../../engine/audio/musicTree";
 import { peaksFor } from "./peaksHost";
 import type { PeaksService } from "./peaks";
 import { TransportBar } from "./TransportBar";
@@ -439,7 +440,7 @@ function OpenSegment({ path, segmentId }: { path: string; segmentId: string }) {
   const doc = openAssetDocument<AudioEventAsset>(project, path, "audioEvent");
   useEffect(() => () => void doc.flush(), [doc]);
   const event = doc.value.value;
-  const segment = useMemo(() => findSegment(event.musicRoot, segmentId), [event.musicRoot, segmentId]);
+  const segment = useMemo(() => findMusicSegment(event.musicRoot, segmentId), [event.musicRoot, segmentId]);
   const grid = useMemo(() => (segment ? compileSegmentGrid(segment, { endSeconds: NaN }) : null), [segment]);
   // The transport (ticking, solo and mute, its lifetime) is the transport service's (F-33): a tab switch to Segment
   // Properties unmounts this view, and the audition goes on.
@@ -449,7 +450,7 @@ function OpenSegment({ path, segmentId }: { path: string; segmentId: string }) {
   if (!segment || !grid) return <p class="empty">{path} has no segment “{segmentId}”.</p>;
   const onChange: SegmentChange = (next, o) => {
     if (!event.musicRoot) return;
-    doc.edit({ ...event, musicRoot: replaceSegment(event.musicRoot, segmentId, next) }, o.drag ? { coalesce: true, label: o.label } : { label: o.label });
+    doc.edit({ ...event, musicRoot: replaceMusicNode(event.musicRoot, segmentId, next) }, o.drag ? { coalesce: true, label: o.label } : { label: o.label });
   };
   const request = (seconds: number) => ({ event: path, segmentId, grid, parameters, startAtSegment: true, from: { kind: "seconds", seconds } as const });
   return (

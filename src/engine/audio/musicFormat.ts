@@ -234,12 +234,6 @@ export type MusicNode = SegmentNode | PlaylistNode | MusicSwitchNode;
 export const isMusicContainer = (node: { type: string }): node is PlaylistNode | MusicSwitchNode =>
   node.type === "playlist" || node.type === "musicSwitch";
 
-/** A node's music children: a container's `children`, none for a segment. */
-export const musicChildrenOf = (node: MusicNode): readonly MusicNode[] => (isMusicContainer(node) ? node.children : []);
-
-/** The child of `node` with this id (direct children only), or undefined. */
-export const musicChildById = (node: MusicNode, id: string): MusicNode | undefined => musicChildrenOf(node).find((c) => c.id === id);
-
 /** True when `type` is a music node type (F1b's dispatch in `eventFormat.ts`). */
 export const isMusicNodeType = (type: unknown): type is MusicNodeType =>
   typeof type === "string" && (MUSIC_NODE_TYPES as readonly string[]).includes(type);

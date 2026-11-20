@@ -10,10 +10,8 @@ import { formatAudioEvent, parseAudioEvent, type AudioEventAsset } from "../../.
 import type { MusicNode, MusicSwitchNode, PlaylistNode, SegmentNode } from "../../../../engine/audio/musicFormat";
 import { useEditorPlugins } from "../../../testEditorPlugins";
 import { audioEditorPlugin } from "..";
-import {
-  addMusicNode, canDuplicateMusic, canRemoveMusic, duplicateMusicNode, freshMusicId, getMusicNode, isLibraryPath, musicIdProblem, musicIds,
-  musicNodePaths, parameterUses, parsePathKey, pathKey, removeMusicNode, renameMusicId, renameParameter, reorderMusicNode, setMusicNode,
-} from "./eventTreeModel";
+import { addMusicNode, canDuplicateMusic, canRemoveMusic, duplicateMusicNode, freshMusicId, musicIdProblem, musicIds, parameterUses, parsePathKey, pathKey, removeMusicNode, renameMusicId, renameParameter, reorderMusicNode } from "./eventTreeModel";
+import { isLibraryPath, musicEntries, musicNodeAt, replaceMusicNodeAt } from "../../../../engine/audio/musicTree";
 import {
   coerceField, musicNodeFields, newStinger, patchStinger, readField, stingerAtFrom, stingerAtKind, writeField, type FieldDescriptor,
 } from "./nodeFields";
@@ -76,11 +74,11 @@ describe("the fixture", () => {
 describe("paths", () => {
   it("name library segments beside children and round trip through a key", () => {
     const root = music();
-    const entries = musicNodePaths(root);
+    const entries = musicEntries(root);
     expect(entries.map((e) => pathKey(e.path))).toEqual(["", "0", "1", "1/0", "1/1", "1/lib0", "lib0"]);
     for (const e of entries) {
       expect(parsePathKey(pathKey(e.path))).toEqual(e.path);
-      expect(getMusicNode(root, e.path)).toBe(e.node);
+      expect(musicNodeAt(root, e.path)).toBe(e.node);
     }
     expect(isLibraryPath(["1", "lib0"].map((s) => (s === "1" ? 1 : s)) as never)).toBe(true);
     expect(isLibraryPath([1, 0])).toBe(false);
@@ -129,16 +127,16 @@ describe("adding", () => {
     const root = music();
     const into = ok(addMusicNode(root, [], "segment"));
     expect(into.path).toEqual([2]);
-    expect(getMusicNode(into.root, into.path)?.id).toBe("segment");
+    expect(musicNodeAt(into.root, into.path)?.id).toBe("segment");
     expectRoundTrip(into.root);
     const after = ok(addMusicNode(into.root, [0], "playlist"));
     expect(after.path).toEqual([1]);
-    expect(getMusicNode(after.root, [1])?.type).toBe("playlist");
+    expect(musicNodeAt(after.root, [1])?.type).toBe("playlist");
     const ev = ok(addMusicNode(root, null, "musicSwitch")); // the event row means the root
-    expect(getMusicNode(ev.root, ev.path)?.type).toBe("musicSwitch");
+    expect(musicNodeAt(ev.root, ev.path)?.type).toBe("musicSwitch");
     expectRoundTrip(ev.root);
     const twice = ok(addMusicNode(into.root, [], "segment"));
-    expect(getMusicNode(twice.root, twice.path)?.id).toBe("segment-2");
+    expect(musicNodeAt(twice.root, twice.path)?.id).toBe("segment-2");
   });
 
   it("puts a library segment into the container of the selection", () => {
@@ -200,20 +198,20 @@ describe("reordering and duplicating", () => {
   });
 
   it("copies a subtree with fresh ids and its own rules following them", () => {
-    const withRules = setMusicNode(music(), [1], {
+    const withRules = replaceMusicNodeAt(music(), [1], {
       ...(music().children[1] as PlaylistNode),
       transitions: [{ from: "c1", to: "c2", exit: "bar", enter: "entryCue", fadeOut: { unit: "beats", amount: 1, offset: 0, curve: "equalPower" }, fadeIn: { unit: "beats", amount: 1, offset: 0, curve: "equalPower" } }],
     } as PlaylistNode);
     expect(canDuplicateMusic(withRules, [1])).toBe(true);
     const dup = duplicateMusicNode(withRules, [1]);
     expect(dup.path).toEqual([2]);
-    const copy = getMusicNode(dup.root, dup.path) as PlaylistNode;
+    const copy = musicNodeAt(dup.root, dup.path) as PlaylistNode;
     expect(copy.id).toBe("combat-2");
     expect(copy.children.map((c) => c.id)).toEqual(["c1-2", "c2-2"]);
     expect(copy.library.map((c) => c.id)).toEqual(["sting-2"]);
     expect(copy.transitions.map((r) => `${r.from}>${r.to}`)).toEqual(["c1-2>c2-2"]);
     expect(copy.stingers[0].segment).toBe("sting-2");
-    expect(getMusicNode(dup.root, [1])).toBe(getMusicNode(withRules, [1])); // the original is untouched
+    expect(musicNodeAt(dup.root, [1])).toBe(musicNodeAt(withRules, [1])); // the original is untouched
     expectRoundTrip(dup.root);
   });
 
@@ -273,13 +271,13 @@ describe("musicNodeFields", () => {
     const cleared = writeField(set, exit, coerceField(exit, ""));
     expect("exit" in cleared).toBe(false);
     expect(coerceField(exit, "nope")).toBeUndefined();
-    expectRoundTrip(setMusicNode(music(), [0], set));
+    expectRoundTrip(replaceMusicNodeAt(music(), [0], set));
   });
 
   it("field writes read back", () => {
     const root = music();
     const volume = fieldNamed(musicNodeFields(root, null), "volume")!;
-    const next = setMusicNode(root, [], writeField(root, volume, 0.5));
+    const next = replaceMusicNodeAt(root, [], writeField(root, volume, 0.5));
     expect((next as MusicSwitchNode).volume).toBe(0.5);
     expectRoundTrip(next);
   });

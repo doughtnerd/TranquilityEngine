@@ -3,7 +3,8 @@
 // resolves with); the rest read the rule against the container's children and library. Clip lengths are optional
 // facts (`LintContext.lengthOf`): a row that needs a length stays quiet until it is known.
 import { analyzeTransitionRules, ruleKey, RULE_WILDCARD, type TransitionFade } from "../../../../engine/audio/musicRules";
-import { isMusicContainer, type MusicContainerNode, type MusicNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
+import type { MusicContainerNode, SegmentNode } from "../../../../engine/audio/musicFormat";
+import { musicLeaves } from "../../../../engine/audio/musicTree";
 import { buildRulesGrid } from "./rulesModel";
 
 export type RuleLintCode =
@@ -28,17 +29,11 @@ export interface LintContext {
   readonly lengthOf?: (segmentId: string) => number | undefined;
 }
 
-/** Every segment under `node` (itself when it is one), in tree order. */
-export function leafSegments(node: MusicNode): SegmentNode[] {
-  if (node.type === "segment") return [node];
-  return isMusicContainer(node) ? node.children.flatMap(leafSegments) : [];
-}
-
 /** The segments an end of a rule (`from` or `to`) can mean: the named child's, or every direct child's for `*`. */
 export function endSegments(container: MusicContainerNode, id: string): SegmentNode[] {
-  if (id === RULE_WILDCARD) return container.children.flatMap(leafSegments);
+  if (id === RULE_WILDCARD) return container.children.flatMap((c) => musicLeaves(c));
   const child = container.children.find((c) => c.id === id);
-  return child ? leafSegments(child) : [];
+  return child ? musicLeaves(child) : [];
 }
 
 /** Seconds of a fade on `segment`: beats at its first marker's tempo (a beat is `60 / bpm` seconds). */

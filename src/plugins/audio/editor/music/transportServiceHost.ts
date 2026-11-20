@@ -7,7 +7,7 @@ import { openSegment } from "./index";
 import { audibleStems, auditionKey, auditionOf } from "./stemAudition";
 import type { Transport } from "./transport";
 import { startTransportService } from "./transportService";
-import { findSegment } from "./segmentViewModel";
+import { findMusicSegment } from "../../../../engine/audio/musicTree";
 
 export function startMusicTransportService(transport: Transport): () => void {
   return startTransportService(transport, {
@@ -19,7 +19,7 @@ export function startMusicTransportService(transport: Transport): () => void {
       const open = openSegment.value;
       const project = editor.project.current;
       if (!open || !project || !project.files.includes(open.event)) return undefined;
-      const segment = findSegment(openAssetDocument<AudioEventAsset>(project, open.event, "audioEvent").value.value.musicRoot, open.segmentId);
+      const segment = findMusicSegment(openAssetDocument<AudioEventAsset>(project, open.event, "audioEvent").value.value.musicRoot, open.segmentId);
       if (!segment) return undefined;
       const state = auditionOf(auditionKey(open.event, open.segmentId));
       const audible = state.solo.length > 0 || state.mute.length > 0 ? audibleStems(segment.tracks, state) : null;

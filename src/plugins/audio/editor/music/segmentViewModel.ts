@@ -7,7 +7,6 @@
 // Stubs tagged `L-Ed2a` are filled by that leaf; everything else here is the lead's.
 import { ticksToPosition, ticksToSeconds, secondsToTicks, type TempoMap } from "../../../../engine/audio/musicGrid";
 import { MUSIC_TICKS_PER_BEAT, type BarBeatTick } from "../../../../engine/audio/musicPosition";
-import { isMusicContainer, type MusicNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
 
 // --- the viewport (lead) --------------------------------------------------------------------------------------------
 
@@ -252,26 +251,3 @@ export function positionAtX(map: TempoMap, view: Viewport, x: number): BarBeatTi
 /** The ticks of one beat, re-exported so the view and Ed3 need not import the grid for the constant. */
 export const TICKS_PER_BEAT = MUSIC_TICKS_PER_BEAT;
 
-// --- finding a segment in an event (lead) ---------------------------------------------------------------------------
-
-/** The segment node with `id` anywhere under `root` (children and `library` of the music containers), or null. */
-export function findSegment(root: MusicNode | undefined, id: string): SegmentNode | null {
-  if (!root) return null;
-  if (root.type === "segment") return root.id === id ? root : null;
-  if (!isMusicContainer(root)) return null;
-  for (const n of [...root.children, ...root.library]) {
-    const hit = findSegment(n, id);
-    if (hit) return hit;
-  }
-  return null;
-}
-
-/** `root` with the segment `id` replaced by `next` (structure shared elsewhere); `root` itself when `id` is not there. */
-export function replaceSegment(root: MusicNode, id: string, next: SegmentNode): MusicNode {
-  if (root.type === "segment") return root.id === id ? next : root;
-  if (!isMusicContainer(root)) return root;
-  const children = root.children.map((n) => replaceSegment(n, id, next));
-  const library = root.library.map((n) => replaceSegment(n, id, next) as SegmentNode);
-  const same = children.every((n, i) => n === root.children[i]) && library.every((n, i) => n === root.library[i]);
-  return same ? root : { ...root, children, library };
-}

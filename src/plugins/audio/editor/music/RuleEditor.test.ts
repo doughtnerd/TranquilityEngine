@@ -7,7 +7,7 @@ import {
   addRule, checkFade, duplicateRule, gridSpec, moveRule, removeRule, setBridge, setBridgeOwnFade, setEnter, setExit, setFade, setRuleEnds, type RuleEdit,
 } from "./ruleEdits";
 import { containerOf, segmentRaw, switchEvent } from "./ruleFixtures";
-import { replaceContainer } from "./rulesModel";
+import { replaceMusicNode } from "../../../../engine/audio/musicTree";
 
 const cues = { cues: [{ name: "drop", at: "2:1:0" }] };
 const base = (): AudioEventAsset => switchEvent([{ from: "a", to: "b" }, { from: "b" }], { children: [segmentRaw("a"), segmentRaw("b", cues), segmentRaw("c")] });
@@ -17,7 +17,7 @@ const err = (e: RuleEdit): string => ("error" in e ? e.error : "");
 /** Apply an edit the way the panel does and push the result through the writer. */
 function roundTrip(event: AudioEventAsset, e: RuleEdit, expected: string[] = []): MusicContainerNode {
   if ("error" in e) throw new Error(e.error);
-  const next: AudioEventAsset = { ...event, musicRoot: replaceContainer(event.musicRoot!, "s", e.container) };
+  const next: AudioEventAsset = { ...event, musicRoot: replaceMusicNode(event.musicRoot!, "s", e.container) };
   const text = formatAudioEvent(next);
   const again = parseAudioEvent(JSON.parse(text));
   expect(again.problems.map((p) => p.replace(/^root\.transitions\[\d+\]: /, "").replace(/ \(.*$/, ""))).toEqual(expected);
@@ -123,22 +123,5 @@ describe("the bridge", () => {
     expect(err(setBridge(c, 0, "nope"))).toMatch(/not in/);
     expect(err(setFade(c, 0, "bridgeFadeIn", { amount: 1 }))).toMatch(/no bridge/);
     expect(err(setBridgeOwnFade(c, 0, "fadeIn", true))).toMatch(/no bridge/);
-  });
-});
-
-describe("replaceContainer", () => {
-  it("replaces the root, a nested container, and leaves other ids alone", () => {
-    const event = switchEvent([], { children: [segmentRaw("a")] });
-    const root = containerOf(event);
-    const next = { ...root, transitions: [] };
-    expect(replaceContainer(root, "s", next)).toBe(next);
-    expect(replaceContainer(root, "other", next)).toBe(root);
-    const nested = parseAudioEvent({
-      format: "myco.audioevent@1",
-      root: { type: "playlist", id: "outer", children: [{ type: "musicSwitch", id: "inner", parameter: "p", children: [segmentRaw("a")] }] },
-    }).value.musicRoot as MusicContainerNode;
-    const inner = nested.children[0] as MusicContainerNode;
-    const swapped = replaceContainer(nested, "inner", { ...inner, parameter: "q" } as MusicContainerNode) as MusicContainerNode;
-    expect((swapped.children[0] as { parameter: string }).parameter).toBe("q");
   });
 });

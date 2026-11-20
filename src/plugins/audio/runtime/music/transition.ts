@@ -72,7 +72,8 @@
  */
 import type { MusicGroupStamp, ShapedFade } from "../backend";
 import { fadeInLaw, fadeOutLaw } from "../fadeLaw";
-import { isMusicContainer, musicChildrenOf, type MusicNode } from "../../../../engine/audio/musicFormat";
+import type { MusicNode } from "../../../../engine/audio/musicFormat";
+import { findMusicContainer } from "../../../../engine/audio/musicTree";
 import { exitSeconds, type SegmentGrid } from "../../../../engine/audio/musicGrid";
 import type { MusicFrame, MusicPlayer } from "./musicSystem";
 import {
@@ -216,22 +217,10 @@ function resolveSegment(player: MusicPlayer, node: MusicNode, depth = 0): MusicN
   return child ? resolveSegment(player, child, depth + 1) : null;
 }
 
-/** The container with id `id` in the music tree under `node` (children only), or null. */
-function containerById(node: MusicNode, id: string, depth = 0): MusicNode | null {
-  if (node.id === id) return node;
-  if (depth >= MAX_DEPTH) return null;
-  for (const c of musicChildrenOf(node)) {
-    const found = containerById(c, id, depth + 1);
-    if (found) return found;
-  }
-  return null;
-}
-
 /** R3b: the bridge segment a match names, from the `library` of the container whose table matched; null for none. */
 function bridgeOf(player: MusicPlayer, match: RuleMatch): MusicNode | null {
   if (!match.bridge || !match.parent) return null;
-  const container = containerById(player.root, match.parent);
-  const library = container && isMusicContainer(container) ? container.library : [];
+  const library = findMusicContainer(player.root, match.parent)?.library ?? [];
   return library.find((s) => s.id === match.bridge && s.type === "segment") ?? null;
 }
 

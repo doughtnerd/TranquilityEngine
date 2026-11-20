@@ -9,7 +9,7 @@
 import { ticksToPosition, compileSegmentGrid, type SegmentGrid } from "../../../../engine/audio/musicGrid";
 import type { AudioEventAsset } from "../../../../engine/audio/eventFormat";
 import type { MusicContainerNode } from "../../../../engine/audio/musicFormat";
-import { leafSegments } from "./ruleLint";
+import { musicLeaves } from "../../../../engine/audio/musicTree";
 import { effectiveRule, ruleMatchesPair } from "./rulesModel";
 import type { Transport, TransportTarget } from "./transport";
 
@@ -69,7 +69,7 @@ export function planTransitionAudition(
   if (!pair) return refuse("This rule wins no pair of two different children, so no change reaches it.");
   const fromNode = container.children.find((c) => c.id === pair.from)!;
   const toNode = container.children.find((c) => c.id === pair.to)!;
-  const start = leafSegments(fromNode)[0];
+  const start = musicLeaves(fromNode)[0];
   if (!start) return refuse(`${pair.from} has no segment to start in.`);
   const grid = compileSegmentGrid(start, { endSeconds: NaN });
 
