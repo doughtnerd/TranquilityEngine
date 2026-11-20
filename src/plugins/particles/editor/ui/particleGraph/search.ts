@@ -1,13 +1,15 @@
 // What the Particle Graph's search offers (ADR 0060), by where it opened: over a context, the
 // blocks that fit there; on the canvas, new systems from templates, value and operator nodes by
-// category, the Blackboard's properties and event nodes.
+// category, the Blackboard's properties and event nodes. And what find (Ctrl+F, ADR 0117, 0259)
+// reads in a particle graph: systems by name and their blocks, nodes by title, type and settings.
 import type { ContextKind, ParticleGraph } from "../../../../../engine/scene/particleGraph";
-import { blocksFor } from "../../../../../engine/scene/particleBlocks";
-import { ASSET_BLOCK, ASSET_INPUT, ASSET_OUTPUT, type AssetMeta } from "../../particleGraph/assetDocs";
+import { blockDef, blocksFor } from "../../../../../engine/scene/particleBlocks";
+import { ASSET_BLOCK, ASSET_INPUT, ASSET_OUTPUT, editorNodeDef, type AssetMeta } from "../../particleGraph/assetDocs";
+import type { AssetResolver } from "../../../../../engine/scene/particleSubgraphs";
 import { NODES, type NodeCategory } from "../../../../../engine/scene/particleNodes";
 import type { TemplateKind } from "../../particleGraph/graphEdit";
 import { CONTEXT_TITLES } from "./layout";
-import type { SearchItem } from "../../../../../editor/sdk";
+import type { FindItem, SearchItem } from "../../../../../editor/sdk";
 
 export type SearchPick = { kind: "block"; type: string } | { kind: "node"; type: string; settings?: Record<string, unknown> } | { kind: "system"; template: TemplateKind };
 
@@ -76,3 +78,28 @@ export function assetCanvasItems(meta: AssetMeta): GraphSearchItem[] {
 
 /** Nodes only (when a dropped wire asks for something to connect to). */
 export const nodeItems = (graph: ParticleGraph): GraphSearchItem[] => canvasItems(graph).filter((i) => i.pick.kind === "node");
+
+/**
+ * The particle graph's canvas items as find reads them, systems then nodes: a system by its name and
+ * its blocks' labels and types; a node by the title drawn on it (a property node's property name),
+ * its type and label, and its text settings (an event's name…).
+ */
+export function particleFindItems(graph: ParticleGraph, resolve?: AssetResolver): FindItem[] {
+  const items: FindItem[] = [];
+  for (const s of graph.systems) {
+    const fields: [string, string][] = [["title", s.name], ["type", "system"]];
+    for (const ctx of [s.spawn, s.initialize, s.update, s.output, ...(s.extraOutputs ?? [])]) {
+      for (const b of ctx.blocks) fields.push(["block", `${blockDef(b.type)?.label ?? ""} ${b.type}`]);
+    }
+    items.push({ id: s.id, label: s.name, fields });
+  }
+  for (const n of graph.nodes) {
+    const label = editorNodeDef(n, resolve)?.label ?? n.type;
+    const title = n.type === "property" && n.settings?.name ? String(n.settings.name) : label;
+    const fields: [string, string][] = [["title", title], ["type", `${n.type} ${label}`]];
+    if (n.type === "property" && n.settings?.name) fields.push(["property", String(n.settings.name)]);
+    for (const v of Object.values(n.settings ?? {})) if (typeof v === "string" && v) fields.push(["setting", v]);
+    items.push({ id: n.id, label: title, fields });
+  }
+  return items;
+}

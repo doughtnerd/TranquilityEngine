@@ -1,8 +1,9 @@
 // Stories (ADR 0219, 0235) for the Shader Graph panel: the selection and shortcuts every graph panel shares (ADR 0228,
 // `useGraphSelection`) as a user drives them, each edit checked in the file the graph's asset document writes. These
 // are the coverage of copy, paste, duplicate and group in the Shader Graph: the e2e spec that does them in the whole
-// editor needs WebGPU for the panel's preview and is skipped where there is none. The preview here draws nothing (no
-// GPU in the headless story browser) and nothing below reads it.
+// editor needs WebGPU for the panel's preview and is skipped where there is none. Also the wiring gesture and find the
+// graph layer runs for both graphs (ADR 0259). The preview here draws nothing (no GPU in the headless story browser)
+// and nothing below reads it.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { expect, fireEvent, userEvent, waitFor, within } from "storybook/test";
 import { editor } from "../../../editor/sdk";
@@ -188,5 +189,75 @@ export const BoxSelect: Story = {
     // Delete takes the box's nodes.
     await userEvent.keyboard("{Delete}");
     await waitFor(async () => expect(ids(await saved())).toEqual(["output", "lerp1"]));
+  },
+};
+
+/** Where an element's middle is on screen. */
+const middle = (el: Element) => {
+  const r = el.getBoundingClientRect();
+  return { clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 };
+};
+
+/** Press a port and move the wire's loose end over `to` (xyflow follows the mouse on the document); `release` lets go there. */
+function dragWire(from: Element, to: Element | { clientX: number; clientY: number }) {
+  const a = middle(from), b = to instanceof Element ? middle(to) : to;
+  fireEvent.mouseDown(from, { ...a, button: 0, buttons: 1 });
+  for (let i = 1; i <= 6; i++) fireEvent.mouseMove(document, { clientX: a.clientX + ((b.clientX - a.clientX) * i) / 6, clientY: a.clientY + ((b.clientY - a.clientY) * i) / 6, buttons: 1 });
+  return { release: () => fireEvent.mouseUp(document, { ...b, button: 0 }) };
+}
+
+export const WiringGesture: Story = {
+  play: async ({ canvasElement, step }) => {
+    const p = await openGraph(canvasElement);
+    const c = within(canvasElement);
+    // Room to see the ports: fill the window, then frame everything.
+    await userEvent.click(c.getByRole("button", { name: "Maximize" }));
+    await userEvent.click(c.getByRole("button", { name: "Frame" }));
+    const portOf = (node: string, port: string, side: "source" | "target") => p.node(node)!.querySelector<HTMLElement>(`[data-handleid="${port}"].${side}`)!;
+    await step("a wire held over a port that refuses it says why, and letting go there changes nothing", async () => {
+      const drag = dragWire(portOf("lerp1", "out", "source"), portOf("lerp1", "t", "target"));
+      expect(await c.findByRole("tooltip")).toHaveTextContent("a node can't connect to itself");
+      drag.release();
+      await waitFor(() => expect(c.queryByRole("tooltip")).toBeNull());
+      expect((await saved()).edges).toEqual(water.edges);
+    });
+    await step("pressing a wired input picks its wire up from the input end; let go on another input, the wire moves", async () => {
+      dragWire(portOf("lerp1", "b", "target"), portOf("lerp1", "t", "target")).release();
+      await waitFor(async () => expect((await saved()).edges).toEqual([water.edges[0], water.edges[2], { from: "shallow.out", to: "lerp1.t" }]));
+    });
+    await step("a picked-up wire let go in empty space is removed, and opens no search", async () => {
+      const r = p.pane().getBoundingClientRect();
+      dragWire(portOf("lerp1", "t", "target"), { clientX: r.left + 30, clientY: r.bottom - 30 }).release();
+      await waitFor(async () => expect((await saved()).edges).toEqual([water.edges[0], water.edges[2]]));
+      expect(c.queryByRole("dialog", { name: "Add node" })).toBeNull();
+    });
+  },
+};
+
+export const FindInGraph: Story = {
+  play: async ({ canvasElement, step }) => {
+    const p = await openGraph(canvasElement);
+    const c = within(canvasElement);
+    await step("Ctrl+F opens find; a property's name finds its node, and Enter selects it", async () => {
+      await p.pick("output");
+      await userEvent.keyboard("{Control>}f{/Control}");
+      const box = c.getByRole("textbox", { name: "Find in graph" });
+      await waitFor(() => expect(box).toHaveFocus());
+      await userEvent.type(box, "deep");
+      await userEvent.keyboard("{Enter}");
+      expect(p.selected()).toEqual(["deep"]);
+    });
+    await step("a group's title selects its members", async () => {
+      const box = c.getByRole("textbox", { name: "Find in graph" });
+      await userEvent.clear(box);
+      await userEvent.type(box, "colour");
+      expect(c.getByRole("search", { name: "Find in graph" })).toHaveTextContent("Colour");
+      await userEvent.keyboard("{Enter}");
+      expect(p.selected().sort()).toEqual(["deep", "shallow"]);
+    });
+    await step("the toolbar's Find button closes it", async () => {
+      await userEvent.click(c.getByRole("button", { name: "Find" }));
+      expect(c.queryByRole("search", { name: "Find in graph" })).toBeNull();
+    });
   },
 };

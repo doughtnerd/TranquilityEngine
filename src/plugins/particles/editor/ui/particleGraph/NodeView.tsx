@@ -11,9 +11,8 @@ import { NumField } from "../particles/valueInputs";
 import { Port, ProblemBadge } from "./BlockView";
 import { useGraphEditor } from "./editorContext";
 import { NODE_WIDTH } from "./layout";
-import { useCanvasDrag, type DragHooks } from "./SystemView";
 import { AssetValue, ChoiceValue, ColorSwatch, CurveValue, GradientValue, InlineValue, VectorValue, asGradient, asKeys } from "./valueFields";
-import { editor, NO_DRAG, NO_PAN, NO_WHEEL, px, type Point } from "../../../../../editor/sdk";
+import { editor, NO_DRAG, NO_PAN, NO_WHEEL, px, useNodeDrag, type GraphDragHooks, type Point } from "../../../../../editor/sdk";
 
 function SettingField(props: { node: GraphNode; setting: NodeSettingDef }) {
   const { graph, readOnly, commit, assets } = useGraphEditor();
@@ -82,12 +81,12 @@ function SettingField(props: { node: GraphNode; setting: NodeSettingDef }) {
   }
 }
 
-export function NodeView(props: { node: GraphNode; at: Point; selected: boolean; onDown(e: PointerEvent, id: string): void; drag: DragHooks }) {
+export function NodeView(props: { node: GraphNode; at: Point; selected: boolean; onDown(e: PointerEvent, id: string): void; drag: GraphDragHooks }) {
   const api = useGraphEditor();
   const { node, at } = props;
   const { graph } = api;
   const el = useRef<HTMLDivElement>(null);
-  useCanvasDrag(el, node.id, api.readOnly, props.drag);
+  useNodeDrag(el, node.id, api.readOnly, props.drag);
   const def = editorNodeDef(node, api.resolve);
   const label = def?.label ?? `Unknown node ${node.type}`;
   const title = node.type === "property" && node.settings?.name ? String(node.settings.name) : label;

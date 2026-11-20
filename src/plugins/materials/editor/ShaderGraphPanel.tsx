@@ -33,14 +33,13 @@ import {
   setInput,
   setPropertyType,
   setSetting,
-  sourceOf,
-  whyNotConnect,
+  shaderWiring,
 } from "./shaderGraph/graphEdit";
 import { HEADER, PREVIEW, ROW, inlineFields, nodeBox, nodeTitle, portOffset, settingValue, type NodeBox } from "./shaderGraph/nodeLayout";
 import { createMaterialForGraph, SHADER_GRAPH_PANEL, shaderGraphDocument } from "./shaderGraphAssets";
-import { searchGraph, cycleIndex } from "./shaderGraph/graphSearch";
+import { shaderFindItems } from "./shaderGraph/graphSearch";
 import { PropertyValue, numberValue, toHex2 } from "./ShaderPropertyValue";
-import { editor, type EditorProject, NO_DRAG, NO_PAN, NO_WHEEL, NoteView, NodeSearchPopup, Minimap, SelectionBox, createNodeDrag, handleProps, isFieldTarget, px, startConnection, startPointerDrag, toGraph, useGraphCanvas, useGraphSelection, wirePath, type CanvasNode, type DraftWire, type Point, type SearchItem, type View, Panel } from "../../../editor/sdk";
+import { editor, type EditorProject, NO_DRAG, NO_PAN, NO_WHEEL, NoteView, NodeSearchPopup, Minimap, SelectionBox, GraphFindBox, WireRefusal, handleProps, px, toGraph, useGraphCanvas, useGraphFind, useGraphSearch, useGraphSelection, useGraphWiring, useNodeDrag, wirePath, type CanvasNode, type GraphDragHooks, type Point, type SearchItem, Panel } from "../../../editor/sdk";
 import "../../../editor/graph/graph.css";
 import "./shaderGraph.css";
 
@@ -84,29 +83,24 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
   const parseProblems = doc.problems.value.map((p) => p.message);
   useEffect(() => () => void doc.flush(), [doc]); // write a pending drag or value change when the panel closes
   const [selectedEdge, setSelectedEdge] = useState<string | null>(null);
-  const [dragging, setDragging] = useState<Map<string, Point> | null>(null);
-  const [draft, setDraft] = useState<DraftWire | null>(null);
-  const [detached, setDetached] = useState<string | null>(null);
-  const [search, setSearch] = useState<{ at: Point; pending: Pending } | null>(null);
-  /** The Ctrl+F find box (ADR 0117): the query and the result shown. */
-  const [find, setFind] = useState<{ query: string; index: number } | null>(null);
-  const findInput = useRef<HTMLInputElement>(null);
   const [showCode, setShowCode] = useState(false);
   const [maximized, setMaximized] = useState(false);
   const [shaderError, setShaderError] = useState<string | null>(null);
 
   const root = useRef<HTMLDivElement>(null);
-  // Selection, box select and the shared shortcuts (ADR 0228); a selected wire is this panel's own.
+  // Selection, box select, item drags and the shared shortcuts (ADR 0228, 0259); a selected wire is this panel's own.
   const keys = useGraphSelection({
     edits: shaderGraphEdits,
     graph: () => doc.value.peek(),
-    commit: (next) => commit(next),
+    commit: (next, drag) => commit(next, drag),
+    move: moveNodes,
     readOnly,
     root,
     canvas: () => canvas,
     nodes: () => live.current.nodes,
     paneIgnore: ".sg-node, .sg-search, .sg-find, .sg-wire-hit, .sg-note, .sg-group-head, .sg-minimap",
-    openSearch: () => openSearch(paneCenter(), null),
+    openSearch: () => search.open(paneCenter(), { pending: null }),
+    openFind: () => find.open(),
     deleteOther: () => {
       if (!selectedEdge) return false;
       commit(disconnect(doc.value.peek(), selectedEdge));
@@ -115,16 +109,15 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
     },
     onItemDown: () => setSelectedEdge(null),
     onPaneDown: () => {
-      setSearch(null);
+      search.dismiss();
       setSelectedEdge(null);
     },
     onEscape: () => {
-      setSearch(null);
+      search.dismiss();
       setSelectedEdge(null);
     },
   });
-  const { selection, setSelection, box } = keys;
-  const flowId = useMemo(() => `sg${Math.random().toString(36).slice(2, 8)}`, []);
+  const { selection, setSelection, box, dragging } = keys;
 
   const compiled: CompiledShaderGraph = useMemo(() => compileShaderGraph(graph), [graph]);
   const connectedInputs = useMemo(() => new Set(graph.edges.map((e) => e.to)), [graph]);
@@ -153,10 +146,10 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
     onContextMenu: (e, at) => {
       if ((e.target as Element).closest(".sg-node")) return;
       e.preventDefault();
-      openSearch(at, null);
+      search.open(at, { pending: null });
     },
   });
-  const { pane, paneApi, view, paneSize, panBy, paneCenter, frameAll } = canvas;
+  const { pane, paneApi, view, paneSize, paneCenter, frameAll } = canvas;
 
   // xyflow reads the latest state through these (the graph straight from the document, so edits in a row see each other).
   const live = useRef({ get graph() { return doc.value.peek(); }, nodes: canvasNodes });
@@ -173,124 +166,52 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
     if (next === doc.value.peek()) return;
     doc.edit(next, drag ? { coalesce: true } : undefined);
   };
-  /** A drag or value change: see `commit`. */
-  const commitDrag = (next: ShaderGraph) => commit(next, true);
 
   const undo = () => doc.undo();
   const redo = () => doc.redo();
 
   // --- canvas ----------------------------------------------------------------------------------------
 
-  const openSearch = (at: Point, pending: Pending) => {
-    if (readOnly) return;
-    setSearch({ at, pending });
-  };
+  /** The node search: where it opened, and the port a dropped wire connects the new node to. */
+  const search = useGraphSearch<{ pending: Pending }>({ pane: canvas.pane, root, readOnly });
 
-  const connectOptions = (onConnect: (from: string, to: string) => void, onSpace: (at: Point) => void, onEnd: () => void = () => undefined) => ({
-    flowId,
-    pane: pane.current!,
+  /** A port's definition on its node as drawn (its type, `dynamic` for one that follows its inputs). */
+  const portDef = (node: string, port: string, side: "input" | "output"): PortDef | undefined =>
+    boxes.get(node)?.rows.flatMap((r) => (r.kind === side && r.port.id === port ? [r.port] : []))[0];
+
+  // The wiring gesture (ADR 0259): a wire dropped in empty space opens the search for nodes that fit its port.
+  const wiring = useGraphWiring({
+    flowPrefix: "sg",
+    edits: shaderWiring,
+    graph: () => doc.value.peek(),
+    commit: (next) => commit(next),
+    readOnly,
+    root,
+    canvas: () => canvas,
     nodes: () => live.current.nodes,
-    view: () => canvas.viewRef.current,
-    panBy,
-    canConnect: (from: string, to: string) => !whyNotConnect(live.current.graph, from, to),
-    onDraft: setDraft,
-    onConnect,
-    onDropInSpace: onSpace,
-    onEnd,
+    onDropInSpace: (at, from) => {
+      const def = portDef(from.node, from.port, from.side);
+      if (!def) return;
+      const type = from.side === "output" ? compiled.portTypes[from.ref] ?? (def.type === "dynamic" ? "float" : def.type) : def.type;
+      search.open(at, { pending: { side: from.side, ref: from.ref, type } });
+    },
   });
-
-  const onPortDown = (e: MouseEvent, node: GraphNode, port: PortDef, side: "input" | "output") => {
-    if (e.button !== 0 || readOnly) return;
-    e.stopPropagation();
-    e.preventDefault();
-    root.current?.focus();
-    const ref = portRef(node.id, port.id);
-    const src = side === "input" ? sourceOf(graph, ref) : null;
-    if (src) {
-      // Dragging a connected input picks its wire up from the input end.
-      const s = splitPortRef(src);
-      const srcEl = pane.current!.querySelector(`[data-id="${flowId}-${s.node}-${s.port}-source"]`);
-      if (!srcEl) return;
-      setDetached(ref);
-      startConnection(
-        e,
-        srcEl,
-        s.node,
-        s.port,
-        "output",
-        connectOptions(
-          (from, to) => commit(connect(disconnect(live.current.graph, ref), from, to)),
-          () => commit(disconnect(live.current.graph, ref)),
-          () => setDetached(null),
-        ),
-      );
-      return;
-    }
-    const type = side === "output" ? compiled.portTypes[ref] ?? (port.type === "dynamic" ? "float" : port.type) : port.type;
-    startConnection(e, e.currentTarget as Element, node.id, port.id, side, connectOptions((from, to) => commit(connect(live.current.graph, from, to)), (at) => openSearch(at, { side, ref, type })));
-  };
-
-  const addNoteHere = () => {
-    const at = toGraph(paneCenter(), canvas.viewRef.current);
-    commit(shaderGraphEdits.addNote(live.current.graph, [at.x - 100, at.y - 50]).graph);
-  };
-
-  /** Drag a group by its title: its nodes move together, as one undo step. */
-  const startGroupDrag = (e: PointerEvent, group: GraphGroup) => {
-    if (e.button !== 0 || readOnly || isFieldTarget(e.target)) return;
-    const base = new Map(graph.nodes.filter((n) => group.nodes.includes(n.id)).map((n) => [n.id, { x: n.position[0], y: n.position[1] }]));
-    const moved = (dx: number, dy: number) => new Map([...base].map(([id, p]) => [id, { x: p.x + dx, y: p.y + dy }]));
-    startPointerDrag(e, {
-      zoom: () => canvas.viewRef.current.zoom,
-      onMove: (dx, dy) => setDragging(moved(dx, dy)),
-      onEnd: (dx, dy) => {
-        setDragging(null);
-        commitDrag(moveNodes(live.current.graph, new Map([...moved(dx, dy)].map(([id, p]) => [id, [p.x, p.y] as [number, number]]))));
-      },
-    });
-  };
+  const { flowId, draft, detached } = wiring;
 
   // --- find ------------------------------------------------------------------------------------------
 
-  const matches = useMemo(() => (find ? searchGraph(graph, find.query) : []), [graph, find?.query]);
-
-  /** Select a match and pan to it (a group's members, or a note's rectangle). */
-  const goToMatch = (index: number) => {
-    const m = matches[index];
-    if (!m) return;
-    setFind((f) => f && { ...f, index });
-    if (m.kind === "note") {
-      const note = graph.notes?.find((n) => n.id === m.id);
-      if (!note) return;
-      setSelection(new Set());
-      frameAll([{ id: note.id, x: note.position[0], y: note.position[1], width: note.size[0], height: note.size[1], selected: false, inputs: [], outputs: [] }]);
-      return;
-    }
-    const ids = new Set(m.frame);
-    setSelection(ids);
-    setSelectedEdge(null);
-    frameAll(canvasNodes.filter((n) => ids.has(n.id)));
-  };
-  const openFind = () => {
-    setSearch(null);
-    setFind((f) => f ?? { query: "", index: -1 });
-    queueMicrotask(() => findInput.current?.select());
-  };
-  const closeFind = () => {
-    setFind(null);
-    root.current?.focus({ preventScroll: true });
-  };
-
-  const onKeyDown = (e: KeyboardEvent) => {
-    const key = (e.key ?? "").toLowerCase();
-    if ((e.ctrlKey || e.metaKey) && key === "f" && !e.altKey) {
-      e.preventDefault();
-      e.stopPropagation();
-      openFind();
-      return;
-    }
-    keys.onKeyDown(e);
-  };
+  // Ctrl+F (ADR 0117): node titles and types, property names, settings and Custom Function names, notes and group titles.
+  const find = useGraphFind({
+    edits: shaderGraphEdits,
+    graph,
+    items: shaderFindItems,
+    setSelection,
+    frameAll,
+    nodes: () => live.current.nodes,
+    root,
+    onOpen: () => search.dismiss(),
+    onGo: () => setSelectedEdge(null),
+  });
 
   const addFromSearch = (type: string, settings: Record<string, string> | undefined, at: Point, pending: Pending) => {
     const p = toGraph(at, canvas.viewRef.current);
@@ -310,13 +231,7 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
     }
     commit(next);
     setSelection(new Set([made.id]));
-    closeSearch();
-  };
-
-  /** Close the node search, keeping the keyboard on the graph. */
-  const closeSearch = () => {
-    setSearch(null);
-    root.current?.focus({ preventScroll: true });
+    search.close();
   };
 
   // --- preview ---------------------------------------------------------------------------------------
@@ -399,7 +314,7 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
   };
 
   return (
-    <div class={`shader-graph${maximized ? " maximized" : ""}`} data-asset-document={doc.path} ref={root} tabIndex={0} onKeyDown={onKeyDown} onPaste={keys.onPaste} aria-label="Shader Graph">
+    <div class={`shader-graph${maximized ? " maximized" : ""}`} data-asset-document={doc.path} ref={root} tabIndex={0} onKeyDown={keys.onKeyDown} onPaste={keys.onPaste} aria-label="Shader Graph">
       <div class="sg-toolbar">
         <span class="sg-name" title={path}>
           {editor.assets.fileName(path)}
@@ -451,7 +366,7 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
           </label>
         )}
         <span class="sg-spacer" />
-        <button title="Find in this graph (Ctrl+F)" aria-pressed={!!find} onClick={() => (find ? closeFind() : openFind())}>
+        <button title="Find in this graph (Ctrl+F)" aria-pressed={find.isOpen} onClick={find.toggle}>
           Find
         </button>
         <button title="Undo (Ctrl+Z)" disabled={readOnly || !doc.canUndo.value} onClick={undo}>
@@ -460,13 +375,13 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
         <button title="Redo (Ctrl+Shift+Z)" disabled={readOnly || !doc.canRedo.value} onClick={redo}>
           Redo
         </button>
-        <button title="Add a node (Space, or right-click the canvas)" disabled={readOnly} onClick={() => openSearch(paneCenter(), null)}>
+        <button title="Add a node (Space, or right-click the canvas)" disabled={readOnly} onClick={() => search.open(paneCenter(), { pending: null })}>
           Add Node
         </button>
         <button title="Put the selected nodes in a group (Ctrl+G)" disabled={readOnly || selection.size === 0} onClick={keys.groupSelection}>
           Group
         </button>
-        <button title="Add a sticky note" disabled={readOnly} onClick={addNoteHere}>
+        <button title="Add a sticky note" disabled={readOnly} onClick={keys.addNoteHere}>
           Note
         </button>
         <button title="Show every node (F)" onClick={() => frameAll()}>
@@ -528,7 +443,7 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
               if (!r) return null;
               return (
                 <div key={g.id} class="sg-group" style={{ left: px(r.x), top: px(r.y), width: px(r.w), height: px(r.h) }} aria-label={`Group ${g.title}`}>
-                  <div class={`sg-group-head ${NO_PAN}`} onPointerDown={(e) => startGroupDrag(e, g)}>
+                  <div class={`sg-group-head ${NO_PAN}`} onPointerDown={(e) => keys.startGroupDrag(e, g.id)}>
                     <input type="text" class={NO_DRAG} aria-label="Group title" disabled={readOnly} value={g.title} onChange={(e) => commit(shaderGraphEdits.setGroupTitle(live.current.graph, g.id, (e.currentTarget as HTMLInputElement).value))} />
                     <button title="Ungroup (the nodes stay)" aria-label={`Ungroup ${g.title}`} disabled={readOnly} onClick={() => commit(shaderGraphEdits.ungroup(live.current.graph, g.id))}>
                       ✕
@@ -556,6 +471,7 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
               })}
               {draft && <path class={`sg-draft${draft.valid ? " valid" : ""}`} d={wirePath(draft.from, draft.to)} />}
             </svg>
+            <WireRefusal draft={draft} hint={wiring.hint} />
             {graph.nodes.map((n) => (
               <NodeView
                 key={n.id}
@@ -573,66 +489,16 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
                 subgraphs={subgraphs}
                 readOnly={readOnly}
                 onDown={keys.onItemDown}
-                onPortDown={onPortDown}
+                onPortDown={wiring.onPortDown}
                 commit={commit}
-                drag={{
-                  pane: () => pane.current!,
-                  nodes: () => live.current.nodes,
-                  view: () => canvas.viewRef.current,
-                  panBy,
-                  onMove: (m) => setDragging(new Map(m)),
-                  onEnd: (m) => {
-                    setDragging(null);
-                    if (!readOnly) commitDrag(moveNodes(live.current.graph, new Map([...m].map(([id, p]) => [id, [p.x, p.y] as [number, number]]))));
-                  },
-                }}
+                drag={keys.drag}
               />
             ))}
           </div>
           {box && <SelectionBox box={box} />}
           <Minimap nodes={canvasNodes} view={view} size={paneSize} pane={paneApi} />
-          {find && (
-            <div class={`sg-find ${NO_PAN} ${NO_WHEEL}`} role="search" aria-label="Find in graph">
-              <div class="sg-find-row">
-                <input
-                  ref={findInput}
-                  type="text"
-                  autofocus
-                  placeholder="Find nodes, properties, notes…"
-                  aria-label="Find in graph"
-                  value={find.query}
-                  onInput={(e) => setFind({ query: (e.currentTarget as HTMLInputElement).value, index: -1 })}
-                  onKeyDown={(e) => {
-                    const k = e.key;
-                    if (k === "Escape") closeFind();
-                    else if (k === "Enter" || k === "ArrowDown" || k === "ArrowUp") {
-                      const step = k === "ArrowUp" || (k === "Enter" && e.shiftKey) ? -1 : 1;
-                      goToMatch(cycleIndex(find.index, matches.length, step));
-                    } else return;
-                    e.preventDefault();
-                    e.stopPropagation();
-                  }}
-                />
-                <span class="sg-find-count" aria-live="polite">
-                  {find.query.trim() ? (matches.length ? `${find.index >= 0 ? find.index + 1 : "–"} of ${matches.length}` : "No matches") : ""}
-                </span>
-                <button title="Close (Escape)" aria-label="Close find" onClick={closeFind}>
-                  ✕
-                </button>
-              </div>
-              {matches.length > 0 && (
-                <ul>
-                  {matches.map((m, i) => (
-                    <li key={`${m.kind}-${m.id}`} class={i === find.index ? "active" : ""} onClick={() => goToMatch(i)}>
-                      <span class="sg-find-label">{m.label}</span>
-                      <span class="sg-find-kind">{m.kind === "node" ? m.field : m.kind}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
-          {search && <NodeSearch graph={graph} subgraphs={subgraphs} at={search.at} pending={search.pending} onPick={(type, settings) => addFromSearch(type, settings, search.at, search.pending)} onClose={closeSearch} />}
+          <GraphFindBox find={find} placeholder="Find nodes, properties, notes…" />
+          {search.search && <NodeSearch graph={graph} subgraphs={subgraphs} at={search.search.popup} pending={search.search.pending} onPick={(type, settings) => addFromSearch(type, settings, search.search!.at, search.search!.pending)} onClose={search.close} />}
           {(problems.length > 0 || shaderError) && (
             <ul class="sg-problems" aria-label="Shader graph problems">
               {shaderError && <li class="error">The generated shader didn't compile: {shaderError}</li>}
@@ -651,15 +517,6 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
 
 // --- nodes -------------------------------------------------------------------------------------------
 
-interface DragHooks {
-  pane(): HTMLElement;
-  nodes(): readonly CanvasNode[];
-  view(): View;
-  panBy(dx: number, dy: number): Promise<boolean>;
-  onMove(m: Map<string, Point>): void;
-  onEnd(m: Map<string, Point>): void;
-}
-
 function NodeView(props: {
   node: GraphNode;
   graph: ShaderGraph;
@@ -675,26 +532,13 @@ function NodeView(props: {
   subgraphs: string[];
   readOnly: boolean;
   onDown(e: PointerEvent, id: string): void;
-  onPortDown(e: MouseEvent, node: GraphNode, port: PortDef, side: "input" | "output"): void;
+  onPortDown(e: MouseEvent, node: string, port: string, side: "input" | "output"): void;
   commit(g: ShaderGraph, drag?: boolean): void;
-  drag: DragHooks;
+  drag: GraphDragHooks;
 }) {
   const { node, graph, box, at, dynamic } = props;
   const el = useRef<HTMLDivElement>(null);
-  const drag = useRef(props.drag);
-  drag.current = props.drag;
-  useEffect(() => {
-    if (props.readOnly) return;
-    const d = createNodeDrag(el.current!, node.id, {
-      pane: drag.current.pane(),
-      nodes: () => drag.current.nodes(),
-      view: () => drag.current.view(),
-      panBy: (x, y) => drag.current.panBy(x, y),
-      onMove: (m) => drag.current.onMove(m),
-      onEnd: (m) => drag.current.onEnd(m),
-    });
-    return () => d.destroy();
-  }, [node.id, props.readOnly]);
+  useNodeDrag(el, node.id, props.readOnly, props.drag);
   const def = nodeDef(node.type);
   const title = nodeTitle(node);
   return (
@@ -723,7 +567,7 @@ function NodeView(props: {
           return (
             <div key={`o-${r.port.id}`} class="sg-row out" style={{ top: px(top), height: px(ROW) }}>
               <span class="sg-label">{r.port.label}</span>
-              <span {...handleProps(props.flowId, node.id, r.port.id, "output")} class={`${handleProps(props.flowId, node.id, r.port.id, "output").class} sg-port ${cssType(t)}`} title={`${r.port.label} (${t})`} onMouseDown={(e) => props.onPortDown(e, node, r.port, "output")} />
+              <span {...handleProps(props.flowId, node.id, r.port.id, "output")} class={`${handleProps(props.flowId, node.id, r.port.id, "output").class} sg-port ${cssType(t)}`} title={`${r.port.label} (${t})`} onMouseDown={(e) => props.onPortDown(e, node.id, r.port.id, "output")} />
             </div>
           );
         }
@@ -733,7 +577,7 @@ function NodeView(props: {
           const t = r.port.type === "dynamic" ? dynamic : r.port.type;
           return (
             <div key={`i-${r.port.id}`} class={`sg-row in${connected ? " connected" : ""}`} style={{ top: px(top), height: px(ROW) }}>
-              <span {...handleProps(props.flowId, node.id, r.port.id, "input")} class={`${handleProps(props.flowId, node.id, r.port.id, "input").class} sg-port ${cssType(t)}${connected ? " filled" : ""}`} title={`${r.port.label} (${t})`} onMouseDown={(e) => props.onPortDown(e, node, r.port, "input")} />
+              <span {...handleProps(props.flowId, node.id, r.port.id, "input")} class={`${handleProps(props.flowId, node.id, r.port.id, "input").class} sg-port ${cssType(t)}${connected ? " filled" : ""}`} title={`${r.port.label} (${t})`} onMouseDown={(e) => props.onPortDown(e, node.id, r.port.id, "input")} />
               <span class="sg-label">{r.port.label}</span>
               {!connected && <InlineValue node={node} port={r.port} dynamic={dynamic} readOnly={props.readOnly} onValue={(v) => props.commit(setInput(graph, node.id, r.port.id, v), true)} />}
             </div>

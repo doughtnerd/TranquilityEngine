@@ -9,35 +9,7 @@ import { ProblemBadge } from "./BlockView";
 import { ContextView } from "./ContextView";
 import { useGraphEditor } from "./editorContext";
 import { SYSTEM_WIDTH } from "./layout";
-import { NO_DRAG, NO_PAN, createNodeDrag, px, type CanvasNode, type Point, type View } from "../../../../../editor/sdk";
-
-/** What a draggable canvas item needs from the editor (xyflow drags selected items together). */
-export interface DragHooks {
-  pane(): HTMLElement;
-  nodes(): readonly CanvasNode[];
-  view(): View;
-  panBy(dx: number, dy: number): Promise<boolean>;
-  onMove(m: Map<string, Point>): void;
-  onEnd(m: Map<string, Point>): void;
-}
-
-/** Make an element a draggable canvas item while editing is allowed. */
-export function useCanvasDrag(el: { current: HTMLElement | null }, id: string, readOnly: boolean, hooks: DragHooks): void {
-  const drag = useRef(hooks);
-  drag.current = hooks;
-  useEffect(() => {
-    if (readOnly) return;
-    const d = createNodeDrag(el.current!, id, {
-      pane: drag.current.pane(),
-      nodes: () => drag.current.nodes(),
-      view: () => drag.current.view(),
-      panBy: (x, y) => drag.current.panBy(x, y),
-      onMove: (m) => drag.current.onMove(m),
-      onEnd: (m) => drag.current.onEnd(m),
-    });
-    return () => d.destroy();
-  }, [id, readOnly]);
-}
+import { NO_DRAG, NO_PAN, px, useNodeDrag, type GraphDragHooks, type Point } from "../../../../../editor/sdk";
 
 function SystemName(props: { system: ParticleGraphSystem }) {
   const { graph, readOnly, commit } = useGraphEditor();
@@ -75,11 +47,11 @@ function SystemName(props: { system: ParticleGraphSystem }) {
   );
 }
 
-export function SystemView(props: { system: ParticleGraphSystem; at: Point; selected: boolean; collapsed: boolean; onCollapse(collapsed: boolean): void; onDown(e: PointerEvent, id: string): void; drag: DragHooks }) {
+export function SystemView(props: { system: ParticleGraphSystem; at: Point; selected: boolean; collapsed: boolean; onCollapse(collapsed: boolean): void; onDown(e: PointerEvent, id: string): void; drag: GraphDragHooks }) {
   const api = useGraphEditor();
   const { system, at } = props;
   const el = useRef<HTMLDivElement>(null);
-  useCanvasDrag(el, system.id, api.readOnly, props.drag);
+  useNodeDrag(el, system.id, api.readOnly, props.drag);
   const off = system.enabled === false;
   return (
     <div
