@@ -1,6 +1,6 @@
 # 0141. Asset documents keep 0027's persistent history tree as text patches, stored apart from scenes' and following their file
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0267 (`TextHistory` is a text-patch adapter over the shared `HistoryTree`; no second copy of the tree)
 - **Date:** 2026-11-08
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
