@@ -12,6 +12,8 @@
  * The plugin also goes on standard materials (the unlit particle material, ADR 0126). Custom
  * `ShaderMaterial`s (kernel particle draws) fog through the hook at the end of this file:
  * `heightFogShader` for the code and `useHeightFog` to keep a material's define and uniforms in step.
+ *
+ * The fog maths is written once in KSL (ADR 0250) and compiled to WGSL and GLSL for both.
  */
 import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
 import type { Material } from "@babylonjs/core/Materials/material.js";
@@ -26,6 +28,7 @@ import type { UniformBuffer } from "@babylonjs/core/Materials/uniformBuffer.js";
 import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh.js";
 import type { SubMesh } from "@babylonjs/core/Meshes/subMesh.js";
 import type { Scene } from "@babylonjs/core/scene.js";
+import { shaderSource, type ShaderSource } from "../shaderSource/shaderSource";
 import { MycoMaterialPlugin } from "./mycoMaterialPlugin";
 
 /** A scene's height fog: off, or its values (colour linear). */
@@ -65,32 +68,22 @@ export function heightFogOn(scene: Scene): boolean {
   return !!states.get(scene)?.on;
 }
 
-const WGSL_FN = /* wgsl */ `
+/** The fog amount along the ray from `eye` to `p`, compiled in only with the define. */
+const AMOUNT = shaderSource(/* KSL */ `
+UNIFORM(KV4, mycoHeightFog);
+UNIFORM(KV4, mycoHeightFogColor);
 #ifdef MYCO_HEIGHT_FOG
-fn mycoHeightFogAmount(p: vec3f, eye: vec3f) -> f32 {
-  let f = max(1e-4, uniforms.mycoHeightFog.z);
-  let dy = p.y - eye.y;
-  let fd = f * dy;
-  var k = 1.0;
+FN(KF, mycoHeightFogAmount, KV3 p, KV3 eye) {
+  VAR(KF, f) = max(1e-4, UNI(mycoHeightFog).z);
+  VAR(KF, dy) = p.y - eye.y;
+  VAR(KF, fd) = f * dy;
+  VAR(KF, k) = 1.0;
   if (abs(fd) > 1e-4) { k = (1.0 - exp(-fd)) / fd; }
-  let integral = max(0.0, uniforms.mycoHeightFog.x) * exp(-f * (eye.y - uniforms.mycoHeightFog.y)) * distance(p, eye) * k;
+  VAR(KF, integral) = max(0.0, UNI(mycoHeightFog).x) * exp(-f * (eye.y - UNI(mycoHeightFog).y)) * distance(p, eye) * k;
   return clamp(1.0 - exp(-integral), 0.0, 1.0);
 }
 #endif
-`;
-
-const GLSL_FN = /* glsl */ `
-#ifdef MYCO_HEIGHT_FOG
-float mycoHeightFogAmount(vec3 p, vec3 eye) {
-  float f = max(1e-4, mycoHeightFog.z);
-  float dy = p.y - eye.y;
-  float fd = f * dy;
-  float k = abs(fd) > 1e-4 ? (1.0 - exp(-fd)) / fd : 1.0;
-  float integral = max(0.0, mycoHeightFog.x) * exp(-f * (eye.y - mycoHeightFog.y)) * distance(p, eye) * k;
-  return clamp(1.0 - exp(-integral), 0.0, 1.0);
-}
-#endif
-`;
+`);
 
 class HeightFogDefines extends MaterialDefines {
   MYCO_HEIGHT_FOG = false;
@@ -137,14 +130,14 @@ export class MycoHeightFogPlugin extends MycoMaterialPlugin {
     const wgsl = shaderLanguage === ShaderLanguage.WGSL;
     if (this.standard) {
       return {
-        CUSTOM_FRAGMENT_DEFINITIONS: wgsl ? WGSL_FN : GLSL_FN,
+        CUSTOM_FRAGMENT_DEFINITIONS: AMOUNT.text(wgsl ? "wgsl" : "glsl", { declarations: "omit" }),
         CUSTOM_FRAGMENT_BEFORE_FOG: wgsl
           ? "#ifdef MYCO_HEIGHT_FOG\ncolor = vec4f(mix(color.rgb, uniforms.mycoHeightFogColor.rgb, mycoHeightFogAmount(fragmentInputs.vPositionW, scene.vEyePosition.xyz)), color.a);\n#endif\n"
           : "#ifdef MYCO_HEIGHT_FOG\ncolor.rgb = mix(color.rgb, mycoHeightFogColor.rgb, mycoHeightFogAmount(vPositionW, vEyePosition.xyz));\n#endif\n",
       };
     }
     return {
-      CUSTOM_FRAGMENT_DEFINITIONS: wgsl ? WGSL_FN : GLSL_FN,
+      CUSTOM_FRAGMENT_DEFINITIONS: AMOUNT.text(wgsl ? "wgsl" : "glsl", { declarations: "omit" }),
       CUSTOM_FRAGMENT_BEFORE_FRAGCOLOR: wgsl
         ? "#ifdef MYCO_HEIGHT_FOG\nfinalColor = vec4f(mix(finalColor.rgb, uniforms.mycoHeightFogColor.rgb, mycoHeightFogAmount(fragmentInputs.vPositionW, scene.vEyePosition.xyz)), finalColor.a);\n#endif\n"
         : "#ifdef MYCO_HEIGHT_FOG\nfinalColor = vec4(mix(finalColor.rgb, mycoHeightFogColor.rgb, mycoHeightFogAmount(vPositionW, vEyePosition.xyz)), finalColor.a);\n#endif\n",
@@ -175,53 +168,37 @@ function syncDefine(m: ShaderMaterial, on: boolean): void {
   m.markDirty(true);
 }
 
+/** The custom-shader hook's code: the amount, the factor and the fogged colour. */
+const HOOK = shaderSource(
+  AMOUNT,
+  /* KSL */ `
+FN(KF, mycoHeightFogFactor, KV3 p, KV3 eye) {
+#ifdef MYCO_HEIGHT_FOG
+  return mycoHeightFogAmount(p, eye);
+#else
+  return 0.0;
+#endif
+}
+FN(KV3, mycoApplyHeightFog, KV3 c, KV3 p, KV3 eye) {
+#ifdef MYCO_HEIGHT_FOG
+  return mix(c, UNI(mycoHeightFogColor).xyz, mycoHeightFogAmount(p, eye));
+#else
+  return c;
+#endif
+}
+`,
+);
+
 /**
- * Height fog code for a custom shader's fragment stage. Declare `decl` at the top level (it declares the
- * two uniforms `mycoHeightFog` and `mycoHeightFogColor`, vec4s, and `mycoApplyHeightFog`) and call
- * `mycoApplyHeightFog(color.rgb, worldPos, eye)` (returns the fogged rgb), or read the amount with
- * `mycoHeightFogFactor(worldPos, eye)` (additive draws fade towards black instead of the fog colour). Without the scene's height
- * fog the define is off and the function returns its colour. Pair with `useHeightFog`.
+ * Height fog code for a custom shader's fragment stage, as a shader source (ADR 0250). Declare its text
+ * (`source.text(dialect)`) at the top level (it declares the two uniforms `mycoHeightFog` and
+ * `mycoHeightFogColor`, vec4s, and `mycoApplyHeightFog`) and call `mycoApplyHeightFog(color.rgb, worldPos, eye)`
+ * (returns the fogged rgb), or read the amount with `mycoHeightFogFactor(worldPos, eye)` (additive draws
+ * fade towards black instead of the fog colour). Without the scene's height fog the define is off and the
+ * function returns its colour. Pair with `useHeightFog`.
  */
-export function heightFogShader(language: "wgsl" | "glsl"): { decl: string; uniforms: string[] } {
-  const decl =
-    language === "wgsl"
-      ? `uniform mycoHeightFog : vec4<f32>;
-uniform mycoHeightFogColor : vec4<f32>;
-${WGSL_FN}
-fn mycoHeightFogFactor(p: vec3f, eye: vec3f) -> f32 {
-#ifdef MYCO_HEIGHT_FOG
-  return mycoHeightFogAmount(p, eye);
-#else
-  return 0.0;
-#endif
-}
-fn mycoApplyHeightFog(c: vec3f, p: vec3f, eye: vec3f) -> vec3f {
-#ifdef MYCO_HEIGHT_FOG
-  return mix(c, uniforms.mycoHeightFogColor.rgb, mycoHeightFogAmount(p, eye));
-#else
-  return c;
-#endif
-}
-`
-      : `uniform vec4 mycoHeightFog;
-uniform vec4 mycoHeightFogColor;
-${GLSL_FN}
-float mycoHeightFogFactor(vec3 p, vec3 eye) {
-#ifdef MYCO_HEIGHT_FOG
-  return mycoHeightFogAmount(p, eye);
-#else
-  return 0.0;
-#endif
-}
-vec3 mycoApplyHeightFog(vec3 c, vec3 p, vec3 eye) {
-#ifdef MYCO_HEIGHT_FOG
-  return mix(c, mycoHeightFogColor.rgb, mycoHeightFogAmount(p, eye));
-#else
-  return c;
-#endif
-}
-`;
-  return { decl, uniforms: ["mycoHeightFog", "mycoHeightFogColor"] };
+export function heightFogShader(): { source: ShaderSource; uniforms: string[] } {
+  return { source: HOOK, uniforms: ["mycoHeightFog", "mycoHeightFogColor"] };
 }
 
 /**

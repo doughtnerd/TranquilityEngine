@@ -180,7 +180,11 @@ export type KBuiltin =
   /** args: bounce, kill (0/1), thickness. Needs the depth texture (GPU executors). */
   | "depth"
   /** args: speed (°/s). */
-  | "spin";
+  | "spin"
+  /** Update, before integrating: keep the world position for collider collision. JavaScript executor only. */
+  | "collidersStart"
+  /** args: bounce, friction, kill (0/1), radius. Ray casts the World's colliders: JavaScript executor only. */
+  | "colliders";
 
 export type KStmt =
   | { s: "set"; target: KTarget; mode: "set" | "add" | "mul"; e: KExpr }
@@ -249,6 +253,8 @@ export interface KernelSystem {
   needs: string[];
   /** Blocks the kernel doesn't run (the CPU does): reasons, for "auto". */
   unsupported: string[];
+  /** What only the JavaScript executor runs (collider collision, ADR 0251): GPU executors skip it. */
+  jsOnly: string[];
 }
 
 export interface KernelProgram {
@@ -416,6 +422,7 @@ function compileSystem(graph: ParticleGraph, ix: Index, sys: ParticleGraphSystem
   const luts: KLut[] = [];
   const needs: string[] = [];
   const unsupported: string[] = [];
+  const jsOnly: string[] = [];
   let nextSlot = HEADER_VEC4;
   let salt = 1;
   const report = (message: string, at: string) => problems.push({ severity: "warning", message, at });
@@ -822,8 +829,8 @@ function compileSystem(graph: ParticleGraph, ix: Index, sys: ParticleGraphSystem
       case "update.triggerEvent":
         break;
       case "update.collisionColliders":
-        skip(b, "colliders are CPU only");
-        report("Collide with colliders runs only on the CPU simulation; kernel backends skip it (use Collide with depth buffer).", `${sys.id}.${b.id}`);
+        jsOnly.push(blockDef(b.type)?.label ?? b.type);
+        post.push({ s: "builtin", b: "colliders", args: [n("bounce"), n("friction"), c(b.inputs.kill === true ? 1 : 0), n("radius")] });
         break;
       default:
         if (b.type.startsWith("attribute.")) {
@@ -834,7 +841,8 @@ function compileSystem(graph: ParticleGraph, ix: Index, sys: ParticleGraphSystem
     }
   }
   if (gravity) update.push({ s: "builtin", b: "gravity", args: [gravity] });
-  update.push(...pre, ...speedMods, { s: "builtin", b: "integrate", args: [] }, ...post);
+  const start: KStmt[] = jsOnly.length ? [{ s: "builtin", b: "collidersStart", args: [] }] : [];
+  update.push(...pre, ...speedMods, ...start, { s: "builtin", b: "integrate", args: [] }, ...post);
 
   // --- outputs ----------------------------------------------------------------------------------------
   const outputs: KernelOutput[] = [];
@@ -940,6 +948,7 @@ function compileSystem(graph: ParticleGraph, ix: Index, sys: ParticleGraphSystem
     ...(trailPoints ? { trail: trailPoints } : {}),
     needs: [...new Set(needs)],
     unsupported,
+    jsOnly,
   };
 }
 
@@ -964,7 +973,8 @@ export function chooseBackend(choice: "auto" | "cpu" | "gpu" | undefined, kernel
   // auto: a kernel when needed (or big) and everything the system has runs on it.
   if (kernel.needs.length === 0) return "cpu";
   if (kernel.unsupported.length > 0 && !kernel.needs.some((n) => n !== `${kernel.capacity} particles`)) return "cpu";
-  return best;
+  // Collider collision runs only on the JavaScript executor (ADR 0251).
+  return kernel.jsOnly.length ? "js" : best;
 }
 
 /** Re-bake rows whose source is a property, into `lut` (rows × LUT_SAMPLES × 4). */

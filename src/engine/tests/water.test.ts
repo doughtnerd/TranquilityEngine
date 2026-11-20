@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Buoyancy, Engine, GameObject, Graphics, Mathf, Quaternion, RigidBody, SceneManager, Assets, Vector3, Water, WaterSurface, type WaterWave } from "../../myco";
 import type { World } from "../core/World";
 import {
-  GERSTNER_BODY,
+  GERSTNER_SHADER,
   MAX_WAVES,
   WATER_PRESET,
   cleanWaves,
@@ -10,6 +10,7 @@ import {
   gerstner,
   packWaves,
   sampleWaves,
+  waveUniforms,
   type PackedWaves,
 } from "../render/water/gerstner";
 import { deepWaterSpeed } from "../render/water/dispersion";
@@ -26,13 +27,15 @@ function randomWaves(r: () => number, count: number): WaterWave[] {
 }
 
 /**
- * The shader's wave sum, run as JavaScript: the exact text the water plugin puts in its vertex
- * shader, with only `float`/`int` → `let` and `sin`/`cos` → `Math.*`.
+ * The shader's wave sum, run as JavaScript (ADR 0250): the KSL the water plugin compiles to WGSL and
+ * GLSL, on the uniforms `waveUniforms` packs. Returns the displacement, tangent and binormal, flat.
  */
-const bodyJS = GERSTNER_BODY.replace(/\$float|\$int/g, "let").replace(/\b(sin|cos)\(/g, "Math.$1(");
-const shaderWaves = new Function("mycoWaves", "mycoWaveCount", "px", "pz", `${bodyJS}\nreturn [gx, gy, gz, tx, ty, tz, bx, by, bz];`) as (w: ArrayLike<number>, n: number, px: number, pz: number) => number[];
+function shaderWaves(uniforms: Record<string, number[]>, count: number, px: number, pz: number): number[] {
+  const m = GERSTNER_SHADER.js({ uniforms }).fn("mycoGerstner")(px, pz, count) as number[][];
+  return m.flat();
+}
 
-const shaderAt = (p: PackedWaves, x: number, z: number) => shaderWaves(p.data, p.count, x, z);
+const shaderAt = (p: PackedWaves, x: number, z: number) => shaderWaves(waveUniforms(p), p.count, x, z);
 
 describe("Gerstner waves: one sum for the GPU and the CPU (ADR 0072)", () => {
   it("the CPU sampler's sum matches the shader's sum at sample points, for random wave sets and times", () => {
@@ -52,7 +55,7 @@ describe("Gerstner waves: one sum for the GPU and the CPU (ADR 0072)", () => {
   it("matches with the 32-bit uniforms the GPU actually gets, within float precision", () => {
     const r = rng(11);
     const packed = packWaves(WATER_PRESET.map((w) => ({ ...w })), 1, 12345.678);
-    const f32 = new Float32Array(packed.data);
+    const f32 = Object.fromEntries(Object.entries(waveUniforms(packed)).map(([k, v]) => [k, v.map(Math.fround)]));
     for (let i = 0; i < 50; i++) {
       const x = (r() - 0.5) * 200, z = (r() - 0.5) * 200;
       const cpu = gerstner(packed, x, z);

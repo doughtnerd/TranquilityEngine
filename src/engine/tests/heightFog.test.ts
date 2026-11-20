@@ -1,29 +1,22 @@
 // ADR 0110: height fog on the Babylon backend, headless. The fog maths is checked by running the shader
-// code the custom-shader hook hands out (`heightFogShader`, the same function the material plugin
-// splices in) on the CPU, in both shading languages.
+// source the custom-shader hook hands out (`heightFogShader`, KSL, whose WGSL and GLSL outputs the
+// material plugin and custom shaders compile, ADR 0250) as JavaScript.
 import { describe, expect, it } from "vitest";
 import { heightFogShader } from "../render/babylon/heightFog";
-import { runShader, vec } from "./shaderMaths";
 
 const fog = { density: 0.1, base: 0, falloff: 0.5 };
 const ON = ["MYCO_HEIGHT_FOG"];
 
-/** The fog amount each language's shader computes from an eye at height `eyeY` to a point `distance` metres away at height `pointY`. */
-function amounts(eyeY: number, pointY: number, distance: number, defines = ON): number[] {
-  const dy = pointY - eyeY;
-  const eye = vec(3, 0, eyeY, 0);
-  const p = vec(3, Math.sqrt(Math.max(0, distance * distance - dy * dy)), pointY, 0);
-  const uniform = vec(4, fog.density, fog.base, fog.falloff, 1);
-  return [
-    runShader(heightFogShader("glsl").decl, { defines, env: { mycoHeightFog: uniform, p, eye }, result: "mycoHeightFogFactor(p, eye)" }) as number,
-    runShader(heightFogShader("wgsl").decl, { defines, env: { uniforms: { mycoHeightFog: uniform }, p, eye }, result: "mycoHeightFogFactor(p, eye)" }) as number,
-  ];
+/** The hook's code as JavaScript, with the fog's uniforms. */
+function hook(defines = ON, color = [1, 1, 1, 1]) {
+  return heightFogShader().source.js({ defines, uniforms: { mycoHeightFog: [fog.density, fog.base, fog.falloff, 1], mycoHeightFogColor: color } });
 }
-/** The amount, the same in both languages. */
-function amount(eyeY: number, pointY: number, distance: number): number {
-  const [glsl, wgsl] = amounts(eyeY, pointY, distance);
-  expect(wgsl).toBeCloseTo(glsl, 9);
-  return glsl;
+
+/** The fog amount from an eye at height `eyeY` to a point `distance` metres away at height `pointY`. */
+function amount(eyeY: number, pointY: number, distance: number, defines = ON): number {
+  const dy = pointY - eyeY;
+  const p = [Math.sqrt(Math.max(0, distance * distance - dy * dy)), pointY, 0];
+  return hook(defines).fn("mycoHeightFogFactor")(p, [0, eyeY, 0]) as number;
 }
 
 describe("height fog (ADR 0110)", () => {
@@ -49,12 +42,20 @@ describe("height fog (ADR 0110)", () => {
   });
 
   it("fogs a custom shader's colour towards the fog colour, and does nothing with the define off", () => {
-    const env = { mycoHeightFog: vec(4, fog.density, fog.base, fog.falloff, 1), mycoHeightFogColor: vec(4, 1, 0, 0, 1), c: vec(3, 0, 0, 1), p: vec(3, 10, 0, 0), eye: vec(3, 0, 0, 0) };
-    const fogged = runShader(heightFogShader("glsl").decl, { defines: ON, env, result: "mycoApplyHeightFog(c, p, eye)" }) as { c: number[] };
+    const fogged = hook(ON, [1, 0, 0, 1]).fn("mycoApplyHeightFog")([0, 0, 1], [10, 0, 0], [0, 0, 0]) as number[];
     const t = 1 - Math.exp(-1);
-    fogged.c.forEach((v, i) => expect(v).toBeCloseTo([t, 0, 1 - t][i]!, 9));
-    expect(amounts(0, 0, 10, [])).toEqual([0, 0]);
-    expect((runShader(heightFogShader("glsl").decl, { env, result: "mycoApplyHeightFog(c, p, eye)" }) as { c: number[] }).c).toEqual([0, 0, 1]);
+    fogged.forEach((v, i) => expect(v).toBeCloseTo([t, 0, 1 - t][i]!, 9));
+    expect(amount(0, 0, 10, [])).toBe(0);
+    expect(hook([], [1, 0, 0, 1]).fn("mycoApplyHeightFog")([0, 0, 1], [10, 0, 0], [0, 0, 0])).toEqual([0, 0, 1]);
+  });
+
+  it("hands custom shaders the same source in WGSL and GLSL, declaring its uniforms", () => {
+    const { source, uniforms } = heightFogShader();
+    expect(source.text("wgsl")).toContain("uniform mycoHeightFog: vec4f;");
+    expect(source.text("wgsl")).toContain("fn mycoApplyHeightFog(c: vec3f, p: vec3f, eye: vec3f) -> vec3f {");
+    expect(source.text("glsl")).toContain("uniform vec4 mycoHeightFogColor;");
+    expect(source.text("glsl")).toContain("vec3 mycoApplyHeightFog(vec3 c, vec3 p, vec3 eye) {");
+    expect(uniforms).toEqual(["mycoHeightFog", "mycoHeightFogColor"]);
   });
 
   it("compiles in only where the scene has it and the mesh takes fog", async () => {

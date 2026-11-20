@@ -159,6 +159,10 @@ export class EffectResources implements DrawResources {
         backends[i] = "cpu";
       } else if (backends[p] !== "cpu" && backends[i] === "cpu") backends[i] = backends[p];
     }
+    for (const [i, k] of kernels.systems.entries()) {
+      if (backends[i] === "cpu" || backends[i] === "js" || !k.jsOnly.length) continue;
+      this.warnOnce(`${where}|jsOnly|${k.id}`, `${where}: "${k.name}" runs on the GPU, which skips ${k.jsOnly.join(", ")} (it ray casts the World's colliders, which only the JavaScript executor can; use Collide with depth buffer).`);
+    }
     return { kernels, backends, running: kernels.systems.filter((_, i) => backends[i] !== "cpu") };
   }
 
@@ -169,7 +173,7 @@ export class EffectResources implements DrawResources {
   }
 
   kernelHost(): BabylonKernelHost {
-    return (this.kernels ??= new BabylonKernelHost(this.host.scene, this.sceneDepth(), this.host.kernelExecutors));
+    return (this.kernels ??= new BabylonKernelHost(this.host.scene, this.sceneDepth(), this.host.kernelExecutors, this.host.raycast));
   }
 
   /** The soft round dot particles use when they have no texture. */

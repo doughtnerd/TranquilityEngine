@@ -81,13 +81,14 @@ describe("kernel compiler (ADR 0094)", () => {
     expect(chooseBackend("auto", compileParticleKernels(big, compileParticleGraph(big)).systems[0], ["webgl2"])).toBe("webgl2");
   });
 
-  it("leaves big systems with CPU-only blocks on the CPU", () => {
+  it("runs big systems with collider collision on the JavaScript executor, the one that ray casts (ADR 0251)", () => {
     const { g, sys } = burstGraph();
     sys.settings.capacity = 10000;
-    addBlock(g, sys, "update", "update.collisionColliders"); // CPU only (trails and material assets run on kernels since ADR 0126)
+    addBlock(g, sys, "update", "update.collisionColliders");
     const k = compileParticleKernels(g, compileParticleGraph(g)).systems[0];
-    expect(k.unsupported.length).toBeGreaterThan(0);
-    expect(chooseBackend("auto", k, ["webgpu"])).toBe("cpu");
+    expect(k.unsupported).toEqual([]);
+    expect(k.jsOnly).toEqual(["Collide with colliders"]);
+    expect(chooseBackend("auto", k, ["webgpu", "js"])).toBe("js");
   });
 });
 

@@ -1,6 +1,7 @@
-// Internal (ADR 0094): the integer hashes and noise every kernel executor shares. The WGSL and GLSL
-// preludes (`kernelShader.ts`) implement the same functions with u32 arithmetic, so the three
-// executors draw the same random numbers.
+// Internal (ADR 0094, 0250): the integer hashes and noise every kernel executor shares, in TypeScript
+// (the JavaScript executor) and in KSL (`KERNEL_MATH_KSL`, the shaders' prelude, with u32 arithmetic),
+// so the three executors draw the same random numbers.
+import { shaderSource } from "../../shaderSource/shaderSource";
 
 /** PCG hash of a u32. */
 export function pcg(v: number): number {
@@ -82,3 +83,83 @@ export function hsv(h: number, s: number, v: number, a: number): [number, number
 }
 
 export const srgbToLinear = (x: number): number => (x <= 0.04045 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4));
+
+/**
+ * The functions above in KSL (`render/shaderSource`), as the kernel shaders include them: `k_pcg`,
+ * `k_rand` (krand), `k_seed` (particleSeed), `k_hashInt`, `k_noise3`, `k_vnoise` (valueNoise), `k_hsv`,
+ * `k_lin` and `k_toLinear` (srgbToLinear).
+ */
+export const KERNEL_MATH_SHADER = shaderSource(/* KSL */ `
+FN(KU, k_pcg, KU v) {
+  VAR(KU, state) = (v * 747796405u) + 2891336453u;
+  VAR(KU, word) = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+  return (word >> 22u) ^ word;
+}
+FN(KF, k_rand, KF seed, KU salt) {
+  return KF(k_pcg(KU(floor(seed * 16777216.0)) ^ k_pcg(salt)) >> 8u) / 16777216.0;
+}
+FN(KF, k_seed, KF index, KF frame, KF sys) {
+  return KF(k_pcg(KU(index) ^ k_pcg(KU(frame) ^ k_pcg(KU(sys)))) >> 8u) / 16777216.0;
+}
+FN(KU, k_hashInt, KU x0) {
+  VAR(KU, x) = x0;
+  x = (x ^ (x >> 16u)) * 0x85ebca6bu;
+  x = (x ^ (x >> 13u)) * 0xc2b2ae35u;
+  return x ^ (x >> 16u);
+}
+FN(KF, k_lattice, KI x, KI y, KI z) {
+  return KF(k_hashInt((KBITU(x) * 73856093u) ^ (KBITU(y) * 19349663u) ^ (KBITU(z) * 83492791u))) / 4294967296.0 * 2.0 - 1.0;
+}
+FN(KF, k_fade, KF t) {
+  return t * t * (3.0 - 2.0 * t);
+}
+FN(KF, k_noise3, KF x, KF y, KF z) {
+  VAR(KF, fx0) = floor(x);
+  VAR(KF, fy0) = floor(y);
+  VAR(KF, fz0) = floor(z);
+  VAR(KI, ix) = KI(fx0);
+  VAR(KI, iy) = KI(fy0);
+  VAR(KI, iz) = KI(fz0);
+  VAR(KF, fx) = k_fade(x - fx0);
+  VAR(KF, fy) = k_fade(y - fy0);
+  VAR(KF, fz) = k_fade(z - fz0);
+  VAR(KF, a) = mix(mix(k_lattice(ix, iy, iz), k_lattice(ix + 1, iy, iz), fx), mix(k_lattice(ix, iy + 1, iz), k_lattice(ix + 1, iy + 1, iz), fx), fy);
+  VAR(KF, b) = mix(mix(k_lattice(ix, iy, iz + 1), k_lattice(ix + 1, iy, iz + 1), fx), mix(k_lattice(ix, iy + 1, iz + 1), k_lattice(ix + 1, iy + 1, iz + 1), fx), fy);
+  return mix(a, b, fz);
+}
+FN(KF, k_hash1, KI n, KI seed) {
+  VAR(KU, x) = (KBITU(n) * 374761393u) + (KBITU(seed) * 668265263u);
+  x = (x ^ (x >> 13u)) * 1274126177u;
+  x = x ^ (x >> 16u);
+  return KF(x) / 4294967295.0 * 2.0 - 1.0;
+}
+FN(KF, k_vnoise, KF x, KI seed) {
+  VAR(KF, fi) = floor(x);
+  VAR(KI, i) = KI(fi);
+  VAR(KF, f) = x - fi;
+  VAR(KF, u) = f * f * (3.0 - 2.0 * f);
+  VAR(KF, a) = k_hash1(i, seed);
+  return a + (k_hash1(i + 1, seed) - a) * u;
+}
+FN(KV4, k_hsv, KF h, KF s, KF v, KF a) {
+  VAR(KF, hh) = (h - floor(h)) * 6.0;
+  VAR(KF, fi) = floor(hh);
+  VAR(KF, f) = hh - fi;
+  VAR(KF, p) = v * (1.0 - s);
+  VAR(KF, q) = v * (1.0 - s * f);
+  VAR(KF, t) = v * (1.0 - s * (1.0 - f));
+  VAR(KI, i) = KI(fi) % 6;
+  if (i == 0) { return KV4(v, t, p, a); }
+  if (i == 1) { return KV4(q, v, p, a); }
+  if (i == 2) { return KV4(p, v, t, a); }
+  if (i == 3) { return KV4(p, q, v, a); }
+  if (i == 4) { return KV4(t, p, v, a); }
+  return KV4(v, p, q, a);
+}
+FN(KF, k_lin, KF c) {
+  return mix(pow((max(c, 0.0) + 0.055) / 1.055, 2.4), c / 12.92, step(c, 0.04045));
+}
+FN(KV4, k_toLinear, KV4 c) {
+  return KV4(k_lin(c.x), k_lin(c.y), k_lin(c.z), c.w);
+}
+`);

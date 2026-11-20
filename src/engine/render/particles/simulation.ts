@@ -17,6 +17,7 @@ import {
   type ParticleNumber,
   type ParticleRenderer,
 } from "../../scene/particles";
+import { hashInt, noise3 } from "./gpu/kernelMath";
 
 const DEG = Math.PI / 180;
 const GRAVITY = 9.81;
@@ -245,35 +246,9 @@ const PHASE: Record<Behave["k"], Phase> = {
 
 // --- noise ---------------------------------------------------------------------------------------------
 
-function hashInt(x: number): number {
-  x = Math.imul(x ^ (x >>> 16), 0x85ebca6b);
-  x = Math.imul(x ^ (x >>> 13), 0xc2b2ae35);
-  return (x ^ (x >>> 16)) >>> 0;
-}
-
 /** A stable 0-1 random for `slot` of a particle with `seed`. */
 function stable(seed: number, slot: number): number {
   return hashInt(Math.imul((seed * 4294967296) | 0, 0x9e3779b1) ^ Math.imul(slot + 1, 0x85ebca77)) / 4294967296;
-}
-
-const lattice = (x: number, y: number, z: number): number => (hashInt(Math.imul(x, 73856093) ^ Math.imul(y, 19349663) ^ Math.imul(z, 83492791)) / 4294967296) * 2 - 1;
-const fade = (t: number): number => t * t * (3 - 2 * t);
-
-/** Smooth value noise in [-1, 1]. */
-function noise3(x: number, y: number, z: number): number {
-  const ix = Math.floor(x);
-  const iy = Math.floor(y);
-  const iz = Math.floor(z);
-  const fx = fade(x - ix);
-  const fy = fade(y - iy);
-  const fz = fade(z - iz);
-  const l = (dx: number, dy: number, dz: number) => lattice(ix + dx, iy + dy, iz + dz);
-  const mix = (a: number, b: number, t: number) => a + (b - a) * t;
-  return mix(
-    mix(mix(l(0, 0, 0), l(1, 0, 0), fx), mix(l(0, 1, 0), l(1, 1, 0), fx), fy),
-    mix(mix(l(0, 0, 1), l(1, 0, 1), fx), mix(l(0, 1, 1), l(1, 1, 1), fx), fy),
-    fz,
-  );
 }
 
 // --- particles and emitters ---------------------------------------------------------------------------

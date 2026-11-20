@@ -1,7 +1,7 @@
 // ADR 0075 stage 6: water surfaces on the Babylon backend. The grid mesh, its rebuilds, the node
 // following and release run headless on Babylon's NullEngine; the WGSL and GLSL the material plugin
-// splices into Babylon's PBR shaders are checked as text, and their wave functions are translated to
-// JavaScript and run on the uniforms the plugin binds, against the physics surface.
+// splices into Babylon's PBR shaders are checked as text; their wave sum is `GERSTNER_SHADER` (ADR 0250),
+// whose JavaScript output runs on the uniforms the plugin binds, against the physics surface.
 import { NullEngine } from "@babylonjs/core/Engines/nullEngine.js";
 import { VertexBuffer } from "@babylonjs/core/Buffers/buffer.js";
 import type { MaterialPluginBase } from "@babylonjs/core/Materials/materialPluginBase.js";
@@ -13,7 +13,7 @@ import type { World } from "../core/World";
 import { Assets, Engine, GameObject, Graphics, SceneManager } from "../index";
 import { WaterSurface } from "../render/water/WaterSurface";
 import { BabylonWater } from "../render/babylon/water";
-import { GERSTNER_BODY, MAX_WAVES, gerstner } from "../render/water/gerstner";
+import { GERSTNER_SHADER, MAX_WAVES, gerstner } from "../render/water/gerstner";
 import { waterTime } from "../render/water/WaterSurface";
 import { nullEngine, shaderText, type ShaderText } from "./pbrShaderSource";
 
@@ -217,6 +217,11 @@ describe("the water WGSL", () => {
     expect(all).not.toMatch(/^\s*uniform /m);
   });
 
+  it("sums the waves with GERSTNER_SHADER itself", () => {
+    expect(vertex.CUSTOM_VERTEX_DEFINITIONS).toContain(GERSTNER_SHADER.text("wgsl", { declarations: "omit" }));
+    expect(waterText.vertex).toContain("mycoGerstner(px, pz, i32(uniforms.mycoWaterA.x + 0.5))");
+  });
+
   it("is WGSL, not GLSL", () => {
     expect(all).not.toMatch(/\bvec[234]\(/);
     expect(all).not.toMatch(/\bfloat\(/);
@@ -240,8 +245,9 @@ describe("the water GLSL (WebGL2 fallback)", () => {
     expect(Object.values(fragment)).toContain("reflectivityBlock(vec4(0.0, mix(vReflectivityColor.y, 0.9, mycoFoamK), vReflectivityColor.zw)");
   });
 
-  it("sums the waves with GERSTNER_BODY itself, reads every packed uniform, and shadows none of them", () => {
-    expect(vertex.CUSTOM_VERTEX_DEFINITIONS).toContain(GERSTNER_BODY.replace(/\$float/g, "float").replace(/\$int/g, "int"));
+  it("sums the waves with GERSTNER_SHADER itself, reads every packed uniform, and shadows none of them", () => {
+    expect(vertex.CUSTOM_VERTEX_DEFINITIONS).toContain(GERSTNER_SHADER.text("glsl", { declarations: "omit" }));
+    expect(vertex.CUSTOM_VERTEX_DEFINITIONS).toContain("mycoGerstner(px, pz, int(mycoWaterA.x + 0.5))");
     const all = [...Object.values(vertex), ...Object.values(fragment)].join("\n");
     for (const { name } of waterUbo) {
       expect(all).toMatch(new RegExp(`\\b${name}\\b`));
@@ -254,37 +260,11 @@ describe("the water GLSL (WebGL2 fallback)", () => {
 
 type V4 = { x: number; y: number; z: number; w: number };
 
-/** The wave function a shader's CUSTOM_VERTEX_DEFINITIONS declares, translated to JavaScript: (rest x, rest z, uniforms) → displacement. */
-function shaderWaves(language: ShaderLanguage): (px: number, pz: number, u: Record<string, V4>) => number[] {
-  const defs = waterCode("vertex", language).CUSTOM_VERTEX_DEFINITIONS;
-  const start = defs.search(/(fn|void) mycoGerstner/);
-  let src = defs.slice(start, defs.indexOf("\n}\n", defs.search(/disp = vec3\(|return mat3x3f/)) + 2);
-  src = src.replace(/uniforms\./g, "").replace(/\b(mycoWave\d|mycoPhase\d|mycoWaterA)\b/g, "u.$1");
-  if (language === ShaderLanguage.WGSL) {
-    src = src
-      .replace(/^fn mycoGerstner\(.*\{/, "")
-      .replace(/array<\w+, \d+>\(([^;]*)\);/g, "[$1];")
-      .replace(/\bi32\(/g, "Math.trunc(")
-      .replace(/: i32/g, "")
-      .replace(/\b(var|let) /g, "let ")
-      .replace(/(\w) \+= (vec3f\(.*\));/g, "$1 = add($1, $2);")
-      .replace(/return mat3x3f\(g, t, b\);/, "return g;");
-  } else {
-    src = src
-      .replace(/^void mycoGerstner\(.*\{/, "let disp;")
-      .replace(/\w+ (\w+)\[\d+\] = \w+\[\d+\]\(([^;]*)\);/g, "let $1 = [$2];")
-      .replace(/float (\w+)\[(\d+)\];/g, "let $1 = new Array($2).fill(0);")
-      .replace(/\bint\(/g, "Math.trunc(")
-      .replace(/\b(float|int) (?=\w+ ?[=;])/g, "let ")
-      .replace(/\bvec3\(([^()]*)\)/g, "[$1]")
-      .replace(/\b(tangent|binormal) = .*;/g, "")
-      .replace(/\n\}\n?$/, "\nreturn disp;\n}");
-  }
-  src = src.replace(/\b(sin|cos)\(/g, "Math.$1(").replace(/\n\}\n?$/, "\n");
-  const vec3f = (...a: number[]) => (a.length === 1 ? [a[0], a[0], a[0]] : a);
-  const add = (a: number[], b: number[]) => a.map((v, i) => v + b[i]);
-  const fn = new Function("px", "pz", "u", "vec3f", "add", src);
-  return (px, pz, u) => fn(px, pz, u, vec3f, add) as number[];
+/** The wave sum both shaders compile (`GERSTNER_SHADER`), run as JavaScript on the uniforms a draw binds: (rest x, rest z) → displacement. */
+function shaderWaves(u: Record<string, V4>): (px: number, pz: number) => number[] {
+  const uniforms = Object.fromEntries(Object.entries(u).map(([k, v]) => [k, [v.x, v.y, v.z, v.w]]));
+  const sum = GERSTNER_SHADER.js({ uniforms }).fn("mycoGerstner");
+  return (px, pz) => (sum(px, pz, Math.trunc(u.mycoWaterA.x + 0.5)) as number[][])[0];
 }
 
 describe("the water Babylon draws is the water physics samples (pirates: hulls under a flat sea)", () => {
@@ -336,7 +316,7 @@ describe("the water Babylon draws is the water physics samples (pirates: hulls u
     expect(plugin!.isCompatible(ShaderLanguage.WGSL)).toBe(true);
   });
 
-  it("draws the height WaterSurface.sample reports, in GLSL and WGSL", () => {
+  it("draws the height WaterSurface.sample reports", () => {
     const node = GameObject.create("sea");
     const w = node.addBehavior(WaterSurface);
     w.waveScale = 1.7;
@@ -348,12 +328,12 @@ describe("the water Babylon draws is the water physics samples (pirates: hulls u
     const u = bound(waterMeshes()[0].material as PBRMaterial);
 
     const packed = w._pack(time);
-    for (const language of [ShaderLanguage.GLSL, ShaderLanguage.WGSL]) {
-      const drawn = shaderWaves(language);
+    {
+      const drawn = shaderWaves(u);
       for (const [px, pz] of [[0, 0], [7.3, -4.1], [-30, 22], [55, 61]]) {
-        const d = drawn(px, pz, u);
+        const d = drawn(px, pz);
         const cpu = gerstner(packed, px, pz);
-        const at = `${ShaderLanguage[language]} at rest (${px}, ${pz})`;
+        const at = `at rest (${px}, ${pz})`;
         expect(d[1], at).toBeCloseTo(cpu.dy, 4);
         expect(d[0], at).toBeCloseTo(cpu.dx, 4);
         expect(d[2], at).toBeCloseTo(cpu.dz, 4);
