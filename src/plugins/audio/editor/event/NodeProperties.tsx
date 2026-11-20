@@ -18,7 +18,8 @@ import { useState } from "preact/hooks";
 import { isMusicContainer, MUSIC_LIMITS, type MusicNode, type MusicSwitchNode, type PlaylistNode } from "../../../../engine/audio/musicFormat";
 import type { StingerDef } from "../../../../engine/audio/musicRules";
 import { draggedClips } from "./assetDrop";
-import { isLibraryPath, musicIdProblem, nodeLabel, type NodePath } from "./eventTreeModel";
+import { musicIdProblem, nodeLabel, type NodePath } from "./eventTreeModel";
+import { isLibraryPath } from "../../../../engine/audio/musicTree";
 import {
   coerceField, eventFields, musicNodeFields, newStinger, nodeFields, patchStinger, readField, stingerAtFrom, stingerAtKind, writeField,
   STINGER_AT_KINDS, STINGER_IF_TOO_LATE,

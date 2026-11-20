@@ -21,7 +21,8 @@
  *   playlists, switches and stingers apply to the next decision.
  * - A change that arrives while another change is planned waits until that plan has been stamped.
  */
-import { isMusicContainer, type MusicNode } from "../../../../engine/audio/musicFormat";
+import type { MusicNode } from "../../../../engine/audio/musicFormat";
+import { findMusicSegment } from "../../../../engine/audio/musicTree";
 import { entrySeconds, exitSeconds, ticksToSeconds, type SegmentGrid, type TempoMap } from "../../../../engine/audio/musicGrid";
 import { advanceAnchor, ticksAt } from "./anchors";
 import { promote } from "./musicPlayer";
@@ -123,17 +124,6 @@ function gridOfNode(node: MusicNode): { grid: SegmentGrid; rate: number } | null
   return grid ? { grid, rate: segmentLength(node)?.rate ?? FALLBACK_CLIP_RATE } : null;
 }
 
-/** A segment node by id in an event's music tree (children and library), or null. */
-function findNode(root: MusicNode, id: string): MusicNode | null {
-  if (root.id === id && root.type === "segment") return root;
-  if (!isMusicContainer(root)) return null;
-  for (const n of [...root.children, ...root.library]) {
-    const found = findNode(n, id);
-    if (found) return found;
-  }
-  return null;
-}
-
 // --- Planning ----------------------------------------------------------------------------------------------------------
 
 /** Fade out the outgoing run's stems from heard `at` and stop them (one stamped ramp per stem). */
@@ -228,7 +218,7 @@ export function applyReloads(player: MusicPlayer, f: MusicFrame): void {
   if (st.event) {
     st.event = false;
     root = host?.eventRoot(player.instance.path) ?? null;
-    const found = root ? findNode(root, run.node.id) : null;
+    const found = root ? findMusicSegment(root, run.node.id) : null;
     if (!root || !found) {
       warn(player, st, "invalid", `the reloaded event is missing or no longer holds segment "${run.node.id}"; the old version keeps playing.`);
       root = null;

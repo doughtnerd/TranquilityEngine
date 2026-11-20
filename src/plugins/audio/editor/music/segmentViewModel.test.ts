@@ -1,4 +1,4 @@
-// Ed2: the segment view model. The viewport maths and `findSegment` are the lead's and tested here; the `L-Ed2a` cases
+// Ed2: the segment view model. The viewport maths are the lead's and tested here; the `L-Ed2a` cases
 // (gridLines, tempoLane) are skipped until that leaf fills its stubs and un-skips them.
 import { describe, expect, it } from "vitest";
 import { compileTempoMap } from "../../../../engine/audio/musicGrid";

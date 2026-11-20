@@ -1,8 +1,8 @@
 // Ed7: "audition this transition": the plan (which pair, which segment, where to start, which parameter) and the run
-// through Ed5's transport against a fake audio host.
-import { afterEach, describe, expect, it } from "vitest";
-import { activeAudition } from "../event/auditionHost";
-import { createTransport, type TransportHandle, type TransportHost } from "./transport";
+// through the editor's audition (ADR 0268) against a fake audio host.
+import { describe, expect, it } from "vitest";
+import { createAudition } from "../audition/audition";
+import { fakeHandle, fakeHost } from "../audition/auditionFixtures";
 import { planTransitionAudition, runTransitionAudition } from "./ruleAudition";
 import { containerOf, segmentRaw, switchEvent } from "./ruleFixtures";
 import type { AudioEventAsset } from "../../../../engine/audio/eventFormat";
@@ -11,8 +11,6 @@ import type { MusicContainerNode } from "../../../../engine/audio/musicFormat";
 const PATH = "m.audioevent.json";
 const exitCue = { cues: [{ name: "exit", at: "9:1:0" }] };
 const children = [segmentRaw("a", exitCue), segmentRaw("b"), segmentRaw("c")];
-
-afterEach(() => { activeAudition.value = null; });
 
 describe("the pair a plan auditions", () => {
   /** The pair the plan for rule `index` starts and changes between, or null when it refuses for want of one. */
@@ -83,88 +81,69 @@ describe("planTransitionAudition", () => {
   });
 });
 
-function fakeHandle(): TransportHandle & { sets: [string, number | string][]; seeks: string[] } {
-  const h = {
-    sets: [] as [string, number | string][], seeks: [] as string[], alive: true,
-    get playing() { return h.alive; },
-    music: { segment: "a", bar: 1, beat: 1, beatFraction: 0, seek: (t: string) => { h.seeks.push(t); return { ok: true as const, time: 1 }; } } as never,
-    onMusic: () => () => undefined,
-    trigger: () => true,
-    stop: () => { h.alive = false; },
-    setParameter: (n: string, v: number | string) => void h.sets.push([n, v]),
-  };
-  return h;
-}
-
 describe("runTransitionAudition", () => {
-  it("plays through the transport with the start parameter and seek, then sets the target value after the seek lands", async () => {
+  it("plays through the audition with the start parameter and seek, then sets the target value after the seek lands", async () => {
     const handle = fakeHandle();
-    const played: { path: string; parameters: Record<string, number | string> }[] = [];
-    const host: TransportHost = {
-      play: (path, parameters) => { played.push({ path, parameters }); return handle; },
-      flush: async () => undefined,
-      reload: () => undefined, startAt: () => true, startAtPosition: () => false, stems: () => undefined,
-    };
-    const transport = createTransport(host);
+    const host = fakeHost([handle]);
+    const audition = createAudition(host);
     const event = switchEvent([{ from: "a", to: "b" }], { children });
     const plan = planTransitionAudition(PATH, event, containerOf(event), 0);
     if (!plan.ok) throw new Error(plan.reason);
-    await runTransitionAudition(transport, plan);
-    expect(played).toEqual([{ path: PATH, parameters: { state: "1" } }]);
+    await runTransitionAudition(audition, plan);
+    expect(host.played).toEqual([PATH]);
+    expect(host.params).toEqual([{ state: "1" }]);
     expect(handle.seeks).toEqual(["7:1:0"]);
-    expect(activeAudition.value?.handle).toBe(handle);
+    expect(audition.state.value).toMatchObject({ phase: "playing", event: PATH, segmentId: "a" });
     expect(handle.sets).toEqual([]);
-    transport.tick();
+    audition.tick();
     expect(handle.sets).toEqual([["state", "2"]]);
-    transport.tick();
+    audition.tick();
     expect(handle.sets).toHaveLength(1);
-    transport.dispose();
+    audition.dispose();
   });
   it("holds the parameter until a refused-for-now seek lands", async () => {
     const handle = fakeHandle();
-    let first = true;
-    (handle.music as { seek: (t: string) => unknown }).seek = () => (first ? ((first = false), { ok: false, reason: "poolFull", permanent: false }) : { ok: true, time: 1 });
-    const transport = createTransport({ play: () => handle, flush: async () => undefined, reload: () => undefined, startAt: () => true, startAtPosition: () => false, stems: () => undefined });
+    handle.seekResults.push({ ok: false, reason: "poolFull", permanent: false });
+    const audition = createAudition(fakeHost([handle]));
     const event = switchEvent([{ from: "a", to: "b" }], { children });
     const plan = planTransitionAudition(PATH, event, containerOf(event), 0);
     if (!plan.ok) throw new Error(plan.reason);
-    await runTransitionAudition(transport, plan);
+    await runTransitionAudition(audition, plan);
     expect(handle.sets).toEqual([]);
-    transport.tick();
+    audition.tick();
     expect(handle.sets).toEqual([["state", "2"]]);
-    transport.dispose();
+    audition.dispose();
   });
   it("holds the parameter while the music is still priming (no segment yet), from the default bar 1 too", async () => {
     const handle = fakeHandle();
-    const music = handle.music as unknown as { segment: string | null };
-    music.segment = null;
-    const transport = createTransport({ play: () => handle, flush: async () => undefined, reload: () => undefined, startAt: () => true, startAtPosition: () => false, stems: () => undefined });
+    handle.position = { ...handle.position, segment: null };
+    const audition = createAudition(fakeHost([handle]));
     const event = switchEvent([{ from: "a", to: "b" }], { children: [segmentRaw("a"), segmentRaw("b")] });
     const plan = planTransitionAudition(PATH, event, containerOf(event), 0);
     if (!plan.ok) throw new Error(plan.reason);
     expect(plan.from).toEqual({ kind: "start" });
-    await runTransitionAudition(transport, plan);
-    transport.tick();
-    transport.tick();
+    await runTransitionAudition(audition, plan);
+    audition.tick();
+    audition.tick();
     expect(handle.sets).toEqual([]);
-    music.segment = "a";
-    transport.tick();
+    handle.position = { ...handle.position, segment: "a" };
+    audition.tick();
     expect(handle.sets).toEqual([["state", "2"]]);
-    transport.dispose();
+    audition.dispose();
   });
   it("sets nothing for a playlist and says so for a handle that can't set parameters", async () => {
     const handle = fakeHandle();
-    const transport = createTransport({ play: () => handle, flush: async () => undefined, reload: () => undefined, startAt: () => true, startAtPosition: () => false, stems: () => undefined });
+    const audition = createAudition(fakeHost([handle]));
     const event = switchEvent([{ from: "a", to: "b" }], { type: "playlist" });
     const plan = planTransitionAudition(PATH, event, containerOf(event), 0);
     if (!plan.ok) throw new Error(plan.reason);
-    await runTransitionAudition(transport, plan);
-    transport.tick();
+    await runTransitionAudition(audition, plan);
+    audition.tick();
     expect(handle.sets).toEqual([]);
     delete (handle as { setParameter?: unknown }).setParameter;
-    expect(transport.requestParameter("state", "2")).toBe(false);
-    expect(transport.state.value.message).toMatch(/can't set/);
-    transport.dispose();
-    expect(transport.requestParameter("state", "2")).toBe(false);
+    expect(audition.requestParameter("state", "2")).toBe(false);
+    expect(audition.state.value.message).toMatch(/can't set/);
+    audition.dispose();
+    expect(audition.requestParameter("state", "2")).toBe(false);
   });
 });

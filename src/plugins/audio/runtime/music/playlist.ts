@@ -33,7 +33,8 @@
  * `requestStart` (nothing plays to leave).
  */
 import { ticksToSeconds } from "../../../../engine/audio/musicGrid";
-import { musicChildById, type PlaylistNode, type MusicNode } from "../../../../engine/audio/musicFormat";
+import type { PlaylistNode, MusicNode } from "../../../../engine/audio/musicFormat";
+import { musicChildById } from "../../../../engine/audio/musicTree";
 import { playingGridOf, predictWrap, heardTimeOf, ticksAt } from "./anchors";
 import { attachState, promote } from "./musicPlayer";
 import type { MusicFrame, MusicPlayer } from "./musicSystem";

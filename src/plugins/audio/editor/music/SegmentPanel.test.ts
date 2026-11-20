@@ -7,7 +7,7 @@ import {
   addCue, addRegion, moveTrack, promoteAlternative, readCondition, removeAlternative, removeCue, removeRegion, removeTrack, renameCue, renameTrack, setCueAt, setEntry, setExit, setGridOffset, setTempo, setTrackBus, setTrackPick, setTrackVolume, updateRegion, type Edit,
 } from "./segmentEdits";
 import { audibleStems, auditionKey, auditionOf, stemAudition, toggleStem } from "./stemAudition";
-import { findSegment, replaceSegment } from "./segmentViewModel";
+import { findMusicSegment, replaceMusicNode } from "../../../../engine/audio/musicTree";
 
 const RAW = {
   type: "segment", id: "main",
@@ -20,18 +20,18 @@ const RAW = {
 function load(raw: unknown = RAW): { event: AudioEventAsset; segment: SegmentNode } {
   const r = parseAudioEvent({ format: "myco.audioevent@1", root: raw });
   expect(r.problems).toEqual([]);
-  return { event: r.value, segment: findSegment(r.value.musicRoot, "main")! };
+  return { event: r.value, segment: findMusicSegment(r.value.musicRoot, "main")! };
 }
 
 /** Apply an edit the way the panel does and push the result through the writer. */
 function roundTrip(event: AudioEventAsset, e: Edit): SegmentNode {
   if ("error" in e) throw new Error(e.error);
-  const next: AudioEventAsset = { ...event, musicRoot: replaceSegment(event.musicRoot!, "main", e.segment) };
+  const next: AudioEventAsset = { ...event, musicRoot: replaceMusicNode(event.musicRoot!, "main", e.segment) };
   const text = formatAudioEvent(next);
   const again = parseAudioEvent(JSON.parse(text));
   expect(again.problems).toEqual([]);
   expect(formatAudioEvent(again.value)).toBe(text);
-  const read = findSegment(again.value.musicRoot, "main")!;
+  const read = findMusicSegment(again.value.musicRoot, "main")!;
   expect(read).toEqual(e.segment);
   return read;
 }

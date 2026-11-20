@@ -11,14 +11,15 @@ import { openSegment } from "./index";
 import { beginDrag, dragLabel, type DragHandle, type DragSession } from "./segmentDrag";
 import { SNAP_MODES, type SnapMode } from "./segmentSnap";
 import {
-  clampViewport, findSegment, fitViewport, followPlayhead, gridLines, positionAtX, replaceSegment, scrollBy, secondsToX, tempoLane,
+  clampViewport, fitViewport, followPlayhead, gridLines, positionAtX, scrollBy, secondsToX, tempoLane,
   ticksToX, xToSeconds, zoomAt, type Viewport,
 } from "./segmentViewModel";
+import { findMusicSegment, replaceMusicNode } from "../../../../engine/audio/musicTree";
 import { peaksFor } from "./peaksHost";
 import type { PeaksService } from "./peaks";
 import { TransportBar } from "./TransportBar";
-import { musicTransport } from "./transportHost";
-import { auditionOverrides, NO_OVERRIDES, stingerNames } from "../event/auditionHost";
+import { editorAudition } from "../audition/editorAudition";
+import { stingerNames } from "../audition/auditionView";
 import { auditionValues } from "../event/eventParameters";
 import { binAt, binSpan, pickLevel, type PeakMips } from "./peaksMip";
 import "./segmentView.css";
@@ -439,23 +440,23 @@ function OpenSegment({ path, segmentId }: { path: string; segmentId: string }) {
   const doc = openAssetDocument<AudioEventAsset>(project, path, "audioEvent");
   useEffect(() => () => void doc.flush(), [doc]);
   const event = doc.value.value;
-  const segment = useMemo(() => findSegment(event.musicRoot, segmentId), [event.musicRoot, segmentId]);
+  const segment = useMemo(() => findMusicSegment(event.musicRoot, segmentId), [event.musicRoot, segmentId]);
   const grid = useMemo(() => (segment ? compileSegmentGrid(segment, { endSeconds: NaN }) : null), [segment]);
-  // The transport (ticking, solo and mute, its lifetime) is the transport service's (F-33): a tab switch to Segment
-  // Properties unmounts this view, and the audition goes on.
-  useEffect(() => { if (grid) musicTransport.tick(grid); }, [grid]);
-  // F-15: the Event editor's slider values (moved ones over the defaults) reach the played instance.
-  const parameters = auditionValues(event.parameters, auditionOverrides.value[path] ?? NO_OVERRIDES);
+  // The audition (ticking, solo and mute, its lifetime) is the editor's (ADR 0268, F-33): a tab switch to Segment
+  // Properties unmounts this view, and the audition goes on. An edited segment's grid reaches its playhead.
+  useEffect(() => { if (grid) editorAudition.tick(grid); }, [grid]);
+  // F-15: the Event editor's slider values (moved ones over the defaults) start the played instance; later moves reach it live.
+  const parameters = auditionValues(event.parameters, editorAudition.overrides.value[path] ?? {});
   if (!segment || !grid) return <p class="empty">{path} has no segment “{segmentId}”.</p>;
   const onChange: SegmentChange = (next, o) => {
     if (!event.musicRoot) return;
-    doc.edit({ ...event, musicRoot: replaceSegment(event.musicRoot, segmentId, next) }, o.drag ? { coalesce: true, label: o.label } : { label: o.label });
+    doc.edit({ ...event, musicRoot: replaceMusicNode(event.musicRoot, segmentId, next) }, o.drag ? { coalesce: true, label: o.label } : { label: o.label });
   };
-  const request = (seconds: number) => ({ event: path, segmentId, grid, parameters, startAtSegment: true, from: { kind: "seconds", seconds } as const });
+  const request = (seconds: number) => ({ event: path, parameters, music: { segmentId, grid, startAtSegment: true, from: { kind: "seconds", seconds } as const } });
   return (
     <div class="segment-panel-root" data-asset-document={doc.path}>
       <TransportBar
-        transport={musicTransport}
+        audition={editorAudition}
         event={path}
         segmentId={segmentId}
         grid={grid}
@@ -468,8 +469,8 @@ function OpenSegment({ path, segmentId }: { path: string; segmentId: string }) {
         peaks={peaksFor(project)}
         readOnly={doc.readOnly}
         onChange={onChange}
-        playheadSeconds={musicTransport.playhead.value}
-        onSeek={(seconds) => void musicTransport.seek(request(seconds))}
+        playheadSeconds={editorAudition.playhead.value}
+        onSeek={(seconds) => void editorAudition.seek(request(seconds))}
       />
     </div>
   );
