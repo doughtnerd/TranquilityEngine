@@ -38,7 +38,7 @@ import {
 import { BUILTIN_MATERIALS, DEFAULT_MATERIAL_NAME, MATERIAL_LIMITS, MAX_MATERIALS, type OccluderMaterial } from "../../../engine/audio/occlusionMaterials";
 import { sameMaterial } from "../../../engine/audio/audioSection";
 import { audioSettings } from "./audioDraft";
-import { defaultSettings } from "../../../engine/core/settings";
+import { RUNTIME_SETTINGS } from "../../../engine/core/settings";
 import { resolveBeds } from "../runtime/core/beds";
 import type { Curve } from "../../../engine/core/curve";
 import { isLabelled, MAX_CURVE_KEYS, MAX_PARAMETERS, parameterDefault, parameterRange, type ParameterDef } from "../../../engine/audio/eventFormat";
@@ -724,4 +724,4 @@ export function setDoppler(d: SettingsDraft, patch: DopplerPatch): SettingsDraft
 }
 
 /** The project's physics layer names (what `occlusion.layers` chooses from). */
-export const physicsLayerNames = (d: SettingsDraft): string[] => d.physics?.layers ?? defaultSettings.physics.layers;
+export const physicsLayerNames = (d: SettingsDraft): string[] => RUNTIME_SETTINGS.physics.parse(d.physics).value.layers;

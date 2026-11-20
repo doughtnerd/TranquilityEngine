@@ -1,7 +1,7 @@
 // The Project panel's Physics category (ADR 0038, 0116, 0137): gravity, the 2D and 3D physics backend, the
 // physics layers, and which layers collide as a triangle of checkboxes. Edits go through the panel's undo history.
-import { defaultSettings } from "../../../engine/core/settings";
-import { collides, addLayer, MAX_LAYERS, physicsSettings, removeLayer, renameLayer, setCollides, setGravity } from "./physicsSettingsModel";
+import { defaultSettings, MAX_PHYSICS_LAYERS } from "../../../engine/core/settings";
+import { collides, addLayer, physicsSettings, removeLayer, renameLayer, setCollides, setGravity } from "./physicsSettingsModel";
 import { physicsBackends, type PhysicsDimension } from "../runtime";
 import { backendOf, backendOptions, setBackend } from "./physicsEditorModel";
 import { type ProjectSettingsSectionProps, type SettingsDraft, type SettingsProblem, NameList, ProblemList, Row, NumberField } from "../../../editor/sdk";
@@ -66,7 +66,7 @@ function Layers(props: ProjectSettingsSectionProps) {
         problems={fieldProblems}
         item="layer"
         fixed={(i) => i === 0}
-        addDisabled={layers.length >= MAX_LAYERS}
+        addDisabled={layers.length >= MAX_PHYSICS_LAYERS}
         onAdd={() => set("Add physics layer", addLayer(draft))}
         onRename={(i, v) => set(`Rename physics layer to ${v}`, renameLayer(draft, i, v))}
         onRemove={(i) => set(`Remove physics layer ${layers[i]}`, removeLayer(draft, i))}

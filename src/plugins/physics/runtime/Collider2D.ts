@@ -6,6 +6,7 @@ import type { GameObject } from "../../../engine/scene/GameObject";
 import type { Dim2 } from "./backend";
 import type { ColliderState } from "./core/state";
 import { RigidBody2D } from "./RigidBody2D";
+import { attachedBody } from "./attachedBody";
 
 import type { PhysicsMaterial, PhysicsMaterial2D } from "../../../engine/physics/types";
 export type { PhysicsMaterial, PhysicsMaterial2D };
@@ -24,11 +25,7 @@ export abstract class Collider2D extends Component {
 
   /** The body this collider is attached to: the nearest active RigidBody2D on this node or an ancestor. */
   get attachedRigidbody(): RigidBody2D | null {
-    for (let n: GameObject | null = this.node; n; n = n.parent) {
-      const rb = n.getBehavior(RigidBody2D);
-      if (rb && rb.isActiveAndEnabled) return rb;
-    }
-    return null;
+    return attachedBody(this.node, RigidBody2D);
   }
 
   /** @internal A string that changes whenever the shape must be rebuilt. */

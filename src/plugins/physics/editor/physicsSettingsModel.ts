@@ -1,23 +1,22 @@
 // The Physics settings section's model (ADR 0038, 0116, 0151): `project.json`'s `physics` key, which the
 // Physics plugin's settings section owns: gravity, the layers and their collision matrix, as pure edits of
-// the Project panel's draft, and the problems that keep it from being saved. Moved here from the shell's
-// `projectSettingsModel.ts` when settings sections began declaring their keys.
-import { physicsBackendProblems, resolvePhysicsSettings } from "../../../engine/core/settings";
-import { settingsSection, type NamedList, type SettingsDraft, type SettingsProblem } from "../../../editor/sdk";
+// the Project panel's draft. Reading it and its problems are the engine's runtime physics section's
+// (`RUNTIME_SETTINGS.physics`, ADR 0272), so the panel and the Engine's start-up warnings say the same.
+import { RUNTIME_SETTINGS } from "../../../engine/core/settings";
+import { settingsSection, type NamedList, type SettingsDraft } from "../../../editor/sdk";
 import { uniqueName } from "../../../engine/core/uniqueName";
 
-/** Physics layers are bits in a 16-bit collision mask. */
-export const MAX_LAYERS = 16;
+const PHYSICS = RUNTIME_SETTINGS.physics;
 
 /**
- * `project.json`'s `physics` key in the settings draft: read with the engine's defaults, checked by field, and edited
+ * `project.json`'s `physics` key in the settings draft: read and checked by field as the engine reads it, and edited
  * value by value in what's written (`"written"`), so a value never set keeps following its default.
  */
 export const physicsSettings = settingsSection({
   key: "physics",
-  parse: (written) => ({ settings: resolvePhysicsSettings(written as SettingsDraft["physics"]) }),
+  parse: (written) => ({ settings: PHYSICS.parse(written).value }),
   edits: "written",
-  problems: physicsProblems,
+  problems: (draft) => PHYSICS.parse(draft.physics).problems,
 });
 
 const layersOf = (d: SettingsDraft): string[] => physicsSettings.read(d).layers;
@@ -118,44 +117,4 @@ export function setGravity(draft: SettingsDraft, axis: 0 | 1 | 2, value: number)
   g[axis] = value;
   const gravity = g[2] === 0 ? [g[0], g[1]] : g.slice(0, 3);
   return physicsSettings.set(draft, "gravity", gravity);
-}
-
-/** What's wrong with the draft's `physics` key, by field (`"physics.layers.2"`): the section's `problems`. */
-function physicsProblems(draft: SettingsDraft): SettingsProblem[] {
-  const problems: SettingsProblem[] = [];
-  const p = (field: string, message: string) => problems.push({ field, message });
-  const physics = draft.physics ?? {};
-  if (physics.gravity !== undefined && !(Array.isArray(physics.gravity) && (physics.gravity.length === 2 || physics.gravity.length === 3) && physics.gravity.every((g) => typeof g === "number" && Number.isFinite(g)))) {
-    p("physics.gravity", "Gravity must be two numbers, x and y, or three with z.");
-  }
-  if (physics.layers !== undefined) {
-    const list: unknown = physics.layers;
-    if (!Array.isArray(list)) p("physics.layers", "Physics layers must be a list of names.");
-    else {
-      if (list.length === 0) p("physics.layers", "There must be at least one Physics layer.");
-      const seen = new Set<string>();
-      list.forEach((name, i) => {
-        if (typeof name !== "string" || name.trim() === "") p(`physics.layers.${i}`, `Physics layers: entry ${i + 1} needs a name.`);
-        else if (seen.has(name)) p(`physics.layers.${i}`, `Physics layers: "${name}" is listed twice.`);
-        else seen.add(name);
-      });
-    }
-  }
-  for (const message of physicsBackendProblems(physics)) p(message.startsWith("physics.backend2d") ? "physics.backend2d" : "physics.backend3d", message);
-  const layers = layersOf(draft);
-  if (Array.isArray(layers) && layers.length > MAX_LAYERS) p("physics.layers", `There can be at most ${MAX_LAYERS} physics layers.`);
-  const matrix = physics.collisionMatrix;
-  if (matrix !== undefined) {
-    if (typeof matrix !== "object" || matrix === null || Array.isArray(matrix)) p("physics.collisionMatrix", "The collision matrix must be an object of layer lists.");
-    else {
-      const unknown = new Set<string>();
-      for (const [a, list] of Object.entries(matrix)) {
-        if (!layers.includes(a)) unknown.add(a);
-        if (!Array.isArray(list)) p("physics.collisionMatrix", `The collision matrix entry for "${a}" must be a list of layers.`);
-        else for (const b of list) if (!layers.includes(b)) unknown.add(String(b));
-      }
-      if (unknown.size > 0) p("physics.collisionMatrix", `The collision matrix names ${[...unknown].map((n) => `"${n}"`).join(", ")}, which ${unknown.size === 1 ? "isn't a physics layer" : "aren't physics layers"}.`);
-    }
-  }
-  return problems;
 }

@@ -18,10 +18,13 @@ import type { World } from "../core/World";
 import { Assets, normalizeAssetPath } from "../scene/Assets";
 import { projectFileKind } from "../scene/projectFiles";
 import type { GameObject } from "../scene/GameObject";
-import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UIComponentType } from "./components";
+import { UIButton, UIInputField, type UIComponentType } from "./components";
+import { uiPseudoState, uiTypeOfTag } from "./elementKinds";
 import type { BindingPart, MarkupElement, ResolvedValue, Selector, SourceProblem, StyleTarget, UIPseudo, UIStylesheet, UITag } from "./document/types";
 
 export type { SourceProblem, UITag } from "./document/types";
+
+type ComponentClass = new () => UIComponentType;
 
 type Parsers = typeof import("./document/parsers");
 let parsers: Parsers | null = null;
@@ -42,16 +45,6 @@ export function loadUIDocumentSupport(): Promise<void> {
   );
   return loading.then(() => undefined);
 }
-
-type ComponentClass = new () => UIComponentType;
-const TAG_TYPES: Readonly<Record<UITag, ComponentClass>> = {
-  Canvas: UICanvas,
-  Panel: UIPanel,
-  Text: UIText,
-  Image: UIImage,
-  Button: UIButton,
-  InputField: UIInputField,
-};
 
 // --- Events -------------------------------------------------------------------------------------
 
@@ -668,7 +661,7 @@ export class UIDocument extends Component {
   private build(markup: MarkupElement, parent: UIDocumentElement | null, scope: RowScope | null, reuse: Map<string, UIDocumentElement> | null, path: string): UIDocumentElement {
     const P = parsers!;
     const world = this._world;
-    const type = TAG_TYPES[markup.tag];
+    const type = uiTypeOfTag(markup.tag);
     const idAttr = markup.attributes.find((a) => a.name === "id")?.value ?? null;
     const classAttr = markup.attributes.find((a) => a.name === "class")?.value ?? "";
     const reused = reuse?.get(path);
@@ -912,7 +905,7 @@ export class UIDocument extends Component {
     this.updateBindings(root);
     walk(root, (el) => {
       if (el._comp instanceof UIInputField) el._lastValue = el._comp.value; // a script's change isn't the player's
-      const state = pseudoState(el._comp);
+      const state = uiPseudoState(el._comp);
       const s = el._target.state;
       if (state.hover !== s.hover || state.pressed !== s.pressed || state.focus !== s.focus || state.disabled !== s.disabled) {
         el._target.state = state;
@@ -939,16 +932,6 @@ export class UIDocument extends Component {
     }
     return false;
   }
-}
-
-function pseudoState(c: UIComponentType): Record<UIPseudo, boolean> {
-  const button = c instanceof UIButton ? c : null;
-  return {
-    hover: button?.hovered ?? false,
-    pressed: button?.pressed ?? false,
-    focus: c instanceof UIInputField && c.focused,
-    disabled: !c.enabled || (button !== null && !button.interactable),
-  };
 }
 
 function walk(el: UIDocumentElement, fn: (el: UIDocumentElement) => void): void {

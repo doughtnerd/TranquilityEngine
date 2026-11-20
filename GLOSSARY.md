@@ -117,3 +117,12 @@ The domain terms used in Myco Engine's code, decision records and reviews. Add a
 
 - **View allocator:** what decides which surface (the main view, a tile, or none after a hand-over) and which input target each World has (`core/viewAllocator.ts`, ADR 0238). The Engine asks it `surfaceOf(world)`.
 - **End of frame:** the last step of a World's frame (ADR 0011, 0239). Work queued with `World.atFrameEnd` runs there, after deferred destroys; outside a frame it runs at once. _Avoid:_ checking `inFrame` by hand.
+
+## UI (ADR 0076, 0271)
+
+- **Element kind:** one of the closed set of UI element kinds (canvas, panel, text, image, button, input field), each one row in `ui/elementKinds.ts`: its component type, markup tag, whether it is a leaf, whether it takes the pointer, its pseudo-classes and whether it paints. _Avoid:_ switching on UI component classes outside that module.
+- **Text run:** an element's resolved text: text, size, CSS weight, family, line height and wrapping (`textRunOf`, ADR 0271). The UI core measures it and reports it on each laid-out element; the drawing layer draws exactly it. _Avoid:_ reading a text component's font fields in a drawing layer.
+
+## Project settings (ADR 0272)
+
+- **Runtime settings section:** one top-level `project.json` key the engine reads, declared once in `RUNTIME_SETTINGS` (`core/settings.ts`): its key, default and lenient parse giving the value the engine runs with (bad values replaced by defaults) and its problems and warnings by field. `resolveSettings`, the Engine's start-up warnings and the Project panel go through it; a settings section handle (ADR 0253) is its editor twin. _Avoid:_ checking a runtime key's values in the editor alone.

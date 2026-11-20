@@ -18,18 +18,29 @@ import type { UICanvas, UIComponentType } from "./components";
 
 export type UIKind = "canvas" | "panel" | "text" | "image" | "button" | "input";
 
-/** A text to measure, for Yoga's layout of text elements. */
-export interface TextMeasureRequest {
-  text: string;
-  fontSize: number;
-  /** CSS font weight: "300" | "400" | "500" | "600" | "700". */
-  fontWeight: string;
+/** How a text run wraps: at spaces (`UIText.wordBreak` `break-word`), at any character (`break-all`), or never (`keep-all`, input fields). */
+export type UITextWrap = "word" | "anywhere" | "none";
+
+/**
+ * An element's resolved text (ADR 0271, `textRunOf` in `elementKinds.ts`): what the core measures and
+ * the drawing layer draws, so the two can't disagree.
+ */
+export interface UITextRun {
+  readonly text: string;
+  readonly fontSize: number;
+  /** CSS font weight: a whole number from 1 to 1000 ("400", "700", "350"). */
+  readonly fontWeight: string;
   /** CSS font family list. */
-  fontFamily: string;
+  readonly fontFamily: string;
   /** Line height as a multiple of the font size. */
-  lineHeight: number;
-  /** Width available in UI pixels (Infinity when unbounded); text wraps to it. */
-  maxWidth: number;
+  readonly lineHeight: number;
+  readonly wrap: UITextWrap;
+}
+
+/** A text run to measure, for Yoga's layout of text elements. */
+export interface TextMeasureRequest extends UITextRun {
+  /** Width available in UI pixels (Infinity when unbounded, and always for `wrap: "none"`); text wraps to it. */
+  readonly maxWidth: number;
 }
 
 /** What a backend gives the core. All optional: without a host, layout and routing still work (tests, servers). */
@@ -85,6 +96,8 @@ export interface UILaidOutElement {
   readonly visible: boolean;
   /** `opacity` times every ancestor's. */
   readonly opacity: number;
+  /** Text and input field elements: the text run the core measured, which the drawing layer draws. Null for other kinds. */
+  readonly text: UITextRun | null;
 }
 
 /** A ray in world space, for picking world canvases. */
@@ -112,7 +125,7 @@ export interface UICoreLike {
   canvases(): readonly UILaidOutCanvas[];
   /** Elements from the last sync, grouped by canvas in `canvases()` order, each canvas's in `order`. */
   elements(): readonly UILaidOutElement[];
-  /** Increases whenever `sync` changed any box, visibility or the element set (drawing layers can skip work otherwise). */
+  /** Increases whenever `sync` changed any box, visibility, text run or the element set (drawing layers can skip work otherwise). */
   readonly layoutVersion: number;
   /** True when there's a visible screen canvas. */
   readonly hasScreenUI: boolean;
