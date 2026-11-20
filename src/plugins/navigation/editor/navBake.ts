@@ -25,7 +25,7 @@ import type { GameObject } from "../../../engine/scene/GameObject";
 import type { SceneFile } from "../../../engine/scene/SceneLoader";
 import { editorSettings } from "../../../editor/projects";
 import { assetPathOf, chunkIdOf, navAssetFor, navBakeRecord, navBakeSummary, navRecordPath, withBakeReference, type NavBakeRecord } from "./navBakeFiles";
-import { editor, SetField, type EditorProject, type OpenScene } from "../../../editor/sdk";
+import { editor, type EditorProject, type OpenScene } from "../../../editor/sdk";
 
 export { navBakeSummary, navPolyCount, type NavBakeRecord } from "./navBakeFiles";
 
@@ -279,7 +279,7 @@ export async function bakeOpenSceneChunk(scene: OpenScene, nodeId: string, proje
   if (!node) return;
   try {
     const outcome = await bakeNavChunk(project, scene.path, scene.sync.world, node);
-    if (outcome.needsReference && scene.doc.has(nodeId)) scene.stack.execute(new SetField(nodeId, NAV_CHUNK, "bake", `asset:${outcome.asset}`));
+    if (outcome.needsReference && scene.doc.has(nodeId)) editor.scene.writeField({ scene, path: [nodeId], type: NAV_CHUNK }, "bake", `asset:${outcome.asset}`);
     editor.messages.info(`Baked ${node.name}: ${outcome.asset} (${navBakeSummary(outcome.record)}).`);
   } catch (err) {
     editor.messages.failed(`Couldn't bake ${node.name}`, err);
@@ -332,7 +332,7 @@ async function bakeAllNavigation(project: EditorProject): Promise<{ baked: numbe
             if (!outcome.needsReference) continue;
             const id = chunk.id;
             const target = open ?? (active?.path === path ? active : null);
-            if (target && target.doc.has(id)) target.stack.execute(new SetField(id, NAV_CHUNK, "bake", `asset:${outcome.asset}`));
+            if (target && target.doc.has(id)) editor.scene.writeField({ scene: target, path: [id], type: NAV_CHUNK }, "bake", `asset:${outcome.asset}`);
             else {
               const next = withBakeReference(project.assets.get(path) as SceneFile, id, outcome.asset);
               if (next) await project.writeText(path, `${JSON.stringify(next, null, 2)}\n`);

@@ -2,7 +2,8 @@
 // reverting a name or active override, and the prefab actions (Create Prefab, Apply, Revert All, Open
 // Prefab). Works over node paths in the open scene: a top-level node's path is its id; a node inside a
 // prefab instance is the instance id followed by its path in the prefab, and edits to it become the
-// instance's overrides. Each user action is one undo step across every selected node. Each action can
+// instance's overrides. Each user action is one undo step across every selected node, and goes through the edit gate
+// (ADR 0247, 0257), so none of them changes the scene during play. Each action can
 // say why it isn't allowed (`whyNot`), read-only projects included (`readOnly.ts`), and the prefab
 // actions report their outcome, or the refusal, in the status bar. Siblings: `fieldEdits.ts` (field
 // values), `componentEdits.ts` (components) and `inspectorEdits.ts` (Worlds and tags).
@@ -14,6 +15,7 @@ import type { EditorProject } from "./projects";
 import { whyReadOnly } from "./readOnly";
 import { select } from "./inspectorTarget";
 import { status, type OpenScene } from "./state";
+import { editableNow, statusSentence, whyNotEdit } from "./editGate";
 import { undoStep } from "./undoStep";
 
 const isInner = (path: NodePath) => path.length > 1;
@@ -59,6 +61,7 @@ export function nodeHeader(scene: OpenScene, paths: readonly NodePath[]): NodeHe
  * instance it's an override, which goes away when the value matches the prefab's. Returns how many changed.
  */
 export function setNodesActive(scene: OpenScene, paths: readonly NodePath[], on: boolean): number {
+  if (!editableNow({ kind: "scene", scene })) return 0;
   const changing = paths.filter((p) => activeOf(scene, p) !== on);
   const write = () => {
     for (const p of changing) scene.stack.execute(nodePropertyCommand(scene.doc, p, "active", on));
@@ -73,6 +76,7 @@ export function setNodesActive(scene: OpenScene, paths: readonly NodePath[], on:
  * name matches the prefab's). Returns false, changing nothing, when the name is already `name`.
  */
 export function renameNode(scene: OpenScene, path: NodePath, name: string): boolean {
+  if (!editableNow({ kind: "scene", scene })) return false;
   if (name === nameOf(scene, path)) return false;
   scene.stack.execute(nodePropertyCommand(scene.doc, path, "name", name));
   return true;
@@ -80,6 +84,7 @@ export function renameNode(scene: OpenScene, path: NodePath, name: string): bool
 
 /** Remove the name and active overrides of the nodes inside instances, as one undo step. Returns how many were removed. */
 export function revertNameAndActive(scene: OpenScene, paths: readonly NodePath[]): number {
+  if (!editableNow({ kind: "scene", scene })) return 0;
   const found = paths.flatMap((p) => (["name", "active"] as const).filter((key) => isInnerPropertyOverridden(scene.doc, p, key)).map((key) => ({ p, key })));
   if (found.length > 0) undoStep(scene.stack, "Revert name and active", () => found.forEach(({ p, key }) => revertInnerProperty(scene, p, key)));
   return found.length;
@@ -114,7 +119,12 @@ const NO_PROJECT = "No project is open.";
 
 const overrideCount = (scene: OpenScene, id: string) => scene.doc.node(id).overrides?.length ?? 0;
 const can = (whyNot: string | null): NodeAction => ({ whyNot });
-const writable = (project: EditorProject | null, toDo: string) => (project ? whyReadOnly(project, toDo) : NO_PROJECT);
+/** Why the scene can't take `toDo` now (the edit gate: playing, say), as a tooltip sentence, or null. */
+const editable = (scene: OpenScene, toDo: string): string | null => {
+  const reason = whyNotEdit({ kind: "scene", scene }, toDo);
+  return reason && statusSentence(reason);
+};
+const writable = (scene: OpenScene, project: EditorProject | null, toDo: string) => editable(scene, toDo) ?? (project ? whyReadOnly(project, toDo) : NO_PROJECT);
 
 export function prefabActions(scene: OpenScene, project: EditorProject | null, paths: readonly NodePath[]): PrefabActions {
   const none: PrefabActions = { create: null, apply: null, revertAll: null, open: null, prefab: null, overrides: 0 };
@@ -123,14 +133,14 @@ export function prefabActions(scene: OpenScene, project: EditorProject | null, p
     const [id] = paths[0];
     const prefab = scene.doc.node(id).prefab ?? null;
     if (isInner(paths[0])) return { ...none, prefab, open: can(null) };
-    if (!prefab) return { ...none, create: can(writable(project, "create prefabs")) };
+    if (!prefab) return { ...none, create: can(writable(scene, project, "create prefabs")) };
     const overrides = overrideCount(scene, id);
     return {
       ...none,
       prefab,
       overrides,
-      apply: can(writable(project, "apply overrides") ?? (overrides === 0 ? NO_OVERRIDES : null)),
-      revertAll: can(overrides === 0 ? NO_OVERRIDES : null),
+      apply: can(writable(scene, project, "apply overrides") ?? (overrides === 0 ? NO_OVERRIDES : null)),
+      revertAll: can(editable(scene, "revert overrides") ?? (overrides === 0 ? NO_OVERRIDES : null)),
       open: can(null),
     };
   }
@@ -143,8 +153,8 @@ export function prefabActions(scene: OpenScene, project: EditorProject | null, p
   return {
     ...none,
     overrides: withOverrides.reduce((n, id) => n + overrideCount(scene, id), 0),
-    create: plain ? can(writable(project, "create prefabs") ?? (siblings ? null : "The nodes must share a parent to become one prefab.")) : null,
-    apply: withOverrides.length > 0 ? can(writable(project, "apply overrides")) : null,
+    create: plain ? can(writable(scene, project, "create prefabs") ?? (siblings ? null : "The nodes must share a parent to become one prefab.")) : null,
+    apply: withOverrides.length > 0 ? can(writable(scene, project, "apply overrides")) : null,
   };
 }
 

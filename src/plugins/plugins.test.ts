@@ -204,6 +204,12 @@ describe("plugin editor halves reach the editor through its SDK (ADR 0147)", () 
     const bad = editorHalves.filter((f) => /\.(beginGroup|endGroup|cancelGroup)\(/.test(readFileSync(f, "utf8"))).map(rel);
     expect(bad).toEqual([]);
   });
+
+  it("writes component fields through `editor.scene.writeField`, never the document's SetField command (ADR 0257)", () => {
+    // The one write asks the edit gate, writes overrides inside prefab instances and skips unchanged values.
+    const bad = editorHalves.filter((f) => /\bSetField\b/.test(readFileSync(f, "utf8"))).map(rel);
+    expect(bad).toEqual([]);
+  });
 });
 
 describe("plugin to plugin imports (ADR 0133, 0136)", () => {

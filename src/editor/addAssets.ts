@@ -16,8 +16,8 @@ type Vec3 = readonly [number, number, number];
 export type AssetAddTarget =
   /** A drop on the scene view: the scene's top level at `position`, prefab and scene instances placed there too. */
   | { readonly kind: "point"; readonly position: Vec3 }
-  /** A drop on the Hierarchy: under `parent` (null: the top level), from `index` on (omitted: last). */
-  | { readonly kind: "slot"; readonly parent: string | null; readonly index?: number }
+  /** A drop on the Hierarchy: where the drop puts new nodes (ADR 0258; inside a prefab instance, an override). */
+  | { readonly kind: "hierarchy"; readonly place: InsertPlace }
   /** The Assets panel's +: into the selected node, beside it when it's a prefab instance (the insertion's `near`), at `position`; instances keep their own. */
   | { readonly kind: "selection"; readonly selected: string | null; readonly position: Vec3 };
 
@@ -35,8 +35,8 @@ function insertionFor(paths: readonly string[], target: AssetAddTarget): { sourc
   switch (target.kind) {
     case "point":
       return { source: { kind: "assets", paths, position: target.position, placeInstances: true }, place: { kind: "into", key: null } };
-    case "slot":
-      return { source: { kind: "assets", paths }, place: { kind: "into", key: target.parent, index: target.index } };
+    case "hierarchy":
+      return { source: { kind: "assets", paths }, place: target.place };
     case "selection":
       return { source: { kind: "assets", paths, position: target.position }, place: { kind: "near", key: target.selected } };
   }

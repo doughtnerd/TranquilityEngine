@@ -9,6 +9,7 @@ import { listComponents, type ComponentInfo } from "../engine/editor";
 import { originOf, prefabNodeEntry } from "./componentEdits";
 import { SetComponentWorlds, SetOverrides, SetTags, sameTarget, type NodePath, type OverrideEntry, type SceneDocument } from "./document";
 import type { OpenScene } from "./state";
+import { editableNow } from "./editGate";
 import { undoStep } from "./undoStep";
 
 /** Where a component's Worlds come from. */
@@ -82,6 +83,7 @@ export function setComponentWorlds(
   worlds: readonly string[] | undefined,
   label?: string,
 ): number {
+  if (!editableNow({ kind: "scene", scene })) return 0;
   const { doc, stack } = scene;
   const able = targets.flatMap((t) => {
     const setting = componentWorlds(doc, t.path, t.info, countOf(t.node, t.info.type));
@@ -145,6 +147,7 @@ export function tagsOverridden(doc: SceneDocument, path: NodePath): boolean {
  * goes back to the prefab's tags (instances only).
  */
 export function setNodeTags(scene: OpenScene, paths: readonly NodePath[], tagsFor: (current: readonly string[]) => readonly string[] | undefined, label = "Set tags"): void {
+  if (!editableNow({ kind: "scene", scene })) return;
   const { doc, stack } = scene;
   undoStep(stack, paths.length === 1 ? label : `${label} on ${paths.length} nodes`, () => {
     for (const path of paths) {

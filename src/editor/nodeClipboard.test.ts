@@ -114,7 +114,7 @@ describe("moving several nodes", () => {
     win.dispatchEvent(pointer("pointermove", middleOf("bird"))); // into Bird
     expect(nodeDrag.value?.problem).toMatch(/inside itself/);
     win.dispatchEvent(pointer("pointermove", middleOf("camera")));
-    expect(nodeDrag.value).toMatchObject({ problem: null, target: { parent: "camera", mode: "into" } });
+    expect(nodeDrag.value).toMatchObject({ problem: null, target: { mode: "into", row: "camera", move: { parent: "camera" } } });
     win.dispatchEvent(pointer("pointerup", middleOf("camera")));
     expect(nodeDrag.value).toBeNull();
     expect(doc.children("camera").slice(-2)).toEqual(["ceiling", "bird"]);

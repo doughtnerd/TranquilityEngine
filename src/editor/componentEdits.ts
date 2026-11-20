@@ -25,6 +25,7 @@ import {
   type SceneFile,
 } from "./document";
 import type { OpenScene } from "./state";
+import { editableNow } from "./editGate";
 import { undoStep } from "./undoStep";
 
 /** Components a node can have only one of. Colliders, audio sources and scripts can repeat. */
@@ -85,6 +86,7 @@ export function whyNotRemovable(doc: SceneDocument, path: NodePath, info: Compon
 
 /** Add a `type` component to each node (the ones that can take it), as one undo step. Returns how many got one. */
 export function addComponentTo(scene: OpenScene, targets: readonly { path: NodePath; node: GameObject }[], type: string): number {
+  if (!editableNow({ kind: "scene", scene })) return 0;
   const able = targets.filter((t) => whyNotAddable(t.node, type) === null);
   if (able.length === 0) return 0;
   const { doc, stack } = scene;
@@ -140,6 +142,7 @@ function overridesWithout(list: readonly OverrideEntry[], target: readonly strin
 
 /** Remove a component from each node (`info` is that node's copy), as one undo step. Returns how many were removed. */
 export function removeComponentFrom(scene: OpenScene, targets: readonly { path: NodePath; node: GameObject; info: ComponentInfo }[]): number {
+  if (!editableNow({ kind: "scene", scene })) return 0;
   const { doc, stack } = scene;
   const able = targets.filter((t) => whyNotRemovable(doc, t.path, t.info, countOf(t.node, t.info.type)) === null);
   if (able.length === 0) return 0;
@@ -185,6 +188,7 @@ export function whyNotToggleable(doc: SceneDocument, path: NodePath, info: Compo
 
 /** Start each component enabled or disabled, as one undo step. Returns how many changed. */
 export function setComponentEnabled(scene: OpenScene, targets: readonly { path: NodePath; node: GameObject; info: ComponentInfo }[], enabled: boolean): number {
+  if (!editableNow({ kind: "scene", scene })) return 0;
   const { doc, stack } = scene;
   const able = targets.filter((t) => t.info.enabled !== enabled && whyNotToggleable(doc, t.path, t.info, countOf(t.node, t.info.type)) === null);
   if (able.length === 0) return 0;
@@ -241,6 +245,7 @@ export function inFileOrder(doc: SceneDocument, id: string, infos: readonly Comp
  * instance. False if nothing moved.
  */
 export function moveComponent(scene: OpenScene, path: NodePath, node: GameObject, info: ComponentInfo, anchor: ComponentInfo, after: boolean): boolean {
+  if (!editableNow({ kind: "scene", scene })) return false;
   const { doc, stack } = scene;
   if (whyNotReorderable(doc, path, info) || whyNotReorderable(doc, path, anchor)) return false;
   const same = (a: ComponentInfo, b: ComponentInfo) => a.type === b.type && a.index === b.index;
@@ -304,6 +309,7 @@ export function whyNotRemovableMissing(doc: SceneDocument, path: NodePath, type:
 
 /** Remove the `k`-th missing component of `type` from the node at `path`, as one undo step. */
 export function removeMissingComponent(scene: OpenScene, path: NodePath, type: string, k: number, missingCount: number): boolean {
+  if (!editableNow({ kind: "scene", scene })) return false;
   const { doc, stack } = scene;
   if (whyNotRemovableMissing(doc, path, type, k, missingCount)) return false;
   const [id, ...target] = path;

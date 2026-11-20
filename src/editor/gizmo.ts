@@ -13,7 +13,9 @@ import { topmostKeys } from "./selectionModel";
 import { cleanSnap, gizmoPivot, gizmoSpace, snapActive, snapSettings } from "./sceneTools";
 import { isEditable } from "./editable";
 import { activeViewportTool, docVersion, openScene, selectedNodes, tool, viewMode, type Tool } from "./state";
-import { beginUndoStep, type UndoStep } from "./undoStep";
+import { writeComponentField } from "./componentField";
+import { beginEditStep } from "./editGate";
+import type { UndoStep } from "./undoStep";
 
 type Mode = GizmoOptions["mode"];
 
@@ -33,9 +35,11 @@ function gizmoMode(t: Tool): Mode | null {
  */
 export function gizmoEdit(doc: SceneDocument, node: string | NodePath, mode: Mode, pose: LocalPose, field: "position" | "rotation" | "scale" = FIELDS[mode]): SetField {
   const [id, ...target] = typeof node === "string" ? [node] : node;
-  const value = toSceneJSON(field === "rotation" ? "quaternion" : "vector3", pose[field]);
-  return new SetField(id, "engine.Transform", field, value, { target });
+  return new SetField(id, "engine.Transform", field, poseValue(pose, field), { target });
 }
+
+/** A pose's Transform field in scene-file form (a rotation as a quaternion). */
+const poseValue = (pose: LocalPose, field: "position" | "rotation" | "scale"): unknown => toSceneJSON(field === "rotation" ? "quaternion" : "vector3", pose[field]);
 
 /**
  * The gizmo's settings for the targets (`keys`, in order) from the scene tools: snapping (Ctrl or
@@ -61,14 +65,15 @@ export function installGizmo(engine: Engine): () => void {
   const world = engine.world;
   /** The nodes the gizmo is on (set by the effect below), and the drag in progress. */
   let targets: { path: NodePath; name: string }[] = [];
-  let drag: { targets: typeof targets; mode: Mode; last: Map<string, string>; step: UndoStep } | null = null;
+  let drag: { targets: typeof targets; mode: Mode; step: UndoStep } | null = null;
 
   const handlers: GizmoHandlers = {
     onStart() {
       const scene = openScene.value, mode = gizmoMode(tool.value);
       if (!scene || !mode || targets.length === 0) return;
-      const step = beginUndoStep(scene.stack, `${LABELS[mode]} ${targets.length === 1 ? targets[0].name : `${targets.length} nodes`}`);
-      drag = { targets, mode, last: new Map(), step };
+      // Through the edit gate: during play the scene is read-only (ADR 0257).
+      const step = beginEditStep({ kind: "scene", scene }, `${LABELS[mode]} ${targets.length === 1 ? targets[0].name : `${targets.length} nodes`}`);
+      if (step) drag = { targets, mode, step };
     },
     onChange(poses) {
       const scene = openScene.value;
@@ -76,13 +81,8 @@ export function installGizmo(engine: Engine): () => void {
       // Several nodes turn or scale around their centre, so their positions change too.
       const fields = new Set([FIELDS[drag.mode], ...(drag.targets.length > 1 ? (["position"] as const) : [])]);
       drag.targets.forEach((t, i) => {
-        for (const field of fields) {
-          const edit = gizmoEdit(scene.doc, t.path, drag!.mode, poses[i], field);
-          const key = `${t.path.join("/")}:${field}`, json = JSON.stringify(edit.value);
-          if (drag!.last.get(key) === json) continue; // the pointer moved but the value didn't (e.g. snapping)
-          drag!.last.set(key, json);
-          scene.stack.execute(edit);
-        }
+        // The component field write skips a value already stored (the pointer moved but the value didn't, e.g. snapping).
+        for (const field of fields) writeComponentField({ scene, path: t.path, type: "engine.Transform" }, field, poseValue(poses[i], field));
       });
     },
     onEnd() {

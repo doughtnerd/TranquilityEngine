@@ -9,7 +9,7 @@ import { errorStatus } from "./messages";
 import { startPlay, type PlaySession } from "./playMode";
 import { netConditionsSetting, netPlaySetup } from "./preferences";
 import type { EditorProject } from "./projects";
-import { applyKept, endLiveInspection, takeKept, type KeptValues } from "./runtimeInspect";
+import { applyKept, endLiveInspection, inspectPlayedWorld, takeKept, type KeptValues } from "./runtimeInspect";
 import { syncPackageTypes } from "./scriptCheck";
 import { loadedRegistrations } from "./scriptLoader";
 import { currentProject, docVersion, openScene, playing, playState, scriptProblems, scriptsVersion, status } from "./state";
@@ -191,6 +191,7 @@ export function createPlaySession(ports: PlaySessionPorts): PlayController {
     }
     playing.value = play;
     playState.value = "playing";
+    inspectPlayedWorld(play.engine, scene.path); // the Hierarchy and Inspector show the running game (ADR 0257)
     unmountTools = view ? view.mountTools(play) : () => {}; // the play bar's Gizmos and Stats
     setPlayEngineHook(play.engine);
     const net = play.netPlay;
@@ -199,7 +200,7 @@ export function createPlaySession(ports: PlaySessionPorts): PlayController {
       : setup.enabled
         ? " as the project sets it up (multiplayer play needs a client World linked to a server World, or a server template)"
         : "";
-    status.value = { kind: "info", text: `Playing ${scene.path}${how}. Edits made now don't affect the running game. Stop (Ctrl+P) to return.` };
+    status.value = { kind: "info", text: `Playing ${scene.path}${how}. Edits change the running game until you stop; the scene file is read-only. Stop (Ctrl+P) to return.` };
   }
 
   async function stop(options: { discardQueued?: boolean } = {}): Promise<void> {

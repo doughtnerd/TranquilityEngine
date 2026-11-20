@@ -47,7 +47,7 @@ describe("adding models from the Assets panel (ADR 0044)", () => {
       expect(scene.doc.children(robot).map((id) => scene.doc.node(id).name)).toEqual(["Body", "Head"]);
       const head = scene.doc.children(robot)[1];
       expect(scene.doc.node(head).components!.find((c) => c.type === "engine.MeshRenderer")!.data).toEqual({ mesh: "asset:models/robot.fbx#Head" });
-      const crate = (await addAssets(["models/crate.obj"], { kind: "slot", parent: null })).ids[0]!;
+      const crate = (await addAssets(["models/crate.obj"], { kind: "hierarchy", place: { kind: "into", key: null } })).ids[0]!;
       expect(scene.doc.children(crate)).toEqual([]);
       expect(scene.sync.nodeFor(crate)!.getBehavior(MeshRenderer)!.mesh).toBe("models/crate.obj");
       scene.stack.undo();
@@ -69,7 +69,7 @@ describe("adding glTF models from the Assets panel (ADR 0088)", () => {
       openSceneFile(engine, DEMO_SCENE);
       const scene = openScene.value!;
       expect(assetKind("models/lamp.glb")).toBe("model");
-      const lamp = (await addAssets(["models/lamp.glb"], { kind: "slot", parent: null })).ids[0]!;
+      const lamp = (await addAssets(["models/lamp.glb"], { kind: "hierarchy", place: { kind: "into", key: null } })).ids[0]!;
       expect(scene.doc.children(lamp).map((c) => c)).toEqual(["lamp-base", "lamp-pole"]); // a part's id: the root's and its name
       const names = (id: string) => scene.doc.children(id).map((c) => scene.doc.node(c).name);
       const mesh = (id: string) => scene.doc.node(id).components!.find((c) => c.type === "engine.MeshRenderer")?.data;

@@ -116,8 +116,9 @@ function LiveRename(props: { node: GameObject }) {
 }
 
 /**
- * While playing: which World the Hierarchy and Inspector show, the edited scene or a live World
- * of the running game (Worlds created at runtime included). Nothing while editing.
+ * While playing: which World the Hierarchy and Inspector show, a live World of the running game
+ * (Worlds created at runtime included; the one playing the scene by default, ADR 0257) or the scene
+ * file, read-only until Stop. Nothing while editing.
  */
 export function WorldPicker() {
   const session = playing.value;
@@ -132,7 +133,7 @@ export function WorldPicker() {
       <label>
         <span class="world-picker-label">Show</span>
         <select aria-label="Inspect World" value={value} onChange={(e) => inspectWorld(e.currentTarget.value || null)}>
-          <option value="">Scene (editing)</option>
+          <option value="">Scene file (read-only)</option>
           {names.map((n) => (
             <option key={n} value={n}>
               {n} (live)

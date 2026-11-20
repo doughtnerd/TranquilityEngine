@@ -1,6 +1,7 @@
-// Inspecting the running game (ADR 0022, 0032): while playing, the Hierarchy and Inspector can show
-// a live World of the play Engine instead of the edited scene (`inspectedWorld`). Live edits go to
-// that World only. "Keep values" (Unity's copy component values) remembers a component's live values
+// Inspecting the running game (ADR 0022, 0032): while playing, the Hierarchy and Inspector show a
+// live World of the play Engine (`inspectedWorld`), the one playing the edited scene when play starts
+// (Unity's rule, ADR 0257); the edited scene can still be shown, read-only. Live edits go to that World
+// only and end with the play session. "Keep values" (Unity's copy component values) remembers a component's live values
 // and, on Stop, writes them into the edited document as one undoable step: as plain field values on
 // scene nodes, as overrides on prefab instances and the nodes inside them. Only nodes that came from
 // the scene being edited map back to the document (`docPathFor` says why others don't).
@@ -29,6 +30,16 @@ export function inspectWorld(name: string | null): void {
   highlightLive(null, null, null); // the previous World's outline goes
   liveSelection.value = null;
   inspectedWorld.value = name;
+}
+
+/**
+ * Play started: show the live World playing `scenePath` (the first World with a scene loaded from it, else the
+ * first World), so the Hierarchy and Inspector edit the running game by default (ADR 0257).
+ */
+export function inspectPlayedWorld(engine: Engine, scenePath: string): void {
+  const names = engine.worlds().map((w) => w.name);
+  const played = names.find((name) => engineWorld(engine, name)?.root.children.some((n) => sceneSourceOf(n) === scenePath));
+  inspectWorld(played ?? names[0] ?? null);
 }
 
 /** Back to the edited scene, forgetting the live selection (play stopped). */

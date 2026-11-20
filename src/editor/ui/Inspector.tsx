@@ -50,6 +50,7 @@ import { applyPrefabOverrides, createPrefabFrom, nodeHeader, openPrefabOf, prefa
 import { currentProject, docVersion, scriptsVersion, status, type OpenScene } from "../state";
 import { componentHeaderActions, type ComponentHeaderActionContribution } from "../sdk/contributions";
 import { usePopover } from "./popover";
+import { editableNow, statusSentence, whyNotEdit } from "../editGate";
 
 /**
  * What the Inspector shows (ADR 0242, `inspectorTarget`): a live World's node while playing, an
@@ -91,6 +92,7 @@ function NodeInspector(props: { scene: OpenScene; path: NodePath }) {
   return (
     <Panel>
       <div class="inspector-body">
+        <SceneReadOnlyNote scene={scene} />
         <AssetLists />
         <div class="node-header">
           <input
@@ -146,6 +148,19 @@ function NodeInspector(props: { scene: OpenScene; path: NodePath }) {
 }
 
 /**
+ * Why the scene document can't be edited now, over the Inspector's document view: during play it is
+ * read-only (Unity's rule, ADR 0257), and the edit gate refuses every edit with the same words.
+ */
+function SceneReadOnlyNote(props: { scene: OpenScene }) {
+  const reason = whyNotEdit({ kind: "scene", scene: props.scene });
+  return reason ? (
+    <p class="inspector-read-only" role="status">
+      {statusSentence(reason)} The running game is in the live World.
+    </p>
+  ) : null;
+}
+
+/**
  * With no node selected, the open scene's own settings: its warm-up preload list (ADR 0080), the
  * prefabs and materials scripts pick at runtime, so their shaders compile while the scene loads.
  */
@@ -158,13 +173,14 @@ function SceneSettings(props: { scene: OpenScene }) {
   const candidates = useMemo(() => preloadCandidates(listedFiles(project?.files ?? [])).filter((f) => !list.includes(f)), [project, version, project?.files, list]);
   const add = () => {
     const path = draft.trim().replace(/^asset:/, "");
-    if (!path) return;
+    if (!path || !editableNow({ kind: "scene", scene })) return;
     if (list.includes(path)) status.value = { kind: "info", text: `${path} is already on the preload list.` };
     else if (!addToPreload(scene, path)) status.value = { kind: "error", text: `The preload list takes prefabs and materials (.prefab.json, .material.json), not ${path}.` };
     setDraft("");
   };
   return (
     <div class="inspector-body scene-settings">
+      <SceneReadOnlyNote scene={scene} />
       <p class="empty">Nothing selected</p>
       <section class="component" aria-label="Scene settings">
         <h3>Scene settings</h3>
@@ -177,7 +193,7 @@ function SceneSettings(props: { scene: OpenScene }) {
               <span class="preload-path" title={p}>
                 {p}
               </span>
-              <button class="remove-component" aria-label={`Remove ${p} from the preload list`} title="Remove" onClick={() => removeFromPreload(scene, p)}>
+              <button class="remove-component" aria-label={`Remove ${p} from the preload list`} title="Remove" onClick={() => editableNow({ kind: "scene", scene }) && removeFromPreload(scene, p)}>
                 ×
               </button>
             </li>
@@ -222,6 +238,7 @@ function MultiInspector(props: { scene: OpenScene; paths: NodePath[] }) {
   const key = paths.map(pathKey).join("|");
   return (
     <div class="inspector-body">
+      <SceneReadOnlyNote scene={scene} />
       <AssetLists />
       <PrefabActionsBar scene={scene} paths={paths} />
       <div class="node-header">

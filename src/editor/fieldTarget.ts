@@ -1,18 +1,21 @@
 // What an Inspector field row edits (ADR 0243): one component field on one or more nodes, either in
 // the edited document (as commands through `fieldEdits.ts`: overrides on prefab instances, one undo
-// step across the selected nodes) or in a live World of the running game (written as the scene loader
-// would assign it, play-only, no undo). Field rows (`ui/fieldRows.tsx`) hand a target values in the
+// step across the selected nodes, refused by the edit gate during play) or in a live World of the
+// running game (written as the scene loader would assign it, play-only, no undo). Both adapters write
+// through the one component field write (`componentField.ts`, ADR 0257). Field rows (`ui/fieldRows.tsx`) hand a target values in the
 // editors' form (numbers, strings, `Color`, axis arrays, `Quaternion`s, a node choice's key, plain
 // objects, list items); each adapter converts them to scene-file JSON with `toSceneJSON` and writes
 // them its own way.
 import { GameObject } from "../engine";
-import { writeField, type ComponentInfo, type FieldValue } from "../engine/editor";
+import type { ComponentInfo, FieldValue } from "../engine/editor";
+import { beginFieldDrag, writeComponentField, type FieldDrag } from "./componentField";
 import type { NodePath } from "./document";
 import { fieldState, revertField, rotationViewOf, setField, setFieldAxis, setFieldEach, withAxis, type FieldState } from "./fieldEdits";
 import { editorFor, itemEditorFor, toSceneJSON } from "./fieldValues";
 import { liveNodeChoices, setLiveNodeRef } from "./liveEdits";
 import type { OpenScene } from "./state";
-import { beginUndoStep } from "./undoStep";
+
+export type { FieldDrag };
 
 /** A node a reference field can point to. */
 export interface NodeChoice {
@@ -33,14 +36,6 @@ export interface NodeRefs {
   readonly missing: string;
 }
 
-/** A scrub drag on a field's label: its writes are one step; Escape cancels it, putting the value back. */
-export interface FieldDrag {
-  /** Whether it is still open (a document step can be closed from elsewhere, an undo say). */
-  readonly open: boolean;
-  end(): void;
-  cancel(): void;
-}
-
 /** One component field on one or more nodes, as a field row edits it. */
 export interface FieldTarget {
   /** The component on the active (last) node: its type, index and fields. */
@@ -55,10 +50,13 @@ export interface FieldTarget {
   setAxis(field: FieldValue, axis: number, n: number): string | null;
   /** Remove the field's prefab override from every node that has one (nothing in a live World). */
   revert(field: FieldValue): void;
-  /** Start a scrub drag named `label` on `field`. */
+  /** Start a scrub drag named `label` on `field` (already closed when the target can't be edited now, as a document during play). */
   drag(field: FieldValue, label: string): FieldDrag;
   readonly nodes: NodeRefs;
 }
+
+/** The drag a refused one gets: already closed. */
+const CLOSED: FieldDrag = { open: false, end() {}, cancel() {} };
 
 /**
  * The field of component `infos[i]` on each node `paths[i]` of the open document (the last is the
@@ -72,20 +70,11 @@ export function documentFieldTarget(scene: OpenScene, paths: readonly NodePath[]
   return {
     info,
     state: (field) => fieldState(scene, paths, info, field.name, valuesOf(field)),
-    set(field, value) {
-      setField(scene, paths, info, field, value);
-      return null;
-    },
-    setEach(field, values) {
-      setFieldEach(scene, paths, info, field, (i) => values[i]);
-      return null;
-    },
-    setAxis(field, axis, n) {
-      setFieldAxis(scene, paths, info, field, axis, n, valuesOf(field));
-      return null;
-    },
+    set: (field, value) => setField(scene, paths, info, field, value),
+    setEach: (field, values) => setFieldEach(scene, paths, info, field, (i) => values[i]),
+    setAxis: (field, axis, n) => setFieldAxis(scene, paths, info, field, axis, n, valuesOf(field)),
     revert: (field) => revertField(scene, paths, info, field.name),
-    drag: (_field, label) => beginUndoStep(scene.stack, label),
+    drag: (field, label) => beginFieldDrag({ scene, path: paths[paths.length - 1], type: info.type, index: info.index }, label) ?? CLOSED,
     nodes: {
       choices: () => scene.doc.nodes.map((n) => ({ key: n.id, label: n.name ?? n.id, depth: 0 })),
       keyOf: (v) => (v instanceof GameObject ? scene.sync.nodeIdOf(v) : null),
@@ -102,7 +91,7 @@ export function documentFieldTarget(scene: OpenScene, paths: readonly NodePath[]
  * it started from.
  */
 export function liveFieldTarget(node: GameObject, info: ComponentInfo, afterEdit: () => void = () => {}): FieldTarget {
-  const title = info.type.replace(/^[^.]*\./, "");
+  const place = { node, type: info.type, index: info.index };
   const nodeAt = (key: string): GameObject | null => liveNodeChoices(node.world).find((c) => String(c.node.entity) === key)?.node ?? null;
   const write = (field: FieldValue, value: unknown): string | null => {
     if (!node.isValid) return "the node has been destroyed";
@@ -113,7 +102,7 @@ export function liveFieldTarget(node: GameObject, info: ComponentInfo, afterEdit
       reason = value !== null && value !== undefined && target === null ? `that node isn't in World ${node.world.name}` : setLiveNodeRef(node, info, field.name, target);
     } else {
       const json = toSceneJSON(editor, value, { field: field.name, nodeId: (n) => (n.isValid ? String(n.entity) : "destroyed"), itemEditor: editor === "list" ? itemEditorFor(field) : undefined });
-      reason = writeField(node, info.type, info.index, field.name, json, nodeAt) ? null : `${title} has no field ${field.name}`;
+      reason = writeComponentField(place, field.name, json);
     }
     afterEdit();
     return reason;
@@ -126,18 +115,17 @@ export function liveFieldTarget(node: GameObject, info: ComponentInfo, afterEdit
     setEach: (field, values) => write(field, values[0]),
     setAxis: (field, axis, n) => write(field, withAxis(valueOf(field), editorFor(field), axis, n, rotationViewOf(field))),
     revert() {},
-    drag(field) {
-      const start = valueOf(field);
-      let open = true;
+    drag(field, label) {
+      const drag = beginFieldDrag(place, label, [field.name]) ?? CLOSED;
       return {
         get open() {
-          return open;
+          return drag.open;
         },
-        end: () => void (open = false),
+        end: () => drag.end(),
         cancel() {
-          if (!open) return;
-          open = false;
-          write(field, start);
+          if (!drag.open) return;
+          drag.cancel();
+          afterEdit();
         },
       };
     },
