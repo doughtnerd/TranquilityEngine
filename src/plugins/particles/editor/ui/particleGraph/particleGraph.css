@@ -1,6 +1,5 @@
 /* The Particle Graph panel (ADR 0060). Theme tokens only (src/editor/theme.ts). Context headers are
-   coloured by kind; ports and wires by value type; event wires are dotted and heavier; a wire that
-   needs the GPU backend is dashed amber. The canvas, search, groups, notes and minimap are in
+   coloured by kind; ports and wires by value type; event wires are dotted and heavier. The canvas, search, groups, notes and minimap are in
    src/editor/graph/graph.css; the preview's own styles in preview.css. */
 .particle-graph {
   --pg-spawn: var(--accent2);
@@ -106,7 +105,6 @@
 /* --- wires --- */
 .pg-wires { z-index: 2; }
 .pg-wire .sg-wire-line { stroke: var(--pt, var(--accent)); }
-.pg-wire.gpu .sg-wire-line { stroke: var(--warning); stroke-dasharray: 7 5; }
 .pg-event-wire .sg-wire-line { stroke: var(--pg-event); stroke-width: 3.5; stroke-dasharray: 1 7; stroke-linecap: round; }
 
 /* --- systems and contexts --- */
@@ -158,7 +156,6 @@
 .pg-input { position: relative; display: grid; grid-template-columns: 76px minmax(0, 1fr); align-items: center; gap: 6px; min-height: 20px; padding: 1px 6px 1px 10px; }
 .pg-input-label { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
 .pg-wired-from { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--accent); font-style: italic; font-size: 11px; }
-.pg-wired-from.gpu { color: var(--warning); }
 .pg-drop-line { height: 3px; margin: 1px 0 3px; border-radius: 2px; background: var(--accent); }
 .pg-add-block { display: block; width: 100%; height: 20px; margin-top: 2px; padding: 0; background: transparent; border: 1px dashed var(--border-strong); border-radius: 4px; color: var(--muted); font: inherit; cursor: pointer; }
 .pg-add-block:hover:not(:disabled) { color: var(--text); border-color: var(--accent); background: var(--accent-faint); }
