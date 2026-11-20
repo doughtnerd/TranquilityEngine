@@ -1,9 +1,9 @@
 /**
- * Soft particles for CPU emitters (ADR 0126, amending 0096): a material plugin that fades a fragment's
- * alpha by `(sceneDepth − fragmentDepth) / softness`, so particle quads don't cut hard lines where they
- * cross geometry. The depth is the shared scene depth (ADR 0109) through 0096's `SceneDepth`, bound
- * for the camera drawing. It goes on the unlit particle material (`StandardMaterial`) and on per-draw
- * copies of material assets (`PBRMaterial`), never on a shared material.
+ * Soft particles for kernel outputs drawn with a material asset (ADR 0126, amending 0096): a material
+ * plugin that fades a fragment's alpha by `(sceneDepth − fragmentDepth) / softness`, so particle quads
+ * and trails don't cut hard lines where they cross geometry (the shader draws fade in their own
+ * fragment shader). The depth is the shared scene depth (ADR 0109) through 0096's `SceneDepth`, bound
+ * for the camera drawing. It goes on each draw's copy of the material asset, never on a shared material.
  *
  * Both texture formats hold linear view depth (|z|, 0 where nothing was drawn); the fragment's own view
  * depth is |(view · worldPos).z|.

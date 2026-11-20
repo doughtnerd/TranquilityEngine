@@ -36,8 +36,8 @@ function loopGraph(capacity: number, rate: number, life: number): ParticleGraph 
 function play(g: ParticleGraph, deadList: boolean, seed = 7) {
   const host: KernelHost = { executors: ["js"], createRun: (k) => new JsRun(k, { deadList }) };
   const program = compileParticleGraph(g);
-  const kp = compileParticleKernels(g, program);
-  const fx = new KernelEffect(kp.systems, program.effect.emitters, host, { seed });
+  const kp = compileParticleKernels(g);
+  const fx = new KernelEffect(kp.systems, program.spawns, host, { seed });
   const js = (fx.systems[0].run as JsRun).js;
   const step = (n: number, dt = 1 / 30) => {
     for (let i = 0; i < n; i++) fx.step(dt, IDENTITY, 1, [1, 1, 1, 1], ctx(), null);
@@ -103,7 +103,7 @@ describe("kernel dead list (ADR 0126)", () => {
 
   it("generates a spawn pass with atomics for WebGPU, but not for event children", () => {
     const g = loopGraph(32, 10, 1);
-    const k = compileParticleKernels(g, compileParticleGraph(g)).systems[0];
+    const k = compileParticleKernels(g).systems[0];
     const wgsl = wgslSimulation(k, { deadList: true });
     expect(wgsl).toContain("fn spawn(");
     expect(wgsl).toContain("atomic<i32>");

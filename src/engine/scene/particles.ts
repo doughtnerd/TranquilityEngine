@@ -1,7 +1,8 @@
 /**
- * Particle effect assets (ADR 0057): `*.particles.json` files a ParticleSystem plays. An effect has
- * one or more emitters, each built from Unity-like modules. The format is ours: the renderer-neutral
- * simulation (`render/particles/simulation.ts`) plays it and the Babylon backend draws it.
+ * Particle effect assets (ADR 0057): the `myco.particles@1` format, one or more emitters, each built
+ * from Unity-like modules. Files in it are read and migrated to `myco.particles@2` graphs
+ * (`particleGraphFormat.ts`, ADR 0060), which the kernels run (ADR 0094, 0251); the number and colour
+ * values below are the graphs' too.
  *
  * ```jsonc
  * {
@@ -134,7 +135,7 @@ export type ParticleBehavior = { enabled?: boolean } & (
   | { type: "widthOverLength"; width: ParticleNumber }
   /** Bounces off (or dies at) a horizontal plane `height` metres up, in the simulation space. */
   | { type: "collision"; height: number; bounce: number; kill: boolean }
-  /** Bounces off (or dies at) the physics colliders of the world (CPU simulation; needs a physics raycast). `radius` is the particle's collision radius in metres. */
+  /** Bounces off (or dies at) the physics colliders of the world (needs a physics raycast). `radius` is the particle's collision radius in metres. */
   | { type: "collisionColliders"; bounce: number; friction: number; kill: boolean; radius: number }
 );
 export type ParticleBehaviorType = ParticleBehavior["type"];

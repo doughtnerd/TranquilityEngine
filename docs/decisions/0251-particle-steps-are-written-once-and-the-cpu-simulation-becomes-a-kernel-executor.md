@@ -39,12 +39,25 @@ and retire the CPU simulation.
   bounces, with friction and radius, or kills), using the World's ray cast through `EffectHost.raycast` and the
   kernel host. `KernelSystem.jsOnly` lists such blocks: `"auto"` runs those systems on the JavaScript executor,
   and a system run on the GPU warns that it skips them (use Collide with depth buffer there).
-- **Every system runs on a kernel executor** (the target): `"cpu"` means the JavaScript executor, `"auto"`
-  picks it unless the system needs a GPU kernel, and `"gpu"` the best GPU executor. Then
-  `render/particles/simulation.ts`, the emitter-settings lowering of behaviours and outputs in
-  `particleCompile.ts` (only spawn and timing settings stay, for the spawner) and the CPU branch of the one
-  draw factory (0185: `SystemDraw`, `InstanceDraw`, `QuadDraw` trails) are deleted, and the CPU-only warnings
-  with them.
+- **Every system runs on a kernel executor**: `"cpu"` means the JavaScript executor, `"auto"` picks it
+  unless the system wants a GPU (`KernelSystem.needs`: per-particle chains, Set Attribute, several
+  outputs, GPU events, depth collision, 4096 particles or more; collider collision keeps it on
+  JavaScript), and `"gpu"` the best executor. Each system runs on its own executor (`KernelEffect`'s
+  `executor`), an event child on its parent's. `render/particles/simulation.ts`, the emitter-settings
+  lowering of behaviours and outputs in `particleCompile.ts` and the CPU branch of the one draw factory
+  (0185: `SystemDraw`, `InstanceDraw`, `QuadDraw`) are deleted, and the CPU-only warnings with them.
+- **Trails draw material assets** (the owner's decision, 2026-11-20, as Unity's Trails module draws with
+  the Renderer's Trail Material): a trail output with a PBR material asset (built-in assets and shader
+  graphs) draws the strip `KernelDraw` draws, instanced, with an unshared copy of the material whose
+  `MycoKernelParticlePlugin` places each vertex on the ribbon through the particle's history
+  (`k_trail`, read from a history texture every executor provides in the state layout), facing the
+  camera, with the soft fade on the copy and the sort the other outputs have.
+- **The program is the kernels plus the spawn settings.** `ParticleProgram` carries each system's kernel
+  (`kernels`, compiled once with it, its problems in `problems`) and its `SpawnSettings` (rate, rate over
+  distance, bursts, duration, looping, delay, prewarm, and the lifetime for the alive estimate), which
+  `KernelSpawner` reads; bindings exist only for spawn inputs (the kernels evaluate their own).
+- **`"cpu"` stays a choice**: a project that says `"cpu"` loads and runs as before, on the JavaScript
+  executor, and the editor's Simulation setting keeps its three values.
 
 ## Alternatives considered
 
@@ -60,7 +73,9 @@ and retire the CPU simulation.
 **Positive**
 - A new block is one step in one module, in two languages that a unit test keeps in agreement.
 - Collider collision no longer forces a system off the kernel.
-- Once the CPU simulation is gone: one draw pipeline, about 1,500 fewer lines, and CPU/GPU parity as unit tests.
+- One draw pipeline, about 2,500 fewer lines (the simulation, the CPU draws and mesh draws, the lowering),
+  and every block, output type and material runs on every system: no warnings either way.
+- The JavaScript executor steps the samples' effects faster than the CPU simulation did (measured below).
 
 **Negative / costs**
 - The JavaScript executor's state is uploaded to the GPU each frame, where Babylon's particle system drew the
@@ -68,38 +83,57 @@ and retire the CPU simulation.
 - Systems moving from the CPU simulation to a kernel change behaviour at the edges: a full kernel system stops
   spawning instead of replacing its oldest particle (0126's dead list), sub-emitters become 0094's GPU events
   (fixed slots per parent particle), and seeded runs draw different random numbers (the same look, not the
-  same particles).
+  same particles). A system's capacity no longer grows when `emissionScale` × the tier's scale goes over 1
+  (the CPU draws grew to the particle limit × the scale); emission still scales. The thumbnails frame only
+  particles the executor keeps on the CPU (a GPU-run system's aren't read back). Babylon's own particle
+  system is no longer used, so flipbooks read their cells from the quad's UVs and every particle texture
+  loads flipped like other textures (the `sheet` texture use is gone).
 
 ## Deprecates
 
 `render/particles/simulation.ts` (`EffectSimulation`), the CPU emitter draws in `render/babylon/particleDraw.ts`
-and `particleMeshes.ts`, the behaviour and renderer lowering in `scene/particleCompile.ts`, and the CPU-only
-problem reports. Built so far (2026-11-20): the steps catalogue and the JavaScript executor's collider
-collision; `simulation.ts` imports the kernel's hashes and noise instead of copying them. The rest is open below.
+and `particleMeshes.ts`, the behaviour and renderer lowering in `scene/particleCompile.ts`
+(`ParticleProgram.effect`), the CPU-only problem reports (`GraphProblem.cpuOnly`, `KernelSystem.unsupported`),
+the warm-up's Babylon particle systems (`WarmParts.systems`) and the `sheet` texture use. All removed
+(2026-11-20).
+
+## Building it (2026-11-20)
+
+- **The samples compared on numbers before the switch.** A scratch Vitest script (not committed) played
+  the three sample effects (the pirates' fog cloud: Body, Rim; rain; the Playground's campfire: Flames,
+  Smoke, Sparks) on the old `EffectSimulation` and on `KernelEffect` with the JavaScript executor, 20 seeds
+  each, 1/60 s steps, sampled at 0.5, 1, 2, 4 and 8 s: per system the particles alive and their mean
+  position, spread (standard deviation), speed, drawn size, alpha and age, averaged over the seeds. They
+  agree within the seeds' noise: alive counts within 2% (Rain 1,680 against 1,690; Body 141 against 141;
+  Flames 51.4 against 51.9), mean heights within 0.02 m (Sparks, 14 particles a run, within 0.1 m), speed,
+  size, alpha and age within 3%. The one difference past the noise is the Rim's vertical spread, 0.069 m
+  against 0.061 m (its value noise). After the switch the same script through `EffectPlayer` gave the
+  whole effects 199 (fog cloud), 1,694 (rain) and 93 (campfire) particles, the kernel numbers.
+- **Performance** (the same script, Node, 600 steps after 240 to fill): the CPU simulation against the
+  JavaScript executor, per frame of stepping: fog cloud 0.25 against 0.19 ms, rain (1,690 alive of 3,000)
+  0.25 against 0.14 ms, campfire 0.12 against 0.09 ms. The executor's state upload each frame (the
+  capacity × 64 bytes, repacked into four textures on WebGL2) replaces the CPU draws' copy into Babylon's
+  particle list; it wasn't measured in a browser (`npm run bench:particles`' page reads a player member
+  that no longer exists, before this change too).
+- **A seeded restart repeats exactly** on kernels: `KernelEffect.restart` counts spawns from 0 again (the
+  seeds hash the spawn number) and resets its clock and frame.
 
 ## Open questions
 
-- **Not built yet: routing every system to a kernel and deleting the CPU simulation.** Found while building:
-  - **Material assets on trail outputs (the blocker).** The CPU draws a trail with a material asset
-    (`QuadDraw`); kernel trails draw with the texture and warn (0126's open question). Retiring the CPU path
-    first needs `MycoKernelParticlePlugin` to place trail strips (the history in a texture on every executor,
-    `k_trail` in the material's vertex code), or the owner's agreement to drop the combination (no sample uses
-    it).
-  - **The spawner reads lowered emitter settings.** `KernelEffect` and `KernelSpawner` take `ParticleProgram.effect`
-    (emission, bursts, duration, looping, prewarm, capacity and their live bindings), so the lowering can shrink to
-    those fields but not go.
-  - **Tests to move.** Switching `"cpu"` and plain `"auto"` systems to the JavaScript executor fails 32 tests
-    that assert the CPU draws (Babylon particle systems, thin instances, mesh quads and trails, the warm-up's
-    one-particle state, seeded repeats of the CPU's random sequence): `babylonParticles`, `effectPlayer`,
-    `particleSoftCpu`, `warmUpVariants`, `babylonPreviews` and `babylonKernelParticles`. They need rewriting
-    against the kernel draws, with the samples' effects (campfire, rain, fog cloud) compared on numbers
-    (spawn counts, lifetimes, positions over time) between the two paths before the switch.
-- Whether `"cpu"` should stay a choice at all once it means "the JavaScript executor".
+- The Particle Graph's dashed "needs the GPU backend" wires (`problems.ts`' `gpuWires`, `Wires.tsx`,
+  `BlockView.tsx`) no longer show: the compiler reports a per-particle chain only on a Spawn input, where no
+  executor can run one, with other words. Removing that UI touches `GraphEditor.tsx`, left for after the
+  Particle Graph's editor work in flight.
+- Trails, material or not, still take one colour and size per particle (0126).
 
 ## References
 
-- `src/engine/render/particles/gpu/kernelSteps.ts`, `kernelJs.ts`, `kernelShader.ts`, `kernelEffect.ts`;
-  `src/engine/scene/particleKernel.ts` (`jsOnly`, `chooseBackend`); `render/babylon/gpuParticles.ts`
-  (`BabylonKernelHost`'s ray cast); `render/babylon/effectPlayer.ts`
-- Tests: `kernelSteps.test.ts`, `particleColliders.test.ts` (the JavaScript executor's block), `particleKernel.test.ts`
+- `src/engine/render/particles/gpu/kernelSteps.ts`, `kernelJs.ts`, `kernelShader.ts` (`materialVertexCode`'s
+  trails), `kernelEffect.ts`, `spawner.ts`; `src/engine/scene/particleKernel.ts` (`jsOnly`, `chooseBackend`),
+  `particleCompile.ts` (`SpawnSettings`); `render/babylon/gpuParticles.ts` (`BabylonKernelHost`'s ray cast,
+  each run's history texture), `kernelMaterial.ts`, `particleDraw.ts`, `effectPlayer.ts`
+- Tests: `kernelSteps.test.ts`, `particleColliders.test.ts` (the JavaScript executor's block), `particleKernel.test.ts`,
+  `particleCompile.test.ts`, `particleKernelMaterials.test.ts` (material trails), `babylonParticles.test.ts`,
+  `babylonKernelParticles.test.ts`, `effectPlayer.test.ts`, `particleSoft.test.ts`, `warmUpVariants.test.ts`,
+  `babylonPreviews.test.ts`, `particleSeed.test.ts`
 - Bench: `npm run bench:particles`

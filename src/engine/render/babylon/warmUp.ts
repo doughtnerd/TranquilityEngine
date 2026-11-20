@@ -54,11 +54,9 @@ const WARM_SCALE = 1e-5;
 /** Names of warm meshes start with this; the report and editor overlays skip them. */
 export const WARM_PREFIX = "myco.warm:";
 
-/** What a custom warm item built: meshes and particle systems to draw this batch, and how to free them. */
+/** What a custom warm item built: meshes to draw this batch, and how to free them. */
 export interface WarmParts {
   meshes: Mesh[];
-  /** Babylon particle systems (anything with `render()`), drawn by the scene as usual. */
-  systems: { render(): number }[];
   /** Whether everything is ready to draw (effects compiled, textures loaded). */
   ready(): boolean;
   dispose(): void;
@@ -175,7 +173,7 @@ export class PipelineWarmer {
   private batch: Batch | null = null;
   private waiters: (() => void)[] = [];
   private readonly retries = new Map<WarmItem, number>();
-  /** True while one of the warmer's own meshes or particle systems is drawing (`AsyncPipelines` skips only those draws). */
+  /** True while one of the warmer's own meshes is drawing (`AsyncPipelines` skips only those draws). */
   drawing = false;
   private readonly matrix = new Matrix();
   /** Called when the queue drains (the report keeps quiet for a moment after). */
@@ -288,8 +286,8 @@ export class PipelineWarmer {
     for (const p of b.parts) p.dispose();
   }
 
-  /** Mark draws of `target` (a warm mesh's `_draw`, a particle system's `render`) as the warmer's, on the instance. */
-  private own<T extends object>(target: T, method: "_draw" | "render"): void {
+  /** Mark draws of `target` (a warm mesh's `_draw`) as the warmer's, on the instance. */
+  private own<T extends object>(target: T, method: "_draw"): void {
     const t = target as unknown as Record<string, (...args: unknown[]) => unknown>;
     const original = t[method];
     if (typeof original !== "function") return;
@@ -330,9 +328,8 @@ export class PipelineWarmer {
         }
         this.retries.delete(w);
         for (const m of parts.meshes) this.own(m, "_draw");
-        for (const ps of parts.systems) this.own(ps, "render");
         b.parts.push(parts);
-        taken += Math.max(1, parts.meshes.length + parts.systems.length);
+        taken += Math.max(1, parts.meshes.length);
         continue;
       }
       const sources = meshesIfLoaded(w.mesh);
@@ -437,11 +434,10 @@ export class VariantReport {
     engine: AbstractEngine,
     private readonly scene: Scene,
     /**
-     * The node a mesh or particle system draws for (and the prefab it came from), or null for what
-     * isn't content (editor helpers). Given a renderer's mesh, a particle draw's mesh or Babylon
-     * particle system, or a world canvas's plane.
+     * The node a mesh draws for (and the prefab it came from), or null for what isn't content (editor
+     * helpers). Given a renderer's mesh, a particle draw's mesh, or a world canvas's plane.
      */
-    private readonly describe: (drawn: AbstractMesh | ParticleSystemLike) => { what: string; prefab?: string } | null,
+    private readonly describe: (drawn: AbstractMesh) => { what: string; prefab?: string } | null,
   ) {
     const effects = (engine as unknown as { _compiledEffects: Record<string, Effect> })._compiledEffects;
     const count = () => Object.keys(effects).length;
@@ -482,13 +478,9 @@ export class VariantReport {
         for (const effect of passEffects(sub)) this.check(effect, material, mesh, silent);
       }
     }
-    // Babylon particle systems (particle effects' billboards): one effect per pass and blend mode.
-    for (const ps of this.scene.particleSystems as unknown as ParticleSystemLike[]) {
-      for (const pass of ps._drawWrappers ?? []) for (const wrapper of pass ?? []) if (wrapper?.effect) this.check(wrapper.effect, "(particle system)", ps, silent);
-    }
   }
 
-  private check(effect: Effect, material: string, drawn: AbstractMesh | ParticleSystemLike, silent: boolean): void {
+  private check(effect: Effect, material: string, drawn: AbstractMesh, silent: boolean): void {
     if (this.known.has(effect)) return;
     this.known.add(effect);
     const prev = this.byMaterial.get(material);
@@ -514,12 +506,6 @@ function variantWarning(what: string, material: string, change: string, prefab?:
   const asset = prefab ?? (/^(?:asset:)?([^#]+\.material\.json)/.exec(name)?.[1] ?? null);
   const fix = asset ? `Add ${asset.replace(/^asset:/, "")} to the scene's settings.preload list` : "Add its prefab to the scene's settings.preload list";
   return `[myco] ${what} drew a shader variant that wasn't warmed up (${name}: ${change}), so its frame waited for the shader to compile. ${fix}, or SceneManager.preload it, or report the rule the warm-up is missing (ADR 0080).`;
-}
-
-/** A Babylon particle system as the report reads it: its effects per render pass and blend mode. */
-export interface ParticleSystemLike {
-  name: string;
-  _drawWrappers?: ({ effect: Effect | null } | undefined)[][];
 }
 
 /**

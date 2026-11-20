@@ -237,7 +237,7 @@ export const BLOCKS: readonly BlockDef[] = [
   },
 
   // --- output ---
-  // Set Attribute (ADR 0095): write a per-particle value into an attribute. Kernel backends only (ADR 0094).
+  // Set Attribute (ADR 0095): write a per-particle value into an attribute (every kernel executor, ADR 0094).
   ...(
     [
       ["Position", "position", "vector3", "m"],
@@ -252,7 +252,7 @@ export const BLOCKS: readonly BlockDef[] = [
     ([label, attr, kind, unit]): BlockDef => ({
       type: `attribute.${attr}`,
       label: `Set ${label}`,
-      description: `Sets, adds to or multiplies each particle's ${label.toLowerCase()} with a value that can differ per particle (wire Particle nodes and operators into it). Runs on kernel (GPU) backends only.`,
+      description: `Sets, adds to or multiplies each particle's ${label.toLowerCase()} with a value that can differ per particle (wire Particle nodes and operators into it).`,
       contexts: attr === "lifetime" ? IN_INIT : attr === "color" || attr === "alpha" || attr === "size" ? ATTR_ALL : IN_INIT_UPDATE,
       inputs: [
         enumInput("mode", "Mode", ["set", "add", "multiply"], "set"),

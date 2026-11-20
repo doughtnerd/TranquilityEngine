@@ -102,7 +102,7 @@ add("Value", "randomGradients", "Random Between Gradients", "A colour between tw
   { name: "gradientB", label: "Gradient B", kind: "gradient", default: DEFAULT_GRADIENT },
 ]);
 
-// Particle (ADR 0095): a particle's own attributes, per-particle sources only kernel backends run (ADR 0094).
+// Particle (ADR 0095): a particle's own attributes, per-particle sources the kernels run (ADR 0094).
 add("Particle", "particle.age", "Age", "Seconds since the particle was born.", "particle", [], [outPort("number")]);
 add("Particle", "particle.lifetime", "Lifetime", "How many seconds the particle lives.", "particle", [], [outPort("number")]);
 add("Particle", "particle.ageFraction", "Age over Lifetime", "The particle's age as a fraction of its lifetime: 0 at birth, 1 when it dies.", "particle", [], [outPort("number")]);
@@ -552,7 +552,7 @@ const FACTORIES: Record<string, Factory> = {
     ["age", "lifetime", "ageFraction", "position", "velocity", "speed", "size", "color", "index", "random"].map((a): [string, Factory] => [
       `particle.${a}`,
       (n, d) => {
-        throw new Error(`${d.label} node "${n.id}" reads each particle; that needs a kernel (GPU) backend, so the system must use simulation "auto" or "gpu".`);
+        throw new Error(`${d.label} node "${n.id}" reads each particle; this input takes one value for the whole system.`);
       },
     ]),
   ),
@@ -620,7 +620,7 @@ export function compileUniform(graph: ParticleGraph, from: string): (ctx: EvalCo
     const getters: Getter[] = def.inputs.map((input) => {
       const wired = ix.wires.get(`${id}.${input.name}`);
       if (inputRate(ix, node, def, input, rates, new Set()) === "particle") {
-        throw new Error(`${def.label} node "${id}" can't combine per-particle values (input "${input.label}"); that needs the GPU backend.`);
+        throw new Error(`${def.label} node "${id}" can't combine per-particle values (input "${input.label}") where one value for the whole system is needed.`);
       }
       if (wired) return build(wired);
       const value = inlineValue(node, input);

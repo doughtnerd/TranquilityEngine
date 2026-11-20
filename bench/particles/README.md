@@ -10,6 +10,8 @@ Chromium with WebGPU on SwiftShader, and prints:
   particles (lifetime 2 s, gravity, turbulence, colour over life), timed over 30 frames after 150 warm-up frames,
   with a GPU sync every 10 frames. Query: `?engine=webgpu|webgl2&backend=gpu|js|cpu&counts=…&frames=…`,
   `&nodraw=1` (simulation only), `&shot=1` (one run, kept on screen).
+  Since ADR 0251 `backend=cpu` is the JavaScript executor too (the CPU simulation is gone), so the "CPU
+  simulation" rows below are history.
 
 The project's Playwright browser comes from `npm run test:e2e:install`; set `CHROMIUM_PATH` to use another.
 

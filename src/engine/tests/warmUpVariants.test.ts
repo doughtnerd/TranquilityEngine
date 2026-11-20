@@ -6,9 +6,10 @@ import { NullEngine } from "@babylonjs/core/Engines/nullEngine.js";
 import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial.js";
 import { RawTexture } from "@babylonjs/core/Materials/Textures/rawTexture.js";
+import { Constants } from "@babylonjs/core/Engines/constants.js";
+import { ShaderMaterial } from "@babylonjs/core/Materials/shaderMaterial.js";
 import { Matrix, Vector3 } from "@babylonjs/core/Maths/math.vector.js";
 import { CreateBox } from "@babylonjs/core/Meshes/Builders/boxBuilder.js";
-import { ParticleSystem as BabylonParticleSystem } from "@babylonjs/core/Particles/particleSystem.js";
 import { Scene } from "@babylonjs/core/scene.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { defaultGraphics, pipelineTierKey } from "../core/graphics";
@@ -198,8 +199,7 @@ describe("warming particle effects (ADR 0080)", () => {
   let camera: TargetCamera;
   let player: BabylonParticles;
   let textures: Map<string, Promise<RawTexture>>;
-  let material: StandardMaterial | null;
-  const at = { x: 1, y: 2, z: 3 };
+  let material: PBRMaterial | null;
 
   beforeEach(() => {
     babylon = nullEngine();
@@ -223,54 +223,47 @@ describe("warming particle effects (ADR 0080)", () => {
     babylon.dispose();
   });
 
-  /** Quads a mesh built on the CPU draws (its submesh's indices, six a quad). */
-  const quadsOf = (m: Mesh) => (m.isVisible ? m.subMeshes[0]!.indexCount / 6 : 0);
-
-  it("builds each emitter's draw with one particle where it's told, too small to see", () => {
+  it("builds each system's draws as the real ones, stepped once with nothing spawned", () => {
     const effect = legacyJSON({ emitters: [emitter("Dots", { blending: "additive" }), emitter("Rocks", { mode: "mesh", mesh: "builtin:cube" }), emitter("Streaks", { mode: "trail" })] });
-    const parts = player.warm(effect, `${WARM_PREFIX}fx`, at, camera)!;
-    expect(parts.systems).toHaveLength(1);
-    expect(parts.meshes.map((m) => m.hasThinInstances)).toEqual([true, false]); // the rocks' thin instances, the streaks' ribbon
-    const ps = parts.systems[0] as BabylonParticleSystem;
-    expect(ps.particles).toHaveLength(1);
-    expect(ps.particles[0]!.position.asArray()).toEqual([1, 2, 3]);
-    expect(ps.particles[0]!.scale.x).toBeLessThan(1e-4);
-    expect(ps.blendMode).toBe(BabylonParticleSystem.BLENDMODE_ADD); //, as the real draw: the blend state is part of the pipeline
-    expect(ps.name.startsWith(WARM_PREFIX)).toBe(true); // the report skips warm-up draws
-    const [rocks, streaks] = parts.meshes;
-    expect(rocks!.thinInstanceCount).toBe(1);
-    expect(rocks!.isVisible).toBe(true);
-    expect(rocks!.thinInstanceGetWorldMatrices()[0]!.m[0]).toBeLessThan(1e-4);
-    expect(quadsOf(streaks!)).toBe(1); // a ribbon segment to draw
-    parts.dispose();
+    const parts = player.warm(effect, `${WARM_PREFIX}fx`, camera)!;
+    expect(parts.meshes).toHaveLength(3); // one per output: the dots, the rocks and the streaks' strip
+    const [dots, rocks, streaks] = parts.meshes as Mesh[];
+    expect((dots.material as ShaderMaterial).alphaMode).toBe(Constants.ALPHA_ADD); // as the real draw: the blend state is part of the pipeline
+    expect(rocks.getTotalVertices()).toBe(24); // the cube model
+    expect(streaks.getTotalIndices()).toBeGreaterThan(0); // a ribbon to draw
+    for (const m of parts.meshes) {
+      expect(m.name.startsWith(WARM_PREFIX)).toBe(true); // the report skips warm-up draws
+      expect(m.forcedInstanceCount).toBeGreaterThan(0);
+    }
     expect(scene.particleSystems).toHaveLength(0);
+    parts.dispose();
     expect(scene.meshes).toHaveLength(0);
   });
 
-  it("waits for a texture it needs, and draws material-asset emitters with the material", async () => {
+  it("waits for a texture it needs, and draws material-asset outputs with the material's copy", async () => {
     let resolve!: (t: RawTexture) => void;
     textures.set("images/spark.png", new Promise((r) => (resolve = r)));
     const effect = legacyJSON({ emitters: [emitter("Sparks", { texture: "images/spark.png" })] });
-    expect(player.warm(effect, "w", at, camera)).toBeNull(); // loading: ask again later
-    resolve(RawTexture.CreateRGBATexture(new Uint8Array(4), 1, 1, scene));
+    expect(player.warm(effect, "w", camera)).toBeNull(); // loading: ask again later
+    const tex = RawTexture.CreateRGBATexture(new Uint8Array(4), 1, 1, scene);
+    resolve(tex);
     await Promise.resolve();
     await Promise.resolve();
-    const parts = player.warm(effect, "w", at, camera)!;
-    expect(parts.systems).toHaveLength(1);
-    expect(parts.meshes).toHaveLength(0);
+    const parts = player.warm(effect, "w", camera)!;
+    expect(parts.meshes).toHaveLength(1);
+    expect((parts.meshes[0]!.material as ShaderMaterial).getActiveTextures()[0]).toBe(tex);
     parts.dispose();
-    material = new StandardMaterial("fx", scene);
-    const quads = player.warm(legacyJSON({ emitters: [emitter("Lit", { material: "materials/fx.material.json" })] }), "w", at, camera)!;
-    expect(quads.systems).toHaveLength(0);
-    expect(quads.meshes[0]!.material).toBe(material);
-    expect(quadsOf(quads.meshes[0]!)).toBe(1);
+    material = new PBRMaterial("fx", scene);
+    const quads = player.warm(legacyJSON({ emitters: [emitter("Lit", { material: "materials/fx.material.json" })] }), "w", camera)!;
+    expect(quads.meshes[0]!.material).toBeInstanceOf(PBRMaterial);
+    expect(quads.meshes[0]!.material?.pluginManager?.getPlugin("MycoKernelParticles")).toBeTruthy();
     quads.dispose();
   });
 
   it("gives nothing for an effect that isn't in the project", () => {
     Assets.clearSources();
-    const parts = player.warm("effects/gone.particles.json", "w", at, camera)!;
-    expect([parts.meshes, parts.systems]).toEqual([[], []]);
+    const parts = player.warm("effects/gone.particles.json", "w", camera)!;
+    expect(parts.meshes).toEqual([]);
   });
 });
 
