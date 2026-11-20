@@ -1,6 +1,6 @@
 // Ed7: "audition this transition". Pure planning (which pair the rule wins, which segment to start in, where to seek, which
-// parameter asks for the change) and one thin runner over Ed5's transport, so the audition is the shared `activeAudition`
-// and the change goes through the same music player a game's script reaches.
+// parameter asks for the change) and one thin runner over the editor's audition (ADR 0268), so the change goes through the
+// same music player a game's script reaches.
 //
 // Reach: the change is requested from outside only for a music switch (its parameter picks the child; R2 turns the new
 // value into a transition and R1's rule shapes it). A playlist changes only by its natural advance, so a playlist is
@@ -11,7 +11,7 @@ import type { AudioEventAsset } from "../../../../engine/audio/eventFormat";
 import type { MusicContainerNode } from "../../../../engine/audio/musicFormat";
 import { musicLeaves } from "../../../../engine/audio/musicTree";
 import { effectiveRule, ruleMatchesPair } from "./rulesModel";
-import type { Transport, TransportTarget } from "./transport";
+import type { Audition, AuditionTarget } from "../audition/audition";
 
 export interface TransitionAuditionPlan {
   readonly ok: true;
@@ -20,7 +20,7 @@ export interface TransitionAuditionPlan {
   readonly segmentId: string;
   readonly grid: SegmentGrid;
   readonly parameters: Record<string, number | string>;
-  readonly from: TransportTarget;
+  readonly from: AuditionTarget;
   /** The pair the rule was auditioned on. */
   readonly pair: { readonly from: string; readonly to: string };
   /** The parameter change that asks for the transition, or null when the playlist advances by itself. */
@@ -90,12 +90,12 @@ export function planTransitionAudition(
     note = `Starts in ${pair.from}; the playlist advances to ${pair.to} at the exit cue (a rule's own exit is ignored there).`;
   }
   const bar = options.bar !== undefined && Number.isInteger(options.bar) && options.bar >= 1 ? options.bar : leadBar(grid);
-  const from: TransportTarget = bar <= 1 ? { kind: "start" } : { kind: "bar", bar };
+  const from: AuditionTarget = bar <= 1 ? { kind: "start" } : { kind: "bar", bar };
   return { ok: true, event: path, segmentId: start.id, grid, parameters, from, pair, request, note: `${note} Playing from ${bar <= 1 ? "the start" : `bar ${bar}`}.` };
 }
 
-/** Play from `plan.from`, then request the change once the position has landed (through the shared audition). */
-export async function runTransitionAudition(transport: Transport, plan: TransitionAuditionPlan): Promise<void> {
-  await transport.play({ event: plan.event, segmentId: plan.segmentId, grid: plan.grid, parameters: plan.parameters, from: plan.from });
-  if (plan.request && transport.state.value.phase === "playing") transport.requestParameter(plan.request.name, plan.request.value);
+/** Play from `plan.from`, then request the change once the position has landed (through the editor's audition). */
+export async function runTransitionAudition(audition: Audition, plan: TransitionAuditionPlan): Promise<void> {
+  await audition.play({ event: plan.event, parameters: plan.parameters, music: { segmentId: plan.segmentId, grid: plan.grid, from: plan.from } });
+  if (plan.request && audition.state.value.phase === "playing") audition.requestParameter(plan.request.name, plan.request.value);
 }

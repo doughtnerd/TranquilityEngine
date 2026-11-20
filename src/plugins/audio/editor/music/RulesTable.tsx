@@ -2,7 +2,7 @@
 // direct children plus `*`, every cell showing the rule that wins the pair (the same answer R1 gives at run time, read
 // through `rulesModel.ts`), the chosen cell's rule highlighted in the rule list, and a "why" readout of tier and index.
 // Ed7 adds beside it: the rule editor (`RuleEditor.tsx`), the lint rows and badges (`ruleLint.ts`) and "audition this
-// transition" (`ruleAudition.ts`, through Ed5's shared transport).
+// transition" (`ruleAudition.ts`, through the editor's one audition, ADR 0268).
 import { signal } from "@preact/signals";
 import { useEffect, useMemo, useState } from "preact/hooks";
 import { editor, openAssetDocument, Panel } from "../../../../editor/sdk";
@@ -15,7 +15,7 @@ import { RuleEditor } from "./RuleEditor";
 import { addRule, duplicateRule, moveRule, removeRule, type RuleEdit } from "./ruleEdits";
 import { issuesOfRule, lintTransitionRules, worstSeverity } from "./ruleLint";
 import { planTransitionAudition, runTransitionAudition } from "./ruleAudition";
-import { musicTransport } from "./transportHost";
+import { editorAudition } from "../audition/editorAudition";
 import "./rulesTable.css";
 import "./ruleEditor.css";
 
@@ -53,11 +53,6 @@ function OpenRules(props: { path: string; nodeId: string }) {
     for (const c of clips) if (!peaks.peek(c)) peaks.get(c).then(() => live && setVersion((v) => v + 1), () => {});
     return () => void (live = false);
   }, [clips.join("\n")]);
-  // The panel keeps the shared transport ticking while an audition it started plays (the seek retry, the queued parameter).
-  useEffect(() => {
-    const t = setInterval(() => musicTransport.tick(), 50);
-    return () => clearInterval(t);
-  }, []);
   if (!container || !grid) return <p class="empty">{props.path} has no playlist or music switch “{props.nodeId}”.</p>;
 
   const key = `${props.path}#${props.nodeId}`;
@@ -94,7 +89,7 @@ function OpenRules(props: { path: string; nodeId: string }) {
     const p = planTransitionAudition(props.path, event, container, sel, { ...(from !== null && to !== null ? { pair: { from, to } } : {}), ...(bar !== undefined ? { bar } : {}) });
     if (!p.ok) return void setAuditionText(p.reason);
     setAuditionText(p.note);
-    void runTransitionAudition(musicTransport, p);
+    void runTransitionAudition(editorAudition, p);
   };
 
   return (

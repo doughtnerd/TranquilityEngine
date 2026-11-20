@@ -490,6 +490,11 @@ test("segment view transport: Play starts the playlist at the open segment, and 
   await expect.poll(async () => (await musicRow(page))?.segment, { timeout: 30_000 }).toBe("B");
   await expect.poll(async () => (await voiceRows(page)).some((v) => v.clip.includes("town")), { timeout: 15_000 }).toBe(true);
   await expect.poll(async () => (await eventRows(page))[0]?.parameters.Intensity, { timeout: 15_000 }).toBeCloseTo(0.8, 5);
+  // ADR 0268: a slider moved while the transport plays reaches the playing instance, as it does for the Event editor's own Play.
+  await showTab(page, /^Audio Event/);
+  await page.getByLabel("Audition Intensity").fill("0.4");
+  await expect.poll(async () => (await eventRows(page))[0]?.parameters.Intensity, { timeout: 15_000 }).toBeCloseTo(0.4, 5);
+  expect(await musicRow(page)).not.toBeNull(); // the music audition goes on while the Event editor is shown
   expect(problems.filter((p) => !/prime lead/.test(p))).toEqual([]); // the lead warning depends on the CPU the software GL leaves
 });
 
