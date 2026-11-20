@@ -5,9 +5,9 @@ import { signal, type ReadonlySignal } from "@preact/signals";
 import { type GameObject } from "../../../engine";
 import { Tilemap } from "../runtime";
 import { floodCells, lineCells, rectCells, type Cell, type Stamp } from "../runtime/brushes";
-import { FLIP_X, FLIP_Y, cellValue, flagsOf, tileIdOf } from "../runtime/format";
-import { brushValueAt } from "./brushCells";
-import { compose, rotateClockwise } from "../runtime/tileFlips";
+import { FLIP_X, FLIP_Y } from "../runtime/format";
+import { brushValueAt, withBrushFlips } from "./brushCells";
+import { rotateClockwise } from "../runtime/tileFlips";
 import { editor, type OpenScene } from "../../../editor/sdk";
 
 export type BrushTool = "pencil" | "rect" | "fill" | "erase" | "pick";
@@ -98,7 +98,7 @@ export function paintCells(map: Tilemap, tool: BrushTool, cells: readonly Cell[]
       for (let r = 0; r < stamp.height; r++) {
         for (let c = 0; c < stamp.width; c++) {
           const v = stamp.values[r * stamp.width + c];
-          if (v) map.setCell(sx + c, sy + r, cellValue(tileIdOf(v), compose(flagsOf(v), flags)), layer);
+          if (v) map.setCell(sx + c, sy + r, withBrushFlips(v, flags), layer);
         }
       }
     }
