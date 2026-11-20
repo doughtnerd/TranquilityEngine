@@ -20,6 +20,7 @@ import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { Duplex } from "node:stream";
 import { WebSocketServer, type RawData, type WebSocket } from "ws";
+import { parseListenAddress } from "../engine/net/listenTarget";
 import { registerTransport } from "../engine/net/Transport";
 import { WebSocketTransport } from "../engine/net/transport/websocket";
 
@@ -33,27 +34,6 @@ export interface ListenAddress {
   readonly path: string;
   /** A URL clients on this machine can connect to (wildcard hosts become localhost). */
   readonly url: string;
-}
-
-/**
- * Parse a listen address: "ws://0.0.0.0:7777/game", "localhost:7777", "7777", ":7777",
- * "7777/match/3" or a port number. No host means every interface; a path other than "/" limits
- * upgrades to that path.
- */
-export function parseListenAddress(address: string | number): { host?: string; port: number; path: string } {
-  if (typeof address === "number") return { port: address, path: "/" };
-  const trimmed = address.trim();
-  const bare = /^:?(\d+)(\/.*)?$/.exec(trimmed);
-  if (bare) return { port: Number(bare[1]), path: bare[2] || "/" };
-  let url: URL;
-  try {
-    url = new URL(trimmed.includes("://") ? trimmed : `ws://${trimmed}`);
-  } catch {
-    throw new Error(`Can't listen on "${address}": expected a port or a URL like "ws://0.0.0.0:7777".`);
-  }
-  if (url.protocol !== "ws:") throw new Error(`Can't listen on "${address}": only ws:// is supported (put TLS in a reverse proxy).`);
-  const host = url.hostname.replace(/^\[(.*)\]$/, "$1");
-  return { host: host || undefined, port: url.port ? Number(url.port) : 80, path: decodeURIComponent(url.pathname || "/") };
 }
 
 /** One HTTP server shared by the listeners on its port. */

@@ -174,6 +174,26 @@ describe("myco-server (T14)", () => {
     expect(netSession(server.engine._world("Lobby")!)!.maxConnections).toBe(3);
   });
 
+  it("listens on a link's host and path, as ADR 0067 documents (ADR 0255)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "myco-server-"));
+    temps.push(dir);
+    writeFileSync(
+      join(dir, "project.json"),
+      JSON.stringify({
+        bootstrap: {
+          worlds: [{ name: "Game", tags: ["client"] }, { name: "Lobby", tags: ["server"] }, { name: "Match", tags: ["server"] }],
+          links: [{ from: "Game", to: "Match", transport: "websocket", options: { port: 0, path: "/game", host: "127.0.0.1" } }],
+        },
+      }),
+    );
+    const lines: string[] = [];
+    const server = await startServer({ projectDir: dir, statsIntervalMs: 0, log: (l) => lines.push(l), port: 0 });
+    servers.push(server);
+    expect(server.listeners[1].world).toBe("Match");
+    expect(server.listeners[1].url).toMatch(/^ws:\/\/127\.0\.0\.1:\d+\/game$/);
+    expect(lines.some((l) => l.includes('World "Match" listening') && l.includes("all interfaces"))).toBe(false);
+  });
+
   it("runs server-tagged templates when the bootstrap's Worlds are all clients (a Host button's layout)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "myco-server-"));
     temps.push(dir);

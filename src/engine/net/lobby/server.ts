@@ -27,6 +27,7 @@ import { MatchState, _setMatch } from "./match";
 import { C2S, S2C, cleanName, readMap, resolveLobbyOptions, writeMap, writeMatch, writeView, type LobbyOptions, type LobbyRoom, type LobbyRoomInfo, type LobbyRoomState, type ResolvedLobbyOptions } from "./protocol";
 import { LOBBY_C2S, LOBBY_S2C, declaredBootstrap, engineOf, randomHex, type LobbyEngine } from "./wire";
 import { uniqueName } from "../../core/uniqueName";
+import { parseListenAddress } from "../listenTarget";
 
 const CODE_LETTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ";
 
@@ -516,15 +517,15 @@ function matchListenOptions(listener: { transport: string; address: string; list
   } catch {
     // Not a URL: fall back to the default port (the dedicated server's).
   }
-  const at = listener.listenedAt.trim();
-  if (/^:?\d+(\/.*)?$/.test(at)) return port === undefined ? { path } : { port, path };
+  // The listen target the lobby listened at (ADR 0255): its host, and its port when it named a host.
+  let at: { host?: string; port: number } | undefined;
   try {
-    const url = new URL(at.includes("://") ? at : `ws://${at}`);
-    const host = url.hostname.replace(/^\[(.*)\]$/, "$1");
-    return { ...(host ? { host } : {}), ...(port !== undefined ? { port } : url.port ? { port: Number(url.port) } : {}), path };
+    at = parseListenAddress(listener.listenedAt);
   } catch {
-    return port === undefined ? { path } : { port, path };
+    at = undefined;
   }
+  const matchPort = port ?? (at?.host ? at.port : undefined);
+  return { ...(at?.host ? { host: at.host } : {}), ...(matchPort !== undefined ? { port: matchPort } : {}), path };
 }
 
 const servers = new WeakMap<World, LobbyServer>();
