@@ -19,7 +19,7 @@ import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile } from "./project";
 import { editorSettings, joinPath, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
 import { readOnlyMessage } from "./readOnly";
-import { currentProject, openScene, sceneCamera, selection, status } from "./state";
+import { currentProject, openScene, playState, sceneCamera, selection, status } from "./state";
 import { inspectorTarget, select } from "./inspectorTarget";
 import { MemoryFileSystem, ROOT, closeTestProject, demoFolder, sampleProject } from "./testing";
 
@@ -225,5 +225,23 @@ describe("running the prefab actions", () => {
     stack.undo();
     expect(doc.node("bg-b").overrides).toHaveLength(2);
     expect(revertAllOverrides(scene(), [["bg-a"]])).toBe(0);
+  });
+});
+
+describe("during play (ADR 0257)", () => {
+  it("leaves the scene document alone: every header action is refused through the edit gate, with its one wording", () => {
+    playState.value = "playing";
+    try {
+      const states = scene().stack.allStates.length;
+      expect(renameNode(scene(), ["bird"], "Robin")).toBe(false);
+      expect(setNodesActive(scene(), [["bird"]], false)).toBe(0);
+      expect(status.value?.text).toBe("Stop playing to edit the scene.");
+      expect(prefabActions(scene(), project, [["bird"]]).create?.whyNot).toBe("Stop playing to create prefabs.");
+      expect(prefabActions(scene(), project, [["bg-b"]]).revertAll?.whyNot).toBe("Stop playing to revert overrides.");
+      expect(revertAllOverrides(scene(), [["bg-b"]])).toBe(0);
+      expect(scene().stack.allStates).toHaveLength(states);
+    } finally {
+      playState.value = "edit";
+    }
   });
 });

@@ -6,7 +6,7 @@ import { SetField, SetOverrides, type NodePath } from "./document";
 import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile } from "./project";
 import { editorSettings, useProjectAssets } from "./projects";
-import { openScene, sceneCamera } from "./state";
+import { openScene, playState, sceneCamera, status } from "./state";
 import { sampleProject } from "./testing";
 
 beforeEach(async () => {
@@ -242,5 +242,24 @@ describe("reordering components", () => {
     moveComponent(scene(), ["bg-a"], target("bg-a").node, info("bg-a", "engine.BoxCollider2D"), info("bg-a", "engine.SpriteRenderer"), false);
     const [box, sprite] = listComponents(target("bg-a").node).filter((c) => c.kind === "behavior").map((c) => c.component as unknown as { _seq: number });
     expect(box._seq).toBeLessThan(sprite._seq);
+  });
+});
+
+describe("during play (ADR 0257)", () => {
+  it("adds, removes and switches nothing: the edit gate refuses", () => {
+    playState.value = "playing";
+    try {
+      const before = types("bird");
+      const states = scene().stack.allStates.length;
+      expect(addComponentTo(scene(), [target("bird")], "engine.AudioSource")).toBe(0);
+      const last = listComponents(target("bird").node).filter((c) => c.kind === "behavior").at(-1)!;
+      expect(removeComponentFrom(scene(), [{ ...target("bird"), info: last }])).toBe(0);
+      expect(setComponentEnabled(scene(), [{ ...target("bird"), info: last }], !last.enabled)).toBe(0);
+      expect(types("bird")).toEqual(before);
+      expect(scene().stack.allStates).toHaveLength(states);
+      expect(status.value?.text).toBe("Stop playing to edit the scene.");
+    } finally {
+      playState.value = "edit";
+    }
   });
 });

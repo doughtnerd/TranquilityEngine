@@ -1,9 +1,9 @@
 // What the Tile Palette does besides drawing (ADR 0103): the stamp a block of tiles makes, and layer edits written
-// to the scene as one undoable SetField of `layers`.
+// to the scene as one undoable write of `layers` (`editor.scene.writeField`).
 import type { Tilemap } from "../runtime";
 import type { Stamp } from "../runtime/brushes";
 import type { TilemapLayerData } from "../runtime/format";
-import { SetField, editor, type OpenScene } from "../../../editor/sdk";
+import { editor, type OpenScene } from "../../../editor/sdk";
 
 /**
  * The stamp for the block of the palette grid between tile positions `a` and `b` (indices into `ids`, laid out
@@ -31,14 +31,10 @@ export function editedLayers(map: Tilemap, edit: (layers: TilemapLayerData[]) =>
 
 /** Write `layers` to the node's Tilemap as one undoable step (prefab instances get an override). */
 export function commitLayers(scene: OpenScene, path: readonly string[], layers: TilemapLayerData[], label: string): void {
-  const [id, ...target] = path;
-  const previous = scene.doc.isPrefabInstance(id) ? scene.doc.overrideValue(id, target, "engine.Tilemap", "layers", 0) : scene.doc.fieldValue(id, "engine.Tilemap", "layers", 0);
-  if (JSON.stringify(previous) === JSON.stringify(layers)) return;
-  editor.scene.edit(label, () => scene.stack.execute(new SetField(id, "engine.Tilemap", "layers", layers, { index: 0, target })), scene);
+  editor.scene.edit(label, () => void editor.scene.writeField({ scene, path, type: "engine.Tilemap" }, "layers", layers), scene);
 }
 
 /** Set the node's Tilemap tileset to a project path (or clear it). */
 export function commitTileset(scene: OpenScene, path: readonly string[], tilesetPath: string): void {
-  const [id, ...target] = path;
-  editor.scene.edit("Set tileset", () => scene.stack.execute(new SetField(id, "engine.Tilemap", "tileset", tilesetPath ? `asset:${tilesetPath}` : "", { index: 0, target })), scene);
+  editor.scene.edit("Set tileset", () => void editor.scene.writeField({ scene, path, type: "engine.Tilemap" }, "tileset", tilesetPath ? `asset:${tilesetPath}` : ""), scene);
 }

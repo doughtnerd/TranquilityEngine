@@ -14,10 +14,12 @@ export { activeHistory, providePanelHistory, usePanelHistory, type ActiveHistory
 export { editor, type EditorSurface } from "./editor";
 export type { ProjectSurface, ProjectSettingsSurface, AssetsSurface, CreateFileOptions, CreateAssetOptions, SectionChange, AssetImportSettings, AssetKind, EditorProject } from "./project";
 export type { MessagesSurface, MessageAction } from "./messages";
-export type { SceneSurface, SelectionSurface, PlayState, OpenScene, UndoStep } from "./scene";
+export type { SceneSurface, SelectionSurface, PlayState, OpenScene, UndoStep, ComponentPlace, DocumentComponent, LiveComponent, FieldDrag } from "./scene";
 export type { ViewportSurface } from "./viewport";
-// Editing scene documents (ADR 0026): node paths and entries, and the field command inspector sections push.
-export { SetField, pathKey, type ComponentEntry, type NodePath, type NodeEntry, type SceneDocument } from "../document";
+// Reading scene documents (ADR 0026): node paths and entries. Fields are written with `editor.scene.writeField` (ADR 0257).
+export { pathKey, type ComponentEntry, type NodePath, type NodeEntry, type SceneDocument } from "../document";
+// A drag on an Inspector control as one undo step through the edit gate (ADR 0257).
+export { useFieldDrag, type FieldDragHandlers } from "../ui/fieldDrag";
 // Building blocks for panels, inspectors and settings sections.
 // The frame every panel renders in, and its instance's own view state (ADR 0174).
 export { Panel, usePanel, usePanelState, usePanelValue, PanelInstanceContext, type PanelInstance, type PanelProps } from "../ui/panel/Panel";

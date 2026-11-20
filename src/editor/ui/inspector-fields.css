@@ -62,3 +62,6 @@
 
 /* --- values the editor has no widget for, shown as JSON (ADR 0243) --- */
 .fields .field-json { font-family: ui-monospace, monospace; font-size: 11px; word-break: break-all; }
+
+/* --- the scene document during play (ADR 0257): read-only, said once over the document view --- */
+.inspector-read-only { margin: 0 0 6px; padding: 4px 6px; border-left: 2px solid var(--warning); background: var(--warning-soft); color: var(--text); font-size: 11px; }

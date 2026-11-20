@@ -3,9 +3,8 @@
 // ambisonic, the fields it ignores (spatial, the distance fields, rolloff, occlusion, Doppler level) greyed with a note.
 // The M3 number and checkbox fields (occlusion, Doppler level, reverb send, ambisonic yaw) are the card's rows.
 import { useLayoutEffect, useRef } from "preact/hooks";
-import { CurveEditor, editor, sectionField, type InspectorSectionProps } from "../../../editor/sdk";
+import { CurveEditor, editor, sectionField, useFieldDrag, type InspectorSectionProps } from "../../../editor/sdk";
 import { AMBISONIC_IGNORED_FIELDS, sendCurveOf } from "./audioInspectorModel";
-import { dragGroup, writeField, type FieldTarget } from "./inspectorWrite";
 import "./audioInspectors.css";
 
 const DEFAULT_CURVE: [number, number][] = [[0, 1], [1, 0.5]];
@@ -46,9 +45,9 @@ export function AudioSourceSection({ scene, paths, info }: InspectorSectionProps
     return () => greyRows(card, titles, false);
   }, [ambisonic, key]);
 
-  const target: FieldTarget = { scene, path: paths[0]!, type: info.type, index: info.index };
+  const place = { scene, path: paths[0]!, type: info.type, index: info.index };
   const curve = sendCurveOf(sectionField(info, "reverbSendCurve"));
-  const group = dragGroup(scene, "Edit reverb send curve");
+  const drag = useFieldDrag(place, "Edit reverb send curve");
   const yaw = Number(sectionField(info, "ambisonicYaw") ?? 0);
   return (
     <div class="audio-section" ref={root} aria-label="Audio source spatial">
@@ -58,10 +57,10 @@ export function AudioSourceSection({ scene, paths, info }: InspectorSectionProps
         </p>
       )}
       {!ambisonic && yaw !== 0 && <p class="audio-note">Ambisonic Yaw only turns ambisonic clips; this clip isn't one.</p>}
-      <div class="audio-curve-field" {...group}>
+      <div class="audio-curve-field" {...drag}>
         <h4 title="How much of the source goes to the reverb zones that hold it, against distance: 0 at Min Distance to 1 at Max Distance. Multiplies Reverb Send; the product is clamped to 4.">Reverb send by distance</h4>
-        <CurveEditor curve={curve} xRange={[0, 1]} yRange={CURVE_Y} interpolation={false} label="Reverb send curve" onChange={(c) => writeField(target, "reverbSendCurve", c.map((k) => [k[0], k[1]]))} />
-        <button title="Back to full send up close and half at Max Distance" onClick={() => writeField(target, "reverbSendCurve", DEFAULT_CURVE.map((k) => [...k]))}>
+        <CurveEditor curve={curve} xRange={[0, 1]} yRange={CURVE_Y} interpolation={false} label="Reverb send curve" onChange={(c) => editor.scene.writeField(place, "reverbSendCurve", c.map((k) => [k[0], k[1]]))} />
+        <button title="Back to full send up close and half at Max Distance" onClick={() => editor.scene.writeField(place, "reverbSendCurve", DEFAULT_CURVE.map((k) => [...k]))}>
           Reset curve
         </button>
       </div>

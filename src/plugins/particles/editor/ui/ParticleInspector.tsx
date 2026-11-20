@@ -12,7 +12,7 @@ import { assetDocKind, docToAsset } from "../particleGraph/assetDocs";
 import { CurveEditor } from "./particles/ParticleCurve";
 import { GradientEditor } from "./particles/GradientEditor";
 import { NumField, ParticleColorInput, VecField } from "./particles/valueInputs";
-import { editor, SetField, type NodePath, type OpenScene, LargePreview, sectionField, type InspectorSectionProps } from "../../../../editor/sdk";
+import { editor, type NodePath, type OpenScene, LargePreview, sectionField, type InspectorSectionProps } from "../../../../editor/sdk";
 import "../../../../editor/ui/assetInspector.css";
 
 /** Problems of a graph: its parse problems plus what compiling it reports. */
@@ -203,10 +203,10 @@ function PropertyInput(props: { prop: GraphProperty; value: unknown; onChange: (
 function ParticleSystemEffect(props: { scene: OpenScene; path: NodePath; index: number; effectPath: string; embedded?: unknown; overrides?: unknown }) {
   editor.project.version;
   const { scene, path, index } = props;
-  const [id, ...target] = path;
+  const [id] = path;
   const asset = props.effectPath.replace(/^asset:/, "");
   const project = editor.project.current;
-  const set = (field: string, value: unknown) => scene.stack.execute(new SetField(id, "engine.ParticleSystem", field, value, { index, target }));
+  const set = (field: string, value: unknown) => editor.scene.writeField({ scene, path, type: "engine.ParticleSystem", index }, field, value);
   const hasEmbedded = props.embedded !== null && props.embedded !== undefined;
 
   if (!asset) {

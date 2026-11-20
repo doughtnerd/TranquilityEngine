@@ -18,7 +18,7 @@ import { cleanSnap, snapActive, snapSettings, snapTo } from "./sceneTools";
 import { viewportTools, type SelectableOutline, type ViewportCancel, type ViewportDrag, type ViewportPointer, type ViewportToolContext, type ViewportToolContribution } from "./sdk/contributions";
 import { viewport } from "./sdk/viewport";
 import { activateViewportTool, activeViewportTool, activeViewportToolMode, openScene, playState, selection, status } from "./state";
-import { beginUndoStep } from "./undoStep";
+import { beginEditStep } from "./editGate";
 
 /** Each scene view's selectable outlines (ADR 0142), by its World. */
 const selectables = new Map<World, () => SelectableOutline[]>();
@@ -113,10 +113,11 @@ export function installViewportTools(engine: Engine): () => void {
         inst.cursor = cursor;
         cursorVersion.value++;
       },
+      // Both open their step through the edit gate (ADR 0247, 0257): no scene, or play mode, refuses with the reason.
       edit: (label, fn) => {
         const scene = openScene.peek();
-        if (!scene) return false;
-        const step = beginUndoStep(scene.stack, label);
+        const step = beginEditStep({ kind: "scene", scene }, label);
+        if (!scene || !step) return false;
         try {
           fn(scene);
         } finally {
@@ -125,9 +126,8 @@ export function installViewportTools(engine: Engine): () => void {
         return true;
       },
       gesture: (label, d) => {
-        const scene = openScene.peek();
-        if (!scene) return null;
-        const step = beginUndoStep(scene.stack, label);
+        const step = beginEditStep({ kind: "scene", scene: openScene.peek() }, label);
+        if (!step) return null;
         return {
           move: (p) => {
             if (step.open) d.move?.(p);

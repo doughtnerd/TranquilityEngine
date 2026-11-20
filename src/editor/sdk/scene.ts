@@ -1,20 +1,22 @@
 // The editor SDK's scene surface (ADR 0147): the open scene, its tabs, the node selection,
 // whether the editor is playing and the play session's Worlds (ADR 0232), read through getters over
 // the shell's signals (state.ts), so they track like the signals do. `peek…` reads without tracking.
-// Editing a scene goes through its `stack` with the document commands (`SetField`, ADR 0026); `edit`
-// and `beginEdit` make several commands one undo step (ADR 0231), and refuse through the edit gate when the scene
+// A component field is written with `writeField` (ADR 0257: the edit gate, overrides on prefab instances,
+// unchanged values skipped; in a scene document or a live World) and dragged with `beginFieldDrag`; `edit` and
+// `beginEdit` make several writes one undo step (ADR 0231). All of them refuse through the edit gate when the scene
 // can't be edited now (no scene, play mode; ADR 0247), which `whyNotEdit` tells beforehand. New nodes come from contributions (Hierarchy create
 // entries, asset kinds' node templates), which the shell's node insertion places and gives ids (ADR 0246).
 import { computed } from "@preact/signals";
 import type { World } from "../../engine/core/World";
 import type { GameObject } from "../../engine/scene/GameObject";
+import { beginFieldDrag, writeComponentField, type ComponentPlace, type DocumentComponent, type FieldDrag, type LiveComponent } from "../componentField";
 import type { NodePath } from "../document";
 import { beginEditStep, editStep, whyNotEdit } from "../editGate";
 import type { UndoStep } from "../undoStep";
 import { openScene, openScenes, playing, playState, selectedKeys, selectedNodes, selectedPath, selectedWorldNode, selection, type OpenScene } from "../state";
 import { select } from "../inspectorTarget";
 
-export type { OpenScene, UndoStep };
+export type { OpenScene, UndoStep, ComponentPlace, DocumentComponent, LiveComponent, FieldDrag };
 
 /** Play mode: "edit", "starting" while the Runtime World boots, or "playing". */
 export type PlayState = "edit" | "starting" | "playing";
@@ -80,6 +82,20 @@ export interface SceneSurface {
    * which the host closes for them.
    */
   beginEdit(label: string, target?: OpenScene | null): UndoStep | null;
+  /**
+   * Set one field of a component (ADR 0257): `place` is a node path in a scene document (`{ scene, path, type,
+   * index }`) or a node of a live World (`{ node, type, index }`); `value` is scene-file JSON (numbers, strings, arrays,
+   * `asset:` paths). A document write goes through the edit gate (refused during play, with the reason in the status
+   * bar), is an override inside a prefab instance and joins the open undo step (`edit`, `beginEdit`, a drag), else it
+   * is a step of its own. A value already stored is skipped. Returns why it couldn't, or null.
+   */
+  writeField(place: ComponentPlace, field: string, value: unknown): string | null;
+  /**
+   * Start a drag on a component's fields named `label`: in a document, one undo step through the edit gate (null when
+   * refused); on a live node, `cancel()` writes `fields` back as they were. Inspector controls use `useFieldDrag`;
+   * viewport tools use `ViewportToolContext.gesture`.
+   */
+  beginFieldDrag(place: ComponentPlace, label: string, fields?: readonly string[]): FieldDrag | null;
 }
 
 const NO_WORLDS: readonly World[] = Object.freeze([]);
@@ -128,4 +144,6 @@ export const scene: SceneSurface = {
     return ran;
   },
   beginEdit: (label, target) => beginEditStep({ kind: "scene", scene: target }, label),
+  writeField: writeComponentField,
+  beginFieldDrag,
 };

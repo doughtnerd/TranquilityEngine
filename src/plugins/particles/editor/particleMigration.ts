@@ -2,7 +2,7 @@
 // 0060: effects are always assets). Done when the editor opens a scene in a project it can save to: the
 // Particles plugin's scene-open migration (ADR 0146).
 import { parseParticleGraph } from "../../../engine/scene/particleGraphFormat";
-import { editor, SetField, type SceneDocument, type OpenScene } from "../../../editor/sdk";
+import { editor, type SceneDocument, type OpenScene } from "../../../editor/sdk";
 
 const TYPE = "engine.ParticleSystem";
 
@@ -64,9 +64,9 @@ export async function migrateEmbeddedEffects(scene: OpenScene): Promise<number> 
     "Move embedded particle effects into assets",
     () => {
       for (const m of live) {
-        const options = { index: m.found.index };
-        scene.stack.execute(new SetField(m.found.node, TYPE, "effect", `asset:${m.path}`, options));
-        scene.stack.execute(new SetField(m.found.node, TYPE, "embeddedEffect", null, options));
+        const place = { scene, path: [m.found.node], type: TYPE, index: m.found.index };
+        editor.scene.writeField(place, "effect", `asset:${m.path}`);
+        editor.scene.writeField(place, "embeddedEffect", null);
       }
     },
     scene,

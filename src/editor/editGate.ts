@@ -50,8 +50,8 @@ export function whyNotEdit(target: EditTarget, toDo: string = DEFAULT_TO_DO[targ
   }
 }
 
-/** A reason as a status line: "Stop playing to paste nodes." (one full stop, also after a reason that has one). */
-const sentence = (reason: string) => `${reason.charAt(0).toUpperCase()}${reason.slice(1)}${reason.endsWith(".") ? "" : "."}`;
+/** A reason as a status line or tooltip: "Stop playing to paste nodes." (one full stop, also after a reason that has one). */
+export const statusSentence = (reason: string): string => `${reason.charAt(0).toUpperCase()}${reason.slice(1)}${reason.endsWith(".") ? "" : "."}`;
 
 /**
  * The scene (UI documents: the open scene) `target` names if it can be edited now; otherwise null, with the reason
@@ -63,7 +63,7 @@ export function editableNow(target: Extract<EditTarget, { kind: "project-files" 
 export function editableNow(target: EditTarget, toDo: string = DEFAULT_TO_DO[target.kind]): OpenScene | EditorProject | null {
   const reason = untracked(() => whyNotEdit(target, toDo));
   if (reason) {
-    status.value = { kind: "info", text: sentence(reason) };
+    status.value = { kind: "info", text: statusSentence(reason) };
     return null;
   }
   return target.kind === "project-files" ? projectOf(target) : sceneOf(target);

@@ -61,7 +61,7 @@ import {
   type Pose2D,
   type V2,
 } from "./colliderMath";
-import { type ViewportDrag, type ViewportPointer, type ViewportToolContext, type ViewportToolContribution, editor, SetField, type OpenScene, theme, viewportColors } from "../../../editor/sdk";
+import { type ViewportDrag, type ViewportPointer, type ViewportToolContext, type ViewportToolContribution, editor, type OpenScene, theme, viewportColors } from "../../../editor/sdk";
 
 /** The collider tool's id: also its overlay id and its active-tool id. */
 export const COLLIDER_TOOL_ID = "myco.physics.colliders";
@@ -271,16 +271,10 @@ export const colliderTool: ViewportToolContribution<EditingCollider> = {
   },
 };
 
-/** Writes one collider field as a command, skipping values it already wrote. */
+/** Writes one field of the edited collider through the component field write (ADR 0257). */
 function fieldWriter(scene: OpenScene, editing: EditingCollider): (field: string, value: unknown) => void {
-  const [id, ...target] = editing.key.split("/");
-  const written = new Map<string, string>();
-  return (field, value) => {
-    const json = JSON.stringify(value);
-    if (written.get(field) === json) return;
-    written.set(field, json);
-    scene.stack.execute(new SetField(id, editing.type, field, value, { index: editing.index, target }));
-  };
+  const place = { scene, path: editing.key.split("/"), type: editing.type, index: editing.index };
+  return (field, value) => void editor.scene.writeField(place, field, value);
 }
 
 /** Press on a 2D collider's handle: resize, move the centre, or move, add or (Ctrl+click) remove a vertex. */
