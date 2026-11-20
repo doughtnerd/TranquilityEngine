@@ -7,6 +7,7 @@
 import { Assets, type AssetSource, type ProjectSettingsInput } from "../engine";
 import type { FileSystem } from "../engine/platform/FileSystem";
 import { isSidecarPath, sidecarPath } from "../engine/scene/importSettings";
+import { isProjectFile, loadProjectFiles, projectFileKind, skipsFolder, textFileValue } from "../engine/scene/projectFiles";
 import { isScriptPath, isTextAsset, joinPath } from "./projectPaths";
 import { readOnlyMessage } from "./readOnly";
 
@@ -22,7 +23,7 @@ export interface EditorProject {
   readonly canSave: boolean;
   /** The parsed `project.json` (empty if there's none). Follows writes to it, so play mode uses the current bootstrap. */
   readonly settings: ProjectSettingsInput;
-  /** Every asset by path relative to the project root: parsed JSON for `.json`, a URL otherwise. */
+  /** Every project file by path relative to the project root, as its asset value (ADR 0254): parsed JSON, a text file's text, a URL otherwise. */
   readonly assets: AssetSource;
   /** Asset paths, sorted. Grows when new files are written. */
   readonly files: readonly string[];
@@ -64,10 +65,6 @@ export interface EditorProject {
 /** True if `path` is `folder` or inside it. */
 export const isWithin = (path: string, folder: string) => path === folder || path.startsWith(`${folder}/`);
 
-const BINARY_EXTENSIONS = /\.(png|jpe?g|gif|webp|svg|mp3|ogg|wav|flac|m4a|obj|mtl|fbx|gltf|glb|ktx2|hdr|exr|cube|env|dds|bin)$/i;
-/** Files a project folder lists as assets: binary assets, and the text files the Code panel edits (`isTextAsset`). Scripts are read apart. */
-const isAssetFile = (path: string) => (BINARY_EXTENSIONS.test(path) && !/(^|\/)\.env$/.test(path)) || isTextAsset(path);
-
 /** The project's JSON files with their text (scripts can import them, ADR 0030). */
 export function jsonFiles(project: EditorProject): Map<string, string> {
   const out = new Map<string, string>();
@@ -78,12 +75,12 @@ export function jsonFiles(project: EditorProject): Map<string, string> {
   return out;
 }
 
-const SKIP_DIRS = new Set(["node_modules", "dist", "target", "test-results", "playwright-report"]);
 const MIME: Record<string, string> = {
   png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", svg: "image/svg+xml",
   mp3: "audio/mpeg", ogg: "audio/ogg", wav: "audio/wav", flac: "audio/flac", m4a: "audio/mp4",
   obj: "model/obj", mtl: "model/mtl", fbx: "application/octet-stream", gltf: "model/gltf+json", glb: "model/gltf-binary", ktx2: "image/ktx2",
   hdr: "application/octet-stream", exr: "application/octet-stream", cube: "text/plain", env: "application/octet-stream", dds: "application/octet-stream", bin: "application/octet-stream",
+  woff2: "font/woff2", woff: "font/woff", ttf: "font/ttf", otf: "font/otf",
 };
 
 export const isScenePath = (path: string) => /\.(scene|prefab)\.json$/.test(path);
@@ -181,10 +178,12 @@ class MapProject implements EditorProject {
       return this.writeText(path, text);
     }
     if (!this.write) throw new Error(readOnlyMessage(this, "save"));
+    // A file that loads as a URL (ADR 0254), such as a `.cube` LUT written as text, is served from its bytes.
+    if (projectFileKind(path) === "url") return this.writeBinary(path, new TextEncoder().encode(text));
     await this.write(path, text);
     if (!this.values.has(path)) this.sortedFiles = null;
     this.texts.set(path, text);
-    this.values.set(path, text);
+    this.values.set(path, textFileValue(path, text));
     Assets.notifyChanged(path);
   }
 
@@ -327,9 +326,9 @@ class MapProject implements EditorProject {
 }
 
 /**
- * A read-only project from files in memory: `values` by project path (parsed JSON, text for
- * JavaScript, a URL for binary assets), `texts` (JSON and JavaScript source), `scripts` and,
- * where known, file `sizes`.
+ * A read-only project from files in memory: `values` by project path (asset values, ADR 0254:
+ * parsed JSON, text, or a URL), `texts` (the JSON and text files' text), `scripts` and, where
+ * known, file `sizes`.
  */
 export function readOnlyProject(
   name: string,
@@ -338,22 +337,16 @@ export function readOnlyProject(
   return new MapProject(name, null, files.values, files.texts, null, null, null, files.scripts ?? new Map(), new Set(), files.sizes ?? new Map());
 }
 
-/** Every asset file under `root` (or the files `accept` takes), as project-relative paths. Skips hidden and build folders. */
-async function listAssetFiles(
-  fs: FileSystem,
-  root: string,
-  dir = "",
-  accept: (path: string) => boolean = isAssetFile,
-  folders?: Set<string>,
-): Promise<string[]> {
+/** Every file under `root` that `accept` takes, as project-relative paths. Skips hidden, dependency and build folders (ADR 0254). */
+async function listFiles(fs: FileSystem, root: string, dir: string, accept: (path: string) => boolean, folders?: Set<string>): Promise<string[]> {
   const out: string[] = [];
   for (const entry of await fs.list(dir ? joinPath(root, dir) : root)) {
-    if (entry.name.startsWith(".")) continue;
+    if (entry.name.startsWith(".")) continue; // hidden files and folders (the editor's .myco/)
     const path = dir ? `${dir}/${entry.name}` : entry.name;
     if (entry.isDirectory) {
-      if (SKIP_DIRS.has(entry.name)) continue;
+      if (skipsFolder(entry.name)) continue;
       folders?.add(path);
-      out.push(...(await listAssetFiles(fs, root, path, accept, folders)));
+      out.push(...(await listFiles(fs, root, path, accept, folders)));
     } else if (accept(path)) {
       out.push(path);
     }
@@ -362,44 +355,31 @@ async function listAssetFiles(
 }
 
 /**
- * Open a project folder: it must contain `project.json`. Reads every JSON file and turns binary
- * assets into object URLs up front, since scene loading looks assets up synchronously.
+ * Open a project folder: it must contain `project.json`. Loads every project file up front as its
+ * asset value (ADR 0254: JSON parsed, text files' text, the rest as object URLs), since scene
+ * loading looks assets up synchronously.
  */
 export async function openFolderProject(fs: FileSystem, root: string): Promise<EditorProject> {
   if (!(await fs.exists(joinPath(root, "project.json")))) {
     throw new Error(`"${root}" isn't a Myco Engine project: it has no project.json.`);
   }
-  const values = new Map<string, unknown>();
-  const texts = new Map<string, string>();
   const folders = new Set<string>();
   const sizes = new Map<string, number>();
-  for (const path of await listAssetFiles(fs, root, "", undefined, folders)) {
-    if (path.endsWith(".json")) {
-      const text = await fs.readText(joinPath(root, path));
-      try {
-        values.set(path, JSON.parse(text));
-        texts.set(path, text);
-      } catch (err) {
-        console.warn(`[editor] skipping ${path}: not valid JSON (${String(err)})`);
-      }
-    } else if (isTextAsset(path)) {
-      const text = await fs.readText(joinPath(root, path));
-      values.set(path, text);
-      texts.set(path, text);
-    } else {
+  const { values, texts, problems } = await loadProjectFiles(await listFiles(fs, root, "", isProjectFile, folders), {
+    readText: (path) => fs.readText(joinPath(root, path)),
+    url: async (path) => {
       const bytes = await fs.readBinary(joinPath(root, path));
-      values.set(path, blobUrl(path, bytes));
       sizes.set(path, bytes.length);
-    }
-  }
+      return blobUrl(path, bytes);
+    },
+  });
+  for (const p of problems) console.warn(`[editor] skipping ${p.path}: not valid JSON (${p.message})`);
   const readScripts = async () => {
     const scripts = new Map<string, string>();
-    if (await fs.exists(joinPath(root, "scripts"))) {
-      for (const path of await listAssetFiles(fs, root, "scripts", isScriptPath)) scripts.set(path, await fs.readText(joinPath(root, path)));
-    }
-    // Project plugins' sources compile like scripts (ADR 0139).
-    if (await fs.exists(joinPath(root, "plugins"))) {
-      for (const path of await listAssetFiles(fs, root, "plugins", isScriptPath)) scripts.set(path, await fs.readText(joinPath(root, path)));
+    // Scripts, and project plugins' sources, which compile like scripts (ADR 0139).
+    for (const folder of ["scripts", "plugins"]) {
+      if (!(await fs.exists(joinPath(root, folder)))) continue;
+      for (const path of await listFiles(fs, root, folder, isScriptPath)) scripts.set(path, await fs.readText(joinPath(root, path)));
     }
     return scripts;
   };

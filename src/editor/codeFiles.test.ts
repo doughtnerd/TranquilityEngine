@@ -123,7 +123,7 @@ describe("JSON and JavaScript files in a project", () => {
   it("list tool modules, Markdown and text as files the Code panel opens, but not as scripts", async () => {
     const tools = { "tools/generate.mjs": "import { lib } from './lib.mjs';\n", "tools/lib.cjs": "module.exports = {};\n", "tools/types.mts": "export const n: number = 1;\n", "tools/old.cts": "export = 1;\n", "tools/README.md": "# Tools\n", "notes.txt": "todo\n" };
     for (const [path, text] of Object.entries(tools)) fs.files.set(joinPath(ROOT, path), text);
-    fs.files.set(joinPath(ROOT, "tools/blob.xyz"), "?");
+    fs.files.set(joinPath(ROOT, "tools/blob.xyz"), new Uint8Array([63]));
     project = await openFolderProject(fs, ROOT);
     const files = codeFiles(project);
     for (const [path, text] of Object.entries(tools)) {
@@ -132,7 +132,10 @@ describe("JSON and JavaScript files in a project", () => {
       expect(project.scripts.has(path)).toBe(false);
       expect(opensInCodePanel(assetKind(path))).toBe(true);
     }
-    expect(project.files).not.toContain("tools/blob.xyz");
+    // A file of a kind the engine doesn't know is still a project file (ADR 0254), served by URL, not edited as text.
+    expect(project.files).toContain("tools/blob.xyz");
+    expect(files.has("tools/blob.xyz")).toBe(false);
+    expect(project.assets.get("tools/blob.xyz")).toMatch(/^blob:/);
     expect([...project.scripts.keys()]).toEqual(["scripts/Racer.ts"]);
     // Script loading only compiles scripts/*.ts: the tools aren't loaded (nor imported as JSON).
     expect([...jsonFiles(project).keys()].some((p) => p.startsWith("tools/"))).toBe(false);

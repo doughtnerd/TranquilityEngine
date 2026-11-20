@@ -3,6 +3,7 @@
 // its files into a read-only project, whose scripts load like any project's (ADR 0030). The
 // desktop editor can also copy a sample into a folder to edit it.
 import type { FileSystem } from "../engine/platform/FileSystem";
+import { isProjectFile, loadProjectFiles } from "../engine/scene/projectFiles";
 import { isScriptPath, isTextAsset, joinPath } from "./projectPaths";
 import type { EditorProject } from "./projects";
 
@@ -46,23 +47,14 @@ export async function findSample(id: string): Promise<SampleInfo> {
 
 /** Open a sample as a read-only project: its text files are fetched, images and audio load from their URLs. */
 export async function openSampleProject(sample: SampleInfo): Promise<EditorProject> {
-  const values = new Map<string, unknown>();
-  const texts = new Map<string, string>();
+  const sizes = new Map(sample.files.map((f) => [f.path, f.size]));
+  const readText = async (path: string) => (await fetchOk(urlOf(sample.id, path))).text();
   const scripts = new Map<string, string>();
-  const sizes = new Map<string, number>();
-  await Promise.all(
-    sample.files.map(async ({ path, size }) => {
-      sizes.set(path, size);
-      if (!isText(path)) return values.set(path, urlOf(sample.id, path));
-      const text = await (await fetchOk(urlOf(sample.id, path))).text();
-      if (path.endsWith(".ts")) {
-        if (isScriptPath(path)) scripts.set(path, text);
-        return;
-      }
-      texts.set(path, text);
-      values.set(path, path.endsWith(".json") ? JSON.parse(text) : text);
-    }),
-  );
+  const [{ values, texts, problems }] = await Promise.all([
+    loadProjectFiles(sample.files.map((f) => f.path).filter(isProjectFile), { readText, url: (path) => urlOf(sample.id, path) }),
+    ...sample.files.filter((f) => isScriptPath(f.path)).map(async ({ path }) => scripts.set(path, await readText(path))),
+  ]);
+  if (problems.length > 0) throw new Error(`Some JSON files in the sample "${sample.id}" don't parse: ${problems.map((p) => `${p.path} (${p.message})`).join(", ")}`);
   const { readOnlyProject } = await import("./projects"); // the engine, which the Projects window (ADR 0059) doesn't load
   return readOnlyProject(`${sample.name} (sample, read-only)`, { values, texts, scripts, sizes });
 }

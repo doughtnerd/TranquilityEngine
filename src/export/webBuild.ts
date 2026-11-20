@@ -12,6 +12,7 @@ import type { ProjectSettingsInput } from "../engine";
 import { pickMainScene } from "../editor/projects";
 import { compileScript, ENGINE_MODULE, LEGACY_ENGINE_MODULE, isScriptPath, loadOrder, packageSpecifiers, resolveScript, rewriteImports, type ScriptProblem } from "../editor/scriptLoader";
 import { bundlePackages, isPackageSpecifier, type PackageSource } from "../editor/packages";
+import { isProjectFile, skipsFolder } from "../engine/scene/projectFiles";
 import { projectScriptAssetRefs } from "../engine/scene/scriptAssetRefs";
 import { FIRST_PARTY_MANIFESTS } from "../plugins/manifests";
 import { planPluginCode, type BuiltPlugin } from "../plugins/thirdParty";
@@ -59,22 +60,16 @@ export class ExportError extends Error {
   }
 }
 
-/** Folders never exported: dependencies and build output (hidden folders, like the editor's `.myco/`, are skipped too). */
-const SKIP_DIRS = new Set(["node_modules", "dist", "target", "test-results", "playwright-report"]);
 /** Editor-only files at the project root: the editor's tsconfig.json (ADR 0030), a sample's listing (ADR 0031). */
 const EDITOR_FILES = new Set(["tsconfig.json", "jsconfig.json", "sample.json"]);
 
 /**
- * True if a project file goes into builds as it is: everything but hidden files and folders,
- * dependency and build folders, editor-only files, and TypeScript (scripts ship compiled).
+ * True if a file goes into builds as it is: every project file (ADR 0254: not hidden, not in a
+ * dependency or build folder, not a script, which ships compiled) but the editor-only ones and
+ * TypeScript tool modules (`.mts`, `.cts`), which nothing in a build can run.
  * Asset sidecars (`<asset>.meta.json`) are ordinary files and go in.
  */
-function isExportedFile(path: string): boolean {
-  const parts = path.split("/");
-  if (parts.some((p) => p.startsWith(".") || SKIP_DIRS.has(p))) return false;
-  if (parts.length === 1 && EDITOR_FILES.has(path)) return false;
-  return !/\.(ts|tsx|mts|cts)$/i.test(path);
-}
+const isExportedFile = (path: string) => isProjectFile(path) && !EDITOR_FILES.has(path) && !/\.(mts|cts)$/i.test(path);
 
 const isEngineModule = (specifier: string) => specifier === ENGINE_MODULE || specifier === LEGACY_ENGINE_MODULE;
 
@@ -234,7 +229,7 @@ export function isOutputInsideProject(root: string, out: string): boolean {
   if (o === r) return true;
   if (!o.startsWith(`${r}/`)) return false;
   const first = o.slice(r.length + 1).split("/")[0];
-  return !(first.startsWith(".") || SKIP_DIRS.has(first));
+  return !skipsFolder(first);
 }
 
 /** README.txt in a web build. */

@@ -1,6 +1,6 @@
 // The game player (ADR 0041): a prebuilt page that runs whichever project is exported beside it.
-// It reads game.json, fetches the project's JSON files and points its binary assets at their
-// URLs (scene loading looks assets up synchronously), and launches the game as play mode does
+// It reads game.json, loads the project's files as asset values (ADR 0254: JSON parsed, text files as
+// text, the rest by URL; scene loading looks assets up synchronously), and launches the game as play mode does
 // (`launchGame`, ADR 0236): the compiled scripts register their components and systems, the plugins
 // activate, the Engine is built full-window from the project's bootstrap, and start-up Worlds whose
 // bootstrap config names no scenes load the manifest's main scene. Saves go to the platform's
@@ -12,6 +12,7 @@ import * as engine from "../myco";
 import { activateGamePlugins } from "../plugins/runtime";
 import { Engine, type Bootstrap, type ProjectSettingsInput } from "../engine";
 import { launchGame } from "../engine/launch";
+import { loadProjectFiles } from "../engine/scene/projectFiles";
 import { toRuntimePlugin } from "../plugins/thirdParty";
 import type { RuntimePlugin } from "../plugins/runtimeContext";
 import { MANIFEST_FILE, MANIFEST_FORMAT, PROJECT_DIR, type GameManifest } from "../export/format";
@@ -34,15 +35,12 @@ async function boot(): Promise<void> {
   if (manifest.format !== MANIFEST_FORMAT) throw new Error(`This player reads game.json format ${MANIFEST_FORMAT}, but the game is format ${manifest.format}. Export it again.`);
   document.title = manifest.name;
 
-  const values = new Map<string, unknown>();
-  await Promise.all(
-    manifest.files.map(async (path) => {
-      const at = `${PROJECT_DIR}/${path}`;
-      if (/\.json$/i.test(path)) values.set(path, await (await fetchOk(at)).json());
-      else if (/\.(js|xml|css|wgsl|glsl)$/i.test(path)) values.set(path, await (await fetchOk(at)).text()); // text assets (scripts, UI documents and stylesheets, shader code), as the editor serves them
-      else values.set(path, urlOf(at));
-    }),
-  );
+  // Every project file as the same asset value as in the editor (ADR 0254): JSON parsed, text files' text, the rest by URL.
+  const { values, problems } = await loadProjectFiles(manifest.files, {
+    readText: async (path) => (await fetchOk(`${PROJECT_DIR}/${path}`)).text(),
+    url: (path) => urlOf(`${PROJECT_DIR}/${path}`),
+  });
+  if (problems.length > 0) throw new Error(`Some of the game's JSON files don't parse: ${problems.map((p) => `${p.path} (${p.message})`).join(", ")}`);
   const settings = (values.get("project.json") ?? {}) as ProjectSettingsInput;
   const thirdParty: RuntimePlugin[] = [];
   const moduleOf = (path: string) => manifest.scripts.find((s) => s.source === path.replace(/^\.?\//, ""))?.module;

@@ -5,12 +5,18 @@
  * The game registers one or more sources at startup, usually `Assets.fromGlob` over a Vite
  * `import.meta.glob` of its asset folder (ADR 0015). Import settings sidecars (`*.meta.json`,
  * ADR 0040) are JSON assets like any other, so the same glob carries them.
+ *
+ * What a source holds for a path follows the path's project-file kind (ADR 0254, `projectFiles.ts`):
+ * parsed JSON for `.json` files, the text of text files (`.xml`, `.css`, `.wgsl`, `.md`...), a URL
+ * for every other file. The typed reads (`json`, `text`, `url`) check the kind, so they answer the
+ * same on every host.
  */
+import { projectFileKind } from "./projectFiles";
 import { defaultImportSettings, parseImportSettings, resolveImportSettings, sidecarPath, splitSpriteRef, type ImportPlatform, type ImportSettings } from "./importSettings";
 
 export interface AssetSource {
   has(path: string): boolean;
-  /** Parsed JSON for `.json` files, a URL string for binary assets. */
+  /** The asset value for `path` by its kind (ADR 0254): parsed JSON for `.json` files, the text of text files, a URL otherwise. */
   get(path: string): unknown;
 }
 
@@ -42,9 +48,6 @@ export function sidecarValue(path: string): object | undefined {
   }
   return undefined;
 }
-
-/** Text assets by URL (`Assets.text`). */
-const textCache = new Map<string, Promise<string>>();
 
 /** Listeners of `Assets.onChanged`. */
 const changeListeners = new Set<(path: string) => void>();
@@ -89,19 +92,32 @@ export const Assets = {
     return sources.some((s) => s.has(p));
   },
 
-  /** Raw lookup. Throws if no source has the asset. */
+  /**
+   * The raw asset value (see `AssetSource.get`), for comparing what a file held; read values
+   * through `json`, `text` or `url`. Throws if no source has the asset.
+   */
   get(path: string): unknown {
     const p = normalizeAssetPath(path);
     for (const s of sources) if (s.has(p)) return s.get(p);
     throw new Error(`Asset not found: "${p}". Is it inside the asset root registered with Assets.addSource?`);
   },
 
-  /** URL for a binary asset (image, audio). */
+  /**
+   * The URL serving a file's bytes (images, audio, models, fonts, LUTs). Throws for JSON and text
+   * files, which load as their contents.
+   */
   url(path: string): string {
-    const v = Assets.get(path);
-    if (typeof v === "string") return v;
-    if (v && typeof (v as { default?: unknown }).default === "string") return (v as { default: string }).default;
-    throw new Error(`Asset "${normalizeAssetPath(path)}" is not a binary asset.`);
+    const p = normalizeAssetPath(path);
+    const kind = projectFileKind(p);
+    if (kind !== "url") throw new Error(`Asset "${p}" is a ${kind === "json" ? "JSON" : "text"} file, which loads as its contents, not a URL: read it with Assets.${kind}().`);
+    const v = Assets.get(p);
+    if (typeof v !== "string") throw new Error(`Asset "${p}" has no URL.`);
+    return v;
+  },
+
+  /** A file's bytes, fetched from its URL (`Assets.url`); read from disk for the dedicated server's `file:` URLs. */
+  bytes(path: string): Promise<Uint8Array> {
+    return fetchAssetBytes(Assets.url(path));
   },
 
   /** The platform per-platform import overrides resolve for (ADR 0115): "desktop" under Tauri, else "web"; settable (null = detect). */
@@ -140,32 +156,31 @@ export const Assets = {
     return (byPlatform[platform] ??= resolveImportSettings(cached, platform));
   },
 
-  /** Parsed JSON asset (scenes, prefabs, project settings). */
+  /** A JSON file's parsed contents (scenes, prefabs, project settings). Throws for other files. */
   json<T = unknown>(path: string): T {
-    const v = Assets.get(path);
-    if (typeof v === "string") throw new Error(`Asset "${normalizeAssetPath(path)}" is not JSON.`);
-    return v as T;
+    const p = normalizeAssetPath(path);
+    if (projectFileKind(p) !== "json") throw new Error(`Asset "${p}" is not a JSON file.`);
+    return Assets.get(p) as T;
   },
 
   /**
-   * A text asset's contents (`.cube` LUTs, `.obj`...), fetched from its URL once and cached by URL.
-   * Concurrent calls share one fetch; a failed fetch isn't cached.
+   * A text file's contents (`.xml`, `.css`, `.wgsl`, `.glsl`, `.md`, `.txt`, JavaScript). Throws for
+   * other files: one that loads as a URL (a `.cube` LUT, an `.obj`) is read with `Assets.bytes`.
    */
-  text(path: string): Promise<string> {
-    const url = Assets.url(path);
-    let pending = textCache.get(url);
-    if (!pending) {
-      pending = fetchAssetBytes(url).then((bytes) => new TextDecoder().decode(bytes));
-      textCache.set(url, pending);
-      pending.catch(() => textCache.delete(url));
-    }
-    return pending;
+  text(path: string): string {
+    const p = normalizeAssetPath(path);
+    const kind = projectFileKind(p);
+    if (kind !== "text") throw new Error(`Asset "${p}" is not a text file${kind === "url" ? ": read its bytes with Assets.bytes()" : ": read it with Assets.json()"}.`);
+    const v = Assets.get(p);
+    if (typeof v !== "string") throw new Error(`Asset "${p}" doesn't hold text.`);
+    return v;
   },
 
   /**
    * Wrap the result of a Vite glob import made from the game's asset folder:
    * `import.meta.glob("./**\/*.{png,mp3,json}", { eager: true, import: "default" })`.
-   * Keys are paths relative to that folder; values are URLs or parsed JSON.
+   * Keys are paths relative to that folder; values are URLs or parsed JSON. Text files (ADR 0254)
+   * must hold their contents, so glob those with `query: "?raw"`.
    */
   fromGlob(modules: Record<string, unknown>): AssetSource {
     const map = new Map(Object.entries(modules).map(([key, value]) => [normalizeAssetPath(key), value]));
