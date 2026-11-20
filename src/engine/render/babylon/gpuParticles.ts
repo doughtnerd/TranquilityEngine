@@ -689,8 +689,8 @@ export class KernelDraw implements Draw {
       vd.indices = [0, 1, 2, 0, 2, 3];
     }
     vd.applyToMesh(this.mesh);
-    const fog = heightFogShader(webgpu ? "wgsl" : "glsl");
-    const shaderOpts = { soft: !!this.soft, sorted: this.sorted, fog: fog.decl };
+    const fog = heightFogShader();
+    const shaderOpts = { soft: !!this.soft, sorted: this.sorted, fog: fog.source.text(webgpu ? "wgsl" : "glsl") };
     const shaders = webgpu ? wgslDraw(kernel, output, shaderOpts) : glslDraw(kernel, output, shaderOpts);
     const uniforms = ["viewProjection", "view", "kcam", "kdraw", "kdraw2", "kdraw3", ...(this.trail ? ["ktrail"] : []), ...fog.uniforms, ...(this.soft ? ["ksoft"] : []), ...(webgpu ? [] : ["ku", "kw", ...(this.sorted ? ["kidxW"] : [])])];
     this.material = new ShaderMaterial(

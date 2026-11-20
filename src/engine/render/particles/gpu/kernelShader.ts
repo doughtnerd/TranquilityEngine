@@ -1,12 +1,6 @@
-// Internal (ADR 0094): kernel programs as shaders. One source language, KSL, is turned into WGSL
-// (WebGPU compute and draw) and GLSL ES 3.0 (the WebGL2 texture simulation and draw), so the
-// built-in steps are written once. KSL is the common subset of both, with:
-// - types KF, KV2, KV3, KV4, KU, KI (f32/float, vec2f/vec2, …, u32/uint, i32/int);
-// - `VAR(T, name)` for a mutable local, `GLOBAL(T, name);` for a private global;
-// - `FN(R, name, T a, T b) {` for a function (R may be `void`);
-// - `KBITU(i)` to reinterpret an int as uint;
-// - no ternaries, no multi-component swizzle writes, no implicit int/float conversions, and
-//   parentheses around every mix of bitwise and arithmetic operators (WGSL requires them).
+// Internal (ADR 0094, 0250): kernel programs as shaders, written in KSL (`render/shaderSource`), which
+// turns them into WGSL (WebGPU compute and draw) and GLSL ES 3.0 (the WebGL2 texture simulation and
+// draw), so the built-in steps are written once. The hashes and noise are `kernelMath.ts`'s KSL (`KERNEL_MATH_SHADER`).
 // It mirrors `kernelJs.ts` line for line; `npm run bench:particles` compares them in a browser (bench/particles/parity.html).
 import {
   ATTR,
@@ -20,134 +14,18 @@ import {
   type KernelOutput,
   type KernelSystem,
 } from "../../../scene/particleKernel";
+import { fl, shaderSource, type ShaderDialect } from "../../shaderSource/shaderSource";
+import { KERNEL_MATH_SHADER } from "./kernelMath";
 
-export type ShaderDialect = "wgsl" | "glsl";
-
-// --- KSL to WGSL / GLSL ---------------------------------------------------------------------------------
-
-const TYPES: Record<ShaderDialect, Record<string, string>> = {
-  wgsl: { KF: "f32", KV2: "vec2f", KV3: "vec3f", KV4: "vec4f", KU: "u32", KI: "i32", KB: "bool" },
-  glsl: { KF: "float", KV2: "vec2", KV3: "vec3", KV4: "vec4", KU: "uint", KI: "int", KB: "bool" },
-};
-
-/** Split a parameter list at top-level commas. */
-function splitParams(s: string): string[] {
-  const out: string[] = [];
-  let depth = 0;
-  let cur = "";
-  for (const ch of s) {
-    if (ch === "(") depth++;
-    if (ch === ")") depth--;
-    if (ch === "," && depth === 0) {
-      out.push(cur.trim());
-      cur = "";
-    } else cur += ch;
-  }
-  if (cur.trim()) out.push(cur.trim());
-  return out;
-}
-
-/** Translate KSL source to `dialect`. */
-export function ksl(src: string, dialect: ShaderDialect): string {
-  let s = src;
-  s = s.replace(/FN\(([^,]+),\s*(\w+)((?:,[^)]*)?)\)\s*\{/g, (_m, ret: string, name: string, rest: string) => {
-    const params = splitParams(rest.replace(/^,/, "")).map((p) => p.split(/\s+/));
-    if (dialect === "glsl") return `${ret.trim()} ${name}(${params.map(([t, n]) => `${t} ${n}`).join(", ")}) {`;
-    const r = ret.trim() === "void" ? "" : ` -> ${ret.trim()}`;
-    return `fn ${name}(${params.map(([t, n]) => `${n}: ${t}`).join(", ")})${r} {`;
-  });
-  s = s.replace(/VAR\((\w+),\s*(\w+)\)/g, (_m, t: string, n: string) => (dialect === "glsl" ? `${t} ${n}` : `var ${n}: ${t}`));
-  s = s.replace(/GLOBAL\((\w+),\s*(\w+)\)/g, (_m, t: string, n: string) => (dialect === "glsl" ? `${t} ${n}` : `var<private> ${n}: ${t}`));
-  s = s.replace(/KBITU\(/g, dialect === "glsl" ? "uint(" : "bitcast<u32>(");
-  const types = TYPES[dialect];
-  s = s.replace(/\b(KF|KV2|KV3|KV4|KU|KI|KB)\b/g, (t) => types[t]);
-  return s;
-}
-
-/** A float literal both languages accept. */
-export function fl(n: number): string {
-  if (!Number.isFinite(n)) n = n > 0 ? 3.4e38 : n < 0 ? -3.4e38 : 0;
-  const s = String(n);
-  return /[.e]/.test(s) ? s : `${s}.0`;
+/** `src` (KSL) in `dialect`. */
+function ksl(src: string, dialect: ShaderDialect): string {
+  return shaderSource(src).text(dialect);
 }
 
 // --- shared prelude (hashes, noise, colour, the built-in steps) ------------------------------------------
 
 /** KSL helpers every kernel shader includes. Needs `k_lutAt(row, i)` and the globals from `globals()`. */
-const PRELUDE = /* KSL */ `
-FN(KU, k_pcg, KU v) {
-  VAR(KU, state) = (v * 747796405u) + 2891336453u;
-  VAR(KU, word) = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
-  return (word >> 22u) ^ word;
-}
-FN(KF, k_rand, KF seed, KU salt) {
-  return KF(k_pcg(KU(floor(seed * 16777216.0)) ^ k_pcg(salt)) >> 8u) / 16777216.0;
-}
-FN(KF, k_seed, KF index, KF frame, KF sys) {
-  return KF(k_pcg(KU(index) ^ k_pcg(KU(frame) ^ k_pcg(KU(sys)))) >> 8u) / 16777216.0;
-}
-FN(KU, k_hashInt, KU x0) {
-  VAR(KU, x) = x0;
-  x = (x ^ (x >> 16u)) * 0x85ebca6bu;
-  x = (x ^ (x >> 13u)) * 0xc2b2ae35u;
-  return x ^ (x >> 16u);
-}
-FN(KF, k_lattice, KI x, KI y, KI z) {
-  return KF(k_hashInt((KBITU(x) * 73856093u) ^ (KBITU(y) * 19349663u) ^ (KBITU(z) * 83492791u))) / 4294967296.0 * 2.0 - 1.0;
-}
-FN(KF, k_fade, KF t) {
-  return t * t * (3.0 - 2.0 * t);
-}
-FN(KF, k_noise3, KF x, KF y, KF z) {
-  VAR(KF, fx0) = floor(x);
-  VAR(KF, fy0) = floor(y);
-  VAR(KF, fz0) = floor(z);
-  VAR(KI, ix) = KI(fx0);
-  VAR(KI, iy) = KI(fy0);
-  VAR(KI, iz) = KI(fz0);
-  VAR(KF, fx) = k_fade(x - fx0);
-  VAR(KF, fy) = k_fade(y - fy0);
-  VAR(KF, fz) = k_fade(z - fz0);
-  VAR(KF, a) = mix(mix(k_lattice(ix, iy, iz), k_lattice(ix + 1, iy, iz), fx), mix(k_lattice(ix, iy + 1, iz), k_lattice(ix + 1, iy + 1, iz), fx), fy);
-  VAR(KF, b) = mix(mix(k_lattice(ix, iy, iz + 1), k_lattice(ix + 1, iy, iz + 1), fx), mix(k_lattice(ix, iy + 1, iz + 1), k_lattice(ix + 1, iy + 1, iz + 1), fx), fy);
-  return mix(a, b, fz);
-}
-FN(KF, k_hash1, KI n, KI seed) {
-  VAR(KU, x) = (KBITU(n) * 374761393u) + (KBITU(seed) * 668265263u);
-  x = (x ^ (x >> 13u)) * 1274126177u;
-  x = x ^ (x >> 16u);
-  return KF(x) / 4294967295.0 * 2.0 - 1.0;
-}
-FN(KF, k_vnoise, KF x, KI seed) {
-  VAR(KF, fi) = floor(x);
-  VAR(KI, i) = KI(fi);
-  VAR(KF, f) = x - fi;
-  VAR(KF, u) = f * f * (3.0 - 2.0 * f);
-  VAR(KF, a) = k_hash1(i, seed);
-  return a + (k_hash1(i + 1, seed) - a) * u;
-}
-FN(KV4, k_hsv, KF h, KF s, KF v, KF a) {
-  VAR(KF, hh) = (h - floor(h)) * 6.0;
-  VAR(KF, fi) = floor(hh);
-  VAR(KF, f) = hh - fi;
-  VAR(KF, p) = v * (1.0 - s);
-  VAR(KF, q) = v * (1.0 - s * f);
-  VAR(KF, t) = v * (1.0 - s * (1.0 - f));
-  VAR(KI, i) = KI(fi) % 6;
-  if (i == 0) { return KV4(v, t, p, a); }
-  if (i == 1) { return KV4(q, v, p, a); }
-  if (i == 2) { return KV4(p, v, t, a); }
-  if (i == 3) { return KV4(p, q, v, a); }
-  if (i == 4) { return KV4(t, p, v, a); }
-  return KV4(v, p, q, a);
-}
-FN(KF, k_lin, KF c) {
-  return mix(pow((max(c, 0.0) + 0.055) / 1.055, 2.4), c / 12.92, step(c, 0.04045));
-}
-FN(KV4, k_toLinear, KV4 c) {
-  return KV4(k_lin(c.x), k_lin(c.y), k_lin(c.z), c.w);
-}
-FN(KV4, k_lut, KI row, KF t) {
+const PRELUDE = /* KSL */ `${KERNEL_MATH_SHADER.ksl}FN(KV4, k_lut, KI row, KF t) {
   VAR(KF, x) = clamp(t, 0.0, 1.0) * ${fl(LUT_SAMPLES - 1)};
   VAR(KF, f0) = floor(x);
   VAR(KI, i0) = KI(f0);

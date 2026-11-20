@@ -1,8 +1,8 @@
 /**
  * Water surfaces on the Babylon backend (ADR 0072, 0075 stage 6). The counterpart of
  * `WaterRenderer`: one grid mesh and one PBR material per `WaterSurface`, updated each frame from
- * the component and the water clock. A material plugin splices the Gerstner wave sum (the same
- * maths as `gerstner.ts`, in WGSL) into Babylon's PBR vertex shader and the water colouring into
+ * the component and the water clock. A material plugin splices the Gerstner wave sum
+ * (`gerstner.ts`'s `GERSTNER_SHADER`) into Babylon's PBR vertex shader and the water colouring into
  * its fragment shader, so lights, shadows, the environment, probe reflections and the frame
  * graph's effects apply as on any material.
  *
@@ -14,11 +14,12 @@
  * - fragment: ripple normals after `pbrBlockNormalFinal`, deep/shallow/foam colour at
  *   CUSTOM_FRAGMENT_UPDATE_ALPHA, roughness (rougher under foam) into `reflectivityBlock`.
  *
- * Waves are packed into vec4 uniforms (UBO arrays are avoided): `mycoWave0..7` hold
+ * Waves are packed into vec4 uniforms (UBO arrays are avoided, `waveUniforms`): `mycoWave0..7` hold
  * (direction x, direction z, wave number, amplitude) per wave and `mycoPhase0/1` the eight phases
- * (the fifth float of `WAVE_STRIDE`). The plugin has a GLSL twin for the WebGL2 fallback, whose
- * wave sum is `GERSTNER_BODY` itself: without it the fallback drew a flat plane at rest height
- * while ships rode the sampled waves, so troughs hid their hulls.
+ * (the fifth float of `WAVE_STRIDE`). The wave sum, the ripple noise and the colouring maths are KSL
+ * (ADR 0250), compiled to WGSL for WebGPU and GLSL for the WebGL2 fallback; only the injection glue is
+ * written per language. (Without the GLSL the fallback drew a flat plane at rest height while ships
+ * rode the sampled waves, so troughs hid their hulls.)
  */
 import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
 import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
@@ -33,7 +34,8 @@ import type { SubMesh } from "@babylonjs/core/Meshes/subMesh.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import type { World } from "../../core/World";
 import { Graphics } from "../Graphics";
-import { GERSTNER_BODY, MAX_WAVES, WAVE_STRIDE, maxAmplitude } from "../water/gerstner";
+import { shaderSource, type ShaderDialect } from "../shaderSource/shaderSource";
+import { GERSTNER_SHADER, PHASE_UNIFORMS, WAVE_UNIFORMS, maxAmplitude, waveUniforms } from "../water/gerstner";
 import { waterTime, type WaterSurface } from "../water/WaterSurface";
 import { useEngineLightFalloff } from "./materials";
 import { MycoMaterialPlugin } from "./mycoMaterialPlugin";
@@ -44,9 +46,8 @@ export type BabylonWaterProbe = (x: number, y: number, z: number) => { texture: 
 
 /** The values a water material's plugin binds, refreshed by `sync` each frame. */
 interface WaterState {
-  /** Per wave: direction x, direction z, wave number, amplitude. */
-  waves: Float32Array;
-  phases: Float32Array;
+  /** The wave uniforms (`waveUniforms`). */
+  waves: Record<string, number[]>;
   count: number;
   time: number;
   deep: [number, number, number];
@@ -58,11 +59,9 @@ interface WaterState {
 }
 
 function createState(): WaterState {
-  return { waves: new Float32Array(MAX_WAVES * 4), phases: new Float32Array(MAX_WAVES), count: 0, time: 0, deep: [0, 0, 0], shallow: [0, 0, 0], foam: [0, 0, 0], foamAmount: 0, normalDetail: 0, maxHeight: 0 };
+  return { waves: {}, count: 0, time: 0, deep: [0, 0, 0], shallow: [0, 0, 0], foam: [0, 0, 0], foamAmount: 0, normalDetail: 0, maxHeight: 0 };
 }
 
-const WAVE_UNIFORMS = Array.from({ length: MAX_WAVES }, (_, i) => `mycoWave${i}`);
-const PHASE_UNIFORMS = ["mycoPhase0", "mycoPhase1"];
 
 /** The plugin's uniform buffer entries (all vec4). */
 function waterUniformBuffer(): { name: string; size: number; type: string }[] {
@@ -70,98 +69,58 @@ function waterUniformBuffer(): { name: string; size: number; type: string }[] {
   return names.map((name) => ({ name, size: 4, type: "vec4" }));
 }
 
-/** The wave sum (`GERSTNER_BODY` in WGSL): a matrix whose columns are the displacement, tangent (dP/dx) and binormal (dP/dz). */
-const WGSL_GERSTNER = /* wgsl */ `
-fn mycoGerstner(px: f32, pz: f32) -> mat3x3f {
-  var wv = array<vec4f, ${MAX_WAVES}>(${WAVE_UNIFORMS.map((n) => `uniforms.${n}`).join(", ")});
-  var ph = array<f32, ${MAX_WAVES}>(uniforms.mycoPhase0.x, uniforms.mycoPhase0.y, uniforms.mycoPhase0.z, uniforms.mycoPhase0.w, uniforms.mycoPhase1.x, uniforms.mycoPhase1.y, uniforms.mycoPhase1.z, uniforms.mycoPhase1.w);
-  let count = i32(uniforms.mycoWaterA.x);
-  var g = vec3f(0.0);
-  var t = vec3f(1.0, 0.0, 0.0);
-  var b = vec3f(0.0, 0.0, 1.0);
-  for (var i: i32 = 0; i < ${MAX_WAVES}; i++) {
-    if (i >= count) { break; }
-    let w = wv[i];
-    let f = w.z * (w.x * px + w.y * pz) - ph[i];
-    let c = cos(f);
-    let s = sin(f);
-    let st = w.z * w.w;
-    g += vec3f(w.x * w.w * c, w.w * s, w.y * w.w * c);
-    t += vec3f(-w.x * w.x * st * s, w.x * st * c, -w.x * w.y * st * s);
-    b += vec3f(-w.x * w.y * st * s, w.y * st * c, -w.y * w.y * st * s);
-  }
-  return mat3x3f(g, t, b);
-}
-`;
-
-/** Value noise (x) and its gradient (yz), as in `waterShader.ts`. */
-const WGSL_NOISE = /* wgsl */ `
-fn mycoHash(p0: vec2f) -> f32 {
-  var p = fract(p0 * vec2f(123.34, 456.21));
-  p = p + vec2f(dot(p, p + vec2f(45.32)));
-  return fract(p.x * p.y);
-}
-fn mycoNoise(p: vec2f) -> vec3f {
-  let i = floor(p);
-  let f = fract(p);
-  let u = f * f * (3.0 - 2.0 * f);
-  let du = 6.0 * f * (1.0 - f);
-  let a = mycoHash(i);
-  let b = mycoHash(i + vec2f(1.0, 0.0));
-  let c = mycoHash(i + vec2f(0.0, 1.0));
-  let d = mycoHash(i + vec2f(1.0, 1.0));
-  let v = a + (b - a) * u.x + (c - a) * u.y + (a - b - c + d) * u.x * u.y;
-  let g = du * vec2f(b - a + (a - b - c + d) * u.y, c - a + (a - b - c + d) * u.x);
-  return vec3f(v, g);
-}
-`;
-
 /**
- * The wave sum in GLSL (WebGL2): the vec4 uniforms unpacked into `GERSTNER_BODY`'s flat
- * `WAVE_STRIDE` layout, then `GERSTNER_BODY` itself (the text the WGSL path and the CPU sampler's
- * tests use), so the fallback draws exactly the waves `WaterSurface.sample` reports.
+ * The water's maths in KSL: the wave sum (with the water's uniforms), the ripple noise (value noise in x,
+ * its gradient in yz), the ripples' slope, and the shallow and foam amounts.
  */
-const GLSL_GERSTNER = /* glsl */ `
-void mycoGerstner(float px, float pz, out vec3 disp, out vec3 tangent, out vec3 binormal) {
-  vec4 mycoWv[${MAX_WAVES}] = vec4[${MAX_WAVES}](${WAVE_UNIFORMS.join(", ")});
-  float mycoPh[${MAX_WAVES}] = float[${MAX_WAVES}](mycoPhase0.x, mycoPhase0.y, mycoPhase0.z, mycoPhase0.w, mycoPhase1.x, mycoPhase1.y, mycoPhase1.z, mycoPhase1.w);
-  float mycoWaves[${MAX_WAVES * WAVE_STRIDE}];
-  for (int j = 0; j < ${MAX_WAVES}; j++) {
-    mycoWaves[j * ${WAVE_STRIDE}] = mycoWv[j].x;
-    mycoWaves[j * ${WAVE_STRIDE} + 1] = mycoWv[j].y;
-    mycoWaves[j * ${WAVE_STRIDE} + 2] = mycoWv[j].z;
-    mycoWaves[j * ${WAVE_STRIDE} + 3] = mycoWv[j].w;
-    mycoWaves[j * ${WAVE_STRIDE} + 4] = mycoPh[j];
-  }
-  int mycoWaveCount = int(mycoWaterA.x + 0.5);
-${GERSTNER_BODY.replace(/\$float/g, "float").replace(/\$int/g, "int")}
-  disp = vec3(gx, gy, gz);
-  tangent = vec3(tx, ty, tz);
-  binormal = vec3(bx, by, bz);
-}
-`;
-
-/** `WGSL_NOISE` in GLSL (the same as `waterShader.ts`'s). */
-const GLSL_NOISE = /* glsl */ `
-float mycoHash(vec2 p) {
-  p = fract(p * vec2(123.34, 456.21));
-  p += dot(p, p + 45.32);
+const WATER_SHADER = shaderSource(
+  GERSTNER_SHADER,
+  /* KSL */ `
+UNIFORM(KV4, mycoWaterA);
+UNIFORM(KV4, mycoWaterB);
+FN(KF, mycoHash, KV2 p0) {
+  VAR(KV2, p) = fract(p0 * KV2(123.34, 456.21));
+  p = p + KV2(dot(p, p + KV2(45.32)));
   return fract(p.x * p.y);
 }
-vec3 mycoNoise(vec2 p) {
-  vec2 i = floor(p);
-  vec2 f = fract(p);
-  vec2 u = f * f * (3.0 - 2.0 * f);
-  vec2 du = 6.0 * f * (1.0 - f);
-  float a = mycoHash(i);
-  float b = mycoHash(i + vec2(1.0, 0.0));
-  float c = mycoHash(i + vec2(0.0, 1.0));
-  float d = mycoHash(i + vec2(1.0, 1.0));
-  float v = a + (b - a) * u.x + (c - a) * u.y + (a - b - c + d) * u.x * u.y;
-  vec2 g = du * vec2(b - a + (a - b - c + d) * u.y, c - a + (a - b - c + d) * u.x);
-  return vec3(v, g);
+FN(KV3, mycoNoise, KV2 p) {
+  VAR(KV2, i) = floor(p);
+  VAR(KV2, f) = fract(p);
+  VAR(KV2, u) = f * f * (3.0 - 2.0 * f);
+  VAR(KV2, du) = 6.0 * f * (1.0 - f);
+  VAR(KF, a) = mycoHash(i);
+  VAR(KF, b) = mycoHash(i + KV2(1.0, 0.0));
+  VAR(KF, c) = mycoHash(i + KV2(0.0, 1.0));
+  VAR(KF, d) = mycoHash(i + KV2(1.0, 1.0));
+  VAR(KF, v) = a + (b - a) * u.x + (c - a) * u.y + (a - b - c + d) * u.x * u.y;
+  VAR(KV2, g) = du * KV2(b - a + (a - b - c + d) * u.y, c - a + (a - b - c + d) * u.x);
+  return KV3(v, g);
 }
-`;
+FN(KM3, mycoWaves, KF px, KF pz) {
+  return mycoGerstner(px, pz, KI(UNI(mycoWaterA).x + 0.5));
+}
+FN(KV3, mycoRipples, KV2 rest) {
+  VAR(KF, t) = UNI(mycoWaterA).y;
+  VAR(KV3, r1) = mycoNoise(rest * 0.35 + KV2(t * 0.11, t * 0.07));
+  VAR(KV3, r2) = mycoNoise(rest * 0.9 + KV2(-t * 0.05, t * 0.13));
+  VAR(KV2, slope) = (r1.yz * 0.35 + r2.yz * 0.9 * 0.5) * UNI(mycoWaterA).w * 0.25;
+  return KV3(slope, r1.x);
+}
+FN(KV2, mycoShallowFoam, KV4 w, KF facing, KF r1x) {
+  VAR(KF, maxH) = UNI(mycoWaterB).x;
+  VAR(KF, crest) = select(0.5, clamp(w.z / max(maxH, 1e-6) * 0.5 + 0.5, 0.0, 1.0), maxH > 0.0);
+  VAR(KF, shallow) = clamp(0.55 * crest + 0.45 * (1.0 - facing), 0.0, 1.0);
+  // Foam where the surface is compressed (the Jacobian falls toward 0 where crests fold).
+  VAR(KF, fold) = 1.0 - w.w + (r1x - 0.5) * 0.15;
+  VAR(KF, amount) = clamp(UNI(mycoWaterA).z, 0.0, 1.0);
+  VAR(KF, threshold) = 1.0 - amount;
+  return KV2(shallow, select(0.0, smoothstep(threshold, threshold + 0.35, fold), amount > 0.0));
+}
+`,
+);
+
+/** The water's functions in `dialect` (its uniforms are the plugin's uniform buffer). */
+const waterFunctions = (dialect: ShaderDialect): string => WATER_SHADER.text(dialect, { declarations: "omit" });
 
 /**
  * Where the water's code goes in Babylon's PBR shaders, by injection point (the regular-expression
@@ -171,10 +130,10 @@ function waterCustomCode(shaderType: string, language: ShaderLanguage = ShaderLa
   if (language === ShaderLanguage.GLSL) return waterCustomCodeGLSL(shaderType);
   if (shaderType === "vertex") {
     return {
-      CUSTOM_VERTEX_DEFINITIONS: `${WGSL_GERSTNER}\nvarying vMycoW: vec4f;\nvarying vMycoX: vec3f;`,
+      CUSTOM_VERTEX_DEFINITIONS: `${waterFunctions("wgsl")}\nvarying vMycoW: vec4f;\nvarying vMycoX: vec3f;`,
       // Before the world position's computation, so the displacement moves the vertex first.
       ...pbrInjections("wgsl", "vertex", { worldPosition: { before: [
-        "let mycoG: mat3x3f = mycoGerstner(positionUpdated.x, positionUpdated.z);",
+        "let mycoG: mat3x3f = mycoWaves(positionUpdated.x, positionUpdated.z);",
         "let mycoRest: vec2f = positionUpdated.xz;",
         "#ifdef NORMAL",
         "normalUpdated = normalize(cross(mycoG[2], mycoG[1]));",
@@ -187,7 +146,7 @@ function waterCustomCode(shaderType: string, language: ShaderLanguage = ShaderLa
     };
   }
   return {
-    CUSTOM_FRAGMENT_DEFINITIONS: `varying vMycoW: vec4f;\nvarying vMycoX: vec3f;\n${WGSL_NOISE}`,
+    CUSTOM_FRAGMENT_DEFINITIONS: `varying vMycoW: vec4f;\nvarying vMycoX: vec3f;\n${waterFunctions("wgsl")}`,
     // Ripples bend the normal (in world space; the node is level, so its Z axis is X cross up), then
     // the colour and foam are worked out from the bent normal. Before the albedo block, just after
     // the normal is final.
@@ -196,24 +155,14 @@ function waterCustomCode(shaderType: string, language: ShaderLanguage = ShaderLa
         "var mycoFoam: f32 = 0.0;",
         "var mycoShallow: f32 = 0.0;",
         "{",
-        "  let rest = fragmentInputs.vMycoW.xy;",
-        "  let t = uniforms.mycoWaterA.y;",
-        "  let r1 = mycoNoise(rest * 0.35 + vec2f(t * 0.11, t * 0.07));",
-        "  let r2 = mycoNoise(rest * 0.9 + vec2f(-t * 0.05, t * 0.13));",
-        "  let slope = (r1.yz * 0.35 + r2.yz * 0.9 * 0.5) * uniforms.mycoWaterA.w * 0.25;",
+        "  let ripples = mycoRipples(fragmentInputs.vMycoW.xy);",
         "  let axisX = normalize(fragmentInputs.vMycoX);",
         "  let axisZ = normalize(cross(axisX, vec3f(0.0, 1.0, 0.0)));",
-        "  normalW = normalize(normalW - axisX * slope.x - axisZ * slope.y);",
+        "  normalW = normalize(normalW - axisX * ripples.x - axisZ * ripples.y);",
         "  let view = normalize(scene.vEyePosition.xyz - fragmentInputs.vPositionW);",
-        "  let facing = clamp(dot(normalW, view), 0.0, 1.0);",
-        "  let maxH = uniforms.mycoWaterB.x;",
-        "  let crest = select(0.5, clamp(fragmentInputs.vMycoW.z / max(maxH, 1e-6) * 0.5 + 0.5, 0.0, 1.0), maxH > 0.0);",
-        "  mycoShallow = clamp(0.55 * crest + 0.45 * (1.0 - facing), 0.0, 1.0);",
-        "  // Foam where the surface is compressed (the Jacobian falls toward 0 where crests fold).",
-        "  let fold = 1.0 - fragmentInputs.vMycoW.w + (r1.x - 0.5) * 0.15;",
-        "  let amount = clamp(uniforms.mycoWaterA.z, 0.0, 1.0);",
-        "  let threshold = 1.0 - amount;",
-        "  mycoFoam = select(0.0, smoothstep(threshold, threshold + 0.35, fold), amount > 0.0);",
+        "  let amounts = mycoShallowFoam(fragmentInputs.vMycoW, clamp(dot(normalW, view), 0.0, 1.0), ripples.z);",
+        "  mycoShallow = amounts.x;",
+        "  mycoFoam = amounts.y;",
         "}",
       ].join("\n"),
       // vReflectivityColor holds metallic, roughness, IOR and F0 in the metallic workflow.
@@ -227,45 +176,35 @@ function waterCustomCode(shaderType: string, language: ShaderLanguage = ShaderLa
 function waterCustomCodeGLSL(shaderType: string): { [point: string]: string } {
   if (shaderType === "vertex") {
     return {
-      CUSTOM_VERTEX_DEFINITIONS: `${GLSL_GERSTNER}\nvarying vec4 vMycoW;\nvarying vec3 vMycoX;`,
+      CUSTOM_VERTEX_DEFINITIONS: `${waterFunctions("glsl")}\nvarying vec4 vMycoW;\nvarying vec3 vMycoX;`,
       ...pbrInjections("glsl", "vertex", { worldPosition: { before: [
-        "vec3 mycoDisp; vec3 mycoTangent; vec3 mycoBinormal;",
-        "mycoGerstner(positionUpdated.x, positionUpdated.z, mycoDisp, mycoTangent, mycoBinormal);",
+        "mat3 mycoG = mycoWaves(positionUpdated.x, positionUpdated.z);",
         "vec2 mycoRest = positionUpdated.xz;",
         "#ifdef NORMAL",
-        "normalUpdated = normalize(cross(mycoBinormal, mycoTangent));",
+        "normalUpdated = normalize(cross(mycoG[2], mycoG[1]));",
         "#endif",
-        "positionUpdated = positionUpdated + mycoDisp;",
+        "positionUpdated = positionUpdated + mycoG[0];",
       ].join("\n"), after: [
-        "vMycoW = vec4(mycoRest, mycoDisp.y, mycoTangent.x * mycoBinormal.z - mycoTangent.z * mycoBinormal.x);",
+        "vMycoW = vec4(mycoRest, mycoG[0].y, mycoG[1].x * mycoG[2].z - mycoG[1].z * mycoG[2].x);",
         "vMycoX = normalize((finalWorld * vec4(1.0, 0.0, 0.0, 0.0)).xyz);",
       ].join("\n") } }),
     };
   }
   return {
-    CUSTOM_FRAGMENT_DEFINITIONS: `varying vec4 vMycoW;\nvarying vec3 vMycoX;\n${GLSL_NOISE}`,
+    CUSTOM_FRAGMENT_DEFINITIONS: `varying vec4 vMycoW;\nvarying vec3 vMycoX;\n${waterFunctions("glsl")}`,
     ...pbrInjections("glsl", "fragment", {
       albedoBlock: [
         "float mycoFoamK = 0.0;",
         "float mycoShallowK = 0.0;",
         "{",
-        "  vec2 rest = vMycoW.xy;",
-        "  float t = mycoWaterA.y;",
-        "  vec3 r1 = mycoNoise(rest * 0.35 + vec2(t * 0.11, t * 0.07));",
-        "  vec3 r2 = mycoNoise(rest * 0.9 + vec2(-t * 0.05, t * 0.13));",
-        "  vec2 slope = (r1.yz * 0.35 + r2.yz * 0.9 * 0.5) * mycoWaterA.w * 0.25;",
+        "  vec3 ripples = mycoRipples(vMycoW.xy);",
         "  vec3 axisX = normalize(vMycoX);",
         "  vec3 axisZ = normalize(cross(axisX, vec3(0.0, 1.0, 0.0)));",
-        "  normalW = normalize(normalW - axisX * slope.x - axisZ * slope.y);",
+        "  normalW = normalize(normalW - axisX * ripples.x - axisZ * ripples.y);",
         "  vec3 view = normalize(vEyePosition.xyz - vPositionW);",
-        "  float facing = clamp(dot(normalW, view), 0.0, 1.0);",
-        "  float maxH = mycoWaterB.x;",
-        "  float crest = maxH > 0.0 ? clamp(vMycoW.z / max(maxH, 1e-6) * 0.5 + 0.5, 0.0, 1.0) : 0.5;",
-        "  mycoShallowK = clamp(0.55 * crest + 0.45 * (1.0 - facing), 0.0, 1.0);",
-        "  float fold = 1.0 - vMycoW.w + (r1.x - 0.5) * 0.15;",
-        "  float amount = clamp(mycoWaterA.z, 0.0, 1.0);",
-        "  float threshold = 1.0 - amount;",
-        "  mycoFoamK = amount > 0.0 ? smoothstep(threshold, threshold + 0.35, fold) : 0.0;",
+        "  vec2 amounts = mycoShallowFoam(vMycoW, clamp(dot(normalW, view), 0.0, 1.0), ripples.z);",
+        "  mycoShallowK = amounts.x;",
+        "  mycoFoamK = amounts.y;",
         "}",
       ].join("\n"),
       reflectivity: "vec4(0.0, mix(vReflectivityColor.y, 0.9, mycoFoamK), vReflectivityColor.zw)",
@@ -294,9 +233,10 @@ class MycoWaterPlugin extends MycoMaterialPlugin {
 
   override bindForSubMesh(ubo: UniformBuffer, _scene: Scene, _engine: AbstractEngine, _subMesh: SubMesh): void {
     const s = this.state;
-    for (let i = 0; i < MAX_WAVES; i++) ubo.updateFloat4(WAVE_UNIFORMS[i], s.waves[i * 4], s.waves[i * 4 + 1], s.waves[i * 4 + 2], s.waves[i * 4 + 3]);
-    ubo.updateFloat4(PHASE_UNIFORMS[0], s.phases[0], s.phases[1], s.phases[2], s.phases[3]);
-    ubo.updateFloat4(PHASE_UNIFORMS[1], s.phases[4], s.phases[5], s.phases[6], s.phases[7]);
+    for (const name of [...WAVE_UNIFORMS, ...PHASE_UNIFORMS]) {
+      const v = s.waves[name] ?? [0, 0, 0, 0];
+      ubo.updateFloat4(name, v[0], v[1], v[2], v[3]);
+    }
     ubo.updateFloat4("mycoWaterA", s.count, s.time, s.foamAmount, s.normalDetail);
     ubo.updateFloat4("mycoWaterB", s.maxHeight, 0, 0, 0);
     ubo.updateFloat4("mycoDeep", s.deep[0], s.deep[1], s.deep[2], 1);
@@ -426,14 +366,7 @@ export class BabylonWater {
   private applyState(w: WaterSurface, entry: WaterEntry, time: number): void {
     const packed = w._pack(time);
     const s = entry.state;
-    for (let i = 0; i < MAX_WAVES; i++) {
-      const o = i * 5;
-      s.waves[i * 4] = packed.data[o];
-      s.waves[i * 4 + 1] = packed.data[o + 1];
-      s.waves[i * 4 + 2] = packed.data[o + 2];
-      s.waves[i * 4 + 3] = packed.data[o + 3];
-      s.phases[i] = packed.data[o + 4];
-    }
+    waveUniforms(packed, s.waves);
     s.count = packed.count;
     s.time = time % 10000;
     s.deep = linearRgb(w.deepColor);
