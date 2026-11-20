@@ -24,6 +24,7 @@ import { FRAME_SECONDS, MiB, RATE, S3_1024, s3Rig, stat, threadWorkerFactory, ti
 import { SAMPLE_META } from "../../runtime/capture/testSupport";
 import { CaptureSource } from "./profilerSource";
 import { nameLookup, reconstructVoices } from "./voiceTableModel";
+import { KeyframeRows } from "../../runtime/audioRows";
 
 const WARM_SECONDS = 10;
 /** Ten minutes; `SO1_SECONDS` shortens it for a shakedown of the harness only. */
@@ -77,7 +78,8 @@ describe("soak 2: a 1,024-voice capture opens through the Worker (§3.7)", () =>
     const rec = createRecorder({ preset: "editor" });
     expect(rec.ring.capacity).toBe(32 * MiB);
     const sink = createEventSink(rec, { epochContext: () => ({ sampleRate: RATE, limiterLatencyFrames: 0, outputLatencyFrames: 0, timeOffset: 0, frame: backend.debug().core.currentFrame as number }) });
-    rec.setKeyframeSource(() => backend.keyframe((table, name) => sink.name(table, name), NO_NAME));
+    const rows = new KeyframeRows(backend, backend); // ADR 0249: the backend's keyframe plus the rows above the seam
+    rec.setKeyframeSource(() => rows.read((table, name) => sink.name(table, name), NO_NAME));
     sink.epoch("start");
     // Main's recorder cost at 1,024 voices with G7b's keyframe source (logged against §7.3's 1 ms/s): the tap timed per
     // block, the sink per call (`timedSink`, whose own cost per call is reported beside it).

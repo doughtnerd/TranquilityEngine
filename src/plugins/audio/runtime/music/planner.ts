@@ -279,10 +279,14 @@ const probeMusic: MusicBackend = {
   protect(instance, paths) { probe.inner!.protect(instance, paths); },
   get onGroupEvent() { return probe.inner!.onGroupEvent; },
   set onGroupEvent(fn) { probe.inner!.onGroupEvent = fn; },
+  get onLifecycle() { return probe.inner!.onLifecycle; },
+  set onLifecycle(fn) { probe.inner!.onLifecycle = fn; },
   get primeEmaMs() { return probe.inner!.primeEmaMs; },
+  debugView() { return probe.inner!.debugView(); },
   get ringPool() { return probe.inner!.ringPool; },
 };
-const probeFrame = { backend: null as unknown as MusicFrame["backend"], music: probeMusic as MusicBackend | null, now: 0, dt: 0, hidden: false };
+/** The frame `tryPrime` hands `primeRun`: the caller's, with the probe as its music (no host until the first call). */
+const probeFrame: { -readonly [K in keyof MusicFrame]: MusicFrame[K] } = { backend: { time: 0, play: () => null }, music: probeMusic, now: 0, dt: 0, hidden: false };
 
 const ADMITTED: MusicAdmitResult = { ok: true };
 const NO_GROUP_ID: MusicAdmitResult = { ok: false, reason: "groupTableFull", permanent: false };

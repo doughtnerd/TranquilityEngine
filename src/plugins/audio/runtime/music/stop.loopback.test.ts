@@ -5,6 +5,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { musicLoopback, resetMusicLoopback } from "./testing/loopbackClock";
 import { musicPlayers } from "./musicSystem";
+import { debugRows } from "../audioRows";
+
+/** `Audio.debug().music` as the row composer builds it over the backend (ADR 0249). */
+const musicRows = (b: Parameters<typeof debugRows>[1] & { debug(): Parameters<typeof debugRows>[0] }) => debugRows(b.debug(), b).music;
 
 afterEach(() => resetMusicLoopback());
 
@@ -24,12 +28,12 @@ describe("a stopped music event (F-17)", () => {
     await r.step(5);
     const released = vi.spyOn(r.backend.musicOps, "releaseInstance");
     const group = r.player()!.instance.group;
-    expect(r.backend.debug().music).toHaveLength(1);
+    expect(musicRows(r.backend)).toHaveLength(1);
     handle.stop(0.2);
     // The fade is 0.2 s (about 13 frames here); allow it, the core's end report and the free.
     await r.step(40);
     expect(musicPlayers()).toHaveLength(0);
-    expect(r.backend.debug().music).toEqual([]);
+    expect(musicRows(r.backend)).toEqual([]);
     expect(released).toHaveBeenCalledWith(group);
     r.dispose();
   });

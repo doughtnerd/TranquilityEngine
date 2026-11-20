@@ -2,8 +2,9 @@
  * Music across a hidden tab, a context rebuild and a worker crash (ADR 0166 api-and-models §10 P9; architecture §2.1
  * "Recovering", §3.7, §3.8; ADR 0167 §3 owner decision 5: `play` and `mute` both commit a segment ahead).
  *
- * Owner: **P9** (W5); it also edits `core/recovery.ts` (and `core/background.ts`, `core/replay.ts` if the hand-off needs
- * them). Q2 wrote the skeleton; `core/musicOps.ts` `reopenGroups` (the hook `reopenStreams` calls) lands here.
+ * ADR 0248: the music seam is one-way. Backends report what happened through the two sinks of their `MusicBackend`
+ * (`onGroupEvent`, `onLifecycle`); this module is bound to them (`bindMusicBackend`, on every backend the selector installs
+ * and from the early step) and alone decides what to re-plan. Nothing below the seam imports it.
  *
  * - **Hidden:** not a state; while hidden the players tick from the STATUS handler (`musicSystem.ts` `tickPlayer` with
  *   `hiddenFrame`), committing a segment ahead under both `play` and `mute`.
@@ -12,16 +13,16 @@
  *   re-plans; the recovery limit stops the player.
  *
  * P9's model:
- * - **Hidden tick.** `core/background.ts` calls `noteHidden` on each visibility change and, under `play` and `mute`,
- *   `tickHidden` from every STATUS block while hidden (rAF has stopped, so no frame step runs). `tickHidden` advances the
- *   backend's clock and reads the music STATUS (`beginFrame`: outside a rAF the clock samples `performance.now()`, so
- *   Δ̄ becomes the STATUS interval, as §3.8 says), ticks every player in `tickPlayer`'s order with `frame.hidden` set,
- *   then flushes the batch (`frameCommit`), as `background.ts` flushes MASTER. Ê isn't sampled meanwhile (`musicOps`
- *   reads `mirror.freeEndedInMessage`). The planner's lead includes Δ̄, so a start due while hidden is primed and
- *   stamped a STATUS interval ahead, and the music is where it would have been on resume: under `mute` too (owner
- *   decision 5), whose only cost is MASTER at 0. Containers that commit a successor at a segment's start (P4's next
- *   item, R3a) read `frame.hidden`. Stamps made while hidden count in `counters.recoveries.hidden`.
- * - **Recovery** (`recoverGroups`, from `musicOps.reopenGroups` after `musicOps` forgot the dead groups): per player,
+ * - **Hidden tick.** The core's background controller reports `hidden` on each visibility change under `play` and `mute`
+ *   and `hiddenTick` for every STATUS block while hidden (rAF has stopped, so no frame step runs), then flushes the batch.
+ *   A tick advances the backend's clock and reads the music STATUS (`beginFrame`: outside a rAF the clock samples
+ *   `performance.now()`, so Δ̄ becomes the STATUS interval, as §3.8 says) and ticks every player in `tickPlayer`'s order
+ *   with `frame.hidden` set. Ê isn't sampled meanwhile (`musicOps` reads `mirror.freeEndedInMessage`). The planner's
+ *   lead includes Δ̄, so a start due while hidden is primed and stamped a STATUS interval ahead, and the music is where it
+ *   would have been on resume: under `mute` too (owner decision 5), whose only cost is MASTER at 0. Containers that
+ *   commit a successor at a segment's start (P4's next item, R3a) read `frame.hidden`. Stamps made while hidden count in
+ *   `counters.recoveries.hidden`.
+ * - **Recovery** (the lifecycle event `recover`, which `musicOps` reports after it forgot the dead groups): per player,
  *   one take from its recovery limit (3 per sliding 60 s, `core/rateLimit.ts`, as the core's own rebuilds); past it the
  *   player stops with one warning (`recoveries.refused`). Otherwise the anchors are rebased for the context's rate
  *   (P3), the playing run, the successor and the plan are dropped (their ids released), and the playing segment is
@@ -30,48 +31,95 @@
  *   every stem re-enters together where the music would be. The stamp makes the run the player's again and anchors it
  *   (`anchorRun`), which agrees with the old anchor within a frame. A player that hadn't stamped yet starts again.
  *   A re-entry past the segment's exit cue has nothing to play: the player ends.
- * - **Abandon** (`groupAbandoned`, from `musicOps` after the core's give-up reached the router): the playing group is
- *   recovered as above (cause `abandon`), at the next `recoverAbandoned`, which `musicOps` calls in the same step.
+ * - **Abandon** (the group event `abandon`): the player is looked up before the router releases the run, the event is
+ *   routed, and the playing group is recovered as above (cause `abandon`) at once. A successor the core gave up on is
+ *   only dropped; the container that asked for it asks again.
  * - **Held callbacks** (Rh1, architecture §3.7, §4.6): in rhythm mode a player's beat clock is held (`beats.held`) from
- *   a recovery's start until its group is stamped: from the frame the backend reports a rebuild (`isRecovering`) for
- *   every player with a run, through the re-plan (`state` `recovering`), to the stamp. Nothing fires meanwhile; on
- *   release the beat clock delivers the gap as one coalesced call per kind (`missed`), at the re-entry. `updateBeatHolds`
- *   sets the flag each early step (and each hidden tick), before the dispatch. Outside rhythm mode nothing is held.
+ *   a recovery's start until its group is stamped: from the backend's `rebuild` event (active) for every player with a
+ *   run, through the re-plan (`state` `recovering`), to the stamp. Nothing fires meanwhile; on release the beat clock
+ *   delivers the gap as one coalesced call per kind (`missed`), at the re-entry. `updateBeatHolds` sets the flag each
+ *   early step (and each hidden tick), before the dispatch. Outside rhythm mode nothing is held.
  */
-import type { AudioBackend } from "../backend";
+import type { MusicBackend, MusicGroupEvent, MusicLifecycleEvent } from "../backend";
 import { rhythmModeSetting } from "./calibration";
 import { exitSeconds, nextGridSeconds, ticksToSeconds } from "../../../../engine/audio/musicGrid";
 import { RateLimit, RECOVERY_LIMIT, RECOVERY_WINDOW_MS } from "../core/rateLimit";
-import { hiddenFrame, musicPlayers, tickPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
+import { hiddenFrame, musicPlayers, tickPlayer, type MusicFrame, type MusicHost, type MusicPlayer } from "./musicSystem";
 import { playingGridOf, rebaseAnchors, ticksAt } from "./anchors";
 import { beginRecovery, cancelSuccessor, commitStart, restartFirst, stopPlayer } from "./musicPlayer";
 import { cancelPlanned, requestStart, type PlanRequest } from "./planner";
-import { cancelRun, routeGroupEvent } from "./segmentRun";
+import { cancelRun, liveRun, routeGroupEvent } from "./segmentRun";
 
 /** Why a player recovers (`counters.recoveries` keys; `hidden` counts the stamps made while hidden). */
 export type MusicRecoveryCause = "rebuild" | "crash" | "rate" | "abandon";
 
+/** A backend as the music side binds it: what music reads, and its music operations. */
+export type MusicBoundBackend = MusicHost & { readonly music?: MusicBackend };
+
 /** Float noise allowed when comparing heard or file seconds. */
 const EPS = 1e-9;
 
+/** The page is hidden and music keeps ticking (the backend's `hidden` event). */
 let hidden = false;
+/** A hard rebuild runs (the backend's `rebuild` event). */
+let rebuilding = false;
+/** The backend each music backend was bound for (`bindMusicBackend` is idempotent per pair). */
+const boundTo = new WeakMap<MusicBackend, MusicBoundBackend>();
 
-/** P9: the page became hidden or visible (from the background controller). */
-export function noteHidden(isHidden: boolean): void {
-  hidden = isHidden;
+/**
+ * ADR 0248: bind the music side to `backend`'s music sinks (nothing without `music`). Group events go to the router (an
+ * abandon re-plans its player); lifecycle events to the policy above. A newly bound backend starts visible and not
+ * rebuilding. Called for every backend the selector installs, and by the early step for one set some other way.
+ */
+export function bindMusicBackend(backend: MusicBoundBackend): void {
+  const music = backend.music;
+  if (!music || boundTo.get(music) === backend) return;
+  boundTo.set(music, backend);
+  hidden = false;
+  rebuilding = false;
+  music.onGroupEvent = (e) => groupEvent(backend, e);
+  music.onLifecycle = (e) => lifecycleEvent(backend, e);
+}
+
+function groupEvent(backend: MusicBoundBackend, e: MusicGroupEvent): void {
+  if (e.kind !== "abandon") {
+    routeGroupEvent(e);
+    return;
+  }
+  // The player whose group the core gave up on, looked up before the router releases the run.
+  const player = liveRun(e.group)?.player ?? null;
+  routeGroupEvent(e);
+  if (player) groupAbandoned(player, e.group, backend);
+}
+
+function lifecycleEvent(backend: MusicBoundBackend, e: MusicLifecycleEvent): void {
+  switch (e.kind) {
+    case "rebuild":
+      rebuilding = e.active;
+      if (e.active) for (const p of musicPlayers()) if (p.run !== null) awaitingRecovery.add(p);
+      return;
+    case "recover":
+      recoverGroups(backend, e.cause);
+      return;
+    case "hidden":
+      hidden = e.hidden;
+      return;
+    case "hiddenTick":
+      tickHidden(backend);
+      return;
+  }
 }
 
 /** P9: a STATUS block arrived while hidden: tick every player from the handler (architecture §3.8). */
-export function tickHidden(backend: AudioBackend): void {
+function tickHidden(backend: MusicBoundBackend): void {
   const players = musicPlayers();
   if (!hidden || players.length === 0) return;
   // The clock (outside a rAF it samples performance.now(): Δ̄ becomes the STATUS interval) and this STATUS's music
   // sections; the group events reach the router here, as from step 0.
-  const music = backend.music ?? null;
-  if (music !== null && music.onGroupEvent === null) music.onGroupEvent = routeGroupEvent;
   backend.clock?.beginFrame();
-  updateBeatHolds(backend);
-  const f = hiddenFrame(backend);
+  const music = backend.music ?? null;
+  updateBeatHolds(music);
+  const f = hiddenFrame(backend, music);
   for (let k = 0; k < players.length; k++) {
     const p = players[k]!;
     const planned = p.planned;
@@ -82,15 +130,11 @@ export function tickHidden(backend: AudioBackend): void {
     if (stamped) bump(p.counters.recoveries, "hidden");
     if (players[k] !== p) k--;
   }
-  // No frame will flush it: the stamps go now (`background.ts` flushes MASTER the same way).
-  (backend as { frameCommit?(): void }).frameCommit?.();
+  // No frame will flush the stamps: the backend flushes them once this event returns.
 }
 
-/**
- * P9: after a hard rebuild (or a new decoder worker), reopen every live music group as a group: re-prime at the heard
- * position and stamp. Called by `core/musicOps.ts` `reopenGroups`.
- */
-export function recoverGroups(backend: AudioBackend, cause: "rebuild" | "crash" | "rate"): void {
+/** P9: every live group died with its core (a rebuild, a new decoder worker, a new rate): re-plan each player. */
+function recoverGroups(backend: MusicBoundBackend, cause: "rebuild" | "crash" | "rate"): void {
   const f = frameOf(backend);
   for (const p of [...musicPlayers()]) {
     // From here its own state (`recovering` until the stamp) holds its callbacks in rhythm mode.
@@ -104,17 +148,15 @@ const awaitingRecovery = new WeakSet<MusicPlayer>();
 
 /**
  * Rh1 (architecture §3.7, §4.6): sets each player's `beats.held` for this frame. In rhythm mode (`audio.rhythmMode` on
- * a backend whose `caps.rhythm` is true), a player is held while the backend rebuilds (`isRecovering`, the core
- * backend's), until `recoverGroups` re-plans it, and while its re-entry is unstamped (`state` `recovering`, also after
- * an abandon or a crash). Otherwise nothing is held, and a hold left over from a recovery is released. Call it after
- * the backend's `beginFrame` (the group events) and before the dispatch: the music system's early step and
- * `tickHidden`. Allocates nothing.
+ * a backend whose `caps.rhythm` is true), a player is held while the backend rebuilds (its `rebuild` event), until the
+ * recovery re-plans it, and while its re-entry is unstamped (`state` `recovering`, also after an abandon or a crash).
+ * Otherwise nothing is held, and a hold left over from a recovery is released. Call it after the backend's `beginFrame`
+ * (the group events) and before the dispatch: the music system's early step and the hidden tick. Allocates nothing.
  */
-export function updateBeatHolds(backend: AudioBackend): void {
+export function updateBeatHolds(music: MusicBackend | null): void {
   const players = musicPlayers();
   if (players.length === 0) return;
-  const rhythm = backend.music?.caps.rhythm === true && rhythmModeSetting();
-  const rebuilding = (backend as { readonly isRecovering?: boolean }).isRecovering === true;
+  const rhythm = music?.caps.rhythm === true && rhythmModeSetting();
   for (let k = 0; k < players.length; k++) {
     const p = players[k]!;
     if (rebuilding && p.run !== null) awaitingRecovery.add(p);
@@ -123,28 +165,15 @@ export function updateBeatHolds(backend: AudioBackend): void {
   }
 }
 
-/** Players whose playing group the core gave up on, waiting for `recoverAbandoned`. */
-const abandoned = new Set<MusicPlayer>();
-
 /** P9: the core gave up on a group (abandon after 1 s): re-plan, or stop at the recovery limit. */
-export function groupAbandoned(player: MusicPlayer, group: number): void {
+function groupAbandoned(player: MusicPlayer, group: number, backend: MusicBoundBackend): void {
   if (player.run !== null && player.run.group === group) {
-    abandoned.add(player);
+    recoverPlayer(player, frameOf(backend), "abandon");
     return;
   }
   // A successor the core gave up on: the router cancelled it; the container that asked for it asks again (R3a, P4).
   if (player.next !== null && player.next.group === group && player.next.state === "cancelled") cancelSuccessor(player, player.next);
 }
-
-/** P9: recover the players `groupAbandoned` noted (`musicOps` calls it right after delivering the group events). */
-export function recoverAbandoned(backend: AudioBackend): void {
-  if (abandoned.size === 0) return;
-  const f = frameOf(backend);
-  const players = [...abandoned];
-  abandoned.clear();
-  for (const p of players) recoverPlayer(p, f, "abandon");
-}
-
 
 // --- Internals -------------------------------------------------------------------------------------------------------
 
@@ -155,12 +184,12 @@ function bump(rec: Record<string, number>, key: string): void {
   rec[key] = (rec[key] ?? 0) + 1;
 }
 
-function frameOf(backend: AudioBackend): MusicFrame {
+function frameOf(backend: MusicBoundBackend): MusicFrame {
   return { backend, music: backend.music ?? null, now: backend.time, dt: 0, hidden };
 }
 
 /** The context's rate (the core backend's clock map), or 0 when the backend doesn't say. */
-function contextRate(backend: AudioBackend): number {
+function contextRate(backend: MusicHost): number {
   const sr = backend.clock?.frameMap()?.sampleRate;
   return sr !== undefined && sr > 0 ? sr : 0;
 }

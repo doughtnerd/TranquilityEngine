@@ -1,9 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryStorage } from "../../../../engine/platform/Storage";
+import type { AudioOutputDevice } from "../backend";
 
 // Each case starts on a fresh module (`vi.resetModules`), as a page load does; `reload()` mid-case is a reload: the
 // calibration's memory is gone and Storage (the same `store`) keeps what was written.
 let cal: typeof import("./calibration");
+let selector: typeof import("../backend");
+let testing: typeof import("../testing");
 let storage: typeof import("../../../../engine/platform/Storage").Storage;
 let store: MemoryStorage;
 async function reload(): Promise<void> {
@@ -11,9 +14,27 @@ async function reload(): Promise<void> {
   ({ Storage: storage } = await import("../../../../engine/platform/Storage"));
   storage.use(store);
   cal = await import("./calibration");
+  selector = await import("../backend");
+  testing = await import("../testing");
 }
 /** Lets a storage read or write land (a few promise turns). */
 const settle = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
+
+// ADR 0248: the offset follows the installed backend's output device (`AudioBackend.device`), as on a page.
+let device: AudioOutputDevice;
+/** A backend whose context outputs to `sink` is installed (`null`: its context doesn't exist yet). */
+async function start(sink: string | null): Promise<void> {
+  const b = testing.makeFakeBackend();
+  device = { outputSink: sink, onOutputDevice: null };
+  b.device = device;
+  selector.setAudioBackend(b);
+  await settle();
+}
+/** The installed backend reports a device event (`devicechange`, `sinkchange`) with the sink it now has. */
+async function deviceChanged(sink: string): Promise<void> {
+  device.onOutputDevice!(sink, "changed");
+  await settle();
+}
 
 // The spike's simulated taps (spikes/audio-music/rhythm/calibrate-sim.mjs): same generator and model.
 let seed = 12345;
@@ -107,36 +128,36 @@ describe("Audio.calibration persistence", () => {
   });
 
   it("writes to settings under the device key and reads back after a simulated reload", async () => {
-    await cal.initCalibration("sinkA");
+    await start("sinkA");
     cal.setCalibration(0.045);
     await settle();
     expect(await storage.load("audio.calibration.sinkA", "settings")).toEqual({ seconds: 0.045 });
     await reload(); // the reload: memory gone, Storage stays
     expect(cal.getCalibration()).toBe(0);
-    await cal.initCalibration("sinkA");
+    await start("sinkA");
     expect(cal.getCalibration()).toBe(0.045);
     expect(cal.isCalibrationStale()).toBe(false);
   });
 
   it("keeps one value per device", async () => {
-    await cal.initCalibration("");
+    await start("");
     cal.setCalibration(0.03);
     await settle();
-    await cal.calibrationDeviceChanged("bt");
+    await deviceChanged("bt");
     cal.setCalibration(0.18);
     await settle();
     await reload();
-    await cal.initCalibration("");
+    await start("");
     expect(cal.getCalibration()).toBe(0.03);
     await reload();
-    await cal.initCalibration("bt");
+    await start("bt");
     expect(cal.getCalibration()).toBe(0.18);
   });
 
   it("a device change to an uncalibrated sink keeps the value and goes stale until set", async () => {
-    await cal.initCalibration("a");
+    await start("a");
     cal.setCalibration(0.04);
-    await cal.calibrationDeviceChanged("b");
+    await deviceChanged("b");
     expect(cal.getCalibration()).toBe(0.04);
     expect(cal.isCalibrationStale()).toBe(true);
     cal.setCalibration(0.12);
@@ -145,21 +166,34 @@ describe("Audio.calibration persistence", () => {
   });
 
   it("a devicechange on the same sink goes stale, value kept", async () => {
-    await cal.initCalibration("");
+    await start("");
     cal.setCalibration(0.02);
-    await cal.calibrationDeviceChanged("");
+    await deviceChanged("");
     expect(cal.isCalibrationStale()).toBe(true);
     expect(cal.getCalibration()).toBe(0.02);
   });
 
   it("a change back to a calibrated sink adopts its stored value and is not stale", async () => {
-    await cal.initCalibration("a");
+    await start("a");
     cal.setCalibration(0.04);
-    await cal.calibrationDeviceChanged("b");
+    await deviceChanged("b");
     cal.setCalibration(0.15);
     await settle();
-    await cal.calibrationDeviceChanged("a");
+    await deviceChanged("a");
     expect(cal.getCalibration()).toBe(0.04);
+    expect(cal.isCalibrationStale()).toBe(false);
+  });
+
+  it("a backend whose context opens after the install reports the sink then", async () => {
+    await start("late");
+    cal.setCalibration(0.07);
+    await settle();
+    await reload();
+    await start(null);
+    expect(cal.getCalibration()).toBe(0);
+    device.onOutputDevice!("late", "opened");
+    await settle();
+    expect(cal.getCalibration()).toBe(0.07);
     expect(cal.isCalibrationStale()).toBe(false);
   });
 
@@ -170,7 +204,7 @@ describe("Audio.calibration persistence", () => {
       delete: async () => undefined,
       list: async () => [],
     });
-    await cal.initCalibration("x");
+    await start("x");
     cal.setCalibration(0.01);
     await settle();
     expect(cal.getCalibration()).toBe(0.01);

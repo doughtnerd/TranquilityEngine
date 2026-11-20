@@ -28,8 +28,6 @@ import type { Mixer, MixOpTarget } from "../../../../engine/audio/mixer";
 import type { AudioSettings } from "../../../../engine/audio/settings";
 import { CORE_LIVE_CAPS, type LiveCaps, type SentClass } from "../../../../engine/audio/busCapability";
 import { FADER_COALESCE_MS } from "../wire.generated";
-import { hasAudioBackend } from "../backend";
-import { events } from "../events/eventRuntime";
 import { loudnessHub, type LoudnessHubConfig } from "../mix/loudnessHub";
 import type { StructuralDip } from "./structuralDip";
 import type { DeferredAdds } from "./deferredAdds";
@@ -85,22 +83,12 @@ export interface LiveMixHost {
   defer?(fn: () => void): void;
   /** A heard time as a stamp (`ClockMap.stampFor(frameOfTime(t))`); undefined: asap. */
   stampAt?(t: number): number | undefined;
-  /** The event runtime binds bus automation again from the mixer's settings (`BUS_AUTOMATE`); default: its refresh. */
-  automationChanged?(): void;
   /** Default: the page's hub. */
   loudness?: LiveLoudness;
   /** Milliseconds for `flushNow`'s coalescing (the backend's: `performance.now`). */
   nowMs(): number;
   /** Runs `fn` after `ms` (the backend's: `setTimeout`). */
   setTimer(fn: () => void, ms: number): void;
-}
-
-/**
- * The event runtime's refresh (it re-reads `audio.automation` and binds every bus again through the active backend's
- * sink). `syncSettings` is its public entry that does only that; nothing is made when no backend is up.
- */
-function refreshEventAutomation(): void {
-  if (hasAudioBackend()) events().syncSettings();
 }
 
 export class LiveMix implements MixOpTarget {
@@ -217,8 +205,8 @@ export class LiveMix implements MixOpTarget {
         this.loudnessChanged(false);
         break;
       case "setAutomation":
+        // ADR 0248: the event runtime binds bus automation again (`BUS_AUTOMATE`) from above the seam (`onMixOpSent`).
         mixer._applyLive(op);
-        (host.automationChanged ?? refreshEventAutomation)();
         break;
       default:
         // Snapshots and ducking rules: the mixer's model; presence and the lane writer send them in `syncMix`.

@@ -32,6 +32,7 @@ import { loudnessTarget } from "../mix/loudnessHub";
 import type { EpochContext } from "./events";
 import type { CaptureHeaderInit, CaptureMetaInit, NameTable } from "./format";
 import { NO_NAME } from "./keyframeLayout";
+import { KeyframeRows } from "../audioRows";
 import type { RingSpan } from "./ring";
 import type { SaveTake } from "./save";
 
@@ -350,12 +351,16 @@ class Capture implements AudioCapture {
     this.startFramePump();
   }
 
-  /** The recorder's keyframe source: the backend's own, interning its names through the sink (a backend without one leaves the recorder's empty keyframes). */
+  /**
+   * The recorder's keyframe source: the backend's own with the event and music rows composed above the seam (ADR 0249),
+   * interning its names through the sink (a backend without one leaves the recorder's empty keyframes).
+   */
   private wireKeyframes(rec: Recorder, sink: EventSink, backend: AudioBackend): void {
     const source = backend.capture;
     if (!source) return;
     const nameId = (table: "clips" | "snapshots" | "events", name: string): number => sink.name(table, name);
-    rec.setKeyframeSource(() => source.keyframe(nameId, NO_NAME));
+    const rows = new KeyframeRows(source, backend);
+    rec.setKeyframeSource(() => rows.read(nameId, NO_NAME));
   }
 
   /** A backend with no STATUS (`mainSideOnly`) is clocked by its audio clock: poll it and report the frames the clock has reached. */

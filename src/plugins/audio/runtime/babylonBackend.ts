@@ -30,13 +30,12 @@ import type { Mixer, ResolvedBus } from "../../../engine/audio/mixer";
 import type { ApplyResult, MixOp } from "../../../engine/audio/mixOps";
 import type { MixOpTarget } from "../../../engine/audio/mixer";
 import { FALLBACK_LIVE_CAPS, type SentClass } from "../../../engine/audio/busCapability";
-import { events } from "./events/eventRuntime";
 import { BABYLON_CPU_REASON, babylonCpuDebug, babylonMixDebug } from "./mix/mixDebug";
 import { NULL_PROFILE_SINK, type ProfileSink, type ProfileStopReason } from "./mix/profileSink";
 import { mixerTapFor, taps } from "./mix/profileTaps";
-import type { KeyframeBus, KeyframeEvent, KeyframePayload, KeyframeVoice } from "./capture/format";
-import { KEYFRAME_BUS_LANES, KEYFRAME_MAX_BUSES, KEYFRAME_MAX_EVENTS, KEYFRAME_MAX_VOICES, NO_NAME, keyframeAudibility, keyframePitch } from "./capture/keyframeLayout";
-import { hasAudioBackend, mixer, registerDefaultBackend, resolveBackendKind, zeroCounters, type AudioBackend, type AudioBackground, type AudioCaptureSource, type AudioClipCache, type AudioDebugInfo, type AudioLiveMix, type AudioM3Counters, type AudioMixCaps, type ClipSpanHold, type RecorderTap, type AudioReason, type AudioStatus, type AudioVoice, type Attenuation, type ListenerPose, type MusicAdmitResult, type MusicBackend, type MusicGroupEvent, type MusicGroupRequest, type MusicGroupStamp, type MusicPrimedState, type PlayRequest, type ShapedFade, type FadeLaw } from "./backend";
+import type { KeyframeBus, KeyframeVoice } from "./capture/format";
+import { KEYFRAME_BUS_LANES, KEYFRAME_MAX_BUSES, KEYFRAME_MAX_VOICES, NO_NAME, keyframeAudibility, keyframePitch } from "./capture/keyframeLayout";
+import { mixer, registerDefaultBackend, resolveBackendKind, zeroCounters, type AudioBackend, type AudioBackground, type AudioCaptureSource, type AudioClipCache, type AudioDebugInfo, type AudioLiveMix, type AudioM3Counters, type AudioMixCaps, type ClipSpanHold, type RecorderTap, type AudioReason, type AudioStatus, type AudioVoice, type Attenuation, type ListenerPose, type MusicAdmitResult, type MusicBackend, type MusicGroupEvent, type MusicLifecycleEvent, type MusicGroupRequest, type AudioOutputDevice, type BackendKeyframe, type MusicBackendDebug, type MusicGroupStamp, type MusicPrimedState, type PlayRequest, type ShapedFade, type FadeLaw } from "./backend";
 import { AMBISONIC_DECODE_LIMIT_BYTES, busCreationSteps, decodedBytes, dopplerPlaybackRate, filterIsActive, listenerQuaternion, occludedVolume, planBuses, spatialParams, spatialSoundOptions, webAudioVector, type BusPlan } from "./babylonMapping";
 import { DistanceEffect, SendCurveTable, SpatialViewFlag, type SpatialPassHost, type SpatialVoiceView } from "./core/spatial";
 import { DopplerPass } from "./core/doppler";
@@ -47,8 +46,8 @@ import { HiddenTabPolicy } from "./hiddenTab";
 import { writeKeyframeBusLanes } from "./mix/keyframeBus";
 import { Unlock, type UnlockContext } from "./core/unlock";
 import { warnOnce } from "./core/handle";
-import { calibrationDeviceChanged, initCalibration } from "./music/calibration";
 import { loadFileLoopPoints, onLoopPoints } from "./loopPoints";
+import { fadeLawWeight } from "./fadeLaw";
 
 /** What a test (or an unusual host) can replace. */
 export interface BabylonBackendOptions {
@@ -112,21 +111,6 @@ interface VoiceMusic {
   loopEndFrame: number;
   fadeZero: boolean;
   onEnd: (voice: BabylonVoice) => void;
-}
-
-/** The fade law's weight at phase `p` (0..1): the share of `to - from` covered. Same curves as the core's (`musicOps.ts`). */
-function lawWeight(law: ShapedFade["law"], p: number): number {
-  const q = p <= 0 ? 0 : p >= 1 ? 1 : p;
-  switch (law) {
-    case "sCurve":
-      return q * q * (3 - 2 * q);
-    case "equalPowerIn":
-      return Math.sin((q * Math.PI) / 2);
-    case "equalPowerOut":
-      return 1 - Math.cos((q * Math.PI) / 2);
-    default:
-      return q;
-  }
 }
 
 /** A non-linear shaped fade runs as at most this many linear `setVolume` ramps, each at least `SHAPED_STEP_MIN_SECONDS` long. */
@@ -478,7 +462,7 @@ class BabylonVoice implements AudioVoice {
       if (late > MUSIC_LATE_SECONDS) u0 = Math.min(1, u0 + (late / total) * (1 - u0));
     }
     const remaining = total * (1 - u0);
-    const at = (u: number): number => from + (to - from) * lawWeight(f.law, u);
+    const at = (u: number): number => from + (to - from) * fadeLawWeight(f.law, u);
     if (remaining <= 0) {
       set(to, 0);
       if (f.stopAtEnd) this.stop();
@@ -793,7 +777,7 @@ class BabylonSpatialView implements SpatialVoiceView {
 }
 
 /** The fallback's decoded-clip memory ceiling for an ambisonic clip is in `babylonMapping.ts` (`AMBISONIC_DECODE_LIMIT_BYTES`). */
-export class BabylonBackend implements AudioBackend, AudioClipCache, AudioLiveMix, AudioCaptureSource, SpatialPassHost {
+export class BabylonBackend implements AudioBackend, AudioClipCache, AudioLiveMix, AudioCaptureSource, AudioOutputDevice, SpatialPassHost {
   readonly name = "babylon";
 
   // ADR 0179: the fallback's capabilities, each the backend itself (no object, no allocation): the clip cache (durations
@@ -845,7 +829,10 @@ export class BabylonBackend implements AudioBackend, AudioClipCache, AudioLiveMi
   private disposed = false;
   /** ADR 0171 (capture): the fallback has no STATUS blocks, so a recorder never sets or calls this (`mixCaps.capture` is "mainSideOnly"). */
   recorderTap: RecorderTap | null = null;
-  private calibrationOff: (() => void) | null = null;
+  /** ADR 0248: removes the device listeners `watchDevice` added. */
+  private deviceOff: (() => void) | null = null;
+  /** ADR 0248: set by the layer above (`AudioOutputDevice`): told the sink when the context exists and on device events. */
+  onOutputDevice: ((sink: string, change: "opened" | "changed") => void) | null = null;
   private warned = false;
   /** A3.4b: the page is hidden and `audio.background` muted or paused the sound (the engine's volume is 0). */
   private hiddenMuted = false;
@@ -899,7 +886,7 @@ export class BabylonBackend implements AudioBackend, AudioClipCache, AudioLiveMi
       // The host owns this context and its unlock layer; the backend only plays on it.
       this.ctx = host;
       this.ownsContext = false;
-      this.watchCalibration(host);
+      this.watchDevice(host);
       return host;
     }
     const ctx = this.options.createContext ? this.options.createContext() : newAudioContext();
@@ -911,8 +898,18 @@ export class BabylonBackend implements AudioBackend, AudioClipCache, AudioLiveMi
       this.unlock = new Unlock({ target, context: ctx as unknown as UnlockContext });
       this.unlock.watch(() => this.pageSuspended);
     }
-    this.watchCalibration(ctx);
+    this.watchDevice(ctx);
     return ctx;
+  }
+
+  /** ADR 0248: the output device (the backend itself, as its other capabilities). */
+  get device(): AudioOutputDevice {
+    return this;
+  }
+
+  /** ADR 0248: the context's sink, null before the context exists. */
+  get outputSink(): string | null {
+    return this.ctx ? this.sinkOf(this.ctx) : null;
   }
 
   /** The sink the context outputs to: its `sinkId` string, "" for the default device or where unsupported. */
@@ -922,16 +919,16 @@ export class BabylonBackend implements AudioBackend, AudioClipCache, AudioLiveMi
   }
 
   /**
-   * Rh2 on the fallback: load this device's saved `Audio.calibration` once the context exists, and re-key it on the
-   * context's `sinkchange` and the browser's `devicechange`. `dispose` removes the listeners.
+   * ADR 0248 (Rh2 on the fallback): report the sink once the context exists, and again on the context's `sinkchange`
+   * and the browser's `devicechange` (`Audio.calibration` follows it above the seam). `dispose` removes the listeners.
    */
-  private watchCalibration(ctx: AudioContext): void {
-    void initCalibration(this.sinkOf(ctx));
-    const onDevice = (): void => void calibrationDeviceChanged(this.sinkOf(ctx));
+  private watchDevice(ctx: AudioContext): void {
+    this.onOutputDevice?.(this.sinkOf(ctx), "opened");
+    const onDevice = (): void => this.onOutputDevice?.(this.sinkOf(ctx), "changed");
     const md = typeof navigator !== "undefined" ? navigator.mediaDevices : undefined;
     ctx.addEventListener?.("sinkchange", onDevice);
     md?.addEventListener?.("devicechange", onDevice);
-    this.calibrationOff = () => {
+    this.deviceOff = () => {
       ctx.removeEventListener?.("sinkchange", onDevice);
       md?.removeEventListener?.("devicechange", onDevice);
     };
@@ -1048,7 +1045,6 @@ export class BabylonBackend implements AudioBackend, AudioClipCache, AudioLiveMi
     } else {
       this.applyMix(m.resolveAll());
     }
-    if (op.op === "setAutomation" && hasAudioBackend()) events().getGlobal("");
     return { ok: true, class: cls };
   }
 
@@ -1085,7 +1081,7 @@ export class BabylonBackend implements AudioBackend, AudioClipCache, AudioLiveMi
    * snapshot name into the capture's NAMES table (`EventSink` does), `noName` is the id for none. The payload is built
    * fresh per call: a keyframe is once a second, and the fallback is best effort.
    */
-  keyframe(nameId: (table: "clips" | "snapshots" | "events", name: string) => number, noName = NO_NAME): KeyframePayload {
+  keyframe(nameId: (table: "clips" | "snapshots" | "events", name: string) => number, noName = NO_NAME): BackendKeyframe {
     const m = this.mixerRef ?? mixer;
     const voices: KeyframeVoice[] = [];
     const eventVoices = new Map<number, number>();
@@ -1108,11 +1104,9 @@ export class BabylonBackend implements AudioBackend, AudioClipCache, AudioLiveMi
       row.flags = writeKeyframeBusLanes(row, m, name);
       buses.push(row);
     }
-    const events: KeyframeEvent[] = [];
-    for (const [id, n] of eventVoices) if (events.length < KEYFRAME_MAX_EVENTS) events.push({ id: id >>> 0, asset: noName, voices: Math.min(0xffff, n), state: 0, paramsHash: 0 });
     const snapshot = m.currentSnapshot;
     return {
-      voices, buses, metered: [], events, music: [],
+      voices, buses, metered: [], eventVoices,
       mix: {
         slotTableVersion: 0, monitorActive: m.monitorActive ? 1 : 0, loudnessPausedMask: 0, targetIndex: 0,
         snapshotName: snapshot === null ? noName : nameId("snapshots", snapshot), masterVolume: Math.fround(this.master), hiddenMute: this.hiddenMuted ? 1 : 0,
@@ -1474,8 +1468,8 @@ export class BabylonBackend implements AudioBackend, AudioClipCache, AudioLiveMi
     for (const v of [...this.voices]) v.stop();
     this.disposed = true;
     if (this._profile !== NULL_PROFILE_SINK) this.setProfileSink(null); // the taps point at nothing once this backend is gone
-    this.calibrationOff?.();
-    this.calibrationOff = null;
+    this.deviceOff?.();
+    this.deviceOff = null;
     this.visibility?.removeEventListener("visibilitychange", this.onVisibility);
     this.hiddenTab.dispose();
     this.unlock?.dispose();
@@ -1506,6 +1500,8 @@ interface MusicGroup {
 class BabylonMusic implements MusicBackend {
   readonly caps = { primes: false, stampedFades: true, heardClock: false, rhythm: false } as const;
   onGroupEvent: ((e: MusicGroupEvent) => void) | null = null;
+  /** ADR 0248: never called: the fallback has no rebuild, crash, abandon or STATUS-driven hidden tick to report. */
+  onLifecycle: ((e: MusicLifecycleEvent) => void) | null = null;
   /** No prime is ever timed here; the core's seed. */
   readonly primeEmaMs = 40;
   /** No music ring pool on the fallback (streamed stems play as HTML5 audio): the planner skips its pool check. */
@@ -1585,6 +1581,23 @@ class BabylonMusic implements MusicBackend {
 
   releaseInstance(instance: number): void {
     void instance; // no worker cache here
+  }
+
+  /**
+   * ADR 0249: no ring pool, no group table and no core counters here (zeros); the live groups, every member counted primed
+   * (nothing is primed on the fallback), `stamped` until the `start` went out, then `playing`.
+   */
+  debugView(): MusicBackendDebug {
+    const groups: MusicBackendDebug["groups"] = [];
+    for (const [id, g] of this.groups) {
+      const n = g.req.members.length;
+      groups.push({ id, state: g.started ? "playing" : g.voices ? "stamped" : "admitted", primed: n, of: n });
+    }
+    return {
+      poolUsed: 0, poolSize: 0, poolHighWater: 0, musicRingRefused: 0, groupTableFull: 0, encodedOverBudget: 0,
+      streamStartsLate: 0, groupsLate: 0, groupsHeld: 0, groupsAbandoned: 0, maxSlipFrames: 0, splitQuanta: 0, voiceSplits: 0, curvePoolFull: 0,
+      groups,
+    };
   }
 
   protect(instance: number, paths: readonly string[]): void {

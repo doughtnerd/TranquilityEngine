@@ -58,7 +58,7 @@
 import type { Vec3Like } from "../../../../engine/core/math";
 import { mixer as defaultMixer, type Mixer, type MixOpTarget, type ResolvedBus } from "../../../../engine/audio/mixer";
 import { Assets } from "../../../../engine/scene/Assets";
-import type { Attenuation, AudioBackend, AudioBackground, AudioCaptureSource, AudioClipCache, AudioClock, AudioCpuDebug, AudioFrameMap, AudioLiveMix, AudioMixCaps, AudioMixDebug, AudioPanner, AudioStatus, AudioVoice, ClipSpanHold, FadeLaw, ListenerPose, MusicBackend, PlayRequest, RecorderTap, ShapedFade, VoiceSpatialOptions, ZoneIrService } from "../backend";
+import type { Attenuation, AudioBackend, AudioBackground, AudioCaptureSource, AudioOutputDevice, BackendKeyframe, AudioClipCache, AudioClock, AudioCpuDebug, AudioFrameMap, AudioLiveMix, AudioMixCaps, AudioMixDebug, AudioPanner, AudioStatus, AudioVoice, ClipSpanHold, FadeLaw, ListenerPose, MusicBackend, PlayRequest, RecorderTap, ShapedFade, VoiceSpatialOptions, ZoneIrService } from "../backend";
 import type { AudioLatency } from "../../../../engine/audio/musicTypes";
 import { BUS_LP_OFF_HZ, readStatus, type BusConfigBuses } from "../wire.generated";
 import { AudioHandle, type AudioReason } from "./handle";
@@ -73,7 +73,6 @@ import { CoreSession } from "./session";
 import { CoreLoudness } from "./coreLoudness";
 import { buildDebugInfo, mixDebugInfo, type AudioDebugInfo, type DebugSource } from "./debug";
 import { BackgroundController } from "./background";
-import { calibrationDeviceChanged, initCalibration } from "../music/calibration";
 import { browserHostClock, type HostClock } from "./hostClock";
 import { StatusMirror } from "./mirror";
 import { StatusReader } from "./statusReader";
@@ -96,7 +95,6 @@ import { ListenerFrame, SendCurveTable, SpatialViewFlag, type SpatialVoiceView, 
 import { BusIndex } from "./busIndex";
 import { LaneWriter } from "./laneWriter";
 import { KeyframeSource, type KeyframeHost } from "./keyframeSource";
-import type { KeyframePayload } from "../capture/format";
 import { Presence, type PresenceHost } from "./presence";
 import { LiveMix } from "./liveMix";
 import { StructuralDip } from "./structuralDip";
@@ -162,6 +160,8 @@ interface CoreBackendHost {
    * range check alone). Absent: both 0.
    */
   latency?(): { readonly base: number; readonly output: number; readonly reliable?: boolean };
+  /** ADR 0248: the sink the context outputs to ("" the default device or unsupported). Absent: not known (null). */
+  outputSink?(): string;
 }
 
 /** What `createCoreBackend` takes beyond the host (tests inject fakes). */
@@ -200,7 +200,7 @@ const mixerOwners = new WeakMap<Mixer, CoreBackend>();
  * (`core/assembly.ts`) through `createCoreBackend`, so no caller builds it over a hand-made host or without its clip
  * registry and background controller.
  */
-class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLiveMix, AudioCaptureSource, StagedFrameHost {
+class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLiveMix, AudioCaptureSource, AudioOutputDevice, StagedFrameHost {
   readonly name = "core";
 
   // ADR 0179: the core has every capability, and each is the backend itself (its own members are the capability's: no
@@ -217,6 +217,15 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
   get capture(): AudioCaptureSource {
     return this;
   }
+  get device(): AudioOutputDevice {
+    return this;
+  }
+  /** ADR 0248: the output device's sink (`AudioOutputDevice`), from the host. */
+  get outputSink(): string | null {
+    return this.host.outputSink?.() ?? null;
+  }
+  /** ADR 0248: set by the layer above; the background controller reports each device event through it. */
+  onOutputDevice: ((sink: string, change: "opened" | "changed") => void) | null = null;
   private readonly table: VoiceTable;
   private readonly mirror: StatusMirror;
   private readonly writer: CommandWriter;
@@ -860,11 +869,6 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
 
   // --- The core session (ADR 0178; `recovery.ts` drives the host's rebuild, `replay.ts` restores the voices) ---
 
-  /** True between the old core's loss and the new core's first STATUS. */
-  get isRecovering(): boolean {
-    return this.recovering;
-  }
-
   /** STATUS blocks that came from a context since replaced: the clock map's fallback ignores them (A3.4c). */
   private staleBlocks = 0;
 
@@ -922,7 +926,13 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
     s.join("listener", { replayHeader: (b) => this.listener.replay(b) });
     s.join("automation", { replayHeader: (b) => this.automation.replayHeader(b), replayVoice: (b, v) => this.automation.replayVoice(b, v.id, v.i) });
     s.join("voiceFx", { replayVoice: (b, v) => (v.mixed ? this.voiceFx.replayVoice(b, v.id, v.i) : undefined) });
-    s.join("musicOps", { reopenStreams: () => this.musicOps.reopenGroups(), dispose: () => this.musicOps.dispose() });
+    s.join("musicOps", {
+      beginRecovery: () => this.musicOps.rebuilding(true),
+      endRecovery: () => this.musicOps.rebuilding(false),
+      recoveryFailed: () => this.musicOps.rebuilding(false),
+      reopenStreams: () => this.musicOps.reopenGroups(),
+      dispose: () => this.musicOps.dispose(),
+    });
     s.join("streams", { dispose: () => this.streams.dispose() });
     s.join("cleanups", { dispose: () => this.cleanups.splice(0).forEach((c) => c()) });
     s.join("link", {
@@ -1069,8 +1079,8 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
 
   private keyframes: KeyframeSource | null = null;
 
-  /** §5.5 (G7b): the capture's KEYFRAME from main's tables, built by `keyframeSource.ts` (the voice table, the slot table and mixer lanes, the loudness hub, events, music). */
-  keyframe(nameId: Parameters<AudioCaptureSource["keyframe"]>[0], noName = 0xffffffff): KeyframePayload {
+  /** §5.5 (G7b): the backend's part of the capture's KEYFRAME from main's tables, built by `keyframeSource.ts` (the voice table, the slot table and mixer lanes, the loudness hub); the event and music rows come from above the seam (ADR 0249). */
+  keyframe(nameId: Parameters<AudioCaptureSource["keyframe"]>[0], noName = 0xffffffff): BackendKeyframe {
     return (this.keyframes ??= new KeyframeSource(this.view)).read(nameId, noName);
   }
 
@@ -1568,6 +1578,7 @@ export function createCoreBackend(host: AudioHost, deps: CoreBackendDeps = {}): 
     health: host.health,
     // ADR 0166 §4.6 (Rh1): the current context's latency read-back and its `reliable` rule.
     latency: () => host.latency(),
+    outputSink: () => host.snapshot().sink,
   };
   const backend = new CoreBackend(backendHost, { ...deps, clips, warnOnce, clock: deps.clock ?? browserHostClock(() => host.context) });
   attachBackground(backend, host);
@@ -1576,12 +1587,11 @@ export function createCoreBackend(host: AudioHost, deps: CoreBackendDeps = {}): 
 
 /** A3.4b: the visibility, device-event and stall controller (`background.ts`) for a backend on the page's host. */
 function attachBackground(backend: CoreBackend, host: AudioHost): void {
-  // Rh2: `Audio.calibration` is stored per output device: load this sink's offset, and on a device event adopt the new
-  // sink's stored offset or mark the value stale (re-ask).
-  void initCalibration(host.snapshot().sink);
   // The stall check's heartbeat age is on the host's clock (`performance.now` in a page; the loopback's rendered time).
   const controller = new BackgroundController({
-    host, target: backend, now: host.now, onDevice: () => void calibrationDeviceChanged(host.snapshot().sink),
+    host, target: backend, now: host.now,
+    // ADR 0248: a device event is reported up the seam (`Audio.calibration` follows the output device there, Rh2).
+    onDevice: () => backend.onOutputDevice?.(host.snapshot().sink, "changed"),
   });
   backend.health = controller.counters;
   backend.addCleanup(() => controller.dispose());

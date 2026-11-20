@@ -1,6 +1,8 @@
 // ADR 0166 P9: music recovery and the hidden-tab tick on the fake backend (`testing.ts` `FakeMusicBackend`) with a
 // deterministic clock: each step sets `now` and the fake's horizon (now + L, L = 33.3 ms: 60 Hz); the test says when a
-// group is primed. The loopback halves are `core/musicRecoveryLoopback.test.ts` and `core/musicHiddenLoopback.test.ts`.
+// group is primed. ADR 0248: the test reports what a backend reports, through the fake's sinks (`report` a lifecycle
+// event, `emit` a group event), as the core does; the music side is bound by `setAudioBackend`. The loopback halves are
+// `core/musicRecoveryLoopback.test.ts` and `core/musicHiddenLoopback.test.ts`.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { setAudioBackend } from "../backend";
 import { makeFakeBackend, type FakeBackend, endAudioSession } from "../testing";
@@ -8,10 +10,9 @@ import type { EventInstance } from "../events/eventRuntime";
 import { parseSegmentNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
 import type { MusicClipFacts } from "../../../../engine/audio/musicValidate";
 import { createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
-import { routeGroupEvent, setSegmentClipSource } from "./segmentRun";
+import { setSegmentClipSource } from "./segmentRun";
 import { planTick } from "./planner";
 import { ticksAt } from "./anchors";
-import { groupAbandoned, noteHidden, recoverAbandoned, recoverGroups, tickHidden } from "./background";
 
 const RATE = 48_000;
 const L = 1 / 30;
@@ -84,7 +85,7 @@ describe("music recovery (ADR 0166 P9, architecture §3.7)", () => {
     // The rebuild at 5.3 s: the music is heard at file 4.2 s. now + lead = 5.4 (file 4.3), so the next bar is file
     // 6.0 s, heard at 7.1 s: the group restarts from file frame 288,000.
     at(5.3);
-    recoverGroups(b, "rebuild");
+    b.music!.report({ kind: "recover", cause: "rebuild" });
     expect(player.state).toBe("recovering");
     expect(player.counters.recoveries.rebuild).toBe(1);
     expect(b.music!.cancelled).toContain(old.group);
@@ -111,7 +112,7 @@ describe("music recovery (ADR 0166 P9, architecture §3.7)", () => {
     const player = createMusicPlayer(instance(), segment("A", ["music/a1.ogg"]));
     planTick(player, at(1));
     const first = player.planned!.run.group;
-    recoverGroups(b, "crash");
+    b.music!.report({ kind: "recover", cause: "crash" });
     expect(player.counters.recoveries.crash).toBe(1);
     expect(b.music!.cancelled).toContain(first);
     expect(player.planned).toBeNull();
@@ -131,18 +132,18 @@ describe("music recovery (ADR 0166 P9, architecture §3.7)", () => {
     for (let k = 0; k < 3; k++) {
       clock += 1000;
       at(2 + k);
-      recoverGroups(b, "rate");
+      b.music!.report({ kind: "recover", cause: "rate" });
       expect(player.state).toBe("recovering");
     }
     expect(player.counters.recoveries.rate).toBe(3);
     clock += 1000;
-    recoverGroups(b, "rebuild");
+    b.music!.report({ kind: "recover", cause: "rebuild" });
     expect(player.state).toBe("stopping");
     expect(player.counters.recoveries.refused).toBe(1);
     expect(player.planned).toBeNull();
     expect(warn.mock.calls.filter((c) => String(c[0]).includes("recoveries within 60 s"))).toHaveLength(1);
     // A stopping player isn't recovered again (and no second warning).
-    recoverGroups(b, "rebuild");
+    b.music!.report({ kind: "recover", cause: "rebuild" });
     expect(player.counters.recoveries.refused).toBe(1);
   });
 
@@ -151,18 +152,16 @@ describe("music recovery (ADR 0166 P9, architecture §3.7)", () => {
     const player = playingPlayer();
     const group = player.run!.group;
     at(3.5);
-    routeGroupEvent({ kind: "abandon", group, late: false, slipFrames: 0, startFrame: 0 }, RATE);
+    b.music!.emit({ kind: "abandon", group, late: false, slipFrames: 0, startFrame: 0 });
     expect(player.run!.state).toBe("cancelled");
     expect(player.counters.groupTimeouts).toBe(1);
-    groupAbandoned(player, group);
-    recoverAbandoned(b);
     expect(player.counters.recoveries.abandon).toBe(1);
     expect(player.state).toBe("recovering");
     // Heard file 2.4 s at 3.5; now + lead = 3.6 (file 2.5): the next bar is file 4.0, heard 5.1.
     expect(player.planned!.point).toBeCloseTo(5.1, 9);
     expect(player.planned!.run.startFrame).toBe(4 * RATE);
-    // Nothing pending: a second call does nothing.
-    recoverAbandoned(b);
+    // The same abandon again names no live run: nothing more is recovered.
+    b.music!.emit({ kind: "abandon", group, late: false, slipFrames: 0, startFrame: 0 });
     expect(player.counters.recoveries.abandon).toBe(1);
   });
 
@@ -170,36 +169,32 @@ describe("music recovery (ADR 0166 P9, architecture §3.7)", () => {
     rig();
     const player = playingPlayer(["music/c1.ogg"]); // 10 s: the exit cue is the file's end
     at(12);
-    recoverGroups(b, "rebuild");
+    b.music!.report({ kind: "recover", cause: "rebuild" });
     expect(player.planned).toBeNull();
     expect(player.state).toBe("stopping");
   });
 });
 
 describe("the hidden-tab tick (ADR 0166 P9, architecture §3.8)", () => {
-  it("ticks every player from STATUS while hidden: a start due meanwhile is stamped, and the batch is flushed", () => {
+  it("ticks every player from STATUS while hidden: a start due meanwhile is stamped", () => {
     rig();
-    const commits: number[] = [];
-    (b as unknown as { frameCommit(): void }).frameCommit = () => void commits.push(b.time);
     const player = createMusicPlayer(instance(), segment("A", ["music/a1.ogg"]));
     planTick(player, at(1));
     const p = player.planned!;
     b.music!.setPrimed(p.run.group);
-    // Visible: tickHidden does nothing.
+    // Visible: a hidden tick does nothing.
     at(1.03);
-    tickHidden(b);
+    b.music!.report({ kind: "hiddenTick" });
     expect(b.beginFrameCalls).toBe(0);
     expect(player.state).toBe("starting");
-    noteHidden(true);
-    tickHidden(b);
+    b.music!.report({ kind: "hidden", hidden: true });
+    b.music!.report({ kind: "hiddenTick" });
     expect(b.beginFrameCalls).toBe(1);
     expect(b.music!.stamps.at(-1)).toMatchObject({ group: p.run.group, at: p.at });
     expect(player.state).toBe("committed");
     expect(player.counters.recoveries.hidden).toBe(1);
-    expect(commits).toEqual([1.03]);
-    expect(b.music!.onGroupEvent).toBe(routeGroupEvent);
-    noteHidden(false);
-    tickHidden(b);
-    expect(commits).toHaveLength(1);
+    b.music!.report({ kind: "hidden", hidden: false });
+    b.music!.report({ kind: "hiddenTick" });
+    expect(b.beginFrameCalls).toBe(1);
   });
 });

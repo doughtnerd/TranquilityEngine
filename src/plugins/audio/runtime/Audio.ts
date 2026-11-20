@@ -14,16 +14,18 @@ import { onMusicOf, _setMusicHandleFactory } from "./music/musicSystem";
 import { triggerOn } from "./music/stingers";
 import { audioLatency, getCalibration, isCalibrationStale, rhythmModeSetting, setCalibration } from "./music/calibration";
 import { audioBackend, type AudioDebugInfo, type AudioEventHandle, type AudioHandle, type AudioPanner, type AudioReason, type AudioStatus, type AudioVoice, type PlayRequest, type SendCurve } from "./backend";
-import { events, type EventDebugRow, type EventInstance, type EventOptions } from "./events/eventRuntime";
+import { events, type EventInstance, type EventOptions } from "./events/eventRuntime";
+import { debugRows, type AudioDebugRows } from "./audioRows";
 import { audioCapture, captureDebug, type AudioCapture } from "./capture/capture";
 import { loudnessTarget, setLoudnessTarget } from "./mix/loudnessHub";
 
 /**
- * `Audio.debug()`: the backend's state plus the event runtime's rows (`AudioDebugInfo.events` with the late-start count each
- * row carries) and its session totals (ADR 0220: `eventTotals.lateStarts` counts the clips every instance started late, the
- * ended ones included, where the rows only hold the playing instances').
+ * `Audio.debug()`: the backend's state plus the rows composed above the seam (ADR 0249, `audioRows.ts`): the event runtime's
+ * rows (`AudioDebugInfo.events` with the late-start count each row carries) and its session totals (ADR 0220:
+ * `eventTotals.lateStarts` counts the clips every instance started late, the ended ones included, where the rows only hold
+ * the playing instances'), and on a backend with music the `music` rows and `musicTotals`.
  */
-export type AudioDebugState = Omit<AudioDebugInfo, "events"> & { events: EventDebugRow[]; eventTotals: { lateStarts: number } };
+export type AudioDebugState = Omit<AudioDebugInfo, "events" | "music" | "musicTotals"> & AudioDebugRows;
 
 /** Options for `Audio.playOneShot` (ADR 0074, api-and-models §1). */
 export interface OneShotOptions {
@@ -331,12 +333,9 @@ export const Audio = {
 
   /** A copy of the state for tools and "why is there no sound?". Allocates; never per frame. */
   debug(): AudioDebugState {
-    const info = audioBackend().debug();
-    // E3.9: each event's voices the backend still lists, so an instance's row goes with its last voice.
-    const listed = new Map<number, number>();
-    for (const v of info.voices) if (v.event != null && v.state !== "stolen") listed.set(v.event, (listed.get(v.event) ?? 0) + 1);
+    const backend = audioBackend();
+    const info = backend.debug();
     // Rc4: the shared capture ring (null while none runs).
-    const rows = events();
-    return { ...info, events: rows.debugRows(listed), eventTotals: { lateStarts: rows.lateStartTotal }, recorder: captureDebug() };
+    return { ...info, ...debugRows(info, backend), recorder: captureDebug() };
   },
 };
