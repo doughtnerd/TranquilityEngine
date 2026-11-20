@@ -70,7 +70,8 @@
  * **Target resolution** goes through P4's `enterPlaylist` for a playlist target (the item its order picks first; that
  * playlist becomes `player.playlist` once its leaf plays) and through the parameter for a `musicSwitch`.
  */
-import type { FadeLaw, MusicGroupStamp, ShapedFade } from "../backend";
+import type { MusicGroupStamp, ShapedFade } from "../backend";
+import { fadeInLaw, fadeOutLaw } from "../fadeLaw";
 import { isMusicContainer, musicChildrenOf, type SegmentNode, type MusicNode } from "../../../../engine/audio/musicFormat";
 import { compileSegmentGrid, exitSeconds, type SegmentGrid } from "../../../../engine/audio/musicGrid";
 import type { MusicFrame, MusicPlayer } from "./musicSystem";
@@ -321,8 +322,6 @@ const NO_FADES: { out: ResolvedFade; in: ResolvedFade } = {
   in: { seconds: 0, offset: 0, curve: "linear" },
 };
 
-const lawIn = (c:ResolvedFade["curve"]): FadeLaw => (c === "equalPower" ? "equalPowerIn" : c);
-const lawOut = (c: ResolvedFade["curve"]): FadeLaw => (c === "equalPower" ? "equalPowerOut" : c);
 
 function contextOf(t: Transition): PlanContext | null {
   return contexts.get(t) ?? null;
@@ -541,8 +540,8 @@ function incomingFades(player: MusicPlayer, t: Transition, leg: Leg, p: PlannedS
   const open = fin.seconds > 0 ? clampFade(start, fin.seconds, p.at) : { at: start, seconds: 0, startPhase: 0 };
   if (!open) return undefined; // the fade-in is over before the group starts: full level
   const rise: ShapedFade = open.startPhase > 0
-    ? { to: 1, seconds: open.seconds, law: lawIn(fin.curve), at: open.at, startPhase: open.startPhase }
-    : { to: 1, seconds: open.seconds, law: lawIn(fin.curve), at: open.at };
+    ? { to: 1, seconds: open.seconds, law: fadeInLaw(fin.curve), at: open.at, startPhase: open.startPhase }
+    : { to: 1, seconds: open.seconds, law: fadeInLaw(fin.curve), at: open.at };
   const out: NonNullable<MusicGroupStamp["fades"]> = [];
   for (let member = 0; member < p.run.stems.length; member++) {
     out.push({ member, fade: silent }, { member, fade: rise });
@@ -705,7 +704,7 @@ function commit(player: MusicPlayer, t: Transition, leg: Leg, f: MusicFrame): vo
   const fo = fades?.out ?? { seconds: 0, offset: 0, curve: "linear" as const };
   const horizon = f.now + lookaheadSeconds(f);
   const shaped = clampFade(T + fo.offset, Math.max(0, fo.seconds), horizon) ?? { at: horizon, seconds: 0, startPhase: 0 };
-  const law = lawOut(fo.curve);
+  const law = fadeOutLaw(fo.curve);
   for (const s of out.stems) {
     const v = s.voice;
     if (!v) continue;

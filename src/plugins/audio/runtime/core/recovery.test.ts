@@ -188,9 +188,12 @@ describe("the hard rebuild on the loopback host (A3.4a)", () => {
     const { loop, backend, step } = r;
     backend.play(req("music.wav"));
     await step(5);
+    // ADR 0248: the rebuild's begin and end are reported up the music seam.
+    const rebuilds: boolean[] = [];
+    backend.music.onLifecycle = (e) => void (e.kind === "rebuild" && rebuilds.push(e.active));
     loop.trapNext();
     await step(1);
-    expect(backend.isRecovering).toBe(true);
+    expect(rebuilds).toEqual([true]);
     const late = backend.play(req("const.wav", { volume: 0.5, loop: false, oneShot: true }))!;
     expect(late.playing).toBe(true);
     expect(late.reason).toBe("locked");

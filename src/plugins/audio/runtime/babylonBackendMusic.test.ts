@@ -266,6 +266,21 @@ describe("Babylon fallback music: events", () => {
     expect(music.primedState(1)).toBeNull();
   });
 
+  it("ADR 0249: its debug view lists the live groups (stamped, then playing) with no pool and no core counters", async () => {
+    music.admitGroup(request([member("a"), member("b")]));
+    await flush();
+    expect(music.debugView().groups).toEqual([{ id: 1, state: "admitted", primed: 2, of: 2 }]);
+    setTime(1);
+    music.stampGroup({ group: 1, at: 2 });
+    await flush();
+    expect(music.debugView().groups[0]!.state).toBe("stamped");
+    setTime(2.01);
+    backend.update(0);
+    const view = music.debugView();
+    expect(view.groups[0]!.state).toBe("playing");
+    expect([view.poolSize, view.groupsLate, view.splitQuanta]).toEqual([0, 0, 0]);
+  });
+
   it("reports a late start with its slip", async () => {
     music.admitGroup(request([member("a")]));
     await flush();

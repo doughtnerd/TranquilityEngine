@@ -18,7 +18,7 @@ import {
   type AnyEventNode, type AudioEventAsset, type Automation, type EventNode, type ParameterDef, type SustainNode, type SwitchNode,
 } from "../../../../engine/audio/eventFormat";
 import { isMusicNodeType, type MusicAutomation, type MusicNode } from "../../../../engine/audio/musicFormat";
-import { audioBackend, type AudioBackend, type AudioPanner, type AudioReason, type AudioVoice, type PlayRequest } from "../backend";
+import { audioBackend, onMixOpSent, type AudioBackend, type AudioPanner, type AudioReason, type AudioVoice, type PlayRequest } from "../backend";
 import { warnOnce } from "../core/handle";
 import { taps } from "../mix/profileTaps";
 import { NULL_PROFILE_SINK } from "../mix/profileSink";
@@ -1653,5 +1653,11 @@ export function events(): EventSystem {
 }
 
 onAudioSessionReleased(() => system?.release());
+
+// ADR 0248: after a live `setAutomation` the runtime binds bus automation again (it re-reads `audio.automation`), on
+// whichever backend sent it.
+onMixOpSent((op) => {
+  if (op.op === "setAutomation") events().syncSettings();
+});
 
 export { LOWPASS_OFF };

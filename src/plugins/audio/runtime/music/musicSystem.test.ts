@@ -9,7 +9,6 @@ import { AUDIO_SYSTEMS } from "../audioSystem";
 import { makeFakeBackend, type FakeBackend, endAudioSession } from "../testing";
 import type { EventInstance } from "../events/eventRuntime";
 import { createMusicPlayer, disposeMusicPlayer, musicActive, musicPlanStep, musicPlayers, playerOf } from "./musicSystem";
-import { routeGroupEvent } from "./segmentRun";
 import { emptySegment } from "../../../../engine/audio/musicFormat";
 
 const step = AUDIO_SYSTEMS.find((s) => s.name === "engine.AudioMusic")!;
@@ -43,7 +42,6 @@ describe("engine.AudioMusic (ADR 0166 §6 step 0, ADR 0167 §2)", () => {
     for (let k = 0; k < 10_000; k++) step.run(viewWorld, 1 / 60);
     for (let k = 0; k < 10_000; k++) musicPlanStep(b, 1 / 60); // step 9 likewise
     expect(b.beginFrameCalls).toBe(0);
-    expect(b.music!.onGroupEvent).toBeNull();
     expect(musicPlayers()).toHaveLength(0);
   });
 
@@ -56,10 +54,8 @@ describe("engine.AudioMusic (ADR 0166 §6 step 0, ADR 0167 §2)", () => {
     expect(player.requestedAt).toBe(3);
     expect(playerOf(instance)).toBe(player);
     step.run(hiddenWorld, 1 / 60);
-    expect(b.music!.onGroupEvent).toBeNull(); // step 0 runs only in the World with the view
-    expect(b.beginFrameCalls).toBe(0);
+    expect(b.beginFrameCalls).toBe(0); // step 0 runs only in the World with the view
     step.run(viewWorld, 1 / 60);
-    expect(b.music!.onGroupEvent).toBe(routeGroupEvent);
     musicPlanStep(b, 1 / 60);
     expect(b.beginFrameCalls).toBeGreaterThan(0);
     disposeMusicPlayer(player, b);

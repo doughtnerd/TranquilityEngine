@@ -67,14 +67,15 @@ export const PHASE_ORDER = {
   reconfigure: ["deferredAdds", "buses", "loudness"],
   busesReset: ["voices", "lanes"],
   // F-12's stale stems go; the worklet channel to the dead node goes; the replayer notes the trap frame; an open
-  // structural dip settles at its end state (R12).
-  beginRecovery: ["voices", "worklet", "replayer", "dip"],
+  // structural dip settles at its end state (R12); the music side is told a rebuild runs (ADR 0248: rhythm-mode holds).
+  beginRecovery: ["voices", "worklet", "replayer", "dip", "musicOps"],
   // The replayer carries playheads and the trap frame as `Audio.time` seconds with the OLD clock, so it runs before
   // the clock map rebases; the worklet channel is dropped before the zones ask for their kernels again (C9).
   contextReplaced: ["replayer", "clock", "hrir", "worklet", "zones", "mirror"],
   // Peaks and the loudness EPOCH reset; the worklet channel is dropped unless `contextReplaced` already did; then the
-  // replayer's restore (the header REPLAY, the clips again), last.
-  endRecovery: ["mirror", "loudness", "worklet", "replayer"],
+  // replayer's restore (the header REPLAY, the clips again), last: the music side hears the rebuild ended (ADR 0248)
+  // before the restore's stream hand-off reports the groups' recovery.
+  endRecovery: ["mirror", "loudness", "worklet", "musicOps", "replayer"],
   // ADR 0157 §7 as extended by ADR 0162 (S10, K4) and ADR 0171 (§4.2, Mx2, Dp1, Ld2): RESET 0, BUS_CONFIG (slot order,
   // tombstones as silent roots), BED_CONFIG, BUS_DUCK and BUS_PRESENCE, LOUD_CONFIG, the bus lanes (BUS_RAMP), MASTER,
   // LISTENER (snapped), ZONE_CONFIG, then the automation mirror (curves, parameters, bus bindings). Each appends nothing
@@ -86,8 +87,8 @@ export const PHASE_ORDER = {
   // Stream voices reopen (FU2: one stamp for all), then music groups reopen as groups (ADR 0166 P9, C16).
   reopenStreams: ["voices", "musicOps"],
   // No live add waits for a slot (no recycle comes); every voice ends "failed" and the queue empties; nothing waits for
-  // a replay; nothing staged is sent.
-  recoveryFailed: ["deferredAdds", "voices", "replayer", "writer"],
+  // a replay; nothing staged is sent; the music side hears the rebuild ended (ADR 0248).
+  recoveryFailed: ["deferredAdds", "voices", "replayer", "writer", "musicOps"],
   // Queued adds and plays go, the replay's waiting voices go, the listeners and the mixer's hooks are removed, the page's
   // loudness hub is released (if still ours), the music, stream and zone parts close, the link gets its default decoder
   // back, and nothing staged is sent.

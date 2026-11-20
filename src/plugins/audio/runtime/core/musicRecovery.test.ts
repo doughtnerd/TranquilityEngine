@@ -1,13 +1,12 @@
 // ADR 0166 P9: `musicOps`'s half of music recovery on the recording host (`recordingAudio`, ADR 0234; no wasm): `reopenGroups` drops every live group
-// without events (voices freed, rings returned, the worker's groups cancelled, Ê reset) and hands the players to
-// `music/background.ts`; the Replayer hands off once per rebuild even with no member voice; a worker crash is told from
+// without events (voices freed, rings returned, the worker's groups cancelled, Ê reset) and reports a `recover`
+// lifecycle event up the music seam (ADR 0248); the Replayer hands off once per rebuild even with no member voice; a worker crash is told from
 // a stem failure by the decoder's generation and recovered at the next `beginFrame`. The loopback halves are in
 // `musicRecoveryLoopback.test.ts`.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fakeDecoder } from "./fakeDecoder";
-import type { MusicGroupEvent, MusicGroupRequest } from "../backend";
+import type { MusicGroupEvent, MusicGroupRequest, MusicLifecycleEvent } from "../backend";
 import type { PrimeGroupOptions, StreamReply } from "../decoder/decoderClient";
-import * as musicBackground from "../music/background";
 import { closeRecordingAudio, recordingAudio } from "../testing";
 
 /** The prime-latency average's seed before any prime has been measured, ms. */
@@ -49,6 +48,9 @@ function rig(rings = 8) {
   const { backend, clock } = r;
   const events: MusicGroupEvent[] = [];
   backend.music.onGroupEvent = (e) => events.push(e);
+  // ADR 0248: what the core reports up the music seam (the music side decides what to re-plan).
+  const lifecycle: MusicLifecycleEvent[] = [];
+  backend.music.onLifecycle = (e) => lifecycle.push(e);
   for (let k = 0; k < 3; k++) {
     clock.advance(16);
     backend.update(0.016);
@@ -56,7 +58,7 @@ function rig(rings = 8) {
   const failAll = (message: string) => {
     for (const p of primes) for (const m of p.members) for (const l of streamListeners) l({ type: "error", streamId: m.streamId, asset: m.asset, message });
   };
-  return { backend, ops: backend.musicOps, clock, decoder, primes, cancels, closes, events, failAll, status: r.status, rebuild: () => r.rebuild("trap") };
+  return { backend, ops: backend.musicOps, clock, decoder, primes, cancels, closes, events, lifecycle, failAll, status: r.status, rebuild: () => r.rebuild("trap") };
 }
 
 const flush = async () => {
@@ -76,9 +78,8 @@ afterEach(async () => {
 });
 
 describe("musicOps recovery (ADR 0166 P9)", () => {
-  it("reopenGroups drops every group quietly: voices freed, rings back, the worker's groups cancelled, Ê reset, players re-plan", async () => {
+  it("reopenGroups drops every group quietly: voices freed, rings back, the worker's groups cancelled, Ê reset, recovery reported", async () => {
     const r = rig(8);
-    const recover = vi.spyOn(musicBackground, "recoverGroups");
     const a = request(3, 2, 1);
     r.ops.admitGroup(a);
     r.ops.primeGroup(a);
@@ -108,8 +109,7 @@ describe("musicOps recovery (ADR 0166 P9)", () => {
       expect(r.backend.debug().voices.some((x) => x.id === v.id)).toBe(false);
       expect(r.ops.ownsVoice(v.id)).toBe(false);
     }
-    expect(recover).toHaveBeenCalledTimes(1);
-    expect(recover.mock.calls[0]![1]).toBe("rebuild");
+    expect(r.lifecycle).toEqual([{ kind: "recover", cause: "rebuild" }]);
     // No end, error or other event of the dead groups reaches the router.
     r.ops.beginFrame();
     expect(r.events).toEqual([]);
@@ -127,6 +127,8 @@ describe("musicOps recovery (ADR 0166 P9)", () => {
     r.clock.advance(16);
     r.backend.update(0.016);
     expect(reopen).toHaveBeenCalledTimes(1);
+    // The rebuild's begin and end, then the groups' recovery (the music side's beat holds and re-plan, ADR 0248).
+    expect(r.lifecycle).toEqual([{ kind: "rebuild", active: true }, { kind: "rebuild", active: false }, { kind: "recover", cause: "rebuild" }]);
     expect(r.cancels).toEqual([6]);
     expect(r.ops.primedState(6)).toBeNull();
     // Once: the next frame doesn't hand off again.
@@ -138,18 +140,16 @@ describe("musicOps recovery (ADR 0166 P9)", () => {
 
   it("a rebuild at another rate is a `rate` recovery", () => {
     const r = rig(8);
-    const recover = vi.spyOn(musicBackground, "recoverGroups");
     vi.spyOn(r.backend.clockMap, "sampleRate", "get").mockReturnValue(44_100);
     r.ops.reopenGroups();
-    expect(recover.mock.calls[0]![1]).toBe("rate");
     r.ops.reopenGroups();
-    expect(recover.mock.calls[1]![1]).toBe("rebuild");
+    expect(r.lifecycle).toEqual([{ kind: "recover", cause: "rate" }, { kind: "recover", cause: "rebuild" }]);
     r.backend.dispose();
   });
 
   it("a worker crash (every stream fails under a new generation) recovers at the next beginFrame; a stem failure stays an error", async () => {
     const r = rig(8);
-    const recover = vi.spyOn(musicBackground, "recoverGroups");
+    const recovered = () => r.lifecycle.filter((e) => e.kind === "recover");
     const a = request(8, 2, 1);
     r.ops.admitGroup(a);
     r.ops.primeGroup(a);
@@ -159,16 +159,15 @@ describe("musicOps recovery (ADR 0166 P9)", () => {
     r.failAll("bad file");
     r.ops.beginFrame();
     expect(r.events.filter((e) => e.kind === "error")).toHaveLength(2);
-    expect(recover).not.toHaveBeenCalled();
+    expect(recovered()).toEqual([]);
     r.events.length = 0;
     // The worker died: the client retired it (new generation) and failed every stream.
     r.decoder.generation = 2;
     r.failAll("the worker failed; the stream stopped");
-    expect(recover).not.toHaveBeenCalled(); // nothing inside the client's handler
+    expect(recovered()).toEqual([]); // nothing inside the client's handler
     expect(r.ops.debugView().groups).toHaveLength(1);
     r.ops.beginFrame();
-    expect(recover).toHaveBeenCalledTimes(1);
-    expect(recover.mock.calls[0]![1]).toBe("crash");
+    expect(recovered()).toEqual([{ kind: "recover", cause: "crash" }]);
     expect(r.ops.debugView().groups).toEqual([]);
     expect(r.ops.debugView().poolUsed).toBe(0);
     expect(r.events).toEqual([]);

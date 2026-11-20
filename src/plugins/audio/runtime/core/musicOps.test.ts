@@ -20,6 +20,7 @@ import { VoiceState, VoiceTable } from "./voiceTable";
 import { fakeDecoder } from "./fakeDecoder";
 import { closeLoopbackAudio, closeRecordingAudio, endAudioSession, fakeHostClock, loopbackAudio, recordingAudio } from "../testing";
 import { emptySegment } from "../../../../engine/audio/musicFormat";
+import { debugRows } from "../audioRows";
 
 /** The prime-latency average's seed before any prime has been measured, ms. */
 const PRIME_EMA_SEED_MS = 40;
@@ -64,7 +65,7 @@ describe("the core's music seam (ADR 0166 §4.6, Q2)", () => {
     expect(backend.music.primeEmaMs).toBe(40);
     expect(backend.music.primedState(1)).toBeNull();
     expect(backend.music.admitGroup({ instance: 1, group: 1, members: [] }).ok).toBe(false);
-    expect(backend.debug().musicTotals).toBeDefined();
+    expect(debugRows(backend.debug(), backend).musicTotals).toBeDefined(); // ADR 0249: composed above the seam
     expect(backend.musicOps.debugView().groups).toEqual([]);
     backend.dispose();
   });
@@ -699,7 +700,7 @@ describe("a music debug row's pending change", () => {
     const match = { rule: 1, ruleKey: "A>B", tier: 2, parent: null, exit: "nextBar", enter: "start" };
     const t = { to: emptySegment("B"), match, state: "pending", exitAt: Number.NaN, cancelBy: Number.NaN, incoming: null, bridge: null, outgoing: null, after: null, immediate: null } as never;
     beginTransition(player, t);
-    const pending = () => backend.debug().music![0]!.pending;
+    const pending = () => debugRows(backend.debug(), backend).music![0]!.pending;
     for (const state of ["pending", "stamped", "running", "bridging"]) {
       (player.transition as { state: string }).state = state;
       expect(pending()?.to, state).toBe("B");

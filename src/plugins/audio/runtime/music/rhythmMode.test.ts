@@ -1,18 +1,19 @@
 // ADR 0166 Rh1 (api-and-models §1.3, §1.5; architecture §4.6): `Audio.latency` and `Audio.rhythmMode`
 // (`calibration.ts` `audioLatency`, `rhythmModeSetting`) on the fake backend, and the hold of beat callbacks through a
-// recovery (`background.ts` `updateBeatHolds`, the flag K1's `predictDue` honours). The loopback half is
+// recovery (`background.ts` `updateBeatHolds`, the flag K1's `predictDue` honours; the rebuild and recovery arrive as the
+// backend's lifecycle events, ADR 0248). The loopback half is
 // `core/rhythmModeLoopback.test.ts`.
 import { afterEach, describe, expect, it } from "vitest";
 import { mixer } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings } from "../../../../engine/audio/settings";
 import { parseSegmentNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
 import type { EventInstance } from "../events/eventRuntime";
-import { setAudioBackend, type AudioBackend } from "../backend";
-import { makeFakeBackend, endAudioSession } from "../testing";
+import { setAudioBackend } from "../backend";
+import { makeFakeBackend, endAudioSession, type FakeBackend } from "../testing";
 import { Audio } from "../Audio";
 import { audioLatency, rhythmModeSetting } from "./calibration";
 import { createMusicPlayer, type MusicPlayer } from "./musicSystem";
-import { recoverGroups, updateBeatHolds } from "./background";
+import { updateBeatHolds } from "./background";
 import { seatBeats } from "./beatClock";
 import { beginRecovery, commitStart, noteStartHeard, stopPlayer } from "./musicPlayer";
 import { createSegmentRun } from "./segmentRun";
@@ -88,64 +89,82 @@ describe("holding beat callbacks through a recovery (updateBeatHolds, architectu
     }
     return p;
   }
-  /** A backend view: `caps.rhythm` (the core: true; Babylon: false) and the core backend's `isRecovering`. */
-  const backend = (caps: boolean, recovering: boolean) =>
-    ({ music: { caps: { primes: true, stampedFades: true, heardClock: true, rhythm: caps } }, isRecovering: recovering }) as unknown as AudioBackend;
+  /** The installed fake: its music's `caps.rhythm` (the core: true; Babylon: false), and what it reports (ADR 0248). */
+  let b: FakeBackend;
+  function rig(): void {
+    b = makeFakeBackend();
+    setAudioBackend(b);
+  }
+  const rebuild = (active: boolean) => b.music!.report({ kind: "rebuild", active });
+  /** One early step's holds, on a backend with (`caps` true) or without rhythm support. */
+  const holds = (caps = true) => {
+    b.music!.caps = { ...b.music!.caps, rhythm: caps };
+    updateBeatHolds(b.music!);
+  };
 
   it("in rhythm mode: held while the backend rebuilds, until re-planned and stamped", () => {
+    rig();
     rhythm(true);
     const p = player();
     const idle = player({ playing: false }); // nothing playing: nothing to recover
-    updateBeatHolds(backend(true, false));
+    holds();
     expect(p.beats!.held).toBe(false);
-    updateBeatHolds(backend(true, true));
+    rebuild(true);
+    holds();
     expect(p.beats!.held).toBe(true);
     expect(idle.beats!.held).toBe(true); // nothing fires during a rebuild
     // The new core answered, but the players haven't been re-planned yet: still held (not the idle one).
-    updateBeatHolds(backend(true, false));
+    rebuild(false);
+    holds();
     expect(p.beats!.held).toBe(true);
     expect(idle.beats!.held).toBe(false);
     // Re-planned: its own state holds it until the stamp (`recoverPlayer` sets `recovering`, the stamp `committed`).
     stopPlayer(p); // recoverPlayer skips a stopping player: only the awaiting mark goes
-    recoverGroups(backend(true, false), "rebuild");
+    b.music!.report({ kind: "recover", cause: "rebuild" });
     beginRecovery(p);
-    updateBeatHolds(backend(true, false));
+    holds();
     expect(p.beats!.held).toBe(true);
     commitStart(p, p.run!, 0);
-    updateBeatHolds(backend(true, false));
+    holds();
     expect(p.beats!.held).toBe(false);
   });
 
   it("an abandon or crash recovery holds too, while the re-entry is unstamped", () => {
+    rig();
     rhythm(true);
     const p = player();
     beginRecovery(p);
-    updateBeatHolds(backend(true, false));
+    holds();
     expect(p.beats!.held).toBe(true);
   });
 
   it("outside rhythm mode, or on a backend without rhythm support, nothing is held (and an old hold is released)", () => {
+    rig();
     rhythm(false);
     const p = player();
-    updateBeatHolds(backend(true, true));
+    rebuild(true);
+    holds();
     expect(p.beats!.held).toBe(false);
+    rebuild(false);
     beginRecovery(p);
-    updateBeatHolds(backend(true, false));
+    holds();
     expect(p.beats!.held).toBe(false);
     rhythm(true);
-    updateBeatHolds(backend(false, false));
+    holds(false);
     expect(p.beats!.held).toBe(false);
-    updateBeatHolds(backend(true, false));
+    holds();
     expect(p.beats!.held).toBe(true);
     rhythm(false);
-    updateBeatHolds(backend(true, false));
+    holds();
     expect(p.beats!.held).toBe(false);
   });
 
   it("a player not yet predicted (no beat state) is left alone", () => {
     rhythm(true);
+    rig();
     const p = player({ seated: false });
-    updateBeatHolds(backend(true, true));
+    rebuild(true);
+    holds();
     expect(p.beats).toBeNull();
   });
 });

@@ -16,7 +16,7 @@
  * A player is made by the event runtime (P6, `EventInstance.playNode` on a `segment`, `playlist` or `musicSwitch` root)
  * through `createMusicPlayer`, and ends through `disposeMusicPlayer`. `handle.music` finds it with `playerOf`.
  */
-import { isPendingCoreBackend, type AudioBackend, type MusicBackend } from "../backend";
+import { isPendingCoreBackend, onAudioBackendAttached, type AudioBackend, type MusicBackend } from "../backend";
 import { onAudioSessionReleased } from "../audioSession";
 import type { MusicEvent, MusicEventHandle, MusicKind } from "../../../../engine/audio/musicTypes";
 import { GameBehavior } from "../../../../engine/core/Component";
@@ -32,8 +32,7 @@ import { frameIntervalSeconds, planTick, requestStart } from "./planner";
 import { tickLoopTails } from "./loopTail";
 import { tickStingers } from "./stingers";
 import { tickStems } from "./stems";
-import { routeGroupEvent } from "./segmentRun";
-import { updateBeatHolds } from "./background";
+import { bindMusicBackend, updateBeatHolds } from "./background";
 import { predictDue, seatBeats } from "./beatClock";
 import { endPlayer, newMusicPlayer, refuseStart, type MusicPlayer } from "./musicPlayer";
 import { taps } from "../mix/profileTaps";
@@ -66,9 +65,19 @@ interface Subscriptions {
 /** Each live player's subscriptions (made with the player, dropped when it ends). */
 const subs = new WeakMap<MusicPlayer, Subscriptions>();
 
+/**
+ * ADR 0248: what music reads of the backend, and all it reads: the heard time, the clock (horizon, frame interval, frame
+ * map), the clip cache, the backend's automation and the voice path (a loop tail's voice). The music operations come
+ * separately (`MusicFrame.music`); lifecycle moments arrive as events (`music/background.ts`), never as probed fields.
+ */
+export type MusicHost = Pick<AudioBackend, "time" | "clock" | "clipCache" | "automation" | "play">;
+
+/** The host a frame holds before its first step: no clock, nothing plays. */
+const NO_HOST: MusicHost = { time: 0, play: () => null };
+
 /** What a step hands each player's tick. One object, rewritten each frame (nothing allocates per frame). */
 export interface MusicFrame {
-  readonly backend: AudioBackend;
+  readonly backend: MusicHost;
   /** `backend.music`, or null on a backend without music (the player then plays nothing and warns once). */
   readonly music: MusicBackend | null;
   /** This display frame's `Audio.time`, seconds. */
@@ -182,33 +191,32 @@ onAudioSessionReleased(forgetMusicPlayers);
 
 // --- The frame steps -------------------------------------------------------------------------------------------------
 
-const frame = { backend: null as unknown as AudioBackend, music: null as MusicBackend | null, now: 0, dt: 0, hidden: false };
+const frame = { backend: NO_HOST, music: null as MusicBackend | null, now: 0, dt: 0, hidden: false };
 
-function setFrame(backend: AudioBackend, dt: number, hidden: boolean): MusicFrame {
+function setFrame(backend: MusicHost, music: MusicBackend | null, dt: number, hidden: boolean): MusicFrame {
   frame.backend = backend;
-  frame.music = backend.music ?? null;
+  frame.music = music;
   frame.now = backend.time;
   frame.dt = dt;
   frame.hidden = hidden;
   return frame;
 }
 
-let boundGroupEvents: MusicBackend | null = null;
+// ADR 0248: every backend the selector installs reports its group and lifecycle events to the music side.
+onAudioBackendAttached(bindMusicBackend);
 
 /**
  * Step 0, `engine.AudioMusic` (R17; `audioSystem.ts` calls it only in the World that has the view). Nothing without a
  * music player: no `beginFrame`, no allocation.
  */
 export function musicEarlyStep(backend: AudioBackend, dt: number): void {
-  if (players.length === 0 || isPendingCoreBackend(backend)) return; // F-35: see `musicPlanStep`
-  const music = backend.music ?? null;
-  if (music !== null && boundGroupEvents !== music) {
-    // The group and member events reach the players through P1's router (delivered after the status mirror is read).
-    music.onGroupEvent = routeGroupEvent;
-    boundGroupEvents = music;
-  }
+  if (isPendingCoreBackend(backend)) return; // F-35: see `musicPlanStep`
+  // ADR 0248: a backend set without the selector (a rig's own) is bound here, music or not, so what it reports before the
+  // first player (a hide, a rebuild) still arrives; the selector's are bound already. Idempotent, allocates nothing.
+  bindMusicBackend(backend);
+  if (players.length === 0) return;
   beginMusicFrame(backend);
-  dispatchMusic(setFrame(backend, dt, false));
+  dispatchMusic(setFrame(backend, backend.music ?? null, dt, false));
 }
 
 /**
@@ -222,7 +230,7 @@ export function musicEarlyStep(backend: AudioBackend, dt: number): void {
  */
 export function musicPlanStep(backend: AudioBackend, dt: number): void {
   if (players.length === 0 || isPendingCoreBackend(backend)) return;
-  const f = setFrame(backend, dt, false);
+  const f = setFrame(backend, backend.music ?? null, dt, false);
   // In creation order; a player disposed during its own tick leaves the array, so its index is visited again.
   for (let k = 0; k < players.length; k++) {
     const p = players[k]!;
@@ -263,8 +271,8 @@ function noteFirstSegment(player: MusicPlayer): void {
 }
 
 /** P9: the hidden-tab tick's frame (from the STATUS handler, architecture §3.8). */
-export function hiddenFrame(backend: AudioBackend): MusicFrame {
-  return setFrame(backend, 0, true);
+export function hiddenFrame(backend: MusicHost, music: MusicBackend | null): MusicFrame {
+  return setFrame(backend, music, 0, true);
 }
 
 // --- Owners' stubs ---------------------------------------------------------------------------------------------------
@@ -275,7 +283,7 @@ export function hiddenFrame(backend: AudioBackend): MusicFrame {
  */
 export function beginMusicFrame(backend: AudioBackend): void {
   backend.clock?.beginFrame(); // advances the clock map and reads the status mirror (group events go to `onGroupEvent`)
-  updateBeatHolds(backend); // Rh1: rhythm mode holds callbacks through a recovery, before the dispatch
+  updateBeatHolds(backend.music ?? null); // Rh1: rhythm mode holds callbacks through a recovery, before the dispatch
   frameSerial++; // the handles' snapshots are this frame's from here
 }
 

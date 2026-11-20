@@ -12,32 +12,27 @@
 //   metered flags. Values come from `Mixer.laneGain`, targets from the lane's `Ramp.to` (the lane writer's own inputs).
 // - **metered** buses from the loudness hub: the final output (slot `LOUD_OUTPUT_TAP`) first, then the buses chosen in the
 //   project, at most 9 rows.
-// - **events** from the event runtime's rows (the asset is interned into the `events` table, as the sink does), **music** from
-//   the music players (segment and pending segment interned into the `events` table, as `musicTransition` does), and the **mix**
-//   section: the slot table's version, the monitor flag, the paused meters, the target in force, the active snapshot, the master
-//   volume and the hidden-tab mute.
+// - **eventVoices**: each event instance's live voices (the table's group ids), and the **mix** section: the slot table's
+//   version, the monitor flag, the paused meters, the target in force, the active snapshot, the master volume and the
+//   hidden-tab mute. ADR 0249: the event and music rows are composed above the seam (`audioRows.ts`), for every backend.
 //
-// **Allocation (FU5).** Every row (voice, bus, metered, event, music) is pooled and rewritten in place, the five output arrays and the
-// slot flags are reused, and there are no per-keyframe Sets, closures or `?? []` fallbacks: the recorder asks for allocation-free
-// sources; `events().debugRows(listed, out)` refills its own pooled rows too. What still allocates is the strings an event's
-// parameter values hash through.
+// **Allocation (FU5).** Every row (voice, bus, metered) is pooled and rewritten in place, the output arrays, the slot flags
+// and the per-event voice counts are reused, and there are no per-keyframe Sets, closures or `?? []` fallbacks: the recorder
+// asks for allocation-free sources.
 //
 // **Chunk boundary.** The recorder chunk (`capture/format.ts`) is lazy and this file is in every game that uses the core, so it
 // imports the keyframe types only from there; the row layout (caps, codes, flag bits, quantising) is `capture/keyframeLayout.ts`
 // (ADR 0230), which the reader decodes with too.
-import type { KeyframeBus, KeyframeEvent, KeyframeMetered, KeyframeMusic, KeyframePayload, KeyframeVoice } from "../capture/format";
+import type { KeyframeBus, KeyframeMetered, KeyframeVoice } from "../capture/format";
+import type { BackendKeyframe } from "../backend";
 import {
-  KEYFRAME_BUS_LANES, KEYFRAME_MAX_BUSES, KEYFRAME_MAX_EVENTS, KEYFRAME_MAX_METERED, KEYFRAME_MAX_MUSIC, KEYFRAME_MAX_VOICES, KEYFRAME_PITCH_ONE,
-  KeyframeBusFlag, KeyframeMeteredFlag, KeyframeMusicState, KeyframeVoiceState, keyframeAudibility, keyframePitch, keyframeU16,
+  KEYFRAME_BUS_LANES, KEYFRAME_MAX_BUSES, KEYFRAME_MAX_METERED, KEYFRAME_MAX_VOICES, KEYFRAME_PITCH_ONE,
+  KeyframeBusFlag, KeyframeMeteredFlag, KeyframeVoiceState, keyframeAudibility, keyframePitch,
 } from "../capture/keyframeLayout";
 import type { Mixer } from "../../../../engine/audio/mixer";
 import { writeKeyframeBusLanes } from "../mix/keyframeBus";
 import type { SlotTable } from "../../../../engine/audio/slotTable";
-import { events, type EventDebugRow } from "../events/eventRuntime";
 import { loudnessHub, type LoudnessHub } from "../mix/loudnessHub";
-import { ticksToPosition, spanAtTicks } from "../../../../engine/audio/musicGrid";
-import { playingGridOf, ticksAt } from "../music/anchors";
-import { musicPlayers, type MusicPlayerState } from "../music/musicSystem";
 import { LOUD_OUTPUT_TAP } from "../wire.generated";
 import type { ClipInfo } from "./clipRegistry";
 import { STOLEN_LISTED_FRAMES, type DebugSource } from "./debug";
@@ -67,12 +62,6 @@ function busRow(): KeyframeBus {
 function meteredRow(): KeyframeMetered {
   return { slot: 0, flags: 0, momentary: 0, shortTerm: 0, integrated: 0, lra: 0, maxTruePeak: 0, maxMomentary: 0, elapsed: 0 };
 }
-function eventRow(): KeyframeEvent {
-  return { id: 0, asset: 0, voices: 0, state: 0, paramsHash: 0 };
-}
-function musicRow(): KeyframeMusic {
-  return { id: 0, segment: 0, state: 0, pass: 0, bar: 0, beat: 0, tick: 0, tempo: 0, pendingTo: 0, pendingTimeSec: 0 };
-}
 /** The shared empty list for an absent `loudnessTargets` (never `?? []`). */
 const NO_TARGETS: readonly { readonly name: string }[] = Object.freeze([]);
 
@@ -93,38 +82,6 @@ function stateOf(table: VoiceTable, i: number): number {
   }
 }
 
-/** FNV-1a over an event's parameters (sorted by name), so a change shows between two keyframes. */
-function paramsHash(parameters: Readonly<Record<string, number | string>>, keys: string[]): number {
-  let h = 0x811c9dc5;
-  keys.length = 0;
-  for (const key in parameters) if (Object.prototype.hasOwnProperty.call(parameters, key)) keys.push(key);
-  keys.sort();
-  for (let n = 0; n < keys.length; n++) {
-    const key = keys[n]!;
-    const text = `${key}=${parameters[key]}`;
-    for (let k = 0; k < text.length; k++) h = Math.imul(h ^ text.charCodeAt(k), 0x01000193);
-  }
-  return h >>> 0;
-}
-
-function musicStateOf(s: MusicPlayerState): number {
-  switch (s) {
-    case "playing":
-    case "pending":
-      return KeyframeMusicState.playing;
-    case "transitioning":
-      return KeyframeMusicState.transitioning;
-    case "recovering":
-      return KeyframeMusicState.recovering;
-    case "stopping":
-    case "stopped":
-    case "refused":
-      return KeyframeMusicState.ending;
-    default:
-      return KeyframeMusicState.priming;
-  }
-}
-
 /** One keyframe source: owns the pooled rows. `capture.ts` makes one per ring (through `CoreBackend.keyframe`). */
 export class KeyframeSource {
   private readonly voicePool: KeyframeVoice[] = [];
@@ -132,34 +89,25 @@ export class KeyframeSource {
   private readonly voices: KeyframeVoice[] = [];
   private readonly buses: KeyframeBus[] = [];
   private readonly meteredPool: KeyframeMetered[] = [];
-  private readonly eventsPool: KeyframeEvent[] = [];
-  private readonly musicPool: KeyframeMusic[] = [];
   private readonly meteredOut: KeyframeMetered[] = [];
-  private readonly eventsOut: KeyframeEvent[] = [];
-  private readonly musicOut: KeyframeMusic[] = [];
-  /** The parameter names `paramsHash` sorts in place. */
-  private readonly keys: string[] = [];
   /** Slot flags of the metered buses (grown with the slot table). */
   private meteredFlags = new Uint8Array(KEYFRAME_MAX_BUSES);
+  /** Each event instance's live voices (`BackendKeyframe.eventVoices`), refilled per keyframe. */
   private readonly listed = new Map<number, number>();
-  /** The event runtime's pooled debug rows, refilled per keyframe. */
-  private readonly debugOut: EventDebugRow[] = [];
   private readonly auto = { gain: 1, pitch: 1, lowpass: 0 };
-  private readonly payload: { -readonly [K in keyof KeyframePayload]: KeyframePayload[K] } = {
-    voices: this.voices, buses: this.buses, metered: this.meteredOut, events: this.eventsOut, music: this.musicOut,
+  private readonly payload: { -readonly [K in keyof BackendKeyframe]: BackendKeyframe[K] } = {
+    voices: this.voices, buses: this.buses, metered: this.meteredOut, eventVoices: this.listed,
     mix: { slotTableVersion: 0, monitorActive: 0, loudnessPausedMask: 0, targetIndex: 0, snapshotName: 0, masterVolume: 1, hiddenMute: 0 },
   };
 
   constructor(private readonly host: KeyframeHost, private readonly hub: Pick<LoudnessHub, "busLoudness"> & { readonly target: string | null } = loudnessHub) {}
 
   /** The payload at this instant (the object and its rows are reused by the next call). `noName` is the id for none. */
-  read(nameId: KeyframeNameId, noName: number): KeyframePayload {
+  read(nameId: KeyframeNameId, noName: number): BackendKeyframe {
     const p = this.payload;
     this.readVoices(nameId, noName);
     this.readBuses();
     this.readMetered();
-    this.readEvents(nameId);
-    this.readMusic(nameId, noName);
     const m = this.host.mixer;
     const mix = p.mix;
     mix.slotTableVersion = this.host.buses.slots.version >>> 0;
@@ -344,58 +292,4 @@ export class KeyframeSource {
       if (slot >= 0 && this.isMetered(slot)) this.meteredRow(slot, name);
     }
   }
-
-  private readEvents(nameId: KeyframeNameId): void {
-    const out = this.eventsOut;
-    out.length = 0;
-    // Pooled: the event runtime refills `debugOut` with its own reused row objects (nothing built per keyframe).
-    const rows = events().debugRows(this.listed, this.debugOut);
-    for (let i = 0; i < rows.length; i++) {
-      const e = rows[i]!;
-      if (out.length >= KEYFRAME_MAX_EVENTS) break;
-      const row = (this.eventsPool[out.length] ??= eventRow());
-      row.id = e.id >>> 0;
-      row.asset = nameId("events", e.asset);
-      row.voices = Math.min(0xffff, e.voices);
-      row.state = 0;
-      row.paramsHash = paramsHash(e.parameters, this.keys);
-      out.push(row);
-    }
-  }
-
-  private readMusic(nameId: KeyframeNameId, noName: number): void {
-    const out = this.musicOut;
-    out.length = 0;
-    const players = musicPlayers();
-    if (players.length === 0) return;
-    const time = this.host.mixer.time; // the heard clock (`Audio.time`'s base)
-    for (let i = 0; i < players.length; i++) {
-      const p = players[i]!;
-      if (out.length >= KEYFRAME_MAX_MUSIC) break;
-      const a = p.anchor;
-      const pg = a ? playingGridOf(a) : null;
-      let bar = 1, beat = 1, tick = 0, tempo = 0;
-      if (a && pg) {
-        const ticks = ticksAt(a, time);
-        const pos = Number.isFinite(ticks) ? ticksToPosition(pg.grid, ticks) : null;
-        if (pos) { bar = pos.bar; beat = pos.beat; tick = pos.tick; }
-        tempo = pg.grid.bpm[spanAtTicks(pg.grid, Number.isFinite(ticks) ? ticks : 0)]!;
-      }
-      const t = p.transition;
-      const pending = t && t.match && t.state !== "done" && t.state !== "cancelled";
-      const row = (this.musicPool[out.length] ??= musicRow());
-      row.id = p.instance.group >>> 0;
-      row.segment = p.run ? nameId("events", p.run.node.id) : noName;
-      row.state = musicStateOf(p.state);
-      row.pass = Math.min(255, Math.max(0, a?.pass ?? 1));
-      row.bar = keyframeU16(bar);
-      row.beat = Math.min(255, Math.max(0, beat));
-      row.tick = Math.min(255, Math.max(0, Math.round(tick)));
-      row.tempo = keyframeU16(tempo);
-      row.pendingTo = pending ? nameId("events", t.to.id) : noName;
-      row.pendingTimeSec = pending && Number.isFinite(t.exitAt) ? Math.fround(t.exitAt) : 0;
-      out.push(row);
-    }
-  }
 }
-

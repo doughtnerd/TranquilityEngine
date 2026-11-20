@@ -161,7 +161,14 @@ async function rig(startInRhythm: boolean) {
   /** Left samples by their frame on the context that rendered them (a new context restarts at 0: `ctx` says which). */
   const out: { v: number; frame: number; ctx: number }[] = [];
   let ctxIndex = 0;
-  host.addLifecycleListener({ onContextReplaced: () => void ctxIndex++ });
+  /** Between the host's rebuild start and its end (or failure). */
+  let rebuildingNow = false;
+  host.addLifecycleListener({
+    onContextReplaced: () => void ctxIndex++,
+    onRebuildStart: () => void (rebuildingNow = true),
+    onRebuilt: () => void (rebuildingNow = false),
+    onRecoveryFailed: () => void (rebuildingNow = false),
+  });
   const fired: Fired[] = [];
   /** Frames (by `Audio.time`) the backend spent rebuilding, and whether beats were held then. */
   const rebuilding: { now: number; held: boolean }[] = [];
@@ -178,7 +185,7 @@ async function rig(startInRhythm: boolean) {
       musicEarlyStep(backend, dt);
       if (beatsOf) {
         const now = backend.time;
-        if (backend.isRecovering) rebuilding.push({ now, held: beatsOf.beats!.held });
+        if (rebuildingNow) rebuilding.push({ now, held: beatsOf.beats!.held });
         if (predictDue(beatsOf, "beat", now, dt, ev)) fired.push({ time: ev.time, now, missed: ev.missed, bar: ev.bar, beat: ev.beat });
       }
       musicPlanStep(backend, dt);
