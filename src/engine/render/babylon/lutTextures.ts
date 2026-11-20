@@ -36,7 +36,8 @@ export class BabylonLuts {
       this.entries.set(key, entry);
       e = entry;
       Promise.resolve()
-        .then(() => Assets.text(key))
+        .then(() => Assets.bytes(key))
+        .then((bytes) => new TextDecoder().decode(bytes))
         .then((text) => {
           const lut = parseCubeLut(text, key);
           for (const p of lut.problems) console.warn(`[myco] ${p}`);

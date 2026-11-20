@@ -21,6 +21,8 @@ import {
   isSpawnableName,
   linkableNames,
   lobbyLinks,
+  serverRoles,
+  type ServerRole,
   mentions,
   nameOf,
   remove,
@@ -230,6 +232,7 @@ function Graph(props: { model: WorldsModel; problems: GroupedProblems; selected:
   const liveLabel = (l: LiveLink & { count: number }) =>
     (l.state === "open" ? "connected" : l.state === "handshake" ? "connecting…" : "closed") + (l.count > 1 ? ` ×${l.count}` : "");
   const implied = lobbyLinks(model);
+  const roles = serverRoles(model);
   const links: LayoutLinkIn[] = [
     ...model.links.map((l) => ({ from: l.from, to: l.to, label: l.transport })),
     ...implied.map((l) => ({ from: l.from, to: l.to, label: l.label })),
@@ -298,6 +301,7 @@ function Graph(props: { model: WorldsModel; problems: GroupedProblems; selected:
                 tags={tagsOf(w)}
                 rate={w.tickRate ?? defaultRate}
                 badges={[renders ? "renders" : null, w.input ?? renders ? "input" : null]}
+                role={roles.worlds[i]}
                 selected={isSelected(ref)}
                 invalid={problems.worlds.has(i)}
                 onSelect={() => onSelect(ref)}
@@ -317,6 +321,7 @@ function Graph(props: { model: WorldsModel; problems: GroupedProblems; selected:
                 tags={tagsOf(t.config)}
                 rate={t.config.tickRate ?? defaultRate}
                 badges={[t.config.renders ? "renders" : null, t.config.input ?? t.config.renders ? "input" : null]}
+                role={roles.templates[i]}
                 selected={isSelected(ref)}
                 invalid={problems.templates.has(t.key)}
                 onSelect={() => onSelect(ref)}
@@ -349,12 +354,14 @@ function GraphNode(props: {
   tags: readonly WorldTag[];
   rate: number;
   badges: (string | null)[];
+  /** Its network role from the bootstrap topology (ADR 0256), if any. */
+  role?: ServerRole | null;
   template?: boolean;
   selected: boolean;
   invalid: boolean;
   onSelect: () => void;
 }) {
-  const { x, y, name, tags, rate, badges, template, selected, invalid, onSelect } = props;
+  const { x, y, name, tags, rate, badges, role, template, selected, invalid, onSelect } = props;
   return (
     <div
       class={`worlds-node${template ? " template" : ""}${selected ? " selected" : ""}${invalid ? " invalid" : ""}`}
@@ -384,6 +391,11 @@ function GraphNode(props: {
         {template && (
           <span class="worlds-node-tag" title={SPAWNABLE_HINT}>
             spawnable
+          </span>
+        )}
+        {role && (
+          <span class="worlds-node-role" title={role.title}>
+            {role.label}
           </span>
         )}
         <span>{badges.filter(Boolean).join(" · ")}</span>

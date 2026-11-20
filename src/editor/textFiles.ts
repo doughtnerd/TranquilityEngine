@@ -4,6 +4,7 @@
 // what `Assets` serves, so documents hot-reload) are queued per file and coalesced, so a drag that
 // rewrites a file every frame costs at most one write in flight plus the latest text waiting.
 import { Assets } from "../engine/scene/Assets";
+import { projectFileKind } from "../engine/scene/projectFiles";
 import type { TextFileHost } from "./document";
 import { errorStatus } from "./messages";
 import type { EditorProject } from "./projects";
@@ -25,8 +26,7 @@ class ProjectTextFiles implements TextFileHost {
     const text = project?.textOf(path);
     if (text !== undefined) return text;
     if (project && !project.files.includes(path)) return null;
-    const value = Assets.has(path) ? Assets.get(path) : undefined;
-    return typeof value === "string" ? value : null;
+    return Assets.has(path) && projectFileKind(path) === "text" ? Assets.text(path) : null;
   }
 
   write(path: string, text: string): void {

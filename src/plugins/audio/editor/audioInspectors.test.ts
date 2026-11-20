@@ -17,7 +17,6 @@ import { viewportTools } from "../../../editor/sdk/contributions";
 import type { EditorOverlay } from "../../../engine/editor";
 import { AMBISONIC_IGNORED_FIELDS, analyzeOccluder, blendColor, describeCost, materialTint, occluderCost, physics3dAvailable, sendCurveOf, zoneCostLine, zoneNotices, zoneReverbLine } from "./audioInspectorModel";
 import { audioSettings } from "./audioDraft";
-import { dragGroup, writeField } from "./inspectorWrite";
 
 const OCC = "engine.AudioOccluder";
 const BOX = "engine.BoxCollider";
@@ -238,36 +237,6 @@ describe("audio inspector sections", () => {
       expect(sendCurveOf(undefined)).toEqual([[0, 1], [1, 0.5]]);
       expect(sendCurveOf([])).toEqual([[0, 1], [1, 0.5]]);
       expect(sendCurveOf([[1, 0], [0, 2, "smooth"], ["x", 1]])).toEqual([[0, 2], [1, 0]]);
-    });
-  });
-
-  describe("writing fields with undo", () => {
-    it("writes the send curve and openness as undo steps; a drag group is one step", () => {
-      const src = node([["engine.AudioSource"]]);
-      const target = { scene: src.scene, path: [src.id], type: "engine.AudioSource", index: 0 };
-      const live = () => src.scene.sync.nodeFor(src.id)!.getBehavior(AudioSource)!;
-      writeField(target, "reverbSendCurve", [[0, 1], [1, 0.25]]);
-      expect(live().reverbSendCurve).toEqual([[0, 1], [1, 0.25]]);
-      src.scene.stack.undo();
-      expect(live().reverbSendCurve).toEqual([[0, 1], [1, 0.5]]);
-      src.scene.stack.redo();
-      expect(live().reverbSendCurve).toEqual([[0, 1], [1, 0.25]]);
-
-      const wall = node([[OCC]]);
-      const t = { scene: wall.scene, path: [wall.id], type: OCC, index: 0 };
-      const openness = () => wall.scene.sync.nodeFor(wall.id)!.getBehavior(AudioOccluder)!.openness;
-      const group = dragGroup(wall.scene, "Drag openness");
-      group.onPointerDownCapture();
-      group.onPointerDownCapture(); // a second press while open changes nothing
-      for (const v of [0.2, 0.5, 0.9]) writeField(t, "openness", v);
-      group.onPointerUp();
-      group.onPointerUp(); // closing twice is harmless
-      expect(openness()).toBe(0.9);
-      expect(wall.scene.stack.undoLabel).toBe("Drag openness");
-      wall.scene.stack.undo();
-      expect(openness()).toBe(0);
-      wall.scene.stack.redo();
-      expect(openness()).toBe(0.9);
     });
   });
 });

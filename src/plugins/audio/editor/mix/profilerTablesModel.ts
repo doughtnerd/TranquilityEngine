@@ -6,11 +6,11 @@
 //     section, which names the parent of each bus by name) and the music rows (the keyframe's, with `musicTransition`
 //     events after it applied).
 // No DOM: the tests drive it directly.
-import type { CaptureKeyframe, CaptureSeekState } from "../../runtime/capture/reader";
+import type { CaptureKeyframe, CaptureNames, CaptureSeekState } from "../../runtime/capture/reader";
 import { audioSection } from "../../../../engine/audio/audioSection";
 import { chooseEmptyState } from "./emptyStates";
 import { busFactors, formatDb, treeProducts, type BusFactors } from "./busFactorsModel";
-import { nameFilter, type NameLookup, type VoiceRow } from "./voiceTableModel";
+import { nameFilter, type VoiceRow } from "./voiceTableModel";
 
 // --- voice row cells ---------------------------------------------------------------------------------------------------
 
@@ -76,23 +76,22 @@ export interface BusRow extends BusFactors {
   treeText: string;
 }
 
-/** Slot to parent slot, from the capture's META audio section (buses name their parent) and the capture's bus names. Unknown or absent parents are roots. */
-export function busParents(audio: unknown, busNames: Iterable<readonly [number, string]>): Map<number, number | null> {
-  const slotOf = new Map<string, number>();
-  for (const [slot, name] of busNames) slotOf.set(name, slot);
+/** Slot to parent slot at axis time `t`: the capture's META audio section names each bus's parent, and the capture's names at `t` give each name's slot. Unknown or absent parents are roots. */
+export function busParents(audio: unknown, names: CaptureNames, t: number): Map<number, number | null> {
   const parents = new Map<number, number | null>();
   for (const b of audioSection(audio ?? undefined).settings.buses) {
-    const slot = slotOf.get(b.name);
+    const slot = names.slotOf(b.name, t);
     if (slot === undefined) continue;
-    parents.set(slot, b.parent === undefined ? null : (slotOf.get(b.parent) ?? null));
+    parents.set(slot, b.parent === undefined ? null : (names.slotOf(b.parent, t) ?? null));
   }
   return parents;
 }
 
-/** The bus rows at a keyframe (in its order), filtered by bus name. A bus the names don't cover reads "bus <slot>". */
+/** The bus rows at a keyframe (in its order), named as at axis time `t`, filtered by bus name. */
 export function busTableRows(
   keyframe: Pick<CaptureKeyframe, "buses"> | null,
-  names: NameLookup,
+  names: CaptureNames,
+  t: number,
   parents: ReadonlyMap<number, number | null>,
   filter = "",
 ): BusRow[] {
@@ -102,10 +101,10 @@ export function busTableRows(
   const match = nameFilter(filter);
   const rows: BusRow[] = [];
   for (const f of factors) {
-    const name = names.bus(f.slot) ?? `bus ${f.slot}`;
+    const name = names.bus(f.slot, t);
     if (!match(name)) continue;
-    const t = tree.get(f.slot)!;
-    rows.push({ ...f, name, tree: t.tree, treeDb: t.treeDb, productText: formatDb(f.productDb), treeText: formatDb(t.treeDb) });
+    const g = tree.get(f.slot)!;
+    rows.push({ ...f, name, tree: g.tree, treeDb: g.treeDb, productText: formatDb(f.productDb), treeText: formatDb(g.treeDb) });
   }
   return rows;
 }
@@ -126,8 +125,8 @@ export interface MusicRow {
 }
 
 /** The music instances at `state`'s instant: the keyframe's rows with each `musicTransition` after it moving the instance to its new segment (args `instance, from, to`). Filtered by segment name. */
-export function musicRows(state: CaptureSeekState, eventName: (id: number) => string | undefined, filter = ""): MusicRow[] {
-  const nameOf = (id: number | null): string => (id === null ? "none" : (eventName(id) ?? `segment ${id}`));
+export function musicRows(state: CaptureSeekState, names: CaptureNames, filter = ""): MusicRow[] {
+  const nameOf = (id: number | null): string => (id === null ? "none" : names.event(id, state.seconds));
   const rows = new Map<number, MusicRow>();
   for (const m of state.keyframe?.music ?? []) {
     rows.set(m.id, {

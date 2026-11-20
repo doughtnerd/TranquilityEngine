@@ -17,7 +17,7 @@
 //! offsets across the quantum (54 cases). The rebase across a hold is in `gate_held.rs`.
 //!
 //! `a_parked_step_fade_lands_at_the_late_start_plus_its_offset` is also a fixture
-//! (`golden/gate-rebased.json`, replayed on the real wasm by `audioGoldenGate.test.ts`).
+//! (`golden/gate/gate-rebased.json`, replayed on the real wasm by `audioGoldenGate.test.ts`).
 
 mod gate_common;
 

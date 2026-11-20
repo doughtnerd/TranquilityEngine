@@ -8,28 +8,14 @@
 // rendered in its last STATUS block's `busDuck`. `level-null` (level rules over their trigger's level) and its `twin`
 // (`level-null-plain`, the same scene with no rule) share one digest.
 //
-// The format and the renderer are G1's (`audioGoldenM5.test.ts`, whose renderer this repeats rather than importing that test
-// file and running its suite twice).
+// The format and the replay are Z3's with G1's additions (`golden/replay.ts`).
 
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { createLoopbackHost, LOOPBACK_PRESET, type LoopbackHost } from "../testing";
-import { Kind, writeBatchHeader, writeClipBegin, writeClipChunk, writeEnvelope } from "../wire.generated";
 import { maxStep } from "./maxStep";
+import { fnv1a64, goldenNames, replayFixture, requireFixture, type Fixture } from "./replay";
 
-const DIR = fileURLToPath(new URL("./m5/sidechain/", import.meta.url));
-
-interface SidechainFixture {
-  readonly scene: string;
-  readonly about: string;
-  readonly preset: { readonly maxLogical: number; readonly maxMixed: number; readonly maxBuses: number; readonly limiterLookaheadMs: number };
-  readonly clips: readonly { readonly id: number; readonly frames: number; readonly fill: "dc"; readonly value: number }[];
-  readonly steps: readonly ({ readonly send: string; readonly count: number; readonly firstFrame?: number } | { readonly run: number })[];
-  readonly frames: number;
-  readonly fnv1a64: string;
+interface SidechainFixture extends Fixture {
   readonly splits: { readonly splitQuanta: number; readonly voiceSplits: number };
-  readonly null?: { readonly maxError: number; readonly tolerance: number; readonly from: number; readonly to: number };
   readonly ds0?: readonly (readonly [number, number, number])[];
   readonly busDuck?: { readonly slot: number; readonly level: number };
   /** The scene this one's digest must equal (`level-null`'s no-rule twin). */
@@ -41,63 +27,14 @@ const NULL = "level-null";
 const PLAIN = "level-null-plain";
 
 function read(name: string): SidechainFixture {
-  const path = `${DIR}${name}.json`;
-  if (!existsSync(path)) throw new Error(`no golden/m5/sidechain/${name}.json: run UPDATE_GOLDENS=1 cargo test -p audio-core --test sidechain_goldens (native/audio)`);
-  return JSON.parse(readFileSync(path, "utf8")) as SidechainFixture;
-}
-
-/** FNV-1a 64 over `left`'s f32 bytes then `right`'s, as 16 lowercase hex digits (Z3's digest). */
-function fnv1a64(left: Float32Array, right: Float32Array): string {
-  let h = 0xcbf29ce484222325n;
-  for (const part of [left, right]) {
-    const bytes = new Uint8Array(part.buffer, part.byteOffset, part.byteLength);
-    for (let i = 0; i < bytes.length; i++) h = ((h ^ BigInt(bytes[i]!)) * 0x100000001b3n) & 0xffffffffffffffffn;
-  }
-  return h.toString(16).padStart(16, "0");
-}
-
-/** Replays the fixture on a loopback host (DC clips as CLIP_BEGIN + one CLIP_CHUNK; steps as BATCHes). */
-async function render(fixture: SidechainFixture): Promise<{ readonly left: Float32Array; readonly right: Float32Array; readonly host: LoopbackHost }> {
-  const host = await createLoopbackHost({ preset: { ...LOOPBACK_PRESET, ...fixture.preset } });
-  let seq = 1;
-  for (const clip of fixture.clips) {
-    const begin = new ArrayBuffer(16 + 20);
-    writeEnvelope(new DataView(begin), 0, { kind: Kind.CLIP_BEGIN, seq: seq++, bodyBytes: 20 });
-    writeClipBegin(new DataView(begin), 0, { clipId: clip.id, frames: clip.frames, channels: 1, sampleRate: 48_000, format: 0 });
-    host.send(begin);
-    const samples = new Float32Array(clip.frames).fill(clip.value);
-    const chunk = new ArrayBuffer(32 + samples.byteLength);
-    writeEnvelope(new DataView(chunk), 0, { kind: Kind.CLIP_CHUNK, seq: seq++, bodyBytes: 16 + samples.byteLength });
-    writeClipChunk(new DataView(chunk), 0, { clipId: clip.id, frameOffset: 0, frames: clip.frames, reserved: 0 });
-    new Uint8Array(chunk, 32).set(new Uint8Array(samples.buffer));
-    host.send(chunk);
-  }
-  const left = new Float32Array(fixture.frames);
-  const right = new Float32Array(fixture.frames);
-  let at = 0;
-  for (const step of fixture.steps) {
-    if ("run" in step) {
-      const out = host.renderQuanta(step.run);
-      left.set(out.left, at);
-      right.set(out.right, at);
-      at += out.left.length;
-      continue;
-    }
-    const bytes = Uint8Array.from(step.send.match(/../g) ?? [], (b) => parseInt(b, 16));
-    const buffer = new ArrayBuffer(32 + bytes.length);
-    writeEnvelope(new DataView(buffer), 0, { kind: Kind.BATCH, seq: seq++, bodyBytes: 16 + bytes.length });
-    writeBatchHeader(new DataView(buffer), 0, { firstFrame: step.firstFrame ?? host.frame, count: step.count, flags: 0 });
-    new Uint8Array(buffer, 32).set(bytes);
-    host.send(buffer);
-  }
-  expect(at, `${fixture.scene}: frames rendered`).toBe(fixture.frames);
-  return { left, right, host };
+  return requireFixture<SidechainFixture>("m5/sidechain", name, "cargo test -p audio-core --test sidechain_goldens (native/audio)");
 }
 
 /** Digest, split counters (STATUS after 6 more quanta), DS0's windows and the busDuck reading; returns the wasm digest. */
 async function checkScene(name: string): Promise<string> {
   const fixture = read(name);
-  const { left, right, host } = await render(fixture);
+  const { left, right, host } = await replayFixture(fixture);
+  expect(left.length, `${name}: frames rendered`).toBe(fixture.frames);
   expect(left.every(Number.isFinite) && right.every(Number.isFinite), `${name}: finite`).toBe(true);
   const digest = fnv1a64(left, right);
   expect(digest, `${name}: wasm digest ${digest} != native ${fixture.fnv1a64}`).toBe(fixture.fnv1a64);
@@ -157,12 +94,7 @@ describe("Sidechain goldens (Gs1): native equals wasm", () => {
     expect(digests.has(read(NULL).fnv1a64)).toBe(false);
   });
 
-  it("golden/m5/sidechain/ holds no fixture without a case", () => {
-    const names = readdirSync(DIR)
-      .filter((f) => f.endsWith(".json"))
-      .map((f) => f.slice(0, -".json".length));
-    const known: readonly string[] = [...DUCKS, NULL, PLAIN];
-    expect(names.length).toBe(known.length);
-    for (const name of names) expect(known, `m5/sidechain/${name}.json has no case`).toContain(name);
+  it("golden/m5/sidechain/ holds exactly the cases", () => {
+    expect(goldenNames("m5/sidechain")).toEqual([...DUCKS, NULL, PLAIN].sort());
   });
 });

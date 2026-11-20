@@ -30,9 +30,11 @@ const bus = (slot: number, { authored = 1, ...over }: Partial<CaptureKeyframeBus
     authoredMute: false, runtimeMute: false, monitorMute: false, monitorSolo: false, tombstone: false, metered: false, ...over,
   };
 };
+/** A META names table as the summary's log: each name held from the start. */
+const fromStart = (m: Map<number, string> | undefined) => [...(m ?? [])].map(([id, name]) => [id, name, -Infinity] as const);
 /** A source with these names that never answers a seek (the region asks for one only when it has none). */
 const sourceOf = (names: { buses?: Map<number, string>; events?: Map<number, string> }, audio?: unknown): ProfileSource =>
-  ({ summary: { names: { clips: new Map(), buses: names.buses ?? new Map(), events: names.events ?? new Map() }, meta: audio === undefined ? {} : { audio } }, truncated: false, startSeconds: 0, seek: () => new Promise(() => {}) }) as unknown as ProfileSource;
+  ({ summary: { names: { clips: [], buses: fromStart(names.buses), events: fromStart(names.events), parameters: [], snapshots: [], targets: [] }, meta: audio === undefined ? {} : { audio } }, truncated: false, startSeconds: 0, seek: () => new Promise(() => {}) }) as unknown as ProfileSource;
 const CURSOR = { mode: "paused", time: 0, revision: 0 } as TablesSlotProps["cursor"];
 
 // ---- reading the region ----

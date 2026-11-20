@@ -10,7 +10,7 @@ import { expandParticleGraph, outputTypeResolved, portRateResolved } from "../..
 import { compileParticleGraph } from "../../../../../engine/scene/particleCompile";
 import type { ContextKind, GraphGroup, GraphNode, GraphProblem, ParticleGraph, Vec2 } from "../../../../../engine/scene/particleGraph";
 import type { PortType } from "../../../../../engine/scene/particleNodes";
-import { usePanelHistory, type UndoHistory, editor, NO_DRAG, NO_PAN, NoteView, NodeSearchPopup, Minimap, SelectionBox, isFieldTarget, px, startConnection, startPointerDrag, toGraph, useGraphCanvas, useGraphSelection, type CanvasNode, type DraftWire, type Point, type EditorProject } from "../../../../../editor/sdk";
+import { usePanelHistory, type UndoHistory, editor, NO_DRAG, NO_PAN, NoteView, NodeSearchPopup, Minimap, SelectionBox, GraphFindBox, WireRefusal, px, startPointerDrag, toGraph, useGraphCanvas, useGraphFind, useGraphSearch, useGraphSelection, useGraphWiring, type CanvasNode, type Point, type EditorProject } from "../../../../../editor/sdk";
 import { effectFileMigrated, particleDocument } from "../../particleAssets";
 import { ASSET_INPUT, BLOCK_CONTEXTS, addPseudoNode, assetMeta, assetToDoc, canMoveToAsset, editorNodeDef, extractSubgraph, isPseudo, setAssetMeta, wireRulesGraph } from "../../particleGraph/assetDocs";
 import {
@@ -24,10 +24,10 @@ import {
   moveBlock,
   moveItems,
   particleGraphEdits,
+  particleWiring,
   removeBlock,
   collapsedSystems,
   setSystemCollapsed,
-  sourceOf,
   splitRef,
   whyNotWire,
 } from "../../particleGraph/graphEdit";
@@ -37,8 +37,8 @@ import { GraphEditorContext, type BlockDrop, type GraphEditorApi } from "./edito
 import { NODE_WIDTH, SYSTEM_WIDTH, canvasNode, measureCanvas, sameMeasure, type Measured } from "./layout";
 import { NodeView } from "./NodeView";
 import { ParticleGraphPreview } from "./PreviewPane";
-import { assetCanvasItems, blockItems, canvasItems, nodeItems, type GraphSearchItem } from "./search";
-import { SystemView, type DragHooks } from "./SystemView";
+import { assetCanvasItems, blockItems, canvasItems, nodeItems, particleFindItems, type GraphSearchItem } from "./search";
+import { SystemView } from "./SystemView";
 import { Wires, type WireSelection } from "./Wires";
 import "../../../../../editor/graph/graph.css";
 import "./particleGraph.css";
@@ -68,11 +68,6 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
   useEffect(() => () => void doc.flush(), [doc]); // write a pending gesture's edits when the panel closes
   const [selectedBlock, setSelectedBlock] = useState<string | null>(null);
   const [selectedWire, setSelectedWire] = useState<WireSelection | null>(null);
-  const [dragging, setDragging] = useState<Map<string, Point> | null>(null);
-  const [draft, setDraft] = useState<DraftWire | null>(null);
-  const [detached, setDetached] = useState<string | null>(null);
-  const [hint, setHint] = useState<string | null>(null);
-  const [search, setSearch] = useState<{ at: Point; target: SearchTarget; pending: Pending } | null>(null);
   const [blockDrag, setBlockDrag] = useState<{ key: string; drop: BlockDrop | null } | null>(null);
   const [maximized, setMaximized] = useState(false);
   const [showMinimap, setShowMinimap] = useState(true);
@@ -82,17 +77,19 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
   const [measured, setMeasured] = useState<Map<string, Measured>>(new Map());
 
   const root = useRef<HTMLDivElement>(null);
-  // Selection, box select and the shared shortcuts (ADR 0228); a selected wire or block is this panel's own.
+  // Selection, box select, item drags and the shared shortcuts (ADR 0228, 0259); a selected wire or block is this panel's own.
   const keys = useGraphSelection({
     edits: particleGraphEdits,
     graph: () => doc.value.peek(),
     commit: (next) => commit(next),
+    move: moveItems,
     readOnly,
     root,
     canvas: () => canvas,
     nodes: () => live.current.nodes,
-    paneIgnore: ".pg-system, .pg-node, .sg-search, .sg-wire-hit, .sg-note, .sg-group-head, .sg-minimap, .pg-previewcard, .pg-popover",
+    paneIgnore: ".pg-system, .pg-node, .sg-search, .sg-find, .sg-wire-hit, .sg-note, .sg-group-head, .sg-minimap, .pg-previewcard, .pg-popover",
     openSearch: () => openSearchAtPointer(),
+    openFind: () => find.open(),
     deleteOther: () => {
       const g = doc.value.peek();
       if (selectedWire) {
@@ -111,25 +108,22 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
       if (!(e.target as Element).closest(".pg-block")) setSelectedBlock(null);
     },
     onPaneDown: () => {
-      setSearch(null);
+      search.dismiss();
       setSelectedWire(null);
       setSelectedBlock(null);
       setProblemsOpen(false);
     },
     onEscape: () => {
-      setSearch(null);
+      search.dismiss();
       setSelectedBlock(null);
       setSelectedWire(null);
       setProblemsOpen(false);
     },
   });
-  const { selection, setSelection, box } = keys;
+  const { selection, setSelection, box, dragging } = keys;
   const viewport = useRef<HTMLDivElement>(null);
-  const flowId = useMemo(() => `pg${Math.random().toString(36).slice(2, 8)}`, []);
   /** A pointer gesture or colour pick in progress: its edits coalesce into one undo step (written when it ends). */
   const gesture = useRef({ pointer: false, color: false });
-  /** Why the wire being drawn can't end at the port under the pointer (set while xyflow checks it). */
-  const refusal = useRef<string | null>(null);
 
   const collapsed = useMemo(() => collapsedSystems(graph), [graph]);
   /** Reads a project asset's JSON by `asset:` reference (sub-graph and custom block ports come from these). */
@@ -177,10 +171,10 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
       if (target.closest(".pg-node, .pg-previewcard, .pg-popover")) return;
       e.preventDefault();
       const ctx = target.closest<HTMLElement>("[data-context]");
-      openSearch(at, ctx ? contextTarget(ctx) : { kind: "canvas" }, null);
+      search.open(at, { target: ctx ? contextTarget(ctx) : { kind: "canvas" }, pending: null });
     },
   });
-  const { pane, paneApi, view, paneSize, panBy, paneCenter, frameAll } = canvas;
+  const { pane, paneApi, view, paneSize, paneCenter, frameAll } = canvas;
 
   // xyflow and the drags read the latest state through these (the graph: the document's, edits included).
   const live = useRef({ get graph() { return doc.value.peek(); }, nodes: canvasNodes });
@@ -311,28 +305,20 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
     return { kind: "context", system, context, output: Number(output ?? 0) };
   };
 
-  const openSearch = (at: Point, target: SearchTarget, pending: Pending) => {
-    if (readOnly) return;
-    const w = pane.current?.clientWidth ?? 600, h = pane.current?.clientHeight ?? 400;
-    setSearch({ at: { x: Math.max(4, Math.min(at.x, w - 250)), y: Math.max(4, Math.min(at.y, h - 330)) }, target, pending });
-  };
+  /** The search: where it opened, what it adds to (the canvas or a context), and the port a dropped wire connects the new node to. */
+  const search = useGraphSearch<{ target: SearchTarget; pending: Pending }>({ pane: canvas.pane, root, readOnly });
 
   /** Space: the search for what's under the pointer (a context's blocks, or the canvas). */
   const openSearchAtPointer = () => {
     const at = canvas.pointer.current ?? paneCenter();
     const r = pane.current!.getBoundingClientRect();
     const ctx = document.elementFromPoint(r.left + at.x, r.top + at.y)?.closest<HTMLElement>("[data-context]");
-    openSearch(at, ctx ? contextTarget(ctx) : { kind: "canvas" }, null);
-  };
-
-  const closeSearch = () => {
-    setSearch(null);
-    root.current?.focus({ preventScroll: true });
+    search.open(at, { target: ctx ? contextTarget(ctx) : { kind: "canvas" }, pending: null });
   };
 
   const pick = (item: GraphSearchItem) => {
-    if (!search) return;
-    const { at, target, pending } = search;
+    if (!search.search) return;
+    const { at, target, pending } = search.search;
     const p = toGraph(at, canvas.viewRef.current);
     const g = live.current.graph;
     if (item.pick.kind === "block" && target.kind === "context") {
@@ -359,101 +345,63 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
       commit(next);
       setSelection(new Set([made.id]));
     }
-    closeSearch();
+    search.close();
   };
 
+  const open = search.search;
   const searchItems = useMemo(() => {
-    if (!search) return [];
-    if (search.target.kind === "context") return blockItems(search.target.context);
+    if (!open) return [];
+    if (open.target.kind === "context") return blockItems(open.target.context);
     if (assetDoc) return assetCanvasItems(assetDoc);
-    return search.pending ? nodeItems(graph) : canvasItems(graph);
-  }, [search, graph.properties, assetDoc?.kind, assetDoc?.contexts?.join()]);
+    return open.pending ? nodeItems(graph) : canvasItems(graph);
+  }, [open, graph.properties, assetDoc?.kind, assetDoc?.contexts?.join()]);
 
   // --- wiring ----------------------------------------------------------------------------------------
 
-  const connectOptions = (onConnect: (from: string, to: string) => void, onSpace: (at: Point) => void, onEnd: () => void = () => undefined) => ({
-    flowId,
-    pane: pane.current!,
-    nodes: () => live.current.nodes,
-    view: () => canvas.viewRef.current,
-    panBy,
-    canConnect: (from: string, to: string) => {
-      refusal.current = whyNotWire(live.current.graph, from, to, resolve);
-      return !refusal.current;
-    },
-    onDraft: (d: DraftWire | null) => {
-      setDraft(d);
-      setHint(d && !d.valid ? refusal.current : null);
-      refusal.current = null;
-    },
-    onConnect,
-    onDropInSpace: onSpace,
-    onEnd: () => {
-      setHint(null);
-      onEnd();
-    },
-  });
-
   const isEventPort = (owner: string, port: string, side: "input" | "output") => {
-    if (graph.systems.some((s) => s.id === owner)) return port === "start" || port === "stop" || side === "output";
-    const node = graph.nodes.find((n) => n.id === owner);
+    const g = live.current.graph;
+    if (g.systems.some((s) => s.id === owner)) return port === "start" || port === "stop" || side === "output";
+    const node = g.nodes.find((n) => n.id === owner);
     return !!node && editorNodeDef(node)?.outputs.find((o) => o.name === port)?.type === "event";
   };
 
-  const onPortDown = (e: MouseEvent, owner: string, port: string, side: "input" | "output") => {
-    if (e.button !== 0 || readOnly) return;
-    e.stopPropagation();
-    e.preventDefault();
-    root.current?.focus({ preventScroll: true });
-    const ref = `${owner}.${port}`;
-    const src = side === "input" ? sourceOf(graph, ref) : undefined;
-    if (src) {
-      // Dragging a wired input picks its wire up from the input end.
-      const [srcNode, srcPort] = splitRef(src);
-      const srcEl = pane.current!.querySelector(`[data-id="${flowId}-${srcNode}-${srcPort}-source"]`);
-      if (!srcEl) return;
-      setDetached(ref);
-      startConnection(
-        e,
-        srcEl,
-        srcNode,
-        srcPort,
-        "output",
-        connectOptions(
-          (from, to) => commit(connectWire(disconnect(live.current.graph, ref), from, to, resolve)),
-          () => commit(disconnect(live.current.graph, ref)),
-          () => setDetached(null),
-        ),
-      );
-      return;
-    }
-    const event = isEventPort(owner, port, side);
-    startConnection(
-      e,
-      e.currentTarget as Element,
-      owner,
-      port,
-      side,
-      connectOptions(
-        (from, to) => commit(connectWire(live.current.graph, from, to, resolve)),
-        (at) => !event && openSearch(at, { kind: "canvas" }, { side, ref }),
-      ),
-    );
-  };
+  // The wiring gesture (ADR 0259): a value wire dropped in empty space opens the search for nodes that fit it; an event wire opens nothing.
+  const wiring = useGraphWiring({
+    flowPrefix: "pg",
+    edits: particleWiring(resolve),
+    graph: () => doc.value.peek(),
+    commit: (next) => commit(next),
+    readOnly,
+    root,
+    canvas: () => canvas,
+    nodes: () => live.current.nodes,
+    onDropInSpace: (at, from) => {
+      if (!isEventPort(from.node, from.port, from.side)) search.open(at, { target: { kind: "canvas" }, pending: { side: from.side, ref: from.ref } });
+    },
+  });
+  const { flowId, draft, detached } = wiring;
+
+  // --- find ------------------------------------------------------------------------------------------
+
+  // Ctrl+F (ADR 0117): systems by name and block, nodes by title, type and settings, notes and group titles.
+  const find = useGraphFind({
+    edits: particleGraphEdits,
+    graph,
+    items: (g) => particleFindItems(g, resolve),
+    setSelection,
+    frameAll,
+    nodes: () => live.current.nodes,
+    root,
+    onOpen: () => search.dismiss(),
+    onGo: (m) => {
+      setSelectedWire(null);
+      setSelectedBlock(null);
+      setProblemsOpen(false);
+      for (const id of m.frame) if (collapsed.has(id)) setCollapsed(id, false);
+    },
+  });
 
   // --- selection and drags ---------------------------------------------------------------------------
-
-  const dragHooks: DragHooks = {
-    pane: () => pane.current!,
-    nodes: () => live.current.nodes,
-    view: () => canvas.viewRef.current,
-    panBy,
-    onMove: (m) => setDragging(new Map(m)),
-    onEnd: (m) => {
-      setDragging(null);
-      if (!readOnly) commit(moveItems(live.current.graph, new Map([...m].map(([id, p]) => [id, [p.x, p.y] as Vec2]))));
-    },
-  };
 
   /** Drag a block by its handle to another slot, or into another context it fits. */
   const startBlockDrag = (e: PointerEvent, system: string, block: string) => {
@@ -496,21 +444,6 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
     handle.addEventListener("pointercancel", up);
   };
 
-  /** Drag a group by its title: its systems and nodes move together, as one undo step. */
-  const startGroupDrag = (e: PointerEvent, group: GraphGroup) => {
-    if (e.button !== 0 || readOnly || isFieldTarget(e.target)) return;
-    const base = new Map([...graph.systems, ...graph.nodes].filter((n) => group.members.includes(n.id)).map((n) => [n.id, { x: n.position[0], y: n.position[1] }]));
-    const moved = (dx: number, dy: number) => new Map([...base].map(([id, p]) => [id, { x: p.x + dx, y: p.y + dy }]));
-    startPointerDrag(e, {
-      zoom: () => canvas.viewRef.current.zoom,
-      onMove: (dx, dy) => setDragging(moved(dx, dy)),
-      onEnd: (dx, dy) => {
-        setDragging(null);
-        commit(moveItems(live.current.graph, new Map([...moved(dx, dy)].map(([id, p]) => [id, [p.x, p.y] as Vec2]))));
-      },
-    });
-  };
-
   // --- commands --------------------------------------------------------------------------------------
 
   /** Move the selected operator nodes into a new sub-graph asset beside this file, replaced by a Sub-graph node (one undo step; the asset file stays). */
@@ -528,11 +461,6 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
     if (!done) return;
     commit(done.graph);
     setSelection(new Set([done.node]));
-  };
-
-  const addNoteHere = () => {
-    const at = toGraph(paneCenter(), canvas.viewRef.current);
-    commit(particleGraphEdits.addNote(live.current.graph, [at.x - 100, at.y - 50]).graph);
   };
 
   const placeProperty = (name: string, at: Point = paneCenter()) => {
@@ -583,10 +511,10 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
       setSelectedBlock(key);
       setSelectedWire(null);
     },
-    onPortDown,
+    onPortDown: wiring.onPortDown,
     openBlockSearch: (system, context, output, client) => {
       const r = pane.current!.getBoundingClientRect();
-      openSearch({ x: client.x - r.left, y: client.y - r.top }, { kind: "context", system, context, output }, null);
+      search.open({ x: client.x - r.left, y: client.y - r.top }, { target: { kind: "context", system, context, output }, pending: null });
     },
     startBlockDrag,
     draggingBlock: blockDrag?.key ?? null,
@@ -700,13 +628,16 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
             )}
           </span>
           <span class="sg-spacer" />
+          <button title="Find in this graph (Ctrl+F)" aria-pressed={find.isOpen} onClick={find.toggle}>
+            Find
+          </button>
           <button title="Undo (Ctrl+Z)" disabled={readOnly || !doc.canUndo.value} onClick={undo}>
             Undo
           </button>
           <button title="Redo (Ctrl+Y)" disabled={readOnly || !doc.canRedo.value} onClick={redo}>
             Redo
           </button>
-          <button title="Add a system or node (Space, or right-click the canvas; over a context, add a block)" disabled={readOnly} onClick={() => openSearch(paneCenter(), { kind: "canvas" }, null)}>
+          <button title="Add a system or node (Space, or right-click the canvas; over a context, add a block)" disabled={readOnly} onClick={() => search.open(paneCenter(), { target: { kind: "canvas" }, pending: null })}>
             Add
           </button>
           <button
@@ -719,7 +650,7 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
           <button title="Put the selected systems and nodes in a group (Ctrl+G)" disabled={readOnly || selection.size === 0} onClick={keys.groupSelection}>
             Group
           </button>
-          <button title="Add a sticky note" disabled={readOnly} onClick={addNoteHere}>
+          <button title="Add a sticky note" disabled={readOnly} onClick={keys.addNoteHere}>
             Note
           </button>
           <button title="Show everything (F)" onClick={() => frameAll()}>
@@ -764,7 +695,7 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
                 if (!r) return null;
                 return (
                   <div key={g.id} class="sg-group" style={{ left: px(r.x), top: px(r.y), width: px(r.w), height: px(r.h) }} aria-label={`Group ${g.title}`}>
-                    <div class={`sg-group-head ${NO_PAN}`} onPointerDown={(e) => startGroupDrag(e, g)}>
+                    <div class={`sg-group-head ${NO_PAN}`} onPointerDown={(e) => keys.startGroupDrag(e, g.id)}>
                       <input type="text" class={NO_DRAG} aria-label="Group title" disabled={readOnly} value={g.title} onChange={(e) => commit(particleGraphEdits.setGroupTitle(live.current.graph, g.id, (e.currentTarget as HTMLInputElement).value))} />
                       <button title="Ungroup (the systems and nodes stay)" aria-label={`Ungroup ${g.title}`} disabled={readOnly} onClick={() => commit(particleGraphEdits.ungroup(live.current.graph, g.id))}>
                         ✕
@@ -785,17 +716,16 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
                   collapsed={collapsed.has(s.id)}
                   onCollapse={(c) => setCollapsed(s.id, c)}
                   onDown={keys.onItemDown}
-                  drag={dragHooks}
+                  drag={keys.drag}
                 />
               ))}
               {graph.nodes.map((n) => (
-                <NodeView key={n.id} node={n} at={position(n)} selected={selection.has(n.id)} onDown={keys.onItemDown} drag={dragHooks} />
+                <NodeView key={n.id} node={n} at={position(n)} selected={selection.has(n.id)} onDown={keys.onItemDown} drag={keys.drag} />
               ))}
               <Wires
                 graph={graph}
                 nodes={nodeById}
                 types={wireTypes}
-                gpu={problemIndex.gpuWires}
                 selected={selectedWire}
                 detached={detached}
                 draft={draft}
@@ -806,23 +736,20 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
                   setSelectedWire(w);
                 }}
               />
-              {draft && hint && (
-                <div class="pg-refusal" style={{ left: px(draft.to.x + 12), top: px(draft.to.y + 12) }} role="tooltip">
-                  {hint}
-                </div>
-              )}
+              <WireRefusal draft={draft} hint={wiring.hint} />
             </div>
             {empty && <p class="pg-canvas-empty">{assetDoc ? "Right-click or press Space to add a node." : "Right-click or press Space to add a system."}</p>}
             {box && <SelectionBox box={box} />}
             {showMinimap && <Minimap nodes={canvasNodes} view={view} size={paneSize} pane={paneApi} />}
             {showPreview && !assetDoc && <PreviewCard graph={graph} problems={problems.length} onClose={() => setShowPreview(false)} />}
-            {search && (
+            <GraphFindBox find={find} placeholder="Find systems, blocks, nodes, notes…" />
+            {open && (
               <NodeSearchPopup
                 items={searchItems}
-                at={search.at}
+                at={open.popup}
                 onPick={pick}
-                onClose={closeSearch}
-                {...(search.target.kind === "context" ? { title: "Add block", placeholder: "Search blocks", none: "No blocks match" } : {})}
+                onClose={search.close}
+                {...(open.target.kind === "context" ? { title: "Add block", placeholder: "Search blocks", none: "No blocks match" } : {})}
               />
             )}
           </div>

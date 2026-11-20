@@ -23,7 +23,8 @@ import { assembleTakeFile } from "../../runtime/capture/save";
 import { FRAME_SECONDS, MiB, RATE, S3_1024, s3Rig, stat, threadWorkerFactory, timedCallOverheadUs, timedSink } from "../../runtime/capture/soakSupport";
 import { SAMPLE_META } from "../../runtime/capture/testSupport";
 import { CaptureSource } from "./profilerSource";
-import { nameLookup, reconstructVoices } from "./voiceTableModel";
+import { captureNames } from "../../runtime/capture/reader";
+import { reconstructVoices } from "./voiceTableModel";
 import { KeyframeRows } from "../../runtime/audioRows";
 
 const WARM_SECONDS = 10;
@@ -148,7 +149,7 @@ describe("soak 2: a 1,024-voice capture opens through the Worker (§3.7)", () =>
     const source = await CaptureSource.openFile(file.slice().buffer, { worker: threads.make() });
     const openMs = performance.now() - o0;
     expect(source.summary.recordCount).toBe(span.recordCount + 1);
-    const lookup = nameLookup(source.summary.names);
+    const lookup = captureNames(source.summary);
 
     // The five positions: the replay equals the game's table.
     const positions: { seconds: number; voices: number; gainOff: number; unsent: number; fading: number; ms: number; scanned: number; fromKeyframe: boolean }[] = [];

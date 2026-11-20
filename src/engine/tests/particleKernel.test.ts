@@ -8,7 +8,6 @@ import type { EvalContext } from "../scene/particleNodes";
 import { KernelEffect, JsRun, invert, type KernelHost } from "../render/particles/gpu/kernelEffect";
 import { JsKernel } from "../render/particles/gpu/kernelJs";
 import { krand, particleSeed, pcg } from "../render/particles/gpu/kernelMath";
-import { EffectSimulation } from "../render/particles/simulation";
 
 const ctx = (over: Partial<EvalContext> = {}): EvalContext => ({ time: 0, deltaTime: 0, playTime: 0, properties: new Map(), random: () => 0.5, ...over });
 const node = (id: string, type: string, extra: Partial<GraphNode> = {}): GraphNode => ({ id, type, position: [0, 0], ...extra });
@@ -39,8 +38,8 @@ const jsHost: KernelHost = { executors: ["js"], createRun: (k) => new JsRun(k) }
 
 function play(g: ParticleGraph, opts: { seed?: number } = {}) {
   const program = compileParticleGraph(g);
-  const kp = compileParticleKernels(g, program);
-  const fx = new KernelEffect(kp.systems, program.effect.emitters, jsHost, { seed: opts.seed ?? 1 });
+  const kp = compileParticleKernels(g);
+  const fx = new KernelEffect(kp.systems, program.spawns, jsHost, { seed: opts.seed ?? 1 });
   return { program, kp, fx, js: (i = 0) => (fx.systems.find((s) => s.kernel.emitter === i)!.run as JsRun).js };
 }
 
@@ -51,42 +50,39 @@ const step = (fx: KernelEffect, dt: number, n = 1, world = IDENTITY) => {
 const aliveSlots = (js: JsKernel) => Array.from({ length: js.kernel.capacity }, (_, i) => i).filter((i) => js.alive(i));
 
 describe("kernel compiler (ADR 0094)", () => {
-  it("keeps plain systems on the CPU under auto, and on a kernel with gpu", () => {
+  it("runs plain systems on the JavaScript executor under auto and cpu, and on the best executor with gpu (ADR 0251)", () => {
     const g = defaultParticleGraph();
-    const kp = compileParticleKernels(g, compileParticleGraph(g));
+    const kp = compileParticleKernels(g);
     const k = kp.systems[0];
     expect(k.needs).toEqual([]);
-    expect(chooseBackend(undefined, k, ["webgpu"])).toBe("cpu");
+    expect(chooseBackend(undefined, k, ["webgpu"])).toBe("js");
     expect(chooseBackend("gpu", k, ["webgl2", "js"])).toBe("webgl2");
     expect(chooseBackend("gpu", k, [])).toBe("js");
-    expect(chooseBackend("cpu", k, ["webgpu"])).toBe("cpu");
+    expect(chooseBackend("cpu", k, ["webgpu"])).toBe("js");
   });
 
-  it("picks a kernel for per-particle operators, Set Attribute, several outputs and big capacities", () => {
+  it("picks a GPU executor for per-particle operators, Set Attribute, several outputs and big capacities", () => {
     const { g, sys } = burstGraph();
     const b = addBlock(g, sys, "update", "attribute.size", { mode: "set" });
     g.nodes.push(node("n1", "particle.ageFraction"), node("n2", "multiply", { inputs: { b: 2 } }));
     g.edges.push({ from: "n1.out", to: "n2.a" }, { from: "n2.out", to: `${sys.id}.${b.id}.value` });
-    const program = compileParticleGraph(g);
-    // The CPU reports both as cpuOnly.
-    expect(program.problems.every((p) => p.cpuOnly)).toBe(true);
-    expect(program.problems.length).toBeGreaterThan(0);
-    const k = compileParticleKernels(g, program).systems[0];
+    // Every executor runs them: nothing to report.
+    expect(compileParticleGraph(g).problems).toEqual([]);
+    const k = compileParticleKernels(g).systems[0];
     expect(k.needs).toContain("a Set Attribute block");
     expect(k.needs).toContain("a per-particle operator chain");
     expect(chooseBackend("auto", k, ["webgpu"])).toBe("webgpu");
 
     const big = burstGraph().g;
     big.systems[0].settings.capacity = 10000;
-    expect(chooseBackend("auto", compileParticleKernels(big, compileParticleGraph(big)).systems[0], ["webgl2"])).toBe("webgl2");
+    expect(chooseBackend("auto", compileParticleKernels(big).systems[0], ["webgl2"])).toBe("webgl2");
   });
 
   it("runs big systems with collider collision on the JavaScript executor, the one that ray casts (ADR 0251)", () => {
     const { g, sys } = burstGraph();
     sys.settings.capacity = 10000;
     addBlock(g, sys, "update", "update.collisionColliders");
-    const k = compileParticleKernels(g, compileParticleGraph(g)).systems[0];
-    expect(k.unsupported).toEqual([]);
+    const k = compileParticleKernels(g).systems[0];
     expect(k.jsOnly).toEqual(["Collide with colliders"]);
     expect(chooseBackend("auto", k, ["webgpu", "js"])).toBe("js");
   });
@@ -96,8 +92,7 @@ describe("the GPU Fountain template", () => {
   it("compiles cleanly and runs on a kernel with two outputs", () => {
     const g: ParticleGraph = { properties: [], systems: [], nodes: [], edges: [], events: [], notes: [], groups: [] };
     g.systems.push(systemTemplate(g, "gpuFountain", [0, 0]));
-    const program = compileParticleGraph(g);
-    const kp = compileParticleKernels(g, program);
+    const kp = compileParticleKernels(g);
     expect(kp.problems).toEqual([]);
     expect(kp.systems[0].outputs).toHaveLength(2);
     expect(kp.systems[0].needs).toContain("a per-particle operator chain");
@@ -122,22 +117,22 @@ describe("JavaScript kernel executor", () => {
     expect(fx.count).toBe(5);
   });
 
-  it("matches the CPU simulation under gravity, a frame behind (spawns start at the frame's end)", () => {
+  it("integrates gravity at 9.81 m/s² from the frame after its spawn frame (spawns start at the frame's end)", () => {
     const { g, sys } = burstGraph(1, 3, 4);
     addBlock(g, sys, "update", "update.gravity", { strength: 1 });
-    const program = compileParticleGraph(g);
-    const cpu = new EffectSimulation(program.effect, { random: () => 0.5 });
     const { fx, js } = play(g);
     const dt = 1 / 60;
-    step(fx, dt); // the kernel's spawn frame
+    step(fx, dt); // the spawn frame
+    let y = 0;
+    let vy = 4;
     for (let i = 0; i < 30; i++) {
-      cpu.step(dt, IDENTITY);
+      vy -= 9.81 * dt;
+      y += vy * dt;
       step(fx, dt);
     }
-    const p = cpu.emitters[0].pool[0];
     const s = js().state;
-    expect(s[1]).toBeCloseTo(p.y, 4);
-    expect(s[5]).toBeCloseTo(p.vy, 4);
+    expect(s[5]).toBeCloseTo(vy, 4);
+    expect(s[1]).toBeCloseTo(y, 4);
   });
 
   it("marks a particle that died for one frame, then frees the slot", () => {
@@ -263,7 +258,7 @@ describe("kernel maths", () => {
 
   it("lays out 16 floats per particle", () => {
     const { g } = burstGraph();
-    const k: KernelSystem = compileParticleKernels(g, compileParticleGraph(g)).systems[0];
+    const k: KernelSystem = compileParticleKernels(g).systems[0];
     expect(new JsKernel(k).state.length).toBe(k.capacity * KERNEL_FLOATS);
   });
 });

@@ -1,7 +1,8 @@
 // Stories (ADR 0219, 0235) for the Particle Graph panel: the selection and shortcuts it shares with the Shader Graph
 // (ADR 0228, `useGraphSelection`) on its own items (systems with their blocks, nodes), and its extras (a selected block
-// deleted before the selection). Each edit is checked in the file the effect's asset document writes. The live preview
-// is turned off with the panel's own Preview button where a story doesn't need it.
+// deleted before the selection), and the wiring gesture and find the graph layer runs for both graphs (ADR 0259). Each
+// edit is checked in the file the effect's asset document writes. The live preview is turned off with the panel's own
+// Preview button where a story doesn't need it.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { expect, fireEvent, userEvent, waitFor, within } from "storybook/test";
 import type { ParticleGraph } from "../../../../engine/scene/particleGraph";
@@ -155,6 +156,89 @@ export const GroupAndBoxSelect: Story = {
       await g.keys("{Control>}g{/Control}");
       await waitFor(async () => expect((await saved()).groups).toEqual([expect.objectContaining({ title: "Group", members: ["n1", "n2"] })]));
       expect(within(canvasElement).getByLabelText("Group Group")).toBeVisible();
+    });
+  },
+};
+
+/** Where an element's middle is on screen. */
+const middle = (el: Element) => {
+  const r = el.getBoundingClientRect();
+  return { clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 };
+};
+
+/** Press a port and move the wire's loose end over `to` (xyflow follows the mouse on the document); `release` lets go there. */
+function dragWire(from: Element, to: Element | { clientX: number; clientY: number }) {
+  const a = middle(from), b = to instanceof Element ? middle(to) : to;
+  fireEvent.mouseDown(from, { ...a, button: 0, buttons: 1 });
+  for (let i = 1; i <= 6; i++) fireEvent.mouseMove(document, { clientX: a.clientX + ((b.clientX - a.clientX) * i) / 6, clientY: a.clientY + ((b.clientY - a.clientY) * i) / 6, buttons: 1 });
+  return { release: () => fireEvent.mouseUp(document, { ...b, button: 0 }) };
+}
+
+export const WiringGesture: Story = {
+  play: async ({ canvasElement, step }) => {
+    const g = await openEffect(canvasElement);
+    const c = within(canvasElement);
+    // Room to see the ports: fill the window, then frame everything.
+    await userEvent.click(c.getByRole("button", { name: "Maximize" }));
+    await userEvent.click(c.getByRole("button", { name: "Frame" }));
+    const system = g.systems()[0];
+    const out = () => g.owner("n1")!.querySelector<HTMLElement>('.pg-port[data-side="output"]')!;
+    const start = () => g.owner(system)!.querySelector<HTMLElement>('.pg-port[data-port="start"]')!;
+    const numberInput = () => [...g.owner(system)!.querySelectorAll<HTMLElement>('.pg-block .pg-port[data-side="input"]')].find((p) => p.title.endsWith("(number)"))!;
+    await step("a wire held over a port that refuses it says why, and letting go there adds nothing", async () => {
+      const drag = dragWire(out(), start());
+      expect(await c.findByRole("tooltip")).toHaveTextContent("Only events (event nodes and Trigger Event blocks) can be wired to Start and Stop.");
+      drag.release();
+      await waitFor(() => expect(c.queryByRole("tooltip")).toBeNull());
+      expect((await saved()).edges).toEqual([]);
+    });
+    await step("a wire let go over a port that takes it connects them, in the file", async () => {
+      const input = numberInput();
+      const to = `${system}.${input.dataset.port}`;
+      dragWire(out(), input).release();
+      await waitFor(async () => expect((await saved()).edges).toEqual([{ from: "n1.out", to }]));
+    });
+    await step("pressing the wired input picks its wire up; let go in empty space, the wire is removed", async () => {
+      const input = numberInput();
+      const r = g.pane().getBoundingClientRect();
+      dragWire(input, { clientX: r.left + 30, clientY: r.bottom - 30 }).release();
+      await waitFor(async () => expect((await saved()).edges).toEqual([]));
+      expect(c.queryByRole("dialog", { name: "Add node" })).toBeNull(); // a picked-up wire opens no search
+    });
+    await step("a new wire let go in empty space opens the node search", async () => {
+      const r = g.pane().getBoundingClientRect();
+      dragWire(out(), { clientX: r.left + 30, clientY: r.bottom - 30 }).release();
+      expect(await c.findByRole("dialog", { name: "Add node" })).toBeVisible();
+      await g.keys("{Escape}");
+    });
+  },
+};
+
+export const FindInGraph: Story = {
+  play: async ({ canvasElement, step }) => {
+    const g = await openEffect(canvasElement);
+    const c = within(canvasElement);
+    await step("Ctrl+F opens find; a node's title finds it, and Enter selects it", async () => {
+      await g.pick("n1");
+      await g.keys("{Control>}f{/Control}");
+      const box = c.getByRole("textbox", { name: "Find in graph" });
+      await waitFor(() => expect(box).toHaveFocus());
+      await userEvent.type(box, "age");
+      expect(c.getByRole("search", { name: "Find in graph" })).toHaveTextContent("Age");
+      await userEvent.keyboard("{Enter}");
+      expect(g.selected()).toEqual(["n2"]);
+    });
+    await step("a system's name and its blocks find the system", async () => {
+      const box = c.getByRole("textbox", { name: "Find in graph" });
+      await userEvent.clear(box);
+      await userEvent.type(box, "simple loop");
+      await userEvent.keyboard("{Enter}");
+      expect(g.selected()).toEqual([g.systems()[0]]);
+    });
+    await step("Escape closes find and gives the graph the keyboard back", async () => {
+      await userEvent.keyboard("{Escape}");
+      expect(c.queryByRole("search", { name: "Find in graph" })).toBeNull();
+      expect(canvasElement.querySelector(".particle-graph")).toHaveFocus();
     });
   },
 };

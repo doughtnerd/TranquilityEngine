@@ -83,6 +83,10 @@ export interface GraphDocument<G, P extends GraphPropertyData, C extends Clipboa
   items(graph: G): readonly string[];
   /** Remove items with everything wired to them (the kind's rules). */
   remove(graph: G, ids: Iterable<string>): G;
+  /** The graph's groups, as the document reads them (find and group drags read their members). */
+  groups(graph: G): readonly GraphGroupData[];
+  /** The graph's sticky notes. */
+  notes(graph: G): readonly GraphNoteData[];
 
   /** Add a property of `type`, named after it (`Number`, `Number 2`…). */
   addProperty(graph: G, type: P["type"]): { graph: G; name: string };
@@ -174,6 +178,8 @@ export function graphDocument<G extends { nodes: N[]; properties: P[] }, N exten
     clipboardFormat: kind.clipboard.format,
     items: (graph) => kind.items(graph),
     remove: (graph, ids) => kind.remove(graph, ids),
+    groups: (graph) => kind.groups.get(graph),
+    notes: (graph) => kind.notes.get(graph),
 
     // --- properties -------------------------------------------------------------------------------------
 

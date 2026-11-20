@@ -1,6 +1,6 @@
 // Tilemap painting in the editor (ADR 0103): the brush the Tile Palette sets up, and the edits a
 // stroke makes. Strokes paint the Editor World's Tilemap at once (so painting shows while the
-// pointer moves) and commit to the scene document as one SetField of `layers` when they end.
+// pointer moves) and commit to the scene document as one write of `layers` when they end.
 import { signal, type ReadonlySignal } from "@preact/signals";
 import { type GameObject } from "../../../engine";
 import { Tilemap } from "../runtime";
@@ -8,7 +8,7 @@ import { floodCells, lineCells, rectCells, type Cell, type Stamp } from "../runt
 import { FLIP_X, FLIP_Y, cellValue, flagsOf, tileIdOf } from "../runtime/format";
 import { brushValueAt } from "./brushCells";
 import { compose, rotateClockwise } from "../runtime/tileFlips";
-import { SetField, editor, type OpenScene } from "../../../editor/sdk";
+import { editor, type OpenScene } from "../../../editor/sdk";
 
 export type BrushTool = "pencil" | "rect" | "fill" | "erase" | "pick";
 
@@ -132,7 +132,7 @@ export function pickFromMap(map: Tilemap, a: Cell, b: Cell = a): void {
   pickBrushTool("pencil");
 }
 
-/** The Tilemap on a World node (the first, with its index for SetField). */
+/** The Tilemap on a World node (the first). */
 export function tilemapOf(node: GameObject | null): Tilemap | null {
   return node?.getBehavior(Tilemap) ?? null;
 }
@@ -142,9 +142,6 @@ export function tilemapOf(node: GameObject | null): Tilemap | null {
  * shows them). `path` is the node's document path; prefab instances get an override.
  */
 export function commitTilemap(scene: OpenScene, path: readonly string[], map: Tilemap, label = "Paint tiles"): void {
-  const [id, ...target] = path;
   const value = map.toLayerData();
-  const previous = scene.doc.isPrefabInstance(id) ? scene.doc.overrideValue(id, target, "engine.Tilemap", "layers", 0) : scene.doc.fieldValue(id, "engine.Tilemap", "layers", 0);
-  if (JSON.stringify(previous) === JSON.stringify(value)) return;
-  editor.scene.edit(label, () => scene.stack.execute(new SetField(id, "engine.Tilemap", "layers", value, { index: 0, target })), scene);
+  editor.scene.edit(label, () => void editor.scene.writeField({ scene, path, type: "engine.Tilemap" }, "layers", value), scene);
 }

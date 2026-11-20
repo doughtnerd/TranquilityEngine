@@ -7,34 +7,23 @@
 // offline reference. Here the real committed wasm replays each on the loopback host and must give the same bits, the
 // same split and late counters, and stay within the fixture's discontinuity bounds (`maxStep`, F-40).
 //
-// The format is Z3's (`audioGoldenM4.test.ts`, whose renderer this repeats rather than importing that test file and
-// running its suite twice), plus: a send step's optional `firstFrame` (the batch header's first frame when the batch
-// arrives after it; otherwise the host's current frame), `late` (`lateCommands`, `maxLatenessFrames`), `null` (the
-// native error against the reference, informational), `ds0` (`[from, to, bound]` windows) and `busDuck` (the presence
-// duck's target slot and its voice's level: the last STATUS block's busDuck gain is checked against the output).
+// The format and the replay are Z3's (`golden/replay.ts`), with a send step's optional `firstFrame` (the batch header's
+// first frame when the batch arrives after it), plus: `late` (`lateCommands`, `maxLatenessFrames`), `ds0` (`[from, to,
+// bound]` windows) and `busDuck` (the presence duck's target slot and its voice's level: the last STATUS block's busDuck
+// gain is checked against the output).
 
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { mixer } from "../../../../engine/audio/mixer";
 import { abrupt, closeRigs, liveRig, sendRaw, SMOOTH } from "../mix/clickHarness";
-import { createLoopbackHost, LOOPBACK_PRESET, type LoopbackHost } from "../testing";
-import { BUS_LP_OFF_HZ, BUS_MASTER_OUT, BUS_RAMP_MASK_GAIN, Kind, LANE_RUNTIME, writeBatchHeader, writeClipBegin, writeClipChunk, writeEnvelope } from "../wire.generated";
+import { BUS_LP_OFF_HZ, BUS_MASTER_OUT, BUS_RAMP_MASK_GAIN, LANE_RUNTIME } from "../wire.generated";
 import { maxStep } from "./maxStep";
+import { fnv1a64, goldenNames, replayFixture, requireFixture, type Fixture } from "./replay";
 
-const M5_DIR = fileURLToPath(new URL("./m5/", import.meta.url));
-
-interface M5Fixture {
-  readonly scene: string;
-  readonly about: string;
-  readonly preset: { readonly maxLogical: number; readonly maxMixed: number; readonly maxBuses: number; readonly limiterLookaheadMs: number };
-  readonly clips: readonly { readonly id: number; readonly frames: number; readonly fill: "dc"; readonly value: number }[];
-  readonly steps: readonly ({ readonly send: string; readonly count: number; readonly firstFrame?: number } | { readonly run: number })[];
-  readonly frames: number;
-  readonly fnv1a64: string;
+interface M5Fixture extends Fixture {
   readonly splits: { readonly splitQuanta: number; readonly voiceSplits: number };
   readonly late?: { readonly lateCommands: number; readonly maxLatenessFrames: number };
-  readonly null?: { readonly maxError: number; readonly tolerance: number; readonly from: number; readonly to: number };
   readonly ds0?: readonly (readonly [number, number, number])[];
   readonly busDuck?: { readonly slot: number; readonly level: number };
   /** Rv1's `bus-mute-send` only: each mute or unmute transition's `[first frame, frames]`. */
@@ -47,62 +36,17 @@ const PRESENCE = "presence-duck";
 const RV1 = "bus-mute-send";
 
 function readM5(name: string): M5Fixture {
-  const path = `${M5_DIR}${name}.json`;
-  if (!existsSync(path)) throw new Error(`no golden/m5/${name}.json: run UPDATE_GOLDENS=1 cargo test -p audio-core --test m5_goldens (native/audio)`);
-  return JSON.parse(readFileSync(path, "utf8")) as M5Fixture;
+  return requireFixture<M5Fixture>("m5", name, "cargo test -p audio-core --test m5_goldens (native/audio)");
 }
 
-/** FNV-1a 64 over `left`'s f32 bytes then `right`'s, as 16 lowercase hex digits (Z3's digest). */
-function fnv1a64(left: Float32Array, right: Float32Array): string {
-  let h = 0xcbf29ce484222325n;
-  for (const part of [left, right]) {
-    const bytes = new Uint8Array(part.buffer, part.byteOffset, part.byteLength);
-    for (let i = 0; i < bytes.length; i++) h = ((h ^ BigInt(bytes[i]!)) * 0x100000001b3n) & 0xffffffffffffffffn;
-  }
-  return h.toString(16).padStart(16, "0");
-}
-
-/** Replays the fixture on a loopback host (DC clips as CLIP_BEGIN + one CLIP_CHUNK; steps as BATCHes). */
-async function render(fixture: M5Fixture): Promise<{ readonly left: Float32Array; readonly right: Float32Array; readonly host: LoopbackHost; readonly lateness: { max: number } }> {
-  const host = await createLoopbackHost({ preset: { ...LOOPBACK_PRESET, ...fixture.preset } });
-  // `maxLatenessFrames` is per STATUS block (reset at each take): keep the largest any block carried.
+/** Replays the fixture, keeping the largest `maxLatenessFrames` any STATUS block carried (it is per block, reset at each take). */
+async function render(fixture: M5Fixture) {
   const lateness = { max: 0 };
-  host.link.onStatus((s) => {
+  const replay = await replayFixture(fixture, (host) => host.link.onStatus((s) => {
     lateness.max = Math.max(lateness.max, s.maxLatenessFrames);
-  });
-  let seq = 1;
-  for (const clip of fixture.clips) {
-    const begin = new ArrayBuffer(16 + 20);
-    writeEnvelope(new DataView(begin), 0, { kind: Kind.CLIP_BEGIN, seq: seq++, bodyBytes: 20 });
-    writeClipBegin(new DataView(begin), 0, { clipId: clip.id, frames: clip.frames, channels: 1, sampleRate: 48_000, format: 0 });
-    host.send(begin);
-    const samples = new Float32Array(clip.frames).fill(clip.value);
-    const chunk = new ArrayBuffer(32 + samples.byteLength);
-    writeEnvelope(new DataView(chunk), 0, { kind: Kind.CLIP_CHUNK, seq: seq++, bodyBytes: 16 + samples.byteLength });
-    writeClipChunk(new DataView(chunk), 0, { clipId: clip.id, frameOffset: 0, frames: clip.frames, reserved: 0 });
-    new Uint8Array(chunk, 32).set(new Uint8Array(samples.buffer));
-    host.send(chunk);
-  }
-  const left = new Float32Array(fixture.frames);
-  const right = new Float32Array(fixture.frames);
-  let at = 0;
-  for (const step of fixture.steps) {
-    if ("run" in step) {
-      const out = host.renderQuanta(step.run);
-      left.set(out.left, at);
-      right.set(out.right, at);
-      at += out.left.length;
-      continue;
-    }
-    const bytes = Uint8Array.from(step.send.match(/../g) ?? [], (b) => parseInt(b, 16));
-    const buffer = new ArrayBuffer(32 + bytes.length);
-    writeEnvelope(new DataView(buffer), 0, { kind: Kind.BATCH, seq: seq++, bodyBytes: 16 + bytes.length });
-    writeBatchHeader(new DataView(buffer), 0, { firstFrame: step.firstFrame ?? host.frame, count: step.count, flags: 0 });
-    new Uint8Array(buffer, 32).set(bytes);
-    host.send(buffer);
-  }
-  expect(at, `${fixture.scene}: frames rendered`).toBe(fixture.frames);
-  return { left, right, host, lateness };
+  }));
+  expect(replay.left.length, `${fixture.scene}: frames rendered`).toBe(fixture.frames);
+  return { ...replay, lateness };
 }
 
 /** The largest step of both channels over `[from, to)`. */
@@ -152,12 +96,8 @@ describe("M5 goldens (G1): native equals wasm", () => {
     await checkScene(PRESENCE);
   });
 
-  it("golden/m5/ holds no fixture without a case", () => {
-    const names = readdirSync(M5_DIR)
-      .filter((f) => f.endsWith(".json"))
-      .map((f) => f.slice(0, -".json".length));
-    const known: readonly string[] = [...G1_CASES, PRESENCE, RV1];
-    for (const name of names) expect(known, `m5/${name}.json has no case`).toContain(name);
+  it("golden/m5/ holds exactly the cases", () => {
+    expect(goldenNames("m5")).toEqual([...G1_CASES, PRESENCE, RV1].sort());
   });
 });
 

@@ -6,7 +6,9 @@ import { OrbitCamera } from "./OrbitCamera";
 import { createPlaySession, type PlayController } from "./playSession";
 import { openSceneFile } from "./project";
 import { editorSettings, joinPath, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
-import { keepComponent } from "./runtimeInspect";
+import { whyNotEdit } from "./editGate";
+import { inspectorTarget } from "./inspectorTarget";
+import { inspectedWorld, keepComponent } from "./runtimeInspect";
 import { replaceScripts } from "./scriptLoader";
 import { currentProject, openScene, playing, playState, sceneCamera, scriptProblems, status } from "./state";
 import { applyEditorPlugins } from "../plugins/editorPlugins";
@@ -81,6 +83,16 @@ describe("playing and stopping (ADR 0022, 0237)", () => {
     expect(playState.value).toBe("edit");
     expect(playing.value).toBeNull();
     expect(editor.isRunning).toBe(false); // headless: it wasn't running before Play
+  });
+
+  it("shows the running game in the Hierarchy and Inspector while playing, and the scene file is read-only (ADR 0257)", async () => {
+    await play.start();
+    const target = inspectorTarget.value;
+    expect(target).toMatchObject({ kind: "live", world: playing.value!.engine.world.name });
+    expect(whyNotEdit({ kind: "scene" })).toBe("stop playing to edit the scene");
+    await play.stop();
+    expect(inspectedWorld.value).toBeNull();
+    expect(inspectorTarget.value.kind).not.toBe("live");
   });
 
   it("doesn't play when the script check says no", async () => {

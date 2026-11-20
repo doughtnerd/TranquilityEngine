@@ -20,7 +20,7 @@ export function krand(seed: number, salt: number): number {
   return (pcg((Math.floor(seed * 16777216) >>> 0) ^ pcg(salt >>> 0)) >>> 8) / 16777216;
 }
 
-/** The CPU simulation's lattice hash (murmur3 finalizer). */
+/** The noise's lattice hash (murmur3 finalizer). */
 export function hashInt(x: number): number {
   x = Math.imul(x ^ (x >>> 16), 0x85ebca6b);
   x = Math.imul(x ^ (x >>> 13), 0xc2b2ae35);
@@ -31,7 +31,7 @@ const lattice = (x: number, y: number, z: number): number => (hashInt(Math.imul(
 const fade = (t: number): number => t * t * (3 - 2 * t);
 const mix = (a: number, b: number, t: number): number => a + (b - a) * t;
 
-/** Smooth 3D value noise in [-1, 1] (as the CPU simulation's). */
+/** Smooth 3D value noise in [-1, 1]. */
 export function noise3(x: number, y: number, z: number): number {
   const ix = Math.floor(x);
   const iy = Math.floor(y);

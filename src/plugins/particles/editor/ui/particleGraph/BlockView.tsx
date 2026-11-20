@@ -46,7 +46,6 @@ function InputRow(props: { system: ParticleGraphSystem; block: GraphBlock; input
   const { system, block, input } = props;
   const port = `${block.id}.${input.name}`;
   const from = api.wired.get(`${system.id}.${port}`);
-  const gpu = api.problems.gpuWires.has(`${system.id}.${port}`);
   const assets = input.type === "asset" ? (block.type === "custom" ? api.assets.blocks : api.assets.images) : undefined;
   return (
     <div class={`pg-input${from ? " wired" : ""}`}>
@@ -55,7 +54,7 @@ function InputRow(props: { system: ParticleGraphSystem; block: GraphBlock; input
         {input.label}
       </span>
       {from ? (
-        <span class={`pg-wired-from${gpu ? " gpu" : ""}`} title={gpu ? "This wire needs the GPU backend; the block uses its own value for now." : `Wired from ${api.sourceLabel(from)}`}>
+        <span class="pg-wired-from" title={`Wired from ${api.sourceLabel(from)}`}>
           ← {api.sourceLabel(from)}
         </span>
       ) : (

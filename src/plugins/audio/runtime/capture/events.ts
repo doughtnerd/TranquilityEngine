@@ -7,9 +7,10 @@
 // a `Map` lookup. `seed` loads the ids the META chunk already holds so the sink continues after them. A name the ring
 // couldn't take (no segment open, dropped) is not marked interned, so the next use retries; its event carries `NO_NAME`.
 // A bus is never interned: the sink sees a `busRef` (`gen << 8 | slot`, §6.3) and writes it raw into the arg; the file
-// reader takes `busRef & 0xff` as the slot and names it through the `buses` table, which is keyed by slot (META's, written
-// by the saver; a rename after a structural edit is a MIXOP the reader applies). `loudnessControl`'s bus arrives as a name
-// (the sink has no slot for it), so it is interned into the `parameters` table, not `buses`.
+// reader takes `busRef & 0xff` as the slot and names it through the `buses` table, which is keyed by slot: META's slots at
+// the take's start, then a NAMES record each time a slot takes a new name (an add, a recycle, a rename; `busNames`, ADR
+// 0260), so the reader names a slot as it was at each instant (`names.ts`). `loudnessControl`'s bus arrives as a name (the
+// sink has no slot for it), so it is interned into the `parameters` table, not `buses`.
 //
 // **Arg layouts** (§5.6): voiceStart `id, clip, busRef, flags, atFrameLo` + f32 gain; voiceRefused and voiceQueued `clip,
 // busRef`; busRamp `busRef, lane, frames` + f32 target; monitor `mask` (mutes in the low 16 bits, solos in the high 16, as
@@ -25,9 +26,10 @@
 // length, written straight into the ring through `encodeEvent`; an f32 parameter value goes through one scratch pair of
 // typed arrays. Only a first-use name (NAMES) and a marker (its text) allocate.
 //
-// **Reading back** (ADR 0227). `readCaptureEvent` is the inverse of the writes: it turns a decoded EVENT payload into a
-// `CaptureEvent` by name (`NO_NAME` as null, `busRef` as slot and generation, the parameter's f32 bits as a number), so the
-// arg layouts above are known here and nowhere else. The reader hands the Profiler only typed events.
+// **Reading back** (ADR 0227, 0260). `readCaptureEvent` is the inverse of the writes: it turns a decoded EVENT payload into a
+// `CaptureEvent` by name (`NO_NAME` as null, `busRef` as slot and generation, the parameter's f32 bits as a number, the
+// reason code as the sink's word, `reasons.ts`), so the arg layouts above are known here and nowhere else. The reader hands
+// the Profiler only typed events.
 import type {
   ProfileEpochReason, ProfileGapReason, ProfileLoudnessControl, ProfileQueuedReason, ProfileRealReason, ProfileRefusedReason,
   ProfileSink, ProfileStealReason, ProfileStopReason, ProfileVirtualReason,
@@ -38,6 +40,10 @@ import {
 } from "./format";
 import type { EpochPayload } from "./format";
 import type { RecorderRing } from "./ring";
+import {
+  LADDER_REASON, LOUDNESS_CONTROL_REASON, QUEUED_REASON, REAL_REASON, REFUSED_REASON, STEAL_REASON, STOP_REASON, VIRTUAL_REASON,
+  loudnessControlOf, queuedReason, realReason, refusedReason, stealReason, stopReason, virtualReason,
+} from "./reasons";
 
 /** The context an EPOCH names (`recorder.ts`' `EpochContext`, restated: no file but `capture.ts` may import the recorder, even for a type). */
 export type EpochContext = Omit<EpochPayload, "reason" | "perfMs">;
@@ -58,21 +64,11 @@ export interface EventSinkRecorder {
 /** The id an absent name or instance carries (`null` instance, `null` bus or `from`, a name the ring couldn't take); `format.ts` declares it, beside the KEYFRAME rows that use it too. */
 export { NO_NAME };
 
-/** EVENT `reason` codes (§5.6), by the sink's reason strings. */
-export const STOP_REASON: Readonly<Record<ProfileStopReason, number>> = { ended: 1, stopped: 2, faded: 3, worldReleased: 4, failed: 5 };
-export const STEAL_REASON: Readonly<Record<ProfileStealReason, number>> = { busMaxVoices: 1, globalLimit: 2, priority: 3 };
-export const VIRTUAL_REASON: Readonly<Record<ProfileVirtualReason, number>> = { capDemoted: 1, belowAudibility: 2, paused: 3, worldInaudible: 4 };
-export const REAL_REASON: Readonly<Record<ProfileRealReason, number>> = { promoted: 1, capRaised: 2 };
-export const REFUSED_REASON: Readonly<Record<ProfileRefusedReason, number>> = { busFull: 1, poolFull: 2, neverFits: 3, loadFailed: 4, capRefused: 5 };
-export const QUEUED_REASON: Readonly<Record<ProfileQueuedReason, number>> = { clipLoading: 1, streamPriming: 2 };
-export const LOUDNESS_CONTROL_REASON: Readonly<Record<ProfileLoudnessControl, number>> = { reset: 1, pause: 2, resume: 3, target: 4 };
-/** ladder: reason 2 `shed`, 3 `restored` (1 is §5.6's bare "step", not written by this sink). */
-export const LADDER_REASON = { shed: 2, restored: 3 } as const;
 /** busRamp `lane` arg: the lane's index in the KEYFRAME bus row's lane order; `NO_NAME` for a lane this build doesn't know. */
 export const BUS_RAMP_LANES: Readonly<Record<string, number>> = { authored: 0, runtime: 1, snapshot: 2, monitor: 3, dip: 4, duck: 5, automation: 6 };
 
 const TABLE: Readonly<Record<NameTable, number>> = { clips: 0, buses: 1, events: 2, parameters: 3, snapshots: 4, targets: 5 };
-const T_CLIP = TABLE.clips, T_EVENT = TABLE.events, T_PARAM = TABLE.parameters, T_SNAPSHOT = TABLE.snapshots;
+const T_CLIP = TABLE.clips, T_BUS = TABLE.buses, T_EVENT = TABLE.events, T_PARAM = TABLE.parameters, T_SNAPSHOT = TABLE.snapshots;
 
 /** Options of `createEventSink`. */
 export interface EventSinkOptions {
@@ -162,6 +158,23 @@ export class EventSink implements ProfileSink {
    */
   name(table: NameTable, name: string): number {
     return this.intern(TABLE[table], name);
+  }
+
+  /**
+   * ADR 0260: bus slot `slot` is called `name` from now (a bus added or recycled into it, or renamed). Writes a NAMES record
+   * in the `buses` table, keyed by the slot as META's is, unless the slot already holds that name (seeded or written); a
+   * record the ring can't take is retried at the next call.
+   */
+  busName(slot: number, name: string): void {
+    const map = this.ids[T_BUS]!;
+    if (map.get(name) === slot) return;
+    const p = { table: T_BUS, id: slot, name: cutUtf8(name, CAPTURE_NAME_MAX_BYTES) };
+    const off = this.recorder.record(RecordType.NAMES, this.recorder.newestStatusFrame, namesBytes(p));
+    if (off < 0) return;
+    encodeNames(this.recorder.ring.view, off, p);
+    for (const [n, s] of map) if (s === slot) map.delete(n);
+    map.set(name, slot);
+    this.namesWritten++;
   }
 
   private nameOrNone(table: number, name: string | null): number {
@@ -352,9 +365,8 @@ export function createEventSink(recorder: EventSinkRecorder, opts: EventSinkOpti
 
 // --- reading an EVENT back (ADR 0227) ------------------------------------------------------------------------------------
 
-/** What every typed EVENT carries: §5.6's `reason` code (0 for a kind without reasons) and the main-thread clock. */
+/** What every typed EVENT carries: the main-thread clock. A kind with §5.6 reasons carries its `reason` as the sink's word (null for a code this build doesn't know). */
 interface CaptureEventBase {
-  readonly reason: number;
   readonly perfMs: number;
 }
 
@@ -365,11 +377,12 @@ interface CaptureEventBase {
  */
 export type CaptureEvent = CaptureEventBase & (
   | { readonly type: "voiceStart"; readonly voice: number; readonly clip: number; readonly slot: number; readonly busGen: number; readonly flags: number; readonly atFrameLo: number; readonly gain: number }
-  | { readonly type: "voiceStop"; readonly voice: number }
-  | { readonly type: "voiceSteal"; readonly voice: number; readonly thief: number }
-  | { readonly type: "voiceVirtual"; readonly voice: number }
-  | { readonly type: "voiceReal"; readonly voice: number }
-  | { readonly type: "voiceRefused" | "voiceQueued"; readonly clip: number; readonly slot: number; readonly busGen: number }
+  | { readonly type: "voiceStop"; readonly voice: number; readonly reason: ProfileStopReason | null }
+  | { readonly type: "voiceSteal"; readonly voice: number; readonly thief: number; readonly reason: ProfileStealReason | null }
+  | { readonly type: "voiceVirtual"; readonly voice: number; readonly reason: ProfileVirtualReason | null }
+  | { readonly type: "voiceReal"; readonly voice: number; readonly reason: ProfileRealReason | null }
+  | { readonly type: "voiceRefused"; readonly clip: number; readonly slot: number; readonly busGen: number; readonly reason: ProfileRefusedReason | null }
+  | { readonly type: "voiceQueued"; readonly clip: number; readonly slot: number; readonly busGen: number; readonly reason: ProfileQueuedReason | null }
   | { readonly type: "eventStart"; readonly instance: number; readonly asset: number }
   | { readonly type: "eventStop"; readonly instance: number }
   /** `name` in the `parameters` table; `instance` null for a global parameter. */
@@ -399,7 +412,6 @@ const MIN_ARGS: Readonly<Record<CaptureEventType, number>> = {
   voiceStart: 5, voiceStop: 1, voiceSteal: 2, voiceVirtual: 1, voiceReal: 1, voiceRefused: 2, voiceQueued: 2, eventStart: 2, eventStop: 1,
   parameter: 3, snapshot: 1, stateChange: 2, musicTransition: 3, busRamp: 3, monitor: 1, loudnessControl: 0, ladder: 1, masterChange: 1, hiddenTab: 1,
 };
-const LOUDNESS_CONTROL = Object.fromEntries(Object.entries(LOUDNESS_CONTROL_REASON).map(([k, v]) => [v, k])) as Record<number, ProfileLoudnessControl>;
 const orNull = (id: number): number | null => (id === NO_NAME ? null : id);
 const readF32 = new Float32Array(1);
 const readF32Bits = new Uint32Array(readF32.buffer);
@@ -412,13 +424,17 @@ export function readCaptureEvent(p: EventPayload): CaptureEvent | null {
   const type = KIND_TYPE[p.kind];
   if (type === undefined || p.args.length < MIN_ARGS[type]) return null;
   const a = p.args;
-  const base = { reason: p.reason, perfMs: p.perfMs };
+  const base = { perfMs: p.perfMs };
+  const r = p.reason;
   const f32 = p.f32 ?? 0;
   switch (type) {
     case "voiceStart": return { ...base, type, voice: a[0]!, clip: a[1]!, slot: a[2]! & 0xff, busGen: a[2]! >>> 8, flags: a[3]!, atFrameLo: a[4]!, gain: f32 };
-    case "voiceStop": case "voiceVirtual": case "voiceReal": return { ...base, type, voice: a[0]! };
-    case "voiceSteal": return { ...base, type, voice: a[0]!, thief: a[1]! };
-    case "voiceRefused": case "voiceQueued": return { ...base, type, clip: a[0]!, slot: a[1]! & 0xff, busGen: a[1]! >>> 8 };
+    case "voiceStop": return { ...base, type, voice: a[0]!, reason: stopReason(r) };
+    case "voiceVirtual": return { ...base, type, voice: a[0]!, reason: virtualReason(r) };
+    case "voiceReal": return { ...base, type, voice: a[0]!, reason: realReason(r) };
+    case "voiceSteal": return { ...base, type, voice: a[0]!, thief: a[1]!, reason: stealReason(r) };
+    case "voiceRefused": return { ...base, type, clip: a[0]!, slot: a[1]! & 0xff, busGen: a[1]! >>> 8, reason: refusedReason(r) };
+    case "voiceQueued": return { ...base, type, clip: a[0]!, slot: a[1]! & 0xff, busGen: a[1]! >>> 8, reason: queuedReason(r) };
     case "eventStart": return { ...base, type, instance: a[0]!, asset: a[1]! };
     case "eventStop": return { ...base, type, instance: a[0]! };
     case "parameter":
@@ -429,8 +445,8 @@ export function readCaptureEvent(p: EventPayload): CaptureEvent | null {
     case "musicTransition": return { ...base, type, instance: a[0]!, from: orNull(a[1]!), to: a[2]! };
     case "busRamp": return { ...base, type, slot: a[0]! & 0xff, busGen: a[0]! >>> 8, lane: orNull(a[1]!), frames: a[2]!, target: f32 };
     case "monitor": return { ...base, type, mutes: a[0]! & 0xffff, solos: a[0]! >>> 16 };
-    case "loudnessControl": return { ...base, type, control: LOUDNESS_CONTROL[p.reason] ?? null, bus: orNull(a[0] ?? NO_NAME) };
-    case "ladder": return { ...base, type, step: a[0]!, shed: p.reason === LADDER_REASON.shed };
+    case "loudnessControl": return { ...base, type, control: loudnessControlOf(r), bus: orNull(a[0] ?? NO_NAME) };
+    case "ladder": return { ...base, type, step: a[0]!, shed: r === LADDER_REASON.shed };
     case "masterChange": return { ...base, type, muted: a[0]! !== 0, volume: f32 };
     case "hiddenTab": return { ...base, type, hidden: a[0]! !== 0 };
   }

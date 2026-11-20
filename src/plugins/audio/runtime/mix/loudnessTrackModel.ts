@@ -28,6 +28,7 @@
 //
 // Marks warn and nothing more: this module holds no setter on the mixer, the buses or the target (a target is read, never
 // written), and `targetMarks` returns data.
+import { lastAtOrBefore } from "../../../../engine/core/sortedSearch";
 import type { CaptureKeyframeMetered } from "../capture/format";
 import { LOUD_FLAG_NEW_BLOCKS_MASK, LOUD_FLAG_RESET, LOUD_OUTPUT_TAP } from "../wire.generated";
 import { LoudnessFeedControl, LoudnessStats, SUB_BLOCK_SECONDS, linearToDb, type LoudnessStatsResetWhat } from "./loudnessStats";
@@ -125,20 +126,6 @@ export interface TargetMarkOptions {
   metrics?: readonly Exclude<LoudnessMarkMetric, "truePeak">[];
   /** Judge each STATUS's true peak against the ceiling (marks `over`, metric `truePeak`); default true. */
   truePeak?: boolean;
-}
-
-function binarySearchLast(times: readonly number[], t: number): number {
-  let lo = 0;
-  let hi = times.length - 1;
-  let at = -1;
-  while (lo <= hi) {
-    const mid = (lo + hi) >> 1;
-    if (times[mid]! <= t) {
-      at = mid;
-      lo = mid + 1;
-    } else hi = mid - 1;
-  }
-  return at;
 }
 
 /** One bus: its stats, its series and the hub's pause bookkeeping. */
@@ -262,7 +249,7 @@ export class LoudnessBusModel implements LoudnessSeries {
 
   /** The newest sample at or before `t`, or null before the first. */
   valuesAt(t: number): LoudnessValues | null {
-    const i = binarySearchLast(this.time, t);
+    const i = lastAtOrBefore(this.time, t);
     if (i < 0) return null;
     return {
       time: this.time[i]!, momentary: this.momentary[i]!, shortTerm: this.shortTerm[i]!, integrated: this.integrated[i]!, lra: this.lra[i]!,

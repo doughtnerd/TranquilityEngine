@@ -11,6 +11,7 @@
 import type { ShaderLevel } from "../../core/graphics";
 import { Color } from "../../core/math";
 import { Assets, normalizeAssetPath } from "../../scene/Assets";
+import { projectFileKind } from "../../scene/projectFiles";
 import { keywordConstant, keywordConstantsWgsl, type ShaderKeyword } from "../../scene/shaderKeywords";
 import { OUTPUT_NODE_TYPE, portRef, splitPortRef, type GraphNode, type GraphPropertyType, type GraphValue, type InputValue, type ShaderGraph } from "../../scene/shaderGraph";
 import { HELPER_DEPS, HELPERS_WGSL, OUTPUT_INPUTS, PORT_SIZE, canConnectTypes, nodeDef, nodePorts, resolveSubGraph, type Builtin, type EmitContext, type HelperName, type PortDef, type ShaderStage, type ValueType } from "./nodes";
@@ -514,10 +515,9 @@ export function compileShaderGraph(graph: ShaderGraph, options: { shaderLevel?: 
       if (f.file) {
         const path = normalizeAssetPath(f.file);
         dependencies.add(path);
-        const r = path && Assets.has(path) ? Assets.get(path) : undefined;
-        const text = typeof r === "string" ? r : typeof (r as { default?: unknown } | undefined)?.default === "string" ? (r as { default: string }).default : undefined;
-        if (text === undefined) fileProblem = r === undefined ? `the WGSL file "${path}" isn't in the project; its outputs read their defaults` : `${path} isn't a text file; its outputs read their defaults`;
-        else body = text;
+        if (!path || !Assets.has(path)) fileProblem = `the WGSL file "${path}" isn't in the project; its outputs read their defaults`;
+        else if (projectFileKind(path) !== "text") fileProblem = `${path} isn't a text file; its outputs read their defaults`;
+        else body = Assets.text(path);
       }
       if (fileProblem || !body) {
         // Report it and let every output read its default.

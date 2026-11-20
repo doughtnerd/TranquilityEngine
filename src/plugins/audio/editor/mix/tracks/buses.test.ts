@@ -1,13 +1,13 @@
 // ADR 0171/0172 (Pf3c; api-and-models §7): the bus level lanes and the bus gain factors line, over a recorded capture whose
 // STATUS blocks carry bus peaks and whose keyframes carry bus rows (a duck on Music from the third keyframe; a bus,
-// slot 3, tombstoned from the third keyframe and named only by META's project section).
+// slot 3 "Ambience", tombstoned from the third keyframe and, in one capture, recycled as "Recycled" by a NAMES record).
 import { describe, expect, it } from "vitest";
 import { RecordType, assembleCapture, type CaptureRecordInit, type KeyframeBus } from "../../../runtime/capture/format";
 import { SAMPLE_HEADER, SAMPLE_META, SAMPLE_RATE, statusBytesWith } from "../../../runtime/capture/testSupport";
 import { CaptureSource } from "../profilerSource";
-import { nameLookup } from "../voiceTableModel";
+import { captureNames } from "../../../runtime/capture/reader";
 import { BLOCKS, FRAMES, KEYFRAME_FRAMES, inProcessWorker } from "../voiceSceneSupport";
-import { busName, busTracks } from "./buses";
+import { busTracks } from "./buses";
 import type { ProfileSource } from "../profilerSource";
 import type { TrackContext } from "./types";
 
@@ -42,7 +42,10 @@ function peaksAt(i: number, frame: number): { l: number; r: number }[] {
   return [{ l: 0.5, r: 0.25 }, { l: i / BLOCKS, r: 0.1 }, { l: 0, r: 0 }, { l: frame < KEYFRAME_FRAMES[2]! ? 0.2 : 0, r: 0 }];
 }
 
-function records(): CaptureRecordInit[] {
+/** The frame the "Recycled" NAMES record lands at when a capture recycles slot 3 (3.25 s, between two grid points). */
+const RECYCLE_FRAME = Math.round(3.25 * SAMPLE_RATE);
+
+function records(recycle = false): CaptureRecordInit[] {
   const out: CaptureRecordInit[] = [];
   let seq = 0;
   out.push({ seq: ++seq, type: RecordType.EPOCH, epoch: 0, frame: 0, payload: { reason: 0, sampleRate: SAMPLE_RATE, limiterLatencyFrames: 64, outputLatencyFrames: 480, timeOffset: 0, perfMs: 1000 } });
@@ -55,17 +58,18 @@ function records(): CaptureRecordInit[] {
         payload: { voices: [], buses: busRows(k), metered: [], events: [], music: [], mix: { slotTableVersion: 1, monitorActive: 0, loudnessPausedMask: 0, targetIndex: 0, snapshotName: 0, masterVolume: 1, hiddenMute: 0 } },
       });
     }
+    if (recycle && frame >= RECYCLE_FRAME && frame - FRAMES < RECYCLE_FRAME) out.push({ seq: ++seq, type: RecordType.NAMES, epoch: 0, frame, payload: { table: 1, id: 3, name: "Recycled" } });
     out.push({ seq: ++seq, type: RecordType.STATUS, epoch: 0, frame, payload: statusBytesWith({ currentFrame: frame, peaks: peaksAt(i, frame) }) });
   }
   return out;
 }
 
-const NAMES = { buses: { 0: "Master", 1: "Music", 2: "SFX" } };
+const NAMES = { buses: { 0: "Master", 1: "Music", 2: "SFX", 3: "Ambience" } };
 
-async function open(names: Record<number, string> = NAMES.buses, audioBuses: { name: string }[] = [{ name: "Master" }, { name: "Music" }, { name: "SFX" }, { name: "Ambience" }]) {
-  const meta = { ...SAMPLE_META, audio: { buses: audioBuses }, names: { ...SAMPLE_META.names, buses: names } };
-  const source = await CaptureSource.openFile(assembleCapture(SAMPLE_HEADER, meta, records(), { index: true }).slice().buffer, { worker: inProcessWorker() });
-  const ctx: TrackContext = { source, names: nameLookup(source.summary.names) };
+async function open(names: Record<number, string> = NAMES.buses, recycle = false) {
+  const meta = { ...SAMPLE_META, audio: { buses: [{ name: "Master" }, { name: "Music" }, { name: "SFX" }, { name: "Ambience" }] }, names: { ...SAMPLE_META.names, buses: names } };
+  const source = await CaptureSource.openFile(assembleCapture(SAMPLE_HEADER, meta, records(recycle), { index: true }).slice().buffer, { worker: inProcessWorker() });
+  const ctx: TrackContext = { source };
   const [level, gain] = busTracks(ctx);
   await level!.refresh();
   await gain!.refresh();
@@ -101,7 +105,7 @@ describe("the bus level lanes", () => {
     source.close();
   });
 
-  it("names every bus's peak in dB in the tooltip, a tombstone from the project section", async () => {
+  it("names every bus's peak in dB in the tooltip, a tombstone by its last name", async () => {
     const { source, level } = await open();
     const early = level.tooltipAt!(1.2)!.split("\n");
     expect(early).toEqual([
@@ -148,25 +152,21 @@ describe("the bus gain factors", () => {
 
 });
 
-describe("naming", () => {
-  it("names a bus tombstoned mid-capture from META's project section, not the recycled slot's name", async () => {
-    const { ctx, source } = await open({ ...NAMES.buses, 3: "Recycled" });
-    expect(busName(ctx, 3, true)).toBe("Ambience");
-    expect(busName(ctx, 3, false)).toBe("Recycled");
-    source.close();
-  });
-
-  it("falls back to META's name, then to the slot", async () => {
-    const { ctx, source } = await open(NAMES.buses, [{ name: "Master" }]);
-    expect(busName(ctx, 1, true)).toBe("Music");
-    expect(busName(ctx, 3, true)).toBe("bus 3");
-    source.close();
-  });
-
-  it("names the tombstone in both tooltips when META's names lack it", async () => {
-    const { source, level, gain } = await open();
+describe("naming (ADR 0260: the capture's name of the slot at the instant)", () => {
+  it("names a tombstone by its last name until the slot is recycled, and the recycled slot by its new name after", async () => {
+    const { source, level, gain } = await open(NAMES.buses, true);
     expect(gain.tooltipAt!(3.2)!).toContain("Ambience (removed)");
     expect(level.tooltipAt!(3.2)!).toContain("Ambience: peak");
+    const late = source.duration - 0.01;
+    expect(late).toBeGreaterThan(3.5); // the grid point at 3.5 s is after the recycle
+    expect(level.tooltipAt!(late)!).toContain("Recycled: peak");
+    expect(captureNames(source.summary).bus(3)).toBe("Recycled");
+    source.close();
+  });
+
+  it("an unnamed slot reads as \"bus\" and its number", async () => {
+    const { source, level } = await open({ 0: "Master", 1: "Music", 2: "SFX" });
+    expect(level.tooltipAt!(1.2)!.split("\n")[3]).toBe("bus 3: peak -14.0 dB");
     source.close();
   });
 });
@@ -177,7 +177,7 @@ describe("the sampler", () => {
     const seeksFor = async (duration: number): Promise<number> => {
       let seeks = 0;
       const source = { duration, startSeconds: 0, summary: { meta: { audio: null } }, seek: async () => (seeks++, { status: null, keyframe: null, keyframeSeq: 0 }) } as unknown as ProfileSource;
-      const [level, gain] = busTracks({ source, names: { clip: () => undefined, bus: () => undefined, event: () => undefined } });
+      const [level, gain] = busTracks({ source });
       await Promise.all([level!.refresh(), gain!.refresh()]);
       return seeks;
     };
@@ -208,7 +208,7 @@ describe("the sampler", () => {
   it("has no data for a capture without a STATUS or a keyframe", async () => {
     const bytes = assembleCapture(SAMPLE_HEADER, SAMPLE_META, [{ seq: 1, type: RecordType.EPOCH, epoch: 0, frame: 0, payload: { reason: 0, sampleRate: SAMPLE_RATE, limiterLatencyFrames: 64, outputLatencyFrames: 480, timeOffset: 0, perfMs: 1000 } }], { index: true });
     const source = await CaptureSource.openFile(bytes.slice().buffer, { worker: inProcessWorker() });
-    const mods = busTracks({ source, names: nameLookup(source.summary.names) });
+    const mods = busTracks({ source });
     for (const m of mods) {
       await m.refresh();
       expect(m.data()).toBeUndefined();

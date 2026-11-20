@@ -6,7 +6,7 @@ import { expect } from "storybook/test";
 import type { CaptureKeyframe, CaptureKeyframeBus } from "../../runtime/capture/reader";
 import { BusTable, busTableData } from "./BusTable";
 import { busParents, busTableRows } from "./profilerTablesModel";
-import { nameLookup } from "./voiceTableModel";
+import { namesFromStart } from "../../runtime/capture/testSupport";
 
 const EMPTY_MIX = { slotTableVersion: 1, monitorActive: false, targetIndex: 0, snapshot: null, masterVolume: 1, hiddenMute: false };
 const keyframe = (over: Partial<CaptureKeyframe> = {}): CaptureKeyframe => ({ voices: [], buses: [], metered: [], events: [], music: [], mix: EMPTY_MIX, ...over });
@@ -18,10 +18,10 @@ const bus = (slot: number, { authored = 1, ...over }: Partial<CaptureKeyframeBus
     authoredMute: false, runtimeMute: false, monitorMute: false, monitorSolo: false, tombstone: false, metered: false, ...over,
   };
 };
-const NAMES = nameLookup({ clips: new Map(), buses: new Map([[0, "Master"], [1, "Music"], [2, "SFX"]]), events: new Map(), parameters: new Map(), snapshots: new Map(), targets: new Map() } as never);
-const parents = busParents({ buses: [{ name: "Master" }, { name: "Music", parent: "Master" }, { name: "SFX", parent: "Music" }] }, [[0, "Master"], [1, "Music"], [2, "SFX"]]);
+const NAMES = namesFromStart({ buses: [[0, "Master"], [1, "Music"], [2, "SFX"]] });
+const parents = busParents({ buses: [{ name: "Master" }, { name: "Music", parent: "Master" }, { name: "SFX", parent: "Music" }] }, NAMES, 0);
 const CTX = { playing: false, truncated: false, beforeFirstKeyframe: false };
-const dataOf = (buses: CaptureKeyframeBus[]) => busTableData(busTableRows(keyframe({ buses }), NAMES, parents), buses.length, "", CTX);
+const dataOf = (buses: CaptureKeyframeBus[]) => busTableData(busTableRows(keyframe({ buses }), NAMES, 0, parents), buses.length, "", CTX);
 
 const rows = (root: HTMLElement) => [...root.querySelectorAll<HTMLElement>(".pgrid-row")];
 const cells = (row: HTMLElement) => [...row.querySelectorAll<HTMLElement>(".pgrid-cell")];

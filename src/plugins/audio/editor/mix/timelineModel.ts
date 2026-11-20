@@ -3,6 +3,7 @@
  * follow-live), min/max downsampling into pixel buckets that never drops a tick, and the
  * track list. No DOM, no canvas.
  */
+import { firstAtOrAfter } from "../../../../engine/core/sortedSearch";
 
 /** A view onto capture time, in seconds. `followLive` pins `end` to the capture's duration as it grows. */
 export interface Viewport {
@@ -71,18 +72,6 @@ export interface Buckets {
   readonly filled: Uint8Array;
 }
 
-/** First index whose time is >= t. */
-function lowerBound(times: ArrayLike<number>, t: number): number {
-  let lo = 0;
-  let hi = times.length;
-  while (lo < hi) {
-    const mid = (lo + hi) >>> 1;
-    if (times[mid]! < t) lo = mid + 1;
-    else hi = mid;
-  }
-  return lo;
-}
-
 function bucketOf(t: number, start: number, span: number, buckets: number): number {
   const b = Math.floor(((t - start) / span) * buckets);
   return b < 0 ? 0 : b >= buckets ? buckets - 1 : b;
@@ -110,7 +99,7 @@ export function downsampleMinMax(
   const span = v.end - v.start;
   if (n === 0 || !(span > 0)) return res;
   const count = Math.min(times.length, values.length);
-  for (let i = lowerBound(times, v.start); i < count; i++) {
+  for (let i = firstAtOrAfter(times, v.start); i < count; i++) {
     const t = times[i]!;
     if (t >= v.end) break;
     const b = bucketOf(t, v.start, span, n);
@@ -134,7 +123,7 @@ export function downsampleTicks(times: ArrayLike<number>, v: Viewport, buckets: 
   res.fill(0);
   const span = v.end - v.start;
   if (n === 0 || !(span > 0)) return res;
-  for (let i = lowerBound(times, v.start); i < times.length; i++) {
+  for (let i = firstAtOrAfter(times, v.start); i < times.length; i++) {
     const t = times[i]!;
     if (t >= v.end) break;
     res[bucketOf(t, v.start, span, n)] = 1;
@@ -279,7 +268,7 @@ export function downsampleMinMaxPyramid(p: MinMaxPyramid, times: ArrayLike<numbe
   const count = Math.min(times.length, values.length);
   extendMinMaxPyramid(p, values.length);
   // The window [lo, hi): the samples the linear pass visits.
-  let lo = lowerBound(times, v.start);
+  let lo = firstAtOrAfter(times, v.start);
   let a = lo;
   let z = count;
   while (a < z) {
@@ -335,7 +324,7 @@ export function downsampleTicksIndexed(times: ArrayLike<number>, v: Viewport, bu
   if (n === 0 || !(span > 0)) return res;
   const w = work ?? { samples: 0, blocks: 0, probes: 0 };
   const count = times.length;
-  let i = lowerBound(times, v.start);
+  let i = firstAtOrAfter(times, v.start);
   while (i < count) {
     const t = times[i]!;
     if (t >= v.end) break;

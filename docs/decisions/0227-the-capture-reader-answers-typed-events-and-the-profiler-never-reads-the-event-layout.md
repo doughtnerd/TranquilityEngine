@@ -1,6 +1,6 @@
 # 0227. The capture reader answers typed events, and the Profiler never reads the EVENT layout
 
-- **Status:** Accepted; amended by 0230 (the keyframe rows: one layout module for the writers and the reader, and the loudness model takes typed readings)
+- **Status:** Accepted; amended by 0230 (the keyframe rows: one layout module for the writers and the reader, and the loudness model takes typed readings); amended by 0260 (reasons are the sink's words, not codes; names are answered over time by `CaptureNames`)
 - **Date:** 2026-11-17
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

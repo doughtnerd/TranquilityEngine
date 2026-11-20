@@ -19,7 +19,9 @@ import {
   type NamesPayload, type RecordHead,
 } from "./format";
 import { LOUD_OUTPUT_TAP, readStatus, readStatusHeaderField, STATUS_HEADER_COLUMNS, type StatusBlock, type StatusHeaderField } from "../wire.generated";
+import { firstAtOrAfter, lastAtOrBefore } from "../../../../engine/core/sortedSearch";
 import { readCaptureEvent, type CaptureEvent, type CaptureEventType } from "./events";
+import type { CaptureNameEntry, CaptureNameLog } from "./names";
 
 // The Profiler's vocabulary (ADR 0227): what the reader and its Worker answer is importable from here, so the editor's
 // views depend on the reader and never on the binary layout (`format.ts`, `wire.generated.ts`).
@@ -30,6 +32,8 @@ export type {
   CaptureKeyframeVoice, CaptureLane, CaptureMusicState, CaptureVoiceState,
 } from "./format";
 export type { CaptureEvent, CaptureEventType } from "./events";
+export { CaptureNames, captureNames, type CaptureNameEntry, type CaptureNameLog } from "./names";
+export { reasonText, type CaptureReason, type CaptureVoiceReason } from "./reasons";
 /**
  * The largest file the reader can accept: the header, a META chunk and an uncompressed payload, each at its cap (a stored
  * capture can reach it, and deflate output never exceeds it by more than the same slack). A file past it is refused, so
@@ -124,8 +128,10 @@ export interface CaptureContents {
   /** Record indices of every KEYFRAME, in seq order. */
   keyframes: number[];
   epochs: EpochInfo[];
-  /** META's names plus every NAMES record. */
+  /** META's names plus every NAMES record, the latest per id. */
   names: Record<NameTable, Map<number, string>>;
+  /** Every name in record order with the time it holds from (META's at `-Infinity`): what `names.ts` answers over time (ADR 0260). */
+  nameLog: Record<NameTable, CaptureNameEntry[]>;
   /** The INDEX record when present and consistent with the scan; null otherwise. */
   index: IndexPayload | null;
   truncated: boolean;
@@ -172,13 +178,17 @@ export class CaptureDecoder {
   private nameCount = 0;
   private indexRecord = -1;
   private heldBytes = 0;
+  /** The NAMES payload `checkPayload` just read, logged once its record is in the table (its time needs the row). */
+  private namesRead: NamesPayload | null = null;
 
   constructor(header: CaptureHeader, meta: CaptureMeta, live: boolean, opts: ReaderOptions = {}) {
     this.live = live;
     this.opts = opts;
     for (const t of NAME_TABLES) this.nameCount += meta.names[t].size;
+    const nameLog = {} as Record<NameTable, CaptureNameEntry[]>;
+    for (const t of NAME_TABLES) nameLog[t] = [...meta.names[t]].map(([id, name]) => [id, name, -Infinity] as const);
     this.contents = {
-      header, meta, records: new RecordTable(), segments: [], keyframes: [], epochs: [], names: meta.names, index: null,
+      header, meta, records: new RecordTable(), segments: [], keyframes: [], epochs: [], names: meta.names, nameLog, index: null,
       truncated: (header.flags & CAPTURE_FLAG_TRUNCATED) !== 0, mainSideOnly: (header.flags & CAPTURE_FLAG_MAIN_SIDE_ONLY) !== 0, warnings: [],
     };
     this.epochRate = header.sampleRate;
@@ -273,6 +283,11 @@ export class CaptureDecoder {
       t.frame[i] = h.frame;
       if (h.type === RecordType.KEYFRAME) c.keyframes.push(i);
       if (h.type === RecordType.INDEX) this.indexRecord = i;
+      if (this.namesRead) {
+        const n = this.namesRead;
+        this.namesRead = null;
+        c.nameLog[NAME_TABLES[n.table]!].push([n.id, n.name, recordSeconds(c, i)]);
+      }
       if (h.frame > this.epochMaxFrame) this.epochMaxFrame = h.frame;
       this.lastSeq = h.seq;
       off += CAPTURE_RECORD_HEAD_BYTES + h.len;
@@ -315,6 +330,7 @@ export class CaptureDecoder {
           if (++this.nameCount > CAPTURE_MAX_NAMES) throw new CaptureError("tooManyNames", at, `more than ${CAPTURE_MAX_NAMES} names`);
         }
         table.set(n.id, n.name);
+        this.namesRead = n;
         break;
       }
       case RecordType.MIXOP: decodeMixOpRecord(view, p, len, base); break;
@@ -602,45 +618,21 @@ export class CaptureTimeIndex {
   }
 }
 
-/** The last index in `keys[0..n)` whose value is ≤ `t`, or -1. */
-export function lastAtOrBefore(keys: Float64Array, n: number, t: number): number {
-  let lo = 0;
-  let hi = n;
-  while (lo < hi) {
-    const mid = (lo + hi) >>> 1;
-    if (keys[mid]! <= t) lo = mid + 1;
-    else hi = mid;
-  }
-  return lo - 1;
-}
-
-/** The first index in `keys[0..n)` whose value is ≥ `t` (`n` when none). */
-export function firstAtOrAfter(keys: Float64Array, n: number, t: number): number {
-  let lo = 0;
-  let hi = n;
-  while (lo < hi) {
-    const mid = (lo + hi) >>> 1;
-    if (keys[mid]! < t) lo = mid + 1;
-    else hi = mid;
-  }
-  return lo;
-}
-
 /** The summary `open` and `appendSegment` answer, with the overview's markers, gaps and names (data, structured-cloneable). */
 export interface CaptureOpenSummary extends CaptureSummary {
   statusCount: number;
   markers: readonly CaptureMarkerAt[];
   gaps: readonly CaptureGapAt[];
-  /** META's names plus every NAMES record, per table. */
-  names: Record<NameTable, readonly (readonly [number, string])[]>;
+  /** META's names plus every NAMES record, per table, with the time each holds from: ask `captureNames(summary)` (ADR 0260). */
+  names: CaptureNameLog;
   /** Recorded without the core's STATUS stream (the Babylon backend): no CPU or counter series (`CAPTURE_FLAG_MAIN_SIDE_ONLY`). */
   mainSideOnly: boolean;
 }
 
 /** The summary of an opened (or extended) capture. */
 export function summarizeCapture(c: CaptureContents, idx: CaptureTimeIndex): CaptureOpenSummary {
-  const names = {} as Record<NameTable, (readonly [number, string])[]>;
-  for (const t of NAME_TABLES) names[t] = [...c.names[t]];
+  const names = {} as Record<NameTable, CaptureNameEntry[]>;
+  for (const t of NAME_TABLES) names[t] = [...c.nameLog[t]];
   return {
     header: c.header, meta: c.meta, recordCount: c.records.count, keyframeCount: c.keyframes.length, epochCount: c.epochs.length,
     startSeconds: Number.isNaN(idx.startSeconds) ? 0 : idx.startSeconds, endSeconds: Number.isNaN(idx.endSeconds) ? 0 : idx.endSeconds,
@@ -677,8 +669,8 @@ export interface CaptureSeekState extends CaptureSnapshot {
 export function seekCapture(c: CaptureContents, idx: CaptureTimeIndex, t: number): CaptureSeekState {
   if (!Number.isFinite(t)) throw new CaptureError("badValue", -1, `seek to ${t}`);
   const seconds = idx.indexed === 0 ? 0 : Math.min(Math.max(t, idx.startSeconds), idx.endSeconds);
-  const s = lastAtOrBefore(idx.statusSeconds, idx.statusCount, seconds);
-  const k = lastAtOrBefore(idx.keyframeSeconds, idx.keyframeCount, seconds);
+  const s = lastAtOrBefore(idx.statusSeconds, seconds, idx.statusCount);
+  const k = lastAtOrBefore(idx.keyframeSeconds, seconds, idx.keyframeCount);
   const tbl = c.records;
   const cursor = s >= 0 ? idx.statusRecord[s]! : 0;
   const state: CaptureSeekState = {
@@ -696,7 +688,7 @@ export function seekCapture(c: CaptureContents, idx: CaptureTimeIndex, t: number
     state.keyframe = keyframeAt(c, base);
     base++;
   } else {
-    const b = lastAtOrBefore(idx.statusSeconds, idx.statusCount, seconds - CAPTURE_KEYFRAME_INTERVAL_MS / 1000);
+    const b = lastAtOrBefore(idx.statusSeconds, seconds - CAPTURE_KEYFRAME_INTERVAL_MS / 1000, idx.statusCount);
     base = b >= 0 ? idx.statusRecord[b]! : 0;
   }
   // Records after `base` up to t. A record written later may be stamped up to CAPTURE_DISORDER_SECONDS earlier than one
@@ -776,8 +768,8 @@ export function rangeCapture(c: CaptureContents, idx: CaptureTimeIndex, t0: numb
   if (buckets !== undefined && !(Number.isInteger(buckets) && buckets >= 1 && buckets <= RANGE_MAX_BUCKETS)) throw new CaptureError("badValue", -1, `range buckets ${buckets}`);
   for (const col of columns) if (!Object.hasOwn(STATUS_COLUMNS, col)) throw new CaptureError("badValue", -1, `unknown range column "${col}"`);
   const cols = columns as readonly StatusColumn[];
-  const from = firstAtOrAfter(idx.statusSeconds, idx.statusCount, t0);
-  const to = lastAtOrBefore(idx.statusSeconds, idx.statusCount, t1) + 1;
+  const from = firstAtOrAfter(idx.statusSeconds, t0, idx.statusCount);
+  const to = lastAtOrBefore(idx.statusSeconds, t1, idx.statusCount) + 1;
   const n = Math.max(0, to - from);
   const tbl = c.records;
   const read = (s: number, col: StatusColumn): number => {

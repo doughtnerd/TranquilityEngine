@@ -18,6 +18,7 @@ import {
   CaptureError, EpochReason, RecordType, decodeKeyframe, readKeyframeMetered,
   type CaptureErrorInfo, type CaptureLoudnessColumns, type CaptureWorkerRequest, type CaptureWorkerResponse,
 } from "./format";
+import { CaptureNames } from "./names";
 import { readCaptureEvent, type CaptureEventType } from "./events";
 import {
   CaptureTimeIndex, decodeRecordAt, eventsCapture, openCapture, openLiveCapture, rangeCapture, recordSeconds, seekCapture, summarizeCapture,
@@ -85,7 +86,7 @@ function loudnessOf(s: Session): LoudnessTrackModel {
   const c = s.contents;
   const L = (s.loud ??= { model: new LoudnessTrackModel(c.truncated ? "seek" : "replay"), next: 0, lastKey: -Infinity });
   const t = c.records;
-  let slotOfName: Map<string, number> | null = null;
+  let names: CaptureNames | null = null;
   for (let i = L.next; i < t.count; i++) {
     switch (t.type[i]) {
       case RecordType.STATUS: {
@@ -120,10 +121,11 @@ function loudnessOf(s: Session): LoudnessTrackModel {
         const id = e.bus;
         let slot: number | undefined;
         if (id !== null) {
-          // The bus arrives as a name in the parameters table; the buses table maps slot to name. A name no slot carries is the root (the final-output tap).
-          const name = c.names.parameters.get(id);
-          if (slotOfName === null) slotOfName = new Map([...c.names.buses].map(([k, v]) => [v, k]));
-          slot = name === undefined ? undefined : (slotOfName.get(name) ?? LOUD_OUTPUT_TAP);
+          // The bus arrives as a name in the parameters table; the slot carrying that name at the instant is the bus (ADR 0260). A name no slot carries is the root (the final-output tap).
+          names ??= new CaptureNames(c.nameLog);
+          const at = recordSeconds(c, i);
+          const name = names.find("parameters", id, at);
+          slot = name === undefined ? undefined : (names.slotOf(name, at) ?? LOUD_OUTPUT_TAP);
           if (slot !== undefined && slot !== LOUD_OUTPUT_TAP && !L.model.bus(slot)) slot = LOUD_OUTPUT_TAP;
         }
         L.model.control(Math.max(L.lastKey, recordSeconds(c, i)), what, slot);

@@ -2,17 +2,17 @@
 // yet. Blend, ring-out and rebuild through the real mixer wasm on the loopback host with real sends (SET_VOICE_FX), the
 // kernels from the real decoder wasm's built-in presets (`generateIr`, sent to the worklet as format 3 clips), and the
 // ZONE_CONFIG table written the way the zone manager writes it. Each flow asserts its behaviour and compares its output
-// with `golden/zones-<flow>.json` (the exact SHA-256 of the f32 output and per-block levels, the format of
-// `audioGolden.test.ts`, which leaves `zones-*.json` to this file as it leaves `event-*.json` to the event goldens).
+// with `golden/zones/zones-<flow>.json` (the exact SHA-256 of the f32 output and per-block levels, the format of
+// `audioGolden.test.ts`; `golden/replay.ts` owns the digest and each suite its own folder).
 //
 // Update path: UPDATE_GOLDENS=1 npx vitest run src/plugins/audio/runtime/core/zonesLoopback.test.ts
-import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { createDecoderHandler } from "../decoder/handler";
 import type { DecoderReply, IrFailedMessage, IrPreparedMessage, StreamPortLike } from "../decoder/protocol";
 import { createLoopbackHost, LOOPBACK_PRESET, LOOPBACK_RATE, type LoopbackHost, type LoopbackStreamPort } from "../testing";
+import { levelDigest, matchLevelGolden } from "../golden/replay";
 import hash from "../wasm/hash.json";
 import {
   ASAP,
@@ -39,9 +39,6 @@ import {
 } from "../wire.generated";
 
 const DECODER = readFileSync(fileURLToPath(new URL("../wasm/myco_audio_decode.wasm", import.meta.url)));
-const GOLDEN_DIR = fileURLToPath(new URL("../golden/", import.meta.url));
-const UPDATE = process.env.UPDATE_GOLDENS === "1";
-const BLOCK = 1024;
 const Q = 128;
 
 /** Zone slots: the high and default presets' `maxActive + standby`; IRs up to 1 s (the presets' 0.4-0.9 s fit). */
@@ -213,58 +210,14 @@ const config = (slots: ZoneConfigSlots[], shared = 1): Writer => (view, off) => 
 const reset: Writer = (view, off) => writeReset(view, off, { voiceId: 0, frameOffset: ASAP, keepClips: 0 });
 const stop = (id: number): Writer => (view, off) => writeStop(view, off, { voiceId: id, frameOffset: ASAP, fadeFrames: 0, reason: 0 });
 
-// --- Goldens (the format of audioGolden.test.ts) ---------------------------------------------------------------------
-
-interface Golden {
-  scene: string;
-  frames: number;
-  sha256: string;
-  peak: number;
-  rms: number;
-  blocks: number[][];
-}
-const sig = (v: number): number => Number(v.toPrecision(6));
-
-function digest(scene: string, left: Float32Array, right: Float32Array): Golden {
-  const h = createHash("sha256");
-  h.update(new Uint8Array(left.buffer, left.byteOffset, left.byteLength));
-  h.update(new Uint8Array(right.buffer, right.byteOffset, right.byteLength));
-  const stat = (x: Float32Array, from: number, to: number): [number, number] => {
-    let sum = 0;
-    let peak = 0;
-    for (let i = from; i < to; i++) {
-      sum += x[i]! * x[i]!;
-      peak = Math.max(peak, Math.abs(x[i]!));
-    }
-    return [Math.sqrt(sum / (to - from)), peak];
-  };
-  const blocks: number[][] = [];
-  for (let from = 0; from < left.length; from += BLOCK) {
-    const to = Math.min(left.length, from + BLOCK);
-    const [rl, pl] = stat(left, from, to);
-    const [rr, pr] = stat(right, from, to);
-    blocks.push([sig(rl), sig(pl), sig(rr), sig(pr)]);
-  }
-  const [rmsL, peakL] = stat(left, 0, left.length);
-  const [rmsR, peakR] = stat(right, 0, right.length);
-  return { scene, frames: left.length, sha256: h.digest("hex"), peak: sig(Math.max(peakL, peakR)), rms: sig(Math.sqrt((rmsL * rmsL + rmsR * rmsR) / 2)), blocks };
-}
+// --- Goldens (`golden/zones/`, the format of audioGolden.test.ts: `golden/replay.ts`' level digest) -------------------
 
 function checkGolden(scene: string, r: Rig): void {
   const { left, right } = r.output();
   for (const x of left) expect(Number.isFinite(x)).toBe(true);
   for (const x of right) expect(Number.isFinite(x)).toBe(true);
-  const got = digest(scene, left, right);
-  const path = `${GOLDEN_DIR}${scene}.json`;
-  if (UPDATE) {
-    mkdirSync(GOLDEN_DIR, { recursive: true });
-    writeFileSync(path, `${JSON.stringify(got)}\n`);
-    return;
-  }
-  if (!existsSync(path)) throw new Error(`no golden for "${scene}": run UPDATE_GOLDENS=1 npx vitest run src/plugins/audio/runtime/core/zonesLoopback.test.ts`);
-  const want = JSON.parse(readFileSync(path, "utf8")) as Golden;
-  if (want.sha256 !== got.sha256) throw new Error(`"${scene}" differs from golden/${scene}.json: sha256 ${want.sha256.slice(0, 16)} -> ${got.sha256.slice(0, 16)}, frames ${want.frames} -> ${got.frames}, peak ${want.peak} -> ${got.peak}, rms ${want.rms} -> ${got.rms}. If intended: UPDATE_GOLDENS=1.`);
-  expect(want.peak).toBeGreaterThan(0.01);
+  const want = matchLevelGolden("zones", levelDigest(scene, left, right), "npx vitest run src/plugins/audio/runtime/core/zonesLoopback.test.ts");
+  if (want) expect(want.peak).toBeGreaterThan(0.01);
 }
 
 const energy = (x: Float32Array, from = 0, to = x.length): number => {

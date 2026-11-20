@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createServer } from "node:net";
 import { createTransport, type Transport, type TransportConnection, type TransportEvent } from "../net/Transport";
 import { WebSocketTransport, type SocketLike } from "../net/transport/websocket";
-import { parseListenAddress, type ListenAddress } from "../../server/websocketServer";
+import "../../server/websocketServer"; // registers the Node "websocket" transport, which can listen
+import type { ListenAddress } from "../../server/websocketServer";
 
 // ADR 0033, T9: the WebSocket transport over real sockets on port 0. The client is the
 // browser-safe transport on Node's global WebSocket; the server is the Node side (ADR 0035).
@@ -108,14 +109,6 @@ describe("WebSocket framing (T9)", () => {
     const empty = fakeConnection();
     empty.c.handleMessage(new Uint8Array([]));
     expect(empty.events.at(-1)).toMatchObject({ kind: "close", reason: expect.stringMatching(/empty/) });
-  });
-
-  it("parses listen addresses", () => {
-    expect(parseListenAddress(7777)).toEqual({ port: 7777, path: "/" });
-    expect(parseListenAddress(":0")).toEqual({ port: 0, path: "/" });
-    expect(parseListenAddress("ws://0.0.0.0:7777/game")).toEqual({ host: "0.0.0.0", port: 7777, path: "/game" });
-    expect(parseListenAddress("localhost:9000")).toEqual({ host: "localhost", port: 9000, path: "/" });
-    expect(() => parseListenAddress("wss://example.com:1")).toThrow(/only ws:\/\//);
   });
 });
 

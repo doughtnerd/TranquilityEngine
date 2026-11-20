@@ -92,6 +92,7 @@ import type { GameObject } from "../scene/GameObject";
 import { createBitReader, createBitWriter, type BitReader, type BitWriter } from "./codec";
 import { Connection, ConnectionState } from "./connection";
 import { createWorldTransport, transportCanListen, type Channel, type Transport, type TransportConnection, type TransportEvent } from "./Transport";
+import { listenTarget, type ListenTarget } from "./listenTarget";
 import type { NetworkTime } from "./time";
 // The built-in transports register themselves; links and `WorldHandle.connect` find them by name.
 import "./transport/loopback";
@@ -380,7 +381,7 @@ export class NetSession {
 
   /** @internal Whether this session already listens (or is starting to) over `transportName` at the address `options` give. */
   listensAt(transportName: string, options: Record<string, unknown>): boolean {
-    return this.listeners.has(`${transportName}|${listenAddress(this.world, transportName, options)}`);
+    return this.listeners.has(`${transportName}|${worldListenTarget(this.world, transportName, options).address}`);
   }
 
   /** The peer whose connection node is `node`, or null. */
@@ -408,7 +409,7 @@ export class NetSession {
    * listener: `address` is set already for transports that listen synchronously (loopback).
    */
   listen(transportName: string, options: Record<string, unknown>): Listener {
-    const address = listenAddress(this.world, transportName, options);
+    const address = worldListenTarget(this.world, transportName, options).address;
     const key = `${transportName}|${address}`;
     const existing = this.listeners.get(key);
     if (existing) return existing;
@@ -1010,44 +1011,36 @@ const engineNumbers = new WeakMap<object, number>();
 let nextEngineNumber = 1;
 
 /**
- * Defaults for listens that give no address or port, per transport name (ADR 0067): the dedicated
- * server sets the WebSocket one to its first server World's port (and `--host`), so every World
- * created at runtime that listens without a port shares that port, by path.
+ * Defaults for listens that give no port or host, per Engine and transport name (ADR 0067, 0255):
+ * the dedicated server sets the WebSocket one to its first server World's port (and `--host`), so
+ * every World created at runtime in that Engine that listens without a port shares that port, by path.
  */
-const listenDefaults = new Map<string, { port?: number; host?: string }>();
+const listenDefaults = new WeakMap<object, Map<string, { port?: number; host?: string }>>();
 
-/** @internal Set (or with null, clear) the default port and host for `transportName` listens that don't give one. */
-export function setDefaultListenOptions(transportName: string, defaults: { port?: number; host?: string } | null): void {
-  if (defaults) listenDefaults.set(transportName, { ...defaults });
-  else listenDefaults.delete(transportName);
+/** @internal Set (or with null, clear) the default port and host for `transportName` listens in `engine`'s Worlds that don't give one. */
+export function setListenDefaults(engine: object, transportName: string, defaults: { port?: number; host?: string } | null): void {
+  let byTransport = listenDefaults.get(engine);
+  if (!byTransport) listenDefaults.set(engine, (byTransport = new Map()));
+  if (defaults) byTransport.set(transportName, { ...defaults });
+  else byTransport.delete(transportName);
 }
 
-/** A listen `path` option, normalized to start with "/"; undefined if none. */
-function pathOption(options: Record<string, unknown>): string | undefined {
-  const path = options.path;
-  if (typeof path !== "string" || path === "" || path === "/") return undefined;
-  return path.startsWith("/") ? path : `/${path}`;
-}
-
-function listenAddress(world: World, transportName: string, options: Record<string, unknown>): string {
-  if (typeof options.address === "string" && options.address !== "") return options.address;
-  const path = pathOption(options);
-  if (transportName === "loopback") {
-    if (typeof options.port === "number" || typeof options.port === "string") return `${options.port}${path ?? ""}`;
-    const owner = (world._engine as object | null) ?? world;
+/** Where `world` listens over `transportName` with `options` (ADR 0255). Throws if a network transport has no port. */
+function worldListenTarget(world: World, transportName: string, options: Record<string, unknown>): ListenTarget {
+  const owner = (world._engine as object | null) ?? world;
+  const engineName = () => {
     let n = engineNumbers.get(owner);
     if (n === undefined) engineNumbers.set(owner, (n = nextEngineNumber++));
-    // A path just makes the address unique (ADR 0067): "engine-1/match/3".
-    return path ? `engine-${n}${path}` : `engine-${n}/${world.name}`;
-  }
-  const defaults = listenDefaults.get(transportName);
-  const port = typeof options.port === "number" || typeof options.port === "string" ? options.port : defaults?.port;
-  if (port === undefined) {
-    throw new Error(`World "${world.name}" can't listen over "${transportName}" without an address: give the link options.port or options.address.`);
-  }
-  const host = typeof options.host === "string" && options.host !== "" ? options.host : defaults?.host;
-  if (host) return `ws://${host.includes(":") ? `[${host}]` : host}:${port}${path ?? ""}`;
-  return `${port}${path ?? ""}`;
+    return `engine-${n}`;
+  };
+  const target = listenTarget(transportName, options, {
+    defaults: world._engine ? listenDefaults.get(world._engine as object)?.get(transportName) : undefined,
+    // A path just makes a loopback name unique (ADR 0067): "engine-1/match/3".
+    loopbackPrefix: engineName,
+    loopbackName: () => `${engineName()}/${world.name}`,
+  });
+  if (!target) throw new Error(`World "${world.name}" can't listen over "${transportName}" without an address: give the link options.port or options.address.`);
+  return target;
 }
 
 // --- encoding helpers ---------------------------------------------------------------------------

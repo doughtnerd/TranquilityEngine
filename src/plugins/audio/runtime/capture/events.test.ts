@@ -229,6 +229,18 @@ describe("EventSink: names are interned once", () => {
     expect(events(c).map((e) => e.payload.args.slice(0, 3))).toEqual([[2, 0, SFX]]);
   });
 
+  it("busName writes a NAMES record keyed by slot only when the slot's name changes (ADR 0260)", () => {
+    const g = rig();
+    g.sink.seed("buses", 1, "Music");
+    g.sink.busName(1, "Music"); // META's: nothing to write
+    g.sink.busName(2, "Stingers");
+    g.sink.busName(2, "Stingers");
+    g.sink.busName(1, "Score");
+    const c = g.decode();
+    expect(all(c).filter((d) => d.kind === "names").map((d) => d.kind === "names" && [d.payload.table, d.payload.id, d.payload.name])).toEqual([[1, 2, "Stingers"], [1, 1, "Score"]]);
+    expect([...g.sink.interned[1]!]).toEqual([["Stingers", 2], ["Score", 1]]);
+  });
+
   it("reset starts the tables over", () => {
     const g = rig();
     g.sink.eventStart(1, "a");
@@ -443,7 +455,7 @@ describe("EventSink: ring pressure", () => {
 });
 
 describe("reading EVENTs back by name (ADR 0227): the reader's typed events invert the sink's writes", () => {
-  it("every kind reads back with its fields named, NO_NAME as null, busRef as slot and generation, f32 bits as a value", () => {
+  it("every kind reads back with its fields named, NO_NAME as null, busRef as slot and generation, f32 bits as a value, the reason as the sink's word (ADR 0260)", () => {
     const g = rig();
     g.feed(768);
     const s = g.sink;
@@ -478,31 +490,31 @@ describe("reading EVENTs back by name (ADR 0227): the reader's typed events inve
     expect(next).toBe(c.records.count);
     expect(read.every((e) => e.event.perfMs > 1000)).toBe(true);
     expect(read.map((e) => ({ ...e.event, perfMs: 0 }))).toEqual([
-      { type: "voiceStart", reason: 0, perfMs: 0, voice: 7, clip: id("clips", "hop.ogg"), slot: 1, busGen: 2, flags: 3, atFrameLo: 800, gain: 0.5 },
-      { type: "voiceStop", reason: 3, perfMs: 0, voice: 9 },
-      { type: "voiceSteal", reason: 3, perfMs: 0, voice: 4, thief: 5 },
-      { type: "voiceVirtual", reason: 3, perfMs: 0, voice: 11 },
-      { type: "voiceReal", reason: 2, perfMs: 0, voice: 12 },
-      { type: "voiceRefused", reason: 2, perfMs: 0, clip: id("clips", "land.ogg"), slot: 2, busGen: 1 },
-      { type: "voiceQueued", reason: 2, perfMs: 0, clip: id("clips", "theme.ogg"), slot: 1, busGen: 2 },
-      { type: "eventStart", reason: 0, perfMs: 0, instance: 21, asset: id("events", "footsteps") },
-      { type: "eventStop", reason: 0, perfMs: 0, instance: 21 },
-      { type: "parameter", reason: 0, perfMs: 0, name: id("parameters", "intensity"), instance: null, value: f32(0.3) },
-      { type: "parameter", reason: 0, perfMs: 0, name: id("parameters", "pitch"), instance: 2, value: 1.25 },
-      { type: "snapshot", reason: 0, perfMs: 0, name: null, seconds: 0.5 },
-      { type: "snapshot", reason: 0, perfMs: 0, name: id("snapshots", "Underwater"), seconds: 1.5 },
-      { type: "stateChange", reason: 0, perfMs: 0, parameter: id("parameters", "Surface"), label: id("parameters", "Water") },
-      { type: "musicTransition", reason: 0, perfMs: 0, instance: 2, from: null, to: id("events", "Intro") },
-      { type: "musicTransition", reason: 0, perfMs: 0, instance: 2, from: id("events", "Intro"), to: id("events", "Loop") },
-      { type: "busRamp", reason: 0, perfMs: 0, slot: 2, busGen: 1, lane: 5, frames: 480, target: 0.25 },
-      { type: "busRamp", reason: 0, perfMs: 0, slot: 2, busGen: 1, lane: null, frames: 96, target: 1 },
-      { type: "monitor", reason: 0, perfMs: 0, mutes: 0b011, solos: 0b100 },
-      { type: "loudnessControl", reason: 2, perfMs: 0, control: "pause", bus: id("parameters", "Bgm") },
-      { type: "loudnessControl", reason: 1, perfMs: 0, control: "reset", bus: null },
-      { type: "ladder", reason: 2, perfMs: 0, step: 3, shed: true },
-      { type: "ladder", reason: 3, perfMs: 0, step: 2, shed: false },
-      { type: "masterChange", reason: 0, perfMs: 0, muted: true, volume: 0.75 },
-      { type: "hiddenTab", reason: 0, perfMs: 0, hidden: true },
+      { type: "voiceStart", perfMs: 0, voice: 7, clip: id("clips", "hop.ogg"), slot: 1, busGen: 2, flags: 3, atFrameLo: 800, gain: 0.5 },
+      { type: "voiceStop", reason: "faded", perfMs: 0, voice: 9 },
+      { type: "voiceSteal", reason: "priority", perfMs: 0, voice: 4, thief: 5 },
+      { type: "voiceVirtual", reason: "paused", perfMs: 0, voice: 11 },
+      { type: "voiceReal", reason: "capRaised", perfMs: 0, voice: 12 },
+      { type: "voiceRefused", reason: "poolFull", perfMs: 0, clip: id("clips", "land.ogg"), slot: 2, busGen: 1 },
+      { type: "voiceQueued", reason: "streamPriming", perfMs: 0, clip: id("clips", "theme.ogg"), slot: 1, busGen: 2 },
+      { type: "eventStart", perfMs: 0, instance: 21, asset: id("events", "footsteps") },
+      { type: "eventStop", perfMs: 0, instance: 21 },
+      { type: "parameter", perfMs: 0, name: id("parameters", "intensity"), instance: null, value: f32(0.3) },
+      { type: "parameter", perfMs: 0, name: id("parameters", "pitch"), instance: 2, value: 1.25 },
+      { type: "snapshot", perfMs: 0, name: null, seconds: 0.5 },
+      { type: "snapshot", perfMs: 0, name: id("snapshots", "Underwater"), seconds: 1.5 },
+      { type: "stateChange", perfMs: 0, parameter: id("parameters", "Surface"), label: id("parameters", "Water") },
+      { type: "musicTransition", perfMs: 0, instance: 2, from: null, to: id("events", "Intro") },
+      { type: "musicTransition", perfMs: 0, instance: 2, from: id("events", "Intro"), to: id("events", "Loop") },
+      { type: "busRamp", perfMs: 0, slot: 2, busGen: 1, lane: 5, frames: 480, target: 0.25 },
+      { type: "busRamp", perfMs: 0, slot: 2, busGen: 1, lane: null, frames: 96, target: 1 },
+      { type: "monitor", perfMs: 0, mutes: 0b011, solos: 0b100 },
+      { type: "loudnessControl", perfMs: 0, control: "pause", bus: id("parameters", "Bgm") },
+      { type: "loudnessControl", perfMs: 0, control: "reset", bus: null },
+      { type: "ladder", perfMs: 0, step: 3, shed: true },
+      { type: "ladder", perfMs: 0, step: 2, shed: false },
+      { type: "masterChange", perfMs: 0, muted: true, volume: 0.75 },
+      { type: "hiddenTab", perfMs: 0, hidden: true },
     ]);
   });
 

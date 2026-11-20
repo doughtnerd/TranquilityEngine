@@ -53,7 +53,7 @@ export async function open(recs: CaptureRecordInit[]): Promise<CaptureSource> {
 }
 
 export function context(source: CaptureSource): TrackContext {
-  return { source, names: { clip: () => undefined, bus: () => undefined, event: () => undefined } };
+  return { source };
 }
 
 /** The viewport time of STATUS block k (0 = the capture's first record). */

@@ -20,6 +20,7 @@ try {
   await page.goto(`${base}bench/particles/parity.html`);
   await page.waitForFunction(() => window.__parity, null, { timeout: 300_000 });
   const parity = await page.evaluate(() => window.__parity);
+  await page.close(); // one WebGPU page at a time: with SwiftShader a second page's device is lost
   console.log("Parity (JavaScript vs GPU executors, 90 frames):");
   for (const r of parity) {
     const ok = !r.available || (r.errors.length === 0 && r.alive[0] === r.alive[1] && r.mismatched === 0 && r.maxError < 0.01);
@@ -30,17 +31,22 @@ try {
     const runs = [
       ["webgpu", "gpu", "1000,10000,100000,1000000", ""],
       ["webgpu", "js", "1000,10000,100000", ""],
-      ["webgpu", "cpu", "1000,10000,50000", ""],
       ["webgl2", "gpu", "1000,10000,100000", "&nodraw=1"],
       ["webgl2", "js", "1000,10000,100000", "&nodraw=1"],
-      ["webgl2", "cpu", "1000,10000,50000", ""],
     ];
     console.log("\nFrame time (ms, simulation + draw; nodraw = simulation only):");
     for (const [engine, backend, counts, extra] of runs) {
       const p = await browser.newPage();
       await p.goto(`${base}bench/particles/index.html?engine=${engine}&backend=${backend}&counts=${counts}&frames=30${extra}`);
       await p.waitForFunction(() => window.__bench, null, { timeout: 900_000 });
-      for (const r of await p.evaluate(() => window.__bench)) console.log(`  ${engine.padEnd(7)} ${backend.padEnd(4)} ${extra ? "nodraw" : "      "} ${String(r.particles).padStart(8)}  ${String(r.msPerFrame).padStart(8)} ms  (${r.executor})`);
+      const result = await p.evaluate(() => window.__bench);
+      if (!Array.isArray(result)) {
+        failed = true;
+        console.log(`  ${engine.padEnd(7)} ${backend.padEnd(4)} failed: ${result.error}${result.errors?.length ? `\n${result.errors.join("\n")}` : ""}`);
+        await p.close();
+        continue;
+      }
+      for (const r of result) console.log(`  ${engine.padEnd(7)} ${backend.padEnd(4)} ${extra ? "nodraw" : "      "} ${String(r.particles).padStart(8)}  ${String(r.msPerFrame).padStart(8)} ms  (${r.executor})`);
       await p.close();
     }
   }

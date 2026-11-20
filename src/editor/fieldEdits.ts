@@ -2,17 +2,20 @@
 // nodes, setting one axis of a vector or rotation, reverting prefab overrides, and telling whether the
 // selected nodes' values differ or are overridden. On a plain node an edit writes the scene file's
 // entry; on a prefab instance, or a node inside one, it becomes a field override. Each user action is
-// one undo step across every selected node. Siblings: `componentEdits.ts` (components) and
+// one undo step across every selected node; every write goes through the component field write (ADR 0257), so the
+// edit gate refuses them during play. Siblings: `componentEdits.ts` (components) and
 // `inspectorEdits.ts` (Worlds and tags).
 import { Color, GameObject, Quaternion } from "../engine";
 import { listComponents, type ComponentInfo, type FieldValue } from "../engine/editor";
-import { RevertOverrides, SetField, isFieldOverride, type NodePath, type SceneDocument } from "./document";
+import { untracked } from "@preact/signals";
+import { storedFieldValue, writeComponentField } from "./componentField";
+import { RevertOverrides, isFieldOverride, type NodePath, type SceneDocument } from "./document";
+import { editStep, whyNotEdit } from "./editGate";
 import { editorFor, itemEditorFor, toSceneJSON, type FieldEditor } from "./fieldValues";
 import { rotationCodec, rotationFrom, withRotationAxis, type RotationView } from "./fields/rotationCodec";
 import { rotationAngles } from "./preferences";
 import { isOverridden } from "./prefabs";
 import type { OpenScene } from "./state";
-import { undoStep } from "./undoStep";
 
 /** Which component a field belongs to: its type and its index among the node's components of that type. */
 export type ComponentRef = Pick<ComponentInfo, "type" | "index">;
@@ -80,32 +83,37 @@ export function fieldState(scene: OpenScene, paths: readonly NodePath[], compone
   return { values, mixed: isMixed(scene, values), overridden: isFieldOverridden(scene.doc, paths, component, field) };
 }
 
+/** The edit gate's reason the scene can't be edited now, or null. */
+const whyNotEditScene = (scene: OpenScene): string | null => untracked(() => whyNotEdit({ kind: "scene", scene }));
+
 /**
- * Set the field on each node to `valueFor(i)` (i: the node's index in `paths`), as one undo step. The
- * value is converted to its scene-file form against what the file holds now: the instance's override
- * on a prefab instance (or a node inside one), else the node's own field.
+ * Set the field on each node to `valueFor(i)` (i: the node's index in `paths`), as one undo step, through the
+ * component field write (ADR 0257: the edit gate, overrides on prefab instances, unchanged values skipped). The value
+ * is converted to its scene-file form against what the file holds now: the instance's override on a prefab instance
+ * (or a node inside one), else the node's own field. Returns why it couldn't (play mode, say), or null.
  */
-export function setFieldEach(scene: OpenScene, paths: readonly NodePath[], component: ComponentRef, field: FieldValue, valueFor: (i: number) => unknown): void {
+export function setFieldEach(scene: OpenScene, paths: readonly NodePath[], component: ComponentRef, field: FieldValue, valueFor: (i: number) => unknown): string | null {
   const editor = editorFor(field);
-  const write = () =>
-    paths.forEach(([id, ...target], i) => {
-      const previous = scene.doc.isPrefabInstance(id)
-        ? scene.doc.overrideValue(id, target, component.type, field.name, component.index)
-        : scene.doc.fieldValue(id, component.type, field.name, component.index);
+  const write = (): string | null => {
+    let reason: string | null = null;
+    paths.forEach((path, i) => {
+      const place = { scene, path, type: component.type, index: component.index };
       const json = toSceneJSON(editor, valueFor(i), {
         field: field.name,
-        previous,
+        previous: storedFieldValue(place, field.name),
         nodeId: (n) => scene.sync.nodeIdOf(n),
         itemEditor: editor === "list" ? itemEditorFor(field) : undefined,
       });
-      scene.stack.execute(new SetField(id, component.type, field.name, json, { index: component.index, target }));
+      reason ??= writeComponentField(place, field.name, json);
     });
-  if (paths.length === 1) write();
-  else undoStep(scene.stack, `Set ${field.name} on ${paths.length} nodes`, write);
+    return reason;
+  };
+  if (paths.length === 1) return write();
+  return editStep({ kind: "scene", scene }, `Set ${field.name} on ${paths.length} nodes`, write) ?? whyNotEditScene(scene);
 }
 
 /** Set the field to `value` on every node, as one undo step. */
-export const setField = (scene: OpenScene, paths: readonly NodePath[], component: ComponentRef, field: FieldValue, value: unknown): void =>
+export const setField = (scene: OpenScene, paths: readonly NodePath[], component: ComponentRef, field: FieldValue, value: unknown): string | null =>
   setFieldEach(scene, paths, component, field, () => value);
 
 /**
@@ -122,15 +130,15 @@ export function setFieldAxis(
   n: number,
   values: readonly unknown[] = fieldValues(scene, paths, component, field.name),
   view: RotationView = rotationViewOf(field),
-): void {
+): string | null {
   const editor = editorFor(field);
-  setFieldEach(scene, paths, component, field, (i) => withAxis(values[i], editor, axis, n, view));
+  return setFieldEach(scene, paths, component, field, (i) => withAxis(values[i], editor, axis, n, view));
 }
 
-/** Remove the field's override from every node that has one, as one undo step. Plain nodes are skipped. */
+/** Remove the field's override from every node that has one, as one undo step (through the edit gate). Plain nodes are skipped. */
 export function revertField(scene: OpenScene, paths: readonly NodePath[], component: ComponentRef, field: string): void {
   const label = `Revert ${field}`;
-  undoStep(scene.stack, label, () => {
+  editStep({ kind: "scene", scene }, label, () => {
     for (const [id, ...target] of paths) {
       if (!scene.doc.isPrefabInstance(id)) continue;
       scene.stack.execute(new RevertOverrides(id, label, (o) => isFieldOverride(o, target, component.type, field, component.index)));

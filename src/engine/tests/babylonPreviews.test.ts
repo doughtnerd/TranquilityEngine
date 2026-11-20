@@ -7,7 +7,6 @@ import { readFileSync } from "node:fs";
 import { NullEngine } from "@babylonjs/core/Engines/nullEngine.js";
 import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
 import { Quaternion, Vector3 } from "@babylonjs/core/Maths/math.vector.js";
-import type { ParticleSystem } from "@babylonjs/core/Particles/particleSystem.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Assets } from "../scene/Assets";
@@ -27,7 +26,8 @@ vi.mock("../render/babylon/createEngine", async () => {
 });
 
 /** The scene's Babylon particle systems (CPU ones, which hold their particle list). */
-const systems = (scene: Scene) => scene.particleSystems as ParticleSystem[];
+/** The meshes drawing a particle thumbnail's effect (one per kernel output, ADR 0251). */
+const particleDraws = (scene: Scene) => scene.meshes.filter((m) => m.name.startsWith("particles:thumbnail:"));
 
 const campfire = JSON.parse(readFileSync(new URL("../../../samples/playground3d/effects/campfire.particles.json", import.meta.url), "utf8"));
 
@@ -144,10 +144,12 @@ describe("Babylon preview renderers (ADR 0075 stage 7)", () => {
       expect(renderer.canAnimate("particles", "c.particles.json")).toBe(true);
     });
 
-    it("draws a particle effect's emitters one second in, and animates only when live", async () => {
+    it("draws a particle effect's systems one second in, framed on the particles alive, and animates only when live", async () => {
       const still = (await scenes.prepare("particles", "c.particles.json", false))!;
-      expect(systems(still.scene).length).toBeGreaterThanOrEqual(3); // the campfire's three systems
-      expect(systems(still.scene).reduce((n, ps) => n + ps.particles.length, 0)).toBeGreaterThan(0);
+      expect(particleDraws(still.scene)).toHaveLength(3); // the campfire's three systems
+      expect(still.scene.particleSystems).toHaveLength(0);
+      // Framed on the particles (the flames low, the smoke high), not the default box around the origin.
+      expect(still.target).not.toEqual([0, 1, 0]);
       expect(still.step).toBeUndefined();
       expect(still.matte).toBe(true); // its transparency is recovered from two draws
       still.dispose();
@@ -157,24 +159,25 @@ describe("Babylon preview renderers (ADR 0075 stage 7)", () => {
       live.dispose();
     });
 
-    it("draws an emitter that has a material asset with that material, not a Babylon particle system", async () => {
+    it("draws a system that has a material asset with a copy of that material", async () => {
       const plain = (await scenes.prepare("particles", "c.particles.json", false))!;
       const withMaterial = (await scenes.prepare("particles", "cm.particles.json", false))!;
-      expect(systems(withMaterial.scene)).toHaveLength(systems(plain.scene).length - 1);
-      expect(withMaterial.scene.meshes.some((m) => m.material?.name === "material:asset:m.material.json")).toBe(true);
-      expect(plain.scene.meshes.some((m) => m.material?.name === "material:asset:m.material.json")).toBe(false);
+      const placed = (scene: Scene) => particleDraws(scene).filter((m) => m.material instanceof PBRMaterial && m.material.pluginManager?.getPlugin("MycoKernelParticles"));
+      expect(placed(withMaterial.scene)).toHaveLength(1);
+      expect((placed(withMaterial.scene)[0].material as PBRMaterial).metallic).toBeCloseTo(0.2); // the asset's
+      expect(placed(plain.scene)).toHaveLength(0);
       plain.dispose();
       withMaterial.dispose();
     });
 
-    it("simulates the same particles every time", async () => {
-      const count = async () => {
+    it("simulates the same particles every time (the same framing)", async () => {
+      const framing = async () => {
         const p = (await scenes.prepare("particles", "c.particles.json", false))!;
-        const n = systems(p.scene).map((ps) => ps.particles.map((q) => q.position.x.toFixed(4)).join());
+        const at = [...p.target, ...p.camera.position.asArray()].map((v) => v.toFixed(5));
         p.dispose();
-        return n;
+        return at;
       };
-      expect(await count()).toEqual(await count());
+      expect(await framing()).toEqual(await framing());
     });
 
     it("draws a prefab's meshes at their world transforms, with a child's offset and scale (through the Meshes feature, ADR 0153)", async () => {

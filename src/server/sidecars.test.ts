@@ -29,6 +29,25 @@ describe("import settings sidecars outside the editor", () => {
     expect(Assets.importSettings("images/hero.png#idle")).toMatchObject({ pixelsPerUnit: 16, sprites: [{ name: "idle", rect: [0, 0, 16, 16], pivot: [0.5, 0.5] }] });
   });
 
+  it("the server's project reader loads each file as the same asset value as the editor (ADR 0254)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "myco-files-"));
+    temps.push(dir);
+    mkdirSync(join(dir, "data"));
+    mkdirSync(join(dir, "node_modules"));
+    writeFileSync(join(dir, "project.json"), "{}");
+    writeFileSync(join(dir, "data", "intro.txt"), "Once upon a time");
+    writeFileSync(join(dir, "data", "wave.wgsl"), "fn wave() {}");
+    writeFileSync(join(dir, "data", "flap.wav"), new Uint8Array([82, 73, 70, 70]));
+    writeFileSync(join(dir, "node_modules", "x.json"), "{}");
+    const project = await readProject(dir);
+    Assets.addSource(project.assets);
+    expect(Assets.text("data/intro.txt")).toBe("Once upon a time");
+    expect(Assets.text("data/wave.wgsl")).toBe("fn wave() {}");
+    expect(Assets.url("data/flap.wav")).toMatch(/^file:.*flap\.wav$/);
+    expect(new TextDecoder().decode(await Assets.bytes("data/flap.wav"))).toBe("RIFF");
+    expect(Assets.has("node_modules/x.json")).toBe(false);
+  });
+
   it("the samples manifest lists sidecars as files", () => {
     for (const sample of sampleManifest().samples) {
       for (const f of sample.files.filter((x) => x.path.endsWith(".meta.json"))) expect(f.size).toBeGreaterThan(0);

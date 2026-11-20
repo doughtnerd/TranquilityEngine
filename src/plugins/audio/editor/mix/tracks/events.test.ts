@@ -4,18 +4,17 @@
 import { describe, expect, it } from "vitest";
 import { EMPTY_KEYFRAME_PAYLOAD as EMPTY_KEYFRAME } from "../../../runtime/capture/testSupport";
 import { SAMPLE_RATE } from "../../../runtime/capture/testSupport";
-import type { CaptureSource } from "../profilerSource";
-import { MAX_TOOLTIP_LINES, eventLogFor, eventTracks, formatSeconds, formatValue, parameterChanges, eventNames, type HoverTrackModule } from "./events";
+import { MAX_TOOLTIP_LINES, eventTracks, formatSeconds, formatValue, namesAt, parameterChanges } from "./events";
+import { TrackKit, type HoverTrackModule } from "./kit";
 import { recordScene, viewportTime, type Scene } from "./recordScene";
-
-const names = (s: CaptureSource) => ({ clip: () => undefined, bus: () => undefined, event: () => undefined, source: s });
 
 async function open(script: (scene: Scene) => void, opts?: Parameters<typeof recordScene>[1]) {
   const source = await recordScene(script, opts);
-  const tracks = eventTracks({ source, names: names(source) }) as HoverTrackModule[];
+  const tracks = eventTracks({ source }) as HoverTrackModule[];
   await Promise.all(tracks.map((t) => t.refresh()));
   const [instances, parameters, states] = tracks as [HoverTrackModule, HoverTrackModule, HoverTrackModule];
-  return { source, instances, parameters, states, log: eventLogFor(source) };
+  const kit = TrackKit.of(source);
+  return { source, instances, parameters, states, log: kit.events(), feed: kit.status() };
 }
 
 /** Events across 4 s: three keyframe intervals. Frames are those of the STATUS each was recorded after. */
@@ -85,7 +84,7 @@ describe("event instance spans, parameters and state changes through the real Ev
     expect(instances.tooltipAt!(tIn)).toContain("Ambience #2  ");
     expect(instances.tooltipAt!(tIn)).toContain("still running");
 
-    const changes = parameterChanges(log.ofKind("parameter"), eventNames(source));
+    const changes = parameterChanges(log.ofKind("parameter"), namesAt(source));
     expect(changes.map((c) => [c.name, c.instance, formatValue(c.value)])).toEqual([["intensity", null, "0.3"], ["pitch", 2, "1.25"]]);
     const tp = viewportTime(source, marks.explosionStart!);
     parameters.tolerance = 0.005;
@@ -114,7 +113,7 @@ describe("event instance spans, parameters and state changes through the real Ev
   it("every event of every keyframe interval is read once, typed, at its recorded time", async () => {
     const stamped: number[] = [];
     // One event per STATUS block over 5 s, across several keyframes: a lost or doubled record shows in the values.
-    const { source, log } = await open((s) => {
+    const { source, log, feed } = await open((s) => {
       const end = 5 * SAMPLE_RATE;
       for (let k = 1; s.frame() < end; k++) {
         s.sink.parameter("tick", k, null);
@@ -122,7 +121,7 @@ describe("event instance spans, parameters and state changes through the real Ev
         s.step();
       }
     });
-    expect(log.statusTimes.length).toBeGreaterThan(300);
+    expect(feed.times.length).toBeGreaterThan(300);
     const seen = log.ofKind("parameter");
     expect(seen.map((e) => e.event.value)).toEqual(stamped.map((_, i) => i + 1));
     expect(seen.map((e) => e.time)).toEqual(stamped.map((f) => viewportTime(source, f)));

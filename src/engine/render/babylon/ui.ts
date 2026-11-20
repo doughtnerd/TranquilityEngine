@@ -648,12 +648,11 @@ export function worldCanvasWarm(scene: Scene, content: WarmContent): WarmItem[] 
  * (the GUI's material: emissive and opacity from its texture, unlit, not culled) and placed at `at`,
  * so drawing it once makes the pipelines world-space UI draws with.
  */
-function warmWorldCanvas(scene: Scene, name: string, at: Matrix): { meshes: Mesh[]; systems: never[]; ready(): boolean; dispose(): void } {
+function warmWorldCanvas(scene: Scene, name: string, at: Matrix): { meshes: Mesh[]; ready(): boolean; dispose(): void } {
   const { mesh, adt } = worldCanvasPlane(scene, name, 1, 1, 2, 2);
   mesh.freezeWorldMatrix(at);
   return {
     meshes: [mesh],
-    systems: [],
     ready: () => mesh.isReady(true),
     dispose: () => {
       adt.dispose();

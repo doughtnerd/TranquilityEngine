@@ -1,5 +1,5 @@
-// Particle benchmark (ADR 0094): frame time against particle count for each backend, through the
-// real World particle player on the Babylon engine. Query: ?engine=webgpu|webgl2,
+// Particle benchmark (ADR 0094, 0251): frame time against particle count for each backend, through the
+// effect player the World's particle adapter plays each ParticleSystem with, on the Babylon engine. Query: ?engine=webgpu|webgl2,
 // ?backend=cpu|gpu|js, ?counts=1000,10000, ?frames=120, ?shot=1 (stop after one run, for a
 // screenshot). Results in `window.__bench` (see bench/particles/README.md).
 import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
@@ -12,11 +12,9 @@ import { Vector3 } from "@babylonjs/core/Maths/math.vector.js";
 import { CreateGround } from "@babylonjs/core/Meshes/Builders/groundBuilder.js";
 import { Scene } from "@babylonjs/core/scene.js";
 import { RenderTargetTexture } from "@babylonjs/core/Materials/Textures/renderTargetTexture.js";
-import { Color as EngineColor } from "../../src/engine/core/math";
-import { BabylonParticles } from "../../src/engine/render/babylon/particles";
-import type { ParticleCommand, ParticleSystem } from "../../src/engine/render/components";
+import { EffectPlayer, EffectResources } from "../../src/engine/render/babylon/effectPlayer";
 import type { KernelExecutor } from "../../src/engine/scene/particleKernel";
-import { particleGraphJSON } from "../../src/engine/scene/particleGraphFormat";
+import { formatParticleGraph } from "../../src/engine/scene/particleGraphFormat";
 import { benchGraph } from "./graphs";
 
 const q = new URLSearchParams(location.search);
@@ -99,59 +97,48 @@ async function runOne(engine: Engine | WebGPUEngine, count: number): Promise<Row
   scene.activeCamera = camera;
   CreateGround("ground", { width: 8, height: 8 }, scene);
   const executors: KernelExecutor[] | undefined = backend === "js" ? ["js"] : undefined;
-  const player = new BabylonParticles({
+  const resources = new EffectResources({
     scene,
-    editor: false,
-    worldMatrix: () => [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
-    selected: () => true,
     texture: () => Promise.reject(new Error("no textures")),
-    tierScale: () => 1,
     kernelExecutors: executors,
     // `&material=1`: the output draws with a PBR material asset (ADR 0126), lit by a hemispheric light.
     material: () => benchMaterial(scene),
   });
-  const c = {
-    isActiveAndEnabled: true,
-    effect: "",
-    embeddedEffect: particleGraphJSON(looks(benchGraph(count, backend === "cpu" ? "cpu" : "gpu"))),
-    overrides: {},
-    playOnAwake: true,
-    timeScale: 1,
-    tint: EngineColor.white,
-    emissionScale: 1,
-    destroyOnFinish: false,
-    seed: 1,
-    _commands: [] as ParticleCommand[],
-    _state: { playing: false, paused: false, time: 0, count: 0, alive: false },
-    node: { name: "Bench" },
-  } as unknown as ParticleSystem;
+  // The effect as its asset file reads (`backend=cpu` picks the "cpu" Simulation setting: the JavaScript executor since ADR 0251).
+  const raw: unknown = JSON.parse(formatParticleGraph(looks(benchGraph(count, backend === "cpu" ? "cpu" : "gpu"))));
+  const compiled = resources.compile(raw, "bench");
+  if (!compiled) throw new Error(`the bench effect didn't compile: ${errors.join("; ")}`);
+  const player = new EffectPlayer(resources, compiled.program, { name: "Bench", seed: 1 });
   const dt = 1 / 60;
+  const frame = () => {
+    if (!player.built) player.build();
+    player.step(dt);
+  };
   // Warm up: fill the system (lifetime 2 s) and compile the pipelines.
   for (let i = 0; i < 150; i++) {
-    player.sync([c], dt, dt);
-    if (q.get("nodraw")) for (const d of player.kernelDrawsOf(c)) d.mesh.isVisible = false; // simulation only
+    frame();
+    if (q.get("nodraw")) for (const d of player.draws) for (const m of d.meshes) m.isVisible = false; // simulation only
     scene.render();
     if (i % 30 === 0) await sync(engine);
   }
   await sync(engine);
-  if (q.get("nosim")) (player as unknown as { kernelEffectOf(c: ParticleSystem): { step(): void } | null }).kernelEffectOf(c)!.step = () => {};
   const t0 = performance.now();
   for (let i = 0; i < frames; i++) {
-    player.sync([c], dt, dt);
+    frame();
     scene.render();
     if (i % 10 === 9) await sync(engine); // keep the GPU from queueing far ahead
   }
   await sync(engine);
   const ms = (performance.now() - t0) / frames;
-  const row: Row = { engine: engineKind, backend, executor: player.backendsOf(c)[0] ?? "?", particles: count, alive: c._state.count, msPerFrame: Math.round(ms * 100) / 100, errors: errors.splice(0) };
+  const row: Row = { engine: engineKind, backend, executor: resources.plan(compiled.program).executors[0] ?? "?", particles: count, alive: player.count, msPerFrame: Math.round(ms * 100) / 100, errors: errors.splice(0) };
   if (q.get("shot")) {
     // Each kernel draw's shader state, for checking new draw variants compile (ADR 0126).
-    Object.assign(window, { __player: player, __c: c, __scene: scene });
-    (window as unknown as { __draws: unknown }).__draws = player.kernelDrawsOf(c).map((d) => ({ name: d.mesh.name, ready: d.mesh.isReady(true), error: d.material.getEffect()?.getCompilationError() ?? null }));
+    Object.assign(window, { __player: player, __scene: scene });
+    (window as unknown as { __draws: unknown }).__draws = player.draws.map((d) => ({ name: d.name, ready: d.isReady(), error: d.meshes[0]?.material?.getEffect()?.getCompilationError() ?? null }));
     // Render into a texture and read it back (WebGPU canvases don't always reach headless screenshots).
     const rtt = new RenderTargetTexture("shot", { width: 640, height: 360 }, scene, false);
     camera.outputRenderTarget = rtt;
-    player.sync([c], dt, dt);
+    frame();
     scene.render();
     await sync(engine);
     const px = (await rtt.readPixels())! as Uint8Array;
@@ -174,6 +161,7 @@ async function runOne(engine: Engine | WebGPUEngine, count: number): Promise<Row
     document.body.insertBefore(shot, document.body.firstChild);
   } else {
     player.dispose();
+    resources.dispose();
     scene.dispose();
   }
   return row;

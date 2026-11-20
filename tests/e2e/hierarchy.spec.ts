@@ -81,7 +81,7 @@ test("nodes inside prefab instances can't be moved, and invalid drops change not
   await page.mouse.up();
 
   await dragRow(page, "camera", "pipe-pair/bottom", 0.5, false); // into a prefab's insides
-  await expect(page.locator(".asset-drag-ghost.invalid")).toContainText("can't take children");
+  await expect(page.locator(".asset-drag-ghost.invalid")).toContainText("can't move inside a prefab instance");
   await page.keyboard.press("Escape");
   await page.mouse.up();
   expect(await rootNames(page)).toEqual(before);

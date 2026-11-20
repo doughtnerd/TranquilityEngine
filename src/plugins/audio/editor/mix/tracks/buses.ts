@@ -8,15 +8,19 @@
 //     The tooltip lists each bus's product and the lanes off unity (`busFactorsModel.ts` does the arithmetic).
 //
 // The grid is every `GRID_BASE_S` seconds, doubled while it would hold more than `MAX_GRID_SAMPLES` points; a sample is
-// cached by its time, so a live capture's refresh seeks only the new points (a stride doubling reuses the even ones).
+// cached by its time, so a live capture's refresh seeks only the new points (a stride doubling reuses the even ones). The
+// seeks are the tracks' own read in the track kit (ADR 0261), behind its single flight.
 // A keyframe is in force from its own instant until the next, so a gain step shows within one grid step of the keyframe
-// that carries it. A bus is named from META's bus names; a bus that is a tombstone at the instant is named from the project
-// section the take started with (`meta.audio.buses`, by slot), since the slot may since have been recycled. Pure TypeScript, no DOM.
+// that carries it. A bus is named as the capture named its slot at the sample's instant (`captureNames`, ADR 0260): a renamed
+// bus by its old name before the rename, a tombstone by its last name until its slot is recycled. Pure TypeScript, no DOM.
+import { lastAtOrBefore } from "../../../../../engine/core/sortedSearch";
+import { captureNames } from "../../../runtime/capture/reader";
 import { meterFill } from "../../meterFill";
 import { busFactors, formatDb, gainToDb, type BusFactors } from "../busFactorsModel";
 import type { LineSeries, TrackData } from "../drawTimeline";
 import type { ProfileSource } from "../profilerSource";
-import type { TrackContext, TrackFactory, TrackModule } from "./types";
+import { TrackKit, singleFlight } from "./kit";
+import type { TrackFactory, TrackModule } from "./types";
 
 const BUS_LEVEL_TRACK_ID = "buses.level";
 const BUS_GAIN_TRACK_ID = "buses.gain";
@@ -47,19 +51,20 @@ export interface BusSample {
 class BusSampler {
   private readonly cache = new Map<number, BusSample>();
   private readonly byKeyframe = new Map<number, readonly BusFactors[] | null>();
-  private chain: Promise<void> = Promise.resolve();
   private list: readonly BusSample[] = [];
+  /** Seeks the grid points not yet cached; two tracks refreshing together share one flight. */
+  readonly refresh: () => Promise<void>;
 
-  constructor(private readonly source: ProfileSource) {}
+  constructor(private readonly source: ProfileSource) {
+    this.refresh = singleFlight(() => this.run(), () => source.summary);
+  }
 
   /** The samples on the current grid, ascending in time. */
   get samples(): readonly BusSample[] {
     return this.list;
   }
 
-  /** Seeks the grid points not yet cached; calls queue, so two tracks refreshing together do the work once. */
-  refresh(): Promise<void> {
-    const run = async (): Promise<void> => {
+  private async run(): Promise<void> {
       const stride = gridStride(this.source.duration);
       const n = Math.floor(this.source.duration / stride) + 1;
       const next: BusSample[] = [];
@@ -75,10 +80,6 @@ class BusSampler {
       const keep = new Set(next.map((s) => s.time));
       for (const t of [...this.cache.keys()]) if (!keep.has(t)) this.cache.delete(t);
       this.list = next;
-    };
-    const p = this.chain.then(run);
-    this.chain = p.catch(() => undefined);
-    return p;
   }
 
   private async sampleAt(t: number): Promise<BusSample> {
@@ -94,35 +95,14 @@ class BusSampler {
   }
 }
 
-/** A bus's name at a sample: META's name for a live bus; for a tombstone, the take's project section first. */
-export function busName(ctx: Pick<TrackContext, "source" | "names">, slot: number, tombstone: boolean): string {
-  const audio = ctx.source.summary.meta.audio as { buses?: unknown } | null | undefined;
-  const list = audio && typeof audio === "object" && Array.isArray(audio.buses) ? (audio.buses as unknown[]) : [];
-  const entry = list[slot] as { name?: unknown } | null | undefined;
-  const fromProject = entry && typeof entry.name === "string" ? entry.name : undefined;
-  const fromMeta = ctx.names.bus(slot);
-  return (tombstone ? (fromProject ?? fromMeta) : (fromMeta ?? fromProject)) ?? `bus ${slot}`;
-}
-
 const BUS_COLORS = ["accent", "accent2", "warning", "danger", "text", "muted"] as const satisfies readonly LineSeries["color"][];
 const colorOf = (slot: number): LineSeries["color"] => BUS_COLORS[slot % BUS_COLORS.length]!;
 
 /** The last sample at or before `t`. */
 function sampleAtOrBefore(samples: readonly BusSample[], t: number): BusSample | undefined {
-  let lo = 0;
-  let hi = samples.length - 1;
-  let found: BusSample | undefined;
-  while (lo <= hi) {
-    const mid = (lo + hi) >> 1;
-    if (samples[mid]!.time <= t) {
-      found = samples[mid];
-      lo = mid + 1;
-    } else hi = mid - 1;
-  }
-  return found;
+  return samples[lastAtOrBefore(samples.map((s) => s.time), t)];
 }
 
-const tombstoneAt = (s: BusSample, slot: number): boolean => s.factors?.find((f) => f.slot === slot)?.tombstone ?? false;
 const peakOf = (p: { l: number; r: number } | undefined): number => (p ? Math.max(p.l, p.r) : 0);
 
 // --- levels -------------------------------------------------------------------------------------------------------------
@@ -158,12 +138,15 @@ export function busLevelData(lines: readonly BusLevelLine[]): TrackData | undefi
   return { lines: lines.map((l) => ({ times: l.times, values: l.values, color: colorOf(l.slot), yMax: 1 })) };
 }
 
+/** A bus's name at viewport time `t`. */
+export type BusNameAt = (slot: number, t: number) => string;
+
 /** The hover text: the peak in dB of each of `slots` (the lines drawn) at the STATUS in force at `t`, one per line; `null` with no STATUS yet. */
-export function busLevelTooltip(samples: readonly BusSample[], t: number, nameOf: (slot: number, tombstone: boolean) => string, slots: readonly number[]): string | null {
+export function busLevelTooltip(samples: readonly BusSample[], t: number, nameOf: BusNameAt, slots: readonly number[]): string | null {
   const s = sampleAtOrBefore(samples, t);
   if (!s || !s.peaks) return null;
   const peaks = s.peaks;
-  const rows = slots.map((slot) => `${nameOf(slot, tombstoneAt(s, slot))}: peak ${formatDb(gainToDb(peakOf(peaks[slot])))}`);
+  const rows = slots.map((slot) => `${nameOf(slot, s.time)}: peak ${formatDb(gainToDb(peakOf(peaks[slot])))}`);
   return rows.length ? rows.join("\n") : null;
 }
 
@@ -208,10 +191,10 @@ function busFactorsText(name: string, f: BusFactors): string {
 }
 
 /** The hover text at `t`: every bus of the keyframe in force, one per line; `null` before the first keyframe. */
-export function busGainTooltip(samples: readonly BusSample[], t: number, nameOf: (slot: number, tombstone: boolean) => string): string | null {
+export function busGainTooltip(samples: readonly BusSample[], t: number, nameOf: BusNameAt): string | null {
   const s = sampleAtOrBefore(samples, t);
   if (!s || !s.factors) return null;
-  return s.factors.map((f) => busFactorsText(nameOf(f.slot, f.tombstone), f)).join("\n");
+  return s.factors.map((f) => busFactorsText(nameOf(f.slot, s.time), f)).join("\n");
 }
 
 // --- the tracks -------------------------------------------------------------------------------------------------------------
@@ -219,35 +202,27 @@ export function busGainTooltip(samples: readonly BusSample[], t: number, nameOf:
 /** The bus level lanes and the bus gain factors line. */
 export const busTracks: TrackFactory = (ctx): readonly TrackModule[] => {
   const sampler = new BusSampler(ctx.source);
-  const nameOf = (slot: number, tombstone: boolean): string => busName(ctx, slot, tombstone);
-  const named = (slot: number): boolean => ctx.names.bus(slot) !== undefined;
-  let level: TrackData | undefined;
-  let slots: readonly number[] = [];
-  let gain: TrackData | undefined;
-  const build = (): void => {
-    const lines = busLevelLines(sampler.samples, named);
-    slots = lines.map((l) => l.slot);
-    level = busLevelData(lines);
-    gain = busGainData(busGainLines(sampler.samples));
-  };
+  const kit = TrackKit.of(ctx.source);
+  const nameOf: BusNameAt = (slot, t) => captureNames(ctx.source.summary).bus(slot, ctx.source.startSeconds + t);
+  const named = (slot: number): boolean => captureNames(ctx.source.summary).find("buses", slot) !== undefined;
   return [
-    {
+    kit.track({
       track: { id: BUS_LEVEL_TRACK_ID, label: "Bus levels", kind: "lanes", height: 110, visible: true },
-      data: () => level,
-      async refresh() {
-        await sampler.refresh();
-        build();
+      read: sampler.refresh,
+      build: () => {
+        const samples = sampler.samples;
+        const lines = busLevelLines(samples, named);
+        const slots = lines.map((l) => l.slot);
+        return { data: busLevelData(lines), tooltip: (t) => busLevelTooltip(samples, t, nameOf, slots) };
       },
-      tooltipAt: (t) => busLevelTooltip(sampler.samples, t, nameOf, slots),
-    },
-    {
+    }),
+    kit.track({
       track: { id: BUS_GAIN_TRACK_ID, label: "Bus gain", kind: "line", height: 70, visible: true },
-      data: () => gain,
-      async refresh() {
-        await sampler.refresh();
-        build();
+      read: sampler.refresh,
+      build: () => {
+        const samples = sampler.samples;
+        return { data: busGainData(busGainLines(samples)), tooltip: (t) => busGainTooltip(samples, t, nameOf) };
       },
-      tooltipAt: (t) => busGainTooltip(sampler.samples, t, nameOf),
-    },
+    }),
   ];
 };

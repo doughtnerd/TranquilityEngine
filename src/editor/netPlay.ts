@@ -25,6 +25,7 @@
 // - Stats: per-connection byte rates (overall and per kind of message) from the session counters.
 import type { BootstrapConfig, BootstrapSetting, Engine, LinkConfig, WorldConfig } from "../engine";
 import { inputStreams, setNetConditions, writeWorldInput, type NetPeerInfo, type NetTrafficInfo, type NetWorldInfo } from "../engine/editor";
+import { bootstrapTopology } from "../engine/core/bootstrapTopology";
 import { uniqueName } from "../engine/core/uniqueName";
 import { transportCanListen } from "../engine/net/Transport";
 
@@ -68,14 +69,9 @@ const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, M
  * that connect to another over a link and don't listen themselves. Null without such a layout.
  */
 export function clientLayout(setting: BootstrapSetting | undefined): { template: WorldConfig; replaced: Set<string> } | null {
-  if (!isRecord(setting) || !Array.isArray(setting.worlds) || !Array.isArray(setting.links) || setting.links.length === 0) return null;
-  const config = setting as BootstrapConfig;
-  const names = new Set(config.worlds.map((w) => w.name));
-  const listening = new Set(config.links!.map((l) => l.to));
-  const replaced = new Set(config.links!.filter((l) => names.has(l.from) && names.has(l.to) && !listening.has(l.from)).map((l) => l.from));
-  const candidates = config.worlds.filter((w) => replaced.has(w.name));
-  const template = candidates.find((w) => (w.tags ?? []).includes("client")) ?? candidates[0];
-  return template ? { template, replaced } : null;
+  const topology = bootstrapTopology(setting); // its linked clients (ADR 0256)
+  if (!topology?.copiedClient) return null;
+  return { template: topology.copiedClient, replaced: new Set(topology.linkedClients.map((w) => w.name)) };
 }
 
 /**
@@ -133,19 +129,11 @@ export function playWorldSources(play: Pick<NetPlayBootstrap, "clients" | "thin"
  * between start-up Worlds, a server World of its own, or no `server`-tagged template).
  */
 export function hostLayout(setting: BootstrapSetting | undefined): { client: WorldConfig; server: WorldConfig; templateKey: string } | null {
-  if (!isRecord(setting) || !Array.isArray(setting.worlds)) return null;
-  const config = setting as BootstrapConfig;
-  const startUp = new Set(config.worlds.map((w) => w.name));
-  if (Array.isArray(config.links) && config.links.some((l) => startUp.has(l.from) && startUp.has(l.to))) return null;
-  const isServer = (w: { tags?: readonly string[] }) => (w.tags ?? []).includes("server");
-  if (config.worlds.some(isServer)) return null;
-  // A lobby (ADR 0068) makes its own match Worlds and the players' client Worlds: not this layout.
-  if (isRecord(config.templates) && Object.values(config.templates).some((t) => isRecord(t) && t.lobby)) return null;
-  const entry = isRecord(config.templates) ? Object.entries(config.templates).find(([, t]) => isRecord(t) && isServer(t)) : undefined;
-  const client = config.worlds.find((w) => (w.tags ?? []).includes("client")) ?? config.worlds[0];
-  if (!entry || !client) return null;
-  const [templateKey, template] = entry;
-  return { client, server: { ...template, name: template.name ?? templateKey }, templateKey };
+  // The bootstrap topology's Host template (ADR 0256): the one the dedicated server starts too. A
+  // lobby (ADR 0068) makes its own match and client Worlds, so a bootstrap with one has none.
+  const topology = bootstrapTopology(setting);
+  if (!topology?.hostTemplate || !topology.hostClient || topology.startUpLinked) return null;
+  return { client: topology.hostClient, server: topology.hostTemplate.world, templateKey: topology.hostTemplate.key };
 }
 
 /** The Host pattern's play bootstrap, or null without that layout. */

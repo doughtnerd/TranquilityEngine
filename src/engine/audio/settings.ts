@@ -183,6 +183,10 @@ export interface AudioSettings {
 export interface MusicSettings { rings: number }
 /** `audio.music.rings`' range (`MAX_MUSIC_RINGS` in the wire). */
 export const MUSIC_RINGS_LIMITS = [0, 16] as const;
+/** `audio.voices`' ranges (§2, K13); `logical` is also at least `mixed`. */
+export const VOICE_LIMITS = { mixed: [8, 512], logical: [8, 8192], hrtf: [0, 32] } as const;
+/** `audio.clipMemoryMB`' range (§2, K13). */
+export const CLIP_MEMORY_LIMITS = [16, 1024] as const;
 /** `audio.music.rings` when absent: the default preset's 12. */
 const DEFAULT_MUSIC_RINGS = 12;
 /** The voice presets' music rings (api-and-models §2.1; the editor's `VOICE_PRESETS` writes them). */
@@ -574,14 +578,14 @@ function parseCoreKeys(input: Record<string, unknown>, settings: AudioSettings, 
     if (!isRecord(input.voices)) problems.push("audio.voices must be an object.");
     else {
       const v = input.voices;
-      const mixed = wholeNumber(v.mixed, "audio.voices.mixed", 8, 512, problems) ?? DEFAULT_VOICES.mixed;
-      const logical = wholeNumber(v.logical, "audio.voices.logical", mixed, 8192, problems) ?? DEFAULT_VOICES.logical;
-      const hrtf = wholeNumber(v.hrtf, "audio.voices.hrtf", 0, 32, problems) ?? DEFAULT_VOICES.hrtf;
+      const mixed = wholeNumber(v.mixed, "audio.voices.mixed", ...VOICE_LIMITS.mixed, problems) ?? DEFAULT_VOICES.mixed;
+      const logical = wholeNumber(v.logical, "audio.voices.logical", Math.max(mixed, VOICE_LIMITS.logical[0]), VOICE_LIMITS.logical[1], problems) ?? DEFAULT_VOICES.logical;
+      const hrtf = wholeNumber(v.hrtf, "audio.voices.hrtf", ...VOICE_LIMITS.hrtf, problems) ?? DEFAULT_VOICES.hrtf;
       settings.voices = { mixed, logical, hrtf };
     }
   }
   settings.background = pick(input.background, "audio.background", ["mute", "pause", "play"] as const, "mute", problems);
-  const clipMemoryMB = wholeNumber(input.clipMemoryMB, "audio.clipMemoryMB", 16, 1024, problems);
+  const clipMemoryMB = wholeNumber(input.clipMemoryMB, "audio.clipMemoryMB", ...CLIP_MEMORY_LIMITS, problems);
   if (clipMemoryMB !== undefined) settings.clipMemoryMB = clipMemoryMB;
   settings.clipFormat = pick(input.clipFormat, "audio.clipFormat", ["i16", "f32"] as const, "i16", problems);
   if (input.codecs !== undefined) {

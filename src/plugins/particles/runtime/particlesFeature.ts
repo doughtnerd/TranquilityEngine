@@ -34,7 +34,7 @@ function particleHost(host: BabylonFeatureHost): BabylonParticleHost {
       const e = c.node.entity;
       return host.world()!.worldMatrix(e).subarray(e * 16, e * 16 + 16);
     },
-    texture: (path, sheet) => host.materials.texture(path, sheet ? "sheet" : "color"),
+    texture: (path) => host.materials.texture(path),
     tierScale: () => PARTICLE_SCALE[Graphics.tier.particles],
     material: (path) => host.materials.material(path), // shared with MeshRenderers; null while missing
     materialCopy: (path, name) => host.materials.copy(path, name), // soft and kernel particles (ADR 0126)
@@ -74,7 +74,7 @@ export class ParticlesFeature implements BabylonFeature {
     if (c instanceof ParticleSystem) this.particles.release(c);
   }
 
-  /** One warm item per effect the content uses (ADR 0080): an effect player's warm state, each draw holding one particle. */
+  /** One warm item per effect the content uses (ADR 0080): an effect player's warm state (its draws, drawn once). */
   warm(content: WarmContent): WarmItem[] {
     return content.effects.map((e) => this.warmEffect(e));
   }
@@ -83,7 +83,7 @@ export class ParticlesFeature implements BabylonFeature {
     const name = `${WARM_PREFIX}particles:${typeof effect === "string" ? effect : "embedded"}`;
     return {
       key: typeof effect === "string" ? name : `${name}:${JSON.stringify(effect)}`,
-      build: (_at, position, camera) => this.particles.warm(effect, name, position, camera), // null while a texture or model is still loading
+      build: (_at, _position, camera) => this.particles.warm(effect, name, camera), // null while a texture or model is still loading
     };
   }
 

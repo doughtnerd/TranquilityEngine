@@ -2,9 +2,10 @@
 // from STATUS (`voiceSeries`, `cpuTrack.ts`): voices playing (mixed), virtual (live - mixed), the adaptive cap, and the
 // HRTF and bed subsets. The counts are the STATUS scalars, so at a keyframe's instant they equal the counts of the voice
 // table `voiceTableModel.reconstructVoices` builds from that keyframe (the test holds that). Pure TypeScript, no DOM.
+import { lastAtOrBefore } from "../../../../../engine/core/sortedSearch";
 import { VOICE_COLUMNS, voiceSeries, type VoiceSeries } from "../cpuTrack";
-import { statusColumns } from "../profilerSource";
 import type { LineSeries, TrackData } from "../drawTimeline";
+import { TrackKit } from "./kit";
 import type { TrackFactory, TrackModule } from "./types";
 
 const VOICES_TRACK_ID = "voices.counts";
@@ -17,21 +18,6 @@ const LANES = [
   { key: "hrtf", label: "HRTF", color: "accent2" },
   { key: "bed", label: "bed", color: "accentSoft" },
 ] as const satisfies readonly { key: keyof VoiceSeries; label: string; color: LineSeries["color"] }[];
-
-/** The index of the last sample at or before `t` (binary search over ascending `times`), or -1 when `t` precedes them all. */
-export function indexAtOrBefore(times: ArrayLike<number>, t: number): number {
-  let lo = 0;
-  let hi = times.length - 1;
-  let found = -1;
-  while (lo <= hi) {
-    const mid = (lo + hi) >> 1;
-    if (times[mid]! <= t) {
-      found = mid;
-      lo = mid + 1;
-    } else hi = mid - 1;
-  }
-  return found;
-}
 
 /** The lanes as `TrackData`; `undefined` for a capture with no STATUS. */
 export function voiceTrackData(series: VoiceSeries): TrackData | undefined {
@@ -52,7 +38,7 @@ export interface VoiceCounts {
 
 /** The counts of the STATUS in force at `t` (the last one at or before it), or `null` before the first. */
 function voiceCountsAt(series: VoiceSeries, t: number): VoiceCounts | null {
-  const i = indexAtOrBefore(series.times, t);
+  const i = lastAtOrBefore(series.times, t);
   if (i < 0) return null;
   return { playing: series.mixed[i]!, virtual: series.virtual[i]!, cap: series.cap[i]!, hrtf: series.hrtf[i]!, bed: series.bed[i]!, live: series.live[i]! };
 }
@@ -64,17 +50,15 @@ function voiceTooltip(series: VoiceSeries, t: number): string | null {
   return `playing ${c.playing}, virtual ${c.virtual}, cap ${c.cap}, HRTF ${c.hrtf}, bed ${c.bed} (${c.live} live)`;
 }
 
-/** The voices track, read from the whole capture's STATUS. */
+/** The voices track, over the STATUS columns the track kit reads (ADR 0261). */
 export const voicesTracks: TrackFactory = (ctx): readonly TrackModule[] => {
-  let series: VoiceSeries | undefined;
-  let cached: TrackData | undefined;
-  return [{
+  const kit = TrackKit.of(ctx.source);
+  const feed = kit.status(VOICE_COLUMNS);
+  return [kit.track({
     track: { id: VOICES_TRACK_ID, label: "Voices", kind: "lanes", height: 90, visible: true },
-    data: () => cached,
-    async refresh() {
-      series = voiceSeries(await statusColumns(ctx.source, VOICE_COLUMNS));
-      cached = voiceTrackData(series);
+    build: () => {
+      const series = voiceSeries(feed.columns());
+      return { data: voiceTrackData(series), tooltip: (t) => voiceTooltip(series, t) };
     },
-    tooltipAt: (t) => (series ? voiceTooltip(series, t) : null),
-  }];
+  })];
 };

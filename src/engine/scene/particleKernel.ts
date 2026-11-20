@@ -1,9 +1,9 @@
 /**
  * Particle kernels (ADR 0094): each particle system compiled to a small, renderer-neutral program of
  * per-particle statements that the kernel executors run (WebGPU compute, WebGL2 textures,
- * JavaScript; `render/particles/gpu/`). Where `particleCompile.ts` lowers a system to 0057's emitter
- * settings for the CPU simulation, this keeps the graph's per-particle maths: operator chains over
- * Particle nodes, Set Attribute blocks (ADR 0095), several outputs, GPU events.
+ * JavaScript; `render/particles/gpu/`), which run every system (ADR 0251). It keeps the graph's
+ * per-particle maths: operator chains over Particle nodes, Set Attribute blocks (ADR 0095), several
+ * outputs, GPU events. `particleCompile.ts` adds the spawn settings, which the CPU-side spawner reads.
  *
  * A kernel has three stages:
  * - **init** runs once in each newly spawned slot (the Initialize context and the spawn shape);
@@ -15,7 +15,6 @@
  * fixed header (`U`) and then one vec4 per binding; curves and gradients are rows of a look-up table.
  */
 import { blockDef } from "./particleBlocks";
-import type { ParticleProgram } from "./particleCompile";
 import type { GraphBlock, GraphInputValue, GraphProblem, OutputContext, OutputSettings, OutputType, ParticleGraph, ParticleGraphSystem } from "./particleGraph";
 import { compileUniform, curveSetting, gradientSetting, indexOf, inlineValue, isDefinitionNode, nodeDef, portRate, setting, splitRef, type EvalContext, type Index, type NodeValue } from "./particleNodes";
 import { evalCurve, parseHexColor, type CurveKey, type ParticleColor, type ParticleGradient, type ParticleNumber } from "./particles";
@@ -232,7 +231,7 @@ export interface KernelEvent {
 export interface KernelSystem {
   id: string;
   name: string;
-  /** Index into `ParticleProgram.effect.emitters` / `.systems`. */
+  /** Index into `ParticleProgram.spawns` / `.systems`. */
   emitter: number;
   capacity: number;
   space: "local" | "world";
@@ -249,10 +248,8 @@ export interface KernelSystem {
   depth: boolean;
   /** Trail history points kept per slot (ADR 0126: the most any trail output asks for), 0 or absent: none. */
   trail?: number;
-  /** Why this system needs a kernel ("auto" picks one), empty when it doesn't. */
+  /** Why "auto" runs this system on a GPU executor, empty when the JavaScript executor does (ADR 0251). */
   needs: string[];
-  /** Blocks the kernel doesn't run (the CPU does): reasons, for "auto". */
-  unsupported: string[];
   /** What only the JavaScript executor runs (collider collision, ADR 0251): GPU executors skip it. */
   jsOnly: string[];
 }
@@ -311,7 +308,7 @@ export function bakeLutRow(l: Pick<KLut, "kind" | "linear" | "value">, out: Floa
       const g = l.value as ParticleGradient;
       const colors = g.colors.length ? g.colors : ([[0, "#ffffff"]] as [number, string][]);
       for (let ch = 0; ch < 3; ch++) {
-        // Interpolate in the row's space, as the CPU simulation does (linear) or Sample Gradient (sRGB).
+        // Interpolate in the row's space, linear for colour over life or Sample Gradient (sRGB).
         const keys = colors.map(([k, hex]) => {
           const v = parseHexColor(hex)[ch];
           return [k, l.linear ? srgbToLinear(v) : v] as CurveKey;
@@ -323,7 +320,7 @@ export function bakeLutRow(l: Pick<KLut, "kind" | "linear" | "value">, out: Floa
   }
 }
 
-/** The 3×3 rotation (row-major) of Euler "XYZ" degrees, as the CPU simulation builds a shape's rotation. */
+/** The 3×3 rotation (row-major) of Euler "XYZ" degrees (a spawn shape's rotation). */
 export function eulerMatrix(deg: readonly number[]): number[] {
   const D = Math.PI / 180;
   const [rx, ry, rz] = [(deg[0] ?? 0) * D, (deg[1] ?? 0) * D, (deg[2] ?? 0) * D];
@@ -343,7 +340,7 @@ export const MAX_TRAIL_POINTS = 64;
 const MAX_TRAIL_HISTORY = 4 * 1024 * 1024;
 const num = (v: unknown, fallback: number): number => (typeof v === "number" && Number.isFinite(v) ? v : fallback);
 
-/** Block types the kernel runs (others are reported and skipped; the CPU runs them). */
+/** Spawn block types the kernel effect knows (the spawner runs them; others are reported and skipped). */
 const KERNEL_BLOCKS = new Set([
   "spawn.rate",
   "spawn.rateOverDistance",
@@ -382,11 +379,8 @@ type Lowered =
   | { curve: [number] | [number, number] }
   | { gradient: [number] | [number, number]; linear: boolean };
 
-/**
- * Compile the kernels of `graph`'s enabled systems. `program` is `compileParticleGraph(graph)` (its
- * emitter order and events). Never throws.
- */
-export function compileParticleKernels(graph: ParticleGraph, program: ParticleProgram): KernelProgram {
+/** Compile the kernels of `graph`'s enabled systems, one per enabled system in order. Never throws. */
+export function compileParticleKernels(graph: ParticleGraph): KernelProgram {
   const problems: GraphProblem[] = [];
   const ix = indexOf(graph);
   const systems = graph.systems.filter((s) => s.enabled !== false);
@@ -413,7 +407,6 @@ export function compileParticleKernels(graph: ParticleGraph, program: ParticlePr
     out[parent].needs.push("a GPU event");
     out[child].needs.push("a GPU event");
   }
-  void program;
   return { systems: out, problems };
 }
 
@@ -421,7 +414,6 @@ function compileSystem(graph: ParticleGraph, ix: Index, sys: ParticleGraphSystem
   const uniforms: KUniform[] = [];
   const luts: KLut[] = [];
   const needs: string[] = [];
-  const unsupported: string[] = [];
   const jsOnly: string[] = [];
   let nextSlot = HEADER_VEC4;
   let salt = 1;
@@ -626,7 +618,7 @@ function compileSystem(graph: ParticleGraph, ix: Index, sys: ParticleGraphSystem
       case "sampleGradient": {
         const g = inputOf(node, "gradient", seen);
         if (!("gradient" in g)) throw new Error(`Sample Gradient node "${node.id}" needs a gradient.`);
-        // Sample Gradient gives sRGB, as on the CPU: re-bake its rows in sRGB.
+        // Sample Gradient gives sRGB: re-bake its rows in sRGB.
         const rows = g.gradient.map((r) => {
           const l = luts[r];
           return lutRow({ ...l, linear: false });
@@ -710,11 +702,9 @@ function compileSystem(graph: ParticleGraph, ix: Index, sys: ParticleGraphSystem
   let rotation: KExpr | null = null;
   const attrSets: KStmt[] = [];
   const on = (b: GraphBlock) => b.enabled !== false;
-  const skip = (b: GraphBlock, why: string) => {
-    unsupported.push(`${blockDef(b.type)?.label ?? b.type}: ${why}`);
-  };
+  const skip = (b: GraphBlock, where: string) => report(`"${b.type}" isn't a${/^[AEIOU]/.test(where) ? "n" : ""} ${where} block this engine knows; it's skipped.`, `${sys.id}.${b.id}`);
 
-  for (const b of sys.spawn.blocks.filter(on)) if (!KERNEL_BLOCKS.has(b.type)) skip(b, "not a block the kernel knows");
+  for (const b of sys.spawn.blocks.filter(on)) if (!KERNEL_BLOCKS.has(b.type)) skip(b, "Spawn");
   for (const b of sys.initialize.blocks.filter(on)) {
     if (b.type.startsWith("init.position")) {
       shapeType = b.type.slice("init.position".length).toLowerCase();
@@ -753,7 +743,7 @@ function compileSystem(graph: ParticleGraph, ix: Index, sys: ParticleGraphSystem
         break;
       default:
         if (b.type.startsWith("attribute.")) attrSets.push(...setAttribute(b, cycle));
-        else skip(b, "not a block the kernel knows");
+        else skip(b, "Initialize");
     }
   }
   init.push({ s: "set", target: { attr: "color" }, mode: "mul", e: { k: "uniform", slot: U.tint, w: 4 } });
@@ -837,7 +827,7 @@ function compileSystem(graph: ParticleGraph, ix: Index, sys: ParticleGraphSystem
           const stmts = setAttribute(b, life);
           if (b.type === "attribute.velocity") pre.push(...stmts);
           else post.push(...stmts);
-        } else skip(b, "not a block the kernel knows");
+        } else skip(b, "Update");
     }
   }
   if (gravity) update.push({ s: "builtin", b: "gravity", args: [gravity] });
@@ -851,15 +841,7 @@ function compileSystem(graph: ParticleGraph, ix: Index, sys: ParticleGraphSystem
   if (contexts.length > 1) needs.push("several outputs");
   contexts.forEach((o, k) => {
     const at = `${sys.id}.output${k ? k + 1 : ""}`;
-    if (!RENDER_TYPES.includes(o.type)) {
-      unsupported.push(`${o.type} output`);
-      report(`Kernel backends don't draw ${o.type} outputs yet; this one draws as quads.`, at);
-    }
-    if (o.settings.material && o.type === "trail") {
-      // Other outputs draw material assets (PBR materials and shader graphs, ADR 0126); trails don't yet.
-      unsupported.push("material asset on a trail output");
-      report(`Kernel trails don't draw material assets yet; this trail draws with its texture.`, at);
-    }
+    if (!RENDER_TYPES.includes(o.type)) report(`Kernel backends don't draw ${o.type} outputs yet; this one draws as quads.`, at);
     const stmts: KStmt[] = [...speedMods, ...appearance];
     let tiles: [number, number] = [1, 1];
     let blendTiles = false;
@@ -884,10 +866,7 @@ function compileSystem(graph: ParticleGraph, ix: Index, sys: ParticleGraphSystem
         stmts.unshift({ s: "set", target: { local: "oTile" }, mode: "add", e: input(b, "startTile", "number", life, false) });
       } else if (b.type.startsWith("attribute.")) {
         stmts.push(...setAttribute(b, life, true));
-      } else {
-        unsupported.push(`${blockDef(b.type)?.label ?? b.type} (output)`);
-        report(`"${b.type}" isn't an Output block kernel backends know; it's skipped.`, `${sys.id}.${b.id}`);
-      }
+      } else skip(b, "Output");
     }
     const trail = o.type === "trail" ? { widthRow: widthRow ?? lutRow({ kind: "curve", linear: false, value: [[0, 1], [1, 1]] }) } : undefined;
     outputs.push({ type: RENDER_TYPES.includes(o.type) ? o.type : "quad", settings: o.settings, stmts, tiles, blendTiles, ...(trail ? { trail } : {}) });
@@ -925,7 +904,7 @@ function compileSystem(graph: ParticleGraph, ix: Index, sys: ParticleGraphSystem
       case "lifetime":
         return [{ s: "set", target: { attr: "lifetime" }, mode, e: input(b, "value", "number", t) }];
       default:
-        skip(b, "unknown attribute");
+        report(`"${b.type}" isn't an attribute this engine knows; it's skipped.`, `${sys.id}.${b.id}`);
         return [];
     }
   }
@@ -947,7 +926,6 @@ function compileSystem(graph: ParticleGraph, ix: Index, sys: ParticleGraphSystem
     depth,
     ...(trailPoints ? { trail: trailPoints } : {}),
     needs: [...new Set(needs)],
-    unsupported,
     jsOnly,
   };
 }
@@ -960,21 +938,20 @@ function first(e: KExpr): KExpr {
 // --- backend choice ----------------------------------------------------------------------------------
 
 export type KernelExecutor = "webgpu" | "webgl2" | "js";
-export type SystemBackend = "cpu" | KernelExecutor;
 
 /**
- * The backend a system runs on (ADR 0094): `"cpu"` systems and "auto" systems that don't need a
- * kernel use the CPU; the others the best executor available (`executors` in preference order).
+ * The executor a system runs on (ADR 0094, 0251): `"cpu"` means the JavaScript executor; `"gpu"` the
+ * best one available (`executors` in preference order); "auto" the JavaScript executor unless the
+ * system wants a GPU (`needs`: per-particle chains, Set Attribute, several outputs, GPU events, depth
+ * collision, 4096 particles or more). Collider collision keeps an "auto" system on JavaScript, the only
+ * executor that ray casts.
  */
-export function chooseBackend(choice: "auto" | "cpu" | "gpu" | undefined, kernel: KernelSystem, executors: readonly KernelExecutor[]): SystemBackend {
+export function chooseBackend(choice: "auto" | "cpu" | "gpu" | undefined, kernel: KernelSystem, executors: readonly KernelExecutor[]): KernelExecutor {
   const best = executors[0] ?? "js";
-  if (choice === "cpu") return "cpu";
+  if (choice === "cpu") return "js";
   if (choice === "gpu") return best;
-  // auto: a kernel when needed (or big) and everything the system has runs on it.
-  if (kernel.needs.length === 0) return "cpu";
-  if (kernel.unsupported.length > 0 && !kernel.needs.some((n) => n !== `${kernel.capacity} particles`)) return "cpu";
-  // Collider collision runs only on the JavaScript executor (ADR 0251).
-  return kernel.jsOnly.length ? "js" : best;
+  if (kernel.needs.length === 0 || kernel.jsOnly.length) return "js";
+  return best;
 }
 
 /** Re-bake rows whose source is a property, into `lut` (rows × LUT_SAMPLES × 4). */

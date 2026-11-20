@@ -17,6 +17,7 @@
  * - how an image's import settings sample it (ADR 0040) and how each use of a texture decodes it.
  */
 import { Assets, normalizeAssetPath, sidecarValue } from "../scene/Assets";
+import { projectFileKind } from "../scene/projectFiles";
 import { splitSpriteRef, type ImportSettings } from "../scene/importSettings";
 import { colorHex, defaultMaterialSettings, materialGraphOfJson, parseMaterial, type MaterialInstancing, type MaterialSettings } from "../scene/material";
 import { isShaderAssetPath, parseShaderAsset } from "../scene/shaderAsset";
@@ -42,8 +43,7 @@ export type AssetRead = (path: string) => unknown;
 export const readAsset: AssetRead = (p) => {
   try {
     if (!Assets.has(p)) return undefined;
-    const v = Assets.get(p);
-    return typeof v === "string" ? v : Assets.json(p);
+    return projectFileKind(p) === "text" ? Assets.text(p) : Assets.json(p);
   } catch {
     return undefined;
   }
@@ -408,17 +408,15 @@ export function samplingOf(settings: ImportSettings): Sampling {
 }
 
 /**
- * How a texture is read: `color`, a material's image (the shader decodes sRGB); `sheet`, the same but
- * not flipped (Babylon's particle sprite sheets read V 0 at the image's top); `graphColor`, for shader
+ * How a texture is read: `color`, a material's image (the shader decodes sRGB); `graphColor`, for shader
  * graph code, which samples raw (the hardware decodes sRGB); `graphData`, linear data (normal maps).
  */
-export type TextureUse = "color" | "sheet" | "graphColor" | "graphData";
+export type TextureUse = "color" | "graphColor" | "graphData";
 
 /** What a use asks of a texture load, and the key its copy is cached under (one copy per path and use). */
-export function textureLoad(path: string, use: TextureUse): { key: string; flipY: boolean; decode: "shader" | "srgb" | "linear" } {
+export function textureLoad(path: string, use: TextureUse): { key: string; decode: "shader" | "srgb" | "linear" } {
   return {
     key: use === "color" ? path : `${path}#${use}`,
-    flipY: use !== "sheet",
     decode: use === "graphColor" ? "srgb" : use === "graphData" ? "linear" : "shader",
   };
 }

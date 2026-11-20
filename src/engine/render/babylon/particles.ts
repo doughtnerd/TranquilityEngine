@@ -1,6 +1,6 @@
-// Internal (ADR 0057, 0060, 0075 stage 5, 0153): plays a World's ParticleSystem components on the Babylon
-// backend. Each ParticleSystem gets an effect player (`effectPlayer.ts`: our own CPU simulation and kernel
-// systems, drawn through Babylon; Babylon's own particle features don't cover the effect format), and this
+// Internal (ADR 0057, 0060, 0075 stage 5, 0153, 0251): plays a World's ParticleSystem components on the
+// Babylon backend. Each ParticleSystem gets an effect player (`effectPlayer.ts`: its systems on kernel
+// executors, drawn through Babylon; Babylon's own particle features don't cover the effect format), and this
 // adapter does what is about the World: it reads each component's effect, seed, scale, tint and
 // overrides, rebuilds a player when the effect or what it draws with changes, runs scripts' commands, the
 // editor's preview rules and `destroyOnFinish`, reports `_state`, and asks a player for the warm-up's
@@ -14,8 +14,8 @@ import { projectAssets } from "../../scene/particleSubgraphs";
 import type { ParticleSystem } from "../components";
 import type { ParticleStats } from "../RenderSurface";
 import type { ParticlePreview } from "../renderPolicy";
-import { linearRGB } from "../particles/simulation";
-import { EffectPlayer, EffectResources, type EffectHost, type PlayState, type WarmPoint } from "./effectPlayer";
+import { srgbToLinear } from "../particles/gpu/kernelMath";
+import { EffectPlayer, EffectResources, type EffectHost, type PlayState } from "./effectPlayer";
 import type { WarmParts } from "./warmUp";
 
 /** What the particle player needs from the render backend: an effect host, plus the World's matrices and rules. */
@@ -90,8 +90,7 @@ export class BabylonParticles {
     player.seed = c.seed;
     player.scale = this.host.tierScale() * Math.max(0, c.emissionScale);
     const t = c.tint;
-    const [lr, lg, lb] = linearRGB(t.r, t.g, t.b);
-    player.tint = [lr, lg, lb, t.a];
+    player.tint = [srgbToLinear(t.r), srgbToLinear(t.g), srgbToLinear(t.b), t.a];
     player.setOverrides(c.overrides);
 
     // Rebuild when a texture changes (finishing loading, or reimported), checked at once while
@@ -110,7 +109,6 @@ export class BabylonParticles {
     }
     if (!player.built) return;
     const world = this.host.worldMatrix(c);
-    player.configure(world);
 
     let dt: number;
     const previewing = this.host.particlePreview();
@@ -187,13 +185,13 @@ export class BabylonParticles {
   // --- warm-up (ADR 0080) ---------------------------------------------------------------------------------
 
   /**
-   * @internal What warming an effect draws: an effect player's warm state (`EffectPlayer.warm`), each
-   * draw holding one particle at `at` too small to see, so drawing them once makes their shaders'
-   * pipelines; disposing the parts disposes the player. `effect` is an asset path or an embedded effect
+   * @internal What warming an effect draws: an effect player's warm state (`EffectPlayer.warm`), whose
+   * draws, drawn once, make their shaders' pipelines; disposing the parts disposes the player. `effect`
+   * is an asset path or an embedded effect
    * object; draw names start with `name`. Null while a texture, material or model it needs is loading
    * (ask again later); nothing to draw when it can't be built (missing or broken: the load reports it).
    */
-  warm(effect: string | object, name: string, at: WarmPoint, camera: Camera): WarmParts | null {
+  warm(effect: string | object, name: string, camera: Camera): WarmParts | null {
     let raw: unknown = effect;
     let where = "a particle effect";
     if (typeof effect === "string") {
@@ -205,21 +203,20 @@ export class BabylonParticles {
       }
     }
     const program = raw === undefined ? null : this.resources.compile(raw, where)?.program;
-    if (!program) return { meshes: [], systems: [], ready: () => true, dispose: () => {} };
+    if (!program) return { meshes: [], ready: () => true, dispose: () => {} };
     const player = new EffectPlayer(this.resources, program, { name, camera: () => camera });
-    if (!player.warm(at)) {
+    if (!player.warm()) {
       player.dispose();
       return null;
     }
     return {
       meshes: player.draws.flatMap((d) => d.meshes),
-      systems: player.draws.flatMap((d) => d.systems),
       ready: () => player.ready,
       dispose: () => player.dispose(),
     };
   }
 
-  /** @internal The variant report: the ParticleSystem a Babylon particle system or mesh draws for, if any. */
+  /** @internal The variant report: the ParticleSystem a Babylon mesh draws for, if any. */
   ownerOf(drawn: object): ParticleSystem | null {
     for (const [c, inst] of this.instances) if (inst.player?.owns(drawn)) return c;
     return null;
@@ -237,7 +234,7 @@ export class BabylonParticles {
     this.instances.delete(c);
   }
 
-  /** @internal What's playing (the particle feature's diagnostics, which the editor overlay shows). `batches` counts draws (a Babylon particle system or a mesh each). */
+  /** @internal What's playing (the particle feature's diagnostics, which the editor overlay shows). `batches` counts draws (a mesh each). */
   state(): ParticleStats {
     let emitters = 0;
     let particles = 0;

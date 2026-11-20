@@ -116,6 +116,9 @@ test("Arena's Spawnable Worlds show how they're created, and links to them draw 
   // One graph: Spawnable Worlds are dashed nodes with a "spawnable" tag, explained by the legend.
   await expect(p.locator('.worlds-node.template[data-template="Server"] .worlds-node-tag')).toHaveText("spawnable");
   await expect(p.locator('.worlds-node[data-world="Client"] .worlds-node-tag')).toHaveCount(0);
+  // The bootstrap topology (ADR 0256): Server is the Host template play creates and the dedicated server starts.
+  await expect(p.locator('.worlds-node.template[data-template="Server"] .worlds-node-role')).toHaveText("Host");
+  await expect(p.locator('.worlds-node[data-world="Client"] .worlds-node-role')).toHaveCount(0);
   await expect(p.locator(".worlds-legend")).toContainText("spawnable");
   await expect(p.locator('.worlds-link.spawnable[data-link-arrow="Client>Server"]')).toHaveCount(1);
   await expect(p.locator('.worlds-link.spawnable[data-link-arrow="Client 2>Server"]')).toHaveCount(1);

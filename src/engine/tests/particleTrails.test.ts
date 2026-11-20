@@ -38,9 +38,9 @@ describe("kernel trails (ADR 0126)", () => {
   it("compiles trail outputs with a history length and a width row", () => {
     const { g, sys } = trailGraph(16, 6);
     addBlock(g, sys, "output", "output.widthOverLength", { width: { curve: [[0, 1], [1, 0]] } });
-    const kp = compileParticleKernels(g, compileParticleGraph(g));
+    const kp = compileParticleKernels(g);
     const k = kp.systems[0];
-    expect(k.unsupported).toEqual([]);
+    expect(kp.problems).toEqual([]);
     expect(k.trail).toBe(6);
     const row = k.outputs[0].trail!.widthRow;
     expect(k.luts[row].value).toEqual([[0, 1], [1, 0]]);
@@ -48,20 +48,20 @@ describe("kernel trails (ADR 0126)", () => {
 
   it("keeps the history within its budget, and points within 2 to 64", () => {
     const big = trailGraph(1_000_000, 64).g;
-    const kp = compileParticleKernels(big, compileParticleGraph(big));
+    const kp = compileParticleKernels(big);
     const budget = kp.problems.map((p) => /keep at most (\d+) points in all/.exec(p.message)).find(Boolean);
     expect(budget).toBeTruthy(); // reported, naming the budget
     expect(kp.systems[0].trail! * 1_000_000).toBeLessThanOrEqual(Number(budget![1]));
     const long = trailGraph(16, 500).g;
-    expect(compileParticleKernels(long, compileParticleGraph(long)).systems[0].trail).toBe(64);
+    expect(compileParticleKernels(long).systems[0].trail).toBe(64);
   });
 
   it("writes each slot's position and seed into this frame's block", () => {
     const { g } = trailGraph(4, 4);
     const program = compileParticleGraph(g);
-    const kp = compileParticleKernels(g, program);
+    const kp = compileParticleKernels(g);
     const host: KernelHost = { executors: ["js"], createRun: (k) => new JsRun(k) };
-    const fx = new KernelEffect(kp.systems, program.effect.emitters, host, { seed: 3 });
+    const fx = new KernelEffect(kp.systems, program.spawns, host, { seed: 3 });
     const js = (fx.systems[0].run as JsRun).js;
     const frames: number[][] = [];
     for (let f = 0; f < 6; f++) {
@@ -82,7 +82,7 @@ describe("kernel trails (ADR 0126)", () => {
 
   it("generates history writes and ribbon draws for every executor", () => {
     const { g } = trailGraph(16, 8);
-    const k = compileParticleKernels(g, compileParticleGraph(g)).systems[0];
+    const k = compileParticleKernels(g).systems[0];
     expect(wgslSimulation(k)).toContain("k_trailWrite(i)");
     expect(wgslSimulation(k, { deadList: true }).match(/k_trailWrite\(i\);/g)?.length).toBe(2); // update and spawn passes
     expect(glslSimulation(k)).not.toContain("khist"); // WebGL2 writes it in its own pass

@@ -1,6 +1,6 @@
 # 0247. One edit gate says whether a scene, its UI documents or the project's files can be edited now
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0257 (Inspector field, component and node edits, gizmos and viewport tools go through the gate; the document is read-only during play)
 - **Date:** 2026-11-20
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
@@ -51,7 +51,7 @@ Removed: `hierarchyActions.ts`' and `uiDocumentEdits.ts`' `editableScene`, `whyN
 
 ## Open questions
 
-- Inspector field edits, component edits and node edits don't check play today (the Inspector shows the live World then, ADR 0243); they could move onto the gate if an edit path reaches them during play.
+- ~~Inspector field edits, component edits and node edits don't check play today (the Inspector shows the live World then, ADR 0243); they could move onto the gate if an edit path reaches them during play.~~ They do now (ADR 0257), with gizmos and viewport tools: one component field write asks the gate, and the edit modules refuse in play.
 
 ## References
 

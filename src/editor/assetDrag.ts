@@ -1,5 +1,6 @@
 // Dragging assets from the asset browser (ADR 0022): drop in the viewport to add them at the top
-// level under the cursor, or in the hierarchy to add them under (or beside) a node; drop on a
+// level under the cursor, or in the hierarchy to add them under (or beside) a node, inside prefab
+// instances too (where the Hierarchy drop says, ADR 0258); drop on a
 // folder (in the folder tree, the grid or the path bar) to move them there. Several selected
 // files drag together. Built on pointer events rather than HTML drag and drop, which Tauri's
 // webview takes over on Windows for its own file drops.
@@ -7,6 +8,8 @@ import { signal } from "@preact/signals";
 import { viewport } from "../engine/editor";
 import type { SceneDocument } from "./document";
 import { addAssets, whyNotAddAssets, type AssetAddTarget } from "./addAssets";
+import { dropRowName, hierarchyDropAt, type HierarchyDrop } from "./hierarchyDrop";
+import { whyNotInsert } from "./nodeInsertion";
 import { fileName } from "./assetBrowser";
 import { dropTargetFor, setDraggedAssets, type AssetDropPoint, type AssetDropTargetSpec } from "./assetDropTargets";
 import { entryPath, isSliceEntry } from "./assetEntry";
@@ -25,7 +28,7 @@ export type AssetDropTarget =
   | { kind: "folder"; folder: string }
   // A plugin panel's target (assetDropTargets.ts): its label for this spot, and the release it takes.
   | { kind: "plugin"; spec: AssetDropTargetSpec; label: string; point: AssetDropPoint }
-  | { kind: "hierarchy"; mode: "into" | "before" | "after" | "root"; row: string | null; parent: string | null; index?: number };
+  | { kind: "hierarchy"; drop: HierarchyDrop };
 
 export interface AssetDrag {
   /** What's dragged: Assets panel entries (folders end in "/"). */
@@ -39,23 +42,6 @@ export interface AssetDrag {
 }
 
 export const assetDrag = signal<AssetDrag | null>(null);
-
-/**
- * The hierarchy drop for a pointer over the row `rowKey` at `fraction` of its height (0 = top):
- * the top quarter puts the asset before the node as a sibling, the bottom quarter after it, the
- * middle makes the node its parent. A null row (empty space, the scene's own header) means the
- * scene's top level. Rows inside prefab instances don't take children: null.
- */
-export function hierarchyDrop(doc: SceneDocument, rowKey: string | null, fraction: number): AssetDropTarget | null {
-  if (rowKey === null) return { kind: "hierarchy", mode: "root", row: null, parent: null };
-  if (rowKey.includes("/") || !doc.has(rowKey)) return null; // inside a prefab instance, or gone
-  if (fraction < 0.25 || fraction > 0.75) {
-    const parent = doc.parentOf(rowKey);
-    const at = doc.children(parent).indexOf(rowKey);
-    return fraction < 0.25 ? { kind: "hierarchy", mode: "before", row: rowKey, parent, index: at } : { kind: "hierarchy", mode: "after", row: rowKey, parent, index: at + 1 };
-  }
-  return { kind: "hierarchy", mode: "into", row: rowKey, parent: rowKey };
-}
 
 /** The folder under a client point (folder tiles, tree items and path parts carry `data-drop-folder`), or null. */
 function folderAt(clientX: number, clientY: number, doc: Document = document): string | null {
@@ -91,25 +77,8 @@ function targetAt(clientX: number, clientY: number, doc: Document = document): A
     const r = (canvas ?? viewport).getBoundingClientRect();
     return { kind: "viewport", x: clientX - r.left, y: clientY - r.top };
   }
-  return hierarchyTargetAt(clientX, clientY, doc);
-}
-
-/** True if the client point is over a hierarchy row inside a prefab instance (those don't take children). `doc`: the window's the drag is in (ADR 0174). */
-export function overPrefabInsides(clientX: number, clientY: number, doc: Document = document): boolean {
-  return !!(doc.elementFromPoint(clientX, clientY) as HTMLElement | null)?.closest(".tree .row.inner");
-}
-
-const PREFAB_INSIDES = "nodes inside a prefab can't take children here";
-
-/** The hierarchy drop target under a client point (rows carry `data-key`), or null outside the hierarchy. `doc`: the window's the drag is in (ADR 0174). */
-export function hierarchyTargetAt(clientX: number, clientY: number, doc: Document = document): AssetDropTarget | null {
-  const scene = openScene.value;
-  const el = doc.elementFromPoint(clientX, clientY) as HTMLElement | null;
-  if (!scene || !el?.closest(".panel.hierarchy")) return null;
-  const row = el.closest(".tree .row") as HTMLElement | null;
-  if (!row) return hierarchyDrop(scene.doc, null, 0);
-  const r = row.getBoundingClientRect();
-  return hierarchyDrop(scene.doc, row.dataset.key ?? null, r.height > 0 ? (clientY - r.top) / r.height : 0.5);
+  const drop = hierarchyDropAt(scene.doc, clientX, clientY, doc);
+  return drop ? { kind: "hierarchy", drop } : null;
 }
 
 /**
@@ -125,7 +94,7 @@ function viewportDropPoint(x: number, y: number): [number, number, number] {
 
 /** Where a scene drop adds the assets (`addAssets`, ADR 0149). */
 function addTarget(target: Exclude<AssetDropTarget, { kind: "folder" | "plugin" }>, point: readonly [number, number, number]): AssetAddTarget {
-  return target.kind === "viewport" ? { kind: "point", position: point } : { kind: "slot", parent: target.parent, index: target.index };
+  return target.kind === "viewport" ? { kind: "point", position: point } : { kind: "hierarchy", place: target.drop.insert };
 }
 
 /** Why the dragged entries can't go to `target`, or null if they can. */
@@ -138,6 +107,7 @@ function problemFor(paths: readonly string[], target: AssetDropTarget): string |
     if (paths.some(isSliceEntry)) return "slices live in their image; move the image instead"; // ADR 0040
     return whyNotMoveTarget(paths, target.folder) ?? whyNotMovable(project, paths);
   }
+  if (target.kind === "hierarchy") return whyNotInsert(openScene.value, { kind: "assets", paths }, target.drop.insert);
   return whyNotAddAssets(paths);
 }
 
@@ -175,11 +145,7 @@ export function startAssetDrag(e: PointerEvent, paths: readonly string[]): void 
       return;
     }
     const target = targetAt(m.clientX, m.clientY, doc);
-    const problem = target
-      ? problemFor(paths, target)
-      : overPrefabInsides(m.clientX, m.clientY, doc)
-        ? PREFAB_INSIDES
-        : (problemFor(paths, { kind: "viewport", x: 0, y: 0 }) ?? "drop it in the viewport, the hierarchy or a folder");
+    const problem = target ? problemFor(paths, target) : (problemFor(paths, { kind: "viewport", x: 0, y: 0 }) ?? "drop it in the viewport, the hierarchy or a folder");
     assetDrag.value = { paths, x: m.clientX, y: m.clientY, target: problem ? null : target, problem };
   };
   const finish = (apply: boolean) => {
@@ -233,11 +199,11 @@ export function dropDescription(drag: AssetDrag, doc: SceneDocument | null): str
   if (t.kind === "plugin") return t.label;
   if (t.kind === "viewport") return `Add ${name} here`;
   if (t.kind === "folder") return `Move ${name} to ${t.folder || "the project folder"}`;
-  const label = (id: string | null) => (id && doc?.has(id) ? doc.node(id).name ?? id : "the scene");
-  switch (t.mode) {
-    case "into": return `Add ${name} as a child of ${label(t.row)}`;
-    case "before": return `Add ${name} above ${label(t.row)}`;
-    case "after": return `Add ${name} below ${label(t.row)}`;
+  const row = dropRowName(doc, t.drop.row);
+  switch (t.drop.mode) {
+    case "into": return `Add ${name} as a child of ${row}${t.drop.row?.includes("/") ? " (an override of its prefab instance)" : ""}`;
+    case "before": return `Add ${name} above ${row}`;
+    case "after": return `Add ${name} below ${row}`;
     default: return `Add ${name} to the scene`;
   }
 }

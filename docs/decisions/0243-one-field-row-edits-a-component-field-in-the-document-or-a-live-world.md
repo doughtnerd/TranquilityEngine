@@ -1,6 +1,6 @@
 # 0243. One field row edits a component field, in the edited document or in a live World, through a field target
 
-- **Status:** Proposed
+- **Status:** Proposed; amended by 0257 (both adapters write through the component field write; the document adapter refuses in play through the edit gate; during play the Hierarchy and Inspector show the live World by default)
 - **Date:** 2026-11-09 (rebuilt on current master 2026-11-19)
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

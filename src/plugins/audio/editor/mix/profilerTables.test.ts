@@ -12,7 +12,9 @@ import { voiceTableData } from "./VoiceTable";
 import { ProfilerTables } from "./profilerTables";
 import { busParents, busTableRows, musicRows, tableEmptyText, voiceCells } from "./profilerTablesModel";
 import { MAX_RENDERED_ROWS, OVERSCAN_ROWS, ROW_HEIGHT, VIEWPORT_HEIGHT, VIEWPORT_ROWS, moveFocus, navigate, scrollToIndex, windowRows } from "./gridWindow";
-import { nameLookup, reconstructVoices, type VoiceRow } from "./voiceTableModel";
+import { captureNames } from "../../runtime/capture/reader";
+import { namesFromStart } from "../../runtime/capture/testSupport";
+import { reconstructVoices, type VoiceRow } from "./voiceTableModel";
 import { openScene } from "./voiceSceneSupport";
 
 // The tables' own empty-state words.
@@ -32,10 +34,10 @@ function seekState(kf: CaptureKeyframe | null, records: unknown[] = []): Capture
   return { seconds: 0, keyframeSeq: kf ? 1 : -1, keyframe: kf, status: null, records, recordsScanned: 0 } as unknown as CaptureSeekState;
 }
 const voice = (id: number, over: Partial<CaptureKeyframeVoice> = {}): CaptureKeyframeVoice => ({
-  id, clip: 1 + (id % 3), slot: id % 3, state: "playing", priority: id % 5, reason: 0, gain: 0.5, pitch: 1, audibility: 1 - id / 8192, playheadFrames: id * 10, ...over,
+  id, clip: 1 + (id % 3), slot: id % 3, state: "playing", priority: id % 5, reason: null, gain: 0.5, pitch: 1, audibility: 1 - id / 8192, playheadFrames: id * 10, ...over,
 });
 const thousand = (): CaptureSeekState => seekState(keyframe({ voices: Array.from({ length: 1024 }, (_, i) => voice(i + 1)) }));
-const NAMES_LOOKUP = nameLookup({ clips: new Map([[1, "jump.ogg"], [2, "Land.ogg"], [3, "footstep.ogg"]]), buses: new Map([[0, "Master"], [1, "Music"], [2, "SFX"]]), events: new Map(), parameters: new Map(), snapshots: new Map(), targets: new Map() } as never);
+const NAMES_LOOKUP = namesFromStart({ clips: [[1, "jump.ogg"], [2, "Land.ogg"], [3, "footstep.ogg"]], buses: [[0, "Master"], [1, "Music"], [2, "SFX"]] });
 const CTX = { playing: false, truncated: false };
 
 const voiceData = (state: CaptureSeekState, filter = "") => voiceTableData(reconstructVoices(state, NAMES_LOOKUP), filter, CTX);
@@ -140,7 +142,7 @@ describe("the voice table on a recorded scene: reasons and the thief", () => {
 
   it("shows a stolen voice's reason and the voice that stole it, by clip name", async () => {
     const { s, state } = await seekAtFrame(45_000); // voice 1 stolen by 3 at frame 40,000 (reason 3, priority)
-    const names = nameLookup(s.summary.names);
+    const names = captureNames(s.summary);
     const replay = reconstructVoices(state, names);
     const byId = new Map(replay.rows.map((r) => [r.id, r]));
     const victim = byId.get(1)!;
@@ -152,7 +154,7 @@ describe("the voice table on a recorded scene: reasons and the thief", () => {
 
   it("shows the reasons of virtual and promoted voices, and no thief for them", async () => {
     const { s, state } = await seekAtFrame(48_000); // voice 2 virtual (below audibility) since 47,000
-    const names = nameLookup(s.summary.names);
+    const names = captureNames(s.summary);
     const byId = new Map(reconstructVoices(state, names).rows.map((r) => [r.id, r]));
     expect(voiceCells(byId.get(2)!, byId)).toMatchObject({ state: "virtual", reason: "below audibility" });
     expect(voiceCells(byId.get(2)!, byId).reason).not.toContain("by voice");
@@ -198,12 +200,12 @@ const bus = (slot: number, o: BusOver = {}): CaptureKeyframeBus => {
 };
 
 describe("the bus table", () => {
-  const parents = busParents({ buses: [{ name: "Master" }, { name: "Music", parent: "Master" }, { name: "SFX", parent: "Music" }] }, [[0, "Master"], [1, "Music"], [2, "SFX"]]);
+  const parents = busParents({ buses: [{ name: "Master" }, { name: "Music", parent: "Master" }, { name: "SFX", parent: "Music" }] }, NAMES_LOOKUP, 0);
 
   it("reads the parents from the META audio section by name", () => {
     expect([...parents]).toEqual([[0, null], [1, 0], [2, 1]]);
-    expect([...busParents(undefined, [[0, "Master"]])]).toEqual([[0, null]]); // no section reads as the defaults: Master alone
-    expect([...busParents({ buses: [{ name: "Master" }, { name: "Gone", parent: "Master" }] }, [[0, "Master"]])]).toEqual([[0, null]]); // a bus the capture never named
+    expect([...busParents(undefined, namesFromStart({ buses: [[0, "Master"]] }), 0)]).toEqual([[0, null]]); // no section reads as the defaults: Master alone
+    expect([...busParents({ buses: [{ name: "Master" }, { name: "Gone", parent: "Master" }] }, namesFromStart({ buses: [[0, "Master"]] }), 0)]).toEqual([[0, null]]); // a bus the capture never named
   });
 
   it("shows each bus's seven factors in dB, their product and the product up the tree", () => {
@@ -214,7 +216,7 @@ describe("the bus table", () => {
         bus(2, { monitor: 0.5, automation: 0.5 }),
       ],
     });
-    const rows = busTableRows(kf, NAMES_LOOKUP, parents);
+    const rows = busTableRows(kf, NAMES_LOOKUP, 0, parents);
     expect(rows.map((r) => r.name)).toEqual(["Master", "Music", "SFX"]);
     const music = rows[1]!;
     expect(music.factors.map((f) => f.lane)).toEqual(["authored", "runtime", "snapshot", "monitor", "dip", "duck", "automation"]);
@@ -229,7 +231,7 @@ describe("the bus table", () => {
 
   it("shows a mute as silence, a tombstone as removed, and a missing name by slot", () => {
     const kf = keyframe({ buses: [bus(1, { authoredMute: true }), bus(2, { tombstone: true }), bus(7)] });
-    const rows = busTableRows(kf, NAMES_LOOKUP, parents);
+    const rows = busTableRows(kf, NAMES_LOOKUP, 0, parents);
     expect(rows[0]!.productText).toBe("-inf dB");
     expect(rows[2]!.name).toBe("bus 7");
   });
@@ -238,12 +240,12 @@ describe("the bus table", () => {
 // ---- music ----
 
 describe("music rows", () => {
-  const eventName = (id: number): string | undefined => ({ 1: "Intro", 2: "Loop", 3: "Outro" } as Record<number, string>)[id];
+  const eventName = namesFromStart({ events: [[1, "Intro"], [2, "Loop"], [3, "Outro"]] });
   const music: CaptureKeyframeMusic[] = [
     { id: 7, segment: 1, state: "playing", pass: 2, bar: 4, beat: 3, tick: 120, tempo: 120, pending: { to: 2, seconds: 12.5 } },
     { id: 8, segment: 3, state: "ending", pass: 1, bar: 1, beat: 1, tick: 0, tempo: 90, pending: null },
   ];
-  const transition = (instance: number, from: number | null, to: number) => ({ kind: "event", event: { type: "musicTransition", reason: 0, perfMs: 0, instance, from, to } });
+  const transition = (instance: number, from: number | null, to: number) => ({ kind: "event", event: { type: "musicTransition", perfMs: 0, instance, from, to } });
 
   it("reads the keyframe's music rows: segment, state, position, tempo and the pending transition", () => {
     const rows = musicRows(seekState(keyframe({ music })), eventName);

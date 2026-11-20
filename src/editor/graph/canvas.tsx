@@ -1,8 +1,9 @@
-// The canvas pieces both graph editors share (ADR 0046, 0060): the pan and zoom pane, box
-// selection, pointer drags, the sticky note, the minimap and the node search popup. Class names
-// (`sg-*`) are the Shader Graph's; the styles are in graph.css.
+// The canvas pieces both graph editors share (ADR 0046, 0060, 0259): the pan and zoom pane, box
+// selection, pointer and node drags, the sticky note, the minimap, the node search popup and its
+// state, and the refused wire's hint. Class names (`sg-*`) are the Shader Graph's; the styles are in
+// graph.css.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
-import { NO_DRAG, NO_PAN, NO_WHEEL, createPane, toGraph, type CanvasNode, type Pane, type Point, type View } from "./xyflow";
+import { NO_DRAG, NO_PAN, NO_WHEEL, createNodeDrag, createPane, toGraph, type CanvasNode, type DraftWire, type Pane, type Point, type View } from "./xyflow";
 
 /** A CSS length (Preact 11 doesn't add `px` to numbers). */
 export const px = (n: number) => `${n}px`;
@@ -168,6 +169,49 @@ export function startPointerDrag(e: PointerEvent, o: { zoom(): number; onMove(dx
   target.addEventListener("pointerup", up);
 }
 
+/** What a draggable canvas item needs (`useGraphSelection` gives it): xyflow drags the selected items together. */
+export interface GraphDragHooks {
+  pane(): HTMLElement;
+  nodes(): readonly CanvasNode[];
+  view(): View;
+  panBy(dx: number, dy: number): Promise<boolean>;
+  /** Live positions while dragging. */
+  onMove(m: Map<string, Point>): void;
+  /** The drag ended (positions as last moved). */
+  onEnd(m: Map<string, Point>): void;
+}
+
+/** Make an element a draggable canvas item while editing is allowed (the hooks are read when the drag runs). */
+export function useNodeDrag(el: { readonly current: HTMLElement | null }, id: string, readOnly: boolean, hooks: GraphDragHooks): void {
+  const drag = useRef(hooks);
+  drag.current = hooks;
+  useEffect(() => {
+    if (readOnly) return;
+    const d = createNodeDrag(el.current!, id, {
+      pane: drag.current.pane(),
+      nodes: () => drag.current.nodes(),
+      view: () => drag.current.view(),
+      panBy: (x, y) => drag.current.panBy(x, y),
+      onMove: (m) => drag.current.onMove(m),
+      onEnd: (m) => drag.current.onEnd(m),
+    });
+    return () => d.destroy();
+  }, [id, readOnly]);
+}
+
+// --- wires -------------------------------------------------------------------------------------------
+
+/** Why the wire being drawn can't end where it is (`useGraphWiring`'s `hint`), beside its loose end; draw it in the viewport. */
+export function WireRefusal(props: { draft: DraftWire | null; hint: string | null }) {
+  const { draft, hint } = props;
+  if (!draft || !hint) return null;
+  return (
+    <div class="sg-refusal" style={{ left: px(draft.to.x + 12), top: px(draft.to.y + 12) }} role="tooltip">
+      {hint}
+    </div>
+  );
+}
+
 // --- notes and the minimap ---------------------------------------------------------------------------
 
 /** A sticky note's data: where it is, how big, what it says. */
@@ -243,6 +287,29 @@ export interface SearchItem {
   category: string;
   /** The text the query matches against (case doesn't matter): label, category, synonyms… */
   keywords: string;
+}
+
+/**
+ * Where the node search is open, with what the panel needs on a pick (`T`: the input a dropped wire
+ * connects to, the context a block goes in…), or null. `at` is where it was opened (pane pixels),
+ * where a picked node goes; `popup` is where the popup is drawn, kept inside the pane. `open` does
+ * nothing in a read-only file; `close` hands the keyboard back to the graph; `dismiss` just hides it.
+ */
+export function useGraphSearch<T extends object>(o: { pane: { readonly current: HTMLElement | null }; root: { readonly current: HTMLElement | null }; readOnly: boolean }) {
+  const [search, setSearch] = useState<(T & { at: Point; popup: Point }) | null>(null);
+  return {
+    search,
+    open(at: Point, data: T) {
+      if (o.readOnly) return;
+      const w = o.pane.current?.clientWidth ?? 600, h = o.pane.current?.clientHeight ?? 400;
+      setSearch({ ...data, at, popup: { x: Math.max(4, Math.min(at.x, w - 250)), y: Math.max(4, Math.min(at.y, h - 330)) } });
+    },
+    close() {
+      setSearch(null);
+      o.root.current?.focus({ preventScroll: true });
+    },
+    dismiss: () => setSearch(null),
+  };
 }
 
 /** The search popup: a query box over the items (already limited to those that fit), arrow keys and Enter to pick. */

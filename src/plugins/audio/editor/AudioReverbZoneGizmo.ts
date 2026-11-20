@@ -3,7 +3,7 @@
 // its blend shell (the surface where the zone has faded to nothing), selected zones bright and the others dim. With
 // "Edit Zone" on (the Inspector's header action), the zone gets handles: a box's six face centres resize it (Alt: both
 // faces move), a sphere's rim handles set the radius, and the blend handle on the outside of the volume's x/y edge sets
-// `blendDistance`. Each drag is one undo step (the fields are written through `SetField`, an override on prefab
+// `blendDistance`. Each drag is one undo step (the fields are written through `editor.scene.writeField`, an override on prefab
 // instances; Escape mid-drag puts it back). Editing a zone is the tool's mode (ADR 0231), which the viewport tool host
 // ends: picking a transform tool, Escape, play, another tool, selecting another node or switching scenes.
 import type { ReadonlySignal } from "@preact/signals";
@@ -29,7 +29,7 @@ import {
   type ZoneFace,
   type ZoneGeometry,
 } from "./zoneMath";
-import { type ViewportDrag, type ViewportPointer, type ViewportToolContext, type ViewportToolContribution, editor, SetField, type OpenScene, theme, viewportColors } from "../../../editor/sdk";
+import { type ViewportDrag, type ViewportPointer, type ViewportToolContext, type ViewportToolContribution, editor, type OpenScene, theme, viewportColors } from "../../../editor/sdk";
 
 /** The zone tool's id: also its overlay id and its active-tool id. */
 export const ZONE_TOOL_ID = "myco.audio.zones";
@@ -120,16 +120,10 @@ export const zoneTool: ViewportToolContribution<EditingZone> = {
   },
 };
 
-/** Writes one zone field as a command, skipping values it already wrote. */
+/** Writes one field of the edited zone through the component field write (ADR 0257). */
 function fieldWriter(scene: OpenScene, editing: EditingZone): (field: string, value: unknown) => void {
-  const written = new Map<string, string>();
-  return (field, value) => {
-    const json = JSON.stringify(value);
-    if (written.get(field) === json) return;
-    written.set(field, json);
-    const [id, ...target] = editing.key.split("/");
-    scene.stack.execute(new SetField(id!, ZONE_TYPE, field, value, { index: editing.index, target }));
-  };
+  const place = { scene, path: editing.key.split("/"), type: ZONE_TYPE, index: editing.index };
+  return (field, value) => void editor.scene.writeField(place, field, value);
 }
 
 /** The pointer ray at a canvas point, as the viewport gives it. */

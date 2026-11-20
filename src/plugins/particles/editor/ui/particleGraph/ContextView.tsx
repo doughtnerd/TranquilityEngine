@@ -112,10 +112,10 @@ function InitializeSettings(props: { system: ParticleGraphSystem }) {
       <Setting label="Space" title="World: particles stay where they were born as the node moves. Local: they move with it.">
         <ChoiceValue label="Space" value={s.space} choices={["world", "local"]} readOnly={readOnly} onChange={(v) => commit(setSystemSettings(graph, props.system.id, { space: v as "world" | "local" }))} />
       </Setting>
-      <Setting label="Simulation" title="Auto runs on the GPU when the system needs it (per-particle operators, Set Attribute, several outputs, GPU events, depth collision) or has 4096+ particles. CPU and GPU force one.">
+      <Setting label="Simulation" title="Auto runs on the GPU when the system needs it (per-particle operators, Set Attribute, several outputs, GPU events, depth collision) or has 4096+ particles, else on the CPU (the JavaScript executor). CPU and GPU force one.">
         <ChoiceValue label="Simulation" value={s.simulation ?? "auto"} choices={SIMULATIONS} labels={SIMULATION_LABELS} readOnly={readOnly} onChange={(v) => commit(setSimulation(graph, props.system.id, v === "auto" ? undefined : (v as SimulationChoice)))} />
       </Setting>
-      <Setting label="Seed" title="This system's random seed (an integer). Empty uses the component's seed. Only kernel (GPU) simulation uses per-system seeds.">
+      <Setting label="Seed" title="This system's random seed (an integer). Empty uses the component's seed.">
         <SeedField value={s.seed} disabled={readOnly} onCommit={(n) => commit(setSeed(graph, props.system.id, n))} />
       </Setting>
     </div>
@@ -147,10 +147,10 @@ function OutputSettingsView(props: { system: ParticleGraphSystem; output: number
           </Setting>
         </>
       )}
-      <Setting label="Softness" title="Soft particles fade near surfaces (metres, 0 = off). Kernel (GPU) outputs only.">
+      <Setting label="Softness" title="Soft particles fade near surfaces (metres, 0 = off).">
         <NumField label="Softness" value={s.softness ?? 0} min={0} disabled={readOnly} onCommit={(n) => commit(setOutputSoftness(graph, id, n, o))} />
       </Setting>
-      <Setting label="Sort" title="Draw back to front by distance from the camera. Auto sorts alpha-blended outputs and leaves additive and premultiplied ones unsorted. Kernel (GPU) outputs only.">
+      <Setting label="Sort" title="Draw back to front by distance from the camera. Auto sorts alpha-blended outputs and leaves additive and premultiplied ones unsorted.">
         <ChoiceValue label="Sort" value={s.sort ?? "auto"} choices={SORTS} labels={SORT_LABELS} readOnly={readOnly} onChange={(v) => commit(setOutputSort(graph, id, v as OutputSort, o))} />
       </Setting>
       <Setting label="Render order" title="Higher draws later">

@@ -6,12 +6,12 @@
 // against the fixture's offline reference of the intended mix (`seamReference.ts`: clip levels times Z3's same-knot
 // control-rate fade laws).
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { fadeAt, fnv1a64, lawValue, replaySeam, seamNull, type SeamFixture } from "./seamReference";
+import { fnv1a64, goldenDir } from "./replay";
+import { fadeAt, lawValue, replaySeam, seamNull, type SeamFixture } from "./seamReference";
 
 /** A folder of their own: `audioGolden.test.ts` holds `golden/`'s top level to its own scenes plus the known prefixes. */
-const SEAMS_DIR = fileURLToPath(new URL("./seams/", import.meta.url));
+const SEAMS_DIR = goldenDir("seams");
 
 /** The row's seams: the cut, the three crossfade laws, a bridge (both legs), a loop exit with its tail, a stinger, a switch change. */
 export const SEAM_CASES = [

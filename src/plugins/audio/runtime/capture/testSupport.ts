@@ -2,9 +2,20 @@
 // type, built with `format.ts`'s writers. Never imported by runtime code.
 import { makeStatusBlock } from "../core/statusFixtures";
 import { STATUS_BUFFER_BYTES, writeStatus, type StatusBlock } from "../wire.generated";
-import { RecordType, assembleCapture, encodeKeyframe, keyframeBytes, type CaptureHeaderInit, type CaptureMetaInit, type CaptureRecordInit, type KeyframePayload } from "./format";
+import {
+  NAME_TABLES, RecordType, assembleCapture, encodeKeyframe, keyframeBytes, type CaptureHeaderInit, type CaptureMetaInit, type CaptureRecordInit, type KeyframePayload,
+  type NameTable,
+} from "./format";
+import { CaptureNames, type CaptureNameEntry } from "./names";
 import type { Recorder, RecorderOptions } from "./recorder";
 import type { SaveEnv } from "./save";
+
+/** Names a capture held from its start (META's), per table as `[id, name]` pairs: the lookups `captureNames` gives (ADR 0260). */
+export function namesFromStart(tables: Partial<Record<NameTable, readonly (readonly [number, string])[]>>): CaptureNames {
+  const log = {} as Record<NameTable, CaptureNameEntry[]>;
+  for (const t of NAME_TABLES) log[t] = (tables[t] ?? []).map(([id, name]) => [id, name, -Infinity] as const);
+  return new CaptureNames(log);
+}
 
 export const SAMPLE_RATE = 48_000;
 

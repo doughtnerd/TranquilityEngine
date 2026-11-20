@@ -18,7 +18,7 @@
 //! - a streamed member is stereo [`noise32`] (a 32-bit hash of the stream frame, L and R
 //!   different), addressable by frame so the wasm half can rebuild any chunk.
 //!
-//! **Fixtures** (`src/plugins/audio/runtime/golden/gate-<scene>.json`, written with
+//! **Fixtures** (`src/plugins/audio/runtime/golden/gate/gate-<scene>.json`, written with
 //! `UPDATE_GOLDENS=1`): Z3's format (preset, clips, steps, frames, FNV-1a 64 digest) plus
 //! `maxMusicRings` in the preset, two stream steps (`open`: a whole STREAM_OPEN message in hex;
 //! `chunk`: a STREAM_CHUNK described by its stream, epoch, first stream frame, frames, flags and
@@ -388,7 +388,7 @@ impl Rig {
         (max, first, over)
     }
 
-    /// Writes (`UPDATE_GOLDENS=1`) or compares `golden/<scene>.json` (`scene` is `gate-…`). `group_starts` are the
+    /// Writes (`UPDATE_GOLDENS=1`) or compares `golden/gate/<scene>.json` (`scene` is `gate-…`). `group_starts` are the
     /// scene's `(groupId, flags, slipFrames, startFrame)` events; `null` its largest error against
     /// the reference and the bound it is held to.
     pub fn finish(mut self, scene: &str, about: &str, group_starts: &[(u16, u16, u32, u64)], null: (f32, f32)) {
@@ -408,13 +408,13 @@ impl Rig {
             null.0,
             null.1,
         );
-        let path = format!("{}/../../../../src/plugins/audio/runtime/golden/{scene}.json", env!("CARGO_MANIFEST_DIR"));
+        let path = format!("{}/../../../../src/plugins/audio/runtime/golden/gate/{scene}.json", env!("CARGO_MANIFEST_DIR"));
         if std::env::var("UPDATE_GOLDENS").as_deref() == Ok("1") {
             std::fs::write(&path, json).unwrap();
             return;
         }
         let want = std::fs::read_to_string(&path).unwrap_or_else(|_| panic!("{scene}: no fixture; run UPDATE_GOLDENS=1 cargo test -p audio-core --test gate_mixed --test gate_late --test gate_held --test gate_rebased (native/audio)"));
-        assert!(want == json, "{scene}: the scene no longer matches golden/{scene}.json (rerun with UPDATE_GOLDENS=1 and review the diff)");
+        assert!(want == json, "{scene}: the scene no longer matches golden/gate/{scene}.json (rerun with UPDATE_GOLDENS=1 and review the diff)");
     }
 }
 
