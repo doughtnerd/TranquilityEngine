@@ -1023,8 +1023,7 @@ export class EventInstance {
             const q0 = this.sys.quantizedLevel(this, st.bindings);
             if (q0.grid !== null && Math.abs(q0.gain - 1) >= 1e-4) {
               const at = Number.isFinite(run.startAt) ? { at: run.startAt } : {};
-              if (voice.paramsShaped) voice.paramsShaped({ gain: q0.gain, seconds: 0, law: "linear", ...at });
-              else voice.fade(q0.gain, 0);
+              voice.paramsShaped({ gain: q0.gain, seconds: 0, law: "linear", ...at });
             }
           }
         }
@@ -1329,7 +1328,7 @@ export class EventInstance {
     if (fadeIn > 0) { voice.fade(0, 0); voice.fade(this.fadeTo ?? 1, fadeIn); }
     let loop: LoopState | null = null;
     if (looping) loop = this.startLoop(voice, node, held, sink);
-    if (node.startOffset > 0) voice.seek?.(node.startOffset);
+    if (node.startOffset > 0) voice.seek(node.startOffset);
     if (this.fadeTo !== null && !(fadeIn > 0)) voice.fade(this.fadeTo, 0);
     const len = sys.clipLength(node.clip);
     const length = len !== null ? Math.max(0, len - node.startOffset) / base.pitch : null;

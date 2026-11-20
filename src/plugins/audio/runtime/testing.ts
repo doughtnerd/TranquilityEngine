@@ -27,6 +27,10 @@
 // ADR 0179: the fake has every capability (`clipCache`, `clock`, `music`, `mix`, `capture`; no `automation`, so the event
 // runtime evaluates on main), each the fake itself, as on the core. Each is a plain property a test sets to undefined for a
 // backend without it (the Babylon fallback has no `clock`; the pending backend has no `mix` or `capture`).
+//
+// ADR 0264: a fake voice has every `AudioVoice` member, as every adapter's does: the stamped ramps (`fadeShaped`,
+// `paramsShaped`) and `seek` are recorded as events, as asked. Whether ramps are sample-exact is the fake's
+// `music.caps.stampedFades`.
 
 import type { AudioBackend, AudioCaptureSource, AudioClipCache, AudioClock, AudioFrameMap, AudioLiveMix, AudioMixCaps, AudioPanner, Attenuation, AudioVoice, FadeLaw, ListenerPose, MusicAdmitResult, MusicBackend, MusicBackendCaps, MusicGroupEvent, MusicGroupRequest, MusicGroupStamp, MusicLifecycleEvent, AudioOutputDevice, BackendKeyframe, MusicBackendDebug, PlayRequest, RecorderTap, VoiceSpatialOptions, ZoneIrService } from "./backend";
 import type { AudioLatency } from "../../../engine/audio/musicTypes";
@@ -101,8 +105,10 @@ export type FakeVoiceEvent =
   | { readonly kind: "resume" }
   | { readonly kind: "stop"; readonly fadeSeconds?: number }
   | { readonly kind: "fade"; readonly to: number; readonly seconds: number }
-  // ADR 0166 (G-1): a stamped gain and/or low-pass ramp.
+  // ADR 0166 (G-1, §4.2), ADR 0264: the stamped ramps, as asked.
   | { readonly kind: "paramsShaped"; readonly gain?: number; readonly lowpassHz?: number; readonly seconds: number; readonly law?: FadeLaw; readonly at?: number }
+  | { readonly kind: "fadeShaped"; readonly to: number; readonly seconds: number; readonly law: FadeLaw; readonly startPhase?: number; readonly at?: number; readonly stopAtEnd?: boolean }
+  | { readonly kind: "seek"; readonly seconds: number }
   | { readonly kind: "priority"; readonly value: number }
   | { readonly kind: "loop"; readonly start: number; readonly end: number; readonly looping: boolean }
   // ADR 0162 (K0 members).
@@ -179,8 +185,7 @@ export interface FakeBackend extends AudioBackend, AudioClipCache, AudioClock, A
   horizonTime: number | null;
   /** ADR 0166 (G-1): what `clipFacts` reports per path; unlisted clips are unknown (undefined). */
   readonly facts: Map<string, { frames: number; rate: number; channels: number; gapless: boolean }>;
-  /** ADR 0166 (G-1): whether the fake's voices have `paramsShaped` (default false: like the Babylon fallback, stem gain goes on `fade`). */
-  stampedRamps: boolean;
+
   /** ADR 0166 (G-1): what `clock.frameInterval()` returns, seconds; null (the default): unknown, so callers estimate it. */
   frameIntervalSeconds: number | null;
   /** ADR 0224: what `clock.frameMap()` returns; null (the default): no frame map, as on a backend that doesn't have one. */
@@ -374,7 +379,7 @@ export function makeFakeBackend(): FakeBackend {
     facts: new Map(),
     frameIntervalSeconds: null,
     frameMapValue: null,
-    stampedRamps: false,
+
     music: undefined,
     device: undefined,
     beginFrameCalls: 0,
@@ -404,7 +409,6 @@ export function makeFakeBackend(): FakeBackend {
       plays.push(request);
       if (!backend.ready) return null;
       const voice = makeFakeVoice(request);
-      if (!backend.stampedRamps) delete (voice as { paramsShaped?: unknown }).paramsShaped;
       voices.push(voice);
       return voice;
     },
@@ -462,6 +466,8 @@ function makeFakeVoice(request: PlayRequest): FakeVoice {
     reason: null,
     fade(to, seconds) { events.push({ kind: "fade", to, seconds }); },
     paramsShaped(r) { events.push({ kind: "paramsShaped", ...r }); },
+    fadeShaped(f) { events.push({ kind: "fadeShaped", ...f }); },
+    seek(seconds) { events.push({ kind: "seek", seconds }); },
     setPriority(value) { events.push({ kind: "priority", value }); },
     events,
     get volume() { return state.volume; },

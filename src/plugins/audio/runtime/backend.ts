@@ -314,7 +314,33 @@ export interface VoiceSpatialOptions {
   yaw?: number;
 }
 
-/** One playing sound. */
+/**
+ * ADR 0166 §4.6 (G-1): a stamped ramp of a voice's own gain and/or low-pass, with a law (`AudioVoice.paramsShaped`).
+ * `gain` multiplies the voice's dry gain (not the `fade` ramp); `lowpassHz` is a cutoff; `at` the heard time it starts
+ * (omitted: as soon as possible).
+ */
+export interface ShapedParams {
+  gain?: number;
+  lowpassHz?: number;
+  seconds: number;
+  law?: FadeLaw;
+  at?: number;
+}
+
+/**
+ * One playing sound. ADR 0264: every adapter's voice has every member below; how a weak backend does a member is the
+ * adapter's business (the Babylon fallback runs a stamped ramp as timer steps, the pending voice records the latest call
+ * and forwards it at the hand-over), so callers state one intent and never probe a member. The members fall in groups
+ * by what they do:
+ *
+ * - **Plain controls:** volume, pitch, attenuation, position, bus, priority, pause and resume, `fade`, `stop`.
+ * - **Playback position:** `seek` and `setLoop`.
+ * - **Main's spatial results and options (ADR 0162 K0, K4):** `setVelocity`, `setOcclusion`, `setDopplerRate`,
+ *   `setSpatialOptions`.
+ * - **Stamped ramps (ADR 0166 §4.2, G-1):** `fadeShaped` and `paramsShaped`, each starting at a heard time.
+ *
+ * Only reads stay optional: `alive`, `panner` and `occlusion` (a backend without them answers through the defaults).
+ */
 export interface AudioVoice {
   readonly playing: boolean;
   /**
@@ -336,50 +362,54 @@ export interface AudioVoice {
   setBus(bus: string): void;
   pause(): void;
   resume(): void;
-  /**
-   * Move to `seconds` of the sound (B3b; the core backend only). The old audio fades out over 5 ms and the new fades
-   * in; a streamed sound is flushed (no old audio after the seek) and reads "waitingForData" until it is decoded from
-   * there. A loop wraps the time, otherwise it clamps to the end. Absent on the Babylon fallback.
-   */
-  seek?(seconds: number): void;
-  /**
-   * ADR 0158 §4, for backends without an `automation` sink of their own (the Babylon fallback): loop `start..end` seconds
-   * of the clip (`end` 0 is its end), or with `looping` false play on past the loop to the clip's end.
-   */
-  setLoop?(start: number, end: number, looping: boolean): void;
   /** Stop now, or fade to silence over `fadeSeconds` (default 0) and stop. */
   stop(fadeSeconds?: number): void;
 
-  // ADR 0162 (contract K0). Optional: a backend without the feature leaves them out and callers skip the call.
+  // --- Playback position ---
+  /**
+   * Move to `seconds` of the sound (B3b). A loop wraps the time, otherwise it clamps to the end. The core fades the old
+   * audio out over 5 ms and the new in, and flushes a stream (it reads "waitingForData" until decoded from there); the
+   * Babylon fallback restarts the sound at the offset; a voice that hasn't started yet starts there.
+   */
+  seek(seconds: number): void;
+  /**
+   * ADR 0158 §4: loop `start..end` seconds of the clip (`end` 0 is its end), or with `looping` false play on past the loop
+   * to the clip's end. The core sends it through its automation sink (stamped behind the voice's PLAY); the fallback sets
+   * its sound's loop points.
+   */
+  setLoop(start: number, end: number, looping: boolean): void;
+
+  // --- Main's spatial results and options (ADR 0162, contract K0) ---
   /** §3.2: the source's velocity, world units per second (Doppler, debug). */
-  setVelocity?(v: Vec3Like): void;
+  setVelocity(v: Vec3Like): void;
   /**
    * §8, K4: main's smoothed occlusion result for this voice. `gain` is the dry gain (1 open); `lpHz` the cutoff it asks
    * for (≥ 20000 off). The core routes both into the per-voice filter (`voiceFx`); the Babylon fallback applies the gain
    * only, through its volume, and drops the cutoff.
    */
-  setOcclusion?(gain: number, lpHz: number): void;
+  setOcclusion(gain: number, lpHz: number): void;
   /** §8, K4: main's clamped Doppler factor (1 none). The core folds it into pitch; Babylon into `playbackRate` (decoded clips only). */
-  setDopplerRate?(factor: number): void;
+  setDopplerRate(factor: number): void;
+  /**
+   * §1.2, K4: Play edits of the source's M3 options (`VoiceSpatialOptions`). The Babylon fallback keeps `occlusion` and
+   * `dopplerLevel` (its passes read them) and has no sends or ambisonic rotation to change.
+   */
+  setSpatialOptions(o: VoiceSpatialOptions): void;
   /**
    * §1.1, D5: the panner the voice uses and its smoothed dry occlusion gain (1 open), read from the main-thread tables
    * (the public handle's `panner` and `occlusion`). Absent on a backend without them: the handle reads null and 1.
    */
   readonly panner?: AudioPanner | null;
   readonly occlusion?: number;
-  /** §1.2, K4: Play edits of the source's M3 options (`VoiceSpatialOptions`); a backend without them leaves it out. */
-  setSpatialOptions?(o: VoiceSpatialOptions): void;
+
+  // --- Stamped ramps (ADR 0166 §4.2, G-1) ---
   /**
-   * ADR 0166 §4.2 (Q0): a shaped fade of the voice's `fade` ramp, stamped at `f.at`; with `stopAtEnd` a shaped STOP.
-   * Absent on a backend without stamped fades (`MusicBackendCaps.stampedFades`): callers use `fade`/`stop`.
+   * A shaped fade of the voice's `fade` ramp starting at heard time `f.at`; with `stopAtEnd` the voice stops when it ends
+   * (a shaped STOP). Sample-exact on the core (`MusicBackendCaps.stampedFades`); timer steps on the Babylon fallback.
    */
-  fadeShaped?(f: ShapedFade): void;
-  /**
-   * ADR 0166 §4.6 (G-1): a stamped ramp of the voice's own gain and/or low-pass, with a law. `gain` multiplies the voice's
-   * dry gain (not the `fade` ramp); `lowpassHz` is a cutoff; `at` the heard time it starts (omitted: as soon as possible).
-   * Absent on a backend without stamped ramps (callers use `fade`).
-   */
-  paramsShaped?(r: { gain?: number; lowpassHz?: number; seconds: number; law?: FadeLaw; at?: number }): void;
+  fadeShaped(f: ShapedFade): void;
+  /** A stamped ramp of the voice's own gain and/or low-pass (`ShapedParams`); the Babylon fallback drops the low-pass. */
+  paramsShaped(r: ShapedParams): void;
 }
 
 /**

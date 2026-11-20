@@ -205,10 +205,7 @@ export function triggerOn(instance: object, name: string): boolean {
 function steal(st: StingerState, at: number): void {
   const old = st.sounding.shift();
   if (!old) return;
-  for (const v of old.voices) {
-    if (v.fadeShaped) v.fadeShaped({ to: 0, seconds: STINGER_STEAL_FADE_SECONDS, law: "linear", at, stopAtEnd: true });
-    else v.stop(STINGER_STEAL_FADE_SECONDS);
-  }
+  for (const v of old.voices) v.fadeShaped({ to: 0, seconds: STINGER_STEAL_FADE_SECONDS, law: "linear", at, stopAtEnd: true });
 }
 
 /** R5, step 9: plan and stamp queued stingers at their grid points; forget ended ones. */

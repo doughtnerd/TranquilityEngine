@@ -165,7 +165,7 @@ interface BoundVoice {
 /**
  * The evaluator for backends without the core: the same smoothing and curves as the core, once per frame (`update`),
  * applied through the voice setters (`setVolume`, `setPitch`) and the mixer's bus automation. Per-voice low-pass isn't
- * available here (warns once); loops use the voice's optional `setLoop`.
+ * available here (warns once); loops use the voice's own `setLoop`.
  */
 export class TsAutomation implements AutomationSink {
   private readonly curves = new Map<number, Curve>();
@@ -205,8 +205,7 @@ export class TsAutomation implements AutomationSink {
   }
 
   setLoop(voice: AudioVoice, start: number, end: number, looping: boolean): void {
-    if (voice.setLoop) voice.setLoop(start, end, looping);
-    else warnOnce("events:loop-fallback", "Audio events: this audio backend can't loop part of a clip; sustain plays the clip once.");
+    voice.setLoop(start, end, looping);
   }
 
   /** Once per frame: smooth parameters, then re-apply every bound voice and bus whose inputs moved. */

@@ -293,7 +293,7 @@ describe("stream seeks on the loopback host (B3b)", () => {
       expect(voice.reason).toBeNull();
       const mark = r.left.length;
       const chunksBefore = r.worklet().chunks;
-      voice.seek!(c.seconds);
+      voice.seek(c.seconds);
       expect(voice.reason).toBe("waitingForData");
       await r.step(60);
       const f = fadeStart(r.left, mark, at);
@@ -323,7 +323,7 @@ describe("stream seeks on the loopback host (B3b)", () => {
     const { r, voice } = p;
     const at = onsetOf(r.left);
     const mark = r.left.length;
-    voice.seek!(1.5);
+    voice.seek(1.5);
     await r.step(80);
     const f = fadeStart(r.left, mark, at);
     const target = Math.round(1.5 * RATE);
@@ -342,7 +342,7 @@ describe("stream seeks on the loopback host (B3b)", () => {
     const { r, voice } = p;
     const at = onsetOf(r.left);
     const mark = r.left.length;
-    voice.seek!(5);
+    voice.seek(5);
     await r.step(40);
     const f = fadeStart(r.left, mark, at);
     for (let k = 0; k < FADE; k++) expect(Math.abs(r.left[f + k]! - want(f - at + k, 0) * (1 - (k + 1) / FADE))).toBeLessThan(1e-6);
@@ -361,7 +361,7 @@ describe("stream seeks on the loopback host (B3b)", () => {
     const { r, voice } = p;
     const at = onsetOf(r.left);
     const mark = r.left.length;
-    voice.seek!(WAV_FRAMES / RATE + 0.5); // 2.5 s of a 2 s file: 0.5 s
+    voice.seek(WAV_FRAMES / RATE + 0.5); // 2.5 s of a 2 s file: 0.5 s
     await r.step(60);
     const f = fadeStart(r.left, mark, at);
     expectSeek(r, f, at, Math.round(0.5 * RATE), 8_000);
@@ -378,7 +378,7 @@ describe("stream seeks on the loopback host (B3b)", () => {
     expect(voice.reason).toBe("waitingForData");
     expect(r.backend.streams.stats.starves).toBe(1);
     const silent = r.left.length;
-    voice.seek!(2.0);
+    voice.seek(2.0);
     await r.step(40);
     let on = silent;
     while (on < r.left.length && r.left[on] === 0) on++;
@@ -403,8 +403,8 @@ describe("stream seeks on the loopback host (B3b)", () => {
     const { r, voice } = p;
     const at = onsetOf(r.left);
     const mark = r.left.length;
-    voice.seek!(1.2);
-    voice.seek!(0.3);
+    voice.seek(1.2);
+    voice.seek(0.3);
     await r.step(80);
     const f = fadeStart(r.left, mark, at);
     expectSeek(r, f, at, Math.round(0.3 * RATE), 10_000);
@@ -421,7 +421,7 @@ describe("stream seeks on the loopback host (B3b)", () => {
     const r = await rig({ "music/a.wav": stereo() });
     if (!r) return ctx.skip();
     const voice = r.backend.play({ path: "music/a.wav", url: "", loop: false, stream: true, bus: "Music" })!;
-    voice.seek!(1.0);
+    voice.seek(1.0);
     expect(r.backend.streams.stats.seeks).toBe(0);
     await r.step(2);
     await r.waitOpen(1);

@@ -7,9 +7,8 @@
  *
  * **Gain composition (F-6, ADR 0167 §2).** A stem's `gain` ramp (a stamped SET_PARAMS gain ramp, never the voice's `fade`
  * ramp, which crossfades own) carries `auto × solo`: `auto` is the quantised automation's level, `solo` is 1 or 0. Each
- * change re-sends the product, so a solo during a crossfade or a quantised ramp fights neither. A backend whose voice has
- * no `paramsShaped` (the Babylon fallback, the fake) gets the product on `fade` and quantised levels committed at the
- * first display frame at or after the grid point; that is the only case where `fade` carries stem gain.
+ * change re-sends the product, so a solo during a crossfade or a quantised ramp fights neither. Every voice takes the
+ * ramp (ADR 0264: the Babylon fallback runs it as timer steps), so `fade` never carries stem gain.
  */
 import { nextGridSeconds, ticksToSeconds } from "../../../../engine/audio/musicGrid";
 import { segmentGrid } from "./segmentGrids";
@@ -31,11 +30,11 @@ export interface StampedRamp {
   at?: number;
 }
 
-/** One stem's gain parts. `auto` is in effect now; `next` is a quantised level waiting for its grid point. */
+/** One stem's gain parts. `auto` is in effect now; `next` is a quantised level stamped for its grid point. */
 interface StemGain {
   auto: number;
   solo: number;
-  next: { to: number; at: number; seconds: number; stamped: boolean } | null;
+  next: { to: number; at: number; seconds: number } | null;
 }
 const gains = new WeakMap<StemRun, StemGain>();
 function gainOf(stem: StemRun): StemGain {
@@ -80,13 +79,12 @@ function releaseSilentRing(stem: StemRun, f: MusicFrame): boolean {
   return true;
 }
 
-/** Send the stem's gain (`auto × solo`) over `seconds`, starting at heard `at` when the voice can stamp it. */
+/** Send the stem's gain (`auto × solo`) over `seconds`, as a ramp stamped at heard `at` (omitted: as soon as possible). */
 function sendStemGain(stem: StemRun, auto: number, seconds: number, now: number, at?: number): void {
   const v = stem.voice;
   if (!v || !voiceAlive(stem)) return;
   const to = auto * gainOf(stem).solo;
-  if (v.paramsShaped) v.paramsShaped({ gain: to, seconds, law: "linear", ...(at !== undefined ? { at } : {}) });
-  else v.fade(to, seconds);
+  v.paramsShaped({ gain: to, seconds, law: "linear", ...(at !== undefined ? { at } : {}) });
   if (to <= 0) silentAt.set(stem, (at ?? now) + seconds);
   else silentAt.delete(stem);
 }
@@ -96,7 +94,7 @@ function setStemGain(stem: StemRun, seconds: number, f: MusicFrame): void {
   const g = gainOf(stem);
   sendStemGain(stem, g.auto, seconds, f.now);
   const n = g.next;
-  if (n && n.stamped && f.now < n.at) sendStemGain(stem, n.to, n.seconds, f.now, n.at);
+  if (n && f.now < n.at) sendStemGain(stem, n.to, n.seconds, f.now, n.at);
 }
 
 function liveRuns(player: MusicPlayer): SegmentRun[] {
@@ -183,22 +181,18 @@ export function quantizedRamp(player: MusicPlayer, track: string, to: number, gr
   const at = nextGridHeard(player, run, grid, horizon);
   if (!Number.isFinite(at)) return Number.NaN;
   const g = gainOf(stem);
-  const stamped = typeof stem.voice.paramsShaped === "function";
-  g.next = { to: level, at, seconds: dur, stamped };
-  if (stamped) sendStemGain(stem, level, dur, f.now, at);
-  else if (level * g.solo <= 0) silentAt.set(stem, at + dur);
-  else silentAt.delete(stem);
+  g.next = { to: level, at, seconds: dur };
+  sendStemGain(stem, level, dur, f.now, at);
   return at;
 }
 
-/** R6: a quantised level whose grid point has come becomes the stem's level; on a voice that can't stamp it is sent now. */
+/** R6: a quantised level whose grid point has come becomes the stem's level (its ramp was stamped when it was asked). */
 function commitDueRamp(stem: StemRun, f: MusicFrame): void {
   const g = gains.get(stem);
   const n = g?.next;
   if (!g || !n || f.now < n.at) return;
   g.next = null;
   g.auto = n.to;
-  if (!n.stamped) sendStemGain(stem, n.to, n.seconds, f.now);
 }
 
 /** P5, R6, step 9: the event's stem automation (F-9), release silent stems' rings, commit due quantised ramps. */

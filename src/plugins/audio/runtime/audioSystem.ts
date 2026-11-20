@@ -118,11 +118,11 @@ function runFrame(backend: AudioBackend, dt: number): void {
     return;
   }
   if (isSpatialPassHost(backend)) {
-    // The Babylon fallback (F1, api-and-models §8): main's Doppler and occlusion, then its own frame. Zones are inert (F2: one warning).
+    // The Babylon fallback (F1, api-and-models §8): main's Doppler, zones (inert, F2: one warning) and occlusion, then its own frame.
     const settings = mixer.audioSettings;
-    if (frame.world) (backend as { noteReverbZones?: (w: World) => void }).noteReverbZones?.(frame.world); // F2: one warning
     backend.collectSpatialVoices();
     backend.doppler.run(frame, backend.spatialVoices, settings);
+    backend.zones.run(frame, backend.spatialVoices, settings);
     backend.occlusion.run(frame, backend.spatialVoices, settings);
   }
   musicPlanStep(backend, dt); // 9. music plan (ADR 0166), before the backend's own frame commits

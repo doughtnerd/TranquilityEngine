@@ -2,7 +2,7 @@
 // core is still loading. A third adapter of the `AudioBackend` seam (ADR 0098, 0179): the required members only, no
 // capabilities. Split out of `backend.ts` by ADR 0179 so that file reads as the seam.
 import type { Vec3Like } from "../../../engine/core/math";
-import type { Attenuation, AudioBackend, AudioBackground, AudioDebugInfo, AudioReason, AudioStatus, AudioVoice, ListenerPose, PlayRequest, VoiceSpatialOptions } from "./backend";
+import type { Attenuation, AudioBackend, AudioBackground, AudioDebugInfo, AudioReason, AudioStatus, AudioVoice, ListenerPose, PlayRequest, ShapedFade, ShapedParams, VoiceSpatialOptions } from "./backend";
 import { zeroCounters } from "./debugTypes";
 
 /** D5, as the core's locked queue: at most this many one-shots wait, and none older than `ONE_SHOT_WINDOW_MS`. */
@@ -23,6 +23,11 @@ class PendingVoice implements AudioVoice {
   private failed = false;
   private paused = false;
   private fadeTo: number | null = null;
+  /** ADR 0264: the latest stamped ramps asked for while waiting (a ramp replaces the one before it, as on a voice). */
+  private shapedFade: ShapedFade | null = null;
+  private shapedParams: ShapedParams | null = null;
+  /** ADR 0264: where the sound is to start, from a `seek` while waiting (an event's `startOffset`, `AudioSource.seek`). */
+  private seekTo: number | null = null;
   /** ADR 0158 §4: the loop region the event runtime asked for while waiting (the latest call wins). */
   private loop: { start: number; end: number; looping: boolean } | null = null;
   /** ADR 0162 (K4): main's latest M3 values while waiting, applied at the hand-over where the real voice takes them. */
@@ -67,18 +72,23 @@ class PendingVoice implements AudioVoice {
       return;
     }
     this.inner = voice;
+    if (this.seekTo !== null) voice.seek(this.seekTo);
     if (this.fadeTo !== null) voice.fade(this.fadeTo, 0);
+    if (this.shapedFade) voice.fadeShaped(this.shapedFade);
+    if (this.shapedParams) voice.paramsShaped(this.shapedParams);
     if (this.paused) voice.pause();
-    // The request's `group` went with `play`. A loop region is applied here only where the voice takes it itself (the
-    // Babylon fallback; a state set, so the event runtime's re-send that follows repeats it harmlessly); a core voice
-    // gets it from that re-send through the core's automation, by id.
-    if (this.loop && voice.setLoop) voice.setLoop(this.loop.start, this.loop.end, this.loop.looping);
+    // The request's `group` went with `play`. The loop region is a state set, so the event runtime's re-send that
+    // follows repeats it harmlessly.
+    if (this.loop) voice.setLoop(this.loop.start, this.loop.end, this.loop.looping);
+    // ADR 0162 (K4): the M3 values given while waiting.
+    if (this.spatialOptions) voice.setSpatialOptions(this.spatialOptions);
+    if (this.velocity) voice.setVelocity(this.velocity);
+    if (this.occlusionValue) voice.setOcclusion(this.occlusionValue.gain, this.occlusionValue.lpHz);
+    if (this.dopplerRate !== null) voice.setDopplerRate(this.dopplerRate);
+    this.seekTo = null;
+    this.shapedFade = null;
+    this.shapedParams = null;
     this.loop = null;
-    // ADR 0162 (K4): the M3 values given while waiting, where the voice takes them.
-    if (this.spatialOptions && voice.setSpatialOptions) voice.setSpatialOptions(this.spatialOptions);
-    if (this.velocity && voice.setVelocity) voice.setVelocity(this.velocity);
-    if (this.occlusionValue && voice.setOcclusion) voice.setOcclusion(this.occlusionValue.gain, this.occlusionValue.lpHz);
-    if (this.dopplerRate !== null && voice.setDopplerRate) voice.setDopplerRate(this.dopplerRate);
     this.spatialOptions = null;
     this.velocity = null;
     this.occlusionValue = null;
@@ -91,7 +101,28 @@ class PendingVoice implements AudioVoice {
 
   fade(to: number, seconds: number): void {
     if (this.inner) this.inner.fade(to, seconds);
-    else this.fadeTo = to;
+    else {
+      this.fadeTo = to;
+      this.shapedFade = null; // the later ramp of the `fade` gain wins
+    }
+  }
+  /** ADR 0264: recorded while waiting and forwarded at the hand-over, where the real voice stamps it (late: at once). */
+  fadeShaped(f: ShapedFade): void {
+    if (this.inner) this.inner.fadeShaped(f);
+    else {
+      this.shapedFade = { ...f };
+      this.fadeTo = null;
+    }
+  }
+  /** ADR 0264: recorded while waiting (the latest wins) and forwarded at the hand-over. */
+  paramsShaped(r: ShapedParams): void {
+    if (this.inner) this.inner.paramsShaped(r);
+    else this.shapedParams = { ...r };
+  }
+  /** ADR 0264: recorded while waiting (the latest wins), so the real voice starts where it was asked to. */
+  seek(seconds: number): void {
+    if (this.inner) this.inner.seek(seconds);
+    else this.seekTo = seconds;
   }
   setPriority(priority: number): void {
     if (this.inner) this.inner.setPriority(priority);
@@ -117,26 +148,26 @@ class PendingVoice implements AudioVoice {
     if (this.inner) this.inner.setBus(bus);
     else this.req.bus = bus;
   }
-  /** Recorded while waiting (so the event runtime's `TsAutomation` doesn't warn that part of a clip can't loop), forwarded after. */
+  /** Recorded while waiting (the latest call wins), forwarded at the hand-over. */
   setLoop(start: number, end: number, looping: boolean): void {
-    if (this.inner) this.inner.setLoop?.(start, end, looping);
+    if (this.inner) this.inner.setLoop(start, end, looping);
     else this.loop = { start, end, looping };
   }
   setVelocity(v: Vec3Like): void {
-    if (this.inner) this.inner.setVelocity?.(v);
+    if (this.inner) this.inner.setVelocity(v);
     else this.velocity = { x: v.x, y: v.y, z: v.z };
   }
   setOcclusion(gain: number, lpHz: number): void {
-    if (this.inner) this.inner.setOcclusion?.(gain, lpHz);
+    if (this.inner) this.inner.setOcclusion(gain, lpHz);
     else this.occlusionValue = { gain, lpHz };
   }
   setDopplerRate(factor: number): void {
-    if (this.inner) this.inner.setDopplerRate?.(factor);
+    if (this.inner) this.inner.setDopplerRate(factor);
     else this.dopplerRate = factor;
   }
   /** Merged while waiting (omitted fields keep earlier values), as on a playing voice. */
   setSpatialOptions(o: VoiceSpatialOptions): void {
-    if (this.inner) this.inner.setSpatialOptions?.(o);
+    if (this.inner) this.inner.setSpatialOptions(o);
     else this.spatialOptions = { ...this.spatialOptions, ...o };
   }
   pause(): void {

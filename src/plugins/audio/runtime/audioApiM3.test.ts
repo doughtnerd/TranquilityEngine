@@ -112,7 +112,7 @@ describe("§1.1 types and handle members", () => {
     expect(spatial.occlusion).toBe(1);
     // Occlusion results reach a voice through its own setter (the occlusion pass's path); the handle reads the table.
     const occluded = r.backend.play({ path: "asset:a.wav", url: "a.wav", loop: true, stream: false, bus: "Master", position: at })!;
-    occluded.setOcclusion!(0.4, 2000);
+    occluded.setOcclusion(0.4, 2000);
     expect(occluded.occlusion).toBeCloseTo(0.4, 5);
     // An ambisonic clip's voice (the registry's "amb" clips have four channels) names its panner so.
     const ambisonic = r.backend.play({ path: "asset:amb.wav", url: "amb.wav", loop: true, stream: false, bus: "Master", ambisonic: true })!;

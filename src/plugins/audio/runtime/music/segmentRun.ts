@@ -219,19 +219,16 @@ function runRate(run: SegmentRun): number {
 
 /**
  * A decoded member loops its whole clip by its PLAY's loop flag; a region inside the file goes to the voice as a loop
- * region in seconds (the backend's automation sink, stamped behind the PLAY, or the voice's own `setLoop`). Streamed
- * members loop in the worker (`primeGroup`'s member region).
+ * region in seconds (`setLoop`: on the core through its automation sink, stamped behind the PLAY). Streamed members loop
+ * in the worker (`primeGroup`'s member region).
  */
-function loopDecodedMembers(run: SegmentRun, f: MusicFrame): void {
+function loopDecodedMembers(run: SegmentRun): void {
   for (const s of run.stems) {
     if (s.streamed || !s.voice) continue;
     const loop = memberLoop(run, s.clip);
     if (!loop || loop.wholeFile) continue;
     const rate = clipRate(s.clip);
-    const start = loop.startFrame / rate, end = loop.endFrame / rate;
-    const sink = f.backend.automation;
-    if (sink) sink.setLoop(s.voice, start, end, true);
-    else s.voice.setLoop?.(start, end, true);
+    s.voice.setLoop(loop.startFrame / rate, loop.endFrame / rate, true);
   }
 }
 
@@ -318,7 +315,7 @@ export function stampRun(player: MusicPlayer, run: SegmentRun, at: number, f: Mu
   const stamp: MusicGroupStamp = fades && fades.length > 0 ? { group: run.group, at, fades } : { group: run.group, at };
   const voices = music.stampGroup(stamp);
   for (let k = 0; k < run.stems.length; k++) run.stems[k]!.voice = voices[k] ?? null;
-  loopDecodedMembers(run, f);
+  loopDecodedMembers(run);
   run.startAt = at;
   run.state = "stamped";
   run.prime = null;
@@ -352,8 +349,7 @@ export function stopPlayerRuns(player: MusicPlayer, fadeSeconds: number, f: Musi
     for (const s of run.stems) {
       const v = s.voice;
       if (!v) continue;
-      if (v.fadeShaped) v.fadeShaped({ to: 0, seconds, law: "equalPowerOut", at, stopAtEnd: true });
-      else v.stop(seconds);
+      v.fadeShaped({ to: 0, seconds, law: "equalPowerOut", at, stopAtEnd: true });
     }
     run.state = "ending";
   }

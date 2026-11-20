@@ -20,7 +20,7 @@
  * their first wrap (`segmentRun.groupRequest` through `anchors.firstLoopOf`). Each tick the region of the next wrap
  * (`anchors.nextWrapOf`, which honours R4b's `released`) is the one they should loop; when it changes (the last wrap of
  * a `count` region was heard, or R4b released a `while` region) the members are moved on with the voice's own loop
- * record (`AutomationSink.setLoop`, else `AudioVoice.setLoop`): a new region they reach later, or a release. A decoded
+ * record (`AudioVoice.setLoop`; on the core through its automation sink): a new region they reach later, or a release. A decoded
  * member's release lands at once and the voice plays on through its last pass; a streamed member's lands at the end of
  * its current pass (the worker's region-release splice). Either way the last pass ends at the predicted exit.
  *
@@ -143,17 +143,14 @@ function holdSpans(st: LoopTailState, run: SegmentRun, f: MusicFrame): void {
 }
 
 /** The members move on to region `target` (a loop of it), or are released (`target` -1) from region `from`. */
-function moveMembers(run: SegmentRun, from: number, target: number, f: MusicFrame): void {
+function moveMembers(run: SegmentRun, from: number, target: number): void {
   for (const s of run.stems) {
     const v = s.voice;
     if (!v) continue;
     const rate = clipRate(s.clip);
     const frames = regionFramesOf(run.node, target >= 0 ? target : from, rate);
     if (!frames) continue;
-    const start = frames.startFrame / rate, end = frames.endFrame / rate;
-    const sink = f.backend.automation;
-    if (sink) sink.setLoop(v, start, end, target >= 0);
-    else v.setLoop?.(start, end, target >= 0);
+    v.setLoop(frames.startFrame / rate, frames.endFrame / rate, target >= 0);
   }
 }
 
@@ -247,7 +244,7 @@ export function tickLoopTails(player: MusicPlayer, f: MusicFrame): void {
   // The region walk: the members loop the region of the next wrap, or nothing.
   const target = Number.isFinite(wrap) ? next.region : -1;
   if (target !== st.looping) {
-    moveMembers(run, st.looping, target, f);
+    moveMembers(run, st.looping, target);
     st.looping = target;
   }
 
@@ -273,9 +270,7 @@ export function stopLoopTails(player: MusicPlayer, seconds: number, at: number):
   const st = player.tails;
   if (!st) return;
   const stop = (v: AudioVoice): void => {
-    if (!alive(v)) return;
-    if (v.fadeShaped) v.fadeShaped({ to: 0, seconds, law: "equalPowerOut", at, stopAtEnd: true });
-    else v.stop(seconds);
+    if (alive(v)) v.fadeShaped({ to: 0, seconds, law: "equalPowerOut", at, stopAtEnd: true });
   };
   for (const t of st.ringing) stop(t.voice);
   for (const r of st.runs) {

@@ -189,8 +189,7 @@ interface PlanContext {
 const contexts = new WeakMap<Transition, PlanContext>();
 /** Outgoing runs left as `player.next` after a landing, until their voices end. */
 const ringing = new WeakSet<SegmentRun>();
-/** Outgoing fades waiting for a backend without stamped fades (`fadeShaped`): applied at their start. */
-const unstamped = new WeakMap<Leg, { at: number; seconds: number }>();
+
 
 // --- Small readers ---------------------------------------------------------------------------------------------------
 
@@ -677,17 +676,9 @@ function commit(player: MusicPlayer, t: Transition, leg: Leg, f: MusicFrame): vo
   const horizon = f.now + lookaheadSeconds(f);
   const shaped = clampFade(T + fo.offset, Math.max(0, fo.seconds), horizon) ?? { at: horizon, seconds: 0, startPhase: 0 };
   const law = fadeOutLaw(fo.curve);
-  for (const s of out.stems) {
-    const v = s.voice;
-    if (!v) continue;
-    if (v.fadeShaped) {
-      const fade: ShapedFade = { to: 0, seconds: shaped.seconds, law, at: shaped.at, stopAtEnd: true };
-      if (shaped.startPhase > 0) fade.startPhase = shaped.startPhase;
-      v.fadeShaped(fade);
-    } else {
-      unstamped.set(leg, { at: shaped.at, seconds: shaped.seconds });
-    }
-  }
+  const fade: ShapedFade = { to: 0, seconds: shaped.seconds, law, at: shaped.at, stopAtEnd: true };
+  if (shaped.startPhase > 0) fade.startPhase = shaped.startPhase;
+  for (const s of out.stems) s.voice?.fadeShaped(fade);
 }
 
 /**
@@ -722,13 +713,6 @@ function syncAudible(player: MusicPlayer, f: MusicFrame): void {
   if (w && !on && f.now >= w.to - EPS) audible.delete(player);
 }
 
-/** A backend without stamped fades: the leg's outgoing fade starts at the first frame at or after its time. */
-function applyUnstamped(leg: Leg, f: MusicFrame): void {
-  const u = unstamped.get(leg);
-  if (!u || f.now + EPS < u.at) return;
-  unstamped.delete(leg);
-  for (const s of leg.from?.stems ?? []) s.voice?.stop(u.seconds);
-}
 
 /** At a leg's T: its run plays, the run it leaves rings out as `player.next`; after the last leg, a queued change is planned. */
 function land(player: MusicPlayer, t: Transition, leg: Leg, f: MusicFrame): void {
@@ -782,7 +766,6 @@ function abandon(player: MusicPlayer, t: Transition, f: MusicFrame, cause: strin
       cancelRun(p.run, f);
       cancelSuccessor(player, p.run);
     }
-    unstamped.delete(leg);
   }
   t.state = "cancelled";
   t.cause = cause;
@@ -950,7 +933,6 @@ function tickChange(player: MusicPlayer, f: MusicFrame): void {
     if (f.now + frameIntervalSeconds(f) >= t.cancelBy - EPS) commit(player, t, first, f);
   }
   if (t.state !== "running" && t.state !== "bridging") return;
-  for (const leg of ctx.legs) applyUnstamped(leg, f);
   const second = ctx.legs[1];
   if (second && !second.failed && !second.stamped) {
     if (second.deferred) {
