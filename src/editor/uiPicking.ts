@@ -5,22 +5,10 @@
 // the scene behind it, so hits split into painted ones, which win over meshes and sprites, and bare
 // ones, which only count when nothing else is under the pointer. Canvases (`pickCanvases`, ADR 0117)
 // join the bare tier last: a world canvas by its rectangle, a screen canvas only by its frame's edge strip,
-// so a click on bare empty view still deselects. Pure: no engine state is read.
-import type { Color } from "../engine";
-import { UIImage, UIInputField, UIPanel, UIText } from "../engine/ui/components";
+// so a click on bare empty view still deselects. What counts as painted is each element kind's own
+// rule (`isPaintedUI`, ADR 0271). Pure: no engine state is read.
 import type { UIComponentType } from "../engine/ui/components";
-
-const visibleColor = (c: Color | null | undefined): boolean => !!c && c.a > 0;
-
-/** True when the element draws something under the pointer: a fill, border, text or image (nothing at zero opacity). */
-function isPaintedUI(c: UIComponentType): boolean {
-  if (!(c instanceof UIPanel || c instanceof UIText || c instanceof UIImage)) return false; // a canvas draws nothing itself
-  if (c.opacity <= 0) return false;
-  if (c instanceof UIText) return c.text.trim() !== "";
-  if (c instanceof UIImage) return c.image !== "";
-  if (visibleColor(c.backgroundColor) || (c.borderWidth > 0 && visibleColor(c.borderColor))) return true;
-  return c instanceof UIInputField && (c.value !== "" || c.placeholder !== "");
-}
+import { isPaintedUI } from "../engine/ui/elementKinds";
 
 /** Split picked elements (topmost first) into painted and bare ones, each keeping its order. */
 export function partitionUIHits<T extends UIComponentType>(comps: readonly T[]): { painted: T[]; bare: T[] } {

@@ -408,6 +408,48 @@ describe("UICore text", () => {
     expect(req).toMatchObject({ text: "Hello", fontSize: 20, fontWeight: "600", fontFamily: "Inter, system-ui, sans-serif", lineHeight: 1.2 });
   });
 
+  it("reports the text run it measured on each laid-out element, for the drawing layer to draw (ADR 0271)", async () => {
+    const canvas = node("Canvas", null, UICanvas);
+    const top = node("Top", canvas.node, UIPanel, { alignItems: "flex-start", flexDirection: "column" } as Partial<UIPanel>);
+    const text = node("T", top.node, UIText, { text: "Light", fontSize: 18, fontWeight: "350" } as Partial<UIText>);
+    const field = node("F", top.node, UIInputField, { placeholder: "Name", fontSize: 14 } as Partial<UIInputField>);
+    const panel = node("P", top.node, UIPanel);
+    const host = fakeHost();
+    const c = await core({ interactive: true, host });
+    sync(c);
+    const drawn = (comp: object) => c.elements().find((e) => e.comp === comp)!.text;
+    const measured = (t: string) => {
+      const { maxWidth: _maxWidth, ...run } = host.requests.filter((r) => r.text === t).at(-1)!;
+      return run;
+    };
+    // An in-between weight is measured and drawn as written (it was laid out at 400 and drawn at 350).
+    expect(drawn(text)).toEqual(measured("Light"));
+    expect(drawn(text)).toMatchObject({ fontWeight: "350", fontSize: 18, wrap: "word" });
+    expect(drawn(field)).toEqual(measured("Name"));
+    expect(drawn(field)).toMatchObject({ fontWeight: "400", wrap: "none" });
+    expect(drawn(panel)).toBeNull();
+
+    // A text-only change, with the box the same ("Heavy" is as wide as "Light"), still reaches the drawing layer.
+    sync(c);
+    const version = c.layoutVersion;
+    text.text = "Heavy";
+    sync(c);
+    expect(c.layoutVersion).toBe(version + 1);
+    expect(drawn(text)).toEqual(measured("Heavy"));
+  });
+
+  it("measures text that never wraps on one line however narrow its box", async () => {
+    const canvas = node("Canvas", null, UICanvas);
+    const top = node("Top", canvas.node, UIPanel, { alignItems: "flex-start" } as Partial<UIPanel>);
+    const text = node("T", top.node, UIText, { text: "aaaa bbbb cccc", wordBreak: "keep-all" } as Partial<UIText>);
+    text.width = 90;
+    const host = fakeHost();
+    const c = await core({ interactive: true, host });
+    sync(c);
+    expect(host.requests.at(-1)!.maxWidth).toBe(Infinity);
+    expect(c.rectOf(text)).toEqual({ x: 0, y: 0, width: 90, height: 20 }); // clipped to its box, one line (it measured two)
+  });
+
   it("wraps text to the width it has, and re-measures when the text changes", async () => {
     const canvas = node("Canvas", null, UICanvas);
     const top = node("Top", canvas.node, UIPanel, { alignItems: "flex-start" } as Partial<UIPanel>);

@@ -14,6 +14,7 @@ import { Color, Engine, GameObject, Vector2 } from "../index";
 import { Text } from "../render/components";
 import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText } from "../ui/components";
 import type { UIComponentType } from "../ui/components";
+import { textRunOf, uiKindOf } from "../ui/elementKinds";
 import type { UICoreLike, UILaidOutCanvas, UILaidOutElement } from "../ui/uiCoreTypes";
 import { BabylonUI, measureText } from "../render/babylon/ui";
 import { flipRows, redrawnPixels } from "../render/pixelRegions";
@@ -75,7 +76,7 @@ function canvasInfo(comp: UICanvas, over: Partial<UILaidOutCanvas> = {}): UILaid
 
 type ElementInit = Partial<Pick<UILaidOutElement, "x" | "y" | "width" | "height" | "visible" | "opacity">>;
 
-/** A fake core reporting these canvases and elements (orders count up per canvas). */
+/** A fake core reporting these canvases and elements (orders count up per canvas; text runs resolved as the core resolves them, on each read). */
 class FakeCore implements UICoreLike {
   layoutVersion = 0;
   hasScreenUI = true;
@@ -87,14 +88,13 @@ class FakeCore implements UICoreLike {
     this.es = elements.map(([comp, canvas, init = {}]) => {
       const order = orders.get(canvas) ?? 0;
       orders.set(canvas, order + 1);
-      const kind = comp instanceof UIButton ? "button" : comp instanceof UIInputField ? "input" : comp instanceof UIText ? "text" : comp instanceof UIImage ? "image" : "panel";
-      return { comp, kind, canvas, x: 0, y: 0, width: 100, height: 40, order, visible: true, opacity: 1, ...init } as UILaidOutElement;
+      return { comp, kind: uiKindOf(comp), canvas, x: 0, y: 0, width: 100, height: 40, order, visible: true, opacity: 1, text: null, ...init } as UILaidOutElement;
     });
     this.layoutVersion++;
   }
   sync(): void {}
   canvases() { return this.cs; }
-  elements() { return this.es; }
+  elements() { return this.es.map((e) => ({ ...e, text: textRunOf(e.comp) })); }
   rectOf() { return null; }
   hitTest() { return null; }
   pickAll() { return []; }
@@ -483,7 +483,7 @@ describe("the interim Text on the screen texture", () => {
 });
 
 describe("measureText", () => {
-  const req = (over: Partial<Parameters<typeof measureText>[0]> = {}) => ({ text: "hello world", fontSize: 10, fontWeight: "400", fontFamily: "Inter", lineHeight: 1.2, maxWidth: Infinity, ...over });
+  const req = (over: Partial<Parameters<typeof measureText>[0]> = {}) => ({ text: "hello world", fontSize: 10, fontWeight: "400", fontFamily: "Inter", lineHeight: 1.2, wrap: "word" as const, maxWidth: Infinity, ...over });
   const g = globalThis as unknown as { OffscreenCanvas?: unknown };
   /** The module freshly loaded, as a page loads it: it looks for a canvas on first use and keeps what it found. */
   const freshMeasure = async (): Promise<typeof measureText> => {
@@ -521,7 +521,15 @@ describe("measureText", () => {
     });
   });
 
-  it("names weights as CSS", () => {
+  it("wraps a run at any character for wrap anywhere, and never for wrap none", async () => {
+    await withCanvas((measure) => {
+      // "unbreakable" at 5 px a character, 20 px wide: three letters fit 20 / 1.05 (19 px), so four lines.
+      expect(measure(req({ text: "unbreakable", maxWidth: 20, wrap: "anywhere" })).height).toBeCloseTo(48);
+      expect(measure(req({ maxWidth: 30, wrap: "none" }))).toEqual({ width: 55 * 1.05 + 1, height: 12 }); // one line, not "hello" / "world"
+    });
+  });
+
+  it("draws the run's CSS weight, the one the core measured", () => {
     const weights = ["light", "normal", "medium", "semi-bold", "bold", "650", "odd"];
     const canvas = node("C", null, UICanvas);
     const texts = weights.map((fontWeight, i) => node(`T${i}`, canvas.node, UIText, { text: "Hi", fontWeight }));

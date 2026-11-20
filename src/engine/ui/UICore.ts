@@ -2,8 +2,8 @@
  * The renderer-neutral UI core (ADR 0076): mirrors a World's UI components into a Yoga tree, lays it
  * out, routes the pointer and keyboard to UI before game scripts run, and takes input fields' typing
  * through a hidden DOM `<input>`. A backend's drawing layer draws what `canvases()` and `elements()`
- * report. It replaces the layout, tree and routing parts of `UIRuntime.ts` (ADR 0069), which stays
- * for the three.js backend until it is removed. Nothing here is public API (ADR 0010).
+ * report, including each text element's resolved text run (ADR 0271), which is what it measured.
+ * What each element kind is comes from `elementKinds.ts`. Nothing here is public API (ADR 0010).
  *
  * Yoga loads asynchronously (WebAssembly): the constructor starts the load and `sync` lays nothing
  * out until it's ready (`await core.ready` to wait). Without a `document` (Node) there is no typing
@@ -14,10 +14,11 @@ import { Mat4, Vector2 } from "../core/math";
 import type { World } from "../core/World";
 import type { GameObject } from "../scene/GameObject";
 import { Input } from "../input/Input";
-import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UIComponentType } from "./components";
-import { fontEpoch, fontFamilyOf } from "./fonts";
-import { UI_LINE_HEIGHT, canvasScale, cssFontWeight, estimateText, loadYogaOnce, loadedYoga, uiLength } from "./layout";
-import type { TextMeasureRequest, UICoreHost, UICoreLike, UICoreOptions, UICorners, UIKind, UILaidOutCanvas, UILaidOutElement, UIPickRay } from "./uiCoreTypes";
+import { UIButton, UICanvas, UIInputField, UIPanel, type UIComponentType } from "./components";
+import { UI_KIND_TYPES, flexShrinkOf, isInteractiveKind, isLeafKind, sameTextRun, textRunOf, uiKindOf } from "./elementKinds";
+import { fontEpoch } from "./fonts";
+import { canvasScale, estimateText, loadYogaOnce, loadedYoga, uiLength } from "./layout";
+import type { TextMeasureRequest, UITextRun, UICoreHost, UICoreLike, UICoreOptions, UICorners, UIKind, UILaidOutCanvas, UILaidOutElement, UIPickRay } from "./uiCoreTypes";
 
 export { canvasScale, uiLength } from "./layout";
 
@@ -33,8 +34,10 @@ interface Entry {
   children: Entry[];
   /** Its canvas (itself for a canvas); null while it has none (not laid out). */
   canvas: CanvasEntry | null;
-  /** What last made a measured node dirty. */
-  measureSig: string;
+  /** Text and input field elements: the text run last measured (its dirty signature, with `measuredEpoch`). */
+  run: UITextRun | null;
+  /** The font epoch `run` was measured in (a font arriving changes every text's size). */
+  measuredEpoch: number;
   /** The values last given to its Yoga node, by `applyProperties` slot, so unchanged ones aren't set again. */
   applied: unknown[];
   /** Last laid-out result, in its canvas's UI pixels. */
@@ -58,17 +61,6 @@ interface CanvasEntry extends Entry {
 function onFrameEdge(x: number, y: number, width: number, height: number, edge: number): boolean {
   if (x < 0 || y < 0 || x > width || y > height) return false;
   return x < edge || y < edge || x > width - edge || y > height - edge;
-}
-
-const LEAF_KINDS: ReadonlySet<UIKind> = new Set(["text", "image", "input"]);
-
-function kindOf(c: UIComponentType): UIKind {
-  if (c instanceof UICanvas) return "canvas";
-  if (c instanceof UIButton) return "button";
-  if (c instanceof UIInputField) return "input";
-  if (c instanceof UIText) return "text";
-  if (c instanceof UIImage) return "image";
-  return "panel";
 }
 
 const scratchInv = new Float32Array(16);
@@ -174,7 +166,7 @@ export class UICore implements UICoreLike {
     // The World's UI components, one per node (the first wins), by owner node.
     const live = new Set<UIComponentType>();
     const byNode = new Map<number, UIComponentType>();
-    for (const type of [UICanvas, UIPanel, UIText, UIImage] as (abstract new () => UIComponentType)[]) {
+    for (const type of UI_KIND_TYPES) {
       for (const c of world._componentsOfType(type)) {
         if (live.has(c) || c._destroyed) continue;
         live.add(c);
@@ -260,9 +252,10 @@ export class UICore implements UICoreLike {
     const existing = this.entries.get(c);
     if (existing) return existing;
     const yoga = this.yoga!;
-    const kind = kindOf(c);
+    const kind = uiKindOf(c);
     const node = yoga.Node.create(this.config ?? undefined);
-    const entry: Entry = { comp: c, kind, node, parent: null, children: [], canvas: null, measureSig: "", applied: [], box: { x: 0, y: 0, width: 0, height: 0, visible: false, opacity: 1 } };
+    const run = textRunOf(c);
+    const entry: Entry = { comp: c, kind, node, parent: null, children: [], canvas: null, run, measuredEpoch: fontEpoch(), applied: [], box: { x: 0, y: 0, width: 0, height: 0, visible: false, opacity: 1 } };
     if (kind === "canvas") {
       const canvas = entry as CanvasEntry;
       canvas.scale = 1;
@@ -270,10 +263,8 @@ export class UICore implements UICoreLike {
       canvas.elements = [];
       canvas.interactive = [];
       this.canvasEntries.set(c as UICanvas, canvas);
-    } else if (kind === "text") {
+    } else if (run) {
       node.setMeasureFunc((w, wm) => this.measure(entry, wm === yoga.MEASURE_MODE_UNDEFINED ? Infinity : w));
-    } else if (kind === "input") {
-      node.setMeasureFunc(() => this.measure(entry, Infinity));
     }
     this.entries.set(c, entry);
     return entry;
@@ -299,7 +290,7 @@ export class UICore implements UICoreLike {
           this.warnOnce(`leaf|${child.entity}`, `UI element "${child.name}" is under a ${leaf.comp.constructor.name}, which can't have children; it lays out beside it instead.`);
         }
         list.push(entry);
-        if (LEAF_KINDS.has(entry.kind)) {
+        if (isLeafKind(entry.kind)) {
           desired.set(entry, []);
           walk(child, into, list, entry); // children of a leaf join its parent
         } else {
@@ -393,32 +384,28 @@ export class UICore implements UICoreLike {
     if (put(12, (v = autoToUndefined(uiLength(c.bottom))))) n.setPosition(yoga.EDGE_BOTTOM, v as never);
     if (put(13, (v = autoToUndefined(uiLength(c.left))))) n.setPosition(yoga.EDGE_LEFT, v as never);
     if (put(14, (v = finite(c.flexGrow)))) n.setFlexGrow(v as number);
-    if (put(15, (v = entry.kind === "text" ? 1 : 0))) n.setFlexShrink(v as number); // text wraps to what's left; other boxes keep their size
+    if (put(15, (v = flexShrinkOf(entry.kind)))) n.setFlexShrink(v as number); // text wraps to what's left; other boxes keep their size
     if (put(16, (v = c instanceof UIPanel ? finite(c.borderWidth) : 0))) n.setBorder(yoga.EDGE_ALL, v as number);
 
-    let sig: string | null = null;
-    // A font arriving (fontEpoch) changes every text's size, as does the field naming another.
-    if (c instanceof UIText) sig = `${c.text}|${c.fontSize}|${c.fontWeight}|${c.font}|${fontEpoch()}`;
-    else if (c instanceof UIInputField) sig = `${c.value || c.placeholder}|${c.fontSize}|${c.font}|${fontEpoch()}`;
-    if (sig !== null && sig !== entry.measureSig) {
-      entry.measureSig = sig;
-      n.markDirty();
+    // The text run is the measure's dirty signature: a changed run, or a font arriving (which changes
+    // every text's size), measures again. An unchanged run keeps its object, so `elements()` compare it by identity.
+    if (entry.run) {
+      const run = textRunOf(c)!;
+      const epoch = fontEpoch();
+      if (!sameTextRun(run, entry.run) || epoch !== entry.measuredEpoch) {
+        entry.run = run;
+        entry.measuredEpoch = epoch;
+        n.markDirty();
+      }
     }
   }
 
+  /** Measure the entry's text run, wrapped to `maxWidth` unless it doesn't wrap. */
   private measure(entry: Entry, maxWidth: number): { width: number; height: number } {
-    const c = entry.comp;
-    if (c instanceof UIText) {
-      const request: TextMeasureRequest = { text: c.text, fontSize: c.fontSize, fontWeight: cssFontWeight(c.fontWeight), fontFamily: fontFamilyOf(c.font), lineHeight: UI_LINE_HEIGHT, maxWidth };
-      return this.host.measureText?.(request) ?? estimateText(request);
-    }
-    if (c instanceof UIInputField) {
-      // One line at the field's size, whatever it holds.
-      const request: TextMeasureRequest = { text: c.value || c.placeholder, fontSize: c.fontSize, fontWeight: "400", fontFamily: fontFamilyOf(c.font), lineHeight: UI_LINE_HEIGHT, maxWidth: Infinity };
-      const m = this.host.measureText?.(request) ?? estimateText(request);
-      return { width: m.width, height: c.fontSize * UI_LINE_HEIGHT };
-    }
-    return { width: 0, height: 0 };
+    const run = entry.run;
+    if (!run) return { width: 0, height: 0 };
+    const request: TextMeasureRequest = { ...run, maxWidth: run.wrap === "none" ? Infinity : maxWidth };
+    return this.host.measureText?.(request) ?? estimateText(request);
   }
 
   /** Read Yoga's boxes into the entries' absolute (canvas UI pixel) boxes, visibility and opacity, in draw order. */
@@ -435,7 +422,7 @@ export class UICore implements UICoreLike {
         const o = opacity * c.opacity;
         e.box = { x, y, width: e.node.getComputedWidth(), height: e.node.getComputedHeight(), visible: v, opacity: o };
         canvas.elements.push(e);
-        if (e.kind === "button" || e.kind === "input") canvas.interactive.push(e);
+        if (isInteractiveKind(e.kind)) canvas.interactive.push(e);
         walk(e, x, y, v, o);
       }
     };
@@ -457,7 +444,7 @@ export class UICore implements UICoreLike {
       canvasList.push({ comp: c, mode: c.mode, sortOrder: c.sortOrder, width: canvas.width, height: canvas.height, scale: canvas.scale, pixelSize: c.mode === "world" ? c.pixelSize : 1, worldMatrix, visible: c.isActiveAndEnabled });
       canvas.elements.forEach((e, order) => {
         const b = e.box;
-        elementList.push({ comp: e.comp, kind: e.kind as ElementKind, canvas: c, x: b.x, y: b.y, width: b.width, height: b.height, order, visible: b.visible, opacity: b.opacity });
+        elementList.push({ comp: e.comp, kind: e.kind as ElementKind, canvas: c, x: b.x, y: b.y, width: b.width, height: b.height, order, visible: b.visible, opacity: b.opacity, text: e.run });
       });
     }
     const changed = !sameCanvases(this.canvasList, canvasList) || !sameElements(this.elementList, elementList);
@@ -795,6 +782,6 @@ function sameElements(a: readonly UILaidOutElement[], b: readonly UILaidOutEleme
   if (a.length !== b.length) return false;
   return a.every((x, i) => {
     const y = b[i];
-    return x.comp === y.comp && x.canvas === y.canvas && x.x === y.x && x.y === y.y && x.width === y.width && x.height === y.height && x.order === y.order && x.visible === y.visible && x.opacity === y.opacity;
+    return x.comp === y.comp && x.canvas === y.canvas && x.x === y.x && x.y === y.y && x.width === y.width && x.height === y.height && x.order === y.order && x.visible === y.visible && x.opacity === y.opacity && x.text === y.text;
   });
 }
