@@ -1,6 +1,6 @@
 # 0027. Persistent, tree-shaped edit history
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0267 (the tree is one `HistoryTree` module; `load` refuses damaged files and numbers past the highest state)
 - **Date:** 2026-11-01
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

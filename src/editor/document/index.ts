@@ -23,7 +23,9 @@ export {
   type FileWrite,
   type SetFieldOptions,
 } from "./commands";
-export { CommandStack, HISTORY_LIMIT, diffText, type FilePatch, type HistoryFile, type HistoryState, type StackEvent, type StackListener, type TextFileHost } from "./CommandStack";
+export { CommandStack, type StackEvent, type StackListener, type TextFileHost } from "./CommandStack";
+export { HISTORY_LIMIT, HistoryTree, cleanPruneDays, type AgeOptions, type HistoryFile, type HistoryMove, type HistoryState, type LoadOptions, type StepAdapter } from "./HistoryTree";
+export { applyFilePatch, diffText, type FilePatch } from "./textPatch";
 export { TextHistory } from "./TextHistory";
 export { applyPatch, changesBetween, diffFiles, hashFile, hashText, type DocPatch } from "./patch";
 export { WorldSync } from "./WorldSync";
