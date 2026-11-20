@@ -89,6 +89,7 @@ The domain terms used in Myco Engine's code, decision records and reviews. Add a
 - **Reason word:** the sink's word for why a voice stopped, was stolen, went virtual or real, was refused or queued (`busMaxVoices`, `capDemoted`), which the capture reader gives instead of §5.6's code (ADR 0260, `capture/reasons.ts`, with `reasonText`). _Avoid:_ reason code tables outside `reasons.ts`.
 - **Track kit:** the Profiler's reading layer for timeline tracks (ADR 0261, `editor/mix/tracks/kit.ts`): tracks declare the STATUS columns and EVENTs they read and a build function; the kit reads each capture growth once for all of them and answers the sample in force at t. _Avoid:_ a track calling `statusColumns`, `range` or a bisect of its own.
 - **Segment grid:** a music segment's compiled tempo map with its cues, entry and exit in ticks (G1), as `music/segmentGrids.ts` gives it now (ADR 0263): with the file's end once the **segment length** is known (its first track that names a clip: the clip's facts, else the decoded length). _Avoid:_ compiling or caching a segment's grid anywhere else in the runtime.
+- **Stamped ramp:** a voice's `fadeShaped` (its `fade` gain, optionally stopping at the end) or `paramsShaped` (its own gain and low-pass), starting at a heard time. Every adapter's voice takes one (ADR 0264): sample-exact on the core, timer steps on the Babylon fallback, recorded and forwarded by the pending voice. _Avoid:_ probing for it or falling back to `fade`/`stop` in callers.
 
 ## Tilemaps (ADR 0103)
 
