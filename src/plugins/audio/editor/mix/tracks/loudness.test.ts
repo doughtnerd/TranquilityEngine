@@ -36,7 +36,6 @@ function inProcessWorker(): CaptureWorkerLike {
 }
 
 const scene = buildScene();
-const NAMES = { Music: MUSIC_SLOT } as const;
 
 async function setup(factory = loudnessTracks()): Promise<{ source: CaptureSource; mod: LoudnessTrackModule }> {
   const source = await CaptureSource.openFile(scene.file.slice().buffer, { worker: inProcessWorker() });

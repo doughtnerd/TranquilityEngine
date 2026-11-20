@@ -10,6 +10,7 @@
 // The jump targets are sorted arrays built from one raw `statusColumns` answer (`cursorTargets`); the cursor holds
 // them and is told when they or the duration grow (`setTargets`, `setDuration`). Every change of mode or time bumps
 // `revision`, so an async `seek` answer that arrives after a newer move is dropped (`seekAtCursor`).
+import { firstAfter, firstAtOrAfter } from "../../../../engine/core/sortedSearch";
 import { RANGE_SECONDS, type CaptureMarkerAt, type CaptureRangeColumns, type CaptureSeekState } from "../../runtime/capture/reader";
 import type { ProfileSource } from "./profilerSource";
 import { counterTicks, ladderSeries, rangeColumn } from "./cpuTrack";
@@ -60,30 +61,6 @@ export function cursorTargets(cols: CaptureRangeColumns, markers: readonly Captu
     ladder: mergeSorted(ladder.shed, ladder.restored),
     marker,
   };
-}
-
-/** Index of the first element greater than `t` (strictly). */
-function upperBound(a: ArrayLike<number>, t: number): number {
-  let lo = 0;
-  let hi = a.length;
-  while (lo < hi) {
-    const mid = (lo + hi) >>> 1;
-    if (a[mid]! <= t) lo = mid + 1;
-    else hi = mid;
-  }
-  return lo;
-}
-
-/** Index of the first element not less than `t`. */
-function lowerBound(a: ArrayLike<number>, t: number): number {
-  let lo = 0;
-  let hi = a.length;
-  while (lo < hi) {
-    const mid = (lo + hi) >>> 1;
-    if (a[mid]! < t) lo = mid + 1;
-    else hi = mid;
-  }
-  return lo;
 }
 
 /** What a view reads of the cursor. */
@@ -180,7 +157,7 @@ export class CursorModel {
   stepForward(): boolean {
     if (this.m === "live") return false;
     const s = this.targets.status;
-    const i = upperBound(s, this.t);
+    const i = firstAfter(s, this.t);
     if (i >= s.length) return false;
     this.set("paused", s[i]!);
     return true;
@@ -189,7 +166,7 @@ export class CursorModel {
   /** One STATUS block earlier than the cursor (from live: earlier than the newest). False (and unchanged) at the first. */
   stepBack(): boolean {
     const s = this.targets.status;
-    const i = lowerBound(s, this.time) - 1;
+    const i = firstAtOrAfter(s, this.time) - 1;
     if (i < 0) return false;
     this.set("paused", s[i]!);
     return true;
@@ -200,10 +177,10 @@ export class CursorModel {
     const a = this.targets[kind];
     const t = this.time;
     if (direction === "next") {
-      const i = upperBound(a, t);
+      const i = firstAfter(a, t);
       return i < a.length ? a[i]! : null;
     }
-    const i = lowerBound(a, t) - 1;
+    const i = firstAtOrAfter(a, t) - 1;
     return i >= 0 ? a[i]! : null;
   }
 

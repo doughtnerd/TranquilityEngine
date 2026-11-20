@@ -9,11 +9,10 @@
 // **The rule.** A `musicTransition` records the change as `from` to `to` and carries no rule id (`transition.ts`' `commit` and
 // `noteFirstSegment` write the segments only), so the rule is named by what a rule matches on, the segment pair: "rule A -> B",
 // and "first segment, from nothing" for the start. The tooltips are `transitionText` and `musicStateTooltip`.
+import { firstAtOrAfter } from "../../../../../engine/core/sortedSearch";
 import type { LineSeries } from "../drawTimeline";
-import {
-  eventLogFor, formatSeconds, hoverModule, indicesNear, listText, lowerBound, mergeTimes, MAX_TOOLTIP_LINES, namesAt,
-  type LoggedEvent, type NamesAt,
-} from "./events";
+import { formatSeconds, indicesNear, listText, mergeTimes, MAX_TOOLTIP_LINES, namesAt, type NamesAt } from "./events";
+import { TrackKit, type LoggedEvent } from "./kit";
 import type { TrackContext, TrackFactory } from "./types";
 
 /** Lanes the music state track draws; later instances are not drawn (their transitions still tick). */
@@ -93,8 +92,8 @@ function musicStateLines(segments: readonly MusicSegment[], statusTimes: ArrayLi
     const values = new Float64Array(times.length);
     for (const s of segments) {
       if (s.instance !== instance) continue;
-      const to = s.end === null ? times.length : lowerBound(times, s.end);
-      for (let i = lowerBound(times, s.start); i < to; i++) values[i] = number.get(s.segment)!;
+      const to = s.end === null ? times.length : firstAtOrAfter(times, s.end);
+      for (let i = firstAtOrAfter(times, s.start); i < to; i++) values[i] = number.get(s.segment)!;
     }
     return { times, values, color: lane % 2 ? "accent2" : "accent", yMax: Math.max(1, number.size) } satisfies LineSeries;
   });
@@ -109,21 +108,23 @@ function musicStateTooltip(segments: readonly MusicSegment[], t: number): string
 /** The music state and transition tracks of an opened capture. */
 export const musicTracks: TrackFactory = (ctx: TrackContext) => {
   const source = ctx.source;
-  const log = eventLogFor(source);
-  const state = hoverModule({ id: "music.state", label: "Music state", kind: "lanes", height: 40, visible: true }, log, () => {
+  const kit = TrackKit.of(source);
+  const log = kit.events();
+  const feed = kit.status();
+  const state = kit.track({ track: { id: "music.state", label: "Music state", kind: "lanes", height: 40, visible: true }, build: () => {
     const segments = musicSegments(musicTransitions(log.ofKind("musicTransition"), namesAt(source)));
     return {
-      data: segments.length ? { lines: musicStateLines(segments, log.statusTimes, source.duration) } : undefined,
+      data: segments.length ? { lines: musicStateLines(segments, feed.times, source.duration) } : undefined,
       tooltip: (t) => musicStateTooltip(segments, t),
     };
-  });
-  const transitions = hoverModule({ id: "music.transitions", label: "Music transitions", kind: "ticks", height: 22, visible: true }, log, () => {
+  } });
+  const transitions = kit.track({ track: { id: "music.transitions", label: "Music transitions", kind: "ticks", height: 22, visible: true }, build: () => {
     const list = musicTransitions(log.ofKind("musicTransition"), namesAt(source));
     return {
       data: list.length ? { ticks: Float64Array.from(list, (x) => x.time), tickColor: "accent" } : undefined,
       tooltip: (t, tol) => transitionTooltip(list, t, tol),
     };
-  });
+  } });
   return [state, transitions];
 };
 

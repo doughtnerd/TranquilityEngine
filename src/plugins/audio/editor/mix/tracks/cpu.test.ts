@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { CPU_WINDOW_QUANTA } from "../../../runtime/mix/cpuMeter";
 import { EMPTY_STATES } from "../emptyStates";
-import { cpuTracks, indexAtOrBefore } from "./cpu";
+import { cpuTracks } from "./cpu";
 import { QUANTA_PER_STATUS, QUANTUM_MS, context, inProcessWorker, open, records, timeOf, type Fields } from "./cpuCountersTestSupport";
 import { assembleCapture } from "../../../runtime/capture/format";
 import { SAMPLE_HEADER, SAMPLE_META } from "../../../runtime/capture/testSupport";
@@ -156,13 +156,5 @@ describe("cpuTracks", () => {
     source.range = (...a) => (ranges++, range(...a));
     await Promise.all([load!.refresh(), sections!.refresh(), load!.refresh()]);
     expect(ranges).toBe(1);
-  });
-});
-
-describe("indexAtOrBefore", () => {
-  it("finds the last time at or before t", () => {
-    const t = Float64Array.of(1, 2, 2.5, 4);
-    expect([0.5, 1, 1.9, 2.5, 3, 4, 9].map((x) => indexAtOrBefore(t, x))).toEqual([-1, 0, 0, 2, 2, 3, 3]);
-    expect(indexAtOrBefore(new Float64Array(0), 1)).toBe(-1);
   });
 });

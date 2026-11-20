@@ -4,7 +4,8 @@
 // `startSeconds`, sorted), so a tick sits where `cursor.find("marker", ...)`'s previous and next land.
 import type { CaptureMarkerAt } from "../../../runtime/capture/reader";
 import type { ProfileSource } from "../profilerSource";
-import { MAX_TOOLTIP_LINES, formatSeconds, hoverModule, indicesNear, listText, type HoverTrackModule } from "./events";
+import { MAX_TOOLTIP_LINES, formatSeconds, indicesNear, listText } from "./events";
+import { TrackKit, type HoverTrackModule } from "./kit";
 import type { TrackContext, TrackFactory } from "./types";
 
 /** A marker on the viewport axis. */
@@ -29,16 +30,18 @@ function markerTooltip(markers: readonly MarkerTick[], t: number, tolerance: num
   return listText(markers.slice(from, Math.min(to, from + MAX_TOOLTIP_LINES)).map(markerText), to - from);
 }
 
+/** Rebuilt when the kit sees the source grow (a live summary carries the new markers). */
 function markerTrack(source: ProfileSource): HoverTrackModule {
-  let markers: MarkerTick[] = [];
-  const read = () => {
-    markers = markerTicks(source.markers, source.startSeconds);
-    return {
-      data: markers.length ? { ticks: Float64Array.from(markers, (m) => m.time), tickColor: "warning" as const } : undefined,
-      tooltip: (t: number, tol: number) => markerTooltip(markers, t, tol),
-    };
-  };
-  return hoverModule({ id: "markers.markers", label: "Markers", kind: "ticks", height: 22, visible: true }, null, read);
+  return TrackKit.of(source).track({
+    track: { id: "markers.markers", label: "Markers", kind: "ticks", height: 22, visible: true },
+    build: () => {
+      const markers = markerTicks(source.markers, source.startSeconds);
+      return {
+        data: markers.length ? { ticks: Float64Array.from(markers, (m) => m.time), tickColor: "warning" as const } : undefined,
+        tooltip: (t: number, tol: number) => markerTooltip(markers, t, tol),
+      };
+    },
+  });
 }
 
 /** The marker track of an opened capture. */

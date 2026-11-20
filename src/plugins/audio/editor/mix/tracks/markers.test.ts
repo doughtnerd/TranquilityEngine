@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { CURSOR_COLUMNS, CursorModel, cursorTargets } from "../cursorModel";
 import { statusColumns } from "../profilerSource";
 import { markerTracks } from "./markers";
-import type { HoverTrackModule } from "./events";
+import type { HoverTrackModule } from "./kit";
 import { recordScene, viewportTime } from "./recordScene";
 
 async function open() {

@@ -8,28 +8,24 @@
 //   - `events.parameters` (ticks): a parameter event (a null instance is a global parameter).
 //   - `events.states` (ticks): a stateChange (parameter and label, both ids in the `parameters` table).
 //
-// **Where the events come from** (ADR 0227). `EventLog` asks `ProfileSource.events` for the typed EVENTs (`CaptureEvent`)
-// after its record cursor: the whole capture once, then a live view's appended records on each refresh, every EVENT exactly
-// once. One seek at the first STATUS gives the instances alive at the capture's first keyframe (a truncated ring's start),
-// which are spans from 0.
+// **Where the events come from** (ADR 0227, 0261). The track kit's `EventLog` (`kit.ts`) reads the typed EVENTs once each
+// (the whole capture, then a live view's appended records) and the instances alive at the capture's first keyframe (a
+// truncated ring's start), which are spans from 0; the STATUS times the spans sample on are the kit's feed.
 //
 // Every tooltip is built by an exported pure function here (`instanceTooltip`, `parameterTooltip`, `stateTooltip`); a
 // module's `tooltipAt` returns exactly its result.
-import { captureNames, type CaptureEvent, type CaptureEventType, type CaptureNames } from "../../../runtime/capture/reader";
-import type { LineSeries, TrackData } from "../drawTimeline";
-import { statusColumns, type ProfileSource } from "../profilerSource";
+import { firstAfter, firstAtOrAfter } from "../../../../../engine/core/sortedSearch";
+import { captureNames, type CaptureNames } from "../../../runtime/capture/reader";
+import type { LineSeries } from "../drawTimeline";
+import type { ProfileSource } from "../profilerSource";
+import { TrackKit, type InitialInstance, type LoggedEvent } from "./kit";
 import { assignLanes } from "./lanes";
-import type { TrackContext, TrackFactory, TrackModule } from "./types";
+import type { TrackContext, TrackFactory } from "./types";
 
 /** Lanes the instances track draws; a deeper overlap shares the last lane. */
 const MAX_INSTANCE_LANES = 6;
-/** The hover reach (seconds each side) until the panel sets `tolerance` from its pixel scale. */
-export const DEFAULT_HOVER_TOLERANCE_S = 0.02;
 /** Lines a tooltip lists before it counts the rest. */
 export const MAX_TOOLTIP_LINES = 4;
-
-/** A track module whose hover reach the panel sets (a few pixels in seconds at the current zoom). */
-export type HoverTrackModule = TrackModule & { tolerance: number };
 
 // --- shared pure helpers -----------------------------------------------------------------------------------------------
 
@@ -38,33 +34,9 @@ export function formatSeconds(t: number): string {
   return `${t.toFixed(3)} s`;
 }
 
-/** First index whose value is >= t. */
-export function lowerBound(a: ArrayLike<number>, t: number): number {
-  let lo = 0;
-  let hi = a.length;
-  while (lo < hi) {
-    const mid = (lo + hi) >>> 1;
-    if (a[mid]! < t) lo = mid + 1;
-    else hi = mid;
-  }
-  return lo;
-}
-
-/** First index whose value is > t. */
-export function upperBound(a: ArrayLike<number>, t: number): number {
-  let lo = 0;
-  let hi = a.length;
-  while (lo < hi) {
-    const mid = (lo + hi) >>> 1;
-    if (a[mid]! <= t) lo = mid + 1;
-    else hi = mid;
-  }
-  return lo;
-}
-
 /** The indices of the sorted `times` within `tolerance` of `t`, as [from, to). */
 export function indicesNear(times: ArrayLike<number>, t: number, tolerance: number): [number, number] {
-  return [lowerBound(times, t - tolerance), upperBound(times, t + tolerance)];
+  return [firstAtOrAfter(times, t - tolerance), firstAfter(times, t + tolerance)];
 }
 
 /** Joins tooltip lines, naming how many more matched than the `MAX_TOOLTIP_LINES` shown. */
@@ -89,91 +61,6 @@ export function mergeTimes(a: ArrayLike<number>, b: ArrayLike<number>): Float64A
   let n = 0;
   for (let i = 0; i < all.length; i++) if (i === 0 || all[i] !== all[i - 1]) all[n++] = all[i]!;
   return all.subarray(0, n);
-}
-
-// --- the event log -----------------------------------------------------------------------------------------------------
-
-/** The EVENT types the tracks read. */
-const WANTED: readonly CaptureEventType[] = ["eventStart", "eventStop", "parameter", "stateChange", "musicTransition"];
-
-/** The typed event of one type. */
-export type EventOf<T extends CaptureEventType> = Extract<CaptureEvent, { type: T }>;
-
-/** One EVENT record on the viewport axis. */
-export interface LoggedEvent<T extends CaptureEventType = CaptureEventType> {
-  readonly seq: number;
-  /** Seconds on the viewport axis (0 = the capture's first record). */
-  readonly time: number;
-  readonly event: EventOf<T>;
-}
-
-/** An instance the capture's first keyframe already counted. */
-export interface InitialInstance {
-  readonly id: number;
-  readonly asset: number;
-}
-
-/** The events of a capture, read through `ProfileSource.events` (see the header). One per `ProfileSource` (`eventLogFor`). */
-export class EventLog {
-  private logged: LoggedEvent[] = [];
-  private dirty = false;
-  /** The record cursor the next read continues from (`CaptureEventsPage.next`). */
-  private next = 0;
-  private running: Promise<void> | null = null;
-  private times: Float64Array = new Float64Array(0);
-  private first: InitialInstance[] | null = null;
-
-  constructor(private readonly source: ProfileSource) {}
-
-  /** STATUS times (viewport axis) as of the last refresh. */
-  get statusTimes(): Float64Array {
-    return this.times;
-  }
-
-  /** Instances alive at the capture's first keyframe (empty until the first refresh). */
-  get initial(): readonly InitialInstance[] {
-    return this.first ?? [];
-  }
-
-  /** Every logged event of `type`, by time then seq. */
-  ofKind<T extends CaptureEventType>(type: T): LoggedEvent<T>[] {
-    if (this.dirty) {
-      this.logged.sort((a, b) => a.time - b.time || a.seq - b.seq);
-      this.dirty = false;
-    }
-    return this.logged.filter((e) => e.event.type === type) as unknown as LoggedEvent<T>[];
-  }
-
-  /** Reads what the source gained since the last refresh. Calls made while one runs share it. */
-  refresh(): Promise<void> {
-    this.running ??= this.read().finally(() => {
-      this.running = null;
-    });
-    return this.running;
-  }
-
-  private async read(): Promise<void> {
-    const src = this.source;
-    const times = (await statusColumns(src, [])).seconds as Float64Array;
-    this.times = times;
-    if (this.first === null && times.length > 0) {
-      const s = await src.seek(times[0]! + src.startSeconds);
-      this.first = (s.keyframe?.events ?? []).map((e) => ({ id: e.id, asset: e.asset }));
-    }
-    const page = await src.events(this.next, WANTED);
-    this.next = page.next;
-    const start = src.startSeconds;
-    for (const e of page.events) this.logged.push({ seq: e.seq, time: e.seconds - start, event: e.event });
-    if (page.events.length) this.dirty = true;
-  }
-}
-const logs = new WeakMap<ProfileSource, EventLog>();
-
-/** The one log of a source, shared by the event, music and (through it) any other track reading EVENT records. */
-export function eventLogFor(source: ProfileSource): EventLog {
-  let l = logs.get(source);
-  if (!l) logs.set(source, (l = new EventLog(source)));
-  return l;
 }
 
 // --- names -------------------------------------------------------------------------------------------------------------
@@ -244,8 +131,8 @@ function instanceLines(spans: readonly EventSpan[], statusTimes: ArrayLike<numbe
   const times = Float64Array.from(grid);
   const values = Array.from({ length: lanes }, () => new Float64Array(times.length));
   spans.forEach((s, k) => {
-    const to = upperBound(times, s.end ?? Math.max(duration, times.length ? times[times.length - 1]! : 0));
-    for (let i = lowerBound(times, s.start); i < to; i++) values[lane[k]!]![i] = 1;
+    const to = firstAfter(times, s.end ?? Math.max(duration, times.length ? times[times.length - 1]! : 0));
+    for (let i = firstAtOrAfter(times, s.start); i < to; i++) values[lane[k]!]![i] = 1;
   });
   return { lines: values.map((v, i) => ({ times, values: v, color: i % 2 ? "accent2" : "accent", yMax: 1 })), overflow };
 }
@@ -316,53 +203,33 @@ function stateTooltip(changes: readonly StateChange[], t: number, tolerance: num
 
 // --- the modules -------------------------------------------------------------------------------------------------------
 
-/** What a module's refresh builds. */
-export interface Built {
-  data: TrackData | undefined;
-  tooltip(t: number, tolerance: number): string | null;
-}
-
-/** A hover track over a `build` run after each refresh (the source's log is refreshed first). */
-export function hoverModule(track: TrackModule["track"], log: { refresh(): Promise<void> } | null, build: () => Built): HoverTrackModule {
-  let built: Built | null = null;
-  const m: HoverTrackModule = {
-    track,
-    tolerance: DEFAULT_HOVER_TOLERANCE_S,
-    data: () => built?.data,
-    async refresh() {
-      await log?.refresh();
-      built = build();
-    },
-    tooltipAt: (t) => built?.tooltip(t, m.tolerance) ?? null,
-  };
-  return m;
-}
-
 /** The event instance, parameter and state-change tracks of an opened capture. */
 export const eventTracks: TrackFactory = (ctx: TrackContext) => {
   const source = ctx.source;
-  const log = eventLogFor(source);
-  const instances = hoverModule({ id: "events.instances", label: "Event instances", kind: "lanes", height: 48, visible: true }, log, () => {
+  const kit = TrackKit.of(source);
+  const log = kit.events();
+  const feed = kit.status();
+  const instances = kit.track({ track: { id: "events.instances", label: "Event instances", kind: "lanes", height: 48, visible: true }, build: () => {
     const spans = eventSpans(log.ofKind("eventStart"), log.ofKind("eventStop"), log.initial, namesAt(source));
     const duration = source.duration;
     return {
-      data: spans.length ? { lines: instanceLines(spans, log.statusTimes, duration).lines } : undefined,
+      data: spans.length ? { lines: instanceLines(spans, feed.times, duration).lines } : undefined,
       tooltip: (t, tol) => instanceTooltip(spans, t, tol, duration),
     };
-  });
-  const parameters = hoverModule({ id: "events.parameters", label: "Parameters", kind: "ticks", height: 22, visible: true }, log, () => {
+  } });
+  const parameters = kit.track({ track: { id: "events.parameters", label: "Parameters", kind: "ticks", height: 22, visible: true }, build: () => {
     const changes = parameterChanges(log.ofKind("parameter"), namesAt(source));
     return {
       data: changes.length ? { ticks: Float64Array.from(changes, (c) => c.time), tickColor: "accent2" } : undefined,
       tooltip: (t, tol) => parameterTooltip(changes, t, tol),
     };
-  });
-  const states = hoverModule({ id: "events.states", label: "State changes", kind: "ticks", height: 22, visible: true }, log, () => {
+  } });
+  const states = kit.track({ track: { id: "events.states", label: "State changes", kind: "ticks", height: 22, visible: true }, build: () => {
     const changes = stateChanges(log.ofKind("stateChange"), namesAt(source));
     return {
       data: changes.length ? { ticks: Float64Array.from(changes, (c) => c.time), tickColor: "accent" } : undefined,
       tooltip: (t, tol) => stateTooltip(changes, t, tol),
     };
-  });
+  } });
   return [instances, parameters, states];
 };

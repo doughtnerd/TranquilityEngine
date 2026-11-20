@@ -14,11 +14,13 @@
 //
 // The panel gives the factory the target in force (`audio.loudnessTargets` through `Audio.loudnessTarget`); without one the
 // track has no target line and no marks.
+import { lastAtOrBefore } from "../../../../../engine/core/sortedSearch";
 import { captureNames, type CaptureLoudnessMark, type CaptureLoudnessTarget, type CaptureLoudnessValues } from "../../../runtime/capture/reader";
 import { SUB_BLOCK_SECONDS } from "../../../runtime/mix/loudnessStats";
 import type { LineSeries, TrackData } from "../drawTimeline";
 import { LoudnessSource, canAskLoudness, type LoudnessInfo, type LoudnessSeriesData } from "../loudnessSource";
 import type { ProfileSource } from "../profilerSource";
+import { singleFlight } from "./kit";
 import type { TrackContext, TrackFactory, TrackModule } from "./types";
 
 /** The plotted value of a reading is `LUFS - LOUDNESS_PLOT_FLOOR`. */
@@ -77,20 +79,6 @@ function defaultClient(source: ProfileSource): LoudnessSource | null {
   return canAskLoudness(source) ? new LoudnessSource(source) : null;
 }
 
-function lastAtOrBefore(times: ArrayLike<number>, t: number): number {
-  let lo = 0;
-  let hi = times.length - 1;
-  let at = -1;
-  while (lo <= hi) {
-    const mid = (lo + hi) >> 1;
-    if (times[mid]! <= t) {
-      at = mid;
-      lo = mid + 1;
-    } else hi = mid - 1;
-  }
-  return at;
-}
-
 class LoudnessTrack implements LoudnessTrackModule {
   readonly track = { id: LOUDNESS_TRACK_ID, label: "Loudness", kind: "line", height: 72, visible: true } as const;
   private info: LoudnessInfo | null = null;
@@ -98,7 +86,6 @@ class LoudnessTrack implements LoudnessTrackModule {
   private markList: CaptureLoudnessMark[] = [];
   private targetNow: CaptureLoudnessTarget | null = null;
   private drawn: TrackData | undefined;
-  private inflight: Promise<void> | null = null;
   readonly marksTrack: TrackModule = {
     track: { id: LOUDNESS_MARKS_TRACK_ID, label: "Loudness target", kind: "ticks", height: 20, visible: true },
     data: () => (this.targetNow ? { ticks: Float64Array.from(this.markList.map((m) => m.from)), tickColor: "danger" } : undefined),
@@ -132,10 +119,8 @@ class LoudnessTrack implements LoudnessTrackModule {
     return this.client ? this.client.valuesAt(t) : Promise.resolve([]);
   }
 
-  /** One read at a time: the two tracks' refreshes in the same turn share it. */
-  refresh(): Promise<void> {
-    return (this.inflight ??= this.read().finally(() => { this.inflight = null; }));
-  }
+  /** One read at a time (the track kit's single flight, ADR 0261): the two tracks' refreshes share it. */
+  readonly refresh = singleFlight(() => this.read(), () => this.ctx.source.summary);
 
   private async read(): Promise<void> {
     const client = this.client;

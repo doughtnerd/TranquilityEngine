@@ -1,7 +1,7 @@
 // ADR 0171/0172 (Pf3d; api-and-models §5.6 kind 13, §7): the music state and transition tracks over `musicTransition` events
 // recorded through the real `EventSink`. A tooltip names the segments and the transition rule.
 import { describe, expect, it } from "vitest";
-import { type HoverTrackModule } from "./events";
+import type { HoverTrackModule } from "./kit";
 import { musicTracks } from "./music";
 import { recordScene, viewportTime, type Scene } from "./recordScene";
 
