@@ -1,6 +1,6 @@
 # 0067. Server Worlds can listen at runtime, and several share one WebSocket port by path
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0255 (one listen target; the runtime default port is per Engine)
 - **Date:** 2026-11-04
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
