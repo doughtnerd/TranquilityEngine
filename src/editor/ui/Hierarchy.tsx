@@ -431,9 +431,9 @@ const prefabName = (path: string) => path.split("/").pop()!.replace(/\.(prefab|s
 
 /** How a dragged asset would land relative to the row `key` (null: the scene itself), if it's the target. */
 function dropMode(key: string | null): "into" | "before" | "after" | "root" | null {
-  const t = assetDrag.value?.target ?? nodeDrag.value?.target;
-  if (!t || t.kind !== "hierarchy") return null;
-  return t.row === key ? t.mode : null;
+  const asset = assetDrag.value?.target;
+  const t = asset ? (asset.kind === "hierarchy" ? asset.drop : null) : nodeDrag.value?.target;
+  return t && t.row === key ? t.mode : null;
 }
 
 /** The eye and lock toggles at the end of a row (editor-only, per user: `nodeVisibility.ts`). */

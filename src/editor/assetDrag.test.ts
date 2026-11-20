@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input } from "../engine";
 import { SceneInstance } from "../engine/scene/SceneLoader";
+import { AddNode } from "./document";
 import { insertNodes, whyNotInsert } from "./nodeInsertion";
-import { dropDescription, hierarchyDrop } from "./assetDrag";
+import { dropDescription } from "./assetDrag";
+import { hierarchyDrop } from "./hierarchyDrop";
 import { OrbitCamera } from "./OrbitCamera";
 import { instanceInnerNodes } from "./prefabs";
 import { openSceneFile } from "./project";
@@ -23,44 +25,14 @@ beforeEach(async () => {
   openSceneFile(engine, project.mainScene!);
 });
 
-describe("hierarchy drop targets", () => {
-  it("over the middle of a row: that node becomes the parent", () => {
-    expect(hierarchyDrop(openScene.value!.doc, "bird", 0.5)).toEqual({ kind: "hierarchy", mode: "into", row: "bird", parent: "bird" });
-  });
-
-  it("near a row's top or bottom edge: a sibling before or after it", () => {
+describe("the drag's label", () => {
+  it("describes what releasing will do, inside a prefab instance too (ADR 0258)", () => {
     const { doc } = openScene.value!;
-    const at = doc.roots().indexOf("ceiling");
-    expect(hierarchyDrop(doc, "ceiling", 0.1)).toEqual({ kind: "hierarchy", mode: "before", row: "ceiling", parent: null, index: at });
-    expect(hierarchyDrop(doc, "ceiling", 0.9)).toEqual({ kind: "hierarchy", mode: "after", row: "ceiling", parent: null, index: at + 1 });
-    expect(hierarchyDrop(doc, "bird-sprite", 0.9)).toMatchObject({ mode: "after", parent: "bird", index: 1 });
-  });
-
-  it("empty space or the scene header: the scene's top level; rows inside prefabs: invalid", () => {
-    const { doc } = openScene.value!;
-    expect(hierarchyDrop(doc, null, 0)).toEqual({ kind: "hierarchy", mode: "root", row: null, parent: null });
-    expect(hierarchyDrop(doc, "bg-a/tile", 0.5)).toBeNull();
-    expect(hierarchyDrop(doc, "gone", 0.5)).toBeNull();
-  });
-
-  it("drops at the chosen place, as one undoable step", () => {
-    const scene = openScene.value!;
-    const target = hierarchyDrop(scene.doc, "ceiling", 0.1)!;
-    if (target.kind !== "hierarchy") throw new Error("expected a hierarchy target");
-    const made = insertNodes(scene, { kind: "assets", paths: ["music/foo.mp3"] }, { kind: "into", key: target.parent, index: target.index });
-    const id = made.ok ? made.keys[0]! : "";
-    const roots = scene.doc.roots();
-    expect(roots[roots.indexOf("ceiling") - 1]).toBe(id);
-    expect(scene.doc.node(id).components!.map((c) => c.type)).toEqual(["engine.Transform", "engine.AudioSource"]);
-    scene.stack.undo();
-    expect(scene.doc.has(id)).toBe(false);
-  });
-
-  it("describes what releasing will do", () => {
-    const { doc } = openScene.value!;
-    const drag = (target: ReturnType<typeof hierarchyDrop>, problem: string | null = null) => ({ paths: ["images/bird.png"], x: 0, y: 0, target, problem });
+    const drag = (drop: ReturnType<typeof hierarchyDrop>, problem: string | null = null) => ({ paths: ["images/bird.png"], x: 0, y: 0, target: drop && { kind: "hierarchy" as const, drop }, problem });
     expect(dropDescription(drag(hierarchyDrop(doc, "bird", 0.5)), doc)).toBe("Add bird.png as a child of Bird");
     expect(dropDescription(drag(hierarchyDrop(doc, "ceiling", 0.1)), doc)).toBe("Add bird.png above Ceiling");
+    openScene.value!.stack.execute(new AddNode({ id: "pipe", prefab: "prefabs/pipe-pair.prefab.json" }));
+    expect(dropDescription(drag(hierarchyDrop(doc, "pipe/top", 0.5)), doc)).toBe("Add bird.png as a child of Top (an override of its prefab instance)");
     expect(dropDescription(drag(null, "no kind of scene node fits this file"), doc)).toBe("bird.png: no kind of scene node fits this file");
   });
 });

@@ -79,6 +79,21 @@ test("dropping between hierarchy nodes adds a sibling, with a line showing where
   expect(names.indexOf("pipe-pair")).toBe(names.indexOf("Ceiling") - 1);
 });
 
+test("dropping on a node inside a prefab instance adds the asset there as an override (ADR 0258)", async ({ page }) => {
+  await openEditor(page);
+  await showFolder(page, "prefabs");
+  await page.locator(".asset-tile", { hasText: "pipe-pair" }).getByRole("button").click();
+  await row(page, "pipe-pair").locator(".caret").click();
+  await showFolder(page, "music");
+  const top = await box(row(page, "pipe-pair/top"));
+  await dragAsset(page, "foo.mp3", top.x + 40, top.y + top.height / 2, false);
+  await expect(row(page, "pipe-pair/top")).toHaveClass(/drop-into/);
+  await expect(page.locator(".asset-drag-ghost")).toHaveText("Add foo.mp3 as a child of Top (an override of its prefab instance)");
+  await page.mouse.up();
+  await expect(row(page, "pipe-pair/foo")).toHaveCount(1);
+  await expect(page.locator(".tree .row.selected .name")).toHaveText("Foo");
+});
+
 test("dropping in the hierarchy's empty space adds at the scene's top level", async ({ page }) => {
   await openEditor(page);
   await showFolder(page, "images");

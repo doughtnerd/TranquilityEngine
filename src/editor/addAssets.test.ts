@@ -57,7 +57,7 @@ describe("adding assets as one operation (ADR 0149)", () => {
   it("prepares first, then adds, returning the ids to select and a message naming the scene", async () => {
     const slow = slowKind();
     const scene = openScene.value!;
-    const adding = addAssets(["a.slow.json"], { kind: "slot", parent: null });
+    const adding = addAssets(["a.slow.json"], { kind: "hierarchy", place: { kind: "into", key: null } });
     await Promise.resolve();
     expect(slow.prepares).toEqual(["a.slow.json"]);
     expect(scene.doc.has("slow")).toBe(false); // not before it has prepared
@@ -71,7 +71,7 @@ describe("adding assets as one operation (ADR 0149)", () => {
   it("adds nothing when the open scene changes while the assets prepare (a tab switch)", async () => {
     const slow = slowKind();
     const first = openScene.value!;
-    const adding = addAssets(["a.slow.json"], { kind: "slot", parent: null });
+    const adding = addAssets(["a.slow.json"], { kind: "hierarchy", place: { kind: "into", key: null } });
     openSceneFile(engine, "prefabs/pipe-pair.prefab.json"); // another tab comes forward
     const second = openScene.value!;
     slow.finish();
@@ -85,12 +85,12 @@ describe("adding assets as one operation (ADR 0149)", () => {
   it("refuses without an open scene and while playing, also when play starts during the prepare", async () => {
     expect(whyNotAddAssets(["images/bird.png"], null)).toBe("open a scene first");
     playState.value = "playing";
-    expect((await addAssets(["images/bird.png"], { kind: "slot", parent: null })).message.text).toBe("Couldn't add bird.png: stop playing to edit the scene");
+    expect((await addAssets(["images/bird.png"], { kind: "hierarchy", place: { kind: "into", key: null } })).message.text).toBe("Couldn't add bird.png: stop playing to edit the scene");
     playState.value = "edit";
 
     const slow = slowKind();
     const scene = openScene.value!;
-    const adding = addAssets(["a.slow.json"], { kind: "slot", parent: null });
+    const adding = addAssets(["a.slow.json"], { kind: "hierarchy", place: { kind: "into", key: null } });
     playState.value = "starting";
     slow.finish();
     expect((await adding).ids).toEqual([]);
@@ -115,7 +115,7 @@ describe("adding assets as one operation (ADR 0149)", () => {
   it("adds several assets in a row at a Hierarchy slot as one undo step", async () => {
     const scene = openScene.value!;
     const at = scene.doc.roots().indexOf("ceiling");
-    const { ids, message } = await addAssets(["images/bird.png", "music/town.mp3"], { kind: "slot", parent: null, index: at });
+    const { ids, message } = await addAssets(["images/bird.png", "music/town.mp3"], { kind: "hierarchy", place: { kind: "into", key: null, index: at } });
     expect(message.text).toBe("Added 2 assets to main.scene.json");
     expect(scene.doc.roots().slice(at, at + 3)).toEqual([...ids, "ceiling"]);
     scene.stack.undo();
@@ -130,9 +130,9 @@ describe("adding assets as one operation (ADR 0149)", () => {
     expect(whyNotAddAssets(["scenes/main.scene.json"])).toMatch(/inside itself/); // the core scene kind's refusal
     expect(whyNotAddAssets(["images/"])).toMatch(/folders/);
     expect(whyNotAddAssets(["project.json"])).toMatch(/no kind of scene node fits/);
-    expect((await addAssets(["no.slow.json"], { kind: "slot", parent: null })).message.text).toBe("Couldn't add no.slow.json: it says no");
+    expect((await addAssets(["no.slow.json"], { kind: "hierarchy", place: { kind: "into", key: null } })).message.text).toBe("Couldn't add no.slow.json: it says no");
     const before = messageLog.value.length;
-    const adding = addAssets(["yes.slow.json"], { kind: "slot", parent: null });
+    const adding = addAssets(["yes.slow.json"], { kind: "hierarchy", place: { kind: "into", key: null } });
     slow.finish();
     expect((await adding).ids).toEqual(["slow"]);
     expect(messageLog.value.slice(before).map((m) => m.text)).toContain("yes.slow.json: 1 node for yes.slow.json");
