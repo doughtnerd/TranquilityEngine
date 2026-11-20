@@ -207,7 +207,7 @@ export const BLOCKS: readonly BlockDef[] = [
   {
     type: "update.collisionColliders",
     label: "Collide with colliders",
-    description: "Bounces particles off the World's physics colliders, or kills them there (ADR 0096). CPU simulation only: one ray per particle per frame, so keep the capacity modest.",
+    description: "Bounces particles off the World's physics colliders, or kills them there (ADR 0096). Runs on the CPU (the JavaScript executor; a system run on the GPU skips it): one ray per particle per frame, so keep the capacity modest.",
     contexts: IN_UPDATE,
     inputs: [
       scalar("bounce", "Bounce", 0.5, { min: 0, step: 0.01 }),

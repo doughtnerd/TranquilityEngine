@@ -100,11 +100,6 @@ describe("editor.scene", () => {
     expect(editor.scene.playState).toBe("edit");
   });
 
-  it("makes node ids", () => {
-    const doc = { has: (id: string) => id === "bird" } as unknown as sdk.SceneDocument;
-    expect(editor.scene.idBase("images/flappyBird.png")).toBe("flappy-bird");
-    expect(editor.scene.uniqueId(doc, "bird")).toBe("bird-2");
-  });
 });
 
 describe("myco/editor", () => {

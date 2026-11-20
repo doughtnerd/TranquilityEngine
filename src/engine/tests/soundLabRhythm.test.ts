@@ -17,7 +17,7 @@ import { validateMusic, type MusicClipFacts } from "../audio/musicValidate";
 import { setAudioBackend } from "../../plugins/audio/runtime/backend";
 import { makeFakeBackend, endAudioSession } from "../../plugins/audio/runtime/testing";
 import { Audio } from "../../plugins/audio/runtime";
-import { initCalibration, setCalibration } from "../../plugins/audio/runtime/music/calibration";
+import { setCalibration } from "../../plugins/audio/runtime/music/calibration";
 import { events } from "../../plugins/audio/runtime/events/eventRuntime";
 import type { RhythmLab, RhythmState, RhythmTap } from "../../../samples/sound-lab/scripts/behaviors/RhythmLab";
 
@@ -193,7 +193,8 @@ describe("the rhythm page's script", () => {
     const stored = await Storage.load<{ seconds: number }>("audio.calibration.default", "settings");
     expect(stored?.seconds).toBeCloseTo(Audio.calibration, 9);
     const before = Audio.calibration;
-    await initCalibration("");
+    fake.device = { outputSink: "", onOutputDevice: null }; // the default device's start (ADR 0248: the backend reports it)
+    setAudioBackend(fake);
     await settle();
     expect(Audio.calibration).toBeCloseTo(before, 9);
     expect(Audio.calibrationStale).toBe(false);

@@ -1,7 +1,7 @@
 // FU5 (M5 wave 10 follow-up to So1's soak 1): the keyframe source builds a keyframe without constructing anything: no Set, Map or
 // array per keyframe, and every row of every section is a pooled object reused by the next keyframe. Counted by construction
-// (constructor and array-builder counters over many keyframes), never by heap deltas. The event runtime's `debugRows` is the
-// real one (pooled when given `out`); live events through it are covered by `events/debugRowsRetire.test.ts`.
+// (constructor and array-builder counters over many keyframes), never by heap deltas. The event and music rows are composed
+// above the seam (ADR 0249): their pooling is `audioRows.test.ts`'s.
 import { afterEach, describe, expect, it } from "vitest";
 import { Mixer } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings } from "../../../../engine/audio/settings";
@@ -81,14 +81,14 @@ describe("KeyframeSource: no allocation per keyframe (FU5)", () => {
   it("every section's array and every row is the same object keyframe after keyframe", () => {
     const { source, nameId } = rig();
     const first = source.read(nameId, NO_NAME);
-    const arrays = [first.voices, first.buses, first.metered, first.events, first.music];
+    const arrays = [first.voices, first.buses, first.metered, first.eventVoices];
     const rows = [...first.voices, ...first.buses, ...first.metered];
     expect(first.metered.length).toBe(2); // the output, then Music
     for (let i = 0; i < 50; i++) {
       const p = source.read(nameId, NO_NAME);
       expect(p).toBe(first);
-      expect([p.voices, p.buses, p.metered, p.events, p.music]).toEqual(arrays);
-      [p.voices, p.buses, p.metered, p.events, p.music].forEach((a, k) => expect(a).toBe(arrays[k]));
+      expect([p.voices, p.buses, p.metered, p.eventVoices]).toEqual(arrays);
+      [p.voices, p.buses, p.metered, p.eventVoices].forEach((a, k) => expect(a).toBe(arrays[k]));
       [...p.voices, ...p.buses, ...p.metered].forEach((r, k) => expect(r).toBe(rows[k]));
     }
   });
@@ -98,7 +98,7 @@ describe("KeyframeSource: no allocation per keyframe (FU5)", () => {
     source.read(nameId, NO_NAME);
     const p = source.read(nameId, NO_NAME);
     expect(p.metered.map((m) => m.slot)).toEqual([LOUD_OUTPUT_TAP, 1]);
-    const named = readCaptureKeyframe(p);
+    const named = readCaptureKeyframe({ ...p, events: [], music: [] });
     expect(named.metered.map((m) => m.paused)).toEqual([false, true]);
     expect(p.metered[0]).toMatchObject({ momentary: -20, shortTerm: -21, integrated: -22, lra: 3, maxTruePeak: -1, maxMomentary: -18, elapsed: 5 });
     expect(p.mix.loudnessPausedMask).toBe(2);

@@ -10,7 +10,7 @@
 import { Storage } from "../../../../engine/platform/Storage";
 import { mixer } from "../../../../engine/audio/mixer";
 import type { AudioLatency, CalibrationApi, CalibrationResult } from "../../../../engine/audio/musicTypes";
-import { audioBackend } from "../backend";
+import { audioBackend, onAudioBackendAttached } from "../backend";
 
 /** `CALIBRATION_WARMUP` (S11): taps dropped from the front of a run. */
 export const CALIBRATION_WARMUP = 4;
@@ -83,10 +83,10 @@ const track = (p: Promise<void>): void => {
 };
 
 /**
- * Wiring (Rh2): the audio system calls this once the context exists, with its `sinkId` ("" for the default or where
- * unsupported). Loads the stored offset for that device; none stored leaves the value as it is. Not stale.
+ * Rh2: the backend's context exists and outputs to `sinkId` ("" for the default or where unsupported). Loads the stored
+ * offset for that device; none stored leaves the value as it is. Not stale.
  */
-export function initCalibration(sinkId?: string | null): Promise<void> {
+function initCalibration(sinkId?: string | null): Promise<void> {
   currentKey = calibrationKey(sinkId);
   calibrationIsStale = false;
   const mine = ++epoch;
@@ -98,12 +98,11 @@ export function initCalibration(sinkId?: string | null): Promise<void> {
 }
 
 /**
- * Wiring (Rh2): the audio system calls this on the context's device event (`devicechange`, `sinkchange`) with the sink it
- * now has. A different sink with a stored offset adopts it (that device was calibrated before, so not stale). Otherwise,
+ * Rh2: the backend reported a device event (`devicechange`, `sinkchange`) with the sink it now has. A different sink with a stored offset adopts it (that device was calibrated before, so not stale). Otherwise,
  * including the same sink under `devicechange` (the default sink can be another device behind the same key), the value
  * is kept and `calibrationStale` becomes true until `setCalibration`.
  */
-export function calibrationDeviceChanged(sinkId?: string | null): Promise<void> {
+function calibrationDeviceChanged(sinkId?: string | null): Promise<void> {
   const key = calibrationKey(sinkId);
   const mine = ++epoch;
   const changed = key !== currentKey;
@@ -119,6 +118,14 @@ export function calibrationDeviceChanged(sinkId?: string | null): Promise<void> 
   return done;
 }
 
+// ADR 0248: whichever backend is installed reports its output device (`AudioBackend.device`); the offset follows it here,
+// once, above the seam.
+onAudioBackendAttached((backend) => {
+  const device = backend.device;
+  if (!device) return;
+  device.onOutputDevice = (sink, change) => void (change === "opened" ? initCalibration(sink) : calibrationDeviceChanged(sink));
+  if (device.outputSink !== null) void initCalibration(device.outputSink);
+});
 
 /** `Audio.calibration` (seconds, default 0): subtracted from an input's offset (`judged = offset - calibration`). */
 export function getCalibration(): number {

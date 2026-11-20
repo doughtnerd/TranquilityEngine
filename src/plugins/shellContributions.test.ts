@@ -4,12 +4,12 @@
 // registered by their plugins, and all of them go when their plugin does.
 import { describe, expect, it } from "vitest";
 import { defaultImportSettings, formatImportSettings, sidecarPath } from "../engine/scene/importSettings";
-import { createNode, newNodeKinds, type NodeKind } from "../editor/nodeCreate";
+import { newNodeKinds, type NodeKind } from "../editor/nodeKinds";
 import { joinPath, openFolderProject } from "../editor/projects";
 import { assetActions, hierarchyCreateEntries, idlePrefetches, panelExtensions, playStatsCounters, sceneOpenMigrations, viewportTools } from "../editor/sdk/contributions";
 import { CommandStack, SceneDocument } from "../editor/document";
 import type { OpenScene } from "../editor/state";
-import { MemoryFileSystem, ROOT, useCoreAssetKinds } from "../editor/testing";
+import { MemoryFileSystem, ROOT, insertNew, useCoreAssetKinds } from "../editor/testing";
 import { useEditorPlugins } from "./testEditorPlugins";
 import { navigationEditorPlugin } from "./navigation/editor";
 import { particlesEditorPlugin } from "./particles/editor";
@@ -24,7 +24,7 @@ const halves = useEditorPlugins(PLUGINS, "each");
 function made(kind: NodeKind, position?: [number, number, number], effect?: string) {
   const doc = new SceneDocument({ format: "myco.scene@1", nodes: [] } as never, "a.scene.json");
   const scene = { doc, stack: new CommandStack(doc) } as unknown as OpenScene;
-  return doc.node(createNode(scene, kind, { position, effect }));
+  return doc.node(insertNew(scene, kind, { position, asset: effect }));
 }
 
 describe("the Hierarchy's Create menu (ADR 0146)", () => {

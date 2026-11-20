@@ -18,9 +18,9 @@ const PICK = 0xffd54f;
 /** Grid cells drawn on each side of the pointer. */
 const GRID_REACH = 12;
 
-/** The selected node's Tilemap while painting is possible. */
+/** The selected node's Tilemap while painting is possible (the scene can be edited now: not while playing). */
 function paintTarget(): Tilemap | null {
-  if (editor.scene.playState !== "edit") return null;
+  if (editor.scene.whyNotEdit() !== null) return null;
   return tilemapOf(editor.scene.selection.node());
 }
 

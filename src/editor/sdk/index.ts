@@ -17,7 +17,7 @@ export type { MessagesSurface, MessageAction } from "./messages";
 export type { SceneSurface, SelectionSurface, PlayState, OpenScene, UndoStep } from "./scene";
 export type { ViewportSurface } from "./viewport";
 // Editing scene documents (ADR 0026): node paths and entries, and the field command inspector sections push.
-export { SetField, pathKey, type NodePath, type NodeEntry, type SceneDocument } from "../document";
+export { SetField, pathKey, type ComponentEntry, type NodePath, type NodeEntry, type SceneDocument } from "../document";
 // Building blocks for panels, inspectors and settings sections.
 // The frame every panel renders in, and its instance's own view state (ADR 0174).
 export { Panel, usePanel, usePanelState, usePanelValue, PanelInstanceContext, type PanelInstance, type PanelProps } from "../ui/panel/Panel";
@@ -31,6 +31,8 @@ export { addKey as addCurveKey, moveKey as moveCurveKey, removeKey as removeCurv
 // Menus and floating panels (ADR 0180): placed, dismissed and focused in the window they're in (ADR 0174).
 export { openPopover, usePopover, type DismissReason, type Popover, type PopoverOptions, type PopoverPoint } from "../ui/popover";
 export { setValue, type SettingsDraft, type SettingsProblem } from "../projectSettingsModel";
+// One project.json key of the settings draft (ADR 0253): its lenient parse, defaults, set-by-path, reset and problems.
+export { settingsSection, type SettingsSection, type SettingsSectionSpec } from "../settingsSection";
 export { persisted } from "../preferences";
 // The editor theme's tokens (ADR 0025): `theme.value` tracks the Settings > Appearance theme.
 export { theme, mix, parseHex, viewportColors, type ThemeTokens } from "../theme";

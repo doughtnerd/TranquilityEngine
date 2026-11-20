@@ -5,15 +5,16 @@
  *   of per-wave constants: direction, wave number, amplitude and phase. Time is folded into the
  *   phase here (wrapped to one period, in doubles), so the shader never multiplies a large time
  *   by a frequency in 32-bit floats.
- * - `GERSTNER_BODY` is the wave sum written once, in the subset of syntax WGSL, GLSL and
- *   JavaScript share: Babylon's water plugin (`render/babylon/water.ts`) fills in its type words for
- *   each shader language (tests run the same text as JavaScript to prove the sampler below computes
- *   what the shader computes).
+ * - `GERSTNER_SHADER` is the wave sum written once, in KSL (`render/shaderSource`, ADR 0250), reading
+ *   the packed waves as vec4 uniforms (`waveUniforms`): Babylon's water plugin
+ *   (`render/babylon/water.ts`) compiles it to WGSL and GLSL, and tests run the same text as
+ *   JavaScript to prove the sampler below computes what the shader computes.
  * - `gerstner` is that sum in TypeScript for the CPU, and `sampleWaves` inverts the horizontal
  *   displacement so a height can be asked for at a world XZ position.
  *
  * Everything is in the water's local XZ plane (y up). No renderer here: servers sample waves too.
  */
+import { shaderSource } from "../shaderSource/shaderSource";
 import { deepWaterSpeed } from "./dispersion";
 
 /** One wave of a water surface. */
@@ -93,39 +94,55 @@ export function maxAmplitude(packed: PackedWaves): number {
   return a;
 }
 
-/**
- * The wave sum, in syntax GLSL and JavaScript share (`$float`/`$int` become `float`/`int` or
- * `let`; `sin`/`cos` become `Math.sin`/`Math.cos` in JavaScript). Inputs: `px`, `pz` (a rest
- * position), `mycoWaves` (the packed array) and `mycoWaveCount`. Outputs: the displacement
- * (`gx`, `gy`, `gz`), and the surface's tangent (`tx`, `ty`, `tz`, ∂P/∂x) and binormal (`bx`,
- * `by`, `bz`, ∂P/∂z); the normal is binormal × tangent and the Jacobian `tx·bz − tz·bx`.
- */
-export const GERSTNER_BODY = `
-$float gx = 0.0; $float gy = 0.0; $float gz = 0.0;
-$float tx = 1.0; $float ty = 0.0; $float tz = 0.0;
-$float bx = 0.0; $float by = 0.0; $float bz = 1.0;
-for ($int i = 0; i < ${MAX_WAVES}; i++) {
-  if (i >= mycoWaveCount) break;
-  $float wdx = mycoWaves[i * ${WAVE_STRIDE}];
-  $float wdz = mycoWaves[i * ${WAVE_STRIDE} + 1];
-  $float wk = mycoWaves[i * ${WAVE_STRIDE} + 2];
-  $float wa = mycoWaves[i * ${WAVE_STRIDE} + 3];
-  $float wph = mycoWaves[i * ${WAVE_STRIDE} + 4];
-  $float wf = wk * (wdx * px + wdz * pz) - wph;
-  $float wc = cos(wf);
-  $float ws = sin(wf);
-  $float wst = wk * wa;
-  gx += wdx * wa * wc;
-  gy += wa * ws;
-  gz += wdz * wa * wc;
-  tx -= wdx * wdx * wst * ws;
-  ty += wdx * wst * wc;
-  tz -= wdx * wdz * wst * ws;
-  bx -= wdx * wdz * wst * ws;
-  by += wdz * wst * wc;
-  bz -= wdz * wdz * wst * ws;
+/** The vec4 uniforms holding each wave's direction x, direction z, wave number and amplitude. */
+export const WAVE_UNIFORMS: readonly string[] = Array.from({ length: MAX_WAVES }, (_, i) => `mycoWave${i}`);
+/** The vec4 uniforms holding the waves' phases, four to a uniform. */
+export const PHASE_UNIFORMS: readonly string[] = Array.from({ length: MAX_WAVES / 4 }, (_, i) => `mycoPhase${i}`);
+
+/** The packed waves as the vec4 uniforms `GERSTNER_SHADER` reads (`WAVE_UNIFORMS`, `PHASE_UNIFORMS`), into `out`. */
+export function waveUniforms(packed: PackedWaves, out: Record<string, number[]> = {}): Record<string, number[]> {
+  const d = packed.data;
+  for (let i = 0; i < MAX_WAVES; i++) {
+    const o = i * WAVE_STRIDE;
+    const w = (out[WAVE_UNIFORMS[i]] ??= [0, 0, 0, 0]);
+    w[0] = d[o];
+    w[1] = d[o + 1];
+    w[2] = d[o + 2];
+    w[3] = d[o + 3];
+    (out[PHASE_UNIFORMS[i >> 2]] ??= [0, 0, 0, 0])[i & 3] = d[o + 4];
+  }
+  return out;
 }
-`;
+
+const PH = PHASE_UNIFORMS.flatMap((u) => ["x", "y", "z", "w"].map((c) => `UNI(${u}).${c}`));
+
+/**
+ * The wave sum in KSL: `mycoGerstner(px, pz, count)` at rest position (px, pz) over the first `count`
+ * waves of the uniforms, returning a matrix whose columns are the displacement, the tangent (∂P/∂x)
+ * and the binormal (∂P/∂z); the normal is binormal × tangent and the Jacobian `tx·bz − tz·bx`.
+ */
+export const GERSTNER_SHADER = shaderSource(/* KSL */ `
+${[...WAVE_UNIFORMS, ...PHASE_UNIFORMS].map((u) => `UNIFORM(KV4, ${u});`).join("\n")}
+FN(KM3, mycoGerstner, KF px, KF pz, KI count) {
+  VAR(KV4[${MAX_WAVES}], wv) = KV4[${MAX_WAVES}](${WAVE_UNIFORMS.map((u) => `UNI(${u})`).join(", ")});
+  VAR(KF[${MAX_WAVES}], ph) = KF[${MAX_WAVES}](${PH.join(", ")});
+  VAR(KV3, g) = KV3(0.0);
+  VAR(KV3, t) = KV3(1.0, 0.0, 0.0);
+  VAR(KV3, b) = KV3(0.0, 0.0, 1.0);
+  for (VAR(KI, i) = 0; i < ${MAX_WAVES}; i++) {
+    if (i >= count) { break; }
+    VAR(KV4, w) = wv[i];
+    VAR(KF, f) = w.z * (w.x * px + w.y * pz) - ph[i];
+    VAR(KF, c) = cos(f);
+    VAR(KF, s) = sin(f);
+    VAR(KF, st) = w.z * w.w;
+    g += KV3(w.x * w.w * c, w.w * s, w.y * w.w * c);
+    t += KV3(-w.x * w.x * st * s, w.x * st * c, -w.x * w.y * st * s);
+    b += KV3(-w.x * w.y * st * s, w.y * st * c, -w.y * w.y * st * s);
+  }
+  return KM3(g, t, b);
+}
+`);
 
 /** One evaluation of the wave sum at a rest position. */
 export interface GerstnerResult {
@@ -147,7 +164,7 @@ export function createGerstnerResult(): GerstnerResult {
   return { dx: 0, dy: 0, dz: 0, tx: 1, ty: 0, tz: 0, bx: 0, by: 0, bz: 1 };
 }
 
-/** The wave sum at rest position (px, pz): the CPU twin of `GERSTNER_BODY`. */
+/** The wave sum at rest position (px, pz): the CPU twin of `GERSTNER_SHADER`. */
 export function gerstner(packed: PackedWaves, px: number, pz: number, out: GerstnerResult = createGerstnerResult()): GerstnerResult {
   const d = packed.data;
   let gx = 0, gy = 0, gz = 0, tx = 1, ty = 0, tz = 0, bx = 0, by = 0, bz = 1;

@@ -121,12 +121,23 @@ export interface ImportSettingsContribution {
   readonly view: LoadComponent<ImportSettingsViewProps>;
 }
 
-/** What a file of an asset kind becomes in a scene (ADR 0140): node entries, the first one the root. */
+/**
+ * A node a contribution describes for the node insertion to add (ADR 0246): a node entry with no id, its parent
+ * named by its index among the templates before it. The insertion mints every id (the root's from its name, or the
+ * asset's file name; a descendant's from the root's id and its own name), names a root with no name and no `prefab`
+ * after the asset, makes root names unique among their siblings and places them.
+ */
+export interface NodeTemplate extends Omit<NodeEntry, "id" | "parent"> {
+  /** The index of its parent among the templates before it; absent for the root (the first). */
+  parent?: number;
+}
+
+/** What a file of an asset kind becomes in a scene (ADR 0140, 0246): node templates, the first one the root. */
 export interface AssetSceneNodes {
   /** Load what `nodes` needs to know first (a model's meshes). Never rejects. */
   prepare?(path: string): Promise<void>;
-  /** The entries to add, at `position` in the parent's space; the first is the root (selected), the rest its descendants. */
-  nodes(doc: SceneDocument, path: string, position?: readonly [number, number, number]): NodeEntry[];
+  /** The templates to add, at `position` in the parent's space; the first is the root (selected), the rest its descendants. */
+  nodes(path: string, position?: readonly [number, number, number]): NodeTemplate[];
   /**
    * Instances keep their own position (ADR 0143: prefabs and scenes): `nodes` gets a position only
    * when the add places them (a drop on the scene view), not from the Assets panel's +.
@@ -419,7 +430,7 @@ export interface ComponentHeaderActionContribution {
  * `after`; the menu item reads `Create ${label}` (`… Child` under a node).
  */
 export interface HierarchyCreateContribution {
-  /** The node kind's id, e.g. "particle-system": also what `createNode(scene, id)` takes. */
+  /** The node kind's id, e.g. "particle-system": also what the node insertion's `{ kind: "new", node }` source takes (ADR 0246). */
   readonly id: string;
   /** The menu label ("Particle System"). */
   readonly label: string;

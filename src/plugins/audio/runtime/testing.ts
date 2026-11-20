@@ -28,11 +28,10 @@
 // runtime evaluates on main), each the fake itself, as on the core. Each is a plain property a test sets to undefined for a
 // backend without it (the Babylon fallback has no `clock`; the pending backend has no `mix` or `capture`).
 
-import type { AudioBackend, AudioCaptureSource, AudioClipCache, AudioClock, AudioFrameMap, AudioLiveMix, AudioMixCaps, AudioPanner, Attenuation, AudioVoice, FadeLaw, ListenerPose, MusicAdmitResult, MusicBackend, MusicBackendCaps, MusicGroupEvent, MusicGroupRequest, MusicGroupStamp, PlayRequest, RecorderTap, VoiceSpatialOptions, ZoneIrService } from "./backend";
+import type { AudioBackend, AudioCaptureSource, AudioClipCache, AudioClock, AudioFrameMap, AudioLiveMix, AudioMixCaps, AudioPanner, Attenuation, AudioVoice, FadeLaw, ListenerPose, MusicAdmitResult, MusicBackend, MusicBackendCaps, MusicGroupEvent, MusicGroupRequest, MusicGroupStamp, MusicLifecycleEvent, AudioOutputDevice, BackendKeyframe, MusicBackendDebug, PlayRequest, RecorderTap, VoiceSpatialOptions, ZoneIrService } from "./backend";
 import type { AudioLatency } from "../../../engine/audio/musicTypes";
 import type { ApplyResult, MixOp } from "../../../engine/audio/mixOps";
 import { CORE_LIVE_CAPS } from "../../../engine/audio/busCapability";
-import type { KeyframePayload } from "./capture/format";
 import type { ProfileSink } from "./mix/profileSink";
 import { mixer, Mixer, type ResolvedBus } from "../../../engine/audio/mixer";
 import type { Vec3Like } from "../../../engine/core/math";
@@ -150,8 +149,8 @@ export interface FakeVoice extends AudioVoice {
 }
 
 /** The recorder's empty keyframe (`capture/recorder.ts` `EMPTY_KEYFRAME`, repeated so the fake doesn't load the recorder chunk). */
-const FAKE_EMPTY_KEYFRAME: KeyframePayload = Object.freeze({
-  voices: [], buses: [], metered: [], events: [], music: [],
+const FAKE_EMPTY_KEYFRAME: BackendKeyframe = Object.freeze({
+  voices: [], buses: [], metered: [], eventVoices: new Map<number, number>(),
   mix: Object.freeze({ slotTableVersion: 0, monitorActive: 0, loudnessPausedMask: 0, targetIndex: 0, snapshotName: 0, masterVolume: 1, hiddenMute: 0 }),
 });
 
@@ -190,6 +189,8 @@ export interface FakeBackend extends AudioBackend, AudioClipCache, AudioClock, A
   // ADR 0166 (Q2): the music seam, so the P rows' loopback tests run on the fake.
   /** The fake's `MusicBackend`; set it to undefined for a backend without music. */
   music: FakeMusicBackend | undefined;
+  /** ADR 0248: the output device (default undefined: none); a test sets one to report a sink or a device change. */
+  device: AudioOutputDevice | undefined;
   /** `beginFrame` calls so far (the `engine.AudioMusic` safety net counts them). */
   beginFrameCalls: number;
   /** The rAF time (ms) `timeAt` maps to `time`: `timeAt(p) = time + (p - rafTime) / 1000`. Default 0. */
@@ -220,7 +221,8 @@ interface FakeGroup {
 /**
  * ADR 0166 (Q2): the fake's `MusicBackend`. It records every call; `admitGroup` answers `admitResult`; a primed group is
  * whatever the test said with `setPrimed`; `stampGroup` plays each member through the fake backend (`play`, with the
- * stamp's `at`), so the voices show in `voices`; `emit` delivers a group event to `onGroupEvent`.
+ * stamp's `at`), so the voices show in `voices`; `emit` delivers a group event to `onGroupEvent`, `report` a lifecycle
+ * event to `onLifecycle` (ADR 0248: what the core reports of rebuilds, recoveries and the hidden tick).
  */
 export interface FakeMusicBackend extends MusicBackend {
   caps: MusicBackendCaps;
@@ -240,6 +242,8 @@ export interface FakeMusicBackend extends MusicBackend {
   setPrimed(group: number, primed?: number): void;
   /** Test hook: deliver `e` to `onGroupEvent`. */
   emit(e: MusicGroupEvent): void;
+  /** Test hook: deliver `e` to `onLifecycle`. */
+  report(e: MusicLifecycleEvent): void;
   /** Forgets the recorded calls and groups. */
   clear(): void;
 }
@@ -262,6 +266,7 @@ function makeFakeMusicBackend(backend: FakeBackend): FakeMusicBackend {
     ringPool: 0,
     primeEmaMs: 40,
     onGroupEvent: null,
+    onLifecycle: null,
     admitted: [],
     primes: [],
     stamps: [],
@@ -305,6 +310,20 @@ function makeFakeMusicBackend(backend: FakeBackend): FakeMusicBackend {
     },
     emit(e) {
       music.onGroupEvent?.(e);
+    },
+    report(e) {
+      music.onLifecycle?.(e);
+    },
+    debugView(): MusicBackendDebug {
+      const groupRows = [...groups].map(([id, g]) => {
+        const of = g.request.members.length;
+        return { id, state: "priming" as const, primed: Math.min(of, g.primed), of };
+      });
+      return {
+        poolUsed: 0, poolSize: music.ringPool, poolHighWater: 0, musicRingRefused: 0, groupTableFull: 0, encodedOverBudget: 0,
+        streamStartsLate: 0, groupsLate: 0, groupsHeld: 0, groupsAbandoned: 0, maxSlipFrames: 0, splitQuanta: 0, voiceSplits: 0, curvePoolFull: 0,
+        groups: groupRows,
+      };
     },
     clear() {
       for (const list of [music.admitted, music.primes, music.stamps, music.cancelled, music.released, music.protects] as unknown[][]) list.length = 0;
@@ -357,6 +376,7 @@ export function makeFakeBackend(): FakeBackend {
     frameMapValue: null,
     stampedRamps: false,
     music: undefined,
+    device: undefined,
     beginFrameCalls: 0,
     rafTime: 0,
     latencyValue: { base: 0, output: 0, limiter: 0, total: 0, reliable: false },

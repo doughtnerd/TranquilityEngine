@@ -2,10 +2,7 @@
 // `buildDebugInfo`, which reads the voice table, the status mirror, the mixer and the clip registry: nothing is
 // stored here, so every call is a fresh copy.
 import { buildMixDebug } from "../mix/mixDebug";
-import type { AudioBackground, AudioDebugInfo, AudioMixDebug,AudioMemoryDebug, AudioM3Counters, AudioStatus, AudioVoiceM3Debug, MusicDebugRow, MusicDebugState, MusicDebugTotals } from "../backend";
-import { ticksToPosition, spanAtTicks } from "../../../../engine/audio/musicGrid";
-import { playingGridOf, ticksAt } from "../music/anchors";
-import { musicCounterTotals, musicPlayers, type MusicPlayer, type MusicPlayerState } from "../music/musicSystem";
+import type { AudioBackground, AudioDebugInfo, AudioMixDebug,AudioMemoryDebug, AudioM3Counters, AudioStatus, AudioVoiceM3Debug } from "../backend";
 import type { Mixer } from "../../../../engine/audio/mixer";
 import { MAX_BUSES } from "../../../../engine/audio/settings";
 import { AUX_BUS_NONE } from "../wire.generated";
@@ -93,10 +90,10 @@ export interface DebugSource {
   /** The clock map, for §8's timing figures in `core` (A3.2); hand-built test sources may omit it. */
   readonly clockMap?: Pick<ClockMap, "lookaheadFrames" | "leadFrames" | "rampFrames" | "anchored" | "rejected" | "reanchors"> & Partial<Pick<ClockMap, "framesNow">>;
   /**
-   * ADR 0166 §1.6, C11 (Q2's hook; P10 builds `music` and `musicTotals` from it and the players, `music/musicSystem.ts`
-   * `musicPlayers()`): the core's side of music (pool, groups); absent in hand-built sources.
+   * F-16: a music member's stream clip (`musicOps.clipInfo`), for its voice row; absent in hand-built sources. The `music`
+   * rows and `musicTotals` are composed above the seam (ADR 0249, `audioRows.ts`).
    */
-  readonly musicOps?: Pick<CoreMusicOps, "debugView" | "primeEmaMs"> & Partial<Pick<CoreMusicOps, "clipInfo">>;
+  readonly musicOps?: Partial<Pick<CoreMusicOps, "clipInfo">>;
 }
 
 const clamp01 = (v: number): number => (Number.isFinite(v) ? (v < 0 ? 0 : v > 1 ? 1 : v) : 0);
@@ -271,8 +268,6 @@ export function buildDebugInfo(backend: DebugSource): AudioDebugInfo {
     ...bedRows(backend),
     ...m3Rows(backend, zoneRows),
     // `backend` names the backend the way babylonBackend does, so the panel can show it for either.
-    music: musicRows(backend),
-    musicTotals: musicTotals(backend),
     core: { backend: "core", hrtfReady: backend.hrtfReady, ...hrtf(backend), ...timing(backend), ...hostHealth(backend), ...health(backend), ...streamHealth(backend), ...automation(backend), ...ladder(backend) },
     // Cp2 (§1.3): the CPU figure the mirror's meter computed (`coreBackend.debug` sets the same object from `cpu()`).
     cpu: m.cpu.debug(),
@@ -519,116 +514,3 @@ function timing(backend: DebugSource): Record<string, number | boolean> {
   };
 }
 
-// --- ADR 0166 (P10): `music` rows and `musicTotals` (api-and-models §1.6, architecture §9) ------------------------------
-
-/** The player's lifecycle as the row's `state` (§1.6): a pending change still plays, so it reads `playing` with `pending` set. */
-function musicState(s: MusicPlayerState): MusicDebugState {
-  switch (s) {
-    case "playing":
-    case "pending":
-      return "playing";
-    case "transitioning":
-      return "transitioning";
-    case "recovering":
-      return "recovering";
-    case "stopping":
-    case "stopped":
-    case "refused":
-      return "ending";
-    default:
-      return "priming"; // starting, waiting, committed
-  }
-}
-
-/** One `MusicDebugRow` of a player, read at heard time `now`. Copies the counters, so a row is a snapshot. */
-function musicRow(p: MusicPlayer, now: number, groups: MusicView): MusicDebugRow {
-  const c = p.counters;
-  const a = p.anchor;
-  let bar = 1, beat = 1, tick = 0, tempo = 0, beatsPerBar = 0;
-  const pg = a ? playingGridOf(a) : null;
-  if (a && pg) {
-    const ticks = ticksAt(a, now);
-    const pos = Number.isFinite(ticks) ? ticksToPosition(pg.grid, ticks) : null;
-    if (pos) ({ bar, beat, tick } = pos);
-    const i = spanAtTicks(pg.grid, Number.isFinite(ticks) ? ticks : 0);
-    tempo = pg.grid.bpm[i]!;
-    beatsPerBar = pg.grid.beatsPerBar[i]!;
-  }
-  const t = p.transition;
-  const m = t?.match;
-  const groupIds = new Set<number>();
-  if (p.run && p.run.group) groupIds.add(p.run.group);
-  if (p.next && p.next.group) groupIds.add(p.next.group);
-  let ring = 0;
-  return {
-    id: p.instance.group,
-    asset: p.instance.path,
-    state: musicState(p.state),
-    segment: p.run?.node.id ?? null,
-    pass: a?.pass ?? 1,
-    bar, beat, tick, tempo, beatsPerBar,
-    time: now,
-    // Past T - L (`running`, `bridging`) the change is still on its way until it lands, as `handle.music.transition` says.
-    pending: t && m && t.state !== "done" && t.state !== "cancelled"
-      ? { to: t.to.id, time: pg && Number.isFinite(t.exitAt) ? positionText(pg.grid, ticksAt(a!, t.exitAt)) : "", rule: m.rule, ruleKey: m.ruleKey, tier: m.tier, parent: m.parent, exit: m.exit, enter: m.enter }
-      : null,
-    groups: groups.groups.filter((g) => groupIds.has(g.id)).map((g) => ({ id: g.id, state: g.state, primed: g.primed, of: g.of })),
-    // The pool index of a stem's ring isn't kept by main (the core allocates it); streamed stems number in order.
-    stems: (p.run?.stems ?? []).map((s) => ({ name: s.track, primed: s.primed, streamed: s.streamed, ring: s.streamed ? ring++ : null })),
-    primeLastMs: c.primeLastMs,
-    primeEmaMs: groups.primeEmaMs,
-    leadMs: c.leadMs,
-    replans: { ...c.replans },
-    refusals: { ...c.refusals },
-    lateGroups: c.lateGroups,
-    groupsHeld: c.groupsHeld,
-    groupTimeouts: c.groupTimeouts,
-    lastSlipFrames: c.lastSlipFrames,
-    recoveries: { ...c.recoveries },
-    missedBeats: c.missedBeats,
-    stingers: { ...c.stingers },
-  };
-}
-
-function positionText(grid: Parameters<typeof ticksToPosition>[0], ticks: number): string {
-  const pos = Number.isFinite(ticks) ? ticksToPosition(grid, ticks) : null;
-  return pos ? `${pos.bar}:${pos.beat}` : "";
-}
-
-type MusicView = { poolUsed: number; poolSize: number; poolHighWater: number; musicRingRefused: number; groups: readonly { id: number; state: MusicDebugRow["groups"][number]["state"]; primed: number; of: number }[]; primeEmaMs: number; groupTableFull?: number; encodedOverBudget?: number };
-
-/** The core's music view merged with Ê; an empty view when the source has no music ops. */
-function musicView(backend: DebugSource): MusicView {
-  const v = backend.musicOps?.debugView();
-  return { poolUsed: 0, poolSize: 0, poolHighWater: 0, musicRingRefused: 0, groups: [], primeEmaMs: backend.musicOps?.primeEmaMs ?? 0, ...v };
-}
-
-function musicRows(backend: DebugSource): MusicDebugRow[] {
-  const players = musicPlayers();
-  if (players.length === 0) return [];
-  const view = musicView(backend);
-  return players.map((p) => musicRow(p, backend.time, view));
-}
-
-function musicTotals(backend: DebugSource): MusicDebugTotals {
-  const m = backend.mirror;
-  const v = musicView(backend);
-  return {
-    poolUsed: v.poolUsed,
-    poolSize: v.poolSize,
-    poolHighWater: v.poolHighWater,
-    musicRingRefused: v.musicRingRefused,
-    streamStartsLate: m.header.streamStartsLate,
-    groupsLate: m.header.groupsLate,
-    groupsHeld: m.header.groupsHeld,
-    groupsAbandoned: m.header.groupsAbandoned,
-    maxSlipFrames: m.header.maxSlipFrames,
-    splitQuanta: m.header.splitQuanta,
-    voiceSplits: m.header.voiceSplits,
-    curvePoolFull: m.header.curvePoolFull,
-    groupTableFull: v.groupTableFull ?? 0,
-    encodedOverBudget: v.encodedOverBudget ?? 0,
-    // ADR 0220: main's own counters, summed over the session so they outlive the instances that counted them.
-    ...musicCounterTotals(),
-  };
-}

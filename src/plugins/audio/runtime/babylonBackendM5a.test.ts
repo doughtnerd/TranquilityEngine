@@ -9,6 +9,7 @@ import { parseAudioSettings } from "../../../engine/audio/settings";
 import { babylonMock, makeFakeContext } from "../testing/babylonMocks";
 import { setAudioBackend, type PlayRequest } from "./backend";
 import { BabylonBackend } from "./babylonBackend";
+import { KeyframeRows } from "./audioRows";
 import { decodeKeyframe, encodeKeyframe, keyframeBytes, readCaptureKeyframe, KEYFRAME_BUS_LANES, NO_NAME } from "./capture/format";
 import { NULL_PROFILE_SINK } from "./mix/profileSink";
 import { recordingSink } from "./mix/recordingSink";
@@ -181,15 +182,16 @@ describe("BabylonBackend keyframes from main's tables (§9, §5.5)", () => {
   };
   beforeEach(() => ids.clear());
 
+  /** The keyframe as a capture records it (ADR 0249: the backend's with the rows composed above the seam), encoded and decoded. */
   function roundTrip(b: BabylonBackend): ReturnType<typeof decodeKeyframe> {
-    const p = b.keyframe(nameId);
+    const p = new KeyframeRows(b, b).read(nameId, NO_NAME);
     const len = keyframeBytes(p);
     const view = new DataView(new ArrayBuffer(len));
     expect(encodeKeyframe(view, 0, p)).toBe(len);
     return decodeKeyframe(view, 0, len);
   }
 
-  it("lists the live voices, every bus's lanes, the events with voices and the mix, and encodes and decodes them", async () => {
+  it("lists the live voices, every bus's lanes, each event's voices and the mix, and encodes and decodes them", async () => {
     const b = newBackend();
     b.masterVolume = 0.5;
     b.play(req({ bus: "SFX", volume: 0.5, pitch: 2 }));
@@ -214,7 +216,9 @@ describe("BabylonBackend keyframes from main's tables (§9, §5.5)", () => {
     expect(music.lanes[4]).toBeCloseTo(0.5, 6); // snapshot lane value (after the 0 s snapshot's minimum ramp)
     expect(music.lanes[5]).toBeCloseTo(0.5, 6); // and its target
     expect(named.buses[SLOT.SFX]!.monitorSolo).toBe(true);
-    expect(named.events).toEqual([{ id: 7, asset: NO_NAME, voices: 1, paramsHash: 0 }]);
+    // The backend reports each event's voices; the rows are the event runtime's (group 7 is no event instance: no row).
+    expect(b.keyframe(nameId).eventVoices).toEqual(new Map([[7, 1]]));
+    expect(named.events).toEqual([]);
     expect(k.metered).toEqual([]);
     expect(k.music).toEqual([]);
     expect(named.mix).toMatchObject({ monitorActive: true, masterVolume: 0.5, hiddenMute: false, snapshot: nameId("snapshots", "Quiet") });

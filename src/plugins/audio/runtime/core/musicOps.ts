@@ -7,7 +7,7 @@
 // `musicRings` with the epoch check (R7), the gated PLAYs of a stamp, cancel, the instance's encoded-cache release, the
 // group events (STATUS `groupStarts`, starves, ends, errors, stream event 4), the member hooks below and Ê; **P9** (W5)
 // fills `reopenGroups` (a hard rebuild or a new worker hands music groups here, never to `reopenStreams`, C16).
-// **P10** reads `debugView` from `core/debug.ts` (the `DebugSource.musicOps` member) and doesn't edit this file.
+// `debugView` is the `MusicBackend`'s debug read; the row composer above the seam (`runtime/audioRows.ts`, ADR 0249) uses it.
 //
 // The hooks `coreBackend.ts` calls:
 // - `beginFrame()` from `CoreBackend.beginFrame` (step 0) and `frameAttenuate`: this frame's STATUS music sections and
@@ -44,17 +44,18 @@
 //   are freed quietly (no `end` events: nothing ended, the group moves), their rings return to the pool mirror, and the
 //   worker closes their streams (`cancelGroup`; the encoded cache stays, the worker outlives a core rebuild). Ê goes
 //   back to its seed (a new context), and the players re-plan their playing segment at the heard position
-//   (`recoverGroups`). The cause is `rate` when the context's rate changed since the last look, else `rebuild`.
+//   (reported as the lifecycle event `recover`, ADR 0248). The cause is `rate` when the context's rate changed since the
+//   last look, else `rebuild`.
 // - **Worker crash.** Every stream fails at once (`decoderClient.failStreams`): a stream error on a music member while
 //   the decoder's `generation` differs from the one the last `primeGroup` went to is a crash, not a stem failure.
 //   Nothing is done inside the client's handler: the next `beginFrame` drops every group (member voices still on the
 //   core take a 5 ms stop, decoded ones too, so the group re-enters whole), forgets which paths the worker held (its
 //   cache died with it), and recovers with cause `crash`.
-// - **Abandon.** A `groupStarts` abandon goes to the router first (which cancels the run), then its player goes to
-//   `groupAbandoned` and is recovered in the same `beginFrame` (`recoverAbandoned`).
-// - The music side gets a small `AudioBackend` view of this backend (`time`, `horizon`, `frameInterval`, `clockMap`,
-//   `music`): the frame it plans with outside the frame steps.
-import type { AudioBackend, MusicAdmitResult, MusicBackend, MusicBackendCaps, MusicGroupEvent, MusicGroupRequest, MusicGroupStamp, MusicPrimedState, AudioVoice, ShapedFade, FadeLaw as FadeLawName } from "../backend";
+// - **Abandon.** A `groupStarts` abandon is an ordinary group event; the music side re-plans its player (ADR 0248).
+// - **Reporting, not re-planning (ADR 0248).** musicOps never calls into `music/`: a recovery is the lifecycle event
+//   `recover` with its cause, a rebuild's begin and end (the session's `beginRecovery`, `endRecovery`,
+//   `recoveryFailed`) are `rebuild` events, and `music/background.ts` decides what to re-plan.
+import type { MusicAdmitResult, MusicBackend, MusicBackendDebug, MusicBackendCaps, MusicGroupEvent, MusicLifecycleEvent, MusicGroupRequest, MusicGroupStamp, MusicPrimedState, AudioVoice, ShapedFade, FadeLaw as FadeLawName } from "../backend";
 import type { CommandWriter, PlayArgs } from "./commandWriter";
 import type { ClockMap } from "./clock";
 import type { StatusMirror } from "./mirror";
@@ -66,13 +67,12 @@ import type { WarnOnce } from "./codecs";
 import type { ClipInfo, ClipRegistry } from "./clipRegistry";
 import type { CorePlayRequest, CoreVoice } from "./coreBackend";
 import { dryGainBeforeStem, effectiveDryGain } from "./voices";
-import { FadeLaw, packGate, packShape, SET_PARAMS_MASK_GAIN, SET_PARAMS_MASK_LP_HZ, StreamEvent } from "../wire.generated";
+import { packGate, packShape, SET_PARAMS_MASK_GAIN, SET_PARAMS_MASK_LP_HZ, StreamEvent } from "../wire.generated";
 import { hintFromName, MUSIC_ENCODED_BUDGET_MIB, type MusicReply, type PrimeGroupMember } from "../decoder/protocol";
 import type { StreamReply } from "../decoder/decoderClient";
 import { MUSIC_RINGS_PRESETS } from "../../../../engine/audio/settings";
-import { groupAbandoned, recoverAbandoned, recoverGroups } from "../music/background";
-import { liveRun } from "../music/segmentRun";
 import { asymmetricEmaStep } from "./asymmetricEma";
+import { fadeLawCode, fadeLawOfCode, fadeLawWeight } from "../fadeLaw";
 
 /** Ê's seed on a new context, milliseconds (architecture §4.1). */
 const PRIME_EMA_SEED_MS = 40;
@@ -133,22 +133,6 @@ export interface MusicOpsHost {
   setStemLevel(i: number, level: number, at: number | undefined, nowFrame: number, rampFrames: number, shape: number): void;
 }
 
-/** What `Audio.debug().music`/`musicTotals` read of the core's side (P10 builds the rows from it). P1 fills the values. */
-export interface MusicOpsDebugView {
-  /** Music rings in use, the pool size and the most ever in use at once. */
-  readonly poolUsed: number;
-  readonly poolSize: number;
-  readonly poolHighWater: number;
-  /** Stream event 4 (`musicFull`) count: a bug signal with main's admission (architecture §2.3). */
-  readonly musicRingRefused: number;
-  /** Admissions refused because the 16-entry group table was full (P10's `groupTableFull`). */
-  readonly groupTableFull: number;
-  /** Worker `musicWarn {encodedOverBudget}` replies received (F-5). */
-  readonly encodedOverBudget: number;
-  /** Live groups: id, state, primed members of `of`. */
-  readonly groups: readonly { readonly id: number; readonly state: "admitted" | "priming" | "stamped" | "playing" | "held" | "ending"; readonly primed: number; readonly of: number }[];
-}
-
 type GroupState = "admitted" | "priming" | "stamped" | "playing" | "held" | "ending";
 
 /** One member of a live group. */
@@ -193,23 +177,6 @@ interface Group {
   sampled: boolean;
 }
 
-/** The fade law's weight at phase `p` (0..1): the share of `to - from` the ramp has covered (main's estimate). */
-function lawWeight(law: number, p: number): number {
-  const q = p <= 0 ? 0 : p >= 1 ? 1 : p;
-  switch (law) {
-    case FadeLaw.SCurve:
-      return q * q * (3 - 2 * q);
-    case FadeLaw.EqualPowerIn:
-      return Math.sin((q * Math.PI) / 2);
-    case FadeLaw.EqualPowerOut:
-      return 1 - Math.cos((q * Math.PI) / 2);
-    default:
-      return q;
-  }
-}
-
-const LAW_CODE: Record<FadeLawName, number> = { linear: FadeLaw.Linear, sCurve: FadeLaw.SCurve, equalPowerIn: FadeLaw.EqualPowerIn, equalPowerOut: FadeLaw.EqualPowerOut };
-
 /** The encoded-cache budget for a pool size (D1a: by the preset whose ring count it is; between presets, the larger). */
 export function encodedBudgetBytes(rings: number): number {
   const mib = rings <= MUSIC_RINGS_PRESETS.low ? MUSIC_ENCODED_BUDGET_MIB.low : rings <= MUSIC_RINGS_PRESETS.default ? MUSIC_ENCODED_BUDGET_MIB.default : MUSIC_ENCODED_BUDGET_MIB.high;
@@ -224,6 +191,7 @@ export class CoreMusicOps implements MusicBackend {
     return this.host.musicRings();
   }
   onGroupEvent: ((e: MusicGroupEvent) => void) | null = null;
+  onLifecycle: ((e: MusicLifecycleEvent) => void) | null = null;
 
   private readonly groups = new Map<number, Group>();
   private readonly byStream = new Map<number, Member & { group: number }>();
@@ -246,26 +214,8 @@ export class CoreMusicOps implements MusicBackend {
   private primedGeneration = -1;
   /** P9: a crash noticed in the decoder's handler, recovered at the next `beginFrame`. */
   private crashPending = false;
-  /** P9: what the music side plans with outside the frame steps (see the header). */
-  private readonly view: AudioBackend;
-
   constructor(private readonly host: MusicOpsHost) {
     this.rate = host.sampleRate();
-    const clock = host.clockMap;
-    this.view = {
-      name: "core",
-      music: this,
-      clockMap: clock,
-      get time() {
-        return clock.audioTime();
-      },
-      horizon(): number {
-        const now = clock.framesNow();
-        if (!(now > 0)) return clock.audioTime();
-        return Math.ceil(now + clock.lookaheadFrames()) / clock.sampleRate + clock.timeOffset;
-      },
-      frameInterval: () => clock.frameIntervalMs / 1000,
-    } as unknown as AudioBackend;
   }
 
   /** Ê, milliseconds (architecture §4.2): the page-wide prime estimator, seeded at 40 on a new context. */
@@ -423,17 +373,12 @@ export class CoreMusicOps implements MusicBackend {
     const out = this.events.splice(0);
     const fn = this.onGroupEvent;
     if (!fn) return;
-    let abandons = false;
-    for (const e of out) {
-      // P9: the player whose group the core gave up on, looked up before the router releases the run.
-      const player = e.kind === "abandon" ? (liveRun(e.group)?.player ?? null) : null;
-      fn(e);
-      if (player) {
-        groupAbandoned(player, e.group);
-        abandons = true;
-      }
-    }
-    if (abandons) recoverAbandoned(this.view);
+    for (const e of out) fn(e);
+  }
+
+  /** ADR 0248: a hard rebuild began (`true`, the session's `beginRecovery`) or ended or failed (`false`). */
+  rebuilding(active: boolean): void {
+    this.onLifecycle?.({ kind: "rebuild", active });
   }
 
   ownsVoice(id: number): boolean {
@@ -527,7 +472,7 @@ export class CoreMusicOps implements MusicBackend {
     if (!t.isLive(id) || !this.host.sending()) return;
     const i = id & 0xffff;
     const clock = this.host.clockMap;
-    const law = LAW_CODE[f.law] ?? FadeLaw.Linear;
+    const law = fadeLawCode(f.law);
     const to = Math.min(4, Math.max(0, Number.isFinite(f.to) ? f.to : 0));
     const seconds = Number.isFinite(f.seconds) ? Math.max(0, f.seconds) : 0;
     const u0 = Math.min(1, Math.max(0, f.startPhase ?? 0));
@@ -561,7 +506,7 @@ export class CoreMusicOps implements MusicBackend {
     if (!hasGain && !hasLp) return;
     const i = id & 0xffff;
     const clock = this.host.clockMap;
-    const law = LAW_CODE[r.law ?? "linear"] ?? FadeLaw.Linear;
+    const law = fadeLawCode(r.law);
     const seconds = Number.isFinite(r.seconds) ? Math.max(0, r.seconds) : 0;
     const rampFrames = Math.round(seconds * clock.sampleRate);
     const stamp = r.at !== undefined && Number.isFinite(r.at) ? clock.stampFor(clock.frameOfTime(r.at)) : undefined;
@@ -591,7 +536,7 @@ export class CoreMusicOps implements MusicBackend {
       const end = t.stampedEnd[e]!;
       if (end <= at || end <= start) return t.stampedTo[e]!;
       const from = t.stampedFrom[e]!;
-      const w = lawWeight(t.stampedShape[e]! & 7, (at - start) / (end - start));
+      const w = fadeLawWeight(fadeLawOfCode(t.stampedShape[e]!), (at - start) / (end - start));
       return from + (t.stampedTo[e]! - from) * w;
     }
     return dry;
@@ -623,7 +568,7 @@ export class CoreMusicOps implements MusicBackend {
     this.detachAll(crash);
     // Events of the dead groups (ends, errors) would only confuse the router.
     this.events.length = 0;
-    recoverGroups(this.view, cause);
+    this.onLifecycle?.({ kind: "recover", cause });
   }
 
   /**
@@ -673,13 +618,25 @@ export class CoreMusicOps implements MusicBackend {
     return { id, path: m.path, state: "ready", refs: 1, frames: m.frames ?? 0, channels: 0, sampleRate: m.rate ?? 0, format: 0, bytes: 0, failure: null };
   }
 
-  debugView(): MusicOpsDebugView {
-    const groups: MusicOpsDebugView["groups"][number][] = [];
+  /**
+   * ADR 0249: the pool (rings in use, the pool size, the most ever in use; stream event 4 `musicFull` refusals; admissions
+   * refused at the 16-entry group table; the worker's `encodedOverBudget` warnings), the live groups, and the core's group
+   * counters from the newest STATUS header. The row composer above the seam builds `Audio.debug().music` from it.
+   */
+  debugView(): MusicBackendDebug {
+    const groups: MusicBackendDebug["groups"] = [];
     for (const g of this.groups.values()) {
       const s = this.primedState(g.id)!;
       groups.push({ id: g.id, state: g.state, primed: s.primed, of: s.of });
     }
-    return { poolUsed: this.ringsUsed, poolSize: this.host.musicRings(), poolHighWater: this.highWater, musicRingRefused: this.refusedRings, groupTableFull: this.tableFull, encodedOverBudget: this.encodedOverBudget, groups };
+    const h = this.host.mirror.header;
+    return {
+      poolUsed: this.ringsUsed, poolSize: this.host.musicRings(), poolHighWater: this.highWater, musicRingRefused: this.refusedRings,
+      groupTableFull: this.tableFull, encodedOverBudget: this.encodedOverBudget,
+      streamStartsLate: h.streamStartsLate, groupsLate: h.groupsLate, groupsHeld: h.groupsHeld, groupsAbandoned: h.groupsAbandoned,
+      maxSlipFrames: h.maxSlipFrames, splitQuanta: h.splitQuanta, voiceSplits: h.voiceSplits, curvePoolFull: h.curvePoolFull,
+      groups,
+    };
   }
 
   /** The backend was disposed: every group closes. */
@@ -690,6 +647,7 @@ export class CoreMusicOps implements MusicBackend {
     this.subscribed = null;
     this.events.length = 0;
     this.onGroupEvent = null;
+    this.onLifecycle = null;
   }
 
   // --- Internals ---
@@ -886,8 +844,9 @@ export class CoreMusicOps implements MusicBackend {
         const u0 = (shape >>> 16) / 65536;
         const p = u0 + (1 - u0) * ((at - start) / (end - start));
         // The ramp starts at law(u0): rescale so the covered share runs from law(u0) to 1.
-        const w0 = lawWeight(shape & 7, u0);
-        const w = lawWeight(shape & 7, p);
+        const law = fadeLawOfCode(shape);
+        const w0 = fadeLawWeight(law, u0);
+        const w = fadeLawWeight(law, p);
         level = from + (to - from) * (w0 >= 1 ? 1 : (w - w0) / (1 - w0));
       }
       break;

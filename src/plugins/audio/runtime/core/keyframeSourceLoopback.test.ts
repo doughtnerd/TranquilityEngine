@@ -2,6 +2,7 @@
 // host (the real wasm core, clip registry, shell and coreBackend). The payload `CoreBackend.keyframe` builds is compared with
 // the tables it reads: the voice rows with `Audio.debug()`'s voices, the bus rows with the mixer's lanes and the slot table,
 // the metered rows with the loudness hub's readings, the mix section with the mixer. Time is the loopback's rendered frames.
+// The keyframe is read as the capture reads it (ADR 0249: `KeyframeRows` over the backend's, adding the event and music rows).
 // Codes, flags and quantised fields are read back through the capture reader (`readCaptureKeyframe`, ADR 0230), not by bit.
 import { afterEach, describe, expect, it } from "vitest";
 import { Lane } from "../../../../engine/audio/mixer";
@@ -10,7 +11,7 @@ import { readCaptureKeyframe } from "../capture/format";
 import { NO_NAME } from "../capture/keyframeLayout";
 import { loudnessHub } from "../mix/loudnessHub";
 import { LOUD_OUTPUT_TAP } from "../wire.generated";
-import type { CoreBackend } from "./coreBackend";
+import { KeyframeRows } from "../audioRows";
 import { loopbackAudio, closeLoopbackAudio } from "../testing";
 
 const req = (path: string, extra: object = {}) => ({ path, url: path, loop: true, stream: false, bus: "SFX", ...extra });
@@ -31,7 +32,9 @@ async function rig(settings: AudioSettings) {
     return interned.get(key)!;
   };
   const nameOf = (table: string, id: number): string | undefined => [...interned].find(([k, v]) => v === id && k.startsWith(`${table}:`))?.[0].slice(table.length + 1);
-  return { backend, mixer, step, nameId, nameOf };
+  const rows = new KeyframeRows(backend, backend);
+  const keyframe = () => rows.read(nameId, NO_NAME);
+  return { backend, mixer, step, nameId, nameOf, keyframe };
 }
 
 const settingsWith = (patch: (s: AudioSettings) => void): AudioSettings => {
@@ -51,7 +54,7 @@ describe("CoreBackend.keyframe on the loopback host", () => {
     const c = r.backend.play(req("c.wav", { priority: 10, loop: false }))!;
     await r.step(12);
     await r.step(6);
-    const kf = r.backend.keyframe(r.nameId, NO_NAME);
+    const kf = r.keyframe();
     const debug = r.backend.debug();
     const live = debug.voices.filter((v) => v.state !== "stolen");
     expect(live.length).toBeGreaterThanOrEqual(3);
@@ -91,7 +94,7 @@ describe("CoreBackend.keyframe on the loopback host", () => {
     r.mixer.snapshot("Hush", 0); // snapshot lane
     r.mixer.setMonitor("SFX", { solo: true }); // monitor lane: the others read 0
     await r.step(16);
-    const kf = r.backend.keyframe(r.nameId, NO_NAME);
+    const kf = r.keyframe();
     const slots = r.backend.buses.slots.slots;
     const live = slots.map((s, i) => ({ s, i })).filter((x) => x.s.state === "live");
     expect(kf.buses.map((b) => b.slot)).toEqual(live.map((x) => x.i));
@@ -141,7 +144,7 @@ describe("CoreBackend.keyframe on the loopback host", () => {
     r.backend.masterVolume = 0.5;
     r.backend.play(req("a.wav"));
     await r.step(80); // a second or two of audio through the meters
-    const kf = r.backend.keyframe(r.nameId, NO_NAME);
+    const kf = r.keyframe();
     const sfxSlot = r.backend.buses.slots.slots.findIndex((s) => s.name === "SFX");
     expect(kf.metered.map((m) => m.slot)).toEqual([LOUD_OUTPUT_TAP, sfxSlot]);
     for (const m of kf.metered) {
@@ -165,11 +168,11 @@ describe("CoreBackend.keyframe on the loopback host", () => {
     if (!r) return ctx.skip();
     const a = r.backend.play(req("a.wav", { loop: false }))!;
     await r.step(6);
-    const first = r.backend.keyframe(r.nameId, NO_NAME);
+    const first = r.keyframe();
     const row = first.voices[0]!;
     expect(first.voices.map((v) => v.id)).toContain(a.id);
     await r.step(220); // 96,000 frames at 512 per step: it ends
-    const second = r.backend.keyframe(r.nameId, NO_NAME);
+    const second = r.keyframe();
     expect(second).toBe(first);
     expect(second.voices.find((v) => v.id === a.id)).toBeUndefined();
     expect(second.voices).toHaveLength(0);

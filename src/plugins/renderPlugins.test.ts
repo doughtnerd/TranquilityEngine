@@ -4,7 +4,8 @@
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
 import { getComponentClass } from "../engine/core/registry";
-import { ENVIRONMENT_SPEC, FOG_SPEC, LIGHTS_SPEC, PROBES_SPEC } from "../engine/render/babylon/features";
+import { PROBES_SPEC } from "../engine/render/babylon/features";
+import { FOG_SPEC } from "../engine/render/babylon/fog";
 import { Environment, MeshRenderer, PostProcessing, SpriteRenderer, Text } from "../engine/render/components";
 import { _registeredRenderFeatures, byPhase, type RenderFeatureSpec } from "../engine/render/renderFeatures";
 import { WaterSurface } from "../engine/render/water/WaterSurface";
@@ -30,10 +31,13 @@ const PARTICLES_SPEC = registeredSpec("particles");
 import { runtimeActivator } from "./runtimeContext";
 
 /** The renderer's own features, in its registration order (`BabylonRenderer`'s constructor). */
-const BUILTIN = [LIGHTS_SPEC, FOG_SPEC, ENVIRONMENT_SPEC, PROBES_SPEC];
+const BUILTIN = [FOG_SPEC, PROBES_SPEC];
 const names = (specs: readonly RenderFeatureSpec[]) => byPhase(specs).map((i) => specs[i].name);
-/** The order before ADR 0140 (and 0135): what every frame must keep syncing in. */
-const TODAY = ["sprites", "tilemaps", "meshes", "sky", "lights", "fog", "environment", "particles", "probes", "water", "ui"];
+/**
+ * The order every frame syncs in (ADR 0140, 0135). The lighting rig isn't a feature: it resolves after
+ * the `lighting` phase, whose features (fog, sky) only contribute to it, in either order (ADR 0252).
+ */
+const TODAY = ["sprites", "tilemaps", "meshes", "fog", "sky", "particles", "probes", "water", "ui"];
 
 afterEach(() => applyTestPlugins()); // as Vitest's setup file leaves it
 

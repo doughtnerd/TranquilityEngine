@@ -34,6 +34,7 @@ import { openLiveCapture } from "./reader";
 import { createRecorder, type EpochContext } from "./recorder";
 import { createEventSink, NO_NAME } from "./events";
 import { SAMPLE_RATE, liveHead } from "./testSupport";
+import { KeyframeRows } from "../audioRows";
 
 const RATE = 48_000;
 const QUANTUM = 128;
@@ -216,8 +217,9 @@ async function runScene(scene: Scene, armed: boolean): Promise<Result | null> {
   if (recorder && sink) {
     const tap = recorder.tap;
     tapNs = new Float64Array(frameCount + 16);
-    // The backend's own keyframe source (G7b, `keyframeSource.ts`), as `capture.ts` wires it.
-    recorder.setKeyframeSource(() => backend.keyframe((table, name) => sink.name(table, name), NO_NAME));
+    // The backend's own keyframe source (G7b, `keyframeSource.ts`) with the rows above the seam, as `capture.ts` wires it.
+    const rows = new KeyframeRows(backend, backend);
+    recorder.setKeyframeSource(() => rows.read((table, name) => sink.name(table, name), NO_NAME));
     backend.setProfileSink(sink);
     backend.recorderTap = (data, byteLength, view) => {
       const a = performance.now();

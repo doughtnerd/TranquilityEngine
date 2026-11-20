@@ -1,6 +1,6 @@
 # 0094. Particle systems compile to per-particle kernels that run on WebGPU compute, WebGL2 textures or JavaScript
 
-- **Status:** Proposed
+- **Status:** Proposed; partly superseded by 0251 (the clause keeping the legacy CPU simulation for what the kernel doesn't cover)
 - **Date:** 2026-11-07
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

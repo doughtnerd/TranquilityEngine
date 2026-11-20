@@ -33,6 +33,8 @@ import { writeSceneFile } from "./project";
 import type { EditorProject } from "./projects";
 import type { OpenScene } from "./state";
 import { readOnlyMessage } from "./readOnly";
+import { insertNodes } from "./nodeInsertion";
+import { DASHED, uniqueName } from "../engine/core/uniqueName";
 import { undoStep } from "./undoStep";
 
 /** A node inside a prefab instance, from the prefab file (nested prefabs included) and the instance's overrides. */
@@ -259,38 +261,6 @@ function applyOverride(prefab: SceneDocument, nodeId: string, inner: readonly st
   }
 }
 
-/** An id for a node added to an instance, not used by the prefab's nodes or the instance's other added ones. */
-function freeInnerId(doc: SceneDocument, instance: string, base: string): string {
-  const entry = doc.node(instance);
-  const used = new Set<string>();
-  const walk = (prefab: string, seen: Set<string>) => {
-    const file = prefabFile(prefab);
-    if (!file || seen.has(prefab)) return;
-    seen.add(prefab);
-    for (const n of file.nodes) {
-      used.add(n.id);
-      if (n.prefab) walk(n.prefab, seen);
-    }
-  };
-  if (entry.prefab) walk(entry.prefab, new Set());
-  for (const o of entry.overrides ?? []) for (const n of o.addNodes ?? []) used.add(n.id);
-  let id = base, k = 2;
-  while (used.has(id)) id = `${base}-${k++}`;
-  return id;
-}
-
-/**
- * Add a child node to a prefab instance as an `addNodes` override (ADR 0086), under the node at
- * `parentTarget` inside it (empty: the instance root). Returns the new node's path.
- */
-export function addInnerNode(open: OpenScene, instance: string, parentTarget: readonly string[], entry: Omit<NodeEntry, "id"> & { id?: string }): NodePath {
-  const id = freeInnerId(open.doc, instance, entry.id ?? "node");
-  const node: NodeEntry = { ...entry, id };
-  const o: OverrideEntry = { ...(parentTarget.length > 0 ? { target: [...parentTarget] } : {}), addNodes: [node] };
-  open.stack.execute(new SetOverrides(instance, `Add ${entry.name ?? id}`, [...(open.doc.node(instance).overrides ?? []), o]));
-  return [instance, id];
-}
-
 /**
  * Remove a node inside a prefab instance: one the instance added is dropped from its `addNodes`
  * override (with overrides aimed at it); one from the prefab gets a `removeNode` override, and
@@ -443,14 +413,7 @@ export async function createPrefabFromNodes(scene: OpenScene, project: EditorPro
   const broken = doc.references().filter((r) => !inside.has(r.path[0]) && inside.has(r.to));
   if (broken.length) throw new Error(`"${broken[0].path[0]}" references "${broken[0].to}", which would move into the prefab; only the prefab's root can be referenced from outside.`);
 
-  const used = new Set(doc.nodes.map((n) => n.id));
-  const fresh = (base: string) => {
-    let id = base, k = 2;
-    while (used.has(id)) id = `${base}-${k++}`;
-    used.add(id);
-    return id;
-  };
-  const rootId = fresh(prefabFileName(name));
+  const rootId = uniqueName(prefabFileName(name), (id) => inside.has(id), DASHED); // the file's own root, beside the copies
   const root: NodeEntry = { id: rootId, name, components: [{ type: "engine.Transform" }] };
   const nodes: NodeEntry[] = [root];
   for (const id of sorted) {
@@ -461,9 +424,12 @@ export async function createPrefabFromNodes(scene: OpenScene, project: EditorPro
   const path = newPrefabPath(project, name);
   await writeSceneFile(project, path, { format: doc.format, nodes });
   const index = order.indexOf(sorted[0]);
-  undoStep(stack, `Create prefab ${path.split("/").pop()}`, () => {
+  const label = `Create prefab ${path.split("/").pop()}`;
+  undoStep(stack, label, () => {
     for (const id of sorted) stack.execute(new RemoveNode(id));
-    stack.execute(new AddNode({ id: rootId, name, prefab: path }, { parent, index }));
+    // The instance takes the first node's place; the node insertion gives it its id (ADR 0246).
+    const made = insertNodes(scene, { kind: "template", nodes: [{ name, prefab: path }], label }, { kind: "into", key: parent, index });
+    if (!made.ok) throw new Error(made.reason);
   });
   return path;
 }

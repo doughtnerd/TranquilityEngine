@@ -6,6 +6,7 @@
  */
 import type { Vec3Like } from "../../../engine/core/math";
 import { mixer, type Mixer, type MixOpTarget, type ResolvedBus } from "../../../engine/audio/mixer";
+import type { MixOp } from "../../../engine/audio/mixOps";
 import type { AudioSettings } from "../../../engine/audio/settings";
 import { onAudioConfigured } from "../../../engine/core/audioConfigure";
 import type { AutomationSink } from "./events/automation";
@@ -13,12 +14,12 @@ import type { Curve } from "../../../engine/core/curve";
 import type { AudioLatency, MusicEventHandle } from "../../../engine/audio/musicTypes";
 import type { ProfileSink } from "./mix/profileSink";
 import type { KeyframePayload } from "./capture/format";
-import type { AudioDebugInfo, AudioMixCaps } from "./debugTypes";
+import type { AudioDebugInfo, AudioMixCaps, MusicBackendDebug } from "./debugTypes";
 import { PendingCoreBackend } from "./pendingBackend";
 import { onAudioSessionReleased } from "./audioSession";
 
 // The debug shape moved to `debugTypes.ts` (ADR 0179); every name stays importable from here.
-export type { AudioBedDebug, AudioCpuDebug, AudioDebugInfo, AudioM3Counters, AudioMemoryDebug, AudioMixCaps, AudioMixDebug, AudioMixSlotDebug, AudioOcclusionDebug, AudioRecorderDebug, AudioVoiceM3Debug, AudioZoneDebug, MusicDebugPending, MusicDebugRow, MusicDebugState, MusicDebugTotals } from "./debugTypes";
+export type { AudioBedDebug, AudioCpuDebug, AudioDebugInfo, AudioM3Counters, AudioMemoryDebug, AudioMixCaps, AudioMixDebug, AudioMixSlotDebug, AudioOcclusionDebug, AudioRecorderDebug, AudioVoiceM3Debug, AudioZoneDebug, MusicBackendDebug, MusicDebugPending, MusicDebugRow, MusicDebugState, MusicDebugTotals } from "./debugTypes";
 export { zeroCounters } from "./debugTypes";
 
 export type Rolloff = "linear" | "inverse" | "exponential";
@@ -160,6 +161,21 @@ export type MusicGroupEvent =
   | { kind: "refused"; group: number; member: number; reason: "musicFull" };
 
 /**
+ * ADR 0248: what happened to the backend that music must react to, reported up the seam (`MusicBackend.onLifecycle`).
+ * The backend reports; the music side alone decides what to re-plan (`music/background.ts`).
+ * - `rebuild`: a hard rebuild began (`active` true) or ended or failed (false). Rhythm mode holds beat callbacks meanwhile.
+ * - `recover`: every live group died with its core (a rebuild, a worker crash, a new rate): re-plan at the heard position.
+ * - `hidden`: the page became hidden (true) or visible; reported only where music keeps ticking while hidden.
+ * - `hiddenTick`: a STATUS block arrived while hidden (no frame step runs): tick the players now. The backend flushes
+ *   their batch after the call returns.
+ */
+export type MusicLifecycleEvent =
+  | { readonly kind: "rebuild"; readonly active: boolean }
+  | { readonly kind: "recover"; readonly cause: "rebuild" | "crash" | "rate" }
+  | { readonly kind: "hidden"; readonly hidden: boolean }
+  | { readonly kind: "hiddenTick" };
+
+/**
  * The backend's music operations (§4.6, C10). Absent on a backend without music: the player then plays nothing and
  * warns once. The core implements this in `core/musicOps.ts` (Q2 wires it, P1 fills it); the fallback in B1.
  */
@@ -187,8 +203,12 @@ export interface MusicBackend {
   readonly ringPool: number;
   /** Group and member events, delivered in `update()` after the status mirror is read. */
   onGroupEvent: ((e: MusicGroupEvent) => void) | null;
+  /** ADR 0248: rebuilds, recoveries and the hidden tick, as they happen (a backend without them never calls it). */
+  onLifecycle: ((e: MusicLifecycleEvent) => void) | null;
   /** Milliseconds: the page-wide prime estimator Ê (architecture §4.2), seeded at 40 on a new context. */
   readonly primeEmaMs: number;
+  /** ADR 0249: the pool, the live groups and the backend's own group counters, for `Audio.debug()`. Allocates; debug only. */
+  debugView(): MusicBackendDebug;
 }
 
 /**
@@ -475,11 +495,35 @@ export interface AudioCaptureSource {
   /** §5.6: the capture's event taps (Rc3); null restores the null object. */
   setProfileSink(sink: ProfileSink | null): void;
   /**
-   * §5.5 (G7b): the main-side state at this instant, for the capture's KEYFRAME (`capture.ts` hands the recorder
-   * `() => capture.keyframe(nameId, noName)`). `nameId` interns a clip, snapshot or event-asset name into the capture's NAMES
-   * tables (`EventSink.name`), `noName` is the id for none. The payload and its rows may be reused by the next call.
+   * §5.5 (G7b): the backend's main-side state at this instant, for the capture's KEYFRAME. ADR 0249: the row composer above
+   * the seam (`audioRows.ts` `KeyframeRows`, which `capture.ts` hands the recorder) adds the event and music sections.
+   * `nameId` interns a clip, snapshot or event-asset name into the capture's NAMES tables (`EventSink.name`), `noName` is the
+   * id for none. The payload and its rows may be reused by the next call.
    */
-  keyframe(nameId: (table: "clips" | "snapshots" | "events", name: string) => number, noName?: number): KeyframePayload;
+  keyframe(nameId: (table: "clips" | "snapshots" | "events", name: string) => number, noName?: number): BackendKeyframe;
+}
+
+/**
+ * ADR 0249: what a backend's keyframe reports: its voices, buses, meters and mix section, and how many of its voices each
+ * event instance has (event id to count, stolen voices left out), which keeps an instance's event row while its last voice
+ * is still listed (E3.9). The event and music rows come from above the seam.
+ */
+export interface BackendKeyframe extends Omit<KeyframePayload, "events" | "music"> {
+  readonly eventVoices: ReadonlyMap<number, number>;
+}
+
+/**
+ * ADR 0248: the output device the backend plays to, for what is kept per device (`Audio.calibration`, Rh2). Core and
+ * Babylon fallback both have it. The backend only reports; the layer above (`music/calibration.ts`) decides what to load.
+ */
+export interface AudioOutputDevice {
+  /** The sink the context outputs to ("" for the default device or where unsupported); null before there is a context. */
+  readonly outputSink: string | null;
+  /**
+   * Set by the layer above when the selector installs the backend. The backend calls it with the sink it now has once
+   * its context exists (`"opened"`, only if that happens after the install) and on each device event (`"changed"`).
+   */
+  onOutputDevice: ((sink: string, change: "opened" | "changed") => void) | null;
 }
 
 export interface AudioBackend {
@@ -519,6 +563,8 @@ export interface AudioBackend {
   readonly mix?: AudioLiveMix;
   /** ADR 0171: the capture's sources. Absent (the pending backend): `Audio.capture` isn't available yet. */
   readonly capture?: AudioCaptureSource;
+  /** ADR 0248: the output device. Absent (the pending backend, a fake): nothing is kept per device. */
+  readonly device?: AudioOutputDevice;
 }
 
 let backend: AudioBackend | null = null;
@@ -589,14 +635,62 @@ export function audioBackend(): AudioBackend {
       }
     }
     if (!make) throw new Error("No audio backend registered.");
-    backend = make();
-    backend.configureBuses(mixer);
-    backend.applyMix(mixer.resolveAll());
-    applyBackgroundSetting(backend);
-    mixer._setOpTarget(backend.mix?.mixOpTarget ?? null); // ADR 0171 (K0), 0175: `mixer.apply(op)` sends to the backend's target
+    const made = make();
+    backend = made;
+    install(made);
     mixer.onChange(() => backend?.applyMix(mixer.resolveAll()));
   }
   return backend;
+}
+
+// --- Above the seam (ADR 0248): what every installed backend gets once, whichever it is ---------------------------------
+
+const attachHooks: ((b: AudioBackend) => void)[] = [];
+const opSentHooks: ((op: MixOp) => void)[] = [];
+
+/**
+ * ADR 0248: `fn` runs on every backend the selector installs (`audioBackend()`, `setAudioBackend`; never the pending
+ * stand-in, whose sound moves to the real backend when the load settles), and at once on the installed one. The layers
+ * above the seam register on import (the music side binds its sinks, the calibration follows the output device), so no
+ * backend calls up into them.
+ */
+export function onAudioBackendAttached(fn: (b: AudioBackend) => void): void {
+  attachHooks.push(fn);
+  if (backend && !(backend instanceof PendingCoreBackend)) fn(backend);
+}
+
+/**
+ * ADR 0248: `fn` runs after the installed backend's live mix sent an op (`mixer.apply` reached `MixOpTarget.sendOp`), on
+ * every backend: the event runtime binds bus automation again after a `setAutomation`.
+ */
+export function onMixOpSent(fn: (op: MixOp) => void): void {
+  opSentHooks.push(fn);
+}
+
+/** The backend's live-mix target as the mixer sees it: the backend's own, then the hooks above the seam. */
+function opTargetOf(b: AudioBackend): MixOpTarget | null {
+  const inner = b.mix?.mixOpTarget;
+  if (!inner) return null;
+  return {
+    get liveCaps() {
+      return inner.liveCaps;
+    },
+    sendOp(op, cls) {
+      const r = inner.sendOp(op, cls);
+      for (const fn of opSentHooks) fn(op);
+      return r;
+    },
+    notSent: (r) => inner.notSent?.(r),
+  };
+}
+
+/** A backend becomes the page's: buses, mix, background mode, the live-mix target (ADR 0171 K0, 0175), then the hooks. */
+function install(next: AudioBackend): void {
+  next.configureBuses(mixer);
+  next.applyMix(mixer.resolveAll());
+  applyBackgroundSetting(next);
+  mixer._setOpTarget(opTargetOf(next));
+  for (const fn of attachHooks) fn(next);
 }
 
 let followingBackground = false;
@@ -616,12 +710,8 @@ function applyBackgroundSetting(target: AudioBackend): void {
 export function setAudioBackend(next: AudioBackend | null): void {
   backend?.dispose();
   backend = next;
-  if (next) {
-    next.configureBuses(mixer);
-    next.applyMix(mixer.resolveAll());
-    applyBackgroundSetting(next);
-  }
-  mixer._setOpTarget(next?.mix?.mixOpTarget ?? null); // ADR 0171 (K0), 0175: `mixer.apply(op)` sends to the backend's target (null: none)
+  if (next) install(next);
+  else mixer._setOpTarget(null);
 }
 
 /** The core load settled (registered, failed, or no longer wanted): the pending backend hands its sound to the real one. */
@@ -633,7 +723,7 @@ function settlePending(): void {
 }
 
 /** @internal Whether `audioBackend()` is the stand-in used while the core loads (the audio system, tests). */
-export const isPendingCoreBackend = (b: AudioBackend | null): boolean => b instanceof PendingCoreBackend;
+export const isPendingCoreBackend = (b: object | null): boolean => b instanceof PendingCoreBackend;
 
 /** @internal Whether a backend exists yet (the audio system skips work before first sound). */
 export const hasAudioBackend = (): boolean => backend !== null;

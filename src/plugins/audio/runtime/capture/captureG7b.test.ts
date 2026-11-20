@@ -4,7 +4,7 @@
 // fake's audio clock has reached, advanced by hand; the fallback's frame pump runs on faked intervals (no wall clock).
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Audio } from "../Audio";
-import { setAudioBackend } from "../backend";
+import { setAudioBackend, type BackendKeyframe } from "../backend";
 import { AUDIO_SERVICE, AudioWorldService } from "../core/service";
 import { mixer } from "../../../../engine/audio/mixer";
 import type { AudioHost } from "../core/context";
@@ -62,9 +62,9 @@ function rig(opts: { babylon?: boolean; keyframe?: boolean } = {}) {
       calls.push({ table: "clips", name: "jump.ogg" });
       return {
         voices: [{ id: 7, clip, slot: 2, state: 0, priority: 100, reason: 0, gain: 0.5, pitch: 4096, audibility: 0xffff, playheadFrames: version }],
-        buses: [], metered: [], events: [{ id: 3, asset: noName, voices: 1, state: 0, paramsHash: 0 }], music: [],
+        buses: [], metered: [], eventVoices: new Map([[3, 1]]),
         mix: { slotTableVersion: version, monitorActive: 0, loudnessPausedMask: 0, targetIndex: 0, snapshotName: noName, masterVolume: 1, hiddenMute: 0 },
-      } satisfies KeyframePayload;
+      } satisfies BackendKeyframe;
     };
   }
   setAudioBackend(fb);
@@ -128,7 +128,9 @@ describe("the backend's keyframe source reaches the recorder", () => {
       expect(k.payload.voices).toHaveLength(1);
       expect(k.payload.voices[0]!.id).toBe(7);
       expect(c.names.clips.get(k.payload.voices[0]!.clip)).toBe("jump.ogg");
-      expect(k.payload.events[0]!.id).toBe(3);
+      // ADR 0249: the event and music rows are the registries' (composed above the seam); no event instance plays here.
+      expect(k.payload.events).toEqual([]);
+      expect(k.payload.music).toEqual([]);
     }
     expect(r.calls).toHaveLength(kfs.length); // the source ran once per keyframe
     let names = 0;

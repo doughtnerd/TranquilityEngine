@@ -25,7 +25,7 @@ const state = (over: Partial<MenuState> = {}): MenuState => ({
   project: null,
   scene: null,
   history: over.scene ? history : null,
-  playing: false,
+  sceneEditBlocked: over.scene ? null : NO_SCENE,
   canOpenFolders: true,
   isDesktop: false,
   recent: [],
@@ -50,7 +50,7 @@ describe("menu bar", () => {
     const none = buildMenus(state({ project, scene, hasSelection: false }), actions());
     for (const l of ["Cut", "Copy", "Duplicate", "Delete"]) expect(item(none, "edit", l).disabled, l).toBe(NOTHING_SELECTED);
     expect(item(none, "edit", "Paste").disabled).toBeNull();
-    const playing = buildMenus(state({ project, scene, playing: true }), actions());
+    const playing = buildMenus(state({ project, scene, sceneEditBlocked: STOP_PLAYING }), actions());
     for (const l of ["Cut", "Paste", "Duplicate", "Delete"]) expect(item(playing, "edit", l).disabled, l).toBe(STOP_PLAYING);
   });
 
@@ -134,7 +134,7 @@ describe("menu bar", () => {
   it("editing commands need a scene, and not while playing", () => {
     const none = buildMenus(state(), actions());
     for (const l of ["Undo", "Redo", "Cut", "Copy", "Paste", "Duplicate", "Delete"]) expect(item(none, "edit", l).disabled, l).toBe(NO_SCENE);
-    const playing = buildMenus(state({ project, scene, playing: true }), actions());
+    const playing = buildMenus(state({ project, scene, sceneEditBlocked: STOP_PLAYING }), actions());
     for (const l of ["Cut", "Duplicate", "Delete"]) expect(item(playing, "edit", l).disabled, l).toMatch(/stop playing/);
     expect(item(playing, "edit", "Copy").disabled).toBeFalsy();
   });

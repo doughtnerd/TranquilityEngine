@@ -16,6 +16,7 @@ import { newScript } from "./newScript";
 import type { EditorProject } from "./projects";
 import { assetActions, type AssetActionTarget } from "./sdk/contributions";
 import { currentProject, status } from "./state";
+import { whyNotEdit } from "./editGate";
 
 /** What a command acts on: the entries right-clicked, or the panel's selection (`panelTarget`). */
 export interface AssetTarget {
@@ -33,7 +34,8 @@ export interface AssetMenuItem {
   readonly run: () => void;
 }
 
-const READ_ONLY = "this project is read-only";
+/** Why the project's files can't be written now (the edit gate, ADR 0247: a read-only project), or null. */
+const whyReadOnly = (project: EditorProject, toDo: string) => whyNotEdit({ kind: "project-files", project }, toDo);
 
 // ---- What the panel lists ----
 
@@ -139,7 +141,7 @@ export function whyNotAsset(id: AssetCommandId, target: AssetTarget): string | n
     case "rename":
       return whyNoFiles(entries) ?? (files.length > 1 ? "rename one at a time" : whyNotMovable(project, files));
     case "duplicate":
-      return whyNoFiles(entries) ?? (project.canSave ? null : READ_ONLY);
+      return whyNoFiles(entries) ?? whyReadOnly(project, "duplicate files");
     case "paste":
       return whyNotPaste(project, targetFolder(project, entries));
     case "delete":
@@ -211,7 +213,7 @@ export async function makeFolder(parent: string): Promise<void> {
  */
 export function assetCreateItems(target: AssetTarget): AssetMenuItem[] {
   const { project } = target;
-  const whyNot = project.canSave ? null : READ_ONLY;
+  const whyNot = whyReadOnly(project, "add files");
   const folder = targetFolder(project, target.entries);
   return [
     { label: "New Folder", whyNot, run: () => void makeFolder(folder) },
@@ -232,7 +234,7 @@ export function assetPluginItems(target: AssetTarget): AssetMenuItem[] {
   const { project } = target;
   const targets = actionTargets(target.entries);
   if (targets.length === 0) return [];
-  const readOnly = project.canSave ? null : READ_ONLY;
+  const readOnly = whyReadOnly(project, "change its files");
   return assetActions
     .list()
     .filter((a) => a.appliesTo(project, targets))

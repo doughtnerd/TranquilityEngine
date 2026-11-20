@@ -119,7 +119,7 @@ describe("Babylon fallback music: rhythm mode (§8 'Rhythm mode')", () => {
     expect(Audio.latency.reliable).toBe(false);
     const { player } = playingRun(musicSegment({ tempo: T120 }), 0, 0.5);
     beginRecovery(player);
-    updateBeatHolds(backend);
+    updateBeatHolds(backend.music!);
     expect(player.beats?.held ?? false).toBe(false);
     const fired = drive(player, [{ now: 0.49, interval: DT }], ["beat"]);
     expect(fired.length).toBe(1);

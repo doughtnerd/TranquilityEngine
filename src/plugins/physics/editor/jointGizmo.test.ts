@@ -5,11 +5,10 @@ import { jointTool } from "./jointGizmo";
 import type { EditorOverlay } from "../../../engine/editor";
 import { viewportTools } from "../../../editor/sdk/contributions";
 import { ARC_RADIUS, arcPoints, crossLines, jointWire, perpendicular, rotateAround, zigzag } from "./jointMath";
-import { createNode } from "../../../editor/nodeCreate";
 import { openSceneFile } from "../../../editor/project";
 import { openScene, playState } from "../../../editor/state";
 import { select } from "../../../editor/inspectorTarget";
-import { DEMO_SCENE, demoAssets, demoSettings, sceneViewTools } from "../../../editor/testing";
+import { DEMO_SCENE, demoAssets, demoSettings, insertNew, sceneViewTools } from "../../../editor/testing";
 
 const close = (a: readonly number[], b: readonly number[]) => a.forEach((v, i) => expect(v).toBeCloseTo(b[i], 6));
 
@@ -72,8 +71,8 @@ describe("joint overlay", () => {
 
   it("draws a hinge between two nodes, brighter when selected", () => {
     const scene = openScene.value!;
-    const a = createNode(scene, "empty", { position: [0, 0, 0] });
-    const b = createNode(scene, "empty", { position: [3, 0, 0] });
+    const a = insertNew(scene, "empty", { position: [0, 0, 0] });
+    const b = insertNew(scene, "empty", { position: [3, 0, 0] });
     expect(view.overlay().lines).toEqual([]);
     scene.stack.execute(new AddComponent(a, { type: "engine.HingeJoint", data: { anchor: [1, 0, 0], axis: [0, 1, 0], autoConfigureConnectedAnchor: false, connectedAnchor: [0, 0, 0], useLimits: true, limits: { min: -45, max: 45 } } }));
     scene.sync.nodeFor(a)!.getBehavior(HingeJoint)!.connectedBody = scene.sync.nodeFor(b)!; // object references aren't document fields here

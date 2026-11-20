@@ -182,9 +182,12 @@ export interface AudioDebugInfo {
   occlusion?: AudioOcclusionDebug;
   /** ADR 0162 §1.6 (K0): M3's fixed memory (filled by D5 from the core's preset). */
   memory?: AudioMemoryDebug;
-  /** ADR 0166 §1.6, C11 (Q0): one row per playing music instance (filled by P10; absent on a backend without music). */
+  /**
+   * ADR 0166 §1.6, C11: one row per playing music instance. ADR 0249: `Audio.debug()` adds them above the seam
+   * (`audioRows.ts`, from the players and `MusicBackend.debugView`); a backend leaves them out. Absent without music.
+   */
   music?: MusicDebugRow[];
-  /** ADR 0166 §1.6, C11 (Q0): engine-wide music totals (filled by P10). */
+  /** ADR 0166 §1.6, C11: engine-wide music totals (ADR 0249: added by `Audio.debug()` as `music` is). */
   musicTotals?: MusicDebugTotals;
   /** ADR 0171 §1.3 (K0; Dbg1): what the backend can do for the mix. Optional until Dbg1 gives every backend one. */
   mixCaps?: AudioMixCaps;
@@ -305,6 +308,13 @@ export interface MusicDebugTotals {
   recoveries: Record<string, number>;
   stingers: { played: number; late: number; skipped: number; dropped: number };
 }
+
+/**
+ * ADR 0249: what a music backend reports of itself (`MusicBackend.debugView`): the ring pool, the live groups and the
+ * backend's own group counters (the core's STATUS header; 0 where a backend keeps none). The row composer above the seam
+ * adds main's rows and session sums to make `Audio.debug().music` and `musicTotals`.
+ */
+export type MusicBackendDebug = Omit<MusicDebugTotals, "replans" | "refusals" | "recoveries" | "stingers"> & { groups: MusicDebugRow["groups"] };
 
 /** `AudioDebugInfo.counters`' fourteen base fields at zero: the start of a backend's counters where it has no core (the Babylon fallback, the pending backend, the fake). */
 export function zeroCounters(): AudioDebugInfo["counters"] {

@@ -20,13 +20,13 @@
 // vitest's fake timers.
 //
 // ADR 0166 P9 (architecture §3.8, ADR 0167 owner decision 5): music keeps its place while hidden under `play` and
-// `mute`. Each visibility change goes to `music/background.ts` (`noteHidden`), and while hidden under either mode the
-// controller listens to the host's STATUS (after the mirror applied it) and hands each block to `tickHidden`, which
-// ticks the music players and flushes their batch. A target without `music` (a fake) or a host without a link skips it.
-import type { AudioBackend, AudioBackground } from "../backend";
+// `mute`. The controller reports it up the music seam (ADR 0248), never calling into `music/`: each visibility change
+// under either mode is the lifecycle event `hidden`, and while hidden the controller listens to the host's STATUS (after
+// the mirror applied it) and reports each block as `hiddenTick`, then flushes the batch the music side made (no frame
+// will). A target without `music` (a fake) or a host without a link skips it.
+import type { AudioBackground, MusicBackend } from "../backend";
 import { classifyDeviceChange, INTERRUPTED_RETRY_MS, type DeviceSnapshot, type DeviceVerdict } from "./deviceChange";
 import { rebuild as rebuildCore, type RebuildOutcome, type RebuildReason } from "./recovery";
-import { noteHidden, tickHidden } from "../music/background";
 import { HiddenTabPolicy, MUTE_RAMP_MS } from "../hiddenTab";
 
 export { MUTE_RAMP_MS, PAUSE_RAMP_MS, PAUSE_SUSPEND_DELAY_MS } from "../hiddenTab";
@@ -55,6 +55,10 @@ export interface BackgroundTarget {
   hiddenMute(on: boolean, rampMs: number): void;
   /** Re-anchor the clock map (§3.8). */
   reanchor(): void;
+  /** ADR 0248: where the hidden-tab moments are reported (absent on fakes: no music). */
+  readonly music?: Pick<MusicBackend, "onLifecycle">;
+  /** Flushes the batch a hidden tick made (`CoreBackend.frameCommit`; absent on fakes). */
+  frameCommit?(): void;
 }
 
 /** What the controller needs of the `AudioHost`. */
@@ -190,17 +194,19 @@ export class BackgroundController {
 
   /** ADR 0166 P9: from here on each STATUS ticks the music players (see the header). */
   private startHiddenMusic(): void {
-    noteHidden(true);
-    const backend = this.target as Partial<AudioBackend>;
+    const music = this.target.music;
+    music?.onLifecycle?.({ kind: "hidden", hidden: true });
     const link = this.host.link;
-    if (!link || backend.music === undefined || this.offHiddenStatus !== null) return;
+    if (!link || music === undefined || this.offHiddenStatus !== null) return;
     this.offHiddenStatus = link.onStatus(() => {
-      if (this.hiddenNow && !this.disposed) tickHidden(backend as AudioBackend);
+      if (!this.hiddenNow || this.disposed) return;
+      music.onLifecycle?.({ kind: "hiddenTick" });
+      this.target.frameCommit?.();
     });
   }
 
   private stopHiddenMusic(): void {
-    noteHidden(false);
+    this.target.music?.onLifecycle?.({ kind: "hidden", hidden: false });
     this.offHiddenStatus?.();
     this.offHiddenStatus = null;
   }

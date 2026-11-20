@@ -1,7 +1,7 @@
 // A3.4b: the background controller on fakes (fake timers, a fake page, a fake host and target). The loopback file
 // (`backgroundLoopback.test.ts`) runs the same modes on the real core.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AudioBackground } from "../backend";
+import type { AudioBackground, MusicLifecycleEvent } from "../backend";
 import { BackgroundController, MUTE_RAMP_MS, PAUSE_RAMP_MS, PAUSE_SUSPEND_DELAY_MS, type BackgroundHost, type BackgroundTarget, type VisibilitySource } from "./background";
 import type { DeviceSnapshot } from "./deviceChange";
 import type { RebuildReason } from "./recovery";
@@ -155,6 +155,38 @@ describe("BackgroundController: visibility (§3.8)", () => {
     expect(target.calls).toEqual(["hidden:true", "hidden:false", "reanchor"]);
     expect(host.calls).toEqual([]);
     c.dispose();
+  });
+
+  it("reports the hidden tab up the music seam under play and mute, and flushes each hidden tick's batch (ADR 0248)", async () => {
+    for (const mode of ["play", "mute", "pause"] as const) {
+      const reported: MusicLifecycleEvent[] = [];
+      let commits = 0;
+      const link = { status: null as (() => void) | null, onStatus: (l: () => void) => ((link.status = l), () => void (link.status = null)) };
+      const status = (): void => link.status?.();
+      const page = new FakePage();
+      const host = Object.assign(new FakeHost(), { link });
+      const target = Object.assign(new FakeTarget(), {
+        backgroundMode: mode,
+        music: { onLifecycle: (e: MusicLifecycleEvent) => void reported.push(e) },
+        frameCommit: () => void commits++,
+      });
+      const c = new BackgroundController({ host, target, visibility: page }).start();
+      page.set(true);
+      status(); // two STATUS blocks while hidden
+      status();
+      page.set(false);
+      await vi.advanceTimersByTimeAsync(0);
+      status(); // visible again: nothing listens
+      if (mode === "pause") {
+        // Suspended: the music doesn't tick; only the show is reported.
+        expect(reported, mode).toEqual([{ kind: "hidden", hidden: false }]);
+        expect(commits, mode).toBe(0);
+      } else {
+        expect(reported, mode).toEqual([{ kind: "hidden", hidden: true }, { kind: "hiddenTick" }, { kind: "hiddenTick" }, { kind: "hidden", hidden: false }]);
+        expect(commits, mode).toBe(2);
+      }
+      c.dispose();
+    }
   });
 
   it("undoes what it applied even if the mode changed while hidden", async () => {

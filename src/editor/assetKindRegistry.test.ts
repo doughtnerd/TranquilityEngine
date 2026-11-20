@@ -38,7 +38,7 @@ describe("one kind through the asset kind module", () => {
     open: (path) => opened.push(path),
     referencedAs: ["spin"],
     preview: "material",
-    addToScene: { nodes: (doc, path) => [{ id: "spinner", components: [{ type: "engine.Transform", data: { note: path } }] }] },
+    addToScene: { nodes: (path) => [{ name: "Spinner", components: [{ type: "engine.Transform", data: { note: path } }] }] },
     importSettings: { view: async () => () => null },
   };
 
@@ -54,7 +54,7 @@ describe("one kind through the asset kind module", () => {
     expect(opened).toEqual(["a/x.spin.json"]);
     expect(opensInCodePanel("spin")).toBe(false);
     expect(canAddToScene("a/x.spin.json")).toBe(true);
-    expect(sceneNodesAt("a/x.spin.json")!.nodes(new SceneDocument({ format: "myco.scene@2", nodes: [] }), "a/x.spin.json")[0].id).toBe("spinner");
+    expect(sceneNodesAt("a/x.spin.json")!.nodes("a/x.spin.json")[0]!.name).toBe("Spinner");
     expect(kindImportSettings("spin")).toBe(spin.importSettings);
     expect(inspectedFor("a/x.spin.json")).toBe("a/x.spin.json");
     expect(previewOf("a/x.spin.json")).toBe("material");

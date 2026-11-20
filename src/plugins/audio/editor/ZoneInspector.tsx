@@ -6,14 +6,15 @@
 // impulse response doesn't exist.
 import { editor, type InspectorSectionProps } from "../../../editor/sdk";
 import type { AudioReverbZone } from "../runtime/AudioReverbZone";
-import { audioOfProject, zoneCostLine, zoneNotices, zoneReverbLine } from "./audioInspectorModel";
+import { zoneCostLine, zoneNotices, zoneReverbLine } from "./audioInspectorModel";
+import { audioSettings } from "./audioDraft";
 import "./audioInspectors.css";
 
 export function ZoneSection({ info }: InspectorSectionProps) {
   editor.project.version; // the settings and the file list (tracked)
   const zone = info.component as AudioReverbZone | null;
   if (!zone) return null;
-  const audio = audioOfProject(editor.project.current?.settings);
+  const audio = audioSettings.read(editor.project.current?.settings);
   const notices = zoneNotices(zone, audio, editor.project.current?.files ?? null);
   const cost = zoneCostLine(audio);
   return (

@@ -131,12 +131,15 @@ export const defaultSettings: ProjectSettings = {
   autoload: [],
 };
 
+/** A `physics` section as written, with the defaults for what it leaves out (no checks: `physicsBackendProblems` and the Physics section do those). */
+export const resolvePhysicsSettings = (physics: Partial<ProjectSettings["physics"]> | undefined): ProjectSettings["physics"] => ({ ...defaultSettings.physics, ...physics });
+
 export function resolveSettings(input: ProjectSettingsInput = {}): ProjectSettings {
   return {
     name: input.name ?? defaultSettings.name,
     display: { ...defaultSettings.display, ...input.display },
     time: { ...defaultSettings.time, ...input.time },
-    physics: { ...defaultSettings.physics, ...input.physics },
+    physics: resolvePhysicsSettings(input.physics),
     render: { ...defaultSettings.render, ...input.render },
     graphics: parseGraphics(input.graphics).graphics, // problems are reported by the Engine and the Project panel
     navigation: parseNavigationSettings(input.navigation).settings, // problems are reported by the Engine (`navigationSettingsProblems`) and the Project panel

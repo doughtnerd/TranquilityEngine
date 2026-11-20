@@ -1,6 +1,6 @@
 # 0147. The editor SDK gives plugins the project, status bar and scene through one `editor` object
 
-- **Status:** Proposed — built in the same change; amended by 0173 (`editor.project.settings`) and 0232 (`editor.scene.playWorlds`)
+- **Status:** Proposed — built in the same change; amended by 0173 (`editor.project.settings`), 0232 (`editor.scene.playWorlds`) 0246 (`editor.scene.uniqueId` and `idBase` removed) and 0247 (`editor.scene.edit`/`beginEdit` refuse while playing; `editor.scene.whyNotEdit`)
 - **Date:** 2026-11-09
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

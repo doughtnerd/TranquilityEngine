@@ -13,6 +13,7 @@ import { entryPath, isSliceEntry } from "./assetEntry";
 import { moveAssetsTo, whyNotMovable, whyNotMoveTarget } from "./assetOps";
 import { select } from "./inspectorTarget";
 import { currentProject, openScene, playState, sceneCamera, status, viewMode } from "./state";
+import { whyNotEdit } from "./editGate";
 import { eventWindow } from "./windows/dom";
 
 /** Pointer travel (CSS px) before pressing an asset tile becomes a drag. */
@@ -132,8 +133,8 @@ function problemFor(paths: readonly string[], target: AssetDropTarget): string |
   if (target.kind === "plugin") return null; // its own `accepts` and `label` decided (pluginTargetAt)
   if (target.kind === "folder") {
     const project = currentProject.value;
-    if (!project?.canSave) return "this project is read-only";
-    if (playState.value !== "edit") return "stop playing to move files";
+    const gate = whyNotEdit({ kind: "project-files", project, removes: true }, "move files"); // read-only, play (ADR 0247)
+    if (gate || !project) return gate ?? "open a project first";
     if (paths.some(isSliceEntry)) return "slices live in their image; move the image instead"; // ADR 0040
     return whyNotMoveTarget(paths, target.folder) ?? whyNotMovable(project, paths);
   }

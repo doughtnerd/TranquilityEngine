@@ -37,15 +37,8 @@ import { SkyBakeScheduler, skyLight } from "../../../sky/skyMath";
 import { Environment, Fog } from "../../components";
 import { SKY_BAKE_SHADER, SKY_SAMPLERS, SKY_SHADER, SKY_UNIFORMS } from "./skyShader";
 import { Graphics } from "../../Graphics";
+import type { LightingContributions } from "../lighting";
 import { packSkyUniforms, SKY_QUALITY, type SkyFrame } from "./skyUniforms";
-
-/** What the sky hands the lighting each frame. */
-export interface SkyLightingHooks {
-  /** The baked environment (null until the first bake is ready). */
-  setSkyEnvironment(texture: BaseTexture | null): void;
-  /** Drive the main directional light; null leaves the World's Lights as authored. */
-  setSunOverride(sun: { direction: readonly number[]; color: readonly number[]; intensity: number } | null): void;
-}
 
 /** Samples per texel when prefiltering a bake: a sky is smooth, so far fewer than a photo's 4096. */
 const PREFILTER_QUALITY = 256;
@@ -294,7 +287,8 @@ export class BabylonSky {
    */
   constructor(
     private readonly scene: Scene,
-    private readonly lighting: SkyLightingHooks,
+    /** The lighting rig it contributes its sun and bake to each frame (ADR 0252). */
+    private readonly lighting: LightingContributions,
     private readonly liveSky: (world: World) => LiveSky | null = () => null,
   ) {}
 
@@ -304,16 +298,16 @@ export class BabylonSky {
   }
 
   /**
-   * Step 8, before the lights sync: read the World's sky (its Environment's asset and the Sky
-   * component's time and changes), update the drawn sky, drive the main light, and decide on a bake.
+   * Step 8, in the `lighting` phase: read the World's sky (its Environment's asset and the Sky
+   * component's time and changes), update the drawn sky, and decide on a bake. It contributes its sun
+   * (when it drives the main light) and its current bake to the lighting rig, which resolves them after
+   * the phase (ADR 0252); without a sky it contributes nothing, and the rig's Lights stay as authored.
    */
   sync(world: World): void {
     this.path = worldSkyPath(world);
     this.ageTextures();
     if (!this.path) {
       this.drawable?.mesh.setEnabled(false);
-      this.lighting.setSunOverride(null);
-      this.lighting.setSkyEnvironment(null);
       if (this.current || this.pending) this.dropBakes();
       return;
     }
@@ -334,12 +328,11 @@ export class BabylonSky {
 
     if (settings.lighting.driveSunLight) {
       const rotated = env.rotation ? { ...settings, sun: { ...settings.sun, northOffset: settings.sun.northOffset + env.rotation } } : settings;
-      this.lighting.setSunOverride(skyLight(rotated, time));
-    } else this.lighting.setSunOverride(null);
+      this.lighting.contribute({ sun: skyLight(rotated, time) });
+    }
 
     if (!settings.lighting.bake) {
       if (this.current || this.pending) this.dropBakes();
-      this.lighting.setSkyEnvironment(null);
       return;
     }
     const requests = sky?._rebakes ?? 0;
@@ -353,7 +346,7 @@ export class BabylonSky {
     this.fogFrame = fogFrame;
     if (this.scheduler.update(performance.now() / 1000, settings, time)) this.wantBake = true;
     this.promote();
-    this.lighting.setSkyEnvironment(this.current);
+    this.lighting.contribute({ skyEnvironment: this.current });
   }
 
   private envRotation = 0;

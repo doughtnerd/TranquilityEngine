@@ -6,7 +6,7 @@
 // assets when a scene opens.
 import { editor, type EditorPlugin } from "../../../editor/sdk";
 import { particlesManifest } from "../manifest";
-import { PARTICLE_GRAPH_PANEL, particleNodeEntry } from "./particleAssets";
+import { PARTICLE_GRAPH_PANEL, particleSystemComponents } from "./particleAssets";
 import { migrateEmbeddedEffects } from "./particleMigration";
 import { installParticlePreview } from "./particlePreview";
 import { particleBlockFormat, particlesFormat, particleSubgraphFormat } from "./particleFormat";
@@ -35,7 +35,7 @@ export const particlesEditorPlugin: EditorPlugin = {
       create: { label: "New Particle Effect", what: "particle effects" },
       referencedAs: ["particles"],
       preview: "particles",
-      addToScene: { nodes: (doc, path, position) => [particleNodeEntry(doc, path, position)] },
+      addToScene: { nodes: (path, position = [0, 0, 0]) => [{ components: particleSystemComponents(position, `asset:${path}`) }] },
     });
     context.registerAssetKind({
       id: "particlesubgraph",
@@ -76,10 +76,7 @@ export const particlesEditorPlugin: EditorPlugin = {
       name: "Particle System",
       after: "reflection-probe",
       createAsset: () => editor.assets.create("particles", { name: "Particle System" }),
-      components: (position, effect) => [
-        { type: "engine.Transform", data: { position } },
-        { type: "engine.ParticleSystem", data: effect ? { effect } : {} },
-      ],
+      components: particleSystemComponents,
     });
     // The scene view's preview of the selected system (ADR 0057): kept in step on each scene view; its
     // controls float over the scene view.

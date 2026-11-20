@@ -22,6 +22,7 @@ import type { Scene } from "@babylonjs/core/scene.js";
 import type { ModelMesh } from "../../scene/models";
 import { KERNEL_FLOATS, LUT_SAMPLES, type KernelExecutor, type KernelSystem } from "../../scene/particleKernel";
 import { JsRun, type KernelDepth, type KernelHost, type KernelRun } from "../particles/gpu/kernelEffect";
+import type { ParticleRaycast } from "../particles/gpu/kernelSteps";
 import { DRAW_MODE, glslDraw, wgslDraw } from "../particles/gpu/kernelShader";
 import { STATE_WIDTH, WebGl2Run, supportsTextureKernels } from "../particles/gpu/webgl2Run";
 import { WebGl2Sorter, WebGpuSorter, depthRow, sortLayout, sortPairsJs } from "../particles/gpu/sort";
@@ -192,6 +193,8 @@ export class BabylonKernelHost implements KernelHost {
     private readonly sceneDepth: SceneDepth,
     /** Force an executor list (tests, benchmarks). */
     executors?: readonly KernelExecutor[],
+    /** The World's ray cast, for collider collision on the JavaScript executor. */
+    private readonly raycast?: ParticleRaycast,
   ) {
     this.engine = scene.getEngine();
     this.executors = executors ?? kernelExecutors(this.engine);
@@ -206,7 +209,7 @@ export class BabylonKernelHost implements KernelHost {
     const gl = glOf(this.engine);
     if (kind === "webgpu" && device) return new WebGpuBabylonRun(this.scene, device, kernel, this.sceneDepth);
     if (kind === "webgl2" && gl) return new WebGl2BabylonRun(this.scene, gl, kernel, this.sceneDepth);
-    return new JsBabylonRun(this.scene, kernel);
+    return new JsBabylonRun(this.scene, kernel, this.raycast);
   }
 }
 
@@ -444,8 +447,9 @@ class JsBabylonRun implements BabylonRun {
   constructor(
     private readonly scene: Scene,
     readonly kernel: KernelSystem,
+    raycast?: ParticleRaycast,
   ) {
-    this.run = new JsRun(kernel);
+    this.run = new JsRun(kernel, { raycast });
     const engine = scene.getEngine();
     this.webgpu = engine.isWebGPU;
     this.width = Math.min(STATE_WIDTH, kernel.capacity);
@@ -689,8 +693,8 @@ export class KernelDraw implements Draw {
       vd.indices = [0, 1, 2, 0, 2, 3];
     }
     vd.applyToMesh(this.mesh);
-    const fog = heightFogShader(webgpu ? "wgsl" : "glsl");
-    const shaderOpts = { soft: !!this.soft, sorted: this.sorted, fog: fog.decl };
+    const fog = heightFogShader();
+    const shaderOpts = { soft: !!this.soft, sorted: this.sorted, fog: fog.source.text(webgpu ? "wgsl" : "glsl") };
     const shaders = webgpu ? wgslDraw(kernel, output, shaderOpts) : glslDraw(kernel, output, shaderOpts);
     const uniforms = ["viewProjection", "view", "kcam", "kdraw", "kdraw2", "kdraw3", ...(this.trail ? ["ktrail"] : []), ...fog.uniforms, ...(this.soft ? ["ksoft"] : []), ...(webgpu ? [] : ["ku", "kw", ...(this.sorted ? ["kidxW"] : [])])];
     this.material = new ShaderMaterial(

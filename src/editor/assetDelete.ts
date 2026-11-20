@@ -13,7 +13,8 @@ import { errorStatus } from "./messages";
 import { askBeforeDeletingAssets } from "./preferences";
 import { isWithin, type EditorProject } from "./projects";
 import { reloadScripts } from "./session";
-import { currentProject, docVersion, openScene, openScenes, playState, scriptsVersion, status } from "./state";
+import { currentProject, docVersion, openScene, openScenes, scriptsVersion, status } from "./state";
+import { whyNotEdit } from "./editGate";
 import { confirmInEditor } from "./ui/ConfirmDialog";
 import { beginUndoStep } from "./undoStep";
 
@@ -32,12 +33,12 @@ function openPaths(openPath: string | readonly string[] | null): string[] {
 
 /** Why `path` can't be deleted from `project` right now, or null if it can. */
 export function whyNotDeletableAsset(project: EditorProject, path: string, openPath: string | readonly string[] | null): string | null {
-  if (!project.canSave) return "this project is read-only";
+  const gate = whyNotEdit({ kind: "project-files", project, removes: true }, "delete files"); // read-only, play (ADR 0247)
+  if (gate) return gate;
   if (path === "project.json") return "project.json defines the project";
   const [active, ...others] = openPaths(openPath);
   if (path === active) return "it's the scene open now; open another scene first";
   if (others.includes(path)) return "it's open in another scene tab; close that tab first";
-  if (playState.peek() !== "edit") return "stop playing first";
   if (!project.files.includes(path) && !project.scripts.has(path)) return "it's gone already";
   return null;
 }
@@ -49,13 +50,13 @@ export function filesIn(project: EditorProject, folder: string): string[] {
 
 /** Why the folder `path` can't be deleted (or moved) right now, or null if it can. */
 export function whyNotDeletableFolder(project: EditorProject, path: string, openPath: string | readonly string[] | null): string | null {
-  if (!project.canSave) return "this project is read-only";
+  const gate = whyNotEdit({ kind: "project-files", project, removes: true }, "delete files"); // read-only, play (ADR 0247)
+  if (gate) return gate;
   if (path === "") return "it's the project folder";
   const [active, ...others] = openPaths(openPath);
   if (active && isWithin(active, path)) return `it holds the scene open now (${active}); open another scene first`;
   const tab = others.find((p) => isWithin(p, path));
   if (tab) return `it holds a scene open in another tab (${tab}); close that tab first`;
-  if (playState.peek() !== "edit") return "stop playing first";
   if (!project.folders.includes(path)) return "it's gone already";
   return null;
 }

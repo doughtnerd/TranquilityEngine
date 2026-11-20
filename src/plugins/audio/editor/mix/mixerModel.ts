@@ -14,10 +14,10 @@
 // join in the view; the strip carries the fader value as the linear authored number and the meter as plain numbers.
 import { applyOpToDraft, applyOpToSettings, invert, type ApplyResult, type MixOp } from "../../../../engine/audio/mixOps";
 import type { AudioSettings, BusSettings } from "../../../../engine/audio/settings";
-import { audioSection } from "../../../../engine/audio/audioSection";
 import { EMPTY_BUS_LOUDNESS, type BusLoudness } from "../../../../engine/audio/loudnessTypes";
 import type { SettingsDraft } from "../../../../editor/sdk";
 import { recordMixOps } from "./opLog";
+import { audioSettings } from "../audioDraft";
 
 /** The authored fader range (`audio.buses[i].volume`, linear). */
 export const FADER_MIN = 0;
@@ -164,7 +164,6 @@ export interface MixerHost {
   setMonitor?(bus: string, controls: { mute?: boolean; solo?: boolean }): void;
 }
 
-const audioOf = (d: SettingsDraft): AudioSettings => audioSection(d.audio).settings;
 const volumeOp = (bus: string, value: number): MixOp => ({ op: "setBus", bus, key: "volume", value });
 
 interface Drag {
@@ -202,7 +201,7 @@ export function createMixerModel(host: MixerHost): MixerModel {
   /** Commit `op` as one section edit tagged with its ops and inverse, from the draft as it is now. False when it changes nothing. */
   function commitOp(label: string, op: MixOp): boolean {
     const d = host.draft();
-    const before = audioOf(d);
+    const before = audioSettings.read(d);
     if (applyOpToSettings(before, op) === before) return false;
     const inverse = invert(op, before);
     const next = applyOpToDraft(d, op);
@@ -216,7 +215,7 @@ export function createMixerModel(host: MixerHost): MixerModel {
     get dragging() { return open ? { bus: open.bus, value: open.value } : null; },
     beginDrag(bus) {
       if (open) return false;
-      const b = audioOf(host.draft()).buses.find((x) => x.name === bus);
+      const b = audioSettings.read(host.draft()).buses.find((x) => x.name === bus);
       if (!b) return false;
       open = { bus, start: b.volume, value: b.volume, previewed: false };
       return true;
@@ -246,7 +245,7 @@ export function createMixerModel(host: MixerHost): MixerModel {
       return commitOp(`Set ${bus} volume`, volumeOp(bus, clamp(value)));
     },
     toggleMute(bus) {
-      const b = audioOf(host.draft()).buses.find((x) => x.name === bus);
+      const b = audioSettings.read(host.draft()).buses.find((x) => x.name === bus);
       if (!b) return false;
       return commitOp(`${b.mute ? "Unmute" : "Mute"} ${bus}`, { op: "setBus", bus, key: "mute", value: !b.mute });
     },
@@ -254,7 +253,7 @@ export function createMixerModel(host: MixerHost): MixerModel {
       host.setMonitor?.(bus, { solo: !currentlyOn });
     },
     strips(read, meterOf) {
-      return buildStrips(audioOf(host.draft()), read, meterOf, open ? { bus: open.bus, value: open.value } : null);
+      return buildStrips(audioSettings.read(host.draft()), read, meterOf, open ? { bus: open.bus, value: open.value } : null);
     },
   };
 }

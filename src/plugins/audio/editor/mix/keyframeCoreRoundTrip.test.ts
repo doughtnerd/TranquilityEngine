@@ -13,6 +13,7 @@ import { createRecorder } from "../../runtime/capture/recorder";
 import { decodeRecordAt, openLiveCapture } from "../../runtime/capture/reader";
 import { SAMPLE_HEADER, SAMPLE_META } from "../../runtime/capture/testSupport";
 import { closeLoopbackAudio, loopbackAudio } from "../../runtime/testing";
+import { KeyframeRows } from "../../runtime/audioRows";
 import { CaptureSource } from "./profilerSource";
 import { inProcessWorker } from "./voiceSceneSupport";
 import { nameLookup, reconstructVoices } from "./voiceTableModel";
@@ -44,10 +45,11 @@ describe("a capture recorded on the core backend carries the real keyframe", () 
     const r = await rig(settings);
     if (!r) return ctx.skip();
     const { backend, mixer } = r;
-    // The real recorder and sink, wired as `capture.ts` wires them: the keyframe source is the backend's own.
+    // The real recorder and sink, wired as `capture.ts` wires them: the backend's keyframe through the row composer.
     const rec = createRecorder({ ringBytes: 8 * MiB });
     const sink = createEventSink(rec, { epochContext: () => ({ sampleRate: RATE, limiterLatencyFrames: 0, outputLatencyFrames: 0, timeOffset: 0, frame: backend.debug().core.currentFrame as number }) });
-    rec.setKeyframeSource(() => backend.keyframe((table, name) => sink.name(table, name), NO_NAME));
+    const keyframeRows = new KeyframeRows(backend, backend); // ADR 0249: the backend's keyframe plus the rows above the seam
+    rec.setKeyframeSource(() => keyframeRows.read((table, name) => sink.name(table, name), NO_NAME));
     sink.epoch("start");
     rec.attach(backend);
     backend.setProfileSink(sink);
@@ -121,7 +123,8 @@ describe("a capture recorded on the core backend carries the real keyframe", () 
     const { backend, mixer } = r;
     const rec = createRecorder({ ringBytes: 8 * MiB });
     const sink = createEventSink(rec, { epochContext: () => ({ sampleRate: RATE, limiterLatencyFrames: 0, outputLatencyFrames: 0, timeOffset: 0, frame: backend.debug().core.currentFrame as number }) });
-    rec.setKeyframeSource(() => backend.keyframe((table, name) => sink.name(table, name), NO_NAME));
+    const keyframeRows = new KeyframeRows(backend, backend); // ADR 0249: the backend's keyframe plus the rows above the seam
+    rec.setKeyframeSource(() => keyframeRows.read((table, name) => sink.name(table, name), NO_NAME));
     sink.epoch("start");
     rec.attach(backend);
     backend.setProfileSink(sink);

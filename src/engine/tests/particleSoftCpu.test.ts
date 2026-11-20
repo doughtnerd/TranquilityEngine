@@ -174,10 +174,10 @@ describe("soft CPU particles and particle height fog (ADR 0126)", () => {
   });
 
   it("keeps a ShaderMaterial's height-fog define in step with the scene", () => {
-    const fog = heightFogShader("glsl");
-    expect(fog.decl).toContain("mycoApplyHeightFog");
-    expect(heightFogShader("wgsl").decl).toContain("fn mycoHeightFogFactor");
-    const m = new ShaderMaterial("custom", scene, { vertexSource: "void main(){}", fragmentSource: `${fog.decl}void main(){}` }, { uniforms: fog.uniforms, defines: [] });
+    const fog = heightFogShader();
+    expect(fog.source.text("glsl")).toContain("mycoApplyHeightFog");
+    expect(fog.source.text("wgsl")).toContain("fn mycoHeightFogFactor");
+    const m = new ShaderMaterial("custom", scene, { vertexSource: "void main(){}", fragmentSource: `${fog.source.text("glsl")}void main(){}` }, { uniforms: fog.uniforms, defines: [] });
     useHeightFog(m, scene);
     expect(m.options.defines).not.toContain("#define MYCO_HEIGHT_FOG");
     setHeightFog(scene, FOG_ON);

@@ -35,7 +35,7 @@ export {
 } from "../../../engine/sky/skyFormat";
 export { SKY_PRESETS, skyPreset, type SkyPresetId } from "../../../engine/sky/presets";
 
-/** Reads Environment (the sky asset) and Sky; owns nothing to release. Before the lights: it may drive the sun. */
+/** Reads Environment (the sky asset) and Sky; owns nothing to release. Contributes its sun and bake to the lighting rig (ADR 0252). */
 const SKY_SPEC: RenderFeatureSpec = { name: "sky", phase: "lighting", types: [], lazy: false };
 
 export const skyRuntimePlugin: RuntimePlugin = {

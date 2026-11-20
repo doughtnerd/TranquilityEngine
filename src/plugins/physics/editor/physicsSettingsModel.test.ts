@@ -1,27 +1,27 @@
 import { describe, expect, it } from "vitest";
 import { settingsKeys, type SettingsDraft } from "../../../editor/projectSettingsModel";
 import { raw, readDraft } from "../../../editor/testing";
-import { addLayer, collides, physicsSettingsProblems, removeLayer, renameLayer, setCollides, setGravity } from "./physicsSettingsModel";
+import { addLayer, collides, physicsSettings, removeLayer, renameLayer, setCollides, setGravity } from "./physicsSettingsModel";
 
 // The Physics settings section's model (ADR 0038, 0151): project.json's `physics` key, which the section owns.
 
 const FLAPPY = raw["../../samples/flappy/project.json"];
 const flappy = () => readDraft(JSON.parse(FLAPPY), [...settingsKeys(), "physics"]);
-const messages = (d: SettingsDraft) => physicsSettingsProblems(d).map((p) => p.message);
+const messages = (d: SettingsDraft) => physicsSettings.problems(d).map((p) => p.message);
 
 describe("the Physics section's settings", () => {
   it("finds nothing wrong with the sample's physics", () => {
-    expect(physicsSettingsProblems(flappy())).toEqual([]);
+    expect(physicsSettings.problems(flappy())).toEqual([]);
   });
 
   it("reports duplicate layer names, too many layers and unknown layers in the matrix, by field", () => {
     expect(messages(renameLayer(flappy(), 2, "Player"))).toContain('Physics layers: "Player" is listed twice.');
-    expect(physicsSettingsProblems(renameLayer(flappy(), 2, "")).map((p) => p.field)).toContain("physics.layers.2");
+    expect(physicsSettings.problems(renameLayer(flappy(), 2, "")).map((p) => p.field)).toContain("physics.layers.2");
     let d = flappy();
     for (let i = 0; i < 11; i++) d = addLayer(d);
     expect(messages(d)).toContain("There can be at most 16 physics layers.");
     expect(messages({ physics: { layers: ["Default"], collisionMatrix: { Default: ["Ghost"] } } })).toEqual([expect.stringContaining('"Ghost"')]);
-    expect(physicsSettingsProblems({ physics: { gravity: [0] as never } }).map((p) => p.field)).toEqual(["physics.gravity"]);
+    expect(physicsSettings.problems({ physics: { gravity: [0] as never } }).map((p) => p.field)).toEqual(["physics.gravity"]);
   });
 
   it("edits the collision matrix as symmetric pairs, written under the earlier layer", () => {

@@ -1,6 +1,6 @@
 # 0179. The audio backend seam is required members plus capability objects
 
-- **Status:** Accepted, amended by 0224 (`AudioClock` gains the frame map)
+- **Status:** Accepted, amended by 0224 (`AudioClock` gains the frame map); partly superseded by 0249 (keyframe music and the event rows are composed above the seam for every backend)
 - **Date:** 2026-11-15
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

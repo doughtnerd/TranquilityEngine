@@ -1,10 +1,13 @@
 // F-26: `Audio.calibration` on the Babylon fallback is loaded per output device and re-keyed on a device event (Rh2).
+// ADR 0248: the fallback reports its output device (`AudioBackend.device`) and the selector's install wires the offset to
+// it, as for every backend.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mixer } from "../../../engine/audio/mixer";
 import { parseAudioSettings } from "../../../engine/audio/settings";
 import { MemoryStorage, Storage } from "../../../engine/platform/Storage";
 import { babylonMock, makeFakeContext } from "../testing/babylonMocks";
 import { BabylonBackend } from "./babylonBackend";
+import { setAudioBackend } from "./backend";
 import { getCalibration, isCalibrationStale, setCalibration } from "./music/calibration";
 
 /** Lets the calibration's storage read or write land (a few promise turns). */
@@ -41,8 +44,7 @@ let backends: BabylonBackend[] = [];
 async function start(ctx: ReturnType<typeof sinkContext>): Promise<BabylonBackend> {
   const backend = new BabylonBackend({ createContext: () => ctx as unknown as AudioContext, unlockTarget: new EventTarget(), hostContext: () => null, visibility: null });
   backends.push(backend);
-  backend.configureBuses(mixer);
-  backend.applyMix(mixer.resolveAll());
+  setAudioBackend(backend);
   // The context is created lazily, on the first sound.
   backend.music!.admitGroup({ instance: 1, group: 1, members: [{ stem: "a", play: { path: "a.wav", url: "asset://a.wav", loop: false, stream: false, bus: "Music", group: 1 }, startFrame: 0, loop: false }] });
   for (let i = 0; i < 6; i++) await new Promise<void>((r) => setTimeout(r, 0));
@@ -60,6 +62,7 @@ beforeEach(async () => {
   await Storage.save("audio.calibration.sinkB", { seconds: -0.02 }, "settings");
 });
 afterEach(() => {
+  setAudioBackend(null);
   for (const b of backends) b.dispose();
   backends = [];
   mixer.configure(pageSettings);
