@@ -1,8 +1,10 @@
-// ADR 0153: the effect player (render/babylon/effectPlayer.ts), one particle effect at one transform,
-// headless on Babylon's NullEngine. A World's ParticleSystems (babylonParticles.test.ts), the particle
-// graph editor's preview and the asset thumbnails (babylonPreviews.test.ts) all play through it.
+// ADR 0153, 0251: the effect player (render/babylon/effectPlayer.ts), one particle effect at one
+// transform, its systems on the JavaScript kernel executor, headless on Babylon's NullEngine. A World's
+// ParticleSystems (babylonParticles.test.ts), the particle graph editor's preview and the asset
+// thumbnails (babylonPreviews.test.ts) all play through it.
 import { NullEngine } from "@babylonjs/core/Engines/nullEngine.js";
-import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial.js";
+import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
+import type { ShaderMaterial } from "@babylonjs/core/Materials/shaderMaterial.js";
 import { RawTexture } from "@babylonjs/core/Materials/Textures/rawTexture.js";
 import { Scene } from "@babylonjs/core/scene.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -36,6 +38,9 @@ const oneShot = (name: string, count = 5, life = 0.2): ParticleEmitterSettings =
 
 const program = (effect: ParticleEffect): ParticleProgram => compileParticleGraph(migratedGraph(effect));
 
+/** The texture a player's first draw (the kernel's shader draw) shades with. */
+const textureOf = (p: EffectPlayer) => (p.draws[0].meshes[0].material as ShaderMaterial).getActiveTextures()[0];
+
 describe("the effect player (ADR 0153)", () => {
   let engine: NullEngine;
   let scene: Scene;
@@ -67,17 +72,16 @@ describe("the effect player (ADR 0153)", () => {
     expect(p.autoStart).toEqual([true, false]);
     const player = new EffectPlayer(make(), p, { name: "fx" });
     expect(player.build()).toBe(true);
+    // 30 a second each, counted exactly on the JavaScript executor: only A spawns until the event.
     for (let i = 0; i < 30; i++) player.step(1 / 60);
-    const [a, b] = player.sim!.emitters;
-    expect(a.count).toBeGreaterThan(0);
-    expect(b.count).toBe(0);
+    expect(player.count).toBe(15);
     player.event("boom");
     for (let i = 0; i < 30; i++) player.step(1 / 60);
-    expect(b.count).toBeGreaterThan(0);
+    expect(player.count).toBe(30 + 15);
     // A restart puts the event-started system back to waiting.
     player.restart();
     for (let i = 0; i < 30; i++) player.step(1 / 60);
-    expect(player.sim!.emitters[1].count).toBe(0);
+    expect(player.count).toBe(15);
     player.dispose();
   });
 
@@ -114,37 +118,43 @@ describe("the effect player (ADR 0153)", () => {
     resolve(spark);
     await loading;
     expect(waiting.build()).toBe(true);
-    expect(waiting.draws[0].systems[0].particleTexture).toBe(spark);
+    expect(textureOf(waiting)).toBe(spark);
 
     const failing = new EffectPlayer(res, program({ emitters: [steady("B", 30, { texture: "missing.png" })] }), { name: "fx" });
     expect(failing.build()).toBe(false);
     await new Promise((r) => setTimeout(r, 0));
     expect(failing.build()).toBe(true);
-    expect(failing.draws[0].systems[0].particleTexture).toBe(res.dotTexture());
+    expect(textureOf(failing)).toBe(res.dotTexture());
     expect(warnings.filter((w) => w.includes("missing.png"))).toHaveLength(1);
     waiting.dispose();
     failing.dispose();
   });
 
   it("draws with the texture until its material asset is there, then rebuilds with the material", () => {
-    let material: StandardMaterial | null = null;
+    let material: PBRMaterial | null = null;
     const res = make({ material: () => material });
     const player = new EffectPlayer(res, program({ emitters: [steady("A", 30, { material: "fx.mat" })] }), { name: "fx" });
     expect(player.build()).toBe(true);
-    expect(player.draws[0].kind).toBe("system"); // a Babylon particle system with the texture (the dot) and blending
+    expect(player.draws[0].kind).toBe("kernel"); // the kernel's shader draw with the texture (the dot) and blending
+    const first = player.draws[0];
     expect(player.build()).toBe(true); // nothing changed: no rebuild
-    material = new StandardMaterial("fx", scene);
+    expect(player.draws[0]).toBe(first);
+    material = new PBRMaterial("fx", scene);
     player.step(0.2);
     expect(player.build()).toBe(true);
-    expect(player.draws[0].kind).toBe("quads");
-    expect(player.draws[0].meshes[0].material).toBe(material);
+    expect(player.draws[0].kind).toBe("kernelMaterial");
+    expect(player.draws[0].meshes[0].material).toBeInstanceOf(PBRMaterial);
+    expect(player.draws[0].meshes[0].material).not.toBe(material); // its own copy
     expect(player.state).toBe("playing"); // the rebuild kept it playing
     player.dispose();
   });
 
   it("repeats a seeded effect exactly on every restart", () => {
     const fx = program({ emitters: [steady("A", 40)] });
-    const positions = (p: EffectPlayer) => p.sim!.emitters[0].pool.slice(0, p.sim!.emitters[0].count).map((q) => `${q.wx.toFixed(4)},${q.wy.toFixed(4)}`);
+    const positions = (p: EffectPlayer) => {
+      const pts = p.points();
+      return Array.from({ length: pts.length / 3 }, (_, i) => `${pts[i * 3].toFixed(4)},${pts[i * 3 + 1].toFixed(4)}`);
+    };
     const player = new EffectPlayer(make(), fx, { name: "fx", seed: 7 });
     player.build();
     for (let i = 0; i < 30; i++) player.step(1 / 30);

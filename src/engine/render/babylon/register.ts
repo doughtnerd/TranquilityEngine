@@ -32,7 +32,7 @@ import "@babylonjs/core/Engines/Extensions/engine.prefilteredCubeTexture.js"; //
 import "@babylonjs/core/Engines/Extensions/engine.uniformBuffer.js";
 import "@babylonjs/core/Engines/Extensions/engine.dynamicBuffer.js";
 import "@babylonjs/core/Engines/Extensions/engine.textureSelector.js";
-// Mesh methods: thin instances (mesh-mode particles, `particleMeshes.ts`).
+// Mesh methods: thin instances (layered quads, mesh batches, the warm-up).
 import "@babylonjs/core/Meshes/thinInstanceMesh.js";
 
 import { Effect } from "@babylonjs/core/Materials/effect.js";

@@ -156,9 +156,9 @@ describe("the Babylon material library (ADR 0127)", () => {
       const first = lib.texture("images/a.png");
       first.catch(() => undefined);
       expect(lib.texture("images/a.png")).toBe(first);
-      const sheet = lib.texture("images/a.png", "sheet");
-      sheet.catch(() => undefined);
-      expect(sheet).not.toBe(first);
+      const graph = lib.texture("images/a.png", "graphColor");
+      graph.catch(() => undefined);
+      expect(graph).not.toBe(first);
       expect(lib.loading() || lib.loadedTexture("images/a.png") instanceof Texture).toBe(true);
     });
 

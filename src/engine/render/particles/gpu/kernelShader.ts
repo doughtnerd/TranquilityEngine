@@ -1001,15 +1001,43 @@ fn main(input : VertexInputs) -> FragmentInputs {
  *
  * Textures: the state as four (kps0..kps3, `kpdraw3.y` wide) or, `interleaved`, one texture of four
  * texels per particle (kpst); the uniforms one row (kpu); the look-up table (kpl); the sorted pairs
- * (kpidx, `kpdraw3.z` wide) when `sorted`. Uniforms: `kpdraw` (mode, speed scale, length scale, tile
- * columns), `kpdraw3` (tile rows, state width, pairs width, unused), `kpcam` (camera position).
+ * (kpidx, `kpdraw3.z` wide) when `sorted`; a trail output's history (kphist: block b of the state
+ * layout holds each slot's point b, as the GLSL trail draw reads it). Uniforms: `kpdraw` (mode, speed
+ * scale, length scale, tile columns), `kpdraw3` (tile rows, state width, pairs width, unused), `kpcam`
+ * (camera position), `kptrail` (trails: the frame, unused ×2, the width's look-up row).
+ *
+ * A trail output's mesh is the strip `KernelDraw` draws (x the side ±0.5, y the point index): each
+ * vertex is placed on the ribbon through the particle's history (`k_trail`, ADR 0126), facing the camera.
  */
 export function materialVertexCode(kernel: KernelSystem, k: number, dialect: ShaderDialect, opts: { sorted: boolean; interleaved: boolean }): { definitions: string; update: string; worldPos: string } {
   const out = kernel.outputs[k];
   const wgsl = dialect === "wgsl";
   const u = (name: string) => (wgsl ? `uniforms.${name}` : name);
+  const trail = materialTrails(kernel, k);
+  const points = fl(kernel.trail ?? 0);
+  const rows = Math.ceil(kernel.capacity / Math.min(1024, kernel.capacity));
+  // The trail history: the k-th newest point of slot `k_slot`.
+  const hist = !trail
+    ? ""
+    : wgsl
+      ? `var kphist: texture_2d<f32>;
+var<private> k_slot: i32;
+fn k_hist(k: f32) -> vec4f {
+  let w = i32(${u("kpdraw3")}.y);
+  let f = ${u("kptrail")}.x - k;
+  let block = i32(f - floor(f / ${points}) * ${points});
+  return textureLoad(kphist, vec2i(k_slot % w, block * ${rows} + k_slot / w), 0);
+}`
+      : `uniform highp sampler2D kphist;
+int k_slot;
+vec4 k_hist(float k) {
+  int w = int(kpdraw3.y);
+  float f = kptrail.x - k;
+  int block = int(f - floor(f / ${points}) * ${points});
+  return texelFetch(kphist, ivec2(k_slot % w, block * ${rows} + k_slot / w), 0);
+}`;
   // The KSL helpers read uniforms as `ku[i]`; here they come from a texture row.
-  const body = ksl(GLOBALS + PRELUDE + outputKsl(out, dialect) + ORIENT, dialect).replace(/\bku\[([^\]]+)\]/g, "k_u($1)");
+  const body = ksl(GLOBALS + PRELUDE + outputKsl(out, dialect) + ORIENT + (trail ? TRAIL : ""), dialect).replace(/\bku\[([^\]]+)\]/g, "k_u($1)");
   const fetch = (tex: string, x: string, y: string) => (wgsl ? `textureLoad(${tex}, vec2i(${x}, ${y}), 0)` : `texelFetch(${tex}, ivec2(${x}, ${y}), 0)`);
   const state = opts.interleaved
     ? wgsl
@@ -1040,6 +1068,7 @@ export function materialVertexCode(kernel: KernelSystem, k: number, dialect: Sha
 fn k_u(i: i32) -> vec4f { return textureLoad(kpu, vec2i(i, 0), 0); }
 fn k_lutAt(row: i32, i: i32) -> vec4f { return textureLoad(kpl, vec2i(i, row), 0); }
 ${state}
+${hist}
 ${body}
 var<private> k_kpPos: vec3f;
 var<private> k_kpNormal: vec3f;
@@ -1056,8 +1085,15 @@ fn k_kpPlace(corner: vec3f, cornerNormal: vec3f, instance: u32) {
   let vw = scene.view;
   let right = vec3f(vw[0][0], vw[1][0], vw[2][0]);
   let up = vec3f(vw[0][1], vw[1][1], vw[2][1]);
-  let placed = k_orient(corner, right, up, ${u("kpcam")}.xyz, ${u("kpdraw")});
   let p = k_orientCentre();
+  ${
+    trail
+      ? `k_slot = i;
+  let placed = k_trail(corner.y, corner.x, ${points}, i32(${u("kptrail")}.w), ${u("kpcam")}.xyz, right);
+  k_kpPos = select(p, placed.xyz, placed.w > 0.5);
+  k_kpNormal = normalize(${u("kpcam")}.xyz - k_kpPos + vec3f(0.0, 0.000001, 0.0));
+  k_kpUV = k_tileUV(vec2f(1.0 - k_trailU, corner.x + 0.5), ${u("kpdraw")}, ${u("kpdraw3")}.x).xy;`
+      : `let placed = k_orient(corner, right, up, ${u("kpcam")}.xyz, ${u("kpdraw")});
   k_kpPos = select(p, placed.xyz, placed.w > 0.5);
   let co = cos(a3.y);
   let sn = sin(a3.y);
@@ -1066,13 +1102,15 @@ fn k_kpPlace(corner: vec3f, cornerNormal: vec3f, instance: u32) {
   } else {
     k_kpNormal = normalize(${u("kpcam")}.xyz - p + vec3f(0.0, 0.000001, 0.0));
   }
-  k_kpUV = k_tileUV(corner.xy + vec2f(0.5), ${u("kpdraw")}, ${u("kpdraw3")}.x).xy;
+  k_kpUV = k_tileUV(corner.xy + vec2f(0.5), ${u("kpdraw")}, ${u("kpdraw3")}.x).xy;`
+  }
 }
 `
     : `${textures}
 vec4 k_u(int i) { return texelFetch(kpu, ivec2(i, 0), 0); }
 vec4 k_lutAt(int row, int i) { return texelFetch(kpl, ivec2(i, row), 0); }
 ${state}
+${hist}
 ${body}
 vec3 k_kpPos;
 vec3 k_kpNormal;
@@ -1088,8 +1126,15 @@ void k_kpPlace(vec3 corner, vec3 cornerNormal, int instance) {
   k_outputStage();
   vec3 right = vec3(view[0][0], view[1][0], view[2][0]);
   vec3 up = vec3(view[0][1], view[1][1], view[2][1]);
-  vec4 placed = k_orient(corner, right, up, kpcam.xyz, kpdraw);
   vec3 p = k_orientCentre();
+  ${
+    trail
+      ? `k_slot = i;
+  vec4 placed = k_trail(corner.y, corner.x, ${points}, int(kptrail.w), kpcam.xyz, right);
+  k_kpPos = placed.w > 0.5 ? placed.xyz : p;
+  k_kpNormal = normalize(kpcam.xyz - k_kpPos + vec3(0.0, 0.000001, 0.0));
+  k_kpUV = k_tileUV(vec2(1.0 - k_trailU, corner.x + 0.5), kpdraw, kpdraw3.x).xy;`
+      : `vec4 placed = k_orient(corner, right, up, kpcam.xyz, kpdraw);
   k_kpPos = placed.w > 0.5 ? placed.xyz : p;
   float co = cos(a3.y);
   float sn = sin(a3.y);
@@ -1098,7 +1143,8 @@ void k_kpPlace(vec3 corner, vec3 cornerNormal, int instance) {
   } else {
     k_kpNormal = normalize(kpcam.xyz - p + vec3(0.0, 0.000001, 0.0));
   }
-  k_kpUV = k_tileUV(corner.xy + vec2(0.5), kpdraw, kpdraw3.x).xy;
+  k_kpUV = k_tileUV(corner.xy + vec2(0.5), kpdraw, kpdraw3.x).xy;`
+  }
 }
 `;
   const update = wgsl
@@ -1146,6 +1192,12 @@ vNormalW = normalize(normalUpdated);
 #endif
 `;
   return { definitions, update, worldPos };
+}
+
+/** Whether output `k` draws as a trail ribbon (a trail output of a system that keeps a history, ADR 0126). */
+export function materialTrails(kernel: KernelSystem, k: number): boolean {
+  const out = kernel.outputs[k];
+  return out?.type === "trail" && !!kernel.trail && !!out.trail;
 }
 
 /** Draw mode numbers (`kdraw.x`). */

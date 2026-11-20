@@ -1,13 +1,13 @@
-// Internal (ADR 0094): plays the kernel systems of one effect instance. Renderer-neutral: it spawns
-// on the CPU, writes each system's uniforms and look-up table, and asks a `KernelRun` (made by the
-// render backend: WebGPU compute, WebGL2 textures, or the JavaScript executor) to step the particles.
-import { HEADER_VEC4, LUT_SAMPLES, U, bakeLuts, writeBindings, type KernelExecutor, type KernelSystem } from "../../../scene/particleKernel";
+// Internal (ADR 0094, 0251): plays the kernel systems of one effect instance, every system of it.
+// Renderer-neutral: it spawns on the CPU, writes each system's uniforms and look-up table, and asks a
+// `KernelRun` (made by the render backend: WebGPU compute, WebGL2 textures, or the JavaScript executor)
+// to step the particles.
+import type { SpawnSettings } from "../../../scene/particleCompile";
+import { HEADER_VEC4, KERNEL_FLOATS, LUT_SAMPLES, U, bakeLuts, writeBindings, type KernelExecutor, type KernelSystem } from "../../../scene/particleKernel";
 import type { EvalContext } from "../../../scene/particleNodes";
-import type { ParticleEmitterSettings } from "../../../scene/particles";
-import type { LiveBox } from "../simulation";
 import { JsKernel } from "./kernelJs";
 import type { ParticleRaycast } from "./kernelSteps";
-import { KernelSpawner } from "./spawner";
+import { KernelSpawner, type LiveBox } from "./spawner";
 
 /** Camera data for depth collision (null when there's no depth texture). */
 export interface KernelDepth {
@@ -36,6 +36,8 @@ export interface KernelRun {
    * WebGPU with a dead list; null (or absent) where only the spawn estimate is known (WebGL2).
    */
   readonly alive?: number | null;
+  /** The particle state (`KERNEL_FLOATS` a slot) where the executor keeps it on the CPU (JavaScript), else null or absent. */
+  cpuState?(): Float32Array | null;
 }
 
 /** Makes runs: the render backend's part. */
@@ -57,6 +59,9 @@ export class JsRun implements KernelRun {
   }
   get alive(): number {
     return this.js.aliveCount;
+  }
+  cpuState(): Float32Array {
+    return this.js.state;
   }
   step(uniforms: Float32Array, lut: Float32Array | null, parent: KernelRun | null): void {
     this.js.uniforms.set(uniforms.subarray(0, this.js.uniforms.length));
@@ -86,7 +91,9 @@ interface SystemRun {
 }
 
 export interface KernelEffectOptions {
-  /** Live value lookup (the program runner's): emitter index, settings path. */
+  /** The executor each system runs on (ADR 0251: `chooseBackend`); default the host's best. The caller keeps an event child on its parent's. */
+  executor?: (kernel: KernelSystem) => KernelExecutor;
+  /** Live value lookup (the program runner's): system index, spawn settings path. */
   live?: (emitter: number, path: string) => LiveBox | undefined;
   random?: () => number;
   /** Per system: its own seed, else the effect's. */
@@ -104,16 +111,16 @@ export class KernelEffect {
 
   constructor(
     kernels: readonly KernelSystem[],
-    emitters: readonly ParticleEmitterSettings[],
+    spawns: readonly SpawnSettings[],
     private readonly host: KernelHost,
     options: KernelEffectOptions = {},
   ) {
     this.rnd = options.random ?? Math.random;
-    const kind = host.executors[0] ?? "js";
+    const best = host.executors[0] ?? "js";
     const byIndex = new Map<number, SystemRun>();
     for (const k of kernels) {
-      const settings = emitters[k.emitter];
-      const run = host.createRun(k, kind);
+      const settings = spawns[k.emitter];
+      const run = host.createRun(k, options.executor?.(k) ?? best);
       const sr: SystemRun = {
         kernel: k,
         run,
@@ -145,9 +152,9 @@ export class KernelEffect {
     return this.systems.find((s) => s.kernel.emitter === emitter);
   }
 
-  /** New baked settings (non-live bindings changed). */
-  setSettings(emitters: readonly ParticleEmitterSettings[]): void {
-    for (const s of this.systems) s.spawner.setSettings(emitters[s.kernel.emitter]);
+  /** New baked spawn settings (non-live bindings changed). */
+  setSettings(spawns: readonly SpawnSettings[]): void {
+    for (const s of this.systems) s.spawner.setSettings(spawns[s.kernel.emitter]);
   }
 
   /**
@@ -222,10 +229,13 @@ export class KernelEffect {
   }
 
   restart(): void {
+    this.time = 0;
     for (const s of this.systems) {
-      s.spawner.restart();
+      s.spawner.restart(true);
       s.run.clear();
       s.active = true;
+      s.frame = 0;
+      s.extra = 0;
     }
   }
 
@@ -271,6 +281,28 @@ export class KernelEffect {
 
   get emitting(): boolean {
     return this.systems.some((s) => !s.parent && s.active && s.spawner.emitting);
+  }
+
+  /**
+   * The world positions of the particles alive (x, y, z each) in the systems whose executor keeps its
+   * state on the CPU (the JavaScript executor); GPU executors' particles aren't read back.
+   */
+  points(): number[] {
+    const out: number[] = [];
+    for (const s of this.systems) {
+      const st = s.run.cpuState?.();
+      if (!st) continue;
+      const m = s.uniforms.subarray(U.matrix * 4, U.matrix * 4 + 16);
+      const local = s.kernel.space === "local";
+      for (let i = 0; i < s.kernel.capacity; i++) {
+        const o = i * KERNEL_FLOATS;
+        if (!(st[o + 7] > 0 && st[o + 3] < st[o + 7])) continue;
+        const [x, y, z] = [st[o], st[o + 1], st[o + 2]];
+        if (local) out.push(m[0] * x + m[4] * y + m[8] * z + m[12], m[1] * x + m[5] * y + m[9] * z + m[13], m[2] * x + m[6] * y + m[10] * z + m[14]);
+        else out.push(x, y, z);
+      }
+    }
+    return out;
   }
 
   dispose(): void {

@@ -1,7 +1,7 @@
 /**
  * Particle sub-graphs and custom blocks (ADR 0095). Both are assets that a particle graph uses by
- * reference and that are expanded (inlined) before compiling, so the CPU compiler and the kernel
- * compiler (ADR 0094) see one flat graph:
+ * reference and that are expanded (inlined) before compiling, so the compiler and its kernels
+ * (ADR 0094) see one flat graph:
  *
  * - a **sub-graph** (`*.particlesubgraph.json`, `myco.particlesubgraph@1`) is a group of operator
  *   nodes with named inputs and outputs, used as one `subgraph` node (its `settings.asset`);

@@ -63,7 +63,7 @@ describe("particle sub-graphs (ADR 0095)", () => {
     expect(graph.nodes.some((n) => n.type === "subgraph")).toBe(false);
     expect(g.nodes.some((n) => n.type === "subgraph")).toBe(true); // the input isn't changed
     const p = compileParticleGraph(graph);
-    expect(p.effect.emitters[0].emission.rateOverTime).toBe(30); // (5 + 10) × 2
+    expect(p.spawns[0].emission.rateOverTime).toBe(30); // (5 + 10) × 2
   });
 
   it("nests sub-graphs and reports missing ones", () => {
@@ -85,7 +85,7 @@ describe("particle sub-graphs (ADR 0095)", () => {
     g.edges.push({ from: "o.y", to: `${sys.id}.${rate.id}.rate` });
     const { graph, problems } = expandParticleGraph(g, (r) => (r === "asset:outer" ? outer : resolve(r)));
     expect(problems.map((x) => x.at)).toEqual(["gone"]);
-    expect(compileParticleGraph(graph).effect.emitters[0].emission.rateOverTime).toBe(12); // (4 + 2) × 2
+    expect(compileParticleGraph(graph).spawns[0].emission.rateOverTime).toBe(12); // (4 + 2) × 2
   });
 
   it("stops at self-reference", () => {
@@ -111,7 +111,7 @@ describe("custom blocks (ADR 0095)", () => {
     const types = graph.systems[0].update.blocks.map((b) => b.type);
     expect(types).toEqual(["update.gravity", "attribute.size"]);
     // The kernel runs it: size = 4 × age over lifetime.
-    const kp = compileParticleKernels(graph, compileParticleGraph(graph));
+    const kp = compileParticleKernels(graph);
     expect(kp.problems).toEqual([]);
     expect(kp.systems[0].needs).toContain("a Set Attribute block");
   });

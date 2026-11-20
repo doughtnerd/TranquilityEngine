@@ -1,5 +1,6 @@
-// ADR 0126: kernel outputs drawn with material assets (a PBR copy with a placement plugin), and kernel
-// emitters in the scene warm-up (ADR 0080). On Babylon's NullEngine, where the executor is JavaScript.
+// ADR 0126, 0251: kernel outputs drawn with material assets (a PBR copy with a placement plugin), trails
+// included, and kernel systems in the scene warm-up (ADR 0080). On Babylon's NullEngine, where the
+// executor is JavaScript.
 import { TargetCamera } from "@babylonjs/core/Cameras/targetCamera.js";
 import { NullEngine } from "@babylonjs/core/Engines/nullEngine.js";
 import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
@@ -112,11 +113,50 @@ describe("kernel outputs with material assets, and kernel warm-up (ADR 0126)", (
     engine.dispose();
   });
 
-  it("compiles material outputs as supported, but reports them on trails", () => {
+  it("compiles material outputs, trails included, with nothing to report", () => {
     const g = graph("materials/fx.material.json", { trail: true });
     g.systems[0].extraOutputs![0].settings.material = "materials/fx.material.json";
-    const kp = compileParticleKernels(g, compileParticleGraph(g));
-    expect(kp.systems[0].unsupported).toEqual(["material asset on a trail output"]);
+    expect(compileParticleKernels(g).problems).toEqual([]);
+    expect(compileParticleGraph(g).problems).toEqual([]);
+  });
+
+  it("draws a trail output with its material's copy: the strip, placed along each particle's history (ADR 0251)", async () => {
+    const g = graph("", { trail: true });
+    const trail = g.systems[0].extraOutputs![0];
+    trail.settings.material = "materials/fx.material.json";
+    trail.settings.softness = 0.5;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const c = fakeSystem(g);
+    for (let i = 0; i < 5; i++) player.sync([c], 1 / 30, 1 / 30);
+    expect(warn.mock.calls.some(([m]) => /texture/.test(String(m)))).toBe(false); // no fallback to the texture
+    warn.mockRestore();
+    const mesh = scene.meshes.find((m) => m.name.endsWith(":1")) as Mesh;
+    expect(mesh.material).toBeInstanceOf(PBRMaterial);
+    expect(mesh.material).not.toBe(material);
+    expect(mesh.getTotalVertices()).toBe(16); // a pair of vertices for each of the 8 history points
+    expect(mesh.forcedInstanceCount).toBe(64);
+    const plugin = placement(mesh);
+    expect(bound(plugin, scene)).toContain("kphist"); // the history, as blocks of the state layout
+    expect(mesh.material!.pluginManager!.getPlugin("MycoSoftParticles")).toBeTruthy(); // soft, as the shader draw's trails
+    const t = await shaderText(mesh.material!, mesh);
+    expect(t.vertex).toContain("k_trail(corner.y, corner.x, 8.0");
+    expect(t.vertex).toContain("uniform highp sampler2D kphist;");
+    // The quad output keeps its own placement (no history).
+    const quad = scene.meshes.find((m) => m.name.endsWith(":0")) as Mesh;
+    expect(quad.material).toBeInstanceOf(ShaderMaterial);
+  });
+
+  it("splices trail placement into both shading languages", () => {
+    const g = graph("", { trail: true });
+    const k = compileParticleKernels(g).systems[0];
+    for (const dialect of ["wgsl", "glsl"] as const) {
+      const code = materialVertexCode(k, 1, dialect, { sorted: true, interleaved: dialect === "wgsl" });
+      expect(code.definitions).toContain("k_hist(");
+      expect(code.definitions).toContain("kphist");
+      expect(code.definitions).toMatch(/k_trail\(corner\.y, corner\.x/);
+      expect(code.definitions).not.toMatch(/\bku\[/);
+      expect(materialVertexCode(k, 0, dialect, { sorted: true, interleaved: false }).definitions).not.toContain("kphist");
+    }
   });
 
   it("draws a kernel output with an unshared copy of a PBR material carrying the placement plugin", () => {
@@ -154,7 +194,7 @@ describe("kernel outputs with material assets, and kernel warm-up (ADR 0126)", (
 
   it("splices placement code into both shading languages, with a define that differs per output", async () => {
     const g = graph("m");
-    const k = compileParticleKernels(g, compileParticleGraph(g)).systems[0];
+    const k = compileParticleKernels(g).systems[0];
     const wgsl = materialVertexCode(k, 0, "wgsl", { sorted: true, interleaved: true });
     expect(wgsl.definitions).toContain("kpst");
     expect(wgsl.definitions).toContain("kpidx");
@@ -182,11 +222,10 @@ describe("kernel outputs with material assets, and kernel warm-up (ADR 0126)", (
     expect(kernelDefine(a.defines)).not.toBe(kernelDefine(b.defines));
   });
 
-  it("warms kernel emitters' own draws (and pipelines) besides the CPU ones", () => {
+  it("warms kernel systems' draws (and pipelines)", () => {
     material = null;
     const effect = graphJSON(graph("", { trail: true }));
-    const parts = player.warm(effect, "warm:fx", { x: 0, y: 0, z: 0 }, camera)!;
-    expect(parts.systems).toHaveLength(0); // no CPU draw for the kernel system
+    const parts = player.warm(effect, "warm:fx", camera)!;
     expect(parts.meshes).toHaveLength(2); // the quad output and the trail
     for (const m of parts.meshes) expect(m.forcedInstanceCount).toBe(64);
     const meshes = scene.meshes.length;
@@ -195,7 +234,7 @@ describe("kernel outputs with material assets, and kernel warm-up (ADR 0126)", (
   });
 
   it("warms a material-asset kernel output with its material copy", () => {
-    const parts = player.warm(graphJSON(graph("materials/fx.material.json")), "warm:fx", { x: 0, y: 0, z: 0 }, camera)!;
+    const parts = player.warm(graphJSON(graph("materials/fx.material.json")), "warm:fx", camera)!;
     expect(parts.meshes).toHaveLength(1);
     expect(parts.meshes[0]!.material?.pluginManager?.getPlugin("MycoKernelParticles")).toBeTruthy();
     parts.dispose();

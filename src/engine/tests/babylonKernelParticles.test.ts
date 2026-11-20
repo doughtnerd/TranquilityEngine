@@ -1,5 +1,5 @@
-// ADR 0094: kernel particle systems in the World player (render/babylon/particles.ts), on Babylon's
-// NullEngine, where the only executor is JavaScript. The GPU executors are compared with it in a
+// ADR 0094, 0251: kernel particle systems in the World player (render/babylon/particles.ts), every
+// system of them, on Babylon's NullEngine, where the only executor is JavaScript. The GPU executors are compared with it in a
 // browser (`npm run bench:particles`).
 import { TargetCamera } from "@babylonjs/core/Cameras/targetCamera.js";
 import { NullEngine } from "@babylonjs/core/Engines/nullEngine.js";
@@ -87,23 +87,30 @@ describe("kernel particle systems in the World player (ADR 0094)", () => {
     expect(kernelExecutors(engine)).toEqual(["js"]);
   });
 
-  it("keeps plain systems on the CPU and runs gpu systems on a kernel with one draw per output", () => {
+  it("runs plain, cpu and gpu systems on a kernel executor, with one draw per output (ADR 0251)", () => {
     const p = make();
-    const cpu = fakeSystem(graph());
+    const plain = fakeSystem(graph());
+    const cpu = fakeSystem(graph("cpu"), { node: { name: "Cpu" } } as Partial<ParticleSystem>);
     const gpu = fakeSystem(graph("gpu", 2), { node: { name: "Gpu" } } as Partial<ParticleSystem>);
-    p.sync([cpu, gpu], 1 / 60, 1 / 60);
-    // The CPU system draws through a Babylon particle system, the kernel one with a mesh per output.
-    expect(scene.particleSystems.map((s) => s.name)).toEqual([expect.stringMatching(/^particles:Fx:/)]);
-    expect(meshesOf("Fx")).toHaveLength(0);
+    p.sync([plain, cpu, gpu], 1 / 60, 1 / 60);
+    // No Babylon particle systems: each output draws an instanced mesh.
+    expect(scene.particleSystems).toHaveLength(0);
+    expect(meshesOf("Fx")).toHaveLength(1);
+    expect(meshesOf("Cpu")).toHaveLength(1);
     const meshes = meshesOf("Gpu");
     expect(meshes).toHaveLength(2);
-    expect(meshes[0].forcedInstanceCount).toBe(100);
-    expect(meshes[0].material).toBeInstanceOf(ShaderMaterial);
-    expect(meshes[0].alwaysSelectAsActiveMesh).toBe(true);
-    expect(p.state()).toMatchObject({ systems: 2, emitters: 2, batches: 3 });
+    for (const m of [...meshes, ...meshesOf("Fx"), ...meshesOf("Cpu")]) {
+      expect(m.forcedInstanceCount).toBe(100);
+      expect(m.material).toBeInstanceOf(ShaderMaterial);
+      expect(m.alwaysSelectAsActiveMesh).toBe(true);
+    }
+    expect(p.state()).toMatchObject({ systems: 3, emitters: 3, batches: 4 });
     // The variant report finds the system a kernel output's mesh draws for.
     expect(p.ownerOf(meshes[1])).toBe(gpu);
-    expect(p.ownerOf(scene.particleSystems[0])).toBe(cpu);
+    expect(p.ownerOf(meshesOf("Cpu")[0])).toBe(cpu);
+    // A "cpu" system spawns and counts exactly, on the JavaScript executor.
+    frames(p, cpu, 30);
+    expect(cpu.particleCount).toBe(31); // one a frame at 60 a second: the first sync and 30 more
   });
 
   it("spawns, counts (estimated) and finishes kernel systems through the component's state", () => {
@@ -135,13 +142,13 @@ describe("kernel particle systems in the World player (ADR 0094)", () => {
     expect(c.isAlive).toBe(false); // not emitting, nothing left
   });
 
-  it("doesn't report CPU-only problems for systems a kernel runs", () => {
+  it("reports nothing for several outputs, whichever executor a system asks for", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const p = make();
     p.sync([fakeSystem(graph("gpu", 2))], 1 / 60, 1 / 60);
-    expect(warn.mock.calls.map((c) => String(c[0])).filter((m) => /outputs/.test(m))).toEqual([]);
     p.sync([fakeSystem(graph("cpu", 2))], 1 / 60, 1 / 60);
-    expect(warn.mock.calls.map((c) => String(c[0])).filter((m) => /outputs/.test(m))).toHaveLength(1);
+    expect(warn).not.toHaveBeenCalled();
+    expect(meshesOf("Fx")).toHaveLength(2);
     warn.mockRestore();
   });
 

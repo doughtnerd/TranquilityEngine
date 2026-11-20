@@ -312,9 +312,7 @@ export class ThumbnailScenes {
       for (let t = 0; t < PARTICLE_TIME; t += PARTICLE_DT) step(PARTICLE_DT);
       // Frame what's alive now (the effect sits at the origin, so local and world space agree).
       const box = new BoundsBox();
-      const pts: number[] = [];
-      for (const e of made.sim?.emitters ?? []) for (let i = 0; i < e.count; i++) pts.push(e.pool[i].wx, e.pool[i].wy, e.pool[i].wz);
-      box.add(Float32Array.from(pts), null);
+      box.add(Float32Array.from(made.points()), null);
       const bounds = box.bounds();
       await this.ready(scene, 3000);
       return {

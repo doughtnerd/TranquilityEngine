@@ -335,7 +335,7 @@ export class BabylonMaterialLibrary {
       const sampling = samplingOf(Assets.importSettings(path));
       const tex: Texture = new Texture(url, this.scene, {
         noMipmap: sampling.mipmaps === "none",
-        invertY: load.flipY,
+        invertY: true,
         samplingMode: samplingMode(sampling),
         ...(load.decode !== "shader" ? { useSRGBBuffer: load.decode === "srgb", gammaSpace: false } : {}),
         onLoad: () => {

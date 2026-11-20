@@ -240,10 +240,9 @@ describe("material resolution (ADR 0127)", () => {
     });
 
     it("loads one copy per use: flipped colour, an unflipped sheet, graph colour decoded in hardware, linear data", () => {
-      expect(textureLoad("a.png", "color")).toEqual({ key: "a.png", flipY: true, decode: "shader" });
-      expect(textureLoad("a.png", "sheet")).toEqual({ key: "a.png#sheet", flipY: false, decode: "shader" });
-      expect(textureLoad("a.png", "graphColor")).toEqual({ key: "a.png#graphColor", flipY: true, decode: "srgb" });
-      expect(textureLoad("a.png", "graphData")).toEqual({ key: "a.png#graphData", flipY: true, decode: "linear" });
+      expect(textureLoad("a.png", "color")).toEqual({ key: "a.png", decode: "shader" });
+      expect(textureLoad("a.png", "graphColor")).toEqual({ key: "a.png#graphColor", decode: "srgb" });
+      expect(textureLoad("a.png", "graphData")).toEqual({ key: "a.png#graphData", decode: "linear" });
     });
   });
 });

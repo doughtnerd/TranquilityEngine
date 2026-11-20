@@ -1,9 +1,11 @@
-// Internal (ADR 0126): kernel particle outputs drawn with a material asset. The output's mesh (a quad, or
-// the model of a mesh output) is drawn instanced with an unshared copy of the material (a PBR material:
-// built-in material assets and shader graphs) carrying `MycoKernelParticlePlugin`, which reads each
-// particle from textures in the material's own vertex shader and places, turns and tints the vertex. So
-// lights, shadows received, fog and the frame graph's effects apply as on any mesh, and a graph's
-// Particle Color node (ADR 0096) sees the particle's colour (it arrives as the vertex colour).
+// Internal (ADR 0126, 0251): kernel particle outputs drawn with a material asset. The output's mesh (a
+// quad, the model of a mesh output, or a trail's strip) is drawn instanced with an unshared copy of the
+// material (a PBR material: built-in material assets and shader graphs) carrying
+// `MycoKernelParticlePlugin`, which reads each particle from textures in the material's own vertex
+// shader and places, turns and tints the vertex (a trail's along the particle's history, as Unity's
+// Trails module draws with its trail material). So lights, shadows received, fog and the frame graph's
+// effects apply as on any mesh, and a graph's Particle Color node (ADR 0096) sees the particle's colour
+// (it arrives as the vertex colour).
 import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
 import type { Material } from "@babylonjs/core/Materials/material.js";
 import { MaterialDefines } from "@babylonjs/core/Materials/materialDefines.js";
@@ -18,7 +20,7 @@ import type { Scene } from "@babylonjs/core/scene.js";
 import type { ModelMesh } from "../../scene/models";
 import type { KernelSystem } from "../../scene/particleKernel";
 import { outputSorts } from "../../scene/particleGraph";
-import { DRAW_MODE, materialVertexCode } from "../particles/gpu/kernelShader";
+import { DRAW_MODE, materialTrails, materialVertexCode } from "../particles/gpu/kernelShader";
 import { MycoMaterialPlugin } from "./mycoMaterialPlugin";
 import type { Draw } from "./particleDraw";
 
@@ -33,12 +35,16 @@ export interface KernelTextures {
   lut: BaseTexture;
   pairs: BaseTexture | null;
   pairsWidth: number;
+  /** A trail output's history (block b of the state layout holds each slot's point b), else null. */
+  history: BaseTexture | null;
+  /** The frame the last step wrote (its history block is `frame % points`). */
+  frame: number;
 }
 
 /** What a material draw needs from a run. */
 export interface KernelTextureSource {
-  /** This frame's textures (after the step; `sorted` also the sorted pairs, sorted by the caller). */
-  textures(sorted: boolean): KernelTextures | null;
+  /** This frame's textures (after the step; `sorted` also the sorted pairs, sorted by the caller; `trail` the history). */
+  textures(sorted: boolean, trail: boolean): KernelTextures | null;
 }
 
 class KernelParticleDefines extends MaterialDefines {
@@ -60,6 +66,7 @@ interface PluginConfig {
   kernel: KernelSystem;
   output: number;
   opts: { sorted: boolean; interleaved: boolean };
+  trail: boolean;
 }
 
 /** Places a material's vertices from kernel particle state (one per output draw). */
@@ -70,7 +77,7 @@ class MycoKernelParticlePlugin extends MycoMaterialPlugin {
 
   constructor(material: PBRMaterial, kernel: KernelSystem, output: number, opts: { sorted: boolean; interleaved: boolean }) {
     super(material, "MycoKernelParticles", 100, new KernelParticleDefines());
-    this.config = { kernel, output, opts };
+    this.config = { kernel, output, opts, trail: materialTrails(kernel, output) };
     this.register();
   }
 
@@ -89,7 +96,7 @@ class MycoKernelParticlePlugin extends MycoMaterialPlugin {
 
   override getSamplers(samplers: string[]): void {
     const o = this.config.opts;
-    samplers.push(...(o.interleaved ? ["kpst"] : ["kps0", "kps1", "kps2", "kps3"]), "kpu", "kpl", ...(o.sorted ? ["kpidx"] : []));
+    samplers.push(...(o.interleaved ? ["kpst"] : ["kps0", "kps1", "kps2", "kps3"]), "kpu", "kpl", ...(o.sorted ? ["kpidx"] : []), ...(this.config.trail ? ["kphist"] : []));
   }
 
   override getUniforms(): { ubo: { name: string; size: number; type: string }[]; vertex: string } {
@@ -98,6 +105,7 @@ class MycoKernelParticlePlugin extends MycoMaterialPlugin {
         { name: "kpdraw", size: 4, type: "vec4" },
         { name: "kpdraw3", size: 4, type: "vec4" },
         { name: "kpcam", size: 4, type: "vec4" },
+        { name: "kptrail", size: 4, type: "vec4" },
       ],
       vertex: "",
     };
@@ -112,6 +120,8 @@ class MycoKernelParticlePlugin extends MycoMaterialPlugin {
     ubo.updateFloat4("kpdraw", DRAW_MODE[out.type] ?? 0, out.settings.speedScale, out.settings.lengthScale, out.tiles[0]);
     ubo.updateFloat4("kpdraw3", out.tiles[1], t.width, t.pairsWidth, 0);
     ubo.updateFloat4("kpcam", cam?.x ?? 0, cam?.y ?? 0, cam?.z ?? 0, 1);
+    ubo.updateFloat4("kptrail", t.frame, kernel.trail ?? 0, 0, out.trail?.widthRow ?? 0);
+    if (this.config.trail && t.history) ubo.setTexture("kphist", t.history);
     if (t.interleaved) ubo.setTexture("kpst", t.state[0]);
     else t.state.forEach((s, i) => ubo.setTexture(`kps${i}`, s));
     ubo.setTexture("kpu", t.uniforms);
@@ -137,10 +147,11 @@ export class KernelMaterialDraw implements Draw {
   readonly kind = "kernelMaterial";
   readonly mesh: Mesh;
   readonly meshes: readonly Mesh[];
-  readonly systems: readonly never[] = [];
   readonly material: PBRMaterial;
   private readonly plugin: MycoKernelParticlePlugin;
   readonly sorted: boolean;
+  /** A trail output: a ribbon through each particle's history. */
+  readonly trail: boolean;
 
   constructor(
     scene: Scene,
@@ -154,11 +165,25 @@ export class KernelMaterialDraw implements Draw {
   ) {
     const out = kernel.outputs[output];
     this.sorted = outputSorts(out.settings);
+    this.trail = materialTrails(kernel, output);
     this.mesh = new Mesh(name, scene);
     this.meshes = [this.mesh];
     const vd = new VertexData();
     const m = out.type === "mesh" ? opts.mesh?.data : undefined;
-    if (m) {
+    if (this.trail) {
+      // The strip `KernelDraw` draws: a pair of vertices (side ±0.5) per history point (y its index).
+      const points = kernel.trail!;
+      const positions: number[] = [];
+      const indices: number[] = [];
+      for (let k = 0; k < points; k++) {
+        positions.push(-0.5, k, 0, 0.5, k, 0);
+        if (k + 1 < points) indices.push(k * 2, k * 2 + 1, k * 2 + 3, k * 2, k * 2 + 3, k * 2 + 2);
+      }
+      vd.positions = positions;
+      vd.indices = indices;
+      vd.uvs = positions.flatMap((_, i) => (i % 3 === 0 ? [0, 0] : []));
+      vd.normals = positions.map((_, i) => (i % 3 === 2 ? -1 : 0));
+    } else if (m) {
       vd.positions = Array.from(m.positions);
       vd.indices = Array.from(m.indices);
       vd.uvs = m.uvs ? Array.from(m.uvs) : new Array((m.positions.length / 3) * 2).fill(0);
@@ -193,7 +218,7 @@ export class KernelMaterialDraw implements Draw {
     this.mesh.forcedInstanceCount = kernel.capacity;
     // Textures from the start: readiness can't wait on them (Babylon settles a material's defines the
     // first time it asks, so a plugin that says "not ready" then is never asked to compile again).
-    this.plugin.current = source.textures(false);
+    this.plugin.current = source.textures(false, this.trail);
   }
 
   isReady(): boolean {
@@ -203,7 +228,7 @@ export class KernelMaterialDraw implements Draw {
   /** This frame's textures (after the run stepped). */
   update(): void {
     if (this.sorted) this.source.sortFor?.();
-    this.plugin.current = this.source.textures(this.sorted);
+    this.plugin.current = this.source.textures(this.sorted, this.trail);
   }
 
   dispose(): void {

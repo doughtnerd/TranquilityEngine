@@ -2,7 +2,7 @@
  * Particle effect graphs (ADR 0060): `*.particles.json` in format `myco.particles@2`, a VFX-Graph-
  * style document of systems (Spawn, Initialize, Update and Output contexts holding blocks), value
  * and operator nodes wired into block inputs, and events between systems. It's the asset: the
- * editor edits it, and `compileParticleGraph` lowers it for the CPU simulation (`render/particles/simulation.ts`).
+ * editor edits it, and `compileParticleGraph` compiles it for the kernel executors (ADR 0094, 0251).
  * `myco.particles@1` files (ADR 0057) are read and migrated (see `particleGraphFormat.ts`).
  *
  * Block types live in `particleBlocks.ts`, node types in `particleNodes.ts`.
@@ -101,17 +101,16 @@ export interface SystemSettings {
   /** The most particles alive at once. */
   capacity: number;
   /**
-   * Which simulation runs the system (ADR 0094). "auto" (the default, not written): a kernel backend
-   * when the system needs one (per-particle operators, Set Attribute, several outputs, GPU events,
-   * depth collision) or holds 4096 particles or more, else the CPU. "cpu": always the CPU simulation.
-   * "gpu": a kernel backend (WebGPU compute, else WebGL2 textures, else JavaScript).
+   * Which kernel executor runs the system (ADR 0094, 0251). "auto" (the default, not written): a GPU
+   * executor when the system wants one (per-particle operators, Set Attribute, several outputs, GPU
+   * events, depth collision) or holds 4096 particles or more, else the JavaScript executor on the CPU.
+   * "cpu": always the JavaScript executor. "gpu": the best executor (WebGPU compute, else WebGL2
+   * textures, else JavaScript).
    */
   simulation?: SimulationChoice;
   /**
    * Optional random seed for this system alone (an integer). Absent or null: the system uses the
-   * ParticleSystem component's `seed`. The compiler carries it as `ParticleProgram.seeds`. The CPU
-   * (Babylon particle) backend draws every emitter from one generator seeded by the component's
-   * seed and ignores per-system seeds, so they only take effect on kernel backends (ADR 0094).
+   * ParticleSystem component's `seed`. The compiler carries it as `ParticleProgram.seeds`.
    */
   seed?: number | null;
 }
@@ -131,7 +130,7 @@ export interface ParticleGraphSystem {
   initialize: BlockContext;
   update: BlockContext;
   output: OutputContext;
-  /** More outputs: kept in the format, drawn by kernel backends (ADR 0094); the CPU simulation draws only the first output. */
+  /** More outputs, each drawn from the same particles (ADR 0094). */
   extraOutputs?: OutputContext[];
 }
 
@@ -210,6 +209,4 @@ export interface GraphProblem {
   message: string;
   severity: "error" | "warning";
   at?: string;
-  /** A limit of the CPU simulation only (a per-particle chain, Set Attribute, extra outputs): not shown for systems a kernel backend runs (ADR 0094). */
-  cpuOnly?: boolean;
 }

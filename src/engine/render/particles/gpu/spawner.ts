@@ -1,10 +1,15 @@
-// Internal (ADR 0094): spawning for kernel systems stays on the CPU. Each frame a spawner turns an
-// emitter's rate, rate over distance, bursts, start delay, duration, looping and prewarm into a count;
-// the new particles take the next slots of a ring over the capacity. It mirrors the CPU
-// simulation's `advanceEmission`, without per-particle spawn times (a frame's particles all start
-// at its end) and with a ring instead of a free list (a full system replaces its oldest slots).
-import { evalCurve, type ParticleEmitterSettings, type ParticleNumber } from "../../../scene/particles";
-import type { LiveBox } from "../simulation";
+// Internal (ADR 0094, 0251): spawning for kernel systems stays on the CPU. Each frame a spawner turns a
+// system's spawn settings (`SpawnSettings`: rate, rate over distance, bursts, start delay, duration,
+// looping and prewarm) into a count; the new particles take the next slots of a ring over the capacity
+// (the executor's dead list, ADR 0126, picks the slots where it keeps one). A frame's particles all
+// start at its end (no per-particle spawn times).
+import type { SpawnSettings } from "../../../scene/particleCompile";
+import { evalCurve, type ParticleNumber } from "../../../scene/particles";
+
+/** A value a binding of the program writes each frame and the spawner reads (`ProgramRunner.live`). */
+export interface LiveBox {
+  value: number;
+}
 
 export interface SpawnResult {
   /** First slot of this frame's spawn (in the ring). */
@@ -50,7 +55,7 @@ export class KernelSpawner {
   prewarmPending: boolean;
 
   constructor(
-    public settings: ParticleEmitterSettings,
+    public settings: SpawnSettings,
     readonly capacity: number,
     /** Live values (`emission.rateOverTime`…) the program's bindings update each frame. */
     private readonly live: (path: string) => LiveBox | undefined = () => undefined,
@@ -61,18 +66,24 @@ export class KernelSpawner {
   }
 
   /** New settings (non-live bindings rebaked) without losing the cycle. */
-  setSettings(settings: ParticleEmitterSettings): void {
+  setSettings(settings: SpawnSettings): void {
     this.settings = settings;
     if (this.burstNext.length !== settings.emission.bursts.length) this.burstNext = new Int32Array(settings.emission.bursts.length);
   }
 
-  restart(): void {
+  /** Start the cycle again; `cleared` when the particles were cleared with it (an effect's restart). */
+  restart(cleared = false): void {
     this.time = 0;
     this.accum = 0;
     this.distAccum = 0;
     this.burstNext.fill(0);
     this.delayLeft = this.settings.startDelay;
     this.last = null;
+    if (cleared) {
+      // Every particle went too: count spawns from 0 again (seeds hash the spawn number, so a seeded restart repeats exactly).
+      this.head = 0;
+      this.spawned = 0;
+    }
     this.done = false;
     this.history = [];
     this.prewarmPending = this.settings.looping && this.settings.prewarm;
@@ -90,7 +101,7 @@ export class KernelSpawner {
 
   private value(path: string, v: ParticleNumber, t: number, rnd: () => number): number {
     const box = this.live(path);
-    if (box) return typeof box.value === "number" ? box.value : (box.value[0] ?? 0);
+    if (box) return box.value;
     return evalNumber(v, t, rnd());
   }
 
@@ -158,7 +169,7 @@ export class KernelSpawner {
     // Alive estimate history.
     for (const h of this.history) h.age += dt;
     if (count > 0) this.history.push({ age: 0, count });
-    const maxLife = Math.max(0.001, maxOf(s.startLife));
+    const maxLife = Math.max(0.001, maxOf(s.lifetime));
     while (this.history.length && this.history[0].age > maxLife) this.history.shift();
     return { start, count, frac, before };
   }

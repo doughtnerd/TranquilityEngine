@@ -112,7 +112,7 @@ export function SystemView(props: { system: ParticleGraphSystem; at: Point; sele
               <ContextView system={system} kind="output" output={i + 1} />
             </Fragment>
           ))}
-          <button type="button" class="pg-add-output" aria-label={`Add output to ${system.name}`} title="Add another Output context (copies the main output's type and settings; drawn by kernel (GPU) simulation)" disabled={api.readOnly} onClick={() => api.commit(addOutput(api.graph, system.id).graph)}>
+          <button type="button" class="pg-add-output" aria-label={`Add output to ${system.name}`} title="Add another Output context (copies the main output's type and settings)" disabled={api.readOnly} onClick={() => api.commit(addOutput(api.graph, system.id).graph)}>
             + Output
           </button>
         </div>

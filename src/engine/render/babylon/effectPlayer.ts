@@ -1,11 +1,12 @@
-// Internal (ADR 0057, 0060, 0080, 0094, 0153): the effect player, the only thing that builds a particle
-// effect. One effect at one transform on the Babylon backend: its ProgramRunner, our own CPU
-// `EffectSimulation` for the systems the CPU runs, the `KernelEffect` for the ones a kernel executor
-// runs, and the Babylon draws of both, each made by the draw factory (`particleDraw.ts`), with their
-// fallbacks (the dot for a missing texture, the texture for a material asset that isn't there, a model
-// still loading holds the build). It owns how an effect plays: restart (seeded effects repeat exactly),
-// the systems that start on events rather than On Play, custom events, emit, stop and clear, a finished
-// one-shot effect playing again, and the warm-up's one-particle state (ADR 0080).
+// Internal (ADR 0057, 0060, 0080, 0094, 0153, 0251): the effect player, the only thing that builds a
+// particle effect. One effect at one transform on the Babylon backend: its ProgramRunner, the
+// `KernelEffect` that runs every system on a kernel executor (the JavaScript one for "cpu" and most
+// "auto" systems, a GPU one where a system wants it), and the Babylon draw of each output, made by the
+// draw factory (`particleDraw.ts`), with its fallbacks (the dot for a missing texture, the texture for
+// a material asset that isn't there, a texture or model still loading holds the build). It owns how an
+// effect plays: restart (seeded effects repeat exactly), the systems that start on events rather than
+// On Play, custom events, emit, stop and clear, a finished one-shot effect playing again, and the
+// warm-up's state (ADR 0080).
 //
 // Four callers drive it: `BabylonParticles` (a World's ParticleSystems, one player each, and the
 // warm-up's effects), the particle graph editor's `EffectPreview` and the asset thumbnails (one player
@@ -19,52 +20,45 @@ import type { RawTexture } from "@babylonjs/core/Materials/Textures/rawTexture.j
 import type { Scene } from "@babylonjs/core/scene.js";
 import { loadMeshes, meshesIfLoaded, type ModelMesh } from "../../scene/models";
 import { compileParticleGraph, type ParticleProgram } from "../../scene/particleCompile";
-import type { ParticleGraph } from "../../scene/particleGraph";
 import { parseParticleGraph } from "../../scene/particleGraphFormat";
-import { chooseBackend, compileParticleKernels, type KernelExecutor, type KernelProgram, type KernelSystem, type SystemBackend } from "../../scene/particleKernel";
+import { chooseBackend, type KernelExecutor, type KernelProgram } from "../../scene/particleKernel";
 import { expandParticleGraph, expansionDependencies, projectAssets } from "../../scene/particleSubgraphs";
 import { KernelEffect } from "../particles/gpu/kernelEffect";
+import type { ParticleRaycast } from "../particles/gpu/kernelSteps";
 import { ProgramRunner, playTimes } from "../particles/programRunner";
 import { randomForSeed } from "../particles/random";
-import { EffectSimulation, type ParticleRaycast, type SimEmitter } from "../particles/simulation";
 import { BabylonKernelHost, SceneDepth } from "./gpuParticles";
-import { heightFogOn } from "./heightFog";
 import type { BabylonMaterialLibrary } from "./materialLibrary";
-import { createDotTexture, createDraw, usesSheet, type Draw, type DrawResources, type EmitterDraw } from "./particleDraw";
+import { createDotTexture, createDraw, type Draw, type DrawResources } from "./particleDraw";
 
 /** What an effect player needs from where it draws: the scene, textures, material assets, ray queries. */
 export interface EffectHost {
   /** Babylon scene (left-handed, +Y up, +Z forward). */
   readonly scene: Scene;
+  /** Loads a texture asset (sRGB colour) for particles, flipped as other textures (V 1 is the image's top). */
+  texture(path: string): Promise<BaseTexture>;
   /**
-   * Loads a texture asset (sRGB colour) for particles: flipped as other textures (V 1 is the image's
-   * top), or with `sheet` unflipped (V 0 at the top), as Babylon's particle sprite sheets read it.
-   */
-  texture(path: string, sheet?: boolean): Promise<BaseTexture>;
-  /**
-   * A material asset (an emitter's `renderer.material`) as a Babylon material, or null (missing, not a
-   * material, or still loading). Null draws with the emitter's texture and blending; the effect is
-   * rebuilt when the material appears or changes. Optional: without it material assets are never used.
+   * A material asset (an output's `material`) as a Babylon material, or null (missing, not a material,
+   * or still loading). Null draws with the output's texture and blending; the effect is rebuilt when the
+   * material appears or changes. Optional: without it material assets are never used.
    */
   material?(path: string): Material | null;
   /**
-   * An unshared copy of a material asset (soft CPU particles, kernel outputs, ADR 0126), disposed by the
+   * An unshared copy of a material asset (each output draws with its own, ADR 0126), disposed by the
    * caller; a shader graph's copy is a new graph material, not a clone. Optional: without it the shared
    * material is cloned.
    */
   materialCopy?(path: string, name: string): { material: Material; dispose(): void } | null;
   /** Force the kernel executors (tests, benchmarks); default: what the engine supports (ADR 0094). */
   readonly kernelExecutors?: readonly KernelExecutor[];
-  /** A world-space ray cast for the `collisionColliders` behaviour. Optional: without it that behaviour does nothing. */
+  /** A world-space ray cast for Collide with colliders (the JavaScript executor). Optional: without it that block does nothing. */
   raycast?: ParticleRaycast;
 }
 
-/** How an effect's systems run (ADR 0094): per emitter, the CPU or a kernel executor. */
+/** How an effect's systems run (ADR 0094, 0251): each system's kernel and the executor it runs on. */
 export interface KernelPlan {
   kernels: KernelProgram;
-  backends: SystemBackend[];
-  /** The kernel systems that run (backend isn't "cpu"). */
-  running: KernelSystem[];
+  executors: KernelExecutor[];
 }
 
 /** An effect parsed, expanded and compiled, and the sub-graph and custom block assets it expanded from (ADR 0095). */
@@ -80,7 +74,7 @@ const IDENTITY: readonly number[] = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0
 
 /**
  * What every effect player in one scene shares: the texture cache, the dot texture, the scene depth and
- * the kernel host, kernel plans, and warnings (each said once). It is what the draw factory draws with.
+ * the kernel host, the plans, and warnings (each said once). It is what the draw factory draws with.
  */
 export class EffectResources implements DrawResources {
   private readonly warned = new Set<string>();
@@ -120,14 +114,11 @@ export class EffectResources implements DrawResources {
       const problems = [...parsed.problems, ...expanded.problems];
       const deps = expansionDependencies(parsed.graph, projectAssets);
       const program = compileParticleGraph(graph);
-      const plan = this.makePlan(graph, program, where);
-      const onKernel = (at: string | undefined) => !!at && plan.running.some((k) => at === k.id || at.startsWith(`${k.id}.`));
-      const kernelProblems = plan.kernels.problems.filter((p) => onKernel(p.at));
-      for (const p of [...problems, ...program.problems.filter((q) => !(q.cpuOnly && onKernel(q.at))), ...kernelProblems]) {
+      for (const p of [...problems, ...program.problems]) {
         const text = `${where}: ${p.message}${p.at ? ` (${p.at})` : ""}`;
         this.warnOnce(`${where}|${text}`, text);
       }
-      this.plans.set(program, plan);
+      this.plans.set(program, this.makePlan(program, where));
       return { program, deps };
     } catch (err) {
       this.warnOnce(`${where}|${(err as Error).message}`, (err as Error).message);
@@ -135,35 +126,34 @@ export class EffectResources implements DrawResources {
     }
   }
 
-  /** Which systems of `program` run on a kernel (made from its source graph the first time it's asked). */
-  plan(program: ParticleProgram): KernelPlan | null {
+  /** The executor each system of `program` runs on (planned the first time it's asked). */
+  plan(program: ParticleProgram): KernelPlan {
     let plan = this.plans.get(program);
-    if (!plan && program.source) {
-      plan = this.makePlan(program.source, program, "a particle effect");
+    if (!plan) {
+      plan = this.makePlan(program, "a particle effect");
       this.plans.set(program, plan);
     }
-    return plan ?? null;
+    return plan;
   }
 
-  /** Which systems run on a kernel (ADR 0094): each system's choice, then events keep a parent and its child on the same side. */
-  private makePlan(graph: ParticleGraph, program: ParticleProgram, where: string): KernelPlan {
-    const kernels = compileParticleKernels(graph, program);
-    const executors = this.kernelHost().executors;
-    const systems = graph.systems.filter((s) => s.enabled !== false);
-    const backends = kernels.systems.map((k, i) => chooseBackend(systems[i]?.settings.simulation, k, executors));
+  /** Each system's executor (ADR 0094, 0251): its choice, then an event child runs on its parent's (events pass between runs of one executor). */
+  private makePlan(program: ParticleProgram, where: string): KernelPlan {
+    const kernels = program.kernels;
+    const available = this.kernelHost().executors;
+    const executors = kernels.systems.map((k, i) => chooseBackend(program.simulation[i], k, available));
     for (const [i, k] of kernels.systems.entries()) {
       if (!k.event) continue;
-      const p = k.event.parent;
-      if (backends[p] === "cpu" && backends[i] !== "cpu") {
-        this.warnOnce(`${where}|event|${k.id}`, `${where}: "${k.name}" is started by an event from a system on the CPU, so it runs on the CPU too.`);
-        backends[i] = "cpu";
-      } else if (backends[p] !== "cpu" && backends[i] === "cpu") backends[i] = backends[p];
+      const p = executors[k.event.parent];
+      if (executors[i] !== p && program.simulation[i] && program.simulation[i] !== "auto") {
+        this.warnOnce(`${where}|event|${k.id}`, `${where}: "${k.name}" is started by an event from "${kernels.systems[k.event.parent].name}", so it runs on the same executor (${p}).`);
+      }
+      executors[i] = p;
     }
     for (const [i, k] of kernels.systems.entries()) {
-      if (backends[i] === "cpu" || backends[i] === "js" || !k.jsOnly.length) continue;
+      if (executors[i] === "js" || !k.jsOnly.length) continue;
       this.warnOnce(`${where}|jsOnly|${k.id}`, `${where}: "${k.name}" runs on the GPU, which skips ${k.jsOnly.join(", ")} (it ray casts the World's colliders, which only the JavaScript executor can; use Collide with depth buffer).`);
     }
-    return { kernels, backends, running: kernels.systems.filter((_, i) => backends[i] !== "cpu") };
+    return { kernels, executors };
   }
 
   // --- what effects draw with -----------------------------------------------------------------------
@@ -182,14 +172,13 @@ export class EffectResources implements DrawResources {
   }
 
   /** A particle texture: null while it loads (the load starts), "failed" if it didn't. Re-asks the host, so a reimported texture is picked up. */
-  textureFor(path: string, sheet: boolean): BaseTexture | null | "failed" {
-    const key = sheet ? `${path}#sheet` : path;
-    let entry = this.textures.get(key);
+  textureFor(path: string): BaseTexture | null | "failed" {
+    let entry = this.textures.get(path);
     if (!entry) {
       const made: { tex: BaseTexture | null; failed: boolean } = { tex: null, failed: false };
       entry = made;
-      this.textures.set(key, made);
-      this.host.texture(path, sheet).then(
+      this.textures.set(path, made);
+      this.host.texture(path).then(
         (t) => (made.tex = t),
         (err: Error) => {
           made.failed = true;
@@ -198,7 +187,7 @@ export class EffectResources implements DrawResources {
       );
     } else if (entry.tex) {
       const made = entry;
-      this.host.texture(path, sheet).then(
+      this.host.texture(path).then(
         (t) => (made.tex = t),
         () => {},
       );
@@ -206,7 +195,7 @@ export class EffectResources implements DrawResources {
     return entry.failed ? "failed" : entry.tex;
   }
 
-  /** An emitter's material asset, or null (none, or not available yet). */
+  /** An output's material asset, or null (none, or not available yet). */
   materialFor(path: string | undefined): Material | null {
     return path ? (this.host.material?.(path) ?? null) : null;
   }
@@ -226,32 +215,28 @@ export class EffectResources implements DrawResources {
     return meshes === null ? null : meshes[0];
   }
 
-  /** What a build of `program` depends on (each emitter's material, mesh and texture), or null while one still loads. */
+  /** What a build of `program` depends on (each output's material, mesh and texture), or null while one still loads. */
   buildKey(program: ParticleProgram): string | null {
-    // Height fog moves billboards to mesh quads (ADR 0126): rebuild when it's turned on or off.
-    const fog = heightFogOn(this.host.scene);
-    const parts: string[] = [fog ? "fog" : ""];
-    for (const e of program.effect.emitters) {
-      if (!e.enabled) continue;
-      if (e.renderer.mode === "mesh") {
-        const mesh = this.meshFor(e.renderer.mesh);
-        if (mesh === null) return null; // a model still loading
-        let id = mesh ? this.meshIds.get(mesh) : 0;
-        if (mesh && !id) this.meshIds.set(mesh, (id = this.nextMeshId++));
-        parts.push(`mesh:${id}`);
+    const parts: string[] = [];
+    for (const k of program.kernels.systems) {
+      for (const o of k.outputs) {
+        if (o.type === "mesh") {
+          const mesh = this.meshFor(o.settings.mesh);
+          if (mesh === null) return null; // a model still loading
+          let id = mesh ? this.meshIds.get(mesh) : 0;
+          if (mesh && !id) this.meshIds.set(mesh, (id = this.nextMeshId++));
+          parts.push(`mesh:${id}`);
+        }
+        const material = this.materialFor(o.settings.material);
+        if (material) parts.push(`mat:${material.uniqueId}`);
+        if (!o.settings.texture) {
+          parts.push("dot");
+          continue;
+        }
+        const t = this.textureFor(o.settings.texture);
+        if (t === null) return null;
+        parts.push(t === "failed" ? `${o.settings.texture}:failed` : `${o.settings.texture}:${t.uniqueId}`);
       }
-      const material = this.materialFor(e.renderer.material);
-      if (material) {
-        parts.push(`mat:${material.uniqueId}`); // drawn with the material: the texture isn't needed
-        continue;
-      }
-      if (!e.renderer.texture) {
-        parts.push("dot");
-        continue;
-      }
-      const t = this.textureFor(e.renderer.texture, usesSheet(e.renderer, fog));
-      if (t === null) return null;
-      parts.push(t === "failed" ? `${e.renderer.texture}:failed` : `${e.renderer.texture}:${t.uniqueId}`);
     }
     return `k|${parts.join("|")}`;
   }
@@ -261,21 +246,13 @@ export class EffectResources implements DrawResources {
    * or failed: the thumbnails build an effect once, with everything there.
    */
   async preload(program: ParticleProgram): Promise<void> {
-    const fog = heightFogOn(this.host.scene);
     const waits: Promise<unknown>[] = [];
-    const texture = (path: string, sheet: boolean) => {
-      this.textureFor(path, sheet);
-      waits.push(this.host.texture(path, sheet).catch(() => undefined));
-    };
-    for (const e of program.effect.emitters) {
-      if (!e.enabled) continue;
-      const r = e.renderer;
-      if (r.mode === "mesh" && r.mesh) waits.push(loadMeshes(r.mesh).catch(() => undefined));
-      if (r.texture && !this.materialFor(r.material)) texture(r.texture, usesSheet(r, fog));
-    }
-    for (const k of this.plan(program)?.running ?? []) {
+    for (const k of program.kernels.systems) {
       for (const o of k.outputs) {
-        if (o.settings.texture) texture(o.settings.texture, false);
+        if (o.settings.texture) {
+          this.textureFor(o.settings.texture);
+          waits.push(this.host.texture(o.settings.texture).catch(() => undefined));
+        }
         if (o.type === "mesh" && o.settings.mesh) waits.push(loadMeshes(o.settings.mesh).catch(() => undefined));
       }
     }
@@ -300,30 +277,20 @@ export interface EffectPlayerOptions {
   seed?: number;
   /** How it starts once built: playing (default) or stopped (a ParticleSystem without Play On Awake). */
   state?: PlayState;
-  /** The camera trails and quads face. Default: the scene's active camera (the World's first view). */
+  /** The warm-up's camera (a sorted output builds its sort passes for it). Default: the scene's active camera. */
   camera?: () => Camera | null;
 }
 
-/** Where a warm-up point is (`EffectPlayer.warm`). */
-export interface WarmPoint {
-  x: number;
-  y: number;
-  z: number;
-}
-
-/** A warm-up particle's size in metres: drawn, but covering no pixel. */
-const WARM_PARTICLE_SIZE = 1e-5;
-
 /**
- * One effect at one transform (ADR 0153): the runner, the CPU simulation and kernel systems, their draws,
- * and how the effect plays. The caller builds it (`build`, again when what it draws with changes),
- * configures its transform, scale and tint, and steps it.
+ * One effect at one transform (ADR 0153): the runner, the kernel systems, their draws, and how the
+ * effect plays. The caller builds it (`build`, again when what it draws with changes), sets its scale
+ * and tint, and steps it at the node's world matrix.
  */
 export class EffectPlayer {
   readonly runner: ProgramRunner;
   /** The seed the next restart uses. */
   seed: number;
-  /** Emission and particle limit scale (the quality tier times the component's scale). */
+  /** Emission scale (the quality tier times the component's scale). */
   scale = 1;
   /** The tint, linear RGBA. */
   tint: Rgba = WHITE;
@@ -332,15 +299,12 @@ export class EffectPlayer {
   time = 0;
   /** Has played at all (so `destroyOnFinish` waits for it to start). */
   started = false;
-  private _sim: EffectSimulation | null = null;
-  /** The CPU emitters' draws. */
-  private _cpuDraws: EmitterDraw[] = [];
   private _kfx: KernelEffect | null = null;
-  /** Every draw: the CPU emitters', then the kernel outputs'. */
+  /** Every kernel output's draw. */
   private _draws: Draw[] = [];
   /** What the current build depended on (`EffectResources.buildKey`); "" when unbuilt. */
   private key = "";
-  /** The effect's random, swapped on restart; the simulation and runner call it through `rnd`. */
+  /** The effect's random, swapped on restart; the spawners and runner call it through `rnd`. */
   private random: () => number;
   private readonly rnd = (): number => this.random();
   private overrides: unknown = undefined;
@@ -358,11 +322,7 @@ export class EffectPlayer {
     this.runner = new ProgramRunner(program, this.rnd);
   }
 
-  get sim(): EffectSimulation | null {
-    return this._sim;
-  }
-
-  /** What it draws with: each CPU emitter's draw, then each kernel output's (one batch each). */
+  /** What it draws with: each kernel output's draw (one batch each). */
   get draws(): readonly Draw[] {
     return this._draws;
   }
@@ -373,34 +333,42 @@ export class EffectPlayer {
     return true;
   }
 
-  /** Whether `drawn` (a Babylon mesh or particle system) is one of its draws'. */
+  /** Whether `drawn` (a Babylon mesh) is one of its draws'. */
   owns(drawn: object): boolean {
-    for (const d of this._draws) if ((d.meshes as readonly object[]).includes(drawn) || (d.systems as readonly object[]).includes(drawn)) return true;
+    for (const d of this._draws) if ((d.meshes as readonly object[]).includes(drawn)) return true;
     return false;
   }
 
   get built(): boolean {
-    return this._sim !== null;
+    return this._kfx !== null;
   }
 
-  /** Particles alive (CPU and kernel). */
+  /** Particles alive (exact on the JavaScript executor, else as the executor knows). */
   get count(): number {
-    return (this._sim?.count ?? 0) + (this._kfx?.count ?? 0);
+    return this._kfx?.count ?? 0;
   }
 
-  /** Emitters (CPU) and kernel systems. */
+  /** Systems. */
   get emitters(): number {
-    return (this._sim?.emitters.length ?? 0) + (this._kfx?.systems.length ?? 0);
+    return this._kfx?.systems.length ?? 0;
   }
 
   /** Still emitting (playing, with a system that hasn't finished). */
   get emitting(): boolean {
-    return this.state === "playing" && (!!this._sim?.emitting || !!this._kfx?.emitting);
+    return this.state === "playing" && !!this._kfx?.emitting;
   }
 
   /** Emitting, or with particles alive. */
   get alive(): boolean {
     return this.emitting || this.count > 0;
+  }
+
+  /**
+   * The world positions of the particles alive (x, y, z each), where the executor keeps them on the CPU
+   * (the JavaScript executor; a GPU executor's particles aren't read back): what the thumbnails frame.
+   */
+  points(): number[] {
+    return this._kfx?.points() ?? [];
   }
 
   /** The overrides object scripts set (`ParticleSystem.setProperty`); compared by identity. */
@@ -416,9 +384,9 @@ export class EffectPlayer {
   }
 
   /**
-   * Build the simulation and draws, or rebuild them when `key` (what they draw with) changed or `force`
-   * is set; keeps whether the effect plays. A null key (a texture or model still loading) leaves it
-   * unbuilt, to try again. Returns whether it's built.
+   * Build the kernel systems and draws, or rebuild them when `key` (what they draw with) changed or
+   * `force` is set; keeps whether the effect plays. A null key (a texture or model still loading) leaves
+   * it unbuilt, to try again. Returns whether it's built.
    */
   build(key: string | null = this.resources.buildKey(this.program), force = false): boolean {
     if (key !== null && key === this.key && !force) return this.built;
@@ -427,7 +395,7 @@ export class EffectPlayer {
       this.key = "";
       return false;
     }
-    this.make(key, (e) => Math.max(1, Math.ceil(e.settings.maxParticles * Math.max(1, this.scale))));
+    this.make(key);
     const was = this.state;
     if (was === "stopped") this.stop();
     else {
@@ -438,35 +406,18 @@ export class EffectPlayer {
   }
 
   /**
-   * The warm-up's state (ADR 0080): built as `build` builds it, but each CPU emitter's draw holds one
-   * particle at `at`, too small to cover a pixel, and the kernel systems are stepped once with nothing
-   * spawned, so drawing it once makes every pipeline the effect's draws use (a kernel's simulation pass,
-   * with its spawn, trail history and sort passes). Stopped: it doesn't play. False while a texture or
-   * model it draws with is loading (ask again later).
+   * The warm-up's state (ADR 0080): built as `build` builds it, with the kernel systems stepped once with
+   * nothing spawned, so drawing it once makes every pipeline the effect's draws use (each output's draw,
+   * and a kernel's simulation pass, with its spawn, trail history and sort passes). Stopped: it doesn't
+   * play. False while a texture or model it draws with is loading (ask again later).
    */
-  warm(at: WarmPoint): boolean {
+  warm(): boolean {
     this.disposeDraws();
     this.key = "";
     const key = this.resources.buildKey(this.program);
-    if (key === null || this.kernelTexturesLoading()) return false;
-    this.make(key, () => 1);
+    if (key === null) return false;
+    this.make(key);
     this.stop();
-    const sim = this._sim!;
-    for (const e of sim.emitters) {
-      const p = e.alloc();
-      p.wx = at.x;
-      p.wy = at.y;
-      p.wz = at.z;
-      p.size = p.length = WARM_PARTICLE_SIZE;
-      p.tileBlend = 0;
-      if (e.renderer.mode === "trail") {
-        // Two trail points, so the ribbon has a segment to draw.
-        p.trail = new Float32Array([at.x, at.y, at.z, at.x, at.y + WARM_PARTICLE_SIZE, at.z]);
-        p.trailCap = 2;
-        p.trailCount = 2;
-        p.trailHead = 0;
-      }
-    }
     this._kfx?.step(1 / 60, IDENTITY, 1, WHITE, this.runner.context, undefined);
     // Drawn for the warm-up's camera: a sorted kernel output builds its sort passes for it.
     const scene = this.resources.scene;
@@ -478,37 +429,21 @@ export class EffectPlayer {
     return true;
   }
 
-  /** Whether a texture a kernel output draws with is still loading (the warm-up waits for it; a build draws the dot meanwhile). */
-  private kernelTexturesLoading(): boolean {
-    for (const k of this.resources.plan(this.program)?.running ?? []) {
-      for (const o of k.outputs) if (o.settings.texture && this.resources.textureFor(o.settings.texture, false) === null) return true;
-    }
-    return false;
-  }
-
-  /** Make the simulation, the kernel effect and every draw for build `key`, each CPU draw holding `capacity(emitter)` particles. */
-  private make(key: string, capacity: (e: SimEmitter) => number): void {
+  /** Make the kernel effect and every draw for build `key`. */
+  private make(key: string): void {
     this.key = key;
     const res = this.resources;
-    const effect = this.runner.effect();
     const plan = res.plan(this.program);
-    // Systems a kernel runs are left out of the CPU simulation (disabled, so emitter indices stay).
-    const cpuEffect = plan?.running.length ? { ...effect, emitters: effect.emitters.map((e, i) => (plan.backends[i] === "cpu" ? e : { ...e, enabled: false })) } : effect;
-    const sim = new EffectSimulation(cpuEffect, { live: this.runner.live, random: this.rnd, raycast: res.host.raycast });
-    this._sim = sim;
-    const { name, camera } = this.options;
-    this._cpuDraws = sim.emitters.map((e) => createDraw(res, `${name}:${e.name}`, { emitter: e, capacity: capacity(e), camera }));
-    this._draws = [...this._cpuDraws];
-    if (plan?.running.length) {
-      const kfx = new KernelEffect(plan.running, effect.emitters, res.kernelHost(), { live: this.runner.live, random: this.rnd, seeds: this.program.seeds, seed: this.seed });
-      this._kfx = kfx;
-      for (const s of kfx.systems) for (let k = 0; k < s.kernel.outputs.length; k++) this._draws.push(createDraw(res, `${name}:${s.kernel.id}:${k}`, { system: s, output: k }));
-    }
-  }
-
-  /** Set where the effect is (the node's world matrix, 16 floats column-major), its scale and tint, before commands that spawn. */
-  configure(world: ArrayLike<number> = IDENTITY): void {
-    this._sim?.configure(world, this.scale, this.tint);
+    const kfx = new KernelEffect(plan.kernels.systems, this.runner.spawns(), res.kernelHost(), {
+      executor: (k) => plan.executors[k.emitter],
+      live: this.runner.live,
+      random: this.rnd,
+      seeds: this.program.seeds,
+      seed: this.seed,
+    });
+    this._kfx = kfx;
+    const { name } = this.options;
+    for (const s of kfx.systems) for (let k = 0; k < s.kernel.outputs.length; k++) this._draws.push(createDraw(res, `${name}:${s.kernel.id}:${k}`, { system: s, output: k }));
   }
 
   // --- playing --------------------------------------------------------------------------------------
@@ -526,11 +461,9 @@ export class EffectPlayer {
   /** Play from the start: a seeded effect repeats exactly; systems started by events (not On Play) wait for them. */
   restart(): void {
     this.random = randomForSeed(this.seed);
-    const sim = this._sim;
-    sim?.restart();
-    this._kfx?.restart();
-    for (const e of sim?.emitters ?? []) if (!this.autoStarts(e)) sim!.endEmit(e);
-    for (const s of this._kfx?.systems ?? []) if (!s.parent && !(this.program.autoStart[s.kernel.emitter] ?? true)) this._kfx!.endEmit(s.kernel.emitter);
+    const kfx = this._kfx;
+    kfx?.restart();
+    for (const s of kfx?.systems ?? []) if (!s.parent && !(this.program.autoStart[s.kernel.emitter] ?? true)) kfx!.endEmit(s.kernel.emitter);
     this.route({ start: [], stop: this.program.onPlay.stop });
     this.time = 0;
     this.idle = 0;
@@ -539,13 +472,11 @@ export class EffectPlayer {
 
   /** Remove every particle alive, leaving emission as it is. */
   clear(): void {
-    this._sim?.clear();
     this._kfx?.clear();
   }
 
   /** Stop emitting (particles alive finish their lives, or with `clear` go at once), and run the On Stop event's wiring. */
   stop(clear = false, onStop = false): void {
-    this._sim?.endEmit();
     this._kfx?.endEmit();
     if (clear) this.clear();
     this.state = "stopped";
@@ -557,24 +488,20 @@ export class EffectPlayer {
     this.route(this.program.custom.get(name));
   }
 
-  /** Spawn `count` particles now (the CPU systems, else the kernel ones). */
+  /** Spawn `count` particles on the next step, spread over the systems that spawn on their own. */
   emit(count: number): void {
-    if (count <= 0) return;
-    if (this._sim?.emitters.length) this._sim.emit(count);
-    else this._kfx?.emit(count);
+    if (count > 0) this._kfx?.emit(count);
   }
 
   /** Advance `dt` seconds at `world` (unless paused), then refresh what draws. */
   step(dt: number, world: ArrayLike<number> = IDENTITY): void {
-    const sim = this._sim;
-    if (!sim) return;
+    const kfx = this._kfx;
+    if (!kfx) return;
     if (this.state !== "paused" && dt > 0) {
       this.time += dt;
       this.runner.update(this.time, dt, playTimes(this.program, this.time));
-      sim.step(dt, world, this.scale, this.tint);
-      this._kfx?.step(dt, world, this.scale, this.tint, this.runner.context, this.overrides, playTimes(this.program, this.time));
+      kfx.step(dt, world, this.scale, this.tint, this.runner.context, this.overrides, playTimes(this.program, this.time));
     }
-    for (const d of this._cpuDraws) d.ensure(Math.max(1, Math.floor(d.emitter.settings.maxParticles * this.scale))); // the particle limit may have gone up
     for (const d of this._draws) d.update();
     if (this.state === "playing" && !this.emitting) this.state = "stopped"; // a one-shot effect finished emitting
     if (this.state === "playing") this.started = true;
@@ -588,38 +515,24 @@ export class EffectPlayer {
     } else this.idle = 0;
   }
 
-  private autoStarts(e: SimEmitter): boolean {
-    const i = this.program.systems.indexOf(e.name);
-    return i < 0 || (this.program.autoStart[i] ?? true);
-  }
-
   /** Start and stop the systems an event is wired to. */
   private route(route: { start: number[]; stop: number[] } | undefined): void {
-    const sim = this._sim;
-    if (!route || !sim) return;
-    for (const s of this._kfx?.systems ?? []) {
+    const kfx = this._kfx;
+    if (!route || !kfx) return;
+    for (const s of kfx.systems) {
       const i = s.kernel.emitter;
       if (route.start.includes(i)) {
-        this._kfx!.startEmitter(i);
+        kfx.startEmitter(i);
         this.state = "playing";
-      } else if (route.stop.includes(i)) this._kfx!.endEmit(i);
-    }
-    for (const e of sim.emitters) {
-      const i = this.program.systems.indexOf(e.name);
-      if (route.start.includes(i)) {
-        sim.startEmitter(e);
-        this.state = "playing";
-      } else if (route.stop.includes(i)) sim.endEmit(e);
+      } else if (route.stop.includes(i)) kfx.endEmit(i);
     }
   }
 
   private disposeDraws(): void {
     for (const d of this._draws) d.dispose();
     this._draws = [];
-    this._cpuDraws = [];
     this._kfx?.dispose();
     this._kfx = null;
-    this._sim = null;
   }
 
   dispose(): void {
@@ -632,7 +545,7 @@ export class EffectPlayer {
 export function libraryEffectHost(scene: Scene, library: BabylonMaterialLibrary): EffectHost {
   return {
     scene,
-    texture: (path, sheet) => library.texture(path, sheet ? "sheet" : "color"),
+    texture: (path) => library.texture(path),
     material: (path) => library.material(path),
     materialCopy: (path, name) => library.copy(path, name),
   };

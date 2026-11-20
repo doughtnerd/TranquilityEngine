@@ -13,7 +13,7 @@ import type { Scene } from "@babylonjs/core/scene.js";
 import { pipelineTierKey } from "../../core/graphics";
 import { Graphics } from "../Graphics";
 import { AsyncPipelines, FirstFrames } from "./asyncPipelines";
-import { effectClock, PipelineWarmer, VariantReport, type ParticleSystemLike, type WarmItem, type WarmMaterials } from "./warmUp";
+import { effectClock, PipelineWarmer, VariantReport, type WarmItem, type WarmMaterials } from "./warmUp";
 
 /** A warm-up only waits for its draws while frames are being drawn (one within this long). */
 const DRAWING_MS = 500;
@@ -25,7 +25,7 @@ export interface ReadinessDeps {
   /** The renderer's probe copies of a built-in material (`WarmDeps.probeVariants`). */
   probeVariants(base: PBRMaterial): PBRMaterial[];
   /** What a drawn object is, for the variant report. */
-  describe(drawn: AbstractMesh | ParticleSystemLike): { what: string; prefab?: string } | null;
+  describe(drawn: AbstractMesh): { what: string; prefab?: string } | null;
 }
 
 /** @internal ADR 0080 and 0120 for one World's renderer (ADR 0240). */

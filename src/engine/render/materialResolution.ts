@@ -408,17 +408,15 @@ export function samplingOf(settings: ImportSettings): Sampling {
 }
 
 /**
- * How a texture is read: `color`, a material's image (the shader decodes sRGB); `sheet`, the same but
- * not flipped (Babylon's particle sprite sheets read V 0 at the image's top); `graphColor`, for shader
+ * How a texture is read: `color`, a material's image (the shader decodes sRGB); `graphColor`, for shader
  * graph code, which samples raw (the hardware decodes sRGB); `graphData`, linear data (normal maps).
  */
-export type TextureUse = "color" | "sheet" | "graphColor" | "graphData";
+export type TextureUse = "color" | "graphColor" | "graphData";
 
 /** What a use asks of a texture load, and the key its copy is cached under (one copy per path and use). */
-export function textureLoad(path: string, use: TextureUse): { key: string; flipY: boolean; decode: "shader" | "srgb" | "linear" } {
+export function textureLoad(path: string, use: TextureUse): { key: string; decode: "shader" | "srgb" | "linear" } {
   return {
     key: use === "color" ? path : `${path}#${use}`,
-    flipY: use !== "sheet",
     decode: use === "graphColor" ? "srgb" : use === "graphData" ? "linear" : "shader",
   };
 }

@@ -2,7 +2,7 @@
 // compares their particle state (ADR 0094). Opened by `npm run bench:particles` (run.mjs); results in
 // `window.__parity`.
 import { compileParticleGraph } from "../../src/engine/scene/particleCompile";
-import { compileParticleKernels, KERNEL_FLOATS, type KernelSystem } from "../../src/engine/scene/particleKernel";
+import { KERNEL_FLOATS, type KernelSystem } from "../../src/engine/scene/particleKernel";
 import { KernelEffect, JsRun, type KernelRun } from "../../src/engine/render/particles/gpu/kernelEffect";
 import { WebGpuRun, type GpuDevice } from "../../src/engine/render/particles/gpu/webgpuRun";
 import { WebGl2Run, supportsTextureKernels } from "../../src/engine/render/particles/gpu/webgl2Run";
@@ -149,7 +149,7 @@ async function runMode(deadList: boolean): Promise<Result[]> {
   const first = g.systems[0];
   first.extraOutputs = [...(first.extraOutputs ?? []), { type: "trail", settings: { ...first.output.settings, trailLength: 8 }, blocks: [] }];
   const program = compileParticleGraph(g);
-  const kp = compileParticleKernels(g, program);
+  const kp = program.kernels;
   const out: Result[] = [];
 
   let device: GpuDevice | null = null;
@@ -173,7 +173,7 @@ async function runMode(deadList: boolean): Promise<Result[]> {
       return new TeeRun([js, ...(gpu ? [gpu] : []), ...(glr ? [glr] : [])]);
     },
   };
-  const fx = new KernelEffect(kp.systems, program.effect.emitters, host, { seed: 1234 });
+  const fx = new KernelEffect(kp.systems, program.spawns, host, { seed: 1234 });
   const world = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0.5, 1, -0.25, 1];
   const frame = (f: number) => fx.step(1 / 60, world, 1, [1, 1, 1, 1], { time: f / 60, deltaTime: 1 / 60, playTime: f / 60, properties: new Map(), random: Math.random }, null);
   for (let f = 0; f < 90; f++) frame(f);
