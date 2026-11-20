@@ -58,7 +58,7 @@
 import type { Vec3Like } from "../../../../engine/core/math";
 import { mixer as defaultMixer, type Mixer, type MixOpTarget, type ResolvedBus } from "../../../../engine/audio/mixer";
 import { Assets } from "../../../../engine/scene/Assets";
-import type { Attenuation, AudioBackend, AudioBackground, AudioCaptureSource, AudioOutputDevice, BackendKeyframe, AudioClipCache, AudioClock, AudioCpuDebug, AudioFrameMap, AudioLiveMix, AudioMixCaps, AudioMixDebug, AudioPanner, AudioStatus, AudioVoice, ClipSpanHold, FadeLaw, ListenerPose, MusicBackend, PlayRequest, RecorderTap, ShapedFade, VoiceSpatialOptions, ZoneIrService } from "../backend";
+import type { Attenuation, AudioBackend, AudioBackground, AudioCaptureSource, AudioOutputDevice, BackendKeyframe, AudioClipCache, AudioClock, AudioCpuDebug, AudioFrameMap, AudioLiveMix, AudioMixCaps, AudioMixDebug, AudioPanner, AudioStatus, AudioVoice, ClipSpanHold, ListenerPose, MusicBackend, PlayRequest, RecorderTap, ShapedFade, ShapedParams, VoiceSpatialOptions, ZoneIrService } from "../backend";
 import type { AudioLatency } from "../../../../engine/audio/musicTypes";
 import { BUS_LP_OFF_HZ, readStatus, type BusConfigBuses } from "../wire.generated";
 import { AudioHandle, type AudioReason } from "./handle";
@@ -720,7 +720,7 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
     // A3.4a: while a hard rebuild runs, new plays wait in the locked queue and start once the new core is up.
     const id = this.voices.start(req, this.host.status === "running" && !this.recovering);
     if (id === 0) return null;
-    const voice = new Voice(this.voices, this.table, id);
+    const voice = new Voice(this.voices, this.table, id, this.automation);
     this.automation.onPlay(voice, req);
     return voice;
   }
@@ -1307,8 +1307,8 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
 
   // --- The voice (`voices.ts`, ADR 0176): the handles and the passes call it ---
 
-  /** @internal D3 `AudioSource.velocity`: voice `id`'s velocity into `out`; false when the voice is gone (`voices.velocityOf`). */
-  _velocityOf(id: number, out: { x: number; y: number; z: number }): boolean {
+  /** ADR 0264 `SpatialPassHost.velocityOf` (D3 `AudioSource.velocity`): through `voices.velocityOf`. */
+  velocityOf(id: number, out: { x: number; y: number; z: number }): boolean {
     return this.voices.velocityOf(id, out);
   }
 
@@ -1378,6 +1378,8 @@ class Voice extends AudioHandle implements CoreVoice {
     private readonly voices: CoreVoices,
     table: VoiceTable,
     id: number,
+    /** ADR 0264: the voice's loop region goes through the core's automation sink (SET_LOOP, stamped behind its PLAY). */
+    private readonly loops: Pick<CoreAutomation, "setLoop">,
   ) {
     super(table, id);
   }
@@ -1422,13 +1424,17 @@ class Voice extends AudioHandle implements CoreVoice {
     this.voices.seek(this.id, seconds);
   }
 
+  setLoop(start: number, end: number, looping: boolean): void {
+    this.loops.setLoop(this, start, end, looping);
+  }
+
   /** ADR 0166 §4.2 (Q2): a shaped, stamped fade of the `fade` ramp (`musicOps.fadeShaped`, P1). */
   fadeShaped(f: ShapedFade): void {
     this.voices.fadeShaped(this.id, f);
   }
 
   /** ADR 0166 (G-1): a stamped gain and/or low-pass ramp with a law (`musicOps.paramsShaped`). */
-  paramsShaped(r: { gain?: number; lowpassHz?: number; seconds: number; law?: FadeLaw; at?: number }): void {
+  paramsShaped(r: ShapedParams): void {
     this.voices.paramsShaped(this.id, r);
   }
 

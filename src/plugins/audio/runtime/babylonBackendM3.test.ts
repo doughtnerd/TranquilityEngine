@@ -18,8 +18,16 @@ import { babylonMock, makeFakeContext, type FakeContext, type MockEngine, type M
 import { setAudioBackend, type PlayRequest } from "./backend";
 import { BabylonBackend } from "./babylonBackend";
 import { voiceGen } from "./core/ids";
-import { isSpatialPassHost, SpatialViewFlag } from "./core/spatial";
+import { isSpatialPassHost, ListenerFrame, SpatialViewFlag } from "./core/spatial";
+import type { World } from "../../../engine/core/World";
 import { endAudioSession } from "./testing";
+
+/** One frame of the fallback's zone pass (ADR 0264 `SpatialPassHost.zones`) over `world`, as the audio system runs it. */
+function runZones(backend: BabylonBackend, world: World): void {
+  const frame = new ListenerFrame();
+  frame.world = world;
+  backend.zones.run(frame, backend.spatialVoices, mixer.audioSettings);
+}
 
 vi.mock("@babylonjs/core/AudioV2/webAudio/webAudioEngine", async () => (await import("../testing/babylonMocks")).webAudioEngineModule);
 
@@ -134,18 +142,18 @@ describe("F1 §8: the backend runs main's passes", () => {
     backend.collectSpatialVoices();
     expect(backend.spatialVoices.count).toBe(0);
     const out = { x: 9, y: 9, z: 9 };
-    expect(backend._velocityOf(voice.id, out)).toBe(false);
+    expect(backend.velocityOf(voice.id, out)).toBe(false);
     const next = backend.play(req({ position: at }))!;
     expect(next.id).not.toBe(voice.id); // the slot's generation moved on
   });
 
-  it("AudioSource.velocity: setVelocity feeds _velocityOf", async () => {
+  it("AudioSource.velocity: setVelocity feeds velocityOf", async () => {
     const { backend } = rig();
     const voice = backend.play(req({ position: at }))!;
     await flush();
-    voice.setVelocity?.({ x: 1, y: 2, z: 3 });
+    voice.setVelocity({ x: 1, y: 2, z: 3 });
     const out = { x: 0, y: 0, z: 0 };
-    expect(backend._velocityOf(voice.id, out)).toBe(true);
+    expect(backend.velocityOf(voice.id, out)).toBe(true);
     expect(out).toEqual({ x: 1, y: 2, z: 3 });
   });
 });
@@ -156,11 +164,11 @@ describe("F1 §8: occlusion is gain only", () => {
     const a = backend.play(req({ volume: 0.8, position: at }))!;
     const b = backend.play(req({ volume: 1, position: at }))!;
     await flush();
-    a.setOcclusion?.(0.5, 800);
+    a.setOcclusion(0.5, 800);
     expect(sound(0).volume).toBeCloseTo(0.4, 6);
-    b.setOcclusion?.(0.25, 500);
+    b.setOcclusion(0.25, 500);
     expect(sound(1).volume).toBeCloseTo(0.25, 6);
-    a.setOcclusion?.(1, 20000); // open again
+    a.setOcclusion(1, 20000); // open again
     expect(sound(0).volume).toBeCloseTo(0.8, 6);
     expect(warnings().filter((w) => w.includes("low-pass cutoff is dropped"))).toHaveLength(1);
   });
@@ -169,7 +177,7 @@ describe("F1 §8: occlusion is gain only", () => {
     const { backend } = rig();
     const a = backend.play(req({ volume: 1, position: at }))!;
     await flush();
-    a.setOcclusion?.(0.5, 20000);
+    a.setOcclusion(0.5, 20000);
     a.setVolume(0.6);
     expect(sound().volume).toBeCloseTo(0.3, 6);
     a.fade(0.5, 0);
@@ -180,7 +188,7 @@ describe("F1 §8: occlusion is gain only", () => {
     const { backend } = rig();
     const release = babylonMock.hold();
     const a = backend.play(req({ volume: 1, position: at }))!;
-    a.setOcclusion?.(0.5, 1000);
+    a.setOcclusion(0.5, 1000);
     release();
     await flush();
     expect(sound().volume).toBeCloseTo(0.5, 6);
@@ -204,11 +212,11 @@ describe("F1 §8: Doppler multiplies playbackRate on decoded clips only", () => 
     const voice = backend.play(req({ position: at, pitch: 2, dopplerLevel: 1 }))!;
     await flush();
     expect(sound().playbackRate).toBe(2);
-    voice.setDopplerRate?.(1.25);
+    voice.setDopplerRate(1.25);
     expect(sound().playbackRate).toBeCloseTo(2.5, 6);
     voice.setPitch(1);
     expect(sound().playbackRate).toBeCloseTo(1.25, 6);
-    voice.setDopplerRate?.(1);
+    voice.setDopplerRate(1);
     expect(sound().playbackRate).toBe(1);
   });
 
@@ -216,7 +224,7 @@ describe("F1 §8: Doppler multiplies playbackRate on decoded clips only", () => 
     const { backend } = rig();
     const release = babylonMock.hold();
     const voice = backend.play(req({ position: at }))!;
-    voice.setDopplerRate?.(0.8);
+    voice.setDopplerRate(0.8);
     release();
     await flush();
     expect(sound().options.playbackRate).toBeCloseTo(0.8, 6);
@@ -231,7 +239,7 @@ describe("F1 §8: Doppler multiplies playbackRate on decoded clips only", () => 
     await flush();
     expect(sound().kind).toBe("streaming");
     const before = sound().playbackRate;
-    voice.setDopplerRate?.(1.5);
+    voice.setDopplerRate(1.5);
     expect(sound().playbackRate).toBe(before);
     expect(sound().options.playbackRate).toBeUndefined();
   });
@@ -364,9 +372,9 @@ describe("F2 §8: reverb zones are inert, one warning", () => {
     backend.play(req({ position: at }));
     await flush();
     const before = backend.debug();
-    for (let i = 0; i < 30; i++) backend.noteReverbZones(w);
+    for (let i = 0; i < 30; i++) runZones(backend, w);
     GameObject.create("z3").addBehavior(AudioReverbZone, {});
-    backend.noteReverbZones(w);
+    runZones(backend, w);
     expect(zoneWarnings()).toHaveLength(1);
     expect(zoneWarnings()[0]).toMatch(/audio core/);
     expect(warnings()).toHaveLength(1);
@@ -381,10 +389,10 @@ describe("F2 §8: reverb zones are inert, one warning", () => {
     const node = GameObject.create("off");
     const z = node.addBehavior(AudioReverbZone, {});
     z.enabled = false;
-    backend.noteReverbZones(node.world);
+    runZones(backend, node.world);
     expect(zoneWarnings()).toHaveLength(0);
     z.enabled = true;
-    backend.noteReverbZones(node.world);
+    runZones(backend, node.world);
     expect(zoneWarnings()).toHaveLength(1);
   });
 });

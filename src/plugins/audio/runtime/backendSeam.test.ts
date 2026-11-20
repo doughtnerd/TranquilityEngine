@@ -43,3 +43,37 @@ describe("AudioBackend capabilities per adapter (ADR 0179)", () => {
     expect(f.clock).toBeUndefined();
   });
 });
+
+describe("the pending voice records what it can't do yet and forwards it at the hand-over (ADR 0264)", () => {
+  const req = { path: "a.ogg", url: "a.ogg", loop: false, stream: false, bus: "Master" };
+
+  it("a seek and the stamped ramps given while the core loads reach the real voice", () => {
+    const p = new PendingCoreBackend();
+    const v = p.play(req)!;
+    v.seek(0.75);
+    v.fadeShaped({ to: 0, seconds: 1, law: "equalPowerOut", at: 3, stopAtEnd: true });
+    v.paramsShaped({ gain: 0.5, seconds: 0, at: 2 });
+    const f = makeFakeBackend();
+    p.handOver(f);
+    const real = f.voices[0]!;
+    expect(real.events.filter((e) => e.kind === "seek" || e.kind === "fadeShaped" || e.kind === "paramsShaped")).toEqual([
+      { kind: "seek", seconds: 0.75 },
+      { kind: "fadeShaped", to: 0, seconds: 1, law: "equalPowerOut", at: 3, stopAtEnd: true },
+      { kind: "paramsShaped", gain: 0.5, seconds: 0, at: 2 },
+    ]);
+    v.seek(0.1); // after the hand-over: forwarded at once
+    expect(real.events.at(-1)).toEqual({ kind: "seek", seconds: 0.1 });
+    p.dispose();
+  });
+
+  it("a plain fade given after a shaped one wins, as on a voice", () => {
+    const p = new PendingCoreBackend();
+    const v = p.play(req)!;
+    v.fadeShaped({ to: 0, seconds: 1, law: "linear" });
+    v.fade(0.5, 0);
+    const f = makeFakeBackend();
+    p.handOver(f);
+    expect(f.voices[0]!.events.filter((e) => e.kind === "fade" || e.kind === "fadeShaped")).toEqual([{ kind: "fade", to: 0.5, seconds: 0 }]);
+    p.dispose();
+  });
+});

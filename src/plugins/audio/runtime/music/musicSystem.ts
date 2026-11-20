@@ -21,7 +21,7 @@ import { onAudioSessionReleased } from "../audioSession";
 import type { MusicEvent, MusicEventHandle, MusicKind } from "../../../../engine/audio/musicTypes";
 import { GameBehavior } from "../../../../engine/core/Component";
 import type { EventInstance } from "../events/eventRuntime";
-import { segmentGrid } from "./handle";
+import { segmentGrid } from "./segmentGrids";
 import { entrySeconds } from "../../../../engine/audio/musicGrid";
 import { applyReloads } from "./reload";
 import { childFor, tickSwitch } from "./musicSwitch";

@@ -25,12 +25,12 @@
 import type { MusicSeekResult } from "../../../../engine/audio/musicTypes";
 import type { SegmentNode } from "../../../../engine/audio/musicFormat";
 import {
-  compileSegmentGrid, positionInMetre, positionToTicks, secondsToFrames, ticksToSeconds, type SegmentGrid,
+  positionInMetre, positionToTicks, secondsToFrames, ticksToSeconds,
 } from "../../../../engine/audio/musicGrid";
 import { parseSeekPosition } from "../../../../engine/audio/musicPosition";
 import { audioBackend } from "../backend";
 import { playerOf, type MusicFrame, type MusicPlayer } from "./musicSystem";
-import { segmentClipSource } from "./segmentRun";
+import { FALLBACK_CLIP_RATE, segmentGrid, segmentLength } from "./segmentGrids";
 import { cancelTransition, planImmediate } from "./transition";
 
 /** The crossfade of a seek, milliseconds (§10 R7). */
@@ -38,27 +38,10 @@ const SEEK_FADE_MS = 5;
 
 /** Float noise allowed when comparing heard seconds (as `transition.ts`). */
 const EPS = 1e-7;
-/** The clip rate when no stem has facts yet (as `transition.ts`). */
-const FALLBACK_RATE = 48_000;
 
 const invalid: MusicSeekResult = { ok: false, reason: "invalid", permanent: true };
 const gone: MusicSeekResult = { ok: false, reason: "notPlaying", permanent: true };
 const notYet: MusicSeekResult = { ok: false, reason: "notPlaying", permanent: false };
-
-/** The first stem's clip facts (length and rate), or null while they are unknown. */
-function factsOf(segment: SegmentNode): { frames: number; rate: number } | null {
-  for (const t of segment.tracks) {
-    const f = t.clip ? segmentClipSource().facts(t.clip) : undefined;
-    if (f && f.rate > 0) return { frames: f.frames, rate: f.rate };
-  }
-  return null;
-}
-
-/** The grid a position is read on: the segment's tempo map with its file length when known. */
-function gridOf(segment: SegmentNode, endSeconds: number | undefined): SegmentGrid | null {
-  if (!Array.isArray(segment.tempo)) return null;
-  return compileSegmentGrid({ ...segment, cues: segment.cues ?? [] }, endSeconds === undefined ? {} : { endSeconds });
-}
 
 /** True while a transition can still be replaced by a newer change (`transition.ts`'s rule). */
 function replaceable(t: NonNullable<MusicPlayer["transition"]>, now: number): boolean {
@@ -112,17 +95,16 @@ export function seekMusic(player: MusicPlayer, to: string): MusicSeekResult {
   if (!pos) return invalid;
   const target = landingSegment(player, f.now);
   if (!target) return invalid;
-  const facts = factsOf(target.node);
-  const grid = gridOf(target.node, facts ? facts.frames / facts.rate : undefined);
+  const len = segmentLength(target.node);
+  const grid = segmentGrid(target.node);
   if (!grid || !positionInMetre(grid, pos.bar, pos.beat)) return invalid;
 
   // Clamp to [file start, file end]: a position in the pickup before bar 1 is reachable only through gridOffset.
   let seconds = ticksToSeconds(grid, positionToTicks(grid, pos.bar, pos.beat, pos.tick));
   if (Number.isFinite(grid.endSeconds)) seconds = Math.min(seconds, grid.endSeconds);
   seconds = Math.max(0, seconds);
-  const rate = facts?.rate ?? FALLBACK_RATE;
-  let frame = secondsToFrames(seconds, rate);
-  if (facts && facts.frames > 0) frame = Math.min(frame, facts.frames - 1);
+  let frame = secondsToFrames(seconds, len?.rate ?? FALLBACK_CLIP_RATE);
+  if (len?.frames !== undefined && len.frames > 0) frame = Math.min(frame, len.frames - 1);
 
   const noTrack = refusals(player, "noTrack");
   const t = planImmediate(player, target.node, frame, SEEK_FADE_MS, f);

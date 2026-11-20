@@ -230,10 +230,10 @@ describe("a quantised stem's level on main (F-9b, loopback host)", () => {
     expect(settled(out)).toBeCloseTo(half, 5);
 
     // Occlusion: the smoothed dry occlusion gain times the level, and open again.
-    pulseVoice.setOcclusion!(0.5, 0);
+    pulseVoice.setOcclusion(0.5, 0);
     await step(3);
     expect(settled(out)).toBeCloseTo(LEVEL.pad + LEVEL.pulse * 0.25, 5);
-    pulseVoice.setOcclusion!(1, 0);
+    pulseVoice.setOcclusion(1, 0);
     await step(3);
     expect(settled(out)).toBeCloseTo(half, 5);
     backend.dispose();

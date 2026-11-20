@@ -72,8 +72,8 @@
  */
 import type { MusicGroupStamp, ShapedFade } from "../backend";
 import { fadeInLaw, fadeOutLaw } from "../fadeLaw";
-import { isMusicContainer, musicChildrenOf, type SegmentNode, type MusicNode } from "../../../../engine/audio/musicFormat";
-import { compileSegmentGrid, exitSeconds, type SegmentGrid } from "../../../../engine/audio/musicGrid";
+import { isMusicContainer, musicChildrenOf, type MusicNode } from "../../../../engine/audio/musicFormat";
+import { exitSeconds, type SegmentGrid } from "../../../../engine/audio/musicGrid";
 import type { MusicFrame, MusicPlayer } from "./musicSystem";
 import {
   cancelPlanned, frameIntervalSeconds, lookaheadSeconds, primeLeadSeconds, requestStart, type PlanGrid, type PlannedStart,
@@ -87,7 +87,8 @@ import { advanceAnchor, anchorRun, playingGridOf, predictWrap, ticksAt, type Gri
 import {
   abandonTransition, adoptSuccessor, beginTransition, cancelSuccessor, clearTransition, finishTransition, markPending, promote, syncOverlap,
 } from "./musicPlayer";
-import { cancelRun, segmentClipSource, type SegmentRun } from "./segmentRun";
+import { cancelRun, type SegmentRun } from "./segmentRun";
+import { FALLBACK_CLIP_RATE, segmentGrid, segmentLength } from "./segmentGrids";
 import { enterPlaylist } from "./playlist";
 import { taps } from "../mix/profileTaps";
 import { NULL_PROFILE_SINK } from "../mix/profileSink";
@@ -150,8 +151,6 @@ const PAST_WRAP = 1e-6;
 const MAX_PASSES = 1024;
 /** Nested containers a target resolves through. */
 const MAX_DEPTH = 16;
-/** The clip rate when no stem has facts yet (as `anchors.ts`). */
-const FALLBACK_RATE = 48_000;
 /** Ê before a backend reports one, ms (the planner's seed). */
 const PRIME_EMA_FALLBACK_MS = 40;
 
@@ -190,43 +189,15 @@ interface PlanContext {
 const contexts = new WeakMap<Transition, PlanContext>();
 /** Outgoing runs left as `player.next` after a landing, until their voices end. */
 const ringing = new WeakSet<SegmentRun>();
-/** Outgoing fades waiting for a backend without stamped fades (`fadeShaped`): applied at their start. */
-const unstamped = new WeakMap<Leg, { at: number; seconds: number }>();
+
 
 // --- Small readers ---------------------------------------------------------------------------------------------------
 
-const grids = new WeakMap<object, SegmentGrid | null>();
+/** The clip rate (Hz) of a segment's file frames: its file's own rate by the length rule, else 48 kHz (`segmentGrids.ts`). */
+const rateOf = (node: MusicNode): number => segmentLength(node)?.rate ?? FALLBACK_CLIP_RATE;
 
-/** A segment's compiled grid (G1), cached per node object (the clip's length, when known, resolves an `"end"` exit). */
-function gridOf(node: MusicNode): SegmentGrid | null {
-  const cached = grids.get(node);
-  if (cached) return cached;
-  const seg = node as Partial<SegmentNode>;
-  if (node.type !== "segment" || !Array.isArray(seg.tempo)) return null;
-  const clip = seg.tracks?.find((t) => t.clip)?.clip;
-  const facts = clip ? segmentClipSource().facts(clip) : undefined;
-  const grid = compileSegmentGrid({ ...seg, cues: seg.cues ?? [] } as SegmentNode, facts && facts.rate > 0 ? { endSeconds: facts.frames / facts.rate } : {});
-  if (facts) grids.set(node, grid); // recompiled until the facts arrive
-  return grid;
-}
-
-/** The clip rate (Hz) of a segment's file frames: its first stem's facts, else 48 kHz (as `anchors.ts`). */
-function rateOf(node: MusicNode): number {
-  for (const t of (node as Partial<SegmentNode>).tracks ?? []) {
-    const f = t.clip ? segmentClipSource().facts(t.clip) : undefined;
-    if (f && f.rate > 0) return f.rate;
-  }
-  return FALLBACK_RATE;
-}
-
-/** Seconds of a segment's file (its first stem with facts), NaN when unknown. */
-function fileSecondsOf(node: MusicNode): number {
-  for (const t of (node as Partial<SegmentNode>).tracks ?? []) {
-    const f = t.clip ? segmentClipSource().facts(t.clip) : undefined;
-    if (f && f.rate > 0) return f.frames / f.rate;
-  }
-  return Number.NaN;
-}
+/** Seconds of a segment's file by the length rule, NaN when unknown. */
+const fileSecondsOf = (node: MusicNode): number => segmentLength(node)?.seconds ?? Number.NaN;
 
 /**
  * The segment a target starts: itself; for a `musicSwitch`, the child its parameter picks (else its default, else the
@@ -453,7 +424,7 @@ function plan(player: MusicPlayer, t: Transition, f: MusicFrame, onDropped: ((ca
   if (!canLeave(player)) return false;
   advanceAnchor(player, f.now);
   const target = resolveSegment(player, t.to);
-  const grid = target ? gridOf(target) : null;
+  const grid = target ? segmentGrid(target) : null;
   if (!target || !grid) {
     player.counters.refusals.noTrack = (player.counters.refusals.noTrack ?? 0) + 1;
     t.cause = "noTrack";
@@ -463,7 +434,7 @@ function plan(player: MusicPlayer, t: Transition, f: MusicFrame, onDropped: ((ca
   t.outgoing = player.run;
   const legs: Leg[] = [];
   const bridge = t.immediate ? null : bridgeOf(player, t.match);
-  const bridgeGrid = bridge ? gridOf(bridge) : null;
+  const bridgeGrid = bridge ? segmentGrid(bridge) : null;
   if (bridge && bridgeGrid) {
     legs.push(newLeg(0, bridge, bridgeGrid, entryCueMatch(t.match), "toBridge", player.run));
     legs.push(newLeg(1, target, grid, t.match, "fromBridge", null));
@@ -665,7 +636,7 @@ function deferrable(player: MusicPlayer, t: Transition, ctx: PlanContext, p: Pla
   const T = leg.planned!.point;
   let freed: number;
   if (ringsOn(player, t, leg, T)) {
-    const g = gridOf(out.node);
+    const g = segmentGrid(out.node);
     const exit = g ? exitSeconds(g) : null;
     const file = fileSecondsOf(out.node);
     freed = exit !== null && Number.isFinite(file) ? T + Math.max(0, file - exit) : Number.NaN;
@@ -705,17 +676,9 @@ function commit(player: MusicPlayer, t: Transition, leg: Leg, f: MusicFrame): vo
   const horizon = f.now + lookaheadSeconds(f);
   const shaped = clampFade(T + fo.offset, Math.max(0, fo.seconds), horizon) ?? { at: horizon, seconds: 0, startPhase: 0 };
   const law = fadeOutLaw(fo.curve);
-  for (const s of out.stems) {
-    const v = s.voice;
-    if (!v) continue;
-    if (v.fadeShaped) {
-      const fade: ShapedFade = { to: 0, seconds: shaped.seconds, law, at: shaped.at, stopAtEnd: true };
-      if (shaped.startPhase > 0) fade.startPhase = shaped.startPhase;
-      v.fadeShaped(fade);
-    } else {
-      unstamped.set(leg, { at: shaped.at, seconds: shaped.seconds });
-    }
-  }
+  const fade: ShapedFade = { to: 0, seconds: shaped.seconds, law, at: shaped.at, stopAtEnd: true };
+  if (shaped.startPhase > 0) fade.startPhase = shaped.startPhase;
+  for (const s of out.stems) s.voice?.fadeShaped(fade);
 }
 
 /**
@@ -750,13 +713,6 @@ function syncAudible(player: MusicPlayer, f: MusicFrame): void {
   if (w && !on && f.now >= w.to - EPS) audible.delete(player);
 }
 
-/** A backend without stamped fades: the leg's outgoing fade starts at the first frame at or after its time. */
-function applyUnstamped(leg: Leg, f: MusicFrame): void {
-  const u = unstamped.get(leg);
-  if (!u || f.now + EPS < u.at) return;
-  unstamped.delete(leg);
-  for (const s of leg.from?.stems ?? []) s.voice?.stop(u.seconds);
-}
 
 /** At a leg's T: its run plays, the run it leaves rings out as `player.next`; after the last leg, a queued change is planned. */
 function land(player: MusicPlayer, t: Transition, leg: Leg, f: MusicFrame): void {
@@ -810,7 +766,6 @@ function abandon(player: MusicPlayer, t: Transition, f: MusicFrame, cause: strin
       cancelRun(p.run, f);
       cancelSuccessor(player, p.run);
     }
-    unstamped.delete(leg);
   }
   t.state = "cancelled";
   t.cause = cause;
@@ -978,7 +933,6 @@ function tickChange(player: MusicPlayer, f: MusicFrame): void {
     if (f.now + frameIntervalSeconds(f) >= t.cancelBy - EPS) commit(player, t, first, f);
   }
   if (t.state !== "running" && t.state !== "bridging") return;
-  for (const leg of ctx.legs) applyUnstamped(leg, f);
   const second = ctx.legs[1];
   if (second && !second.failed && !second.stamped) {
     if (second.deferred) {

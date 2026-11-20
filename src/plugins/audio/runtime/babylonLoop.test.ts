@@ -43,9 +43,9 @@ describe("Babylon event loops", () => {
     const backend = make();
     const voice = backend.play(req({ loop: true }))!;
     await flush();
-    voice.setLoop!(1.5, 3, true);
+    voice.setLoop(1.5, 3, true);
     expect(sound()).toMatchObject({ loopStart: 1.5, loopEnd: 3, loop: true });
-    voice.setLoop!(1.5, 3, false);
+    voice.setLoop(1.5, 3, false);
     expect(sound().loop).toBe(false);
     expect(voice.playing).toBe(true);
   });
@@ -53,7 +53,7 @@ describe("Babylon event loops", () => {
   it("applies a setLoop made before the sound is ready", async () => {
     const backend = make();
     const voice = backend.play(req())!;
-    voice.setLoop!(0.5, 2, true);
+    voice.setLoop(0.5, 2, true);
     await flush();
     expect(sound()).toMatchObject({ loopStart: 0.5, loopEnd: 2, loop: true });
   });
@@ -63,12 +63,12 @@ describe("Babylon event loops", () => {
     const backend = make();
     const voice = backend.play(req({ stream: true, loop: true }))!;
     await flush();
-    voice.setLoop!(1, 2, true);
-    voice.setLoop!(1, 2, true);
+    voice.setLoop(1, 2, true);
+    voice.setLoop(1, 2, true);
     expect(sound().loop).toBe(true);
     expect(sound().loopStart).toBeUndefined();
     expect(warn.mock.calls.filter((c) => String(c[0]).includes("loops whole"))).toHaveLength(1);
-    voice.setLoop!(1, 2, false);
+    voice.setLoop(1, 2, false);
     expect(sound().loop).toBe(false);
   });
 });

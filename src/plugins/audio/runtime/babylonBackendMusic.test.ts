@@ -139,6 +139,35 @@ describe("Babylon fallback music: stamped starts", () => {
   });
 });
 
+describe("Babylon fallback: every voice takes ramps and seeks (ADR 0264)", () => {
+  const plain = (extra: Partial<PlayRequest> = {}): PlayRequest => ({ path: "sfx.ogg", url: "sfx.ogg", loop: false, stream: false, bus: "Master", ...extra });
+
+  it("a plain voice runs a stamped fade at its time and stops at its end", async () => {
+    const v = backend.play(plain())!;
+    await flush();
+    vi.useFakeTimers();
+    setTime(0);
+    await vi.advanceTimersByTimeAsync(10);
+    const s = sounds()[0]!;
+    v.fadeShaped({ to: 0, seconds: 0.5, law: "linear", at: 1, stopAtEnd: true });
+    expect(s.ramps).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(s.ramps).toEqual([{ value: 0, duration: 0.5 }]);
+    await vi.advanceTimersByTimeAsync(600);
+    expect(v.playing).toBe(false);
+  });
+
+  it("a seek before the start is where the sound starts; after it, the sound moves there", async () => {
+    const v = backend.play(plain())!;
+    v.seek(1.25);
+    await flush();
+    const s = sounds()[0]!;
+    expect(s.plays).toEqual([{ startOffset: 1.25 }]);
+    v.seek(0.5);
+    expect(s.currentTime).toBe(0.5);
+  });
+});
+
 describe("Babylon fallback music: fades", () => {
   it("a linear stamped fade is one setVolume ramp, started at its time", async () => {
     music.admitGroup(request([member("a")]));
@@ -148,7 +177,7 @@ describe("Babylon fallback music: fades", () => {
     const [v] = music.stampGroup({ group: 1, at: 0 });
     await vi.advanceTimersByTimeAsync(10);
     const s = sounds()[0]!;
-    v!.fadeShaped!({ to: 0, seconds: 2, law: "linear", at: 1 });
+    v!.fadeShaped({ to: 0, seconds: 2, law: "linear", at: 1 });
     expect(s.ramps).toEqual([]);
     await vi.advanceTimersByTimeAsync(1000);
     expect(s.ramps).toEqual([{ value: 0, duration: 2 }]);
@@ -161,7 +190,7 @@ describe("Babylon fallback music: fades", () => {
     const [v] = music.stampGroup({ group: 1, at: 0 });
     await vi.advanceTimersByTimeAsync(10);
     const s = sounds()[0]!;
-    v!.fadeShaped!({ to: 0, seconds: 1, law: "equalPowerOut", stopAtEnd: true });
+    v!.fadeShaped({ to: 0, seconds: 1, law: "equalPowerOut", stopAtEnd: true });
     expect(s.ramps.length).toBe(1);
     await vi.advanceTimersByTimeAsync(1100);
     expect(s.ramps.length).toBe(8);
@@ -182,7 +211,7 @@ describe("Babylon fallback music: B2 switches, stingers and quantised automation
     const [v] = music.stampGroup({ group: 1, at: 0 });
     await vi.advanceTimersByTimeAsync(10);
     const s = sounds()[0]!;
-    v!.fadeShaped!({ to: 0, seconds: 1, law: "sCurve", stopAtEnd: true });
+    v!.fadeShaped({ to: 0, seconds: 1, law: "sCurve", stopAtEnd: true });
     await vi.advanceTimersByTimeAsync(1100);
     expect(s.ramps.length).toBe(8);
     expect(s.ramps.at(-1)!.value).toBe(0);
@@ -198,7 +227,7 @@ describe("Babylon fallback music: B2 switches, stingers and quantised automation
     await vi.advanceTimersByTimeAsync(10);
     const s = sounds()[0]!;
     setTime(1.5); // the stamp was 1.0; half of the 1 s fade is gone
-    v!.fadeShaped!({ to: 0, seconds: 1, law: "linear", at: 1 });
+    v!.fadeShaped({ to: 0, seconds: 1, law: "linear", at: 1 });
     expect(s.ramps[0]!.value).toBe(0);
     expect(s.ramps[0]!.duration).toBeCloseTo(0.5, 5);
   });
@@ -212,7 +241,7 @@ describe("Babylon fallback music: B2 switches, stingers and quantised automation
     await vi.advanceTimersByTimeAsync(10);
     const s = sounds()[0]!;
     v!.fade(0.5, 0);
-    v!.paramsShaped!({ gain: 0.5, seconds: 1, law: "linear", at: 2 });
+    v!.paramsShaped({ gain: 0.5, seconds: 1, law: "linear", at: 2 });
     expect(s.ramps).toEqual([]);
     await vi.advanceTimersByTimeAsync(2000);
     expect(s.ramps).toEqual([{ value: 0.25, duration: 1 }]);
@@ -226,8 +255,8 @@ describe("Babylon fallback music: B2 switches, stingers and quantised automation
     await flush();
     const [v] = music.stampGroup({ group: 1, at: 0 });
     await flush();
-    v!.paramsShaped!({ lowpassHz: 800, seconds: 0 });
-    v!.paramsShaped!({ lowpassHz: 400, seconds: 0 });
+    v!.paramsShaped({ lowpassHz: 800, seconds: 0 });
+    v!.paramsShaped({ lowpassHz: 400, seconds: 0 });
     expect(warn.mock.calls.filter((c) => String(c[0]).includes("low-pass"))).toHaveLength(1);
   });
 
@@ -240,7 +269,7 @@ describe("Babylon fallback music: B2 switches, stingers and quantised automation
     await vi.advanceTimersByTimeAsync(10);
     const s = sounds()[0]!;
     expect(s.plays).toEqual([{ waitTime: 2 }]);
-    v!.fadeShaped!({ to: 0, seconds: 0.05, law: "linear", at: 3.5, stopAtEnd: true });
+    v!.fadeShaped({ to: 0, seconds: 0.05, law: "linear", at: 3.5, stopAtEnd: true });
     await vi.advanceTimersByTimeAsync(2600);
     expect(v!.playing).toBe(false);
   });

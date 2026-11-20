@@ -31,6 +31,10 @@ function rig(): { b: FakeBackend; player: MusicPlayer; run: SegmentRun; f: Music
   return { b, player, run, f, voices: b.voices as FakeVoice[] };
 }
 
+/** A stem gain ramp as the fake voice records it (ADR 0264: every voice takes `paramsShaped`; `fade` never carries stem gain). */
+const ramp = (gain: number, seconds: number) => ({ kind: "paramsShaped", gain, seconds, law: "linear" });
+const lastRamp = (v: FakeVoice) => v.events.filter((e) => e.kind === "paramsShaped").pop();
+
 afterEach(() => {
   endAudioSession();
   setAudioBackend(null);
@@ -41,8 +45,8 @@ describe("stems (ADR 0166 P5)", () => {
     const { player, run, f, voices } = rig();
     tickStems(player, f); // the player's clock for the solo
     setAudibleStems(player, ["drums"], null, 0.5);
-    const fades = voices.map((v) => v.events.filter((e) => e.kind === "fade"));
-    expect(fades).toEqual([[{ kind: "fade", to: 1, seconds: 0.5 }], [{ kind: "fade", to: 0, seconds: 0.5 }], [{ kind: "fade", to: 0, seconds: 0.5 }]]);
+    const ramps = voices.map((v) => v.events.filter((e) => e.kind === "paramsShaped" || e.kind === "fade"));
+    expect(ramps).toEqual([[ramp(1, 0.5)], [ramp(0, 0.5)], [ramp(0, 0.5)]]);
     // Silent but the voice is still alive: nothing to release.
     const bass = voices[1]!;
     tickStems(player, { ...f, now: 2 });
@@ -64,14 +68,12 @@ describe("stems (ADR 0166 P5)", () => {
   it("setAudibleStems (editor solo and mute) keeps only the named stems of its segment audible, and null restores all (F-14)", () => {
     const { player, voices } = rig();
     setAudibleStems(player, ["drums", "pad"], "s", 0.1); // bass muted
-    expect(voices.map((v) => v.events.filter((e) => e.kind === "fade").pop())).toEqual([
-      { kind: "fade", to: 1, seconds: 0.1 }, { kind: "fade", to: 0, seconds: 0.1 }, { kind: "fade", to: 1, seconds: 0.1 },
-    ]);
+    expect(voices.map((v) => lastRamp(v))).toEqual([ramp(1, 0.1), ramp(0, 0.1), ramp(1, 0.1)]);
     setAudibleStems(player, null, null, 0.1);
-    for (const v of voices) expect(v.events.filter((e) => e.kind === "fade").pop()).toMatchObject({ to: 1 });
+    for (const v of voices) expect(lastRamp(v)).toMatchObject({ gain: 1 });
     // Another segment's stems are untouched by a set for "s".
     setAudibleStems(player, [], "other", 0.1);
-    for (const v of voices) expect(v.events.filter((e) => e.kind === "fade").pop()).toMatchObject({ to: 1 });
+    for (const v of voices) expect(lastRamp(v)).toMatchObject({ gain: 1 });
   });
 
   it("clearing the solo brings every stem back to 1", () => {
@@ -79,6 +81,6 @@ describe("stems (ADR 0166 P5)", () => {
     setAudibleStems(player, ["bass"], null, 0.1);
     tickStems(player, { ...f, now: 2 });
     setAudibleStems(player, null, null, 0.2);
-    for (const v of voices) expect(v.events.filter((e) => e.kind === "fade").pop()).toMatchObject({ to: 1, seconds: 0.2 });
+    for (const v of voices) expect(lastRamp(v)).toEqual(ramp(1, 0.2));
   });
 });

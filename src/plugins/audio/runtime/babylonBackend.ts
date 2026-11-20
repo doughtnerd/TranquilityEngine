@@ -35,9 +35,9 @@ import { NULL_PROFILE_SINK, type ProfileSink, type ProfileStopReason } from "./m
 import { mixerTapFor, taps } from "./mix/profileTaps";
 import type { KeyframeBus, KeyframeVoice } from "./capture/format";
 import { KEYFRAME_BUS_LANES, KEYFRAME_MAX_BUSES, KEYFRAME_MAX_VOICES, NO_NAME, keyframeAudibility, keyframePitch } from "./capture/keyframeLayout";
-import { mixer, registerDefaultBackend, resolveBackendKind, zeroCounters, type AudioBackend, type AudioBackground, type AudioCaptureSource, type AudioClipCache, type AudioDebugInfo, type AudioLiveMix, type AudioM3Counters, type AudioMixCaps, type ClipSpanHold, type RecorderTap, type AudioReason, type AudioStatus, type AudioVoice, type Attenuation, type ListenerPose, type MusicAdmitResult, type MusicBackend, type MusicGroupEvent, type MusicLifecycleEvent, type MusicGroupRequest, type AudioOutputDevice, type BackendKeyframe, type MusicBackendDebug, type MusicGroupStamp, type MusicPrimedState, type PlayRequest, type ShapedFade, type FadeLaw } from "./backend";
+import { mixer, registerDefaultBackend, resolveBackendKind, zeroCounters, type AudioBackend, type AudioBackground, type AudioCaptureSource, type AudioClipCache, type AudioDebugInfo, type AudioLiveMix, type AudioM3Counters, type AudioMixCaps, type ClipSpanHold, type RecorderTap, type AudioReason, type AudioStatus, type AudioVoice, type Attenuation, type ListenerPose, type MusicAdmitResult, type MusicBackend, type MusicGroupEvent, type MusicLifecycleEvent, type MusicGroupRequest, type AudioOutputDevice, type BackendKeyframe, type MusicBackendDebug, type MusicGroupStamp, type MusicPrimedState, type PlayRequest, type ShapedFade, type ShapedParams, type VoiceSpatialOptions } from "./backend";
 import { AMBISONIC_DECODE_LIMIT_BYTES, busCreationSteps, decodedBytes, dopplerPlaybackRate, filterIsActive, listenerQuaternion, occludedVolume, planBuses, spatialParams, spatialSoundOptions, webAudioVector, type BusPlan } from "./babylonMapping";
-import { DistanceEffect, SendCurveTable, SpatialViewFlag, type SpatialPassHost, type SpatialVoiceView } from "./core/spatial";
+import { DistanceEffect, SendCurveTable, SpatialViewFlag, type ListenerFrame, type SpatialPassHost, type SpatialVoiceView, type ZonePass } from "./core/spatial";
 import { DopplerPass } from "./core/doppler";
 import { OcclusionPass } from "./core/occlusion";
 import { encodeVoiceId, voiceGen, voiceIndex } from "./core/ids";
@@ -160,7 +160,7 @@ class BabylonVoice implements AudioVoice {
   private regionIsFile = false;
   /** The sound's length in seconds once its buffer is loaded (a loop end is clamped to it). */
   private duration = Number.POSITIVE_INFINITY;
-  /** Music member: where playback starts in the file, seconds (frames converted at load). */
+  /** Where playback starts in the file, seconds: a music member's start frame (converted at load), or a `seek` before the start. */
   private startOffset = 0;
   /** Music member: the context time the sound was put on (the stamp's time when on time), null before. */
   private startedAtTime: number | null = null;
@@ -173,10 +173,9 @@ class BabylonVoice implements AudioVoice {
   /** Music: the stem's own gain (quantised automation, solo), a factor of the voice's volume beside `fade`. */
   private param = 1;
   private appliedParam = 1;
-  /** Stamped fades with a law; on every music member (`MusicBackendCaps.stampedFades`, §8). */
-  fadeShaped?: (f: ShapedFade) => void;
-  /** Stamped gain ramps of a music member (quantised automation); the low-pass has no home here (warned once). */
-  paramsShaped?: (r: { gain?: number; lowpassHz?: number; seconds: number; law?: FadeLaw; at?: number }) => void;
+  /** ADR 0162 §1.2: the request's `occlusion` switch and `dopplerLevel`, as `setSpatialOptions` last changed them. */
+  private occlusionOn: boolean;
+  private dopplerLevel: number;
 
   constructor(private readonly backend: BabylonBackend, private readonly req: PlayRequest, private readonly music?: VoiceMusic) {
     this.stream = req.stream && req.ambisonic !== true;
@@ -186,14 +185,11 @@ class BabylonVoice implements AudioVoice {
     this.volume = req.volume ?? 1;
     this.pitch = req.pitch ?? 1;
     this.looping = req.loop;
-    if (music) {
-      if (music.fadeZero) {
-        this.gain = 0;
-        this.appliedGain = 0;
-      }
-      // Streamed members ramp too (HTML5 volume steps on timers), so a switch fades them with its law, not a late cut.
-      this.fadeShaped = (f) => this.shapedFade(f);
-      this.paramsShaped = (r) => this.shapedParams(r);
+    this.occlusionOn = req.occlusion !== false;
+    this.dopplerLevel = req.dopplerLevel ?? 0;
+    if (music?.fadeZero) {
+      this.gain = 0;
+      this.appliedGain = 0;
     }
     // E4.5 (ADR 0158 §4): a plain looping clip or stream loops its sidecar's or file's loop points; they are read
     // from the file once per path (`loadFileLoopPoints`) and applied when known (`pointsArrived`).
@@ -403,25 +399,27 @@ class BabylonVoice implements AudioVoice {
       }
       return;
     }
-    if (!this.stream && wait > 0) (sound as StaticSound).play({ waitTime: wait });
-    else sound.play();
+    const offset = this.startOffset > 0 ? { startOffset: this.startOffset } : {};
+    if (!this.stream && wait > 0) (sound as StaticSound).play({ waitTime: wait, ...offset });
+    else sound.play(offset);
   }
 
   /**
-   * Music (§8): a shaped fade of this voice's `fade` ramp. It starts at `f.at` (a timer, since a Babylon ramp starts when
-   * it is set) and runs `setVolume` ramps: one for a linear law, up to eight for the others. It replaces a fade under
-   * way and starts from the fade gain as it is when it begins. A timer that fires late joins the law at the phase the
-   * stamp's time implies, so the fade still ends when it was planned to.
+   * ADR 0264 (§8): a shaped fade of this voice's `fade` ramp, on every voice (streamed ones ramp too, as HTML5 volume
+   * steps). It starts at `f.at` (a timer, since a Babylon ramp starts when it is set) and runs `setVolume` ramps: one for
+   * a linear law, up to eight for the others. It replaces a fade under way and starts from the fade gain as it is when it
+   * begins. A timer that fires late joins the law at the phase the stamp's time implies, so the fade still ends when it
+   * was planned to.
    */
-  private shapedFade(f: ShapedFade): void {
+  fadeShaped(f: ShapedFade): void {
     if (this.ended) return;
     this.startRamp(this.shapedTimers, f.at, () => this.runShaped(f, this.shapedTimers, "fade"));
   }
 
-  /** G-1 (§8): a stem's own gain ramp, stamped at `r.at` on a timer; the cutoff is skipped. */
-  private shapedParams(r: { gain?: number; lowpassHz?: number; seconds: number; law?: FadeLaw; at?: number }): void {
+  /** ADR 0264, G-1 (§8): the voice's own gain ramp, stamped at `r.at` on a timer; the cutoff is skipped. */
+  paramsShaped(r: ShapedParams): void {
     if (this.ended) return;
-    if (r.lowpassHz !== undefined) warnOnce("babylon-music-lowpass", "a music stem's low-pass automation is skipped by the Babylon audio fallback (api-and-models §8).");
+    if (r.lowpassHz !== undefined) warnOnce("babylon-music-lowpass", "a low-pass ramp on a voice is skipped by the Babylon audio fallback (api-and-models §8).");
     if (r.gain === undefined) return;
     const f: ShapedFade = { to: r.gain, seconds: r.seconds, law: r.law ?? "linear", ...(r.at !== undefined ? { at: r.at } : {}) };
     this.startRamp(this.paramTimers, r.at, () => this.runShaped(f, this.paramTimers, "param"));
@@ -607,12 +605,12 @@ class BabylonVoice implements AudioVoice {
     view.viewFlags[i] =
       (spatial ? SpatialViewFlag.SPATIAL : 0) |
       SpatialViewFlag.MIXED |
-      (spatial && this.req.occlusion !== false ? SpatialViewFlag.OCCLUSION : 0) |
+      (spatial && this.occlusionOn ? SpatialViewFlag.OCCLUSION : 0) |
       (ambisonic ? SpatialViewFlag.AMBISONIC : 0);
     view.minDist[i] = att.minDistance;
     view.maxDist[i] = att.maxDistance;
     view.volume[i] = this.volume;
-    view.dopplerLevel[i] = this.req.dopplerLevel ?? 0;
+    view.dopplerLevel[i] = this.dopplerLevel;
     let a0 = this.volume * this.param * this.gain;
     if (pos) {
       view.posX[i] = pos.x;
@@ -650,6 +648,29 @@ class BabylonVoice implements AudioVoice {
     this.looping = looping;
     this.applyLoop();
   }
+  /**
+   * ADR 0264: move to `seconds` of the sound. Before the sound has started it starts there; after, the sound restarts at
+   * the offset (`currentTime`). A looping sound wraps the time, otherwise it clamps to the clip's end.
+   */
+  seek(seconds: number): void {
+    if (this.ended || !Number.isFinite(seconds)) return;
+    let t = Math.max(0, seconds);
+    if (Number.isFinite(this.duration) && this.duration > 0) t = this.looping ? t % this.duration : Math.min(t, this.duration);
+    const sound = this.sound;
+    if (sound && this.started) sound.currentTime = t;
+    else this.startOffset = t;
+  }
+
+  /**
+   * ADR 0264 (§1.2, K4): Play edits of the source's M3 options. The fallback's Doppler and occlusion passes read the
+   * `occlusion` switch and `dopplerLevel`; it has no sends or ambisonic rotation (warned at play) to change.
+   */
+  setSpatialOptions(o: VoiceSpatialOptions): void {
+    if (this.ended) return;
+    if (o.occlusion !== undefined) this.occlusionOn = o.occlusion;
+    if (o.dopplerLevel !== undefined && Number.isFinite(o.dopplerLevel)) this.dopplerLevel = Math.max(0, o.dopplerLevel);
+  }
+
   /** @internal Bb3: a live rename moved the bus's state under a new name; the voice follows without recounting. */
   _renamedBus(to: string): void {
     this.bus = to;
@@ -709,6 +730,26 @@ const DEFAULT_ATTENUATION: Attenuation = { minDistance: 1, maxDistance: 100, rol
  * it back when it ends (its generation then moves on). `collect` refreshes the live list from the voices; results come back
  * through `setOcclusion` and `setDopplerRate` to the voice in the slot.
  */
+/**
+ * ADR 0162 F2 (api-and-models §8), ADR 0264: the fallback's zone pass. Reverb zones are inert here, because Babylon's V2
+ * audio API has no public insertion point for a ConvolverNode: the first enabled `AudioReverbZone` in the World with the
+ * view gets one warning for the page. Nothing else happens: voices send nothing, and `debug()` has no `zones`.
+ */
+class InertZones implements ZonePass {
+  private warned = false;
+
+  run(frame: ListenerFrame): void {
+    const world = frame.world;
+    if (this.warned || !world) return;
+    for (const z of world._componentsOfType(AudioReverbZone)) {
+      if (!z.isActiveAndEnabled) continue;
+      this.warned = true;
+      warnOnce("babylon-reverb-zones", "reverb zones need the audio core: on the Babylon audio fallback they are inert and sounds play dry (ADR 0162).");
+      return;
+    }
+  }
+}
+
 class BabylonSpatialView implements SpatialVoiceView {
   readonly capacity = SPATIAL_SLOTS;
   readonly slots = new Uint16Array(SPATIAL_SLOTS);
@@ -1179,8 +1220,8 @@ export class BabylonBackend implements AudioBackend, AudioClipCache, AudioLiveMi
     if (!this.disposed) this.spatialVoices.collect(this.listenerPose);
   }
 
-  /** @internal D3 `AudioSource.velocity`: voice `id`'s velocity (the estimate, or `setVelocity`'s value) into `out`; false when the voice is gone. */
-  _velocityOf(id: number, out: { x: number; y: number; z: number }): boolean {
+  /** ADR 0264 `SpatialPassHost.velocityOf` (D3 `AudioSource.velocity`): the estimate, or `setVelocity`'s value. */
+  velocityOf(id: number, out: { x: number; y: number; z: number }): boolean {
     if (!this.spatialVoices.voiceOf(id)) return false;
     const i = voiceIndex(id);
     out.x = this.doppler.velX[i]!;
@@ -1357,22 +1398,8 @@ export class BabylonBackend implements AudioBackend, AudioClipCache, AudioLiveMi
     }
   }
 
-  /**
-   * ADR 0162 F2 (api-and-models §8): reverb zones are inert on the fallback, because Babylon's V2 audio API has no
-   * public insertion point for a ConvolverNode. The audio system hands this backend the World with the view each frame;
-   * the first enabled `AudioReverbZone` in it gets one warning for the page. Nothing else happens: voices send nothing,
-   * and `debug()` has no `zones` (the fallback has none to list).
-   */
-  noteReverbZones(world: World): void {
-    if (this.zoneWarned) return;
-    for (const z of world._componentsOfType(AudioReverbZone)) {
-      if (!z.isActiveAndEnabled) continue;
-      this.zoneWarned = true;
-      warnOnce("babylon-reverb-zones", "reverb zones need the audio core: on the Babylon audio fallback they are inert and sounds play dry (ADR 0162).");
-      return;
-    }
-  }
-  private zoneWarned = false;
+  /** ADR 0264 `SpatialPassHost.zones`: inert (`InertZones`). */
+  readonly zones: ZonePass = new InertZones();
 
   private rhythmWarned = false;
 
@@ -1561,12 +1588,8 @@ class BabylonMusic implements MusicBackend {
     });
     g.voices = voices;
     for (const f of stamp.fades ?? []) {
-      const v = voices[f.member];
-      if (!v) continue;
       const fade = f.fade.at === undefined ? { ...f.fade, at: stamp.at } : f.fade;
-      if (v.fadeShaped) v.fadeShaped(fade);
-      else if (fade.stopAtEnd) v.stop(fade.seconds);
-      else v.fade(fade.to, fade.seconds);
+      voices[f.member]?.fadeShaped(fade);
     }
     return voices;
   }

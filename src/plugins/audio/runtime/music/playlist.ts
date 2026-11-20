@@ -32,8 +32,8 @@
  * advance is adopted when its run is the player's. The first item and the gap after an ended item still start through
  * `requestStart` (nothing plays to leave).
  */
-import { compileSegmentGrid, ticksToSeconds, type SegmentGrid } from "../../../../engine/audio/musicGrid";
-import { musicChildById, type PlaylistNode, type SegmentNode, type MusicNode } from "../../../../engine/audio/musicFormat";
+import { ticksToSeconds } from "../../../../engine/audio/musicGrid";
+import { musicChildById, type PlaylistNode, type MusicNode } from "../../../../engine/audio/musicFormat";
 import { playingGridOf, predictWrap, heardTimeOf, ticksAt } from "./anchors";
 import { attachState, promote } from "./musicPlayer";
 import type { MusicFrame, MusicPlayer } from "./musicSystem";
@@ -41,7 +41,8 @@ import { childFor, createSwitchState } from "./musicSwitch";
 import { requestStart, type PlanRequest } from "./planner";
 import { requestTransition, ringingOut, type Transition } from "./transition";
 import { createOrder, nextIndex, type PlaylistOrder } from "./playlistOrder";
-import { segmentClipSource, type SegmentRun } from "./segmentRun";
+import type { SegmentRun } from "./segmentRun";
+import { segmentGrid } from "./segmentGrids";
 
 /** One playlist container's cursor (nesting keeps one per playlist node). P4 may add fields here. */
 export interface PlaylistCursor {
@@ -226,23 +227,6 @@ function naturalExit(player: MusicPlayer, now: number): number {
   if (!Number.isFinite(last)) return heardTimeOf(a, pg.grid.exitTicks);
   const pos = ticksAt(a, last + WRAP_PROBE);
   return last + WRAP_PROBE + ticksToSeconds(pg.grid, pg.grid.exitTicks) - ticksToSeconds(pg.grid, pos);
-}
-
-const grids = new WeakMap<object, SegmentGrid | null>();
-
-/** A segment's compiled grid (G1) cached per node (the same compile as the planner's, whose cache is private). */
-function segmentGrid(node: MusicNode): SegmentGrid | null {
-  const cached = grids.get(node);
-  if (cached !== undefined) return cached;
-  let grid: SegmentGrid | null = null;
-  const seg = node as Partial<SegmentNode>;
-  if (node.type === "segment" && Array.isArray(seg.tempo) && Array.isArray(seg.cues)) {
-    const clip = seg.tracks?.[0]?.clip;
-    const facts = clip ? segmentClipSource().facts(clip) : undefined;
-    grid = compileSegmentGrid(node as SegmentNode, facts && facts.rate > 0 ? { endSeconds: facts.frames / facts.rate } : {});
-  }
-  grids.set(node, grid);
-  return grid;
 }
 
 /**

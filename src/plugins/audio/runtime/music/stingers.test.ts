@@ -216,9 +216,9 @@ describe("at most 4 at once", () => {
     for (let k = 0; k < 4; k++) expect(fire()).toBe(true);
     expect(player.stingers!.sounding).toHaveLength(4);
     const oldest = player.stingers!.sounding[0]!;
-    const calls = vi.spyOn(oldest.voices[0]!, "stop");
+    const calls = vi.spyOn(oldest.voices[0]!, "fadeShaped");
     expect(fire()).toBe(true);
-    expect(calls).toHaveBeenCalledWith(0.005);
+    expect(calls).toHaveBeenCalledWith(expect.objectContaining({ to: 0, seconds: 0.005, law: "linear", stopAtEnd: true }));
     expect(player.stingers!.sounding).toHaveLength(4);
     expect(player.stingers!.sounding).not.toContain(oldest);
   });
