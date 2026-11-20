@@ -27,7 +27,7 @@ import { specNeeded, type RenderFeatureSpec } from "../renderFeatures";
 import { _instantiatedPrefabOf } from "../../scene/SceneLoader";
 import type { WarmItem } from "./warmUp";
 import type { Scene } from "@babylonjs/core/scene.js";
-import type { BabylonLighting } from "./lighting";
+import type { LightingContributions } from "./lighting";
 import type { BabylonMaterialLibrary } from "./materialLibrary";
 import type { ProbeHit } from "./probes";
 import type { EditorMesh, EditorSprite } from "./editorContext";
@@ -84,7 +84,7 @@ export interface BabylonFeature {
    * feature that hasn't loaded is asked once it has, when its spec `warms` the content (ADR 0154).
    */
   warm?(content: WarmContent): WarmItem[];
-  /** Its part of the core diagnostics (the built-in features: the lighting rig, the probes). */
+  /** Its part of the core diagnostics (the built-in features: the probes). */
   state?(): FeatureState;
   /** ADR 0154: its own diagnostics, reported as `RenderDiagnostics.features[<its spec's name>]`. */
   diagnostics?(): unknown;
@@ -119,8 +119,11 @@ export type BabylonWarmFactory = (host: BabylonFeatureHost) => Required<Pick<Bab
  */
 export interface BabylonFeatureHost {
   readonly scene: Scene;
-  /** Lights, the environment and its skybox; the sky drives the sun and lights through it. */
-  readonly lighting: BabylonLighting;
+  /**
+   * The lighting rig (lights, shadows, environment, skybox; ADR 0252): a feature in the `lighting` phase
+   * contributes to it (the sky its sun and bake), and the renderer resolves it after the phase.
+   */
+  readonly lighting: LightingContributions;
   /** The material library (ADR 0127). */
   readonly materials: BabylonMaterialLibrary;
   /** Reflection probes: whether any exist, the lookup (the probe nearest a point, ADR 0130), and counting a mesh drawn with one's reflection this frame (diagnostics). */

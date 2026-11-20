@@ -1,7 +1,13 @@
 /**
- * Stages 2–3 of ADR 0075 on Babylon.js: Light components (ADR 0043), which lights cast shadows and
- * how (ADR 0050, 0053; the frame graph draws the shadow maps, `frameGraph.ts`), and the Environment
- * component's lighting and sky (ADR 0053), with the default studio room when a World has no map.
+ * The lighting rig on Babylon.js (ADR 0075 stages 2–3, ADR 0252): Light components (ADR 0043), which
+ * lights cast shadows and how (ADR 0050, 0053; the frame graph draws the shadow maps, `frameGraph.ts`),
+ * and the Environment component's lighting and skybox (ADR 0053), with the default studio room when a
+ * World has no map.
+ *
+ * Other render features don't set its state; they contribute to it during the `lighting` phase (the
+ * Sky plugin its sun and baked environment, the fog how much it covers the sky, `contribute`), and the
+ * renderer resolves everything in one `sync` once the phase has run. The order the parts resolve in
+ * (lights, then the environment and skybox) is the rig's own.
  */
 import type { Camera as BabylonCamera } from "@babylonjs/core/Cameras/camera.js";
 import { ClusteredLightContainer } from "@babylonjs/core/Lights/Clustered/clusteredLightContainer.js";
@@ -130,8 +136,45 @@ export function setShadowEnabled(light: BabylonLight, casts: boolean): void {
 /** The size of the prefiltered cube made from an environment map (per face). */
 export const ENV_SIZE = 256;
 
-/** @internal Lights, shadows and environment on the Babylon backend (ADR 0075 stages 2–3). */
-export class BabylonLighting {
+/** @internal A sun the sky drives the main directional light with (ADR 0114): a unit direction toward it, linear colour, intensity. */
+export interface SunContribution {
+  readonly direction: readonly number[];
+  readonly color: readonly number[];
+  readonly intensity: number;
+}
+
+/**
+ * @internal What a render feature contributes to the lighting rig in one frame (ADR 0252). Each field
+ * left out keeps what another feature contributed this frame; a field nobody contributes this frame
+ * is off at the next `sync` (no sun override, no sky environment, no sky fog). When two features
+ * contribute the same field, the later one wins.
+ */
+export interface LightingContribution {
+  /** Drive the main directional light (and the default sun) with this sun; null leaves the Lights as authored. */
+  sun?: SunContribution | null;
+  /** A procedural sky's baked environment (ADR 0112): lights the scene when the Environment's map is a sky; null until its first bake. */
+  skyEnvironment?: BaseTexture | null;
+  /** How much the World's fog covers the sky, 0 to 1 (ADR 0071): the skybox dims by it and hides at 1. */
+  skyFog?: number;
+}
+
+/** @internal What a render feature (core or a plugin's, ADR 0135) sees of the lighting rig: it contributes, it never sets. */
+export interface LightingContributions {
+  contribute(c: LightingContribution): void;
+}
+
+/** @internal How the rig gets its studio room: made and owned by it (the default), or someone else's (the asset thumbnails share one, ADR 0153), or none (null). */
+export interface LightingOptions {
+  studio?: HDRCubeTexture | null;
+}
+
+/**
+ * @internal The lighting rig (ADR 0075 stages 2–3, ADR 0252): lights, shadows, environment and skybox on
+ * the Babylon backend. Features contribute during the `lighting` phase (`contribute`); the renderer
+ * calls `sync` once after it, which resolves the frame's lights, shadow requests, environment and
+ * skybox from the World and those contributions, then clears the contributions for the next frame.
+ */
+export class BabylonLighting implements LightingContributions {
   private readonly lights = new Map<Light, LightEntry>();
   /**
    * Babylon lights whose Light went away, left enabled at zero intensity for the next Light of the
@@ -153,7 +196,7 @@ export class BabylonLighting {
   private readonly defaults: BabylonLight[];
   private envMap: EnvMap | null = null;
   private studio: HDRCubeTexture | null = null;
-  /** The studio room is someone else's (`shareStudio`): never made or disposed here. */
+  /** The studio room is someone else's (`LightingOptions.studio`): never made or disposed here. */
   private studioShared = false;
   private skybox: Mesh | null = null;
   private skyMaterial: PBRMaterial | null = null;
@@ -169,14 +212,21 @@ export class BabylonLighting {
    * is a unit world vector toward the light; `color` is linear colour × intensity. Updated in place.
    */
   readonly mainLight = { direction: [0.4, 1, -0.6].map((v) => v / Math.hypot(0.4, 1, 0.6)), color: [1, 1, 1] };
-  /** How much the World's fog covers the sky (ADR 0071): the skybox dims by it and hides at 1. */
-  private skyFog = 0;
-  /** A procedural sky's baked environment (ADR 0112), set by `BabylonSky`; null until its first bake. */
-  private skyEnvironment: BaseTexture | null = null;
-  /** The sky's sun (ADR 0114): the main directional light follows it when set (`setSunOverride`). */
-  private sunOverride: { direction: readonly number[]; color: readonly number[]; intensity: number } | null = null;
+  /** This frame's contributions so far (`contribute`), resolved and cleared by `sync`. */
+  private readonly pending: Required<LightingContribution> = { sun: null, skyEnvironment: null, skyFog: 0 };
+  /** The contributions the last `sync` resolved with. */
+  private readonly resolved: Required<LightingContribution> = { sun: null, skyEnvironment: null, skyFog: 0 };
+  /** The shadow maps the last `sync` asked for. */
+  private requests: ShadowRequest[] = [];
 
-  constructor(private readonly scene: Scene) {
+  constructor(
+    private readonly scene: Scene,
+    options: LightingOptions = {},
+  ) {
+    if (options.studio !== undefined) {
+      this.studioShared = true;
+      this.studio = options.studio;
+    }
     // The light a World without Lights gets: a soft ambient light and a sun from above and in front.
     const ambient = new HemisphericLight("myco.default.ambient", new Vector3(0, 1, 0), scene);
     ambient.intensity = 0.35;
@@ -187,12 +237,41 @@ export class BabylonLighting {
     this.defaults = [ambient, sun];
   }
 
+  /** Add to this frame's contributions (see {@link LightingContribution}). */
+  contribute(c: LightingContribution): void {
+    if (c.sun !== undefined) this.pending.sun = c.sun;
+    if (c.skyEnvironment !== undefined) this.pending.skyEnvironment = c.skyEnvironment;
+    if (c.skyFog !== undefined) this.pending.skyFog = c.skyFog;
+  }
+
   /**
-   * Step 8: mirror the World's Lights, and return the shadow maps this frame needs: one per enabled
+   * Step 8, once the `lighting` phase's features have contributed: resolve the frame's lights and shadow
+   * requests, then the environment and skybox, from the World and this frame's contributions, and clear
+   * the contributions. `camera` draws the main view (cascades follow it), or null; `far` is its far plane,
+   * which the skybox fits inside until `fit` sizes it per camera.
+   */
+  sync(world: World, camera: BabylonCamera | null, far: number): void {
+    const { pending, resolved } = this;
+    resolved.sun = pending.sun;
+    resolved.skyEnvironment = pending.skyEnvironment;
+    resolved.skyFog = Math.min(1, Math.max(0, pending.skyFog));
+    pending.sun = pending.skyEnvironment = null;
+    pending.skyFog = 0;
+    this.requests = this.syncLights(world, camera);
+    this.syncEnvironment(world, far);
+  }
+
+  /** The shadow maps the last `sync` asked for: one per enabled shadow-casting light. */
+  shadows(): ShadowRequest[] {
+    return this.requests;
+  }
+
+  /**
+   * Mirror the World's Lights, and return the shadow maps this frame needs: one per enabled
    * shadow-casting light, cascaded for the first `cascadedLights` directional ones (ADR 0110) on tiers
    * with cascades when a camera draws the view (cascades follow it).
    */
-  syncLights(world: World, camera: BabylonCamera | null): ShadowRequest[] {
+  private syncLights(world: World, camera: BabylonCamera | null): ShadowRequest[] {
     const tier = Graphics.tier;
     const mapSize = SHADOW_MAP_SIZE[tier.shadows];
     const cascadeLights = new Set<Light>();
@@ -208,7 +287,7 @@ export class BabylonLighting {
     const shadows: ShadowRequest[] = [];
     let main: BabylonLight | null = null;
     let mainCasts = false;
-    const sunTarget = this.sunOverride ? this.sunLight(world) : null;
+    const sunTarget = this.resolved.sun ? this.sunLight(world) : null;
     for (const l of world._componentsOfType(Light)) {
       const on = this.syncLight(world, l);
       if (on && l === sunTarget) this.applySun(this.lights.get(l)!.light);
@@ -242,11 +321,6 @@ export class BabylonLighting {
     return shadows;
   }
 
-  /** Drive the main directional light from the sky (ADR 0114); null to leave Lights as authored. */
-  setSunOverride(sun: { direction: readonly number[]; color: readonly number[]; intensity: number } | null): void {
-    this.sunOverride = sun;
-  }
-
   /** The Light the sky drives: the first enabled shadow-casting directional light, else the first directional one. */
   private sunLight(world: World): Light | null {
     let first: Light | null = null;
@@ -259,7 +333,7 @@ export class BabylonLighting {
   }
 
   private applySun(light: BabylonLight): void {
-    const sun = this.sunOverride;
+    const sun = this.resolved.sun;
     if (!sun || !(light instanceof DirectionalLight)) return;
     light.direction = light.direction.set(-sun.direction[0], -sun.direction[1], -sun.direction[2]);
     light.diffuse.set(sun.color[0], sun.color[1], sun.color[2]);
@@ -270,7 +344,7 @@ export class BabylonLighting {
   /** The default sun (a World without Lights) follows the sky too, and goes back when it stops. */
   private syncDefaultSun(): void {
     const sun = this.defaults[1] as DirectionalLight;
-    if (this.sunOverride) return this.applySun(sun);
+    if (this.resolved.sun) return this.applySun(sun);
     sun.direction = sun.direction.copyFrom(DEFAULT_SUN);
     sun.diffuse.set(1, 1, 1);
     sun.specular.set(1, 1, 1);
@@ -464,13 +538,13 @@ export class BabylonLighting {
    * demand), intensities, blur and rotation. Without one, the studio room lights lit materials at 0.4
    * and there's no sky. `far` is the view camera's far plane, which the sky box fits inside.
    */
-  syncEnvironment(world: World, far: number): void {
+  private syncEnvironment(world: World, far: number): void {
     const env = world._componentsOfType(Environment).find((e) => e.isActiveAndEnabled) ?? null;
     let path = env?.map.replace(/^asset:/, "") ?? "";
     const procedural = environmentKind(path) === "sky";
-    if (procedural) path = ""; // drawn and baked by the sky (ADR 0112); its bake comes in through `setSkyEnvironment`
+    if (procedural) path = ""; // drawn and baked by the sky (ADR 0112); its bake is contributed (`skyEnvironment`)
     if (path !== (this.envMap?.path ?? "")) this.loadEnvironmentMap(path);
-    const map = procedural ? this.skyEnvironment : this.envMap?.texture && cubemapReady(this.envMap.texture) ? this.envMap.texture : null;
+    const map = procedural ? this.resolved.skyEnvironment : this.envMap?.texture && cubemapReady(this.envMap.texture) ? this.envMap.texture : null;
     if (!this.studioShared) this.studio ??= createStudioTexture(this.scene);
     // Negated: Babylon's right-handed lookups mirrored z after the turn, and the World is now mirrored instead (ADR 0164).
     const turn = env ? (-env.rotation * Math.PI) / 180 : 0;
@@ -491,7 +565,8 @@ export class BabylonLighting {
       if (copy) copy.coordinatesMode = Texture.SKYBOX_MODE;
       this.envMap!.sky = copy;
     }
-    const sky = env?.skybox && map && this.skyFog < 1 ? this.envMap!.sky : null;
+    const skyFog = this.resolved.skyFog;
+    const sky = env?.skybox && map && skyFog < 1 ? this.envMap!.sky : null;
     if (!sky) {
       this.skybox?.setEnabled(false);
       return;
@@ -499,10 +574,10 @@ export class BabylonLighting {
     if (!this.skybox) {
       this.skybox = CreateBox("myco.skybox", { size: 1 }, this.scene);
       this.skybox.isPickable = false;
-      // One box serves every camera: `fitSky` centres and sizes it for each camera just before it draws
+      // One box serves every camera: `fit` centres and sizes it for each camera just before it draws
       // (not `infiniteDistance`, whose matrix followed whichever camera computed it last, nor a size from
       // the first camera's far plane, which put the sky past the editor's camera preview inset's far
-      // plane, drawing it black). Culling is skipped: each camera's cull task ran before its `fitSky`.
+      // plane, drawing it black). Culling is skipped: each camera's cull task ran before its `fit`.
       this.skybox.alwaysSelectAsActiveMesh = true;
       this.skyMaterial = new PBRMaterial("myco.skybox", this.scene);
       this.skyMaterial.backFaceCulling = false;
@@ -511,25 +586,15 @@ export class BabylonLighting {
     }
     const mat = this.skyMaterial!;
     this.skybox.setEnabled(true);
-    this.skybox.scaling.setAll(Math.max(1, far) * 1.1); // until `fitSky` sizes it per camera
+    this.skybox.scaling.setAll(Math.max(1, far) * 1.1); // until `fit` sizes it per camera
     if (mat.reflectionTexture !== sky) mat.reflectionTexture = sky;
     if ("rotationY" in sky) (sky as { rotationY: number }).rotationY = turn;
     mat.microSurface = 1 - Math.min(1, Math.max(0, env!.skyboxBlur));
-    mat.environmentIntensity = Math.max(0, env!.skyboxIntensity) * (1 - this.skyFog);
-  }
-
-  /**
-   * Light with `studio` instead of making a studio room (the asset thumbnails share one across their
-   * scenes, ADR 0153), or with none when it's null. The lighting never disposes it.
-   */
-  shareStudio(studio: HDRCubeTexture | null): void {
-    if (!this.studioShared) this.studio?.dispose();
-    this.studioShared = true;
-    this.studio = studio;
+    mat.environmentIntensity = Math.max(0, env!.skyboxIntensity) * (1 - skyFog);
   }
 
   /** Centre and size the skybox for the camera about to draw: its corners stay inside the far plane. */
-  fitSky(camera: TargetCamera): void {
+  fit(camera: TargetCamera): void {
     const box = this.skybox;
     if (!box?.isEnabled()) return;
     const far = camera.maxZ > 0 ? camera.maxZ : 10000; // 0 is Babylon's infinite far plane
@@ -590,19 +655,9 @@ export class BabylonLighting {
    * when there's nothing to wait for: no map, a procedural sky's (the sky feature waits for its bake), or
    * one that isn't in the project or failed to load.
    */
-  environmentSettled(): boolean {
+  settled(): boolean {
     const map = this.envMap;
     return !map?.texture || map.failed || this.scene.environmentTexture === map.texture;
-  }
-
-  /** A procedural sky's baked environment, or null (ADR 0112). */
-  setSkyEnvironment(texture: BaseTexture | null): void {
-    this.skyEnvironment = texture;
-  }
-
-  /** The World's fog over the sky this frame, 0 to 1 (ADR 0071). */
-  setSkyFog(amount: number): void {
-    this.skyFog = amount;
   }
 
   /** Whether cascaded shadows are on, and the environment map's state (the lighting diagnostics). */
@@ -642,8 +697,8 @@ export class BabylonLighting {
 
   /**
    * Dispose of what it made: its lights (in use, parked, clustered, the container and the defaults), the
-   * environment map and its sky copy, the studio room, and the skybox. Not `skyEnvironment`, which
-   * `BabylonSky` owns. Safe to call twice.
+   * environment map and its sky copy, the studio room (unless it's shared), and the skybox. Not a
+   * contributed sky environment, which the sky owns. Safe to call twice.
    */
   dispose(): void {
     for (const e of [...this.lights.values(), ...this.parked, ...this.clusterParked]) e.light.dispose();
@@ -663,6 +718,8 @@ export class BabylonLighting {
     this.skybox = null;
     this.skyMaterial?.dispose();
     this.skyMaterial = null;
+    this.requests = [];
+    this.pending.sun = this.pending.skyEnvironment = this.resolved.sun = this.resolved.skyEnvironment = null;
   }
 
   private warnOnce(key: string, message: string): void {

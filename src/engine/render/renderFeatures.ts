@@ -10,6 +10,7 @@ import type { WarmContent } from "../scene/warmUp";
 /**
  * When a feature syncs each frame, in this order. Between phases the renderer does its own steps:
  * - after `content`: it syncs cameras and collects shadow casters (from what content drew);
+ * - after `lighting`: it resolves the lighting rig from what the phase's features contributed (ADR 0252);
  * - after `effects`: it works out whether the content has loaded and which meshes probes capture;
  * - after `overlay`: it syncs the editor tools.
  * Inside a phase, features run in registration order, except where a feature's `after` names another
@@ -44,8 +45,8 @@ export interface RenderFeatureSpec {
    */
   warms?(content: WarmContent): boolean;
   /**
-   * Features of the same phase that sync before this one (ADR 0135): `["sky"]` for the lights, since the
-   * sky may drive the sun. Names of absent features, or of other phases, are ignored.
+   * Features of the same phase that sync before this one (ADR 0135): `["sprites", "tilemaps"]` for the
+   * meshes. Names of absent features, or of other phases, are ignored.
    */
   after?: readonly string[];
 }

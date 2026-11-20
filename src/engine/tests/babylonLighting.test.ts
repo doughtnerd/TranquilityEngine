@@ -1,11 +1,13 @@
-// ADR 0075 stages 2–3: Light components, shadows and the default studio environment on the Babylon
-// backend, run headless on Babylon's NullEngine.
+// ADR 0075 stages 2–3, ADR 0252: the lighting rig (Light components, shadows, the environment and the
+// default studio room, and what the sky and fog contribute) on the Babylon backend, run headless on
+// Babylon's NullEngine.
 import { NullEngine } from "@babylonjs/core/Engines/nullEngine.js";
 import type { ClusteredLightContainer } from "@babylonjs/core/Lights/Clustered/clusteredLightContainer.js";
 import type { DirectionalLight } from "@babylonjs/core/Lights/directionalLight.js";
 import type { PointLight } from "@babylonjs/core/Lights/pointLight.js";
 import type { SpotLight } from "@babylonjs/core/Lights/spotLight.js";
 import { RGBE_ReadHeader, RGBE_ReadPixels } from "@babylonjs/core/Misc/HighDynamicRange/hdr.js";
+import { BaseTexture } from "@babylonjs/core/Materials/Textures/baseTexture.js";
 import { Scene } from "@babylonjs/core/scene.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SHADOW_MAP_SIZE } from "../core/graphics";
@@ -68,7 +70,7 @@ describe("lights on the Babylon backend (ADR 0075 stage 2)", () => {
     await SceneManager.load("s.json");
     babylon = new NullEngine();
     scene = new Scene(babylon);
-    lighting = new BabylonLighting(scene);
+    lighting = new BabylonLighting(scene, { studio: null }); // NullEngine can't make the studio room
   });
 
   afterEach(() => {
@@ -87,7 +89,8 @@ describe("lights on the Babylon backend (ADR 0075 stage 2)", () => {
   let shadows: ShadowRequest[] = [];
   const sync = () => {
     engine.step(1 / 60);
-    shadows = lighting.syncLights(World.require(), null);
+    lighting.sync(World.require(), null, 1000);
+    shadows = lighting.shadows();
   };
   const byName = (name: string) => scene.lights.find((l) => l.name === name);
 
@@ -97,22 +100,21 @@ describe("lights on the Babylon backend (ADR 0075 stage 2)", () => {
     expect(byName("myco.default.sun")!.isEnabled()).toBe(true);
   });
 
-  it("lets the sky drive the main directional light, and the default sun, then lets go (ADR 0114)", () => {
+  it("lets a contributed sun drive the main directional light, and the default sun, for the frame it's contributed in (ADR 0114, 0252)", () => {
     const sunOver = { direction: [0, 1, 0], color: [1, 0.5, 0.25], intensity: 4 };
-    lighting.setSunOverride(sunOver);
+    lighting.contribute({ sun: sunOver });
     sync();
     const def = byName("myco.default.sun") as DirectionalLight;
     expect(def.direction.y).toBeCloseTo(-1);
     expect(def.intensity).toBe(4);
-    lighting.setSunOverride(null);
-    sync();
+    sync(); // nothing contributed this frame: the sky stopped driving it
     expect(def.intensity).toBe(1);
     expect(def.direction.y).toBeLessThan(-0.5);
     expect(def.direction.x).toBeLessThan(0);
 
     light({ type: "directional", intensity: 2 }, [0, 5, 0], [45, 0, 0]);
     light({ type: "directional", intensity: 1, castShadows: true }, [0, 5, 0], [45, 0, 0]);
-    lighting.setSunOverride(sunOver);
+    lighting.contribute({ sun: sunOver });
     sync();
     const lights = scene.lights.filter((l) => l.name.startsWith("light:")) as DirectionalLight[];
     const driven = lights.filter((l) => l.intensity === 4);
@@ -120,7 +122,8 @@ describe("lights on the Babylon backend (ADR 0075 stage 2)", () => {
     expect(driven[0].diffuse.asArray()).toEqual([1, 0.5, 0.25]);
     expect(driven[0].direction.y).toBeCloseTo(-1);
     expect(lighting.mainLight.direction[1]).toBeCloseTo(1); // shader graphs' Main Light follows
-    lighting.setSunOverride(null);
+    lighting.contribute({ sun: sunOver });
+    lighting.contribute({ sun: null }); // the later contribution wins
     sync();
     expect(lights.map((l) => l.intensity).sort()).toEqual([1, 2]);
   });
@@ -188,20 +191,33 @@ describe("lights on the Babylon backend (ADR 0075 stage 2)", () => {
   });
 
   it("centres and sizes the one skybox for each camera before it draws, inside that camera's far plane", () => {
-    // The studio map can't load on NullEngine, so the box is put where `syncEnvironment` keeps it.
+    // The studio map can't load on NullEngine, so the box is put where `sync` keeps it.
     const box = CreateBox("myco.skybox", { size: 1 }, scene);
     (lighting as unknown as { skybox: typeof box }).skybox = box;
     const near = new TargetCamera("inset", new Vector3(3, 4, 5), scene);
     near.maxZ = 100;
-    lighting.fitSky(near);
+    lighting.fit(near);
     expect(box!.getAbsolutePosition().asArray()).toEqual([3, 4, 5]);
     const corner = 0.5 * box!.scaling.x * Math.sqrt(3);
     expect(corner).toBeLessThan(100);
     expect(corner).toBeGreaterThan(50);
     const far = new TargetCamera("view", new Vector3(0, 0, 0), scene);
     far.maxZ = 2000;
-    lighting.fitSky(far);
+    lighting.fit(far);
     expect(0.5 * box!.scaling.x * Math.sqrt(3)).toBeGreaterThan(1000); // the editor view keeps its distant meshes in front of the sky
+  });
+
+  it("dispose leaves no lights in the scene, and can be called twice", () => {
+    light({ type: "directional" });
+    light({ type: "point" });
+    sync();
+    expect(scene.lights.length).toBeGreaterThan(0);
+    expect(Array.isArray(lighting.shadows())).toBe(true);
+    lighting.dispose();
+    expect(scene.lights).toHaveLength(0);
+    expect(scene.environmentTexture).toBeNull();
+    expect(lighting.shadows()).toEqual([]);
+    lighting.dispose();
   });
 
   it("brings the defaults back when the World's Lights are disabled", () => {
@@ -310,16 +326,20 @@ describe("lights on the Babylon backend (ADR 0075 stage 2)", () => {
     light({ type: "directional", castShadows: true }, [0, 10, 0], [60, 0, 0]);
     light({ type: "directional", castShadows: true }, [0, 10, 0], [30, 0, 0]);
     engine.step(1 / 60);
-    const requests = lighting.syncLights(World.require(), camera);
+    const resolve = () => {
+      lighting.sync(World.require(), camera, 1000);
+      return lighting.shadows();
+    };
+    const requests = resolve();
     expect(requests.map((r) => r.cascaded)).toEqual([true, true, false]);
     expect(requests[0].numCascades).toBe(Graphics.tier.shadowCascades);
     expect(lighting.state().cascadedLights).toBe(2);
     Graphics.quality = "Ultra"; // 4
     engine.step(1 / 60);
-    expect(lighting.syncLights(World.require(), camera).every((r) => r.cascaded)).toBe(true);
+    expect(resolve().every((r) => r.cascaded)).toBe(true);
     caps.maxVaryingVectors = 16; // at WebGPU's minimum: one light only
     engine.step(1 / 60);
-    expect(lighting.syncLights(World.require(), camera).filter((r) => r.cascaded)).toHaveLength(1);
+    expect(resolve().filter((r) => r.cascaded)).toHaveLength(1);
     caps.maxVaryingVectors = minimum;
   });
 
@@ -370,7 +390,7 @@ describe("clustered point and spot lights (ADR 0079)", () => {
     Object.assign(babylon.getCaps(), { texelFetch: true, colorBufferFloat: true, blendFloat: true, shaderFloatPrecision: 23, maxVaryingVectors: 28 });
     Object.defineProperty(babylon, "version", { get: () => 2 });
     scene = new Scene(babylon);
-    lighting = new BabylonLighting(scene);
+    lighting = new BabylonLighting(scene, { studio: null }); // NullEngine can't make the studio room
   });
 
   afterEach(() => {
@@ -387,7 +407,7 @@ describe("clustered point and spot lights (ADR 0079)", () => {
   };
   const sync = () => {
     engine.step(1 / 60);
-    lighting.syncLights(World.require(), null);
+    lighting.sync(World.require(), null, 1000);
   };
   const container = () => scene.lights.find((l) => l.getClassName() === "ClusteredLightContainer") as ClusteredLightContainer | undefined;
   const ownLights = () => scene.lights.filter((l) => l.isEnabled() && !l.name.startsWith("myco.default"));
@@ -482,8 +502,7 @@ describe("environment maps (ADR 0053, 0113)", () => {
     await SceneManager.load("s.json");
     babylon = new NullEngine();
     scene = new Scene(babylon);
-    lighting = new BabylonLighting(scene);
-    lighting.shareStudio(null); // NullEngine can't make the studio room
+    lighting = new BabylonLighting(scene, { studio: null }); // NullEngine can't make the studio room
     warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     error = vi.spyOn(console, "error").mockImplementation(() => undefined);
   });
@@ -503,14 +522,27 @@ describe("environment maps (ADR 0053, 0113)", () => {
 
   it("loads a six-image cubemap asset, a JSON file with no URL of its own, from its faces", () => {
     environment("asset:env/box.cubemap.json");
-    lighting.syncEnvironment(World.require(), 100);
+    lighting.sync(World.require(), null, 100);
     expect(lighting.state().environment).toBe("env/box.cubemap.json");
     expect(missing()).toEqual([]);
   });
 
+  it("lights the scene with a procedural sky's contributed bake, for the frames it's contributed in (ADR 0112, 0252)", () => {
+    environment("asset:skies/day.sky.json");
+    const bake = new BaseTexture(scene);
+    lighting.contribute({ skyEnvironment: bake, skyFog: 0.5 });
+    lighting.sync(World.require(), null, 100);
+    expect(scene.environmentTexture).toBe(bake);
+    expect(lighting.state()).toMatchObject({ environment: "", skybox: false }); // the sky draws itself; no map to load
+    expect(lighting.settled()).toBe(true); // the sky's feature waits for its own bake
+    lighting.sync(World.require(), null, 100); // the sky contributed nothing this frame
+    expect(scene.environmentTexture).toBeNull();
+    bake.dispose();
+  });
+
   it("still says so when the map isn't in the project", () => {
     environment("asset:env/gone.hdr");
-    lighting.syncEnvironment(World.require(), 100);
+    lighting.sync(World.require(), null, 100);
     expect(missing()).toHaveLength(1);
   });
 });

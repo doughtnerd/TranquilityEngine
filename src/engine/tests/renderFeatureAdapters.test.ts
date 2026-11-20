@@ -8,10 +8,10 @@ import { Assets, Engine, Fog, GameObject, Graphics, Light, ReflectionProbe, Scen
 import { Tilemap } from "../../plugins/tilemaps/runtime/Tilemap";
 import { ParticleSystem } from "../render/components";
 import { WaterSurface } from "../render/water/WaterSurface";
-import { ENVIRONMENT_SPEC, FOG_SPEC, LIGHTS_SPEC, LightsFeature, EnvironmentFeature, PROBES_SPEC, ProbesFeature } from "../render/babylon/features";
+import { PROBES_SPEC, ProbesFeature } from "../render/babylon/features";
 import type { FeatureSyncContext } from "../render/babylon/feature";
-import { FogFeature } from "../render/babylon/fog";
-import { BabylonLighting } from "../render/babylon/lighting";
+import { FOG_SPEC, FogFeature } from "../render/babylon/fog";
+import type { LightingContribution } from "../render/babylon/lighting";
 import { BabylonProbes } from "../render/babylon/probes";
 import { _registeredRenderFeatures } from "../render/renderFeatures";
 
@@ -45,13 +45,14 @@ describe("render feature adapters (ADR 0130)", () => {
     engine.dispose();
   });
 
-  it("fog sets the scene's fog and the sky fog from a Fog component, and clears when it's removed", () => {
-    let skyAmount = -1;
-    const fog = new FogFeature({ scene, setSkyFog: (a) => (skyAmount = a) });
+  it("fog sets the scene's fog from a Fog component and contributes its sky fog to the lighting rig, and clears when it's removed", () => {
+    // The lighting rig as the fog sees it (ADR 0252): what it contributes each frame.
+    let contributed: LightingContribution[] = [];
+    const fog = new FogFeature({ scene, lighting: { contribute: (c) => void contributed.push(c) } });
     fog.sync(World.require());
     expect(scene.fogMode).toBe(Scene.FOGMODE_NONE);
     expect(fog.skyFog()).toBeNull();
-    expect(skyAmount).toBe(0);
+    expect(contributed).toEqual([]); // nothing over the sky this frame
 
     const node = GameObject.create("fog");
     node.addBehavior(Fog, { mode: "exponential", density: 0.1, affectsSkybox: true, skyboxFog: 0.5 });
@@ -60,14 +61,15 @@ describe("render feature adapters (ADR 0130)", () => {
     expect(scene.fogMode).toBe(Scene.FOGMODE_EXP2);
     expect(scene.fogDensity).toBeCloseTo(0.1);
     expect(fog.skyFog()!.amount).toBe(0.5);
-    expect(skyAmount).toBe(0.5);
+    expect(contributed).toEqual([{ skyFog: 0.5 }]);
 
+    contributed = [];
     GameObject.destroy(node);
     engine.step(1 / 60);
     fog.sync(World.require());
     expect(scene.fogMode).toBe(Scene.FOGMODE_NONE);
     expect(fog.skyFog()).toBeNull();
-    expect(skyAmount).toBe(0);
+    expect(contributed).toEqual([]);
     fog.dispose();
   });
 
@@ -88,30 +90,9 @@ describe("render feature adapters (ADR 0130)", () => {
     feature.dispose();
   });
 
-  it("lighting dispose leaves no lights in the scene", () => {
-    const lighting = new BabylonLighting(scene);
-    const lights = new LightsFeature(lighting);
-    const env = new EnvironmentFeature(lighting);
-    GameObject.create("sun").addBehavior(Light, { type: "directional" });
-    GameObject.create("lamp").addBehavior(Light, { type: "point" });
-    engine.step(1 / 60);
-    lights.sync(World.require(), ctx);
-    expect(scene.lights.length).toBeGreaterThan(0);
-    expect(lights.state().lighting).toBeDefined();
-    expect(Array.isArray(lights.shadows())).toBe(true);
-    env.dispose(); // does nothing
-    expect(scene.lights.length).toBeGreaterThan(0);
-    lights.dispose();
-    expect(scene.lights).toHaveLength(0);
-    expect(scene.environmentTexture).toBeNull();
-    lights.dispose(); // twice is fine
-  });
-
   it("each spec declares its phase, types and loading", () => {
     expect(TILEMAPS_SPEC).toMatchObject({ name: "tilemaps", phase: "content", types: [Tilemap], lazy: false });
-    expect(LIGHTS_SPEC).toMatchObject({ phase: "lighting", types: [Light], lazy: false });
     expect(FOG_SPEC).toMatchObject({ phase: "lighting", types: [Fog], lazy: false });
-    expect(ENVIRONMENT_SPEC).toMatchObject({ phase: "lighting", types: [], lazy: false });
     expect(PROBES_SPEC).toMatchObject({ phase: "capture", types: [ReflectionProbe], lazy: false });
     expect(WATER_SPEC).toMatchObject({ name: "water", phase: "surfaces", types: [WaterSurface], lazy: true });
     expect(PARTICLES_SPEC).toMatchObject({ name: "particles", phase: "effects", types: [ParticleSystem], lazy: true, holdsFirstFrame: false });

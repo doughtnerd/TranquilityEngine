@@ -131,6 +131,26 @@ describe("render feature hooks (ADR 0154)", () => {
     expect(load).not.toHaveBeenCalled();
   });
 
+  it("resolves the lighting rig after the lighting phase, from what its features contributed, whatever their order (ADR 0252)", () => {
+    // A plugin feature in the `lighting` phase with no `after`, registered after the core fog, as the sky is.
+    let contributing = true;
+    const factory: BabylonFeatureFactory = (host) => ({
+      sync: () => {
+        if (contributing) host.lighting.contribute({ sun: { direction: [0, 1, 0], color: [1, 0.5, 0.25], intensity: 4 } });
+      },
+      dispose: () => {},
+    });
+    const spec: RenderFeatureSpec = { name: "sun", phase: "lighting", types: [], lazy: false };
+    make([{ registration: { spec, load: async () => factory }, factory }]);
+    const sun = () => renderer.scene.lights.find((l) => l.name === "myco.default.sun")!;
+    renderer.sync(world);
+    expect(sun().intensity).toBe(4); // the World has no Lights: its default sun follows the contribution
+    expect(sun().diffuse.asArray()).toEqual([1, 0.5, 0.25]);
+    contributing = false;
+    renderer.sync(world);
+    expect(sun().intensity).toBe(1); // a contribution lasts the frame it's made in
+  });
+
   it("the renderer names no feature it doesn't read content from", () => {
     const src = readFileSync(new URL("../render/babylon/BabylonRenderer.ts", import.meta.url), "utf8");
     expect(src).not.toMatch(/"(particles|ui|sky|water|tilemaps)"/);
