@@ -9,8 +9,9 @@ import { newNodeKinds } from "../nodeKinds";
 import { whyNotInsert, type InsertPlace } from "../nodeInsertion";
 import { isHidden, isLocked, nodeFlags, setHidden, setLocked } from "../nodeVisibility";
 import { isInsidePrefab } from "../hierarchyEdit";
-import { openScene, playState, selectedKeys, selection, type OpenScene } from "../state";
-import { createUIElement, deleteUIElement, duplicateUIElement, NEW_ELEMENTS, whyNotEditableUI } from "../uiDocumentEdits";
+import { openScene, selectedKeys, selection, type OpenScene } from "../state";
+import { createUIElement, deleteUIElement, duplicateUIElement, NEW_ELEMENTS } from "../uiDocumentEdits";
+import { whyNotEdit } from "../editGate";
 import { documentsOn, resolveUIElement, selectedUIRef, uiRefKey, type UIElementRef } from "../uiDocuments";
 import { renamingUIElement } from "../uiElementDrag";
 import { usePopover } from "./popover";
@@ -38,7 +39,7 @@ const ELEMENT_LABELS: Readonly<Record<keyof typeof NEW_ELEMENTS, string>> = { Pa
 
 /** "Create X in Document" items adding UI document elements (ADR 0077) into `at` (an element, or a document's root). */
 function uiElementItems(at: UIElementRef | { host: string; index: number }): MenuItem[] {
-  const reason = whyNotEditableUI();
+  const reason = whyNotEdit({ kind: "ui-documents" });
   return (Object.keys(NEW_ELEMENTS) as (keyof typeof NEW_ELEMENTS)[]).map((tag) => ({ label: `Create ${ELEMENT_LABELS[tag]} in Document`, disabled: reason, run: () => void createUIElement(tag, at) }));
 }
 
@@ -64,7 +65,7 @@ export function createMenuItems(scene: OpenScene): MenuItem[] {
 /** The right-click menu for a UI document element row (ADR 0077): create inside it, rename, duplicate, delete. */
 function uiElementMenuItems(scene: OpenScene, ref: UIElementRef): MenuItem[] {
   const el = resolveUIElement(scene.sync, ref);
-  const reason = whyNotEditableUI() ?? (el ? null : "it's gone");
+  const reason = whyNotEdit({ kind: "ui-documents" }) ?? (el ? null : "it's gone");
   const label = el?._synthetic ? "a button's label is its text content" : null;
   const root = el && !el.parent ? "it's the document's root" : null;
   return [
@@ -93,7 +94,7 @@ function rowMenuItems(scene: OpenScene, key: string | null): MenuItem[] {
   if (key === null) return [...createItems(scene, { kind: "into", key: null }, ""), SEPARATOR, pasteItem(false)];
   const keys = selectedKeys.value;
   const inner = keys.some(isInsidePrefab) ? "nodes inside a prefab are edited in the prefab (Open Prefab)" : null;
-  const editing = playState.value !== "edit" ? "stop playing to edit the scene" : null;
+  const editing = whyNotEdit({ kind: "scene", scene });
   const hiddenOwn = nodeFlags.value.hidden.has(key), lockedOwn = nodeFlags.value.locked.has(key);
   return [
     ...createItems(scene, { kind: "after", key }, ""),

@@ -2,13 +2,15 @@
 // whether the editor is playing and the play session's Worlds (ADR 0232), read through getters over
 // the shell's signals (state.ts), so they track like the signals do. `peek…` reads without tracking.
 // Editing a scene goes through its `stack` with the document commands (`SetField`, ADR 0026); `edit`
-// and `beginEdit` make several commands one undo step (ADR 0231). New nodes come from contributions (Hierarchy create
+// and `beginEdit` make several commands one undo step (ADR 0231), and refuse through the edit gate when the scene
+// can't be edited now (no scene, play mode; ADR 0247), which `whyNotEdit` tells beforehand. New nodes come from contributions (Hierarchy create
 // entries, asset kinds' node templates), which the shell's node insertion places and gives ids (ADR 0246).
 import { computed } from "@preact/signals";
 import type { World } from "../../engine/core/World";
 import type { GameObject } from "../../engine/scene/GameObject";
 import type { NodePath } from "../document";
-import { beginUndoStep, undoStep, type UndoStep } from "../undoStep";
+import { beginEditStep, editStep, whyNotEdit } from "../editGate";
+import type { UndoStep } from "../undoStep";
 import { openScene, openScenes, playing, playState, selectedKeys, selectedNodes, selectedPath, selectedWorldNode, selection, type OpenScene } from "../state";
 import { select } from "../inspectorTarget";
 
@@ -59,15 +61,23 @@ export interface SceneSurface {
   peekPlayWorlds(): readonly World[];
   readonly selection: SelectionSurface;
   /**
+   * Why `target` (the open scene when absent) can't be edited now, or null when it can: no scene, or play mode (the
+   * edit gate, ADR 0247). Tracks. `edit` and `beginEdit` refuse for the same reasons; read this to know beforehand
+   * (a tool that only works while it can edit).
+   */
+  whyNotEdit(target?: OpenScene | null): string | null;
+  /**
    * One undo step named `label` on `target` (the open scene when absent) of every command `fn` executes on its
-   * `stack`; the step closes even when `fn` throws. False with no scene.
+   * `stack`; the step closes even when `fn` throws. False, with the reason in the status bar, when the scene can't
+   * be edited now (`whyNotEdit`: no scene, or playing).
    */
   edit(label: string, fn: (scene: OpenScene) => void, target?: OpenScene | null): boolean;
   /**
    * Open a long-running undo step named `label` on `target` (the open scene when absent), for edits spread over
    * several events: a pointer gesture on an Inspector control, an edit that waits on file writes. `end()` records
-   * everything executed meanwhile as one step; `cancel()` puts it back. Null with no scene. Viewport tools use
-   * `ViewportToolContext.gesture` instead, which the host closes for them.
+   * everything executed meanwhile as one step; `cancel()` puts it back. Null, with the reason in the status bar,
+   * when the scene can't be edited now (`whyNotEdit`). Viewport tools use `ViewportToolContext.gesture` instead,
+   * which the host closes for them.
    */
   beginEdit(label: string, target?: OpenScene | null): UndoStep | null;
 }
@@ -111,14 +121,11 @@ export const scene: SceneSurface = {
     nodes: selectedNodes,
     set: select,
   },
+  whyNotEdit: (target) => whyNotEdit({ kind: "scene", scene: target }),
   edit(label, fn, target) {
-    const s = target === undefined ? openScene.peek() : target;
-    if (!s) return false;
-    undoStep(s.stack, label, () => fn(s));
-    return true;
+    let ran = false;
+    editStep({ kind: "scene", scene: target }, label, (s) => ((ran = true), fn(s)));
+    return ran;
   },
-  beginEdit(label, target) {
-    const s = target === undefined ? openScene.peek() : target;
-    return s ? beginUndoStep(s.stack, label) : null;
-  },
+  beginEdit: (label, target) => beginEditStep({ kind: "scene", scene: target }, label),
 };

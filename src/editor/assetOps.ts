@@ -19,6 +19,7 @@ import { isWithin, type EditorProject } from "./projects";
 import { isScriptPath } from "./scriptLoader";
 import { reloadScripts } from "./session";
 import { currentProject, docVersion, scriptsVersion, status } from "./state";
+import { whyNotEdit } from "./editGate";
 import { freePath, taken } from "./freePath";
 
 export { freePath, splitExtension } from "./freePath";
@@ -258,7 +259,8 @@ export async function duplicateAssets(entries: readonly string[]): Promise<strin
  */
 export function whyNotPaste(project: EditorProject, folder: string): string | null {
   const clip = assetClipboard.value;
-  if (!project.canSave) return "this project is read-only";
+  const gate = whyNotEdit({ kind: "project-files", project }, "paste files"); // read-only (ADR 0247)
+  if (gate) return gate;
   if (!clip || clip.entries.length === 0) return "nothing copied";
   if (clip.cut) return whyNotMoveTarget(clip.entries, folder) ?? whyNotMovable(project, clip.entries);
   const into = clip.entries.find((e) => isFolderEntry(e) && isWithin(folder, entryPath(e)));

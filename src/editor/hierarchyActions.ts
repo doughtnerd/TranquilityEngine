@@ -1,6 +1,6 @@
 // Hierarchy commands on the selection (ADR 0022): create, copy, cut, paste and duplicate nodes,
 // for the shortcuts and the Hierarchy's menus. Each edit is one undo step and selects its result;
-// problems go to the status bar. The clipboard is in memory, so it survives switching scenes and
+// problems go to the status bar, and whether the scene can be edited now is the edit gate's (ADR 0247). The clipboard is in memory, so it survives switching scenes and
 // pastes into any of them; copies also go on the system clipboard as JSON, which a paste with a
 // `paste` event reads back (ADR 0226), so nodes copied in another editor process paste here.
 import { signal } from "@preact/signals";
@@ -9,24 +9,14 @@ import { errorStatus } from "./messages";
 import { kindAssetCreator, type NodeKind } from "./nodeKinds";
 import { copyNodes, cutNodes, nodeClipboardFromText, nodeClipboardPayload, whyNotCopyable, type NodeClipboard } from "./nodeClipboard";
 import { insertNodes, whyNotInsert, type InsertPlace } from "./nodeInsertion";
-import { openScene, playState, sceneCamera, selectedKeys, selection, status, viewMode, type OpenScene } from "./state";
+import { openScene, sceneCamera, selectedKeys, selection, status, viewMode } from "./state";
+import { editableNow } from "./editGate";
 import { select } from "./inspectorTarget";
 import { duplicateUIElement } from "./uiDocumentEdits";
 import { selectedUIRef } from "./uiDocuments";
 
 /** The copied nodes, or null. */
 export const nodeClipboard = signal<NodeClipboard | null>(null);
-
-/** The open scene if its structure can be edited now; otherwise says why in the status bar. */
-function editableScene(what: string): OpenScene | null {
-  const scene = openScene.value;
-  if (!scene) return null;
-  if (playState.value !== "edit") {
-    status.value = { kind: "info", text: `Stop playing to ${what}.` };
-    return null;
-  }
-  return scene;
-}
 
 /** Put the clipboard on the system clipboard too (best effort: it may be unavailable). */
 const toSystemClipboard = (clip: NodeClipboard) => writeClipboard(nodeClipboardPayload(clip));
@@ -52,7 +42,7 @@ export function copySelection(): boolean {
 
 /** Cut the selected nodes: copy them, then delete them (one undo step). */
 export function cutSelection(): boolean {
-  const scene = editableScene("cut nodes");
+  const scene = editableNow({ kind: "scene" }, "cut nodes");
   if (!scene) return false;
   const keys = selectedKeys.value;
   const reason = whyNotCopyable(scene.doc, keys);
@@ -112,7 +102,7 @@ export function pasteClipboardText(text: string | null, asChild = false): boolea
 
 /** `pasteClipboard` relative to the row `key` (null: the end of the scene) instead of the selection. */
 export function pasteClipboardAt(key: string | null, asChild = false): boolean {
-  const scene = editableScene("paste nodes");
+  const scene = editableNow({ kind: "scene" }, "paste nodes");
   if (!scene) return false;
   const reason = whyNotPasteOf(nodeClipboard.value, key, asChild);
   const made = reason ? null : insertNodes(scene, { kind: "copies", clipboard: nodeClipboard.value }, pastePlace(key, asChild));
@@ -129,7 +119,7 @@ export function pasteClipboardAt(key: string | null, asChild = false): boolean {
 export function duplicateSelection(): boolean {
   const ui = selectedUIRef();
   if (ui) return duplicateUIElement(ui); // a UI document's element (ADR 0077): in its markup file
-  const scene = editableScene("duplicate nodes");
+  const scene = editableNow({ kind: "scene" }, "duplicate nodes");
   if (!scene) return false;
   const keys = selectedKeys.value;
   const reason = whyNotCopyable(scene.doc, keys);
@@ -161,7 +151,7 @@ function focusPosition(): [number, number, number] {
  * in the status). `asset` given: the node uses it and nothing is written.
  */
 export function createNodeAt(kind: NodeKind, place: InsertPlace, asset?: string): string | null {
-  const scene = editableScene("add nodes");
+  const scene = editableNow({ kind: "scene" }, "add nodes");
   if (!scene) return null;
   const writeFirst = asset === undefined ? kindAssetCreator(kind) : undefined;
   if (writeFirst) {

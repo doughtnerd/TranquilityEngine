@@ -14,7 +14,8 @@ import { select, selectUIElement, showSceneSettings } from "../inspectorTarget";
 import { docVersion, isSelected, openScene, selectedKeys, selectedUIElement } from "../state";
 import { documentRows, resolveUIElement, rowAncestry, selectedUIRef, uiBuildVersion, watchUIDocumentBuilds, type UIDocumentRows, type UIElementRow } from "../uiDocuments";
 import { HierarchyMenu, openCreateMenu, openHierarchyMenu, openUIElementMenu } from "./HierarchyMenu";
-import { renameUIElement, whyNotEditableUI } from "../uiDocumentEdits";
+import { renameUIElement } from "../uiDocumentEdits";
+import { whyNotEdit } from "../editGate";
 import { renamingUIElement, startUIElementDrag, uiDropDescription, uiElementDrag } from "../uiElementDrag";
 import "./hierarchy.css";
 import { liveInspecting } from "../runtimeInspect";
@@ -341,10 +342,10 @@ function UIElementTreeRow(props: { row: UIElementRow; depth: number; file: strin
         }}
         onDblClick={(e) => {
           e.stopPropagation();
-          if (!row.synthetic && !whyNotEditableUI()) renamingUIElement.value = row.key;
+          if (!row.synthetic && !whyNotEdit({ kind: "ui-documents" })) renamingUIElement.value = row.key;
         }}
         onKeyDown={(e) => {
-          if (e.key === "F2" && !row.synthetic && !whyNotEditableUI()) renamingUIElement.value = row.key;
+          if (e.key === "F2" && !row.synthetic && !whyNotEdit({ kind: "ui-documents" })) renamingUIElement.value = row.key;
         }}
         onContextMenu={(e) => {
           e.preventDefault();

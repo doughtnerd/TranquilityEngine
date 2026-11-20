@@ -5,7 +5,8 @@ import type { UIDocumentElement } from "../../engine/ui/UIDocument";
 import { openScript } from "../code/codeState";
 import { currentProject, openScene, playState } from "../state";
 import { editorTextFiles } from "../textFiles";
-import { attributeText, movableAttributes, moveUIElementToClass, renameUIElement, setUIElementClasses, setUIElementField, suggestedClassName, whyNotEditableUI } from "../uiDocumentEdits";
+import { attributeText, movableAttributes, moveUIElementToClass, renameUIElement, setUIElementClasses, setUIElementField, suggestedClassName } from "../uiDocumentEdits";
+import { whyNotEdit } from "../editGate";
 import { describeOrigin, fieldSources, markupLocation, originBadge, resolveUIElement, selectedUIRef, uiBuildVersion, type FieldOrigin, type FieldSourceRow, type UIElementRef } from "../uiDocuments";
 import "./ui-element-inspector.css";
 
@@ -33,7 +34,7 @@ export function UIElementInspector() {
   const where = markupLocation(el);
   const rows = fieldSources(el);
   const type = el.component.constructor.name;
-  const readOnly = whyNotEditableUI();
+  const readOnly = whyNotEdit({ kind: "ui-documents" });
   return (
     <div class="inspector-body ui-element-inspector">
       <div class="node-header">

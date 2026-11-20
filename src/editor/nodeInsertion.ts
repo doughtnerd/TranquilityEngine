@@ -14,7 +14,8 @@ import { copyNodes, subtreeRoots, whyNotCopyable, type NodeClipboard } from "./n
 import { kindTemplate, type NodeKind } from "./nodeKinds";
 import { findInner, instanceInnerNodes, wouldNest } from "./prefabs";
 import type { NodeTemplate } from "./sdk/contributions";
-import { playState, type OpenScene } from "./state";
+import { whyNotEdit } from "./editGate";
+import type { OpenScene } from "./state";
 import { undoStep } from "./undoStep";
 
 type Vec3 = readonly [number, number, number];
@@ -201,16 +202,16 @@ function whyNotSource(doc: SceneDocument, source: InsertSource | DuplicateSource
 }
 
 /**
- * Why `source` can't be inserted into `scene` at `place` now, or null if it can: no scene, play mode, a place
+ * Why `source` can't be inserted into `scene` at `place` now, or null if it can: the edit gate's (no scene, play mode), a place
  * that's gone, or what the source refuses (nothing copied, an unknown kind, folders, an asset kind's refusal, a
- * prefab inside itself, a pasted instance of a prefab the project lacks). Reads the play state signal, so a
+ * prefab inside itself, a pasted instance of a prefab the project lacks). Reads the gate's signals, so a
  * component calling it re-renders when play starts or stops.
  */
 export function whyNotInsert(scene: OpenScene | null, source: DuplicateSource): string | null;
 export function whyNotInsert(scene: OpenScene | null, source: InsertSource, place: InsertPlace): string | null;
 export function whyNotInsert(scene: OpenScene | null, source: InsertSource | DuplicateSource, place?: InsertPlace): string | null {
-  if (!scene) return "open a scene first";
-  if (playState.value !== "edit") return "stop playing to edit the scene";
+  const gate = whyNotEdit({ kind: "scene", scene }); // no scene, play mode (ADR 0247)
+  if (gate || !scene) return gate ?? "open a scene first";
   if (place) {
     const spot = resolvePlace(scene.doc, place);
     if (typeof spot === "string") return spot;

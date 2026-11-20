@@ -4,7 +4,8 @@ import { deleteNodes, isInsidePrefab, describeReference, referencesInto, whyNotD
 import { askBeforeClearingReferences } from "./preferences";
 import { topmostKeys } from "./selectionModel";
 import { removeInnerNode } from "./prefabs";
-import { openScene, playState, selectedKeys, status } from "./state";
+import { openScene, selectedKeys, status } from "./state";
+import { editableNow } from "./editGate";
 import { select } from "./inspectorTarget";
 import { confirmInEditor } from "./ui/ConfirmDialog";
 import { deleteUIElement } from "./uiDocumentEdits";
@@ -15,8 +16,9 @@ import { undoStep } from "./undoStep";
 export async function deleteSelected(): Promise<boolean> {
   const ui = selectedUIRef();
   if (ui) return deleteUIElement(ui); // a UI document's element (ADR 0077): from its markup file
-  const scene = openScene.value;
-  if (!scene || selectedKeys.value.length === 0 || playState.value !== "edit") return false;
+  if (!openScene.value || selectedKeys.value.length === 0) return false;
+  const scene = editableNow({ kind: "scene" }, "delete nodes"); // not while playing (ADR 0247)
+  if (!scene) return false;
   const keys = topmostKeys(scene.doc, selectedKeys.value); // children go with their parents
   if (keys.length > 0 && keys.every(isInsidePrefab)) {
     // Nodes inside prefab instances go as `removeNode` overrides (ADR 0086).
