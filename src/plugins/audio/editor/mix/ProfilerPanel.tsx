@@ -20,6 +20,7 @@ import type { ComponentChild, ComponentType } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { editor, theme, Panel } from "../../../../editor/sdk";
 import { audioSection } from "../../../../engine/audio/audioSection";
+import { deepEqual } from "../../../../engine/audio/deepEqual";
 import { Audio } from "../../runtime/Audio";
 import type { AudioCapture } from "../../runtime/capture/capture";
 import { CaptureError, type CaptureSeekState } from "../../runtime/capture/reader";
@@ -63,24 +64,12 @@ export interface BannerInput {
   readonly fileName: string | null;
 }
 
-/** The capture's META `audio` against the project's section, both as the engine parses them (a missing key and its default agree). */
-const sameAudioSettings = (a: unknown, b: unknown): boolean =>
-  sameAudioSection(audioSection(a ?? undefined).settings, audioSection(b ?? undefined).settings);
-
-/** JSON-like deep equality (key order ignored). */
-export function sameAudioSection(a: unknown, b: unknown): boolean {
-  if (a === b) return true;
-  if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
-  if (Array.isArray(a) !== Array.isArray(b)) return false;
-  const ka = Object.keys(a);
-  const kb = Object.keys(b);
-  if (ka.length !== kb.length) return false;
-  for (const k of ka) {
-    if (!Object.prototype.hasOwnProperty.call(b, k)) return false;
-    if (!sameAudioSection((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k])) return false;
-  }
-  return true;
-}
+/**
+ * The capture's META `audio` against the project's section, both as the engine parses them (a missing key and its default
+ * agree), by the engine's JSON equality (`deepEqual`: key order ignored; a key holding `undefined` is absent, as it is once
+ * the section has been through JSON, which META's has).
+ */
+const sameAudioSettings = (a: unknown, b: unknown): boolean => deepEqual(audioSection(a ?? undefined).settings, audioSection(b ?? undefined).settings);
 
 /** Every banner that applies, most severe first. A live view is this session's own ring: no mismatch and no "Viewing". */
 export function profilerBanners(input: BannerInput): ProfilerBanner[] {
