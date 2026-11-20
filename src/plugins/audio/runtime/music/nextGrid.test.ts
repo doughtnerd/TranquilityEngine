@@ -20,10 +20,10 @@ afterEach(() => {
 describe("nextGrid over loop passes", () => {
   it("reads the next bar on the pass heard now, and across the wrap", () => {
     const { player } = playingRun(musicSegment({ regions: [{ id: "all", from: "1:1:0", to: "end", count: 0 }] }), 0, 1);
-    b.time = 1 + 8 + 0.3; // pass 3, bar 1
+    (b as { time: number }).time = 1 + 8 + 0.3; // pass 3, bar 1
     expect(player.handle.nextGrid("bar")).toMatchObject({ bar: 2, beat: 1 });
     expect(player.handle.nextGrid("bar")!.time).toBeCloseTo(1 + 8 + 2, 9);
-    b.time = 1 + 8 + 2.2; // pass 3, bar 2: the next bar line heard is bar 1 of pass 4
+    (b as { time: number }).time = 1 + 8 + 2.2; // pass 3, bar 2: the next bar line heard is bar 1 of pass 4
     expect(player.handle.nextGrid("bar")).toMatchObject({ bar: 1, beat: 1 });
     expect(player.handle.nextGrid("bar")!.time).toBeCloseTo(1 + 12, 9);
     expect(player.handle.nextGrid("beat")!.time).toBeCloseTo(1 + 8 + 2.5, 9);
@@ -31,7 +31,7 @@ describe("nextGrid over loop passes", () => {
 
   it("without a loop, the last bar line is the exit at the file's end", () => {
     const { player } = playingRun(musicSegment(), 0, 1);
-    b.time = 1 + 2.2;
+    (b as { time: number }).time = 1 + 2.2;
     expect(player.handle.nextGrid("bar")).toMatchObject({ bar: 3, beat: 1 });
     expect(player.handle.nextGrid("bar")!.time).toBeCloseTo(1 + 4, 9);
   });
