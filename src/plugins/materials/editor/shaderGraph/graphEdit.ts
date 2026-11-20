@@ -2,7 +2,8 @@
 // history is a list of graphs and every rule here is unit-tested. None of them change their input.
 // The edits every graph editor shares (properties, groups, notes, copy and paste) come from the
 // graph document (ADR 0228) through `shaderGraphEdits`, with what is the Shader Graph's own
-// plugged in; the rest (nodes, connections, keywords, sub-graph ports) are here.
+// plugged in; the rest (nodes, connections, keywords, sub-graph ports) are here. `shaderWiring`
+// hands the connection edits to the graph layer's wiring gesture (ADR 0259).
 import { canConnectTypes, nodeDef, nodePorts, type ValueType } from "../../../../engine/render/shaderGraph/nodes";
 import {
   OUTPUT_NODE_TYPE,
@@ -24,7 +25,7 @@ import {
   parseShaderGraph,
 } from "../../../../engine/scene/shaderGraph";
 import { KEYWORD_NAME, type ShaderKeyword } from "../../../../engine/scene/shaderKeywords";
-import { freeId, graphDocument } from "../../../../editor/sdk";
+import { freeId, graphDocument, type GraphWiringEdits } from "../../../../editor/sdk";
 import { uniqueName, type Numbering } from "../../../../engine/core/uniqueName";
 
 const clone = (g: ShaderGraph): ShaderGraph => structuredClone(g);
@@ -126,6 +127,9 @@ export function disconnect(graph: ShaderGraph, to: string): ShaderGraph {
 
 /** The output connected to an input, or null. */
 export const sourceOf = (graph: ShaderGraph, to: string): string | null => graph.edges.find((e) => e.to === to)?.from ?? null;
+
+/** The Shader Graph's wire edits, for the graph layer's wiring gesture (ADR 0259). */
+export const shaderWiring: GraphWiringEdits<ShaderGraph> = { sourceOf, whyNot: whyNotConnect, connect, disconnect, split: splitPortRef };
 
 /** Set an unconnected input's value (undefined: back to the default). */
 export function setInput(graph: ShaderGraph, nodeId: string, port: string, value: InputValue | undefined): ShaderGraph {

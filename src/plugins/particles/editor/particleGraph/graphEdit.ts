@@ -35,7 +35,7 @@ import type {
 } from "../../../../engine/scene/particleGraph";
 import { PARTICLE_GRAPH_FORMAT } from "../../../../engine/scene/particleGraph";
 import { newGraphId, parseParticleGraph, systemTemplate } from "../../../../engine/scene/particleGraphFormat";
-import { graphDocument } from "../../../../editor/sdk";
+import { graphDocument, type GraphWiringEdits } from "../../../../editor/sdk";
 import { nodeDef, type PortType } from "../../../../engine/scene/particleNodes";
 import { outputTypeResolved, whyNotConnectResolved, type AssetResolver } from "../../../../engine/scene/particleSubgraphs";
 import { blockInputs, editorNodeDef, wireRulesGraph } from "./assetDocs";
@@ -233,6 +233,20 @@ export function disconnectEvent(graph: ParticleGraph, from: string, to: string):
 
 /** The node output wired into `to`, if any. */
 export const sourceOf = (graph: ParticleGraph, to: string): string | undefined => graph.edges.find((e) => e.to === to)?.from;
+
+/** The Particle Graph's wire edits for the graph layer's wiring gesture (ADR 0259), reading sub-graph and custom block ports through `resolve`. */
+export function particleWiring(resolve?: AssetResolver): GraphWiringEdits<ParticleGraph> {
+  return {
+    sourceOf,
+    whyNot: (graph, from, to) => whyNotWire(graph, from, to, resolve),
+    connect: (graph, from, to) => connectWire(graph, from, to, resolve),
+    disconnect,
+    split: (ref) => {
+      const [node, port] = splitRef(ref);
+      return { node, port };
+    },
+  };
+}
 
 // --- systems -----------------------------------------------------------------------------------------
 
