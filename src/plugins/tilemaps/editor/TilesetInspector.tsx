@@ -2,14 +2,13 @@
 // terrains and a grid of its tiles; the selected tile's name, collision (a polygon is typed as points in cell units),
 // terrain, neighbour pattern (a 3 × 3 grid of buttons), weight and custom data (JSON) are edited below. Every edit
 // writes the file through the tileset's asset document and can be undone (Ctrl+Z / Ctrl+Shift+Z over the inspector,
-// or the Undo / Redo buttons).
+// or the Undo / Redo buttons of the asset document frame, ADR 0265).
 import { useEffect, useState } from "preact/hooks";
 import { missingBlobMasks } from "../runtime/autotile";
 import { ANY_PATTERN, type TileCollision, type TileDef, type TilesetData } from "../runtime/tileset";
 import { tilesForSlices } from "./tilesetAssets";
 import { TileThumb } from "./TileThumb";
-import { editor, openAssetDocument } from "../../../editor/sdk";
-import "../../../editor/ui/assetInspector.css";
+import { AssetDocumentFrame, editor, openAssetDocument } from "../../../editor/sdk";
 import "./tilesetInspector.css";
 import { parsePolygon, polygonText } from "./polygonText";
 
@@ -34,9 +33,7 @@ export function TilesetInspector(props: { path: string }) {
   if (!project) return <p class="empty">Nothing selected</p>;
   const doc = openAssetDocument<TilesetData>(project, path, "tileset");
   const data = doc.value.value;
-  const problems = doc.problems.value.map((p) => p.message);
   const readOnly = doc.readOnly;
-  useEffect(() => () => void doc.flush(), [doc]); // write a pending slider change when the inspector closes
   const tile = data.tiles.find((t) => t.id === selected) ?? null;
 
   // Every edit is one undo step through the tileset's asset document.
@@ -52,8 +49,6 @@ export function TilesetInspector(props: { path: string }) {
     });
     set({ tiles });
   };
-  const undo = () => (doc.canUndo.peek() ? doc.undo() : editor.messages.info("Nothing to undo in this tileset."));
-  const redo = () => (doc.canRedo.peek() ? doc.redo() : editor.messages.info("Nothing to redo in this tileset."));
 
   const usedSprites = new Set(data.tiles.map((t) => t.sprite));
   const images = project.files.filter((f) => editor.assets.kindOf(f) === "image" && editor.assets.importSettings(project, f).settings.sprites.length > 0);
@@ -68,20 +63,7 @@ export function TilesetInspector(props: { path: string }) {
   };
 
   return (
-    <div class="inspector-body asset-inspector tileset-inspector" aria-label="Tileset" data-asset-document={doc.path} tabIndex={-1}>
-      <div class="asset-inspector-head">
-        <span class="asset-inspector-kind">Tileset</span>
-        <span class="asset-inspector-name" title={path}>
-          {editor.assets.fileName(path)}
-        </span>
-      </div>
-      {problems.length > 0 && (
-        <ul class="asset-inspector-problems">
-          {problems.map((p) => (
-            <li key={p}>{p}</li>
-          ))}
-        </ul>
-      )}
+    <AssetDocumentFrame doc={doc} kind="Tileset" class="inspector-body asset-inspector tileset-inspector">
       <div class="component asset-import-card">
         <h3>Tileset</h3>
         <div class="import-row">
@@ -105,14 +87,6 @@ export function TilesetInspector(props: { path: string }) {
           </span>
         </div>
         <AnchorRow label="Default Anchor" title="Where tile sprites sit in their cells: the sprite's point lands on the same point of the cell. 0, 0 overhangs up and right; 0.5, 0 centres a tall tile on its cell." value={data.anchor ?? [0, 0]} readOnly={readOnly} onChange={(a) => set({ anchor: a[0] === 0 && a[1] === 0 ? undefined : a })} />
-        <div class="tileset-history">
-          <button disabled={readOnly || !doc.canUndo.value} onClick={undo} title="Undo the last edit to this tileset (Ctrl+Z)">
-            Undo
-          </button>
-          <button disabled={readOnly || !doc.canRedo.value} onClick={redo} title="Redo (Ctrl+Shift+Z)">
-            Redo
-          </button>
-        </div>
       </div>
 
       <div class="component asset-import-card">
@@ -180,7 +154,7 @@ export function TilesetInspector(props: { path: string }) {
       </div>
 
       {tile && <TileEditor key={tile.id} data={data} tile={tile} readOnly={readOnly} setTile={(patch) => setTile(tile.id, patch)} onDelete={() => { set({ tiles: data.tiles.filter((t) => t.id !== tile.id) }); setSelected(null); }} project={project} />}
-    </div>
+    </AssetDocumentFrame>
   );
 }
 

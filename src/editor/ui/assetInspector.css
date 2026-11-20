@@ -1,4 +1,8 @@
 /* Asset Inspector (ADR 0040): an image's or audio file's import settings, in the Inspector panel. */
+/* The asset document frame (ADR 0265): every asset document editor's root, head history buttons and read-only notice. */
+.asset-document:focus { outline: none; }
+.asset-document-history { display: flex; gap: 4px; margin-left: auto; flex: none; }
+.asset-document-readonly { margin: 0 0 8px; font-size: 11px; color: var(--muted); }
 .asset-inspector-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; min-width: 0; }
 .asset-inspector-kind { flex: none; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
 .asset-inspector-name { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

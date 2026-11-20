@@ -71,7 +71,8 @@ We will give the editor SDK one frame bound to an asset document, and every one 
 **Positive**
 - One behaviour for undo, focus and read-only in every asset-document editor; a new kind gets it by rendering the frame.
 - The four internal-tier stylesheet exceptions go.
-- The frame is tested once, through a story (`AssetDocumentFrame.stories.tsx`).
+- The frame is tested once, through a story (`AssetDocumentFrame.stories.tsx`), with a story asset kind; the story
+  harness (ADR 0235) gains `parameters.editor.readOnly`, a project loaded as a sample is, for the read-only story.
 
 **Negative / costs**
 - The Sky panel's Undo / Redo move from beside the preset menu to the head; the Tileset and Formation buttons move

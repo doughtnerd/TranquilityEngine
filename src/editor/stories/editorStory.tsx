@@ -25,9 +25,10 @@ import { registerCoreAssetKinds } from "../assetKinds.builtin";
 import { showSceneSettings } from "../inspectorTarget";
 import { resetLayout } from "../layout/store";
 import { MemoryFileSystem } from "../memoryFs";
+import { isProjectFile, loadProjectFiles } from "../../engine/scene/projectFiles";
 import { OrbitCamera } from "../OrbitCamera";
 import { startPlay, type PlaySession } from "../playMode";
-import { editorSettings, joinPath, openFolderProject, useProjectAssets, type EditorProject } from "../projects";
+import { editorSettings, joinPath, openFolderProject, readOnlyProject, useProjectAssets, type EditorProject } from "../projects";
 import { createSceneTabs } from "../sceneTabs";
 import { currentProject, openScene, playing, playState, sceneCamera, status } from "../state";
 import { PanelInstanceContext, type PanelInstance } from "../ui/panel/Panel";
@@ -45,6 +46,11 @@ export interface EditorStoryParameters {
   readonly root?: string;
   /** A scene or prefab file to open in a tab of a headless Editor World. */
   readonly scene?: string;
+  /**
+   * A read-only project, loaded from the files as a sample is, instead of an open folder: nothing can be saved, and
+   * `fileText` has no folder to read. Named after `root`'s last folder.
+   */
+  readonly readOnly?: boolean;
 }
 
 /** The project folder stories open unless they name another. */
@@ -71,7 +77,7 @@ export async function withEditor({ parameters }: StoryContextLike): Promise<() =
   const root = options.root ?? STORY_ROOT;
   const files = { "project.json": "{}", ...options.files };
   for (const [path, data] of Object.entries(files)) fs.files.set(joinPath(root, path), typeof data === "string" || ArrayBuffer.isView(data) ? (data as string | Uint8Array) : JSON.stringify(data, null, 2));
-  const project = await openFolderProject(fs, root);
+  const project = options.readOnly ? await readOnlyFolder(fs, root, Object.keys(files)) : await openFolderProject(fs, root);
   const applied = applyEditorPlugins(project.settings.plugins?.disabled);
   if (applied.problems.length > 0) throw new Error(applied.problems.map((p) => p.message).join("\n"));
   resetLayout();
@@ -100,6 +106,15 @@ export async function withEditor({ parameters }: StoryContextLike): Promise<() =
     status.value = null;
     for (const u of undo.reverse()) u();
   };
+}
+
+/** A read-only project of the files written under `root`, loaded as a sample is (`openSampleProject`), named after `root`'s last folder. */
+async function readOnlyFolder(fs: MemoryFileSystem, root: string, paths: readonly string[]): Promise<EditorProject> {
+  const { values, texts } = await loadProjectFiles(paths.filter(isProjectFile), {
+    readText: (path) => fs.readText(joinPath(root, path)),
+    url: async (path) => URL.createObjectURL(new Blob([new Uint8Array(await fs.readBinary(joinPath(root, path)))])),
+  });
+  return readOnlyProject(root.split(/[\\/]/).filter(Boolean).pop() ?? root, { values, texts });
 }
 
 /** The project the harness opened: `editor.project.current`, typed for a story that needs it non-null. */

@@ -1,5 +1,7 @@
-/* The Sky panel (ADR 0112): preview and summary on the left, the layers' fields on the right; one column when narrow. */
-.sky-panel { display: flex; gap: 12px; height: 100%; padding: 8px; box-sizing: border-box; overflow: auto; color: var(--text); }
+/* The Sky panel (ADR 0112): the asset document frame's head (ADR 0265) across the top, then preview and summary on the
+   left, the layers' fields on the right; one column when narrow. */
+.sky-panel { display: flex; flex-direction: column; height: 100%; padding: 8px; box-sizing: border-box; overflow: auto; color: var(--text); }
+.sky-panel-columns { display: flex; gap: 12px; min-height: 0; }
 .sky-panel-side { flex: 0 0 280px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .sky-panel-form { flex: 1 1 auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; align-content: start; min-width: 0; }
 .sky-panel-readout { margin: 0; font-size: 11px; color: var(--muted); }
@@ -13,6 +15,6 @@
 .sky-cloud:first-of-type { border-top: none; margin-top: 0; }
 .sky-cloud-head { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--muted); }
 @media (max-width: 720px) {
-  .sky-panel { flex-direction: column; }
+  .sky-panel-columns { flex-direction: column; }
   .sky-panel-side { flex: none; }
 }
