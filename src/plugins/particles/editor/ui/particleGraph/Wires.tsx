@@ -1,6 +1,5 @@
 // The wires (ADR 0060): value wires from node outputs into node and block inputs, coloured by
-// type (dashed amber when the source combines per-particle values, which needs the GPU backend),
-// and event wires into systems' Start and Stop, drawn dotted and heavier. Click one to select it;
+// type, and event wires into systems' Start and Stop, drawn dotted and heavier. Click one to select it;
 // Delete removes it.
 import type { ParticleGraph } from "../../../../../engine/scene/particleGraph";
 import { nodeDef } from "../../../../../engine/scene/particleNodes";
@@ -25,8 +24,6 @@ export function Wires(props: {
   nodes: ReadonlyMap<string, CanvasNode>;
   /** Value-wire source → its type. */
   types: ReadonlyMap<string, string>;
-  /** Value-wire targets the CPU backend can't run. */
-  gpu: ReadonlySet<string>;
   selected: WireSelection | null;
   /** A value-wire target being re-wired (drawn as the draft instead). */
   detached: string | null;
@@ -56,11 +53,9 @@ export function Wires(props: {
         const a = at(e.from, "output", false), b = at(e.to, "input", false);
         if (!a || !b) return null;
         const d = wirePath(a, b);
-        const gpu = props.gpu.has(e.to);
         const isSel = selected?.kind === "edge" && selected.to === e.to;
         return (
-          <g key={`e-${e.to}`} class={`sg-wire pg-wire ${portTypeClass(props.types.get(e.from))}${gpu ? " gpu" : ""}${isSel ? " selected" : ""}`} data-edge={`${e.from}>${e.to}`}>
-            {gpu && <title>Needs the GPU backend: this chain combines per-particle values, so the input uses its own value for now.</title>}
+          <g key={`e-${e.to}`} class={`sg-wire pg-wire ${portTypeClass(props.types.get(e.from))}${isSel ? " selected" : ""}`} data-edge={`${e.from}>${e.to}`}>
             {hit(d, { kind: "edge", to: e.to })}
             <path class="sg-wire-line" d={d} />
           </g>

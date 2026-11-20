@@ -312,7 +312,7 @@ describe("particle graph edits", () => {
 });
 
 describe("particle graph problems", () => {
-  it("locates problems by id path and marks GPU wires", () => {
+  it("locates problems by id path and groups them by item", () => {
     let g = sample();
     const rate = g.systems[0].spawn.blocks[0].id;
     expect(locateProblem(g, "s1")).toEqual({ system: "s1" });
@@ -320,12 +320,10 @@ describe("particle graph problems", () => {
     expect(locateProblem(g, "s1.spawn.settings")).toEqual({ system: "s1" });
     expect(locateProblem(g, "n2.x")).toEqual({ node: "n2", input: "x" });
     expect(locateProblem(g, "zz")).toBeNull();
-    g = connectWire(g, "n2.out", `s1.${rate}.rate`);
     const ix = indexProblems(g, [
-      { severity: "warning", message: "Add node can't combine per-particle values; that needs the GPU backend.", at: `s1.${rate}.rate` },
+      { severity: "warning", message: "Rate is negative.", at: `s1.${rate}.rate` },
       { severity: "error", message: "Unknown node", at: "n1" },
     ]);
-    expect([...ix.gpuWires]).toEqual([`s1.${rate}.rate`]);
     expect(ix.byItem.get(`s1.${rate}`)).toHaveLength(1);
     expect(ix.byItem.get("n1")).toHaveLength(1);
   });

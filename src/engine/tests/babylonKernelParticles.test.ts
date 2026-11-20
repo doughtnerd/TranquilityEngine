@@ -8,7 +8,6 @@ import { Vector3 } from "@babylonjs/core/Maths/math.vector.js";
 import type { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { Scene } from "@babylonjs/core/scene.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Color as EngineColor } from "../core/math";
 import { BabylonParticles } from "../render/babylon/particles";
 import { kernelExecutors } from "../render/babylon/gpuParticles";
 import { ParticleSystem } from "../render/components";

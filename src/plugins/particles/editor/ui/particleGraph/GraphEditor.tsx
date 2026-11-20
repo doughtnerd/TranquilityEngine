@@ -726,7 +726,6 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
                 graph={graph}
                 nodes={nodeById}
                 types={wireTypes}
-                gpu={problemIndex.gpuWires}
                 selected={selectedWire}
                 detached={detached}
                 draft={draft}

@@ -19,7 +19,6 @@ import type {
   GraphEvent,
   GraphInputValue,
   GraphNode,
-  GraphNote,
   GraphProperty,
   GraphPropertyType,
   OutputContext,

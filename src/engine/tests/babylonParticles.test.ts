@@ -14,7 +14,6 @@ import { Scene } from "@babylonjs/core/scene.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createGraphMaterial } from "../render/babylon/graphMaterial";
 import type { CompiledShaderGraph } from "../render/shaderGraph/compile";
-import { Color as EngineColor } from "../core/math";
 import type { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { BabylonParticles, type BabylonParticleHost } from "../render/babylon/particles";
 import { ParticleSystem } from "../render/components";

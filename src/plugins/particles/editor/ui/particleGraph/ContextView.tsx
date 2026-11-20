@@ -147,10 +147,10 @@ function OutputSettingsView(props: { system: ParticleGraphSystem; output: number
           </Setting>
         </>
       )}
-      <Setting label="Softness" title="Soft particles fade near surfaces (metres, 0 = off). Kernel (GPU) outputs only.">
+      <Setting label="Softness" title="Soft particles fade near surfaces (metres, 0 = off).">
         <NumField label="Softness" value={s.softness ?? 0} min={0} disabled={readOnly} onCommit={(n) => commit(setOutputSoftness(graph, id, n, o))} />
       </Setting>
-      <Setting label="Sort" title="Draw back to front by distance from the camera. Auto sorts alpha-blended outputs and leaves additive and premultiplied ones unsorted. Kernel (GPU) outputs only.">
+      <Setting label="Sort" title="Draw back to front by distance from the camera. Auto sorts alpha-blended outputs and leaves additive and premultiplied ones unsorted.">
         <ChoiceValue label="Sort" value={s.sort ?? "auto"} choices={SORTS} labels={SORT_LABELS} readOnly={readOnly} onChange={(v) => commit(setOutputSort(graph, id, v as OutputSort, o))} />
       </Setting>
       <Setting label="Render order" title="Higher draws later">

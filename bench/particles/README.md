@@ -6,14 +6,33 @@ Chromium with WebGPU on SwiftShader, and prints:
 - **Parity** (`parity.html`, `parity.ts`): a fountain using every update step, a per-particle operator chain
   and a GPU-event child system, run for 90 frames on the JavaScript, WebGPU and WebGL2 executors with the same
   uniforms. The live particles must match exactly and every value within 1% (relative). Exits non-zero otherwise.
-- **Frame time** (`index.html`, `bench.ts`): the World particle player on a Babylon engine, a fountain of N
+- **Frame time** (`index.html`, `bench.ts`): the effect player (`EffectPlayer`, what the World's particle adapter
+  plays each ParticleSystem with) on a Babylon engine, a fountain of N
   particles (lifetime 2 s, gravity, turbulence, colour over life), timed over 30 frames after 150 warm-up frames,
   with a GPU sync every 10 frames. Query: `?engine=webgpu|webgl2&backend=gpu|js|cpu&counts=…&frames=…`,
   `&nodraw=1` (simulation only), `&shot=1` (one run, kept on screen).
-  Since ADR 0251 `backend=cpu` is the JavaScript executor too (the CPU simulation is gone), so the "CPU
-  simulation" rows below are history.
+  Since ADR 0251 `backend=cpu` is the JavaScript executor too (the CPU simulation is gone), so `run.mjs` no
+  longer runs it and the "CPU simulation" rows below are history.
 
 The project's Playwright browser comes from `npm run test:e2e:install`; set `CHROMIUM_PATH` to use another.
+
+## Results (2026-11-20, after ADR 0251)
+
+| Engine | Backend | Particles | ms per frame |
+| --- | --- | ---: | ---: |
+| WebGL2 | kernel (WebGL2 textures), simulation only | 1 000 | 1.17 |
+| WebGL2 | kernel (WebGL2 textures), simulation only | 10 000 | 1.87 |
+| WebGL2 | kernel (WebGL2 textures), simulation only | 100 000 | 14.1 |
+| WebGL2 | kernel (JavaScript), simulation only | 1 000 | 0.58 |
+| WebGL2 | kernel (JavaScript), simulation only | 10 000 | 2.74 |
+| WebGL2 | kernel (JavaScript), simulation only | 100 000 | 26.4 |
+
+The WebGPU rows didn't run: in this container's headless Chromium (build 1243) Babylon's `WebGPUEngine` loses its
+device as soon as it starts, even for a plain scene with one box, so the page reports the lost device. The parity
+check's raw WebGPU device works. The machine was shared with other jobs, so read these as scaling only.
+Parity: the executors agree on every kernel and trail (alive counts exact, values within 0.26%), but the four sort
+rows (WebGPU and WebGL2, both systems) report MISMATCH: alive counts and the largest error (0.29%) are fine, so some
+keys differ from the JavaScript sort's by more than 0.1%. Not investigated yet (the sorts didn't change in ADR 0251).
 
 ## Results (2026-11-07, headless Chromium, SwiftShader: the "GPU" runs on CPU threads)
 

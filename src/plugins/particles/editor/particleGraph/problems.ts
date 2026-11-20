@@ -23,29 +23,21 @@ export function locateProblem(graph: ParticleGraph, at: string | undefined): Pro
   return { system: head };
 }
 
-/** The compiler's warning on a wire whose source combines per-particle values (it runs only on a GPU backend). */
-const isGpuProblem = (p: GraphProblem) => /GPU backend/.test(p.message);
-
 export interface ProblemIndex {
   /** By system id, block key (`system.block`) and node id: the messages about it. */
   byItem: Map<string, GraphProblem[]>;
-  /** Value-wire targets (`s1.b3.rate`) the CPU backend can't run. */
-  gpuWires: Set<string>;
 }
 
 /** Group problems by the item they're about, for badges. */
 export function indexProblems(graph: ParticleGraph, problems: readonly GraphProblem[]): ProblemIndex {
   const byItem = new Map<string, GraphProblem[]>();
-  const gpuWires = new Set<string>();
   const add = (key: string, p: GraphProblem) => byItem.set(key, [...(byItem.get(key) ?? []), p]);
   for (const p of problems) {
     const place = locateProblem(graph, p.at);
     if (!place) continue;
     if (place.node) add(place.node, p);
-    else if (place.block) {
-      add(`${place.system}.${place.block}`, p);
-      if (place.input && isGpuProblem(p) && graph.edges.some((e) => e.to === p.at)) gpuWires.add(p.at!);
-    } else if (place.system) add(place.system, p);
+    else if (place.block) add(`${place.system}.${place.block}`, p);
+    else if (place.system) add(place.system, p);
   }
-  return { byItem, gpuWires };
+  return { byItem };
 }
