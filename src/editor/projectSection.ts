@@ -2,7 +2,7 @@
 // (Project Settings: everything but `bootstrap`; Worlds: `bootstrap`). It holds the draft and its
 // undo history, keeps them when another panel's keys change, tells its own write coming back from an
 // outside edit, writes valid drafts only (through the shared queue, so panels never drop each other's
-// change), runs after-save and after-undo hooks, and exposes the history as an `UndoHistory` (ADR 0145).
+// change), runs its hooks (before an edit, after the draft moves, after a save), and exposes the history as an `UndoHistory` (ADR 0145).
 // Panels are views over it: they read `open(project)`, show its `status`, `problems` and undo flags, and call `edit`,
 // `undo` and `redo`.
 import { signal, type ReadonlySignal } from "@preact/signals";
@@ -47,8 +47,14 @@ export interface ProjectSectionSpec<D, P = unknown> {
   adopt?(draft: D, added: SectionValues): D;
   /** After `draft` was written; `before` is what the file held. */
   saved?(project: EditorProject, draft: D, before: D): void;
-  /** After an undo or redo moved the draft from `before` to `after` (whether or not it could be written). */
-  stepped?(project: EditorProject, before: D, after: D): void;
+  /**
+   * Before an edit moves the draft from `before` to `next`: the draft to push instead (`next`, or `next` with more in
+   * it), or null to cancel the edit (the views re-render, putting a field back). A promise while it asks the user; the
+   * edit is pushed when it resolves. The settings section renames list entries' references here (ADR 0262).
+   */
+  editing?(project: EditorProject, before: D, next: D): D | null | Promise<D | null>;
+  /** After an edit, undo or redo moved the draft from `before` to `after` (whether or not it could be written). */
+  moved?(project: EditorProject, before: D, after: D): void;
 }
 
 /**
@@ -190,10 +196,23 @@ class Session<D, P> implements ProjectSectionSession<D, P> {
 
   edit(label: string, next: D): Promise<void> {
     if (!this.project.canSave || this.same(next, this.draft)) return Promise.resolve();
+    const before = this.draft;
+    const pushed = this.owner.spec.editing ? this.owner.spec.editing(this.project, before, next) : next;
+    return pushed instanceof Promise ? pushed.then((d) => this.push(label, before, d)) : this.push(label, before, pushed);
+  }
+
+  /** Push `next` as one undo step (an edit's draft, as `editing` gave it), or re-render for a cancelled one. */
+  private push(label: string, before: D, next: D | null): Promise<void> {
+    if (next === null || this.owner.session !== this || this.same(next, this.draft)) {
+      this.owner.bump(); // a cancelled edit: a field goes back to the draft's value
+      return Promise.resolve();
+    }
     this.history.push(label, next);
     this.owner.bump();
     this.notify("edit");
-    return this.persist();
+    const written = this.persist();
+    this.owner.spec.moved?.(this.project, before, this.draft);
+    return written;
   }
 
   /**
@@ -227,7 +246,7 @@ class Session<D, P> implements ProjectSectionSession<D, P> {
     this.owner.bump();
     this.notify(redo ? "redo" : "undo");
     const written = this.persist();
-    this.owner.spec.stepped?.(this.project, before, this.draft);
+    this.owner.spec.moved?.(this.project, before, this.draft);
     return written;
   }
 

@@ -7,6 +7,7 @@ import { Audio } from "../runtime";
 import { AUDIO_EVENT_SUFFIX } from "../../../engine/audio/eventFormat";
 import { createEventFromClips } from "./createEventFromClips";
 import { audioEventFormat, audioEventReferences } from "./eventAsset";
+import { audioNamedLists, occlusionLayerReferences } from "./audioNames";
 import { EVENT_EDITOR_PANEL } from "./event/openEventEditor";
 import { zoneTool } from "./AudioReverbZoneGizmo";
 import { editZoneAction } from "./EditZoneButton";
@@ -40,14 +41,17 @@ export const audioEditorPlugin: EditorPlugin = {
       return { name: project?.name ?? "", version: typeof version === "string" ? version : "" };
     });
     // Project settings > Audio, after Graphics as it has always been. `audio` is a core key (the panel's own parse reports
-    // its problems), so the section owns no extra keys.
+    // its problems), so the section owns no extra keys. Renaming a bus, material or parameter renames the scenes' and event
+    // files' references (ADR 0262), and renaming a physics layer renames it in the occlusion layers.
     context.registerProjectSettingsSection({
       id: "audio",
       title: "Audio",
       after: "Graphics",
       keys: [],
+      names: audioNamedLists,
       view: () => import("./AudioSettingsSection").then((m) => m.AudioSettingsSection),
     });
+    context.registerNameReferences(occlusionLayerReferences);
     // Play Stats: the audio thread's underruns since the page loaded, on every World's Nodes row (the audio core is shared).
     context.registerPlayStatsCounter({ id: "myco.audio.underruns", label: "audio underruns", count: () => Audio.debug().counters.underruns });
     // The Audio Debug panel (A2.5): a 4 Hz copy of `Audio.debug()` while playing (status, counters, buses, voices).

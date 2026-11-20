@@ -264,6 +264,54 @@ export interface ProjectSettingsSectionContribution {
   readonly view: LoadComponent<ProjectSettingsSectionProps>;
   /** The category it follows in the list (a title); absent, or not found: after the last one. */
   readonly after?: string;
+  /**
+   * The lists of names it keeps in the draft that other files name (ADR 0262): renaming an entry renames what names it,
+   * asking first, and undoing the rename moves them back.
+   */
+  readonly names?: readonly NamedList[];
+}
+
+/**
+ * A component field that holds a list entry's name (ADR 0262). `field` is a path in the component's data, `*` stepping
+ * into every item of a list (`"layer"`, `"layers.*.sortingLayer"`); prefab overrides of the field count too.
+ */
+export interface NameField {
+  /** The component type, or several; absent: any component. */
+  readonly component?: string | readonly string[];
+  readonly field: string;
+}
+
+/** Files of an asset format that name list entries (ADR 0262). */
+export interface NameAssetField {
+  /** File endings, lower case (`".audioevent.json"`). */
+  readonly extensions: readonly string[];
+  /** The file's JSON with the name `from` renamed `to`: the same value when nothing names it. Pure. */
+  rename(json: unknown, from: string, to: string): unknown;
+}
+
+/** Where a named list's entries are named (ADR 0262). */
+export interface NameReferences {
+  readonly fields?: readonly NameField[];
+  readonly assets?: readonly NameAssetField[];
+  /** The draft with `from` renamed `to` where another part of the settings names it (the same draft when none does). Pure. */
+  settings?(draft: SettingsDraft, from: string, to: string): SettingsDraft;
+}
+
+/** A list of names a settings section keeps in the draft, and what names its entries (ADR 0262). */
+export interface NamedList extends NameReferences {
+  /** `"physics.layers"`, `"audio.buses"`: what `registerNameReferences` names. */
+  readonly id: string;
+  /** What an entry is called in messages: `"physics layer"`, `"bus"`. */
+  readonly noun: string;
+  /** The names in `draft`, in order (with the defaults when unset). */
+  names(draft: SettingsDraft): readonly string[];
+}
+
+/** References to another section's named list, from a plugin that owns them (ADR 0262): Tilemap layers name sorting layers. */
+export interface NameReferencesContribution extends NameReferences {
+  readonly id: string;
+  /** The named list's `id`; while no section declares it, these are ignored. */
+  readonly list: string;
 }
 
 /** Extra UI a plugin adds under a built-in panel's own content (the Worlds panel's navigation counters). */
@@ -536,3 +584,4 @@ export const playStatsCounters = createRegistry<PlayStatsCounterContribution>("P
 export const sceneOpenMigrations = createRegistry<SceneOpenMigrationContribution>("Scene open migration");
 export const idlePrefetches = createRegistry<IdlePrefetchContribution>("Idle prefetch");
 export const fieldChoices = createRegistry<FieldChoicesContribution>("Field choices");
+export const nameReferences = createRegistry<NameReferencesContribution>("Name references");

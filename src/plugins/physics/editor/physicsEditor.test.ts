@@ -1,9 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { componentNotes, projectSettingsSections } from "../../../editor/sdk/contributions";
 import { isPluginActive } from "../../../editor/sdk";
+import { createProjectSettingsSection } from "../../../editor/projectSettingsSection";
+import { closeTestProject, openTestProject } from "../../../editor/testing";
+import { getComponentClass, getFields, listComponentIds } from "../../../engine/core/registry";
 import { useEditorPlugins } from "../../testEditorPlugins";
 import { physicsEditorPlugin } from "./index";
 import { backendOf, backendOptions, noBackendNote, setBackend } from "./physicsEditorModel";
+import { LAYERED_COMPONENTS, physicsLayers, renameLayer } from "./physicsSettingsModel";
 
 const NO_BACKEND_NOTE = "(no physics backend)";
 const DEFAULT_BACKEND_LABEL = "Default (only registered)";
@@ -56,5 +60,28 @@ describe("backend dropdown model", () => {
     d = setBackend(setBackend(d, "2d", ""), "3d", "");
     expect(d.physics).toBeUndefined();
     expect(backendOf(d, "2d")).toBe("");
+  });
+});
+
+describe("the physics layers as a named list (ADR 0262)", () => {
+  useEditorPlugins([physicsEditorPlugin]);
+  afterEach(closeTestProject);
+
+  it("is the Physics section's, and names every physics Component with a layer field", () => {
+    expect(projectSettingsSections.get("physics")?.names).toEqual([physicsLayers]);
+    const layered = listComponentIds().filter((id) => getFields(getComponentClass(id)!).some((f) => f.name === "layer"));
+    expect([...LAYERED_COMPONENTS].sort()).toEqual(layered.filter((id) => id.startsWith("engine.")).sort());
+    expect(LAYERED_COMPONENTS).toContain("engine.CharacterController2D"); // the old /Collider/ rule missed both controllers
+  });
+
+  it("renames colliders' and character controllers' layers through the settings section, not a script's own layer field", async () => {
+    const component = (type: string) => ({ type, data: { layer: "Ground" } });
+    const scene = { format: "myco.scene@1", nodes: [{ id: "n", name: "N", components: ["engine.BoxCollider2D", "engine.CharacterController", "game.Thing"].map(component) }] };
+    const { project } = await openTestProject({ "project.json": JSON.stringify({ physics: { layers: ["Default", "Ground"] } }), "a.scene.json": JSON.stringify(scene) });
+    const s = createProjectSettingsSection().open(project);
+    await s.edit("Rename physics layer to Floor", renameLayer(s.draft, 1, "Floor"));
+    await vi.waitFor(() => expect(project.textOf("a.scene.json")).toContain('"Floor"'));
+    const layers = JSON.parse(project.textOf("a.scene.json")!).nodes[0].components.map((c: { data: { layer: string } }) => c.data.layer);
+    expect(layers).toEqual(["Floor", "Floor", "Ground"]);
   });
 });

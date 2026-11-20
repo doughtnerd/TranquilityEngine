@@ -138,9 +138,6 @@ describe("plugin editor halves reach the editor through its SDK (ADR 0147)", () 
     "plugins/navigation/editor/navBake.ts -> editor/projects",
     // Polygon area and hit tests, shared with the shell's marquee selection: geometry, not editor API.
     "plugins/physics/editor/colliderMath.ts -> editor/polygonMath",
-    // The Physics section owns project.json's `physics` (ADR 0151), but renaming a layer rewrites the scenes
-    // and prefabs that name it, asking first: the shell's project-wide layer rename (ADR 0116).
-    "plugins/physics/editor/PhysicsSettingsSection.tsx -> editor/layerRenameEdit",
     // Extract Materials (ADR 0089) writes material assets and the model's sidecar through the shell's import
     // settings writer, which the SDK doesn't offer; the model import settings moved here with ADR 0143.
     "plugins/meshes/editor/ModelImportSettings.tsx -> editor/materialExtract",

@@ -1,12 +1,19 @@
 // The Tilemaps plugin's editor half (ADR 0103, 0134, 0138, 0146): the `tileset` asset kind (the Inspector view
 // that edits tiles, terrains and collision, accepted by Tilemap's tileset field; New Tileset is its `create`) and
 // its asset format, the Tile Palette panel, the scene-view paint tool, the Tilemap's Inspector section, the
-// Hierarchy's Create Tilemap and the Assets panel's Create Tileset from Slices.
+// Hierarchy's Create Tilemap, the Assets panel's Create Tileset from Slices, and its layers' references to sorting layers.
 import { createTilesetFromSlices, hasSlices } from "./tilesetAssets";
 import { tilemapsManifest } from "../manifest";
 import { paintTool } from "./paintTool";
 import { tilesetFormat } from "./tilesetFormat";
-import { type EditorPlugin, editor } from "../../../editor/sdk";
+import { type EditorPlugin, type NameReferencesContribution, editor } from "../../../editor/sdk";
+
+/** A Tilemap's layers each name a sorting layer (ADR 0262; the shell owns the sorting layer list). */
+export const tilemapSortingLayers: NameReferencesContribution = {
+  id: "myco.tilemaps.sorting-layers",
+  list: "render.sortingLayers",
+  fields: [{ component: "engine.Tilemap", field: "layers.*.sortingLayer" }],
+};
 
 /** Four tiles in a 2 × 2 grid, stroked in a 24×24 box (the icon tilesets have always had). */
 const TILESET_ICON = "M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z";
@@ -29,6 +36,8 @@ export const tilemapsEditorPlugin: EditorPlugin = {
     context.registerViewportTool(paintTool);
     // A Tilemap's layers are painted in the Tile Palette.
     context.registerInspectorSection("engine.Tilemap", () => import("./TilemapInspector").then((m) => m.TilemapSection), { single: true });
+    // Each Tilemap layer names a sorting layer: renaming the sorting layer renames it there too (ADR 0262).
+    context.registerNameReferences(tilemapSortingLayers);
     // A Tilemap with one layer and its collider (ADR 0103, 0105), after Sprite as it has always been; the asset
     // is a tileset to paint with, or "".
     context.registerHierarchyCreateEntry({

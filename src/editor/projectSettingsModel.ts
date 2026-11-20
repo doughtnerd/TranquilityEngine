@@ -2,7 +2,7 @@
 // display, time, render, autoloads, and the keys plugins' settings sections own, such as `physics`) as a
 // draft, edited by pure functions, checked, and written back into the file's text one top-level key at a
 // time so the rest keeps its layout.
-import { defaultSettings, pluginSettingsProblems, resolvePhysicsSettings, SCALE_MODES, type ProjectSettings, type ProjectSettingsInput } from "../engine/core/settings";
+import { defaultSettings, pluginSettingsProblems, SCALE_MODES, type ProjectSettings, type ProjectSettingsInput } from "../engine/core/settings";
 import { defaultTier, parseGraphics, PLATFORMS, type GraphicsSettings, type Platform, type PlatformDefaults, type QualityTier } from "../engine/core/graphics";
 import { audioSection } from "../engine/audio/audioSection";
 import { projectSettingsSections } from "./sdk/contributions";
@@ -37,7 +37,7 @@ export interface SettingsDraft {
   name?: string;
   display?: Partial<ProjectSettings["display"]> & Record<string, unknown>;
   time?: Partial<ProjectSettings["time"]> & Record<string, unknown>;
-  /** Owned by the Physics plugin's settings section (ADR 0151); the shell's layer rename reads its layers. */
+  /** Owned by the Physics plugin's settings section (ADR 0151). */
   physics?: Partial<ProjectSettings["physics"]> & Record<string, unknown>;
   render?: Partial<ProjectSettings["render"]> & Record<string, unknown>;
   autoload?: string[];
@@ -77,8 +77,6 @@ export function withSettings(text: string, draft: SettingsDraft, previous: Proje
 
 // --- reading values with defaults -----------------------------------------------------------------
 
-/** The physics layers (the Physics section edits them; the shell's layer rename compares them, ADR 0116). */
-export const layersOf = (d: SettingsDraft): string[] => resolvePhysicsSettings(d.physics).layers;
 export const sortingLayersOf = (d: SettingsDraft): string[] => d.render?.sortingLayers ?? defaultSettings.render.sortingLayers;
 export const autoloadsOf = (d: SettingsDraft): string[] => d.autoload ?? [];
 
