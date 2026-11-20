@@ -1,6 +1,6 @@
 # 0253. A settings section handle owns one `project.json` key of the settings draft
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0262 (the shell's `layersOf` is gone: physics layers are a named list the Physics section declares)
 - **Date:** 2026-11-20
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

@@ -1,6 +1,6 @@
 # 0116. Editor themes import/export and per-project themes, display scaling, layer rename, persisted folder access, undo pruning
 
-- **Status:** Proposed
+- **Status:** Proposed; partly superseded by 0262 (layer rename: settings sections declare named lists and one shell module renames what names them)
 - **Date:** 2026-11-07
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
