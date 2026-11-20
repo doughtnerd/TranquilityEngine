@@ -3,11 +3,13 @@ import { Engine, GameObject, Input } from "../engine";
 import { SpriteRenderer } from "../engine/render/components";
 import { AddNode, RevertOverrides, SetField, SetOverrides, type SceneFile } from "./document";
 import { OrbitCamera } from "./OrbitCamera";
-import { createPrefabFromNodes, addInnerNode, removeInnerNode, applyOverridesTo, createPrefab, findInner, instanceInnerNodes, isOverridden } from "./prefabs";
+import { createPrefabFromNodes, removeInnerNode, applyOverridesTo, createPrefab, findInner, instanceInnerNodes, isOverridden } from "./prefabs";
 import { openSceneFile } from "./project";
 import { editorSettings, joinPath, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
 import { currentProject, openScene, sceneCamera } from "./state";
-import { MemoryFileSystem, ROOT, demoFolder } from "./testing";
+import { MemoryFileSystem, ROOT, demoFolder, insertNew } from "./testing";
+import { insertNodes } from "./nodeInsertion";
+import type { NodeTemplate } from "./sdk/contributions";
 
 let fs: MemoryFileSystem;
 let project: EditorProject;
@@ -28,6 +30,13 @@ const fileOf = (path: string) => JSON.parse(fs.files.get(joinPath(ROOT, path)) a
 /** Add a pipe-pair instance to the open scene. */
 function addPipe(id = "pipe"): void {
   openScene.value!.stack.execute(new AddNode({ id, prefab: "prefabs/pipe-pair.prefab.json" }));
+}
+
+/** Insert `node` under the inner row `key` through the node insertion (an `addNodes` override, ADR 0086, 0246); its path. */
+function insertInside(key: string, node: NodeTemplate): string[] {
+  const made = insertNodes(openScene.value!, { kind: "template", nodes: [node], label: "Add" }, { kind: "into", key });
+  if (!made.ok) throw new Error(made.reason);
+  return made.keys[0]!.split("/");
 }
 
 describe("prefab structure (ADR 0013)", () => {
@@ -176,12 +185,12 @@ describe("child node overrides (ADR 0086)", () => {
   it("adds a node under an inner node, edits it, undoes, and applies it into the prefab", async () => {
     addPipe();
     const { doc, stack, sync } = openScene.value!;
-    const path = addInnerNode(openScene.value!, "pipe", ["top"], { name: "Spike", components: [{ type: "engine.Transform", data: { position: [0, 1, 0] } }] });
-    expect(path).toEqual(["pipe", "node"]);
+    const path = insertInside("pipe/top", { name: "Spike", components: [{ type: "engine.Transform", data: { position: [0, 1, 0] } }] });
+    expect(path).toEqual(["pipe", "spike"]);
     const added = sync.nodeFor(path)!;
     expect(added.name).toBe("Spike");
     expect(added.parent!.name).toBe("Top");
-    stack.execute(new SetField("pipe", "engine.Transform", "position", [0, 5, 0], { target: ["node"] }));
+    stack.execute(new SetField("pipe", "engine.Transform", "position", [0, 5, 0], { target: ["spike"] }));
     expect(sync.nodeFor(path)!.transform!.position.y).toBe(5);
     stack.undo();
     stack.undo();
@@ -190,7 +199,7 @@ describe("child node overrides (ADR 0086)", () => {
     const { project: _p } = { project };
     await applyOverridesTo(openScene.value!, project, ["pipe"]);
     const file = fileOf("prefabs/pipe-pair.prefab.json");
-    expect(file.nodes.find((n) => n.id === "node")).toMatchObject({ name: "Spike", parent: "top" });
+    expect(file.nodes.find((n) => n.id === "spike")).toMatchObject({ name: "Spike", parent: "top" });
     expect(doc.node("pipe").overrides).toBeUndefined();
   });
 
@@ -206,7 +215,7 @@ describe("child node overrides (ADR 0086)", () => {
 
   it("removing an added node drops its override", () => {
     addPipe();
-    const path = addInnerNode(openScene.value!, "pipe", [], { name: "X" });
+    const path = insertInside("pipe/top", { name: "X" });
     removeInnerNode(openScene.value!, path);
     expect(openScene.value!.doc.node("pipe").overrides).toBeUndefined();
   });
@@ -234,10 +243,9 @@ describe("multi-node prefabs (ADR 0087)", () => {
 });
 
 describe("creating a child inside an instance (ADR 0086)", () => {
-  it("createNode under an inner row adds an override", async () => {
-    const { createNode } = await import("./nodeCreate");
+  it("a new node under an inner row is an override", () => {
     addPipe();
-    const key = createNode(openScene.value!, "empty", { parent: "pipe/top" });
+    const key = insertNew(openScene.value!, "empty", { parent: "pipe/top" });
     expect(key.startsWith("pipe/")).toBe(true);
     expect(openScene.value!.doc.node("pipe").overrides?.[0]).toMatchObject({ target: ["top"] });
     expect(openScene.value!.sync.nodeFor(key.split("/"))!.parent!.name).toBe("Top");

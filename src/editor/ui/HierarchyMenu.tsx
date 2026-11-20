@@ -4,8 +4,9 @@ import { openPrefabFrom } from "../prefabTabs";
 import { signal } from "@preact/signals";
 import { useRef } from "preact/hooks";
 import { deleteSelected } from "../deleteSelection";
-import { copySelection, createNodeIn, cutSelection, duplicateSelection, nodeClipboard, pasteClipboardAt, whyNotPasteAt } from "../hierarchyActions";
-import { newNodeKinds, whyNotCreatable } from "../nodeCreate";
+import { copySelection, createNodeAt, cutSelection, duplicateSelection, nodeClipboard, pasteClipboardAt, whyNotPasteAt } from "../hierarchyActions";
+import { newNodeKinds } from "../nodeKinds";
+import { whyNotInsert, type InsertPlace } from "../nodeInsertion";
 import { isHidden, isLocked, nodeFlags, setHidden, setLocked } from "../nodeVisibility";
 import { isInsidePrefab } from "../hierarchyEdit";
 import { openScene, playState, selectedKeys, selection, type OpenScene } from "../state";
@@ -28,17 +29,9 @@ export const hierarchyMenu = signal<{ x: number; y: number; items: MenuItem[] } 
 
 const SEPARATOR: MenuItem = { label: "", separator: true };
 
-/** "Create X" items adding under `parent` at `index` (`suffix` tells child variants apart). */
-function createItems(scene: OpenScene, parent: string | null, index: number | undefined, suffix: string): MenuItem[] {
-  const reason = playState.value !== "edit" ? "stop playing to edit the scene" : whyNotCreatable(scene.doc, parent);
-  return newNodeKinds().map((k) => ({ label: `Create ${k.label}${suffix}`, disabled: reason, run: () => void createNodeIn(k.kind, parent, index) }));
-}
-
-/** Where a new sibling of the row `key` goes: right after it (after its instance, inside a prefab). */
-function besideRow(scene: OpenScene, key: string): { parent: string | null; index: number } {
-  const id = key.split("/")[0];
-  const parent = scene.doc.parentOf(id);
-  return { parent, index: scene.doc.children(parent).indexOf(id) + 1 };
+/** "Create X" items adding at `place` (`suffix` tells child variants apart). */
+function createItems(scene: OpenScene, place: InsertPlace, suffix: string): MenuItem[] {
+  return newNodeKinds().map((k) => ({ label: `Create ${k.label}${suffix}`, disabled: whyNotInsert(scene, { kind: "new", node: k.kind }, place), run: () => void createNodeAt(k.kind, place) }));
 }
 
 const ELEMENT_LABELS: Readonly<Record<keyof typeof NEW_ELEMENTS, string>> = { Panel: "Panel", Text: "Text", Image: "Image", Button: "Button", InputField: "Input Field" };
@@ -63,8 +56,8 @@ export function createMenuItems(scene: OpenScene): MenuItem[] {
   const active = selection.value;
   const ui = uiCreateTarget(scene);
   const items = ui ? [...uiElementItems(ui), SEPARATOR] : [];
-  items.push(...createItems(scene, null, undefined, ""));
-  if (active && scene.doc.has(active.split("/")[0])) items.push(SEPARATOR, ...createItems(scene, active, undefined, " Child"));
+  items.push(...createItems(scene, { kind: "into", key: null }, ""));
+  if (active && scene.doc.has(active.split("/")[0])) items.push(SEPARATOR, ...createItems(scene, { kind: "into", key: active }, " Child"));
   return items;
 }
 
@@ -97,16 +90,15 @@ function rowMenuItems(scene: OpenScene, key: string | null): MenuItem[] {
     disabled: nodeClipboard.value ? whyNotPasteAt(key, asChild) : "nothing copied",
     run: () => void pasteClipboardAt(key, asChild),
   });
-  if (key === null) return [...createItems(scene, null, undefined, ""), SEPARATOR, pasteItem(false)];
-  const beside = besideRow(scene, key);
+  if (key === null) return [...createItems(scene, { kind: "into", key: null }, ""), SEPARATOR, pasteItem(false)];
   const keys = selectedKeys.value;
   const inner = keys.some(isInsidePrefab) ? "nodes inside a prefab are edited in the prefab (Open Prefab)" : null;
   const editing = playState.value !== "edit" ? "stop playing to edit the scene" : null;
   const hiddenOwn = nodeFlags.value.hidden.has(key), lockedOwn = nodeFlags.value.locked.has(key);
   return [
-    ...createItems(scene, beside.parent, beside.index, ""),
+    ...createItems(scene, { kind: "after", key }, ""),
     SEPARATOR,
-    ...createItems(scene, key, undefined, " Child"),
+    ...createItems(scene, { kind: "into", key }, " Child"),
     SEPARATOR,
     { label: "Cut", shortcut: "Ctrl+X", disabled: editing ?? inner, run: () => void cutSelection() },
     { label: "Copy", shortcut: "Ctrl+C", disabled: inner, run: () => void copySelection() },

@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { Engine } from "../engine";
 import { buildMenuTree } from "./componentCategories";
-import { createNode, newNodeKinds, type NodeKind } from "./nodeCreate";
+import { newNodeKinds, type NodeKind } from "./nodeKinds";
 import { openSceneFile } from "./project";
 import { openScene } from "./state";
-import { DEMO_SCENE, demoAssets, demoSettings } from "./testing";
+import { DEMO_SCENE, demoAssets, demoSettings, insertNew } from "./testing";
 
 // ADR 0069: the game UI components in the Create menu and the Add Component menu's UI category.
 
@@ -23,7 +23,7 @@ describe("UI in the editor (ADR 0069)", () => {
     engine = await Engine.create({ headless: true, kind: "editor", project: demoSettings(), assets: demoAssets() });
     openSceneFile(engine, DEMO_SCENE);
     const scene = openScene.value!;
-    const made = (kind: NodeKind) => scene.doc.node(createNode(scene, kind));
+    const made = (kind: NodeKind) => scene.doc.node(insertNew(scene, kind));
     expect(newNodeKinds().filter((k) => k.kind.startsWith("ui-")).map((k) => k.label)).toEqual(["UI Canvas", "UI Panel", "UI Text", "UI Image", "UI Button", "UI Input Field", "UI Document"]);
     const types = (kind: NodeKind) => made(kind).components!.map((c) => c.type);
     expect(types("ui-canvas")).toEqual(["engine.Transform", "engine.UICanvas"]);

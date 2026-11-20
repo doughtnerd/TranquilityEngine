@@ -5,7 +5,6 @@
 // at boot; tests that resolve kinds call `useCoreAssetKinds()` (`testing/coreAssetKinds.ts`).
 // Views load on first use (ADR 0083); scene switching and creating files load with the session.
 // Scenes and render textures declare their New… entries here, as plugins' kinds do (ADR 0149).
-import { audioNodeEntry, prefabInstanceEntry, spriteNodeEntry } from "./assetNodes";
 import { openSpriteEditor } from "./assetImport";
 import type { SceneDocument } from "./document";
 import { wouldNest } from "./prefabs";
@@ -14,12 +13,20 @@ import { assetKinds, type AssetKindContribution, type AssetSceneNodes } from "./
 const CODE_ICON = "M9 8l-4 4 4 4M15 8l4 4-4 4M13 6l-2 12";
 const FILE_ICON = "M7 3h7l5 5v13H7zM14 3v5h5";
 
+/** A node at `position` with one component reading the asset (`field: asset:<path>`); the node insertion names it after the file (ADR 0246). */
+const assetNode = (type: string, field: string) => (path: string, position: readonly [number, number, number] = [0, 0, 0]) => [
+  { components: [{ type: "engine.Transform", data: { position: [...position] } }, { type, data: { [field]: `asset:${path}` } }] },
+];
+
 const switchScene = (path: string) => void import("./session").then((m) => m.switchScene(path));
 
-/** Scene and prefab instances: placed only by a drop on the scene view, and never inside themselves. */
+/**
+ * Scene and prefab instances: placed only by a drop on the scene view (a Transform override placing it; the
+ * prefab's own position applies otherwise), and never inside themselves.
+ */
 const instanceNodes: AssetSceneNodes = {
   keepsOwnPosition: true,
-  nodes: (doc, path, position) => [prefabInstanceEntry(doc, path, position)],
+  nodes: (path, position) => [{ prefab: path, ...(position ? { overrides: [{ component: "engine.Transform", field: "position", value: [...position] }] } : {}) }],
   whyNot: (doc: SceneDocument, path: string) => (wouldNest(path, doc.path) ? "it would end up inside itself" : null),
 };
 
@@ -56,7 +63,8 @@ const CORE_ASSET_KINDS: readonly AssetKindContribution[] = [
     open: (path) => openSpriteEditor(path),
     referencedAs: ["texture", "sprite"],
     slices: true,
-    addToScene: { nodes: (doc, path, position) => [spriteNodeEntry(doc, path, position)] },
+    // A sprite showing the image, or a slice of it (`images/sheet.png#walk_0`, named after the slice).
+    addToScene: { nodes: assetNode("engine.SpriteRenderer", "sprite") },
     importSettings: {
       preview: () => import("./ui/ImageImportSettings").then((m) => m.ImagePreview),
       view: () => import("./ui/ImageImportSettings").then((m) => m.ImageImportSettings),
@@ -69,7 +77,7 @@ const CORE_ASSET_KINDS: readonly AssetKindContribution[] = [
     icon: "M9 17V6l10-2v11M9 17a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0zM19 15a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0z",
     referencedAs: ["audio"],
     preview: "audio",
-    addToScene: { nodes: (doc, path, position) => [audioNodeEntry(doc, path, position)] },
+    addToScene: { nodes: assetNode("engine.AudioSource", "clip") },
     importSettings: {
       preview: () => import("./ui/AssetPreview").then((m) => m.AudioPreview),
       view: () => import("./ui/AudioImportSettings").then((m) => m.AudioImportSettings),

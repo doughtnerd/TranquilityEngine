@@ -6,25 +6,12 @@
 import { signal } from "@preact/signals";
 import { clipboardForPaste, writeClipboard } from "./clipboard";
 import { errorStatus } from "./messages";
-import { contributedKind, createNode, type NodeKind } from "./nodeCreate";
-import {
-  copyNodes,
-  cutNodes,
-  duplicateNodes,
-  nodeClipboardFromText,
-  nodeClipboardPayload,
-  pasteNodes,
-  pasteTarget,
-  whyNotCopyable,
-  whyNotPastable,
-  type NodeClipboard,
-  type PasteTarget,
-} from "./nodeClipboard";
+import { kindAssetCreator, type NodeKind } from "./nodeKinds";
+import { copyNodes, cutNodes, nodeClipboardFromText, nodeClipboardPayload, whyNotCopyable, type NodeClipboard } from "./nodeClipboard";
+import { insertNodes, whyNotInsert, type InsertPlace } from "./nodeInsertion";
 import { openScene, playState, sceneCamera, selectedKeys, selection, status, viewMode, type OpenScene } from "./state";
 import { select } from "./inspectorTarget";
 import { duplicateUIElement } from "./uiDocumentEdits";
-import { registeredKind } from "./assetKindLookup";
-import { createAsset } from "./assetKindHost";
 import { selectedUIRef } from "./uiDocuments";
 
 /** The copied nodes, or null. */
@@ -96,12 +83,12 @@ export function whyNotPasteAt(key: string | null, asChild = false): string | nul
   return whyNotPasteOf(nodeClipboard.value, key, asChild);
 }
 
+/** Where a paste relative to the row `key` goes: right after it, or into it with `asChild` (ADR 0246). */
+const pastePlace = (key: string | null, asChild: boolean): InsertPlace => (asChild ? { kind: "into", key } : { kind: "after", key });
+
 function whyNotPasteOf(clip: NodeClipboard | null, key: string | null, asChild: boolean): string | null {
-  const scene = openScene.value;
-  if (!scene) return "no scene open";
-  if (playState.value !== "edit") return "stop playing to edit the scene";
   if (asChild && !key) return "select a node to paste into";
-  return whyNotPastable(scene.doc, clip, pasteTarget(scene.doc, key, asChild).parent);
+  return whyNotInsert(openScene.value, { kind: "copies", clipboard: clip }, pastePlace(key, asChild));
 }
 
 /**
@@ -126,26 +113,16 @@ export function pasteClipboardText(text: string | null, asChild = false): boolea
 /** `pasteClipboard` relative to the row `key` (null: the end of the scene) instead of the selection. */
 export function pasteClipboardAt(key: string | null, asChild = false): boolean {
   const scene = editableScene("paste nodes");
-  const clip = nodeClipboard.value;
   if (!scene) return false;
-  const reason = whyNotPasteOf(clip, key, asChild);
-  if (reason || !clip) {
-    status.value = { kind: "info", text: `Can't paste: ${reason ?? "nothing copied"}.` };
+  const reason = whyNotPasteOf(nodeClipboard.value, key, asChild);
+  const made = reason ? null : insertNodes(scene, { kind: "copies", clipboard: nodeClipboard.value }, pastePlace(key, asChild));
+  if (!made?.ok) {
+    status.value = { kind: "info", text: `Can't paste: ${reason ?? (made && !made.ok ? made.reason : "nothing copied")}.` };
     return false;
   }
-  return pasteAt(scene, clip, pasteTarget(scene.doc, key, asChild));
-}
-
-function pasteAt(scene: OpenScene, clip: NodeClipboard, target: PasteTarget): boolean {
-  try {
-    const made = pasteNodes(scene, clip, target);
-    select(made);
-    status.value = { kind: "info", text: `Pasted ${count(made.length)}.` };
-    return true;
-  } catch (err) {
-    status.value = errorStatus("Couldn't paste", err);
-    return false;
-  }
+  select(made.keys);
+  status.value = { kind: "info", text: `Pasted ${count(made.keys.length)}.` };
+  return true;
 }
 
 /** Duplicate the selected nodes, each right after itself, and select the copies. */
@@ -160,15 +137,14 @@ export function duplicateSelection(): boolean {
     status.value = { kind: "info", text: `Can't duplicate: ${reason}.` };
     return false;
   }
-  try {
-    const made = duplicateNodes(scene, keys);
-    select(made);
-    status.value = { kind: "info", text: `Duplicated ${count(made.length)}.` };
-    return true;
-  } catch (err) {
-    status.value = errorStatus("Couldn't duplicate", err);
+  const made = insertNodes(scene, { kind: "duplicate", keys });
+  if (!made.ok) {
+    status.value = { kind: "info", text: `Can't duplicate: ${made.reason}.` };
     return false;
   }
+  select(made.keys);
+  status.value = { kind: "info", text: `Duplicated ${count(made.keys.length)}.` };
+  return true;
 }
 
 /** Where top-level nodes appear: the scene camera's focus point (on the sprite plane in 2D). */
@@ -179,43 +155,30 @@ function focusPosition(): [number, number, number] {
 }
 
 /**
- * Create a node of `kind` under `parent` (null: the top level, at the scene view's focus point)
- * at `index` among its children (undefined: last), and select it.
+ * Create a node of `kind` at `place` (at the scene view's focus point when it lands at the top level) and select
+ * it. A kind whose node uses a new asset (a Particle System's effect, a UI Document's markup; `kindAssetCreator`)
+ * writes it first, then adds the node using it; a read-only project gets the node with none (the creator says why
+ * in the status). `asset` given: the node uses it and nothing is written.
  */
-export function createNodeIn(kind: NodeKind, parent: string | null, index?: number, effect?: string): string | null {
+export function createNodeAt(kind: NodeKind, place: InsertPlace, asset?: string): string | null {
   const scene = editableScene("add nodes");
   if (!scene) return null;
-  const contributed = contributedKind(kind);
-  if (contributed?.createAsset && effect === undefined) {
-    // A plugin's kind whose node uses a new asset (ADR 0146; a Particle System's effect, ADR 0060): write it
-    // first, then add the node using it. A read-only project gets the node with none (`createAsset` says why
-    // in the status).
-    void contributed.createAsset().then((made) => {
+  const writeFirst = asset === undefined ? kindAssetCreator(kind) : undefined;
+  if (writeFirst) {
+    void writeFirst().then((made) => {
       const note = status.peek();
       if (openScene.peek() !== scene) return;
-      createNodeIn(kind, parent, index, made ? `asset:${made}` : "");
+      createNodeAt(kind, place, made ? `asset:${made}` : "");
       if (!made) status.value = note;
     });
     return null;
   }
-  if (kind === "ui-document" && effect === undefined && registeredKind("uidocument")?.create) {
-    // A new UI document (ADR 0077) with its stylesheet, written by the UI plugin's kind (ADR 0149) in its folder
-    // (ADR 0233), then the node showing it. A read-only project gets the node with no document (`create` says why).
-    void createAsset("uidocument").then((made) => {
-      const note = status.peek();
-      if (openScene.peek() !== scene) return;
-      createNodeIn(kind, parent, index, made ? `asset:${made}` : "");
-      if (!made) status.value = note;
-    });
+  const made = insertNodes(scene, { kind: "new", node: kind, asset, position: focusPosition() }, place);
+  if (!made.ok) {
+    status.value = { kind: "info", text: `Can't create the node: ${made.reason}.` };
     return null;
   }
-  try {
-    const id = createNode(scene, kind, { parent, index, effect, position: parent === null ? focusPosition() : [0, 0, 0] });
-    select([id]);
-    status.value = null;
-    return id;
-  } catch (err) {
-    status.value = errorStatus("Couldn't create the node", err);
-    return null;
-  }
+  select([...made.keys]);
+  status.value = null;
+  return made.keys[0]!;
 }

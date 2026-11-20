@@ -2,11 +2,9 @@
 // the `model` asset kind. Moved from the shell's asset browser (ADR 0147).
 import { composeMatrix, localPoseFromMatrix } from "../../../engine/render/gizmoMath";
 import { modelTreeIfLoaded, type NodePose } from "../../../engine/scene/models";
-import { editor, type NodeEntry, type SceneDocument } from "../../../editor/sdk";
+import type { NodeEntry, NodeTemplate } from "../../../editor/sdk";
 
 type Vec3 = readonly [number, number, number];
-const { fileName } = editor.assets;
-const { idBase, uniqueId } = editor.scene;
 
 /**
  * A model's node (ADR 0044): a Transform at `position` and a MeshRenderer drawing the whole
@@ -19,16 +17,16 @@ const { idBase, uniqueId } = editor.scene;
  * at their parent's origin (meshes are in model space); at "node", every node gets its own pose from
  * the file (and `#mesh` is in its node's space). Lights and cameras always get their pose. A
  * camera's Camera component arrives turned off, so a dropped model never takes over the view.
+ *
+ * Templates (ADR 0246): the node insertion names the root after the file and mints every id; a part's parent is
+ * its index in the list.
  */
-export function modelNodeEntries(doc: SceneDocument, modelPath: string, position: Vec3 = [0, 0, 0]): NodeEntry[] {
-  const name = fileName(modelPath).replace(/\.[^.]+$/, "");
-  const id = uniqueId(doc, idBase(modelPath));
-  const title = name.charAt(0).toUpperCase() + name.slice(1);
+export function modelNodeTemplates(modelPath: string, position: Vec3 = [0, 0, 0]): NodeTemplate[] {
   const tree = modelTreeIfLoaded(modelPath);
   const meshes = tree?.meshes ?? [];
   const extras = (tree?.nodes ?? []).filter((n) => n.light || n.camera);
   if (meshes.length <= 1 && !extras.length) {
-    return [{ id, name: title, components: [{ type: "engine.Transform", data: { position: [...position] } }, { type: "engine.MeshRenderer", data: { mesh: `asset:${modelPath}` } }] }];
+    return [{ components: [{ type: "engine.Transform", data: { position: [...position] } }, { type: "engine.MeshRenderer", data: { mesh: `asset:${modelPath}` } }] }];
   }
   const nodePivots = tree!.pivots === "node";
   // The file's node tree (ADR 0088), less the levels every node shares. A mesh's node is the parent of the nodes under it.
@@ -40,19 +38,13 @@ export function modelNodeEntries(doc: SceneDocument, modelPath: string, position
     shared = i;
   }
   const groupPoses = new Map((tree?.nodes ?? []).filter((n) => !n.light && !n.camera).map((n) => [[...n.path, n.name].join("/"), n.pose]));
-  const taken = new Set([id]);
-  const childId = (label: string) => {
-    let child = uniqueId(doc, `${id}-${idBase(`${label}.x`)}`);
-    for (let n = 2; taken.has(child); n++) child = uniqueId(doc, `${id}-${idBase(`${label}.x`)}-${n}`);
-    taken.add(child);
-    return child;
-  };
-  const entries: NodeEntry[] = [{ id, name: title, components: [{ type: "engine.Transform", data: { position: [...position] } }] }];
-  /** Each kept node's model-space matrix (null: the model's origin), to give children their local pose. */
-  const matrices = new Map<string, Float64Array | null>([[id, null]]);
-  const byKey = new Map<string, NodeEntry>();
+  const entries: NodeTemplate[] = [{ components: [{ type: "engine.Transform", data: { position: [...position] } }] }];
+  /** Each kept node's model-space matrix (null: the model's origin), by index, to give children their local pose. */
+  const matrices = new Map<number, Float64Array | null>([[0, null]]);
+  /** The index of each group's or mesh's template, by its path. */
+  const byKey = new Map<string, number>();
   const keyOf = (segments: readonly string[]) => segments.join("/");
-  const transformData = (parent: string, pose: NodePose | undefined, own: string): Record<string, unknown> => {
+  const transformData = (parent: number, pose: NodePose | undefined, own: number): Record<string, unknown> => {
     const matrix = pose ? composeMatrix(vec(pose.position), quat(pose.rotation), vec(pose.scale)) : null;
     matrices.set(own, matrix);
     if (!matrix) return {};
@@ -63,40 +55,39 @@ export function modelNodeEntries(doc: SceneDocument, modelPath: string, position
     if (local.scale.some((v) => v !== 1)) data.scale = local.scale;
     return data;
   };
-  const group = (segments: readonly string[], fullPath: readonly string[]): string => {
-    if (!segments.length) return id;
+  const group = (segments: readonly string[], fullPath: readonly string[]): number => {
+    if (!segments.length) return 0;
     const key = keyOf(segments);
     const have = byKey.get(key);
-    if (have) return have.id;
+    if (have !== undefined) return have;
     const parent = group(segments.slice(0, -1), fullPath.slice(0, -1));
     const label = segments[segments.length - 1];
-    const own = childId(label);
+    const own = entries.length;
     // A mesh's own node may be made here, before its mesh comes (it's the parent of the nodes under it); the mesh fills it in.
     const pose = nodePivots ? groupPoses.get(keyOf(fullPath)) : undefined;
-    const entry: NodeEntry = { id: own, name: label, parent, components: [{ type: "engine.Transform", data: transformData(parent, pose, own) }] };
-    byKey.set(key, entry);
-    entries.push(entry);
-    return entry.id;
+    entries.push({ name: label, parent, components: [{ type: "engine.Transform", data: transformData(parent, pose, own) }] });
+    byKey.set(key, own);
+    return own;
   };
   for (const mesh of meshes) {
     const full = [...mesh.path, mesh.name];
     const segments = full.slice(shared);
     const renderer = { type: "engine.MeshRenderer", data: { mesh: `asset:${modelPath}#${mesh.name}` } };
-    const existing = byKey.get(keyOf(segments));
+    const at = byKey.get(keyOf(segments));
+    const existing = at === undefined ? undefined : entries[at];
     if (existing && !existing.components!.some((c) => c.type === "engine.MeshRenderer")) {
       existing.components!.push(renderer);
       continue;
     }
     const parent = group(segments.slice(0, -1), full.slice(0, -1));
-    const own = childId(mesh.name);
-    const entry: NodeEntry = { id: own, name: mesh.name, parent, components: [{ type: "engine.Transform", data: transformData(parent, nodePivots ? mesh.pose : undefined, own) }, renderer] };
-    if (!existing) byKey.set(keyOf(segments), entry);
-    entries.push(entry);
+    const own = entries.length;
+    entries.push({ name: mesh.name, parent, components: [{ type: "engine.Transform", data: transformData(parent, nodePivots ? mesh.pose : undefined, own) }, renderer] });
+    if (!existing) byKey.set(keyOf(segments), own);
   }
   for (const node of extras) {
     const full = [...node.path, node.name];
     const parent = group(full.slice(shared, -1), full.slice(0, -1));
-    const own = childId(node.name);
+    const own = entries.length;
     const components: NonNullable<NodeEntry["components"]> = [{ type: "engine.Transform", data: transformData(parent, node.pose, own) }];
     if (node.light) {
       const l = node.light;
@@ -116,7 +107,7 @@ export function modelNodeEntries(doc: SceneDocument, modelPath: string, position
       else data.orthographicSize = c.orthographicSize;
       components.push({ type: "engine.Camera", enabled: false, data });
     }
-    entries.push({ id: own, name: node.name, parent, components });
+    entries.push({ name: node.name, parent, components });
   }
   return entries;
 }

@@ -2,12 +2,12 @@
 // whether the editor is playing and the play session's Worlds (ADR 0232), read through getters over
 // the shell's signals (state.ts), so they track like the signals do. `peek…` reads without tracking.
 // Editing a scene goes through its `stack` with the document commands (`SetField`, ADR 0026); `edit`
-// and `beginEdit` make several commands one undo step (ADR 0231).
+// and `beginEdit` make several commands one undo step (ADR 0231). New nodes come from contributions (Hierarchy create
+// entries, asset kinds' node templates), which the shell's node insertion places and gives ids (ADR 0246).
 import { computed } from "@preact/signals";
 import type { World } from "../../engine/core/World";
 import type { GameObject } from "../../engine/scene/GameObject";
-import { idBase, uniqueId } from "../assetNodes";
-import type { NodePath, SceneDocument } from "../document";
+import type { NodePath } from "../document";
 import { beginUndoStep, undoStep, type UndoStep } from "../undoStep";
 import { openScene, openScenes, playing, playState, selectedKeys, selectedNodes, selectedPath, selectedWorldNode, selection, type OpenScene } from "../state";
 import { select } from "../inspectorTarget";
@@ -70,10 +70,6 @@ export interface SceneSurface {
    * `ViewportToolContext.gesture` instead, which the host closes for them.
    */
   beginEdit(label: string, target?: OpenScene | null): UndoStep | null;
-  /** An id not used in `doc`: `base`, else "<base>-2"… */
-  uniqueId(doc: SceneDocument, base: string): string;
-  /** A node id made from a file name: `pipe-pair.prefab.json` → `pipe-pair`, `flappyBird.png` → `flappy-bird`. */
-  idBase(path: string): string;
 }
 
 const NO_WORLDS: readonly World[] = Object.freeze([]);
@@ -125,6 +121,4 @@ export const scene: SceneSurface = {
     const s = target === undefined ? openScene.peek() : target;
     return s ? beginUndoStep(s.stack, label) : null;
   },
-  uniqueId,
-  idBase,
 };

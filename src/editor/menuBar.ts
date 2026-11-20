@@ -2,7 +2,7 @@
 // the rules for which items are enabled, and what they say, are unit-tested; MenuBar.tsx reads the
 // live state into a `MenuState`, wires the `MenuActions`, and draws the result.
 import { panelTitle, type PanelCatalog, type PanelId } from "./layout/catalog";
-import { newNodeKinds } from "./nodeCreate";
+import { newNodeKinds } from "./nodeKinds";
 
 export interface MenuEntry {
   label: string;

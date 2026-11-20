@@ -55,7 +55,7 @@ describe("slicing is a kind capability (ADR 0149)", () => {
       icon: "M0 0",
       slices: true,
       open: (path) => opened.push(path),
-      addToScene: { nodes: (doc, path) => [{ id: "a", name: path }] },
+      addToScene: { nodes: (path) => [{ name: path }] },
     };
     undo.push(assetKinds.register(atlas));
     expect(hasSlices("atlas")).toBe(true);

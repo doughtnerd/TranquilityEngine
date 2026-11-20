@@ -2,12 +2,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Assets, Engine, type AssetSource } from "../../../engine";
 import { FLIP_X, FLIP_Y, FLIP_DIAGONAL, Tilemap } from "../runtime";
 import { cellValue } from "../runtime/format";
-import { createNode } from "../../../editor/nodeCreate";
 import { useEditorPlugins } from "../../testEditorPlugins";
 import { tilemapsEditorPlugin } from ".";
 import { openSceneFile } from "../../../editor/project";
 import { editor } from "../../../editor/sdk";
-import { DEMO_SCENE, demoAssets, demoSettings, sceneViewTools } from "../../../editor/testing";
+import { DEMO_SCENE, demoAssets, demoSettings, insertNew, sceneViewTools } from "../../../editor/testing";
 import { activeLayer, brushFlags, brushRandom, brushStamp, brushTerrain, brushTool, commitTilemap, fillAt, paintCells, pickBrushTool, pickFromMap, strokeCells } from "./brush";
 import { brushValueAt } from "./brushCells";
 import { compose } from "../runtime/tileFlips";
@@ -71,7 +70,7 @@ describe("painting a tilemap in the editor (ADR 0103)", () => {
 
   function newMap() {
     const scene = editor.scene.peekOpen()!;
-    const id = createNode(scene, "tilemap", { effect: "asset:t.tileset.json" });
+    const id = insertNew(scene, "tilemap", { asset: "asset:t.tileset.json" });
     const map = scene.sync.nodeFor([id])!.getBehavior(Tilemap)!;
     return { scene, id, map };
   }

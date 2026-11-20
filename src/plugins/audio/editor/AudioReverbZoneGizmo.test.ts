@@ -3,10 +3,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AudioReverbZone, Engine } from "../../../myco";
 import { AddComponent } from "../../../editor/document";
-import { createNode } from "../../../editor/nodeCreate";
 import { openSceneFile } from "../../../editor/project";
 import { editor, SetField, viewportTools } from "../../../editor/sdk";
-import { DEMO_SCENE, demoAssets, demoSettings, sceneViewTools, type SceneViewCanvas } from "../../../editor/testing";
+import { DEMO_SCENE, demoAssets, demoSettings, insertNew, sceneViewTools, type SceneViewCanvas } from "../../../editor/testing";
 import type { EditorOverlay } from "../../../engine/editor";
 import type { FakeRenderSurface } from "../../../engine/render/fakeViewport";
 import { ZONE_TYPE, zoneTool, type EditingZone } from "./AudioReverbZoneGizmo";
@@ -81,7 +80,7 @@ describe("the reverb zone tool", () => {
   /** A node at the origin with a zone: a 4 x 2 x 6 box (blend 2) or a radius 5 sphere. */
   function zoneNode(data: Record<string, unknown> = {}) {
     const scene = editor.scene.peekOpen()!;
-    const id = createNode(scene, "empty", { position: [0, 0, 0] });
+    const id = insertNew(scene, "empty", { position: [0, 0, 0] });
     scene.stack.execute(new AddComponent(id, { type: ZONE_TYPE, data: { size: [4, 2, 6], blendDistance: 2, ...data } }));
     const node = scene.sync.nodeFor(id)!;
     return { scene, id, node, zone: node.getBehavior(AudioReverbZone)! };

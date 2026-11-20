@@ -2,10 +2,10 @@
 // sub-graph or custom block goes through its asset document, `particleDocument(project, path)`, over the formats
 // the plugin's kinds declare. Creating, reading and opening them is the asset kind host's (ADR 0233:
 // `editor.assets.create`, `read`, `open`); what's left here is the plugin's own: whether a file is in the old
-// format, and the node that plays an effect.
+// format, and the components of the node that plays an effect.
 import type { ParticleGraph } from "../../../engine/scene/particleGraph";
 import { parseParticleGraph } from "../../../engine/scene/particleGraphFormat";
-import { editor, openAssetDocument, type AssetDocument, type EditorProject, type NodeEntry, type SceneDocument } from "../../../editor/sdk";
+import { openAssetDocument, type AssetDocument, type ComponentEntry, type EditorProject } from "../../../editor/sdk";
 
 /** The Particle Graph panel's id: the panel the plugin's three kinds open in. */
 export const PARTICLE_GRAPH_PANEL = "particlegraph";
@@ -25,15 +25,10 @@ export function effectFileMigrated(project: EditorProject, path: string): boolea
   }
 }
 
-/** A node playing a particle effect asset (ADR 0057), named after the file: what adding an effect to a scene makes (ADR 0143). */
-export function particleNodeEntry(doc: SceneDocument, effectPath: string, position: readonly [number, number, number] = [0, 0, 0]): NodeEntry {
-  const name = editor.assets.fileName(effectPath).replace(/\.particles\.json$/i, "");
-  return {
-    id: editor.scene.uniqueId(doc, editor.scene.idBase(effectPath)),
-    name: name.charAt(0).toUpperCase() + name.slice(1),
-    components: [
-      { type: "engine.Transform", data: { position: [...position] } },
-      { type: "engine.ParticleSystem", data: { effect: `asset:${effectPath}` } },
-    ],
-  };
+/** A Particle System node's components at `position`, playing `effect` (an `asset:<path>` reference, or "" for none): the Create entry's and an added effect's (ADR 0057, 0246). */
+export function particleSystemComponents(position: readonly [number, number, number], effect: string): ComponentEntry[] {
+  return [
+    { type: "engine.Transform", data: { position: [...position] } },
+    { type: "engine.ParticleSystem", data: effect ? { effect } : {} },
+  ];
 }
