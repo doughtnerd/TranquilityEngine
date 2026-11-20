@@ -22,7 +22,7 @@
 //! frame; one stamped after the hold's start lands at the resume + its offset from the hold's start.
 //!
 //! `a_dry_ring_dips_the_whole_group_and_it_resumes_aligned` is also a fixture
-//! (`golden/gate-held.json`, replayed on the real wasm by `audioGoldenGate.test.ts`).
+//! (`golden/gate/gate-held.json`, replayed on the real wasm by `audioGoldenGate.test.ts`).
 
 mod gate_common;
 

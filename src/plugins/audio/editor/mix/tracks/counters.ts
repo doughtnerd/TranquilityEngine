@@ -9,14 +9,14 @@
 //   - `counters.ladder`: lanes, the steps in force (`ladderSeries.level`: bed and zone steps plus the loudness step) and
 //     the voice cap (`voiceSeries.cap`, the core's `mixedCap`); `counters.ladderSteps`: ticks where the ladder rose or fell.
 //
-// One `range` over the union of the columns, shared by the five modules; `refresh` re-reads the whole capture (a counter's
-// tick needs the sample before it, and a capture's STATUS count is small). Pure TypeScript; the canvas draws.
+// The columns are declared to the track kit (ADR 0261), which reads only what a live capture gained; each build derives the
+// series from every sample held (a counter's tick needs the sample before it). Pure TypeScript; the canvas draws.
+import { lastAtOrBefore } from "../../../../../engine/core/sortedSearch";
 import { RANGE_SECONDS, type CaptureRangeColumns } from "../../../runtime/capture/reader";
 import type { LineSeries, TrackData } from "../drawTimeline";
 import { COUNTER_COLUMNS, LADDER_COLUMNS, VOICE_COLUMNS, counterTicks, ladderSeries, rangeColumn, slackLevel, slackSeries, voiceSeries, type Level, type LadderSeries } from "../cpuTrack";
-import { statusColumns } from "../profilerSource";
 import type { Track } from "../timelineModel";
-import { indexAtOrBefore } from "./cpu";
+import { TrackKit } from "./kit";
 import type { TrackContext, TrackFactory, TrackModule } from "./types";
 
 const UNDERRUN_TRACK = "counters.underruns";
@@ -25,7 +25,7 @@ const SLACK_TRACK = "counters.slack";
 const LADDER_TRACK = "counters.ladder";
 const LADDER_STEPS_TRACK = "counters.ladderSteps";
 
-const COLUMNS = [...new Set([...COUNTER_COLUMNS, ...LADDER_COLUMNS, ...VOICE_COLUMNS])];
+const COLUMNS = [...COUNTER_COLUMNS, ...LADDER_COLUMNS, ...VOICE_COLUMNS];
 const LEVEL_COLOR = { green: "accent", amber: "warning", red: "danger" } as const;
 const LEVELS: readonly Level[] = ["green", "amber", "red"];
 
@@ -90,71 +90,61 @@ const seconds = (t: number): string => `${t.toFixed(3)} s`;
 
 /** The tracks of one capture's counters and ladder. */
 export const counterTracks: TrackFactory = (ctx: TrackContext) => {
+  const kit = TrackKit.of(ctx.source);
+  const feed = kit.status(COLUMNS);
   let read: Read | undefined;
-  let inflight: Promise<void> | null = null;
-  const refresh = (): Promise<void> => {
-    if (!inflight) {
-      inflight = statusColumns(ctx.source, COLUMNS)
-        .then((cols) => {
-          read = cols[RANGE_SECONDS] && (cols[RANGE_SECONDS] as Float64Array).length > 0 ? build(cols) : undefined;
-        })
-        .finally(() => {
-          inflight = null;
-        });
-    }
-    return inflight;
+  let readAt = -1;
+  /** The series of every sample held, derived once per kit version and shared by the five modules. */
+  const current = (): void => {
+    if (readAt === kit.version) return;
+    readAt = kit.version;
+    read = feed.length > 0 ? build(feed.columns()) : undefined;
   };
   const column = (name: string, i: number): number => rangeColumn(read!.cols, name)[i]!;
 
   /** "n so far, the latest at t" for a cumulative counter whose ticks are `ticks`. */
   const counterTip = (what: string, name: string, ticks: Float64Array, t: number): string | null => {
     if (!read) return null;
-    const i = indexAtOrBefore(read.times, t);
+    const i = lastAtOrBefore(read.times, t);
     if (i < 0) return null;
-    const n = indexAtOrBefore(ticks, t);
+    const n = lastAtOrBefore(ticks, t);
     return n < 0 ? `No ${what} so far` : `${column(name, i)} ${what} so far; the latest at ${seconds(ticks[n]!)}`;
   };
 
-  const tickTrack = (track: Track, pick: (r: Read) => Float64Array, color: "danger" | "warning", tip: (t: number) => string | null): TrackModule => ({
-    track,
-    data: () => (read ? { ticks: pick(read), tickColor: color } : undefined),
-    refresh,
-    tooltipAt: tip,
-  });
+  const module = (track: Track, data: (r: Read) => TrackData, tip: (t: number) => string | null): TrackModule =>
+    kit.track({
+      track,
+      build: () => {
+        current();
+        return { data: read ? data(read) : undefined, tooltip: (t) => tip(t) };
+      },
+    });
+  const tickTrack = (track: Track, pick: (r: Read) => Float64Array, color: "danger" | "warning", tip: (t: number) => string | null): TrackModule =>
+    module(track, (r) => ({ ticks: pick(r), tickColor: color }), tip);
 
   return [
     tickTrack({ id: UNDERRUN_TRACK, label: "Underruns", kind: "ticks", height: 24, visible: true }, (r) => r.underrun, "danger", (t) => (read ? counterTip("underruns", "underruns", read.underrun, t) : null)),
     tickTrack({ id: LATE_TRACK, label: "Late commands", kind: "ticks", height: 24, visible: true }, (r) => r.late, "warning", (t) => (read ? counterTip("late commands", "lateCommands", read.late, t) : null)),
-    {
-      track: { id: SLACK_TRACK, label: "Min slack (frames)", kind: "line", height: 48, visible: true },
-      data: () => read?.slack,
-      refresh,
-      tooltipAt(t) {
-        if (!read) return null;
-        const i = indexAtOrBefore(read.times, t);
-        if (i < 0) return null;
-        const v = column("minSlackFrames", i);
-        return `Min slack ${v} frames (${slackLevel(v)})`;
-      },
-    },
-    {
-      track: { id: LADDER_TRACK, label: "Ladder and voice cap", kind: "lanes", height: 56, visible: true },
-      data: () => read?.ladderLines,
-      refresh,
-      tooltipAt(t) {
-        if (!read) return null;
-        const i = indexAtOrBefore(read.times, t);
-        if (i < 0) return null;
-        const level = read.ladder.level[i]!;
-        return `Ladder: ${level} ${level === 1 ? "step" : "steps"} (bed and zone ${read.ladder.m3Shed[i]!}, loudness ${read.ladder.loudShed[i]!}); voice cap ${read.cap[i]!}`;
-      },
-    },
+    module({ id: SLACK_TRACK, label: "Min slack (frames)", kind: "line", height: 48, visible: true }, (r) => r.slack, (t) => {
+      if (!read) return null;
+      const i = lastAtOrBefore(read.times, t);
+      if (i < 0) return null;
+      const v = column("minSlackFrames", i);
+      return `Min slack ${v} frames (${slackLevel(v)})`;
+    }),
+    module({ id: LADDER_TRACK, label: "Ladder and voice cap", kind: "lanes", height: 56, visible: true }, (r) => r.ladderLines, (t) => {
+      if (!read) return null;
+      const i = lastAtOrBefore(read.times, t);
+      if (i < 0) return null;
+      const level = read.ladder.level[i]!;
+      return `Ladder: ${level} ${level === 1 ? "step" : "steps"} (bed and zone ${read.ladder.m3Shed[i]!}, loudness ${read.ladder.loudShed[i]!}); voice cap ${read.cap[i]!}`;
+    }),
     tickTrack({ id: LADDER_STEPS_TRACK, label: "Ladder steps", kind: "ticks", height: 24, visible: true }, (r) => r.ladderSteps, "warning", (t) => {
       if (!read) return null;
-      const i = indexAtOrBefore(read.times, t);
+      const i = lastAtOrBefore(read.times, t);
       if (i < 0) return null;
-      const s = indexAtOrBefore(read.ladder.shed, t);
-      const r = indexAtOrBefore(read.ladder.restored, t);
+      const s = lastAtOrBefore(read.ladder.shed, t);
+      const r = lastAtOrBefore(read.ladder.restored, t);
       if (s < 0 && r < 0) return "No ladder step so far";
       const shedLast = s >= 0 && (r < 0 || read.ladder.shed[s]! >= read.ladder.restored[r]!);
       return shedLast ? `Last step: shed at ${seconds(read.ladder.shed[s]!)}` : `Last step: restored at ${seconds(read.ladder.restored[r]!)}`;

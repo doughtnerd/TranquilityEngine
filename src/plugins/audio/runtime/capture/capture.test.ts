@@ -7,6 +7,8 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { mixer } from "../../../../engine/audio/mixer";
+import { parseAudioSettings } from "../../../../engine/audio/settings";
 import { Audio } from "../Audio";
 import { notifyEngineLifecycle } from "../../../../engine/core/engineLifecycle";
 import { setAudioBackend } from "../backend";
@@ -16,7 +18,8 @@ import { captureDebug, captureLiveHost, releaseCapture, setCaptureProject, type 
 import {
   CAPTURE_FLAG_COMPRESSED, CAPTURE_FLAG_MAIN_SIDE_ONLY, CAPTURE_MARKER_MAX_BYTES, EpochReason, GapReason, RecordType, assembleCapture, readCaptureHeader,
 } from "./format";
-import { decodeRecordAt, openCapture, openLiveCapture, type CaptureContents } from "./reader";
+import { CaptureNames } from "./names";
+import { CaptureTimeIndex, decodeRecordAt, openCapture, openLiveCapture, summarizeCapture, type CaptureContents } from "./reader";
 import { defaultSaveEnv, type SaveEnv } from "./save";
 import { SAMPLE_HEADER, SAMPLE_META, keyframeCodecForTests, statusBytes, statusBytesWithVoices, type CaptureChunkControl } from "./testSupport";
 
@@ -670,5 +673,60 @@ describe("Rc3: the event sink is installed while recording and removed otherwise
     await Audio.capture.save();
     const c = await r.open(r.downloads[0]!.bytes);
     expect(r.types(c).filter((t) => t === RecordType.EVENT).length).toBe(2);
+  });
+});
+
+describe("ADR 0260: a bus added or renamed during the take is named from then on", () => {
+  /** The rig's backend with a session slot table the test edits (`Audio.debug().mix.slots`). */
+  function withSlots(r: ReturnType<typeof rig>, slots: { slot: number; name: string | null; state: "live" | "tombstone" | "free" }[]) {
+    const base = r.fb.debug.bind(r.fb);
+    r.fb.debug = () => {
+      const d = base();
+      return { ...d, mix: { ...(d.mix ?? {}), slots: slots.map((s) => ({ ...s })) } } as ReturnType<typeof base>;
+    };
+    return slots;
+  }
+
+  it("the reader names slot 2 from its add, and slot 1 by its old name before the rename and its new one after", async () => {
+    const r = rig();
+    const slots = withSlots(r, [{ slot: 0, name: "Master", state: "live" }, { slot: 1, name: "Music", state: "live" }]);
+    await Audio.capture.start();
+    r.feed(2 * SECOND);
+    const beforeRename = r.fb.frame / RATE;
+    slots.push({ slot: 2, name: "Stingers", state: "live" });
+    slots[1]!.name = "Score";
+    r.feed(2 * SECOND);
+    r.fb.profileSink!.voiceStart(1, "audio/sting.wav", 2, 0, 0, 1);
+    r.feed(SECOND);
+    const end = r.fb.frame / RATE;
+    await Audio.capture.save();
+    const c = await r.open(r.downloads[0]!.bytes);
+    const idx = new CaptureTimeIndex();
+    idx.extend(c);
+    const names = new CaptureNames(summarizeCapture(c, idx).names);
+    expect(names.bus(1, beforeRename)).toBe("Music");
+    expect(names.bus(1, end)).toBe("Score");
+    expect(names.bus(2, end)).toBe("Stingers");
+    expect(names.bus(0, end)).toBe("Master");
+  });
+
+  it("a rename the live mix sends is named at that instant, not at the next keyframe", async () => {
+    const r = rig();
+    mixer.configure(parseAudioSettings({ buses: [{ name: "Master" }, { name: "Music", parent: "Master" }] }).settings);
+    const slots = withSlots(r, [{ slot: 0, name: "Master", state: "live" }, { slot: 1, name: "Music", state: "live" }]);
+    await Audio.capture.start();
+    r.feed(SECOND / 2);
+    slots[1]!.name = "Score";
+    expect(mixer.apply({ op: "renameBus", from: "Music", to: "Score" }).ok).toBe(true);
+    const renamedAt = r.fb.frame / RATE;
+    r.feed(2);
+    await Audio.capture.save();
+    const c = await r.open(r.downloads[0]!.bytes);
+    const idx = new CaptureTimeIndex();
+    idx.extend(c);
+    const names = new CaptureNames(summarizeCapture(c, idx).names);
+    expect(names.bus(1, renamedAt - 0.001)).toBe("Music");
+    expect(names.bus(1, renamedAt)).toBe("Score");
+    mixer.configure(parseAudioSettings({}).settings);
   });
 });

@@ -1,6 +1,6 @@
 // The wasm golden runner (ADR 0157, api-and-models §8 "Golden (Vitest, Node)"; task A2.7). Each scene is scripted
 // on the loopback host (testing.ts: the real committed wasm in Node, no AudioContext), rendered for a fixed number
-// of quanta, and its output compared with the digest committed in `golden/<scene>.json`.
+// of quanta, and its output compared with the digest committed in `golden/core/<scene>.json`.
 //
 // Digest rule: the exact SHA-256 of the f32 output (left channel then right, little-endian bytes). The wasm is
 // deterministic by construction: WebAssembly's f32 arithmetic is IEEE-754 with no fused multiply-add (relaxed-simd
@@ -17,18 +17,17 @@
 // phase or noise change (hash differs, levels do not).
 //
 // Update path: `UPDATE_GOLDENS=1 npx vitest run src/plugins/audio/runtime/audioGolden.test.ts` rewrites
-// `golden/*.json` from the current wasm. Review the diff: an unexpected change in a scene means the core's output
-// changed. Stale files in `golden/` (no scene of that name) fail the run.
+// `golden/core/*.json` from the current wasm. Review the diff: an unexpected change in a scene means the core's output
+// changed. Stale files in `golden/core/` (no scene of that name) fail the run. The digest and its explanation are
+// `golden/replay.ts`'s (`levelDigest`, `matchLevelGolden`), shared with the event and zone goldens.
 
-import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { resampleHrir, resampleMagls } from "./core/hrirResample";
 import { HRIR_CLIP_ID_FIRST as HRIR_CLIP_ID } from "./wire.generated";
 import { DecoderWasm } from "./decoder/wasm";
 import { maxStep } from "./golden/maxStep";
+import { goldenNames, levelDigest, matchLevelGolden, readLevelGolden, UPDATE_GOLDENS } from "./golden/replay";
 import { createLoopbackHost, LOOPBACK_PRESET, LOOPBACK_RATE, type LoopbackHost } from "./testing";
 import type { CorePreset } from "./worklet/coreDriver";
 import {
@@ -82,11 +81,6 @@ import {
   type BusConfigBuses,
   type Play,
 } from "./wire.generated";
-
-const GOLDEN_DIR = fileURLToPath(new URL("./golden/", import.meta.url));
-const UPDATE = process.env.UPDATE_GOLDENS === "1";
-/** Frames per statistics block. */
-const BLOCK = 1024;
 
 // --- Scene scripting -------------------------------------------------------------------------------------------
 
@@ -738,86 +732,6 @@ async function loopSeam(s: Stage, name: string, hint: number, wasmPath: string):
   }
 }
 
-// --- Digests ---------------------------------------------------------------------------------------------------------
-
-interface Golden {
-  scene: string;
-  frames: number;
-  /** SHA-256 (hex) of the left channel's f32 bytes followed by the right's. */
-  sha256: string;
-  peak: number;
-  rms: number;
-  /** Per block of 1,024 frames: [rmsL, peakL, rmsR, peakR]. */
-  blocks: number[][];
-}
-
-const sig = (v: number): number => Number(v.toPrecision(6));
-
-function digest(scene: string, left: Float32Array, right: Float32Array): Golden {
-  const hash = createHash("sha256");
-  hash.update(new Uint8Array(left.buffer, left.byteOffset, left.byteLength));
-  hash.update(new Uint8Array(right.buffer, right.byteOffset, right.byteLength));
-  const stat = (x: Float32Array, from: number, to: number): [number, number] => {
-    let sum = 0;
-    let peak = 0;
-    for (let i = from; i < to; i++) {
-      sum += x[i]! * x[i]!;
-      peak = Math.max(peak, Math.abs(x[i]!));
-    }
-    return [Math.sqrt(sum / (to - from)), peak];
-  };
-  const blocks: number[][] = [];
-  for (let from = 0; from < left.length; from += BLOCK) {
-    const to = Math.min(left.length, from + BLOCK);
-    const [rl, pl] = stat(left, from, to);
-    const [rr, pr] = stat(right, from, to);
-    blocks.push([sig(rl), sig(pl), sig(rr), sig(pr)]);
-  }
-  const [rmsL, peakL] = stat(left, 0, left.length);
-  const [rmsR, peakR] = stat(right, 0, right.length);
-  return { scene, frames: left.length, sha256: hash.digest("hex"), peak: sig(Math.max(peakL, peakR)), rms: sig(Math.sqrt((rmsL * rmsL + rmsR * rmsR) / 2)), blocks };
-}
-
-const dB = (v: number): number => 20 * Math.log10(Math.max(v, 1e-12));
-const fmt = (n: number): string => (Number.isFinite(n) ? n.toFixed(2) : String(n));
-
-/** A readable account of how `got` differs from `want`: which block moved first, and the level changes there. */
-function explain(want: Golden, got: Golden): string {
-  const lines = [`scene "${got.scene}": output differs from golden/${got.scene}.json`, `  sha256 ${want.sha256.slice(0, 16)}... -> ${got.sha256.slice(0, 16)}...`];
-  if (want.frames !== got.frames) lines.push(`  frames ${want.frames} -> ${got.frames}`);
-  lines.push(`  overall peak ${fmt(dB(want.peak))} -> ${fmt(dB(got.peak))} dBFS, rms ${fmt(dB(want.rms))} -> ${fmt(dB(got.rms))} dBFS`);
-  let moved = 0;
-  let first = -1;
-  let worst = { block: -1, delta: 0, what: "" };
-  const names = ["rmsL", "peakL", "rmsR", "peakR"];
-  for (let b = 0; b < Math.max(want.blocks.length, got.blocks.length); b++) {
-    const w = want.blocks[b];
-    const g = got.blocks[b];
-    if (!w || !g) {
-      moved++;
-      first = first < 0 ? b : first;
-      continue;
-    }
-    for (let k = 0; k < 4; k++) {
-      if (Math.abs(w[k]! - g[k]!) > 1e-6) {
-        moved++;
-        first = first < 0 ? b : first;
-        const delta = Math.abs(dB(g[k]!) - dB(w[k]!));
-        if (delta > worst.delta) worst = { block: b, delta, what: names[k]! };
-        break;
-      }
-    }
-  }
-  if (moved === 0) {
-    lines.push("  every block's level is within 1e-6 of the golden: the bits changed but the levels did not (rounding, phase or noise-floor change)");
-  } else {
-    lines.push(`  ${moved} of ${Math.max(want.blocks.length, got.blocks.length)} blocks (of ${BLOCK} frames) moved by more than 1e-6; the first is block ${first} (frame ${first * BLOCK})`);
-    if (worst.block >= 0) lines.push(`  largest level change: ${fmt(worst.delta)} dB in ${worst.what} at block ${worst.block} (frame ${worst.block * BLOCK})`);
-  }
-  lines.push("  If the change is intended, rerun with UPDATE_GOLDENS=1 and review the diff of golden/*.json.");
-  return lines.join("\n");
-}
-
 // --- The tests -----------------------------------------------------------------------------------------------------
 
 describe("wasm goldens: the committed core's output, scene by scene", () => {
@@ -827,31 +741,19 @@ describe("wasm goldens: the committed core's output, scene by scene", () => {
     const { left, right } = s.output();
     for (const sample of left) expect(Number.isFinite(sample)).toBe(true);
     for (const sample of right) expect(Number.isFinite(sample)).toBe(true);
-    const got = digest(name, left, right);
-    const path = `${GOLDEN_DIR}${name}.json`;
-    if (UPDATE) {
-      mkdirSync(GOLDEN_DIR, { recursive: true });
-      writeFileSync(path, `${JSON.stringify(got)}\n`);
-      return;
-    }
-    if (!existsSync(path)) throw new Error(`no golden for scene "${name}": run UPDATE_GOLDENS=1 npx vitest run src/plugins/audio/runtime/audioGolden.test.ts`);
-    const want = JSON.parse(readFileSync(path, "utf8")) as Golden;
-    if (want.sha256 !== got.sha256) throw new Error(explain(want, got));
+    matchLevelGolden("core", levelDigest(name, left, right), "npx vitest run src/plugins/audio/runtime/audioGolden.test.ts");
   });
 
   it("every scene is audible (a silent scene proves nothing)", async () => {
     for (const name of Object.keys(SCENES)) {
-      const path = `${GOLDEN_DIR}${name}.json`;
-      if (!existsSync(path)) continue;
-      const want = JSON.parse(readFileSync(path, "utf8")) as Golden;
-      expect(want.peak, name).toBeGreaterThan(0.01);
+      const want = readLevelGolden("core", name);
+      if (want) expect(want.peak, name).toBeGreaterThan(0.01);
     }
   });
 
-  it("golden/ holds exactly the scenes' files", () => {
-    const files = existsSync(GOLDEN_DIR) ? readdirSync(GOLDEN_DIR).filter((f) => f.endsWith(".json") && !f.startsWith("event-") && !f.startsWith("zones-") && !f.startsWith("m4-") && !f.startsWith("gate-")).sort() /* event-*.json: events/eventGolden.test.ts; zones-*.json: core/zonesLoopback.test.ts; m4-*.json: golden/audioGoldenM4.test.ts; gate-*.json: golden/audioGoldenGate.test.ts */ : [];
-    if (UPDATE) return;
-    expect(files).toEqual(Object.keys(SCENES).map((n) => `${n}.json`).sort());
+  it("golden/core/ holds exactly the scenes' files", () => {
+    if (UPDATE_GOLDENS) return;
+    expect(goldenNames("core")).toEqual(Object.keys(SCENES).sort());
   });
 
   it("a render is repeatable within one process (the digest does not depend on the run)", async () => {
@@ -859,7 +761,7 @@ describe("wasm goldens: the committed core's output, scene by scene", () => {
       const s = await stage();
       await SCENES["kitchen-sink"]!(s);
       const { left, right } = s.output();
-      return digest("kitchen-sink", left, right).sha256;
+      return levelDigest("kitchen-sink", left, right).sha256;
     };
     expect(await run()).toBe(await run());
   });

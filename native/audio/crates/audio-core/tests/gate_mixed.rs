@@ -6,7 +6,7 @@
 //! every member's source from that frame, to an f32 ulp (1e-6), for as long as the scene runs:
 //! across ring refills and the ring's wrap at 32,768 frames. `gate_common` has the rig.
 //!
-//! `primed_eight_stems_null_for_forty_thousand_frames` is also a fixture (`golden/gate-mixed.json`)
+//! `primed_eight_stems_null_for_forty_thousand_frames` is also a fixture (`golden/gate/gate-mixed.json`)
 //! that `audioGoldenGate.test.ts` replays on the real wasm (native equals wasm).
 
 mod gate_common;

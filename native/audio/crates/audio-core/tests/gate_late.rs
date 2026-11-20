@@ -8,7 +8,7 @@
 //! `maxSlipFrames` agree and nothing else is counted. `gate_common` has the rig.
 //!
 //! `one_slow_ring_delays_eight_stems_equally_and_they_null_from_the_late_start` is also a fixture
-//! (`golden/gate-late.json`) that `audioGoldenGate.test.ts` replays on the real wasm.
+//! (`golden/gate/gate-late.json`) that `audioGoldenGate.test.ts` replays on the real wasm.
 
 mod gate_common;
 

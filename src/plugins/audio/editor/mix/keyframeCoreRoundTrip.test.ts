@@ -16,7 +16,8 @@ import { closeLoopbackAudio, loopbackAudio } from "../../runtime/testing";
 import { KeyframeRows } from "../../runtime/audioRows";
 import { CaptureSource } from "./profilerSource";
 import { inProcessWorker } from "./voiceSceneSupport";
-import { nameLookup, reconstructVoices } from "./voiceTableModel";
+import { captureNames } from "../../runtime/capture/reader";
+import { reconstructVoices } from "./voiceTableModel";
 
 const MiB = 1024 * 1024;
 const RATE = 48_000;
@@ -103,7 +104,7 @@ describe("a capture recorded on the core backend carries the real keyframe", () 
     await source.appendSegment(rec.takeSpan().bytes.slice().buffer);
     const state = await source.seek(frame / RATE);
     expect(state.keyframe).not.toBeNull();
-    const replay = reconstructVoices(state, nameLookup(source.summary.names));
+    const replay = reconstructVoices(state, captureNames(source.summary));
     expect(replay.fromKeyframe).toBe(true);
     const rows = replay.rows.map((x) => ({ id: x.id, clip: x.clipName, bus: x.busName, state: x.state, priority: x.priority, gain: x.gain })).sort((p, q) => p.id - q.id);
     const table = debug.voices.map((v) => ({ id: v.id, clip: v.clip, bus: v.bus, state: v.state, priority: v.priority, gain: Math.fround(v.gain) })).sort((p, q) => p.id - q.id);
@@ -176,7 +177,7 @@ describe("a capture recorded on the core backend carries the real keyframe", () 
 
     // The mix: the snapshot by its NAMES id, the monitor as a boolean.
     expect(kf.mix.snapshot).not.toBeNull();
-    expect(new Map(source.summary.names.snapshots).get(kf.mix.snapshot!)).toBe("Hush");
+    expect(captureNames(source.summary).snapshot(kf.mix.snapshot!)).toBe("Hush");
     expect(kf.mix.monitorActive).toBe(true);
     expect(kf.mix.hiddenMute).toBe(false);
     source.close();

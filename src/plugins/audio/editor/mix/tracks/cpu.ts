@@ -7,17 +7,18 @@
 //   - `cpu.sections`: the five sections' shares as lanes, labelled "estimated share" (the refit is an estimate; S2).
 //     A lane is the meter's `debug().sections` value at each sample (null until the refit is fitted: no point).
 //
-// Both read the CPU columns through `statusColumns` and feed `CpuTrack` one sample at a time, so the per-sample sections
-// are the model's own (`CpuTrack.debug()` after each sample), not a second computation. `refresh` re-reads only the
-// samples after the newest one taken (the meter keeps its window between calls). Pure TypeScript; the canvas draws.
+// Both declare the CPU columns to the track kit (ADR 0261) and feed `CpuTrack` the kit's new samples one at a time, so the
+// per-sample sections are the model's own (`CpuTrack.debug()` after each sample), not a second computation; the meter keeps
+// its window between refreshes. Pure TypeScript; the canvas draws.
+import { lastAtOrBefore } from "../../../../../engine/core/sortedSearch";
 import { RANGE_SECONDS, type CaptureRangeColumns } from "../../../runtime/capture/reader";
 import { CPU_WINDOW_QUANTA, CPU_QUANTUM_FRAMES } from "../../../runtime/mix/cpuMeter";
 import type { TimelineColorKey, TrackData, LineSeries } from "../drawTimeline";
 import { CPU_COLUMNS, CpuState, CpuTrack, cpuLevel, type Level } from "../cpuTrack";
 import { EMPTY_STATES } from "../emptyStates";
-import { statusColumns } from "../profilerSource";
 import type { Track } from "../timelineModel";
-import type { TrackContext, TrackFactory, TrackModule } from "./types";
+import { TrackKit, type StatusFeed } from "./kit";
+import type { TrackContext, TrackFactory } from "./types";
 
 const CPU_LOAD_TRACK = "cpu.load";
 const CPU_SECTIONS_TRACK = "cpu.sections";
@@ -35,75 +36,51 @@ export const CPU_SCALE_PERMILLE = 1000;
 const LEVEL_COLOR: Readonly<Record<Level, TimelineColorKey>> = { green: "accent", amber: "warning", red: "danger" };
 const LEVELS: readonly Level[] = ["green", "amber", "red"];
 
-/** The index of the last sample at or before `t` in ascending `times`, or -1 when `t` precedes them all. */
-export function indexAtOrBefore(times: ArrayLike<number>, t: number): number {
-  let lo = 0;
-  let hi = times.length - 1;
-  let ans = -1;
-  while (lo <= hi) {
-    const mid = (lo + hi) >> 1;
-    if (times[mid]! <= t) {
-      ans = mid;
-      lo = mid + 1;
-    } else hi = mid - 1;
-  }
-  return ans;
-}
-
-/** One sample's columns as a one-row answer (a view, no copy), so the model sees samples one by one. */
-function sampleRow(cols: CaptureRangeColumns, i: number): CaptureRangeColumns {
-  const row: CaptureRangeColumns = {};
-  for (const name of [RANGE_SECONDS, ...CPU_COLUMNS]) row[name] = (cols[name] as Float64Array).subarray(i, i + 1);
+/** Sample `i` of the feed as a one-row answer (views, no copy), so the model sees samples one by one. */
+function sampleRow(feed: StatusFeed, i: number): CaptureRangeColumns {
+  const row: CaptureRangeColumns = { [RANGE_SECONDS]: feed.times.subarray(i, i + 1) };
+  for (const name of CPU_COLUMNS) row[name] = feed.column(name).subarray(i, i + 1);
   return row;
 }
 
-/** `CpuTrack` plus the per-sample hidden reason and sections; shared by the two tracks. */
+/** `CpuTrack` plus the per-sample hidden reason and sections, fed from the kit's samples; shared by the two tracks. */
 class CpuData {
-  private readonly cpu: CpuTrack;
+  private cpu: CpuTrack;
   private readonly hidden: (string | null)[] = [];
   private readonly sections: (Float64Array | null)[] = [];
-  private inflight: Promise<void> | null = null;
+  /** Feed samples given to `cpu` so far. */
+  private taken = 0;
   private loadCache: TrackData | undefined | null = null;
   private sectionCache: TrackData | undefined | null = null;
+  private readonly rate: number;
+  readonly feed: StatusFeed;
   windowMs: number;
 
   constructor(private readonly ctx: TrackContext) {
-    const rate = ctx.source.summary.header.sampleRate;
-    this.cpu = new CpuTrack(rate);
-    this.windowMs = (CPU_WINDOW_QUANTA * CPU_QUANTUM_FRAMES * 1000) / rate;
+    this.rate = ctx.source.summary.header.sampleRate;
+    this.cpu = new CpuTrack(this.rate);
+    this.windowMs = (CPU_WINDOW_QUANTA * CPU_QUANTUM_FRAMES * 1000) / this.rate;
+    this.feed = TrackKit.of(ctx.source).status(CPU_COLUMNS);
   }
 
-  get times(): Float64Array {
-    return this.cpu.times;
-  }
-  get length(): number {
-    return this.cpu.length;
-  }
-
-  /** Reads the samples after the newest taken; concurrent callers share one read. */
-  refresh(): Promise<void> {
-    if (!this.inflight) {
-      this.inflight = this.read().finally(() => {
-        this.inflight = null;
-      });
+  /** Feeds the model the samples the kit read since the last call. */
+  take(): void {
+    const feed = this.feed;
+    if (feed.length < this.taken) {
+      // the kit started its feed over: so does the model
+      this.cpu = new CpuTrack(this.rate);
+      this.hidden.length = this.sections.length = this.taken = 0;
     }
-    return this.inflight;
-  }
-
-  private async read(): Promise<void> {
-    const n = this.cpu.length;
-    const from = n ? this.cpu.times[n - 1]! : 0;
-    const cols = await statusColumns(this.ctx.source, CPU_COLUMNS, from);
-    const secs = cols[RANGE_SECONDS] as Float64Array;
     let added = 0;
-    for (let i = 0; i < secs.length; i++) {
-      if (this.cpu.extend(sampleRow(cols, i)) === 0) continue;
+    for (let i = this.taken; i < feed.length; i++) {
+      if (this.cpu.extend(sampleRow(feed, i)) === 0) continue;
       added++;
       const d = this.cpu.debug();
       this.hidden.push(d.hidden);
       this.sections.push(d.sections ? Float64Array.of(d.sections.voices, d.sections.buses, d.sections.spatial, d.sections.music, d.sections.loudness) : null);
       if (d.loadPermille !== null) this.windowMs = d.windowMs;
     }
+    this.taken = feed.length;
     if (added > 0) {
       this.loadCache = null;
       this.sectionCache = null;
@@ -155,7 +132,7 @@ class CpuData {
 
   /** The sample at `t`: null before the first. */
   private at(t: number): number {
-    return indexAtOrBefore(this.cpu.times, t);
+    return lastAtOrBefore(this.cpu.times, t);
   }
 
   /** A Babylon-fallback capture has no STATUS, so no CPU samples: both tracks say why they are empty (FU3; was the controller's fallback). */
@@ -186,22 +163,20 @@ class CpuData {
 /** The CPU tracks of one capture: `cpu.load` and `cpu.sections`. */
 export const cpuTracks: TrackFactory = (ctx) => {
   const d = new CpuData(ctx);
-  const sharedRefresh = () => d.refresh();
-  const load: TrackModule = {
-    get track(): Track {
-      return { id: CPU_LOAD_TRACK, label: `CPU (${Math.round(d.windowMs)} ms)`, kind: "line", height: 56, visible: true };
+  const kit = TrackKit.of(ctx.source);
+  const load = kit.track({
+    track: (): Track => ({ id: CPU_LOAD_TRACK, label: `CPU (${Math.round(d.windowMs)} ms)`, kind: "line", height: 56, visible: true }),
+    build: () => {
+      d.take();
+      return { data: d.loadData(), tooltip: (t) => d.loadTooltip(t) };
     },
-    data: () => d.loadData(),
-    refresh: sharedRefresh,
-    tooltipAt: (t) => d.loadTooltip(t),
-  };
-  const sections: TrackModule = {
-    get track(): Track {
-      return { id: CPU_SECTIONS_TRACK, label: "CPU estimated share", kind: "lanes", height: 90, visible: true };
+  });
+  const sections = kit.track({
+    track: { id: CPU_SECTIONS_TRACK, label: "CPU estimated share", kind: "lanes", height: 90, visible: true },
+    build: () => {
+      d.take();
+      return { data: d.sectionData(), tooltip: (t) => d.sectionTooltip(t) };
     },
-    data: () => d.sectionData(),
-    refresh: sharedRefresh,
-    tooltipAt: (t) => d.sectionTooltip(t),
-  };
+  });
   return [load, sections];
 };

@@ -16,11 +16,13 @@
 // each at the core frame it was delivered on, the clips as run-length sample words, the output's length and FNV-1a 64
 // digest, and the reference. `audioGoldenSeams.test.ts` replays it on the committed wasm and
 // `native/audio/crates/audio-core/tests/seam_goldens.rs` natively; both must give the digest, and the replayed output
-// must null against the reference (so native equals wasm, and both null).
+// must null against the reference (so native equals wasm, and both null). The replay's host, wire messages and digest are
+// `golden/replay.ts`'s.
 
-import { createLoopbackHost, LOOPBACK_PRESET, type LoopbackHost } from "../testing";
-import { Kind, readClipBegin, readClipChunk, writeClipBegin, writeClipChunk, writeEnvelope } from "../wire.generated";
+import { createLoopbackHost, LOOPBACK_PRESET } from "../testing";
+import { Kind, readClipBegin, readClipChunk } from "../wire.generated";
 import { clipSampleBytes } from "../worklet/coreMemory";
+import { concat, fromHex, LoopbackWire, type Replay } from "./replay";
 
 export const QUANTUM = 128;
 
@@ -155,25 +157,14 @@ export interface SeamFixture {
   readonly steps: readonly SeamStep[];
   /** Output length in frames (whole quanta). */
   readonly frames: number;
-  /** FNV-1a 64 over the left channel's f32 bytes then the right's (`audioGoldenM4.test.ts`' `fnv1a64`). */
+  /** FNV-1a 64 over the left channel's f32 bytes then the right's (`replay.ts`' `fnv1a64`). */
   readonly fnv1a64: string;
   readonly reference: SeamReference;
   /** The null measured when the fixture was written (informational; the replays measure their own). */
   readonly null: { readonly maxError: number; readonly exact: number };
 }
 
-/** FNV-1a 64 (offset basis 0xcbf29ce484222325, prime 0x100000001b3) over `left`'s f32 bytes then `right`'s, as 16 lowercase hex digits (as `audioGoldenM4.test.ts`). */
-export function fnv1a64(left: Float32Array, right: Float32Array): string {
-  let h = 0xcbf29ce484222325n;
-  for (const part of [left, right]) {
-    const bytes = new Uint8Array(part.buffer, part.byteOffset, part.byteLength);
-    for (let i = 0; i < bytes.length; i++) h = ((h ^ BigInt(bytes[i]!)) * 0x100000001b3n) & 0xffffffffffffffffn;
-  }
-  return h.toString(16).padStart(16, "0");
-}
-
 const hexOf = (bytes: Uint8Array): string => Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-const bytesOf = (hex: string): Uint8Array => Uint8Array.from(hex.match(/../g) ?? [], (b) => parseInt(b, 16));
 
 /**
  * Records what a core receives: call `onMessage(buffer, frame)` for every buffer handed to the shell (`CoreDriver.
@@ -233,15 +224,16 @@ export function clipBytes(clip: SeamClip): Uint8Array {
   const out = new Uint8Array(clip.frames * clip.channels * w);
   let at = 0;
   for (const [word, count] of clip.runs) {
-    const b = bytesOf(word);
+    const b = fromHex(word);
     for (let k = 0; k < count; k++, at += w) out.set(b, at);
   }
   return out;
 }
 
 /** Replays a fixture on a loopback host over the committed wasm: each message at its frame, then the rest of the output. */
-export async function replaySeam(fixture: SeamFixture): Promise<{ readonly left: Float32Array; readonly right: Float32Array; readonly host: LoopbackHost }> {
+export async function replaySeam(fixture: SeamFixture): Promise<Replay> {
   const host = await createLoopbackHost({ preset: { ...LOOPBACK_PRESET, ...fixture.preset } });
+  const wire = new LoopbackWire(host);
   const clips = new Map(fixture.clips.map((c) => [c.id, { clip: c, bytes: clipBytes(c) }]));
   const lefts: Float32Array[] = [];
   const rights: Float32Array[] = [];
@@ -254,47 +246,23 @@ export async function replaySeam(fixture: SeamFixture): Promise<{ readonly left:
       rights.push(out.right);
     }
   };
-  let seq = 1;
   for (const step of fixture.steps) {
     renderTo(step.frame);
     if ("batch" in step) {
-      const bytes = bytesOf(step.batch);
-      host.send(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
+      const bytes = fromHex(step.batch); // a whole BATCH message as the runtime sent it, envelope and header included
+      host.send(bytes.buffer as ArrayBuffer);
     } else if ("begin" in step) {
       const c = clips.get(step.begin)!.clip;
-      const buffer = new ArrayBuffer(16 + 20);
-      const view = new DataView(buffer);
-      writeEnvelope(view, 0, { kind: Kind.CLIP_BEGIN, seq: seq++, bodyBytes: 20 });
-      writeClipBegin(view, 0, { clipId: c.id, frames: c.frames, channels: c.channels, sampleRate: c.sampleRate, format: c.format });
-      host.send(buffer);
+      wire.clipBegin({ clipId: c.id, frames: c.frames, channels: c.channels, sampleRate: c.sampleRate, format: c.format });
     } else if ("chunk" in step) {
       const [id, frameOffset, frames] = step.chunk;
       const { clip, bytes } = clips.get(id)!;
       const frameBytes = clip.channels * clipSampleBytes(clip.format);
-      const part = bytes.subarray(frameOffset * frameBytes, (frameOffset + frames) * frameBytes);
-      const buffer = new ArrayBuffer(32 + part.byteLength);
-      const view = new DataView(buffer);
-      writeEnvelope(view, 0, { kind: Kind.CLIP_CHUNK, seq: seq++, bodyBytes: 16 + part.byteLength });
-      writeClipChunk(view, 0, { clipId: id, frameOffset, frames, reserved: 0 });
-      new Uint8Array(buffer, 32).set(part);
-      host.send(buffer);
+      wire.clipChunk(id, frameOffset, frames, bytes.subarray(frameOffset * frameBytes, (frameOffset + frames) * frameBytes));
     } else {
-      const buffer = new ArrayBuffer(16 + 4);
-      const view = new DataView(buffer);
-      writeEnvelope(view, 0, { kind: Kind.CLIP_UNLOAD, seq: seq++, bodyBytes: 4 });
-      view.setUint32(16, step.unload, true);
-      host.send(buffer);
+      wire.clipUnload(step.unload);
     }
   }
   renderTo(fixture.frames);
-  const concat = (parts: Float32Array[]): Float32Array => {
-    const out = new Float32Array(parts.reduce((n, p) => n + p.length, 0));
-    let at = 0;
-    for (const p of parts) {
-      out.set(p, at);
-      at += p.length;
-    }
-    return out;
-  };
   return { left: concat(lefts), right: concat(rights), host };
 }

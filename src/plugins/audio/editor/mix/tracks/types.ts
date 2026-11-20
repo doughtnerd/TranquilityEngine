@@ -7,11 +7,9 @@ import type { ProfileSource } from "../profilerSource";
 import type { TrackData } from "../drawTimeline";
 import type { Track } from "../timelineModel";
 
-/** What a track module reads: the open capture and the panel's name lookups. */
+/** What a track module reads: the open capture. Names are the capture's at the instant asked (`captureNames(source.summary)`, ADR 0260). */
 export interface TrackContext {
   readonly source: ProfileSource;
-  /** Clip, bus (by slot) and event names, as `voiceTableModel.ts`'s `NameLookup` gives them. */
-  readonly names: { clip(id: number): string | undefined; bus(slot: number): string | undefined; event(id: number): string | undefined };
 }
 
 /** One track: its row in the list, its data, and the text a hover shows. */

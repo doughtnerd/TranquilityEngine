@@ -17,8 +17,10 @@ import {
   MAX_LOUDNESS_BUSES,
   MAX_TARGET_NAME,
   MASTER,
+  CLIP_MEMORY_LIMITS,
   MUSIC_RINGS_LIMITS,
   MUSIC_RINGS_PRESETS,
+  VOICE_LIMITS,
   MAX_BUSES,
   parseAudioSettings,
   type AudioSettings,
@@ -221,9 +223,7 @@ export function setBackend(d: SettingsDraft, backend: "babylon" | "core"): Setti
 
 const clampInt = (n: number, min: number, max: number): number => Math.min(max, Math.max(min, Math.round(n)));
 
-export const VOICE_LIMITS = { mixed: [8, 512], logical: [8, 8192], hrtf: [0, 32] } as const;
-export { MUSIC_RINGS_LIMITS };
-export const CLIP_MEMORY_LIMITS = [16, 1024] as const;
+export { CLIP_MEMORY_LIMITS, MUSIC_RINGS_LIMITS, VOICE_LIMITS };
 
 /** A bus's `maxVoices`: rounded and clamped to 1..`voices.logical`; `undefined` is unlimited. Unknown buses change nothing. */
 export function setBusMaxVoices(d: SettingsDraft, name: string, value: number | undefined): SettingsDraft {

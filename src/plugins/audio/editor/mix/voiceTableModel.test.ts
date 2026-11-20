@@ -3,15 +3,22 @@
 // keyframe), each against the scene's ground truth; the reason texts and the thief; the 64-row cap; the name filter.
 import { describe, expect, it } from "vitest";
 import { assembleCapture, KEYFRAME_VOICE_STATES, RecordType } from "../../runtime/capture/format";
-import type { CaptureKeyframeVoice, CaptureSeekState } from "../../runtime/capture/reader";
-import { SAMPLE_HEADER, SAMPLE_META, SAMPLE_RATE } from "../../runtime/capture/testSupport";
+import { captureNames, type CaptureKeyframeVoice, type CaptureSeekState } from "../../runtime/capture/reader";
+import { SAMPLE_HEADER, SAMPLE_META, SAMPLE_RATE, namesFromStart } from "../../runtime/capture/testSupport";
 import { CaptureSource } from "./profilerSource";
 import { KEYFRAME_FRAMES, NAMES, OPS, audibilityOf, inProcessWorker, openScene, priorityOf, sceneRecords, truthAt, truthEventsAt } from "./voiceSceneSupport";
 import {
-  MAX_VOICE_ROWS, eventRows, nameFilter, nameLookup, reasonText, reconstructVoices, voiceTable, type VoiceRow,
+  MAX_VOICE_ROWS, eventRows, nameFilter, reconstructVoices, voiceTable, type VoiceRow,
 } from "./voiceTableModel";
 
 const seconds = (frame: number): number => frame / SAMPLE_RATE;
+
+/** The scene's reason codes (§5.6) as the words the reader gives, by the truth's state code (0 playing, 1 virtual, 2 stolen). */
+const TRUTH_REASON: Record<number, Record<number, string>> = {
+  0: { 1: "promoted", 2: "capRaised" },
+  1: { 1: "capDemoted", 2: "belowAudibility", 3: "paused", 4: "worldInaudible" },
+  2: { 1: "busMaxVoices", 2: "globalLimit", 3: "priority" },
+};
 
 /** The recorded fields of a row, as the truth keeps them. */
 function project(r: VoiceRow) {
@@ -21,7 +28,7 @@ function project(r: VoiceRow) {
 /** The truth at `frame` (its states are the codes the scene writes; the table reads them by name): a thief the keyframe's rows can't carry (the steal predates the keyframe the table starts from) reads null. */
 function expectedAt(frame: number) {
   const kf = Math.max(...KEYFRAME_FRAMES.filter((k) => k <= frame));
-  return truthAt(frame).map((v) => ({ id: v.id, clip: v.clip, slot: v.slot, state: KEYFRAME_VOICE_STATES[v.state], reason: v.reason, gain: v.gain, thief: v.stealFrame > kf ? v.thief : null }));
+  return truthAt(frame).map((v) => ({ id: v.id, clip: v.clip, slot: v.slot, state: KEYFRAME_VOICE_STATES[v.state], reason: TRUTH_REASON[v.state]?.[v.reason] ?? null, gain: v.gain, thief: v.stealFrame > kf ? v.thief : null }));
 }
 
 describe("the voice table at five positions of a recorded scene", () => {
@@ -35,7 +42,7 @@ describe("the voice table at five positions of a recorded scene", () => {
   for (const [label, frame] of positions) {
     it(`reconstructs ${label} (frame ${frame})`, async () => {
       const s = await openScene();
-      const names = nameLookup(s.summary.names);
+      const names = captureNames(s.summary);
       const state = await s.seek(seconds(frame));
       const replay = reconstructVoices(state, names);
       expect(replay.fromKeyframe).toBe(true);
@@ -48,7 +55,7 @@ describe("the voice table at five positions of a recorded scene", () => {
 
   it("covers a keyframe's own instant, the segment between keyframes and the end of the capture", async () => {
     const s = await openScene();
-    const names = nameLookup(s.summary.names);
+    const names = captureNames(s.summary);
     for (const frame of [KEYFRAME_FRAMES[1]!, KEYFRAME_FRAMES[1]! + 1, 49_001, 70_000, 95_999, 120_500, 150_700, 250 * 768]) {
       const rows = reconstructVoices(await s.seek(seconds(frame)), names).rows.map(project).sort((a, b) => a.id - b.id);
       expect(rows, `frame ${frame}`).toEqual(expectedAt(frame));
@@ -60,7 +67,7 @@ describe("the voice table at five positions of a recorded scene", () => {
 
   it("rows from the keyframe carry every field; rows born after it carry what the event did and null for the rest", async () => {
     const s = await openScene();
-    const names = nameLookup(s.summary.names);
+    const names = captureNames(s.summary);
     const atKeyframe = reconstructVoices(await s.seek(seconds(KEYFRAME_FRAMES[1]!)), names).rows;
     const v2 = atKeyframe.find((r) => r.id === 2)!;
     expect(v2).toMatchObject({ fromKeyframe: true, priority: priorityOf(2), audibility: audibilityOf(2), pitch: (4096 + 2 * 16) / 4096, state: "virtual", reasonText: "below audibility" });
@@ -75,7 +82,7 @@ describe("the voice table at five positions of a recorded scene", () => {
 
   it("the STATUS's playheads override a row's playhead (the keyframe's own value stands for the others)", async () => {
     const s = await openScene();
-    const names = nameLookup(s.summary.names);
+    const names = captureNames(s.summary);
     const state = await s.seek(seconds(55_000));
     const lastStatusFrame = Math.floor(55_000 / 768) * 768;
     const rows = reconstructVoices(state, names).rows;
@@ -87,9 +94,9 @@ describe("the voice table at five positions of a recorded scene", () => {
 
   it("names the thief and the reason of a steal in the replayed span; a steal before the keyframe has no thief", async () => {
     const s = await openScene();
-    const names = nameLookup(s.summary.names);
+    const names = captureNames(s.summary);
     const before = reconstructVoices(await s.seek(seconds(96_500)), names).rows.find((r) => r.id === 5)!;
-    expect(before).toMatchObject({ state: "stolen", thief: 6, reason: 1, reasonText: "bus max voices" });
+    expect(before).toMatchObject({ state: "stolen", thief: 6, reason: "busMaxVoices", reasonText: "bus max voices" });
     const keyframed = reconstructVoices(await s.seek(seconds(KEYFRAME_FRAMES[1]!)), names).rows.find((r) => r.id === 1)!;
     expect(keyframed).toMatchObject({ state: "stolen", reasonText: "priority", thief: null });
     const withEvent = reconstructVoices(await s.seek(seconds(40_500)), names).rows.find((r) => r.id === 1)!;
@@ -103,7 +110,7 @@ describe("the voice table at five positions of a recorded scene", () => {
     const s = await CaptureSource.openFile(assembleCapture(SAMPLE_HEADER, meta, records.map((r, i) => ({ ...r, seq: i + 1 })), { index: true }).slice().buffer, { worker: inProcessWorker() });
     const state = await s.seek(seconds(5_000));
     expect(state.keyframe).toBeNull();
-    const replay = reconstructVoices(state, nameLookup(s.summary.names));
+    const replay = reconstructVoices(state, captureNames(s.summary));
     expect(replay.fromKeyframe).toBe(false);
     expect(replay.rows.map((r) => r.id).sort()).toEqual([1, 2]); // both started within the second before t
     expect(replay.rows.every((r) => !r.fromKeyframe && r.priority === null)).toBe(true);
@@ -112,26 +119,14 @@ describe("the voice table at five positions of a recorded scene", () => {
   });
 });
 
-describe("reason text", () => {
-  it("reads each reason by the state it is in (§5.6)", () => {
-    expect([1, 2, 3].map((r) => reasonText("stolen", r))).toEqual(["bus max voices", "global limit", "priority"]);
-    expect([1, 2, 3, 4].map((r) => reasonText("virtual", r))).toEqual(["demoted by the cap", "below audibility", "paused", "world inaudible"]);
-    expect([1, 2].map((r) => reasonText("playing", r))).toEqual(["promoted", "cap raised"]);
-    expect([1, 2].map((r) => reasonText("waitingForData", r))).toEqual(["clip loading", "stream priming"]);
-    expect(reasonText("playing", 0)).toBe("");
-    expect(reasonText("busMuted", 1)).toBe("reason 1");
-    expect(reasonText("stolen", 9)).toBe("reason 9");
-  });
-});
-
 describe("the table: order, cap and counts", () => {
   function fakeState(n: number): CaptureSeekState {
     const voices = Array.from({ length: n }, (_, i): CaptureKeyframeVoice => ({
-      id: i + 1, clip: 1 + (i % 3), slot: i % 3, state: KEYFRAME_VOICE_STATES[i % 6]!, priority: i % 4, reason: 0, gain: 1, pitch: 1, audibility: ((i * 211) % 65536) / 65536, playheadFrames: 0,
+      id: i + 1, clip: 1 + (i % 3), slot: i % 3, state: KEYFRAME_VOICE_STATES[i % 6]!, priority: i % 4, reason: null, gain: 1, pitch: 1, audibility: ((i * 211) % 65536) / 65536, playheadFrames: 0,
     }));
     return { keyframe: { voices, buses: [], metered: [], events: [], music: [], mix: { slotTableVersion: 0, monitorActive: false, targetIndex: 0, snapshot: null, masterVolume: 1, hiddenMute: false } }, records: [], status: null } as unknown as CaptureSeekState;
   }
-  const names = nameLookup({ clips: [[1, "alpha"], [2, "Beta"]], buses: [[0, "Music"], [1, "SFX"]], events: [], parameters: [], snapshots: [], targets: [] });
+  const names = namesFromStart({ clips: [[1, "alpha"], [2, "Beta"]], buses: [[0, "Music"], [1, "SFX"]] });
 
   it("renders at most MAX_VOICE_ROWS, most audible first, while counting the rest by state", () => {
     const replay = reconstructVoices(fakeState(100), names);
@@ -164,13 +159,13 @@ describe("the table: order, cap and counts", () => {
 });
 
 describe("the name filter", () => {
-  const names = nameLookup({ clips: [[1, "jump.ogg"], [2, "Land.ogg"], [3, "footstep_grass.ogg"]], buses: [[1, "Music"], [2, "SFX"]], events: [[5, "PlayerJump"], [6, "Ambience"]], parameters: [], snapshots: [], targets: [] });
+  const names = namesFromStart({ clips: [[1, "jump.ogg"], [2, "Land.ogg"], [3, "footstep_grass.ogg"]], buses: [[1, "Music"], [2, "SFX"]], events: [[5, "PlayerJump"], [6, "Ambience"]] });
 
   async function replayAt(frame: number) {
     const s = await openScene();
     const state = await s.seek(seconds(frame));
     s.close();
-    return { replay: reconstructVoices(state, nameLookup(s.summary.names)), state };
+    return { replay: reconstructVoices(state, captureNames(s.summary)), state };
   }
 
   it("is a case-insensitive substring over the clip name", async () => {
@@ -215,7 +210,7 @@ describe("the name filter", () => {
 
   it("event instances follow eventStart and eventStop over the keyframe's", async () => {
     const s = await openScene();
-    const n = nameLookup(s.summary.names);
+    const n = captureNames(s.summary);
     for (const frame of [1_000, 2_500, 97_500, 98_500, 121_500]) {
       const rows = eventRows(await s.seek(seconds(frame)), n).map((e) => [e.id, e.asset]);
       expect(rows, `frame ${frame}`).toEqual(truthEventsAt(frame));
@@ -230,7 +225,7 @@ describe("the name filter", () => {
     expect(f("a", "b")).toBe(false);
     expect(nameFilter("")()).toBe(true);
     expect(names.clip(3)).toBe("footstep_grass.ogg");
-    expect(names.event(9)).toBeUndefined();
+    expect(names.event(9)).toBe("event 9");
     expect(OPS.length).toBeGreaterThan(10);
   });
 });

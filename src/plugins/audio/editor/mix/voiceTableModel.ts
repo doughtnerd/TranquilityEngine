@@ -1,7 +1,8 @@
 // ADR 0171 amended by 0172 (M5a, task Pf2; api-and-models §5.5, §5.6, §7 `voiceTableModel.ts`): the profiler's voice
 // table at the cursor, a pure model. `reconstructVoices` takes `ProfileSource.seek`'s answer (the keyframe at or before
-// t and the EVENT records after it, `reader.ts`) and replays the voice events over the keyframe's rows; the reason text
-// and the thief of a steal come from the events (§5.6). `voiceTable` filters by name and caps the rows rendered at
+// t and the EVENT records after it, `reader.ts`) and replays the voice events over the keyframe's rows; the reason (the
+// capture's word and its text, ADR 0260) and the thief of a steal come from the events (§5.6), and every name is the
+// capture's at t (`CaptureNames`). `voiceTable` filters by name and caps the rows rendered at
 // `MAX_VOICE_ROWS` while counting the rest. The same replay gives the event instances (`eventRows`).
 //
 // What a replay can know. A row born from a keyframe has every field. A row born from a voiceStart event after it has
@@ -9,25 +10,10 @@
 // playhead is the STATUS's (the last STATUS at or before t carries up to 256 round-robin playheads). A seek with no
 // keyframe at or before t (`fromKeyframe` false) replays only the last second's events, so voices started earlier are
 // missing and the view says so. A voice that stopped is gone from the table (voiceStop is the free).
-import type { CaptureKeyframeVoice, CaptureOpenSummary, CaptureSeekState, CaptureVoiceState } from "../../runtime/capture/reader";
+import { reasonText, type CaptureKeyframeVoice, type CaptureNames, type CaptureSeekState, type CaptureVoiceReason, type CaptureVoiceState } from "../../runtime/capture/reader";
 
 /** The most voice rows rendered (as the live debug table); the rest are counted. */
 export const MAX_VOICE_ROWS = 64;
-
-/** Names by id, from META and every NAMES record (`CaptureOpenSummary.names`). */
-export interface NameLookup {
-  clip(id: number): string | undefined;
-  /** By bus slot. */
-  bus(slot: number): string | undefined;
-  event(id: number): string | undefined;
-}
-
-export function nameLookup(names: CaptureOpenSummary["names"]): NameLookup {
-  const clips = new Map(names.clips);
-  const buses = new Map(names.buses);
-  const events = new Map(names.events);
-  return { clip: (id) => clips.get(id), bus: (slot) => buses.get(slot), event: (id) => events.get(id) };
-}
 
 /** One voice at the cursor. */
 export interface VoiceRow {
@@ -41,8 +27,8 @@ export interface VoiceRow {
   state: CaptureVoiceState;
   /** Null for a voice born from an event after the keyframe. */
   priority: number | null;
-  /** §5.6's reason code for the state (0 none). */
-  reason: number;
+  /** Why the voice is in its state, as the capture's word (null for none). */
+  reason: CaptureVoiceReason | null;
   reasonText: string;
   gain: number;
   /** Playback rate; null as for `priority`. */
@@ -56,46 +42,18 @@ export interface VoiceRow {
   fromKeyframe: boolean;
 }
 
-/** §5.6's reason texts for the state a row is in. */
-export function reasonText(state: CaptureVoiceState, reason: number): string {
-  if (reason === 0) return "";
-  const table: readonly (string | undefined)[] =
-    state === "stolen" ? [undefined, "bus max voices", "global limit", "priority"]
-    : state === "virtual" ? [undefined, "demoted by the cap", "below audibility", "paused", "world inaudible"]
-    : state === "playing" ? [undefined, "promoted", "cap raised"]
-    : state === "waitingForData" ? [undefined, "clip loading", "stream priming"]
-    : [];
-  return table[reason] ?? `reason ${reason}`;
+/** A row's derived texts: the names at the cursor's instant (ADR 0260) and the reason in words. */
+function makeRow(names: CaptureNames, t: number, v: Omit<VoiceRow, "clipName" | "busName" | "reasonText">): VoiceRow {
+  return { ...v, clipName: names.clip(v.clip, t), busName: names.bus(v.slot, t), reasonText: reasonText(v.reason) };
 }
 
-/** The ending reasons of a voiceStop (§5.6); the row is gone then, so this serves the event lists. */
-export function stopReasonText(reason: number): string {
-  return [undefined, "ended", "stopped", "faded", "world released", "failed"][reason] ?? (reason === 0 ? "" : `reason ${reason}`);
-}
-
-function labelClip(names: NameLookup, id: number): string {
-  return names.clip(id) ?? `clip ${id}`;
-}
-function labelBus(names: NameLookup, slot: number): string {
-  return names.bus(slot) ?? `bus ${slot}`;
-}
-
-function makeRow(names: NameLookup, v: { id: number; clip: number; slot: number; state: CaptureVoiceState; priority: number | null; reason: number; gain: number; pitch: number | null; audibility: number | null; playheadFrames: number; thief: number | null; fromKeyframe: boolean }): VoiceRow {
-  return {
-    ...v,
-    clipName: labelClip(names, v.clip),
-    busName: labelBus(names, v.slot),
-    reasonText: reasonText(v.state, v.reason),
-  };
-}
-
-function fromKeyframeVoice(names: NameLookup, v: CaptureKeyframeVoice): VoiceRow {
-  return makeRow(names, { ...v, thief: null, fromKeyframe: true });
+function fromKeyframeVoice(names: CaptureNames, t: number, v: CaptureKeyframeVoice): VoiceRow {
+  return makeRow(names, t, { ...v, thief: null, fromKeyframe: true });
 }
 
 /** Rewrites a row's state and reason (and its derived texts), keeping everything else. */
-function withState(names: NameLookup, r: VoiceRow, state: CaptureVoiceState, reason: number, thief: number | null): VoiceRow {
-  return makeRow(names, { ...r, state, reason, thief });
+function withState(names: CaptureNames, t: number, r: VoiceRow, state: CaptureVoiceState, reason: CaptureVoiceReason | null, thief: number | null): VoiceRow {
+  return makeRow(names, t, { ...r, state, reason, thief });
 }
 
 /** What `reconstructVoices` returns: every voice at the cursor (unfiltered, uncapped), in the keyframe's order then birth order. */
@@ -105,17 +63,18 @@ export interface VoiceReplay {
   fromKeyframe: boolean;
 }
 
-/** The voice table at `state`'s instant: the keyframe's voices with the voice events after it applied, in seq order. */
-export function reconstructVoices(state: CaptureSeekState, names: NameLookup): VoiceReplay {
+/** The voice table at `state`'s instant: the keyframe's voices with the voice events after it applied, in seq order; names as at that instant. */
+export function reconstructVoices(state: CaptureSeekState, names: CaptureNames): VoiceReplay {
+  const t = state.seconds;
   const rows = new Map<number, VoiceRow>();
-  for (const v of state.keyframe?.voices ?? []) rows.set(v.id, fromKeyframeVoice(names, v));
+  for (const v of state.keyframe?.voices ?? []) rows.set(v.id, fromKeyframeVoice(names, t, v));
   for (const rec of state.records) {
     if (rec.kind !== "event") continue;
     const e = rec.event;
     switch (e.type) {
       case "voiceStart":
-        rows.set(e.voice, makeRow(names, {
-          id: e.voice, clip: e.clip, slot: e.slot, state: "playing", priority: null, reason: 0, gain: e.gain,
+        rows.set(e.voice, makeRow(names, t, {
+          id: e.voice, clip: e.clip, slot: e.slot, state: "playing", priority: null, reason: null, gain: e.gain,
           pitch: null, audibility: null, playheadFrames: 0, thief: null, fromKeyframe: false,
         }));
         break;
@@ -124,17 +83,17 @@ export function reconstructVoices(state: CaptureSeekState, names: NameLookup): V
         break;
       case "voiceSteal": {
         const victim = rows.get(e.voice);
-        if (victim) rows.set(victim.id, withState(names, victim, "stolen", e.reason, e.thief));
+        if (victim) rows.set(victim.id, withState(names, t, victim, "stolen", e.reason, e.thief));
         break;
       }
       case "voiceVirtual": {
         const v = rows.get(e.voice);
-        if (v) rows.set(v.id, withState(names, v, "virtual", e.reason, null));
+        if (v) rows.set(v.id, withState(names, t, v, "virtual", e.reason, null));
         break;
       }
       case "voiceReal": {
         const v = rows.get(e.voice);
-        if (v) rows.set(v.id, withState(names, v, "playing", e.reason, null));
+        if (v) rows.set(v.id, withState(names, t, v, "playing", e.reason, null));
         break;
       }
       default:
@@ -208,9 +167,9 @@ export interface EventRow {
 }
 
 /** The event instances at `state`'s instant, filtered by event name. eventStart's args are read as `id, asset`, eventStop's as `id`. */
-export function eventRows(state: CaptureSeekState, names: NameLookup, filter = ""): EventRow[] {
+export function eventRows(state: CaptureSeekState, names: CaptureNames, filter = ""): EventRow[] {
   const rows = new Map<number, EventRow>();
-  const make = (id: number, asset: number, voices: number): EventRow => ({ id, asset, name: names.event(asset) ?? `event ${asset}`, voices });
+  const make = (id: number, asset: number, voices: number): EventRow => ({ id, asset, name: names.event(asset, state.seconds), voices });
   for (const e of state.keyframe?.events ?? []) rows.set(e.id, make(e.id, e.asset, e.voices));
   for (const rec of state.records) {
     if (rec.kind !== "event") continue;
