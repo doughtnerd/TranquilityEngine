@@ -84,6 +84,7 @@ The domain terms used in Myco Engine's code, decision records and reviews. Add a
 - **Keyframe layout:** the KEYFRAME row encoding of a capture (caps, state codes, flag bits, `NO_NAME`, u4.12 pitch, u0.16 audibility), owned by `capture/keyframeLayout.ts` (ADR 0230), which imports nothing so the core can use it without loading the recorder. Writers quantise through it; readers decode only through `readCaptureKeyframe`. _Avoid:_ repeating its bits or the 4096 / 65536 scales.
 - **Capture names:** what a capture calls a clip, bus slot, event asset, parameter, snapshot or target at an instant (ADR 0260, `capture/names.ts`): META's names from the start, then each NAMES record from its own time; a bus slot gets a new record whenever it takes a new name. One fallback text (`bus 3`; "Master" for the output). _Avoid:_ a view's own name map or fallback.
 - **Reason word:** the sink's word for why a voice stopped, was stolen, went virtual or real, was refused or queued (`busMaxVoices`, `capDemoted`), which the capture reader gives instead of §5.6's code (ADR 0260, `capture/reasons.ts`, with `reasonText`). _Avoid:_ reason code tables outside `reasons.ts`.
+- **Track kit:** the Profiler's reading layer for timeline tracks (ADR 0261, `editor/mix/tracks/kit.ts`): tracks declare the STATUS columns and EVENTs they read and a build function; the kit reads each capture growth once for all of them and answers the sample in force at t. _Avoid:_ a track calling `statusColumns`, `range` or a bisect of its own.
 
 ## Tilemaps (ADR 0103)
 
