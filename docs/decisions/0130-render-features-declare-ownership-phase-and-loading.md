@@ -1,6 +1,6 @@
 # 0130. Each render feature declares the Components it owns, its sync phase and whether it loads lazily; the renderer runs features generically
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0252 (lighting is one rig the renderer resolves after the `lighting` phase, not the `lights` and `environment` features)
 - **Date:** 2026-11-07
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

@@ -26,10 +26,14 @@ import type { GraphShared } from "../graphMaterial";
 import { lookAtRotation } from "../lookAt";
 import { BabylonMaterialLibrary } from "../materialLibrary";
 
-/** What a thumbnail's lights are (the editor's default scene: soft ambient, a sun, the studio room). */
-export const LIGHT_AMBIENT = 0.45;
-export const LIGHT_SUN = 1.6;
-export const LIGHT_ENVIRONMENT = 0.5;
+/**
+ * The one preview light rig (the editor's default scene: soft ambient, a sun, the studio room). Every
+ * live preview and thumbnail lights with these, so a material's preview and its thumbnail match; they
+ * are private so no preview can pass its own numbers.
+ */
+const LIGHT_AMBIENT = 0.45;
+const LIGHT_SUN = 1.6;
+const LIGHT_ENVIRONMENT = 0.5;
 
 /** A scene in Babylon's default left-handed mode (the engine's convention, ADR 0164) that clears to transparent. */
 export function createPreviewScene(engine: AbstractEngine): Scene {
@@ -40,33 +44,38 @@ export function createPreviewScene(engine: AbstractEngine): Scene {
 }
 
 /** Soft ambient light and a sun from above and in front, like the editor's default scene. */
-export function addPreviewLights(scene: Scene, ambient: number, sun: number): { ambient: HemisphericLight; sun: DirectionalLight } {
+export function addPreviewLights(scene: Scene): { ambient: HemisphericLight; sun: DirectionalLight } {
   const hemi = new HemisphericLight("preview.ambient", new Vector3(0, 1, 0), scene);
-  hemi.intensity = ambient;
+  hemi.intensity = LIGHT_AMBIENT;
   hemi.groundColor = new Color3(1, 1, 1); // an ambient light: the same from every direction
   hemi.specular = Color3.Black();
   const light = new DirectionalLight("preview.sun", new Vector3(-4, -10, 6).normalize(), scene);
-  light.intensity = sun;
+  light.intensity = LIGHT_SUN;
   return { ambient: hemi, sun: light };
 }
 
 /** The studio room's prefiltered cube, made in `scene` (see {@link useWhenReady}). */
 export { createStudioTexture } from "../studioCube";
 
+/** Light `scene` with a ready studio room, at the preview rig's environment intensity. */
+export function useStudio(scene: Scene, texture: BaseTexture): void {
+  scene.environmentTexture = texture;
+  scene.environmentIntensity = LIGHT_ENVIRONMENT;
+}
+
 /**
- * Give `scene` an environment texture once it's ready: prefiltering swaps a cube's GPU texture when it
+ * Light `scene` with the studio room ({@link useStudio}) once it's ready: prefiltering swaps a cube's GPU texture when it
  * finishes, and a material that bound the first one on WebGPU would keep drawing with it once it's
  * destroyed (ADR 0075, stage 2). Resolves true when it was set, false if it never got ready (or the
  * scene went first).
  */
-export function useWhenReady(scene: Scene, texture: BaseTexture, intensity: number, timeoutMs = 4000): Promise<boolean> {
-  scene.environmentIntensity = intensity;
+export function useWhenReady(scene: Scene, texture: BaseTexture, timeoutMs = 4000): Promise<boolean> {
   return new Promise((resolve) => {
     const started = Date.now();
     const poll = () => {
       if (scene.isDisposed) return resolve(false);
       if (texture.isReady()) {
-        scene.environmentTexture = texture;
+        useStudio(scene, texture);
         return resolve(true);
       }
       if (Date.now() - started > timeoutMs) return resolve(false);

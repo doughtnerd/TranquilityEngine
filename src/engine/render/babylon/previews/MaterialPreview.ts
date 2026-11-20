@@ -95,7 +95,7 @@ export class MaterialPreview {
       this.engine = engine;
       engine.setHardwareScalingLevel(1 / appliedPixelRatio()); // the World surface's pixel ratio, at render scale 1 (ADR 0154)
       const scene = createPreviewScene(engine);
-      addPreviewLights(scene, 0.35, 1);
+      addPreviewLights(scene);
       const camera = new TargetCamera("preview.camera", Vector3.Zero(), scene, false);
       camera.fov = (35 * Math.PI) / 180;
       camera.fovMode = Camera.FOVMODE_VERTICAL_FIXED;
@@ -106,7 +106,7 @@ export class MaterialPreview {
       this.scene = scene;
       this.camera = camera;
       this.studio = createStudioTexture(scene);
-      void useWhenReady(scene, this.studio, 0.4).catch(() => undefined); // no reflections until it's ready (or ever, if it can't)
+      void useWhenReady(scene, this.studio).catch(() => undefined); // no reflections until it's ready (or ever, if it can't)
       this.resize();
       this.applyMesh();
       if (this.last) this.build(this.last.compiled, this.last.properties);

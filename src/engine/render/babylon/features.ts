@@ -2,87 +2,27 @@
  * Render feature adapters for the Babylon backend (ADR 0130): each wraps one existing module as a
  * `BabylonFeature`, and each has its spec constant (name, phase, the Components it owns, lazy or not).
  *
- * These are the renderer's own features: the lighting rig (lights, fog, environment) and reflection
- * probes, shared render services that stay core (ADR 0140). Every feature that draws a plugin's
- * Components is registered by its plugin and must not be imported here: sprites, meshes, water
- * (`waterFeature.ts`) and UI (`uiFeature.ts`, ADR 0140), particles, tilemaps (ADR 0135, 0136) and the sky.
- *
- * Order inside the `lighting` phase matters, and the specs' `after` constraints say it (ADR 0135): sky,
- * then lights, then fog, then environment. The sky (the Sky plugin's feature, `src/plugins/sky/runtime/`)
- * may drive the sun, so it syncs before the lights; the environment's skybox dims by the sky fog the fog
- * sets, so it syncs after the fog.
+ * The renderer's own feature here is reflection probes, a shared render service that stays core (ADR
+ * 0140). The lighting rig (lights, environment, skybox) is core too but isn't a feature: the renderer
+ * resolves it once after the `lighting` phase, from what that phase's features contributed (ADR 0252).
+ * Every feature that draws a plugin's Components is registered by its plugin and must not be imported
+ * here: sprites, meshes, water (`waterFeature.ts`) and UI (`uiFeature.ts`, ADR 0140), particles,
+ * tilemaps (ADR 0135, 0136) and the sky.
  */
 import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh.js";
 import type { Camera as BabylonCamera } from "@babylonjs/core/Cameras/camera.js";
 import type { Component } from "../../core/Component";
 import type { World } from "../../core/World";
-import { Light, ReflectionProbe, Fog } from "../components";
+import { ReflectionProbe } from "../components";
 import type { RenderFeatureSpec } from "../renderFeatures";
 import type { BabylonFeature, FeatureState, FeatureSyncContext } from "./feature";
-import type { ShadowRequest } from "./frameGraph";
-import type { BabylonLighting } from "./lighting";
 import type { BabylonProbes, ProbeHit } from "./probes";
 
 // --- Specs ----------------------------------------------------------------------------------------
 
-/** After the sky, which may drive the sun. */
-export const LIGHTS_SPEC: RenderFeatureSpec = { name: "lights", phase: "lighting", types: [Light], lazy: false, after: ["sky"] };
-export const FOG_SPEC: RenderFeatureSpec = { name: "fog", phase: "lighting", types: [Fog], lazy: false, after: ["sky", "lights"] };
-/** Reads Environment; owns nothing to release. After the fog (the skybox fades with the sky fog). */
-export const ENVIRONMENT_SPEC: RenderFeatureSpec = { name: "environment", phase: "lighting", types: [], lazy: false, after: ["sky", "lights", "fog"] };
 export const PROBES_SPEC: RenderFeatureSpec = { name: "probes", phase: "capture", types: [ReflectionProbe], lazy: false };
 
 // --- Adapters -------------------------------------------------------------------------------------
-
-/**
- * @internal Light components and their shadow requests. `BabylonLighting` is split into two features
- * (this and `EnvironmentFeature`) because the fog syncs between them: `syncEnvironment` reads the sky
- * fog (`setSkyFog`) the fog feature sets, so the order lights, fog, environment must hold.
- */
-export class LightsFeature implements BabylonFeature {
-  private requests: ShadowRequest[] = [];
-
-  constructor(readonly lighting: BabylonLighting) {}
-
-  sync(world: World, ctx: FeatureSyncContext): void {
-    this.requests = this.lighting.syncLights(world, ctx.viewCamera);
-  }
-
-  /** The shadow maps the last sync asked for. */
-  shadows(): ShadowRequest[] {
-    return this.requests;
-  }
-
-  release(c: Component): void {
-    if (c instanceof Light) this.lighting.release(c);
-  }
-
-  state(): FeatureState {
-    return { lighting: this.lighting.state() };
-  }
-
-  /** Disposes the shared `BabylonLighting` (lights and environment); `EnvironmentFeature.dispose` does nothing. */
-  dispose(): void {
-    this.lighting.dispose();
-  }
-}
-
-/** @internal The Environment component's lighting and skybox. Register after the fog. */
-export class EnvironmentFeature implements BabylonFeature {
-  constructor(readonly lighting: BabylonLighting) {}
-
-  sync(world: World, ctx: FeatureSyncContext): void {
-    this.lighting.syncEnvironment(world, ctx.view?.far ?? 1000);
-  }
-
-  /** ADR 0189: the Environment's map lights the scene (or there's none to wait for). */
-  settled(): boolean {
-    return this.lighting.environmentSettled();
-  }
-
-  /** Nothing: `LightsFeature.dispose` disposes the shared `BabylonLighting`. */
-  dispose(): void {}
-}
 
 /** @internal Reflection probes. `reflecting` is the renderer's count of meshes drawn with a probe this frame. */
 export class ProbesFeature implements BabylonFeature {

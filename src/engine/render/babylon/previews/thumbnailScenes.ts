@@ -38,7 +38,7 @@ import type { ThumbnailKind } from "../../previewTypes";
 import type { GraphShared } from "../graphMaterial";
 import { environmentKind } from "../lighting";
 import { meshOf, pbr } from "../materials";
-import { addPreviewLights, aimCamera, createPreviewScene, createStudioTexture, LIGHT_AMBIENT, LIGHT_ENVIRONMENT, LIGHT_SUN, previewMaterials, sceneReady } from "./common";
+import { addPreviewLights, aimCamera, createPreviewScene, createStudioTexture, previewMaterials, sceneReady, useStudio } from "./common";
 
 /** Particle effects are shown this many seconds in, simulated at this rate, with this random seed. */
 const PARTICLE_TIME = 1;
@@ -170,12 +170,9 @@ export class ThumbnailScenes {
   /** A scene lit like the editor's default: soft ambient, a sun, and the studio room's reflections. */
   private litScene(sun?: Vector3): Scene {
     const scene = createPreviewScene(this.engine);
-    const lights = addPreviewLights(scene, LIGHT_AMBIENT, LIGHT_SUN);
+    const lights = addPreviewLights(scene);
     if (sun) lights.sun.direction = sun.clone();
-    if (this.studioOk && this.studio) {
-      scene.environmentTexture = this.studio;
-      scene.environmentIntensity = LIGHT_ENVIRONMENT;
-    }
+    if (this.studioOk && this.studio) useStudio(scene, this.studio);
     return scene;
   }
 
@@ -296,7 +293,7 @@ export class ThumbnailScenes {
       scene.dispose();
     };
     try {
-      addPreviewLights(scene, LIGHT_AMBIENT, LIGHT_SUN);
+      addPreviewLights(scene);
       const compiled = resources.compile(Assets.json(path), path);
       if (!compiled) throw new Error("it isn't a particle effect that can be read.");
       const program = compiled.program;

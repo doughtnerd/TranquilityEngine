@@ -4,7 +4,8 @@ import { Component } from "../core/Component";
 import type { World } from "../core/World";
 import { _registeredRenderFeatures, SYNC_PHASES, byPhase, ownerOf, specNeeded, type RenderFeatureSpec } from "../render/renderFeatures";
 import { eagerFeature, lazyFeature, type BabylonFeature } from "../render/babylon/feature";
-import { ENVIRONMENT_SPEC, FOG_SPEC, LIGHTS_SPEC, PROBES_SPEC } from "../render/babylon/features";
+import { PROBES_SPEC } from "../render/babylon/features";
+import { FOG_SPEC } from "../render/babylon/fog";
 import { MESHES_SPEC } from "../../plugins/meshes/runtime";
 
 /** A plugin's render feature spec, as its activation registered it. */
@@ -60,12 +61,14 @@ describe("render feature ordering constraints (ADR 0135)", () => {
   const names = (specs: RenderFeatureSpec[]) => byPhase(specs).map((i) => specs[i].name);
 
   it("keeps the built-ins' order with plugins' features (sky, tilemaps) registered last", () => {
-    const specs = [SPRITES_SPEC, MESHES_SPEC, LIGHTS_SPEC, FOG_SPEC, ENVIRONMENT_SPEC, PARTICLES_SPEC, PROBES_SPEC, WATER_SPEC, UI_SPEC, SKY_SPEC, TILEMAPS_SPEC];
-    expect(names(specs)).toEqual(["sprites", "tilemaps", "meshes", "sky", "lights", "fog", "environment", "particles", "probes", "water", "ui"]);
+    // The `lighting` phase's features (fog, sky) only contribute to the lighting rig, which resolves after
+    // the phase (ADR 0252), so they have no constraints between them and keep registration order.
+    const specs = [SPRITES_SPEC, MESHES_SPEC, FOG_SPEC, PARTICLES_SPEC, PROBES_SPEC, WATER_SPEC, UI_SPEC, SKY_SPEC, TILEMAPS_SPEC];
+    expect(names(specs)).toEqual(["sprites", "tilemaps", "meshes", "fog", "sky", "particles", "probes", "water", "ui"]);
     // Without the Sky and Tilemaps plugins, the rest keep their order.
-    expect(names(specs.slice(0, -2))).toEqual(["sprites", "meshes", "lights", "fog", "environment", "particles", "probes", "water", "ui"]);
+    expect(names(specs.slice(0, -2))).toEqual(["sprites", "meshes", "fog", "particles", "probes", "water", "ui"]);
     // Registered in any order, the constraints still hold.
-    expect(names([ENVIRONMENT_SPEC, FOG_SPEC, LIGHTS_SPEC, SKY_SPEC, MESHES_SPEC, TILEMAPS_SPEC, SPRITES_SPEC]).join()).toBe("sprites,tilemaps,meshes,sky,lights,fog,environment");
+    expect(names([FOG_SPEC, SKY_SPEC, MESHES_SPEC, TILEMAPS_SPEC, SPRITES_SPEC]).join()).toBe("sprites,tilemaps,meshes,fog,sky");
   });
 
   it("is a stable sort: unconstrained features keep registration order", () => {

@@ -21,7 +21,7 @@ declare module "../../../engine/render/RenderSurface" {
 /** The view camera `fit` gets (a Babylon camera; this module names no Babylon types itself, ADR 0075). */
 type ViewCamera = Parameters<NonNullable<BabylonFeature["fit"]>>[0];
 
-/** @internal The procedural sky. Syncs before the lights (`after` constraints, ADR 0135): it may drive the sun. */
+/** @internal The procedural sky. Syncs in the `lighting` phase and contributes its sun and bake to the lighting rig, which resolves after the phase (ADR 0252). */
 export class SkyFeature implements BabylonFeature {
   constructor(readonly sky: BabylonSky) {}
 

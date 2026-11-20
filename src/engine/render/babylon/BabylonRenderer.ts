@@ -45,7 +45,7 @@ import type { ProjectSettings } from "../../core/settings";
 import type { World } from "../../core/World";
 import type { Color } from "../../core/math";
 import type { GraphShared } from "./graphMaterial";
-import { Camera, PostProcessing, ReflectionProbe, SpriteRenderer } from "../components";
+import { Camera, Light, PostProcessing, ReflectionProbe, SpriteRenderer } from "../components";
 import type { UICore } from "../../ui/UICore";
 import { BabylonProbes } from "./probes";
 import { BabylonRenderTextures } from "./renderTextures";
@@ -61,8 +61,8 @@ import { BabylonMaterialLibrary } from "./materialLibrary";
 import { describeDrawn, eagerFeature, lazyFeature, type BabylonFeatureFactory, type BabylonFeatureHost, type BabylonWarmFactory, type FeatureSlot, type FeatureSyncContext, type MeshesFeatureApi, type SpritesFeatureApi } from "./feature";
 import { _registeredRenderFeatures, byPhase, ownerOf, specNeeded, SYNC_PHASES, type RenderFeatureRegistration, type RenderFeatureSpec, type SyncPhase } from "../renderFeatures";
 import { BabylonQuadBatches } from "./quadBatches";
-import { ENVIRONMENT_SPEC, EnvironmentFeature, FOG_SPEC, LIGHTS_SPEC, LightsFeature, PROBES_SPEC, ProbesFeature } from "./features";
-import { FogFeature } from "./fog";
+import { PROBES_SPEC, ProbesFeature } from "./features";
+import { FOG_SPEC, FogFeature } from "./fog";
 import { sortingOrder, unknownLayerMessage } from "../sortOrder";
 import { snapToGrid } from "../pixelPerfect";
 import { createEngine } from "./createEngine";
@@ -124,9 +124,8 @@ export class BabylonRenderer {
   private readonly readiness: PipelineReadiness | null;
   /** Whether the World's textures and models had all loaded at the last sync (a held first frame and a thumbnail wait for them). */
   private contentLoaded = false;
-  /** Shared by the sky, lights and environment features, and the frame's sky fit. */
+  /** The lighting rig (ADR 0252): the `lighting` phase's features contribute to it, and it resolves after the phase. */
   private readonly lighting: BabylonLighting;
-  private readonly lights: LightsFeature;
   private readonly fog: FogFeature;
   /** Reflection probes (stage 6): the probe lookup meshes and water use. */
   private readonly probes: BabylonProbes;
@@ -188,12 +187,11 @@ export class BabylonRenderer {
     scene.clearColor = this.clearColor;
     this.scene = scene;
 
-    this.lighting = new BabylonLighting(scene);
-    if (thumbnail) this.lighting.shareStudio(thumbnail.studio);
+    this.lighting = new BabylonLighting(scene, thumbnail ? { studio: thumbnail.studio } : {});
     this.graphShared.mainLight = this.lighting.mainLight;
     this.frame = new BabylonFrame(scene);
     this.frame.beforeView = (camera) => {
-      this.lighting.fitSky(camera);
+      this.lighting.fit(camera);
       for (const slot of this.slots) slot.feature?.fit?.(camera); // the sky's box (ADR 0112)
     };
     this.probes = new BabylonProbes(scene);
@@ -213,16 +211,13 @@ export class BabylonRenderer {
       },
       sortOrder: (layer, order) => sortingOrder(this.settings.render.sortingLayers, layer, order, (l) => this.warnOnce(`layer|${l}`, unknownLayerMessage(l))),
     });
-    this.lights = new LightsFeature(this.lighting);
-    this.fog = new FogFeature({ scene, setSkyFog: (amount) => this.lighting.setSkyFog(amount) });
+    this.fog = new FogFeature({ scene, lighting: this.lighting });
     // Order inside a phase is registration order adjusted by the specs' `after` constraints (ADR 0130,
-    // 0135, 0140): the sky (the Sky plugin's) before lights (it may drive the sun), lights before fog, fog
-    // before the environment (the skybox fades with the sky fog); sprites, tilemaps, then meshes.
+    // 0135, 0140): sprites, tilemaps, then meshes. The `lighting` phase's features (the fog, the Sky
+    // plugin's sky) only contribute to the lighting rig, in any order; it resolves after the phase (ADR 0252).
     const host = this.featureHost(); // the core services plugin features are built from (ADR 0135, 0154)
     this.slots = [
-      eagerFeature(LIGHTS_SPEC, this.lights),
       eagerFeature(FOG_SPEC, this.fog),
-      eagerFeature(ENVIRONMENT_SPEC, new EnvironmentFeature(this.lighting)),
       eagerFeature(PROBES_SPEC, new ProbesFeature(this.probes, { reflecting: () => this.reflecting })),
     ];
     for (const p of plugged) this.slots.push(...pluginSlot(p, host));
@@ -415,6 +410,8 @@ export class BabylonRenderer {
       this.probeMeshes.length = 0;
       for (const m of this.scene.meshes) if ((m.layerMask & EDITOR_LAYER_MASK) === 0) this.probeMeshes.push(m);
       ctx.probeMeshes = this.probeMeshes;
+    } else if (phase === "lighting") {
+      this.lighting.sync(world, ctx.viewCamera, ctx.view?.far ?? 1000); // ADR 0252: what the phase contributed, resolved at once
     } else if (phase === "capture") {
       // Probes capture after the scene loads, after its warm-up: warm their material copies once they exist (ADR 0080).
       this.readiness?.probesCaptured(this.probes.textures().length);
@@ -508,7 +505,7 @@ export class BabylonRenderer {
     let held = false;
     if (views.length) {
       const draw = (): boolean => {
-        this.frame.render(views, this.lights.shadows(), this.casters, Graphics.tier.antialias === "msaa" ? 4 : 1);
+        this.frame.render(views, this.lighting.shadows(), this.casters, Graphics.tier.antialias === "msaa" ? 4 : 1);
         return this.frame.ready;
       };
       // A World's first frames (ADR 0120): held on the clear colour while a draw is missing or content loads.
@@ -595,6 +592,7 @@ export class BabylonRenderer {
       this.cameras.delete(c);
       return;
     }
+    if (c instanceof Light) return this.lighting.release(c);
     const i = ownerOf(this.specs, c);
     if (i >= 0) this.slots[i].feature?.release?.(c);
   }
@@ -612,6 +610,7 @@ export class BabylonRenderer {
     this.frame.overlay = null;
     this.overlayLayer?.dispose();
     for (let i = this.slots.length - 1; i >= 0; i--) this.slots[i].dispose(); // reverse registration order (ADR 0130)
+    this.lighting.dispose(); // after the features that contributed to it (the sky owns its bake)
     this.quads.dispose(); // after the features that drew with them
     this.frame.ui = null;
     this.frame.previewUI = null;
@@ -703,7 +702,7 @@ export class BabylonRenderer {
    * feature still loading hasn't).
    */
   contentReady(): boolean {
-    return this.contentLoaded && this.slots.every((slot) => !slot.loading && (slot.feature?.settled?.() ?? true));
+    return this.contentLoaded && this.lighting.settled() && this.slots.every((slot) => !slot.loading && (slot.feature?.settled?.() ?? true));
   }
 
   /** @internal Thumbnails: the main view after the last sync (the first canvas camera, ADR 0129) and its Babylon camera, or null. */
