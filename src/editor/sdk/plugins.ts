@@ -4,7 +4,7 @@
 import type { PluginManifest } from "../../plugins/manifest";
 import { orderPlugins } from "../../plugins/order";
 import { setPanelOwner } from "./panelOwners";
-import { fieldChoices, type FieldChoicesContribution, assetActions, assetKinds, componentHeaderActions, hierarchyCreateEntries, idlePrefetches, playStatsCounters, sceneOpenMigrations, type AssetActionContribution, type HierarchyCreateContribution, type IdlePrefetchContribution, type PlayStatsCounterContribution, type SceneOpenMigrationContribution, componentNotes, panelExtensions, panels, projectSettingsSections, sceneToolbarItems, viewportTools, type ComponentHeaderActionContribution, type SceneToolbarItemContribution, type ComponentNoteContribution, type AssetKindContribution, type PanelContribution, type PanelExtensionContribution, type ProjectSettingsSectionContribution, type ViewportToolContribution } from "./contributions";
+import { fieldChoices, type FieldChoicesContribution, nameReferences, type NameReferencesContribution, assetActions, assetKinds, componentHeaderActions, hierarchyCreateEntries, idlePrefetches, playStatsCounters, sceneOpenMigrations, type AssetActionContribution, type HierarchyCreateContribution, type IdlePrefetchContribution, type PlayStatsCounterContribution, type SceneOpenMigrationContribution, componentNotes, panelExtensions, panels, projectSettingsSections, sceneToolbarItems, viewportTools, type ComponentHeaderActionContribution, type SceneToolbarItemContribution, type ComponentNoteContribution, type AssetKindContribution, type PanelContribution, type PanelExtensionContribution, type ProjectSettingsSectionContribution, type ViewportToolContribution } from "./contributions";
 import { registerInspectorSection, type InspectorSectionOptions, type InspectorSectionProps } from "../ui/inspectorSections";
 import type { LoadComponent } from "./contributions";
 import { checkSettingsSectionKeys } from "../projectSettingsModel";
@@ -43,6 +43,8 @@ export interface EditorPluginContext {
   registerIdlePrefetch(prefetch: IdlePrefetchContribution): void;
   /** Choices for a Component field that depend on its other values or on files (ADR 0152). */
   registerFieldChoices(choices: FieldChoicesContribution): void;
+  /** Fields or files of this plugin's that name entries of another section's named list (ADR 0262), renamed with them. */
+  registerNameReferences(references: NameReferencesContribution): void;
 }
 
 /** A plugin's editor half. */
@@ -80,6 +82,7 @@ export function activatePlugin(plugin: EditorPlugin): void {
     registerSceneOpenMigration: (migration) => void undo.push(sceneOpenMigrations.register(migration)),
     registerIdlePrefetch: (prefetch) => void undo.push(idlePrefetches.register(prefetch)),
     registerFieldChoices: (choices) => void undo.push(fieldChoices.register(choices)),
+    registerNameReferences: (references) => void undo.push(nameReferences.register(references)),
   };
   try {
     plugin.activate(context);

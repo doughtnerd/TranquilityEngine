@@ -45,7 +45,6 @@ import { ProjectSectionToolbar } from "./ProjectSectionToolbar";
 import { lazyComponent, type LazyComponent } from "./lazy";
 import { NumberField, TextField } from "./settingsControls";
 import { NameList, ProblemList, Row } from "./settingsControls";
-import { renameLayerEdit } from "../layerRenameEdit";
 import "./projectSettings.css";
 
 /** The panel's state for the open project: its project section's session (ADR 0151), kept outside the component. */
@@ -61,10 +60,6 @@ const settings = projectSettings;
 function edit(s: PanelState, label: string, draft: SettingsDraft): void {
   void s.edit(label, draft);
 }
-
-/** Rename a sorting layer: one undo step of the panel. */
-const renameSortingLayerEdit = (s: PanelState, draft: SettingsDraft, index: number, name: string) =>
-  renameLayerEdit({ project: s.project, set: (label, next) => edit(s, label, next), refresh: settings.refresh }, "sorting", sortingLayersOf(draft), index, name, renameSortingLayer(draft, index, name));
 
 /**
  * The Project panel (ADR 0038): `project.json`'s settings other than the Worlds (name, display,
@@ -157,7 +152,7 @@ export function ProjectSettingsPanel() {
                 problems={problems}
                 item="sorting layer"
                 onAdd={() => set("Add sorting layer", addSortingLayer(draft))}
-                onRename={(i, v) => void renameSortingLayerEdit(s, draft, i, v)}
+                onRename={(i, v) => set(`Rename sorting layer to ${v}`, renameSortingLayer(draft, i, v))}
                 onRemove={(i) => set("Remove sorting layer", removeSortingLayer(draft, i))}
                 onMove={(i, by) => set("Reorder sorting layers", moveSortingLayer(draft, i, by))}
               />

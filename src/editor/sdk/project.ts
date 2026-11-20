@@ -30,7 +30,10 @@ export type { AssetKind, EditorProject, SectionChange, SettingsDraft, AssetRead,
 export interface ProjectSettingsSurface {
   /** The current settings draft (a deep copy). */
   draft(): SettingsDraft;
-  /** Commit `next` as one undo step named `label` in the Project Settings history (the panel's own); resolves when saved or failed. */
+  /**
+   * Commit `next` as one undo step named `label` in the Project Settings history (the panel's own); resolves when saved or failed.
+   * An edit that renames an entry of a named list renames what names it, asking first when files do (ADR 0262).
+   */
   edit(label: string, next: SettingsDraft): Promise<void>;
   /** Step the Project Settings history (what the panel's Undo/Redo do). */
   undo(): void;

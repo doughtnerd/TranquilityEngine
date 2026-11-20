@@ -200,11 +200,25 @@ describe("a project section", () => {
     expect(pluginsChanged).not.toHaveBeenCalled();
     await s.edit("Turn off Sky", { ...s.draft, plugins: { disabled: ["myco.sky"] } });
     expect(pluginsChanged).toHaveBeenCalledTimes(1);
-    // A sorting layer renamed by an edit, undone, then redone: the redo moves the scene's reference.
+    // A sorting layer renamed by an edit (the shell's own named list, ADR 0262), undone, then redone: each step moves the scene's reference.
     await s.edit("Rename sorting layer to Glow", setValue(s.draft, "render", "sortingLayers", ["Default", "Glow"]));
+    await vi.waitFor(() => expect(project.textOf("a.scene.json")).toContain('"Glow"'));
     await s.undo();
+    await vi.waitFor(() => expect(project.textOf("a.scene.json")).toContain('"Fx"'));
     await s.redo();
     await vi.waitFor(() => expect(project.textOf("a.scene.json")).toContain('"Glow"'));
+  });
+
+  it("asks before an edit that renames a list entry files name, and drops it when the answer is no", async () => {
+    const scene = { format: "myco.scene@1", nodes: [{ id: "n", name: "N", components: [{ type: "engine.SpriteRenderer", data: { sortingLayer: "Fx" } }] }] };
+    const { project } = await openTestProject({ "project.json": PROJECT, "a.scene.json": JSON.stringify(scene) });
+    const confirm = vi.fn(async () => false);
+    const s = createProjectSettingsSection({ confirm }).open(project);
+    await s.edit("Rename sorting layer to Glow", setValue(s.draft, "render", "sortingLayers", ["Default", "Glow"]));
+    expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ title: "Rename sorting layer", items: ["a.scene.json"] }));
+    expect(s.draft.render).toEqual({ sortingLayers: ["Default", "Fx"] });
+    expect(s.canUndo).toBe(false);
+    expect(project.textOf("a.scene.json")).toContain('"Fx"');
   });
 });
 
