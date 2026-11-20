@@ -12,7 +12,7 @@ import { colliderTool } from "./colliderGizmo";
 import { editColliderAction } from "./EditColliderButton";
 import { jointTool } from "./jointGizmo";
 import { noBackendNote } from "./physicsEditorModel";
-import { physicsSettingsProblems } from "./physicsSettingsModel";
+import { physicsSettings } from "./physicsSettingsModel";
 
 export const physicsEditorPlugin: EditorPlugin = {
   manifest: physicsManifest,
@@ -22,8 +22,8 @@ export const physicsEditorPlugin: EditorPlugin = {
       id: "physics",
       title: "Physics",
       after: "Time",
-      keys: ["physics"],
-      problems: physicsSettingsProblems,
+      keys: [physicsSettings.key],
+      problems: physicsSettings.problems,
       view: () => import("./PhysicsSettingsSection").then((m) => m.PhysicsSettingsSection),
     });
     context.registerComponentNote({ id: "physics.no-backend", note: (type) => noBackendNote(type, { pluginOf: pluginOfComponent, backendCount: (d) => physicsBackends(d).length }) });

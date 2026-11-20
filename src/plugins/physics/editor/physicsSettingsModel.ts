@@ -2,14 +2,25 @@
 // Physics plugin's settings section owns: gravity, the layers and their collision matrix, as pure edits of
 // the Project panel's draft, and the problems that keep it from being saved. Moved here from the shell's
 // `projectSettingsModel.ts` when settings sections began declaring their keys.
-import { defaultSettings, physicsBackendProblems } from "../../../engine/core/settings";
-import { setValue, type SettingsDraft, type SettingsProblem } from "../../../editor/sdk";
+import { physicsBackendProblems, resolvePhysicsSettings } from "../../../engine/core/settings";
+import { settingsSection, type SettingsDraft, type SettingsProblem } from "../../../editor/sdk";
 import { uniqueName } from "../../../engine/core/uniqueName";
 
 /** Physics layers are bits in a 16-bit collision mask. */
 export const MAX_LAYERS = 16;
 
-export const layersOf = (d: SettingsDraft): string[] => d.physics?.layers ?? defaultSettings.physics.layers;
+/**
+ * `project.json`'s `physics` key in the settings draft: read with the engine's defaults, checked by field, and edited
+ * value by value in what's written (`"written"`), so a value never set keeps following its default.
+ */
+export const physicsSettings = settingsSection({
+  key: "physics",
+  parse: (written) => ({ settings: resolvePhysicsSettings(written as SettingsDraft["physics"]) }),
+  edits: "written",
+  problems: physicsProblems,
+});
+
+const layersOf = (d: SettingsDraft): string[] => physicsSettings.read(d).layers;
 
 /** Pair key for two layer names, order-free. */
 const pairKey = (a: string, b: string) => (a < b ? `${a}\u0000${b}` : `${b}\u0000${a}`);
@@ -48,23 +59,14 @@ function matrixOf(layers: readonly string[], pairs: Set<string>): Record<string,
   return all ? undefined : out;
 }
 
-function withLayers(draft: SettingsDraft, layers: string[], pairs: Set<string>): SettingsDraft {
-  const physics: Record<string, unknown> = { ...(draft.physics ?? {}), layers };
-  const matrix = matrixOf(layers, pairs);
-  if (matrix === undefined) delete physics.collisionMatrix;
-  else physics.collisionMatrix = matrix;
-  return { ...draft, physics };
-}
+const withLayers = (draft: SettingsDraft, layers: string[], pairs: Set<string>): SettingsDraft =>
+  physicsSettings.set(physicsSettings.set(draft, "layers", layers), "collisionMatrix", matrixOf(layers, pairs));
 
 export function setCollides(draft: SettingsDraft, a: string, b: string, on: boolean): SettingsDraft {
   const pairs = pairsOf(draft);
   if (on) pairs.add(pairKey(a, b));
   else pairs.delete(pairKey(a, b));
-  const physics: Record<string, unknown> = { ...(draft.physics ?? {}) };
-  const matrix = matrixOf(layersOf(draft), pairs);
-  if (matrix === undefined) delete physics.collisionMatrix;
-  else physics.collisionMatrix = matrix;
-  return { ...draft, physics };
+  return physicsSettings.set(draft, "collisionMatrix", matrixOf(layersOf(draft), pairs));
 }
 
 /** Add a layer. It collides with everything until unchecked (with no matrix), or with nothing (with one). */
@@ -97,15 +99,15 @@ export function removeLayer(draft: SettingsDraft, index: number): SettingsDraft 
 
 /** Set one axis of gravity; z (3D physics, ADR 0045) is kept only while it's not 0. */
 export function setGravity(draft: SettingsDraft, axis: 0 | 1 | 2, value: number): SettingsDraft {
-  const g: number[] = [...(draft.physics?.gravity ?? defaultSettings.physics.gravity)];
+  const g: number[] = [...physicsSettings.read(draft).gravity];
   while (g.length < 3) g.push(0);
   g[axis] = value;
   const gravity = g[2] === 0 ? [g[0], g[1]] : g.slice(0, 3);
-  return setValue(draft, "physics", "gravity", gravity);
+  return physicsSettings.set(draft, "gravity", gravity);
 }
 
 /** What's wrong with the draft's `physics` key, by field (`"physics.layers.2"`): the section's `problems`. */
-export function physicsSettingsProblems(draft: SettingsDraft): SettingsProblem[] {
+function physicsProblems(draft: SettingsDraft): SettingsProblem[] {
   const problems: SettingsProblem[] = [];
   const p = (field: string, message: string) => problems.push({ field, message });
   const physics = draft.physics ?? {};

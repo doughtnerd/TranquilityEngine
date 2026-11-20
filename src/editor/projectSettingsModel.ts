@@ -2,11 +2,11 @@
 // display, time, render, autoloads, and the keys plugins' settings sections own, such as `physics`) as a
 // draft, edited by pure functions, checked, and written back into the file's text one top-level key at a
 // time so the rest keeps its layout.
-import { defaultSettings, pluginSettingsProblems, SCALE_MODES, type ProjectSettings, type ProjectSettingsInput } from "../engine/core/settings";
+import { defaultSettings, pluginSettingsProblems, resolvePhysicsSettings, SCALE_MODES, type ProjectSettings, type ProjectSettingsInput } from "../engine/core/settings";
 import { defaultTier, parseGraphics, PLATFORMS, type GraphicsSettings, type Platform, type PlatformDefaults, type QualityTier } from "../engine/core/graphics";
 import { audioSection } from "../engine/audio/audioSection";
 import { projectSettingsSections } from "./sdk/contributions";
-import { withMember } from "./worldsConfig";
+import { withMember } from "./jsonMember";
 import { uniqueName } from "../engine/core/uniqueName";
 
 /** The top-level keys the shell's own Project panel categories edit (the Worlds panel edits `bootstrap`). */
@@ -78,7 +78,7 @@ export function withSettings(text: string, draft: SettingsDraft, previous: Proje
 // --- reading values with defaults -----------------------------------------------------------------
 
 /** The physics layers (the Physics section edits them; the shell's layer rename compares them, ADR 0116). */
-export const layersOf = (d: SettingsDraft): string[] => d.physics?.layers ?? defaultSettings.physics.layers;
+export const layersOf = (d: SettingsDraft): string[] => resolvePhysicsSettings(d.physics).layers;
 export const sortingLayersOf = (d: SettingsDraft): string[] => d.render?.sortingLayers ?? defaultSettings.render.sortingLayers;
 export const autoloadsOf = (d: SettingsDraft): string[] => d.autoload ?? [];
 

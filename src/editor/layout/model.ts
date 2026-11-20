@@ -23,6 +23,7 @@
 // panel type or reads the panel registry.
 
 import { canClosePanel, canDetach, isOnDemand, isSinglePanel, panelBeside, panelDock, panelTitle, type PanelCatalog, type PanelId } from "./catalog";
+import { randomUuid } from "../../engine/core/uuid";
 
 export type { PanelId } from "./catalog";
 /** One open panel in a layout (ADR 0174): a UUID, mapped to its type by `Layout.instances`. */
@@ -106,18 +107,8 @@ const MIN_FRACTION = 0.1;
 let nextId = 1;
 const newId = (prefix: string) => `${prefix}${Date.now().toString(36)}-${nextId++}`;
 
-/** A new panel instance id: a v4 UUID (`crypto.randomUUID`, or built from random bytes where it's missing, as on plain-http pages). */
-export function newInstanceId(): PanelInstanceId {
-  const c = globalThis.crypto;
-  if (typeof c?.randomUUID === "function") return c.randomUUID();
-  const b = new Uint8Array(16);
-  if (c?.getRandomValues) c.getRandomValues(b);
-  else for (let i = 0; i < 16; i++) b[i] = Math.floor(Math.random() * 256);
-  b[6] = (b[6] & 0x0f) | 0x40;
-  b[8] = (b[8] & 0x3f) | 0x80;
-  const h = [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
-  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
-}
+/** A new panel instance id: a v4 UUID. */
+const newInstanceId = (): PanelInstanceId => randomUuid();
 
 // --- instances ----------------------------------------------------------------------------------
 

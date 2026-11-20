@@ -7,7 +7,7 @@
 // tools, ADR 0138) and the Scene toolbar's Nav popover that switches them (a toolbar item, ADR 0142); and the Play
 // Stats panel's agent count (a play stats counter, ADR 0146).
 import type { EditorPlugin } from "../../../editor/sdk";
-import { parseNavigationSettings } from "../../../engine/nav/settings";
+import { navigationSettings } from "./navSettingsModel";
 import { navigationManifest } from "../manifest";
 import { navAgentCount } from "../runtime";
 import { formationFormat } from "./formationFormat";
@@ -36,8 +36,8 @@ export const navigationEditorPlugin: EditorPlugin = {
       id: "navigation",
       title: "Navigation",
       after: "Graphics",
-      keys: ["navigation"],
-      problems: (draft) => parseNavigationSettings(draft.navigation).problems.map((message) => ({ field: "navigation", message })),
+      keys: [navigationSettings.key],
+      problems: navigationSettings.problems,
       view: () => import("./NavSettingsSection").then((m) => m.NavSettingsSection),
     });
     // The play-mode counters below the Worlds panel.

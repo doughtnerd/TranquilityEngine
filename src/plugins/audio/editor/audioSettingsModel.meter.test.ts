@@ -4,7 +4,8 @@ import { describe, expect, it } from "vitest";
 import { audioSection } from "../../../engine/audio/audioSection";
 import type { AudioSettings } from "../../../engine/audio/settings";
 import { readDraft } from "../../../editor/testing";
-import { addBus, addLoudnessTarget, audioOf, busMeterRefusal, isBusMetered, loudnessTargetRefusal, loudnessTargets, removeLoudnessTarget, setBusMeter, setLoudnessResetOnPlay, setLoudnessTarget, MAX_LOUDNESS_TARGETS } from "./audioSettingsModel";
+import { addBus, addLoudnessTarget, busMeterRefusal, isBusMetered, loudnessTargetRefusal, loudnessTargets, removeLoudnessTarget, setBusMeter, setLoudnessResetOnPlay, setLoudnessTarget, MAX_LOUDNESS_TARGETS } from "./audioSettingsModel";
+import { audioSettings } from "./audioDraft";
 
 /** Non-root buses that are metered, as the saved settings say. */
 const meteredBusCount = (a: AudioSettings): number => a.buses.filter((b, i) => i > 0 && b.meter !== undefined).length;
@@ -15,26 +16,26 @@ const NINTH = "At most 8 buses can be metered";
 /** Master plus `n` more buses under it (the defaults already hold Music, SFX, UI, Voice). */
 function withBuses(n: number) {
   let d = empty();
-  while (audioOf(d).buses.length < n + 1) d = addBus(d);
+  while (audioSettings.read(d).buses.length < n + 1) d = addBus(d);
   return d;
 }
-const names = (d: ReturnType<typeof empty>) => audioOf(d).buses.map((b) => b.name);
+const names = (d: ReturnType<typeof empty>) => audioSettings.read(d).buses.map((b) => b.name);
 
 describe("the meter toggle", () => {
   it("meters and unmeters a non-root bus; the key is absent when off", () => {
     const on = setBusMeter(empty(), "Voice", true);
-    expect(isBusMetered(audioOf(on), "Voice")).toBe(true);
-    expect(meteredBusCount(audioOf(on))).toBe(1);
+    expect(isBusMetered(audioSettings.read(on), "Voice")).toBe(true);
+    expect(meteredBusCount(audioSettings.read(on))).toBe(1);
     expect(busMeterRefusal(on, "Voice")).toBeNull();
     const off = setBusMeter(on, "Voice", false);
-    expect(audioOf(off).buses.find((b) => b.name === "Voice")!.meter).toBeUndefined();
+    expect(audioSettings.read(off).buses.find((b) => b.name === "Voice")!.meter).toBeUndefined();
     expect(JSON.stringify(off.audio)).not.toContain("meter");
   });
   it("the root is always metered and its toggle changes nothing", () => {
     const d = empty();
-    expect(isBusMetered(audioOf(d), "Master")).toBe(true);
+    expect(isBusMetered(audioSettings.read(d), "Master")).toBe(true);
     expect(setBusMeter(d, "Master", true)).toEqual(d);
-    expect(meteredBusCount(audioOf(d))).toBe(0);
+    expect(meteredBusCount(audioSettings.read(d))).toBe(0);
   });
   it("the eighth bus meters and the ninth is refused with its message, the draft unchanged", () => {
     let d = withBuses(9);
@@ -43,20 +44,20 @@ describe("the meter toggle", () => {
       expect(busMeterRefusal(d, n)).toBeNull();
       d = setBusMeter(d, n, true);
     }
-    expect(meteredBusCount(audioOf(d))).toBe(8);
+    expect(meteredBusCount(audioSettings.read(d))).toBe(8);
     expect(busMeterRefusal(d, all[8])).toBe(NINTH);
     const same = setBusMeter(d, all[8], true);
     expect(same).toBe(d);
     expect(audioSection(same.audio).problems).toEqual([]);
     // Turning one off frees a place; already-metered buses are never refused.
     expect(busMeterRefusal(d, all[0])).toBeNull();
-    expect(meteredBusCount(audioOf(setBusMeter(setBusMeter(d, all[0], false), all[8], true)))).toBe(8);
+    expect(meteredBusCount(audioSettings.read(setBusMeter(setBusMeter(d, all[0], false), all[8], true)))).toBe(8);
   });
 });
 
 describe("the loudness targets table", () => {
   it("shows the two owner defaults and writes nothing for them", () => {
-    expect(loudnessTargets(audioOf(empty()))).toEqual([
+    expect(loudnessTargets(audioSettings.read(empty()))).toEqual([
       { name: "console", integrated: -24, tolerance: 2, truePeak: -1 },
       { name: "mobile", integrated: -18, tolerance: 2, truePeak: -1 },
     ]);
@@ -65,22 +66,22 @@ describe("the loudness targets table", () => {
   it("adds a target with a unique name up to the limit, then refuses", () => {
     let d = empty();
     for (let i = 2; i < MAX_LOUDNESS_TARGETS; i++) d = addLoudnessTarget(d);
-    expect(loudnessTargets(audioOf(d)).map((t) => t.name)).toEqual(["console", "mobile", "Target", "Target 2", "Target 3", "Target 4", "Target 5", "Target 6"]);
+    expect(loudnessTargets(audioSettings.read(d)).map((t) => t.name)).toEqual(["console", "mobile", "Target", "Target 2", "Target 3", "Target 4", "Target 5", "Target 6"]);
     expect(addLoudnessTarget(d)).toBe(d);
   });
   it("removes a target but keeps the last one", () => {
     let d = removeLoudnessTarget(empty(), 0);
-    expect(loudnessTargets(audioOf(d)).map((t) => t.name)).toEqual(["mobile"]);
+    expect(loudnessTargets(audioSettings.read(d)).map((t) => t.name)).toEqual(["mobile"]);
     expect(removeLoudnessTarget(d, 0)).toBe(d);
     d = addLoudnessTarget(d);
-    expect(loudnessTargets(audioOf(d)).map((t) => t.name)).toEqual(["mobile", "Target"]);
+    expect(loudnessTargets(audioSettings.read(d)).map((t) => t.name)).toEqual(["mobile", "Target"]);
   });
   it("edits each field inside its range", () => {
     let d = setLoudnessTarget(empty(), 0, { name: " film " });
     d = setLoudnessTarget(d, 0, { integrated: -27 });
     d = setLoudnessTarget(d, 0, { tolerance: 0.5 });
     d = setLoudnessTarget(d, 0, { truePeak: -2 });
-    expect(loudnessTargets(audioOf(d))[0]).toEqual({ name: "film", integrated: -27, tolerance: 0.5, truePeak: -2 });
+    expect(loudnessTargets(audioSettings.read(d))[0]).toEqual({ name: "film", integrated: -27, tolerance: 0.5, truePeak: -2 });
   });
   it.each([
     ["integrated", -70, 0, -70.5, 0.5],
@@ -88,8 +89,8 @@ describe("the loudness targets table", () => {
     ["truePeak", -20, 0, -20.5, 0.5],
   ] as const)("%s accepts both ends of its range and refuses past them", (key, lo, hi, below, above) => {
     const d = empty();
-    expect(loudnessTargets(audioOf(setLoudnessTarget(d, 0, { [key]: lo })))[0][key]).toBe(lo);
-    expect(loudnessTargets(audioOf(setLoudnessTarget(d, 0, { [key]: hi })))[0][key]).toBe(hi);
+    expect(loudnessTargets(audioSettings.read(setLoudnessTarget(d, 0, { [key]: lo })))[0][key]).toBe(lo);
+    expect(loudnessTargets(audioSettings.read(setLoudnessTarget(d, 0, { [key]: hi })))[0][key]).toBe(hi);
     for (const bad of [below, above, Number.NaN]) {
       expect(loudnessTargetRefusal(d, 0, { [key]: bad })).toMatch(/must be/);
       expect(setLoudnessTarget(d, 0, { [key]: bad })).toBe(d);
@@ -115,9 +116,9 @@ describe("the loudness targets table", () => {
 
 describe("loudnessResetOnPlay", () => {
   it("is on by default, written only when off", () => {
-    expect(audioOf(empty()).loudnessResetOnPlay ?? true).toBe(true);
+    expect(audioSettings.read(empty()).loudnessResetOnPlay ?? true).toBe(true);
     const off = setLoudnessResetOnPlay(empty(), false);
-    expect(audioOf(off).loudnessResetOnPlay).toBe(false);
+    expect(audioSettings.read(off).loudnessResetOnPlay).toBe(false);
     expect("loudnessResetOnPlay" in (setLoudnessResetOnPlay(off, true).audio as object)).toBe(false);
   });
 });

@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { parseAudioSettings } from "../../../engine/audio/settings";
 import { withSettings } from "../../../editor/projectSettingsModel";
 import { readDraft } from "../../../editor/testing";
-import { audioOf, setZones, zoneMemory, zoneSlots, zoneWarnings } from "./audioSettingsModel";
+import { setZones, zoneMemory, zoneSlots, zoneWarnings } from "./audioSettingsModel";
+import { audioSettings } from "./audioDraft";
 
 // ADR 0162 C6: zones.standby, the slot count and the zone memory (architecture section 6: 1.7 / 9.2 / 18.0 MB).
 const zones = (z: Record<string, number>) => parseAudioSettings({ zones: z }).settings;
@@ -46,11 +47,11 @@ describe("zone slots, memory and warnings (ADR 0162 C6)", () => {
 
   it("standby rounds, clamps and persists through the draft", () => {
     let d = readDraft({});
-    expect(audioOf(d).zones.standby).toBe(1);
+    expect(audioSettings.read(d).zones.standby).toBe(1);
     d = setZones(d, { standby: 0 });
-    expect(audioOf(d).zones.standby).toBe(0);
+    expect(audioSettings.read(d).zones.standby).toBe(0);
     expect(setZones(d, { standby: 0 })).toBe(d);
-    expect(audioOf(setZones(d, { standby: 7 })).zones.standby).toBe(1);
+    expect(audioSettings.read(setZones(d, { standby: 7 })).zones.standby).toBe(1);
     expect(setZones(d, { standby: NaN })).toBe(d);
     const saved = parseAudioSettings(JSON.parse(withSettings("{}", d, {})).audio);
     expect(saved.problems).toEqual([]);

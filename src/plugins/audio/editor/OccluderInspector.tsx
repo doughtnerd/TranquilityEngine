@@ -4,7 +4,8 @@
 // overriding some of its colliders. The material, trims and the rest are the fields above.
 import { editor, type InspectorSectionProps } from "../../../editor/sdk";
 import type { AudioOccluder } from "../runtime/AudioOccluder";
-import { analyzeOccluder, audioOfProject, describeCost, materialLabel, materialTint, occluderCost, physics3dAvailable } from "./audioInspectorModel";
+import { analyzeOccluder, describeCost, materialLabel, materialTint, occluderCost, physics3dAvailable } from "./audioInspectorModel";
+import { audioSettings } from "./audioDraft";
 import { dragGroup, writeField, type FieldTarget } from "./inspectorWrite";
 import "./audioInspectors.css";
 
@@ -21,7 +22,7 @@ export function OccluderSection({ scene, paths, info }: InspectorSectionProps) {
   editor.project.version; // the settings and the file list (tracked)
   const occluder = info.component as AudioOccluder | null;
   if (!occluder) return null;
-  const audio = audioOfProject(editor.project.current?.settings);
+  const audio = audioSettings.read(editor.project.current?.settings);
   const report = analyzeOccluder(occluder, { physics3d: physics3dAvailable(), audio });
   const cost = occluderCost(occluder, audio);
   const closed = occluderCost(occluder, audio, 0);

@@ -31,6 +31,8 @@ export { addKey as addCurveKey, moveKey as moveCurveKey, removeKey as removeCurv
 // Menus and floating panels (ADR 0180): placed, dismissed and focused in the window they're in (ADR 0174).
 export { openPopover, usePopover, type DismissReason, type Popover, type PopoverOptions, type PopoverPoint } from "../ui/popover";
 export { setValue, type SettingsDraft, type SettingsProblem } from "../projectSettingsModel";
+// One project.json key of the settings draft (ADR 0253): its lenient parse, defaults, set-by-path, reset and problems.
+export { settingsSection, type SettingsSection, type SettingsSectionSpec } from "../settingsSection";
 export { persisted } from "../preferences";
 // The editor theme's tokens (ADR 0025): `theme.value` tracks the Settings > Appearance theme.
 export { theme, mix, parseHex, viewportColors, type ThemeTokens } from "../theme";

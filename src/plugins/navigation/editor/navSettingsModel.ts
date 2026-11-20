@@ -1,7 +1,7 @@
 // The Project panel's Navigation section (ADR 0065): `project.json`'s `navigation` key as part of the
-// settings draft, edited by pure functions like the graphics tiers. Edits start from the leniently parsed
-// section and write the whole section back, so values the parser rejects show as problems (and keep the
-// draft from saving) until they're fixed or undone.
+// settings draft, edited by pure functions over its settings section handle (ADR 0253). Edits start from
+// the leniently parsed section and write the whole section back, so values the parser rejects show as
+// problems (and keep the draft from saving) until they're fixed or undone.
 import {
   defaultNavArea,
   defaultNavAgentType,
@@ -20,65 +20,51 @@ import {
   type NavArea,
   type NavigationSettings,
 } from "../../../engine/nav/settings";
-import type { SettingsDraft } from "../../../editor/sdk";
+import { settingsSection, type SettingsDraft } from "../../../editor/sdk";
+import { randomUuid } from "../../../engine/core/uuid";
 import { uniqueName } from "../../../engine/core/uniqueName";
 
-/** The draft's navigation settings (the defaults when there's no section). */
-export const navigationOf = (d: SettingsDraft): NavigationSettings => parseNavigationSettings(d.navigation).settings;
-
-const withNavigation = (draft: SettingsDraft, nav: NavigationSettings): SettingsDraft => ({ ...draft, navigation: nav as unknown as Record<string, unknown> });
-
-/** A new id for an agent type or area. */
-function newNavId(): string {
-  const c = globalThis.crypto as Crypto | undefined;
-  if (c?.randomUUID) return c.randomUUID();
-  const hex = (n: number) => Array.from({ length: n }, () => Math.floor(Math.random() * 16).toString(16)).join("");
-  return `${hex(8)}-${hex(4)}-4${hex(3)}-${"89ab"[Math.floor(Math.random() * 4)]}${hex(3)}-${hex(12)}`;
-}
-
-/** Set a value at a dotted path (`"walk.radius"`, `"walk.motion.ease"`) in a copy of `obj`. */
-function setPath<T extends object>(obj: T, path: string, value: unknown): T {
-  const [head, ...rest] = path.split(".");
-  const copy = (Array.isArray(obj) ? [...obj] : { ...obj }) as Record<string, unknown>;
-  if (rest.length === 0) copy[head] = value;
-  else copy[head] = setPath((copy[head] ?? {}) as object, rest.join("."), value);
-  return copy as T;
-}
+/**
+ * `project.json`'s `navigation` key in the settings draft: read leniently (the defaults when there's no section), set
+ * by dotted path (`"tileSize"`, `"build.vertsPerPoly"`, `"orientation.maxSurfaceDeg"`), reset (the section is removed
+ * from `project.json`) and checked. Every edit below starts from `read` and writes the whole section back.
+ */
+export const navigationSettings = settingsSection<NavigationSettings>({ key: "navigation", parse: parseNavigationSettings });
 
 // --- agent types ------------------------------------------------------------------------------------
 
-export function addNavAgentType(draft: SettingsDraft, id = newNavId()): SettingsDraft {
-  const nav = navigationOf(draft);
+export function addNavAgentType(draft: SettingsDraft, id = randomUuid()): SettingsDraft {
+  const nav = navigationSettings.read(draft);
   if (nav.agentTypes.length >= MAX_NAV_AGENT_TYPES) return draft;
   const name = uniqueName("Agent", nav.agentTypes.map((t) => t.name));
-  return withNavigation(draft, { ...nav, agentTypes: [...nav.agentTypes, defaultNavAgentType(id, name)] });
+  return navigationSettings.write(draft, { ...nav, agentTypes: [...nav.agentTypes, defaultNavAgentType(id, name)] });
 }
 
 /** Remove an agent type (the last one stays: agents need a type). */
 export function removeNavAgentType(draft: SettingsDraft, index: number): SettingsDraft {
-  const nav = navigationOf(draft);
+  const nav = navigationSettings.read(draft);
   if (nav.agentTypes[index] === undefined || nav.agentTypes.length <= 1) return draft;
-  return withNavigation(draft, { ...nav, agentTypes: nav.agentTypes.filter((_, i) => i !== index) });
+  return navigationSettings.write(draft, { ...nav, agentTypes: nav.agentTypes.filter((_, i) => i !== index) });
 }
 
 export function renameNavAgentType(draft: SettingsDraft, index: number, name: string): SettingsDraft {
-  const nav = navigationOf(draft);
+  const nav = navigationSettings.read(draft);
   const t = nav.agentTypes[index];
   if (!t || name.trim() === "" || t.name === name) return draft;
-  return withNavigation(draft, { ...nav, agentTypes: nav.agentTypes.map((a, i) => (i === index ? { ...a, name } : a)) });
+  return navigationSettings.write(draft, { ...nav, agentTypes: nav.agentTypes.map((a, i) => (i === index ? { ...a, name } : a)) });
 }
 
 /** Set one value of an agent type by dotted path (`"canFly"`, `"walk.radius"`, `"avoidance.layers"`), as given. */
 export function setNavAgentValue(draft: SettingsDraft, index: number, path: string, value: unknown): SettingsDraft {
-  const nav = navigationOf(draft);
+  const nav = navigationSettings.read(draft);
   const t = nav.agentTypes[index];
   if (!t) return draft;
-  return withNavigation(draft, { ...nav, agentTypes: nav.agentTypes.map((a, i) => (i === index ? setPath(a, path, value) : a)) });
+  return navigationSettings.set(draft, `agentTypes.${index}.${path}`, value);
 }
 
 /** Turn an agent type's local avoidance on (with the defaults) or off. */
 export function setNavAgentAvoidance(draft: SettingsDraft, index: number, on: boolean): SettingsDraft {
-  const t = navigationOf(draft).agentTypes[index];
+  const t = navigationSettings.read(draft).agentTypes[index];
   if (!t || (t.avoidance !== null) === on) return draft;
   return setNavAgentValue(draft, index, "avoidance", on ? defaultNavAgentType("", "").avoidance : null);
 }
@@ -88,7 +74,7 @@ export function setNavAgentAvoidance(draft: SettingsDraft, index: number, on: bo
  * area's own cost.
  */
 export function setNavAgentAreaCost(draft: SettingsDraft, index: number, area: string, cost: number | "excluded" | null): SettingsDraft {
-  const t = navigationOf(draft).agentTypes[index];
+  const t = navigationSettings.read(draft).agentTypes[index];
   if (!t) return draft;
   const others = t.areaCosts.filter((c) => c.area !== area);
   const next = cost === null ? others : [...others, { area, cost: cost === "excluded" ? -1 : cost, excluded: cost === "excluded" }];
@@ -104,19 +90,19 @@ export function navAreaCostOf(t: NavAgentType, area: string): number | "excluded
 
 // --- areas ------------------------------------------------------------------------------------------
 
-export function addNavArea(draft: SettingsDraft, id = newNavId()): SettingsDraft {
-  const nav = navigationOf(draft);
+export function addNavArea(draft: SettingsDraft, id = randomUuid()): SettingsDraft {
+  const nav = navigationSettings.read(draft);
   if (nav.areas.length >= MAX_NAV_AREAS) return draft;
   const name = uniqueName("Area", nav.areas.map((a) => a.name));
-  return withNavigation(draft, { ...nav, areas: [...nav.areas, defaultNavArea(id, name)] });
+  return navigationSettings.write(draft, { ...nav, areas: [...nav.areas, defaultNavArea(id, name)] });
 }
 
 /** Remove an area, with the agent types' cost overrides for it. */
 export function removeNavArea(draft: SettingsDraft, index: number): SettingsDraft {
-  const nav = navigationOf(draft);
+  const nav = navigationSettings.read(draft);
   const gone = nav.areas[index];
   if (!gone) return draft;
-  return withNavigation(draft, {
+  return navigationSettings.write(draft, {
     ...nav,
     areas: nav.areas.filter((_, i) => i !== index),
     agentTypes: nav.agentTypes.map((t) => ({ ...t, areaCosts: t.areaCosts.filter((c) => c.area !== gone.id) })),
@@ -124,10 +110,10 @@ export function removeNavArea(draft: SettingsDraft, index: number): SettingsDraf
 }
 
 export function setNavAreaValue<K extends "name" | "cost" | "color">(draft: SettingsDraft, index: number, key: K, value: NavArea[K]): SettingsDraft {
-  const nav = navigationOf(draft);
+  const nav = navigationSettings.read(draft);
   if (!nav.areas[index]) return draft;
   if (key === "name" && String(value).trim() === "") return draft;
-  return withNavigation(draft, { ...nav, areas: nav.areas.map((a, i) => (i === index ? { ...a, [key]: value } : a)) });
+  return navigationSettings.write(draft, { ...nav, areas: nav.areas.map((a, i) => (i === index ? { ...a, [key]: value } : a)) });
 }
 
 // --- avoidance layers (Foxfire's NavAvoidanceLayerNames, NavAvoidanceLayersSettingsProvider, NavAvoidanceSummary) ---
@@ -135,7 +121,7 @@ export function setNavAreaValue<K extends "name" | "cost" | "color">(draft: Sett
 const withLayerNames = (draft: SettingsDraft, nav: NavigationSettings, names: string[]): SettingsDraft => {
   const out = [...names];
   while (out.length > 0 && out[out.length - 1].trim() === "") out.pop();
-  return withNavigation(draft, { ...nav, avoidanceLayers: out });
+  return navigationSettings.write(draft, { ...nav, avoidanceLayers: out });
 };
 
 /** The first unnamed layer slot, or -1 when all 32 are named. */
@@ -146,7 +132,7 @@ export function nextFreeNavAvoidanceLayer(nav: NavigationSettings): number {
 
 /** Name the next unnamed layer slot ("Layer n", to be renamed). */
 export function addNavAvoidanceLayer(draft: SettingsDraft): SettingsDraft {
-  const nav = navigationOf(draft);
+  const nav = navigationSettings.read(draft);
   const slot = nextFreeNavAvoidanceLayer(nav);
   if (slot < 0) return draft;
   return renameNavAvoidanceLayer(draft, slot, uniqueName(`Layer ${slot}`, nav.avoidanceLayers));
@@ -154,7 +140,7 @@ export function addNavAvoidanceLayer(draft: SettingsDraft): SettingsDraft {
 
 /** Name a layer; "" leaves it unnamed (it still works, shown as "Layer n"). */
 export function renameNavAvoidanceLayer(draft: SettingsDraft, layer: number, name: string): SettingsDraft {
-  const nav = navigationOf(draft);
+  const nav = navigationSettings.read(draft);
   if (layer < 0 || layer >= MAX_NAV_AVOIDANCE_LAYERS || (nav.avoidanceLayers[layer] ?? "") === name) return draft;
   const names = [...nav.avoidanceLayers];
   while (names.length <= layer) names.push("");
@@ -235,11 +221,11 @@ export function navAvoidanceMatrix(nav: NavigationSettings): { columns: number[]
 
 /** Click a matrix cell: set (or clear) layer `col` in the avoid layers of every avoiding type on layer `row`. */
 export function setNavAvoidanceCell(draft: SettingsDraft, row: number, col: number, avoid: boolean): SettingsDraft {
-  const nav = navigationOf(draft);
+  const nav = navigationSettings.read(draft);
   const onRow = new Set(typesOn(nav, row).map(({ index }) => index));
   if (onRow.size === 0) return draft;
   const bit = navLayerBit(col);
-  return withNavigation(draft, {
+  return navigationSettings.write(draft, {
     ...nav,
     agentTypes: nav.agentTypes.map((t, i) => {
       if (!onRow.has(i) || !t.avoidance) return t;
@@ -251,7 +237,7 @@ export function setNavAvoidanceCell(draft: SettingsDraft, row: number, col: numb
 
 /** Put an agent type on one avoidance layer (null = none). */
 export function setNavAgentLayer(draft: SettingsDraft, index: number, layer: number | null): SettingsDraft {
-  const t = navigationOf(draft).agentTypes[index];
+  const t = navigationSettings.read(draft).agentTypes[index];
   if (!t?.avoidance) return draft;
   return setNavAgentValue(draft, index, "avoidance.layers", layer === null ? 0 : navLayerBit(layer));
 }
@@ -334,16 +320,6 @@ export function navAgentTypeWarnings(nav: NavigationSettings, t: NavAgentType): 
   if (voxel) out.push(`${t.name}: ${voxel}`);
   return out;
 }
-
-// --- the rest of the section ------------------------------------------------------------------------
-
-/** Set a section value by dotted path (`"tileSize"`, `"build.vertsPerPoly"`, `"orientation.maxSurfaceDeg"`), as given. */
-export function setNavValue(draft: SettingsDraft, path: string, value: unknown): SettingsDraft {
-  return withNavigation(draft, setPath(navigationOf(draft), path, value));
-}
-
-/** Put the defaults back (the section is removed from `project.json`). */
-export const resetNavigation = (draft: SettingsDraft): SettingsDraft => ({ ...draft, navigation: undefined });
 
 // --- the voxel preview ------------------------------------------------------------------------------
 

@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { joinPath, openFolderProject } from "./projects";
 import { ROOT, demoFolder, sampleProject } from "./testing";
-import { modelToConfig, readBootstrap, withMember, type WorldsModel } from "./worldsConfig";
+import { withMember } from "./jsonMember";
+import { modelToConfig, readBootstrap, type WorldsModel } from "./worldsConfig";
 
 describe("a project's settings follow project.json (the Worlds panel's saves reach play mode)", () => {
   it("reflects a bootstrap written after the project opened", async () => {

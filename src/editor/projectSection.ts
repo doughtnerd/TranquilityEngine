@@ -12,7 +12,8 @@ import { PROJECT_FILE } from "./projectPaths";
 import type { EditorProject } from "./projects";
 import { emitSectionChanged } from "./sectionChanged";
 import { status } from "./state";
-import { EditHistory, withMember } from "./worldsConfig";
+import { EditHistory } from "./editHistory";
+import { withMember } from "./jsonMember";
 
 // Writes to `project.json` run one at a time: each writes only its own keys into the file's current text, so
 // two built from the same text would drop one another's change (ADR 0038, 0151).
