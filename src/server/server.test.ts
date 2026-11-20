@@ -207,6 +207,19 @@ describe("myco-server (T14)", () => {
     expect(server.listeners.map((l) => l.world)).toEqual(["Server"]);
   });
 
+  it("runs only the Host template (the first server template) as play mode creates it; the others stay Spawnable (ADR 0256)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "myco-server-"));
+    temps.push(dir);
+    const bootstrap = { worlds: [{ name: "Client", tags: ["client"] }], templates: { Coop: { tags: ["server"], renders: false }, Versus: { tags: ["server"], renders: false } } };
+    writeFileSync(join(dir, "project.json"), JSON.stringify({ bootstrap }));
+    const server = await startServer({ projectDir: dir, statsIntervalMs: 0, log: () => {}, port: 0, host: "127.0.0.1" });
+    servers.push(server);
+    expect(server.engine.worlds().map((w) => w.name)).toEqual(["Coop"]);
+    const { playBootstrap } = await import("../editor/netPlay");
+    expect(playBootstrap(bootstrap, { clients: 1, thin: 0 })!.server).toBe("Coop");
+    expect(server.engine.createWorld("Versus").name).toBe("Versus");
+  });
+
   it("runs only the lobby template when the templates include one: its match templates are the lobby's to create (ADR 0068)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "myco-server-"));
     temps.push(dir);

@@ -6,6 +6,7 @@
 import "./websocketServer"; // registers the Node "websocket" transport, which can listen
 import { type Bootstrap, type Engine, type BootstrapConfig, type BootstrapEngine, type LinkConfig, type WorldConfig, type WorldHandle } from "../engine";
 import { BootstrapError, assertValidBootstrap } from "../engine/core/bootstrap";
+import { bootstrapTopology, isServerConfig } from "../engine/core/bootstrapTopology";
 import { DEFAULT_WORLD_TAGS } from "../engine/core/worlds";
 import type { World } from "../engine/core/World";
 import { launchGame, type LaunchedGame } from "../engine/launch";
@@ -167,12 +168,11 @@ interface ServerPlan {
 }
 
 /**
- * The project's bootstrap cut down to its server Worlds. A declarative one keeps the Worlds
- * tagged "server", the links between them, and every template (created later by name); links from
- * other Worlds to a server World say where it listens. A bootstrap with no server Worlds whose
- * templates include server-tagged ones (Unity's frontend pattern: a Host button creates the server
- * World at runtime) runs those templates, each as a World named as `Engine.createWorld` would name
- * it (its `name`, else its key). Links to server templates not created at start are kept for when
+ * The project's bootstrap cut down to its server Worlds. A declarative one keeps the Worlds its
+ * bootstrap topology (ADR 0256) says a dedicated server starts (the start-up servers, else the
+ * lobbies, else the Host template, named as `Engine.createWorld` would name it), the links between
+ * server Worlds, and every template (created later by name); links from other Worlds to a server
+ * World say where it listens, and links to server templates not created at start are kept for when
  * game code creates them (ADR 0062). A code bootstrap
  * runs against an Engine whose `createWorld` skips Worlds not tagged "server", returning an inert
  * handle whose `connect` records the link instead.
@@ -192,27 +192,17 @@ async function serverBootstrap(project: ServerProject): Promise<ServerPlan> {
     if (err instanceof BootstrapError) throw new ServerError(`The project's bootstrap is invalid:\n${err.problems.map((p) => `  - ${p}`).join("\n")}`);
     throw err;
   }
-  const isServer = (w: Omit<WorldConfig, "name">) => (w.tags ?? DEFAULT_WORLD_TAGS).includes("server");
-  let worlds = setting.worlds.filter(isServer);
-  const skipped = setting.worlds.filter((w) => !isServer(w)).map((w) => w.name);
-  if (worlds.length === 0) {
-    const templates = Object.entries(setting.templates ?? {}).filter(([, t]) => isServer(t));
-    // A lobby (ADR 0068) creates its match Worlds from their templates when rooms start: run only the lobby.
-    const lobbies = templates.filter(([, t]) => t.lobby);
-    worlds = (lobbies.length > 0 ? lobbies : templates).map(([key, t]) => ({ ...t, name: t.name ?? key }));
+  // The bootstrap topology (ADR 0256) says which Worlds the server starts and where they listen; play mode reads the same.
+  const topology = bootstrapTopology(setting)!;
+  if (topology.serverStart.length === 0) {
+    throw new ServerError(`The project's bootstrap has no Worlds or templates tagged "server" (it has ${topology.skipped.map((n) => `"${n}"`).join(", ")}); there's nothing for a dedicated server to run.`);
   }
-  if (worlds.length === 0) {
-    throw new ServerError(`The project's bootstrap has no Worlds or templates tagged "server" (it has ${skipped.map((n) => `"${n}"`).join(", ")}); there's nothing for a dedicated server to run.`);
-  }
-  const kept = new Set(worlds.map((w) => w.name));
-  const links = setting.links ?? [];
-  const serverTemplates = new Set(Object.entries(setting.templates ?? {}).filter(([, t]) => isServer(t)).map(([key, t]) => t.name ?? key));
   return {
     // Links between server Worlds (start-up or spawnable) apply in the server's Engine as they would anywhere.
-    bootstrap: { worlds, links: links.filter((l) => (kept.has(l.from) || serverTemplates.has(l.from)) && (kept.has(l.to) || serverTemplates.has(l.to))), ...(setting.templates ? { templates: setting.templates } : {}) },
-    links: links.filter((l) => !kept.has(l.from) && kept.has(l.to)),
-    spawnLinks: links.filter((l) => !kept.has(l.from) && !serverTemplates.has(l.from) && !kept.has(l.to) && serverTemplates.has(l.to)),
-    skipped,
+    bootstrap: { worlds: [...topology.serverStart], links: [...topology.serverLinks], ...(setting.templates ? { templates: setting.templates } : {}) },
+    links: topology.listenLinks,
+    spawnLinks: topology.spawnLinks,
+    skipped: topology.skipped,
   };
 }
 
@@ -233,7 +223,7 @@ async function codeBootstrap(path: string): Promise<ServerPlan> {
       settings: engine.settings,
       findWorld: (name) => engine.findWorld(name) ?? stubs.get(name) ?? null,
       createWorld(config) {
-        if (typeof config === "string" || (config.tags ?? DEFAULT_WORLD_TAGS).includes("server")) return engine.createWorld(config);
+        if (typeof config === "string" || isServerConfig(config)) return engine.createWorld(config);
         skipped.push(config.name);
         const stub = skippedWorld(config, links);
         stubs.set(config.name, stub);

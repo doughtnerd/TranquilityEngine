@@ -6,6 +6,7 @@ import type { BootstrapConfig, LinkConfig, ReplicationSettings, SystemSelection,
 import { validateBootstrap } from "../engine/core/settings";
 import type { SystemCatalogEntry } from "../engine/core/systems";
 import { DEFAULT_WORLD_NAME, DEFAULT_WORLD_TAGS, worldsMatch } from "../engine/core/worlds";
+import { bootstrapTopology, isServerConfig } from "../engine/core/bootstrapTopology";
 import { uniqueName } from "../engine/core/uniqueName";
 
 /** Tags offered as one-click chips; projects can type their own. */
@@ -205,7 +206,7 @@ export function lobbyLinks(model: WorldsModel): ImpliedLink[] {
   for (const { name, lobby } of lobbies) {
     model.worlds.forEach((w, i) => {
       const renders = w.renders ?? i === 0;
-      if (renders && !w.lobby && !(w.tags ?? []).includes("server")) push(w.name, name, "joins lobby");
+      if (renders && !w.lobby && !isServerConfig(w)) push(w.name, name, "joins lobby");
     });
     const match = template(lobby!.matchTemplate);
     if (!match) continue;
@@ -214,6 +215,31 @@ export function lobbyLinks(model: WorldsModel): ImpliedLink[] {
     if (client) push(spawnableName(client), spawnableName(match), "joins match");
   }
   return out;
+}
+
+/** A World's or template's network role in the graph, from the bootstrap topology (ADR 0256), with what it means. */
+export interface ServerRole {
+  label: "Host" | "on server";
+  title: string;
+}
+
+/**
+ * The network role badges of a model's Worlds and templates (by `WorldRef` kind and index), from
+ * the bootstrap topology play mode and the dedicated server read (ADR 0256): the Host template
+ * ("Host": play creates it up front, the dedicated server starts it) and the other Worlds a
+ * dedicated server starts ("on server").
+ */
+export function serverRoles(model: WorldsModel): { worlds: (ServerRole | null)[]; templates: (ServerRole | null)[] } {
+  const topology = bootstrapTopology(modelToConfig(model));
+  const started = new Set(topology?.serverStart.map((w) => w.name) ?? []);
+  const onServer: ServerRole = { label: "on server", title: "The dedicated server starts this World." };
+  return {
+    worlds: model.worlds.map((w) => (started.has(w.name) ? onServer : null)),
+    templates: model.templates.map((t) => {
+      if (topology?.hostTemplate?.key === t.key) return { label: "Host", title: "The Host template: Play creates it up front with the client Worlds linked to it, and the dedicated server starts it." };
+      return started.has(spawnableName(t)) ? onServer : null;
+    }),
+  };
 }
 
 /** True if `name` is a Spawnable World's (and not a start-up World's), so its links apply when game code creates it. */
