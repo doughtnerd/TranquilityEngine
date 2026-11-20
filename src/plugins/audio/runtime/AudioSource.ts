@@ -12,6 +12,7 @@ import type { World } from "../../../engine/core/World";
 import { _worldServiceOf } from "../../../engine/core/worldServices";
 import { AUDIO, type AudioWorldService } from "./core/service";
 import { ambisonicImportGain, ambisonicStreamsByDefault } from "./core/clipRegistry";
+import { isSpatialPassHost } from "./core/spatial";
 import { Assets } from "../../../engine/scene/Assets";
 import { audioBackend, hasAudioBackend, DEFAULT_SEND_CURVE, type AudioPanner, type AudioVoice, type PlayRequest, type Rolloff, type SendCurve } from "./backend";
 import { isAudioEventPath } from "../../../engine/audio/eventFormat";
@@ -161,8 +162,8 @@ export class AudioSource extends Component {
   /** ADR 0162 §1.2: the source's velocity in world units per second (Doppler). Read-only: the Doppler pass's estimate (zero while not playing, or on a backend without it). */
   get velocity(): Vector3 {
     const id = this.voice?.id ?? 0;
-    const b = audioBackend() as { _velocityOf?: (id: number, out: Vector3) => boolean };
-    if (id === 0 || !b._velocityOf?.(id, this.zeroVelocity)) this.zeroVelocity.set(0, 0, 0);
+    const b = audioBackend();
+    if (id === 0 || !isSpatialPassHost(b) || !b.velocityOf(id, this.zeroVelocity)) this.zeroVelocity.set(0, 0, 0);
     return this.zeroVelocity;
   }
 
@@ -252,7 +253,7 @@ export class AudioSource extends Component {
    * (owner review, entry 21).
    */
   seek(seconds: number): void {
-    this.voice?.seek?.(seconds);
+    this.voice?.seek(seconds);
   }
 
   stop(): void {
@@ -344,7 +345,7 @@ export class AudioSource extends Component {
     if (this.curveEdited() || m3 !== this.appliedM3) {
       const first = this.appliedM3 === "";
       this.appliedM3 = m3;
-      if (!first) voice.setSpatialOptions?.(this.spatialOptions());
+      if (!first) voice.setSpatialOptions(this.spatialOptions());
     }
     if (spatial) voice.setPosition(this.node.transform!.worldPosition);
   }

@@ -286,7 +286,7 @@ describe("a plain looping clip on Babylon uses its loop points (E4.5)", () => {
   it("an event's setLoop wins over the clip's points, and a voice that ended first is left alone", async () => {
     const backend = make();
     const v = backend.play(req({ url: looping(2_000, 6_000) }))!;
-    v.setLoop!(0.5, 0.6, true);
+    v.setLoop(0.5, 0.6, true);
     await flush();
     expect(sound()).toMatchObject({ loopStart: 0.5, loopEnd: 0.6 });
     babylonMock.engine.sounds.length = 0;

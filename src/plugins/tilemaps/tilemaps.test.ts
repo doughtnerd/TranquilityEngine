@@ -1,6 +1,8 @@
 // The Tilemaps plugin (ADR 0103, 0134, 0135, 0136): its runtime half claims the Tilemap Component and the tile
 // render feature; its editor half registers the tileset kind and format, and tilesets edit through an asset document.
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { createProjectSettingsSection } from "../../editor/projectSettingsSection";
+import { renameSortingLayer } from "../../editor/projectSettingsModel";
 import { getComponentClass } from "../../engine/core/registry";
 import { byPhase } from "../../engine/render/renderFeatures";
 import { assetKind } from "../../editor/assetBrowser";
@@ -88,6 +90,19 @@ describe("the Tilemaps plugin's editor half (ADR 0134)", () => {
   const editorHalf = useEditorPlugins([tilemapsEditorPlugin], "each");
   afterEach(() => {
     currentProject.value = null;
+  });
+
+  it("renames a sorting layer in its Tilemaps' layers, through the shell's settings names (ADR 0262)", async () => {
+    const tilemap = { type: "engine.Tilemap", data: { layers: [{ name: "Back", sortingLayer: "Fx" }, { name: "Front", sortingLayer: "Default" }] } };
+    const fs = new MemoryFileSystem();
+    fs.files.set(joinPath(ROOT, "project.json"), JSON.stringify({ render: { sortingLayers: ["Default", "Fx"] } }));
+    fs.files.set(joinPath(ROOT, "a.scene.json"), JSON.stringify({ format: "myco.scene@1", nodes: [{ id: "n", name: "N", components: [tilemap] }] }));
+    const project = await openFolderProject(fs, ROOT);
+    const s = createProjectSettingsSection().open(project);
+    await s.edit("Rename sorting layer to Glow", renameSortingLayer(s.draft, 1, "Glow"));
+    await vi.waitFor(() => expect(project.textOf("a.scene.json")).toContain('"Glow"'));
+    const layers = JSON.parse(project.textOf("a.scene.json")!).nodes[0].components[0].data.layers;
+    expect(layers.map((l: { sortingLayer: string }) => l.sortingLayer)).toEqual(["Glow", "Default"]);
   });
 
   it("registers the Tile Palette panel, the paint tool and the Tilemap's Inspector section, and removes them (ADR 0138)", () => {

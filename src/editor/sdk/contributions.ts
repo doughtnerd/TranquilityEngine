@@ -264,6 +264,54 @@ export interface ProjectSettingsSectionContribution {
   readonly view: LoadComponent<ProjectSettingsSectionProps>;
   /** The category it follows in the list (a title); absent, or not found: after the last one. */
   readonly after?: string;
+  /**
+   * The lists of names it keeps in the draft that other files name (ADR 0262): renaming an entry renames what names it,
+   * asking first, and undoing the rename moves them back.
+   */
+  readonly names?: readonly NamedList[];
+}
+
+/**
+ * A component field that holds a list entry's name (ADR 0262). `field` is a path in the component's data, `*` stepping
+ * into every item of a list (`"layer"`, `"layers.*.sortingLayer"`); prefab overrides of the field count too.
+ */
+export interface NameField {
+  /** The component type, or several; absent: any component. */
+  readonly component?: string | readonly string[];
+  readonly field: string;
+}
+
+/** Files of an asset format that name list entries (ADR 0262). */
+export interface NameAssetField {
+  /** File endings, lower case (`".audioevent.json"`). */
+  readonly extensions: readonly string[];
+  /** The file's JSON with the name `from` renamed `to`: the same value when nothing names it. Pure. */
+  rename(json: unknown, from: string, to: string): unknown;
+}
+
+/** Where a named list's entries are named (ADR 0262). */
+export interface NameReferences {
+  readonly fields?: readonly NameField[];
+  readonly assets?: readonly NameAssetField[];
+  /** The draft with `from` renamed `to` where another part of the settings names it (the same draft when none does). Pure. */
+  settings?(draft: SettingsDraft, from: string, to: string): SettingsDraft;
+}
+
+/** A list of names a settings section keeps in the draft, and what names its entries (ADR 0262). */
+export interface NamedList extends NameReferences {
+  /** `"physics.layers"`, `"audio.buses"`: what `registerNameReferences` names. */
+  readonly id: string;
+  /** What an entry is called in messages: `"physics layer"`, `"bus"`. */
+  readonly noun: string;
+  /** The names in `draft`, in order (with the defaults when unset). */
+  names(draft: SettingsDraft): readonly string[];
+}
+
+/** References to another section's named list, from a plugin that owns them (ADR 0262): Tilemap layers name sorting layers. */
+export interface NameReferencesContribution extends NameReferences {
+  readonly id: string;
+  /** The named list's `id`; while no section declares it, these are ignored. */
+  readonly list: string;
 }
 
 /** Extra UI a plugin adds under a built-in panel's own content (the Worlds panel's navigation counters). */
@@ -322,7 +370,7 @@ export interface ViewportToolContext<M = unknown> {
    * The tool's mode while it is active (ADR 0231): what `enter` gave it (the collider being edited, the brush),
    * else null. The host owns it and ends it on its own: when a transform tool or another tool takes the scene
    * view, on Escape, when play starts, when another scene opens and, where the contribution's `endsOnSelection`
-   * says so, when the selection changes. `editor.viewport` reads and sets the same mode from outside the install.
+   * says so or it has `editsComponents`, when the selection changes. `editor.viewport` reads and sets the same mode from outside the install.
    */
   readonly mode: ReadonlySignal<M | null>;
   /** Become the active tool, in `mode` (none: null). The transform gizmo and other tools step aside. Ignored while playing. */
@@ -371,15 +419,49 @@ export interface SelectableOutline {
   readonly points: readonly (readonly [number, number, number])[];
 }
 
+/**
+ * The mode of a viewport tool that edits one component at a time (ADR 0266): which component on which node.
+ * The host enters it from the component's Inspector card.
+ */
+export interface ComponentEditMode {
+  /** Path key of the node (see `pathKey`). */
+  readonly key: string;
+  /** The Component type, e.g. "engine.BoxCollider2D". */
+  readonly type: string;
+  /** Which component of that type on the node. */
+  readonly index: number;
+}
+
+/**
+ * The components a viewport tool edits one at a time with handles (ADR 0266). The host adds a toggle to the header
+ * of each such Inspector card (a component header action, ADR 0142): it enters the tool with that card's
+ * `ComponentEditMode` or leaves it, shows whether this card is the one being edited, hides while several nodes are
+ * selected, and ends the mode when the card's component is removed or the selection changes.
+ */
+export interface ComponentEditing {
+  readonly types: ReadonlySet<string> | readonly string[];
+  /** The toggle's text ("Edit Collider"). */
+  readonly label: string;
+  /** Its tooltip while off: one for every type, or one per type. */
+  readonly hint: string | ((type: string) => string);
+  /** Its tooltip while this card is being edited. */
+  readonly stopHint: string;
+}
+
 /** A scene-view tool (ADR 0138): painting, handles, overlays. `M` is its mode (ADR 0231). */
 export interface ViewportToolContribution<M = unknown> {
   /** e.g. "myco.tilemaps.paint". Also its overlay id and its active-tool id. */
   readonly id: string;
   /**
    * Whether a change of the selected (active) node ends the tool's mode while it is active, given the mode
-   * (ADR 0231). Absent: it never does.
+   * (ADR 0231). Absent: it never does, unless the tool has `editsComponents`.
    */
   endsOnSelection?(mode: M): boolean;
+  /**
+   * The components it edits one at a time (ADR 0266); its mode is then a `ComponentEditMode`. Registered through
+   * `EditorPluginContext.registerViewportTool`, it brings the Inspector cards' Edit toggle with it.
+   */
+  readonly editsComponents?: ComponentEditing;
   /** Called for each scene view, and at once when registered while one is open. May return extra cleanup. */
   install(view: ViewportToolContext<M>): void | (() => void);
 }
@@ -412,8 +494,8 @@ export interface ComponentHeaderActionProps {
 }
 
 /**
- * A control in an Inspector component card's header, before the Worlds menu and Remove (ADR 0142): the
- * Physics plugin's Edit Collider button. `types` limits it to those Component types.
+ * A control in an Inspector component card's header, before the Worlds menu and Remove (ADR 0142), such as the
+ * Edit toggle the host adds for a viewport tool's `editsComponents` (ADR 0266). `types` limits it to those Component types.
  */
 export interface ComponentHeaderActionContribution {
   readonly id: string;
@@ -536,3 +618,4 @@ export const playStatsCounters = createRegistry<PlayStatsCounterContribution>("P
 export const sceneOpenMigrations = createRegistry<SceneOpenMigrationContribution>("Scene open migration");
 export const idlePrefetches = createRegistry<IdlePrefetchContribution>("Idle prefetch");
 export const fieldChoices = createRegistry<FieldChoicesContribution>("Field choices");
+export const nameReferences = createRegistry<NameReferencesContribution>("Name references");

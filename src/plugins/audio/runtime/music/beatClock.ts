@@ -36,14 +36,14 @@
  * `skippedCues` and the successor's anchor once per successor.
  */
 import type { MusicEvent, MusicKind } from "../../../../engine/audio/musicTypes";
-import { emptySegment, type SegmentNode, type MusicNode } from "../../../../engine/audio/musicFormat";
+import { emptySegment, type MusicNode } from "../../../../engine/audio/musicFormat";
 import {
-  compileSegmentGrid, nextBarTicks, secondsToTicks, spanAtTicks, ticksToPosition, ticksToSeconds, type SegmentGrid,
+  nextBarTicks, secondsToTicks, spanAtTicks, ticksToPosition, ticksToSeconds, type SegmentGrid,
 } from "../../../../engine/audio/musicGrid";
 import { MUSIC_TICKS_PER_BEAT, type BarBeatTick } from "../../../../engine/audio/musicPosition";
 import { advanceAnchor, anchorRun, heardTimeOf, predictWrap, type GridAnchor } from "./anchors";
 import type { RegionState } from "./regions";
-import { segmentGrid } from "./handle";
+import { segmentGrid } from "./segmentGrids";
 import type { MusicPlayer } from "./musicSystem";
 import { attachState } from "./musicPlayer";
 import type { SegmentRun } from "./segmentRun";
@@ -107,23 +107,6 @@ function createBeatState(): BeatState {
   };
 }
 
-// --- Grids -------------------------------------------------------------------------------------------------------------
-
-const fallbackGrids = new WeakMap<object, SegmentGrid | null>();
-
-/** The segment's grid: `handle.ts`'s cached compile; a node without a `cues` list compiles here, once. */
-function gridOf(node: MusicNode): SegmentGrid | null {
-  const g = segmentGrid(node);
-  if (g) return g;
-  let f = fallbackGrids.get(node);
-  if (f === undefined) {
-    const seg = node as Partial<SegmentNode>;
-    f = node.type === "segment" && Array.isArray(seg.tempo) ? compileSegmentGrid({ ...seg, cues: seg.cues ?? [] } as SegmentNode) : null;
-    fallbackGrids.set(node, f);
-  }
-  return f;
-}
-
 // --- Sources -----------------------------------------------------------------------------------------------------------
 
 /** A run on the timeline: its events heard in [from, until), through its anchor's pass walk. */
@@ -165,7 +148,7 @@ function sources(player: MusicPlayer, st: BeatState): boolean {
   const a = player.anchor && player.anchor.segment === run.node.id ? player.anchor : null;
   srcA.run = run;
   srcA.anchor = a ?? anchorRun(run, run.startAt);
-  srcA.grid = gridOf(run.node);
+  srcA.grid = segmentGrid(run.node);
   srcA.from = Number.NEGATIVE_INFINITY;
   srcA.until = Number.POSITIVE_INFINITY;
   srcA.playing = true;
@@ -176,7 +159,7 @@ function sources(player: MusicPlayer, st: BeatState): boolean {
       st.successorStartAt = next.startAt;
       st.successorAnchor = anchorRun(next, next.startAt);
     }
-    const g = gridOf(next.node);
+    const g = segmentGrid(next.node);
     const an = st.successorAnchor;
     // The landing: the successor's entry (after its pre-entry), else its start (a seek lands where it starts).
     let cut = next.startAt;
@@ -401,7 +384,7 @@ export function seatBeats(player: MusicPlayer, now: number, kind?: MusicKind): v
 /** Events of `kind` on the lost run's timeline heard in (from, to): a recovery's gap. */
 function gapEvents(st: BeatState, kind: MusicKind, from: number, to: number): number {
   const lost = st.lostRun;
-  const g = lost ? gridOf(lost.node) : null;
+  const g = lost ? segmentGrid(lost.node) : null;
   if (!lost || !g || !Number.isFinite(st.lostAnchor.time)) return 0;
   const gap: Source = { run: lost, anchor: st.lostAnchor, grid: g, from: Number.NEGATIVE_INFINITY, until: to, playing: false };
   let n = 0;

@@ -1,6 +1,6 @@
 # 0142. Collider editing is a Physics viewport tool; plugins add Scene toolbar popovers, component header controls and selectable outlines
 
-- **Status:** Accepted; amended by 0231 (`editingCollider` is the collider tool's host-owned mode; snapping through the tool context)
+- **Status:** Accepted; amended by 0231 (`editingCollider` is the collider tool's host-owned mode; snapping through the tool context) and 0266 (the Edit Collider header toggle comes from the collider tool's `editsComponents`)
 - **Date:** 2026-11-08
 - **Deciders:** Chris Carlson
 - **Supersedes:** — (amends 0138's rules about `editingCollider`)

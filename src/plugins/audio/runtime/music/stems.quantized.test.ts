@@ -14,7 +14,7 @@ import { commitStart } from "./musicPlayer";
 const RATE = 48_000;
 const QUANTUM_SAMPLES = 128;
 
-function setup(stamped: boolean) {
+function setup() {
   const b = makeFakeBackend();
   setAudioBackend(b);
   setSegmentClipSource({ url: (p) => p, settings: () => ({ volume: 1, stream: true }), bus: (o) => o ?? "Master", facts: () => ({ frames: 120 * RATE, rate: RATE, channels: 2, gapless: true }) });
@@ -24,9 +24,8 @@ function setup(stamped: boolean) {
   const ramps: { track: string; r: StampedRamp }[] = [];
   const stems: StemRun[] = node.tracks.map((t, k) => {
     const voice = b.play({ path: t.clip, url: t.clip, loop: false, stream: true, bus: "Music" }) as FakeVoice;
-    // The fake voice records `paramsShaped`; this test wants the ramps in one list, or a voice without the method.
-    if (stamped) voice.paramsShaped = (r) => ramps.push({ track: t.name, r: r as StampedRamp });
-    else delete (voice as { paramsShaped?: unknown }).paramsShaped;
+    // The fake voice records `paramsShaped` in its own events; this test wants every stem's ramps in one list.
+    voice.paramsShaped = (r) => ramps.push({ track: t.name, r: r as StampedRamp });
     return { track: t.name, alternative: 0, clip: t.clip, streamed: true, voice, primed: true, k } as unknown as StemRun;
   });
   const run = { node, player, state: "playing", group: 1, stems, startAt: 1, startFrame: 0, loopsDone: 0, prime: null } as unknown as SegmentRun;
@@ -44,7 +43,7 @@ afterEach(closeLoopbackAudio);
 
 describe("quantizedRamp (ADR 0166 R6)", () => {
   it("stamps an in-voice ramp at the next bar or beat line, on that stem only", () => {
-    const { player, ramps, frame } = setup(true);
+    const { player, ramps, frame } = setup();
     // Group heard from 1.0 s at file 0: bars at 1, 3, 5; beats every 0.5 s.
     expect(quantizedRamp(player, "bass", 1, "bar", QUANTIZED_RAMP_SECONDS, frame(1.3))).toBeCloseTo(3, 9);
     expect(quantizedRamp(player, "drums", 0.5, "beat", 0.02, frame(1.3))).toBeCloseTo(1.5, 9);
@@ -55,7 +54,7 @@ describe("quantizedRamp (ADR 0166 R6)", () => {
   });
 
   it("a point nearer than Audio.horizon is skipped for the next one", () => {
-    const { b, player, frame } = setup(true);
+    const { b, player, frame } = setup();
     b.horizonTime = 2.95;
     expect(quantizedRamp(player, "bass", 1, "bar", 0.02, frame(1.3))).toBeCloseTo(3, 9);
     b.horizonTime = 3.01;
@@ -63,14 +62,14 @@ describe("quantizedRamp (ADR 0166 R6)", () => {
   });
 
   it("is NaN when the stem or the playing run is missing", () => {
-    const { player, run, frame } = setup(true);
+    const { player, run, frame } = setup();
     expect(quantizedRamp(player, "nope", 1, "bar", 0.02, frame(1.3))).toBeNaN();
     run.state = "ending";
     expect(quantizedRamp(player, "bass", 1, "bar", 0.02, frame(1.3))).toBeNaN();
   });
 
   it("a ramp to 0 sets silentAt so the ring is released after the ramp and the voice's end", () => {
-    const { player, run, stems, frame } = setup(true);
+    const { player, run, stems, frame } = setup();
     const at = quantizedRamp(player, "bass", 0, "bar", 0.02, frame(1.3));
     (stems[1]!.voice as FakeVoice).end();
     tickStems(player, frame(at - 0.01));
@@ -80,7 +79,7 @@ describe("quantizedRamp (ADR 0166 R6)", () => {
   });
 
   it("solo composes with a waiting ramp: both land on auto x solo, nothing on fade", () => {
-    const { player, ramps, frame, stems } = setup(true);
+    const { player, ramps, frame, stems } = setup();
     tickStems(player, frame(1.3));
     quantizedRamp(player, "bass", 0.5, "bar", 0.02, frame(1.3));
     ramps.length = 0;
@@ -91,16 +90,15 @@ describe("quantizedRamp (ADR 0166 R6)", () => {
     expect((stems[1]!.voice as FakeVoice).events.some((e) => e.kind === "fade")).toBe(false);
   });
 
-  it("without a stamped ramp the level is committed at the first frame at or after the line", () => {
-    const { player, stems, frame } = setup(false);
-    const bass = stems[1]!.voice as FakeVoice;
+  it("the ramp is stamped once when asked; the line only makes it the stem's level (nothing is re-sent)", () => {
+    const { player, stems, ramps, frame } = setup();
     const at = quantizedRamp(player, "bass", 0.25, "bar", 0.02, frame(1.3));
+    expect(ramps).toEqual([{ track: "bass", r: { gain: 0.25, seconds: 0.02, law: "linear", at } }]);
     tickStems(player, frame(at - 0.016));
-    expect(bass.events.filter((e) => e.kind === "fade")).toEqual([]);
     tickStems(player, frame(at + 0.001));
-    expect(bass.events.filter((e) => e.kind === "fade")).toEqual([{ kind: "fade", to: 0.25, seconds: 0.02 }]);
     tickStems(player, frame(at + 0.02));
-    expect(bass.events.filter((e) => e.kind === "fade")).toHaveLength(1);
+    expect(ramps).toHaveLength(1);
+    expect((stems[1]!.voice as FakeVoice).events.some((e) => e.kind === "fade")).toBe(false);
   });
 });
 
@@ -157,7 +155,7 @@ describe("a quantised stem on the loopback host (ADR 0166 R6)", () => {
     const voice = backend.play({ path: "dc.wav", url: "dc.wav", loop: false, stream: false, bus: "Music", volume: 1 })!;
     // The core voice's own `paramsShaped` (G-1): a stamped gain SET_PARAMS through `musicOps`.
     expect(typeof voice.paramsShaped).toBe("function");
-    voice.paramsShaped!({ gain: 0, seconds: 0 });
+    voice.paramsShaped({ gain: 0, seconds: 0 });
     await step(10);
 
     const node = parseSegmentNode({ type: "segment", id: "s", tracks: [{ name: "bass", clip: "dc.wav" }] }, "test", { problems: [], ids: new Set() }) as SegmentNode;

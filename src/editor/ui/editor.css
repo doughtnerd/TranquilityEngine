@@ -408,7 +408,7 @@ button.danger:hover { background: color-mix(in srgb, var(--danger-strong) 85%, v
 .node-header .delete-node { margin-left: auto; flex: none; }
 button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
 button.primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); box-shadow: 0 0 10px var(--accent-soft); }
-.component h3 .edit-collider { margin-left: auto; font-size: calc(11px * var(--ui-scale)); font-weight: 500; padding: 1px 8px; }
+.component h3 .edit-handles { margin-left: auto; font-size: calc(11px * var(--ui-scale)); font-weight: 500; padding: 1px 8px; }
 
 /* Viewport multi-selection (ADR 0022): the selection box and the Alt+click refine list. */
 .selection-box { position: fixed; z-index: 20; pointer-events: none; border: 1px solid var(--accent); background: var(--accent-soft); }
@@ -439,7 +439,7 @@ button.primary:hover:not(:disabled) { background: var(--accent-hover); border-co
 
 /* Adding and removing components (ADR 0022). */
 .component h3 .remove-component { margin-left: auto; padding: 0 6px; font-size: calc(11px * var(--ui-scale)); line-height: 18px; color: var(--muted); background: transparent; border-color: transparent; }
-.component h3 .edit-collider ~ .remove-component { margin-left: 6px; }
+.component h3 .edit-handles ~ .remove-component { margin-left: 6px; }
 .component h3 .remove-component:hover:not(:disabled) { color: var(--danger-text); background: var(--danger-strong); border-color: var(--danger-strong); }
 .component h3 .remove-component:disabled { opacity: 0.35; }
 .add-component { position: relative; border-top: 1px solid var(--border); padding: 10px 0 14px; display: flex; justify-content: center; }

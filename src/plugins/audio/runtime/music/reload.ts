@@ -21,14 +21,14 @@
  *   playlists, switches and stingers apply to the next decision.
  * - A change that arrives while another change is planned waits until that plan has been stamped.
  */
-import type { AudioVoice } from "../backend";
-import { isMusicContainer, type SegmentNode, type MusicNode } from "../../../../engine/audio/musicFormat";
-import { compileSegmentGrid, entrySeconds, exitSeconds, ticksToSeconds, type SegmentGrid, type TempoMap } from "../../../../engine/audio/musicGrid";
+import { isMusicContainer, type MusicNode } from "../../../../engine/audio/musicFormat";
+import { entrySeconds, exitSeconds, ticksToSeconds, type SegmentGrid, type TempoMap } from "../../../../engine/audio/musicGrid";
 import { advanceAnchor, ticksAt } from "./anchors";
 import { promote } from "./musicPlayer";
 import { musicPlayers, type MusicFrame, type MusicPlayer } from "./musicSystem";
-import { lookaheadSeconds, requestStart, type PlannedStart } from "./planner";
-import { cancelRun, segmentClipSource, type SegmentRun } from "./segmentRun";
+import { requestStart, type PlannedStart } from "./planner";
+import { cancelRun, type SegmentRun } from "./segmentRun";
+import { FALLBACK_CLIP_RATE, segmentGrid, segmentLength } from "./segmentGrids";
 
 /** The crossfade at the swap, milliseconds: the outgoing stems fade out from T (the seek's 5 ms, R25). */
 const RELOAD_FADE_MS = 5;
@@ -57,10 +57,6 @@ interface Retiring {
   readonly run: SegmentRun;
   /** Heard seconds at which the run is cancelled. */
   readonly until: number;
-  /** Voices of a backend with no stamped fades: faded when T comes within the lookahead. */
-  deferred: AudioVoice[] | null;
-  /** Heard seconds the deferred voices fade at. */
-  readonly fadeAt: number;
 }
 
 interface ReloadState {
@@ -123,13 +119,8 @@ function sameTempoMap(a: TempoMap, b: TempoMap): boolean {
 }
 
 function gridOfNode(node: MusicNode): { grid: SegmentGrid; rate: number } | null {
-  if (node.type !== "segment") return null;
-  const seg = node;
-  const clip = seg.tracks.find((t) => t.clip)?.clip;
-  const facts = clip ? segmentClipSource().facts(clip) : undefined;
-  const known = facts && facts.rate > 0 ? facts : undefined;
-  const grid = compileSegmentGrid(seg, known ? { endSeconds: known.frames / known.rate } : {});
-  return { grid, rate: known?.rate ?? 48_000 };
+  const grid = segmentGrid(node);
+  return grid ? { grid, rate: segmentLength(node)?.rate ?? FALLBACK_CLIP_RATE } : null;
 }
 
 /** A segment node by id in an event's music tree (children and library), or null. */
@@ -145,16 +136,9 @@ function findNode(root: MusicNode, id: string): MusicNode | null {
 
 // --- Planning ----------------------------------------------------------------------------------------------------------
 
-/** Fade out the outgoing run's stems from `at`: stamped where the voice can, else deferred to the lookahead. */
-function fadeOutgoing(run: SegmentRun, at: number, seconds: number): AudioVoice[] | null {
-  let deferred: AudioVoice[] | null = null;
-  for (const s of run.stems) {
-    const v = s.voice;
-    if (!v) continue;
-    if (v.fadeShaped) v.fadeShaped({ to: 0, seconds, law: "equalPowerOut", at, stopAtEnd: true });
-    else (deferred ??= []).push(v);
-  }
-  return deferred;
+/** Fade out the outgoing run's stems from heard `at` and stop them (one stamped ramp per stem). */
+function fadeOutgoing(run: SegmentRun, at: number, seconds: number): void {
+  for (const s of run.stems) s.voice?.fadeShaped({ to: 0, seconds, law: "equalPowerOut", at, stopAtEnd: true });
 }
 
 /** Plan the swap of the playing segment for `node` at the next bar. False when nothing could be planned yet. */
@@ -188,9 +172,9 @@ function planSwap(player: MusicPlayer, st: ReloadState, node: MusicNode, f: Musi
       st.planned = null;
       const outgoing = player.run;
       if (!outgoing) return;
-      const deferred = fadeOutgoing(outgoing, p.point, fade);
+      fadeOutgoing(outgoing, p.point, fade);
       st.swap = { run: p.run, at: p.at, point: p.point };
-      st.retiring.push({ run: outgoing, until: p.point + fade + RETIRE_SLACK_SECONDS, deferred, fadeAt: p.point });
+      st.retiring.push({ run: outgoing, until: p.point + fade + RETIRE_SLACK_SECONDS });
     },
     onDropped: (): void => {
       st.planned = null; // the old version plays on; the planner warned and counted the refusal
@@ -218,15 +202,10 @@ export function applyReloads(player: MusicPlayer, f: MusicFrame): void {
   const st = states.get(player);
   if (!st) return;
 
-  // The outgoing runs: deferred fades when T is within the lookahead, cancel when the fade is over.
+  // The outgoing runs: cancelled once their fade is over.
   if (st.retiring.length > 0) {
-    const L = lookaheadSeconds(f);
     for (let k = st.retiring.length - 1; k >= 0; k--) {
       const r = st.retiring[k]!;
-      if (r.deferred && f.now + L >= r.fadeAt - EPS) {
-        for (const v of r.deferred) v.stop(RELOAD_FADE_MS / 1000);
-        r.deferred = null;
-      }
       if (f.now >= r.until) {
         cancelRun(r.run, f);
         st.retiring.splice(k, 1);

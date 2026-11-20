@@ -63,7 +63,8 @@ export const EffectAsset: Story = {
   render: () => <ParticleEffectInspector path={EFFECT} />,
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
-    expect(c.getByRole("heading", { name: "sparks.particles.json" })).toBeVisible();
+    // In the asset document frame (ADR 0265): the effect's file in its head.
+    expect(c.getByLabelText("Particle effect").querySelector(".asset-inspector-name")).toHaveTextContent("sparks.particles.json");
     expect(dd(canvasElement, "Exposed properties")).toBe("Rate (number)");
     expect(dd(canvasElement, "Nodes")).toBe("0");
     expect(dd(canvasElement, "Systems")).toMatch(/spawn, \d+ initialize, \d+ update, \d+ output/);

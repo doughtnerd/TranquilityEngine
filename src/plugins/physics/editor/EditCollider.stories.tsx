@@ -1,8 +1,10 @@
-// Stories (ADR 0219, 0235) for the Physics plugin's Edit Collider header action (ADR 0142), in the shell's own Inspector
-// as the plugin registers it: it makes the collider tool the scene view's active tool in that collider's mode through
+// Stories (ADR 0219, 0235) for Edit Collider in the shell's own Inspector: the toggle the viewport tool host adds to
+// every editable collider card because the collider tool declares `editsComponents` (ADR 0266, a component header
+// action, ADR 0142). It makes the collider tool the scene view's active tool in that collider's mode through
 // `editor.viewport` (ADR 0231), shows when it is on, is ignored while playing, steps aside for another collider, and
 // ends when its collider is removed. The tool's handles (drags, undo steps) are unit tests of the gizmo
-// (collider2d.test.ts, collider3d.test.ts), which run the tool host on a scene view.
+// (collider2d.test.ts, collider3d.test.ts), which run the tool host on a scene view; the toggle's rule on its own is
+// `editor/componentEditToggle.test.ts`.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { expect, userEvent, waitFor, within } from "storybook/test";
 import { editor } from "../../../editor/sdk";

@@ -2,7 +2,6 @@
 // physics layers, and which layers collide as a triangle of checkboxes. Edits go through the panel's undo history.
 import { defaultSettings } from "../../../engine/core/settings";
 import { collides, addLayer, MAX_LAYERS, physicsSettings, removeLayer, renameLayer, setCollides, setGravity } from "./physicsSettingsModel";
-import { renameLayerEdit } from "../../../editor/layerRenameEdit";
 import { physicsBackends, type PhysicsDimension } from "../runtime";
 import { backendOf, backendOptions, setBackend } from "./physicsEditorModel";
 import { type ProjectSettingsSectionProps, type SettingsDraft, type SettingsProblem, NameList, ProblemList, Row, NumberField } from "../../../editor/sdk";
@@ -54,10 +53,9 @@ function BackendRow(props: { dimension: PhysicsDimension; draft: SettingsDraft; 
 
 /** Physics layers, and which of them collide as a triangle of checkboxes. */
 function Layers(props: ProjectSettingsSectionProps) {
-  const { draft, project, set, fieldProblems } = props;
+  const { draft, set, fieldProblems } = props;
   const layers = physicsSettings.read(draft).layers;
   const matrixProblems = fieldProblems.filter((p) => p.field === "physics.collisionMatrix");
-  const ctx = { project, set, refresh: props.refresh };
   return (
     <>
       <NameList
@@ -70,7 +68,7 @@ function Layers(props: ProjectSettingsSectionProps) {
         fixed={(i) => i === 0}
         addDisabled={layers.length >= MAX_LAYERS}
         onAdd={() => set("Add physics layer", addLayer(draft))}
-        onRename={(i, v) => void renameLayerEdit(ctx, "physics", layers, i, v, renameLayer(draft, i, v))}
+        onRename={(i, v) => set(`Rename physics layer to ${v}`, renameLayer(draft, i, v))}
         onRemove={(i) => set(`Remove physics layer ${layers[i]}`, removeLayer(draft, i))}
       />
       <div class="project-settings-list" role="group" aria-label="Collisions">

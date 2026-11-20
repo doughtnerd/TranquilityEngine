@@ -24,8 +24,8 @@ async function openEditor(page: Page): Promise<void> {
 async function editCollider(page: Page, key: string, point: [number, number, number], distance: number): Promise<Record<string, Handle>> {
   await page.locator(`.tree .row[data-key="${key}"]`).click();
   await page.evaluate(([p, d]) => (window as unknown as Hooks).orbit.focus(p, d), [point, distance] as const);
-  await page.locator(".edit-collider").click();
-  await expect(page.locator(".edit-collider")).toHaveAttribute("aria-pressed", "true");
+  await page.locator(".edit-handles").click();
+  await expect(page.locator(".edit-handles")).toHaveAttribute("aria-pressed", "true");
   return handles(page);
 }
 
@@ -79,6 +79,6 @@ test("Edit Collider turns off when another tool is picked, hiding the handles", 
   await openEditor(page);
   await editCollider(page, "bird", [-4, 1, 0], 3);
   await page.getByRole("button", { name: "Move", exact: true }).click(); // already the tool: picking it still ends editing
-  await expect(page.locator(".edit-collider")).toHaveAttribute("aria-pressed", "false");
+  await expect(page.locator(".edit-handles")).toHaveAttribute("aria-pressed", "false");
   await page.waitForFunction(() => (window as unknown as Hooks).overlayHandles!().length === 0);
 });

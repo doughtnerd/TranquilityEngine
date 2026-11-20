@@ -24,14 +24,13 @@
  * heard(t) = t0 + file(t) - file(p0) linearly (the planner's `defaultPoint`, R1's `PlayingGrid`, R6's `nextGridHeard`)
  * are right only within the anchor's pass: `advanceAnchor(player, now)` moves the anchor to the pass heard at `now`.
  */
-import { audioBackend, type MusicGroupEvent } from "../backend";
-import type { SegmentNode, MusicNode } from "../../../../engine/audio/musicFormat";
-import {
-  compileSegmentGrid, positionTextToTicks, secondsToTicks, ticksToSeconds, type SegmentGrid,
-} from "../../../../engine/audio/musicGrid";
+import type { MusicGroupEvent } from "../backend";
+import type { MusicNode } from "../../../../engine/audio/musicFormat";
+import { positionTextToTicks, secondsToTicks, ticksToSeconds, type SegmentGrid } from "../../../../engine/audio/musicGrid";
 import type { MusicPlayer } from "./musicSystem";
 import type { RegionState } from "./regions";
 import { segmentClipSource, type SegmentRun } from "./segmentRun";
+import { FALLBACK_CLIP_RATE, segmentGrid, segmentLoops, type LoopRegion, type SegmentLoops } from "./segmentGrids";
 import { heardTimeAt, type PlayingGrid } from "./transitionRules";
 
 /** §3.2 `GridAnchor`. P3 added `node` and `rate` (the anchor needs its segment's grid; nothing else stores frames). */
@@ -50,104 +49,13 @@ export interface GridAnchor {
   readonly rate: number;
 }
 
-/** The clip rate when no stem has facts yet (as `stems.ts`). */
-const FALLBACK_RATE = 48_000;
 /** Float noise allowed when comparing heard or file seconds (far under one frame at 192 kHz). */
 const EPS = 1e-9;
 
 // --- Compiled segments -------------------------------------------------------------------------------------------------
 
-/** A loop region in file seconds on the clip's frame grid (what the worker loops). */
-interface LoopRegion {
-  /** Index in the segment's `regions` (R4b's `RegionState.region`). */
-  readonly index: number;
-  readonly from: number;
-  readonly to: number;
-  /** Passes in all (0: forever). */
-  readonly count: number;
-}
-
-interface Compiled {
-  readonly grid: SegmentGrid;
-  /** Usable regions, sorted by `from`. */
-  readonly regions: readonly LoopRegion[];
-  /** File seconds of the exit cue, +Infinity when unknown. */
-  readonly exit: number;
-  readonly rate: number;
-  /** The grid knew the file's end (a later call recompiles once facts arrive). */
-  readonly endKnown: boolean;
-}
-
-const compiled = new WeakMap<object, Compiled>();
-
-/**
- * The file's length: the clip facts (frames at its own rate), else the backend's decoded length in seconds
- * (`clipDuration`: a decoded clip loops at its buffer's end, so the seconds are the pass length itself). Undefined
- * while neither is known.
- */
-function factsOf(node: MusicNode): { frames: number; rate: number } | { seconds: number } | undefined {
-  const clip = (node as Partial<SegmentNode>).tracks?.find((t) => t.clip)?.clip;
-  if (!clip) return undefined;
-  const f = segmentClipSource().facts(clip);
-  if (f && f.rate > 0) return f;
-  let d: number | null | undefined;
-  try {
-    d = audioBackend().clipCache?.clipDuration(clip);
-  } catch {
-    d = undefined;
-  }
-  return typeof d === "number" && d > 0 ? { seconds: d } : undefined;
-}
-
-const endSecondsOf = (f: { frames: number; rate: number } | { seconds: number }): number =>
-  "seconds" in f ? f.seconds : f.frames / f.rate;
-
-/**
- * F-23: where `compile(…, openEnd)` puts an `"end"` bound while the file's length is unknown: far past any real file
- * (about 116 days), so a region to the file's end is still a region and its first wrap is still ahead.
- */
-const OPEN_END_SECONDS = 1e7;
-
-/**
- * The segment's grid and loop regions, cached per node object (recompiled once when the clip's facts arrive). F-23:
- * with `openEnd` and no facts yet, an `"end"` bound is `OPEN_END_SECONDS` instead of dropping its region, and the
- * result isn't cached (only `firstLoopOf` asks: which region wraps first doesn't depend on where the file ends).
- */
-function compile(node: MusicNode, rate?: number, openEnd = false): Compiled | null {
-  const cached = compiled.get(node);
-  const facts = factsOf(node);
-  const provisional = openEnd && !facts;
-  if (!provisional && cached && (cached.endKnown || !facts) && (rate === undefined || cached.rate === rate)) return cached;
-  const seg = node as Partial<SegmentNode>;
-  if (node.type !== "segment" || !Array.isArray(seg.tempo)) return null;
-  const r = rate ?? (facts && "rate" in facts ? facts.rate : FALLBACK_RATE);
-  const endSeconds = facts ? endSecondsOf(facts) : Number.NaN;
-  const grid = compileSegmentGrid({ ...seg, cues: seg.cues ?? [] } as SegmentNode, facts ? { endSeconds } : {});
-  const exitT = grid.exitTicks;
-  const exit = Number.isFinite(exitT) ? ticksToSeconds(grid, exitT) : Number.POSITIVE_INFINITY;
-  // Region bounds in frames of `r` (what the worker loops); the end of a file known only in seconds stays exact.
-  const frameOf = (text: string): number => {
-    if (text === "start") return 0;
-    if (text === "end") {
-      if (!facts) return provisional ? Math.round(OPEN_END_SECONDS * r) : Number.NaN;
-      return "rate" in facts ? Math.round(facts.frames * (r / facts.rate)) : endSeconds * r;
-    }
-    const t = positionTextToTicks(grid, text);
-    return t === null ? Number.NaN : Math.round(ticksToSeconds(grid, t) * r);
-  };
-  const regions: LoopRegion[] = [];
-  (seg.regions ?? []).forEach((reg, index) => {
-    const a = frameOf(reg.from), b = frameOf(reg.to);
-    if (!Number.isFinite(a) || !Number.isFinite(b) || b <= a || a / r >= exit - EPS) return;
-    regions.push({ index, from: a / r, to: b / r, count: Math.max(0, reg.count | 0) });
-  });
-  regions.sort((x, y) => x.from - y.from);
-  const c: Compiled = { grid, regions, exit, rate: r, endKnown: facts !== undefined };
-  if (!provisional) compiled.set(node, c);
-  return c;
-}
-
-const compiledOf = (a: GridAnchor): Compiled | null => compile(a.node, a.rate);
+/** The anchored segment's grid and regions in frames of the anchor's rate (`segmentGrids.ts`, ADR 0263). */
+const compiledOf = (a: GridAnchor): SegmentLoops | null => segmentLoops(a.node, a.rate);
 
 // --- R4b's release ------------------------------------------------------------------------------------------------------
 
@@ -188,13 +96,13 @@ export interface MemberLoop {
  * (`"start"` 0, `"end"` 0 = the file's end); null when a bound isn't a position or the region is empty.
  */
 export function regionFramesOf(node: MusicNode, index: number, rate: number): MemberLoop | null {
-  const reg = (node as Partial<SegmentNode>).regions?.[index];
-  const c = reg ? compile(node) : null;
-  if (!reg || !c || !(rate > 0)) return null;
+  const reg = node.type === "segment" ? node.regions?.[index] : undefined;
+  const grid = reg ? segmentGrid(node) : null;
+  if (!reg || !grid || !(rate > 0)) return null;
   const frameOf = (text: string): number => {
     if (text === "start" || text === "end") return 0;
-    const t = positionTextToTicks(c.grid, text);
-    return t === null ? Number.NaN : Math.round(ticksToSeconds(c.grid, t) * rate);
+    const t = positionTextToTicks(grid, text);
+    return t === null ? Number.NaN : Math.round(ticksToSeconds(grid, t) * rate);
   };
   const start = frameOf(reg.from), end = frameOf(reg.to);
   if (!Number.isFinite(start) || !Number.isFinite(end) || (end !== 0 && end <= start) || start < 0) return null;
@@ -210,7 +118,7 @@ export function regionFramesOf(node: MusicNode, index: number, rate: number): Me
 export function firstLoopOf(node: MusicNode, rate: number, startFrame: number): (MemberLoop & { region: number }) | null {
   // F-23: a run is admitted (and its PLAYs' loops decided) before its decoded clips are, so the file's length may be
   // unknown here: a region to `"end"` must still loop its members (`regionFramesOf` gives the end as 0, the file's end).
-  const c = compile(node, undefined, true);
+  const c = segmentLoops(node, undefined, true);
   if (!c || c.regions.length === 0 || !(rate > 0)) return null;
   const s = Math.max(0, startFrame) / rate;
   const r = regionAt(c, s);
@@ -278,7 +186,7 @@ function runRate(run: SegmentRun): number {
     const f = segmentClipSource().facts(s.clip);
     if (f && f.rate > 0) return f.rate;
   }
-  return FALLBACK_RATE;
+  return FALLBACK_CLIP_RATE;
 }
 
 // --- Anchors -----------------------------------------------------------------------------------------------------------
@@ -290,7 +198,7 @@ function runRate(run: SegmentRun): number {
  */
 export function anchorRun(run: SegmentRun, at: number): GridAnchor {
   const rate = runRate(run);
-  const c = compile(run.node, rate);
+  const c = segmentLoops(run.node, rate);
   const file = run.startFrame / rate;
   if (!c) return { segment: run.node.id, ticks: 0, time: at, pass: 1, node: run.node, rate };
   const exact = secondsToTicks(c.grid, file);
@@ -475,12 +383,12 @@ interface Cursor {
   wrapPass: number;
 }
 
-function regionAt(c: Compiled, s: number): LoopRegion | null {
+function regionAt(c: SegmentLoops, s: number): LoopRegion | null {
   for (const r of c.regions) if (r.from <= s + EPS && s < r.to - EPS) return r;
   return null;
 }
 
-function cursorOf(a: GridAnchor, c: Compiled): Cursor {
+function cursorOf(a: GridAnchor, c: SegmentLoops): Cursor {
   const s = ticksToSeconds(c.grid, a.ticks);
   const r = regionAt(c, s);
   return {
@@ -495,7 +403,7 @@ function cursorOf(a: GridAnchor, c: Compiled): Cursor {
  * the end of pass `lastPass - 1` (R4b: pass `lastPass` plays through); with `lastPass` NaN its wraps after `limit`
  * don't happen.
  */
-function advance(cur: Cursor, c: Compiled, limit: number, released: number, lastPass = Number.NaN): number {
+function advance(cur: Cursor, c: SegmentLoops, limit: number, released: number, lastPass = Number.NaN): number {
   const regions = c.regions;
   for (let guard = 0; guard < 4 * regions.length + 4; guard++) {
     // The region the playhead is in, or the next one it enters.

@@ -25,9 +25,10 @@
  */
 import { isPendingCoreBackend, type MusicAdmitResult, type MusicBackend, type MusicGroupStamp } from "../backend";
 import {
-  compileSegmentGrid, entrySeconds, exitSeconds, nextGridSeconds, spanAtTicks, ticksToSeconds, type SegmentGrid,
+  entrySeconds, exitSeconds, nextGridSeconds, spanAtTicks, ticksToSeconds,
 } from "../../../../engine/audio/musicGrid";
 import type { SegmentNode, MusicNode } from "../../../../engine/audio/musicFormat";
+import { segmentGrid } from "./segmentGrids";
 import { segmentRingNeed } from "../../../../engine/audio/musicValidate";
 import { musicPlayers, planStepDone, type MusicFrame, type MusicPlayer } from "./musicSystem";
 import { adoptPlan, adoptSuccessor, cancelSuccessor, clearPlan, commitStart, noteStartHeard, primeStart, refuseStart, waitForRoom } from "./musicPlayer";
@@ -153,28 +154,9 @@ function leadFor(run: SegmentRun, f: MusicFrame): number {
   return primeLeadSeconds(f.music?.primeEmaMs ?? PRIME_EMA_FALLBACK_MS, lookaheadSeconds(f), frameIntervalSeconds(f), needsPrime(run));
 }
 
-// --- Grids -----------------------------------------------------------------------------------------------------------
-
-const grids = new WeakMap<object, SegmentGrid | null>();
-
-/** A segment's compiled grid (G1), cached per node object; null for a node that isn't a segment. */
-function gridOf(node: MusicNode): SegmentGrid | null {
-  const cached = grids.get(node);
-  if (cached !== undefined) return cached;
-  let grid: SegmentGrid | null = null;
-  const seg = node as Partial<SegmentNode>;
-  if (node.type === "segment" && Array.isArray(seg.tempo) && Array.isArray(seg.cues)) {
-    const clip = seg.tracks?.[0]?.clip;
-    const facts = clip ? segmentClipSource().facts(clip) : undefined;
-    grid = compileSegmentGrid(node as SegmentNode, facts && facts.rate > 0 ? { endSeconds: facts.frames / facts.rate } : {});
-  }
-  grids.set(node, grid);
-  return grid;
-}
-
 /** Seconds of one beat at the segment's entry, NaN without a grid. */
 function beatSecondsOf(node: MusicNode): number {
-  const g = gridOf(node);
+  const g = segmentGrid(node);
   if (!g) return Number.NaN;
   const bpm = g.bpm[spanAtTicks(g, Number.isFinite(g.entryTicks) ? g.entryTicks : 0)] ?? 0;
   return bpm > 0 ? 60 / bpm : Number.NaN;
@@ -188,7 +170,7 @@ function beatSecondsOf(node: MusicNode): number {
 function defaultPoint(player: MusicPlayer, kind: PlanGrid, notBefore: number): number {
   const run = player.run;
   const a = player.anchor;
-  const g = run ? gridOf(run.node) : null;
+  const g = run ? segmentGrid(run.node) : null;
   if (!run || !a || !g || kind === "immediate") return notBefore;
   const base = ticksToSeconds(g, a.ticks);
   const file = base + (notBefore - a.time);
@@ -580,7 +562,7 @@ export function planTick(player: MusicPlayer, f: MusicFrame): void {
   noteStartHeard(player, f.now);
   if (player.state === "stopping" || player.state === "stopped" || player.state === "refused") return;
   if (!player.planned && player.run === null && player.state === "starting" && player.root.type === "segment") {
-    const g = gridOf(player.root);
+    const g = segmentGrid(player.root);
     requestStart(player, {
       to: player.root, reason: "start", grid: "immediate", notBefore: player.requestedAt, startFrame: 0,
       preEntry: g ? Math.max(0, entrySeconds(g)) : 0,

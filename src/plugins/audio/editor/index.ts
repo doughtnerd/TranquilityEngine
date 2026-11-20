@@ -7,9 +7,9 @@ import { Audio } from "../runtime";
 import { AUDIO_EVENT_SUFFIX } from "../../../engine/audio/eventFormat";
 import { createEventFromClips } from "./createEventFromClips";
 import { audioEventFormat, audioEventReferences } from "./eventAsset";
+import { audioNamedLists, occlusionLayerReferences } from "./audioNames";
 import { EVENT_EDITOR_PANEL } from "./event/openEventEditor";
 import { zoneTool } from "./AudioReverbZoneGizmo";
-import { editZoneAction } from "./EditZoneButton";
 import { occluderTool } from "./AudioOccluderGizmo";
 import { occlusionTool } from "./OcclusionOverlay";
 import { registerMusicPanels } from "./music";
@@ -40,14 +40,17 @@ export const audioEditorPlugin: EditorPlugin = {
       return { name: project?.name ?? "", version: typeof version === "string" ? version : "" };
     });
     // Project settings > Audio, after Graphics as it has always been. `audio` is a core key (the panel's own parse reports
-    // its problems), so the section owns no extra keys.
+    // its problems), so the section owns no extra keys. Renaming a bus, material or parameter renames the scenes' and event
+    // files' references (ADR 0262), and renaming a physics layer renames it in the occlusion layers.
     context.registerProjectSettingsSection({
       id: "audio",
       title: "Audio",
       after: "Graphics",
       keys: [],
+      names: audioNamedLists,
       view: () => import("./AudioSettingsSection").then((m) => m.AudioSettingsSection),
     });
+    context.registerNameReferences(occlusionLayerReferences);
     // Play Stats: the audio thread's underruns since the page loaded, on every World's Nodes row (the audio core is shared).
     context.registerPlayStatsCounter({ id: "myco.audio.underruns", label: "audio underruns", count: () => Audio.debug().counters.underruns });
     // The Audio Debug panel (A2.5): a 4 Hz copy of `Audio.debug()` while playing (status, counters, buses, voices).
@@ -91,9 +94,8 @@ export const audioEditorPlugin: EditorPlugin = {
     });
     registerMusicPanels(context); // the segment view, its properties and the rules table (M4, H6)
     registerMixPanels(context); // the Profiler now, the Mixer later (M5, one registration point)
-    // The reverb zone gizmo (E1): volume and blend shell in the scene view, face, radius and blend handles under Edit Zone.
+    // The reverb zone gizmo (E1): volume and blend shell in the scene view, face, radius and blend handles under Edit Zone (the toggle comes with the tool, ADR 0266).
     context.registerViewportTool(zoneTool);
-    context.registerComponentHeaderAction(editZoneAction);
     // The occluder gizmo and the Inspector sections under the zone, occluder and audio source cards (E2).
     context.registerViewportTool(occluderTool);
     // The occlusion overlay (E4): rays to occluded sources while playing, switched on in the Audio Debug panel.

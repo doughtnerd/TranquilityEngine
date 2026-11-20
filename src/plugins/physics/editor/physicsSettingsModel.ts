@@ -3,7 +3,7 @@
 // the Project panel's draft, and the problems that keep it from being saved. Moved here from the shell's
 // `projectSettingsModel.ts` when settings sections began declaring their keys.
 import { physicsBackendProblems, resolvePhysicsSettings } from "../../../engine/core/settings";
-import { settingsSection, type SettingsDraft, type SettingsProblem } from "../../../editor/sdk";
+import { settingsSection, type NamedList, type SettingsDraft, type SettingsProblem } from "../../../editor/sdk";
 import { uniqueName } from "../../../engine/core/uniqueName";
 
 /** Physics layers are bits in a 16-bit collision mask. */
@@ -21,6 +21,20 @@ export const physicsSettings = settingsSection({
 });
 
 const layersOf = (d: SettingsDraft): string[] => physicsSettings.read(d).layers;
+
+/** The physics Components with a `layer` field: every collider type and both character controllers (a script's own `layer` field is left alone). */
+export const LAYERED_COMPONENTS = [
+  "engine.BoxCollider2D", "engine.CircleCollider2D", "engine.PolygonCollider2D", "engine.EdgeCollider2D", "engine.TilemapCollider2D", "engine.CharacterController2D",
+  "engine.BoxCollider", "engine.SphereCollider", "engine.CapsuleCollider", "engine.MeshCollider", "engine.CharacterController",
+] as const;
+
+/** The physics layers as a named list (ADR 0262): renaming one renames the `layer` of every physics Component that names it. */
+export const physicsLayers: NamedList = {
+  id: "physics.layers",
+  noun: "physics layer",
+  names: layersOf,
+  fields: [{ component: LAYERED_COMPONENTS, field: "layer" }],
+};
 
 /** Pair key for two layer names, order-free. */
 const pairKey = (a: string, b: string) => (a < b ? `${a}\u0000${b}` : `${b}\u0000${a}`);
@@ -78,7 +92,7 @@ export function addLayer(draft: SettingsDraft): SettingsDraft {
   return withLayers(draft, [...layers, name], pairs);
 }
 
-/** Rename a layer, in the matrix too. (The scenes that name it are updated by the shell's layer rename.) */
+/** Rename a layer, in the matrix too. (The files that name it are updated by the shell's settings names module, from `physicsLayers`, ADR 0262.) */
 export function renameLayer(draft: SettingsDraft, index: number, name: string): SettingsDraft {
   const layers = [...layersOf(draft)];
   const old = layers[index];

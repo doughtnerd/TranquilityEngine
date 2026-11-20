@@ -162,3 +162,49 @@ test("the Project menu's Project Settings shows the panel", async ({ page }) => 
   await menu(page, "File", "Project Settings");
   await expect(panel(page)).toBeVisible();
 });
+
+// Renaming an entry of a named list (ADR 0262) renames what names it, asking first: a physics layer the open scene's
+// colliders use, and an audio bus that a scene's sources and an event file use. Undo moves the references back.
+test("renaming a physics layer asks first and renames the colliders; cancelling keeps the old name", async ({ page }) => {
+  await openProject(page);
+  await pickCategory(page, "Physics");
+  const dialog = page.getByRole("alertdialog");
+  await commit(page, "layer 5", "Floor");
+  await expect(dialog).toContainText('Rename the physics layer "Ground" to "Floor"? A file uses it; it will be updated.');
+  await expect(dialog.getByRole("listitem")).toHaveText(["scenes/main.scene.json"]);
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(panel(page).getByRole("textbox", { name: "layer 5", exact: true })).toHaveValue("Ground");
+  expect((await projectJson(page)).physics.layers).toContain("Ground");
+
+  await commit(page, "layer 5", "Floor");
+  await dialog.getByRole("button", { name: "Rename and update" }).click();
+  await expect.poll(async () => (await projectJson(page)).physics.layers).toEqual(["Default", "Player", "Obstacle", "Score", "Floor", "Bounds"]);
+  expect((await projectJson(page)).physics.collisionMatrix).toEqual({ Player: ["Obstacle", "Score", "Floor", "Bounds"] });
+  await expect(page.locator(".status-text")).toHaveText("Renamed references in 1 file.");
+});
+
+test("renaming an audio bus renames the sources and events that play on it, and undo renames them back", async ({ page }) => {
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  const source = { format: "myco.scene@1", nodes: [{ id: "s", name: "Speaker", components: [{ type: "engine.AudioSource", data: { output: "SFX" } }, { type: "engine.AudioSource", data: { output: "UI" } }] }] };
+  const event = { format: "myco.audioevent@1", bus: "SFX", sends: { reverb: 0.5, SFX: 0.3 }, root: { type: "layer", children: [] } };
+  await openTestProject(page, { "scenes/speaker.scene.json": JSON.stringify(source, null, 2), "audio/hit.audioevent.json": JSON.stringify(event, null, 2) });
+  await showTab(page, /^Project/);
+  await pickCategory(page, "Audio");
+  const read = async (path: string) => JSON.parse((await page.evaluate((p) => (window as unknown as Hooks).testFolder.read(p), path))!);
+  const audio = panel(page).getByRole("group", { name: "Audio settings" });
+  const name = audio.getByLabel("Bus SFX name", { exact: true });
+  await name.fill("Effects");
+  await name.press("Enter");
+  const dialog = page.getByRole("alertdialog");
+  await expect(dialog).toContainText('Rename the bus "SFX" to "Effects"? 2 files use it; they will be updated.');
+  await expect(dialog.getByRole("listitem")).toHaveText(["audio/hit.audioevent.json", "scenes/speaker.scene.json"]);
+  await dialog.getByRole("button", { name: "Rename and update" }).click();
+  await expect.poll(async () => (await read("audio/hit.audioevent.json")).bus).toBe("Effects");
+  expect((await read("audio/hit.audioevent.json")).sends).toEqual({ reverb: 0.5, Effects: 0.3 });
+  expect((await read("scenes/speaker.scene.json")).nodes[0].components.map((c: { data: { output: string } }) => c.data.output)).toEqual(["Effects", "UI"]);
+  await expect.poll(async () => ((await projectJson(page)).audio?.buses as { name: string }[] | undefined)?.map((b) => b.name)).toContain("Effects");
+
+  await panel(page).getByRole("button", { name: "Undo" }).click();
+  await expect.poll(async () => (await read("audio/hit.audioevent.json")).bus).toBe("SFX");
+  expect((await read("scenes/speaker.scene.json")).nodes[0].components[0].data.output).toBe("SFX");
+});

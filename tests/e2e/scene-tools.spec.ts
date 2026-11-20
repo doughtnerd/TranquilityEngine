@@ -141,7 +141,7 @@ test("a polygon collider's vertices drag, an edge's middle handle adds one, Ctrl
   const card = page.locator("section.component", { has: page.locator("h3", { hasText: "PolygonCollider2D" }) });
   await expect(card).toHaveCount(1);
   await page.evaluate(() => (window as unknown as Hooks).orbit.focus([-4, 1, 0], 3));
-  await card.locator(".edit-collider").click();
+  await card.locator(".edit-handles").click();
   let h = await handles(page);
   expect(Object.keys(h).filter((k) => k.startsWith("vertex:"))).toHaveLength(4);
 

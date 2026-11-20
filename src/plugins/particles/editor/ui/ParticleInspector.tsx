@@ -6,34 +6,33 @@ import { expandParticleGraph, projectAssets } from "../../../../engine/scene/par
 import type { GraphProperty, ParticleGraph } from "../../../../engine/scene/particleGraph";
 import { compileParticleGraph } from "../../../../engine/scene/particleCompile";
 import type { CurveKey, ParticleColor, ParticleGradient } from "../../../../engine/scene/particles";
-import { effectFileMigrated } from "../particleAssets";
+import { effectFileMigrated, particleDocument } from "../particleAssets";
 import { parseBlockAsset, parseSubgraphAsset, type AssetPort } from "../../../../engine/scene/particleSubgraphs";
 import { assetDocKind, docToAsset } from "../particleGraph/assetDocs";
 import { CurveEditor } from "./particles/ParticleCurve";
 import { GradientEditor } from "./particles/GradientEditor";
 import { NumField, ParticleColorInput, VecField } from "./particles/valueInputs";
-import { editor, type NodePath, type OpenScene, LargePreview, sectionField, type InspectorSectionProps } from "../../../../editor/sdk";
-import "../../../../editor/ui/assetInspector.css";
+import { AssetDocumentFrame, editor, type NodePath, type OpenScene, LargePreview, sectionField, type InspectorSectionProps } from "../../../../editor/sdk";
 
-/** Problems of a graph: its parse problems plus what compiling it reports. */
-function allProblems(graph: ParticleGraph, parse: readonly { message: string }[]): string[] {
-  const compiled = compileParticleGraph(expandParticleGraph(graph, projectAssets).graph).problems.map((p) => p.message);
-  return [...new Set([...parse.map((p) => p.message), ...compiled])];
-}
+/** What compiling a graph reports (its parse problems are the document's). */
+const compileProblems = (graph: ParticleGraph): string[] => compileParticleGraph(expandParticleGraph(graph, projectAssets).graph).problems.map((p) => p.message);
 
-/** A particle effect asset selected in the Assets panel: what it holds, and a way into the graph. */
+/**
+ * A particle effect asset selected in the Assets panel: what it holds, and a way into the graph. It shows the asset
+ * document the Particle Graph edits, in the asset document frame (ADR 0265): the current value with unwritten edits,
+ * its problems and the compiler's, Undo / Redo of its history and the read-only notice. It makes no edits itself.
+ */
 export function ParticleEffectInspector(props: { path: string }) {
-  editor.project.version; // rewritten by the graph panel, or on disk
+  editor.project.version; // rewritten on disk
   const project = editor.project.current;
   if (!project) return null;
-  const { value: graph, problems } = editor.assets.read<ParticleGraph>(project, props.path);
+  const doc = particleDocument(project, props.path);
+  const graph = doc.value.value;
   const migrated = effectFileMigrated(project, props.path);
-  const all = allProblems(graph, problems);
   const exposed = graph.properties.filter((p) => p.exposed);
   return (
-    <div class="asset-inspector particle-inspector">
-      <h3>{editor.assets.fileName(props.path)}</h3>
-      <p class="hint">Particle effect. ParticleSystem components play it; edit it in the Particle Graph.</p>
+    <AssetDocumentFrame doc={doc} kind="Particle effect" class="asset-inspector particle-inspector" problems={compileProblems(graph)}>
+      <p class="hint">ParticleSystem components play it; edit it in the Particle Graph.</p>
       <button onClick={() => editor.assets.open(props.path)}>Open in Particle Graph</button>
       {/* The shared thumbnail renderer's live preview (ADR 0061): no WebGL context of its own, and it
           restarts only when the effect's file (or what it uses) changes. */}
@@ -41,7 +40,6 @@ export function ParticleEffectInspector(props: { path: string }) {
         <LargePreview path={props.path} />
       </div>
       {migrated && <p class="hint">An older particle effect file. It's converted to a graph the first time it's edited.</p>}
-      {!project.canSave && <p class="hint">Read-only: open a project folder (or copy the sample) to edit.</p>}
       <dl class="particle-summary">
         <dt>Systems</dt>
         <dd>
@@ -63,14 +61,7 @@ export function ParticleEffectInspector(props: { path: string }) {
         <dt>Exposed properties</dt>
         <dd>{exposed.length === 0 ? "none" : exposed.map((p) => `${p.name} (${p.type})`).join(", ")}</dd>
       </dl>
-      {all.length > 0 && (
-        <ul class="material-problems">
-          {all.map((p) => (
-            <li key={p}>{p}</li>
-          ))}
-        </ul>
-      )}
-    </div>
+    </AssetDocumentFrame>
   );
 }
 
@@ -82,30 +73,22 @@ export function ParticleAssetInspector(props: { path: string }) {
   const project = editor.project.current;
   if (!project) return null;
   const kind = assetDocKind(props.path);
-  // The current value (ADR 0233): the open Particle Graph's, unwritten edits included, else the file, read as a
-  // document by the kind's format; a file that isn't one reads with that as its problem.
-  const read = editor.assets.read<ParticleGraph>(project, props.path);
-  const raw = read.problems.length > 0 ? null : docToAsset(read.value);
+  // The asset document the Particle Graph edits (ADR 0265): its current value, unwritten edits included, read by the
+  // kind's format; a file that isn't one reads with that as its problem, which the frame lists.
+  const doc = particleDocument(project, props.path);
+  const raw = doc.problems.value.length > 0 ? null : docToAsset(doc.value.value);
   const sub = kind === "subgraph" ? parseSubgraphAsset(raw) : null;
   const block = kind === "block" ? parseBlockAsset(raw) : null;
   const asset = sub ?? block;
   return (
-    <div class="asset-inspector particle-inspector" aria-label={kind === "block" ? "Particle block asset" : "Particle sub-graph asset"}>
-      <h3>{editor.assets.fileName(props.path)}</h3>
+    <AssetDocumentFrame doc={doc} kind={kind === "block" ? "Particle block asset" : "Particle sub-graph asset"} class="asset-inspector particle-inspector">
       <p class="hint">
         {kind === "block"
           ? "Particle block: a stack of blocks and nodes that a Custom block runs in the contexts below. Edit it in the Particle Graph."
           : "Particle sub-graph: a group of nodes used as one Sub-graph node. Edit it in the Particle Graph."}
       </p>
       <button onClick={() => editor.assets.open(props.path)}>Open in Particle Graph</button>
-      {!project.canSave && <p class="hint">Read-only: open a project folder (or copy the sample) to edit.</p>}
-      {!asset ? (
-        <ul class="material-problems">
-          {read.problems.map((p) => (
-            <li key={p.message}>{p.message}</li>
-          ))}
-        </ul>
-      ) : (
+      {asset && (
         <dl class="particle-summary">
           {block && (
             <>
@@ -133,7 +116,7 @@ export function ParticleAssetInspector(props: { path: string }) {
           )}
         </dl>
       )}
-    </div>
+    </AssetDocumentFrame>
   );
 }
 
@@ -243,7 +226,7 @@ function ParticleSystemEffect(props: { scene: OpenScene; path: NodePath; index: 
   const { value: graph, problems } = editor.assets.read<ParticleGraph>(project, asset);
   const overrides = (props.overrides && typeof props.overrides === "object" ? props.overrides : {}) as Record<string, Override>;
   const exposed = graph.properties.filter((p) => p.exposed);
-  const issues = allProblems(graph, problems);
+  const issues = [...new Set([...problems.map((p) => p.message), ...compileProblems(graph)])];
   const setOverride = (name: string, value: Override) => set("overrides", { ...overrides, [name]: value });
   const revert = (name: string) => {
     const { [name]: _removed, ...rest } = overrides;

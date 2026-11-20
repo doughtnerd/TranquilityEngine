@@ -45,7 +45,7 @@ describe("seek on a clip voice on the loopback host (B3b)", () => {
     const first = out.findIndex((s) => s !== 0);
     const start = first - STEP; // output index of clip frame 0
     const mark = out.length;
-    voice.seek!(1.0);
+    voice.seek(1.0);
     await step(8);
     // Playing straight up to the fade, then 240 frames fading out the old audio.
     let f = mark;
@@ -74,7 +74,7 @@ describe("seek on a clip voice on the loopback host (B3b)", () => {
     const looping = backend.play({ path: "ramp.wav", url: "ramp.wav", loop: true, stream: false, bus: "SFX" })!;
     await step(6);
     const mark = out.length;
-    looping.seek!(2.5); // 2.5 s of a 2 s clip: 0.5 s
+    looping.seek(2.5); // 2.5 s of a 2 s clip: 0.5 s
     await step(8);
     expect(out.slice(mark).some((s) => s !== 0)).toBe(true);
     const tail = out.slice(-600);
@@ -86,7 +86,7 @@ describe("seek on a clip voice on the loopback host (B3b)", () => {
 
     const once = backend.play({ path: "ramp.wav", url: "ramp.wav", loop: false, stream: false, bus: "SFX" })!;
     await step(6);
-    once.seek!(5);
+    once.seek(5);
     await step(8);
     expect(once.playing).toBe(false);
     backend.dispose();

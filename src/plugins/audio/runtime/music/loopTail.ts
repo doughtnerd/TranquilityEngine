@@ -20,7 +20,7 @@
  * their first wrap (`segmentRun.groupRequest` through `anchors.firstLoopOf`). Each tick the region of the next wrap
  * (`anchors.nextWrapOf`, which honours R4b's `released`) is the one they should loop; when it changes (the last wrap of
  * a `count` region was heard, or R4b released a `while` region) the members are moved on with the voice's own loop
- * record (`AutomationSink.setLoop`, else `AudioVoice.setLoop`): a new region they reach later, or a release. A decoded
+ * record (`AudioVoice.setLoop`; on the core through its automation sink): a new region they reach later, or a release. A decoded
  * member's release lands at once and the voice plays on through its last pass; a streamed member's lands at the end of
  * its current pass (the worker's region-release splice). Either way the last pass ends at the predicted exit.
  *
@@ -29,8 +29,9 @@
  * stops it and the instance counts its voices, like the tail voices (`eventRuntime.ts` `musicVoices`; F-7e).
  */
 import type { AudioVoice, ClipSpanHold, PlayRequest } from "../backend";
-import type { SegmentNode, MusicNode } from "../../../../engine/audio/musicFormat";
-import { compileSegmentGrid, positionTextToTicks, ticksToSeconds, type SegmentGrid } from "../../../../engine/audio/musicGrid";
+import type { MusicNode } from "../../../../engine/audio/musicFormat";
+import { positionTextToTicks, ticksToSeconds } from "../../../../engine/audio/musicGrid";
+import { segmentGrid } from "./segmentGrids";
 import { MUSIC_TICKS_PER_BEAT } from "../../../../engine/audio/musicPosition";
 import { warnOnce } from "../core/handle";
 import type { MusicFrame, MusicPlayer } from "./musicSystem";
@@ -100,27 +101,16 @@ function runRate(run: SegmentRun): number {
   return FALLBACK_RATE;
 }
 
-const grids = new WeakMap<object, SegmentGrid | null>();
-
-/** The segment's grid (positions only: a tail never needs the file's end). */
-function gridOf(node: MusicNode): SegmentGrid | null {
-  if (grids.has(node)) return grids.get(node) ?? null;
-  const seg = node as Partial<SegmentNode>;
-  const grid = node.type === "segment" && Array.isArray(seg.tempo) ? compileSegmentGrid({ ...seg, cues: seg.cues ?? [] } as SegmentNode) : null;
-  grids.set(node, grid);
-  return grid;
-}
-
 /**
  * The tail span of region `index` in file frames of `rate`: from the region's `to` (as the members loop it) for its
  * `tailBeats` beats. Null without a tail, or when the region ends at the file's end (nothing follows it).
  */
 export function tailSpanOf(node: MusicNode, index: number, rate: number): { startFrame: number; endFrame: number } | null {
-  const reg = (node as Partial<SegmentNode>).regions?.[index];
+  const reg = node.type === "segment" ? node.regions?.[index] : undefined;
   const beats = reg?.tailBeats ?? 0;
   if (!reg || !(beats > 0) || reg.to === "end" || reg.to === "start") return null;
   const frames = regionFramesOf(node, index, rate);
-  const grid = gridOf(node);
+  const grid = segmentGrid(node);
   const to = grid ? positionTextToTicks(grid, reg.to) : null;
   if (!frames || frames.endFrame <= 0 || !grid || to === null) return null;
   const endFrame = Math.round(ticksToSeconds(grid, to + beats * MUSIC_TICKS_PER_BEAT) * rate);
@@ -137,7 +127,7 @@ function releaseSpans(st: LoopTailState): void {
 function holdSpans(st: LoopTailState, run: SegmentRun, f: MusicFrame): void {
   st.held = true;
   const clips = f.backend.clipCache;
-  const regions = (run.node as Partial<SegmentNode>).regions;
+  const regions = run.node.type === "segment" ? run.node.regions : undefined;
   if (!clips || !Array.isArray(regions)) return;
   for (let region = 0; region < regions.length; region++) {
     if (!((regions[region]!.tailBeats ?? 0) > 0)) continue;
@@ -153,17 +143,14 @@ function holdSpans(st: LoopTailState, run: SegmentRun, f: MusicFrame): void {
 }
 
 /** The members move on to region `target` (a loop of it), or are released (`target` -1) from region `from`. */
-function moveMembers(run: SegmentRun, from: number, target: number, f: MusicFrame): void {
+function moveMembers(run: SegmentRun, from: number, target: number): void {
   for (const s of run.stems) {
     const v = s.voice;
     if (!v) continue;
     const rate = clipRate(s.clip);
     const frames = regionFramesOf(run.node, target >= 0 ? target : from, rate);
     if (!frames) continue;
-    const start = frames.startFrame / rate, end = frames.endFrame / rate;
-    const sink = f.backend.automation;
-    if (sink) sink.setLoop(v, start, end, target >= 0);
-    else v.setLoop?.(start, end, target >= 0);
+    v.setLoop(frames.startFrame / rate, frames.endFrame / rate, target >= 0);
   }
 }
 
@@ -257,7 +244,7 @@ export function tickLoopTails(player: MusicPlayer, f: MusicFrame): void {
   // The region walk: the members loop the region of the next wrap, or nothing.
   const target = Number.isFinite(wrap) ? next.region : -1;
   if (target !== st.looping) {
-    moveMembers(run, st.looping, target, f);
+    moveMembers(run, st.looping, target);
     st.looping = target;
   }
 
@@ -283,9 +270,7 @@ export function stopLoopTails(player: MusicPlayer, seconds: number, at: number):
   const st = player.tails;
   if (!st) return;
   const stop = (v: AudioVoice): void => {
-    if (!alive(v)) return;
-    if (v.fadeShaped) v.fadeShaped({ to: 0, seconds, law: "equalPowerOut", at, stopAtEnd: true });
-    else v.stop(seconds);
+    if (alive(v)) v.fadeShaped({ to: 0, seconds, law: "equalPowerOut", at, stopAtEnd: true });
   };
   for (const t of st.ringing) stop(t.voice);
   for (const r of st.runs) {

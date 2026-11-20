@@ -705,11 +705,11 @@ describe("a stem voice across a hard rebuild (F-9b)", () => {
     r.frame();
     const voice = r.backend.play({ ...req("stem.wav"), volume: 0.8, loop: true })!;
     r.frame();
-    voice.setOcclusion!(0.5, 20_000);
+    voice.setOcclusion(0.5, 20_000);
     // The stem's level (asap, no ramp), then frames pass so it has landed, and a later stamped fade prunes its log entry.
-    voice.paramsShaped!({ gain: 0.25, seconds: 0 });
+    voice.paramsShaped({ gain: 0.25, seconds: 0 });
     for (let k = 0; k < 10; k++) r.frame();
-    voice.fadeShaped!({ to: 1, seconds: 0, law: "linear" });
+    voice.fadeShaped({ to: 1, seconds: 0, law: "linear" });
     r.frame();
     r.posted.take();
     expect(await r.rebuild()).toBe("rebuilt");

@@ -117,6 +117,8 @@ export interface MockPlayCall {
 
 /** A `StaticSound` or `StreamingSound`. `finish()` ends it the way a clip reaching its end does. */
 export class MockSound {
+  /** The playhead in seconds; setting it moves the sound there (a seek). */
+  currentTime = 0;
   volume: number;
   loop: boolean;
   playbackRate: number;

@@ -41,6 +41,7 @@ import type { GameObject } from "../../../../engine/scene/GameObject";
 import type { World } from "../../../../engine/core/World";
 import type { Vec3Like } from "../../../../engine/core/math";
 import { DEFAULT_SEND_CURVE, type SendCurve } from "../backend";
+import type { AudioSettings } from "../../../../engine/audio/settings";
 import type { DopplerPass } from "./doppler";
 import type { OcclusionPass } from "./occlusion";
 import type { ZoneManager } from "./zones";
@@ -417,8 +418,23 @@ export interface SpatialPassHost {
   readonly spatialVoices: SpatialVoiceView;
   readonly doppler: DopplerPass;
   readonly occlusion: OcclusionPass;
+  /**
+   * ADR 0264: the reverb zone pass. The core's plans and sends zones (`zones.ts`); the Babylon fallback's is inert and
+   * warns once when the World has an enabled zone (F2: no insertion point for a convolver).
+   */
+  readonly zones: ZonePass;
   /** Refreshes `spatialVoices` for this frame (its slot list and flags). Runs after attenuation, before Doppler. */
   collectSpatialVoices(): void;
+  /**
+   * ADR 0264 (D3, `AudioSource.velocity`): voice `id`'s velocity in world units per second (the Doppler pass's estimate,
+   * or `setVelocity`'s value) into `out`; false when the voice is gone.
+   */
+  velocityOf(id: number, out: Vec3Like): boolean;
+}
+
+/** @internal ADR 0264: a reverb zone pass, run once per frame after Doppler (`SpatialPassHost.zones`). */
+export interface ZonePass {
+  run(frame: ListenerFrame, view: SpatialVoiceView, settings: Pick<AudioSettings, "zones" | "buses">): void;
 }
 
 /**

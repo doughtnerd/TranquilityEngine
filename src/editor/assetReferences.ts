@@ -13,17 +13,13 @@
 //   what its asset kind's `references` extractor reads from a file in its own format (models' material
 //   libraries, textures and buffers come from the Meshes plugin; the shell knows no model format).
 //
-// Edits know three kinds of JSON file: scenes and prefabs (one format, written keeping their layout,
-// and instances of a changed prefab in the open scene are rebuilt), project.json (the settings) and
-// plain JSON. The open scene is edited as one undo step instead of on disk (save to keep it).
-import { ReplaceDocument, type SceneFile } from "./document";
+// Edits go through the project file loop (`projectFileEdits.ts`, shared with the settings names module):
+// scenes and prefabs, project.json and plain JSON, the open scene as one undo step (save to keep it).
 import { assetRefPath, sceneWithoutAsset, settingsWithoutAsset, withMovedAssets } from "./assetRefValues";
 import { assetKind, registeredKind } from "./assetKindLookup";
 import type { AssetReferenceExtractor } from "./sdk/contributions";
-import { instancesOf } from "./prefabs";
-import { writeSceneFile } from "./project";
+import { editProjectFiles } from "./projectFileEdits";
 import { isWithin, type EditorProject } from "./projects";
-import { openScene, type OpenScene } from "./state";
 
 export { assetRefTarget } from "./assetRefValues";
 
@@ -121,60 +117,6 @@ export function movedPath(moves: readonly (readonly [string, string])[]): (path:
 // ---------------------------------------------------------------------------------------------
 // Edits across the project
 
-const isSceneFile = (json: unknown): json is SceneFile =>
-  !!json && typeof json === "object" && typeof (json as { format?: unknown }).format === "string" && /^(myco|tranquility)\.scene@/.test((json as { format: string }).format) && Array.isArray((json as { nodes?: unknown }).nodes);
-
-/** How one edit changes each kind of JSON file: the new value, or null for no change. */
-interface FileEdit {
-  /** Only files whose text this accepts are parsed. */
-  mentioned(text: string): boolean;
-  scene(file: SceneFile): SceneFile | null;
-  settings(json: Record<string, unknown>): Record<string, unknown> | null;
-  json(json: unknown): unknown;
-}
-
-/**
- * Apply `edit` to the project's JSON files on disk (scenes keep their layout, and instances of a
- * changed prefab in the open scene are rebuilt) and to the open scene as one undo step labelled
- * `label`. Returns the files changed (the open scene as "<path> (unsaved)").
- */
-async function editProject(project: EditorProject, edit: FileEdit, label: string): Promise<string[]> {
-  const scene: OpenScene | null = openScene.peek();
-  const changed: string[] = [];
-  for (const file of project.files) {
-    if (!file.endsWith(".json") || file === scene?.path) continue;
-    const text = project.textOf(file);
-    if (text === undefined || !edit.mentioned(text)) continue;
-    let json: unknown;
-    try {
-      json = JSON.parse(text);
-    } catch {
-      continue; // a broken file is left alone
-    }
-    if (isSceneFile(json)) {
-      // Scenes and prefabs share the format.
-      const next = edit.scene(json);
-      if (!next) continue;
-      await writeSceneFile(project, file, next);
-      // Instances of a changed prefab in the open scene show its new contents.
-      if (scene) scene.sync.apply(instancesOf(scene.doc, file).map((node) => ({ kind: "rebuild", node }) as const));
-    } else {
-      const next = file === "project.json" && json && typeof json === "object" && !Array.isArray(json) ? edit.settings(json as Record<string, unknown>) : edit.json(json);
-      if (next === null) continue;
-      await project.writeText(file, `${JSON.stringify(next, null, 2)}\n`);
-    }
-    changed.push(file);
-  }
-  if (scene) {
-    const next = edit.scene(scene.doc.toJSON());
-    if (next) {
-      scene.stack.execute(new ReplaceDocument(next, label));
-      changed.push(`${scene.path} (unsaved)`);
-    }
-  }
-  return changed;
-}
-
 /**
  * Point references at moved files' new paths, everywhere a file's users are found: scenes, prefabs,
  * project.json and other JSON files on disk, and the open scene (one undo step labelled `label`).
@@ -188,7 +130,7 @@ export async function rewriteReferences(project: EditorProject, moves: readonly 
     const result = withMovedAssets(value, rename);
     return result.changed ? result.value : null;
   };
-  const updated = await editProject(project, { mentioned: (text) => mentions(text, froms), scene: moved, settings: moved, json: moved }, label);
+  const updated = await editProjectFiles(project, { mentioned: (text) => mentions(text, froms), scene: moved, settings: moved, json: moved }, label);
   return { updated, scriptUsers: scriptUsers(project, froms) };
 }
 
@@ -199,7 +141,7 @@ export async function rewriteReferences(project: EditorProject, moves: readonly 
  * lists them. Returns the files cleaned (the open scene as "<path> (unsaved)").
  */
 export function removeReferences(project: EditorProject, path: string, label: string): Promise<string[]> {
-  return editProject(
+  return editProjectFiles(
     project,
     {
       mentioned: (text) => mentions(text, [path]),

@@ -89,7 +89,7 @@ export function addBus(d: SettingsDraft, parent = MASTER): SettingsDraft {
 /** Remove a bus and everything under it, and the snapshot entries and ducking rules that named them. The root stays. */
 export const removeBus = (d: SettingsDraft, name: string): SettingsDraft => applyMixOp(d, { op: "removeBus", bus: name });
 
-/** Rename a bus everywhere it's named in the section (AudioSources that name it aren't updated, like physics layers). */
+/** Rename a bus everywhere it's named in the section (the scenes and events that name it follow through `audioNames.ts`, ADR 0262). */
 export const renameBus = (d: SettingsDraft, from: string, to: string): SettingsDraft => applyMixOp(d, { op: "renameBus", from, to });
 
 /** Move a bus under another (not itself or its own descendant; the root has no parent). */
