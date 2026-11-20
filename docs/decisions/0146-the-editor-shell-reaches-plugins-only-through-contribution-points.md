@@ -1,6 +1,6 @@
 # 0146. The editor shell reaches plugins only through contribution points
 
-- **Status:** Proposed — built in the same change
+- **Status:** Proposed — built in the same change; amended by 0246 (Hierarchy create entries and asset kinds describe nodes; the node insertion mints ids and names)
 - **Date:** 2026-11-09
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

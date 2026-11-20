@@ -21,7 +21,8 @@ import { canOpenFolders } from "../projectFs";
 import { recentProjects, recentVersion } from "../recentProjects";
 import { closeProject, openProjectFolder, openRecentProject, reloadScripts, save } from "../session";
 import { isEditable } from "../shortcuts";
-import { currentProject, docVersion, openScene, playState, selectedKeys, selectedUIElement } from "../state";
+import { currentProject, docVersion, openScene, selectedKeys, selectedUIElement } from "../state";
+import { whyNotEdit } from "../editGate";
 import { aboutOpen } from "./AboutDialog";
 import { exportOpen, settingsOpen } from "./dialogState";
 import { createMenuItems } from "./HierarchyMenu";
@@ -167,7 +168,7 @@ function liveMenus(): Menu[] {
     project: project ? { name: project.name, canSave: project.canSave, hasRoot: project.root != null } : null,
     scene: scene && stack ? { path: scene.path, dirty: stack.dirty } : null,
     history: history ? { undoLabel: history.undoLabel ?? null, redoLabel: history.redoLabel ?? null, canUndo: history.canUndo, canRedo: history.canRedo } : null,
-    playing: playState.value !== "edit",
+    sceneEditBlocked: whyNotEdit({ kind: "scene" }),
     canOpenFolders: folders,
     isDesktop: isTauri(),
     recent: folders

@@ -118,7 +118,7 @@ describe("deleting", () => {
     expect(whyNotAsset("delete", on())).toBe("select something first");
     expect(whyNotAsset("delete", on(sliceEntry("images/background.png", "a")))).toMatch(/slices aren't files/);
     playState.value = "playing";
-    expect(whyNotAsset("delete", on("images/background.png"))).toBe("stop playing first");
+    expect(whyNotAsset("delete", on("images/background.png"))).toBe("stop playing to delete files");
     playState.value = "edit";
     expect(whyNotAsset("delete", { project: { ...project, canSave: false } as EditorProject, entries: ["images/background.png"] })).toMatch(/read-only/);
   });

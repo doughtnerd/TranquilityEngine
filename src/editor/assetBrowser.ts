@@ -1,5 +1,5 @@
 // Asset browser logic (ADR 0022): the project's files, path helpers and search. No UI here; `ui/Assets.tsx`
-// renders it. The scene nodes adding an asset makes are in assetNodes.ts, entries' encoding in assetEntry.ts (ADR 0241).
+// renders it. The scene nodes adding an asset makes come from its kind and the node insertion (nodeInsertion.ts, ADR 0246), entries' encoding in assetEntry.ts (ADR 0241).
 import { isSidecarPath } from "../engine/scene/importSettings";
 import { assetKind, hasSlices } from "./assetKindLookup";
 import { isSliceEntry, sliceEntry, splitSliceEntry } from "./assetEntry";

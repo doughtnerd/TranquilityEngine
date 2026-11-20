@@ -17,7 +17,7 @@ export function TilePalettePanel() {
   editor.project.version;
   editor.scene.selection.active;
   const scene = editor.scene.open, path = editor.scene.selection.path(), project = editor.project.current;
-  const map = editor.scene.playState === "edit" ? tilemapOf(editor.scene.selection.node()) : null;
+  const map = editor.scene.whyNotEdit() === null ? tilemapOf(editor.scene.selection.node()) : null;
   if (!scene || !path || !project || !map) return <Panel><p class="empty">Select a node with a Tilemap to paint.</p></Panel>;
   const readOnly = !project.canSave;
   const layers = map.toLayerData();

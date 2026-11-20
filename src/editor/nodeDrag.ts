@@ -9,7 +9,8 @@ import { hierarchyTargetAt, overPrefabInsides, type AssetDropTarget } from "./as
 import type { SceneDocument } from "./document";
 import { isInsidePrefab, moveNodes, whyNotMovable } from "./hierarchyEdit";
 import { subtreeRoots } from "./nodeClipboard";
-import { openScene, playState, selectedKeys, status } from "./state";
+import { openScene, selectedKeys, status } from "./state";
+import { whyNotEdit } from "./editGate";
 import { select } from "./inspectorTarget";
 import { eventWindow } from "./windows/dom";
 
@@ -81,10 +82,10 @@ export function startNodeDrag(e: PointerEvent, key: string): void {
     const target = hierarchyTargetAt(m.clientX, m.clientY, doc);
     const hierarchy = target?.kind === "hierarchy" ? target : null;
     const problem =
-      !scene ? "no scene open"
-      : playState.value !== "edit" ? "stop playing to edit the scene"
+      whyNotEdit({ kind: "scene", scene }) ?? // no scene, play mode (ADR 0247)
+      (!scene ? "open a scene first"
       : !hierarchy && !keys.some(isInsidePrefab) && overPrefabInsides(m.clientX, m.clientY, doc) ? "nodes inside a prefab can't take children here"
-      : nodeDropProblem(scene.doc, key, hierarchy, keys);
+      : nodeDropProblem(scene.doc, key, hierarchy, keys));
     nodeDrag.value = { key, keys, x: m.clientX, y: m.clientY, target: problem ? null : hierarchy, problem };
   };
   const finish = (apply: boolean) => {

@@ -15,7 +15,9 @@ import { editorSettings, joinPath, openFolderProject, readOnlyProject, type Edit
 import { settingsKeys, type SettingsDraft } from "./projectSettingsModel";
 import { InspectorSections, type InspectorSectionProps } from "./ui/inspectorSections";
 import type { LazyComponent } from "./ui/lazy";
-import { currentProject, status } from "./state";
+import { currentProject, status, type OpenScene } from "./state";
+import { insertNodes } from "./nodeInsertion";
+import type { NodeKind } from "./nodeKinds";
 import { select } from "./inspectorTarget";
 import { installViewportTools } from "./viewportTools";
 
@@ -192,4 +194,14 @@ export function sceneViewTools(engine: Engine): SceneViewTools {
   engine.world.render = surface;
   const stopHost = installViewportTools(engine);
   return tools;
+}
+
+/**
+ * Insert a new node of `kind` through the node insertion (ADR 0246), into `parent` (absent: the top level, at
+ * `position`) at `index`, using `asset`; its key. Throws the insertion's reason when it refuses.
+ */
+export function insertNew(scene: OpenScene, kind: NodeKind, options: { parent?: string | null; index?: number; position?: readonly [number, number, number]; asset?: string } = {}): string {
+  const made = insertNodes(scene, { kind: "new", node: kind, position: options.position, asset: options.asset }, { kind: "into", key: options.parent ?? null, index: options.index });
+  if (!made.ok) throw new Error(made.reason);
+  return made.keys[0]!;
 }

@@ -4,12 +4,12 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { Assets, Engine, MeshRenderer } from "../myco";
 import { assetKind } from "./assetBrowser";
-import { addAssetEntries, prepareAssets, whyNotAddable } from "./assetNodes";
+import { addAssets, whyNotAddAssets } from "./addAssets";
 import { newComponentEntry } from "./componentEdits";
-import { createNode, type NodeKind } from "./nodeCreate";
+import type { NodeKind } from "./nodeKinds";
 import { openSceneFile } from "./project";
 import { openScene } from "./state";
-import { DEMO_SCENE, demoAssets, demoSettings } from "./testing";
+import { DEMO_SCENE, demoAssets, demoSettings, insertNew } from "./testing";
 import { meshesEditorPlugin } from "../plugins/meshes/editor";
 import { useEditorPlugins } from "../plugins/testEditorPlugins";
 
@@ -21,7 +21,7 @@ describe("creating 3D nodes", () => {
     const engine = await Engine.create({ headless: true, kind: "editor", project: demoSettings(), assets: demoAssets() });
     openSceneFile(engine, DEMO_SCENE);
     const scene = openScene.value!;
-    const made = (kind: NodeKind, position?: [number, number, number]) => scene.doc.node(createNode(scene, kind, { position }));
+    const made = (kind: NodeKind, position?: [number, number, number]) => scene.doc.node(insertNew(scene, kind, { position }));
     expect(made("sphere").components!.map((c) => c.type)).toEqual(["engine.Transform", "engine.MeshRenderer", "engine.SphereCollider"]);
     expect(made("plane").components![2].type).toBe("engine.MeshCollider");
     const sun = made("directional-light", [0, 0, 0]);
@@ -41,13 +41,13 @@ describe("adding models from the Assets panel (ADR 0044)", () => {
     try {
       openSceneFile(engine, DEMO_SCENE);
       const scene = openScene.value!;
-      expect(whyNotAddable(scene.doc, "models/robot.fbx")).toBeNull();
-      await prepareAssets(["models/robot.fbx", "models/crate.obj"]);
-      const robot = addAssetEntries(scene, "models/robot.fbx", { position: [1, 0, 2] })[0].id;
+      expect(whyNotAddAssets(["models/robot.fbx"], scene)).toBeNull();
+      const robot = (await addAssets(["models/robot.fbx"], { kind: "point", position: [1, 0, 2] })).ids[0]!;
+      expect(scene.doc.node(robot).name).toBe("Robot");
       expect(scene.doc.children(robot).map((id) => scene.doc.node(id).name)).toEqual(["Body", "Head"]);
       const head = scene.doc.children(robot)[1];
       expect(scene.doc.node(head).components!.find((c) => c.type === "engine.MeshRenderer")!.data).toEqual({ mesh: "asset:models/robot.fbx#Head" });
-      const crate = addAssetEntries(scene, "models/crate.obj")[0].id;
+      const crate = (await addAssets(["models/crate.obj"], { kind: "slot", parent: null })).ids[0]!;
       expect(scene.doc.children(crate)).toEqual([]);
       expect(scene.sync.nodeFor(crate)!.getBehavior(MeshRenderer)!.mesh).toBe("models/crate.obj");
       scene.stack.undo();
@@ -69,8 +69,8 @@ describe("adding glTF models from the Assets panel (ADR 0088)", () => {
       openSceneFile(engine, DEMO_SCENE);
       const scene = openScene.value!;
       expect(assetKind("models/lamp.glb")).toBe("model");
-      await prepareAssets(["models/lamp.glb"]);
-      const lamp = addAssetEntries(scene, "models/lamp.glb")[0].id;
+      const lamp = (await addAssets(["models/lamp.glb"], { kind: "slot", parent: null })).ids[0]!;
+      expect(scene.doc.children(lamp).map((c) => c)).toEqual(["lamp-base", "lamp-pole"]); // a part's id: the root's and its name
       const names = (id: string) => scene.doc.children(id).map((c) => scene.doc.node(c).name);
       const mesh = (id: string) => scene.doc.node(id).components!.find((c) => c.type === "engine.MeshRenderer")?.data;
       expect(names(lamp)).toEqual(["Base", "Pole"]);
@@ -95,7 +95,7 @@ describe("adding a 3D collider beside a mesh (ADR 0045)", () => {
     const engine = await Engine.create({ headless: true, kind: "editor", project: demoSettings(), assets: demoAssets() });
     openSceneFile(engine, DEMO_SCENE);
     const scene = openScene.value!;
-    const id = createNode(scene, "capsule");
+    const id = insertNew(scene, "capsule");
     const node = scene.sync.nodeFor(id)!;
     expect(newComponentEntry(node, "engine.BoxCollider")).toEqual({ type: "engine.BoxCollider", data: { center: [0, 0, 0], size: [1, 2, 1] } });
     expect(newComponentEntry(node, "engine.SphereCollider").data).toEqual({ center: [0, 0, 0], radius: 1 });

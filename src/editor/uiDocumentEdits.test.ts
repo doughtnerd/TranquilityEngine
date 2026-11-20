@@ -18,7 +18,6 @@ import {
   createUIElement,
   deleteUIElement,
   duplicateUIElement,
-  endUIEdit,
   moveUIElement,
   moveUIElementToClass,
   renameUIElement,
@@ -206,10 +205,11 @@ describe("undo", () => {
   it("makes a gesture's edits one step (a handle drag), with the file written as it goes", async () => {
     const stack = scene().stack;
     const before = stack.allStates.length;
-    expect(beginUIEdit("Resize #box")).toBe(true);
+    const step = beginUIEdit("Resize #box");
+    expect(step).not.toBeNull();
     for (const w of [60, 70, 80]) setUIElementAttributes(ref("/#box", "bare"), { width: String(w), height: String(w / 2) });
     expect(editorTextFiles.read("ui/bare.ui.xml")).toContain(`width="80" height="40"`); // reads see writes at once
-    endUIEdit();
+    step!.end();
     expect(stack.allStates.length).toBe(before + 1);
     expect(stack.undoLabel).toBe("Resize #box");
     await settle();
@@ -386,7 +386,7 @@ describe("read-only", () => {
     expect(moveUIElementToClass(ref("/#menu/Text[1]"))).toBe(false);
     expect(createUIElement("Text", ref("/#menu"))).toBeNull();
     expect(deleteUIElement(ref("/#menu/#play"))).toBe(false);
-    expect(beginUIEdit("drag")).toBe(false);
+    expect(beginUIEdit("drag")).toBeNull();
     expect(await createUIDocument("ui")).toBeNull();
     expect(scene().stack.allStates.length).toBe(before);
     expect(project.textOf("ui/menu.ui.xml")).toBe(MENU);
@@ -395,7 +395,7 @@ describe("read-only", () => {
   it("refuses while playing", () => {
     playState.value = "playing";
     expect(setUIElementField(ref("/#menu/#play"), "width", "10")).toBe(false);
-    expect(status.value?.text).toMatch(/stop playing/);
+    expect(status.value?.text).toBe("Stop playing to edit UI documents.");
   });
 });
 

@@ -4,14 +4,13 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AudioOccluder, AudioReverbZone, AudioSource, Engine } from "../../../myco";
 import { AddComponent, RenameNode, SetField } from "../../../editor/document";
-import { createNode } from "../../../editor/nodeCreate";
 import { openSceneFile } from "../../../editor/project";
 import { componentNotes } from "../../../editor/sdk";
 import { choicesFor } from "../../../editor/fieldValues";
 import { getFields } from "../../../engine/core/registry";
 import { openScene, playState } from "../../../editor/state";
 import { select } from "../../../editor/inspectorTarget";
-import { DEMO_SCENE, demoAssets, demoSettings, sceneViewTools } from "../../../editor/testing";
+import { DEMO_SCENE, demoAssets, demoSettings, insertNew, sceneViewTools } from "../../../editor/testing";
 import { parseAudioSettings } from "../../../engine/audio/settings";
 import { occluderTool } from "./AudioOccluderGizmo";
 import { viewportTools } from "../../../editor/sdk/contributions";
@@ -41,7 +40,7 @@ describe("audio inspector sections", () => {
   /** A node with the given components (type, data); returns the live node. */
   function node(components: [string, Record<string, unknown>?][], parent?: string) {
     const scene = openScene.value!;
-    const id = createNode(scene, "empty", { position: [0, 0, 0], ...(parent ? { parent } : {}) } as never);
+    const id = insertNew(scene, "empty", { position: [0, 0, 0], ...(parent ? { parent } : {}) } as never);
     for (const [type, data] of components) scene.stack.execute(new AddComponent(id, { type, data: data ?? {} }));
     return { scene, id, node: scene.sync.nodeFor(id)! };
   }
@@ -61,7 +60,7 @@ describe("audio inspector sections", () => {
       node([[BOX]]); // a sibling elsewhere: not below the wall
       expect(codes(occluderOf(wall))).toEqual(["noCollider"]);
       const scene = wall.scene;
-      const child = createNode(scene, "empty", { position: [0, 0, 0], parent: wall.id } as never);
+      const child = insertNew(scene, "empty", { position: [0, 0, 0], parent: wall.id } as never);
       scene.stack.execute(new AddComponent(child, { type: BOX, data: {} }));
       expect(codes(occluderOf({ node: scene.sync.nodeFor(wall.id)! } as never))).toEqual([]);
     });
@@ -83,11 +82,11 @@ describe("audio inspector sections", () => {
     it("warns about an overriding occluder below, naming it and its material", () => {
       const room = node([[OCC, { material: "wood" }]]);
       const scene = room.scene;
-      const door = createNode(scene, "empty", { position: [0, 0, 0], parent: room.id } as never);
+      const door = insertNew(scene, "empty", { position: [0, 0, 0], parent: room.id } as never);
       scene.stack.execute(new RenameNode(door, "Door"));
       scene.stack.execute(new AddComponent(door, { type: BOX, data: {} }));
       scene.stack.execute(new AddComponent(door, { type: OCC, data: { material: "glass" } }));
-      const wallCollider = createNode(scene, "empty", { position: [0, 0, 0], parent: room.id } as never);
+      const wallCollider = insertNew(scene, "empty", { position: [0, 0, 0], parent: room.id } as never);
       scene.stack.execute(new AddComponent(wallCollider, { type: BOX, data: {} }));
       const roomNode = scene.sync.nodeFor(room.id)!;
       const report = analyzeOccluder(roomNode.getBehavior(AudioOccluder)!, { physics3d: true, audio: defaults });
@@ -101,7 +100,7 @@ describe("audio inspector sections", () => {
     it("an occluder whose every collider is overridden is not 'no collider': it says who overrides", () => {
       const room = node([[OCC]]);
       const scene = room.scene;
-      const door = createNode(scene, "empty", { position: [0, 0, 0], parent: room.id } as never);
+      const door = insertNew(scene, "empty", { position: [0, 0, 0], parent: room.id } as never);
       scene.stack.execute(new AddComponent(door, { type: BOX, data: {} }));
       scene.stack.execute(new AddComponent(door, { type: OCC, data: {} }));
       expect(codes(scene.sync.nodeFor(room.id)!.getBehavior(AudioOccluder)!)).toEqual(["overlap"]);
@@ -181,7 +180,7 @@ describe("audio inspector sections", () => {
     it("follows a descendant's own occluder: the child is outlined in its own material", () => {
       const room = node([[OCC, { material: "wood" }]]);
       const scene = room.scene;
-      const door = createNode(scene, "empty", { position: [0, 0, 0], parent: room.id } as never);
+      const door = insertNew(scene, "empty", { position: [0, 0, 0], parent: room.id } as never);
       scene.stack.execute(new AddComponent(door, { type: BOX, data: {} }));
       select([room.id]);
       expect(occluderOverlay().lines[0]!.color).toBe(materialTint(defaults, "wood"));

@@ -4,7 +4,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input } from "../engine";
 import { addAssets, whyNotAddAssets } from "./addAssets";
-import { uniqueId } from "./assetNodes";
 import { messageLog } from "./messages";
 import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile } from "./project";
@@ -30,7 +29,7 @@ function slowKind(extra: Partial<NonNullable<AssetKindContribution["addToScene"]
     icon: "M0 0",
     addToScene: {
       prepare: (path) => (prepares.push(path), prepared),
-      nodes: (doc, path, position = [0, 0, 0]) => [{ id: uniqueId(doc, "slow"), name: path, components: [{ type: "engine.Transform", data: { position: [...position] } }] }],
+      nodes: (_path, position = [0, 0, 0]) => [{ name: "Slow", components: [{ type: "engine.Transform", data: { position: [...position] } }] }],
       ...extra,
     },
   };
@@ -84,9 +83,9 @@ describe("adding assets as one operation (ADR 0149)", () => {
   });
 
   it("refuses without an open scene and while playing, also when play starts during the prepare", async () => {
-    expect(whyNotAddAssets(["images/bird.png"], null)).toBe("Open a scene first");
+    expect(whyNotAddAssets(["images/bird.png"], null)).toBe("open a scene first");
     playState.value = "playing";
-    expect((await addAssets(["images/bird.png"], { kind: "slot", parent: null })).message.text).toBe("Couldn't add bird.png: Stop playing to add assets");
+    expect((await addAssets(["images/bird.png"], { kind: "slot", parent: null })).message.text).toBe("Couldn't add bird.png: stop playing to edit the scene");
     playState.value = "edit";
 
     const slow = slowKind();
@@ -105,6 +104,7 @@ describe("adding assets as one operation (ADR 0149)", () => {
     expect(scene.doc.node(under.ids[0]!).components![0]!.data).toEqual({ position: [3, 1, 0] });
     const beside = await addAssets(["music/town.mp3"], { kind: "selection", selected: "bg-a", position: [0, 0, 0] });
     expect(scene.doc.parentOf(beside.ids[0]!)).toBeNull();
+    expect(scene.doc.roots()[scene.doc.roots().indexOf("bg-a") + 1]).toBe(beside.ids[0]); // right after it
     // Prefab instances keep their own position from the +; a scene-view drop places them.
     const kept = await addAssets(["prefabs/pipe-pair.prefab.json"], { kind: "selection", selected: null, position: [5, 5, 0] });
     expect(scene.doc.node(kept.ids[0]!).overrides).toBeUndefined();

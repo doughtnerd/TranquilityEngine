@@ -2,7 +2,7 @@
 // the rules for which items are enabled, and what they say, are unit-tested; MenuBar.tsx reads the
 // live state into a `MenuState`, wires the `MenuActions`, and draws the result.
 import { panelTitle, type PanelCatalog, type PanelId } from "./layout/catalog";
-import { newNodeKinds } from "./nodeCreate";
+import { newNodeKinds } from "./nodeKinds";
 
 export interface MenuEntry {
   label: string;
@@ -50,8 +50,8 @@ export interface MenuState {
   scene: { path: string; dirty: boolean } | null;
   /** The active history Undo and Redo act on (ADR 0145): the focused editor's, else the scene's; null with neither. */
   history: HistoryInfo | null;
-  /** The game is running (or starting): the scene can't be edited. */
-  playing: boolean;
+  /** Why the open scene can't be edited now (the edit gate, ADR 0247: no scene, play mode), or null. */
+  sceneEditBlocked: string | null;
   canOpenFolders: boolean;
   isDesktop: boolean;
   /** Recent projects other than the open one, newest first. */
@@ -125,7 +125,6 @@ export const DOCS_URL = "https://github.com/doughtnerd/tranquilityengine/tree/ma
 const NO_SCENE = "open a scene first";
 export const NO_PROJECT = "open a project first";
 const READ_ONLY = "this project is read-only; open a project folder to save";
-const STOP_PLAYING = "stop playing to edit the scene";
 const NO_FOLDER_ACCESS = "this browser can't open project folders; use the desktop editor or a Chromium browser";
 
 /** The Undo item's text: "Undo <what>", or just "Undo" when there's nothing to undo. */
@@ -192,7 +191,7 @@ function clipboardItems(s: MenuState, a: MenuActions): MenuEntry[] {
     ];
     return keys.map(([label, shortcut, disabled, run]) => ({ label, shortcut, disabled, run, title: `${label} the selected assets` }));
   }
-  const editing = !s.scene ? NO_SCENE : s.playing ? STOP_PLAYING : null;
+  const editing = s.sceneEditBlocked;
   const selected = s.hasSelection ? null : NOTHING_SELECTED;
   const inner = s.selectionInPrefab ? "nodes inside a prefab are edited in the prefab" : null;
   return [

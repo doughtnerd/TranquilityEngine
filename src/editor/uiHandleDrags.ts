@@ -5,7 +5,8 @@
 import type { UIDocumentElement } from "../engine/ui/UIDocument";
 import type { UIComponentType } from "../engine/ui/components";
 import { openScene } from "./state";
-import { beginUIEdit, cancelUIEdit, endUIEdit, moveUIElement, setUIElementAttributes, whyNotEditableUI } from "./uiDocumentEdits";
+import { beginUIEdit, moveUIElement, setUIElementAttributes } from "./uiDocumentEdits";
+import { whyNotEdit } from "./editGate";
 import {
   boxMap,
   isColumn,
@@ -28,7 +29,7 @@ export type BoxOf = (c: UIComponentType) => BoxOnCanvas | null;
 
 /** Why the scene view shows no handles on `el` (outline only), or null when it does. */
 export function whyNoHandles(el: UIDocumentElement): string | null {
-  const reason = whyNotEditableUI();
+  const reason = whyNotEdit({ kind: "ui-documents" });
   if (reason) return reason;
   if (el._path === null) return "it's made by a script (a list row)";
   if (el._synthetic) return "a button's label is its text content";
@@ -62,7 +63,8 @@ const attrKey = (a: Record<string, string>) => JSON.stringify(Object.entries(a).
 /** A drag that writes attributes on each move, as one undo step (resize, and moving an absolute element). */
 function attributeDrag(kind: "resize" | "move", ref: UIElementRef, label: string, map: BoxMap, pointer: Point, compute: (dx: number, dy: number, options: DragOptions) => Record<string, string>): HandleDrag | null {
   const start = map.toLocal(pointer);
-  if (!start || !beginUIEdit(label)) return null;
+  const step = start && beginUIEdit(label);
+  if (!start || !step) return null;
   let last = "";
   let open = true;
   let wrote = false;
@@ -82,13 +84,13 @@ function attributeDrag(kind: "resize" | "move", ref: UIElementRef, label: string
     finish() {
       if (!open) return false;
       open = false;
-      endUIEdit();
+      step.end();
       return wrote;
     },
     cancel() {
       if (!open) return;
       open = false;
-      cancelUIEdit();
+      step.cancel();
     },
   };
 }

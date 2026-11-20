@@ -22,9 +22,8 @@ import type { EditorOverlay } from "../../../engine/editor";
 import { editor, viewportTools } from "../../../editor/sdk";
 import { EDITABLE_COLLIDERS, colliderTool, type EditingCollider } from "./colliderGizmo";
 import { AddComponent, SetField } from "../../../editor/document";
-import { createNode } from "../../../editor/nodeCreate";
 import { openSceneFile } from "../../../editor/project";
-import { DEMO_SCENE, demoAssets, demoSettings, sceneViewTools } from "../../../editor/testing";
+import { DEMO_SCENE, demoAssets, demoSettings, insertNew, sceneViewTools } from "../../../editor/testing";
 
 const close = (a: readonly number[], b: readonly number[]) => a.forEach((v, i) => expect(v).toBeCloseTo(b[i], 6));
 const identity: Pose3D = { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
@@ -106,7 +105,7 @@ describe("3D colliders in the editor", () => {
 
   it("outlines a new cube's box collider and shows face handles while editing it", () => {
     const scene = editor.scene.peekOpen()!;
-    const id = createNode(scene, "cube", { position: [0, 0, 0] });
+    const id = insertNew(scene, "cube", { position: [0, 0, 0] });
     const node = scene.sync.nodeFor(id)!;
     expect(node.getBehavior(BoxCollider)).not.toBeNull();
     select(id);
@@ -120,7 +119,7 @@ describe("3D colliders in the editor", () => {
 
   it("adds sphere and capsule colliders with their own handles", () => {
     const scene = editor.scene.peekOpen()!;
-    const id = createNode(scene, "empty");
+    const id = insertNew(scene, "empty");
     scene.stack.execute(new AddComponent(id, { type: "engine.CapsuleCollider", data: { direction: "x" } }));
     select(id);
     editCollider({ key: id, type: "engine.CapsuleCollider", index: 0 });
@@ -148,7 +147,7 @@ describe("character controller and mesh collider gizmos", () => {
 
   it("draws the controller's capsule upright even when the node is turned, and puts handles on it", () => {
     const scene = editor.scene.peekOpen()!;
-    const id = createNode(scene, "empty", { position: [1, 2, 3] });
+    const id = insertNew(scene, "empty", { position: [1, 2, 3] });
     scene.stack.execute(new SetField(id, "engine.Transform", "rotation", [0, 0, 90]));
     const before = view.overlay().lines.length; // the 2D colliders
     scene.stack.execute(new AddComponent(id, { type: "engine.CharacterController", data: { center: [0, 0.5, 0], radius: 0.5, height: 2 } }));
@@ -175,7 +174,7 @@ describe("character controller and mesh collider gizmos", () => {
 
   it("edits a mesh collider's centre only", () => {
     const scene = editor.scene.peekOpen()!;
-    const id = createNode(scene, "plane");
+    const id = insertNew(scene, "plane");
     select(id);
     expect(EDITABLE_COLLIDERS.has("engine.MeshCollider")).toBe(true);
     editCollider({ key: id, type: "engine.MeshCollider", index: 0 });

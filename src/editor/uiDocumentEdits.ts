@@ -7,7 +7,8 @@
 // edits in order with scene edits, and the History panel lists them. The stack writes the files
 // through its file host (`textFiles.ts`), whose writes update `Assets`, so the document rebuilds in
 // the Editor World the next frame and the selection (a ref by path) follows. A gesture (a scene-view
-// handle drag) wraps its edits in `beginUIEdit`/`endUIEdit` to make one step.
+// handle drag) wraps its edits in the undo step `beginUIEdit` opens. Whether UI documents can be edited now (a scene
+// open, a project that can save, not playing) is the edit gate's (ADR 0247).
 //
 // An element is edited in its own file: elements from a `<Use>` live in the used document. Moving,
 // deleting or duplicating a used document's root acts on its `<Use>` tag; attributes written on the
@@ -21,8 +22,8 @@ import { camelCase, convertValue, matchSelector, parseColor } from "../engine/ui
 import type { MarkupElement, UITag } from "../engine/ui/document/types";
 import { WriteFiles, type FileWrite, type TextFileHost } from "./document";
 import { errorStatus } from "./messages";
-import type { EditorProject } from "./projects";
-import { currentProject, openScene, playState, status, type OpenScene } from "./state";
+import { openScene, status, type OpenScene } from "./state";
+import { beginEditStep, editableNow } from "./editGate";
 import { addRule, setDeclarations } from "./uiEdit/cssText";
 import {
   addStyle,
@@ -41,7 +42,7 @@ import {
 } from "./uiEdit/markupText";
 import { formatValue, kebab, resolveUIElement, type UIElementRef } from "./uiDocuments";
 import { selectUIElement } from "./inspectorTarget";
-import { beginUndoStep, type UndoStep } from "./undoStep";
+import type { UndoStep } from "./undoStep";
 
 // --- Where an element is written ------------------------------------------------------------------
 
@@ -127,23 +128,8 @@ class FileEdits {
   }
 }
 
-/** Why UI documents can't be edited now, or null when they can. */
-export function whyNotEditableUI(project: EditorProject | null = currentProject.peek()): string | null {
-  if (!openScene.peek() || !project) return "no scene is open";
-  if (!project.canSave) return `${project.name} is read-only. Open a project folder (or copy the sample) to edit its UI documents`;
-  if (playState.peek() !== "edit") return "stop playing to edit UI documents";
-  return null;
-}
-
-/** The open scene if UI documents can be edited now; otherwise says why in the status bar. */
-function editableScene(): OpenScene | null {
-  const reason = whyNotEditableUI();
-  if (reason) {
-    status.value = { kind: "info", text: `Can't edit the UI document: ${reason}.` };
-    return null;
-  }
-  return openScene.peek();
-}
+/** The open scene if UI documents can be edited now (the edit gate, ADR 0247); otherwise says why in the status bar. */
+const editableScene = (): OpenScene | null => editableNow({ kind: "ui-documents" });
 
 /** Run `build` and record what it wrote as one undoable step. False (with a status) when nothing changed or it failed. */
 function commit(scene: OpenScene, label: string, build: (edits: FileEdits) => void): boolean {
@@ -177,34 +163,12 @@ function editableElement(scene: OpenScene, ref: UIElementRef): UIDocumentElement
 }
 
 /**
- * Start a gesture whose edits are one undo step (a scene-view handle drag): every
- * `setUIElementAttributes` until `endUIEdit` joins it. Returns false when UI documents can't be
- * edited now (then don't call `endUIEdit`).
+ * Start a gesture whose edits are one undo step (a scene-view handle drag): every `setUIElementAttributes` until the
+ * returned step ends joins it; cancelling it puts back every file it wrote (Escape). Null, with the reason in the
+ * status bar, when UI documents can't be edited now (the edit gate, ADR 0231, 0247).
  */
-export function beginUIEdit(label: string): boolean {
-  const scene = editableScene();
-  if (!scene) return false;
-  gesture?.end();
-  gesture = beginUndoStep(scene.stack, label);
-  return true;
-}
-
-/** The gesture in progress: its undo step (ADR 0231). */
-let gesture: UndoStep | null = null;
-
-/** End the gesture `beginUIEdit` started. */
-export function endUIEdit(): void {
-  gesture?.end();
-  gesture = null;
-}
-
-/**
- * End the gesture `beginUIEdit` started, putting back every file it wrote as it was (Escape during a
- * handle drag). The step then changed nothing, so nothing is recorded.
- */
-export function cancelUIEdit(): void {
-  gesture?.cancel();
-  gesture = null;
+export function beginUIEdit(label: string): UndoStep | null {
+  return beginEditStep({ kind: "ui-documents" }, label);
 }
 
 // --- Names and paths ------------------------------------------------------------------------------
@@ -312,7 +276,7 @@ function writeAttributes(edits: FileEdits, el: UIDocumentElement, attributes: Re
  * the Inspector and scene-view handles use. Names are attribute or field names (`flex-direction`,
  * `flexDirection`, `id`, `class`); an attribute already written under either spelling keeps it,
  * new ones are written kebab-case. Values are written as given (see `attributeText`). Inside
- * `beginUIEdit`/`endUIEdit` it joins that gesture's step. Returns true if a file changed.
+ * a `beginUIEdit` step it joins that gesture's step. Returns true if a file changed.
  */
 export function setUIElementAttributes(ref: UIElementRef, attributes: Readonly<Record<string, string | null>>, label?: string): boolean {
   const scene = editableScene();

@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { Engine } from "../engine";
 import { WaterSurface } from "../engine/render/water/WaterSurface";
-import { createNode, newNodeKinds } from "./nodeCreate";
+import { newNodeKinds } from "./nodeKinds";
 import { openSceneFile } from "./project";
 import { openScene } from "./state";
-import { DEMO_SCENE, demoAssets, demoSettings } from "./testing";
+import { DEMO_SCENE, demoAssets, demoSettings, insertNew } from "./testing";
 
 describe("Create > Water (ADR 0072)", () => {
   it("adds a node with a WaterSurface and the four-wave preset, as one undo step", async () => {
@@ -12,7 +12,7 @@ describe("Create > Water (ADR 0072)", () => {
     openSceneFile(engine, DEMO_SCENE);
     const scene = openScene.value!;
     expect(newNodeKinds().map((k) => k.label)).toContain("Water");
-    const id = createNode(scene, "water");
+    const id = insertNew(scene, "water");
     const entry = scene.doc.node(id);
     expect(entry.name).toBe("Water");
     expect(entry.components!.map((c) => c.type)).toEqual(["engine.Transform", "engine.WaterSurface"]);

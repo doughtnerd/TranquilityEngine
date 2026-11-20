@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input } from "../engine";
 import { SceneInstance } from "../engine/scene/SceneLoader";
-import { addAssetEntries, whyNotAddable } from "./assetNodes";
+import { insertNodes, whyNotInsert } from "./nodeInsertion";
 import { dropDescription, hierarchyDrop } from "./assetDrag";
 import { OrbitCamera } from "./OrbitCamera";
 import { instanceInnerNodes } from "./prefabs";
@@ -47,7 +47,8 @@ describe("hierarchy drop targets", () => {
     const scene = openScene.value!;
     const target = hierarchyDrop(scene.doc, "ceiling", 0.1)!;
     if (target.kind !== "hierarchy") throw new Error("expected a hierarchy target");
-    const id = addAssetEntries(scene, "music/foo.mp3", { parent: target.parent, index: target.index })[0].id;
+    const made = insertNodes(scene, { kind: "assets", paths: ["music/foo.mp3"] }, { kind: "into", key: target.parent, index: target.index });
+    const id = made.ok ? made.keys[0]! : "";
     const roots = scene.doc.roots();
     expect(roots[roots.indexOf("ceiling") - 1]).toBe(id);
     expect(scene.doc.node(id).components!.map((c) => c.type)).toEqual(["engine.Transform", "engine.AudioSource"]);
@@ -68,8 +69,10 @@ describe("dropping a scene into another scene (ADR 0016)", () => {
   it("adds a scene node holding the scene's top-level nodes", () => {
     openSceneFile(engine, "prefabs/pipe-pair.prefab.json");
     const scene = openScene.value!;
-    expect(whyNotAddable(scene.doc, "scenes/main.scene.json")).toBeNull();
-    const id = addAssetEntries(scene, "scenes/main.scene.json", { parent: null, position: [0, 20, 0], placeInstances: true })[0].id;
+    const source = { kind: "assets", paths: ["scenes/main.scene.json"], position: [0, 20, 0], placeInstances: true } as const;
+    expect(whyNotInsert(scene, source, { kind: "into", key: null })).toBeNull();
+    const made = insertNodes(scene, source, { kind: "into", key: null });
+    const id = made.ok ? made.keys[0]! : "";
 
     const node = scene.sync.nodeFor(id)!;
     expect(node.isSceneNode).toBe(true);
@@ -82,6 +85,6 @@ describe("dropping a scene into another scene (ADR 0016)", () => {
 
   it("refuses a prefab that would contain the scene being edited", () => {
     openSceneFile(engine, "prefabs/pipe-pair.prefab.json");
-    expect(whyNotAddable(openScene.value!.doc, "prefabs/pipe-pair.prefab.json")).toMatch(/inside itself/);
+    expect(whyNotInsert(openScene.value!, { kind: "assets", paths: ["prefabs/pipe-pair.prefab.json"] }, { kind: "into", key: null })).toMatch(/inside itself/);
   });
 });
