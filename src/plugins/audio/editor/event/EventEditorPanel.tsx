@@ -2,15 +2,17 @@
 // History panel, writes after a slider's pause, changes made elsewhere). The container tree and the parameters on the
 // left, the selected node's properties (or the event's own) on the right, and Audition (E6.4) under the parameters
 // with the sliders' values.
+import { useComputed } from "@preact/signals";
 import { useEffect, useMemo, useState } from "preact/hooks";
 import { editor, openAssetDocument, Panel } from "../../../../editor/sdk";
 import type { AudioEventAsset, EventNode } from "../../../../engine/audio/eventFormat";
 import type { MusicNode } from "../../../../engine/audio/musicFormat";
 import { audioSection } from "../../../../engine/audio/audioSection";
 import { Audition } from "./Audition";
-import { activeAudition, auditionOverrides, NO_OVERRIDES, setAuditionValue, stingerAuditionFor } from "./auditionHost";
+import { editorAudition } from "../audition/editorAudition";
 import { auditionValues } from "./eventParameters";
-import { getMusicNode, getNode, musicIdProblem, parentPath, pathKey, renameMusicId, setMusicNode, setNode, type NodePath, type SustainSlot } from "./eventTreeModel";
+import { getNode, musicIdProblem, parentPath, pathKey, renameMusicId, setNode, type NodePath, type SustainSlot } from "./eventTreeModel";
+import { musicNodeAt, replaceMusicNodeAt } from "../../../../engine/audio/musicTree";
 import { EventTree } from "./EventTree";
 import { EventProperties, MusicNodeProperties, NodeProperties, type FieldContext } from "./NodeProperties";
 import { openRulesTable, openSegmentView } from "../music";
@@ -39,10 +41,11 @@ function EventEditor({ path }: { path: string }) {
   const [picked, setPicked] = useState<NodePath | null>([]);
   // A music event's tree is its `musicRoot` (D6): `root` is then the empty layer, and every edit goes to `musicRoot`.
   const music = event.musicRoot;
-  const selected = picked && (music ? getMusicNode(music, picked) : getNode(event.root, picked)) ? picked : null;
-  const audition = auditionOverrides.value[path] ?? NO_OVERRIDES;
-  const values = auditionValues(event.parameters, audition);
-  const [voices, setVoices] = useState(0);
+  const selected = picked && (music ? musicNodeAt(music, picked) : getNode(event.root, picked)) ? picked : null;
+  const values = auditionValues(event.parameters, editorAudition.overrides.value[path] ?? {});
+  // The stinger buttons' target changes only when this event starts or stops playing (a stable object), so the panel
+  // doesn't re-render on every audition tick.
+  const stingerTarget = useComputed(() => editorAudition.stingerTarget(path));
 
   const audioSettings = audioSection((project.settings as { audio?: unknown }).audio).settings;
   const clips = useMemo(() => editor.assets.listed(project.files).filter((f) => editor.assets.kindOf(f) === "audio"), [project.files]);
@@ -67,10 +70,10 @@ function EventEditor({ path }: { path: string }) {
   };
 
   const node = selected && !music ? getNode(event.root, selected) : undefined;
-  const musicNode = selected && music ? getMusicNode(music, selected) : undefined;
+  const musicNode = selected && music ? musicNodeAt(music, selected) : undefined;
   const parent = selected ? parentPath(selected) : null;
   const parentNode = parent && !music ? getNode(event.root, parent) ?? null : null;
-  const musicParent = parent && music ? getMusicNode(music, parent) ?? null : null;
+  const musicParent = parent && music ? musicNodeAt(music, parent) ?? null : null;
   const last = selected?.[selected.length - 1];
   const slot = typeof last === "string" ? (last as SustainSlot) : undefined;
 
@@ -110,12 +113,11 @@ function EventEditor({ path }: { path: string }) {
             event={event}
             onChange={change}
             values={values}
-            onAudition={(name, value) => setAuditionValue(path, name, value)}
+            onAudition={(name, value) => editorAudition.setParameter(path, name, value)}
             readOnly={readOnly}
           />
           <section class="ev-audition" aria-label="Audition" data-testid="event-audition">
-            <Audition path={doc.path} parameters={values} onVoices={setVoices} />
-            {voices > 0 && <span class="ev-voices">{voices} voice{voices === 1 ? "" : "s"}</span>}
+            <Audition audition={editorAudition} path={doc.path} parameters={values} />
           </section>
         </div>
         <div class="event-editor-right" data-testid="event-properties">
@@ -127,11 +129,11 @@ function EventEditor({ path }: { path: string }) {
               path={selected!}
               parent={musicParent}
               context={context}
-              onChange={(next, drag, label) => change({ ...event, musicRoot: setMusicNode(music, selected!, next) }, drag, label ? `Edit ${label.toLowerCase()}` : undefined)}
+              onChange={(next, drag, label) => change({ ...event, musicRoot: replaceMusicNodeAt(music, selected!, next) }, drag, label ? `Edit ${label.toLowerCase()}` : undefined)}
               onRename={(id) => !musicIdProblem(music, selected!, id) && change({ ...event, musicRoot: renameMusicId(music, selected!, id) }, false, "Rename node")}
               onOpenSegment={(id) => openSegmentView(path, id)}
               onOpenRules={(id) => openRulesTable(path, id)}
-              audition={stingerAuditionFor(path, activeAudition.value)}
+              audition={stingerTarget.value}
             />
           ) : node ? (
             <NodeProperties

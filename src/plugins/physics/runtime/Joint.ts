@@ -6,6 +6,7 @@ import { GameObject } from "../../../engine/scene/GameObject";
 import type { Dim3 } from "./backend";
 import type { JointState } from "./core/state";
 import { RigidBody } from "./RigidBody";
+import { attachedBody } from "./attachedBody";
 
 import type { JointLimits, JointMotor, JointSpring } from "../../../engine/physics/types";
 export type { JointLimits, JointMotor, JointSpring };
@@ -39,20 +40,12 @@ export abstract class Joint extends Component {
 
   /** The body this joint moves: the nearest active RigidBody on this node or above it. */
   get body(): RigidBody | null {
-    for (let n: GameObject | null = this.node; n; n = n.parent) {
-      const rb = n.getBehavior(RigidBody);
-      if (rb && rb.isActiveAndEnabled) return rb;
-    }
-    return null;
+    return attachedBody(this.node, RigidBody);
   }
 
   /** The connected node's body (its own RigidBody or the nearest above it), or null for the world. */
   get connectedRigidbody(): RigidBody | null {
-    for (let n: GameObject | null = this.connectedBody?.isValid ? this.connectedBody : null; n; n = n.parent) {
-      const rb = n.getBehavior(RigidBody);
-      if (rb && rb.isActiveAndEnabled) return rb;
-    }
-    return null;
+    return attachedBody(this.connectedBody?.isValid ? this.connectedBody : null, RigidBody);
   }
 
   /** @internal Fields that need the joint rebuilt when they change. */

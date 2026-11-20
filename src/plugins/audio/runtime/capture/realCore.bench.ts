@@ -186,7 +186,7 @@ async function runScene(scene: Scene, armed: boolean): Promise<Result | null> {
   const frameStep = async (measure: boolean): Promise<void> => {
     const t0 = performance.now();
     mixer.update(dt);
-    backend.update(dt);
+    audio.tick(dt);
     // Replace what ended (S3: the replacement starts in the same frame) and stop loopers at their deadline.
     for (let i = 0; i < capacity; i++) {
       if (deadline[i]! <= audioSeconds) {

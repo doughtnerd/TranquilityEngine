@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_TRANSITION_RULE } from "../../../../engine/audio/musicRules";
 import type { MusicContainerNode } from "../../../../engine/audio/musicFormat";
 import { containerOf, segmentRaw, switchEvent, type Raw } from "./ruleFixtures";
-import { endSegments, fadeSeconds, issuesOfRule, leafSegments, lintTransitionRules, worstSeverity } from "./ruleLint";
+import { endSegments, fadeSeconds, issuesOfRule, lintTransitionRules, worstSeverity } from "./ruleLint";
+import { musicLeaves } from "../../../../engine/audio/musicTree";
 
 const lint = (transitions: Raw[], over?: Parameters<typeof switchEvent>[1], lengths: Record<string, number> = {}) =>
   lintTransitionRules(containerOf(switchEvent(transitions, over)), { lengthOf: (id) => lengths[id] });
@@ -79,7 +80,7 @@ describe("fades longer than the segment", () => {
     expect(codes(lint([{ from: "a", to: "b", fadeIn: { seconds: 10 } }]))).toEqual([]);
   });
   it("converts beats and seconds", () => {
-    const seg = leafSegments(containerOf(switchEvent([])))[0];
+    const seg = musicLeaves(containerOf(switchEvent([])))[0];
     expect(fadeSeconds({ unit: "beats", amount: 2, offset: 0, curve: "linear" }, seg)).toBe(1);
     expect(fadeSeconds({ unit: "seconds", amount: 2, offset: 0, curve: "linear" }, seg)).toBe(2);
   });

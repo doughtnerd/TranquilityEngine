@@ -7,6 +7,7 @@ import type { JointLimits, JointMotor, JointSpring } from "../../../engine/physi
 import type { Dim2 } from "./backend";
 import type { JointState } from "./core/state";
 import { RigidBody2D } from "./RigidBody2D";
+import { attachedBody } from "./attachedBody";
 
 /**
  * Base class for 2D joints (ADR 0005, 0092), like the 3D ones: a joint links the RigidBody2D on its
@@ -34,20 +35,12 @@ export abstract class Joint2D extends Component {
 
   /** The body this joint moves: the nearest active RigidBody on this node or above it. */
   get body(): RigidBody2D | null {
-    for (let n: GameObject | null = this.node; n; n = n.parent) {
-      const rb = n.getBehavior(RigidBody2D);
-      if (rb && rb.isActiveAndEnabled) return rb;
-    }
-    return null;
+    return attachedBody(this.node, RigidBody2D);
   }
 
   /** The connected node's body (its own RigidBody or the nearest above it), or null for the world. */
   get connectedRigidbody(): RigidBody2D | null {
-    for (let n: GameObject | null = this.connectedBody?.isValid ? this.connectedBody : null; n; n = n.parent) {
-      const rb = n.getBehavior(RigidBody2D);
-      if (rb && rb.isActiveAndEnabled) return rb;
-    }
-    return null;
+    return attachedBody(this.connectedBody?.isValid ? this.connectedBody : null, RigidBody2D);
   }
 
   /** @internal Fields that need the joint rebuilt when they change. */

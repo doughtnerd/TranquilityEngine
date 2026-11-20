@@ -17,7 +17,7 @@ import { importDropped } from "./import";
 import { openSegment } from "./index";
 import { peaksFor } from "./peaksHost";
 import type { PeaksService } from "./peaks";
-import { findSegment, replaceSegment } from "./segmentViewModel";
+import { findMusicSegment, replaceMusicNode } from "../../../../engine/audio/musicTree";
 import { barCountCandidates, tapTempo, tempoFromLength } from "./tempoTools";
 import { type Edit, setTempo, setGridOffset, renameTrack, setTrackVolume, setTrackPick, removeTrack, moveTrack, removeAlternative, promoteAlternative, addCue, renameCue, setCueAt, removeCue, setEntry, setExit, addRegion, type RegionPatch, updateRegion, removeRegion, type ConditionForm, readCondition } from "./segmentEdits";
 import { type StemAudition, auditionKey, auditionOf, toggleStem, audibleStems } from "./stemAudition";
@@ -48,7 +48,7 @@ function OpenPanel({ path, segmentId }: { path: string; segmentId: string }) {
   const project = editor.project.current!;
   const doc = openAssetDocument<AudioEventAsset>(project, path, "audioEvent");
   const event = doc.value.value;
-  const segment = useMemo(() => findSegment(event.musicRoot, segmentId), [event.musicRoot, segmentId]);
+  const segment = useMemo(() => findMusicSegment(event.musicRoot, segmentId), [event.musicRoot, segmentId]);
   const peaks = peaksFor(project);
   const [version, setVersion] = useState(0);
   const [error, setError] = useState("");
@@ -68,7 +68,7 @@ function OpenPanel({ path, segmentId }: { path: string; segmentId: string }) {
   const apply = (e: Edit, label: string): boolean => {
     if ("error" in e) { setError(e.error); return false; }
     setError("");
-    if (e.segment !== segment && event.musicRoot) doc.edit({ ...event, musicRoot: replaceSegment(event.musicRoot, segmentId, e.segment) }, { label });
+    if (e.segment !== segment && event.musicRoot) doc.edit({ ...event, musicRoot: replaceMusicNode(event.musicRoot, segmentId, e.segment) }, { label });
     return true;
   };
 

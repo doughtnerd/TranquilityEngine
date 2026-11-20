@@ -7,6 +7,7 @@ import type { PhysicsMaterial } from "../../../engine/physics/types";
 import type { Dim3 } from "./backend";
 import type { ColliderState } from "./core/state";
 import { RigidBody } from "./RigidBody";
+import { attachedBody } from "./attachedBody";
 
 /**
  * Base class for 3D colliders (ADR 0005, 0045). Without a RigidBody on the node or an ancestor, a
@@ -25,11 +26,7 @@ export abstract class Collider extends Component {
 
   /** The body this collider is attached to: the nearest active RigidBody on this node or an ancestor. */
   get attachedRigidbody(): RigidBody | null {
-    for (let n: GameObject | null = this.node; n; n = n.parent) {
-      const rb = n.getBehavior(RigidBody);
-      if (rb && rb.isActiveAndEnabled) return rb;
-    }
-    return null;
+    return attachedBody(this.node, RigidBody);
   }
 
   /** @internal A string that changes whenever the shape must be rebuilt. */

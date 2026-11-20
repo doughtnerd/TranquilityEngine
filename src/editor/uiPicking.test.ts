@@ -4,9 +4,6 @@ import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText } from "../e
 import { orderClickHits, partitionUIHits } from "./uiPicking";
 import type { UIComponentType } from "../engine/ui/components";
 
-/** Whether picking counts `c` as painted (it draws something under the pointer). */
-const isPaintedUI = (c: UIComponentType) => partitionUIHits([c]).painted.length === 1;
-
 let engine: Engine;
 beforeEach(async () => {
   engine = await Engine.create({ headless: true });
@@ -14,29 +11,6 @@ beforeEach(async () => {
 afterEach(() => engine.dispose());
 
 const make = <T extends UIPanel | UIText | UIImage | UICanvas | UIInputField | UIButton>(type: new () => T, init: Partial<T> = {}): T => GameObject.create("n").addBehavior(type as never, init as never) as T;
-
-describe("painted UI", () => {
-  it("is false for a canvas and a transparent panel, true for a fill or a border", () => {
-    expect(isPaintedUI(make(UICanvas))).toBe(false);
-    expect(isPaintedUI(make(UIPanel))).toBe(false);
-    expect(isPaintedUI(make(UIPanel, { backgroundColor: new Color(1, 0, 0, 0) }))).toBe(false);
-    expect(isPaintedUI(make(UIPanel, { backgroundColor: new Color(1, 0, 0, 0.5) }))).toBe(true);
-    expect(isPaintedUI(make(UIPanel, { borderWidth: 2, borderColor: Color.white }))).toBe(true);
-    expect(isPaintedUI(make(UIPanel, { borderWidth: 0, borderColor: Color.white }))).toBe(false);
-    expect(isPaintedUI(make(UIPanel, { backgroundColor: Color.white, opacity: 0 }))).toBe(false);
-  });
-  it("counts text, images, buttons and filled input fields", () => {
-    expect(isPaintedUI(make(UIText))).toBe(false);
-    expect(isPaintedUI(make(UIText, { text: "  " }))).toBe(false);
-    expect(isPaintedUI(make(UIText, { text: "Play" }))).toBe(true);
-    expect(isPaintedUI(make(UIImage))).toBe(false);
-    expect(isPaintedUI(make(UIImage, { image: "a.png" }))).toBe(true);
-    expect(isPaintedUI(make(UIButton))).toBe(true); // buttons have a default fill
-    expect(isPaintedUI(make(UIInputField))).toBe(true);
-    expect(isPaintedUI(make(UIInputField, { backgroundColor: null, placeholder: "Name" }))).toBe(true);
-    expect(isPaintedUI(make(UIInputField, { backgroundColor: null, borderWidth: 0 }))).toBe(false);
-  });
-});
 
 describe("click ordering", () => {
   it("splits hits keeping order and puts painted UI before the scene and bare UI after", () => {

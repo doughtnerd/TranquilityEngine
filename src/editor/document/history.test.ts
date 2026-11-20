@@ -177,6 +177,28 @@ describe("saving and loading history", () => {
     expect(stack2.load(saved)).toBeNull();
     expect(stack2.allStates).toHaveLength(1);
   });
+  it("adopts a damaged file safely: numbering continues past its states, and a missing root is refused (ADR 0267)", () => {
+    const stack = new CommandStack(new SceneDocument(file()));
+    setX(stack, 1);
+    setX(stack, 2);
+    stack.undo();
+    stack.undo();
+    const saved = { ...stack.toFile("s.scene.json"), nextSeq: 1, saved: 0 }; // a nextSeq that would reuse state 1
+    const stack2 = new CommandStack(new SceneDocument(file()));
+    expect(stack2.load(saved)).toEqual({ matched: 0, lastCurrent: 0 });
+    setX(stack2, 7);
+    expect(stack2.allStates.map((s) => s.seq)).toEqual([0, 1, 2, 3]);
+    stack2.jumpTo(2);
+    expect(x(stack2.doc)).toBe(2); // state 2 is still there
+    expect(new CommandStack(new SceneDocument(file())).load({ ...saved, root: 5 })).toBeNull();
+  });
+
+  it("reads the former history format name (ADR 0037)", () => {
+    const stack = new CommandStack(new SceneDocument(file()));
+    setX(stack, 1);
+    const legacy = { ...stack.toFile("s.scene.json"), format: "tranquility.history@1" as never };
+    expect(new CommandStack(stack.doc).load(legacy)).toEqual({ matched: 1, lastCurrent: 1 });
+  });
 });
 
 describe("text files in the history (ADR 0077)", () => {
@@ -268,6 +290,24 @@ describe("text files in the history (ADR 0077)", () => {
     expect(x(doc)).toBe(2);
     expect(stack.undoLabel).toBe("Outer");
     expect(() => stack.cancelGroup()).toThrow();
+  });
+
+  it("refuses a move across a damaged step, writing no files and leaving the document (ADR 0267)", () => {
+    const stack = new CommandStack(new SceneDocument(file()));
+    const h = host();
+    stack.files = h;
+    const original = h.files.get("ui/a.ui.xml")!;
+    setX(stack, 1);
+    stack.execute(new WriteFiles("Edit", [{ path: "ui/a.ui.xml", text: "<Canvas/>\n" }]));
+    const saved = JSON.parse(JSON.stringify(stack.toFile("s.scene.json")));
+    delete saved.states[1].undo; // state 1's way back is lost
+    const stack2 = new CommandStack(stack.doc);
+    stack2.files = h;
+    expect(stack2.load(saved)).not.toBeNull();
+    expect(stack2.jumpTo(0)).toBe(false); // undoing state 2 would rewrite the file, but state 1 refuses
+    expect([h.files.get("ui/a.ui.xml"), x(stack2.doc), stack2.current]).toEqual(["<Canvas/>\n", 1, 2]);
+    expect(stack2.undo()).toBe(true); // the intact step still goes back
+    expect(h.files.get("ui/a.ui.xml")).toBe(original);
   });
 
   it("diffs text to the differing middle", () => {

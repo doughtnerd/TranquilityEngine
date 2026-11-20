@@ -11,7 +11,7 @@ import { BABYLON_CPU_REASON, babylonCpuDebug, babylonMixDebug, buildMixDebug } f
 /** The core backend on the recording host (ADR 0234), on the page's mixer, not registered. */
 function coreRig() {
   const r = recordingAudio({ register: false, preset: { maxLogical: 16 } });
-  return { backend: r.backend, status: r.status, frame: () => r.frame() };
+  return { backend: r.backend, status: r.status, frame: () => r.frame(), tick: (dt: number) => r.tick(dt) };
 }
 
 function withBuses(duck: boolean): AudioSettings {
@@ -51,8 +51,8 @@ describe("core backend: cpu and recorder (§1.3)", () => {
 
 describe("core backend: mix (§1.3)", () => {
   it("lists the slot table as the identity layout, every slot live", () => {
-    const { backend } = coreRig();
-    backend.update(0.016);
+    const { backend, tick } = coreRig();
+    tick(0.016);
     const mix = backend.debug().mix!;
     expect(mix.slots.map((s) => s.name)).toEqual([...backend.busNames]);
     expect(mix.slots.map((s) => s.slot)).toEqual(mix.slots.map((_, i) => i));
@@ -94,8 +94,8 @@ describe("core backend: mix (§1.3)", () => {
     expect(backend.debug().mix!.ducking).toEqual([{ target: "Music", trigger: "Voice", mode: "presence", gain: 1 }]);
   });
   it("takes a rule's gain from STATUS busDuck by the target's slot when the block lists it", () => {
-    const { backend, status } = coreRig();
-    backend.update(0.016);
+    const { backend, status, tick } = coreRig();
+    tick(0.016);
     const slot = backend.busNames.indexOf("Music");
     status({ busDuck: [{ slot, pad: 0, gain: 0.25 }] });
     expect(backend.debug().mix!.ducking[0]!.gain).toBe(0.25);

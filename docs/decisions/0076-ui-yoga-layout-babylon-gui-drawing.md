@@ -1,6 +1,6 @@
 # 0076. Game UI: Yoga lays out, Babylon GUI draws, the engine routes input
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0271 (one resolved text run per element is measured and drawn; one font-weight rule; the element kinds in one table)
 - **Date:** 2026-11-05
 - **Deciders:** Chris Carlson
 - **Supersedes:** 0069 in part (uikit as the drawing and layout library; the component API stays)

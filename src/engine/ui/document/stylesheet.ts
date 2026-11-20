@@ -9,6 +9,7 @@ import type { CssNode, Declaration as CssDeclaration, Rule as CssRule, Selector 
 import { Color, Vector2 } from "../../core/math";
 import { AssetRef, getFields, type FieldInfo } from "../../core/registry";
 import { UI_TYPES } from "../components";
+import { UI_TAGS as UI_KIND_TAGS } from "../elementKinds";
 import { hasBinding, problemAt, resolvePath } from "./markup";
 import type {
   Declaration,
@@ -26,7 +27,7 @@ import type {
   ValueSource,
 } from "./types";
 
-const UI_TAGS: ReadonlySet<string> = new Set<UITag>(["Canvas", "Panel", "Text", "Image", "Button", "InputField"]);
+const UI_TAGS: ReadonlySet<string> = UI_KIND_TAGS;
 const PSEUDO: ReadonlySet<string> = new Set<UIPseudo>(["hover", "pressed", "focus", "disabled"]);
 /** Text fields children inherit, as on the web (camelCase field names). */
 export const INHERITED_FIELDS: ReadonlySet<string> = new Set(["color", "fontSize", "fontWeight", "textAlign"]);

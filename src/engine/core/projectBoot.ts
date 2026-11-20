@@ -1,5 +1,4 @@
 import { mixer } from "../audio/mixer";
-import { parseAudioSettings } from "../audio/settings";
 import { BrowserStorage } from "../platform/BrowserStorage";
 import { getFileSystem, isTauri } from "../platform/FileSystem";
 import { MemoryStorage, Storage, type StorageBackend } from "../platform/Storage";
@@ -8,8 +7,7 @@ import { AUTO_QUALITY_KEY, Graphics, QUALITY_KEY } from "../render/Graphics";
 import { FrameMonitor } from "../render/qualityDetect";
 import { Assets, type AssetSource } from "../scene/Assets";
 import { notifyAudioConfigured } from "./audioConfigure";
-import { parseGraphics } from "./graphics";
-import { navigationSettingsProblems, physicsBackendProblems, type ProjectSettings, type ProjectSettingsInput } from "./settings";
+import { settingsIssues, type ProjectSettings, type ProjectSettingsInput } from "./settings";
 import type { WorldKind } from "./World";
 
 export interface ProjectBootOptions {
@@ -25,27 +23,24 @@ export interface ProjectBootOptions {
 
 /**
  * What an Engine sets up from project settings before its bootstrap runs (ADR 0238): asset sources,
- * storage (ADR 0024), warnings for bad graphics, navigation, physics and audio sections, the mixer
+ * storage (ADR 0024), warnings for every runtime section's problems and warnings (ADR 0272), the mixer
  * (ADR 0097) and its configure notice, and the graphics tier (ADR 0050, 0055). Returns the automatic-quality monitor
  * when the tier is being detected, else null.
  */
 export async function bootProject(settings: ProjectSettings, options: ProjectBootOptions): Promise<FrameMonitor | null> {
   for (const source of ([] as AssetSource[]).concat(options.assets ?? [])) Assets.addSource(source);
   Storage.use(options.storage ?? (await defaultStorage(settings.name, !options.draws)));
-  // Graphics quality (ADR 0050): the project's tiers, and the player's saved choice; with
-  // `autoDetect`, a detected tier until the player picks one (ADR 0055).
-  for (const p of parseGraphics(options.project?.graphics).problems) console.warn(`[myco] project.json ${p}`);
-  // Navigation (ADR 0065): a bad section falls back to defaults, so say what was replaced.
-  if (options.project?.navigation !== undefined) for (const p of navigationSettingsProblems(options.project.navigation)) console.warn(`[myco] project.json ${p}`);
-  // Physics backends (ADR 0137): a bad id is ignored (the only enabled backend is used).
-  for (const p of physicsBackendProblems(options.project?.physics)) console.warn(`[myco] project.json ${p}`);
+  // One rule for every runtime section (ADR 0272): each problem and warning its parse reports. A bad value was
+  // replaced by its default in `settings`, and the problem says so.
+  const issues = settingsIssues(options.project);
+  for (const issue of [...issues.problems, ...issues.warnings]) console.warn(`[myco] project.json ${issue.message}`);
   // Audio (ADR 0097): the project's mixer buses; one shared mixer, like the one audio context.
-  const audioParse = parseAudioSettings(options.project?.audio);
-  for (const p of [...audioParse.problems, ...audioParse.warnings]) console.warn(`[myco] project.json ${p}`);
   mixer.configure(settings.audio);
   // Listeners (the audio core's page host, `./audioConfigure`) remap live voices to the new buses.
   notifyAudioConfigured(settings.audio);
   if (options.quality !== "player") return null;
+  // Graphics quality (ADR 0050): the project's tiers, and the player's saved choice; with
+  // `autoDetect`, a detected tier until the player picks one (ADR 0055).
   const graphics = settings.graphics;
   const saved = await Storage.load(QUALITY_KEY, "settings").catch(() => undefined);
   const auto = graphics.autoDetect ? await Storage.load(AUTO_QUALITY_KEY, "settings").catch(() => undefined) : undefined;

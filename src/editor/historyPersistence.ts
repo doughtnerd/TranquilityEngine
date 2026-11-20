@@ -7,7 +7,6 @@ import { getFileSystem, isTauri, type FileSystem } from "../engine/platform/File
 import { MemoryStorage, type StorageBackend } from "../engine/platform/Storage";
 import type { CommandStack } from "./document";
 import { HistoryStore, projectSlots, userSlots, type SlotBackend } from "./historyStore";
-import { pruneHistoryByAge } from "./historyPrune";
 import { historyPruneDays } from "./preferences";
 import type { EditorProject } from "./projects";
 
@@ -72,9 +71,8 @@ export async function attachHistory(
   let restorable: AttachedHistory["restorable"] = null;
   let mismatched = false;
   const loaded = await store.load();
-  const saved = loaded ? pruneHistoryByAge(loaded, pruneDays()) : null;
-  if (saved && saved.scene === scene) {
-    const result = stack.load(saved);
+  if (loaded && loaded.scene === scene) {
+    const result = stack.load(loaded, { pruneDays: pruneDays() });
     if (!result) mismatched = true;
     else if (result.lastCurrent !== result.matched) {
       const s = stack.allStates.find((x) => x.seq === result.lastCurrent)!;
@@ -94,7 +92,7 @@ export async function attachHistory(
       while (pending) {
         pending = false;
         try {
-          await store.save(pruneHistoryByAge(stack.toFile(scene), pruneDays()));
+          await store.save(stack.toFile(scene, { pruneDays: pruneDays() }));
           failing = false;
         } catch (err) {
           if (!failing) onError(err);

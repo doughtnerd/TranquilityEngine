@@ -3,7 +3,7 @@ import { settingsOpen } from "./dialogState";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { PRODUCT_NAME } from "../brand";
 import { askBeforeClearingReferences, askBeforeDeletingAssets, checkScriptsBeforePlay, historyLocation, historyPruneDays, preloadCodeEditor, rotationAngles } from "../preferences";
-import { cleanPruneDays } from "../historyPrune";
+import { cleanPruneDays } from "../document";
 import { currentProject } from "../state";
 import { removeProjectTheme, writeProjectTheme } from "../projectTheme";
 import { cleanThemeName, parseThemeFile, serializeThemeFile, themeIdFor, toThemeFile } from "../themeFile";

@@ -2,7 +2,7 @@
 // display, time, render, autoloads, and the keys plugins' settings sections own, such as `physics`) as a
 // draft, edited by pure functions, checked, and written back into the file's text one top-level key at a
 // time so the rest keeps its layout.
-import { defaultSettings, pluginSettingsProblems, SCALE_MODES, type ProjectSettings, type ProjectSettingsInput } from "../engine/core/settings";
+import { defaultSettings, pluginSettingsProblems, RUNTIME_SETTINGS, type ProjectSettings, type ProjectSettingsInput } from "../engine/core/settings";
 import { defaultTier, parseGraphics, PLATFORMS, type GraphicsSettings, type Platform, type PlatformDefaults, type QualityTier } from "../engine/core/graphics";
 import { audioSection } from "../engine/audio/audioSection";
 import { projectSettingsSections } from "./sdk/contributions";
@@ -210,23 +210,8 @@ export function setDefaultTier(draft: SettingsDraft, name: string): SettingsDraf
 
 // --- validation -----------------------------------------------------------------------------------
 
-const isPositive = (v: unknown) => typeof v === "number" && Number.isFinite(v) && v > 0;
-const isPositiveInt = (v: unknown) => isPositive(v) && Number.isInteger(v);
-const COLOR = /^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
-
-function nameList(list: unknown, field: string, what: string, problems: SettingsProblem[]): void {
-  if (!Array.isArray(list)) {
-    problems.push({ field, message: `${what} must be a list of names.` });
-    return;
-  }
-  if (list.length === 0) problems.push({ field, message: `There must be at least one ${what.replace(/s$/, "")}.` });
-  const seen = new Set<string>();
-  list.forEach((name, i) => {
-    if (typeof name !== "string" || name.trim() === "") problems.push({ field: `${field}.${i}`, message: `${what}: entry ${i + 1} needs a name.` });
-    else if (seen.has(name)) problems.push({ field: `${field}.${i}`, message: `${what}: "${name}" is listed twice.` });
-    else seen.add(name);
-  });
-}
+/** The core keys the engine reads itself, checked by their runtime sections (ADR 0272). `audio` goes through `audioSection`, the same parse memoised on the draft. */
+const RUNTIME_CORE_KEYS = ["name", "display", "time", "render", "autoload", "graphics", "plugins"] as const;
 
 /**
  * Everything wrong with the draft, as sentences. `files` (the project's files) lets autoloads be
@@ -235,47 +220,15 @@ function nameList(list: unknown, field: string, what: string, problems: Settings
 export function settingsProblems(draft: SettingsDraft, files?: readonly string[]): SettingsProblem[] {
   const problems: SettingsProblem[] = [];
   const p = (field: string, message: string) => problems.push({ field, message });
-  if (draft.name !== undefined && (typeof draft.name !== "string" || draft.name.trim() === "")) p("name", "The project name can't be empty.");
-
-  const display = draft.display ?? {};
-  for (const key of ["width", "height"] as const) {
-    if (display[key] !== undefined && !isPositiveInt(display[key])) p(`display.${key}`, `Display ${key} must be a whole number of pixels above 0.`);
-  }
-  if (display.backgroundColor !== undefined && (typeof display.backgroundColor !== "string" || !COLOR.test(display.backgroundColor))) {
-    p("display.backgroundColor", "Background colour must be a hex colour such as #1d1f24.");
-  }
-
-  if (display.scaleMode !== undefined && !(SCALE_MODES as readonly unknown[]).includes(display.scaleMode)) p("display.scaleMode", `Scale mode must be one of ${SCALE_MODES.join(", ")}.`);
-
-  const time = draft.time ?? {};
-  if (time.fixedDeltaTime !== undefined && !isPositive(time.fixedDeltaTime)) p("time.fixedDeltaTime", "The fixed timestep must be above 0 seconds.");
-  if (time.maxFrameTime !== undefined && !isPositive(time.maxFrameTime)) p("time.maxFrameTime", "The max frame time must be above 0 seconds.");
-  if (time.maxSubSteps !== undefined && !isPositiveInt(time.maxSubSteps)) p("time.maxSubSteps", "Max sub-steps must be a whole number above 0.");
-  const fixed = time.fixedDeltaTime ?? defaultSettings.time.fixedDeltaTime, maxFrame = time.maxFrameTime ?? defaultSettings.time.maxFrameTime;
-  if (isPositive(fixed) && isPositive(maxFrame) && fixed > maxFrame) p("time.fixedDeltaTime", "The fixed timestep is longer than the max frame time, so no fixed step would ever run.");
-
-  const render = draft.render ?? {};
-  if (render.sortingLayers !== undefined) nameList(render.sortingLayers, "render.sortingLayers", "Sorting layers", problems);
-  if (render.pixelsPerUnit !== undefined && !isPositive(render.pixelsPerUnit)) p("render.pixelsPerUnit", "Pixels per unit must be above 0.");
-
-  if (draft.autoload !== undefined) {
-    if (!Array.isArray(draft.autoload)) p("autoload", "Autoloads must be a list of scene or prefab files.");
-    else {
-      const seen = new Set<string>();
-      draft.autoload.forEach((path, i) => {
-        const field = `autoload.${i}`;
-        if (typeof path !== "string" || !/\.(scene|prefab)\.json$/.test(path)) p(field, `Autoload ${i + 1} must be a .scene.json or .prefab.json file.`);
-        else if (seen.has(path)) p(field, `${path} is autoloaded twice.`);
-        else if (files && !files.includes(path)) p(field, `${path} isn't in the project.`);
-        seen.add(String(path));
-      });
-    }
-  }
-
-  for (const message of parseGraphics(draft.graphics).problems) p("graphics", message);
+  // What the engine would warn about at start-up and replace with defaults (ADR 0272), by field.
+  for (const key of RUNTIME_CORE_KEYS) problems.push(...RUNTIME_SETTINGS[key].parse(draft[key]).problems);
   for (const message of audioSection(draft.audio).problems) p("audio", message);
-
-  for (const message of pluginSettingsProblems(draft.plugins).problems) p("plugins", message);
+  // Beyond the runtime's checks: autoloads must exist in the project.
+  if (files && Array.isArray(draft.autoload)) {
+    draft.autoload.forEach((path, i) => {
+      if (typeof path === "string" && /\.(scene|prefab)\.json$/.test(path) && draft.autoload!.indexOf(path) === i && !files.includes(path)) p(`autoload.${i}`, `${path} isn't in the project.`);
+    });
+  }
 
   // The keys plugins' settings sections own check themselves (ADR 0151).
   for (const section of projectSettingsSections.list()) if (section.problems) problems.push(...section.problems(draft));
@@ -299,7 +252,7 @@ export function settingsWarnings(draft: SettingsDraft, knownPlugins?: readonly s
   out.push(...pluginSettingsProblems(draft.plugins, knownPlugins).warnings);
   // G9b: a bus rule breach that saves (R10, `busCapability.ts`); the same parse as `settingsProblems` (`audioSection`).
   out.push(...audioSection(draft.audio).warnings);
-  if (!sortingLayersOf(draft).includes("Default")) out.push('There\'s no "Default" sorting layer, which sprites use unless they name another.');
+  out.push(...RUNTIME_SETTINGS.render.parse(draft.render).warnings.map((w) => w.message));
   return out;
 }
 

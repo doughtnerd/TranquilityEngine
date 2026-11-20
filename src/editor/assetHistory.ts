@@ -10,7 +10,6 @@ import { effect } from "@preact/signals";
 import { hashText, type TextHistory } from "./document";
 import { defaultHistoryPlatform, type HistoryLocation, type HistoryPlatform } from "./historyPersistence";
 import { HistoryStore, projectSlots, type SlotBackend } from "./historyStore";
-import { pruneHistoryByAge } from "./historyPrune";
 import { historyLocation, historyPruneDays } from "./preferences";
 import { isWithin, joinPath, type EditorProject } from "./projects";
 
@@ -161,11 +160,10 @@ export class AssetHistoryPersistence {
     this.store = new HistoryStore(await this.slots());
     const loaded = await this.store.load();
     if (this.stopped) return;
-    const file = loaded ? pruneHistoryByAge(loaded, historyPruneDays.peek()) : null;
     const tree = this.host.tree;
     // Edits made while it loaded start their own history, written over the old one.
-    if (file && tree.empty) {
-      const result = tree.load(file);
+    if (loaded && tree.empty) {
+      const result = tree.load(loaded, { pruneDays: historyPruneDays.peek() });
       this.host.loaded(result ? { adopted: true, ahead: result.lastCurrent !== result.matched } : { adopted: false });
     }
     await this.saveNow(); // make sure a history file exists from the start
@@ -204,7 +202,7 @@ export class AssetHistoryPersistence {
     if (!this.store) return;
     this.pending = false;
     try {
-      await this.store.save(pruneHistoryByAge(this.host.tree.toFile(), historyPruneDays.peek()));
+      await this.store.save(this.host.tree.toFile({ pruneDays: historyPruneDays.peek() }));
       this.failing = false;
     } catch (err) {
       if (!this.failing) this.host.saveFailed(err);

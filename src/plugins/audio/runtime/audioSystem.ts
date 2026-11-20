@@ -10,18 +10,10 @@
  *    idempotent `beginFrame` and the beat, bar and cue dispatch, so scripts read this frame's `Audio.time` and music
  *    callbacks arrive before `update`. With no music playing it returns at once (no `beginFrame`, no allocation).
  *
- * Then `engine.Audio` (lateUpdate):
- *
- * 1. **attenuation**: the core's `frameAttenuate` (gain, direction, `audibility0`); the Babylon fallback pans itself;
- * 2. **Doppler** (`core/doppler.ts`, D3), 3. **zones** (`core/zones.ts`, C5, the core only: inert on the fallback),
- *    4. **occlusion** (`core/occlusion.ts`, D2a): over the backend's `SpatialVoiceView`, results back through it;
- * 5. **audibility × smoothed occlusion** and **selection**: the core's `frameSelect`;
- * 6. **panner pick** (`core/pannerPick.ts`, A5), 7. **fx staging** (`core/voiceFx.ts`), 8. **listener** (LISTENER,
- *    `core/listener.ts`, B5), 9. **music plan** (`musicPlanStep`: each music player's tick commits groups, stingers and
- *    quantised ramps into this frame's batch; nothing without music), then the core's BATCH (`frameCommit`).
- *
- * On a backend that implements only `SpatialPassHost` (the Babylon fallback, F1), Doppler and occlusion run on main the
- * same way and its `update(dt)` follows; a backend with neither (the pending backend, test fakes) just gets `update(dt)`.
+ * Then `engine.Audio` (lateUpdate): the listener (an enabled `AudioListener`, else the main camera) into the backend and
+ * the frame's `ListenerFrame`, `mixer.update`, the occlusion pass's source bindings, then the backend frame
+ * (`audioFrame.ts`, ADR 0270: attenuation, Doppler, zones, occlusion, selection, panner pick, fx, listener, music plan,
+ * commit; the Babylon fallback and plain backends take the parts they have), then the event runtime and the sources' sync.
  * Nothing in this file changes for a feature: each fills its own file.
  */
 import { mixer } from "../../../engine/audio/mixer";
@@ -31,14 +23,14 @@ import { _startWorldService, _worldServiceIds, _worldServiceOf } from "../../../
 import { Camera } from "../../../engine/render/components";
 import type { GameObject } from "../../../engine/scene/GameObject";
 import { AudioListener, listenerPose } from "./AudioListener";
-import { isSpatialPassHost, isStagedFrameHost, ListenerFrame } from "./core/spatial";
+import { isSpatialPassHost, ListenerFrame } from "./core/spatial";
 import type { OcclusionPass } from "./core/occlusion";
-import type { AudioBackend } from "./backend";
+import { runAudioFrame } from "./audioFrame";
 import { AudioSource, worldKeyOf, worldPlays } from "./AudioSource";
 import { audioBackend, hasAudioBackend, isPendingCoreBackend } from "./backend";
 import { events } from "./events/eventRuntime";
 import { AUDIO, type AudioWorldService } from "./core/service";
-import { musicActive, musicEarlyStep, musicPlanStep } from "./music/musicSystem";
+import { musicActive, musicEarlyStep } from "./music/musicSystem";
 
 /** Worlds whose audio system already asked for the core's World service. */
 const askedCore = new WeakSet<World>();
@@ -97,39 +89,6 @@ function bindOcclusionSources(world: World, pass: OcclusionPass): void {
 }
 
 /**
- * ADR 0162 (K4): one backend frame in the M3 order (see the header). The settings are read once; each pass takes what it
- * needs from them.
- */
-function runFrame(backend: AudioBackend, dt: number): void {
-  if (isStagedFrameHost(backend)) {
-    const settings = mixer.audioSettings;
-    const view = backend.spatialVoices;
-    backend.frameAttenuate(dt); // 1. attenuation
-    backend.collectSpatialVoices();
-    backend.doppler.run(frame, view, settings); // 2. Doppler
-    backend.zones.run(frame, view, settings); // 3. zones
-    backend.occlusion.run(frame, view, settings); // 4. occlusion
-    backend.frameSelect(); // 5. audibility × smoothed occlusion, selection
-    backend.framePickPanners(); // 6. panner pick
-    backend.frameStageFx(); // 7. fx staging
-    backend.frameStageListener(frame); // 8. listener
-    musicPlanStep(backend, dt); // 9. music plan (ADR 0166): nothing without music
-    backend.frameCommit();
-    return;
-  }
-  if (isSpatialPassHost(backend)) {
-    // The Babylon fallback (F1, api-and-models §8): main's Doppler, zones (inert, F2: one warning) and occlusion, then its own frame.
-    const settings = mixer.audioSettings;
-    backend.collectSpatialVoices();
-    backend.doppler.run(frame, backend.spatialVoices, settings);
-    backend.zones.run(frame, backend.spatialVoices, settings);
-    backend.occlusion.run(frame, backend.spatialVoices, settings);
-  }
-  musicPlanStep(backend, dt); // 9. music plan (ADR 0166), before the backend's own frame commits
-  backend.update?.(dt);
-}
-
-/**
  * Per frame, in the World that has the view: place the backend's listener at the first enabled
  * AudioListener (else the main camera) and move the spatial sources to their nodes (ADR 0074).
  */
@@ -170,7 +129,7 @@ export const AUDIO_SYSTEMS: readonly BuiltinSystem[] = [
       mixer.update(dt);
       const backend = audioBackend();
       if (isSpatialPassHost(backend)) bindOcclusionSources(world, backend.occlusion);
-      runFrame(backend, dt);
+      runAudioFrame(backend, frame, dt, mixer.audioSettings); // ADR 0270: the frame order, in one module
       listenerComponent?._noteVelocity(frame.velX, frame.velY, frame.velZ);
       events().update(dt); // ADR 0158: due continuous-container timers; the fallback's automation
       for (const s of world._componentsOfType(AudioSource)) s._sync();

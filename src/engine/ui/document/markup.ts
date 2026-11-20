@@ -4,9 +4,10 @@
  * renderer-neutral; never throws for bad markup (problems are reported and the rest still parses).
  */
 import { Parser } from "htmlparser2";
+import { UI_TAGS as UI_KIND_TAGS } from "../elementKinds";
 import type { BindingPart, MarkupAttribute, MarkupElement, ParseBindings, ParseMarkup, SourceProblem, SourceSpan, UIMarkup, UITag } from "./types";
 
-const UI_TAGS: ReadonlySet<string> = new Set<UITag>(["Canvas", "Panel", "Text", "Image", "Button", "InputField"]);
+const UI_TAGS: ReadonlySet<string> = UI_KIND_TAGS;
 /** Elements whose text content is a field (`Text`'s text, a `Button`'s label, an `InputField`'s value). */
 const TEXT_TAGS: ReadonlySet<string> = new Set(["Text", "Button", "InputField"]);
 /** `<Use>` nesting deeper than this is taken for a cycle the path check missed. */

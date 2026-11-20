@@ -49,35 +49,26 @@ export function uiLength(v: UILength | null | undefined): number | `${number}%` 
   return px !== "" && Number.isFinite(n) ? n : undefined;
 }
 
-/** CSS font weight for a `fontWeight` field value. */
-export function cssFontWeight(w: string): string {
-  switch (w) {
-    case "light": return "300";
-    case "normal": return "400";
-    case "medium": return "500";
-    case "semi-bold": return "600";
-    case "bold": return "700";
-    default: return /^[1-9]00$/.test(w) ? w : "400";
-  }
-}
-
-export { UI_FONT_FAMILY } from "./fonts";
-export const UI_LINE_HEIGHT = 1.2;
-
-/** The Node fallback: 0.55 em per character, greedy wrapping at spaces (a longer word overflows). */
+/**
+ * The Node fallback: 0.55 em per character, greedy wrapping to `maxWidth` at spaces (`wrap: "word"`,
+ * a longer word overflows) or at any character (`"anywhere"`); `"none"` breaks only at line breaks.
+ */
 export function estimateText(req: TextMeasureRequest): { width: number; height: number } {
   const charW = 0.55 * req.fontSize;
   const lineH = req.fontSize * req.lineHeight;
+  const maxWidth = req.wrap === "none" ? Infinity : req.maxWidth;
+  const anywhere = req.wrap === "anywhere";
+  const gap = anywhere ? 0 : charW;
   let lines = 0, widest = 0;
   for (const paragraph of req.text.split("\n")) {
-    const words = paragraph.split(" ");
+    const words = anywhere ? [...paragraph] : paragraph.split(" ");
     let current = 0, any = false;
     for (const word of words) {
       const w = word.length * charW;
       if (!any) {
         current = w;
         any = true;
-      } else if (current + charW + w <= req.maxWidth) current += charW + w;
+      } else if (current + gap + w <= maxWidth) current += gap + w;
       else {
         widest = Math.max(widest, current);
         lines++;

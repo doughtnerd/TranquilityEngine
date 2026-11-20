@@ -1,0 +1,154 @@
+/**
+ * UI element kinds and text runs (ADR 0271): the one place that knows the closed set of UI element
+ * kinds and what each is, and the one function that says what text an element shows.
+ *
+ * - **The kind table**: per kind, its component type, markup tag, whether it is a leaf (can't have
+ *   children), whether it takes the pointer, which pseudo-classes it sets, and whether it paints
+ *   anything. The UI core (`UICore.ts`), UI documents (`UIDocument.ts`, the markup and stylesheet
+ *   parsers), the Babylon drawing layer and the editor's UI picking read it instead of switching on
+ *   component classes themselves.
+ * - **`textRunOf`**: an element's resolved text run (text, size, CSS weight, family, line height and
+ *   wrapping). The UI core measures exactly this run, uses it as the measure's dirty signature, and
+ *   reports it on each laid-out element; the drawing layer draws exactly that run. So measured text is
+ *   drawn text.
+ *
+ * Renderer-neutral and nothing here is public API (ADR 0010).
+ */
+import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UIComponentType, type UIWordBreak } from "./components";
+import type { UIPseudo, UITag } from "./document/types";
+import { fontFamilyOf } from "./fonts";
+import type { UIKind, UITextRun, UITextWrap } from "./uiCoreTypes";
+
+/** A UI text line's height, as a multiple of its font size. */
+export const UI_LINE_HEIGHT = 1.2;
+
+interface KindSpec<C extends UIComponentType = UIComponentType> {
+  readonly kind: UIKind;
+  readonly type: abstract new () => C;
+  readonly tag: UITag;
+  /** Can't have children: UI nodes under it lay out beside it. */
+  readonly leaf: boolean;
+  /** Takes the pointer (buttons press, input fields focus). */
+  readonly interactive: boolean;
+  /** Yoga flex shrink: text wraps to what's left; other boxes keep their size. */
+  readonly flexShrink: number;
+  /** The pseudo-classes this kind sets, beyond `disabled` (every element is disabled when its component is). */
+  pseudo?(c: C): Partial<Record<UIPseudo, boolean>>;
+  /** Draws something of its own (a fill, border, text or image), opacity aside. */
+  paints(c: C): boolean;
+}
+
+const visible = (c: { a: number } | null | undefined): boolean => !!c && c.a > 0;
+const panelPaints = (c: UIPanel): boolean => visible(c.backgroundColor) || (c.borderWidth > 0 && visible(c.borderColor));
+
+/** The kinds, subclasses before the classes they extend (the first whose type matches wins). */
+const KINDS: readonly KindSpec[] = [
+  { kind: "canvas", type: UICanvas, tag: "Canvas", leaf: false, interactive: false, flexShrink: 0, paints: () => false },
+  {
+    kind: "button", type: UIButton, tag: "Button", leaf: false, interactive: true, flexShrink: 0,
+    pseudo: (c: UIButton) => ({ hover: c.hovered, pressed: c.pressed, disabled: !c.interactable }),
+    paints: panelPaints,
+  } as KindSpec<UIButton> as KindSpec,
+  {
+    kind: "input", type: UIInputField, tag: "InputField", leaf: true, interactive: true, flexShrink: 0,
+    pseudo: (c: UIInputField) => ({ focus: c.focused }),
+    paints: (c: UIInputField) => panelPaints(c) || textRunOf(c)!.text !== "",
+  } as KindSpec<UIInputField> as KindSpec,
+  { kind: "text", type: UIText, tag: "Text", leaf: true, interactive: false, flexShrink: 1, paints: (c: UIText) => textRunOf(c)!.text.trim() !== "" } as KindSpec<UIText> as KindSpec,
+  { kind: "image", type: UIImage, tag: "Image", leaf: true, interactive: false, flexShrink: 0, paints: (c: UIImage) => c.image !== "" } as KindSpec<UIImage> as KindSpec,
+  { kind: "panel", type: UIPanel, tag: "Panel", leaf: false, interactive: false, flexShrink: 0, paints: panelPaints } as KindSpec<UIPanel> as KindSpec,
+];
+
+const BY_KIND = new Map(KINDS.map((k) => [k.kind, k]));
+const BY_TAG = new Map(KINDS.map((k) => [k.tag, k]));
+
+/** The markup tags of UI elements. */
+export const UI_TAGS: ReadonlySet<UITag> = new Set(KINDS.map((k) => k.tag));
+
+/** Every UI component type the kinds cover (base types; subclasses are found through them). */
+export const UI_KIND_TYPES: readonly (abstract new () => UIComponentType)[] = KINDS.map((k) => k.type);
+
+function specOf(c: UIComponentType): KindSpec {
+  for (const k of KINDS) if (c instanceof k.type) return k;
+  return BY_KIND.get("panel")!;
+}
+
+/** An element's kind. */
+export function uiKindOf(c: UIComponentType): UIKind {
+  return specOf(c).kind;
+}
+
+/** The component type a markup tag builds. */
+export function uiTypeOfTag(tag: UITag): new () => UIComponentType {
+  return BY_TAG.get(tag)!.type as new () => UIComponentType;
+}
+
+/** True for kinds that can't have children. */
+export function isLeafKind(kind: UIKind): boolean {
+  return BY_KIND.get(kind)!.leaf;
+}
+
+/** True for kinds that take the pointer. */
+export function isInteractiveKind(kind: UIKind): boolean {
+  return BY_KIND.get(kind)!.interactive;
+}
+
+/** A kind's Yoga flex shrink. */
+export function flexShrinkOf(kind: UIKind): number {
+  return BY_KIND.get(kind)!.flexShrink;
+}
+
+/** The pseudo-classes (`:hover`, `:pressed`, `:focus`, `:disabled`) an element is in now. */
+export function uiPseudoState(c: UIComponentType): Record<UIPseudo, boolean> {
+  const own = specOf(c).pseudo?.(c) ?? {};
+  return { hover: own.hover ?? false, pressed: own.pressed ?? false, focus: own.focus ?? false, disabled: !c.enabled || (own.disabled ?? false) };
+}
+
+/** True when the element draws something of its own: a fill, border, text or image (nothing at zero opacity; a canvas never). */
+export function isPaintedUI(c: UIComponentType): boolean {
+  if (!(c instanceof UICanvas) && c.opacity <= 0) return false;
+  return specOf(c).paints(c);
+}
+
+/**
+ * CSS font weight for a `fontWeight` field value: the names `light` (300), `normal` (400), `medium`
+ * (500), `semi-bold` (600) and `bold` (700), or a whole number from 1 to 1000 (CSS Fonts 4; the
+ * bundled Inter is a variable font, so in-between weights draw as written). Anything else is 400.
+ */
+export function cssFontWeight(w: string): string {
+  switch (w) {
+    case "light": return "300";
+    case "normal": return "400";
+    case "medium": return "500";
+    case "semi-bold": return "600";
+    case "bold": return "700";
+  }
+  if (!/^\d{1,4}$/.test(w)) return "400";
+  const n = Number(w);
+  return n >= 1 && n <= 1000 ? String(n) : "400";
+}
+
+const WRAPS: Readonly<Record<UIWordBreak, UITextWrap>> = { "break-word": "word", "break-all": "anywhere", "keep-all": "none" };
+
+/**
+ * The text an element shows, resolved: a `UIText`'s text, or an input field's value (its placeholder
+ * while empty) on one line. Null for kinds without text. A fresh object each call.
+ */
+export function textRunOf(c: UIComponentType): UITextRun | null {
+  if (c instanceof UIInputField) {
+    // One line: a line break a script put in the value shows as a space (one for one, so caret indices still match).
+    const text = (c.value || c.placeholder).replace(/[\r\n]/g, " ");
+    return { text, fontSize: c.fontSize, fontWeight: "400", fontFamily: fontFamilyOf(c.font), lineHeight: UI_LINE_HEIGHT, wrap: "none" };
+  }
+  if (c instanceof UIText) {
+    return { text: c.text, fontSize: c.fontSize, fontWeight: cssFontWeight(c.fontWeight), fontFamily: fontFamilyOf(c.font), lineHeight: UI_LINE_HEIGHT, wrap: WRAPS[c.wordBreak] ?? "word" };
+  }
+  return null;
+}
+
+/** True when two runs measure and draw the same. */
+export function sameTextRun(a: UITextRun | null, b: UITextRun | null): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return a.text === b.text && a.fontSize === b.fontSize && a.fontWeight === b.fontWeight && a.fontFamily === b.fontFamily && a.lineHeight === b.lineHeight && a.wrap === b.wrap;
+}

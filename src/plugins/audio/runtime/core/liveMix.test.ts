@@ -49,7 +49,7 @@ const OPS: [MixOp, string][] = [
 /** A backend on the recording host (no wasm, ADR 0234), over its own mixer. */
 function backendRig() {
   const r = recordingAudio({ mixer: "own", settings: parseAudioSettings(PROJECT).settings, preset: { maxLogical: 16 } });
-  return { backend: r.backend, mixer: r.mixer, posted: r.posted, lock: () => r.lock() };
+  return { backend: r.backend, mixer: r.mixer, posted: r.posted, lock: () => r.lock(), tick: (dt: number) => r.tick(dt) };
 }
 
 afterEach(closeRecordingAudio);
@@ -64,7 +64,7 @@ describe("liveMix (Ma1)", () => {
 
   it("answers each class: every class applies (ok), dip through Ma2's sequence; the model changes at once", () => {
     for (const [op, cls] of OPS) {
-      const { backend, mixer, posted } = backendRig();
+      const { backend, mixer, posted, tick } = backendRig();
       const before = mixer.audioSettings;
       const r = mixer.apply(op);
       expect(r, op.op).toEqual({ ok: true, class: cls });
@@ -73,7 +73,7 @@ describe("liveMix (Ma1)", () => {
       if (cls === "dip") {
         // The frame emits the open sequence: a structural BUS_SLOT tagged with its sequence id.
         posted.take();
-        backend.update(0.016);
+        tick(0.016);
         const slots = posted.takeOps(Op.BUS_SLOT).map((x) => readBusSlot(x.view, x.off));
         expect(slots.some((x) => x.sequenceId > 0 && (x.flags & BUS_SLOT_FLAGS_STRUCTURAL) !== 0), op.op).toBe(true);
       }

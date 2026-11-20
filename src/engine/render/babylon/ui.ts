@@ -39,15 +39,13 @@ import { splitSpriteRef } from "../../scene/importSettings";
 import type { WarmContent } from "../../scene/warmUp";
 import { WARM_PREFIX, type WarmItem } from "./warmUp";
 import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UIComponentType } from "../../ui/components";
-import { fontEpoch, fontFamilyOf, onFontLoaded } from "../../ui/fonts";
-import { UI_FONT_FAMILY, UI_LINE_HEIGHT } from "../../ui/layout";
-import type { TextMeasureRequest, UICoreLike, UILaidOutCanvas, UILaidOutElement } from "../../ui/uiCoreTypes";
+import { fontEpoch, onFontLoaded } from "../../ui/fonts";
+import type { TextMeasureRequest, UICoreLike, UILaidOutCanvas, UILaidOutElement, UITextRun, UITextWrap } from "../../ui/uiCoreTypes";
 import { Text, type Anchor } from "../components";
 import { flipRows, redrawnPixels, type PixelRect } from "../pixelRegions";
 
 /** World canvases' texture pixels per UI pixel. */
 const WORLD_RESOLUTION = 2;
-export { UI_FONT_FAMILY, UI_LINE_HEIGHT };
 
 // TextWrapping is a const enum in Babylon's declarations: use its values.
 const WRAP_CLIP = 0;
@@ -343,7 +341,7 @@ export class BabylonUI {
         this.syncPanel(e, c as UIPanel);
         break;
       case "text":
-        this.syncUIText(e, c as UIText, el);
+        this.syncUIText(e, c as UIText, el.text!);
         break;
       case "image":
         this.syncImage(e, c as UIImage, el);
@@ -411,7 +409,7 @@ export class BabylonUI {
     const r = e.control as Rectangle;
     let background = c.backgroundColor;
     if (c instanceof UIButton && c.interactable) {
-      // As UIRuntime.properties(): pressed needs hovered too.
+      // Pressed needs hovered too (a press dragged off the button shows it unpressed).
       if (c.pressed && c.hovered) background = c.pressedColor;
       else if (c.hovered) background = c.hoverColor;
     }
@@ -423,21 +421,21 @@ export class BabylonUI {
     if (put(r, "color", ck)) r.color = c.borderColor.toCss();
   }
 
-  private syncUIText(e: ElementEntry, c: UIText, el: UILaidOutElement): void {
+  /** A UIText: the core's text run (exactly what it measured), with the component's colour and alignment. */
+  private syncUIText(e: ElementEntry, c: UIText, run: UITextRun): void {
     const t = e.control as TextBlock;
-    if (put(t, "text", c.text)) t.text = c.text;
-    this.setFont(t, c.fontSize, cssWeight(c.fontWeight), fontFamilyOf(c.font), UI_LINE_HEIGHT);
+    if (put(t, "text", run.text)) t.text = run.text;
+    this.setFont(t, run);
     const ck = colorKey(c.color);
     if (put(t, "color", ck)) t.color = c.color.toCss();
     const align = c.textAlign === "center" ? Control.HORIZONTAL_ALIGNMENT_CENTER : c.textAlign === "right" ? Control.HORIZONTAL_ALIGNMENT_RIGHT : Control.HORIZONTAL_ALIGNMENT_LEFT;
     if (put(t, "align", align)) t.textHorizontalAlignment = align;
-    if (put(t, "wordBreak", c.wordBreak)) {
-      t.textWrapping = c.wordBreak === "keep-all" ? WRAP_CLIP : WRAP_WORD;
-      // break-all: any character may end a line (the splitter hands the wrapper letters, joined with nothing).
-      t.wordSplittingFunction = c.wordBreak === "break-all" ? (line: string) => [...line] : null;
-      t.wordDivider = c.wordBreak === "break-all" ? "" : " ";
+    if (put(t, "wrap", run.wrap)) {
+      t.textWrapping = run.wrap === "none" ? WRAP_CLIP : WRAP_WORD;
+      // anywhere: any character may end a line (the splitter hands the wrapper letters, joined with nothing).
+      t.wordSplittingFunction = run.wrap === "anywhere" ? (line: string) => [...line] : null;
+      t.wordDivider = run.wrap === "anywhere" ? "" : " ";
     }
-    void el;
   }
 
   private syncImage(e: ElementEntry, c: UIImage, el: UILaidOutElement): void {
@@ -487,10 +485,9 @@ export class BabylonUI {
     const label = e.label!;
     const caret = e.caret!;
     const inset = c.borderWidth; // the Rectangle already insets its children by its thickness
-    const text = c.value || c.placeholder;
-    if (put(label, "text", text)) label.text = text;
-    const family = fontFamilyOf(c.font);
-    this.setFont(label, c.fontSize, "400", family, UI_LINE_HEIGHT);
+    const run = el.text!; // the value, or the placeholder while it's empty, as the core measured it
+    if (put(label, "text", run.text)) label.text = run.text;
+    this.setFont(label, run);
     const color = c.value ? c.color : c.placeholderColor;
     if (put(label, "color", colorKey(color))) label.color = color.toCss();
     if (put(label, "left", c.padding)) label.leftInPixels = c.padding;
@@ -504,17 +501,18 @@ export class BabylonUI {
       caret.isVisible = false;
       return;
     }
-    const prefix = c.value.slice(0, Math.max(0, index));
-    const pw = prefix ? textSize(prefix, c.fontSize, "400", family, UI_LINE_HEIGHT).width : 0; // exact, unlike layout's roomier measure
+    const prefix = c.value ? run.text.slice(0, Math.max(0, index)) : "";
+    const pw = prefix ? textSize(prefix, run.fontSize, run.fontWeight, run.fontFamily, run.lineHeight).width : 0; // exact, unlike layout's roomier measure
     caret.isVisible = true;
-    const ch = c.fontSize * UI_LINE_HEIGHT;
+    const ch = run.fontSize * run.lineHeight;
     if (put(caret, "left", c.padding + pw)) caret.leftInPixels = c.padding + pw;
     if (put(caret, "h", ch)) caret.heightInPixels = ch;
     if (put(caret, "color", colorKey(c.color))) caret.background = c.color.toCss();
   }
 
   /** Font properties of a TextBlock; line spacing makes the line height `lineHeight` times the size. */
-  private setFont(t: TextBlock, size: number, weight: string, family: string, lineHeight: number): void {
+  private setFont(t: TextBlock, run: { readonly fontSize: number; readonly fontWeight: string; readonly fontFamily: string; readonly lineHeight: number }): void {
+    const { fontSize: size, fontWeight: weight, fontFamily: family, lineHeight } = run;
     if (put(t, "size", size)) t.fontSize = size;
     if (put(t, "weight", weight)) t.fontWeight = weight;
     if (put(t, "family", family)) t.fontFamily = family;
@@ -563,7 +561,7 @@ export class BabylonUI {
     const outline = t.outlineColor && t.outlineWidth > 0 ? t.outlineWidth : 0;
     if (put(ctl, "text", t.text)) ctl.text = t.text;
     const weight = t.fontWeight;
-    this.setFont(ctl, t.fontSize, weight, t.fontFamily, t.lineHeight);
+    this.setFont(ctl, { fontSize: t.fontSize, fontWeight: weight, fontFamily: t.fontFamily, lineHeight: t.lineHeight });
     if (put(ctl, "color", colorKey(t.color))) ctl.color = t.color.toCss();
     if (put(ctl, "outline", `${outline}|${t.outlineColor ? colorKey(t.outlineColor) : -1}`)) {
       // Stroked `outlineWidth * 2` wide, centred on the glyph edge: `outlineWidth` shows outside it.
@@ -684,18 +682,6 @@ function colorKey(c: Color): number {
   return (((q(c.r) * 256 + q(c.g)) * 256 + q(c.b)) * 256 + q(c.a));
 }
 
-/** UIText.fontWeight (`"bold"`, `300`...) as a CSS weight. */
-function cssWeight(w: string): string {
-  switch (w) {
-    case "light": return "300";
-    case "normal": return "400";
-    case "medium": return "500";
-    case "semi-bold": return "600";
-    case "bold": return "700";
-    default: return /^\d+$/.test(w) ? w : "400";
-  }
-}
-
 function anchorFactors(anchor: Anchor): [number, number] {
   switch (anchor) {
     case "top-left": return [0, 0];
@@ -808,8 +794,11 @@ function context(): MeasureContext | null {
   return measureContext;
 }
 
-/** Text's lines (wrapped to `maxWidth` at spaces, as the GUI's word wrapping does) and the widest one. */
-function textSize(text: string, fontSize: number, weight: string, family: string, lineHeight: number, maxWidth = Infinity): { width: number; height: number; lines: number } {
+/**
+ * Text's lines (wrapped to `maxWidth` at spaces, or at any character for `wrap: "anywhere"`, as the GUI's
+ * word wrapping does with the splitter `syncUIText` gives it) and the widest one.
+ */
+function textSize(text: string, fontSize: number, weight: string, family: string, lineHeight: number, maxWidth = Infinity, wrap: UITextWrap = "word"): { width: number; height: number; lines: number } {
   const ctx = context();
   const width = (s: string) => {
     if (!ctx) return s.length * fontSize * 0.55; // no canvas (Node): a per-character estimate
@@ -824,11 +813,12 @@ function textSize(text: string, fontSize: number, weight: string, family: string
       widest = Math.max(widest, width(paragraph));
       continue;
     }
-    const words = paragraph.split(" ");
-    let line = words[0];
+    const divider = wrap === "anywhere" ? "" : " ";
+    const words = wrap === "anywhere" ? [...paragraph] : paragraph.split(" ");
+    let line = words[0] ?? "";
     let lineWidth = width(line);
     for (let n = 1; n < words.length; n++) {
-      const test = `${line} ${words[n]}`;
+      const test = `${line}${divider}${words[n]}`;
       const w = width(test);
       if (w > maxWidth) {
         lines++;
@@ -848,19 +838,20 @@ function textSize(text: string, fontSize: number, weight: string, family: string
 }
 
 /**
- * Measure text in UI pixels for the core's layout (`UICoreHost.measureText`): a 2D canvas's `measureText`
- * with the font string the GUI text blocks use, wrapped at spaces to `maxWidth`. Empty text is one line
- * tall and zero wide. Without a canvas (Node) it estimates.
+ * Measure a text run in UI pixels for the core's layout (`UICoreHost.measureText`): a 2D canvas's
+ * `measureText` with the font string the GUI text blocks use, wrapped to `maxWidth` as the run's `wrap`
+ * says. Empty text is one line tall and zero wide. Without a canvas (Node) it estimates.
  */
 export function measureText(req: TextMeasureRequest): { width: number; height: number } {
   // The GUI measures text at the size it's drawn: a canvas's scale × the pixel ratio. Font hinting doesn't
   // scale linearly, so at small drawn sizes text comes out a little wider than measured here at full size,
   // and the GUI wrapped a one-line title onto a second, clipped line. So wrap against a narrower width
   // (never fewer lines than the GUI draws) and report a slightly wider box.
-  const { width, height } = textSize(req.text, req.fontSize, req.fontWeight, req.fontFamily, req.lineHeight, req.maxWidth / TEXT_SLACK);
+  const maxWidth = req.wrap === "none" ? Infinity : req.maxWidth;
+  const { width, height } = textSize(req.text, req.fontSize, req.fontWeight, req.fontFamily, req.lineHeight, maxWidth / TEXT_SLACK, req.wrap);
   if (width <= 0) return { width: 0, height };
   const roomy = width * TEXT_SLACK + 1;
-  return { width: width <= req.maxWidth ? Math.min(req.maxWidth, roomy) : roomy, height }; // a word wider than maxWidth overflows, as before
+  return { width: width <= maxWidth ? Math.min(maxWidth, roomy) : roomy, height }; // a word wider than maxWidth overflows, as before
 }
 
 /** Room measured text gets over its full-size measurement (see `measureText`). */

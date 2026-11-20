@@ -122,7 +122,7 @@ async function render(event: string, script: Record<number, number>, total: numb
         h.setParameter("RPM", script[f]!);
       }
       events().update(FRAME_SECONDS);
-      backend.update(FRAME_SECONDS);
+      loop.tick(FRAME_SECONDS);
       const out = loop.render(FRAME_QUANTA);
       const rms: number[] = [];
       for (let q = 0; q < FRAME_QUANTA; q++) {

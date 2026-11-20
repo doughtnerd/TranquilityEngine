@@ -111,13 +111,12 @@ export class UIText extends UIElement {
   @field(String) text = "";
   /**
    * A font file in the project (`asset:fonts/Pirata.ttf`; `.ttf`, `.otf`, `.woff` or `.woff2`), loaded
-   * the first time it's used; empty is the bundled Inter. Characters the font lacks use Inter. On the
-   * three.js renderer it's ignored: text there is always Inter.
+   * the first time it's used; empty is the bundled Inter. Characters the font lacks use Inter.
    */
   @field(AssetRef, { kind: "font" }) font = "";
   @field(Number) fontSize = 16;
   @field(Color) color = Color.white;
-  /** `"normal"`, `"medium"`, `"semi-bold"`, `"bold"`, or a number 100–900. */
+  /** `"light"` (300), `"normal"` (400), `"medium"` (500), `"semi-bold"` (600), `"bold"` (700), or a whole number 1–1000 (anything else is 400). */
   @field(String, { choices: ["light", "normal", "medium", "semi-bold", "bold"] }) fontWeight = "normal";
   @field(String, { choices: ["left", "center", "right", "justify"] }) textAlign: UITextAlign = "left";
   /** How lines wrap: at word boundaries, anywhere, or never. */
@@ -189,7 +188,7 @@ export class UIInputField extends UIPanel {
   @field(String) placeholder = "";
   /** 0: no limit. */
   @field(Number) maxLength = 0;
-  /** A font file in the project, as `UIText.font`; empty is the bundled Inter. Ignored on three.js. */
+  /** A font file in the project, as `UIText.font`; empty is the bundled Inter. The text is drawn at weight 400. */
   @field(AssetRef, { kind: "font" }) font = "";
   @field(Number) fontSize = 16;
   @field(Color) color = Color.white;

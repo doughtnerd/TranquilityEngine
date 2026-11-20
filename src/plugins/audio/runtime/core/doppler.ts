@@ -51,7 +51,7 @@ export interface DopplerCounters {
   dopplerGuardTrips: number;
 }
 
-/** @internal The Doppler pass over one backend's voices (constructed by the backend, run by the audio system). */
+/** @internal The Doppler pass over one backend's voices (constructed by the backend, run by the frame step, `audioFrame.ts`). */
 export class DopplerPass {
   readonly counters: DopplerCounters = { dopplerClamps: 0, dopplerTeleports: 0, dopplerGuardTrips: 0 };
   /** Per slot: the factor last handed back (1 none). */

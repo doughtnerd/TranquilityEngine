@@ -97,7 +97,7 @@ async function rig() {
   const step = async (n: number, perFrame?: () => void) => {
     for (let f = 0; f < n; f++) {
       perFrame?.();
-      backend.update(0.0107);
+      loop.tick(0.0107);
       for (const s of loop.render(4).left) out.push(s);
       for (let k = 0; k < 4; k++) await Promise.resolve();
     }

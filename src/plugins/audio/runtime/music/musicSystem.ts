@@ -37,7 +37,8 @@ import { predictDue, seatBeats } from "./beatClock";
 import { endPlayer, newMusicPlayer, refuseStart, type MusicPlayer } from "./musicPlayer";
 import { taps } from "../mix/profileTaps";
 import { NULL_PROFILE_SINK } from "../mix/profileSink";
-import { musicChildById, type MusicNode } from "../../../../engine/audio/musicFormat";
+import type { MusicNode } from "../../../../engine/audio/musicFormat";
+import { musicChildById } from "../../../../engine/audio/musicTree";
 
 export type { MusicCounters, MusicPlayer, MusicPlayerState } from "./musicPlayer";
 

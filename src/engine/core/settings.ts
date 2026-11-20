@@ -41,7 +41,7 @@ export interface ProjectSettings {
     collisionMatrix?: Record<string, string[]>;
     /**
      * The physics backend for 2D and for 3D, by id (ADR 0137; Rapier's is `"rapier"`). Omitted: the only
-     * one enabled. Backends come from plugins, so the engine checks only the form (`physicsBackendProblems`).
+     * one enabled. Backends come from plugins, so the engine checks only the form (`RUNTIME_SETTINGS.physics`).
      */
     backend2d?: string;
     backend3d?: string;
@@ -97,17 +97,6 @@ export function pluginSettingsProblems(input: unknown, known?: readonly string[]
   return { problems, warnings };
 }
 
-/** Everything wrong with `physics.backend2d` / `physics.backend3d` (ADR 0137), as readable sentences: each must be a backend id when present. */
-export function physicsBackendProblems(physics: unknown): string[] {
-  if (!isRecord(physics)) return [];
-  const problems: string[] = [];
-  for (const key of ["backend2d", "backend3d"]) {
-    const v = physics[key];
-    if (v !== undefined && (typeof v !== "string" || !v.trim())) problems.push(`physics.${key} must be a physics backend's id, such as "rapier" (got ${describe(v)}).`);
-  }
-  return problems;
-}
-
 export type ProjectSettingsInput = {
   [K in Exclude<keyof ProjectSettings, "audio">]?: ProjectSettings[K] extends object[] | string[]
     ? ProjectSettings[K]
@@ -119,40 +108,238 @@ export type ProjectSettingsInput = {
   audio?: Record<string, unknown>;
 };
 
-export const defaultSettings: ProjectSettings = {
-  name: "Untitled",
-  display: { width: 1280, height: 720, backgroundColor: "#000000", scaleMode: "fit" },
-  time: { fixedDeltaTime: 1 / 60, maxSubSteps: 5, maxFrameTime: 0.25 },
-  physics: { gravity: [0, -9.81], layers: ["Default"] },
-  render: { sortingLayers: ["Default"], pixelsPerUnit: 100 },
-  graphics: parseGraphics(undefined).graphics,
-  navigation: parseNavigationSettings(undefined).settings,
-  audio: parseAudioSettings(undefined).settings,
-  autoload: [],
-};
+// --- Runtime sections (ADR 0272) ------------------------------------------------------------------
 
-/** A `physics` section as written, with the defaults for what it leaves out (no checks: `physicsBackendProblems` and the Physics section do those). */
-export const resolvePhysicsSettings = (physics: Partial<ProjectSettings["physics"]> | undefined): ProjectSettings["physics"] => ({ ...defaultSettings.physics, ...physics });
+/** Physics layers are bits in a 16-bit collision mask. */
+export const MAX_PHYSICS_LAYERS = 16;
 
-export function resolveSettings(input: ProjectSettingsInput = {}): ProjectSettings {
-  return {
-    name: input.name ?? defaultSettings.name,
-    display: { ...defaultSettings.display, ...input.display },
-    time: { ...defaultSettings.time, ...input.time },
-    physics: resolvePhysicsSettings(input.physics),
-    render: { ...defaultSettings.render, ...input.render },
-    graphics: parseGraphics(input.graphics).graphics, // problems are reported by the Engine and the Project panel
-    navigation: parseNavigationSettings(input.navigation).settings, // problems are reported by the Engine (`navigationSettingsProblems`) and the Project panel
-    audio: parseAudioSettings(input.audio).settings, // problems are reported by the Engine and the Project panel
-    autoload: input.autoload ?? [],
-    ...(input.bootstrap !== undefined ? { bootstrap: input.bootstrap } : {}), // checked by validateBootstrap when the bootstrap runs
-    ...(input.plugins !== undefined ? { plugins: input.plugins } : {}), // read by the hosts; checked by pluginSettingsProblems
-  };
+/** Something wrong with a `project.json` value: the dotted field it's about (`"display.width"`, `"physics.layers.2"`, or the section's key) and a sentence. */
+export interface SettingsIssue {
+  readonly field: string;
+  readonly message: string;
 }
 
-/** Everything wrong with a `navigation` section (ADR 0065), as readable sentences, like `parseGraphics(...).problems`. */
-export function navigationSettingsProblems(input: unknown): string[] {
-  return parseNavigationSettings(input).problems;
+/** The project.json keys the engine reads itself, each declared once in `RUNTIME_SETTINGS`. `bootstrap` isn't one: it's checked against the system catalog when the bootstrap runs (`validateBootstrap`). */
+export type RuntimeSettingsKey = Exclude<keyof ProjectSettings, "bootstrap">;
+
+/**
+ * One runtime `project.json` section (ADR 0272): its key, its default, and a lenient parse. `parse(written)` never
+ * throws: `value` is what the engine runs with (what's written over the default, a value of the wrong type or range
+ * replaced by its default), `problems` say what's wrong (and what was replaced), and `warnings` are things that work
+ * but are probably unintended. An absent section (`undefined`) parses to the default with nothing to say.
+ */
+export interface RuntimeSettingsSection<K extends RuntimeSettingsKey = RuntimeSettingsKey> {
+  readonly key: K;
+  readonly default: ProjectSettings[K];
+  parse(written: unknown): { value: ProjectSettings[K]; problems: SettingsIssue[]; warnings: SettingsIssue[] };
+}
+
+type Parsed<K extends RuntimeSettingsKey> = ReturnType<RuntimeSettingsSection<K>["parse"]>;
+
+const isPositive = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v) && v > 0;
+const isPositiveInt = (v: unknown): v is number => isPositive(v) && Number.isInteger(v);
+const HEX_COLOR = /^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
+const asIssues = (field: string, messages: readonly string[]): SettingsIssue[] => messages.map((message) => ({ field, message }));
+
+/** A record's fields over `defaults`, each field kept only when `valid` (else its default, and `message` as a problem under `section.field`). */
+function fieldsOver<T extends object>(section: string, written: unknown, defaults: T, rules: { [F in keyof T]?: [valid: (v: unknown) => boolean, message: string] }, problems: SettingsIssue[]): T {
+  if (written === undefined) return { ...defaults };
+  if (!isRecord(written)) {
+    problems.push({ field: section, message: `${section} must be an object (got ${describe(written)}); the defaults are used.` });
+    return { ...defaults };
+  }
+  const out: Record<string, unknown> = { ...defaults, ...written };
+  for (const field of Object.keys(rules) as (keyof T & string)[]) {
+    const v = written[field];
+    if (v === undefined) continue;
+    const [valid, message] = rules[field]!;
+    if (valid(v)) continue;
+    problems.push({ field: `${section}.${field}`, message });
+    out[field] = defaults[field];
+  }
+  return out as T;
+}
+
+/** A list of unique, non-empty names: problems by entry (`field.i`). */
+function nameListProblems(list: unknown, field: string, what: string, problems: SettingsIssue[]): void {
+  if (!Array.isArray(list)) {
+    problems.push({ field, message: `${what} must be a list of names.` });
+    return;
+  }
+  if (list.length === 0) problems.push({ field, message: `There must be at least one ${what.replace(/s$/, "")}.` });
+  const seen = new Set<string>();
+  list.forEach((name, i) => {
+    if (typeof name !== "string" || name.trim() === "") problems.push({ field: `${field}.${i}`, message: `${what}: entry ${i + 1} needs a name.` });
+    else if (seen.has(name)) problems.push({ field: `${field}.${i}`, message: `${what}: "${name}" is listed twice.` });
+    else seen.add(name);
+  });
+}
+
+/** A name list's runtime value: the list when it's a non-empty list of strings, else the default. */
+const nameListValue = (list: unknown, fallback: string[]): string[] => (isStringList(list) && list.length > 0 ? list : [...fallback]);
+
+const DEFAULT_DISPLAY: ProjectSettings["display"] = { width: 1280, height: 720, backgroundColor: "#000000", scaleMode: "fit" };
+const DEFAULT_TIME: ProjectSettings["time"] = { fixedDeltaTime: 1 / 60, maxSubSteps: 5, maxFrameTime: 0.25 };
+const DEFAULT_PHYSICS: ProjectSettings["physics"] = { gravity: [0, -9.81], layers: ["Default"] };
+const DEFAULT_RENDER: ProjectSettings["render"] = { sortingLayers: ["Default"], pixelsPerUnit: 100 };
+
+function parseName(written: unknown): Parsed<"name"> {
+  if (written === undefined) return { value: "Untitled", problems: [], warnings: [] };
+  if (typeof written === "string" && written.trim() !== "") return { value: written, problems: [], warnings: [] };
+  return { value: "Untitled", problems: [{ field: "name", message: "The project name can't be empty." }], warnings: [] };
+}
+
+function parseDisplay(written: unknown): Parsed<"display"> {
+  const problems: SettingsIssue[] = [];
+  const value = fieldsOver("display", written, DEFAULT_DISPLAY, {
+    width: [isPositiveInt, "Display width must be a whole number of pixels above 0."],
+    height: [isPositiveInt, "Display height must be a whole number of pixels above 0."],
+    backgroundColor: [(v) => typeof v === "string" && HEX_COLOR.test(v), "Background colour must be a hex colour such as #1d1f24."],
+    scaleMode: [(v) => (SCALE_MODES as readonly unknown[]).includes(v), `Scale mode must be one of ${SCALE_MODES.join(", ")}.`],
+  }, problems);
+  return { value, problems, warnings: [] };
+}
+
+function parseTime(written: unknown): Parsed<"time"> {
+  const problems: SettingsIssue[] = [];
+  const value = fieldsOver("time", written, DEFAULT_TIME, {
+    fixedDeltaTime: [isPositive, "The fixed timestep must be above 0 seconds."],
+    maxFrameTime: [isPositive, "The max frame time must be above 0 seconds."],
+    maxSubSteps: [isPositiveInt, "Max sub-steps must be a whole number above 0."],
+  }, problems);
+  if (value.fixedDeltaTime > value.maxFrameTime) problems.push({ field: "time.fixedDeltaTime", message: "The fixed timestep is longer than the max frame time, so no fixed step would ever run." });
+  return { value, problems, warnings: [] };
+}
+
+function parsePhysics(written: unknown): Parsed<"physics"> {
+  const problems: SettingsIssue[] = [];
+  const p = (field: string, message: string) => problems.push({ field, message });
+  const validGravity = (g: unknown) => Array.isArray(g) && (g.length === 2 || g.length === 3) && g.every((x) => typeof x === "number" && Number.isFinite(x));
+  const value = fieldsOver("physics", written, DEFAULT_PHYSICS, { gravity: [validGravity, "Gravity must be two numbers, x and y, or three with z."] }, problems);
+  const physics = isRecord(written) ? written : {};
+  if (physics.layers !== undefined) {
+    nameListProblems(physics.layers, "physics.layers", "Physics layers", problems);
+    // Physics layers are named by index: keep a list of names even with a duplicate or a blank (both reported).
+    value.layers = isStringList(physics.layers) && physics.layers.length > 0 ? physics.layers : [...DEFAULT_PHYSICS.layers];
+  }
+  // A bad backend id is dropped: the only enabled backend is used (ADR 0137). Backends come from plugins, so only the form is checked.
+  for (const key of ["backend2d", "backend3d"] as const) {
+    const v = physics[key];
+    if (v !== undefined && (typeof v !== "string" || !v.trim())) {
+      p(`physics.${key}`, `physics.${key} must be a physics backend's id, such as "rapier" (got ${describe(v)}).`);
+      delete value[key];
+    }
+  }
+  if (value.layers.length > MAX_PHYSICS_LAYERS) p("physics.layers", `There can be at most ${MAX_PHYSICS_LAYERS} physics layers.`);
+  const matrix = physics.collisionMatrix;
+  if (matrix !== undefined) {
+    if (!isRecord(matrix)) {
+      p("physics.collisionMatrix", "The collision matrix must be an object of layer lists.");
+      delete value.collisionMatrix; // every layer collides with every layer
+    } else {
+      const unknown = new Set<string>();
+      for (const [a, list] of Object.entries(matrix)) {
+        if (!value.layers.includes(a)) unknown.add(a);
+        if (!Array.isArray(list)) p("physics.collisionMatrix", `The collision matrix entry for "${a}" must be a list of layers.`);
+        else for (const b of list) if (!value.layers.includes(b)) unknown.add(String(b));
+      }
+      if (unknown.size > 0) p("physics.collisionMatrix", `The collision matrix names ${[...unknown].map((n) => `"${n}"`).join(", ")}, which ${unknown.size === 1 ? "isn't a physics layer" : "aren't physics layers"}.`);
+    }
+  }
+  return { value, problems, warnings: [] };
+}
+
+function parseRender(written: unknown): Parsed<"render"> {
+  const problems: SettingsIssue[] = [];
+  const value = fieldsOver("render", written, DEFAULT_RENDER, { pixelsPerUnit: [isPositive, "Pixels per unit must be above 0."] }, problems);
+  const layers = isRecord(written) ? written.sortingLayers : undefined;
+  if (layers !== undefined) {
+    nameListProblems(layers, "render.sortingLayers", "Sorting layers", problems);
+    value.sortingLayers = nameListValue(layers, DEFAULT_RENDER.sortingLayers);
+  }
+  const warnings: SettingsIssue[] = value.sortingLayers.includes("Default") ? [] : [{ field: "render.sortingLayers", message: 'There\'s no "Default" sorting layer, which sprites use unless they name another.' }];
+  return { value, problems, warnings };
+}
+
+function parseAutoload(written: unknown): Parsed<"autoload"> {
+  if (written === undefined) return { value: [], problems: [], warnings: [] };
+  if (!Array.isArray(written)) return { value: [], problems: [{ field: "autoload", message: "Autoloads must be a list of scene or prefab files." }], warnings: [] };
+  const problems: SettingsIssue[] = [];
+  const seen = new Set<string>();
+  written.forEach((path: unknown, i) => {
+    const field = `autoload.${i}`;
+    if (typeof path !== "string" || !/\.(scene|prefab)\.json$/.test(path)) problems.push({ field, message: `Autoload ${i + 1} must be a .scene.json or .prefab.json file.` });
+    else if (seen.has(path)) problems.push({ field, message: `${path} is autoloaded twice.` });
+    seen.add(String(path));
+  });
+  return { value: written.filter((p): p is string => typeof p === "string"), problems, warnings: [] };
+}
+
+function parsePlugins(written: unknown): Parsed<"plugins"> {
+  const { problems } = pluginSettingsProblems(written);
+  return { value: isRecord(written) ? (written as PluginSettings) : undefined, problems: asIssues("plugins", problems), warnings: [] };
+}
+
+function declare<K extends RuntimeSettingsKey>(key: K, parse: (written: unknown) => Parsed<K>): RuntimeSettingsSection<K> {
+  return { key, default: parse(undefined).value, parse };
+}
+
+/**
+ * Every runtime `project.json` section, declared once (ADR 0272): `resolveSettings`, the Engine's start-up warnings
+ * (`settingsIssues`) and the editor's Project panel and settings sections all go through these. The sections whose
+ * editor half is a plugin (physics, navigation, audio) are declared here too: the engine reads them, and the engine
+ * core doesn't know plugins (ADR 0010).
+ */
+export const RUNTIME_SETTINGS: { readonly [K in RuntimeSettingsKey]: RuntimeSettingsSection<K> } = {
+  name: declare("name", parseName),
+  display: declare("display", parseDisplay),
+  time: declare("time", parseTime),
+  physics: declare("physics", parsePhysics),
+  render: declare("render", parseRender),
+  graphics: declare("graphics", (w) => {
+    const { graphics, problems } = parseGraphics(w);
+    return { value: graphics, problems: asIssues("graphics", problems), warnings: [] };
+  }),
+  navigation: declare("navigation", (w) => {
+    const { settings, problems } = parseNavigationSettings(w);
+    return { value: settings, problems: asIssues("navigation", problems), warnings: [] };
+  }),
+  audio: declare("audio", (w) => {
+    const { settings, problems, warnings } = parseAudioSettings(w);
+    return { value: settings, problems: asIssues("audio", problems), warnings: asIssues("audio", warnings) };
+  }),
+  autoload: declare("autoload", parseAutoload),
+  plugins: declare("plugins", parsePlugins),
+};
+
+const SECTIONS = Object.values(RUNTIME_SETTINGS) as RuntimeSettingsSection[];
+
+/** The settings of a project with no `project.json` values: every section's default. */
+export const defaultSettings: ProjectSettings = resolveSettings({});
+
+/** `project.json`'s values with the defaults for what's left out and for what's wrong (`settingsIssues` says what). */
+export function resolveSettings(input: ProjectSettingsInput = {}): ProjectSettings {
+  const out: Record<string, unknown> = {};
+  const written = input as Record<string, unknown>;
+  for (const section of SECTIONS) {
+    const value = section.parse(written[section.key]).value;
+    if (value !== undefined) out[section.key] = value;
+  }
+  if (input.bootstrap !== undefined) out.bootstrap = input.bootstrap; // checked by validateBootstrap when the bootstrap runs
+  return out as unknown as ProjectSettings;
+}
+
+/** Everything wrong with `project.json`'s runtime sections: each section's problems and warnings, in section order. */
+export function settingsIssues(input: ProjectSettingsInput | Record<string, unknown> = {}): { problems: SettingsIssue[]; warnings: SettingsIssue[] } {
+  const problems: SettingsIssue[] = [];
+  const warnings: SettingsIssue[] = [];
+  const written = input as Record<string, unknown>;
+  for (const section of SECTIONS) {
+    const parsed = section.parse(written[section.key]);
+    problems.push(...parsed.problems);
+    warnings.push(...parsed.warnings);
+  }
+  return { problems, warnings };
 }
 
 const BOOTSTRAP_KEYS = ["worlds", "links", "templates"];

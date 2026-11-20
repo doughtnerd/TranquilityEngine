@@ -2,36 +2,25 @@
 // direct children plus `*`, every cell showing the rule that wins the pair (the same answer R1 gives at run time, read
 // through `rulesModel.ts`), the chosen cell's rule highlighted in the rule list, and a "why" readout of tier and index.
 // Ed7 adds beside it: the rule editor (`RuleEditor.tsx`), the lint rows and badges (`ruleLint.ts`) and "audition this
-// transition" (`ruleAudition.ts`, through Ed5's shared transport).
+// transition" (`ruleAudition.ts`, through the editor's one audition, ADR 0268).
 import { signal } from "@preact/signals";
 import { useEffect, useMemo, useState } from "preact/hooks";
 import { editor, openAssetDocument, Panel } from "../../../../editor/sdk";
 import type { AudioEventAsset } from "../../../../engine/audio/eventFormat";
-import { isMusicContainer, type MusicContainerNode, type MusicNode } from "../../../../engine/audio/musicFormat";
-import { buildRulesGrid, explainPair, replaceContainer, ruleMatchesPair } from "./rulesModel";
+import { findMusicContainer, musicLeaves, replaceMusicNode } from "../../../../engine/audio/musicTree";
+import { buildRulesGrid, explainPair, ruleMatchesPair } from "./rulesModel";
 import { openRules } from "./index";
 import { peaksFor } from "./peaksHost";
 import { RuleEditor } from "./RuleEditor";
 import { addRule, duplicateRule, moveRule, removeRule, type RuleEdit } from "./ruleEdits";
-import { issuesOfRule, leafSegments, lintTransitionRules, worstSeverity } from "./ruleLint";
+import { issuesOfRule, lintTransitionRules, worstSeverity } from "./ruleLint";
 import { planTransitionAudition, runTransitionAudition } from "./ruleAudition";
-import { musicTransport } from "./transportHost";
+import { editorAudition } from "../audition/editorAudition";
 import "./rulesTable.css";
 import "./ruleEditor.css";
 
 /** The pair chosen in the grid, per container (`event` + `nodeId`); a pair that no longer exists is ignored. */
 const chosen = signal<{ readonly key: string; readonly from: string; readonly to: string } | null>(null);
-
-/** The music container `id` anywhere under `root`, or null. */
-function findContainer(root: MusicNode | undefined, id: string): MusicContainerNode | null {
-  if (!root || !isMusicContainer(root)) return null;
-  if (root.id === id) return root;
-  for (const child of root.children) {
-    const hit = findContainer(child, id);
-    if (hit) return hit;
-  }
-  return null;
-}
 
 /** The rule being edited, per container (`event#nodeId`). */
 const editing = signal<{ readonly key: string; readonly index: number } | null>(null);
@@ -53,22 +42,17 @@ function OpenRules(props: { path: string; nodeId: string }) {
   const project = editor.project.current!;
   const doc = openAssetDocument<AudioEventAsset>(project, props.path, "audioEvent");
   const event = doc.value.value;
-  const container = useMemo(() => findContainer(event.musicRoot, props.nodeId), [event.musicRoot, props.nodeId]);
+  const container = useMemo(() => findMusicContainer(event.musicRoot, props.nodeId), [event.musicRoot, props.nodeId]);
   const grid = useMemo(() => (container ? buildRulesGrid(container) : null), [container]);
   const peaks = peaksFor(project);
   const [version, setVersion] = useState(0);
   const [auditionText, setAuditionText] = useState<string | null>(null);
-  const clips = useMemo(() => (container ? [...container.children, ...container.library].flatMap(leafSegments).map((s) => s.tracks[0]?.clip ?? "").filter((c) => c !== "") : []), [container]);
+  const clips = useMemo(() => (container ? musicLeaves(container, { library: true }).map((s) => s.tracks[0]?.clip ?? "").filter((c) => c !== "") : []), [container]);
   useEffect(() => {
     let live = true;
     for (const c of clips) if (!peaks.peek(c)) peaks.get(c).then(() => live && setVersion((v) => v + 1), () => {});
     return () => void (live = false);
   }, [clips.join("\n")]);
-  // The panel keeps the shared transport ticking while an audition it started plays (the seek retry, the queued parameter).
-  useEffect(() => {
-    const t = setInterval(() => musicTransport.tick(), 50);
-    return () => clearInterval(t);
-  }, []);
   if (!container || !grid) return <p class="empty">{props.path} has no playlist or music switch “{props.nodeId}”.</p>;
 
   const key = `${props.path}#${props.nodeId}`;
@@ -83,7 +67,7 @@ function OpenRules(props: { path: string; nodeId: string }) {
 
   void version;
   const lengthOf = (id: string): number | undefined => {
-    const seg = [...container.children, ...container.library].flatMap(leafSegments).find((s) => s.id === id);
+    const seg = musicLeaves(container, { library: true }).find((s) => s.id === id);
     const clip = seg?.tracks[0]?.clip;
     const m = clip ? peaks.peek(clip) : undefined;
     return m && m.rate > 0 ? m.frames / m.rate : undefined;
@@ -93,7 +77,7 @@ function OpenRules(props: { path: string; nodeId: string }) {
   const readOnly = doc.readOnly;
   const apply = (edit: RuleEdit, label: string): boolean => {
     if ("error" in edit) return false;
-    if (event.musicRoot) doc.edit({ ...event, musicRoot: replaceContainer(event.musicRoot, container.id, edit.container) }, { label });
+    if (event.musicRoot) doc.edit({ ...event, musicRoot: replaceMusicNode(event.musicRoot, container.id, edit.container) }, { label });
     return true;
   };
   const tool = (edit: RuleEdit, label: string, select?: number): void => {
@@ -105,7 +89,7 @@ function OpenRules(props: { path: string; nodeId: string }) {
     const p = planTransitionAudition(props.path, event, container, sel, { ...(from !== null && to !== null ? { pair: { from, to } } : {}), ...(bar !== undefined ? { bar } : {}) });
     if (!p.ok) return void setAuditionText(p.reason);
     setAuditionText(p.note);
-    void runTransitionAudition(musicTransport, p);
+    void runTransitionAudition(editorAudition, p);
   };
 
   return (

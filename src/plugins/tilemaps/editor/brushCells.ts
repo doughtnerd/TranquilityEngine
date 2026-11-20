@@ -17,5 +17,10 @@ export function brushValueAt(stamp: Stamp, x: number, y: number, origin: Cell, r
     const r = ((y - origin[1]) % stamp.height + stamp.height) % stamp.height;
     v = stamp.values[r * stamp.width + c] ?? 0;
   }
+  return withBrushFlips(v, flags);
+}
+
+/** A stamp value with the brush's flips `flags` applied after the tile's own; 0 (empty) stays 0. */
+export function withBrushFlips(v: number, flags: number): number {
   return v ? cellValue(tileIdOf(v), compose(flagsOf(v), flags)) : 0;
 }

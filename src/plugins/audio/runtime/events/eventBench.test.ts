@@ -137,14 +137,14 @@ async function coreRig(): Promise<Rig | null> {
     backend,
     async frame() {
       globalMixer.update(0.0107);
-      backend.update(0.0107);
+      loop.tick(0.0107);
       events().update(0.0107);
       loop.render(4);
       for (let k = 0; k < 4; k++) await Promise.resolve();
     },
     sent: () => (count(), { batches }),
     sinkCalls: () => (count(), sink),
-    backendUpdate: () => backend.update(0.0107),
+    backendUpdate: () => loop.tick(0.0107),
     evaluations: () => backend.automation.stats.evaluations,
   };
 }

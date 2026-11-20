@@ -19,7 +19,7 @@ export interface PeaksSource {
 }
 
 export interface PeaksServiceOptions {
-  /** The decoder client (`createDecoderClient()` in the editor, a fake in tests). */
+  /** The decoder client (the shared client of the project's decoder build in the editor, a fake in tests). */
   readonly client: Pick<DecoderClient, "computePeaks">;
   readonly source: PeaksSource;
   /** Frames per base bin; default `PEAKS_BIN_FRAMES`. */

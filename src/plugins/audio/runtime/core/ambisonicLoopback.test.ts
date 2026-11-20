@@ -82,7 +82,7 @@ async function rig(where: Where, files: Record<string, ArrayBuffer>) {
   const step = async (n: number) => {
     for (let f = 0; f < n; f++) {
       mixer.update(0.003);
-      backend.update(0.003);
+      audio.tick(0.003);
       const out = audio.render(4);
       left.push(...out.left);
       right.push(...out.right);

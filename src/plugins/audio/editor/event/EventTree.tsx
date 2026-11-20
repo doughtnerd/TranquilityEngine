@@ -10,7 +10,8 @@ import { NODE_TYPES, type EventNode, type NodeType } from "../../../../engine/au
 import { isMusicContainer, type MusicNode } from "../../../../engine/audio/musicFormat";
 import { audioPaths } from "./assetDrop";
 import { addNode, changeListType } from "./treeActions";
-import { SUSTAIN_SLOTS, type SustainSlot, type NodePath, type ListNodeType, LIST_NODE_TYPES, type TreeEdit, pathKey, parsePathKey, samePath, parentPath, isListNode, childSteps, getNode, nodePaths, nodeLabel, canRemove, removeNode, reorderChild, moveNode, canDuplicate, duplicateNode, wrapNode, type MusicEdit, type MusicAddKind, getMusicNode, isLibraryPath, musicNodePaths, addMusicNode, canRemoveMusic, removeMusicNode, reorderMusicNode, canDuplicateMusic, duplicateMusicNode, musicNodeLabel } from "./eventTreeModel";
+import { SUSTAIN_SLOTS, type SustainSlot, type NodePath, type ListNodeType, LIST_NODE_TYPES, type TreeEdit, pathKey, parsePathKey, samePath, parentPath, isListNode, childSteps, getNode, nodePaths, nodeLabel, canRemove, removeNode, reorderChild, moveNode, canDuplicate, duplicateNode, wrapNode, type MusicEdit, type MusicAddKind, addMusicNode, canRemoveMusic, removeMusicNode, reorderMusicNode, canDuplicateMusic, duplicateMusicNode, musicNodeLabel } from "./eventTreeModel";
+import { isLibraryPath, musicEntries, musicNodeAt } from "../../../../engine/audio/musicTree";
 import { applyClipDrop, canDropNode, describeDrop, dropAt, type DropRow, type TreeDrop } from "./treeDrop";
 
 export interface EventTreeProps {
@@ -336,8 +337,8 @@ const MUSIC_ADD_KINDS = ["segment", "playlist", "musicSwitch", "library"] as con
 function MusicTree(props: EventTreeProps & { music: MusicTreeProps }) {
   const { selected, readOnly, music } = props;
   const root = music.root;
-  const rows = musicNodePaths(root);
-  const sel = selected ? getMusicNode(root, selected) : undefined;
+  const rows = musicEntries(root);
+  const sel = selected ? musicNodeAt(root, selected) : undefined;
   const edit = (e: MusicEdit | string, label: string) => (typeof e === "string" ? props.onProblem(e) : music.onEdit(e.root, e.path, label));
   const remove = () => {
     if (!selected || !canRemoveMusic(root, selected)) return;
@@ -371,7 +372,7 @@ function MusicTree(props: EventTreeProps & { music: MusicTreeProps }) {
   };
 
   const step = selected?.[selected.length - 1];
-  const parentNode = selected && selected.length > 0 ? getMusicNode(root, selected.slice(0, -1)) : undefined;
+  const parentNode = selected && selected.length > 0 ? musicNodeAt(root, selected.slice(0, -1)) : undefined;
   const siblings = parentNode && isMusicContainer(parentNode) ? (isLibraryPath(selected!) ? parentNode.library.length : parentNode.children.length) : 0;
   const index = step === undefined ? -1 : typeof step === "number" ? step : Number(step.slice(3));
   return (
