@@ -394,7 +394,7 @@ function GraphNode(props: {
           </span>
         )}
         {role && (
-          <span class="worlds-node-tag" title={role.title}>
+          <span class="worlds-node-role" title={role.title}>
             {role.label}
           </span>
         )}

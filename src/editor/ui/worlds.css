@@ -37,6 +37,7 @@
 .worlds-node-rate { flex: none; color: var(--muted); font-size: calc(10px * var(--ui-scale)); }
 .worlds-badges { display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: calc(10px * var(--ui-scale)); white-space: nowrap; overflow: hidden; }
 .worlds-node-tag { flex: none; padding: 0 4px; border: 1px dashed var(--border-strong); border-radius: 3px; line-height: 11px; }
+.worlds-node-role { flex: none; padding: 0 4px; border: 1px solid var(--border-strong); border-radius: 3px; line-height: 11px; color: var(--text); }
 .worlds-chips, .worlds-tags { display: flex; flex-wrap: wrap; gap: 3px; min-width: 0; overflow: hidden; }
 .worlds-chips { max-height: 18px; }
 .worlds-chip { display: inline-flex; align-items: center; gap: 2px; padding: 0 5px; border-radius: 8px; background: var(--badge); color: var(--badge-text); font-size: calc(10px * var(--ui-scale)); line-height: 16px; white-space: nowrap; }
