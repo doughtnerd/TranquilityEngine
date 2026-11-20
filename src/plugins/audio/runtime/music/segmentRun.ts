@@ -114,8 +114,8 @@ export interface PrimeJob {
  * not admit, prime or start anything. Null when the node has no playable track.
  */
 export function createSegmentRun(player: MusicPlayer, node: MusicNode, startFrame: number): SegmentRun | null {
-  const tracks = (node as Partial<SegmentNode>).tracks;
-  if (node.type !== "segment" || !Array.isArray(tracks) || tracks.length === 0) return null;
+  if (node.type !== "segment" || !Array.isArray(node.tracks) || node.tracks.length === 0) return null;
+  const tracks = node.tracks;
   const stems: StemRun[] = [];
   for (let k = 0; k < tracks.length; k++) {
     const t = tracks[k]!;

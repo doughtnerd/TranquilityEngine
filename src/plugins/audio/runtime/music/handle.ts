@@ -13,9 +13,9 @@
  * stamped start is heard. Grid points are at or after `Audio.time`.
  */
 import type { GridPoint, GridSpec, MusicHandle, MusicPositionAt, MusicSeekResult } from "../../../../engine/audio/musicTypes";
-import type { SegmentNode, MusicNode } from "../../../../engine/audio/musicFormat";
+import type { MusicNode } from "../../../../engine/audio/musicFormat";
 import {
-  compileSegmentGrid, entrySeconds, exitSeconds, nextGridSeconds, secondsToNearestTick, spanAtTicks, ticksToPosition,
+  entrySeconds, exitSeconds, nextGridSeconds, secondsToNearestTick, spanAtTicks, ticksToPosition,
   ticksToSeconds, type SegmentGrid,
 } from "../../../../engine/audio/musicGrid";
 import { MUSIC_TICKS_PER_BEAT, type BarBeatTick } from "../../../../engine/audio/musicPosition";
@@ -25,32 +25,11 @@ import { heardRunAt } from "./beatClock";
 import { getCalibration } from "./calibration";
 import { musicFrameSerial, playerOf, type MusicPlayer } from "./musicSystem";
 import { seekMusic } from "./seek";
-import { segmentClipSource, type SegmentRun } from "./segmentRun";
+import type { SegmentRun } from "./segmentRun";
+import { segmentGrid } from "./segmentGrids";
 import type { Transition } from "./transition";
 
 const EPS = 1e-6;
-
-// --- Grids -----------------------------------------------------------------------------------------------------------
-
-const grids = new WeakMap<object, SegmentGrid | null>();
-
-/**
- * A segment's compiled grid (G1), cached per node object; null for a node that isn't a segment. The same compile as the
- * planner's (whose cache is private); the clip's length, when known, resolves an `"end"` exit.
- */
-export function segmentGrid(node: MusicNode): SegmentGrid | null {
-  const cached = grids.get(node);
-  if (cached !== undefined) return cached;
-  let grid: SegmentGrid | null = null;
-  const seg = node as Partial<SegmentNode>;
-  if (node.type === "segment" && Array.isArray(seg.tempo) && Array.isArray(seg.cues)) {
-    const clip = seg.tracks?.[0]?.clip;
-    const facts = clip ? segmentClipSource().facts(clip) : undefined;
-    grid = compileSegmentGrid(node as SegmentNode, facts && facts.rate > 0 ? { endSeconds: facts.frames / facts.rate } : {});
-  }
-  grids.set(node, grid);
-  return grid;
-}
 
 
 /** The playing run with its anchor and grid at heard `now`; null while priming, before its stamped start, or stopped. */

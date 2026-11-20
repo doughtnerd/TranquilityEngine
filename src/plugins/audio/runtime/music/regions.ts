@@ -35,7 +35,6 @@
  * Not built: a stem that changes file at E (a streamed alternative picked per pass) would move the commit point back
  * by a full prime lead; alternatives are picked once per run today, so no stem does.
  */
-import type { SegmentNode } from "../../../../engine/audio/musicFormat";
 import { conditionHolds } from "./regionCondition";
 import { warnOnce } from "../core/handle";
 import type { MusicFrame, MusicPlayer } from "./musicSystem";
@@ -113,7 +112,7 @@ export function tickRegions(player: MusicPlayer, f: MusicFrame): void {
 
   const next = nextWrapOf(player, now);
   const wrap = next.at;
-  const reg = Number.isFinite(wrap) && next.node === run.node ? (run.node as Partial<SegmentNode>).regions?.[next.region] : undefined;
+  const reg = Number.isFinite(wrap) && next.node === run.node && run.node.type === "segment" ? run.node.regions?.[next.region] : undefined;
   if (!reg || !reg.while) {
     rs.commitAt = Number.NaN;
     if (Number.isFinite(wrap)) {

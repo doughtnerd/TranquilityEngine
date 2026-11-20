@@ -29,8 +29,9 @@
  * stops it and the instance counts its voices, like the tail voices (`eventRuntime.ts` `musicVoices`; F-7e).
  */
 import type { AudioVoice, ClipSpanHold, PlayRequest } from "../backend";
-import type { SegmentNode, MusicNode } from "../../../../engine/audio/musicFormat";
-import { compileSegmentGrid, positionTextToTicks, ticksToSeconds, type SegmentGrid } from "../../../../engine/audio/musicGrid";
+import type { MusicNode } from "../../../../engine/audio/musicFormat";
+import { positionTextToTicks, ticksToSeconds } from "../../../../engine/audio/musicGrid";
+import { segmentGrid } from "./segmentGrids";
 import { MUSIC_TICKS_PER_BEAT } from "../../../../engine/audio/musicPosition";
 import { warnOnce } from "../core/handle";
 import type { MusicFrame, MusicPlayer } from "./musicSystem";
@@ -100,27 +101,16 @@ function runRate(run: SegmentRun): number {
   return FALLBACK_RATE;
 }
 
-const grids = new WeakMap<object, SegmentGrid | null>();
-
-/** The segment's grid (positions only: a tail never needs the file's end). */
-function gridOf(node: MusicNode): SegmentGrid | null {
-  if (grids.has(node)) return grids.get(node) ?? null;
-  const seg = node as Partial<SegmentNode>;
-  const grid = node.type === "segment" && Array.isArray(seg.tempo) ? compileSegmentGrid({ ...seg, cues: seg.cues ?? [] } as SegmentNode) : null;
-  grids.set(node, grid);
-  return grid;
-}
-
 /**
  * The tail span of region `index` in file frames of `rate`: from the region's `to` (as the members loop it) for its
  * `tailBeats` beats. Null without a tail, or when the region ends at the file's end (nothing follows it).
  */
 export function tailSpanOf(node: MusicNode, index: number, rate: number): { startFrame: number; endFrame: number } | null {
-  const reg = (node as Partial<SegmentNode>).regions?.[index];
+  const reg = node.type === "segment" ? node.regions?.[index] : undefined;
   const beats = reg?.tailBeats ?? 0;
   if (!reg || !(beats > 0) || reg.to === "end" || reg.to === "start") return null;
   const frames = regionFramesOf(node, index, rate);
-  const grid = gridOf(node);
+  const grid = segmentGrid(node);
   const to = grid ? positionTextToTicks(grid, reg.to) : null;
   if (!frames || frames.endFrame <= 0 || !grid || to === null) return null;
   const endFrame = Math.round(ticksToSeconds(grid, to + beats * MUSIC_TICKS_PER_BEAT) * rate);
@@ -137,7 +127,7 @@ function releaseSpans(st: LoopTailState): void {
 function holdSpans(st: LoopTailState, run: SegmentRun, f: MusicFrame): void {
   st.held = true;
   const clips = f.backend.clipCache;
-  const regions = (run.node as Partial<SegmentNode>).regions;
+  const regions = run.node.type === "segment" ? run.node.regions : undefined;
   if (!clips || !Array.isArray(regions)) return;
   for (let region = 0; region < regions.length; region++) {
     if (!((regions[region]!.tailBeats ?? 0) > 0)) continue;

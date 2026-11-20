@@ -22,13 +22,14 @@
  * - A change that arrives while another change is planned waits until that plan has been stamped.
  */
 import type { AudioVoice } from "../backend";
-import { isMusicContainer, type SegmentNode, type MusicNode } from "../../../../engine/audio/musicFormat";
-import { compileSegmentGrid, entrySeconds, exitSeconds, ticksToSeconds, type SegmentGrid, type TempoMap } from "../../../../engine/audio/musicGrid";
+import { isMusicContainer, type MusicNode } from "../../../../engine/audio/musicFormat";
+import { entrySeconds, exitSeconds, ticksToSeconds, type SegmentGrid, type TempoMap } from "../../../../engine/audio/musicGrid";
 import { advanceAnchor, ticksAt } from "./anchors";
 import { promote } from "./musicPlayer";
 import { musicPlayers, type MusicFrame, type MusicPlayer } from "./musicSystem";
 import { lookaheadSeconds, requestStart, type PlannedStart } from "./planner";
-import { cancelRun, segmentClipSource, type SegmentRun } from "./segmentRun";
+import { cancelRun, type SegmentRun } from "./segmentRun";
+import { FALLBACK_CLIP_RATE, segmentGrid, segmentLength } from "./segmentGrids";
 
 /** The crossfade at the swap, milliseconds: the outgoing stems fade out from T (the seek's 5 ms, R25). */
 const RELOAD_FADE_MS = 5;
@@ -123,13 +124,8 @@ function sameTempoMap(a: TempoMap, b: TempoMap): boolean {
 }
 
 function gridOfNode(node: MusicNode): { grid: SegmentGrid; rate: number } | null {
-  if (node.type !== "segment") return null;
-  const seg = node;
-  const clip = seg.tracks.find((t) => t.clip)?.clip;
-  const facts = clip ? segmentClipSource().facts(clip) : undefined;
-  const known = facts && facts.rate > 0 ? facts : undefined;
-  const grid = compileSegmentGrid(seg, known ? { endSeconds: known.frames / known.rate } : {});
-  return { grid, rate: known?.rate ?? 48_000 };
+  const grid = segmentGrid(node);
+  return grid ? { grid, rate: segmentLength(node)?.rate ?? FALLBACK_CLIP_RATE } : null;
 }
 
 /** A segment node by id in an event's music tree (children and library), or null. */

@@ -20,7 +20,7 @@
  */
 import type { AudioVoice } from "../backend";
 import {
-  compileSegmentGrid, cueSeconds, nextGridSeconds, secondsToTicks, ticksToSeconds, type SegmentGrid,
+  cueSeconds, nextGridSeconds, secondsToTicks, ticksToSeconds,
 } from "../../../../engine/audio/musicGrid";
 import type { MusicContainerNode, MusicNode, SegmentNode } from "../../../../engine/audio/musicFormat";
 import {
@@ -29,7 +29,8 @@ import {
 import { warnOnce } from "../core/handle";
 import { playerOf, type MusicFrame, type MusicPlayer } from "./musicSystem";
 import { attachState } from "./musicPlayer";
-import { cancelRun, createSegmentRun, pollPrimed, primeRun, segmentClipSource, stampRun, type SegmentRun } from "./segmentRun";
+import { cancelRun, createSegmentRun, pollPrimed, primeRun, stampRun, type SegmentRun } from "./segmentRun";
+import { segmentGrid } from "./segmentGrids";
 import { decideStinger } from "./stingerPolicy";
 
 /** At most this many stingers sound at once per instance (§2.5, R20). */
@@ -95,20 +96,6 @@ function containersAbove(root: MusicNode, id: string): MusicContainerNode[] | nu
   return walk(root) ? chain : null;
 }
 
-/** The playing segment's compiled grid, cached per node (recompiled when the clip length becomes known). */
-const grids = new WeakMap<object, { end: number; grid: SegmentGrid }>();
-function gridOf(node: SegmentNode): SegmentGrid {
-  let end = Number.NaN;
-  const clip = node.tracks.find((t) => t.clip)?.clip;
-  const facts = clip ? segmentClipSource().facts(clip) : undefined;
-  if (facts && facts.rate > 0) end = facts.frames / facts.rate;
-  const hit = grids.get(node);
-  if (hit && (hit.end === end || (Number.isNaN(hit.end) && Number.isNaN(end)))) return hit.grid;
-  const grid = compileSegmentGrid(node, Number.isNaN(end) ? {} : { endSeconds: end });
-  grids.set(node, { end, grid });
-  return grid;
-}
-
 /** The stinger's segment with its own volume and bus applied to every track (`groupRequest` reads them from the node). */
 function withOwn(segment: SegmentNode, def: Readonly<StingerDef>): SegmentNode {
   if (def.volume === undefined && def.bus === undefined) return segment;
@@ -166,11 +153,11 @@ function triggerStinger(player: MusicPlayer, name: string): boolean {
   // Quantise `at` against the playing segment's anchor (heard seconds). No anchor: only "immediate" has a point.
   let point = Number.NaN;
   let nextPoint = Number.NaN;
+  const a = player.anchor;
+  const grid = a && a.segment === run.node.id ? segmentGrid(run.node) : null;
   if (def.at === "immediate") {
     point = earliest;
-  } else if (player.anchor && player.anchor.segment === run.node.id) {
-    const grid = gridOf(run.node as SegmentNode);
-    const a = player.anchor;
+  } else if (a && grid) {
     const anchorFile = ticksToSeconds(grid, a.ticks);
     const fileNow = anchorFile + (now - a.time);
     const heard = (file: number): number => a.time + (file - anchorFile);

@@ -11,9 +11,9 @@
  * no `paramsShaped` (the Babylon fallback, the fake) gets the product on `fade` and quantised levels committed at the
  * first display frame at or after the grid point; that is the only case where `fade` carries stem gain.
  */
-import { compileSegmentGrid, nextGridSeconds, ticksToSeconds, type SegmentGrid } from "../../../../engine/audio/musicGrid";
+import { nextGridSeconds, ticksToSeconds } from "../../../../engine/audio/musicGrid";
+import { segmentGrid } from "./segmentGrids";
 import type { GridSpec } from "../../../../engine/audio/musicTypes";
-import type { SegmentNode } from "../../../../engine/audio/musicFormat";
 import type { FadeLaw } from "../backend";
 import type { MusicFrame, MusicPlayer } from "./musicSystem";
 import { segmentClipSource, type SegmentRun, type StemRun } from "./segmentRun";
@@ -132,7 +132,6 @@ function applySolo(run: SegmentRun, state: SoloState, seconds: number, now: numb
 
 // --- R6: quantised automation ---------------------------------------------------------------------------------------
 
-const grids = new WeakMap<object, SegmentGrid>();
 const FALLBACK_RATE = 48_000;
 
 /**
@@ -142,10 +141,8 @@ const FALLBACK_RATE = 48_000;
  * not heard this pass (R4b re-asks after the wrap).
  */
 function nextGridHeard(player: MusicPlayer, run: SegmentRun, grid: GridSpec, from: number): number {
-  const node = run.node;
-  if (node.type !== "segment") return Number.NaN;
-  let map = grids.get(node);
-  if (!map) grids.set(node, (map = compileSegmentGrid(node)));
+  const map = segmentGrid(run.node);
+  if (!map) return Number.NaN;
   const a = player.anchor;
   let anchorFile: number, anchorTime: number;
   if (a && a.segment === run.node.id && Number.isFinite(a.time)) {
