@@ -94,6 +94,27 @@ describe("TextHistory (ADR 0027 over an asset's text)", () => {
     expect(again.text).toBe("abcd");
   });
 
+  it("reads the former format name, and refuses a scene's history", () => {
+    const h = new TextHistory("a", "f");
+    h.record("b", "ab");
+    const file = h.toFile();
+    expect(new TextHistory("ab", "f").load({ ...file, format: "tranquility.history@1" as never })).toEqual({ matched: 1, lastCurrent: 1 });
+    const scene = { ...file, states: [file.states[0], { ...file.states[1], files: undefined, redo: {}, undo: {} }] };
+    expect(new TextHistory("ab", "f").load(scene)).toBeNull();
+  });
+
+  it("prunes old branches by age when written and when loaded (ADR 0116)", () => {
+    const h = new TextHistory("a", "f");
+    h.record("b", "ab");
+    h.undo();
+    h.record("c", "ac");
+    const later = Date.now() + 40 * 86_400_000;
+    expect(h.toFile({ pruneDays: 30, now: later }).states.map((s) => s.seq)).toEqual([0, 2]);
+    const again = new TextHistory("ac", "f");
+    expect(again.load(h.toFile(), { pruneDays: 30, now: later })).toEqual({ matched: 2, lastCurrent: 2 });
+    expect(again.allStates.map((s) => s.seq)).toEqual([0, 2]);
+  });
+
   it("keeps at most `limit` states, pruning old branches first, then the root", () => {
     const h = new TextHistory("0", "f", 3);
     h.record("1", "1");
