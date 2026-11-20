@@ -1,5 +1,5 @@
 // The editor SDK's viewport surface (ADR 0231): which viewport tool is active and its mode, read and set from
-// outside the tool's install (the Inspector's Edit Collider button, the Tile Palette's brush buttons). The host
+// outside the tool's install (the Inspector's Edit toggles, ADR 0266; the Tile Palette's brush buttons). The host
 // (viewportTools.ts) ends the mode on its own; see `ViewportToolContribution`.
 import { computed, type ReadonlySignal } from "@preact/signals";
 import { activateViewportTool, activeViewportTool, activeViewportToolMode, playState } from "../state";

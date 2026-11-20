@@ -30,7 +30,7 @@
 
 /* --- component menu (Worlds) --- */
 .component h3 .component-menu-wrap { position: relative; margin-left: auto; display: inline-flex; }
-.component h3 .edit-collider ~ .component-menu-wrap { margin-left: 6px; }
+.component h3 .edit-handles ~ .component-menu-wrap { margin-left: 6px; }
 .component h3 .component-menu-wrap ~ .remove-component { margin-left: 2px; }
 .component h3 .component-menu-button { padding: 0 6px; font-size: 12px; line-height: 18px; color: var(--muted); background: transparent; border-color: transparent; }
 .component h3 .component-menu-button:hover, .component h3 .component-menu-button.active { color: var(--text); background: var(--button-hover); }

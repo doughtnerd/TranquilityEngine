@@ -25,6 +25,8 @@ export { useFieldDrag, type FieldDragHandlers } from "../ui/fieldDrag";
 export { Panel, usePanel, usePanelState, usePanelValue, PanelInstanceContext, type PanelInstance, type PanelProps } from "../ui/panel/Panel";
 export { sectionField } from "../ui/inspectorSections";
 export { LargePreview } from "../ui/AssetPreview";
+// The frame every asset document editor renders in (ADR 0265): head, Undo / Redo, problems, read-only notice; the kind gives the body.
+export { AssetDocumentFrame, type AssetDocumentFrameProps } from "../ui/AssetDocumentFrame";
 export { NameList, NumberField, ProblemList, Row, TextField } from "../ui/settingsControls";
 export { useDraftText, type DraftText, type DraftInputProps } from "../ui/draftText";
 // ADR 0158 §7: the shared curve widget (particles, audio events, later animation) and its pure key helpers.

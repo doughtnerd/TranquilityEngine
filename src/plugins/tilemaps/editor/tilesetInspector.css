@@ -1,8 +1,6 @@
 /* Tileset assets in the Inspector (ADR 0103). Theme tokens only. */
-.tileset-inspector:focus { outline: none; }
 .tileset-inspector .hint { color: var(--muted); font-size: 11px; margin: 2px 0; }
 .tileset-size { grid-template-columns: 1fr 1fr; }
-.tileset-history { display: flex; gap: 4px; margin: 6px 0; }
 .tileset-terrain { margin: 4px 0 8px; }
 .tileset-terrain-row { display: flex; align-items: center; gap: 4px; }
 .tileset-terrain-row input[type="text"] { flex: 1; min-width: 0; }

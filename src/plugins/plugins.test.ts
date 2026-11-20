@@ -141,12 +141,9 @@ describe("plugin editor halves reach the editor through its SDK (ADR 0147)", () 
     // Extract Materials (ADR 0089) writes material assets and the model's sidecar through the shell's import
     // settings writer, which the SDK doesn't offer; the model import settings moved here with ADR 0143.
     "plugins/meshes/editor/ModelImportSettings.tsx -> editor/materialExtract",
-    // Shared stylesheets (class names, no code): the asset Inspector's, the bake sections' and the graph view's.
-    "plugins/materials/editor/MaterialInspector.tsx -> editor/ui/assetInspector.css",
-    "plugins/navigation/editor/FormationInspector.tsx -> editor/ui/assetInspector.css",
+    // Shared stylesheets (class names, no code): the asset Inspector's (a NavGroup section's rows; asset document
+    // editors get it with the SDK's AssetDocumentFrame, ADR 0265), the bake sections' and the graph view's.
     "plugins/navigation/editor/NavGroupSection.tsx -> editor/ui/assetInspector.css",
-    "plugins/particles/editor/ui/ParticleInspector.tsx -> editor/ui/assetInspector.css",
-    "plugins/tilemaps/editor/TilesetInspector.tsx -> editor/ui/assetInspector.css",
     "plugins/navigation/editor/NavChunkInspector.tsx -> editor/ui/bake.css",
     "plugins/navigation/editor/NavComponentInspectors.tsx -> editor/ui/bake.css",
     "plugins/materials/editor/ShaderGraphPanel.tsx -> editor/graph/graph.css",

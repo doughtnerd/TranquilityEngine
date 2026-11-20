@@ -1,5 +1,4 @@
 import { Fragment } from "preact";
-import { useEffect } from "preact/hooks";
 import { Color } from "../../../engine";
 import { compileShaderGraph } from "../../../engine/render/shaderGraph/compile";
 import { MATERIAL_MAPS, colorHex, materialGraph, type MaterialAlphaMode, type MaterialInstancing, type MaterialMapKey, type MaterialSettings } from "../../../engine/scene/material";
@@ -9,8 +8,7 @@ import type { ShaderKeyword } from "../../../engine/scene/shaderKeywords";
 import { sameMaterial, withKeywordValue } from "./materialAssets";
 import { createMaterialForGraph } from "./shaderGraphAssets";
 import { PropertyValue } from "./ShaderPropertyValue";
-import { editor, openAssetDocument, LargePreview } from "../../../editor/sdk";
-import "../../../editor/ui/assetInspector.css";
+import { AssetDocumentFrame, editor, openAssetDocument, LargePreview } from "../../../editor/sdk";
 
 const withAlpha = (c: Color, a: number) => new Color(c.r, c.g, c.b, a);
 
@@ -25,9 +23,7 @@ export function MaterialInspector(props: { path: string }) {
   if (!project) return <p class="empty">Nothing selected</p>;
   const doc = openAssetDocument<MaterialSettings>(project, path, "material");
   const settings = doc.value.value;
-  const problems = doc.problems.value.map((p) => p.message);
   const readOnly = doc.readOnly;
-  useEffect(() => () => void doc.flush(), [doc]); // write a pending slider change when the inspector closes
   const images = project.files.filter((f) => editor.assets.kindOf(f) === "image" || editor.assets.kindOf(f) === "rendertexture");
   const graphs = project.files.filter((f) => editor.assets.kindOf(f) === "shadergraph");
   const physical = settings.shader === "physical";
@@ -64,8 +60,6 @@ export function MaterialInspector(props: { path: string }) {
       dragging = false;
     }
   };
-  const undo = () => doc.undo();
-  const redo = () => doc.redo();
   const number = (label: string, value: number, onValue: (v: number) => void, range?: [number, number]) => (
     <label class="import-row">
       <span>{label}</span>
@@ -146,33 +140,8 @@ export function MaterialInspector(props: { path: string }) {
   );
 
   return (
-    <div
-      class="inspector-body asset-inspector"
-      aria-label="Material"
-      data-asset-document={doc.path} // focused, Undo / Redo (Ctrl+Z…, the Edit menu) act on the material's document (ADR 0145)
-    >
-      <div class="asset-inspector-head">
-        <span class="asset-inspector-kind">Material</span>
-        <span class="asset-inspector-name" title={path}>
-          {editor.assets.fileName(path)}
-        </span>
-        <span class="material-pair" style={{ marginLeft: "auto", flex: "none" }}>
-          <button onClick={undo} disabled={readOnly || !doc.canUndo.value} title="Undo (Ctrl+Z)">
-            Undo
-          </button>
-          <button onClick={redo} disabled={readOnly || !doc.canRedo.value} title="Redo (Ctrl+Shift+Z)">
-            Redo
-          </button>
-        </span>
-      </div>
+    <AssetDocumentFrame doc={doc} kind="Material" class="inspector-body asset-inspector">
       <LargePreview path={path} />
-      {problems.length > 0 && (
-        <ul class="asset-inspector-problems">
-          {problems.map((p) => (
-            <li key={p}>{p}</li>
-          ))}
-        </ul>
-      )}
       <div class="component asset-import-card">
         <h3>Material</h3>
         <label class="import-row">
@@ -363,8 +332,8 @@ export function MaterialInspector(props: { path: string }) {
           <input type="checkbox" aria-label="Fog" disabled={readOnly} checked={settings.fog} onChange={(e) => set({ fog: (e.currentTarget as HTMLInputElement).checked })} />
         </label>
       </div>
-      <p class="asset-inspector-note">{readOnly ? "This project is read-only." : "Changes save to the file as you make them."}</p>
-    </div>
+      {!readOnly && <p class="asset-inspector-note">Changes save to the file as you make them.</p>}
+    </AssetDocumentFrame>
   );
 }
 

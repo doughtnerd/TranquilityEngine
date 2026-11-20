@@ -3,11 +3,11 @@
 // `SECTIONS` table below. Editing goes through the sky's asset document, which keeps undo and redo,
 // writes the file (sliders after a short pause) and follows changes made elsewhere; the preview,
 // the thumbnails and any scene using the sky then pick the file up.
-import { useEffect, useMemo } from "preact/hooks";
+import { useMemo } from "preact/hooks";
 import { SKY_PRESETS, skyPreset, type SkyPresetId } from "../../../engine/sky/presets";
 import { cloneSky, defaultCloudLayer, MAX_CLOUD_LAYERS, type SkySettings } from "../../../engine/sky/skyFormat";
 import { skyLight, sunAngles } from "../../../engine/sky/skyMath";
-import { openAssetDocument, editor, LargePreview, Panel } from "../../../editor/sdk";
+import { AssetDocumentFrame, openAssetDocument, editor, LargePreview, Panel } from "../../../editor/sdk";
 import "./skyPanel.css";
 
 type Path = readonly (string | number)[];
@@ -139,13 +139,9 @@ function SkyEditor({ path }: { path: string }) {
   const doc = openAssetDocument<SkySettings>(project, path, "sky");
   const readOnly = doc.readOnly;
   const draft = doc.value.value;
-  const problems = doc.problems.value;
-  useEffect(() => () => void doc.flush(), [doc]); // write a pending slider change when the panel closes
 
   /** `drag`: a slider or colour drag, whose quick changes in a row make one undo step and one write. Otherwise one step, written now. */
   const change = (next: SkySettings, drag = false) => doc.edit(next, drag ? { coalesce: true } : undefined);
-  const undo = () => doc.undo();
-  const redo = () => doc.redo();
   const applyPreset = (id: SkyPresetId) => doc.edit(skyPreset(id));
 
   const images = useMemo(() => editor.assets.listed(project.files).filter((f) => editor.assets.kindOf(f) === "image"), [project.files]);
@@ -153,79 +149,58 @@ function SkyEditor({ path }: { path: string }) {
   const light = skyLight(draft);
 
   return (
-    <div
-      class="sky-panel"
-      aria-label="Sky"
-      data-asset-document={doc.path} // focused, Undo / Redo (Ctrl+Z…, the Edit menu) act on the sky's document (ADR 0145)
-    >
-      <div class="sky-panel-side">
-        <div class="asset-inspector-head">
-          <span class="asset-inspector-kind">Sky</span>
-          <span class="asset-inspector-name" title={path}>
-            {editor.assets.fileName(path)}
-          </span>
-        </div>
-        <LargePreview path={path} />
-        <p class="sky-panel-readout" aria-label="Sun">
-          Sun {sun.elevation.toFixed(1)}° up, {(((sun.azimuth % 360) + 360) % 360).toFixed(0)}° · lights with the {light.body} at {light.intensity.toFixed(2)}
-        </p>
-        <div class="sky-panel-actions">
-          <button onClick={undo} disabled={readOnly || !doc.canUndo.value} title="Undo (Ctrl+Z)">
-            Undo
-          </button>
-          <button onClick={redo} disabled={readOnly || !doc.canRedo.value} title="Redo (Ctrl+Shift+Z)">
-            Redo
-          </button>
-          <select aria-label="Preset" disabled={readOnly} value="" onChange={(e) => (e.currentTarget as HTMLSelectElement).value && applyPreset((e.currentTarget as HTMLSelectElement).value as SkyPresetId)}>
-            <option value="">Start from a preset…</option>
-            {SKY_PRESETS.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.label}
-              </option>
-            ))}
-          </select>
-        </div>
-        {problems.length > 0 && (
-          <ul class="asset-inspector-problems">
-            {problems.map((p) => (
-              <li key={p.message}>{p.message}</li>
-            ))}
-          </ul>
-        )}
-        {readOnly && <p class="asset-inspector-note">{project.name} is read-only: changes aren't saved.</p>}
-      </div>
-      <div class="sky-panel-form">
-        {SECTIONS.filter((s) => !s.when || s.when(draft)).map((s) => (
-          <fieldset class="component sky-section" key={s.title}>
-            <legend>{s.title}</legend>
-            {s.fields.filter((f) => visible(f, draft)).map((f) => (
-              <FieldRow key={f.path.join(".")} field={f} value={get(draft, f.path)} images={images} disabled={readOnly} onValue={(v, drag) => change(set(draft, f.path, v), drag)} />
-            ))}
-          </fieldset>
-        ))}
-        <fieldset class="component sky-section">
-          <legend>Clouds</legend>
-          {draft.clouds.map((layer, i) => (
-            <div class="sky-cloud" key={i}>
-              <div class="sky-cloud-head">
-                <span>Layer {i + 1}</span>
-                <button disabled={readOnly} aria-label={`Remove cloud layer ${i + 1}`} onClick={() => change({ ...cloneSky(draft), clouds: draft.clouds.filter((_, j) => j !== i) })}>
-                  Remove
-                </button>
-              </div>
-              {CLOUD_FIELDS.map((f) => (
-                <FieldRow key={f.path.join(".")} field={{ ...f, label: f.label, path: ["clouds", i, ...f.path] }} prefix={`Cloud ${i + 1} `} value={get(layer, f.path)} images={images} disabled={readOnly} onValue={(v, drag) => change(set(draft, ["clouds", i, ...f.path], v), drag)} />
+    // The frame (ADR 0265) is the head, Undo / Redo, problems and read-only notice above the two columns.
+    <AssetDocumentFrame doc={doc} kind="Sky" class="sky-panel">
+      <div class="sky-panel-columns">
+        <div class="sky-panel-side">
+          <LargePreview path={path} />
+          <p class="sky-panel-readout" aria-label="Sun">
+            Sun {sun.elevation.toFixed(1)}° up, {(((sun.azimuth % 360) + 360) % 360).toFixed(0)}° · lights with the {light.body} at {light.intensity.toFixed(2)}
+          </p>
+          <div class="sky-panel-actions">
+            <select aria-label="Preset" disabled={readOnly} value="" onChange={(e) => (e.currentTarget as HTMLSelectElement).value && applyPreset((e.currentTarget as HTMLSelectElement).value as SkyPresetId)}>
+              <option value="">Start from a preset…</option>
+              {SKY_PRESETS.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.label}
+                </option>
               ))}
-            </div>
+            </select>
+          </div>
+        </div>
+        <div class="sky-panel-form">
+          {SECTIONS.filter((s) => !s.when || s.when(draft)).map((s) => (
+            <fieldset class="component sky-section" key={s.title}>
+              <legend>{s.title}</legend>
+              {s.fields.filter((f) => visible(f, draft)).map((f) => (
+                <FieldRow key={f.path.join(".")} field={f} value={get(draft, f.path)} images={images} disabled={readOnly} onValue={(v, drag) => change(set(draft, f.path, v), drag)} />
+              ))}
+            </fieldset>
           ))}
-          {draft.clouds.length < MAX_CLOUD_LAYERS && (
-            <button disabled={readOnly} onClick={() => change({ ...cloneSky(draft), clouds: [...draft.clouds, defaultCloudLayer()] })}>
-              Add cloud layer
-            </button>
-          )}
-        </fieldset>
+          <fieldset class="component sky-section">
+            <legend>Clouds</legend>
+            {draft.clouds.map((layer, i) => (
+              <div class="sky-cloud" key={i}>
+                <div class="sky-cloud-head">
+                  <span>Layer {i + 1}</span>
+                  <button disabled={readOnly} aria-label={`Remove cloud layer ${i + 1}`} onClick={() => change({ ...cloneSky(draft), clouds: draft.clouds.filter((_, j) => j !== i) })}>
+                    Remove
+                  </button>
+                </div>
+                {CLOUD_FIELDS.map((f) => (
+                  <FieldRow key={f.path.join(".")} field={{ ...f, label: f.label, path: ["clouds", i, ...f.path] }} prefix={`Cloud ${i + 1} `} value={get(layer, f.path)} images={images} disabled={readOnly} onValue={(v, drag) => change(set(draft, ["clouds", i, ...f.path], v), drag)} />
+                ))}
+              </div>
+            ))}
+            {draft.clouds.length < MAX_CLOUD_LAYERS && (
+              <button disabled={readOnly} onClick={() => change({ ...cloneSky(draft), clouds: [...draft.clouds, defaultCloudLayer()] })}>
+                Add cloud layer
+              </button>
+            )}
+          </fieldset>
+        </div>
       </div>
-    </div>
+    </AssetDocumentFrame>
   );
 }
 

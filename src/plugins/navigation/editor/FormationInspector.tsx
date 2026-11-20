@@ -3,8 +3,9 @@
 // paint (left drag paints, right drag or Shift+left erases), its size (Resize keeps the painted cells), Clear / Fill
 // all / Invert / Mirror, Import from an image and "Show fill order", which numbers the cells in the order members take
 // them. Every edit writes the file through the formation's asset document and can be undone (Ctrl+Z / Ctrl+Shift+Z
-// or Edit > Undo with the inspector focused, its document then being the active history (ADR 0145), or the Undo / Redo buttons).
-import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
+// or Edit > Undo with the inspector focused, its document then being the active history (ADR 0145), or the Undo / Redo
+// buttons of the asset document frame, ADR 0265).
+import { useLayoutEffect, useRef, useState } from "preact/hooks";
 import {
   FORMATION_SHAPES,
   MAX_FORMATION_LAYERS,
@@ -23,8 +24,7 @@ import {
   type NavFormationAsset,
 } from "../../../engine/nav/formation";
 import { drawFormation } from "./NavGroupSection";
-import { editor, openAssetDocument, type EditorProject, theme } from "../../../editor/sdk";
-import "../../../editor/ui/assetInspector.css";
+import { AssetDocumentFrame, editor, openAssetDocument, type EditorProject, theme } from "../../../editor/sdk";
 import "./navFormation.css";
 
 const SHAPE_LABELS: Record<FormationShape, string> = { box: "Box", line: "Line", column: "Column", wedge: "Wedge", circle: "Circle", mask: "Mask (painted)" };
@@ -40,9 +40,7 @@ export function NavFormationInspector(props: { path: string }) {
   if (!project) return <p class="empty">Nothing selected</p>;
   const doc = openAssetDocument<NavFormationAsset>(project, path, "formation");
   const formation = doc.value.value;
-  const problems = doc.problems.value.map((p) => p.message);
   const readOnly = doc.readOnly;
-  useEffect(() => () => void doc.flush(), [doc]); // write a pending paint stroke when the inspector closes
 
   /** Replace the formation: one undo step, or (`coalesce`, the cells of a paint stroke) merged with the stroke's other cells. */
   const apply = (next: NavFormationAsset, coalesce = false) => {
@@ -50,25 +48,9 @@ export function NavFormationInspector(props: { path: string }) {
     doc.edit(next, coalesce ? { coalesce: true } : undefined);
   };
   const set = (patch: Partial<NavFormationAsset>) => apply({ ...formation, ...patch });
-  const undo = () => (doc.canUndo.peek() ? doc.undo() : editor.messages.info("Nothing to undo in this formation."));
-  const redo = () => (doc.canRedo.peek() ? doc.redo() : editor.messages.info("Nothing to redo in this formation."));
-
 
   return (
-    <div class="inspector-body asset-inspector nav-formation" aria-label="Formation" data-asset-document={doc.path} tabIndex={-1}>
-      <div class="asset-inspector-head">
-        <span class="asset-inspector-kind">Formation</span>
-        <span class="asset-inspector-name" title={path}>
-          {editor.assets.fileName(path)}
-        </span>
-      </div>
-      {problems.length > 0 && (
-        <ul class="asset-inspector-problems">
-          {problems.map((p) => (
-            <li key={p}>{p}</li>
-          ))}
-        </ul>
-      )}
+    <AssetDocumentFrame doc={doc} kind="Formation" class="inspector-body asset-inspector nav-formation">
       <div class="component asset-import-card">
         <h3>Formation</h3>
         <label class="import-row">
@@ -95,14 +77,6 @@ export function NavFormationInspector(props: { path: string }) {
             if (Number.isFinite(v)) set({ layerSpacing: Math.max(0, v) });
           }} />
         </label>
-        <div class="nav-formation-history">
-          <button disabled={readOnly || !doc.canUndo.value} onClick={undo} title="Undo the last edit to this formation (Ctrl+Z)">
-            Undo
-          </button>
-          <button disabled={readOnly || !doc.canRedo.value} onClick={redo} title="Redo (Ctrl+Shift+Z)">
-            Redo
-          </button>
-        </div>
         {formation.shape !== "mask" ? (
           <p class="hint">This preset is laid out by count at runtime: the group's size decides how many slots it has. Choose Mask to paint the cells yourself.</p>
         ) : (
@@ -128,7 +102,7 @@ export function NavFormationInspector(props: { path: string }) {
           </>
         )}
       </div>
-    </div>
+    </AssetDocumentFrame>
   );
 }
 

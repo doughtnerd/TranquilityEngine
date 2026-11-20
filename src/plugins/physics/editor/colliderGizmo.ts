@@ -61,20 +61,16 @@ import {
   type Pose2D,
   type V2,
 } from "./colliderMath";
-import { type ViewportDrag, type ViewportPointer, type ViewportToolContext, type ViewportToolContribution, editor, type OpenScene, theme, viewportColors } from "../../../editor/sdk";
+import { type ComponentEditMode, type ViewportDrag, type ViewportPointer, type ViewportToolContext, type ViewportToolContribution, editor, type OpenScene, theme, viewportColors } from "../../../editor/sdk";
 
 /** The collider tool's id: also its overlay id and its active-tool id. */
 export const COLLIDER_TOOL_ID = "myco.physics.colliders";
 
 /** The collider whose handles are showing ("Edit Collider", like Unity), or null. */
-export interface EditingCollider {
-  /** Path key of the node (see `selection`). */
-  key: string;
-  type: "engine.BoxCollider2D" | "engine.CircleCollider2D" | "engine.PolygonCollider2D" | "engine.EdgeCollider2D" | "engine.BoxCollider" | "engine.SphereCollider" | "engine.CapsuleCollider" | "engine.MeshCollider" | "engine.CharacterController" | "engine.CharacterController2D";
-  /** Which collider of that type on the node. */
-  index: number;
+export interface EditingCollider extends ComponentEditMode {
+  readonly type: "engine.BoxCollider2D" | "engine.CircleCollider2D" | "engine.PolygonCollider2D" | "engine.EdgeCollider2D" | "engine.BoxCollider" | "engine.SphereCollider" | "engine.CapsuleCollider" | "engine.MeshCollider" | "engine.CharacterController" | "engine.CharacterController2D";
 }
-/** The collider tool's mode: entered by the Inspector's Edit Collider button, non-null exactly while the tool is active. */
+/** The collider tool's mode: entered by the Inspector's Edit Collider toggle, non-null exactly while the tool is active. */
 export const editingCollider: ReadonlySignal<EditingCollider | null> = editor.viewport.mode<EditingCollider>(COLLIDER_TOOL_ID);
 
 const COLOR = 0x3fae5a;
@@ -249,9 +245,17 @@ function colliderOverlay(engine: Engine): EditorOverlay {
 /** The scene view's collider tool: outlines and handles, handle drags, 2D outlines selectable. */
 export const colliderTool: ViewportToolContribution<EditingCollider> = {
   id: COLLIDER_TOOL_ID,
-  // Editing ends when the selection moves to another node (the host also ends it on a transform tool, Escape,
-  // play, another tool and another scene).
-  endsOnSelection: () => true,
+  // Each editable collider card's Edit Collider toggle (ADR 0266): the host adds it, enters this tool with the card's
+  // collider, and ends editing when the collider is removed or the selection moves to another node.
+  editsComponents: {
+    types: EDITABLE_COLLIDERS,
+    label: "Edit Collider",
+    hint: (type) =>
+      type.endsWith("PolygonCollider2D") || type.endsWith("EdgeCollider2D")
+        ? "Show handles in the viewport: drag vertices, press an edge's middle handle to add one, Ctrl+click a vertex to remove it"
+        : "Show handles in the viewport to resize this collider and move its center",
+    stopHint: "Stop editing the collider (handles hide, the transform gizmo returns)",
+  },
   install(view) {
     const { engine, world } = view;
     view.overlay(() => colliderOverlay(engine), { kind: "colliders" });

@@ -29,21 +29,16 @@ import {
   type ZoneFace,
   type ZoneGeometry,
 } from "./zoneMath";
-import { type ViewportDrag, type ViewportPointer, type ViewportToolContext, type ViewportToolContribution, editor, type OpenScene, theme, viewportColors } from "../../../editor/sdk";
+import { type ComponentEditMode, type ViewportDrag, type ViewportPointer, type ViewportToolContext, type ViewportToolContribution, editor, type OpenScene, theme, viewportColors } from "../../../editor/sdk";
 
 /** The zone tool's id: also its overlay id and its active-tool id. */
 export const ZONE_TOOL_ID = "myco.audio.zones";
-/** The component type the tool and the Edit Zone action work on. */
+/** The component type the tool and its Edit Zone toggle work on. */
 export const ZONE_TYPE = "engine.AudioReverbZone";
 
-/** The zone whose handles are showing ("Edit Zone"), or null. */
-export interface EditingZone {
-  /** Path key of the node (see `selection`). */
-  key: string;
-  /** Which `AudioReverbZone` on the node. */
-  index: number;
-}
-/** The zone tool's mode: entered by the Inspector's Edit Zone button, non-null exactly while the tool is active. */
+/** The zone whose handles are showing ("Edit Zone"), or null: which `AudioReverbZone` (`type` is `ZONE_TYPE`) on which node. */
+export type EditingZone = ComponentEditMode;
+/** The zone tool's mode: entered by the Inspector's Edit Zone toggle, non-null exactly while the tool is active. */
 export const editingZone: ReadonlySignal<EditingZone | null> = editor.viewport.mode<EditingZone>(ZONE_TOOL_ID);
 
 // Volume cyan and shell amber (the faded part of the zone), bright when the node is selected, dim otherwise.
@@ -100,9 +95,14 @@ function zoneOverlay(engine: Engine): EditorOverlay {
 /** The scene view's zone tool: outlines and handles, handle drags. */
 export const zoneTool: ViewportToolContribution<EditingZone> = {
   id: ZONE_TOOL_ID,
-  // Editing ends when the selection moves to another node (the host also ends it on a transform tool, Escape, play,
-  // another tool and another scene).
-  endsOnSelection: () => true,
+  // Each zone card's Edit Zone toggle (ADR 0266): the host adds it, enters this tool with the card's zone, and ends
+  // editing when the zone is removed or the selection moves to another node.
+  editsComponents: {
+    types: [ZONE_TYPE],
+    label: "Edit Zone",
+    hint: "Show handles in the viewport: drag a face to resize a box zone, a rim handle to set a sphere's radius, the outer handle to set the blend distance",
+    stopHint: "Stop editing the zone (handles hide, the transform gizmo returns)",
+  },
   install(view) {
     const { engine, world } = view;
     view.overlay(() => zoneOverlay(engine), { kind: "other" });

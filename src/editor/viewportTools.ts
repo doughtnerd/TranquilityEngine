@@ -4,9 +4,9 @@
 // transform gizmo and orbiting never see the press. Keys skip text fields, dialogs, Ctrl/Cmd/Alt
 // chords and play mode once for every tool. At most one tool is active (`activeViewportTool`), in a
 // mode the host owns (ADR 0231); play, Escape, the transform tools, another scene and (where the
-// tool asks) the selection end it. A gesture is a drag that is one undo step: it opens on the press
-// and closes on release; Escape reverts it, and the window losing focus, a tool switch or play
-// close it. The host follows the registry, so a plugin enabled or disabled while a project is open
+// tool asks, or it edits components, ADR 0266) the selection end it. A gesture is a drag that is
+// one undo step: it opens on the press and closes on release; Escape reverts it, and the window
+// losing focus, a tool switch or play close it. The host follows the registry, so a plugin enabled or disabled while a project is open
 // adds or removes its tools.
 import { computed, effect, signal, untracked } from "@preact/signals";
 import type { Engine } from "../engine";
@@ -230,7 +230,8 @@ export function installViewportTools(engine: Engine): () => void {
     untracked(() => {
       const a = activeViewportToolMode.peek();
       const tool = a ? installs.get(a.id)?.tool : undefined;
-      if (a && tool?.endsOnSelection?.(a.mode)) activateViewportTool(null);
+      // A tool editing one component at a time edits the selected node's: a new selection ends it (ADR 0266).
+      if (a && tool && (tool.editsComponents || tool.endsOnSelection?.(a.mode))) activateViewportTool(null);
     });
   });
 
