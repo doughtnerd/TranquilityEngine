@@ -1,6 +1,6 @@
 # 0117. Shader graph search and node preview shapes; material and scene-camera thumbnails
 
-- **Status:** Proposed; amended by 0153 (scene thumbnails draw through the real render features; `sceneFlatten.ts` removed)
+- **Status:** Proposed; amended by 0153 (scene thumbnails draw through the real render features; `sceneFlatten.ts` removed) and 0259 (find moves into the shared graph layer; the Particle Graph has it too)
 - **Date:** 2026-11-07
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
