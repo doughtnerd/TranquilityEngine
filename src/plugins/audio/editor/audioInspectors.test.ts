@@ -16,12 +16,13 @@ import { parseAudioSettings } from "../../../engine/audio/settings";
 import { occluderTool } from "./AudioOccluderGizmo";
 import { viewportTools } from "../../../editor/sdk/contributions";
 import type { EditorOverlay } from "../../../engine/editor";
-import { AMBISONIC_IGNORED_FIELDS, analyzeOccluder, audioOfProject, blendColor, describeCost, materialTint, occluderCost, physics3dAvailable, sendCurveOf, zoneCostLine, zoneNotices, zoneReverbLine } from "./audioInspectorModel";
+import { AMBISONIC_IGNORED_FIELDS, analyzeOccluder, blendColor, describeCost, materialTint, occluderCost, physics3dAvailable, sendCurveOf, zoneCostLine, zoneNotices, zoneReverbLine } from "./audioInspectorModel";
+import { audioSettings } from "./audioDraft";
 import { dragGroup, writeField } from "./inspectorWrite";
 
 const OCC = "engine.AudioOccluder";
 const BOX = "engine.BoxCollider";
-const defaults = audioOfProject(undefined);
+const defaults = audioSettings.read(undefined);
 const codes = (o: AudioOccluder, physics3d = true, audio = defaults) => analyzeOccluder(o, { physics3d, audio }).warnings.map((w) => w.code);
 
 describe("audio inspector sections", () => {

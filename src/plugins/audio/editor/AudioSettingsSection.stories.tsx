@@ -13,7 +13,7 @@ import type { DuckingRule } from "../../../engine/audio/settings";
 import { editor, type SettingsDraft } from "../../../editor/sdk";
 import { setPlayState, withEditor, type EditorStoryParameters } from "../../../editor/stories/editorStory";
 import { AudioSettingsSection } from "./AudioSettingsSection";
-import { audioOf } from "./audioSettingsModel";
+import { audioSettings } from "./audioDraft";
 import { newDuckRule } from "./mix/duckModel";
 import { startOpLog } from "./mix/opLog";
 
@@ -43,7 +43,7 @@ function Section({ audio, set }: Args) {
 /** The rules as the section last wrote them (the story's starting rules before any edit). */
 const rulesOf = (args: Args): DuckingRule[] => {
   const last = args.set.mock.calls.at(-1);
-  return audioOf(last ? last[1] : ({ audio: args.audio } as SettingsDraft)).ducking;
+  return audioSettings.read(last ? last[1] : ({ audio: args.audio } as SettingsDraft)).ducking;
 };
 const labelsOf = (args: Args): string[] => args.set.mock.calls.map((c) => c[0]);
 

@@ -34,7 +34,8 @@ import {
   type VoiceSettings,
 } from "../../../engine/audio/settings";
 import { BUILTIN_MATERIALS, DEFAULT_MATERIAL_NAME, MATERIAL_LIMITS, MAX_MATERIALS, type OccluderMaterial } from "../../../engine/audio/occlusionMaterials";
-import { audioSection, sameMaterial, withSettings } from "../../../engine/audio/audioSection";
+import { sameMaterial } from "../../../engine/audio/audioSection";
+import { audioSettings } from "./audioDraft";
 import { defaultSettings } from "../../../engine/core/settings";
 import { resolveBeds } from "../runtime/core/beds";
 import type { Curve } from "../../../engine/core/curve";
@@ -46,11 +47,6 @@ import { uniqueName } from "../../../engine/core/uniqueName";
 
 export { EFFECT_TYPES, LIMITER_LOOKAHEAD_LIMITS, MAX_BUSES };
 
-/** The draft's section, parsed once per section object (`audioSection`, ADR 0175). Frozen: edits build a copy. */
-export const audioOf = (d: SettingsDraft): AudioSettings => audioSection(d.audio).settings;
-
-/** The section as written to `project.json` (`withSettings`: built-in occlusion materials pruned). */
-const withAudio = (d: SettingsDraft, a: AudioSettings): SettingsDraft => withSettings(d, a);
 
 /** Buses in tree order (each bus after its parent), with their depth, for an indented list. */
 export function busTree(a: AudioSettings): { bus: BusSettings; depth: number }[] {
@@ -79,10 +75,10 @@ export function descendants(a: AudioSettings, name: string): string[] {
 /** Apply one op to the draft (what every function in this block calls). */
 export const applyMixOp = (d: SettingsDraft, op: MixOp): SettingsDraft => applyOpToDraft(d, op);
 /** Why `op` can't apply to `d` (the message to show under the field), or null. */
-const mixOpRefusal = (d: SettingsDraft, op: MixOp): string | null => opRefusal(audioOf(d), op);
+const mixOpRefusal = (d: SettingsDraft, op: MixOp): string | null => opRefusal(audioSettings.read(d), op);
 
 export function addBus(d: SettingsDraft, parent = MASTER): SettingsDraft {
-  const a = audioOf(d);
+  const a = audioSettings.read(d);
   // Past the bus count rule the op is refused and `d` comes back (`busCapability.ts`, ADR 0175).
   const p = a.buses.some((b) => b.name === parent) ? parent : a.buses[0].name;
   return applyMixOp(d, { op: "addBus", name: uniqueName("Bus", a.buses.map((b) => b.name)), parent: p });
@@ -108,7 +104,7 @@ export const defaultEffect = (type: EffectType): BusEffect => parseAudioSettings
 
 /** Append an effect with its defaults. */
 export function addEffect(d: SettingsDraft, bus: string, type: EffectType): SettingsDraft {
-  const b = audioOf(d).buses.find((x) => x.name === bus);
+  const b = audioSettings.read(d).buses.find((x) => x.name === bus);
   return b ? applyMixOp(d, { op: "addEffect", bus, index: b.effects.length, effect: defaultEffect(type) }) : d;
 }
 export const removeEffect = (d: SettingsDraft, bus: string, index: number): SettingsDraft => applyMixOp(d, { op: "removeEffect", bus, index });
@@ -121,7 +117,7 @@ export const setEffectValue = (d: SettingsDraft, bus: string, index: number, key
 // --- snapshots and ducking ------------------------------------------------------------------------
 
 /** Append a snapshot named "Snapshot" (unique: "Snapshot 2"…). */
-export const addSnapshot = (d: SettingsDraft): SettingsDraft => applyMixOp(d, { op: "addSnapshot", index: audioOf(d).snapshots.length });
+export const addSnapshot = (d: SettingsDraft): SettingsDraft => applyMixOp(d, { op: "addSnapshot", index: audioSettings.read(d).snapshots.length });
 export const removeSnapshot = (d: SettingsDraft, index: number): SettingsDraft => applyMixOp(d, { op: "removeSnapshot", index });
 /** Trimmed; empty or taken names return `d`. */
 export const renameSnapshot = (d: SettingsDraft, index: number, to: string): SettingsDraft => applyMixOp(d, { op: "renameSnapshot", index, name: to });
@@ -140,7 +136,7 @@ export interface DuckEdit { draft: SettingsDraft; refusal: string | null }
  * level rule, or when no pair of buses can form a rule.
  */
 export function addDuckingEdit(d: SettingsDraft): DuckEdit {
-  const a = audioOf(d);
+  const a = audioSettings.read(d);
   const names = a.buses.map((b) => b.name);
   const pairs: [string, string][] = [];
   if (names.includes("Music") && names.includes("Voice")) pairs.push(["Music", "Voice"]);
@@ -162,7 +158,7 @@ export const removeDucking = (d: SettingsDraft, index: number): SettingsDraft =>
  * level cycle (naming the rules), the 9th level rule.
  */
 export function setDuckingValueEdit(d: SettingsDraft, index: number, key: keyof DuckingRule, value: string | number): DuckEdit {
-  const a = audioOf(d);
+  const a = audioSettings.read(d);
   const old = a.ducking[index];
   if (!old) return { draft: d, refusal: null };
   const rule = ruleWithField(old, key, value);
@@ -172,7 +168,7 @@ export function setDuckingValueEdit(d: SettingsDraft, index: number, key: keyof 
 
 /** Move a rule up (`delta` -1) or down (+1) the list; the ends stay. The order is the index the messages and the core's rule table use. */
 export function moveDucking(d: SettingsDraft, index: number, delta: number): SettingsDraft {
-  const a = audioOf(d);
+  const a = audioSettings.read(d);
   const other = index + delta;
   if (!a.ducking[index] || !a.ducking[other] || delta === 0) return d;
   const swapped = a.ducking.map((r, i) => (i === index ? a.ducking[other]! : i === other ? a.ducking[index]! : r));
@@ -187,7 +183,7 @@ export { MAX_LOUDNESS_TARGETS };
 export const loudnessTargets = (a: AudioSettings): LoudnessTarget[] => loudnessTargetsOf(a);
 /** Append a target "Target" (unique: "Target 2"…) with the first target's numbers. Refused at `MAX_LOUDNESS_TARGETS`. */
 export function addLoudnessTarget(d: SettingsDraft): SettingsDraft {
-  const list = loudnessTargetsOf(audioOf(d));
+  const list = loudnessTargetsOf(audioSettings.read(d));
   const name = uniqueName("Target", list.map((t) => t.name));
   return applyMixOp(d, { op: "setTarget", index: list.length, target: { ...list[0], name }, insert: true });
 }
@@ -195,7 +191,7 @@ export function addLoudnessTarget(d: SettingsDraft): SettingsDraft {
 export const removeLoudnessTarget = (d: SettingsDraft, index: number): SettingsDraft => applyMixOp(d, { op: "setTarget", index, target: null });
 /** Edit a target's fields; a name that's empty, too long or taken, or a number out of range, is refused. */
 export function setLoudnessTarget(d: SettingsDraft, index: number, patch: Partial<LoudnessTarget>): SettingsDraft {
-  const old = loudnessTargetsOf(audioOf(d))[index];
+  const old = loudnessTargetsOf(audioSettings.read(d))[index];
   if (!old) return d;
   const target = { ...old, ...patch, ...(patch.name !== undefined ? { name: patch.name.trim() } : {}) };
   return applyMixOp(d, { op: "setTarget", index, target });
@@ -205,10 +201,10 @@ export { LOUDNESS_TARGET_LIMITS, MAX_LOUDNESS_BUSES, MAX_TARGET_NAME };
 export const isBusMetered = (a: AudioSettings, name: string): boolean => a.buses[0]?.name === name || a.buses.find((b) => b.name === name)?.meter !== undefined;
 /** Why turning the bus's meter on would be refused ("At most 8 buses can be metered"), or null: already on, or allowed. */
 export const busMeterRefusal = (d: SettingsDraft, name: string): string | null =>
-  isBusMetered(audioOf(d), name) ? null : mixOpRefusal(d, { op: "setBus", bus: name, key: "meter", value: "loudness" });
+  isBusMetered(audioSettings.read(d), name) ? null : mixOpRefusal(d, { op: "setBus", bus: name, key: "meter", value: "loudness" });
 /** Why `setLoudnessTarget(d, index, patch)` would be refused (the message to show under the table), or null. */
 export function loudnessTargetRefusal(d: SettingsDraft, index: number, patch: Partial<LoudnessTarget>): string | null {
-  const old = loudnessTargetsOf(audioOf(d))[index];
+  const old = loudnessTargetsOf(audioSettings.read(d))[index];
   if (!old) return `No loudness target ${index + 1}.`;
   const target = { ...old, ...patch, ...(patch.name !== undefined ? { name: patch.name.trim() } : {}) };
   return mixOpRefusal(d, { op: "setTarget", index, target });
@@ -217,8 +213,8 @@ export function loudnessTargetRefusal(d: SettingsDraft, index: number, patch: Pa
 export const setLoudnessResetOnPlay = (d: SettingsDraft, on: boolean): SettingsDraft => applyMixOp(d, { op: "setOption", key: "loudnessResetOnPlay", value: on });
 
 export function setBackend(d: SettingsDraft, backend: "babylon" | "core"): SettingsDraft {
-  const a = audioOf(d);
-  return withAudio(d, { ...a, backend });
+  const a = audioSettings.read(d);
+  return audioSettings.write(d, { ...a, backend });
 }
 
 // --- §2 core keys (ADR 0157, K13) -------------------------------------------------------------------
@@ -239,12 +235,12 @@ export function setBusMaxVoices(d: SettingsDraft, name: string, value: number | 
  * (it is raised), and per-bus `maxVoices` above a lowered `logical` are clamped to it, as the parse would.
  */
 export function setVoices(d: SettingsDraft, patch: Partial<VoiceSettings>): SettingsDraft {
-  const a = audioOf(d);
+  const a = audioSettings.read(d);
   const pick = (v: number | undefined, key: keyof VoiceSettings, [min, max]: readonly [number, number]) => (v === undefined || !Number.isFinite(v) ? a.voices[key] : clampInt(v, min, max));
   const mixed = pick(patch.mixed, "mixed", VOICE_LIMITS.mixed);
   const logical = Math.max(mixed, pick(patch.logical, "logical", VOICE_LIMITS.logical));
   const hrtf = pick(patch.hrtf, "hrtf", VOICE_LIMITS.hrtf);
-  return withAudio(d, { ...a, voices: { mixed, logical, hrtf }, buses: a.buses.map((b) => (b.maxVoices !== undefined && b.maxVoices > logical ? { ...b, maxVoices: logical } : b)) });
+  return audioSettings.write(d, { ...a, voices: { mixed, logical, hrtf }, buses: a.buses.map((b) => (b.maxVoices !== undefined && b.maxVoices > logical ? { ...b, maxVoices: logical } : b)) });
 }
 
 /** Named bundles of the voice numbers and the clip ceiling (architecture 5.3); the file stores the numbers. "low" is provisional until the low-end soak (C3) sizes it. */
@@ -269,60 +265,60 @@ export function voicesPreset(a: AudioSettings): VoicePresetName | "custom" {
 export function applyVoicesPreset(d: SettingsDraft, name: VoicePresetName): SettingsDraft {
   const p = VOICE_PRESETS[name];
   const voiced = setClipMemory(setVoices(d, p.voices), p.clipMemoryMB);
-  const a = audioOf(voiced);
+  const a = audioSettings.read(voiced);
   return a.bed.maxBeds === p.maxBeds && a.ambisonic.maxClips === p.maxClips && a.music.rings === p.musicRings
     ? voiced
-    : withAudio(voiced, { ...a, bed: { ...a.bed, maxBeds: p.maxBeds }, ambisonic: { ...a.ambisonic, maxClips: p.maxClips }, music: { ...a.music, rings: p.musicRings } });
+    : audioSettings.write(voiced, { ...a, bed: { ...a.bed, maxBeds: p.maxBeds }, ambisonic: { ...a.ambisonic, maxClips: p.maxClips }, music: { ...a.music, rings: p.musicRings } });
 }
 
 /** `audio.music.rings`: the core's music ring pool, rounded and clamped 0..16; a non-finite value changes nothing. */
 export function setMusicRings(d: SettingsDraft, rings: number): SettingsDraft {
-  const a = audioOf(d);
+  const a = audioSettings.read(d);
   if (!Number.isFinite(rings)) return d;
   const v = clampInt(rings, MUSIC_RINGS_LIMITS[0], MUSIC_RINGS_LIMITS[1]);
-  return a.music.rings === v ? d : withAudio(d, { ...a, music: { ...a.music, rings: v } });
+  return a.music.rings === v ? d : audioSettings.write(d, { ...a, music: { ...a.music, rings: v } });
 }
 
 /** `audio.rhythmMode`: a low-latency context for rhythm games (applies when the core next starts). */
 export function setRhythmMode(d: SettingsDraft, on: boolean): SettingsDraft {
-  const a = audioOf(d);
-  return a.rhythmMode === on ? d : withAudio(d, { ...a, rhythmMode: on });
+  const a = audioSettings.read(d);
+  return a.rhythmMode === on ? d : audioSettings.write(d, { ...a, rhythmMode: on });
 }
 
 export function setBackground(d: SettingsDraft, background: AudioBackground): SettingsDraft {
-  const a = audioOf(d);
-  return a.background === background ? d : withAudio(d, { ...a, background });
+  const a = audioSettings.read(d);
+  return a.background === background ? d : audioSettings.write(d, { ...a, background });
 }
 
 /** The clip arena ceiling in MB (rounded, clamped 16..1024); `undefined` goes back to the device preset's. */
 export function setClipMemory(d: SettingsDraft, mb: number | undefined): SettingsDraft {
-  const a = audioOf(d);
+  const a = audioSettings.read(d);
   const { clipMemoryMB: _drop, ...rest } = a;
-  return withAudio(d, mb === undefined || !Number.isFinite(mb) ? rest : { ...a, clipMemoryMB: clampInt(mb, CLIP_MEMORY_LIMITS[0], CLIP_MEMORY_LIMITS[1]) });
+  return audioSettings.write(d, mb === undefined || !Number.isFinite(mb) ? rest : { ...a, clipMemoryMB: clampInt(mb, CLIP_MEMORY_LIMITS[0], CLIP_MEMORY_LIMITS[1]) });
 }
 
 /** The limiter's look-ahead in ms (clamped 0..5; not rounded); a non-finite value goes back to the 1.5 ms default. */
 export function setLimiterLookahead(d: SettingsDraft, ms: number): SettingsDraft {
-  const a = audioOf(d);
+  const a = audioSettings.read(d);
   const [min, max] = LIMITER_LOOKAHEAD_LIMITS;
   const v = Number.isFinite(ms) ? Math.min(max, Math.max(min, ms)) : DEFAULT_LIMITER_LOOKAHEAD_MS;
-  return a.limiterLookaheadMs === v ? d : withAudio(d, { ...a, limiterLookaheadMs: v });
+  return a.limiterLookaheadMs === v ? d : audioSettings.write(d, { ...a, limiterLookaheadMs: v });
 }
 
 export function setClipFormat(d: SettingsDraft, clipFormat: AudioClipFormat): SettingsDraft {
-  const a = audioOf(d);
-  return a.clipFormat === clipFormat ? d : withAudio(d, { ...a, clipFormat });
+  const a = audioSettings.read(d);
+  return a.clipFormat === clipFormat ? d : audioSettings.write(d, { ...a, clipFormat });
 }
 
 /** A codec switch (`codecs.aac`). */
 export function setCodec(d: SettingsDraft, codec: "aac", on: boolean): SettingsDraft {
-  const a = audioOf(d);
-  return a.codecs[codec] === on ? d : withAudio(d, { ...a, codecs: { ...a.codecs, [codec]: on } });
+  const a = audioSettings.read(d);
+  return a.codecs[codec] === on ? d : audioSettings.write(d, { ...a, codecs: { ...a.codecs, [codec]: on } });
 }
 
 export function setSpatial(d: SettingsDraft, spatial: AudioSpatialMode): SettingsDraft {
-  const a = audioOf(d);
-  return a.spatial === spatial ? d : withAudio(d, { ...a, spatial });
+  const a = audioSettings.read(d);
+  return a.spatial === spatial ? d : audioSettings.write(d, { ...a, spatial });
 }
 
 // --- ADR 0158 §2, §3: global parameters and bus automation ----------------------------------------------------------
@@ -337,27 +333,27 @@ export interface ParameterRangePatch { min?: number; max?: number; default?: num
  * or, when `labelled`, `labels ["State 1", "State 2"]` with default "State 1". At `MAX_PARAMETERS`, returns `d`.
  */
 export function addParameter(d: SettingsDraft, labelled = false): SettingsDraft {
-  const a = audioOf(d);
+  const a = audioSettings.read(d);
   if (a.parameters.length >= MAX_PARAMETERS) return d;
   const name = uniqueName("Parameter", a.parameters.map((p) => p.name));
   const param: ParameterDef = labelled ? { name, labels: ["State 1", "State 2"], default: "State 1" } : { name, min: 0, max: 1, default: 0, seekSpeed: 0 };
-  return withAudio(d, { ...a, parameters: [...a.parameters, param] });
+  return audioSettings.write(d, { ...a, parameters: [...a.parameters, param] });
 }
 
 /** Remove a parameter and the automation entries that name it. Unknown names return `d`. */
 export function removeParameter(d: SettingsDraft, name: string): SettingsDraft {
-  const a = audioOf(d);
+  const a = audioSettings.read(d);
   if (!a.parameters.some((p) => p.name === name)) return d;
-  return withAudio(d, { ...a, parameters: a.parameters.filter((p) => p.name !== name), automation: a.automation.filter((r) => r.parameter !== name) });
+  return audioSettings.write(d, { ...a, parameters: a.parameters.filter((p) => p.name !== name), automation: a.automation.filter((r) => r.parameter !== name) });
 }
 
 /** Rename a parameter, and the `parameter` of every automation entry that names it. Trimmed; empty, unchanged, taken or unknown names return `d`. */
 export function renameParameter(d: SettingsDraft, from: string, to: string): SettingsDraft {
-  const a = audioOf(d);
+  const a = audioSettings.read(d);
   const next = to.trim();
   if (next === "" || next === from || a.parameters.some((p) => p.name === next) || !a.parameters.some((p) => p.name === from)) return d;
   const fix = (n: string) => (n === from ? next : n);
-  return withAudio(d, { ...a, parameters: a.parameters.map((p) => ({ ...p, name: fix(p.name) })), automation: a.automation.map((r) => ({ ...r, parameter: fix(r.parameter) })) });
+  return audioSettings.write(d, { ...a, parameters: a.parameters.map((p) => ({ ...p, name: fix(p.name) })), automation: a.automation.map((r) => ({ ...r, parameter: fix(r.parameter) })) });
 }
 
 /**
@@ -366,13 +362,13 @@ export function renameParameter(d: SettingsDraft, from: string, to: string): Set
  * default's index, `seekSpeed 0`. Already that kind, or unknown: returns `d`. Automation is kept as authored.
  */
 export function setParameterLabelled(d: SettingsDraft, name: string, labelled: boolean): SettingsDraft {
-  const a = audioOf(d);
+  const a = audioSettings.read(d);
   const p = parameterOf(a, name);
   if (!p || isLabelled(p) === labelled) return d;
   const next: ParameterDef = labelled
     ? { name, labels: ["State 1", "State 2"], default: "State 1" }
     : { name, min: 0, max: Math.max(1, parameterRange(p)[1]), default: parameterDefault(p), seekSpeed: 0 };
-  return withAudio(d, { ...a, parameters: a.parameters.map((q) => (q.name === name ? next : q)) });
+  return audioSettings.write(d, { ...a, parameters: a.parameters.map((q) => (q.name === name ? next : q)) });
 }
 
 /**
@@ -381,7 +377,7 @@ export function setParameterLabelled(d: SettingsDraft, name: string, labelled: b
  * into the final range.
  */
 export function setParameterRange(d: SettingsDraft, name: string, patch: ParameterRangePatch): SettingsDraft {
-  const a = audioOf(d);
+  const a = audioSettings.read(d);
   const p = parameterOf(a, name);
   if (!p || isLabelled(p)) return d;
   const finite = (v: number | undefined) => (v !== undefined && Number.isFinite(v) ? v : undefined);
@@ -390,7 +386,7 @@ export function setParameterRange(d: SettingsDraft, name: string, patch: Paramet
   if (min > max) [min, max] = [max, min];
   const seekSpeed = Math.max(0, finite(patch.seekSpeed) ?? p.seekSpeed);
   const def = Math.min(max, Math.max(min, finite(patch.default) ?? p.default));
-  return withAudio(d, { ...a, parameters: a.parameters.map((q) => (q.name === name ? { name, min, max, default: def, seekSpeed } : q)) });
+  return audioSettings.write(d, { ...a, parameters: a.parameters.map((q) => (q.name === name ? { name, min, max, default: def, seekSpeed } : q)) });
 }
 
 /**
@@ -398,21 +394,21 @@ export function setParameterRange(d: SettingsDraft, name: string, patch: Paramet
  * numeric or unknown parameter: returns `d`. The default stays if it is still a label, else becomes the first.
  */
 export function setParameterLabels(d: SettingsDraft, name: string, labels: readonly string[]): SettingsDraft {
-  const a = audioOf(d);
+  const a = audioSettings.read(d);
   const p = parameterOf(a, name);
   if (!p || !isLabelled(p)) return d;
   const list = [...new Set(labels.map((l) => l.trim()).filter((l) => l !== ""))];
   if (list.length === 0) return d;
   const def = list.includes(p.default) ? p.default : list[0];
-  return withAudio(d, { ...a, parameters: a.parameters.map((q) => (q.name === name ? { name, labels: list, default: def } : q)) });
+  return audioSettings.write(d, { ...a, parameters: a.parameters.map((q) => (q.name === name ? { name, labels: list, default: def } : q)) });
 }
 
 /** A labelled parameter's default, which must be one of its labels (else `d`). */
 export function setParameterDefaultLabel(d: SettingsDraft, name: string, label: string): SettingsDraft {
-  const a = audioOf(d);
+  const a = audioSettings.read(d);
   const p = parameterOf(a, name);
   if (!p || !isLabelled(p) || !p.labels.includes(label)) return d;
-  return withAudio(d, { ...a, parameters: a.parameters.map((q) => (q.name === name ? { ...p, default: label } : q)) });
+  return audioSettings.write(d, { ...a, parameters: a.parameters.map((q) => (q.name === name ? { ...p, default: label } : q)) });
 }
 
 /**
@@ -421,7 +417,7 @@ export function setParameterDefaultLabel(d: SettingsDraft, name: string, label: 
  * range (`parameterRange`). No parameters or an unknown explicit bus: returns `d`.
  */
 export function addBusAutomation(d: SettingsDraft, bus?: string): SettingsDraft {
-  const a = audioOf(d);
+  const a = audioSettings.read(d);
   const target = bus ?? (a.buses.find((b) => b.name === "Music") ?? a.buses[1] ?? a.buses[0]).name;
   if (!a.buses.some((b) => b.name === target)) return d;
   const p = a.parameters[0];
@@ -433,14 +429,14 @@ export function addBusAutomation(d: SettingsDraft, bus?: string): SettingsDraft 
 
 /** Remove the entry at `index` (out of range returns `d`). */
 export function removeBusAutomation(d: SettingsDraft, index: number): SettingsDraft {
-  const a = audioOf(d);
+  const a = audioSettings.read(d);
   if (!a.automation[index]) return d;
   return applyMixOp(d, { op: "setAutomation", index, rule: null });
 }
 
 /** Point an entry at another bus (unknown bus or index returns `d`). */
 export function setBusAutomationBus(d: SettingsDraft, index: number, bus: string): SettingsDraft {
-  const a = audioOf(d);
+  const a = audioSettings.read(d);
   if (!a.automation[index] || !a.buses.some((b) => b.name === bus)) return d;
   return applyMixOp(d, { op: "setAutomation", index, rule: { ...a.automation[index], bus } });
 }
@@ -451,7 +447,7 @@ export function setBusAutomationBus(d: SettingsDraft, index: number, bus: string
  * curve keeps its shape over the new range; interpolation keys are kept.
  */
 export function setBusAutomationParameter(d: SettingsDraft, index: number, parameter: string): SettingsDraft {
-  const a = audioOf(d);
+  const a = audioSettings.read(d);
   const entry = a.automation[index];
   const next = parameterOf(a, parameter);
   if (!entry || !next || entry.parameter === parameter) return d;
@@ -466,7 +462,7 @@ export function setBusAutomationParameter(d: SettingsDraft, index: number, param
 
 /** Switch an entry between `volume` and `lowpass`; the curve resets to flat over the parameter's range at 1 (volume) or 24000 Hz (lowpass), as the units differ. Same target or unknown index: returns `d`. */
 export function setBusAutomationTarget(d: SettingsDraft, index: number, target: BusAutomation["target"]): SettingsDraft {
-  const a = audioOf(d);
+  const a = audioSettings.read(d);
   const entry = a.automation[index];
   if (!entry || entry.target === target) return d;
   const p = parameterOf(a, entry.parameter);
@@ -478,7 +474,7 @@ export function setBusAutomationTarget(d: SettingsDraft, index: number, target: 
 
 /** Replace an entry's curve (an empty curve, or an unknown index, returns `d`; more than `MAX_CURVE_KEYS` keys are cut to that). */
 export function setBusAutomationCurve(d: SettingsDraft, index: number, curve: Curve): SettingsDraft {
-  const a = audioOf(d);
+  const a = audioSettings.read(d);
   if (curve.length === 0 || !a.automation[index]) return d;
   const kept: Curve = curve.slice(0, MAX_CURVE_KEYS);
   return applyMixOp(d, { op: "setAutomation", index, rule: { ...a.automation[index], curve: kept } });
@@ -536,10 +532,10 @@ export function zoneWarnings(a: Pick<AudioSettings, "zones">): ZoneWarning[] {
 
 /** `audio.bed.maxBeds`: rounded, clamped 0..4 (0 turns beds off). Non-finite changes nothing. */
 export function setBed(d: SettingsDraft, maxBeds: number): SettingsDraft {
-  const a = audioOf(d);
+  const a = audioSettings.read(d);
   if (!Number.isFinite(maxBeds)) return d;
   const v = clampInt(maxBeds, ...BED_LIMITS.maxBeds);
-  return a.bed.maxBeds === v ? d : withAudio(d, { ...a, bed: { ...a.bed, maxBeds: v } });
+  return a.bed.maxBeds === v ? d : audioSettings.write(d, { ...a, bed: { ...a.bed, maxBeds: v } });
 }
 
 /** A bus's bed mode. The default (the root `own`, others `parent`) is stored as absent. Unknown buses change nothing. */
@@ -554,10 +550,10 @@ export function setBusBedPriority(d: SettingsDraft, name: string, priority: numb
 
 /** `audio.ambisonic.maxClips`: rounded, clamped 0..4 (0 refuses ambisonic clips with a warning). Non-finite changes nothing. */
 export function setMaxClips(d: SettingsDraft, maxClips: number): SettingsDraft {
-  const a = audioOf(d);
+  const a = audioSettings.read(d);
   if (!Number.isFinite(maxClips)) return d;
   const v = clampInt(maxClips, ...AMBISONIC_LIMITS.maxClips);
-  return a.ambisonic.maxClips === v ? d : withAudio(d, { ...a, ambisonic: { ...a.ambisonic, maxClips: v } });
+  return a.ambisonic.maxClips === v ? d : audioSettings.write(d, { ...a, ambisonic: { ...a.ambisonic, maxClips: v } });
 }
 
 /** What the bed resolution gives a section: who hosts a bed, who asked for one and lost it, and where each bus mixes. */
@@ -607,18 +603,18 @@ export interface OcclusionPatch {
 
 /** `audio.occlusion`'s scalar keys and layers: a partial update, numbers clamped (`OCCLUSION_LIMITS`), non-finite ignored. */
 export function setOcclusion(d: SettingsDraft, patch: OcclusionPatch): SettingsDraft {
-  const a = audioOf(d);
+  const a = audioSettings.read(d);
   const o = a.occlusion;
   const num = (v: number | undefined, [min, max]: readonly [number, number], old: number) => (v === undefined || !Number.isFinite(v) ? old : Math.min(max, Math.max(min, v)));
   const layers = patch.layers === undefined ? o.layers : patch.layers === null ? null : [...new Set(patch.layers.map((l) => l.trim()).filter((l) => l !== ""))];
   const defaultMaterial = patch.defaultMaterial !== undefined && o.materials.some((m) => m.name === patch.defaultMaterial) ? patch.defaultMaterial : o.defaultMaterial;
   const next = { ...o, layers, budgetMs: num(patch.budgetMs, OCCLUSION_LIMITS.budgetMs, o.budgetMs), smoothingMs: num(patch.smoothingMs, OCCLUSION_LIMITS.smoothingMs, o.smoothingMs), defaultMaterial };
-  return JSON.stringify(next) === JSON.stringify(o) ? d : withAudio(d, { ...a, occlusion: next });
+  return JSON.stringify(next) === JSON.stringify(o) ? d : audioSettings.write(d, { ...a, occlusion: next });
 }
 
 /** Turn one physics layer on or off in `occlusion.layers`. From "every layer" (null), `all` (the draft's layers) is the starting list; ticking every layer goes back to null. */
 export function toggleOcclusionLayer(d: SettingsDraft, layer: string, on: boolean, all: readonly string[]): SettingsDraft {
-  const current = audioOf(d).occlusion.layers ?? [...all];
+  const current = audioSettings.read(d).occlusion.layers ?? [...all];
   const next = on ? (current.includes(layer) ? current : [...current, layer]) : current.filter((l) => l !== layer);
   const ordered = all.filter((l) => next.includes(l)).concat(next.filter((l) => !all.includes(l)));
   return setOcclusion(d, { layers: all.every((l) => ordered.includes(l)) && ordered.length === all.length ? null : ordered });
@@ -638,11 +634,11 @@ export function materialIsModified(a: AudioSettings, name: string): boolean {
 export interface MaterialPatch { transmissionDb?: number; cutoffHz?: number; wetOcclusion?: number; attackMs?: number | null; releaseMs?: number | null }
 
 const withMaterials = (d: SettingsDraft, a: AudioSettings, materials: OccluderMaterial[], defaultMaterial = a.occlusion.defaultMaterial): SettingsDraft =>
-  withAudio(d, { ...a, occlusion: { ...a.occlusion, materials, defaultMaterial } });
+  audioSettings.write(d, { ...a, occlusion: { ...a.occlusion, materials, defaultMaterial } });
 
 /** Append a custom material "Material" (unique: "Material 2"…) with concrete's values. At `MAX_MATERIALS`, returns `d`. */
 export function addMaterial(d: SettingsDraft): SettingsDraft {
-  const a = audioOf(d);
+  const a = audioSettings.read(d);
   const table = a.occlusion.materials;
   if (table.length >= MAX_MATERIALS) return d;
   const base = table.find((m) => m.name === DEFAULT_MATERIAL_NAME) ?? table[0];
@@ -652,7 +648,7 @@ export function addMaterial(d: SettingsDraft): SettingsDraft {
 
 /** Edit a material's numbers, each clamped to `MATERIAL_LIMITS`; non-finite ignored. Unknown names return `d`. */
 export function setMaterial(d: SettingsDraft, name: string, patch: MaterialPatch): SettingsDraft {
-  const a = audioOf(d);
+  const a = audioSettings.read(d);
   const old = a.occlusion.materials.find((m) => m.name === name);
   if (!old) return d;
   const pick = (v: number | undefined, [min, max]: readonly [number, number], was: number) => (v === undefined || !Number.isFinite(v) ? was : Math.min(max, Math.max(min, v)));
@@ -672,7 +668,7 @@ export function setMaterial(d: SettingsDraft, name: string, patch: MaterialPatch
 
 /** Rename a custom material (built-ins keep their names). Trimmed; empty, taken or unknown names return `d`. `defaultMaterial` follows. */
 export function renameMaterial(d: SettingsDraft, from: string, to: string): SettingsDraft {
-  const a = audioOf(d);
+  const a = audioSettings.read(d);
   const name = to.trim();
   const table = a.occlusion.materials;
   if (isBuiltinMaterial(from) || name === "" || name === from || table.some((m) => m.name === name) || !table.some((m) => m.name === from)) return d;
@@ -681,7 +677,7 @@ export function renameMaterial(d: SettingsDraft, from: string, to: string): Sett
 
 /** Remove a custom material (a built-in is reset instead: returns `d`). If it was the default, `concrete` becomes it. */
 export function removeMaterial(d: SettingsDraft, name: string): SettingsDraft {
-  const a = audioOf(d);
+  const a = audioSettings.read(d);
   const table = a.occlusion.materials;
   if (isBuiltinMaterial(name) || !table.some((m) => m.name === name)) return d;
   return withMaterials(d, a, table.filter((m) => m.name !== name), a.occlusion.defaultMaterial === name ? DEFAULT_MATERIAL_NAME : a.occlusion.defaultMaterial);
@@ -689,7 +685,7 @@ export function removeMaterial(d: SettingsDraft, name: string): SettingsDraft {
 
 /** Put a built-in material back to its shipped values (custom, unchanged or unknown names return `d`). */
 export function resetMaterial(d: SettingsDraft, name: string): SettingsDraft {
-  const a = audioOf(d);
+  const a = audioSettings.read(d);
   const b = BUILTIN_MATERIALS.find((m) => m.name === name);
   if (!b || !materialIsModified(a, name)) return d;
   return withMaterials(d, a, a.occlusion.materials.map((m) => (m.name === name ? { ...b } : m)));
@@ -699,7 +695,7 @@ export interface ZonesPatch { maxActive?: number; standby?: number; maxIrSeconds
 
 /** `audio.zones`: a partial update; the integers are rounded and clamped, `maxIrSeconds` clamped to 0.5..8 (not rounded); non-finite ignored. */
 export function setZones(d: SettingsDraft, patch: ZonesPatch): SettingsDraft {
-  const a = audioOf(d);
+  const a = audioSettings.read(d);
   const z = a.zones;
   const int = (v: number | undefined, [min, max]: readonly [number, number], old: number) => (v === undefined || !Number.isFinite(v) ? old : clampInt(v, min, max));
   const [lo, hi] = ZONE_LIMITS.maxIrSeconds;
@@ -708,7 +704,7 @@ export function setZones(d: SettingsDraft, patch: ZonesPatch): SettingsDraft {
     standby: int(patch.standby, ZONE_LIMITS.standby, z.standby),
     maxIrSeconds: patch.maxIrSeconds === undefined || !Number.isFinite(patch.maxIrSeconds) ? z.maxIrSeconds : Math.min(hi, Math.max(lo, patch.maxIrSeconds)),
   };
-  return next.maxActive === z.maxActive && next.standby === z.standby && next.maxIrSeconds === z.maxIrSeconds ? d : withAudio(d, { ...a, zones: next });
+  return next.maxActive === z.maxActive && next.standby === z.standby && next.maxIrSeconds === z.maxIrSeconds ? d : audioSettings.write(d, { ...a, zones: next });
 }
 
 export interface DopplerPatch {
@@ -720,11 +716,11 @@ export interface DopplerPatch {
 
 /** `audio.doppler.maxSpeed` and `audio.speedOfSound`. */
 export function setDoppler(d: SettingsDraft, patch: DopplerPatch): SettingsDraft {
-  const a = audioOf(d);
+  const a = audioSettings.read(d);
   const maxSpeed = patch.maxSpeed !== undefined && Number.isFinite(patch.maxSpeed) && patch.maxSpeed > 0 ? patch.maxSpeed : a.doppler.maxSpeed;
   const [lo, hi] = SPEED_OF_SOUND_LIMITS;
   const speedOfSound = patch.speedOfSound !== undefined && Number.isFinite(patch.speedOfSound) ? Math.min(hi, Math.max(lo, patch.speedOfSound)) : a.speedOfSound;
-  return maxSpeed === a.doppler.maxSpeed && speedOfSound === a.speedOfSound ? d : withAudio(d, { ...a, doppler: { maxSpeed }, speedOfSound });
+  return maxSpeed === a.doppler.maxSpeed && speedOfSound === a.speedOfSound ? d : audioSettings.write(d, { ...a, doppler: { maxSpeed }, speedOfSound });
 }
 
 /** The project's physics layer names (what `occlusion.layers` chooses from). */

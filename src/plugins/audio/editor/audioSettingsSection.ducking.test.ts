@@ -12,7 +12,8 @@ import { parseAudioSettings, type DuckingRule } from "../../../engine/audio/sett
 import { createProjectSettingsSection } from "../../../editor/projectSettingsSection";
 import { closeTestProject, openTestProject, readDraft } from "../../../editor/testing";
 import type { SettingsDraft } from "../../../editor/sdk";
-import { addDuckingEdit, audioOf, moveDucking, removeDucking, setDuckingValueEdit, type DuckEdit } from "./audioSettingsModel";
+import { addDuckingEdit, moveDucking, removeDucking, setDuckingValueEdit, type DuckEdit } from "./audioSettingsModel";
+import { audioSettings } from "./audioDraft";
 import { playState } from "../../../editor/state";
 import { startOpLog, type MixApplier } from "./mix/opLog";
 import { newDuckRule } from "./mix/duckModel";
@@ -24,7 +25,7 @@ const setDuckingValue = (d: SettingsDraft, index: number, key: keyof DuckingRule
 
 /** A draft whose audio section has these ducking rules (and these buses, else the default ones). */
 const draftOf = (ducking: object[] = [], buses?: object[]): SettingsDraft => readDraft({ audio: { ...(buses ? { buses } : {}), ducking } }) as SettingsDraft;
-const rulesOf = (d: SettingsDraft): DuckingRule[] => audioOf(d).ducking;
+const rulesOf = (d: SettingsDraft): DuckingRule[] => audioSettings.read(d).ducking;
 /** The draft parses with no problem: the parse keeps every rule the edit wrote. */
 const expectClean = (d: SettingsDraft): void => expect(audioSection(d.audio).problems).toEqual([]);
 /** The edit was refused: the draft is the one it was given, and the refusal is the parse's message. */
@@ -291,7 +292,7 @@ describe("a live edit in the section applies through the op path while Play runs
       { op: "setDucking", index: 1, rule: null },
       { op: "setDucking", index: 0, rule: { target: "Music", trigger: "Voice", mode: "presence", amount: 0.4, attack: 0.1, release: 0.5 } },
     ]);
-    expect(audioOf(section.draft).ducking.map((r) => r.mode)).toEqual(["presence"]);
+    expect(audioSettings.read(section.draft).ducking.map((r) => r.mode)).toEqual(["presence"]);
   });
   it("removing the only rule sends one null", async () => {
     const { section, mixer } = await playing([level("Music", "Voice")]);
@@ -317,6 +318,6 @@ describe("a live edit in the section applies through the op path while Play runs
     const { section, mixer } = await playing([level("Music", "Voice")], () => false);
     await section.edit("Set ducking threshold", setDuckingValue(section.draft, 0, "threshold", -20));
     expect(mixer.applied).toEqual([]);
-    expect(audioOf(section.draft).ducking[0]!.threshold).toBe(-20);
+    expect(audioSettings.read(section.draft).ducking[0]!.threshold).toBe(-20);
   });
 });

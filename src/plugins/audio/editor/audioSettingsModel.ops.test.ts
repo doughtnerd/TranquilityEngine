@@ -5,7 +5,8 @@ import { applyOpToDraft, opRefusal, type MixOp } from "../../../engine/audio/mix
 import { parseAudioSettings, type DuckingRule } from "../../../engine/audio/settings";
 import type { SettingsDraft } from "../../../editor/sdk";
 import { readDraft } from "../../../editor/testing";
-import { addBus, addBusAutomation, addDuckingEdit, addEffect, addLoudnessTarget, addParameter, addSnapshot, audioOf, loudnessTargets, moveEffect, removeBus, removeDucking, removeEffect, removeLoudnessTarget, removeSnapshot, renameBus, renameSnapshot, setBusBed, setBusBedPriority, setBusMaxVoices, setBusMeter, setBusParent, setBusValue, setDuckingValueEdit, setEffectValue, setLoudnessResetOnPlay, setLoudnessTarget, setSnapshotLowpass, setSnapshotVolume } from "./audioSettingsModel";
+import { addBus, addBusAutomation, addDuckingEdit, addEffect, addLoudnessTarget, addParameter, addSnapshot, loudnessTargets, moveEffect, removeBus, removeDucking, removeEffect, removeLoudnessTarget, removeSnapshot, renameBus, renameSnapshot, setBusBed, setBusBedPriority, setBusMaxVoices, setBusMeter, setBusParent, setBusValue, setDuckingValueEdit, setEffectValue, setLoudnessResetOnPlay, setLoudnessTarget, setSnapshotLowpass, setSnapshotVolume } from "./audioSettingsModel";
+import { audioSettings } from "./audioDraft";
 
 /** Add a ducking rule as the section's button does (a refused add leaves the draft). */
 const addDucking = (d: SettingsDraft): SettingsDraft => addDuckingEdit(d).draft;
@@ -61,21 +62,21 @@ describe("the M5 model functions (ADR 0171 §2.1)", () => {
     expect((addLoudnessTarget(empty()).audio as { loudnessTargets: { name: string }[] }).loudnessTargets.map((t) => t.name)).toEqual(["console", "mobile", "Target"]);
     expect((setLoudnessResetOnPlay(empty(), false).audio as { loudnessResetOnPlay?: boolean }).loudnessResetOnPlay).toBe(false);
     expect(setBusMeter(empty(), "Master", true)).toEqual(empty());
-    expect(opRefusal(audioOf(empty()), { op: "setBus", bus: "Master", key: "meter", value: "loudness" })).toBe("Master is always metered");
+    expect(opRefusal(audioSettings.read(empty()), { op: "setBus", bus: "Master", key: "meter", value: "loudness" })).toBe("Master is always metered");
   });
   it.skipIf(!parseKeepsM5Keys)("meters a bus, refuses the root with a message, and turns it off", () => {
     const d = setBusMeter(empty(), "Voice", true);
     expect((d.audio as { buses: { name: string; meter?: string }[] }).buses.find((b) => b.name === "Voice")!.meter).toBe("loudness");
     expect(setBusMeter(empty(), "Master", true)).toEqual(empty());
-    expect(opRefusal(audioOf(empty()), { op: "setBus", bus: "Master", key: "meter", value: "loudness" })).toBe("Master is always metered");
+    expect(opRefusal(audioSettings.read(empty()), { op: "setBus", bus: "Master", key: "meter", value: "loudness" })).toBe("Master is always metered");
     expect((setBusMeter(d, "Voice", false).audio as { buses: { meter?: string }[] }).buses.every((b) => b.meter === undefined)).toBe(true);
   });
   it("reorders effects", () => {
     const d = moveEffect(addEffect(addEffect(empty(), "Music", "lowpass"), "Music", "compressor"), "Music", 1, 0);
-    expect(audioOf(d).buses.find((b) => b.name === "Music")!.effects.map((e) => e.type)).toEqual(["compressor", "lowpass"]);
+    expect(audioSettings.read(d).buses.find((b) => b.name === "Music")!.effects.map((e) => e.type)).toEqual(["compressor", "lowpass"]);
   });
   it.skipIf(!parseKeepsM5Keys)("adds, edits and removes loudness targets, keeping at least one", () => {
-    const a0 = audioOf(empty());
+    const a0 = audioSettings.read(empty());
     expect(loudnessTargets(a0).map((t) => t.name)).toEqual(["console", "mobile"]);
     let d = addLoudnessTarget(empty());
     let list = (d.audio as { loudnessTargets: { name: string; integrated: number }[] }).loudnessTargets;
@@ -99,6 +100,6 @@ describe("the M5 model functions (ADR 0171 §2.1)", () => {
   it("refuses a ducking rule the parse would drop: a bus ducking itself", () => {
     const d = addDucking(empty());
     expect(setDuckingValue(d, 0, "trigger", "Music")).toBe(d);
-    expect(audioOf(setDuckingValue(d, 0, "trigger", "SFX")).ducking[0].trigger).toBe("SFX");
+    expect(audioSettings.read(setDuckingValue(d, 0, "trigger", "SFX")).ducking[0].trigger).toBe("SFX");
   });
 });

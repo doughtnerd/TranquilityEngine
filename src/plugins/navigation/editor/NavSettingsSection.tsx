@@ -22,17 +22,15 @@ import {
   navAreaCostOf,
   navColorHex,
   navHexColor,
-  navigationOf,
   navVoxelSize,
   removeNavAgentType,
   removeNavArea,
   renameNavAgentType,
-  resetNavigation,
   setNavAgentAreaCost,
   setNavAgentAvoidance,
   setNavAgentValue,
   setNavAreaValue,
-  setNavValue,
+  navigationSettings,
 } from "./navSettingsModel";
 import { type SettingsDraft, type EditorProject, TextField } from "../../../editor/sdk";
 import "./navSettings.css";
@@ -419,7 +417,7 @@ const getPath = (obj: unknown, path: string): unknown => path.split(".").reduce<
 
 function Advanced(props: { nav: NavigationSettings; draft: SettingsDraft; set: Set }) {
   const { nav, draft, set } = props;
-  const value = (path: string, label: string) => (v: unknown) => set(`Set navigation ${label}`, setNavValue(draft, path, v));
+  const value = (path: string, label: string) => (v: unknown) => set(`Set navigation ${label}`, navigationSettings.set(draft, path, v));
   return (
     <details class="nav-advanced">
       <summary>Advanced: voxels, tiles, build, flight, chunk grid</summary>
@@ -471,7 +469,7 @@ function Advanced(props: { nav: NavigationSettings; draft: SettingsDraft; set: S
       <p class="project-settings-hint">
         Surface rings: {nav.surfaceRings.map((r) => `${r.count} at ${r.tiltDeg}°`).join(", ") || "none"} (edit in project.json).
       </p>
-      <button onClick={() => set("Reset navigation settings", resetNavigation(draft))} disabled={draft.navigation === undefined}>
+      <button onClick={() => set("Reset navigation settings", navigationSettings.reset(draft))} disabled={draft.navigation === undefined}>
         Reset to defaults
       </button>
     </details>
@@ -482,7 +480,7 @@ function Advanced(props: { nav: NavigationSettings; draft: SettingsDraft; set: S
 export function NavSettingsSection(props: { draft: SettingsDraft; problems: readonly string[]; set: Set; project: EditorProject }) {
   const { draft, set, project } = props;
   navBakeAllProgress.value; // re-render while Bake All runs
-  const nav = navigationOf(draft);
+  const nav = navigationSettings.read(draft);
   const progress = navBakeAllProgress.value;
   return (
     <div class={`project-settings-list project-settings-tiers nav-settings${props.problems.length ? " invalid" : ""}`} role="group" aria-label="Navigation settings">

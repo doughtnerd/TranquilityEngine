@@ -67,7 +67,6 @@ import {
   addEffect,
   addSnapshot,
   applyVoicesPreset,
-  audioOf,
   busTree,
   descendants,
   removeBus,
@@ -97,6 +96,7 @@ import {
   LIMITER_LOOKAHEAD_LIMITS,
   type VoicePresetName,
 } from "./audioSettingsModel";
+import { audioSettings } from "./audioDraft";
 import { CurveEditor, TextField, editor, type SettingsDraft } from "../../../editor/sdk";
 import { Audio } from "../runtime";
 import { DEFAULT_DUCK_DETECTOR, DEFAULT_DUCK_THRESHOLD, DUCK_DETECTORS, DUCK_LIMITS, DUCK_MODES, MAX_DUCK_RULES, MAX_LEVEL_RULES, NEEDS_AUDIO_CORE, levelDuckingAvailable } from "./mix/duckModel";
@@ -712,7 +712,7 @@ function Playback(props: { a: AudioSettings; draft: SettingsDraft; set: Set }) {
 /** The Audio section's contents. `problems` are the section's parse problems. */
 export function AudioSettingsSection(props: { draft: SettingsDraft; problems: readonly string[]; set: Set }) {
   const { draft, set } = props;
-  const a = audioOf(draft);
+  const a = audioSettings.read(draft);
   const plan = bedPlan(a);
   return (
     <div class={`project-settings-list audio-settings${props.problems.length ? " invalid" : ""}`} role="group" aria-label="Audio settings">

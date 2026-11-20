@@ -10,12 +10,8 @@ import type { ComponentClass } from "../../../engine/core/registry";
 import { componentNotes } from "../../../editor/sdk";
 import { compileHit, type HitCost } from "../../../engine/audio/occlusionMaterials";
 import type { AudioSettings } from "../../../engine/audio/settings";
-import { audioSection } from "../../../engine/audio/audioSection";
 import type { GameObject } from "../../../engine";
 import { zoneMemory, zoneSlots, zoneWarnings } from "./audioSettingsModel";
-
-/** The project's `audio` section, read leniently (defaults when absent). */
-export const audioOfProject = (settings: { audio?: unknown } | undefined): AudioSettings => audioSection(settings?.audio).settings;
 
 /** The 3D `Collider` base class the Physics plugin registered, or null while it is off. The audio plugin doesn't depend on Physics, so it finds the class through the registry (every 3D collider's parent). */
 export function colliderClass(): ComponentClass<Collider> | null {

@@ -1,7 +1,7 @@
 // The Project panel's Physics category (ADR 0038, 0116, 0137): gravity, the 2D and 3D physics backend, the
 // physics layers, and which layers collide as a triangle of checkboxes. Edits go through the panel's undo history.
 import { defaultSettings } from "../../../engine/core/settings";
-import { collides, addLayer, layersOf, MAX_LAYERS, removeLayer, renameLayer, setCollides, setGravity } from "./physicsSettingsModel";
+import { collides, addLayer, MAX_LAYERS, physicsSettings, removeLayer, renameLayer, setCollides, setGravity } from "./physicsSettingsModel";
 import { renameLayerEdit } from "../../../editor/layerRenameEdit";
 import { physicsBackends, type PhysicsDimension } from "../runtime";
 import { backendOf, backendOptions, setBackend } from "./physicsEditorModel";
@@ -55,7 +55,7 @@ function BackendRow(props: { dimension: PhysicsDimension; draft: SettingsDraft; 
 /** Physics layers, and which of them collide as a triangle of checkboxes. */
 function Layers(props: ProjectSettingsSectionProps) {
   const { draft, project, set, fieldProblems } = props;
-  const layers = layersOf(draft);
+  const layers = physicsSettings.read(draft).layers;
   const matrixProblems = fieldProblems.filter((p) => p.field === "physics.collisionMatrix");
   const ctx = { project, set, refresh: props.refresh };
   return (
