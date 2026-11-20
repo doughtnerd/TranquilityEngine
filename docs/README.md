@@ -62,7 +62,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0010](decisions/0010-engine-graph-authoritative-over-threejs.md) | Engine node graph is authoritative; three.js never exposed | Accepted |
 | [0011](decisions/0011-frame-loop-and-system-order.md) | Frame loop and system order | Accepted, amended by 0032 |
 | [0012](decisions/0012-ecs-storage-implementation.md) | ECS storage: in-house sparse sets, benchmark first | Accepted |
-| [0013](decisions/0013-data-driven-scene-format.md) | Data-driven scene format with a type registry | Accepted, amended by 0163 |
+| [0013](decisions/0013-data-driven-scene-format.md) | Data-driven scene format with a type registry | Accepted, amended by 0163 and 0254 |
 | [0014](decisions/0014-unified-2d-and-3d.md) | 2D and 3D share one pipeline | Accepted, partly superseded by 0164 |
 | [0015](decisions/0015-vite-build-tooling.md) | Vite build tooling | Accepted |
 | [0016](decisions/0016-world-root-and-scenes-as-nodes.md) | A World root node; scenes are nodes | Accepted, amended by 0032 |
@@ -159,7 +159,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0108](decisions/0108-gpu-instancing-sprite-batching-pixel-perfect-camera.md) | MeshRenderers draw GPU-instanced by mesh and material; sprites batch per atlas; cameras can be pixel-perfect | Proposed |
 | [0109](decisions/0109-render-textures-and-the-scene-depth-texture.md) | Cameras draw into render texture assets that materials, sprites and UI sample; each camera's scene depth is available to render code | Proposed |
 | [0110](decisions/0110-several-cascaded-lights-probe-blending-and-height-fog.md) | Cascades for several directional lights, box-projected, blended and baked reflection probes, and height fog | Proposed |
-| [0111](decisions/0111-post-processing-on-babylon-luts-and-per-platform-tiers.md) | Post-processing on Babylon: LUT colour grading, half-resolution ambient occlusion, an untoned editor background, and per-platform default tiers | Proposed |
+| [0111](decisions/0111-post-processing-on-babylon-luts-and-per-platform-tiers.md) | Post-processing on Babylon: LUT colour grading, half-resolution ambient occlusion, an untoned editor background, and per-platform default tiers | Proposed, amended by 0254 |
 | [0112](decisions/0112-procedural-sky-assets.md) | Procedural skies are `*.sky.json` assets drawn live and baked to a prefiltered cubemap for lighting | Proposed |
 | [0113](decisions/0113-cubemap-environments.md) | Environments take prefiltered `.env`/`.dds` cubes and six-image `*.cubemap.json` assets | Proposed |
 | [0114](decisions/0114-sky-component-and-sun-light.md) | A `Sky` component scripts the procedural sky, and the sky can drive the main directional light | Proposed |
@@ -272,6 +272,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0251](decisions/0251-particle-steps-are-written-once-and-the-cpu-simulation-becomes-a-kernel-executor.md) | Particle steps are written once: a steps catalogue (`kernelSteps.ts`) holds each built-in step's KSL and JavaScript side by side, kept in agreement by a unit test on KSL's JavaScript output; the JavaScript executor ray casts colliders; every system is to run on a kernel executor and the CPU simulation be retired (not built yet: kernel trails can't draw material assets, and the CPU draw tests need moving). Supersedes 0094's "legacy CPU simulation stays" clause | Accepted |
 | [0252](decisions/0252-the-lighting-rig-resolves-sky-and-fog-contributions-itself.md) | The lighting rig (`BabylonLighting`) is one deep module: `lighting`-phase features contribute per frame (`contribute`: the sky its sun and bake, the fog its sky fog), and the renderer resolves lights, shadows, environment and skybox in one `sync` after the phase. `LightsFeature`/`EnvironmentFeature`, their specs, the setters and the `after` chain go | Accepted |
 | [0253](decisions/0253-a-settings-section-handle-owns-one-project-json-key-of-the-settings-draft.md) | A settings section handle (`settingsSection` in `myco/editor`) owns one `project.json` key of the settings draft: its lenient parse and defaults, read, write, set by dotted path (parsed or written edits), reset and problems; the navigation, physics and audio models build on it. The undo history and JSON member writer leave the Worlds model (`editHistory.ts`, `jsonMember.ts`); one UUID helper (`engine/core/uuid.ts`); one physics defaulting rule (`resolvePhysicsSettings`) | Accepted |
+| [0254](decisions/0254-one-project-file-module-loads-every-file-as-the-same-asset-value-on-every-host.md) | One project-file module (`engine/scene/projectFiles.ts`) decides which files are project files (hidden, dependency and build folders and TypeScript left out) and what each loads as (`json` parsed, `text` contents, `url`), the same in the editor, samples, the player, the dedicated server and export; hosts keep only their I/O (`loadProjectFiles`); `Assets.json`/`text` (now synchronous)/`url` check the kind, `Assets.bytes` reads a url file. Amends 0013, 0111 | Accepted |
 
 ## Working with decisions
 

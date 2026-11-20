@@ -1,6 +1,6 @@
 # 0111. Post-processing on Babylon: LUT colour grading, half-resolution ambient occlusion, an untoned editor background, and per-platform default tiers
 
-- **Status:** Proposed
+- **Status:** Proposed, amended by 0254 (a `.cube` LUT is read with `Assets.bytes`, not `Assets.text`)
 - **Date:** 2026-11-07
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
