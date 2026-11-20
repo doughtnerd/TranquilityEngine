@@ -55,7 +55,7 @@ describe("CaptureSource (files)", () => {
     expect(s.duration).toBeCloseTo(768 / 44_100 + 3.25, 12);
     expect(s.markers).toEqual([{ seq: 6, seconds: 1000 / 48_000, text: "owner joined ✓" }]);
     expect(s.truncated).toBe(false);
-    expect(s.summary.names.clips).toEqual([[1, "jump.ogg"], [2, "land.ogg"]]);
+    expect(s.summary.names.clips).toEqual([[1, "jump.ogg", -Infinity], [2, "land.ogg", 1100 / 48_000]]); // META's from the start, a NAMES record from its frame
     const snap = await s.seek(0.033);
     expect([snap.seq, snap.keyframeSeq, snap.status?.currentFrame]).toEqual([11, 2, 1536]);
     const raw = await s.range(0, 10, ["currentFrame"]);

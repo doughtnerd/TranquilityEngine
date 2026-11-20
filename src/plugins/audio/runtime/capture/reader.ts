@@ -20,6 +20,7 @@ import {
 } from "./format";
 import { LOUD_OUTPUT_TAP, readStatus, readStatusHeaderField, STATUS_HEADER_COLUMNS, type StatusBlock, type StatusHeaderField } from "../wire.generated";
 import { readCaptureEvent, type CaptureEvent, type CaptureEventType } from "./events";
+import type { CaptureNameEntry, CaptureNameLog } from "./names";
 
 // The Profiler's vocabulary (ADR 0227): what the reader and its Worker answer is importable from here, so the editor's
 // views depend on the reader and never on the binary layout (`format.ts`, `wire.generated.ts`).
@@ -30,6 +31,8 @@ export type {
   CaptureKeyframeVoice, CaptureLane, CaptureMusicState, CaptureVoiceState,
 } from "./format";
 export type { CaptureEvent, CaptureEventType } from "./events";
+export { CaptureNames, captureNames, type CaptureNameEntry, type CaptureNameLog } from "./names";
+export { reasonText, type CaptureReason, type CaptureVoiceReason } from "./reasons";
 /**
  * The largest file the reader can accept: the header, a META chunk and an uncompressed payload, each at its cap (a stored
  * capture can reach it, and deflate output never exceeds it by more than the same slack). A file past it is refused, so
@@ -124,8 +127,10 @@ export interface CaptureContents {
   /** Record indices of every KEYFRAME, in seq order. */
   keyframes: number[];
   epochs: EpochInfo[];
-  /** META's names plus every NAMES record. */
+  /** META's names plus every NAMES record, the latest per id. */
   names: Record<NameTable, Map<number, string>>;
+  /** Every name in record order with the time it holds from (META's at `-Infinity`): what `names.ts` answers over time (ADR 0260). */
+  nameLog: Record<NameTable, CaptureNameEntry[]>;
   /** The INDEX record when present and consistent with the scan; null otherwise. */
   index: IndexPayload | null;
   truncated: boolean;
@@ -172,13 +177,17 @@ export class CaptureDecoder {
   private nameCount = 0;
   private indexRecord = -1;
   private heldBytes = 0;
+  /** The NAMES payload `checkPayload` just read, logged once its record is in the table (its time needs the row). */
+  private namesRead: NamesPayload | null = null;
 
   constructor(header: CaptureHeader, meta: CaptureMeta, live: boolean, opts: ReaderOptions = {}) {
     this.live = live;
     this.opts = opts;
     for (const t of NAME_TABLES) this.nameCount += meta.names[t].size;
+    const nameLog = {} as Record<NameTable, CaptureNameEntry[]>;
+    for (const t of NAME_TABLES) nameLog[t] = [...meta.names[t]].map(([id, name]) => [id, name, -Infinity] as const);
     this.contents = {
-      header, meta, records: new RecordTable(), segments: [], keyframes: [], epochs: [], names: meta.names, index: null,
+      header, meta, records: new RecordTable(), segments: [], keyframes: [], epochs: [], names: meta.names, nameLog, index: null,
       truncated: (header.flags & CAPTURE_FLAG_TRUNCATED) !== 0, mainSideOnly: (header.flags & CAPTURE_FLAG_MAIN_SIDE_ONLY) !== 0, warnings: [],
     };
     this.epochRate = header.sampleRate;
@@ -273,6 +282,11 @@ export class CaptureDecoder {
       t.frame[i] = h.frame;
       if (h.type === RecordType.KEYFRAME) c.keyframes.push(i);
       if (h.type === RecordType.INDEX) this.indexRecord = i;
+      if (this.namesRead) {
+        const n = this.namesRead;
+        this.namesRead = null;
+        c.nameLog[NAME_TABLES[n.table]!].push([n.id, n.name, recordSeconds(c, i)]);
+      }
       if (h.frame > this.epochMaxFrame) this.epochMaxFrame = h.frame;
       this.lastSeq = h.seq;
       off += CAPTURE_RECORD_HEAD_BYTES + h.len;
@@ -315,6 +329,7 @@ export class CaptureDecoder {
           if (++this.nameCount > CAPTURE_MAX_NAMES) throw new CaptureError("tooManyNames", at, `more than ${CAPTURE_MAX_NAMES} names`);
         }
         table.set(n.id, n.name);
+        this.namesRead = n;
         break;
       }
       case RecordType.MIXOP: decodeMixOpRecord(view, p, len, base); break;
@@ -631,16 +646,16 @@ export interface CaptureOpenSummary extends CaptureSummary {
   statusCount: number;
   markers: readonly CaptureMarkerAt[];
   gaps: readonly CaptureGapAt[];
-  /** META's names plus every NAMES record, per table. */
-  names: Record<NameTable, readonly (readonly [number, string])[]>;
+  /** META's names plus every NAMES record, per table, with the time each holds from: ask `captureNames(summary)` (ADR 0260). */
+  names: CaptureNameLog;
   /** Recorded without the core's STATUS stream (the Babylon backend): no CPU or counter series (`CAPTURE_FLAG_MAIN_SIDE_ONLY`). */
   mainSideOnly: boolean;
 }
 
 /** The summary of an opened (or extended) capture. */
 export function summarizeCapture(c: CaptureContents, idx: CaptureTimeIndex): CaptureOpenSummary {
-  const names = {} as Record<NameTable, (readonly [number, string])[]>;
-  for (const t of NAME_TABLES) names[t] = [...c.names[t]];
+  const names = {} as Record<NameTable, CaptureNameEntry[]>;
+  for (const t of NAME_TABLES) names[t] = [...c.nameLog[t]];
   return {
     header: c.header, meta: c.meta, recordCount: c.records.count, keyframeCount: c.keyframes.length, epochCount: c.epochs.length,
     startSeconds: Number.isNaN(idx.startSeconds) ? 0 : idx.startSeconds, endSeconds: Number.isNaN(idx.endSeconds) ? 0 : idx.endSeconds,

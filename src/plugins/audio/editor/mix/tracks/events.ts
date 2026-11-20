@@ -15,7 +15,7 @@
 //
 // Every tooltip is built by an exported pure function here (`instanceTooltip`, `parameterTooltip`, `stateTooltip`); a
 // module's `tooltipAt` returns exactly its result.
-import type { CaptureEvent, CaptureEventType } from "../../../runtime/capture/reader";
+import { captureNames, type CaptureEvent, type CaptureEventType, type CaptureNames } from "../../../runtime/capture/reader";
 import type { LineSeries, TrackData } from "../drawTimeline";
 import { statusColumns, type ProfileSource } from "../profilerSource";
 import { assignLanes } from "./lanes";
@@ -178,16 +178,16 @@ export function eventLogFor(source: ProfileSource): EventLog {
 
 // --- names -------------------------------------------------------------------------------------------------------------
 
-/** Name lookups over the source's current summary (it grows with a live capture, so build one per refresh). */
-export interface EventNames {
-  parameter(id: number): string;
-  event(id: number): string;
+/** The capture's names as of the source's current summary, asked at an event's axis time (viewport time + `start`; ADR 0260). */
+export interface NamesAt {
+  readonly names: CaptureNames;
+  /** The source's `startSeconds`: viewport time 0 on the axis. */
+  readonly start: number;
 }
 
-export function eventNames(source: ProfileSource): EventNames {
-  const parameters = new Map(source.summary.names.parameters);
-  const events = new Map(source.summary.names.events);
-  return { parameter: (id) => parameters.get(id) ?? `parameter ${id}`, event: (id) => events.get(id) ?? `event ${id}` };
+/** The names of `source` now (a live summary grows, so ask at each build). */
+export function namesAt(source: ProfileSource): NamesAt {
+  return { names: captureNames(source.summary), start: source.startSeconds };
 }
 
 // --- instance spans ----------------------------------------------------------------------------------------------------
@@ -208,7 +208,7 @@ export interface EventSpan {
  * Spans from the eventStart and eventStop events. A start of an instance that is still open ends the earlier span there; a
  * stop of an unknown instance is ignored. `initial` seeds the instances the first keyframe counted as running from 0.
  */
-function eventSpans(starts: readonly LoggedEvent<"eventStart">[], stops: readonly LoggedEvent<"eventStop">[], initial: readonly InitialInstance[], names: EventNames): EventSpan[] {
+function eventSpans(starts: readonly LoggedEvent<"eventStart">[], stops: readonly LoggedEvent<"eventStop">[], initial: readonly InitialInstance[], { names, start }: NamesAt): EventSpan[] {
   const spans: { instance: number; asset: number; start: number; end: number | null; fromKeyframe: boolean }[] = [];
   const open = new Map<number, (typeof spans)[number]>();
   const open1 = (instance: number, asset: number, start: number, fromKeyframe: boolean): void => {
@@ -232,7 +232,7 @@ function eventSpans(starts: readonly LoggedEvent<"eventStart">[], stops: readonl
       }
     }
   }
-  return spans.sort((a, b) => a.start - b.start || a.instance - b.instance).map((s) => ({ ...s, name: names.event(s.asset) }));
+  return spans.sort((a, b) => a.start - b.start || a.instance - b.instance).map((s) => ({ ...s, name: names.event(s.asset, start + s.start) }));
 }
 
 /** The lane lines: 1 over each span, 0 between, on the STATUS times plus every span boundary (an open span ends at `duration`). */
@@ -276,8 +276,8 @@ export interface ParameterChange {
 }
 
 /** The parameter events as changes. */
-export function parameterChanges(events: readonly LoggedEvent<"parameter">[], names: EventNames): ParameterChange[] {
-  return events.map(({ time, event: e }) => ({ time, name: names.parameter(e.name), instance: e.instance, value: e.value }));
+export function parameterChanges(events: readonly LoggedEvent<"parameter">[], { names, start }: NamesAt): ParameterChange[] {
+  return events.map(({ time, event: e }) => ({ time, name: names.parameter(e.name, start + time), instance: e.instance, value: e.value }));
 }
 
 export function parameterText(c: ParameterChange): string {
@@ -292,8 +292,8 @@ export interface StateChange {
 }
 
 /** The stateChange events as changes. */
-function stateChanges(events: readonly LoggedEvent<"stateChange">[], names: EventNames): StateChange[] {
-  return events.map(({ time, event: e }) => ({ time, parameter: names.parameter(e.parameter), label: names.parameter(e.label) }));
+function stateChanges(events: readonly LoggedEvent<"stateChange">[], { names, start }: NamesAt): StateChange[] {
+  return events.map(({ time, event: e }) => ({ time, parameter: names.parameter(e.parameter, start + time), label: names.parameter(e.label, start + time) }));
 }
 
 export function stateText(c: StateChange): string {
@@ -343,7 +343,7 @@ export const eventTracks: TrackFactory = (ctx: TrackContext) => {
   const source = ctx.source;
   const log = eventLogFor(source);
   const instances = hoverModule({ id: "events.instances", label: "Event instances", kind: "lanes", height: 48, visible: true }, log, () => {
-    const spans = eventSpans(log.ofKind("eventStart"), log.ofKind("eventStop"), log.initial, eventNames(source));
+    const spans = eventSpans(log.ofKind("eventStart"), log.ofKind("eventStop"), log.initial, namesAt(source));
     const duration = source.duration;
     return {
       data: spans.length ? { lines: instanceLines(spans, log.statusTimes, duration).lines } : undefined,
@@ -351,14 +351,14 @@ export const eventTracks: TrackFactory = (ctx: TrackContext) => {
     };
   });
   const parameters = hoverModule({ id: "events.parameters", label: "Parameters", kind: "ticks", height: 22, visible: true }, log, () => {
-    const changes = parameterChanges(log.ofKind("parameter"), eventNames(source));
+    const changes = parameterChanges(log.ofKind("parameter"), namesAt(source));
     return {
       data: changes.length ? { ticks: Float64Array.from(changes, (c) => c.time), tickColor: "accent2" } : undefined,
       tooltip: (t, tol) => parameterTooltip(changes, t, tol),
     };
   });
   const states = hoverModule({ id: "events.states", label: "State changes", kind: "ticks", height: 22, visible: true }, log, () => {
-    const changes = stateChanges(log.ofKind("stateChange"), eventNames(source));
+    const changes = stateChanges(log.ofKind("stateChange"), namesAt(source));
     return {
       data: changes.length ? { ticks: Float64Array.from(changes, (c) => c.time), tickColor: "accent" } : undefined,
       tooltip: (t, tol) => stateTooltip(changes, t, tol),

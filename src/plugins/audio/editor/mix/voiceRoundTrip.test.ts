@@ -9,7 +9,8 @@ import { createRecorder, type EpochContext } from "../../runtime/capture/recorde
 import { SAMPLE_HEADER, SAMPLE_META, SAMPLE_RATE, keyframeCodecForTests, statusBytes } from "../../runtime/capture/testSupport";
 import { CaptureSource } from "./profilerSource";
 import { inProcessWorker } from "./voiceSceneSupport";
-import { nameLookup, reconstructVoices, voiceTable } from "./voiceTableModel";
+import { captureNames } from "../../runtime/capture/reader";
+import { reconstructVoices, voiceTable } from "./voiceTableModel";
 
 const CONTEXT: EpochContext = { sampleRate: SAMPLE_RATE, limiterLatencyFrames: 64, outputLatencyFrames: 480, timeOffset: 0 };
 const MUSIC = 1;
@@ -57,7 +58,7 @@ describe("voices through the real EventSink, a recorder ring and the reader", ()
       feed(2304);
     }, { [MUSIC]: "Music", [SFX]: "SFX" });
     const state = await source.seek(2304 / SAMPLE_RATE);
-    const replay = reconstructVoices(state, nameLookup(source.summary.names));
+    const replay = reconstructVoices(state, captureNames(source.summary));
     const rows = replay.rows.map((r) => ({ id: r.id, clip: r.clipName, bus: r.busName, slot: r.slot, state: r.state, reason: r.reasonText, thief: r.thief, gain: r.gain }));
     expect(rows.sort((a, b) => a.id - b.id)).toEqual([
       { id: 1, clip: "jump.ogg", bus: "Music", slot: MUSIC, state: "playing", reason: "", thief: null, gain: 0.5 },
@@ -66,8 +67,8 @@ describe("voices through the real EventSink, a recorder ring and the reader", ()
       { id: 5, clip: "jump.ogg", bus: "Music", slot: MUSIC, state: "stolen", reason: "bus max voices", thief: 4, gain: 1 },
       { id: 6, clip: "hit.ogg", bus: "SFX", slot: SFX, state: "playing", reason: "promoted", thief: null, gain: 0.125 },
     ]);
-    // One NAMES record per clip name, none for a bus: a bus is named by its slot from META.
-    expect(source.summary.names.buses).toEqual([[MUSIC, "Music"], [SFX, "SFX"]]);
+    // One NAMES record per clip name, none for a bus: a bus is named by its slot from META (held from the start).
+    expect(source.summary.names.buses).toEqual([[MUSIC, "Music", -Infinity], [SFX, "SFX", -Infinity]]);
     expect(source.summary.names.clips.map(([, n]) => n).sort()).toEqual(["boom.ogg", "hit.ogg", "jump.ogg", "land.ogg", "nope.ogg", "later.ogg", "step.ogg"].sort());
     source.close();
   });
@@ -78,7 +79,7 @@ describe("voices through the real EventSink, a recorder ring and the reader", ()
       s.voiceStart(2, "b.ogg", ref(SFX), 0, 0, 1);
       feed(1536);
     }, { [MUSIC]: "Music", [SFX]: "SFX" });
-    const replay = reconstructVoices(await source.seek(1536 / SAMPLE_RATE), nameLookup(source.summary.names));
+    const replay = reconstructVoices(await source.seek(1536 / SAMPLE_RATE), captureNames(source.summary));
     expect(voiceTable(replay, "music").rows.map((r) => r.id)).toEqual([1]);
     expect(voiceTable(replay, "sfx").rows.map((r) => r.id)).toEqual([2]);
     source.close();
@@ -89,7 +90,7 @@ describe("voices through the real EventSink, a recorder ring and the reader", ()
       s.voiceStart(1, "a.ogg", ref(7), 0, 0, 1);
       feed(1536);
     }, { [MUSIC]: "Music" });
-    const replay = reconstructVoices(await source.seek(1536 / SAMPLE_RATE), nameLookup(source.summary.names));
+    const replay = reconstructVoices(await source.seek(1536 / SAMPLE_RATE), captureNames(source.summary));
     expect(replay.rows.map((r) => r.busName)).toEqual(["bus 7"]);
     source.close();
   });

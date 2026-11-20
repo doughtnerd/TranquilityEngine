@@ -21,7 +21,7 @@ async function open() {
     s.sink.marker("Player hit again");
     s.advance(3);
   });
-  const [markers] = markerTracks({ source, names: { clip: () => undefined, bus: () => undefined, event: () => undefined } }) as [HoverTrackModule];
+  const [markers] = markerTracks({ source }) as [HoverTrackModule];
   await markers.refresh();
   const cursor = new CursorModel({ live: true });
   cursor.setDuration(source.duration);
@@ -63,7 +63,7 @@ describe("markers through the real EventSink", () => {
 
   it("a capture with no markers has no data and no tooltip", async () => {
     const source = await recordScene((s) => s.advance(1));
-    const [m] = markerTracks({ source, names: { clip: () => undefined, bus: () => undefined, event: () => undefined } }) as [HoverTrackModule];
+    const [m] = markerTracks({ source }) as [HoverTrackModule];
     await m.refresh();
     expect([m.data(), m.tooltipAt!(0.5)]).toEqual([undefined, null]);
     source.close();

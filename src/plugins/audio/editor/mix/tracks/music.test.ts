@@ -7,7 +7,7 @@ import { recordScene, viewportTime, type Scene } from "./recordScene";
 
 async function open(script: (s: Scene) => void) {
   const source = await recordScene(script);
-  const tracks = musicTracks({ source, names: { clip: () => undefined, bus: () => undefined, event: () => undefined } }) as HoverTrackModule[];
+  const tracks = musicTracks({ source }) as HoverTrackModule[];
   await Promise.all(tracks.map((t) => t.refresh()));
   const [state, transitions] = tracks as [HoverTrackModule, HoverTrackModule];
   return { source, state, transitions };

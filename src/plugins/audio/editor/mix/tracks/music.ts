@@ -11,8 +11,8 @@
 // and "first segment, from nothing" for the start. The tooltips are `transitionText` and `musicStateTooltip`.
 import type { LineSeries } from "../drawTimeline";
 import {
-  eventLogFor, eventNames, formatSeconds, hoverModule, indicesNear, listText, lowerBound, mergeTimes, MAX_TOOLTIP_LINES,
-  type EventNames, type LoggedEvent,
+  eventLogFor, formatSeconds, hoverModule, indicesNear, listText, lowerBound, mergeTimes, MAX_TOOLTIP_LINES, namesAt,
+  type LoggedEvent, type NamesAt,
 } from "./events";
 import type { TrackContext, TrackFactory } from "./types";
 
@@ -29,12 +29,12 @@ export interface MusicTransition {
 }
 
 /** The musicTransition events as transitions. */
-function musicTransitions(events: readonly LoggedEvent<"musicTransition">[], names: EventNames): MusicTransition[] {
+function musicTransitions(events: readonly LoggedEvent<"musicTransition">[], { names, start }: NamesAt): MusicTransition[] {
   return events.map(({ time, event: e }) => ({
     time,
     instance: e.instance,
-    from: e.from === null ? null : names.event(e.from),
-    to: names.event(e.to),
+    from: e.from === null ? null : names.event(e.from, start + time),
+    to: names.event(e.to, start + time),
   }));
 }
 
@@ -111,14 +111,14 @@ export const musicTracks: TrackFactory = (ctx: TrackContext) => {
   const source = ctx.source;
   const log = eventLogFor(source);
   const state = hoverModule({ id: "music.state", label: "Music state", kind: "lanes", height: 40, visible: true }, log, () => {
-    const segments = musicSegments(musicTransitions(log.ofKind("musicTransition"), eventNames(source)));
+    const segments = musicSegments(musicTransitions(log.ofKind("musicTransition"), namesAt(source)));
     return {
       data: segments.length ? { lines: musicStateLines(segments, log.statusTimes, source.duration) } : undefined,
       tooltip: (t) => musicStateTooltip(segments, t),
     };
   });
   const transitions = hoverModule({ id: "music.transitions", label: "Music transitions", kind: "ticks", height: 22, visible: true }, log, () => {
-    const list = musicTransitions(log.ofKind("musicTransition"), eventNames(source));
+    const list = musicTransitions(log.ofKind("musicTransition"), namesAt(source));
     return {
       data: list.length ? { ticks: Float64Array.from(list, (x) => x.time), tickColor: "accent" } : undefined,
       tooltip: (t, tol) => transitionTooltip(list, t, tol),

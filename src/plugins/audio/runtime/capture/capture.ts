@@ -26,7 +26,7 @@
 // with no other owner the ring stops growing and is read in place.
 import { onAudioSessionReleased } from "../audioSession";
 import type { AudioBackend, AudioRecorderDebug } from "../backend";
-import { audioBackend } from "../backend";
+import { audioBackend, onMixOpSent } from "../backend";
 import { mixer } from "../../../../engine/audio/mixer";
 import { loudnessTarget } from "../mix/loudnessHub";
 import type { EpochContext } from "./events";
@@ -118,6 +118,11 @@ const TABLES: readonly NameTable[] = ["clips", "buses", "events", "parameters", 
 function namesOf(table: CaptureMetaInit["names"][NameTable]): [number, string][] {
   if (!table) return [];
   return [...(table instanceof Map ? table.entries() : Object.entries(table))].map(([id, name]) => [Number(id), name]);
+}
+
+/** ADR 0260: each named slot of the backend's slot table (`Audio.debug().mix.slots`) through `EventSink.busName`, which writes a NAMES record only for a name the slot doesn't hold yet. */
+function writeBusNames(sink: EventSink, backend: AudioBackend): void {
+  for (const s of backend.debug().mix?.slots ?? []) if (s.name !== null && s.state !== "free") sink.busName(s.slot, s.name);
 }
 
 const finiteOr = (x: unknown, fallback: number): number => (typeof x === "number" && Number.isFinite(x) ? x : fallback);
@@ -360,7 +365,10 @@ class Capture implements AudioCapture {
     if (!source) return;
     const nameId = (table: "clips" | "snapshots" | "events", name: string): number => sink.name(table, name);
     const rows = new KeyframeRows(source, backend);
-    rec.setKeyframeSource(() => rows.read(nameId, NO_NAME));
+    rec.setKeyframeSource(() => {
+      writeBusNames(sink, backend); // a slot named since the last keyframe (a deferred add that found its slot) is named before the rows that use it
+      return rows.read(nameId, NO_NAME);
+    });
   }
 
   /** A backend with no STATUS (`mainSideOnly`) is clocked by its audio clock: poll it and report the frames the clock has reached. */
@@ -505,18 +513,27 @@ class Capture implements AudioCapture {
     };
   }
 
-  /** META with the names the event sink interned since the ring began, so a truncated file (whose NAMES records were evicted) still names them. */
+  /**
+   * META with the names the event sink interned since the ring began, so a truncated file (whose NAMES records were evicted)
+   * still names them. META's own names win: a bus slot is named as it was at the take's start, and a later name of that
+   * slot is the NAMES record the file carries from its instant (ADR 0260).
+   */
   private withInterned(meta: CaptureMetaInit): CaptureMetaInit {
     const sink = this.sink;
     if (!sink) return meta;
     const names: CaptureMetaInit["names"] = { ...meta.names };
     TABLES.forEach((table, t) => {
       const merged: Record<number, string> = {};
-      for (const [id, name] of namesOf(meta.names[table])) merged[id] = name;
       for (const [name, id] of sink.interned[t]!) merged[id] = name;
+      for (const [id, name] of namesOf(meta.names[table])) merged[id] = name;
       names[table] = merged;
     });
     return { ...meta, names };
+  }
+
+  /** ADR 0260: the live mix sent an op (a bus added, removed or renamed among them): name the slots it changed now. */
+  busNamesChanged(): void {
+    if (this.sink && this.backend && this.ringState === "recording") writeBusNames(this.sink, this.backend);
   }
 
   private frameOf(backend: AudioBackend): number {
@@ -580,6 +597,9 @@ class Capture implements AudioCapture {
 }
 
 const capture = new Capture();
+
+/** ADR 0260: a bus added, removed or renamed while recording is named in the capture from that instant. */
+onMixOpSent(() => capture.busNamesChanged());
 
 /** `Audio.capture`: only the eight public members; the owners, the seam and the debug view stay behind this file's own exports. */
 export const audioCapture: AudioCapture = {

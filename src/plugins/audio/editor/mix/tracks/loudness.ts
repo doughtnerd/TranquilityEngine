@@ -14,7 +14,7 @@
 //
 // The panel gives the factory the target in force (`audio.loudnessTargets` through `Audio.loudnessTarget`); without one the
 // track has no target line and no marks.
-import { CAPTURE_OUTPUT_SLOT, type CaptureLoudnessMark, type CaptureLoudnessTarget, type CaptureLoudnessValues } from "../../../runtime/capture/reader";
+import { captureNames, type CaptureLoudnessMark, type CaptureLoudnessTarget, type CaptureLoudnessValues } from "../../../runtime/capture/reader";
 import { SUB_BLOCK_SECONDS } from "../../../runtime/mix/loudnessStats";
 import type { LineSeries, TrackData } from "../drawTimeline";
 import { LoudnessSource, canAskLoudness, type LoudnessInfo, type LoudnessSeriesData } from "../loudnessSource";
@@ -104,15 +104,16 @@ class LoudnessTrack implements LoudnessTrackModule {
     data: () => (this.targetNow ? { ticks: Float64Array.from(this.markList.map((m) => m.from)), tickColor: "danger" } : undefined),
     refresh: () => this.refresh(),
     tooltipAt: (t) => {
-      const words = formatMarks(this.markList, t, (slot) => this.busName(slot));
+      const words = formatMarks(this.markList, t, (slot) => this.busName(slot, t));
       return words.length > 0 ? words.join("\n") : null;
     },
   };
 
   constructor(private readonly ctx: TrackContext, private readonly client: LoudnessSource | null, private readonly options: LoudnessTrackOptions) {}
 
-  private busName(slot: number): string {
-    return this.ctx.names.bus(slot) ?? (slot === CAPTURE_OUTPUT_SLOT ? "Master" : `Bus ${slot}`);
+  /** A bus's name at viewport time `t` (the output's slot is "Master", ADR 0260). */
+  private busName(slot: number, t: number): string {
+    return captureNames(this.ctx.source.summary).bus(slot, this.ctx.source.startSeconds + t);
   }
 
   mode(): LoudnessInfo["mode"] | null {
@@ -186,7 +187,7 @@ class LoudnessTrack implements LoudnessTrackModule {
       const c = series.columns;
       const i = lastAtOrBefore(c.time, t);
       if (i < 0) continue;
-      rows.push(formatBusReadout(this.busName(slot), {
+      rows.push(formatBusReadout(this.busName(slot, t), {
         time: c.time[i]!, momentary: c.momentary[i]!, shortTerm: c.shortTerm[i]!, integrated: c.integrated[i]!, lra: c.lra[i]!,
         truePeak: c.truePeak[i]!, peak: c.peak[i]!, incomplete: c.incomplete[i] === 1,
       }));
@@ -195,7 +196,7 @@ class LoudnessTrack implements LoudnessTrackModule {
     const target = this.targetNow;
     if (target) {
       rows.push(`Target${target.name ? ` ${target.name}` : ""}: ${formatLevel(target.integrated)} LUFS +/- ${formatLevel(target.tolerance)} LU, ${formatLevel(target.truePeak)} dBTP`);
-      rows.push(...formatMarks(this.markList, t, (slot) => this.busName(slot)));
+      rows.push(...formatMarks(this.markList, t, (slot) => this.busName(slot, t)));
     }
     return rows.join("\n");
   }

@@ -40,10 +40,7 @@ const NAMES = { Music: MUSIC_SLOT } as const;
 
 async function setup(factory = loudnessTracks()): Promise<{ source: CaptureSource; mod: LoudnessTrackModule }> {
   const source = await CaptureSource.openFile(scene.file.slice().buffer, { worker: inProcessWorker() });
-  const ctx: TrackContext = {
-    source,
-    names: { clip: () => undefined, event: () => undefined, bus: (slot) => (slot === NAMES.Music ? "Music" : slot === LOUD_OUTPUT_TAP ? "Master" : undefined) },
-  };
+  const ctx: TrackContext = { source }; // the capture names slot 1 "Music"; the output's slot reads "Master" (ADR 0260)
   const mods = factory(ctx);
   expect(mods).toHaveLength(2);
   expect(mods[1]!.track.id).toBe(LOUDNESS_MARKS_TRACK_ID);
@@ -167,7 +164,7 @@ describe("the loudness track", () => {
 
   it("a source that cannot be asked gives no data and no throw", async () => {
     const fake = { duration: 1, startSeconds: 0 } as unknown as TrackContext["source"];
-    const [mod] = loudnessTracks()({ source: fake, names: { clip: () => undefined, bus: () => undefined, event: () => undefined } });
+    const [mod] = loudnessTracks()({ source: fake });
     await mod!.refresh();
     expect(mod!.data()).toBeUndefined();
     expect(mod!.tooltipAt?.(0)).toBeNull();

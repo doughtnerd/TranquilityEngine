@@ -10,14 +10,14 @@
 // the state at the cursor itself (one request at a time, a stale answer dropped), and a live view re-asks on each of
 // `LiveFollow`'s coalesced updates (at most one per 66 ms), never per STATUS block.
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
-import type { CaptureSeekState } from "../../runtime/capture/reader";
+import { captureNames, type CaptureSeekState } from "../../runtime/capture/reader";
 import type { TablesSlotProps } from "./ProfilerPanel";
 import type { ProfileSource } from "./profilerSource";
 import { BusTable, busTableData, type BusTableData } from "./BusTable";
 import { VoiceTable, voiceTableData, type VoiceTableData } from "./VoiceTable";
 import { WindowedGridView, useGridState, type GridColumn } from "./WindowedGrid";
 import { busParents, busTableRows, musicRows, tableEmptyText, type MusicRow, type TableEmptyInput } from "./profilerTablesModel";
-import { eventRows, nameLookup, reconstructVoices, type EventRow } from "./voiceTableModel";
+import { eventRows, reconstructVoices, type EventRow } from "./voiceTableModel";
 
 const EVENT_COLUMNS: readonly GridColumn[] = [
   { key: "id", title: "Instance", width: "64px", align: "end" },
@@ -63,7 +63,7 @@ function rowsData<T>(kind: "events" | "music", rows: readonly T[] | null, unfilt
 
 /** The four tables at `seek` (null before a seek answered: each shows its "place the cursor" text), filtered by name. */
 function profilerTablesData(source: Pick<ProfileSource, "summary" | "truncated">, seek: CaptureSeekState | null, filter: string, playing = false): ProfilerTablesData {
-  const names = nameLookup(source.summary.names);
+  const names = captureNames(source.summary);
   const ctx = { playing, truncated: source.truncated, beforeFirstKeyframe: seek !== null && seek.keyframe === null };
   const voices = voiceTableData(seek ? reconstructVoices(seek, names) : null, filter, { playing, truncated: ctx.truncated });
   let buses: BusTableData;
@@ -74,14 +74,13 @@ function profilerTablesData(source: Pick<ProfileSource, "summary" | "truncated">
     events = rowsData("events", null, 0, filter, ctx, "", "");
     music = rowsData("music", null, 0, filter, ctx, "", "");
   } else {
-    const parents = busParents(source.summary.meta.audio, source.summary.names.buses);
-    const busRows = busTableRows(seek.keyframe, names, parents, filter);
+    const parents = busParents(source.summary.meta.audio, names, seek.seconds);
+    const busRows = busTableRows(seek.keyframe, names, seek.seconds, parents, filter);
     buses = busTableData(busRows, seek.keyframe ? seek.keyframe.buses.length : 0, filter, ctx);
     const eventsAll = eventRows(seek, names, "");
     events = rowsData("events", eventRows(seek, names, filter), eventsAll.length, filter, ctx, "event instance", "event instances");
-    const eventName = (id: number): string | undefined => names.event(id);
-    const musicAll = musicRows(seek, eventName, "");
-    music = rowsData("music", musicRows(seek, eventName, filter), musicAll.length, filter, ctx, "music instance", "music instances");
+    const musicAll = musicRows(seek, names, "");
+    music = rowsData("music", musicRows(seek, names, filter), musicAll.length, filter, ctx, "music instance", "music instances");
   }
   return { voices, buses, events, music };
 }

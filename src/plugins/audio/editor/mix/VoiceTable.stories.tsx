@@ -8,7 +8,9 @@ import type { CaptureKeyframe, CaptureKeyframeVoice, CaptureSeekState } from "..
 import { SAMPLE_RATE } from "../../runtime/capture/testSupport";
 import { MAX_RENDERED_ROWS, ROW_HEIGHT, VIEWPORT_ROWS, windowRows } from "./gridWindow";
 import { VoiceTable, voiceTableData, type VoiceTableData } from "./VoiceTable";
-import { nameLookup, reconstructVoices } from "./voiceTableModel";
+import { captureNames } from "../../runtime/capture/reader";
+import { namesFromStart } from "../../runtime/capture/testSupport";
+import { reconstructVoices } from "./voiceTableModel";
 import { openScene } from "./voiceSceneSupport";
 
 const EMPTY_MIX = { slotTableVersion: 1, monitorActive: false, targetIndex: 0, snapshot: null, masterVolume: 1, hiddenMute: false };
@@ -16,9 +18,9 @@ const keyframe = (over: Partial<CaptureKeyframe> = {}): CaptureKeyframe => ({ vo
 const seekState = (kf: CaptureKeyframe | null): CaptureSeekState =>
   ({ seconds: 0, keyframeSeq: kf ? 1 : -1, keyframe: kf, status: null, records: [], recordsScanned: 0 }) as unknown as CaptureSeekState;
 const voice = (id: number, over: Partial<CaptureKeyframeVoice> = {}): CaptureKeyframeVoice => ({
-  id, clip: 1 + (id % 3), slot: id % 3, state: "playing", priority: id % 5, reason: 0, gain: 0.5, pitch: 1, audibility: (65535 - id * 8) / 65536, playheadFrames: id * 10, ...over,
+  id, clip: 1 + (id % 3), slot: id % 3, state: "playing", priority: id % 5, reason: null, gain: 0.5, pitch: 1, audibility: (65535 - id * 8) / 65536, playheadFrames: id * 10, ...over,
 });
-const NAMES = nameLookup({ clips: new Map([[1, "jump.ogg"], [2, "Land.ogg"], [3, "footstep.ogg"]]), buses: new Map([[0, "Master"], [1, "Music"], [2, "SFX"]]), events: new Map(), parameters: new Map(), snapshots: new Map(), targets: new Map() } as never);
+const NAMES = namesFromStart({ clips: [[1, "jump.ogg"], [2, "Land.ogg"], [3, "footstep.ogg"]], buses: [[0, "Master"], [1, "Music"], [2, "SFX"]] });
 const CTX = { playing: false, truncated: false };
 const voiceData = (state: CaptureSeekState, filter = ""): VoiceTableData => voiceTableData(reconstructVoices(state, NAMES), filter, CTX);
 const thousand = () => voiceData(seekState(keyframe({ voices: Array.from({ length: 1024 }, (_, i) => voice(i + 1)) })));
@@ -165,7 +167,7 @@ export const RecordedScene: Story = {
     async () => {
       const s = await openScene();
       const state = await s.seek(45_000 / SAMPLE_RATE); // voice 1 stolen by 3 at frame 40,000 (reason 3, priority)
-      const data = voiceTableData(reconstructVoices(state, nameLookup(s.summary.names)), "", CTX);
+      const data = voiceTableData(reconstructVoices(state, captureNames(s.summary)), "", CTX);
       s.close();
       return { data };
     },

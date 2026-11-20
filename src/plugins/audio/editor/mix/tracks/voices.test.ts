@@ -5,7 +5,8 @@ import { describe, expect, it } from "vitest";
 import { RecordType, assembleCapture } from "../../../runtime/capture/format";
 import { SAMPLE_HEADER, SAMPLE_META, SAMPLE_RATE } from "../../../runtime/capture/testSupport";
 import { CaptureSource } from "../profilerSource";
-import { nameLookup, reconstructVoices } from "../voiceTableModel";
+import { captureNames } from "../../../runtime/capture/reader";
+import { reconstructVoices } from "../voiceTableModel";
 import { KEYFRAME_FRAMES, inProcessWorker, openScene, truthAt } from "../voiceSceneSupport";
 import { voicesTracks } from "./voices";
 import type { TrackContext } from "./types";
@@ -24,7 +25,7 @@ function statusAt(_block: number, frame: number) {
 
 async function open() {
   const source = await openScene(statusAt);
-  const ctx: TrackContext = { source, names: nameLookup(source.summary.names) };
+  const ctx: TrackContext = { source };
   const [mod] = voicesTracks(ctx);
   await mod!.refresh();
   return { source, ctx, mod: mod! };
@@ -54,7 +55,7 @@ describe("the voices track", () => {
     let checked = 0;
     for (const kf of KEYFRAME_FRAMES) {
       const state = await source.seek(seconds(kf) + source.startSeconds);
-      const replay = reconstructVoices(state, ctx.names);
+      const replay = reconstructVoices(state, captureNames(ctx.source.summary));
       expect(replay.fromKeyframe).toBe(true);
       const byState = (rows: readonly { state: string }[], s: string): number => rows.filter((r) => r.state === s).length;
       const keyRows = state.keyframe!.voices;
@@ -84,7 +85,7 @@ describe("the voices track", () => {
   it("clamps virtual at 0 when more are mixed than live, and has no counts before the first STATUS", async () => {
     // The first half of the scene mixes more voices than it tracks; the second half has four virtual.
     const source = await openScene((block) => (block < 100 ? { mixedVoices: 3, liveVoices: 2, mixedCap: 8 } : { mixedVoices: 1, liveVoices: 5, mixedCap: 8, hrtfVoices: 1 }));
-    const [mod] = voicesTracks({ source, names: nameLookup(source.summary.names) });
+    const [mod] = voicesTracks({ source });
     await mod!.refresh();
     expect(mod!.tooltipAt!(-0.5)).toBeNull();
     expect(mod!.tooltipAt!(0.5)).toBe("playing 3, virtual 0, cap 8, HRTF 0, bed 0 (2 live)");
@@ -96,7 +97,7 @@ describe("the voices track", () => {
     const meta = { ...SAMPLE_META };
     const bytes = assembleCapture(SAMPLE_HEADER, meta, [{ seq: 1, type: RecordType.EPOCH, epoch: 0, frame: 0, payload: { reason: 0, sampleRate: SAMPLE_RATE, limiterLatencyFrames: 64, outputLatencyFrames: 480, timeOffset: 0, perfMs: 1000 } }], { index: true });
     const source = await CaptureSource.openFile(bytes.slice().buffer, { worker: inProcessWorker() });
-    const [mod] = voicesTracks({ source, names: nameLookup(source.summary.names) });
+    const [mod] = voicesTracks({ source });
     await mod!.refresh();
     expect(mod!.data()).toBeUndefined();
     expect(mod!.tooltipAt!(0)).toBeNull();

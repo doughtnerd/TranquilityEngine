@@ -31,7 +31,6 @@ import { CaptureSource, type ProfileSource } from "./profilerSource";
 import { profilerFlow } from "./openSaveFlow";
 import { TrackList } from "./timelineModel";
 import type { TrackFactory, TrackModule } from "./tracks/types";
-import { nameLookup } from "./voiceTableModel";
 import "./profilerPanel.css";
 
 // ---- banners (pure) -------------------------------------------------------------------------------------------------
@@ -371,7 +370,7 @@ export class ProfilerController {
 
   private attach(source: ProfileSource | null, origin: "none" | "file" | "live", extra: Partial<ProfilerView> = {}): void {
     const prevFile = this.fileSource;
-    const modules = source ? this.deps.trackFactories.flatMap((f) => f({ source, names: nameLookup(source.summary.names) })) : [];
+    const modules = source ? this.deps.trackFactories.flatMap((f) => f({ source })) : [];
     const tracks = new TrackList(modules.map((m) => m.track)); // throws on a duplicate id, before anything changed
     if (origin === "file") {
       if (prevFile && prevFile !== source) prevFile.close();

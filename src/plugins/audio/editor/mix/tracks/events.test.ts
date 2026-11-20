@@ -4,15 +4,12 @@
 import { describe, expect, it } from "vitest";
 import { EMPTY_KEYFRAME_PAYLOAD as EMPTY_KEYFRAME } from "../../../runtime/capture/testSupport";
 import { SAMPLE_RATE } from "../../../runtime/capture/testSupport";
-import type { CaptureSource } from "../profilerSource";
-import { MAX_TOOLTIP_LINES, eventLogFor, eventTracks, formatSeconds, formatValue, parameterChanges, eventNames, type HoverTrackModule } from "./events";
+import { MAX_TOOLTIP_LINES, eventLogFor, eventTracks, formatSeconds, formatValue, namesAt, parameterChanges, type HoverTrackModule } from "./events";
 import { recordScene, viewportTime, type Scene } from "./recordScene";
-
-const names = (s: CaptureSource) => ({ clip: () => undefined, bus: () => undefined, event: () => undefined, source: s });
 
 async function open(script: (scene: Scene) => void, opts?: Parameters<typeof recordScene>[1]) {
   const source = await recordScene(script, opts);
-  const tracks = eventTracks({ source, names: names(source) }) as HoverTrackModule[];
+  const tracks = eventTracks({ source }) as HoverTrackModule[];
   await Promise.all(tracks.map((t) => t.refresh()));
   const [instances, parameters, states] = tracks as [HoverTrackModule, HoverTrackModule, HoverTrackModule];
   return { source, instances, parameters, states, log: eventLogFor(source) };
@@ -85,7 +82,7 @@ describe("event instance spans, parameters and state changes through the real Ev
     expect(instances.tooltipAt!(tIn)).toContain("Ambience #2  ");
     expect(instances.tooltipAt!(tIn)).toContain("still running");
 
-    const changes = parameterChanges(log.ofKind("parameter"), eventNames(source));
+    const changes = parameterChanges(log.ofKind("parameter"), namesAt(source));
     expect(changes.map((c) => [c.name, c.instance, formatValue(c.value)])).toEqual([["intensity", null, "0.3"], ["pitch", 2, "1.25"]]);
     const tp = viewportTime(source, marks.explosionStart!);
     parameters.tolerance = 0.005;

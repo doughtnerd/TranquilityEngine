@@ -310,8 +310,8 @@ describe("a seek answers the KEYFRAME by name (ADR 0227's follow-up)", () => {
     const named = { authored: lane(0.5, 0.25), runtime: lane(1, 0.75), snapshot: lane(0.125, 0.125), monitor: lane(1, 1), dip: lane(0.5, 1) };
     expect(kf).toEqual({
       voices: [
-        { id: 7, clip: 3, slot: 2, state: "virtual", priority: 90, reason: 2, gain: 0.5, pitch: 2, audibility: 0.75, playheadFrames: 480 },
-        { id: 8, clip: 4, slot: 1, state: "locked", priority: 10, reason: 0, gain: 1, pitch: 0.5, audibility: 0, playheadFrames: 0 },
+        { id: 7, clip: 3, slot: 2, state: "virtual", priority: 90, reason: "belowAudibility", gain: 0.5, pitch: 2, audibility: 0.75, playheadFrames: 480 },
+        { id: 8, clip: 4, slot: 1, state: "locked", priority: 10, reason: null, gain: 1, pitch: 0.5, audibility: 0, playheadFrames: 0 },
       ],
       buses: [
         { slot: 1, gen: 3, lanes: named, duck: 0.5, automation: 0.25, authoredMute: false, runtimeMute: true, monitorMute: false, monitorSolo: true, tombstone: false, metered: true },

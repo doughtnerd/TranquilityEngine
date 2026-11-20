@@ -15,6 +15,7 @@ import {
   KEYFRAME_MAX_MUSIC, KEYFRAME_MAX_VOICES, KEYFRAME_METERED_FLAGS_KNOWN, KEYFRAME_MUSIC_STATES, KEYFRAME_PITCH_ONE, KEYFRAME_VOICE_STATES,
   KEYFRAME_VOICE_STATE_MAX, KeyframeBusFlag, KeyframeMeteredFlag, NO_NAME, type CaptureMusicState, type CaptureVoiceState,
 } from "./keyframeLayout";
+import { voiceRowReason, type CaptureVoiceReason } from "./reasons";
 import { Kind, MAGIC, QUANTUM_FRAMES, SCHEMA_HASH, STATUS_BUFFER_BYTES, STATUS_EVERY_QUANTA, STATUS_HEADER_BYTES, STATUS_HEADER_COLUMNS, VERSION_MAJOR, VERSION_MINOR } from "../wire.generated";
 export {
   KEYFRAME_AUDIBILITY_ONE, KEYFRAME_BUS_LANES, KEYFRAME_MAX_BUSES, KEYFRAME_MAX_EVENTS, KEYFRAME_MAX_METERED,
@@ -1142,8 +1143,8 @@ export interface CaptureKeyframeVoice {
   slot: number;
   state: CaptureVoiceState;
   priority: number;
-  /** §5.6's code for the state (0 none), as EVENT `reason`s carry it. */
-  reason: number;
+  /** Why the voice is in its state, as the sink's word (`reasons.ts`, ADR 0260); null for none. */
+  reason: CaptureVoiceReason | null;
   gain: number;
   /** Playback rate (1 is the clip's own). */
   pitch: number;
@@ -1248,7 +1249,8 @@ export function readKeyframeMetered(m: KeyframeMetered): CaptureKeyframeMetered 
 export function readCaptureKeyframe(p: KeyframePayload): CaptureKeyframe {
   return {
     voices: p.voices.map((v) => ({
-      id: v.id, clip: v.clip, slot: v.slot, state: KEYFRAME_VOICE_STATES[v.state]!, priority: v.priority, reason: v.reason, gain: v.gain,
+      id: v.id, clip: v.clip, slot: v.slot, state: KEYFRAME_VOICE_STATES[v.state]!, priority: v.priority,
+      reason: voiceRowReason(KEYFRAME_VOICE_STATES[v.state]!, v.reason), gain: v.gain,
       pitch: v.pitch / KEYFRAME_PITCH_ONE, audibility: v.audibility / KEYFRAME_AUDIBILITY_ONE, playheadFrames: v.playheadFrames,
     })),
     buses: p.buses.map((b) => ({

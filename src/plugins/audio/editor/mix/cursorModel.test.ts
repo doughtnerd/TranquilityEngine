@@ -7,7 +7,8 @@ import { SAMPLE_RATE } from "../../runtime/capture/testSupport";
 import { CURSOR_COLUMNS, CursorModel, cursorTargets, seekAtCursor, type CursorTargets } from "./cursorModel";
 import { statusColumns, type ProfileSource } from "./profilerSource";
 import { FRAMES, openScene, truthAt } from "./voiceSceneSupport";
-import { nameLookup, reconstructVoices } from "./voiceTableModel";
+import { captureNames } from "../../runtime/capture/reader";
+import { reconstructVoices } from "./voiceTableModel";
 
 /** Counters by block (1-based): underruns rise at blocks 40 and 90 (by 2), late commands at 60, the ladder at 80 (up), 100 (up), 150 (down). */
 const status = (i: number) => ({
@@ -322,7 +323,7 @@ describe("the table at the cursor", () => {
     const got = await seekAtCursor(source, c);
     expect(got).not.toBeNull();
     expect(got!.state.status!.currentFrame).toBe(81 * FRAMES);
-    const rows = reconstructVoices(got!.state, nameLookup(source.summary.names)).rows.map((r) => r.id).sort();
+    const rows = reconstructVoices(got!.state, captureNames(source.summary)).rows.map((r) => r.id).sort();
     expect(rows).toEqual(truthAt(81 * FRAMES).map((v) => v.id));
     source.close();
   });
