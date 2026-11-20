@@ -1,6 +1,5 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { identityLut, lutStripRGBA8, parseCubeLut } from "../render/lut";
-import { Assets } from "../scene/Assets";
 
 const identity2 = `# a comment
 TITLE "Neutral"
@@ -64,23 +63,5 @@ describe("LUT strips", () => {
     lut.data[1] = -1;
     lut.data[2] = 0.5;
     expect(Array.from(lutStripRGBA8(lut).pixels.slice(0, 4))).toEqual([255, 0, 128, 255]);
-  });
-});
-
-describe("assets", () => {
-  afterEach(() => {
-    Assets.clearSources();
-    vi.unstubAllGlobals();
-  });
-
-  // `.cube` as the Colour LUT kind is the Post-processing plugin's editor half (ADR 0140): src/plugins/renderPluginsEditor.test.ts.
-
-  it("Assets.text fetches once and caches", async () => {
-    const fetchMock = vi.fn(async () => new Response(identity2));
-    vi.stubGlobal("fetch", fetchMock);
-    Assets.addSource(Assets.fromObject({ "grade/id.cube": "blob:x" }));
-    expect(await Assets.text("asset:grade/id.cube")).toBe(identity2);
-    expect(await Assets.text("grade/id.cube")).toBe(identity2);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

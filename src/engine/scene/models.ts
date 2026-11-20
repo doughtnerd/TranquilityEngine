@@ -562,10 +562,10 @@ export const MODEL_SPACE_SUFFIX = "#model";
 const nodeSpace = new WeakMap<ModelMesh, ModelMesh>();
 
 /**
- * @internal A model-space mesh in its node's space (ADR 0118): its vertices through the inverse of its
+ * A model-space mesh in its node's space (ADR 0118): its vertices through the inverse of its
  * pose, made once per mesh. The mesh itself when its pose is the identity.
  */
-export function nodeSpaceMesh(mesh: ModelMesh): ModelMesh {
+function nodeSpaceMesh(mesh: ModelMesh): ModelMesh {
   const pose = mesh.pose;
   if (!pose || isIdentityPose(pose)) return mesh;
   let out = nodeSpace.get(mesh);
@@ -1099,17 +1099,6 @@ export function meshTriangles(mesh: ModelMesh): { vertices: Float32Array; indice
   return { vertices: Float32Array.from(mesh.data.positions), indices: Uint32Array.from(mesh.data.indices) };
 }
 
-/** @internal The material slots (ADR 0089) of what a mesh reference draws, if loaded (starting the load if not), else null. */
-export function materialSlotsIfLoaded(ref: string): MaterialSlot[] | null {
-  const meshes = meshesIfLoaded(ref);
-  return meshes ? materialSlots(meshes) : null;
-}
-
-/** @internal The names of a model's meshes if it has loaded (starting the load if not), else null. */
-export function meshNamesIfLoaded(path: string): string[] | null {
-  return meshesIfLoaded(splitSpriteRef(normalizeAssetPath(path)).path)?.map((m) => m.name) ?? null;
-}
-
 /**
  * @internal What the editor's drop builds from a loaded model (ADR 0088, 0118): its meshes with their
  * node paths and poses, the group nodes, lights and cameras, and the import settings' pivot mode. Null while it loads.
@@ -1120,9 +1109,4 @@ export function modelTreeIfLoaded(path: string): { pivots: ImportSettings["pivot
   const data = cache.get(p)?.data;
   if (!data) return null;
   return { pivots: Assets.importSettings(p).pivots, meshes: data.meshes.map((m) => ({ name: m.name, path: m.path ?? [], pose: m.pose })), nodes: data.nodes ?? [] };
-}
-
-/** @internal Each mesh's name and the names of the nodes above it in the file (ADR 0088), if the model has loaded (starting the load if not), else null. */
-export function meshTreeIfLoaded(path: string): { name: string; path: readonly string[] }[] | null {
-  return meshesIfLoaded(splitSpriteRef(normalizeAssetPath(path)).path)?.map((m) => ({ name: m.name, path: m.path ?? [] })) ?? null;
 }

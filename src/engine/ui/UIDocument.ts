@@ -16,6 +16,7 @@ import { AssetRef, component, field, type FieldInfo } from "../core/registry";
 import { defineBuiltinSystem } from "../core/systems";
 import type { World } from "../core/World";
 import { Assets, normalizeAssetPath } from "../scene/Assets";
+import { projectFileKind } from "../scene/projectFiles";
 import type { GameObject } from "../scene/GameObject";
 import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UIComponentType } from "./components";
 import type { BindingPart, MarkupElement, ResolvedValue, Selector, SourceProblem, StyleTarget, UIPseudo, UIStylesheet, UITag } from "./document/types";
@@ -601,9 +602,8 @@ export class UIDocument extends Component {
         if (!this.sources.has(p)) this.sources.set(p, undefined); // rebuilt once the file appears
         return null;
       }
-      const v = Assets.get(p);
-      this.sources.set(p, v);
-      return typeof v === "string" ? v : null;
+      this.sources.set(p, Assets.get(p));
+      return projectFileKind(p) === "text" ? Assets.text(p) : null;
     };
     if (path) {
       const text = read(path);

@@ -17,6 +17,7 @@
  * - how an image's import settings sample it (ADR 0040) and how each use of a texture decodes it.
  */
 import { Assets, normalizeAssetPath, sidecarValue } from "../scene/Assets";
+import { projectFileKind } from "../scene/projectFiles";
 import { splitSpriteRef, type ImportSettings } from "../scene/importSettings";
 import { colorHex, defaultMaterialSettings, materialGraphOfJson, parseMaterial, type MaterialInstancing, type MaterialSettings } from "../scene/material";
 import { isShaderAssetPath, parseShaderAsset } from "../scene/shaderAsset";
@@ -42,8 +43,7 @@ export type AssetRead = (path: string) => unknown;
 export const readAsset: AssetRead = (p) => {
   try {
     if (!Assets.has(p)) return undefined;
-    const v = Assets.get(p);
-    return typeof v === "string" ? v : Assets.json(p);
+    return projectFileKind(p) === "text" ? Assets.text(p) : Assets.json(p);
   } catch {
     return undefined;
   }

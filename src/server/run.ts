@@ -6,12 +6,13 @@
 import "./websocketServer"; // registers the Node "websocket" transport, which can listen
 import { type Bootstrap, type Engine, type BootstrapConfig, type BootstrapEngine, type LinkConfig, type WorldConfig, type WorldHandle } from "../engine";
 import { BootstrapError, assertValidBootstrap } from "../engine/core/bootstrap";
+import { bootstrapTopology, isServerConfig } from "../engine/core/bootstrapTopology";
 import { DEFAULT_WORLD_TAGS } from "../engine/core/worlds";
 import type { World } from "../engine/core/World";
 import { launchGame, type LaunchedGame } from "../engine/launch";
-import { listenWorld, netSession, setDefaultListenOptions, type NetPeer } from "../engine/net/session";
+import { listenTarget, type ListenTarget } from "../engine/net/listenTarget";
+import { listenWorld, netSession, setListenDefaults, type NetPeer } from "../engine/net/session";
 import { loadProjectCode, readProject, scriptExports, ServerError, type ServerProject } from "./project";
-import { parseListenAddress } from "./websocketServer";
 import { activateGamePlugins } from "../plugins/runtime";
 
 export { ServerError } from "./project";
@@ -122,7 +123,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   }
   // ADR 0067: Worlds created at runtime (a lobby's matches) that listen without a port share the
   // first server World's port (`--port`, its real one if that was 0), by path.
-  if (listeners.length > 0) setDefaultListenOptions("websocket", { port: listeners[0].port, ...(options.host ? { host: options.host } : {}) });
+  if (listeners.length > 0) setListenDefaults(engine, "websocket", { port: listeners[0].port, ...(options.host ? { host: options.host } : {}) });
 
   const rates = engine.worlds().map((w) => 1 / engine._world(w.name)!.time.fixedDeltaTime);
   const tickRate = options.tickRate ?? Math.max(...rates);
@@ -143,7 +144,6 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     close() {
       return (closing ??= (async () => {
         loop.stop();
-        setDefaultListenOptions("websocket", null);
         shutDown();
         log("[server] Stopped.");
       })());
@@ -168,12 +168,11 @@ interface ServerPlan {
 }
 
 /**
- * The project's bootstrap cut down to its server Worlds. A declarative one keeps the Worlds
- * tagged "server", the links between them, and every template (created later by name); links from
- * other Worlds to a server World say where it listens. A bootstrap with no server Worlds whose
- * templates include server-tagged ones (Unity's frontend pattern: a Host button creates the server
- * World at runtime) runs those templates, each as a World named as `Engine.createWorld` would name
- * it (its `name`, else its key). Links to server templates not created at start are kept for when
+ * The project's bootstrap cut down to its server Worlds. A declarative one keeps the Worlds its
+ * bootstrap topology (ADR 0256) says a dedicated server starts (the start-up servers, else the
+ * lobbies, else the Host template, named as `Engine.createWorld` would name it), the links between
+ * server Worlds, and every template (created later by name); links from other Worlds to a server
+ * World say where it listens, and links to server templates not created at start are kept for when
  * game code creates them (ADR 0062). A code bootstrap
  * runs against an Engine whose `createWorld` skips Worlds not tagged "server", returning an inert
  * handle whose `connect` records the link instead.
@@ -193,27 +192,17 @@ async function serverBootstrap(project: ServerProject): Promise<ServerPlan> {
     if (err instanceof BootstrapError) throw new ServerError(`The project's bootstrap is invalid:\n${err.problems.map((p) => `  - ${p}`).join("\n")}`);
     throw err;
   }
-  const isServer = (w: Omit<WorldConfig, "name">) => (w.tags ?? DEFAULT_WORLD_TAGS).includes("server");
-  let worlds = setting.worlds.filter(isServer);
-  const skipped = setting.worlds.filter((w) => !isServer(w)).map((w) => w.name);
-  if (worlds.length === 0) {
-    const templates = Object.entries(setting.templates ?? {}).filter(([, t]) => isServer(t));
-    // A lobby (ADR 0068) creates its match Worlds from their templates when rooms start: run only the lobby.
-    const lobbies = templates.filter(([, t]) => t.lobby);
-    worlds = (lobbies.length > 0 ? lobbies : templates).map(([key, t]) => ({ ...t, name: t.name ?? key }));
+  // The bootstrap topology (ADR 0256) says which Worlds the server starts and where they listen; play mode reads the same.
+  const topology = bootstrapTopology(setting)!;
+  if (topology.serverStart.length === 0) {
+    throw new ServerError(`The project's bootstrap has no Worlds or templates tagged "server" (it has ${topology.skipped.map((n) => `"${n}"`).join(", ")}); there's nothing for a dedicated server to run.`);
   }
-  if (worlds.length === 0) {
-    throw new ServerError(`The project's bootstrap has no Worlds or templates tagged "server" (it has ${skipped.map((n) => `"${n}"`).join(", ")}); there's nothing for a dedicated server to run.`);
-  }
-  const kept = new Set(worlds.map((w) => w.name));
-  const links = setting.links ?? [];
-  const serverTemplates = new Set(Object.entries(setting.templates ?? {}).filter(([, t]) => isServer(t)).map(([key, t]) => t.name ?? key));
   return {
     // Links between server Worlds (start-up or spawnable) apply in the server's Engine as they would anywhere.
-    bootstrap: { worlds, links: links.filter((l) => (kept.has(l.from) || serverTemplates.has(l.from)) && (kept.has(l.to) || serverTemplates.has(l.to))), ...(setting.templates ? { templates: setting.templates } : {}) },
-    links: links.filter((l) => !kept.has(l.from) && kept.has(l.to)),
-    spawnLinks: links.filter((l) => !kept.has(l.from) && !serverTemplates.has(l.from) && !kept.has(l.to) && serverTemplates.has(l.to)),
-    skipped,
+    bootstrap: { worlds: [...topology.serverStart], links: [...topology.serverLinks], ...(setting.templates ? { templates: setting.templates } : {}) },
+    links: topology.listenLinks,
+    spawnLinks: topology.spawnLinks,
+    skipped: topology.skipped,
   };
 }
 
@@ -234,7 +223,7 @@ async function codeBootstrap(path: string): Promise<ServerPlan> {
       settings: engine.settings,
       findWorld: (name) => engine.findWorld(name) ?? stubs.get(name) ?? null,
       createWorld(config) {
-        if (typeof config === "string" || (config.tags ?? DEFAULT_WORLD_TAGS).includes("server")) return engine.createWorld(config);
+        if (typeof config === "string" || isServerConfig(config)) return engine.createWorld(config);
         skipped.push(config.name);
         const stub = skippedWorld(config, links);
         stubs.set(config.name, stub);
@@ -272,40 +261,30 @@ function skippedWorld(config: WorldConfig, links: LinkConfig[]): WorldHandle {
 }
 
 /**
- * The options to listen with for a server World: its link's (minus the client-only `url`), with
- * the address built from the link's `address`, `port` or `url` port, overridden by `--host` (every
- * World) and `--port` (the first). Null if there's no address for it.
+ * The options to listen with for a server World: its link's, with the address from its listen
+ * target (ADR 0255: the link's `address`, else its `port`, `host` and `path`, else its `url`'s port
+ * and path), under `--host` (every World) and `--port` (the first, which also falls back to
+ * `DEFAULT_PORT`). Null if there's no port for it.
  */
 function listenOptions(world: string, link: LinkConfig | undefined, first: boolean, cli: ServerOptions): { options: Record<string, unknown>; port: number; host?: string } | null {
-  const { url: _url, port: _port, address: _address, ...rest } = link?.options ?? {};
-  // Another transport's address (a loopback name) means nothing to a WebSocket server.
-  const linked = link?.transport === "websocket" ? linkAddress(world, link) : {};
-  const port = first && cli.port !== undefined ? cli.port : (linked.port ?? (first ? DEFAULT_PORT : undefined));
-  if (port === undefined) return null;
-  if (!(Number.isInteger(port) && port >= 0 && port <= 65535)) throw new ServerError(`World "${world}": ${port} isn't a port (0 to 65535).`);
-  const host = cli.host ?? linked.host;
-  const path = linked.path ?? "/";
-  // No host: every interface (ws binds "::", which takes IPv4 too). A path needs a URL, and so a host.
-  const address = host ? `ws://${host.includes(":") ? `[${host}]` : host}:${port}${path}` : path === "/" ? String(port) : `ws://0.0.0.0:${port}${path}`;
-  const options: Record<string, unknown> = { ...rest, address };
-  if (cli.maxConnections !== undefined) options.maxConnections = cli.maxConnections;
-  return { options, port, host };
-}
-
-/** Where a link says its server listens: `address`, else `port`, else the port and path of its `url`. */
-function linkAddress(world: string, link: LinkConfig | undefined): { host?: string; port?: number; path?: string } {
-  const o = link?.options ?? {};
+  // Another transport's options (a loopback name) mean nothing to a WebSocket server.
+  const linked = link?.transport === "websocket" ? (link.options ?? {}) : {};
+  let target: ListenTarget | null;
   try {
-    if (typeof o.address === "string" && o.address !== "") return parseListenAddress(o.address);
-    if (typeof o.port === "number" || typeof o.port === "string") return parseListenAddress(o.port);
-    if (typeof o.url === "string") {
-      const { port, path } = parseListenAddress(o.url);
-      return { port, path };
-    }
+    target = listenTarget("websocket", linked, {
+      overrides: { host: cli.host, port: first ? cli.port : undefined },
+      defaults: first ? { port: DEFAULT_PORT } : undefined,
+    });
   } catch (err) {
     throw new ServerError(`World "${world}": the link from "${link!.from}" has a bad address. ${(err as Error).message}`);
   }
-  return {};
+  if (!target) return null;
+  const port = target.port as number;
+  if (!(Number.isInteger(port) && port >= 0 && port <= 65535)) throw new ServerError(`World "${world}": ${port} isn't a port (0 to 65535).`);
+  const { url: _url, ...rest } = link?.options ?? {}; // a client's address, not the server's to report
+  const options: Record<string, unknown> = { ...rest, address: target.address };
+  if (cli.maxConnections !== undefined) options.maxConnections = cli.maxConnections;
+  return { options, port, host: target.host };
 }
 
 // --- the loop -----------------------------------------------------------------------------------

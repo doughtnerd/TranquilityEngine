@@ -13,6 +13,7 @@ import {
   setLinkOption,
   linkableNames,
   lobbyLinks,
+  serverRoles,
   mentions,
   modelProblems,
   modelToConfig,
@@ -241,6 +242,20 @@ describe("lobby links (ADR 0068)", () => {
     const arena = readBootstrap({ worlds: [{ name: "Client", tags: ["client"] }], templates: { Server: { tags: ["server"] } }, links: [{ from: "Client", to: "Server", transport: "loopback" }] });
     if (arena.kind !== "graph") throw new Error("expected a graph");
     expect(lobbyLinks(arena.model)).toEqual([]);
+  });
+});
+
+describe("server roles (ADR 0256)", () => {
+  it("badge the Host template and the other Worlds a dedicated server starts, from the bootstrap topology", () => {
+    const host = readBootstrap({ worlds: [{ name: "Client", tags: ["client"] }], templates: { Coop: { tags: ["server"] }, Versus: { tags: ["server"] } } });
+    if (host.kind !== "graph") throw new Error("expected a graph");
+    const roles = serverRoles(host.model);
+    expect(roles.worlds).toEqual([null]);
+    expect(roles.templates.map((r) => r?.label ?? null)).toEqual(["Host", null]);
+    const started = readBootstrap({ worlds: [{ name: "Client", tags: ["client"] }, { name: "Server", tags: ["server"] }], templates: { Match: { tags: ["server"] } } });
+    if (started.kind !== "graph") throw new Error("expected a graph");
+    expect(serverRoles(started.model).worlds.map((r) => r?.label ?? null)).toEqual([null, "on server"]);
+    expect(serverRoles(started.model).templates).toEqual([null]);
   });
 });
 

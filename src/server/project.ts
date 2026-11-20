@@ -14,6 +14,7 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { AssetSource, ProjectSettingsInput } from "../engine";
+import { isProjectFile, loadProjectFiles, projectFileKind, skipsFolder } from "../engine/scene/projectFiles";
 import { nodePackageSource } from "./packages";
 import { isScriptPath, loadScripts, loadedPackageModule, loadedScriptModule, type ScriptProblem } from "../editor/scriptLoader";
 import { FIRST_PARTY_MANIFESTS } from "../plugins/manifests";
@@ -34,9 +35,9 @@ export interface ServerProject {
   /** `project.json`, parsed. */
   readonly settings: ProjectSettingsInput;
   /**
-   * Every file by project-relative path: parsed JSON for `.json`, text for `.xml` and `.css` (UI
-   * documents and stylesheets), a `file:` URL otherwise (images
-   * and audio aren't loaded headless, but lookups of their paths succeed).
+   * Every project file by project-relative path, as its asset value (ADR 0254): parsed JSON, a
+   * text file's text, a `file:` URL otherwise (images and audio aren't loaded headless, but
+   * lookups of their paths succeed).
    */
   readonly assets: AssetSource;
   /** The JSON files' text, by path (scripts can import them). */
@@ -47,8 +48,6 @@ export interface ServerProject {
   readonly files: readonly string[];
 }
 
-/** Folders never read: dependencies, build output, and hidden folders (the editor's `.myco/`). */
-const SKIP_DIRS = new Set(["node_modules", "dist", "target", "test-results", "playwright-report"]);
 
 /** Read a project folder. Throws a `ServerError` if it isn't one or a JSON file doesn't parse. */
 export async function readProject(dir: string): Promise<ServerProject> {
@@ -60,29 +59,17 @@ export async function readProject(dir: string): Promise<ServerProject> {
   const files = await listFiles(root);
   if (!files.includes("project.json")) throw new ServerError(`"${root}" isn't a project folder: it has no project.json.`);
 
-  const values = new Map<string, unknown>();
-  const json = new Map<string, string>();
+  const fullPath = (path: string) => join(root, ...path.split("/"));
   const scripts = new Map<string, string>();
-  const bad: string[] = [];
-  for (const path of files) {
-    const full = join(root, ...path.split("/"));
-    if (isScriptPath(path)) {
-      scripts.set(path, await readFile(full, "utf8"));
-    } else if (path.toLowerCase().endsWith(".json")) {
-      const text = await readFile(full, "utf8");
-      try {
-        values.set(path, JSON.parse(text));
-        json.set(path, text);
-      } catch (err) {
-        bad.push(`  - ${path}: ${(err as Error).message}`);
-      }
-    } else if (/\.(xml|css)$/i.test(path)) {
-      values.set(path, await readFile(full, "utf8")); // UI documents and stylesheets (ADR 0077) load as text, as in the editor and the player
-    } else if (!path.endsWith(".ts")) {
-      values.set(path, pathToFileURL(full).href);
-    }
-  }
-  if (bad.length > 0) throw new ServerError(`Some JSON files in "${root}" don't parse:\n${bad.join("\n")}`);
+  for (const path of files) if (isScriptPath(path)) scripts.set(path, await readFile(fullPath(path), "utf8"));
+  // Every project file as the same asset value as in the editor and the player (ADR 0254); images and
+  // audio aren't loaded headless, but their paths resolve to `file:` URLs.
+  const { values, texts, problems } = await loadProjectFiles(files.filter(isProjectFile), {
+    readText: (path) => readFile(fullPath(path), "utf8"),
+    url: (path) => pathToFileURL(fullPath(path)).href,
+  });
+  if (problems.length > 0) throw new ServerError(`Some JSON files in "${root}" don't parse:\n${problems.map((p) => `  - ${p.path}: ${p.message}`).join("\n")}`);
+  const json = new Map([...texts].filter(([path]) => projectFileKind(path) === "json"));
   const settings = values.get("project.json");
   if (typeof settings !== "object" || settings === null || Array.isArray(settings)) throw new ServerError(`${join(root, "project.json")} must hold an object of project settings.`);
   return {
@@ -102,7 +89,7 @@ async function listFiles(root: string, dir = root): Promise<string[]> {
     if (entry.name.startsWith(".")) continue;
     const full = join(dir, entry.name);
     if (entry.isDirectory()) {
-      if (!SKIP_DIRS.has(entry.name)) out.push(...(await listFiles(root, full)));
+      if (!skipsFolder(entry.name)) out.push(...(await listFiles(root, full)));
     } else if (entry.isFile()) {
       out.push(relative(root, full).split(sep).join("/"));
     }

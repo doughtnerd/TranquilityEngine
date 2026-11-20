@@ -1,5 +1,7 @@
 // Project path helpers with no engine dependency, so the desktop editor's Projects window (ADR 0059)
-// can use them without loading the engine. projects.ts and scriptLoader.ts re-export them.
+// can use them without loading the engine (the project-file rules, `projectFiles.ts`, import nothing).
+// projects.ts and scriptLoader.ts re-export them.
+import { extensionOf, projectFileKind } from "../engine/scene/projectFiles";
 
 /** The project's settings file, whose sections the Project Settings and Worlds panels edit (ADR 0038). */
 export const PROJECT_FILE = "project.json";
@@ -14,14 +16,10 @@ export function joinPath(root: string, path: string): string {
 export type CodeLanguage = "json" | "javascript" | "typescript" | "markdown" | "plaintext" | "xml" | "css";
 
 /**
- * Code and text files a project keeps as text besides its scripts, by extension, with the
- * language the Code panel edits them in. JSON, and UI documents and stylesheets (`*.ui.xml`,
- * `*.ui.css`, ADR 0077), are read by the game (scripts can import JSON);
- * the rest are edited only, never compiled or loaded: JavaScript and TypeScript modules such as
- * the Node tools that generate a project's assets (`tools/*.mjs`), and notes. A `.ts` file is a
- * script (`isScriptPath`), not one of these.
+ * The language the Code panel edits a project's JSON and text files in (ADR 0254 says which files
+ * those are), by extension; a text file not listed is plain text (shader code, `.txt`).
  */
-const TEXT_LANGUAGES: ReadonlyMap<string, CodeLanguage> = new Map([
+const CODE_LANGUAGES: ReadonlyMap<string, CodeLanguage> = new Map([
   ["json", "json"],
   ["js", "javascript"],
   ["mjs", "javascript"],
@@ -29,25 +27,19 @@ const TEXT_LANGUAGES: ReadonlyMap<string, CodeLanguage> = new Map([
   ["mts", "typescript"],
   ["cts", "typescript"],
   ["md", "markdown"],
-  ["txt", "plaintext"],
   ["xml", "xml"],
   ["css", "css"],
-  ["wgsl", "plaintext"], // shader code (ADR 0106: shader assets, Custom Function files), read by the game
-  ["glsl", "plaintext"],
 ]);
 
-/** A path's extension, lower case, without the dot ("" if none; a leading dot, as in `.env`, isn't one). */
-const extensionOf = (path: string) => {
-  const name = path.slice(path.lastIndexOf("/") + 1);
-  const dot = name.lastIndexOf(".");
-  return dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
-};
-
-/** Files the project keeps as text (and the Code panel can edit): JSON, JavaScript and TypeScript modules, Markdown and plain text. */
-export const isTextAsset = (path: string) => TEXT_LANGUAGES.has(extensionOf(path));
+/**
+ * Files the project keeps as text (and the Code panel can edit): its JSON and text files (ADR 0254:
+ * JavaScript and TypeScript modules, Markdown and plain text, UI documents and stylesheets, shader
+ * code). A `.ts` file is a script (`isScriptPath`), not one of these.
+ */
+export const isTextAsset = (path: string) => projectFileKind(path) !== "url";
 
 /** The Code panel's language for a file it opens: a text asset's by extension, else TypeScript (a script). */
-export const codeLanguageOf = (path: string): CodeLanguage => TEXT_LANGUAGES.get(extensionOf(path)) ?? "typescript";
+export const codeLanguageOf = (path: string): CodeLanguage => (isTextAsset(path) ? (CODE_LANGUAGES.get(extensionOf(path)) ?? "plaintext") : "typescript");
 
 /**
  * Where scripts live in a project, and which files count: `.ts` files under `scripts/`, and under a
