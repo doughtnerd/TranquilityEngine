@@ -1,6 +1,6 @@
 # 0221. The audio core is assembled in one place, and the loopback tests use that assembly
 
-- **Status:** Accepted, amended by 0223 (the loopback serves `streamPort`; link patches removed) and 0234 (the recording host is the wire tier; the loopback serves the World service)
+- **Status:** Accepted, amended by 0223 (the loopback serves `streamPort`; link patches removed), 0234 (the recording host is the wire tier; the loopback serves the World service) and 0270 (the rigs run the production frame: `tick`, `audioFrameDriver`)
 - **Date:** 2026-11-17
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
