@@ -16,10 +16,10 @@
 // (`native/audio/crates/audio-core/tests/seam_goldens.rs`), which must agree on its digest. Without it this file never
 // writes and never reads the fixtures, so a runtime change that keeps every seam exact needs no re-record.
 import { writeFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CoreDriver } from "../worklet/coreDriver";
-import { fnv1a64, replaySeam, SeamRecorder, seamNull, type SeamFixture, type SeamLaw, type SeamReference, type SeamTerm } from "../golden/seamReference";
+import { fnv1a64, goldenDir } from "../golden/replay";
+import { replaySeam, SeamRecorder, seamNull, type SeamFixture, type SeamLaw, type SeamReference, type SeamTerm } from "../golden/seamReference";
 import { musicLoopback, resetMusicLoopback, RATE, type MusicLoopback, type MusicLoopbackOptions } from "./testing/loopbackClock";
 import type { Transition } from "./transition";
 
@@ -33,7 +33,7 @@ const TOLERANCE = 1e-5;
 const XFADE_SECONDS = 0.05;
 const XFADE = Math.round(XFADE_SECONDS * RATE);
 const PRESET = { maxLogical: 256, maxMixed: 32, maxBuses: 8, arenaInitialBytes: 1 << 20, limiterLookaheadMs: 0 };
-const GOLDEN_DIR = fileURLToPath(new URL("../golden/seams/", import.meta.url));
+const GOLDEN_DIR = goldenDir("seams");
 
 /** A level as the core holds it: `fakeDecoder`'s int16 (round(v · 32,767)), read back as v / 32,768. */
 const held = (v: number): number => Math.fround(Math.round(Math.fround(v) * 32767) / 32768);

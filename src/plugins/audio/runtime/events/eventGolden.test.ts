@@ -1,16 +1,13 @@
 // ADR 0158 E3.5: event goldens. Each scene plays an audio event through the real event runtime and the real
 // `CoreBackend` over the loopback host (the committed wasm in Node, no AudioContext), renders a fixed number of frames,
-// and compares the output with `runtime/golden/event-<scene>.json` the way `audioGolden.test.ts` does: the exact
+// and compares the output with `runtime/golden/events/event-<scene>.json` the way `audioGolden.test.ts` does: the exact
 // SHA-256 of the f32 output (left then right), plus RMS and peak per 1,024-frame block so a failure says how far
 // the levels moved. Inputs are integer-built sawtooth clips (no libm in the clips), the seed is fixed, and every frame
 // waits for a macrotask, so clip loading (decode, upload) finishes at the same frame on every run.
 //
 // Update path (after E3.4's Rust evaluator changes, or any intended change to the core's output or the runtime):
 //   UPDATE_GOLDENS=1 npx vitest run src/plugins/audio/runtime/events/eventGolden.test.ts
-// then review the diff of `golden/event-*.json`: an unexpected change means the output moved.
-import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+// then review the diff of `golden/events/event-*.json`: an unexpected change means the output moved.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Assets, Engine, SceneManager } from "../../../../myco";
 import { mixer } from "../../../../engine/audio/mixer";
@@ -19,14 +16,12 @@ import { Audio } from "../index";
 import { fakeDecoder, type PlanarClip } from "../core/fakeDecoder";
 import type { CoreBackend } from "../core/coreBackend";
 import { endAudioSession, loopbackAudio, closeLoopbackAudio } from "../testing";
+import { goldenNames, levelDigest, matchLevelGolden, readLevelGolden, UPDATE_GOLDENS, type LevelGolden } from "../golden/replay";
 import { events } from "./eventRuntime";
 import type { AudioEventHandle } from "../backend";
 
 const F = "myco.audioevent@1";
 const RATE = 48_000;
-const GOLDEN_DIR = fileURLToPath(new URL("../golden/", import.meta.url));
-const UPDATE = process.env.UPDATE_GOLDENS === "1";
-const BLOCK = 1024;
 /** One frame of the script: 4 quanta (512 samples, 10.7 ms). */
 const FRAME_QUANTA = 4;
 
@@ -156,69 +151,7 @@ const SCENES: Record<string, Scene> = {
   },
 };
 
-// --- Digests (the same rule as audioGolden.test.ts) ----------------------------------------------------------------
-
-interface Golden {
-  scene: string;
-  frames: number;
-  sha256: string;
-  peak: number;
-  rms: number;
-  /** Per block of 1,024 frames: [rmsL, peakL, rmsR, peakR]. */
-  blocks: number[][];
-}
-
-const sig = (v: number): number => Number(v.toPrecision(6));
-
-function digest(scene: string, left: Float32Array, right: Float32Array): Golden {
-  const hash = createHash("sha256");
-  hash.update(new Uint8Array(left.buffer, left.byteOffset, left.byteLength));
-  hash.update(new Uint8Array(right.buffer, right.byteOffset, right.byteLength));
-  const stat = (x: Float32Array, from: number, to: number): [number, number] => {
-    let sum = 0;
-    let peak = 0;
-    for (let i = from; i < to; i++) {
-      sum += x[i]! * x[i]!;
-      peak = Math.max(peak, Math.abs(x[i]!));
-    }
-    return [Math.sqrt(sum / (to - from)), peak];
-  };
-  const blocks: number[][] = [];
-  for (let from = 0; from < left.length; from += BLOCK) {
-    const to = Math.min(left.length, from + BLOCK);
-    const [rl, pl] = stat(left, from, to);
-    const [rr, pr] = stat(right, from, to);
-    blocks.push([sig(rl), sig(pl), sig(rr), sig(pr)]);
-  }
-  const [rmsL, peakL] = stat(left, 0, left.length);
-  const [rmsR, peakR] = stat(right, 0, right.length);
-  return { scene, frames: left.length, sha256: hash.digest("hex"), peak: sig(Math.max(peakL, peakR)), rms: sig(Math.sqrt((rmsL * rmsL + rmsR * rmsR) / 2)), blocks };
-}
-
-const dB = (v: number): number => 20 * Math.log10(Math.max(v, 1e-12));
-
-function explain(want: Golden, got: Golden): string {
-  const lines = [`scene "${got.scene}": output differs from golden/${got.scene}.json`, `  sha256 ${want.sha256.slice(0, 16)}... -> ${got.sha256.slice(0, 16)}...`];
-  if (want.frames !== got.frames) lines.push(`  frames ${want.frames} -> ${got.frames}`);
-  lines.push(`  overall peak ${dB(want.peak).toFixed(2)} -> ${dB(got.peak).toFixed(2)} dBFS, rms ${dB(want.rms).toFixed(2)} -> ${dB(got.rms).toFixed(2)} dBFS`);
-  let first = -1;
-  let moved = 0;
-  let worst = 0;
-  for (let b = 0; b < Math.max(want.blocks.length, got.blocks.length); b++) {
-    const w = want.blocks[b];
-    const g = got.blocks[b];
-    const differs = !w || !g || w.some((v, k) => Math.abs(v - g[k]!) > 1e-6);
-    if (!differs) continue;
-    moved++;
-    if (first < 0) first = b;
-    if (w && g) for (let k = 0; k < 4; k++) worst = Math.max(worst, Math.abs(dB(g[k]!) - dB(w[k]!)));
-  }
-  lines.push(moved === 0 ? "  every block's level is within 1e-6: the bits changed, the levels did not" : `  ${moved} blocks moved; the first is block ${first} (frame ${first * BLOCK}); largest level change ${worst.toFixed(2)} dB`);
-  lines.push("  If intended, rerun with UPDATE_GOLDENS=1 and review the diff of golden/event-*.json.");
-  return lines.join("\n");
-}
-
-async function capture(name: string): Promise<Golden | null> {
+async function capture(name: string): Promise<LevelGolden | null> {
   const scene = SCENES[name]!;
   vi.spyOn(console, "warn").mockImplementation(() => {});
   endAudioSession();
@@ -230,7 +163,7 @@ async function capture(name: string): Promise<Golden | null> {
   const { left, right } = r.output();
   for (const s of left) expect(Number.isFinite(s)).toBe(true);
   r.backend.dispose();
-  return digest(name, left, right);
+  return levelDigest(name, left, right);
 }
 
 afterEach(() => {
@@ -246,29 +179,19 @@ describe("event goldens (the real core on the loopback host)", () => {
     void ctx;
     const got = await capture(name);
     if (!got) return;
-    const path = `${GOLDEN_DIR}${name}.json`;
-    if (UPDATE) {
-      mkdirSync(GOLDEN_DIR, { recursive: true });
-      writeFileSync(path, `${JSON.stringify(got)}\n`);
-      return;
-    }
-    if (!existsSync(path)) throw new Error(`no golden for scene "${name}": run UPDATE_GOLDENS=1 npx vitest run src/plugins/audio/runtime/events/eventGolden.test.ts`);
-    const want = JSON.parse(readFileSync(path, "utf8")) as Golden;
-    if (want.sha256 !== got.sha256) throw new Error(explain(want, got));
+    matchLevelGolden("events", got, "npx vitest run src/plugins/audio/runtime/events/eventGolden.test.ts");
   });
 
   it("every event scene is audible", () => {
     for (const name of Object.keys(SCENES)) {
-      const path = `${GOLDEN_DIR}${name}.json`;
-      if (!existsSync(path)) continue;
-      expect((JSON.parse(readFileSync(path, "utf8")) as Golden).peak, name).toBeGreaterThan(0.01);
+      const want = readLevelGolden("events", name);
+      if (want) expect(want.peak, name).toBeGreaterThan(0.01);
     }
   });
 
-  it("golden/ holds exactly the event scenes' files", () => {
-    if (UPDATE) return;
-    const files = existsSync(GOLDEN_DIR) ? readdirSync(GOLDEN_DIR).filter((f) => f.startsWith("event-") && f.endsWith(".json")).sort() : [];
-    expect(files).toEqual(Object.keys(SCENES).map((n) => `${n}.json`).sort());
+  it("golden/events/ holds exactly the event scenes' files", () => {
+    if (UPDATE_GOLDENS) return;
+    expect(goldenNames("events")).toEqual(Object.keys(SCENES).sort());
   });
 
   it("a render is repeatable within one process", { timeout: 60_000 }, async () => {

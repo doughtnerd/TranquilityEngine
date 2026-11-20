@@ -7,7 +7,7 @@
 //!   loop, bus move: `class_s.rs`' expectations on an integer-built clip) to 1e-6;
 //! - **its split counters**: `splitQuanta` reads 0 in every scene (M4-0's exit check), and
 //!   `voiceSplits` what the in-voice design says;
-//! - **its fixture**, `src/plugins/audio/runtime/golden/m4-<scene>.json`: the scene's records as
+//! - **its fixture**, `src/plugins/audio/runtime/golden/m4/m4-<scene>.json`: the scene's records as
 //!   bytes, its clips, its output's FNV-1a 64 digest and counters. The wasm half
 //!   (`golden/audioGoldenM4.test.ts`) replays the fixture on the loopback host with the real wasm
 //!   and must get the same digest (**native equals wasm**). `UPDATE_GOLDENS=1 cargo test -p
@@ -125,13 +125,13 @@ impl Scene {
             got.0,
             got.1,
         );
-        let path = format!("{}/../../../../src/plugins/audio/runtime/golden/{}.json", env!("CARGO_MANIFEST_DIR"), self.name);
+        let path = format!("{}/../../../../src/plugins/audio/runtime/golden/m4/{}.json", env!("CARGO_MANIFEST_DIR"), self.name);
         if std::env::var("UPDATE_GOLDENS").as_deref() == Ok("1") {
             std::fs::write(&path, json).unwrap();
             return;
         }
         let want = std::fs::read_to_string(&path).unwrap_or_else(|_| panic!("{}: no fixture; run UPDATE_GOLDENS=1 cargo test -p audio-core --test in_voice_goldens", self.name));
-        assert!(want == json, "{}: the scene no longer matches golden/{}.json (rerun with UPDATE_GOLDENS=1 and review the diff)", self.name, self.name);
+        assert!(want == json, "{}: the scene no longer matches golden/m4/{}.json (rerun with UPDATE_GOLDENS=1 and review the diff)", self.name, self.name);
     }
 }
 
