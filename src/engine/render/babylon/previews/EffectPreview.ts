@@ -116,7 +116,7 @@ export class ParticleEffectPreview implements ParticleEffectPreviewApi {
       camera.maxZ = 200;
       camera.rotationQuaternion = Quaternion.Identity();
       scene.activeCamera = camera;
-      addPreviewLights(scene, 0.35, 1); // for lit material assets (Babylon's particle systems and the unlit material ignore them)
+      addPreviewLights(scene); // for lit material assets (Babylon's particle systems and the unlit material ignore them)
       this.scene = scene;
       this.library = previewMaterials(scene, this.shared);
       this.resources = new EffectResources(libraryEffectHost(scene, this.library), (message) => console.warn(`[myco] preview: ${message}`));
