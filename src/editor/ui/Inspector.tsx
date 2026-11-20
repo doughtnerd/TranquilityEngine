@@ -381,7 +381,7 @@ function PrefabActionsBar(props: { scene: OpenScene; paths: NodePath[] }) {
   );
 }
 
-/** The header controls plugins add for a Component type (ADR 0142: the Physics plugin's Edit Collider). */
+/** The header controls plugins add for a Component type (ADR 0142), and the Edit toggles viewport tools bring (ADR 0266). */
 function headerActionsFor(type: string): ComponentHeaderActionContribution[] {
   componentHeaderActions.version.value;
   return componentHeaderActions.list().filter((a) => (a.types instanceof Set ? a.types.has(type) : (a.types as readonly string[]).includes(type)));

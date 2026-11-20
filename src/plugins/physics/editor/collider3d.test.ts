@@ -28,7 +28,7 @@ import { DEMO_SCENE, demoAssets, demoSettings, insertNew, sceneViewTools } from 
 const close = (a: readonly number[], b: readonly number[]) => a.forEach((v, i) => expect(v).toBeCloseTo(b[i], 6));
 const identity: Pose3D = { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
 const turnY90: [number, number, number, number] = [0, Math.SQRT1_2, 0, Math.SQRT1_2];
-/** Edit a collider, as the Inspector's Edit Collider button does. */
+/** Edit a collider, as the Inspector's Edit Collider toggle does. */
 const editCollider = (editing: EditingCollider) => editor.viewport.enter(colliderTool.id, editing);
 const select = (key: string | null) => editor.scene.selection.set(key ? [key] : []);
 

@@ -6,6 +6,7 @@ import { orderPlugins } from "../../plugins/order";
 import { setPanelOwner } from "./panelOwners";
 import { fieldChoices, type FieldChoicesContribution, assetActions, assetKinds, componentHeaderActions, hierarchyCreateEntries, idlePrefetches, playStatsCounters, sceneOpenMigrations, type AssetActionContribution, type HierarchyCreateContribution, type IdlePrefetchContribution, type PlayStatsCounterContribution, type SceneOpenMigrationContribution, componentNotes, panelExtensions, panels, projectSettingsSections, sceneToolbarItems, viewportTools, type ComponentHeaderActionContribution, type SceneToolbarItemContribution, type ComponentNoteContribution, type AssetKindContribution, type PanelContribution, type PanelExtensionContribution, type ProjectSettingsSectionContribution, type ViewportToolContribution } from "./contributions";
 import { registerInspectorSection, type InspectorSectionOptions, type InspectorSectionProps } from "../ui/inspectorSections";
+import { componentEditToggle } from "../componentEditToggle";
 import type { LoadComponent } from "./contributions";
 import { checkSettingsSectionKeys } from "../projectSettingsModel";
 
@@ -25,7 +26,7 @@ export interface EditorPluginContext {
   registerComponentNote(note: ComponentNoteContribution): void;
   /** Extra UI under a Component type's fields in the Inspector (ADR 0131), loaded on first use. */
   registerInspectorSection(type: string, view: LoadComponent<InspectorSectionProps>, options?: InspectorSectionOptions): void;
-  /** A scene-view tool (ADR 0138), installed on every scene view while the plugin is active. */
+  /** A scene-view tool (ADR 0138), installed on every scene view while the plugin is active; with `editsComponents`, also its Edit toggle (ADR 0266). */
   registerViewportTool(tool: ViewportToolContribution): void;
   /** A Scene toolbar button that opens a popover (ADR 0142). */
   registerSceneToolbarItem(item: SceneToolbarItemContribution): void;
@@ -71,7 +72,11 @@ export function activatePlugin(plugin: EditorPlugin): void {
     registerPanelExtension: (extension) => void undo.push(panelExtensions.register(extension)),
     registerComponentNote: (n) => void undo.push(componentNotes.register(n)),
     registerInspectorSection: (type, view, options) => void undo.push(registerInspectorSection(type, view, options)),
-    registerViewportTool: (t) => void undo.push(viewportTools.register(t)),
+    // A tool that edits components brings its Inspector cards' Edit toggle (ADR 0266), removed with it.
+    registerViewportTool: (t) => {
+      undo.push(viewportTools.register(t));
+      if (t.editsComponents) undo.push(componentHeaderActions.register(componentEditToggle(t)));
+    },
     registerSceneToolbarItem: (item) => void undo.push(sceneToolbarItems.register(item)),
     registerComponentHeaderAction: (action) => void undo.push(componentHeaderActions.register(action)),
     registerHierarchyCreateEntry: (entry) => void undo.push(hierarchyCreateEntries.register(entry)),

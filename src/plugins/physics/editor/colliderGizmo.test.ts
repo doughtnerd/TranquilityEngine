@@ -11,7 +11,7 @@ import { DEMO_SCENE, demoAssets, demoSettings, sceneViewTools } from "../../../e
 const close = (a: readonly number[], b: readonly number[]) => a.forEach((v, i) => expect(v).toBeCloseTo(b[i], 6));
 const identity: Pose2D = { position: [0, 0, 0], rotation: 0, scale: [1, 1] };
 const posed: Pose2D = { position: [2, 1, -3], rotation: 90, scale: [2, 3] };
-/** Edit a collider, as the Inspector's Edit Collider button does. */
+/** Edit a collider, as the Inspector's Edit Collider toggle does. */
 const editCollider = (editing: EditingCollider) => editor.viewport.enter(colliderTool.id, editing);
 const select = (key: string | null) => editor.scene.selection.set(key ? [key] : []);
 

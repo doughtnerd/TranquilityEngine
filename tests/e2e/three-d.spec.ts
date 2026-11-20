@@ -222,7 +222,7 @@ test("a cube from the Create menu has a box collider whose face handles resize i
   await expect(collider).toBeVisible();
   // Frame the cube (created at the view's focus point) from the front.
   await page.evaluate(() => (window as unknown as Hooks).orbit.focus(undefined, 4));
-  await collider.locator(".edit-collider").click();
+  await collider.locator(".edit-handles").click();
   const h = await handles(page);
   expect(Object.keys(h).sort()).toEqual(["center", "x+", "x-", "y+", "y-", "z+", "z-"]);
 
@@ -250,7 +250,7 @@ test("sphere and capsule collider handles set the radius and height; lights from
   await menuItem(page, "Create Sphere").click();
   await page.evaluate(() => (window as unknown as Hooks).orbit.focus(undefined, 4));
   const sphere = card(page, "SphereCollider");
-  await sphere.locator(".edit-collider").click();
+  await sphere.locator(".edit-handles").click();
   let h = await handles(page, ["center", "radius:x+", "radius:x-", "radius:y+", "radius:y-", "radius:z+", "radius:z-"]);
   const radius = sphere.getByRole("textbox", { name: "radius" });
   await expect(radius).toHaveValue("0.5");
@@ -261,7 +261,7 @@ test("sphere and capsule collider handles set the radius and height; lights from
   await menuItem(page, "Create Capsule").click();
   await page.evaluate(() => (window as unknown as Hooks).orbit.focus(undefined, 6));
   const capsule = card(page, "CapsuleCollider");
-  await capsule.locator(".edit-collider").click();
+  await capsule.locator(".edit-handles").click();
   h = await handles(page, ["center", "height+", "height-", "radius:u+", "radius:u-", "radius:v+", "radius:v-"]);
   const height = capsule.getByRole("textbox", { name: "height" });
   await drag(page, h["height+"], 0, -40);

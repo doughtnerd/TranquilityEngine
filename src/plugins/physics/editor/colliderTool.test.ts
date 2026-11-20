@@ -1,5 +1,5 @@
 // The collider gizmo as a viewport tool (ADR 0138, 0142, 0231): editing a collider is the tool's mode, entered
-// through `editor.viewport` as the Edit Collider button does; its outline overlay is a "colliders" overlay, its 2D
+// through `editor.viewport` as the Edit Collider toggle does; its outline overlay is a "colliders" overlay, its 2D
 // outlines are selectable, and a handle drag is one undo step that Escape puts back.
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Engine } from "../../../engine";
@@ -8,7 +8,6 @@ import { setEditorOverlayFilter, type EditorOverlayKind } from "../../../engine/
 import { openSceneFile } from "../../../editor/project";
 import { DEMO_SCENE, demoAssets, demoSettings, sceneViewTools, type SceneViewTools } from "../../../editor/testing";
 import { colliderTool, type EditingCollider } from "./colliderGizmo";
-import { editColliderAction } from "./EditColliderButton";
 
 const COLLIDER_TOOL_ID = colliderTool.id;
 const GROUND: EditingCollider = { key: "ground-collider", type: "engine.BoxCollider2D", index: 0 };
@@ -67,14 +66,8 @@ describe("the collider tool", () => {
     expect(editor.viewport.activeTool).toBeNull();
   });
 
-  it("ends editing when the edited collider is removed from its card, and when uninstalled", () => {
+  it("ends editing when uninstalled (removing the collider from its card is the host's Edit toggle, componentEditToggle.test.ts)", () => {
     select("ground-collider");
-    editor.viewport.enter(COLLIDER_TOOL_ID, GROUND);
-    const info = { type: "engine.BoxCollider2D", index: 0 } as Parameters<NonNullable<typeof editColliderAction.onRemove>>[0]["info"];
-    editColliderAction.onRemove!({ scene: null!, paths: [["ground-collider"]], info: { ...info, index: 1 } }); // another collider: no change
-    expect(editing()).toEqual(GROUND);
-    editColliderAction.onRemove!({ scene: null!, paths: [["ground-collider"]], info });
-    expect(editing()).toBeNull();
     editor.viewport.enter(COLLIDER_TOOL_ID, GROUND);
     dispose();
     dispose = () => {};

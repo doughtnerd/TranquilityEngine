@@ -1,6 +1,6 @@
 // Under an AudioReverbZone's fields in the Inspector (ADR 0162 E2, api-and-models §1.5, §7). The fields themselves
 // (shape, centre, size, radius, preset, impulse response, wet, blend distance, priority and the `output` bus, whose
-// choices are the project's buses, empty being Master) are the card's rows, and the Edit Zone button is in its header.
+// choices are the project's buses, empty being Master) are the card's rows, and the Edit Zone toggle is in its header (ADR 0266).
 // This section says which reverb plays, what the zone costs in memory (from Project Settings > Audio > Zones), and warns
 // when the project's backend is Babylon (zones are inert there), when zones are off, or when the output bus or the
 // impulse response doesn't exist.
