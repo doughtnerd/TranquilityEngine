@@ -2,7 +2,8 @@ import { onTestFinished } from "vitest";
 import { Input } from "../input/Input";
 
 // Drive `Input` as a browser does (ADR 0310): `Input.attach` listens to a stand-in canvas and window
-// built on Node's `EventTarget`, and these helpers dispatch the DOM events a player's keyboard,
+// built on Node's `EventTarget` (the global `window` is the stand-in only while the adapter adds its
+// listeners: left defined, it would make engine code believe it runs in a browser), and these helpers dispatch the DOM events a player's keyboard,
 // mouse, touch screen and wheel send. What reaches the game goes through the real DOM adapter and
 // device snapshot; nothing is injected around them.
 
@@ -54,19 +55,29 @@ function event(type: string, props: Record<string, unknown>): Event {
 }
 
 /**
- * Keyboard, mouse and wheel through `Input`'s DOM adapter. `DomInput.attach()` stubs `window` with a
- * stand-in, attaches `Input` to a stand-in canvas, and undoes both when the test finishes. The
+ * Keyboard, mouse and wheel through `Input`'s DOM adapter. `DomInput.attach()` attaches `Input` to a
+ * stand-in canvas and window, and detaches it when the test finishes. The
  * pointer is in canvas pixels; it starts at (0, 0).
  */
 export class DomInput {
   readonly window = new CountingTarget();
-  private readonly hadWindow = "window" in globalThis;
-  private readonly oldWindow: unknown = (globalThis as { window?: unknown }).window;
   private x = 0;
   private y = 0;
 
-  private constructor(public canvas: FakeCanvas) {
-    (globalThis as { window?: unknown }).window = this.window;
+  private constructor(public canvas: FakeCanvas) {}
+
+  /** Run `fn` (the adapter adding its listeners) with the stand-in as the global `window`. */
+  private withWindow(fn: () => void): void {
+    const g = globalThis as { window?: unknown };
+    const had = "window" in g;
+    const old = g.window;
+    g.window = this.window;
+    try {
+      fn();
+    } finally {
+      if (had) g.window = old;
+      else delete g.window;
+    }
   }
 
   private static active: DomInput | null = null;
@@ -84,7 +95,7 @@ export class DomInput {
     }
     const dom = new DomInput(canvas ?? new FakeCanvas());
     DomInput.active = dom;
-    Input.attach(dom.canvas as unknown as HTMLCanvasElement);
+    dom.withWindow(() => Input.attach(dom.canvas as unknown as HTMLCanvasElement));
     onTestFinished(() => dom.detach());
     return dom;
   }
@@ -92,7 +103,7 @@ export class DomInput {
   /** Move pointer input to another stand-in canvas, as the editor's tiled play view does. */
   retarget(canvas = new FakeCanvas()): FakeCanvas {
     this.canvas = canvas;
-    Input.retarget(canvas as unknown as HTMLCanvasElement);
+    this.withWindow(() => Input.retarget(canvas as unknown as HTMLCanvasElement));
     return canvas;
   }
 
@@ -165,10 +176,6 @@ export class DomInput {
     if (DomInput.active !== this) return;
     DomInput.active = null;
     Input.detach();
-    const g = globalThis as { window?: unknown };
-    if (g.window !== this.window) return; // the test stubbed it again since
-    if (this.hadWindow) g.window = this.oldWindow;
-    else delete g.window;
   }
 
   private at(x: number, y: number): void {

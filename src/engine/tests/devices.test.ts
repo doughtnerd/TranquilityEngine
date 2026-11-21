@@ -105,7 +105,7 @@ describe("device input through the DOM adapter", () => {
     const second = dom.retarget();
     expect(first.listeners).toBe(0);
     expect(dom.contextMenu().defaultPrevented).toBe(true);
-    Input.attach(second as unknown as HTMLCanvasElement); // attaching again replaces, never adds
+    dom.retarget(second); // attaching again replaces, never adds
     expect(second.listening.get("contextmenu")).toBe(1);
     dom.detach();
     expect(second.listeners).toBe(0);
