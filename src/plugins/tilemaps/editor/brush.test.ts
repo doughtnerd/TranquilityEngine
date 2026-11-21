@@ -7,9 +7,9 @@ import { tilemapsEditorPlugin } from ".";
 import { openSceneFile } from "../../../editor/project";
 import { editor } from "../../../editor/sdk";
 import { DEMO_SCENE, demoAssets, demoSettings, insertNew, sceneViewTools } from "../../../editor/testing";
-import { activeLayer, brushFlags, brushRandom, brushStamp, brushTerrain, brushTool, commitTilemap, fillAt, paintCells, pickBrushTool, pickFromMap, strokeCells } from "./brush";
-import { brushValueAt } from "./brushCells";
-import { compose } from "../runtime/tileFlips";
+import { activeLayer, beginStroke, brushFlags, brushRandom, brushStamp, brushTerrain, brushTool, commitTilemap, flipBrush, footprintAt, pickBrushTool, type BrushTool } from "./brush";
+import type { Cell } from "../runtime/brushes";
+import { compose, TURN_CLOCKWISE as TURN } from "../runtime/tileFlips";
 
 const TILESET = {
   format: "myco.tileset@1",
@@ -18,6 +18,8 @@ const TILESET = {
   tiles: [
     { id: 1, sprite: "" },
     { id: 2, sprite: "" },
+    { id: 3, sprite: "" },
+    { id: 4, sprite: "" },
     { id: 10, sprite: "", terrain: "G", pattern: "0*0*0*0*" },
     { id: 11, sprite: "", terrain: "G", pattern: "0*1*0*0*" },
     { id: 12, sprite: "", terrain: "G", pattern: "0*1*0*1*" },
@@ -34,16 +36,6 @@ describe("tilemap brushes (ADR 0103)", () => {
     for (let i = 0; i < 4; i++) f = compose(f, turn);
     expect(f).toBe(0);
     expect(compose(0, turn)).toBe(turn);
-  });
-
-  it("tiles a stamp from its origin, or picks at random from it", () => {
-    const stamp = { width: 2, height: 1, values: [1, 2] };
-    expect([0, 1, 2, 3].map((x) => brushValueAt(stamp, x, 0, [0, 0], false, 0))).toEqual([1, 2, 1, 2]);
-    expect(brushValueAt(stamp, -1, 5, [0, 0], false, 0)).toBe(2);
-    expect([1, 2]).toContain(brushValueAt(stamp, 0, 0, [0, 0], true, 0));
-    expect(brushValueAt({ width: 1, height: 1, values: [1] }, 0, 0, [0, 0], false, FLIP_X)).toBe(cellValue(1, FLIP_X));
-    expect(strokeCells("rect", [0, 0], [2, 1])).toHaveLength(6);
-    expect(strokeCells("pencil", [0, 0], [3, 0])).toHaveLength(4);
   });
 });
 
@@ -75,9 +67,87 @@ describe("painting a tilemap in the editor (ADR 0103)", () => {
     return { scene, id, map };
   }
 
+  /** A whole stroke with `tool`: pressed on the first cell, moved through the rest, released. */
+  function stroke(map: Tilemap, tool: BrushTool, ...cells: Cell[]): boolean {
+    const s = beginStroke(map, tool, cells[0]);
+    for (const c of cells.slice(1)) s.moveTo(c);
+    return s.finish();
+  }
+  /** The map's cell values (ids with flips) over a block, row by row from the top. */
+  const block = (map: Tilemap, x0: number, y0: number, w: number, h: number) =>
+    Array.from({ length: h }, (_, r) => Array.from({ length: w }, (_, c) => map.getCell(x0 + c, y0 + h - 1 - r)));
+
+  it("tiles a stamp over a rectangle from its corner, or picks each cell at random from it", () => {
+    const { map } = newMap();
+    brushStamp.value = { width: 2, height: 1, values: [1, 2] };
+    expect(stroke(map, "rect", [3, 0], [0, 1])).toBe(true);
+    expect(block(map, 0, 0, 4, 2)).toEqual([[1, 2, 1, 2], [1, 2, 1, 2]]);
+    brushRandom.value = true;
+    stroke(map, "pencil", [0, 3], [5, 3]);
+    for (let x = 0; x <= 5; x++) expect([1, 2]).toContain(map.getTile(x, 3));
+    expect(map.getTile(0, 4)).toBe(0); // a random brush paints one cell per cell
+    expect(footprintAt("pencil", [0, 3])).toEqual({ x0: 0, y0: 3, x1: 1, y1: 4 });
+  });
+
+  it("mirrors a flipped multi-cell stamp's layout as well as its tiles (ADR 0289)", () => {
+    const { map } = newMap();
+    brushStamp.value = { width: 3, height: 1, values: [1, 2, 3] };
+    flipBrush("x");
+    stroke(map, "pencil", [0, 0]);
+    expect(block(map, 0, 0, 3, 1)).toEqual([[cellValue(3, FLIP_X), cellValue(2, FLIP_X), cellValue(1, FLIP_X)]]);
+    brushFlags.value = 0;
+    brushStamp.value = { width: 1, height: 2, values: [1, 2] }; // 1 below 2
+    flipBrush("y");
+    stroke(map, "pencil", [5, 0]);
+    expect(block(map, 5, 0, 1, 2)).toEqual([[cellValue(1, FLIP_Y)], [cellValue(2, FLIP_Y)]]);
+    // A rectangle tiles the mirrored stamp too.
+    brushFlags.value = FLIP_X;
+    brushStamp.value = { width: 2, height: 1, values: [1, 2] };
+    stroke(map, "rect", [0, 4], [3, 4]);
+    expect(block(map, 0, 4, 4, 1)).toEqual([[2, 1, 2, 1].map((id) => cellValue(id, FLIP_X))]);
+  });
+
+  it("turns a multi-cell stamp a quarter turn, swapping its width and height, in painting and footprint (ADR 0289)", () => {
+    const { map } = newMap();
+    // 2 × 3, rows from the bottom: [1 2] [3 4] [0 1]; drawn from the top:
+    //   0 1
+    //   3 4
+    //   1 2
+    brushStamp.value = { width: 2, height: 3, values: [1, 2, 3, 4, 0, 1] };
+    flipBrush("rotate");
+    expect(footprintAt("pencil", [0, 0])).toEqual({ x0: 0, y0: 0, x1: 3, y1: 2 });
+    stroke(map, "pencil", [0, 0]);
+    // A quarter turn clockwise: the left column (top to bottom 0 3 1) becomes the top row (left to right 1 3 0).
+    const t = (id: number) => cellValue(id, TURN);
+    expect(block(map, 0, 0, 3, 2)).toEqual([[t(1), t(3), 0], [t(2), t(4), t(1)]]);
+    expect(map.getCell(0, 2)).toBe(0);
+    // Four turns come back to the stamp as it was.
+    flipBrush("rotate");
+    flipBrush("rotate");
+    flipBrush("rotate");
+    expect(footprintAt("pencil", [0, 0])).toEqual({ x0: 0, y0: 0, x1: 2, y1: 3 });
+  });
+
+  it("places a pencil stroke's stamps on the stamp grid from the press, and the footprint follows that grid", () => {
+    const { map } = newMap();
+    brushStamp.value = { width: 2, height: 1, values: [1, 2] };
+    flipBrush("rotate"); // now 1 × 2
+    const s = beginStroke(map, "pencil", [0, 0]);
+    expect(s.moveTo([0, 0])).toBe(false);
+    expect(s.moveTo([0, 3])).toBe(true);
+    expect(s.footprint()).toEqual({ x0: 0, y0: 2, x1: 1, y1: 4 });
+    s.finish();
+    expect([0, 1, 2, 3].map((y) => map.getTile(0, y))).toEqual([2, 1, 2, 1]);
+    // A rectangle's footprint is the dragged block.
+    const r = beginStroke(map, "rect", [5, 5]);
+    r.moveTo([3, 6]);
+    expect(r.footprint()).toEqual({ x0: 3, y0: 5, x1: 6, y1: 7 });
+    expect(footprintAt("erase", [1, 1])).toEqual({ x0: 1, y0: 1, x1: 2, y1: 2 });
+  });
+
   it("commits a stroke as one undoable step, and undo puts the World back", () => {
     const { scene, id, map } = newMap();
-    paintCells(map, "pencil", strokeCells("pencil", [0, 0], [4, 0]), [0, 0]);
+    stroke(map, "pencil", [0, 0], [4, 0]);
     expect(map.getTile(4, 0)).toBe(1);
     commitTilemap(scene, [id], map);
     const saved = scene.doc.fieldValue(id, "engine.Tilemap", "layers", 0) as { chunks: Record<string, string> }[];
@@ -129,21 +199,23 @@ describe("painting a tilemap in the editor (ADR 0103)", () => {
   it("paints stamps, fills, erases, picks and paints terrains", () => {
     const { map } = newMap();
     brushStamp.value = { width: 2, height: 2, values: [1, 2, 2, 1] };
-    paintCells(map, "pencil", [[0, 0], [1, 0], [2, 0]], [0, 0]); // stamps at 0 and 2
+    stroke(map, "pencil", [0, 0], [2, 0]); // stamps at 0 and 2
     expect([map.getTile(0, 0), map.getTile(1, 0), map.getTile(0, 1), map.getTile(3, 1)]).toEqual([1, 2, 2, 1]);
-    pickFromMap(map, [0, 0], [1, 0]);
+    brushFlags.value = FLIP_X;
+    expect(stroke(map, "pick", [0, 0], [1, 0])).toBe(false);
     expect(brushStamp.value).toEqual({ width: 2, height: 1, values: [1, 2] });
+    expect(brushFlags.value).toBe(0);
     brushStamp.value = { width: 1, height: 1, values: [2] };
-    fillAt(map, 6, 3); // empty space: bounded by the tiles and the click, plus a margin of one cell
+    stroke(map, "fill", [6, 3]); // empty space: bounded by the tiles and the click, plus a margin of one cell
     expect(map.getTile(6, 3)).toBe(2);
     expect(map.getTile(7, 4)).toBe(2);
     expect(map.getTile(8, 5)).toBe(0); // outside the bounds
     expect(map.getTile(0, 0)).toBe(1); // a different region
-    paintCells(map, "erase", [[0, 0]], [0, 0]);
+    stroke(map, "erase", [0, 0]);
     expect(map.getTile(0, 0)).toBe(0);
     brushTerrain.value = "G";
     map.clearAll();
-    paintCells(map, "pencil", strokeCells("pencil", [0, 5], [2, 5]), [0, 5]);
+    stroke(map, "pencil", [0, 5], [2, 5]);
     expect([map.getTile(0, 5), map.getTile(1, 5), map.getTile(2, 5)]).toEqual([11, 12, 13]);
   });
 });
