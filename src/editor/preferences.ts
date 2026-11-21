@@ -1,17 +1,39 @@
 // Small per-user editor preferences, remembered in browser storage (a per-viewer convenience;
-// anything unreadable falls back to the default).
+// anything unreadable falls back to the default). A preference changed in another window of the
+// editor (the desktop editor's Projects window and editor window share the storage, ADR 0059) is
+// followed here through the storage event, so a theme or font chosen in one shows in the other.
 import { effect, signal, type Signal } from "@preact/signals";
 
+/** `raw` parsed, or `fallback` when it's missing or unreadable. */
+function parsed<T>(raw: string | null | undefined, fallback: T): T {
+  if (raw === null || raw === undefined) return fallback;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallback;
+  }
+}
+
 export function persisted<T>(key: string, fallback: T): Signal<T> {
-  let initial = fallback;
+  let raw: string | null | undefined;
   try {
     // Fall back to the key under the engine's former name (ADR 0037), so preferences carry over.
-    const raw = globalThis.localStorage?.getItem(key) ?? globalThis.localStorage?.getItem(key.replace(/^myco\./, "tranquility."));
-    if (raw !== null && raw !== undefined) initial = JSON.parse(raw) as T;
+    raw = globalThis.localStorage?.getItem(key) ?? globalThis.localStorage?.getItem(key.replace(/^myco\./, "tranquility."));
   } catch {
     // unreadable: keep the default
   }
-  const s = signal<T>(initial);
+  const s = signal<T>(parsed(raw, fallback));
+  // Another window wrote this key (null: it was removed, or the storage cleared). The write back below then
+  // stores what is already there, which raises no further event.
+  globalThis.addEventListener?.("storage", (e: StorageEvent) => {
+    if (e.key !== key && e.key !== null) return;
+    try {
+      if (e.storageArea && e.storageArea !== globalThis.localStorage) return;
+    } catch {
+      return;
+    }
+    s.value = parsed(e.newValue, fallback);
+  });
   effect(() => {
     const value = s.value;
     try {

@@ -129,5 +129,9 @@ async function main(): Promise<void> {
 
 main().catch((err) => {
   console.error(err);
-  document.body.insertAdjacentHTML("beforeend", `<pre style="color:#f88;padding:16px">${String(err?.stack ?? err)}</pre>`);
+  // Styled by launcher.css (its token has a fallback for before the theme installs); the text is set as text, not markup.
+  const pre = document.createElement("pre");
+  pre.className = "launcher-fatal";
+  pre.textContent = String(err?.stack ?? err);
+  document.body.append(pre);
 });
