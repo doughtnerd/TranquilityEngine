@@ -13,6 +13,7 @@
 // Debugging (ADR 0022): the whole session pauses (the Engine's loop stops, every World holds
 // still) and steps one frame at a time (`step`: one Engine frame of `STEP_SECONDS`, so a World's
 // fixed step runs when one is due); `stepWorld` steps a single World, paused or not.
+import { signal } from "@preact/signals";
 import type { AssetSource, Bootstrap, Engine } from "../engine";
 import { redrawEngine, resumeEditorWorld, stepEngineWorld } from "../engine/editor";
 import { launchGame, type LaunchedGame } from "../engine/launch";
@@ -37,7 +38,10 @@ export interface PlaySession {
    * too). All zero turns simulation off: links open now get zero, links made later keep their own.
    */
   setConditions(conditions: NetConditionValues): void;
-  /** True while the whole session is paused (see `setPaused`). */
+  /**
+   * True while the whole session is paused, by `setPaused` or by `step`. The session owns it as a signal, so reading it
+   * inside a `computed`, an `effect` or a component tracks it (the play bar's Pause button follows it).
+   */
   readonly paused: boolean;
   /** Pause or resume the whole session: the Engine's loop stops and every World holds still (input, network and all). */
   setPaused(paused: boolean): void;
@@ -139,10 +143,10 @@ export async function startPlay({ editor, scene, project, container, netPlay: ne
   }
   const engine = runtime;
   const gameView = view;
-  let paused = false;
+  const paused = signal(false);
   const setPaused = (value: boolean) => {
-    if (stopped || value === paused) return;
-    paused = value;
+    if (stopped || value === paused.peek()) return;
+    paused.value = value;
     if (!container) return; // headless (tests): the caller steps the Engine
     if (value) engine.stop();
     else engine.start(); // the loop's clock restarts now, so the pause isn't one long frame
@@ -153,7 +157,7 @@ export async function startPlay({ editor, scene, project, container, netPlay: ne
     view: gameView,
     netPlay,
     get paused() {
-      return paused;
+      return paused.value;
     },
     setPaused,
     step() {
