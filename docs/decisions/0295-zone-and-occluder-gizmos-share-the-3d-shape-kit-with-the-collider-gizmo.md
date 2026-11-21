@@ -1,6 +1,6 @@
 # 0295. Zone and occluder gizmos share the 3D shape kit with the collider gizmo
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0301 (2D poses read through the 2D node frame: its second open question) and 0305 (collider classes describe their own shape: its first open question, for the physics world)
 - **Date:** 2026-11-21
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
