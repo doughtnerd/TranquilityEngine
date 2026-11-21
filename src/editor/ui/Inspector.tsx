@@ -290,8 +290,7 @@ function MissingComponents(props: { scene: OpenScene; path: NodePath }) {
       {missing.map((entry) => {
         const k = seen.get(entry.type) ?? 0;
         seen.set(entry.type, k + 1);
-        const count = missing.filter((m) => m.type === entry.type).length;
-        const reason = whyNotRemovableMissing(scene.doc, path, entry.type, k, count);
+        const reason = whyNotRemovableMissing(scene.doc, path, entry.type, k);
         const name = entry.type.replace(/^[^.]*\./, "");
         return (
           <section key={`${entry.type}#${k}`} class="component missing">
@@ -304,7 +303,7 @@ function MissingComponents(props: { scene: OpenScene; path: NodePath }) {
                 aria-label={`Remove ${name}`}
                 title={reason ? `Can't remove: ${reason}` : `Remove ${name} from this node`}
                 disabled={reason !== null}
-                onClick={() => removeMissingComponent(scene, path, entry.type, k, count)}
+                onClick={() => removeMissingComponent(scene, path, entry.type, k)}
               >
                 ✕
               </button>
@@ -441,8 +440,7 @@ function ComponentCard(props: { scene: OpenScene; paths: NodePath[]; infos: Comp
   const checks = paths.map((path, i) => {
     const node = scene.sync.nodeFor(path);
     if (!node) return { reason: "that node is gone" };
-    const count = listComponents(node).filter((c) => c.type === infos[i].type).length;
-    return { reason: whyNotRemovable(scene.doc, path, infos[i], count), target: { path, node, info: infos[i] } };
+    return { reason: whyNotRemovable(scene.doc, path, infos[i]), target: { path, node, info: infos[i] } };
   });
   const removable = checks.flatMap((c) => (c.reason === null && c.target ? [c.target] : []));
   const notRemovable = removable.length === 0 ? checks[0].reason : null;
@@ -451,7 +449,7 @@ function ComponentCard(props: { scene: OpenScene; paths: NodePath[]; infos: Comp
   const script = currentProject.value ? scriptFor(currentProject.value.scripts, info.type) : null;
   // Enabled: a checkbox across every node; mixed shows as indeterminate.
   const toggleable = checks.flatMap((c) =>
-    c.target && whyNotToggleable(scene.doc, c.target.path, c.target.info, listComponents(c.target.node).filter((o) => o.type === info.type).length) === null ? [c.target] : [],
+    c.target && whyNotToggleable(scene.doc, c.target.path, c.target.info) === null ? [c.target] : [],
   );
   const allEnabled = infos.every((i) => i.enabled);
   // Reorder: a single node's components, among those that can move.
@@ -468,7 +466,7 @@ function ComponentCard(props: { scene: OpenScene; paths: NodePath[]; infos: Comp
   // Worlds (ADR 0033 §3): which World tags each node's copy is created in.
   const worlds = checks.flatMap((c) => {
     if (!c.target) return [];
-    const setting = componentWorlds(scene.doc, c.target.path, c.target.info, listComponents(c.target.node).filter((o) => o.type === info.type).length);
+    const setting = componentWorlds(scene.doc, c.target.path, c.target.info);
     return setting ? [{ target: c.target, setting }] : [];
   });
   const badges = new Set(worlds.map((w) => worldsBadge(effectiveWorlds(w.setting))));

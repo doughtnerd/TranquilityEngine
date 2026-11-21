@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { Assets } from "../index";
+import { Assets, defineComponent, f32 } from "../index";
 import { navBakeBytesIfLoaded, preloadNavBakes } from "../../plugins/navigation/runtime/navigationSystems";
 import { assetRefs, resolveScene, resolvedComponents } from "../scene/resolvedScene";
 import { collectAssetRefs } from "../scene/SceneLoader";
@@ -83,6 +83,27 @@ describe("resolved scene view", () => {
     const out = resolveScene("s.json", { read: r }).nodes.map((n) => n.id);
     expect(out).toContain("i/kid");
     expect(out).not.toContain("i/deep/leaf");
+  });
+  it("orders behaviours only, as the game does: Transform and data components keep their places (ADR 0029, 0280)", () => {
+    defineComponent("test.resolved.Data", { v: f32 });
+    const p = { nodes: [{ id: "r", components: [{ type: "engine.Transform" }, { type: "test.resolved.Data" }, { type: "game.A" }, { type: "game.B" }] }] };
+    const s = { nodes: [{ id: "i", prefab: "p.json", overrides: [{ order: ["game.B", "engine.Transform", "test.resolved.Data", "game.A"] }] }] };
+    const r = (path: string) => ({ "p.json": p, "s.json": s })[path];
+    expect(resolveScene("s.json", { read: r }).nodes[0].components.map((c) => c.type)).toEqual(["engine.Transform", "test.resolved.Data", "game.B", "game.A"]);
+  });
+  it("gives each node its editor path, tags, and where added nodes and components come from", () => {
+    const b = resolveScene("scene.json", { read }).nodes;
+    const at = (path: string) => b.find((n) => n.path.join("/") === path);
+    expect(at("b")?.id).toBe("b/root"); // a prefab's root is the instance
+    expect(at("b/deep")?.id).toBe("b/deep/leaf");
+    expect(at("b/added")?.added).toBe(true);
+    expect(at("b/kid")?.added).toBeUndefined();
+    expect(at("b")?.components.find((c) => c.type === "game.Extra")?.added).toEqual({ instance: ["b"], override: 1 });
+    expect(at("b/added")?.components.find((c) => c.type === "game.LateOnAdded")?.added).toEqual({ instance: ["b"], override: 6 });
+    const t = { nodes: [{ id: "i", prefab: "p.json", tags: ["own"], overrides: [{ target: ["kid"], tags: ["over"] }] }] };
+    const tagged = resolveScene("t.json", { read: (path) => (path === "t.json" ? t : files[path]) }).nodes;
+    expect(tagged.find((n) => n.path.join("/") === "i")?.tags).toEqual(["own"]);
+    expect(tagged.find((n) => n.path.join("/") === "i/kid")?.tags).toEqual(["over"]);
   });
   it("helpers", () => {
     expect(resolvedComponents("scene.json", { read }).some((c) => c.type === "game.LateOnAdded")).toBe(true);

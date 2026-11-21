@@ -1,4 +1,6 @@
-import { migrateSceneFile, type ComponentEntry, type NodeEntry, type OverrideEntry, type SceneFile } from "../../engine/scene/SceneLoader";
+import { loadSceneFile, migrateSceneFile, type ComponentEntry, type NodeEntry, type OverrideEntry, type SceneFile } from "../../engine/scene/SceneLoader";
+import { resolveScene, type ResolvedScene } from "../../engine/scene/resolvedScene";
+import { entryFieldValues, fieldNodeRefs } from "../../engine/scene/nodeReferences";
 
 export type { ComponentEntry, NodeEntry, OverrideEntry, SceneFile } from "../../engine/scene/SceneLoader";
 
@@ -141,26 +143,51 @@ export class SceneDocument {
     return o?.value;
   }
 
-  /** Every `{"$node": id}` reference in the document: where it is and which node it points to. */
+  /**
+   * The resolved scene view of the document as it stands (ADR 0280): prefab instances expanded
+   * from their files and every override applied, the way the game instantiates it. With
+   * `instance`, only that instance entry (as a top-level node), with `overrides` in place of its
+   * own when given. Node `path`s are the editor's node paths.
+   */
+  resolve(instance?: string, overrides?: readonly OverrideEntry[]): ResolvedScene {
+    let file: SceneFile = this.file;
+    if (instance !== undefined) {
+      const { parent: _, ...entry } = this.node(instance);
+      file = { format: this.file.format, nodes: [overrides ? { ...entry, overrides: [...overrides] } : entry] };
+    }
+    return resolveScene(this.path, { read: (p) => (p === this.path ? file : loadSceneFile(p)) });
+  }
+
+  /**
+   * Every `{"$node": id}` reference among the document's nodes: where it is and which node it
+   * points to. References sit where `nodeReferences.ts` says (ADR 0280): component data, field
+   * overrides, and an instance's added components (as the component the game makes, so `index`
+   * counts it among the node's components of its type; one a later field override replaces isn't
+   * listed). Added nodes' references point among those added nodes, not at the document's.
+   */
   references(): NodeReference[] {
     const out: NodeReference[] = [];
     for (const n of this.file.nodes) {
-      const counts = new Map<string, number>();
-      for (const c of n.components ?? []) {
-        const index = counts.get(c.type) ?? 0;
-        counts.set(c.type, index + 1);
-        for (const [field, value] of Object.entries(c.data ?? {})) {
-          const to = refId(value);
-          if (to) out.push({ path: [n.id], type: c.type, index, field, to });
-          listRefs(value, (element, id) => out.push({ path: [n.id], type: c.type, index, field, to: id, element }));
+      const values = entryFieldValues(n);
+      let resolved: ResolvedScene | null = null;
+      for (const v of values) {
+        const refs = fieldNodeRefs(v.value);
+        let index: number;
+        if (v.slot.kind === "component") {
+          index = n.components!.slice(0, v.slot.component).filter((c) => c.type === v.type).length;
+        } else if (v.slot.kind === "override") {
+          index = n.overrides![v.slot.override].index ?? 0;
+        } else {
+          if (refs.length === 0) continue;
+          const at = v.slot.override;
+          const path = [n.id, ...v.target];
+          resolved ??= this.resolve(n.id);
+          const list = resolved.nodes.find((r) => sameTarget(r.path, path))?.components.filter((c) => c.type === v.type) ?? [];
+          index = list.findIndex((c) => c.added?.override === at && sameTarget(c.added.instance, [n.id]));
+          if (index < 0 || values.some((w) => w.slot.kind === "override" && w.type === v.type && w.field === v.field && sameTarget(w.target, v.target) && (n.overrides![w.slot.override].index ?? 0) === index)) continue;
         }
-      }
-      for (const o of n.overrides ?? []) {
-        if (!o.component || o.field === undefined) continue;
-        const path = [n.id, ...(o.target ?? [])];
-        const to = refId(o.value);
-        if (to) out.push({ path, type: o.component, index: o.index ?? 0, field: o.field, to });
-        listRefs(o.value, (element, id) => out.push({ path, type: o.component!, index: o.index ?? 0, field: o.field!, to: id, element }));
+        const path = [n.id, ...v.target];
+        for (const r of refs) out.push({ path, type: v.type, index, field: v.field, to: r.to, value: v.value, ...(r.element !== undefined ? { element: r.element } : {}) });
       }
     }
     return out;
@@ -209,19 +236,8 @@ export interface NodeReference {
   readonly to: string;
   /** For a list field (ADR 0042): which item holds the reference. */
   readonly element?: number;
-}
-
-/** Report each `{"$node": id}` item of a list value. */
-function listRefs(value: unknown, found: (element: number, id: string) => void): void {
-  if (!Array.isArray(value)) return;
-  value.forEach((item, i) => {
-    const id = refId(item);
-    if (id) found(i, id);
-  });
-}
-
-function refId(value: unknown): string | null {
-  return value && typeof value === "object" && typeof (value as { $node?: unknown }).$node === "string" ? (value as { $node: string }).$node : null;
+  /** The field's whole value as written (for a list field, the list). */
+  readonly value: unknown;
 }
 
 /** True if `o` is a field override for exactly this target, component, index and field. */
