@@ -4,8 +4,8 @@ import { desktopExportCommand, exportProjectBuild } from "./exportBuild";
 import { openFolderProject, readOnlyProject } from "./projects";
 import { demoFolder, ROOT, type MemoryFileSystem } from "./testing";
 
-// Build / Export in the editor (ADR 0041): the open project's files, its scripts compiled, and the
-// player fetched from beside the editor, written through the platform FileSystem.
+// Build / Export in the editor (ADR 0041): the editor's file sources (the open project's files, its scripts compiled, and the
+// player fetched from beside the editor) wired to the build writer (ADR 0296), whose own suite has the rest.
 const PLAYER: Record<string, string> = {
   "player/files.json": JSON.stringify({ files: ["assets/player-x.js", "myco.js", "player.html"] }),
   "player/assets/player-x.js": "// player",
@@ -81,12 +81,7 @@ describe("exportProjectBuild", () => {
     expect(manifest).toMatchObject({ name: "flappy", mainScene: "scenes/main.scene.json", scripts: [{ source: "scripts/Hello.ts", module: "code/scripts/Hello.js" }] });
     expect(progress.at(-1)).toBe(3 + plan.copies.length + plan.generated.size);
 
-    // Again over the earlier build: replaced. Into a folder holding something else: refused.
-    fs.files.set("C:\\Out\\flappy\\stale.txt", "old");
-    await exportProjectBuild(project, fs, "C:\\Out\\flappy");
-    expect(file("stale.txt")).toBeUndefined();
-    fs.files.set("C:\\Mine\\notes.txt", "mine");
-    await expect(exportProjectBuild(project, fs, "C:\\Mine")).rejects.toThrow(/isn't empty/);
+    // Replacing an earlier build and refusing other folders: the build writer's suite (src/export/buildWriter.test.ts).
     await expect(exportProjectBuild(project, fs, `${ROOT}\\build`)).rejects.toThrow(/inside the project/);
   });
 

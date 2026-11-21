@@ -1,23 +1,23 @@
 // The exporter in Node (ADR 0041), for `npm run export`: reads a project folder with the dedicated
 // server's reader (src/server/project.ts), plans the web build (webBuild.ts), and writes it with
-// the prebuilt player from dist/player/ (built first if it's missing). The desktop target wraps
-// that web build in a generated Tauri project (desktop.ts) and runs `tauri build` when Rust is
-// installed.
+// the build writer (buildWriter.ts, ADR 0296) through Node's fs, with the prebuilt player from
+// dist/player/ (built first if it's missing). The desktop target wraps that web build in a
+// generated Tauri project (desktop.ts) and runs `tauri build` when Rust is installed.
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { copyFile, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readProject, ServerError } from "../server/project";
 import { nodePackageSource } from "../server/packages";
 import { DEFAULT_ICON_SVG, ICON_FILES, desktopProjectFiles, desktopReadme, type BuildSettings } from "./desktop";
-import { ENGINE_FILE, MANIFEST_FILE, PLAYER_FILE_LIST, PLAYER_PAGE } from "./format";
+import { PLAYER_FILE_LIST } from "./format";
 import { Assets } from "../engine/scene/Assets";
 import { bakeModelFile } from "../engine/scene/models";
-import { processImages } from "./images";
+import { writeWebBuild, type BuildFolder, type FileSource } from "./buildWriter";
 import { sharpTranscoder } from "./imagesNode";
-import { ExportError, copiedPath, isOutputInsideProject, planWebBuild, withBakedModels, type WebBuildPlan } from "./webBuild";
+import { ExportError, isOutputInsideProject, planWebBuild, type WebBuildPlan } from "./webBuild";
 
 export type ExportTarget = "web" | "desktop";
 
@@ -60,34 +60,39 @@ export async function exportProject(options: ExportOptions): Promise<ExportResul
     throw new ExportError(`The output folder "${out}" is inside the project, where the next export would copy it in. Use a folder outside it, or under its dist/ folder.`);
   }
   let plan = await planWebBuild({ name: basename(project.root), settings: project.settings, files: project.files, scripts: project.scripts, json: project.json, packages: nodePackageSource(project.root, "production") }, { mainScene: options.mainScene, audioCapture: options.audioCapture });
-  // Bake the models (ADR 0090), loading them through the project's files as the server does.
+  const playerDir = options.playerDir ?? (await ensurePlayer(log));
+
+  const folder = nodeFolder(out);
+  const desktop = target === "desktop";
+  // Models bake through the project's files as the server loads them (ADR 0090).
   Assets.addSource(project.assets);
   try {
-    plan = await withBakedModels(plan, bakeModelFile, log);
-    // Resize and re-encode images per their sidecars for this platform (ADR 0119).
-    plan = await processImages(plan, {
-      platform: target === "desktop" ? "desktop" : "web",
-      readText: (path) => readFile(join(project.root, ...path.split("/")), "utf8").catch(() => undefined),
-      readBytes: async (path) => new Uint8Array(await readFile(join(project.root, ...path.split("/")))),
+    plan = await writeWebBuild(plan, {
+      project: nodeFiles(project.root),
+      player: nodeFiles(playerDir),
+      playerWhere: playerDir,
+      folder,
+      // A desktop package's web build sits in web/; its Rust build cache survives: rebuilding Tauri from scratch takes minutes.
+      web: desktop ? "web" : "",
+      keep: desktop ? ["src-tauri/target"] : [],
+      kind: target,
+      platform: target,
       transcode: sharpTranscoder,
+      bake: bakeModelFile,
       log,
     });
   } finally {
     Assets.removeSource(project.assets);
   }
-  const playerDir = options.playerDir ?? (await ensurePlayer(log));
-
-  await prepareOutput(out, target);
-  const web = target === "desktop" ? join(out, "web") : out;
-  await writeWebBuild(plan, project.root, playerDir, web);
+  const web = desktop ? join(out, "web") : out;
   log(`Wrote the web build of ${plan.manifest.name} to ${web} (${plan.copies.length} project files, ${plan.manifest.scripts.length} scripts).`);
-  if (target === "web") return { out, web, plan };
+  if (!desktop) return { out, web, plan };
 
   const settings = project.settings as typeof project.settings & { build?: BuildSettings };
   const files = desktopProjectFiles({ name: plan.manifest.name, settings });
   const tauriDir = join(out, "src-tauri");
-  for (const [path, text] of files) await writeText(join(tauriDir, path), text);
-  await makeIcons(project.root, settings.build?.icon, tauriDir, log);
+  for (const [path, text] of files) await folder.writeText(`src-tauri/${path}`, text);
+  await makeIcons(project.root, settings.build?.icon, folder, tauriDir, log);
   log(`Wrote the Tauri project to ${tauriDir}.`);
 
   const wantBuild = options.tauriBuild ?? hasCargo();
@@ -100,13 +105,13 @@ export async function exportProject(options: ExportOptions): Promise<ExportResul
   } else {
     log("Rust (cargo) isn't installed, so the app wasn't built. README.txt in the output folder says how to build it.");
   }
-  await writeText(join(out, "README.txt"), desktopReadme(plan.manifest.name, built ? "src-tauri/target/release/bundle/" : null));
+  await folder.writeText("README.txt", desktopReadme(plan.manifest.name, built ? "src-tauri/target/release/bundle/" : null));
   return { out, web, plan, built };
 }
 
 const basename = (path: string) => path.split(/[\\/]/).filter(Boolean).pop() ?? "game";
 
-/** The player folder: this checkout's dist/player/, built now if it isn't. */
+/** The player folder: this checkout's dist/player/, built now if it isn't. The build writer checks it's a complete one. */
 async function ensurePlayer(log: (line: string) => void): Promise<string> {
   if (existsSync(join(DEFAULT_PLAYER, PLAYER_FILE_LIST))) return DEFAULT_PLAYER;
   log("The player isn't built yet: building it (npm run build:player)…");
@@ -116,59 +121,39 @@ async function ensurePlayer(log: (line: string) => void): Promise<string> {
   return DEFAULT_PLAYER;
 }
 
-/**
- * Make sure `out` can take a build: a new or empty folder, or a previous build of the same target
- * (which is replaced). Anything else is refused rather than overwritten.
- */
-async function prepareOutput(out: string, target: ExportTarget): Promise<void> {
-  if (!existsSync(out)) return void (await mkdir(out, { recursive: true }));
-  const entries = await readdir(out);
-  if (entries.length === 0) return;
-  const previous = target === "desktop" ? existsSync(join(out, "web", MANIFEST_FILE)) : existsSync(join(out, MANIFEST_FILE));
-  if (!previous) throw new ExportError(`"${out}" isn't empty and doesn't hold an earlier ${target} build. Choose an empty folder.`);
-  // Keep the Rust build cache of a desktop package: rebuilding Tauri from scratch takes minutes.
-  for (const entry of entries) {
-    if (target === "desktop" && entry === "src-tauri") {
-      for (const inner of await readdir(join(out, entry))) if (inner !== "target") await rm(join(out, entry, inner), { recursive: true, force: true });
-    } else {
-      await rm(join(out, entry), { recursive: true, force: true });
-    }
-  }
+const under = (root: string, path: string) => (path ? join(root, ...path.split("/")) : root);
+
+/** A folder's files read through Node's fs, as bytes. */
+function nodeFiles(root: string): FileSource {
+  return { read: async (path) => new Uint8Array(await readFile(under(root, path))) };
 }
 
-/** Write a planned web build into `web`: the player, the project's files, and the generated files. */
-export async function writeWebBuild(plan: WebBuildPlan, projectRoot: string, playerDir: string, web: string): Promise<void> {
-  const player = JSON.parse(await readFile(join(playerDir, PLAYER_FILE_LIST), "utf8")) as { files: string[] };
-  if (!player.files.includes(PLAYER_PAGE) || !player.files.includes(ENGINE_FILE)) throw new ExportError(`${playerDir} isn't a built player (no ${PLAYER_PAGE} or ${ENGINE_FILE}). Run npm run build:player.`);
-  for (const file of player.files) await copy(join(playerDir, ...file.split("/")), join(web, file === PLAYER_PAGE ? "index.html" : file));
-  for (const path of plan.copies) await copy(join(projectRoot, ...path.split("/")), join(web, ...copiedPath(path).split("/")));
-  for (const [path, text] of plan.generated) await writeText(join(web, ...path.split("/")), text);
-  for (const [path, bytes] of plan.binaries ?? []) {
-    const to = join(web, ...path.split("/"));
+/** The build folder `root` through Node's fs (the command line's adapter). */
+function nodeFolder(root: string): BuildFolder {
+  const write = async (path: string, data: string | Uint8Array) => {
+    const to = under(root, path);
     await mkdir(dirname(to), { recursive: true });
-    await writeFile(to, bytes);
-  }
-}
-
-async function copy(from: string, to: string): Promise<void> {
-  await mkdir(dirname(to), { recursive: true });
-  await copyFile(from, to);
-}
-
-async function writeText(path: string, text: string): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, text);
+    await writeFile(to, data);
+  };
+  return {
+    where: root,
+    exists: async (path) => existsSync(under(root, path)),
+    list: async (path) => (await readdir(under(root, path), { withFileTypes: true })).map((e) => ({ name: e.name, isDirectory: e.isDirectory() })),
+    remove: (path) => rm(under(root, path), { recursive: true, force: true }),
+    writeText: write,
+    writeBytes: write,
+  };
 }
 
 /** The app icons, from the project's `build.icon` or the default, through `tauri icon` (no Rust needed). */
-async function makeIcons(projectRoot: string, icon: string | undefined, tauriDir: string, log: (line: string) => void): Promise<void> {
+async function makeIcons(projectRoot: string, icon: string | undefined, folder: BuildFolder, tauriDir: string, log: (line: string) => void): Promise<void> {
   let source: string;
   if (icon) {
     source = join(projectRoot, ...icon.replace(/^\.?\//, "").split("/"));
     if (!existsSync(source)) throw new ExportError(`project.json's build.icon "${icon}" isn't in the project.`);
   } else {
     source = join(tauriDir, "app-icon.svg");
-    await writeText(source, DEFAULT_ICON_SVG);
+    await folder.writeText("src-tauri/app-icon.svg", DEFAULT_ICON_SVG);
   }
   const code = await run(process.execPath, [tauriCli(), "icon", source, "--output", join(tauriDir, "icons")], tauriDir, true);
   if (code !== 0 || !ICON_FILES.every((f) => existsSync(join(tauriDir, f)))) {

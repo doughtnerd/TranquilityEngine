@@ -1,6 +1,6 @@
 # 0119. Game exports resize and re-encode images per their sidecars; tiles get an anchor
 
-- **Status:** Proposed (built; verification notes in docs/architecture/implementation-status.md)
+- **Status:** Proposed (built; verification notes in docs/architecture/implementation-status.md), amended by [0296](0296-one-web-build-writer-behind-a-build-folder-seam.md) (the build writer writes a processed image in place of its copy)
 - **Date:** 2026-11-07
 - **Deciders:** Chris Carlson
 - **Supersedes:** — (answers open questions of 0040 and 0115)

@@ -1,6 +1,6 @@
 # 0041. Games build to a static web player, packaged for desktop through Tauri
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by [0296](0296-one-web-build-writer-behind-a-build-folder-seam.md) (one build writer writes every web build)
 - **Date:** 2026-11-02
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

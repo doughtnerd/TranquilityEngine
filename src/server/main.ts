@@ -36,6 +36,7 @@
  * the engine's TypeScript as it loads.
  */
 import { DEFAULT_MAX_CONNECTIONS } from "../engine/net/session";
+import { parseCommandLine, readCommandLine, UsageError, type Command } from "./commandLine";
 import { DEFAULT_PORT, ServerError, startServer, type RunningServer, type ServerOptions } from "./run";
 
 export const USAGE = `Usage: myco-server <projectDir> [options]
@@ -50,52 +51,34 @@ Options:
   --stats-interval S   Seconds between stats lines (default 60; 0 turns them off)
   -h, --help           Show this help`;
 
-/** Bad command-line arguments. */
-export class UsageError extends Error {}
+/** A number option's value, checked; `what` says what it must be. */
+const number = (text: string, flag: string, check: (n: number) => boolean, what: string): number => {
+  const n = text.trim() === "" ? NaN : Number(text);
+  if (!check(n)) throw new UsageError(`${flag} needs ${what} (got ${JSON.stringify(text)}).`);
+  return n;
+};
+
+const PORT = "a port from 0 to 65535";
+const CONNECTIONS = "a whole number of at least 1";
+const TICK_RATE = "a number of steps per second, above 0 and at most 1000";
+const SECONDS = "a number of seconds (0 for none)";
+
+const SERVER_COMMAND: Command<ServerOptions> = {
+  argument: "project folder",
+  verb: "run",
+  options: {
+    "--port": { takes: PORT, set: (o, v, f) => void (o.port = number(v, f, (n) => Number.isInteger(n) && n >= 0 && n <= 65535, PORT)) },
+    "--host": { takes: "a host name or address", set: (o, v) => void (o.host = v) },
+    "--max-connections": { takes: CONNECTIONS, set: (o, v, f) => void (o.maxConnections = number(v, f, (n) => Number.isInteger(n) && n >= 1, CONNECTIONS)) },
+    "--tick-rate": { takes: TICK_RATE, set: (o, v, f) => void (o.tickRate = number(v, f, (n) => Number.isFinite(n) && n > 0 && n <= 1000, TICK_RATE)) },
+    "--stats-interval": { takes: SECONDS, set: (o, v, f) => void (o.statsIntervalMs = number(v, f, (n) => Number.isFinite(n) && n >= 0, SECONDS) * 1000) },
+  },
+};
 
 /** `argv` (without node and the script) as server options, or `"help"`. Throws a `UsageError`. */
 export function parseArgs(argv: readonly string[]): ServerOptions | "help" {
-  const options: Partial<ServerOptions> = {};
-  const positional: string[] = [];
-  const number = (flag: string, text: string | undefined, check: (n: number) => boolean, what: string): number => {
-    const n = text === undefined || text.trim() === "" ? NaN : Number(text);
-    if (!check(n)) throw new UsageError(`${flag} needs ${what} (got ${text === undefined ? "nothing" : JSON.stringify(text)}).`);
-    return n;
-  };
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i];
-    const [flag, inline] = arg.startsWith("--") && arg.includes("=") ? [arg.slice(0, arg.indexOf("=")), arg.slice(arg.indexOf("=") + 1)] : [arg, undefined];
-    const value = () => inline ?? argv[++i];
-    switch (flag) {
-      case "-h":
-      case "--help":
-        return "help";
-      case "--port":
-        options.port = number(flag, value(), (n) => Number.isInteger(n) && n >= 0 && n <= 65535, "a port from 0 to 65535");
-        break;
-      case "--host": {
-        const host = value();
-        if (!host || host.startsWith("-")) throw new UsageError(`--host needs a host name or address (got ${host === undefined ? "nothing" : JSON.stringify(host)}).`);
-        options.host = host;
-        break;
-      }
-      case "--max-connections":
-        options.maxConnections = number(flag, value(), (n) => Number.isInteger(n) && n >= 1, "a whole number of at least 1");
-        break;
-      case "--tick-rate":
-        options.tickRate = number(flag, value(), (n) => Number.isFinite(n) && n > 0 && n <= 1000, "a number of steps per second, above 0 and at most 1000");
-        break;
-      case "--stats-interval":
-        options.statsIntervalMs = number(flag, value(), (n) => Number.isFinite(n) && n >= 0, "a number of seconds (0 for none)") * 1000;
-        break;
-      default:
-        if (arg.startsWith("-")) throw new UsageError(`Unknown option ${arg}.`);
-        positional.push(arg);
-    }
-  }
-  if (positional.length === 0) throw new UsageError("Give the project folder to run.");
-  if (positional.length > 1) throw new UsageError(`Give one project folder (got ${positional.map((p) => JSON.stringify(p)).join(", ")}).`);
-  return { ...options, projectDir: positional[0] };
+  const parsed = parseCommandLine(argv, SERVER_COMMAND);
+  return parsed === "help" ? parsed : { ...parsed.options, projectDir: parsed.argument };
 }
 
 /**
@@ -104,18 +87,8 @@ export function parseArgs(argv: readonly string[]): ServerOptions | "help" {
  * SIGINT/SIGTERM later stop it and exit 0.
  */
 export async function main(argv: readonly string[]): Promise<number | undefined> {
-  let options: ServerOptions | "help";
-  try {
-    options = parseArgs(argv);
-  } catch (err) {
-    if (!(err instanceof UsageError)) throw err;
-    console.error(`myco-server: ${err.message}\n\n${USAGE}`);
-    return 2;
-  }
-  if (options === "help") {
-    console.log(USAGE);
-    return 0;
-  }
+  const options = readCommandLine("myco-server", USAGE, () => parseArgs(argv));
+  if (typeof options === "number") return options;
 
   let server: RunningServer;
   try {
