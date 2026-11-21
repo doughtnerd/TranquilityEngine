@@ -1,6 +1,6 @@
 # 0279. One scene-file walk under the format migrations and asset cleanup
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0280 (asset cleanup nulls node references only where `nodeReferences.ts` says one can sit)
 - **Date:** 2026-11-21
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
