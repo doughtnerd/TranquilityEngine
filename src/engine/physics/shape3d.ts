@@ -41,11 +41,21 @@ export function capsuleSize(radius: number, height: number, axis: 0 | 1 | 2, sca
 /** The thinnest a physics backend builds a collider, in world units (ADR 0288): a zero-sized one still collides as a speck. */
 export const MIN_SHAPE_SIZE = 1e-4;
 
-/** A sized 3D collider's fields, in local units; a capsule lies along `axis` (0 x, 1 y, 2 z). */
-export type ShapeFields3D =
+/**
+ * A sized 3D collider's fields, in local units; a capsule lies along `axis` (0 x, 1 y, 2 z), and an `upright` one
+ * (a character controller's) doesn't turn with its node.
+ */
+export type SizedShapeFields3D =
   | { readonly kind: "box"; readonly size: readonly number[] }
   | { readonly kind: "sphere"; readonly radius: number }
-  | { readonly kind: "capsule"; readonly radius: number; readonly height: number; readonly axis: 0 | 1 | 2 };
+  | { readonly kind: "capsule"; readonly radius: number; readonly height: number; readonly axis: 0 | 1 | 2; readonly upright?: boolean };
+
+/**
+ * A 3D collider's shape as its class describes it (ADR 0305): a sized shape, or a mesh (`mesh`, an asset reference;
+ * empty takes the node's MeshRenderer's) exact or wrapped in its convex hull. Its rebuild signature is
+ * `shapeSignature(fields)` (`shape2d.ts`).
+ */
+export type ShapeFields3D = SizedShapeFields3D | { readonly kind: "mesh"; readonly mesh: string; readonly convex: boolean };
 
 /** The collider as the physics backend builds it (world units): the sizes above, every one at least `MIN_SHAPE_SIZE` (a capsule's straight part may be zero). */
 export type ShapeSize3D =
@@ -56,7 +66,7 @@ export type ShapeSize3D =
 const atLeast = (v: number) => Math.max(v, MIN_SHAPE_SIZE);
 
 /** A collider's world size on a node of world scale `scale`, as the 3D physics world builds it and the gizmo draws it. */
-export function shapeSize3D(shape: ShapeFields3D, scale: readonly number[]): ShapeSize3D {
+export function shapeSize3D(shape: SizedShapeFields3D, scale: readonly number[]): ShapeSize3D {
   switch (shape.kind) {
     case "box":
       return { kind: "box", halfExtents: boxHalfExtents(shape.size, scale).map(atLeast) as V3 };

@@ -3,6 +3,7 @@ import { GameBehavior } from "../../../engine/core/Component";
 import { Vector2, type Vec2Like } from "../../../engine/core/math";
 import { component, field } from "../../../engine/core/registry";
 import type { GameObject } from "../../../engine/scene/GameObject";
+import type { ShapeFields2D } from "../../../engine/physics/shape2d";
 import type { CollisionFlags } from "../../../engine/physics/types";
 import { Collider2D } from "./Collider2D";
 import type { RigidBody2D } from "./RigidBody2D";
@@ -115,8 +116,8 @@ export class CharacterController2D extends Collider2D {
     if (dt > 0) this._velocity.set(x / dt, y / dt);
   }
 
-  override _shapeSignature(): string {
-    return `character:${this.radius},${this.height}`;
+  override _shapeFields(): ShapeFields2D {
+    return { kind: "capsule", radius: this.radius, height: this.height };
   }
 
   /** @internal */

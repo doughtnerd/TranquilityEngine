@@ -41,7 +41,6 @@ export interface ColliderComponent<D extends DimensionTypes, RB> extends Compone
   material: { friction: number; bounciness: number } | null | undefined;
   readonly attachedRigidbody: RB | null;
   _state: ColliderState<D, RB> | null;
-  _shapeSignature(): string;
 }
 
 /** @internal The character controller fields the core reads. */

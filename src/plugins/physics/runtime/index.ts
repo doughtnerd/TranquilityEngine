@@ -25,7 +25,7 @@ export { RigidBody, type RigidBodyConstraints } from "./RigidBody";
 export { BoxCollider, CapsuleCollider, Collider, MeshCollider, SphereCollider, type CapsuleDirection, type Collision } from "./Collider";
 export { Physics, type RaycastHit, type ShapeCastHit } from "./Physics";
 export { CharacterController, type CollisionFlags, type ControllerColliderHit } from "./CharacterController";
-export { AxisJoint, BallJoint, FixedJoint, HingeJoint, Joint, RopeJoint, SliderJoint, SpringJoint, type JointLimits, type JointMotor, type JointSpring } from "./Joint";
+export { AxisJoint, BallJoint, FixedJoint, HingeJoint, Joint, RopeJoint, SliderJoint, SpringJoint, type JointKind, type JointLimits, type JointMotor, type JointSpring } from "./Joint";
 export { CollisionEvents, TriggerEvents, PHYSICS_3D, physics3DOf, type PhysicsEvent } from "./systems3d";
 export { Buoyancy, type BuoyancyMode } from "./Buoyancy";
 export { physicsDimensionOf } from "./dimensions";

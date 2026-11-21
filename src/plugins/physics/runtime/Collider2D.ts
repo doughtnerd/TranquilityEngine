@@ -8,6 +8,7 @@ import type { ColliderState } from "./core/state";
 import { RigidBody2D } from "./RigidBody2D";
 import { attachedBody } from "./attachedBody";
 
+import type { ShapeFields2D } from "../../../engine/physics/shape2d";
 import type { PhysicsMaterial, PhysicsMaterial2D } from "../../../engine/physics/types";
 export type { PhysicsMaterial, PhysicsMaterial2D };
 
@@ -28,8 +29,11 @@ export abstract class Collider2D extends Component {
     return attachedBody(this.node, RigidBody2D);
   }
 
-  /** @internal A string that changes whenever the shape must be rebuilt. */
-  abstract _shapeSignature(): string;
+  /**
+   * @internal The collider's shape as its fields describe it, backend-neutral (ADR 0305): what the 2D physics world
+   * builds, the collider gizmo draws, and the shape is rebuilt on (`shapeSignature`).
+   */
+  abstract _shapeFields(): ShapeFields2D;
 
   override _onDetach(): void {
     physics2DOf(this._world)?.releaseCollider(this);
@@ -41,8 +45,8 @@ export class BoxCollider2D extends Collider2D {
   /** Width and height in local units (scaled by the node's world scale). */
   @field(Vector2) size = new Vector2(1, 1);
 
-  override _shapeSignature(): string {
-    return `box:${this.size.x},${this.size.y}`;
+  override _shapeFields(): ShapeFields2D {
+    return { kind: "box", size: [this.size.x, this.size.y] };
   }
 }
 
@@ -50,8 +54,8 @@ export class BoxCollider2D extends Collider2D {
 export class CircleCollider2D extends Collider2D {
   @field(Number) radius = 0.5;
 
-  override _shapeSignature(): string {
-    return `circle:${this.radius}`;
+  override _shapeFields(): ShapeFields2D {
+    return { kind: "circle", radius: this.radius };
   }
 }
 
@@ -74,8 +78,8 @@ export class PolygonCollider2D extends Collider2D {
     [-0.5, 0.5],
   ];
 
-  override _shapeSignature(): string {
-    return `polygon:${JSON.stringify(this.points)}`;
+  override _shapeFields(): ShapeFields2D {
+    return { kind: "polygon", points: this.points };
   }
 }
 
@@ -91,8 +95,8 @@ export class EdgeCollider2D extends Collider2D {
     [0.5, 0],
   ];
 
-  override _shapeSignature(): string {
-    return `edge:${JSON.stringify(this.points)}`;
+  override _shapeFields(): ShapeFields2D {
+    return { kind: "edge", points: this.points };
   }
 }
 

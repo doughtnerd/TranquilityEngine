@@ -10,8 +10,10 @@
  * - one collider per one-way run or polygon, which the backend lets bodies through from below
  *   (capability `oneWayPlatforms`; without it they're solid).
  * Everything is rebuilt when the source's signature, the collider's settings or the node's scale change.
+ * Poses and scales are the nodes' 2D frames (`scene/frame2d.ts`, ADR 0301): a mirrored tilemap is mirrored.
  */
 import type { World } from "../../../../engine/core/World";
+import { frame2DOf, frameDirection } from "../../../../engine/scene/frame2d";
 import type { BackendCollider, Dim2, PhysicsWorld2DBackend, Point2, ShapeDesc2D, Vec2 } from "../backend";
 import type { RigidBody2D } from "../RigidBody2D";
 import type { TilemapCollider2D } from "../TilemapCollider2D";
@@ -35,9 +37,8 @@ export class TilemapColliders2D {
     const source = c.source;
     const active = c.isActiveAndEnabled && !!source && source.isActiveAndEnabled;
     const body = active ? c.attachedRigidbody : null;
-    const t = c.node.transform;
-    const ws = t ? t.worldScale : { x: 1, y: 1 };
-    const signature = [c.mode, c.isTrigger, c.layer, c.material?.friction, c.material?.bounciness, c.center.x, c.center.y, ws.x.toFixed(4), ws.y.toFixed(4), source?.collisionSignature() ?? ""].join("|");
+    const ws = frame2DOf(c.node).scale;
+    const signature = [c.mode, c.isTrigger, c.layer, c.material?.friction, c.material?.bounciness, c.center.x, c.center.y, ws[0].toFixed(4), ws[1].toFixed(4), source?.collisionSignature() ?? ""].join("|");
     let st = c._tileState;
     if (st && (st.body !== body || st.signature !== signature || (body && !body._state) || !active)) {
       this.release(c);
@@ -62,21 +63,20 @@ export class TilemapColliders2D {
   private build(c: TilemapCollider2D, st: NonNullable<TilemapCollider2D["_tileState"]>): void {
     const shapes = c.source?.collisionShapes(c.mode);
     if (!shapes) return; // its signature changes once it can say
-    const t = c.node.transform;
-    const ws = t ? t.worldScale : { x: 1, y: 1 };
-    const sx = shapes.unit.x * ws.x, sy = shapes.unit.y * ws.y;
-    const ox = c.center.x * ws.x, oy = c.center.y * ws.y;
+    const frame = frame2DOf(c.node);
+    const ws = frame.scale;
+    const sx = shapes.unit.x * ws[0], sy = shapes.unit.y * ws[1];
+    const ox = c.center.x * ws[0], oy = c.center.y * ws[1];
 
     // Node pose (and the body's, when attached).
-    const p = t ? t.worldPosition : { x: 0, y: 0 };
-    const angle = t ? t.worldRotation2D : 0;
+    const p = { x: frame.position[0], y: frame.position[1] };
+    const angle = frame.angle;
     const cos = Math.cos(angle), sin = Math.sin(angle);
     const rb = st.body;
     let tx = p.x, ty = p.y, ta = angle;
     if (rb) {
-      const bt = rb.node.transform;
-      const bp = bt ? bt.worldPosition : { x: 0, y: 0 };
-      const ba = bt ? bt.worldRotation2D : 0;
+      const bf = frame2DOf(rb.node);
+      const bp = { x: bf.position[0], y: bf.position[1] }, ba = bf.angle;
       const dx = p.x - bp.x, dy = p.y - bp.y, bc = Math.cos(-ba), bs = Math.sin(-ba);
       tx = dx * bc - dy * bs;
       ty = dx * bs + dy * bc;
@@ -88,7 +88,7 @@ export class TilemapColliders2D {
       return [l.x, l.y] as const;
     });
     // Flipping the scale mirrors the winding, which oriented polylines care about.
-    const mirrored = ws.x * ws.y < 0;
+    const mirrored = frame.mirrored;
 
     if (!this.host.oneWay && (shapes.oneWay.length || shapes.oneWayPolygons.length)) {
       this.host.warnOnce("oneway", "this physics backend has no one-way platforms; one-way tiles are solid.");
@@ -118,9 +118,10 @@ export class TilemapColliders2D {
       make({ kind: "polyline", points: points([...pts, pts[0]]), oriented: true }, null);
     }
 
-    // One-way parts: each its own collider. The up direction is the node's +Y (flipped with a negative scale).
-    const upSign = ws.y < 0 ? -1 : 1;
-    const up = { x: -sin * upSign, y: cos * upSign };
+    // One-way parts: each its own collider. The up direction is the node's +Y in the world (flipped with a negative scale).
+    const [ux, uy] = frameDirection(frame, [0, 1]);
+    const ul = Math.hypot(ux, uy) || 1;
+    const up = { x: ux / ul, y: uy / ul };
     const base = p.x * up.x + p.y * up.y;
     const topOf = (lx: number, ly: number) => {
       // World point of a local point, then its height along up.
@@ -129,8 +130,9 @@ export class TilemapColliders2D {
     };
     for (const r of shapes.oneWay) {
       const centre = local(r.x + r.w / 2, r.y + r.h / 2);
-      const top = local(r.x + r.w / 2, ws.y < 0 ? r.y : r.y + r.h);
-      make({ kind: "compound", parts: [{ shape: { kind: "box", halfExtents: { x: Math.abs((r.w * sx) / 2), y: Math.abs((r.h * sy) / 2) } }, offset: centre }] }, { up, top: topOf(top.x, top.y), base });
+      // The top is whichever of the two edges is higher along up.
+      const lower = local(r.x + r.w / 2, r.y), upper = local(r.x + r.w / 2, r.y + r.h);
+      make({ kind: "compound", parts: [{ shape: { kind: "box", halfExtents: { x: Math.abs((r.w * sx) / 2), y: Math.abs((r.h * sy) / 2) } }, offset: centre }] }, { up, top: Math.max(topOf(lower.x, lower.y), topOf(upper.x, upper.y)), base });
     }
     for (const poly of shapes.oneWayPolygons) {
       let top = -Infinity;

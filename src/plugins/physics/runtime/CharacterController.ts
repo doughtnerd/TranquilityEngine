@@ -6,6 +6,7 @@ import type { GameObject } from "../../../engine/scene/GameObject";
 import { Collider } from "./Collider";
 import type { RigidBody } from "./RigidBody";
 
+import type { ShapeFields3D } from "../../../engine/physics/shape3d";
 import type { CollisionFlags } from "../../../engine/physics/types";
 export type { CollisionFlags };
 
@@ -120,8 +121,8 @@ export class CharacterController extends Collider {
     if (dt > 0) this._velocity.set(x / dt, y / dt, z / dt);
   }
 
-  override _shapeSignature(): string {
-    return `character:${this.radius},${this.height}`;
+  override _shapeFields(): ShapeFields3D {
+    return { kind: "capsule", radius: this.radius, height: this.height, axis: 1, upright: true };
   }
 
   /** @internal The controller's tuning, as the backend reads it. */
