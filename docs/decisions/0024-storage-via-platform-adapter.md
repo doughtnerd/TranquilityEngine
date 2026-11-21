@@ -1,6 +1,6 @@
 # 0024. Saves and settings through a platform Storage API
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0317 (storage scope per game, played project and editor; one JSON-or-bytes value contract)
 - **Date:** 2026-10-31
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
