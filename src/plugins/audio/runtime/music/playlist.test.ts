@@ -2,7 +2,7 @@
 // fake's horizon (now + L); the test primes a group a few frames after its prime request, as a worker would.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { setAudioBackend } from "../backend";
-import { makeFakeBackend, type FakeBackend, endAudioSession } from "../testing";
+import { makeFakeBackend, type FakeBackend, endAudioSession, musicFrameStep } from "../testing";
 import type { EventInstance } from "../events/eventRuntime";
 import {
   finishMusicContainer,
@@ -13,10 +13,8 @@ import {
   type SegmentNode,
 } from "../../../../engine/audio/musicFormat";
 import type { MusicClipFacts } from "../../../../engine/audio/musicValidate";
-import { createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
-import { planTick } from "./planner";
-import { tickTransition } from "./transition";
-import { createPlaylistState, enterPlaylist, tickPlaylist } from "./playlist";
+import { createMusicPlayer, type MusicPlayer } from "./musicSystem";
+import { createPlaylistState, enterPlaylist } from "./playlist";
 import { setSegmentClipSource } from "./segmentRun";
 
 const RATE = 48_000;
@@ -52,7 +50,6 @@ const instance = (group = groupIds++): EventInstance =>
   ({ group, world: 1, path: "music.audioevent", asset: { bus: "Music", volume: 1 } }) as unknown as EventInstance;
 
 let b: FakeBackend;
-const f = { backend: null as unknown as FakeBackend, music: null as FakeBackend["music"] | null, now: 0, dt: DT, hidden: false };
 
 interface Stamp { at: number; id: string; primedAtStamp: boolean; unprimed: number }
 let stamps: Stamp[] = [];
@@ -60,8 +57,7 @@ let stamps: Stamp[] = [];
 function rig(): void {
   b = makeFakeBackend();
   setAudioBackend(b);
-  f.backend = b;
-  f.music = b.music ?? null;
+  b.lookahead = L;
   setSegmentClipSource({ url: (p) => `/assets/${p}`, settings: () => ({ volume: 1, stream: true }), bus: (o) => o ?? "Master", facts });
   stamps = [];
   const music = b.music!;
@@ -81,17 +77,13 @@ function run(player: MusicPlayer, from: number, until: number, each?: (now: numb
   let frame = 0;
   let t = from;
   for (; t < until; t += DT, frame++) {
-    f.now = t;
-    (b as { time: number }).time = t;
-    b.horizonTime = t + L;
+    b.advanceTo(t);
     for (const p of b.music!.primes) {
       const g = p.request.group;
       if (!seen.has(g)) seen.set(g, frame);
     }
     for (const [g, first] of seen) if (frame - first >= PRIME_FRAMES) b.music!.setPrimed(g);
-    tickPlaylist(player, f as unknown as MusicFrame);
-    tickTransition(player, f as unknown as MusicFrame); // R3b: the natural advance lands through the transition
-    planTick(player, f as unknown as MusicFrame);
+    musicFrameStep(b, t); // the playlist, then the transition (R3b: the natural advance lands through it), then the planner
     each?.(t);
   }
   return t;

@@ -14,7 +14,7 @@
  *
  * **Priming ahead.** The moment an item is the playing run (its stamp is the first start's, or its promotion) the next
  * item is asked of the planner (`requestStart` with `grid: "exitCue"`): it is admitted and primed at once, a whole item
- * ahead, and stamps at the playing segment's exit cue (R1's `exitTime` for a natural advance; with counted loop regions
+ * ahead, and stamps at the playing segment's exit cue (R1's `exitPoint` for a natural advance, heard through `anchors.nextHeard`; with counted loop regions
  * the exit is after the last predicted wrap, P3's `predictWrap`). The planner stamps it only when primed (its own
  * deadline and re-plans), so a start is never unprimed.
  *
@@ -35,7 +35,7 @@
 import { ticksToSeconds } from "../../../../engine/audio/musicGrid";
 import type { PlaylistNode, MusicNode } from "../../../../engine/audio/musicFormat";
 import { musicChildById } from "../../../../engine/audio/musicTree";
-import { playingGridOf, predictWrap, heardTimeOf, ticksAt } from "./anchors";
+import { nextHeard, type NextPoint } from "./anchors";
 import { attachState, promote } from "./musicPlayer";
 import type { MusicFrame, MusicPlayer } from "./musicSystem";
 import { childFor, createSwitchState } from "./musicSwitch";
@@ -99,10 +99,6 @@ export interface PlaylistState {
 
 /** Guard for skipping unplayable leaves and ended nested playlists in one advance. */
 const MAX_STEPS = 4096;
-/** Most loop wraps looked through when predicting the exit of a looping segment (a `count` is 1..64). */
-const MAX_WRAPS = 70;
-/** Seconds past a wrap at which the position is read. */
-const WRAP_PROBE = 1e-4;
 const EPS = 1e-7;
 
 const playlistOf = (node: MusicNode): PlaylistNode | null => (node.type === "playlist" ? node : null);
@@ -205,29 +201,18 @@ function hashId(id: string): number {
 
 // --- The exit and the request ---------------------------------------------------------------------------------------
 
+/** The exit cue (file seconds) wherever the playhead is: `naturalExit`'s point. */
+const exitCue: NextPoint = (g) => (Number.isFinite(g.exitTicks) ? ticksToSeconds(g, g.exitTicks) : Number.NaN);
+
 /**
- * Heard seconds of the playing segment's exit cue (its end by default), through the loop passes still to come: after
- * the last predicted wrap the position is read back from the anchor. NaN when unknown (no grid, a forever loop).
+ * Heard seconds of the playing segment's exit cue (its end by default), in the pass it is heard in (after every loop
+ * pass still to come). NaN when unknown (no grid, a forever loop).
  */
 function naturalExit(player: MusicPlayer, now: number): number {
   const a = player.anchor;
   const run = player.run;
   if (!a || !run || a.segment !== run.node.id) return Number.NaN;
-  const pg = playingGridOf(a);
-  if (!pg || !Number.isFinite(pg.grid.exitTicks)) return Number.NaN;
-  let last = Number.NaN;
-  let t = Math.max(now, a.time);
-  let n = 0;
-  for (; n < MAX_WRAPS; n++) {
-    const w = predictWrap(player, t);
-    if (!Number.isFinite(w)) break;
-    last = w;
-    t = w + WRAP_PROBE;
-  }
-  if (n === MAX_WRAPS) return Number.NaN;
-  if (!Number.isFinite(last)) return heardTimeOf(a, pg.grid.exitTicks);
-  const pos = ticksAt(a, last + WRAP_PROBE);
-  return last + WRAP_PROBE + ticksToSeconds(pg.grid, pg.grid.exitTicks) - ticksToSeconds(pg.grid, pos);
+  return nextHeard(player, now, exitCue).at;
 }
 
 /**
@@ -243,7 +228,7 @@ function request(player: MusicPlayer, state: PlaylistState, f: MusicFrame, natur
   if (natural) {
     const a = player.anchor;
     const run = player.run;
-    const playing = a && run && a.segment === run.node.id ? playingGridOf(a) : null;
+    const playing = a && run && a.segment === run.node.id ? segmentGrid(a.node) : null;
     if (!playing || !run || !Number.isFinite(naturalExit(player, f.now))) return false; // no grid yet, or a forever loop
     // R3b: through the transition, so the rule's enter, fades and bridge apply; it lands the item at the exit cue.
     const req: Request = { advance, request: null, run: null, transition: null };

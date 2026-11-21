@@ -24,7 +24,7 @@
 import type { MusicNode } from "../../../../engine/audio/musicFormat";
 import { findMusicSegment } from "../../../../engine/audio/musicTree";
 import { entrySeconds, exitSeconds, ticksToSeconds, type SegmentGrid, type TempoMap } from "../../../../engine/audio/musicGrid";
-import { advanceAnchor, ticksAt } from "./anchors";
+import { ticksAt } from "./anchors";
 import { promote } from "./musicPlayer";
 import { musicPlayers, type MusicFrame, type MusicPlayer } from "./musicSystem";
 import { requestStart, type PlannedStart } from "./planner";
@@ -136,7 +136,6 @@ function planSwap(player: MusicPlayer, st: ReloadState, node: MusicNode, f: Musi
   const old = player.run;
   const anchor = player.anchor;
   if (!old || !anchor) return false;
-  advanceAnchor(player, f.now);
   const oldG = gridOfNode(old.node);
   const newG = gridOfNode(node);
   const fade = RELOAD_FADE_MS / 1000;

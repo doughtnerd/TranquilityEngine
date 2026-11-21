@@ -18,7 +18,8 @@ import type { AudioBackend, AudioCaptureSource, AudioDebugInfo, MusicBackend, Mu
 import type { KeyframeEvent, KeyframeMusic, KeyframePayload } from "./capture/format";
 import { KEYFRAME_MAX_EVENTS, KEYFRAME_MAX_MUSIC, KeyframeMusicState, keyframeU16 } from "./capture/keyframeLayout";
 import { events, type EventDebugRow } from "./events/eventRuntime";
-import { playingGridOf, ticksAt } from "./music/anchors";
+import { ticksAt } from "./music/anchors";
+import { segmentGrid } from "./music/segmentGrids";
 import { musicCounterTotals, musicPlayers, type MusicPlayer, type MusicPlayerState } from "./music/musicSystem";
 import { spanAtTicks, ticksToPosition, type SegmentGrid } from "../../../engine/audio/musicGrid";
 
@@ -159,18 +160,18 @@ function positionOf(p: MusicPlayer, time: number, out: { bar: number; beat: numb
   out.tempo = 0;
   out.beatsPerBar = 0;
   const a = p.anchor;
-  const pg = a ? playingGridOf(a) : null;
-  if (!a || !pg) return;
+  const grid = a ? segmentGrid(a.node) : null;
+  if (!a || !grid) return;
   const ticks = ticksAt(a, time);
-  const pos = Number.isFinite(ticks) ? ticksToPosition(pg.grid, ticks) : null;
+  const pos = Number.isFinite(ticks) ? ticksToPosition(grid, ticks) : null;
   if (pos) {
     out.bar = pos.bar;
     out.beat = pos.beat;
     out.tick = pos.tick;
   }
-  const i = spanAtTicks(pg.grid, Number.isFinite(ticks) ? ticks : 0);
-  out.tempo = pg.grid.bpm[i]!;
-  out.beatsPerBar = pg.grid.beatsPerBar[i]!;
+  const i = spanAtTicks(grid, Number.isFinite(ticks) ? ticks : 0);
+  out.tempo = grid.bpm[i]!;
+  out.beatsPerBar = grid.beatsPerBar[i]!;
 }
 
 /** FNV-1a over an event's parameters (sorted by name), so a change shows between two keyframes. */
@@ -198,7 +199,7 @@ function musicDebugRow(p: MusicPlayer, now: number, view: MusicBackendDebug, mus
   const a = p.anchor;
   const pos = { bar: 1, beat: 1, tick: 0, tempo: 0, beatsPerBar: 0 };
   positionOf(p, now, pos);
-  const pg = a ? playingGridOf(a) : null;
+  const grid = a ? segmentGrid(a.node) : null;
   const t = p.transition;
   const m = t?.match;
   const groupIds = new Set<number>();
@@ -215,7 +216,7 @@ function musicDebugRow(p: MusicPlayer, now: number, view: MusicBackendDebug, mus
     time: now,
     // Past T - L (`running`, `bridging`) the change is still on its way until it lands, as `handle.music.transition` says.
     pending: t && m && t.state !== "done" && t.state !== "cancelled"
-      ? { to: t.to.id, time: pg && Number.isFinite(t.exitAt) ? positionText(pg.grid, ticksAt(a!, t.exitAt)) : "", rule: m.rule, ruleKey: m.ruleKey, tier: m.tier, parent: m.parent, exit: m.exit, enter: m.enter }
+      ? { to: t.to.id, time: grid && Number.isFinite(t.exitAt) ? positionText(grid, ticksAt(a!, t.exitAt)) : "", rule: m.rule, ruleKey: m.ruleKey, tier: m.tier, parent: m.parent, exit: m.exit, enter: m.enter }
       : null,
     groups: view.groups.filter((g) => groupIds.has(g.id)).map((g) => ({ id: g.id, state: g.state, primed: g.primed, of: g.of })),
     // The pool index of a stem's ring isn't kept by main (the core allocates it); streamed stems number in order.

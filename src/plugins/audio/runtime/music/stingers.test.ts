@@ -3,11 +3,11 @@
 // that grid, not off G1's helpers.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { setAudioBackend } from "../backend";
-import { makeFakeBackend, type FakeBackend, endAudioSession } from "../testing";
+import { makeFakeBackend, type FakeBackend, endAudioSession, musicFrameAt } from "../testing";
 import type { EventInstance } from "../events/eventRuntime";
 import { parseAudioEvent } from "../../../../engine/audio/eventFormat";
 import type { MusicNode, SegmentNode } from "../../../../engine/audio/musicFormat";
-import { createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
+import { createMusicPlayer, type MusicPlayer } from "./musicSystem";
 import { createSegmentRun, setSegmentClipSource } from "./segmentRun";
 import { tickStingers, triggerOn } from "./stingers";
 import { commitStart, noteStartHeard, promote, stopPlayer } from "./musicPlayer";
@@ -27,7 +27,6 @@ function rootOf(stingers: Raw[], library: Raw[] = [seg("hit")], extra: Raw = {})
 }
 
 let b: FakeBackend;
-let f: MusicFrame;
 let player: MusicPlayer;
 
 /** A player playing `a` with its anchor at heard 0, and one tick so `trigger` has a frame. */
@@ -44,17 +43,15 @@ function rig(root: MusicNode): void {
     commitStart(player, run, 0);
     noteStartHeard(player, 0);
   }
-  (b as { time: number }).time = 0.1;
-  b.horizonTime = 0.1;
-  f = { backend: b, music: b.music ?? null, now: 0.1, dt: 1 / 60, hidden: false };
-  tickStingers(player, f);
+  b.lookahead = 0;
+  tickStingers(player, musicFrameAt(b, 0.1));
 }
 
 const at = (t: number, horizon = t): void => {
-  (b as { time: number }).time = t;
-  b.horizonTime = horizon;
+  b.advanceTo(t);
+  b.lookahead = horizon - t;
 };
-const tick = (): void => tickStingers(player, f);
+const tick = (): void => tickStingers(player, musicFrameAt(b));
 
 afterEach(() => {
   endAudioSession();

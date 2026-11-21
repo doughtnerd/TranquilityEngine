@@ -5,11 +5,11 @@
 // `core/musicRecoveryLoopback.test.ts` and `core/musicHiddenLoopback.test.ts`.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { setAudioBackend } from "../backend";
-import { makeFakeBackend, type FakeBackend, endAudioSession } from "../testing";
+import { makeFakeBackend, type FakeBackend, endAudioSession, musicFrameAt } from "../testing";
 import type { EventInstance } from "../events/eventRuntime";
 import { parseSegmentNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
 import type { MusicClipFacts } from "../../../../engine/audio/musicValidate";
-import { createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
+import { createMusicPlayer, type MusicPlayer } from "./musicSystem";
 import { setSegmentClipSource } from "./segmentRun";
 import { planTick } from "./planner";
 import { ticksAt } from "./anchors";
@@ -37,35 +37,26 @@ const instance = (): EventInstance =>
   ({ group: groupIds++, world: 1, path: "music.audioevent", asset: { bus: "Music", volume: 1 } }) as unknown as EventInstance;
 
 let b: FakeBackend;
-const f = { backend: null as unknown as FakeBackend, music: null as FakeBackend["music"] | null, now: 0, dt: DT, hidden: false };
-
-function at(now: number): MusicFrame {
-  f.now = now;
-  (b as { time: number }).time = now;
-  b.horizonTime = now + L;
-  return f as unknown as MusicFrame;
-}
 
 function rig(): void {
   b = makeFakeBackend();
   setAudioBackend(b);
-  f.backend = b;
-  f.music = b.music ?? null;
+  b.lookahead = L;
   setSegmentClipSource({ url: (p) => `/assets/${p}`, settings: () => ({ volume: 1, stream: true }), bus: (o) => o ?? "Master", facts: (p) => FACTS[p] });
-  at(1);
+  b.advanceTo(1);
 }
 
 /** A player whose first segment (two streamed stems) was stamped at 1.1 s (now 1 + lead 0.1) and plays. */
 function playingPlayer(clips = ["music/a1.ogg", "music/a2.ogg"]): MusicPlayer {
   const player = createMusicPlayer(instance(), segment("A", clips));
-  planTick(player, at(1));
+  planTick(player, musicFrameAt(b, 1));
   if (player.planned) {
     b.music!.setPrimed(player.planned.run.group);
-    planTick(player, at(1 + DT));
+    planTick(player, musicFrameAt(b, 1 + DT));
     expect(player.run!.startAt).toBeCloseTo(1.1, 9);
   } // else decoded: stamped at once, at now + L
   expect(player.state).toBe("committed");
-  planTick(player, at(1.2));
+  planTick(player, musicFrameAt(b, 1.2));
   expect(player.state).toBe("playing");
   return player;
 }
@@ -84,7 +75,7 @@ describe("music recovery (ADR 0166 P9, architecture §3.7)", () => {
     const oldAnchor = { ...player.anchor! };
     // The rebuild at 5.3 s: the music is heard at file 4.2 s. now + lead = 5.4 (file 4.3), so the next bar is file
     // 6.0 s, heard at 7.1 s: the group restarts from file frame 288,000.
-    at(5.3);
+    b.advanceTo(5.3);
     b.music!.report({ kind: "recover", cause: "rebuild" });
     expect(player.state).toBe("recovering");
     expect(player.counters.recoveries.rebuild).toBe(1);
@@ -98,7 +89,7 @@ describe("music recovery (ADR 0166 P9, architecture §3.7)", () => {
     expect(prime.request.members.map((m) => m.startFrame)).toEqual([6 * RATE, 6 * RATE]);
     // Primed: stamped at 7.1 (one stamp, every member), and the run and anchor are the player's again.
     b.music!.setPrimed(p.run.group);
-    planTick(player, at(7));
+    planTick(player, musicFrameAt(b, 7));
     expect(b.music!.stamps.at(-1)).toMatchObject({ group: p.run.group, at: p.at });
     expect(player.run).toBe(p.run);
     expect(player.next).toBeNull();
@@ -110,7 +101,7 @@ describe("music recovery (ADR 0166 P9, architecture §3.7)", () => {
   it("drops the successor and any plan; a player not stamped yet starts again", () => {
     rig();
     const player = createMusicPlayer(instance(), segment("A", ["music/a1.ogg"]));
-    planTick(player, at(1));
+    planTick(player, musicFrameAt(b, 1));
     const first = player.planned!.run.group;
     b.music!.report({ kind: "recover", cause: "crash" });
     expect(player.counters.recoveries.crash).toBe(1);
@@ -118,7 +109,7 @@ describe("music recovery (ADR 0166 P9, architecture §3.7)", () => {
     expect(player.planned).toBeNull();
     expect(player.run).toBeNull();
     expect(player.state).toBe("starting");
-    planTick(player, at(1.05));
+    planTick(player, musicFrameAt(b, 1.05));
     expect(player.planned).not.toBeNull();
     expect(player.planned!.at).toBeCloseTo(1.15, 9);
   });
@@ -131,7 +122,7 @@ describe("music recovery (ADR 0166 P9, architecture §3.7)", () => {
     const player = playingPlayer();
     for (let k = 0; k < 3; k++) {
       clock += 1000;
-      at(2 + k);
+      b.advanceTo(2 + k);
       b.music!.report({ kind: "recover", cause: "rate" });
       expect(player.state).toBe("recovering");
     }
@@ -151,7 +142,7 @@ describe("music recovery (ADR 0166 P9, architecture §3.7)", () => {
     rig();
     const player = playingPlayer();
     const group = player.run!.group;
-    at(3.5);
+    b.advanceTo(3.5);
     b.music!.emit({ kind: "abandon", group, late: false, slipFrames: 0, startFrame: 0 });
     expect(player.run!.state).toBe("cancelled");
     expect(player.counters.groupTimeouts).toBe(1);
@@ -168,7 +159,7 @@ describe("music recovery (ADR 0166 P9, architecture §3.7)", () => {
   it("a re-entry past the segment's exit cue has nothing to play: the player ends", () => {
     rig();
     const player = playingPlayer(["music/c1.ogg"]); // 10 s: the exit cue is the file's end
-    at(12);
+    b.advanceTo(12);
     b.music!.report({ kind: "recover", cause: "rebuild" });
     expect(player.planned).toBeNull();
     expect(player.state).toBe("stopping");
@@ -179,11 +170,11 @@ describe("the hidden-tab tick (ADR 0166 P9, architecture §3.8)", () => {
   it("ticks every player from STATUS while hidden: a start due meanwhile is stamped", () => {
     rig();
     const player = createMusicPlayer(instance(), segment("A", ["music/a1.ogg"]));
-    planTick(player, at(1));
+    planTick(player, musicFrameAt(b, 1));
     const p = player.planned!;
     b.music!.setPrimed(p.run.group);
     // Visible: a hidden tick does nothing.
-    at(1.03);
+    b.advanceTo(1.03);
     b.music!.report({ kind: "hiddenTick" });
     expect(b.beginFrameCalls).toBe(0);
     expect(player.state).toBe("starting");

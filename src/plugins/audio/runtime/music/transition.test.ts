@@ -6,12 +6,12 @@
 // (now 1 + the 100 ms first lead), so its bars are heard at 1.1, 3.1, 5.1, ...
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { setAudioBackend, type AudioVoice, type ShapedFade } from "../backend";
-import { makeFakeBackend, type FakeBackend, endAudioSession } from "../testing";
+import { makeFakeBackend, type FakeBackend, endAudioSession, musicFrameAt, musicFrameStep } from "../testing";
 import type { EventInstance } from "../events/eventRuntime";
 import { parseAudioEvent } from "../../../../engine/audio/eventFormat";
 import type { MusicNode, MusicSwitchNode } from "../../../../engine/audio/musicFormat";
 import type { MusicClipFacts } from "../../../../engine/audio/musicValidate";
-import { createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
+import { createMusicPlayer, musicEarlyStep, type MusicPlayer } from "./musicSystem";
 import { setSegmentClipSource } from "./segmentRun";
 import { planTick, requestStart } from "./planner";
 import { tickPlaylist } from "./playlist";
@@ -36,22 +36,13 @@ function root(transitions: Raw[] = [], children: Raw[] = [seg("A"), seg("B"), se
 const child = (r: MusicSwitchNode, id: string): MusicNode => r.children.find((c) => c.id === id)!;
 
 let b: FakeBackend;
-const f = { backend: null as unknown as FakeBackend, music: null as FakeBackend["music"] | null, now: 0, dt: DT, hidden: false };
 /** Every `fadeShaped` a voice got, with the voice. */
 let fades: { voice: AudioVoice; fade: ShapedFade }[] = [];
-
-function at(now: number): MusicFrame {
-  f.now = now;
-  (b as { time: number }).time = now;
-  b.horizonTime = now + L;
-  return f as unknown as MusicFrame;
-}
 
 function rig(): void {
   b = makeFakeBackend();
   setAudioBackend(b);
-  f.backend = b;
-  f.music = b.music ?? null;
+  b.lookahead = L;
   fades = [];
   const play = b.play.bind(b);
   b.play = (req) => {
@@ -60,7 +51,7 @@ function rig(): void {
     return v;
   };
   setSegmentClipSource({ url: (p) => p, settings: () => ({ volume: 1, stream: true }), bus: (o) => o ?? "Master", facts: () => long() });
-  at(1);
+  b.advanceTo(1);
 }
 
 const instance = (): EventInstance =>
@@ -69,19 +60,18 @@ const instance = (): EventInstance =>
 /** A player over `r` whose first segment A plays from 1.1 (stamped from now 1). */
 function playing(r: MusicSwitchNode): MusicPlayer {
   const player = createMusicPlayer(instance(), r);
-  requestStart(player, { to: child(r, "A"), reason: "start", grid: "immediate", notBefore: Number.NaN, startFrame: 0 }, at(1));
+  requestStart(player, { to: child(r, "A"), reason: "start", grid: "immediate", notBefore: Number.NaN, startFrame: 0 }, musicFrameAt(b, 1));
   b.music!.setPrimed(player.planned!.run.group);
-  planTick(player, at(1));
+  planTick(player, musicFrameAt(b, 1));
   expect(player.run?.node.id).toBe("A");
-  planTick(player, at(1.2));
+  planTick(player, musicFrameAt(b, 1.2));
   expect(player.state).toBe("playing");
   return player;
 }
 
 /** One frame of the player's transition and planner (the order of `tickPlayer`). */
 function tick(player: MusicPlayer, now: number): void {
-  tickTransition(player, at(now));
-  planTick(player, at(now));
+  musicFrameStep(b, now);
 }
 
 /** Prime the transition's incoming group and run frames from `from` to `to` (inclusive, by DT). */
@@ -105,7 +95,7 @@ describe("R3a: a quantised crossfade", () => {
     rig();
     const r = root([{ from: "A", to: "B", exit: "bar", fadeOut: { beats: 1 }, fadeIn: { beats: 1 } }]);
     const player = playing(r);
-    const t = requestTransition(player, child(r, "B"), at(1.5))!;
+    const t = requestTransition(player, child(r, "B"), musicFrameAt(b, 1.5))!;
     expect(t).not.toBeNull();
     expect(t.state).toBe("pending");
     expect(t.match.ruleKey).toBe("A>B");
@@ -159,7 +149,7 @@ describe("R3a: a quantised crossfade", () => {
     rig();
     const r = root([{ from: "A", to: "B", exit: "beat", fadeOut: { beats: 0 }, fadeIn: { beats: 0 } }]);
     const player = playing(r);
-    const t = requestTransition(player, child(r, "B"), at(1.5))!;
+    const t = requestTransition(player, child(r, "B"), musicFrameAt(b, 1.5))!;
     expect(t.exitAt).toBeCloseTo(1.6, 9);
     b.music!.setPrimed(t.incoming!.run.group);
     tick(player, 1.5);
@@ -179,7 +169,7 @@ describe("R3a: a quantised crossfade", () => {
       rig();
       const r = root([{ from: "A", to: "B", exit: "bar", fadeOut: { beats }, fadeIn: { beats } }]);
       const player = playing(r);
-      const t = requestTransition(player, child(r, "B"), at(1.5))!;
+      const t = requestTransition(player, child(r, "B"), musicFrameAt(b, 1.5))!;
       const seen = new Set<string>();
       b.music!.setPrimed(t.incoming!.run.group);
       for (let now = 1.5; now < 4.5; now += DT) {
@@ -203,7 +193,7 @@ describe("R3a: a quantised crossfade", () => {
       [seg("A"), seg("B", { gridOffset: 0.5 }), seg("C", { gridOffset: 0.5 })],
     );
     const player = playing(r);
-    const t = requestTransition(player, child(r, "B"), at(1.5))!;
+    const t = requestTransition(player, child(r, "B"), musicFrameAt(b, 1.5))!;
     expect(t.incoming!.at).toBeCloseTo(2.6, 9);
     b.music!.setPrimed(t.incoming!.run.group);
     tick(player, 1.6);
@@ -212,7 +202,7 @@ describe("R3a: a quantised crossfade", () => {
     expect(fb[1]!.fade).toMatchObject({ to: 1, at: expect.closeTo(3.1, 9), law: "equalPowerIn" });
 
     // C: the fade-in starts a beat before the 0.5 s pickup does, so it opens at the group start half way through.
-    const tc = requestTransition(player, child(r, "C"), at(1.7))!;
+    const tc = requestTransition(player, child(r, "C"), musicFrameAt(b, 1.7))!;
     expect(b.music!.cancelled).toContain(t.incoming!.run.group);
     b.music!.setPrimed(tc.incoming!.run.group);
     tick(player, 1.7);
@@ -224,7 +214,7 @@ describe("R3a: a quantised crossfade", () => {
     rig();
     const r = root([{ from: "A", to: "B", exit: "exitCue" }], [seg("A", { cues: [{ name: "out", at: "2:1:0" }], exit: "out" }), seg("B")]);
     const player = playing(r);
-    const t = requestTransition(player, child(r, "B"), at(1.5))!;
+    const t = requestTransition(player, child(r, "B"), musicFrameAt(b, 1.5))!;
     expect(t.exitAt).toBeCloseTo(3.1, 9);
     b.music!.setPrimed(t.incoming!.run.group);
     runFrames(player, 1.6, 3.1);
@@ -239,13 +229,13 @@ describe("R3a: a quantised crossfade", () => {
     // A loops bar 1 twice, exit cue at 3:1: heard at 1.1 + 2 (bar 1 again) + 4 = 7.1.
     const r = root([{ from: "A", to: "B", exit: "exitCue" }], [seg("A", { cues: [{ name: "out", at: "3:1:0" }], exit: "out", regions: [{ id: "r", from: "1:1:0", to: "2:1:0", count: 2 }] }), seg("B")]);
     const player = playing(r);
-    const t = requestTransition(player, child(r, "B"), at(1.5))!;
+    const t = requestTransition(player, child(r, "B"), musicFrameAt(b, 1.5))!;
     expect(t.exitAt).toBeCloseTo(7.1, 9);
     // A forever loop never reaches its exit cue: refused, the music plays on.
     rig();
     const r2 = root([{ from: "A", to: "B", exit: "exitCue" }], [seg("A", { cues: [{ name: "out", at: "3:1:0" }], exit: "out", regions: [{ id: "r", from: "1:1:0", to: "2:1:0", count: 0 }] }), seg("B")]);
     const p2 = playing(r2);
-    expect(requestTransition(p2, child(r2, "B"), at(1.5))).toBeNull();
+    expect(requestTransition(p2, child(r2, "B"), musicFrameAt(b, 1.5))).toBeNull();
     expect(p2.transition).toBeNull();
     expect(p2.state).toBe("playing");
   });
@@ -258,12 +248,12 @@ describe("R3a: replace, queue and cancel", () => {
     rig();
     const r = root(rules);
     const player = playing(r);
-    const t = requestTransition(player, child(r, "B"), at(1.5))!;
-    expect(requestTransition(player, child(r, "B"), at(1.6))).toBe(t);
+    const t = requestTransition(player, child(r, "B"), musicFrameAt(b, 1.5))!;
+    expect(requestTransition(player, child(r, "B"), musicFrameAt(b, 1.6))).toBe(t);
     b.music!.setPrimed(t.incoming!.run.group);
     tick(player, 1.6);
     expect(t.state).toBe("stamped");
-    const tc = requestTransition(player, child(r, "C"), at(2.5))!;
+    const tc = requestTransition(player, child(r, "C"), musicFrameAt(b, 2.5))!;
     expect(t.state).toBe("cancelled");
     expect(b.music!.cancelled).toContain(t.incoming!.run.group);
     expect(player.transition).toBe(tc);
@@ -275,21 +265,21 @@ describe("R3a: replace, queue and cancel", () => {
     rig();
     const r = root(rules);
     const player = playing(r);
-    const t = requestTransition(player, child(r, "B"), at(1.5))!;
+    const t = requestTransition(player, child(r, "B"), musicFrameAt(b, 1.5))!;
     b.music!.setPrimed(t.incoming!.run.group);
     runFrames(player, 1.6, 3.1 - L - DT + 1e-6);
     expect(t.state).toBe("running");
-    const q = requestTransition(player, child(r, "C"), at(3.08))!;
+    const q = requestTransition(player, child(r, "C"), musicFrameAt(b, 3.08))!;
     expect(q).not.toBe(t);
     expect(t.after).toBe(q);
     expect(player.transition).toBe(t);
     // cancelTransition after the cancel point: the committed change stays, the queued one goes.
-    cancelTransition(player, at(3.08));
+    cancelTransition(player, musicFrameAt(b, 3.08));
     expect(t.state).toBe("running");
     expect(t.after).toBeNull();
     expect(q.state).toBe("cancelled");
     // Queue again; it is planned when B lands, matched from B, on B's next bar (5.1).
-    const q2 = requestTransition(player, child(r, "C"), at(3.09))!;
+    const q2 = requestTransition(player, child(r, "C"), musicFrameAt(b, 3.09))!;
     tick(player, 3.1);
     expect(player.run?.node.id).toBe("B");
     expect(player.transition).toBe(q2);
@@ -302,8 +292,8 @@ describe("R3a: replace, queue and cancel", () => {
     rig();
     const r = root(rules);
     const player = playing(r);
-    const t = requestTransition(player, child(r, "B"), at(1.5))!;
-    cancelTransition(player, at(1.55));
+    const t = requestTransition(player, child(r, "B"), musicFrameAt(b, 1.5))!;
+    cancelTransition(player, musicFrameAt(b, 1.55));
     expect(t.state).toBe("cancelled");
     expect(player.transition).toBeNull();
     expect(player.planned).toBeNull();
@@ -317,12 +307,12 @@ describe("R3a: replace, queue and cancel", () => {
     const r = root(rules);
     const player = playing(r);
     b.music!.admitResult = { ok: false, reason: "poolFull", permanent: true };
-    expect(requestTransition(player, child(r, "B"), at(1.5))).toBeNull();
+    expect(requestTransition(player, child(r, "B"), musicFrameAt(b, 1.5))).toBeNull();
     expect(player.transition).toBeNull();
     expect(player.run?.node.id).toBe("A");
     expect(player.state).toBe("playing");
     b.music!.admitResult = { ok: false, reason: "poolFull", permanent: false };
-    const t = requestTransition(player, child(r, "C"), at(1.5))!;
+    const t = requestTransition(player, child(r, "C"), musicFrameAt(b, 1.5))!;
     expect(t).not.toBeNull();
     expect(player.planned?.status).toBe("waiting");
     expect(player.counters.refusals.poolFull).toBeGreaterThan(0);
@@ -332,9 +322,9 @@ describe("R3a: replace, queue and cancel", () => {
     rig();
     const r = root(rules);
     const player = playing(r);
-    const t: Transition = requestTransition(player, child(r, "B"), at(1.5))!;
+    const t: Transition = requestTransition(player, child(r, "B"), musicFrameAt(b, 1.5))!;
     stopPlayer(player);
-    tickTransition(player, at(1.6));
+    tickTransition(player, musicFrameAt(b, 1.6));
     expect(t.state).toBe("cancelled");
     expect(player.transition).toBeNull();
   });
@@ -345,7 +335,10 @@ describe("R3a: planImmediate (H5)", () => {
     rig();
     const r = root([{ exit: "bar" }]);
     const player = playing(r);
-    const t = planImmediate(player, child(r, "A"), 96_000, 5, at(2))!;
+    // Asked from a script's update (after the frame's step 0, before its plan step), as `handle.seek` asks.
+    b.advanceTo(2);
+    musicEarlyStep(b, DT);
+    const t = planImmediate(player, child(r, "A"), 96_000, 5, musicFrameAt(b))!;
     expect(t.state).toBe("pending");
     const p = t.incoming!;
     // Streamed: lead 1.25 x 40 ms + L + Δ̄ = 100 ms, and an asap start's frame of slack (Δ̄, F-25).
@@ -370,8 +363,8 @@ describe("R3a: planImmediate (H5)", () => {
     rig();
     const r = root();
     const player = createMusicPlayer(instance(), r);
-    expect(planImmediate(player, child(r, "A"), 0, 5, at(1))).toBeNull();
-    expect(requestTransition(player, child(r, "A"), at(1))).toBeNull();
+    expect(planImmediate(player, child(r, "A"), 0, 5, musicFrameAt(b, 1))).toBeNull();
+    expect(requestTransition(player, child(r, "A"), musicFrameAt(b, 1))).toBeNull();
   });
 });
 
@@ -405,7 +398,7 @@ describe("R3b: bridges", () => {
     rig(); // every stem streamed (the fake only plays the voices of a group it was asked to prime)
     const r = bridged();
     const player = playing(r);
-    const t = requestTransition(player, child(r, "B"), at(1.5))!;
+    const t = requestTransition(player, child(r, "B"), musicFrameAt(b, 1.5))!;
     expect(t.state).toBe("pending");
     expect(t.bridge?.run.node.id).toBe("R");
     expect(t.bridge?.point).toBeCloseTo(3.1, 9);
@@ -469,11 +462,11 @@ describe("R3b: bridges", () => {
     clipFacts((c) => c.includes("/R"));
     const r = bridged();
     const player = playing(r);
-    const t = requestTransition(player, child(r, "B"), at(1.5))!;
+    const t = requestTransition(player, child(r, "B"), musicFrameAt(b, 1.5))!;
     tick(player, 1.6);
     const bridgeGroup = t.bridge!.run.group;
     const bGroup = t.incoming!.run.group;
-    const tc = requestTransition(player, child(r, "C"), at(2))!;
+    const tc = requestTransition(player, child(r, "C"), musicFrameAt(b, 2))!;
     expect(t.state).toBe("cancelled");
     expect(b.music!.cancelled).toEqual(expect.arrayContaining([bridgeGroup, bGroup]));
     expect(player.transition).toBe(tc);
@@ -488,7 +481,7 @@ describe("R3b: bridges", () => {
     const r = bridged();
     const player = playing(r);
     const causes: string[] = [];
-    const t = requestTransition(player, child(r, "B"), at(1.5), { onDropped: (c) => causes.push(c) })!;
+    const t = requestTransition(player, child(r, "B"), musicFrameAt(b, 1.5), { onDropped: (c) => causes.push(c) })!;
     b.music!.admitResult = { ok: false, reason: "poolFull", permanent: false };
     tick(player, 1.6);
     expect(t.state).toBe("stamped");
@@ -514,7 +507,7 @@ describe("R3b: bridges", () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const r = bridged();
     const player = playing(r);
-    const t = requestTransition(player, child(r, "B"), at(1.5))!;
+    const t = requestTransition(player, child(r, "B"), musicFrameAt(b, 1.5))!;
     b.music!.admitResult = { ok: false, reason: "poolFull", permanent: true };
     tick(player, 1.6);
     expect(t.state).toBe("cancelled");
@@ -531,7 +524,7 @@ describe("R3b: bridges", () => {
     b.music!.ringPool = 4;
     const r = bridged();
     const player = playing(r);
-    const t = requestTransition(player, child(r, "B"), at(1.5))!;
+    const t = requestTransition(player, child(r, "B"), musicFrameAt(b, 1.5))!;
     expect(t.bridge?.point).toBeCloseTo(3.1, 9);
     b.music!.setPrimed(t.bridge!.run.group);
     b.music!.admitResult = { ok: false, reason: "poolFull", permanent: false };
@@ -561,7 +554,7 @@ describe("R3b: bridges", () => {
     // A 4-beat fade-out: A's rings come back at 5.1, B's start.
     const r = bridged({ fadeOut: { beats: 4 } });
     const player = playing(r);
-    const t = requestTransition(player, child(r, "B"), at(1.5))!;
+    const t = requestTransition(player, child(r, "B"), musicFrameAt(b, 1.5))!;
     b.music!.setPrimed(t.bridge!.run.group);
     b.music!.admitResult = { ok: false, reason: "poolFull", permanent: false };
     tick(player, 1.6);
@@ -577,7 +570,7 @@ describe("R3b: target resolution and natural advances", () => {
     rig();
     const r = root([], [seg("A"), { type: "playlist", id: "P", value: "P", children: [seg("C"), seg("D")] }]);
     const player = playing(r);
-    const t = requestTransition(player, child(r, "P"), at(1.5))!;
+    const t = requestTransition(player, child(r, "P"), musicFrameAt(b, 1.5))!;
     expect(t.incoming?.run.node.id).toBe("C");
     expect(t.match.ruleKey).toBe("*>*");
   });
@@ -589,9 +582,8 @@ describe("R3b: target resolution and natural advances", () => {
     const player = createMusicPlayer(instance(), value.musicRoot as MusicNode);
     for (let now = 1; now <= 4; now += DT) {
       for (const a of b.music!.admitted) b.music!.setPrimed(a.group);
-      tickPlaylist(player, at(now));
-      tickTransition(player, at(now));
-      planTick(player, at(now));
+      tickPlaylist(player, musicFrameAt(b, now));
+      musicFrameStep(b, now);
     }
     const stampOf = (id: string) => {
       const g = b.music!.admitted.find((a) => a.members[0]!.play.path === `music/${id}0.ogg`)!.group;

@@ -12,8 +12,8 @@
  * STOPped), after which it becomes the next transition.
  *
  * **R3a's execution.** R1's call order, through P2's planner:
- * - `findRule(root, playing, to)` → the match; T is the planner's point from `exitTime(match, playing, t, natural)`
- *   (unrolled over loop passes: a point past the playing region's next wrap is asked again in the pass after it); the
+ * - `findRule(root, playing, to)` → the match; T is the planner's point: `exitPoint(match, grid, file, natural)` heard
+ *   through the heard position module (`nextHeard`: a point past the playing region's next wrap is the pass after's); the
  *   start frame is `enterFrame` at T; the group starts at T - preEntry; the fades are `resolveFades` at T.
  * - **Incoming:** stamped by the planner when primed. A fade-in (seconds > 0, or an offset after the group's start)
  *   starts the members silent (a 0-second FADE to 0 at the group's start, the same frame as the PLAY; see "fadeZero"
@@ -81,10 +81,9 @@ import {
   type PlanReason, type PlanRequest,
 } from "./planner";
 import {
-  enterFrame, enterPoint, exitTime, findRule, resolveFades, type FadeLeg, type GridAt, type PlayingGrid, type ResolvedFade,
-  type RuleMatch,
+  enterFrame, enterPoint, exitPoint, findRule, resolveFades, type FadeLeg, type GridAt, type ResolvedFade, type RuleMatch,
 } from "./transitionRules";
-import { advanceAnchor, anchorRun, playingGridOf, predictWrap, ticksAt, type GridAnchor } from "./anchors";
+import { anchorRun, nextHeard, ticksAt, type GridAnchor, type NextPoint } from "./anchors";
 import {
   abandonTransition, adoptSuccessor, beginTransition, cancelSuccessor, clearTransition, finishTransition, markPending, promote, syncOverlap,
 } from "./musicPlayer";
@@ -146,10 +145,6 @@ export interface TransitionOptions {
 
 /** Float noise allowed when comparing heard seconds (far under one frame at 192 kHz). */
 const EPS = 1e-7;
-/** How far past a loop wrap a re-asked point starts (seconds; the mapping stays exact, this only picks the pass). */
-const PAST_WRAP = 1e-6;
-/** Loop passes a point search walks before it gives up (a forever loop never reaches a point past it). */
-const MAX_PASSES = 1024;
 /** Nested containers a target resolves through. */
 const MAX_DEPTH = 16;
 /** Ê before a backend reports one, ms (the planner's seed). */
@@ -239,41 +234,27 @@ function anchorFor(player: MusicPlayer, run: SegmentRun): GridAnchor | null {
   return Number.isFinite(run.startAt) ? anchorRun(run, run.startAt) : null;
 }
 
-/** The anchor's mapping for the pass after the wrap heard at `wrap`. */
-function passAfter(anchor: GridAnchor, base: PlayingGrid, wrap: number): PlayingGrid {
-  const t = wrap + PAST_WRAP;
-  return { grid: base.grid, anchorTicks: ticksAt(anchor, t), anchorTime: t };
-}
+/** The rule `exitPoint` asks the heard position for (one reused `NextPoint`, set by `pointOf`). */
+let exitMatch: RuleMatch | null = null;
+let exitNatural = false;
+const nextExit: NextPoint = (grid, file) => (exitMatch ? exitPoint(exitMatch, grid, file, exitNatural) : Number.NaN);
 
 /**
- * The exit point of `match` at or after heard `notBefore` on the playing segment (R1's `exitTime`), over its loop
- * passes: a point the linear mapping puts after the playing region's next wrap is asked again in the next pass. NaN
- * when there is none (past the exit cue, or a region looping forever before it).
+ * The heard time of the exit point of `match` at or after heard `notBefore` on the segment playing at `position` (R1's
+ * `exitPoint`, in the pass it is heard in). NaN when there is none (past the exit cue, or a region looping forever before it).
  */
-function pointOf(player: MusicPlayer, anchor: GridAnchor, match: RuleMatch, notBefore: number, natural: boolean): number {
-  const base = playingGridOf(anchor);
-  if (!base) return Number.NaN;
-  let pg = base;
-  let cursor = anchor.time;
-  for (let pass = 0; pass < MAX_PASSES; pass++) {
-    const wrap = predictWrap(player, cursor);
-    if (Number.isFinite(wrap) && wrap <= notBefore + EPS) {
-      pg = passAfter(anchor, base, wrap); // `notBefore` is in a later pass than the mapping's
-      cursor = wrap + PAST_WRAP;
-      continue;
-    }
-    const p = exitTime(match, pg, notBefore, natural);
-    if (!Number.isFinite(wrap) || !(p > wrap + EPS)) return p;
-    pg = passAfter(anchor, base, wrap);
-    cursor = wrap + PAST_WRAP;
-  }
-  return Number.NaN;
+function pointOf(position: MusicPlayer | GridAnchor, match: RuleMatch, notBefore: number, natural: boolean): number {
+  exitMatch = match;
+  exitNatural = natural;
+  const at = nextHeard(position, notBefore, nextExit).at;
+  exitMatch = null;
+  return at;
 }
 
 /** The position of a segment anchored at `anchor` at heard `t` (loop passes unrolled), as R1's `GridAt`. */
 function outAt(anchor: GridAnchor, t: number): GridAt | null {
-  const pg = playingGridOf(anchor);
-  return pg ? { grid: pg.grid, ticks: ticksAt(anchor, t) } : null;
+  const grid = segmentGrid(anchor.node);
+  return grid ? { grid, ticks: ticksAt(anchor, t) } : null;
 }
 
 /** A cut both ways (a natural advance under the default rule). */
@@ -313,7 +294,7 @@ function ringsOn(player: MusicPlayer, t: Transition, leg: Leg, T: number): boole
   if (t.immediate || leg.index !== 0 || !leg.from) return false;
   const anchor = anchorFor(player, leg.from);
   if (!anchor) return false;
-  const cue = pointOf(player, anchor, t.match, T, true);
+  const cue = pointOf(leg.from === player.run ? player : anchor, t.match, T, true);
   return Number.isFinite(cue) && Math.abs(cue - T) <= 1e-6;
 }
 
@@ -411,7 +392,6 @@ function entryCueMatch(match: RuleMatch): RuleMatch {
  */
 function plan(player: MusicPlayer, t: Transition, f: MusicFrame, onDropped: ((cause: string) => void) | null): boolean {
   if (!canLeave(player)) return false;
-  advanceAnchor(player, f.now);
   const target = resolveSegment(player, t.to);
   const grid = target ? segmentGrid(target) : null;
   if (!target || !grid) {
@@ -478,13 +458,10 @@ function legRequest(player: MusicPlayer, t: Transition, leg: Leg, f: MusicFrame,
   };
   if (asap) return { ...base, grid: "immediate" };
   if (leg.index === 0) {
-    return { ...base, grid: planGrid(t), points: (nb) => pointOf(player, anchor!, t.match, nb, t.natural), startFrameAt };
+    return { ...base, grid: planGrid(t), points: (nb) => pointOf(player, t.match, nb, t.natural), startFrameAt };
   }
-  // Leg 2: the bridge's exit cue (a bridge's loop regions aren't unrolled: it isn't the playing run when this is asked).
-  const points = (nb: number): number => {
-    const pg = anchor ? playingGridOf(anchor) : null;
-    return pg ? exitTime(t.match, pg, nb, true) : Number.NaN;
-  };
+  // Leg 2: the bridge's exit cue, heard through its own anchor (in the pass it is heard in).
+  const points = (nb: number): number => (anchor ? pointOf(anchor, t.match, nb, true) : Number.NaN);
   return { ...base, grid: "exitCue", points, startFrameAt };
 }
 

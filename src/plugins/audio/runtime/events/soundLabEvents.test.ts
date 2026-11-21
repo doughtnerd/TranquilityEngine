@@ -34,7 +34,7 @@ async function boot(scene: string): Promise<void> {
 /** Steps the engine for `seconds` of game time with the fake audio clock moving along (the audio system runs `events().update`). */
 const advance = (seconds: number) => {
   for (let t = 0; t < seconds; t += 1 / 60) {
-    (fake as { time: number }).time += 1 / 60;
+    fake.advance(1 / 60);
     engine!.step(1 / 60);
   }
 };
@@ -48,10 +48,10 @@ const voiceOf = (re: RegExp) => fake.voices.find((v) => re.test(v.request.path))
 
 beforeEach(() => {
   clearPlays();
-  (fake as { time: number }).time = 0;
+  fake.advanceTo(0);
   fake.ready = true;
   setAudioBackend(fake);
-  events().now = () => (fake as { time: number }).time; // cooldowns follow the fake clock, not wall time
+  events().now = () => fake.time; // cooldowns follow the fake clock, not wall time
   endAudioSession();
   warnings.length = 0;
   errors.length = 0;

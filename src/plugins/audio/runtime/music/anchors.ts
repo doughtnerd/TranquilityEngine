@@ -1,14 +1,14 @@
 /**
- * Grid anchors, counted loop regions and wrap prediction (ADR 0166 api-and-models §3.2 `GridAnchor`; architecture §4.5
- * "Model", §3.5, §3.6, §3.7 rate change).
+ * The heard position (ADR 0166 api-and-models §3.2 `GridAnchor`; architecture §4.5 "Model", §3.5, §3.6, §3.7 rate change;
+ * ADR 0285): the one module that maps between heard time and file position on a playing segment.
  *
  * Owner: **P3** (W4). Q2 wrote the skeleton.
  *
  * An anchor is integer ticks from the segment's bar 1 beat 1 **plus** the heard time it is at, never raw audio frames,
  * so a context rebuild at a new rate recomputes frames through the clock map. Heard time of position p =
- * t0 + sec(p) - sec(p0) (R1's `heardTimeAt`, the one definition); a loop pass adds k x the region length; a committed
- * successor has its own anchor (P3 keeps its run's `startAt` slipped, so `anchorRun(next, next.startAt)` is right when
- * R3a promotes it). Late starts, holds and abandons shift t0 by their slip (any size; indices never re-fire).
+ * t0 + sec(p) - sec(p0) within one pass; a loop pass adds the region's length; a committed successor has its own anchor
+ * (P3 keeps its run's `startAt` slipped, so `anchorRun(next, next.startAt)` is right when R3a promotes it). Late starts,
+ * holds and abandons shift t0 by their slip (any size; indices never re-fire).
  *
  * **Loop regions.** The worker loops a region in file frames (`loopStartFrame..loopEndFrame`, `MusicGroupMember`), so
  * a pass lasts exactly `(round(sec(to) x r) - round(sec(from) x r)) / r` heard seconds at pitch 1, r the clip's own rate
@@ -17,21 +17,27 @@
  * passes (0: forever; 1: no wrap, `musicValidate`'s `isLooping`), then plays on. A `while` region is capped by its
  * `count` and stops wrapping once R4b marks it released (`RegionState.released`): with the release's last pass
  * (`RegionState.lastPass`, what `tickRegions` sets) the wraps after that pass never happen, before or after `now`, in
- * every query (`ticksAt` finds the release through `bindRelease`); without one (a bare `released`) only the wraps
- * after `now` are dropped. Regions at or past the exit cue are never reached.
+ * every query (a bare anchor finds the release through `bindRelease`); without one (a bare `released`) only the wraps
+ * after the asked time are dropped. Regions at or past the exit cue are never reached.
  *
- * **Re-anchoring.** Nothing here needs it (every query unrolls the passes from the anchor), but readers that apply
- * heard(t) = t0 + file(t) - file(p0) linearly (the planner's `defaultPoint`, R1's `PlayingGrid`, R6's `nextGridHeard`)
- * are right only within the anchor's pass: `advanceAnchor(player, now)` moves the anchor to the pass heard at `now`.
+ * **Whole questions.** Every query walks the passes from the anchor itself (a forever loop in closed form), so nothing
+ * moves the anchor to "the pass heard now" first and no caller sums `anchor.time + (file - anchorFile)`:
+ * - `ticksAt(anchor, T)`: the position heard at T;
+ * - `nextHeard(position, T, next)` (`nextGridHeard` for a grid spec): the heard time of the first file position `next`
+ *   names at or after the position heard at T, in the pass it is heard in (a point the loop wraps before is asked
+ *   again from the region's start, one pass later; a point no pass reaches is NaN);
+ * - `predictWrap`, `nextWrapOf`: the next wrap after T.
+ * A point within half a clip frame before a wrap is the wrap's own (the next pass's first): the worker wraps on the
+ * clip's frame grid, so the region's end line can be heard up to half a frame before the wrap.
  */
 import type { MusicGroupEvent } from "../backend";
 import type { MusicNode } from "../../../../engine/audio/musicFormat";
-import { positionTextToTicks, secondsToTicks, ticksToSeconds, type SegmentGrid } from "../../../../engine/audio/musicGrid";
+import { nextGridSeconds, positionTextToTicks, secondsToTicks, ticksToSeconds, type SegmentGrid } from "../../../../engine/audio/musicGrid";
+import type { GridSpec } from "../../../../engine/audio/musicTypes";
 import type { MusicPlayer } from "./musicSystem";
 import type { RegionState } from "./regions";
 import { segmentClipSource, type SegmentRun } from "./segmentRun";
 import { FALLBACK_CLIP_RATE, segmentGrid, segmentLoops, type LoopRegion, type SegmentLoops } from "./segmentGrids";
-import { heardTimeAt, type PlayingGrid } from "./transitionRules";
 
 /** §3.2 `GridAnchor`. P3 added `node` and `rate` (the anchor needs its segment's grid; nothing else stores frames). */
 export interface GridAnchor {
@@ -59,14 +65,13 @@ const compiledOf = (a: GridAnchor): SegmentLoops | null => segmentLoops(a.node, 
 
 // --- R4b's release ------------------------------------------------------------------------------------------------------
 
-/** The release `advance` honours: a `regions` index of the node (-1 none) and its last pass (NaN: only wraps after the limit drop). */
-let relRegion = -1;
-let relPass = Number.NaN;
+/** The release a walk honours: a `regions` index of the node (-1 none) and its last pass (NaN: only the wraps after the asked time drop). */
+const release = { region: -1, lastPass: Number.NaN };
 
-/** Sets `relRegion`/`relPass` from a region state (none when it isn't released). */
+/** Sets `release` from a region state (none when it isn't released). */
 function readRelease(rs: RegionState | null | undefined): void {
-  relRegion = rs && rs.released ? rs.region : -1;
-  relPass = rs && rs.released ? rs.lastPass : Number.NaN;
+  release.region = rs && rs.released ? rs.region : -1;
+  release.lastPass = rs && rs.released ? rs.lastPass : Number.NaN;
 }
 
 /** The region state whose release an anchor plays under (`ticksAt`, which sees only the anchor). */
@@ -121,11 +126,10 @@ export function firstLoopOf(node: MusicNode, rate: number, startFrame: number): 
   const c = segmentLoops(node, undefined, true);
   if (!c || c.regions.length === 0 || !(rate > 0)) return null;
   const s = Math.max(0, startFrame) / rate;
-  const r = regionAt(c, s);
-  const cur: Cursor = { s, h: 0, region: r ? c.regions.indexOf(r) : -1, passes: 1, wrapped: false, wrapH: Number.NaN, wrapS: Number.NaN, wrapPass: 1 };
-  const w = advance(cur, c, Number.NEGATIVE_INFINITY, -1);
-  if (!Number.isFinite(w) || cur.region < 0) return null;
-  const index = c.regions[cur.region]!.index;
+  readRelease(null);
+  const w = wrapAhead({ s, h: 0, region: -1, passes: 1 }, c, false, wrapScratch);
+  if (w.k < 0) return null;
+  const index = c.regions[w.k]!.index;
   const frames = regionFramesOf(node, index, rate);
   return frames ? { ...frames, region: index } : null;
 }
@@ -159,20 +163,18 @@ export function nextWrapOf(player: MusicPlayer, now: number): NextWrap {
   const c = compiledOf(a);
   if (!c || c.regions.length === 0) return out;
   readRelease(player.regions);
-  const cur = cursorOf(a, c);
-  const at = advance(cur, c, Math.max(now, a.time - EPS), relRegion, relPass);
-  if (!Number.isFinite(at) || cur.region < 0) return out;
-  out.at = at;
-  out.region = c.regions[cur.region]!.index;
-  // `advance` returns either a region's first wrap (the cursor's pass) or the wrap after its last taken one.
-  out.pass = cur.passes;
+  const w = wrapAfter(a, c, Math.max(now, a.time - EPS));
+  if (w.k < 0) return out;
+  out.at = w.at;
+  out.region = c.regions[w.k]!.index;
+  out.pass = w.pass;
   out.node = a.node;
   return out;
 }
 
 /**
  * What the pass walk reads of a player: its anchor, its playing run and the region release. A `MusicPlayer` is one; the
- * beat clock walks its own scratch anchor through the same reads.
+ * beat clock asks with a source's anchor and, for the playing run, the player's release.
  */
 export interface PlayingPosition {
   readonly anchor: GridAnchor | null;
@@ -207,25 +209,6 @@ export function anchorRun(run: SegmentRun, at: number): GridAnchor {
   return { segment: run.node.id, ticks, time: at + (ticksToSeconds(c.grid, ticks) - file), pass: 1, node: run.node, rate };
 }
 
-/** One scratch `PlayingGrid` so heard time has R1's single definition without allocating per call. */
-const scratch = { grid: null as unknown as SegmentGrid, anchorTicks: 0, anchorTime: 0 };
-
-/** The anchor as R1's `PlayingGrid` (R3a's `exitTime`, `ticksAtHeard`): valid within the anchor's pass. Null without a grid. */
-export function playingGridOf(anchor: GridAnchor): PlayingGrid | null {
-  const c = compiledOf(anchor);
-  return c ? { grid: c.grid, anchorTicks: anchor.ticks, anchorTime: anchor.time } : null;
-}
-
-/** P3: heard time (seconds) of the position `ticks` (on the anchor's segment, its pass), NaN when unknown. */
-export function heardTimeOf(anchor: GridAnchor, ticks: number): number {
-  const c = compiledOf(anchor);
-  if (!c || !Number.isFinite(ticks) || !Number.isFinite(anchor.time)) return Number.NaN;
-  scratch.grid = c.grid;
-  scratch.anchorTicks = anchor.ticks;
-  scratch.anchorTime = anchor.time;
-  return heardTimeAt(scratch, ticks);
-}
-
 /**
  * P3: the position (ticks, fractional) heard at `time` (seconds) on the anchor's segment, NaN when unknown. Loop passes
  * after the anchor are unrolled (a time three passes on reads the region's position, not past its end); before the
@@ -236,7 +219,7 @@ export function ticksAt(anchor: GridAnchor, time: number): number {
   if (!c || !Number.isFinite(time) || !Number.isFinite(anchor.time)) return Number.NaN;
   const cur = cursorOf(anchor, c);
   readRelease(anchorRegions.get(anchor));
-  if (time > anchor.time) advance(cur, c, time, relRegion, relPass);
+  if (time > anchor.time) walkTo(cur, c, time);
   return secondsToTicks(c.grid, cur.s + (time - cur.h));
 }
 
@@ -251,31 +234,7 @@ export function predictWrap(player: PlayingPosition, now: number): number {
   const c = compiledOf(a);
   if (!c || c.regions.length === 0) return Number.NaN;
   readRelease(player.regions);
-  const cur = cursorOf(a, c);
-  return advance(cur, c, Math.max(now, a.time - EPS), relRegion, relPass);
-}
-
-/**
- * P3: move the player's anchor to the loop pass heard at `now` (the last wrap at or before it): ticks at the region's
- * `from` (the first integer tick at or after it), the pass counted on. Returns true when it moved. Call it once per
- * frame before code that reads the anchor linearly (see the file header).
- */
-export function advanceAnchor(player: PlayingPosition, now: number): boolean {
-  const a = player.anchor;
-  if (!a || !Number.isFinite(now) || !(now > a.time)) return false;
-  const c = compiledOf(a);
-  if (!c || c.regions.length === 0) return false;
-  const cur = cursorOf(a, c);
-  readRelease(player.regions);
-  advance(cur, c, now, relRegion, relPass);
-  if (!cur.wrapped) return false;
-  const exact = secondsToTicks(c.grid, cur.wrapS);
-  const near = Math.round(exact);
-  const ticks = Math.abs(exact - near) < 1e-6 ? near : Math.ceil(exact);
-  a.ticks = ticks;
-  a.time = cur.wrapH + (ticksToSeconds(c.grid, ticks) - cur.wrapS);
-  a.pass = cur.wrapPass;
-  return true;
+  return wrapAfter(a, c, Math.max(now, a.time - EPS)).at;
 }
 
 /**
@@ -375,13 +334,20 @@ interface Cursor {
   h: number;
   region: number;
   passes: number;
-  /** At least one wrap was taken by `advance`. */
-  wrapped: boolean;
-  /** The last wrap taken: heard time, the file seconds it landed on (the region's `from`), the pass it began. */
-  wrapH: number;
-  wrapS: number;
-  wrapPass: number;
 }
+
+/**
+ * The wrap the playhead meets next (`wrapAhead`): its region (an index in `regions`, -1: none ahead), the pass it ends,
+ * the wraps left in the region from there (that one included), and its heard time.
+ */
+interface Wrap {
+  k: number;
+  pass: number;
+  left: number;
+  at: number;
+}
+
+const wrapScratch: Wrap = { k: -1, pass: 0, left: 0, at: Number.NaN };
 
 function regionAt(c: SegmentLoops, s: number): LoopRegion | null {
   for (const r of c.regions) if (r.from <= s + EPS && s < r.to - EPS) return r;
@@ -391,77 +357,153 @@ function regionAt(c: SegmentLoops, s: number): LoopRegion | null {
 function cursorOf(a: GridAnchor, c: SegmentLoops): Cursor {
   const s = ticksToSeconds(c.grid, a.ticks);
   const r = regionAt(c, s);
-  return {
-    s, h: a.time, region: r ? c.regions.indexOf(r) : -1, passes: r ? Math.max(1, a.pass) : 1,
-    wrapped: false, wrapH: Number.NaN, wrapS: Number.NaN, wrapPass: 1,
-  };
+  return { s, h: a.time, region: r ? c.regions.indexOf(r) : -1, passes: r ? Math.max(1, a.pass) : 1 };
 }
 
 /**
- * Takes every wrap heard at or before `limit` (moving the cursor to the last one) and returns the heard time of the
- * first wrap after `limit`, NaN when none. Region `released` (a `regions` index of the node) wraps for the last time at
- * the end of pass `lastPass - 1` (R4b: pass `lastPass` plays through); with `lastPass` NaN its wraps after `limit`
- * don't happen.
+ * The first wrap the playhead meets from `cur` playing on (regions without wraps left are played through), into `out`.
+ * The released region (`release`) wraps for the last time at the end of pass `lastPass - 1` (R4b: pass `lastPass` plays
+ * through); a bare release (`lastPass` NaN) has no wraps left when `dropBare` (the wraps after the asked time don't happen).
  */
-function advance(cur: Cursor, c: SegmentLoops, limit: number, released: number, lastPass = Number.NaN): number {
+function wrapAhead(cur: Cursor, c: SegmentLoops, dropBare: boolean, out: Wrap): Wrap {
+  out.k = -1;
+  out.at = Number.NaN;
+  let s = cur.s;
+  let h = cur.h;
   const regions = c.regions;
-  for (let guard = 0; guard < 4 * regions.length + 4; guard++) {
-    // The region the playhead is in, or the next one it enters.
-    let k = -1;
-    for (let i = 0; i < regions.length; i++) {
-      const r = regions[i]!;
-      if (r.from <= cur.s + EPS && cur.s < r.to - EPS) { k = i; break; }
-      if (r.from > cur.s && (k < 0 || r.from < regions[k]!.from)) k = i;
+  for (let i = 0; i < regions.length; i++) {
+    const r = regions[i]!;
+    if (s >= r.to - EPS) continue; // behind the playhead
+    if (s >= c.exit - EPS) break; // past the exit: never reached
+    const passes = r.from <= s + EPS && cur.region === i ? cur.passes : 1;
+    let left = r.count === 0 ? Number.POSITIVE_INFINITY : r.count - passes;
+    if (r.index === release.region) {
+      if (release.lastPass === release.lastPass) left = Math.min(left, Math.max(0, release.lastPass - passes));
+      else if (dropBare) left = 0;
     }
-    if (k < 0) return Number.NaN;
-    const r = regions[k]!;
-    if (r.from > cur.s + EPS) {
-      // Enter it at its `from`: pass 1.
-      cur.h += r.from - cur.s;
-      cur.s = r.from;
-      cur.region = k;
-      cur.passes = 1;
-    } else if (cur.region !== k) {
-      cur.region = k;
-      cur.passes = 1;
-    }
-    const len = r.to - r.from;
-    let left = r.count === 0 ? Number.POSITIVE_INFINITY : r.count - cur.passes; // wraps still to come
-    const isReleased = r.index === released;
-    const byPass = isReleased && lastPass === lastPass;
-    if (byPass) left = Math.min(left, Math.max(0, lastPass - cur.passes));
-    const dropsLater = isReleased && !byPass; // a bare `released`: the wraps after `limit` don't happen
-    const first = cur.h + (r.to - cur.s);
     if (left > 0) {
-      if (first > limit) {
-        if (!dropsLater) return first;
-      } else {
-        // Every wrap at or before `limit`, in closed form (a forever loop may have run for hours).
-        let n = Math.floor((limit - first) / len) + 1;
-        if (first + n * len <= limit) n++;
-        while (n > 1 && first + (n - 1) * len > limit) n--;
-        n = Math.min(n, left);
-        cur.h = first + (n - 1) * len;
-        cur.s = r.from;
-        cur.passes += n;
-        cur.wrapped = true;
-        cur.wrapH = cur.h;
-        cur.wrapS = cur.s;
-        cur.wrapPass = cur.passes;
-        if (n < left) {
-          const next = cur.h + len;
-          if (!dropsLater) return next;
-        } else {
-          continue; // passes used up: play through this pass, then on
-        }
-      }
+      out.k = i;
+      out.pass = passes;
+      out.left = left;
+      out.at = h + (r.to - s);
+      return out;
     }
-    // No (more) wraps here: play through to its end and look further on.
-    cur.h += r.to - cur.s;
-    cur.s = r.to;
-    cur.region = -1;
-    cur.passes = 1;
-    if (cur.s >= c.exit - EPS) return Number.NaN;
+    h += r.to - s; // no wraps left: it plays through
+    s = r.to;
   }
-  return Number.NaN;
+  return out;
+}
+
+/**
+ * Takes every wrap heard at or before `limit` (in closed form: a forever loop may have run for hours), moving the cursor
+ * to the last one. A wrap within float noise after `limit` counts as at it, so a wrap time another query reported (a sum
+ * in another order) is taken when asked for.
+ */
+function walkTo(cur: Cursor, c: SegmentLoops, at: number): void {
+  const limit = at + EPS;
+  for (let guard = 0; guard < 2 * c.regions.length + 2; guard++) {
+    const w = wrapAhead(cur, c, false, wrapScratch);
+    if (w.k < 0 || !(w.at <= limit)) return;
+    const r = c.regions[w.k]!;
+    const len = r.to - r.from;
+    let n = Math.floor((limit - w.at) / len) + 1;
+    if (w.at + n * len <= limit) n++;
+    while (n > 1 && w.at + (n - 1) * len > limit) n--;
+    n = Math.min(n, w.left);
+    cur.h = w.at + (n - 1) * len;
+    cur.s = r.from;
+    cur.region = w.k;
+    cur.passes = w.pass + n;
+  }
+}
+
+/** The first wrap of anchor `a` heard after `limit` (`release` read already); a bare release's wraps after `limit` are dropped. */
+function wrapAfter(a: GridAnchor, c: SegmentLoops, limit: number): Wrap {
+  const cur = cursorOf(a, c);
+  walkTo(cur, c, limit);
+  return wrapAhead(cur, c, true, wrapScratch);
+}
+
+// --- Whole questions ---------------------------------------------------------------------------------------------------
+
+/**
+ * A file position a query wants (`nextHeard`): the first one at or after file seconds `file` on `grid` (strictly after
+ * it when `strict`), NaN when there is none. Pure: the walk may ask more than once.
+ */
+export type NextPoint = (grid: SegmentGrid, file: number, strict: boolean) => number;
+
+/** `nextHeard`'s answer (one reused object): the point's heard time and file seconds, both NaN when there is none. */
+export interface HeardPoint {
+  at: number;
+  file: number;
+}
+
+const heardScratch: HeardPoint = { at: Number.NaN, file: Number.NaN };
+
+/** Heard seconds a strict query's point must be after the asked time. */
+const STRICT_EPS = 1e-7;
+
+const isAnchor = (x: PlayingPosition | GridAnchor): x is GridAnchor => "segment" in x;
+
+/**
+ * ADR 0285: the heard time of the first file position `next` names at or after the position heard at `after` (strictly
+ * after `after` when `strict`), in the pass it is heard in. A point the playing loop wraps before (or within half a clip
+ * frame of the wrap) is asked again from the region's start, one pass later; when no pass of the region holds one, the
+ * walk goes on past the region's last wrap, and a region looping forever gives NaN. Nothing before the anchor is asked:
+ * the search starts no earlier than `anchor.time`. `position` is a playing position (its run's anchor, the release of its
+ * `regions`) or a bare anchor (its release through `bindRelease`). Returns one reused object: read it, don't keep it.
+ */
+export function nextHeard(position: PlayingPosition | GridAnchor, after: number, next: NextPoint, strict = false): HeardPoint {
+  const out = heardScratch;
+  out.at = Number.NaN;
+  out.file = Number.NaN;
+  const pos = isAnchor(position) ? null : position;
+  const a = pos ? anchorOfPlaying(pos) : (position as GridAnchor);
+  if (!a || !Number.isFinite(after) || !Number.isFinite(a.time)) return out;
+  const c = compiledOf(a);
+  if (!c) return out;
+  readRelease(pos?.regions ?? anchorRegions.get(a));
+  const from = Math.max(after, a.time);
+  const cur = cursorOf(a, c);
+  walkTo(cur, c, from);
+  cur.s += from - cur.h; // no wrap between the cursor and `from`
+  cur.h = from;
+  const half = 0.5 / a.rate + EPS;
+  const g = c.grid;
+  for (let guard = 0; guard < 2 * c.regions.length + 4; guard++) {
+    const w = wrapAhead(cur, c, true, wrapScratch);
+    let p = next(g, cur.s, false);
+    let h = cur.h + (p - cur.s);
+    if (guard === 0 && strict && Number.isFinite(p) && !(h > after + STRICT_EPS)) {
+      p = next(g, p, true);
+      h = cur.h + (p - cur.s);
+    }
+    if (Number.isFinite(p) && (w.k < 0 || h < w.at - half)) {
+      out.at = h;
+      out.file = p;
+      return out;
+    }
+    if (w.k < 0) return out;
+    // The pass wraps first: on from the region's start, one pass later; past its last wrap when no pass of it holds a point.
+    const r = c.regions[w.k]!;
+    const len = r.to - r.from;
+    const q = next(g, r.from, false);
+    const n = Number.isFinite(q) && q - r.from < len - half ? 1 : w.left;
+    if (!Number.isFinite(n)) return out; // a forever loop that never plays the point
+    cur.h = w.at + (n - 1) * len;
+    cur.s = r.from;
+    cur.region = w.k;
+    cur.passes = w.pass + n;
+  }
+  return out;
+}
+
+let gridSpec: GridSpec = "bar";
+const nextGridPoint: NextPoint = (g, file, strict) =>
+  nextGridSeconds(g, strict ? ticksToSeconds(g, Math.round(secondsToTicks(g, file)) + 1) : file, gridSpec);
+
+/** ADR 0285: `nextHeard` for the grid points of `spec` (strict: the one after the point on the tick heard at `after`). */
+export function nextGridHeard(position: PlayingPosition | GridAnchor, after: number, spec: GridSpec, strict = false): HeardPoint {
+  gridSpec = spec;
+  return nextHeard(position, after, nextGridPoint, strict);
 }

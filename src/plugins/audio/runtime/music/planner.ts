@@ -29,6 +29,7 @@ import {
 } from "../../../../engine/audio/musicGrid";
 import type { SegmentNode, MusicNode } from "../../../../engine/audio/musicFormat";
 import { segmentGrid } from "./segmentGrids";
+import { nextHeard, type NextPoint } from "./anchors";
 import { segmentRingNeed } from "../../../../engine/audio/musicValidate";
 import { musicPlayers, planStepDone, type MusicFrame, type MusicPlayer } from "./musicSystem";
 import { adoptPlan, adoptSuccessor, cancelSuccessor, clearPlan, commitStart, noteStartHeard, primeStart, refuseStart, waitForRoom } from "./musicPlayer";
@@ -72,7 +73,7 @@ export interface PlanRequest {
   readonly fadeLead?: number;
   /**
    * The next allowed point (heard seconds of T) at or after `notBefore`, of the rule's kind; NaN when there is none
-   * (past the exit cue). R3a passes `(t) => exitTime(match, playing, t, false)`. Absent: the playing segment's grid
+   * (past the exit cue). R3a passes its exit point heard over loop passes (`exitPoint` through `anchors.nextHeard`, ADR 0285). Absent: the playing segment's grid
    * through `player.anchor` (beat, bar, `grid` as bar, the next cue, the exit cue), or `immediate` when nothing plays.
    */
   readonly points?: (notBefore: number) => number;
@@ -162,24 +163,17 @@ function beatSecondsOf(node: MusicNode): number {
   return bpm > 0 ? 60 / bpm : Number.NaN;
 }
 
-/**
- * The next point of `kind` at or after heard `notBefore` on the playing segment, through `player.anchor` (heard(t) =
- * anchor.time + file(t) - file(anchor.ticks)), clamped to the exit cue; NaN past it. `notBefore` itself when nothing
- * plays or the segment has no grid.
- */
-function defaultPoint(player: MusicPlayer, kind: PlanGrid, notBefore: number): number {
-  const run = player.run;
-  const a = player.anchor;
-  const g = run ? segmentGrid(run.node) : null;
-  if (!run || !a || !g || kind === "immediate") return notBefore;
-  const base = ticksToSeconds(g, a.ticks);
-  const file = base + (notBefore - a.time);
+/** The kind `kindPoint` looks for (set just before the walk). */
+let pointKind: PlanGrid = "bar";
+
+/** The next point of `pointKind` at or after file seconds `file`, clamped to the exit cue; NaN past it. */
+const kindPoint: NextPoint = (g, file) => {
   const exit = exitSeconds(g) ?? Number.NaN;
   if (exit < file - EPS) return Number.NaN;
   let point: number;
-  if (kind === "beat") point = nextGridSeconds(g, file, "beat");
-  else if (kind === "bar" || kind === "grid") point = nextGridSeconds(g, file, "bar");
-  else if (kind === "exitCue") point = exit;
+  if (pointKind === "beat") point = nextGridSeconds(g, file, "beat");
+  else if (pointKind === "bar" || pointKind === "grid") point = nextGridSeconds(g, file, "bar");
+  else if (pointKind === "exitCue") point = exit;
   else {
     point = Number.NaN;
     for (let i = 0; i < g.cueTicks.length; i++) {
@@ -190,8 +184,19 @@ function defaultPoint(player: MusicPlayer, kind: PlanGrid, notBefore: number): n
     }
   }
   if (Number.isFinite(exit) && !(point <= exit)) point = exit;
-  if (!Number.isFinite(point)) return Number.NaN;
-  return a.time + (point - base);
+  return Number.isFinite(point) ? point : Number.NaN;
+};
+
+/**
+ * The next point of `kind` at or after heard `notBefore` on the playing segment, in the pass it is heard in (the heard
+ * position module, ADR 0285), clamped to the exit cue; NaN past it. `notBefore` itself when nothing plays or the segment
+ * has no grid.
+ */
+function defaultPoint(player: MusicPlayer, kind: PlanGrid, notBefore: number): number {
+  const run = player.run;
+  if (!run || !player.anchor || !segmentGrid(run.node) || kind === "immediate") return notBefore;
+  pointKind = kind;
+  return nextHeard(player, notBefore, kindPoint).at;
 }
 
 /** True when the plan lands on points of a kind (re-plans move to the next point), false for "now + lead" plans. */

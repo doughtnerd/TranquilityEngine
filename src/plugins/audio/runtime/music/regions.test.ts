@@ -9,7 +9,7 @@ import { parseSegmentNode, type SegmentNode } from "../../../../engine/audio/mus
 import type { MusicClipFacts } from "../../../../engine/audio/musicValidate";
 import { createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
 import { createSegmentRun, setSegmentClipSource, type SegmentRun } from "./segmentRun";
-import { advanceAnchor, nextWrapOf, predictWrap, ticksAt } from "./anchors";
+import { nextGridHeard, nextWrapOf, predictWrap, ticksAt } from "./anchors";
 import { tickRegions } from "./regions";
 import { conditionHolds } from "./regionCondition";
 import { endAudioSession } from "../testing";
@@ -110,7 +110,7 @@ describe("while regions: the commit point and the release (architecture §3.5)",
     expect(nextWrapOf(player, 15.95).at).toBeNaN();
     expect(ticksAt(player.anchor!, 15)).toBeCloseTo(5 * TPS, 6); // pass 1, file 5 s
     expect(ticksAt(player.anchor!, 17)).toBeCloseTo(7 * TPS, 6); // past the region: file 7 s, not 3 s
-    expect(advanceAnchor(player, 17)).toBe(false); // no wrap was heard
+    expect(nextGridHeard(player, 17, "bar").at).toBeCloseTo(18, 9); // the next bar past the region (file 8 s), no pass back
   });
 
   it("once the release is heard the anchor moves to the region's end and the release is cleared", () => {

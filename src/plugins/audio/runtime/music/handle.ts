@@ -8,7 +8,7 @@
  * `handle.music` is `undefined`, never an empty object, for a non-music event (`musicHandleOf`). The getters share one
  * snapshot per display frame, recomputed on first read, with no allocation after it; none of them calls the core.
  *
- * P7's readings: the position is read through the player's anchor with P3's `ticksAt` and `heardTimeOf`
+ * P7's readings: the position is read through the player's anchor with P3's `ticksAt` and `nextGridHeard` (ADR 0285)
  * (one heard-time definition, loop passes unrolled). `segment` is null until the first run's
  * stamped start is heard. Grid points are at or after `Audio.time`.
  */
@@ -20,13 +20,13 @@ import {
 } from "../../../../engine/audio/musicGrid";
 import { MUSIC_TICKS_PER_BEAT, type BarBeatTick } from "../../../../engine/audio/musicPosition";
 import { audioBackend } from "../backend";
-import { nextWrapOf, ticksAt, type GridAnchor } from "./anchors";
+import { nextGridHeard, ticksAt, type GridAnchor } from "./anchors";
 import { heardRunAt } from "./beatClock";
 import { getCalibration } from "./calibration";
 import { musicFrameSerial, playerOf, type MusicPlayer } from "./musicSystem";
 import { seekMusic } from "./seek";
 import type { SegmentRun } from "./segmentRun";
-import { segmentGrid, segmentLoops } from "./segmentGrids";
+import { segmentGrid } from "./segmentGrids";
 import type { Transition } from "./transition";
 
 const EPS = 1e-6;
@@ -192,28 +192,16 @@ export function nextGrid(player: MusicPlayer, spec: GridSpec): GridPoint | null 
   const now = audioBackend().time;
   const cur = playing(player, now);
   if (!cur) return null;
-  const { grid: g, anchor: a } = cur;
-  const here = ticksAt(a, now);
-  if (!Number.isFinite(here)) return null;
+  const g = cur.grid;
   const tr = player.transition;
   const pending = tr !== null && tr.state !== "done" && tr.state !== "cancelled" ? tr : null;
   const landing = pending ? landingTime(pending) : Number.NaN;
-  // The playing segment's own next point, kept while it is inside the exit and not after the change lands. Heard time
-  // runs from the position heard now (the anchor may be passes behind); a point the loop wraps before is the first point
-  // of the next pass, from the region's start.
-  const fileNow = ticksToSeconds(g, here);
-  let p = nextGridSeconds(g, fileNow, spec);
-  let heard = now + (p - fileNow);
-  const wrap = nextWrapOf(player, now);
-  if (Number.isFinite(wrap.at) && wrap.node === cur.run.node && heard > wrap.at - EPS) {
-    const from = segmentLoops(wrap.node, a.rate)?.regions.find((r) => r.index === wrap.region)?.from;
-    if (from !== undefined) {
-      p = nextGridSeconds(g, from, spec);
-      heard = wrap.at + (p - from);
-    }
-  }
+  // The playing segment's own next point, in the pass it is heard in (ADR 0285), kept while it is inside the exit and
+  // not after the change lands.
+  const hit = nextGridHeard(player, now, spec);
+  const p = hit.file, heard = hit.at;
   const exit = exitSeconds(g);
-  if ((exit === null || p <= exit + EPS) && !(heard > landing + EPS)) return gridPoint(g, p, heard, cur.run.node.id);
+  if (Number.isFinite(heard) && (exit === null || p <= exit + EPS) && !(heard > landing + EPS)) return gridPoint(g, p, heard, cur.run.node.id);
   if (!pending || !Number.isFinite(landing)) return null;
   // After the change: the incoming segment's grid, anchored at its entry on the landing time.
   const node = pending.incoming?.run.node ?? (pending.to.type === "segment" ? pending.to : null);

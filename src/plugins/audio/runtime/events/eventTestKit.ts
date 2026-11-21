@@ -35,7 +35,7 @@ export function eventKit(): EventKit {
   beforeEach(() => {
     fake.clear();
     fake.ready = true;
-    (fake as { time: number }).time = 0;
+    fake.advanceTo(0);
     setAudioBackend(fake);
     endAudioSession();
     vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -54,7 +54,7 @@ export function eventKit(): EventKit {
       await SceneManager.load("s.json");
       engine.world.render = {} as never;
     },
-    setTime(seconds) { (fake as { time: number }).time = seconds; },
+    setTime(seconds) { fake.advanceTo(seconds); },
     frame(dt = 1 / 60) {
       if (!engine) throw new Error("eventKit: boot() first");
       engine.step(dt);
