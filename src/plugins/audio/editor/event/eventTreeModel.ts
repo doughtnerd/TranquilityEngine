@@ -1,8 +1,8 @@
 // The Event editor's pure tree operations (ADR 0158 §1, §7): addressing a node of an audio event's container tree by
 // path, and every structural edit the tree pane makes (add, remove, reorder, move, duplicate, wrap). Renaming a
 // parameter where the event names it is `engine/audio/eventReferences.ts`'s (ADR 0299). Every function returns new values and never mutates its inputs: untouched
-// subtrees are shared, changed ones are copied along the path. The panel turns each result into one undoable edit. An add
-// a user can get refused returns the refused-or-next `EditResult` (ADR 0307); the guarded edits throw when their `can*` says no.
+// subtrees are shared, changed ones are copied along the path. Every edit returns the refused-or-next `EditResult` (ADR
+// 0307, 0313), which the panel applies as one undoable edit or a refusal in the status bar.
 import {
   MAX_EVENT_DEPTH,
   MAX_EVENT_NODES,
@@ -210,129 +210,115 @@ export function cloneNode(node: EventNode): EventNode {
 }
 
 // --- edits ----------------------------------------------------------------------------------------------------------
+// Every structural edit returns the refused-or-next `EditResult` (ADR 0307, 0313): the toolbar's "disabled" checks ask
+// the edit itself (`refusalOf(removeNode(root, path)) !== null`), and the panel applies it with `applyEdit`, so a refused
+// Delete or drop says why in the status bar.
 
 /**
  * A new root with the node at `path` replaced by `node` (ancestors copied, everything else shared). `path` `[]`
- * replaces the root. Throws `RangeError` when `path` doesn't lead to a node.
+ * replaces the root. The addressing step under the edits, not an edit a user can get refused: it throws `RangeError`
+ * when `path` doesn't lead to a node, which only a caller that didn't read the node first can cause.
  */
 export function setNode(root: EventNode, path: NodePath, node: EventNode): EventNode {
   if (getNode(root, path) === undefined) throw new RangeError(`no node at "${pathKey(path)}"`);
   return replaceAt(root, path, 0, node);
 }
 
-/**
- * Whether `node` may be added under the list container at `parent`: the parent exists and is a list container, no node
- * would sit at depth `MAX_EVENT_DEPTH` or deeper (a node's depth is its path's length, the root's 0, so the rule is
- * `parent.length + subtreeHeight(node) < MAX_EVENT_DEPTH`; the parser drops deeper nodes), and the tree would hold at
- * most `MAX_EVENT_NODES` nodes (`countNodes(root) + countNodes(node) <= MAX_EVENT_NODES`).
- */
-export function canAddChild(root: EventNode, parent: NodePath, node: EventNode): boolean {
-  const target = getNode(root, parent);
-  if (!target || !isListNode(target)) return false;
-  return parent.length + subtreeHeight(node) < MAX_EVENT_DEPTH && countNodes(root) + countNodes(node) <= MAX_EVENT_NODES;
-}
+const DEEPER = "the event can't nest any deeper there";
+const noNodeAt = (path: NodePath) => `no node at "${pathKey(path)}"`;
+const tooMany = () => `the event can't hold more than ${MAX_EVENT_NODES} nodes`;
 
 /**
  * Insert `node` (as given, not copied) into the children of the list container at `parent`, at `index` (default: the
- * end; clamped to 0..children.length). Returns the new root and the new node's path. Throws `RangeError` when
- * `canAddChild` is false.
+ * end; clamped to 0..children.length). Returns the new root and the new node's path. Refused when the parent isn't a
+ * list container, when a node would sit at depth `MAX_EVENT_DEPTH` or deeper (a node's depth is its path's length, the
+ * root's 0, so the rule is `parent.length + subtreeHeight(node) < MAX_EVENT_DEPTH`; the parser drops deeper nodes), or
+ * when the tree would hold more than `MAX_EVENT_NODES` nodes.
  */
-export function addChild(root: EventNode, parent: NodePath, node: EventNode, index?: number): TreeEdit {
-  if (!canAddChild(root, parent, node)) throw new RangeError(`cannot add a node under "${pathKey(parent)}"`);
-  const target = getNode(root, parent) as ListContainer;
+export function addChild(root: EventNode, parent: NodePath, node: EventNode, index?: number): EditResult<TreeEdit> {
+  const target = getNode(root, parent);
+  if (!target) return refuse(noNodeAt(parent));
+  if (!isListNode(target)) return refuse("only a random, sequence, switch, blend or layer holds a list of nodes");
+  if (parent.length + subtreeHeight(node) >= MAX_EVENT_DEPTH) return refuse(DEEPER);
+  if (countNodes(root) + countNodes(node) > MAX_EVENT_NODES) return refuse(tooMany());
   const children = target.children;
   const at = index === undefined || !Number.isFinite(index)
     ? children.length
     : Math.max(0, Math.min(children.length, Math.trunc(index)));
   const next = [...children.slice(0, at), node, ...children.slice(at)];
-  return { root: setNode(root, parent, withFields(target, { children: next })), path: [...parent, at] };
+  return accept({ root: setNode(root, parent, withFields(target, { children: next })), path: [...parent, at] });
 }
 
 /**
  * Fill or clear a slot of the sustain node at `sustain`: `node` undefined clears `start` or `end` (the key is removed,
- * not set to undefined). Replaces whatever the slot held. Returns the new root and the slot's path. Throws
- * `RangeError` when `sustain` isn't a sustain node, when clearing `loop` (it is required), or when the depth or node
- * limits of `canAddChild` would be passed.
+ * not set to undefined). Replaces whatever the slot held. Returns the new root and the slot's path (the sustain's for a
+ * cleared slot). Refused when `sustain` isn't a sustain node, when clearing `loop` (it is required), or when the depth or
+ * node limits of `addChild` would be passed.
  */
-export function setSustainSlot(root: EventNode, sustain: NodePath, slot: SustainSlot, node: EventNode | undefined): TreeEdit {
+export function setSustainSlot(root: EventNode, sustain: NodePath, slot: SustainSlot, node: EventNode | undefined): EditResult<TreeEdit> {
   const target = getNode(root, sustain);
-  if (!target || target.type !== "sustain") throw new RangeError(`"${pathKey(sustain)}" is not a sustain node`);
-  if (slot === "loop" && node === undefined) throw new RangeError("the loop slot is required");
+  if (!target || target.type !== "sustain") return refuse("only a sustain node has start, loop and end slots");
+  if (slot === "loop" && node === undefined) return refuse("a sustain node's loop slot is required");
   if (node !== undefined) {
-    if (sustain.length + subtreeHeight(node) >= MAX_EVENT_DEPTH) throw new RangeError("nested too deeply");
+    if (sustain.length + subtreeHeight(node) >= MAX_EVENT_DEPTH) return refuse(DEEPER);
     const replaced = target[slot];
     const count = countNodes(root) - (replaced ? countNodes(replaced) : 0) + countNodes(node);
-    if (count > MAX_EVENT_NODES) throw new RangeError(`more than ${MAX_EVENT_NODES} nodes`);
+    if (count > MAX_EVENT_NODES) return refuse(tooMany());
   }
   const next: Record<string, unknown> = { ...target };
   if (node === undefined) delete next[slot];
   else next[slot] = node;
-  return {
+  return accept({
     root: setNode(root, sustain, next as unknown as EventNode),
     // A cleared slot has no node to select, so the edit selects the sustain that lost it.
     path: node === undefined ? [...sustain] : [...sustain, slot],
-  };
+  });
 }
 
-/** Whether the node at `path` may be removed: it exists, isn't the root, and isn't a sustain node's `loop`. */
-export function canRemove(root: EventNode, path: NodePath): boolean {
-  if (path.length === 0 || getNode(root, path) === undefined) return false;
-  return path[path.length - 1] !== "loop";
+/** Why the node at `path` can't leave its place (removed or moved), or null: it exists, isn't the root, isn't a `loop`. */
+function leaveRefusal(root: EventNode, path: NodePath): string | null {
+  if (path.length === 0) return "the event's root node stays (wrap it or change its type instead)";
+  if (getNode(root, path) === undefined) return noNodeAt(path);
+  return path[path.length - 1] === "loop" ? "a sustain node's loop slot is required" : null;
 }
 
 /**
  * A new root without the node at `path` (and its subtree): spliced out of a list, or a sustain `start`/`end` slot's key
- * removed. Throws `RangeError` when `canRemove` is false.
+ * removed; the edit selects the parent. Refused for the root, a sustain node's `loop` and a path that leads nowhere.
  */
-export function removeNode(root: EventNode, path: NodePath): EventNode {
-  if (!canRemove(root, path)) throw new RangeError(`cannot remove "${pathKey(path)}"`);
+export function removeNode(root: EventNode, path: NodePath): EditResult<TreeEdit> {
+  const refusal = leaveRefusal(root, path);
+  if (refusal) return refuse(refusal);
   const parentP = parentPath(path) as NodePath;
   const parent = getNode(root, parentP) as EventNode;
   const step = path[path.length - 1];
   if (typeof step === "number") {
     const children = (parent as ListContainer).children.filter((_, i) => i !== step);
-    return setNode(root, parentP, withFields(parent, { children }));
+    return accept({ root: setNode(root, parentP, withFields(parent, { children })), path: parentP });
   }
   const next: Record<string, unknown> = { ...parent };
   delete next[step];
-  return setNode(root, parentP, next as unknown as EventNode);
+  return accept({ root: setNode(root, parentP, next as unknown as EventNode), path: parentP });
 }
 
 /**
  * Move the child at `from` to position `to` among the same list container's children (both indices of the list as it
  * is now, `to` clamped to 0..n-1; the moved child ends up at index `to`). Returns the new root and the child's new path;
- * `from === to` returns the root unchanged (the same object). Throws `RangeError` when `parent` isn't a list container
- * or `from` is out of range.
+ * `from === to` returns the root unchanged (the same object). Refused when `parent` isn't a list container or `from` is
+ * out of range.
  */
-export function reorderChild(root: EventNode, parent: NodePath, from: number, to: number): TreeEdit {
+export function reorderChild(root: EventNode, parent: NodePath, from: number, to: number): EditResult<TreeEdit> {
   const list = getNode(root, parent);
-  if (!list || !isListNode(list)) throw new RangeError(`"${pathKey(parent)}" is not a list container`);
+  if (!list || !isListNode(list)) return refuse("only a node in a list container can move up or down");
   const n = list.children.length;
-  if (!Number.isInteger(from) || from < 0 || from >= n) throw new RangeError(`no child ${from}`);
-  if (!Number.isFinite(to)) throw new RangeError(`bad index ${to}`);
+  if (!Number.isInteger(from) || from < 0 || from >= n) return refuse(`no child ${from} there`);
+  if (!Number.isFinite(to)) return refuse(`no place ${to} there`);
   const at = Math.max(0, Math.min(n - 1, Math.trunc(to)));
-  if (at === from) return { root, path: [...parent, from] };
+  if (at === from) return accept({ root, path: [...parent, from] });
   const children = list.children.slice();
   const [moved] = children.splice(from, 1);
   children.splice(at, 0, moved);
-  return { root: setNode(root, parent, withFields(list, { children })), path: [...parent, at] };
-}
-
-/**
- * Whether the node at `from` may move to `to`: `canRemove(root, from)`; `to.parent` exists and is not `from` or inside
- * it; a list target is a list container (`index` in 0..children.length, counted before the move); a slot target is a
- * sustain node whose slot is empty (a `loop` slot is never empty); and the depth limit of `canAddChild` holds at the
- * new place.
- */
-export function canMove(root: EventNode, from: NodePath, to: DropTarget): boolean {
-  if (!canRemove(root, from)) return false;
-  const node = getNode(root, from) as EventNode;
-  const target = getNode(root, to.parent);
-  if (!target) return false;
-  if (samePath(to.parent, from) || isAncestor(from, to.parent)) return false;
-  if (to.parent.length + subtreeHeight(node) >= MAX_EVENT_DEPTH) return false;
-  if ("slot" in to) return target.type === "sustain" && target[to.slot] === undefined;
-  return isListNode(target) && Number.isInteger(to.index) && to.index >= 0 && to.index <= target.children.length;
+  return accept({ root: setNode(root, parent, withFields(list, { children })), path: [...parent, at] });
 }
 
 /**
@@ -340,11 +326,26 @@ export function canMove(root: EventNode, from: NodePath, to: DropTarget): boolea
  * they are before the move (where the drop indicator was drawn); when the node leaves the same list from an earlier
  * index, the insertion index is one less, so the node lands where the indicator was. Paths in `to.parent` are of the
  * tree before the move, too: the function adjusts for the removal. Returns the new root and the node's new path.
- * Throws `RangeError` when `canMove` is false.
+ * Refused when the node can't leave its place (`removeNode`'s rules), `to.parent` leads nowhere or is the node or
+ * inside it, the depth limit of `addChild` would be passed at the new place, a slot target isn't an empty slot of a
+ * sustain node (a `loop` slot is never empty), or a list target isn't a list container with `index` in
+ * 0..children.length.
  */
-export function moveNode(root: EventNode, from: NodePath, to: DropTarget): TreeEdit {
-  if (!canMove(root, from, to)) throw new RangeError(`cannot move "${pathKey(from)}" to "${pathKey(to.parent)}"`);
+export function moveNode(root: EventNode, from: NodePath, to: DropTarget): EditResult<TreeEdit> {
+  const leave = leaveRefusal(root, from);
+  if (leave) return refuse(leave);
   const node = getNode(root, from) as EventNode;
+  const target = getNode(root, to.parent);
+  if (!target) return refuse(noNodeAt(to.parent));
+  if (samePath(to.parent, from) || isAncestor(from, to.parent)) return refuse("a node can't move into itself");
+  if (to.parent.length + subtreeHeight(node) >= MAX_EVENT_DEPTH) return refuse(DEEPER);
+  if ("slot" in to) {
+    if (target.type !== "sustain") return refuse("only a sustain node has start, loop and end slots");
+    if (target[to.slot] !== undefined) return refuse("that slot is taken");
+  } else {
+    if (!isListNode(target)) return refuse("only a random, sequence, switch, blend or layer holds a list of nodes");
+    if (!Number.isInteger(to.index) || to.index < 0 || to.index > target.children.length) return refuse(`no place ${to.index + 1} there`);
+  }
   const fromParent = parentPath(from) as NodePath;
   const fromStep = from[from.length - 1];
 
@@ -357,29 +358,28 @@ export function moveNode(root: EventNode, from: NodePath, to: DropTarget): TreeE
     parent = [...parent.slice(0, at), stepAt - 1, ...parent.slice(at + 1)];
   }
 
-  const without = removeNode(root, from);
+  const removed = removeNode(root, from);
+  if ("refused" in removed) return removed;
+  const without = removed.next.root;
   if ("slot" in to) return setSustainSlot(without, parent, to.slot, node);
   let index = to.index;
   if (typeof fromStep === "number" && samePath(to.parent, fromParent) && index > fromStep) index -= 1;
   return addChild(without, parent, node, index);
 }
 
-/** Whether the node at `path` may be duplicated: it is a list container's child and the node limit holds for a copy. */
-export function canDuplicate(root: EventNode, path: NodePath): boolean {
-  const node = getNode(root, path);
-  if (!node || path.length === 0 || typeof path[path.length - 1] !== "number") return false;
-  return countNodes(root) + countNodes(node) <= MAX_EVENT_NODES;
-}
-
 /**
  * Insert a deep copy (`cloneNode`) of the node at `path` right after it in its list. Returns the new root and the
- * copy's path. Throws `RangeError` when `canDuplicate` is false.
+ * copy's path. Refused for the root, a node in a sustain slot (a slot holds one node), and when the copy would pass the
+ * node limit.
  */
-export function duplicateNode(root: EventNode, path: NodePath): TreeEdit {
-  if (!canDuplicate(root, path)) throw new RangeError(`cannot duplicate "${pathKey(path)}"`);
+export function duplicateNode(root: EventNode, path: NodePath): EditResult<TreeEdit> {
+  const node = getNode(root, path);
+  if (!node) return refuse(noNodeAt(path));
+  if (path.length === 0) return refuse("the event's root node can't be duplicated");
+  if (typeof path[path.length - 1] !== "number") return refuse("a sustain slot holds one node, so its node can't be duplicated");
   const parent = parentPath(path) as NodePath;
   const index = path[path.length - 1] as number;
-  return addChild(root, parent, cloneNode(getNode(root, path) as EventNode), index + 1);
+  return addChild(root, parent, cloneNode(node), index + 1);
 }
 
 /**
@@ -513,16 +513,14 @@ export function addMusicNode(root: MusicNode, selected: NodePath | null, kind: M
   return accept({ root: replaceMusicNodeAt(root, at.parent, withMusic(container, { children })), path: [...at.parent, at.index] });
 }
 
-/** Whether the node at `path` may be removed: it exists and isn't the root (an event keeps its music tree). */
-export const canRemoveMusic = (root: MusicNode, path: NodePath): boolean => path.length > 0 && musicNodeAt(root, path) !== undefined;
-
 /**
- * A new root without the node at `path` (and its subtree). The rules naming a removed child, the bridges naming a removed
- * library segment and the stingers playing one go with it, so nothing dangles (the parser would drop them with a problem).
- * Throws `RangeError` when `canRemoveMusic` is false.
+ * A new root without the node at `path` (and its subtree); the edit selects the parent. The rules naming a removed child,
+ * the bridges naming a removed library segment and the stingers playing one go with it, so nothing dangles (the parser
+ * would drop them with a problem). Refused for the root (an event keeps its music tree) and a path that leads nowhere.
  */
-export function removeMusicNode(root: MusicNode, path: NodePath): MusicNode {
-  if (!canRemoveMusic(root, path)) throw new RangeError(`cannot remove "${pathKey(path)}"`);
+export function removeMusicNode(root: MusicNode, path: NodePath): EditResult<MusicEdit> {
+  if (path.length === 0) return refuse("the music root stays (an event keeps its music tree)");
+  if (musicNodeAt(root, path) === undefined) return refuse(noNodeAt(path));
   const gone = new Set(musicIds(musicNodeAt(root, path)!));
   const parentP = path.slice(0, -1);
   const parent = musicNodeAt(root, parentP) as PlaylistNode | MusicSwitchNode;
@@ -531,7 +529,7 @@ export function removeMusicNode(root: MusicNode, path: NodePath): MusicNode {
   const next = n === null
     ? withMusic(parent, { children: parent.children.filter((_, i) => i !== step) })
     : withMusic(parent, { library: parent.library.filter((_, i) => i !== n) });
-  return mapMusicTree(replaceMusicNodeAt(root, parentP, next), (node) => {
+  const cleaned = mapMusicTree(replaceMusicNodeAt(root, parentP, next), (node) => {
     if (!isMusicContainer(node)) return node;
     const transitions = node.transitions.filter((r) => !gone.has(r.from) && !gone.has(r.to)).map((r) => {
       if (!r.bridge || !gone.has(r.bridge.segment)) return r;
@@ -543,43 +541,45 @@ export function removeMusicNode(root: MusicNode, path: NodePath): MusicNode {
       ? node
       : withMusic(node, { transitions, stingers });
   });
+  return accept({ root: cleaned, path: parentP });
 }
 
-/** Move the child or library segment at `path` by `by` places among its siblings (clamped). The node keeps its id; rules name ids, so none change. */
-export function reorderMusicNode(root: MusicNode, path: NodePath, by: number): MusicEdit {
+/**
+ * Move the child or library segment at `path` by `by` places among its siblings (clamped; at the end, the root unchanged).
+ * The node keeps its id; rules name ids, so none change. Refused for the root, which has no siblings.
+ */
+export function reorderMusicNode(root: MusicNode, path: NodePath, by: number): EditResult<MusicEdit> {
   const parentP = path.slice(0, -1);
   const parent = musicNodeAt(root, parentP);
-  if (!parent || !isMusicContainer(parent) || path.length === 0) throw new RangeError(`"${pathKey(path)}" has no siblings`);
+  if (path.length === 0 || !parent || !isMusicContainer(parent) || musicNodeAt(root, path) === undefined) return refuse("only a node in a playlist or music switch can move up or down");
   const step = path[path.length - 1];
   const lib = libraryIndexOf(step);
   const list: MusicNode[] = lib === null ? parent.children : parent.library;
   const from = lib === null ? (step as number) : lib;
   const to = Math.max(0, Math.min(list.length - 1, from + by));
-  if (to === from) return { root, path };
+  if (to === from) return accept({ root, path });
   const moved = list.slice();
   const [item] = moved.splice(from, 1);
   moved.splice(to, 0, item);
   const next = lib === null ? withMusic(parent, { children: moved }) : withMusic(parent, { library: moved as SegmentNode[] });
-  return { root: replaceMusicNodeAt(root, parentP, next), path: [...parentP, lib === null ? to : (`lib${to}` as const)] };
-}
-
-/** Whether the node at `path` may be duplicated: a child or library segment, with the node, depth and library limits holding for a copy. */
-export function canDuplicateMusic(root: MusicNode, path: NodePath): boolean {
-  const node = musicNodeAt(root, path);
-  if (!node || path.length === 0) return false;
-  const parent = musicNodeAt(root, path.slice(0, -1));
-  if (!parent || !isMusicContainer(parent)) return false;
-  if (musicNodeCount(root) + musicNodeCount(node) > MAX_EVENT_NODES) return false;
-  if (libraryIndexOf(path[path.length - 1]) !== null) return libraryCount(root) < MUSIC_LIMITS.library;
-  return parent.children.length < MUSIC_LIMITS.playlistChildren;
+  return accept({ root: replaceMusicNodeAt(root, parentP, next), path: [...parentP, lib === null ? to : (`lib${to}` as const)] });
 }
 
 /**
  * Insert a deep copy of the node at `path` right after it, every id in the copy made fresh (`id-2`…) and the copy's own
- * rules, bridges and stingers following its renamed children. Throws `RangeError` when `canDuplicateMusic` is false.
+ * rules, bridges and stingers following its renamed children. Refused for the root, and when the copy would pass the
+ * node, library or children limits.
  */
-export function duplicateMusicNode(root: MusicNode, path: NodePath): MusicEdit {
-  if (!canDuplicateMusic(root, path)) throw new RangeError(`cannot duplicate "${pathKey(path)}"`);
+export function duplicateMusicNode(root: MusicNode, path: NodePath): EditResult<MusicEdit> {
+  const original = musicNodeAt(root, path);
+  if (!original) return refuse(noNodeAt(path));
+  if (path.length === 0) return refuse("the music root can't be duplicated");
+  const container = musicNodeAt(root, path.slice(0, -1));
+  if (!container || !isMusicContainer(container)) return refuse(noNodeAt(path.slice(0, -1)));
+  if (musicNodeCount(root) + musicNodeCount(original) > MAX_EVENT_NODES) return refuse(tooMany());
+  if (libraryIndexOf(path[path.length - 1]) !== null) {
+    if (libraryCount(root) >= MUSIC_LIMITS.library) return refuse(`an event holds at most ${MUSIC_LIMITS.library} library segments`);
+  } else if (container.children.length >= MUSIC_LIMITS.playlistChildren) return refuse(`a container holds at most ${MUSIC_LIMITS.playlistChildren} children`);
   const taken = new Set(musicIds(root));
   const map = new Map<string, string>();
   const fresh = (n: MusicNode): MusicNode => {
@@ -588,7 +588,7 @@ export function duplicateMusicNode(root: MusicNode, path: NodePath): MusicEdit {
     map.set(n.id, id);
     return { ...deepCopy(n), id } as MusicNode;
   };
-  const copy = mapMusicTree(musicNodeAt(root, path)!, fresh);
+  const copy = mapMusicTree(original, fresh);
   const renamed = mapMusicTree(copy, (n) => remapReferences(n, map));
   const parentP = path.slice(0, -1);
   const parent = musicNodeAt(root, parentP) as PlaylistNode | MusicSwitchNode;
@@ -596,13 +596,13 @@ export function duplicateMusicNode(root: MusicNode, path: NodePath): MusicEdit {
   const lib = libraryIndexOf(step);
   if (lib !== null) {
     const library = [...parent.library.slice(0, lib + 1), renamed as SegmentNode, ...parent.library.slice(lib + 1)];
-    return { root: replaceMusicNodeAt(root, parentP, withMusic(parent, { library })), path: [...parentP, `lib${lib + 1}`] };
+    return accept({ root: replaceMusicNodeAt(root, parentP, withMusic(parent, { library })), path: [...parentP, `lib${lib + 1}`] });
   }
   const at = (step as number) + 1;
   // A music switch's children are keyed by `value`, and a copy with the same value would lose to the original: the copy starts unset.
   const unkeyed = parent.type === "musicSwitch" && renamed.value !== undefined ? (({ value: _value, ...rest }) => rest as MusicNode)(renamed) : renamed;
   const children = [...parent.children.slice(0, at), unkeyed, ...parent.children.slice(at)];
-  return { root: replaceMusicNodeAt(root, parentP, withMusic(parent, { children })), path: [...parentP, at] };
+  return accept({ root: replaceMusicNodeAt(root, parentP, withMusic(parent, { children })), path: [...parentP, at] });
 }
 
 /** A short label for a music tree row: the node's id. */

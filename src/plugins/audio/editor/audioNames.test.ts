@@ -83,8 +83,8 @@ describe("the Audio section's named lists", () => {
   it("rename a custom acoustic material in occluders", async () => {
     const { project } = await openTestProject({ "project.json": "{}", "a.scene.json": scene([{ type: "engine.AudioOccluder", data: { material: "Material" } }, { type: "engine.AudioOccluder", data: { material: "concrete" } }]) });
     const s = createProjectSettingsSection().open(project);
-    await s.edit("Add material", addMaterial(s.draft));
-    await s.edit("Rename material", renameMaterial(s.draft, "Material", "Felt"));
+    await s.edit("Add material", nextOf(addMaterial(s.draft)));
+    await s.edit("Rename material", nextOf(renameMaterial(s.draft, "Material", "Felt")));
     await vi.waitFor(() => expect(project.textOf("a.scene.json")).toContain('"Felt"'));
     expect(json(project, "a.scene.json").nodes[0].components[1].data.material).toBe("concrete");
   });

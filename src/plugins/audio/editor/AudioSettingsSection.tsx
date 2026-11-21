@@ -7,9 +7,7 @@ import { atBusLimit } from "../../../engine/audio/busCapability";
 import { MATERIAL_LIMITS, MAX_MATERIALS, type OccluderMaterial } from "../../../engine/audio/occlusionMaterials";
 import {
   addLoudnessTarget,
-  busMeterRefusal,
   isBusMetered,
-  loudnessTargetRefusal,
   loudnessTargets,
   LOUDNESS_TARGET_LIMITS,
   MAX_LOUDNESS_TARGETS,
@@ -77,10 +75,14 @@ import { DEFAULT_DUCK_DETECTOR, DEFAULT_DUCK_THRESHOLD, DUCK_DETECTORS, DUCK_LIM
 import { parameterRange } from "../../../engine/audio/eventFormat";
 import { BusMeters } from "./BusMeters";
 import { ParameterCards } from "./ParameterCard";
-import { applyToSettings, type EditResult } from "./editResult";
+import { applyToSettings, refusalOf, type EditResult } from "./editResult";
 import "./audioSettings.css";
 
 type Set = (label: string, next: SettingsDraft) => void;
+
+/** A model edit's result applied (ADR 0307, 0313): accepted, one undo step of the panel; refused, the reason in the status bar. */
+type Edit = (label: string, result: EditResult<SettingsDraft>) => boolean;
+const editOf = (draft: SettingsDraft, set: Set): Edit => (label, result) => applyToSettings(draft, set, result, label);
 
 function Num(props: { label: string; value: number; step?: number; min?: number; max?: number; onCommit: (n: number) => void }) {
   return (
@@ -149,6 +151,7 @@ const EFFECT_FIELDS: Record<BusEffect["type"], [key: string, label: string, step
 
 function Effects(props: { bus: BusSettings; draft: SettingsDraft; set: Set }) {
   const { bus, draft, set } = props;
+  const edit = editOf(draft, set);
   return (
     <>
       {bus.effects.map((fx, i) => (
@@ -157,10 +160,10 @@ function Effects(props: { bus: BusSettings; draft: SettingsDraft; set: Set }) {
           {EFFECT_FIELDS[fx.type].map(([key, label, step]) => (
             <label key={key}>
               {label}
-              <Num label={`${bus.name} ${fx.type} ${label}`} value={(fx as unknown as Record<string, number>)[key]} step={step} onCommit={(n) => set(`Set ${bus.name} ${fx.type} ${key}`, setEffectValue(draft, bus.name, i, key, n))} />
+              <Num label={`${bus.name} ${fx.type} ${label}`} value={(fx as unknown as Record<string, number>)[key]} step={step} onCommit={(n) => edit(`Set ${bus.name} ${fx.type} ${key}`, setEffectValue(draft, bus.name, i, key, n))} />
             </label>
           ))}
-          <button class="icon audio-remove" aria-label={`Remove ${bus.name} ${fx.type} effect`} title="Remove this effect" onClick={() => set(`Remove ${bus.name} ${fx.type}`, removeEffect(draft, bus.name, i))}>
+          <button class="icon audio-remove" aria-label={`Remove ${bus.name} ${fx.type} effect`} title="Remove this effect" onClick={() => edit(`Remove ${bus.name} ${fx.type}`, removeEffect(draft, bus.name, i))}>
             ×
           </button>
         </div>
@@ -172,6 +175,7 @@ function Effects(props: { bus: BusSettings; draft: SettingsDraft; set: Set }) {
 
 function AddEffect(props: { bus: BusSettings; draft: SettingsDraft; set: Set }) {
   const { bus, draft, set } = props;
+  const edit = editOf(draft, set);
   const [chosen, setChosen] = useState<string>(EFFECT_TYPES[0]);
   return (
     <div class="audio-add-effect">
@@ -182,7 +186,7 @@ function AddEffect(props: { bus: BusSettings; draft: SettingsDraft; set: Set }) 
           </option>
         ))}
       </select>
-      <button aria-label={`Add effect to ${bus.name}`} onClick={() => set(`Add ${chosen} to ${bus.name}`, addEffect(draft, bus.name, chosen as (typeof EFFECT_TYPES)[number]))}>
+      <button aria-label={`Add effect to ${bus.name}`} onClick={() => edit(`Add ${chosen} to ${bus.name}`, addEffect(draft, bus.name, chosen as (typeof EFFECT_TYPES)[number]))}>
         Add effect
       </button>
     </div>
@@ -191,23 +195,24 @@ function AddEffect(props: { bus: BusSettings; draft: SettingsDraft; set: Set }) 
 
 function BusRow(props: { a: AudioSettings; bus: BusSettings; depth: number; plan: BedPlan; draft: SettingsDraft; set: Set }) {
   const { a, bus, depth, plan, draft, set } = props;
+  const edit = editOf(draft, set);
   const isRoot = bus === a.buses[0];
   const banned = new globalThis.Set([bus.name, ...descendants(a, bus.name)]);
   return (
     <details class="audio-bus" data-bus={bus.name} style={{ marginLeft: `${depth * 16}px`, width: `calc(100% - ${depth * 16}px)` }}>
       <summary>
         <TextField class="audio-bus-name" value={bus.name} label={`Bus ${bus.name} name`} onCommit={(v) => applyToSettings(draft, set, renameBus(draft, bus.name, v), `Rename bus ${bus.name} to ${v.trim()}`)} />
-        <Num label={`${bus.name} volume`} value={bus.volume} step={0.05} min={0} max={2} onCommit={(n) => set(`Set ${bus.name} volume`, setBusValue(draft, bus.name, "volume", Math.min(2, Math.max(0, n))))} />
+        <Num label={`${bus.name} volume`} value={bus.volume} step={0.05} min={0} max={2} onCommit={(n) => edit(`Set ${bus.name} volume`, setBusValue(draft, bus.name, "volume", Math.min(2, Math.max(0, n))))} />
         <label class="audio-bus-check">
-          <input type="checkbox" aria-label={`Mute ${bus.name}`} checked={bus.mute} onChange={(e) => set(`${bus.mute ? "Unmute" : "Mute"} ${bus.name}`, setBusValue(draft, bus.name, "mute", (e.currentTarget as HTMLInputElement).checked))} />
+          <input type="checkbox" aria-label={`Mute ${bus.name}`} checked={bus.mute} onChange={(e) => edit(`${bus.mute ? "Unmute" : "Mute"} ${bus.name}`, setBusValue(draft, bus.name, "mute", (e.currentTarget as HTMLInputElement).checked))} />
           Mute
         </label>
         <label class="audio-bus-check" title="At most this many sounds play on the bus at once; blank is unlimited">
           Max voices
-          <OptionalNum label={`${bus.name} max voices`} value={bus.maxVoices} step={1} min={1} max={a.voices.logical} placeholder="∞" onCommit={(n) => set(`Set ${bus.name} max voices`, setBusMaxVoices(draft, bus.name, n))} />
+          <OptionalNum label={`${bus.name} max voices`} value={bus.maxVoices} step={1} min={1} max={a.voices.logical} placeholder="∞" onCommit={(n) => edit(`Set ${bus.name} max voices`, setBusMaxVoices(draft, bus.name, n))} />
         </label>
         {!isRoot && (
-          <select aria-label={`${bus.name} parent`} value={bus.parent} onChange={(e) => set(`Move ${bus.name} under ${(e.currentTarget as HTMLSelectElement).value}`, setBusParent(draft, bus.name, (e.currentTarget as HTMLSelectElement).value))}>
+          <select aria-label={`${bus.name} parent`} value={bus.parent} onChange={(e) => edit(`Move ${bus.name} under ${(e.currentTarget as HTMLSelectElement).value}`, setBusParent(draft, bus.name, (e.currentTarget as HTMLSelectElement).value))}>
             {a.buses.filter((b) => !banned.has(b.name)).map((b) => (
               <option key={b.name} value={b.name}>
                 {b.name}
@@ -215,11 +220,11 @@ function BusRow(props: { a: AudioSettings; bus: BusSettings; depth: number; plan
             ))}
           </select>
         )}
-        <button aria-label={`Add child bus to ${bus.name}`} disabled={atBusLimit(a)} onClick={() => set(`Add bus under ${bus.name}`, addBus(draft, bus.name))}>
+        <button aria-label={`Add child bus to ${bus.name}`} disabled={atBusLimit(a)} onClick={() => edit(`Add bus under ${bus.name}`, addBus(draft, bus.name))}>
           + child
         </button>
         {!isRoot && (
-          <button class="icon audio-remove" aria-label={`Remove bus ${bus.name}`} title="Remove this bus and everything under it" onClick={() => set(`Remove bus ${bus.name}`, removeBus(draft, bus.name))}>
+          <button class="icon audio-remove" aria-label={`Remove bus ${bus.name}`} title="Remove this bus and everything under it" onClick={() => edit(`Remove bus ${bus.name}`, removeBus(draft, bus.name))}>
             ×
           </button>
         )}
@@ -241,12 +246,14 @@ function BusRow(props: { a: AudioSettings; bus: BusSettings; depth: number; plan
 /** ADR 0171 §2.1: meter a bus's loudness (never the root, which is always metered). Off and refused with the model's message at the ninth. */
 function MeterToggle(props: { bus: BusSettings; a: AudioSettings; draft: SettingsDraft; set: Set }) {
   const { bus, a, draft, set } = props;
+  const edit = editOf(draft, set);
   const on = isBusMetered(a, bus.name);
-  const refusal = busMeterRefusal(draft, bus.name);
+  // Off and refused: the box is disabled with the reason turning it on would be refused for (ADR 0313: asked of the edit).
+  const refusal = on ? null : refusalOf(setBusMeter(draft, bus.name, true));
   return (
     <>
       <label class="audio-bus-check" title="Measure this bus's loudness (LUFS) for the Mixer and Bus.loudness">
-        <input type="checkbox" aria-label={`Meter ${bus.name}`} checked={on} disabled={refusal !== null} onChange={(e) => set(`${on ? "Stop metering" : "Meter"} ${bus.name}`, setBusMeter(draft, bus.name, (e.currentTarget as HTMLInputElement).checked))} />
+        <input type="checkbox" aria-label={`Meter ${bus.name}`} checked={on} disabled={refusal !== null} onChange={(e) => edit(`${on ? "Stop metering" : "Meter"} ${bus.name}`, setBusMeter(draft, bus.name, (e.currentTarget as HTMLInputElement).checked))} />
         Meter
       </label>
       {refusal && <span class="audio-warning" role="note" aria-label={`${bus.name} meter`}>{refusal}</span>}
@@ -254,16 +261,12 @@ function MeterToggle(props: { bus: BusSettings; a: AudioSettings; draft: Setting
   );
 }
 
-/** ADR 0171 §2.1: the loudness targets table and `loudnessResetOnPlay`. A refused edit leaves the draft and shows the model's message. */
+/** ADR 0171 §2.1: the loudness targets table and `loudnessResetOnPlay`. A refused edit leaves the draft; the parse's message goes to the status bar (ADR 0313). */
 function Loudness(props: { a: AudioSettings; draft: SettingsDraft; set: Set }) {
   const { a, draft, set } = props;
+  const edit = editOf(draft, set);
   const targets = loudnessTargets(a);
-  const [refused, setRefused] = useState<string | null>(null);
-  const edit = (i: number, patch: Partial<(typeof targets)[number]>) => {
-    const why = loudnessTargetRefusal(draft, i, patch);
-    setRefused(why);
-    if (!why) set(`Set loudness target ${targets[i].name}`, setLoudnessTarget(draft, i, patch));
-  };
+  const patch = (i: number, p: Partial<(typeof targets)[number]>) => edit(`Set loudness target ${targets[i].name}`, setLoudnessTarget(draft, i, p));
   const limit = (k: keyof typeof LOUDNESS_TARGET_LIMITS) => LOUDNESS_TARGET_LIMITS[k];
   return (
     <>
@@ -274,32 +277,31 @@ function Loudness(props: { a: AudioSettings; draft: SettingsDraft; set: Set }) {
       {targets.map((t, i) => (
         <div key={i} class="audio-card" role="group" aria-label={`Loudness target ${t.name}`} data-target={t.name}>
           <div class="audio-row">
-            <TextField class="audio-grow" value={t.name} label={`Loudness target ${i + 1} name`} onCommit={(v) => edit(i, { name: v })} />
+            <TextField class="audio-grow" value={t.name} label={`Loudness target ${i + 1} name`} onCommit={(v) => patch(i, { name: v })} />
             <label>
               Integrated (LUFS)
-              <Num label={`Loudness target ${i + 1} integrated`} value={t.integrated} step={1} min={limit("integrated")[0]} max={limit("integrated")[1]} onCommit={(n) => edit(i, { integrated: n })} />
+              <Num label={`Loudness target ${i + 1} integrated`} value={t.integrated} step={1} min={limit("integrated")[0]} max={limit("integrated")[1]} onCommit={(n) => patch(i, { integrated: n })} />
             </label>
             <label>
               Tolerance (LU)
-              <Num label={`Loudness target ${i + 1} tolerance`} value={t.tolerance} step={0.5} min={limit("tolerance")[0]} max={limit("tolerance")[1]} onCommit={(n) => edit(i, { tolerance: n })} />
+              <Num label={`Loudness target ${i + 1} tolerance`} value={t.tolerance} step={0.5} min={limit("tolerance")[0]} max={limit("tolerance")[1]} onCommit={(n) => patch(i, { tolerance: n })} />
             </label>
             <label>
               True peak (dBTP)
-              <Num label={`Loudness target ${i + 1} true peak`} value={t.truePeak} step={0.5} min={limit("truePeak")[0]} max={limit("truePeak")[1]} onCommit={(n) => edit(i, { truePeak: n })} />
+              <Num label={`Loudness target ${i + 1} true peak`} value={t.truePeak} step={0.5} min={limit("truePeak")[0]} max={limit("truePeak")[1]} onCommit={(n) => patch(i, { truePeak: n })} />
             </label>
-            <button class="icon audio-remove" aria-label={`Remove loudness target ${t.name}`} title={targets.length === 1 ? "The last target stays" : "Remove this target"} disabled={targets.length === 1} onClick={() => { setRefused(null); set(`Remove loudness target ${t.name}`, removeLoudnessTarget(draft, i)); }}>
+            <button class="icon audio-remove" aria-label={`Remove loudness target ${t.name}`} title={targets.length === 1 ? "The last target stays" : "Remove this target"} disabled={targets.length === 1} onClick={() => edit(`Remove loudness target ${t.name}`, removeLoudnessTarget(draft, i))}>
               ×
             </button>
           </div>
         </div>
       ))}
-      {refused && <p class="audio-warning" role="alert" aria-label="Loudness target refused">{refused}</p>}
       <div class="audio-row">
-        <button disabled={targets.length >= MAX_LOUDNESS_TARGETS} onClick={() => { setRefused(null); set("Add loudness target", addLoudnessTarget(draft)); }}>
+        <button disabled={targets.length >= MAX_LOUDNESS_TARGETS} onClick={() => edit("Add loudness target", addLoudnessTarget(draft))}>
           + Loudness target
         </button>
         <label title="Reset the loudness meters when the editor's Play starts; an exported game's integrated measure starts at engine start">
-          <input type="checkbox" aria-label="Reset loudness meters on Play" checked={a.loudnessResetOnPlay ?? true} onChange={(e) => set("Set reset loudness on Play", setLoudnessResetOnPlay(draft, (e.currentTarget as HTMLInputElement).checked))} />
+          <input type="checkbox" aria-label="Reset loudness meters on Play" checked={a.loudnessResetOnPlay ?? true} onChange={(e) => edit("Set reset loudness on Play", setLoudnessResetOnPlay(draft, (e.currentTarget as HTMLInputElement).checked))} />
           Reset on Play
         </label>
       </div>
@@ -309,6 +311,7 @@ function Loudness(props: { a: AudioSettings; draft: SettingsDraft; set: Set }) {
 
 function Snapshots(props: { a: AudioSettings; draft: SettingsDraft; set: Set }) {
   const { a, draft, set } = props;
+  const edit = editOf(draft, set);
   return (
     <>
       <div class="project-settings-list-head">
@@ -320,7 +323,7 @@ function Snapshots(props: { a: AudioSettings; draft: SettingsDraft; set: Set }) 
         <div key={i} class="audio-card" role="group" aria-label={`Snapshot ${s.name}`}>
           <div class="audio-row">
             <TextField class="audio-grow" value={s.name} label={`Snapshot ${i + 1} name`} onCommit={(v) => applyToSettings(draft, set, renameSnapshot(draft, i, v), `Rename snapshot ${s.name} to ${v.trim()}`)} />
-            <button class="icon audio-remove" aria-label={`Remove snapshot ${s.name}`} title="Remove this snapshot" onClick={() => set(`Remove snapshot ${s.name}`, removeSnapshot(draft, i))}>
+            <button class="icon audio-remove" aria-label={`Remove snapshot ${s.name}`} title="Remove this snapshot" onClick={() => edit(`Remove snapshot ${s.name}`, removeSnapshot(draft, i))}>
               ×
             </button>
           </div>
@@ -329,17 +332,17 @@ function Snapshots(props: { a: AudioSettings; draft: SettingsDraft; set: Set }) 
               <span class="audio-grow">{b.name}</span>
               <label>
                 Volume ×
-                <OptionalNum label={`${s.name} ${b.name} volume`} value={s.volumes[b.name]} step={0.05} min={0} max={2} placeholder="1" onCommit={(n) => set(`Set ${s.name} ${b.name} volume`, setSnapshotVolume(draft, i, b.name, n === undefined ? undefined : Math.min(2, Math.max(0, n))))} />
+                <OptionalNum label={`${s.name} ${b.name} volume`} value={s.volumes[b.name]} step={0.05} min={0} max={2} placeholder="1" onCommit={(n) => edit(`Set ${s.name} ${b.name} volume`, setSnapshotVolume(draft, i, b.name, n === undefined ? undefined : Math.min(2, Math.max(0, n))))} />
               </label>
               <label>
                 Low-pass Hz
-                <OptionalNum label={`${s.name} ${b.name} low-pass`} value={s.lowpass[b.name]} step={100} min={10} max={24000} placeholder="off" onCommit={(n) => set(`Set ${s.name} ${b.name} low-pass`, setSnapshotLowpass(draft, i, b.name, n === undefined ? undefined : Math.min(24000, Math.max(10, n))))} />
+                <OptionalNum label={`${s.name} ${b.name} low-pass`} value={s.lowpass[b.name]} step={100} min={10} max={24000} placeholder="off" onCommit={(n) => edit(`Set ${s.name} ${b.name} low-pass`, setSnapshotLowpass(draft, i, b.name, n === undefined ? undefined : Math.min(24000, Math.max(10, n))))} />
               </label>
             </div>
           ))}
         </div>
       ))}
-      <button onClick={() => set("Add snapshot", addSnapshot(draft))}>+ Snapshot</button>
+      <button onClick={() => edit("Add snapshot", addSnapshot(draft))}>+ Snapshot</button>
     </>
   );
 }
@@ -370,7 +373,7 @@ function DuckBusSelect(p: { label: string; value: string; buses: readonly { name
  */
 function DuckingEditor(props: { a: AudioSettings; draft: SettingsDraft; set: Set; levelDucking: boolean }) {
   const { a, draft, set, levelDucking } = props;
-  const apply = (label: string, edit: EditResult<SettingsDraft>) => applyToSettings(draft, set, edit, label);
+  const apply = editOf(draft, set);
   const change = (i: number, key: keyof DuckingRule, label: string, value: string | number) => apply(label, setDuckingValue(draft, i, key, value));
   return (
     <>
@@ -480,6 +483,7 @@ const AUTOMATION_Y: Record<"volume" | "lowpass", [number, number]> = { volume: [
 /** ADR 0158 §3: a bus's volume or low-pass driven by a global parameter through a curve (x is the parameter's range). */
 function Automation(props: { a: AudioSettings; draft: SettingsDraft; set: Set }) {
   const { a, draft, set } = props;
+  const edit = editOf(draft, set);
   return (
     <>
       <div class="project-settings-list-head">
@@ -495,17 +499,17 @@ function Automation(props: { a: AudioSettings; draft: SettingsDraft; set: Set })
             <div class="audio-row">
               <label>
                 Bus
-                <Choice<string> label={`Automation ${i + 1} bus`} value={r.bus} options={a.buses.map((b) => b.name)} onChange={(v) => set(`Set automation ${i + 1} bus`, setBusAutomationBus(draft, i, v))} />
+                <Choice<string> label={`Automation ${i + 1} bus`} value={r.bus} options={a.buses.map((b) => b.name)} onChange={(v) => edit(`Set automation ${i + 1} bus`, setBusAutomationBus(draft, i, v))} />
               </label>
               <label>
                 Target
-                <Choice<"volume" | "lowpass"> label={`Automation ${i + 1} target`} value={r.target} options={["volume", "lowpass"]} labels={{ lowpass: "low-pass (Hz)" }} onChange={(v) => set(`Set automation ${i + 1} target`, setBusAutomationTarget(draft, i, v))} />
+                <Choice<"volume" | "lowpass"> label={`Automation ${i + 1} target`} value={r.target} options={["volume", "lowpass"]} labels={{ lowpass: "low-pass (Hz)" }} onChange={(v) => edit(`Set automation ${i + 1} target`, setBusAutomationTarget(draft, i, v))} />
               </label>
               <label>
                 Parameter
-                <Choice<string> label={`Automation ${i + 1} parameter`} value={r.parameter} options={a.parameters.map((q) => q.name)} onChange={(v) => set(`Set automation ${i + 1} parameter`, setBusAutomationParameter(draft, i, v))} />
+                <Choice<string> label={`Automation ${i + 1} parameter`} value={r.parameter} options={a.parameters.map((q) => q.name)} onChange={(v) => edit(`Set automation ${i + 1} parameter`, setBusAutomationParameter(draft, i, v))} />
               </label>
-              <button class="icon audio-remove" aria-label={`Remove automation ${i + 1}`} title="Remove this automation" onClick={() => set(`Remove automation ${i + 1}`, removeBusAutomation(draft, i))}>
+              <button class="icon audio-remove" aria-label={`Remove automation ${i + 1}`} title="Remove this automation" onClick={() => edit(`Remove automation ${i + 1}`, removeBusAutomation(draft, i))}>
                 ×
               </button>
             </div>
@@ -516,13 +520,13 @@ function Automation(props: { a: AudioSettings; draft: SettingsDraft; set: Set })
                 yRange={AUTOMATION_Y[r.target]}
                 interpolation
                 label={`Automation ${i + 1} curve`}
-                onChange={(c) => set(`Edit automation ${i + 1} curve`, setBusAutomationCurve(draft, i, c))}
+                onChange={(c) => edit(`Edit automation ${i + 1} curve`, setBusAutomationCurve(draft, i, c))}
               />
             </div>
           </div>
         );
       })}
-      <button disabled={a.parameters.length === 0} onClick={() => set("Add automation", addBusAutomation(draft))}>
+      <button disabled={a.parameters.length === 0} onClick={() => edit("Add automation", addBusAutomation(draft))}>
         + Automation
       </button>
     </>
@@ -688,6 +692,7 @@ const BED_HELP = "A bed is a shared surround field: distant or ambient sounds on
 /** A bus's bed mode and priority, which bed it mixes into, and why it lost (api-and-models section 7). */
 function BusBedRow(props: { a: AudioSettings; bus: BusSettings; plan: BedPlan; draft: SettingsDraft; set: Set }) {
   const { a, bus, plan, draft, set } = props;
+  const edit = editOf(draft, set);
   const mode = busBed(a, bus.name);
   const host = plan.hostOf[bus.name];
   const lost = plan.lost.find((l) => l.bus === bus.name);
@@ -696,11 +701,11 @@ function BusBedRow(props: { a: AudioSettings; bus: BusSettings; plan: BedPlan; d
     <div class="audio-row" data-bus-bed={bus.name}>
       <label title={`${BED_HELP} own: this bus gets its own bed (if it wins a slot). parent: its sounds go into the nearest bus above that has a bed. none: this bus is never in a bed.`}>
         Bed
-        <Choice<BusBed> label={`${bus.name} bed`} value={mode} options={BUS_BEDS} onChange={(v) => set(`Set ${bus.name} bed ${v}`, setBusBed(draft, bus.name, v))} />
+        <Choice<BusBed> label={`${bus.name} bed`} value={mode} options={BUS_BEDS} onChange={(v) => edit(`Set ${bus.name} bed ${v}`, setBusBed(draft, bus.name, v))} />
       </label>
       <label title="When more buses ask for their own bed than there are slots, the highest priority gets one (0..255; the root is 255, others 128; ties go to the bus nearest the root)">
         Bed priority
-        <Num label={`${bus.name} bed priority`} value={busBedPriority(a, bus.name)} step={1} min={BED_PRIORITY_LIMITS[0]} max={BED_PRIORITY_LIMITS[1]} onCommit={(n) => set(`Set ${bus.name} bed priority`, setBusBedPriority(draft, bus.name, n))} />
+        <Num label={`${bus.name} bed priority`} value={busBedPriority(a, bus.name)} step={1} min={BED_PRIORITY_LIMITS[0]} max={BED_PRIORITY_LIMITS[1]} onCommit={(n) => edit(`Set ${bus.name} bed priority`, setBusBedPriority(draft, bus.name, n))} />
       </label>
       <span class="project-settings-hint" data-bed-host>{where}</span>
       {lost && (
@@ -756,6 +761,7 @@ const fmtMB = (n: number) => `${n.toFixed(1)} MB`;
 /** Occlusion: which physics layers block sound, the ray budget, the default material and the material cards (sections 2.1, 2.2). */
 function Occlusion(props: { a: AudioSettings; draft: SettingsDraft; set: Set }) {
   const { a, draft, set } = props;
+  const edit = editOf(draft, set);
   const o = a.occlusion;
   const layers = physicsLayerNames(draft);
   const off = o.layers !== null && o.layers.length === 0;
@@ -801,7 +807,7 @@ function Occlusion(props: { a: AudioSettings; draft: SettingsDraft; set: Set }) 
       {o.materials.map((m) => (
         <MaterialCard key={m.name} a={a} m={m} draft={draft} set={set} />
       ))}
-      <button disabled={o.materials.length >= MAX_MATERIALS} onClick={() => set("Add material", addMaterial(draft))}>
+      <button disabled={o.materials.length >= MAX_MATERIALS} onClick={() => edit("Add material", addMaterial(draft))}>
         + Material
       </button>
     </>
@@ -810,21 +816,22 @@ function Occlusion(props: { a: AudioSettings; draft: SettingsDraft; set: Set }) 
 
 function MaterialCard(props: { a: AudioSettings; m: OccluderMaterial; draft: SettingsDraft; set: Set }) {
   const { a, m, draft, set } = props;
+  const edit = editOf(draft, set);
   const builtin = isBuiltinMaterial(m.name);
   const modified = materialIsModified(a, m.name);
-  const patch = (label: string, p: MaterialPatch) => set(`Set ${m.name} ${label}`, setMaterial(draft, m.name, p));
+  const patch = (label: string, p: MaterialPatch) => edit(`Set ${m.name} ${label}`, setMaterial(draft, m.name, p));
   return (
     <div class="audio-card" role="group" aria-label={`Material ${m.name}`} data-material={m.name} data-kind={builtin ? "builtin" : "custom"}>
       <div class="audio-row">
-        {builtin ? <strong class="audio-grow">{m.name}</strong> : <TextField class="audio-grow" value={m.name} label={`Material ${m.name} name`} onCommit={(v) => set(`Rename material ${m.name} to ${v.trim()}`, renameMaterial(draft, m.name, v))} />}
+        {builtin ? <strong class="audio-grow">{m.name}</strong> : <TextField class="audio-grow" value={m.name} label={`Material ${m.name} name`} onCommit={(v) => edit(`Rename material ${m.name} to ${v.trim()}`, renameMaterial(draft, m.name, v))} />}
         {builtin && <span class="project-settings-hint">built-in{modified ? ", edited" : ""}</span>}
         {a.occlusion.defaultMaterial === m.name && <span class="audio-hint-accent">default</span>}
         {builtin ? (
-          <button disabled={!modified} aria-label={`Reset material ${m.name}`} title="Put this material back to its built-in values" onClick={() => set(`Reset material ${m.name}`, resetMaterial(draft, m.name))}>
+          <button disabled={!modified} aria-label={`Reset material ${m.name}`} title="Put this material back to its built-in values" onClick={() => edit(`Reset material ${m.name}`, resetMaterial(draft, m.name))}>
             Reset
           </button>
         ) : (
-          <button class="icon audio-remove" aria-label={`Remove material ${m.name}`} title="Remove this material (occluders that name it use the default)" onClick={() => set(`Remove material ${m.name}`, removeMaterial(draft, m.name))}>
+          <button class="icon audio-remove" aria-label={`Remove material ${m.name}`} title="Remove this material (occluders that name it use the default)" onClick={() => edit(`Remove material ${m.name}`, removeMaterial(draft, m.name))}>
             ×
           </button>
         )}

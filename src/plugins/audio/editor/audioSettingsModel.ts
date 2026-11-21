@@ -2,7 +2,8 @@
 // edited by pure functions like navigation and graphics. Edits start from the leniently parsed section and
 // write the whole section back, so the rest of the panel's undo/save machinery works unchanged. A scalar key has no
 // setter here: the view sets it by path on the section handle (`audioSettings.set(d, "zones.standby", n)`), which stores
-// what the parse makes of it (ADR 0306). The functions below are the edits with rules of their own.
+// what the parse makes of it (ADR 0306). The functions below are the edits with rules of their own; each one a user can
+// get refused returns the refused-or-next `EditResult` (ADR 0307, 0313), which the section applies with `applyToSettings`.
 import {
   busBed,
   busBedPriority,
@@ -58,32 +59,27 @@ export function descendants(a: AudioSettings, name: string): string[] {
 }
 
 // --- live mix edits (ADR 0171 §6.2, task Mo1) -------------------------------------------------------------------------
-// Every function in this block builds a `MixOp` and applies it with `applyOpToDraft` (`src/engine/audio/mixOps.ts`), so
-// the Project Settings UI and a live op edit the settings the same way and `audioEdit` can register `{ ops, inverse }`.
-// A refused op (one the parse would drop) returns `d` unchanged; `mixOpRefusal` gives the message, and the edits a user
-// can get refused (the renames, the ducking list) return it as a refused-or-next result (`mixEdit`, ADR 0307). The per-bus core and
-// bed keys (`setBusMaxVoices`, `setBusBed`, `setBusBedPriority`) and the automation functions further down go through
-// ops too. New here for M5: `moveEffect`, `setBusMeter`, the loudness target functions and `setLoudnessResetOnPlay`.
+// Every function in this block builds a `MixOp` and returns it as a refused-or-next result (`mixEdit`, ADR 0307, 0313):
+// refused with the op's refusal (`opRefusal`, the parse's own rule), else the draft `applyOpToDraft`
+// (`src/engine/audio/mixOps.ts`) makes, so the Project Settings UI and a live op edit the settings the same way and
+// `audioEdit` can register `{ ops, inverse }`. The per-bus core and bed keys (`setBusMaxVoices`, `setBusBed`,
+// `setBusBedPriority`) and the automation functions further down go through ops too.
 
-/** Apply one op to the draft (what every function in this block calls). */
-export const applyMixOp = (d: SettingsDraft, op: MixOp): SettingsDraft => applyOpToDraft(d, op);
-/** Why `op` can't apply to `d` (the message to show under the field), or null. */
-const mixOpRefusal = (d: SettingsDraft, op: MixOp): string | null => opRefusal(audioSettings.read(d), op);
 /** One op as a refused-or-next result: refused with the op's refusal, else the draft it gives. */
 export function mixEdit(d: SettingsDraft, op: MixOp): EditResult<SettingsDraft> {
-  const refusal = mixOpRefusal(d, op);
-  return refusal ? refuse(refusal) : accept(applyMixOp(d, op));
+  const refusal = opRefusal(audioSettings.read(d), op);
+  return refusal ? refuse(refusal) : accept(applyOpToDraft(d, op));
 }
 
-export function addBus(d: SettingsDraft, parent = MASTER): SettingsDraft {
+/** Append a bus "Bus" (unique: "Bus 2"…) under `parent` (an unknown parent: the root). Refused past the bus count rule (`busCapability.ts`, ADR 0175). */
+export function addBus(d: SettingsDraft, parent = MASTER): EditResult<SettingsDraft> {
   const a = audioSettings.read(d);
-  // Past the bus count rule the op is refused and `d` comes back (`busCapability.ts`, ADR 0175).
   const p = a.buses.some((b) => b.name === parent) ? parent : a.buses[0].name;
-  return applyMixOp(d, { op: "addBus", name: uniqueName("Bus", a.buses.map((b) => b.name)), parent: p });
+  return mixEdit(d, { op: "addBus", name: uniqueName("Bus", a.buses.map((b) => b.name)), parent: p });
 }
 
-/** Remove a bus and everything under it, and the snapshot entries and ducking rules that named them. The root stays. */
-export const removeBus = (d: SettingsDraft, name: string): SettingsDraft => applyMixOp(d, { op: "removeBus", bus: name });
+/** Remove a bus and everything under it, and the snapshot entries and ducking rules that named them. The root is refused. */
+export const removeBus = (d: SettingsDraft, name: string): EditResult<SettingsDraft> => mixEdit(d, { op: "removeBus", bus: name });
 
 /**
  * Rename a bus everywhere it's named in the section (the scenes and events that name it follow through `audioNames.ts`,
@@ -93,42 +89,42 @@ export const renameBus = (d: SettingsDraft, from: string, to: string): EditResul
   to.trim() === from && audioSettings.read(d).buses.some((b) => b.name === from) ? accept(d) : mixEdit(d, { op: "renameBus", from, to });
 
 /** Move a bus under another (not itself or its own descendant; the root has no parent). */
-export const setBusParent = (d: SettingsDraft, name: string, parent: string): SettingsDraft => applyMixOp(d, { op: "moveBus", bus: name, parent });
+export const setBusParent = (d: SettingsDraft, name: string, parent: string): EditResult<SettingsDraft> => mixEdit(d, { op: "moveBus", bus: name, parent });
 
-export const setBusValue = (d: SettingsDraft, name: string, key: "volume" | "mute", value: number | boolean): SettingsDraft =>
-  applyMixOp(d, { op: "setBus", bus: name, key, value });
+export const setBusValue = (d: SettingsDraft, name: string, key: "volume" | "mute", value: number | boolean): EditResult<SettingsDraft> =>
+  mixEdit(d, { op: "setBus", bus: name, key, value });
 
 /** ADR 0171 §2.1: meter a bus's loudness, or stop. Refused on the root (always metered) and past `MAX_LOUDNESS_BUSES`. */
-export const setBusMeter = (d: SettingsDraft, name: string, on: boolean): SettingsDraft =>
-  applyMixOp(d, { op: "setBus", bus: name, key: "meter", value: on ? "loudness" : null });
+export const setBusMeter = (d: SettingsDraft, name: string, on: boolean): EditResult<SettingsDraft> =>
+  mixEdit(d, { op: "setBus", bus: name, key: "meter", value: on ? "loudness" : null });
 
 export const defaultEffect = (type: EffectType): BusEffect => parseAudioSettings({ buses: [{ name: "x", effects: [{ type }] }] }).settings.buses[0].effects[0];
 
-/** Append an effect with its defaults. */
-export function addEffect(d: SettingsDraft, bus: string, type: EffectType): SettingsDraft {
+/** Append an effect with its defaults (an unknown bus is refused). */
+export function addEffect(d: SettingsDraft, bus: string, type: EffectType): EditResult<SettingsDraft> {
   const b = audioSettings.read(d).buses.find((x) => x.name === bus);
-  return b ? applyMixOp(d, { op: "addEffect", bus, index: b.effects.length, effect: defaultEffect(type) }) : d;
+  return mixEdit(d, { op: "addEffect", bus, index: b?.effects.length ?? 0, effect: defaultEffect(type) });
 }
-export const removeEffect = (d: SettingsDraft, bus: string, index: number): SettingsDraft => applyMixOp(d, { op: "removeEffect", bus, index });
+export const removeEffect = (d: SettingsDraft, bus: string, index: number): EditResult<SettingsDraft> => mixEdit(d, { op: "removeEffect", bus, index });
 /** Move the effect at `from` to `to` in the bus's chain. */
-export const moveEffect = (d: SettingsDraft, bus: string, from: number, to: number): SettingsDraft => applyMixOp(d, { op: "moveEffect", bus, from, to });
+export const moveEffect = (d: SettingsDraft, bus: string, from: number, to: number): EditResult<SettingsDraft> => mixEdit(d, { op: "moveEffect", bus, from, to });
 /** Set one numeric field of an effect (a key the effect doesn't have is refused). */
-export const setEffectValue = (d: SettingsDraft, bus: string, index: number, key: string, value: number): SettingsDraft =>
-  applyMixOp(d, { op: "setEffect", bus, index, key, value });
+export const setEffectValue = (d: SettingsDraft, bus: string, index: number, key: string, value: number): EditResult<SettingsDraft> =>
+  mixEdit(d, { op: "setEffect", bus, index, key, value });
 
 // --- snapshots and ducking ------------------------------------------------------------------------
 
 /** Append a snapshot named "Snapshot" (unique: "Snapshot 2"…). */
-export const addSnapshot = (d: SettingsDraft): SettingsDraft => applyMixOp(d, { op: "addSnapshot", index: audioSettings.read(d).snapshots.length });
-export const removeSnapshot = (d: SettingsDraft, index: number): SettingsDraft => applyMixOp(d, { op: "removeSnapshot", index });
+export const addSnapshot = (d: SettingsDraft): EditResult<SettingsDraft> => mixEdit(d, { op: "addSnapshot", index: audioSettings.read(d).snapshots.length });
+export const removeSnapshot = (d: SettingsDraft, index: number): EditResult<SettingsDraft> => mixEdit(d, { op: "removeSnapshot", index });
 /** Trimmed; an empty or taken name is refused; the same name is no change. */
 export const renameSnapshot = (d: SettingsDraft, index: number, to: string): EditResult<SettingsDraft> =>
   audioSettings.read(d).snapshots[index]?.name === to.trim() ? accept(d) : mixEdit(d, { op: "renameSnapshot", index, name: to });
 /** Set a bus's multiplier in a snapshot (undefined: unlisted, so 1). */
-export const setSnapshotVolume = (d: SettingsDraft, index: number, bus: string, value: number | undefined): SettingsDraft =>
-  applyMixOp(d, { op: "setSnapshot", index, bus, key: "volume", value: value ?? null });
-export const setSnapshotLowpass = (d: SettingsDraft, index: number, bus: string, hz: number | undefined): SettingsDraft =>
-  applyMixOp(d, { op: "setSnapshot", index, bus, key: "lowpass", value: hz ?? null });
+export const setSnapshotVolume = (d: SettingsDraft, index: number, bus: string, value: number | undefined): EditResult<SettingsDraft> =>
+  mixEdit(d, { op: "setSnapshot", index, bus, key: "volume", value: value ?? null });
+export const setSnapshotLowpass = (d: SettingsDraft, index: number, bus: string, hz: number | undefined): EditResult<SettingsDraft> =>
+  mixEdit(d, { op: "setSnapshot", index, bus, key: "lowpass", value: hz ?? null });
 
 /**
  * Append a rule: a **level** rule with an RMS detector at -30 dBFS (ADR 0172 owner decision 8), on the first pair of buses
@@ -145,7 +141,7 @@ export function addDucking(d: SettingsDraft): EditResult<SettingsDraft> {
   for (const [target, trigger] of pairs) {
     const rule = newDuckRule(target, trigger);
     const refusal = duckRefusal(a, [...a.ducking, rule]);
-    if (refusal === null) return accept(applyMixOp(d, { op: "setDucking", index: a.ducking.length, rule, insert: true }));
+    if (refusal === null) return accept(applyOpToDraft(d, { op: "setDucking", index: a.ducking.length, rule, insert: true }));
     first ??= refusal;
   }
   return refuse(first ?? "A ducking rule needs two buses.");
@@ -163,7 +159,7 @@ export function setDuckingValue(d: SettingsDraft, index: number, key: keyof Duck
   if (!old) return refuse(`No ducking rule ${index + 1}.`);
   const rule = ruleWithField(old, key, value);
   const refusal = duckRefusal(a, a.ducking.map((r, i) => (i === index ? rule : r)));
-  return refusal ? refuse(refusal) : accept(applyMixOp(d, { op: "setDucking", index, rule }));
+  return refusal ? refuse(refusal) : accept(applyOpToDraft(d, { op: "setDucking", index, rule }));
 }
 
 /**
@@ -178,7 +174,7 @@ export function moveDucking(d: SettingsDraft, index: number, delta: number): Edi
   const swapped = a.ducking.map((r, i) => (i === index ? a.ducking[other]! : i === other ? a.ducking[index]! : r));
   const refusal = duckRefusal(a, swapped);
   if (refusal !== null) return refuse(refusal);
-  return accept(applyMixOp(applyMixOp(d, { op: "setDucking", index, rule: swapped[index]! }), { op: "setDucking", index: other, rule: swapped[other]! }));
+  return accept(applyOpToDraft(applyOpToDraft(d, { op: "setDucking", index, rule: swapped[index]! }), { op: "setDucking", index: other, rule: swapped[other]! }));
 }
 
 // --- ADR 0171 §2.1: loudness targets and the reset option -------------------------------------------------------------
@@ -187,41 +183,31 @@ export { MAX_LOUDNESS_TARGETS };
 /** The project's loudness targets, the default list when unset; the first is the default target. */
 export const loudnessTargets = (a: AudioSettings): LoudnessTarget[] => loudnessTargetsOf(a);
 /** Append a target "Target" (unique: "Target 2"…) with the first target's numbers. Refused at `MAX_LOUDNESS_TARGETS`. */
-export function addLoudnessTarget(d: SettingsDraft): SettingsDraft {
+export function addLoudnessTarget(d: SettingsDraft): EditResult<SettingsDraft> {
   const list = loudnessTargetsOf(audioSettings.read(d));
   const name = uniqueName("Target", list.map((t) => t.name));
-  return applyMixOp(d, { op: "setTarget", index: list.length, target: { ...list[0], name }, insert: true });
+  return mixEdit(d, { op: "setTarget", index: list.length, target: { ...list[0], name }, insert: true });
 }
-/** Remove the target at `index` (the last one stays). */
-export const removeLoudnessTarget = (d: SettingsDraft, index: number): SettingsDraft => applyMixOp(d, { op: "setTarget", index, target: null });
-/** Edit a target's fields; a name that's empty, too long or taken, or a number out of range, is refused. */
-export function setLoudnessTarget(d: SettingsDraft, index: number, patch: Partial<LoudnessTarget>): SettingsDraft {
+/** Remove the target at `index` (the last one stays: refused). */
+export const removeLoudnessTarget = (d: SettingsDraft, index: number): EditResult<SettingsDraft> => mixEdit(d, { op: "setTarget", index, target: null });
+/** Edit a target's fields; a name that's empty, too long or taken, or a number out of range, is refused with the parse's message. */
+export function setLoudnessTarget(d: SettingsDraft, index: number, patch: Partial<LoudnessTarget>): EditResult<SettingsDraft> {
   const old = loudnessTargetsOf(audioSettings.read(d))[index];
-  if (!old) return d;
+  if (!old) return refuse(`No loudness target ${index + 1}.`);
   const target = { ...old, ...patch, ...(patch.name !== undefined ? { name: patch.name.trim() } : {}) };
-  return applyMixOp(d, { op: "setTarget", index, target });
+  return mixEdit(d, { op: "setTarget", index, target });
 }
 export { LOUDNESS_TARGET_LIMITS, MAX_LOUDNESS_BUSES, MAX_TARGET_NAME };
 /** Is the bus metered? The root always is. */
 export const isBusMetered = (a: AudioSettings, name: string): boolean => a.buses[0]?.name === name || a.buses.find((b) => b.name === name)?.meter !== undefined;
-/** Why turning the bus's meter on would be refused ("At most 8 buses can be metered"), or null: already on, or allowed. */
-export const busMeterRefusal = (d: SettingsDraft, name: string): string | null =>
-  isBusMetered(audioSettings.read(d), name) ? null : mixOpRefusal(d, { op: "setBus", bus: name, key: "meter", value: "loudness" });
-/** Why `setLoudnessTarget(d, index, patch)` would be refused (the message to show under the table), or null. */
-export function loudnessTargetRefusal(d: SettingsDraft, index: number, patch: Partial<LoudnessTarget>): string | null {
-  const old = loudnessTargetsOf(audioSettings.read(d))[index];
-  if (!old) return `No loudness target ${index + 1}.`;
-  const target = { ...old, ...patch, ...(patch.name !== undefined ? { name: patch.name.trim() } : {}) };
-  return mixOpRefusal(d, { op: "setTarget", index, target });
-}
 /** `loudnessResetOnPlay`: reset the meters when the editor's Play starts (default on). */
-export const setLoudnessResetOnPlay = (d: SettingsDraft, on: boolean): SettingsDraft => applyMixOp(d, { op: "setOption", key: "loudnessResetOnPlay", value: on });
+export const setLoudnessResetOnPlay = (d: SettingsDraft, on: boolean): EditResult<SettingsDraft> => mixEdit(d, { op: "setOption", key: "loudnessResetOnPlay", value: on });
 
 // --- §2 core keys (ADR 0157, K13) -------------------------------------------------------------------
 
 /** A bus's `maxVoices`: rounded and clamped to 1..`voices.logical`; `undefined` is unlimited. Unknown buses change nothing. */
-export function setBusMaxVoices(d: SettingsDraft, name: string, value: number | undefined): SettingsDraft {
-  return applyMixOp(d, { op: "setBus", bus: name, key: "maxVoices", value: value === undefined || !Number.isFinite(value) ? null : value });
+export function setBusMaxVoices(d: SettingsDraft, name: string, value: number | undefined): EditResult<SettingsDraft> {
+  return mixEdit(d, { op: "setBus", bus: name, key: "maxVoices", value: value === undefined || !Number.isFinite(value) ? null : value });
 }
 
 /** Named bundles of the voice numbers and the clip ceiling (architecture 5.3); the file stores the numbers. "low" is provisional until the low-end soak (C3) sizes it. */
@@ -276,73 +262,80 @@ export const globalParameterList = parameterList<SettingsDraft>({
   },
 });
 
+/** "No automation 3." for an index that names no entry. */
+const noAutomation = (index: number) => `No automation ${index + 1}.`;
+
 /**
  * Append a bus automation entry: the bus `bus` (a known bus; default "Music", else the first bus after the root, else
  * the root), the first global parameter, `target: "volume"`, and a flat curve `[[lo, 1], [hi, 1]]` over that parameter's
- * range (`parameterRange`). No parameters or an unknown explicit bus: returns `d`.
+ * range (`parameterRange`). Refused with no global parameter or an unknown explicit bus.
  */
-export function addBusAutomation(d: SettingsDraft, bus?: string): SettingsDraft {
+export function addBusAutomation(d: SettingsDraft, bus?: string): EditResult<SettingsDraft> {
   const a = audioSettings.read(d);
   const target = bus ?? (a.buses.find((b) => b.name === "Music") ?? a.buses[1] ?? a.buses[0]).name;
-  if (!a.buses.some((b) => b.name === target)) return d;
+  if (!a.buses.some((b) => b.name === target)) return refuse(`No bus named "${target}".`);
   const p = a.parameters[0];
-  if (!p) return d;
+  if (!p) return refuse("Automation reads a global parameter: add one first.");
   const [lo, hi] = parameterRange(p);
   const curve: Curve = lo === hi ? [[lo, 1], [lo + 1, 1]] : [[lo, 1], [hi, 1]];
-  return applyMixOp(d, { op: "setAutomation", index: a.automation.length, rule: { bus: target, parameter: p.name, target: "volume", curve }, insert: true });
+  return mixEdit(d, { op: "setAutomation", index: a.automation.length, rule: { bus: target, parameter: p.name, target: "volume", curve }, insert: true });
 }
 
-/** Remove the entry at `index` (out of range returns `d`). */
-export function removeBusAutomation(d: SettingsDraft, index: number): SettingsDraft {
-  const a = audioSettings.read(d);
-  if (!a.automation[index]) return d;
-  return applyMixOp(d, { op: "setAutomation", index, rule: null });
+/** Remove the entry at `index` (out of range is refused). */
+export function removeBusAutomation(d: SettingsDraft, index: number): EditResult<SettingsDraft> {
+  if (!audioSettings.read(d).automation[index]) return refuse(noAutomation(index));
+  return mixEdit(d, { op: "setAutomation", index, rule: null });
 }
 
-/** Point an entry at another bus (unknown bus or index returns `d`). */
-export function setBusAutomationBus(d: SettingsDraft, index: number, bus: string): SettingsDraft {
+/** Point an entry at another bus (an unknown bus or index is refused). */
+export function setBusAutomationBus(d: SettingsDraft, index: number, bus: string): EditResult<SettingsDraft> {
   const a = audioSettings.read(d);
-  if (!a.automation[index] || !a.buses.some((b) => b.name === bus)) return d;
-  return applyMixOp(d, { op: "setAutomation", index, rule: { ...a.automation[index], bus } });
+  if (!a.automation[index]) return refuse(noAutomation(index));
+  if (!a.buses.some((b) => b.name === bus)) return refuse(`No bus named "${bus}".`);
+  return mixEdit(d, { op: "setAutomation", index, rule: { ...a.automation[index], bus } });
 }
 
 /**
- * Point an entry at another global parameter (unknown parameter or index returns `d`). The curve's x values are mapped
- * linearly from the old parameter's range to the new one's (a zero-width old range maps every key to the new min), so the
- * curve keeps its shape over the new range; interpolation keys are kept.
+ * Point an entry at another global parameter (an unknown parameter or index is refused; the same one is no change). The
+ * curve's x values are mapped linearly from the old parameter's range to the new one's (a zero-width old range maps every
+ * key to the new min), so the curve keeps its shape over the new range; interpolation keys are kept.
  */
-export function setBusAutomationParameter(d: SettingsDraft, index: number, parameter: string): SettingsDraft {
+export function setBusAutomationParameter(d: SettingsDraft, index: number, parameter: string): EditResult<SettingsDraft> {
   const a = audioSettings.read(d);
   const entry = a.automation[index];
   const next = parameterOf(a, parameter);
-  if (!entry || !next || entry.parameter === parameter) return d;
+  if (!entry) return refuse(noAutomation(index));
+  if (!next) return refuse(`No global parameter named "${parameter}".`);
+  if (entry.parameter === parameter) return accept(d);
   const old = parameterOf(a, entry.parameter);
   const [oLo, oHi] = old ? parameterRange(old) : [0, 0];
   const [nLo, nHi] = parameterRange(next);
   const span = oHi - oLo;
   const mapX = (x: number) => (span === 0 ? nLo : nLo + ((x - oLo) / span) * (nHi - nLo));
   const curve: Curve = entry.curve.map((k) => (k.length > 2 ? [mapX(k[0]), k[1], k[2]] : [mapX(k[0]), k[1]]) as Curve[number]);
-  return applyMixOp(d, { op: "setAutomation", index, rule: { ...entry, parameter, curve } });
+  return mixEdit(d, { op: "setAutomation", index, rule: { ...entry, parameter, curve } });
 }
 
-/** Switch an entry between `volume` and `lowpass`; the curve resets to flat over the parameter's range at 1 (volume) or 24000 Hz (lowpass), as the units differ. Same target or unknown index: returns `d`. */
-export function setBusAutomationTarget(d: SettingsDraft, index: number, target: BusAutomation["target"]): SettingsDraft {
+/** Switch an entry between `volume` and `lowpass`; the curve resets to flat over the parameter's range at 1 (volume) or 24000 Hz (lowpass), as the units differ. The same target is no change; an unknown index is refused. */
+export function setBusAutomationTarget(d: SettingsDraft, index: number, target: BusAutomation["target"]): EditResult<SettingsDraft> {
   const a = audioSettings.read(d);
   const entry = a.automation[index];
-  if (!entry || entry.target === target) return d;
+  if (!entry) return refuse(noAutomation(index));
+  if (entry.target === target) return accept(d);
   const p = parameterOf(a, entry.parameter);
   const [lo, hi] = p ? parameterRange(p) : [0, 1];
   const v = target === "volume" ? 1 : 24000;
   const curve: Curve = [[lo, v], [hi, v]];
-  return applyMixOp(d, { op: "setAutomation", index, rule: { ...entry, target, curve } });
+  return mixEdit(d, { op: "setAutomation", index, rule: { ...entry, target, curve } });
 }
 
-/** Replace an entry's curve (an empty curve, or an unknown index, returns `d`; more than `MAX_CURVE_KEYS` keys are cut to that). */
-export function setBusAutomationCurve(d: SettingsDraft, index: number, curve: Curve): SettingsDraft {
+/** Replace an entry's curve (an empty curve or an unknown index is refused; more than `MAX_CURVE_KEYS` keys are cut to that). */
+export function setBusAutomationCurve(d: SettingsDraft, index: number, curve: Curve): EditResult<SettingsDraft> {
   const a = audioSettings.read(d);
-  if (curve.length === 0 || !a.automation[index]) return d;
+  if (!a.automation[index]) return refuse(noAutomation(index));
+  if (curve.length === 0) return refuse("A curve needs at least one key.");
   const kept: Curve = curve.slice(0, MAX_CURVE_KEYS);
-  return applyMixOp(d, { op: "setAutomation", index, rule: { ...a.automation[index], curve: kept } });
+  return mixEdit(d, { op: "setAutomation", index, rule: { ...a.automation[index], curve: kept } });
 }
 
 /** The parameter a name refers to, or undefined. */
@@ -396,13 +389,13 @@ export function zoneWarnings(a: Pick<AudioSettings, "zones">): ZoneWarning[] {
 // --- ADR 0162 E3: beds, ambisonic clips, occlusion, zones, Doppler (api-and-models section 7, 2.1, 2.2) -------------------
 
 /** A bus's bed mode. The default (the root `own`, others `parent`) is stored as absent. Unknown buses change nothing. */
-export function setBusBed(d: SettingsDraft, name: string, bed: BusBed): SettingsDraft {
-  return applyMixOp(d, { op: "setBus", bus: name, key: "bed", value: bed });
+export function setBusBed(d: SettingsDraft, name: string, bed: BusBed): EditResult<SettingsDraft> {
+  return mixEdit(d, { op: "setBus", bus: name, key: "bed", value: bed });
 }
 
 /** A bus's `bedPriority`: rounded, clamped 0..255; `undefined` (or the bus's default: root 255, others 128) is stored as absent. */
-export function setBusBedPriority(d: SettingsDraft, name: string, priority: number | undefined): SettingsDraft {
-  return applyMixOp(d, { op: "setBus", bus: name, key: "bedPriority", value: priority === undefined || !Number.isFinite(priority) ? null : priority });
+export function setBusBedPriority(d: SettingsDraft, name: string, priority: number | undefined): EditResult<SettingsDraft> {
+  return mixEdit(d, { op: "setBus", bus: name, key: "bedPriority", value: priority === undefined || !Number.isFinite(priority) ? null : priority });
 }
 
 /** What the bed resolution gives a section: who hosts a bed, who asked for one and lost it, and where each bus mixes. */
@@ -465,21 +458,24 @@ export interface MaterialPatch { transmissionDb?: number; cutoffHz?: number; wet
 const withMaterials = (d: SettingsDraft, a: AudioSettings, materials: OccluderMaterial[], defaultMaterial = a.occlusion.defaultMaterial): SettingsDraft =>
   audioSettings.write(d, { ...a, occlusion: { ...a.occlusion, materials, defaultMaterial } });
 
-/** Append a custom material "Material" (unique: "Material 2"…) with concrete's values. At `MAX_MATERIALS`, returns `d`. */
-export function addMaterial(d: SettingsDraft): SettingsDraft {
+/** "No material named …" for a name the table doesn't have. */
+const noMaterial = (name: string) => `No material named "${name}".`;
+
+/** Append a custom material "Material" (unique: "Material 2"…) with concrete's values. Refused at `MAX_MATERIALS`. */
+export function addMaterial(d: SettingsDraft): EditResult<SettingsDraft> {
   const a = audioSettings.read(d);
   const table = a.occlusion.materials;
-  if (table.length >= MAX_MATERIALS) return d;
+  if (table.length >= MAX_MATERIALS) return refuse(`A project holds at most ${MAX_MATERIALS} materials.`);
   const base = table.find((m) => m.name === DEFAULT_MATERIAL_NAME) ?? table[0];
   const name = uniqueName("Material", table.map((m) => m.name));
-  return withMaterials(d, a, [...table, { name, transmissionDb: base.transmissionDb, cutoffHz: base.cutoffHz, wetOcclusion: base.wetOcclusion }]);
+  return accept(withMaterials(d, a, [...table, { name, transmissionDb: base.transmissionDb, cutoffHz: base.cutoffHz, wetOcclusion: base.wetOcclusion }]));
 }
 
-/** Edit a material's numbers, each clamped to `MATERIAL_LIMITS`; non-finite ignored. Unknown names return `d`. */
-export function setMaterial(d: SettingsDraft, name: string, patch: MaterialPatch): SettingsDraft {
+/** Edit a material's numbers, each clamped to `MATERIAL_LIMITS`; non-finite ignored. An unknown name is refused. */
+export function setMaterial(d: SettingsDraft, name: string, patch: MaterialPatch): EditResult<SettingsDraft> {
   const a = audioSettings.read(d);
   const old = a.occlusion.materials.find((m) => m.name === name);
-  if (!old) return d;
+  if (!old) return refuse(noMaterial(name));
   const pick = (v: number | undefined, [min, max]: readonly [number, number], was: number) => (v === undefined || !Number.isFinite(v) ? was : Math.min(max, Math.max(min, v)));
   const next: OccluderMaterial = {
     name,
@@ -492,32 +488,41 @@ export function setMaterial(d: SettingsDraft, name: string, patch: MaterialPatch
     const kept = v === undefined ? old[key] : v === null || !Number.isFinite(v) ? undefined : Math.min(MATERIAL_LIMITS[key][1], Math.max(MATERIAL_LIMITS[key][0], v));
     if (kept !== undefined) next[key] = kept;
   }
-  return sameMaterial(next, old) ? d : withMaterials(d, a, a.occlusion.materials.map((m) => (m.name === name ? next : m)));
+  return accept(sameMaterial(next, old) ? d : withMaterials(d, a, a.occlusion.materials.map((m) => (m.name === name ? next : m))));
 }
 
-/** Rename a custom material (built-ins keep their names). Trimmed; empty, taken or unknown names return `d`. `defaultMaterial` follows. */
-export function renameMaterial(d: SettingsDraft, from: string, to: string): SettingsDraft {
+/**
+ * Rename a custom material; `defaultMaterial` follows. Trimmed; the same name is no change. Refused: a built-in (they
+ * keep their names), an empty or taken name, an unknown material.
+ */
+export function renameMaterial(d: SettingsDraft, from: string, to: string): EditResult<SettingsDraft> {
   const a = audioSettings.read(d);
   const name = to.trim();
   const table = a.occlusion.materials;
-  if (isBuiltinMaterial(from) || name === "" || name === from || table.some((m) => m.name === name) || !table.some((m) => m.name === from)) return d;
-  return withMaterials(d, a, table.map((m) => (m.name === from ? { ...m, name } : m)), a.occlusion.defaultMaterial === from ? name : a.occlusion.defaultMaterial);
+  if (!table.some((m) => m.name === from)) return refuse(noMaterial(from));
+  if (isBuiltinMaterial(from)) return refuse(`"${from}" is built in and keeps its name.`);
+  if (name === from) return accept(d);
+  if (name === "") return refuse("A material needs a name.");
+  if (table.some((m) => m.name === name)) return refuse(`Another material is already named "${name}".`);
+  return accept(withMaterials(d, a, table.map((m) => (m.name === from ? { ...m, name } : m)), a.occlusion.defaultMaterial === from ? name : a.occlusion.defaultMaterial));
 }
 
-/** Remove a custom material (a built-in is reset instead: returns `d`). If it was the default, `concrete` becomes it. */
-export function removeMaterial(d: SettingsDraft, name: string): SettingsDraft {
+/** Remove a custom material (a built-in is refused: it is reset instead). If it was the default, `concrete` becomes it. */
+export function removeMaterial(d: SettingsDraft, name: string): EditResult<SettingsDraft> {
   const a = audioSettings.read(d);
   const table = a.occlusion.materials;
-  if (isBuiltinMaterial(name) || !table.some((m) => m.name === name)) return d;
-  return withMaterials(d, a, table.filter((m) => m.name !== name), a.occlusion.defaultMaterial === name ? DEFAULT_MATERIAL_NAME : a.occlusion.defaultMaterial);
+  if (!table.some((m) => m.name === name)) return refuse(noMaterial(name));
+  if (isBuiltinMaterial(name)) return refuse(`"${name}" is built in: reset it instead.`);
+  return accept(withMaterials(d, a, table.filter((m) => m.name !== name), a.occlusion.defaultMaterial === name ? DEFAULT_MATERIAL_NAME : a.occlusion.defaultMaterial));
 }
 
-/** Put a built-in material back to its shipped values (custom, unchanged or unknown names return `d`). */
-export function resetMaterial(d: SettingsDraft, name: string): SettingsDraft {
+/** Put a built-in material back to its shipped values (an unchanged one is no change; a custom or unknown name is refused). */
+export function resetMaterial(d: SettingsDraft, name: string): EditResult<SettingsDraft> {
   const a = audioSettings.read(d);
   const b = BUILTIN_MATERIALS.find((m) => m.name === name);
-  if (!b || !materialIsModified(a, name)) return d;
-  return withMaterials(d, a, a.occlusion.materials.map((m) => (m.name === name ? { ...b } : m)));
+  if (!b) return refuse(`"${name}" is not a built-in material.`);
+  if (!materialIsModified(a, name)) return accept(d);
+  return accept(withMaterials(d, a, a.occlusion.materials.map((m) => (m.name === name ? { ...b } : m))));
 }
 
 /** The project's physics layer names (what `occlusion.layers` chooses from). */
