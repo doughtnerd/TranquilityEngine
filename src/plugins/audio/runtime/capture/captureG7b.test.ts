@@ -37,7 +37,7 @@ const RATE = 48_000;
 const BLOCK = 768;
 const SECOND = Math.ceil(RATE / BLOCK);
 
-type Fake = FakeBackend & { frame: number; time: number };
+type Fake = FakeBackend & { frame: number };
 
 function rig(opts: { babylon?: boolean; keyframe?: boolean } = {}) {
   const fb = makeFakeBackend() as unknown as Fake;
@@ -157,7 +157,7 @@ describe("the Babylon fallback has no STATUS: its audio clock drives the frames"
     await Audio.capture.start();
     expect(vi.getTimerCount(), "the pump runs").toBe(1);
     const clock = (seconds: number): void => {
-      r.fb.time = seconds;
+      r.fb.advanceTo(seconds);
       vi.advanceTimersByTime(PUMP_MS);
     };
     const sink = r.fb.profileSink!;
@@ -192,12 +192,12 @@ describe("the Babylon fallback has no STATUS: its audio clock drives the frames"
     fakePumpTimers();
     const r = rig({ babylon: true });
     await Audio.capture.start();
-    r.fb.time = 3;
+    r.fb.advanceTo(3);
     vi.advanceTimersByTime(PUMP_MS);
     expect(r.recorders[0]!.newestStatusFrame).toBe(3 * RATE);
     Audio.capture.stop();
     expect(vi.getTimerCount()).toBe(0);
-    r.fb.time = 9;
+    r.fb.advanceTo(9);
     vi.advanceTimersByTime(10 * PUMP_MS); // Held: nothing reads the clock
     expect(r.recorders[0]!.newestStatusFrame).toBe(3 * RATE);
     await Audio.capture.start();
