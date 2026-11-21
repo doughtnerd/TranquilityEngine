@@ -116,4 +116,4 @@ It replaces `{ meshes, sprites }`; the e2e specs that read it filter by `feature
   `uiFeature.ts`, `src/plugins/tilemaps/runtime/{tilemapRenderer,tilemapsFeature}.ts`.
 - Tests: `engine/tests/renderFeatureDrawn.test.ts`, `babylonEditorPicking.test.ts`, `babylonEditorDrawing.test.ts`,
   `babylonEditorViewport.test.ts`, `uiFeature.test.ts`, `spriteBatching.test.ts`, `instancing.test.ts`,
-  `thumbnailRenderFeatures.test.ts`; e2e `three-d`, `shadersubgraph`, `shaderassets`.
+  `thumbnailRenderFeatures.test.ts`; e2e `three-d`, `shadersubgraph`, `shaderassets`, `selection` (clicking a screen Text).
