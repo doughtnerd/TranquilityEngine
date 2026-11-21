@@ -1,8 +1,6 @@
 import { mixer } from "../audio/mixer";
-import { BrowserStorage } from "../platform/BrowserStorage";
-import { getFileSystem, isTauri } from "../platform/FileSystem";
 import { MemoryStorage, Storage, type StorageBackend } from "../platform/Storage";
-import { TauriStorage } from "../platform/TauriStorage";
+import { openStorage } from "../platform/storageScope";
 import { AUTO_QUALITY_KEY, Graphics, QUALITY_KEY } from "../render/Graphics";
 import { FrameMonitor } from "../render/qualityDetect";
 import { Assets, type AssetSource } from "../scene/Assets";
@@ -29,7 +27,8 @@ export interface ProjectBootOptions {
  */
 export async function bootProject(settings: ProjectSettings, options: ProjectBootOptions): Promise<FrameMonitor | null> {
   for (const source of ([] as AssetSource[]).concat(options.assets ?? [])) Assets.addSource(source);
-  Storage.use(options.storage ?? (await defaultStorage(settings.name, !options.draws)));
+  // Storage for this game (ADR 0317): a host that knows better (the editor's Play: the project's own) passes it.
+  Storage.use(options.storage ?? (options.draws ? await openStorage({ kind: "game", name: settings.name }) : new MemoryStorage()));
   // One rule for every runtime section (ADR 0272): each problem and warning its parse reports. A bad value was
   // replaced by its default in `settings`, and the problem says so.
   const issues = settingsIssues(options.project);
@@ -51,12 +50,4 @@ export async function bootProject(settings: ProjectSettings, options: ProjectBoo
   const monitor = new FrameMonitor({ targetFps: graphics.targetFrameRate });
   monitor.setAtLowest(Graphics.tiers.indexOf(Graphics.quality) <= 0);
   return monitor;
-}
-
-/** Platform storage (ADR 0024): files in the app data folder under Tauri, IndexedDB in a browser, memory when headless. */
-async function defaultStorage(gameName: string, headless: boolean): Promise<StorageBackend> {
-  if (headless) return new MemoryStorage();
-  if (isTauri()) return TauriStorage.create(await getFileSystem());
-  if (typeof indexedDB !== "undefined") return new BrowserStorage(gameName);
-  return new MemoryStorage();
 }
