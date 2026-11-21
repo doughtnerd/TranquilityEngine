@@ -1,6 +1,6 @@
 // The `audioEvent` asset format and its reference handling (ADR 0158 §1, ADR 0148): reading and writing
 // `*.audioevent.json` through the editor's asset documents, and listing the clips an event names. The parser itself is the engine's (`engine/audio/eventFormat.ts`).
-import type { AssetFormat, AssetReferenceExtractor } from "../../../editor/sdk";
+import type { AssetFormat, AssetReferences } from "../../../editor/sdk";
 import {
   emptyAudioEvent,
   eventClips,
@@ -24,11 +24,12 @@ export const audioEventFormat: AssetFormat<AudioEventAsset> = {
 };
 
 /**
- * The kind's `references` extractor (ADR 0148): for the text of an `*.audioevent.json`, the clip paths it names
+ * The kind's `references` (ADR 0148): for the text of an `*.audioevent.json`, the clip paths it names
  * (every clip path of the parsed event, once each, in tree order, sustain slots included and empty paths left out;
- * invalid JSON names nothing).
+ * invalid JSON names nothing). No `rewrite`: an event is JSON, so a move rewrites its clip paths through its asset
+ * document like any JSON file's reference strings (ADR 0302, 0314).
  */
-export const audioEventReferences: AssetReferenceExtractor = {
+export const audioEventReferences: AssetReferences = {
   read: (_path, text) => {
     let parsed: unknown;
     try {

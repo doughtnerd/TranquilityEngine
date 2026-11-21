@@ -126,7 +126,7 @@ export async function moveAssets(moves: readonly (readonly [string, string])[], 
   const label = done.length === 1 ? `${done[0][0]} to ${done[0][1]}` : `${done.length} items`;
   const parts = [
     cleaned.length > 0 ? ` Updated references in ${cleaned.join(", ")}.` : "",
-    notRewritten.length > 0 ? ` Files that name the old path weren't changed (scripts and model files aren't rewritten): ${notRewritten.join(", ")}.` : "",
+    notRewritten.length > 0 ? ` Files that name the old path weren't changed (scripts aren't rewritten): ${notRewritten.join(", ")}.` : "",
   ];
   status.value = {
     kind: "info",
@@ -141,7 +141,7 @@ export async function moveAssets(moves: readonly (readonly [string, string])[], 
 
 /**
  * Point references at the moved files' new paths (the asset reference module): the open scene's
- * change is one undo step. Returns the files updated and the files no owner rewrites (scripts, model files) that still name an old path.
+ * change is one undo step. Returns the files updated and the files no one rewrites (scripts) that still name an old path.
  */
 function updateReferences(project: EditorProject, moves: readonly (readonly [string, string])[]): Promise<{ updated: string[]; notRewritten: string[] }> {
   return rewriteReferences(project, moves, `Update references to ${moves.length === 1 ? fileName(moves[0][1]) : `${moves.length} moved files`}`);
