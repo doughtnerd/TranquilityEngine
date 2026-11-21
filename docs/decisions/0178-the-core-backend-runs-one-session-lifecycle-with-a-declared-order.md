@@ -1,6 +1,6 @@
 # 0178. The core backend runs one session lifecycle with a declared order
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0291 (the session also answers the send rule, `maySend` and `mayQueue`)
 - **Date:** 2026-11-15
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
