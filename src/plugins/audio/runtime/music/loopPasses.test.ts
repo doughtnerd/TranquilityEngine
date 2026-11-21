@@ -51,9 +51,9 @@ function rig(): void {
 }
 
 beforeEach(() => {
-  rigClips(8);
   b = makeFakeBackend();
   setAudioBackend(b);
+  rigClips(8, 48_000, b, ["a.ogg", "b.ogg", "hit.ogg"]);
   rig();
 });
 afterEach(() => {

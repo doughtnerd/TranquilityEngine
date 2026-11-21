@@ -3,7 +3,7 @@
  * (`compileSegmentGrid`, G1) and its loop regions, and the one rule for how long the segment's file is.
  *
  * **Length rule.** A segment's file is its **first track that names a clip**. Its length is that clip's facts
- * (`SegmentClipSource.facts`: frames at the clip's own rate), else the backend's decoded length
+ * (the clip resolver's `clipFacts`: frames at the clip's own rate), else the backend's decoded length
  * (`clipCache.clipDuration`, seconds: a decoded clip ends at its buffer's end), else unknown.
  *
  * **Refresh.** Every read looks the length up (two map lookups) and recompiles when it differs from the one the cached
@@ -17,7 +17,7 @@
 import { audioBackend } from "../backend";
 import type { MusicNode, SegmentNode } from "../../../../engine/audio/musicFormat";
 import { compileSegmentGrid, positionTextToTicks, ticksToSeconds, type SegmentGrid } from "../../../../engine/audio/musicGrid";
-import { segmentClipSource } from "./segmentRun";
+import { clipFacts } from "../clipResolver";
 
 /**
  * The clip rate when the file's own rate is unknown (decoded-length only, or nothing known). This module sits in an
@@ -85,7 +85,7 @@ export function segmentLength(node: MusicNode): SegmentLength | undefined {
   if (node.type !== "segment") return undefined;
   const clip = lengthClip(node);
   if (!clip) return undefined;
-  const f = segmentClipSource().facts(clip);
+  const f = clipFacts(clip);
   if (f && f.rate > 0) return { seconds: f.frames / f.rate, frames: f.frames, rate: f.rate };
   let d: number | null | undefined;
   try {

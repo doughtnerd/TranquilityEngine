@@ -11,68 +11,16 @@ import { Vector3 } from "../../../engine/core/math";
 import type { World } from "../../../engine/core/World";
 import { _worldServiceOf } from "../../../engine/core/worldServices";
 import { AUDIO, type AudioWorldService } from "./core/service";
-import { ambisonicImportGain, ambisonicStreamsByDefault } from "./core/clipRegistry";
+import { clipRequest, clipVolume, isAmbisonicClip } from "./clipResolver";
 import { isSpatialPassHost } from "./core/spatial";
 import { Assets } from "../../../engine/scene/Assets";
 import { audioBackend, hasAudioBackend, DEFAULT_SEND_CURVE, type AudioPanner, type AudioVoice, type PlayRequest, type Rolloff, type SendCurve } from "./backend";
 import { isAudioEventPath } from "../../../engine/audio/eventFormat";
-import { _setEventClipStarter, events, loadAudioEvent, type EventInstance, type EventOptions } from "./events/eventRuntime";
-import { setSegmentClipSource } from "./music/segmentRun";
+import { events, loadAudioEvent, type EventInstance, type EventOptions } from "./events/eventRuntime";
 import { noteAssetChanged, setReloadHost } from "./music/reload";
 
 
 export type { Rolloff } from "./backend";
-
-/** @internal Whether `path`'s sidecar marks it ambisonic (ADR 0162 §2.4): it plays through the listener's rotation, with no position. */
-export const isAmbisonicClip = (path: string): boolean => Assets.importSettings(path).ambisonic !== null;
-
-/**
- * @internal Start a clip on the active backend, on `output` (a mixer bus name; empty or unknown: Master). An ambisonic clip
- * (§2.4) is sent with `ambisonic` set, and streams when its sidecar says so or the registry found it longer than 5 s.
- */
-export function startClip(path: string, loop: boolean, output: string | undefined, extra?: Partial<PlayRequest>): AudioVoice | null {
-  const settings = Assets.importSettings(path);
-  const ambisonic = settings.ambisonic !== null;
-  return audioBackend().play({
-    path, url: Assets.url(path), loop, stream: settings.stream || (ambisonic && ambisonicStreamsByDefault(path)), bus: mixer.resolveOutput(output),
-    ...(ambisonic ? { ambisonic: true } : null), ...extra,
-  });
-}
-
-/**
- * @internal The clip's import volume (ADR 0040), which scales every playback of it. ADR 0162 §2.4: a FuMa clip was scaled
- * down into int16 headroom by the decoder, and its import gain (1 for every other clip) restores the level.
- */
-export const clipVolume = (path: string) => Assets.importSettings(path).volume * ambisonicImportGain(path);
-
-// ADR 0158: event clips start like every clip, with the import volume (and the bus resolved as for `output`). M2 F1: in
-// parts, so the event runtime reads a clip's import settings once per voice and builds its request in one object.
-_setEventClipStarter({
-  settings: (path) => {
-    // ADR 0162 §2.4: as `clipVolume`; only a FuMa clip (import gain ≠ 1) costs an object.
-    const settings = Assets.importSettings(path);
-    const gain = ambisonicImportGain(path);
-    return gain === 1 ? settings : { volume: settings.volume * gain, stream: settings.stream };
-  },
-  url: (path) => Assets.url(path),
-  bus: (output) => mixer.resolveOutput(output),
-  hasBus: (name) => mixer.has(name),
-  play: (req) => audioBackend().play(req),
-});
-
-// ADR 0166 P6: a music segment run resolves its stems' clips here (the event runtime's starter above is private to it):
-// the same URL, import settings (with the FuMa gain) and bus resolution. The clip facts come from the backend
-// (`AudioBackend.clipCache`, G-1); until a clip is loaded the stream-or-decode rule falls back to the import setting `stream`.
-setSegmentClipSource({
-  url: (path) => Assets.url(path),
-  settings: (path) => {
-    const settings = Assets.importSettings(path);
-    const gain = ambisonicImportGain(path);
-    return gain === 1 ? settings : { volume: settings.volume * gain, stream: settings.stream };
-  },
-  bus: (output) => mixer.resolveOutput(output),
-  facts: (path) => audioBackend().clipCache?.clipFacts(path),
-});
 
 // ADR 0166 P8: the editor saving an asset reaches the music runtime here. `invalidateClip` drops the decoded clips and the
 // worker's encoded bytes of the file (only when a backend exists: an edit before any sound needs nothing dropped), and
@@ -208,11 +156,12 @@ export class AudioSource extends Component {
     const spatial = this.spatial && !this.ambisonicClip && this.node.transform !== null;
     // G9b: the voice starts at its volume and pitch. Set only afterwards (`apply`), the PLAY went out at gain 1 and the
     // volume a frame later, so a quiet source was heard at full scale for that frame (and dipped a level rule's target).
-    this.voice = startClip(path, this.loop, this.output, {
-      volume: this.volume * clipVolume(path), pitch: this.pitch,
+    const req = clipRequest(path, this.loop, this.output);
+    this.voice = audioBackend().play(Object.assign(req, {
+      volume: this.volume * req.volume!, pitch: this.pitch,
       priority: clamp255(this.priority), world: worldKeyOf(this._world), owner: this.node.name, ...this.spatialOptions(),
       ...(spatial ? { attenuation: { minDistance: this.minDistance, maxDistance: this.maxDistance, rolloff: this.rolloff }, position: this.node.transform!.worldPosition } : null),
-    });
+    }));
     this.applied = "";
     this.appliedM3 = "";
     this.appliedCurve.length = 0;

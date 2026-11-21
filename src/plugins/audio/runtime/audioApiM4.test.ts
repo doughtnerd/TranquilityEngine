@@ -1,7 +1,7 @@
 // ADR 0166 api-and-models §1, the M4a rows (P7): `handle.music` getters and `nextGrid`, `Audio.horizon`, `Audio.timeAt`,
 // `Audio.play(music, { at })`, and `Audio.time` in `update()`. One skipped case per row; leaf L-P7a fills the cases
 // tagged `L-P7a` (the lead fills the one tagged `P7-lead`). Fixtures: build a player as `music/planner.test.ts` does
-// (fake backend, `setSegmentClipSource`, a parsed segment, `planTick` until it plays) and read through `Audio` and
+// (fake backend with the clips served (`serveMusicClips`), a parsed segment, `planTick` until it plays) and read through `Audio` and
 // `player.handle`.
 //
 // Clock used throughout: 120 bpm 4/4, so a beat is 0.5 s and a bar 2 s. A first segment with gridOffset 0 starts at
@@ -21,7 +21,7 @@ import type { MusicClipFacts } from "../../../engine/audio/musicValidate";
 import { musicHandleOf } from "./music/handle";
 import {
   createMusicPlayer, disposeMusicPlayer, musicPlayers, type MusicPlayer } from "./music/musicSystem";
-import { setSegmentClipSource } from "./music/segmentRun";
+import { serveMusicClips } from "./music/testing/clips";
 import { planTick } from "./music/planner";
 import { requestTransition } from "./music/transition";
 
@@ -60,7 +60,7 @@ function rig(): void {
   b = makeFakeBackend();
   setAudioBackend(b);
   b.lookahead = L;
-  setSegmentClipSource({ url: (p) => `/assets/${p}`, settings: () => ({ volume: 1, stream: true }), bus: (o) => o ?? "Master", facts: (p) => FACTS[p] });
+  serveMusicClips(b, FACTS, { stream: true });
   b.advanceTo(1);
 }
 
@@ -80,6 +80,7 @@ function playingPlayer(node: SegmentNode = segment("A", ["music/a1.ogg", "music/
 function registerEvent(root: Record<string, unknown>): void {
   Assets.clearSources();
   Assets.addSource(Assets.fromObject({ "s.json": { format: "myco.scene@1", nodes: [] }, [MUSIC_EVENT]: { format: "myco.audioevent@1", root } }));
+  serveMusicClips(b ?? null, FACTS, { stream: true });
 }
 
 // `Audio.play` plays only with an active World that has the view (as audioApi.test.ts sets it up).

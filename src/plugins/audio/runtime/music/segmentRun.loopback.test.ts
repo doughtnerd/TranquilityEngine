@@ -18,9 +18,9 @@ import {
   pollPrimed,
   primeRun,
   routeGroupEvent,
-  setSegmentClipSource,
   stampRun,
 } from "./segmentRun";
+import { projectBuses, serveMusicClips } from "./testing/clips";
 
 /** The largest music group id the runs hand out (segmentRun.ts). */
 const MAX_MUSIC_GROUP_ID = 1023;
@@ -48,15 +48,14 @@ const instance = (group = 7): EventInstance =>
   ({ group, world: 3, path: "music.audioevent", asset: { bus: "Music", priority: 200, volume: 1 } }) as unknown as EventInstance;
 
 let fake: FakeBackend;
+let restoreBuses = (): void => {};
 function rig(): { b: FakeBackend; player: MusicPlayer; node: SegmentNode; f: MusicFrame } {
   fake = makeFakeBackend();
   setAudioBackend(fake);
-  setSegmentClipSource({
-    url: (p) => `/assets/${p}`,
-    settings: () => ({ volume: 1, stream: false }),
-    bus: (o) => o ?? "Master",
-    facts: (p) => FACTS[p],
-  });
+  // ADR 0293: the stems resolve through the clip resolver: the project's buses (a track's "Drums" too), the clips served
+  // as assets, their facts in the fake's clip cache.
+  restoreBuses = projectBuses(["Music", "Drums"]);
+  serveMusicClips(fake, FACTS);
   const node = segment();
   const player = createMusicPlayer(instance(), node);
   const f = musicFrameAt(fake, 1);
@@ -66,6 +65,7 @@ function rig(): { b: FakeBackend; player: MusicPlayer; node: SegmentNode; f: Mus
 afterEach(() => {
   endAudioSession();
   setAudioBackend(null);
+  restoreBuses();
   vi.restoreAllMocks();
 });
 
@@ -127,15 +127,10 @@ describe("SegmentRun on the fake backend (ADR 0166 P1, L-P1a)", () => {
     expect(run.startAt).toBeNaN();
 
     // Without facts the import setting decides.
-    const source = (stream: boolean) => ({
-      url: (p: string) => `/assets/${p}`,
-      settings: () => ({ volume: 1, stream }),
-      bus: (o: string | undefined) => o ?? "Master",
-      facts: () => undefined,
-    });
-    setSegmentClipSource(source(true));
+    b.facts.clear();
+    serveMusicClips(b, {}, { stream: true });
     expect(createSegmentRun(player, node, 0)!.stems.map((s) => s.streamed)).toEqual([true, true]);
-    setSegmentClipSource(source(false));
+    serveMusicClips(b);
     expect(createSegmentRun(player, node, 0)!.stems.map((s) => s.streamed)).toEqual([false, false]);
 
     // A segment with no tracks has no run.

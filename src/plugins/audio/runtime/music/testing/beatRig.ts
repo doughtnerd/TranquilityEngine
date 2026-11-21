@@ -11,12 +11,22 @@ import type { EventInstance } from "../../events/eventRuntime";
 import { predictDue } from "../beatClock";
 import { commitStart, noteStartHeard } from "../musicPlayer";
 import { createMusicPlayer, type MusicPlayer } from "../musicSystem";
-import { createSegmentRun, setSegmentClipSource, type SegmentRun } from "../segmentRun";
+import { createSegmentRun, type SegmentRun } from "../segmentRun";
+import { setAudioBackend } from "../../backend";
+import { makeFakeBackend, type FakeBackend } from "../../testing";
+import { serveMusicClips } from "./clips";
 
-/** The clips' facts: 10 minutes at 48 kHz, so the exit (the end) is far away unless a segment sets one. */
-export function rigClips(seconds = 600, rate = 48_000): void {
+/**
+ * The clips' facts: 10 minutes at 48 kHz, so the exit (the end) is far away unless a segment sets one. ADR 0293: the clips
+ * are served as assets (streamed by their sidecars) and their facts reported by `backend`'s clip cache; without one, a
+ * new fake backend is registered. Returns the backend that holds the facts.
+ */
+export function rigClips(seconds = 600, rate = 48_000, backend?: FakeBackend, clips: readonly string[] = ["a.ogg"]): FakeBackend {
   const facts: MusicClipFacts = { frames: seconds * rate, rate, channels: 2, gapless: true };
-  setSegmentClipSource({ url: (p) => p, settings: () => ({ volume: 1, stream: true }), bus: (o) => o ?? "Master", facts: () => facts });
+  const b = backend ?? makeFakeBackend();
+  if (!backend) setAudioBackend(b);
+  serveMusicClips(b, Object.fromEntries(clips.map((c) => [c, facts])), { stream: true });
+  return b;
 }
 
 let ids = 0;

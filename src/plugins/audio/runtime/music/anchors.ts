@@ -36,7 +36,8 @@ import { nextGridSeconds, positionTextToTicks, secondsToTicks, ticksToSeconds, t
 import type { GridSpec } from "../../../../engine/audio/musicTypes";
 import type { MusicPlayer } from "./musicSystem";
 import type { RegionState } from "./regions";
-import { segmentClipSource, type SegmentRun } from "./segmentRun";
+import type { SegmentRun } from "./segmentRun";
+import { clipFacts } from "../clipResolver";
 import { FALLBACK_CLIP_RATE, segmentGrid, segmentLoops, type LoopRegion, type SegmentLoops } from "./segmentGrids";
 
 /** §3.2 `GridAnchor`. P3 added `node` and `rate` (the anchor needs its segment's grid; nothing else stores frames). */
@@ -185,7 +186,7 @@ export interface PlayingPosition {
 /** The clip rate of a run: its first stem's facts, else 48 kHz. */
 function runRate(run: SegmentRun): number {
   for (const s of run.stems) {
-    const f = segmentClipSource().facts(s.clip);
+    const f = clipFacts(s.clip);
     if (f && f.rate > 0) return f.rate;
   }
   return FALLBACK_CLIP_RATE;

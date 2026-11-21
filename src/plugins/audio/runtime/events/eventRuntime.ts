@@ -26,7 +26,8 @@ import { loopPointsFor, onLoopPoints } from "../loopPoints";
 import { onAudioSessionReleased } from "../audioSession";
 import { createMusicPlayer, disposeMusicPlayer, type MusicFrame, type MusicPlayer } from "../music/musicSystem";
 import { musicPending, stopPlayer } from "../music/musicPlayer";
-import { segmentClipSource, stopPlayerRuns, type StemRun } from "../music/segmentRun";
+import { stopPlayerRuns, type StemRun } from "../music/segmentRun";
+import { clipRequest, clipVolume } from "../clipResolver";
 import { quantizedRamp } from "../music/stems";
 import { loopTailVoices } from "../music/loopTail";
 import type { SegmentNode } from "../../../../engine/audio/musicFormat";
@@ -1008,7 +1009,7 @@ export class EventInstance {
           const all = this.musicBindings(track.automation);
           const continuous = continuousBindings(all);
           if (continuous.length > 0) {
-            const base = { volume: (track.volume ?? 1) * segmentClipSource().settings(stem.clip).volume, pitch: 1 };
+            const base = { volume: (track.volume ?? 1) * clipVolume(stem.clip), pitch: 1 };
             this.sys.automation.bindVoice(voice, this.group, continuous, base);
           }
           st = { voice, bindings: quantizedBindings(all), level: 1 };
@@ -1294,14 +1295,15 @@ export class EventInstance {
     const held = node.sustain || ctx.sustain !== null;
     const looping = node.loop || held;
     const path = node.clip;
-    const settings = starter.settings(path);
-    const volume = ctx.volume * settings.volume;
+    // ADR 0293: the clip resolver's request (URL, import volume, stream rule, ambisonic flag, bus), scaled by the event's level.
+    const req = clipRequest(path, looping, this.options.bus ?? (a.bus || undefined));
+    const volume = ctx.volume * req.volume!;
     const pitch = clampPitch(ctx.pitch * this.pitchOption);
-    // The request `startClip` builds (same keys, same order), in one object.
-    const req: PlayRequest = {
-      path, url: starter.url(path), loop: looping, stream: settings.stream, bus: starter.bus(this.options.bus ?? (a.bus || undefined)),
-      volume, pitch, priority: this.options.priority ?? a.priority, world: this.world, group: this.group,
-    };
+    req.volume = volume;
+    req.pitch = pitch;
+    req.priority = this.options.priority ?? a.priority;
+    req.world = this.world;
+    req.group = this.group;
     if (ctx.at !== null) req.at = ctx.at;
     if (a.spatial) {
       req.attenuation = attenuationOf(a.spatial);
@@ -1314,7 +1316,7 @@ export class EventInstance {
     }
     if (this.fx.filter) req.filter = this.fx.filter;
     if (this.fx.aux) req.aux = this.fx.aux;
-    const voice = starter.play(req);
+    const voice = audioBackend().play(req);
     if (!voice) return null;
     const base = { volume, pitch };
     let bindings = ctx.bindings;
@@ -1527,29 +1529,6 @@ interface BindingCacheEntry {
 }
 const bindingCache = new WeakMap<readonly Automation[], BindingCacheEntry>();
 
-/**
- * How an event's clip starts on the backend, as `startClip` does (ADR 0040's import settings, the bus resolved as for
- * `output`); `AudioSource.ts` provides it. M2 F1: in parts, so a clip's import settings are read once per voice and the
- * request is built once (no spread).
- */
-interface ClipStarter {
-  /** The clip's import settings: `volume` scales every playback of it, `stream` picks the stream path. */
-  settings(path: string): { readonly volume: number; readonly stream: boolean };
-  /** The clip's URL (throws for a missing asset, as `startClip` does). */
-  url(path: string): string;
-  /** A mixer bus name for `output` (empty or unknown: Master). */
-  bus(output: string | undefined): string;
-  /** Whether a mixer bus of this exact name exists (an aux send names one; no fallback to Master). */
-  hasBus(name: string): boolean;
-  play(req: PlayRequest): AudioVoice | null;
-}
-let starter: ClipStarter = { settings: () => ({ volume: 1, stream: false }), url: () => "", bus: (o) => o ?? "", hasBus: () => true, play: () => null };
-
-/** @internal `AudioSource.ts` provides the clip starter (it owns `startClip` and the import settings). */
-export function _setEventClipStarter(s: ClipStarter): void {
-  starter = s;
-}
-
 /** An event's per-voice effect fields as K0's `PlayRequest` wants them (ADR 0162 §2.5); absent members are not sent. */
 interface VoiceFx {
   occlusion?: boolean;
@@ -1582,7 +1561,7 @@ function voiceFxOf(a: AudioEventAsset, options: EventOptions, path: string): Voi
   if (a.sends) {
     for (const [bus, level] of Object.entries(a.sends)) {
       if (bus === REVERB_SEND_KEY) continue;
-      if (starter.hasBus(bus)) fx.aux = { bus, level };
+      if (mixer.has(bus)) fx.aux = { bus, level };
       else warnOnce(`event:aux:${path}:${bus}`, `[myco] ${path}: sends.${bus}: no audio bus named "${bus}"; the aux send is dropped.`);
       break; // one aux send per voice: the first key (the parse dropped the rest)
     }

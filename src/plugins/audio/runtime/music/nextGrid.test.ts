@@ -8,9 +8,9 @@ import { musicSegment, playingRun, rigClips } from "./testing/beatRig";
 let b: FakeBackend;
 
 beforeEach(() => {
-  rigClips(4); // a 4 s file: 120 bpm 4/4 is two bars a pass
   b = makeFakeBackend();
   setAudioBackend(b);
+  rigClips(4, 48_000, b); // a 4 s file: 120 bpm 4/4 is two bars a pass
 });
 afterEach(() => {
   endAudioSession();

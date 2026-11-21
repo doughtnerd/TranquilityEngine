@@ -15,7 +15,7 @@ import type { EventInstance } from "../events/eventRuntime";
 import { parseSegmentNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
 import type { MusicClipFacts } from "../../../../engine/audio/musicValidate";
 import { createMusicPlayer, musicPlanStep, type MusicPlayer } from "./musicSystem";
-import { setSegmentClipSource } from "./segmentRun";
+import { serveMusicClips } from "./testing/clips";
 import { planTick, requestStart, type PlanRequest } from "./planner";
 
 const RATE = 48_000;
@@ -48,7 +48,7 @@ function rig(): void {
   b = makeFakeBackend();
   setAudioBackend(b);
   b.lookahead = L;
-  setSegmentClipSource({ url: (p) => `/assets/${p}`, settings: () => ({ volume: 1, stream: true }), bus: (o) => o ?? "Master", facts: (p) => FACTS[p] });
+  serveMusicClips(b, (p) => FACTS[p], { stream: true });
   b.advanceTo(1);
 }
 

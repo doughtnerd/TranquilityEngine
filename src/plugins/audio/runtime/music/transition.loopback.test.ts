@@ -14,7 +14,8 @@ import type { EventInstance } from "../events/eventRuntime";
 import { parseAudioEvent } from "../../../../engine/audio/eventFormat";
 import type { MusicNode, MusicSwitchNode } from "../../../../engine/audio/musicFormat";
 import { createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
-import { routeGroupEvent, setSegmentClipSource } from "./segmentRun";
+import { routeGroupEvent } from "./segmentRun";
+import { serveMusicClips } from "./testing/clips";
 import { planTick, requestStart } from "./planner";
 import { requestTransition, tickTransition, type Transition } from "./transition";
 import { endAudioSession, loopbackAudio, closeLoopbackAudio } from "../testing";
@@ -60,7 +61,7 @@ async function loopbackRig(): Promise<Rig | null> {
       await Promise.resolve();
     }
   };
-  setSegmentClipSource({ url: (p) => p, settings: () => ({ volume: 1, stream: false }), bus: () => "Music", facts: () => ({ frames: FRAMES, rate: RATE, channels: 1, gapless: true }) });
+  serveMusicClips(null);
   for (const path of ["a.wav", "b.wav"]) backend.play({ path, url: path, loop: false, stream: false, bus: "Music", volume: 0 });
   await step(20);
   const f = { backend: backend as AudioBackend, music: backend.music, now: 0, dt: 0.003, hidden: false };
