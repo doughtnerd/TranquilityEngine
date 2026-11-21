@@ -6,7 +6,9 @@
  *
  * What each asset draws is built by `ThumbnailScenes` (`thumbnailScenes.ts`): prefabs, scenes, environment
  * maps and skies through the real render features in a headless World (ADR 0153, 0189). This module draws
- * and captures those scenes: canvas sizing, matting, encoding, the hover animation and the preview's orbit.
+ * and captures those scenes: canvas sizing, matting, encoding, the hover animation and the preview's orbit (the one
+ * orbit model of `thumbnailMath`, ADR 0300). Its engine and context loss are a preview stage's (ADR 0300) with no
+ * scene of its own: each asset's scene is made on the stage's engine.
  *
  * Reached through `src/engine/editor`, which loads this file only when the Babylon renderer is chosen.
  */
@@ -17,7 +19,7 @@ import { materialGraph } from "../../../scene/material";
 import { moveOrbit, orbitOf, orbitPosition, previewPixels, type Orbit } from "../../thumbnailMath";
 import type { ThumbnailKind, ThumbnailPreview, ThumbnailRendererApi } from "../../previewTypes";
 import { aimCamera, ensureCanvasSize, readGraph, readMaterial, renderFrame, usesTime } from "./common";
-import { createEngine } from "../createEngine";
+import { PreviewStage } from "./previewStage";
 import { ThumbnailScenes, type ThumbnailOptions, type ThumbnailScene } from "./thumbnailScenes";
 
 export { frameView, seededRandom } from "../../thumbnailMath";
@@ -43,7 +45,7 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
   /** Where particle thumbnails are drawn twice and combined. */
   private scratch: HTMLCanvasElement | null = null;
   private disposed = false;
-  private lostListeners: (() => void)[] = [];
+  private readonly engine: AbstractEngine;
   /** True once the browser has taken the GPU context away (too many contexts, a GPU reset). */
   lost = false;
 
@@ -51,29 +53,30 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
   static async create(size = THUMBNAIL_SIZE, options: ThumbnailOptions = {}): Promise<ThumbnailRenderer> {
     const canvas = document.createElement("canvas");
     canvas.width = canvas.height = size;
-    const engine = await createEngine(canvas, { transparent: true });
-    return new ThumbnailRenderer(engine, size, options);
+    const stage = new PreviewStage(canvas, { scene: "none" });
+    if (!(await stage.ready)) throw new Error("thumbnails: no GPU engine (WebGPU or WebGL2) started");
+    return new ThumbnailRenderer(stage, size, options);
   }
 
-  /** A renderer on `engine`, which it then owns (disposes); `size` is the thumbnails' pixels. */
+  /** A renderer on `stage` (up, with no scene of its own), which it then owns (disposes); `size` is the thumbnails' pixels. */
   private constructor(
-    private readonly engine: AbstractEngine,
+    private readonly stage: PreviewStage,
     readonly size: number = THUMBNAIL_SIZE,
     options: ThumbnailOptions = {},
   ) {
-    this.scenes = new ThumbnailScenes(engine, size, options);
-    engine.onContextLostObservable.add(() => {
+    this.engine = stage.engine!;
+    this.scenes = new ThumbnailScenes(this.engine, size, options);
+    stage.onContextLost(() => {
       this.lost = true;
       this.live?.stop();
       this.animation?.stop();
-      for (const f of this.lostListeners.splice(0)) f();
     });
   }
 
   /** Run `f` once if the GPU context is lost (the renderer is then useless: make another). */
   onContextLost(f: () => void): void {
     if (this.lost) f();
-    else this.lostListeners.push(f);
+    else this.stage.onContextLost(f);
   }
 
   /**
@@ -310,7 +313,6 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
     this.live?.stop();
     this.animation?.stop();
     this.scenes.dispose();
-    this.engine.dispose();
-    this.lostListeners = [];
+    this.stage.dispose();
   }
 }

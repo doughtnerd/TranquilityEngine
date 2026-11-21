@@ -1,5 +1,6 @@
-// Internal (ADR 0061): the pure parts of asset thumbnails, unit-tested without WebGL: framing a
-// camera on some bounds, a seeded random for repeatable particle frames, and sprite colours.
+// Internal (ADR 0061): the pure parts of asset thumbnails and previews, unit-tested without WebGL: framing a
+// camera on some bounds, a seeded random for repeatable particle frames, and the one orbit model every preview turns
+// and zooms with (ADR 0300).
 
 export interface Bounds {
   min: number[];
@@ -27,7 +28,11 @@ export function frameView(bounds: Bounds, fov: number, direction: readonly numbe
 
 export { seededRandom } from "./particles/random";
 
-/** An orbit around a point: yaw about +Y, pitch up from the horizon (radians), and a distance. */
+/**
+ * An orbit around a point: yaw about +Y, pitch up from the horizon (radians), and a distance. Yaw 0 puts the camera
+ * on +Z of the point (in front of a model, which faces +Z), and growing yaw takes it toward +X. Every preview's orbit
+ * is one of these (ADR 0300).
+ */
 export interface Orbit {
   yaw: number;
   pitch: number;
@@ -60,6 +65,23 @@ export function moveOrbit(o: Orbit, dyaw: number, dpitch: number, zoom: number, 
     pitch: Math.max(-MAX_PITCH, Math.min(MAX_PITCH, o.pitch + dpitch)),
     distance: Math.max(minDistance, Math.min(maxDistance, o.distance * (zoom > 0 ? zoom : 1))),
   };
+}
+
+/** Radians an orbit turns per pixel dragged. */
+export const ORBIT_RADIANS_PER_PIXEL = 0.01;
+
+/**
+ * The orbit `from` after a drag of `dx`, `dy` pixels: dragging right turns what is shown with the pointer (the camera
+ * goes round to its left, left-handed (ADR 0164): its yaw grows), dragging down raises the camera. Limits as
+ * {@link moveOrbit}.
+ */
+export function draggedOrbit(from: Orbit, dx: number, dy: number, minDistance: number, maxDistance: number): Orbit {
+  return moveOrbit(from, dx * ORBIT_RADIANS_PER_PIXEL, dy * ORBIT_RADIANS_PER_PIXEL, 1, minDistance, maxDistance);
+}
+
+/** The orbit `o` after a wheel turn of `deltaY` pixels: away from the point for positive deltas, by e^(deltaY / 1000). */
+export function wheeledOrbit(o: Orbit, deltaY: number, minDistance: number, maxDistance: number): Orbit {
+  return moveOrbit(o, 0, 0, Math.exp(deltaY * 0.001), minDistance, maxDistance);
 }
 
 /**
