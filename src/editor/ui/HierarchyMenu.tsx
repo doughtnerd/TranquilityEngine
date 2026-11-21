@@ -13,6 +13,7 @@ import { openScene, selectedKeys, selection, type OpenScene } from "../state";
 import { createUIElement, deleteUIElement, duplicateUIElement, NEW_ELEMENTS } from "../uiDocumentEdits";
 import { whyNotEdit } from "../editGate";
 import { documentsOn, resolveUIElement, selectedUIRef, uiRefKey, type UIElementRef } from "../uiDocuments";
+import { elementSource } from "../../engine/ui/documentSource";
 import { renameRow } from "./TreeView";
 import { usePopover } from "./popover";
 
@@ -76,7 +77,7 @@ export function createMenuItems(scene: OpenScene): MenuItem[] {
 function uiElementMenuItems(scene: OpenScene, ref: UIElementRef, owner?: object): MenuItem[] {
   const el = resolveUIElement(scene.sync, ref);
   const reason = whyNotEdit({ kind: "ui-documents" }) ?? (el ? null : "it's gone");
-  const label = el?._synthetic ? "a button's label is its text content" : null;
+  const label = el && elementSource(el)?.label ? "a button's label is its text content" : null;
   const root = el && !el.parent ? "it's the document's root" : null;
   return [
     ...uiElementItems(ref),
