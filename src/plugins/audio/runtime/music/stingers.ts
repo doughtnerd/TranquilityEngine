@@ -65,6 +65,17 @@ export interface StingerState {
   readonly lastPlayed: Map<string, number>;
 }
 
+/** ADR 0320: the voices of the player's sounding stingers, for the instance's voice walk (`soundingVoices.ts`). Appends to `out`. */
+export function stingerVoices(player: MusicPlayer, out: AudioVoice[]): void {
+  const st = player.stingers;
+  if (st) for (const e of st.sounding) for (const v of e.voices) out.push(v);
+}
+
+/** ADR 0320: a stinger waits for its grid point (it keeps the instance playing past its stems). */
+export function stingersQueued(player: MusicPlayer): boolean {
+  return (player.stingers?.queued.length ?? 0) > 0;
+}
+
 /** R5: an empty stinger state. */
 function createStingerState(): StingerState {
   return { queued: [], sounding: [], lastPlayed: new Map() };
