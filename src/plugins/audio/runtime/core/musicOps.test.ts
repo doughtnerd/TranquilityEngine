@@ -6,7 +6,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ClipInfo, ClipRegistry, ClipState } from "./clipRegistry";
 import { STREAM_EVENT_MUSIC_FULL } from "./streams";
-import { Op, StreamEvent, gateGroupId, gateGroupSize, PLAY_FLAGS_FADE_ZERO, readPlay, readSetParams } from "../wire.generated";
+import { FADE_FLAGS_STOP_AT_END, Op, StreamEvent, gateGroupId, gateGroupSize, PLAY_FLAGS_FADE_ZERO, readFade, readPlay, readSetParams } from "../wire.generated";
 import { StatusMirror } from "./mirror";
 import { CoreMusicOps, encodedBudgetBytes } from "./musicOps";
 import type { MusicGroupEvent, MusicGroupRequest } from "../backend";
@@ -199,7 +199,7 @@ function musicRig(rings = 8, clips: ClipRegistry = fakeClips()) {
   };
   /** What the backend sends from now on (decoded where the core would receive it). */
   posted.take();
-  return { backend, ops: backend.musicOps, clock, primes, invalidated: fake.invalidated, cancels, closes, fetched, events, ringsOf, say, status: r.status, posted, tick: r.tick };
+  return { backend, ops: backend.musicOps, clock, primes, invalidated: fake.invalidated, cancels, closes, fetched, events, ringsOf, say, status: r.status, posted, tick: r.tick, lock: () => r.lock(), gesture: () => r.gesture() };
 }
 
 const flush = async () => {
@@ -523,8 +523,105 @@ describe("the core's group operations (ADR 0166 P1)", () => {
 
 });
 
+// ADR 0294: while the context is locked a music member's fades, parameter ramps and its group's prime are held (the mirror
+// and the stamped log updated at once) and go out once the session may send: right after the member's PLAY for a member
+// that waited in the locked queue, at the resume for one already on the core. A stop asked during an interruption is a
+// stop-at-end fade, so before this the old voice kept playing after the resume.
+describe("music group operations while the context is locked (ADR 0294)", () => {
+  type Rec = { opcode: number; voiceId: number; view: DataView; off: number };
+  const recsOf = (r: ReturnType<typeof musicRig>): Rec[] => r.posted.take().flatMap((b) => b.records as Rec[]);
+  const fadesOf = (recs: Rec[], id: number) => recs.filter((x) => x.opcode === Op.FADE && x.voiceId === id).map((x) => readFade(x.view, x.off));
+  const indexOf = (recs: Rec[], op: number, id: number) => recs.findIndex((x) => x.opcode === op && x.voiceId === id);
+
+  it("a member queued while locked takes its first fade and a stop after its PLAY when the context resumes", () => {
+    const r = musicRig(8);
+    r.lock();
+    r.tick(0.016);
+    const req = request(7, 0, 1);
+    expect(r.ops.admitGroup(req).ok).toBe(true);
+    r.ops.primeGroup(req);
+    const [v] = r.ops.stampGroup({ group: 7, at: 1, fades: [{ member: 0, fade: { to: 1, seconds: 0.5, law: "equalPowerIn" } }] }) as CoreVoiceLike[];
+    expect(v!.reason).toBe("locked");
+    v!.fadeShaped({ to: 0, seconds: 0.25, law: "equalPowerOut", stopAtEnd: true });
+    r.tick(0.016);
+    const locked = recsOf(r);
+    expect(locked.filter((x) => x.voiceId === v!.id)).toEqual([]); // nothing reaches the suspended core
+    r.gesture();
+    r.tick(0.016);
+    const recs = recsOf(r);
+    const play = indexOf(recs, Op.PLAY, v!.id);
+    expect(play).toBeGreaterThanOrEqual(0);
+    const fades = fadesOf(recs, v!.id);
+    // The asap stop sorts before the fade stamped at 1 s (a batch is in frame order); both follow the PLAY.
+    expect(fades.map((f) => [f.target, (f.flags & FADE_FLAGS_STOP_AT_END) !== 0])).toEqual([[0, true], [1, false]]);
+    expect(indexOf(recs, Op.FADE, v!.id)).toBeGreaterThan(play);
+    // Sent once: a later frame repeats nothing.
+    r.tick(0.016);
+    expect(fadesOf(recsOf(r), v!.id)).toEqual([]);
+    r.backend.dispose();
+  });
+
+  it("a member already on the core when the context is interrupted takes a stop and a parameter ramp asked meanwhile on resume", () => {
+    const r = musicRig(8);
+    r.tick(0.016);
+    const req = request(7, 0, 1);
+    r.ops.admitGroup(req);
+    r.ops.primeGroup(req);
+    const [v] = r.ops.stampGroup({ group: 7, at: 0 }) as CoreVoiceLike[];
+    r.tick(0.016);
+    expect(indexOf(recsOf(r), Op.PLAY, v!.id)).toBeGreaterThanOrEqual(0);
+    r.lock();
+    r.tick(0.016);
+    v!.paramsShaped({ gain: 0.5, seconds: 0.1 });
+    v!.fadeShaped({ to: 0, seconds: 0.25, law: "equalPowerOut", stopAtEnd: true });
+    r.tick(0.016);
+    expect(recsOf(r).filter((x) => x.voiceId === v!.id)).toEqual([]);
+    r.gesture();
+    r.tick(0.016);
+    const recs = recsOf(r);
+    expect(recs.filter((x) => x.voiceId === v!.id && (x.opcode === Op.FADE || x.opcode === Op.SET_PARAMS)).map((x) => x.opcode)).toEqual([Op.SET_PARAMS, Op.FADE]);
+    expect(fadesOf(recs, v!.id).map((f) => (f.flags & FADE_FLAGS_STOP_AT_END) !== 0)).toEqual([true]);
+    r.backend.dispose();
+  });
+
+  it("a member freed while locked sends nothing on resume", () => {
+    const r = musicRig(8);
+    r.lock();
+    r.tick(0.016);
+    const req = request(7, 0, 1);
+    r.ops.admitGroup(req);
+    r.ops.primeGroup(req);
+    const [v] = r.ops.stampGroup({ group: 7, at: 1 }) as CoreVoiceLike[];
+    v!.fadeShaped({ to: 0.5, seconds: 0.25, law: "linear" });
+    v!.stop(0);
+    r.gesture();
+    r.tick(0.016);
+    expect(recsOf(r).filter((x) => x.voiceId === v!.id)).toEqual([]);
+    r.backend.dispose();
+  });
+
+  it("a group primed while locked is posted to the decoder once the context resumes", async () => {
+    const r = musicRig(8);
+    r.lock();
+    r.tick(0.016);
+    const req = request(7, 1);
+    r.ops.admitGroup(req);
+    r.ops.primeGroup(req);
+    await flush();
+    expect(r.primes).toHaveLength(0);
+    r.gesture();
+    r.tick(0.016);
+    await flush();
+    expect(r.primes.map((p) => p.group)).toEqual([7]);
+    r.backend.dispose();
+  });
+});
+
+/** The voice members the tests above read. */
+type CoreVoiceLike = { id: number; reason: string | null; fadeShaped(f: { to: number; seconds: number; law: "linear" | "equalPowerIn" | "equalPowerOut"; stopAtEnd?: boolean }): void; paramsShaped(p: { gain?: number; seconds: number }): void; stop(f?: number): void };
+
 /** CoreMusicOps alone, through its own interface: over a voice table and a command writer on a recording link the test owns. */
-function opsRig() {
+function opsRig(session: { maySend: boolean; mayQueue: boolean } = { maySend: true, mayQueue: true }) {
   const table = new VoiceTable(16);
   const posted: ArrayBuffer[] = [];
   const link = { batchPool: { acquire: () => new ArrayBuffer(64 * 1024), release: () => true }, nextSeq: () => 1, post: (b: ArrayBuffer) => void posted.push(b.slice(0)) };
@@ -541,7 +638,7 @@ function opsRig() {
     fetchBytes: async () => new ArrayBuffer(0),
     clips: fakeClips(),
     play: () => null,
-    session: { maySend: true },
+    session,
     musicRings: () => 0,
     sampleRate: () => 48_000,
     warnOnce: createWarnOnce(() => {}),
@@ -559,6 +656,37 @@ function opsRig() {
 }
 
 describe("a voice's stamped ramps and stem level, as musicOps keeps them (ADR 0166 Z4, F-9b)", () => {
+  it("ADR 0294: asked while the session may not send, a ramp is logged and mirrored at once and its record waits for sendHeld", () => {
+    const session = { maySend: false, mayQueue: true };
+    const r = opsRig(session);
+    const id = r.voice();
+    const i = id & 0xffff;
+    const t = r.table;
+    t.gain[i] = 0.8;
+    r.ops.fadeShaped(id, { to: 0.25, seconds: 0, law: "linear" });
+    r.ops.paramsShaped(id, { gain: 0.5, seconds: 0 });
+    expect([t.fadeGain[i], t.stampedCount[i], t.stemDry[i]]).toEqual([0.25, 2, 0.5]); // the mirror and the log, now
+    expect(r.params()).toEqual([]);
+    r.ops.sendHeld(); // still may not send: nothing
+    expect(r.params()).toEqual([]);
+    session.maySend = true;
+    r.ops.sendHeld();
+    expect(r.params()).toEqual([{ gain: expect.closeTo(0.4, 6), at: -1 }]);
+    r.ops.sendHeld();
+    expect(r.params()).toEqual([]); // sent once
+  });
+
+  it("ADR 0294: during a rebuild nothing is held for a voice on the core (its REPLAY restores the log)", () => {
+    const session = { maySend: false, mayQueue: false };
+    const r = opsRig(session);
+    const id = r.voice();
+    r.ops.paramsShaped(id, { gain: 0.5, seconds: 0 });
+    expect(r.table.stampedCount[id & 0xffff]).toBe(1);
+    session.maySend = session.mayQueue = true;
+    r.ops.sendHeld();
+    expect(r.params()).toEqual([]);
+  });
+
   it("fadeShaped logs the stamped ramp with the level it starts from (Z4: REPLAY restores it)", () => {
     const r = opsRig();
     const id = r.voice();

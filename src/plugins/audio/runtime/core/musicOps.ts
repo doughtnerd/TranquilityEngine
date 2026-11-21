@@ -61,7 +61,7 @@ import type { ClockMap } from "./clock";
 import type { StatusMirror } from "./mirror";
 import { applyLoopChange, regionOf, type Segment, type StreamDecoderLike, type StreamManager } from "./streams";
 import type { LoopRecord } from "./coreAutomation";
-import { MAX_STAMPED, StampedKind, STAMPED_FLAG_STOP_AT_END, VoiceReason, type VoiceTable } from "./voiceTable";
+import { MAX_STAMPED, StampedKind, STAMPED_FLAG_STOP_AT_END, VoiceReason, VoiceState, type VoiceTable } from "./voiceTable";
 import type { WorkletChannel } from "./workletChannel";
 import type { WarnOnce } from "./codecs";
 import type { SendGate } from "./session";
@@ -124,10 +124,11 @@ export interface MusicOpsHost {
   /** Plays one voice through the backend's ordinary path (`CoreBackend.play`); a member carries `music`. */
   play(req: CorePlayRequest): CoreVoice | null;
   /**
-   * ADR 0291: the core session. The group operations write only when it may send now (`maySend`): while locked a member
-   * voice waits in the locked queue unplayed, so a FADE or SET_PARAMS (or a prime) for it would reach the core first.
+   * ADR 0291, 0294: the core session. The group operations write only when it may send now (`maySend`): while locked a
+   * member voice waits in the locked queue unplayed, so a FADE or SET_PARAMS (or a prime) for it would reach the core
+   * first. Asked while it may not, they are held (`mayQueue`: the context is only locked) and go out once it may.
    */
-  readonly session: Pick<SendGate, "maySend">;
+  readonly session: Pick<SendGate, "maySend" | "mayQueue">;
   /** The music ring pool's size from the preset (`audio.music.rings`; 0 before ABI 3.0's preset carries it). */
   musicRings(): number;
   /** The context's rate, Hz (a rebuild may change it). */
@@ -218,6 +219,10 @@ export class CoreMusicOps implements MusicBackend {
   private primedGeneration = -1;
   /** P9: a crash noticed in the decoder's handler, recovered at the next `beginFrame`. */
   private crashPending = false;
+  /** ADR 0294: FADE and SET_PARAMS records asked while the session may not send, in order, by voice id (`sendHeld`). */
+  private readonly heldWrites = new Map<number, (() => void)[]>();
+  /** ADR 0294: group primes asked while the context is locked, posted once the session may send. */
+  private heldPrimes: (() => void)[] = [];
   constructor(private readonly host: MusicOpsHost) {
     this.rate = host.sampleRate();
   }
@@ -382,7 +387,47 @@ export class CoreMusicOps implements MusicBackend {
 
   /** ADR 0248: a hard rebuild began (`true`, the session's `beginRecovery`) or ended or failed (`false`). */
   rebuilding(active: boolean): void {
+    // ADR 0294: the rebuild's REPLAY restores a voice on the core from its stamped log, and `reopenGroups` primes the live
+    // groups again, so only what is held for voices still waiting in the locked queue survives it.
+    if (active) {
+      const t = this.host.table;
+      for (const id of [...this.heldWrites.keys()]) if (!t.isLive(id) || t.state[id & 0xffff] !== VoiceState.LOCKED) this.heldWrites.delete(id);
+      this.heldPrimes = [];
+    }
     this.onLifecycle?.({ kind: "rebuild", active });
+  }
+
+  /**
+   * ADR 0294: once the session may send, what was held goes out in the order it was asked: each voice's FADE and
+   * SET_PARAMS records (the backend calls this after the locked queue's drain, so a member's come right after its PLAY),
+   * then the group primes. A voice freed meanwhile sends nothing; one still in the locked queue keeps its records.
+   */
+  sendHeld(): void {
+    if ((this.heldWrites.size === 0 && this.heldPrimes.length === 0) || !this.host.session.maySend) return;
+    const t = this.host.table;
+    for (const [id, writes] of [...this.heldWrites]) {
+      if (t.isLive(id) && t.state[id & 0xffff] === VoiceState.LOCKED) continue;
+      this.heldWrites.delete(id);
+      if (t.isLive(id)) for (const write of writes) write();
+    }
+    const primes = this.heldPrimes;
+    this.heldPrimes = [];
+    for (const prime of primes) prime();
+  }
+
+  /**
+   * ADR 0294: `write` (voice `id`'s FADE or SET_PARAMS) goes out now when the session may send. Otherwise it is held for
+   * `sendHeld`: for a voice waiting in the locked queue (its PLAY comes first), or for any voice while the context is
+   * only locked (`mayQueue`). During a rebuild a voice on the core needs nothing held: its REPLAY restores the stamped
+   * log, which the caller has updated either way.
+   */
+  private sendOrHold(id: number, write: () => void): void {
+    const session = this.host.session;
+    if (session.maySend) return write();
+    if (!session.mayQueue && this.host.table.state[id & 0xffff] !== VoiceState.LOCKED) return;
+    const writes = this.heldWrites.get(id);
+    if (writes) writes.push(write);
+    else this.heldWrites.set(id, [write]);
   }
 
   ownsVoice(id: number): boolean {
@@ -473,7 +518,7 @@ export class CoreMusicOps implements MusicBackend {
 
   fadeShaped(id: number, f: ShapedFade): void {
     const t = this.host.table;
-    if (!t.isLive(id) || !this.host.session.maySend) return;
+    if (!t.isLive(id)) return;
     const i = id & 0xffff;
     const clock = this.host.clockMap;
     const law = fadeLawCode(f.law);
@@ -486,7 +531,9 @@ export class CoreMusicOps implements MusicBackend {
     const applyAt = stamp ?? now + clock.lookaheadFrames();
     // The level the ramp starts from (Z4: REPLAY restores it): the fade ramp's value at `applyAt` from the log.
     const from = this.fadeLevelAt(i, applyAt);
-    this.host.writer.fadeShaped(id, to, seconds, law, u0, stamp, stopAtEnd);
+    // ADR 0294: logged and mirrored now; the FADE itself waits while the session may not send.
+    const writer = this.host.writer;
+    this.sendOrHold(id, () => writer.fadeShaped(id, to, seconds, law, u0, stamp, stopAtEnd));
     t.logStamped(id, StampedKind.FADE, applyAt, clock.sampleRate, now, from, to, seconds, packShape(law, Math.min(65535, Math.round(u0 * 65536))), stopAtEnd ? STAMPED_FLAG_STOP_AT_END : 0);
     // R3a: a stamped fade-down mustn't drop the mirror's gain before it is heard (selection would cut the voice about
     // one lookahead early, and `handle.stop(fade)` would cut at once); a fade-up or an asap fade updates it now.
@@ -504,7 +551,7 @@ export class CoreMusicOps implements MusicBackend {
    */
   paramsShaped(id: number, r: { gain?: number; lowpassHz?: number; seconds: number; law?: FadeLawName; at?: number }): void {
     const t = this.host.table;
-    if (!t.isLive(id) || !this.host.session.maySend) return;
+    if (!t.isLive(id)) return;
     const hasGain = r.gain !== undefined && Number.isFinite(r.gain);
     const hasLp = r.lowpassHz !== undefined && Number.isFinite(r.lowpassHz);
     if (!hasGain && !hasLp) return;
@@ -519,7 +566,8 @@ export class CoreMusicOps implements MusicBackend {
     const lp = hasLp ? Math.max(0, r.lowpassHz!) : 0;
     const mask = (hasGain ? SET_PARAMS_MASK_GAIN : 0) | (hasLp ? SET_PARAMS_MASK_LP_HZ : 0);
     const shape = packShape(law, 0);
-    this.host.writer.setParams(id, mask, mult * dry, 0, 0, 0, 0, lp, rampFrames, 0, shape, stamp);
+    const writer = this.host.writer;
+    this.sendOrHold(id, () => writer.setParams(id, mask, mult * dry, 0, 0, 0, 0, lp, rampFrames, 0, shape, stamp));
     if (hasGain) {
       const now = clock.framesNow();
       const applyAt = stamp ?? now + clock.lookaheadFrames();
@@ -710,7 +758,13 @@ export class CoreMusicOps implements MusicBackend {
    * doesn't hold for the instance (fetched first, all before the one post, so the group stays one message).
    */
   private post(g: Group, send: Member[], retarget: boolean, protect: readonly string[] | undefined, forceBytes = false): void {
-    if (!this.host.session.maySend) return;
+    if (!this.host.session.maySend) {
+      // ADR 0294: while the context is only locked the prime waits (`sendHeld`); during a rebuild `reopenGroups` primes again.
+      if (this.host.session.mayQueue) this.heldPrimes.push(() => {
+        if (this.groups.get(g.id) === g) this.post(g, send, retarget, protect, forceBytes);
+      });
+      return;
+    }
     let decoder: StreamDecoderLike;
     try {
       decoder = this.connect();
