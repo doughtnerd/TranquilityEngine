@@ -4,7 +4,8 @@
 // A reference string names a project path, optionally with an `asset:` prefix and a leading `./`
 // or `/`, optionally followed by `#slice` (ADR 0040): `asset:images/sheet.png#walk_0`.
 import { normalizeAssetPath } from "../engine/scene/Assets";
-import type { OverrideEntry, SceneFile } from "./document";
+import { REMOVE_FIELD, mapSceneFile } from "../engine/scene/sceneFileWalk";
+import type { NodeEntry, SceneFile } from "./document";
 
 /** A reference string split up: what came before the path, the path, and the slice name (or null). */
 export interface AssetRef {
@@ -81,52 +82,44 @@ function cleanValue(value: unknown, path: string, removed: ReadonlySet<string>):
 
 /**
  * A scene or prefab file without references to the deleted asset `path`: nodes that are instances
- * of it go (with their children, and `{ $node }` references to them become null); component fields,
- * overrides and nested values naming it are dropped (fields go back to their defaults). Returns the
- * new file, the ids of the nodes removed, and whether anything changed. The input isn't modified.
+ * of it go (with their children, and `{ $node }` references to them become null), in the file's
+ * own node list and in prefab instances' added nodes; component fields, overrides and nested values
+ * naming it are dropped (fields go back to their defaults, overridden fields to the prefab's value).
+ * Returns the new file, the ids of the file's own nodes removed, and whether anything changed. The
+ * input isn't modified. The walk over the file is the engine's scene-file walk (ADR 0279).
  */
 export function sceneWithoutAsset(file: SceneFile, path: string): { file: SceneFile; removedNodes: string[]; changed: boolean } {
-  // Instances of it, then everything parented under them.
-  const removed = new Set(file.nodes.filter((n) => n.prefab !== undefined && assetRefTarget(n.prefab) === path).map((n) => n.id));
-  for (let grew = removed.size > 0; grew; ) {
+  const removed = new Set<string>();
+  let top = true;
+  const out = mapSceneFile(file, {
+    nodes: (nodes) => {
+      const gone = instancesOf(nodes, path);
+      if (top) for (const id of gone) removed.add(id);
+      top = false;
+      return gone.size > 0 ? nodes.filter((n) => !gone.has(n.id)) : nodes;
+    },
+    field: (_component, _field, value) => {
+      if (namesAsset(value, path)) return REMOVE_FIELD;
+      const c = cleanValue(value, path, removed);
+      return c.changed ? c.value : value;
+    },
+  });
+  return { file: out, removedNodes: [...removed], changed: out !== file };
+}
+
+/** The ids in one node list of the instances of `path` and everything parented under them. */
+function instancesOf(nodes: readonly NodeEntry[], path: string): Set<string> {
+  const gone = new Set(nodes.filter((n) => n.prefab !== undefined && assetRefTarget(n.prefab) === path).map((n) => n.id));
+  for (let grew = gone.size > 0; grew; ) {
     grew = false;
-    for (const n of file.nodes) {
-      if (n.parent && removed.has(n.parent) && !removed.has(n.id)) {
-        removed.add(n.id);
+    for (const n of nodes) {
+      if (n.parent && gone.has(n.parent) && !gone.has(n.id)) {
+        gone.add(n.id);
         grew = true;
       }
     }
   }
-  let changed = removed.size > 0;
-  const nodes = file.nodes
-    .filter((n) => !removed.has(n.id))
-    .map((n) => {
-      const node = structuredClone(n);
-      for (const c of node.components ?? []) {
-        if (!c.data) continue;
-        const cleaned = cleanValue(c.data, path, removed);
-        if (cleaned.changed) {
-          changed = true;
-          c.data = cleaned.value as Record<string, unknown>;
-        }
-      }
-      if (node.overrides) {
-        const kept: OverrideEntry[] = [];
-        for (const o of node.overrides) {
-          if (o.value !== undefined && namesAsset(o.value, path)) {
-            changed = true; // the field goes back to the prefab's value
-            continue;
-          }
-          const c = cleanValue(o, path, removed);
-          changed ||= c.changed;
-          kept.push(c.value as OverrideEntry);
-        }
-        if (kept.length > 0) node.overrides = kept;
-        else delete node.overrides;
-      }
-      return node;
-    });
-  return { file: { ...file, nodes }, removedNodes: [...removed], changed };
+  return gone;
 }
 
 /** Project settings without autoloads of the deleted asset `path`. */
