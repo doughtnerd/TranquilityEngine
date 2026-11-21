@@ -102,6 +102,7 @@ export function beginStroke(map: Tilemap, tool: BrushTool, cell: Cell): BrushStr
   const start: Cell = [cell[0], cell[1]];
   let last: Cell = start;
   const painter = brushPainter(map);
+  const shape = footprintShape(tool);
   if (tool === "fill") painter?.fill(start);
   else if (tool === "pencil" || tool === "erase") painter?.paint(tool, [start], start);
   return {
@@ -128,23 +129,27 @@ export function beginStroke(map: Tilemap, tool: BrushTool, cell: Cell): BrushStr
       if (tool === "rect" || tool === "pick") {
         return { x0: Math.min(start[0], last[0]), y0: Math.min(start[1], last[1]), x1: Math.max(start[0], last[0]) + 1, y1: Math.max(start[1], last[1]) + 1 };
       }
-      return footprintFrom(tool, last, start);
+      return footprintOf(shape, last, start);
     },
   };
 }
 
 /** The cells `tool` would paint pressed on `cell`: the brush's stamp as it is laid out (flipped and turned) for the pencil, else the cell. */
 export function footprintAt(tool: BrushTool, cell: Cell): Footprint {
-  return footprintFrom(tool, cell, cell);
+  return footprintOf(footprintShape(tool), cell, cell);
 }
 
-/** The pencil's stamp lands on the stamp grid that starts at `origin`; every other tool covers the one cell. */
-function footprintFrom(tool: BrushTool, cell: Cell, origin: Cell): Footprint {
-  const [x, y] = cell;
-  if (tool !== "pencil" || brushTerrain.peek() || brushRandom.peek()) return { x0: x, y0: y, x1: x + 1, y1: y + 1 };
+/** The block `tool` paints at a cell with the brush as it is now: the pencil's stamp as laid out, else one cell. */
+function footprintShape(tool: BrushTool): { width: number; height: number } {
+  if (tool !== "pencil" || brushTerrain.peek() || brushRandom.peek()) return { width: 1, height: 1 };
   const { width, height } = orientedStamp(brushStamp.peek(), brushFlags.peek());
-  const [sx, sy] = stampCorner(x, y, origin, width, height);
-  return { x0: sx, y0: sy, x1: sx + width, y1: sy + height };
+  return { width, height };
+}
+
+/** A block of `shape` at a cell, on the grid of such blocks from `origin` (where a pencil stroke's stamps land). */
+function footprintOf(shape: { width: number; height: number }, [x, y]: Cell, origin: Cell): Footprint {
+  const [sx, sy] = stampCorner(x, y, origin, shape.width, shape.height);
+  return { x0: sx, y0: sy, x1: sx + shape.width, y1: sy + shape.height };
 }
 
 /** The bottom-left of the stamp placement holding cell (x, y), on the grid of `width × height` stamps from `origin`. */

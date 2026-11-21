@@ -136,8 +136,12 @@ describe("painting a tilemap in the editor (ADR 0103)", () => {
     expect(s.moveTo([0, 0])).toBe(false);
     expect(s.moveTo([0, 3])).toBe(true);
     expect(s.footprint()).toEqual({ x0: 0, y0: 2, x1: 1, y1: 4 });
+    // A stroke paints with the brush as it was pressed; turning it mid-stroke changes neither its cells nor its footprint.
+    flipBrush("rotate");
+    expect(s.footprint()).toEqual({ x0: 0, y0: 2, x1: 1, y1: 4 });
     s.finish();
     expect([0, 1, 2, 3].map((y) => map.getTile(0, y))).toEqual([2, 1, 2, 1]);
+    expect(map.getTile(1, 0)).toBe(0);
     // A rectangle's footprint is the dragged block.
     const r = beginStroke(map, "rect", [5, 5]);
     r.moveTo([3, 6]);
