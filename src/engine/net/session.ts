@@ -549,7 +549,7 @@ export class NetSession {
             console.error(`[myco] RPC "${m.kind.id}" was defined after World "${this.world.name}" connected; it can't be sent on that connection.`);
             continue;
           }
-          body = concat(varuint(index), m.body);
+          body = concat(varuints(index), m.body);
         }
         if (!this.transmit(peer, m.channel, kind, m.tick, body)) break;
       }
@@ -560,7 +560,7 @@ export class NetSession {
   private transmit(peer: NetPeer, channel: Channel, kind: number, tick: number, body: Uint8Array): boolean {
     if (peer.link.state === "closed") return false;
     try {
-      const data = concat(varuint(kind), varuint(Math.max(0, Math.floor(tick))), body);
+      const data = concat(varuints(kind, Math.max(0, Math.floor(tick))), body);
       peer.link.send(channel, data);
       count(peer.sent, wireKindName(peer, kind), data.byteLength); // T15 tools
       return true;
@@ -657,10 +657,7 @@ export class NetSession {
   }
 
   private route(peer: NetPeer, channel: Channel, data: Uint8Array): void {
-    let at = 0;
-    const [kind, afterKind] = readVaruint(data, at);
-    const [tick, afterTick] = readVaruint(data, afterKind);
-    at = afterTick;
+    const [[kind, tick], at] = readVaruints(data, 2, "message header");
     const body = data.subarray(at);
     count(peer.received, wireKindName(peer, kind), data.byteLength); // T15 tools
     if (this.role === "client" && peer.state === "open") this.newestServerTick = Math.max(this.newestServerTick, tick);
@@ -679,7 +676,7 @@ export class NetSession {
       case MSG_PONG:
         return this.ponged(createBitReader(body));
       case MSG_RPC: {
-        const [index, start] = readVaruint(body, 0);
+        const [[index], start] = readVaruints(body, 1, "RPC number");
         const entry = peer.rpcIn[index];
         if (!entry) throw new Error(`unknown RPC number ${index}`);
         const values = entry.decode(body.subarray(start));
@@ -1038,29 +1035,23 @@ function toBytes(body: Uint8Array | ((writer: BitWriter) => void)): Uint8Array {
   return w.finish();
 }
 
-function varuint(value: number): Uint8Array {
-  const out: number[] = [];
-  let v = value;
-  while (v >= 0x80) {
-    out.push((v % 0x80) | 0x80);
-    v = Math.floor(v / 0x80);
-  }
-  out.push(v);
-  return Uint8Array.from(out);
+/** Varuints as whole bytes (LEB128: written from the start of a fresh writer, each 8-bit group is one byte). */
+function varuints(...values: number[]): Uint8Array {
+  const w = createBitWriter();
+  for (const v of values) w.writeVarUint(v);
+  return w.finish();
 }
 
-/** Read a LEB128 varuint at `at`: [value, next offset]. Throws on truncated or over-long input. */
-function readVaruint(data: Uint8Array, at: number): [number, number] {
-  let value = 0;
-  let scale = 1;
-  for (let i = 0; i < 8; i++) {
-    if (at >= data.length) throw new RangeError("truncated message header");
-    const byte = data[at++];
-    value += (byte & 0x7f) * scale;
-    if (!(byte & 0x80)) return [value, at];
-    scale *= 0x80;
+/** Read `count` varuints at the start of `data` (`what`, for the error): the values and the byte offset after them. */
+function readVaruints(data: Uint8Array, count: number, what: string): [number[], number] {
+  const r = createBitReader(data);
+  const values: number[] = [];
+  try {
+    for (let i = 0; i < count; i++) values.push(r.readVarUint());
+  } catch (err) {
+    throw new RangeError(`malformed ${what}: ${(err as Error).message}`);
   }
-  throw new RangeError("over-long varint in message header");
+  return [values, data.length - r.remaining / 8]; // whole bytes read: `remaining` counts bits
 }
 
 function concat(...parts: Uint8Array[]): Uint8Array {
