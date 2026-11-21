@@ -3,15 +3,15 @@
 // LUFS (integrated on metered buses) with the target line, and the gain-reduction meter on ducked buses.
 //
 // A thin layer: every number comes from a `Strip` (`mixerModel.ts`), the fader's taper and drag arithmetic from
-// `faderModel.ts`, the bar's dB scale from `meterFill` (the drawing `BusMeters` uses: the same `audio-meter-track` and
+// `faderModel.ts`, the dB readouts and the bar's scale from `dbScale.ts` (`meterFill` is the drawing `BusMeters` uses: the same `audio-meter-track` and
 // `audio-meter-fill` elements and the `hot` class). The component holds no state of its own (no hooks), so the panel
 // re-renders it from the model and a test can call it as a function. The fader gesture's pointer bookkeeping lives in a
 // WeakMap keyed by the model, because a re-render during a drag replaces the handlers. Colours are theme tokens in
 // `stripStyle.css`, never literals.
 import type { JSX } from "preact";
 import type { LoudnessTargetReading } from "../../../../engine/audio/loudnessTypes";
-import { FADER_MAX_DB, FINE_DRAG_SCALE, UNITY_POSITION, dragPosition, formatDb, gainToDb, gainToPosition, positionToDb, positionToGain } from "./faderModel";
-import { METER_FLOOR_DB, meterFill } from "../meterFill";
+import { FADER_MAX_DB, FINE_DRAG_SCALE, UNITY_POSITION, dragPosition, gainToPosition, positionToDb, positionToGain } from "./faderModel";
+import { METER_FLOOR_DB, formatGainDb, gainReductionDb, gainToDb, meterFill } from "../dbScale";
 import type { MixerModel, Strip } from "./mixerModel";
 import "./stripStyle.css";
 
@@ -48,12 +48,6 @@ function formatLufs(lufs: number): string {
 function lufsFill(lufs: number): number {
   if (!(lufs > LUFS_FLOOR)) return 0;
   return lufs >= 0 ? 1 : (lufs - LUFS_FLOOR) / -LUFS_FLOOR;
-}
-
-/** Reduction in dB (>= 0) from a duck gain (1 = not ducked); NaN and over-unity read as none. */
-export function gainReductionDb(duckGain: number): number {
-  if (!(duckGain < 1)) return 0;
-  return Math.min(99, -gainToDb(duckGain)); // a fully ducked bus (gain 0) reads 99, not infinity
 }
 
 /** The loudness bar's target marks, 0..1: the line, and the tolerance band around it. */
@@ -194,7 +188,7 @@ function Meter(props: { strip: Strip; onResetClip?: (bus: string) => void }): JS
         aria-label={`${strip.name} level`}
         aria-valuemin={METER_FLOOR_DB}
         aria-valuemax={0}
-        aria-valuenow={fill <= 0 ? METER_FLOOR_DB : Math.round(20 * Math.log10(strip.meter.peak) * 10) / 10}
+        aria-valuenow={fill <= 0 ? METER_FLOOR_DB : Math.round(gainToDb(strip.meter.peak) * 10) / 10}
         onClick={clear}
       >
         <div class={`audio-meter-fill${fill >= 1 ? " hot" : ""}`} style={{ transform: `scaleY(${num(fill)})` }} />
@@ -246,8 +240,8 @@ export function MixerStrip(props: MixerStripProps): JSX.Element {
   const changed = (): void => props.onChange?.();
   const pos = gainToPosition(strip.shownVolume);
   const db = positionToDb(pos);
-  const authored = formatDb(strip.shownVolume);
-  const effective = strip.live ? formatDb(strip.effectiveGain) : "-";
+  const authored = formatGainDb(strip.shownVolume);
+  const effective = strip.live ? formatGainDb(strip.effectiveGain) : "-";
   const showGr = !!props.levelDucked || (strip.live && strip.duckGain < 1);
   const h = faderHandlers(props);
   const cls = ["mixer-strip", strip.root ? "root" : "", strip.dragging ? "dragging" : "", strip.mute ? "muted" : "", strip.monitorMute ? "monitor-muted" : "", strip.monitorSolo ? "soloed" : "", strip.live ? "" : "idle"].filter(Boolean).join(" ");

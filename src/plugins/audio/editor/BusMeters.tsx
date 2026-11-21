@@ -5,7 +5,7 @@ import { useEffect, useRef } from "preact/hooks";
 import { editor } from "../../../editor/sdk";
 import { Audio } from "../runtime";
 
-import { METER_FLOOR_DB, meterFill } from "./meterFill";
+import { METER_FLOOR_DB, meterFill } from "./dbScale";
 export { METER_FLOOR_DB, meterFill };
 const POLL_MS = 50;
 

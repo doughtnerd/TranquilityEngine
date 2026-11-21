@@ -3,7 +3,8 @@
 // (the bus's own effective gain) and the product up the tree (the level reaching the output from it). The numbers are
 // `busFactorsModel`'s; the parents come from the capture's META audio section.
 import { useRef } from "preact/hooks";
-import { FACTOR_LANES, formatDb } from "./busFactorsModel";
+import { FACTOR_LANES } from "./busFactorsModel";
+import { formatDb } from "../dbScale";
 import { WindowedGridView, useGridState, type GridCell, type GridColumn, type GridState } from "./WindowedGrid";
 import { tableEmptyText, type BusRow, type TableEmptyInput } from "./profilerTablesModel";
 
