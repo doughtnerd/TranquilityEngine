@@ -22,7 +22,7 @@ const cam = (name: string, over: Partial<FrameCamera> = {}): FrameCamera => ({
 });
 const post = (over: Partial<PostSettings> = {}): PostSettings => ({
   enabled: true, toneMapping: "aces", exposure: 1, bloom: true, bloomIntensity: 1, bloomThreshold: 1, bloomRadius: 1,
-  ambientOcclusion: false, aoIntensity: 1, aoRadius: 1, brightness: 0, contrast: 0, saturation: 0, hue: 0,
+  ambientOcclusion: false, aoIntensity: 1, aoRadius: 1, brightness: 0, contrast: 0, saturation: 0, hue: 0, lut: "", lutIntensity: 1,
   vignette: false, vignetteDarkness: 0.5, vignetteOffset: 0.5, depthOfField: true, focusDistance: 10, focusRange: 5, bokehScale: 1,
   chromaticAberration: false, chromaticAberrationAmount: 0, ...over,
 });

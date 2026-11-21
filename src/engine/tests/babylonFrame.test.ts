@@ -1,4 +1,4 @@
-// ADR 0075 stage 3: the finish pass and each camera's pass layout on the Babylon backend, without a GPU.
+// ADR 0075 stage 3: the finish pass, and the frame graph each camera's pass plan builds (ADR 0274) on the Babylon backend, without a GPU.
 import { ShaderStore } from "@babylonjs/core/Engines/shaderStore.js";
 import { describe, expect, it, vi } from "vitest";
 import { FrameGraph } from "@babylonjs/core/FrameGraph/frameGraph.js";
@@ -6,7 +6,7 @@ import type { FrameGraphGeometryRendererTask } from "@babylonjs/core/FrameGraph/
 import type { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { matrixChanged, refillIfChanged } from "../render/changeDetection";
 import { FINISH_SAMPLERS, FINISH_SHADER, FINISH_UNIFORMS } from "../render/babylon/finishShader";
-import { AO_SETTINGS, cameraPasses, type PostEffects } from "../render/postEffects";
+import { AO_SETTINGS, type PostEffects } from "../render/postEffects";
 
 describe("the finish pass (ADR 0075)", () => {
   it("is registered in WGSL and GLSL, each declaring every uniform", () => {
@@ -37,51 +37,6 @@ describe("the finish pass (ADR 0075)", () => {
   it("keeps its uniform list read-only (Babylon appends the vertex stage's 'scale' to the list it's given)", () => {
     expect(Object.isFrozen(FINISH_UNIFORMS)).toBe(true);
     expect(FINISH_UNIFORMS).not.toContain("scale");
-  });
-});
-
-describe("a camera's passes (ADR 0075 stage 3)", () => {
-  const effects = (overrides: Partial<PostEffects>): PostEffects => ({
-    toneMapping: "agx",
-    exposure: 1,
-    antialias: "off",
-    bloom: null,
-    ambientOcclusion: null,
-    colorGrading: null,
-    lut: null,
-    vignette: null,
-    depthOfField: null,
-    chromaticAberration: null,
-    ...overrides,
-  });
-
-  it("are clear, render and finish without effects", () => {
-    expect(cameraPasses(null)).toEqual(["clear", "render", "finish"]);
-    // Grading, the vignette and tone mapping happen in the finish pass.
-    expect(cameraPasses(effects({ colorGrading: { brightness: 0.1, contrast: 0, saturation: 0, hue: 0 }, vignette: { darkness: 0.5, offset: 0.5 } }))).toEqual(["clear", "render", "finish"]);
-  });
-
-  it("add each effect, with a geometry pass for ambient occlusion and depth of field", () => {
-    const all = effects({
-      bloom: { intensity: 1, threshold: 0.9, radius: 0.85 },
-      ambientOcclusion: { intensity: 2, radius: 1, quality: "medium" },
-      depthOfField: { focusDistance: 10, focusRange: 5, bokehScale: 2 },
-      chromaticAberration: { amount: 0.002 },
-    });
-    expect(cameraPasses(all)).toEqual(["clear", "geometry", "render", "ao", "dof", "bloom", "ca", "finish"]);
-    expect(cameraPasses(effects({ depthOfField: { focusDistance: 10, focusRange: 5, bokehScale: 2 } }))).toEqual(["clear", "geometry", "render", "dof", "finish"]);
-  });
-
-  it("add a depth pass before the render pass when something asks for the scene depth (ADR 0109)", () => {
-    expect(cameraPasses(null, true)).toEqual(["clear", "geometry", "render", "finish"]);
-    // Shared with ambient occlusion: one geometry pass.
-    expect(cameraPasses(effects({ ambientOcclusion: { intensity: 2, radius: 1, quality: "medium" } }), true)).toEqual(["clear", "geometry", "render", "ao", "finish"]);
-  });
-
-  it("end with FXAA on tiers with FXAA or SMAA, not MSAA", () => {
-    expect(cameraPasses(effects({ antialias: "smaa" }))).toEqual(["clear", "render", "finish", "fxaa"]);
-    expect(cameraPasses(effects({ antialias: "fxaa" }))).toEqual(["clear", "render", "finish", "fxaa"]);
-    expect(cameraPasses(effects({ antialias: "msaa" }))).toEqual(["clear", "render", "finish"]);
   });
 });
 
@@ -120,6 +75,52 @@ describe("the geometry pass's depth (ADR 0075)", () => {
       expect(names.indexOf("geometryClear0")).toBeLessThan(names.indexOf("geometry0"));
     } finally {
       added.mockRestore();
+      frame.dispose();
+      scene.dispose();
+      engine.dispose();
+    }
+  });
+});
+
+describe("rebuilding the frame graph (ADR 0274)", () => {
+  // A rebuilding frame shows the clear colour, so a change the finish pass's uniforms carry must not rebuild.
+  it("rebuilds when a camera's pass plan changes, not when only finish-pass values do", async () => {
+    const { NullEngine } = await import("@babylonjs/core/Engines/nullEngine.js");
+    const { Scene } = await import("@babylonjs/core/scene.js");
+    const { TargetCamera } = await import("@babylonjs/core/Cameras/targetCamera.js");
+    const { Color4 } = await import("@babylonjs/core/Maths/math.color.js");
+    const { Vector3 } = await import("@babylonjs/core/Maths/math.vector.js");
+    const { BabylonFrame } = await import("../render/babylon/frameGraph");
+    const engine = new NullEngine();
+    (engine as unknown as { buildTextureLayout(): number[] }).buildTextureLayout = () => [];
+    const scene = new Scene(engine);
+    const camera = new TargetCamera("c", Vector3.Zero(), scene);
+    const frame = new BabylonFrame(scene);
+    const fx = (over: Partial<PostEffects>): PostEffects => ({ toneMapping: "agx", exposure: 1, antialias: "off", bloom: null, ambientOcclusion: null, colorGrading: null, lut: null, vignette: null, depthOfField: null, chromaticAberration: null, ...over });
+    const view = (effects: PostEffects | null) => ({ camera, viewport: { x: 0, y: 0, width: 1, height: 1 }, clear: new Color4(0, 0, 0, 1), effects, toneMapping: effects?.toneMapping ?? ("none" as const), exposure: 1 });
+    const added = vi.spyOn(FrameGraph.prototype, "addTask");
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {}); // the GPU build itself fails on NullEngine
+    // Each call draws a frame, then lets the (failing) build settle so the next one may rebuild.
+    const builds = async (effects: PostEffects | null): Promise<boolean> => {
+      added.mockClear();
+      frame.render([view(effects)], [], [], 1);
+      await vi.waitFor(() => expect(frame.ready || logged.mock.calls.length > 0 || added.mock.calls.length === 0).toBe(true));
+      await new Promise((r) => setTimeout(r, 0));
+      return added.mock.calls.length > 0;
+    };
+    try {
+      expect(await builds(fx({ bloom: { intensity: 1, threshold: 0.9, radius: 0.85 } }))).toBe(true);
+      const bloom = { intensity: 2, threshold: 0.5, radius: 0.3 };
+      expect(await builds(fx({ bloom }))).toBe(false);
+      expect(await builds(fx({ bloom, vignette: { darkness: 0.6, offset: 0.4 } }))).toBe(false);
+      expect(await builds(fx({ bloom, toneMapping: "aces", exposure: 2 }))).toBe(false);
+      expect(await builds(fx({ bloom, colorGrading: { brightness: 0.1, contrast: 0, saturation: 0, hue: 0 }, lut: { path: "a.cube", intensity: 1 } }))).toBe(false);
+      expect(await builds(fx({ bloom, antialias: "smaa" }))).toBe(true);
+      expect(await builds(fx({ bloom, antialias: "fxaa" }))).toBe(false); // SMAA and FXAA are the same pass
+      expect(await builds(fx({ antialias: "fxaa" }))).toBe(true); // bloom off
+    } finally {
+      added.mockRestore();
+      logged.mockRestore();
       frame.dispose();
       scene.dispose();
       engine.dispose();
