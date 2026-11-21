@@ -85,18 +85,37 @@ export interface AssetKindContribution<T = any> {
   readonly importSettings?: ImportSettingsContribution;
   /**
    * The project files a file of this kind names in its own format (ADR 0148), such as a model's
-   * material libraries, textures and buffers. Absent: a JSON file's dependencies are its reference
-   * strings; other files depend on nothing.
+   * material libraries, textures and buffers, and how to rewrite them when files move (ADR 0314).
+   * Absent: a JSON file's dependencies are its reference strings; other files depend on nothing.
    */
-  readonly references?: AssetReferenceExtractor;
+  readonly references?: AssetReferences;
 }
 
-/** How an asset kind reads the files its own format names (ADR 0148). */
-export interface AssetReferenceExtractor {
+/**
+ * How an asset kind reads, and rewrites, the files its own format names (ADR 0148, 0314). A move asks `rewrite`
+ * of the kind's files that aren't JSON; a JSON file's references are rewritten by its owner (ADR 0302), whatever
+ * its kind.
+ */
+export interface AssetReferences {
   /** The endings (lower case, with the dot) whose files are text `read` understands; absent: all of the kind's. Binary files (`.glb`, `.fbx`) are left out so they are never read as text. */
   readonly extensions?: readonly string[];
   /** Project paths `text` (the file at `path`) names, resolved against the file's folder. Paths that aren't project files are ignored. */
   read(path: string, text: string): readonly string[];
+  /**
+   * `text` (the file now at `path`) with the references `read` finds pointing where they point after `moves`:
+   * at a moved file's new path, and, when the file itself moved, a relative reference still at its target from
+   * the new folder. Returns null when nothing changes. Absent: the kind's files that name a moved file are
+   * reported as not rewritten.
+   */
+  rewrite?(path: string, text: string, moves: ReferenceMoves): string | null;
+}
+
+/** A set of moves as one file's `AssetReferences.rewrite` sees them (ADR 0314). */
+export interface ReferenceMoves {
+  /** Where the file was before the moves: its own path, unless it moved. */
+  readonly from: string;
+  /** Where a project path is after the moves (itself if it didn't move; a moved folder moves what is in it). */
+  to(path: string): string;
 }
 
 /** What an import settings view is given: the shell owns the sidecar, the draft, Apply and Revert (ADR 0143). */

@@ -435,13 +435,65 @@ describe("project-wide edits through each file's owner (ADR 0302)", () => {
       for (const file of project.files) for (const dep of assetDependencies(src, file)) expect(await assetUsers(project, dep), `${file} → ${dep}`).toContain(file);
     });
 
-    it("lists files a kind reads but can't write as not rewritten on a move", async () => {
+    const textOf = (path: string) => new TextDecoder().decode(fs.files.get(joinPath(ROOT, path)) as Uint8Array);
+    const GLTF = json({ buffers: [{ uri: "car.bin" }, { uri: "data:application/octet-stream;base64,AA==" }], images: [{ uri: "tex/paint%20red.png" }] });
+
+    it("rewrites the model files that name a moved texture through their kind", async () => {
       ({ fs, project } = await openTestProject(MODELS));
       await project.move("models/tex/crate.png", "models/tex/box.png");
       const { updated, notRewritten } = await rewriteReferences(project, [["models/tex/crate.png", "models/tex/box.png"]], "Move");
-      expect(updated).toEqual([]);
-      expect(notRewritten).toEqual(["models/car.gltf", "models/crate.mtl"]);
-      expect(new TextDecoder().decode(fs.files.get(joinPath(ROOT, "models/crate.mtl")) as Uint8Array)).toContain("tex/crate.png");
+      expect(updated.sort()).toEqual(["models/car.gltf", "models/crate.mtl"]);
+      expect(notRewritten).toEqual([]);
+      expect(textOf("models/crate.mtl")).toBe("newmtl a\nmap_Kd tex/box.png\n");
+      expect(textOf("models/car.gltf")).toBe(MODEL_TEXTS["models/car.gltf"].replace("tex/crate.png", "tex/box.png")); // the layout is kept
+      expect(await assetUsers(project, "models/tex/box.png")).toEqual(["models/car.gltf", "models/crate.mtl"]);
+    });
+
+    it("keeps a .gltf moved without its buffer and images pointing at them", async () => {
+      ({ fs, project } = await openTestProject({ "models/car.gltf": bytes(GLTF), "models/car.bin": new Uint8Array([1]), "models/tex/paint red.png": new Uint8Array([1]) }));
+      await project.move("models/car.gltf", "vehicles/car.gltf");
+      const { updated, notRewritten } = await rewriteReferences(project, [["models/car.gltf", "vehicles/car.gltf"]], "Move");
+      expect(updated).toEqual(["vehicles/car.gltf"]);
+      expect(notRewritten).toEqual([]);
+      const gltf = JSON.parse(textOf("vehicles/car.gltf")) as { buffers: { uri: string }[]; images: { uri: string }[] };
+      expect(gltf.buffers.map((b) => b.uri)).toEqual(["../models/car.bin", "data:application/octet-stream;base64,AA=="]);
+      expect(gltf.images.map((i) => i.uri)).toEqual(["../models/tex/paint%20red.png"]);
+      expect(await assetUsers(project, "models/car.bin")).toEqual(["vehicles/car.gltf"]);
+      expect(await assetUsers(project, "models/tex/paint red.png")).toEqual(["vehicles/car.gltf"]);
+    });
+
+    it("keeps an .obj moved without its .mtl, and an .mtl moved without its textures, pointing at them", async () => {
+      ({ fs, project } = await openTestProject(MODELS));
+      await project.move("models/crate.obj", "crate.obj");
+      await project.move("models/crate.mtl", "models/libs/crate.mtl");
+      const moves = [["models/crate.obj", "crate.obj"], ["models/crate.mtl", "models/libs/crate.mtl"]] as const;
+      const { updated } = await rewriteReferences(project, moves, "Move");
+      expect(updated.sort()).toEqual(["crate.obj", "models/libs/crate.mtl", "prefabs/crate.prefab.json"]);
+      expect(textOf("crate.obj")).toBe("mtllib models/libs/crate.mtl\nv 0 0 0\n");
+      expect(textOf("models/libs/crate.mtl")).toBe("newmtl a\nmap_Kd ../tex/crate.png\n");
+      expect(await assetUsers(project, "models/tex/crate.png")).toEqual(["models/car.gltf", "models/libs/crate.mtl"]);
+    });
+
+    it("changes nothing in a model moved with everything it names", async () => {
+      ({ fs, project } = await openTestProject(MODELS));
+      await project.move("models", "art");
+      const { updated, notRewritten } = await rewriteReferences(project, [["models", "art"]], "Move");
+      expect(updated).toEqual(["prefabs/crate.prefab.json"]);
+      expect(notRewritten).toEqual([]);
+      expect(textOf("art/crate.mtl")).toBe(MODEL_TEXTS["models/crate.mtl"]);
+      expect(textOf("art/car.gltf")).toBe(MODEL_TEXTS["models/car.gltf"]);
+    });
+
+    it("still reports the files of a kind that reads its format but doesn't rewrite it", async () => {
+      const unregisterNotes = assetKinds.register({ id: "notes", extensions: [".notes"], label: "Notes", icon: "", references: { read: (_path, text) => text.split("\n").filter(Boolean) } });
+      try {
+        ({ fs, project } = await openTestProject({ ...MODELS, "docs/todo.notes": bytes("models/tex/crate.png\n") }));
+        await project.move("models/tex/crate.png", "models/tex/box.png");
+        const { notRewritten } = await rewriteReferences(project, [["models/tex/crate.png", "models/tex/box.png"]], "Move");
+        expect(notRewritten).toEqual(["docs/todo.notes"]);
+      } finally {
+        unregisterNotes();
+      }
     });
 
     it("deleting a texture an .mtl names says the .mtl still refers to it", async () => {
