@@ -290,14 +290,14 @@ function Loudness(props: { a: AudioSettings; draft: SettingsDraft; set: Set }) {
               True peak (dBTP)
               <Num label={`Loudness target ${i + 1} true peak`} value={t.truePeak} step={0.5} min={limit("truePeak")[0]} max={limit("truePeak")[1]} onCommit={(n) => patch(i, { truePeak: n })} />
             </label>
-            <button class="icon audio-remove" aria-label={`Remove loudness target ${t.name}`} title={targets.length === 1 ? "The last target stays" : "Remove this target"} disabled={targets.length === 1} onClick={() => edit(`Remove loudness target ${t.name}`, removeLoudnessTarget(draft, i))}>
+            <button class="icon audio-remove" aria-label={`Remove loudness target ${t.name}`} title={targets.length === 1 ? "The last target stays" : "Remove this target"} disabled={refusalOf(removeLoudnessTarget(draft, i)) !== null} onClick={() => edit(`Remove loudness target ${t.name}`, removeLoudnessTarget(draft, i))}>
               ×
             </button>
           </div>
         </div>
       ))}
       <div class="audio-row">
-        <button disabled={targets.length >= MAX_LOUDNESS_TARGETS} onClick={() => edit("Add loudness target", addLoudnessTarget(draft))}>
+        <button disabled={refusalOf(addLoudnessTarget(draft)) !== null} onClick={() => edit("Add loudness target", addLoudnessTarget(draft))}>
           + Loudness target
         </button>
         <label title="Reset the loudness meters when the editor's Play starts; an exported game's integrated measure starts at engine start">
@@ -807,7 +807,7 @@ function Occlusion(props: { a: AudioSettings; draft: SettingsDraft; set: Set }) 
       {o.materials.map((m) => (
         <MaterialCard key={m.name} a={a} m={m} draft={draft} set={set} />
       ))}
-      <button disabled={o.materials.length >= MAX_MATERIALS} onClick={() => edit("Add material", addMaterial(draft))}>
+      <button disabled={refusalOf(addMaterial(draft)) !== null} onClick={() => edit("Add material", addMaterial(draft))}>
         + Material
       </button>
     </>
