@@ -3,7 +3,7 @@
 // `latency_frames` in `native/audio/crates/audio-dsp/src/limiter.rs` exactly (the same f32 ms, the same rounding and
 // cap), so the clock map (clock.ts) knows when a rendered frame is heard. `limiterLatency.test.ts` checks the Rust
 // table; `clockLoopback.test.ts` measures the latency on the real wasm.
-import { DEFAULT_LIMITER_LOOKAHEAD_MS, LIMITER_LOOKAHEAD_LIMITS } from "../../../../engine/audio/settings";
+import { AUDIO_NUMBERS, DEFAULT_LIMITER_LOOKAHEAD_MS } from "../../../../engine/audio/settings";
 
 /** @internal The limiter's delay line in frames: 5 ms at 96 kHz (`MAX_LATENCY_FRAMES`); a higher rate is capped here. */
 const LIMITER_MAX_LATENCY_FRAMES = 480;
@@ -14,7 +14,7 @@ const LIMITER_MAX_LATENCY_FRAMES = 480;
  * 72 at 48 kHz and 66 at 44.1 kHz for 1.5 ms; 0 for 0 ms. A rate that isn't a positive number counts as 48 kHz.
  */
 export function limiterLatencyFrames(sampleRate: number, lookaheadMs: number = DEFAULT_LIMITER_LOOKAHEAD_MS): number {
-  const [min, max] = LIMITER_LOOKAHEAD_LIMITS;
+  const [min, max] = AUDIO_NUMBERS.limiterLookaheadMs.range;
   const ms = Number.isNaN(lookaheadMs) ? DEFAULT_LIMITER_LOOKAHEAD_MS : Math.min(max, Math.max(min, Math.fround(lookaheadMs)));
   const rate = Number.isFinite(sampleRate) && sampleRate > 0 ? Math.fround(sampleRate) : 48_000;
   return Math.min(Math.round((ms * rate) / 1000), LIMITER_MAX_LATENCY_FRAMES);

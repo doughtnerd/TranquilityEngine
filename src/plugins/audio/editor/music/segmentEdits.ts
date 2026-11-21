@@ -1,17 +1,18 @@
 // Ed4 (api-and-models §7, contract H6): the segment panel's edits as pure functions of a segment. Each returns the next
-// segment or a one-line reason it was refused (`Edit`), so the forms are tested without a DOM and round-trip through
-// `formatAudioEvent` / `parseAudioEvent`. `SegmentPanel.tsx` applies a result through the event's asset document (one
-// undo step per edit).
+// segment or a one-line reason it was refused (the refused-or-next `EditResult`, ADR 0307), so the forms are tested
+// without a DOM and round-trip through `formatAudioEvent` / `parseAudioEvent`. `SegmentPanel.tsx` applies a result
+// through the event's asset document (one undo step per edit, a refusal in the status bar).
 import { BEAT_UNITS, MAX_BPM, MIN_BPM, MUSIC_LIMITS, TRACK_PICKS, type MusicRegion, type MusicTrack, type RegionCondition, type SegmentNode, type TrackPick } from "../../../../engine/audio/musicFormat";
 import { uniqueName } from "../../../../engine/core/uniqueName";
 import { compileSegmentGrid, positionTextToTicks } from "../../../../engine/audio/musicGrid";
+import { accept, refuse, type EditResult } from "../editResult";
 import { canonicalPosition, comparePositions, isBarBeatTick, parsePosition, positionProblem } from "../../../../engine/audio/musicPosition";
 
-/** The next segment, or why the edit was refused (shown under the form; nothing changes). */
-export type Edit = { readonly segment: SegmentNode } | { readonly error: string };
+/** The next segment, or why the edit was refused (nothing changes). */
+type Edit = EditResult<SegmentNode>;
 
-const ok = (segment: SegmentNode): Edit => ({ segment });
-const fail = (error: string): Edit => ({ error });
+const ok = (segment: SegmentNode): Edit => accept(segment);
+const fail = refuse;
 const round3 = (n: number): number => Math.round(n * 1000) / 1000;
 
 /** The first marker's tempo and metre (the form edits that one; later markers are the view's). */
@@ -218,11 +219,11 @@ export function removeRegion(seg: SegmentNode, id: string): Edit {
 export type ConditionForm = "is" | "atLeast" | "below";
 
 /** The `while` condition a form describes: a parameter, one of three comparisons and its value text. */
-export function readCondition(parameter: string, form: ConditionForm, value: string): { condition: RegionCondition } | { error: string } {
+export function readCondition(parameter: string, form: ConditionForm, value: string): EditResult<RegionCondition> {
   const p = parameter.trim();
-  if (p === "") return { error: "name the parameter" };
-  if (form === "is") return value.trim() === "" ? { error: "name the label" } : { condition: { parameter: p, is: value.trim() } };
+  if (p === "") return refuse("name the parameter");
+  if (form === "is") return value.trim() === "" ? refuse("name the label") : accept({ parameter: p, is: value.trim() });
   const n = Number(value);
-  if (value.trim() === "" || !Number.isFinite(n)) return { error: "the value must be a number" };
-  return { condition: form === "atLeast" ? { parameter: p, atLeast: n } : { parameter: p, below: n } };
+  if (value.trim() === "" || !Number.isFinite(n)) return refuse("the value must be a number");
+  return accept(form === "atLeast" ? { parameter: p, atLeast: n } : { parameter: p, below: n });
 }

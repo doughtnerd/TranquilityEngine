@@ -189,7 +189,7 @@ test("segment view: a tempo, metre and grid-offset edit in the segment panel is 
 
   // A refused value says why and writes nothing.
   await commitText(page, "Tempo", "5000");
-  await expect(page.getByRole("alert")).toHaveText("tempo must be 1..1000 bpm");
+  await expect(page.locator(".status-text")).toHaveText("Can't set tempo: tempo must be 1..1000 bpm");
   expect((await tempoA(page)).bpm).toBe(100);
 
   // Undo, one step per edit, the file following; redo brings the tempo back.

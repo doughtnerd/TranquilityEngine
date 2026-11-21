@@ -1,6 +1,6 @@
 # 0253. A settings section handle owns one `project.json` key of the settings draft
 
-- **Status:** Accepted, amended by 0262 (the shell's `layersOf` is gone: physics layers are a named list the Physics section declares); amended by 0272 (the physics handle reads and checks through the runtime physics section; `resolvePhysicsSettings` is gone)
+- **Status:** Accepted, amended by 0262 (the shell's `layersOf` is gone: physics layers are a named list the Physics section declares); amended by 0272 (the physics handle reads and checks through the runtime physics section; `resolvePhysicsSettings` is gone); amended by 0306 (a third edit mode, `"canonical"`: `set` stores what the parse makes of the value; the audio handle uses it)
 - **Date:** 2026-11-20
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

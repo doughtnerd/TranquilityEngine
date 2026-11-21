@@ -1,8 +1,8 @@
 import { physics2DOf } from "./systems2d";
-import { GameBehavior } from "../../../engine/core/Component";
 import { Vector2, type Vec2Like } from "../../../engine/core/math";
 import { component, field } from "../../../engine/core/registry";
 import type { GameObject } from "../../../engine/scene/GameObject";
+import type { ShapeFields2D } from "../../../engine/physics/shape2d";
 import type { CollisionFlags } from "../../../engine/physics/types";
 import { Collider2D } from "./Collider2D";
 import type { RigidBody2D } from "./RigidBody2D";
@@ -84,19 +84,7 @@ export class CharacterController2D extends Collider2D {
     }
     this._flags = result.flags;
     this.setVelocity(result.movement.x, result.movement.y);
-    const nodes = new Set([this.node, this.owner]);
-    for (const hit of result.hits) {
-      for (const node of nodes) {
-        for (const comp of [...node.getBehaviors(GameBehavior)]) {
-          if (!comp.isActiveAndEnabled || !comp.onControllerColliderHit) continue;
-          try {
-            comp.onControllerColliderHit(hit);
-          } catch (err) {
-            console.error(`[myco] ${comp.constructor.name}.onControllerColliderHit threw:`, err);
-          }
-        }
-      }
-    }
+    for (const hit of result.hits) this._world._sendMessage([this.node, this.owner], "onControllerColliderHit", hit);
     return this._flags;
   }
 
@@ -115,8 +103,8 @@ export class CharacterController2D extends Collider2D {
     if (dt > 0) this._velocity.set(x / dt, y / dt);
   }
 
-  override _shapeSignature(): string {
-    return `character:${this.radius},${this.height}`;
+  override _shapeFields(): ShapeFields2D {
+    return { kind: "capsule", radius: this.radius, height: this.height };
   }
 
   /** @internal */

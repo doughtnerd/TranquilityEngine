@@ -1,6 +1,6 @@
 # 0148. One asset reference module answers users, dependencies, renames and removals, and asset kinds extract their own format's references
 
-- **Status:** Accepted, amended by 0262 (its project file loop moves to `projectFileEdits.ts`, shared with settings names)
+- **Status:** Accepted, amended by 0262 (its project file loop moves to `projectFileEdits.ts`, shared with settings names); partly superseded by 0302 (edits go through each file's owner, asset documents and kind formats; users come from the kind readers)
 - **Date:** 2026-11-09
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

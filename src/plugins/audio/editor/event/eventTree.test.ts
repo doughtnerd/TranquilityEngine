@@ -37,6 +37,13 @@ import {
   type ListNodeType,
   type NodePath,
 } from "./eventTreeModel";
+import type { EditResult } from "../editResult";
+
+/** The accepted value of an edit (ADR 0307), or the test fails with its refusal. */
+const nextOf = <T,>(r: EditResult<T>): T => {
+  if ("refused" in r) throw new Error(r.refused);
+  return r.next;
+};
 
 // --- helpers --------------------------------------------------------------------------------------------------------
 
@@ -400,7 +407,7 @@ describe("eventTree edits", () => {
   it("wrapNode puts the node in a fresh list container or a sustain's loop slot", () => {
     const root = sampleTree();
     const c = (root as Extract<EventNode, { type: "layer" }>).children[2];
-    const wrapped = wrapNode(root, [2], "random");
+    const wrapped = nextOf(wrapNode(root, [2], "random"));
     expect(wrapped.path).toEqual([2]);
     const wrapper = getNode(wrapped.root, [2]) as Extract<EventNode, { type: "random" }>;
     expect(wrapper.type).toBe("random");
@@ -408,7 +415,7 @@ describe("eventTree edits", () => {
     expect(wrapper.children[0]).toBe(c);
     expect(wrapper.avoidRepeat).toBe(0);
 
-    const inLoop = wrapNode(root, [2], "sustain");
+    const inLoop = nextOf(wrapNode(root, [2], "sustain"));
     const sus = getNode(inLoop.root, [2]) as Extract<EventNode, { type: "sustain" }>;
     expect(sus.type).toBe("sustain");
     expect(sus.loop).toBe(c);
@@ -417,12 +424,12 @@ describe("eventTree edits", () => {
     // The wrapper sits at depth 14 with the leaf at depth 15 (kept by the parser); one level more is dropped.
     const leaf = clipNode("leaf.ogg");
     const deep = nest(14, leaf);
-    const ok = wrapNode(deep, zeros(14), "random");
+    const ok = nextOf(wrapNode(deep, zeros(14), "random"));
     expect(getNode(ok.root, [...zeros(14), 0])).toBe(leaf);
     const parsed = parseAudioEvent({ format: AUDIO_EVENT_FORMAT, root: ok.root }).value.root;
     expect(getNode(parsed, [...zeros(14), 0])).toEqual(leaf);
-    expect(() => wrapNode(nest(14, list("layer", [clipNode("x")])), zeros(14), "random")).toThrow(RangeError);
-    expect(() => wrapNode(root, [9], "random")).toThrow(RangeError);
+    expect(wrapNode(nest(14, list("layer", [clipNode("x")])), zeros(14), "random")).toEqual({ refused: "the event can't nest any deeper there" });
+    expect(wrapNode(root, [9], "random")).toHaveProperty("refused");
   });
 
   it("no edit mutates its input (deep-frozen trees)", () => {

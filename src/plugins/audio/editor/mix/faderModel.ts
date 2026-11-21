@@ -7,12 +7,14 @@
 //   0 < p <= UNITY   dB rises linearly from FADER_FLOOR_DB (-60) to 0 dB at p = UNITY_POSITION (0.75)
 //   UNITY < p <= 1   dB rises linearly from 0 to FADER_MAX_DB (+6.0206 dB, gain 2, the volume's upper bound)
 // Gain is 10^(dB/20). Between p = 0 and the first step the gain jumps from 0 to -60 dB: the fader's bottom is a
-// mute notch, as on a console. Pure TypeScript; no DOM.
+// mute notch, as on a console. Pure TypeScript; no DOM. The gain/dB conversions and the readout are the dB scale's
+// (`../dbScale.ts`).
+import { METER_FLOOR_DB, gainToDb } from "../dbScale";
 
 /** The quietest non-silent fader level, in dB. Same as the meter floor. */
-const FADER_FLOOR_DB = -60;
+const FADER_FLOOR_DB = METER_FLOOR_DB;
 /** The loudest fader level, in dB: gain 2, the upper bound of `Bus.volume` in the settings. */
-export const FADER_MAX_DB = 20 * Math.log10(2);
+export const FADER_MAX_DB = gainToDb(2);
 /** The maximum linear gain (position 1). */
 export const FADER_MAX_GAIN = 2;
 /** The fader position of unity gain (0 dB, gain 1). */
@@ -54,17 +56,7 @@ export function positionToGain(position: number): number {
 export function gainToPosition(gain: number): number {
   if (!(gain > 0)) return 0;
   if (gain === 1) return UNITY_POSITION;
-  return dbToPosition(20 * Math.log10(gain));
-}
-
-/** A linear gain to dB (`-Infinity` for 0, negative and NaN). For the readout beside the fader. */
-export function gainToDb(gain: number): number {
-  return gain > 0 ? 20 * Math.log10(gain) : -Infinity;
-}
-
-/** dB to a linear gain (`-Infinity` and NaN give 0). */
-export function dbToGain(db: number): number {
-  return db > -Infinity ? Math.pow(10, db / 20) : 0;
+  return dbToPosition(gainToDb(gain));
 }
 
 /** Snap a position to `UNITY_POSITION` when within `SNAP_RADIUS` of it; otherwise the clamped position. */
@@ -80,13 +72,4 @@ export function snapToUnity(position: number): number {
  */
 export function dragPosition(start: number, delta: number, fine = false): number {
   return snapToUnity(clamp01(start) + delta * (fine ? FINE_DRAG_SCALE : 1));
-}
-
-/** A readout string for a gain: "-inf", "0.0 dB", "-6.0 dB", "+3.5 dB". */
-export function formatDb(gain: number): string {
-  const db = gainToDb(gain);
-  if (db === -Infinity) return "-inf";
-  if (db < FADER_FLOOR_DB) return "-inf";
-  const r = Math.round(db * 10) / 10;
-  return `${r > 0 ? "+" : ""}${(r === 0 ? 0 : r).toFixed(1)} dB`;
 }

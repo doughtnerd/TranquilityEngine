@@ -2,6 +2,7 @@ import { Mat4, Quaternion, Vector2, Vector3, type Vec3Input, type Vec3Like } fro
 import type { World } from "../core/World";
 import type { GameObject } from "./GameObject";
 import { LocalToWorld } from "./LocalToWorld";
+import { frame2DFromMatrix, localAngle2D } from "./frame2d";
 
 const tmpA = new Float32Array(16);
 const tmpP = new Float32Array(3);
@@ -110,15 +111,25 @@ export class Transform {
     this._position.set(...Mat4.transformPoint(tmpA, 0, p.x, p.y, p.z));
   }
 
-  /** World-space rotation around Z in radians (2D). */
+  /**
+   * World-space rotation around Z in radians (2D), as the node's 2D frame reads it (ADR 0301): a mirrored node
+   * carries its mirror on x, so a node scaled (-1, 1) and turned θ reads θ (not θ + π). Assigning turns the node
+   * and keeps its mirroring.
+   */
   get worldRotation2D(): number {
-    const m = this.world.worldMatrix(this.e), o = this.e * 16;
-    return Math.atan2(m[o + 1], m[o]);
+    return frame2DFromMatrix(this.world.worldMatrix(this.e), this.e * 16).angle;
   }
   set worldRotation2D(angle: number) {
+    this.rotation2D = this.localAngleFor2D(angle);
+  }
+
+  /** The local Z rotation that gives the node world angle `angle` (its 2D frame's) and keeps its world scale and mirroring. */
+  private localAngleFor2D(angle: number): number {
+    const frame = frame2DFromMatrix(this.world.worldMatrix(this.e), this.e * 16);
     const parent = this.world.parentEntity(this.e);
-    const parentRot = parent < 0 ? 0 : Math.atan2(this.world.worldMatrix(parent)[parent * 16 + 1], this.world.tWorld[parent * 16]);
-    this.rotation2D = angle - parentRot;
+    const hasParent = parent >= 0 && !!this.world.hasTransform[parent];
+    const s = this._scale;
+    return localAngle2D(angle, frame.scale, hasParent ? this.world.worldMatrix(parent) : null, parent * 16, [s.x, s.y]);
   }
 
   /** World-space rotation. Returns a copy; assigning turns the node. */
@@ -163,7 +174,7 @@ export class Transform {
     return new LocalToWorld(this.world.worldMatrix(this.e), this.e * 16);
   }
 
-  /** @internal Set world x/y and Z rotation in one go (used by physics write-back). */
+  /** @internal Set world x/y and the 2D frame's angle in one go, keeping the node's mirroring (physics write-back, ADR 0301). */
   _setWorldPose2D(x: number, y: number, angle: number): void {
     const parent = this.world.parentEntity(this.e);
     const a = this.world.tPos, o = this.e * 3;
@@ -176,11 +187,11 @@ export class Transform {
         a[o] = x;
         a[o + 1] = y;
       }
-      this._rotation.setFromEuler(0, 0, angle); // marks dirty
-      return;
+      this.world.markTransformDirty(this.e);
+    } else {
+      this.worldPosition = [x, y, this.worldPosition.z];
     }
-    this.worldPosition = [x, y, this.worldPosition.z];
-    this.worldRotation2D = angle;
+    this.rotation2D = this.localAngleFor2D(angle); // marks dirty
   }
 
   /** @internal Set world position and rotation in one go (used by 3D physics write-back). */

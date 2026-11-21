@@ -2,6 +2,7 @@ import { component, field } from "../../../engine/core/registry";
 import { Collider2D } from "./Collider2D";
 import { findShapeSource2D, type CollisionShapeSource2D, type ShapeMerge2D } from "../../../engine/physics/shapeSource2D";
 import type { Component } from "../../../engine/core/Component";
+import type { ShapeFields2D } from "../../../engine/physics/shape2d";
 import type { Dim2 } from "./backend";
 import type { TilemapColliderState } from "./core/state";
 import type { RigidBody2D } from "./RigidBody2D";
@@ -26,7 +27,7 @@ export class TilemapCollider2D extends Collider2D {
     return findShapeSource2D(this.node);
   }
 
-  override _shapeSignature(): string {
-    return `shapes:${this.mode}`;
+  override _shapeFields(): ShapeFields2D {
+    return { kind: "source", merge: this.mode };
   }
 }

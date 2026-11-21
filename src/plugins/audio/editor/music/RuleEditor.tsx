@@ -1,15 +1,15 @@
 // Ed7 (api-and-models §7, §2.4): the editor of one transition rule, beside the rules table. The edits are the pure functions
-// of `ruleEdits.ts`; the component applies a result through the event's asset document (one undo step per edit) and shows
-// the lint rows of the rule and the "audition this transition" action.
-import { useEffect, useState } from "preact/hooks";
+// of `ruleEdits.ts`; the component hands each result to the table's `apply` (the asset document's adapter, ADR 0307: one
+// undo step, or the refusal in the status bar) and shows the lint rows of the rule and the "audition this transition"
+// action.
+import { useState } from "preact/hooks";
 import { useDraftText } from "../../../../editor/sdk";
 import { FADE_CURVES, RULE_WILDCARD, type FadeCurve, type TransitionEnter, type TransitionExit, type TransitionFade } from "../../../../engine/audio/musicRules";
 import type { MusicContainerNode } from "../../../../engine/audio/musicFormat";
 import { endSegments, type RuleLintIssue } from "./ruleLint";
-import { type RuleEdit, setRuleEnds, gridSpec, setExit, setEnter, type FadeSlot, setFade, setBridgeOwnFade, setBridge } from "./ruleEdits";
+import { setRuleEnds, gridSpec, setExit, setEnter, type FadeSlot, setFade, setBridgeOwnFade, setBridge } from "./ruleEdits";
+import type { EditResult } from "../editResult";
 import "./ruleEditor.css";
-
-const fail = (error: string): RuleEdit => ({ error });
 
 // --- the form -----------------------------------------------------------------------------------------------------------
 
@@ -32,8 +32,8 @@ export interface RuleEditorProps {
   /** Lint rows of this rule. */
   readonly issues: readonly RuleLintIssue[];
   readonly readOnly: boolean;
-  /** Apply an edit; false when it was refused (the editor shows the reason it was given). */
-  readonly apply: (edit: RuleEdit, label: string) => boolean;
+  /** Apply an edit (one undo step, or the refusal reported). */
+  readonly apply: (edit: EditResult<MusicContainerNode>, label: string) => void;
   /** Start "audition this transition"; its note or refusal comes back as text. */
   readonly onAudition: (bar: number | undefined) => void;
   /** The line under the audition button (what it plays, or why it can't). */
@@ -45,10 +45,13 @@ export interface RuleEditorProps {
 export function RuleEditor(props: RuleEditorProps) {
   const { container, index, readOnly, apply } = props;
   const rule = container.transitions[index];
-  const [error, setError] = useState("");
   const [bar, setBar] = useState("");
   if (!rule) return <p class="empty">Choose a rule in the list to edit it.</p>;
-  const run = (edit: RuleEdit, label: string): void => setError(apply(edit, label) ? "" : "error" in edit ? edit.error : "");
+  const run = apply;
+  const runGrid = (every: "beat" | "bar", n: number) => {
+    const g = gridSpec(every, n);
+    run("refused" in g ? g : setExit(container, index, g.next), "Set exit grid");
+  };
   const ends = [RULE_WILDCARD, ...container.children.map((c) => c.id)];
   const enterKind = typeof rule.enter === "string" ? rule.enter : "cue";
   const exitKind = typeof rule.exit === "string" ? rule.exit : rule.exit.every;
@@ -111,14 +114,8 @@ export function RuleEditor(props: RuleEditorProps) {
         {grid && (
           <>
             <span class="re-suffix">every</span>
-            <Num label="Exit every" value={exitN} disabled={readOnly} onCommit={(n) => {
-              const g = gridSpec(exitKind as "beat" | "bar", n);
-              run(typeof g === "string" ? fail(g) : setExit(container, index, g), "Set exit grid");
-            }} />
-            <select aria-label="Exit unit" value={exitKind} disabled={readOnly} onChange={(e) => {
-              const g = gridSpec(val(e) as "beat" | "bar", exitN);
-              run(typeof g === "string" ? fail(g) : setExit(container, index, g), "Set exit grid");
-            }}>
+            <Num label="Exit every" value={exitN} disabled={readOnly} onCommit={(n) => runGrid(exitKind as "beat" | "bar", n)} />
+            <select aria-label="Exit unit" value={exitKind} disabled={readOnly} onChange={(e) => runGrid(val(e) as "beat" | "bar", exitN)}>
               <option value="beat">beat</option>
               <option value="bar">bar</option>
             </select>
@@ -179,7 +176,6 @@ export function RuleEditor(props: RuleEditorProps) {
         </div>
       )}
 
-      {error && <p class="re-error" role="alert">{error}</p>}
 
       {props.issues.length > 0 && (
         <ul class="re-lint" aria-label="Lint">

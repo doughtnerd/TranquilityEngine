@@ -1,11 +1,11 @@
 import { physics3DOf } from "./systems3d";
-import { GameBehavior } from "../../../engine/core/Component";
 import { Vector3, type Vec3Like } from "../../../engine/core/math";
 import { component, field } from "../../../engine/core/registry";
 import type { GameObject } from "../../../engine/scene/GameObject";
 import { Collider } from "./Collider";
 import type { RigidBody } from "./RigidBody";
 
+import type { ShapeFields3D } from "../../../engine/physics/shape3d";
 import type { CollisionFlags } from "../../../engine/physics/types";
 export type { CollisionFlags };
 
@@ -98,7 +98,7 @@ export class CharacterController extends Collider {
     }
     this._flags = result.flags;
     this.setVelocity(result.movement.x, result.movement.y, result.movement.z);
-    for (const hit of result.hits) dispatchHit(this, hit);
+    for (const hit of result.hits) this._world._sendMessage([this.node, this.owner], "onControllerColliderHit", hit);
     return this._flags;
   }
 
@@ -120,27 +120,12 @@ export class CharacterController extends Collider {
     if (dt > 0) this._velocity.set(x / dt, y / dt, z / dt);
   }
 
-  override _shapeSignature(): string {
-    return `character:${this.radius},${this.height}`;
+  override _shapeFields(): ShapeFields3D {
+    return { kind: "capsule", radius: this.radius, height: this.height, axis: 1, upright: true };
   }
 
   /** @internal The controller's tuning, as the backend reads it. */
   _settingsSignature(): string {
     return [this.slopeLimit, this.stepOffset, this.skinWidth, this.snapToGround, this.pushBodies, this.mass].join("|");
-  }
-}
-
-/** Call `onControllerColliderHit` on the controller's node's (and owner's) active behaviors. */
-function dispatchHit(cc: CharacterController, hit: ControllerColliderHit): void {
-  const nodes = new Set([cc.node, cc.owner]);
-  for (const node of nodes) {
-    for (const comp of [...node.getBehaviors(GameBehavior)]) {
-      if (!comp.isActiveAndEnabled || !comp.onControllerColliderHit) continue;
-      try {
-        comp.onControllerColliderHit(hit);
-      } catch (err) {
-        console.error(`[myco] ${comp.constructor.name}.onControllerColliderHit threw:`, err);
-      }
-    }
   }
 }

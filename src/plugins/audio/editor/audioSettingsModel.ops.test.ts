@@ -2,27 +2,28 @@
 // so the UI and a live op edit the same way; the M5 functions (meter, effect order, targets, reset option).
 import { describe, expect, it } from "vitest";
 import { applyOpToDraft, opRefusal, type MixOp } from "../../../engine/audio/mixOps";
-import { parseAudioSettings, type DuckingRule } from "../../../engine/audio/settings";
-import type { SettingsDraft } from "../../../editor/sdk";
+import { parseAudioSettings } from "../../../engine/audio/settings";
 import { readDraft } from "../../../editor/testing";
-import { addBus, addBusAutomation, addDuckingEdit, addEffect, addLoudnessTarget, addParameter, addSnapshot, loudnessTargets, moveEffect, removeBus, removeDucking, removeEffect, removeLoudnessTarget, removeSnapshot, renameBus, renameSnapshot, setBusBed, setBusBedPriority, setBusMaxVoices, setBusMeter, setBusParent, setBusValue, setDuckingValueEdit, setEffectValue, setLoudnessResetOnPlay, setLoudnessTarget, setSnapshotLowpass, setSnapshotVolume } from "./audioSettingsModel";
+import { addBus, addBusAutomation, addDucking, addEffect, addLoudnessTarget, addSnapshot, globalParameterList, loudnessTargets, moveEffect, removeBus, removeDucking, removeEffect, removeLoudnessTarget, removeSnapshot, renameBus, renameSnapshot, setBusBed, setBusBedPriority, setBusMaxVoices, setBusMeter, setBusParent, setBusValue, setDuckingValue, setEffectValue, setLoudnessResetOnPlay, setLoudnessTarget, setSnapshotLowpass, setSnapshotVolume } from "./audioSettingsModel";
 import { audioSettings } from "./audioDraft";
+import type { EditResult } from "./editResult";
 
-/** Add a ducking rule as the section's button does (a refused add leaves the draft). */
-const addDucking = (d: SettingsDraft): SettingsDraft => addDuckingEdit(d).draft;
-/** Set one field of a rule as the section's controls do (a refused edit leaves the draft). */
-const setDuckingValue = (d: SettingsDraft, index: number, key: keyof DuckingRule, value: string | number): SettingsDraft => setDuckingValueEdit(d, index, key, value).draft;
+/** The accepted draft of an edit (ADR 0307), or the test fails with its refusal. */
+const nextOf = <T,>(r: EditResult<T>): T => {
+  if ("refused" in r) throw new Error(r.refused);
+  return r.next;
+};
 
 const empty = () => readDraft({});
 
 describe("the model functions are their ops (Mo1)", () => {
   it("each function gives the same draft as applyOpToDraft of its op", () => {
-    let d = addSnapshot(addDucking(addEffect(addEffect(empty(), "Music", "lowpass"), "Music", "reverb")));
-    d = addBusAutomation(addParameter(d));
+    let d = addSnapshot(nextOf(addDucking(addEffect(addEffect(empty(), "Music", "lowpass"), "Music", "reverb"))));
+    d = addBusAutomation(nextOf(globalParameterList.add(d)));
     const pairs: [ReturnType<typeof empty>, MixOp][] = [
       [addBus(d, "SFX"), { op: "addBus", name: "Bus", parent: "SFX" }],
       [removeBus(d, "Music"), { op: "removeBus", bus: "Music" }],
-      [renameBus(d, "Music", "Score"), { op: "renameBus", from: "Music", to: "Score" }],
+      [nextOf(renameBus(d, "Music", "Score")), { op: "renameBus", from: "Music", to: "Score" }],
       [setBusParent(d, "UI", "SFX"), { op: "moveBus", bus: "UI", parent: "SFX" }],
       [setBusValue(d, "UI", "volume", 0.3), { op: "setBus", bus: "UI", key: "volume", value: 0.3 }],
       [setBusValue(d, "UI", "mute", true), { op: "setBus", bus: "UI", key: "mute", value: true }],
@@ -34,10 +35,10 @@ describe("the model functions are their ops (Mo1)", () => {
       [moveEffect(d, "Music", 1, 0), { op: "moveEffect", bus: "Music", from: 1, to: 0 }],
       [setEffectValue(d, "Music", 0, "q", 2), { op: "setEffect", bus: "Music", index: 0, key: "q", value: 2 }],
       [removeSnapshot(d, 0), { op: "removeSnapshot", index: 0 }],
-      [renameSnapshot(d, 0, "Calm"), { op: "renameSnapshot", index: 0, name: "Calm" }],
+      [nextOf(renameSnapshot(d, 0, "Calm")), { op: "renameSnapshot", index: 0, name: "Calm" }],
       [setSnapshotVolume(d, 0, "UI", 0.5), { op: "setSnapshot", index: 0, bus: "UI", key: "volume", value: 0.5 }],
       [setSnapshotLowpass(d, 0, "UI", 900), { op: "setSnapshot", index: 0, bus: "UI", key: "lowpass", value: 900 }],
-      [removeDucking(d, 0), { op: "setDucking", index: 0, rule: null }],
+      [nextOf(removeDucking(d, 0)), { op: "setDucking", index: 0, rule: null }],
       [setLoudnessResetOnPlay(d, false), { op: "setOption", key: "loudnessResetOnPlay", value: false }],
       [removeLoudnessTarget(d, 1), { op: "setTarget", index: 1, target: null }],
     ];
@@ -94,8 +95,19 @@ describe("the M5 model functions (ADR 0171 §2.1)", () => {
     expect(setLoudnessResetOnPlay(d, true)).toBe(d);
   });
   it("refuses a ducking rule the parse would drop: a bus ducking itself", () => {
-    const d = addDucking(empty());
-    expect(setDuckingValue(d, 0, "trigger", "Music")).toBe(d);
-    expect(audioSettings.read(setDuckingValue(d, 0, "trigger", "SFX")).ducking[0].trigger).toBe("SFX");
+    const d = nextOf(addDucking(empty()));
+    expect(setDuckingValue(d, 0, "trigger", "Music")).toHaveProperty("refused");
+    expect(audioSettings.read(nextOf(setDuckingValue(d, 0, "trigger", "SFX"))).ducking[0].trigger).toBe("SFX");
+  });
+  it("refuses renaming a bus or a snapshot to a taken or empty name, with the op's message (no silent no-op)", () => {
+    const d = addSnapshot(addSnapshot(empty()));
+    expect(renameBus(d, "Music", "SFX")).toEqual({ refused: 'Another bus is already named "SFX".' });
+    expect(renameBus(d, "Music", "  ")).toEqual({ refused: "A bus needs a name." });
+    expect(renameBus(d, "Nope", "X")).toEqual({ refused: 'No bus named "Nope".' });
+    expect(renameSnapshot(d, 1, "Snapshot")).toEqual({ refused: 'Another snapshot is already named "Snapshot".' });
+    expect(renameSnapshot(d, 0, "")).toEqual({ refused: "A snapshot needs a name." });
+    // The same name (trimmed) is no change: the draft itself comes back.
+    expect(renameBus(d, "Music", "Music ")).toEqual({ next: d });
+    expect(renameSnapshot(d, 0, " Snapshot")).toEqual({ next: d });
   });
 });

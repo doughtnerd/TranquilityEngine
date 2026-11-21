@@ -1,4 +1,4 @@
-// The asset reference module (ADR 0148): which files refer to an asset, what an asset refers to,
+// The asset reference module (ADR 0148, 0302): which files refer to an asset, what an asset refers to,
 // and rewriting or removing those references when files move or go. Everything else in the editor
 // asks here instead of matching paths itself.
 //
@@ -6,16 +6,19 @@
 // - A **reference string** names a project path, optionally with an `asset:` prefix and a leading
 //   `./` or `/`, optionally followed by `#slice` (ADR 0040): `asset:images/sheet.png#walk_0`,
 //   `./images/bird.png`, `prefabs/pipe.prefab.json`. `parseAssetRef` (assetRefValues.ts) splits one up.
-// - A file **uses** a path when its text holds a quoted reference string to it (single, double or
-//   back quotes), to one of its slices, or (for a folder) to something inside it. Scenes, prefabs,
-//   other JSON files and scripts are searched, and the open scene's unsaved document when given.
-// - A file **depends on** the project files it names: every reference string in a JSON file, and
-//   what its asset kind's `references` extractor reads from a file in its own format (models' material
-//   libraries, textures and buffers come from the Meshes plugin; the shell knows no model format).
+// - **The references a file holds**, by one rule (`referencesIn`): what its asset kind's `references`
+//   reader reads from a file in its own format (models' material libraries, textures and buffers come
+//   from the Meshes plugin; the shell knows no model format), else, for a JSON file, every reference
+//   string in it. A file **depends on** the project files among them; a file **uses** a path when one
+//   of them names it, one of its slices, or (for a folder) something inside it. So users and
+//   dependencies always agree (ADR 0302). Scripts have no reader: they use a path when they quote it
+//   (single, double or back quotes); the open scene's unsaved document is read like a JSON file.
 //
-// Edits go through the project file loop (`projectFileEdits.ts`, shared with the settings names module):
-// scenes and prefabs, project.json and plain JSON, the open scene as one undo step (save to keep it).
-import { assetRefPath, sceneWithoutAsset, settingsWithoutAsset, withMovedAssets } from "./assetRefValues";
+// Edits go through the project file loop (`projectFileEdits.ts`, shared with the settings names module),
+// which asks each JSON file's owner to apply them: scenes and prefabs, asset documents (open or by the
+// kind's format), project.json and plain JSON, the open scene as one undo step (save to keep it). Files
+// no owner can rewrite (scripts, and the kinds whose readers read a non-JSON format) are reported.
+import { assetRefTarget, sceneWithoutAsset, settingsWithoutAsset, withMovedAssets } from "./assetRefValues";
 import { assetKind, registeredKind } from "./assetKindLookup";
 import type { AssetReferenceExtractor } from "./sdk/contributions";
 import { editProjectFiles } from "./projectFileEdits";
@@ -35,33 +38,15 @@ function mentions(text: string | undefined, paths: readonly string[]): boolean {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Who uses an asset, and what it depends on
+// The references a file holds
 
-/**
- * The files that refer to `path` (a file, a slice or a folder): JSON files (scenes, prefabs, settings,
- * materials…) and scripts that quote it, plus the open scene's unsaved document, if given and it does
- * (listed as "<path> (unsaved edits)" when its file on disk doesn't).
- */
-export function assetUsers(project: EditorProject, path: string, openDocument?: { path: string; text: string } | null): string[] {
-  const users = project.files.filter((f) => f !== path && f.endsWith(".json") && mentions(project.textOf(f), [path]));
-  for (const [script, text] of project.scripts) if (script !== path && mentions(text, [path])) users.push(script);
-  if (openDocument && openDocument.path !== path && mentions(openDocument.text, [path]) && !users.includes(openDocument.path)) users.push(`${openDocument.path} (unsaved edits)`);
-  return users;
+/** One reference a file holds: a project path and, for a JSON reference string to a slice, the slice. */
+interface HeldReference {
+  readonly path: string;
+  readonly slice: string | null;
 }
 
-/** The scripts that quote one of `paths` (or something inside one): scripts are never rewritten, so callers list them. */
-export function scriptUsers(project: EditorProject, paths: readonly string[]): string[] {
-  return [...project.scripts].filter(([script, text]) => !paths.includes(script) && mentions(text, paths)).map(([script]) => script);
-}
-
-/** What a dependency walk can read: the project's files and the text of its text files. */
-export interface ReferenceSource {
-  readonly files: readonly string[];
-  /** A text file's text (JSON, or a format a kind's `references` reads), or undefined for binaries and missing files. */
-  text(path: string): string | undefined;
-}
-
-/** The `references` extractor of the file's asset kind (ADR 0148), if it has one that reads this file's ending. */
+/** The `references` reader of the file's asset kind (ADR 0148), if it has one that reads this file's ending. */
 function extractorFor(path: string): AssetReferenceExtractor | undefined {
   const extractor = registeredKind(assetKind(path))?.references;
   const lower = path.toLowerCase();
@@ -71,36 +56,95 @@ function extractorFor(path: string): AssetReferenceExtractor | undefined {
 /** True if the file at `path` names other files in its own (text) format: its asset kind reads it (ADR 0148). Such files' text is worth reading even when the project serves them as bytes. */
 export const hasOwnReferences = (path: string): boolean => extractorFor(path) !== undefined;
 
-/**
- * The project files `path` refers to directly, without duplicates: what its kind's `references`
- * extractor reads if it has one, else, for a JSON file, every string in it that is a reference to a
- * project file.
- */
+const isJsonPath = (path: string) => path.toLowerCase().endsWith(".json");
+
+/** Every string in a JSON value, as a reference. */
+function jsonReferences(text: string): HeldReference[] {
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    return [];
+  }
+  const out: HeldReference[] = [];
+  const walk = (v: unknown) => {
+    if (typeof v === "string") {
+      const target = assetRefTarget(v);
+      const hash = target.indexOf("#");
+      out.push(hash < 0 ? { path: target, slice: null } : { path: target.slice(0, hash), slice: target.slice(hash + 1) });
+    } else if (Array.isArray(v)) v.forEach(walk);
+    else if (v && typeof v === "object") Object.values(v).forEach(walk);
+  };
+  walk(value);
+  return out;
+}
+
+/** The references the file at `path` (with text `text`) holds: its kind's reader's if it has one, else a JSON file's reference strings. */
+function referencesIn(path: string, text: string): HeldReference[] {
+  const extract = extractorFor(path)?.read;
+  if (extract) return extract(path, text).map((p) => ({ path: p, slice: null }));
+  return isJsonPath(path) ? jsonReferences(text) : [];
+}
+
+/** True if `ref` names `path`: the file, one of its slices, that slice (a slice path `image#name`), or something inside it (a folder). */
+const refNames = (ref: HeldReference, path: string) => isWithin(ref.path, path) || (ref.slice !== null && `${ref.path}#${ref.slice}` === path);
+
+// ---------------------------------------------------------------------------------------------
+// Who uses an asset, and what it depends on
+
+/** What a dependency walk can read: the project's files and the text of its text files. */
+export interface ReferenceSource {
+  readonly files: readonly string[];
+  /** A text file's text (JSON, or a format a kind's `references` reads), or undefined for binaries and missing files. */
+  text(path: string): string | undefined;
+}
+
+/** The project files `path` refers to directly, without duplicates (see `referencesIn`). */
 export function assetDependencies(source: ReferenceSource, path: string): string[] {
   const text = source.text(path);
   if (text === undefined) return [];
   const files = new Set(source.files);
-  const extract = extractorFor(path)?.read;
   const out = new Set<string>();
-  if (extract) {
-    for (const p of extract(path, text)) if (files.has(p) && p !== path) out.add(p);
-  } else if (path.toLowerCase().endsWith(".json")) {
-    let value: unknown;
-    try {
-      value = JSON.parse(text);
-    } catch {
-      return [];
-    }
-    const walk = (v: unknown) => {
-      if (typeof v === "string") {
-        const p = assetRefPath(v);
-        if (p !== path && files.has(p)) out.add(p);
-      } else if (Array.isArray(v)) v.forEach(walk);
-      else if (v && typeof v === "object") Object.values(v).forEach(walk);
-    };
-    walk(value);
-  }
+  for (const ref of referencesIn(path, text)) if (ref.path !== path && files.has(ref.path)) out.add(ref.path);
   return [...out];
+}
+
+/** A project file's text: a JSON or text file's, or, for a file served as bytes whose kind reads its format, read from the project's URL for it. */
+async function projectText(project: EditorProject, path: string): Promise<string | undefined> {
+  const text = project.textOf(path);
+  if (text !== undefined) return text;
+  const url = project.assets.get(path);
+  if (typeof url !== "string") return undefined;
+  try {
+    const res = await fetch(url);
+    return res.ok ? await res.text() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The files that refer to one of `paths` (each a file, a slice or a folder), by the rule dependencies use (see
+ * `referencesIn`): JSON files and files a kind's reader reads, in project order, then scripts that quote one, plus
+ * the open scene's unsaved document, if given and it does (listed as "<path> (unsaved edits)" when its file on
+ * disk doesn't). A file isn't listed for naming itself.
+ */
+export async function assetUsers(project: EditorProject, paths: string | readonly string[], openDocument?: { path: string; text: string } | null): Promise<string[]> {
+  const targets = typeof paths === "string" ? [paths] : paths;
+  const uses = (file: string, refs: readonly HeldReference[]) => refs.some((ref) => targets.some((p) => p !== file && refNames(ref, p)));
+  // A JSON reference string holds its target's last name as written: files without any are skipped unparsed.
+  const names = targets.map((p) => p.slice(p.lastIndexOf("/") + 1).split("#")[0]);
+  const users: string[] = [];
+  for (const file of project.files) {
+    const json = isJsonPath(file) && !hasOwnReferences(file);
+    if (!json && !hasOwnReferences(file)) continue;
+    const text = await projectText(project, file);
+    if (text === undefined || (json && !names.some((n) => text.includes(n)))) continue;
+    if (uses(file, referencesIn(file, text))) users.push(file);
+  }
+  for (const [script, text] of project.scripts) if (mentions(text, targets.filter((p) => p !== script))) users.push(script);
+  if (openDocument && uses(openDocument.path, jsonReferences(openDocument.text)) && !users.includes(openDocument.path)) users.push(`${openDocument.path} (unsaved edits)`);
+  return users;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -118,12 +162,13 @@ export function movedPath(moves: readonly (readonly [string, string])[]): (path:
 // Edits across the project
 
 /**
- * Point references at moved files' new paths, everywhere a file's users are found: scenes, prefabs,
- * project.json and other JSON files on disk, and the open scene (one undo step labelled `label`).
- * Each move is a project path (a file, a folder, or a slice `image#name`) and its new path. Returns
- * the files updated and the scripts that still quote an old path (scripts aren't edited).
+ * Point references at moved files' new paths, everywhere a JSON file's owner can rewrite them: scenes, prefabs,
+ * asset files (an open asset document's whole history, ADR 0302), project.json and other JSON files on disk, and
+ * the open scene (one undo step labelled `label`). Each move is a project path (a file, a folder, or a slice
+ * `image#name`) and its new path. Returns the files updated and the files that still name an old path because no
+ * owner rewrites them: scripts, and files a kind's reader reads in a format no one writes (.obj, .mtl, .gltf).
  */
-export async function rewriteReferences(project: EditorProject, moves: readonly (readonly [string, string])[], label: string): Promise<{ updated: string[]; scriptUsers: string[] }> {
+export async function rewriteReferences(project: EditorProject, moves: readonly (readonly [string, string])[], label: string): Promise<{ updated: string[]; notRewritten: string[] }> {
   const froms = moves.map(([from]) => from);
   const rename = movedPath(moves);
   const moved = <T>(value: T): T | null => {
@@ -131,14 +176,15 @@ export async function rewriteReferences(project: EditorProject, moves: readonly 
     return result.changed ? result.value : null;
   };
   const updated = await editProjectFiles(project, { mentioned: (text) => mentions(text, froms), scene: moved, settings: moved, json: moved }, label);
-  return { updated, scriptUsers: scriptUsers(project, froms) };
+  const notRewritten = (await assetUsers(project, froms)).filter((f) => !isJsonPath(f));
+  return { updated, notRewritten };
 }
 
 /**
  * Take the deleted `path` out of the project's scenes, prefabs and settings (see `sceneWithoutAsset`
  * and `settingsWithoutAsset`): files on disk are rewritten, the open scene is edited as one undo
- * step labelled `label`. Other JSON files (materials…) and scripts keep their references; `assetUsers`
- * lists them. Returns the files cleaned (the open scene as "<path> (unsaved)").
+ * step labelled `label`. Other files (asset files such as materials, model files, scripts) keep their
+ * references; `assetUsers` lists them. Returns the files cleaned (the open scene as "<path> (unsaved)").
  */
 export function removeReferences(project: EditorProject, path: string, label: string): Promise<string[]> {
   return editProjectFiles(

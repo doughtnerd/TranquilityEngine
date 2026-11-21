@@ -15,8 +15,8 @@
 // bus by its old name before the rename, a tombstone by its last name until its slot is recycled. Pure TypeScript, no DOM.
 import { lastAtOrBefore } from "../../../../../engine/core/sortedSearch";
 import { captureNames } from "../../../runtime/capture/reader";
-import { meterFill } from "../../meterFill";
-import { busFactors, formatDb, gainToDb, type BusFactors } from "../busFactorsModel";
+import { formatDb, gainToDb, meterFill } from "../../dbScale";
+import { busFactors, type BusFactors } from "../busFactorsModel";
 import type { LineSeries, TrackData } from "../drawTimeline";
 import type { ProfileSource } from "../profilerSource";
 import { TrackKit, singleFlight } from "./kit";

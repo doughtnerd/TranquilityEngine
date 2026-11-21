@@ -13,7 +13,7 @@ import {
   decodeNames,
   NAME_TABLES,
 } from "../../src/plugins/audio/runtime/capture/format";
-import { formatDb, gainToDb } from "../../src/plugins/audio/editor/mix/busFactorsModel";
+import { formatDb, gainToDb } from "../../src/plugins/audio/editor/dbScale";
 import { barButton, panelOf, table } from "./audioProfiler";
 import { expect, type Page } from "./fixtures";
 import { showTab } from "./tabs";

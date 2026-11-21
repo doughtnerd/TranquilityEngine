@@ -11,16 +11,35 @@
  * - every shape sits at `center` × world scale, turned with the node (a capsule doesn't turn).
  *
  * Polygon and edge colliders take their points scaled per axis (`polygon.ts` cleans and splits them).
+ * The scale is the node's 2D frame's (`scene/frame2d.ts`, ADR 0301), signed: sizes take its magnitude, while
+ * `center` and points take its sign, so a mirrored node's shapes are mirrored with it.
+ *
+ * `ShapeFields2D` is what each 2D collider class says its shape is (`_shapeFields()`, ADR 0305): the physics
+ * world builds from it, the collider gizmo draws from it, and its rebuild signature is `shapeSignature(fields)`.
  */
 import { MIN_SHAPE_SIZE } from "./shape3d";
 
 export type V2 = [number, number];
 
-/** A sized 2D collider's fields, in local units. */
-export type ShapeFields2D =
+/** A sized 2D collider's fields, in local units (a capsule is a character controller's: upright). */
+export type SizedShapeFields2D =
   | { readonly kind: "box"; readonly size: readonly number[] }
   | { readonly kind: "circle"; readonly radius: number }
   | { readonly kind: "capsule"; readonly radius: number; readonly height: number };
+
+/**
+ * A 2D collider's shape as its class describes it (ADR 0305), in local units: a sized shape, a polygon (closed,
+ * either winding) or an edge (open) through `points`, or the shapes a 2D shape source on the node offers
+ * (`shapeSource2D.ts`, merged as `merge`). Points are as the scene stores them (`[x, y]` pairs, unchecked).
+ */
+export type ShapeFields2D =
+  | SizedShapeFields2D
+  | { readonly kind: "polygon"; readonly points: readonly unknown[] }
+  | { readonly kind: "edge"; readonly points: readonly unknown[] }
+  | { readonly kind: "source"; readonly merge: "rectangles" | "outline" };
+
+/** A string that changes whenever the shape fields do: what a collider's shape is rebuilt on (ADR 0305). */
+export const shapeSignature = (fields: object): string => JSON.stringify(fields);
 
 /** The shape as the physics backend builds it, in world units: a box's half extents, a circle's radius, a capsule's radius and the half length of its straight part. */
 export type ShapeSize2D =
@@ -31,7 +50,7 @@ export type ShapeSize2D =
 const atLeast = (v: number) => Math.max(v, MIN_SHAPE_SIZE);
 
 /** `shape`'s world size on a node of world scale `scale`. */
-export function shapeSize2D(shape: ShapeFields2D, scale: readonly number[]): ShapeSize2D {
+export function shapeSize2D(shape: SizedShapeFields2D, scale: readonly number[]): ShapeSize2D {
   const sx = Math.abs(scale[0]), sy = Math.abs(scale[1]);
   switch (shape.kind) {
     case "box":

@@ -4,26 +4,27 @@ import { describe, expect, it } from "vitest";
 import { formatAudioEvent, parseAudioEvent, type AudioEventAsset } from "../../../../engine/audio/eventFormat";
 import type { MusicContainerNode } from "../../../../engine/audio/musicFormat";
 import {
-  addRule, checkFade, duplicateRule, gridSpec, moveRule, removeRule, setBridge, setBridgeOwnFade, setEnter, setExit, setFade, setRuleEnds, type RuleEdit,
+  addRule, checkFade, duplicateRule, gridSpec, moveRule, removeRule, setBridge, setBridgeOwnFade, setEnter, setExit, setFade, setRuleEnds,
 } from "./ruleEdits";
 import { containerOf, segmentRaw, switchEvent } from "./ruleFixtures";
+import type { EditResult } from "../editResult";
 import { replaceMusicNode } from "../../../../engine/audio/musicTree";
 
 const cues = { cues: [{ name: "drop", at: "2:1:0" }] };
 const base = (): AudioEventAsset => switchEvent([{ from: "a", to: "b" }, { from: "b" }], { children: [segmentRaw("a"), segmentRaw("b", cues), segmentRaw("c")] });
 
-const err = (e: RuleEdit): string => ("error" in e ? e.error : "");
+const err = (e: EditResult<unknown>): string => ("refused" in e ? e.refused : "");
 
 /** Apply an edit the way the panel does and push the result through the writer. */
-function roundTrip(event: AudioEventAsset, e: RuleEdit, expected: string[] = []): MusicContainerNode {
-  if ("error" in e) throw new Error(e.error);
-  const next: AudioEventAsset = { ...event, musicRoot: replaceMusicNode(event.musicRoot!, "s", e.container) };
+function roundTrip(event: AudioEventAsset, e: EditResult<MusicContainerNode>, expected: string[] = []): MusicContainerNode {
+  if ("refused" in e) throw new Error(e.refused);
+  const next: AudioEventAsset = { ...event, musicRoot: replaceMusicNode(event.musicRoot!, "s", e.next) };
   const text = formatAudioEvent(next);
   const again = parseAudioEvent(JSON.parse(text));
   expect(again.problems.map((p) => p.replace(/^root\.transitions\[\d+\]: /, "").replace(/ \(.*$/, ""))).toEqual(expected);
   expect(formatAudioEvent(again.value)).toBe(text);
   const read = containerOf(again.value);
-  expect(read.transitions).toEqual(e.container.transitions);
+  expect(read.transitions).toEqual(e.next.transitions);
   return read;
 }
 
@@ -70,9 +71,9 @@ describe("ends, exit and enter", () => {
     expect(err(setExit(c, 0, { every: "bar", n: 1 }))).toMatch(/2\.\.64/);
     expect(err(setExit(c, 0, { every: "bar", n: 65 }))).toMatch(/2\.\.64/);
     expect(err(setExit(c, 0, { every: "bar", n: 2.5 }))).toMatch(/whole number/);
-    expect(gridSpec("bar", 1)).toBe("bar");
-    expect(gridSpec("beat", 8)).toEqual({ every: "beat", n: 8 });
-    expect(gridSpec("beat", 0)).toMatch(/2\.\.64/);
+    expect(gridSpec("bar", 1)).toEqual({ next: "bar" });
+    expect(gridSpec("beat", 8)).toEqual({ next: { every: "beat", n: 8 } });
+    expect(err(gridSpec("beat", 0))).toMatch(/2\.\.64/);
   });
   it("accepts a cue the target has, refuses one it lacks", () => {
     const event = base();

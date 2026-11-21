@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { settingsSection } from "./settingsSection";
 import type { SettingsDraft } from "./projectSettingsModel";
 
-// A made-up key with a lenient parser: `size` must be a positive number (default 4), `deep.on` a boolean (default false).
+// A made-up key with a lenient parser: `size` must be a positive number (default 4), clamped to 100; `deep.on` a boolean
+// (default false).
 interface Toy {
   size: number;
   deep: { on: boolean; name?: string };
@@ -12,7 +13,7 @@ const parse = (written: unknown) => {
   const problems: string[] = [];
   let size = 4;
   if (w.size !== undefined) {
-    if (typeof w.size === "number" && w.size > 0) size = w.size;
+    if (typeof w.size === "number" && w.size > 0) size = Math.min(100, w.size);
     else problems.push("toy.size must be a positive number.");
   }
   const deep = (w.deep ?? {}) as Record<string, unknown>;
@@ -50,6 +51,26 @@ describe("a settings section handle", () => {
     const pruned = settingsSection<Toy>({ key: "toy", parse, write: (d, s) => ({ ...d, toy: { size: s.size } }) });
     expect(pruned.set({}, "deep.on", true)).toEqual({ toy: { size: 4 } });
     expect(pruned.write({}, { size: 3, deep: { on: true } })).toEqual({ toy: { size: 3 } });
+  });
+
+  describe('with "canonical" edits (ADR 0306)', () => {
+    const canonical = settingsSection<Toy>({ key: "toy", parse, edits: "canonical" });
+
+    it("stores what the parse makes of the value: one out of range clamped, a rejected one as the parse's fallback", () => {
+      expect(canonical.set({}, "size", 500)).toEqual({ toy: { size: 100, deep: { on: false } } });
+      const d = canonical.set({ toy: { size: 2 } }, "size", -1);
+      expect(d).toEqual({ toy: { size: 4, deep: { on: false } } });
+      expect(canonical.problems(d)).toEqual([]);
+      expect(canonical.set({}, "deep.on", true)).toEqual({ toy: { size: 4, deep: { on: true } } });
+    });
+
+    it("gives back the draft itself when the parsed section stays as it was", () => {
+      const d: SettingsDraft = { name: "x", toy: { size: 2 } };
+      expect(canonical.set(d, "size", 2)).toBe(d);
+      const absent: SettingsDraft = { name: "x" };
+      expect(canonical.set(absent, "size", 4)).toBe(absent); // the default already
+      expect(canonical.set(absent, "size", "big")).toBe(absent); // rejected: the default, which it already is
+    });
   });
 
   describe('with "written" edits', () => {

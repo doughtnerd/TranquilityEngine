@@ -2,13 +2,15 @@
 // document holds the file's value made by its registered format, writes edits in order, keeps
 // undo and redo, notices changes made elsewhere, and follows renames and deletes (assetOps.ts and
 // assetDelete.ts call `assetDocumentsMoved` / `assetDocumentsDeleted`). Signals only, no components,
-// so panels just read `value` and call `edit`.
+// so panels just read `value` and call `edit`. It is also the owner a project-wide edit asks to change
+// an asset file (`assetFileOwner`, ADR 0302): the open document, else the kind's format.
 //
 // The undo history is 0027's persistent tree (`TextHistory`, each step a text patch of the file),
 // saved with the scene's store and rules by assetHistory.ts: undoing then editing keeps the undone
 // branch, and reopening the project brings the history back. It follows renames and is deleted
 // with its file.
 import { computed, effect, signal, untracked, type ReadonlySignal } from "@preact/signals";
+import { deepEqual } from "../engine/audio/deepEqual";
 import { AssetHistoryPersistence, deleteAssetHistories, moveAssetHistories } from "./assetHistory";
 import { TextHistory, type HistoryState } from "./document";
 import { errorStatus } from "./messages";
@@ -246,6 +248,41 @@ class Document<T> implements AssetDocument<T> {
     this.stopWatching();
   }
 
+  /** The file's text as this document holds it: its value through the format, unwritten edits included. */
+  get text(): string {
+    return this.format.format(this.value.peek());
+  }
+
+  /**
+   * A project-wide change to the file's JSON (ADR 0302): a pending burst becomes its step first, then every state of
+   * the history takes the change, so the current value is changed and written after the writes before it, and undo
+   * and redo never bring back what it replaced. Not a step of its own. Returns whether the current value changed.
+   */
+  change(change: AssetFileChange): boolean {
+    if (this.closed || this.readOnly) return false;
+    this.endBurst();
+    const changed = this.tree.rewrite((text) => {
+      let raw: unknown;
+      try {
+        raw = JSON.parse(text);
+      } catch {
+        return text;
+      }
+      const next = change(raw);
+      return next === null ? text : this.format.format(parseWith(this.format, next, this.path).value);
+    });
+    this.values = new Map();
+    if (!changed) {
+      this.values.set(this.tree.current, this.value.peek());
+      this.historyChanged();
+      return false;
+    }
+    const value = this.valueOf(this.tree.current);
+    this.historyChanged();
+    this.replace(value);
+    return true;
+  }
+
   /** End a pending coalesced burst: one undo step, written now. */
   private endBurst(): void {
     const burst = this.burst;
@@ -479,4 +516,73 @@ export function assetDocumentsDeleted(paths: readonly string[]): Promise<void> {
   }
   documentsDropped.value++;
   return project ? deleteAssetHistories(project, paths) : Promise.resolve(); // saved histories too, open or not
+}
+
+/** A project-wide change to an asset file's parsed JSON (a moved reference, a renamed name): the new JSON, or null for no change. */
+export type AssetFileChange = (json: unknown) => unknown;
+
+/** Who applies a project-wide change to an asset file of a kind with a format (ADR 0302). */
+export interface AssetFileOwner {
+  /** The file's text as its owner holds it: the open document's, unwritten edits included, else the file's. */
+  readonly text: string | undefined;
+  /** Apply `change`; resolves, once it is written, to whether the file changed. */
+  apply(change: AssetFileChange): Promise<boolean>;
+}
+
+/**
+ * The owner of the asset file at `path` (ADR 0302), or null when its kind has no format (the caller writes it):
+ * - **open:** its asset document. The change is applied to every state of the document's history, a pending burst
+ *   first made its step, and written in order with the document's edits; undo and redo never bring back what it
+ *   replaced, and it makes no step of its own.
+ * - **closed:** the kind's format writes the changed file in its own layout, unless the format would lose part of it
+ *   (it reads with problems, or its text doesn't hold everything the changed JSON does); then the changed JSON is
+ *   written as it is, so nothing is dropped.
+ */
+export function assetFileOwner(project: EditorProject, path: string): AssetFileOwner | null {
+  const format = assetKinds.get(assetKind(path))?.format as AssetFormat<unknown> | undefined;
+  if (!format) return null;
+  const doc = documentsProject === project ? documents.get(path) : undefined;
+  if (doc) {
+    return {
+      get text() {
+        return doc.text;
+      },
+      apply: async (change) => {
+        const changed = doc.change(change);
+        await doc.flush();
+        return changed;
+      },
+    };
+  }
+  return {
+    get text() {
+      return project.textOf(path);
+    },
+    apply: async (change) => {
+      const text = project.textOf(path);
+      if (text === undefined) return false;
+      let raw: unknown;
+      try {
+        raw = JSON.parse(text);
+      } catch {
+        return false;
+      }
+      const next = change(raw);
+      if (next === null) return false;
+      await project.writeText(path, formattedLosslessly(format, next, path) ?? `${JSON.stringify(next, null, 2)}\n`);
+      return true;
+    },
+  };
+}
+
+/** `json` written by `format`, or null when that would lose something: it reads with problems, or its text doesn't parse back to `json`. */
+function formattedLosslessly<T>(format: AssetFormat<T>, json: unknown, path: string): string | null {
+  const read = parseWith(format, json, path);
+  if (read.problems.length > 0) return null;
+  const text = format.format(read.value);
+  try {
+    return deepEqual(JSON.parse(text), json) ? text : null;
+  } catch {
+    return null;
+  }
 }

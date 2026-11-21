@@ -10,6 +10,7 @@ import { NODE_TYPES, type EventNode, type NodeType } from "../../../../engine/au
 import { isMusicContainer, type MusicNode } from "../../../../engine/audio/musicFormat";
 import { audioPaths } from "./assetDrop";
 import { addNode, changeListType } from "./treeActions";
+import { applyEdit, type EditResult } from "../editResult";
 import { SUSTAIN_SLOTS, type SustainSlot, type NodePath, type ListNodeType, LIST_NODE_TYPES, type TreeEdit, pathKey, parsePathKey, samePath, parentPath, isListNode, childSteps, getNode, nodePaths, nodeLabel, canRemove, removeNode, reorderChild, moveNode, canDuplicate, duplicateNode, wrapNode, type MusicEdit, type MusicAddKind, addMusicNode, canRemoveMusic, removeMusicNode, reorderMusicNode, canDuplicateMusic, duplicateMusicNode, musicNodeLabel } from "./eventTreeModel";
 import { isLibraryPath, musicEntries, musicNodeAt } from "../../../../engine/audio/musicTree";
 import { applyClipDrop, canDropNode, describeDrop, dropAt, type DropRow, type TreeDrop } from "./treeDrop";
@@ -21,8 +22,7 @@ export interface EventTreeProps {
   onSelect(path: NodePath | null): void;
   /** An edit: the new root, the path to select (null: the event row) and the undo step's name. */
   onEdit(root: EventNode, select: NodePath | null, label: string): void;
-  /** A problem to report (an action that can't be done). */
-  onProblem(text: string): void;
+
   readOnly: boolean;
   /** Set for a music event (its `musicRoot`): the pane shows the music tree instead of `root`. */
   music?: MusicTreeProps;
@@ -90,7 +90,9 @@ function ClassicEventTree(props: EventTreeProps) {
   /** Clips from the asset browser over the tree: how many, and the drop under the pointer. */
   const [clipDrag, setClipDrag] = useState<{ count: number; drop: TreeDrop | null } | null>(null);
 
-  const edit = (e: TreeEdit | string, label: string) => (typeof e === "string" ? props.onProblem(e) : props.onEdit(e.root, e.path, label));
+  /** Apply an edit (ADR 0307): one undo step through the panel, or the refusal in the status bar. Guarded edits (always accepted) come as a bare `TreeEdit`. */
+  const edit = (e: EditResult<TreeEdit> | TreeEdit, label: string) =>
+    applyEdit("root" in e ? { next: e } : e, label, (next) => props.onEdit(next.root, next.path, label));
   const add = (type: NodeType) => edit(addNode(root, selected, type), `Add ${type}`);
   const remove = () => {
     if (!selected || !canRemove(root, selected)) return;
@@ -218,13 +220,7 @@ function ClassicEventTree(props: EventTreeProps) {
         <select aria-label="Wrap in" value="" disabled={readOnly || !sel} onChange={(e) => {
           const t = (e.currentTarget as HTMLSelectElement).value as ListNodeType | "sustain";
           (e.currentTarget as HTMLSelectElement).value = "";
-          if (t && selected) {
-            try {
-              edit(wrapNode(root, selected, t), `Wrap in ${t}`);
-            } catch {
-              props.onProblem("The event can't nest any deeper there");
-            }
-          }
+          if (t && selected) edit(wrapNode(root, selected, t), `Wrap in ${t}`);
         }}>
           <option value="">Wrap in…</option>
           {[...LIST_NODE_TYPES, "sustain" as const].map((t) => <option key={t} value={t}>{TYPE_LABEL[t]}</option>)}
@@ -339,7 +335,8 @@ function MusicTree(props: EventTreeProps & { music: MusicTreeProps }) {
   const root = music.root;
   const rows = musicEntries(root);
   const sel = selected ? musicNodeAt(root, selected) : undefined;
-  const edit = (e: MusicEdit | string, label: string) => (typeof e === "string" ? props.onProblem(e) : music.onEdit(e.root, e.path, label));
+  const edit = (e: EditResult<MusicEdit> | MusicEdit, label: string) =>
+    applyEdit("root" in e ? { next: e } : e, label, (next) => music.onEdit(next.root, next.path, label));
   const remove = () => {
     if (!selected || !canRemoveMusic(root, selected)) return;
     music.onEdit(removeMusicNode(root, selected), selected.slice(0, -1), "Delete node");

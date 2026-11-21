@@ -11,16 +11,17 @@
 // or switching scenes. 2D collider outlines are also selectable: a click inside one picks its node.
 // What each collider type looks like and how its handles change it is its entry in the collider shape
 // table (`colliderShapes.ts`, ADR 0288); this module is the loop over it: drawing, picking, and turning
-// pointer moves into the entry's field patches (a 3D handle through the 3D shape kit's axis drag, ADR 0295). It
+// pointer moves into the entry's field patches (a 3D handle through the 3D shape kit's axis drag, ADR 0295). 2D
+// colliders are placed by their node's 2D frame (`engine/scene/frame2d.ts`, ADR 0301), as the 2D physics world places
+// them, so a mirrored node's outline is mirrored. It
 // also offers the 3D colliders' wireframes to other plugins' tools (`colliderWireframes`, ADR 0295: the Audio
 // plugin's occluder tool draws them).
-import { RAD2DEG } from "../../../engine/core/math";
 import type { ReadonlySignal } from "@preact/signals";
 import { GameObject, type Engine } from "../../../engine";
 import { Collider, Collider2D } from "../runtime";
 import { type EditorOverlay, viewport } from "../../../engine/editor";
-import { toLocal, type Pose2D, type V2 } from "./colliderMath";
-import { COLLIDER_SHAPES, colliderShapeFor, colliderShapeOf, type AnyColliderShape2D, type AnyColliderShape3D, type EditableColliderType, type FieldPatch } from "./colliderShapes";
+import { frame2DOf, frameToLocal, upright2D, type Frame2D } from "../../../engine/scene/frame2d";
+import { COLLIDER_SHAPES, colliderShapeFor, colliderShapeOf, type AnyColliderShape2D, type AnyColliderShape3D, type EditableColliderType, type FieldPatch, type V2 } from "./colliderShapes";
 import { type ComponentEditMode, type ComponentWireframeContribution, type ViewportDrag, type ViewportPointer, type ViewportToolContext, type ViewportToolContribution, editor, type OpenScene, shapeKit3d, theme, viewportColors } from "../../../editor/sdk";
 
 const { centerDelta, pose3DOf, tidy, worldCenter } = shapeKit3d;
@@ -43,15 +44,8 @@ const COLOR_SELECTED = 0x9dff9d;
 const HANDLE_CENTER = 0xffffff;
 const HANDLE_INSERT = 0x9a7bd8;
 
-/** A node's 2D world pose for collider math. */
-export function poseOf(node: GameObject): Pose2D {
-  const t = node.transform!;
-  const p = t.worldPosition, s = t.worldScale;
-  return { position: [p.x, p.y, p.z], rotation: t.worldRotation2D * RAD2DEG, scale: [s.x, s.y] }; // Pose2D is in degrees
-}
-
-/** The pose a collider's shape is placed with: upright (no rotation) for a character controller's capsule. */
-const shapePose2D = (node: GameObject, shape: AnyColliderShape2D): Pose2D => (shape.upright ? { ...poseOf(node), rotation: 0 } : poseOf(node));
+/** The frame a collider's shape is placed with: the node's 2D frame, upright (no turn) for a character controller's capsule. */
+const shapePose2D = (node: GameObject, shape: AnyColliderShape2D): Frame2D => (shape.upright ? upright2D(frame2DOf(node)) : frame2DOf(node));
 const shapePose3D = (node: GameObject, shape: AnyColliderShape3D): Pose3D => (shape.upright ? { ...pose3DOf(node), rotation: [0, 0, 0, 1] } : pose3DOf(node));
 
 /** The collider types "Edit Collider" works on. */
@@ -191,7 +185,7 @@ function drag2D(view: ViewportToolContext<EditingCollider>, scene: OpenScene, pr
   const pose = shapePose2D(node, shape); // fixed for the drag
   const pointer = (m: ViewportPointer): V2 | null => {
     const w = viewport(world).pointOnPlane(m.x, m.y, [0, 0, 1], [0, 0, pose.position[2]]);
-    return w ? toLocal(pose, w) : null;
+    return w ? frameToLocal(pose, w) : null;
   };
   const write = patchWriter(scene, edited.editing);
   if (handle === "center") {

@@ -2,7 +2,7 @@
 // ordered list of fields the properties panel renders, each with its kind, label, limits, default and help. The
 // limits match `parseAudioEvent`'s, so whatever the panel writes reads back unchanged. Pure: no Preact, no editor state.
 // `readField` / `writeField` / `coerceField` read and write a descriptor's value on a node or the event, immutably.
-import { REVERB_SEND_KEY, sustainReleaseFade, type AudioEventAsset, type EventNode, type SustainNode } from "../../../../engine/audio/eventFormat";
+import { NODE_NUMBERS, NODE_PAIRS, REVERB_SEND_KEY, sustainReleaseFade, type AudioEventAsset, type EventNode, type SustainNode } from "../../../../engine/audio/eventFormat";
 import { IF_TOO_LATE, type StingerAt, type StingerDef } from "../../../../engine/audio/musicRules";
 import { MAX_GRID_OFFSET, MAX_PLAYLIST_ROUNDS, MUSIC_LIMITS, PLAYLIST_MODES, type MusicNode } from "../../../../engine/audio/musicFormat";
 import type { Curve } from "../../../../engine/core/curve";
@@ -154,40 +154,51 @@ export type FieldDescriptor =
 
 // --- descriptor factories: a fresh object per call, with parseAudioEvent's limits and defaults ----------------------
 
-const volumeField = (): NumberField => ({ kind: "number", name: "volume", label: "Volume", help: "Linear gain multiplier (1 is unchanged).", min: 0, max: 4, step: 0.01, default: 1 });
-const pitchField = (): NumberField => ({ kind: "number", name: "pitch", label: "Pitch", help: "Pitch ratio (2 is an octave up).", min: 0.0625, max: 16, step: 0.01, default: 1 });
-const volumeRandomField = (): RangeField => ({ kind: "range", name: "volumeRandom", label: "Volume random", help: "dB added per play, uniform in the range.", min: -96, max: 24, step: 0.5, default: [0, 0] });
-const pitchRandomField = (): RangeField => ({ kind: "range", name: "pitchRandom", label: "Pitch random", help: "Semitones added per play, uniform in the range.", min: -48, max: 48, step: 0.1, default: [0, 0] });
-const delayField = (): NumberField => ({ kind: "number", name: "delay", label: "Delay", help: "Seconds before the node starts.", min: 0, max: 60, step: 0.01, default: 0 });
+/** A node number key's bounds and default, as the parse declares them (`NODE_NUMBERS`, ADR 0306). */
+const declared = (key: keyof typeof NODE_NUMBERS): { min: number; max: number; default: number } => {
+  const { range: [min, max], default: def } = NODE_NUMBERS[key];
+  return { min, max, default: def };
+};
+/** A node pair key's bounds, as the parse declares them (`NODE_PAIRS`). */
+const declaredPair = (key: keyof typeof NODE_PAIRS): { min: number; max: number } => {
+  const [min, max] = NODE_PAIRS[key].range;
+  return { min, max };
+};
+
+const volumeField = (): NumberField => ({ kind: "number", name: "volume", label: "Volume", help: "Linear gain multiplier (1 is unchanged).", ...declared("volume"), step: 0.01 });
+const pitchField = (): NumberField => ({ kind: "number", name: "pitch", label: "Pitch", help: "Pitch ratio (2 is an octave up).", ...declared("pitch"), step: 0.01 });
+const volumeRandomField = (): RangeField => ({ kind: "range", name: "volumeRandom", label: "Volume random", help: "dB added per play, uniform in the range.", ...declaredPair("volumeRandom"), step: 0.5, default: [0, 0] });
+const pitchRandomField = (): RangeField => ({ kind: "range", name: "pitchRandom", label: "Pitch random", help: "Semitones added per play, uniform in the range.", ...declaredPair("pitchRandom"), step: 0.1, default: [0, 0] });
+const delayField = (): NumberField => ({ kind: "number", name: "delay", label: "Delay", help: "Seconds before the node starts.", ...declared("delay"), step: 0.01 });
 const automationField = (): CurvesField => ({ kind: "curves", name: "automation", label: "Automation", help: "Curves that drive volume, pitch or lowpass from parameters." });
 const commonFields = (): FieldDescriptor[] => [volumeField(), pitchField(), volumeRandomField(), pitchRandomField(), delayField()];
 
 const clipAssetField = (): AssetField => ({ kind: "asset", name: "clip", label: "Clip", help: "The audio clip this node plays.", assetKind: "audio", default: "" });
 const loopField = (help: string): BooleanField => ({ kind: "boolean", name: "loop", label: "Loop", help, default: false });
-const startOffsetField = (): NumberField => ({ kind: "number", name: "startOffset", label: "Start offset", help: "Seconds into the clip to start at.", min: 0, max: 1e6, step: 0.01, default: 0 });
-const loopRegionField = (): RangeField => ({ kind: "range", name: "loopRegion", label: "Loop region", help: "Seconds: loop only this part of the clip; absent loops the clip's own points.", min: 0, max: 1e6, step: 0.01, optional: true, default: [0, 1] });
+const startOffsetField = (): NumberField => ({ kind: "number", name: "startOffset", label: "Start offset", help: "Seconds into the clip to start at.", ...declared("startOffset"), step: 0.01 });
+const loopRegionField = (): RangeField => ({ kind: "range", name: "loopRegion", label: "Loop region", help: "Seconds: loop only this part of the clip; absent loops the clip's own points.", ...declaredPair("loopRegion"), step: 0.01, optional: true, default: [0, 1] });
 const sustainFlagField = (): BooleanField => ({ kind: "boolean", name: "sustain", label: "Sustain", help: "Loop the region until release, then play the rest of the clip.", default: false });
 
-const avoidRepeatField = (children: number): NumberField => ({ kind: "number", name: "avoidRepeat", label: "Avoid repeat", help: "Skip the last n picks (at most children minus 1).", min: 0, max: Math.max(0, children - 1), step: 1, integer: true, default: 0 });
+const avoidRepeatField = (children: number): NumberField => ({ kind: "number", name: "avoidRepeat", label: "Avoid repeat", help: "Skip the last n picks (at most children minus 1).", ...declared("avoidRepeat"), max: Math.max(0, children - 1), step: 1, integer: true });
 const modeField = (): SelectField => ({ kind: "select", name: "mode", label: "Mode", help: "Step plays one child per play; continuous keeps picking back to back until stopped.", options: ["step", "continuous"], default: "step" });
-const gapField = (): NumberField => ({ kind: "number", name: "gap", label: "Gap", help: "Seconds between one child's end and the next's start; negative overlaps.", min: -10, max: 60, step: 0.01, default: 0 });
-const resetField = (): NumberField => ({ kind: "number", name: "reset", label: "Reset", help: "Seconds idle before a step sequence starts over; 0 never.", min: 0, max: 1e6, step: 0.01, default: 0 });
+const gapField = (): NumberField => ({ kind: "number", name: "gap", label: "Gap", help: "Seconds between one child's end and the next's start; negative overlaps.", ...declared("gap"), step: 0.01 });
+const resetField = (): NumberField => ({ kind: "number", name: "reset", label: "Reset", help: "Seconds idle before a step sequence starts over; 0 never.", ...declared("reset"), step: 0.01 });
 
 const switchParameterField = (): ParameterField => ({ kind: "parameter", name: "parameter", label: "Parameter", help: "The labelled parameter that picks the child.", labelled: true, default: "" });
 const switchDefaultField = (): TextField => ({ kind: "text", name: "default", label: "Default", help: "The label to play when no child matches; empty plays the first child.", optional: true, default: "" });
 const onChangeField = (): SelectField => ({ kind: "select", name: "onChange", label: "On change", help: "What a change while playing does: keep, restart or crossfade.", options: ["keep", "restart", "crossfade"], default: "keep" });
-const switchCrossfadeField = (): NumberField => ({ kind: "number", name: "crossfade", label: "Crossfade", help: "Seconds to crossfade to the new child.", min: 0, max: 10, step: 0.01, default: 0.1 });
+const switchCrossfadeField = (): NumberField => ({ kind: "number", name: "crossfade", label: "Crossfade", help: "Seconds to crossfade to the new child.", ...declared("crossfade"), step: 0.01 });
 
 const blendParameterField = (): ParameterField => ({ kind: "parameter", name: "parameter", label: "Parameter", help: "The parameter whose value the children's ranges are on.", default: "" });
 
 const releaseField = (): SelectField => ({ kind: "select", name: "release", label: "Release", help: "On release: now crossfades into end, loopEnd finishes the current loop pass first.", options: ["now", "loopEnd"], default: "loopEnd" });
 /** The release crossfade; its default is the node's current release crossfade, so showing the row changes nothing. */
-const releaseFadeField = (node: SustainNode): NumberField => ({ kind: "number", name: "releaseFade", label: "Release crossfade", help: "seconds of crossfade from the loop into the end on release", min: 0, max: 1e6, step: 0.01, default: sustainReleaseFade(node) });
+const releaseFadeField = (node: SustainNode): NumberField => ({ kind: "number", name: "releaseFade", label: "Release crossfade", help: "seconds of crossfade from the loop into the end on release", ...declared("releaseFade"), step: 0.01, default: sustainReleaseFade(node) });
 
-const weightField = (): NumberField => ({ kind: "number", name: "weight", label: "Weight", help: "Relative chance of this child being picked.", min: 0, max: 1e6, step: 0.1, default: 1 });
+const weightField = (): NumberField => ({ kind: "number", name: "weight", label: "Weight", help: "Relative chance of this child being picked.", ...declared("weight"), step: 0.1 });
 const valueField = (): TextField => ({ kind: "text", name: "value", label: "Value", help: "The label this child plays for.", optional: true, default: "" });
-const rangeField = (): RangeField => ({ kind: "range", name: "range", label: "Range", help: "The parameter range where this child is at full level.", min: -1e6, max: 1e6, step: 0.01, optional: true, default: [0, 1] });
-const blendFadeField = (): NumberField => ({ kind: "number", name: "fade", label: "Fade", help: "Width, in parameter units, of the fade in and out at the range edges.", min: 0, max: 1e6, step: 0.01, default: 0 });
+const rangeField = (): RangeField => ({ kind: "range", name: "range", label: "Range", help: "The parameter range where this child is at full level.", ...declaredPair("range"), step: 0.01, optional: true, default: [0, 1] });
+const blendFadeField = (): NumberField => ({ kind: "number", name: "fade", label: "Fade", help: "Width, in parameter units, of the fade in and out at the range edges.", ...declared("fade"), step: 0.01 });
 
 const DEFAULT_SEND_CURVE: Curve = [[0, 1], [1, 0.5]];
 
@@ -279,7 +290,7 @@ function toFiniteNumber(value: unknown): number | undefined {
  *    (optional) and `fade` under a blend, whatever the node (a sustain under a blend also lists its `releaseFade` when
  *    `release` is "now").
  * 4. `automation` (curves) last.
- * Limits are `parseAudioEvent`'s (see the spec in the brief).
+ * Limits and defaults are `parseAudioEvent`'s own declaration (`NODE_NUMBERS`, `NODE_PAIRS`).
  */
 export function nodeFields(node: EventNode, parent: EventNode | null): FieldDescriptor[] {
   const out: FieldDescriptor[] = [...ownFields(node), ...commonFields()];

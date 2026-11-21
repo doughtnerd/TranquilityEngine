@@ -98,12 +98,3 @@ export function duckRefusal(a: AudioSettings, rules: readonly DuckingRule[]): st
 export function levelDuckingAvailable(backend: AudioSettings["backend"], mixCaps?: { levelDucking: boolean } | null): boolean {
   return mixCaps ? mixCaps.levelDucking : backend !== "babylon";
 }
-
-// ---- the gain reduction ----
-
-/** Reduction in dB (>= 0) from a duck gain (1 = not ducked); NaN and over-unity read as none, gain 0 as 99. */
-export function gainReductionDb(duckGain: number): number {
-  if (!(duckGain < 1)) return 0;
-  if (!(duckGain > 0)) return 99;
-  return Math.min(99, -20 * Math.log10(duckGain));
-}

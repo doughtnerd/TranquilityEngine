@@ -3,6 +3,7 @@ import { Component } from "../../../engine/core/Component";
 import { Vector3 } from "../../../engine/core/math";
 import { AssetRef, PlainObject, component, field } from "../../../engine/core/registry";
 import type { GameObject } from "../../../engine/scene/GameObject";
+import { AXIS_INDEX, type ShapeFields3D } from "../../../engine/physics/shape3d";
 import type { PhysicsMaterial } from "../../../engine/physics/types";
 import type { Dim3 } from "./backend";
 import type { ColliderState } from "./core/state";
@@ -29,8 +30,11 @@ export abstract class Collider extends Component {
     return attachedBody(this.node, RigidBody);
   }
 
-  /** @internal A string that changes whenever the shape must be rebuilt. */
-  abstract _shapeSignature(): string;
+  /**
+   * @internal The collider's shape as its fields describe it, backend-neutral (ADR 0305): what the 3D physics world
+   * builds, the collider gizmo draws, and the shape is rebuilt on (`shapeSignature`).
+   */
+  abstract _shapeFields(): ShapeFields3D;
 
   override _onDetach(): void {
     physics3DOf(this._world)?.releaseCollider(this);
@@ -42,8 +46,8 @@ export abstract class Collider extends Component {
 export class BoxCollider extends Collider {
   @field(Vector3) size = new Vector3(1, 1, 1);
 
-  override _shapeSignature(): string {
-    return `box:${this.size.x},${this.size.y},${this.size.z}`;
+  override _shapeFields(): ShapeFields3D {
+    return { kind: "box", size: [this.size.x, this.size.y, this.size.z] };
   }
 }
 
@@ -52,8 +56,8 @@ export class BoxCollider extends Collider {
 export class SphereCollider extends Collider {
   @field(Number) radius = 0.5;
 
-  override _shapeSignature(): string {
-    return `sphere:${this.radius}`;
+  override _shapeFields(): ShapeFields3D {
+    return { kind: "sphere", radius: this.radius };
   }
 }
 
@@ -69,8 +73,8 @@ export class CapsuleCollider extends Collider {
   @field(Number) height = 2;
   @field(String, { choices: ["x", "y", "z"] }) direction: CapsuleDirection = "y";
 
-  override _shapeSignature(): string {
-    return `capsule:${this.radius},${this.height},${this.direction}`;
+  override _shapeFields(): ShapeFields3D {
+    return { kind: "capsule", radius: this.radius, height: this.height, axis: AXIS_INDEX[this.direction] ?? 1 };
   }
 }
 
@@ -85,8 +89,8 @@ export class MeshCollider extends Collider {
   @field(AssetRef, { kind: "mesh" }) mesh = "";
   @field(Boolean) convex = false;
 
-  override _shapeSignature(): string {
-    return `mesh:${this.mesh}|${this.convex}`;
+  override _shapeFields(): ShapeFields3D {
+    return { kind: "mesh", mesh: this.mesh, convex: this.convex };
   }
 }
 

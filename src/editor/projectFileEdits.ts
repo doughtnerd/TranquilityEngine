@@ -1,11 +1,14 @@
-// One edit across the project's JSON files (ADR 0148, 0262): scenes and prefabs (one format, written keeping their
-// layout, and instances of a changed prefab in the open scene rebuilt), project.json (the settings) and other JSON
-// files (asset files such as materials and audio events). The open scene is edited as one undo step instead of on disk
-// (save to keep it). The asset reference module (moves and deletes) and the settings names module (renamed list
-// entries) describe their edits; this module finds the files and writes them.
+// One edit across the project's JSON files (ADR 0148, 0262, 0302), applied by each file's owner: scenes and prefabs
+// by the scene format (written keeping their layout, and instances of a changed prefab in the open scene rebuilt; the
+// open scene by its document, as one undo step, save to keep it), asset files of a kind with a format by their asset
+// document (`assetFileOwner`: the open document, every state of its history, else the kind's format), project.json
+// (the settings) and other JSON files as JSON. The asset reference module (moves and deletes) and the settings names
+// module (renamed list entries) describe their edits; this module finds the files and asks their owners.
+import { assetFileOwner } from "./assetDocuments";
 import { ReplaceDocument, type SceneFile } from "./document";
 import { instancesOf } from "./prefabs";
 import { writeSceneFile } from "./project";
+import { PROJECT_FILE } from "./projectPaths";
 import type { EditorProject } from "./projects";
 import { openScene, type OpenScene } from "./state";
 
@@ -18,22 +21,25 @@ export interface ProjectFileEdit {
   mentioned(text: string): boolean;
   scene(file: SceneFile): SceneFile | null;
   settings(json: Record<string, unknown>): Record<string, unknown> | null;
-  /** Any other JSON file, by its project path. */
+  /** Any other JSON file, by its project path. For an open asset document it is also called on each state of the document's history. */
   json(json: unknown, path: string): unknown;
 }
 
-interface ChangedFile {
+interface FileChange {
   readonly path: string;
-  readonly scene: boolean;
-  readonly next: unknown;
+  /** Ask the file's owner to apply the edit; resolves to whether the file changed. */
+  write(): Promise<boolean>;
 }
 
-/** Each JSON file (other than `skip`, the open scene) `edit` changes, with its new value. Broken files are left alone. */
-function changedFiles(project: EditorProject, edit: ProjectFileEdit, skip: string | undefined): ChangedFile[] {
-  const out: ChangedFile[] = [];
+const writeJson = (project: EditorProject, path: string, json: unknown) => project.writeText(path, `${JSON.stringify(json, null, 2)}\n`).then(() => true);
+
+/** Each JSON file (other than the open scene's) `edit` changes, with how its owner applies it. Broken files are left alone. */
+function fileChanges(project: EditorProject, edit: ProjectFileEdit, scene: OpenScene | null): FileChange[] {
+  const out: FileChange[] = [];
   for (const path of project.files) {
-    if (!path.endsWith(".json") || path === skip) continue;
-    const text = project.textOf(path);
+    if (!path.endsWith(".json") || path === scene?.path) continue;
+    const owner = path === PROJECT_FILE ? null : assetFileOwner(project, path);
+    const text = owner ? owner.text : project.textOf(path);
     if (text === undefined || !edit.mentioned(text)) continue;
     let json: unknown;
     try {
@@ -44,38 +50,44 @@ function changedFiles(project: EditorProject, edit: ProjectFileEdit, skip: strin
     if (isSceneFile(json)) {
       // Scenes and prefabs share the format.
       const next = edit.scene(json);
-      if (next) out.push({ path, scene: true, next });
+      if (!next) continue;
+      out.push({
+        path,
+        write: async () => {
+          await writeSceneFile(project, path, next);
+          // Instances of a changed prefab in the open scene show its new contents.
+          if (scene) scene.sync.apply(instancesOf(scene.doc, path).map((node) => ({ kind: "rebuild", node }) as const));
+          return true;
+        },
+      });
+    } else if (path === PROJECT_FILE) {
+      const next = json && typeof json === "object" && !Array.isArray(json) ? edit.settings(json as Record<string, unknown>) : null;
+      if (next) out.push({ path, write: () => writeJson(project, path, next) });
     } else {
-      const next = path === "project.json" && json && typeof json === "object" && !Array.isArray(json) ? edit.settings(json as Record<string, unknown>) : edit.json(json, path);
-      if (next !== null) out.push({ path, scene: false, next });
+      const next = edit.json(json, path);
+      if (next === null) continue;
+      out.push({ path, write: owner ? () => owner.apply((value) => edit.json(value, path)) : () => writeJson(project, path, next) });
     }
   }
   return out;
 }
 
-/** The files `edit` would change, without changing them: the open scene first (when its document would change), then files on disk. */
+/** The files `edit` would change, without changing them: the open scene first (when its document would change), then the others. */
 export function projectFileUsers(project: EditorProject, edit: ProjectFileEdit): string[] {
   const scene = openScene.peek();
-  const users = changedFiles(project, edit, scene?.path).map((f) => f.path);
+  const users = fileChanges(project, edit, scene).map((f) => f.path);
   if (scene && edit.scene(scene.doc.toJSON())) users.unshift(scene.path);
   return users;
 }
 
 /**
- * Apply `edit` to the project's JSON files on disk and to the open scene as one undo step labelled `label`. Returns the
- * files changed (the open scene as "<path> (unsaved)").
+ * Apply `edit` to the project's JSON files through their owners, and to the open scene as one undo step labelled
+ * `label`. Returns the files changed (the open scene as "<path> (unsaved)").
  */
 export async function editProjectFiles(project: EditorProject, edit: ProjectFileEdit, label: string): Promise<string[]> {
   const scene: OpenScene | null = openScene.peek();
   const changed: string[] = [];
-  for (const file of changedFiles(project, edit, scene?.path)) {
-    if (file.scene) {
-      await writeSceneFile(project, file.path, file.next as SceneFile);
-      // Instances of a changed prefab in the open scene show its new contents.
-      if (scene) scene.sync.apply(instancesOf(scene.doc, file.path).map((node) => ({ kind: "rebuild", node }) as const));
-    } else await project.writeText(file.path, `${JSON.stringify(file.next, null, 2)}\n`);
-    changed.push(file.path);
-  }
+  for (const file of fileChanges(project, edit, scene)) if (await file.write()) changed.push(file.path);
   if (scene) {
     const next = edit.scene(scene.doc.toJSON());
     if (next) {

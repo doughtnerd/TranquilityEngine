@@ -117,6 +117,38 @@ export class TextHistory {
     this.currentText = text;
   }
 
+  /**
+   * Change every state's text with `map` (a project-wide change to the file, such as a moved reference, ADR 0302),
+   * keeping the tree's shape, labels and current state: each patch is rewritten between the mapped texts, so moving
+   * through the history never brings back what `map` replaced. States whose text can't be rebuilt (a damaged
+   * history) keep their patches. Returns whether the current text changed.
+   */
+  rewrite(map: (text: string) => string): boolean {
+    const texts = new Map<number, string>([[this.tree.current, this.currentText]]);
+    const queue = [this.tree.current];
+    for (let seq = queue.pop(); seq !== undefined; seq = queue.pop()) {
+      const state = this.tree.state(seq);
+      const text = texts.get(seq)!;
+      const near: [number, string | null][] = this.tree.childrenOf(seq).map((c) => [c, textSteps.step(text, this.tree.state(c), "redo")]);
+      if (state.parent !== -1) near.push([state.parent, textSteps.step(text, state, "undo")]);
+      for (const [next, nextText] of near) {
+        if (nextText === null || texts.has(next)) continue;
+        texts.set(next, nextText);
+        queue.push(next);
+      }
+    }
+    const mapped = new Map([...texts].map(([seq, text]) => [seq, map(text)]));
+    for (const [seq, text] of mapped) {
+      const state = this.tree.state(seq);
+      (state as { hash: string }).hash = hashText(text);
+      const parentText = state.parent === -1 ? undefined : mapped.get(state.parent);
+      if (parentText !== undefined) state.files = [{ path: this.path, ...diffText(parentText, text) }];
+    }
+    const before = this.currentText;
+    this.currentText = mapped.get(this.tree.current)!;
+    return this.currentText !== before;
+  }
+
   /** Record the current state as matching the file (after writing it), or `seq`'s if given. */
   markSaved(seq = this.tree.current): void {
     this.tree.markSaved(seq);

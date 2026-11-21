@@ -1,18 +1,21 @@
 /**
  * The shared sync core's 2D half (ADR 0005, 0137): what `PhysicsCore` needs to know about 2D poses,
  * shapes and joints. Internal: game code uses RigidBody2D, the 2D colliders and the Physics2D facade.
- * Angles are radians here; Transforms and Components use degrees.
+ * Angles are radians here; Transforms and Components use degrees. Every node pose, scale and anchor is read
+ * through the node's 2D frame (`scene/frame2d.ts`, ADR 0301), so a mirrored node stays mirrored; colliders and
+ * joints describe their own shape (`_shapeFields`, `_jointFields`, `_worldAnchors`, ADR 0305).
  */
-import { DEG2RAD, Mat4, Vector2 } from "../../../../engine/core/math";
+import { DEG2RAD, Vector2 } from "../../../../engine/core/math";
 import type { World } from "../../../../engine/core/World";
 import { cleanPoints, convexParts } from "../../../../engine/physics/polygon";
-import { scaledCenter2D, shapeSize2D, type ShapeFields2D } from "../../../../engine/physics/shape2d";
+import { scaledCenter2D, shapeSignature, shapeSize2D } from "../../../../engine/physics/shape2d";
+import { frame2DOf, frameDirection } from "../../../../engine/scene/frame2d";
 import type { GameObject } from "../../../../engine/scene/GameObject";
 import type { Transform } from "../../../../engine/scene/Transform";
 import type { CharacterSettings, Dim2, JointDesc, JointSettings, PhysicsBackend2D, Pose, ShapeDesc2D, Vec2 } from "../backend";
 import { CharacterController2D, type ControllerColliderHit2D } from "../CharacterController2D";
-import { BoxCollider2D, CircleCollider2D, Collider2D, EdgeCollider2D, PolygonCollider2D } from "../Collider2D";
-import { AxisJoint2D, FixedJoint2D, HingeJoint2D, Joint2D, RopeJoint2D, SliderJoint2D, SpringJoint2D } from "../Joint2D";
+import { Collider2D } from "../Collider2D";
+import { AxisJoint2D, Joint2D, type JointFields2D } from "../Joint2D";
 import { RigidBody2D } from "../RigidBody2D";
 import { CollisionEvents2D, TriggerEvents2D } from "../systems2d";
 import { TilemapCollider2D } from "../TilemapCollider2D";
@@ -79,10 +82,8 @@ export class PhysicsWorld2D extends PhysicsCore<Dim2, Types2D> {
   }
 
   protected nodePose(node: GameObject): P2 {
-    const t = node.transform;
-    if (!t) return { position: { x: 0, y: 0 }, rotation: 0 };
-    const p = t.worldPosition;
-    return { position: { x: p.x, y: p.y }, rotation: t.worldRotation2D };
+    const f = frame2DOf(node);
+    return { position: { x: f.position[0], y: f.position[1] }, rotation: f.angle };
   }
 
   protected relativePose(parent: P2, child: P2): P2 {
@@ -143,54 +144,58 @@ export class PhysicsWorld2D extends PhysicsCore<Dim2, Types2D> {
   }
 
   protected colliderSource(c: Collider2D) {
-    const t = c.node.transform;
-    const ws = t ? t.worldScale : { x: 1, y: 1 };
-    const signature = [c._shapeSignature(), c.isTrigger, c.layer, c.material?.friction, c.material?.bounciness, ws.x.toFixed(4), ws.y.toFixed(4), c.center.x, c.center.y].join("|");
-    return { signature, scale: [ws.x, ws.y] };
+    const ws = frame2DOf(c.node).scale; // signed: a mirrored node's points and centre flip
+    const signature = [shapeSignature(c._shapeFields()), c.isTrigger, c.layer, c.material?.friction, c.material?.bounciness, ws[0].toFixed(4), ws[1].toFixed(4), c.center.x, c.center.y].join("|");
+    return { signature, scale: ws };
   }
 
   protected colliderShape(c: Collider2D, scale: readonly number[]): ShapeDesc2D {
-    if (c instanceof PolygonCollider2D || c instanceof EdgeCollider2D) return this.pointsShape(c, scale[0], scale[1]);
-    const fields: ShapeFields2D | null =
-      c instanceof BoxCollider2D ? { kind: "box", size: [c.size.x, c.size.y] } : c instanceof CircleCollider2D ? { kind: "circle", radius: c.radius } : c instanceof CharacterController2D ? { kind: "capsule", radius: c.radius, height: c.height } : null;
-    if (!fields) throw new Error(`Unsupported collider type ${c.constructor.name}.`);
-    const size = shapeSize2D(fields, scale);
-    return size.kind === "box" ? { kind: "box", halfExtents: { x: size.halfExtents[0], y: size.halfExtents[1] } } : size;
+    const fields = c._shapeFields();
+    switch (fields.kind) {
+      case "polygon":
+      case "edge":
+        return this.pointsShape(c, fields.kind === "polygon", fields.points, scale[0], scale[1]);
+      case "source":
+        throw new Error(`${c.constructor.name}'s shapes are built by the tilemap colliders.`);
+      default: {
+        const size = shapeSize2D(fields, scale);
+        return size.kind === "box" ? { kind: "box", halfExtents: { x: size.halfExtents[0], y: size.halfExtents[1] } } : size;
+      }
+    }
   }
 
   /**
    * A polygon (convex hull, or a compound of convex parts when concave) or an edge (polyline), from the
-   * collider's points scaled by the node's world scale. A polygon that can't be split (it crosses itself)
+   * collider's points scaled by the node's (signed) frame scale. A polygon that can't be split (it crosses itself)
    * collides along its closed outline; too few points make a tiny circle.
    */
-  private pointsShape(c: PolygonCollider2D | EdgeCollider2D, sx: number, sy: number): ShapeDesc2D {
-    const scaled = cleanPoints(Array.isArray(c.points) ? c.points : []).map(([x, y]) => [x * sx, y * sy] as const);
-    if (c instanceof PolygonCollider2D) {
+  private pointsShape(c: Collider2D, closed: boolean, points: readonly unknown[], sx: number, sy: number): ShapeDesc2D {
+    const scaled = cleanPoints(Array.isArray(points) ? (points as [number, number][]) : []).map(([x, y]) => [x * sx, y * sy] as const);
+    const type = c.constructor.name;
+    if (closed) {
       const parts = convexParts(scaled);
-      if (parts) return { kind: "convexPolygons", parts, outline: scaled, label: `${c.node.name}: PolygonCollider2D` };
+      if (parts) return { kind: "convexPolygons", parts, outline: scaled, label: `${c.node.name}: ${type}` };
       if (scaled.length >= 2) {
-        console.warn(`[myco] ${c.node.name}: PolygonCollider2D points don't make a simple polygon; colliding along its outline.`);
+        console.warn(`[myco] ${c.node.name}: ${type} points don't make a simple polygon; colliding along its outline.`);
         return { kind: "polyline", points: [...scaled, scaled[0]] };
       }
     } else if (scaled.length >= 2) {
       return { kind: "polyline", points: scaled };
     }
-    console.warn(`[myco] ${c.node.name}: ${c.constructor.name} needs more points.`);
+    console.warn(`[myco] ${c.node.name}: ${type} needs more points.`);
     return { kind: "circle", radius: 1e-4 };
   }
 
-  /** World-space pose of the collider shape (node pose plus rotated, scaled `center`). */
+  /** World-space pose of the collider shape: the node's frame plus its turned, (signed-)scaled `center`. */
   protected colliderWorldPose(c: Collider2D): P2 {
-    const t = c.node.transform;
-    if (!t) return { position: { x: c.center.x, y: c.center.y }, rotation: 0 };
-    const p = t.worldPosition;
-    const ws = t.worldScale;
-    const [cx, cy] = scaledCenter2D([c.center.x, c.center.y], [ws.x, ws.y]);
-    // A character controller's capsule stays upright, whichever way its node turns.
-    if (c instanceof CharacterController2D) return { position: { x: p.x + cx, y: p.y + cy }, rotation: 0 };
-    const angle = t.worldRotation2D;
-    const [ox, oy] = this.rotate(angle, [cx, cy]);
-    return { position: { x: p.x + ox, y: p.y + oy }, rotation: angle };
+    if (!c.node.transform) return { position: { x: c.center.x, y: c.center.y }, rotation: 0 };
+    const f = frame2DOf(c.node);
+    const [cx, cy] = scaledCenter2D([c.center.x, c.center.y], f.scale);
+    const [px, py] = f.position;
+    // A capsule (a character controller's) stays upright, whichever way its node turns.
+    if (c._shapeFields().kind === "capsule") return { position: { x: px + cx, y: py + cy }, rotation: 0 };
+    const [ox, oy] = this.rotate(f.angle, [cx, cy]);
+    return { position: { x: px + ox, y: py + oy }, rotation: f.angle };
   }
 
   // --- joints --------------------------------------------------------------------------------------
@@ -199,52 +204,56 @@ export class PhysicsWorld2D extends PhysicsCore<Dim2, Types2D> {
     return [j.anchor.x, j.anchor.y, j.autoConfigureConnectedAnchor, j.connectedAnchor.x, j.connectedAnchor.y];
   }
 
-  /** A point in a node's local space, in world space. */
-  private pointOf(node: GameObject, local: { x: number; y: number }): Vec2 {
-    if (!node.transform) return { x: local.x, y: local.y };
-    const [x, y] = Mat4.transformPoint(this.world.worldMatrix(node.entity), node.entity * 16, local.x, local.y, 0);
-    return { x, y };
-  }
-
-  protected jointDesc(j: Joint2D, p1: P2, p2: P2, connected: RigidBody2D | null) {
-    const pw = this.pointOf(j.node, j.anchor);
-    const distanceJoint = j instanceof RopeJoint2D || j instanceof SpringJoint2D;
-    let pw2: Vec2;
-    if (!j.autoConfigureConnectedAnchor) pw2 = connected ? this.pointOf(j.connectedBody!, j.connectedAnchor) : { x: j.connectedAnchor.x, y: j.connectedAnchor.y };
-    else if (distanceJoint && connected) pw2 = { ...p2.position };
-    else pw2 = pw;
+  protected jointDesc(j: Joint2D, p1: P2, p2: P2) {
+    const fields = j._jointFields();
+    const { anchor, connected } = j._worldAnchors();
+    const pw: Vec2 = { x: anchor[0], y: anchor[1] }, pw2: Vec2 = connected ? { x: connected[0], y: connected[1] } : pw;
     const a1 = this.relativePose(p1, { position: pw, rotation: 0 }).position, a2 = this.relativePose(p2, { position: pw2, rotation: 0 }).position;
     const dist = Math.hypot(pw2.x - pw.x, pw2.y - pw.y);
     const restAngle = p1.rotation - p2.rotation;
     const base = { anchor1: a2, anchor2: a1 };
     let desc: Omit<JointDesc<Dim2>, "body1" | "body2" | "contacts">;
-    if (j instanceof FixedJoint2D) desc = { kind: "fixed", ...base, frame1: 0, frame2: -restAngle };
-    else if (j instanceof HingeJoint2D) desc = { kind: "revolute", ...base };
-    else if (j instanceof SliderJoint2D) {
-      if (Math.abs(restAngle) > 1e-4) this.warnOnce(`slider:${j.node.entity}`, `${j.node.name}: SliderJoint2D's bodies should start at the same rotation; it turns them to match.`);
-      const t = j.node.transform;
-      const turn = t ? t.worldRotation2D - p2.rotation : 0;
-      const len = Math.hypot(j.axis.x, j.axis.y) || 1;
-      const [x, y] = this.rotate(turn, [j.axis.x / len, j.axis.y / len]);
-      desc = { kind: "prismatic", ...base, axis: { x, y } };
-    } else if (j instanceof RopeJoint2D) desc = { kind: "rope", ...base, length: j.autoConfigureDistance ? dist : Math.max(j.maxDistance, 0) };
-    else if (j instanceof SpringJoint2D) desc = { kind: "spring", ...base, length: j.autoConfigureDistance ? dist : Math.max(j.restLength, 0), stiffness: j.spring, damping: j.damper };
-    else throw new Error(`Unsupported joint type ${j.constructor.name}.`);
-    if (j instanceof AxisJoint2D && j.useLimits) desc = { ...desc, limits: this.limitsOf(j, restAngle) };
+    switch (fields.kind) {
+      case "fixed":
+        desc = { kind: "fixed", ...base, frame1: 0, frame2: -restAngle };
+        break;
+      case "hinge":
+        desc = { kind: "revolute", ...base };
+        break;
+      case "slider": {
+        if (Math.abs(restAngle) > 1e-4) this.warnOnce(`slider:${j.node.entity}`, `${j.node.name}: SliderJoint2D's bodies should start at the same rotation; it turns them to match.`);
+        // The axis in world space through the node's frame (mirrored with it), then in the connected body's frame.
+        const [wx, wy] = frameDirection(frame2DOf(j.node), fields.axis);
+        const len = Math.hypot(wx, wy);
+        const [x, y] = len > 1e-12 ? this.rotate(-p2.rotation, [wx / len, wy / len]) : this.rotate(-p2.rotation, [1, 0]);
+        desc = { kind: "prismatic", ...base, axis: { x, y } };
+        break;
+      }
+      case "rope":
+        desc = { kind: "rope", ...base, length: fields.length ?? dist };
+        break;
+      case "spring":
+        desc = { kind: "spring", ...base, length: fields.length ?? dist, stiffness: fields.stiffness, damping: fields.damping };
+        break;
+    }
+    if ((fields.kind === "hinge" || fields.kind === "slider") && fields.limits) desc = { ...desc, limits: this.limitsOf(fields, restAngle) };
     return { desc, local1: a1, local2: a2, restAngle };
   }
 
   /** A hinge's or slider's limits (hinges count from the angle they were made at). */
-  private limitsOf(j: AxisJoint2D, restAngle: number): [number, number] {
-    const lo = Math.min(j.limits.min, j.limits.max), hi = Math.max(j.limits.min, j.limits.max);
-    return j instanceof HingeJoint2D ? [lo * DEG2RAD + restAngle, hi * DEG2RAD + restAngle] : [lo, hi];
+  private limitsOf(fields: Extract<JointFields2D, { kind: "hinge" | "slider" }>, restAngle: number): [number, number] | null {
+    const l = fields.limits;
+    if (!l) return null;
+    const lo = Math.min(l.min, l.max), hi = Math.max(l.min, l.max);
+    return fields.kind === "hinge" ? [lo * DEG2RAD + restAngle, hi * DEG2RAD + restAngle] : [lo, hi];
   }
 
   protected jointSettings(j: Joint2D, st: JointState<Dim2, RigidBody2D>): JointSettings | null {
-    if (!(j instanceof AxisJoint2D)) return null;
-    const hinge = j instanceof HingeJoint2D, k = hinge ? DEG2RAD : 1, offset = hinge ? st.restAngle : 0;
+    const fields = j._jointFields();
+    if (!(j instanceof AxisJoint2D) || (fields.kind !== "hinge" && fields.kind !== "slider")) return null;
+    const hinge = fields.kind === "hinge", k = hinge ? DEG2RAD : 1, offset = hinge ? st.restAngle : 0;
     return {
-      limits: j.useLimits ? this.limitsOf(j, st.restAngle) : null,
+      limits: this.limitsOf(fields, st.restAngle),
       motor: j.useMotor ? { targetVelocity: (j.motor?.targetVelocity ?? 0) * k, maxForce: Math.max(j.motor?.force ?? 0, 0) } : null,
       spring: !j.useMotor && j.useSpring ? { target: (j.spring?.targetPosition ?? 0) * k + offset, stiffness: j.spring?.spring ?? 0, damping: j.spring?.damper ?? 0 } : null,
     };
@@ -253,11 +262,11 @@ export class PhysicsWorld2D extends PhysicsCore<Dim2, Types2D> {
   // --- character controllers -----------------------------------------------------------------------
 
   protected characterSettings(cc: CharacterController2D): CharacterSettings {
-    const ws = cc.node.transform?.worldScale ?? { x: 1, y: 1 };
+    const ws = frame2DOf(cc.node).scale;
     return {
       offset: Math.max(cc.skinWidth, 1e-4),
       slopeLimit: cc.slopeLimit * DEG2RAD,
-      autostep: cc.stepOffset > 0 ? { height: cc.stepOffset, minWidth: Math.max(Math.abs(cc.radius * ws.x) * 0.5, 0.01) } : null,
+      autostep: cc.stepOffset > 0 ? { height: cc.stepOffset, minWidth: Math.max(Math.abs(cc.radius * ws[0]) * 0.5, 0.01) } : null,
       snapToGround: cc.snapToGround > 0 ? cc.snapToGround : null,
       pushBodies: cc.pushBodies,
       mass: Math.max(cc.mass, 1e-4),

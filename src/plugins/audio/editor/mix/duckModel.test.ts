@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { reasonMessage } from "../../../../engine/audio/busCapability";
 import { parseAudioSettings, type AudioSettings, type DuckingMode, type DuckingRule } from "../../../../engine/audio/settings";
-import { DUCK_LIMITS, NEEDS_AUDIO_CORE, duckRefusal, gainReductionDb, levelDuckingAvailable, newDuckRule, ruleWithField } from "./duckModel";
+import { DUCK_LIMITS, NEEDS_AUDIO_CORE, duckRefusal, levelDuckingAvailable, newDuckRule, ruleWithField } from "./duckModel";
 
 // A new rule's numbers.
 const DUCK_DEFAULTS = { amount: 0.4, attack: 0.1, release: 0.5 } as const;
@@ -143,20 +143,6 @@ describe("levelDuckingAvailable", () => {
   it("the message is the needsAudioCore reason's (the Mixer answers it on the Babylon fallback)", () => {
     expect(NEEDS_AUDIO_CORE).toBe("Needs the audio core");
     expect(NEEDS_AUDIO_CORE).toBe(reasonMessage("needsAudioCore"));
-  });
-});
-
-describe("gain reduction", () => {
-  it("is 0 for a gain of 1 and for nonsense, -20 log10 otherwise, 99 for silence", () => {
-    expect(gainReductionDb(1)).toBe(0);
-    expect(gainReductionDb(1.5)).toBe(0);
-    expect(gainReductionDb(Number.NaN)).toBe(0);
-    expect(gainReductionDb(0.5)).toBeCloseTo(6.0206, 4);
-    expect(gainReductionDb(0.4)).toBeCloseTo(7.9588, 4);
-    expect(gainReductionDb(0)).toBe(99);
-    expect(gainReductionDb(1e-9)).toBe(99);
-  });
-  it("is shown with one decimal", () => {
   });
 });
 
