@@ -11,6 +11,7 @@ import type { MusicNode, MusicSwitchNode, PlaylistNode, SegmentNode } from "../.
 import { useEditorPlugins } from "../../../testEditorPlugins";
 import { audioEditorPlugin } from "..";
 import { addMusicNode, canDuplicateMusic, canRemoveMusic, duplicateMusicNode, freshMusicId, musicIdProblem, musicIds, parsePathKey, pathKey, removeMusicNode, renameMusicId, reorderMusicNode } from "./eventTreeModel";
+import type { EditResult } from "../editResult";
 import { isLibraryPath, musicEntries, musicNodeAt, replaceMusicNodeAt } from "../../../../engine/audio/musicTree";
 import {
   coerceField, musicNodeFields, newStinger, patchStinger, readField, stingerAtFrom, stingerAtKind, writeField, type FieldDescriptor,
@@ -57,9 +58,10 @@ const expectRoundTrip = (root: MusicNode) => {
   const ids = musicIds(root);
   expect(new Set(ids).size).toBe(ids.length);
 };
-const ok = <T,>(r: T | string): T => {
-  if (typeof r === "string") throw new Error(r);
-  return r;
+/** The accepted value of an edit (ADR 0307), or the test fails with its refusal. */
+const ok = <T,>(r: EditResult<T>): T => {
+  if ("refused" in r) throw new Error(r.refused);
+  return r.next;
 };
 
 describe("the fixture", () => {
@@ -151,8 +153,8 @@ describe("adding", () => {
 
   it("says why it can't", () => {
     const seg = parseAudioEvent({ format: "myco.audioevent@1", root: { type: "segment", id: "only", tracks: [track("t")] } }).value.musicRoot!;
-    expect(typeof addMusicNode(seg, [], "segment")).toBe("string");
-    expect(typeof addMusicNode(seg, null, "library")).toBe("string");
+    expect(addMusicNode(seg, [], "segment")).toHaveProperty("refused");
+    expect(addMusicNode(seg, null, "library")).toHaveProperty("refused");
   });
 });
 

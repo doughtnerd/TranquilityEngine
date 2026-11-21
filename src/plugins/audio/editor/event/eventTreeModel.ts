@@ -1,7 +1,8 @@
 // The Event editor's pure tree operations (ADR 0158 §1, §7): addressing a node of an audio event's container tree by
 // path, and every structural edit the tree pane makes (add, remove, reorder, move, duplicate, wrap). Renaming a
 // parameter where the event names it is `engine/audio/eventReferences.ts`'s (ADR 0299). Every function returns new values and never mutates its inputs: untouched
-// subtrees are shared, changed ones are copied along the path. The panel turns each result into one undoable edit.
+// subtrees are shared, changed ones are copied along the path. The panel turns each result into one undoable edit. An add
+// a user can get refused returns the refused-or-next `EditResult` (ADR 0307); the guarded edits throw when their `can*` says no.
 import {
   MAX_EVENT_DEPTH,
   MAX_EVENT_NODES,
@@ -23,6 +24,7 @@ import {
 import {
   isLibraryStep, libraryIndexOf, mapMusicTree, musicEntries, musicNodeAt, musicNodeCount, replaceMusicNodeAt, type MusicLibraryStep,
 } from "../../../../engine/audio/musicTree";
+import { accept, refuse, type EditResult } from "../editResult";
 
 /** A `sustain` node's three slots, in play order. `loop` is required; `start` and `end` are optional. */
 export const SUSTAIN_SLOTS = ["start", "loop", "end"] as const;
@@ -383,19 +385,19 @@ export function duplicateNode(root: EventNode, path: NodePath): TreeEdit {
 /**
  * Replace the node at `path` with a fresh container of `type` (`newNode(type)`) holding it: as its only child for a list
  * type, in its `loop` slot for `"sustain"`. The wrapped node moves in unchanged and the wrapper takes over none of its
- * fields. Returns the new root and the wrapper's path (equal to `path`). Throws `RangeError` when the path leads
- * nowhere or the depth limit would be passed (`path.length + 1 + subtreeHeight(node) > MAX_EVENT_DEPTH`).
+ * fields. Returns the new root and the wrapper's path (equal to `path`), or refused when the path leads nowhere, the
+ * depth limit would be passed (`path.length + 1 + subtreeHeight(node) > MAX_EVENT_DEPTH`) or the node limit would.
  */
-export function wrapNode(root: EventNode, path: NodePath, type: ListNodeType | "sustain"): TreeEdit {
+export function wrapNode(root: EventNode, path: NodePath, type: ListNodeType | "sustain"): EditResult<TreeEdit> {
   const node = getNode(root, path);
-  if (!node) throw new RangeError(`no node at "${pathKey(path)}"`);
-  if (path.length + 1 + subtreeHeight(node) > MAX_EVENT_DEPTH) throw new RangeError("nested too deeply");
-  if (countNodes(root) + 1 > MAX_EVENT_NODES) throw new RangeError(`more than ${MAX_EVENT_NODES} nodes`);
+  if (!node) return refuse(`no node at "${pathKey(path)}"`);
+  if (path.length + 1 + subtreeHeight(node) > MAX_EVENT_DEPTH) return refuse("the event can't nest any deeper there");
+  if (countNodes(root) + 1 > MAX_EVENT_NODES) return refuse(`the event can't hold more than ${MAX_EVENT_NODES} nodes`);
   const fresh = newNode(type);
   const wrapper = type === "sustain"
     ? withFields(fresh, { loop: node })
     : withFields(fresh, { children: [node] });
-  return { root: setNode(root, path, wrapper), path: [...path] };
+  return accept({ root: setNode(root, path, wrapper), path: [...path] });
 }
 
 // --- music trees (ADR 0166 §2.3, §2.5; decision D6) ----------------------------------------------------------------------
@@ -492,23 +494,23 @@ function musicAddTarget(root: MusicNode, selected: NodePath | null, library: boo
   return { parent: host, index: step + 1 };
 }
 
-/** Add a fresh node (or `library` segment) where `musicAddTarget` says; the new node's id is based on its type. Or a reason it can't. */
-export function addMusicNode(root: MusicNode, selected: NodePath | null, kind: MusicAddKind): MusicEdit | string {
+/** Add a fresh node (or `library` segment) where `musicAddTarget` says; the new node's id is based on its type. Or refused, with why. */
+export function addMusicNode(root: MusicNode, selected: NodePath | null, kind: MusicAddKind): EditResult<MusicEdit> {
   const at = musicAddTarget(root, selected, kind === "library");
-  if (!at) return "select a playlist or music switch, or a node in one, to add to it";
+  if (!at) return refuse("select a playlist or music switch, or a node in one, to add to it");
   const container = musicNodeAt(root, at.parent) as PlaylistNode | MusicSwitchNode;
   const type: MusicNodeType = kind === "library" ? "segment" : kind;
   const id = freshMusicId(new Set(musicIds(root)), kind === "library" ? "library" : type === "musicSwitch" ? "switch" : type);
   const node = newMusicNode(type, id);
-  if (musicNodeCount(root) + 1 > MAX_EVENT_NODES) return "the event can't hold more nodes";
-  if (at.parent.length + 1 >= MAX_EVENT_DEPTH) return "the event can't hold more nodes there";
+  if (musicNodeCount(root) + 1 > MAX_EVENT_NODES) return refuse("the event can't hold more nodes");
+  if (at.parent.length + 1 >= MAX_EVENT_DEPTH) return refuse("the event can't hold more nodes there");
   if (kind === "library") {
-    if (libraryCount(root) >= MUSIC_LIMITS.library) return `an event holds at most ${MUSIC_LIMITS.library} library segments`;
-    return { root: replaceMusicNodeAt(root, at.parent, withMusic(container, { library: [...container.library, node as SegmentNode] })), path: [...at.parent, `lib${container.library.length}`] };
+    if (libraryCount(root) >= MUSIC_LIMITS.library) return refuse(`an event holds at most ${MUSIC_LIMITS.library} library segments`);
+    return accept({ root: replaceMusicNodeAt(root, at.parent, withMusic(container, { library: [...container.library, node as SegmentNode] })), path: [...at.parent, `lib${container.library.length}`] });
   }
-  if (container.children.length >= MUSIC_LIMITS.playlistChildren) return `a container holds at most ${MUSIC_LIMITS.playlistChildren} children`;
+  if (container.children.length >= MUSIC_LIMITS.playlistChildren) return refuse(`a container holds at most ${MUSIC_LIMITS.playlistChildren} children`);
   const children = [...container.children.slice(0, at.index), node, ...container.children.slice(at.index)];
-  return { root: replaceMusicNodeAt(root, at.parent, withMusic(container, { children })), path: [...at.parent, at.index] };
+  return accept({ root: replaceMusicNodeAt(root, at.parent, withMusic(container, { children })), path: [...at.parent, at.index] });
 }
 
 /** Whether the node at `path` may be removed: it exists and isn't the root (an event keeps its music tree). */

@@ -1,16 +1,18 @@
-// Ed7 (api-and-models §7, §2.4): the edits of a container's transition rules as pure functions of the container
-// (`RuleEdit`: the next container or a one-line reason it was refused), validated against the same limits the parser
-// clamps to, so what a form writes survives `formatAudioEvent` / `parseAudioEvent` unchanged. `RuleEditor.tsx` and
-// `RulesTable.tsx` apply a result through the event's asset document (one undo step per edit).
+// Ed7 (api-and-models §7, §2.4): the edits of a container's transition rules as pure functions of the container (the
+// refused-or-next `EditResult`, ADR 0307: the next container or a one-line reason it was refused), validated against the
+// same limits the parser clamps to, so what a form writes survives `formatAudioEvent` / `parseAudioEvent` unchanged.
+// `RuleEditor.tsx` and `RulesTable.tsx` apply a result through the event's asset document (one undo step per edit, a
+// refusal in the status bar).
 import { DEFAULT_TRANSITION_RULE, FADE_CURVES, GRID_EVERY_MAX, GRID_EVERY_MIN, MAX_FADE_BEATS, MAX_FADE_SECONDS, RULE_WILDCARD, type TransitionEnter, type TransitionExit, type TransitionFade, type TransitionRule } from "../../../../engine/audio/musicRules";
 import { MUSIC_LIMITS, type MusicContainerNode } from "../../../../engine/audio/musicFormat";
 import type { GridSpec } from "../../../../engine/audio/musicTypes";
 import { endSegments } from "./ruleLint";
+import { accept, refuse, type EditResult } from "../editResult";
 
-/** The next container, or why the edit was refused (shown under the form; nothing changes). */
-export type RuleEdit = { readonly container: MusicContainerNode } | { readonly error: string };
-const ok = (container: MusicContainerNode): RuleEdit => ({ container });
-const fail = (error: string): RuleEdit => ({ error });
+/** The next container, or why the edit was refused (nothing changes). */
+type RuleEdit = EditResult<MusicContainerNode>;
+const ok = (container: MusicContainerNode): RuleEdit => accept(container);
+const fail = refuse;
 
 const freshRule = (): TransitionRule => ({
   from: RULE_WILDCARD, to: RULE_WILDCARD, exit: DEFAULT_TRANSITION_RULE.exit, enter: DEFAULT_TRANSITION_RULE.enter,
@@ -77,10 +79,10 @@ export function setRuleEnds(container: MusicContainerNode, index: number, ends: 
 }
 
 /** A grid exit `"beat"`, `"bar"` or `{ every, n }`, validated like the parser (n a whole number 2..64). */
-export function gridSpec(every: "beat" | "bar", n: number | null): GridSpec | string {
-  if (n === null || n === 1) return every;
-  if (!Number.isInteger(n) || n < GRID_EVERY_MIN || n > GRID_EVERY_MAX) return `every needs a whole number ${GRID_EVERY_MIN}..${GRID_EVERY_MAX} (or 1 for each ${every})`;
-  return { every, n };
+export function gridSpec(every: "beat" | "bar", n: number | null): EditResult<GridSpec> {
+  if (n === null || n === 1) return accept(every);
+  if (!Number.isInteger(n) || n < GRID_EVERY_MIN || n > GRID_EVERY_MAX) return refuse(`every needs a whole number ${GRID_EVERY_MIN}..${GRID_EVERY_MAX} (or 1 for each ${every})`);
+  return accept({ every, n });
 }
 
 export function setExit(container: MusicContainerNode, index: number, exit: TransitionExit): RuleEdit {

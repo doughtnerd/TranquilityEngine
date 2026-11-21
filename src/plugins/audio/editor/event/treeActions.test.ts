@@ -2,6 +2,13 @@ import { describe, expect, it } from "vitest";
 import type { EventNode, LayerNode, RandomNode, SustainNode } from "../../../../engine/audio/eventFormat";
 import { getNode, newNode } from "./eventTreeModel";
 import { addNode, addTarget, changeListType } from "./treeActions";
+import type { EditResult } from "../editResult";
+
+/** The accepted value of an edit (ADR 0307), or the test fails with its refusal. */
+const nextOf = <T,>(r: EditResult<T>): T => {
+  if ("refused" in r) throw new Error(r.refused);
+  return r.next;
+};
 
 /** layer [ clip a, sustain { loop: clip c } ] */
 function tree(): EventNode {
@@ -23,14 +30,12 @@ describe("addTarget", () => {
 
 describe("addNode", () => {
   it("adds a fresh node and returns its path, or a reason", () => {
-    const edit = addNode(tree(), [0], "random");
-    if (typeof edit === "string") throw new Error(edit);
+    const edit = nextOf(addNode(tree(), [0], "random"));
     expect(edit.path).toEqual([1]);
     expect(getNode(edit.root, [1])?.type).toBe("random");
-    const clip = addNode(tree(), null, "clip", "x.ogg");
-    if (typeof clip === "string") throw new Error(clip);
+    const clip = nextOf(addNode(tree(), null, "clip", "x.ogg"));
     expect(getNode(clip.root, clip.path)).toMatchObject({ type: "clip", clip: "x.ogg" });
-    expect(typeof addNode(tree(), [1, "loop"], "clip")).toBe("string");
+    expect(addNode(tree(), [1, "loop"], "clip")).toHaveProperty("refused");
   });
 });
 

@@ -2,12 +2,13 @@
 // refusals the parse makes (a bus ducking itself, a trigger above its target, a level cycle, the 9th level rule, the
 // 33rd rule), "Needs the audio core" on a backend without level ducking, and a live edit during Play reaching the play
 // mixer through the op log. The section is rendered through its real props: a draft, its problems and `set`, which a
-// story's harness keeps as the Project Settings panel does (each accepted edit is the next draft). The ducking edits'
+// story's harness keeps as the Project Settings panel does (each accepted edit is the next draft). A refusal goes to the
+// status bar (ADR 0307), read here through a spy on `editor.messages.error`. The ducking edits'
 // own rules (the drafts they write, their refusals, the ops a live edit sends) are unit tests of the model, in
 // audioSettingsSection.ducking.test.ts.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";
-import { expect, fireEvent, fn, userEvent, waitFor, within } from "storybook/test";
+import { expect, fireEvent, fn, spyOn, userEvent, waitFor, within, type MockInstance } from "storybook/test";
 import type { MixOp } from "../../../engine/audio/mixOps";
 import type { DuckingRule } from "../../../engine/audio/settings";
 import { editor, type SettingsDraft } from "../../../editor/sdk";
@@ -47,6 +48,9 @@ const rulesOf = (args: Args): DuckingRule[] => {
 };
 const labelsOf = (args: Args): string[] => args.set.mock.calls.map((c) => c[0]);
 
+/** `editor.messages.error`, spied for each story: where the section reports a refused edit. */
+let errors: MockInstance<(text: string) => void> | null = null;
+
 const level = (target: string, trigger: string, over: object = {}) => ({ target, trigger, mode: "level", ...over });
 const presence = (target: string, trigger: string, over: object = {}) => ({ target, trigger, mode: "presence", ...over });
 
@@ -64,7 +68,9 @@ function controls(canvasElement: HTMLElement) {
     type: (label: string, n: number) => fireEvent.change(field(label), { target: { value: String(n) } }),
     click: (label: string) => userEvent.click(canvas.getByLabelText(label)),
     add: () => canvas.getByRole("button", { name: /Ducking rule/ }),
-    refusal: () => canvasElement.querySelector("[data-duck-refusal]")?.textContent ?? null,
+    /** The latest refusal the section reported (since the last `clearRefusals`), or null. */
+    refusal: () => (errors?.mock.calls.at(-1)?.[0] as string | undefined) ?? null,
+    clearRefusals: () => errors?.mockClear(),
     /** The Ducking list's "None" line (each list in the section has its own), or null. */
     duckingNone: () => {
       const head = [...canvasElement.querySelectorAll(".project-settings-list-head")].find((h) => h.firstElementChild?.textContent === "Ducking");
@@ -79,6 +85,13 @@ const meta = {
   title: "Audio/Project settings/Ducking",
   render: (args) => <Section {...args} />,
   args: { audio: { ducking: [] }, set: fn() },
+  beforeEach: () => {
+    errors = spyOn(editor.messages, "error") as unknown as MockInstance<(text: string) => void>;
+    return () => {
+      errors?.mockRestore();
+      errors = null;
+    };
+  },
 } satisfies Meta<Args>;
 export default meta;
 type Story = StoryObj<Args>;
@@ -209,6 +222,7 @@ export const TargetAndTrigger: Story = {
       expect(rulesOf(args)[0]!.trigger).toBe("Voice");
     });
     await step("each lists every bus and each choice is written", async () => {
+      c.clearRefusals();
       expect(c.options("Ducking 1 target")).toEqual(["Master", "Music", "SFX", "UI", "Voice"]);
       expect(c.options("Ducking 1 trigger")).toEqual(["Master", "Music", "SFX", "UI", "Voice"]);
       await c.pick("Ducking 1 target", "SFX");
@@ -233,9 +247,10 @@ export const ThreeRules: Story = {
       expect(rulesOf(args).map((x) => x.target)).toEqual(["SFX", "UI", "Music"]);
       expect(rulesOf(args).map((x) => x.mode)).toEqual(["presence", "level", "level"]);
     });
-    await step("remove drops that rule and clears a showing refusal", async () => {
+    await step("a refused edit is reported and saves nothing; remove drops that rule", async () => {
       await c.pick("Ducking 2 trigger", "UI"); // a bus can't duck itself
-      expect(c.refusal()).not.toBeNull();
+      expect(c.refusal()).toContain("a bus can't duck itself");
+      c.clearRefusals();
       await c.click("Remove ducking rule 2");
       expect(rulesOf(args).map((x) => x.target)).toEqual(["SFX", "Music"]);
       expect(c.refusal()).toBeNull();
@@ -264,9 +279,11 @@ export const LevelCycle: Story = {
       expect(msg).toContain("ducking[1] (Music ducks Voice)");
       expect(rulesOf(args)[1]!.target).toBe("SFX");
     });
-    await step("the next successful edit clears the message", async () => {
+    await step("the next edit is accepted and reports nothing", async () => {
+      c.clearRefusals();
       await c.type("Ducking 1 amount", 0.2);
-      await waitFor(() => expect(c.refusal()).toBeNull());
+      await waitFor(() => expect(rulesOf(args)[0]!.amount).toBe(0.2));
+      expect(c.refusal()).toBeNull();
     });
     await step("the same pair as presence is accepted", async () => {
       await c.pick("Ducking 2 mode", "presence");
@@ -309,6 +326,7 @@ export const EightLevelRules: Story = {
       expect(rulesOf(args)[8]!.mode).toBe("presence");
     });
     await step("removing a level rule makes room again", async () => {
+      c.clearRefusals();
       await c.click("Remove ducking rule 1");
       await userEvent.click(c.add());
       expect(c.refusal()).toBeNull();

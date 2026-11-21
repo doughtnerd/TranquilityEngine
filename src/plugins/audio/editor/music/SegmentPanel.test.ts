@@ -4,8 +4,9 @@ import { describe, expect, it } from "vitest";
 import { formatAudioEvent, parseAudioEvent, type AudioEventAsset } from "../../../../engine/audio/eventFormat";
 import type { SegmentNode } from "../../../../engine/audio/musicFormat";
 import {
-  addCue, addRegion, moveTrack, promoteAlternative, readCondition, removeAlternative, removeCue, removeRegion, removeTrack, renameCue, renameTrack, setCueAt, setEntry, setExit, setGridOffset, setTempo, setTrackBus, setTrackPick, setTrackVolume, updateRegion, type Edit,
+  addCue, addRegion, moveTrack, promoteAlternative, readCondition, removeAlternative, removeCue, removeRegion, removeTrack, renameCue, renameTrack, setCueAt, setEntry, setExit, setGridOffset, setTempo, setTrackBus, setTrackPick, setTrackVolume, updateRegion,
 } from "./segmentEdits";
+import type { EditResult } from "../editResult";
 import { audibleStems, auditionKey, auditionOf, stemAudition, toggleStem } from "./stemAudition";
 import { findMusicSegment, replaceMusicNode } from "../../../../engine/audio/musicTree";
 
@@ -24,19 +25,19 @@ function load(raw: unknown = RAW): { event: AudioEventAsset; segment: SegmentNod
 }
 
 /** Apply an edit the way the panel does and push the result through the writer. */
-function roundTrip(event: AudioEventAsset, e: Edit): SegmentNode {
-  if ("error" in e) throw new Error(e.error);
-  const next: AudioEventAsset = { ...event, musicRoot: replaceMusicNode(event.musicRoot!, "main", e.segment) };
+function roundTrip(event: AudioEventAsset, e: EditResult<SegmentNode>): SegmentNode {
+  if ("refused" in e) throw new Error(e.refused);
+  const next: AudioEventAsset = { ...event, musicRoot: replaceMusicNode(event.musicRoot!, "main", e.next) };
   const text = formatAudioEvent(next);
   const again = parseAudioEvent(JSON.parse(text));
   expect(again.problems).toEqual([]);
   expect(formatAudioEvent(again.value)).toBe(text);
   const read = findMusicSegment(again.value.musicRoot, "main")!;
-  expect(read).toEqual(e.segment);
+  expect(read).toEqual(e.next);
   return read;
 }
 
-const err = (e: Edit): string => ("error" in e ? e.error : "");
+const err = (e: EditResult<SegmentNode>): string => ("refused" in e ? e.refused : "");
 
 describe("tempo form", () => {
   it("writes tempo, metre and grid offset into the first marker and round-trips", () => {
@@ -82,7 +83,7 @@ describe("stem list", () => {
 
   it("moving past either end changes nothing", () => {
     const { segment } = load();
-    expect((moveTrack(segment, "drums", -1) as { segment: SegmentNode }).segment).toBe(segment);
+    expect((moveTrack(segment, "drums", -1) as { next: SegmentNode }).next).toBe(segment);
   });
 
   it("refuses duplicate or empty names and out-of-range gain", () => {
@@ -150,8 +151,8 @@ describe("cue forms", () => {
 
   it("names new cues uniquely", () => {
     const { segment } = load();
-    let s = (addCue(segment) as { segment: SegmentNode }).segment;
-    s = (addCue(s) as { segment: SegmentNode }).segment;
+    let s = (addCue(segment) as { next: SegmentNode }).next;
+    s = (addCue(s) as { next: SegmentNode }).next;
     expect(s.cues.map((c) => c.name)).toEqual(["cue", "cue 2"]);
   });
 
@@ -159,7 +160,7 @@ describe("cue forms", () => {
     const { segment } = load();
     expect(err(addCue(segment, "1:1"))).toMatch(/bar:beat:tick/);
     expect(err(addCue(segment, "1:5:0"))).toMatch(/past the end of its bar/);
-    const s = (addCue(segment, "1:1:0", "a") as { segment: SegmentNode }).segment;
+    const s = (addCue(segment, "1:1:0", "a") as { next: SegmentNode }).next;
     expect(err(addCue(s, "1:1:0", "a"))).toMatch(/already named/);
     expect(err(setEntry(s, "zzz"))).toMatch(/no cue/);
     expect(err(setCueAt(s, "a", "1:1:960"))).toMatch(/tick/);
@@ -174,8 +175,8 @@ describe("region forms", () => {
     s = roundTrip(event, updateRegion(s, "loop", { from: "2:1:0", to: "5:1:0", count: 4, tailBeats: 2 }));
     expect(s.regions[0]).toEqual({ id: "loop", from: "2:1:0", to: "5:1:0", count: 4, tailBeats: 2 });
     const c = readCondition("Intensity", "atLeast", "0.5");
-    if (!("condition" in c)) throw new Error(c.error);
-    s = roundTrip(event, updateRegion(s, "loop", { while: c.condition }));
+    if ("refused" in c) throw new Error(c.refused);
+    s = roundTrip(event, updateRegion(s, "loop", { while: c.next }));
     expect(s.regions[0]!.while).toEqual({ parameter: "Intensity", atLeast: 0.5 });
     s = roundTrip(event, updateRegion(s, "loop", { id: "verse", tailBeats: null, while: null }));
     expect(s.regions[0]).toEqual({ id: "verse", from: "2:1:0", to: "5:1:0", count: 4 });
@@ -185,24 +186,24 @@ describe("region forms", () => {
 
   it("round-trips the three condition forms", () => {
     const { event, segment } = load();
-    const base = (addRegion(segment) as { segment: SegmentNode }).segment;
+    const base = (addRegion(segment) as { next: SegmentNode }).next;
     for (const [form, value, expected] of [
       ["is", "boss", { parameter: "State", is: "boss" }],
       ["atLeast", "3", { parameter: "State", atLeast: 3 }],
       ["below", "-1", { parameter: "State", below: -1 }],
     ] as const) {
       const c = readCondition("State", form, value);
-      if (!("condition" in c)) throw new Error(c.error);
-      const s = roundTrip(event, updateRegion(base, "loop", { while: c.condition }));
+      if ("refused" in c) throw new Error(c.refused);
+      const s = roundTrip(event, updateRegion(base, "loop", { while: c.next }));
       expect(s.regions[0]!.while).toEqual(expected);
     }
-    expect(readCondition("", "is", "x")).toEqual({ error: "name the parameter" });
-    expect(readCondition("P", "below", "abc")).toEqual({ error: "the value must be a number" });
+    expect(readCondition("", "is", "x")).toEqual({ refused: "name the parameter" });
+    expect(readCondition("P", "below", "abc")).toEqual({ refused: "the value must be a number" });
   });
 
   it("refuses a region the parser would drop", () => {
     const { segment } = load();
-    const s = (addRegion(segment, { from: "2:1:0", to: "4:1:0" }) as { segment: SegmentNode }).segment;
+    const s = (addRegion(segment, { from: "2:1:0", to: "4:1:0" }) as { next: SegmentNode }).next;
     expect(err(updateRegion(s, "loop", { to: "2:1:0" }))).toMatch(/not before/);
     expect(err(updateRegion(s, "loop", { to: "start" }))).toMatch(/to:/);
     expect(err(updateRegion(s, "loop", { from: "end" }))).toMatch(/from:/);

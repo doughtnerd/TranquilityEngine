@@ -12,6 +12,13 @@ import { setNode } from "./eventTreeModel";
 import { nodeFields, writeField, type FieldDescriptor } from "./nodeFields";
 import { addNode } from "./treeActions";
 import { applyClipDrop } from "./treeDrop";
+import type { EditResult } from "../editResult";
+
+/** The accepted value of an edit (ADR 0307), or the test fails with its refusal. */
+const nextOf = <T,>(r: EditResult<T>): T => {
+  if ("refused" in r) throw new Error(r.refused);
+  return r.next;
+};
 
 const fieldNamed = (fields: readonly FieldDescriptor[], name: string): FieldDescriptor | undefined => fields.find((f) => f.name === name);
 
@@ -36,11 +43,9 @@ async function openEvent() {
 describe("Event editor edits through the asset document", () => {
   it("a clip drop and a tree add are one undo step each, written to the file", async () => {
     const { doc, file } = await openEvent();
-    const dropped = applyClipDrop(doc.value.value.root, { parent: [], index: 0 }, ["sfx/a.ogg", "sfx/b.ogg"]);
-    if (typeof dropped === "string") throw new Error(dropped);
+    const dropped = nextOf(applyClipDrop(doc.value.value.root, { parent: [], index: 0 }, ["sfx/a.ogg", "sfx/b.ogg"]));
     doc.edit({ ...doc.value.value, root: dropped.root }, { label: "Add clips" });
-    const added = addNode(doc.value.value.root, null, "random");
-    if (typeof added === "string") throw new Error(added);
+    const added = nextOf(addNode(doc.value.value.root, null, "random"));
     doc.edit({ ...doc.value.value, root: added.root }, { label: "Add random" });
     await doc.flush();
     expect((file().root as LayerNode).children.map((c) => c.type)).toEqual(["clip", "clip", "random"]);

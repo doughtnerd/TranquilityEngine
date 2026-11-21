@@ -5,18 +5,20 @@
 import { useComputed } from "@preact/signals";
 import { useEffect, useMemo, useState } from "preact/hooks";
 import { editor, openAssetDocument, Panel } from "../../../../editor/sdk";
-import type { AudioEventAsset, EventNode } from "../../../../engine/audio/eventFormat";
+import { isLabelled, type AudioEventAsset, type EventNode, type ParameterDef } from "../../../../engine/audio/eventFormat";
+import { eventNameReferences } from "../../../../engine/audio/eventReferences";
 import type { MusicNode } from "../../../../engine/audio/musicFormat";
 import { audioSection } from "../../../../engine/audio/audioSection";
 import { Audition } from "./Audition";
 import { editorAudition } from "../audition/editorAudition";
-import { auditionValues } from "./eventParameters";
+import { auditionValues, eventParameterList } from "./eventParameters";
 import { getNode, musicIdProblem, parentPath, pathKey, renameMusicId, setNode, type NodePath, type SustainSlot } from "./eventTreeModel";
 import { musicNodeAt, replaceMusicNodeAt } from "../../../../engine/audio/musicTree";
 import { EventTree } from "./EventTree";
 import { EventProperties, MusicNodeProperties, NodeProperties, type FieldContext } from "./NodeProperties";
 import { openRulesTable, openSegmentView } from "../music";
-import { ParametersPane } from "./ParametersPane";
+import { ParameterCards } from "../ParameterCard";
+import { applyToDocument } from "../editResult";
 import { EVENT_EDITOR_PANEL } from "./openEventEditor";
 import "./eventEditor.css";
 
@@ -106,16 +108,20 @@ function EventEditor({ path }: { path: string }) {
             onSelect={setPicked}
             onEdit={changeRoot}
             music={music ? { root: music, onEdit: changeMusicRoot, onOpenSegment: (id) => openSegmentView(path, id), onOpenRules: (id) => openRulesTable(path, id) } : undefined}
-            onProblem={(text) => editor.messages.info(text)}
             readOnly={readOnly}
           />
-          <ParametersPane
-            event={event}
-            onChange={change}
-            values={values}
-            onAudition={(name, value) => editorAudition.setParameter(path, name, value)}
-            readOnly={readOnly}
-          />
+          <section class="ev-params" data-testid="event-parameters">
+            <ParameterCards
+              list={eventParameterList}
+              holder={event}
+              apply={(result, label) => applyToDocument(doc, result, label)}
+              readOnly={readOnly}
+              hint="this event's own; switches, blends and automation can also read the project's global ones"
+              empty="No local parameters."
+              removeTitle={(p) => removeTitle(event, p)}
+              extra={(p) => <ParameterAudition parameter={p} value={values[p.name]} onAudition={(value) => editorAudition.setParameter(path, p.name, value)} />}
+            />
+          </section>
           <section class="ev-audition" aria-label="Audition" data-testid="event-audition">
             <Audition audition={editorAudition} path={doc.path} parameters={values} />
           </section>
@@ -153,3 +159,41 @@ function EventEditor({ path }: { path: string }) {
   );
 }
 
+
+/** The remove button's tooltip: how many places use the parameter (their uses stay and read a global one). */
+function removeTitle(event: AudioEventAsset, p: ParameterDef): string {
+  const uses = eventNameReferences(event).filter((r) => r.kind === "parameter" && r.name === p.name).length;
+  return uses > 0 ? `Remove this parameter (used in ${uses} place${uses === 1 ? "" : "s"}; those uses stay and read a global parameter)` : "Remove this parameter";
+}
+
+/** A parameter's audition control under its card: a slider, or a button per label. It sets the audition value, never the asset. */
+function ParameterAudition(props: { parameter: ParameterDef; value: number | string | undefined; onAudition(value: number | string): void }) {
+  const { parameter: p, value } = props;
+  return (
+    <div class="ev-param-audition" title="Audition value (not saved)">
+      {isLabelled(p) ? (
+        <span class="ev-param-labels" role="radiogroup" aria-label={`Audition ${p.name}`}>
+          {p.labels.map((l) => (
+            <button key={l} role="radio" aria-checked={value === l} class={value === l ? "active" : undefined} onClick={() => props.onAudition(l)}>
+              {l}
+            </button>
+          ))}
+        </span>
+      ) : (
+        <>
+          <input
+            type="range"
+            aria-label={`Audition ${p.name}`}
+            data-testid="event-parameter-slider"
+            min={p.min}
+            max={p.max}
+            step={p.max > p.min ? (p.max - p.min) / 200 : 1}
+            value={typeof value === "number" ? value : p.default}
+            onInput={(e) => props.onAudition(Number((e.currentTarget as HTMLInputElement).value))}
+          />
+          <span class="ev-param-value">{(typeof value === "number" ? value : p.default).toFixed(2)}</span>
+        </>
+      )}
+    </div>
+  );
+}
