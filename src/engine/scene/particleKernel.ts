@@ -17,7 +17,8 @@
 import { blockDef } from "./particleBlocks";
 import type { GraphBlock, GraphInputValue, GraphProblem, OutputContext, OutputSettings, OutputType, ParticleGraph, ParticleGraphSystem } from "./particleGraph";
 import { compileUniform, curveSetting, gradientSetting, indexOf, inlineValue, isDefinitionNode, nodeDef, portRate, setting, splitRef, type EvalContext, type Index, type NodeValue } from "./particleNodes";
-import { evalCurve, parseHexColor, type CurveKey, type ParticleColor, type ParticleGradient, type ParticleNumber } from "./particles";
+import { evalCurve } from "../core/curve";
+import { parseHexColor, type CurveKey, type ParticleColor, type ParticleGradient, type ParticleNumber } from "./particles";
 
 // --- layout ------------------------------------------------------------------------------------------
 

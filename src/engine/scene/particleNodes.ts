@@ -11,7 +11,8 @@
  * *uniform*: one value per frame. A Curve or Gradient used as an operator's input is just a
  * definition and counts as uniform there (Sample Curve of a Curve node is uniform).
  */
-import { evalCurve, evalGradient, parseHexColor, type CurveKey, type ParticleColor, type ParticleGradient, type ParticleNumber } from "./particles";
+import { evalCurve } from "../core/curve";
+import { evalGradient, parseHexColor, type CurveKey, type ParticleColor, type ParticleGradient, type ParticleNumber } from "./particles";
 import type { GraphInputValue, GraphNode, ParticleGraph } from "./particleGraph";
 
 export type PortType = "number" | "vector2" | "vector3" | "color" | "curve" | "gradient" | "bool" | "event";
@@ -232,18 +233,23 @@ export function setting(node: GraphNode, def: NodeDef, name: string): unknown {
   return v !== undefined ? v : def.settings?.find((s) => s.name === name)?.default;
 }
 
+/** Keys by `t` (stable: equal `t` keep their order), as `evalCurve` reads them; the same list when already sorted. */
+const sortedKeys = <K extends readonly [number, ...unknown[]]>(keys: K[]): K[] => (keys.every((k, i) => i === 0 || keys[i - 1][0] <= k[0]) ? keys : [...keys].sort((a, b) => a[0] - b[0]));
+
 export function curveSetting(node: GraphNode, def: NodeDef, name: string): CurveKey[] {
   const v = setting(node, def, name);
   const ok = Array.isArray(v) && v.every((k) => Array.isArray(k) && typeof k[0] === "number" && typeof k[1] === "number");
-  return ok ? (v as CurveKey[]) : DEFAULT_KEYS;
+  return ok ? sortedKeys(v as CurveKey[]) : DEFAULT_KEYS;
 }
+
+const gradient = (colors: unknown[], alphas: unknown): ParticleGradient => ({ colors: sortedKeys(colors as ParticleGradient["colors"]), alphas: Array.isArray(alphas) ? sortedKeys(alphas as ParticleGradient["alphas"]) : [] });
 
 export function gradientSetting(node: GraphNode, def: NodeDef, name: string): ParticleGradient {
   const v = setting(node, def, name);
-  if (isObject(v) && Array.isArray(v.colors)) return { colors: v.colors as ParticleGradient["colors"], alphas: Array.isArray(v.alphas) ? (v.alphas as ParticleGradient["alphas"]) : [] };
+  if (isObject(v) && Array.isArray(v.colors)) return gradient(v.colors, v.alphas);
   // The ADR's example keeps a gradient's keys flat in the settings.
   const flat = node.settings;
-  if (name === "gradient" && flat && Array.isArray(flat.colors)) return { colors: flat.colors as ParticleGradient["colors"], alphas: Array.isArray(flat.alphas) ? (flat.alphas as ParticleGradient["alphas"]) : [] };
+  if (name === "gradient" && flat && Array.isArray(flat.colors)) return gradient(flat.colors, flat.alphas);
   return DEFAULT_GRADIENT;
 }
 

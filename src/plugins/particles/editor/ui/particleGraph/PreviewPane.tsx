@@ -1,16 +1,18 @@
 import type { JSX } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { loadParticleEffectPreview, type ParticleEffectPreview, type PreviewBackground } from "../../../../../engine/editor";
-import { compileParticleGraph } from "../../../../../engine/scene/particleCompile";
-import type { ParticleGraph } from "../../../../../engine/scene/particleGraph";
+import type { ParticleProgram } from "../../../../../engine/scene/particleCompile";
 import "./preview.css";
 
 const SPEEDS = [0.25, 0.5, 1, 2];
 const BACKGROUNDS: PreviewBackground[] = ["grid", "dark", "light"];
 const REBUILD_DELAY = 100;
 
-/** Live preview of a particle graph (ADR 0060): recompiled shortly after the graph changes. */
-export function ParticleGraphPreview(props: { graph: ParticleGraph; problems?: number }): JSX.Element {
+/**
+ * Live preview of a particle graph (ADR 0060): the program the Graph editor compiled with the particle-effect
+ * compile (ADR 0315), so it plays what the game plays; rebuilt shortly after it changes.
+ */
+export function ParticleGraphPreview(props: { program: ParticleProgram; problems?: number }): JSX.Element {
   const host = useRef<HTMLDivElement>(null);
   const preview = useRef<ParticleEffectPreview | null>(null);
   const [playing, setPlaying] = useState(true);
@@ -18,7 +20,7 @@ export function ParticleGraphPreview(props: { graph: ParticleGraph; problems?: n
   const [loop, setLoop] = useState(true);
   const [background, setBackground] = useState<PreviewBackground>("grid");
   const [stats, setStats] = useState({ particles: 0, time: 0 });
-  const pending = useRef<ParticleGraph | null>(null);
+  const pending = useRef<ParticleProgram | null>(null);
 
   useEffect(() => {
     let p: ParticleEffectPreview | null = null;
@@ -30,7 +32,7 @@ export function ParticleGraphPreview(props: { graph: ParticleGraph; problems?: n
       p = made;
       made.onChange = () => setPlaying(made.playing);
       preview.current = made;
-      if (pending.current) made.setProgram(compileParticleGraph(pending.current));
+      if (pending.current) made.setProgram(pending.current);
       poll = window.setInterval(() => setStats((s) => {
         const n = made.stats;
         const time = Math.round(n.time * 10) / 10;
@@ -46,16 +48,16 @@ export function ParticleGraphPreview(props: { graph: ParticleGraph; problems?: n
   }, []);
 
   useEffect(() => {
-    pending.current = props.graph;
+    pending.current = props.program;
     const t = window.setTimeout(() => {
       try {
-        preview.current?.setProgram(compileParticleGraph(props.graph));
+        preview.current?.setProgram(props.program);
       } catch (err) {
         console.warn("[myco] particle preview:", err);
       }
     }, REBUILD_DELAY);
     return () => window.clearTimeout(t);
-  }, [props.graph]);
+  }, [props.program]);
 
   useEffect(() => { if (preview.current) preview.current.speed = speed; }, [speed]);
   useEffect(() => { if (preview.current) preview.current.looping = loop; }, [loop]);

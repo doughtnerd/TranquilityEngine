@@ -7,11 +7,11 @@
 // dragged) or one colour pick coalesce into one undo step and one write.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 import { expandParticleGraph, outputTypeResolved, portRateResolved } from "../../../../../engine/scene/particleSubgraphs";
-import { compileParticleGraph } from "../../../../../engine/scene/particleCompile";
+import type { ParticleProgram } from "../../../../../engine/scene/particleCompile";
 import type { ContextKind, GraphGroup, GraphNode, GraphProblem, ParticleGraph, Vec2 } from "../../../../../engine/scene/particleGraph";
 import type { PortType } from "../../../../../engine/scene/particleNodes";
 import { usePanelHistory, type UndoHistory, editor, NO_DRAG, NO_PAN, NoteView, NodeSearchPopup, Minimap, SelectionBox, GraphFindBox, WireRefusal, px, startPointerDrag, toGraph, useGraphCanvas, useGraphFind, useGraphSearch, useGraphSelection, useGraphWiring, type CanvasNode, type Point, type EditorProject } from "../../../../../editor/sdk";
-import { effectFileMigrated, particleDocument } from "../../particleAssets";
+import { compileEffectGraph, effectFileMigrated, particleDocument, projectParticleAssets } from "../../particleAssets";
 import { ASSET_INPUT, BLOCK_CONTEXTS, addPseudoNode, assetMeta, assetToDoc, canMoveToAsset, editorNodeDef, extractSubgraph, isPseudo, setAssetMeta, wireRulesGraph } from "../../particleGraph/assetDocs";
 import {
   addBlock,
@@ -127,19 +127,19 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
 
   const collapsed = useMemo(() => collapsedSystems(graph), [graph]);
   /** Reads a project asset's JSON by `asset:` reference (sub-graph and custom block ports come from these). */
-  const resolve = (ref: string): unknown => project.assets.get(ref.replace(/^asset:/, ""));
+  const resolve = projectParticleAssets(project);
   const assetDoc = assetMeta(graph);
-  /** The graph as the wire rules read it (an open asset's Input nodes as constants), and with its sub-graphs inlined. */
+  /** The graph as the wire rules read it (an open asset's Input nodes as constants). */
   const rulesGraph = useMemo(() => wireRulesGraph(graph), [graph]);
-  const expansion = useMemo(() => expandParticleGraph(rulesGraph, resolve), [rulesGraph, version]);
-  const compiled = useMemo(() => (assetDoc ? { problems: [] as GraphProblem[] } : compileParticleGraph(expansion.graph)), [expansion, assetDoc]);
-  const problems = useMemo(() => {
-    const seen = new Set<string>();
-    return [...parseProblems, ...expansion.problems, ...compiled.problems].filter((p) => {
-      const key = `${p.at}|${p.message}`;
-      return !seen.has(key) && !!seen.add(key);
-    });
-  }, [parseProblems, expansion, compiled]);
+  /**
+   * The effect as the game will play it (ADR 0315): its sub-graphs inlined (`graph`, which the wire rules read), its
+   * problems and the program the preview shows. An open sub-graph or custom block isn't an effect: it's only expanded.
+   */
+  const expansion = useMemo((): { graph: ParticleGraph; problems: GraphProblem[]; program: ParticleProgram | null } => {
+    if (!assetDoc) return compileEffectGraph(project, rulesGraph);
+    return { ...expandParticleGraph(rulesGraph, resolve), program: null };
+  }, [rulesGraph, version, assetDoc]);
+  const problems = useMemo(() => [...parseProblems, ...expansion.problems], [parseProblems, expansion]);
   const typeOf = (node: GraphNode, port: string): PortType | null =>
     node.type === ASSET_INPUT ? ((node.settings?.type as PortType | undefined) ?? "number") : isPseudo(node.type) ? null : outputTypeResolved(rulesGraph, node, port, resolve, expansion.graph);
   const problemIndex = useMemo(() => indexProblems(graph, problems), [graph, problems]);
@@ -729,7 +729,7 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
             {empty && <p class="pg-canvas-empty">{assetDoc ? "Right-click or press Space to add a node." : "Right-click or press Space to add a system."}</p>}
             {box && <SelectionBox box={box} />}
             {showMinimap && <Minimap nodes={canvasNodes} view={view} size={paneSize} pane={paneApi} />}
-            {showPreview && !assetDoc && <PreviewCard graph={graph} problems={problems.length} onClose={() => setShowPreview(false)} />}
+            {showPreview && expansion.program && <PreviewCard program={expansion.program} problems={problems.length} onClose={() => setShowPreview(false)} />}
             <GraphFindBox find={find} placeholder="Find systems, blocks, nodes, notes…" />
             {open && (
               <NodeSearchPopup
@@ -748,7 +748,7 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
 }
 
 /** The live preview as a floating card in the canvas's corner: collapse it, close it, or resize it from its top-left corner. */
-function PreviewCard(props: { graph: ParticleGraph; problems: number; onClose(): void }) {
+function PreviewCard(props: { program: ParticleProgram; problems: number; onClose(): void }) {
   const [open, setOpen] = useState(true);
   const [size, setSize] = useState(previewSize);
   const resize = (e: PointerEvent) => {
@@ -775,7 +775,7 @@ function PreviewCard(props: { graph: ParticleGraph; problems: number; onClose():
       </div>
       {open && (
         <div class="pg-previewcard-body" style={{ width: px(size.w), height: px(size.h) }}>
-          <ParticleGraphPreview graph={props.graph} problems={props.problems} />
+          <ParticleGraphPreview program={props.program} problems={props.problems} />
         </div>
       )}
     </div>

@@ -32,13 +32,15 @@
  * `{ "randomGradients": [g1, g2] }`.
  */
 
+import { evalCurve } from "../core/curve";
+
 export const PARTICLES_FORMAT = "myco.particles@1";
 export const PARTICLES_SUFFIX = ".particles.json";
 
 /** True for a particle effect asset path. */
 export const isParticleEffectPath = (path: string): boolean => path.toLowerCase().endsWith(PARTICLES_SUFFIX);
 
-/** A curve key: `[t, value]`, `t` from 0 to 1. */
+/** A curve key: `[t, value]`, `t` from 0 to 1. A particle curve is a linear `Curve` (`core/curve.ts`), evaluated by its `evalCurve`. */
 export type CurveKey = [number, number];
 
 /** A number that can vary: a constant, a random range, a curve, or a random value between two curves. */
@@ -345,20 +347,6 @@ export const BEHAVIOR_LABELS: Record<ParticleBehaviorType, string> = {
 };
 
 // --- evaluation (editor previews, tests) --------------------------------------------------------
-
-/** A curve's value at `t` (linear between keys, flat beyond the ends). */
-export function evalCurve(keys: readonly CurveKey[], t: number): number {
-  if (!keys.length) return 0;
-  if (t <= keys[0][0]) return keys[0][1];
-  for (let i = 1; i < keys.length; i++) {
-    const [t1, v1] = keys[i];
-    if (t <= t1) {
-      const [t0, v0] = keys[i - 1];
-      return t1 === t0 ? v1 : v0 + ((v1 - v0) * (t - t0)) / (t1 - t0);
-    }
-  }
-  return keys[keys.length - 1][1];
-}
 
 /** `#rrggbb[aa]` as 0–1 sRGB components and alpha; bad input reads as opaque white. */
 export function parseHexColor(hex: string): [number, number, number, number] {

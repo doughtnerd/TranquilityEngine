@@ -3,8 +3,11 @@
 // the plugin's kinds declare. Creating, reading and opening them is the asset kind host's (ADR 0233:
 // `editor.assets.create`, `read`, `open`); what's left here is the plugin's own: whether a file is in the old
 // format, and the components of the node that plays an effect.
+import { normalizeAssetPath } from "../../../engine/scene/Assets";
+import { compileParticleEffect, type CompiledParticleEffect } from "../../../engine/scene/particleEffect";
 import type { ParticleGraph } from "../../../engine/scene/particleGraph";
 import { parseParticleGraph } from "../../../engine/scene/particleGraphFormat";
+import type { AssetResolver } from "../../../engine/scene/particleSubgraphs";
 import { openAssetDocument, type AssetDocument, type ComponentEntry, type EditorProject } from "../../../editor/sdk";
 
 /** The Particle Graph panel's id: the panel the plugin's three kinds open in. */
@@ -12,6 +15,18 @@ export const PARTICLE_GRAPH_PANEL = "particlegraph";
 
 /** The asset document editing the effect, sub-graph or block at `path`: its value, edits, undo and redo, saving. */
 export const particleDocument = (project: EditorProject, path: string): AssetDocument<ParticleGraph> => openAssetDocument<ParticleGraph>(project, path);
+
+/** Reads a sub-graph or custom block asset's JSON by `asset:` reference from the project (undefined when it isn't there). */
+export const projectParticleAssets = (project: EditorProject): AssetResolver => (ref) => {
+  const path = normalizeAssetPath(ref);
+  return project.assets.has(path) ? project.assets.get(path) : undefined;
+};
+
+/**
+ * An effect graph as the game will play it (ADR 0315): the particle-effect compile with the project's sub-graph
+ * and custom block assets. The Inspector, the Particle Graph's problems and its preview all read this.
+ */
+export const compileEffectGraph = (project: EditorProject, graph: ParticleGraph): CompiledParticleEffect => compileParticleEffect({ graph }, projectParticleAssets(project));
 
 /**
  * True if the effect file at `path` is in the old `myco.particles@1` format (ADR 0057), so it's written as a graph
