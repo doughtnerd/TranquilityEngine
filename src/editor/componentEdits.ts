@@ -7,9 +7,9 @@
 // scripts and engine components.
 import { pluginTitle } from "../plugins/manifest";
 import { isRuntimePluginActive, pluginOfComponent, runtimePluginManifest } from "../plugins/runtimeContext";
-import { Assets, type GameObject } from "../engine";
+import type { GameObject } from "../engine";
 import { componentCatalog, type ComponentInfo, isDataComponent, isEditableComponent, listComponents, meshLocalBounds, viewport } from "../engine/editor";
-import { isScenePath } from "../engine/scene/SceneLoader";
+import type { ResolvedNode } from "../engine/scene/resolvedScene";
 import {
   AddComponent,
   MoveComponent,
@@ -18,11 +18,9 @@ import {
   SetOverrides,
   sameTarget,
   type ComponentEntry,
-  type NodeEntry,
   type NodePath,
   type OverrideEntry,
   type SceneDocument,
-  type SceneFile,
 } from "./document";
 import type { OpenScene } from "./state";
 import { editableNow } from "./editGate";
@@ -62,25 +60,24 @@ export function newComponentEntry(node: GameObject, type: string): ComponentEntr
   return { type };
 }
 
-/** Overrides at `target` that add a component of `type`, as indexes into `list`. */
-const addedBy = (list: readonly OverrideEntry[], target: readonly string[], type: string) =>
-  list.flatMap((o, i) => (o.addComponent?.type === type && sameTarget(o.target, target) ? [i] : []));
+/**
+ * The node at `path` inside instance `path[0]` as the game makes it (the document's resolved view,
+ * ADR 0280), with `overrides` in place of the instance's own when given; null when it isn't there.
+ */
+function resolvedNode(doc: SceneDocument, path: NodePath, overrides?: readonly OverrideEntry[]): ResolvedNode | null {
+  return doc.resolve(path[0], overrides).nodes.find((n) => sameTarget(n.path, path)) ?? null;
+}
 
 /**
- * Why the component `info` can't be removed from the node at `path` (whose live node has
- * `liveCount` components of that type), or null if it can. On a prefab instance only components
- * added in this scene, and the first of a type the prefab has, can go: a `removeComponent`
- * override always removes the first.
+ * Why the component `info` can't be removed from the node at `path`, or null if it can. On a
+ * prefab instance only components added in this scene, and the first of a type the prefab has,
+ * can go: a `removeComponent` override always removes the first.
  */
-export function whyNotRemovable(doc: SceneDocument, path: NodePath, info: ComponentInfo, liveCount: number): string | null {
+export function whyNotRemovable(doc: SceneDocument, path: NodePath, info: ComponentInfo): string | null {
   if (!isEditableComponent(info.type)) return `every node has a ${shortName(info.type)}`;
-  const [id, ...target] = path;
-  if (!doc.isPrefabInstance(id)) {
-    const inFile = (doc.node(id).components ?? []).filter((c) => c.type === info.type).length;
-    return info.index < inFile ? null : "it isn't in the scene file (added by a script?)";
-  }
-  const fromPrefab = liveCount - addedBy(doc.node(id).overrides ?? [], target, info.type).length;
-  if (info.index < fromPrefab && info.index > 0) return `only the first ${shortName(info.type)} from the prefab can be removed here; edit the prefab for the others`;
+  const origin = originOf(doc, path, info);
+  if (!origin) return "it isn't in the scene file (added by a script?)";
+  if (origin.kind === "prefab" && info.index > 0) return `only the first ${shortName(info.type)} from the prefab can be removed here; edit the prefab for the others`;
   return null;
 }
 
@@ -106,14 +103,13 @@ export function addComponentTo(scene: OpenScene, targets: readonly { path: NodeP
 }
 
 /**
- * The overrides after removing component `index` of `type` at `target`: the override that added
- * it is dropped (or, for one from the prefab, a `removeComponent` override is added), and field
- * overrides for that component go while later ones of the type shift down by one.
+ * The overrides after removing component `index` of `type` at `target` (which comes from
+ * `origin`): the override that added it is dropped (or, for one from the prefab, a
+ * `removeComponent` override is added), and field overrides for that component go while later
+ * ones of the type shift down by one.
  */
-function overridesWithout(list: readonly OverrideEntry[], target: readonly string[], type: string, index: number, liveCount: number): OverrideEntry[] {
-  const added = addedBy(list, target, type);
-  const fromPrefab = liveCount - added.length;
-  const dropAt = index >= fromPrefab ? added[index - fromPrefab] : -1;
+function overridesWithout(list: readonly OverrideEntry[], target: readonly string[], type: string, index: number, origin: Origin): OverrideEntry[] {
+  const dropAt = origin?.kind === "added" ? origin.at : -1;
   const out: OverrideEntry[] = [];
   list.forEach((o, i) => {
     if (i === dropAt) return;
@@ -144,11 +140,11 @@ function overridesWithout(list: readonly OverrideEntry[], target: readonly strin
 export function removeComponentFrom(scene: OpenScene, targets: readonly { path: NodePath; node: GameObject; info: ComponentInfo }[]): number {
   if (!editableNow({ kind: "scene", scene })) return 0;
   const { doc, stack } = scene;
-  const able = targets.filter((t) => whyNotRemovable(doc, t.path, t.info, countOf(t.node, t.info.type)) === null);
+  const able = targets.filter((t) => whyNotRemovable(doc, t.path, t.info) === null);
   if (able.length === 0) return 0;
   const type = shortName(able[0].info.type);
   undoStep(stack, able.length === 1 ? `Remove ${type}` : `Remove ${type} from ${able.length} nodes`, () => {
-    for (const { path, node, info } of able) {
+    for (const { path, info } of able) {
       const [id, ...target] = path;
       if (!doc.isPrefabInstance(id)) {
         // The info's index counts components of its type; find that entry in the node's list.
@@ -156,7 +152,7 @@ export function removeComponentFrom(scene: OpenScene, targets: readonly { path: 
         const positions = list.flatMap((c, i) => (c.type === info.type ? [i] : []));
         stack.execute(new RemoveComponent(id, positions[info.index]));
       } else {
-        const next = overridesWithout(doc.node(id).overrides ?? [], target, info.type, info.index, countOf(node, info.type));
+        const next = overridesWithout(doc.node(id).overrides ?? [], target, info.type, info.index, originOf(doc, path, info));
         stack.execute(new SetOverrides(id, `Remove ${type}`, next));
       }
     }
@@ -164,40 +160,44 @@ export function removeComponentFrom(scene: OpenScene, targets: readonly { path: 
   return able.length;
 }
 
-const countOf = (node: GameObject, type: string) => listComponents(node).filter((c) => c.type === type).length;
-
 /** Where a live component comes from: an entry in the node's own list, the prefab, or an `addComponent` override. */
 export type Origin = { kind: "file"; position: number } | { kind: "prefab" } | { kind: "added"; at: number } | null;
 
-export function originOf(doc: SceneDocument, path: NodePath, info: ComponentInfo, liveCount: number): Origin {
-  const [id, ...target] = path;
+/**
+ * Where component `info` (the `index`-th of its type) of the node at `path` comes from. Inside a
+ * prefab instance this is the resolved view's word on it (ADR 0280): added by one of this
+ * instance's `addComponent` overrides, or from the prefab files (their own overrides included).
+ * Null when the file doesn't have it (a script added it).
+ */
+export function originOf(doc: SceneDocument, path: NodePath, info: Pick<ComponentInfo, "type" | "index">): Origin {
+  const [id] = path;
   if (!doc.isPrefabInstance(id)) {
     const positions = (doc.node(id).components ?? []).flatMap((c, i) => (c.type === info.type ? [i] : []));
     return info.index < positions.length ? { kind: "file", position: positions[info.index] } : null;
   }
-  const added = addedBy(doc.node(id).overrides ?? [], target, info.type);
-  const fromPrefab = liveCount - added.length;
-  return info.index < fromPrefab ? { kind: "prefab" } : { kind: "added", at: added[info.index - fromPrefab] };
+  const c = resolvedNode(doc, path)?.components.filter((x) => x.type === info.type)[info.index];
+  if (!c) return null;
+  return c.added && sameTarget(c.added.instance, [id]) ? { kind: "added", at: c.added.override } : { kind: "prefab" };
 }
 
 /** Why the component `info` can't be switched on or off, or null if it can. */
-export function whyNotToggleable(doc: SceneDocument, path: NodePath, info: ComponentInfo, liveCount: number): string | null {
+export function whyNotToggleable(doc: SceneDocument, path: NodePath, info: ComponentInfo): string | null {
   if (info.kind !== "behavior") return `${shortName(info.type)} is always on`;
-  return originOf(doc, path, info, liveCount) ? null : "it isn't in the scene file (added by a script?)";
+  return originOf(doc, path, info) ? null : "it isn't in the scene file (added by a script?)";
 }
 
 /** Start each component enabled or disabled, as one undo step. Returns how many changed. */
 export function setComponentEnabled(scene: OpenScene, targets: readonly { path: NodePath; node: GameObject; info: ComponentInfo }[], enabled: boolean): number {
   if (!editableNow({ kind: "scene", scene })) return 0;
   const { doc, stack } = scene;
-  const able = targets.filter((t) => t.info.enabled !== enabled && whyNotToggleable(doc, t.path, t.info, countOf(t.node, t.info.type)) === null);
+  const able = targets.filter((t) => t.info.enabled !== enabled && whyNotToggleable(doc, t.path, t.info) === null);
   if (able.length === 0) return 0;
   const type = shortName(able[0].info.type);
   const label = `${enabled ? "Enable" : "Disable"} ${type}${able.length > 1 ? ` on ${able.length} nodes` : ""}`;
   undoStep(stack, label, () => {
-    for (const { path, node, info } of able) {
+    for (const { path, info } of able) {
       const [id, ...target] = path;
-      const origin = originOf(doc, path, info, countOf(node, info.type))!;
+      const origin = originOf(doc, path, info)!;
       if (origin.kind === "file") {
         stack.execute(new SetComponentEnabled(id, origin.position, enabled));
         continue;
@@ -297,21 +297,19 @@ export const missingBadge = (type: string): string => {
 
 /**
  * Why the `k`-th missing component of `type` on the node at `path` (one whose script is gone,
- * ADR 0030; `missingCount` of that type) can't be removed, or null if it can: ones written in
- * this scene can go, ones that come from a prefab file are removed in the prefab.
+ * ADR 0030) can't be removed, or null if it can: ones written in this scene can go, ones that
+ * come from a prefab file are removed in the prefab.
  */
-export function whyNotRemovableMissing(doc: SceneDocument, path: NodePath, type: string, k: number, missingCount: number): string | null {
-  const [id, ...target] = path;
-  if (!doc.isPrefabInstance(id)) return null;
-  const added = addedBy(doc.node(id).overrides ?? [], target, type).length;
-  return k >= missingCount - added ? null : "it comes from the prefab; remove it there";
+export function whyNotRemovableMissing(doc: SceneDocument, path: NodePath, type: string, k: number): string | null {
+  if (!doc.isPrefabInstance(path[0])) return null;
+  return originOf(doc, path, { type, index: k })?.kind === "added" ? null : "it comes from the prefab; remove it there";
 }
 
 /** Remove the `k`-th missing component of `type` from the node at `path`, as one undo step. */
-export function removeMissingComponent(scene: OpenScene, path: NodePath, type: string, k: number, missingCount: number): boolean {
+export function removeMissingComponent(scene: OpenScene, path: NodePath, type: string, k: number): boolean {
   if (!editableNow({ kind: "scene", scene })) return false;
   const { doc, stack } = scene;
-  if (whyNotRemovableMissing(doc, path, type, k, missingCount)) return false;
+  if (whyNotRemovableMissing(doc, path, type, k)) return false;
   const [id, ...target] = path;
   const label = `Remove missing ${shortName(type)}`;
   if (!doc.isPrefabInstance(id)) {
@@ -319,55 +317,18 @@ export function removeMissingComponent(scene: OpenScene, path: NodePath, type: s
     if (at === undefined) return false;
     stack.execute(new RemoveComponent(id, at));
   } else {
-    stack.execute(new SetOverrides(id, label, overridesWithout(doc.node(id).overrides ?? [], target, type, k, missingCount)));
+    stack.execute(new SetOverrides(id, label, overridesWithout(doc.node(id).overrides ?? [], target, type, k, originOf(doc, path, { type, index: k }))));
   }
   return true;
 }
 
 /**
- * The order an instance's node at `target` has without an order override: its components in the
- * prefab file, then `overrides` (removals take the first of a type, additions go last). Null when
- * that can't be told from the file alone (a node inside a nested instance that has overrides of
- * its own, or a missing file).
+ * The order of the behaviours of the node at `target` inside instance `id` with `overrides` in
+ * place of the instance's own (the resolved view, ADR 0280). Null when the node isn't there.
  */
 function prefabOrder(doc: SceneDocument, id: string, target: readonly string[], overrides: readonly OverrideEntry[]): string[] | null {
-  const node = prefabNodeEntry(doc, id, target);
-  if (!node) return null;
-  const order = (node.components ?? []).map((c) => c.type).filter((t) => t !== "engine.Transform" && !isDataComponent(t));
-  for (const o of overrides) {
-    if (!sameTarget(o.target, target)) continue;
-    if (o.removeComponent && order.includes(o.removeComponent)) order.splice(order.indexOf(o.removeComponent), 1);
-    if (o.addComponent && !isDataComponent(o.addComponent.type)) order.push(o.addComponent.type);
-  }
-  return order;
-}
-
-/**
- * The plain node entry in a prefab file that the node at `target` inside instance `id` comes
- * from, following nested instances. Null when that can't be told from the files alone (a node
- * inside a nested instance that has overrides of its own, a sub-scene's own node, a missing file).
- */
-export function prefabNodeEntry(doc: SceneDocument, id: string, target: readonly string[]): NodeEntry | null {
-  let path = doc.node(id).prefab!;
-  const ids = [...target];
-  for (;;) {
-    if (!Assets.has(path)) return null;
-    const file = Assets.json<SceneFile>(path);
-    const top = file.nodes.filter((n) => !n.parent);
-    if (isScenePath(path) && ids.length === 0) return null; // a sub-scene's own node: not in its file
-    let node = isScenePath(path) ? top.find((n) => n.id === ids.shift()) : top[0];
-    while (node && ids.length > 0 && !node.prefab) {
-      const next = ids.shift();
-      node = file.nodes.find((n) => n.id === next && n.parent === node!.id);
-    }
-    if (!node) return null;
-    if (node.prefab) {
-      if (ids.length === 0 || node.overrides?.length) return null;
-      path = node.prefab;
-      continue;
-    }
-    return node;
-  }
+  const node = resolvedNode(doc, [id, ...target], overrides);
+  return node ? node.components.map((c) => c.type).filter((t) => t !== "engine.Transform" && !isDataComponent(t)) : null;
 }
 
 export { componentCatalog };

@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { Engine, GameObject, Input } from "../engine";
+import { Assets, Engine, GameObject, Input } from "../engine";
 import { componentCatalog, listComponents, type ComponentInfo } from "../engine/editor";
 import { addComponentTo, inFileOrder, moveComponent, newComponentEntry, removeComponentFrom, setComponentEnabled, whyNotAddable, whyNotRemovable, whyNotReorderable, whyNotToggleable } from "./componentEdits";
-import { SetField, SetOverrides, type NodePath } from "./document";
+import { AddNode, SetField, SetOverrides, type NodePath } from "./document";
 import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile } from "./project";
 import { editorSettings, useProjectAssets } from "./projects";
@@ -79,7 +79,7 @@ describe("on plain nodes", () => {
   });
 
   it("never removes Transform", () => {
-    expect(whyNotRemovable(scene().doc, ["bird"], info("bird", "engine.Transform"), 1)).toMatch(/every node has/);
+    expect(whyNotRemovable(scene().doc, ["bird"], info("bird", "engine.Transform"))).toMatch(/every node has/);
   });
 });
 
@@ -106,10 +106,20 @@ describe("on prefab instances", () => {
     expect(types("bg-a")).toContain("engine.SpriteRenderer");
   });
 
-  it("only removes the first of a type the prefab has (an override always removes the first)", () => {
-    const second = { type: "engine.BoxCollider2D", index: 1 } as ComponentInfo;
-    expect(whyNotRemovable(scene().doc, ["bg-a"], second, 2)).toMatch(/only the first/);
-    expect(whyNotRemovable(scene().doc, ["bg-a"], { ...second, index: 0 }, 2)).toBeNull();
+  it("only removes the first of a type the prefab has (an override always removes the first), and any it added", () => {
+    const twin = Assets.fromObject({ "prefabs/twin.prefab.json": { format: "myco.scene@4", nodes: [{ id: "root", components: [{ type: "engine.BoxCollider2D" }, { type: "engine.BoxCollider2D" }] }] } });
+    Assets.addSource(twin);
+    try {
+      scene().stack.execute(new AddNode({ id: "twin", prefab: "prefabs/twin.prefab.json" }));
+      const box = (index: number) => ({ type: "engine.BoxCollider2D", kind: "behavior", index }) as ComponentInfo;
+      expect(whyNotRemovable(scene().doc, ["twin"], box(1))).toMatch(/only the first/);
+      expect(whyNotRemovable(scene().doc, ["twin"], box(0))).toBeNull();
+      expect(whyNotRemovable(scene().doc, ["twin"], box(2))).toMatch(/isn't in the scene file/);
+      expect(addComponentTo(scene(), [target("twin")], "engine.BoxCollider2D")).toBe(1);
+      expect(whyNotRemovable(scene().doc, ["twin"], box(2))).toBeNull(); // added in this scene
+    } finally {
+      Assets.removeSource(twin);
+    }
   });
 });
 
@@ -171,8 +181,8 @@ describe("switching components on and off", () => {
   });
 
   it("leaves Transform and data components always on", () => {
-    expect(whyNotToggleable(scene().doc, ["bird"], info("bird", "engine.Transform"), 1)).toMatch(/always on/);
-    expect(whyNotToggleable(scene().doc, ["bg-a"], info("bg-a", "game.Scroller"), 1)).toMatch(/always on/);
+    expect(whyNotToggleable(scene().doc, ["bird"], info("bird", "engine.Transform"))).toMatch(/always on/);
+    expect(whyNotToggleable(scene().doc, ["bg-a"], info("bg-a", "game.Scroller"))).toMatch(/always on/);
   });
 });
 

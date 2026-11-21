@@ -152,8 +152,8 @@ describe("missing components", () => {
   it("load anyway in the editor and can be removed from a plain node, undoably", () => {
     const scene = openScene.value!;
     expect(scene.sync.missingComponents(["wheel"])).toHaveLength(1);
-    expect(whyNotRemovableMissing(scene.doc, ["wheel"], "game.Wheel", 0, 1)).toBeNull();
-    expect(removeMissingComponent(scene, ["wheel"], "game.Wheel", 0, 1)).toBe(true);
+    expect(whyNotRemovableMissing(scene.doc, ["wheel"], "game.Wheel", 0)).toBeNull();
+    expect(removeMissingComponent(scene, ["wheel"], "game.Wheel", 0)).toBe(true);
     expect(scene.doc.node("wheel").components!.map((c) => c.type)).toEqual(["engine.Transform"]);
     expect(scene.sync.missingComponents(["wheel"])).toEqual([]);
     scene.stack.undo();
@@ -169,9 +169,9 @@ describe("missing components", () => {
       ]),
     );
     expect(scene.sync.missingComponents(["bg-a"])).toEqual([{ type: "game.Ghost", data: { boo: 1 } }]);
-    removeMissingComponent(scene, ["bg-a"], "game.Ghost", 0, 1);
+    removeMissingComponent(scene, ["bg-a"], "game.Ghost", 0);
     expect(scene.doc.node("bg-a").overrides).toBeUndefined();
-    expect(whyNotRemovableMissing(scene.doc, ["bg-a"], "game.Ghost", 0, 1)).toMatch(/comes from the prefab/); // none added any more
+    expect(whyNotRemovableMissing(scene.doc, ["bg-a"], "game.Ghost", 0)).toMatch(/comes from the prefab/); // none added any more
   });
 
   it("a component added to a plain node with an unknown type shows as missing", () => {

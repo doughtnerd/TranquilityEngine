@@ -41,7 +41,7 @@ const target = (key: string) => {
 };
 const info = (key: string, type: string, index = 0) => listComponents(target(key).node).find((c) => c.type === type && c.index === index)!;
 const fieldOf = (key: string, type: string, name: string): FieldValue => info(key, type).fields.find((f) => f.name === name)!;
-const worldsOf = (key: string, type: string) => componentWorlds(scene().doc, target(key).path, info(key, type), 1)!;
+const worldsOf = (key: string, type: string) => componentWorlds(scene().doc, target(key).path, info(key, type))!;
 
 describe("field editors (ADR 0042)", () => {
   it("picks list kinds with their item kind, and choice and quaternion kinds", () => {

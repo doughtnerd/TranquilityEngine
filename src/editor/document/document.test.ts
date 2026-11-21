@@ -13,6 +13,7 @@ import {
   RenameNode,
   ReparentNode,
   SceneDocument,
+  SetOverrides,
   SetActive,
   SetField,
   WorldSync,
@@ -72,6 +73,21 @@ describe("SceneDocument", () => {
     expect(doc.fieldValue("bird", "engine.Transform", "position")).toEqual([-4, 1, 0]);
     expect(doc.overrideValue("bg-b", [], "engine.Transform", "position")).toEqual([32, 3, 0]);
     expect(doc.references().filter((r) => r.path[0] === "game").map((r) => r.to)).toEqual(["bird", "spawner", "score", "message", "music-readout"]);
+  });
+
+  it("finds references in an instance's added components, counted among the node's components (ADR 0280)", () => {
+    // bg-b instances the background prefab, whose root has one SpriteRenderer.
+    const added = { type: "engine.SpriteRenderer", data: { sprite: "x", follow: { $node: "bird" }, path: [{ $node: "score" }, null, { $node: "bird" }] } };
+    stack.execute(new SetOverrides("bg-b", "Add", [...doc.overrides("bg-b"), { addComponent: added }, { addNodes: [{ id: "n", components: [{ type: "game.X", data: { to: { $node: "bird" } } }] }] }]));
+    const refs = doc.references().filter((r) => r.path[0] === "bg-b");
+    expect(refs.map((r) => [r.path.join("/"), r.type, r.index, r.field, r.to, r.element])).toEqual([
+      ["bg-b", "engine.SpriteRenderer", 1, "follow", "bird", undefined],
+      ["bg-b", "engine.SpriteRenderer", 1, "path", "score", 0],
+      ["bg-b", "engine.SpriteRenderer", 1, "path", "bird", 2],
+    ]); // the added node's reference points among the added nodes
+    // A later field override replaces the added component's value: only the override's counts.
+    stack.execute(new SetOverrides("bg-b", "Set", [...doc.overrides("bg-b"), { component: "engine.SpriteRenderer", index: 1, field: "follow", value: null }]));
+    expect(doc.references().filter((r) => r.path[0] === "bg-b" && r.field === "follow")).toEqual([]);
   });
 
   it("never modifies the caller's JSON", () => {

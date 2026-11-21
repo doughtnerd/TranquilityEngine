@@ -6,13 +6,15 @@ import { migratePartPivots } from "./pivotMigration";
 import { migrateRotationsToQuaternions } from "./rotationMigration";
 import { migrateToUnityCoordinates } from "./handednessMigration";
 import { Component } from "../core/Component";
-import { getDataComponentDef } from "../core/data";
+import { getDataComponentDef, type DataComponentDef, type Schema } from "../core/data";
 import { Color, DEG2RAD, Quaternion, Vector2, Vector3 } from "../core/math";
 import { AssetRef, PlainObject, component, field, getComponentClass, getComponentId, getFields, isListType, type ComponentClass, type FieldInfo, type ScalarFieldType } from "../core/registry";
 import type { World } from "../core/World";
 import { Assets } from "./Assets";
 import { GameObject, _componentAllowedIn, type InstantiateOptions } from "./GameObject";
 import { assetRefs } from "./resolvedScene";
+import { nodeRefId } from "./nodeReferences";
+import { foldNodes, type FoldAdapter, type FoldPath, type FoldScope, type NodeStep } from "./overrideFold";
 
 export const SCENE_FORMAT = "myco.scene";
 /**
@@ -158,13 +160,8 @@ export class SceneInstance extends Component {
   @field(String) source = "";
 }
 
-interface Instance {
-  node: GameObject;
-  nested?: Map<string, Instance>;
-}
-
 interface Fixup {
-  apply(resolve: (scope: Map<string, Instance>, id: string) => GameObject | null): void;
+  apply(resolve: (scope: FoldScope<GameObject>, id: string) => GameObject | null): void;
 }
 
 /** @internal Editor hooks for `instantiateFile` (ADR 0026). Runtime loads pass none. */
@@ -186,174 +183,141 @@ export interface InstantiateHooks {
   onProblem?(message: string, path: readonly string[], component?: ComponentEntry): void;
 }
 
-class Instantiation {
+/** The handle instantiation keeps on a Transform entry (the node's Transform, not a Component). */
+const TRANSFORM_ENTRY = Symbol("transform");
+/** Instantiation's handle on one component entry: a behaviour, a data component's definition, or the Transform. */
+type Made = Component | DataComponentDef<Schema> | typeof TRANSFORM_ENTRY;
+
+/**
+ * Instantiation (ADR 0013, 0016): the prefab-override fold's adapter that makes GameObjects and
+ * components in a World. The fold (`overrideFold.ts`, ADR 0280) decides what the file and its
+ * overrides come to; this only builds it, converts field values, and resolves `{"$node"}`
+ * references once every node exists.
+ */
+class Instantiation implements FoldAdapter<GameObject, Made> {
   readonly fixups: Fixup[] = [];
-  private prefix: string[] = [];
-  private top: Map<string, Instance> | null = null;
-  /** Path (as for `onNode`) of the node being filled in, for `onProblem`. */
-  private at: readonly string[] = [];
-  /** Components left out of this World (per-World components), by node. */
-  private readonly skipped = new Map<GameObject, Set<string>>();
-  /** `worlds` overrides from prefab instances, by node path, component id and index (`a/b#type#0`). */
-  private readonly worldsOverrides = new Map<string, string[]>();
-  /** A prefab root's node path → its instance's path, which overrides target with an empty `target`. */
-  private readonly rootAliases = new Map<string, string>();
+  private top: FoldScope<GameObject> | null = null;
   constructor(readonly world: World, private readonly hooks: InstantiateHooks = {}) {}
 
+  /** Create every node of `file` under `parent`; returns its top-level nodes. */
+  file(file: SceneFile, parent: GameObject, path: string): GameObject[] {
+    const { roots, scope } = foldNodes(this, file.nodes, parent, path);
+    this.top = scope;
+    return roots;
+  }
+
   /** Stop on a problem, or (editor) report it so the caller can skip the thing and carry on. */
-  private problem(message: string, component?: ComponentEntry): void {
+  problem(message: string, at: FoldPath, component?: ComponentEntry): void {
     if (!this.hooks.onProblem) throw new Error(message);
-    this.hooks.onProblem(message, this.at, component);
+    this.hooks.onProblem(message, at, component);
   }
 
-  /** Create all nodes of `file` under `parent`; returns top-level nodes and the id map. */
-  file(file: SceneFile, parent: GameObject, path: string): { roots: GameObject[]; ids: Map<string, Instance> } {
-    const ids = new Map<string, Instance>();
-    this.top ??= ids;
-    const roots: GameObject[] = [];
-    const pending = [...file.nodes];
-    let progress = true;
-    while (pending.length && progress) {
-      progress = false;
-      for (let i = 0; i < pending.length; i++) {
-        const entry = pending[i];
-        if (entry.parent && !ids.has(entry.parent)) continue; // parent not created yet
-        pending.splice(i--, 1);
-        progress = true;
-        const parentNode = entry.parent ? ids.get(entry.parent)!.node : parent;
-        const inst = this.node(entry, parentNode, ids, path);
-        if (ids.has(entry.id)) throw new Error(`${path}: duplicate node id "${entry.id}".`);
-        ids.set(entry.id, inst);
-        this.hooks.onNode?.(inst.node, [...this.prefix, entry.id]);
-        if (!entry.parent) roots.push(inst.node);
-      }
-    }
-    if (pending.length) throw new Error(`${path}: node(s) ${pending.map((n) => `"${n.id}"`).join(", ")} reference a missing parent.`);
-    return { roots, ids };
+  invalid(message: string): void {
+    throw new Error(message);
   }
 
-  private node(entry: NodeEntry, parent: GameObject, scope: Map<string, Instance>, path: string): Instance {
-    if (entry.prefab && this.hooks.onProblem && !Assets.has(entry.prefab)) {
-      // Editor: a prefab file that's gone shows as an empty node, so the rest of the scene loads.
-      this.at = [...this.prefix, entry.id];
-      this.problem(`${path}: prefab "${entry.prefab}" not found (deleted?); "${entry.name ?? entry.id}" shows as an empty node.`);
-      const node = this.world._createNode(entry.name ?? entry.id, parent.entity, { transform: true, id: entry.id });
-      if (entry.active === false) node.setActive(false);
-      return { node };
-    }
-    if (entry.prefab) {
-      const prefab = loadSceneFile(entry.prefab);
-      // A prefab is a single node, and its instance is that node. A scene is not a node of its
-      // own file: like SceneManager.load, its instance is a scene node holding the file's
-      // top-level nodes (ADR 0016), here with a Transform so a sub-scene can be placed in its
-      // parent scene. Overrides with an empty target apply to that scene node.
-      let container: GameObject | null = null;
-      if (isScenePath(entry.prefab)) {
-        container = this.world._createNode(entry.name ?? sceneName(entry.prefab), parent.entity, { transform: true, id: entry.id });
-        this.world.setSceneNode(container.entity);
-        container.addBehavior(SceneInstance, { source: entry.prefab });
-      }
-      this.noteWorldsOverrides(entry, prefab);
-      this.prefix.push(entry.id);
-      let created: { roots: GameObject[]; ids: Map<string, Instance> };
-      try {
-        created = this.file(prefab, container ?? parent, entry.prefab);
-      } finally {
-        this.prefix.pop();
-      }
-      const { roots, ids } = created;
-      if (!container && roots.length !== 1) throw new Error(`${entry.prefab}: a prefab must have exactly one top-level node (has ${roots.length}).`);
-      const node = container ?? roots[0];
-      this.world.ids[node.entity] = entry.id;
-      if (entry.name) node.name = entry.name;
-      if (entry.tags) node.tags = entry.tags;
-      if (entry.active === false) node.setActive(false);
-      const inst: Instance = { node, nested: ids };
-      this.at = [...this.prefix, entry.id];
-      for (const o of entry.overrides ?? []) this.override(inst, o, scope, path);
-      return inst;
-    }
-    const node = this.world._createNode(entry.name ?? entry.id, parent.entity, { transform: entry.transform !== false, id: entry.id });
+  load(path: string): SceneFile | undefined {
+    // Editor: a prefab file that's gone shows as an empty node (`missing`), so the rest of the scene loads.
+    if (this.hooks.onProblem && !Assets.has(path)) return undefined;
+    return loadSceneFile(path);
+  }
+
+  missing(step: NodeStep<GameObject>, file: string): GameObject {
+    const { entry } = step;
+    this.problem(`${step.source}: prefab "${file}" not found (deleted?); "${entry.name ?? entry.id}" shows as an empty node.`, step.at);
+    const node = this.world._createNode(entry.name ?? entry.id, step.parent!.entity, { transform: true, id: entry.id });
+    if (entry.active === false) node.setActive(false);
+    return node;
+  }
+
+  node({ entry, parent }: NodeStep<GameObject>): GameObject {
+    const node = this.world._createNode(entry.name ?? entry.id, parent!.entity, { transform: entry.transform !== false, id: entry.id });
     if (entry.componentNode) this.world.setComponentNode(node.entity, true);
     if (entry.tags) node.tags = entry.tags;
     if (entry.active === false) node.setActive(false);
-    this.at = [...this.prefix, entry.id];
-    const counts = new Map<string, number>();
-    for (const c of entry.components ?? []) {
-      const index = counts.get(c.type) ?? 0;
-      counts.set(c.type, index + 1);
-      this.component(node, c, scope, path, this.worldsOverride(c.type, index));
-    }
-    return { node };
+    return node;
   }
 
   /**
-   * Record an instance's `worlds` overrides before its prefab's nodes are created, since they
-   * decide whether a component is created at all. Outer instances' overrides win over nested
-   * ones (they're recorded first).
+   * A scene is not a node of its own file: like SceneManager.load, its instance is a scene node
+   * holding the file's top-level nodes (ADR 0016), here with a Transform so a sub-scene can be
+   * placed in its parent scene. Overrides with an empty target apply to that scene node.
    */
-  private noteWorldsOverrides(entry: NodeEntry, prefab: SceneFile): void {
-    const base = [...this.prefix, entry.id];
-    if (!isScenePath(entry.prefab!)) {
-      const root = prefab.nodes.find((n) => !n.parent);
-      if (root) this.rootAliases.set([...base, root.id].join("/"), base.join("/"));
-    }
-    for (const o of entry.overrides ?? []) {
-      if (!o.component || o.field !== undefined || o.worlds === undefined) continue;
-      const key = `${[...base, ...(o.target ?? [])].join("/")}#${o.component}#${o.index ?? 0}`;
-      if (!this.worldsOverrides.has(key)) this.worldsOverrides.set(key, o.worlds);
-    }
+  sceneNode({ entry, parent }: NodeStep<GameObject>, scene: string): GameObject {
+    const container = this.world._createNode(entry.name ?? sceneName(scene), parent!.entity, { transform: true, id: entry.id });
+    this.world.setSceneNode(container.entity);
+    container.addBehavior(SceneInstance, { source: scene });
+    return container;
   }
 
-  /** A `worlds` override for component `index` of `type` on the node being created, if an instance set one. */
-  private worldsOverride(type: string, index: number): string[] | undefined {
-    if (this.worldsOverrides.size === 0) return undefined;
-    let key: string | undefined = this.at.join("/");
-    while (key !== undefined) {
-      const found = this.worldsOverrides.get(`${key}#${type}#${index}`);
-      if (found) return found;
-      key = this.rootAliases.get(key);
-    }
-    return undefined;
+  placed(node: GameObject, at: FoldPath, step: NodeStep<GameObject>): void {
+    // A prefab instance is its prefab's root node, under the instance entry's id.
+    if (step.entry.prefab) this.world.ids[node.entity] = step.entry.id;
+    this.hooks.onNode?.(node, at);
   }
 
-  component(node: GameObject, entry: ComponentEntry, scope: Map<string, Instance>, path: string, worldsOverride?: readonly string[]): void {
+  component(node: GameObject, entry: ComponentEntry, worlds: readonly string[] | undefined, scope: FoldScope<GameObject>, source: string, at: FoldPath): Made | undefined {
     const data = entry.data ?? {};
-    const worlds = worldsOverride ?? entry.worlds;
     if (entry.type === "engine.Transform") {
       applyTransform(node, data);
-      return;
+      return TRANSFORM_ENTRY;
     }
+    // Per-World components (ADR 0033 §3): not created in other Worlds; overrides aimed at them are skipped too.
     const def = getDataComponentDef(entry.type);
     if (def) {
-      if (!_componentAllowedIn(this.world, undefined, worlds, entry.type)) return this.skip(node, entry.type);
+      if (!_componentAllowedIn(this.world, undefined, worlds, entry.type)) return undefined;
       node.addData(def, data as Record<string, number>);
-      return;
+      return def;
     }
     const type = getComponentClass(entry.type) as (new () => Component) | undefined;
     if (!type) {
-      this.problem(`${path}: unknown component type "${entry.type}". Is the class imported and decorated with @behavior("${entry.type}")?`, entry);
-      return;
+      this.problem(`${source}: unknown component type "${entry.type}". Is the class imported and decorated with @behavior("${entry.type}")?`, at, entry);
+      return undefined;
     }
-    // Per-World components (ADR 0033 §3): not created in other Worlds; overrides aimed at them are skipped too.
-    if (!_componentAllowedIn(this.world, type, worlds, entry.type)) return this.skip(node, entry.type);
+    if (!_componentAllowedIn(this.world, type, worlds, entry.type)) return undefined;
     const c = node.addBehavior(type);
     if (entry.enabled === false) c._enabled = false; // lifecycle is deferred until the batch ends
-    this.fields(c, data, scope, path);
+    this.fields(c, data, scope, source);
+    return c;
   }
 
-  /** Note a component left out of this World, so overrides aimed at it are skipped rather than reported. */
-  private skip(node: GameObject, id: string): void {
-    let ids = this.skipped.get(node);
-    if (!ids) this.skipped.set(node, (ids = new Set()));
-    ids.add(id);
+  name(node: GameObject, name: string): void {
+    node.name = name;
+  }
+  tags(node: GameObject, tags: string[]): void {
+    node.tags = tags;
+  }
+  active(node: GameObject, active: boolean): void {
+    node.setActive(active);
+  }
+  removeNode(node: GameObject): void {
+    this.world._destroyNode(node.entity);
+    this.world._flushDestroyed();
+  }
+  removeComponent(node: GameObject, c: Made): void {
+    if (c instanceof Component) this.world._removeComponentImmediate(c);
+    else if (c !== TRANSFORM_ENTRY) node.removeData(c);
+  }
+  order(node: GameObject, ordered: readonly Made[]): void {
+    // The World orders behaviours only (Transform and data components are kept apart); ones the fold doesn't know follow.
+    const behaviours = ordered.filter((c): c is Component => c instanceof Component);
+    const rest = this.world._componentsOf(node.entity).filter((c) => !behaviours.includes(c));
+    this.world._reorderComponents(node.entity, [...behaviours, ...rest]);
+  }
+  enabled(_node: GameObject, c: Made, enabled: boolean): void {
+    if (c instanceof Component) c._enabled = enabled; // lifecycle is deferred until the batch ends
+  }
+  field(node: GameObject, c: Made | undefined, type: string, _index: number, field: string, value: unknown, scope: FoldScope<GameObject>, source: string): void {
+    if (c === undefined || c === TRANSFORM_ENTRY) {
+      if (type === "engine.Transform") applyTransform(node, { [field]: value });
+      return;
+    }
+    if (c instanceof Component) return this.fields(c, { [field]: value }, scope, source);
+    const view = node.getData(c) as Record<string, number> | null;
+    if (view) view[field] = Number(value);
   }
 
-  private wasSkipped(node: GameObject, id: string): boolean {
-    return this.skipped.get(node)?.has(id) ?? false;
-  }
-
-  fields(c: Component, data: Record<string, unknown>, scope: Map<string, Instance>, path: string): void {
+  fields(c: Component, data: Record<string, unknown>, scope: FoldScope<GameObject>, path: string): void {
     const type = c.constructor as ComponentClass;
     const declared = getFields(type);
     for (const [key, raw] of Object.entries(data)) {
@@ -366,112 +330,8 @@ class Instantiation {
     }
   }
 
-  private override(inst: Instance, o: OverrideEntry, scope: Map<string, Instance>, path: string): void {
-    let current = inst;
-    // The instance whose id map the target's node belongs to (a nested prefab instance has its own), and its path.
-    let container = inst;
-    let containerAt = this.at;
-    const target = o.target ?? [];
-    for (let i = 0; i < target.length; i++) {
-      const next = current.nested?.get(target[i]);
-      if (!next) {
-        this.problem(`${path}: override target "${target.join("/")}" not found in prefab instance.`);
-        return;
-      }
-      current = next;
-      if (current.nested) {
-        container = current;
-        containerAt = [...this.at, ...target.slice(0, i + 1)];
-      }
-    }
-    const node = current.node;
-    const previous = this.at;
-    this.at = [...this.at, ...target];
-    try {
-      if (o.removeNode) {
-        if (target.length === 0) this.problem(`${path}: a removeNode override needs a target (the instance itself can't be removed this way).`);
-        else {
-          this.world._destroyNode(node.entity);
-          this.world._flushDestroyed();
-          container.nested?.delete(target[target.length - 1]);
-        }
-        return;
-      }
-      if (o.addNodes) this.addNodes(o.addNodes, current, container, containerAt, scope, path);
-      this.applyOverride(node, o, scope, path);
-    } finally {
-      this.at = previous;
-    }
-  }
-
-  /** An `addNodes` override: create the nodes under `parent`, and register their ids in `container` so later overrides can target them. */
-  private addNodes(nodes: NodeEntry[], parent: Instance, container: Instance, containerAt: readonly string[], scope: Map<string, Instance>, path: string): void {
-    container.nested ??= new Map();
-    const taken = nodes.find((n) => container.nested!.has(n.id));
-    if (taken) {
-      this.problem(`${path}: added node id "${taken.id}" is already used in prefab instance.`);
-      return;
-    }
-    const previous = this.prefix;
-    this.prefix = [...containerAt];
-    try {
-      const { ids } = this.file({ format: "", nodes }, parent.node, path);
-      for (const [id, inst] of ids) container.nested.set(id, inst);
-    } finally {
-      this.prefix = previous;
-    }
-  }
-
-  private applyOverride(node: GameObject, o: OverrideEntry, scope: Map<string, Instance>, path: string): void {
-    if (o.name !== undefined) node.name = o.name;
-    if (o.tags !== undefined) node.tags = o.tags;
-    if (o.active !== undefined) node.setActive(o.active);
-    if (o.removeComponent) {
-      const type = getComponentClass(o.removeComponent);
-      const def = getDataComponentDef(o.removeComponent);
-      if (def) node.removeData(def);
-      else if (type) {
-        const c = node.getBehavior(type as abstract new () => Component);
-        if (c) this.world._removeComponentImmediate(c);
-      }
-    }
-    if (o.addComponent) this.component(node, o.addComponent, scope, path);
-    if (o.order) {
-      const pool = [...this.world._componentsOf(node.entity)];
-      const idOf = (c: Component) => getComponentId(c.constructor as ComponentClass);
-      const ordered: Component[] = [];
-      for (const id of o.order) {
-        const at = pool.findIndex((c) => idOf(c) === id);
-        if (at >= 0) ordered.push(...pool.splice(at, 1));
-      }
-      this.world._reorderComponents(node.entity, [...ordered, ...pool]);
-    }
-    if (o.component && o.field === undefined && o.enabled !== undefined) {
-      const type = getComponentClass(o.component) as (abstract new () => Component) | undefined;
-      const c = type ? node.getBehaviors(type)[o.index ?? 0] : undefined;
-      if (c) c._enabled = o.enabled; // lifecycle is deferred until the batch ends
-      else if (!this.wasSkipped(node, o.component)) this.problem(`${path}: override targets missing component "${o.component}".`);
-    }
-    if (o.component && o.field !== undefined) {
-      if (o.component === "engine.Transform") {
-        applyTransform(node, { [o.field]: o.value });
-        return;
-      }
-      const def = getDataComponentDef(o.component);
-      if (def) {
-        const view = node.getData(def) as Record<string, number> | null;
-        if (view) view[o.field] = Number(o.value);
-        return;
-      }
-      const type = getComponentClass(o.component) as (abstract new () => Component) | undefined;
-      const c = type ? node.getBehaviors(type)[o.index ?? 0] : undefined;
-      if (c) this.fields(c, { [o.field]: o.value }, scope, path);
-      else if (!this.wasSkipped(node, o.component)) this.problem(`${path}: override targets missing component "${o.component}".`);
-    }
-  }
-
   resolveFixups(): void {
-    const resolve = (scope: Map<string, Instance>, id: string) => {
+    const resolve = (scope: FoldScope<GameObject>, id: string) => {
       // `/Name/Child`: a node outside the file (a persistent node, ADR 0016) by names from the World root (ADR 0013).
       const found = id.startsWith("/") ? nodeAtPath(this.world.root, id) : (scope.get(id)?.node ?? (scope === this.top ? this.hooks.resolveExternal?.(id) : undefined));
       if (!found) console.warn(`[myco] node reference "${id}" not found.`);
@@ -528,9 +388,9 @@ const SKIP = Symbol("skip");
  */
 function convertValue(t: ScalarFieldType, raw: unknown, current: unknown, ref: (id: string) => void, name: string, path: string): unknown {
   if (t === GameObject) {
-    const r = raw as { $node?: string } | null;
-    if (r === null || r === undefined) return null;
-    if (typeof r.$node === "string") ref(r.$node);
+    if (raw === null || raw === undefined) return null;
+    const id = nodeRefId(raw); // where a reference can sit: nodeReferences.ts
+    if (id !== null) ref(id);
     else console.warn(`[myco] ${path}: field "${name}" expects {"$node": "<id>"}.`);
     return SKIP;
   }
@@ -586,7 +446,7 @@ export function instantiateFile(world: World, file: SceneFile, parent: GameObjec
   world._assertOwns(parent, `${path}: parent`);
   return world._batch(() => {
     const job = new Instantiation(world, hooks);
-    const { roots } = job.file(file, parent, path);
+    const roots = job.file(file, parent, path);
     job.resolveFixups();
     return roots;
   });
@@ -610,7 +470,7 @@ export function instantiatePrefab(world: World, path: string, options: Instantia
   const parent = options.parent ?? world.activeScene ?? world.root;
   return world._batch(() => {
     const job = new Instantiation(world);
-    const { roots } = job.file(file, parent, path);
+    const roots = job.file(file, parent, path);
     if (roots.length !== 1) throw new Error(`${path}: a prefab must have exactly one root node (has ${roots.length}).`);
     const root = roots[0];
     instantiatedPrefabs.set(root, path);

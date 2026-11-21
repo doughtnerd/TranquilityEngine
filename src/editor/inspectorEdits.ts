@@ -5,8 +5,8 @@
 import type { GameObject } from "../engine";
 import { getComponentClass, getComponentOptions } from "../engine/core/registry";
 import type { ProjectSettingsInput } from "../engine/core/settings";
-import { listComponents, type ComponentInfo } from "../engine/editor";
-import { originOf, prefabNodeEntry } from "./componentEdits";
+import type { ComponentInfo } from "../engine/editor";
+import { originOf } from "./componentEdits";
 import { SetComponentWorlds, SetOverrides, SetTags, sameTarget, type NodePath, type OverrideEntry, type SceneDocument } from "./document";
 import type { OpenScene } from "./state";
 import { editableNow } from "./editGate";
@@ -20,7 +20,6 @@ export interface WorldsSetting {
   readonly inherited: readonly string[] | undefined;
 }
 
-const countOf = (node: GameObject, type: string) => listComponents(node).filter((c) => c.type === type).length;
 
 /** A `worlds` override for component `index` of `type` at `target`. */
 const isWorldsOverride = (o: OverrideEntry, target: readonly string[], type: string, index: number) =>
@@ -33,20 +32,21 @@ function classWorlds(type: string): readonly string[] | undefined {
 }
 
 /**
- * The Worlds setting of component `info` on the node at `path` (whose live node has `liveCount`
- * of that type), or null when it can't be set here: Transform, or a component the file doesn't
- * have (added by a script).
+ * The Worlds setting of component `info` on the node at `path`, or null when it can't be set
+ * here: Transform, or a component the file doesn't have (added by a script).
  */
-export function componentWorlds(doc: SceneDocument, path: NodePath, info: ComponentInfo, liveCount: number): WorldsSetting | null {
+export function componentWorlds(doc: SceneDocument, path: NodePath, info: ComponentInfo): WorldsSetting | null {
   if (info.kind === "transform") return null;
-  const origin = originOf(doc, path, info, liveCount);
+  const origin = originOf(doc, path, info);
   if (!origin) return null;
   const [id, ...target] = path;
   if (origin.kind === "file") return { own: doc.node(id).components![origin.position].worlds, inherited: classWorlds(info.type) };
   if (origin.kind === "added") return { own: doc.node(id).overrides![origin.at].addComponent!.worlds, inherited: classWorlds(info.type) };
   const override = doc.overrides(id).find((o) => isWorldsOverride(o, target, info.type, info.index));
-  const prefabEntry = prefabNodeEntry(doc, id, target)?.components?.filter((c) => c.type === info.type)[info.index];
-  return { own: override?.worlds, inherited: prefabEntry?.worlds ?? classWorlds(info.type) };
+  // What the prefab files give it (their entries and nested instances' overrides): the resolved view without this override (ADR 0280).
+  const others = doc.overrides(id).filter((o) => o !== override);
+  const inherited = doc.resolve(id, others).nodes.find((n) => sameTarget(n.path, path))?.components.filter((c) => c.type === info.type)[info.index]?.worlds;
+  return { own: override?.worlds, inherited: inherited ?? classWorlds(info.type) };
 }
 
 /** The Worlds that apply: own, else inherited. Undefined: every World. */
@@ -86,7 +86,7 @@ export function setComponentWorlds(
   if (!editableNow({ kind: "scene", scene })) return 0;
   const { doc, stack } = scene;
   const able = targets.flatMap((t) => {
-    const setting = componentWorlds(doc, t.path, t.info, countOf(t.node, t.info.type));
+    const setting = componentWorlds(doc, t.path, t.info);
     if (!setting) return [];
     const next = worlds === undefined || sameWorlds(worlds, setting.inherited) ? undefined : worlds;
     const unchanged = next === undefined ? setting.own === undefined : setting.own !== undefined && sameWorlds(next, setting.own);
@@ -95,9 +95,9 @@ export function setComponentWorlds(
   if (able.length === 0) return 0;
   const verb = worlds === undefined ? "Reset Worlds" : "Set Worlds";
   undoStep(stack, label ?? (able.length === 1 ? verb : `${verb} on ${able.length} nodes`), () => {
-    for (const { path, node, info, next: worlds } of able) {
+    for (const { path, info, next: worlds } of able) {
       const [id, ...target] = path;
-      const origin = originOf(doc, path, info, countOf(node, info.type))!;
+      const origin = originOf(doc, path, info)!;
       if (origin.kind === "file") {
         stack.execute(new SetComponentWorlds(id, origin.position, worlds));
         continue;
