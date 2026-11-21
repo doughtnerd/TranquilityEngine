@@ -15,7 +15,7 @@ import { isUIComponent } from "../../ui/components";
 import { loadBundledFont } from "../../ui/fonts";
 import { UICore } from "../../ui/UICore";
 import { Text, type Camera } from "../components";
-import type { BabylonFeature, DrawnDescription, FeatureSyncContext } from "./feature";
+import { PICK_ORDER, type BabylonFeature, type DrawnDescription, type DrawnNode, type FeatureSyncContext } from "./feature";
 import { BabylonUI, CANVAS_PREFIX, measureText, worldCanvasWarm } from "./ui";
 import type { WarmItem } from "./warmUp";
 
@@ -145,6 +145,18 @@ export class BabylonUIFeature implements BabylonFeature {
   /** ADR 0154: the renderer's UI core hook (the editor's UI queries). */
   uiCore(): UICore {
     return this.mainCore;
+  }
+
+  /**
+   * ADR 0276: the main view's drawing. Each world canvas's plane, depth-tested, framed and outlined, but
+   * not picked here: the UI core picks canvases and elements by its own rules (ADR 0117). Each shown
+   * interim Text's box on the canvas, picked above everything. Neither casts a shadow.
+   */
+  *drawn(): Iterable<DrawnNode> {
+    for (const d of this.draw.drawn()) {
+      if ("canvas" in d) yield { component: d.canvas, shape: { kind: "meshes", meshes: [d.mesh] }, order: PICK_ORDER.depthTested, pickable: false };
+      else yield { component: d.text, shape: { kind: "rect", rect: d.rect }, order: PICK_ORDER.screen };
+    }
   }
 
   /** ADR 0154: a world-space canvas's plane, for the variant report. */

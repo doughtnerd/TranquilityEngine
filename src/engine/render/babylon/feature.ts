@@ -8,7 +8,9 @@
  * ADR 0154: the renderer asks features things through the optional hooks of `BabylonFeature`, iterated
  * over every loaded feature (describe a drawn object, warm items, diagnostics, the UI core), never a
  * particle or UI feature by name; a plugin's factory builds the services only its own feature needs (the
- * particle player's host, the UI's host) from the core host below.
+ * particle player's host, the UI's host) from the core host below. ADR 0276: what a feature drew (per
+ * node: its shape, pick order and materials), its shadow casters and whether its content has loaded are
+ * hooks too, so no feature is reached by name, the sprite and mesh features included.
  */
 import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh.js";
 import type { TargetCamera } from "@babylonjs/core/Cameras/targetCamera.js";
@@ -16,13 +18,14 @@ import type { Layer } from "@babylonjs/core/Layers/layer.js";
 import type { Component } from "../../core/Component";
 import type { World } from "../../core/World";
 import type { WarmContent } from "../../scene/warmUp";
-import type { Camera, MeshRenderer, SpriteRenderer } from "../components";
+import type { Camera } from "../components";
 import type { GameObject } from "../../scene/GameObject";
 import type { ProjectSettings } from "../../core/settings";
 import type { UICore } from "../../ui/UICore";
 import type { DrawnMaterial, PixelGrid, RenderDiagnostics } from "../RenderSurface";
 import type { RenderPolicy } from "../renderPolicy";
-import type { QuadBatchHost } from "../quadBatches";
+import type { QuadBatch, QuadBatchHost } from "../quadBatches";
+import type { ScreenRect } from "../editorViewport";
 import { specNeeded, type RenderFeatureSpec } from "../renderFeatures";
 import { _instantiatedPrefabOf } from "../../scene/SceneLoader";
 import type { WarmItem } from "./warmUp";
@@ -30,7 +33,6 @@ import type { Scene } from "@babylonjs/core/scene.js";
 import type { LightingContributions } from "./lighting";
 import type { BabylonMaterialLibrary } from "./materialLibrary";
 import type { ProbeHit } from "./probes";
-import type { EditorMesh, EditorSprite } from "./editorContext";
 
 /** @internal What the renderer worked out before a feature's phase (ADR 0130). */
 export interface FeatureSyncContext {
@@ -74,6 +76,51 @@ export function describeDrawn(features: Iterable<BabylonFeature | null>, drawn: 
   return null;
 }
 
+/**
+ * @internal What a feature drew for a node (ADR 0276), as the renderer's own steps read it: the editor's
+ * picking, framing, box selection and outlines, thumbnail framing, sprite sizes and `RenderDiagnostics.drawn`.
+ *
+ * - `quad`: a mesh of its own that is a unit quad (-0.5..0.5 on X and Y at local z = 0) through its world
+ *   matrix, both faces (a sprite's): picked as that plane, outlined flat.
+ * - `meshes`: meshes of its own (a MeshRenderer's, a water surface's, a world-space UI canvas's plane):
+ *   picked against their triangles, framed and outlined by their boxes.
+ * - `quads`: quad batches it drew through the renderer's `QuadBatchHost` (a tile layer's chunks, ADR 0136):
+ *   the renderer resolves them to its meshes, so a renderer-neutral feature names no Babylon type.
+ * - `rect`: a rectangle on the canvas in CSS pixels, origin top-left (screen-space Text): picked inside it.
+ * - null: drawn inside a batch with no geometry of its own (a batched sprite): counted, not picked or framed.
+ */
+export type DrawnShape =
+  | { readonly kind: "quad"; readonly mesh: AbstractMesh }
+  | { readonly kind: "meshes"; readonly meshes: readonly AbstractMesh[] }
+  | { readonly kind: "quads"; readonly batches: readonly QuadBatch[] }
+  | { readonly kind: "rect"; readonly rect: ScreenRect };
+
+/** @internal Pick orders (ADR 0276 `DrawnNode.order`) beside layered 2D content's (sorting layer × 10000 + order in layer, ADR 0014). */
+export const PICK_ORDER = {
+  /** Depth-tested 3D content: below every layered 2D item, nearest first among themselves. */
+  depthTested: -1e12,
+  /** Screen overlays (screen-space Text): above everything in the scene. */
+  screen: Number.POSITIVE_INFINITY,
+} as const;
+
+/** @internal One node's drawing by a feature (ADR 0276). A node drawn by several Components or features has several. */
+export interface DrawnNode {
+  /** The Component it drew (its node is the one picked, framed and outlined). */
+  readonly component: Component;
+  readonly shape: DrawnShape | null;
+  /** Pick order, higher on top: layered 2D content its draw order, else a {@link PICK_ORDER}. Equal orders go nearest first. */
+  readonly order: number;
+  /**
+   * False when a scene-view click reaches it another way: the UI core picks UI canvases and elements, by
+   * its own rules (ADR 0117). It is still framed, box-selected, outlined and reported. Default true.
+   */
+  readonly pickable?: boolean;
+  /** The materials it drew with, in the engine's terms (`RenderDiagnostics.drawn`); none when it has none to report. */
+  readonly materials?: readonly DrawnMaterial[];
+  /** A flat drawing's size in node units before the node's scale, once known (a sprite's, from its texture): what a collider fits. */
+  readonly size?: readonly [number, number] | null;
+}
+
 /** @internal One render feature of the Babylon backend (ADR 0130; the optional hooks the renderer iterates, ADR 0154). */
 export interface BabylonFeature {
   sync(world: World, ctx: FeatureSyncContext): void;
@@ -90,6 +137,21 @@ export interface BabylonFeature {
   diagnostics?(): unknown;
   /** ADR 0154: what a drawn object of its is (the variant report), or null when it isn't one of its. */
   describe?(drawn: object): DrawnDescription | null;
+  /**
+   * ADR 0276: what it drew now, per node (visible and loaded only): picking, framing, outlines, thumbnails,
+   * sprite sizes and `RenderDiagnostics.drawn` read every loaded feature's.
+   */
+  drawn?(): Iterable<DrawnNode>;
+  /**
+   * ADR 0276: add the meshes that cast shadows this frame (after the `content` phase). Only the meshes
+   * feature casts: sprites, tiles, water and UI are flat, unlit or transparent and never have.
+   */
+  casters?(out: AbstractMesh[]): void;
+  /**
+   * ADR 0276: whether what it draws has loaded (a MeshRenderer's model); absent means always. A World's
+   * first frames and its probe captures wait for every loaded feature's (`FeatureSyncContext.ready`).
+   */
+  loaded?(): boolean;
   /** ADR 0154: the UI layout and routing core it runs (the editor's UI queries), or null. */
   uiCore?(): UICore | null;
   /** Before each view is drawn: follow its camera (the sky's box around it). */
@@ -150,30 +212,6 @@ export interface BabylonFeatureHost {
   /** Sorted, unlit textured quad batches (ADR 0136): what the Tilemaps plugin draws its tiles with. */
   readonly quads: QuadBatchHost;
   warnOnce(key: string, message: string): void;
-}
-
-/** @internal What the renderer asks of the feature named "sprites" (the Sprites plugin's, ADR 0140). */
-export interface SpritesFeatureApi extends BabylonFeature {
-  /** The sprite's size in node units once its texture has loaded. */
-  spriteSize(s: SpriteRenderer): [number, number] | null;
-  /** The sprites with a mesh of their own, for the editor tools (picking and outlines). */
-  editorSprites(): Iterable<EditorSprite>;
-  /** The nodes with a sprite drawn now (`RenderDiagnostics.drawn.sprites`). */
-  drawnNodes(): GameObject[];
-}
-
-/** @internal What the renderer asks of the feature named "meshes" (the Meshes plugin's, ADR 0140). */
-export interface MeshesFeatureApi extends BabylonFeature {
-  /** Adds the meshes that cast shadows this frame. */
-  casters(out: AbstractMesh[]): void;
-  /** Whether every MeshRenderer's model has loaded (a World's first frames and probes wait for it). */
-  loaded(): boolean;
-  /** The MeshRenderer a drawn mesh belongs to, or null (the variant report asks `describe`). */
-  ownerOf(drawn: unknown): MeshRenderer | null;
-  /** What each node draws, with its materials (`RenderDiagnostics.drawn.meshes`). */
-  drawn(): { node: GameObject; materials: DrawnMaterial[] }[];
-  /** The MeshRenderers and their Babylon meshes, for the editor tools. */
-  editorMeshes(): Iterable<EditorMesh>;
 }
 
 /** @internal A plugin render feature's factory, as `RenderFeatureRegistration.load` gives it for this backend. */

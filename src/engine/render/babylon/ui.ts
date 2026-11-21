@@ -98,6 +98,8 @@ interface TextEntry {
   control: PaddedTextBlock;
   last: Last;
   stamp: number;
+  /** Its box on the drawing canvas (CSS pixels, origin top-left) at the last sync that showed it. */
+  rect: { left: number; top: number; right: number; bottom: number } | null;
 }
 
 /**
@@ -155,6 +157,7 @@ export class BabylonUI {
     if (this.disposed) return;
     const stamp = ++this.stamp;
     this.origin = { x: origin.x * pixelRatio, y: origin.y * pixelRatio };
+    this.cssOrigin = { x: origin.x, y: origin.y };
     this.textRoot.scaleX = this.textRoot.scaleY = pixelRatio;
     if (put(this.textRoot, "size", `${cssWidth}x${cssHeight}`)) {
       this.textRoot.widthInPixels = cssWidth;
@@ -266,6 +269,17 @@ export class BabylonUI {
 
   /** Where screen canvases start on the texture, in its pixels (see `sync`'s `origin`). */
   private origin = { x: 0, y: 0 };
+  /** The same, in CSS pixels of the drawing canvas. */
+  private cssOrigin = { x: 0, y: 0 };
+
+  /**
+   * What it drew now (ADR 0276): each visible world canvas's plane, and each shown interim Text's box on
+   * the drawing canvas (CSS pixels, origin top-left).
+   */
+  *drawn(): Iterable<{ canvas: UICanvas; mesh: Mesh } | { text: Text; rect: { left: number; top: number; right: number; bottom: number } }> {
+    for (const [canvas, e] of this.canvases) if (e.mesh?.isEnabled()) yield { canvas, mesh: e.mesh };
+    for (const [text, e] of this.texts) if (e.rect && e.control.isVisible) yield { text, rect: e.rect };
+  }
 
   /** A font finished loading: forget font metrics measured without it, and redraw every text. */
   private fontsChanged(): void {
@@ -549,7 +563,7 @@ export class BabylonUI {
       placeBox(control);
       control.isHitTestVisible = false;
       this.textRoot.addControl(control);
-      e = { control, last: {}, stamp: 0 };
+      e = { control, last: {}, stamp: 0, rect: null };
       this.texts.set(t, e);
     }
     e.stamp = stamp;
@@ -589,6 +603,8 @@ export class BabylonUI {
     const top = ay * (H - h) + t.offset.y;
     if (put(ctl, "x", left)) ctl.leftInPixels = left;
     if (put(ctl, "y", top)) ctl.topInPixels = top;
+    const x = this.cssOrigin.x + left, y = this.cssOrigin.y + top;
+    e.rect = { left: x, top: y, right: x + w, bottom: y + h };
   }
 
   private warnOnce(key: string, message: string): void {

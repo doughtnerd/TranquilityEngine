@@ -102,6 +102,31 @@ describe("BabylonUIFeature", () => {
     expect(f.hasPreviewUI()).toBe(false);
   });
 
+  it("reports what it drew (ADR 0276): a shown Text's box on the canvas, and a world canvas's plane left to the UI core's picking", async () => {
+    const f = await make();
+    const score = GameObject.create("Score").addBehavior(Text, { text: "Hi", anchor: "top-left" } as never);
+    const empty = GameObject.create("Empty").addBehavior(Text, { text: "" });
+    const world = GameObject.create("Sign").addBehavior(UICanvas, { mode: "world" } as never);
+    f.sync(World.require());
+    const drawn = [...f.drawn()];
+    const text = drawn.find((d) => d.component === score)!;
+    expect(text.shape?.kind).toBe("rect");
+    expect(text.order).toBe(Number.POSITIVE_INFINITY); // above everything in the scene
+    if (text.shape?.kind === "rect") {
+      expect(text.shape.rect.left).toBe(0); // top-left, no offset
+      expect(text.shape.rect.top).toBe(0);
+      expect(text.shape.rect.right).toBeGreaterThan(16); // two glyphs and their padding
+      expect(text.shape.rect.bottom).toBeGreaterThan(16);
+    }
+    expect(drawn.some((d) => d.component === empty)).toBe(false); // nothing shown
+    const plane = drawn.find((d) => d.component === world)!;
+    expect(plane.shape?.kind).toBe("meshes");
+    expect(plane.pickable).toBe(false); // the UI core picks canvases (ADR 0117)
+    score.enabled = false;
+    f.sync(World.require());
+    expect([...f.drawn()].some((d) => d.component === score)).toBe(false);
+  });
+
   it("syncs and lays out a UICanvas with a button", async () => {
     const f = await make();
     const { canvas, play } = menu();

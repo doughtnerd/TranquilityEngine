@@ -8,32 +8,21 @@
  * it) and the overlay scene, a utility layer drawn after the frame graph, on top of everything and
  * never post-processed (outlines, overlays, icons, frustums, the transform gizmo).
  */
-import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh.js";
 import type { TargetCamera } from "@babylonjs/core/Cameras/targetCamera.js";
-import type { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import type { UtilityLayerRenderer } from "@babylonjs/core/Rendering/utilityLayerRenderer.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import type { ProjectSettings } from "../../core/settings";
 import type { World } from "../../core/World";
-import type { Camera, MeshRenderer, ReflectionProbe, SpriteRenderer, Text } from "../components";
+import type { Camera, ReflectionProbe } from "../components";
 import type { ViewportUI } from "../editorViewport";
+import type { DrawnNode, DrawnShape } from "./feature";
 
-/** A sprite as the renderer draws it. */
-export interface EditorSprite {
-  readonly component: SpriteRenderer;
-  /** Its quad (a unit quad scaled to size, pivot at the node's origin), or disabled while loading. */
-  readonly mesh: Mesh;
-  /** Size in node units (before the node's scale), once known. */
-  readonly size: [number, number] | null;
-  /** Draw order: sprites draw without depth testing, higher on top (`sortingLayer` index × 10000 + `orderInLayer`). */
-  readonly order: number;
-}
-
-/** A MeshRenderer as the renderer draws it. */
-export interface EditorMesh {
-  readonly component: MeshRenderer;
-  /** One Babylon mesh per model mesh (world matrices frozen to the node's). */
-  readonly meshes: readonly AbstractMesh[];
+/**
+ * @internal What a render feature drew for a node (ADR 0276), as the editor tools read it: the renderer
+ * has resolved quad batches to its meshes, so the shape is a quad, meshes or a canvas rectangle (or none).
+ */
+export interface EditorDrawn extends Omit<DrawnNode, "shape"> {
+  readonly shape: Exclude<DrawnShape, { kind: "quads" }> | null;
 }
 
 /** @internal The renderer state the editor helpers read. */
@@ -51,22 +40,18 @@ export interface BabylonEditorContext {
   viewCameras(): readonly Camera[];
   /** A Camera component's Babylon camera, once synced. */
   babylonCamera(c: Camera): TargetCamera | null;
-  sprites(): Iterable<EditorSprite>;
-  meshes(): Iterable<EditorMesh>;
-  /** Screen-space Text components (ADR 0069's interim Text) and their canvas rectangles, if drawn. */
-  texts(): Iterable<{ component: Text; rect: { left: number; top: number; right: number; bottom: number } }>;
+  /** What every loaded render feature drew now (ADR 0276): sprites, meshes, tile layers, water, world canvases, screen Text… */
+  drawn(): Iterable<EditorDrawn>;
   /** What the editor viewport (ADR 0128) asks of the renderer itself, beside the helpers' own drawing. */
   readonly renderer: BabylonEditorRendererHooks;
 }
 
 /**
- * @internal Renderer-level editor features: the background, sprite sizes,
- * UI and probe bakes. The camera inset, selection and particle preview are render policy (ADR 0129),
+ * @internal Renderer-level editor features: the background, UI and probe bakes. The camera inset, selection and particle preview are render policy (ADR 0129),
  * set through the surface's `RenderPolicyPort`, not here.
  */
 export interface BabylonEditorRendererHooks {
   setClearColor(color: number): void;
-  spriteSize(s: SpriteRenderer): [number, number] | null;
   ui(): ViewportUI | null;
   bakeReflectionProbe(probe: ReflectionProbe): Promise<ArrayBuffer>;
 }

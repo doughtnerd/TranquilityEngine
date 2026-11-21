@@ -255,18 +255,24 @@ export class BabylonEditorGuides implements IconStyle {
     outline.batch.visible = true;
   }
 
-  /** Position one outline per selected sprite, and a box around each selected mesh. */
+  /**
+   * Position a flat outline around each selected node's quads (sprites) and a box around each of its
+   * meshes (MeshRenderers, tile layers, water, world canvases), whichever feature drew them (ADR 0276).
+   * A screen rectangle (screen Text) has no outline here.
+   */
   private syncOutlines(): void {
     let used = 0, boxes = 0;
     if (this.outlined.size > 0 && this.outlineShown) {
-      for (const s of this.ctx.sprites()) {
-        if (!s.mesh.isEnabled() || !s.mesh.isVisible || !this.isOutlined(s.component.node)) continue;
-        this.placeOutline(this.spriteOutlines[used] ?? this.makeOutline(false), s.mesh, true);
-        used++;
-      }
-      for (const entry of this.ctx.meshes()) {
-        if (!this.isOutlined(entry.component.node)) continue;
-        for (const m of entry.meshes) {
+      for (const d of this.ctx.drawn()) {
+        const shape = d.shape;
+        if (!shape || shape.kind === "rect" || !this.isOutlined(d.component.node)) continue;
+        if (shape.kind === "quad") {
+          if (!shape.mesh.isEnabled() || !shape.mesh.isVisible) continue;
+          this.placeOutline(this.spriteOutlines[used] ?? this.makeOutline(false), shape.mesh, true);
+          used++;
+          continue;
+        }
+        for (const m of shape.meshes) {
           if (!m.isEnabled() || !m.isVisible) continue;
           this.placeOutline(this.boxOutlines[boxes] ?? this.makeOutline(true), m, false);
           boxes++;

@@ -142,8 +142,8 @@ export interface EditorViewport {
   pointOnPlane(x: number, y: number, normal: readonly number[], point: readonly number[]): [number, number, number] | null;
   /** Where each active node under `root` is on the canvas; parents before children. */
   screenBounds(root: GameObject): { node: GameObject; rect: ScreenRect }[];
-  /** The world box around `node`'s drawn meshes, or null. */
-  meshBounds(node: GameObject): WorldBox | null;
+  /** The world box around everything drawn for `node` in the world (meshes, sprite quads, tile layers, water, world canvases; ADR 0276), or null. */
+  drawnBounds(node: GameObject): WorldBox | null;
   /** The size of `node`'s sprite in node units (before its scale): its `size` if set, else its texture's; null (no sprite, texture not loaded, or not ready). */
   spriteSize(node: GameObject): [number, number] | null;
   /** True while dragging the gizmo or if a canvas point is over one of its handles. */
@@ -181,7 +181,7 @@ export interface ViewportAdapter {
   rayAt(x: number, y: number): ViewRay | null;
   worldToCanvas(point: readonly number[]): [number, number] | null;
   screenBounds(root: GameObject): { node: GameObject; rect: ScreenRect }[];
-  meshBounds(node: GameObject): WorldBox | null;
+  drawnBounds(node: GameObject): WorldBox | null;
   spriteSize(sprite: SpriteRenderer): [number, number] | null;
   gizmoActiveAt(x: number, y: number): boolean;
   overlayHandles(): { id: string; x: number; y: number }[];
@@ -375,8 +375,8 @@ export class ViewportHandle implements EditorViewport {
     return this.live()?.screenBounds(root) ?? [];
   }
 
-  meshBounds(node: GameObject): WorldBox | null {
-    return this.live()?.meshBounds(node) ?? null;
+  drawnBounds(node: GameObject): WorldBox | null {
+    return this.live()?.drawnBounds(node) ?? null;
   }
 
   spriteSize(node: GameObject): [number, number] | null {

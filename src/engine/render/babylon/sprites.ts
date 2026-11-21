@@ -14,14 +14,12 @@ import type { Scene } from "@babylonjs/core/scene.js";
 import type { Component } from "../../core/Component";
 import type { World } from "../../core/World";
 import { Assets } from "../../scene/Assets";
-import type { GameObject } from "../../scene/GameObject";
 import { authoredSize, splitSpriteRef } from "../../scene/importSettings";
 import { Camera, SpriteRenderer } from "../components";
 import { snapToGrid } from "../pixelPerfect";
 import { sortingOrder, unknownLayerMessage } from "../sortOrder";
 import { MAX_TILE_QUADS, SPRITE_GRID_INDICES, spriteFrame, spriteMeshData, type SpriteFrame } from "../spriteFrame";
-import type { EditorSprite } from "./editorContext";
-import type { FeatureSyncContext, SpritesFeatureApi } from "./feature";
+import type { BabylonFeature, DrawnNode, FeatureSyncContext } from "./feature";
 import { layeredQuadMaterial, placeInLayer, SpriteBatcher, type SpriteItem } from "./layeredQuads";
 
 
@@ -73,7 +71,7 @@ const SPRITE_GRID_NORMALS = Array.from({ length: 16 }, () => [0, 0, 1]).flat();
 const WHOLE_FRAME: SpriteFrame = { uv: null, size: [1, 1], pivot: [0.5, 0.5], border: null, fill: "stretch", pixelsPerUnit: 1, pixelSize: [1, 1], missingSlice: false };
 
 /** @internal Draws the World's SpriteRenderers (the Sprites plugin's feature, ADR 0140). */
-export class BabylonSprites implements SpritesFeatureApi {
+export class BabylonSprites implements BabylonFeature {
   private readonly sprites = new Map<SpriteRenderer, SpriteEntry>();
   /** Sprites batched per texture run (ADR 0108); the editor's scene view keeps a mesh per sprite. */
   private readonly batcher: SpriteBatcher;
@@ -102,11 +100,16 @@ export class BabylonSprites implements SpritesFeatureApi {
     }
   }
 
-  /** The nodes with a sprite drawn now (`RenderDiagnostics.drawn.sprites`). */
-  drawnNodes(): GameObject[] {
-    const nodes = new Set<GameObject>();
-    for (const [s, e] of this.sprites) if (e.mesh ? e.mesh.isEnabled() : e.item) nodes.add(s.node);
-    return [...nodes];
+  /**
+   * ADR 0276: the sprites drawn now: a sprite with a mesh of its own (the editor's scene view, sliced and
+   * tiled ones) as its quad, a batched one with no shape; each in its draw order, with its size once known.
+   */
+  *drawn(): Iterable<DrawnNode> {
+    for (const [component, e] of this.sprites) {
+      const shown = e.mesh ? e.mesh.isEnabled() : e.item !== null;
+      if (!shown) continue;
+      yield { component, shape: e.mesh ? { kind: "quad", mesh: e.mesh } : null, order: this.sortOrder(component.sortingLayer, component.orderInLayer), size: e.size };
+    }
   }
 
   dispose(): void {
@@ -118,20 +121,9 @@ export class BabylonSprites implements SpritesFeatureApi {
     this.batcher.dispose();
   }
 
-  /** The sprites with a mesh of their own, for the editor tools (picking and outlines). */
-  *editorSprites(): Iterable<EditorSprite> {
-    for (const [component, e] of this.sprites) if (e.mesh) yield { component, mesh: e.mesh, size: e.size, order: this.sortOrder(component.sortingLayer, component.orderInLayer) };
-  }
-
   /** Draw order: `sortingLayer` index × 10000 + `orderInLayer`. */
   sortOrder(layer: string, order: number): number {
     return sortingOrder(this.host.sortingLayers(), layer, order, (l) => this.host.warnOnce(`layer|${l}`, unknownLayerMessage(l)));
-  }
-
-  /** The sprite's size in node units once its texture has loaded. */
-  spriteSize(s: SpriteRenderer): [number, number] | null {
-    if (s.size) return [s.size.x, s.size.y];
-    return this.sprites.get(s)?.size ?? null;
   }
 
   private syncSprite(world: World, s: SpriteRenderer, snap: number): void {

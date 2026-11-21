@@ -12,7 +12,8 @@ import { World } from "../core/World";
 import { Assets, Camera, Engine, GameObject, Material, SceneManager } from "../index";
 import { MeshRenderer, SpriteRenderer } from "../render/components";
 import { BabylonRenderer, loadPluginFeatures } from "../render/babylon/BabylonRenderer";
-import type { BabylonEditorContext, BabylonEditorRendererHooks, EditorMesh } from "../render/babylon/editorContext";
+import type { BabylonEditorContext, BabylonEditorRendererHooks, EditorDrawn } from "../render/babylon/editorContext";
+import { PICK_ORDER } from "../render/babylon/feature";
 import { BabylonEditorViewport } from "../render/babylon/editorViewport";
 import { ViewportHandle } from "../render/editorViewport";
 import { FakeRenderPolicyPort } from "../render/fakeViewport";
@@ -26,7 +27,7 @@ describe("the editor viewport's Babylon adapter (ADR 0128)", () => {
   let scene: Scene;
   let layer: UtilityLayerRenderer;
   let cameras: Camera[];
-  let meshes: EditorMesh[];
+  let drawn: EditorDrawn[];
   let hooks: { [K in keyof BabylonEditorRendererHooks]: Mock<BabylonEditorRendererHooks[K]> };
   let tools: BabylonEditorViewport | null;
   let loaded: boolean;
@@ -41,9 +42,7 @@ describe("the editor viewport's Babylon adapter (ADR 0128)", () => {
       world: () => World.require(),
       viewCameras: () => cameras,
       babylonCamera: () => null,
-      sprites: () => [],
-      meshes: () => meshes,
-      texts: () => [],
+      drawn: () => drawn,
       renderer: hooks,
     } as unknown as BabylonEditorContext;
     tools = new BabylonEditorViewport(ctx);
@@ -58,11 +57,10 @@ describe("the editor viewport's Babylon adapter (ADR 0128)", () => {
     babylon = new NullEngine();
     scene = new Scene(babylon);
     layer = new UtilityLayerRenderer(scene);
-    meshes = [];
+    drawn = [];
     loaded = true;
     hooks = {
       setClearColor: vi.fn(),
-      spriteSize: vi.fn(() => [3, 4] as [number, number]),
       ui: vi.fn(() => null),
       bakeReflectionProbe: vi.fn(async () => new Uint8Array([1, 2]).buffer),
     };
@@ -83,7 +81,7 @@ describe("the editor viewport's Babylon adapter (ADR 0128)", () => {
     const node = GameObject.create(name);
     const mesh = MeshBuilder.CreateBox(name, { size: 2 }, scene);
     mesh.freezeWorldMatrix(Matrix.Translation(...pos));
-    meshes.push({ component: { node } as never, meshes: [mesh as Mesh] });
+    drawn.push({ component: { node } as never, shape: { kind: "meshes", meshes: [mesh as Mesh] }, order: PICK_ORDER.depthTested });
     return node;
   };
 
@@ -124,7 +122,7 @@ describe("the editor viewport's Babylon adapter (ADR 0128)", () => {
     expect(ray.direction[2]).toBeCloseTo(1);
     expect(viewport.worldToCanvas([0, 0, 0])).toEqual([expect.closeTo(400), expect.closeTo(300)]);
     expect(viewport.pointOnPlane(400, 300, [0, 0, 1], [0, 0, 1])).toEqual([expect.closeTo(0), expect.closeTo(0), 1]);
-    expect(viewport.meshBounds(near)).toEqual({ min: [-1, -1, -3], max: [1, 1, -1] });
+    expect(viewport.drawnBounds(near)).toEqual({ min: [-1, -1, -3], max: [1, 1, -1] });
     const bounds = viewport.screenBounds(World.require().root).find((b) => b.node === near)!;
     expect(bounds.rect.left).toBeLessThan(400);
     expect(bounds.rect.right).toBeGreaterThan(400);
@@ -140,10 +138,12 @@ describe("the editor viewport's Babylon adapter (ADR 0128)", () => {
     expect(viewport.pickOverlayHandle(handles[1].x + 30, handles[1].y)).toBeNull();
   });
 
-  it("forwards renderer-level features: sprite sizes, probe bakes and the UI", async () => {
+  it("answers sprite sizes from what the sprite feature drew (ADR 0276), and forwards probe bakes and the UI", async () => {
     const viewport = make();
     const node = GameObject.create("s");
-    node.addBehavior(SpriteRenderer, {});
+    const sprite = node.addBehavior(SpriteRenderer, {});
+    expect(viewport.spriteSize(node)).toBeNull(); // not drawn yet (its texture is loading)
+    drawn.push({ component: sprite, shape: null, order: 0, size: [3, 4] });
     expect(viewport.spriteSize(node)).toEqual([3, 4]);
     expect(viewport.spriteSize(GameObject.create("plain"))).toBeNull();
     expect(new Uint8Array(await viewport.bakeReflectionProbe({} as never))).toEqual(new Uint8Array([1, 2]));
@@ -194,8 +194,7 @@ describe("the Babylon renderer's diagnostics (ADR 0128)", () => {
     hidden.addBehavior(MeshRenderer, { mesh: "builtin:cube" }).enabled = false;
     renderer.sync(world);
     const d = renderer.diagnostics();
-    expect(d.drawn.meshes.map((m) => m.node)).toEqual([shown]);
-    expect(d.drawn.meshes[0].materials).toEqual([{ unlit: false, clearcoat: 0, transmission: 0 }]);
+    expect(d.drawn).toEqual([{ node: shown, feature: "meshes", materials: [{ unlit: false, clearcoat: 0, transmission: 0 }] }]);
     expect(d.cameras).toEqual([]); // no frame drawn
     expect(d.post.composedCameras).toBe(0);
     expect(d.stats.geometries).toBeGreaterThan(0);

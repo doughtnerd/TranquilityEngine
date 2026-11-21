@@ -1,6 +1,6 @@
 # 0189. Environment and sky thumbnails draw through the render features, and features say when they have settled
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0277 (model and material thumbnails light with the World's default rig, owned by `lighting.ts`; they stay on their own scenes for the other reasons given here)
 - **Date:** 2026-11-16
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

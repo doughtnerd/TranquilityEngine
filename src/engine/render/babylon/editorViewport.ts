@@ -4,8 +4,9 @@
  * It answers the editor's queries itself (what lies under a canvas point, the ray through it, where a
  * world point lands, nodes' rectangles on the canvas) and draws through three modules: the grid,
  * outlines and editor overlay (`editorGuides.ts`), the camera, light and particle system icons
- * (`editorIcons.ts`), and the transform gizmo (`editorGizmo.ts`). Renderer-level features (background,
- * sprite sizes, UI, probe bakes) go to `BabylonEditorContext.renderer`.
+ * (`editorIcons.ts`), and the transform gizmo (`editorGizmo.ts`). What it picks, frames and measures is
+ * what the render features drew (`BabylonEditorContext.drawn`, ADR 0276), whichever feature drew it.
+ * Renderer-level features (background, UI, probe bakes) go to `BabylonEditorContext.renderer`.
  *
  * Camera maths is the engine's own (`Camera.screenPointToRay`, `worldToScreenPoint`, ADR 0073,
  * viewport-aware); Babylon only intersects meshes and measures their bounds. Nothing Babylon crosses
@@ -14,23 +15,29 @@
 import { Ray as BabylonRay } from "@babylonjs/core/Culling/ray.js";
 import { Matrix, Vector3 as BabylonVector3 } from "@babylonjs/core/Maths/math.vector.js";
 import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh.js";
-import type { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { Vector2, Vector3 } from "../../core/math";
 import type { World } from "../../core/World";
 import type { GameObject } from "../../scene/GameObject";
 import type { Camera, ReflectionProbe, SpriteRenderer } from "../components";
 import type { EditorColors, EditorOverlay, GizmoHandlers, GizmoOptions, ScreenRect, ViewportAdapter, ViewportUI, ViewRay, WorldBox } from "../editorViewport";
 import { readView } from "./editorBatches";
-import type { BabylonEditorContext } from "./editorContext";
+import type { BabylonEditorContext, EditorDrawn } from "./editorContext";
 import { BabylonEditorGizmo } from "./editorGizmo";
 import { BabylonEditorGuides } from "./editorGuides";
 import { BabylonEditorIcons } from "./editorIcons";
 
-/** Icons (camera, light and particle system) draw above every sprite; meshes below every sprite. */
+/** Icons (camera, light and particle system) draw above every sprite (and below screen Text, `PICK_ORDER.screen`). */
 const ICON_ORDER = 1e9;
-const MESH_ORDER = -1e12;
 
 const visible = (m: AbstractMesh): boolean => m.isEnabled() && m.isVisible;
+
+/** The meshes of a drawing in the world (a quad's or meshes), visible ones only; none for a canvas rectangle. */
+function worldMeshes(d: EditorDrawn): AbstractMesh[] {
+  const shape = d.shape;
+  if (shape?.kind === "quad") return visible(shape.mesh) ? [shape.mesh] : [];
+  if (shape?.kind === "meshes") return shape.meshes.filter(visible);
+  return [];
+}
 
 /** @internal The Babylon editor viewport adapter (ADR 0128). */
 export class BabylonEditorViewport implements ViewportAdapter {
@@ -107,8 +114,10 @@ export class BabylonEditorViewport implements ViewportAdapter {
 
   // --- Renderer-level features -------------------------------------------------------------------
 
+  /** The size its feature drew the sprite at (ADR 0276 `DrawnNode.size`), while it's drawn. */
   spriteSize(sprite: SpriteRenderer): [number, number] | null {
-    return this.ctx.renderer.spriteSize(sprite);
+    for (const d of this.ctx.drawn()) if (d.component === sprite && d.size) return [d.size[0], d.size[1]];
+    return null;
   }
 
   ui(): ViewportUI | null {
@@ -131,46 +140,32 @@ export class BabylonEditorViewport implements ViewportAdapter {
   }
 
   /**
-   * Nodes whose renderers lie under a canvas point (CSS pixels, origin top-left), topmost first:
-   * icons, screen-space text, sprites by draw order (no depth testing), then meshes nearest first.
-   * Uses the camera that draws the view (the first in depth order).
+   * Nodes drawn under a canvas point (CSS pixels, origin top-left), topmost first: by each drawing's pick
+   * order (ADR 0276: screen Text, then icons, then layered 2D content such as sprites and tile layers by draw
+   * order, then depth-tested meshes), nearest first within an order. Uses the camera that draws the view
+   * (the first in depth order). What the UI core picks (canvases and elements, ADR 0117) isn't here.
    */
   pick(x: number, y: number): GameObject[] {
     if (!this.ctx.world() || !this.hasSize()) return [];
     const hits: { node: GameObject; order: number; distance: number }[] = [];
-
-    for (const t of this.ctx.texts()) {
-      const r = t.rect;
-      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) hits.push({ node: t.component.node, order: Infinity, distance: 0 });
-    }
-
     const ray = this.rayAt(x, y);
-    if (ray) {
-      const o = new BabylonVector3(...ray.origin), d = new BabylonVector3(...ray.direction);
-      for (const s of this.ctx.sprites()) {
-        if (!visible(s.mesh)) continue;
-        const distance = rayQuadDistance(o, d, s.mesh.getWorldMatrix());
-        if (distance !== null) hits.push({ node: s.component.node, order: s.order, distance });
+    const o = ray && new BabylonVector3(...ray.origin), dir = ray && new BabylonVector3(...ray.direction);
+    const bray = o && dir && new BabylonRay(o, dir, 1e9);
+
+    for (const d of this.ctx.drawn()) {
+      if (d.pickable === false || !d.shape) continue;
+      const shape = d.shape;
+      let distance: number | null = null;
+      if (shape.kind === "rect") {
+        const r = shape.rect;
+        if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) distance = 0;
+      } else if (o && dir && bray) {
+        if (shape.kind === "quad") distance = visible(shape.mesh) ? rayQuadDistance(o, dir, shape.mesh.getWorldMatrix()) : null;
+        else distance = nearestHit(bray, o, shape.meshes);
       }
-      const bray = new BabylonRay(o, d, 1e9);
-      for (const m of this.ctx.meshes()) {
-        let nearest = Infinity;
-        for (const mesh of m.meshes) {
-          if (!visible(mesh)) continue;
-          // Babylon's mesh test takes the ray in the mesh's own space, and measures the hit there: take
-          // the hit point back to world space for a distance comparable across meshes.
-          const world = mesh.getWorldMatrix();
-          const local = BabylonRay.Transform(bray, world.clone().invert());
-          const info = mesh.intersects(local, false);
-          if (!info.hit) continue;
-          const point = BabylonVector3.TransformCoordinates(local.origin.add(local.direction.scale(info.distance)), world);
-          const distance = BabylonVector3.Distance(o, point);
-          if (distance < nearest) nearest = distance;
-        }
-        if (nearest < Infinity) hits.push({ node: m.component.node, order: MESH_ORDER, distance: nearest });
-      }
-      for (const node of this.icons.iconsAt(x, y)) hits.push({ node, order: ICON_ORDER, distance: 0 });
+      if (distance !== null) hits.push({ node: d.component.node, order: d.order, distance });
     }
+    if (ray) for (const node of this.icons.iconsAt(x, y)) hits.push({ node, order: ICON_ORDER, distance: 0 });
 
     hits.sort((a, b) => b.order - a.order || a.distance - b.distance);
     const seen = new Set<number>();
@@ -193,20 +188,24 @@ export class BabylonEditorViewport implements ViewportAdapter {
   }
 
   /**
-   * Where each active node under `root` with a Transform is on the canvas: the rectangle around its
-   * sprite, text or meshes, or (with none) a point at its origin. Nodes behind the camera are left
-   * out. Parents come before children.
+   * Where each active node under `root` with a Transform or a drawing is on the canvas: the rectangle around everything
+   * drawn for it (ADR 0276: sprite quads, meshes, tile layers, water, world canvases, screen Text), or (with
+   * nothing drawn) a point at its origin. Nodes partly behind the camera are left out. Parents come before children.
    */
   screenBounds(root: GameObject): { node: GameObject; rect: ScreenRect }[] {
     const world = this.ctx.world(), view = this.view();
     if (!world || !view || !this.hasSize()) return [];
-    const sprites = new Map<GameObject, Mesh>(), texts = new Map<GameObject, ScreenRect>(), meshes = new Map<GameObject, AbstractMesh[]>();
-    for (const s of this.ctx.sprites()) if (visible(s.mesh)) sprites.set(s.component.node, s.mesh);
-    for (const m of this.ctx.meshes()) {
-      const shown = m.meshes.filter(visible);
-      if (shown.length) meshes.set(m.component.node, [...(meshes.get(m.component.node) ?? []), ...shown]);
+    const drawn = new Map<GameObject, { quads: AbstractMesh[]; meshes: AbstractMesh[]; rects: ScreenRect[] }>();
+    for (const d of this.ctx.drawn()) {
+      const shape = d.shape;
+      if (!shape) continue;
+      const node = d.component.node;
+      let entry = drawn.get(node);
+      if (!entry) drawn.set(node, (entry = { quads: [], meshes: [], rects: [] }));
+      if (shape.kind === "rect") entry.rects.push(shape.rect);
+      else if (shape.kind === "quad") entry.quads.push(...worldMeshes(d));
+      else entry.meshes.push(...worldMeshes(d));
     }
-    for (const t of this.ctx.texts()) texts.set(t.component.node, { left: t.rect.left, top: t.rect.top, right: t.rect.right, bottom: t.rect.bottom });
 
     const grow = (rect: ScreenRect, p: [number, number] | null): boolean => {
       if (!p) return false;
@@ -217,21 +216,21 @@ export class BabylonEditorViewport implements ViewportAdapter {
       return true;
     };
     const boundsOf = (node: GameObject): ScreenRect | null => {
-      const text = texts.get(node);
-      if (text) return text;
       const rect: ScreenRect = { left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity };
-      const sprite = sprites.get(node);
-      if (sprite) {
-        const m = sprite.getWorldMatrix();
-        for (const [cx, cy] of [[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]]) {
-          const w = BabylonVector3.TransformCoordinates(new BabylonVector3(cx, cy, 0), m);
-          if (!grow(rect, project(view, w.x, w.y, w.z))) return null;
+      const d = drawn.get(node);
+      if (d && d.quads.length + d.meshes.length + d.rects.length > 0) {
+        for (const r of d.rects) {
+          grow(rect, [r.left, r.top]);
+          grow(rect, [r.right, r.bottom]);
         }
-        return rect;
-      }
-      const drawn = meshes.get(node);
-      if (drawn) {
-        for (const mesh of drawn) {
+        for (const quad of d.quads) {
+          const m = quad.getWorldMatrix();
+          for (const [cx, cy] of [[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]]) {
+            const w = BabylonVector3.TransformCoordinates(new BabylonVector3(cx, cy, 0), m);
+            if (!grow(rect, project(view, w.x, w.y, w.z))) return null;
+          }
+        }
+        for (const mesh of d.meshes) {
           for (const c of mesh.getBoundingInfo().boundingBox.vectorsWorld) if (!grow(rect, project(view, c.x, c.y, c.z))) return null;
         }
         return rect;
@@ -243,7 +242,7 @@ export class BabylonEditorViewport implements ViewportAdapter {
     const out: { node: GameObject; rect: ScreenRect }[] = [];
     const visit = (node: GameObject): void => {
       if (world.isPendingDestroy(node.entity) || !node.activeInHierarchy) return;
-      const rect = node.transform ? boundsOf(node) : null;
+      const rect = node.transform || drawn.has(node) ? boundsOf(node) : null; // screen Text needs no Transform
       if (rect) out.push({ node, rect });
       for (const c of node.children) visit(c);
     };
@@ -251,13 +250,13 @@ export class BabylonEditorViewport implements ViewportAdapter {
     return out;
   }
 
-  /** The world-space box around the meshes of `node`'s MeshRenderers, or null if none is drawn. */
-  meshBounds(node: GameObject): WorldBox | null {
+  /** The world-space box around what's drawn for `node` in the world (ADR 0276: meshes, sprite quads, tile layers, water, world canvases), or null if nothing is. */
+  drawnBounds(node: GameObject): WorldBox | null {
     const min: [number, number, number] = [Infinity, Infinity, Infinity], max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
     let any = false;
-    for (const m of this.ctx.meshes()) {
-      if (m.component.node !== node) continue;
-      for (const mesh of m.meshes) {
+    for (const d of this.ctx.drawn()) {
+      if (d.component.node !== node) continue;
+      for (const mesh of worldMeshes(d)) {
         const box = mesh.getBoundingInfo().boundingBox;
         const lo = box.minimumWorld, hi = box.maximumWorld;
         min[0] = Math.min(min[0], lo.x); min[1] = Math.min(min[1], lo.y); min[2] = Math.min(min[2], lo.z);
@@ -277,6 +276,25 @@ function project(camera: Camera, x: number, y: number, z: number): [number, numb
 }
 
 const inv = new Matrix();
+
+/**
+ * Distance along a world ray (`ray`, from `origin`) to the nearest hit on `meshes`' triangles (visible ones),
+ * or null. Babylon's mesh test takes the ray in the mesh's own space and measures the hit there: the hit
+ * point goes back to world space for a distance comparable across meshes.
+ */
+function nearestHit(ray: BabylonRay, origin: BabylonVector3, meshes: readonly AbstractMesh[]): number | null {
+  let nearest = Infinity;
+  for (const mesh of meshes) {
+    if (!visible(mesh)) continue;
+    const world = mesh.getWorldMatrix();
+    const local = BabylonRay.Transform(ray, world.clone().invert());
+    const info = mesh.intersects(local, false);
+    if (!info.hit) continue;
+    const point = BabylonVector3.TransformCoordinates(local.origin.add(local.direction.scale(info.distance)), world);
+    nearest = Math.min(nearest, BabylonVector3.Distance(origin, point));
+  }
+  return nearest < Infinity ? nearest : null;
+}
 
 /**
  * Distance along a world ray to where it crosses the unit quad (-0.5..0.5 on X and Y at local z = 0)

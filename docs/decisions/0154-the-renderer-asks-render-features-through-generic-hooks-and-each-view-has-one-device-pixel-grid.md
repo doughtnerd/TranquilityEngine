@@ -1,6 +1,6 @@
 # 0154. The renderer asks render features through generic hooks, never particle or UI services by name; each view has one device-pixel grid
 
-- **Status:** Accepted, amended by 0188 (the feature host offers each service once: no `probeLookup` or `drawPolicy()`)
+- **Status:** Accepted, amended by 0188 (the feature host offers each service once: no `probeLookup` or `drawPolicy()`), completed by 0276 (the sprite and mesh features too are asked through generic hooks: `drawn`, `casters`, `loaded`; `RenderDiagnostics.drawn` is one list by feature)
 - **Date:** 2026-11-09
 - **Deciders:** Chris Carlson
 - **Supersedes:** — (amends 0140)

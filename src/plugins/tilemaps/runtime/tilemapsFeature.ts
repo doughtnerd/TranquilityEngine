@@ -4,7 +4,7 @@
 // itself is `BabylonQuadBatches`, which knows nothing of tiles.
 import type { Component } from "../../../engine/core/Component";
 import type { World } from "../../../engine/core/World";
-import type { BabylonFeature, BabylonFeatureFactory } from "../../../engine/render/babylon/feature";
+import type { BabylonFeature, BabylonFeatureFactory, DrawnNode } from "../../../engine/render/babylon/feature";
 import { Tilemap } from "./Tilemap";
 import { TilemapRenderer } from "./tilemapRenderer";
 
@@ -14,6 +14,11 @@ export class TilemapsFeature implements BabylonFeature {
 
   sync(world: World): void {
     this.tilemaps.sync(world);
+  }
+
+  /** ADR 0276: each tile layer drawn, as its quad batches in its draw order (tiles are picked like sprites: by layer, not depth). */
+  *drawn(): Iterable<DrawnNode> {
+    for (const layer of this.tilemaps.drawn()) yield { component: layer.map, shape: { kind: "quads", batches: layer.batches }, order: layer.order };
   }
 
   release(c: Component): void {

@@ -22,7 +22,8 @@ import type { ParticleEffectPreviewApi, PreviewBackground } from "../../previewT
 import { appliedPixelRatio } from "../../RenderSurface";
 import type { GraphShared } from "../graphMaterial";
 import { EffectPlayer, EffectResources, libraryEffectHost } from "../effectPlayer";
-import { addPreviewLights, aimCamera, createPreviewScene, previewMaterials, renderFrame } from "./common";
+import { aimCamera, createPreviewScene, previewMaterials, renderFrame } from "./common";
+import { addDefaultLights } from "../lighting";
 import { createEngine } from "../createEngine";
 import type { BabylonMaterialLibrary } from "../materialLibrary";
 
@@ -116,7 +117,7 @@ export class ParticleEffectPreview implements ParticleEffectPreviewApi {
       camera.maxZ = 200;
       camera.rotationQuaternion = Quaternion.Identity();
       scene.activeCamera = camera;
-      addPreviewLights(scene); // for lit material assets (Babylon's particle systems and the unlit material ignore them)
+      addDefaultLights(scene, "preview"); // the default rig (ADR 0277), for lit material assets (Babylon's particle systems and the unlit material ignore them)
       this.scene = scene;
       this.library = previewMaterials(scene, this.shared);
       this.resources = new EffectResources(libraryEffectHost(scene, this.library), (message) => console.warn(`[myco] preview: ${message}`));

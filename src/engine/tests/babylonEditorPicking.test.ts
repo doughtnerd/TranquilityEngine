@@ -1,6 +1,7 @@
-// ADR 0075 stage 8, 0128: the Babylon editor viewport's picking and canvas queries, through its adapter
+// ADR 0075 stage 8, 0128, 0276: the Babylon editor viewport's picking and canvas queries, through its adapter
 // interface (and `ViewportHandle` for points on planes), on NullEngine with a fake renderer context (real
-// Babylon meshes and utility layer, real engine Camera components).
+// Babylon meshes and utility layer, real engine Camera components) whose features "drew" quads, meshes and
+// canvas rectangles.
 import { NullEngine } from "@babylonjs/core/Engines/nullEngine.js";
 import { Matrix } from "@babylonjs/core/Maths/math.vector.js";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder.js";
@@ -11,7 +12,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { World } from "../core/World";
 import { Assets, Camera, Engine, GameObject, SceneManager } from "../index";
 import { ParticleSystem } from "../render/components";
-import type { BabylonEditorContext, EditorMesh, EditorSprite } from "../render/babylon/editorContext";
+import type { BabylonEditorContext, EditorDrawn } from "../render/babylon/editorContext";
+import { PICK_ORDER } from "../render/babylon/feature";
 import { BabylonEditorViewport } from "../render/babylon/editorViewport";
 import { ViewportHandle } from "../render/editorViewport";
 import { FakeRenderPolicyPort } from "../render/fakeViewport";
@@ -21,9 +23,7 @@ describe("Babylon editor viewport picking and queries (ADR 0075 stage 8, 0128)",
   let babylon: NullEngine;
   let scene: Scene;
   let layer: UtilityLayerRenderer;
-  let sprites: EditorSprite[];
-  let meshes: EditorMesh[];
-  let texts: { component: { node: GameObject }; rect: { left: number; top: number; right: number; bottom: number } }[];
+  let drawn: EditorDrawn[];
   let cameras: Camera[];
   let queries: BabylonEditorViewport;
   let handle: ViewportHandle;
@@ -36,9 +36,7 @@ describe("Babylon editor viewport picking and queries (ADR 0075 stage 8, 0128)",
     babylon = new NullEngine();
     scene = new Scene(babylon);
     layer = new UtilityLayerRenderer(scene);
-    sprites = [];
-    meshes = [];
-    texts = [];
+    drawn = [];
     cameras = [];
     const ctx = {
       scene,
@@ -49,9 +47,7 @@ describe("Babylon editor viewport picking and queries (ADR 0075 stage 8, 0128)",
       world: () => World.require(),
       viewCameras: () => cameras,
       babylonCamera: () => null,
-      sprites: () => sprites,
-      meshes: () => meshes,
-      texts: () => texts,
+      drawn: () => drawn,
     } as unknown as BabylonEditorContext;
     queries = new BabylonEditorViewport(ctx);
     handle = new ViewportHandle(() => queries, new FakeRenderPolicyPort());
@@ -76,16 +72,17 @@ describe("Babylon editor viewport picking and queries (ADR 0075 stage 8, 0128)",
     const node = GameObject.create(name);
     const mesh = MeshBuilder.CreatePlane(name, { size: 1 }, scene);
     mesh.freezeWorldMatrix(Matrix.Scaling(scale[0], scale[1], 1).multiply(Matrix.Translation(...pos)));
-    sprites.push({ component: { node } as never, mesh, size: [1, 1], order });
+    drawn.push({ component: { node } as never, shape: { kind: "quad", mesh }, order, size: [1, 1] });
     return node;
   };
-  const box = (name: string, pos: [number, number, number], size = 2) => {
+  const box = (name: string, pos: [number, number, number], size = 2, more: Partial<EditorDrawn> = {}) => {
     const node = GameObject.create(name);
     const mesh = MeshBuilder.CreateBox(name, { size }, scene);
     mesh.freezeWorldMatrix(Matrix.Translation(...pos));
-    meshes.push({ component: { node } as never, meshes: [mesh as Mesh] });
+    drawn.push({ component: { node } as never, shape: { kind: "meshes", meshes: [mesh as Mesh] }, order: PICK_ORDER.depthTested, ...more });
     return node;
   };
+  const text = (node: GameObject, rect: { left: number; top: number; right: number; bottom: number }) => drawn.push({ component: { node } as never, shape: { kind: "rect", rect }, order: PICK_ORDER.screen });
   const world = () => World.require();
 
   it("picks a sprite by order, not depth, and meshes nearest first below every sprite", () => {
@@ -116,7 +113,7 @@ describe("Babylon editor viewport picking and queries (ADR 0075 stage 8, 0128)",
     icon.addBehavior(Camera);
     queries.sync(world());
     const label = GameObject.create("label");
-    texts.push({ component: { node: label }, rect: { left: 390, top: 290, right: 410, bottom: 310 } });
+    text(label, { left: 390, top: 290, right: 410, bottom: 310 });
     expect(queries.pick(400, 300)).toEqual([label, s]); // text, then the sprite (its own icon and its quad, listed once)
     expect(queries.pick(345, 300)).toEqual([icon, s]); // the camera icon, then the sprite under it
   });
@@ -134,9 +131,31 @@ describe("Babylon editor viewport picking and queries (ADR 0075 stage 8, 0128)",
     camera();
     sprite("s", 0, [0, 0, 0]);
     box("b", [0, 0, 3]);
-    sprites[0].mesh.setEnabled(false);
-    meshes[0].meshes[0].isVisible = false;
+    const [quad, meshes] = drawn.map((d) => d.shape);
+    if (quad?.kind === "quad") quad.mesh.setEnabled(false);
+    if (meshes?.kind === "meshes") meshes.meshes[0].isVisible = false;
     expect(queries.pick(400, 300)).toEqual([]);
+  });
+
+  it("picks meshes a feature drew in a layer's order above depth-tested ones (a tile layer), and leaves unpickable drawings to their own route", () => {
+    camera();
+    const tiles = box("tiles", [0, 0, 5], 2, { order: 20000 }); // farther, but layered 2D content draws on top
+    const mesh = box("mesh", [0, 0, -2]);
+    const canvas = box("canvas", [0, 0, -4], 2, { pickable: false }); // a world canvas: the UI core picks it (ADR 0117)
+    expect(queries.pick(400, 300)).toEqual([tiles, mesh]);
+    expect(queries.drawnBounds(canvas)).toEqual({ min: [-1, -1, -5], max: [1, 1, -3] }); // still framed
+    expect(queries.screenBounds(canvas)).toHaveLength(1);
+  });
+
+  it("ignores drawings with no shape of their own (batched sprites), and answers sprite sizes from what was drawn", () => {
+    camera();
+    const node = GameObject.create("batched");
+    const component = { node } as never;
+    drawn.push({ component, shape: null, order: 0, size: [3, 4] });
+    expect(queries.pick(400, 300)).toEqual([]);
+    expect(queries.drawnBounds(node)).toBeNull();
+    expect(queries.spriteSize(component)).toEqual([3, 4]);
+    expect(queries.spriteSize({ node } as never)).toBeNull(); // another sprite: not drawn
   });
 
   it("round-trips rayAt and worldToCanvas", () => {
@@ -200,16 +219,21 @@ describe("Babylon editor viewport picking and queries (ADR 0075 stage 8, 0128)",
   it("uses a screen-space text's own rectangle in screenBounds", () => {
     camera();
     const label = GameObject.create("label");
-    texts.push({ component: { node: label }, rect: { left: 10, top: 20, right: 110, bottom: 60 } });
+    text(label, { left: 10, top: 20, right: 110, bottom: 60 });
     expect(queries.screenBounds(label)[0].rect).toEqual({ left: 10, top: 20, right: 110, bottom: 60 });
   });
 
-  it("measures the world box around a node's meshes", () => {
+  it("measures the world box around everything drawn for a node: its meshes and its sprite's quad", () => {
     const n = box("b", [1, 2, 3], 2);
     const second = MeshBuilder.CreateBox("b2", { size: 2 }, scene);
     second.freezeWorldMatrix(Matrix.Translation(5, 2, 3));
-    meshes[0] = { ...meshes[0], meshes: [...meshes[0].meshes, second] };
-    expect(queries.meshBounds(n)).toEqual({ min: [0, 1, 2], max: [6, 3, 4] });
-    expect(queries.meshBounds(GameObject.create("none"))).toBeNull();
+    const first = drawn[0].shape;
+    if (first?.kind === "meshes") drawn[0] = { ...drawn[0], shape: { kind: "meshes", meshes: [...first.meshes, second] } };
+    expect(queries.drawnBounds(n)).toEqual({ min: [0, 1, 2], max: [6, 3, 4] });
+    expect(queries.drawnBounds(GameObject.create("none"))).toBeNull();
+    const s = sprite("s", 0, [1, 0, 0], [2, 2]);
+    const box2 = queries.drawnBounds(s)!;
+    expect(box2.min.map((v) => +v.toFixed(5))).toEqual([0, -1, 0]);
+    expect(box2.max.map((v) => +v.toFixed(5))).toEqual([2, 1, 0]);
   });
 });

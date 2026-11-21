@@ -22,7 +22,7 @@ function sampleFiles(dir = SAMPLE): Record<string, string> {
 
 /** The editor's World on `window`; its render surface reports what it draws in engine terms (ADR 0128). */
 type Hooks = {
-  engine?: { world: { time: { frameCount: number }; render: { diagnostics(): { drawn: { meshes: { node: { name: string }; materials: { unlit: boolean }[] }[] }; stats: { programs: number } } } } };
+  engine?: { world: { time: { frameCount: number }; render: { diagnostics(): { drawn: { node: { name: string }; feature: string; materials: { unlit: boolean }[] }[]; stats: { programs: number } } } } };
 };
 
 function trackErrors(page: Page, allow: RegExp[] = []): string[] {
@@ -61,7 +61,7 @@ const row = (page: Page, name: string) => page.locator(".tree .row", { has: page
 /** Whether a node's mesh draws lit or unlit, in engine material terms. */
 const meshMaterial = (page: Page, name: string) =>
   page.evaluate((n) => {
-    const m = (window as unknown as Hooks).engine!.world.render.diagnostics().drawn.meshes.find((d) => d.node.name === n)?.materials[0];
+    const m = (window as unknown as Hooks).engine!.world.render.diagnostics().drawn.find((d) => d.feature === "meshes" && d.node.name === n)?.materials[0];
     return m ? (m.unlit ? "unlit" : "lit") : null;
   }, name);
 /** The shader programs the renderer has compiled: a rebuilt material's new shader adds one. */
