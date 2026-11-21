@@ -76,6 +76,7 @@ The domain terms used in Myco Engine's code, decision records and reviews. Add a
 - **Physics backend:** a physics engine (Rapier today) adapted to the Physics plugin's backend interface for one dimension (ADR 0137). A backend plugin contributes it; the Physics plugin's shared sync core drives it through neutral descriptions, so Components and scripts never see it. A project picks one with `physics.backend2d`/`backend3d`, or uses the only one enabled. _Avoid:_ physics engine (for the plugin), physics world (that is one World's simulation).
 - **Editor service:** the editor-side counterpart of a World service, a named, typed object a plugin publishes for other plugins to use if it is enabled.
 - **Core:** what is never a plugin. In the engine: World, ECS, GameObject and Transform, scene files, prefabs and overrides, assets, time, input, `Engine`, the renderer core and netcode. In the editor (the **editor shell**): panels and docking, Hierarchy, Viewport, the Inspector and Assets frames, undo, the scene document, the Code panel, Play, Export, and the graph view.
+- **Particle property value field:** the one field that edits a particle effect's graph property by type (`ParticlePropertyValue`, ADR 0290), on the Blackboard and as a ParticleSystem's per-instance override in the Inspector. It reports `(value, drag)` as the SDK's fields do (ADR 0282). _Avoid:_ a per-panel property input.
 
 ## Rendering (ADR 0153, 0240, 0244)
 
@@ -119,6 +120,7 @@ The domain terms used in Myco Engine's code, decision records and reviews. Add a
 ## Tilemaps (ADR 0103)
 
 - **Orientation:** one of a tile's 8 flips and turns, its flip flags read as a transform of the cell, diagonal first, then X, then Y (as Tiled). `runtime/tileFlips.ts` is the one place that convention lives: `compose`, `inverse`, `rotateClockwise`, `flipPoint`, `sourceCorner`.
+- **Brush:** what the Tile Palette set up to paint (a stamp, its flips, random, or a terrain) and the one module that answers what it paints (`tilemaps/editor/brush.ts`, ADR 0289): a **brush stroke** from press to release (`beginStroke`: the cells each tool paints, where stamps land, what the release does) and the **footprint**, the cells it covers or would paint. A multi-cell stamp is flipped and turned as a block, its tiles with it. _Avoid:_ placing stamps or sizing the footprint outside the brush.
 
 ## Hosts (ADR 0236)
 
