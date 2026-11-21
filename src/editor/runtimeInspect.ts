@@ -10,7 +10,7 @@ import { Connection, GameObject, Replicated, type Engine } from "../engine";
 import type { World } from "../engine/core/World";
 import { type ComponentInfo, engineWorld, instantiatedPrefabOf, listComponents, listNodes, sceneSourceOf, viewport } from "../engine/editor";
 import { SetField, pathKey, type NodePath, type SceneDocument } from "./document";
-import { editorFor, toSceneJSON } from "./fieldValues";
+import { fieldKind, type NodeIds } from "./fields/kinds";
 import { findInner } from "./prefabs";
 import { playState, type OpenScene } from "./state";
 import { undoStep } from "./undoStep";
@@ -146,18 +146,20 @@ export function docPathFor(node: GameObject, scenePath: string, doc: SceneDocume
 // --- live values and edits ------------------------------------------------------------------------
 
 /**
- * A component's live values as scene-file JSON, the form `SetField` stores. Fields that can't be
- * written to a scene (unknown types, references to nodes that aren't in the document) are left out.
+ * A component's live values as scene-file JSON, the form `SetField` stores, each through its field's kind (a list's
+ * items through theirs, ADR 0273). Fields that can't be written to a scene (unknown types, unset values, values
+ * referring to nodes that aren't in the document, in a list too) are left out.
  */
-function liveValuesJSON(info: ComponentInfo, nodeId: (node: GameObject) => string | null): Record<string, unknown> {
+function liveValuesJSON(info: ComponentInfo, nodeId: NodeIds): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const f of info.fields) {
-    const editor = editorFor(f);
-    if (editor === "unknown") continue;
-    if (editor === "node" && f.value instanceof GameObject && nodeId(f.value) === null) continue;
-    if ((editor === "vector2" || editor === "vector3") && (f.value === null || f.value === undefined)) continue;
+    const kind = fieldKind(f);
+    if (!kind.savable || kind.isUnset(f.value)) continue;
+    let dangling = false;
+    const ids: NodeIds = (n) => nodeId(n) ?? ((dangling = true), null);
     try {
-      out[f.name] = toSceneJSON(editor, f.value, { field: f.name, nodeId });
+      const json = kind.toJSON(f.value, ids);
+      if (!dangling) out[f.name] = json;
     } catch {
       // a value the scene format can't hold: leave it out
     }
@@ -203,8 +205,8 @@ export const keptKey = (path: NodePath, type: string, index: number) => `${pathK
 const componentTitle = (type: string) => type.replace(/^(engine|game|editor)\./, "");
 
 /** A node reference's document id (for kept values): only nodes that are top-level scene-file nodes can be referenced. */
-function docNodeId(scenePath: string, doc: SceneDocument) {
-  return (n: GameObject): string | null => {
+function docNodeId(scenePath: string, doc: SceneDocument): NodeIds {
+  return (n) => {
     const m = docPathFor(n, scenePath, doc);
     return "path" in m && m.path.length === 1 ? m.path[0] : null;
   };
@@ -285,15 +287,13 @@ export function applyKept(scene: OpenScene, list: readonly KeptValues[]): KeptRe
       skipped.push(`${label}: the node in the scene has no ${k.title}${k.index ? ` #${k.index + 1}` : ""}.`);
       continue;
     }
-    const nodeId = (n: GameObject) => scene.sync.nodeIdOf(n);
+    const nodeId: NodeIds = (n) => scene.sync.nodeIdOf(n);
     for (const f of info.fields) {
       if (!Object.hasOwn(k.values, f.name)) continue;
-      const editor = editorFor(f);
-      const previous = doc.isPrefabInstance(id) ? doc.overrideValue(id, target, k.type, f.name, k.index) : doc.fieldValue(id, k.type, f.name, k.index);
       const value = k.values[f.name];
       let current: unknown;
       try {
-        current = f.value === null || f.value === undefined ? null : toSceneJSON(editor, f.value, { field: f.name, previous, nodeId });
+        current = f.value === null || f.value === undefined ? null : fieldKind(f).toJSON(f.value, nodeId);
       } catch {
         current = undefined;
       }
