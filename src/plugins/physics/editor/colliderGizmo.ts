@@ -9,58 +9,17 @@
 // instances; Escape mid-drag puts it back). Editing a collider is the tool's mode (ADR 0231), which the
 // viewport tool host ends: picking a transform tool, Escape, play, another tool, selecting another node
 // or switching scenes. 2D collider outlines are also selectable: a click inside one picks its node.
+// What each collider type looks like and how its handles change it is its entry in the collider shape
+// table (`colliderShapes.ts`, ADR 0288); this module is the loop over it: drawing, picking, and turning
+// pointer moves into the entry's field patches.
 import { RAD2DEG } from "../../../engine/core/math";
 import type { ReadonlySignal } from "@preact/signals";
 import { GameObject, type Engine } from "../../../engine";
-import { BoxCollider, BoxCollider2D, CapsuleCollider, CharacterController, CharacterController2D, CircleCollider2D, Collider, Collider2D, EdgeCollider2D, MeshCollider, PolygonCollider2D, SphereCollider } from "../runtime";
-import { type EditorOverlay, meshTriangleData, viewport } from "../../../engine/editor";
-import {
-  boxHandles3D,
-  boxWire,
-  capsuleHandleAxis,
-  capsuleHandles3D,
-  capsuleWire,
-  centerDelta,
-  closestOnAxis,
-  dragBoxFace3D,
-  dragCapsuleHeight,
-  dragCapsuleRadius,
-  dragSphereRadius,
-  meshOutline,
-  meshWire,
-  sphereHandles3D,
-  sphereWire,
-  worldCenter,
-  type BoxFace3D,
-  type MeshOutline,
-  type Pose3D,
-  type V3,
-  type Wire,
-} from "./collider3dMath";
-import {
-  boxCorners,
-  boxHandles,
-  capsule2DHandles,
-  capsule2DPoints,
-  dragCapsule2DHeight,
-  dragCapsule2DRadius,
-  circleHandles,
-  circlePoints,
-  dragBoxEdge,
-  dragCircleRadius,
-  insertPoint,
-  movePoint,
-  pointsHandle,
-  pointsHandles,
-  pointsOutline,
-  readPoints,
-  removePoint,
-  tidy,
-  toLocal,
-  type BoxHandle,
-  type Pose2D,
-  type V2,
-} from "./colliderMath";
+import { Collider, Collider2D } from "../runtime";
+import { type EditorOverlay, viewport } from "../../../engine/editor";
+import { centerDelta, closestOnAxis, worldCenter, type Pose3D, type V3, type Wire } from "./collider3dMath";
+import { tidy, toLocal, type Pose2D, type V2 } from "./colliderMath";
+import { COLLIDER_SHAPES, colliderShapeFor, colliderShapeOf, resizeAxis, type AnyColliderShape2D, type AnyColliderShape3D, type EditableColliderType, type FieldPatch } from "./colliderShapes";
 import { type ComponentEditMode, type ViewportDrag, type ViewportPointer, type ViewportToolContext, type ViewportToolContribution, editor, type OpenScene, theme, viewportColors } from "../../../editor/sdk";
 
 /** The collider tool's id: also its overlay id and its active-tool id. */
@@ -68,7 +27,7 @@ export const COLLIDER_TOOL_ID = "myco.physics.colliders";
 
 /** The collider whose handles are showing ("Edit Collider", like Unity), or null. */
 export interface EditingCollider extends ComponentEditMode {
-  readonly type: "engine.BoxCollider2D" | "engine.CircleCollider2D" | "engine.PolygonCollider2D" | "engine.EdgeCollider2D" | "engine.BoxCollider" | "engine.SphereCollider" | "engine.CapsuleCollider" | "engine.MeshCollider" | "engine.CharacterController" | "engine.CharacterController2D";
+  readonly type: EditableColliderType;
 }
 /** The collider tool's mode: entered by the Inspector's Edit Collider toggle, non-null exactly while the tool is active. */
 export const editingCollider: ReadonlySignal<EditingCollider | null> = editor.viewport.mode<EditingCollider>(COLLIDER_TOOL_ID);
@@ -92,119 +51,63 @@ export function pose3DOf(node: GameObject): Pose3D {
   return { position: [p.x, p.y, p.z], rotation: [q.x, q.y, q.z, q.w], scale: [s.x, s.y, s.z] };
 }
 
-/** A character controller's capsule is always upright: it follows the node's position and scale, never its rotation. */
-function uprightPose3D(node: GameObject): Pose3D {
-  return { ...pose3DOf(node), rotation: [0, 0, 0, 1] };
-}
-
-/** The 2D version: position and scale, no rotation. */
-function uprightPose2D(node: GameObject): Pose2D {
-  return { ...poseOf(node), rotation: 0 };
-}
-
-/** The pose a 3D collider's shape is placed with (upright for a character controller). */
-const colliderPose3D = (node: GameObject, c: Collider): Pose3D => (c instanceof CharacterController ? uprightPose3D(node) : pose3DOf(node));
-const colliderPose2D = (node: GameObject, c: Collider2D): Pose2D => (c instanceof CharacterController2D ? uprightPose2D(node) : poseOf(node));
-
-type EditableCollider2D = BoxCollider2D | CircleCollider2D | PolygonCollider2D | EdgeCollider2D | CharacterController2D;
-type EditableCollider3D = BoxCollider | SphereCollider | CapsuleCollider | CharacterController | MeshCollider;
-type EditableCollider = EditableCollider2D | EditableCollider3D;
-
-const CLASSES: Record<EditingCollider["type"], typeof Collider2D | typeof Collider> = {
-  "engine.BoxCollider2D": BoxCollider2D,
-  "engine.CircleCollider2D": CircleCollider2D,
-  "engine.PolygonCollider2D": PolygonCollider2D,
-  "engine.EdgeCollider2D": EdgeCollider2D,
-  "engine.BoxCollider": BoxCollider,
-  "engine.SphereCollider": SphereCollider,
-  "engine.CapsuleCollider": CapsuleCollider,
-  "engine.MeshCollider": MeshCollider,
-  "engine.CharacterController": CharacterController,
-  "engine.CharacterController2D": CharacterController2D,
-};
-
-const is3D = (c: EditableCollider): c is EditableCollider3D => c instanceof Collider;
+/** The pose a collider's shape is placed with: upright (no rotation) for a character controller's capsule. */
+const shapePose2D = (node: GameObject, shape: AnyColliderShape2D): Pose2D => (shape.upright ? { ...poseOf(node), rotation: 0 } : poseOf(node));
+const shapePose3D = (node: GameObject, shape: AnyColliderShape3D): Pose3D => (shape.upright ? { ...pose3DOf(node), rotation: [0, 0, 0, 1] } : pose3DOf(node));
 
 /** The collider types "Edit Collider" works on. */
-export const EDITABLE_COLLIDERS: ReadonlySet<string> = new Set(Object.keys(CLASSES));
+export const EDITABLE_COLLIDERS: ReadonlySet<string> = new Set(COLLIDER_SHAPES.map((s) => s.type));
 
-/** The collider being edited, if it's still there. */
-function editedCollider(): { node: GameObject; collider: EditableCollider; editing: EditingCollider } | null {
+type Edited =
+  | { node: GameObject; editing: EditingCollider; dimension: "2d"; shape: AnyColliderShape2D; fields: { center: V2 } }
+  | { node: GameObject; editing: EditingCollider; dimension: "3d"; shape: AnyColliderShape3D; fields: { center: V3 } };
+
+/** The collider being edited, if it's still there, with its entry and fields now. */
+function editedCollider(): Edited | null {
   const editing = editingCollider.value;
   const node = editor.scene.selection.node();
   if (!editing || !node?.transform || editor.scene.selection.active !== editing.key) return null;
-  const collider = node.getBehaviors(CLASSES[editing.type] as typeof Collider2D)[editing.index] as unknown as EditableCollider | undefined;
-  return collider ? { node, collider, editing } : null;
+  const shape = colliderShapeFor(editing.type);
+  const collider = shape && node.getBehaviors(shape.cls)[editing.index];
+  const fields = collider && shape.read(collider);
+  if (!shape || !fields) return null;
+  return shape.dimension === "2d" ? { node, editing, dimension: "2d", shape, fields } : { node, editing, dimension: "3d", shape, fields };
 }
-
-const isPoints = (c: Collider2D): c is PolygonCollider2D | EdgeCollider2D => c instanceof PolygonCollider2D || c instanceof EdgeCollider2D;
 
 /** Every 2D collider in the edited scene, with its outline in world space (open for edge colliders). */
 function colliderShapes(engine: Engine): { node: GameObject; points: [number, number, number][]; closed: boolean }[] {
   const out: { node: GameObject; points: [number, number, number][]; closed: boolean }[] = [];
   for (const c of GameObject.findObjectsOfType(Collider2D)) {
-    const node = c.node;
-    if (!node.transform || !engine.world.inEditMode(node.entity)) continue;
-    const pose = colliderPose2D(node, c);
-    const center: V2 = [c.center.x, c.center.y];
-    if (c instanceof CharacterController2D) out.push({ node, points: capsule2DPoints(pose, center, c.radius, c.height), closed: true });
-    else if (c instanceof BoxCollider2D) out.push({ node, points: boxCorners(pose, center, [c.size.x, c.size.y]), closed: true });
-    else if (c instanceof CircleCollider2D) out.push({ node, points: circlePoints(pose, center, c.radius), closed: true });
-    else if (isPoints(c)) out.push({ node, points: pointsOutline(pose, center, readPoints(c.points)), closed: c instanceof PolygonCollider2D });
+    const node = c.node, shape = colliderShapeOf(c);
+    if (!shape || !node.transform || !engine.world.inEditMode(node.entity)) continue;
+    const fields = shape.read(c);
+    if (fields) out.push({ node, ...shape.outline(fields, shapePose2D(node, shape)) });
   }
   return out;
 }
 
-/** Each mesh collider's outline, worked out once per mesh. */
-const outlines = new WeakMap<object, MeshOutline>();
-
-/** Each 3D collider's last wireframe and what it was made from (pose and shape), so an unchanged one isn't rebuilt every frame. */
-const wires = new WeakMap<Collider, { key: string; source: unknown; wire: Wire }>();
+/** Each 3D collider's last wireframe and what it was made from (shape, pose and centre), so an unchanged one isn't rebuilt every frame. */
+const wires = new WeakMap<Collider, { key: string; wire: Wire }>();
 
 /** Every 3D collider in the edited scene, as a wireframe in world space. Mesh colliders whose model is loading are left out. */
 function collider3dShapes(engine: Engine): { node: GameObject; wire: Wire }[] {
   const out: { node: GameObject; wire: Wire }[] = [];
   for (const c of GameObject.findObjectsOfType(Collider)) {
-    const node = c.node;
-    if (!node.transform || !engine.world.inEditMode(node.entity)) continue;
-    const pose = colliderPose3D(node, c);
-    const center: V3 = [c.center.x, c.center.y, c.center.z];
-    const mesh = c instanceof MeshCollider ? meshTriangleData(c.mesh, node) : null; // the same object while the mesh is unchanged
-    if (c instanceof MeshCollider && !mesh) continue;
-    const shape =
-      c instanceof BoxCollider ? `b${c.size.x},${c.size.y},${c.size.z}` : c instanceof SphereCollider ? `s${c.radius}` : c instanceof CapsuleCollider ? `c${c.radius},${c.height},${c.direction}` : c instanceof CharacterController ? `k${c.radius},${c.height}` : mesh ? "m" : null;
-    if (shape === null) continue;
-    const key = `${shape}|${pose.position}|${pose.rotation}|${pose.scale}|${center}`;
-    const cached = wires.get(c);
-    if (cached && cached.key === key && cached.source === mesh) {
-      out.push({ node, wire: cached.wire });
-      continue;
-    }
-    let wire: Wire;
-    if (c instanceof BoxCollider) wire = boxWire(pose, center, [c.size.x, c.size.y, c.size.z]);
-    else if (c instanceof SphereCollider) wire = sphereWire(pose, center, c.radius);
-    else if (c instanceof CapsuleCollider) wire = capsuleWire(pose, center, c.radius, c.height, c.direction);
-    else if (c instanceof CharacterController) wire = capsuleWire(pose, center, c.radius, c.height, "y");
-    else {
-      let outline = outlines.get(mesh!);
-      if (!outline) outlines.set(mesh!, (outline = meshOutline(mesh!.vertices, mesh!.indices)));
-      wire = meshWire(pose, center, mesh!.vertices, mesh!.indices, outline);
-    }
-    wires.set(c, { key, source: mesh, wire });
-    out.push({ node, wire });
+    const node = c.node, shape = colliderShapeOf(c);
+    if (!shape || !node.transform || !engine.world.inEditMode(node.entity)) continue;
+    const fields = shape.read(c);
+    if (!fields) continue;
+    const pose = shapePose3D(node, shape);
+    const key = `${shape.signature(fields)}|${pose.position}|${pose.rotation}|${pose.scale}|${fields.center}`;
+    let cached = wires.get(c);
+    if (!cached || cached.key !== key) wires.set(c, (cached = { key, wire: shape.wire(fields, pose) }));
+    out.push({ node, wire: cached.wire });
   }
   return out;
 }
 
-/** The handles of a 3D collider being edited, by id. */
-function handles3D(node: GameObject, c: EditableCollider3D): Record<string, V3> {
-  const pose = colliderPose3D(node, c), center: V3 = [c.center.x, c.center.y, c.center.z];
-  if (c instanceof MeshCollider) return { center: worldCenter(pose, center) };
-  if (c instanceof CharacterController) return capsuleHandles3D(pose, center, c.radius, c.height, "y");
-  if (c instanceof BoxCollider) return boxHandles3D(pose, center, [c.size.x, c.size.y, c.size.z]);
-  if (c instanceof SphereCollider) return sphereHandles3D(pose, center, c.radius);
-  return capsuleHandles3D(pose, center, c.radius, c.height, c.direction);
-}
+/** The handles of the collider being edited, by id, in world space. */
+const handlesOf = (e: Edited): Record<string, readonly number[]> => (e.dimension === "2d" ? e.shape.handles(e.fields, shapePose2D(e.node, e.shape)) : e.shape.handles(e.fields, shapePose3D(e.node, e.shape)));
 
 /** What to draw this frame: outlines for every collider in the edited scene, handles for the one being edited. */
 function colliderOverlay(engine: Engine): EditorOverlay {
@@ -218,25 +121,10 @@ function colliderOverlay(engine: Engine): EditorOverlay {
     for (const points of wire) overlay.lines.push({ points, closed: false, color });
   }
   const edited = editedCollider();
-  if (edited && is3D(edited.collider)) {
-    const handle = viewportColors(theme.peek()).handle;
-    for (const [id, position] of Object.entries(handles3D(edited.node, edited.collider))) overlay.handles.push({ id, position, color: id === "center" ? HANDLE_CENTER : handle });
-  } else if (edited) {
-    const { node } = edited;
-    const collider = edited.collider as EditableCollider2D;
-    const pose = colliderPose2D(node, collider);
-    const center: V2 = [collider.center.x, collider.center.y];
-    const handles: Record<string, [number, number, number]> =
-      collider instanceof CharacterController2D
-        ? capsule2DHandles(pose, center, collider.radius, collider.height)
-        : collider instanceof BoxCollider2D
-        ? boxHandles(pose, center, [collider.size.x, collider.size.y])
-        : collider instanceof CircleCollider2D
-          ? circleHandles(pose, center, collider.radius)
-          : pointsHandles(pose, center, readPoints(collider.points), collider instanceof PolygonCollider2D);
+  if (edited) {
     const handle = viewportColors(theme.peek()).handle; // the theme's accent
-    for (const [id, position] of Object.entries(handles)) {
-      overlay.handles.push({ id, position, color: id === "center" ? HANDLE_CENTER : id.startsWith("insert:") ? HANDLE_INSERT : handle });
+    for (const [id, position] of Object.entries(handlesOf(edited))) {
+      overlay.handles.push({ id, position: position as [number, number, number], color: id === "center" ? HANDLE_CENTER : id.startsWith("insert:") ? HANDLE_INSERT : handle });
     }
   }
   return overlay;
@@ -250,10 +138,7 @@ export const colliderTool: ViewportToolContribution<EditingCollider> = {
   editsComponents: {
     types: EDITABLE_COLLIDERS,
     label: "Edit Collider",
-    hint: (type) =>
-      type.endsWith("PolygonCollider2D") || type.endsWith("EdgeCollider2D")
-        ? "Show handles in the viewport: drag vertices, press an edge's middle handle to add one, Ctrl+click a vertex to remove it"
-        : "Show handles in the viewport to resize this collider and move its center",
+    hint: (type) => colliderShapeFor(type)?.hint ?? "Show handles in the viewport to resize this collider and move its center",
     stopHint: "Stop editing the collider (handles hide, the transform gizmo returns)",
   },
   install(view) {
@@ -269,77 +154,60 @@ export const colliderTool: ViewportToolContribution<EditingCollider> = {
       const handle = viewport(world).pickOverlayHandle(p.x, p.y);
       if (!handle) return null;
       // A press on a handle never also selects, orbits or starts the transform gizmo, even when it changes nothing.
-      const drag = is3D(edited.collider) ? drag3D(view, scene, p, handle, edited.node, edited.collider, edited.editing) : drag2D(view, scene, p, handle, edited.node, edited.collider as EditableCollider2D, edited.editing);
+      const drag = edited.dimension === "3d" ? drag3D(view, scene, p, handle, edited) : drag2D(view, scene, p, handle, edited);
       return drag ?? {};
     });
   },
 };
 
-/** Writes one field of the edited collider through the component field write (ADR 0257). */
-function fieldWriter(scene: OpenScene, editing: EditingCollider): (field: string, value: unknown) => void {
+/** Round float noise out of every number in a field value. */
+const tidied = (v: unknown): unknown => (typeof v === "number" ? tidy(v) : Array.isArray(v) ? v.map(tidied) : v);
+
+/** Writes a patch of the edited collider's fields through the component field write (ADR 0257). */
+function patchWriter(scene: OpenScene, editing: EditingCollider): (patch: FieldPatch) => void {
   const place = { scene, path: editing.key.split("/"), type: editing.type, index: editing.index };
-  return (field, value) => void editor.scene.writeField(place, field, value);
+  return (patch) => {
+    for (const [field, value] of Object.entries(patch)) void editor.scene.writeField(place, field, tidied(value));
+  };
 }
 
-/** Press on a 2D collider's handle: resize, move the centre, or move, add or (Ctrl+click) remove a vertex. */
-function drag2D(view: ViewportToolContext<EditingCollider>, scene: OpenScene, press: ViewportPointer, handle: string, node: GameObject, collider: EditableCollider2D, editing: EditingCollider): ViewportDrag | null {
+/** Press on a 2D collider's handle: the centre moves the offset; any other handle does what its entry says. */
+function drag2D(view: ViewportToolContext<EditingCollider>, scene: OpenScene, press: ViewportPointer, handle: string, edited: Extract<Edited, { dimension: "2d" }>): ViewportDrag | null {
   const { world } = view;
-  const pose = colliderPose2D(node, collider); // fixed for the drag
-  const startCenter: V2 = [collider.center.x, collider.center.y];
-  const startSize: V2 = collider instanceof BoxCollider2D ? [collider.size.x, collider.size.y] : [0, 0];
+  const { node, shape, fields } = edited;
+  const pose = shapePose2D(node, shape); // fixed for the drag
   const pointer = (m: ViewportPointer): V2 | null => {
     const w = viewport(world).pointOnPlane(m.x, m.y, [0, 0, 1], [0, 0, pose.position[2]]);
     return w ? toLocal(pose, w) : null;
   };
-  const grab = pointer(press);
-  const offset: V2 = grab ? [grab[0] - startCenter[0], grab[1] - startCenter[1]] : [0, 0];
-  const write = fieldWriter(scene, editing);
-
-  // Polygon and edge colliders: which vertex the drag moves (a new one for an edge's middle handle).
-  const parsed = isPoints(collider) ? pointsHandle(handle) : null;
-  const closed = collider instanceof PolygonCollider2D;
-  let points = isPoints(collider) ? readPoints(collider.points) : [];
-  let vertex = -1;
-  if (parsed && parsed.kind === "vertex" && (press.ctrl || press.meta)) {
-    // Ctrl+click removes the vertex: one step, no drag.
-    const next = removePoint(points, parsed.index, closed);
-    if (!next) {
-      editor.messages.info(`A ${closed ? "polygon" : "edge"} collider needs at least ${closed ? 3 : 2} points.`);
-      return null;
-    }
-    view.edit("Remove collider vertex", () => write("points", next));
+  const write = patchWriter(scene, edited.editing);
+  if (handle === "center") {
+    const grab = pointer(press);
+    const offset: V2 = grab ? [grab[0] - fields.center[0], grab[1] - fields.center[1]] : [0, 0];
+    return view.gesture("Move collider center", {
+      move: (m) => {
+        const p = pointer(m);
+        if (p) write({ center: [p[0] - offset[0], p[1] - offset[1]] });
+      },
+    });
+  }
+  const action = shape.press(fields, pose, handle, { ctrl: press.ctrl || press.meta });
+  if (!action) return null;
+  if ("refused" in action) {
+    editor.messages.info(action.refused);
     return null;
   }
-  let label = handle === "center" ? "Move collider center" : "Resize collider";
-  if (parsed?.kind === "vertex") {
-    vertex = parsed.index;
-    label = "Move collider vertex";
-  } else if (parsed?.kind === "insert") {
-    points = insertPoint(points, parsed.index);
-    vertex = parsed.index + 1;
-    label = "Add collider vertex";
+  if ("edit" in action) {
+    view.edit(action.label, () => write(action.edit));
+    return null;
   }
-  const move = (m: ViewportPointer) => {
-    const p = pointer(m);
-    if (!p) return;
-    if (handle === "center") {
-      write("center", [tidy(p[0] - offset[0]), tidy(p[1] - offset[1])]);
-    } else if (vertex >= 0) {
-      const q: V2 = [view.snap(p[0] - startCenter[0]), view.snap(p[1] - startCenter[1])];
-      write("points", movePoint(points, vertex, q).map((v) => v.map(tidy)));
-    } else if (collider instanceof BoxCollider2D) {
-      const r = dragBoxEdge(handle as Exclude<BoxHandle, "center">, p, startCenter, startSize, m.alt);
-      write("size", r.size.map(tidy));
-      if (!m.alt || r.center[0] !== startCenter[0] || r.center[1] !== startCenter[1]) write("center", r.center.map(tidy));
-    } else if (collider instanceof CircleCollider2D) {
-      write("radius", tidy(dragCircleRadius(pose, p, startCenter)));
-    } else if (collider instanceof CharacterController2D) {
-      if (handle.startsWith("height")) write("height", tidy(dragCapsule2DHeight(p, startCenter)));
-      else write("radius", tidy(dragCapsule2DRadius(p, startCenter)));
-    }
-  };
-  const drag = view.gesture(label, { move });
-  if (drag && parsed?.kind === "insert") write("points", points.map((p) => p.map(tidy)));
+  const drag = view.gesture(action.label, {
+    move: (m) => {
+      const p = pointer(m);
+      if (p) write(action.drag(p, m.alt, (n) => view.snap(n)));
+    },
+  });
+  if (drag && action.start) write(action.start);
   return drag;
 }
 
@@ -347,60 +215,40 @@ function drag2D(view: ViewportToolContext<EditingCollider>, scene: OpenScene, pr
  * Drag a 3D collider's handle along its axis (to the point nearest the pointer's ray), or the
  * centre handle across the plane through it that faces the camera.
  */
-function drag3D(view: ViewportToolContext<EditingCollider>, scene: OpenScene, press: ViewportPointer, handle: string, node: GameObject, collider: EditableCollider3D, editing: EditingCollider): ViewportDrag | null {
+function drag3D(view: ViewportToolContext<EditingCollider>, scene: OpenScene, press: ViewportPointer, handle: string, edited: Extract<Edited, { dimension: "3d" }>): ViewportDrag | null {
   const { world } = view;
-  const pose = colliderPose3D(node, collider); // fixed for the drag
-  const startCenter: V3 = [collider.center.x, collider.center.y, collider.center.z];
-  const c0 = worldCenter(pose, startCenter);
+  const { node, shape, fields } = edited;
+  const pose = shapePose3D(node, shape); // fixed for the drag
+  const c0 = worldCenter(pose, fields.center);
   const ray0 = viewport(world).rayAt(press.x, press.y);
   if (!ray0) return null;
-  const write = fieldWriter(scene, editing);
-  const grabbed = handles3D(node, collider)[handle];
-  if (!grabbed) return null;
-  let axis: V3 | null = null;
-  if (handle !== "center") {
-    if (collider instanceof CapsuleCollider || collider instanceof CharacterController) {
-      axis = capsuleHandleAxis(handle, pose, collider instanceof CapsuleCollider ? collider.direction : "y");
-      if (handle.endsWith("-")) axis = [-axis[0], -axis[1], -axis[2]];
-    } else {
-      const d = [grabbed[0] - c0[0], grabbed[1] - c0[1], grabbed[2] - c0[2]];
-      const len = Math.hypot(d[0], d[1], d[2]);
-      if (len < 1e-9) return null;
-      axis = [d[0] / len, d[1] / len, d[2] / len];
-    }
+  const write = patchWriter(scene, edited.editing);
+  if (handle === "center") {
+    const normal: V3 = [-ray0.direction[0], -ray0.direction[1], -ray0.direction[2]];
+    const grab0 = viewport(world).pointOnPlane(press.x, press.y, normal, c0);
+    return view.gesture("Move collider center", {
+      move: (p) => {
+        const hit = viewport(world).pointOnPlane(p.x, p.y, normal, c0);
+        if (!hit || !grab0) return;
+        const delta = centerDelta(pose, [hit[0] - grab0[0], hit[1] - grab0[1], hit[2] - grab0[2]]);
+        write({ center: fields.center.map((v, i) => v + delta[i]) });
+      },
+    });
   }
+  const grabbed = shape.handles(fields, pose)[handle];
+  const resize = grabbed ? shape.press(fields, pose, handle) : null;
+  if (!grabbed || !resize) return null;
+  const along = resizeAxis(shape, fields, pose, handle);
+  if (!along) return null;
   // Where along the handle's line the press was, so the handle doesn't jump to the pointer.
-  const t0 = axis ? closestOnAxis(ray0.origin, ray0.direction, c0, axis) : null;
-  const handleT = axis ? (grabbed[0] - c0[0]) * axis[0] + (grabbed[1] - c0[1]) * axis[1] + (grabbed[2] - c0[2]) * axis[2] : 0;
-  const normal: V3 = [-ray0.direction[0], -ray0.direction[1], -ray0.direction[2]];
-  const grab0 = handle === "center" ? viewport(world).pointOnPlane(press.x, press.y, normal, c0) : null;
-  const startSize: V3 = collider instanceof BoxCollider ? [collider.size.x, collider.size.y, collider.size.z] : [0, 0, 0];
-  const move = (p: ViewportPointer) => {
-    if (handle === "center") {
-      const hit = viewport(world).pointOnPlane(p.x, p.y, normal, c0);
-      if (!hit || !grab0) return;
-      const delta = centerDelta(pose, [hit[0] - grab0[0], hit[1] - grab0[1], hit[2] - grab0[2]]);
-      write("center", startCenter.map((v, i) => tidy(v + delta[i])));
-      return;
-    }
-    const ray = viewport(world).rayAt(p.x, p.y);
-    const t = ray && axis ? closestOnAxis(ray.origin, ray.direction, c0, axis) : null;
-    if (t === null || t0 === null) return;
-    // How far out the handle is now (along its own outward axis).
-    const reach = handleT + (t - t0);
-    if (collider instanceof BoxCollider) {
-      const face = handle as BoxFace3D;
-      // dragBoxFace3D takes the signed position along the node's axis.
-      const r = dragBoxFace3D(face, face.endsWith("+") ? reach : -reach, pose, startCenter, startSize, p.alt);
-      write("size", r.size.map(tidy));
-      if (!p.alt || r.center.some((v, i) => v !== startCenter[i])) write("center", r.center.map(tidy));
-    } else if (collider instanceof SphereCollider) {
-      write("radius", tidy(dragSphereRadius(reach, pose)));
-    } else if (collider instanceof CapsuleCollider || collider instanceof CharacterController) {
-      const direction = collider instanceof CapsuleCollider ? collider.direction : "y";
-      if (handle.startsWith("height")) write("height", tidy(dragCapsuleHeight(reach, pose, direction)));
-      else write("radius", tidy(dragCapsuleRadius(reach, pose, direction)));
-    }
-  };
-  return view.gesture(handle === "center" ? "Move collider center" : "Resize collider", { move });
+  const t0 = closestOnAxis(ray0.origin, ray0.direction, c0, along);
+  const handleT = (grabbed[0] - c0[0]) * along[0] + (grabbed[1] - c0[1]) * along[1] + (grabbed[2] - c0[2]) * along[2];
+  return view.gesture("Resize collider", {
+    move: (p) => {
+      const ray = viewport(world).rayAt(p.x, p.y);
+      const t = ray ? closestOnAxis(ray.origin, ray.direction, c0, along) : null;
+      if (t === null || t0 === null) return;
+      write(resize(handleT + (t - t0), p.alt)); // how far out the handle is now, along its own outward axis
+    },
+  });
 }

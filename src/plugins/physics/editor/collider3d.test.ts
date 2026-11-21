@@ -1,23 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { BoxCollider, Engine } from "../../../myco";
-import {
-  boxHandles3D,
-  boxWire,
-  capsuleHandles3D,
-  capsuleWire,
-  centerDelta,
-  closestOnAxis,
-  dragBoxFace3D,
-  dragCapsuleHeight,
-  dragCapsuleRadius,
-  dragSphereRadius,
-  MESH_WIRE_TRIANGLES,
-  meshOutline,
-  meshWire,
-  rotate,
-  sphereHandles3D,
-  type Pose3D,
-} from "./collider3dMath";
+import { centerDelta, closestOnAxis, rotate, type Pose3D } from "./collider3dMath";
 import type { EditorOverlay } from "../../../engine/editor";
 import { editor, viewportTools } from "../../../editor/sdk";
 import { EDITABLE_COLLIDERS, colliderTool, type EditingCollider } from "./colliderGizmo";
@@ -32,43 +15,11 @@ const turnY90: [number, number, number, number] = [0, Math.SQRT1_2, 0, Math.SQRT
 const editCollider = (editing: EditingCollider) => editor.viewport.enter(colliderTool.id, editing);
 const select = (key: string | null) => editor.scene.selection.set(key ? [key] : []);
 
-describe("3D collider wireframes and handles (ADR 0045)", () => {
+// Each collider type's wireframe, handles and drags are its entry in the collider shape table: colliderShapes.test.ts.
+describe("the 3D pose maths (ADR 0045)", () => {
   it("turns vectors by quaternions", () => {
     close(rotate(turnY90, [1, 0, 0]), [0, 0, -1]);
     close(rotate(turnY90, [0, 0, 1]), [1, 0, 0]);
-  });
-
-  it("puts box handles on face centres, scaled, turned and offset like the physics shape", () => {
-    const pose: Pose3D = { position: [1, 2, 3], rotation: turnY90, scale: [2, 1, 1] };
-    const h = boxHandles3D(pose, [0.5, 0, 0], [1, 2, 4]);
-    close(h.center, [1, 2, 2]); // centre (0.5 × 2) along the node's x, which faces -z
-    close(h["x+"], [1, 2, 1]); // half of 1 × 2 further along it
-    close(h["y+"], [1, 3, 2]);
-    close(h["z-"], [-1, 2, 2]);
-    expect(boxWire(identity, [0, 0, 0], [1, 1, 1])).toHaveLength(12);
-  });
-
-  it("sizes sphere and capsule handles by the scale rules", () => {
-    const pose: Pose3D = { ...identity, scale: [1, 3, 1] };
-    close(sphereHandles3D(pose, [0, 0, 0], 0.5)["radius:x+"], [1.5, 0, 0]);
-    const c = capsuleHandles3D(identity, [0, 0, 0], 0.5, 3, "z");
-    close(c["height+"], [0, 0, 1.5]);
-    close(c["radius:u+"], [0.5, 0, 0]); // across z: x first
-    expect(capsuleWire(identity, [0, 0, 0], 0.5, 3, "y").length).toBe(10); // two rings, four sides, four caps
-  });
-
-  it("drags a box face with the opposite face fixed, or both with Alt", () => {
-    expect(dragBoxFace3D("x+", 2, identity, [0, 0, 0], [2, 2, 2])).toEqual({ center: [0.5, 0, 0], size: [3, 2, 2] });
-    expect(dragBoxFace3D("y-", -3, identity, [0, 0, 0], [2, 2, 2])).toEqual({ center: [0, -1, 0], size: [2, 4, 2] });
-    expect(dragBoxFace3D("z+", 2, identity, [0, 0, 1], [2, 2, 2], true)).toEqual({ center: [0, 0, 1], size: [2, 2, 4] });
-    const scaled: Pose3D = { ...identity, scale: [2, 1, 1] };
-    expect(dragBoxFace3D("x+", 4, scaled, [0, 0, 0], [2, 1, 1])).toEqual({ center: [0.5, 0, 0], size: [3, 1, 1] }); // world 2…4 → local
-  });
-
-  it("turns handle distances back into radius and height", () => {
-    expect(dragSphereRadius(3, { ...identity, scale: [1, 2, 1] })).toBe(1.5);
-    expect(dragCapsuleRadius(1, { ...identity, scale: [2, 5, 1] }, "y")).toBe(0.5);
-    expect(dragCapsuleHeight(2, { ...identity, scale: [1, 2, 1] }, "y")).toBe(2);
   });
 
   it("finds where a ray passes closest to a handle's axis, and moves centres in local units", () => {
@@ -76,12 +27,6 @@ describe("3D collider wireframes and handles (ADR 0045)", () => {
     expect(closestOnAxis([2, 5, 0], [0, -1, 0], [0, 0, 0], [1, 0, 0])).toBeCloseTo(2);
     expect(closestOnAxis([0, 5, 0], [1, 0, 0], [0, 0, 0], [1, 0, 0])).toBeNull(); // parallel
     close(centerDelta({ ...identity, rotation: turnY90, scale: [2, 1, 1] }, [0, 0, -2]), [1, 0, 0]);
-  });
-
-  it("draws mesh colliders by their triangle edges, shared edges once, or their bounds when big", () => {
-    expect(meshOutline([0, 0, 0, 2, 0, 0, 2, 4, 0], Array.from({ length: (MESH_WIRE_TRIANGLES + 1) * 3 }, (_, i) => i % 3))).toEqual({ boxCenter: [1, 2, 0], boxSize: [2, 4, 0] });
-    const quad = meshWire(identity, [0, 0, 0], [0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0], [0, 1, 2, 0, 2, 3]);
-    expect(quad).toHaveLength(5);
   });
 });
 
@@ -164,12 +109,6 @@ describe("character controller and mesh collider gizmos", () => {
     expect(Object.keys(handles).sort()).toEqual(["center", "height+", "height-", "radius:u+", "radius:u-", "radius:v+", "radius:v-"]);
     close(handles.center, [1, 2.5, 3]);
     close(handles["height+"], [1, 3.5, 3]);
-  });
-
-  it("matches capsuleWire with an upright pose", () => {
-    const turned: Pose3D = { position: [0, 0, 0], rotation: turnY90, scale: [1, 1, 1] };
-    const upright = capsuleWire({ ...turned, rotation: [0, 0, 0, 1] }, [0, 0, 0], 0.5, 2, "y");
-    expect(upright.flat().every((p) => Math.abs(p[1]) <= 1 + 1e-9)).toBe(true);
   });
 
   it("edits a mesh collider's centre only", () => {

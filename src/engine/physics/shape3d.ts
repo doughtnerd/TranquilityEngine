@@ -7,6 +7,9 @@
  * - capsule: `radius` × the larger of the two axes across it, and `height` × the scale along it,
  *   never shorter than the capsule's diameter;
  * - every shape sits at `center` × world scale, turned with the node.
+ *
+ * `shapeSize3D` is what the physics world builds and the gizmo draws: the sizes above, never thinner
+ * than `MIN_SHAPE_SIZE`. `shape2d.ts` is the 2D half (ADR 0288).
  */
 export type V3 = [number, number, number];
 
@@ -33,6 +36,37 @@ export function capsuleSize(radius: number, height: number, axis: 0 | 1 | 2, sca
   const r = Math.abs(radius) * across;
   const total = Math.abs(height) * s[axis];
   return { radius: r, halfHeight: Math.max(0, total / 2 - r) };
+}
+
+/** The thinnest a physics backend builds a collider, in world units (ADR 0288): a zero-sized one still collides as a speck. */
+export const MIN_SHAPE_SIZE = 1e-4;
+
+/** A sized 3D collider's fields, in local units; a capsule lies along `axis` (0 x, 1 y, 2 z). */
+export type ShapeFields3D =
+  | { readonly kind: "box"; readonly size: readonly number[] }
+  | { readonly kind: "sphere"; readonly radius: number }
+  | { readonly kind: "capsule"; readonly radius: number; readonly height: number; readonly axis: 0 | 1 | 2 };
+
+/** The collider as the physics backend builds it (world units): the sizes above, every one at least `MIN_SHAPE_SIZE` (a capsule's straight part may be zero). */
+export type ShapeSize3D =
+  | { readonly kind: "box"; readonly halfExtents: V3 }
+  | { readonly kind: "sphere"; readonly radius: number }
+  | { readonly kind: "capsule"; readonly radius: number; readonly halfHeight: number; readonly axis: 0 | 1 | 2 };
+
+const atLeast = (v: number) => Math.max(v, MIN_SHAPE_SIZE);
+
+/** A collider's world size on a node of world scale `scale`, as the 3D physics world builds it and the gizmo draws it. */
+export function shapeSize3D(shape: ShapeFields3D, scale: readonly number[]): ShapeSize3D {
+  switch (shape.kind) {
+    case "box":
+      return { kind: "box", halfExtents: boxHalfExtents(shape.size, scale).map(atLeast) as V3 };
+    case "sphere":
+      return { kind: "sphere", radius: atLeast(sphereRadius(shape.radius, scale)) };
+    case "capsule": {
+      const { radius, halfHeight } = capsuleSize(shape.radius, shape.height, shape.axis, scale);
+      return { kind: "capsule", radius: atLeast(radius), halfHeight, axis: shape.axis };
+    }
+  }
 }
 
 /** The shape's offset from the node's origin in the node's (unscaled, turned) frame: `center` × world scale. */

@@ -4,92 +4,25 @@ import { AddComponent, SetField } from "../../../editor/document";
 import type { EditorOverlay } from "../../../engine/editor";
 import { editor, viewportTools } from "../../../editor/sdk";
 import { colliderTool, type EditingCollider } from "./colliderGizmo";
-import { MIN_EXTENT, capsule2DHandles, capsule2DPoints, dragCapsule2DHeight, dragCapsule2DRadius, boxCorners, boxHandles, circleHandles, circlePoints, dragBoxEdge, dragCircleRadius, pointInPolygon, polygonArea, toLocal, toWorld, type Pose2D } from "./colliderMath";
+import { toLocal, toWorld, type Pose2D } from "./colliderMath";
 import { openSceneFile } from "../../../editor/project";
 import { DEMO_SCENE, demoAssets, demoSettings, sceneViewTools } from "../../../editor/testing";
 
 const close = (a: readonly number[], b: readonly number[]) => a.forEach((v, i) => expect(v).toBeCloseTo(b[i], 6));
-const identity: Pose2D = { position: [0, 0, 0], rotation: 0, scale: [1, 1] };
 const posed: Pose2D = { position: [2, 1, -3], rotation: 90, scale: [2, 3] };
 /** Edit a collider, as the Inspector's Edit Collider toggle does. */
 const editCollider = (editing: EditingCollider) => editor.viewport.enter(colliderTool.id, editing);
 const select = (key: string | null) => editor.scene.selection.set(key ? [key] : []);
 
-describe("collider shapes in world space", () => {
+describe("the 2D pose maths", () => {
   it("scales, rotates and offsets local points, and maps them back", () => {
     close(toWorld(posed, [1, 0]), [2, 3, -3]); // x scaled by 2, then turned to +y
     close(toWorld(posed, [0, 1]), [-1, 1, -3]); // y scaled by 3, then turned to -x
     close(toLocal(posed, toWorld(posed, [0.4, -1.2])), [0.4, -1.2]);
   });
-
-  it("puts box corners and edge handles around the offset centre", () => {
-    const corners = boxCorners(identity, [1, 0], [4, 2]);
-    expect(corners).toEqual([[-1, -1, 0], [3, -1, 0], [3, 1, 0], [-1, 1, 0]]);
-    const handles = boxHandles({ ...identity, scale: [2, 1] }, [0, 0], [4, 2]);
-    expect(handles).toMatchObject({ left: [-4, 0, 0], right: [4, 0, 0], top: [0, 1, 0], bottom: [0, -1, 0], center: [0, 0, 0] });
-  });
-
-  it("sizes circles by the larger scale axis, like the physics backend", () => {
-    const pose: Pose2D = { ...identity, scale: [1, 3] };
-    const points = circlePoints(pose, [0, 0], 0.5, 4);
-    close(points[0], [1.5, 0, 0]);
-    close(points[1], [0, 1.5, 0]);
-    const handles = circleHandles({ ...pose, rotation: 90 }, [0, 0], 0.5);
-    close(handles["radius-right"], [0, 1.5, 0]); // rim handles turn with the node
-  });
 });
 
-describe("upright 2D capsule", () => {
-  it("sizes by |scale.x| for the radius and |scale.y| for the height, and ignores rotation", () => {
-    const pose: Pose2D = { position: [1, 2, 0], rotation: 0, scale: [2, 1] };
-    const h = capsule2DHandles(pose, [0, 0], 0.5, 4);
-    close(h["radius-right"], [2, 2, 0]);
-    close(h["height-top"], [1, 4, 0]);
-    close(h["height-bottom"], [1, 0, 0]);
-    const pts = capsule2DPoints(pose, [0, 0], 0.5, 4);
-    expect(Math.max(...pts.map((p) => p[1]))).toBeCloseTo(4);
-    expect(Math.min(...pts.map((p) => p[0]))).toBeCloseTo(0);
-  });
-
-  it("turns handle drags into radius and height", () => {
-    expect(dragCapsule2DRadius([0.7, 3], [0, 0])).toBeCloseTo(0.7);
-    expect(dragCapsule2DHeight([0, -1.5], [0, 0])).toBeCloseTo(3);
-    expect(dragCapsule2DRadius([0, 0], [0, 0])).toBe(MIN_EXTENT);
-  });
-});
-
-describe("points in collider outlines", () => {
-  it("tests containment and area in the XY plane, rotated outlines too", () => {
-    const box = boxCorners({ ...identity, rotation: 45 }, [0, 0], [2, 2]);
-    expect(pointInPolygon([0, 1.3], box)).toBe(true); // inside the turned box's top corner
-    expect(pointInPolygon([0.95, 0.95], box)).toBe(false); // outside it, though inside the unturned box
-    expect(polygonArea(box)).toBeCloseTo(4);
-    expect(polygonArea(circlePoints(identity, [0, 0], 1, 96))).toBeCloseTo(Math.PI, 2);
-  });
-});
-
-describe("dragging handles", () => {
-  it("moves one box edge and keeps the opposite edge where it was", () => {
-    expect(dragBoxEdge("right", [3, 5], [0, 0], [2, 2])).toEqual({ center: [1, 0], size: [4, 2] });
-    expect(dragBoxEdge("bottom", [0, -3], [0, 0], [2, 2])).toEqual({ center: [0, -1], size: [2, 4] });
-  });
-
-  it("moves both edges with symmetric (Alt) dragging", () => {
-    expect(dragBoxEdge("left", [-3, 0], [1, 0], [2, 2], true)).toEqual({ center: [1, 0], size: [8, 2] });
-  });
-
-  it("never flips or collapses a box past its opposite edge", () => {
-    const r = dragBoxEdge("right", [-5, 0], [0, 0], [2, 2]);
-    expect(r.size[0]).toBeCloseTo(MIN_EXTENT);
-    expect(r.center[0]).toBeCloseTo(-1 + MIN_EXTENT / 2);
-  });
-
-  it("sets a circle radius from the pointer distance, undoing the node's scale", () => {
-    const pose: Pose2D = { ...identity, scale: [2, 2] };
-    expect(dragCircleRadius(pose, toLocal(pose, [3, 4]), [0, 0])).toBeCloseTo(2.5);
-    expect(dragCircleRadius(identity, [0, 0], [0, 0])).toBe(MIN_EXTENT);
-  });
-});
+// Each collider type's outline, handles and drags are its entry in the collider shape table: colliderShapes.test.ts.
 
 describe("the overlay with the demo scene open", () => {
   let engine: Engine;
