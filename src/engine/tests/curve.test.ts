@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { curveRange, curveShape, evalCurve, parseCurve, type Curve } from "../core/curve";
-import { evalCurve as evalParticleCurve, type CurveKey as ParticleKey } from "../scene/particles";
+import type { CurveKey as ParticleKey } from "../scene/particles";
 
 describe("evalCurve", () => {
   it("is 0 when empty and flat beyond the ends", () => {
@@ -39,9 +39,13 @@ describe("evalCurve", () => {
     expect(evalCurve(c, 1.5)).toBe(4);
   });
 
-  it("matches the particle evaluator on particle curves", () => {
+  it("evaluates particle curves (linear [t, v] keys): flat beyond the ends, linear between keys", () => {
     const keys: ParticleKey[] = [[0, 1], [0.3, 0.2], [0.7, 0.9], [1, 0]];
-    for (let t = -0.1; t <= 1.1; t += 0.05) expect(evalCurve(keys, t)).toBeCloseTo(evalParticleCurve(keys, t), 12);
+    expect(evalCurve(keys, -0.1)).toBe(1);
+    expect(evalCurve(keys, 0.15)).toBeCloseTo(0.6, 12);
+    expect(evalCurve(keys, 0.5)).toBeCloseTo(0.55, 12);
+    expect(evalCurve(keys, 0.85)).toBeCloseTo(0.45, 12);
+    expect(evalCurve(keys, 1.1)).toBe(0);
   });
 
   it("finds the right segment in a long curve", () => {
