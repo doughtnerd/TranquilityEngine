@@ -11,7 +11,7 @@
 // coreRender.ts` puts coreDriver in `tsconfig.node.json`'s program; the feature files reach `context.ts` (and its
 // `?worker&url` import) through the voice table, which that program can't type.
 import type { AudioSettings } from "../../../../engine/audio/settings";
-import { MUSIC_RINGS_LIMITS } from "../../../../engine/audio/settings";
+import { AUDIO_NUMBERS } from "../../../../engine/audio/settings";
 
 /** @internal The four ABI 2.0 parameters as the preset carries them (`zoneMaxSeconds` becomes frames at init). */
 export interface SpatialInitParams {
@@ -57,7 +57,7 @@ export interface MusicInitParams {
 
 /** @internal `max_music_rings` (ABI 3.0, W1): `audio.music.rings` (Q0 parses it into 0..16; clamped again here). */
 export function musicInitParams(settings: AudioSettings): MusicInitParams {
-  const [lo, hi] = MUSIC_RINGS_LIMITS;
+  const [lo, hi] = AUDIO_NUMBERS["music.rings"].range;
   const n = Math.floor(settings.music.rings);
   return { maxMusicRings: Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : 0 };
 }

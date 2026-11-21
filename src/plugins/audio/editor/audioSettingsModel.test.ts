@@ -5,7 +5,7 @@ import type { SettingsDraft } from "../../../editor/sdk";
 import { MAX_PARAMETERS } from "../../../engine/audio/eventFormat";
 import { withSettings } from "../../../editor/projectSettingsModel";
 import { readDraft } from "../../../editor/testing";
-import { addBus, addDuckingEdit, addEffect, addSnapshot, applyVoicesPreset, VOICE_PRESETS, busTree, removeBus, renameBus, setBackend, setBackground, setBusMaxVoices, setBusParent, setBusValue, addBusAutomation, addParameter, removeBusAutomation, removeParameter, renameParameter, setBusAutomationBus, setBusAutomationCurve, setBusAutomationParameter, setBusAutomationTarget, setParameterDefaultLabel, setParameterLabelled, setParameterLabels, setParameterRange, setClipFormat, setClipMemory, setCodec, setLimiterLookahead, setSnapshotVolume, setSpatial, setVoices, voicesPreset, setMusicRings, setRhythmMode, addMaterial, bedPlan, materialIsModified, physicsLayerNames, removeMaterial, renameMaterial, resetMaterial, setBed, setBusBed, setBusBedPriority, setDoppler, setMaterial, setMaxClips, setOcclusion, setZones, toggleOcclusionLayer, zoneMemory, zoneWarnings, type BedPlan } from "./audioSettingsModel";
+import { addBus, addDuckingEdit, addEffect, addSnapshot, applyVoicesPreset, VOICE_PRESETS, busTree, removeBus, renameBus, setBusMaxVoices, setBusParent, setBusValue, addBusAutomation, addParameter, removeBusAutomation, removeParameter, renameParameter, setBusAutomationBus, setBusAutomationCurve, setBusAutomationParameter, setBusAutomationTarget, setParameterDefaultLabel, setParameterLabelled, setParameterLabels, setParameterRange, setSnapshotVolume, voicesPreset, addMaterial, bedPlan, materialIsModified, physicsLayerNames, removeMaterial, renameMaterial, resetMaterial, setBusBed, setBusBedPriority, setMaterial, toggleOcclusionLayer, zoneMemory, zoneWarnings, type BedPlan } from "./audioSettingsModel";
 import { audioSettings } from "./audioDraft";
 
 /** The lost-bed warning's rows. */
@@ -14,6 +14,8 @@ const lostBedsOf = (a: AudioSettings): BedPlan["lost"] => bedPlan(a).lost;
 const addDucking = (d: SettingsDraft): SettingsDraft => addDuckingEdit(d).draft;
 
 const empty = () => readDraft({});
+/** Set a scalar key by path, as the Audio settings views do (ADR 0306: the handle stores what the parse makes of it). */
+const set = audioSettings.set;
 const bus = (d: ReturnType<typeof empty>, name: string) => audioSettings.read(d).buses.find((b) => b.name === name)!;
 
 describe("audio settings model (ADR 0097)", () => {
@@ -72,14 +74,18 @@ describe("audio settings model, the core keys (ADR 0157 §2, K13)", () => {
   });
   it("sets voices within range, keeps logical >= mixed and clamps bus limits to a lowered logical", () => {
     let d = setBusMaxVoices(empty(), "SFX", 2000);
-    d = setVoices(d, { mixed: 1000, hrtf: 99 });
+    d = set(set(d, "voices.mixed", 1000), "voices.hrtf", 99);
     expect(audioSettings.read(d).voices).toEqual({ mixed: 512, logical: 4096, hrtf: 32 });
-    d = setVoices(d, { logical: 600 });
+    d = set(d, "voices.logical", 600);
     expect(audioSettings.read(d).voices.logical).toBe(600);
     expect(bus(d, "SFX").maxVoices).toBe(600);
-    d = setVoices(d, { mixed: 8, logical: 3 });
+    d = set(d, "voices.logical", 300); // under mixed: raised to it
+    expect(audioSettings.read(d).voices).toMatchObject({ mixed: 512, logical: 512 });
+    d = set(set(d, "voices.mixed", 8), "voices.logical", 3);
     expect(audioSettings.read(d).voices).toMatchObject({ mixed: 8, logical: 8 });
-    expect(audioSettings.read(setVoices(d, { mixed: NaN })).voices).toEqual(audioSettings.read(d).voices);
+    expect(bus(d, "SFX").maxVoices).toBe(8);
+    expect(audioSection(d.audio).problems).toEqual([]);
+    expect(audioSettings.read(set(d, "voices.mixed", NaN)).voices.mixed).toBe(128); // rejected: the parse's default
   });
   it("applies voice presets, names the matching one and falls back to custom", () => {
     expect(voicesPreset(audioSettings.read(empty()))).toBe("default");
@@ -89,7 +95,8 @@ describe("audio settings model, the core keys (ADR 0157 §2, K13)", () => {
     const back = applyVoicesPreset(low, "default");
     expect(audioSettings.read(back).clipMemoryMB).toBeUndefined();
     expect(voicesPreset(audioSettings.read(back))).toBe("default");
-    expect(voicesPreset(audioSettings.read(setVoices(low, { hrtf: 5 })))).toBe("custom");
+    expect(voicesPreset(audioSettings.read(set(low, "voices.hrtf", 5)))).toBe("custom");
+    expect(applyVoicesPreset(low, "low")).toBe(low);
   });
   it("the presets carry ADR 0162's numbers: HRTF 4/8/8, maxBeds 0/2/4, maxClips 1/1/2, and the comparison reads them", () => {
     expect(VOICE_PRESETS.low).toMatchObject({ voices: { hrtf: 4 }, maxBeds: 0, maxClips: 1 });
@@ -111,63 +118,69 @@ describe("audio settings model, the core keys (ADR 0157 §2, K13)", () => {
     expect(audioSettings.read(applyVoicesPreset(empty(), "low")).music.rings).toBe(8);
     expect(audioSettings.read(applyVoicesPreset(applyVoicesPreset(empty(), "high"), "default")).music.rings).toBe(12);
     const high = applyVoicesPreset(empty(), "high");
-    const odd = setMusicRings(high, 10);
+    const odd = set(high, "music.rings", 10);
     expect(audioSettings.read(odd).music.rings).toBe(10);
     expect(voicesPreset(audioSettings.read(odd))).toBe("custom");
     expect(voicesPreset(audioSettings.read(applyVoicesPreset(odd, "high")))).toBe("high");
     expect((odd.audio as { music: { rings: number } }).music.rings).toBe(10);
-    expect(audioSettings.read(setMusicRings(empty(), 99)).music.rings).toBe(16);
-    expect(audioSettings.read(setMusicRings(empty(), -3)).music.rings).toBe(0);
-    expect(audioSettings.read(setMusicRings(empty(), 6.6)).music.rings).toBe(7);
+    expect(audioSettings.read(set(empty(), "music.rings", 99)).music.rings).toBe(16);
+    expect(audioSettings.read(set(empty(), "music.rings", -3)).music.rings).toBe(0);
+    expect(audioSettings.read(set(empty(), "music.rings", 6.6)).music.rings).toBe(7);
+    expect((set(empty(), "music.rings", 99).audio as { music: { rings: number } }).music.rings).toBe(16); // stored clamped
     const same = empty();
-    expect(setMusicRings(same, NaN)).toBe(same);
-    expect(setMusicRings(same, 12)).toBe(same);
+    expect(set(same, "music.rings", NaN)).toBe(same); // rejected: the default 12, which it already is
+    expect(set(same, "music.rings", 12)).toBe(same);
+    expect(audioSettings.read(set(odd, "music.rings", NaN)).music.rings).toBe(12);
     expect(audioSection(odd.audio).problems).toEqual([]);
   });
   it("rhythm mode persists and re-parses", () => {
-    const on = setRhythmMode(empty(), true);
+    const on = set(empty(), "rhythmMode", true);
     expect(audioSettings.read(on).rhythmMode).toBe(true);
     expect((on.audio as { rhythmMode: boolean }).rhythmMode).toBe(true);
     expect(audioSection(on.audio).problems).toEqual([]);
-    expect(audioSettings.read(setRhythmMode(on, false)).rhythmMode).toBe(false);
-    expect(setRhythmMode(on, true)).toBe(on);
+    expect(audioSettings.read(set(on, "rhythmMode", false)).rhythmMode).toBe(false);
+    expect(set(on, "rhythmMode", true)).toBe(on);
   });
   it("sets background, clip memory, clip format, codec, spatial and backend; the result re-parses without problems", () => {
-    let d = setBackground(empty(), "pause");
-    d = setClipMemory(d, 5000);
+    let d = set(empty(), "background", "pause");
+    d = set(d, "clipMemoryMB", 5000);
     expect(audioSettings.read(d).clipMemoryMB).toBe(1024);
-    d = setClipMemory(d, 3);
+    d = set(d, "clipMemoryMB", 3);
     expect(audioSettings.read(d).clipMemoryMB).toBe(16);
-    d = setClipFormat(d, "f32");
-    d = setCodec(d, "aac", true);
-    d = setSpatial(d, "equalPower");
-    d = setBackend(d, "core");
+    d = set(d, "clipFormat", "f32");
+    d = set(d, "codecs.aac", true);
+    d = set(d, "spatial", "equalPower");
+    d = set(d, "backend", "babylon");
+    expect(audioSettings.read(d).backend).toBe("babylon");
+    expect(set(d, "backend", "babylon")).toBe(d);
+    d = set(d, "backend", "core");
     d = setBusMaxVoices(d, "Music", 8);
     const text = withSettings("{}", d, {});
     const parsed = parseAudioSettings(JSON.parse(text).audio);
     expect(parsed.problems).toEqual([]);
     expect(parsed.settings).toMatchObject({ background: "pause", clipMemoryMB: 16, clipFormat: "f32", codecs: { aac: true }, spatial: "equalPower", backend: "core" });
-    expect(audioSettings.read(setClipMemory(d, undefined)).clipMemoryMB).toBeUndefined();
+    expect(audioSettings.read(set(d, "clipMemoryMB", undefined)).clipMemoryMB).toBeUndefined();
+    expect(audioSettings.read(set(d, "spatial", "stereo")).spatial).toBe("hrtf"); // rejected: the parse's default
     const same = empty();
-    expect(setSpatial(same, "hrtf")).toBe(same);
-    expect(setCodec(same, "aac", false)).toBe(same);
-    expect(setBackground(same, "mute")).toBe(same);
-    expect(setClipFormat(same, "i16")).toBe(same);
+    expect(set(same, "spatial", "hrtf")).toBe(same);
+    expect(set(same, "codecs.aac", false)).toBe(same);
+    expect(set(same, "background", "mute")).toBe(same);
+    expect(set(same, "clipFormat", "i16")).toBe(same);
   });
   it("sets the limiter look-ahead in ms, clamped to 0..5 and not rounded; non-finite is the 1.5 default; it re-parses", () => {
     const same = empty();
     expect(audioSettings.read(same).limiterLookaheadMs).toBe(1.5);
-    expect(setLimiterLookahead(same, 1.5)).toBe(same);
-    let d = setLimiterLookahead(same, 2.25);
+    expect(set(same, "limiterLookaheadMs", 1.5)).toBe(same);
+    let d = set(same, "limiterLookaheadMs", 2.25);
     expect(audioSettings.read(d).limiterLookaheadMs).toBe(2.25);
-    d = setLimiterLookahead(d, 9);
+    d = set(d, "limiterLookaheadMs", 9);
     expect(audioSettings.read(d).limiterLookaheadMs).toBe(5);
-    d = setLimiterLookahead(d, -3);
+    d = set(d, "limiterLookaheadMs", -3);
     expect(audioSettings.read(d).limiterLookaheadMs).toBe(0);
     const parsed = parseAudioSettings(JSON.parse(withSettings("{}", d, {})).audio);
     expect(parsed.problems).toEqual([]);
     expect(parsed.settings.limiterLookaheadMs).toBe(0);
-    expect(audioSettings.read(setLimiterLookahead(d, Number.NaN)).limiterLookaheadMs).toBe(1.5);
+    expect(audioSettings.read(set(d, "limiterLookaheadMs", Number.NaN)).limiterLookaheadMs).toBe(1.5);
   });
 });
 
@@ -368,12 +381,12 @@ describe("ADR 0162 E3: beds, occlusion, materials, zones, Doppler", () => {
   };
 
   it("sets maxBeds and maxClips (rounded, clamped) and they persist", () => {
-    let d = setBed(empty(), 3.6);
-    d = setMaxClips(d, 9);
+    let d = set(empty(), "bed.maxBeds", 3.6);
+    d = set(d, "ambisonic.maxClips", 9);
     expect(clean(d)).toMatchObject({ bed: { maxBeds: 4 }, ambisonic: { maxClips: 4 } });
-    expect(clean(setBed(d, -2)).bed.maxBeds).toBe(0);
-    expect(setBed(d, Number.NaN)).toBe(d);
-    expect(setBed(d, 4)).toBe(d);
+    expect(clean(set(d, "bed.maxBeds", -2)).bed.maxBeds).toBe(0);
+    expect(clean(set(d, "bed.maxBeds", Number.NaN)).bed.maxBeds).toBe(2); // rejected: the parse's default
+    expect(set(d, "bed.maxBeds", 4)).toBe(d);
   });
 
   it("stores a bus's bed and priority only when they differ from the default, and round-trips them", () => {
@@ -397,7 +410,7 @@ describe("ADR 0162 E3: beds, occlusion, materials, zones, Doppler", () => {
   });
 
   it("warns about a bus that asked for a bed and lost it to priority", () => {
-    let d = setBed(empty(), 1); // one slot: Master (own, 255) hosts
+    let d = set(empty(), "bed.maxBeds", 1); // one slot: Master (own, 255) hosts
     expect(lostBedsOf(audioSettings.read(d))).toEqual([]);
     d = setBusBed(d, "Music", "own");
     d = setBusBedPriority(d, "Music", 200);
@@ -406,7 +419,7 @@ describe("ADR 0162 E3: beds, occlusion, materials, zones, Doppler", () => {
     expect(plan.lost).toEqual([{ bus: "Music", outrankedBy: ["Master"], sharesWith: "Master" }]);
     expect(plan.hostOf).toMatchObject({ Master: "Master", Music: "Master", SFX: "Master" });
     // a second slot and a higher priority: Music wins and Master... keeps its own slot
-    expect(lostBedsOf(audioSettings.read(setBed(d, 2)))).toEqual([]);
+    expect(lostBedsOf(audioSettings.read(set(d, "bed.maxBeds", 2)))).toEqual([]);
     expect(bedPlan(audioSettings.read(setBusBedPriority(d, "Music", 255))).hosts).toEqual(["Master"]); // tie at 255: the shallower bus
     // two buses at the same depth fight for one slot; the lower priority loses
     d = setBusBedPriority(setBusBed(setBusBed(d, "Master", "none"), "SFX", "own"), "SFX", 150);
@@ -415,13 +428,14 @@ describe("ADR 0162 E3: beds, occlusion, materials, zones, Doppler", () => {
     expect(p2.lost.map((l) => l.bus)).toEqual(["SFX"]);
     expect(p2.lost[0].sharesWith).toBeNull(); // Master is `none`: nothing to share, so SFX is flat
     // beds off: nothing is lost
-    expect(lostBedsOf(audioSettings.read(setBed(d, 0)))).toEqual([]);
+    expect(lostBedsOf(audioSettings.read(set(d, "bed.maxBeds", 0)))).toEqual([]);
   });
 
   it("edits occlusion keys and layers; they re-parse against the physics layers", () => {
-    let d = setOcclusion({ ...empty(), physics: { layers: ["Default", "Walls", "Props"] } }, { budgetMs: 5, smoothingMs: 1, defaultMaterial: "wood" });
+    let d = set(set(set({ ...empty(), physics: { layers: ["Default", "Walls", "Props"] } }, "occlusion.budgetMs", 5), "occlusion.smoothingMs", 1), "occlusion.defaultMaterial", "wood");
     expect(audioSettings.read(d).occlusion).toMatchObject({ budgetMs: 2, smoothingMs: 10, defaultMaterial: "wood", layers: null });
-    expect(setOcclusion(d, { defaultMaterial: "nope", budgetMs: Number.NaN })).toBe(d);
+    expect(audioSettings.read(set(d, "occlusion.defaultMaterial", "nope")).occlusion.defaultMaterial).toBe("concrete"); // rejected: the parse's fallback
+    expect(audioSettings.read(set(d, "occlusion.budgetMs", Number.NaN)).occlusion.budgetMs).toBe(0.25);
     const all = physicsLayerNames(d);
     expect(all.length).toBeGreaterThan(1);
     d = toggleOcclusionLayer(d, all[1], false, all);
@@ -429,8 +443,8 @@ describe("ADR 0162 E3: beds, occlusion, materials, zones, Doppler", () => {
     expect(clean(d).occlusion.layers).toEqual(all.filter((l) => l !== all[1]));
     d = toggleOcclusionLayer(d, all[1], true, all);
     expect(audioSettings.read(d).occlusion.layers).toBeNull(); // every layer ticked: back to "all"
-    expect(clean(setOcclusion(d, { layers: [] })).occlusion.layers).toEqual([]); // occlusion off
-    expect(clean(setOcclusion(d, { layers: ["Default", "Default", " "] })).occlusion.layers).toEqual(["Default"]);
+    expect(clean(set(d, "occlusion.layers", [])).occlusion.layers).toEqual([]); // occlusion off
+    expect(clean(set(d, "occlusion.layers", ["Default", "Default", ""])).occlusion.layers).toEqual(["Default"]); // the parse drops repeats and blanks
   });
 
   it("adds, edits, renames, removes and resets material cards, and the table persists", () => {
@@ -441,7 +455,7 @@ describe("ADR 0162 E3: beds, occlusion, materials, zones, Doppler", () => {
     expect(audioSettings.read(d).occlusion.materials.at(-1)).toEqual({ name: "Material", transmissionDb: -80, cutoffHz: 100, wetOcclusion: 0.25, attackMs: 40 });
     d = setMaterial(d, "Material", { attackMs: null, releaseMs: 5000 });
     expect(audioSettings.read(d).occlusion.materials.at(-1)).toEqual({ name: "Material", transmissionDb: -80, cutoffHz: 100, wetOcclusion: 0.25, releaseMs: 2000 });
-    d = renameMaterial(setOcclusion(d, { defaultMaterial: "Material" }), "Material", "  Curtain ");
+    d = renameMaterial(set(d, "occlusion.defaultMaterial", "Material"), "Material", "  Curtain ");
     expect(audioSettings.read(d).occlusion.defaultMaterial).toBe("Curtain");
     expect(renameMaterial(d, "wood", "Plank")).toBe(d); // built-ins keep their names
     expect(renameMaterial(d, "Curtain", "wood")).toBe(d);
@@ -476,16 +490,18 @@ describe("ADR 0162 E3: beds, occlusion, materials, zones, Doppler", () => {
   });
 
   it("edits zones (integers rounded and clamped, IR length 0.5..8) and Doppler, and they persist", () => {
-    let d = setZones(empty(), { maxActive: 1.4, standby: 0, maxIrSeconds: 20 });
+    let d = set(set(set(empty(), "zones.maxActive", 1.4), "zones.standby", 0), "zones.maxIrSeconds", 20);
     expect(clean(d).zones).toEqual({ maxActive: 1, standby: 0, maxIrSeconds: 8 });
     expect(zoneWarnings(audioSettings.read(d)).map((w) => w.code)).toEqual(["evictionFade"]);
-    d = setZones(d, { maxActive: 0, maxIrSeconds: 0.1 });
+    d = set(set(d, "zones.maxActive", 0), "zones.maxIrSeconds", 0.1);
     expect(clean(d).zones).toEqual({ maxActive: 0, standby: 0, maxIrSeconds: 0.5 });
     expect(zoneMemory(audioSettings.read(d)).slots).toBe(0);
-    expect(setZones(d, { maxActive: Number.NaN })).toBe(d);
-    d = setDoppler(d, { maxSpeed: 200, speedOfSound: 5 });
+    expect(set(d, "zones.maxActive", 0)).toBe(d);
+    expect(clean(set(d, "zones.maxActive", Number.NaN)).zones.maxActive).toBe(2); // rejected: the parse's default
+    d = set(set(d, "doppler.maxSpeed", 200), "speedOfSound", 5);
     expect(clean(d)).toMatchObject({ doppler: { maxSpeed: 200 }, speedOfSound: 10 });
-    expect(setDoppler(d, { maxSpeed: 0 })).toBe(d);
-    expect(setDoppler(d, { maxSpeed: -3, speedOfSound: Number.NaN })).toBe(d);
+    expect(set(d, "doppler.maxSpeed", 200)).toBe(d);
+    expect(clean(set(d, "doppler.maxSpeed", 0)).doppler.maxSpeed).toBe(150); // must be above 0: the parse's default
+    expect(clean(set(d, "speedOfSound", Number.NaN)).speedOfSound).toBe(343);
   });
 });

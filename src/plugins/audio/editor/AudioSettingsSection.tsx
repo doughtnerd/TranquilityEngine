@@ -2,7 +2,7 @@
 // the backend. Edits go through the pure functions in `audioSettingsModel.ts` and the panel's undo history.
 import { useState } from "preact/hooks";
 import type { AudioBackground, AudioClipFormat, AudioSettings, AudioSpatialMode, BusBed, BusEffect, BusSettings, DuckingDetector, DuckingMode, DuckingRule } from "../../../engine/audio/settings";
-import { AMBISONIC_LIMITS, BED_LIMITS, BED_PRIORITY_LIMITS, BUS_BEDS, OCCLUSION_LIMITS, SPEED_OF_SOUND_LIMITS, ZONE_LIMITS, busBed, busBedPriority } from "../../../engine/audio/settings";
+import { AUDIO_NUMBERS, BED_PRIORITY_LIMITS, BUS_BEDS, busBed, busBedPriority, type AudioNumberPath, type AudioNumberRule } from "../../../engine/audio/settings";
 import { atBusLimit } from "../../../engine/audio/busCapability";
 import { MATERIAL_LIMITS, MAX_MATERIALS, type OccluderMaterial } from "../../../engine/audio/occlusionMaterials";
 import {
@@ -25,24 +25,17 @@ import {
   removeMaterial,
   renameMaterial,
   resetMaterial,
-  setBed,
   setBusBed,
   setBusBedPriority,
-  setDoppler,
   setMaterial,
-  setMaxClips,
-  setOcclusion,
-  setZones,
   toggleOcclusionLayer,
   zoneMemory,
   zoneSlots,
   zoneWarnings,
   type BedPlan,
   type MaterialPatch,
-  CLIP_MEMORY_LIMITS,
   EFFECT_TYPES,
   MAX_BUSES,
-  VOICE_LIMITS,
   VOICE_PRESET_NAMES,
   MAX_PARAMETERS,
   addBus,
@@ -75,25 +68,13 @@ import {
   removeSnapshot,
   renameBus,
   renameSnapshot,
-  setBackend,
-  setBackground,
   setBusMaxVoices,
   setBusParent,
   setBusValue,
-  setClipFormat,
-  setClipMemory,
-  setCodec,
-  setLimiterLookahead,
   setEffectValue,
   setSnapshotLowpass,
   setSnapshotVolume,
-  setSpatial,
-  setMusicRings,
-  setRhythmMode,
-  MUSIC_RINGS_LIMITS,
-  setVoices,
   voicesPreset,
-  LIMITER_LOOKAHEAD_LIMITS,
   type VoicePresetName,
 } from "./audioSettingsModel";
 import { audioSettings } from "./audioDraft";
@@ -121,6 +102,26 @@ function Num(props: { label: string; value: number; step?: number; min?: number;
       }}
     />
   );
+}
+
+/** A scalar number key's input bounds, from the parse's declaration (ADR 0306): an exclusive or infinite end gives no bound. */
+function keyBounds(path: AudioNumberPath): { min?: number; max?: number } {
+  const rule: AudioNumberRule = AUDIO_NUMBERS[path];
+  const [min, max] = rule.range;
+  return { min: rule.above ? undefined : min, max: Number.isFinite(max) ? max : undefined };
+}
+
+/** A scalar number key's range for a tooltip: "8..512". */
+const keyRange = (path: AudioNumberPath): string => AUDIO_NUMBERS[path].range.join("..");
+
+/** The value of a scalar key of the parsed section, by its dotted path. */
+const keyValue = (a: AudioSettings, path: AudioNumberPath): number | undefined =>
+  path.split(".").reduce<unknown>((o, k) => (o as Record<string, unknown> | undefined)?.[k], a) as number | undefined;
+
+/** The input of a scalar number key: bounded by its declaration, and a commit sets it by path (the parse clamps it, ADR 0306). */
+function KeyNum(props: { path: AudioNumberPath; label: string; step: number; undo: string; a: AudioSettings; draft: SettingsDraft; set: Set }) {
+  const { path, draft, set } = props;
+  return <Num label={props.label} value={keyValue(props.a, path) ?? 0} step={props.step} {...keyBounds(path)} onCommit={(n) => set(props.undo, audioSettings.set(draft, path, n))} />;
 }
 
 /** A number input where blank means unset. */
@@ -613,7 +614,7 @@ function Playback(props: { a: AudioSettings; draft: SettingsDraft; set: Set }) {
   const voices = (key: "mixed" | "logical" | "hrtf", label: string, hint: string) => (
     <label title={hint}>
       {label}
-      <Num label={`Voices ${key}`} value={a.voices[key]} step={1} min={VOICE_LIMITS[key][0]} max={VOICE_LIMITS[key][1]} onCommit={(n) => set(`Set voices ${key}`, setVoices(draft, { [key]: n }))} />
+      <KeyNum path={`voices.${key}`} label={`Voices ${key}`} step={1} undo={`Set voices ${key}`} a={a} draft={draft} set={set} />
     </label>
   );
   return (
@@ -634,9 +635,9 @@ function Playback(props: { a: AudioSettings; draft: SettingsDraft; set: Set }) {
             {preset === "custom" && <option value="custom">custom</option>}
           </select>
         </label>
-        {voices("mixed", "Mixed", "Sounds mixed at once (8..512)")}
-        {voices("logical", "Logical", "Sounds tracked, including silent virtual ones (mixed..8192)")}
-        {voices("hrtf", "HRTF", "Spatial sounds rendered with HRTF (0..32); 0 is equal-power only")}
+        {voices("mixed", "Mixed", `Sounds mixed at once (${keyRange("voices.mixed")})`)}
+        {voices("logical", "Logical", `Sounds tracked, including silent virtual ones (mixed..${AUDIO_NUMBERS["voices.logical"].range[1]})`)}
+        {voices("hrtf", "HRTF", `Spatial sounds rendered with HRTF (${keyRange("voices.hrtf")}); 0 is equal-power only`)}
       </div>
 
       <div class="project-settings-list-head">
@@ -644,12 +645,12 @@ function Playback(props: { a: AudioSettings; draft: SettingsDraft; set: Set }) {
         <span class="project-settings-hint">the voices preset sets music rings (8 / 12 / 16); changing them here makes the preset custom</span>
       </div>
       <div class="audio-row">
-        <label title={`Streams the core can play at once for streamed music stems (${MUSIC_RINGS_LIMITS[0]}..${MUSIC_RINGS_LIMITS[1]}); each costs about 300 KiB. 0 refuses streamed stems with a warning (decoded stems still play). Applies when the core next starts.`}>
+        <label title={`Streams the core can play at once for streamed music stems (${keyRange("music.rings")}); each costs about 300 KiB. 0 refuses streamed stems with a warning (decoded stems still play). Applies when the core next starts.`}>
           Music rings
-          <Num label="Music rings" value={a.music.rings} step={1} min={MUSIC_RINGS_LIMITS[0]} max={MUSIC_RINGS_LIMITS[1]} onCommit={(n) => set("Set music rings", setMusicRings(draft, n))} />
+          <KeyNum path="music.rings" label="Music rings" step={1} undo="Set music rings" a={a} draft={draft} set={set} />
         </label>
         <label class="audio-bus-check" title="Creates the audio context with the lowest latency the device allows and reads its latency back, for rhythm games. It costs battery and may crackle on slow devices. Applies at the next Play, which rebuilds the audio context.">
-          <input type="checkbox" aria-label="Rhythm mode" checked={a.rhythmMode} onChange={(e) => set(`${a.rhythmMode ? "Disable" : "Enable"} rhythm mode`, setRhythmMode(draft, (e.currentTarget as HTMLInputElement).checked))} />
+          <input type="checkbox" aria-label="Rhythm mode" checked={a.rhythmMode} onChange={(e) => set(`${a.rhythmMode ? "Disable" : "Enable"} rhythm mode`, audioSettings.set(draft, "rhythmMode", (e.currentTarget as HTMLInputElement).checked))} />
           Rhythm mode
         </label>
       </div>
@@ -660,28 +661,28 @@ function Playback(props: { a: AudioSettings; draft: SettingsDraft; set: Set }) {
       <div class="audio-row">
         <label>
           Spatial
-          <Choice<AudioSpatialMode> label="Spatial mode" value={a.spatial} options={["hrtf", "equalPower"]} labels={{ equalPower: "equal power" }} onChange={(v) => set("Set spatial mode", setSpatial(draft, v))} />
+          <Choice<AudioSpatialMode> label="Spatial mode" value={a.spatial} options={["hrtf", "equalPower"]} labels={{ equalPower: "equal power" }} onChange={(v) => set("Set spatial mode", audioSettings.set(draft, "spatial", v))} />
         </label>
         <label title="What the page being hidden does to sound">
           In background
-          <Choice<AudioBackground> label="Audio background" value={a.background} options={["mute", "pause", "play"]} onChange={(v) => set("Set audio background", setBackground(draft, v))} />
+          <Choice<AudioBackground> label="Audio background" value={a.background} options={["mute", "pause", "play"]} onChange={(v) => set("Set audio background", audioSettings.set(draft, "background", v))} />
         </label>
-        <label title="The master limiter looks this far ahead (0..5 ms) so it can lower the gain smoothly before a peak; it delays all core output by as much. 0 is no delay and an instant attack. Applies when the core next starts.">
+        <label title={`The master limiter looks this far ahead (${keyRange("limiterLookaheadMs")} ms) so it can lower the gain smoothly before a peak; it delays all core output by as much. 0 is no delay and an instant attack. Applies when the core next starts.`}>
           Limiter look-ahead (ms)
-          <Num label="Limiter look-ahead (ms)" value={a.limiterLookaheadMs} step={0.5} min={LIMITER_LOOKAHEAD_LIMITS[0]} max={LIMITER_LOOKAHEAD_LIMITS[1]} onCommit={(n) => set("Set limiter look-ahead", setLimiterLookahead(draft, n))} />
+          <KeyNum path="limiterLookaheadMs" label="Limiter look-ahead (ms)" step={0.5} undo="Set limiter look-ahead" a={a} draft={draft} set={set} />
         </label>
       </div>
       <div class="audio-row">
-        <label title="Ceiling for decoded clips in MB (16..1024); blank uses the device preset's">
+        <label title={`Ceiling for decoded clips in MB (${keyRange("clipMemoryMB")}); blank uses the device preset's`}>
           Clip memory (MB)
-          <OptionalNum label="Clip memory MB" value={a.clipMemoryMB} step={16} min={CLIP_MEMORY_LIMITS[0]} max={CLIP_MEMORY_LIMITS[1]} placeholder="auto" onCommit={(n) => set("Set clip memory", setClipMemory(draft, n))} />
+          <OptionalNum label="Clip memory MB" value={a.clipMemoryMB} step={16} {...keyBounds("clipMemoryMB")} placeholder="auto" onCommit={(n) => set("Set clip memory", audioSettings.set(draft, "clipMemoryMB", n))} />
         </label>
         <label title="Sample format of decoded clips: 16-bit integer halves the memory">
           Clip format
-          <Choice<AudioClipFormat> label="Clip format" value={a.clipFormat} options={["i16", "f32"]} labels={{ i16: "16-bit", f32: "32-bit float" }} onChange={(v) => set("Set clip format", setClipFormat(draft, v))} />
+          <Choice<AudioClipFormat> label="Clip format" value={a.clipFormat} options={["i16", "f32"]} labels={{ i16: "16-bit", f32: "32-bit float" }} onChange={(v) => set("Set clip format", audioSettings.set(draft, "clipFormat", v))} />
         </label>
         <label class="audio-bus-check" title="Also decode AAC (.m4a, .mp4, .aac) on the audio core: the core then loads its larger AAC decoder (about 1 MB instead of 0.7 MB). Off, AAC assets don't play on the core (one warning each); the Babylon backend plays them wherever the browser does">
-          <input type="checkbox" aria-label="AAC codec" checked={a.codecs.aac} onChange={(e) => set(`${a.codecs.aac ? "Disable" : "Enable"} AAC`, setCodec(draft, "aac", (e.currentTarget as HTMLInputElement).checked))} />
+          <input type="checkbox" aria-label="AAC codec" checked={a.codecs.aac} onChange={(e) => set(`${a.codecs.aac ? "Disable" : "Enable"} AAC`, audioSettings.set(draft, "codecs.aac", (e.currentTarget as HTMLInputElement).checked))} />
           AAC
         </label>
       </div>
@@ -689,11 +690,11 @@ function Playback(props: { a: AudioSettings; draft: SettingsDraft; set: Set }) {
       <div class="audio-row">
         <label title="Doppler pitch shift treats a relative speed between a sound and the listener above this many world units per second as this speed. A sound opts in with its Doppler level (0 is off). Above 0">
           Doppler max speed
-          <Num label="Doppler max speed" value={a.doppler.maxSpeed} step={10} min={1} onCommit={(n) => set("Set Doppler max speed", setDoppler(draft, { maxSpeed: n }))} />
+          <KeyNum path="doppler.maxSpeed" label="Doppler max speed" step={10} undo="Set Doppler max speed" a={a} draft={draft} set={set} />
         </label>
-        <label title={`How fast sound travels in your world units per second (${SPEED_OF_SOUND_LIMITS[0]}..${SPEED_OF_SOUND_LIMITS[1]}); 343 if one unit is a metre. It sets how strong Doppler is`}>
+        <label title={`How fast sound travels in your world units per second (${keyRange("speedOfSound")}); 343 if one unit is a metre. It sets how strong Doppler is`}>
           Speed of sound
-          <Num label="Speed of sound" value={a.speedOfSound} step={1} min={SPEED_OF_SOUND_LIMITS[0]} max={SPEED_OF_SOUND_LIMITS[1]} onCommit={(n) => set("Set speed of sound", setDoppler(draft, { speedOfSound: n }))} />
+          <KeyNum path="speedOfSound" label="Speed of sound" step={1} undo="Set speed of sound" a={a} draft={draft} set={set} />
         </label>
         {a.backend === "babylon" && <span class="audio-note">Babylon backend: Doppler changes the pitch of decoded clips only; streamed clips play flat.</span>}
       </div>
@@ -703,7 +704,7 @@ function Playback(props: { a: AudioSettings; draft: SettingsDraft; set: Set }) {
         <span class="project-settings-hint">core (the default) is the Rust mixer; babylon is the fallback without effects or voice limits. macOS desktop builds default to babylon until macOS passes its gate</span>
       </div>
       <div class="audio-row">
-        <Choice<"babylon" | "core"> label="Audio backend" value={a.backend} options={["core", "babylon"]} onChange={(v) => set("Set audio backend", setBackend(draft, v))} />
+        <Choice<"babylon" | "core"> label="Audio backend" value={a.backend} options={["core", "babylon"]} onChange={(v) => set("Set audio backend", audioSettings.set(draft, "backend", v))} />
       </div>
     </>
   );
@@ -793,13 +794,13 @@ function Beds(props: { a: AudioSettings; plan: BedPlan; draft: SettingsDraft; se
       <p class="project-settings-hint">{BED_HELP}</p>
       <BackendNote a={a} what="it has no beds, so sounds use its own panner and ambisonic clips play their first channel as mono." />
       <div class="audio-row">
-        <label title={`How many beds can exist at once (${BED_LIMITS.maxBeds[0]}..${BED_LIMITS.maxBeds[1]}). 0 turns beds off: every sound is panned on its own`}>
+        <label title={`How many beds can exist at once (${keyRange("bed.maxBeds")}). 0 turns beds off: every sound is panned on its own`}>
           Max beds
-          <Num label="Max beds" value={a.bed.maxBeds} step={1} min={BED_LIMITS.maxBeds[0]} max={BED_LIMITS.maxBeds[1]} onCommit={(n) => set("Set max beds", setBed(draft, n))} />
+          <KeyNum path="bed.maxBeds" label="Max beds" step={1} undo="Set max beds" a={a} draft={draft} set={set} />
         </label>
-        <label title={`How many ambisonic clips (recordings of a whole sound field: 4, 9 or 16 channels) can play at once (${AMBISONIC_LIMITS.maxClips[0]}..${AMBISONIC_LIMITS.maxClips[1]}). 0 refuses them with a warning`}>
+        <label title={`How many ambisonic clips (recordings of a whole sound field: 4, 9 or 16 channels) can play at once (${keyRange("ambisonic.maxClips")}). 0 refuses them with a warning`}>
           Max ambisonic clips
-          <Num label="Max ambisonic clips" value={a.ambisonic.maxClips} step={1} min={AMBISONIC_LIMITS.maxClips[0]} max={AMBISONIC_LIMITS.maxClips[1]} onCommit={(n) => set("Set max ambisonic clips", setMaxClips(draft, n))} />
+          <KeyNum path="ambisonic.maxClips" label="Max ambisonic clips" step={1} undo="Set max ambisonic clips" a={a} draft={draft} set={set} />
         </label>
         <span class="project-settings-hint">{plan.maxBeds === 0 ? "beds are off" : `hosts: ${plan.hosts.join(", ") || "none"}${plan.implicitRoot ? " (the root by default: no bus asked for its own)" : ""}`}</span>
       </div>
@@ -846,17 +847,17 @@ function Occlusion(props: { a: AudioSettings; draft: SettingsDraft; set: Set }) 
         {off && <span class="audio-note">Occlusion is off.</span>}
       </div>
       <div class="audio-row">
-        <label title={`Ray time per frame in ms (${OCCLUSION_LIMITS.budgetMs[0]}..${OCCLUSION_LIMITS.budgetMs[1]}). More time checks more sounds each frame; fewer rays means a wall takes longer to be noticed`}>
+        <label title={`Ray time per frame in ms (${keyRange("occlusion.budgetMs")}). More time checks more sounds each frame; fewer rays means a wall takes longer to be noticed`}>
           Budget (ms)
-          <Num label="Occlusion budget (ms)" value={o.budgetMs} step={0.05} min={OCCLUSION_LIMITS.budgetMs[0]} max={OCCLUSION_LIMITS.budgetMs[1]} onCommit={(n) => set("Set occlusion budget", setOcclusion(draft, { budgetMs: n }))} />
+          <KeyNum path="occlusion.budgetMs" label="Occlusion budget (ms)" step={0.05} undo="Set occlusion budget" a={a} draft={draft} set={set} />
         </label>
-        <label title={`How quickly a sound closes and opens as a wall appears or goes (${OCCLUSION_LIMITS.smoothingMs[0]}..${OCCLUSION_LIMITS.smoothingMs[1]} ms); a material can set its own`}>
+        <label title={`How quickly a sound closes and opens as a wall appears or goes (${keyRange("occlusion.smoothingMs")} ms); a material can set its own`}>
           Smoothing (ms)
-          <Num label="Occlusion smoothing (ms)" value={o.smoothingMs} step={10} min={OCCLUSION_LIMITS.smoothingMs[0]} max={OCCLUSION_LIMITS.smoothingMs[1]} onCommit={(n) => set("Set occlusion smoothing", setOcclusion(draft, { smoothingMs: n }))} />
+          <KeyNum path="occlusion.smoothingMs" label="Occlusion smoothing (ms)" step={10} undo="Set occlusion smoothing" a={a} draft={draft} set={set} />
         </label>
         <label title="The material an occluder uses when it doesn't name one">
           Default material
-          <Choice<string> label="Default material" value={o.defaultMaterial} options={o.materials.map((m) => m.name)} onChange={(v) => set("Set default material", setOcclusion(draft, { defaultMaterial: v }))} />
+          <Choice<string> label="Default material" value={o.defaultMaterial} options={o.materials.map((m) => m.name)} onChange={(v) => set("Set default material", audioSettings.set(draft, "occlusion.defaultMaterial", v))} />
         </label>
       </div>
       <div class="project-settings-list-head">
@@ -932,17 +933,17 @@ function Zones(props: { a: AudioSettings; draft: SettingsDraft; set: Set }) {
       </div>
       <BackendNote a={a} what="reverb zones are ignored (one warning is logged)." />
       <div class="audio-row">
-        <label title={`How many zones can be heard at once (${ZONE_LIMITS.maxActive[0]}..${ZONE_LIMITS.maxActive[1]}). 0 turns zones off`}>
+        <label title={`How many zones can be heard at once (${keyRange("zones.maxActive")}). 0 turns zones off`}>
           Active zones
-          <Num label="Zones active" value={a.zones.maxActive} step={1} min={ZONE_LIMITS.maxActive[0]} max={ZONE_LIMITS.maxActive[1]} onCommit={(n) => set("Set active zones", setZones(draft, { maxActive: n }))} />
+          <KeyNum path="zones.maxActive" label="Zones active" step={1} undo="Set active zones" a={a} draft={draft} set={set} />
         </label>
         <label title="A spare slot where the zone you just left rings out its tail while the next one fades in (0 or 1)">
           Tail slot
-          <Num label="Zones standby" value={a.zones.standby} step={1} min={ZONE_LIMITS.standby[0]} max={ZONE_LIMITS.standby[1]} onCommit={(n) => set("Set zone tail slot", setZones(draft, { standby: n }))} />
+          <KeyNum path="zones.standby" label="Zones standby" step={1} undo="Set zone tail slot" a={a} draft={draft} set={set} />
         </label>
-        <label title={`The longest reverb tail kept, in seconds (${ZONE_LIMITS.maxIrSeconds[0]}..${ZONE_LIMITS.maxIrSeconds[1]}); longer impulse responses are cut with a 50 ms fade`}>
+        <label title={`The longest reverb tail kept, in seconds (${keyRange("zones.maxIrSeconds")}); longer impulse responses are cut with a 50 ms fade`}>
           Max IR length (s)
-          <Num label="Zones max IR seconds" value={a.zones.maxIrSeconds} step={0.5} min={ZONE_LIMITS.maxIrSeconds[0]} max={ZONE_LIMITS.maxIrSeconds[1]} onCommit={(n) => set("Set zone IR length", setZones(draft, { maxIrSeconds: n }))} />
+          <KeyNum path="zones.maxIrSeconds" label="Zones max IR seconds" step={0.5} undo="Set zone IR length" a={a} draft={draft} set={set} />
         </label>
       </div>
       <p class="project-settings-hint" data-zone-memory>

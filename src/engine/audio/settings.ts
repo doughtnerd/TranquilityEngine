@@ -181,12 +181,6 @@ export interface AudioSettings {
 
 /** `audio.music` (ADR 0166 §2.1). */
 export interface MusicSettings { rings: number }
-/** `audio.music.rings`' range (`MAX_MUSIC_RINGS` in the wire). */
-export const MUSIC_RINGS_LIMITS = [0, 16] as const;
-/** `audio.voices`' ranges (§2, K13); `logical` is also at least `mixed`. */
-export const VOICE_LIMITS = { mixed: [8, 512], logical: [8, 8192], hrtf: [0, 32] } as const;
-/** `audio.clipMemoryMB`' range (§2, K13). */
-export const CLIP_MEMORY_LIMITS = [16, 1024] as const;
 /** `audio.music.rings` when absent: the default preset's 12. */
 const DEFAULT_MUSIC_RINGS = 12;
 /** The voice presets' music rings (api-and-models §2.1; the editor's `VOICE_PRESETS` writes them). */
@@ -221,12 +215,7 @@ export interface ZoneSettings {
 /** `audio.doppler`: `maxSpeed` in world units per second, above 0, default 150. */
 export interface DopplerSettings { maxSpeed: number }
 
-/** Ranges and defaults of the M3 keys (ADR 0162 §2.1), `[min, max]`. */
-export const BED_LIMITS = { maxBeds: [0, 4] } as const;
-export const AMBISONIC_LIMITS = { maxClips: [0, 4] } as const;
-export const OCCLUSION_LIMITS = { budgetMs: [0.02, 2], smoothingMs: [10, 1000] } as const;
-export const ZONE_LIMITS = { maxActive: [0, 2], standby: [0, 1], maxIrSeconds: [0.5, 8] } as const;
-export const SPEED_OF_SOUND_LIMITS = [10, 100000] as const;
+/** Defaults of the M3 keys (ADR 0162 §2.1); their ranges are in `AUDIO_NUMBERS`. A bus's `bedPriority` range: */
 export const BED_PRIORITY_LIMITS = [0, 255] as const;
 export const DEFAULT_BED_MAX_BEDS = 2;
 export const DEFAULT_AMBISONIC_MAX_CLIPS = 1;
@@ -320,8 +309,41 @@ export const DEFAULT_VOICES: Readonly<VoiceSettings> = { mixed: 128, logical: 40
 
 /** `audio.limiterLookaheadMs` when absent (`DEFAULT_LOOKAHEAD_MS` in `audio-dsp/src/limiter.rs`). */
 export const DEFAULT_LIMITER_LOOKAHEAD_MS = 1.5;
-/** `audio.limiterLookaheadMs`'s range (`MAX_LOOKAHEAD_MS` in `audio-dsp/src/limiter.rs`). */
-export const LIMITER_LOOKAHEAD_LIMITS = [0, 5] as const;
+
+/** A number key of the audio section (ADR 0306): `range` is `[min, max]`; a `whole` number is rounded before it is clamped; `above` makes `min` exclusive and the key is rejected (not clamped) at or under it. */
+export interface AudioNumberRule {
+  readonly range: readonly [number, number];
+  readonly whole?: true;
+  readonly above?: true;
+}
+
+/**
+ * The scalar number keys of the audio section, by dotted path (ADR 0306): the one declaration of each range. The parse
+ * clamps to it (and rounds the whole ones), the settings section handle stores what the parse makes of an edit, and the
+ * Audio settings views take their input bounds from it. `voices.logical` is also at least `voices.mixed`.
+ */
+export const AUDIO_NUMBERS = {
+  "voices.mixed": { range: [8, 512], whole: true },
+  "voices.logical": { range: [8, 8192], whole: true },
+  "voices.hrtf": { range: [0, 32], whole: true },
+  clipMemoryMB: { range: [16, 1024], whole: true },
+  /** `MAX_LOOKAHEAD_MS` in `audio-dsp/src/limiter.rs`. */
+  limiterLookaheadMs: { range: [0, 5] },
+  /** `MAX_MUSIC_RINGS` in the wire. */
+  "music.rings": { range: [0, 16], whole: true },
+  "bed.maxBeds": { range: [0, 4], whole: true },
+  "ambisonic.maxClips": { range: [0, 4], whole: true },
+  "occlusion.budgetMs": { range: [0.02, 2] },
+  "occlusion.smoothingMs": { range: [10, 1000] },
+  "zones.maxActive": { range: [0, 2], whole: true },
+  "zones.standby": { range: [0, 1], whole: true },
+  "zones.maxIrSeconds": { range: [0.5, 8] },
+  "doppler.maxSpeed": { range: [0, Infinity], above: true },
+  speedOfSound: { range: [10, 100000] },
+} as const satisfies Record<string, AudioNumberRule>;
+export type AudioNumberPath = keyof typeof AUDIO_NUMBERS;
+/** The `[min, max]` of a number key (`AUDIO_NUMBERS`). */
+const range = (path: AudioNumberPath): readonly [number, number] => AUDIO_NUMBERS[path].range;
 
 export const defaultAudioSettings = (): AudioSettings => ({
   buses: defaultBuses(), snapshots: [], ducking: [], parameters: [], automation: [],
@@ -549,7 +571,7 @@ function wholeNumber(raw: unknown, key: string, min: number, max: number, proble
 /** `audio.limiterLookaheadMs`: a number clamped to 0..5 (a problem when clamped); absent is 1.5; anything else is 1.5 plus a problem. */
 function lookaheadMs(raw: unknown, problems: string[]): number {
   const key = "audio.limiterLookaheadMs";
-  const [min, max] = LIMITER_LOOKAHEAD_LIMITS;
+  const [min, max] = range("limiterLookaheadMs");
   if (raw === undefined) return DEFAULT_LIMITER_LOOKAHEAD_MS;
   if (typeof raw !== "number" || !Number.isFinite(raw)) {
     problems.push(`${key}: must be a number of milliseconds from ${min} to ${max}; using ${DEFAULT_LIMITER_LOOKAHEAD_MS}.`);
@@ -578,14 +600,14 @@ function parseCoreKeys(input: Record<string, unknown>, settings: AudioSettings, 
     if (!isRecord(input.voices)) problems.push("audio.voices must be an object.");
     else {
       const v = input.voices;
-      const mixed = wholeNumber(v.mixed, "audio.voices.mixed", ...VOICE_LIMITS.mixed, problems) ?? DEFAULT_VOICES.mixed;
-      const logical = wholeNumber(v.logical, "audio.voices.logical", Math.max(mixed, VOICE_LIMITS.logical[0]), VOICE_LIMITS.logical[1], problems) ?? DEFAULT_VOICES.logical;
-      const hrtf = wholeNumber(v.hrtf, "audio.voices.hrtf", ...VOICE_LIMITS.hrtf, problems) ?? DEFAULT_VOICES.hrtf;
+      const mixed = wholeNumber(v.mixed, "audio.voices.mixed", ...range("voices.mixed"), problems) ?? DEFAULT_VOICES.mixed;
+      const logical = wholeNumber(v.logical, "audio.voices.logical", Math.max(mixed, range("voices.logical")[0]), range("voices.logical")[1], problems) ?? DEFAULT_VOICES.logical;
+      const hrtf = wholeNumber(v.hrtf, "audio.voices.hrtf", ...range("voices.hrtf"), problems) ?? DEFAULT_VOICES.hrtf;
       settings.voices = { mixed, logical, hrtf };
     }
   }
   settings.background = pick(input.background, "audio.background", ["mute", "pause", "play"] as const, "mute", problems);
-  const clipMemoryMB = wholeNumber(input.clipMemoryMB, "audio.clipMemoryMB", ...CLIP_MEMORY_LIMITS, problems);
+  const clipMemoryMB = wholeNumber(input.clipMemoryMB, "audio.clipMemoryMB", ...range("clipMemoryMB"), problems);
   if (clipMemoryMB !== undefined) settings.clipMemoryMB = clipMemoryMB;
   settings.clipFormat = pick(input.clipFormat, "audio.clipFormat", ["i16", "f32"] as const, "i16", problems);
   if (input.codecs !== undefined) {
@@ -662,16 +684,16 @@ function section(raw: unknown, key: string, problems: string[]): Record<string, 
  */
 function parseSpatialKeys(input: Record<string, unknown>, settings: AudioSettings, problems: string[], options: AudioParseOptions): void {
   const bed = section(input.bed, "audio.bed", problems);
-  if (bed) settings.bed.maxBeds = wholeNumber(bed.maxBeds, "audio.bed.maxBeds", ...BED_LIMITS.maxBeds, problems) ?? DEFAULT_BED_MAX_BEDS;
+  if (bed) settings.bed.maxBeds = wholeNumber(bed.maxBeds, "audio.bed.maxBeds", ...range("bed.maxBeds"), problems) ?? DEFAULT_BED_MAX_BEDS;
   const ambisonic = section(input.ambisonic, "audio.ambisonic", problems);
-  if (ambisonic) settings.ambisonic.maxClips = wholeNumber(ambisonic.maxClips, "audio.ambisonic.maxClips", ...AMBISONIC_LIMITS.maxClips, problems) ?? DEFAULT_AMBISONIC_MAX_CLIPS;
+  if (ambisonic) settings.ambisonic.maxClips = wholeNumber(ambisonic.maxClips, "audio.ambisonic.maxClips", ...range("ambisonic.maxClips"), problems) ?? DEFAULT_AMBISONIC_MAX_CLIPS;
 
   const occ = section(input.occlusion, "audio.occlusion", problems);
   if (occ) {
     const o = settings.occlusion;
     o.layers = occlusionLayers(occ.layers, options.physicsLayers, problems);
-    o.budgetMs = rangedNumber(occ.budgetMs, "audio.occlusion.budgetMs", ...OCCLUSION_LIMITS.budgetMs, DEFAULT_OCCLUSION_BUDGET_MS, problems);
-    o.smoothingMs = rangedNumber(occ.smoothingMs, "audio.occlusion.smoothingMs", ...OCCLUSION_LIMITS.smoothingMs, DEFAULT_OCCLUSION_SMOOTHING_MS, problems);
+    o.budgetMs = rangedNumber(occ.budgetMs, "audio.occlusion.budgetMs", ...range("occlusion.budgetMs"), DEFAULT_OCCLUSION_BUDGET_MS, problems);
+    o.smoothingMs = rangedNumber(occ.smoothingMs, "audio.occlusion.smoothingMs", ...range("occlusion.smoothingMs"), DEFAULT_OCCLUSION_SMOOTHING_MS, problems);
     if (occ.materials !== undefined) o.materials = parseOccluderMaterials(occ.materials, "audio.occlusion.materials", problems);
     o.defaultMaterial = resolveDefaultMaterial(occ.defaultMaterial, o.materials, "audio.occlusion.defaultMaterial", problems);
   }
@@ -679,19 +701,20 @@ function parseSpatialKeys(input: Record<string, unknown>, settings: AudioSetting
   const zones = section(input.zones, "audio.zones", problems);
   if (zones) {
     settings.zones = {
-      maxActive: wholeNumber(zones.maxActive, "audio.zones.maxActive", ...ZONE_LIMITS.maxActive, problems) ?? DEFAULT_ZONES.maxActive,
-      standby: wholeNumber(zones.standby, "audio.zones.standby", ...ZONE_LIMITS.standby, problems) ?? DEFAULT_ZONES.standby,
-      maxIrSeconds: rangedNumber(zones.maxIrSeconds, "audio.zones.maxIrSeconds", ...ZONE_LIMITS.maxIrSeconds, DEFAULT_ZONES.maxIrSeconds, problems),
+      maxActive: wholeNumber(zones.maxActive, "audio.zones.maxActive", ...range("zones.maxActive"), problems) ?? DEFAULT_ZONES.maxActive,
+      standby: wholeNumber(zones.standby, "audio.zones.standby", ...range("zones.standby"), problems) ?? DEFAULT_ZONES.standby,
+      maxIrSeconds: rangedNumber(zones.maxIrSeconds, "audio.zones.maxIrSeconds", ...range("zones.maxIrSeconds"), DEFAULT_ZONES.maxIrSeconds, problems),
     };
   }
 
   const doppler = section(input.doppler, "audio.doppler", problems);
   if (doppler && doppler.maxSpeed !== undefined) {
     const v = doppler.maxSpeed;
-    if (typeof v === "number" && Number.isFinite(v) && v > 0) settings.doppler.maxSpeed = v;
-    else problems.push(`audio.doppler.maxSpeed: must be a number above 0; using ${DEFAULT_DOPPLER_MAX_SPEED}.`);
+    const [above] = range("doppler.maxSpeed");
+    if (typeof v === "number" && Number.isFinite(v) && v > above) settings.doppler.maxSpeed = v;
+    else problems.push(`audio.doppler.maxSpeed: must be a number above ${above}; using ${DEFAULT_DOPPLER_MAX_SPEED}.`);
   }
-  settings.speedOfSound = rangedNumber(input.speedOfSound, "audio.speedOfSound", ...SPEED_OF_SOUND_LIMITS, DEFAULT_SPEED_OF_SOUND, problems);
+  settings.speedOfSound = rangedNumber(input.speedOfSound, "audio.speedOfSound", ...range("speedOfSound"), DEFAULT_SPEED_OF_SOUND, problems);
 }
 
 /** `audio.occlusion.layers`: null or absent is null (every layer); a list keeps its distinct strings (a problem for each other entry, and for each name outside `known` when given); an empty list is occlusion off; anything else is null plus a problem. */
@@ -717,7 +740,7 @@ function occlusionLayers(raw: unknown, known: readonly string[] | undefined, pro
  */
 function parseMusicKeys(input: Record<string, unknown>, settings: AudioSettings, problems: string[]): void {
   const music = section(input.music, "audio.music", problems);
-  if (music) settings.music.rings = wholeNumber(music.rings, "audio.music.rings", ...MUSIC_RINGS_LIMITS, problems) ?? DEFAULT_MUSIC_RINGS;
+  if (music) settings.music.rings = wholeNumber(music.rings, "audio.music.rings", ...range("music.rings"), problems) ?? DEFAULT_MUSIC_RINGS;
   if (input.rhythmMode !== undefined) {
     if (typeof input.rhythmMode === "boolean") settings.rhythmMode = input.rhythmMode;
     else problems.push("audio.rhythmMode: must be true or false; using false.");
