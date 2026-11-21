@@ -117,6 +117,7 @@ The domain terms used in Myco Engine's code, decision records and reviews. Add a
 ## Tilemaps (ADR 0103)
 
 - **Orientation:** one of a tile's 8 flips and turns, its flip flags read as a transform of the cell, diagonal first, then X, then Y (as Tiled). `runtime/tileFlips.ts` is the one place that convention lives: `compose`, `inverse`, `rotateClockwise`, `flipPoint`, `sourceCorner`.
+- **Brush:** what the Tile Palette set up to paint (a stamp, its flips, random, or a terrain) and the one module that answers what it paints (`tilemaps/editor/brush.ts`, ADR 0289): a **brush stroke** from press to release (`beginStroke`: the cells each tool paints, where stamps land, what the release does) and the **footprint**, the cells it covers or would paint. A multi-cell stamp is flipped and turned as a block, its tiles with it. _Avoid:_ placing stamps or sizing the footprint outside the brush.
 
 ## Hosts (ADR 0236)
 
