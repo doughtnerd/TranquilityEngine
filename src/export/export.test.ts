@@ -207,22 +207,26 @@ describe("exportProject (Node)", () => {
     expect(result.plan.manifest).toEqual(manifestOf(on));
   });
 
-  it("replaces an earlier build, and refuses a folder holding something else", async () => {
-    // A project with no scripts, images or models: what's checked is the output folder, not the build.
+  it("replaces an earlier build through Node's fs, and keeps it when the given player isn't a built one", async () => {
+    // A project with no scripts, images or models: what's checked is the output folder (the build writer's suite has the rest).
     const project = temp();
     mkdirSync(join(project, "scenes"));
     writeFileSync(join(project, "project.json"), '{ "name": "Tiny" }');
     writeFileSync(join(project, "scenes", "main.scene.json"), "{}");
     const out = join(temp(), "web");
     await exportProject({ projectDir: project, out, playerDir: fakePlayer() });
-    writeFileSync(join(out, "stale.txt"), "old");
+    mkdirSync(join(out, "old"));
+    writeFileSync(join(out, "old", "stale.txt"), "old");
     await exportProject({ projectDir: project, out, playerDir: fakePlayer() });
     expect(existsSync(join(out, "game.json"))).toBe(true);
-    expect(existsSync(join(out, "stale.txt"))).toBe(false);
-    const other = temp();
-    writeFileSync(join(other, "notes.txt"), "mine");
-    await expect(exportProject({ projectDir: project, out: other, playerDir: fakePlayer() })).rejects.toThrow(/isn't empty/);
-    expect(readFileSync(join(other, "notes.txt"), "utf8")).toBe("mine");
+    expect(existsSync(join(out, "old"))).toBe(false);
+
+    writeFileSync(join(out, "stale.txt"), "old");
+    const broken = fakePlayer();
+    writeFileSync(join(broken, "files.json"), JSON.stringify({ files: ["myco.js"] }));
+    await expect(exportProject({ projectDir: project, out, playerDir: broken })).rejects.toThrow(/game player .* is incomplete/);
+    expect(readFileSync(join(out, "stale.txt"), "utf8")).toBe("old");
+    expect(existsSync(join(out, "index.html"))).toBe(true);
   });
 
   it("bakes the models of the 3D Playground beside them and lists them in the manifest (ADR 0090)", async () => {

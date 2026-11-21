@@ -1,7 +1,8 @@
 // Web builds (ADR 0041): turn a project into the files of a static web build: the project's files
 // to copy, its scripts compiled to JavaScript, and the manifest the player reads (format.ts). No
 // file access here: the Node exporter (node.ts) and the editor (src/editor/exportBuild.ts) read
-// the project and write the result through their own file APIs.
+// the project, and the build writer (buildWriter.ts, ADR 0296) writes the result through their
+// build folders.
 //
 // Scripts compile with the editor's script compiler (scriptLoader.ts), so a build runs the same
 // JavaScript as play mode. Where the editor loads each module from a blob or data: URL, a build
