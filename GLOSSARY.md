@@ -154,3 +154,9 @@ The domain terms used in Myco Engine's code, decision records and reviews. Add a
 ## Project settings (ADR 0272)
 
 - **Runtime settings section:** one top-level `project.json` key the engine reads, declared once in `RUNTIME_SETTINGS` (`core/settings.ts`): its key, default and lenient parse giving the value the engine runs with (bad values replaced by defaults) and its problems and warnings by field. `resolveSettings`, the Engine's start-up warnings and the Project panel go through it; a settings section handle (ADR 0253) is its editor twin. _Avoid:_ checking a runtime key's values in the editor alone.
+
+## Builds and tooling (ADR 0296, 0297)
+
+- **Build writer:** the one module that writes a planned web build (`writeWebBuild` in `src/export/buildWriter.ts`, ADR 0296) for the command-line export and the editor's Build / Export: it checks the player and the output folder before touching anything, bakes models and processes images, clears an earlier build (keeping a desktop package's Rust cache) and writes each file once, a processed image in place of its copy. _Avoid:_ writing build files, or clearing an output folder, outside it.
+- **Build folder:** the folder a build is written into, as the writer sees it (`BuildFolder`: exists, list, remove, write text, write bytes, by path relative to the folder). Adapters: Node's fs (`node.ts`) and the platform FileSystem (`fileSystemFolder`). A **file source** (`FileSource`) is the read side: the project's files, or a built player.
+- **Command (Node):** a command-line entry point (`myco-server`, `npm run export`) whose arguments go through `parseCommandLine` (`src/server/commandLine.ts`, ADR 0297): it declares its options and its one positional argument, and keeps its own usage text. _Avoid:_ hand-written flag loops.
