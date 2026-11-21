@@ -7,7 +7,8 @@ import { signal } from "@preact/signals";
 import { render } from "preact";
 import { useEffect } from "preact/hooks";
 import { isTauri } from "../../engine/platform/FileSystem";
-import { recentVersion } from "../recentProjects";
+import { projectFileSystem } from "../projectFs";
+import { recentProjects } from "../recentProjects";
 import { setStartActions } from "../startActions";
 import { status } from "../state";
 import { installTheme } from "../theme";
@@ -114,15 +115,15 @@ async function main(): Promise<void> {
   installTheme();
   const [bus, { getCurrentWindow }] = await Promise.all([tauriBus(), import("@tauri-apps/api/window")]);
   const window = getCurrentWindow();
+  // The recent projects list hears the editor window add the project it opened (storage events), so it needn't be told here.
   const link = linkToEditor(bus, () => {
     status.value = null;
-    recentVersion.value++; // the editor may have added one
     void window.show().then(() => window.setFocus());
   });
   void link.ready.then(() => (editorReady.value = true));
   // The editor window is created once this one shows (ADR 0082), or at once if a project is picked first.
   const handOff: EditorLink = { ready: link.ready, dispose: () => link.dispose(), open: (request) => startEditorWindow().then(() => link.open(request)) };
-  setStartActions(launcherActions(handOff, () => void window.hide()));
+  setStartActions(launcherActions({ link: handOff, opened: () => void window.hide(), folders: projectFileSystem, recent: recentProjects() }));
   render(<ProjectsWindow window={window} />, document.getElementById("app")!);
   startEditorWindowWhenIdle();
 }

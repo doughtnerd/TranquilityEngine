@@ -6,15 +6,14 @@ import { errorStatus } from "./messages";
 import { Engine, GameObject } from "../engine";
 import { viewport } from "../engine/editor";
 import { pathKey } from "./document";
-import type { FileSystem } from "../engine/platform/FileSystem";
 import { effect } from "@preact/signals";
-import { FsaFileSystem, ensureWritable } from "./fsaFileSystem";
-import { scaffoldProject, type ProjectTemplate } from "./newProject";
+import { FsaFileSystem } from "./fsaFileSystem";
 import type { OpenRequest } from "./launcher/handoff";
 import { NO_FOLDERS_NOTE, projectFileSystem } from "./projectFs";
-import { recentProjects, recentVersion, type RecentProject } from "./recentProjects";
+import { projectOpening, type LocationOutcome, type OpenIntent, type OpenOutcome, type OpenResult, type ProjectSource } from "./projectOpening";
+import { recentProjects } from "./recentProjects";
 import { confirmDiscard } from "./dialogs";
-import { copySample, findSample, openSampleProject, type SampleInfo } from "./samples";
+import { copySample, findSample, openSampleProject } from "./samples";
 import { defaultHistoryPlatform } from "./historyPersistence";
 import { historyLocation } from "./preferences";
 import { confirmInEditor } from "./ui/ConfirmDialog";
@@ -60,7 +59,6 @@ const play = createPlaySession({
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
-/** Boot an Editor World for `project` in the viewport and open its main scene. */
 /**
  * End-to-end test hook: open the Flappy sample's files as a project folder in memory, plus `extra`
  * files (project path → text, e.g. scripts), as if opened from disk. The folder is left on
@@ -98,7 +96,11 @@ function nodeRect(key: string): { left: number; top: number; right: number; bott
 /** Asset thumbnails follow the open project (ADR 0061); installed with the first one. */
 let thumbnailsInstalled = false;
 
-async function loadProject(project: EditorProject): Promise<void> {
+/**
+ * Boot an Editor World for `project` in the viewport and open its main scene. `problem`: a main scene or scripts
+ * that didn't load, already reported in the status line (so a note that the project opened mustn't replace it).
+ */
+async function loadProject(project: EditorProject): Promise<{ problem: boolean }> {
   if (!thumbnailsInstalled) {
     thumbnailsInstalled = true;
     installThumbnails();
@@ -145,18 +147,20 @@ async function loadProject(project: EditorProject): Promise<void> {
   engine.start();
   // Debug and end-to-end test hooks.
   Object.assign(window, { engine, orbit, overlayHandles: () => viewport(engine.world).overlayHandles(), nodeRect });
-  if (project.mainScene) void tabs.open(project.mainScene);
+  if (project.mainScene) await tabs.open(project.mainScene);
+  const sceneFailed = project.mainScene !== null && openScene.peek()?.path !== project.mainScene; // the tab put why in the status line
   preloadCodeEditor(project); // so the first file opens without the wait
   syncPackageTypes(project);
   if (scripts.problems.length > 0) {
     const list = scripts.problems.map((p) => `${p.path}: ${p.message}`);
-    const scene = status.value?.kind === "error" ? ` · ${status.value.text}` : "";
+    const scene = sceneFailed && status.value?.kind === "error" ? ` · ${status.value.text}` : "";
     status.value = {
       kind: "error",
       text: `${scripts.problems.length === 1 ? "A script" : `${scripts.problems.length} scripts`} didn't load: ${list.join("; ")}${scene}`,
       detail: list.join("\n"),
     };
   }
+  return { problem: sceneFailed || scripts.problems.length > 0 };
 }
 
 /**
@@ -218,13 +222,6 @@ effect(() => {
   void tabs.relocateHistories(location);
 });
 
-/** The folder file system (desktop, or a Chromium browser), or null with a note in the status bar. */
-async function folders(): Promise<FileSystem | null> {
-  const fs = await projectFileSystem();
-  if (!fs) status.value = { kind: "info", text: NO_FOLDERS_NOTE };
-  return fs;
-}
-
 /** Add an opened folder project to the recent projects list (a browser folder by its handle). */
 async function rememberProject(project: EditorProject): Promise<void> {
   const fs = project.fileSystem, root = project.root;
@@ -236,140 +233,75 @@ async function rememberProject(project: EditorProject): Promise<void> {
     } else {
       await recentProjects().add({ name: project.name, path: root });
     }
-    recentVersion.value++;
   } catch (err) {
     console.warn(`[editor] couldn't add ${root} to the recent projects: ${message(err)}`);
   }
 }
 
-/** Open the project in folder `root` and remember it. */
-async function openFolder(fs: FileSystem, root: string, opening = `Opening ${root}…`): Promise<void> {
-  status.value = { kind: "info", text: opening };
-  await loadProject(await openFolderProject(fs, root));
-  if (!openScene.value || status.value?.kind !== "error") status.value = { kind: "info", text: `Opened ${currentProject.value?.name}` };
-  void rememberProject(currentProject.value!);
+/** Open `source` in this window (a folder project is remembered in the recent projects). Throws if it can't be read. */
+async function openHere(source: ProjectSource): Promise<OpenResult> {
+  const project = source.kind === "folder" ? await openFolderProject(source.fs, source.root) : await openSampleProject(source.sample);
+  const { problem } = await loadProject(project);
+  void rememberProject(project);
+  return { kind: "opened", name: project.name, problem };
 }
 
-/** Pick a project folder and open it (the desktop editor, or a Chromium browser). */
-export async function openProjectFolder(): Promise<void> {
-  const fs = await folders();
-  if (!fs || !(await confirmDiscard())) return;
-  try {
-    const root = await fs.pickFolder("Open project folder");
-    if (!root) return;
-    await openFolder(fs, root);
-  } catch (err) {
-    status.value = errorStatus(null, err);
-  }
-}
-
-/**
- * Reopen a recent project. A browser folder asks for access again first (it lapses when the tab
- * closes); a desktop folder the editor can no longer reach (folder access lasts a session) is
- * picked again in the folder dialog, starting there.
- */
-export async function openRecentProject(entry: RecentProject): Promise<void> {
-  const fs = await folders();
-  if (!fs || !(await confirmDiscard())) return;
-  try {
-    if (entry.kind === "handle") {
-      const handle = await recentProjects().handle(entry.id);
-      if (!handle || !(fs instanceof FsaFileSystem)) throw new Error(`The editor no longer has access to ${entry.name}. Open its folder again with Open Project….`);
-      if (!(await ensureWritable(handle))) {
-        status.value = { kind: "info", text: `${entry.name} wasn't opened: the browser wasn't given access to its folder.` };
-        return;
-      }
-      await openFolder(fs, await fs.mount(handle), `Opening ${entry.name}…`);
-      return;
-    }
-    let root: string | null = entry.path;
-    let reachable = false;
+// The editor window's project opening (ADR 0318): what the start screen or the File menu asks for is resolved by the
+// project-opening module, asking about unsaved changes first, and opens here.
+const opening = projectOpening({
+  folders: projectFileSystem,
+  recent: { check: (entry, fs) => recentProjects().check(entry, fs), handle: (id) => recentProjects().handle(id) },
+  confirm: confirmDiscard,
+  progress: (text) => (status.value = { kind: "info", text }),
+  async declarations() {
     try {
-      reachable = await fs.exists(joinPath(root, "project.json"));
-    } catch {
-      // out of the file system's scope since a restart: pick it again below
+      return (await import("virtual:myco-types")).default;
+    } catch (err) {
+      console.warn(`[editor] the engine's declarations aren't available; the project's scripting files are written when it opens: ${message(err)}`);
+      return undefined;
     }
-    if (!reachable) {
-      root = await fs.pickFolder(`Open ${entry.name} (confirm its folder)`, entry.path);
-      if (!root) return;
-    }
-    await openFolder(fs, root);
-  } catch (err) {
-    status.value = errorStatus(`Couldn't open ${entry.name}`, err);
-  }
-}
+  },
+  open: openHere,
+});
 
-/** Pick the folder a new project goes in (the project gets its own folder inside it). Null if cancelled or unavailable. */
-export async function pickProjectLocation(): Promise<{ fs: FileSystem; path: string } | null> {
-  const fs = await folders();
-  if (!fs) return null;
-  try {
-    const path = await fs.pickFolder("Choose where the new project's folder goes");
-    return path ? { fs, path } : null;
-  } catch (err) {
-    status.value = errorStatus("Couldn't choose a folder", err);
-    return null;
-  }
-}
-
-/** Create a project in a new folder `name` inside `parent`, then open it (ADR 0038). Throws if it can't be created. */
-export async function createProject(fs: FileSystem, parent: string, name: string, template: ProjectTemplate): Promise<void> {
-  if (!(await confirmDiscard())) return;
-  const root = joinPath(parent, name.trim());
-  status.value = { kind: "info", text: `Creating ${name.trim()}…` };
-  let declarations: Readonly<Record<string, string>> | undefined;
-  try {
-    declarations = (await import("virtual:myco-types")).default;
-  } catch (err) {
-    console.warn(`[editor] the engine's declarations aren't available; the project's scripting files are written when it opens: ${message(err)}`);
-  }
-  await scaffoldProject(fs, root, { name, template, declarations });
-  await openFolder(fs, root, `Opening ${name.trim()}…`);
-  if (status.value?.kind !== "error") status.value = { kind: "info", text: `Created ${name.trim()} in ${root}.` };
-}
-
-/** Open a sample (ADR 0031) read-only, from the files served beside the editor. */
-export async function openSample(sample: SampleInfo): Promise<void> {
-  if (!(await confirmDiscard())) return;
-  try {
-    status.value = { kind: "info", text: `Opening the ${sample.name} sample…` };
-    await loadProject(await openSampleProject(sample));
-    if (status.value?.kind !== "error") status.value = { kind: "info", text: `Opened the ${sample.name} sample (read-only). Make a copy to edit it.` };
-  } catch (err) {
-    status.value = errorStatus(`Couldn't open the ${sample.name} sample`, err);
-  }
-}
-
-/** Copy a sample into a folder the user picks and open the copy, to edit it (desktop editor, or a Chromium browser). */
-export async function copySampleToFolder(sample: SampleInfo): Promise<void> {
-  const fs = await folders();
-  if (!fs || !(await confirmDiscard())) return;
-  try {
-    const root = await fs.pickFolder(`Choose an empty folder for your copy of ${sample.name}`);
-    if (!root) return;
-    status.value = { kind: "info", text: `Copying ${sample.name} to ${root}…` };
-    await copySample(sample, fs, root);
-    await openFolder(fs, root, `Opening ${root}…`);
-    if (status.value?.kind !== "error") status.value = { kind: "info", text: `Copied ${sample.name} to ${root}.` };
-  } catch (err) {
-    status.value = errorStatus(`Couldn't copy ${sample.name}`, err);
-  }
+/** Show what came of opening a project in the status line, unless opening already reported a problem there. */
+function show<T extends OpenOutcome | LocationOutcome>(outcome: T): T {
+  if (outcome.kind === "refused") status.value = outcome.reason;
+  else if (outcome.kind === "opened" && outcome.note) status.value = { kind: "info", text: outcome.note };
+  return outcome;
 }
 
 /**
- * Open the project the desktop editor's Projects window picked (ADR 0059). Throws if it didn't
- * open, so the Projects window can say why.
+ * Open what the user asked for (a folder to pick, a recent project, a sample or a copy of one, a new project) in this
+ * window; resolves to what came of it, already shown in the status line.
  */
-export async function openPickedProject(request: OpenRequest): Promise<void> {
-  if (request.kind === "sample") {
-    const sample = await findSample(request.id);
-    await loadProject(await openSampleProject(sample));
-    if (status.value?.kind !== "error") status.value = { kind: "info", text: `Opened the ${sample.name} sample (read-only). Make a copy to edit it.` };
-    return;
+export async function openProject(intent: OpenIntent): Promise<OpenOutcome> {
+  return show(await opening.open(intent));
+}
+
+/** Pick the folder a new project goes in (the project gets its own folder inside it), or why not. */
+export async function pickProjectLocation(): Promise<LocationOutcome> {
+  return show(await opening.pickLocation());
+}
+
+/**
+ * Open the project the desktop editor's Projects window picked (ADR 0059). A refusal's reason goes back to the
+ * Projects window, which shows it.
+ */
+export async function openPickedProject(request: OpenRequest): Promise<OpenOutcome> {
+  let source: ProjectSource;
+  try {
+    if (request.kind === "sample") {
+      source = { kind: "sample", sample: await findSample(request.id) };
+    } else {
+      const fs = await projectFileSystem();
+      if (!fs) return show({ kind: "refused", reason: { kind: "info", text: NO_FOLDERS_NOTE } });
+      source = { kind: "folder", fs, root: request.root };
+    }
+  } catch (err) {
+    return show({ kind: "refused", reason: errorStatus(null, err) });
   }
-  const fs = await projectFileSystem();
-  if (!fs) throw new Error(NO_FOLDERS_NOTE);
-  await openFolder(fs, request.root);
+  return show(await opening.openResolved(source));
 }
 
 /** Close the project and go back to the start screen. */

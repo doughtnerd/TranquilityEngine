@@ -18,8 +18,8 @@ import { buildMenus, DOCS_URL, SEPARATOR, type AssetClipboardReasons, type Menu,
 import { logOpen, unseenErrors } from "../messages";
 import { createAsset } from "../assetKindHost";
 import { canOpenFolders } from "../projectFs";
-import { recentProjects, recentVersion } from "../recentProjects";
-import { closeProject, openProjectFolder, openRecentProject, reloadScripts, save } from "../session";
+import { recentProjects } from "../recentProjects";
+import { closeProject, openProject, reloadScripts, save } from "../session";
 import { isEditable } from "../shortcuts";
 import { currentProject, docVersion, openScene, selectedKeys, selectedUIElement } from "../state";
 import { whyNotEdit } from "../editGate";
@@ -103,10 +103,10 @@ async function exit(): Promise<void> {
 
 const ACTIONS: MenuActions = {
   newProject: openNewProjectDialog,
-  openProject: () => void openProjectFolder(),
+  openProject: () => void openProject({ kind: "pick-folder" }),
   openRecent: (id) => {
     const entry = recentProjects().list().find((e) => e.id === id);
-    if (entry) void openRecentProject(entry);
+    if (entry) void openProject({ kind: "recent", entry });
   },
   save: () => void save(),
   newScene: () => void createAsset("scene"),
@@ -157,7 +157,7 @@ function createEntries(): readonly MenuEntry[] {
 /** The menus for the editor's state right now (reads signals, so the bar redraws when they change). */
 function liveMenus(): Menu[] {
   docVersion.value; // the undo stack and dirty flag change without a new scene
-  recentVersion.value;
+  recentProjects().version.value;
   nodeClipboard.value;
   const project = currentProject.value;
   const scene = openScene.value;

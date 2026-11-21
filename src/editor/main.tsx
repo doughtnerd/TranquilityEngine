@@ -32,14 +32,10 @@ registerCoreAssetKinds();
 
 const session = () => import("./session");
 
-/** The start screen's actions, each loading the session first (usually loaded by the time one is clicked). */
+/** The start screen's actions: the project opens here (ADR 0318), loading the session first (usually loaded by the time one is clicked). */
 const startActions: StartActions = {
-  openProjectFolder: async () => (await session()).openProjectFolder(),
-  openRecentProject: async (entry) => (await session()).openRecentProject(entry),
-  openSample: async (sample) => (await session()).openSample(sample),
-  copySampleToFolder: async (sample) => (await session()).copySampleToFolder(sample),
+  open: async (intent) => (await session()).openProject(intent),
   pickProjectLocation: async () => (await session()).pickProjectLocation(),
-  createProject: async (fs, parent, name, template) => (await session()).createProject(fs, parent, name, template),
 };
 
 async function main(): Promise<void> {
@@ -72,7 +68,7 @@ async function main(): Promise<void> {
   installCloseGuard();
   if (isTauri()) await (await import("./launcher/editorWindow")).serveDesktopProjectsWindow();
   // A sample to open goes first; the background loading waits for it so as not to compete.
-  const opening = sample ? (await session()).openSample(await findSample(sample)) : Promise.resolve();
+  const opening = sample ? (await session()).openProject({ kind: "sample", sample: await findSample(sample) }) : Promise.resolve();
   void preloadPanels(layout.peek()); // the panels the layout shows, the rest when idle (ADR 0083)
   await opening;
   prefetchWhenIdle();
