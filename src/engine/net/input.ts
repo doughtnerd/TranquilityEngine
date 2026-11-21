@@ -41,14 +41,13 @@
  *   fixed step's input, so it leaves with the frame's other messages rather than a frame later.
  * Both do nothing in Worlds without a session. A client sends nothing until its connection is open.
  *
- * ## Extension points
+ * ## What the session answers (ADR 0311)
  *
- * - Ownership (T11): `of(node)` accepts a connection node. `registerInputOwnerResolver` lets
- *   replication map another node (a ghost owned by a connection, `Replicated.ownerId`) to its
- *   connection node, on both ends.
- * - Prediction (T13): a client keeps its input for past ticks, and `setInputReplayTick(world, tick)`
- *   makes `of()` return that tick's input while re-simulating (the newest earlier one if that tick
- *   has none, as the server repeats it).
+ * - Ownership (T11): `of(node)` accepts a connection node, or a node with `Replicated` whose
+ *   `ownerId` the session says a connection owns (`session.ownerPeer`), on both ends.
+ * - Prediction (T13): a client keeps its input for past ticks; while prediction replays a tick
+ *   (`session.replay`, `session.replayTick`), `of()` returns that tick's input (the newest earlier
+ *   one if that tick has none, as the server repeats it).
  */
 import { World } from "../core/World";
 import { _recordRegistration } from "../core/registry";
@@ -58,7 +57,9 @@ import { defineBuiltinSystem } from "../core/systems";
 import type { GameObject } from "../scene/GameObject";
 import { createBitReader, createBitWriter, recordCodec, type RecordCodec } from "./codec";
 import type { InputDef, InputOptions } from "./messages";
+import { Replicated } from "./Replicated";
 import { netSession, registerNetMessage, type NetPeer, type NetSession } from "./session";
+import { TickHistory } from "./tickHistory";
 
 /** Past inputs sent with each packet when `defineInput` isn't given `redundancy`. */
 export const DEFAULT_INPUT_REDUNDANCY = 3;
@@ -78,13 +79,11 @@ type Values = Record<string, number>;
 interface ClientState {
   /** What the game writes: this tick's input. */
   readonly current: Values;
-  /** Sent inputs by tick, as the server will decode them. */
-  readonly history: Map<number, Readonly<Values>>;
+  /** Sent inputs by tick, as the server will decode them: the newest `CLIENT_HISTORY` ticks. */
+  readonly history: TickHistory<Readonly<Values>>;
   /** The tick the current input is for, and whether it's been sent. */
   tick: number;
   pending: boolean;
-  /** Newest tick in `history`; -1 before the first. */
-  newest: number;
 }
 
 /** A server's state for one stream from one connection. */
@@ -126,35 +125,9 @@ const synthetic = new WeakMap<World, Set<string>>();
 /** Client Worlds: the `serverTick` of their latest fixed step (-1 while not connected). */
 const fixedTicks = new WeakMap<World, number>();
 
-// --- extension points ---------------------------------------------------------------------------
-
-/** Maps a node to the connection node whose input it reads (T11: a ghost to its owner's connection). */
-export type InputOwnerResolver = (world: World, node: GameObject) => GameObject | null;
-
-const ownerResolvers: InputOwnerResolver[] = [];
-
-/** @internal Let `of(node)` accept nodes other than connection nodes (replication, T11). */
-export function registerInputOwnerResolver(resolver: InputOwnerResolver): void {
-  if (!ownerResolvers.includes(resolver)) ownerResolvers.push(resolver);
-}
-
-/** The connection node `node` stands for: itself if it's one, else what a resolver says. */
-function connectionOf(session: NetSession, world: World, node: GameObject): NetPeer | null {
-  const peer = session.peerOf(node);
-  if (peer) return peer;
-  for (const resolve of ownerResolvers) {
-    const owner = resolve(world, node);
-    if (owner) return session.peerOf(owner);
-  }
-  return null;
-}
-
-const replayTicks = new WeakMap<World, number>();
-
-/** @internal Prediction (T13): while set, a client's `of()` returns its input for `tick`. null clears it. */
-export function setInputReplayTick(world: World, tick: number | null): void {
-  if (tick === null) replayTicks.delete(world);
-  else replayTicks.set(world, tick);
+/** The connection `node` stands for: its own if it's a connection node, else its `Replicated` owner's (T11). */
+function connectionOf(session: NetSession, node: GameObject): NetPeer | null {
+  return session.peerOf(node) ?? session.ownerPeer((node.isValid && node.getBehavior(Replicated)?.ownerId) || 0);
 }
 
 // --- defining -----------------------------------------------------------------------------------
@@ -216,7 +189,7 @@ export function defineInput<S extends Schema>(id: string, schema: S, options: In
       for (const f of fields) current[f] = 0;
       // First written during a fixed step: the input is for that step's tick.
       const tick = fixedTicks.get(world) ?? -1;
-      stream.clients.set(world, (state = { current, history: new Map(), tick, pending: tick >= 0, newest: -1 }));
+      stream.clients.set(world, (state = { current, history: new TickHistory(CLIENT_HISTORY), tick, pending: tick >= 0 }));
     }
     return state;
   };
@@ -246,24 +219,24 @@ export function defineInput<S extends Schema>(id: string, schema: S, options: In
       const session = netSession(world);
       if (!session) return null;
       if (session.isServer) {
-        const peer = connectionOf(session, world, node);
+        const peer = connectionOf(session, node);
         const state = peer ? stream.servers.get(session)?.get(peer) : undefined;
         return (state?.current as Readonly<DataView<S>> | undefined) ?? null;
       }
       // A client has its own input only, for its connection node (or a node it owns, T11).
-      const peer = connectionOf(session, world, node);
+      const peer = connectionOf(session, node);
       if (!peer || peer !== session.serverPeer) return null;
       const state = stream.clients.get(world);
       if (!state) return null;
-      const replay = replayTicks.get(world);
-      if (replay !== undefined) return replayed(state, replay) as Readonly<DataView<S>> | null;
+      const replay = session.replayTick;
+      if (replay !== null) return replayed(state, replay) as Readonly<DataView<S>> | null;
       return state.current as Readonly<DataView<S>>;
     },
     stats(node) {
       const world = World.require();
       const session = netSession(world);
       if (!session?.isServer) return null;
-      const peer = connectionOf(session, world, node);
+      const peer = connectionOf(session, node);
       const state = peer ? stream.servers.get(session)?.get(peer) : undefined;
       return state ? { ...state.stats } : null;
     },
@@ -313,8 +286,9 @@ export function _undefineInput(id: string): void {
  */
 function replayed(state: ClientState, tick: number): Readonly<Values> | null {
   if (state.pending && tick === state.tick) return state.current;
-  for (let t = Math.min(tick, state.newest); t >= 0 && t > state.newest - CLIENT_HISTORY; t--) {
-    const v = state.history.get(t);
+  const history = state.history;
+  for (let t = Math.min(tick, history.newest); t >= 0 && t >= history.oldest; t--) {
+    const v = history.get(t);
     if (v) return v;
   }
   return null;
@@ -326,27 +300,26 @@ function commit(stream: Stream, session: NetSession, state: ClientState): void {
   const tick = state.tick;
   if (tick < 0) return;
   const values = stream.coerce(state.current);
-  // serverTick can skip a tick when the estimate is corrected: those ticks get this input too.
-  if (state.newest >= 0 && tick > state.newest + 1) {
-    const prev = state.history.get(state.newest) ?? values;
-    for (let t = Math.max(state.newest + 1, tick - stream.redundancy); t < tick; t++) state.history.set(t, prev);
+  const history = state.history;
+  // serverTick can skip a tick when the estimate is corrected: those ticks get the previous input
+  // (the newest sent), as the server repeats it for a tick with none; the last `redundancy` of them
+  // are stored, so the packet's run of consecutive ticks reaches this one.
+  const previous = history.newest;
+  if (previous >= 0 && tick > previous + 1) {
+    const prev = history.get(previous) ?? values;
+    for (let t = Math.max(previous + 1, tick - stream.redundancy); t < tick; t++) history.set(t, prev);
   }
-  state.history.set(tick, values);
-  state.newest = Math.max(state.newest, tick);
-  for (const t of state.history.keys()) {
-    if (t > state.newest - CLIENT_HISTORY) break; // in insertion order, oldest first
-    state.history.delete(t);
-  }
+  history.set(tick, values);
 
   // The newest input and up to `redundancy` before it, as long as the ticks are consecutive.
-  const newest = state.newest;
+  const newest = history.newest;
   let count = 1;
-  while (count <= stream.redundancy && state.history.has(newest - count)) count++;
+  while (count <= stream.redundancy && history.has(newest - count)) count++;
   const w = createBitWriter();
   w.writeVarUint(count);
   let baseline: Values | undefined;
   for (let t = newest - count + 1; t <= newest; t++) {
-    const v = state.history.get(t)!;
+    const v = history.get(t)!;
     stream.codec.write(w, v, baseline);
     baseline = v;
   }
@@ -364,7 +337,6 @@ function clientTick(world: World, session: NetSession): void {
     if (!open) {
       // Not connected (yet, or any more): a new connection starts a new history.
       state.history.clear();
-      state.newest = -1;
     }
     state.tick = open ? session.time.serverTick : -1;
     state.pending = open;
@@ -456,7 +428,7 @@ defineBuiltinSystem({
 defineBuiltinSystem({
   name: "engine.NetInputSend",
   phase: "lateUpdate",
-  before: ["engine.NetSend"],
+  before: ["engine.ReplicationSend", "engine.NetSend"], // the first: as before input loaded replication (ADR 0311)
   run(world) {
     const session = netSession(world);
     if (session?.isClient) clientSend(world, session);

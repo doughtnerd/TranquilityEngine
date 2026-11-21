@@ -13,7 +13,7 @@ import { Component, GameBehavior, type FrameHook, type MessageHook, type Message
 import { DataStore, type BufferDef, type DataComponentDef } from "./data";
 import { Mat4 } from "./math";
 import { QueryRows, type Rows } from "./rows";
-import { Scheduler, defineBuiltinSystem, type QueryTerm } from "./systems";
+import { Scheduler, defineBuiltinSystem, type QueryTerm, type WorldNet } from "./systems";
 import { resolveSettings, type ProjectSettings, type ProjectSettingsInput } from "./settings";
 import type { RenderSurface } from "../render/RenderSurface";
 import type { NetworkTime } from "../net/time";
@@ -130,6 +130,8 @@ export class World {
   /** @internal */ _waits: PendingWait[] = [];
   /** @internal The owner of this World, its Engine (ADR 0032, 0281): set when the Engine creates it; null for a World made directly. */
   _owner: WorldOwner | null = null;
+  /** @internal The World's network session, if it's networked (ADR 0033, 0311): set by `net/session.ts`; the scheduler asks it how predicted systems run. */
+  _net: WorldNet | null = null;
   /** @internal Transports this World owns (ADR 0033), closed when it's destroyed: see `createWorldTransport`. */
   readonly _transports = new Set<{ close(): void }>();
   /** @internal Whether local input reaches this World (`WorldConfig.input`): set by the Engine (T1), read by Input (T3). */
