@@ -16,6 +16,7 @@ import { BoxCollider, CapsuleCollider, Collider, MeshCollider, SphereCollider } 
 import { AxisJoint, BallJoint, FixedJoint, HingeJoint, Joint, RopeJoint, SliderJoint, SpringJoint } from "../Joint";
 import { RigidBody } from "../RigidBody";
 import { CollisionEvents, TriggerEvents } from "../systems3d";
+import { bodyInertia, bodyMass } from "../bodyCommands";
 import { PhysicsCore } from "./PhysicsCore";
 
 interface Types3D {
@@ -156,11 +157,11 @@ export class PhysicsWorld3D extends PhysicsCore<Dim3, Types3D> {
   }
 
   protected bodySettings(rb: RigidBody) {
-    const fp = rb.constraints?.freezePosition, fr = rb.constraints?.freezeRotation, mass = Math.max(rb.mass, 1e-4);
+    const fp = rb.constraints?.freezePosition, fr = rb.constraints?.freezeRotation, mass = bodyMass(rb.mass);
     return {
       type: rb.bodyType,
       mass,
-      inertia: mass / 6, // box-ish: colliders on bodies have no density
+      inertia: bodyInertia(rb.mass),
       gravityScale: rb.useGravity ? rb.gravityScale : 0,
       linearDamping: rb.drag,
       angularDamping: rb.angularDrag,
@@ -170,16 +171,6 @@ export class PhysicsWorld3D extends PhysicsCore<Dim3, Types3D> {
     };
   }
 
-  protected takePending(rb: RigidBody) {
-    const velocity = rb._pendingVelocity ? [...rb._pendingVelocity] : null;
-    const angularVelocity = rb._pendingAngularVelocity ? rb._pendingAngularVelocity.map((v) => v * DEG2RAD) : null;
-    rb._pendingVelocity = null;
-    rb._pendingAngularVelocity = null;
-    const force = [...rb._force], torque = [...rb._torque];
-    rb._force.fill(0);
-    rb._torque.fill(0);
-    return { velocity, angularVelocity, force, torque };
-  }
 
   // --- colliders -----------------------------------------------------------------------------------
 

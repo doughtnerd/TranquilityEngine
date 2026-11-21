@@ -6,6 +6,10 @@ import { listSystemCatalog } from "../../engine/core/systems";
 import { _startWorldServicesForScene } from "../../engine/core/worldServices";
 import { RUNTIME_PLUGINS } from "../runtime";
 import { physicsRuntimePlugin } from "./runtime";
+import { listComponentIds } from "../../engine/core/registry";
+import { pluginOfComponent } from "../runtimeContext";
+import { physicsDimensionOf, type PhysicsDimension } from "./runtime";
+import { PHYSICS_2D_SERVICE, PHYSICS_3D_SERVICE } from "./runtime/dimensions";
 import { physics3DOf } from "./runtime/systems3d";
 
 const steps = (engine: Engine, n: number) => {
@@ -70,5 +74,37 @@ describe("the Physics plugin's 3D service (ADR 0135, 0137)", () => {
     expect(await needs("bodies2d.json", { physics: "2d" })).toBe(false); // another dimension chosen
     expect(await needs("none", { physics: "3d" })).toBe(true); // saying so
     expect(await needs("none")).toBe(false);
+  });
+});
+
+describe("one description per physics dimension (ADR 0283)", () => {
+  it("puts every physics Component in exactly one dimension, Buoyancy in none, and derives the services and systems from them", () => {
+    const physicsIds = listComponentIds().filter((id) => pluginOfComponent(id) === "myco.physics");
+    const ids2d = PHYSICS_2D_SERVICE.neededBy?.components ?? [];
+    const ids3d = PHYSICS_3D_SERVICE.neededBy?.components ?? [];
+    expect([...ids2d, ...ids3d, "engine.Buoyancy"].sort()).toEqual([...physicsIds].sort());
+    expect(new Set([...ids2d, ...ids3d]).size).toBe(ids2d.length + ids3d.length);
+    const table: [string, PhysicsDimension | null][] = [
+      ["engine.RigidBody2D", "2d"],
+      ["engine.TilemapCollider2D", "2d"],
+      ["engine.SpringJoint2D", "2d"],
+      ["engine.RigidBody", "3d"],
+      ["engine.MeshCollider", "3d"],
+      ["engine.CharacterController", "3d"],
+      ["engine.Buoyancy", null],
+      ["engine.Camera", null],
+    ];
+    for (const [type, dimension] of table) {
+      expect(physicsDimensionOf(type), type).toBe(dimension);
+      expect(ids2d.includes(type), type).toBe(dimension === "2d");
+      expect(ids3d.includes(type), type).toBe(dimension === "3d");
+    }
+    expect(PHYSICS_2D_SERVICE.neededBy).toMatchObject({ sceneSetting: { physics: "2d" }, exceptSceneSetting: { physics: ["3d", "none"] } });
+    expect(PHYSICS_3D_SERVICE.neededBy).toMatchObject({ sceneSetting: { physics: "3d" }, exceptSceneSetting: { physics: ["2d", "none"] } });
+    // Five systems each; 3D pushes after 2D's events (ADR 0011).
+    const names = listSystemCatalog().map((s) => s.name);
+    for (const stem of ["engine.Physics", "engine.Physics3D"]) {
+      for (const step of ["RestoreInterpolated", "Push", "Step", "WriteBack", "Events"]) expect(names, stem + step).toContain(stem + step);
+    }
   });
 });

@@ -1,10 +1,13 @@
 import { physics3DOf } from "./systems3d";
 import { Component } from "../../../engine/core/Component";
-import { DEG2RAD, RAD2DEG, Vector3, type Vec3Like } from "../../../engine/core/math";
+import { Vector3, type Vec3Like } from "../../../engine/core/math";
 import { PlainObject, component, field } from "../../../engine/core/registry";
 import type { Dim3 } from "./backend";
+import { BodyCommands, type BodyAxes } from "./bodyCommands";
 import type { BodyState } from "./core/state";
 import type { BodyType, ForceMode } from "../../../engine/physics/types";
+
+const AXES_3D: BodyAxes<Dim3> = { linear: 3, angular: 3, vec: (a) => ({ x: a[0], y: a[1], z: a[2] }), ang: (a) => ({ x: a[0], y: a[1], z: a[2] }), fromVec: (v) => [v.x, v.y, v.z], fromAng: (w) => [w.x, w.y, w.z] };
 
 export interface RigidBodyConstraints {
   freezePosition: { x: boolean; y: boolean; z: boolean };
@@ -35,78 +38,39 @@ export class RigidBody extends Component {
   @field(Boolean) interpolate = true;
 
   /** @internal */ _state: BodyState<Dim3> | null = null;
-  /** @internal */ _pendingVelocity: [number, number, number] | null = null;
-  /** @internal */ _pendingAngularVelocity: [number, number, number] | null = null;
-  /** @internal */ _force: [number, number, number] = [0, 0, 0];
-  /** @internal */ _torque: [number, number, number] = [0, 0, 0];
+  /** @internal What scripts asked of the body, applied at once or waiting for it (ADR 0283). */
+  readonly _commands = new BodyCommands<Dim3>(AXES_3D);
   private readonly velocityStorage = [0, 0, 0];
-  private readonly velocityView = Vector3.view(this.velocityStorage, 0, () => this.setVelocity(this.velocityStorage[0], this.velocityStorage[1], this.velocityStorage[2]));
+  private readonly velocityView = Vector3.view(this.velocityStorage, 0, () => this._commands.setVelocity(this._state?.body, this.velocityStorage));
 
   /** Linear velocity in units/second (live view: assigning components changes the body). */
   get velocity(): Vector3 {
-    const body = this._state?.body;
-    if (body) {
-      const v = body.linearVelocity();
-      this.velocityStorage[0] = v.x;
-      this.velocityStorage[1] = v.y;
-      this.velocityStorage[2] = v.z;
-    } else if (this._pendingVelocity) {
-      [this.velocityStorage[0], this.velocityStorage[1], this.velocityStorage[2]] = this._pendingVelocity;
-    }
+    const v = this._commands.velocity(this._state?.body);
+    if (v) [this.velocityStorage[0], this.velocityStorage[1], this.velocityStorage[2]] = v;
     return this.velocityView;
   }
   set velocity(v: Vec3Like) {
-    this.setVelocity(v.x, v.y, v.z);
+    this._commands.setVelocity(this._state?.body, [v.x, v.y, v.z]);
   }
 
   /** Angular velocity in degrees/second around each world axis. Returns a copy. */
   get angularVelocity(): Vector3 {
-    const body = this._state?.body;
-    if (body) {
-      const w = body.angularVelocity();
-      return new Vector3(w.x * RAD2DEG, w.y * RAD2DEG, w.z * RAD2DEG);
-    }
-    const p = this._pendingAngularVelocity ?? [0, 0, 0];
-    return new Vector3(p[0], p[1], p[2]);
+    const [x, y, z] = this._commands.angularVelocity(this._state?.body);
+    return new Vector3(x, y, z);
   }
   set angularVelocity(degPerSec: Vec3Like) {
-    const body = this._state?.body;
-    if (body) body.setAngularVelocity({ x: degPerSec.x * DEG2RAD, y: degPerSec.y * DEG2RAD, z: degPerSec.z * DEG2RAD });
-    else this._pendingAngularVelocity = [degPerSec.x, degPerSec.y, degPerSec.z];
+    this._commands.setAngularVelocity(this._state?.body, [degPerSec.x, degPerSec.y, degPerSec.z]);
   }
 
   /** Apply a force for the next fixed step (`"force"`) or an instant change in momentum (`"impulse"`). */
   addForce(force: Vec3Like, mode: ForceMode = "force"): void {
-    const body = this._state?.body;
-    if (mode === "impulse" && body) {
-      body.applyImpulse({ x: force.x, y: force.y, z: force.z });
-    } else if (mode === "impulse") {
-      const m = this.mass > 0 ? this.mass : 1;
-      const [vx, vy, vz] = this._pendingVelocity ?? [0, 0, 0];
-      this._pendingVelocity = [vx + force.x / m, vy + force.y / m, vz + force.z / m];
-    } else {
-      this._force[0] += force.x;
-      this._force[1] += force.y;
-      this._force[2] += force.z;
-    }
+    this._commands.addForce(this._state?.body, [force.x, force.y, force.z], mode, this.mass);
   }
 
   /** Apply a torque (around world axes) for the next fixed step, or an angular impulse. */
   addTorque(torque: Vec3Like, mode: ForceMode = "force"): void {
-    const body = this._state?.body;
-    if (mode === "impulse" && body) {
-      body.applyTorqueImpulse({ x: torque.x, y: torque.y, z: torque.z });
-    } else {
-      this._torque[0] += torque.x;
-      this._torque[1] += torque.y;
-      this._torque[2] += torque.z;
-    }
-  }
-
-  private setVelocity(x: number, y: number, z: number): void {
-    const body = this._state?.body;
-    if (body) body.setLinearVelocity({ x, y, z });
-    else this._pendingVelocity = [x, y, z];
+    const fr = this.constraints?.freezeRotation;
+    this._commands.addTorque(this._state?.body, [torque.x, torque.y, torque.z], mode, this.mass, [!!fr?.x, !!fr?.y, !!fr?.z]);
   }
 
   override _onDetach(): void {

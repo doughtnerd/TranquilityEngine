@@ -1,52 +1,92 @@
 // Plugins (ADR 0133): a manifest plus halves that register contributions. The editor half's
-// `activate` registers through the context, which remembers every registration so deactivating the
-// plugin removes them all.
+// `activate` registers through the context, made from the table of contribution points (ADR 0284), which
+// records the plugin with each entry and remembers every registration so deactivating the plugin removes them all.
 import type { PluginManifest } from "../../plugins/manifest";
 import { orderPlugins } from "../../plugins/order";
-import { setPanelOwner } from "./panelOwners";
-import { fieldChoices, type FieldChoicesContribution, nameReferences, type NameReferencesContribution, assetActions, assetKinds, componentHeaderActions, hierarchyCreateEntries, idlePrefetches, playStatsCounters, sceneOpenMigrations, type AssetActionContribution, type HierarchyCreateContribution, type IdlePrefetchContribution, type PlayStatsCounterContribution, type SceneOpenMigrationContribution, componentNotes, panelExtensions, panels, projectSettingsSections, sceneToolbarItems, viewportTools, type ComponentHeaderActionContribution, type SceneToolbarItemContribution, type ComponentNoteContribution, type AssetKindContribution, type PanelContribution, type PanelExtensionContribution, type ProjectSettingsSectionContribution, type ViewportToolContribution } from "./contributions";
+import { assetActions, assetKinds, componentHeaderActions, componentNotes, fieldChoices, hierarchyCreateEntries, idlePrefetches, nameReferences, panelExtensions, panels, playStatsCounters, projectSettingsSections, sceneOpenMigrations, sceneToolbarItems, viewportTools } from "./contributions";
 import { registerInspectorSection, type InspectorSectionOptions, type InspectorSectionProps } from "../ui/inspectorSections";
 import { componentEditToggle } from "../componentEditToggle";
 import type { LoadComponent } from "./contributions";
 import { checkSettingsSectionKeys } from "../projectSettingsModel";
+import type { ContributionOwner, Registry } from "./registry";
 
+/**
+ * One contribution point (ADR 0284): what a plugin's `register…` call does, for `owner`. Returns the functions that
+ * undo it, which deactivating the plugin runs.
+ */
+interface ContributionPoint<F extends (...args: never[]) => void> {
+  add(owner: ContributionOwner, ...args: Parameters<F>): Array<() => void>;
+}
 
-export interface EditorPluginContext {
+/** A point that isn't one registry's (Inspector sections are kept per Component type). */
+const point = <F extends (...args: never[]) => void>(add: ContributionPoint<F>["add"]): ContributionPoint<F> => ({ add });
+
+/**
+ * A point that adds one entry to `registry`, recording its plugin there. `check` vets the entry first (and may throw);
+ * `also` registers what comes with it, removed with it.
+ */
+function registryPoint<T extends { readonly id: string }>(registry: Registry<T>, hooks: { check?(entry: T): T; also?(entry: T, owner: ContributionOwner): (() => void) | null } = {}): ContributionPoint<(entry: T) => void> {
+  return {
+    add(owner, entry) {
+      const e = hooks.check ? hooks.check(entry) : entry;
+      const undo = [registry.register(e, owner)];
+      try {
+        const extra = hooks.also?.(e, owner);
+        if (extra) undo.push(extra);
+      } catch (err) {
+        undo[0]();
+        throw err;
+      }
+      return undo;
+    },
+  };
+}
+
+/**
+ * Every editor contribution point, declared once (ADR 0284): the plugin context's `register…` methods are made from
+ * this table, with these comments. A new point is its contribution type and registry (`contributions.ts`) and a row here.
+ */
+const CONTRIBUTION_POINTS = {
   /** An asset kind (ADR 0134, 0143, 0233), with its format, default folder and panel when it declares them. */
-  registerAssetKind<T>(kind: AssetKindContribution<T>): void;
-  registerPanel(panel: PanelContribution): void;
+  registerAssetKind: registryPoint(assetKinds),
+  registerPanel: registryPoint(panels),
   /**
    * A category of the Project settings panel (listed after the built-in ones unless `after` places it), owning
    * the `project.json` keys it declares (ADR 0151). Throws for a key the shell or another section owns.
    */
-  registerProjectSettingsSection(section: ProjectSettingsSectionContribution): void;
+  registerProjectSettingsSection: registryPoint(projectSettingsSections, { check: checkSettingsSectionKeys }),
   /** Extra UI rendered under a built-in panel's own content (`panel`: its id). */
-  registerPanelExtension(extension: PanelExtensionContribution): void;
+  registerPanelExtension: registryPoint(panelExtensions),
   /** A note after a Component's name in the Add Component menu. */
-  registerComponentNote(note: ComponentNoteContribution): void;
+  registerComponentNote: registryPoint(componentNotes),
   /** Extra UI under a Component type's fields in the Inspector (ADR 0131), loaded on first use. */
-  registerInspectorSection(type: string, view: LoadComponent<InspectorSectionProps>, options?: InspectorSectionOptions): void;
+  registerInspectorSection: point<(type: string, view: LoadComponent<InspectorSectionProps>, options?: InspectorSectionOptions) => void>((_owner, type, view, options) => [registerInspectorSection(type, view, options)]),
   /** A scene-view tool (ADR 0138), installed on every scene view while the plugin is active; with `editsComponents`, also its Edit toggle (ADR 0266). */
-  registerViewportTool(tool: ViewportToolContribution): void;
+  registerViewportTool: registryPoint(viewportTools, { also: (t, owner) => (t.editsComponents ? componentHeaderActions.register(componentEditToggle(t), owner) : null) }),
   /** A Scene toolbar button that opens a popover (ADR 0142). */
-  registerSceneToolbarItem(item: SceneToolbarItemContribution): void;
+  registerSceneToolbarItem: registryPoint(sceneToolbarItems),
   /** A control in Inspector component cards' headers for some Component types (ADR 0142). */
-  registerComponentHeaderAction(action: ComponentHeaderActionContribution): void;
+  registerComponentHeaderAction: registryPoint(componentHeaderActions),
   /** An entry of the Hierarchy's Create menu (ADR 0146). */
-  registerHierarchyCreateEntry(entry: HierarchyCreateContribution): void;
+  registerHierarchyCreateEntry: registryPoint(hierarchyCreateEntries),
   /** An Assets panel context-menu entry for selected files or slices (ADR 0146). */
-  registerAssetAction(action: AssetActionContribution): void;
+  registerAssetAction: registryPoint(assetActions),
   /** A count on the Play Stats panel's Nodes row (ADR 0146). */
-  registerPlayStatsCounter(counter: PlayStatsCounterContribution): void;
+  registerPlayStatsCounter: registryPoint(playStatsCounters),
   /** Work done on a scene when the editor opens it (ADR 0146). */
-  registerSceneOpenMigration(migration: SceneOpenMigrationContribution): void;
+  registerSceneOpenMigration: registryPoint(sceneOpenMigrations),
   /** Code fetched once the editor is idle (ADR 0146). */
-  registerIdlePrefetch(prefetch: IdlePrefetchContribution): void;
+  registerIdlePrefetch: registryPoint(idlePrefetches),
   /** Choices for a Component field that depend on its other values or on files (ADR 0152). */
-  registerFieldChoices(choices: FieldChoicesContribution): void;
+  registerFieldChoices: registryPoint(fieldChoices),
   /** Fields or files of this plugin's that name entries of another section's named list (ADR 0262), renamed with them. */
-  registerNameReferences(references: NameReferencesContribution): void;
-}
+  registerNameReferences: registryPoint(nameReferences),
+};
+
+type ContextOf<P> = { [K in keyof P]: P[K] extends ContributionPoint<infer F> ? F : never };
+
+/** What a plugin's editor half registers through: one `register…` method per contribution point (ADR 0284). */
+export interface EditorPluginContext extends ContextOf<typeof CONTRIBUTION_POINTS> {}
 
 /** A plugin's editor half. */
 export interface EditorPlugin {
@@ -62,35 +102,13 @@ export function activatePlugin(plugin: EditorPlugin): void {
   if (active.has(name)) return;
   const undo: Array<() => void> = [];
   active.set(name, undo);
-  const context: EditorPluginContext = {
-    registerAssetKind: (k) => void undo.push(assetKinds.register(k)),
-    registerPanel: (p) => {
-      // The owner first, so the panel catalog built when the registry changes names it; a taken id changes neither.
-      if (panels.get(p.id)) throw new Error(`Panel "${p.id}" is already registered.`);
-      setPanelOwner(p.id, { plugin: name, pluginTitle: plugin.manifest.title ?? name });
-      undo.push(panels.register(p));
-    },
-    registerProjectSettingsSection: (section) => void undo.push(projectSettingsSections.register(checkSettingsSectionKeys(section))),
-    registerPanelExtension: (extension) => void undo.push(panelExtensions.register(extension)),
-    registerComponentNote: (n) => void undo.push(componentNotes.register(n)),
-    registerInspectorSection: (type, view, options) => void undo.push(registerInspectorSection(type, view, options)),
-    // A tool that edits components brings its Inspector cards' Edit toggle (ADR 0266), removed with it.
-    registerViewportTool: (t) => {
-      undo.push(viewportTools.register(t));
-      if (t.editsComponents) undo.push(componentHeaderActions.register(componentEditToggle(t)));
-    },
-    registerSceneToolbarItem: (item) => void undo.push(sceneToolbarItems.register(item)),
-    registerComponentHeaderAction: (action) => void undo.push(componentHeaderActions.register(action)),
-    registerHierarchyCreateEntry: (entry) => void undo.push(hierarchyCreateEntries.register(entry)),
-    registerAssetAction: (action) => void undo.push(assetActions.register(action)),
-    registerPlayStatsCounter: (counter) => void undo.push(playStatsCounters.register(counter)),
-    registerSceneOpenMigration: (migration) => void undo.push(sceneOpenMigrations.register(migration)),
-    registerIdlePrefetch: (prefetch) => void undo.push(idlePrefetches.register(prefetch)),
-    registerFieldChoices: (choices) => void undo.push(fieldChoices.register(choices)),
-    registerNameReferences: (references) => void undo.push(nameReferences.register(references)),
-  };
+  const owner: ContributionOwner = { plugin: name, pluginTitle: plugin.manifest.title ?? name };
+  const context = {} as Record<string, (...args: never[]) => void>;
+  for (const [method, point] of Object.entries(CONTRIBUTION_POINTS) as [string, ContributionPoint<(...args: never[]) => void>][]) {
+    context[method] = (...args) => void undo.push(...point.add(owner, ...args));
+  }
   try {
-    plugin.activate(context);
+    plugin.activate(context as unknown as EditorPluginContext);
   } catch (err) {
     deactivatePlugin(name);
     throw err;

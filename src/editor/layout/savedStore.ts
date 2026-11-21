@@ -30,8 +30,8 @@ import {
   type SavedLayout,
 } from "./saved";
 import { layout } from "./store";
+import { panels } from "../sdk/contributions";
 import { registeredPanels } from "./registeredPanels";
-import { panelsOfPlugin } from "../sdk/panelOwners";
 import { captureWindowBounds } from "./detached";
 
 /** Where layout files are read and written. */
@@ -308,7 +308,7 @@ export interface LayoutWithPanels {
  * and every saved one) remember as theirs, for a plugin that was never on this session.
  */
 export function pluginPanelTypes(plugins: readonly string[]): PanelId[] {
-  const types = new Set<PanelId>(plugins.flatMap((p) => panelsOfPlugin(p)));
+  const types = new Set<PanelId>(plugins.flatMap((p) => panels.idsOf(p)));
   const remembered = (l: Layout | null) => {
     if (!l) return;
     for (const [type, info] of Object.entries(l.panelInfo)) if (info?.plugin && plugins.includes(info.plugin)) types.add(type);
