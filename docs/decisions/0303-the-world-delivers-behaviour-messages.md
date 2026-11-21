@@ -50,7 +50,7 @@ The hand-written delivery loops in `PhysicsCore.notify` and `breakJoint`, `Chara
 
 ## Open questions
 
-- The music hooks (`onMusicBeat`, `onMusicBar`, `onMusicCue`, ADR 0166) are message hooks too and are still delivered by hand in `plugins/audio/runtime/music/musicSystem.ts` (`deliverToComponents`), with the same missing async and edit-mode rules. Moving them onto `_sendMessage` is a one-call change, left to the audio runtime's owner.
+- Resolved in the same change: the music hooks (`onMusicBeat`, `onMusicBar`, `onMusicCue`, ADR 0166) are message hooks too; `plugins/audio/runtime/music/musicSystem.ts` (`deliverToComponents`) now delivers them through `_sendMessage` to the music source's node and owner, so they get the same edit-mode gate and the same logging of a throw or a rejection.
 
 ## References
 

@@ -343,7 +343,6 @@ const KINDS = [
   { kind: "cue", bit: MusicSubscription.CUE, hook: "onMusicCue" },
 ] as const;
 
-type Hook = (e: MusicEvent) => void;
 
 function newEvent(): MusicEvent {
   return { handle: null as unknown as MusicEventHandle, segment: "", bar: 1, beat: 1, tempo: 0, beatsPerBar: 0, time: 0, heardIn: 0, missed: 0 };
@@ -387,25 +386,12 @@ function hookMask(player: MusicPlayer): number {
   return mask;
 }
 
-/** Calls `hook` on each active behavior of the source's nodes that defines it; a throw is logged, the rest still hear it. */
-function deliverToComponents(player: MusicPlayer, hook: string, e: MusicEvent): void {
-  const ents = sourceEntities(player);
-  if (!ents) return;
-  const world = player.instance.musicSource!._world;
-  for (const ent of ents) {
-    const list = world._componentsOf(ent);
-    if (!list) continue;
-    for (const c of [...list]) { // a hook may add or remove components
-      if (!(c instanceof GameBehavior) || !c.isActiveAndEnabled) continue;
-      const fn = (c as unknown as Record<string, Hook | undefined>)[hook];
-      if (typeof fn !== "function") continue;
-      try {
-        fn.call(c, e);
-      } catch (err) {
-        console.error(`[myco] ${c.constructor.name}.${hook} threw:`, err);
-      }
-    }
-  }
+/** Calls `hook` on each active behavior of the source's nodes that defines it, through the World (ADR 0303): a throw or a rejection is logged, the rest still hear it. */
+function deliverToComponents(player: MusicPlayer, hook: (typeof KINDS)[number]["hook"], e: MusicEvent): void {
+  const src = player.instance.musicSource;
+  if (!src || src._destroyed || !src.node.isValid) return;
+  // ADR 0303: the World delivers it, with the lifecycle hooks' edit-mode gate, error and async rules.
+  src._world._sendMessage([src.node, src.owner], hook, e);
 }
 
 /**
