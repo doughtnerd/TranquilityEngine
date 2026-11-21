@@ -3,7 +3,7 @@
 // records the plugin with each entry and remembers every registration so deactivating the plugin removes them all.
 import type { PluginManifest } from "../../plugins/manifest";
 import { orderPlugins } from "../../plugins/order";
-import { assetActions, assetKinds, componentHeaderActions, componentNotes, fieldChoices, hierarchyCreateEntries, idlePrefetches, nameReferences, panelExtensions, panels, playStatsCounters, projectSettingsSections, sceneOpenMigrations, sceneToolbarItems, viewportTools } from "./contributions";
+import { assetActions, assetKinds, componentHeaderActions, componentNotes, componentWireframes, fieldChoices, hierarchyCreateEntries, idlePrefetches, nameReferences, panelExtensions, panels, playStatsCounters, projectSettingsSections, sceneOpenMigrations, sceneToolbarItems, viewportTools } from "./contributions";
 import { registerInspectorSection, type InspectorSectionOptions, type InspectorSectionProps } from "../ui/inspectorSections";
 import { componentEditToggle } from "../componentEditToggle";
 import type { LoadComponent } from "./contributions";
@@ -81,6 +81,8 @@ const CONTRIBUTION_POINTS = {
   registerFieldChoices: registryPoint(fieldChoices),
   /** Fields or files of this plugin's that name entries of another section's named list (ADR 0262), renamed with them. */
   registerNameReferences: registryPoint(nameReferences),
+  /** A Component's wireframe for other plugins' scene-view tools to draw (ADR 0295). */
+  registerComponentWireframe: registryPoint(componentWireframes),
 };
 
 type ContextOf<P> = { [K in keyof P]: P[K] extends ContributionPoint<infer F> ? F : never };

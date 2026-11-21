@@ -8,7 +8,7 @@ import type { EditorPlugin } from "../../../editor/sdk";
 import { pluginOfComponent } from "../../runtimeContext";
 import { physicsManifest } from "../manifest";
 import { physicsBackends } from "../runtime";
-import { colliderTool } from "./colliderGizmo";
+import { colliderTool, colliderWireframes } from "./colliderGizmo";
 import { jointTool } from "./jointGizmo";
 import { noBackendNote } from "./physicsEditorModel";
 import { physicsLayers, physicsSettings } from "./physicsSettingsModel";
@@ -29,6 +29,8 @@ export const physicsEditorPlugin: EditorPlugin = {
     });
     context.registerComponentNote({ id: "physics.no-backend", note: (type) => noBackendNote(type, { pluginOf: pluginOfComponent, backendCount: (d) => physicsBackends(d).length }) });
     context.registerViewportTool(colliderTool);
+    // The 3D colliders' wireframes for other plugins' tools (ADR 0295): the Audio plugin's occluder outlines.
+    context.registerComponentWireframe(colliderWireframes);
     context.registerViewportTool(jointTool);
     // A project is likely to need physics: its core and every backend's code load while the editor is idle (ADR 0082).
     context.registerIdlePrefetch({

@@ -15,7 +15,9 @@ import type { ComponentEntry, NodeEntry, NodePath, SceneDocument } from "../docu
 import type { GameObject } from "../../engine/scene/GameObject";
 import type { ComponentInfo } from "../../engine/editor";
 import type { ImportSettings } from "../../engine/scene/importSettings";
-import type { FieldChoice } from "../../engine/core/registry";
+import { getComponentId, type ComponentClass, type FieldChoice } from "../../engine/core/registry";
+import type { Component } from "../../engine/core/Component";
+import type { Wire } from "../shapeKit3d";
 
 /** A component loaded on first use (ADR 0083). */
 export type LoadComponent<P extends object> = () => Promise<FunctionComponent<P>>;
@@ -604,6 +606,19 @@ export interface FieldChoicesContribution {
   choices(info: ComponentInfo): readonly FieldChoice[] | Promise<readonly FieldChoice[]>;
 }
 
+/**
+ * A Component's wireframe in the scene view (ADR 0295), offered by the plugin that knows its shape so another plugin's
+ * tool can draw it without importing that plugin: the Physics plugin offers its 3D colliders' wireframes from its
+ * collider shape table, and the Audio plugin's occluder tool outlines the colliders an occluder applies to with them.
+ */
+export interface ComponentWireframeContribution {
+  readonly id: string;
+  /** The Component type ids it draws, e.g. "engine.BoxCollider". */
+  readonly types: ReadonlySet<string>;
+  /** The component's wireframe in world space, or null while it can't be drawn (a mesh collider whose model is loading). */
+  wire(component: Component): Wire | null;
+}
+
 export const componentNotes = createRegistry<ComponentNoteContribution>("Component note");
 export const assetKinds = createRegistry<AssetKindContribution>("Asset kind");
 export const panels = createRegistry<PanelContribution>("Panel");
@@ -619,3 +634,11 @@ export const sceneOpenMigrations = createRegistry<SceneOpenMigrationContribution
 export const idlePrefetches = createRegistry<IdlePrefetchContribution>("Idle prefetch");
 export const fieldChoices = createRegistry<FieldChoicesContribution>("Field choices");
 export const nameReferences = createRegistry<NameReferencesContribution>("Name references");
+export const componentWireframes = createRegistry<ComponentWireframeContribution>("Component wireframe");
+
+/** The wireframe a registered contribution draws for `component` (by its Component type id), or null when none draws it or it can't be drawn now. */
+export function componentWireframe(component: Component): Wire | null {
+  const type = getComponentId(component.constructor as ComponentClass);
+  for (const w of componentWireframes.list()) if (type && w.types.has(type)) return w.wire(component);
+  return null;
+}

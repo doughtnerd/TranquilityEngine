@@ -1,6 +1,6 @@
 # 0288. One collider shape table for the gizmo, and 2D sizing shared with the backend
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0295 (the 3D pose maths, wireframes, face and radius handle rules and the axis drag move into the editor's 3D shape kit, `shapeKit3d`, which the 3D entries are built from; `collider3dMath.ts` is gone)
 - **Date:** 2026-11-21
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
