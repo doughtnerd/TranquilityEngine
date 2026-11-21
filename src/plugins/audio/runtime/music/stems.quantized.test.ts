@@ -2,7 +2,7 @@
 // real core: a stem enters on the bar line, sample-exact). 120 bpm 4/4: a beat is 0.5 s, a bar 2 s.
 import { afterEach, describe, expect, it } from "vitest";
 import { setAudioBackend } from "../backend";
-import { makeFakeBackend, type FakeVoice, endAudioSession, loopbackAudio, closeLoopbackAudio } from "../testing";
+import { makeFakeBackend, type FakeVoice, endAudioSession, loopbackAudio, closeLoopbackAudio, musicFrameAt } from "../testing";
 import type { EventInstance } from "../events/eventRuntime";
 import { AutoTarget, continuousBindings, evaluateQuantized, QUANTIZED_RAMP_SECONDS, TsAutomation, type Binding } from "../events/automation";
 import { parseSegmentNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
@@ -30,7 +30,7 @@ function setup() {
   });
   const run = { node, player, state: "playing", group: 1, stems, startAt: 1, startFrame: 0, loopsDone: 0, prime: null } as unknown as SegmentRun;
   commitStart(player, run, 1);
-  const frame = (now: number): MusicFrame => ({ backend: b, music: b.music ?? null, now, dt: 1 / 60, hidden: false });
+  const frame = (now: number) => musicFrameAt(b, now);
   return { b, player, run, stems, ramps, frame };
 }
 
@@ -55,9 +55,9 @@ describe("quantizedRamp (ADR 0166 R6)", () => {
 
   it("a point nearer than Audio.horizon is skipped for the next one", () => {
     const { b, player, frame } = setup();
-    b.horizonTime = 2.95;
+    b.lookahead = 1.65; // the horizon at 2.95 in the frame at 1.3
     expect(quantizedRamp(player, "bass", 1, "bar", 0.02, frame(1.3))).toBeCloseTo(3, 9);
-    b.horizonTime = 3.01;
+    b.lookahead = 1.71; // at 3.01: past the bar line at 3
     expect(quantizedRamp(player, "bass", 1, "bar", 0.02, frame(1.3))).toBeCloseTo(5, 9);
   });
 

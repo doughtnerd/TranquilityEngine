@@ -24,7 +24,6 @@ const SAMPLE = fileURLToPath(new URL("../../../samples/sound-lab/", import.meta.
 const fake = makeFakeBackend();
 let engine: Engine | null = null;
 const RENDER = { release() {}, warmUp: async () => {}, preloadTextures: async () => {} } as never;
-const clock = fake as unknown as { time: number; rafTime: number };
 
 async function boot(scene: string): Promise<void> {
   const project = await readProject(SAMPLE);
@@ -38,7 +37,7 @@ async function boot(scene: string): Promise<void> {
 
 const advance = (seconds: number) => {
   for (let t = 0; t < seconds - 1e-9; t += 1 / 60) {
-    clock.time += 1 / 60;
+    fake.advance(1 / 60);
     engine!.step(1 / 60);
   }
 };
@@ -65,11 +64,10 @@ beforeEach(() => {
   fake.clear();
   for (const p of ["events/music-pad", "events/music-pulse", "events/music-lead", "melody-loop"]) fake.durations.set(`audio/${p}.wav`, 4);
   for (const p of ["click-track", "combat-drums", "combat-bass", "explore-pad", "explore-arp"]) fake.durations.set(`audio/music/${p}.wav`, p === "click-track" ? 2 : 4);
-  clock.time = 0;
-  clock.rafTime = 0;
+  fake.advanceTo(0); // the rAF time moves with it, back to 0
   fake.ready = true;
   setAudioBackend(fake);
-  events().now = () => clock.time;
+  events().now = () => fake.time;
   endAudioSession();
   vi.spyOn(console, "warn").mockImplementation(() => {});
 });
@@ -215,11 +213,11 @@ describe("touch", () => {
     expect(page().state().mode).toBe("calibrate");
     const handle = (page().page as unknown as { handle: { music: { positionAt(t: number): { nearestBeatTime: number } } } }).handle;
     const stampLate = (delta: number): number => {
-      const here = clock.rafTime;
+      const here = fake.rafTime;
       const beat = handle.music.positionAt(here).nearestBeatTime;
       return here + (beat + delta - Audio.timeAt(here)) * 1000;
     };
-    clock.time += 1 / 60; // the frame that reads the press (the fake's `timeAt` follows the clock)
+    fake.advance(1 / 60); // the frame that reads the press (the fake's `timeAt` follows the clock)
     dom.dispatch("pointerdown", { button: 0, target: new FakeCanvas(), timeStamp: stampLate(0.05) });
     engine!.step(1 / 60);
     expect(page().state().taps).toBe(1);

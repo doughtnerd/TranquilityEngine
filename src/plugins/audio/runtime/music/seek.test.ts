@@ -2,15 +2,15 @@
 // Clock: 120 bpm 4/4, a 120 s clip; A plays from 1.1 (stamped from now 1 + the 100 ms first lead).
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { setAudioBackend } from "../backend";
-import { makeFakeBackend, type FakeBackend, endAudioSession } from "../testing";
+import { makeFakeBackend, type FakeBackend, endAudioSession, musicFrameAt, musicFrameStep } from "../testing";
 import type { EventInstance } from "../events/eventRuntime";
 import { parseAudioEvent } from "../../../../engine/audio/eventFormat";
 import type { MusicNode, MusicSwitchNode } from "../../../../engine/audio/musicFormat";
 import type { MusicClipFacts } from "../../../../engine/audio/musicValidate";
-import { createMusicPlayer, disposeMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
+import { createMusicPlayer, disposeMusicPlayer, type MusicPlayer } from "./musicSystem";
 import { setSegmentClipSource } from "./segmentRun";
 import { planTick, requestStart } from "./planner";
-import { requestTransition, tickTransition } from "./transition";
+import { requestTransition } from "./transition";
 import { seekMusic } from "./seek";
 import { refuseStart, stopPlayer } from "./musicPlayer";
 
@@ -29,35 +29,26 @@ function root(children: Raw[] = [seg("A"), seg("B")]): MusicSwitchNode {
 const child = (r: MusicSwitchNode, id: string): MusicNode => r.children.find((c) => c.id === id)!;
 
 let b: FakeBackend;
-const f = { backend: null as unknown as FakeBackend, music: null as FakeBackend["music"] | null, now: 0, dt: DT, hidden: false };
-function at(now: number): MusicFrame {
-  f.now = now;
-  (b as { time: number }).time = now;
-  b.horizonTime = now + L;
-  return f as unknown as MusicFrame;
-}
 function rig(): void {
   b = makeFakeBackend();
   setAudioBackend(b);
-  f.backend = b;
-  f.music = b.music ?? null;
+  b.lookahead = L;
   setSegmentClipSource({ url: (p) => p, settings: () => ({ volume: 1, stream: true }), bus: (o) => o ?? "Master", facts: () => facts() });
-  at(1);
+  b.advanceTo(1);
 }
 const instance = (): EventInstance =>
   ({ group: 7, world: 1, path: "music.audioevent", asset: { bus: "Music", volume: 1 }, getParameter: () => undefined }) as unknown as EventInstance;
 function playing(r: MusicSwitchNode): MusicPlayer {
   const player = createMusicPlayer(instance(), r);
-  requestStart(player, { to: child(r, "A"), reason: "start", grid: "immediate", notBefore: Number.NaN, startFrame: 0 }, at(1));
+  requestStart(player, { to: child(r, "A"), reason: "start", grid: "immediate", notBefore: Number.NaN, startFrame: 0 }, musicFrameAt(b, 1));
   b.music!.setPrimed(player.planned!.run.group);
-  planTick(player, at(1));
-  planTick(player, at(1.2));
+  planTick(player, musicFrameAt(b, 1));
+  planTick(player, musicFrameAt(b, 1.2));
   expect(player.state).toBe("playing");
   return player;
 }
 const tick = (player: MusicPlayer, now: number): void => {
-  tickTransition(player, at(now));
-  planTick(player, at(now));
+  musicFrameStep(b, now);
 };
 
 afterEach(() => {
@@ -82,7 +73,7 @@ describe("seekMusic", () => {
     rig();
     const r = root([seg("A"), seg("B", { tempo: [{ at: "1:1:0", bpm: 60, beatsPerBar: 4, beatUnit: 4 }] })]);
     const player = playing(r);
-    const t = requestTransition(player, child(r, "B"), at(1.5))!;
+    const t = requestTransition(player, child(r, "B"), musicFrameAt(b, 1.5))!;
     b.music!.setPrimed(t.incoming!.run.group);
     tick(player, 1.6);
     expect(t.state).toBe("stamped");
@@ -98,7 +89,7 @@ describe("seekMusic", () => {
     rig();
     const r = root();
     const player = playing(r);
-    const t = requestTransition(player, child(r, "B"), at(1.5))!;
+    const t = requestTransition(player, child(r, "B"), musicFrameAt(b, 1.5))!;
     expect(seekMusic(player, "2:1:0").ok).toBe(true);
     expect(t.state).toBe("cancelled");
     expect(player.transition?.to.id).toBe("A");
@@ -135,11 +126,11 @@ describe("seekMusic", () => {
     const r = root();
     const player = createMusicPlayer(instance(), r);
     expect(seekMusic(player, "2:1:0")).toEqual({ ok: false, reason: "notPlaying", permanent: false });
-    requestStart(player, { to: child(r, "A"), reason: "start", grid: "immediate", notBefore: Number.NaN, startFrame: 0 }, at(1));
+    requestStart(player, { to: child(r, "A"), reason: "start", grid: "immediate", notBefore: Number.NaN, startFrame: 0 }, musicFrameAt(b, 1));
     b.music!.setPrimed(player.planned!.run.group);
-    planTick(player, at(1)); // stamped for 1.1, not sounding yet
+    planTick(player, musicFrameAt(b, 1)); // stamped for 1.1, not sounding yet
     expect(seekMusic(player, "2:1:0")).toEqual({ ok: false, reason: "notPlaying", permanent: false });
-    planTick(player, at(1.2));
+    planTick(player, musicFrameAt(b, 1.2));
     expect(seekMusic(player, "2:1:0").ok).toBe(true);
   });
 

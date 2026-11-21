@@ -2,14 +2,14 @@
 // (the worker for streamed stems, the voice for decoded ones), and the anchor's pass walk agrees with them.
 import { afterEach, describe, expect, it } from "vitest";
 import { setAudioBackend } from "../backend";
-import { makeFakeBackend, type FakeBackend, type FakeVoice, endAudioSession } from "../testing";
+import { makeFakeBackend, type FakeBackend, type FakeVoice, endAudioSession, musicFrameAt } from "../testing";
 import type { EventInstance } from "../events/eventRuntime";
 import { parseSegmentNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
 import { compileSegmentGrid, ticksToSeconds } from "../../../../engine/audio/musicGrid";
 import type { MusicClipFacts } from "../../../../engine/audio/musicValidate";
-import { createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
+import { createMusicPlayer, type MusicPlayer } from "./musicSystem";
 import { createSegmentRun, groupRequest, pollPrimed, primeRun, setSegmentClipSource, stampRun, type SegmentRun } from "./segmentRun";
-import { advanceAnchor, heardTimeOf, predictWrap, ticksAt } from "./anchors";
+import { nextGridHeard, predictWrap, ticksAt } from "./anchors";
 import { promote } from "./musicPlayer";
 
 let facts: Record<string, MusicClipFacts | undefined> = {};
@@ -39,7 +39,7 @@ const instance = (): EventInstance =>
 /** Admit, prime and stamp a run of `node` at `at` on the fake; the player's run and anchor. */
 function stamped(b: FakeBackend, node: SegmentNode, at: number): { player: MusicPlayer; run: SegmentRun } {
   const player = createMusicPlayer(instance(), node);
-  const f: MusicFrame = { backend: b, music: b.music ?? null, now: at - 0.2, dt: 1 / 60, hidden: false };
+  const f = musicFrameAt(b, at - 0.2);
   const run = createSegmentRun(player, node, 0)!;
   expect(primeRun(player, run, f)).toBe(true);
   // An all-decoded run skips priming; the fake only stamps groups it was told about, so tell it.
@@ -72,9 +72,9 @@ describe("a simple forever loop is looped by its members (P3 follow-up)", () => 
     expect(predictWrap(player, 14)).toBeCloseTo(18, 9);
     expect(predictWrap(player, 10 + 4 * 300.25)).toBeCloseTo(10 + 4 * 301, 6);
     expect(ticksAt(player.anchor!, 15)).toBeCloseTo(1920, 6); // one second into pass 2
-    expect(advanceAnchor(player, 15)).toBe(true);
-    expect(player.anchor).toMatchObject({ ticks: 0, pass: 2 });
-    expect(heardTimeOf(player.anchor!, 3840)).toBeCloseTo(16, 9); // bar 2 of pass 2
+    expect(nextGridHeard(player, 15, "bar")).toMatchObject({ file: 2 }); // bar 2 of pass 2 ...
+    expect(nextGridHeard(player, 15, "bar").at).toBeCloseTo(16, 9); // ... heard at 16
+    expect(player.anchor).toMatchObject({ ticks: 0, pass: 1 }); // nothing moved the anchor
   });
 
   it("a region inside the file (44.1 kHz clip, 133 bpm): member frames at the clip's rate are the pass the anchor walks", () => {

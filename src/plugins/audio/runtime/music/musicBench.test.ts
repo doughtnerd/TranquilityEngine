@@ -10,11 +10,11 @@
 // (`tools/audio-bench`, the metered music scenes); the main thread's line is only this.
 import { afterEach, describe, expect, it } from "vitest";
 import { setAudioBackend } from "../backend";
-import { makeFakeBackend, type FakeBackend, endAudioSession } from "../testing";
+import { makeFakeBackend, type FakeBackend, endAudioSession, musicFrameAt } from "../testing";
 import type { EventInstance } from "../events/eventRuntime";
 import { parseSegmentNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
 import type { MusicClipFacts } from "../../../../engine/audio/musicValidate";
-import { createMusicPlayer, musicPlanStep, type MusicFrame, type MusicPlayer } from "./musicSystem";
+import { createMusicPlayer, musicPlanStep, type MusicPlayer } from "./musicSystem";
 import { setSegmentClipSource } from "./segmentRun";
 import { planTick, requestStart, type PlanRequest } from "./planner";
 
@@ -43,32 +43,22 @@ let groupIds = 7;
 const instance = (): EventInstance => ({ group: groupIds++, world: 1, path: "music.audioevent", asset: { bus: "Music", volume: 1 } }) as unknown as EventInstance;
 
 let b: FakeBackend;
-const f = { backend: null as unknown as FakeBackend, music: null as FakeBackend["music"] | null, now: 0, dt: DT, hidden: false };
-
-/** Sets the clock to `now`: Audio.time and the horizon (now + L). */
-function at(now: number): MusicFrame {
-  f.now = now;
-  (b as { time: number }).time = now;
-  b.horizonTime = now + L;
-  return f as unknown as MusicFrame;
-}
 
 function rig(): void {
   b = makeFakeBackend();
   setAudioBackend(b);
-  f.backend = b;
-  f.music = b.music ?? null;
+  b.lookahead = L;
   setSegmentClipSource({ url: (p) => `/assets/${p}`, settings: () => ({ volume: 1, stream: true }), bus: (o) => o ?? "Master", facts: (p) => FACTS[p] });
-  at(1);
+  b.advanceTo(1);
 }
 
 /** A player whose first segment (8 streamed stems) is primed, stamped and playing. */
 function playingPlayer(): MusicPlayer {
   const player = createMusicPlayer(instance(), segment("A", clips("a")));
-  planTick(player, at(1));
+  planTick(player, musicFrameAt(b, 1));
   b.music!.setPrimed(player.planned!.run.group);
-  planTick(player, at(1 + DT));
-  planTick(player, at(1.2));
+  planTick(player, musicFrameAt(b, 1 + DT));
+  planTick(player, musicFrameAt(b, 1.2));
   if (player.state !== "playing") throw new Error(`the bench's player is ${player.state}`);
   return player;
 }
@@ -98,7 +88,7 @@ async function steady(players: number): Promise<Result> {
   let now = 1.2;
   for (let k = 0; k < 300 + FRAMES; k++) {
     now += DT;
-    at(now);
+    b.advanceTo(now);
     const t0 = performance.now();
     musicPlanStep(b, DT);
     if (k >= 300) times[k - 300] = (performance.now() - t0) * 1000;
@@ -120,7 +110,7 @@ async function seam(): Promise<Result> {
     const to = segment(`B${n}`, clips(n % 2 === 0 ? "b" : "a"));
     const req: PlanRequest = { to, reason: "switch", grid: "bar", notBefore: Number.NaN, startFrame: 0, points: bars };
     const t0 = performance.now();
-    const planned = requestStart(player, req, at(now));
+    const planned = requestStart(player, req, musicFrameAt(b, now));
     times.push((performance.now() - t0) * 1000);
     if (!planned) throw new Error("the bench's change was refused");
     // Frames to the stamp: primed after one frame, then until the swap.
@@ -128,7 +118,7 @@ async function seam(): Promise<Result> {
       now += DT;
       if (k === 1) b.music!.setPrimed(planned.run.group);
       const t1 = performance.now();
-      planTick(player, at(now));
+      planTick(player, musicFrameAt(b, now));
       times.push((performance.now() - t1) * 1000);
     }
     now += 1;

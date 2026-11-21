@@ -13,18 +13,17 @@ import type { World } from "../../../engine/core/World";
 import { Audio, _handleOf } from "./Audio";
 import { AUDIO_SYSTEMS } from "./audioSystem";
 import { setAudioBackend } from "./backend";
-import { makeFakeBackend, type FakeBackend, endAudioSession } from "./testing";
+import { makeFakeBackend, type FakeBackend, endAudioSession, musicFrameAt, musicFrameStep } from "./testing";
 import type { EventInstance } from "./events/eventRuntime";
 import { emptySegment, parseSegmentNode, type MusicNode, type SegmentNode } from "../../../engine/audio/musicFormat";
 import { parseAudioEvent } from "../../../engine/audio/eventFormat";
 import type { MusicClipFacts } from "../../../engine/audio/musicValidate";
 import { musicHandleOf } from "./music/handle";
 import {
-  createMusicPlayer, disposeMusicPlayer, musicPlayers, type MusicFrame, type MusicPlayer,
-} from "./music/musicSystem";
+  createMusicPlayer, disposeMusicPlayer, musicPlayers, type MusicPlayer } from "./music/musicSystem";
 import { setSegmentClipSource } from "./music/segmentRun";
 import { planTick } from "./music/planner";
-import { requestTransition, tickTransition } from "./music/transition";
+import { requestTransition } from "./music/transition";
 
 const RATE = 48_000;
 const L = 1 / 30;
@@ -50,39 +49,29 @@ const instance = (): EventInstance =>
   ({ group: groupIds++, world: 1, path: "music.audioevent", asset: { bus: "Music", volume: 1 } }) as unknown as EventInstance;
 
 let b: FakeBackend;
-const f = { backend: null as unknown as FakeBackend, music: null as FakeBackend["music"] | null, now: 0, dt: DT, hidden: false };
-
-/** Set the heard clock to `now` (Audio.time and the horizon now + L) and return the frame the planner ticks with. */
-function at(now: number): MusicFrame {
-  f.now = now;
-  (b as { time: number }).time = now;
-  b.horizonTime = now + L;
-  return f as unknown as MusicFrame;
-}
 
 /** A new display frame at `now`: the handle's snapshot is recomputed on its next read. */
 function frame(now: number): void {
-  at(now);
+  b.advanceTo(now);
   b.beginFrame();
 }
 
 function rig(): void {
   b = makeFakeBackend();
   setAudioBackend(b);
-  f.backend = b;
-  f.music = b.music ?? null;
+  b.lookahead = L;
   setSegmentClipSource({ url: (p) => `/assets/${p}`, settings: () => ({ volume: 1, stream: true }), bus: (o) => o ?? "Master", facts: (p) => FACTS[p] });
-  at(1);
+  b.advanceTo(1);
 }
 
 /** A player whose first segment (two streamed stems, gridOffset 0) is stamped at 1.1 and playing from 1.2. */
 function playingPlayer(node: SegmentNode = segment("A", ["music/a1.ogg", "music/a2.ogg"])): MusicPlayer {
   const player = createMusicPlayer(instance(), node);
-  planTick(player, at(1));
+  planTick(player, musicFrameAt(b, 1));
   b.music!.setPrimed(player.planned!.run.group);
-  planTick(player, at(1 + DT));
+  planTick(player, musicFrameAt(b, 1 + DT));
   expect(player.state).toBe("committed");
-  planTick(player, at(1.2));
+  planTick(player, musicFrameAt(b, 1.2));
   expect(player.state).toBe("playing");
   return player;
 }
@@ -161,13 +150,13 @@ describe("L-P7a: handle.music getters (§1.2)", () => {
     rig();
     const h = playMusic();
     const player = musicPlayers().at(-1)!;
-    planTick(player, at(1));
+    planTick(player, musicFrameAt(b, 1));
     frame(1);
     expect(h.music!.segment).toBeNull();
 
     b.music!.setPrimed(player.planned!.run.group);
-    planTick(player, at(1 + DT));
-    planTick(player, at(1.2));
+    planTick(player, musicFrameAt(b, 1 + DT));
+    planTick(player, musicFrameAt(b, 1.2));
     expect(player.state).toBe("playing");
     frame(1.2);
     expect(h.music!.segment).toBe("A");
@@ -241,7 +230,7 @@ describe("L-P7a: handle.music getters (§1.2)", () => {
     expect(player.handle.transition).toBeNull();
 
     // B's 0.1 s pickup (preEntry): the group starts at 3.0 but the entry (what `time` is) is heard at 3.1.
-    const t = requestTransition(player, segment("B", ["music/b1.ogg", "music/b2.ogg"], 0.1), at(1.35))!;
+    const t = requestTransition(player, segment("B", ["music/b1.ogg", "music/b2.ogg"], 0.1), musicFrameAt(b, 1.35))!;
     const p = t.incoming!;
     expect(p.point).toBeCloseTo(3.1, 9);
     expect(p.at).toBeCloseTo(3.0, 9);
@@ -250,16 +239,14 @@ describe("L-P7a: handle.music getters (§1.2)", () => {
 
     // Primed and stamped, not yet landed: still pending.
     b.music!.setPrimed(p.run.group);
-    tickTransition(player, at(1.4));
-    planTick(player, at(1.4));
+    musicFrameStep(b, 1.4);
     expect(t.state).toBe("stamped");
     frame(2.95);
     expect(player.handle.transition).toEqual({ to: "B", time: expect.closeTo(3.1, 9) });
 
     // Landed at the entry: no pending change, B plays.
     for (let now = 3.0; now <= 3.15; now += DT) {
-      tickTransition(player, at(now));
-      planTick(player, at(now));
+      musicFrameStep(b, now);
     }
     frame(3.15);
     expect(player.handle.transition).toBeNull();
@@ -316,7 +303,7 @@ describe("L-P7a: nextGrid (§1.2)", () => {
   it("L-P7a with a pending change the points after transition.time are the incoming segment's (GridPoint.segment says which)", () => {
     rig();
     const player = playingPlayer();
-    requestTransition(player, segment("B", ["music/b1.ogg", "music/b2.ogg"]), at(1.35));
+    requestTransition(player, segment("B", ["music/b1.ogg", "music/b2.ogg"]), musicFrameAt(b, 1.35));
     frame(1.45);
     const h = player.handle;
     expect(h.transition).toEqual({ to: "B", time: expect.closeTo(3.1, 9) });
@@ -333,7 +320,7 @@ describe("L-P7a: nextGrid (§1.2)", () => {
 
     // Priming the first segment.
     const priming = createMusicPlayer(instance(), segment("A", ["music/a1.ogg"]));
-    planTick(priming, at(1));
+    planTick(priming, musicFrameAt(b, 1));
     frame(1);
     for (const s of specs) expect(priming.handle.nextGrid(s)).toBeNull();
 
@@ -346,7 +333,7 @@ describe("L-P7a: nextGrid (§1.2)", () => {
     // Refused: a first segment that can never fit the pool.
     b.music!.ringPool = 1;
     const refused = createMusicPlayer(instance(), segment("R", ["music/a1.ogg", "music/a2.ogg"]));
-    planTick(refused, at(1));
+    planTick(refused, musicFrameAt(b, 1));
     expect(refused.state).toBe("refused");
     for (const s of specs) expect(refused.handle.nextGrid(s)).toBeNull();
   });
@@ -355,28 +342,27 @@ describe("L-P7a: nextGrid (§1.2)", () => {
 describe("L-P7a: Audio clock members (§1.3)", () => {
   it("L-P7a Audio.horizon is the backend's horizon (now + lookahead), and Audio.time on a backend without one", () => {
     rig();
-    at(2);
+    b.advanceTo(2);
     expect(Audio.horizon).toBeCloseTo(2 + L, 9);
-    b.horizonTime = null;
+    b.lookahead = null;
     expect(Audio.horizon).toBe(Audio.time);
     expect(Audio.horizon).toBe(2);
   });
 
   it("L-P7a Audio.timeAt maps a performance.now() instant to heard time, never applies Audio.calibration, and is Audio.time on a backend without timeAt", () => {
     rig();
-    (b as { time: number }).time = 2;
-    b.rafTime = 1000;
+    b.advanceTo(2);
     // 250 ms after the frame's rAF time is 0.25 s later on the heard clock.
-    expect(Audio.timeAt(1250)).toBeCloseTo(2.25, 9);
+    expect(Audio.timeAt(b.rafTime + 250)).toBeCloseTo(2.25, 9);
     Audio.calibration = 0.05;
     expect(Audio.calibration).toBe(0.05);
-    expect(Audio.timeAt(1250)).toBeCloseTo(2.25, 9);
+    expect(Audio.timeAt(b.rafTime + 250)).toBeCloseTo(2.25, 9);
 
     // A backend with no heard clock (the Babylon fallback): Audio.time.
     const bare = makeFakeBackend();
     bare.clock = undefined;
     setAudioBackend(bare);
-    (bare as { time: number }).time = 3;
+    bare.advanceTo(3);
     expect(Audio.timeAt(1250)).toBe(3);
   });
 });
@@ -388,12 +374,12 @@ describe("L-P7a: Audio.play(music, { at }) (§1.3)", () => {
     const player = musicPlayers().at(-1)!;
     expect(player.requestedAt).toBe(3);
 
-    planTick(player, at(1));
+    planTick(player, musicFrameAt(b, 1));
     // The first segment has no grid yet: its start is the entry, heard at `at`.
     expect(player.planned!.point).toBeCloseTo(3, 9);
     expect(player.planned!.at).toBeGreaterThanOrEqual(3 - 1e-9);
     b.music!.setPrimed(player.planned!.run.group);
-    planTick(player, at(1.02));
+    planTick(player, musicFrameAt(b, 1.02));
     expect(b.music!.stamps.at(-1)!.at).toBeCloseTo(3, 9);
   });
 
@@ -402,7 +388,7 @@ describe("L-P7a: Audio.play(music, { at }) (§1.3)", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     playMusic({ at: 1.05 });
     const near = musicPlayers().at(-1)!;
-    planTick(near, at(1));
+    planTick(near, musicFrameAt(b, 1));
     expect(near.planned!.at).toBeCloseTo(1.1, 9);
     expect(warn).toHaveBeenCalledTimes(1);
     expect(String(warn.mock.calls[0]![0])).toContain("closer than the prime lead");
@@ -410,7 +396,7 @@ describe("L-P7a: Audio.play(music, { at }) (§1.3)", () => {
     playMusic({ at: Number.NaN });
     const asap = musicPlayers().at(-1)!;
     expect(Number.isNaN(asap.requestedAt)).toBe(true);
-    planTick(asap, at(1));
+    planTick(asap, musicFrameAt(b, 1));
     expect(asap.planned!.at).toBeCloseTo(1.1, 9);
   });
 });
@@ -422,7 +408,7 @@ describe("P7-lead: Audio.time in update() (§1.7, §6 step 0)", () => {
     const b = makeFakeBackend();
     // As the core: `time` is last frame's until `beginFrame` advances the clock map to this frame's.
     let frameTime = 1;
-    (b as { beginFrame: () => void }).beginFrame = () => { b.beginFrameCalls++; (b as { time: number }).time = frameTime; };
+    (b as { beginFrame: () => void }).beginFrame = () => { b.beginFrameCalls++; b.advanceTo(frameTime); };
     setAudioBackend(b);
     // No music: the step leaves the clock alone, so `update()` reads the old value.
     frameTime = 2;

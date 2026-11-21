@@ -212,7 +212,7 @@ describe("layer", () => {
 describe("sustain container", () => {
   it("start then loop play back to back (loop scheduled with `at`)", async () => {
     fake.durations.set("a.wav", 2);
-    fake.horizonTime = 0;
+    fake.lookahead = 0;
     await kit.boot({ "u.audioevent.json": SUSTAIN("now") });
     const h = events().play("u.audioevent.json")!;
     expect(fake.plays.map((p) => p.path)).toEqual(["a.wav", "b.wav"]);
@@ -223,7 +223,7 @@ describe("sustain container", () => {
 
   it("release now: end plays with a crossfade of `fade` seconds", async () => {
     fake.durations.set("a.wav", 2);
-    fake.horizonTime = 0;
+    fake.lookahead = 0;
     await kit.boot({ "u.audioevent.json": SUSTAIN("now") });
     const h = events().play("u.audioevent.json")!;
     h.release();
@@ -236,11 +236,11 @@ describe("sustain container", () => {
   it("release loopEnd: end starts at the end of the current loop pass", async () => {
     fake.durations.set("a.wav", 2);
     fake.durations.set("b.wav", 1);
-    fake.horizonTime = 0;
+    fake.lookahead = 0;
     await kit.boot({ "u.audioevent.json": SUSTAIN("loopEnd") });
     const h = events().play("u.audioevent.json")!;
     expect(fake.plays[1].at).toBe(2);
-    fake.horizonTime = 2.5; // mid-way through the first loop pass (2 s to 3 s)
+    fake.lookahead = 2.5; // mid-way through the first loop pass (2 s to 3 s)
     h.release();
     const end = fake.plays.at(-1)!;
     expect(end.path).toBe("c.wav");
@@ -254,7 +254,7 @@ describe("continuous", () => {
   it("random continuous with known lengths schedules the next clip with `at`, counting no late start", async () => {
     fake.durations.set("a.wav", 1);
     fake.durations.set("b.wav", 1.5);
-    fake.horizonTime = 0;
+    fake.lookahead = 0;
     await kit.boot({ "k.audioevent.json": ev({ type: "random", mode: "continuous", children: [clip("a.wav"), clip("b.wav")] }) });
     events().play("k.audioevent.json");
     for (let i = 1; i < 6; i++) {
@@ -272,7 +272,7 @@ describe("continuous", () => {
     fake.durations.set("a.wav", 1);
     fake.durations.set("b.wav", 1.5);
     fake.durations.set("c.wav", 0.5);
-    fake.horizonTime = 0;
+    fake.lookahead = 0;
     await kit.boot({ "k.audioevent.json": ev({ type: "sequence", mode: "continuous", loop: true, children: [clip("a.wav"), clip("b.wav"), clip("c.wav")] }) });
     events().play("k.audioevent.json");
     for (let i = 1; i < 6; i++) {

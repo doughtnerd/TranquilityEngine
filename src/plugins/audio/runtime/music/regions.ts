@@ -19,7 +19,7 @@
  *   the condition is read at the next commit point.
  * - **The release.** A false condition marks the region released with its last pass (`lastPass`, the pass E ends) in
  *   the same tick, before `tickLoopTails` (step 9's order): the anchors' walk then drops that region's wraps from E on,
- *   in every query (`predictWrap`, `nextWrapOf`, `advanceAnchor`, `ticksAt` through `bindRelease`), so R4a's walk
+ *   in every query (`predictWrap`, `nextWrapOf`, `nextHeard`, `ticksAt` through `bindRelease`), so R4a's walk
  *   releases the members (`AutomationSink.setLoop` with `looping: false`) and stamps no tail at E. A decoded member's
  *   release is a SET_LOOP sent at once: the voice plays on past the region's end instead of wrapping at E. A streamed
  *   member's goes to the worker as the end of its current pass (`streams.setLoop` → `musicOps.setLoop`, the worker's

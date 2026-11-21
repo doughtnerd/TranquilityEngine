@@ -75,7 +75,7 @@ describe("a looping clip without loopRegion", () => {
 
   it("a sustain container's loop clip uses the clip's points when known", async () => {
     fake.durations.set("a.wav", 2);
-    fake.horizonTime = 0;
+    fake.lookahead = 0;
     await kit.boot({ "u.audioevent.json": ev({ type: "sustain", release: "now", fade: 0.5, start: clip("a.wav"), loop: clip("b.wav"), end: clip("c.wav") }) });
     setFileLoopPoints("b.wav", { start: 0.1, end: 0.9 });
     events().play("u.audioevent.json");
@@ -88,7 +88,7 @@ describe("sustain release crossfade", () => {
 
   it("uses releaseFade when set", async () => {
     fake.durations.set("a.wav", 2);
-    fake.horizonTime = 0;
+    fake.lookahead = 0;
     await kit.boot({ "u.audioevent.json": sustain({ releaseFade: 1.25 }) });
     const h = events().play("u.audioevent.json")!;
     h.release();
@@ -98,7 +98,7 @@ describe("sustain release crossfade", () => {
 
   it("falls back to fade when releaseFade is absent", async () => {
     fake.durations.set("a.wav", 2);
-    fake.horizonTime = 0;
+    fake.lookahead = 0;
     await kit.boot({ "u.audioevent.json": sustain({}) });
     const h = events().play("u.audioevent.json")!;
     h.release();
@@ -108,7 +108,7 @@ describe("sustain release crossfade", () => {
 
   it("releaseFade 0 is a cut, not the fallback", async () => {
     fake.durations.set("a.wav", 2);
-    fake.horizonTime = 0;
+    fake.lookahead = 0;
     await kit.boot({ "u.audioevent.json": sustain({ releaseFade: 0 }) });
     const h = events().play("u.audioevent.json")!;
     h.release();

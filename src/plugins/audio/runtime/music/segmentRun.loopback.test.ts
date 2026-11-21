@@ -5,7 +5,7 @@
 // planned heard time exactly, and every member starts at the run's file frame.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { setAudioBackend } from "../backend";
-import { makeFakeBackend, type FakeBackend, endAudioSession } from "../testing";
+import { makeFakeBackend, type FakeBackend, endAudioSession, musicFrameAt } from "../testing";
 import type { EventInstance } from "../events/eventRuntime";
 import { parseSegmentNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
 import type { MusicClipFacts } from "../../../../engine/audio/musicValidate";
@@ -59,7 +59,7 @@ function rig(): { b: FakeBackend; player: MusicPlayer; node: SegmentNode; f: Mus
   });
   const node = segment();
   const player = createMusicPlayer(instance(), node);
-  const f: MusicFrame = { backend: fake, music: fake.music ?? null, now: 1, dt: 1 / 60, hidden: false };
+  const f = musicFrameAt(fake, 1);
   return { b: fake, player, node, f };
 }
 

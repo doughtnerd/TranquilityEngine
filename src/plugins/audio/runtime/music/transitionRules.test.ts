@@ -15,8 +15,8 @@ import {
   DEFAULT_TRANSITION_RULE, type TransitionEnter, type TransitionExit, type TransitionRule,
 } from "../../../../engine/audio/musicRules";
 import {
-  enterFrame, enterPoint, exitTime, findRule, heardTimeAt, matchInContainer, resolveFades, ticksAtHeard,
-  type GridAt, type PlayingGrid, type RuleMatch,
+  enterFrame, enterPoint, exitPoint, findRule, matchInContainer, resolveFades,
+  type GridAt, type RuleMatch,
 } from "./transitionRules";
 
 type Raw = Record<string, unknown>;
@@ -54,9 +54,6 @@ function gridOf(extra: Raw = {}, endSeconds?: number, id = "a"): SegmentGrid {
 /** A grid position: the grid and the ticks the segment is at (for an exit point T or an incoming side). */
 const at = (g: SegmentGrid, ticks: number): GridAt => ({ grid: g, ticks });
 
-/** The playing segment's grid with its anchor (default: file 0 is heard at 0). */
-const playing = (g: SegmentGrid, anchorTicks = 0, anchorTime = 0): PlayingGrid => ({ grid: g, anchorTicks, anchorTime });
-
 /** The text `RuleMatch.exit` shows for a rule's exit (§2.4 `exit`, `RuleMatch`). */
 const exitText = (e: TransitionExit): string => {
   if (typeof e === "string") return e;
@@ -68,7 +65,7 @@ const enterText = (e: TransitionEnter): string => (typeof e === "string" ? e : `
 
 /**
  * A match for one rule (`over` its own fields, the rest the default), built the way `findRule` reports one. Used where
- * a test feeds a match straight to `exitTime`, `enterPoint`, `enterFrame` or `resolveFades`.
+ * a test feeds a match straight to `exitPoint`, `enterPoint`, `enterFrame` or `resolveFades`.
  */
 function matchOf(over: Partial<TransitionRule> = {}): RuleMatch {
   const transition: TransitionRule = { ...DEFAULT_TRANSITION_RULE, from: "a", to: "b", ...over };
@@ -251,27 +248,25 @@ describe("findRule: nested containers (nearest common parent)", () => {
   });
 });
 
-describe("exitTime under tempo maps", () => {
-  it("L-R1a: exit bar: the next bar line at or after notBefore, in heard seconds through the anchor", () => {
+describe("exitPoint under tempo maps (file seconds)", () => {
+  it("L-R1a: exit bar: the next bar line at or after the position", () => {
     // 120 bpm 4/4 from file 0 (bar lines at 0, 2, 4 ... s).
-    expect(exitTime(matchOf({ exit: "bar" }), playing(gridOf({}, 10)), 0.3, false)).toBeCloseTo(2.0, 9);
-    // The anchor: file 0 is heard at 5 s, so heard 5.3 is file 0.3 and the bar line is heard at 7.0.
-    expect(exitTime(matchOf({ exit: "bar" }), playing(gridOf({}, 10), 0, 5), 5.3, false)).toBeCloseTo(7.0, 9);
+    expect(exitPoint(matchOf({ exit: "bar" }), gridOf({}, 10), 0.3, false)).toBeCloseTo(2.0, 9);
   });
 
   it("L-R1a: exit beat, { every: bar, n }, { every: beat, n }: the next such point", () => {
-    const p = playing(gridOf({}, 10));
+    const p = gridOf({}, 10);
     // Beats are 0.5 s apart: the next beat at or after 0.3 s is beat 2 at 0.5 s.
-    expect(exitTime(matchOf({ exit: "beat" }), p, 0.3, false)).toBeCloseTo(0.5, 9);
+    expect(exitPoint(matchOf({ exit: "beat" }), p, 0.3, false)).toBeCloseTo(0.5, 9);
     // Bars 1, 3, 5 (bar number minus 1 a multiple of 2) fall at 0, 4, 8 s.
-    expect(exitTime(matchOf({ exit: { every: "bar", n: 2 } }), p, 0.3, false)).toBeCloseTo(4.0, 9);
-    expect(exitTime(matchOf({ exit: { every: "bar", n: 2 } }), p, 4.5, false)).toBeCloseTo(8.0, 9);
+    expect(exitPoint(matchOf({ exit: { every: "bar", n: 2 } }), p, 0.3, false)).toBeCloseTo(4.0, 9);
+    expect(exitPoint(matchOf({ exit: { every: "bar", n: 2 } }), p, 4.5, false)).toBeCloseTo(8.0, 9);
     // Beat indices 0, 4, 8 (multiples of 4 beats) fall at 0, 2, 4 s.
-    expect(exitTime(matchOf({ exit: { every: "beat", n: 4 } }), p, 0.3, false)).toBeCloseTo(2.0, 9);
+    expect(exitPoint(matchOf({ exit: { every: "beat", n: 4 } }), p, 0.3, false)).toBeCloseTo(2.0, 9);
   });
 
-  it("L-R1a: notBefore exactly on a bar line returns that line", () => {
-    expect(exitTime(matchOf({ exit: "bar" }), playing(gridOf({}, 10)), 2.0, false)).toBeCloseTo(2.0, 9);
+  it("L-R1a: a position exactly on a bar line returns that line", () => {
+    expect(exitPoint(matchOf({ exit: "bar" }), gridOf({}, 10), 2.0, false)).toBeCloseTo(2.0, 9);
   });
 
   it("L-R1a: a bar exit across a tempo change (120 to 90 bpm) and a metre change (4/4 to 3/4) lands on the true bar line", () => {
@@ -282,84 +277,61 @@ describe("exitTime under tempo maps", () => {
         { at: "3:1:0", bpm: 60, beatsPerBar: 3, beatUnit: 4 },
       ],
     }, 20);
-    expect(exitTime(matchOf({ exit: "bar" }), playing(g), 2.5, false)).toBeCloseTo(4.0, 9);
-    expect(exitTime(matchOf({ exit: "bar" }), playing(g), 4.5, false)).toBeCloseTo(7.0, 9);
-    expect(exitTime(matchOf({ exit: "bar" }), playing(g), 7.5, false)).toBeCloseTo(10.0, 9);
+    expect(exitPoint(matchOf({ exit: "bar" }), g, 2.5, false)).toBeCloseTo(4.0, 9);
+    expect(exitPoint(matchOf({ exit: "bar" }), g, 4.5, false)).toBeCloseTo(7.0, 9);
+    expect(exitPoint(matchOf({ exit: "bar" }), g, 7.5, false)).toBeCloseTo(10.0, 9);
   });
 
-  it("L-R1a: gridOffset (a pickup) and an anchor mid-segment both shift heard time correctly", () => {
-    // Bar 1 beat 1 sits at file 0.5 s: bar lines at file 0.5, 2.5, 4.5 s. The anchor is bar 2 (tick 3840, file 2.5 s)
-    // heard at 10 s, so heard(t) = 10 + file(t) - 2.5.
-    const g = gridOf({ gridOffset: 0.5 }, 12);
-    const p = playing(g, 3840, 10.0);
-    expect(heardTimeAt(p, 3840)).toBeCloseTo(10.0, 9);
-    expect(heardTimeAt(p, 0)).toBeCloseTo(8.0, 9); // bar 1 beat 1 is 2 s before the anchor
-    // Heard 11.0 is file 3.5: the next bar line is file 4.5, heard 12.0.
-    expect(exitTime(matchOf({ exit: "bar" }), p, 11.0, false)).toBeCloseTo(12.0, 9);
+  it("L-R1a: gridOffset (a pickup) shifts the bar lines in file seconds", () => {
+    // Bar 1 beat 1 sits at file 0.5 s: bar lines at file 0.5, 2.5, 4.5 s. File 3.5's next bar line is file 4.5.
+    expect(exitPoint(matchOf({ exit: "bar" }), gridOf({ gridOffset: 0.5 }, 12), 3.5, false)).toBeCloseTo(4.5, 9);
   });
 
-  it("L-R1a: immediate returns notBefore", () => {
-    expect(exitTime(matchOf({ exit: "immediate" }), playing(gridOf({}, 10)), 0.3, false)).toBeCloseTo(0.3, 9);
+  it("L-R1a: immediate returns the position", () => {
+    expect(exitPoint(matchOf({ exit: "immediate" }), gridOf({}, 10), 0.3, false)).toBeCloseTo(0.3, 9);
   });
 
-  it("L-R1a: nextCue: the first cue at or after notBefore; none before the exit cue gives the exit cue", () => {
+  it("L-R1a: nextCue: the first cue at or after the position; none before the exit cue gives the exit cue", () => {
     // hit at 1:3:0 (1.0 s), drop at 3:1:0 (4.0 s), the exit cue at 5:1:0 (8.0 s).
-    const g = gridOf({ cues: [{ name: "hit", at: "1:3:0" }, { name: "drop", at: "3:1:0" }, { name: "exit", at: "5:1:0" }] }, 10);
-    const p = playing(g);
-    expect(exitTime(matchOf({ exit: "nextCue" }), p, 0.3, false)).toBeCloseTo(1.0, 9);
-    expect(exitTime(matchOf({ exit: "nextCue" }), p, 1.0, false)).toBeCloseTo(1.0, 9);
-    expect(exitTime(matchOf({ exit: "nextCue" }), p, 1.5, false)).toBeCloseTo(4.0, 9);
+    const p = gridOf({ cues: [{ name: "hit", at: "1:3:0" }, { name: "drop", at: "3:1:0" }, { name: "exit", at: "5:1:0" }] }, 10);
+    expect(exitPoint(matchOf({ exit: "nextCue" }), p, 0.3, false)).toBeCloseTo(1.0, 9);
+    expect(exitPoint(matchOf({ exit: "nextCue" }), p, 1.0, false)).toBeCloseTo(1.0, 9);
+    expect(exitPoint(matchOf({ exit: "nextCue" }), p, 1.5, false)).toBeCloseTo(4.0, 9);
     // No cue between 4.5 and the exit cue: the exit cue answers.
-    expect(exitTime(matchOf({ exit: "nextCue" }), p, 4.5, false)).toBeCloseTo(8.0, 9);
-    expect(exitTime(matchOf({ exit: "nextCue" }), p, 6.0, false)).toBeCloseTo(8.0, 9);
+    expect(exitPoint(matchOf({ exit: "nextCue" }), p, 4.5, false)).toBeCloseTo(8.0, 9);
+    expect(exitPoint(matchOf({ exit: "nextCue" }), p, 6.0, false)).toBeCloseTo(8.0, 9);
   });
 
   it("L-R1a: exitCue: the exit cue (named, default cue \"exit\", else the end with endSeconds)", () => {
     // Named by the segment's `exit` key: the cue "out" at 2:3:0 = 3.0 s.
     const named = gridOf({ exit: "out", cues: [{ name: "out", at: "2:3:0" }] }, 10);
-    expect(exitTime(matchOf({ exit: "exitCue" }), playing(named), 0.3, false)).toBeCloseTo(3.0, 9);
+    expect(exitPoint(matchOf({ exit: "exitCue" }), named, 0.3, false)).toBeCloseTo(3.0, 9);
     // No exit cue: the end of the audio, 10 s.
-    expect(exitTime(matchOf({ exit: "exitCue" }), playing(gridOf({}, 10)), 0.3, false)).toBeCloseTo(10.0, 9);
+    expect(exitPoint(matchOf({ exit: "exitCue" }), gridOf({}, 10), 0.3, false)).toBeCloseTo(10.0, 9);
   });
 
   it("L-R1a: the clamp: a grid point after the exit cue gives the exit cue", () => {
     // Exit cue "out" at 3.0 s; the bar line at 4.0 s is past it.
-    const p = playing(gridOf({ exit: "out", cues: [{ name: "out", at: "2:3:0" }] }, 10));
-    expect(exitTime(matchOf({ exit: "bar" }), p, 2.5, false)).toBeCloseTo(3.0, 9);
-    expect(exitTime(matchOf({ exit: { every: "bar", n: 2 } }), p, 2.5, false)).toBeCloseTo(3.0, 9);
+    const p = gridOf({ exit: "out", cues: [{ name: "out", at: "2:3:0" }] }, 10);
+    expect(exitPoint(matchOf({ exit: "bar" }), p, 2.5, false)).toBeCloseTo(3.0, 9);
+    expect(exitPoint(matchOf({ exit: { every: "bar", n: 2 } }), p, 2.5, false)).toBeCloseTo(3.0, 9);
   });
 
-  it("L-R1a: past the exit cue (notBefore after it) gives NaN; an unknown end gives NaN for exitCue", () => {
-    const p = playing(gridOf({ exit: "out", cues: [{ name: "out", at: "2:3:0" }] }, 10));
-    expect(exitTime(matchOf({ exit: "bar" }), p, 3.5, false)).toBeNaN();
+  it("L-R1a: past the exit cue (the position after it) gives NaN; an unknown end gives NaN for exitCue", () => {
+    const p = gridOf({ exit: "out", cues: [{ name: "out", at: "2:3:0" }] }, 10);
+    expect(exitPoint(matchOf({ exit: "bar" }), p, 3.5, false)).toBeNaN();
     // Control: before the exit cue the same bar exit has a time (the bar line at 2.0 s).
-    expect(exitTime(matchOf({ exit: "bar" }), p, 0.3, false)).toBeCloseTo(2.0, 9);
+    expect(exitPoint(matchOf({ exit: "bar" }), p, 0.3, false)).toBeCloseTo(2.0, 9);
     // No end length known: the exit cue is the end, unknown, so exitCue has no time.
-    expect(exitTime(matchOf({ exit: "exitCue" }), playing(gridOf({})), 0.3, false)).toBeNaN();
+    expect(exitPoint(matchOf({ exit: "exitCue" }), gridOf({}), 0.3, false)).toBeNaN();
   });
 
-  it("L-R1a: natural advance: the exit cue whatever the rule's exit, even when notBefore is later", () => {
-    const p = playing(gridOf({ exit: "out", cues: [{ name: "out", at: "2:3:0" }] }, 10));
-    // notBefore is after the exit cue here, and the rule asks for a grid point: a playlist advance still leaves at the cue.
-    expect(exitTime(matchOf({ exit: "beat" }), p, 3.5, true)).toBeCloseTo(3.0, 9);
-    expect(exitTime(matchOf({ exit: "immediate" }), p, 0.3, true)).toBeCloseTo(3.0, 9);
-    expect(exitTime(matchOf({ exit: "bar" }), p, 0.3, true)).toBeCloseTo(3.0, 9);
-  });
-
-  it("L-R1a: heardTimeAt and ticksAtHeard are inverse across a tempo change", () => {
-    // 120 bpm to bar 3, then 60 bpm (960 ticks per second from tick 7680, file 4.0 s).
-    const g = gridOf({ tempo: [{ at: "1:1:0", bpm: 120, beatsPerBar: 4, beatUnit: 4 }, { at: "3:1:0", bpm: 60, beatsPerBar: 4, beatUnit: 4 }] }, 20);
-    const p = playing(g);
-    expect(heardTimeAt(p, 7680)).toBeCloseTo(4.0, 9);
-    expect(heardTimeAt(p, 8640)).toBeCloseTo(5.0, 9);
-    expect(heardTimeAt(p, 8160)).toBeCloseTo(4.5, 9);
-    expect(ticksAtHeard(p, 5.0)).toBeCloseTo(8640, 6);
-    expect(ticksAtHeard(p, 4.5)).toBeCloseTo(8160, 6);
-    // With an anchor: tick 3840 (file 2.0 s) heard at 7.0 s. Heard 9.0 is tick 7680; heard 8.0 is file 3.0 = tick 5760.
-    const q = playing(g, 3840, 7.0);
-    expect(heardTimeAt(q, 7680)).toBeCloseTo(9.0, 9);
-    expect(ticksAtHeard(q, 9.0)).toBeCloseTo(7680, 6);
-    expect(ticksAtHeard(q, 8.0)).toBeCloseTo(5760, 6);
+  it("L-R1a: natural advance: the exit cue whatever the rule's exit, even when the position is later", () => {
+    const p = gridOf({ exit: "out", cues: [{ name: "out", at: "2:3:0" }] }, 10);
+    // The position is after the exit cue here, and the rule asks for a grid point: a playlist advance still leaves at the cue.
+    expect(exitPoint(matchOf({ exit: "beat" }), p, 3.5, true)).toBeCloseTo(3.0, 9);
+    expect(exitPoint(matchOf({ exit: "immediate" }), p, 0.3, true)).toBeCloseTo(3.0, 9);
+    expect(exitPoint(matchOf({ exit: "bar" }), p, 0.3, true)).toBeCloseTo(3.0, 9);
   });
 });
 

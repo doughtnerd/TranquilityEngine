@@ -52,9 +52,9 @@ async function releaseRun(start: number, end: number, pass: number, before: numb
   const at = onsetOf(r.left);
   expect(at).toBeGreaterThan(0);
   const seam = at + b + pass * (b - a); // output index of the seam ending pass `pass`
-  // biome-ignore lint: test-only access to the backend's clock
-  const clock = (r.backend as unknown as { clockMap: { framesNow(): number; lookaheadFrames(): number } }).clockMap;
-  const asked = () => clock.framesNow() + clock.lookaheadFrames();
+  // The frame a record asked for now is stamped at: the horizon (`Audio.horizon`), on the context's frames.
+  const clock = r.backend.clock!;
+  const asked = () => (clock.horizon()! - clock.frameMap()!.timeOffset) * clock.frameMap()!.sampleRate;
   while (asked() + 512 < seam - before) await r.step(1);
   const requested = asked();
   r.backend.automation.setLoop(voice, start, end, false);

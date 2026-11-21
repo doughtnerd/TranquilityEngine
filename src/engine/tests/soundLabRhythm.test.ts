@@ -81,7 +81,6 @@ const warnings: string[] = [];
 const errors: string[] = [];
 let engine: Engine | null = null;
 const RENDER = { release() {}, warmUp: async () => {}, preloadTextures: async () => {} } as never;
-const clock = fake as unknown as { time: number; rafTime: number };
 
 async function boot(scene: string): Promise<void> {
   const project = await readProject(SAMPLE);
@@ -95,7 +94,7 @@ async function boot(scene: string): Promise<void> {
 
 const advance = (seconds: number) => {
   for (let t = 0; t < seconds - 1e-9; t += 1 / 60) {
-    clock.time += 1 / 60;
+    fake.advance(1 / 60);
     engine!.step(1 / 60);
   }
 };
@@ -105,7 +104,7 @@ const state = () => page().state();
 
 /** A performance time whose heard time (`Audio.timeAt`) is `delta` seconds after the beat nearest the present. */
 function tapNearBeat(delta: number, beatsAhead = 0): number {
-  const here = clock.rafTime;
+  const here = fake.rafTime;
   const music = (page().page as unknown as { handle: { music: { positionAt(t: number): { nearestBeatTime: number } } } }).handle.music;
   const beat = music.positionAt(here).nearestBeatTime + beatsAhead * 0.5;
   return here + (beat + delta - Audio.timeAt(here)) * 1000;
@@ -122,11 +121,10 @@ fake.music!.admitGroup = (req) => {
 beforeEach(() => {
   fake.clear();
   for (const [p, s] of [["click-track", 2], ["combat-drums", 4], ["combat-bass", 4]] as const) fake.durations.set(`audio/music/${p}.wav`, s);
-  clock.time = 0;
-  clock.rafTime = 0;
+  fake.advanceTo(0); // the rAF time moves with it, back to 0
   fake.ready = true;
   setAudioBackend(fake);
-  events().now = () => clock.time;
+  events().now = () => fake.time;
   endAudioSession();
   warnings.length = 0;
   errors.length = 0;

@@ -9,13 +9,14 @@
  * nearest common parent's table. `exit` is clamped to the exit cue; a natural advance always leaves at the exit cue
  * (the rule supplies `enter`, fades and bridge). Fades in beats are converted under the tempo map at their point.
  *
- * **R1's contract amendment (skeleton, before any caller):** Q2's `exitTime`, `enterFrame` and `resolveFades` had no
+ * **R1's contract amendment (skeleton, before any caller):** Q2's `exitTime` (now `exitPoint`, ADR 0285), `enterFrame` and `resolveFades` had no
  * way to reach a segment's tempo map or the heard clock (`MusicNode` is `{ id, type }`), so each now takes the
- * compiled grids (`SegmentGrid`, G1) and, for the playing side, its anchor as a `PlayingGrid`. `RuleMatch` gains
- * `transition` (the rule itself, for its fades and bridge). Names and the `findRule`/`ruleIndexOf` signatures are Q2's.
+ * compiled grids (`SegmentGrid`, G1). `RuleMatch` gains `transition` (the rule itself, for its fades and bridge). Names
+ * and the `findRule`/`ruleIndexOf` signatures are Q2's.
  *
- * Clocks: *heard* seconds are `Audio.time`'s clock; *file* seconds and ticks are G1's (`musicGrid.ts`). A `PlayingGrid`
- * maps between them inside one pass: heard(t) = `anchorTime` + file(t) - file(`anchorTicks`).
+ * Clocks: *heard* seconds are `Audio.time`'s clock; *file* seconds and ticks are G1's (`musicGrid.ts`). This file works
+ * in file seconds only: the heard position module (`anchors.ts`, ADR 0285) maps a rule's exit point to the heard time of
+ * the pass it is heard in (`exitPoint` is the `NextPoint` it walks).
  */
 import {
   DEFAULT_TRANSITION_RULE, buildRuleIndex, resolveTransition, ruleIndexFor, ruleKey as formatRuleKey,
@@ -62,19 +63,6 @@ export interface RuleIndex {
   readonly pairs: Map<string, RuleMatch>;
   /** R1: F2's specificity index of the same `transitions` array (`ruleIndexFor`). */
   readonly rules: FormatRuleIndex;
-}
-
-/**
- * R1: the playing segment's grid and where it is on the heard clock (P3's `GridAnchor` `ticks`/`time` for the current
- * pass). A point after the playing loop region's end, while the region still loops, is not heard in this pass; R3a/R4b
- * re-ask after the wrap with the new anchor.
- */
-export interface PlayingGrid {
-  readonly grid: SegmentGrid;
-  /** Integer ticks from the segment's `1:1:0` of the anchor. */
-  readonly anchorTicks: number;
-  /** Heard seconds the anchor's position is at. */
-  readonly anchorTime: number;
 }
 
 /** R1: a segment's grid and the position (ticks from its `1:1:0`, may be fractional or negative) it is at the exit point T. */
@@ -207,25 +195,6 @@ export function findRule(root: MusicNode, from: string, to: string): RuleMatch {
   return matchInContainer(parent, fromChild, toChild);
 }
 
-// --- the heard clock ------------------------------------------------------------------------------------------------
-
-/** File seconds of the anchor. */
-const anchorFile = (p: PlayingGrid): number => ticksToSeconds(p.grid, p.anchorTicks);
-/** Heard seconds of file seconds `file` (this pass). */
-const heardOfFile = (p: PlayingGrid, file: number): number => p.anchorTime + (file - anchorFile(p));
-/** File seconds heard at `time` (this pass). */
-const fileOfHeard = (p: PlayingGrid, time: number): number => anchorFile(p) + (time - p.anchorTime);
-
-/** R1: heard seconds of `ticks` on the playing segment (this pass). */
-export function heardTimeAt(playing: PlayingGrid, ticks: number): number {
-  return heardOfFile(playing, ticksToSeconds(playing.grid, ticks));
-}
-
-/** R1: the playing segment's position (fractional ticks) heard at `time`. */
-export function ticksAtHeard(playing: PlayingGrid, time: number): number {
-  return secondsToTicks(playing.grid, fileOfHeard(playing, time));
-}
-
 // --- exit -----------------------------------------------------------------------------------------------------------
 
 /** File seconds of the first cue at or after file seconds `at`, or NaN. */
@@ -241,26 +210,23 @@ function nextCueSeconds(grid: SegmentGrid, at: number): number {
 }
 
 /**
- * R1: the heard time (seconds) of the exit point of `match` at or after `notBefore` in the playing segment, clamped to
- * the exit cue. `natural` (a playlist advance) always gives the exit cue, even before `notBefore`. NaN when the exit
- * cue is unknown for an exit that needs it, or when no point at or before the exit cue is at or after `notBefore`.
+ * R1: the exit point of `match` (file seconds) at or after file seconds `from` on the playing segment's `grid`, clamped
+ * to the exit cue. `natural` (a playlist advance) always gives the exit cue, even before `from`. NaN when the exit cue is
+ * unknown for an exit that needs it, or when no point at or before the exit cue is at or after `from`.
  */
-export function exitTime(match: RuleMatch, playing: PlayingGrid, notBefore: number, natural: boolean): number {
-  const grid = playing.grid;
+export function exitPoint(match: RuleMatch, grid: SegmentGrid, from: number, natural: boolean): number {
   const exitFile = exitSeconds(grid) ?? Number.NaN;
-  if (natural) return Number.isFinite(exitFile) ? heardOfFile(playing, exitFile) : Number.NaN;
-  if (!Number.isFinite(notBefore)) return Number.NaN;
-  const nb = fileOfHeard(playing, notBefore);
-  if (exitFile < nb - SECONDS_EPSILON) return Number.NaN; // past the exit cue: the tail; nothing to leave from
+  if (natural) return exitFile;
+  if (!Number.isFinite(from)) return Number.NaN;
+  if (exitFile < from - SECONDS_EPSILON) return Number.NaN; // past the exit cue: the tail; nothing to leave from
   const exit = match.transition.exit;
   let point: number;
-  if (exit === "immediate") point = nb;
+  if (exit === "immediate") point = from;
   else if (exit === "exitCue") point = exitFile;
-  else if (exit === "nextCue") point = nextCueSeconds(grid, nb);
-  else point = nextGridSeconds(grid, nb, exit);
+  else if (exit === "nextCue") point = nextCueSeconds(grid, from);
+  else point = nextGridSeconds(grid, from, exit);
   if (Number.isFinite(exitFile) && !(point <= exitFile)) point = exitFile; // the clamp (also: no cue left before it)
-  if (!Number.isFinite(point)) return Number.NaN;
-  return point === nb ? notBefore : heardOfFile(playing, point);
+  return Number.isFinite(point) ? point : Number.NaN;
 }
 
 // --- enter ----------------------------------------------------------------------------------------------------------

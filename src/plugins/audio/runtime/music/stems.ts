@@ -10,12 +10,11 @@
  * change re-sends the product, so a solo during a crossfade or a quantised ramp fights neither. Every voice takes the
  * ramp (ADR 0264: the Babylon fallback runs it as timer steps), so `fade` never carries stem gain.
  */
-import { nextGridSeconds, ticksToSeconds } from "../../../../engine/audio/musicGrid";
-import { segmentGrid } from "./segmentGrids";
+import { nextGridHeard } from "./anchors";
 import type { GridSpec } from "../../../../engine/audio/musicTypes";
 import type { FadeLaw } from "../backend";
 import type { MusicFrame, MusicPlayer } from "./musicSystem";
-import { segmentClipSource, type SegmentRun, type StemRun } from "./segmentRun";
+import type { SegmentRun, StemRun } from "./segmentRun";
 
 /**
  * R6: what a stem's in-voice ramp asks of a voice (a stamped SET_PARAMS: `gain` is a multiplier on the voice's own dry
@@ -130,35 +129,6 @@ function applySolo(run: SegmentRun, state: SoloState, seconds: number, now: numb
 
 // --- R6: quantised automation ---------------------------------------------------------------------------------------
 
-const FALLBACK_RATE = 48_000;
-
-/**
- * Heard time of the first `grid` point at or after `from` on the playing run, NaN when unknown. The run's position comes
- * from the player's anchor when it is for this segment (P3), else from the run's own stamp: the group starts `startFrame`
- * frames into the file at `startAt`. First pass only: a loop wrap re-anchors (P3), and a point past the loop's end is
- * not heard this pass (R4b re-asks after the wrap).
- */
-function nextGridHeard(player: MusicPlayer, run: SegmentRun, grid: GridSpec, from: number): number {
-  const map = segmentGrid(run.node);
-  if (!map) return Number.NaN;
-  const a = player.anchor;
-  let anchorFile: number, anchorTime: number;
-  if (a && a.segment === run.node.id && Number.isFinite(a.time)) {
-    anchorFile = ticksToSeconds(map, a.ticks);
-    anchorTime = a.time;
-  } else {
-    if (!Number.isFinite(run.startAt)) return Number.NaN;
-    const clip = run.stems[0]?.clip;
-    const rate = (clip !== undefined ? segmentClipSource().facts(clip)?.rate : undefined) || FALLBACK_RATE;
-    anchorFile = run.startFrame / rate;
-    anchorTime = run.startAt;
-  }
-  // File seconds heard at `from` (before the group starts: its start), then the grid's next point, back to heard time.
-  const fileFrom = Math.max(anchorFile, anchorFile + (from - anchorTime));
-  const point = nextGridSeconds(map, fileFrom, grid);
-  return Number.isFinite(point) ? anchorTime + (point - anchorFile) : Number.NaN;
-}
-
 /**
  * R6: an automation binding with `quantize` (`beat` or `bar`) moves a stem's gain at the next grid point of `grid` as a
  * stamped in-voice ramp (sample-exact on the line). Returns the heard time it lands, NaN when not playing.
@@ -178,7 +148,8 @@ export function quantizedRamp(player: MusicPlayer, track: string, to: number, gr
   const dur = Math.max(0, Number.isFinite(seconds) ? seconds : 0);
   const level = Math.min(4, Math.max(0, to));
   const horizon = Math.max(f.now, f.backend.clock?.horizon() ?? f.now);
-  const at = nextGridHeard(player, run, grid, horizon);
+  // The playing run's next point, heard through its anchor (else its stamp) in the pass it is heard in (ADR 0285).
+  const at = nextGridHeard(player, horizon, grid).at;
   if (!Number.isFinite(at)) return Number.NaN;
   const g = gainOf(stem);
   g.next = { to: level, at, seconds: dur };

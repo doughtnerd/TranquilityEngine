@@ -8,7 +8,8 @@
  * `dontRepeat` and `ifTooLate`, plays on its own voices and bus over the music, never changes the grid, and at most 4
  * sound at once per instance (the fifth steals the oldest with a 5 ms fade). A refused stinger is dropped.
  *
- * **Flow.** `triggerStinger` resolves the name, quantises `at` against the playing segment's anchor, asks
+ * **Flow.** `triggerStinger` resolves the name, quantises `at` through the heard position (`anchors.ts`: in the pass the point
+ * is heard in), asks
  * `decideStinger` (`dontRepeat`, `ifTooLate`), and admits and primes the stinger's segment as its own run (a decoded
  * stinger is ungated single voices; a streamed one is a group), all at trigger time so the answer is the truth. It
  * queues the run. `tickStingers` (step 9) stamps a primed run at its point: a streamed stinger that finds its point
@@ -19,9 +20,7 @@
  * is the music system's one reused object; `backend.time` on it is live). A trigger before the first tick is refused.
  */
 import type { AudioVoice } from "../backend";
-import {
-  cueSeconds, nextGridSeconds, secondsToTicks, ticksToSeconds,
-} from "../../../../engine/audio/musicGrid";
+import { cueSeconds } from "../../../../engine/audio/musicGrid";
 import type { MusicContainerNode, MusicNode, SegmentNode } from "../../../../engine/audio/musicFormat";
 import {
   MAX_CONCURRENT_STINGERS, resolveStinger, STINGER_STEAL_FADE_SECONDS, type StingerDef,
@@ -30,7 +29,7 @@ import { warnOnce } from "../core/handle";
 import { playerOf, type MusicFrame, type MusicPlayer } from "./musicSystem";
 import { attachState } from "./musicPlayer";
 import { cancelRun, createSegmentRun, pollPrimed, primeRun, stampRun, type SegmentRun } from "./segmentRun";
-import { segmentGrid } from "./segmentGrids";
+import { nextGridHeard, nextHeard, type NextPoint } from "./anchors";
 import { decideStinger } from "./stingerPolicy";
 
 /** At most this many stingers sound at once per instance (§2.5, R20). */
@@ -150,26 +149,17 @@ function triggerStinger(player: MusicPlayer, name: string): boolean {
   const now = f.backend.time;
   const earliest = earliestFor(own, player, f);
 
-  // Quantise `at` against the playing segment's anchor (heard seconds). No anchor: only "immediate" has a point.
+  // Quantise `at` on the playing segment, in the pass each point is heard in. No grid: only "immediate" has a point.
   let point = Number.NaN;
   let nextPoint = Number.NaN;
-  const a = player.anchor;
-  const grid = a && a.segment === run.node.id ? segmentGrid(run.node) : null;
   if (def.at === "immediate") {
     point = earliest;
-  } else if (a && grid) {
-    const anchorFile = ticksToSeconds(grid, a.ticks);
-    const fileNow = anchorFile + (now - a.time);
-    const heard = (file: number): number => a.time + (file - anchorFile);
-    if (typeof def.at === "object" && "cue" in def.at) {
-      const cue = cueSeconds(grid, def.at.cue);
-      if (cue !== null && cue >= fileNow - 1e-9) point = heard(cue);
-    } else {
-      const file = nextGridSeconds(grid, fileNow, def.at);
-      point = heard(file);
-      const after = ticksToSeconds(grid, Math.round(secondsToTicks(grid, file)) + 1);
-      nextPoint = heard(nextGridSeconds(grid, after, def.at));
-    }
+  } else if (typeof def.at === "object" && "cue" in def.at) {
+    cueName = def.at.cue;
+    point = nextHeard(player, now, nextCue).at;
+  } else {
+    point = nextGridHeard(player, now, def.at).at;
+    if (Number.isFinite(point)) nextPoint = nextGridHeard(player, point, def.at, true).at;
   }
 
   const last = st.lastPlayed.get(def.trigger);
@@ -194,6 +184,14 @@ function triggerStinger(player: MusicPlayer, name: string): boolean {
   st.queued.push({ trigger: def.trigger, segment: hit.segment.id, at: d.at, voices: [], run: own, def, nextPoint, late: d.late });
   return true;
 }
+
+/** The cue a cue stinger waits for (`nextCue`'s, set just before the query). */
+let cueName = "";
+/** The stinger's cue at or after file seconds `s`. */
+const nextCue: NextPoint = (g, s) => {
+  const cue = cueSeconds(g, cueName);
+  return cue !== null && cue >= s - 1e-9 ? cue : Number.NaN;
+};
 
 /** `handle.trigger(name)` on any event handle (`Audio.ts`): false for a non-music handle. */
 export function triggerOn(instance: object, name: string): boolean {
