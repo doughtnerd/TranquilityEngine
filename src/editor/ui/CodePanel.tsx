@@ -4,7 +4,8 @@ import { effect } from "@preact/signals";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type * as Monaco from "monaco-editor";
 import { fileName } from "../assetBrowser";
-import { activeScript, closeScript, codeFiles, codeFileText, dirtyScripts, loadMonaco, loadedMonaco, openScripts, revealAt, setDirty } from "../code/codeState";
+import { activeScript, bufferRewrites, bufferTexts, closeScript, codeFilePath, codeFiles, dirtyScripts, editBuffer, openScripts, revealAt, saveBuffer, showScript } from "../code/codeBuffers";
+import { loadMonaco } from "../code/codeState";
 import { openScriptExternally, saveCodeFile } from "../session";
 import { currentProject, scriptsVersion, status } from "../state";
 import { codeAppearance } from "../theme";
@@ -16,6 +17,7 @@ import { confirmInEditor } from "./ConfirmDialog";
  * a project's Node tools, `tools/*.mjs`), Markdown and text files in tabs, edited with Monaco,
  * which loads the first time the panel shows. Ctrl/Cmd+S saves (a script, or JSON a script
  * imports, reloads scripts); a dot marks unsaved edits. Read-only projects open files read-only.
+ * A view of the Code buffers (code/codeBuffers.ts, ADR 0308), which own the tabs and unsaved text.
  */
 export function CodePanel() {
   const project = currentProject.value;
@@ -43,7 +45,7 @@ export function CodePanel() {
       <div class="code-panel">
         <div class="code-tabs" role="tablist" aria-label="Open scripts">
           {tabs.map((path) => (
-            <div key={path} class={`code-tab${path === active ? " active" : ""}`} role="tab" aria-selected={path === active} title={path} onClick={() => (activeScript.value = path)}>
+            <div key={path} class={`code-tab${path === active ? " active" : ""}`} role="tab" aria-selected={path === active} title={path} onClick={() => showScript(path)}>
               <span class="code-tab-name">{fileName(path)}</span>
               {dirty.has(path) && (
                 <span class="code-tab-dirty" aria-label="unsaved changes">
@@ -84,7 +86,7 @@ export function CodePanel() {
   );
 }
 
-/** Close a tab, asking first if it has unsaved edits (which are then dropped). */
+/** Close a tab, asking first if it has unsaved edits (closing drops them; the model returns to the file). */
 async function closeTab(path: string): Promise<void> {
   if (dirtyScripts.value.has(path)) {
     const answer = await confirmInEditor({
@@ -94,24 +96,16 @@ async function closeTab(path: string): Promise<void> {
       danger: true,
     });
     if (!answer.ok) return;
-    const saved = currentProject.value ? codeFileText(currentProject.value, path) : undefined;
-    if (loadedMonaco) {
-      const model = loadedMonaco.monaco.editor.getModel(loadedMonaco.monaco.Uri.parse(`file:///project/${path}`));
-      if (model && saved !== undefined) model.setValue(saved);
-      else model?.dispose();
-    }
   }
   closeScript(path);
 }
 
 /** Save the file showing (Ctrl/Cmd+S in the editor). */
-async function saveActive(editor: Monaco.editor.IStandaloneCodeEditor): Promise<void> {
-  const path = activeScript.value, model = editor.getModel();
-  const project = currentProject.value;
-  if (!path || !model || !project?.canSave) return;
+async function saveActive(): Promise<void> {
+  const path = activeScript.value;
+  if (!path || !currentProject.value?.canSave) return;
   try {
-    await saveCodeFile(path, model.getValue());
-    setDirty(path, model.getValue() !== codeFileText(project, path));
+    await saveBuffer(path, saveCodeFile);
   } catch (err) {
     status.value = errorStatus(`Couldn't save ${path}`, err);
   }
@@ -145,7 +139,7 @@ function MonacoHost() {
           if (!(k.ctrlKey || k.metaKey) || k.altKey || (k.key ?? "").toLowerCase() !== "s") return;
           k.preventDefault();
           k.stopPropagation();
-          void saveActive(e);
+          void saveActive();
         };
         host.current.addEventListener("keydown", onSaveKey, true);
         // The code font follows Settings > Appearance.
@@ -156,22 +150,23 @@ function MonacoHost() {
         });
         const applyReveal = () => {
           const at = revealAt.peek();
-          if (!at || activeScript.peek() !== at.path || e.getModel()?.uri.path !== `/project/${at.path}`) return;
+          if (!at || activeScript.peek() !== at.path || codeFilePath(e.getModel()?.uri) !== at.path) return;
           revealAt.value = null;
           e.setPosition({ lineNumber: at.line, column: at.column });
           e.revealLineInCenter(at.line);
           e.focus();
         };
         const watchers = new Map<string, Monaco.IDisposable>();
-        // Follow the project's scripts, the tab showing, and read-only-ness.
+        // Follow the project's scripts, the buffers' text, the tab showing, and read-only-ness.
         const stopFiles = effect(() => {
           const project = currentProject.value;
           scriptsVersion.value;
+          bufferRewrites.value;
           const path = activeScript.value;
           if (!project) return;
           // Another project's files replace the last one's (models and the JSON the TypeScript service knows).
-          const files = codeFiles(project);
-          syncProject(project, files, dirtyScripts.peek());
+          const files = bufferTexts(project);
+          syncProject(project, files);
           e.updateOptions({ readOnly: !project.canSave });
           if (!path) {
             setOpening(null);
@@ -179,9 +174,8 @@ function MonacoHost() {
           }
           const model = modelFor(path, files.get(path) ?? "");
           if (!watchers.has(path)) {
-            // Dirty while the text differs from the file on disk.
-            const onDisk = () => (currentProject.value ? codeFileText(currentProject.value, path) : undefined);
-            watchers.set(path, model.onDidChangeContent(() => setDirty(path, model.getValue() !== onDisk())));
+            // The buffer takes what's typed (unsaved while it differs from the file on disk).
+            watchers.set(path, model.onDidChangeContent(() => editBuffer(path, model.getValue())));
             model.onWillDispose(() => {
               watchers.get(path)?.dispose();
               watchers.delete(path);

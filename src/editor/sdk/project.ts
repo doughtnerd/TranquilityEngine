@@ -8,7 +8,7 @@ import { readImportSettings } from "../assetImport";
 import { showAsset } from "../inspectorTarget";
 import { assetKind, type AssetKind } from "../assetKindLookup";
 import { freePath } from "../freePath";
-import { openScript } from "../code/codeState";
+import { openScript } from "../code/codeBuffers";
 import { fileName, folderOf, listedFiles } from "../assetBrowser";
 import { joinPath } from "../projectPaths";
 import { isScenePath, type EditorProject } from "../projects";

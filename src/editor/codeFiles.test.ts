@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input, getComponentClass } from "../engine";
 import { assetKind, opensInCodePanel } from "./assetBrowser";
-import { codeFiles } from "./code/codeState";
+import { codeFiles } from "./code/codeBuffers";
 import { planWebBuild } from "../export/webBuild";
 import { OrbitCamera } from "./OrbitCamera";
 import { codeLanguageOf, isScriptPath, isTextAsset } from "./projectPaths";

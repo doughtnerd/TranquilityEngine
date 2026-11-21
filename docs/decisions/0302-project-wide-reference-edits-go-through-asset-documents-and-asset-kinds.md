@@ -1,6 +1,6 @@
 # 0302. Project-wide reference edits go through asset documents and asset kinds
 
-- **Status:** Accepted; partly superseded by 0314 (`.obj`, `.mtl` and `.gltf` files are rewritten by their kind on a move, not reported)
+- **Status:** Accepted, amended by 0308 (the Code panel's buffers are a second file owner: a file with unsaved Code panel text has it rewritten too); partly superseded by 0314 (`.obj`, `.mtl` and `.gltf` files are rewritten by their kind on a move, not reported)
 - **Date:** 2026-11-21
 - **Deciders:** Chris Carlson
 - **Supersedes:** 0148 in part (its JSON-only edit loop and its text rule for users)
