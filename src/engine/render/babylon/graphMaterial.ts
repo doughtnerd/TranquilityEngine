@@ -46,6 +46,7 @@ import { checkPropertyValue, type GraphValue } from "../../scene/shaderGraph";
 import { useEngineLightFalloff } from "./materials";
 import { MycoMaterialPlugin } from "./mycoMaterialPlugin";
 import { pbrInjections, type PbrCode, type PbrPoint } from "./pbrInjection";
+import { DEFAULT_RIG, DEFAULT_SUN_TOWARD } from "./lighting";
 import { allKeywordDefines, keywordDefines, type KeywordValue } from "../../scene/shaderKeywords";
 import { linearColor, SHARED_UNIFORMS, srgbToLinear, type CompiledShaderGraph, type CompiledUniform, type PhysicalInput } from "../shaderGraph/compile";
 
@@ -53,13 +54,12 @@ import { linearColor, SHARED_UNIFORMS, srgbToLinear, type CompiledShaderGraph, t
 export interface GraphShared {
   time: number;
   resolution: [number, number];
-  /** The main light for Main Light nodes (`BabylonLighting.mainLight`); previews without one get (0.4, 1, -0.6) and white. */
+  /** The main light for Main Light nodes (`BabylonLighting.mainLight`); previews without one get the default rig's sun (ADR 0277). */
   mainLight?: { readonly direction: readonly number[]; readonly color: readonly number[] };
 }
 
 /** Uniforms the WGSL Main Light helpers read (`nodes.ts`), bound from `GraphShared.mainLight`. */
 export const MAIN_LIGHT_UNIFORMS = { direction: "uMycoMainLightDir", color: "uMycoMainLightColor" } as const;
-const FALLBACK_LIGHT_DIR = [0.4, 1, -0.6].map((v) => v / Math.hypot(0.4, 1, 0.6));
 
 /** Load a texture asset; `linear` asks for data (normal maps) rather than sRGB colour. */
 export type LoadGraphTexture = (path: string, linear: boolean) => Promise<BaseTexture>;
@@ -385,10 +385,11 @@ class MycoGraphPlugin extends MycoMaterialPlugin {
   override bindForSubMesh(ubo: UniformBuffer, _scene: Scene, _engine: AbstractEngine, _subMesh: SubMesh): void {
     ubo.updateFloat(SHARED_UNIFORMS.time, this.shared.time);
     ubo.updateFloat2(SHARED_UNIFORMS.resolution, this.shared.resolution[0], this.shared.resolution[1]);
-    const d = this.shared.mainLight?.direction ?? FALLBACK_LIGHT_DIR;
+    const d = this.shared.mainLight?.direction ?? DEFAULT_SUN_TOWARD;
     const c = this.shared.mainLight?.color;
     ubo.updateFloat3(MAIN_LIGHT_UNIFORMS.direction, d[0], d[1], d[2]);
-    ubo.updateFloat3(MAIN_LIGHT_UNIFORMS.color, c ? c[0] : 1, c ? c[1] : 1, c ? c[2] : 1);
+    const sun = DEFAULT_RIG.sun; // the default sun is white
+    ubo.updateFloat3(MAIN_LIGHT_UNIFORMS.color, c ? c[0] : sun, c ? c[1] : sun, c ? c[2] : sun);
     for (const u of this.compiled.uniforms) {
       if (u.type === "sampler2D") {
         const t = this.state.textures.get(u.name);

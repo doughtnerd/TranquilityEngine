@@ -9,9 +9,9 @@
  *   the lighting rig loads the map and draws its skybox; the Sky plugin's feature draws and bakes the sky. Core
  *   names no plugin's code: what draws an asset kind is the feature its Component reaches, and the asset kind's
  *   `preview` policy (ADR 0140, 0143) says which of these scenes it gets.
- * - **On their own**: models and materials (a material library and meshes in a scene lit by the thumbnails'
- *   studio lights, through the World's own material code, ADR 0127, 0089), and particle effects (the effect
- *   player, seeded, ADR 0153).
+ * - **On their own**: models and materials (a material library and meshes in a scene lit by the default light
+ *   rig, a World's own, ADR 0277, through the World's own material code, ADR 0127, 0089), and particle effects
+ *   (the effect player, seeded, ADR 0153).
  *
  * What's left here is framing (`thumbnailMath`) and the chrome sphere that shows an environment's reflections.
  */
@@ -38,7 +38,8 @@ import type { ThumbnailKind } from "../../previewTypes";
 import type { GraphShared } from "../graphMaterial";
 import { environmentKind } from "../lighting";
 import { meshOf, pbr } from "../materials";
-import { addPreviewLights, aimCamera, createPreviewScene, createStudioTexture, previewMaterials, sceneReady, useStudio } from "./common";
+import { aimCamera, createPreviewScene, createStudioTexture, previewMaterials, sceneReady } from "./common";
+import { addDefaultLights, useDefaultStudio } from "../lighting";
 
 /** Particle effects are shown this many seconds in, simulated at this rate, with this random seed. */
 const PARTICLE_TIME = 1;
@@ -50,14 +51,12 @@ const FOV = 30;
 
 // Where the camera sits, from the target. The World is mirrored in z from the right-handed one these
 // were chosen in (ADR 0164), so they are too and the pictures stay the same; imported models are
-// mirrored in x instead (still facing +Z), so they are seen from x-mirrored directions, with the sun
-// turned to match (`MODEL_SUN`).
+// mirrored in x instead (still facing +Z), so they are seen from x-mirrored directions, with the default
+// rig's sun turned half round Y to match (`litScene(true)`).
 const DIRECTION_3D: [number, number, number] = norm([1, 0.75, -1.15]);
 const DIRECTION_FRONT: [number, number, number] = [0, 0, -1];
 const DIRECTION_MATERIAL: [number, number, number] = norm([0, 0.35, -1]);
 const DIRECTION_MODEL: [number, number, number] = norm([-1, 0.75, 1.15]);
-/** The preview sun turned half round Y, for models (see above). */
-const MODEL_SUN = new Vector3(4, -10, -6).normalize();
 const UNIT: Bounds = { min: [-0.5, -0.5, -0.5], max: [0.5, 0.5, 0.5] };
 /** How rough the chrome sphere is that reflects an environment map, and a sky's bake. */
 const CHROME_ENVIRONMENT = 0.05;
@@ -167,12 +166,12 @@ export class ThumbnailScenes {
     return sceneReady(scene, this.readyTimeout ?? ms);
   }
 
-  /** A scene lit like the editor's default: soft ambient, a sun, and the studio room's reflections. */
-  private litScene(sun?: Vector3): Scene {
+  /** A scene lit by the default rig (ADR 0277): soft ambient, a sun (turned half round Y for a model, see above), and the studio room. */
+  private litScene(model = false): Scene {
     const scene = createPreviewScene(this.engine);
-    const lights = addPreviewLights(scene);
-    if (sun) lights.sun.direction = sun.clone();
-    if (this.studioOk && this.studio) useStudio(scene, this.studio);
+    const { sun } = addDefaultLights(scene, "preview");
+    if (model) sun.direction = new Vector3(-sun.direction.x, sun.direction.y, -sun.direction.z);
+    if (this.studioOk && this.studio) useDefaultStudio(scene, this.studio);
     return scene;
   }
 
@@ -190,7 +189,7 @@ export class ThumbnailScenes {
 
   private async prepareModel(path: string): Promise<ThumbnailScene> {
     const sources = await loadMeshes(path);
-    const scene = this.litScene(MODEL_SUN);
+    const scene = this.litScene(true);
     const library = previewMaterials(scene, { time: 0, resolution: [this.size, this.size] }, true);
     const box = new BoundsBox();
     // Slots as the World renderer resolves them (ADR 0089): here, the model's import settings, then its own.
@@ -293,7 +292,7 @@ export class ThumbnailScenes {
       scene.dispose();
     };
     try {
-      addPreviewLights(scene);
+      addDefaultLights(scene, "preview"); // for lit material assets (the default rig, ADR 0277)
       const compiled = resources.compile(Assets.json(path), path);
       if (!compiled) throw new Error("it isn't a particle effect that can be read.");
       const program = compiled.program;

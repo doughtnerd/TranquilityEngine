@@ -8,6 +8,10 @@
  * Sky plugin its sun and baked environment, the fog how much it covers the sky, `contribute`), and the
  * renderer resolves everything in one `sync` once the phase has run. The order the parts resolve in
  * (lights, then the environment and skybox) is the rig's own.
+ *
+ * ADR 0277: this module owns the one default rig (`DEFAULT_RIG`, `addDefaultLights`, `useDefaultStudio`): what
+ * lights a World without Lights or an Environment map, and every asset thumbnail and live preview, so an asset
+ * looks the same in its tile, its Inspector preview, a prefab and the scene view.
  */
 import type { Camera as BabylonCamera } from "@babylonjs/core/Cameras/camera.js";
 import { ClusteredLightContainer } from "@babylonjs/core/Lights/Clustered/clusteredLightContainer.js";
@@ -38,8 +42,49 @@ import { Environment, Light } from "../components";
 import { Graphics } from "../Graphics";
 import type { ShadowRequest } from "./frameGraph";
 
-/** The default sun's direction (a World without Lights). */
+/**
+ * @internal The default light rig (ADR 0277): a World without Light components gets the ambient light and
+ * the sun, a World without an Environment map the studio room at `studio`; every asset thumbnail and preview
+ * lights with the same. Intensities are Babylon's (linear, no tone mapping).
+ */
+export const DEFAULT_RIG = {
+  /** A soft ambient light, the same from every direction (a hemispheric light with a white ground colour). */
+  ambient: 0.35,
+  /** A white sun from above and in front (`DEFAULT_SUN`). */
+  sun: 1,
+  /** The studio room's reflections and image-based light (`studioCube.ts`). */
+  studio: 0.4,
+} as const;
+
+/** The default sun's direction: where its light goes (world space, from above and in front). */
 const DEFAULT_SUN = new Vector3(-4, -10, 6).normalize();
+
+/** Toward the default sun (unit, world space): the main light shader graphs read when no directional light lights the scene. */
+export const DEFAULT_SUN_TOWARD: readonly [number, number, number] = [-DEFAULT_SUN.x, -DEFAULT_SUN.y, -DEFAULT_SUN.z];
+
+/**
+ * @internal The default rig's lights in `scene` (ADR 0277): the ambient light and the sun, named `<prefix>.ambient`
+ * and `<prefix>.sun`. A World's rig turns them off while it has Lights; previews keep them.
+ */
+export function addDefaultLights(scene: Scene, prefix: string): { ambient: HemisphericLight; sun: DirectionalLight } {
+  const ambient = new HemisphericLight(`${prefix}.ambient`, new Vector3(0, 1, 0), scene);
+  ambient.intensity = DEFAULT_RIG.ambient;
+  ambient.groundColor = new Color3(1, 1, 1); // an ambient light: the same from every direction
+  ambient.specular = Color3.Black();
+  const sun = new DirectionalLight(`${prefix}.sun`, DEFAULT_SUN.clone(), scene);
+  sun.intensity = DEFAULT_RIG.sun;
+  return { ambient, sun };
+}
+
+/**
+ * @internal Light `scene` with a ready studio room at the default rig's intensity (ADR 0277). Only a ready
+ * texture: prefiltering swaps a cube's GPU texture when it finishes, and a material that bound the first one
+ * on WebGPU would keep drawing with it once it's destroyed.
+ */
+export function useDefaultStudio(scene: Scene, studio: BaseTexture): void {
+  scene.environmentTexture = studio;
+  scene.environmentIntensity = DEFAULT_RIG.studio;
+}
 
 /** Scratch vector for `fitShadowArea`. */
 const tmpBack = new Vector3();
@@ -208,10 +253,11 @@ export class BabylonLighting implements LightingContributions {
   /**
    * The main light shader graphs read (Main Light Direction / Color nodes): the first shadow-casting
    * directional light, else the first directional
-   * one, else the default sun when the World has no Lights, else (0.4, 1, -0.6) and white. `direction`
-   * is a unit world vector toward the light; `color` is linear colour × intensity. Updated in place.
+   * one, else the default sun when the World has no Lights, else toward the default sun (`DEFAULT_SUN_TOWARD`)
+   * and white. `direction` is a unit world vector toward the light; `color` is linear colour × intensity.
+   * Updated in place.
    */
-  readonly mainLight = { direction: [0.4, 1, -0.6].map((v) => v / Math.hypot(0.4, 1, 0.6)), color: [1, 1, 1] };
+  readonly mainLight = { direction: [...DEFAULT_SUN_TOWARD], color: [1, 1, 1] };
   /** This frame's contributions so far (`contribute`), resolved and cleared by `sync`. */
   private readonly pending: Required<LightingContribution> = { sun: null, skyEnvironment: null, skyFog: 0 };
   /** The contributions the last `sync` resolved with. */
@@ -227,13 +273,8 @@ export class BabylonLighting implements LightingContributions {
       this.studioShared = true;
       this.studio = options.studio;
     }
-    // The light a World without Lights gets: a soft ambient light and a sun from above and in front.
-    const ambient = new HemisphericLight("myco.default.ambient", new Vector3(0, 1, 0), scene);
-    ambient.intensity = 0.35;
-    ambient.groundColor = new Color3(1, 1, 1);
-    ambient.specular = Color3.Black();
-    const sun = new DirectionalLight("myco.default.sun", DEFAULT_SUN.clone(), scene);
-    sun.intensity = 1;
+    // The light a World without Lights gets: the default rig's (ADR 0277).
+    const { ambient, sun } = addDefaultLights(scene, "myco.default");
     this.defaults = [ambient, sun];
   }
 
@@ -348,7 +389,7 @@ export class BabylonLighting implements LightingContributions {
     sun.direction = sun.direction.copyFrom(DEFAULT_SUN);
     sun.diffuse.set(1, 1, 1);
     sun.specular.set(1, 1, 1);
-    sun.intensity = 1;
+    sun.intensity = DEFAULT_RIG.sun;
   }
 
   /**
@@ -375,10 +416,7 @@ export class BabylonLighting implements LightingContributions {
       color[1] = c.g * light.intensity;
       color[2] = c.b * light.intensity;
     } else {
-      const len = Math.hypot(0.4, 1, 0.6);
-      direction[0] = 0.4 / len;
-      direction[1] = 1 / len;
-      direction[2] = -0.6 / len;
+      [direction[0], direction[1], direction[2]] = DEFAULT_SUN_TOWARD;
       color[0] = color[1] = color[2] = 1;
     }
   }
@@ -535,8 +573,8 @@ export class BabylonLighting implements LightingContributions {
 
   /**
    * The World's first active Environment sets lighting and sky: its map (loaded and prefiltered on
-   * demand), intensities, blur and rotation. Without one, the studio room lights lit materials at 0.4
-   * and there's no sky. `far` is the view camera's far plane, which the sky box fits inside.
+   * demand), intensities, blur and rotation. Without one, the studio room lights lit materials at the
+   * default rig's intensity (`DEFAULT_RIG.studio`) and there's no sky. `far` is the view camera's far plane, which the sky box fits inside.
    */
   private syncEnvironment(world: World, far: number): void {
     const env = world._componentsOfType(Environment).find((e) => e.isActiveAndEnabled) ?? null;
@@ -553,7 +591,7 @@ export class BabylonLighting implements LightingContributions {
     const lighting = map ?? (this.studio?.isReady() ? this.studio : null);
     if (lighting && "rotationY" in lighting) (lighting as { rotationY: number }).rotationY = turn;
     if (this.scene.environmentTexture !== lighting) this.scene.environmentTexture = lighting;
-    this.scene.environmentIntensity = env ? Math.max(0, env.intensity) * (map ? 1 : 0.4) : 0.4;
+    this.scene.environmentIntensity = env ? Math.max(0, env.intensity) * (map ? 1 : DEFAULT_RIG.studio) : DEFAULT_RIG.studio;
 
     if (procedural) {
       this.skybox?.setEnabled(false);
