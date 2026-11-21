@@ -1,6 +1,6 @@
 # 0129. A renderer-neutral frame plan decides each frame's views; the editor sets render policy through its viewport handle
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0240 (`cameraPreview` carries a measured inset, not an element) and 0274 (`cameraPasses` and the frame graph's own layout key become one pass plan)
 - **Date:** 2026-11-07
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

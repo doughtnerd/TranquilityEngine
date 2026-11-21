@@ -1,6 +1,6 @@
 # 0165. Inspector fields with invariants are components built from a codec; rotations first
 
-- **Status:** Accepted
+- **Status:** Accepted; partly superseded by 0273 (field kinds live in one table that owns scene form, sameness, blank value, unset rule and axis edits; the "move to codecs one at a time" pattern and the `FieldEditorView` fallback are replaced)
 - **Date:** 2026-11-11
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

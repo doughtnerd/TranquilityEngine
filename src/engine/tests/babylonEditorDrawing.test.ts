@@ -11,7 +11,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { World } from "../core/World";
 import { Assets, Camera, Engine, GameObject, Light, SceneManager } from "../index";
 import { ParticleSystem } from "../render/components";
-import type { BabylonEditorContext, EditorMesh, EditorSprite } from "../render/babylon/editorContext";
+import type { BabylonEditorContext, EditorDrawn } from "../render/babylon/editorContext";
+import { PICK_ORDER } from "../render/babylon/feature";
 import { EDITOR_LAYER_MASK } from "../render/babylon/editorContext";
 import { BabylonEditorViewport } from "../render/babylon/editorViewport";
 import type { EditorOverlay } from "../render/editorViewport";
@@ -23,8 +24,7 @@ describe("Babylon editor viewport drawing (ADR 0075 stage 8, 0128)", () => {
   let layer: UtilityLayerRenderer;
   let view: Camera;
   let cameras: Camera[];
-  let sprites: EditorSprite[];
-  let meshes: EditorMesh[];
+  let drawn: EditorDrawn[];
   let vp: BabylonEditorViewport;
   let world: World;
 
@@ -38,10 +38,8 @@ describe("Babylon editor viewport drawing (ADR 0075 stage 8, 0128)", () => {
       world: () => World.require(),
       viewCameras: () => cameras,
       babylonCamera: () => null,
-      sprites: () => sprites,
-      meshes: () => meshes,
-      texts: () => [],
-      renderer: { setClearColor() {}, spriteSize: () => null, ui: () => null, bakeReflectionProbe: async () => new ArrayBuffer(0) },
+      drawn: () => drawn,
+      renderer: { setClearColor() {}, ui: () => null, bakeReflectionProbe: async () => new ArrayBuffer(0) },
     } as unknown as BabylonEditorContext;
     vp = new BabylonEditorViewport(ctx);
   };
@@ -55,8 +53,7 @@ describe("Babylon editor viewport drawing (ADR 0075 stage 8, 0128)", () => {
     babylon = new NullEngine();
     scene = new Scene(babylon);
     layer = new UtilityLayerRenderer(scene);
-    sprites = [];
-    meshes = [];
+    drawn = [];
     const node = GameObject.create("view");
     node.transform!.position.set(0, 0, -10); // looking along +Z (ADR 0164)
     view = node.addBehavior(Camera, { projection: "orthographic", orthographicSize: 5 });
@@ -148,11 +145,11 @@ describe("Babylon editor viewport drawing (ADR 0075 stage 8, 0128)", () => {
   it("outlines selected sprites and meshes, and hides them when not shown or deselected", () => {
     const spriteNode = GameObject.create("sprite");
     const sprite = MeshBuilder.CreatePlane("q", { size: 1 }, scene);
-    sprites.push({ component: { node: spriteNode } as never, mesh: sprite, size: [1, 1], order: 0 });
+    drawn.push({ component: { node: spriteNode } as never, shape: { kind: "quad", mesh: sprite }, order: 0 });
     const meshNode = GameObject.create("mesh");
     const box = MeshBuilder.CreateBox("b", { size: 2 }, scene);
     box.position.set(1, 2, 3);
-    meshes.push({ component: { node: meshNode } as never, meshes: [box] });
+    drawn.push({ component: { node: meshNode } as never, shape: { kind: "meshes", meshes: [box] }, order: PICK_ORDER.depthTested });
     vp.setSelection([spriteNode, meshNode], true);
     step();
     expect(outlines()).toBe(2);
@@ -174,7 +171,7 @@ describe("Babylon editor viewport drawing (ADR 0075 stage 8, 0128)", () => {
     const parent = GameObject.create("p");
     const child = GameObject.create("c");
     child.setParent(parent);
-    meshes.push({ component: { node: child } as never, meshes: [MeshBuilder.CreateBox("b", { size: 1 }, scene)] });
+    drawn.push({ component: { node: child } as never, shape: { kind: "meshes", meshes: [MeshBuilder.CreateBox("b", { size: 1 }, scene)] }, order: PICK_ORDER.depthTested });
     step();
     expect(outlines()).toBe(0);
     vp.setSelection([parent], true);
@@ -187,7 +184,7 @@ describe("Babylon editor viewport drawing (ADR 0075 stage 8, 0128)", () => {
     make(false);
     const node = GameObject.create("s");
     editNode("cam").addBehavior(Camera);
-    sprites.push({ component: { node } as never, mesh: MeshBuilder.CreatePlane("q", { size: 1 }, scene), size: [1, 1], order: 0 });
+    drawn.push({ component: { node } as never, shape: { kind: "quad", mesh: MeshBuilder.CreatePlane("q", { size: 1 }, scene) }, order: 0 });
     vp.setSelection([node], true);
     vp.setOverlay(() => ({ lines: [{ points: [[0, 0, 0], [1, 0, 0]], closed: false, color: 0xff0000 }], handles: [] }));
     step();

@@ -3,7 +3,7 @@ import type { Scene } from "@babylonjs/core/scene.js";
 import type { Component } from "../../core/Component";
 import type { World } from "../../core/World";
 import { WaterSurface } from "../water/WaterSurface";
-import type { BabylonFeature } from "./feature";
+import { PICK_ORDER, type BabylonFeature, type DrawnNode } from "./feature";
 import { BabylonWater, type BabylonWaterProbe } from "./water";
 
 declare module "../RenderSurface" {
@@ -27,6 +27,11 @@ export class WaterFeature implements BabylonFeature {
 
   release(c: Component): void {
     if (c instanceof WaterSurface) this.water.release(c);
+  }
+
+  /** ADR 0276: each surface drawn, as its mesh, depth-tested. Water casts no shadow (it's transparent and never has). */
+  *drawn(): Iterable<DrawnNode> {
+    for (const { surface, mesh } of this.water.drawn()) yield { component: surface, shape: { kind: "meshes", meshes: [mesh] }, order: PICK_ORDER.depthTested };
   }
 
   /** `RenderDiagnostics.features.water` (ADR 0154). */

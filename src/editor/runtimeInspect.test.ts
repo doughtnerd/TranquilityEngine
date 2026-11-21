@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Engine, GameObject, Input, type BootstrapSetting, type ProjectSettingsInput } from "../engine";
+import { AssetRef, Color, Engine, GameBehavior, GameObject, Input, behavior, field, type BootstrapSetting, type ProjectSettingsInput } from "../engine";
 import { engineWorld, listComponents, listNodes, writeField } from "../engine/editor";
 import { insertNodes } from "./nodeInsertion";
-import { RemoveNode, SetField } from "./document";
+import { AddComponent, RemoveNode, SetField } from "./document";
 import { OrbitCamera } from "./OrbitCamera";
 import { startPlay, type PlaySession } from "./playMode";
 import { openSceneFile } from "./project";
 import { editorSettings, useProjectAssets, type EditorProject } from "./projects";
-import { applyKept, docPathFor, forgetKept, keepComponent, keepNode, kept, liveRows, takeKept } from "./runtimeInspect";
+import { applyKept, docPathFor, forgetKept, keepComponent, keepNode, kept, liveRows, takeKept, type KeptValues } from "./runtimeInspect";
 import { replaceScripts } from "./scriptLoader";
 import { openScene, sceneCamera } from "./state";
 import { sampleProject, useCoreAssetKinds } from "./testing";
@@ -16,6 +16,14 @@ useCoreAssetKinds(); // core asset kinds, as main.tsx registers them (ADR 0143)
 
 // Inspecting the running game (ADR 0022): mapping live nodes back to the edited document, "Keep
 // values" written on Stop as one undo step, the live tree, and pausing and stepping the session.
+
+/** Lists of each kind that holds live objects: node references, colors and asset paths. */
+@behavior("test.runtimeInspect.Lists")
+class Lists extends GameBehavior {
+  @field([GameObject]) targets: (GameObject | null)[] = [];
+  @field([Color]) tints: Color[] = [];
+  @field([AssetRef]) images: string[] = [];
+}
 
 let editor: Engine;
 let sample: EditorProject;
@@ -168,6 +176,28 @@ describe("keeping values from play mode", () => {
     expect(scene.doc.fieldValue("score", "engine.Text", "text")).toBe("0");
     expect(result.written).toBe(2);
     expect(result.skipped).toEqual([expect.stringMatching(/^Sprite › SpriteRenderer: the node isn't in the scene any more/)]);
+  });
+
+  it("keeps lists of nodes, colors and assets in scene-file form, and writes nothing when they didn't change", async () => {
+    const scene = openScene.value!;
+    const values = { targets: [{ $node: "bird" }, null], tints: ["#ff0000", "#00ff0080"], images: ["asset:images/flappyBird.png"] };
+    scene.stack.execute(new AddComponent("spawner", { type: "test.runtimeInspect.Lists", data: values }));
+    play = await startPlay({ editor, scene, project: sample });
+    const spawner = live(play.engine, "PipeSpawner");
+    const lists = () => listComponents(spawner).find((c) => c.type === "test.runtimeInspect.Lists")!;
+    expect(spawner.getBehavior(Lists)!.targets[0]).toBeInstanceOf(GameObject);
+    const entry = keepComponent(scene, spawner, lists());
+    expect(entry).toMatchObject({ values });
+    // Unchanged in play: nothing to write on Stop.
+    expect(applyKept(scene, [entry as KeptValues])).toEqual({ written: 0, skipped: [] });
+    // A changed list is written in scene-file form.
+    writeField(spawner, "test.runtimeInspect.Lists", 0, "tints", ["#0000ff"]);
+    const changed = keepComponent(scene, spawner, lists()) as KeptValues;
+    play.stop();
+    play = null;
+    expect(applyKept(scene, [changed])).toEqual({ written: 1, skipped: [] });
+    expect(scene.doc.fieldValue("spawner", "test.runtimeInspect.Lists", "tints")).toEqual(["#0000ff"]);
+    expect(scene.doc.fieldValue("spawner", "test.runtimeInspect.Lists", "targets")).toEqual(values.targets);
   });
 
   it("refuses nodes that don't map, with the reason", async () => {

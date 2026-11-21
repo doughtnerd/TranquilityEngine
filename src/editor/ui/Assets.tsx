@@ -22,7 +22,7 @@ import {
   type AssetMenuItem,
   type AssetTarget,
 } from "../assetActions";
-import { entryKind, entryName, entryPath, fileEntries, isFolderEntry, isSliceEntry, splitSliceEntry } from "../assetEntry";
+import { entryKind, entryName, entryPath, fileEntries, folderEntry, isFolderEntry, isSliceEntry, splitSliceEntry } from "../assetEntry";
 import { canAddToScene, hasSlices, kindLabel, type AssetKind } from "../assetKindLookup";
 import { assetDrag, startAssetDrag } from "../assetDrag";
 import { assetClipboard, renameAsset, splitExtension } from "../assetOps";
@@ -48,6 +48,8 @@ import { joinPath, type EditorProject } from "../projects";
 import { currentProject, docVersion, openScene, sceneCamera, scriptsVersion, selection, status } from "../state";
 import { TileThumbnail } from "./AssetPreview";
 import { usePopover } from "./popover";
+import { RenameField } from "./RenameField";
+import { TreeView, type TreeRow } from "./TreeView";
 import "./assets.css";
 import "./assetSlices.css";
 
@@ -74,6 +76,8 @@ class AssetsView {
   readonly mode: Signal<"grid" | "list"> = signal(assetView.peek());
   /** The selection box while dragging on empty space, in client pixels. */
   readonly box = signal<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
+  /** Folders closed in the folder tree (they start open), by path; "" is the project's root. */
+  readonly collapsed = signal<ReadonlySet<string>>(new Set());
   setMode(mode: "grid" | "list"): void {
     this.mode.value = mode;
     assetView.value = mode;
@@ -188,10 +192,8 @@ export function AssetsPanel() {
           onFocusCapture={() => useAsLast(browser)}
           onDragEnterCapture={() => useAsLast(browser)}
         >
-          <nav class="asset-tree" aria-label="Folders">
-            <ul role="tree">
-              <FolderItem project={project} folders={project.folders} path="" label={project.name} depth={0} current={searching ? null : folder} />
-            </ul>
+          <nav class="asset-tree">
+            <TreeView tree={FOLDER_TREE} label="Folders" class="folder-tree" rows={[folderRow(view, project, "", project.name, searching ? null : folder)]} indent={12} />
           </nav>
           <div class="asset-main">
             <div class="asset-bar">
@@ -290,37 +292,55 @@ function Breadcrumbs(props: { project: EditorProject; folder: string; searching:
   );
 }
 
-function FolderItem(props: { project: EditorProject; folders: readonly string[]; path: string; label: string; depth: number; current: string | null }) {
-  // `folders` is passed (rather than read from the project) so the tree re-renders when they change.
-  const { project, folders, path, label, depth, current } = props;
-  const children = folders.filter((f) => parentFolder(f) === path).sort((a, b) => fileName(a).localeCompare(fileName(b)));
-  const isCurrent = current === path;
-  const view = useAssetsView();
-  const { openFolder } = view.browser;
-  return (
-    <li role="treeitem" aria-selected={isCurrent}>
-      <button
-        class={`asset-folder${isCurrent ? " current" : ""}${dropTarget(path) ? " drop-target" : ""}`}
-        style={{ paddingLeft: `${depth * 12 + 6}px` }}
-        data-drop-folder={path}
-        onClick={() => openFolder(path)}
-        onContextMenu={(e) => {
-          e.preventDefault();
-          const items = path === "" ? menuItems(project, []) : menuItems(project, [`${path}/`]);
-          menu.value = { x: e.clientX, y: e.clientY, items, owner: view };
-        }}
-      >
-        {label}
-      </button>
-      {children.length > 0 && (
-        <ul role="group">
-          {children.map((f) => (
-            <FolderItem key={f} project={project} folders={folders} path={f} label={fileName(f)} depth={depth + 1} current={current} />
-          ))}
-        </ul>
-      )}
-    </li>
-  );
+/** The tree name the folder tree's rows are renamed under (`renameRow`, ADR 0278); keys are folder paths. */
+const FOLDER_TREE = "folders";
+
+/**
+ * A folder's row in the folder tree (the tree view's folder adapter, ADR 0278): clicking or an arrow key shows it,
+ * F2 renames it, Delete deletes it (asking first, as the Delete command does), the menu is the folder's. A folder
+ * holding the one showing stays open.
+ */
+function folderRow(view: AssetsView, project: EditorProject, path: string, label: string, current: string | null): TreeRow {
+  const children = project.folders.filter((f) => parentFolder(f) === path).sort((a, b) => fileName(a).localeCompare(fileName(b)));
+  const open = !view.collapsed.value.has(path) || (current !== null && path !== current && (path === "" || current.startsWith(`${path}/`)));
+  const entry = path === "" ? null : folderEntry(path);
+  const target: AssetTarget | null = entry ? { project, entries: [entry] } : null;
+  return {
+    key: path,
+    label,
+    expandable: children.length > 0,
+    open,
+    children: open ? children.map((f) => folderRow(view, project, f, fileName(f), current)) : undefined,
+    selected: current === path,
+    className: `asset-folder${dropTarget(path) ? " drop-target" : ""}`,
+    attrs: { "data-drop-folder": path },
+    setOpen: (on) => {
+      if (view.collapsed.value.has(path) !== on) return;
+      const next = new Set(view.collapsed.value);
+      if (on) next.delete(path);
+      else next.add(path);
+      view.collapsed.value = next;
+    },
+    select: () => view.browser.openFolder(path),
+    menu: (x, y) => {
+      menu.value = { x, y, items: menuItems(project, entry ? [entry] : []), owner: view };
+    },
+    rename:
+      entry && target && !whyNotAsset("rename", target)
+        ? {
+            value: label,
+            label: `New name for ${label}`,
+            commit: (value) => {
+              if (value === label) return;
+              void renameAsset(entry, value).then((ok) => {
+                const parent = parentFolder(path);
+                if (ok) view.browser.openFolder(parent ? `${parent}/${value}` : value);
+              });
+            },
+          }
+        : null,
+    remove: target ? () => void runAsset("delete", target) : undefined,
+  };
 }
 
 /** Delete the selection (asking first); disabled, with the reason, when it can't be (the Delete command's rule, ADR 0241). */
@@ -613,45 +633,26 @@ function SliceThumb(props: { url: string; rect: readonly [number, number, number
   );
 }
 
-/** Renaming in place: Enter or leaving the field renames, Escape cancels. */
+/** Renaming a tile in place (the editor's one rename field, ADR 0278): the name is selected without its extension, as file managers do. */
 function RenameInput(props: { entry: string }) {
   const { entry } = props;
-  const input = useRef<HTMLInputElement>(null);
   const name = entryName(entry);
-  useEffect(() => {
-    const el = input.current!;
-    el.focus();
-    // Select the name without its extension, as file managers do.
-    el.setSelectionRange(0, isFolderEntry(entry) ? name.length : splitExtension(name)[0].length);
-  }, [entry]);
-  let done = false;
-  const finish = (apply: boolean) => {
-    if (done) return;
-    done = true;
-    const value = input.current!.value;
-    renamingAsset.value = null;
-    if (!apply || value === name) return;
-    void renameAsset(entry, value).then((ok) => {
-      if (!ok) return;
-      const to = `${folderOf(entryPath(entry)) ? `${folderOf(entryPath(entry))}/` : ""}${value}${isFolderEntry(entry) ? "/" : ""}`;
-      selectAssets([to]);
-    });
-  };
   return (
-    <input
-      ref={input}
+    <RenameField
       class="asset-rename"
-      aria-label={`New name for ${name}`}
-      defaultValue={name}
-      onPointerDown={(e) => e.stopPropagation()}
-      onClick={(e) => e.stopPropagation()}
-      onDblClick={(e) => e.stopPropagation()}
-      onKeyDown={(e) => {
-        e.stopPropagation();
-        if (e.key === "Enter") finish(true);
-        else if (e.key === "Escape") finish(false);
+      label={`New name for ${name}`}
+      value={name}
+      selectTo={isFolderEntry(entry) ? name.length : splitExtension(name)[0].length}
+      onCommit={(value) => {
+        renamingAsset.value = null;
+        if (value === name) return;
+        void renameAsset(entry, value).then((ok) => {
+          if (!ok) return;
+          const to = `${folderOf(entryPath(entry)) ? `${folderOf(entryPath(entry))}/` : ""}${value}${isFolderEntry(entry) ? "/" : ""}`;
+          selectAssets([to]);
+        });
       }}
-      onBlur={() => finish(true)}
+      onCancel={() => (renamingAsset.value = null)}
     />
   );
 }

@@ -55,6 +55,11 @@ export class BabylonQuadBatches implements QuadBatchHost {
     return this.deps.sortOrder(sortingLayer, orderInLayer);
   }
 
+  /** @internal The mesh a batch of these draws (ADR 0276: what a feature drew through them), or null while it has no quads or isn't one of these. */
+  meshOf(batch: QuadBatch): Mesh | null {
+    return batch instanceof BabylonQuadBatch && this.batches.has(batch) ? batch.mesh : null;
+  }
+
   /** @internal */
   get scene(): Scene {
     return this.deps.scene;

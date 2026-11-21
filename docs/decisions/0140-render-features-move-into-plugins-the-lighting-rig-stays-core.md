@@ -1,6 +1,6 @@
 # 0140. Sprites, Meshes and models, Water and UI register their render features from plugins; Environment and Post-processing become plugins over core render services; lights, fog, probes and cameras stay core
 
-- **Status:** Accepted, amended by 0154 (the renderer asks particle and UI features through generic hooks; their private hosts are built in the plugins' factories) and by 0252 (the core lighting rig is one module that features contribute to, not the `lights` and `environment` features)
+- **Status:** Accepted, amended by 0154 (the renderer asks particle and UI features through generic hooks; their private hosts are built in the plugins' factories) by 0252 (the core lighting rig is one module that features contribute to, not the `lights` and `environment` features), and by 0276 (no feature is read by name: `SpritesFeatureApi` and `MeshesFeatureApi` give way to the generic `drawn`, `casters` and `loaded` hooks)
 - **Date:** 2026-11-08
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

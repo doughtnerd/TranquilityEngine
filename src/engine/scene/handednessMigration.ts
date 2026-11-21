@@ -9,9 +9,10 @@
  * Models aren't touched here: model import settings say which way a model faces (`facing`, ADR 0164).
  * Script components' own vector fields can't be known here; their authors mirror them.
  *
- * Pure and synchronous, so it runs wherever scene files are read (editor, game, server, rewrite CLI).
+ * The walk over the file is `sceneFileWalk.ts` (ADR 0279). Pure and synchronous, so it runs wherever scene files are read (editor, game, server, rewrite CLI).
  */
-import type { ComponentEntry, NodeEntry, OverrideEntry, SceneFile } from "./SceneLoader";
+import type { SceneFile } from "./SceneLoader";
+import { mapSceneFile } from "./sceneFileWalk";
 
 const TRANSFORM = "engine.Transform";
 
@@ -21,12 +22,12 @@ const tidy = (n: number) => Math.round(n * 1e7) / 1e7 + 0;
 const isNumbers = (v: unknown, n: number): v is number[] => Array.isArray(v) && v.length === n && v.every((x) => typeof x === "number");
 
 /** A point or direction in node space, mirrored: z negated. Anything else unchanged. */
-export function mirrorVector(value: unknown): unknown {
+function mirrorVector(value: unknown): unknown {
   return isNumbers(value, 3) ? [value[0], value[1], tidy(-value[2])] : value;
 }
 
 /** A rotation mirrored: quaternion `(x, y, z, w)` → `(-x, -y, z, w)`. Other forms (hand-written Euler) unchanged. */
-export function mirrorRotation(value: unknown): unknown {
+function mirrorRotation(value: unknown): unknown {
   return isNumbers(value, 4) ? [tidy(-value[0]), tidy(-value[1]), value[2], value[3]] : value;
 }
 
@@ -78,29 +79,7 @@ function mirrorField(component: string, field: string, value: unknown): unknown 
   return f ? f(value) : value;
 }
 
-function migrateComponent(c: ComponentEntry): ComponentEntry {
-  const fields = FIELDS[c.type];
-  if (!fields || !c.data) return c;
-  const data = { ...c.data };
-  for (const [name, mirror] of Object.entries(fields)) if (name in data) data[name] = mirror(data[name]);
-  return { ...c, data };
-}
-
-function migrateOverride(o: OverrideEntry): OverrideEntry {
-  let out = o;
-  if (o.component && o.field && "value" in o) out = { ...out, value: mirrorField(o.component, o.field, o.value) };
-  if (o.addComponent) out = { ...out, addComponent: migrateComponent(o.addComponent) };
-  if (o.addNodes) out = { ...out, addNodes: o.addNodes.map(migrateNode) };
-  return out;
-}
-
-function migrateNode(n: NodeEntry): NodeEntry {
-  const components = n.components?.map(migrateComponent);
-  const overrides = n.overrides?.map(migrateOverride);
-  return { ...n, ...(components ? { components } : {}), ...(overrides ? { overrides } : {}) };
-}
-
 /** The migration itself (registered by `SceneLoader` from version 3). */
 export function migrateToUnityCoordinates(file: SceneFile): SceneFile {
-  return { ...file, nodes: (file.nodes ?? []).map(migrateNode) };
+  return mapSceneFile(file, { field: mirrorField });
 }

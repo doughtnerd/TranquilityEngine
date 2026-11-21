@@ -23,7 +23,8 @@
  *
  * Render features (ADR 0130, 0135, 0140, 0154) draw everything else. The renderer runs them by phase and
  * asks them things only through `BabylonFeature`'s optional hooks (warm items, describing a drawn
- * object, diagnostics, the UI core), so it names no particle, UI, sky or water feature: the UI plugin's
+ * object, diagnostics, the UI core; ADR 0276: what each drew per node, its shadow casters, whether its
+ * content has loaded), so it names no feature, not even sprites or meshes: the UI plugin's
  * feature, for one, hands the frame graph its screen layer, drawn after the game's camera (in the
  * editor, over its overlay).
  */
@@ -38,27 +39,27 @@ import { Viewport } from "@babylonjs/core/Maths/math.viewport.js";
 import { Scene } from "@babylonjs/core/scene.js";
 import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh.js";
 import { UtilityLayerRenderer } from "@babylonjs/core/Rendering/utilityLayerRenderer.js";
-import { EDITOR_LAYER_MASK, type BabylonEditorContext } from "./editorContext";
+import { EDITOR_LAYER_MASK, type BabylonEditorContext, type EditorDrawn } from "./editorContext";
 import type { BabylonEditorViewport } from "./editorViewport";
 import type { Component } from "../../core/Component";
 import type { ProjectSettings } from "../../core/settings";
 import type { World } from "../../core/World";
+import type { GameObject } from "../../scene/GameObject";
 import type { Color } from "../../core/math";
 import type { GraphShared } from "./graphMaterial";
-import { Camera, Light, PostProcessing, ReflectionProbe, SpriteRenderer } from "../components";
+import { Camera, Light, PostProcessing, ReflectionProbe } from "../components";
 import type { UICore } from "../../ui/UICore";
 import { BabylonProbes } from "./probes";
 import { BabylonRenderTextures } from "./renderTextures";
-import type { PixelGrid, RenderDiagnostics, RenderFeatureDiagnostics } from "../RenderSurface";
+import type { DrawnMaterial, PixelGrid, RenderDiagnostics, RenderFeatureDiagnostics } from "../RenderSurface";
 import { Graphics } from "../Graphics";
-import type { PostSettings } from "../postEffects";
 import { canvasCameras, planFrame, type FrameCamera, type PlannedView, type Rgb, type ViewRect } from "../framePlan";
 import { GAME_POLICY, type PreviewInset, type RenderPolicy } from "../renderPolicy";
 import type { PostEffects, ToneMappingName } from "../postEffects";
 import { BabylonFrame, type CameraView } from "./frameGraph";
 import { BabylonLighting } from "./lighting";
 import { BabylonMaterialLibrary } from "./materialLibrary";
-import { describeDrawn, eagerFeature, lazyFeature, type BabylonFeatureFactory, type BabylonFeatureHost, type BabylonWarmFactory, type FeatureSlot, type FeatureSyncContext, type MeshesFeatureApi, type SpritesFeatureApi } from "./feature";
+import { describeDrawn, eagerFeature, lazyFeature, type BabylonFeatureFactory, type BabylonFeatureHost, type BabylonWarmFactory, type FeatureSlot, type FeatureSyncContext } from "./feature";
 import { _registeredRenderFeatures, byPhase, ownerOf, specNeeded, SYNC_PHASES, type RenderFeatureRegistration, type RenderFeatureSpec, type SyncPhase } from "../renderFeatures";
 import { BabylonQuadBatches } from "./quadBatches";
 import { PROBES_SPEC, ProbesFeature } from "./features";
@@ -307,12 +308,9 @@ export class BabylonRenderer {
       world: () => this.owner,
       viewCameras: () => (this.owner ? this.viewCameras(this.owner) : []),
       babylonCamera: (c) => this.cameras.get(c)?.camera ?? null,
-      sprites: () => self.spritesFeature()?.editorSprites() ?? [],
-      meshes: () => self.meshesFeature()?.editorMeshes() ?? [],
-      texts: () => [], // Text draws from stage 9
+      drawn: () => this.drawn(),
       renderer: {
         setClearColor: (color) => this.setClearColor(color),
-        spriteSize: (sprite) => this.spriteSize(sprite),
         ui: () => this.uiState(),
         bakeReflectionProbe: (probe) => this.bakeReflectionProbe(probe),
       },
@@ -404,9 +402,9 @@ export class BabylonRenderer {
       ctx.view = view;
       ctx.viewCamera = view ? this.cameras.get(view)!.camera : null;
       this.casters.length = 0;
-      this.meshesFeature()?.casters(this.casters);
+      for (const slot of this.slots) slot.feature?.casters?.(this.casters); // ADR 0276: only the meshes feature casts
     } else if (phase === "effects") {
-      ctx.ready = this.contentLoaded = !this.materials.loading() && (this.meshesFeature()?.loaded() ?? true);
+      ctx.ready = this.contentLoaded = !this.materials.loading() && this.slots.every((slot) => slot.feature?.loaded?.() ?? true);
       this.probeMeshes.length = 0;
       for (const m of this.scene.meshes) if ((m.layerMask & EDITOR_LAYER_MASK) === 0) this.probeMeshes.push(m);
       ctx.probeMeshes = this.probeMeshes;
@@ -427,17 +425,25 @@ export class BabylonRenderer {
     return null;
   }
 
-  /** A named feature once it exists (ADR 0140: the sprite and mesh features, whose content the renderer's own steps read). */
-  private feature<F>(name: string): F | null {
-    return (this.slots.find((s) => s.spec.name === name)?.feature as F | null | undefined) ?? null;
-  }
-
-  private spritesFeature(): SpritesFeatureApi | null {
-    return this.feature<SpritesFeatureApi>("sprites");
-  }
-
-  private meshesFeature(): MeshesFeatureApi | null {
-    return this.feature<MeshesFeatureApi>("meshes");
+  /**
+   * ADR 0276: what every loaded feature drew now, with quad batches (a tile layer's) resolved to the meshes
+   * that draw them, so the editor tools and thumbnails read meshes, quads and canvas rectangles alone.
+   */
+  private *drawn(): Iterable<EditorDrawn> {
+    for (const slot of this.slots) {
+      for (const d of slot.feature?.drawn?.() ?? []) {
+        if (d.shape?.kind !== "quads") {
+          yield d as EditorDrawn;
+          continue;
+        }
+        const meshes: AbstractMesh[] = [];
+        for (const b of d.shape.batches) {
+          const mesh = this.quads.meshOf(b);
+          if (mesh) meshes.push(mesh);
+        }
+        yield { ...d, shape: { kind: "meshes", meshes } };
+      }
+    }
   }
 
   /** The core services plugin render features are built from (ADR 0135, 0154): nothing here is one feature's. */
@@ -573,7 +579,7 @@ export class BabylonRenderer {
         rect: entry.rect,
         target: c.targetTexture,
         background: bg ? rgbOf(bg) : null,
-        post: p && p.isActiveAndEnabled ? ({ ...p, enabled: true } as unknown as PostSettings) : null,
+        post: p?.isActiveAndEnabled ? p : null, // the live component is its PostSettings (read, not kept, by the plan)
         editMode: world.inEditMode(c.node.entity),
       });
     }
@@ -678,11 +684,6 @@ export class BabylonRenderer {
     camera.rotationQuaternion!.copyFrom(tmpQuat);
   }
 
-  /** @internal The sprite's size in node units once its texture has loaded. */
-  spriteSize(s: SpriteRenderer): [number, number] | null {
-    return this.spritesFeature()?.spriteSize(s) ?? null;
-  }
-
   // --- Thumbnails (ADR 0153) -------------------------------------------------------------------
 
   /**
@@ -711,11 +712,16 @@ export class BabylonRenderer {
     return view && viewCamera ? { camera: view, babylon: viewCamera } : null;
   }
 
-  /** @internal Thumbnails: the Babylon meshes the content features drew for the World's MeshRenderers and SpriteRenderers (one each under a `perObject` draw policy). */
+  /**
+   * @internal Thumbnails: the Babylon meshes the features drew in the world (ADR 0276: MeshRenderers', sprites'
+   * quads under a `perObject` draw policy, tile layers', water's, world canvases'), what a still is framed by.
+   */
   contentMeshes(): AbstractMesh[] {
     const out: AbstractMesh[] = [];
-    for (const m of this.meshesFeature()?.editorMeshes() ?? []) if (m.component.isActiveAndEnabled) out.push(...m.meshes);
-    for (const s of this.spritesFeature()?.editorSprites() ?? []) if (s.component.isActiveAndEnabled && s.mesh.isEnabled()) out.push(s.mesh);
+    for (const d of this.drawn()) {
+      if (d.shape?.kind === "quad") out.push(d.shape.mesh);
+      else if (d.shape?.kind === "meshes") out.push(...d.shape.meshes);
+    }
     return out;
   }
 
@@ -755,12 +761,20 @@ export class BabylonRenderer {
       // Programs: the shader effects the engine has compiled and holds (on WebGPU, each makes its pipelines).
       stats: { drawCalls: this.engine._drawCalls?.current ?? 0, triangles: 0, lines: 0, points: 0, geometries: this.scene.geometries.length, textures: this.scene.textures.length, programs: compiledEffects(this.engine) },
       cameras,
-      drawn: { meshes: this.meshesFeature()?.drawn() ?? [], sprites: this.spritesFeature()?.drawnNodes() ?? [] },
+      drawn: [],
       features,
     };
     for (const slot of this.slots) {
       const feature = slot.feature;
       if (!feature) continue;
+      // ADR 0276: each node a feature drew, once, with the materials it drew it with.
+      const nodes = new Map<GameObject, DrawnMaterial[]>();
+      for (const d of feature.drawn?.() ?? []) {
+        const list = nodes.get(d.component.node) ?? [];
+        if (d.materials) list.push(...d.materials);
+        nodes.set(d.component.node, list);
+      }
+      for (const [node, materials] of nodes) out.drawn.push({ node, feature: slot.spec.name, materials });
       Object.assign(out, feature.state?.()); // a built-in feature's core part (ADR 0130)
       const own = feature.diagnostics?.(); // any feature's own part, by its name (ADR 0154)
       if (own !== undefined) features[slot.spec.name] = own;

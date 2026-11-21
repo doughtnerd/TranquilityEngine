@@ -16,8 +16,7 @@ import { pathToFileURL } from "node:url";
 import type { AssetSource, ProjectSettingsInput } from "../engine";
 import { isProjectFile, loadProjectFiles, projectFileKind, skipsFolder } from "../engine/scene/projectFiles";
 import { nodePackageSource } from "./packages";
-import { isScriptPath, loadScripts, loadedPackageModule, loadedScriptModule, type ScriptProblem } from "../editor/scriptLoader";
-import { FIRST_PARTY_MANIFESTS } from "../plugins/manifests";
+import { isScriptPath, loadScripts, loadedPluginModule, loadedScriptModule, type ScriptProblem } from "../editor/scriptLoader";
 import type { RuntimePlugin } from "../plugins/runtimeContext";
 import { planPluginCode, toRuntimePlugin } from "../plugins/thirdParty";
 
@@ -113,7 +112,7 @@ export async function loadProjectScripts(project: ServerProject): Promise<readon
  */
 export async function loadProjectCode(project: ServerProject): Promise<{ loaded: readonly string[]; plugins: RuntimePlugin[] }> {
   const packages = nodePackageSource(project.root, "production");
-  const plan = await planPluginCode({ json: project.json, code: project.scripts, packages: packages.files, disabled: project.settings.plugins?.disabled, builtIn: FIRST_PARTY_MANIFESTS }, { editor: false, server: true });
+  const plan = await planPluginCode({ json: project.json, code: project.scripts, packages: packages.files, disabled: project.settings.plugins?.disabled }, { editor: false, server: true });
   if (plan.problems.length > 0) throw new ServerError(`Some plugins in "${project.root}" can't load:\n${plan.problems.map((p) => `  - ${p.where}: ${p.message}`).join("\n")}`);
   if (plan.code.size === 0 && plan.npmEntries.length === 0) return { loaded: [], plugins: [] };
   const result = await loadScripts(plan.code, project.json, packages, plan.npmEntries);
@@ -121,8 +120,7 @@ export async function loadProjectCode(project: ServerProject): Promise<{ loaded:
   const plugins: RuntimePlugin[] = [];
   for (const p of plan.runtime) {
     try {
-      const module = p.source.kind === "project" ? await loadedScriptModule(p.runtime!) : await loadedPackageModule(p.runtime!);
-      plugins.push(toRuntimePlugin(p, module));
+      plugins.push(toRuntimePlugin(p.manifest, p.runtime!, (await loadedPluginModule(p, "runtime"))!));
     } catch (err) {
       throw new ServerError(`The plugin ${p.manifest.name} (${p.where}) didn't load: ${(err as Error).message}`);
     }

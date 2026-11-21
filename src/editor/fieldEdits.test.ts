@@ -8,7 +8,7 @@ import { AddComponent, type NodePath } from "./document";
 import { fieldChoicesFor, listedChoices, loadFieldChoices } from "./fieldChoices";
 import { fieldState, fieldValues, revertField, setField, setFieldAxis } from "./fieldEdits";
 import { rotationCodec } from "./fields/rotationCodec";
-import { toSceneJSON } from "./fieldValues";
+import { FIELD_KINDS, noNodeRefs } from "./fields/kinds";
 import { OrbitCamera } from "./OrbitCamera";
 import { meshesEditorPlugin } from "../plugins/meshes/editor";
 import { openSceneFile } from "./project";
@@ -36,6 +36,8 @@ const infoOf = (path: NodePath, type: string): ComponentInfo => listComponents(s
 const fieldOf = (path: NodePath, type: string, name: string) => infoOf(path, type).fields.find((f) => f.name === name)!;
 const TRANSFORM = { type: "engine.Transform", index: 0 };
 const instances: NodePath[] = [["bg-a"], ["bg-b"]];
+const POSITION = () => fieldOf(["bg-a"], "engine.Transform", "position");
+const ROTATION = () => fieldOf(["bg-a"], "engine.Transform", "rotation");
 const positionOverride = (id: string) => scene().doc.overrides(id).find((o) => o.component === "engine.Transform" && o.field === "position")?.value;
 
 describe("setting a field", () => {
@@ -71,7 +73,7 @@ describe("setting a field", () => {
     setFieldAxis(scene(), [["bird"]], FACING, facing(), 0, 0.25); // keeps z
     expect(eulerAnglesOf(facing().value as Quaternion)).toEqual([0.25, 0, 0.5]);
     // Stored as the quaternion those angles make (ADR 0163).
-    expect(scene().doc.fieldValue("bird", FACING.type, "facing")).toEqual(toSceneJSON("quaternion", Quaternion.euler(0.25, 0, 0.5)));
+    expect(scene().doc.fieldValue("bird", FACING.type, "facing")).toEqual(FIELD_KINDS.quaternion.toJSON(Quaternion.euler(0.25, 0, 0.5), noNodeRefs));
     expect(scene().sync.nodeFor("bird")!.getBehavior(Facing)!.facing).toBeInstanceOf(Quaternion);
   });
 
@@ -118,28 +120,28 @@ describe("rotation angles in the Inspector (ADR 0163, 0165)", () => {
 });
 
 describe("reporting and reverting", () => {
-  it("tells differing values apart, quaternions by their rounded angles", () => {
-    expect(fieldState(scene(), instances, TRANSFORM, "position").mixed).toBe(true);
-    expect(fieldState(scene(), instances, TRANSFORM, "rotation", [Quaternion.fromEuler(0, 0, 0.5), Quaternion.fromEuler(0, 0, 0.5 + 1e-9)]).mixed).toBe(false);
-    expect(fieldState(scene(), instances, TRANSFORM, "rotation", [Quaternion.fromEuler(0, 0, 0.5), Quaternion.fromEuler(0, 0, 0.51)]).mixed).toBe(true);
+  it("tells differing values apart by the field's kind, rotations by the codec's sameness", () => {
+    expect(fieldState(scene(), instances, TRANSFORM, POSITION()).mixed).toBe(true);
+    expect(fieldState(scene(), instances, TRANSFORM, ROTATION(), [Quaternion.fromEuler(0, 0, 0.5), Quaternion.fromEuler(0, 0, 0.5 + 1e-9)]).mixed).toBe(false);
+    expect(fieldState(scene(), instances, TRANSFORM, ROTATION(), [Quaternion.fromEuler(0, 0, 0.5), Quaternion.fromEuler(0, 0, 0.51)]).mixed).toBe(true);
     setFieldAxis(scene(), instances, TRANSFORM, fieldOf(["bg-a"], "engine.Transform", "position"), 0, 5);
     expect(fieldValues(scene(), instances, TRANSFORM, "position").map((v) => (v as { toArray(): number[] }).toArray())).toEqual([
       [5, 3, 0],
       [5, 3, 0],
     ]);
-    expect(fieldState(scene(), instances, TRANSFORM, "position").mixed).toBe(false);
+    expect(fieldState(scene(), instances, TRANSFORM, POSITION()).mixed).toBe(false);
   });
 
   it("reports overrides and reverts them on every instance in one undo step", () => {
     const { stack } = scene();
-    expect(fieldState(scene(), [["bg-a"]], TRANSFORM, "position").overridden).toBe(false);
-    expect(fieldState(scene(), instances, TRANSFORM, "position").overridden).toBe(true); // bg-b's
+    expect(fieldState(scene(), [["bg-a"]], TRANSFORM, POSITION()).overridden).toBe(false);
+    expect(fieldState(scene(), instances, TRANSFORM, POSITION()).overridden).toBe(true); // bg-b's
     setFieldAxis(scene(), instances, TRANSFORM, fieldOf(["bg-a"], "engine.Transform", "position"), 1, 7);
     revertField(scene(), [...instances, ["bird"]], TRANSFORM, "position"); // the plain node is skipped
     expect(positionOverride("bg-a")).toBeUndefined();
     expect(positionOverride("bg-b")).toBeUndefined();
     expect(scene().sync.nodeFor("bg-b")!.transform!.position.toArray()).toEqual([0, 3, 0]);
-    expect(fieldState(scene(), instances, TRANSFORM, "position").overridden).toBe(false);
+    expect(fieldState(scene(), instances, TRANSFORM, POSITION()).overridden).toBe(false);
     expect(stack.undoLabel).toBe("Revert position");
     stack.undo();
     expect(positionOverride("bg-a")).toEqual([0, 7, 0]);

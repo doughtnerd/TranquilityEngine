@@ -57,7 +57,7 @@ async function boot(): Promise<void> {
       // Third-party plugins' runtime halves (ADR 0139): the build holds only enabled ones, in dependency order.
       for (const p of manifest.plugins ?? []) {
         const module = (await import(/* @vite-ignore */ urlOf(p.module))) as Record<string, unknown>;
-        thirdParty.push(toRuntimePlugin({ manifest: p.manifest, source: { kind: "project", folder: "" }, where: p.module, runtime: p.module }, module));
+        thirdParty.push(toRuntimePlugin(p.manifest, p.module, module));
       }
     },
     // The plugin set (ADR 0144): first-party runtime halves (ADR 0135) and the third-party ones, minus what

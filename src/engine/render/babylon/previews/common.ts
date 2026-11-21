@@ -1,8 +1,8 @@
 /**
- * What the editor's Babylon preview renderers share (ADR 0061, 0075 stage 7): a scene lit like the
- * editor's default one (their engines come from the engine factory, `createEngine.ts`, ADR 0244), the studio
- * environment, and a preview scene's material library (the World renderer's, ADR 0127). Babylon types
- * stay inside `render/babylon/` (ADR 0010).
+ * What the editor's Babylon preview renderers share (ADR 0061, 0075 stage 7): a scene lit by the default
+ * light rig, a World's own (`lighting.ts`, ADR 0277; their engines come from the engine factory,
+ * `createEngine.ts`, ADR 0244), the studio environment, and a preview scene's material library (the World
+ * renderer's, ADR 0127). Babylon types stay inside `render/babylon/` (ADR 0010).
  *
  * Previews draw straight into their engine's canvas and copy it (`drawImage`) into a 2D canvas in the
  * same task: a WebGPU canvas can't be read after it's presented, but it can be right after drawing.
@@ -12,28 +12,17 @@ import "../register";
 import type { TargetCamera } from "@babylonjs/core/Cameras/targetCamera.js";
 import { WebGPUEngine } from "@babylonjs/core/Engines/webgpuEngine.js";
 import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
-import { DirectionalLight } from "@babylonjs/core/Lights/directionalLight.js";
-import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight.js";
 import type { BaseTexture } from "@babylonjs/core/Materials/Textures/baseTexture.js";
 import "../prefilterGuard";
-import { Color3, Color4 } from "@babylonjs/core/Maths/math.color.js";
-import { Vector3 } from "@babylonjs/core/Maths/math.vector.js";
+import { Color4 } from "@babylonjs/core/Maths/math.color.js";
 import { Scene } from "@babylonjs/core/scene.js";
 import { Assets } from "../../../scene/Assets";
 import { parseMaterial, type MaterialSettings } from "../../../scene/material";
 import { parseShaderGraph, type ShaderGraph } from "../../../scene/shaderGraph";
 import type { GraphShared } from "../graphMaterial";
+import { useDefaultStudio } from "../lighting";
 import { lookAtRotation } from "../lookAt";
 import { BabylonMaterialLibrary } from "../materialLibrary";
-
-/**
- * The one preview light rig (the editor's default scene: soft ambient, a sun, the studio room). Every
- * live preview and thumbnail lights with these, so a material's preview and its thumbnail match; they
- * are private so no preview can pass its own numbers.
- */
-const LIGHT_AMBIENT = 0.45;
-const LIGHT_SUN = 1.6;
-const LIGHT_ENVIRONMENT = 0.5;
 
 /** A scene in Babylon's default left-handed mode (the engine's convention, ADR 0164) that clears to transparent. */
 export function createPreviewScene(engine: AbstractEngine): Scene {
@@ -43,31 +32,14 @@ export function createPreviewScene(engine: AbstractEngine): Scene {
   return scene;
 }
 
-/** Soft ambient light and a sun from above and in front, like the editor's default scene. */
-export function addPreviewLights(scene: Scene): { ambient: HemisphericLight; sun: DirectionalLight } {
-  const hemi = new HemisphericLight("preview.ambient", new Vector3(0, 1, 0), scene);
-  hemi.intensity = LIGHT_AMBIENT;
-  hemi.groundColor = new Color3(1, 1, 1); // an ambient light: the same from every direction
-  hemi.specular = Color3.Black();
-  const light = new DirectionalLight("preview.sun", new Vector3(-4, -10, 6).normalize(), scene);
-  light.intensity = LIGHT_SUN;
-  return { ambient: hemi, sun: light };
-}
-
 /** The studio room's prefiltered cube, made in `scene` (see {@link useWhenReady}). */
 export { createStudioTexture } from "../studioCube";
 
-/** Light `scene` with a ready studio room, at the preview rig's environment intensity. */
-export function useStudio(scene: Scene, texture: BaseTexture): void {
-  scene.environmentTexture = texture;
-  scene.environmentIntensity = LIGHT_ENVIRONMENT;
-}
-
 /**
- * Light `scene` with the studio room ({@link useStudio}) once it's ready: prefiltering swaps a cube's GPU texture when it
- * finishes, and a material that bound the first one on WebGPU would keep drawing with it once it's
- * destroyed (ADR 0075, stage 2). Resolves true when it was set, false if it never got ready (or the
- * scene went first).
+ * Light `scene` with the studio room at the default rig's intensity (`useDefaultStudio`, ADR 0277) once it's ready:
+ * prefiltering swaps a cube's GPU texture when it finishes, and a material that bound the first one on WebGPU
+ * would keep drawing with it once it's destroyed (ADR 0075, stage 2). Resolves true when it was set, false if
+ * it never got ready (or the scene went first).
  */
 export function useWhenReady(scene: Scene, texture: BaseTexture, timeoutMs = 4000): Promise<boolean> {
   return new Promise((resolve) => {
@@ -75,7 +47,7 @@ export function useWhenReady(scene: Scene, texture: BaseTexture, timeoutMs = 400
     const poll = () => {
       if (scene.isDisposed) return resolve(false);
       if (texture.isReady()) {
-        useStudio(scene, texture);
+        useDefaultStudio(scene, texture);
         return resolve(true);
       }
       if (Date.now() - started > timeoutMs) return resolve(false);

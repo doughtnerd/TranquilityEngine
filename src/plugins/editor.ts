@@ -2,6 +2,7 @@
 // (the player, the server, the engine). `main.tsx` activates this list before the layout loads.
 import type { EditorPlugin } from "../editor/sdk/plugins";
 import { audioEditorPlugin } from "./audio/editor";
+import type { FirstPartyPlugin } from "./catalogue";
 import { materialsEditorPlugin } from "./materials/editor";
 import { navigationEditorPlugin } from "./navigation/editor";
 import { physicsEditorPlugin } from "./physics/editor";
@@ -13,19 +14,23 @@ import { environmentEditorPlugin } from "./environment/editor";
 import { postProcessingEditorPlugin } from "./post-processing/editor";
 import { uiEditorPlugin } from "./ui/editor";
 
-// Particles first: its panel and the Shader Graph both join the Scene view's group, and registering it
-// first keeps the default tabs Scene, Shader Graph, Particle Graph. Audio comes before Navigation so the Project
-// settings categories read Graphics, Navigation, Audio (both name Graphics; the later one lands next to it).
-export const EDITOR_PLUGINS: readonly EditorPlugin[] = [
-  particlesEditorPlugin,
-  materialsEditorPlugin,
-  skyEditorPlugin,
-  audioEditorPlugin,
-  navigationEditorPlugin,
-  tilemapsEditorPlugin,
-  physicsEditorPlugin,
-  meshesEditorPlugin,
-  environmentEditorPlugin,
-  postProcessingEditorPlugin,
-  uiEditorPlugin,
-];
+// Catalogue entries' editor halves (ADR 0275), in registration order. Particles first: its panel and the
+// Shader Graph both join the Scene view's group, and registering it first keeps the default tabs Scene,
+// Shader Graph, Particle Graph. Audio comes before Navigation so the Project settings categories read
+// Graphics, Navigation, Audio (both name Graphics; the later one lands next to it).
+const EDITOR_HALVES: { readonly [K in FirstPartyPlugin]?: EditorPlugin } = {
+  particles: particlesEditorPlugin,
+  materials: materialsEditorPlugin,
+  sky: skyEditorPlugin,
+  audio: audioEditorPlugin,
+  navigation: navigationEditorPlugin,
+  tilemaps: tilemapsEditorPlugin,
+  physics: physicsEditorPlugin,
+  meshes: meshesEditorPlugin,
+  environment: environmentEditorPlugin,
+  "post-processing": postProcessingEditorPlugin,
+  ui: uiEditorPlugin,
+};
+
+/** The first-party editor halves, in registration order (panels, settings categories). */
+export const EDITOR_PLUGINS: readonly EditorPlugin[] = Object.values(EDITOR_HALVES).filter((p): p is EditorPlugin => p !== undefined);

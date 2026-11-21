@@ -1,8 +1,10 @@
 // Third-party plugins (ADR 0139): their `plugin.json` schema, SDK version ranges, discovery in the
 // project (`plugins/<folder>/plugin.json`) and in its npm packages (`"myco": { "plugin": … }` in a
 // package's package.json), the checks that run before any plugin code does, and which project code a
-// host loads. No file access and no editor or engine imports: the editor, the exporter and the
-// dedicated server each pass what they read, so all three agree on what loads.
+// host loads, as one plan (`planPluginCode`, ADR 0275). No file access and no editor or engine
+// imports: the editor, the exporter and the dedicated server each pass what they read and run the same
+// plan against the same first-party catalogue, so all three agree on what loads.
+import { FIRST_PARTY_MANIFESTS } from "./catalogue";
 import { resolveEnabledPlugins } from "./enabled";
 import type { PluginManifest } from "./manifest";
 import type { RuntimePlugin, RuntimePluginContext } from "./runtimeContext";
@@ -257,7 +259,7 @@ export interface PluginFiles {
   read(path: string): Promise<string | null>;
 }
 
-export interface DiscoverInput {
+interface DiscoverInput {
   /** The project's JSON files' text by path: `plugins/<folder>/plugin.json` and `package.json` come from here. */
   readonly json: ReadonlyMap<string, string>;
   /** The project's code paths (scripts and plugin sources, `isScriptPath`), to check entries exist. */
@@ -287,7 +289,7 @@ const parseJson = (text: string): { value: unknown } | { error: string } => {
  * npm packages the project's package.json lists whose package.json has `"myco": { "plugin": "<path>" }`.
  * A manifest that doesn't parse or validate, or names an entry that isn't there, is a problem.
  */
-export async function discoverPlugins(input: DiscoverInput): Promise<{ plugins: FoundPlugin[]; problems: PluginProblem[] }> {
+async function discoverPlugins(input: DiscoverInput): Promise<{ plugins: FoundPlugin[]; problems: PluginProblem[] }> {
   const plugins: FoundPlugin[] = [];
   const problems: PluginProblem[] = [];
   const code = new Set(input.code);
@@ -387,7 +389,7 @@ export async function discoverPlugins(input: DiscoverInput): Promise<{ plugins: 
  * mismatched dependency, a dependency cycle, or needing a plugin refused for any of these.
  * `builtIn` are the first-party manifests (they carry the engine's version).
  */
-export function checkPlugins(found: readonly FoundPlugin[], builtIn: readonly PluginManifest[], sdkVersion: string = SDK_VERSION): { plugins: FoundPlugin[]; problems: PluginProblem[] } {
+function checkPlugins(found: readonly FoundPlugin[], builtIn: readonly PluginManifest[]): { plugins: FoundPlugin[]; problems: PluginProblem[] } {
   const problems: PluginProblem[] = [];
   const refused = new Map<string, string>();
   const refuse = (p: FoundPlugin, message: string) => {
@@ -404,8 +406,8 @@ export function checkPlugins(found: readonly FoundPlugin[], builtIn: readonly Pl
   }
   for (const p of byName.values()) {
     const { name, sdk } = p.manifest;
-    if (satisfies(sdkVersion, sdk) !== true) {
-      refuse(p, `${name} needs Myco SDK ${sdk}; this is ${sdkVersion}`);
+    if (satisfies(SDK_VERSION, sdk) !== true) {
+      refuse(p, `${name} needs Myco SDK ${sdk}; this is ${SDK_VERSION}`);
       continue;
     }
     for (const [dep, range] of Object.entries(p.manifest.dependencies ?? {})) {
@@ -465,7 +467,7 @@ const included = (p: FoundPlugin, enabled: ReadonlySet<string>, options: HalfOpt
  * project plugins (without their `editor/` folder unless `options.editor`). Files of plugins that are
  * off, refused or skipped by the server are left out, so they never run.
  */
-export function selectPluginCode(code: ReadonlyMap<string, string>, plugins: readonly FoundPlugin[], enabled: ReadonlySet<string>, options: HalfOptions): Map<string, string> {
+function selectPluginCode(code: ReadonlyMap<string, string>, plugins: readonly FoundPlugin[], enabled: ReadonlySet<string>, options: HalfOptions): Map<string, string> {
   const folders = new Set(plugins.filter((p) => p.source.kind === "project" && included(p, enabled, options)).map((p) => (p.source as { folder: string }).folder));
   const out = new Map<string, string>();
   for (const [path, text] of code) {
@@ -477,7 +479,7 @@ export function selectPluginCode(code: ReadonlyMap<string, string>, plugins: rea
 }
 
 /** The npm plugin entries a host bundles (ADR 0139): the runtime entries of enabled npm plugins, and their editor entries with `options.editor`. */
-export function npmPluginEntries(plugins: readonly FoundPlugin[], enabled: ReadonlySet<string>, options: HalfOptions): string[] {
+function npmPluginEntries(plugins: readonly FoundPlugin[], enabled: ReadonlySet<string>, options: HalfOptions): string[] {
   const out: string[] = [];
   for (const p of plugins) {
     if (p.source.kind !== "npm" || !included(p, enabled, options)) continue;
@@ -486,10 +488,6 @@ export function npmPluginEntries(plugins: readonly FoundPlugin[], enabled: Reado
   }
   return out;
 }
-
-/** The plugins (of `plugins`) whose runtime half a host activates, in order. */
-export const runtimeHalves = (plugins: readonly FoundPlugin[], enabled: ReadonlySet<string>, options: Omit<HalfOptions, "editor"> = {}): FoundPlugin[] =>
-  plugins.filter((p) => p.runtime !== undefined && included(p, enabled, { editor: false, server: options.server }));
 
 /** A half's entry module's `activate`: its own export, or a default export's (or the default export itself when it is a function). */
 export function activateOf(module: Record<string, unknown>): ((context: never) => void) | undefined {
@@ -501,11 +499,14 @@ export function activateOf(module: Record<string, unknown>): ((context: never) =
   return undefined;
 }
 
-/** A third-party runtime half from its plugin and loaded entry module; throws when the module exports no `activate`. */
-export function toRuntimePlugin(plugin: FoundPlugin, module: Record<string, unknown>): RuntimePlugin {
+/**
+ * A third-party runtime half from its manifest, its entry (for the message) and the entry's loaded
+ * module (ADR 0275); throws when the module exports no `activate`.
+ */
+export function toRuntimePlugin(manifest: ThirdPartyManifest, entry: string, module: Record<string, unknown>): RuntimePlugin {
   const activate = activateOf(module) as ((context: RuntimePluginContext) => void) | undefined;
-  if (!activate) throw new Error(`${plugin.manifest.name}: its runtime entry (${plugin.runtime}) exports no activate(context) function`);
-  return { manifest: plugin.manifest, activate };
+  if (!activate) throw new Error(`${manifest.name}: its runtime entry (${entry}) exports no activate(context) function`);
+  return { manifest, activate };
 }
 
 /** A game build's record of a third-party runtime half (ADR 0139): its manifest and the module to import. */
@@ -515,40 +516,54 @@ export interface BuiltPlugin {
   readonly module: string;
 }
 
-/** What a host loads of a project (ADR 0139): `planPluginCode`'s result. */
+/** What a host loads of a project (ADR 0139, 0275): `planPluginCode`'s result. */
 export interface PluginCodePlan {
+  /** Every third-party plugin found with a valid manifest, refused ones included. */
+  readonly found: FoundPlugin[];
+  /** Every plugin that can load (enabled or not), in dependency order. */
+  readonly plugins: FoundPlugin[];
+  /** The enabled plugins this host loads code for (both halves' with `editor`), in dependency order. */
+  readonly loaded: FoundPlugin[];
+  /** Of `loaded`, the ones with a runtime half, which the host activates. */
+  readonly runtime: FoundPlugin[];
+  /** Enabled plugin names, first-party ones included. */
+  readonly enabled: Set<string>;
   /** The scripts plus the enabled plugins' files the host compiles. */
   readonly code: Map<string, string>;
   /** npm plugin entries to bundle. */
   readonly npmEntries: string[];
-  /** The plugins whose runtime half the host activates, in dependency order. */
-  readonly runtime: FoundPlugin[];
-  /** Every plugin that can load (enabled or not), in dependency order. */
-  readonly plugins: FoundPlugin[];
-  /** Enabled plugin names, first-party ones included. */
-  readonly enabled: Set<string>;
-  /** Why plugins were refused. */
+  /** Why plugins were refused (bad manifests, a discovery that failed, SDK or dependency mismatches). */
   readonly problems: PluginProblem[];
 }
 
 /**
- * Discover, check and select in one go (ADR 0139), for hosts that load a project once: game builds
- * and the dedicated server (`options.server`). `code` is the project's scripts and plugin sources,
- * `disabled` its `plugins.disabled`, `builtIn` the first-party manifests.
+ * The one plan of what a host loads of a project (ADR 0139, 0275): discover its plugins, check them
+ * against the first-party catalogue, resolve which are enabled, and select their code. The editor
+ * (`editor: true`, on every load and reload), game builds and the dedicated server (`server: true`)
+ * all plan with it. `code` is the project's scripts and plugin sources, `disabled` its
+ * `plugins.disabled`. Never throws: a discovery that fails is a problem.
  */
 export async function planPluginCode(
-  input: { readonly json: ReadonlyMap<string, string>; readonly code: ReadonlyMap<string, string>; readonly packages?: PluginFiles; readonly disabled?: Iterable<string>; readonly builtIn: readonly PluginManifest[] },
+  input: { readonly json: ReadonlyMap<string, string>; readonly code: ReadonlyMap<string, string>; readonly packages?: PluginFiles; readonly disabled?: Iterable<string> },
   options: HalfOptions,
 ): Promise<PluginCodePlan> {
-  const found = await discoverPlugins({ json: input.json, code: input.code.keys(), packages: input.packages });
-  const checked = checkPlugins(found.plugins, input.builtIn);
-  const enabled = resolveEnabledPlugins([...input.builtIn, ...checked.plugins.map((p) => p.manifest)], input.disabled);
+  let found: { plugins: FoundPlugin[]; problems: PluginProblem[] };
+  try {
+    found = await discoverPlugins({ json: input.json, code: input.code.keys(), packages: input.packages });
+  } catch (err) {
+    found = { plugins: [], problems: [{ plugin: "(plugins)", where: "plugins/", message: `couldn't look for plugins: ${err instanceof Error ? err.message : String(err)}` }] };
+  }
+  const checked = checkPlugins(found.plugins, FIRST_PARTY_MANIFESTS);
+  const enabled = resolveEnabledPlugins([...FIRST_PARTY_MANIFESTS, ...checked.plugins.map((p) => p.manifest)], input.disabled);
+  const loaded = checked.plugins.filter((p) => included(p, enabled, options));
   return {
+    found: found.plugins,
+    plugins: checked.plugins,
+    loaded,
+    runtime: loaded.filter((p) => p.runtime !== undefined),
+    enabled,
     code: selectPluginCode(input.code, checked.plugins, enabled, options),
     npmEntries: npmPluginEntries(checked.plugins, enabled, options),
-    runtime: runtimeHalves(checked.plugins, enabled, options),
-    plugins: checked.plugins,
-    enabled,
     problems: [...found.problems, ...checked.problems],
   };
 }

@@ -12,7 +12,8 @@ import { editorSettings, joinPath, openFolderProject, useProjectAssets } from ".
 import { disabledPluginsOf, setDisabledPlugins, settingsProblems, settingsWarnings } from "../editor/projectSettingsModel";
 import { currentProject, openScene, sceneCamera } from "../editor/state";
 import { MemoryFileSystem, ROOT, demoFolder } from "../editor/testing";
-import { applyEditorPlugins, pluginManifests } from "./editorPlugins";
+import { FIRST_PARTY_MANIFESTS } from "./catalogue";
+import { applyEditorPlugins } from "./editorPlugins";
 import "./editorBoot";
 
 afterEach(() => void applyEditorPlugins(undefined));
@@ -43,7 +44,7 @@ describe("the plugins setting", () => {
   });
 
   it("every first-party manifest has a title and a description", () => {
-    for (const m of pluginManifests().filter((x) => ["myco.sky", "myco.materials", "myco.physics", "myco.physics-rapier", "myco.navigation"].includes(x.name))) {
+    for (const m of FIRST_PARTY_MANIFESTS.filter((x) => ["myco.sky", "myco.materials", "myco.physics", "myco.physics-rapier", "myco.navigation"].includes(x.name))) {
       expect(m.title, m.name).toBeTruthy();
       expect(m.description, m.name).toBeTruthy();
     }

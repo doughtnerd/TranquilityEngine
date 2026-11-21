@@ -1,0 +1,39 @@
+/* The tree view (ADR 0278): every tree in the editor (`.tree-view`; the Hierarchy's and the live Hierarchy's are also
+   `.tree`, the Assets panel's folders `.folder-tree`). Rows, selection, the caret (drawn, not text, so a row's text is
+   its name), the roving focus ring, the drop indicator and the rename field. Colours are the theme's tokens. */
+.tree-view, .tree-view ul { list-style: none; margin: 0; padding: 0; }
+.tree-view .row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 4px;
+  border-radius: 3px;
+  cursor: default;
+  white-space: nowrap;
+}
+.tree-view .row:hover { background: var(--hover); }
+.tree-view .row.selected { background: var(--selection); color: var(--selection-text); }
+.tree-view .row.inactive .name { opacity: 0.5; }
+.tree-view .caret { width: 14px; flex: none; color: var(--muted); text-align: center; cursor: pointer; }
+.tree-view .caret.leaf { cursor: default; }
+.tree-view .caret::before { content: "▸"; }
+.tree-view .caret.open::before { content: "▾"; }
+.tree-view .caret.leaf::before { content: ""; }
+.tree-view .name { overflow: hidden; text-overflow: ellipsis; }
+.tree-view li[role="treeitem"]:focus { outline: none; }
+.tree-view li[role="treeitem"]:focus-visible > .row { outline: 1px solid var(--accent); outline-offset: -1px; }
+.tree-view .row.drop-into { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); border-radius: 3px; }
+.tree-view .row.drop-before { box-shadow: inset 0 2px 0 var(--accent); }
+.tree-view .row.drop-after { box-shadow: inset 0 -2px 0 var(--accent); }
+.tree-view .row.dragging { opacity: 0.5; }
+.tree-view .rename-input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-style: normal;
+  padding: 0 3px;
+  background: var(--input-bg);
+  color: var(--text);
+  border: 1px solid var(--accent);
+  border-radius: 2px;
+}

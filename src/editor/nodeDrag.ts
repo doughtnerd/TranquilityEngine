@@ -13,9 +13,7 @@ import { subtreeRoots } from "./nodeClipboard";
 import { openScene, selectedKeys, status } from "./state";
 import { whyNotEdit } from "./editGate";
 import { select } from "./inspectorTarget";
-import { eventWindow } from "./windows/dom";
-
-const DRAG_THRESHOLD = 5;
+import { startPointerDrag } from "./pointerDrag";
 
 export interface NodeDrag {
   /** Path key of the row the drag started on. */
@@ -68,59 +66,34 @@ function draggedKeys(doc: SceneDocument, key: string, selected: readonly string[
  * Press on a hierarchy row: past the threshold this drags the node, or the whole selection when
  * the row is selected. Releasing over a valid spot moves them (one undoable step; each stays where
  * it is in the world); anywhere else, or Escape, does nothing. A plain click still selects the row.
+ * The gesture is the editor's one row drag (`pointerDrag.ts`, ADR 0278).
  */
 export function startNodeDrag(e: PointerEvent, key: string): void {
-  if (e.button !== 0) return;
-  const startX = e.clientX, startY = e.clientY;
-  let active = false;
-  let keys: readonly string[] = [key];
-  // The window the drag started in: a detached panel window's own (ADR 0174). Dragging between windows isn't supported.
-  const win = eventWindow(e);
-  const doc = win.document;
-
-  const update = (m: PointerEvent) => {
-    if (!active && Math.hypot(m.clientX - startX, m.clientY - startY) < DRAG_THRESHOLD) return;
-    const scene = openScene.value;
-    if (!active && scene) keys = draggedKeys(scene.doc, key, selectedKeys.peek());
-    active = true;
-    const drop = scene ? hierarchyDropAt(scene.doc, m.clientX, m.clientY, doc) : null;
-    const problem =
-      whyNotEdit({ kind: "scene", scene }) ?? // no scene, play mode (ADR 0247)
-      (!scene ? "open a scene first" : nodeDropProblem(scene.doc, key, drop, keys));
-    nodeDrag.value = { key, keys, x: m.clientX, y: m.clientY, target: problem ? null : drop, problem };
-  };
-  const finish = (apply: boolean) => {
-    win.removeEventListener("pointermove", update);
-    win.removeEventListener("pointerup", up);
-    win.removeEventListener("pointercancel", cancel);
-    win.removeEventListener("keydown", key_, true);
-    const state = nodeDrag.value;
-    nodeDrag.value = null;
-    if (!apply || !active || !state?.target || "reason" in state.target.move) return;
-    const scene = openScene.value!;
-    try {
-      moveNodes(scene, state.keys, state.target.move.parent, state.target.move.index);
-      select(state.keys, key);
-      status.value = null;
-    } catch (err) {
-      status.value = errorStatus(`Couldn't move it`, err);
-    }
-  };
-  const up = (m: PointerEvent) => {
-    if (active) update(m);
-    finish(true);
-  };
-  const cancel = () => finish(false);
-  const key_ = (k: KeyboardEvent) => {
-    if (k.key !== "Escape" || !active) return;
-    k.preventDefault();
-    k.stopPropagation();
-    finish(false);
-  };
-  win.addEventListener("pointermove", update);
-  win.addEventListener("pointerup", up);
-  win.addEventListener("pointercancel", cancel);
-  win.addEventListener("keydown", key_, true);
+  let keys: readonly string[] | null = null;
+  startPointerDrag(e, {
+    move: (m, doc) => {
+      const scene = openScene.value;
+      if (keys === null) keys = scene ? draggedKeys(scene.doc, key, selectedKeys.peek()) : [key];
+      const drop = scene ? hierarchyDropAt(scene.doc, m.clientX, m.clientY, doc) : null;
+      const problem =
+        whyNotEdit({ kind: "scene", scene }) ?? // no scene, play mode (ADR 0247)
+        (!scene ? "open a scene first" : nodeDropProblem(scene.doc, key, drop, keys));
+      nodeDrag.value = { key, keys, x: m.clientX, y: m.clientY, target: problem ? null : drop, problem };
+    },
+    end: (apply) => {
+      const state = nodeDrag.value;
+      nodeDrag.value = null;
+      if (!apply || !state?.target || "reason" in state.target.move) return;
+      const scene = openScene.value!;
+      try {
+        moveNodes(scene, state.keys, state.target.move.parent, state.target.move.index);
+        select(state.keys, key);
+        status.value = null;
+      } catch (err) {
+        status.value = errorStatus(`Couldn't move it`, err);
+      }
+    },
+  });
 }
 
 /** Text for the ghost label while dragging a node. */

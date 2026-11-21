@@ -10,7 +10,7 @@ import { projectScriptAssetRefs } from "../engine/scene/scriptAssetRefs";
 import { importSites, rewriteImports, typescript, type ImportSite } from "./moduleImports";
 import { bundlePackages, chunkOrder, isPackageSpecifier, packagesKey, type PackageBundle, type PackageSource } from "./packages";
 import { isScriptPath } from "./projectPaths";
-import { isEditorHalfPath } from "../plugins/thirdParty";
+import { isEditorHalfPath, type FoundPlugin } from "../plugins/thirdParty";
 
 /** The bare specifier scripts import the engine by. */
 export const ENGINE_MODULE = "myco";
@@ -339,6 +339,17 @@ export async function loadedScriptModule(path: string): Promise<Record<string, u
   const url = loadedModules.get(path);
   if (!url) throw new Error(`The script "${path}" isn't loaded: it doesn't exist, isn't under scripts/, or has a problem (see the status bar).`);
   return (await import(/* @vite-ignore */ url)) as Record<string, unknown>;
+}
+
+/**
+ * A found plugin's half's entry module the last load loaded (ADR 0139, 0275): a project plugin's from
+ * its scripts, an npm plugin's from the bundled packages. Undefined when the plugin has no such half;
+ * throws when the entry didn't load.
+ */
+export async function loadedPluginModule(plugin: FoundPlugin, half: "runtime" | "editor"): Promise<Record<string, unknown> | undefined> {
+  const entry = plugin[half];
+  if (entry === undefined) return undefined;
+  return plugin.source.kind === "project" ? loadedScriptModule(entry) : loadedPackageModule(entry);
 }
 
 /** What the current project's scripts registered (the last `replaceScripts`). */

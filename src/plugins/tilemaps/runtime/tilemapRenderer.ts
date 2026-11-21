@@ -21,6 +21,16 @@ interface ChunkEntry {
 
 interface LayerEntry {
   chunks: Map<string, ChunkEntry>;
+  /** Whether the last sync drew it, and in what draw order. */
+  visible: boolean;
+  order: number;
+}
+
+/** @internal A tile layer drawn now (ADR 0276): its map, its draw order and its chunks' batches. */
+export interface DrawnLayer {
+  readonly map: Tilemap;
+  readonly order: number;
+  readonly batches: readonly QuadBatch[];
 }
 
 interface MapEntry {
@@ -75,9 +85,11 @@ export class TilemapRenderer {
 
     layers.forEach((layer, li) => {
       let le = entry!.layers[li];
-      if (!le) entry!.layers[li] = le = { chunks: new Map() };
       const visible = active && layer.meta.visible && !!tileset;
       const order = this.host.sortOrder(layer.meta.sortingLayer, layer.meta.orderInLayer);
+      if (!le) entry!.layers[li] = le = { chunks: new Map(), visible, order };
+      le.visible = visible;
+      le.order = order;
       for (const [key, ce] of le.chunks) {
         if (!layer.chunks.has(key)) {
           for (const b of ce.batches) b.dispose();
@@ -112,6 +124,18 @@ export class TilemapRenderer {
         }
       }
     });
+  }
+
+  /** The layers drawn now (visible, with tiles), in map then layer order (ADR 0276: what the Tilemaps feature drew). */
+  *drawn(): Iterable<DrawnLayer> {
+    for (const [map, entry] of this.maps) {
+      for (const le of entry.layers) {
+        if (!le.visible) continue;
+        const batches: QuadBatch[] = [];
+        for (const ce of le.chunks.values()) batches.push(...ce.batches);
+        if (batches.length) yield { map, order: le.order, batches };
+      }
+    }
   }
 
   private invalidateFrames(entry: MapEntry): void {

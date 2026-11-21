@@ -25,7 +25,6 @@ import { meshOf } from "../materials";
 import type { BabylonMaterialLibrary } from "../materialLibrary";
 import { appliedPixelRatio } from "../../RenderSurface";
 import {
-  addPreviewLights,
   aimCamera,
   createPreviewScene,
   createStudioTexture,
@@ -35,6 +34,7 @@ import {
   useWhenReady,
 } from "./common";
 import { createEngine } from "../createEngine";
+import { addDefaultLights } from "../lighting";
 
 export type PreviewMesh = Extract<BuiltinMesh, "sphere" | "cube" | "capsule" | "plane" | "quad">;
 
@@ -95,7 +95,7 @@ export class MaterialPreview {
       this.engine = engine;
       engine.setHardwareScalingLevel(1 / appliedPixelRatio()); // the World surface's pixel ratio, at render scale 1 (ADR 0154)
       const scene = createPreviewScene(engine);
-      addPreviewLights(scene);
+      addDefaultLights(scene, "preview"); // the default rig, a World's own (ADR 0277)
       const camera = new TargetCamera("preview.camera", Vector3.Zero(), scene, false);
       camera.fov = (35 * Math.PI) / 180;
       camera.fovMode = Camera.FOVMODE_VERTICAL_FIXED;

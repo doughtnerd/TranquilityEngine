@@ -9,7 +9,7 @@ import { assetDependencies, type ReferenceSource } from "../assetReferences";
 export type { PreviewKind };
 
 /** Bumped when the renderer's look changes, so every cached thumbnail is rendered again. */
-const THUMBNAIL_FORMAT = 4;
+const THUMBNAIL_FORMAT = 5;
 
 /** The preview an asset gets, or null for none: its kind's `preview` (ADR 0133, 0143). Images and sprite slices are shown as they are. */
 export const previewKind = (path: string): PreviewKind | null => previewOf(path);

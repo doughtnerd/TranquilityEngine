@@ -12,7 +12,6 @@ import type { EditorPlugin } from "../editor/sdk/plugins";
 import { status } from "../editor/state";
 import { EDITOR_PLUGINS } from "./editor";
 import { editorActivator } from "./editorActivator";
-import type { PluginManifest } from "./manifest";
 import { createPluginSet, type ApplyResult, type PluginSetProblem, type SetPlugin } from "./pluginSet";
 import { RUNTIME_PLUGINS } from "./runtime";
 import { runtimeActivator, type RuntimePlugin } from "./runtimeContext";
@@ -27,13 +26,6 @@ const editorPlugins = createPluginSet<RuntimePlugin, EditorPlugin>({ runtime: ru
  * break ties by it), editor halves in `EDITOR_PLUGINS`' order (panels, settings sections).
  */
 export const firstPartyPlugins = (): EditorSetPlugin[] => [...RUNTIME_PLUGINS.map((p) => ({ manifest: p.manifest, runtime: p })), ...EDITOR_PLUGINS.map((p) => ({ manifest: p.manifest, editor: p }))];
-
-/** Every first-party plugin's manifest, once (a plugin with both halves shares one). */
-export function pluginManifests(): PluginManifest[] {
-  const byName = new Map<string, PluginManifest>();
-  for (const p of [...RUNTIME_PLUGINS, ...EDITOR_PLUGINS]) if (!byName.has(p.manifest.name)) byName.set(p.manifest.name, p.manifest);
-  return [...byName.values()];
-}
 
 /** The open project's loaded third-party plugins (`thirdPartyEditor.ts` hands them over), kept for re-applying. */
 let thirdParty: readonly EditorSetPlugin[] = [];

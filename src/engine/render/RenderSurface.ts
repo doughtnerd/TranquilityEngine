@@ -81,8 +81,12 @@ export interface RenderDiagnostics {
   stats: RenderStats;
   /** The cameras that drew the last frame: to the canvas (depth order), into a render texture, or the editor's preview inset. */
   cameras: { camera: Camera; target: "canvas" | "texture" | "preview" }[];
-  /** The nodes whose renderers are drawn (visible, loaded), once each: meshes with their materials, and sprites. */
-  drawn: { meshes: { node: GameObject; materials: DrawnMaterial[] }[]; sprites: GameObject[] };
+  /**
+   * What the render features drew (visible, loaded; ADR 0276): each node once per feature that drew it, by
+   * feature name (`meshes`, `sprites`, `tilemaps`, `water`, `ui`…), with the materials it was drawn with
+   * (MeshRenderers report theirs; others none).
+   */
+  drawn: { node: GameObject; feature: string; materials: DrawnMaterial[] }[];
   /** Each loaded render feature's own part, by feature name (ADR 0154). */
   features: RenderFeatureDiagnostics;
 }
@@ -101,7 +105,7 @@ export function noRenderDiagnostics(): RenderDiagnostics {
     renderTextures: {},
     stats: { drawCalls: 0, triangles: 0, lines: 0, points: 0, geometries: 0, textures: 0, programs: 0 },
     cameras: [],
-    drawn: { meshes: [], sprites: [] },
+    drawn: [],
     features: {},
   };
 }

@@ -14,7 +14,6 @@ import { compileScript, ENGINE_MODULE, LEGACY_ENGINE_MODULE, isScriptPath, loadO
 import { bundlePackages, isPackageSpecifier, type PackageSource } from "../editor/packages";
 import { isProjectFile, skipsFolder } from "../engine/scene/projectFiles";
 import { projectScriptAssetRefs } from "../engine/scene/scriptAssetRefs";
-import { FIRST_PARTY_MANIFESTS } from "../plugins/manifests";
 import { planPluginCode, type BuiltPlugin } from "../plugins/thirdParty";
 import { ENGINE_FILE, MANIFEST_FILE, MANIFEST_FORMAT, PROJECT_DIR, modulePath, relativeSpecifier, type GameManifest } from "./format";
 
@@ -155,7 +154,7 @@ export async function planWebBuild(source: BuildSource, options: BuildOptions = 
 
   // Third-party plugins (ADR 0139): the enabled ones' runtime halves build with the scripts; a refused plugin stops the build.
   const pluginPlan = await planPluginCode(
-    { json: source.json, code: source.scripts, packages: source.packages?.files, disabled: source.settings.plugins?.disabled, builtIn: FIRST_PARTY_MANIFESTS },
+    { json: source.json, code: source.scripts, packages: source.packages?.files, disabled: source.settings.plugins?.disabled },
     { editor: false },
   );
   if (pluginPlan.problems.length > 0) {

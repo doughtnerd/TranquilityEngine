@@ -3,7 +3,7 @@
 // from their prefab file, so they can't be moved or deleted here (the instance itself can).
 import { localPoseUnder } from "../engine/editor";
 import { RemoveNode, ReparentNode, SetField, type NodeReference, type SceneDocument } from "./document";
-import { toSceneJSON } from "./fieldValues";
+import { FIELD_KINDS, noNodeRefs } from "./fields/kinds";
 import type { OpenScene } from "./state";
 import { undoStep } from "./undoStep";
 
@@ -55,8 +55,7 @@ export function moveNode(scene: OpenScene, id: string, parent: string | null, in
         // q and -q are the same rotation.
         const same = field === "rotation" ? Math.abs(pose.rotation.reduce((d, v, i) => d + v * current.rotation[i], 0)) > 1 - EPSILON : pose[field].every((v, i) => Math.abs(v - current[field][i]) < EPSILON);
         if (same) continue;
-        const previous = doc.isPrefabInstance(id) ? doc.overrideValue(id, [], "engine.Transform", field) : doc.fieldValue(id, "engine.Transform", field);
-        stack.execute(new SetField(id, "engine.Transform", field, toSceneJSON(field === "rotation" ? "quaternion" : "vector3", pose[field], { field, previous })));
+        stack.execute(new SetField(id, "engine.Transform", field, FIELD_KINDS[field === "rotation" ? "quaternion" : "vector3"].toJSON(pose[field], noNodeRefs)));
       }
     }
   });

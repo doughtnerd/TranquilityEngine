@@ -34,7 +34,7 @@ async function setBirdY(page: Page, value: string): Promise<void> {
 }
 
 async function openPipePair(page: Page): Promise<void> {
-  await assets(page).getByRole("navigation", { name: "Folders" }).getByRole("button", { name: "prefabs", exact: true }).click();
+  await assets(page).getByRole("tree", { name: "Folders" }).locator(".asset-folder", { hasText: /^prefabs$/ }).click();
   await assets(page).locator(".asset-tile").filter({ hasText: "pipe-pair.prefab.json" }).dblclick();
   await expect(page.locator(".scene-name")).toHaveText("pipe-pair.prefab.json");
 }

@@ -1,11 +1,12 @@
 // ADR 0042: editing list and choice fields, a component's Worlds and a node's tags from the
 // Inspector, on plain nodes and prefab instances.
 import { beforeEach, describe, expect, it } from "vitest";
-import { Color, Engine, GameBehavior, GameObject, Input, Quaternion, RigidBody2D, Vector2, behavior, field } from "../myco";
+import { Engine, GameBehavior, GameObject, Input, Quaternion, RigidBody2D, Vector2, behavior, field } from "../myco";
 import { getFields } from "../engine/core/registry";
 import { listComponents, type FieldValue } from "../engine/editor";
 import { AddComponent, AddNode, SetField, type NodePath } from "./document";
-import { choicesFor, defaultItem, editorFor, fieldTitle, itemEditorFor, itemField, toSceneJSON } from "./fieldValues";
+import { choicesFor, fieldTitle, itemField } from "./fieldValues";
+import { fieldKind } from "./fields/kinds";
 import { deleteNodes } from "./hierarchyEdit";
 import { componentWorlds, effectiveWorlds, knownWorldTags, setComponentWorlds, setNodeTags, tagsOverridden, withWorldTag, worldsBadge } from "./inspectorEdits";
 import { OrbitCamera } from "./OrbitCamera";
@@ -43,30 +44,18 @@ const fieldOf = (key: string, type: string, name: string): FieldValue => info(ke
 const worldsOf = (key: string, type: string) => componentWorlds(scene().doc, target(key).path, info(key, type), 1)!;
 
 describe("field editors (ADR 0042)", () => {
-  it("picks list, choice and quaternion editors", () => {
+  it("picks list kinds with their item kind, and choice and quaternion kinds", () => {
     const fields = getFields(Route);
     const f = (name: string): FieldValue => ({ ...fields.find((x) => x.name === name)!, value: undefined });
-    expect(editorFor(f("points"))).toBe("list");
-    expect(itemEditorFor(f("points"))).toBe("vector2");
-    expect(itemEditorFor(f("stops"))).toBe("node");
-    expect(itemEditorFor(f("speeds"))).toBe("choice");
-    expect(editorFor(f("facing"))).toBe("quaternion");
-    expect(defaultItem("vector2")).toEqual([0, 0]);
-    expect(defaultItem("quaternion")).toEqual([0, 0, 0, 1]);
-    expect(defaultItem("choice", [{ label: "slow", value: "slow" }])).toBe("slow");
-  });
-
-  it("writes lists item by item in scene-file form", () => {
-    const nodeId = (n: GameObject) => (n.name === "B" ? "b" : null);
-    const b = { name: "B" } as GameObject;
-    expect(toSceneJSON("list", [new Vector2(1, 2), [3, 4]], { itemEditor: "vector2" })).toEqual([[1, 2], [3, 4]]);
-    expect(toSceneJSON("list", [b, null, "c"], { itemEditor: "node", nodeId })).toEqual([{ $node: "b" }, null, { $node: "c" }]);
-    expect(toSceneJSON("list", [new Color(1, 0, 0, 1)], { itemEditor: "color" })).toEqual(["#ff0000"]);
-    expect(toSceneJSON("quaternion", Quaternion.fromEuler(0, 0, Math.PI / 6))).toEqual([0, 0, 0.258819, 0.9659258]);
+    expect(fieldKind(f("points")).name).toBe("list");
+    expect(fieldKind(f("points")).item?.name).toBe("vector2");
+    expect(fieldKind(f("stops")).item?.name).toBe("node");
+    expect(fieldKind(f("speeds")).item?.name).toBe("choice");
+    expect(fieldKind(f("facing")).name).toBe("quaternion");
   });
 
   it("makes engine enum fields dropdowns, with layers from the project settings", () => {
-    expect(editorFor(fieldOf("bird", "engine.RigidBody2D", "bodyType"))).toBe("choice");
+    expect(fieldKind(fieldOf("bird", "engine.RigidBody2D", "bodyType")).name).toBe("choice");
     expect(choicesFor(fieldOf("bird", "engine.RigidBody2D", "bodyType"))!.map((c) => c.value)).toEqual(["dynamic", "kinematic", "static"]);
     const settings = sampleProject().settings;
     expect(choicesFor(fieldOf("bird-sprite", "engine.SpriteRenderer", "sortingLayer"), settings)!.map((c) => c.value)).toEqual(["Background", "Pipes", "Default", "Foreground", "Player"]);

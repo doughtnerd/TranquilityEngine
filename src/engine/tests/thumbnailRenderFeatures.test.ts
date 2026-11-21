@@ -12,6 +12,7 @@ import { Camera, Light, SpriteRenderer } from "../render/components";
 import { BabylonRenderer, loadPluginFeatures } from "../render/babylon/BabylonRenderer";
 import { applyTestPlugins } from "../../plugins/testPlugins";
 import { ThumbnailScenes } from "../render/babylon/previews/thumbnailScenes";
+import type { BabylonEditorViewport } from "../render/babylon/editorViewport";
 
 const TEXTURE = 512; // NullEngine's texture size
 const PROJECT_PPU = 16;
@@ -66,7 +67,7 @@ describe("thumbnails through the render features (ADR 0153)", () => {
    * The prefab as a World draws it: loaded by the engine (SceneManager), and synced by a renderer with the
    * Sprites plugin's feature (a thumbnail one only because NullEngine can't make the studio room).
    */
-  async function inWorld(path: string): Promise<{ renderer: BabylonRenderer; world: World; dispose(): void }> {
+  async function inWorld(path: string): Promise<{ renderer: BabylonRenderer; tools: BabylonEditorViewport; world: World; dispose(): void }> {
     const engine = await Engine.create({ headless: true, project: { render: { pixelsPerUnit: PROJECT_PPU } } });
     await SceneManager.load(path);
     const world = World.require();
@@ -74,13 +75,15 @@ describe("thumbnails through the render features (ADR 0153)", () => {
     const sprites = (await loadPluginFeatures()).filter((p) => p.registration.spec.name === "sprites");
     const renderer = BabylonRenderer.forThumbnail(nullEngine, world.settings, sprites, { studio: null });
     renderer.setPolicy({ drawPolicy: "perObject" });
-    const sized = () => GameObject.findObjectsOfType(SpriteRenderer).every((s) => renderer.spriteSize(s));
+    const tools = (await renderer.loadEditorTools())!; // what the editor asks a sprite's size through (ADR 0276: what the sprite feature drew)
+    const sized = () => GameObject.findObjectsOfType(SpriteRenderer).every((s) => tools.spriteSize(s));
     for (let i = 0; i < 100 && !(renderer.contentReady() && sized()); i++) {
       renderer.sync(world);
       await new Promise((r) => setTimeout(r, 5));
     }
     return {
       renderer,
+      tools,
       world,
       dispose: () => {
         renderer.dispose();
@@ -98,8 +101,8 @@ describe("thumbnails through the render features (ADR 0153)", () => {
     try {
       const [a, b] = GameObject.findObjectsOfType(SpriteRenderer);
       // The World's sizes: the slice's 8 pixels at the project's 16 per unit; the whole texture at the sprite's own 50.
-      expect(ref.renderer.spriteSize(a)).toEqual([8 / PROJECT_PPU, 8 / PROJECT_PPU]);
-      expect(ref.renderer.spriteSize(b)).toEqual([TEXTURE / 50, TEXTURE / 50]);
+      expect(ref.tools.spriteSize(a)).toEqual([8 / PROJECT_PPU, 8 / PROJECT_PPU]);
+      expect(ref.tools.spriteSize(b)).toEqual([TEXTURE / 50, TEXTURE / 50]);
       for (const name of ["sprite:A", "sprite:B"]) {
         const [min, max] = box(named(p.scene, name));
         const [wmin, wmax] = box(named(ref.renderer.scene, name));
