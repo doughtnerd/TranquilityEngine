@@ -2,7 +2,6 @@
 // first. The list is a per-user convenience kept in browser storage. The desktop editor
 // remembers folder paths; a Chromium browser remembers folder handles (in IndexedDB, since
 // handles can't be written as JSON) and asks for access again when one is reopened.
-import { signal } from "@preact/signals";
 import type { FsaDirectoryHandle } from "./fsaFileSystem";
 import { RecentProjects, type HandleStore, type ListStore } from "./recentProjectList";
 
@@ -15,14 +14,15 @@ export function recentProjects(): RecentProjects {
   return (shared ??= new RecentProjects(localListStore(), indexedDbHandleStore()));
 }
 
-/** Bumped when the list changes, so the start screen and File > Open Recent re-read it. */
-export const recentVersion = signal(0);
-
-/** The list in localStorage. */
+/**
+ * The list in localStorage. Another window's writes (the desktop editor window adding the project it opened, seen
+ * by the Projects window, ADR 0059) arrive as storage events.
+ */
 function localListStore(key = "myco.editor.recentProjects"): ListStore {
   return {
     read: () => globalThis.localStorage?.getItem(key) ?? null,
     write: (text) => globalThis.localStorage?.setItem(key, text),
+    subscribe: (changed) => globalThis.addEventListener?.("storage", (e: StorageEvent) => (e.key === key || e.key === null) && changed()),
   };
 }
 

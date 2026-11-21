@@ -1,3 +1,4 @@
+import { effect } from "@preact/signals";
 import { describe, expect, it } from "vitest";
 import type { FsaDirectoryHandle } from "./fsaFileSystem";
 import { MemoryDirectoryHandle } from "./fsaMemory";
@@ -109,5 +110,20 @@ describe("browser folder location notes (ADR 0116)", () => {
     r.setLabel("a", "x");
     expect(r.list().map((e) => e.id)).toEqual(["a"]); // the malformed entry is dropped
     expect(r.list()[0].label).toBeUndefined();
+  });
+
+  it("carries its own change signal: its writes and another window's bump it (ADR 0318)", async () => {
+    let text: string | null = null;
+    let otherWindowWrote = () => {};
+    const r = new RecentProjects({ read: () => text, write: (t) => void (text = t), subscribe: (changed) => void (otherWindowWrote = changed) }, null);
+    const seen: number[] = [];
+    const stop = effect(() => void seen.push(r.version.value));
+    const entry = await r.add({ name: "A", path: "/a" });
+    await r.remove(entry.id);
+    text = JSON.stringify([{ ...entry, name: "From the editor window" }]);
+    otherWindowWrote();
+    stop();
+    expect(seen).toEqual([0, 1, 2, 3]);
+    expect(r.list().map((e) => e.name)).toEqual(["From the editor window"]);
   });
 });

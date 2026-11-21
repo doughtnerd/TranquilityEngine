@@ -7,7 +7,7 @@
 import { effect } from "@preact/signals";
 import type { Engine } from "../engine";
 import { type GizmoHandlers, type GizmoOptions, type LocalPose, viewport } from "../engine/editor";
-import { SetField, type NodePath, type SceneDocument } from "./document";
+import type { NodePath } from "./document";
 import { FIELD_KINDS, noNodeRefs } from "./fields/kinds";
 import { topmostKeys } from "./selectionModel";
 import { cleanSnap, gizmoPivot, gizmoSpace, snapActive, snapSettings } from "./sceneTools";
@@ -28,17 +28,7 @@ function gizmoMode(t: Tool): Mode | null {
   return t === "select" ? null : MODES[t];
 }
 
-/**
- * The edit one gizmo drag step makes: set the Transform field the mode changes, on a scene node
- * or (as an override) a prefab instance or a node inside one. A rotation is written as a quaternion
- * (ADR 0163).
- */
-export function gizmoEdit(doc: SceneDocument, node: string | NodePath, mode: Mode, pose: LocalPose, field: "position" | "rotation" | "scale" = FIELDS[mode]): SetField {
-  const [id, ...target] = typeof node === "string" ? [node] : node;
-  return new SetField(id, "engine.Transform", field, poseValue(pose, field), { target });
-}
-
-/** A pose's Transform field in scene-file form (a rotation as a quaternion). */
+/** A pose's Transform field in scene-file form (a rotation as a quaternion, ADR 0163). */
 const poseValue = (pose: LocalPose, field: "position" | "rotation" | "scale"): unknown => FIELD_KINDS[field === "rotation" ? "quaternion" : "vector3"].toJSON(pose[field], noNodeRefs);
 
 /**

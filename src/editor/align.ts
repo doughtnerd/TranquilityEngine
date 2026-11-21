@@ -1,13 +1,14 @@
 // Align and distribute (ADR 0022): line several selected nodes up by their bounds (sprite boxes, or
 // origins for nodes without one) along an axis, or space them evenly. One undo step per action,
-// with overrides on prefab instances, like the gizmo.
+// opened through the edit gate (ADR 0247: not during play) and written through the component field
+// write (ADR 0257: overrides on prefab instances), like the gizmo.
 import { localPositionFor, worldBounds } from "../engine/editor";
 import type { SceneDocument } from "./document";
-import { gizmoEdit } from "./gizmo";
+import { writeComponentField } from "./componentField";
+import { editStep, whyNotEdit } from "./editGate";
 import { topmostKeys } from "./selectionModel";
 import { openScene, selectedNodes, status } from "./state";
 import { alignOffsets, distributeOffsets, type Axis, type Edge } from "./boxAlign";
-import { undoStep } from "./undoStep";
 
 export type { Axis, Edge } from "./boxAlign";
 
@@ -22,6 +23,18 @@ export function actionLabel(a: AlignAction, planar: boolean): string {
   const word = planar ? EDGE_2D[`${a.axis}${a.edge}`] : undefined;
   return word ? `Align ${word}` : `Align ${AXIS[a.axis]} ${a.edge === "center" ? "centre" : a.edge}`;
 }
+
+/** The action as a verb phrase for the edit gate's wording ("stop playing to align left"). */
+const toDo = (a: AlignAction, planar: boolean) => {
+  const label = actionLabel(a, planar);
+  return label.charAt(0).toLowerCase() + label.slice(1);
+};
+
+/**
+ * Why `action` (any of them when absent) can't run on the open scene now (no scene, play mode), or null. Reads the
+ * signals, so the Align menu re-renders when play starts or stops.
+ */
+export const whyNotAlign = (action?: AlignAction, planar = false): string | null => whyNotEdit({ kind: "scene" }, action ? toDo(action, planar) : "align or distribute nodes");
 
 /** The fewest nodes an action needs. */
 export const minNodes = (a: AlignAction) => (a.kind === "align" ? 2 : 3);
@@ -58,8 +71,11 @@ export function runAlign(action: AlignAction, planar: boolean): number {
     return [{ path: t.path, position }];
   });
   if (moves.length === 0) return 0;
-  undoStep(scene.stack, `${actionLabel(action, planar)} (${targets.length} nodes)`, () => {
-    for (const m of moves) scene.stack.execute(gizmoEdit(scene.doc, m.path, "translate", { position: m.position, rotation: [0, 0, 0, 1], scale: [1, 1, 1] }, "position"));
-  });
-  return moves.length;
+  const moved = editStep(
+    { kind: "scene", scene },
+    `${actionLabel(action, planar)} (${targets.length} nodes)`,
+    (s) => moves.filter((m) => writeComponentField({ scene: s, path: m.path, type: "engine.Transform" }, "position", m.position) === null).length,
+    toDo(action, planar),
+  );
+  return moved ?? 0;
 }

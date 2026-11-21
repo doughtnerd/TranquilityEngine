@@ -16,3 +16,6 @@
 .window-controls button:hover { background: var(--brand-hover); color: var(--brand-text-strong); }
 .window-controls button.close:hover { background: var(--danger); color: var(--brand-text-strong); }
 .window-controls svg { width: 12px; height: 12px; stroke: currentColor; stroke-width: 1.2; fill: none; }
+
+/* The fatal error fallback (main.tsx): it can show before the theme installs its tokens, so the token has a fallback. */
+.launcher-fatal { margin: 0; padding: 16px; color: var(--danger, #f88); white-space: pre-wrap; }

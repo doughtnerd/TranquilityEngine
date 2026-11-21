@@ -73,7 +73,7 @@ export class MemoryFileSystem implements FileSystem {
       this.folders.delete(k);
     }
   }
-  async pickFolder() {
+  async pickFolder(): Promise<string | null> {
     return null;
   }
 }

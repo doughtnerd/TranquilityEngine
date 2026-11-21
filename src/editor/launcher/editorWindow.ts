@@ -3,7 +3,7 @@
 // shows the Projects window again.
 import { effect } from "@preact/signals";
 import { openPickedProject, sceneViewStarted } from "../session";
-import { currentProject, status } from "../state";
+import { currentProject } from "../state";
 import { serveProjectsWindow, showProjectsWindow, tauriBus } from "./handoff";
 
 export async function serveDesktopProjectsWindow(): Promise<void> {
@@ -16,8 +16,10 @@ export async function serveDesktopProjectsWindow(): Promise<void> {
     return;
   }
   serveProjectsWindow(bus, async (request) => {
-    await openPickedProject(request);
-    if (!currentProject.peek()) throw new Error(status.peek()?.text ?? "The project didn't open.");
+    const outcome = await openPickedProject(request);
+    // A refusal goes back in this window's words; the Projects window shows it as they are (ADR 0318).
+    if (outcome.kind === "refused") throw new Error(outcome.reason.text);
+    if (outcome.kind === "cancelled") throw new Error("The project didn't open.");
     await sceneViewStarted(); // show the scene view drawn (ADR 0082)
     await window.show();
     await window.setFocus();

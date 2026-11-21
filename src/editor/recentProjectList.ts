@@ -1,6 +1,8 @@
 // The recent projects list (ADR 0038) over the stores it's given: newest first, a reopened project
 // moved to the top, at most a few kept, browser folder handles kept beside the list. The editor's
-// list (recentProjects.ts) keeps it in localStorage and IndexedDB.
+// list (recentProjects.ts) keeps it in localStorage and IndexedDB. The list carries its own change signal
+// (`version`, ADR 0318): its own writes bump it, and so do another window's writes where the store reports them.
+import { signal, type ReadonlySignal } from "@preact/signals";
 import type { FileSystem } from "../engine/platform/FileSystem";
 import type { FsaDirectoryHandle } from "./fsaFileSystem";
 import { joinPath } from "./projectPaths";
@@ -35,6 +37,8 @@ export type RecentState = "ok" | "missing" | "needs-access" | "unknown";
 export interface ListStore {
   read(): string | null;
   write(text: string): void;
+  /** Call `changed` when something else (another window) writes the list. */
+  subscribe?(changed: () => void): void;
 }
 
 /** Where browser folder handles are kept, by recent entry id (IndexedDB in the editor). */
@@ -55,11 +59,20 @@ let counter = 0;
 const newId = () => `${Date.now().toString(36)}-${(counter++).toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
 export class RecentProjects {
+  private readonly changes = signal(0);
+
   constructor(
     private readonly store: ListStore,
     private readonly handles: HandleStore | null,
     private readonly max = MAX_RECENT,
-  ) {}
+  ) {
+    store.subscribe?.(() => this.changes.value++);
+  }
+
+  /** Changes whenever the list does (here or in another window), so views reading it re-read it. */
+  get version(): ReadonlySignal<number> {
+    return this.changes;
+  }
 
   /** The recent projects, newest first. Unreadable storage reads as an empty list. */
   list(): RecentProject[] {
@@ -155,6 +168,7 @@ export class RecentProjects {
     } catch {
       // storage blocked: the list just isn't remembered
     }
+    this.changes.value++;
   }
 }
 
