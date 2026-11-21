@@ -20,6 +20,8 @@ const settings = (overrides: Partial<PostSettings> = {}): PostSettings => ({
   contrast: 0,
   saturation: 0,
   hue: 0,
+  lut: "",
+  lutIntensity: 1,
   vignette: false,
   vignetteDarkness: 0.5,
   vignetteOffset: 0.5,
@@ -147,7 +149,7 @@ describe("colour lookup tables (ADR 0111)", () => {
   const [low, , high] = tiers;
   const base = (over: Partial<PostSettings>): PostSettings => ({
     enabled: true, toneMapping: "agx", exposure: 1, bloom: false, bloomIntensity: 1, bloomThreshold: 0.9, bloomRadius: 0.85, ambientOcclusion: false, aoIntensity: 2, aoRadius: 1,
-    brightness: 0, contrast: 0, saturation: 0, hue: 0, vignette: false, vignetteDarkness: 0.5, vignetteOffset: 0.5, depthOfField: false, focusDistance: 10, focusRange: 5, bokehScale: 2,
+    brightness: 0, contrast: 0, saturation: 0, hue: 0, lut: "", lutIntensity: 1, vignette: false, vignetteDarkness: 0.5, vignetteOffset: 0.5, depthOfField: false, focusDistance: 10, focusRange: 5, bokehScale: 2,
     chromaticAberration: false, chromaticAberrationAmount: 0.002, ...over,
   });
 

@@ -51,7 +51,6 @@ import { BabylonProbes } from "./probes";
 import { BabylonRenderTextures } from "./renderTextures";
 import type { PixelGrid, RenderDiagnostics, RenderFeatureDiagnostics } from "../RenderSurface";
 import { Graphics } from "../Graphics";
-import type { PostSettings } from "../postEffects";
 import { canvasCameras, planFrame, type FrameCamera, type PlannedView, type Rgb, type ViewRect } from "../framePlan";
 import { GAME_POLICY, type PreviewInset, type RenderPolicy } from "../renderPolicy";
 import type { PostEffects, ToneMappingName } from "../postEffects";
@@ -573,7 +572,7 @@ export class BabylonRenderer {
         rect: entry.rect,
         target: c.targetTexture,
         background: bg ? rgbOf(bg) : null,
-        post: p && p.isActiveAndEnabled ? ({ ...p, enabled: true } as unknown as PostSettings) : null,
+        post: p?.isActiveAndEnabled ? p : null, // the live component is its PostSettings (read, not kept, by the plan)
         editMode: world.inEditMode(c.node.entity),
       });
     }

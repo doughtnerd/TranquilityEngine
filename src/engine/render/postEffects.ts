@@ -3,8 +3,9 @@
  * active quality tier. Pure, so the rules are unit-tested without WebGL.
  */
 import type { QualityTier } from "../core/graphics";
+import type { PostProcessing } from "./components";
 
-export type ToneMappingName = "none" | "aces" | "agx" | "neutral";
+export type ToneMappingName = PostProcessing["toneMapping"];
 /** Ambient occlusion quality once the tier allows it (the tier's "off" leaves `ambientOcclusion` null). */
 export type AOQuality = "low" | "medium" | "high" | "ultra";
 
@@ -24,53 +25,38 @@ export interface PostEffects {
 }
 
 /**
- * Identifies the pass layout: equal keys mean the frame graph can update values in place, different keys mean a rebuild.
- * Deliberately excludes every numeric value and the multisample count (a plain property on the composer).
+ * The PostProcessing component's fields `resolvePostEffects` reads, and `enabled`. Derived from the
+ * component, so a renamed or retyped field fails to compile here, and the renderer hands over the live
+ * component without copying it (ADR 0274).
  */
-export function stackKey(effects: PostEffects, overlay = false): string {
-  return [
-    overlay ? "overlay" : "base",
-    effects.toneMapping,
-    effects.antialias === "smaa" || effects.antialias === "fxaa" ? effects.antialias : "no-aa-pass",
-    effects.bloom ? "bloom" : "-",
-    effects.ambientOcclusion ? `ao:${effects.ambientOcclusion.quality}` : "-",
-    effects.colorGrading ? "grade" : "-",
-    effects.vignette ? "vig" : "-",
-    effects.depthOfField ? "dof" : "-",
-    effects.chromaticAberration ? "ca" : "-",
-  ].join("|");
-}
-
-
-/** A PostProcessing component's values (the fields `resolvePostEffects` reads). */
-export interface PostSettings {
-  enabled: boolean;
-  toneMapping: ToneMappingName;
-  exposure: number;
-  bloom: boolean;
-  bloomIntensity: number;
-  bloomThreshold: number;
-  bloomRadius: number;
-  ambientOcclusion: boolean;
-  aoIntensity: number;
-  aoRadius: number;
-  brightness: number;
-  contrast: number;
-  saturation: number;
-  hue: number;
-  /** Optional: a `.cube` colour lookup table (ADR 0111). */
-  lut?: string;
-  lutIntensity?: number;
-  vignette: boolean;
-  vignetteDarkness: number;
-  vignetteOffset: number;
-  depthOfField: boolean;
-  focusDistance: number;
-  focusRange: number;
-  bokehScale: number;
-  chromaticAberration: boolean;
-  chromaticAberrationAmount: number;
-}
+export type PostSettings = Pick<
+  PostProcessing,
+  | "enabled"
+  | "toneMapping"
+  | "exposure"
+  | "bloom"
+  | "bloomIntensity"
+  | "bloomThreshold"
+  | "bloomRadius"
+  | "ambientOcclusion"
+  | "aoIntensity"
+  | "aoRadius"
+  | "brightness"
+  | "contrast"
+  | "saturation"
+  | "hue"
+  | "lut"
+  | "lutIntensity"
+  | "vignette"
+  | "vignetteDarkness"
+  | "vignetteOffset"
+  | "depthOfField"
+  | "focusDistance"
+  | "focusRange"
+  | "bokehScale"
+  | "chromaticAberration"
+  | "chromaticAberrationAmount"
+>;
 
 export interface ResolvedPost {
   /** The composer's effects, or null to render directly (no composer). */
@@ -98,7 +84,7 @@ export function resolvePostEffects(s: PostSettings | null, tier: QualityTier): R
     bloom: post && tier.bloom && s!.bloom ? { intensity: s!.bloomIntensity, threshold: s!.bloomThreshold, radius: s!.bloomRadius } : null,
     ambientOcclusion: post && tier.ambientOcclusion !== "off" && s!.ambientOcclusion ? { intensity: s!.aoIntensity, radius: s!.aoRadius, quality: tier.ambientOcclusion } : null,
     colorGrading: grading ? { brightness: s!.brightness, contrast: s!.contrast, saturation: s!.saturation, hue: s!.hue } : null,
-    lut: post && s!.lut && (s!.lutIntensity ?? 1) > 0 ? { path: s!.lut, intensity: Math.min(1, s!.lutIntensity ?? 1) } : null,
+    lut: post && s!.lut && s!.lutIntensity > 0 ? { path: s!.lut, intensity: Math.min(1, s!.lutIntensity) } : null,
     vignette: post && s!.vignette ? { darkness: s!.vignetteDarkness, offset: s!.vignetteOffset } : null,
     depthOfField: post && tier.depthOfField && s!.depthOfField ? { focusDistance: s!.focusDistance, focusRange: s!.focusRange, bokehScale: s!.bokehScale } : null,
     chromaticAberration: post && s!.chromaticAberration ? { amount: s!.chromaticAberrationAmount } : null,
@@ -118,25 +104,3 @@ export const AO_SETTINGS = {
   high: { samples: 32, ratio: 1 },
   ultra: { samples: 48, ratio: 1 },
 } as const;
-
-/** One kind of pass in a camera's part of the frame. */
-export type PassKind = "clear" | "render" | "geometry" | "ao" | "dof" | "bloom" | "ca" | "finish" | "fxaa";
-
-/**
- * A camera's passes, in order, for its effects (null: none), and whether something asked for
- * the scene depth (ADR 0109). The Babylon frame graph (`render/babylon/frameGraph.ts`) follows this
- * list. The geometry pass (view depth, and normals for ambient occlusion) runs before the render pass, so what the render pass draws last (particles) can sample the opaque scene's depth.
- */
-export function cameraPasses(effects: PostEffects | null, depth = false): PassKind[] {
-  const passes: PassKind[] = ["clear"];
-  if (depth || effects?.ambientOcclusion || effects?.depthOfField) passes.push("geometry");
-  passes.push("render");
-  if (effects?.ambientOcclusion) passes.push("ao");
-  if (effects?.depthOfField) passes.push("dof");
-  if (effects?.bloom) passes.push("bloom");
-  if (effects?.chromaticAberration) passes.push("ca");
-  passes.push("finish");
-  // Babylon's frame graph has no SMAA: FXAA stands in for it.
-  if (effects?.antialias === "fxaa" || effects?.antialias === "smaa") passes.push("fxaa");
-  return passes;
-}
