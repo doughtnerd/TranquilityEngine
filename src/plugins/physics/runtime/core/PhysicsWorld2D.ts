@@ -6,6 +6,7 @@
 import { DEG2RAD, Mat4, Vector2 } from "../../../../engine/core/math";
 import type { World } from "../../../../engine/core/World";
 import { cleanPoints, convexParts } from "../../../../engine/physics/polygon";
+import { scaledCenter2D, shapeSize2D, type ShapeFields2D } from "../../../../engine/physics/shape2d";
 import type { GameObject } from "../../../../engine/scene/GameObject";
 import type { Transform } from "../../../../engine/scene/Transform";
 import type { CharacterSettings, Dim2, JointDesc, JointSettings, PhysicsBackend2D, Pose, ShapeDesc2D, Vec2 } from "../backend";
@@ -149,15 +150,12 @@ export class PhysicsWorld2D extends PhysicsCore<Dim2, Types2D> {
   }
 
   protected colliderShape(c: Collider2D, scale: readonly number[]): ShapeDesc2D {
-    const [sx, sy] = scale;
-    if (c instanceof BoxCollider2D) return { kind: "box", halfExtents: { x: Math.abs((c.size.x * sx) / 2), y: Math.abs((c.size.y * sy) / 2) } };
-    if (c instanceof CircleCollider2D) return { kind: "circle", radius: Math.abs(c.radius * Math.max(Math.abs(sx), Math.abs(sy))) };
-    if (c instanceof PolygonCollider2D || c instanceof EdgeCollider2D) return this.pointsShape(c, sx, sy);
-    if (c instanceof CharacterController2D) {
-      const r = Math.max(Math.abs(c.radius * sx), 1e-4);
-      return { kind: "capsule", radius: r, halfHeight: Math.max(0, Math.abs(c.height * sy) / 2 - r) };
-    }
-    throw new Error(`Unsupported collider type ${c.constructor.name}.`);
+    if (c instanceof PolygonCollider2D || c instanceof EdgeCollider2D) return this.pointsShape(c, scale[0], scale[1]);
+    const fields: ShapeFields2D | null =
+      c instanceof BoxCollider2D ? { kind: "box", size: [c.size.x, c.size.y] } : c instanceof CircleCollider2D ? { kind: "circle", radius: c.radius } : c instanceof CharacterController2D ? { kind: "capsule", radius: c.radius, height: c.height } : null;
+    if (!fields) throw new Error(`Unsupported collider type ${c.constructor.name}.`);
+    const size = shapeSize2D(fields, scale);
+    return size.kind === "box" ? { kind: "box", halfExtents: { x: size.halfExtents[0], y: size.halfExtents[1] } } : size;
   }
 
   /**
@@ -187,7 +185,7 @@ export class PhysicsWorld2D extends PhysicsCore<Dim2, Types2D> {
     if (!t) return { position: { x: c.center.x, y: c.center.y }, rotation: 0 };
     const p = t.worldPosition;
     const ws = t.worldScale;
-    const cx = c.center.x * ws.x, cy = c.center.y * ws.y;
+    const [cx, cy] = scaledCenter2D([c.center.x, c.center.y], [ws.x, ws.y]);
     // A character controller's capsule stays upright, whichever way its node turns.
     if (c instanceof CharacterController2D) return { position: { x: p.x + cx, y: p.y + cy }, rotation: 0 };
     const angle = t.worldRotation2D;
