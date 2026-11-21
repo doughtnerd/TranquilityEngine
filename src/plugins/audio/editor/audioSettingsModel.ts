@@ -41,11 +41,13 @@ import { audioSettings } from "./audioDraft";
 import { RUNTIME_SETTINGS } from "../../../engine/core/settings";
 import { resolveBeds } from "../runtime/core/beds";
 import type { Curve } from "../../../engine/core/curve";
-import { isLabelled, MAX_CURVE_KEYS, MAX_PARAMETERS, parameterDefault, parameterRange, type ParameterDef } from "../../../engine/audio/eventFormat";
+import { MAX_CURVE_KEYS, MAX_PARAMETERS, parameterRange, type ParameterDef } from "../../../engine/audio/eventFormat";
 import type { SettingsDraft } from "../../../editor/sdk";
 import { duckRefusal, newDuckRule, ruleWithField } from "./mix/duckModel";
 import { applyOpToDraft, loudnessTargetsOf, MAX_LOUDNESS_TARGETS, opRefusal, type MixOp } from "../../../engine/audio/mixOps";
 import { uniqueName } from "../../../engine/core/uniqueName";
+import { accept, refuse, type EditResult } from "./editResult";
+import { parameterList } from "./parameterList";
 
 export { EFFECT_TYPES, LIMITER_LOOKAHEAD_LIMITS, MAX_BUSES };
 
@@ -70,7 +72,8 @@ export function descendants(a: AudioSettings, name: string): string[] {
 // --- live mix edits (ADR 0171 §6.2, task Mo1) -------------------------------------------------------------------------
 // Every function in this block builds a `MixOp` and applies it with `applyOpToDraft` (`src/engine/audio/mixOps.ts`), so
 // the Project Settings UI and a live op edit the settings the same way and `audioEdit` can register `{ ops, inverse }`.
-// A refused op (one the parse would drop) returns `d` unchanged; `mixOpRefusal` gives the message. The per-bus core and
+// A refused op (one the parse would drop) returns `d` unchanged; `mixOpRefusal` gives the message, and the edits a user
+// can get refused (the renames, the ducking list) return it as a refused-or-next result (`mixEdit`, ADR 0307). The per-bus core and
 // bed keys (`setBusMaxVoices`, `setBusBed`, `setBusBedPriority`) and the automation functions further down go through
 // ops too. New here for M5: `moveEffect`, `setBusMeter`, the loudness target functions and `setLoudnessResetOnPlay`.
 
@@ -78,6 +81,11 @@ export function descendants(a: AudioSettings, name: string): string[] {
 export const applyMixOp = (d: SettingsDraft, op: MixOp): SettingsDraft => applyOpToDraft(d, op);
 /** Why `op` can't apply to `d` (the message to show under the field), or null. */
 const mixOpRefusal = (d: SettingsDraft, op: MixOp): string | null => opRefusal(audioSettings.read(d), op);
+/** One op as a refused-or-next result: refused with the op's refusal, else the draft it gives. */
+export function mixEdit(d: SettingsDraft, op: MixOp): EditResult<SettingsDraft> {
+  const refusal = mixOpRefusal(d, op);
+  return refusal ? refuse(refusal) : accept(applyMixOp(d, op));
+}
 
 export function addBus(d: SettingsDraft, parent = MASTER): SettingsDraft {
   const a = audioSettings.read(d);
@@ -89,8 +97,12 @@ export function addBus(d: SettingsDraft, parent = MASTER): SettingsDraft {
 /** Remove a bus and everything under it, and the snapshot entries and ducking rules that named them. The root stays. */
 export const removeBus = (d: SettingsDraft, name: string): SettingsDraft => applyMixOp(d, { op: "removeBus", bus: name });
 
-/** Rename a bus everywhere it's named in the section (the scenes and events that name it follow through `audioNames.ts`, ADR 0262). */
-export const renameBus = (d: SettingsDraft, from: string, to: string): SettingsDraft => applyMixOp(d, { op: "renameBus", from, to });
+/**
+ * Rename a bus everywhere it's named in the section (the scenes and events that name it follow through `audioNames.ts`,
+ * ADR 0262). Trimmed; an empty or taken name is refused; the same name is no change.
+ */
+export const renameBus = (d: SettingsDraft, from: string, to: string): EditResult<SettingsDraft> =>
+  to.trim() === from && audioSettings.read(d).buses.some((b) => b.name === from) ? accept(d) : mixEdit(d, { op: "renameBus", from, to });
 
 /** Move a bus under another (not itself or its own descendant; the root has no parent). */
 export const setBusParent = (d: SettingsDraft, name: string, parent: string): SettingsDraft => applyMixOp(d, { op: "moveBus", bus: name, parent });
@@ -121,23 +133,21 @@ export const setEffectValue = (d: SettingsDraft, bus: string, index: number, key
 /** Append a snapshot named "Snapshot" (unique: "Snapshot 2"…). */
 export const addSnapshot = (d: SettingsDraft): SettingsDraft => applyMixOp(d, { op: "addSnapshot", index: audioSettings.read(d).snapshots.length });
 export const removeSnapshot = (d: SettingsDraft, index: number): SettingsDraft => applyMixOp(d, { op: "removeSnapshot", index });
-/** Trimmed; empty or taken names return `d`. */
-export const renameSnapshot = (d: SettingsDraft, index: number, to: string): SettingsDraft => applyMixOp(d, { op: "renameSnapshot", index, name: to });
+/** Trimmed; an empty or taken name is refused; the same name is no change. */
+export const renameSnapshot = (d: SettingsDraft, index: number, to: string): EditResult<SettingsDraft> =>
+  audioSettings.read(d).snapshots[index]?.name === to.trim() ? accept(d) : mixEdit(d, { op: "renameSnapshot", index, name: to });
 /** Set a bus's multiplier in a snapshot (undefined: unlisted, so 1). */
 export const setSnapshotVolume = (d: SettingsDraft, index: number, bus: string, value: number | undefined): SettingsDraft =>
   applyMixOp(d, { op: "setSnapshot", index, bus, key: "volume", value: value ?? null });
 export const setSnapshotLowpass = (d: SettingsDraft, index: number, bus: string, hz: number | undefined): SettingsDraft =>
   applyMixOp(d, { op: "setSnapshot", index, bus, key: "lowpass", value: hz ?? null });
 
-/** An edit of the ducking list: the draft it gives, or why the settings parse would lose the rule (the draft is then `d`, unchanged). */
-export interface DuckEdit { draft: SettingsDraft; refusal: string | null }
-
 /**
  * Append a rule: a **level** rule with an RMS detector at -30 dBFS (ADR 0172 owner decision 8), on the first pair of buses
  * the parse keeps (Music ducked by Voice when both exist). Refused, with the parse's message, at the 33rd rule, the 9th
  * level rule, or when no pair of buses can form a rule.
  */
-export function addDuckingEdit(d: SettingsDraft): DuckEdit {
+export function addDucking(d: SettingsDraft): EditResult<SettingsDraft> {
   const a = audioSettings.read(d);
   const names = a.buses.map((b) => b.name);
   const pairs: [string, string][] = [];
@@ -147,35 +157,40 @@ export function addDuckingEdit(d: SettingsDraft): DuckEdit {
   for (const [target, trigger] of pairs) {
     const rule = newDuckRule(target, trigger);
     const refusal = duckRefusal(a, [...a.ducking, rule]);
-    if (refusal === null) return { draft: applyMixOp(d, { op: "setDucking", index: a.ducking.length, rule, insert: true }), refusal: null };
+    if (refusal === null) return accept(applyMixOp(d, { op: "setDucking", index: a.ducking.length, rule, insert: true }));
     first ??= refusal;
   }
-  return { draft: d, refusal: first ?? "A ducking rule needs two buses." };
+  return refuse(first ?? "A ducking rule needs two buses.");
 }
-export const removeDucking = (d: SettingsDraft, index: number): SettingsDraft => applyMixOp(d, { op: "setDucking", index, rule: null });
+export const removeDucking = (d: SettingsDraft, index: number): EditResult<SettingsDraft> => mixEdit(d, { op: "setDucking", index, rule: null });
 
 /**
  * Set one field of a rule (`duckModel.ruleWithField`: numbers clamped, `mode` adds or drops `detector` and `threshold`).
  * Refused, with the parse's message, when the rule would be dropped: a bus ducking itself, a trigger above its target, a
  * level cycle (naming the rules), the 9th level rule.
  */
-export function setDuckingValueEdit(d: SettingsDraft, index: number, key: keyof DuckingRule, value: string | number): DuckEdit {
+export function setDuckingValue(d: SettingsDraft, index: number, key: keyof DuckingRule, value: string | number): EditResult<SettingsDraft> {
   const a = audioSettings.read(d);
   const old = a.ducking[index];
-  if (!old) return { draft: d, refusal: null };
+  if (!old) return refuse(`No ducking rule ${index + 1}.`);
   const rule = ruleWithField(old, key, value);
   const refusal = duckRefusal(a, a.ducking.map((r, i) => (i === index ? rule : r)));
-  return refusal ? { draft: d, refusal } : { draft: applyMixOp(d, { op: "setDucking", index, rule }), refusal: null };
+  return refusal ? refuse(refusal) : accept(applyMixOp(d, { op: "setDucking", index, rule }));
 }
 
-/** Move a rule up (`delta` -1) or down (+1) the list; the ends stay. The order is the index the messages and the core's rule table use. */
-export function moveDucking(d: SettingsDraft, index: number, delta: number): SettingsDraft {
+/**
+ * Swap a rule with its neighbour up (`delta` -1) or down (+1) the list; past the ends is refused. The order is the index
+ * the messages and the core's rule table use.
+ */
+export function moveDucking(d: SettingsDraft, index: number, delta: number): EditResult<SettingsDraft> {
   const a = audioSettings.read(d);
   const other = index + delta;
-  if (!a.ducking[index] || !a.ducking[other] || delta === 0) return d;
+  if (!a.ducking[index]) return refuse(`No ducking rule ${index + 1}.`);
+  if (!a.ducking[other] || Math.abs(delta) !== 1) return refuse("The rule is already at that end of the list.");
   const swapped = a.ducking.map((r, i) => (i === index ? a.ducking[other]! : i === other ? a.ducking[index]! : r));
-  if (duckRefusal(a, swapped) !== null) return d;
-  return applyMixOp(applyMixOp(d, { op: "setDucking", index, rule: swapped[index]! }), { op: "setDucking", index: other, rule: swapped[other]! });
+  const refusal = duckRefusal(a, swapped);
+  if (refusal !== null) return refuse(refusal);
+  return accept(applyMixOp(applyMixOp(d, { op: "setDucking", index, rule: swapped[index]! }), { op: "setDucking", index: other, rule: swapped[other]! }));
 }
 
 // --- ADR 0171 §2.1: loudness targets and the reset option -------------------------------------------------------------
@@ -325,91 +340,25 @@ export function setSpatial(d: SettingsDraft, spatial: AudioSpatialMode): Setting
 
 export { MAX_CURVE_KEYS, MAX_PARAMETERS };
 
-/** What `setParameterRange` may change on a numeric parameter. */
-export interface ParameterRangePatch { min?: number; max?: number; default?: number; seekSpeed?: number }
-
 /**
- * Append a global parameter named "Parameter" (unique: "Parameter 2"…): numeric `min 0, max 1, default 0, seekSpeed 0`,
- * or, when `labelled`, `labels ["State 1", "State 2"]` with default "State 1". At `MAX_PARAMETERS`, returns `d`.
+ * The project's global parameters as a holder of the one parameter list (ADR 0304): a rename renames the `parameter` of
+ * every automation entry that names it (scenes and event files follow through `audioNames.ts`, ADR 0262), a remove drops
+ * those entries.
  */
-export function addParameter(d: SettingsDraft, labelled = false): SettingsDraft {
-  const a = audioSettings.read(d);
-  if (a.parameters.length >= MAX_PARAMETERS) return d;
-  const name = uniqueName("Parameter", a.parameters.map((p) => p.name));
-  const param: ParameterDef = labelled ? { name, labels: ["State 1", "State 2"], default: "State 1" } : { name, min: 0, max: 1, default: 0, seekSpeed: 0 };
-  return audioSettings.write(d, { ...a, parameters: [...a.parameters, param] });
-}
-
-/** Remove a parameter and the automation entries that name it. Unknown names return `d`. */
-export function removeParameter(d: SettingsDraft, name: string): SettingsDraft {
-  const a = audioSettings.read(d);
-  if (!a.parameters.some((p) => p.name === name)) return d;
-  return audioSettings.write(d, { ...a, parameters: a.parameters.filter((p) => p.name !== name), automation: a.automation.filter((r) => r.parameter !== name) });
-}
-
-/** Rename a parameter, and the `parameter` of every automation entry that names it. Trimmed; empty, unchanged, taken or unknown names return `d`. */
-export function renameParameter(d: SettingsDraft, from: string, to: string): SettingsDraft {
-  const a = audioSettings.read(d);
-  const next = to.trim();
-  if (next === "" || next === from || a.parameters.some((p) => p.name === next) || !a.parameters.some((p) => p.name === from)) return d;
-  const fix = (n: string) => (n === from ? next : n);
-  return audioSettings.write(d, { ...a, parameters: a.parameters.map((p) => ({ ...p, name: fix(p.name) })), automation: a.automation.map((r) => ({ ...r, parameter: fix(r.parameter) })) });
-}
-
-/**
- * Switch a parameter between numeric and labelled, keeping its name and position. Numeric to labelled: labels
- * ["State 1", "State 2"], default "State 1". Labelled to numeric: `min 0, max labels-1 (at least 1)`, default the old
- * default's index, `seekSpeed 0`. Already that kind, or unknown: returns `d`. Automation is kept as authored.
- */
-export function setParameterLabelled(d: SettingsDraft, name: string, labelled: boolean): SettingsDraft {
-  const a = audioSettings.read(d);
-  const p = parameterOf(a, name);
-  if (!p || isLabelled(p) === labelled) return d;
-  const next: ParameterDef = labelled
-    ? { name, labels: ["State 1", "State 2"], default: "State 1" }
-    : { name, min: 0, max: Math.max(1, parameterRange(p)[1]), default: parameterDefault(p), seekSpeed: 0 };
-  return audioSettings.write(d, { ...a, parameters: a.parameters.map((q) => (q.name === name ? next : q)) });
-}
-
-/**
- * Edit a numeric parameter (labelled or unknown ones return `d`). Non-finite fields are ignored, `seekSpeed` is clamped
- * to 0 or more. If `min` ends up above `max` the two are swapped; `default` (the patched or the existing one) is clamped
- * into the final range.
- */
-export function setParameterRange(d: SettingsDraft, name: string, patch: ParameterRangePatch): SettingsDraft {
-  const a = audioSettings.read(d);
-  const p = parameterOf(a, name);
-  if (!p || isLabelled(p)) return d;
-  const finite = (v: number | undefined) => (v !== undefined && Number.isFinite(v) ? v : undefined);
-  let min = finite(patch.min) ?? p.min;
-  let max = finite(patch.max) ?? p.max;
-  if (min > max) [min, max] = [max, min];
-  const seekSpeed = Math.max(0, finite(patch.seekSpeed) ?? p.seekSpeed);
-  const def = Math.min(max, Math.max(min, finite(patch.default) ?? p.default));
-  return audioSettings.write(d, { ...a, parameters: a.parameters.map((q) => (q.name === name ? { name, min, max, default: def, seekSpeed } : q)) });
-}
-
-/**
- * Replace a labelled parameter's labels: each trimmed, empty ones and repeats dropped (first kept). No labels left, a
- * numeric or unknown parameter: returns `d`. The default stays if it is still a label, else becomes the first.
- */
-export function setParameterLabels(d: SettingsDraft, name: string, labels: readonly string[]): SettingsDraft {
-  const a = audioSettings.read(d);
-  const p = parameterOf(a, name);
-  if (!p || !isLabelled(p)) return d;
-  const list = [...new Set(labels.map((l) => l.trim()).filter((l) => l !== ""))];
-  if (list.length === 0) return d;
-  const def = list.includes(p.default) ? p.default : list[0];
-  return audioSettings.write(d, { ...a, parameters: a.parameters.map((q) => (q.name === name ? { name, labels: list, default: def } : q)) });
-}
-
-/** A labelled parameter's default, which must be one of its labels (else `d`). */
-export function setParameterDefaultLabel(d: SettingsDraft, name: string, label: string): SettingsDraft {
-  const a = audioSettings.read(d);
-  const p = parameterOf(a, name);
-  if (!p || !isLabelled(p) || !p.labels.includes(label)) return d;
-  return audioSettings.write(d, { ...a, parameters: a.parameters.map((q) => (q.name === name ? { ...p, default: label } : q)) });
-}
+export const globalParameterList = parameterList<SettingsDraft>({
+  read: (d) => audioSettings.read(d).parameters,
+  write: (d, parameters) => audioSettings.write(d, { ...audioSettings.read(d), parameters }),
+  limit: MAX_PARAMETERS,
+  rename(d, from, to) {
+    const a = audioSettings.read(d);
+    const fix = (n: string) => (n === from ? to : n);
+    return audioSettings.write(d, { ...a, parameters: a.parameters.map((p) => ({ ...p, name: fix(p.name) })), automation: a.automation.map((r) => ({ ...r, parameter: fix(r.parameter) })) });
+  },
+  remove(d, name) {
+    const a = audioSettings.read(d);
+    return audioSettings.write(d, { ...a, parameters: a.parameters.filter((p) => p.name !== name), automation: a.automation.filter((r) => r.parameter !== name) });
+  },
+});
 
 /**
  * Append a bus automation entry: the bus `bus` (a known bus; default "Music", else the first bus after the root, else

@@ -17,6 +17,7 @@ import {
   type SustainSlot,
   type TreeEdit,
 } from "./eventTreeModel";
+import { accept, refuse, type EditResult } from "../editResult";
 
 /** A drop: into a list or an empty sustain slot (`DropTarget`), or (clips only) onto a clip row, replacing its clip. */
 export type TreeDrop = DropTarget | { replace: NodePath };
@@ -57,32 +58,32 @@ export function canDropNode(root: EventNode, from: NodePath, drop: TreeDrop | nu
 /**
  * Add clip nodes for `clips` (asset paths) at `drop`: into a list, each a new `clip` node in order from the index; into
  * an empty slot, one clip (only one path fits); `replace` sets the clip row's path to the first one. Returns the edit
- * (the path of the first node made or changed), or a reason it can't.
+ * (the path of the first node made or changed), or refused, with why (the refused-or-next result, ADR 0307).
  */
-export function applyClipDrop(root: EventNode, drop: TreeDrop, clips: readonly string[]): TreeEdit | string {
-  if (clips.length === 0) return "only audio clips can be added to an event";
+export function applyClipDrop(root: EventNode, drop: TreeDrop, clips: readonly string[]): EditResult<TreeEdit> {
+  if (clips.length === 0) return refuse("only audio clips can be added to an event");
   if ("replace" in drop) {
     const node = getNode(root, drop.replace);
-    if (node?.type !== "clip") return "that row isn't a clip";
-    if (clips.length > 1) return "drop one clip on a clip row to replace it";
-    return { root: setNode(root, drop.replace, { ...node, clip: clips[0] }), path: drop.replace };
+    if (node?.type !== "clip") return refuse("that row isn't a clip");
+    if (clips.length > 1) return refuse("drop one clip on a clip row to replace it");
+    return accept({ root: setNode(root, drop.replace, { ...node, clip: clips[0] }), path: drop.replace });
   }
   if ("slot" in drop) {
     const sustain = getNode(root, drop.parent);
-    if (sustain?.type !== "sustain" || sustain[drop.slot] !== undefined) return "that slot is taken";
-    if (clips.length > 1) return "a sustain slot holds one node; drop one clip, or drop several on a container";
-    return setSustainSlot(root, drop.parent, drop.slot, newNode("clip", clips[0]));
+    if (sustain?.type !== "sustain" || sustain[drop.slot] !== undefined) return refuse("that slot is taken");
+    if (clips.length > 1) return refuse("a sustain slot holds one node; drop one clip, or drop several on a container");
+    return accept(setSustainSlot(root, drop.parent, drop.slot, newNode("clip", clips[0])));
   }
   let next = root;
   let first: NodePath | null = null;
   for (const [i, clip] of clips.entries()) {
     const node = newNode("clip", clip);
-    if (!canAddChild(next, drop.parent, node)) return "the event can't hold more nodes there";
+    if (!canAddChild(next, drop.parent, node)) return refuse("the event can't hold more nodes there");
     const edit = addChild(next, drop.parent, node, drop.index + i);
     next = edit.root;
     first ??= edit.path;
   }
-  return { root: next, path: first! };
+  return accept({ root: next, path: first! });
 }
 
 /** A drop's description for the hint line ("Add 2 clips to Random"…). */

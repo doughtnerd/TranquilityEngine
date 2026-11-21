@@ -7,12 +7,14 @@ import { signal } from "@preact/signals";
 import { useEffect, useMemo, useState } from "preact/hooks";
 import { editor, openAssetDocument, Panel } from "../../../../editor/sdk";
 import type { AudioEventAsset } from "../../../../engine/audio/eventFormat";
+import type { MusicContainerNode } from "../../../../engine/audio/musicFormat";
 import { findMusicContainer, musicLeaves, replaceMusicNode } from "../../../../engine/audio/musicTree";
 import { buildRulesGrid, explainPair, ruleMatchesPair } from "./rulesModel";
 import { openRules } from "./index";
 import { peaksFor } from "./peaksHost";
 import { RuleEditor } from "./RuleEditor";
-import { addRule, duplicateRule, moveRule, removeRule, type RuleEdit } from "./ruleEdits";
+import { addRule, duplicateRule, moveRule, removeRule } from "./ruleEdits";
+import { applyToDocument, placeEdit, type EditResult } from "../editResult";
 import { issuesOfRule, lintTransitionRules, worstSeverity } from "./ruleLint";
 import { planTransitionAudition, runTransitionAudition } from "./ruleAudition";
 import { editorAudition } from "../audition/editorAudition";
@@ -75,12 +77,10 @@ function OpenRules(props: { path: string; nodeId: string }) {
   const issues = lintTransitionRules(container, { lengthOf });
   const sel = editing.value && editing.value.key === key && editing.value.index < container.transitions.length ? editing.value.index : null;
   const readOnly = doc.readOnly;
-  const apply = (edit: RuleEdit, label: string): boolean => {
-    if ("error" in edit) return false;
-    if (event.musicRoot) doc.edit({ ...event, musicRoot: replaceMusicNode(event.musicRoot, container.id, edit.container) }, { label });
-    return true;
-  };
-  const tool = (edit: RuleEdit, label: string, select?: number): void => {
+  /** Apply an edit of the container through the event's document (ADR 0307): one undo step, or the refusal in the status bar. */
+  const apply = (edit: EditResult<MusicContainerNode>, label: string): boolean =>
+    applyToDocument(doc, placeEdit(edit, container, event, (next) => ({ ...event, musicRoot: event.musicRoot && replaceMusicNode(event.musicRoot, container.id, next) })), label);
+  const tool = (edit: EditResult<MusicContainerNode>, label: string, select?: number): void => {
     if (apply(edit, label) && select !== undefined) editing.value = select < 0 ? null : { key, index: select };
   };
   const plan = sel === null ? null : planTransitionAudition(props.path, event, container, sel, from !== null && to !== null ? { pair: { from, to } } : {});

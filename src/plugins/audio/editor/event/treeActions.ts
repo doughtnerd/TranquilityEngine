@@ -13,6 +13,7 @@ import {
   type NodePath,
   type TreeEdit,
 } from "./eventTreeModel";
+import { accept, refuse, type EditResult } from "../editResult";
 
 /**
  * Where "Add" puts a new node with `selected` selected (`null`: the event row, which means the root): into a selected
@@ -31,13 +32,13 @@ export function addTarget(root: EventNode, selected: NodePath | null): { parent:
   return p && isListNode(p) ? { parent, index: step + 1 } : null;
 }
 
-/** Add a fresh node of `type` (a clip with `clip`) where `addTarget` says, or a reason it can't. */
-export function addNode(root: EventNode, selected: NodePath | null, type: NodeType, clip?: string): TreeEdit | string {
+/** Add a fresh node of `type` (a clip with `clip`) where `addTarget` says, or refused, with why. */
+export function addNode(root: EventNode, selected: NodePath | null, type: NodeType, clip?: string): EditResult<TreeEdit> {
   const at = addTarget(root, selected);
-  if (!at) return "select a container, or a node in one, to add beside it";
+  if (!at) return refuse("select a container, or a node in one, to add beside it");
   const node = newNode(type, clip);
-  if (!canAddChild(root, at.parent, node)) return "the event can't hold more nodes there";
-  return addChild(root, at.parent, node, at.index);
+  if (!canAddChild(root, at.parent, node)) return refuse("the event can't hold more nodes there");
+  return accept(addChild(root, at.parent, node, at.index));
 }
 
 /** The keys a node keeps whatever its type: the common fields and the ones its parent reads. */

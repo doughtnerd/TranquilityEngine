@@ -8,7 +8,14 @@ import { physicsEditorPlugin } from "../../physics/editor";
 import { renameLayer } from "../../physics/editor/physicsSettingsModel";
 import { audioNamedLists, occlusionLayerReferences } from "./audioNames";
 import { audioEditorPlugin } from "./index";
-import { addMaterial, addParameter, renameBus, renameMaterial, renameParameter } from "./audioSettingsModel";
+import { addMaterial, globalParameterList, renameBus, renameMaterial } from "./audioSettingsModel";
+import type { EditResult } from "./editResult";
+
+/** The accepted draft of an edit (ADR 0307), or the test fails with its refusal. */
+const nextOf = <T,>(r: EditResult<T>): T => {
+  if ("refused" in r) throw new Error(r.refused);
+  return r.next;
+};
 
 // The Audio section's named lists (ADR 0262): renaming a bus, an acoustic material or a global parameter in the
 // settings renames the scenes and audio event files that name it, through the shell's settings names module.
@@ -44,7 +51,7 @@ describe("the Audio section's named lists", () => {
       "town.audioevent.json": JSON.stringify(MUSIC),
     });
     const s = createProjectSettingsSection().open(project);
-    await s.edit("Rename bus SFX to Effects", renameBus(s.draft, "SFX", "Effects"));
+    await s.edit("Rename bus SFX to Effects", nextOf(renameBus(s.draft, "SFX", "Effects")));
     await vi.waitFor(() => expect(project.textOf("town.audioevent.json")).toContain('"Effects"'));
     expect(json(project, "a.scene.json").nodes[0].components.map((c: { data: { output: string } }) => c.data.output)).toEqual(["Effects", "Effects", "UI"]);
     const hit = json(project, "hit.audioevent.json");
@@ -62,9 +69,9 @@ describe("the Audio section's named lists", () => {
   it("rename a global parameter in events that read it, but not in one whose own parameter has the name", async () => {
     const { project } = await openTestProject({ "project.json": "{}", "hit.audioevent.json": JSON.stringify(EVENT), "town.audioevent.json": JSON.stringify(MUSIC), "local.audioevent.json": JSON.stringify(LOCAL) });
     const s = createProjectSettingsSection().open(project);
-    await s.edit("Add parameter", addParameter(s.draft));
-    await s.edit("Rename parameter", renameParameter(s.draft, "Parameter", "Speed"));
-    await s.edit("Rename parameter Speed to Pace", renameParameter(s.draft, "Speed", "Pace"));
+    await s.edit("Add parameter", nextOf(globalParameterList.add(s.draft)));
+    await s.edit("Rename parameter", nextOf(globalParameterList.rename(s.draft, "Parameter", "Speed")));
+    await s.edit("Rename parameter Speed to Pace", nextOf(globalParameterList.rename(s.draft, "Speed", "Pace")));
     await vi.waitFor(() => expect(project.textOf("town.audioevent.json")).toContain('"Pace"'));
     expect(JSON.stringify(json(project, "hit.audioevent.json"))).not.toContain('"Speed"');
     expect(json(project, "hit.audioevent.json").root.parameter).toBe("Pace");

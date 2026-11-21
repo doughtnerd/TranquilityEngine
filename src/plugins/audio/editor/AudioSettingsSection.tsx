@@ -47,23 +47,16 @@ import {
   MAX_PARAMETERS,
   addBus,
   addBusAutomation,
-  addParameter,
+  globalParameterList,
   removeBusAutomation,
-  removeParameter,
-  renameParameter,
   setBusAutomationBus,
   setBusAutomationCurve,
   setBusAutomationParameter,
   setBusAutomationTarget,
-  setParameterDefaultLabel,
-  setParameterLabelled,
-  setParameterLabels,
-  setParameterRange,
   parameterOf,
-  addDuckingEdit,
+  addDucking,
   moveDucking,
-  setDuckingValueEdit,
-  type DuckEdit,
+  setDuckingValue,
   addEffect,
   addSnapshot,
   applyVoicesPreset,
@@ -100,8 +93,10 @@ import { audioSettings } from "./audioDraft";
 import { CurveEditor, TextField, editor, type SettingsDraft } from "../../../editor/sdk";
 import { Audio } from "../runtime";
 import { DEFAULT_DUCK_DETECTOR, DEFAULT_DUCK_THRESHOLD, DUCK_DETECTORS, DUCK_LIMITS, DUCK_MODES, MAX_DUCK_RULES, MAX_LEVEL_RULES, NEEDS_AUDIO_CORE, levelDuckingAvailable } from "./mix/duckModel";
-import { isLabelled, parameterRange } from "../../../engine/audio/eventFormat";
+import { parameterRange } from "../../../engine/audio/eventFormat";
 import { BusMeters } from "./BusMeters";
+import { ParameterCards } from "./ParameterCard";
+import { applyToSettings, type EditResult } from "./editResult";
 import "./audioSettings.css";
 
 type Set = (label: string, next: SettingsDraft) => void;
@@ -200,7 +195,7 @@ function BusRow(props: { a: AudioSettings; bus: BusSettings; depth: number; plan
   return (
     <details class="audio-bus" data-bus={bus.name} style={{ marginLeft: `${depth * 16}px`, width: `calc(100% - ${depth * 16}px)` }}>
       <summary>
-        <TextField class="audio-bus-name" value={bus.name} label={`Bus ${bus.name} name`} onCommit={(v) => set(`Rename bus ${bus.name} to ${v.trim()}`, renameBus(draft, bus.name, v))} />
+        <TextField class="audio-bus-name" value={bus.name} label={`Bus ${bus.name} name`} onCommit={(v) => applyToSettings(draft, set, renameBus(draft, bus.name, v), `Rename bus ${bus.name} to ${v.trim()}`)} />
         <Num label={`${bus.name} volume`} value={bus.volume} step={0.05} min={0} max={2} onCommit={(n) => set(`Set ${bus.name} volume`, setBusValue(draft, bus.name, "volume", Math.min(2, Math.max(0, n))))} />
         <label class="audio-bus-check">
           <input type="checkbox" aria-label={`Mute ${bus.name}`} checked={bus.mute} onChange={(e) => set(`${bus.mute ? "Unmute" : "Mute"} ${bus.name}`, setBusValue(draft, bus.name, "mute", (e.currentTarget as HTMLInputElement).checked))} />
@@ -323,7 +318,7 @@ function Snapshots(props: { a: AudioSettings; draft: SettingsDraft; set: Set }) 
       {a.snapshots.map((s, i) => (
         <div key={i} class="audio-card" role="group" aria-label={`Snapshot ${s.name}`}>
           <div class="audio-row">
-            <TextField class="audio-grow" value={s.name} label={`Snapshot ${i + 1} name`} onCommit={(v) => set(`Rename snapshot to ${v.trim()}`, renameSnapshot(draft, i, v))} />
+            <TextField class="audio-grow" value={s.name} label={`Snapshot ${i + 1} name`} onCommit={(v) => applyToSettings(draft, set, renameSnapshot(draft, i, v), `Rename snapshot ${s.name} to ${v.trim()}`)} />
             <button class="icon audio-remove" aria-label={`Remove snapshot ${s.name}`} title="Remove this snapshot" onClick={() => set(`Remove snapshot ${s.name}`, removeSnapshot(draft, i))}>
               ×
             </button>
@@ -369,16 +364,13 @@ function DuckBusSelect(p: { label: string; value: string; buses: readonly { name
 
 /**
  * The ducking rules (api-and-models §2; task Dk1): mode, trigger, target, detector and threshold on a level rule, amount,
- * attack, release, reorder, remove, add. `Ducking` keeps the refusal. An edit the settings
- * parse would drop (a level cycle, the 9th level rule) is not saved: `onRefusal` gets the parse's message instead.
+ * attack, release, reorder, remove, add. An edit the settings parse would drop (a bus ducking itself, a level cycle, the
+ * 9th level rule) is not saved: the parse's message goes to the status bar instead (ADR 0307).
  */
-function DuckingEditor(props: { a: AudioSettings; draft: SettingsDraft; set: Set; levelDucking: boolean; refusal: string | null; onRefusal: (message: string | null) => void }) {
-  const { a, draft, set, levelDucking, refusal, onRefusal } = props;
-  const apply = (label: string, edit: DuckEdit) => {
-    onRefusal(edit.refusal);
-    if (!edit.refusal && edit.draft !== draft) set(label, edit.draft);
-  };
-  const change = (i: number, key: keyof DuckingRule, label: string, value: string | number) => apply(label, setDuckingValueEdit(draft, i, key, value));
+function DuckingEditor(props: { a: AudioSettings; draft: SettingsDraft; set: Set; levelDucking: boolean }) {
+  const { a, draft, set, levelDucking } = props;
+  const apply = (label: string, edit: EditResult<SettingsDraft>) => applyToSettings(draft, set, edit, label);
+  const change = (i: number, key: keyof DuckingRule, label: string, value: string | number) => apply(label, setDuckingValue(draft, i, key, value));
   return (
     <>
       <div class="project-settings-list-head">
@@ -403,13 +395,13 @@ function DuckingEditor(props: { a: AudioSettings; draft: SettingsDraft; set: Set
                 Trigger
                 <DuckBusSelect label={`Ducking ${i + 1} trigger`} value={r.trigger} buses={a.buses} onPick={(v) => change(i, "trigger", "Set ducking trigger", v)} />
               </label>
-              <button class="icon" aria-label={`Move ducking rule ${i + 1} up`} title="Move this rule up the list" disabled={i === 0} onClick={() => set("Move ducking rule up", moveDucking(draft, i, -1))}>
+              <button class="icon" aria-label={`Move ducking rule ${i + 1} up`} title="Move this rule up the list" disabled={i === 0} onClick={() => apply("Move ducking rule up", moveDucking(draft, i, -1))}>
                 ↑
               </button>
-              <button class="icon" aria-label={`Move ducking rule ${i + 1} down`} title="Move this rule down the list" disabled={i === a.ducking.length - 1} onClick={() => set("Move ducking rule down", moveDucking(draft, i, 1))}>
+              <button class="icon" aria-label={`Move ducking rule ${i + 1} down`} title="Move this rule down the list" disabled={i === a.ducking.length - 1} onClick={() => apply("Move ducking rule down", moveDucking(draft, i, 1))}>
                 ↓
               </button>
-              <button class="icon audio-remove" aria-label={`Remove ducking rule ${i + 1}`} title="Remove this rule" onClick={() => { onRefusal(null); set("Remove ducking rule", removeDucking(draft, i)); }}>
+              <button class="icon audio-remove" aria-label={`Remove ducking rule ${i + 1}`} title="Remove this rule" onClick={() => apply("Remove ducking rule", removeDucking(draft, i))}>
                 ×
               </button>
             </div>
@@ -447,12 +439,7 @@ function DuckingEditor(props: { a: AudioSettings; draft: SettingsDraft; set: Set
           </div>
         );
       })}
-      {refusal && (
-        <p class="audio-warning" role="alert" data-duck-refusal>
-          {refusal}
-        </p>
-      )}
-      <button disabled={a.buses.length < 2} title="Adds a level rule: RMS detector at -30 dBFS" onClick={() => apply("Add ducking rule", addDuckingEdit(draft))}>
+      <button disabled={a.buses.length < 2} title="Adds a level rule: RMS detector at -30 dBFS" onClick={() => apply("Add ducking rule", addDucking(draft))}>
         + Ducking rule
       </button>
     </>
@@ -469,74 +456,21 @@ function levelDuckingNow(a: AudioSettings): boolean {
 }
 
 function Ducking(props: { a: AudioSettings; draft: SettingsDraft; set: Set }) {
-  const [refusal, setRefusal] = useState<string | null>(null);
-  return <DuckingEditor {...props} levelDucking={levelDuckingNow(props.a)} refusal={refusal} onRefusal={setRefusal} />;
+  return <DuckingEditor {...props} levelDucking={levelDuckingNow(props.a)} />;
 }
 
-/** ADR 0158 §2: global parameters, numeric (min, max, default, seek speed) or labelled (a label list and a default). */
-function Parameters(props: { a: AudioSettings; draft: SettingsDraft; set: Set }) {
-  const { a, draft, set } = props;
+/** ADR 0158 §2: global parameters, numeric (min, max, default, seek speed) or labelled (a label list and a default), as the one parameter card view (ADR 0304). */
+function Parameters(props: { draft: SettingsDraft; set: Set }) {
+  const { draft, set } = props;
   return (
-    <>
-      <div class="project-settings-list-head">
-        <span>Parameters</span>
-        <span class="project-settings-hint">global values events and bus automation read; labelled ones are states (up to {MAX_PARAMETERS})</span>
-      </div>
-      {a.parameters.length === 0 && <p class="project-settings-none">None</p>}
-      {a.parameters.map((p) => (
-        <div key={p.name} class="audio-card" role="group" aria-label={`Parameter ${p.name}`} data-parameter={p.name} data-kind={isLabelled(p) ? "labelled" : "numeric"}>
-          <div class="audio-row">
-            <TextField class="audio-grow" value={p.name} label={`Parameter ${p.name} name`} onCommit={(v) => set(`Rename parameter ${p.name} to ${v.trim()}`, renameParameter(draft, p.name, v))} />
-            <label>
-              Kind
-              <Choice<"numeric" | "labelled"> label={`${p.name} kind`} value={isLabelled(p) ? "labelled" : "numeric"} options={["numeric", "labelled"]} onChange={(v) => set(`Make ${p.name} ${v}`, setParameterLabelled(draft, p.name, v === "labelled"))} />
-            </label>
-            <button class="icon audio-remove" aria-label={`Remove parameter ${p.name}`} title="Remove this parameter and the automation that uses it" onClick={() => set(`Remove parameter ${p.name}`, removeParameter(draft, p.name))}>
-              ×
-            </button>
-          </div>
-          {isLabelled(p) ? (
-            <div class="audio-row">
-              <label class="audio-grow" title="Comma-separated; the first is the default unless you pick another">
-                Labels
-                <TextField class="audio-grow" value={p.labels.join(", ")} label={`${p.name} labels`} onCommit={(v) => set(`Set ${p.name} labels`, setParameterLabels(draft, p.name, v.split(",")))} />
-              </label>
-              <label>
-                Default
-                <Choice<string> label={`${p.name} default`} value={p.default} options={p.labels} onChange={(v) => set(`Set ${p.name} default`, setParameterDefaultLabel(draft, p.name, v))} />
-              </label>
-            </div>
-          ) : (
-            <div class="audio-row">
-              <label>
-                Min
-                <Num label={`${p.name} min`} value={p.min} step={0.1} onCommit={(n) => set(`Set ${p.name} min`, setParameterRange(draft, p.name, { min: n }))} />
-              </label>
-              <label>
-                Max
-                <Num label={`${p.name} max`} value={p.max} step={0.1} onCommit={(n) => set(`Set ${p.name} max`, setParameterRange(draft, p.name, { max: n }))} />
-              </label>
-              <label>
-                Default
-                <Num label={`${p.name} default`} value={p.default} step={0.1} onCommit={(n) => set(`Set ${p.name} default`, setParameterRange(draft, p.name, { default: n }))} />
-              </label>
-              <label title="Units per second the value moves toward its target; 0 jumps at once">
-                Seek speed
-                <Num label={`${p.name} seek speed`} value={p.seekSpeed} step={0.1} min={0} onCommit={(n) => set(`Set ${p.name} seek speed`, setParameterRange(draft, p.name, { seekSpeed: n }))} />
-              </label>
-            </div>
-          )}
-        </div>
-      ))}
-      <div class="audio-row">
-        <button disabled={a.parameters.length >= MAX_PARAMETERS} onClick={() => set("Add parameter", addParameter(draft))}>
-          + Parameter
-        </button>
-        <button disabled={a.parameters.length >= MAX_PARAMETERS} onClick={() => set("Add labelled parameter", addParameter(draft, true))}>
-          + Labelled parameter
-        </button>
-      </div>
-    </>
+    <ParameterCards
+      list={globalParameterList}
+      holder={draft}
+      apply={(result, label) => applyToSettings(draft, set, result, label)}
+      hint={`global values events and bus automation read; labelled ones are states (up to ${MAX_PARAMETERS})`}
+      empty="None"
+      removeTitle={() => "Remove this parameter and the automation that uses it"}
+    />
   );
 }
 
@@ -732,7 +666,7 @@ export function AudioSettingsSection(props: { draft: SettingsDraft; problems: re
         <BusRow key={bus.name} a={a} bus={bus} depth={depth} plan={plan} draft={draft} set={set} />
       ))}
 
-      <Parameters a={a} draft={draft} set={set} />
+      <Parameters draft={draft} set={set} />
       <Automation a={a} draft={draft} set={set} />
 
       <Snapshots a={a} draft={draft} set={set} />

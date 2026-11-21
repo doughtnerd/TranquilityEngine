@@ -183,7 +183,7 @@ test("authoring: containers, clips, weights, fields, a parameter and an automati
   await page.getByTestId("event-tree-event").click();
   e = await step(() => page.getByTestId("event-parameters").getByRole("button", { name: "+ Parameter" }).click());
   expect(e.parameters).toHaveLength(1);
-  const name = await page.getByTestId("event-parameter").first().getAttribute("data-parameter");
+  const name = await page.getByTestId("event-parameters").locator("[data-parameter]").first().getAttribute("data-parameter");
   expect(name).toBeTruthy();
   const automation = page.getByTestId("event-automation");
   e = await step(() => automation.getByRole("button", { name: "+ Automation" }).click());
@@ -216,7 +216,7 @@ test("authoring: containers, clips, weights, fields, a parameter and an automati
     await expect.poll(files).toBe(snapshots[last - back]);
   }
   expect((JSON.parse(snapshots[last - 3]) as Json).parameters).toEqual([]);
-  await expect(page.getByTestId("event-parameter")).toHaveCount(0);
+  await expect(page.getByTestId("event-parameters").locator("[data-parameter]")).toHaveCount(0);
   // Ctrl+Shift+Z brings one back.
   await tree(page).focus();
   await page.keyboard.press("Control+Shift+z");
@@ -233,7 +233,7 @@ test("authoring: containers, clips, weights, fields, a parameter and an automati
   await tile(page, "New Event.audioevent.json").dblclick();
   await expect(editor).toHaveAttribute("data-asset-document", NEW_EVENT);
   expect(await page.getByTestId("event-tree-row").evaluateAll((els) => els.map((el) => el.getAttribute("data-node-type")))).toEqual(finalTypes);
-  await expect(page.getByTestId("event-parameter")).toHaveCount(0);
+  await expect(page.getByTestId("event-parameters").locator("[data-parameter]")).toHaveCount(0);
 });
 
 test("reopening an event shows its tree and fields from the file", async ({ page }) => {
@@ -253,7 +253,7 @@ test("reopening an event shows its tree and fields from the file", async ({ page
   await expect(page.getByTestId("event-editor")).toHaveAttribute("data-asset-document", "music/b.audioevent.json");
   expect(await page.getByTestId("event-tree-row").evaluateAll((els) => els.map((el) => el.getAttribute("data-node-type")))).toEqual(["sequence", "clip", "random", "clip"]);
   await expect(row(page, "0")).toHaveAttribute("title", "music/town.mp3");
-  await expect(page.getByTestId("event-parameter")).toHaveAttribute("data-parameter", "Speed");
+  await expect(page.getByTestId("event-parameters").locator("[data-parameter]")).toHaveAttribute("data-parameter", "Speed");
   await page.getByTestId("event-tree-event").click();
   await expect(props(page).getByLabel("Bus", { exact: true })).toHaveValue("UI");
   await expect(props(page).getByLabel("Cooldown value")).toHaveValue("1.5");

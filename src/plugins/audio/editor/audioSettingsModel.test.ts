@@ -2,16 +2,23 @@ import { describe, expect, it } from "vitest";
 import { audioSection } from "../../../engine/audio/audioSection";
 import { parseAudioSettings, type AudioSettings } from "../../../engine/audio/settings";
 import type { SettingsDraft } from "../../../editor/sdk";
-import { MAX_PARAMETERS } from "../../../engine/audio/eventFormat";
 import { withSettings } from "../../../editor/projectSettingsModel";
 import { readDraft } from "../../../editor/testing";
-import { addBus, addDuckingEdit, addEffect, addSnapshot, applyVoicesPreset, VOICE_PRESETS, busTree, removeBus, renameBus, setBackend, setBackground, setBusMaxVoices, setBusParent, setBusValue, addBusAutomation, addParameter, removeBusAutomation, removeParameter, renameParameter, setBusAutomationBus, setBusAutomationCurve, setBusAutomationParameter, setBusAutomationTarget, setParameterDefaultLabel, setParameterLabelled, setParameterLabels, setParameterRange, setClipFormat, setClipMemory, setCodec, setLimiterLookahead, setSnapshotVolume, setSpatial, setVoices, voicesPreset, setMusicRings, setRhythmMode, addMaterial, bedPlan, materialIsModified, physicsLayerNames, removeMaterial, renameMaterial, resetMaterial, setBed, setBusBed, setBusBedPriority, setDoppler, setMaterial, setMaxClips, setOcclusion, setZones, toggleOcclusionLayer, zoneMemory, zoneWarnings, type BedPlan } from "./audioSettingsModel";
+import { addBus, addDucking, addEffect, addSnapshot, applyVoicesPreset, VOICE_PRESETS, busTree, removeBus, renameBus, setBackend, setBackground, setBusMaxVoices, setBusParent, setBusValue, addBusAutomation, globalParameterList, removeBusAutomation, setBusAutomationBus, setBusAutomationCurve, setBusAutomationParameter, setBusAutomationTarget, setClipFormat, setClipMemory, setCodec, setLimiterLookahead, setSnapshotVolume, setSpatial, setVoices, voicesPreset, setMusicRings, setRhythmMode, addMaterial, bedPlan, materialIsModified, physicsLayerNames, removeMaterial, renameMaterial, resetMaterial, setBed, setBusBed, setBusBedPriority, setDoppler, setMaterial, setMaxClips, setOcclusion, setZones, toggleOcclusionLayer, zoneMemory, zoneWarnings, type BedPlan } from "./audioSettingsModel";
 import { audioSettings } from "./audioDraft";
+import type { EditResult } from "./editResult";
 
 /** The lost-bed warning's rows. */
 const lostBedsOf = (a: AudioSettings): BedPlan["lost"] => bedPlan(a).lost;
-/** Add a ducking rule as the section's button does (a refused add leaves the draft). */
-const addDucking = (d: SettingsDraft): SettingsDraft => addDuckingEdit(d).draft;
+/** The accepted draft of an edit (ADR 0307), or the test fails with its refusal. */
+const nextOf = <T,>(r: EditResult<T>): T => {
+  if ("refused" in r) throw new Error(r.refused);
+  return r.next;
+};
+/** Add a ducking rule as the section's button does. */
+const addDuckingRule = (d: SettingsDraft): SettingsDraft => nextOf(addDucking(d));
+/** Add a global parameter as the section's button does. */
+const addParameter = (d: SettingsDraft): SettingsDraft => nextOf(globalParameterList.add(d));
 
 const empty = () => readDraft({});
 const bus = (d: ReturnType<typeof empty>, name: string) => audioSettings.read(d).buses.find((b) => b.name === name)!;
@@ -26,8 +33,8 @@ describe("audio settings model (ADR 0097)", () => {
     let d = addBus(empty(), "Music");
     d = addSnapshot(d);
     d = setSnapshotVolume(d, 0, "Bus", 0.5);
-    d = addDucking(d);
-    d = renameBus(d, "Music", "Score");
+    d = addDuckingRule(d);
+    d = nextOf(renameBus(d, "Music", "Score"));
     expect(audioSettings.read(d).buses.find((b) => b.name === "Bus")!.parent).toBe("Score");
     expect(audioSettings.read(d).ducking[0].target).toBe("Score");
     d = removeBus(d, "Score");
@@ -42,7 +49,8 @@ describe("audio settings model (ADR 0097)", () => {
     expect(setBusParent(d, "Master", "Music")).toBe(d);
     const nested = addBus(d, "Music");
     expect(setBusParent(nested, "Music", "Bus")).toBe(nested);
-    expect(renameBus(d, "Music", "SFX")).toBe(d);
+    expect(renameBus(d, "Music", "SFX")).toEqual({ refused: 'Another bus is already named "SFX".' });
+    expect(renameBus(d, "Music", " Music ")).toEqual({ next: d });
   });
   it("edits values and effects, and writes the section into project.json text", () => {
     let d = setBusValue(empty(), "Music", "volume", 0.6);
@@ -67,7 +75,7 @@ describe("audio settings model, the core keys (ADR 0157 §2, K13)", () => {
     expect(setBusMaxVoices(same, "Nope", 4)).toBe(same);
   });
   it("keeps maxVoices when a bus is renamed", () => {
-    const d = renameBus(setBusMaxVoices(empty(), "SFX", 8), "SFX", "Effects");
+    const d = nextOf(renameBus(setBusMaxVoices(empty(), "SFX", 8), "SFX", "Effects"));
     expect(bus(d, "Effects").maxVoices).toBe(8);
   });
   it("sets voices within range, keeps logical >= mixed and clamps bus limits to a lowered logical", () => {
@@ -175,7 +183,7 @@ describe("audio settings model, the core keys (ADR 0157 §2, K13)", () => {
 describe("bus edits and automation (ADR 0158 §3)", () => {
   it("renames and removes buses in the automation too", () => {
     let d = readDraft({ audio: { parameters: [{ name: "P", min: 0, max: 1 }], automation: [{ bus: "Music", parameter: "P", target: "volume", curve: [[0, 1], [1, 0]] }] } });
-    d = renameBus(d, "Music", "Score");
+    d = nextOf(renameBus(d, "Music", "Score"));
     expect(audioSettings.read(d).automation[0].bus).toBe("Score");
     d = removeBus(d, "Score");
     expect(audioSettings.read(d).automation).toEqual([]);
@@ -183,92 +191,6 @@ describe("bus edits and automation (ADR 0158 §3)", () => {
 });
 
 describe("global parameters and bus automation (ADR 0158 §2, §3; L6.5a)", () => {
-  it("adds numeric and labelled parameters with unique names, up to MAX_PARAMETERS", () => {
-    let d = addParameter(empty());
-    expect(audioSettings.read(d).parameters).toEqual([{ name: "Parameter", min: 0, max: 1, default: 0, seekSpeed: 0 }]);
-    d = addParameter(d);
-    expect(audioSettings.read(d).parameters.map((p) => p.name)).toEqual(["Parameter", "Parameter 2"]);
-    d = addParameter(d, true);
-    expect(audioSettings.read(d).parameters[2]).toEqual({ name: "Parameter 3", labels: ["State 1", "State 2"], default: "State 1" });
-    let full = empty();
-    for (let i = 0; i < MAX_PARAMETERS; i++) full = addParameter(full);
-    expect(audioSettings.read(full).parameters).toHaveLength(MAX_PARAMETERS);
-    expect(addParameter(full)).toBe(full);
-    expect(addParameter(full, true)).toBe(full);
-    expect(parseAudioSettings(JSON.parse(withSettings("{}", full, {})).audio).problems).toEqual([]);
-  });
-  it("removes a parameter and the automation that names it; unknown names change nothing", () => {
-    let d = readDraft({ audio: {
-      parameters: [{ name: "A", min: 0, max: 1, default: 0, seekSpeed: 0 }, { name: "B", labels: ["x", "y"], default: "x" }],
-      automation: [
-        { bus: "Music", parameter: "A", target: "volume", curve: [[0, 1], [1, 0]] },
-        { bus: "SFX", parameter: "B", target: "lowpass", curve: [[0, 24000], [1, 800]] },
-      ],
-    } });
-    d = removeParameter(d, "A");
-    expect(audioSettings.read(d).parameters.map((p) => p.name)).toEqual(["B"]);
-    expect(audioSettings.read(d).automation.map((r) => r.parameter)).toEqual(["B"]);
-    expect(removeParameter(d, "Nope")).toBe(d);
-  });
-  it("renames a parameter and the automation that names it; rejects empty, taken and unknown names", () => {
-    let d = readDraft({ audio: {
-      parameters: [{ name: "A", min: 0, max: 1, default: 0, seekSpeed: 0 }, { name: "B", labels: ["x", "y"], default: "x" }],
-      automation: [{ bus: "Music", parameter: "A", target: "volume", curve: [[0, 1], [1, 0]] }],
-    } });
-    d = renameParameter(d, "A", "  Intensity ");
-    expect(audioSettings.read(d).parameters.map((p) => p.name)).toEqual(["Intensity", "B"]);
-    expect(audioSettings.read(d).automation[0].parameter).toBe("Intensity");
-    expect(renameParameter(d, "Intensity", "   ")).toBe(d);
-    expect(renameParameter(d, "Intensity", "B")).toBe(d);
-    expect(renameParameter(d, "Intensity", "Intensity")).toBe(d);
-    expect(renameParameter(d, "Nope", "C")).toBe(d);
-  });
-  it("switches a parameter between numeric and labelled", () => {
-    let d = addParameter(empty());
-    d = setParameterLabelled(d, "Parameter", true);
-    expect(audioSettings.read(d).parameters[0]).toEqual({ name: "Parameter", labels: ["State 1", "State 2"], default: "State 1" });
-    expect(setParameterLabelled(d, "Parameter", true)).toBe(d);
-    let e = readDraft({ audio: { parameters: [{ name: "Area", labels: ["Outdoor", "Cave", "Hall"], default: "Hall" }] } });
-    e = setParameterLabelled(e, "Area", false);
-    expect(audioSettings.read(e).parameters[0]).toEqual({ name: "Area", min: 0, max: 2, default: 2, seekSpeed: 0 });
-    expect(setParameterLabelled(e, "Area", false)).toBe(e);
-    expect(setParameterLabelled(e, "Nope", true)).toBe(e);
-    expect(parseAudioSettings(JSON.parse(withSettings("{}", e, {})).audio).problems).toEqual([]);
-  });
-  it("sets a numeric range: swaps min above max, clamps the default, clamps seekSpeed to 0 or more, ignores non-finite, ignores labelled", () => {
-    let d = readDraft({ audio: {
-      parameters: [{ name: "I", min: 0, max: 1, default: 0.5, seekSpeed: 0 }, { name: "Area", labels: ["a", "b"], default: "a" }],
-    } });
-    d = setParameterRange(d, "I", { min: 2, max: -1 });
-    expect(audioSettings.read(d).parameters[0]).toEqual({ name: "I", min: -1, max: 2, default: 0.5, seekSpeed: 0 });
-    d = setParameterRange(d, "I", { default: 10, seekSpeed: -3 });
-    expect(audioSettings.read(d).parameters[0]).toEqual({ name: "I", min: -1, max: 2, default: 2, seekSpeed: 0 });
-    d = setParameterRange(d, "I", { min: NaN, max: Infinity, seekSpeed: 4 });
-    expect(audioSettings.read(d).parameters[0]).toEqual({ name: "I", min: -1, max: 2, default: 2, seekSpeed: 4 });
-    d = setParameterRange(d, "I", { min: 5 });
-    expect(audioSettings.read(d).parameters[0]).toEqual({ name: "I", min: 2, max: 5, default: 2, seekSpeed: 4 });
-    expect(setParameterRange(d, "Area", { min: 0, max: 3 })).toBe(d);
-    expect(setParameterRange(d, "Nope", { min: 0 })).toBe(d);
-    expect(parseAudioSettings(JSON.parse(withSettings("{}", d, {})).audio).problems).toEqual([]);
-  });
-  it("sets labels (trimmed, deduplicated, no empties), keeps or resets the default; refuses an empty list; sets the default label only to an existing label", () => {
-    let d = readDraft({ audio: {
-      parameters: [{ name: "Area", labels: ["Outdoor", "Cave"], default: "Cave" }, { name: "I", min: 0, max: 1, default: 0, seekSpeed: 0 }],
-    } });
-    d = setParameterLabels(d, "Area", [" Hall ", "", "Cave", "Hall", "Outdoor"]);
-    expect(audioSettings.read(d).parameters[0]).toEqual({ name: "Area", labels: ["Hall", "Cave", "Outdoor"], default: "Cave" });
-    d = setParameterLabels(d, "Area", ["Cave ", "Field"]);
-    expect(audioSettings.read(d).parameters[0]).toEqual({ name: "Area", labels: ["Cave", "Field"], default: "Cave" });
-    d = setParameterLabels(d, "Area", ["Field", "Hall"]);
-    expect(audioSettings.read(d).parameters[0]).toEqual({ name: "Area", labels: ["Field", "Hall"], default: "Field" });
-    expect(setParameterLabels(d, "Area", ["", "  "])).toBe(d);
-    expect(setParameterLabels(d, "I", ["x"])).toBe(d);
-    d = setParameterDefaultLabel(d, "Area", "Hall");
-    expect(audioSettings.read(d).parameters[0]).toMatchObject({ default: "Hall" });
-    expect(setParameterDefaultLabel(d, "Area", "Nope")).toBe(d);
-    expect(setParameterDefaultLabel(d, "I", "x")).toBe(d);
-    expect(parseAudioSettings(JSON.parse(withSettings("{}", d, {})).audio).problems).toEqual([]);
-  });
   it("adds bus automation on the first parameter with a flat curve over its range; nothing without parameters or for an unknown bus", () => {
     let d = readDraft({ audio: {
       parameters: [{ name: "I", min: 0.5, max: 2, default: 1, seekSpeed: 0 }, { name: "Area", labels: ["a", "b", "c"], default: "a" }],

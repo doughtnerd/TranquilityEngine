@@ -1,9 +1,9 @@
 // Ed4 (api-and-models §7, contract H6): the segment panel beside the segment view: tempo from length and bars, tap tempo,
 // the stem list (solo, mute, gain, alternatives), cue and region forms, and the import drop (Ed9's `importDropped`).
 //
-// Every edit is a pure function of the segment in `segmentEdits.ts` (`Edit`: the next segment or a one-line reason it was
-// refused). The component applies the result through the event's asset document (one undo step per edit), exactly as the
-// view does.
+// Every edit is a pure function of the segment in `segmentEdits.ts` (the refused-or-next `EditResult`, ADR 0307). The
+// component applies the result through the event's asset document (one undo step per edit, a refusal in the status
+// bar), exactly as the view does.
 //
 // Interpretations: solo and mute are audition-only editor state (`stemAudition.ts`), never written to the asset. Tap tempo is the median interval of the current run (`tempoTools.ts`).
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
@@ -19,12 +19,11 @@ import { peaksFor } from "./peaksHost";
 import type { PeaksService } from "./peaks";
 import { findMusicSegment, replaceMusicNode } from "../../../../engine/audio/musicTree";
 import { barCountCandidates, tapTempo, tempoFromLength } from "./tempoTools";
-import { type Edit, setTempo, setGridOffset, renameTrack, setTrackVolume, setTrackPick, removeTrack, moveTrack, removeAlternative, promoteAlternative, addCue, renameCue, setCueAt, removeCue, setEntry, setExit, addRegion, type RegionPatch, updateRegion, removeRegion, type ConditionForm, readCondition } from "./segmentEdits";
+import { setTempo, setGridOffset, renameTrack, setTrackVolume, setTrackPick, removeTrack, moveTrack, removeAlternative, promoteAlternative, addCue, renameCue, setCueAt, removeCue, setEntry, setExit, addRegion, type RegionPatch, updateRegion, removeRegion, type ConditionForm, readCondition } from "./segmentEdits";
 import { type StemAudition, auditionKey, auditionOf, toggleStem, audibleStems } from "./stemAudition";
+import { accept, applyToDocument, placeEdit, refuse, type EditResult } from "../editResult";
 import "./segmentPanel.css";
 
-const ok = (segment: SegmentNode): Edit => ({ segment });
-const fail = (error: string): Edit => ({ error });
 const round3 = (n: number): number => Math.round(n * 1000) / 1000;
 
 // --- the component ------------------------------------------------------------------------------------------------------
@@ -51,7 +50,6 @@ function OpenPanel({ path, segmentId }: { path: string; segmentId: string }) {
   const segment = useMemo(() => findMusicSegment(event.musicRoot, segmentId), [event.musicRoot, segmentId]);
   const peaks = peaksFor(project);
   const [version, setVersion] = useState(0);
-  const [error, setError] = useState("");
   const key = auditionKey(path, segmentId);
   const audition = auditionOf(key);
 
@@ -65,12 +63,8 @@ function OpenPanel({ path, segmentId }: { path: string; segmentId: string }) {
 
   if (!segment) return <p class="empty">{path} has no segment “{segmentId}”.</p>;
 
-  const apply = (e: Edit, label: string): boolean => {
-    if ("error" in e) { setError(e.error); return false; }
-    setError("");
-    if (e.segment !== segment && event.musicRoot) doc.edit({ ...event, musicRoot: replaceMusicNode(event.musicRoot, segmentId, e.segment) }, { label });
-    return true;
-  };
+  const apply: Apply = (e, label) =>
+    applyToDocument(doc, placeEdit(e, segment, event, (next) => ({ ...event, musicRoot: event.musicRoot && replaceMusicNode(event.musicRoot, segmentId, next) })), label);
 
   const facts = (p: string): MusicClipFacts | undefined => {
     const m = peaks.peek(p);
@@ -89,7 +83,7 @@ function OpenPanel({ path, segmentId }: { path: string; segmentId: string }) {
     };
     const r = await importDropped(segment, paths, read, facts, alternativeOf ? { mode: { alternativeOf } } : undefined);
     const a = r.applied;
-    if (r.segment !== segment) apply(ok(r.segment), alternativeOf ? "Add alternatives" : "Import stems");
+    if (r.segment !== segment) apply(accept(r.segment), alternativeOf ? "Add alternatives" : "Import stems");
     const parts = [
       a.tracks.length ? `${a.tracks.length} stem${a.tracks.length === 1 ? "" : "s"}` : "",
       a.alternatives.length ? `${a.alternatives.length} alternative${a.alternatives.length === 1 ? "" : "s"}` : "",
@@ -107,13 +101,13 @@ function OpenPanel({ path, segmentId }: { path: string; segmentId: string }) {
       <StemsSection segment={segment} audition={audition} auditionKey={key} readOnly={readOnly} apply={apply} onDrop={doImport} />
       <CuesSection segment={segment} readOnly={readOnly} apply={apply} />
       <RegionsSection segment={segment} readOnly={readOnly} apply={apply} />
-      {error && <p class="segment-panel-error" role="alert">{error}</p>}
+
       <Lint issues={lint} />
     </div>
   );
 }
 
-type Apply = (e: Edit, label: string) => boolean;
+type Apply = (e: EditResult<SegmentNode>, label: string) => boolean;
 
 /** A number that commits on Enter or blur, reverts on Escape; a refused edit puts the old value back. */
 function Num(props: { label: string; value: number; onCommit: (n: number) => void; suffix?: string; narrow?: boolean; disabled?: boolean }) {
@@ -334,8 +328,8 @@ function RegionForm(props: { segment: SegmentNode; region: MusicRegion; readOnly
     setCond(next);
     if (next.parameter.trim() === "" && next.value.trim() === "") return void patch({ while: null }, "Clear region condition");
     const c = readCondition(next.parameter, next.form, next.value);
-    if ("error" in c) return void apply(fail(`while: ${c.error}`), "");
-    patch({ while: c.condition }, "Set region condition");
+    if ("refused" in c) return void apply(refuse(`while: ${c.refused}`), "Set region condition");
+    patch({ while: c.next }, "Set region condition");
   };
   return (
     <li class="sp-region">

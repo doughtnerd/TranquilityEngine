@@ -2,6 +2,13 @@ import { describe, expect, it } from "vitest";
 import type { EventNode, RandomNode, SustainNode } from "../../../../engine/audio/eventFormat";
 import { getNode, newNode } from "./eventTreeModel";
 import { applyClipDrop, canDropNode, describeDrop, dropAt } from "./treeDrop";
+import type { EditResult } from "../editResult";
+
+/** The accepted value of an edit (ADR 0307), or the test fails with its refusal. */
+const nextOf = <T,>(r: EditResult<T>): T => {
+  if ("refused" in r) throw new Error(r.refused);
+  return r.next;
+};
 
 /** layer [ clip a, random [ clip b ], sustain { loop: clip c } ] */
 function tree(): EventNode {
@@ -50,28 +57,25 @@ describe("canDropNode", () => {
 
 describe("applyClipDrop", () => {
   it("adds clips in order into a list and returns the first one's path", () => {
-    const edit = applyClipDrop(tree(), { parent: [1], index: 0 }, ["x.ogg", "y.ogg"]);
-    if (typeof edit === "string") throw new Error(edit);
+    const edit = nextOf(applyClipDrop(tree(), { parent: [1], index: 0 }, ["x.ogg", "y.ogg"]));
     expect(edit.path).toEqual([1, 0]);
     expect((getNode(edit.root, [1]) as RandomNode).children.map((c) => (c.type === "clip" ? c.clip : ""))).toEqual(["x.ogg", "y.ogg", "b.ogg"]);
   });
   it("fills an empty slot with one clip, refuses several", () => {
     const root = tree();
-    const edit = applyClipDrop(root, { parent: [2], slot: "end" }, ["e.ogg"]);
-    if (typeof edit === "string") throw new Error(edit);
+    const edit = nextOf(applyClipDrop(root, { parent: [2], slot: "end" }, ["e.ogg"]));
     expect(getNode(edit.root, [2, "end"])).toMatchObject({ type: "clip", clip: "e.ogg" });
-    expect(typeof applyClipDrop(root, { parent: [2], slot: "end" }, ["e.ogg", "f.ogg"])).toBe("string");
-    expect(typeof applyClipDrop(root, { parent: [2], slot: "loop" }, ["e.ogg"])).toBe("string");
+    expect(applyClipDrop(root, { parent: [2], slot: "end" }, ["e.ogg", "f.ogg"])).toHaveProperty("refused");
+    expect(applyClipDrop(root, { parent: [2], slot: "loop" }, ["e.ogg"])).toHaveProperty("refused");
   });
   it("replaces a clip row's path, keeping its other fields", () => {
     const root = tree();
-    const edit = applyClipDrop(root, { replace: [0] }, ["z.ogg"]);
-    if (typeof edit === "string") throw new Error(edit);
+    const edit = nextOf(applyClipDrop(root, { replace: [0] }, ["z.ogg"]));
     expect(getNode(edit.root, [0])).toEqual({ ...getNode(root, [0]), clip: "z.ogg" });
     expect(getNode(root, [0])).toMatchObject({ clip: "a.ogg" }); // input untouched
   });
   it("refuses no clips", () => {
-    expect(typeof applyClipDrop(tree(), { parent: [], index: 0 }, [])).toBe("string");
+    expect(applyClipDrop(tree(), { parent: [], index: 0 }, [])).toHaveProperty("refused");
   });
 });
 
