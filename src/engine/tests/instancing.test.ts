@@ -68,8 +68,11 @@ describe("GPU instancing in the Babylon mesh feature (ADR 0108)", () => {
     const drawables = sources.reduce((n, m) => n + (m.instances.length || m.thinInstanceCount), 0);
     return { batches: sources.length, instanced: instanced.length, thin: sources.length - instanced.length, drawables };
   };
-  /** A renderer's own Babylon meshes (none in a thin batch), as the editor tools see them. */
-  const meshesOf = (r: MeshRenderer, feature = babylon): readonly AbstractMesh[] | undefined => [...feature.editorMeshes()].find((m) => m.component === r)?.meshes;
+  /** A renderer's own Babylon meshes (none in a thin batch), as the editor tools see them (ADR 0276 `drawn`). */
+  const meshesOf = (r: MeshRenderer, feature = babylon): readonly AbstractMesh[] | undefined => {
+    const shape = [...feature.drawn()].find((d) => d.component === r)?.shape;
+    return shape?.kind === "meshes" ? shape.meshes : undefined;
+  };
 
   it("draws renderers of one mesh and material as instances of one hidden source", () => {
     const rs = [box("a"), box("b", RED, 2), box("c", RED, 4)];
@@ -122,9 +125,11 @@ describe("GPU instancing in the Babylon mesh feature (ADR 0108)", () => {
     const a = box("a"), b = box("b");
     sync();
     const source = (meshesOf(a)![0] as InstancedMesh).sourceMesh;
+    const [bMesh] = meshesOf(b)!;
     b.enabled = false;
     sync();
-    expect(meshesOf(b)![0].isEnabled()).toBe(false);
+    expect(bMesh.isEnabled()).toBe(false);
+    expect(meshesOf(b)).toBeUndefined(); // not drawn now
     babylon.release(a); // what destroying the component does (`_onDetach`)
     expect(source.isDisposed()).toBe(false);
     babylon.release(b);

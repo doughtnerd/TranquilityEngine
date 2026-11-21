@@ -55,7 +55,7 @@ export class FakeViewportAdapter implements ViewportAdapter {
   /** Each node's rectangle on the canvas; later entries draw on top. */
   readonly rects = new Map<GameObject, ScreenRect>();
   /** World boxes of nodes' meshes, and sprite sizes. */
-  readonly meshBoxes = new Map<GameObject, WorldBox>();
+  readonly drawnBoxes = new Map<GameObject, WorldBox>();
   readonly spriteSizes = new Map<SpriteRenderer, [number, number]>();
   /** Where the gizmo's handles are on the canvas (null: no gizmo shown). */
   gizmoRect: ScreenRect | null = null;
@@ -114,8 +114,8 @@ export class FakeViewportAdapter implements ViewportAdapter {
     return out;
   }
 
-  meshBounds(node: GameObject): WorldBox | null {
-    return this.meshBoxes.get(node) ?? null;
+  drawnBounds(node: GameObject): WorldBox | null {
+    return this.drawnBoxes.get(node) ?? null;
   }
 
   spriteSize(sprite: SpriteRenderer): [number, number] | null {

@@ -395,14 +395,14 @@ export function meshLocalBounds(node: GameObject): { min: [number, number, numbe
 }
 
 /**
- * The world-space box around `node`'s mesh (ADR 0043) or sprite (its quad's corners through the
- * node's world matrix), or around its origin when it has neither (or the model or texture isn't
- * loaded, or headless).
+ * The world-space box around what's drawn for `node` (its meshes, sprite quad, tile layers, water or world
+ * canvas, ADR 0043, 0276), else around its sprite's size about its origin (the texture is still loading, or
+ * headless), else around its origin.
  */
 export function worldBounds(node: GameObject): { min: [number, number, number]; max: [number, number, number] } {
   const world = node.world;
-  const mesh = viewport(world).meshBounds(node);
-  if (mesh) return mesh;
+  const drawn = viewport(world).drawnBounds(node);
+  if (drawn) return drawn;
   const m = world.worldMatrix(node.entity), mo = node.entity * 16;
   const size = viewport(world).spriteSize(node);
   const corners = size

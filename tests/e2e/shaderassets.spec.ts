@@ -7,7 +7,7 @@ import { expect, test, type Page } from "./fixtures";
 test.describe.configure({ timeout: 60_000 }); // WebKit renders on the CPU
 
 /** The editor's World on `window`; its render surface reports what it draws in engine terms (ADR 0128). */
-type Hooks = { engine?: { world: { time: { frameCount: number }; render: { diagnostics(): { drawn: { meshes: unknown[] }; stats: { programs: number } } } } } };
+type Hooks = { engine?: { world: { time: { frameCount: number }; render: { diagnostics(): { drawn: { feature: string }[]; stats: { programs: number } } } } } };
 
 const row = (page: Page, name: string) => page.locator(".tree .row", { has: page.locator(".name", { hasText: new RegExp(`^${name}$`) }) });
 const card = (page: Page, name: string) => page.locator(".inspector-body .component").filter({ has: page.getByRole("checkbox", { name: `${name} enabled`, exact: true }) });
@@ -29,7 +29,7 @@ test("the rim shader asset compiles and draws on a mesh", async ({ page, webgpu 
   // The renderer starts asynchronously, possibly after the World's first frames, and models load after it.
   // (That the scene view's MeshRenderers draw as instanced batches is instancing.test.ts's, ADR 0108.)
   const drawn = () => page.evaluate(() => (window as unknown as Hooks).engine?.world.render.diagnostics() ?? null);
-  await expect.poll(async () => (await drawn())?.drawn.meshes.length ?? 0, { timeout: 20_000 }).toBeGreaterThan(0);
+  await expect.poll(async () => (await drawn())?.drawn.filter((d) => d.feature === "meshes").length ?? 0, { timeout: 20_000 }).toBeGreaterThan(0);
 
   // Point the Ball's MeshRenderer at the rim material: its shader compiles (one more program).
   await row(page, "Ball").click();

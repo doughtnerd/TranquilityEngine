@@ -398,6 +398,11 @@ export class BabylonWater {
     m.environmentIntensity = probe ? probe.intensity : 1;
   }
 
+  /** The surfaces drawn now (enabled) and their meshes (ADR 0276). */
+  *drawn(): Iterable<{ surface: WaterSurface; mesh: Mesh }> {
+    for (const [surface, e] of this.entries) if (e.mesh.isEnabled()) yield { surface, mesh: e.mesh };
+  }
+
   /** The drawn surfaces (diagnostics). */
   state(): { surfaces: number } {
     return { surfaces: this.entries.size };

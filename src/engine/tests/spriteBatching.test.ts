@@ -133,8 +133,12 @@ describe("the sprite feature (ADR 0108, 0130)", () => {
   let policy: "batched" | "perObject";
   let textures: Map<string, Texture>;
   let warnings: string[];
-  /** The sprites drawn by a mesh of their own (the feature's editor sprites). */
-  const own = (f: BabylonSprites): SpriteRenderer[] => [...f.editorSprites()].map((e) => e.component as SpriteRenderer);
+  /** The sprites drawn by a mesh of their own (ADR 0276: drawn as a quad). */
+  const own = (f: BabylonSprites): SpriteRenderer[] => [...f.drawn()].filter((d) => d.shape?.kind === "quad").map((d) => d.component as SpriteRenderer);
+  /** The quad meshes of the sprites drawn by a mesh of their own. */
+  const quads = (f: BabylonSprites) => [...f.drawn()].flatMap((d) => (d.shape?.kind === "quad" ? [d.shape.mesh] : []));
+  /** The nodes with a sprite drawn now, batched or not (`RenderDiagnostics.drawn`). */
+  const drawnNodes = (f: BabylonSprites) => [...f.drawn()].map((d) => d.component.node);
   const make = (): BabylonSprites =>
     new BabylonSprites({
       scene,
@@ -189,11 +193,11 @@ describe("the sprite feature (ADR 0108, 0130)", () => {
     const [batch] = batches(scene);
     expect(instance(batch, "instanceColor", 0, 4)).toEqual([1, 1, 1, 1]); // a
     expect(instance(batch, "instanceColor", 1, 4)).toEqual([1, 0, 0, 1]); // b, red
-    expect(f.drawnNodes().map((n) => n.name).sort()).toEqual(["a", "b"]);
+    expect(drawnNodes(f).map((n) => n.name).sort()).toEqual(["a", "b"]);
     b.enabled = false;
     f.sync(world, ctx);
     expect(batchedSprites(scene)).toBe(1);
-    expect(f.drawnNodes().map((n) => n.name)).toEqual(["a"]);
+    expect(drawnNodes(f).map((n) => n.name)).toEqual(["a"]);
     f.dispose();
   });
 
@@ -205,7 +209,7 @@ describe("the sprite feature (ADR 0108, 0130)", () => {
     f.sync(world, ctx);
     expect(own(f)).toEqual([sliced]);
     expect(batches(scene).map((m) => m.thinInstanceCount)).toEqual([1]); // the plain one
-    expect(f.drawnNodes()).toContain(plain.node);
+    expect(drawnNodes(f)).toContain(plain.node);
     f.dispose();
   });
 
@@ -250,7 +254,9 @@ describe("the sprite feature (ADR 0108, 0130)", () => {
     if (layers.length > 1) expect(f.sortOrder(layers[1], 5)).toBe(10005);
     expect(f.sortOrder("nope", 3)).toBe(3);
     expect(warnings).toEqual(["layer|nope"]);
-    expect(f.spriteSize(sprite("a", 0, { size: new Vector2(2, 3) }))).toEqual([2, 3]);
+    const sized = sprite("a", 0, { size: new Vector2(2, 3) });
+    f.sync(world, ctx);
+    expect([...f.drawn()].find((d) => d.component === sized)?.size).toEqual([2, 3]);
     f.dispose();
   });
 
@@ -259,14 +265,14 @@ describe("the sprite feature (ADR 0108, 0130)", () => {
     const f = make();
     const a = sprite("a", 0);
     f.sync(world, ctx);
-    const [{ mesh }] = [...f.editorSprites()];
+    const [mesh] = quads(f);
     f.release(a);
     expect(own(f)).toEqual([]);
-    expect(f.drawnNodes()).toEqual([]);
+    expect(drawnNodes(f)).toEqual([]);
     expect(mesh.isDisposed()).toBe(true);
     sprite("b", 1);
     f.sync(world, ctx);
-    const [{ mesh: meshB }] = [...f.editorSprites()];
+    const [meshB] = quads(f);
     f.dispose();
     expect(meshB.isDisposed()).toBe(true);
     expect(own(f)).toEqual([]);

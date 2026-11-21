@@ -35,7 +35,7 @@ type Hooks = {
     world: {
       time: { frameCount: number };
       render: {
-        diagnostics(): { drawn: { meshes: { node: { name: string } }[] } }; // ADR 0128
+        diagnostics(): { drawn: { node: { name: string }; feature: string }[] }; // ADR 0128, 0276
         editorViewport(): { lightIcons(): { node: { name: string }; x: number; y: number }[] };
       };
     };
@@ -70,7 +70,7 @@ async function openPlayground(page: Page, writable: boolean): Promise<void> {
 /** Names of the nodes whose meshes are drawn in the scene view, once each. */
 const drawnMeshes = (page: Page) =>
   page.evaluate(() => {
-    const names = (window as unknown as Hooks).engine!.world.render.diagnostics().drawn.meshes.map((m) => m.node.name);
+    const names = (window as unknown as Hooks).engine!.world.render.diagnostics().drawn.filter((d) => d.feature === "meshes").map((d) => d.node.name);
     return [...new Set(names)].sort();
   });
 

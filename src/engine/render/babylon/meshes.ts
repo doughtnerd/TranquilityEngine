@@ -10,13 +10,11 @@ import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import type { Component } from "../../core/Component";
 import type { World } from "../../core/World";
-import type { GameObject } from "../../scene/GameObject";
 import type { MaterialInstancing } from "../../scene/material";
 import { drawnVariant, materialSlots, meshesIfLoaded, type MaterialSlot, type ModelMesh } from "../../scene/models";
 import { MeshRenderer } from "../components";
 import type { DrawnMaterial } from "../RenderSurface";
-import type { EditorMesh } from "./editorContext";
-import type { DrawnDescription, FeatureSyncContext, MeshesFeatureApi } from "./feature";
+import { PICK_ORDER, type BabylonFeature, type DrawnDescription, type DrawnNode, type FeatureSyncContext } from "./feature";
 import type { BabylonMaterialLibrary } from "./materialLibrary";
 import { matrixChanged } from "../changeDetection";
 import { MeshBatches, sameDraw, type DrawKey, type Drawable } from "./meshBatches";
@@ -65,7 +63,7 @@ function drawnMaterial(m: BabylonMaterial): DrawnMaterial {
 }
 
 /** @internal Draws every MeshRenderer, batched for GPU instancing (ADR 0108). */
-export class BabylonMeshes implements MeshesFeatureApi {
+export class BabylonMeshes implements BabylonFeature {
   private readonly meshRenderers = new Map<MeshRenderer, MeshEntry>();
   /** MeshRenderer meshes batched for GPU instancing (ADR 0108). */
   private readonly batches: MeshBatches;
@@ -97,25 +95,20 @@ export class BabylonMeshes implements MeshesFeatureApi {
     this.meshRenderers.clear();
   }
 
-  /** Appends the meshes that cast shadows: enabled renderers' with castShadows, and thin batches' sources. */
+  /** ADR 0276: appends the meshes that cast shadows: enabled renderers' with castShadows, and thin batches' sources. */
   casters(out: AbstractMesh[]): void {
     for (const [r, e] of this.meshRenderers) if (r.castShadows && r.isActiveAndEnabled) out.push(...e.meshes);
     for (const m of this.batches.thinCasters()) out.push(m);
   }
 
-  /** Whether every renderer's model has loaded (the material library's own loading is the renderer's to check). */
+  /** ADR 0276: whether every renderer's model has loaded (the material library's own loading is the renderer's to check). */
   loaded(): boolean {
     for (const m of this.meshRenderers.values()) if (m.sources === null) return false;
     return true;
   }
 
-  /** The editor's view of each renderer's meshes. */
-  *editorMeshes(): Iterable<EditorMesh> {
-    for (const [component, e] of this.meshRenderers) yield { component, meshes: e.meshes };
-  }
-
   /** The renderer that owns a drawn mesh or batch source (`describe`, for the variant report), or null. */
-  ownerOf(drawn: unknown): MeshRenderer | null {
+  private ownerOf(drawn: unknown): MeshRenderer | null {
     for (const [r, e] of this.meshRenderers) {
       if (e.meshes.includes(drawn as AbstractMesh) || e.drawables.some((d) => d.source === drawn)) return r;
     }
@@ -128,17 +121,16 @@ export class BabylonMeshes implements MeshesFeatureApi {
     return owner ? { node: owner.node, what: `"${owner.node.name}"` } : null;
   }
 
-  /** Each node's drawn (enabled) mesh materials, for the diagnostics (ADR 0128). */
-  drawn(): { node: GameObject; materials: DrawnMaterial[] }[] {
-    const meshes = new Map<GameObject, DrawnMaterial[]>();
-    for (const [r, e] of this.meshRenderers) {
+  /**
+   * ADR 0276: each renderer drawn now (an enabled drawable): its own meshes (none in a thin batch, which
+   * draws instances of a shared source), depth-tested, with its drawn materials (the diagnostics, ADR 0128).
+   */
+  *drawn(): Iterable<DrawnNode> {
+    for (const [component, e] of this.meshRenderers) {
       const shown = e.drawables.filter((d) => d.enabled);
       if (!shown.length) continue;
-      const list = meshes.get(r.node) ?? [];
-      for (const d of shown) list.push(drawnMaterial(d.draw.material));
-      meshes.set(r.node, list);
+      yield { component, shape: { kind: "meshes", meshes: e.meshes }, order: PICK_ORDER.depthTested, materials: shown.map((d) => drawnMaterial(d.draw.material)) };
     }
-    return [...meshes].map(([node, materials]) => ({ node, materials }));
   }
 
   private syncMesh(world: World, r: MeshRenderer): void {
