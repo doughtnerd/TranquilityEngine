@@ -7,7 +7,7 @@
 import { errorStatus } from "../editor/messages";
 import { parseLayout } from "../editor/layout/model";
 import { registeredPanels } from "../editor/layout/registeredPanels";
-import { layout, reloadLayout } from "../editor/layout/store";
+import { layout } from "../editor/layout/store";
 import type { EditorPlugin } from "../editor/sdk/plugins";
 import { status } from "../editor/state";
 import { EDITOR_PLUGINS } from "./editor";
@@ -35,8 +35,11 @@ export interface EditorApplyOptions {
   readonly thirdParty?: readonly EditorSetPlugin[];
   /** Leave runtime halves as they are (during Play: the game keeps its plugins until Stop). */
   readonly keepRuntime?: boolean;
-  /** Read the layout again ("reload": from the startup layout) or check the open one ("live") against the panels now registered. */
-  readonly layout?: "reload" | "live";
+  /**
+   * "live": check the open layout against the panels now registered (a newly registered panel nobody has seen is added;
+   * a panel whose plugin is off keeps its place). The saved layout is read from storage only at boot (`editorBoot.ts`).
+   */
+  readonly layout?: "live";
 }
 
 /**
@@ -48,16 +51,17 @@ export function applyEditorPlugins(disabled: Iterable<string> | undefined, optio
   if (options.thirdParty) thirdParty = options.thirdParty;
   const result = editorPlugins.apply({ plugins: [...firstPartyPlugins(), ...thirdParty], disabled, host: { editor: true }, keepRuntime: options.keepRuntime });
   for (const p of result.problems) console.error(`[editor] ${p.message}`);
-  if (options.layout === "reload") reloadLayout();
-  else if (options.layout === "live") {
-    try {
-      layout.value = parseLayout(JSON.parse(JSON.stringify(layout.value)), registeredPanels()) ?? layout.value;
-
-    } catch {
-      reloadLayout();
-    }
-  }
+  if (options.layout === "live") layout.value = parseLayout(layout.value, registeredPanels()) ?? layout.value;
   return result;
+}
+
+/**
+ * A project opens: the previous project's third-party plugins go and the first-party plugins follow its
+ * `plugins.disabled` (its code then loads, with its third-party plugins). The panel layout stays as the
+ * session left it, checked against the panels now registered; it is never read from storage again.
+ */
+export function applyProjectPlugins(disabled: Iterable<string> | undefined): ApplyResult {
+  return applyEditorPlugins(disabled, { thirdParty: [], layout: "live" });
 }
 
 /** Show plugin problems in the status bar (when no script load reports them with the script problems). */

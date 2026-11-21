@@ -167,12 +167,12 @@ describe("refs and hierarchy rows", () => {
 
   it("give an element's markup location", () => {
     const play = hudDoc().query("#play")!;
-    const where = markupLocation(play);
+    const where = markupLocation(play)!;
     expect(where.file).toBe("ui/menu.ui.xml");
     expect(where.line).toBe(6);
     expect(MENU.slice(where.openTagSpan.start, where.openTagSpan.end)).toBe(`<Button id="play" class="primary">`);
     const badge = hudDoc().query("#badge")!;
-    expect(markupLocation(badge).from).toBe("ui/widgets/badge.ui.xml");
+    expect(markupLocation(badge)!.from).toBe("ui/widgets/badge.ui.xml");
   });
 });
 

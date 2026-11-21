@@ -14,12 +14,15 @@
 // deleting or duplicating a used document's root acts on its `<Use>` tag; attributes written on the
 // `<Use>` tag (which override the used root's) are edited there. List rows (no path) aren't the
 // file's and can't be edited; neither can read-only projects (samples) or anything while playing.
+// Where an element's tags are written, and the path an element will have after an edit, are the UI
+// document's answers (`engine/ui/documentSource.ts`, ADR 0298); this module only edits the text.
 import type { UIDocumentElement } from "../engine/ui/UIDocument";
 import { Color } from "../engine/core/math";
 import { AssetRef, getFields, type FieldInfo } from "../engine/core/registry";
 import { hasBinding, resolvePath } from "../engine/ui/document/markup";
 import { camelCase, convertValue, matchSelector, parseColor } from "../engine/ui/document/stylesheet";
-import type { MarkupElement, UITag } from "../engine/ui/document/types";
+import type { UITag } from "../engine/ui/document/types";
+import { childPath, elementSource, type MarkupPlace, type UIElementSource } from "../engine/ui/documentSource";
 import { WriteFiles, type FileWrite, type TextFileHost } from "./document";
 import { errorStatus } from "./messages";
 import { openScene, status, type OpenScene } from "./state";
@@ -46,35 +49,8 @@ import type { UndoStep } from "./undoStep";
 
 // --- Where an element is written ------------------------------------------------------------------
 
-/** A tag in a file: the file and its path among element children from the file's root. */
-export interface MarkupPlace {
-  readonly file: string;
-  readonly path: readonly number[];
-}
-
-/** Index of an element among its parent's markup children (-1 for the root or a button's label). */
-const childIndex = (el: UIDocumentElement) => (el.parent ? el.parent._markup.children.indexOf(el._markup) : -1);
-
-/** The element's own tag: in its file (a used document's root is that file's root, path []). */
-function ownPlace(el: UIDocumentElement): MarkupPlace {
-  const file = el._markup.file;
-  const path: number[] = [];
-  for (let e = el; e.parent && !e._markup.from && e.parent._markup.file === file; e = e.parent) path.unshift(childIndex(e));
-  return { file, path };
-}
-
-/** For a used document's root: its `<Use>` tag in the parent's file. Null otherwise. */
-function usePlace(el: UIDocumentElement): MarkupPlace | null {
-  if (!el._markup.from || !el.parent) return null;
-  const parent = ownPlace(el.parent);
-  return { file: parent.file, path: [...parent.path, childIndex(el)] };
-}
-
-/** Where the element sits among its siblings (its `<Use>` tag for a used root); null for the document's root. */
-function sitePlace(el: UIDocumentElement): MarkupPlace | null {
-  if (!el.parent) return null;
-  return usePlace(el) ?? ownPlace(el);
-}
+/** Where an element accepted by `editableElement` (never a list row) is written: the UI document's answer (ADR 0298). */
+const sourceOf = (el: UIDocumentElement): UIElementSource => elementSource(el)!;
 
 // --- Edits as one step ----------------------------------------------------------------------------
 
@@ -154,7 +130,7 @@ function commit(scene: OpenScene, label: string, build: (edits: FileEdits) => vo
 /** The live element a ref names if it can be edited; otherwise says why in the status bar. */
 function editableElement(scene: OpenScene, ref: UIElementRef): UIDocumentElement | null {
   const el = resolveUIElement(scene.sync, ref);
-  const reason = !el ? "it's gone (its document changed)" : el._path === null ? "it's made by a script (a list row)" : null;
+  const reason = !el ? "it's gone (its document changed)" : !elementSource(el) ? "it's made by a script (a list row)" : null;
   if (reason) {
     status.value = { kind: "info", text: `Can't edit that element: ${reason}.` };
     return null;
@@ -181,14 +157,8 @@ function aliasesOf(name: string): string[] {
   return [...new Set([name, kebab(camelCase(name)), camelCase(name)])];
 }
 
-/** The path segment of the element with `tag`/`id` at `index` among `siblings` (the others, in order). */
-function segment(siblings: readonly MarkupElement[], index: number, tag: string, id: string | null): string {
-  if (id) return `/#${id}`;
-  return `/${tag}[${siblings.slice(0, index).filter((s) => s.tag === tag).length}]`;
-}
-
-/** A ref to a child of `parent` (a live element) at `segment`. */
-const childRef = (ref: UIElementRef, parent: UIDocumentElement, seg: string): UIElementRef => ({ host: ref.host, index: ref.index, path: `${parent._path}${seg}` });
+/** A ref in the document `ref` names, at `path`. */
+const refAt = (ref: { readonly host: string; readonly index: number }, path: string): UIElementRef => ({ host: ref.host, index: ref.index, path });
 
 // --- Values ---------------------------------------------------------------------------------------
 
@@ -234,7 +204,7 @@ function cssValue(info: FieldInfo | null, raw: string): string {
 /** Why `raw` isn't a valid value for the field, or null (bindings and variables aren't checked). */
 function invalidValue(el: UIDocumentElement, info: FieldInfo, raw: string): string | null {
   if (hasBinding(raw) || raw.includes("var(")) return null;
-  return convertValue(raw, info, el._markup.file) === undefined ? `"${raw}" isn't a valid ${kebab(info.name)}` : null;
+  return convertValue(raw, info, sourceOf(el).file) === undefined ? `"${raw}" isn't a valid ${kebab(info.name)}` : null;
 }
 
 // --- Attributes and content -----------------------------------------------------------------------
@@ -244,8 +214,9 @@ const CONTENT_FIELD: Readonly<Record<string, string>> = { Text: "text", Button: 
 
 /** Write attribute edits on `el` into `edits` (see `setUIElementAttributes`). */
 function writeAttributes(edits: FileEdits, el: UIDocumentElement, attributes: Readonly<Record<string, string | null>>): void {
-  if (el._synthetic) throw new MarkupEditError("a button's label is its text content; set its fields on the button or in a stylesheet");
-  const own = ownPlace(el), use = usePlace(el);
+  const src = sourceOf(el);
+  if (src.label) throw new MarkupEditError("a button's label is its text content; set its fields on the button or in a stylesheet");
+  const own = src.place, use = src.usePlace;
   for (const [name, value] of Object.entries(attributes)) {
     const aliases = name === "id" || name === "class" ? [name] : aliasesOf(name);
     const places = use ? [use, own] : [own];
@@ -292,13 +263,13 @@ function setUIElementText(ref: UIElementRef, text: string): boolean {
   const scene = editableScene();
   const found = scene && editableElement(scene, ref);
   if (!scene || !found) return false;
-  const el = found._synthetic ? found.parent! : found;
+  const el = sourceOf(found).label ? found.parent! : found;
   if (!CONTENT_FIELD[el.tag]) {
     status.value = { kind: "info", text: `<${el.tag}> has no text content.` };
     return false;
   }
   return commit(scene, `Set ${el.tag === "InputField" ? "value" : "text"}`, (edits) => {
-    const own = ownPlace(el);
+    const own = sourceOf(el).place;
     edits.tag(own, el.tag);
     edits.edit(own.file, (t) => setText(t, own.path, text));
   });
@@ -314,9 +285,9 @@ export function setUIElementField(ref: UIElementRef, field: string, raw: string 
   const scene = editableScene();
   const el = scene && editableElement(scene, ref);
   if (!scene || !el) return false;
-  const owner = el._synthetic ? el.parent! : el;
-  const contentField = el._synthetic ? "text" : CONTENT_FIELD[el.tag];
-  if (field === contentField && (el._synthetic || !owner._markup.attributes.some((a) => aliasesOf(field).includes(a.name)))) {
+  const src = sourceOf(el);
+  const contentField = src.label ? "text" : CONTENT_FIELD[el.tag];
+  if (field === contentField && (src.label || !src.attributes.some((a) => aliasesOf(field).includes(a.name)))) {
     return setUIElementText(ref, raw ?? "");
   }
   const info = fieldInfo(el, field);
@@ -345,16 +316,15 @@ export function renameUIElement(ref: UIElementRef, id: string): boolean {
     status.value = { kind: "info", text: `"${next}" isn't a valid id: use letters, digits, - and _, starting with a letter.` };
     return false;
   }
-  const site = usePlace(el) ?? ownPlace(el);
+  const src = sourceOf(el);
+  const site = src.usePlace ?? src.place;
   if (next && scene.stack.files && idsIn(scene.stack.files.read(site.file) ?? "").has(next)) {
     status.value = { kind: "info", text: `Another element in ${site.file} is #${next} already.` };
     return false;
   }
+  const renamed = el.parent ? childPath(el.parent, src.index, el.tag, next || null) : src.path;
   const done = commit(scene, next ? `Rename to #${next}` : "Remove id", (edits) => writeAttributes(edits, el, { id: next || null }));
-  if (done && el.parent) {
-    const siblings = el.parent._markup.children;
-    selectUIElement(childRef(ref, el.parent, segment(siblings, childIndex(el), el.tag, next || null)));
-  }
+  if (done && el.parent) selectUIElement(refAt(ref, renamed));
   return done;
 }
 
@@ -376,19 +346,19 @@ export function deleteUIElement(ref: UIElementRef): boolean {
   const scene = editableScene();
   const el = scene && editableElement(scene, ref);
   if (!scene || !el) return false;
-  if (el._synthetic) return setUIElementText(ref, ""); // a button's label: clear the text content
-  const target = el;
-  const site = sitePlace(target);
-  if (!site || !target.parent) {
+  const src = sourceOf(el);
+  if (src.label) return setUIElementText(ref, ""); // a button's label: clear the text content
+  const site = src.sitePlace;
+  if (!site || !el.parent) {
     status.value = { kind: "info", text: "A document's root element can't be deleted (remove the UIDocument, or the file)." };
     return false;
   }
-  const parent = target.parent;
-  const done = commit(scene, `Delete ${target.id ? `#${target.id}` : `<${target.tag}>`}`, (edits) => {
-    edits.tag(site, target._markup.from ? "Use" : target.tag);
+  const parentPath = sourceOf(el.parent).path;
+  const done = commit(scene, `Delete ${el.id ? `#${el.id}` : `<${el.tag}>`}`, (edits) => {
+    edits.tag(site, src.usePlace ? "Use" : el.tag);
     edits.edit(site.file, (t) => removeElement(t, site.path));
   });
-  if (done) selectUIElement({ host: ref.host, index: ref.index, path: parent._path! });
+  if (done) selectUIElement(refAt(ref, parentPath));
   return done;
 }
 
@@ -397,22 +367,22 @@ export function duplicateUIElement(ref: UIElementRef): boolean {
   const scene = editableScene();
   const el = scene && editableElement(scene, ref);
   if (!scene || !el) return false;
-  const site = sitePlace(el);
-  if (!site || !el.parent || el._synthetic) {
-    status.value = { kind: "info", text: el._synthetic ? "A button's label is its text content: duplicate the button." : "A document's root element can't be duplicated." };
+  const src = sourceOf(el);
+  const site = src.sitePlace;
+  if (!site || !el.parent) {
+    status.value = { kind: "info", text: src.label ? "A button's label is its text content: duplicate the button." : "A document's root element can't be duplicated." };
     return false;
   }
-  let copyId: string | null = null;
+  const parent = el.parent;
+  let copyPath = "";
   const done = commit(scene, `Duplicate ${el.id ? `#${el.id}` : `<${el.tag}>`}`, (edits) => {
-    edits.tag(site, el._markup.from ? "Use" : el.tag);
+    edits.tag(site, src.usePlace ? "Use" : el.tag);
     const result = duplicateElement(edits.read(site.file), site.path);
     edits.write(site.file, result.text);
-    copyId = elementAt(parseSource(result.text), result.path)?.attributes.find((a) => a.name === "id")?.value ?? null;
+    const copyId = elementAt(parseSource(result.text), result.path)?.attributes.find((a) => a.name === "id")?.value ?? null;
+    copyPath = childPath(parent, src.index + 1, el.tag, copyId ?? (src.usePlace ? el.id : null));
   });
-  if (done) {
-    const siblings = el.parent._markup.children;
-    selectUIElement(childRef(ref, el.parent, segment(siblings, childIndex(el) + 1, el.tag, copyId ?? (el._markup.from ? el.id : null))));
-  }
+  if (done) selectUIElement(refAt(ref, copyPath));
   return done;
 }
 
@@ -427,12 +397,13 @@ export function whyNotMovable(ref: UIElementRef, parentRef: UIElementRef): strin
   const scene = openScene.peek();
   const el = scene && resolveUIElement(scene.sync, ref), parent = scene && resolveUIElement(scene.sync, parentRef);
   if (!el || !parent) return "it's gone";
-  if (el._path === null || parent._path === null) return "list rows are made by a script";
-  if (el._synthetic || parent._synthetic) return "a button's label is its text content";
+  const src = elementSource(el), parentSrc = elementSource(parent);
+  if (!src || !parentSrc) return "list rows are made by a script";
+  if (src.label || parentSrc.label) return "a button's label is its text content";
   if (ref.host !== parentRef.host || ref.index !== parentRef.index) return "elements move within their own document";
-  if (!el.parent) return "the root element stays the root";
+  if (!el.parent || !src.sitePlace) return "the root element stays the root";
   if (within(parent, el)) return "an element can't go inside itself";
-  const site = sitePlace(el)!, into = ownPlace(parent);
+  const site = src.sitePlace, into = parentSrc.place;
   if (site.file !== into.file) return `elements move within their own file (this one is in ${site.file})`;
   return null;
 }
@@ -451,18 +422,20 @@ export function moveUIElement(ref: UIElementRef, parentRef: UIElementRef, index:
     return false;
   }
   const parent = resolveUIElement(scene.sync, parentRef)!;
-  const site = sitePlace(el)!, into = ownPlace(parent);
-  const from = childIndex(el);
+  const src = sourceOf(el), parentSrc = sourceOf(parent);
+  const site = src.sitePlace!, into = parentSrc.place;
+  const from = src.index;
   const sameParent = el.parent === parent;
-  const others = parent._markup.children.filter((m) => m !== el._markup);
-  const at = Math.max(0, Math.min(sameParent && from < index ? index - 1 : index, others.length));
+  const others = parentSrc.childCount - (sameParent ? 1 : 0);
+  const at = Math.max(0, Math.min(sameParent && from < index ? index - 1 : index, others));
   if (sameParent && at === from) return false;
+  const moved = childPath(parent, at, el.tag, el.id, el);
   const done = commit(scene, `Move ${el.id ? `#${el.id}` : `<${el.tag}>`}`, (edits) => {
-    edits.tag(site, el._markup.from ? "Use" : el.tag);
+    edits.tag(site, src.usePlace ? "Use" : el.tag);
     edits.tag(into, parent.tag);
     edits.write(site.file, moveElement(edits.read(site.file), site.path, into.path, index).text);
   });
-  if (done) selectUIElement(childRef(ref, parent, segment(others, at, el.tag, el.id)));
+  if (done) selectUIElement(refAt(ref, moved));
   return done;
 }
 
@@ -491,13 +464,13 @@ export function createUIElement(tag: keyof typeof NEW_ELEMENTS, at: UIElementRef
   if ("path" in at) {
     const found = editableElement(scene, at);
     if (!found) return null;
-    const el = found._synthetic ? found.parent! : found;
+    const el = sourceOf(found).label ? found.parent! : found;
     if (CONTAINERS.has(el.tag) || !el.parent) {
       parent = el;
-      index = el._markup.children.length;
+      index = sourceOf(el).childCount;
     } else {
       parent = el.parent;
-      index = childIndex(el) + 1;
+      index = sourceOf(el).index + 1;
     }
   } else {
     const root = resolveUIElement(scene.sync, { ...docRef, path: "" });
@@ -506,15 +479,15 @@ export function createUIElement(tag: keyof typeof NEW_ELEMENTS, at: UIElementRef
       return null;
     }
     parent = root;
-    index = root._markup.children.length;
+    index = sourceOf(root).childCount;
   }
-  const into = ownPlace(parent);
+  const into = sourceOf(parent).place;
+  const ref = refAt(docRef, childPath(parent, index, tag, null));
   const done = commit(scene, `Create ${tag}`, (edits) => {
     edits.tag(into, parent!.tag);
     edits.edit(into.file, (t) => insertElement(t, into.path, index, NEW_ELEMENTS[tag]));
   });
   if (!done) return null;
-  const ref = { ...docRef, path: `${parent._path}${segment(parent._markup.children, index, tag, null)}` };
   selectUIElement(ref);
   return ref;
 }
@@ -528,8 +501,9 @@ export function suggestedClassName(el: UIDocumentElement): string {
 
 /** The attributes Move to class moves: not `id`, `class` or bound ones. */
 export function movableAttributes(el: UIDocumentElement): string[] {
-  if (el._synthetic) return [];
-  return el._markup.attributes.filter((a) => a.name !== "id" && a.name !== "class" && !hasBinding(a.value)).map((a) => a.name);
+  const src = elementSource(el);
+  if (!src || src.label) return [];
+  return src.attributes.filter((a) => a.name !== "id" && a.name !== "class" && !hasBinding(a.value)).map((a) => a.name);
 }
 
 /**
@@ -542,7 +516,8 @@ export function moveUIElementToClass(ref: UIElementRef, className?: string): boo
   const scene = editableScene();
   const el = scene && editableElement(scene, ref);
   if (!scene || !el) return false;
-  if (el._synthetic) {
+  const src = sourceOf(el);
+  if (src.label) {
     status.value = { kind: "info", text: "A button's label has no attributes of its own: move the button's." };
     return false;
   }
@@ -551,7 +526,7 @@ export function moveUIElementToClass(ref: UIElementRef, className?: string): boo
     status.value = { kind: "info", text: `"${name}" isn't a valid class name.` };
     return false;
   }
-  const own = ownPlace(el);
+  const own = src.place;
   let moved = 0;
   let shadowed: string[] = [];
   const done = commit(scene, `Move to class .${name}`, (edits) => {

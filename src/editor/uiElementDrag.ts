@@ -4,6 +4,7 @@
 // elsewhere, or Escape, does nothing. One undo step, through `moveUIElement`. The gesture is the editor's one row
 // drag (`pointerDrag.ts`, ADR 0278).
 import { signal } from "@preact/signals";
+import { elementSource } from "../engine/ui/documentSource";
 import { openScene } from "./state";
 import { moveUIElement, whyNotMovable } from "./uiDocumentEdits";
 import { elementLabel, parseUIRefKey, resolveUIElement, uiRefKey, type UIElementRef } from "./uiDocuments";
@@ -38,15 +39,17 @@ function uiDropAt(dragged: UIElementRef, key: string, fraction: number): { targe
   const ref = parseUIRefKey(key);
   const el = scene && ref ? resolveUIElement(scene.sync, ref) : null;
   if (!scene || !ref || !el) return { target: null, problem: "drop it on an element of the same document" };
-  if (el._synthetic) return { target: null, problem: "a button's label is its text content" };
+  const src = elementSource(el);
+  if (!src) return { target: null, problem: "list rows are made by a script" };
+  if (src.label) return { target: null, problem: "a button's label is its text content" };
   const label = elementLabel(el);
   const into = CONTAINERS.has(el.tag) && fraction > 0.25 && fraction < 0.75;
   let target: UIElementDrop;
   if (into || !el.parent) {
-    target = { row: key, label, mode: "into", parent: ref, index: el._markup.children.length };
+    target = { row: key, label, mode: "into", parent: ref, index: src.childCount };
   } else {
-    const parentRef = { host: ref.host, index: ref.index, path: el.parent._path ?? "" };
-    const at = el.parent._markup.children.indexOf(el._markup);
+    const parentRef = { host: ref.host, index: ref.index, path: elementSource(el.parent)?.path ?? "" };
+    const at = src.index;
     target = fraction < 0.5 ? { row: key, label, mode: "before", parent: parentRef, index: at } : { row: key, label, mode: "after", parent: parentRef, index: at + 1 };
   }
   if (key === uiRefKey(dragged) && target.mode !== "into") return { target: null, problem: "that's where it is" };

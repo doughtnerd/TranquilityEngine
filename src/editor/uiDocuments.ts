@@ -6,8 +6,9 @@
 // Elements aren't document nodes: they belong to the markup file, aren't in the scene file and are
 // rebuilt when it changes. So they're addressed by a ref, not a node path: the host node's path key,
 // which UIDocument on it (by index), and the element's static path in the built tree
-// (`UIDocumentElement._path`: "" for the root, then `/#id` or `/Tag[n]` per level, `/label` for a
-// button's text content). Refs survive rebuilds (hot reload) as long as the structure is the same.
+// (`UIElementSource.path`: "" for the root, then `/#id` or `/Tag[n]` per level, `/label` for a
+// button's text content; the UI document's rule, ADR 0298). Refs survive rebuilds (hot reload) as long
+// as the structure is the same.
 import { signal } from "@preact/signals";
 import { Color, Vector2, type GameObject } from "../engine";
 import { UIDocument, type UIDocumentElement } from "../engine/ui/UIDocument";
@@ -16,6 +17,7 @@ import { Assets } from "../engine/scene/Assets";
 import { projectFileKind } from "../engine/scene/projectFiles";
 import type { UIComponentType } from "../engine/ui/components";
 import type { MarkupAttribute, ResolvedValue, SourceSpan, StyleTarget, ValueSource } from "../engine/ui/document/types";
+import { documentFile, elementAtPath, elementSource } from "../engine/ui/documentSource";
 import { pathKey, type NodePath } from "./document";
 import { selectedUIElement } from "./state";
 
@@ -59,17 +61,18 @@ export function documentsOn(node: GameObject): UIDocument[] {
 export function resolveUIElement(lookup: NodeLookup, ref: UIElementRef): UIDocumentElement | null {
   const node = lookup.nodeFor(ref.host);
   const doc = node ? documentsOn(node)[ref.index] : undefined;
-  return doc?._elementAt(ref.path) ?? null;
+  return doc ? elementAtPath(doc, ref.path) : null;
 }
 
 /** The ref of a live element in the scene being edited, or null (a list row, or a document outside the scene). */
 export function refOfElement(lookup: NodeLookup, el: UIDocumentElement): UIElementRef | null {
-  if (el._path === null || !el.isValid) return null;
+  const src = elementSource(el);
+  if (!src || !el.isValid) return null;
   const doc = el.document;
   const hostPath = lookup.pathOf(doc.node);
   if (!hostPath) return null;
   const index = documentsOn(doc.node).indexOf(doc);
-  return index < 0 ? null : { host: pathKey(hostPath), index, path: el._path };
+  return index < 0 ? null : { host: pathKey(hostPath), index, path: src.path };
 }
 
 /** The document element a UI component (from picking) belongs to, or null for hand-built UI. */
@@ -127,22 +130,24 @@ const short = (text: string, max = 24) => (text.length > max ? `${text.slice(0, 
 
 /** A row's label: tag, `#id` and `.classes`, or the text for unnamed text elements. */
 export function elementLabel(el: UIDocumentElement): string {
-  if (el._synthetic) return `Label "${short(el._markup.text ?? "")}"`;
+  const src = elementSource(el);
+  if (src?.label) return `Label "${short(src.text ?? "")}"`;
   const classes = el.classList.values();
   const named = `${el.tag}${el.id ? `#${el.id}` : ""}${classes.map((c) => `.${c}`).join("")}`;
-  if (!el.id && classes.length === 0 && el._markup.text) return `${el.tag} "${short(el._markup.text)}"`;
+  if (!el.id && classes.length === 0 && src?.text) return `${el.tag} "${short(src.text)}"`;
   return named;
 }
 
 function rowOf(el: UIDocumentElement, host: string, index: number): UIElementRow | null {
-  if (!el.isValid || el._path === null) return null; // list rows aren't the file's (none in the editor anyway)
-  const ref = { host, index, path: el._path };
+  const src = elementSource(el);
+  if (!el.isValid || !src) return null; // list rows aren't the file's (none in the editor anyway)
+  const ref = { host, index, path: src.path };
   const children: UIElementRow[] = [];
   for (const c of el.children) {
     const row = rowOf(c, host, index);
     if (row) children.push(row);
   }
-  return { ref, key: uiRefKey(ref), tag: el.tag, label: elementLabel(el), file: el._markup.file, synthetic: el._synthetic, children };
+  return { ref, key: uiRefKey(ref), tag: el.tag, label: elementLabel(el), file: src.file, synthetic: src.label, children };
 }
 
 /** The documents on the node at `host` (a path key) with their element trees. Empty when it has none. */
@@ -152,7 +157,7 @@ export function documentRows(lookup: NodeLookup, host: string): UIDocumentRows[]
   return documentsOn(node).map((document, index) => ({
     document,
     index,
-    file: document._markupPath,
+    file: documentFile(document),
     root: document.root ? rowOf(document.root, host, index) : null,
   }));
 }
@@ -203,16 +208,18 @@ export interface MarkupLocation {
   readonly synthetic: boolean;
 }
 
-export function markupLocation(el: UIDocumentElement): MarkupLocation {
-  const m = el._markup;
+/** Where an element is written, or null for one a script made (a list row). */
+export function markupLocation(el: UIDocumentElement): MarkupLocation | null {
+  const src = elementSource(el);
+  if (!src) return null;
   return {
-    file: m.file,
-    from: m.from ?? null,
-    span: m.span,
-    openTagSpan: m.openTagSpan,
-    line: lineColumnOf(m.file, m.span.start).line,
-    attributes: m.attributes,
-    synthetic: el._synthetic,
+    file: src.file,
+    from: src.from,
+    span: src.span,
+    openTagSpan: src.openTagSpan,
+    line: lineColumnOf(src.file, src.span.start).line,
+    attributes: src.attributes,
+    synthetic: src.label,
   };
 }
 
@@ -309,9 +316,10 @@ export function fieldSources(el: UIDocumentElement): FieldSourceRow[] {
   const fields = getFields(el.component.constructor as never);
   const resolved: ReadonlyMap<string, ResolvedValue> = el._resolved;
   const bound = new Set(el._boundFields());
-  const markup = el._markup;
+  const markup = elementSource(el);
+  if (!markup) return []; // a list row: not written in a file
   const line = (offset: number) => lineColumnOf(markup.file, offset).line;
-  const contentField = el._synthetic ? "text" : CONTENT_FIELD[el.tag];
+  const contentField = markup.label ? "text" : CONTENT_FIELD[el.tag];
   const rows: FieldSourceRow[] = [];
   for (const info of fields) {
     const field = info.name;

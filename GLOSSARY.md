@@ -150,6 +150,7 @@ The domain terms used in Myco Engine's code, decision records and reviews. Add a
 
 - **Element kind:** one of the closed set of UI element kinds (canvas, panel, text, image, button, input field), each one row in `ui/elementKinds.ts`: its component type, markup tag, whether it is a leaf, whether it takes the pointer, its pseudo-classes and whether it paints. _Avoid:_ switching on UI component classes outside that module.
 - **Text run:** an element's resolved text: text, size, CSS weight, family, line height and wrapping (`textRunOf`, ADR 0271). The UI core measures it and reports it on each laid-out element; the drawing layer draws exactly it. _Avoid:_ reading a text component's font fields in a drawing layer.
+- **Element source:** where a built UI document element is written, as the UI document answers it (`elementSource` in `ui/documentSource.ts`, ADR 0298): its static path (`""`, `/#id`, `/Tag[n]` among same-tag siblings, `/label`), its own tag's markup place (file and child indices), its `<Use>` tag's place for a used document's root, and what is written there. `childPath` gives the path a child will have after an edit, by the same rule. _Avoid:_ reading `_markup`/`_path` from the editor, or computing an element's path or place outside that module.
 
 ## Project settings (ADR 0272)
 
