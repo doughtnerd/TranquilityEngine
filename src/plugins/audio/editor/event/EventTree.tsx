@@ -1,7 +1,8 @@
 // The Event editor's container tree (ADR 0158 §7): the event row, then the nodes depth first with each sustain's
 // empty slots as placeholder rows. A toolbar adds, wraps, retypes, duplicates, reorders and deletes; rows drag to
-// a new place; clips dragged from the asset browser drop into containers and slots or onto a clip row. Every edit is
-// handed to the panel as a new root and the path to select, which it makes one undo step.
+// a new place; clips dragged from the asset browser drop into containers and slots or onto a clip row. Every edit is a
+// refused-or-next result (ADR 0307, 0313) applied through `applyEdit`: accepted, the panel gets the new root and the path
+// to select as one undo step; refused, the reason goes to the status bar. A button's "disabled" asks the same edit.
 // A music event (ADR 0166, decision D6: its tree is `AudioEventAsset.musicRoot`) shows `MusicTree` instead: segments,
 // playlists and music switches with their `library` segments, edited by `eventTreeModel.ts`'s `*Music*` functions.
 import { useEffect, useRef, useState } from "preact/hooks";
@@ -10,8 +11,8 @@ import { NODE_TYPES, type EventNode, type NodeType } from "../../../../engine/au
 import { isMusicContainer, type MusicNode } from "../../../../engine/audio/musicFormat";
 import { audioPaths } from "./assetDrop";
 import { addNode, changeListType } from "./treeActions";
-import { applyEdit, type EditResult } from "../editResult";
-import { SUSTAIN_SLOTS, type SustainSlot, type NodePath, type ListNodeType, LIST_NODE_TYPES, type TreeEdit, pathKey, parsePathKey, samePath, parentPath, isListNode, childSteps, getNode, nodePaths, nodeLabel, canRemove, removeNode, reorderChild, moveNode, canDuplicate, duplicateNode, wrapNode, type MusicEdit, type MusicAddKind, addMusicNode, canRemoveMusic, removeMusicNode, reorderMusicNode, canDuplicateMusic, duplicateMusicNode, musicNodeLabel } from "./eventTreeModel";
+import { applyEdit, refuse, refusalOf, type EditResult } from "../editResult";
+import { SUSTAIN_SLOTS, type SustainSlot, type NodePath, type ListNodeType, LIST_NODE_TYPES, type TreeEdit, pathKey, parsePathKey, samePath, parentPath, isListNode, childSteps, getNode, nodePaths, nodeLabel, removeNode, reorderChild, moveNode, duplicateNode, wrapNode, type MusicEdit, type MusicAddKind, addMusicNode, removeMusicNode, reorderMusicNode, duplicateMusicNode, musicNodeLabel } from "./eventTreeModel";
 import { isLibraryPath, musicEntries, musicNodeAt } from "../../../../engine/audio/musicTree";
 import { applyClipDrop, canDropNode, describeDrop, dropAt, type DropRow, type TreeDrop } from "./treeDrop";
 
@@ -79,6 +80,9 @@ function indicator(row: Row, drop: TreeDrop | null, root: EventNode): string {
   return step === drop.index ? " drop-before" : "";
 }
 
+/** A Delete or Duplicate with the event row selected (no node). */
+const NOTHING_SELECTED = "select a node first (the event row isn't one)";
+
 const TYPE_LABEL: Record<NodeType, string> = { clip: "Clip", random: "Random", sequence: "Sequence", switch: "Switch", blend: "Blend", layer: "Layer", sustain: "Sustain" };
 
 function ClassicEventTree(props: EventTreeProps) {
@@ -90,14 +94,11 @@ function ClassicEventTree(props: EventTreeProps) {
   /** Clips from the asset browser over the tree: how many, and the drop under the pointer. */
   const [clipDrag, setClipDrag] = useState<{ count: number; drop: TreeDrop | null } | null>(null);
 
-  /** Apply an edit (ADR 0307): one undo step through the panel, or the refusal in the status bar. Guarded edits (always accepted) come as a bare `TreeEdit`. */
-  const edit = (e: EditResult<TreeEdit> | TreeEdit, label: string) =>
-    applyEdit("root" in e ? { next: e } : e, label, (next) => props.onEdit(next.root, next.path, label));
+  /** Apply an edit (ADR 0307, 0313): one undo step through the panel, or the refusal in the status bar. */
+  const edit = (e: EditResult<TreeEdit>, label: string) => applyEdit(e, label, (next) => props.onEdit(next.root, next.path, label));
   const add = (type: NodeType) => edit(addNode(root, selected, type), `Add ${type}`);
-  const remove = () => {
-    if (!selected || !canRemove(root, selected)) return;
-    props.onEdit(removeNode(root, selected), parentPath(selected), "Delete node");
-  };
+  const remove = () => edit(selected ? removeNode(root, selected) : refuse(NOTHING_SELECTED), "Delete node");
+  const duplicate = () => edit(selected ? duplicateNode(root, selected) : refuse(NOTHING_SELECTED), "Duplicate node");
   const step = selected?.[selected.length - 1];
   const parent = selected ? parentPath(selected) : null;
   const parentNode = parent ? getNode(root, parent) : undefined;
@@ -120,9 +121,9 @@ function ClassicEventTree(props: EventTreeProps) {
     } else if ((e.key === "Delete" || e.key === "Backspace") && !readOnly) {
       e.preventDefault();
       remove();
-    } else if (e.key === "d" && (e.ctrlKey || e.metaKey) && !readOnly && selected && canDuplicate(root, selected)) {
+    } else if (e.key === "d" && (e.ctrlKey || e.metaKey) && !readOnly) {
       e.preventDefault();
-      edit(duplicateNode(root, selected), "Duplicate node");
+      duplicate();
     }
   };
 
@@ -130,7 +131,7 @@ function ClassicEventTree(props: EventTreeProps) {
   const onRowPointerDown = (e: PointerEvent, path: NodePath) => {
     if (e.button !== 0) return;
     props.onSelect(path);
-    if (readOnly || !canRemove(root, path)) return;
+    if (readOnly || refusalOf(removeNode(root, path)) !== null) return; // what can't leave its place can't be dragged
     const startX = e.clientX, startY = e.clientY;
     let active = false;
     let drop: TreeDrop | null = null;
@@ -235,8 +236,8 @@ function ClassicEventTree(props: EventTreeProps) {
         )}
         <button class="icon" aria-label="Move up" title="Move up (Alt+↑)" disabled={readOnly || typeof step !== "number" || step === 0 || siblings === 0} onClick={() => move(-1)}>↑</button>
         <button class="icon" aria-label="Move down" title="Move down (Alt+↓)" disabled={readOnly || typeof step !== "number" || step >= siblings - 1} onClick={() => move(1)}>↓</button>
-        <button class="icon" aria-label="Duplicate" title="Duplicate (Ctrl+D)" disabled={readOnly || !selected || !canDuplicate(root, selected)} onClick={() => selected && edit(duplicateNode(root, selected), "Duplicate node")}>⧉</button>
-        <button class="icon ev-danger" aria-label="Delete" title="Delete (Del)" disabled={readOnly || !selected || !canRemove(root, selected)} onClick={remove}>×</button>
+        <button class="icon" aria-label="Duplicate" title="Duplicate (Ctrl+D)" disabled={readOnly || !selected || refusalOf(duplicateNode(root, selected)) !== null} onClick={duplicate}>⧉</button>
+        <button class="icon ev-danger" aria-label="Delete" title="Delete (Del)" disabled={readOnly || !selected || refusalOf(removeNode(root, selected)) !== null} onClick={remove}>×</button>
       </div>
       <div
         ref={treeRef}
@@ -335,16 +336,12 @@ function MusicTree(props: EventTreeProps & { music: MusicTreeProps }) {
   const root = music.root;
   const rows = musicEntries(root);
   const sel = selected ? musicNodeAt(root, selected) : undefined;
-  const edit = (e: EditResult<MusicEdit> | MusicEdit, label: string) =>
-    applyEdit("root" in e ? { next: e } : e, label, (next) => music.onEdit(next.root, next.path, label));
-  const remove = () => {
-    if (!selected || !canRemoveMusic(root, selected)) return;
-    music.onEdit(removeMusicNode(root, selected), selected.slice(0, -1), "Delete node");
-  };
+  const edit = (e: EditResult<MusicEdit>, label: string) => applyEdit(e, label, (next) => music.onEdit(next.root, next.path, label));
+  const remove = () => edit(selected ? removeMusicNode(root, selected) : refuse(NOTHING_SELECTED), "Delete node");
   const move = (by: number) => {
     if (selected && selected.length > 0) edit(reorderMusicNode(root, selected, by), "Reorder node");
   };
-  const duplicate = () => selected && canDuplicateMusic(root, selected) && edit(duplicateMusicNode(root, selected), "Duplicate node");
+  const duplicate = () => edit(selected ? duplicateMusicNode(root, selected) : refuse(NOTHING_SELECTED), "Duplicate node");
   const open = (node: MusicNode) => (isMusicContainer(node) ? music.onOpenRules?.(node.id) : music.onOpenSegment?.(node.id));
 
   const onKeyDown = (e: KeyboardEvent) => {
@@ -388,8 +385,8 @@ function MusicTree(props: EventTreeProps & { music: MusicTreeProps }) {
         </select>
         <button class="icon" aria-label="Move up" title="Move up (Alt+↑)" disabled={readOnly || index <= 0 || siblings === 0} onClick={() => move(-1)}>↑</button>
         <button class="icon" aria-label="Move down" title="Move down (Alt+↓)" disabled={readOnly || index < 0 || index >= siblings - 1} onClick={() => move(1)}>↓</button>
-        <button class="icon" aria-label="Duplicate" title="Duplicate (Ctrl+D)" disabled={readOnly || !selected || !canDuplicateMusic(root, selected)} onClick={duplicate}>⧉</button>
-        <button class="icon ev-danger" aria-label="Delete" title="Delete (Del)" disabled={readOnly || !selected || !canRemoveMusic(root, selected)} onClick={remove}>×</button>
+        <button class="icon" aria-label="Duplicate" title="Duplicate (Ctrl+D)" disabled={readOnly || !selected || refusalOf(duplicateMusicNode(root, selected)) !== null} onClick={duplicate}>⧉</button>
+        <button class="icon ev-danger" aria-label="Delete" title="Delete (Del)" disabled={readOnly || !selected || refusalOf(removeMusicNode(root, selected)) !== null} onClick={remove}>×</button>
       </div>
       <div class="ev-tree" role="tree" aria-label="Event tree" data-testid="event-tree" tabIndex={0} onKeyDown={onKeyDown}>
         <div

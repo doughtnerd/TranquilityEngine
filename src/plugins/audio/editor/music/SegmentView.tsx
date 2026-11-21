@@ -1,10 +1,9 @@
 // Ed2 (api-and-models §7, contract H6): the segment view. Stem lanes with waveforms (Ed1's peaks, only the visible span
 // drawn), the bar and beat ruler and grid lines and the tempo and metre lane (from `segmentViewModel.ts`, which compiles
 // them from the tempo map), cues, regions, entry and exit, zoom, scroll and the playhead, on one canvas. Drags go
-// through the hook that calls `segmentDrag.ts` (Ed3). Colours come from the theme tokens, read when drawing.
+// through the hook that calls `segmentDrag.ts` (Ed3). Colours come from the theme tokens, read when drawing. The
+// registered panel is a view over the segment's music node handle (ADR 0313).
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
-import { editor, openAssetDocument, Panel } from "../../../../editor/sdk";
-import type { AudioEventAsset } from "../../../../engine/audio/eventFormat";
 import type { SegmentNode } from "../../../../engine/audio/musicFormat";
 import { compileSegmentGrid, positionTextToTicks, secondsToTicks, type SegmentGrid } from "../../../../engine/audio/musicGrid";
 import { openSegment } from "./index";
@@ -14,14 +13,14 @@ import {
   clampViewport, fitViewport, followPlayhead, gridLines, positionAtX, scrollBy, secondsToX, tempoLane,
   ticksToX, xToSeconds, zoomAt, type Viewport,
 } from "./segmentViewModel";
-import { findMusicSegment, replaceMusicNode } from "../../../../engine/audio/musicTree";
-import { peaksFor } from "./peaksHost";
-import type { PeaksService } from "./peaks";
+import { MusicNodePanel } from "./MusicNodePanel";
+import type { MusicNodeHandle } from "./musicNodeHandle";
 import { TransportBar } from "./TransportBar";
 import { editorAudition } from "../audition/editorAudition";
 import { stingerNames } from "../audition/auditionView";
 import { auditionValues } from "../event/eventParameters";
 import { binAt, binSpan, pickLevel, type PeakMips } from "./peaksMip";
+import { accept } from "../editResult";
 import "./segmentView.css";
 
 /** How the view changes its segment: `drag` merges a drag's quick changes into one undo step. */
@@ -31,8 +30,8 @@ export interface SegmentViewProps {
   readonly segment: SegmentNode;
   /** Length of the longest stem in seconds when known (the grid's `"end"`); NaN or absent: unknown. */
   readonly endSeconds?: number;
-  /** The peaks service for the stem lanes; absent: lanes draw empty. */
-  readonly peaks?: Pick<PeaksService, "get" | "peek">;
+  /** A stem clip's waveform once decoded (asking starts its decode; the caller re-renders when it arrives); absent: lanes draw empty. */
+  readonly waveform?: (clip: string) => PeakMips | undefined;
   /** File seconds of the playhead, or absent when nothing plays. */
   readonly playheadSeconds?: number;
   readonly snap?: SnapMode;
@@ -120,10 +119,10 @@ function handlesOf(segment: SegmentNode, grid: SegmentGrid, view: Viewport): Han
 const cssVar = (style: CSSStyleDeclaration, name: string, fallback: string): string => style.getPropertyValue(name).trim() || fallback;
 
 /** The longest decoded stem in seconds (0 when none is decoded yet). */
-function stemSeconds(segment: SegmentNode, peaks: SegmentViewProps["peaks"]): number {
+function stemSeconds(segment: SegmentNode, waveform: SegmentViewProps["waveform"]): number {
   let longest = 0;
   for (const t of segment.tracks) {
-    const m = peaks?.peek(t.clip);
+    const m = waveform?.(t.clip);
     if (m && m.rate > 0) longest = Math.max(longest, m.frames / m.rate);
   }
   return longest;
@@ -192,7 +191,7 @@ function draw(canvas: HTMLCanvasElement, props: SegmentViewProps, grid: SegmentG
     g.globalAlpha = i % 2 ? 0.25 : 0.55;
     g.fillRect(0, y, w, LANE_H);
     g.globalAlpha = 1;
-    const mips = props.peaks?.peek(t.clip);
+    const mips = props.waveform?.(t.clip);
     if (mips) drawLane(g, mips, view, y, c.accent);
     else { g.fillStyle = c.faint; g.fillText("decoding…", 8, y + LANE_H / 2); }
     g.fillStyle = c.border;
@@ -301,24 +300,14 @@ export function SegmentView(props: SegmentViewProps) {
   const [view, setView] = useState<Viewport | null>(null);
   const [hoverX, setHoverX] = useState<number | null>(null);
   const [snap, setSnap] = useState<SnapMode>(props.snap ?? "beat");
-  const [, setPeaksTick] = useState(0); // bumped when a stem's peaks arrive, so the lane draws
   const compiled = useMemo(() => {
     const problems: string[] = [];
     return { grid: compileSegmentGrid(props.segment, { endSeconds: props.endSeconds, problems }), problems };
   }, [props.segment, props.endSeconds]);
   const { grid, problems } = compiled;
 
-  const clips = props.segment.tracks.map((t) => t.clip).join("\n");
-  useEffect(() => {
-    let live = true;
-    for (const t of props.segment.tracks) {
-      if (!props.peaks?.peek(t.clip)) props.peaks?.get(t.clip).then(() => live && setPeaksTick((n) => n + 1), () => {});
-    }
-    return () => void (live = false);
-  }, [props.peaks, clips]);
-
   const known = props.endSeconds !== undefined && Number.isFinite(props.endSeconds) ? props.endSeconds : 0;
-  const total = Math.max(known, stemSeconds(props.segment, props.peaks)) || DEFAULT_TOTAL_SECONDS;
+  const total = Math.max(known, stemSeconds(props.segment, props.waveform)) || DEFAULT_TOTAL_SECONDS;
   const current: Viewport = { ...clampViewport(view ?? fitViewport(width, total, PAD_SECONDS), total, PAD_SECONDS), widthPx: width };
   const currentRef = useRef(current);
   currentRef.current = current;
@@ -421,40 +410,32 @@ export function SegmentView(props: SegmentViewProps) {
   );
 }
 
-/** The registered panel: the segment named by `openSegment`, edited through its event's asset document. */
+/** The registered panel: the segment named by `openSegment`, a view over its music node handle (ADR 0313). */
 export function SegmentViewPanel() {
   const open = openSegment.value;
-  const project = editor.project.current;
-  editor.project.version; // the file list changes with it
-  if (!project || !open) return <Panel><p class="empty">Open a segment from the Event editor.</p></Panel>;
-  if (!project.files.includes(open.event)) return <Panel><p class="empty">{open.event} isn't in the project any more.</p></Panel>;
   return (
-    <Panel>
-      <OpenSegment key={`${open.event}#${open.segmentId}`} path={open.event} segmentId={open.segmentId} />
-    </Panel>
+    <MusicNodePanel
+      open={open && { event: open.event, id: open.segmentId }}
+      kind="segment"
+      idle="Open a segment from the Event editor."
+      view={(handle, segment) => <OpenSegment handle={handle} segment={segment} />}
+    />
   );
 }
 
-function OpenSegment({ path, segmentId }: { path: string; segmentId: string }) {
-  const project = editor.project.current!;
-  const doc = openAssetDocument<AudioEventAsset>(project, path, "audioEvent");
-  useEffect(() => () => void doc.flush(), [doc]);
-  const event = doc.value.value;
-  const segment = useMemo(() => findMusicSegment(event.musicRoot, segmentId), [event.musicRoot, segmentId]);
-  const grid = useMemo(() => (segment ? compileSegmentGrid(segment, { endSeconds: NaN }) : null), [segment]);
+function OpenSegment({ handle, segment }: { handle: MusicNodeHandle<SegmentNode>; segment: SegmentNode }) {
+  const { path, id: segmentId } = handle;
+  const event = handle.asset;
+  const grid = useMemo(() => compileSegmentGrid(segment, { endSeconds: NaN }), [segment]);
   // The audition (ticking, solo and mute, its lifetime) is the editor's (ADR 0268, F-33): a tab switch to Segment
   // Properties unmounts this view, and the audition goes on. An edited segment's grid reaches its playhead.
-  useEffect(() => { if (grid) editorAudition.tick(grid); }, [grid]);
+  useEffect(() => { editorAudition.tick(grid); }, [grid]);
   // F-15: the Event editor's slider values (moved ones over the defaults) start the played instance; later moves reach it live.
   const parameters = auditionValues(event.parameters, editorAudition.overrides.value[path] ?? {});
-  if (!segment || !grid) return <p class="empty">{path} has no segment “{segmentId}”.</p>;
-  const onChange: SegmentChange = (next, o) => {
-    if (!event.musicRoot) return;
-    doc.edit({ ...event, musicRoot: replaceMusicNode(event.musicRoot, segmentId, next) }, o.drag ? { coalesce: true, label: o.label } : { label: o.label });
-  };
+  const onChange: SegmentChange = (next, o) => void handle.apply(accept(next), o.label, { coalesce: o.drag });
   const request = (seconds: number) => ({ event: path, parameters, music: { segmentId, grid, startAtSegment: true, from: { kind: "seconds", seconds } as const } });
   return (
-    <div class="segment-panel-root" data-asset-document={doc.path}>
+    <div class="segment-panel-root" data-asset-document={path}>
       <TransportBar
         audition={editorAudition}
         event={path}
@@ -466,8 +447,8 @@ function OpenSegment({ path, segmentId }: { path: string; segmentId: string }) {
       />
       <SegmentView
         segment={segment}
-        peaks={peaksFor(project)}
-        readOnly={doc.readOnly}
+        waveform={handle.waveform}
+        readOnly={handle.readOnly}
         onChange={onChange}
         playheadSeconds={editorAudition.playhead.value}
         onSeek={(seconds) => void editorAudition.seek(request(seconds))}
@@ -475,4 +456,3 @@ function OpenSegment({ path, segmentId }: { path: string; segmentId: string }) {
     </div>
   );
 }
-

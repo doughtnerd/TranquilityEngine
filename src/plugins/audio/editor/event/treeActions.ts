@@ -3,7 +3,6 @@
 import type { EventNode, NodeType } from "../../../../engine/audio/eventFormat";
 import {
   addChild,
-  canAddChild,
   getNode,
   isListNode,
   newNode,
@@ -13,7 +12,7 @@ import {
   type NodePath,
   type TreeEdit,
 } from "./eventTreeModel";
-import { accept, refuse, type EditResult } from "../editResult";
+import { refuse, type EditResult } from "../editResult";
 
 /**
  * Where "Add" puts a new node with `selected` selected (`null`: the event row, which means the root): into a selected
@@ -36,9 +35,7 @@ export function addTarget(root: EventNode, selected: NodePath | null): { parent:
 export function addNode(root: EventNode, selected: NodePath | null, type: NodeType, clip?: string): EditResult<TreeEdit> {
   const at = addTarget(root, selected);
   if (!at) return refuse("select a container, or a node in one, to add beside it");
-  const node = newNode(type, clip);
-  if (!canAddChild(root, at.parent, node)) return refuse("the event can't hold more nodes there");
-  return accept(addChild(root, at.parent, node, at.index));
+  return addChild(root, at.parent, newNode(type, clip), at.index);
 }
 
 /** The keys a node keeps whatever its type: the common fields and the ones its parent reads. */

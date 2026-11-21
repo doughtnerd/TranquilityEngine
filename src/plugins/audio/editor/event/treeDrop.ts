@@ -4,8 +4,7 @@
 import type { EventNode } from "../../../../engine/audio/eventFormat";
 import {
   addChild,
-  canAddChild,
-  canMove,
+  moveNode,
   getNode,
   isListNode,
   newNode,
@@ -52,7 +51,7 @@ export function dropAt(root: EventNode, row: DropRow, fraction: number, what: "n
 
 /** Whether a tree node at `from` may be dropped at `drop` (never onto a `replace`). */
 export function canDropNode(root: EventNode, from: NodePath, drop: TreeDrop | null): drop is DropTarget {
-  return drop !== null && !("replace" in drop) && canMove(root, from, drop);
+  return drop !== null && !("replace" in drop) && "next" in moveNode(root, from, drop);
 }
 
 /**
@@ -72,16 +71,15 @@ export function applyClipDrop(root: EventNode, drop: TreeDrop, clips: readonly s
     const sustain = getNode(root, drop.parent);
     if (sustain?.type !== "sustain" || sustain[drop.slot] !== undefined) return refuse("that slot is taken");
     if (clips.length > 1) return refuse("a sustain slot holds one node; drop one clip, or drop several on a container");
-    return accept(setSustainSlot(root, drop.parent, drop.slot, newNode("clip", clips[0])));
+    return setSustainSlot(root, drop.parent, drop.slot, newNode("clip", clips[0]));
   }
   let next = root;
   let first: NodePath | null = null;
   for (const [i, clip] of clips.entries()) {
-    const node = newNode("clip", clip);
-    if (!canAddChild(next, drop.parent, node)) return refuse("the event can't hold more nodes there");
-    const edit = addChild(next, drop.parent, node, drop.index + i);
-    next = edit.root;
-    first ??= edit.path;
+    const edit = addChild(next, drop.parent, newNode("clip", clip), drop.index + i);
+    if ("refused" in edit) return edit;
+    next = edit.next.root;
+    first ??= edit.next.path;
   }
   return accept({ root: next, path: first! });
 }

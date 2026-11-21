@@ -1,9 +1,9 @@
-// One peaks service per open project, shared by the segment view, the segment panel and the rules table (Ed5, the build
-// log's F-2). The decode runs on the page's shared decoder worker of the build the project needs, the one the audio core
-// uses too: the AAC build while `audio.codecs.aac` is on (the default build has no AAC reader, so an `.m4a` clip would
-// draw no waveform), else the default one. The build is read at each request, so turning AAC on in Project Settings
-// takes effect without reopening the project. A file is read through its asset URL; a new URL is a new version,
-// standing in for the mtime.
+// One peaks service per open project, shared by the music node handles of the segment view, the segment panel and the
+// rules table (ADR 0313; Ed5, the build log's F-2). The decode runs on the page's shared decoder worker of the build the
+// project needs, the one the audio core uses too: the AAC build while `audio.codecs.aac` is on (the default build has no
+// AAC reader, so an `.m4a` clip would draw no waveform), else the default one. The build is read at each request, so
+// turning AAC on in Project Settings takes effect without reopening the project. A file is read through its asset URL;
+// a new URL is a new version, standing in for the mtime.
 import { editor } from "../../../../editor/sdk";
 import { audioSection } from "../../../../engine/audio/audioSection";
 import { sharedDecoderClient, type DecoderClient } from "../../runtime/decoder/decoderClient";
