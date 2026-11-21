@@ -1,6 +1,6 @@
 # 0185. The effect player builds every particle effect, the warm-up included, and one factory makes every particle draw
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0315 (compiling is the scene layer's particle-effect compile; the player adds its kernel plan)
 - **Date:** 2026-11-16
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
