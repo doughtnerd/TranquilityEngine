@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Engine, GameObject, Input, getComponentClass } from "../engine";
 import { getDataComponentDef } from "../engine/core/data";
 import { listComponents } from "../engine/editor";
-import { activeScript, closeAllScripts, openScripts } from "./code/codeState";
+import { activeScript, closeAllScripts, openScripts } from "./code/codeBuffers";
 import { newScript, scriptFolderFor } from "./newScript";
 import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile } from "./project";

@@ -19,6 +19,7 @@ import type { UICoreLike, UILaidOutCanvas, UILaidOutElement } from "../ui/uiCore
 import { BabylonUI, measureText } from "../render/babylon/ui";
 import { flipRows, redrawnPixels } from "../render/pixelRegions";
 import { loadBundledFont } from "../ui/fonts";
+import { UIPointer } from "./uiPointer";
 
 /** A 2D context that draws nothing and measures half an em per character. */
 function fakeContext() {
@@ -192,27 +193,38 @@ describe("screen canvases on Babylon GUI (ADR 0076)", () => {
     expect(rootOf().isVisible).toBe(false);
   });
 
-  it("colours a button by hovered and pressed like UIRuntime", () => {
+  it("colours a button by hovered and pressed like UIRuntime", async () => {
     const canvas = node("C", null, UICanvas);
-    const button = node("B", canvas.node, UIButton, { backgroundColor: new Color(0.2, 0.2, 0.2, 1), hoverColor: new Color(0, 1, 0, 1), pressedColor: new Color(0, 0, 1, 1) });
+    const button = node("B", canvas.node, UIButton, { backgroundColor: new Color(0.2, 0.2, 0.2, 1), hoverColor: new Color(0, 1, 0, 1), pressedColor: new Color(0, 0, 1, 1), width: "100", height: "40" });
     const core = new FakeCore();
     core.set([canvasInfo(canvas)], [[button, canvas]]);
     const bg = () => (byName(rootOf(), "B") as Rectangle).background;
-    sync(core);
-    expect(bg()).toBe("rgba(51, 51, 51, 1)");
-    button._hovered = true;
-    sync(core);
-    expect(bg()).toBe("rgba(0, 255, 0, 1)");
-    button._pressed = true;
-    sync(core);
-    expect(bg()).toBe("rgba(0, 0, 255, 1)");
-    button._hovered = false; // pressed, but the pointer left: the plain colour
-    sync(core);
-    expect(bg()).toBe("rgba(51, 51, 51, 1)");
-    button._hovered = true;
-    button.interactable = false;
-    sync(core);
-    expect(bg()).toBe("rgba(51, 51, 51, 1)");
+    // The hover and press come from a real UI core routing the pointer; the fake core lays out the drawing.
+    const pointer = await UIPointer.create(World.require());
+    try {
+      sync(core);
+      expect(bg()).toBe("rgba(51, 51, 51, 1)");
+      pointer.hover(button);
+      engine.step(1 / 60);
+      sync(core);
+      expect(bg()).toBe("rgba(0, 255, 0, 1)");
+      pointer.dom.pointerDown(0);
+      engine.step(1 / 60);
+      sync(core);
+      expect(bg()).toBe("rgba(0, 0, 255, 1)");
+      pointer.leave(); // pressed, but the pointer left: the plain colour
+      engine.step(1 / 60);
+      sync(core);
+      expect(button.pressed).toBe(true);
+      expect(bg()).toBe("rgba(51, 51, 51, 1)");
+      pointer.hover(button);
+      button.interactable = false;
+      engine.step(1 / 60);
+      sync(core);
+      expect(bg()).toBe("rgba(51, 51, 51, 1)");
+    } finally {
+      pointer.dispose();
+    }
   });
 
   it("maps UIText to a TextBlock with font, colour, alignment and wrapping", () => {

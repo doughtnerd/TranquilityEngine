@@ -1,50 +1,10 @@
-// The Materials plugin's runtime half (ADR 0134). The `Material` handle, the material, shader graph
-// and shader asset formats, and the graph compiler still live in `src/engine/` (`Material` and the
-// `MaterialSettings` types are exported from `myco`) until the runtime contribution points
-// (Components, render features) exist; this re-exports them so the plugin already has its shape.
-// `myco` (`src/myco.ts`) exports none of these from here: its material exports come from the core.
+// The Materials plugin's runtime half (ADR 0134, 0135). It contributes no Components and no render feature:
+// the `Material` handle, the material, shader graph and shader asset formats and the graph compiler stay in
+// `src/engine/` (`myco` exports `Material` and the `MaterialSettings` types from there), because material
+// resolution and the material library are shared render services the renderer, the thumbnails and the
+// warm-up all use (ADR 0133, 0135, 0140: renderers stay first-party). The half registers nothing.
 // Runtime code: never imports from `src/editor/` or the plugin's `editor/` folder.
 import type { RuntimePlugin } from "../../runtimeContext";
 import { materialsManifest } from "../manifest";
 
-export { Material, type MaterialValue } from "../../../engine/render/Material";
-export {
-  MATERIAL_FORMAT,
-  MATERIAL_SUFFIX,
-  MATERIAL_MAPS,
-  isMaterialPath,
-  defaultMaterialSettings,
-  parseMaterial,
-  formatMaterial,
-  materialGraph,
-  type MaterialSettings,
-  type MaterialShader,
-  type MaterialMapKey,
-  type MaterialAlphaMode,
-  type MaterialInstancing,
-} from "../../../engine/scene/material";
-export {
-  SHADER_GRAPH_FORMAT,
-  SHADER_GRAPH_SUFFIX,
-  SHADER_SUBGRAPH_FORMAT,
-  SHADER_SUBGRAPH_SUFFIX,
-  isShaderGraphPath,
-  isShaderSubGraphPath,
-  defaultShaderGraph,
-  defaultShaderSubGraph,
-  parseShaderGraph,
-  formatShaderGraph,
-  type ShaderGraph,
-  type GraphNode,
-  type GraphEdge,
-  type GraphProperty,
-  type GraphPropertyType,
-  type GraphValue,
-} from "../../../engine/scene/shaderGraph";
-export { SHADER_ASSET_FORMAT, SHADER_ASSET_SUFFIX, isShaderAssetPath, defaultShaderAsset, parseShaderAsset, formatShaderAsset, type ShaderAsset } from "../../../engine/scene/shaderAsset";
-export type { ShaderKeyword, KeywordValue } from "../../../engine/scene/shaderKeywords";
-export { compileShaderGraph, type CompiledShaderGraph } from "../../../engine/render/shaderGraph/compile";
-
-// Material resolution and the material library are shared render services, which stay in core (ADR
-// 0133, 0135): the half registers nothing yet.
 export const materialsRuntimePlugin: RuntimePlugin = { manifest: materialsManifest, activate() {} };

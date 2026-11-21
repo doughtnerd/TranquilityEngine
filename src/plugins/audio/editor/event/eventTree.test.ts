@@ -10,10 +10,6 @@ import {
 } from "../../../../engine/audio/eventFormat";
 import {
   addChild,
-  canAddChild,
-  canDuplicate,
-  canMove,
-  canRemove,
   childSteps,
   cloneNode,
   countNodes,
@@ -37,7 +33,7 @@ import {
   type ListNodeType,
   type NodePath,
 } from "./eventTreeModel";
-import type { EditResult } from "../editResult";
+import { refusalOf, type EditResult } from "../editResult";
 
 /** The accepted value of an edit (ADR 0307), or the test fails with its refusal. */
 const nextOf = <T,>(r: EditResult<T>): T => {
@@ -230,111 +226,110 @@ describe("eventTree edits", () => {
   it("addChild appends by default, inserts at a clamped index, returns the new path", () => {
     const root = deepFreeze(sampleTree());
     const d = clipNode("d.ogg");
-    const appended = addChild(root, [0], d);
+    const appended = nextOf(addChild(root, [0], d));
     expect(appended.path).toEqual([0, 2]);
     expect(getNode(appended.root, [0, 2])).toBe(d);
     expect(getNode(root, [0, 2])).toBeUndefined();
-    expect(addChild(root, [0], d, 0).path).toEqual([0, 0]);
-    expect(addChild(root, [0], d, 99).path).toEqual([0, 2]);
-    expect(addChild(root, [0], d, -5).path).toEqual([0, 0]);
-    const inserted = addChild(root, [0], d, 1);
+    expect(nextOf(addChild(root, [0], d, 0)).path).toEqual([0, 0]);
+    expect(nextOf(addChild(root, [0], d, 99)).path).toEqual([0, 2]);
+    expect(nextOf(addChild(root, [0], d, -5)).path).toEqual([0, 0]);
+    const inserted = nextOf(addChild(root, [0], d, 1));
     expect(getNode(inserted.root, [0, 1])).toBe(d);
     expect(getNode(inserted.root, [0, 2])).toEqual(clipNode("sfx/b.ogg"));
   });
 
-  it("addChild refuses a clip or sustain parent, and the depth and node limits (canAddChild)", () => {
+  it("addChild refuses a clip or sustain parent, and the depth and node limits, with why", () => {
     const root = sampleTree();
-    expect(() => addChild(root, [2], clipNode("x"))).toThrow(RangeError);
-    expect(() => addChild(root, [1], clipNode("x"))).toThrow(RangeError);
-    expect(canAddChild(root, [1], clipNode("x"))).toBe(false);
-    expect(canAddChild(root, [0], clipNode("x"))).toBe(true);
+    expect(refusalOf(addChild(root, [2], clipNode("x")))).toMatch(/holds a list of nodes/);
+    expect(refusalOf(addChild(root, [1], clipNode("x")))).toMatch(/holds a list of nodes/);
+    expect(refusalOf(addChild(root, [9], clipNode("x")))).toBe('no node at "9"');
+    expect(refusalOf(addChild(root, [0], clipNode("x")))).toBeNull();
 
     // The parent sits at depth 14: a clip (height 1) fits, a two-level container (height 2) would reach depth 16.
     const deep = nest(14, list("layer", []));
-    expect(canAddChild(deep, zeros(14), clipNode("x"))).toBe(true);
-    expect(canAddChild(deep, zeros(14), list("layer", [clipNode("x")]))).toBe(false);
-    expect(() => addChild(deep, zeros(14), list("layer", [clipNode("x")]))).toThrow(RangeError);
+    expect(refusalOf(addChild(deep, zeros(14), clipNode("x")))).toBeNull();
+    expect(addChild(deep, zeros(14), list("layer", [clipNode("x")]))).toEqual({ refused: "the event can't nest any deeper there" });
 
     // Node limit: 1023 nodes in total leave room for one more clip, not for a two-node subtree.
     const big = wideLayer(1022);
     expect(countNodes(big)).toBe(1023);
-    expect(canAddChild(big, [], clipNode("x"))).toBe(true);
-    expect(canAddChild(big, [], list("layer", [clipNode("x")]))).toBe(false);
+    expect(refusalOf(addChild(big, [], clipNode("x")))).toBeNull();
+    expect(addChild(big, [], list("layer", [clipNode("x")]))).toEqual({ refused: "the event can't hold more than 1024 nodes" });
   });
 
   it("setSustainSlot fills and clears start/end, replaces loop, refuses clearing loop", () => {
     const root = sampleTree();
     const end = clipNode("end.ogg");
-    const filled = setSustainSlot(root, [1], "end", end);
+    const filled = nextOf(setSustainSlot(root, [1], "end", end));
     expect(filled.path).toEqual([1, "end"]);
     expect(getNode(filled.root, [1, "end"])).toBe(end);
     expect(getNode(filled.root, [1, "start"])).toEqual(clipNode("start.ogg"));
 
-    const replaced = setSustainSlot(root, [1], "start", end);
+    const replaced = nextOf(setSustainSlot(root, [1], "start", end));
     expect(getNode(replaced.root, [1, "start"])).toBe(end);
 
-    const cleared = setSustainSlot(root, [1], "start", undefined);
+    const cleared = nextOf(setSustainSlot(root, [1], "start", undefined));
     expect(cleared.path).toEqual([1]);
     expect("start" in (getNode(cleared.root, [1]) as object)).toBe(false);
     expect(childSteps(getNode(cleared.root, [1]) as EventNode)).toEqual(["loop"]);
 
     const loop = clipNode("new-loop.ogg");
-    expect(getNode(setSustainSlot(root, [1], "loop", loop).root, [1, "loop"])).toBe(loop);
-    expect(() => setSustainSlot(root, [1], "loop", undefined)).toThrow(RangeError);
-    expect(() => setSustainSlot(root, [0], "start", end)).toThrow(RangeError);
+    expect(getNode(nextOf(setSustainSlot(root, [1], "loop", loop)).root, [1, "loop"])).toBe(loop);
+    expect(setSustainSlot(root, [1], "loop", undefined)).toEqual({ refused: "a sustain node's loop slot is required" });
+    expect(refusalOf(setSustainSlot(root, [0], "start", end))).toMatch(/only a sustain node/);
   });
 
-  it("removeNode splices a child, removes a sustain start/end key; refuses the root and a loop slot", () => {
+  it("removeNode splices a child, removes a sustain start/end key and selects the parent; refuses the root and a loop slot, with why", () => {
     const root = sampleTree();
-    expect(canRemove(root, [0])).toBe(true);
-    const spliced = removeNode(root, [0]);
-    expect((spliced as Extract<EventNode, { type: "layer" }>).children.length).toBe(2);
-    expect((spliced as Extract<EventNode, { type: "layer" }>).children[0]).toBe((root as Extract<EventNode, { type: "layer" }>).children[1]);
+    const spliced = nextOf(removeNode(root, [0]));
+    expect(spliced.path).toEqual([]);
+    expect((spliced.root as Extract<EventNode, { type: "layer" }>).children.length).toBe(2);
+    expect((spliced.root as Extract<EventNode, { type: "layer" }>).children[0]).toBe((root as Extract<EventNode, { type: "layer" }>).children[1]);
 
-    const noStart = removeNode(root, [1, "start"]);
-    expect("start" in (getNode(noStart, [1]) as object)).toBe(false);
-    expect(getNode(noStart, [1, "loop"])).toBe(getNode(root, [1, "loop"]));
+    const noStart = nextOf(removeNode(root, [1, "start"]));
+    expect(noStart.path).toEqual([1]);
+    expect("start" in (getNode(noStart.root, [1]) as object)).toBe(false);
+    expect(getNode(noStart.root, [1, "loop"])).toBe(getNode(root, [1, "loop"]));
 
-    expect(canRemove(root, [])).toBe(false);
-    expect(canRemove(root, [1, "loop"])).toBe(false);
-    expect(() => removeNode(root, [])).toThrow(RangeError);
-    expect(() => removeNode(root, [1, "loop"])).toThrow(RangeError);
+    expect(refusalOf(removeNode(root, []))).toMatch(/root node stays/);
+    expect(removeNode(root, [1, "loop"])).toEqual({ refused: "a sustain node's loop slot is required" });
+    expect(removeNode(root, [7])).toEqual({ refused: 'no node at "7"' });
   });
 
   it("reorderChild moves a child to index to; from === to returns the same root", () => {
     const root = sampleTree();
     const r = (root as Extract<EventNode, { type: "layer" }>);
-    const toEnd = reorderChild(root, [], 0, 2);
+    const toEnd = nextOf(reorderChild(root, [], 0, 2));
     expect(toEnd.path).toEqual([2]);
     const moved = toEnd.root as Extract<EventNode, { type: "layer" }>;
     expect(moved.children[0]).toBe(r.children[1]);
     expect(moved.children[1]).toBe(r.children[2]);
     expect(moved.children[2]).toBe(r.children[0]);
 
-    expect(reorderChild(root, [], 2, 0).path).toEqual([0]);
-    expect(reorderChild(root, [], 0, 99).path).toEqual([2]);
-    expect(reorderChild(root, [], 1, 1).root).toBe(root);
-    expect(() => reorderChild(root, [0, 0], 0, 1)).toThrow(RangeError);
-    expect(() => reorderChild(root, [], 3, 0)).toThrow(RangeError);
+    expect(nextOf(reorderChild(root, [], 2, 0)).path).toEqual([0]);
+    expect(nextOf(reorderChild(root, [], 0, 99)).path).toEqual([2]);
+    expect(nextOf(reorderChild(root, [], 1, 1)).root).toBe(root);
+    expect(refusalOf(reorderChild(root, [0, 0], 0, 1))).toMatch(/list container/);
+    expect(reorderChild(root, [], 3, 0)).toEqual({ refused: "no child 3 there" });
   });
 
   it("moveNode within one list lands where the drop indicator was (before-move indices)", () => {
     const root = deepFreeze(sampleTree());
     const r = root as Extract<EventNode, { type: "layer" }>;
     // Drop before the clip (index 2): the random lands between the sustain and the clip.
-    const before = moveNode(root, [0], { parent: [], index: 2 });
+    const before = nextOf(moveNode(root, [0], { parent: [], index: 2 }));
     expect(before.path).toEqual([1]);
     const b = before.root as Extract<EventNode, { type: "layer" }>;
     expect(b.children.map((c) => c.type)).toEqual(["sustain", "random", "clip"]);
     expect(b.children[1]).toBe(r.children[0]);
 
     // Drop after the last child (index 3): the random goes to the end.
-    expect(moveNode(root, [0], { parent: [], index: 3 }).path).toEqual([2]);
+    expect(nextOf(moveNode(root, [0], { parent: [], index: 3 })).path).toEqual([2]);
     // Drop before itself or after itself: no move.
-    expect(moveNode(root, [0], { parent: [], index: 0 }).path).toEqual([0]);
-    expect(moveNode(root, [0], { parent: [], index: 1 }).path).toEqual([0]);
+    expect(nextOf(moveNode(root, [0], { parent: [], index: 0 })).path).toEqual([0]);
+    expect(nextOf(moveNode(root, [0], { parent: [], index: 1 })).path).toEqual([0]);
     // Upwards: the clip to the front.
-    const up = moveNode(root, [2], { parent: [], index: 0 });
+    const up = nextOf(moveNode(root, [2], { parent: [], index: 0 }));
     expect(up.path).toEqual([0]);
     expect((up.root as Extract<EventNode, { type: "layer" }>).children[0]).toBe(r.children[2]);
   });
@@ -345,7 +340,7 @@ describe("eventTree edits", () => {
       list("random", [clipNode("a.ogg")]),
       sustain(clipNode("loop.ogg")),
     ]));
-    const toSlot = moveNode(tree, [0], { parent: [1], slot: "start" });
+    const toSlot = nextOf(moveNode(tree, [0], { parent: [1], slot: "start" }));
     expect(toSlot.path).toEqual([0, "start"]);
     expect(getNode(toSlot.root, [0, "start"])).toEqual(list("random", [clipNode("a.ogg")]));
     expect(getNode(toSlot.root, [0, "loop"])).toEqual(clipNode("loop.ogg"));
@@ -357,51 +352,51 @@ describe("eventTree edits", () => {
       list("layer", [clipNode("z.ogg")]),
     ]));
     const a = (root as Extract<EventNode, { type: "layer" }>).children[0];
-    const into = moveNode(root, [0], { parent: [2], index: 0 });
+    const into = nextOf(moveNode(root, [0], { parent: [2], index: 0 }));
     expect(into.path).toEqual([1, 0]);
     expect(getNode(into.root, [1, 0])).toBe(a);
     expect(getNode(into.root, [1, 1])).toEqual(clipNode("z.ogg"));
     expect(getNode(into.root, [0])).toEqual(clipNode("b.ogg"));
   });
 
-  it("canMove refuses moving into itself or a descendant, a filled slot, the root, and past the depth limit", () => {
+  it("moveNode refuses moving into itself or a descendant, a filled slot, the root, and past the depth limit, with why", () => {
     const root = sampleTree();
-    expect(canMove(root, [0], { parent: [0], index: 0 })).toBe(false);
-    expect(canMove(root, [1], { parent: [1], slot: "end" })).toBe(false);
-    expect(canMove(root, [1], { parent: [1, "loop"], index: 0 })).toBe(false);
-    expect(canMove(root, [2], { parent: [1], slot: "start" })).toBe(false); // start is filled
-    expect(canMove(root, [2], { parent: [1], slot: "end" })).toBe(true);
-    expect(canMove(root, [], { parent: [0], index: 0 })).toBe(false);
-    expect(canMove(root, [1, "loop"], { parent: [], index: 0 })).toBe(false);
-    expect(canMove(root, [0], { parent: [0, 0], index: 0 })).toBe(false); // a clip is not a list
-    expect(canMove(root, [0], { parent: [9], index: 0 })).toBe(false);
+    expect(moveNode(root, [0], { parent: [0], index: 0 })).toEqual({ refused: "a node can't move into itself" });
+    expect(moveNode(root, [1], { parent: [1], slot: "end" })).toEqual({ refused: "a node can't move into itself" });
+    expect(moveNode(root, [1], { parent: [1, "loop"], index: 0 })).toEqual({ refused: "a node can't move into itself" });
+    expect(moveNode(root, [2], { parent: [1], slot: "start" })).toEqual({ refused: "that slot is taken" });
+    expect(refusalOf(moveNode(root, [2], { parent: [1], slot: "end" }))).toBeNull();
+    expect(refusalOf(moveNode(root, [], { parent: [0], index: 0 }))).toMatch(/root node stays/);
+    expect(moveNode(root, [1, "loop"], { parent: [], index: 0 })).toEqual({ refused: "a sustain node's loop slot is required" });
+    expect(refusalOf(moveNode(root, [0], { parent: [0, 0], index: 0 }))).toBe("a node can't move into itself");
+    expect(refusalOf(moveNode(root, [0], { parent: [2], index: 0 }))).toMatch(/holds a list of nodes/); // a clip is not a list
+    expect(moveNode(root, [0], { parent: [9], index: 0 })).toEqual({ refused: 'no node at "9"' });
 
     // A clip (height 1) under a parent at depth 15 would sit at depth 16; at depth 14 it fits.
     const deep = list("layer", [clipNode("x.ogg"), nest(14, list("layer", []))]);
-    expect(canMove(deep, [0], { parent: [1, ...zeros(13)], index: 0 })).toBe(true);
-    expect(canMove(deep, [0], { parent: [1, ...zeros(14)], index: 0 })).toBe(false);
+    expect(refusalOf(moveNode(deep, [0], { parent: [1, ...zeros(13)], index: 0 }))).toBeNull();
+    expect(moveNode(deep, [0], { parent: [1, ...zeros(14)], index: 0 })).toEqual({ refused: "the event can't nest any deeper there" });
   });
 
   it("duplicateNode inserts a deep copy right after; refuses the root and sustain slot children", () => {
     const root = sampleTree();
-    const dup = duplicateNode(root, [0, 1]);
+    const dup = nextOf(duplicateNode(root, [0, 1]));
     expect(dup.path).toEqual([0, 2]);
     const copy = getNode(dup.root, [0, 2]) as EventNode;
     expect(copy).toEqual(clipNode("sfx/b.ogg"));
     expect(copy).not.toBe(getNode(root, [0, 1]));
     expect(getNode(dup.root, [0, 1])).toBe(getNode(root, [0, 1]));
 
-    expect(canDuplicate(root, [])).toBe(false);
-    expect(canDuplicate(root, [1, "start"])).toBe(false);
-    expect(() => duplicateNode(root, [])).toThrow(RangeError);
-    expect(() => duplicateNode(root, [1, "loop"])).toThrow(RangeError);
+    expect(refusalOf(duplicateNode(root, []))).toMatch(/root node can't be duplicated/);
+    expect(refusalOf(duplicateNode(root, [1, "start"]))).toMatch(/sustain slot holds one node/);
+    expect(refusalOf(duplicateNode(root, [1, "loop"]))).toMatch(/sustain slot holds one node/);
 
     // The node limit: 1023 nodes leave room for a copy of one clip, but not of a 1023-node subtree.
     const big = wideLayer(1022);
-    expect(canDuplicate(big, [0])).toBe(true);
+    expect(refusalOf(duplicateNode(big, [0]))).toBeNull();
     const full = list("layer", [wideLayer(1021), clipNode("x")]);
     expect(countNodes(full)).toBe(1024);
-    expect(canDuplicate(full, [1])).toBe(false);
+    expect(duplicateNode(full, [1])).toEqual({ refused: "the event can't hold more than 1024 nodes" });
   });
 
   it("wrapNode puts the node in a fresh list container or a sustain's loop slot", () => {

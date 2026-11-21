@@ -85,9 +85,24 @@
  * - `session.openPeers()`, `session.peerOf(node)`, `session.isServer`, `session.isClient`,
  *   `session.tick`, `session.tickRate`; per peer, `id`, `node`, `rtt` and `lastAckedTick` (whose
  *   setter also writes the node's `Connection`).
+ *
+ * ## The World's net questions (ADR 0311)
+ *
+ * The session is the World's net owner (`World._net`), so the other net modules ask it rather than
+ * each other:
+ * - **who owns a node**: `owns(peer, ownerId)` is the one ownership rule (the id names an open
+ *   connection); `ownerPeer(ownerId)` and `ownsLocally(ownerId)` build on it. Input streams map a
+ *   ghost to its owner's connection with it, `Replicated.isOwnedLocally` and server relevancy use it;
+ * - **which tick is simulated**: prediction runs catch-up and re-simulated ticks inside
+ *   `replay(tick, …)`; `replayTick` and `simulatedTick` answer input streams and `predictedTick()`.
+ *   Prediction reports each fixed step's pass (`reportPredictedPass`), and the scheduler asks
+ *   `predictedRun()` (`WorldNet`) how to run predicted systems;
+ * - **whether a ghost is relevant to a connection**: each peer keeps its `interest` (set by
+ *   `Interest`) and the ghost ids server replication sends it (`relevantGhosts`); `isRelevant`
+ *   answers `Interest.isRelevant`.
  */
 import { World } from "../core/World";
-import { defineBuiltinSystem } from "../core/systems";
+import { defineBuiltinSystem, type PredictedRun, type WorldNet } from "../core/systems";
 import type { GameObject } from "../scene/GameObject";
 import { createBitReader, createBitWriter, type BitReader, type BitWriter } from "./codec";
 import { Connection, ConnectionState } from "./connection";
@@ -245,6 +260,10 @@ export class NetPeer {
   readonly sent: NetTraffic = newTraffic();
   /** @internal What arrived on the connection: totals and per message kind. */
   readonly received: NetTraffic = newTraffic();
+  /** Server (ADR 0121, 0311): the interest groups this connection is in and its viewpoint, as `Interest` sets them. */
+  readonly interest: { readonly groups: Set<string>; viewer: GameObject | null } = { groups: new Set(), viewer: null };
+  /** Server (ADR 0311): the ghost ids in this connection's snapshots, as server replication reports them. */
+  relevantGhosts: { has(ghostId: number): boolean } = new Set<number>();
 
   constructor(
     readonly link: TransportConnection,
@@ -289,15 +308,17 @@ interface Listener {
   address: string | null;
 }
 
-const sessions = new WeakMap<World, NetSession>();
-
 /** @internal The World's session, or null if it isn't networked. */
 export function netSession(world: World = World.require()): NetSession | null {
-  return sessions.get(world) ?? null;
+  const net = world._net;
+  return net instanceof NetSession ? net : null;
 }
 
+/** How predicted systems run on a client before prediction reports a pass: not at all. */
+const NO_PREDICTED_PASS: PredictedRun = { run: false, includes: () => false };
+
 /** @internal A World's network session. See the top of this file. */
-export class NetSession {
+export class NetSession implements WorldNet {
   /** Fixed steps since the session started. */
   tick = 0;
   /** Fixed ticks per second, fixed when the session starts (the World's rate). */
@@ -344,6 +365,10 @@ export class NetSession {
   private pingSequence = 0;
   private readonly pings = new Map<number, number>();
 
+  // Client timeline (ADR 0311): what prediction reports.
+  private predictedPass: PredictedRun = NO_PREDICTED_PASS;
+  private replaying: number | null = null;
+
   constructor(readonly world: World) {
     this.tickRate = 1 / world.time.fixedDeltaTime;
     this.time = { tick: 0, serverTick: 0, interpolationTick: 0, interpolationFraction: 0, rtt: 0, tickRate: this.tickRate };
@@ -388,6 +413,79 @@ export class NetSession {
   peerOf(node: GameObject): NetPeer | null {
     for (const p of this.peers.values()) if (p.node === node) return p;
     return null;
+  }
+
+  /** The open connection with id `id`, or null. */
+  openPeer(id: number): NetPeer | null {
+    for (const p of this.peers.values()) if (p.state === "open" && p.id === id) return p;
+    return null;
+  }
+
+  // --- what the World's net modules ask (ADR 0311) ----------------------------------------------
+
+  /**
+   * The ownership rule (ADR 0311): `peer` owns what carries `ownerId` (`Replicated.ownerId`) when
+   * the id names it and its connection is open. 0 names the server, never a peer.
+   */
+  owns(peer: NetPeer, ownerId: number): boolean {
+    return ownerId !== 0 && peer.state === "open" && peer.id === ownerId;
+  }
+
+  /**
+   * The connection that owns what carries `ownerId`: on a server, that open connection; on a
+   * client, its connection to the server if the id is its own. Null for 0 (the server) or no match.
+   */
+  ownerPeer(ownerId: number): NetPeer | null {
+    if (ownerId === 0) return null;
+    if (this.role === "server") return this.openPeer(ownerId);
+    const peer = this.serverPeer;
+    return peer && this.owns(peer, ownerId) ? peer : null;
+  }
+
+  /** Whether this World owns what carries `ownerId`: a server owns 0, a client its connection's id, a World with no role yet everything. */
+  ownsLocally(ownerId: number): boolean {
+    if (this.role === "server") return ownerId === 0;
+    if (this.role === "client") return this.ownerPeer(ownerId) !== null;
+    return true;
+  }
+
+  /** Whether the ghost `ghostId` is in connection `connectionId`'s snapshots, as server replication reported it (`Interest.isRelevant`). */
+  isRelevant(connectionId: number, ghostId: number): boolean {
+    return ghostId !== 0 && (this.openPeer(connectionId)?.relevantGhosts.has(ghostId) ?? false);
+  }
+
+  /** The scheduler asks (`WorldNet`): on a client, how this fixed step's pass runs predicted systems, as prediction reported it; elsewhere null (like any other system). */
+  predictedRun(): PredictedRun | null {
+    return this.role === "client" ? this.predictedPass : null;
+  }
+
+  /** @internal Prediction (`engine.PredictionTick`) reports how this fixed step's pass runs predicted systems. */
+  reportPredictedPass(pass: PredictedRun): void {
+    this.predictedPass = pass;
+  }
+
+  /**
+   * @internal Prediction: run `simulate` as tick `tick` (catch-up, re-simulation). Meanwhile
+   * `replayTick` is `tick`, so input streams return that tick's input and `predictedTick()` says so.
+   */
+  replay<T>(tick: number, simulate: () => T): T {
+    const outer = this.replaying;
+    this.replaying = tick;
+    try {
+      return simulate();
+    } finally {
+      this.replaying = outer;
+    }
+  }
+
+  /** The tick prediction is replaying, or null when it isn't (then the current tick is `time.serverTick`). */
+  get replayTick(): number | null {
+    return this.replaying;
+  }
+
+  /** The tick predicted systems are simulating: the replayed one, else `time.serverTick` (on a server, its tick). */
+  get simulatedTick(): number {
+    return this.replaying ?? this.time.serverTick;
   }
 
   // --- roles and links --------------------------------------------------------------------------
@@ -493,7 +591,7 @@ export class NetSession {
     for (const t of this.transports.splice(0)) t.close();
     this.listeners.clear();
     if (this.world.time.network === this.time) this.world.time.network = undefined;
-    sessions.delete(this.world);
+    if (this.world._net === this) this.world._net = null;
   }
 
   // --- sending ----------------------------------------------------------------------------------
@@ -936,10 +1034,10 @@ export class NetSession {
 
 /** @internal The World's session, created (and set to close with the World) if it has none. */
 export function ensureSession(world: World): NetSession {
-  let session = sessions.get(world);
+  let session = netSession(world);
   if (!session) {
     session = new NetSession(world);
-    sessions.set(world, session);
+    world._net = session;
     world._transports.add(session); // closed when the World is destroyed, like its transports
   }
   return session;
@@ -953,10 +1051,10 @@ export function ensureSession(world: World): NetSession {
  */
 export function connectWorlds(client: World, server: World, transportName: string, options: Record<string, unknown> = {}): Promise<void> {
   if (client === server) throw new Error(`Can't connect World "${client.name}" to itself.`);
-  const clientSession = sessions.get(client);
+  const clientSession = netSession(client);
   if (clientSession?.isServer) throw new Error(`World "${client.name}" is already a network server; a World can't be both a server and a client yet.`);
   if (clientSession?.serverPeer) throw new Error(`World "${client.name}" is already connected to a server; a client World has one connection.`);
-  if (sessions.get(server)?.isClient) throw new Error(`World "${server.name}" is already a network client; a World can't be both a server and a client yet.`);
+  if (netSession(server)?.isClient) throw new Error(`World "${server.name}" is already a network client; a World can't be both a server and a client yet.`);
   // ADR 0102: both Worlds are in this process, and this transport can't listen here (the browser
   // WebSocket transport): connect them over loopback, which is what the link would mean in a page.
   if (!transportCanListen(transportName)) {
@@ -1143,17 +1241,17 @@ defineBuiltinSystem({
   name: "engine.NetReceiveTick",
   phase: "fixedUpdate",
   before: ["engine.FixedUpdateScripts"],
-  run: (world) => sessions.get(world)?.receive(true),
+  run: (world) => netSession(world)?.receive(true),
 });
 defineBuiltinSystem({
   name: "engine.NetReceive",
   phase: "update",
   before: ["engine.UpdateScripts"],
-  run: (world) => sessions.get(world)?.receive(false),
+  run: (world) => netSession(world)?.receive(false),
 });
 defineBuiltinSystem({
   name: "engine.NetSend",
   phase: "lateUpdate",
   after: ["engine.LateUpdateScripts"],
-  run: (world) => sessions.get(world)?.endFrame(),
+  run: (world) => netSession(world)?.endFrame(),
 });

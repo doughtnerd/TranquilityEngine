@@ -20,6 +20,7 @@ import {
 } from "../../myco";
 import { World } from "../core/World";
 import { instantiateFile, loadSceneFile } from "../scene/SceneLoader";
+import { DomInput } from "./domInput";
 
 // ADR 0032, T3: Worlds share no nodes, data, buffers or physics; references and reparenting never
 // cross Worlds; local input reaches only Worlds that take it. Worlds are built directly and made
@@ -227,15 +228,16 @@ describe("input reaches only Worlds that take it (T3)", () => {
     // B steps first, so A's reads show that B's consumed nothing.
     const engine = await Engine.create({ headless: true, bootstrap: { worlds: [{ name: "B", tags: ["server"], input: false }, { name: "A", tags: ["client"] }] } });
     try {
-      Input.simulate("down", "space");
-      Input.simulate("down", "mouse0");
-      Input.simulateMouseMove(4, 2);
-      Input.simulateScroll(0, 10);
+      const dom = DomInput.attach();
+      dom.keyDown(" ");
+      dom.pointerDown(0);
+      dom.move(4, 2);
+      dom.scroll(0, 10);
       engine.step(1 / 60);
       expect(inputReads.A).toMatchObject({ keyDown: true, key: true, anyKeyDown: true, mouseDown: true, mouseDeltaX: 4, scrollY: 10 });
       expect(inputReads.B).toEqual({ keyDown: false, key: false, keyUp: false, anyKeyDown: false, mouse: false, mouseDown: false, mouseDeltaX: 0, scrollY: 0, mouseX: 0 });
       // The release next frame, in A only.
-      Input.simulate("up", "space");
+      dom.keyUp(" ");
       engine.step(1 / 60);
       expect(inputReads.A.keyUp).toBe(true);
       expect(inputReads.B.keyUp).toBe(false);

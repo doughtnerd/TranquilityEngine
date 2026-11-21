@@ -16,11 +16,13 @@
 //
 // Edits go through the project file loop (`projectFileEdits.ts`, shared with the settings names module),
 // which asks each JSON file's owner to apply them: scenes and prefabs, asset documents (open or by the
-// kind's format), project.json and plain JSON, the open scene as one undo step (save to keep it). Files
-// no owner can rewrite (scripts, and the kinds whose readers read a non-JSON format) are reported.
+// kind's format), project.json and plain JSON, the open scene as one undo step (save to keep it). A move
+// asks each other file whose kind reads its format to rewrite it (ADR 0314): references to moved files,
+// and a moved file's own relative references (a .gltf moved without its .bin). Files no one rewrites
+// (scripts, and kinds that read a format without rewriting it) are reported.
 import { assetRefTarget, sceneWithoutAsset, settingsWithoutAsset, withMovedAssets } from "./assetRefValues";
 import { assetKind, registeredKind } from "./assetKindLookup";
-import type { AssetReferenceExtractor } from "./sdk/contributions";
+import type { AssetReferences } from "./sdk/contributions";
 import { editProjectFiles } from "./projectFileEdits";
 import { isWithin, type EditorProject } from "./projects";
 
@@ -47,7 +49,7 @@ interface HeldReference {
 }
 
 /** The `references` reader of the file's asset kind (ADR 0148), if it has one that reads this file's ending. */
-function extractorFor(path: string): AssetReferenceExtractor | undefined {
+function extractorFor(path: string): AssetReferences | undefined {
   const extractor = registeredKind(assetKind(path))?.references;
   const lower = path.toLowerCase();
   return extractor && (!extractor.extensions || extractor.extensions.some((e) => lower.endsWith(e))) ? extractor : undefined;
@@ -158,15 +160,38 @@ export function movedPath(moves: readonly (readonly [string, string])[]): (path:
   };
 }
 
+/**
+ * Ask each file (not JSON) whose kind rewrites its own format to follow `moves`, which have happened (ADR 0314):
+ * references to moved files, and a moved file's relative references to files that stayed. Returns the files written.
+ */
+async function rewriteOwnFormats(project: EditorProject, moves: readonly (readonly [string, string])[]): Promise<string[]> {
+  const rename = movedPath(moves);
+  const before = movedPath(moves.map(([from, to]) => [to, from] as const));
+  const written: string[] = [];
+  for (const path of project.files) {
+    const rewrite = extractorFor(path)?.rewrite;
+    if (!rewrite || isJsonPath(path)) continue;
+    const text = await projectText(project, path);
+    if (text === undefined) continue;
+    const next = rewrite(path, text, { from: before(path) ?? path, to: (p) => rename(p) ?? p });
+    if (next === null || next === text) continue;
+    await project.writeFile(path, next);
+    written.push(path);
+  }
+  return written;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Edits across the project
 
 /**
  * Point references at moved files' new paths, everywhere a JSON file's owner can rewrite them: scenes, prefabs,
  * asset files (an open asset document's whole history, ADR 0302), project.json and other JSON files on disk, and
- * the open scene (one undo step labelled `label`). Each move is a project path (a file, a folder, or a slice
- * `image#name`) and its new path. Returns the files updated and the files that still name an old path because no
- * owner rewrites them: scripts, and files a kind's reader reads in a format no one writes (.obj, .mtl, .gltf).
+ * the open scene (one undo step labelled `label`); and in the files whose kind rewrites its own format (ADR 0314:
+ * .obj, .mtl, .gltf), which also keep a moved file's relative references at their targets. Each move, done
+ * already, is a project path (a file, a folder, or a slice `image#name`) and its new path. Returns the files
+ * updated and the files that still name an old path because no one rewrites them: scripts, and files of a kind
+ * that reads its format without rewriting it.
  */
 export async function rewriteReferences(project: EditorProject, moves: readonly (readonly [string, string])[], label: string): Promise<{ updated: string[]; notRewritten: string[] }> {
   const froms = moves.map(([from]) => from);
@@ -176,6 +201,7 @@ export async function rewriteReferences(project: EditorProject, moves: readonly 
     return result.changed ? result.value : null;
   };
   const updated = await editProjectFiles(project, { mentioned: (text) => mentions(text, froms), scene: moved, settings: moved, json: moved }, label);
+  updated.push(...(await rewriteOwnFormats(project, moves)));
   const notRewritten = (await assetUsers(project, froms)).filter((f) => !isJsonPath(f));
   return { updated, notRewritten };
 }

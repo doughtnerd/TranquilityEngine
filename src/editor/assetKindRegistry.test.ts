@@ -119,8 +119,8 @@ describe("core kinds", () => {
   });
 
   it("code kinds open in the Code panel", async () => {
-    const codeState = await import("./code/codeState");
-    const open = vi.spyOn(codeState, "openScript").mockImplementation(() => {});
+    const codeBuffers = await import("./code/codeBuffers");
+    const open = vi.spyOn(codeBuffers, "openScript").mockImplementation(() => {});
     try {
       expect(openAsset("tools/build.mjs")).toBe(true);
       await vi.waitFor(() => expect(open).toHaveBeenCalledWith("tools/build.mjs"));

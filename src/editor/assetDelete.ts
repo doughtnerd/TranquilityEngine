@@ -5,9 +5,10 @@
 // the open scene. Scenes, prefabs and project.json are then cleaned of it (assetReferences.ts):
 // files on disk are rewritten, and the open scene is edited as one undo step (save to keep it).
 // Other files (scripts, asset and model files) keep their references and are listed as still referring to it.
+// A deleted file's Code panel tab closes, and the question names unsaved text that goes with it (ADR 0308).
 import { fileName } from "./assetBrowser";
 import { entryPath, isFolderEntry } from "./assetEntry";
-import { closeScript, openScripts } from "./code/codeState";
+import { codeBuffersDeleted, unsavedWithin } from "./code/codeBuffers";
 import { assetUsers, removeReferences } from "./assetReferences";
 import { assetDocumentsDeleted } from "./assetDocuments";
 import { errorStatus } from "./messages";
@@ -100,17 +101,21 @@ export async function deleteAssets(entries: readonly string[]): Promise<boolean>
   const deleting = new Set([...loose, ...folders.flatMap((f) => filesIn(project, f))]);
   const open = scene && scene.stack.dirty ? { path: scene.path, text: JSON.stringify(scene.doc.toJSON()) } : null;
   const users = (await assetUsers(project, [...deleting], open)).filter((u) => !deleting.has(u));
-  if (askBeforeDeletingAssets.value) {
+  // Unsaved Code panel text exists nowhere else, so it is asked about even when asking is turned off.
+  const unsaved = unsavedWithin([...loose, ...folders]);
+  if (askBeforeDeletingAssets.value || unsaved.length > 0) {
     const contents = folders.length > 0 ? ` ${deleting.size === 1 ? "1 file" : `${deleting.size} files`} in all.` : "";
+    const lost =
+      unsaved.length === 0 ? "" : ` ${unsaved.join(", ")} ${unsaved.length === 1 ? "has" : "have"} unsaved changes in the Code panel, which are lost.`;
     const answer = await confirmInEditor({
       title: `Delete ${name}?`,
       message:
         users.length > 0
-          ? `It's deleted from disk, which can't be undone.${contents} ${users.length === 1 ? "This file uses it" : `These ${users.length} files use it`}: references in scenes, prefabs and project settings are removed (instances of it are deleted); other files (scripts, asset and model files) keep theirs.`
-          : `It's deleted from disk, which can't be undone.${contents} Nothing in the project uses it.`,
+          ? `It's deleted from disk, which can't be undone.${contents}${lost} ${users.length === 1 ? "This file uses it" : `These ${users.length} files use it`}: references in scenes, prefabs and project settings are removed (instances of it are deleted); other files (scripts, asset and model files) keep theirs.`
+          : `It's deleted from disk, which can't be undone.${contents}${lost} Nothing in the project uses it.`,
       items: users,
       confirmLabel: "Delete",
-      optionLabel: "Don't ask again",
+      ...(askBeforeDeletingAssets.value ? { optionLabel: "Don't ask again" } : {}),
     });
     if (!answer.ok) return false;
     if (answer.option) askBeforeDeletingAssets.value = false;
@@ -129,6 +134,7 @@ export async function deleteAssets(entries: readonly string[]): Promise<boolean>
     return false;
   }
   const histories = assetDocumentsDeleted([...loose, ...folders]); // open asset documents are dropped with their undo
+  codeBuffersDeleted([...loose, ...folders]); // and Code panel tabs with their unsaved text
   const cleaned = new Set<string>();
   const stack = openScene.value?.stack;
   const step = stack ? beginUndoStep(stack, `Remove references to ${name}`) : null; // open across the file writes
@@ -145,7 +151,6 @@ export async function deleteAssets(entries: readonly string[]): Promise<boolean>
   const remaining = (await assetUsers(project, [...deleting])).filter((u) => u !== openScene.value?.path);
   docVersion.value++; // the Assets panel lists the project's files
   scriptsVersion.value++;
-  for (const path of deleting) if (openScripts.value.includes(path)) closeScript(path);
   if (hadScript) await reloadScripts();
   const label = entries.length === 1 ? entryPath(entries[0]) : `${entries.length} items`;
   const parts = [

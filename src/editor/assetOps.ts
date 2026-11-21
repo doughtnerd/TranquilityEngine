@@ -2,7 +2,8 @@
 // paste), duplicating and copying, and new folders. Renames and moves update what refers to the
 // files (assetReferences.ts): scenes, prefabs, project.json and other JSON files are rewritten (the
 // open scene as one undo step, kept when it's saved), and instances of a changed prefab in the open
-// scene are rebuilt; open asset documents take the change in their whole history (ADR 0302). Scripts and
+// scene are rebuilt; open asset documents take the change in their whole history (ADR 0302), and the Code
+// panel's buffers follow their files and take it in their unsaved text (ADR 0308). Scripts and
 // model files (.obj, .mtl, .gltf) aren't edited, so ones that name a moved file are listed. Deleting is
 // in assetDelete.ts.
 // A file's import settings sidecar (`<file>.meta.json`, ADR 0040) moves, copies and deletes with
@@ -11,10 +12,10 @@ import { signal } from "@preact/signals";
 import { isSidecarPath, sidecarAsset } from "../engine/scene/importSettings";
 import { fileName, folderOf } from "./assetBrowser";
 import { assetDocumentsMoved } from "./assetDocuments";
-import { movedPath, rewriteReferences } from "./assetReferences";
+import { rewriteReferences } from "./assetReferences";
 import { filesIn, openScenePaths, whyNotDeletableAsset, whyNotDeletableFolder } from "./assetDelete";
 import { entryPath, folderEntry, isFolderEntry } from "./assetEntry";
-import { activeScript, dirtyScripts, openScripts } from "./code/codeState";
+import { codeBuffersMoved, whyBuffersCantFollow } from "./code/codeBuffers";
 import { errorStatus } from "./messages";
 import { isWithin, type EditorProject } from "./projects";
 import { isScriptPath } from "./scriptLoader";
@@ -45,14 +46,12 @@ function whyNotMovableEntry(project: EditorProject, entry: string): string | nul
   const path = entryPath(entry);
   const reason = isFolderEntry(entry) ? whyNotDeletableFolder(project, path, openPath) : whyNotDeletableAsset(project, path, openPath);
   if (reason) return reason.replace("open another scene first", "open another scene to move it");
-  const unsaved = [...dirtyScripts.value].find((p) => isWithin(p, path));
-  if (unsaved) return `${unsaved} has unsaved changes in the Code panel; save or close it first`;
-  return null;
+  return whyBuffersCantFollow([path]); // unsaved Code panel text naming it must take the new path (ADR 0308)
 }
 
 /**
  * Why the file and folder entries can't be moved or renamed right now, or null if they can: the
- * check `moveAssets` makes (every open scene tab, play mode, unsaved scripts), for the Assets
+ * check `moveAssets` makes (every open scene tab, play mode, unsaved Code panel text that can't follow), for the Assets
  * panel's Rename and Cut (ADR 0241). With several entries, the reason names the one refused.
  */
 export function whyNotMovable(project: EditorProject, entries: readonly string[]): string | null {
@@ -107,26 +106,22 @@ export async function moveAssets(moves: readonly (readonly [string, string])[], 
   } catch (err) {
     status.value = errorStatus(`Couldn't move ${fileName(moves[done.length][0])}`, err);
     const histories = assetDocumentsMoved(done);
+    codeBuffersMoved(done);
     if (done.length > 0) await updateReferences(project, done);
     await histories;
     docVersion.value++;
     return false;
   }
   const histories = assetDocumentsMoved(done); // open asset documents and their undo follow their files
+  codeBuffersMoved(done); // so do Code panel tabs and unsaved text, before references are rewritten in them
   const { updated: cleaned, notRewritten } = await updateReferences(project, done);
-  // Open Code tabs follow their files.
-  const rename = movedPath(done);
-  if (openScripts.value.some((p) => rename(p) !== null)) {
-    openScripts.value = openScripts.value.map((p) => rename(p) ?? p);
-    if (activeScript.value) activeScript.value = rename(activeScript.value) ?? activeScript.value;
-  }
   docVersion.value++;
   scriptsVersion.value++;
   if (movedScripts) await reloadScripts();
   const label = done.length === 1 ? `${done[0][0]} to ${done[0][1]}` : `${done.length} items`;
   const parts = [
     cleaned.length > 0 ? ` Updated references in ${cleaned.join(", ")}.` : "",
-    notRewritten.length > 0 ? ` Files that name the old path weren't changed (scripts and model files aren't rewritten): ${notRewritten.join(", ")}.` : "",
+    notRewritten.length > 0 ? ` Files that name the old path weren't changed (scripts aren't rewritten): ${notRewritten.join(", ")}.` : "",
   ];
   status.value = {
     kind: "info",
@@ -141,7 +136,7 @@ export async function moveAssets(moves: readonly (readonly [string, string])[], 
 
 /**
  * Point references at the moved files' new paths (the asset reference module): the open scene's
- * change is one undo step. Returns the files updated and the files no owner rewrites (scripts, model files) that still name an old path.
+ * change is one undo step. Returns the files updated and the files no one rewrites (scripts) that still name an old path.
  */
 function updateReferences(project: EditorProject, moves: readonly (readonly [string, string])[]): Promise<{ updated: string[]; notRewritten: string[] }> {
   return rewriteReferences(project, moves, `Update references to ${moves.length === 1 ? fileName(moves[0][1]) : `${moves.length} moved files`}`);

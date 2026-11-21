@@ -10,8 +10,8 @@ import { formatAudioEvent, parseAudioEvent, type AudioEventAsset } from "../../.
 import type { MusicNode, MusicSwitchNode, PlaylistNode, SegmentNode } from "../../../../engine/audio/musicFormat";
 import { useEditorPlugins } from "../../../testEditorPlugins";
 import { audioEditorPlugin } from "..";
-import { addMusicNode, canDuplicateMusic, canRemoveMusic, duplicateMusicNode, freshMusicId, musicIdProblem, musicIds, parsePathKey, pathKey, removeMusicNode, renameMusicId, reorderMusicNode } from "./eventTreeModel";
-import type { EditResult } from "../editResult";
+import { addMusicNode, duplicateMusicNode, freshMusicId, musicIdProblem, musicIds, parsePathKey, pathKey, removeMusicNode, renameMusicId, reorderMusicNode } from "./eventTreeModel";
+import { refusalOf, type EditResult } from "../editResult";
 import { isLibraryPath, musicEntries, musicNodeAt, replaceMusicNodeAt } from "../../../../engine/audio/musicTree";
 import {
   coerceField, musicNodeFields, newStinger, patchStinger, readField, stingerAtFrom, stingerAtKind, writeField, type FieldDescriptor,
@@ -159,27 +159,27 @@ describe("adding", () => {
 });
 
 describe("removing", () => {
-  it("the root stays", () => {
-    expect(canRemoveMusic(music(), [])).toBe(false);
-    expect(canRemoveMusic(music(), [0])).toBe(true);
-    expect(canRemoveMusic(music(), [9])).toBe(false);
+  it("the root stays, refused with why; a child's removal selects its parent", () => {
+    expect(refusalOf(removeMusicNode(music(), []))).toMatch(/music root stays/);
+    expect(ok(removeMusicNode(music(), [1, 0])).path).toEqual([1]);
+    expect(removeMusicNode(music(), [9])).toEqual({ refused: 'no node at "9"' });
   });
 
   it("a child takes the rules naming it", () => {
-    const next = removeMusicNode(music(), [0]) as MusicSwitchNode;
+    const next = ok(removeMusicNode(music(), [0])).root as MusicSwitchNode;
     expect(next.children.map((c) => c.id)).toEqual(["combat"]);
     expect(next.transitions).toEqual([]);
     expectRoundTrip(next);
   });
 
   it("a library segment takes the stingers and bridges naming it", () => {
-    const next = removeMusicNode(music(), ["lib0"] as never) as MusicSwitchNode;
+    const next = ok(removeMusicNode(music(), ["lib0"] as never)).root as MusicSwitchNode;
     expect(next.library).toEqual([]);
     expect(next.stingers).toEqual([]);
     expect(next.transitions.map((r) => r.bridge)).toEqual([undefined, undefined]);
     expect("bridge" in next.transitions[0]).toBe(false);
     expectRoundTrip(next);
-    const inner = removeMusicNode(music(), [1, 0]) as MusicSwitchNode; // a playlist child that nothing names
+    const inner = ok(removeMusicNode(music(), [1, 0])).root as MusicSwitchNode; // a playlist child that nothing names
     expect(((inner.children[1] as PlaylistNode).children).map((c) => c.id)).toEqual(["c2"]);
     expectRoundTrip(inner);
   });
@@ -188,13 +188,14 @@ describe("removing", () => {
 describe("reordering and duplicating", () => {
   it("moves children and library segments", () => {
     const root = music();
-    const down = reorderMusicNode(root, [0], 1);
+    const down = ok(reorderMusicNode(root, [0], 1));
     expect(down.path).toEqual([1]);
     expect((down.root as MusicSwitchNode).children.map((c) => c.id)).toEqual(["combat", "explore"]);
     expectRoundTrip(down.root);
-    expect(reorderMusicNode(root, [0], -1).root).toBe(root);
+    expect(ok(reorderMusicNode(root, [0], -1)).root).toBe(root);
+    expect(refusalOf(reorderMusicNode(root, [], 1))).toMatch(/move up or down/);
     const withTwo = ok(addMusicNode(root, ["lib0"] as never, "library"));
-    const moved = reorderMusicNode(withTwo.root, ["lib1"] as never, -1);
+    const moved = ok(reorderMusicNode(withTwo.root, ["lib1"] as never, -1));
     expect(moved.path).toEqual(["lib0"]);
     expect((moved.root as MusicSwitchNode).library.map((s) => s.id)).toEqual(["library", "riser"]);
   });
@@ -204,8 +205,7 @@ describe("reordering and duplicating", () => {
       ...(music().children[1] as PlaylistNode),
       transitions: [{ from: "c1", to: "c2", exit: "bar", enter: "entryCue", fadeOut: { unit: "beats", amount: 1, offset: 0, curve: "equalPower" }, fadeIn: { unit: "beats", amount: 1, offset: 0, curve: "equalPower" } }],
     } as PlaylistNode);
-    expect(canDuplicateMusic(withRules, [1])).toBe(true);
-    const dup = duplicateMusicNode(withRules, [1]);
+    const dup = ok(duplicateMusicNode(withRules, [1]));
     expect(dup.path).toEqual([2]);
     const copy = musicNodeAt(dup.root, dup.path) as PlaylistNode;
     expect(copy.id).toBe("combat-2");
@@ -218,11 +218,11 @@ describe("reordering and duplicating", () => {
   });
 
   it("copies a library segment beside it", () => {
-    const dup = duplicateMusicNode(music(), ["lib0"] as never);
+    const dup = ok(duplicateMusicNode(music(), ["lib0"] as never));
     expect(dup.path).toEqual(["lib1"]);
     expect(musicIds(dup.root)).toContain("riser-2");
     expectRoundTrip(dup.root);
-    expect(canDuplicateMusic(music(), [])).toBe(false);
+    expect(refusalOf(duplicateMusicNode(music(), []))).toMatch(/can't be duplicated/);
   });
 });
 

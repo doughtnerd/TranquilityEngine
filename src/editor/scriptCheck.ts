@@ -3,7 +3,8 @@
 // file and npm package's declarations), for each script's errors. With errors, a dialog lists
 // them: clicking one opens the script at that line, Play anyway starts the game, and a checkbox
 // turns the check off (Settings > General has it too).
-import { codeFiles, dirtyScripts, loadMonaco, loadedMonaco, openScript } from "./code/codeState";
+import { bufferTexts, openScript } from "./code/codeBuffers";
+import { loadMonaco, loadedMonaco } from "./code/codeState";
 import type { ScriptDiagnostic } from "./code/monaco";
 import { packageTypes } from "./packages";
 import { checkScriptsBeforePlay } from "./preferences";
@@ -47,7 +48,7 @@ export function syncPackageTypes(project: EditorProject): void {
 async function monacoCheck(project: EditorProject): Promise<ScriptDiagnostic[]> {
   const m = await loadMonaco();
   await refreshPackageTypes(project);
-  return m.checkScripts(project, codeFiles(project), dirtyScripts.value);
+  return m.checkScripts(project, bufferTexts(project));
 }
 
 /** How a check runs and asks: the defaults use Monaco and the in-editor dialog; tests pass their own. */

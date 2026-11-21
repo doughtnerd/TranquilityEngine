@@ -1,7 +1,8 @@
 // Monaco for the Code panel (ADR 0030), loaded the first time the panel shows. Sets up its
 // workers, a TypeScript service that knows the engine's types as the `"myco"` package,
 // the editor's colours (from the editor theme, theme.ts), and one model per project script (so
-// autocomplete and errors work across scripts).
+// autocomplete and errors work across scripts). The models are an adapter of the Code buffers
+// (codeBuffers.ts, ADR 0308): each holds its buffer's text, unsaved or the file's.
 import { effect } from "@preact/signals";
 import * as monaco from "monaco-editor";
 import EditorWorker from "monaco-editor/editor/editor.worker.js?worker";
@@ -10,6 +11,7 @@ import CssWorker from "monaco-editor/languages/features/css/css.worker.js?worker
 import TsWorker from "monaco-editor/languages/features/typescript/ts.worker.js?worker";
 import engineTypes from "virtual:myco-types";
 import { codeLanguageOf, isScriptPath } from "../projectPaths";
+import { codeFilePath, codeFileUri } from "./codeBuffers";
 import { codeAppearance, monacoColors } from "../theme";
 
 (self as unknown as { MonacoEnvironment: monaco.Environment }).MonacoEnvironment = {
@@ -52,7 +54,7 @@ effect(() => {
 
 export { monaco };
 
-const uriOf = (path: string) => monaco.Uri.parse(`file:///project/${path}`);
+const uriOf = (path: string) => monaco.Uri.parse(codeFileUri(path));
 
 /** The model for a project file (a script, JSON, a JavaScript or TypeScript module, Markdown or text), made if needed. */
 export function modelFor(path: string, text: string): monaco.editor.ITextModel {
@@ -60,22 +62,21 @@ export function modelFor(path: string, text: string): monaco.editor.ITextModel {
 }
 
 /**
- * Bring the file models in line with `scripts` (project path → text on disk, every file the Code
- * panel can show): new files get models, models of deleted files go, and models without unsaved
- * edits take the text on disk. `dirty` are paths with unsaved edits, left alone. JSON files are
- * also given to the TypeScript service, so scripts can import them with their types.
+ * Make the file models hold `buffers` (project path → the buffer's text, every file the Code panel
+ * can show, `bufferTexts`): new files get models, models of files that are gone go, and the others
+ * take their buffer's text. JSON files are also given to the TypeScript service, so scripts can
+ * import them with their types.
  */
-function syncModels(scripts: ReadonlyMap<string, string>, dirty: ReadonlySet<string>): void {
+function syncModels(buffers: ReadonlyMap<string, string>): void {
   for (const model of monaco.editor.getModels()) {
-    const path = model.uri.path.replace(/^\/project\//, "");
-    if (model.uri.scheme !== "file" || !model.uri.path.startsWith("/project/")) continue;
-    if (!scripts.has(path) && !dirty.has(path)) model.dispose();
+    const path = codeFilePath(model.uri);
+    if (path !== null && !buffers.has(path)) model.dispose();
   }
-  for (const [path, text] of scripts) {
+  for (const [path, text] of buffers) {
     const model = modelFor(path, text);
-    if (!dirty.has(path) && model.getValue() !== text) model.setValue(text);
+    if (model.getValue() !== text) model.setValue(text);
   }
-  syncJsonLibs(scripts);
+  syncJsonLibs(buffers);
 }
 
 /** JSON files the TypeScript service has, by path, with their text. */
@@ -99,7 +100,7 @@ function syncJsonLibs(files: ReadonlyMap<string, string>): void {
     } catch {
       // invalid JSON: untyped (the loader reports it when a script imports it)
     }
-    jsonLibs.set(path, { text, lib: ts.typescriptDefaults.addExtraLib(module, `file:///project/${path}`) });
+    jsonLibs.set(path, { text, lib: ts.typescriptDefaults.addExtraLib(module, codeFileUri(path)) });
   }
 }
 
@@ -110,12 +111,12 @@ let modelsProject: unknown = null;
  * Bring the models in line with `project`'s files (see syncModels). When another project opened,
  * the last one's models and JSON go first.
  */
-export function syncProject(project: unknown, files: ReadonlyMap<string, string>, dirty: ReadonlySet<string>): void {
+export function syncProject(project: unknown, buffers: ReadonlyMap<string, string>): void {
   if (modelsProject !== project) {
     disposeModels();
     modelsProject = project;
   }
-  syncModels(files, dirty);
+  syncModels(buffers);
 }
 
 /**
@@ -123,7 +124,7 @@ export function syncProject(project: unknown, files: ReadonlyMap<string, string>
  * worker, which parses the engine's declarations and the scripts on its first request.
  */
 export async function warmUp(project: unknown, files: ReadonlyMap<string, string>): Promise<void> {
-  syncProject(project, files, new Set());
+  syncProject(project, files);
   const script = [...files.keys()].find((p) => p.endsWith(".ts"));
   if (!script) return;
   const worker = await ts.getTypeScriptWorker();
@@ -133,7 +134,7 @@ export async function warmUp(project: unknown, files: ReadonlyMap<string, string
 
 /** Drop every file model (another project opened). */
 function disposeModels(): void {
-  for (const model of monaco.editor.getModels()) if (model.uri.path.startsWith("/project/")) model.dispose();
+  for (const model of monaco.editor.getModels()) if (codeFilePath(model.uri) !== null) model.dispose();
   for (const entry of jsonLibs.values()) entry.lib.dispose();
   jsonLibs.clear();
 }
@@ -172,12 +173,12 @@ const flatten = (text: string | { messageText: string; next?: unknown[] }): stri
   typeof text === "string" ? text : [text.messageText, ...((text.next ?? []) as (typeof text)[]).map(flatten)].join(" ");
 
 /**
- * Type-check `project`'s scripts (paths in `files` under scripts/) with the TypeScript service, as
- * the Code panel shows them: their syntax and type errors (not warnings or suggestions), in path
- * then line order.
+ * Type-check `project`'s scripts (paths in `files`, its `bufferTexts`, under scripts/) with the
+ * TypeScript service, as the Code panel shows them: their syntax and type errors (not warnings or
+ * suggestions), in path then line order.
  */
-export async function checkScripts(project: unknown, files: ReadonlyMap<string, string>, dirty: ReadonlySet<string>): Promise<ScriptDiagnostic[]> {
-  syncProject(project, files, dirty);
+export async function checkScripts(project: unknown, files: ReadonlyMap<string, string>): Promise<ScriptDiagnostic[]> {
+  syncProject(project, files);
   const scripts = [...files.keys()].filter(isScriptPath).sort(); // plugin sources too (ADR 0139)
   if (scripts.length === 0) return [];
   const worker = await ts.getTypeScriptWorker();

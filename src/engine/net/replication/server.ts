@@ -95,7 +95,6 @@ import { SceneInstance, _instantiatedPrefabOf } from "../../scene/SceneLoader";
 import { BitWriterImpl } from "../bits";
 import { Replicated } from "../Replicated";
 import { netSession, type NetPeer, type NetSession } from "../session";
-import { _interestOf, _pruneInterest, _setRelevanceQuery } from "../interest";
 import { layoutOf, readState, sameState, specOf, type GhostState, type Layout } from "./layout";
 import { ServerStrings } from "./strings";
 import {
@@ -264,10 +263,13 @@ export class ServerReplication {
     const despawned = this.updateGhosts(tick);
     for (const g of this.ghosts.values()) g.state = readState(g.layout, g.node, g.rep);
     const peers = session.openPeers();
-    const interest = this.interestFrame(peers);
+    const interest = this.interestFrame();
     for (const peer of peers) {
       let ps = this.peers.get(peer);
-      if (!ps) this.peers.set(peer, (ps = { known: new Map(), despawns: new Set(), leaves: new Set(), dormant: new Set(), history: new Map(), lastBytes: 0, lastCosts: new Map(), lastFullBits: 0, typeBits: new Map(), table: new StringTableOut() }));
+      if (!ps) {
+        this.peers.set(peer, (ps = { known: new Map(), despawns: new Set(), leaves: new Set(), dormant: new Set(), history: new Map(), lastBytes: 0, lastCosts: new Map(), lastFullBits: 0, typeBits: new Map(), table: new StringTableOut() }));
+        peer.relevantGhosts = ps.known; // what Interest.isRelevant answers from (ADR 0311)
+      }
       for (const id of despawned) {
         if (ps.known.delete(id) || ps.dormant.delete(id)) ps.despawns.add(id);
         ps.leaves.delete(id);
@@ -295,22 +297,12 @@ export class ServerReplication {
     this.strings.send(session, this.ghosts.values(), despawned, (peer, id) => this.peers.get(peer)?.known.has(id) ?? false);
   }
 
-  /** @internal Whether ghost `node` is in the connection `id`'s snapshots (`Interest.isRelevant`). */
-  isRelevantTo(id: number, node: GameObject): boolean {
-    const rep = node.isValid ? node.getBehavior(Replicated) : null;
-    const g = rep ? this.ghosts.get(rep) : undefined;
-    const peer = this.session.openPeers().find((p) => p.id === id);
-    const ps = peer && this.peers.get(peer);
-    return !!g && !!ps && ps.known.has(g.id);
-  }
-
   /**
    * What relevancy needs this sent tick (ADR 0121): each ghost's nearest ghost above it, and the
    * world positions of distance-limited ghosts and owned root ghosts (viewpoints). Null when no
    * ghost has a distance or a group (everything is relevant to everyone).
    */
-  private interestFrame(peers: readonly NetPeer[]): InterestFrame | null {
-    _pruneInterest(this.world, new Set(peers.map((p) => p.id)));
+  private interestFrame(): InterestFrame | null {
     let filtered = false;
     for (const g of this.ghosts.values()) {
       if (g.rep.relevantDistance > 0 || g.rep.group) {
@@ -336,19 +328,20 @@ export class ServerReplication {
 
   /** The ids of the ghosts relevant to `peer` (ADR 0121; see the top of this file). */
   private relevantTo(peer: NetPeer, ps: PeerState, frame: InterestFrame): Set<number> {
-    const interest = _interestOf(this.world, peer.id);
+    const session = this.session;
+    const interest = peer.interest;
     const viewpoints: Float64Array[] = [];
-    const viewer = interest?.viewer;
+    const viewer = interest.viewer;
     if (viewer?.isValid && viewer.world === this.world) viewpoints.push(worldPositionOf(this.world, viewer));
     else {
       for (const [g, parent] of frame.above) {
-        if (!parent && g.rep.ownerId !== 0 && g.rep.ownerId === peer.id) viewpoints.push(frame.positions.get(g)!);
+        if (!parent && session.owns(peer, g.rep.ownerId)) viewpoints.push(frame.positions.get(g)!);
       }
     }
     const passes = (g: ServerGhost): boolean => {
       const rep = g.rep;
-      if (rep.ownerId !== 0 && rep.ownerId === peer.id) return true;
-      if (rep.group && !interest?.groups.has(rep.group)) return false;
+      if (session.owns(peer, rep.ownerId)) return true;
+      if (rep.group && !interest.groups.has(rep.group)) return false;
       const r = rep.relevantDistance;
       if (!(r > 0)) return true;
       const limit = ps.known.has(g.id) ? r * LEAVE_HYSTERESIS : r;
@@ -801,8 +794,6 @@ function scenePathOf(world: World, node: GameObject): { source: string; occurren
 }
 
 const servers = new WeakMap<World, ServerReplication>();
-
-_setRelevanceQuery((world, id, node) => servers.get(world)?.isRelevantTo(id, node) ?? false);
 
 /** @internal A server World's replication, created on first use; null if the World isn't a network server. */
 export function serverReplication(world: World): ServerReplication | null {

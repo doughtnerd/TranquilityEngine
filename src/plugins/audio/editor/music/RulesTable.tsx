@@ -2,19 +2,19 @@
 // direct children plus `*`, every cell showing the rule that wins the pair (the same answer R1 gives at run time, read
 // through `rulesModel.ts`), the chosen cell's rule highlighted in the rule list, and a "why" readout of tier and index.
 // Ed7 adds beside it: the rule editor (`RuleEditor.tsx`), the lint rows and badges (`ruleLint.ts`) and "audition this
-// transition" (`ruleAudition.ts`, through the editor's one audition, ADR 0268).
+// transition" (`ruleAudition.ts`, through the editor's one audition, ADR 0268). The panel is a view over the container's
+// music node handle (ADR 0313): edits go through it as one undo step each, and segment lengths come from its clip facts.
 import { signal } from "@preact/signals";
-import { useEffect, useMemo, useState } from "preact/hooks";
-import { editor, openAssetDocument, Panel } from "../../../../editor/sdk";
-import type { AudioEventAsset } from "../../../../engine/audio/eventFormat";
+import { useMemo, useState } from "preact/hooks";
 import type { MusicContainerNode } from "../../../../engine/audio/musicFormat";
-import { findMusicContainer, musicLeaves, replaceMusicNode } from "../../../../engine/audio/musicTree";
+import { musicLeaves } from "../../../../engine/audio/musicTree";
 import { buildRulesGrid, explainPair, ruleMatchesPair } from "./rulesModel";
 import { openRules } from "./index";
-import { peaksFor } from "./peaksHost";
+import { MusicNodePanel } from "./MusicNodePanel";
+import type { MusicNodeHandle } from "./musicNodeHandle";
 import { RuleEditor } from "./RuleEditor";
 import { addRule, duplicateRule, moveRule, removeRule } from "./ruleEdits";
-import { applyToDocument, placeEdit, type EditResult } from "../editResult";
+import type { EditResult } from "../editResult";
 import { issuesOfRule, lintTransitionRules, worstSeverity } from "./ruleLint";
 import { planTransitionAudition, runTransitionAudition } from "./ruleAudition";
 import { editorAudition } from "../audition/editorAudition";
@@ -29,35 +29,23 @@ const editing = signal<{ readonly key: string; readonly index: number } | null>(
 
 export function RulesTable() {
   const open = openRules.value;
-  const project = editor.project.current;
-  editor.project.version;
-  if (!project || !open) return <Panel><p class="empty">Rules: open a playlist or music switch from the Event editor to see its transition rules here.</p></Panel>;
-  if (!project.files.includes(open.event)) return <Panel><p class="empty">{open.event} isn't in the project any more.</p></Panel>;
   return (
-    <Panel>
-      <OpenRules key={`${open.event}#${open.nodeId}`} path={open.event} nodeId={open.nodeId} />
-    </Panel>
+    <MusicNodePanel
+      open={open && { event: open.event, id: open.nodeId }}
+      kind="container"
+      idle="Rules: open a playlist or music switch from the Event editor to see its transition rules here."
+      view={(handle, container) => <OpenRules handle={handle} container={container} />}
+    />
   );
 }
 
-function OpenRules(props: { path: string; nodeId: string }) {
-  const project = editor.project.current!;
-  const doc = openAssetDocument<AudioEventAsset>(project, props.path, "audioEvent");
-  const event = doc.value.value;
-  const container = useMemo(() => findMusicContainer(event.musicRoot, props.nodeId), [event.musicRoot, props.nodeId]);
-  const grid = useMemo(() => (container ? buildRulesGrid(container) : null), [container]);
-  const peaks = peaksFor(project);
-  const [version, setVersion] = useState(0);
+function OpenRules({ handle, container }: { handle: MusicNodeHandle<MusicContainerNode>; container: MusicContainerNode }) {
+  const path = handle.path;
+  const event = handle.asset;
+  const grid = useMemo(() => buildRulesGrid(container), [container]);
   const [auditionText, setAuditionText] = useState<string | null>(null);
-  const clips = useMemo(() => (container ? musicLeaves(container, { library: true }).map((s) => s.tracks[0]?.clip ?? "").filter((c) => c !== "") : []), [container]);
-  useEffect(() => {
-    let live = true;
-    for (const c of clips) if (!peaks.peek(c)) peaks.get(c).then(() => live && setVersion((v) => v + 1), () => {});
-    return () => void (live = false);
-  }, [clips.join("\n")]);
-  if (!container || !grid) return <p class="empty">{props.path} has no playlist or music switch “{props.nodeId}”.</p>;
 
-  const key = `${props.path}#${props.nodeId}`;
+  const key = `${path}#${handle.id}`;
   const pick = chosen.value && chosen.value.key === key ? chosen.value : null;
   const ids = new Set(grid.rows.map((h) => h.id));
   const from = pick && ids.has(pick.from) ? pick.from : null;
@@ -67,33 +55,29 @@ function OpenRules(props: { path: string; nodeId: string }) {
   const winsCell = new Set(grid.cells.flat().map((c) => c.rule));
   const winsChild = new Set(grid.effective);
 
-  void version;
   const lengthOf = (id: string): number | undefined => {
-    const seg = musicLeaves(container, { library: true }).find((s) => s.id === id);
-    const clip = seg?.tracks[0]?.clip;
-    const m = clip ? peaks.peek(clip) : undefined;
-    return m && m.rate > 0 ? m.frames / m.rate : undefined;
+    const clip = musicLeaves(container, { library: true }).find((s) => s.id === id)?.tracks[0]?.clip;
+    return clip ? handle.seconds(clip) : undefined;
   };
   const issues = lintTransitionRules(container, { lengthOf });
   const sel = editing.value && editing.value.key === key && editing.value.index < container.transitions.length ? editing.value.index : null;
-  const readOnly = doc.readOnly;
-  /** Apply an edit of the container through the event's document (ADR 0307): one undo step, or the refusal in the status bar. */
-  const apply = (edit: EditResult<MusicContainerNode>, label: string): boolean =>
-    applyToDocument(doc, placeEdit(edit, container, event, (next) => ({ ...event, musicRoot: event.musicRoot && replaceMusicNode(event.musicRoot, container.id, next) })), label);
+  const readOnly = handle.readOnly;
+  /** Apply an edit of the container through its handle (ADR 0307, 0313): one undo step, or the refusal in the status bar. */
+  const apply = (edit: EditResult<MusicContainerNode>, label: string): boolean => handle.apply(edit, label);
   const tool = (edit: EditResult<MusicContainerNode>, label: string, select?: number): void => {
     if (apply(edit, label) && select !== undefined) editing.value = select < 0 ? null : { key, index: select };
   };
-  const plan = sel === null ? null : planTransitionAudition(props.path, event, container, sel, from !== null && to !== null ? { pair: { from, to } } : {});
+  const plan = sel === null ? null : planTransitionAudition(path, event, container, sel, from !== null && to !== null ? { pair: { from, to } } : {});
   const audition = (bar: number | undefined): void => {
     if (sel === null) return;
-    const p = planTransitionAudition(props.path, event, container, sel, { ...(from !== null && to !== null ? { pair: { from, to } } : {}), ...(bar !== undefined ? { bar } : {}) });
+    const p = planTransitionAudition(path, event, container, sel, { ...(from !== null && to !== null ? { pair: { from, to } } : {}), ...(bar !== undefined ? { bar } : {}) });
     if (!p.ok) return void setAuditionText(p.reason);
     setAuditionText(p.note);
     void runTransitionAudition(editorAudition, p);
   };
 
   return (
-    <div class="rules-table" data-asset-document={props.path}>
+    <div class="rules-table" data-asset-document={path}>
       <h3>{container.id}: transitions</h3>
       <div class="rt-scroll">
         <table class="rt-grid" role="grid" aria-label="Transition rules, from by to">

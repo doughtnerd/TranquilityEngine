@@ -4,13 +4,14 @@
 // game clock (never a wall clock). That each rule ducks is proved on the real core in `golden/audioGoldenM5.test.ts` (DSd).
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Assets, Engine, Input, SceneManager } from "../../../../myco";
+import { Assets, Engine, SceneManager } from "../../../../myco";
 import { readProject } from "../../../../server/project";
 // The sample's scripts, registered as loading the project's scripts would (ADR 0031).
 import.meta.glob("../../../../../samples/sound-lab/scripts/behaviors/*.ts", { eager: true });
 import { setAudioBackend } from "../backend";
 import { makeFakeBackend, endAudioSession } from "../testing";
 import { events } from "../events/eventRuntime";
+import { DomInput } from "../../../../engine/tests/domInput";
 
 const SAMPLE = fileURLToPath(new URL("../../../../../samples/sound-lab", import.meta.url));
 const fake = makeFakeBackend();
@@ -37,9 +38,9 @@ const advance = (seconds: number) => {
   }
 };
 const press = (key: string) => {
-  Input.simulate("down", key);
+  DomInput.attach().keyDown(key);
   advance(1 / 60);
-  Input.simulate("up", key);
+  DomInput.attach().keyUp(key);
   advance(1 / 60);
 };
 const playsOf = (re: RegExp) => fake.plays.filter((p) => re.test(p.path));

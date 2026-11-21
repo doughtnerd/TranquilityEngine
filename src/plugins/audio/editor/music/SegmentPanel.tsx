@@ -2,26 +2,24 @@
 // the stem list (solo, mute, gain, alternatives), cue and region forms, and the import drop (Ed9's `importDropped`).
 //
 // Every edit is a pure function of the segment in `segmentEdits.ts` (the refused-or-next `EditResult`, ADR 0307). The
-// component applies the result through the event's asset document (one undo step per edit, a refusal in the status
-// bar), exactly as the view does.
+// panel is a view over the segment's music node handle (ADR 0313), which applies each result as one undo step of the
+// event's document (a refusal in the status bar) and gives the clip facts the length and the lint read.
 //
 // Interpretations: solo and mute are audition-only editor state (`stemAudition.ts`), never written to the asset. Tap tempo is the median interval of the current run (`tempoTools.ts`).
-import { useEffect, useMemo, useRef, useState } from "preact/hooks";
-import { editor, openAssetDocument, registerAssetDropTarget, useDraftText, Panel } from "../../../../editor/sdk";
-import type { AudioEventAsset } from "../../../../engine/audio/eventFormat";
+import { useEffect, useRef, useState } from "preact/hooks";
+import { editor, registerAssetDropTarget, useDraftText } from "../../../../editor/sdk";
 import {
   BEAT_UNITS, MAX_BPM, MIN_BPM, MUSIC_LIMITS, TRACK_PICKS, type MusicRegion, type SegmentNode, type TrackPick,
 } from "../../../../engine/audio/musicFormat";
-import { validateSegment, type MusicClipFacts, type MusicLintIssue } from "../../../../engine/audio/musicValidate";
+import { validateSegment, type MusicLintIssue } from "../../../../engine/audio/musicValidate";
 import { importDropped } from "./import";
 import { openSegment } from "./index";
-import { peaksFor } from "./peaksHost";
-import type { PeaksService } from "./peaks";
-import { findMusicSegment, replaceMusicNode } from "../../../../engine/audio/musicTree";
+import { MusicNodePanel } from "./MusicNodePanel";
+import type { MusicNodeHandle } from "./musicNodeHandle";
 import { barCountCandidates, tapTempo, tempoFromLength } from "./tempoTools";
 import { setTempo, setGridOffset, renameTrack, setTrackVolume, setTrackPick, removeTrack, moveTrack, removeAlternative, promoteAlternative, addCue, renameCue, setCueAt, removeCue, setEntry, setExit, addRegion, type RegionPatch, updateRegion, removeRegion, type ConditionForm, readCondition } from "./segmentEdits";
 import { type StemAudition, auditionKey, auditionOf, toggleStem, audibleStems } from "./stemAudition";
-import { accept, applyToDocument, placeEdit, refuse, type EditResult } from "../editResult";
+import { accept, refuse, type EditResult } from "../editResult";
 import "./segmentPanel.css";
 
 const round3 = (n: number): number => Math.round(n * 1000) / 1000;
@@ -32,56 +30,32 @@ const AUDIO_EXT = /\.(wav|ogg|oga|opus|mp3|flac|m4a|aac)$/i;
 
 export function SegmentPanel() {
   const open = openSegment.value;
-  const project = editor.project.current;
-  editor.project.version;
-  if (!project || !open) return <Panel><p class="empty">Segment: open a segment from the Event editor to edit its tempo, stems, cues and regions here.</p></Panel>;
-  if (!project.files.includes(open.event)) return <Panel><p class="empty">{open.event} isn't in the project any more.</p></Panel>;
   return (
-    <Panel>
-      <OpenPanel key={auditionKey(open.event, open.segmentId)} path={open.event} segmentId={open.segmentId} />
-    </Panel>
+    <MusicNodePanel
+      open={open && { event: open.event, id: open.segmentId }}
+      kind="segment"
+      idle="Segment: open a segment from the Event editor to edit its tempo, stems, cues and regions here."
+      view={(handle, segment) => <OpenPanel handle={handle} segment={segment} />}
+    />
   );
 }
 
-function OpenPanel({ path, segmentId }: { path: string; segmentId: string }) {
+function OpenPanel({ handle, segment }: { handle: MusicNodeHandle<SegmentNode>; segment: SegmentNode }) {
   const project = editor.project.current!;
-  const doc = openAssetDocument<AudioEventAsset>(project, path, "audioEvent");
-  const event = doc.value.value;
-  const segment = useMemo(() => findMusicSegment(event.musicRoot, segmentId), [event.musicRoot, segmentId]);
-  const peaks = peaksFor(project);
-  const [version, setVersion] = useState(0);
-  const key = auditionKey(path, segmentId);
+  const key = auditionKey(handle.path, handle.id);
   const audition = auditionOf(key);
-
-  // Probe every clip once so lengths and the lint have facts.
-  const clips = useMemo(() => (segment ? segment.tracks.flatMap((t) => [t.clip, ...t.alternatives]) : []), [segment]);
-  useEffect(() => {
-    let live = true;
-    for (const c of clips) if (c && !peaks.peek(c)) peaks.get(c).then(() => live && setVersion((v) => v + 1), () => {});
-    return () => void (live = false);
-  }, [clips.join("\n")]);
-
-  if (!segment) return <p class="empty">{path} has no segment “{segmentId}”.</p>;
-
-  const apply: Apply = (e, label) =>
-    applyToDocument(doc, placeEdit(e, segment, event, (next) => ({ ...event, musicRoot: event.musicRoot && replaceMusicNode(event.musicRoot, segmentId, next) })), label);
-
-  const facts = (p: string): MusicClipFacts | undefined => {
-    const m = peaks.peek(p);
-    return m ? { frames: m.frames, rate: m.rate, channels: Math.min(2, Math.max(1, m.channels)), gapless: true } : undefined;
-  };
-  void version;
-  const lint = validateSegment(segment, facts).issues;
-  const readOnly = doc.readOnly;
+  const apply: Apply = (e, label) => handle.apply(e, label);
+  const lint = validateSegment(segment, handle.clip).issues;
+  const readOnly = handle.readOnly;
 
   const doImport = async (paths: readonly string[], alternativeOf?: string) => {
     if (readOnly) return editor.messages.info("This project is read-only.");
-    await Promise.all(paths.map((p) => peaks.get(p).catch(() => undefined)));
+    await handle.decoded(paths);
     const read = async (p: string) => {
       const url = project.assets.get(p);
       return typeof url === "string" ? new Uint8Array(await (await fetch(url)).arrayBuffer()) : undefined;
     };
-    const r = await importDropped(segment, paths, read, facts, alternativeOf ? { mode: { alternativeOf } } : undefined);
+    const r = await importDropped(segment, paths, read, handle.clip, alternativeOf ? { mode: { alternativeOf } } : undefined);
     const a = r.applied;
     if (r.segment !== segment) apply(accept(r.segment), alternativeOf ? "Add alternatives" : "Import stems");
     const parts = [
@@ -96,8 +70,8 @@ function OpenPanel({ path, segmentId }: { path: string; segmentId: string }) {
   };
 
   return (
-    <div class="segment-panel" data-asset-document={doc.path}>
-      <TempoSection segment={segment} peaks={peaks} version={version} readOnly={readOnly} apply={apply} />
+    <div class="segment-panel" data-asset-document={handle.path}>
+      <TempoSection segment={segment} seconds={handle.seconds} readOnly={readOnly} apply={apply} />
       <StemsSection segment={segment} audition={audition} auditionKey={key} readOnly={readOnly} apply={apply} onDrop={doImport} />
       <CuesSection segment={segment} readOnly={readOnly} apply={apply} />
       <RegionsSection segment={segment} readOnly={readOnly} apply={apply} />
@@ -135,7 +109,7 @@ function Txt(props: { label: string; value: string; onCommit: (s: string) => voi
   return <input type="text" aria-label={props.label} class={props.narrow ? "narrow" : ""} disabled={props.disabled} placeholder={props.placeholder} {...input} />;
 }
 
-function TempoSection(props: { segment: SegmentNode; peaks: PeaksService; version: number; readOnly: boolean; apply: Apply }) {
+function TempoSection(props: { segment: SegmentNode; seconds: (clip: string) => number | undefined; readOnly: boolean; apply: Apply }) {
   const { segment, readOnly, apply } = props;
   const t = segment.tempo[0]!;
   const [bars, setBars] = useState("");
@@ -143,13 +117,9 @@ function TempoSection(props: { segment: SegmentNode; peaks: PeaksService; versio
   const [tap, setTap] = useState<ReturnType<typeof tapTempo>>(null);
   const [tapCount, setTapCount] = useState(0);
 
-  void props.version;
   // The longest stem decides the length, as the grid's "end" does.
   let seconds = 0;
-  for (const tr of segment.tracks) {
-    const m = props.peaks.peek(tr.clip);
-    if (m && m.rate > 0) seconds = Math.max(seconds, m.frames / m.rate);
-  }
+  for (const tr of segment.tracks) seconds = Math.max(seconds, props.seconds(tr.clip) ?? 0);
   const barsN = Number(bars);
   const fromLength = bars.trim() !== "" && seconds > 0 ? tempoFromLength(seconds, barsN, t.beatsPerBar, segment.gridOffset) : null;
   const candidates = seconds > 0 ? barCountCandidates(seconds, t.beatsPerBar, { gridOffset: segment.gridOffset }) : [];

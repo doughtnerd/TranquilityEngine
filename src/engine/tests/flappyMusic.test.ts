@@ -12,6 +12,7 @@ import { events } from "../../plugins/audio/runtime/events/eventRuntime";
 import "../../editor/sampleTypes";
 import { BirdEvents } from "../../../samples/flappy/scripts/data";
 import { GameManager } from "../../../samples/flappy/scripts/behaviors/GameManager";
+import { DomInput } from "./domInput";
 
 const SAMPLE = fileURLToPath(new URL("../../../samples/flappy/", import.meta.url));
 const fake = makeFakeBackend();
@@ -25,9 +26,9 @@ const advance = (seconds: number) => {
   }
 };
 function press(key: string): void {
-  Input.simulate("down", key);
+  DomInput.attach().keyDown(key);
   advance(1 / 30);
-  Input.simulate("up", key);
+  DomInput.attach().keyUp(key);
   advance(1 / 30);
 }
 

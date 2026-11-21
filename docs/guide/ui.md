@@ -85,7 +85,9 @@ A button's state, read any time:
 - `pressed`: from a press on it until the pointer button is released.
 - `clicked`: true for the one frame a click finished: pressed and released over the same button, like `Input.getMouseButtonUp`.
 
-A field's `focused` is true while it takes the keyboard; set it to focus or unfocus the field from a script. `submitted` is true for the frame Enter was pressed in it.
+A field's `focused` is true while it takes the keyboard; set it to focus or unfocus the field from a script (one field has focus at a time). `changed` is true for the frame after the player changed its value and `submitted` for the frame after Enter was pressed in it. A script writing `value` is never a change.
+
+`clicked`, `changed`, `submitted` and a UI document's `hover` events all happen in the frame after the player acted, and every script phase of that frame sees them, `fixedUpdate` included.
 
 ## The pointer goes to UI first
 
