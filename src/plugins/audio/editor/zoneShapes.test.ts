@@ -12,9 +12,11 @@ type Pose3D = shapeKit3d.Pose3D;
 type V3 = shapeKit3d.V3;
 const { MIN_EXTENT, axisDrag, resizeAxis } = shapeKit3d;
 
+/** `a` and `b` agree to `digits` decimals, element by element (one assertion: the property tests compare thousands of numbers). */
 const close = (a: readonly number[], b: readonly number[], digits = 6) => {
   expect(a.length).toBe(b.length);
-  a.forEach((v, i) => expect(v).toBeCloseTo(b[i]!, digits));
+  const worst = a.reduce((m, v, i) => Math.max(m, Math.abs(v - b[i]!)), 0);
+  expect(worst).toBeLessThan(10 ** -digits / 2);
 };
 const S = Math.SQRT1_2;
 const Y90: Pose3D["rotation"] = [0, S, 0, S]; // 90 degrees about +Y: x -> -z, z -> +x
@@ -108,8 +110,9 @@ describe("the outline is the runtime zone volume (ADR 0295)", () => {
         for (const shape of shapes) {
           // As `zones.ts` sizes it: the node's world matrix (as the public `localToWorld` gives it), the zone's fields.
           const v = zoneVolumeFromMatrix(makeZoneVolume(), t.localToWorld.value, 0, shape.shape === "sphere" ? ZONE_SHAPE_SPHERE : ZONE_SHAPE_BOX, ...f.center, ...f.size, f.radius);
-          for (const line of shape.wire(f, pose)) for (const p of line) expect(outsideDistance(v, p[0], p[1], p[2])).toBeCloseTo(0, 3);
-          for (const line of shape.shell(f, pose)) for (const p of line) expect(outsideDistance(v, p[0], p[1], p[2])).toBeCloseTo(f.blendDistance, 3);
+          const off = (wire: shapeKit3d.Wire, d: number) => Math.max(0, ...wire.flat().map((p) => Math.abs(outsideDistance(v, p[0], p[1], p[2]) - d)));
+          expect(off(shape.wire(f, pose), 0)).toBeLessThan(5e-4);
+          expect(off(shape.shell(f, pose), f.blendDistance)).toBeLessThan(5e-4);
           const blend = shape.handles(f, pose).blend!;
           expect(outsideDistance(v, blend[0], blend[1], blend[2])).toBeCloseTo(f.blendDistance, 3);
           // And the outline reaches the volume's extent: its corners or rim are the volume's.
