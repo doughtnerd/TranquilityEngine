@@ -14,7 +14,7 @@
 //   - turning a bus's mute ON taints that bus, every ancestor and the root (master); unmuting does not clear anything;
 //   - turning a bus's solo ON taints every meter; solo OFF does not clear anything;
 //   - a mark stays until the meter is reset (`reset("all")` or `reset("integrated")`; `"maxPeak"` leaves it), and Play with
-//     `loudnessResetOnPlay` resets all: the panel tells the model through `noteReset`;
+//     `loudnessResetOnPlay` resets all: the mixer session (`mixerSession.ts`, ADR 0292) tells the model through `noteReset`;
 //   - an unmetered bus has no meter, so it carries no mark (the hub treats it as a no-op too);
 //   - any monitor control on suspends the target check (`active`); it does not taint by itself.
 // Solo semantics are the mixer's (`Mixer.audibleUnderSolo`): with any solo on, a bus is audible when it is soloed, lies under a
@@ -79,8 +79,6 @@ export interface MonitorModel {
   taintedMeters(): readonly string[];
   /** A meter was reset (`bus` omitted: every meter): `"all"` and `"integrated"` clear its marks, `"maxPeak"` doesn't. */
   noteReset(what: LoudnessResetWhat, bus?: string): void;
-  /** Play started: with `loudnessResetOnPlay` every meter resets (marks clear). Monitor state itself belongs to the Engine and is untouched. */
-  notePlay(resetOnPlay: boolean): void;
 }
 
 export function createMonitorModel(options: MonitorOptions): MonitorModel {
@@ -183,9 +181,6 @@ export function createMonitorModel(options: MonitorOptions): MonitorModel {
     noteReset(what, bus) {
       if (what === "maxPeak") return;
       if (bus === undefined) marks.clear(); else marks.delete(bus);
-    },
-    notePlay(resetOnPlay) {
-      if (resetOnPlay) marks.clear();
     },
   };
 }

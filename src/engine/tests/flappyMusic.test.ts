@@ -17,11 +17,10 @@ const SAMPLE = fileURLToPath(new URL("../../../samples/flappy/", import.meta.url
 const fake = makeFakeBackend();
 let engine: Engine | null = null;
 const RENDER = { release() {}, warmUp: async () => {}, preloadTextures: async () => {} } as never;
-const clock = fake as unknown as { time: number; rafTime: number };
 
 const advance = (seconds: number) => {
   for (let t = 0; t < seconds - 1e-9; t += 1 / 60) {
-    clock.time += 1 / 60;
+    fake.advance(1 / 60);
     engine!.step(1 / 60);
   }
 };
@@ -48,11 +47,10 @@ const readout = () => manager().musicLabel!.getBehavior(Text)!.text;
 beforeEach(() => {
   fake.clear();
   fake.durations.set("music/town.mp3", 40);
-  clock.time = 0;
-  clock.rafTime = 0;
+  fake.advanceTo(0); // the rAF time moves with it, back to 0
   fake.ready = true;
   setAudioBackend(fake);
-  events().now = () => clock.time;
+  events().now = () => fake.time;
   endAudioSession();
   vi.spyOn(console, "warn").mockImplementation(() => {});
 });

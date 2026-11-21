@@ -45,10 +45,11 @@ import { rhythmModeSetting } from "./calibration";
 import { exitSeconds, nextGridSeconds, ticksToSeconds } from "../../../../engine/audio/musicGrid";
 import { RateLimit, RECOVERY_LIMIT, RECOVERY_WINDOW_MS } from "../core/rateLimit";
 import { hiddenFrame, musicPlayers, tickPlayer, type MusicFrame, type MusicHost, type MusicPlayer } from "./musicSystem";
-import { playingGridOf, rebaseAnchors, ticksAt } from "./anchors";
+import { nextHeard, rebaseAnchors, ticksAt, type NextPoint } from "./anchors";
 import { beginRecovery, cancelSuccessor, commitStart, restartFirst, stopPlayer } from "./musicPlayer";
 import { cancelPlanned, requestStart, type PlanRequest } from "./planner";
 import { cancelRun, liveRun, routeGroupEvent } from "./segmentRun";
+import { segmentGrid } from "./segmentGrids";
 
 /** Why a player recovers (`counters.recoveries` keys; `hidden` counts the stamps made while hidden). */
 export type MusicRecoveryCause = "rebuild" | "crash" | "rate" | "abandon";
@@ -237,7 +238,7 @@ function recoverPlayer(player: MusicPlayer, f: MusicFrame, cause: MusicRecoveryC
   }
   cancelRun(old, f);
   beginRecovery(player);
-  const grid = playingGridOf(anchor)?.grid ?? null;
+  const grid = segmentGrid(anchor.node);
   const fileRate = anchor.rate;
   /** File seconds heard at `t` on the old anchor (loop passes unrolled); without a grid, linear from the old stamp. */
   const fileAt = (t: number): number => {
@@ -245,14 +246,13 @@ function recoverPlayer(player: MusicPlayer, f: MusicFrame, cause: MusicRecoveryC
     return grid && Number.isFinite(k) ? ticksToSeconds(grid, k) : old.startFrame / fileRate + (t - old.startAt);
   };
   const exit = grid ? exitSeconds(grid) : null;
-  /** The next bar at or after heard `nb` (heard seconds), NaN at or past the exit cue. */
-  const points = (nb: number): number => {
-    const s = fileAt(nb);
-    if (!Number.isFinite(s)) return Number.NaN;
-    const bar = grid ? nextGridSeconds(grid, s, "bar") : s;
-    if (exit !== null && bar >= exit - EPS) return Number.NaN;
-    return nb + (bar - s);
+  /** The next bar before the exit cue at or after file seconds `s`. */
+  const nextBar: NextPoint = (g, s) => {
+    const bar = nextGridSeconds(g, s, "bar");
+    return exit !== null && bar >= exit - EPS ? Number.NaN : bar;
   };
+  /** The next bar heard at or after heard `nb` (in the pass it is heard in), NaN at or past the exit cue; without a grid, `nb`. */
+  const points = (nb: number): number => (grid ? nextHeard(anchor, nb, nextBar).at : nb);
   const startFrameAt = (t: number): number => Math.max(0, Math.round(fileAt(t) * fileRate));
   const req: PlanRequest = {
     to: old.node,

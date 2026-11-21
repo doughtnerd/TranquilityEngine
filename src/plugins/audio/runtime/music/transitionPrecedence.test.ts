@@ -9,15 +9,15 @@
 //   beat  -> 1.6        bar -> 3.1        exitCue (A's cue "out" at 2:1:0) -> 3.1 as well, so it is not used to tell rules apart.
 import { afterEach, describe, expect, it } from "vitest";
 import { setAudioBackend } from "../backend";
-import { makeFakeBackend, type FakeBackend, endAudioSession } from "../testing";
+import { makeFakeBackend, type FakeBackend, endAudioSession, musicFrameAt, musicFrameStep } from "../testing";
 import type { EventInstance } from "../events/eventRuntime";
 import { parseAudioEvent } from "../../../../engine/audio/eventFormat";
 import { isMusicContainer, type MusicNode } from "../../../../engine/audio/musicFormat";
 import type { MusicClipFacts } from "../../../../engine/audio/musicValidate";
-import { createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
+import { createMusicPlayer, type MusicPlayer } from "./musicSystem";
 import { setSegmentClipSource } from "./segmentRun";
 import { planTick, requestStart } from "./planner";
-import { requestTransition, tickTransition } from "./transition";
+import { requestTransition } from "./transition";
 
 const RATE = 48_000;
 const L = 1 / 30;
@@ -54,22 +54,13 @@ function find(root: MusicNode, id: string): MusicNode {
 }
 
 let b: FakeBackend;
-const f = { backend: null as unknown as FakeBackend, music: null as FakeBackend["music"] | null, now: 0, dt: DT, hidden: false };
-
-function at(now: number): MusicFrame {
-  f.now = now;
-  (b as { time: number }).time = now;
-  b.horizonTime = now + L;
-  return f as unknown as MusicFrame;
-}
 
 function rig(): void {
   b = makeFakeBackend();
   setAudioBackend(b);
-  f.backend = b;
-  f.music = b.music ?? null;
+  b.lookahead = L;
   setSegmentClipSource({ url: (p) => p, settings: () => ({ volume: 1, stream: true }), bus: (o) => o ?? "Master", facts: () => long() });
-  at(1);
+  b.advanceTo(1);
 }
 
 const instance = (): EventInstance =>
@@ -78,23 +69,22 @@ const instance = (): EventInstance =>
 /** A player over `r` whose first segment `first` plays from 1.1. */
 function playing(r: MusicNode, first = "A"): MusicPlayer {
   const player = createMusicPlayer(instance(), r);
-  requestStart(player, { to: find(r, first), reason: "start", grid: "immediate", notBefore: Number.NaN, startFrame: 0 }, at(1));
+  requestStart(player, { to: find(r, first), reason: "start", grid: "immediate", notBefore: Number.NaN, startFrame: 0 }, musicFrameAt(b, 1));
   b.music!.setPrimed(player.planned!.run.group);
-  planTick(player, at(1));
+  planTick(player, musicFrameAt(b, 1));
   expect(player.run?.node.id).toBe(first);
-  planTick(player, at(1.2));
+  planTick(player, musicFrameAt(b, 1.2));
   expect(player.state).toBe("playing");
   return player;
 }
 
 function tick(player: MusicPlayer, now: number): void {
-  tickTransition(player, at(now));
-  planTick(player, at(now));
+  musicFrameStep(b, now);
 }
 
 /** Ask for `to` at now 1.5 and return the transition (never null here). */
 function change(player: MusicPlayer, r: MusicNode, to: string, now = 1.5): NonNullable<ReturnType<typeof requestTransition>> {
-  const t = requestTransition(player, find(r, to), at(now));
+  const t = requestTransition(player, find(r, to), musicFrameAt(b, now));
   expect(t).not.toBeNull();
   return t!;
 }
@@ -212,7 +202,7 @@ describe("T3: precedence decides the executed change", () => {
     b.music!.setPrimed(t.incoming!.run.group);
     for (let n = 1.6; n <= BAR_EXIT - L - DT + 1e-6; n += DT) tick(player, n);
     expect(t.state).toBe("running");
-    const q = requestTransition(player, find(r, "C"), at(BAR_EXIT - 0.02))!;
+    const q = requestTransition(player, find(r, "C"), musicFrameAt(b, BAR_EXIT - 0.02))!;
     expect(q.match).toMatchObject({ ruleKey: "B>C", tier: 1 });
     tick(player, BAR_EXIT);
     expect(player.run?.node.id).toBe("B");
@@ -276,7 +266,7 @@ describe("T3: nested containers", () => {
     rig();
     const r = nested([{ from: "C", to: "deep", exit: "bar" }, { from: "C", to: "*", exit: "beat" }]);
     const player = playing(r, "C");
-    const t = requestTransition(player, find(r, "deep"), at(1.5))!;
+    const t = requestTransition(player, find(r, "deep"), musicFrameAt(b, 1.5))!;
     expect(t.match).toMatchObject({ ruleKey: "C>deep", tier: 1 });
     expect(t.incoming!.run.node.id).toBe("D"); // no parameter, no default: the first child
     expect(t.exitAt).toBeCloseTo(BAR_EXIT, 9);
@@ -310,7 +300,7 @@ describe("T3: D14, a natural advance and the rule", () => {
     rig();
     const r = flat(rules, [segCue("A"), seg("B"), seg("C")]);
     const player = playing(r);
-    const t = requestTransition(player, find(r, "B"), at(1.5), { natural: true })!;
+    const t = requestTransition(player, find(r, "B"), musicFrameAt(b, 1.5), { natural: true })!;
     expect(t).not.toBeNull();
     b.music!.setPrimed(t.incoming!.run.group);
     tick(player, 1.6);
@@ -357,7 +347,7 @@ describe("T3: D14, a natural advance and the rule", () => {
     const bridge = seg("R", { cues: [{ name: "out", at: "2:1:0" }], exit: "out" });
     const r = flat([{ from: "A", to: "B", exit: "beat", bridge: { segment: "R" } }], [segCue("A"), seg("B"), seg("C")], { library: [bridge] });
     const player = playing(r);
-    const t = requestTransition(player, find(r, "B"), at(1.5), { natural: true })!;
+    const t = requestTransition(player, find(r, "B"), musicFrameAt(b, 1.5), { natural: true })!;
     expect(t.match.bridge).toBe("R");
     expect(t.bridge?.run.node.id).toBe("R");
     expect(t.bridge!.point).toBeCloseTo(BAR_EXIT, 9);

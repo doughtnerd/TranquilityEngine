@@ -63,12 +63,11 @@ describe("the ADR 0166 §1 surface (Q2)", () => {
   it("Audio.horizon, timeAt, latency, calibration, calibrationStale and rhythmMode", () => {
     const fake = makeFakeBackend();
     setAudioBackend(fake);
-    (fake as { time: number }).time = 2;
+    fake.advanceTo(2);
     expect(Audio.horizon).toBe(2); // no horizon(): Audio.time
-    fake.horizonTime = 2.05;
+    fake.lookahead = 0.05;
     expect(Audio.horizon).toBe(2.05);
-    fake.rafTime = 1000;
-    expect(Audio.timeAt(1250)).toBeCloseTo(2.25, 9);
+    expect(Audio.timeAt(fake.rafTime + 250)).toBeCloseTo(2.25, 9);
     expect(Audio.latency).toEqual({ base: 0, output: 0, limiter: 0, total: 0, reliable: false });
     Audio.calibration = 0.012;
     expect(Audio.calibration).toBe(0.012);

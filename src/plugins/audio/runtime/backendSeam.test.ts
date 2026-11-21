@@ -37,7 +37,7 @@ describe("AudioBackend capabilities per adapter (ADR 0179)", () => {
     expect(f.music).toBeDefined();
     expect(f.automation).toBeUndefined();
     expect(f.clock!.horizon()).toBeNull();
-    f.horizonTime = 2;
+    f.lookahead = 2; // the clock is at 0
     expect(f.clock!.horizon()).toBe(2);
     f.clock = undefined;
     expect(f.clock).toBeUndefined();

@@ -9,8 +9,8 @@
 // - Voices are named by id (`gen << 16 | slot`); every by-id call checks the id is live and does nothing otherwise. The
 //   slot-level calls (`…At(i, …)`, `refreshGain`, `onFree`) are for the backend's own frame passes, which already hold
 //   a live slot.
-// - `start(req, running)` allocates and fills a slot and returns the id (0: refused); with `running` false (locked, or a
-//   rebuild running) the voice queues in `lockedQueue` and `unlock()` launches it once the context runs.
+// - `start(req)` allocates and fills a slot and returns the id (0: refused); unless the core session may send now (ADR
+//   0291: locked, or a rebuild running) the voice queues in `lockedQueue` and `unlock()` launches it once it may.
 // - What reaches the core: only a mixed (PLAYING) voice gets SET_PARAMS for gain and direction; a virtual one keeps
 //   fresh values in the table, and its promote's SET_MIXED carries them. Pitch, pause and bus go to any voice on the
 //   core (PLAYING or VIRTUAL). Nothing goes before the voice's PLAY.
@@ -34,6 +34,7 @@ import { aacRefusal, unsupportedFormat, type WarnOnce } from "./codecs";
 import type { CoreAutomation } from "./coreAutomation";
 import { wrapPosition } from "./coreAutomation";
 import type { CorePlayRequest } from "./coreBackend";
+import type { SendGate } from "./session";
 import type { DopplerPass } from "./doppler";
 import type { CoreMusicOps } from "./musicOps";
 import { pannerName, type PannerPick } from "./pannerPick";
@@ -138,6 +139,8 @@ export interface CoreVoicesHost {
   mixedCap(): number;
   /** B5: the wide (ambisonic) voices the core laid out (`preset.maxWide`). */
   maxWide(): number;
+  /** ADR 0291: the core session, asked whether a voice may start now (`maySend`) or must wait in the locked queue. */
+  readonly session: Pick<SendGate, "maySend">;
   /** F-12: true while stale stem changes must wait (a rebuild, or the replay waiting for the new context's clock). */
   holdStemResends(): boolean;
 }
@@ -224,11 +227,12 @@ export class CoreVoices {
 
   /**
    * Starts a voice for `req`: allocates a slot and fills it (volume, pitch, flags, attenuation, position, the M3 options),
-   * counts its bus and presence, then launches it when `running`, else queues it until `unlock`. Returns its id, or 0
+   * counts its bus and presence, then launches it when the session may send, else queues it until `unlock`. Returns its id, or 0
    * when refused (the ambisonic cap, a full table of higher priority; the clip reference is released).
    */
-  start(req: CorePlayRequest, running: boolean): number {
+  start(req: CorePlayRequest): number {
     const host = this.host;
+    const running = host.session.maySend;
     const world = req.world ?? 0;
     const group = req.group !== undefined && Number.isInteger(req.group) && req.group >= 1 && req.group <= MAX_GROUPS ? req.group : 0;
     // B5: `audio.ambisonic.maxClips` caps concurrent ambisonic voices; main steals the lowest priority first (the core's steal is a backstop).
@@ -275,8 +279,9 @@ export class CoreVoices {
     return id;
   }
 
-  /** The context started running: voices that waited for it start now. */
+  /** Once the session may send (the context runs, no rebuild), the voices that waited start (run every frame). */
   unlock(): void {
+    if (this.lockedQueue.size === 0 || !this.host.session.maySend) return;
     const t = this.t;
     this.lockedQueue.drain(performance.now(), (id) => {
       const i = id & 0xffff;

@@ -12,11 +12,11 @@ import {
 import { startAtPosition, startAtSegment } from "./editorHooks";
 import { planTick, type PlanRequest } from "./planner";
 import { withStartPosition } from "./startPosition";
-import { createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
+import { createMusicPlayer, type MusicPlayer } from "./musicSystem";
 import { tickPlaylist } from "./playlist";
 import { setSegmentClipSource } from "./segmentRun";
 import { setAudioBackend } from "../backend";
-import { endAudioSession, makeFakeBackend } from "../testing";
+import { endAudioSession, makeFakeBackend, musicFrameAt } from "../testing";
 
 /** The segment the playlist's first plan asks for: one playlist tick on a fake backend, as the planner's frame runs it. */
 function firstPlanned(p: MusicPlayer): string | undefined {
@@ -31,7 +31,7 @@ function firstFrame(p: MusicPlayer, plan: boolean): string | undefined {
     url: (c) => `/assets/${c}`, settings: () => ({ volume: 1, stream: true }), bus: (o) => o ?? "Master",
     facts: () => ({ frames: 120 * 48_000, rate: 48_000, channels: 2, gapless: true }),
   });
-  const f = { backend: b, music: b.music ?? null, now: 0, dt: 1 / 60, hidden: false } as unknown as MusicFrame;
+  const f = musicFrameAt(b);
   tickPlaylist(p, f);
   if (plan) planTick(p, f);
   return p.planned?.request.to.id;

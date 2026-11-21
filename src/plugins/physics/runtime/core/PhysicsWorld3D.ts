@@ -4,7 +4,7 @@
  */
 import { DEG2RAD, Mat4, Quat, Quaternion, Vector3, type QuatLike } from "../../../../engine/core/math";
 import type { World } from "../../../../engine/core/World";
-import { AXIS_INDEX, boxHalfExtents, capsuleSize, scaledCenter, sphereRadius } from "../../../../engine/physics/shape3d";
+import { AXIS_INDEX, capsuleSize, scaledCenter, shapeSize3D, type ShapeFields3D } from "../../../../engine/physics/shape3d";
 import { MeshRenderer } from "../../../../engine/render/components";
 import type { GameObject } from "../../../../engine/scene/GameObject";
 import { meshesIfLoaded, meshTriangles, type ModelMesh } from "../../../../engine/scene/models";
@@ -207,18 +207,19 @@ export class PhysicsWorld3D extends PhysicsCore<Dim3, Types3D> {
   }
 
   protected colliderShape(c: Collider, ws: readonly number[], body: RigidBody | null, source: readonly unknown[] | null | undefined): ShapeDesc3D {
-    if (c instanceof BoxCollider) {
-      const [hx, hy, hz] = boxHalfExtents([c.size.x, c.size.y, c.size.z], ws);
-      return { kind: "box", halfExtents: { x: Math.max(hx, 1e-4), y: Math.max(hy, 1e-4), z: Math.max(hz, 1e-4) } };
-    }
-    if (c instanceof SphereCollider) return { kind: "sphere", radius: Math.max(sphereRadius(c.radius, ws), 1e-4) };
-    if (c instanceof CapsuleCollider || c instanceof CharacterController) {
-      const axis = c instanceof CapsuleCollider ? (AXIS_INDEX[c.direction] ?? 1) : 1;
-      const { radius, halfHeight } = capsuleSize(c.radius, c.height, axis, ws);
-      return { kind: "capsule", halfHeight, radius: Math.max(radius, 1e-4) };
-    }
     if (c instanceof MeshCollider) return this.meshShape(c, (source ?? []) as readonly ModelMesh[], ws, body);
-    throw new Error(`Unsupported collider type ${c.constructor.name}.`);
+    const fields: ShapeFields3D | null =
+      c instanceof BoxCollider
+        ? { kind: "box", size: [c.size.x, c.size.y, c.size.z] }
+        : c instanceof SphereCollider
+          ? { kind: "sphere", radius: c.radius }
+          : c instanceof CapsuleCollider || c instanceof CharacterController
+            ? { kind: "capsule", radius: c.radius, height: c.height, axis: c instanceof CapsuleCollider ? (AXIS_INDEX[c.direction] ?? 1) : 1 }
+            : null;
+    if (!fields) throw new Error(`Unsupported collider type ${c.constructor.name}.`);
+    const size = shapeSize3D(fields, ws);
+    if (size.kind === "box") return { kind: "box", halfExtents: { x: size.halfExtents[0], y: size.halfExtents[1], z: size.halfExtents[2] } };
+    return size.kind === "sphere" ? size : { kind: "capsule", radius: size.radius, halfHeight: size.halfHeight };
   }
 
   /** A mesh collider's shape: the meshes' triangles, scaled with the node, exact or wrapped in their convex hull. */

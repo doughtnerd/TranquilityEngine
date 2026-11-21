@@ -105,18 +105,6 @@ const SPEC: Row[] = [
     calls: ['setMonitor ui {"mute":true}', "noteMonitorMute ui", "setMonitorActive true"],
   },
   {
-    rule: "Play with loudnessResetOnPlay clears the marks",
-    run: (m) => { m.setSolo("ui", true); m.notePlay(true); },
-    tainted: [],
-    calls: ['setMonitor ui {"solo":true}', "noteMonitorSolo", "setMonitorActive true"],
-  },
-  {
-    rule: "Play without loudnessResetOnPlay keeps the marks",
-    run: (m) => { m.setSolo("ui", true); m.notePlay(false); },
-    tainted: METERED,
-    calls: ['setMonitor ui {"solo":true}', "noteMonitorSolo", "setMonitorActive true"],
-  },
-  {
     rule: "a mute after a reset taints afresh",
     run: (m) => { m.setMute("ui", true); m.noteReset("all"); m.setMute("hit", true); },
     tainted: ["master", "sfx", "hit"],
@@ -302,7 +290,7 @@ describe("monitor controls are never saved", () => {
     const model = createMonitorModel({ host });
     model.setBuses(BUSES);
     model.setMute("ui", true); model.toggleMute("ui"); model.setSolo("hit", true); model.toggleSolo("hit");
-    model.setMute("master", true); model.clearAll(); model.noteReset("all"); model.notePlay(true);
+    model.setMute("master", true); model.clearAll(); model.noteReset("all");
     model.setBuses(BUSES.slice(0, 3));
     expect(commits).toBe(0);
   });

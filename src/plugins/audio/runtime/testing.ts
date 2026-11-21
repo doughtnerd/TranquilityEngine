@@ -28,11 +28,15 @@
 // runtime evaluates on main), each the fake itself, as on the core. Each is a plain property a test sets to undefined for a
 // backend without it (the Babylon fallback has no `clock`; the pending backend has no `mix` or `capture`).
 //
+// ADR 0286: the fake's clock is one clock a test moves with one call (`advance(seconds)`, or `advanceTo(time)`), as
+// `fakeHostClock` is: `time`, the rAF time `timeAt` maps from, `clock.horizon()` (the clock's `lookahead` ahead) and the
+// frame map (once `startContext(rate)` gave it a context) are all read off it, so they never disagree. `time` is read-only.
+//
 // ADR 0264: a fake voice has every `AudioVoice` member, as every adapter's does: the stamped ramps (`fadeShaped`,
 // `paramsShaped`) and `seek` are recorded as events, as asked. Whether ramps are sample-exact is the fake's
 // `music.caps.stampedFades`.
 
-import type { AudioBackend, AudioCaptureSource, AudioClipCache, AudioClock, AudioFrameMap, AudioLiveMix, AudioMixCaps, AudioPanner, Attenuation, AudioVoice, FadeLaw, ListenerPose, MusicAdmitResult, MusicBackend, MusicBackendCaps, MusicGroupEvent, MusicGroupRequest, MusicGroupStamp, MusicLifecycleEvent, AudioOutputDevice, BackendKeyframe, MusicBackendDebug, PlayRequest, RecorderTap, VoiceSpatialOptions, ZoneIrService } from "./backend";
+import type { AudioBackend, AudioCaptureSource, AudioClipCache, AudioClock, AudioLiveMix, AudioMixCaps, AudioPanner, Attenuation, AudioVoice, FadeLaw, ListenerPose, MusicAdmitResult, MusicBackend, MusicBackendCaps, MusicGroupEvent, MusicGroupRequest, MusicGroupStamp, MusicLifecycleEvent, AudioOutputDevice, BackendKeyframe, MusicBackendDebug, PlayRequest, RecorderTap, VoiceSpatialOptions, ZoneIrService } from "./backend";
 import type { AudioLatency } from "../../../engine/audio/musicTypes";
 import type { ApplyResult, MixOp } from "../../../engine/audio/mixOps";
 import { CORE_LIVE_CAPS } from "../../../engine/audio/busCapability";
@@ -56,6 +60,7 @@ import { setAudioBackend as registerBackend } from "./backend";
 import { makeStatusBlock } from "./core/statusFixtures";
 import { ListenerFrame } from "./core/spatial";
 import { runAudioFrame } from "./audioFrame";
+import { musicEarlyStep, musicPlanStep, type MusicFrame } from "./music/musicSystem";
 import type { World } from "../../../engine/core/World";
 
 /** The controls a test has over a fake clock. */
@@ -183,15 +188,24 @@ export interface FakeBackend extends AudioBackend, AudioClipCache, AudioClock, A
   clear(): void;
   /** ADR 0158: clip lengths `clipDuration` reports (seconds); unlisted clips are unknown (null). */
   readonly durations: Map<string, number>;
-  /** ADR 0158: what `clock.horizon()` returns; null: unknown, so callers take their no-clock path (as on the Babylon fallback). */
-  horizonTime: number | null;
+  /** ADR 0286: the clock's heard time, seconds (read-only: `advance` or `advanceTo` moves it). */
+  readonly time: number;
+  /** ADR 0286: moves the clock on by `seconds`: `time`, the rAF time, the horizon and the frame map's time all follow. */
+  advance(seconds: number): void;
+  /** ADR 0286: moves the clock to heard time `time` (back too, when a test that shares the fake starts over). */
+  advanceTo(time: number): void;
+  /**
+   * ADR 0158, 0286: how far `clock.horizon()` runs ahead of `time`, seconds; null (the default): no horizon, so callers
+   * take their no-clock path (as on the Babylon fallback).
+   */
+  lookahead: number | null;
+  /** ADR 0224, 0286: a (new) context at `rate` whose frame 0 is heard now: `clock.frameMap()` reports it from here on. */
+  startContext(rate: number): void;
   /** ADR 0166 (G-1): what `clipFacts` reports per path; unlisted clips are unknown (undefined). */
   readonly facts: Map<string, { frames: number; rate: number; channels: number; gapless: boolean }>;
 
   /** ADR 0166 (G-1): what `clock.frameInterval()` returns, seconds; null (the default): unknown, so callers estimate it. */
   frameIntervalSeconds: number | null;
-  /** ADR 0224: what `clock.frameMap()` returns; null (the default): no frame map, as on a backend that doesn't have one. */
-  frameMapValue: AudioFrameMap | null;
 
   // ADR 0166 (Q2): the music seam, so the P rows' loopback tests run on the fake.
   /** The fake's `MusicBackend`; set it to undefined for a backend without music. */
@@ -200,8 +214,8 @@ export interface FakeBackend extends AudioBackend, AudioClipCache, AudioClock, A
   device: AudioOutputDevice | undefined;
   /** `beginFrame` calls so far (the `engine.AudioMusic` safety net counts them). */
   beginFrameCalls: number;
-  /** The rAF time (ms) `timeAt` maps to `time`: `timeAt(p) = time + (p - rafTime) / 1000`. Default 0. */
-  rafTime: number;
+  /** The rAF time (ms) `timeAt` maps to `time`: `timeAt(p) = time + (p - rafTime) / 1000`. 0 at time 0; moves with the clock. */
+  readonly rafTime: number;
   /** What `latency()` returns. */
   latencyValue: AudioLatency;
 
@@ -349,6 +363,11 @@ export function makeFakeBackend(): FakeBackend {
   const plays: PlayRequest[] = [];
   const voices: FakeVoice[] = [];
   const listeners: ListenerPose[] = [];
+  // ADR 0286: the one clock. `time` and the rAF time move together; the frame map is a context started at `contextAt`.
+  let time = 0;
+  let rafMs = 0;
+  let contextRate: number | null = null;
+  let contextAt = 0;
   const backend: FakeBackend = {
     name: "fake",
     plays,
@@ -361,7 +380,24 @@ export function makeFakeBackend(): FakeBackend {
     masterVolume: 1,
     muted: false,
     status: "running",
-    time: 0,
+    get time() {
+      return time;
+    },
+    get rafTime() {
+      return rafMs;
+    },
+    advance(seconds: number) {
+      time += seconds;
+      rafMs += seconds * 1000;
+    },
+    advanceTo(t: number) {
+      backend.advance(t - time);
+    },
+    lookahead: null,
+    startContext(rate: number) {
+      contextRate = rate;
+      contextAt = time;
+    },
     debug() {
       return {
         status: backend.status, sampleRate: 48_000, time: backend.time, background: "mute",
@@ -377,22 +413,19 @@ export function makeFakeBackend(): FakeBackend {
     mix: undefined,
     capture: undefined,
     durations: new Map(),
-    horizonTime: null,
     facts: new Map(),
     frameIntervalSeconds: null,
-    frameMapValue: null,
 
     music: undefined,
     device: undefined,
     beginFrameCalls: 0,
-    rafTime: 0,
     latencyValue: { base: 0, output: 0, limiter: 0, total: 0, reliable: false },
     beginFrame() { backend.beginFrameCalls++; },
-    timeAt(performanceTime: number) { return backend.time + (performanceTime - backend.rafTime) / 1000; },
+    timeAt(performanceTime: number) { return time + (performanceTime - rafMs) / 1000; },
     latency() { return { ...backend.latencyValue }; },
-    horizon() { return backend.horizonTime; },
+    horizon() { return backend.lookahead === null ? null : time + backend.lookahead; },
     frameInterval() { return backend.frameIntervalSeconds; },
-    frameMap() { return backend.frameMapValue; },
+    frameMap() { return contextRate === null ? null : { sampleRate: contextRate, timeOffset: contextAt, carryPending: false }; },
     clipDuration(path: string) { return backend.durations.get(path) ?? null; },
     clipFacts(path: string) { return backend.facts.get(path); },
     invalidateClip() {},
@@ -430,7 +463,7 @@ export function makeFakeBackend(): FakeBackend {
       voices.length = 0;
       listeners.length = 0;
       backend.durations.clear();
-      backend.horizonTime = null;
+      backend.lookahead = null;
       backend.music?.clear();
       backend.beginFrameCalls = 0;
       backend.ops.length = 0;
@@ -443,6 +476,27 @@ export function makeFakeBackend(): FakeBackend {
   backend.capture = backend;
   backend.music = makeFakeMusicBackend(backend);
   return backend;
+}
+
+/**
+ * ADR 0286: the frame the music plan step hands a player, with the fake's clock moved to heard `now` first (default: where
+ * it is). For a test of one music module's own step (the planner's `planTick`, `requestStart`) on the fake; a test of the
+ * tick order steps `musicPlanStep(backend, dt)` itself.
+ */
+export function musicFrameAt(backend: FakeBackend, now = backend.time, dt = 1 / 60): MusicFrame {
+  backend.advanceTo(now);
+  return { backend, music: backend.music ?? null, now, dt, hidden: false };
+}
+
+/**
+ * ADR 0286: the fake's clock moved to heard `now`, then one frame of the music as the audio systems run it: step 0
+ * (`musicEarlyStep`: the backend's frame, the beat dispatch) and step 9 (`musicPlanStep`: every player's tick in its
+ * order). A call between two of these is one from outside the frame, as in production (F-25).
+ */
+export function musicFrameStep(backend: FakeBackend, now: number, dt = 1 / 60): void {
+  backend.advanceTo(now);
+  musicEarlyStep(backend, dt);
+  musicPlanStep(backend, dt);
 }
 
 let nextFakeVoiceId = 1;

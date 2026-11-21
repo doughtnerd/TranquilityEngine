@@ -11,6 +11,7 @@ import { CurveEditor, CurvePreview } from "../particles/ParticleCurve";
 import { GradientEditor, GradientPreview } from "../particles/GradientEditor";
 import { NumField } from "../particles/valueInputs";
 import { AssetPicker, ColorField, NO_DRAG, NO_PAN, NO_WHEEL, usePopover } from "../../../../../editor/sdk";
+import "./valueFields.css";
 
 const CTRL = `${NO_DRAG} ${NO_WHEEL}`;
 
@@ -36,7 +37,8 @@ function asColor(v: unknown, fallback: ParticleColor = "#ffffff"): ParticleColor
 }
 /** A value read as a vector of `n` numbers. */
 export const asVector = (v: unknown, n: number): number[] => Array.from({ length: n }, (_, i) => (Array.isArray(v) && typeof v[i] === "number" ? v[i] : 0));
-export const asKeys = (v: unknown): CurveKey[] => (Array.isArray(v) && v.every((k) => Array.isArray(k) && typeof k[0] === "number") ? (v as CurveKey[]) : [[0, 0], [1, 1]]);
+/** A value read as curve keys (anything else reads as `fallback`). */
+export const asKeys = (v: unknown, fallback: CurveKey[] = [[0, 0], [1, 1]]): CurveKey[] => (Array.isArray(v) && v.every((k) => Array.isArray(k) && typeof k[0] === "number") ? (v as CurveKey[]) : fallback);
 export const asGradient = (v: unknown): ParticleGradient => (isObj(v) && Array.isArray(v.colors) ? { colors: v.colors as ParticleGradient["colors"], alphas: Array.isArray(v.alphas) ? (v.alphas as ParticleGradient["alphas"]) : [] } : DEFAULT_GRADIENT);
 
 // --- popover -----------------------------------------------------------------------------------------
@@ -125,10 +127,11 @@ export function NumberValue(props: { value: unknown; fallback?: ParticleNumber; 
 
 /**
  * A colour swatch with an opacity field (a constant colour keeps its alpha in `#rrggbbaa`): the SDK's colour field
- * (ADR 0282). The graph editor makes a pick one undo step (its pointer gesture and colour pick capture).
+ * (ADR 0282), passing on its `drag`. The graph editor makes a pick one undo step (its pointer gesture and colour pick
+ * capture); the Inspector follows the drag (ADR 0290).
  */
-export function ColorSwatch(props: { value: string; label: string; readOnly?: boolean; alpha?: boolean; onChange(hex: string): void }) {
-  return <ColorField class={`pg-swatch ${CTRL}`} value={props.value} label={props.label} alpha={props.alpha !== false} disabled={props.readOnly} onValue={(hex) => props.onChange(hex)} />;
+export function ColorSwatch(props: { value: string; label: string; readOnly?: boolean; alpha?: boolean; onChange(hex: string, drag: boolean): void }) {
+  return <ColorField class={`pg-swatch ${CTRL}`} value={props.value} label={props.label} alpha={props.alpha !== false} disabled={props.readOnly} onValue={props.onChange} />;
 }
 
 /** A colour in the forms its input allows. */

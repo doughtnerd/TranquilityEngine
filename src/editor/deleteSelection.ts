@@ -3,7 +3,7 @@
 import { deleteNodes, isInsidePrefab, describeReference, referencesInto, whyNotDeletable } from "./hierarchyEdit";
 import { askBeforeClearingReferences } from "./preferences";
 import { topmostKeys } from "./selectionModel";
-import { removeInnerNode } from "./prefabs";
+import { writeRemoveNode } from "./overrideWriter";
 import { openScene, selectedKeys, status } from "./state";
 import { editableNow } from "./editGate";
 import { select } from "./inspectorTarget";
@@ -23,7 +23,7 @@ export async function deleteSelected(): Promise<boolean> {
   if (keys.length > 0 && keys.every(isInsidePrefab)) {
     // Nodes inside prefab instances go as `removeNode` overrides (ADR 0086).
     undoStep(scene.stack, keys.length === 1 ? "Remove node" : `Remove ${keys.length} nodes`, () => {
-      for (const key of keys) removeInnerNode(scene, key.split("/"));
+      for (const key of keys) scene.stack.execute(writeRemoveNode(scene.doc, key.split("/")));
     });
     select([]);
     status.value = { kind: "info", text: `Removed ${keys.length === 1 ? "the node" : `${keys.length} nodes`} from the prefab instance. Undo restores them.` };

@@ -81,8 +81,9 @@ describe("music seek on the core (R7)", () => {
     await r.stepUntil(() => r.player()?.run?.state === "playing");
     await r.step(15);
     const player = r.player()!;
-    const L = (r.backend as unknown as { clockMap: { lookaheadFrames(): number } }).clockMap.lookaheadFrames();
-    expect(L, "L is at its 100 ms cap: one frame interval").toBe(0.1 * RATE);
+    // The lookahead: Audio.horizon less Audio.time, seconds (the horizon rounds up to a whole frame).
+    const L = r.backend.clock!.horizon()! - r.backend.time;
+    expect(Math.abs(L - 0.1) * RATE, "L is at its 100 ms cap: one frame interval").toBeLessThanOrEqual(2);
 
     // Asked between frames (as a page script or the editor transport asks): stamped in the next frame, whose BATCH is
     // held back 50 quanta (133 ms), longer than L.

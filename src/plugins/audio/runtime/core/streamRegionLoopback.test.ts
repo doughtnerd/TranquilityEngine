@@ -52,9 +52,9 @@ async function releaseRun(start: number, end: number, pass: number, before: numb
   const at = onsetOf(r.left);
   expect(at).toBeGreaterThan(0);
   const seam = at + b + pass * (b - a); // output index of the seam ending pass `pass`
-  // biome-ignore lint: test-only access to the backend's clock
-  const clock = (r.backend as unknown as { clockMap: { framesNow(): number; lookaheadFrames(): number } }).clockMap;
-  const asked = () => clock.framesNow() + clock.lookaheadFrames();
+  // The frame a record asked for now is stamped at: the horizon (`Audio.horizon`), on the context's frames.
+  const clock = r.backend.clock!;
+  const asked = () => (clock.horizon()! - clock.frameMap()!.timeOffset) * clock.frameMap()!.sampleRate;
   while (asked() + 512 < seam - before) await r.step(1);
   const requested = asked();
   r.backend.automation.setLoop(voice, start, end, false);
@@ -201,7 +201,7 @@ describe("CoreAutomation's stream seam and a held-back PLAY (E4.4, C6)", () => {
       playheads: { positionNow: () => 0, start: () => {}, retime: () => {} },
       clipInfo: () => ({ id: 1, path: "a.wav", state: "ready", refs: 1, frames: 96_000, channels: 2, sampleRate: 48_000, format: 0, bytes: 0, failure: null }),
       busIndex: () => 0,
-      sending: () => true,
+      session: { mayQueue: true },
       streamLoop: (i, loop: LoopRecord, at) => void loops.push(["stream", i, loop, at]),
       writerBatches: () => state.batches,
     });

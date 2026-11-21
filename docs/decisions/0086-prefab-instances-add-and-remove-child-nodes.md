@@ -1,6 +1,6 @@
 # 0086. Prefab instances can add and remove child nodes as overrides
 
-- **Status:** Proposed
+- **Status:** Proposed; amended by 0287 (the editor writes `addNodes` and `removeNode` through the override writer; `removeInnerNode` is gone)
 - **Date:** 2026-11-07
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

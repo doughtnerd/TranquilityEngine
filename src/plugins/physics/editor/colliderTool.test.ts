@@ -4,6 +4,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Engine } from "../../../engine";
 import { editor, viewportTools, type SelectableOutline, type ViewportToolContext } from "../../../editor/sdk";
+import { AddComponent } from "../../../editor/document";
 import { setEditorOverlayFilter, type EditorOverlayKind } from "../../../engine/editor";
 import { openSceneFile } from "../../../editor/project";
 import { DEMO_SCENE, demoAssets, demoSettings, sceneViewTools, type SceneViewTools } from "../../../editor/testing";
@@ -101,5 +102,51 @@ describe("the collider tool", () => {
     expect(size()).toBe(dragged); // put back, nothing recorded
     expect(scene.stack.allStates.length).toBe(steps + 1);
     expect(editing()).toEqual(GROUND); // Escape ended the drag, not editing
+  });
+
+  /** Press (and optionally drag `dx` pixels right, then release) at a handle of the edited collider. */
+  const pressHandle = (id: string, { dx = 0, ctrl = false }: { dx?: number; ctrl?: boolean } = {}) => {
+    const handle = view.overlay().handles.find((h) => h.id === id)!;
+    expect(handle, id).toBeDefined();
+    const [hx, hy] = view.surface.adapter.worldToCanvas(handle.position);
+    const pointer = (type: string, x: number) =>
+      view.canvas.dispatchEvent(Object.assign(new Event(type, { cancelable: true }), { clientX: hx + x, clientY: hy, button: 0, altKey: false, shiftKey: false, ctrlKey: ctrl, metaKey: false, pointerId: 1 }));
+    pointer("pointerdown", 0);
+    if (dx) pointer("pointermove", dx);
+    pointer("pointerup", dx);
+  };
+
+  it("runs a points entry's presses: an edge's middle handle adds a dragged vertex, Ctrl+click removes one down to the minimum (ADR 0288)", () => {
+    const scene = editor.scene.peekOpen()!;
+    scene.stack.execute(new AddComponent("bird", { type: "engine.PolygonCollider2D", data: { points: [[0, 0], [1, 0], [1, 1], [0, 1]] } }));
+    select("bird");
+    editor.viewport.enter(COLLIDER_TOOL_ID, { key: "bird", type: "engine.PolygonCollider2D", index: 0 });
+    const points = () => scene.doc.fieldValue("bird", "engine.PolygonCollider2D", "points", 0) as number[][];
+    const steps = scene.stack.allStates.length;
+    pressHandle("insert:0", { dx: 10 });
+    expect(points()).toHaveLength(5);
+    expect(points()[1][0]).toBeGreaterThan(0.5); // added at the edge's middle, then dragged right
+    expect(scene.stack.undoLabel).toBe("Add collider vertex");
+    pressHandle("vertex:1", { ctrl: true });
+    expect(points()).toHaveLength(4);
+    expect(scene.stack.undoLabel).toBe("Remove collider vertex");
+    expect(scene.stack.allStates.length).toBe(steps + 2);
+    pressHandle("vertex:2", { ctrl: true }); // (vertex 0 sits under the centre handle)
+    pressHandle("vertex:2", { ctrl: true });
+    expect(points()).toHaveLength(3);
+    expect(scene.stack.allStates.length).toBe(steps + 3); // the last press was refused: a polygon keeps three points
+  });
+
+  it("runs a 3D entry's resize: dragging a box's x+ face moves only that face", () => {
+    const scene = editor.scene.peekOpen()!;
+    scene.stack.execute(new AddComponent("bird", { type: "engine.BoxCollider", data: { size: [1, 1, 1] } }));
+    select("bird");
+    editor.viewport.enter(COLLIDER_TOOL_ID, { key: "bird", type: "engine.BoxCollider", index: 0 });
+    const field = (name: string) => scene.doc.fieldValue("bird", "engine.BoxCollider", name, 0) as number[];
+    pressHandle("x+", { dx: 20 });
+    expect(field("size")[0]).toBeGreaterThan(1);
+    expect(field("size").slice(1)).toEqual([1, 1]);
+    expect(field("center")[0]).toBeCloseTo((field("size")[0] - 1) / 2, 3); // the x- face stayed put
+    expect(scene.stack.undoLabel).toBe("Resize collider");
   });
 });

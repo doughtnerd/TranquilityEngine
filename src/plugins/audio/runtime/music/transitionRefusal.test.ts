@@ -7,15 +7,15 @@
 // at 1.1, 3.1, 5.1, ...; L (the lookahead) is 1/30 s at 60 Hz.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { setAudioBackend } from "../backend";
-import { makeFakeBackend, type FakeBackend, endAudioSession } from "../testing";
+import { makeFakeBackend, type FakeBackend, endAudioSession, musicFrameAt, musicFrameStep } from "../testing";
 import type { EventInstance } from "../events/eventRuntime";
 import { parseAudioEvent } from "../../../../engine/audio/eventFormat";
 import type { MusicNode, MusicSwitchNode } from "../../../../engine/audio/musicFormat";
 import type { MusicClipFacts } from "../../../../engine/audio/musicValidate";
-import { createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
+import { createMusicPlayer, type MusicPlayer } from "./musicSystem";
 import { setSegmentClipSource } from "./segmentRun";
 import { planTick, requestStart } from "./planner";
-import { requestTransition, tickTransition, type Transition } from "./transition";
+import { requestTransition, type Transition } from "./transition";
 
 const RATE = 48_000;
 const L = 1 / 30;
@@ -33,22 +33,13 @@ function root(transitions: Raw[]): MusicSwitchNode {
 const child = (r: MusicSwitchNode, id: string): MusicNode => r.children.find((c) => c.id === id)!;
 
 let b: FakeBackend;
-const f = { backend: null as unknown as FakeBackend, music: null as FakeBackend["music"] | null, now: 0, dt: DT, hidden: false };
-
-function at(now: number): MusicFrame {
-  f.now = now;
-  (b as { time: number }).time = now;
-  b.horizonTime = now + L;
-  return f as unknown as MusicFrame;
-}
 
 function rig(): void {
   b = makeFakeBackend();
   setAudioBackend(b);
-  f.backend = b;
-  f.music = b.music ?? null;
+  b.lookahead = L;
   setSegmentClipSource({ url: (p) => p, settings: () => ({ volume: 1, stream: true }), bus: (o) => o ?? "Master", facts: () => long() });
-  at(1);
+  b.advanceTo(1);
 }
 
 const instance = (): EventInstance =>
@@ -56,17 +47,16 @@ const instance = (): EventInstance =>
 
 function playing(r: MusicSwitchNode): MusicPlayer {
   const player = createMusicPlayer(instance(), r);
-  requestStart(player, { to: child(r, "A"), reason: "start", grid: "immediate", notBefore: Number.NaN, startFrame: 0 }, at(1));
+  requestStart(player, { to: child(r, "A"), reason: "start", grid: "immediate", notBefore: Number.NaN, startFrame: 0 }, musicFrameAt(b, 1));
   b.music!.setPrimed(player.planned!.run.group);
-  planTick(player, at(1));
-  planTick(player, at(1.2));
+  planTick(player, musicFrameAt(b, 1));
+  planTick(player, musicFrameAt(b, 1.2));
   expect(player.state).toBe("playing");
   return player;
 }
 
 function tick(player: MusicPlayer, now: number): void {
-  tickTransition(player, at(now));
-  planTick(player, at(now));
+  musicFrameStep(b, now);
 }
 
 /** Frames from `from` to `to` inclusive; the incoming group is primed as soon as it is priming. */
@@ -102,7 +92,7 @@ describe("T3: a never-fits refusal is immediate", () => {
     b.music!.ringPool = 3; // A holds 2 rings, B needs 2: 4 beside A
     const admitted = b.music!.admitted.length;
     const dropped: string[] = [];
-    expect(requestTransition(player, child(r, "B"), at(1.5), { onDropped: (c) => dropped.push(c) })).toBeNull();
+    expect(requestTransition(player, child(r, "B"), musicFrameAt(b, 1.5), { onDropped: (c) => dropped.push(c) })).toBeNull();
     expect(b.music!.admitted.length).toBe(admitted); // refused before the backend is asked
     expect(dropped).toEqual(["refused"]);
     expect(player.counters.refusals.neverFits).toBe(1);
@@ -121,7 +111,7 @@ describe("T3: a never-fits refusal is immediate", () => {
     const r = root(rules);
     const player = playing(r);
     b.music!.ringPool = 3;
-    requestTransition(player, child(r, "B"), at(1.5));
+    requestTransition(player, child(r, "B"), musicFrameAt(b, 1.5));
     const admitted = b.music!.admitted.length;
     const primes = b.music!.primes.length;
     run(player, 1.5 + DT, 4);
@@ -138,7 +128,7 @@ describe("T3: a never-fits refusal is immediate", () => {
     const r = root(rules);
     const player = playing(r);
     b.music!.ringPool = 1; // B alone needs 2
-    expect(requestTransition(player, child(r, "B"), at(1.5))).toBeNull();
+    expect(requestTransition(player, child(r, "B"), musicFrameAt(b, 1.5))).toBeNull();
     expect(String(warn.mock.calls[0]![0])).toContain("needs 2 music rings; this preset has 1");
     expect(player.counters.refusals.neverFits).toBe(1);
     expect(player.state).toBe("playing");
@@ -150,7 +140,7 @@ describe("T3: a never-fits refusal is immediate", () => {
     const r = root(rules);
     const player = playing(r);
     b.music!.admitResult = { ok: false, reason: "poolFull", permanent: true };
-    expect(requestTransition(player, child(r, "B"), at(1.5))).toBeNull();
+    expect(requestTransition(player, child(r, "B"), musicFrameAt(b, 1.5))).toBeNull();
     const admitted = b.music!.admitted.length;
     run(player, 1.5 + DT, 3);
     expect(b.music!.admitted.length).toBe(admitted);
@@ -165,9 +155,9 @@ describe("T3: a never-fits refusal is immediate", () => {
     const r = root(rules);
     const player = playing(r);
     b.music!.ringPool = 3;
-    expect(requestTransition(player, child(r, "B"), at(1.5))).toBeNull();
+    expect(requestTransition(player, child(r, "B"), musicFrameAt(b, 1.5))).toBeNull();
     b.music!.ringPool = 4;
-    const t = requestTransition(player, child(r, "C"), at(1.52))!;
+    const t = requestTransition(player, child(r, "C"), musicFrameAt(b, 1.52))!;
     expect(t).not.toBeNull();
     run(player, 1.52 + DT, t.exitAt + 0.01);
     expect(t.state).toBe("done");
@@ -182,7 +172,7 @@ describe("T3: a free-ring (poolFull) refusal retries and lands once rings free",
     const player = playing(r);
     b.music!.admitResult = { ok: false, reason: "poolFull", permanent: false };
     const admitted = b.music!.admitted.length;
-    const t = requestTransition(player, child(r, "B"), at(1.5))!;
+    const t = requestTransition(player, child(r, "B"), musicFrameAt(b, 1.5))!;
     expect(t).not.toBeNull();
     expect(t.state).toBe("pending");
     expect(player.planned?.status).toBe("waiting");
@@ -202,7 +192,7 @@ describe("T3: a free-ring (poolFull) refusal retries and lands once rings free",
     const admit = music.admitGroup.bind(music);
     let calls = 0;
     music.admitGroup = (req) => (++calls <= 3 ? (music.admitted.push(req), { ok: false, reason: "poolFull", permanent: false }) : admit(req));
-    const t = requestTransition(player, child(r, "B"), at(1.5))!;
+    const t = requestTransition(player, child(r, "B"), musicFrameAt(b, 1.5))!;
     const first = t.exitAt;
     expect(first).toBeCloseTo(1.6, 9);
     expect(calls).toBe(1);
@@ -223,7 +213,7 @@ describe("T3: a free-ring (poolFull) refusal retries and lands once rings free",
     const r = root(rules);
     const player = playing(r);
     b.music!.admitResult = { ok: false, reason: "poolFull", permanent: false };
-    requestTransition(player, child(r, "B"), at(1.5));
+    requestTransition(player, child(r, "B"), musicFrameAt(b, 1.5));
     run(player, 1.5 + DT, 3);
     expect(player.planned?.status).toBe("waiting");
     expect(untouched(player)).toBe(true);
@@ -236,7 +226,7 @@ describe("T3: a free-ring (poolFull) refusal retries and lands once rings free",
     const r = root(rules);
     const player = playing(r);
     b.music!.admitResult = { ok: false, reason: "poolFull", permanent: false };
-    const t = requestTransition(player, child(r, "B"), at(1.5))!;
+    const t = requestTransition(player, child(r, "B"), musicFrameAt(b, 1.5))!;
     run(player, 1.5 + DT, 5);
     expect(t.state).toBe("pending");
     expect(t.cause).toBeNull();
@@ -253,7 +243,7 @@ describe("T3: a free-ring (poolFull) refusal retries and lands once rings free",
     const r = root(rules);
     const player = playing(r);
     b.music!.admitResult = { ok: false, reason: "poolFull", permanent: false };
-    const t = requestTransition(player, child(r, "B"), at(1.5))!;
+    const t = requestTransition(player, child(r, "B"), musicFrameAt(b, 1.5))!;
     b.music!.ringPool = 3;
     b.music!.admitResult = { ok: true };
     run(player, 1.5 + DT, 3);
@@ -273,7 +263,7 @@ describe("T3: a change requested during another change", () => {
     rig();
     const r = root(bar);
     const player = playing(r);
-    const t = requestTransition(player, child(r, "B"), at(1.5))!;
+    const t = requestTransition(player, child(r, "B"), musicFrameAt(b, 1.5))!;
     b.music!.setPrimed(t.incoming!.run.group);
     run(player, 1.6, until);
     return { r, player, t };
@@ -283,7 +273,7 @@ describe("T3: a change requested during another change", () => {
     const { r, player, t } = stamped(3.1 - L - 3 * DT);
     expect(t.state).toBe("stamped");
     const bGroup = t.incoming!.run.group;
-    const q = requestTransition(player, child(r, "C"), at(t.cancelBy - 1e-3))!;
+    const q = requestTransition(player, child(r, "C"), musicFrameAt(b, t.cancelBy - 1e-3))!;
     expect(t.state).toBe("cancelled");
     expect(b.music!.cancelled).toContain(bGroup);
     expect(t.after).toBeNull();
@@ -300,9 +290,9 @@ describe("T3: a change requested during another change", () => {
     rig();
     const r = root(bar);
     const player = playing(r);
-    const t = requestTransition(player, child(r, "B"), at(1.5))!;
+    const t = requestTransition(player, child(r, "B"), musicFrameAt(b, 1.5))!;
     expect(t.state).toBe("pending");
-    const q = requestTransition(player, child(r, "C"), at(3.0))!;
+    const q = requestTransition(player, child(r, "C"), musicFrameAt(b, 3.0))!;
     expect(t.state).toBe("cancelled");
     expect(player.transition).toBe(q);
     expect(untouched(player)).toBe(true);
@@ -311,7 +301,7 @@ describe("T3: a change requested during another change", () => {
   it("from T - L on (committed) the newer target is queued behind it, and the first still lands on its point", () => {
     const { r, player, t } = stamped(3.1 - L - DT + 1e-6);
     expect(t.state).toBe("running");
-    const q = requestTransition(player, child(r, "C"), at(3.1 - L - DT + 0.002))!;
+    const q = requestTransition(player, child(r, "C"), musicFrameAt(b, 3.1 - L - DT + 0.002))!;
     expect(q).not.toBe(t);
     expect(t.state).toBe("running");
     expect(t.after).toBe(q);
@@ -331,11 +321,11 @@ describe("T3: a change requested during another change", () => {
 
   it("queued behind a committed change, the latest ask wins; asking for the committed target drops the queue", () => {
     const { r, player, t } = stamped(3.1 - L - DT + 1e-6);
-    const q1 = requestTransition(player, child(r, "C"), at(3.07))!;
-    const q2 = requestTransition(player, child(r, "A"), at(3.08))!;
+    const q1 = requestTransition(player, child(r, "C"), musicFrameAt(b, 3.07))!;
+    const q2 = requestTransition(player, child(r, "A"), musicFrameAt(b, 3.08))!;
     expect(q1.state).toBe("cancelled");
     expect(t.after).toBe(q2);
-    expect(requestTransition(player, child(r, "B"), at(3.09))).toBe(t);
+    expect(requestTransition(player, child(r, "B"), musicFrameAt(b, 3.09))).toBe(t);
     expect(t.after).toBeNull();
     expect(q2.state).toBe("cancelled");
   });

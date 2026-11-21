@@ -78,11 +78,12 @@ function rig() {
     aac: () => false,
     mixedCap: () => 8,
     maxWide: () => 0,
+    session: { maySend: true },
     holdStemResends: () => false,
   } as unknown as CoreVoicesHost;
   const voices = new CoreVoices(host);
   table.onFree = (id, bus) => voices.onFree(id, bus);
-  const start = (extra: object = {}) => voices.start({ path: "a.wav", url: "a.wav", loop: true, stream: false, bus: "SFX", ...extra }, true);
+  const start = (extra: object = {}) => voices.start({ path: "a.wav", url: "a.wav", loop: true, stream: false, bus: "SFX", ...extra });
   const take = () => records.splice(0);
   return {
     table,

@@ -29,7 +29,7 @@ function rig() {
     playheads: { positionNow: () => 0, start: () => {}, retime: () => {} },
     clipInfo: () => info,
     busIndex: () => 0,
-    sending: () => true,
+    session: { mayQueue: true },
   });
   const voice = (group = 0): AudioVoice => {
     const id = table.allocate(0, 128, 0, VoiceState.PLAYING as never);

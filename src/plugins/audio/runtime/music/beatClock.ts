@@ -5,8 +5,8 @@
  * (`musicSystem.ts` `dispatchMusic`).
  *
  * **Model.** The music a player plays is one timeline of heard times (`Audio.time`'s base):
- * - the playing run, read through its anchor (`player.anchor`, P3) with loop passes unrolled (`heardTimeOf`,
- *   `predictWrap`, `advanceAnchor` on a scratch copy, so the player's own anchor is never moved here);
+ * - the playing run, read through its anchor (`player.anchor`, P3) by the heard position module (`nextHeard`, which
+ *   walks the loop passes itself and never moves the anchor);
  * - a committed successor (a stamped transition's incoming run, or a stamped `player.next` that starts after the
  *   playing run) on its own anchor, `anchorRun(next, next.startAt)`. At the seam the successor wins: the playing run's
  *   events stop before the successor's entry (its landing), the successor's start there.
@@ -41,7 +41,7 @@ import {
   nextBarTicks, secondsToTicks, spanAtTicks, ticksToPosition, ticksToSeconds, type SegmentGrid,
 } from "../../../../engine/audio/musicGrid";
 import { MUSIC_TICKS_PER_BEAT, type BarBeatTick } from "../../../../engine/audio/musicPosition";
-import { advanceAnchor, anchorRun, heardTimeOf, predictWrap, type GridAnchor } from "./anchors";
+import { anchorRun, nextHeard, type GridAnchor, type NextPoint } from "./anchors";
 import type { RegionState } from "./regions";
 import { segmentGrid } from "./segmentGrids";
 import type { MusicPlayer } from "./musicSystem";
@@ -163,7 +163,7 @@ function sources(player: MusicPlayer, st: BeatState): boolean {
     const an = st.successorAnchor;
     // The landing: the successor's entry (after its pre-entry), else its start (a seek lands where it starts).
     let cut = next.startAt;
-    if (g && Number.isFinite(g.entryTicks) && g.entryTicks >= an.ticks) cut = Math.max(cut, heardTimeOf(an, g.entryTicks));
+    if (g && Number.isFinite(g.entryTicks) && g.entryTicks >= an.ticks) cut = Math.max(cut, nextHeard(an, an.time, entryOf).at);
     srcB.run = next;
     srcB.anchor = an;
     srcB.grid = g;
@@ -179,9 +179,11 @@ function sources(player: MusicPlayer, st: BeatState): boolean {
 
 // --- The walk ----------------------------------------------------------------------------------------------------------
 
-/** The scratch anchor a walk moves through loop passes, and the position `anchors.ts` walks it through. */
-const work: MutableAnchor = blankAnchor();
-const view: { readonly anchor: GridAnchor; readonly run: null; regions: RegionState | null } = { anchor: work as GridAnchor, run: null, regions: null };
+/** The position a walk reads (`anchors.ts`): a source's anchor and, for the playing run, its region release. */
+const view: { anchor: GridAnchor | null; readonly run: null; regions: RegionState | null } = { anchor: null, run: null, regions: null };
+
+/** A segment's entry cue (file seconds), wherever the playhead is. */
+const entryOf: NextPoint = (g) => ticksToSeconds(g, g.entryTicks);
 
 /** An event a walk found. */
 interface Found {
@@ -227,60 +229,46 @@ function lineAtOrAfter(g: SegmentGrid, kind: MusicKind, x: number, out: Found): 
   return best;
 }
 
+/** The kind `nextLine` looks for (set just before the walk) and its scratch (`lineAtOrAfter` writes cue indices). */
+let lineKind: MusicKind = "beat";
+const lineScratch = newFound();
+
+/** The first grid line of `lineKind` at (strict: after the line on) file seconds `s`, in file seconds; NaN when none. */
+const nextLine: NextPoint = (g, s, strict) => {
+  const x = secondsToTicks(g, s);
+  const c = lineAtOrAfter(g, lineKind, strict ? Math.round(x) + 1 : x, lineScratch);
+  return Number.isNaN(c) ? Number.NaN : ticksToSeconds(g, c);
+};
+
 /**
  * The first event of `kind` on `src` heard strictly after `after` (at or after `src.from`, before `src.until`), into
- * `out`; false when none. Loop passes are walked on the scratch anchor, wrap by wrap as `predictWrap` sees them.
+ * `out`; false when none. The heard position walks the loop passes (a line past a wrap is the next pass's).
  */
 function nextOn(src: Source, kind: MusicKind, after: number, out: Found): boolean {
   const g = src.grid;
   const a = src.anchor;
   if (!g || !a || !Number.isFinite(a.time)) return false;
-  Object.assign(work, a);
+  view.anchor = a;
   view.regions = src.playing ? src.run?.player.regions ?? null : null;
+  lineKind = kind;
+  // From `src.from` on, its own line counts; otherwise the line on `after` is the cursor's and the next one is wanted.
   const lo = Math.max(after, src.from - TIME_EPS);
-  // To the pass heard at `lo`, when a wrap really comes before it.
-  if (lo > work.time) {
-    const w = predictWrap(view, work.time);
-    if (Number.isFinite(w) && w <= lo) advanceAnchor(view, lo);
-  }
+  const hit = nextHeard(view, lo, nextLine, !(lo > after));
+  const h = hit.at;
+  if (Number.isNaN(h)) return false;
+  const c = Math.round(secondsToTicks(g, hit.file));
   const exit = Number.isFinite(g.exitTicks) ? g.exitTicks : Number.POSITIVE_INFINITY;
-  let from = lo;
-  for (let guard = 0; guard < 64; guard++) {
-    // The position heard at `from`, linear within the pass (no wrap between the scratch anchor and it).
-    const x = from <= work.time ? work.ticks : secondsToTicks(g, ticksToSeconds(g, work.ticks) + (from - work.time));
-    // No line left in the segment (NaN) is only no line left in this pass: a wrap brings the region's lines back.
-    let c = lineAtOrAfter(g, kind, Math.max(x, work.ticks), out);
-    let h = Number.isNaN(c) ? Number.POSITIVE_INFINITY : heardTimeOf(work, c);
-    if (!(h > after + TIME_EPS)) {
-      // The cursor's own event: the one after it.
-      c = lineAtOrAfter(g, kind, c + 1, out);
-      h = Number.isNaN(c) ? Number.POSITIVE_INFINITY : heardTimeOf(work, c);
-    }
-    // The end of the scratch anchor's own pass, the wrap `advanceAnchor` takes next. Not the first wrap after `from`:
-    // when `from` is a wrap's heard time (the cursor on a pass's first line), the two sums for that wrap can differ in
-    // the last bit, and the walk would see the pass after next while reading the old pass's end line as an event.
-    const wrap = predictWrap(view, work.time);
-    // The worker wraps on the clip's frame grid (`anchors.ts` rounds the region's end to a frame), so the region's end
-    // line can be heard up to half a frame before the wrap: it is the wrap's own line (the next pass's first), not this
-    // pass's. No other line is that close: lines are a tick apart, a tick is over half a frame.
-    if (Number.isFinite(wrap) && h >= wrap - (0.5 / work.rate + TIME_EPS)) {
-      // The pass ends first: go on from the region's start, one pass later.
-      advanceAnchor(view, wrap);
-      if (!(work.time >= wrap - TIME_EPS)) return false;
-      from = wrap;
-      continue;
-    }
-    if (Number.isNaN(c)) return false;
-    // Beats and bars stop before the exit cue; a cue on it is still reached. At a seam the successor wins.
-    if (kind === "cue" ? c > exit + TICK_EPS : c >= exit - TICK_EPS) return false;
-    if (!Number.isFinite(h) || !(h < src.until - TIME_EPS)) return false;
-    out.time = h;
-    out.ticks = c;
-    out.run = src.run;
-    out.grid = g;
-    return true;
-  }
-  return false;
+  // Beats and bars stop before the exit cue; a cue on it is still reached. At a seam the successor wins.
+  if (kind === "cue" ? c > exit + TICK_EPS : c >= exit - TICK_EPS) return false;
+  if (!(h < src.until - TIME_EPS)) return false;
+  out.cue = -1;
+  out.cueFirst = -1;
+  if (kind === "cue") lineAtOrAfter(g, kind, c, out);
+  out.time = h;
+  out.ticks = c;
+  out.run = src.run;
+  out.grid = g;
+  return true;
 }
 
 /** The first event of `kind` on the timeline (playing run, then successor) heard after `after`, into `found`. */

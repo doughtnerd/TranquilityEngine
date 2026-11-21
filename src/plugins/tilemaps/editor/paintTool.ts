@@ -1,14 +1,14 @@
 // Scene view tilemap painting (ADR 0103), a viewport tool (ADR 0138): while a Tilemap node is selected
 // and the Tile Palette has a brush, the tool is active in that brush's mode (ADR 0231) and left presses in
 // the scene view paint instead of selecting. Each stroke is one undo step (Escape mid-stroke puts it back).
-// Draws the map's grid around the pointer and the brush's footprint as an overlay.
+// Draws the map's grid around the pointer and the brush's footprint (the brush's, ADR 0289) as an overlay.
 import { effect } from "@preact/signals";
 import type { Tilemap } from "../runtime";
 import { Quat } from "../../../engine/core/math";
 import { viewport } from "../../../engine/editor";
 import type { EditorOverlay } from "../../../engine/editor";
 import type { Cell } from "../runtime/brushes";
-import { PAINT_TOOL_ID, activeLayer, brushStamp, brushTerrain, brushTool, commitTilemap, fillAt, flipBrush, paintCells, pickBrushTool, pickFromMap, strokeCells, tilemapOf, type BrushTool } from "./brush";
+import { PAINT_TOOL_ID, activeLayer, beginStroke, brushTerrain, brushTool, commitTilemap, flipBrush, footprintAt, pickBrushTool, tilemapOf, type BrushStroke, type BrushTool } from "./brush";
 import { type ViewportToolContribution, editor } from "../../../editor/sdk";
 
 const GRID = 0x5a6270;
@@ -38,8 +38,8 @@ export function cellAt(map: Tilemap, x: number, y: number): Cell | null {
 
 interface PaintState {
   hover: Cell | null;
-  /** The press: where it started and where the pointer is, while a stroke is going on. */
-  stroke: { tool: BrushTool; start: Cell; last: Cell } | null;
+  /** The brush's stroke while the press goes on. */
+  stroke: BrushStroke | null;
 }
 
 /** Keys that pick a brush tool while a tilemap is selected (plus Shift+E erase, X/Y/Z flip). */
@@ -105,23 +105,12 @@ export const paintTool: ViewportToolContribution<BrushTool> = {
       const finish = () => {
         const s = state.stroke;
         state.stroke = null;
-        if (!s) return;
-        if (s.tool === "pick") {
-          pickFromMap(map, s.start, s.last);
-          return;
-        }
-        if (s.tool === "rect") paintCells(map, "rect", strokeCells("rect", s.start, s.last), [Math.min(s.start[0], s.last[0]), Math.min(s.start[1], s.last[1])]);
-        commitTilemap(scene, path, map, label);
+        if (s?.finish()) commitTilemap(scene, path, map, label);
       };
       const drag = view.gesture(label, {
         move(m) {
-          const s = state.stroke;
-          if (!s) return;
-          const c = cellAt(map, m.x, m.y);
-          if (!c || (c[0] === s.last[0] && c[1] === s.last[1])) return;
-          if (s.tool === "pencil" || s.tool === "erase") paintCells(map, s.tool, strokeCells(s.tool, s.last, c).slice(1), s.start);
-          s.last = c;
-          state.hover = c;
+          const c = state.stroke && cellAt(map, m.x, m.y);
+          if (c && state.stroke?.moveTo(c)) state.hover = c;
         },
         end: finish,
         // A cancelled stroke still commits what the World shows (the host reverts it on Escape); a pick is just dropped.
@@ -131,10 +120,8 @@ export const paintTool: ViewportToolContribution<BrushTool> = {
         },
       });
       if (!drag) return null;
-      state.stroke = { tool: strokeTool, start: cell, last: cell };
+      state.stroke = beginStroke(map, strokeTool, cell);
       state.hover = cell;
-      if (strokeTool === "fill") fillAt(map, cell[0], cell[1]);
-      else if (strokeTool === "pencil" || strokeTool === "erase") paintCells(map, strokeTool, [cell], cell);
       return drag;
     });
 
@@ -148,7 +135,7 @@ function paintOverlay(state: PaintState): EditorOverlay {
   const t = brushTool.peek();
   const map = t ? paintTarget() : null;
   const hover = state.hover;
-  if (!map || !hover || !map.node.transform) return overlay;
+  if (!t || !map || !hover || !map.node.transform) return overlay;
   const tr = map.node.transform;
   const cs = map.cellSize;
   const w = (cx: number, cy: number): [number, number, number] => {
@@ -164,17 +151,7 @@ function paintOverlay(state: PaintState): EditorOverlay {
   overlay.segments = [{ positions: new Float32Array(segs), color: GRID }];
   const s = state.stroke;
   const tool = s?.tool ?? t;
-  let x0 = hx, y0 = hy, x1 = hx + 1, y1 = hy + 1;
-  if (s && (s.tool === "rect" || s.tool === "pick")) {
-    x0 = Math.min(s.start[0], s.last[0]);
-    y0 = Math.min(s.start[1], s.last[1]);
-    x1 = Math.max(s.start[0], s.last[0]) + 1;
-    y1 = Math.max(s.start[1], s.last[1]) + 1;
-  } else if (tool === "pencil" && !brushTerrain.peek()) {
-    const st = brushStamp.peek();
-    x1 = hx + st.width;
-    y1 = hy + st.height;
-  }
+  const { x0, y0, x1, y1 } = s ? s.footprint() : footprintAt(t, hover);
   const color = tool === "erase" ? ERASE : tool === "pick" ? PICK : BRUSH;
   overlay.lines.push({ points: [w(x0, y0), w(x1, y0), w(x1, y1), w(x0, y1)], closed: true, color });
   return overlay;

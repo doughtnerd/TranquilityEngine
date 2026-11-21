@@ -136,8 +136,6 @@ describe("plugin editor halves reach the editor through its SDK (ADR 0147)", () 
   const INTERNAL = new Set([
     // Baking builds a hidden editor World from the project's settings (ADR 0065): same reason.
     "plugins/navigation/editor/navBake.ts -> editor/projects",
-    // Polygon area and hit tests, shared with the shell's marquee selection: geometry, not editor API.
-    "plugins/physics/editor/colliderMath.ts -> editor/polygonMath",
     // Extract Materials (ADR 0089) writes material assets and the model's sidecar through the shell's import
     // settings writer, which the SDK doesn't offer; the model import settings moved here with ADR 0143.
     "plugins/meshes/editor/ModelImportSettings.tsx -> editor/materialExtract",

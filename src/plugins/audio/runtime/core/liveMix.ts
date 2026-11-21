@@ -28,6 +28,7 @@ import type { Mixer, MixOpTarget } from "../../../../engine/audio/mixer";
 import type { AudioSettings } from "../../../../engine/audio/settings";
 import { CORE_LIVE_CAPS, type LiveCaps, type SentClass } from "../../../../engine/audio/busCapability";
 import { FADER_COALESCE_MS } from "../wire.generated";
+import type { SendGate } from "./session";
 import { loudnessHub, type LoudnessHubConfig } from "../mix/loudnessHub";
 import type { StructuralDip } from "./structuralDip";
 import type { DeferredAdds } from "./deferredAdds";
@@ -73,8 +74,8 @@ export interface LiveMixHost {
   automation(): Pick<CoreAutomation, "renameBus">;
   /** The backend's mixer-change work, now: the bed plan check, presence's rules (`BUS_DUCK`) and the lanes (`BUS_RAMP`). */
   syncMix(): void;
-  /** Whether a batch may be posted now (running, not recovering, not disposed). */
-  sending(): boolean;
+  /** ADR 0291: the core session, asked whether a batch may be posted now (`maySend`). */
+  readonly session: Pick<SendGate, "maySend">;
   /** `ClockMap.nextFirstFrame()`: the frame a posted batch's asap records apply at. */
   firstFrame(): number;
   /** Ma2: `ClockMap.framesNow()`, the frame a command sent now reaches the core at (the dip's recycling and queue); default `firstFrame`. */
@@ -106,7 +107,7 @@ export class LiveMix implements MixOpTarget {
       mixer: () => host.mixer(),
       buses: () => this.dipBuses(),
       writer: () => host.writer(),
-      sending: () => host.sending(),
+      session: host.session,
       firstFrame: () => host.firstFrame(),
       ...(host.framesNow ? { framesNow: () => host.framesNow!() } : {}),
       ...(host.defer ? { defer: (fn: () => void) => host.defer!(fn) } : {}),
@@ -221,7 +222,7 @@ export class LiveMix implements MixOpTarget {
   /** §6.6: post the staged batch now (the fader's preview path), at most once per `FADER_COALESCE_MS`. */
   flushNow(): void {
     const host = this.host;
-    if (!host.sending()) return;
+    if (!host.session.maySend) return;
     const now = host.nowMs();
     const wait = this.lastPostMs + FADER_COALESCE_MS - now;
     if (wait > 0) {

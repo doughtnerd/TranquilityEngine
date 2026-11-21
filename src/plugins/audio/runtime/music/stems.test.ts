@@ -1,7 +1,7 @@
 // ADR 0166 P5: a silent stem's ring returns at the voice's end; solo gain. Fake backend, as P1's loopback test.
 import { afterEach, describe, expect, it } from "vitest";
 import { setAudioBackend } from "../backend";
-import { makeFakeBackend, type FakeBackend, type FakeVoice, endAudioSession } from "../testing";
+import { makeFakeBackend, type FakeBackend, type FakeVoice, endAudioSession, musicFrameAt } from "../testing";
 import type { EventInstance } from "../events/eventRuntime";
 import { parseSegmentNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
 import { createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
@@ -20,7 +20,7 @@ function rig(): { b: FakeBackend; player: MusicPlayer; run: SegmentRun; f: Music
   ) as SegmentNode;
   const inst = { group: 7, world: 1, path: "m.audioevent", asset: { bus: "Music", priority: 200, volume: 1 } } as unknown as EventInstance;
   const player = createMusicPlayer(inst, node);
-  const f: MusicFrame = { backend: b, music: b.music ?? null, now: 1, dt: 1 / 60, hidden: false };
+  const f = musicFrameAt(b, 1);
   const run = createSegmentRun(player, node, 0)!;
   primeRun(player, run, f);
   b.music!.setPrimed(run.group);

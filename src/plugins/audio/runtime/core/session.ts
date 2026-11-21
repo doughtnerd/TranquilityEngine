@@ -13,6 +13,10 @@
 // - **State.** The session owns `recovering` (between a rebuild's begin and its end or failure) and `disposed`; the
 //   recovery phases do nothing once disposed, and `dispose` runs once. The flags change before the phase's
 //   participants run, so a participant (or a closure it reaches) reads the new state.
+// - **The send rule (ADR 0291).** The session answers whether the core may be written to now, from those two flags and
+//   the host's status: `maySend` (a core is listening now) and `mayQueue` (a core will keep what is written now, so it
+//   is flushed with the frame's BATCH, applied at once or when a locked context resumes). Participants ask the session
+//   (`SendGate`) instead of restating the rule.
 // - **Cost.** Each phase's participant list is built at `join`; running a phase allocates nothing (the per-voice replay
 //   runs once per replayed voice with one reused `ReplayVoice`).
 import type { Mixer } from "../../../../engine/audio/mixer";
@@ -28,6 +32,29 @@ export interface ReplayVoice {
   /** The REPLAY's frame (the new context's) and the context's rate, Hz. */
   frame: number;
   rate: number;
+}
+
+/** The host's status as the session reads it (`Audio.status`). */
+export type CoreHostStatus = "locked" | "running" | "failed";
+
+/**
+ * ADR 0291: whether the core may be written to now, as the session answers it. A participant that writes to the core
+ * asks this instead of restating the rule.
+ */
+export interface SendGate {
+  /**
+   * A core is listening now: not disposed, no rebuild running, and the context running. Starting voices (a PLAY, the
+   * locked queue's drain), posting a batch outside the frame (the fader's preview path, the structural dip) and the music
+   * group operations ask this: while locked, their writes would reach a core that hasn't started the voices they name.
+   */
+  readonly maySend: boolean;
+  /**
+   * A core will keep what is written now: not disposed, no rebuild running, and the host not failed. True while locked:
+   * the frame's BATCH still goes to the suspended context's port and applies when it resumes, so state that isn't a
+   * voice (automation curves, parameters, bus bindings) stays current for the voices the unlock starts. False, writes
+   * are dropped and the mirror keeps them for the replay (a rebuild) or for nothing (failed, disposed).
+   */
+  readonly mayQueue: boolean;
 }
 
 /** The phases. Each is optional for a participant. */
@@ -100,12 +127,15 @@ export type ParticipantName = (typeof PHASE_ORDER)[SessionPhase][number];
 
 const PHASES = Object.keys(PHASE_ORDER) as SessionPhase[];
 
-export class CoreSession {
+export class CoreSession implements SendGate {
   private readonly joined = new Map<ParticipantName, SessionParticipant>();
   /** Per phase, the joined participants that implement it, in the phase's order. */
   private readonly runs = Object.fromEntries(PHASES.map((p) => [p, [] as SessionParticipant[]])) as { [P in SessionPhase]: SessionParticipant[] };
   private isRecovering = false;
   private isDisposed = false;
+
+  /** `hostStatus`: the host's status, which the send rule reads at each ask (the backend's host's). */
+  constructor(private readonly hostStatus: () => CoreHostStatus) {}
 
   /** True between a rebuild's begin and its end (or its failure). */
   get recovering(): boolean {
@@ -115,6 +145,14 @@ export class CoreSession {
   /** True once `dispose` ran. */
   get disposed(): boolean {
     return this.isDisposed;
+  }
+
+  get maySend(): boolean {
+    return !this.isDisposed && !this.isRecovering && this.hostStatus() === "running";
+  }
+
+  get mayQueue(): boolean {
+    return !this.isDisposed && !this.isRecovering && this.hostStatus() !== "failed";
   }
 
   /**

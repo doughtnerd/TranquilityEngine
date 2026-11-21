@@ -1,8 +1,9 @@
 // Stories (ADR 0219, 0235) for the Inspector's particle parts: an effect asset's summary, a sub-graph or block asset's
 // ports (read as the current value, ADR 0233: the open Particle Graph's unwritten edits included), and, in the shell's
-// own Inspector, a ParticleSystem's exposed properties as per-instance overrides: set, reverted, undone.
+// own Inspector, a ParticleSystem's exposed properties as per-instance overrides: set, reverted, undone, and a colour
+// pick as one undo step (the shared property value field reports its drag, ADR 0290).
 import type { Meta, StoryObj } from "@storybook/preact-vite";
-import { expect, userEvent, waitFor, within } from "storybook/test";
+import { expect, fireEvent, userEvent, waitFor, within } from "storybook/test";
 import { defaultParticleGraph, formatParticleGraph } from "../../../../engine/scene/particleGraphFormat";
 import { editor } from "../../../../editor/sdk";
 import { PanelStory, storyProject, withEditor, type EditorStoryParameters } from "../../../../editor/stories/editorStory";
@@ -15,10 +16,10 @@ const SUBGRAPH = "effects/wobble.particlesubgraph.json";
 const BLOCK = "effects/shrink.particleblock.json";
 const NOT_A_SUBGRAPH = "effects/broken.particlesubgraph.json";
 
-/** The Simple Loop template with an exposed number property `Rate` and a hidden colour. */
+/** The Simple Loop template with an exposed number property `Rate`, an exposed colour `Glow` and a hidden colour. */
 function sparks(): string {
   const g = defaultParticleGraph();
-  g.properties.push({ name: "Rate", type: "number", value: 30, exposed: true }, { name: "Tint", type: "color", value: "#ff8800", exposed: false });
+  g.properties.push({ name: "Rate", type: "number", value: 30, exposed: true }, { name: "Glow", type: "color", value: "#ffffff", exposed: true }, { name: "Tint", type: "color", value: "#ff8800", exposed: false });
   return formatParticleGraph(g);
 }
 
@@ -65,7 +66,7 @@ export const EffectAsset: Story = {
     const c = within(canvasElement);
     // In the asset document frame (ADR 0265): the effect's file in its head.
     expect(c.getByLabelText("Particle effect").querySelector(".asset-inspector-name")).toHaveTextContent("sparks.particles.json");
-    expect(dd(canvasElement, "Exposed properties")).toBe("Rate (number)");
+    expect(dd(canvasElement, "Exposed properties")).toBe("Rate (number), Glow (color)");
     expect(dd(canvasElement, "Nodes")).toBe("0");
     expect(dd(canvasElement, "Systems")).toMatch(/spawn, \d+ initialize, \d+ update, \d+ output/);
     // Its button opens the effect in the Particle Graph (the kind's panel).
@@ -144,6 +145,18 @@ export const SystemOverrides: Story = {
       expect(c.getByRole("button", { name: "Revert Rate" })).toBeDisabled();
     });
     await step("undo on the scene brings the override back", async () => {
+      editor.scene.open!.stack.undo();
+      await waitFor(() => expect(overrides()).toEqual({ Rate: 5 }));
+    });
+    await step("a colour pick is one undo step, however many values it moves through", async () => {
+      const glow = c.getByLabelText("Glow") as HTMLInputElement;
+      for (const v of ["#ff0000", "#00ff00", "#0000ff"]) {
+        glow.value = v;
+        await fireEvent.input(glow);
+      }
+      await fireEvent.change(glow);
+      await waitFor(() => expect(overrides()).toEqual({ Rate: 5, Glow: "#0000ff" }));
+      expect(editor.scene.open!.stack.undoLabel).toBe("Edit particle property");
       editor.scene.open!.stack.undo();
       await waitFor(() => expect(overrides()).toEqual({ Rate: 5 }));
     });

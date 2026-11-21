@@ -146,7 +146,7 @@ describe("quantised stem automation on a stamped run (G-1)", () => {
     // The run as P1 leaves it before the core reports the group started: "stamped", default 120 bpm grid from 1.0 s.
     commitStart(p, { node: p.root, player: p, state: "stamped", group: 1, stems: [{ track: "a", alternative: 0, clip: "a.wav", streamed: false, voice, primed: true }], startAt: 1, startFrame: 0, loopsDone: 0, prime: null }, 1);
     noteStartHeard(p, 1);
-    (fake as { time: number }).time = 1.2;
+    fake.advanceTo(1.2);
     const inst = [...(events() as unknown as { live: Set<{ tickMusicAutomation(): void }> }).live][0]!;
     inst.tickMusicAutomation();
     // The level at bind, before the first beat, stamped at the run's start (F-9: the members' PLAYs are stamped there).

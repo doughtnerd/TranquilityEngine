@@ -47,22 +47,3 @@ export function NumField(props: { value: number; onCommit: (v: number) => void; 
     />
   );
 }
-
-/** Three number fields, x y z. */
-export function VecField(props: { value: [number, number, number]; onChange: (v: [number, number, number]) => void; label: string; disabled?: boolean }) {
-  return (
-    <span class="pe-vec">
-      {(["x", "y", "z"] as const).map((axis, i) => (
-        <label key={axis} class="pe-axis">
-          <em>{axis}</em>
-          <NumField
-            value={props.value[i]}
-            label={`${props.label} ${axis}`}
-            disabled={props.disabled}
-            onCommit={(n) => props.onChange(props.value.map((x, j) => (j === i ? n : x)) as [number, number, number])}
-          />
-        </label>
-      ))}
-    </span>
-  );
-}

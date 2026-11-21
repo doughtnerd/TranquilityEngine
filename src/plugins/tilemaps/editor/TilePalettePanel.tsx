@@ -1,10 +1,10 @@
 // The Tile Palette (ADR 0103): for the selected Tilemap, the brush tools, the layer list and the tileset's tiles and
 // terrains. Choosing a tile, a block of tiles, several tiles (random brush) or a terrain sets the brush the scene
-// view paints with (tilemap/brush.ts, tilemap/paintTool.ts).
+// view paints with through the brush (tilemap/brush.ts, ADR 0289; tilemap/paintTool.ts).
 import { useRef, useState } from "preact/hooks";
 import { FLIP_DIAGONAL, FLIP_X, FLIP_Y, newLayer, tileIdOf } from "../runtime/format";
 import type { TileDef } from "../runtime/tileset";
-import { activeLayer, BRUSH_TOOLS, brushFlags, brushRandom, brushStamp, brushTerrain, brushTile, brushTool, flipBrush, pickBrushTool, tilemapOf } from "./brush";
+import { activeLayer, BRUSH_TOOLS, brushFlags, brushRandom, brushStamp, brushTerrain, brushTool, chooseStamp, chooseTerrain, flipBrush, pickBrushTool, tilemapOf } from "./brush";
 import { blockStamp, commitLayers, commitTileset, editedLayers } from "./palette";
 import { TileThumb } from "./TileThumb";
 import { editor, Panel } from "../../../editor/sdk";
@@ -141,13 +141,7 @@ export function TilePalettePanel() {
                       <button
                         class={brushTerrain.value === t.name ? "active" : ""}
                         aria-pressed={brushTerrain.value === t.name}
-                        onClick={() => {
-                          if (brushTerrain.peek() === t.name) brushTerrain.value = null;
-                          else {
-                            brushTerrain.value = t.name;
-                            if (!brushTool.peek() || brushTool.peek() === "pick") pickBrushTool("pencil");
-                          }
-                        }}
+                        onClick={() => chooseTerrain(brushTerrain.peek() === t.name ? null : t.name)}
                       >
                         <span class="tile-terrain-swatch" style={{ background: t.color ?? "var(--muted)" }} />
                         {t.name}
@@ -211,12 +205,7 @@ function TileGridView(props: { tiles: readonly TileDef[]; project: NonNullable<t
     const el = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>("[data-index]");
     return el ? Number(el.dataset.index) : null;
   };
-  const choose = (a: number, b: number) => {
-    brushStamp.value = blockStamp(ids, columns, a, b);
-    brushTerrain.value = null;
-    brushRandom.value = false;
-    if (!brushTool.peek() || brushTool.peek() === "erase" || brushTool.peek() === "pick") pickBrushTool("pencil");
-  };
+  const choose = (a: number, b: number) => chooseStamp(blockStamp(ids, columns, a, b));
 
   return (
     <>
@@ -246,10 +235,7 @@ function TileGridView(props: { tiles: readonly TileDef[]; project: NonNullable<t
                 else now.add(t.id);
                 if (now.size === 0) return;
                 const picked = [...now];
-                brushStamp.value = { width: picked.length, height: 1, values: picked };
-                brushTerrain.value = null;
-                brushRandom.value = true;
-                if (!brushTool.peek() || brushTool.peek() === "erase" || brushTool.peek() === "pick") pickBrushTool("pencil");
+                chooseStamp({ width: picked.length, height: 1, values: picked }, true);
                 return;
               }
               anchor.current = e.shiftKey && anchor.current !== null ? anchor.current : i;
@@ -265,10 +251,7 @@ function TileGridView(props: { tiles: readonly TileDef[]; project: NonNullable<t
               choose(anchor.current, at);
             }}
             onPointerUp={() => {
-              if (anchor.current !== null && !dragged.current) {
-                brushTile(t.id);
-                brushRandom.value = false;
-              }
+              if (anchor.current !== null && !dragged.current) chooseStamp({ width: 1, height: 1, values: [t.id] });
               dragged.current = false;
             }}
           >

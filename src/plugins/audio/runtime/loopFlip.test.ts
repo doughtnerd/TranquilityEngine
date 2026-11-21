@@ -332,7 +332,7 @@ describe("selection sees a fading voice at its smoothed gain until the fade ends
       playheads: { positionNow: () => 0, start() {}, retime() {} },
       clipInfo: () => null,
       busIndex: () => 0,
-      sending: () => true,
+      session: { mayQueue: true },
     } as unknown as CoreAutomationDeps;
     const auto = new CoreAutomation(deps);
     const voice = { id } as unknown as AudioVoice;

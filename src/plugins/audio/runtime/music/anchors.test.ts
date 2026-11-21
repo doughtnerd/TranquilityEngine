@@ -2,7 +2,7 @@
 // acceptance (a rebuild at a new sample rate leaves every predicted grid point within one frame at the new rate).
 import { afterEach, describe, expect, it } from "vitest";
 import { setAudioBackend } from "../backend";
-import { makeFakeBackend, type FakeBackend, endAudioSession } from "../testing";
+import { makeFakeBackend, type FakeBackend, endAudioSession, musicFrameAt } from "../testing";
 import type { EventInstance } from "../events/eventRuntime";
 import { ClockMap } from "../core/clock";
 import type { HostClock, OutputTimestamp } from "../core/hostClock";
@@ -10,12 +10,12 @@ import { parseAudioEvent } from "../../../../engine/audio/eventFormat";
 import { emptySegment, parseSegmentNode, type MusicNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
 import { compileSegmentGrid, ticksToSeconds } from "../../../../engine/audio/musicGrid";
 import type { MusicClipFacts } from "../../../../engine/audio/musicValidate";
-import { createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
+import { createMusicPlayer, type MusicPlayer } from "./musicSystem";
 import {
   createSegmentRun, groupRequest, pollPrimed, primeRun, routeGroupEvent, setSegmentClipSource, stampRun,
   type SegmentRun,
 } from "./segmentRun";
-import { advanceAnchor, anchorRun, applySlip, heardTimeOf, playingGridOf, predictWrap, rebaseAnchors, ticksAt } from "./anchors";
+import { anchorRun, applySlip, nextGridHeard, nextHeard, predictWrap, rebaseAnchors, ticksAt, type GridAnchor } from "./anchors";
 import { adoptSuccessor, attachState, promote } from "./musicPlayer";
 
 let facts: Record<string, MusicClipFacts> = {};
@@ -47,6 +47,10 @@ function rig(rate = 48_000, frames = 600 * 48_000): void {
   setSegmentClipSource({ url: (p) => p, settings: () => ({ volume: 1, stream: true }), bus: (o) => o ?? "Master", facts: (p) => facts[p] });
 }
 
+/** The heard time of the position `ticks` first heard at or after heard `after` (the anchor's time by default). */
+const heardOf = (position: MusicPlayer | GridAnchor, ticks: number, after = ("segment" in position ? position : position.anchor!).time): number =>
+  nextHeard(position, after, (g) => ticksToSeconds(g, ticks)).at;
+
 afterEach(() => {
   endAudioSession();
   setAudioBackend(null);
@@ -66,8 +70,8 @@ describe("anchors: ticks plus heard time (§3.2)", () => {
     const { player } = playing(node, 0, 3);
     expect(player.anchor).toMatchObject({ segment: "A", ticks: -960, pass: 1 });
     expect(player.anchor!.time).toBeCloseTo(3, 12);
-    expect(heardTimeOf(player.anchor!, 0)).toBeCloseTo(3.5, 12); // bar 1 beat 1
-    expect(heardTimeOf(player.anchor!, 3840)).toBeCloseTo(5.5, 12); // bar 2
+    expect(heardOf(player.anchor!, 0)).toBeCloseTo(3.5, 12); // bar 1 beat 1
+    expect(heardOf(player.anchor!, 3840)).toBeCloseTo(5.5, 12); // bar 2
     expect(ticksAt(player.anchor!, 5.5)).toBeCloseTo(3840, 6);
   });
 
@@ -80,26 +84,24 @@ describe("anchors: ticks plus heard time (§3.2)", () => {
     const a = anchorRun(r2, 2);
     expect(a.ticks).toBe(41);
     expect(a.time).toBeCloseTo(2 + (41 / 1920 - 1001 / 48000), 12);
-    expect(heardTimeOf(a, 40.04)).toBeCloseTo(2, 9);
+    expect(heardOf(a, 40.04)).toBeCloseTo(2, 9);
   });
 
-  it("is R1's heard clock: heardTimeOf and ticksAt are inverse across a tempo change", () => {
+  it("the heard time of a position and the position heard at a time are inverse across a tempo change", () => {
     rig();
     const node = segment({ tempo: [{ at: "1:1:0", bpm: 120, beatsPerBar: 4, beatUnit: 4 }, { at: "3:1:0", bpm: 60, beatsPerBar: 4, beatUnit: 4 }] });
     const { player } = playing(node, 0, 10);
     const a = player.anchor!;
-    expect(heardTimeOf(a, 7680)).toBeCloseTo(14, 9); // bar 3 at 4 s
-    expect(heardTimeOf(a, 8640)).toBeCloseTo(15, 9); // one 60 bpm beat later
+    expect(heardOf(a, 7680)).toBeCloseTo(14, 9); // bar 3 at 4 s
+    expect(heardOf(a, 8640)).toBeCloseTo(15, 9); // one 60 bpm beat later
     expect(ticksAt(a, 14.5)).toBeCloseTo(8160, 6);
-    const pg = playingGridOf(a)!;
-    expect(pg.anchorTicks).toBe(0);
-    expect(pg.anchorTime).toBe(10);
+    expect(nextGridHeard(a, 14.2, "bar").at).toBeCloseTo(18, 9); // bar 4: a 60 bpm 4/4 bar after bar 3
   });
 
   it("an anchor made elsewhere without a grid answers NaN", () => {
     rig();
     const a = { segment: "x", ticks: 0, time: 1, pass: 1, node: playlistRoot(), rate: 48_000 };
-    expect(heardTimeOf(a, 960)).toBeNaN();
+    expect(heardOf(a, 960)).toBeNaN();
     expect(ticksAt(a, 2)).toBeNaN();
   });
 });
@@ -142,7 +144,7 @@ describe("anchors: loop regions and predictWrap (§3.5)", () => {
     expect(predictWrap(late, 0)).toBeNaN();
   });
 
-  it("a start inside the region is its pass 1; advanceAnchor moves the anchor to the pass heard now", () => {
+  it("a start inside the region is its pass 1; every query walks the passes from the anchor, which never moves", () => {
     rig();
     const { player } = playing(looped(4), 3 * 48_000, 10); // file 3 s: bar 2 beat 3, region pass 1
     const a = player.anchor!;
@@ -150,11 +152,10 @@ describe("anchors: loop regions and predictWrap (§3.5)", () => {
     expect(predictWrap(player, 10)).toBeCloseTo(13, 9);
     expect(predictWrap(player, 13)).toBeCloseTo(17, 9); // pass 3 begins at `from`
     expect(predictWrap(player, 17)).toBeCloseTo(21, 9); // pass 4
-    expect(advanceAnchor(player, 12)).toBe(false);
-    expect(advanceAnchor(player, 18)).toBe(true); // wraps at 13 and 17
-    expect(a).toMatchObject({ ticks: 2 * 1920, pass: 3 });
-    expect(a.time).toBeCloseTo(17, 9);
-    expect(heardTimeOf(a, 3 * 1920)).toBeCloseTo(18, 9);
+    expect(ticksAt(a, 18)).toBeCloseTo(3 * 1920, 6); // wraps at 13 and 17: pass 3, file 3 s
+    expect(heardOf(player, 3 * 1920, 17.5)).toBeCloseTo(18, 9);
+    expect(a).toMatchObject({ ticks: 3 * 1920, pass: 1 });
+    expect(a.time).toBeCloseTo(10, 9);
     expect(predictWrap(player, 18)).toBeCloseTo(21, 9);
     expect(predictWrap(player, 21)).toBeNaN();
   });
@@ -204,7 +205,7 @@ describe("anchors: slips from group events (§3.6, §4.3)", () => {
     const b: FakeBackend = makeFakeBackend();
     setAudioBackend(b);
     const player = createMusicPlayer(instance(), segment({}));
-    const f: MusicFrame = { backend: b, music: b.music ?? null, now: 1, dt: 1 / 60, hidden: false };
+    const f = musicFrameAt(b, 1);
     const run = createSegmentRun(player, player.root, 0)!;
     primeRun(player, run, f);
     b.music!.setPrimed(run.group);
@@ -218,7 +219,7 @@ describe("anchors: slips from group events (§3.6, §4.3)", () => {
     b.music!.onGroupEvent = routeGroupEvent;
     b.music!.emit({ kind: "resume", group: run.group, late: true, slipFrames: 480, startFrame: 0 });
     expect(player.anchor!.time).toBeCloseTo(1.52, 12);
-    b.frameMapValue = { sampleRate: 96_000, timeOffset: 0, carryPending: false }; // a context rebuild changed the rate
+    b.startContext(96_000); // a context rebuild changed the rate
     routeGroupEvent({ kind: "resume", group: run.group, late: true, slipFrames: 960, startFrame: 0 });
     expect(player.anchor!.time).toBeCloseTo(1.53, 12);
     expect(player.counters).toMatchObject({ lateGroups: 1, groupsHeld: 2, lastSlipFrames: 960 });
@@ -227,10 +228,11 @@ describe("anchors: slips from group events (§3.6, §4.3)", () => {
   it("with a clock map, a start pins t0 to its start frame's heard time (the stamp's rounding goes)", () => {
     rig();
     const b: FakeBackend = makeFakeBackend();
-    b.frameMapValue = { sampleRate: 48_000, timeOffset: 0.25, carryPending: false };
+    b.advance(0.25);
+    b.startContext(48_000); // its frame 0 is heard at 0.25
     setAudioBackend(b);
     const player = createMusicPlayer(instance(), segment({}));
-    const f: MusicFrame = { backend: b, music: b.music ?? null, now: 1, dt: 1 / 60, hidden: false };
+    const f = musicFrameAt(b, 1);
     const run = createSegmentRun(player, player.root, 0)!;
     primeRun(player, run, f);
     b.music!.setPrimed(run.group);
@@ -334,13 +336,12 @@ function rateChange(pinned: boolean): { checked: number; worstOld: number; worst
     for (let pass = 1; pass <= 60; pass++) {
       for (let t = 3840; t < 5 * 3840; t += 960) if (pass > 1 || ticksToSeconds(g, t) >= startFrame / CR) points.push([t, pass]);
     }
-    // The prediction as the beat clock reads it: the anchor's own pass by `heardTimeOf`, a later pass that many region
-    // lengths on, a length being the gap between two wraps `predictWrap` reports.
+    // The prediction as the heard position answers it: each point asked from the start of its pass (the anchor for pass
+    // 1, else the wrap that begins it, as `predictWrap` reports the wraps one after another).
     const predict = (): ((ticks: number, pass: number) => number) => {
-      const a = player.anchor!;
-      const w = predictWrap(player, a.time);
-      const passSeconds = predictWrap(player, w) - w;
-      return (ticks, pass) => heardTimeOf(a, ticks) + (pass - a.pass) * passSeconds;
+      const starts = [Number.NaN, player.anchor!.time];
+      for (let k = 2; k <= 61; k++) starts.push(predictWrap(player, starts[k - 1]!));
+      return (ticks, pass) => heardOf(player, ticks, starts[pass]!);
     };
     const before = predict();
     let worstOld = 0;

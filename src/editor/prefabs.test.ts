@@ -3,13 +3,16 @@ import { Engine, GameObject, Input } from "../engine";
 import { SpriteRenderer } from "../engine/render/components";
 import { AddNode, RevertOverrides, SetField, SetOverrides, type SceneFile } from "./document";
 import { OrbitCamera } from "./OrbitCamera";
-import { createPrefabFromNodes, removeInnerNode, applyOverridesTo, createPrefab, findInner, instanceInnerNodes, isOverridden } from "./prefabs";
+import { createPrefabFromNodes, applyOverridesTo, createPrefab, findInner, instanceInnerNodes } from "./prefabs";
+import { isOverridden, writeRemoveNode } from "./overrideWriter";
 import { openSceneFile } from "./project";
 import { editorSettings, joinPath, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
 import { currentProject, openScene, sceneCamera } from "./state";
 import { MemoryFileSystem, ROOT, demoFolder, insertNew } from "./testing";
 import { insertNodes } from "./nodeInsertion";
 import type { NodeTemplate } from "./sdk/contributions";
+
+const POSITION = { kind: "field", type: "engine.Transform", index: 0, field: "position" } as const;
 
 let fs: MemoryFileSystem;
 let project: EditorProject;
@@ -59,12 +62,12 @@ describe("overrides on nodes inside a prefab instance", () => {
     addPipe();
     const { doc, stack, sync } = openScene.value!;
     stack.execute(new SetField("pipe", "engine.Transform", "position", [0, 12, 0], { target: ["top"] }));
-    expect(isOverridden(doc, ["pipe", "top"], "engine.Transform", "position")).toBe(true);
-    expect(isOverridden(doc, ["pipe", "bottom"], "engine.Transform", "position")).toBe(false);
+    expect(isOverridden(doc, ["pipe", "top"], POSITION)).toBe(true);
+    expect(isOverridden(doc, ["pipe", "bottom"], POSITION)).toBe(false);
     expect(sync.nodeFor(["pipe", "top"])!.transform!.position.y).toBe(12);
 
     stack.execute(new RevertOverrides("pipe", "Revert position", (o) => o.field === "position"));
-    expect(isOverridden(doc, ["pipe", "top"], "engine.Transform", "position")).toBe(false);
+    expect(isOverridden(doc, ["pipe", "top"], POSITION)).toBe(false);
     expect(doc.node("pipe").overrides).toBeUndefined();
     expect(sync.nodeFor(["pipe", "top"])!.transform!.position.y).toBeCloseTo(9.6, 4); // from the prefab
 
@@ -206,7 +209,7 @@ describe("child node overrides (ADR 0086)", () => {
   it("removes a prefab node as an override and writes the removal on Apply", async () => {
     addPipe();
     const { doc, sync } = openScene.value!;
-    removeInnerNode(openScene.value!, ["pipe", "bottom"]);
+    openScene.value!.stack.execute(writeRemoveNode(openScene.value!.doc, ["pipe", "bottom"]));
     expect(doc.node("pipe").overrides).toEqual([{ target: ["bottom"], removeNode: true }]);
     expect(sync.nodeFor(["pipe", "bottom"])?.isValid ?? false).toBe(false);
     await applyOverridesTo(openScene.value!, project, ["pipe"]);
@@ -216,7 +219,7 @@ describe("child node overrides (ADR 0086)", () => {
   it("removing an added node drops its override", () => {
     addPipe();
     const path = insertInside("pipe/top", { name: "X" });
-    removeInnerNode(openScene.value!, path);
+    openScene.value!.stack.execute(writeRemoveNode(openScene.value!.doc, path));
     expect(openScene.value!.doc.node("pipe").overrides).toBeUndefined();
   });
 });
