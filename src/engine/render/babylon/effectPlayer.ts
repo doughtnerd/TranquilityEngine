@@ -19,10 +19,10 @@ import type { BaseTexture } from "@babylonjs/core/Materials/Textures/baseTexture
 import type { RawTexture } from "@babylonjs/core/Materials/Textures/rawTexture.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import { loadMeshes, meshesIfLoaded, type ModelMesh } from "../../scene/models";
-import { compileParticleGraph, type ParticleProgram } from "../../scene/particleCompile";
-import { parseParticleGraph } from "../../scene/particleGraphFormat";
+import type { ParticleProgram } from "../../scene/particleCompile";
+import { compileParticleEffect } from "../../scene/particleEffect";
 import { chooseBackend, type KernelExecutor, type KernelProgram } from "../../scene/particleKernel";
-import { expandParticleGraph, expansionDependencies, projectAssets } from "../../scene/particleSubgraphs";
+import { projectAssets } from "../../scene/particleSubgraphs";
 import { KernelEffect } from "../particles/gpu/kernelEffect";
 import type { ParticleRaycast } from "../particles/gpu/kernelSteps";
 import { ProgramRunner, playTimes } from "../particles/programRunner";
@@ -61,7 +61,7 @@ export interface KernelPlan {
   executors: KernelExecutor[];
 }
 
-/** An effect parsed, expanded and compiled, and the sub-graph and custom block assets it expanded from (ADR 0095). */
+/** An effect parsed, expanded and compiled (ADR 0315), and the sub-graph and custom block assets it expanded from (ADR 0095). */
 export interface CompiledEffect {
   program: ParticleProgram;
   deps: string[];
@@ -105,25 +105,23 @@ export class EffectResources implements DrawResources {
 
   // --- compiling ------------------------------------------------------------------------------------
 
-  /** Parse, expand (ADR 0095) and compile an effect's JSON, warning once about its problems; null when it can't be. */
+  /**
+   * The particle-effect compile (ADR 0315: parse, expand with the project's assets, compile) plus this
+   * scene's kernel plan, warning once about its problems; null when it can't be planned.
+   */
   compile(raw: unknown, where: string): CompiledEffect | null {
+    const effect = compileParticleEffect({ raw, where }, projectAssets);
+    for (const p of effect.problems) {
+      const text = `${where}: ${p.message}${p.at ? ` (${p.at})` : ""}`;
+      this.warnOnce(`${where}|${text}`, text);
+    }
     try {
-      const parsed = parseParticleGraph(raw, where);
-      const expanded = expandParticleGraph(parsed.graph, projectAssets);
-      const graph = expanded.graph;
-      const problems = [...parsed.problems, ...expanded.problems];
-      const deps = expansionDependencies(parsed.graph, projectAssets);
-      const program = compileParticleGraph(graph);
-      for (const p of [...problems, ...program.problems]) {
-        const text = `${where}: ${p.message}${p.at ? ` (${p.at})` : ""}`;
-        this.warnOnce(`${where}|${text}`, text);
-      }
-      this.plans.set(program, this.makePlan(program, where));
-      return { program, deps };
+      this.plans.set(effect.program, this.makePlan(effect.program, where));
     } catch (err) {
       this.warnOnce(`${where}|${(err as Error).message}`, (err as Error).message);
       return null;
     }
+    return { program: effect.program, deps: effect.dependencies };
   }
 
   /** The executor each system of `program` runs on (planned the first time it's asked). */
