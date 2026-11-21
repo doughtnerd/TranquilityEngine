@@ -1,6 +1,6 @@
 // Headless editor model (ADR 0026): the scene document, undoable commands, the undo stack, and
 // the sync that keeps an Editor World showing the document. No UI here.
-export { SceneDocument, pathKey, sameTarget, isFieldOverride, type NodePath, type NodeReference, type ComponentEntry, type NodeEntry, type OverrideEntry, type SceneFile } from "./SceneDocument";
+export { SceneDocument, pathKey, sameTarget, type NodePath, type NodeReference, type ComponentEntry, type NodeEntry, type OverrideEntry, type SceneFile } from "./SceneDocument";
 export {
   SetScenePreload,
   AddComponent,
@@ -29,5 +29,5 @@ export { applyFilePatch, diffText, type FilePatch } from "./textPatch";
 export { TextHistory } from "./TextHistory";
 export { applyPatch, changesBetween, diffFiles, hashFile, hashText, type DocPatch } from "./patch";
 export { WorldSync } from "./WorldSync";
-export { RebuildInstances, RevertOverrides, SetInnerNodeProperty, SetOverrides, isInnerPropertyOverride } from "./prefabCommands";
+export { RebuildInstances, RevertOverrides, SetOverrides } from "./prefabCommands";
 export { SetComponentWorlds, SetTags } from "./nodeCommands";

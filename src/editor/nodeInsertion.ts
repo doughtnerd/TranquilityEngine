@@ -9,7 +9,8 @@ import { BRACKETED, DASHED, uniqueName } from "../engine/core/uniqueName";
 import { fileName } from "./assetBrowser";
 import { isFolderEntry, isSliceEntry, splitSliceEntry } from "./assetEntry";
 import { assetKind, registeredKind, sceneNodesAt } from "./assetKindLookup";
-import { AddNode, SetOverrides, type NodeEntry, type OverrideEntry, type SceneDocument, type SceneFile } from "./document";
+import { writeAddNodes } from "./overrideWriter";
+import { AddNode, type NodeEntry, type SceneDocument, type SceneFile } from "./document";
 import { copyNodes, subtreeRoots, whyNotCopyable, type NodeClipboard } from "./nodeClipboard";
 import { kindTemplate, type NodeKind } from "./nodeKinds";
 import { findInner, instanceInnerNodes, wouldNest } from "./prefabs";
@@ -300,8 +301,7 @@ function execute(scene: OpenScene, subtrees: readonly NodeEntry[][], spot: Spot,
   const { doc, stack } = scene;
   if (isInside(spot)) {
     // Inside a prefab instance: the nodes are an `addNodes` override of the instance (ADR 0086).
-    const o: OverrideEntry = { ...(spot.target.length > 0 ? { target: [...spot.target] } : {}), addNodes: subtrees.flat() };
-    undoStep(stack, label, () => stack.execute(new SetOverrides(spot.instance, label, [...(doc.node(spot.instance).overrides ?? []), o])));
+    undoStep(stack, label, () => stack.execute(writeAddNodes(doc, [spot.instance, ...spot.target], subtrees.flat(), label)));
     return subtrees.map((s) => `${spot.instance}/${s[0].id}`);
   }
   undoStep(stack, label, () => {

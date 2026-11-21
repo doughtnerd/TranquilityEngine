@@ -1,5 +1,4 @@
-// Prefab tools (ADR 0013, 0022, 0026): the structure inside prefab instances, override checks,
-// Apply (write an instance's overrides into its prefab file) and Create Prefab (turn a node and
+// Prefab tools (ADR 0013, 0022, 0026): the structure inside prefab instances, Apply (write an instance's overrides into its prefab file) and Create Prefab (turn a node and
 // its children into a prefab file plus an instance).
 import { Assets } from "../engine";
 import { isScenePath } from "../engine/scene/SceneLoader";
@@ -17,11 +16,8 @@ import {
   SetComponentWorlds,
   SetComponents,
   SetField,
-  SetInnerNodeProperty,
   SetOverrides,
   SetTags,
-  isFieldOverride,
-  isInnerPropertyOverride,
   RenameNode,
   SetActive,
   type ComponentEntry,
@@ -99,47 +95,6 @@ export function findInner(doc: SceneDocument, path: NodePath): InnerNode | null 
   const instance = doc.has(path[0]) ? doc.node(path[0]) : null;
   if (!instance?.prefab || path.length < 2) return null;
   return findIn(instanceInnerNodes(doc, path[0]), pathKey(path));
-}
-
-/**
- * What a node inside an instance would show for `key` without the instance's own name or active
- * override for it: the prefab file's value, with nested instances' overrides (ADR 0122).
- */
-function innerBaseValue(doc: SceneDocument, path: NodePath, key: "name" | "active"): string | boolean | undefined {
-  const [id, ...target] = path;
-  const others = doc.overrides(id).filter((o) => !isInnerPropertyOverride(o, target, key));
-  const node = findIn(instanceInnerNodes(doc, id, others), pathKey(path));
-  return node ? node[key] : undefined;
-}
-
-/** True if the instance has the editor's name (or active) override for the node at `path` (ADR 0122). */
-export function isInnerPropertyOverridden(doc: SceneDocument, path: NodePath, key: "name" | "active"): boolean {
-  const [id, ...target] = path;
-  return target.length > 0 && doc.has(id) && doc.overrides(id).some((o) => isInnerPropertyOverride(o, target, key));
-}
-
-/**
- * The command that renames or (de)activates the node at `path`: on a document node its own entry,
- * inside a prefab instance an override, which goes away when the value matches the prefab's (ADR 0122).
- */
-export function nodePropertyCommand(doc: SceneDocument, path: NodePath, key: "name" | "active", value: string | boolean) {
-  const [id, ...target] = path;
-  if (target.length === 0) return key === "name" ? new RenameNode(id, value as string) : new SetActive(id, value as boolean);
-  const same = innerBaseValue(doc, path, key) === value;
-  return new SetInnerNodeProperty(id, target, key, same ? undefined : value);
-}
-
-/** Remove the instance's name (or active) override for the node at `path`. */
-export function revertInnerProperty(open: OpenScene, path: NodePath, key: "name" | "active"): void {
-  const [id, ...target] = path;
-  open.stack.execute(new SetInnerNodeProperty(id, target, key, undefined));
-}
-
-/** True if the field at `path` (an instance or a node inside one) is overridden in the scene. */
-export function isOverridden(doc: SceneDocument, path: NodePath, type: string, field: string, index = 0): boolean {
-  const [id, ...target] = path;
-  if (!doc.has(id) || !doc.isPrefabInstance(id)) return false;
-  return doc.overrides(id).some((o) => isFieldOverride(o, target, type, field, index));
 }
 
 /** Keys of an override that sets only a node's own properties. */
@@ -256,36 +211,6 @@ class ApplyToPrefab implements FoldAdapter<string, symbol> {
       new SetOverrides(node, "", [...(this.prefab.node(node).overrides ?? []), { ...(target.length > 0 ? { target: [...target] } : {}), ...rest }]).apply(this.prefab);
     }
   }
-}
-
-/**
- * Remove a node inside a prefab instance: one the instance added is dropped from its `addNodes`
- * override (with overrides aimed at it); one from the prefab gets a `removeNode` override, and
- * overrides aimed at it or under it go.
- */
-export function removeInnerNode(open: OpenScene, path: NodePath): void {
-  const [instance, ...target] = path;
-  if (target.length === 0) throw new Error("Remove the instance itself, not a node inside it.");
-  const id = target[target.length - 1];
-  const list = open.doc.node(instance).overrides ?? [];
-  const addedHere = list.findIndex((o) => o.addNodes?.some((n) => n.id === id));
-  const doomed = new Set<string>([id]);
-  if (addedHere >= 0) {
-    const nodes = list[addedHere].addNodes!;
-    for (let grew = true; grew; ) {
-      grew = false;
-      for (const n of nodes) if (n.parent && doomed.has(n.parent) && !doomed.has(n.id)) (doomed.add(n.id), (grew = true));
-    }
-  }
-  const next: OverrideEntry[] = [];
-  list.forEach((o, i) => {
-    if (i === addedHere) {
-      const keep = o.addNodes!.filter((n) => !doomed.has(n.id));
-      if (keep.length > 0) next.push({ ...o, addNodes: keep });
-    } else if (!(o.target ?? []).some((t) => doomed.has(t))) next.push(o);
-  });
-  if (addedHere < 0) next.push({ target: [...target], removeNode: true });
-  open.stack.execute(new SetOverrides(instance, "Remove node", next));
 }
 
 /**

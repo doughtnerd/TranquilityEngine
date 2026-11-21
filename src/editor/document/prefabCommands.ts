@@ -1,5 +1,5 @@
 import type { Change, Command } from "./commands";
-import { sameTarget, type OverrideEntry, type SceneDocument } from "./SceneDocument";
+import type { OverrideEntry, SceneDocument } from "./SceneDocument";
 
 /**
  * Remove overrides from a prefab instance, putting the prefab's own values back (ADR 0013, 0026).
@@ -66,14 +66,18 @@ export class RebuildInstances implements Command {
 }
 
 /**
- * Replace a prefab instance's overrides with `next` (used to add or remove components on an
- * instance, which also renumbers or drops the field overrides that pointed at them). Undo puts
- * the previous list back exactly. The instance is rebuilt.
+ * Replace a prefab instance's overrides with `next`: the command the override writer
+ * (`overrideWriter.ts`, ADR 0287) issues for every override edit. Undo puts the previous list back
+ * exactly. `changes` says what the Editor World must redo, both ways: by default the instance is
+ * rebuilt; a name or active override reports just that node's name or flag.
  */
 export class SetOverrides implements Command {
   private previous: OverrideEntry[] | undefined;
+  private readonly changes: readonly Change[];
 
-  constructor(readonly instance: string, readonly label: string, private readonly next: readonly OverrideEntry[]) {}
+  constructor(readonly instance: string, readonly label: string, private readonly next: readonly OverrideEntry[], changes?: readonly Change[]) {
+    this.changes = changes ?? [{ kind: "rebuild", node: instance }];
+  }
 
   apply(doc: SceneDocument): Change[] {
     const entry = doc.node(this.instance);
@@ -81,68 +85,13 @@ export class SetOverrides implements Command {
     this.previous = entry.overrides;
     if (this.next.length > 0) entry.overrides = structuredClone([...this.next]);
     else delete entry.overrides;
-    return [{ kind: "rebuild", node: this.instance }];
+    return [...this.changes];
   }
 
   undo(doc: SceneDocument): Change[] {
     const entry = doc.node(this.instance);
     if (this.previous) entry.overrides = this.previous;
     else delete entry.overrides;
-    return [{ kind: "rebuild", node: this.instance }];
-  }
-}
-
-/** True if `o` is the editor's name (or active) override for `target`: just a target and that key. */
-export function isInnerPropertyOverride(o: OverrideEntry, target: readonly string[], key: "name" | "active"): boolean {
-  return o[key] !== undefined && sameTarget(o.target, target) && Object.keys(o).every((k) => k === "target" || k === key);
-}
-
-/**
- * Rename or (de)activate a node inside a prefab instance (ADR 0122): writes the instance's
- * `{ target, name }` or `{ target, active }` override, replacing an earlier one, or with `value`
- * undefined removes it (the node goes back to the prefab's value). `target` mustn't be empty: the
- * instance root's name and active flag are on its own entry (`RenameNode`, `SetActive`).
- */
-export class SetInnerNodeProperty implements Command {
-  readonly label: string;
-  private previous: OverrideEntry[] | undefined;
-
-  constructor(
-    readonly instance: string,
-    readonly target: readonly string[],
-    readonly key: "name" | "active",
-    readonly value: string | boolean | undefined,
-  ) {
-    if (target.length === 0) throw new Error("SetInnerNodeProperty needs a target inside the instance.");
-    this.label = key === "name" ? "Rename" : value === false ? "Deactivate" : "Activate";
-  }
-
-  apply(doc: SceneDocument): Change[] {
-    const entry = doc.node(this.instance);
-    if (!entry.prefab) throw new Error(`"${this.instance}" is not a prefab instance.`);
-    this.previous = entry.overrides;
-    const list = structuredClone(entry.overrides ?? []);
-    const at = list.findIndex((o) => isInnerPropertyOverride(o, this.target, this.key));
-    if (this.value === undefined) {
-      if (at >= 0) list.splice(at, 1);
-    } else {
-      const o: OverrideEntry = { target: [...this.target], [this.key]: this.value };
-      if (at >= 0) list[at] = o;
-      else list.push(o);
-    }
-    if (list.length > 0) entry.overrides = list;
-    else delete entry.overrides;
-    return [this.change()];
-  }
-
-  undo(doc: SceneDocument): Change[] {
-    const entry = doc.node(this.instance);
-    if (this.previous) entry.overrides = this.previous;
-    else delete entry.overrides;
-    return [this.change()];
-  }
-
-  private change(): Change {
-    return { kind: this.key, node: this.instance, path: [this.instance, ...this.target] };
+    return [...this.changes];
   }
 }

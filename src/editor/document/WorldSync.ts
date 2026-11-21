@@ -3,6 +3,7 @@ import { destroyNow, instantiateDocument, instantiateNodes, moveNode, setSibling
 import type { GameObject } from "../../engine/scene/GameObject";
 import type { Change } from "./commands";
 import type { CommandStack } from "./CommandStack";
+import { setsProperty } from "../../engine/scene/overrideFold";
 import { pathKey, sameTarget, type ComponentEntry, type NodePath, type SceneDocument } from "./SceneDocument";
 
 interface Mapped {
@@ -139,7 +140,7 @@ export class WorldSync {
     const [id, ...target] = path;
     if (!this.doc.has(id)) return;
     const node = this.nodeFor(path);
-    const o = [...this.doc.overrides(id)].reverse().find((x) => x[key] !== undefined && x.component === undefined && sameTarget(x.target, target));
+    const o = [...this.doc.overrides(id)].reverse().find((x) => setsProperty(x, { kind: key }) && sameTarget(x.target, target));
     if (!node || !o) return this.rebuild(id);
     if (key === "name") node.name = o.name!;
     else node.setActive(o.active!);

@@ -13,7 +13,7 @@ import {
   knownWorldTags,
   setComponentWorlds,
   setNodeTags,
-  tagsOverridden,
+  TAGS,
   withWorldTag,
   worldsBadge,
   type WorldsSetting,
@@ -35,6 +35,7 @@ import {
   whyNotToggleable,
 } from "../componentEdits";
 import { deleteSelected } from "../deleteSelection";
+import { isOverridden } from "../overrideWriter";
 import { AddComponentMenu } from "./AddComponentMenu";
 import { AssetInspector } from "./AssetInspector";
 import { inspectorTarget } from "../inspectorTarget";
@@ -640,7 +641,7 @@ function NodeTags(props: { scene: OpenScene; paths: NodePath[] }) {
   const [draft, setDraft] = useState("");
   const lists = paths.map((p) => scene.sync.nodeFor(p)?.tags ?? []);
   const union = [...new Set(lists.flat())];
-  const overridden = paths.some((p) => tagsOverridden(scene.doc, p));
+  const overridden = paths.some((p) => isOverridden(scene.doc, p, TAGS));
   const add = () => {
     const tag = cleanTag(draft);
     setDraft("");
@@ -674,7 +675,7 @@ function NodeTags(props: { scene: OpenScene; paths: NodePath[] }) {
         onBlur={add}
       />
       {overridden && (
-        <button class="revert" aria-label="Revert tags" title="Tags overridden in this scene. Revert to the prefab's tags" onClick={() => setNodeTags(scene, paths.filter((p) => tagsOverridden(scene.doc, p)), () => undefined, "Revert tags")}>
+        <button class="revert" aria-label="Revert tags" title="Tags overridden in this scene. Revert to the prefab's tags" onClick={() => setNodeTags(scene, paths.filter((p) => isOverridden(scene.doc, p, TAGS)), () => undefined, "Revert tags")}>
           ↺
         </button>
       )}

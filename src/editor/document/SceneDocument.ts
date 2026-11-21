@@ -1,6 +1,7 @@
 import { loadSceneFile, migrateSceneFile, type ComponentEntry, type NodeEntry, type OverrideEntry, type SceneFile } from "../../engine/scene/SceneLoader";
 import { resolveScene, type ResolvedScene } from "../../engine/scene/resolvedScene";
 import { entryFieldValues, fieldNodeRefs } from "../../engine/scene/nodeReferences";
+import { sameTarget, setsProperty } from "../../engine/scene/overrideFold";
 
 export type { ComponentEntry, NodeEntry, OverrideEntry, SceneFile } from "../../engine/scene/SceneLoader";
 
@@ -12,11 +13,7 @@ export function pathKey(path: NodePath): string {
   return path.join("/");
 }
 
-/** True if two override targets are the same (an omitted target equals `[]`). */
-export function sameTarget(a: readonly string[] | undefined, b: readonly string[] | undefined): boolean {
-  const x = a ?? [], y = b ?? [];
-  return x.length === y.length && x.every((v, i) => v === y[i]);
-}
+export { sameTarget };
 
 /**
  * The scene file being edited (ADR 0026): the source of truth for the editor. Holds the parsed
@@ -139,7 +136,7 @@ export class SceneDocument {
 
   /** The field override for a node inside a prefab instance (`target` empty: the instance root), or undefined. */
   overrideValue(id: string, target: readonly string[], type: string, field: string, index = 0): unknown {
-    const o = this.overrides(id).find((x) => isFieldOverride(x, target, type, field, index));
+    const o = this.overrides(id).find((x) => setsProperty(x, { kind: "field", type, index, field }) && sameTarget(x.target, target));
     return o?.value;
   }
 
@@ -240,7 +237,3 @@ export interface NodeReference {
   readonly value: unknown;
 }
 
-/** True if `o` is a field override for exactly this target, component, index and field. */
-export function isFieldOverride(o: OverrideEntry, target: readonly string[], type: string, field: string, index = 0): boolean {
-  return o.component === type && o.field === field && (o.index ?? 0) === index && sameTarget(o.target, target);
-}
