@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { SKY_PRESETS, skyPreset } from "../sky/presets";
 import { Sky } from "../../plugins/sky/runtime/Sky";
+import { GameObject } from "../index";
+import { World } from "../core/World";
 import { defaultSky, formatSky, hexToLinear, isSkyPath, parseSky, SKY_FORMAT } from "../sky/skyFormat";
 import { bodyDirections, directionFromAngles, hoursApart, moonPhase, SkyBakeScheduler, skyLight, starRotation, sunAngles, transmittance } from "../sky/skyMath";
 
@@ -163,6 +165,29 @@ describe("Sky component", () => {
     const before = sky._rebakes;
     sky.rebake();
     expect(sky._rebakes).toBe(before + 1);
+  });
+
+  it("carries on from where the sky is when the day speed changes, at the speed it ran at until then", () => {
+    const world = new World("runtime", { time: { fixedDeltaTime: 1 / 60, maxSubSteps: 5, maxFrameTime: 1000 } });
+    const previous = World.active;
+    World.active = world;
+    try {
+      const sky = GameObject.create("Sky").addComponent(Sky);
+      sky.timeOfDay = 12;
+      expect(sky.currentTime).toBe(12);
+      world.step(100); // stopped (daySpeed 0) for 100 s
+      expect(sky.currentTime).toBe(12);
+      sky.daySpeed = 0.1;
+      expect(sky.currentTime).toBeCloseTo(12);
+      world.step(10);
+      expect(sky.currentTime).toBeCloseTo(13);
+      sky.daySpeed = 0.2; // 13 h after 10 s at 0.1, then 0.2 from there
+      expect(sky.currentTime).toBeCloseTo(13);
+      world.step(5);
+      expect(sky.currentTime).toBeCloseTo(14);
+    } finally {
+      World.active = previous;
+    }
   });
 });
 
