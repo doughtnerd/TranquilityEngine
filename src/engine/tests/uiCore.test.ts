@@ -6,6 +6,7 @@ import { UICore, canvasScale, uiLength } from "../ui/UICore";
 import type { TextMeasureRequest } from "../ui/uiCoreTypes";
 import { Assets } from "../scene/Assets";
 import { FakeInput, fakeDocument, stubDocument } from "./uiPointer";
+import { DomInput, FakeCanvas } from "./domInput";
 import { UI_FONT_FAMILY, fontEpoch, fontFamilyOf, loadBundledFont, onFontLoaded } from "../ui/fonts";
 
 // ADR 0076: the renderer-neutral UI core: Yoga layout and UI-first routing, no renderer, no GPU.
@@ -57,8 +58,8 @@ function menu() {
 
 /** Press (or release) the left mouse button at canvas pixels and step a frame. */
 function mouse(type: "down" | "up", x: number, y: number): void {
-  Input.simulatePointer(x, y);
-  Input.simulate(type, "mouse0");
+  if (type === "down") DomInput.attach().pointerDown(0, x, y);
+  else DomInput.attach().pointerUp(0, x, y);
   engine.step(DT);
 }
 
@@ -634,7 +635,7 @@ describe("UICore pointer routing", () => {
     }
     GameObject.create("Game").addBehavior(Game);
 
-    Input.simulatePointer(100, 40);
+    DomInput.attach().moveTo(100, 40);
     engine.step(DT);
     expect(play.hovered).toBe(true);
     expect(quit.hovered).toBe(false);
@@ -698,39 +699,25 @@ describe("UICore pointer routing", () => {
     const { play } = menu();
     const c = await core();
     sync(c);
-    // Real DOM events through Input.attach: a touch screen sends pointerdown with no pointermove before it.
-    const win = new EventTarget();
-    const canvas = Object.assign(new EventTarget(), {
-      focus() {},
-      setPointerCapture() {},
-      getBoundingClientRect: () => ({ left: 10, top: 20 }),
-    });
-    vi.stubGlobal("window", win);
-    try {
-      Input.attach(canvas as unknown as HTMLCanvasElement);
-      Input.simulatePointer(900, 600); // the previous touch, far from the button
-      const ev = (type: string, x: number, y: number) =>
-        Object.assign(new Event(type), { clientX: x, clientY: y, button: 0, pointerId: 1, movementX: 0, movementY: 0 });
-      canvas.dispatchEvent(ev("pointerdown", 110, 60)); // canvas pixels (100, 40): over Play
-      engine.step(DT);
-      expect(Input.mousePosition).toEqual(new Vector2(100, 40));
-      expect(play.pressed).toBe(true);
-      win.dispatchEvent(ev("pointerup", 110, 60));
-      engine.step(DT);
-      expect(play.clicked).toBe(true);
-    } finally {
-      Input.detach();
-      vi.unstubAllGlobals();
-    }
+    // A touch screen sends pointerdown with no pointermove before it, on a canvas offset in the page.
+    const dom = DomInput.attach(new FakeCanvas(10, 20));
+    dom.pointerDown(0, 900, 600); // the previous touch, far from the button
+    dom.pointerUp(0, 900, 600);
+    engine.step(DT);
+    dom.pointerDown(0, 100, 40); // over Play
+    engine.step(DT);
+    expect(Input.mousePosition).toEqual(new Vector2(100, 40));
+    expect(play.pressed).toBe(true);
+    dom.pointerUp(0, 100, 40);
+    engine.step(DT);
+    expect(play.clicked).toBe(true);
   });
 
   it("a press and release in one frame clicks", async () => {
     const { play } = menu();
     const c = await core();
     sync(c);
-    Input.simulatePointer(100, 40);
-    Input.simulate("down", "mouse0");
-    Input.simulate("up", "mouse0");
+    DomInput.attach().click(0, 100, 40);
     engine.step(DT);
     expect(play.clicked).toBe(true);
     expect(Input.getMouseButtonDown(0)).toBe(false);
@@ -758,7 +745,7 @@ describe("UICore pointer routing", () => {
     play.visible = false;
     quit.node.setActive(false);
     sync(c);
-    Input.simulatePointer(100, 40);
+    DomInput.attach().moveTo(100, 40);
     engine.step(DT);
     expect(c.hitTest(100, 40)).toBeNull();
     expect(Input.pointerOverUI).toBe(false);
@@ -846,12 +833,12 @@ describe("UICore input fields", () => {
     expect(Input.getMouseButtonDown(0)).toBe(false);
     mouse("up", 50, 20);
 
-    Input.simulate("down", "w");
+    DomInput.attach().keyDown("w");
     engine.step(DT);
     expect(Input.keyboardOverUI).toBe(true);
     expect(keys.at(-1)).toBe(false);
     expect(Input.anyKeyDown).toBe(false);
-    Input.simulate("up", "w");
+    DomInput.attach().keyUp("w");
     engine.step(DT);
 
     mouse("down", 900, 500);
@@ -859,7 +846,7 @@ describe("UICore input fields", () => {
     expect(Input.getMouseButtonDown(0)).toBe(true);
     mouse("up", 900, 500);
 
-    Input.simulate("down", "w");
+    DomInput.attach().keyDown("w");
     engine.step(DT);
     expect(Input.keyboardOverUI).toBe(false);
     expect(keys.at(-1)).toBe(true);
@@ -868,7 +855,7 @@ describe("UICore input fields", () => {
   it("a script can focus the field, and focus is the keyboard's while set", async () => {
     const { field } = await form();
     field.focused = true;
-    Input.simulate("down", "space");
+    DomInput.attach().keyDown(" ");
     engine.step(DT);
     expect(Input.getKeyDown("space")).toBe(false);
     field.focused = false;

@@ -5,6 +5,7 @@ import { openSceneFile } from "./project";
 import { openScene, sceneCamera, selection, viewMode } from "./state";
 import { select } from "./inspectorTarget";
 import { DEMO_SCENE, demoAssets, demoSettings } from "./testing";
+import { DomInput } from "../engine/tests/domInput";
 
 let engine: Engine;
 let orbit: OrbitCamera;
@@ -38,7 +39,7 @@ describe("opening the demo scene in the editor (ADR 0026)", () => {
     const bird = openScene.value!.sync.nodeFor("bird")!;
     const y = bird.transform!.worldPosition.y;
     const distance = orbit.distance;
-    Input.simulateScroll(0, 100);
+    DomInput.attach().scroll(0, 100);
     for (let i = 0; i < 30; i++) engine.step(frame);
     expect(bird.transform!.worldPosition.y).toBe(y); // no gravity, no hover script
     expect(orbit.distance).toBeGreaterThan(distance);

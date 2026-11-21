@@ -6,7 +6,7 @@
 // on a button is not. The DOM is a few stubs (the engine tests run in Node). The event files' data is in soundLabMusic.test.ts.
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Assets, Engine, GameObject, Input, SceneManager, Text } from "../../myco";
+import { Assets, Engine, GameObject, SceneManager, Text } from "../../myco";
 import { readProject } from "../../server/project";
 import.meta.glob("../../../samples/sound-lab/scripts/behaviors/*.ts", { eager: true });
 import { MusicLab } from "../../../samples/sound-lab/scripts/behaviors/MusicLab";
@@ -16,6 +16,7 @@ import { Audio } from "../../plugins/audio/runtime";
 import { setCalibration } from "../../plugins/audio/runtime/music/calibration";
 import { events } from "../../plugins/audio/runtime/events/eventRuntime";
 import type { RhythmLab, RhythmState } from "../../../samples/sound-lab/scripts/behaviors/RhythmLab";
+import { DomInput } from "./domInput";
 
 /** Lets the calibration's storage read or write land (a few promise turns). */
 const settle = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
@@ -44,9 +45,9 @@ const advance = (seconds: number) => {
 
 /** A key goes down and the frame that reads it runs. */
 function press(key: string): void {
-  Input.simulate("down", key);
+  DomInput.attach().keyDown(key);
   advance(1 / 30);
-  Input.simulate("up", key);
+  DomInput.attach().keyUp(key);
   advance(1 / 30);
 }
 

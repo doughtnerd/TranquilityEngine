@@ -1,10 +1,13 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { Camera, Engine, GameObject, Input } from "../engine";
 import { OrbitCamera } from "./OrbitCamera";
+import { DomInput } from "../engine/tests/domInput";
 
 let engine: Engine;
 let orbit: OrbitCamera;
 const frame = 1 / 60;
+/** The keyboard and mouse, through `Input`'s DOM adapter. */
+const dom = () => DomInput.attach();
 
 /** World position of the scene camera. */
 const eye = () => orbit.gameObject.find("Arm/Camera")!.transform!.worldPosition;
@@ -34,9 +37,9 @@ describe("OrbitCamera (ADR 0022)", () => {
 
   it("rotates while the right mouse button drags", () => {
     const before = eye();
-    Input.simulate("down", "mouse2");
+    dom().pointerDown(2);
     engine.step(frame); // the press: travel before it is ignored
-    Input.simulateMouseMove(100, -50);
+    dom().move(100, -50);
     engine.step(frame);
 
     expect(orbit.yaw).toBeCloseTo(-35 + 100 * orbit.sensitivity + 360, 4);
@@ -47,47 +50,47 @@ describe("OrbitCamera (ADR 0022)", () => {
   });
 
   it("ignores movement without a drag button, and plain left drags", () => {
-    Input.simulateMouseMove(80, 40);
+    dom().move(80, 40);
     engine.step(frame);
-    Input.simulate("down", "mouse0");
-    Input.simulateMouseMove(80, 40);
+    dom().pointerDown(0);
+    dom().move(80, 40);
     engine.step(frame);
     expect(orbit.yaw).toBeCloseTo(325, 4);
     expect(orbit.pitch).toBeCloseTo(24, 4);
   });
 
   it("ignores travel from before a drag began", () => {
-    Input.simulateMouseMove(300, 200); // moved, then pressed, within one frame
-    Input.simulate("down", "mouse2");
+    dom().move(300, 200); // moved, then pressed, within one frame
+    dom().pointerDown(2);
     engine.step(frame);
     expect(orbit.yaw).toBeCloseTo(325, 4);
     expect(orbit.pitch).toBeCloseTo(24, 4);
   });
 
   it("orbits with Alt + left drag and clamps pitch", () => {
-    Input.simulate("down", "alt");
-    Input.simulate("down", "mouse0");
+    dom().keyDown("alt");
+    dom().pointerDown(0);
     engine.step(frame); // the press: travel before it is ignored
-    Input.simulateMouseMove(0, 10_000);
+    dom().move(0, 10_000);
     engine.step(frame);
     expect(orbit.pitch).toBe(orbit.maxPitch);
   });
 
   it("pans with middle drag and Shift + right drag, keeping the view angle", () => {
-    Input.simulate("down", "mouse1");
+    dom().pointerDown(1);
     engine.step(frame); // the press: travel before it is ignored
-    Input.simulateMouseMove(120, 0);
+    dom().move(120, 0);
     engine.step(frame);
-    Input.simulate("up", "mouse1");
+    dom().pointerUp(1);
     const afterMiddle = orbit.focusPoint;
     expect(Math.hypot(afterMiddle.x, afterMiddle.y, afterMiddle.z)).toBeGreaterThan(0.1);
     expect(afterMiddle.y).toBeCloseTo(0, 4); // horizontal drag moves along the camera's right axis only
     expect(orbit.yaw).toBeCloseTo(325, 4);
 
-    Input.simulate("down", "shift");
-    Input.simulate("down", "mouse2");
+    dom().keyDown("shift");
+    dom().pointerDown(2);
     engine.step(frame); // the press: travel before it is ignored
-    Input.simulateMouseMove(0, 60);
+    dom().move(0, 60);
     engine.step(frame);
     expect(orbit.focusPoint.y).toBeGreaterThan(afterMiddle.y); // dragging down moves the focus up
     expect(orbit.yaw).toBeCloseTo(325, 4);
@@ -95,17 +98,17 @@ describe("OrbitCamera (ADR 0022)", () => {
   });
 
   it("zooms with the wheel within limits", () => {
-    Input.simulateScroll(0, -200); // scroll up: closer
+    dom().scroll(0, -200); // scroll up: closer
     engine.step(frame);
     expect(orbit.distance).toBeLessThan(11);
-    Input.simulateScroll(0, 1_000_000);
+    dom().scroll(0, 1_000_000);
     engine.step(frame);
     expect(orbit.distance).toBe(orbit.maxDistance);
   });
 
   it("F focuses the origin", () => {
     orbit.focus([3, 1, -2]);
-    Input.simulate("down", "f");
+    dom().keyDown("f");
     engine.step(frame);
     expect(orbit.focusPoint.toArray()).toEqual([0, 0, 0]);
   });
@@ -120,14 +123,14 @@ describe("OrbitCamera (ADR 0022)", () => {
     expect(p.y).toBeCloseTo(0, 4);
     expect(p.z).toBeCloseTo(-orbit.distance, 4);
 
-    Input.simulate("down", "mouse2");
+    dom().pointerDown(2);
     engine.step(frame); // the press: travel before it is ignored
-    Input.simulateMouseMove(100, 0);
+    dom().move(100, 0);
     engine.step(frame);
     expect(orbit.yaw).toBe(0);
     expect(orbit.focusPoint.x).toBeLessThan(0); // the scene follows the pointer to the right
 
-    Input.simulate("up", "mouse2");
+    dom().pointerUp(2);
     orbit.mode = "3d";
     engine.step(frame);
     expect(camera.projection).toBe("perspective");

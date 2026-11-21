@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Color, Engine, GameObject, Input, Vector2, getComponentClass, getFields } from "../index";
 import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UILength } from "../ui/components";
 import { World } from "../core/World";
+import { DomInput } from "./domInput";
 
 // ADR 0069: UI components in a headless World, and Input without UI. Layout, pointer routing and
 // editor picking are tested on the renderer-neutral core (uiCore.test.ts, ADR 0076) and on Babylon
@@ -61,9 +62,7 @@ describe("UI components (ADR 0069)", () => {
     expect(world().render).toBeNull();
     engine.step(DT);
     // A press and release where Play would be laid out (uiCore.test.ts clicks it with a core).
-    Input.simulatePointer(100, 40);
-    Input.simulate("down", "mouse0");
-    Input.simulate("up", "mouse0");
+    DomInput.attach().click(0, 100, 40);
     engine.step(DT);
     expect(play.hovered).toBe(false);
     expect(play.clicked).toBe(false);
@@ -82,14 +81,14 @@ describe("UI components (ADR 0069)", () => {
 
 describe("Input without UI (ADR 0069 keeps the old behaviour)", () => {
   it("reports presses, holds and releases as before when nothing claims them", () => {
-    Input.simulatePointer(10, 10);
-    Input.simulate("down", "mouse0");
+    const dom = DomInput.attach();
+    dom.pointerDown(0, 10, 10);
     Input.beginFrame();
     expect(Input.pointerOverUI).toBe(false);
     expect(Input.getMouseButtonDown(0)).toBe(true);
     expect(Input.getMouseButton(0)).toBe(true);
     expect(Input.mousePosition).toEqual(new Vector2(10, 10));
-    Input.simulate("up", "mouse0");
+    dom.pointerUp(0);
     Input.beginFrame();
     expect(Input.getMouseButtonUp(0)).toBe(true);
   });

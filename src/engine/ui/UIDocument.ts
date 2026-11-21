@@ -20,6 +20,7 @@ import { projectFileKind } from "../scene/projectFiles";
 import type { GameObject } from "../scene/GameObject";
 import { UIButton, UIInputField, type UIComponentType } from "./components";
 import { uiPseudoState, uiTypeOfTag } from "./elementKinds";
+import { uiInteractions, type UIInteractionType } from "./interactions";
 import { childPaths, labelPath } from "./documentSource";
 import type { BindingPart, MarkupElement, ResolvedValue, Selector, SourceProblem, StyleTarget, UIPseudo, UIStylesheet, UITag } from "./document/types";
 
@@ -64,8 +65,8 @@ export type UIEventHandler = (event: UIEvent) => void;
 
 /**
  * The frame's UI events from documents (ADR 0077), for systems: clicks, changes, submits and hovers
- * (the pointer moving onto a button). Filled right after UI input routing, before behaviors' `update`;
- * cleared at the end of the frame.
+ * (the pointer moving onto a button), as the UI core recorded them (ADR 0309). Filled right after UI
+ * input routing, before behaviors' `update`; cleared at the end of the frame.
  */
 export const UIEvents = defineBuffer<UIEvent>("engine.UIEvents");
 
@@ -172,9 +173,6 @@ export class UIDocumentElement {
   /** @internal Rows `list()` made in this element. */ _list: ListState | null = null;
   /** @internal */ _handlers = new Map<UIEventType, UIEventHandler[]>();
   /** @internal */ _alive = true;
-  /** @internal */ _wasHovered = false;
-  /** @internal */ _lastValue: string | null = null;
-  /** @internal */ _changeFrame = -1;
   /** @internal True for a button's label made from its text content. */ _synthetic = false;
   /** @internal Its static path (the rule is `documentSource.ts`'s); null in list rows and inside them. */ _path: string | null = null;
 
@@ -279,7 +277,7 @@ export class UIDocumentElement {
 
   /** Input fields: true for the frame the player changed its value. */
   get changed(): boolean {
-    return this._changeFrame === this._comp._world.time.frameCount;
+    return this._comp instanceof UIInputField && this._comp.changed;
   }
 
   /** Input fields: true for the frame Enter was pressed in it. */
@@ -300,7 +298,6 @@ export class UIDocumentElement {
   set value(value: string) {
     if (!(this._comp instanceof UIInputField)) throw new Error(`${this.describe()} has no value: only InputField elements do.`);
     this._comp.value = value;
-    this._lastValue = value;
   }
 
   toString(): string {
@@ -665,8 +662,6 @@ export class UIDocument extends Component {
     el._list = null;
     el._applied = new Set();
     el._resolved = new Map();
-    el._wasHovered = false;
-    el._changeFrame = -1;
     el._target = {
       tag: markup.tag,
       id: idAttr,
@@ -695,7 +690,6 @@ export class UIDocument extends Component {
     if (textField && markup.text !== null) el._bindings.push({ field: textField, info: fields.get(textField)!, parts: P.parseBindings(markup.text), last: undefined, written: false });
 
     this.restyle(el);
-    if (el._comp instanceof UIInputField) el._lastValue = el._comp.value;
 
     // A button's text content is its label: a Text child.
     if (markup.tag === "Button" && markup.text !== null) {
@@ -754,7 +748,6 @@ export class UIDocument extends Component {
         b.last = value;
         b.written = true;
         comp[b.field] = P.cloneValue(value);
-        if (b.field === "value" && el._comp instanceof UIInputField) el._lastValue = el._comp.value;
       }
     }
     for (const child of el._children) this.updateBindings(child);
@@ -837,29 +830,23 @@ export class UIDocument extends Component {
 
   // --- Frame ------------------------------------------------------------------------------------
 
-  /** @internal After UI input routing, before behaviors' update: the frame's events, then their handlers. */
+  /**
+   * @internal After UI input routing, before behaviors' update: the frame's events the UI core
+   * recorded for this document's elements (ADR 0309), in document order, then their handlers.
+   */
   _collectEvents(): void {
     const root = this.rootElement;
     if (!root) return;
     const world = this._world;
     if (world.inEditMode(this.node.entity)) return; // a scene being edited: no events (ADR 0026)
-    const frame = world.time.frameCount;
+    const log = uiInteractions(world);
     const events: UIEvent[] = [];
     walk(root, (el) => {
       if (!el._alive) return;
       const c = el._comp;
-      if (c instanceof UIButton) {
-        if (c.clicked) events.push({ type: "click", element: el, document: this, item: el.item });
-        const hovered = c.hovered;
-        if (hovered && !el._wasHovered) events.push({ type: "hover", element: el, document: this, item: el.item });
-        el._wasHovered = hovered;
-      } else if (c instanceof UIInputField) {
-        if (c.value !== el._lastValue) {
-          el._lastValue = c.value;
-          el._changeFrame = frame;
-          events.push({ type: "change", element: el, document: this, item: el.item });
-        }
-        if (c.submitted) events.push({ type: "submit", element: el, document: this, item: el.item });
+      const types: readonly UIInteractionType[] = c instanceof UIButton ? BUTTON_EVENTS : c instanceof UIInputField ? FIELD_EVENTS : [];
+      for (const type of types) {
+        if (type === "click" ? (c as UIButton).clicked : log.happened(c as UIButton | UIInputField, type)) events.push({ type, element: el, document: this, item: el.item });
       }
     });
     if (events.length === 0) return;
@@ -888,7 +875,6 @@ export class UIDocument extends Component {
     if (!root) return;
     this.updateBindings(root);
     walk(root, (el) => {
-      if (el._comp instanceof UIInputField) el._lastValue = el._comp.value; // a script's change isn't the player's
       const state = uiPseudoState(el._comp);
       const s = el._target.state;
       if (state.hover !== s.hover || state.pressed !== s.pressed || state.focus !== s.focus || state.disabled !== s.disabled) {
@@ -917,6 +903,10 @@ export class UIDocument extends Component {
     return false;
   }
 }
+
+/** The events each kind can have, in the order a frame's are reported. */
+const BUTTON_EVENTS: readonly UIInteractionType[] = ["click", "hover"];
+const FIELD_EVENTS: readonly UIInteractionType[] = ["change", "submit"];
 
 function walk(el: UIDocumentElement, fn: (el: UIDocumentElement) => void): void {
   fn(el);

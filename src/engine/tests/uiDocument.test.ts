@@ -340,7 +340,7 @@ describe("UIDocument", () => {
     const p = await pointer();
     // The press on Play (a press takes focus from fields, so a script focuses the name field after it).
     p.hover(play.as(UIButton));
-    Input.simulate("down", "mouse0");
+    p.dom.pointerDown(0);
     engine.step(DT);
     expect(seen).toEqual([]);
     // Between frames: the player types and presses Enter in the field, and releases over Play.
@@ -348,7 +348,7 @@ describe("UIDocument", () => {
     p.sync(); // the renderer's sync gives the field DOM focus
     dom.typeText("Ada");
     dom.emit("keydown", { key: "Enter" });
-    Input.simulate("up", "mouse0");
+    p.dom.pointerUp(0);
     engine.step(DT);
     expect(seen).toEqual(["click play", "change Ada", "submit"]);
     expect(buffered.map((e) => e.type)).toEqual(["click", "change", "submit"]);
