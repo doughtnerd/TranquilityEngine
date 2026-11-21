@@ -3,11 +3,30 @@ import { Component } from "../../../engine/core/Component";
 import { Vector2 } from "../../../engine/core/math";
 import { PlainObject, component, field } from "../../../engine/core/registry";
 import { GameObject } from "../../../engine/scene/GameObject";
-import type { JointLimits, JointMotor, JointSpring } from "../../../engine/physics/types";
+import { isDistanceJoint, type JointKind, type JointLimits, type JointMotor, type JointSpring } from "../../../engine/physics/types";
+import { frame2DOf, frameToWorld } from "../../../engine/scene/frame2d";
 import type { Dim2 } from "./backend";
 import type { JointState } from "./core/state";
 import { RigidBody2D } from "./RigidBody2D";
 import { attachedBody } from "./attachedBody";
+
+/**
+ * @internal What a 2D joint is, from its own fields, backend-neutral (ADR 0305): the 2D physics world builds the
+ * joint from it and the joint gizmo draws it. Limits are null while off (degrees for a hinge, units for a slider);
+ * a slider's axis is in its node's local space; a null length is the anchors' distance when the joint is made.
+ */
+export type JointFields2D =
+  | { readonly kind: "fixed" }
+  | { readonly kind: "hinge"; readonly limits: JointLimits | null }
+  | { readonly kind: "slider"; readonly axis: readonly [number, number]; readonly limits: JointLimits | null }
+  | { readonly kind: "rope"; readonly length: number | null }
+  | { readonly kind: "spring"; readonly length: number | null; readonly stiffness: number; readonly damping: number };
+
+/** @internal A joint's two anchors in world space, on its node's z plane; `connected` null is the same point as `anchor`. */
+export interface JointAnchors2D {
+  readonly anchor: [number, number, number];
+  readonly connected: [number, number, number] | null;
+}
 
 /**
  * Base class for 2D joints (ADR 0005, 0092), like the 3D ones: a joint links the RigidBody2D on its
@@ -43,6 +62,30 @@ export abstract class Joint2D extends Component {
     return attachedBody(this.connectedBody?.isValid ? this.connectedBody : null, RigidBody2D);
   }
 
+  /** What kind of joint this is. */
+  get jointKind(): JointKind {
+    return this._jointFields().kind;
+  }
+
+  /** @internal What the joint is, from its own fields (ADR 0305). */
+  abstract _jointFields(): JointFields2D;
+
+  /**
+   * @internal The joint's anchors in world space now, through the nodes' 2D frames (ADR 0301, 0305): `anchor` in
+   * this node's space; the connected anchor is `connectedAnchor` in the connected node's space (world space with
+   * none) or, with `autoConfigureConnectedAnchor`, the same point, except that a rope or spring measures from the
+   * connected body's origin.
+   */
+  _worldAnchors(): JointAnchors2D {
+    const anchor = frameToWorld(frame2DOf(this.node), [this.anchor.x, this.anchor.y]);
+    const other = this.connectedBody?.isValid ? this.connectedBody : null;
+    const ca = this.connectedAnchor;
+    let connected: [number, number, number] | null = null;
+    if (!this.autoConfigureConnectedAnchor) connected = other ? frameToWorld(frame2DOf(other), [ca.x, ca.y]) : [ca.x, ca.y, anchor[2]];
+    else if (other && isDistanceJoint(this.jointKind)) connected = [...frame2DOf(this.connectedRigidbody?.node ?? other).position];
+    return { anchor, connected };
+  }
+
   /** @internal Fields that need the joint rebuilt when they change. */
   abstract _jointSignature(): string;
   /** @internal Fields applied to a live joint (limits, motor, spring). */
@@ -58,6 +101,10 @@ export abstract class Joint2D extends Component {
 /** Holds two bodies together as if welded. */
 @component("engine.FixedJoint2D")
 export class FixedJoint2D extends Joint2D {
+  override _jointFields(): JointFields2D {
+    return { kind: "fixed" };
+  }
+
   override _jointSignature(): string {
     return "fixed";
   }
@@ -77,11 +124,20 @@ export abstract class AxisJoint2D extends Joint2D {
     const l = this.limits, m = this.motor, s = this.spring;
     return [l?.min, l?.max, this.useMotor, m?.targetVelocity, m?.force, this.useSpring, s?.spring, s?.damper, s?.targetPosition].join("|");
   }
+
+  /** @internal The limits while on, else null. */
+  protected _limitsIfOn(): JointLimits | null {
+    return this.useLimits && this.limits ? { min: this.limits.min, max: this.limits.max } : null;
+  }
 }
 
 /** Lets the body turn around the anchor, like a wheel on an axle; limits and targets in degrees (counterclockwise). */
 @component("engine.HingeJoint2D")
 export class HingeJoint2D extends AxisJoint2D {
+  override _jointFields(): JointFields2D {
+    return { kind: "hinge", limits: this._limitsIfOn() };
+  }
+
   override _jointSignature(): string {
     return `hinge|${this.useLimits}`;
   }
@@ -92,6 +148,10 @@ export class HingeJoint2D extends AxisJoint2D {
 export class SliderJoint2D extends AxisJoint2D {
   /** The direction it slides along, in this node's local space. */
   @field(Vector2) axis = new Vector2(1, 0);
+
+  override _jointFields(): JointFields2D {
+    return { kind: "slider", axis: [this.axis.x, this.axis.y], limits: this._limitsIfOn() };
+  }
 
   override _jointSignature(): string {
     return `slider:${this.axis.x},${this.axis.y}|${this.useLimits}`;
@@ -104,6 +164,10 @@ export class RopeJoint2D extends Joint2D {
   /** Use the anchors' distance when the joint is made as `maxDistance`. */
   @field(Boolean) autoConfigureDistance = true;
   @field(Number) maxDistance = 1;
+
+  override _jointFields(): JointFields2D {
+    return { kind: "rope", length: this.autoConfigureDistance ? null : Math.max(this.maxDistance, 0) };
+  }
 
   override _jointSignature(): string {
     return `rope:${this.autoConfigureDistance}|${this.autoConfigureDistance ? "" : this.maxDistance}`;
@@ -118,6 +182,10 @@ export class SpringJoint2D extends Joint2D {
   @field(Number) restLength = 1;
   @field(Number) spring = 10;
   @field(Number) damper = 0.2;
+
+  override _jointFields(): JointFields2D {
+    return { kind: "spring", length: this.autoConfigureDistance ? null : Math.max(this.restLength, 0), stiffness: this.spring, damping: this.damper };
+  }
 
   override _jointSignature(): string {
     return `spring:${this.autoConfigureDistance}|${this.autoConfigureDistance ? "" : this.restLength}|${this.spring}|${this.damper}`;

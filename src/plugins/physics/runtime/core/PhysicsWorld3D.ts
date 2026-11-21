@@ -1,10 +1,12 @@
 /**
  * The shared sync core's 3D half (ADR 0045, 0137): what `PhysicsCore` needs to know about 3D poses,
  * shapes and joints. Internal: game code uses RigidBody, the 3D colliders and the Physics facade.
+ * Colliders and joints describe their own shape (`_shapeFields`, `_jointFields`, `_worldAnchors`, ADR 0305).
  */
 import { DEG2RAD, Mat4, Quat, Quaternion, Vector3, type QuatLike } from "../../../../engine/core/math";
 import type { World } from "../../../../engine/core/World";
-import { AXIS_INDEX, capsuleSize, scaledCenter, shapeSize3D, type ShapeFields3D } from "../../../../engine/physics/shape3d";
+import { shapeSignature } from "../../../../engine/physics/shape2d";
+import { capsuleSize, scaledCenter, shapeSize3D, type ShapeFields3D } from "../../../../engine/physics/shape3d";
 import { MeshRenderer } from "../../../../engine/render/components";
 import type { GameObject } from "../../../../engine/scene/GameObject";
 import { meshesIfLoaded, meshTriangles, type ModelMesh } from "../../../../engine/scene/models";
@@ -12,8 +14,8 @@ import type { Transform } from "../../../../engine/scene/Transform";
 import type { WorldRayInto, WorldRayQuery } from "../../../../engine/core/worldServices";
 import type { BackendRayInto, CharacterSettings, Dim3, PhysicsWorld3DBackend, JointDesc, JointSettings, PhysicsBackend3D, Pose, Quat as Q, ShapeDesc3D, Vec3 } from "../backend";
 import { CharacterController, type ControllerColliderHit } from "../CharacterController";
-import { BoxCollider, CapsuleCollider, Collider, MeshCollider, SphereCollider } from "../Collider";
-import { AxisJoint, BallJoint, FixedJoint, HingeJoint, Joint, RopeJoint, SliderJoint, SpringJoint } from "../Joint";
+import { Collider } from "../Collider";
+import { AxisJoint, BallJoint, Joint } from "../Joint";
 import { RigidBody } from "../RigidBody";
 import { CollisionEvents, TriggerEvents } from "../systems3d";
 import { bodyInertia, bodyMass } from "../bodyCommands";
@@ -34,12 +36,8 @@ const pos = [0, 0, 0];
 const rot = [0, 0, 0, 1];
 const scl = [1, 1, 1];
 
-/** Capsules lie along Y: the turn that lays one along X or Z. */
-const CAPSULE_TURN: Record<"x" | "y" | "z", Quaternion> = {
-  x: Quat.fromAxisAngle(0, 0, 1, -Math.PI / 2),
-  y: new Quaternion(),
-  z: Quat.fromAxisAngle(1, 0, 0, Math.PI / 2),
-};
+/** Capsules lie along Y: the turn that lays one along X or Z (by axis index). */
+const CAPSULE_TURN: readonly Quaternion[] = [Quat.fromAxisAngle(0, 0, 1, -Math.PI / 2), new Quaternion(), Quat.fromAxisAngle(1, 0, 0, Math.PI / 2)];
 
 /** A plain quaternion (backends read fields, not getters). */
 const plain = (q: QuatLike): Q => ({ x: q.x, y: q.y, z: q.z, w: q.w });
@@ -188,9 +186,9 @@ export class PhysicsWorld3D extends PhysicsCore<Dim3, Types3D> {
     return scale;
   }
 
-  /** The meshes a MeshCollider takes its shape from: its own mesh, else its node's MeshRenderer's. Null while loading. */
-  private colliderMeshes(c: MeshCollider): readonly ModelMesh[] | null {
-    const ref = c.mesh || c.node.getBehavior(MeshRenderer)?.mesh || "";
+  /** The meshes a mesh collider takes its shape from: its own mesh, else its node's MeshRenderer's. Null while loading. */
+  private colliderMeshes(c: Collider, mesh: string): readonly ModelMesh[] | null {
+    const ref = mesh || c.node.getBehavior(MeshRenderer)?.mesh || "";
     if (!ref) {
       this.warnOnce(`nomesh:${c.node.entity}`, `${c.node.name}: MeshCollider has no mesh and no MeshRenderer to take one from.`);
       return [];
@@ -200,30 +198,23 @@ export class PhysicsWorld3D extends PhysicsCore<Dim3, Types3D> {
 
   protected colliderSource(c: Collider, active: boolean) {
     const ws = this.worldScale(c);
-    const signature = [c._shapeSignature(), c.isTrigger, c.layer, c.material?.friction, c.material?.bounciness, ...ws.map((v) => v.toFixed(4)), c.center.x, c.center.y, c.center.z].join("|");
-    const meshes = c instanceof MeshCollider && active ? this.colliderMeshes(c) : null;
-    if (c instanceof MeshCollider && active && meshes === null) return null; // its model is loading
+    const fields = c._shapeFields();
+    const signature = [shapeSignature(fields), c.isTrigger, c.layer, c.material?.friction, c.material?.bounciness, ...ws.map((v) => v.toFixed(4)), c.center.x, c.center.y, c.center.z].join("|");
+    const meshes = fields.kind === "mesh" && active ? this.colliderMeshes(c, fields.mesh) : null;
+    if (fields.kind === "mesh" && active && meshes === null) return null; // its model is loading
     return { signature, scale: ws, source: meshes };
   }
 
   protected colliderShape(c: Collider, ws: readonly number[], body: RigidBody | null, source: readonly unknown[] | null | undefined): ShapeDesc3D {
-    if (c instanceof MeshCollider) return this.meshShape(c, (source ?? []) as readonly ModelMesh[], ws, body);
-    const fields: ShapeFields3D | null =
-      c instanceof BoxCollider
-        ? { kind: "box", size: [c.size.x, c.size.y, c.size.z] }
-        : c instanceof SphereCollider
-          ? { kind: "sphere", radius: c.radius }
-          : c instanceof CapsuleCollider || c instanceof CharacterController
-            ? { kind: "capsule", radius: c.radius, height: c.height, axis: c instanceof CapsuleCollider ? (AXIS_INDEX[c.direction] ?? 1) : 1 }
-            : null;
-    if (!fields) throw new Error(`Unsupported collider type ${c.constructor.name}.`);
+    const fields = c._shapeFields();
+    if (fields.kind === "mesh") return this.meshShape(c, fields, (source ?? []) as readonly ModelMesh[], ws, body);
     const size = shapeSize3D(fields, ws);
     if (size.kind === "box") return { kind: "box", halfExtents: { x: size.halfExtents[0], y: size.halfExtents[1], z: size.halfExtents[2] } };
     return size.kind === "sphere" ? size : { kind: "capsule", radius: size.radius, halfHeight: size.halfHeight };
   }
 
   /** A mesh collider's shape: the meshes' triangles, scaled with the node, exact or wrapped in their convex hull. */
-  private meshShape(c: MeshCollider, meshes: readonly ModelMesh[], ws: readonly number[], body: RigidBody | null): ShapeDesc3D {
+  private meshShape(c: Collider, { convex }: Extract<ShapeFields3D, { kind: "mesh" }>, meshes: readonly ModelMesh[], ws: readonly number[], body: RigidBody | null): ShapeDesc3D {
     const verts: number[] = [], tris: number[] = [];
     for (const m of meshes) {
       const { vertices, indices } = meshTriangles(m);
@@ -235,11 +226,11 @@ export class PhysicsWorld3D extends PhysicsCore<Dim3, Types3D> {
       this.warnOnce(`empty:${c.node.entity}`, `${c.node.name}: MeshCollider's mesh has no triangles.`);
       return { kind: "sphere", radius: 1e-4 };
     }
-    if (!c.convex && body && body.bodyType === "dynamic") {
+    if (!convex && body && body.bodyType === "dynamic") {
       this.warnOnce(`concave:${c.node.entity}`, `${c.node.name}: a MeshCollider on a dynamic RigidBody should be convex; exact meshes only collide with other shapes.`);
     }
-    if (!c.convex && !this.capabilities.meshColliders) this.warnOnce("meshes", "this physics backend has no triangle-mesh colliders; MeshColliders use their convex hull.");
-    return { kind: "mesh", vertices: new Float32Array(verts), indices: new Uint32Array(tris), convex: c.convex || !this.capabilities.meshColliders, label: `${c.node.name}: MeshCollider` };
+    if (!convex && !this.capabilities.meshColliders) this.warnOnce("meshes", "this physics backend has no triangle-mesh colliders; MeshColliders use their convex hull.");
+    return { kind: "mesh", vertices: new Float32Array(verts), indices: new Uint32Array(tris), convex: convex || !this.capabilities.meshColliders, label: `${c.node.name}: MeshCollider` };
   }
 
   /** World pose of the collider's shape: the node's pose plus its turned, scaled `center` (and a capsule's axis). */
@@ -248,10 +239,11 @@ export class PhysicsWorld3D extends PhysicsCore<Dim3, Types3D> {
     const ws = scale ?? this.worldScale(c);
     const { p, q } = this.worldPose(c.node.entity);
     const center = new Vector3(...scaledCenter([c.center.x, c.center.y, c.center.z], ws));
-    // A character controller's capsule stays upright, whichever way its node turns.
-    if (c instanceof CharacterController) return { position: v3(p.add(center)), rotation: this.identity };
+    const fields = c._shapeFields();
+    // An upright capsule (a character controller's) stays upright, whichever way its node turns.
+    if (fields.kind === "capsule" && fields.upright) return { position: v3(p.add(center)), rotation: this.identity };
     const offset = Quat.rotate(q, center);
-    const turn = c instanceof CapsuleCollider ? (CAPSULE_TURN[c.direction] ?? CAPSULE_TURN.y) : null;
+    const turn = fields.kind === "capsule" && fields.axis !== 1 ? CAPSULE_TURN[fields.axis] : null;
     return { position: v3(p.add(offset)), rotation: plain(turn ? q.clone().multiply(turn) : q) };
   }
 
@@ -262,44 +254,46 @@ export class PhysicsWorld3D extends PhysicsCore<Dim3, Types3D> {
     return [a.x, a.y, a.z, j.autoConfigureConnectedAnchor, ca.x, ca.y, ca.z];
   }
 
-  /** A point in a node's local space, in world space. */
-  private pointOf(node: GameObject, local: { x: number; y: number; z: number }): Vector3 {
-    if (!node.transform) return new Vector3(local.x, local.y, local.z);
-    const [x, y, z] = Mat4.transformPoint(this.world.worldMatrix(node.entity), node.entity * 16, local.x, local.y, local.z);
-    return new Vector3(x, y, z);
-  }
-
-  protected jointDesc(j: Joint, pose1: P3, pose2: P3, connected: RigidBody | null) {
+  protected jointDesc(j: Joint, pose1: P3, pose2: P3) {
     const p1 = new Vector3(pose1.position.x, pose1.position.y, pose1.position.z), q1 = quat(pose1.rotation);
     const p2 = new Vector3(pose2.position.x, pose2.position.y, pose2.position.z), q2 = quat(pose2.rotation);
-    const pw = this.pointOf(j.node, j.anchor);
-    // The connected anchor: where the anchor is now, or `connectedAnchor`. Ropes and springs auto-anchor at the connected body's origin.
-    const distanceJoint = j instanceof RopeJoint || j instanceof SpringJoint;
-    let pw2: Vector3;
-    if (!j.autoConfigureConnectedAnchor) pw2 = connected ? this.pointOf(j.connectedBody!, j.connectedAnchor) : new Vector3(j.connectedAnchor.x, j.connectedAnchor.y, j.connectedAnchor.z);
-    else if (distanceJoint && connected) pw2 = p2.clone();
-    else pw2 = pw.clone();
+    const fields = j._jointFields();
+    const anchors = j._worldAnchors();
+    const pw = new Vector3(...anchors.anchor), pw2 = anchors.connected ? new Vector3(...anchors.connected) : pw.clone();
     const inv1 = Quat.conjugate(q1), inv2 = Quat.conjugate(q2);
     const a1 = Quat.rotate(inv1, pw.clone().sub(p1)), a2 = Quat.rotate(inv2, pw2.clone().sub(p2));
     // The joint's frame in world space: its x axis along the hinge or slider axis. Each body holds it in its own frame.
     const nodeQ = j.node.transform ? this.worldPose(j.node.entity).q : new Quaternion();
-    const ax = j instanceof AxisJoint || j instanceof BallJoint ? j.axis : { x: 1, y: 0, z: 0 };
-    const len = Math.hypot(ax.x, ax.y, ax.z) || 1;
-    const frame = fromXTo(Quat.rotate(nodeQ, new Vector3(ax.x / len, ax.y / len, ax.z / len)));
+    const ax = "axis" in fields ? fields.axis : [1, 0, 0];
+    const len = Math.hypot(ax[0], ax[1], ax[2]) || 1;
+    const frame = fromXTo(Quat.rotate(nodeQ, new Vector3(ax[0] / len, ax[1] / len, ax[2] / len)));
     const f1 = plain(Quat.conjugate(q1).multiply(frame)), f2 = plain(Quat.conjugate(q2).multiply(frame));
     const dist = pw2.clone().sub(pw).length;
     const base = { anchor1: v3(a2), anchor2: v3(a1), frame1: f2, frame2: f1 };
     let desc: Omit<JointDesc<Dim3>, "body1" | "body2" | "contacts">;
-    if (j instanceof FixedJoint) desc = { kind: "fixed", ...base };
-    else if (j instanceof HingeJoint) desc = { kind: "revolute", ...base };
-    else if (j instanceof SliderJoint) desc = { kind: "prismatic", ...base };
-    else if (j instanceof BallJoint) desc = { kind: "spherical", ...base };
-    else if (j instanceof RopeJoint) desc = { kind: "rope", anchor1: v3(a2), anchor2: v3(a1), length: j.autoConfigureDistance ? dist : Math.max(j.maxDistance, 0) };
-    else if (j instanceof SpringJoint) desc = { kind: "spring", anchor1: v3(a2), anchor2: v3(a1), length: j.autoConfigureDistance ? dist : Math.max(j.restLength, 0), stiffness: j.spring, damping: j.damper };
-    else throw new Error(`Unsupported joint type ${j.constructor.name}.`);
-    if (j instanceof AxisJoint && j.useLimits) {
-      const k = j instanceof HingeJoint ? DEG2RAD : 1;
-      desc = { ...desc, limits: [Math.min(j.limits.min, j.limits.max) * k, Math.max(j.limits.min, j.limits.max) * k] };
+    switch (fields.kind) {
+      case "fixed":
+        desc = { kind: "fixed", ...base };
+        break;
+      case "hinge":
+        desc = { kind: "revolute", ...base };
+        break;
+      case "slider":
+        desc = { kind: "prismatic", ...base };
+        break;
+      case "ball":
+        desc = { kind: "spherical", ...base };
+        break;
+      case "rope":
+        desc = { kind: "rope", anchor1: v3(a2), anchor2: v3(a1), length: fields.length ?? dist };
+        break;
+      case "spring":
+        desc = { kind: "spring", anchor1: v3(a2), anchor2: v3(a1), length: fields.length ?? dist, stiffness: fields.stiffness, damping: fields.damping };
+        break;
+    }
+    if ((fields.kind === "hinge" || fields.kind === "slider") && fields.limits) {
+      const k = fields.kind === "hinge" ? DEG2RAD : 1, l = fields.limits;
+      desc = { ...desc, limits: [Math.min(l.min, l.max) * k, Math.max(l.min, l.max) * k] };
     }
     return { desc, local1: v3(a1), local2: v3(a2), restAngle: 0 };
   }
@@ -311,7 +305,7 @@ export class PhysicsWorld3D extends PhysicsCore<Dim3, Types3D> {
       return { limits: null, motor: null, spring: null, cone: { twist: [Math.min(t.min, t.max) * DEG2RAD, Math.max(t.min, t.max) * DEG2RAD], swing: Math.abs(j.swingLimit) * DEG2RAD } };
     }
     if (!(j instanceof AxisJoint)) return null;
-    const k = j instanceof HingeJoint ? DEG2RAD : 1;
+    const k = j.jointKind === "hinge" ? DEG2RAD : 1;
     return {
       limits: j.useLimits ? [Math.min(j.limits.min, j.limits.max) * k, Math.max(j.limits.min, j.limits.max) * k] : null,
       motor: j.useMotor ? { targetVelocity: (j.motor?.targetVelocity ?? 0) * k, maxForce: Math.max(j.motor?.force ?? 0, 0) } : null,

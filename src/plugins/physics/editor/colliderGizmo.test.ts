@@ -4,24 +4,16 @@ import { AddComponent, SetField } from "../../../editor/document";
 import type { EditorOverlay } from "../../../engine/editor";
 import { editor, viewportTools } from "../../../editor/sdk";
 import { colliderTool, type EditingCollider } from "./colliderGizmo";
-import { toLocal, toWorld, type Pose2D } from "./colliderMath";
 import { openSceneFile } from "../../../editor/project";
 import { DEMO_SCENE, demoAssets, demoSettings, sceneViewTools } from "../../../editor/testing";
 
-const close = (a: readonly number[], b: readonly number[]) => a.forEach((v, i) => expect(v).toBeCloseTo(b[i], 6));
-const posed: Pose2D = { position: [2, 1, -3], rotation: 90, scale: [2, 3] };
 /** Edit a collider, as the Inspector's Edit Collider toggle does. */
 const editCollider = (editing: EditingCollider) => editor.viewport.enter(colliderTool.id, editing);
 const select = (key: string | null) => editor.scene.selection.set(key ? [key] : []);
 
-describe("the 2D pose maths", () => {
-  it("scales, rotates and offsets local points, and maps them back", () => {
-    close(toWorld(posed, [1, 0]), [2, 3, -3]); // x scaled by 2, then turned to +y
-    close(toWorld(posed, [0, 1]), [-1, 1, -3]); // y scaled by 3, then turned to -x
-    close(toLocal(posed, toWorld(posed, [0.4, -1.2])), [0.4, -1.2]);
-  });
-});
+const close = (a: readonly number[], b: readonly number[]) => a.forEach((v, i) => expect(v).toBeCloseTo(b[i], 6));
 
+// The 2D frame maths (where a node's local points are in the world): engine/scene/frame2d.test.ts.
 // Each collider type's outline, handles and drags are its entry in the collider shape table: colliderShapes.test.ts.
 
 describe("the overlay with the demo scene open", () => {

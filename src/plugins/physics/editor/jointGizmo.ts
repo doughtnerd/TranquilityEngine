@@ -3,75 +3,46 @@
 // a slider's axis and range, a spring's zig-zag. 2D joints lie in the XY plane at the node's z.
 // Display only: the joints are edited in the Inspector. The Physics plugin's always-on viewport tool
 // `myco.physics.joints` (ADR 0138, 0142): it never becomes active and takes no presses.
+// What a joint is and where its anchors are come from the joint class itself (`_jointFields`, `_worldAnchors`,
+// ADR 0305), as the physics worlds build it; 2D axes turn and mirror with the node's 2D frame (ADR 0301).
 import { GameObject, type Engine } from "../../../engine";
-import { Joint, Joint2D, AxisJoint, AxisJoint2D, BallJoint, FixedJoint, FixedJoint2D, HingeJoint, HingeJoint2D, RopeJoint, RopeJoint2D, SliderJoint, SliderJoint2D, SpringJoint, SpringJoint2D } from "../runtime";
+import { Joint, Joint2D } from "../runtime";
 import type { EditorOverlay } from "../../../engine/editor";
-import { toWorld } from "./colliderMath";
-import { jointWire, type JointKind, type JointShape, type V3 } from "./jointMath";
-import { poseOf } from "./colliderGizmo";
+import { frame2DOf, frameDirection } from "../../../engine/scene/frame2d";
+import { jointWire, type JointShape } from "./jointMath";
 import { type ViewportToolContribution, editor, shapeKit3d } from "../../../editor/sdk";
 
-const { pose3DOf, rotate, worldCenter } = shapeKit3d;
+const { pose3DOf, rotate } = shapeKit3d;
 
 const COLOR = 0xe8a33d;
 const COLOR_SELECTED = 0xffcf70;
 
-const kindOf3D = (j: Joint): JointKind =>
-  j instanceof HingeJoint ? "hinge" : j instanceof SliderJoint ? "slider" : j instanceof BallJoint ? "ball" : j instanceof RopeJoint ? "rope" : j instanceof SpringJoint ? "spring" : j instanceof FixedJoint ? "fixed" : "fixed";
-const kindOf2D = (j: Joint2D): JointKind =>
-  j instanceof HingeJoint2D ? "hinge" : j instanceof SliderJoint2D ? "slider" : j instanceof RopeJoint2D ? "rope" : j instanceof SpringJoint2D ? "spring" : j instanceof FixedJoint2D ? "fixed" : "fixed";
-
 /** The 3D joint's shape in world space. */
 function joint3DShape(j: Joint): JointShape | null {
-  const node = j.node;
-  if (!node.transform) return null;
-  const pose = pose3DOf(node);
-  const kind = kindOf3D(j);
-  const anchor = worldCenter(pose, [j.anchor.x, j.anchor.y, j.anchor.z]);
-  const other = j.connectedBody?.isValid && j.connectedBody.transform ? j.connectedBody : null;
-  let connected: V3 | null = null;
-  if (j.autoConfigureConnectedAnchor) {
-    // Rope and spring joints measure from the connected body's origin; the others share the anchor.
-    if (other && (kind === "rope" || kind === "spring")) connected = pose3DOf(other).position;
-  } else if (other) {
-    connected = worldCenter(pose3DOf(other), [j.connectedAnchor.x, j.connectedAnchor.y, j.connectedAnchor.z]);
-  } else {
-    connected = [j.connectedAnchor.x, j.connectedAnchor.y, j.connectedAnchor.z];
-  }
-  const shape: JointShape = { kind, anchor, connected };
-  if (j instanceof AxisJoint) {
-    shape.axis = rotate(pose.rotation, [j.axis.x, j.axis.y, j.axis.z]);
-    shape.limits = j.useLimits && j.limits ? { min: j.limits.min, max: j.limits.max } : null;
+  if (!j.node.transform) return null;
+  const fields = j._jointFields();
+  const shape: JointShape = { kind: fields.kind, ...j._worldAnchors() };
+  if (fields.kind === "hinge" || fields.kind === "slider") {
+    shape.axis = rotate(pose3DOf(j.node).rotation, fields.axis);
+    shape.limits = fields.limits;
   }
   return shape;
 }
 
 /** The 2D joint's shape in world space (in the XY plane at the node's z). */
 function joint2DShape(j: Joint2D): JointShape | null {
-  const node = j.node;
-  if (!node.transform) return null;
-  const pose = poseOf(node);
-  const kind = kindOf2D(j);
-  const anchor = toWorld(pose, [j.anchor.x, j.anchor.y]);
-  const other = j.connectedBody?.isValid && j.connectedBody.transform ? j.connectedBody : null;
-  let connected: V3 | null = null;
-  if (j.autoConfigureConnectedAnchor) {
-    if (other && (kind === "rope" || kind === "spring")) connected = [...poseOf(other).position] as V3;
-  } else if (other) {
-    connected = toWorld(poseOf(other), [j.connectedAnchor.x, j.connectedAnchor.y]);
-  } else {
-    connected = [j.connectedAnchor.x, j.connectedAnchor.y, pose.position[2]];
-  }
-  const shape: JointShape = { kind, anchor, connected };
-  const a = (pose.rotation * Math.PI) / 180;
-  if (j instanceof HingeJoint2D) {
+  if (!j.node.transform) return null;
+  const fields = j._jointFields();
+  const frame = frame2DOf(j.node);
+  const shape: JointShape = { kind: fields.kind, ...j._worldAnchors() };
+  if (fields.kind === "hinge") {
     shape.axis = [0, 0, 1];
-    shape.ref = [Math.cos(a), Math.sin(a), 0];
-  } else if (j instanceof SliderJoint2D) {
-    const ax = j.axis.x, ay = j.axis.y;
-    shape.axis = [ax * Math.cos(a) - ay * Math.sin(a), ax * Math.sin(a) + ay * Math.cos(a), 0];
+    shape.ref = [Math.cos(frame.angle), Math.sin(frame.angle), 0];
+    shape.limits = fields.limits;
+  } else if (fields.kind === "slider") {
+    shape.axis = [...frameDirection(frame, fields.axis), 0];
+    shape.limits = fields.limits;
   }
-  if (j instanceof AxisJoint2D) shape.limits = j.useLimits && j.limits ? { min: j.limits.min, max: j.limits.max } : null;
   return shape;
 }
 

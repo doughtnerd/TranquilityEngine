@@ -1,6 +1,7 @@
 // Geometry for the joint gizmos: the lines that show a joint's anchors, axis, limits and spring in
 // world space. Pure functions over plain arrays, so they're tested without a renderer.
 import type { shapeKit3d } from "../../../editor/sdk";
+import type { JointKind } from "../../../engine/physics/types";
 
 type V3 = shapeKit3d.V3;
 
@@ -71,7 +72,7 @@ export function zigzag(a: readonly number[], b: readonly number[], coils = 8, am
   return pts;
 }
 
-export type JointKind = "fixed" | "hinge" | "slider" | "ball" | "rope" | "spring";
+export type { JointKind };
 
 /** What a joint gizmo needs, all in world space. */
 export interface JointShape {
