@@ -1,6 +1,6 @@
 # 0132. A behaviour reaches its own World through `this.world`, a WorldHandle
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by [0281](0281-worlds-reach-their-owner-through-one-typed-world-owner-seam.md) (the component reaches its Engine through `World._owner`)
 - **Date:** 2026-11-08
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

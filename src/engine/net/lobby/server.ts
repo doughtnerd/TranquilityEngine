@@ -18,14 +18,13 @@
  * each member then gets the address, a one-time ticket and `clientTemplate`. When the match ends,
  * the lobby destroys its World, sends the members its results and readies the room for another.
  */
-import { templateConfig } from "../../core/bootstrap";
 import type { World } from "../../core/World";
 import type { WorldHandle } from "../../core/worlds";
 import { createBitWriter, type BitReader } from "../codec";
 import { netSession, type NetPeer, type NetSession } from "../session";
 import { MatchState, _setMatch } from "./match";
 import { C2S, S2C, cleanName, readMap, resolveLobbyOptions, writeMap, writeMatch, writeView, type LobbyOptions, type LobbyRoom, type LobbyRoomInfo, type LobbyRoomState, type ResolvedLobbyOptions } from "./protocol";
-import { LOBBY_C2S, LOBBY_S2C, declaredBootstrap, engineOf, randomHex, type LobbyEngine } from "./wire";
+import { LOBBY_C2S, LOBBY_S2C, randomHex } from "./wire";
 import { uniqueName } from "../../core/uniqueName";
 import { parseListenAddress } from "../listenTarget";
 
@@ -373,7 +372,7 @@ export class LobbyServer {
   }
 
   private start(room: Room): void {
-    const engine = engineOf(this.world);
+    const engine = this.world._owner;
     if (!engine) return this.failStart(room, `The lobby World "${this.world.name}" doesn't belong to an Engine, so it can't create match Worlds.`);
     const listener = netSession(this.world)?.listening()[0];
     if (!listener) return this.failStart(room, `The lobby World "${this.world.name}" isn't listening.`);
@@ -381,8 +380,7 @@ export class LobbyServer {
     const name = uniqueName(`Match ${id}`, (n) => engine._world(n) !== null, { format: (stem, n) => `${stem} (${n})`, first: 2 });
     let handle: WorldHandle;
     try {
-      const template = templateConfig(declaredBootstrap(engine) as never, this.options.matchTemplate);
-      handle = engine.createWorld({ ...template, name });
+      handle = engine._createFromTemplate(this.options.matchTemplate, name);
     } catch (err) {
       return this.failStart(room, `The match World couldn't be created from template "${this.options.matchTemplate}": ${(err as Error).message}`);
     }
@@ -551,7 +549,7 @@ export function lobbyServerOf(world: World): LobbyServer | null {
 export function lobbyFromConfig(world: World): LobbyServer | null {
   if (checked.has(world)) return null;
   checked.add(world);
-  const config = engineOf(world)?._worldConfig?.(world.name)?.lobby;
+  const config = world._owner?._worldConfig(world.name)?.lobby;
   if (!config) return null;
   try {
     return hostLobby(world, config);

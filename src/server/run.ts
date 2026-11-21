@@ -11,7 +11,7 @@ import { DEFAULT_WORLD_TAGS } from "../engine/core/worlds";
 import type { World } from "../engine/core/World";
 import { launchGame, type LaunchedGame } from "../engine/launch";
 import { listenTarget, type ListenTarget } from "../engine/net/listenTarget";
-import { listenWorld, netSession, setListenDefaults, type NetPeer } from "../engine/net/session";
+import { listenWorld, netSession, type NetPeer } from "../engine/net/session";
 import { loadProjectCode, readProject, scriptExports, ServerError, type ServerProject } from "./project";
 import { activateGamePlugins } from "../plugins/runtime";
 
@@ -123,7 +123,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   }
   // ADR 0067: Worlds created at runtime (a lobby's matches) that listen without a port share the
   // first server World's port (`--port`, its real one if that was 0), by path.
-  if (listeners.length > 0) setListenDefaults(engine, "websocket", { port: listeners[0].port, ...(options.host ? { host: options.host } : {}) });
+  if (listeners.length > 0) engine._setListenDefaults("websocket", { port: listeners[0].port, ...(options.host ? { host: options.host } : {}) });
 
   const rates = engine.worlds().map((w) => 1 / engine._world(w.name)!.time.fixedDeltaTime);
   const tickRate = options.tickRate ?? Math.max(...rates);

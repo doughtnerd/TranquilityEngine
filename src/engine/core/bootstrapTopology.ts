@@ -11,6 +11,10 @@
  *   (`startUpLinked`; with one, play copies the linked clients instead). Other server templates stay
  *   Spawnable: game code creates them by name, and links to them apply then (ADR 0062).
  * - **The Worlds a dedicated server starts:** the start-up servers, else every lobby, else the Host template.
+ * - **The lobby** (ADR 0281): the first World the dedicated server starts that has a `lobby` config.
+ *   `Lobby.connect("local")` runs the same one, so a page and the server agree. A `lobby` config on a
+ *   World or template that isn't tagged `server`, or on a server template the server doesn't start
+ *   (because start-up servers exist), is a problem (`lobbyProblems`, which `validateBootstrap` reports).
  * - **Listen links:** the first link from a World the server doesn't start into one it does says
  *   where that one listens; links into a Spawnable server World it doesn't start say where it
  *   listens once created.
@@ -42,6 +46,10 @@ export interface BootstrapTopology {
   readonly hostClient: WorldConfig | null;
   /** The Worlds a dedicated server starts, named as created. */
   readonly serverStart: readonly WorldConfig[];
+  /** The lobby the dedicated server runs, and `Lobby.connect("local")` with it: the first World in `serverStart` with a `lobby` config; null if none. */
+  readonly serverLobby: WorldConfig | null;
+  /** `lobby` configs no dedicated server would run, as sentences located as `validateBootstrap` locates its problems. */
+  readonly lobbyProblems: readonly string[];
   /** Start-up Worlds a dedicated server leaves out. */
   readonly skipped: readonly string[];
   /** Links among Worlds the server starts or can spawn: they apply in its Engine. */
@@ -58,6 +66,8 @@ export interface BootstrapTopology {
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const hasTag = (w: { tags?: readonly string[] }, tag: string) => (w.tags ?? DEFAULT_WORLD_TAGS).includes(tag);
+
+const UNTAGGED_LOBBY = 'a World with a "lobby" config must be tagged "server": only server Worlds run lobbies, on the dedicated server and in Lobby.connect("local") (ADR 0256, 0281).';
 
 /** True if a World or template config is tagged `server`. */
 export const isServerConfig = (w: { tags?: readonly string[] }): boolean => hasTag(w, "server");
@@ -83,6 +93,21 @@ export function bootstrapTopology(setting: BootstrapSetting | undefined): Bootst
   const spawnable = new Set(serverTemplates.map((t) => t.world.name));
   const inServer = (name: string) => kept.has(name) || spawnable.has(name);
 
+  const lobbyProblems: string[] = [];
+  config.worlds.forEach((w, i) => {
+    if (w.lobby && !isServerConfig(w)) lobbyProblems.push(`bootstrap.worlds[${i}] ("${w.name}"): ${UNTAGGED_LOBBY}`);
+  });
+  for (const [key, t] of Object.entries(isRecord(config.templates) ? config.templates : {})) {
+    if (!isRecord(t) || !t.lobby) continue;
+    if (!isServerConfig(t)) lobbyProblems.push(`bootstrap.templates["${key}"]: ${UNTAGGED_LOBBY}`);
+    // A start-up World named as the template is that lobby already (the dedicated server's own bootstrap starts it so).
+    else if (servers.length > 0 && !startUp.has(typeof t.name === "string" ? t.name : key)) {
+      lobbyProblems.push(
+        `bootstrap.templates["${key}"]: a dedicated server never starts this lobby, because it starts the start-up server Worlds (${servers.map((w) => `"${w.name}"`).join(", ")}) when there are any. Put the lobby config on one of them, or make them templates.`,
+      );
+    }
+  }
+
   const listened = new Set(links.map((l) => l.to));
   const replaced = new Set(links.filter((l) => startUp.has(l.from) && startUp.has(l.to) && !listened.has(l.from)).map((l) => l.from));
   const linkedClients = config.worlds.filter((w) => replaced.has(w.name));
@@ -95,6 +120,8 @@ export function bootstrapTopology(setting: BootstrapSetting | undefined): Bootst
     hostClient,
     startUpLinked,
     serverStart,
+    serverLobby: serverStart.find((w) => w.lobby) ?? null,
+    lobbyProblems,
     skipped: config.worlds.filter((w) => !isServerConfig(w)).map((w) => w.name),
     serverLinks: links.filter((l) => inServer(l.from) && inServer(l.to)),
     listenLinks: links.filter((l) => !kept.has(l.from) && kept.has(l.to)),
