@@ -278,6 +278,33 @@ export const MAX_EVENT_DEPTH = 16;
 /** At most this many nodes per event; more are dropped. */
 export const MAX_EVENT_NODES = 1024;
 
+/**
+ * The number keys of a 0158 node (ADR 0306): `[min, max]` and the default the parse fills in, the one declaration of
+ * each. The parse clamps to the range; the event editor's node fields (`nodeFields.ts`) take their bounds and defaults
+ * from here. An open end is `Infinity`. `avoidRepeat`'s top (`children - 1`) depends on the node.
+ */
+export const NODE_NUMBERS = {
+  volume: { range: [0, 4], default: 1 },
+  pitch: { range: [0.0625, 16], default: 1 },
+  delay: { range: [0, 60], default: 0 },
+  weight: { range: [0, 1e6], default: 1 },
+  fade: { range: [0, 1e6], default: 0 },
+  gap: { range: [-10, 60], default: 0 },
+  startOffset: { range: [0, Infinity], default: 0 },
+  reset: { range: [0, Infinity], default: 0 },
+  crossfade: { range: [0, 10], default: 0.1 },
+  releaseFade: { range: [0, 1e6], default: 0 },
+  avoidRepeat: { range: [0, Infinity], default: 0 },
+} as const satisfies Record<string, { range: readonly [number, number]; default: number }>;
+
+/** The `[low, high]` keys of a 0158 node (ADR 0306), as `NODE_NUMBERS`: both ends are clamped to `range`; `default` is filled in when absent (none: the key stays absent). */
+export const NODE_PAIRS = {
+  volumeRandom: { range: [-96, 24], default: [0, 0] },
+  pitchRandom: { range: [-48, 48], default: [0, 0] },
+  range: { range: [-Infinity, Infinity] },
+  loopRegion: { range: [0, Infinity] },
+} as const satisfies Record<string, { range: readonly [number, number]; default?: readonly [number, number] }>;
+
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const finite = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 
@@ -380,15 +407,20 @@ class Reader {
     }
     if (isMusicNodeType(raw.type)) return this.musicNode(raw, where, depth);
     this.nodes++;
+    const num = (key: keyof typeof NODE_NUMBERS): number => this.num(raw[key], `${where}.${key}`, NODE_NUMBERS[key].default, ...NODE_NUMBERS[key].range);
+    const pair = (key: keyof typeof NODE_PAIRS): [number, number] | undefined => {
+      const p: { range: readonly [number, number]; default?: readonly [number, number] } = NODE_PAIRS[key];
+      return this.pair(raw[key], `${where}.${key}`, p.default && [p.default[0], p.default[1]], ...p.range);
+    };
     const base: NodeBase = {
-      volume: this.num(raw.volume, `${where}.volume`, 1, 0, 4),
-      pitch: this.num(raw.pitch, `${where}.pitch`, 1, 0.0625, 16),
-      volumeRandom: this.pair(raw.volumeRandom, `${where}.volumeRandom`, [0, 0], -96, 24)!,
-      pitchRandom: this.pair(raw.pitchRandom, `${where}.pitchRandom`, [0, 0], -48, 48)!,
-      delay: this.num(raw.delay, `${where}.delay`, 0, 0, 60),
+      volume: num("volume"),
+      pitch: num("pitch"),
+      volumeRandom: pair("volumeRandom")!,
+      pitchRandom: pair("pitchRandom")!,
+      delay: num("delay"),
       automation: this.automation(raw.automation, `${where}.automation`),
-      weight: this.num(raw.weight, `${where}.weight`, 1, 0, 1e6),
-      fade: this.num(raw.fade, `${where}.fade`, 0, 0, 1e6),
+      weight: num("weight"),
+      fade: num("fade"),
     };
     if (raw.id !== undefined) {
       if (typeof raw.id !== "string" || !MUSIC_ID_PATTERN.test(raw.id)) this.problems.push(`${where}.id: ${JSON.stringify(raw.id)} is not a valid id (1-48 letters, digits, "_" or "-"); ignored.`);
@@ -396,10 +428,10 @@ class Reader {
       else { this.ids.add(raw.id); base.id = raw.id; }
     }
     if (raw.value !== undefined) base.value = this.str(raw.value, `${where}.value`, "");
-    const range = this.pair(raw.range, `${where}.range`, undefined);
+    const range = pair("range");
     if (range) base.range = range;
     const mode = (): PlayMode => this.pick(raw.mode, `${where}.mode`, ["step", "continuous"] as const, "step");
-    const gap = (): number => this.num(raw.gap, `${where}.gap`, 0, -10, 60);
+    const gap = (): number => num("gap");
     const type = raw.type as NodeType;
     switch (type) {
       case "clip": {
@@ -407,9 +439,9 @@ class Reader {
         if (clip === "") this.problems.push(`${where}: clip is empty; it plays nothing.`);
         const node: ClipNode = {
           ...base, type, clip, loop: this.bool(raw.loop, `${where}.loop`, false),
-          startOffset: this.num(raw.startOffset, `${where}.startOffset`, 0, 0), sustain: this.bool(raw.sustain, `${where}.sustain`, false),
+          startOffset: num("startOffset"), sustain: this.bool(raw.sustain, `${where}.sustain`, false),
         };
-        const region = this.pair(raw.loopRegion, `${where}.loopRegion`, undefined, 0);
+        const region = pair("loopRegion");
         if (region) {
           if (region[1] > region[0]) node.loopRegion = region;
           else this.problems.push(`${where}.loopRegion: must be longer than zero; ignored.`);
@@ -423,7 +455,7 @@ class Reader {
         if (type === "layer") return { ...base, type, children };
         return {
           ...base, type, children, mode: mode(), gap: gap(),
-          avoidRepeat: Math.round(this.num(raw.avoidRepeat, `${where}.avoidRepeat`, 0, 0, Math.max(0, children.length - 1))),
+          avoidRepeat: Math.round(this.num(raw.avoidRepeat, `${where}.avoidRepeat`, NODE_NUMBERS.avoidRepeat.default, NODE_NUMBERS.avoidRepeat.range[0], Math.max(0, children.length - 1))),
         };
       }
       case "sequence": {
@@ -431,7 +463,7 @@ class Reader {
         if (children.length === 0) this.problems.push(`${where}: has no children; it plays nothing.`);
         return {
           ...base, type, children, mode: mode(), gap: gap(), loop: this.bool(raw.loop, `${where}.loop`, false),
-          reset: this.num(raw.reset, `${where}.reset`, 0, 0),
+          reset: num("reset"),
         };
       }
       case "switch":
@@ -448,7 +480,7 @@ class Reader {
         const node: SwitchNode = {
           ...base, type, parameter, children,
           onChange: this.pick(raw.onChange, `${where}.onChange`, ["keep", "restart", "crossfade"] as const, "keep"),
-          crossfade: this.num(raw.crossfade, `${where}.crossfade`, 0.1, 0, 10),
+          crossfade: num("crossfade"),
         };
         if (raw.default !== undefined) node.default = this.str(raw.default, `${where}.default`, "");
         return node;
@@ -459,7 +491,7 @@ class Reader {
         const node: SustainNode = { ...base, type, loop, release: this.pick(raw.release, `${where}.release`, ["now", "loopEnd"] as const, "loopEnd") };
         if (raw.start !== undefined) { const s = this.plainNode(raw.start, `${where}.start`, depth + 1); if (s) node.start = s; }
         if (raw.end !== undefined) { const e = this.plainNode(raw.end, `${where}.end`, depth + 1); if (e) node.end = e; }
-        if (raw.releaseFade !== undefined) node.releaseFade = this.num(raw.releaseFade, `${where}.releaseFade`, 0, 0, 1e6);
+        if (raw.releaseFade !== undefined) node.releaseFade = num("releaseFade");
         return node;
       }
     }

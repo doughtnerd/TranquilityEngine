@@ -22,6 +22,7 @@
 // "Per second", "per minute" and "any increment" need the previous samples, so the monitor sees every sample the panel
 // takes and keeps two watches: `CounterWatch` (the spatial counters) and `MusicWatch` (the music rates).
 import type { AudioDebugInfo, AudioStatus, MusicDebugRow, MusicDebugTotals } from "../runtime/backend";
+import { gainToDb } from "./dbScale";
 
 /**
  * What the monitor reads: `Audio.debug()` (`AudioDebugState`) or a backend's own `AudioDebugInfo`. The event runtime adds
@@ -214,7 +215,7 @@ function formatHz(hz: number): string {
 function formatGain(g: number): string {
   if (g >= 0.9995) return "1 (open)";
   if (!(g > 0)) return "0 (silent)";
-  return `${g.toFixed(2)} (${(20 * Math.log10(g)).toFixed(0)} dB)`;
+  return `${g.toFixed(2)} (${gainToDb(g).toFixed(0)} dB)`;
 }
 
 // --- The §9 health rules -----------------------------------------------------------------------------------------

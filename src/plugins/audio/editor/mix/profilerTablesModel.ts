@@ -9,7 +9,8 @@
 import type { CaptureKeyframe, CaptureNames, CaptureSeekState } from "../../runtime/capture/reader";
 import { audioSection } from "../../../../engine/audio/audioSection";
 import { chooseEmptyState } from "./emptyStates";
-import { busFactors, formatDb, treeProducts, type BusFactors } from "./busFactorsModel";
+import { busFactors, treeProducts, type BusFactors } from "./busFactorsModel";
+import { formatDb, gainToDb } from "../dbScale";
 import { nameFilter, type VoiceRow } from "./voiceTableModel";
 
 // --- voice row cells ---------------------------------------------------------------------------------------------------
@@ -50,7 +51,7 @@ export function voiceCells(row: VoiceRow, byId: ReadonlyMap<number, VoiceRow>): 
     state: row.state,
     reason,
     priority: row.priority === null ? DASH : String(row.priority),
-    gain: formatDb(row.gain > 0 ? 20 * Math.log10(row.gain) : -Infinity),
+    gain: formatDb(gainToDb(row.gain)),
     pitch: fixed(row.pitch, 2),
     audibility: row.audibility === null ? DASH : `${Math.round(row.audibility * 100)}%`,
     playhead: `${row.playheadFrames}`,

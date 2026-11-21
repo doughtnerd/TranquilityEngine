@@ -79,8 +79,9 @@ export class Sky extends Component {
     const assetTime = this.timeOfDay < 0 ? this.settings.sun.timeOfDay : Number.NaN;
     const newAsset = this.timeOfDay < 0 && assetTime !== this.seenAssetTime;
     if (this.timeOfDay !== this.seenTime || this.daySpeed !== this.seenSpeed || newAsset) {
-      // Re-anchor: on a new time, start from it; on a new speed alone, carry on from where the sky is.
-      const from = this.timeOfDay !== this.seenTime || newAsset || Number.isNaN(this.seenSpeed) ? this.baseHour() : this.hourAt(now);
+      // Re-anchor: on a new time, start from it; on a new speed alone, carry on from where the sky is, which it reached
+      // at the speed it ran at since the last anchor (the new speed only counts from now).
+      const from = this.timeOfDay !== this.seenTime || newAsset || Number.isNaN(this.seenSpeed) ? this.baseHour() : this.hourAt(now, this.seenSpeed);
       this.seenAssetTime = assetTime;
       this.seenTime = this.timeOfDay;
       this.seenSpeed = this.daySpeed;
@@ -117,8 +118,9 @@ export class Sky extends Component {
     return wrap24(this.timeOfDay >= 0 ? this.timeOfDay : this.settings.sun.timeOfDay);
   }
 
-  private hourAt(now: number): number {
-    return wrap24(this.anchorHour + this.daySpeed * (now - this.anchorTime));
+  /** The hour at game time `now`, running at `speed` hours per second from the anchor. */
+  private hourAt(now: number, speed = this.daySpeed): number {
+    return wrap24(this.anchorHour + speed * (now - this.anchorTime));
   }
 }
 

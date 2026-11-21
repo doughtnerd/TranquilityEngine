@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FADER_MAX_DB, FINE_DRAG_SCALE, UNITY_POSITION, dbToGain, dbToPosition, dragPosition, formatDb, gainToDb, gainToPosition, positionToDb, positionToGain, snapToUnity } from "./faderModel";
+import { FADER_MAX_DB, FINE_DRAG_SCALE, UNITY_POSITION, dbToPosition, dragPosition, gainToPosition, positionToDb, positionToGain, snapToUnity } from "./faderModel";
 
 const SNAP_RADIUS = 0.02;
 
@@ -49,22 +49,6 @@ describe("fader taper", () => {
     expect(gainToPosition(10)).toBe(1);
     expect(gainToPosition(0.0001)).toBe(0);
     expect(gainToPosition(NaN)).toBe(0);
-  });
-
-  it("converts gain and dB", () => {
-    expect(gainToDb(1)).toBe(0);
-    expect(gainToDb(0.5)).toBeCloseTo(-6.0206, 4);
-    expect(gainToDb(0)).toBe(-Infinity);
-    expect(dbToGain(-Infinity)).toBe(0);
-    expect(dbToGain(-20)).toBeCloseTo(0.1, 12);
-  });
-
-  it("formats the readout", () => {
-    expect(formatDb(0)).toBe("-inf");
-    expect(formatDb(1)).toBe("0.0 dB");
-    expect(formatDb(0.5)).toBe("-6.0 dB");
-    expect(formatDb(2)).toBe("+6.0 dB");
-    expect(formatDb(0.0001)).toBe("-inf");
   });
 });
 

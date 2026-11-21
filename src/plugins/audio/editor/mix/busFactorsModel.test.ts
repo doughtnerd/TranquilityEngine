@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CaptureKeyframeBus } from "../../runtime/capture/reader";
-import { FACTOR_LANES, busFactors, formatDb, gainToDb, treeProducts } from "./busFactorsModel";
+import { FACTOR_LANES, busFactors, treeProducts } from "./busFactorsModel";
 
 /** A bus row: `lanes` as [value, target] for authored, runtime, snapshot, monitor, dip (unity when absent). */
 type RowOver = Partial<Omit<CaptureKeyframeBus, "lanes">> & { lanes?: readonly number[] };
@@ -35,18 +35,12 @@ describe("busFactors", () => {
   });
 
   it("gives each factor's dB, -Infinity (never NaN) for 0", () => {
-    expect(gainToDb(1)).toBe(0);
-    expect(gainToDb(0.5)).toBeCloseTo(-6.0206, 4);
-    expect(gainToDb(0)).toBe(-Infinity);
-    expect(gainToDb(-0.1)).toBe(-Infinity);
-    expect(gainToDb(NaN)).toBe(-Infinity);
     const b = busFactors(row({ lanes: [0, 0, 1, 1, 1, 1, 1, 1, 1, 1] }));
     expect(b.factors[0].db).toBe(-Infinity);
     expect(b.product).toBe(0);
     expect(b.productDb).toBe(-Infinity);
     for (const f of b.factors) expect(Number.isNaN(f.db)).toBe(false);
-    expect(formatDb(-Infinity)).toBe("-inf dB");
-    expect(formatDb(-6.0206)).toBe("-6.0 dB");
+    expect(busFactors(row({ lanes: [0.5, 0.5, 1, 1, 1, 1, 1, 1, 1, 1] })).factors[0].db).toBeCloseTo(-6.0206, 4);
   });
 
   it("mute flags zero the authored and runtime factors; a tombstone is reported", () => {

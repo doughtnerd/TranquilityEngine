@@ -59,7 +59,7 @@ describe("nodeFields", () => {
   it("sequence: mode, loop only when continuous, reset only when step, gap only when continuous", () => {
     const step = nodeFields(parseRoot({ type: "sequence", children: [clip()] }), null);
     expect(names(step).slice(0, 2)).toEqual(["mode", "reset"]);
-    expect(need(step, "reset")).toMatchObject({ min: 0, max: 1e6, default: 0 });
+    expect(need(step, "reset")).toMatchObject({ min: 0, max: Infinity, default: 0 }); // the parse sets no top
 
     const cont = nodeFields(parseRoot({ type: "sequence", mode: "continuous", loop: true, children: [clip()] }), null);
     expect(names(cont).slice(0, 3)).toEqual(["mode", "loop", "gap"]);
@@ -140,7 +140,7 @@ describe("nodeFields", () => {
     const blend = parseRoot({ type: "blend", parameter: "P", children: [clip({ range: [0, 0.5] })] }) as BlendNode;
     const bf = nodeFields(blend.children[0], blend);
     expect(names(bf).slice(-3)).toEqual(["range", "fade", "automation"]);
-    expect(need(bf, "range")).toMatchObject({ optional: true, min: -1e6, max: 1e6, default: [0, 1] });
+    expect(need(bf, "range")).toMatchObject({ optional: true, min: -Infinity, max: Infinity, default: [0, 1] }); // the parse sets no ends
     expect(need(bf, "fade")).toMatchObject({ default: 0 });
 
     const root = nodeFields(parseRoot(clip()), null);
@@ -281,6 +281,16 @@ describe("field values", () => {
     const fields = nodeFields(node, null);
     expect(readField(writeField(node, need(fields, "loop"), undefined), need(fields, "loop"))).toBe(false);
     expect(readField(writeField(node, need(fields, "volumeRandom"), undefined), need(fields, "volumeRandom"))).toEqual([0, 0]);
+  });
+
+  it("coerces a start offset, reset or loop region past 1e6 as the parse keeps it (no top), ADR 0306", () => {
+    const node = parseRoot(clip({ startOffset: 2e6, loopRegion: [0, 3e6] }));
+    const fields = nodeFields(node, null);
+    expect(node).toMatchObject({ startOffset: 2e6, loopRegion: [0, 3e6] });
+    expect(coerceField(need(fields, "startOffset"), 2e6)).toBe(2e6);
+    expect(coerceField(need(fields, "loopRegion"), [0, 3e6])).toEqual([0, 3e6]);
+    const step = parseRoot({ type: "sequence", reset: 5e6, children: [clip()] });
+    expect(coerceField(need(nodeFields(step, null), "reset"), 5e6)).toBe(readField(step, need(nodeFields(step, null), "reset")));
   });
 
   it("coerceField: number clamp, integer rounding, non-finite to default", () => {

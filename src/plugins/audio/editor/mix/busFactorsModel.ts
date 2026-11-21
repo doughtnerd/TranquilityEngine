@@ -1,12 +1,13 @@
 // The profiler's bus factors view model (design 0171 api-and-models §7; ADR 0172 §1.3): each bus's seven gain lanes at the
 // cursor's keyframe, their product (the bus's own effective gain), the factors not at unity, dB for each, and the product
-// up the tree. Pure: no DOM, types-only imports.
+// up the tree. Pure: no DOM; dB through the dB scale (`../dbScale.ts`).
 //
 // The keyframe's bus row (§5.5, read by name by the capture reader) holds a value and target for the five main-written
 // lanes (authored, runtime, snapshot, monitor, dip) and one last-reported value each for the core-owned `duck` and
 // `automation`. Those two have no target on the wire, so their target here equals their value.
 
 import type { CaptureKeyframeBus } from "../../runtime/capture/reader";
+import { gainToDb } from "../dbScale";
 
 /** The seven lanes in wire order (`LANE_AUTHORED` 0 … `LANE_AUTOMATION` 6; `Lane` in `engine/audio/mixer.ts`). */
 export const FACTOR_LANES = ["authored", "runtime", "snapshot", "monitor", "dip", "duck", "automation"] as const;
@@ -38,19 +39,6 @@ export interface BusFactors {
   nonUnity: readonly FactorLane[];
   /** The slot is a tombstone (a removed bus kept silent). */
   tombstone: boolean;
-}
-
-/** Linear gain to dB: `-Infinity` for 0, negatives and NaN; never NaN. */
-export function gainToDb(gain: number): number {
-  if (!(gain > 0)) return -Infinity;
-  return 20 * Math.log10(gain);
-}
-
-/** A dB figure for display: "-inf dB" for silence, else one decimal ("-6.0 dB"). */
-export function formatDb(db: number): string {
-  if (db === -Infinity || Number.isNaN(db)) return "-inf dB";
-  if (db === Infinity) return "+inf dB";
-  return `${db.toFixed(1)} dB`;
 }
 
 /** Build one bus's factors from its keyframe row. */

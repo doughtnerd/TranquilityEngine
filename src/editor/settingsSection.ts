@@ -1,6 +1,7 @@
 // A settings section handle (ADR 0253): one top-level `project.json` key as the Project panel's draft holds it,
 // with the key's lenient parser and its defaults behind one interface: read it, write it back, set one value by path,
-// reset it to the defaults, and say what keeps it from saving. The models of the sections plugins add (ADR 0151:
+// reset it to the defaults, and say what keeps it from saving. A `"canonical"` section (ADR 0306, audio) stores what its
+// parse makes of each value set, so the parse's limits are the only ones its edits need. The models of the sections plugins add (ADR 0151:
 // navigation, physics; audio edits a core key) build their edits on it, so each key is parsed, written and defaulted
 // in one place. Pure: the project section (`projectSection.ts`) does the undo, saving and reconciling.
 import type { SettingsDraft, SettingsProblem } from "./projectSettingsModel";
@@ -16,10 +17,14 @@ export interface SettingsSectionSpec<S> {
   parse(written: unknown): { readonly settings: S; readonly problems?: readonly string[] };
   /**
    * How `set` edits (default `"parsed"`): `"parsed"` sets the value in the parsed section and writes the whole section
-   * back, so the file then holds every value; `"written"` changes only that value in what's written (undefined removes
-   * it, and a section left empty is removed), so values never set keep following the engine's defaults.
+   * back, so the file then holds every value, and a value the parse rejects is written as given, so it shows as a
+   * problem until fixed; `"canonical"` (ADR 0306) does the same and then writes what the parse makes of it, so a value
+   * out of range is stored clamped (or rounded) and a rejected one as the parse's fallback, and an edit that leaves the
+   * parsed section as it was gives back the draft itself; `"written"` changes only that value in what's written
+   * (undefined removes it, and a section left empty is removed), so values never set keep following the engine's
+   * defaults.
    */
-  readonly edits?: "parsed" | "written";
+  readonly edits?: "parsed" | "canonical" | "written";
   /** The draft with `settings` as the key's value (default: as given). The audio section prunes built-in rows here. */
   write?(draft: SettingsDraft, settings: S): SettingsDraft;
   /** What's wrong with the key in `draft`, by field. Default: each of the parse's problems, under the key. */
@@ -33,7 +38,7 @@ export interface SettingsSection<S> {
   read(values: object | undefined): S;
   /** `draft` with `settings` written as the key's value. */
   write(draft: SettingsDraft, settings: S): SettingsDraft;
-  /** `draft` with one value set by dotted path (`"tileSize"`, `"build.vertsPerPoly"`, `"walk.radius"`), as given. */
+  /** `draft` with one value set by dotted path (`"tileSize"`, `"build.vertsPerPoly"`, `"walk.radius"`): as given, or as the parse makes it for a `"canonical"` section. */
   set(draft: SettingsDraft, path: string, value: unknown): SettingsDraft;
   /** `draft` with the key removed, so the engine's defaults apply. */
   reset(draft: SettingsDraft): SettingsDraft;
@@ -69,7 +74,11 @@ export function settingsSection<S>(spec: SettingsSectionSpec<S>): SettingsSectio
         const next = setPath(draft[key], at, value, true);
         return { ...draft, [key]: isRecord(next) && Object.keys(next).length === 0 ? undefined : next };
       }
-      return write(draft, setPath(read(draft), at, value, false) as S);
+      const current = read(draft);
+      const edited = setPath(current, at, value, false);
+      if (spec.edits !== "canonical") return write(draft, edited as S);
+      const next = spec.parse(edited).settings;
+      return JSON.stringify(next) === JSON.stringify(current) ? draft : write(draft, next);
     },
     reset: (draft) => ({ ...draft, [key]: undefined }),
     problems: (draft) => (spec.problems ? spec.problems(draft) : (parse(draft).problems ?? []).map((message) => ({ field: key, message }))),

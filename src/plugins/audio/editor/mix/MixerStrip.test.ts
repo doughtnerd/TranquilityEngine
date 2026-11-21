@@ -9,11 +9,11 @@ import { EMPTY_BUS_LOUDNESS, type BusLoudness, type LoudnessTargetReading, type 
 import type { SettingsDraft } from "../../../../editor/sdk";
 import { FADER_MAX_DB, positionToGain } from "./faderModel";
 import { createMeter, resetClip, tickMeter, type MeterState } from "./meterModel";
-import { meterFill } from "../meterFill";
+import { meterFill } from "../dbScale";
 import { METER_FLOOR_DB, meterFill as meterFillFromView } from "../BusMeters";
 import { createMixerModel, type BusReading, type MixerHost, type MixerModel, type Strip } from "./mixerModel";
 import { parseAudioSettings } from "../../../../engine/audio/settings";
-import { MixerStrip, gainReductionDb, targetMarks, type MixerStripProps } from "./MixerStrip";
+import { MixerStrip, targetMarks, type MixerStripProps } from "./MixerStrip";
 
 /** The gain-reduction meter's full scale, dB. */
 const GAIN_REDUCTION_MAX_DB = 24;
@@ -502,10 +502,6 @@ describe("the gain-reduction meter", () => {
   it("appears by itself when the live duck gain is under 1, and saturates", () => {
     expect(find(tree(reading({ duckGain: 0.9 })), byClass("mixer-gr"))).toHaveLength(1);
     expect(one(tree(reading({ duckGain: 0.001 }), true), byClass("mixer-gr-fill")).props.style).toEqual({ transform: "scaleY(1)" });
-    expect(gainReductionDb(0)).toBe(99);
-    expect(gainReductionDb(1)).toBe(0);
-    expect(gainReductionDb(1.5)).toBe(0);
-    expect(gainReductionDb(NaN)).toBe(0);
   });
 });
 
@@ -527,9 +523,9 @@ describe("theme tokens only", () => {
 
 describe("the meter model stays pure (W6 follow-up)", () => {
   const imports = (file: string): string[] => [...readFileSync(new URL(file, import.meta.url), "utf8").matchAll(/^import[^;]*from\s+"([^"]+)"/gm)].map((m) => m[1]!);
-  it("meterModel.ts imports meterFill.ts, not the Preact view, and meterFill.ts imports nothing", () => {
-    expect(imports("./meterModel.ts")).toEqual(["../meterFill"]);
-    expect(imports("../meterFill.ts")).toEqual([]);
+  it("meterModel.ts imports the dB scale, not the Preact view, and dbScale.ts imports nothing", () => {
+    expect(imports("./meterModel.ts")).toEqual(["../dbScale"]);
+    expect(imports("../dbScale.ts")).toEqual([]);
   });
   it("BusMeters re-exports the same function and floor", () => {
     expect(meterFillFromView).toBe(meterFill);
