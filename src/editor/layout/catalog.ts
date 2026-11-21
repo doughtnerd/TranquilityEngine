@@ -4,7 +4,7 @@
 // panel registry (`registeredPanels.ts`), where the built-in panels (`panels.builtin.ts`) and plugins'
 // panels are registered the same way.
 import type { PanelContribution, PanelDock } from "../sdk/contributions";
-import type { PanelOwner } from "../sdk/panelOwners";
+import type { ContributionOwner } from "../sdk/registry";
 
 /** A panel type: a built-in panel's id ("scene", "hierarchy", …) or the id of a panel a plugin registered (ADR 0133). */
 export type PanelId = string;
@@ -12,14 +12,14 @@ export type PanelId = string;
 /** What the layout model knows about a panel type: a panel contribution's facts (its view aside), and its plugin. */
 export type PanelFacts = Omit<PanelContribution, "id" | "view"> & {
   /** The plugin that registered it; none for a built-in panel. */
-  readonly owner?: PanelOwner;
+  readonly owner?: ContributionOwner;
 };
 
 /** Every panel type the editor can show now, in registration order (the built-in panels first). */
 export type PanelCatalog = ReadonlyMap<PanelId, PanelFacts>;
 
 /** A catalog of `panels` (contributions, or anything with an id and the facts), in their order; `ownerOf` names each one's plugin. */
-export function panelCatalog(panels: Iterable<PanelFacts & { readonly id: PanelId }>, ownerOf: (id: PanelId) => PanelOwner | undefined = () => undefined): PanelCatalog {
+export function panelCatalog(panels: Iterable<PanelFacts & { readonly id: PanelId }>, ownerOf: (id: PanelId) => ContributionOwner | undefined = () => undefined): PanelCatalog {
   const catalog = new Map<PanelId, PanelFacts>();
   for (const { id, title, beside, onDemand, single, closable, detachable, dock } of panels) {
     const owner = ownerOf(id);
