@@ -1,6 +1,6 @@
 # 0236. One launch module starts a game for the player, the dedicated server and play mode
 
-- **Status:** Proposed
+- **Status:** Proposed; amended by 0319 (the game files are a project context)
 - **Date:** 2026-11-09
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

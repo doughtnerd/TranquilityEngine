@@ -11,6 +11,7 @@ import { Graphics } from "../render/Graphics";
 import type { FrameMonitor } from "../render/qualityDetect";
 import { LinkApplier } from "./linkApplier";
 import { bootProject } from "./projectBoot";
+import type { ProjectContext } from "./projectContext";
 import { ViewAllocator } from "./viewAllocator";
 import { listSystemCatalog } from "./systems";
 import { World, type WorldKind } from "./World";
@@ -24,7 +25,10 @@ export type { WorldViewState } from "./worldOwner";
 export interface EngineOptions {
   /** Project settings (usually the game's `project.json`). */
   project?: ProjectSettingsInput;
-  /** Asset sources, e.g. `Assets.fromGlob(import.meta.glob("./**\/*.png", { eager: true, import: "default" }))`. */
+  /**
+   * Asset sources, e.g. `Assets.fromGlob(import.meta.glob("./**\/*.png", { eager: true, import: "default" }))`.
+   * Registered while the Engine lives; `dispose()` removes them (ADR 0319).
+   */
   assets?: AssetSource | AssetSource[];
   /** Element the canvas is placed in. Omit (or pass `headless: true`) to run without rendering. */
   container?: HTMLElement;
@@ -104,6 +108,8 @@ export class Engine implements BootstrapEngine, WorldOwner {
   private rafId = 0;
   /** Automatic quality (ADR 0055): watches the first seconds of play and steps the tier down if they're slow. */
   private qualityMonitor: FrameMonitor | null = null;
+  /** The process globals this Engine registered (ADR 0319), released by `dispose`. */
+  private context: ProjectContext | null = null;
   private monitorFrames = 0;
   private lastTime = 0;
   private running = false;
@@ -140,20 +146,21 @@ export class Engine implements BootstrapEngine, WorldOwner {
     const engine = new Engine(options);
     const kind = options.kind ?? "runtime";
     notifyEngineLifecycle("created", kind);
-    engine.qualityMonitor = await bootProject(engine.settings, {
-      project: options.project,
-      assets: options.assets,
-      storage: options.storage,
-      draws: !options.headless && !!options.container,
-      kind,
-      quality: options.quality ?? "player",
-    });
-
     // The editor's Engine holds just the Editor World unless it's told otherwise (ADR 0022).
     const ownWorld = kind !== "runtime" && options.bootstrap === undefined;
     const setting = options.bootstrap ?? engine.settings.bootstrap;
-    const bootstrap: Bootstrap = ownWorld ? (e) => void e.createWorld(KIND_WORLDS[kind]) : await resolveBootstrap(setting, { loadScript: options.loadScript });
     try {
+      const booted = await bootProject(engine.settings, {
+        project: options.project,
+        assets: options.assets,
+        storage: options.storage,
+        draws: !options.headless && !!options.container,
+        kind,
+        quality: options.quality ?? "player",
+      });
+      engine.context = booted.context;
+      engine.qualityMonitor = booted.monitor;
+      const bootstrap: Bootstrap = ownWorld ? (e) => void e.createWorld(KIND_WORLDS[kind]) : await resolveBootstrap(setting, { loadScript: options.loadScript });
       await bootstrap(engine);
       const starting = engine.starting!;
       engine.starting = null;
@@ -163,7 +170,7 @@ export class Engine implements BootstrapEngine, WorldOwner {
       await engine.links.startUp(ownWorld ? [] : bootstrapLinks(setting));
       await Promise.all(starting);
     } catch (err) {
-      engine.dispose(); // no half-made Engine left holding a canvas and input listeners
+      engine.dispose(); // no half-made Engine left holding a canvas, input listeners or its project context
       throw err;
     }
     World.active = engine.defaultWorld;
@@ -208,7 +215,7 @@ export class Engine implements BootstrapEngine, WorldOwner {
 
     const tags = c.tags ?? DEFAULT_WORLD_TAGS;
     const kind: WorldKind = tags.includes("editor") ? "editor" : tags.includes("server") ? "server" : "runtime";
-    const world = new World(kind, this.options.project ?? {}, { name: c.name, tags });
+    const world = new World(kind, this.settings, { name: c.name, tags });
     world._owner = this;
     if (c.tickRate !== undefined) world.time.fixedDeltaTime = 1 / c.tickRate;
     if (c.timeScale !== undefined) world.time.timeScale = c.timeScale;
@@ -476,7 +483,11 @@ export class Engine implements BootstrapEngine, WorldOwner {
     });
   }
 
-  /** Stop the loop, destroy every World's nodes (scripts get onDestroy, audio stops) and release GPU resources. */
+  /**
+   * Stop the loop, destroy every World's nodes (scripts get onDestroy, audio stops), release GPU resources, then
+   * release the project context (ADR 0319): the asset sources it was given go, and storage goes back to the backend
+   * of the Engine created before it that's still alive (the editor's, after Play), or the one in use before.
+   */
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
@@ -491,6 +502,8 @@ export class Engine implements BootstrapEngine, WorldOwner {
     this.configs.clear();
     this.views.dispose();
     if (World.active && worlds.includes(World.active)) World.active = null;
+    this.context?.release();
+    this.context = null;
     notifyEngineLifecycle("disposed", this.options.kind ?? "runtime");
   }
 }

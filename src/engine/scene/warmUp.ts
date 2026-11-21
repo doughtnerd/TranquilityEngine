@@ -7,7 +7,6 @@
  */
 import { Assets } from "./Assets";
 import { resolveScene } from "./resolvedScene";
-import { loadSceneFile } from "./SceneLoader";
 export { scriptAssetRefs } from "./scriptAssetRefs";
 
 /** One mesh to warm: what a MeshRenderer with this data draws, in every pass the frame puts it in. */
@@ -140,12 +139,10 @@ export function warmSet(path: string | null, extra: readonly string[] = []): War
     for (const r of referenced) walkFile(r);
   };
   if (path) walkFile(path);
-  let listed: unknown = undefined;
-  try {
-    listed = path ? loadSceneFile(bare(path)).settings?.preload : undefined;
-  } catch {
-    /* reported by the load itself */
-  }
+  // The scene's `settings.preload`, from the file the resolved view already read (missing or broken: nothing).
+  const root = path ? bare(path) : null;
+  const settings = root ? resolveScene(root).raw.get(root)?.settings : undefined;
+  const listed = settings && typeof settings === "object" ? (settings as { preload?: unknown }).preload : undefined;
   for (const p of [...(Array.isArray(listed) ? listed : []), ...extra, ...scriptRefs]) {
     if (typeof p === "string" && ASSET_FILE.test(p)) walkFile(p);
   }
