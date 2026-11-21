@@ -236,8 +236,7 @@ export class ServerReplication {
   ) {
     this.sendRate = session.tickRate;
     // ADR 0101: the World config's `replication` settings.
-    const engine = world._engine as { _worldConfig?(name: string): { replication?: ReplicationOptions } | null } | null;
-    const settings = engine?._worldConfig?.(world.name)?.replication;
+    const settings = world._owner?._worldConfig(world.name)?.replication;
     if (settings) applyReplicationOptions(this, settings);
   }
 

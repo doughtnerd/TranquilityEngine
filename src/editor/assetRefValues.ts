@@ -5,6 +5,7 @@
 // or `/`, optionally followed by `#slice` (ADR 0040): `asset:images/sheet.png#walk_0`.
 import { normalizeAssetPath } from "../engine/scene/Assets";
 import { REMOVE_FIELD, mapSceneFile } from "../engine/scene/sceneFileWalk";
+import { mapFieldNodeRefs } from "../engine/scene/nodeReferences";
 import type { NodeEntry, SceneFile } from "./document";
 
 /** A reference string split up: what came before the path, the path, and the slice name (or null). */
@@ -43,10 +44,10 @@ export function namesAsset(value: unknown, path: string): boolean {
 }
 
 /**
- * `value` without anything naming `path` (object keys and array items naming it go), and with
- * `{ $node: id }` references to `removed` nodes set to null. `changed` says whether anything did.
+ * `value` without anything naming `path` (object keys and array items naming it go). `changed`
+ * says whether anything did.
  */
-function cleanValue(value: unknown, path: string, removed: ReadonlySet<string>): { value: unknown; changed: boolean } {
+function cleanValue(value: unknown, path: string): { value: unknown; changed: boolean } {
   if (Array.isArray(value)) {
     let changed = false;
     const out: unknown[] = [];
@@ -55,15 +56,13 @@ function cleanValue(value: unknown, path: string, removed: ReadonlySet<string>):
         changed = true;
         continue;
       }
-      const c = cleanValue(item, path, removed);
+      const c = cleanValue(item, path);
       changed ||= c.changed;
       out.push(c.value);
     }
     return { value: out, changed };
   }
   if (value && typeof value === "object") {
-    const ref = (value as { $node?: unknown }).$node;
-    if (typeof ref === "string" && Object.keys(value).length === 1) return removed.has(ref) ? { value: null, changed: true } : { value, changed: false };
     let changed = false;
     const out: Record<string, unknown> = {};
     for (const [key, v] of Object.entries(value)) {
@@ -71,7 +70,7 @@ function cleanValue(value: unknown, path: string, removed: ReadonlySet<string>):
         changed = true;
         continue;
       }
-      const c = cleanValue(v, path, removed);
+      const c = cleanValue(v, path);
       changed ||= c.changed;
       out[key] = c.value;
     }
@@ -100,8 +99,10 @@ export function sceneWithoutAsset(file: SceneFile, path: string): { file: SceneF
     },
     field: (_component, _field, value) => {
       if (namesAsset(value, path)) return REMOVE_FIELD;
-      const c = cleanValue(value, path, removed);
-      return c.changed ? c.value : value;
+      // References to removed nodes become None, where a reference can sit (nodeReferences.ts, ADR 0280).
+      const unref = mapFieldNodeRefs(value, (id) => (removed.has(id) ? null : id));
+      const c = cleanValue(unref, path);
+      return c.changed ? c.value : unref;
     },
   });
   return { file: out, removedNodes: [...removed], changed: out !== file };

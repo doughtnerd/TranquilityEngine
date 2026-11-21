@@ -17,6 +17,7 @@ import type { NodeTemplate } from "./sdk/contributions";
 import { whyNotEdit } from "./editGate";
 import type { OpenScene } from "./state";
 import { undoStep } from "./undoStep";
+import { mapEntryNodeRefs } from "../engine/scene/nodeReferences";
 
 type Vec3 = readonly [number, number, number];
 
@@ -238,22 +239,6 @@ function draftsOf(source: InsertSource, spot: Spot): Draft[] {
   }
 }
 
-/** Replace every `{"$node": id}` in `value` (deeply) using `map`; ids it returns null for become null. */
-function remapReferences(value: unknown, map: (id: string) => string | null): unknown {
-  if (Array.isArray(value)) return value.map((v) => remapReferences(v, map));
-  if (value && typeof value === "object") {
-    const o = value as Record<string, unknown>;
-    if (typeof o.$node === "string" && Object.keys(o).length === 1) {
-      const to = map(o.$node);
-      return to === null ? null : { $node: to };
-    }
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(o)) out[k] = remapReferences(v, map);
-    return out;
-  }
-  return value;
-}
-
 /**
  * The drafts ready to insert at `spot`: ids minted, parents and references re-pointed (other references kept
  * only for copies pasted back into their own scene, never inside an instance), each root named uniquely among
@@ -288,9 +273,7 @@ function finish(doc: SceneDocument, drafts: readonly Draft[], spot: Spot, sameSc
       } else if (entry.parent != null) {
         entry.parent = map.get(entry.parent) ?? entry.parent;
       }
-      for (const c of entry.components ?? []) if (c.data) c.data = remapReferences(c.data, refer) as typeof c.data;
-      for (const o of entry.overrides ?? []) if (o.value !== undefined) o.value = remapReferences(o.value, refer);
-      return entry;
+      return mapEntryNodeRefs(entry, refer);
     });
   });
 }

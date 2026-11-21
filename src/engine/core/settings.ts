@@ -3,6 +3,7 @@ import { parseNavigationSettings, type NavigationSettings } from "../nav/setting
 import { parseAudioSettings, type AudioSettings } from "../audio/settings";
 import type { BootstrapSetting } from "./worlds";
 import { lobbyOptionProblems } from "../net/lobby/protocol";
+import { bootstrapTopology } from "./bootstrapTopology";
 
 /** How the game canvas scales to its container (see `ProjectSettings.display.scaleMode`). */
 export type ScaleMode = "fit" | "stretch" | "pixel-perfect";
@@ -404,6 +405,8 @@ export function validateBootstrap(setting: unknown, catalog?: readonly { readonl
       }
     }
   }
+  // Lobbies a dedicated server wouldn't run (ADR 0281): classified by the bootstrap topology, once the shape is right.
+  if (problems.length === 0) problems.push(...(bootstrapTopology(setting as unknown as BootstrapSetting)?.lobbyProblems ?? []));
   return problems;
 }
 

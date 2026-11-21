@@ -10,17 +10,7 @@
 import type { RuntimePlugin } from "../../runtimeContext";
 import { physicsManifest } from "../manifest";
 import { Buoyancy, BUOYANCY_SYSTEM } from "./Buoyancy";
-import { CharacterController } from "./CharacterController";
-import { CharacterController2D } from "./CharacterController2D";
-import { BoxCollider, CapsuleCollider, MeshCollider, SphereCollider } from "./Collider";
-import { BoxCollider2D, CircleCollider2D, EdgeCollider2D, PolygonCollider2D } from "./Collider2D";
-import { BallJoint, FixedJoint, HingeJoint, RopeJoint, SliderJoint, SpringJoint } from "./Joint";
-import { FixedJoint2D, HingeJoint2D, RopeJoint2D, SliderJoint2D, SpringJoint2D } from "./Joint2D";
-import { RigidBody } from "./RigidBody";
-import { RigidBody2D } from "./RigidBody2D";
-import { PHYSICS_2D_SERVICE, PHYSICS_2D_SYSTEMS } from "./systems2d";
-import { PHYSICS_3D_SERVICE, PHYSICS_3D_SYSTEMS } from "./systems3d";
-import { TilemapCollider2D } from "./TilemapCollider2D";
+import { PHYSICS_2D_SERVICE, PHYSICS_3D_SERVICE, PHYSICS_DIMENSIONS, PHYSICS_SYSTEMS } from "./dimensions";
 
 // 2D
 export { RigidBody2D, type BodyType, type ForceMode } from "./RigidBody2D";
@@ -38,6 +28,7 @@ export { CharacterController, type CollisionFlags, type ControllerColliderHit } 
 export { AxisJoint, BallJoint, FixedJoint, HingeJoint, Joint, RopeJoint, SliderJoint, SpringJoint, type JointLimits, type JointMotor, type JointSpring } from "./Joint";
 export { CollisionEvents, TriggerEvents, PHYSICS_3D, physics3DOf, type PhysicsEvent } from "./systems3d";
 export { Buoyancy, type BuoyancyMode } from "./Buoyancy";
+export { physicsDimensionOf } from "./dimensions";
 // Backends (ADR 0137)
 export { PHYSICS_BACKENDS, physicsBackends, registerPhysicsBackend, selectPhysicsBackend } from "./backend";
 export type * from "./backend";
@@ -45,9 +36,10 @@ export type * from "./backend";
 export const physicsRuntimePlugin: RuntimePlugin = {
   manifest: physicsManifest,
   activate(context) {
-    context.registerComponents([RigidBody2D, BoxCollider2D, CircleCollider2D, PolygonCollider2D, EdgeCollider2D, TilemapCollider2D, CharacterController2D, FixedJoint2D, HingeJoint2D, SliderJoint2D, RopeJoint2D, SpringJoint2D]);
-    context.registerComponents([RigidBody, BoxCollider, SphereCollider, CapsuleCollider, MeshCollider, CharacterController, FixedJoint, HingeJoint, SliderJoint, BallJoint, RopeJoint, SpringJoint, Buoyancy]);
-    context.registerEngineSystems([...PHYSICS_2D_SYSTEMS, ...PHYSICS_3D_SYSTEMS, BUOYANCY_SYSTEM]);
+    // Each dimension's Components and systems come from its description (ADR 0283); Buoyancy is in neither.
+    for (const d of PHYSICS_DIMENSIONS) context.registerComponents(d.components);
+    context.registerComponents([Buoyancy]);
+    context.registerEngineSystems([...PHYSICS_SYSTEMS, BUOYANCY_SYSTEM]);
     context.registerWorldService(PHYSICS_2D_SERVICE);
     context.registerWorldService(PHYSICS_3D_SERVICE);
   },

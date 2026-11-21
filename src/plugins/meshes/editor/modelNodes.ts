@@ -1,5 +1,6 @@
 // What adding a model to a scene makes (ADR 0044, 0118): the Meshes plugin's `addToScene` policy for
 // the `model` asset kind. Moved from the shell's asset browser (ADR 0147).
+import { Color } from "../../../engine/core/math";
 import { composeMatrix, localPoseFromMatrix } from "../../../engine/render/gizmoMath";
 import { modelTreeIfLoaded, type NodePose } from "../../../engine/scene/models";
 import type { NodeEntry, NodeTemplate } from "../../../editor/sdk";
@@ -91,8 +92,7 @@ export function modelNodeTemplates(modelPath: string, position: Vec3 = [0, 0, 0]
     const components: NonNullable<NodeEntry["components"]> = [{ type: "engine.Transform", data: transformData(parent, node.pose, own) }];
     if (node.light) {
       const l = node.light;
-      const hex = (c: number) => Math.round(Math.min(1, Math.max(0, c)) * 255).toString(16).padStart(2, "0");
-      const data: Record<string, unknown> = { type: l.type, color: `#${hex(l.color[0])}${hex(l.color[1])}${hex(l.color[2])}`, intensity: l.intensity };
+      const data: Record<string, unknown> = { type: l.type, color: new Color(l.color[0], l.color[1], l.color[2]).toHex(), intensity: l.intensity };
       if (l.type !== "directional") data.range = l.range;
       if (l.type === "spot") {
         data.spotAngle = Math.round(l.spotAngle * 1e4) / 1e4;

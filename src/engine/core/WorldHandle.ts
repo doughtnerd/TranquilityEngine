@@ -6,14 +6,8 @@ import { connectWorld, connectWorlds, listenWorld, netSession } from "../net/ses
 import { SceneManager } from "../scene/SceneManager";
 import { World } from "./World";
 import type { WorldHandle, WorldTag } from "./worlds";
+import type { WorldOwner } from "./worldOwner";
 import { _setWorldServiceLookup } from "./worldServices";
-
-/** @internal What a handle needs from the Engine that owns its World. */
-export interface WorldOwner {
-  _destroyWorld(world: World): void;
-  /** The server World a bootstrap link connected `client` to, if any (ADR 0062). */
-  _linkedServer?(client: World): World | null;
-}
 
 /** Handles to their Worlds, for engine internals that take a handle (`Lobby.host`, ADR 0068). */
 const worldsByHandle = new WeakMap<WorldHandle, World>();
@@ -96,7 +90,7 @@ export class WorldHandleImpl implements WorldHandle {
       return;
     }
     if (!(server instanceof WorldHandleImpl) || !server.alive) throw new Error(`Can't connect World "${this.name}" to "${server.name}": it isn't a live World.`);
-    if (this.#owner._linkedServer?.(world) === server.#world) {
+    if (this.#owner._linkedServer(world) === server.#world) {
       console.warn(`[myco] World "${this.name}" is already connected to "${server.name}" by a link in the project's bootstrap; connect() did nothing.`);
       return;
     }

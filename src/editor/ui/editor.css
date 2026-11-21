@@ -281,7 +281,6 @@ button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px
 .fields .none { color: var(--muted); font-style: italic; }
 .fields .vec { display: flex; gap: 8px; flex-wrap: wrap; }
 .fields .vec em { color: var(--muted); font-style: normal; }
-.fields .color { display: inline-flex; align-items: center; gap: 6px; }
 .fields .swatch { width: 14px; height: 14px; border-radius: 3px; border: 1px solid var(--border); }
 .fields .ref { color: var(--link); }
 .fields .nested { display: flex; flex-direction: column; gap: 2px; }
@@ -309,7 +308,6 @@ button:disabled:hover { background: var(--button); }
 .fields .axis em { font-style: normal; }
 .fields label.scrub { cursor: ew-resize; user-select: none; }
 .fields input[type="color"] { width: 28px; height: 20px; padding: 0; border: 1px solid var(--border); background: none; }
-.fields .hex, .fields .alpha { color: var(--muted); }
 
 .toolbar { flex-wrap: wrap; }
 .toolbar .project-name { align-self: center; margin-left: 10px; color: var(--muted); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

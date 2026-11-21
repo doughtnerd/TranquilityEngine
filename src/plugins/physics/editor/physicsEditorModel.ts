@@ -1,21 +1,20 @@
 // The Physics plugin's editor-side logic, as pure functions (ADR 0137): which Components the Add
 // Component menu marks "(no physics backend)", and the Project panel's 2D and 3D backend dropdowns.
-import type { PhysicsDimension } from "../runtime";
+import { physicsDimensionOf, type PhysicsDimension } from "../runtime";
 import type { SettingsDraft } from "../../../editor/sdk";
 import { physicsSettings } from "./physicsSettingsModel";
-
-/** The dimension a Physics Component works in: ids ending in "2D" are 2D (RigidBody2D, TilemapCollider2D…), the rest 3D. */
-const componentDimension = (type: string): PhysicsDimension => (/2D$/.test(type) ? "2d" : "3d");
 
 const NO_BACKEND_NOTE = "(no physics backend)";
 
 /**
- * The note after a Component's name in Add Component: "(no physics backend)" when `myco.physics` is active,
- * the Component is its, and no backend is registered for its dimension; otherwise null. Still addable.
+ * The note after a Component's name in Add Component: "(no physics backend)" when `myco.physics` is active, the
+ * Component is its, it works in a dimension (the runtime's dimension descriptions, ADR 0283; Buoyancy is in
+ * neither), and no backend is registered for that dimension; otherwise null. Still addable.
  */
 export function noBackendNote(type: string, state: { pluginOf(type: string): string | undefined; backendCount(dimension: PhysicsDimension): number }): string | null {
   if (state.pluginOf(type) !== "myco.physics") return null;
-  return state.backendCount(componentDimension(type)) === 0 ? NO_BACKEND_NOTE : null;
+  const dimension = physicsDimensionOf(type);
+  return dimension !== null && state.backendCount(dimension) === 0 ? NO_BACKEND_NOTE : null;
 }
 
 const DEFAULT_BACKEND_LABEL = "Default (only registered)";

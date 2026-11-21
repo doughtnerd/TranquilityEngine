@@ -47,6 +47,7 @@ export const particlesEditorPlugin: EditorPlugin = {
       panel: PARTICLE_GRAPH_PANEL,
       inspector: assetInspector,
       create: { label: "New Particle Sub-graph", what: "particle sub-graphs" },
+      referencedAs: ["particlesubgraph"],
     });
     context.registerAssetKind({
       id: "particleblock",
@@ -58,6 +59,7 @@ export const particlesEditorPlugin: EditorPlugin = {
       panel: PARTICLE_GRAPH_PANEL,
       inspector: assetInspector,
       create: { label: "New Particle Block", what: "particle blocks" },
+      referencedAs: ["particleblock"],
     });
     context.registerPanel({
       id: PARTICLE_GRAPH_PANEL,

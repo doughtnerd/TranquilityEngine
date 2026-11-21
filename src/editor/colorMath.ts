@@ -15,6 +15,12 @@ export const toHex = ([r, g, b]: RGB) => `#${[r, g, b].map((c) => Math.round(Mat
 
 export const rgb = (hex: string): RGB => parseHex(hex) ?? [0, 0, 0];
 
+/** `#rrggbb` with opacity `a` (0–1) appended as `aa` when below 1: the `#rrggbb[aa]` form asset files store. */
+export function hexWithAlpha(hex: string, a: number): string {
+  const opaque = toHex(rgb(hex));
+  return a >= 1 ? opaque : `${opaque}${Math.round(Math.max(0, a) * 255).toString(16).padStart(2, "0")}`;
+}
+
 /** `a` moved `t` (0–1) of the way to `b`. */
 export function mix(a: string, b: string, t: number): string {
   const x = rgb(a), y = rgb(b);

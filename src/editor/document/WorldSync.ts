@@ -217,9 +217,7 @@ export class WorldSync {
       if (ref.element === undefined) writeField(node, ref.type, ref.index, ref.field, { $node: ref.to }, this.resolve);
       else {
         // A list field: write the whole list again, so every item re-resolves.
-        const [id, ...target] = ref.path;
-        const raw = this.doc.isPrefabInstance(id) ? this.doc.overrideValue(id, target, ref.type, ref.field, ref.index) : this.doc.fieldValue(id, ref.type, ref.field, ref.index);
-        writeField(node, ref.type, ref.index, ref.field, raw, this.resolve);
+        writeField(node, ref.type, ref.index, ref.field, ref.value, this.resolve);
       }
     }
   }

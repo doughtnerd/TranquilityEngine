@@ -45,21 +45,10 @@
 .pe-badge { padding: 0 6px; border-radius: 9px; background: var(--badge); color: var(--badge-text); font-size: 10px; font-weight: 400; line-height: 16px; }
 
 /* --- rows --- */
-.pe-value-row { margin: 2px 0; }
-.pe-row { display: grid; grid-template-columns: minmax(70px, 38%) minmax(0, 1fr) auto; gap: 6px; align-items: center; margin: 2px 0; }
-.pe-row > .pe-value:last-child { grid-column: 2 / 4; }
-.pe-label { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pe-value { display: flex; align-items: center; gap: 4px; min-width: 0; }
-.pe-pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 4px; width: 100%; }
-.pe-pair > .pe-color-field { min-width: 0; }
 .pe-vec { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; width: 100%; }
 .pe-axis { display: flex; align-items: center; gap: 3px; min-width: 0; }
 .pe-axis em { color: var(--muted); font-style: normal; font-size: 10px; text-transform: uppercase; }
-.pe-color-field { display: flex; align-items: center; gap: 4px; min-width: 0; }
-.pe-color-field .pe-num { width: 44px; flex: none; }
 /* The mode picker is a small arrow button, as in Unity: its options say Constant, Random, Curve…, and the value beside it shows which. */
-.particle-effect-editor select.pe-mode { width: 20px; flex: none; font-size: 11px; padding: 1px 0; color: transparent; text-shadow: none; }
-.particle-effect-editor select.pe-mode option { color: var(--text); }
 .pe-list-head { display: flex; align-items: center; justify-content: space-between; margin: 6px 0 2px; color: var(--muted); }
 
 /* --- cards (bursts, behaviours, sub-emitters) --- */
@@ -74,9 +63,6 @@
 .pe-add-behavior { width: 100%; margin-top: 4px; }
 
 /* --- collapsed curve / gradient previews --- */
-.pe-expand { display: flex; align-items: center; gap: 4px; width: 100%; padding: 1px 3px; border: 1px solid var(--border); border-radius: 3px; background: var(--input-bg); color: inherit; cursor: pointer; }
-.pe-expand:hover { border-color: var(--border-strong); }
-.pe-expand.open { border-color: var(--accent); }
 .gradient-bar {
   background-image: var(--gradient), repeating-conic-gradient(var(--border) 0% 25%, var(--bg-sunken) 0% 50%);
   background-size: 100% 100%, 8px 8px;

@@ -1,33 +1,42 @@
 /**
  * The resolved scene view: every effective node and component entry of a scene or prefab file, with
- * prefab instances expanded and every override kind applied the way `Instantiation` (SceneLoader.ts)
- * applies them (ADR 0042, 0086, 0123): `addComponent`, `addNodes` (nested prefabs in added nodes too),
- * `removeComponent`, `removeNode`, `active`, `name`, `order`, `enabled`/`worlds` and field overrides.
+ * prefab instances expanded and every override kind applied. It is one adapter of the
+ * prefab-override fold (`overrideFold.ts`, ADR 0280), the fold `Instantiation` (SceneLoader.ts)
+ * and the editor's prefab Apply run too, so the three agree by construction.
  *
  * Every function that has to know "what does this scene contain" (asset preloading, physics and
- * navigation detection, warm-up, thumbnails, the hierarchy filter) reads this view instead of walking
- * files and guessing at overrides. It never instantiates anything and never throws: a missing or
- * unparseable file, a prefab cycle, or an override aimed at a node that isn't there is skipped.
+ * navigation detection, warm-up, thumbnails, the editor's hierarchy filter and component origins)
+ * reads this view instead of walking files and guessing at overrides. It never instantiates
+ * anything and never throws: a missing or unparseable file, a prefab cycle, or an override aimed
+ * at a node that isn't there is skipped.
  *
  * Pure engine-core: no renderer, no editor. Component data is shared with the source files and never
  * mutated; a field override copies the data it changes.
  */
 import { Assets } from "./Assets";
-import { isScenePath, loadSceneFile, sceneName } from "./SceneLoader";
+import { foldNodes, type FoldAdapter, type FoldPath, type NodeStep, type OverrideHome } from "./overrideFold";
+import { loadSceneFile, sceneName, type ComponentEntry } from "./SceneLoader";
 
 export interface ResolvedComponent {
   type: string;
   data?: unknown;
   enabled?: boolean;
   worlds?: string[];
+  /** Set on a component an `addComponent` override added: where that override is written. */
+  added?: OverrideHome;
 }
 
 export interface ResolvedNode {
   /**
    * Unique within the view: the node's id prefixed by the ids of the instances it sits in
-   * (`bg-a/root/child`), which is how an override's `target` path addresses it.
+   * (`bg-a/root/child`). A prefab's root keeps its own id here (`bg-a/root`); see `path`.
    */
   id: string;
+  /**
+   * The node's path as an override `target` (prefixed with the instance's id) addresses it, which
+   * is the editor's node path: a prefab instance's root is the instance (`["bg-a"]`).
+   */
+  path: readonly string[];
   name?: string;
   /** The id of the parent node in this view; absent for a top-level node. */
   parent?: string;
@@ -35,12 +44,16 @@ export interface ResolvedNode {
   active: boolean;
   /** `active`, and every ancestor's too. */
   activeInHierarchy: boolean;
+  /** The node's tags (its entry's, an instance entry's or an override's), when it has any. */
+  tags?: string[];
   /** The file this node is written in (for instances, the file instanced). */
   source: string;
   /** Set on the node a prefab or scene instance entry stands for: the file it instances. */
   prefab?: string;
   /** True for the node standing for an instanced scene file (it holds that scene's top-level nodes). */
   sceneInstance?: boolean;
+  /** True for a node an `addNodes` override added (for an added instance entry, the node it stands for). */
+  added?: boolean;
   components: ResolvedComponent[];
 }
 
@@ -72,17 +85,12 @@ interface RNode extends ResolvedNode {
   parentNode?: RNode;
   removed?: boolean;
 }
-interface Inst {
-  node: RNode;
-  nested?: Map<string, Inst>;
-}
-
-const MAX_DEPTH = 32;
 
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 const strings = (v: unknown): string[] | undefined => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : undefined);
 
-class Resolver {
+/** The view's fold adapter: plain node and component entries. */
+class Resolver implements FoldAdapter<RNode, ResolvedComponent> {
   readonly all: RNode[] = [];
   readonly files = new Set<string>();
   readonly raw = new Map<string, RawFile>();
@@ -105,147 +113,81 @@ class Resolver {
     return file as RawFile;
   }
 
-  /** Create the nodes of `list` under `parent`; ids are scoped by `prefix`. */
-  file(list: unknown[], parent: RNode | undefined, path: string, prefix: readonly string[], stack: readonly string[]): { roots: RNode[]; ids: Map<string, Inst> } {
-    const ids = new Map<string, Inst>();
-    const roots: RNode[] = [];
-    const pending = list.filter((n): n is Record<string, unknown> => isObject(n) && typeof n.id === "string");
-    let progress = true;
-    while (pending.length && progress) {
-      progress = false;
-      for (let i = 0; i < pending.length; i++) {
-        const entry = pending[i];
-        const parentId = typeof entry.parent === "string" && entry.parent ? entry.parent : undefined;
-        if (parentId !== undefined && !ids.has(parentId)) continue;
-        pending.splice(i--, 1);
-        progress = true;
-        const id = entry.id as string;
-        if (ids.has(id)) continue; // duplicate id: the first wins
-        const parentNode = parentId !== undefined ? ids.get(parentId)!.node : parent;
-        const inst = this.node(entry, parentNode, path, prefix, stack);
-        if (!inst) continue;
-        ids.set(id, inst);
-        if (parentId === undefined) roots.push(inst.node);
-      }
-    }
-    return { roots, ids };
-  }
-
-  private make(id: string, parent: RNode | undefined, source: string, entry: Record<string, unknown>): RNode {
+  private make(step: NodeStep<RNode>, source: string, name: unknown): RNode {
+    const { entry, parent, at } = step;
+    const tags = strings(entry.tags);
     const node: RNode = {
-      id,
-      ...(typeof entry.name === "string" ? { name: entry.name } : {}),
+      id: at.join("/"),
+      path: at,
+      ...(typeof name === "string" ? { name } : {}),
       ...(parent ? { parent: parent.id, parentNode: parent } : {}),
       active: entry.active !== false,
       activeInHierarchy: true,
+      ...(tags ? { tags } : {}),
       source,
+      ...(step.added ? { added: true } : {}),
       components: [],
     };
     this.all.push(node);
     return node;
   }
 
-  private node(entry: Record<string, unknown>, parent: RNode | undefined, path: string, prefix: readonly string[], stack: readonly string[]): Inst | undefined {
-    const id = entry.id as string;
-    const at = [...prefix, id];
-    if (typeof entry.prefab === "string") {
-      const prefabPath = entry.prefab;
-      if (stack.includes(prefabPath) || stack.length >= MAX_DEPTH) return undefined;
-      const prefab = this.load(prefabPath);
-      if (!prefab) return undefined;
-      let container: RNode | undefined;
-      if (isScenePath(prefabPath)) {
-        container = this.make(at.join("/"), parent, prefabPath, entry);
-        container.prefab = prefabPath;
-        container.sceneInstance = true;
-        container.name ??= sceneName(prefabPath);
-      }
-      const { roots, ids } = this.file(prefab.nodes as unknown[], container ?? parent, prefabPath, at, [...stack, prefabPath]);
-      const node = container ?? roots[0];
-      if (!node) return undefined;
-      if (!container) node.prefab = prefabPath;
-      if (typeof entry.name === "string") node.name = entry.name;
-      if (entry.active === false) node.active = false;
-      const inst: Inst = { node, nested: ids };
-      for (const o of Array.isArray(entry.overrides) ? entry.overrides : []) if (isObject(o)) this.override(inst, o, at, path, stack);
-      return inst;
-    }
-    const node = this.make(at.join("/"), parent, path, entry);
-    for (const c of Array.isArray(entry.components) ? entry.components : []) this.addComponent(node, c);
-    return { node };
+  node(step: NodeStep<RNode>): RNode {
+    return this.make(step, step.source, step.entry.name);
   }
 
-  private addComponent(node: RNode, c: unknown): void {
-    if (!isObject(c) || typeof c.type !== "string") return;
-    node.components.push({
+  sceneNode(step: NodeStep<RNode>, scene: string): RNode {
+    const node = this.make(step, scene, step.entry.name ?? sceneName(scene));
+    node.sceneInstance = true;
+    return node;
+  }
+
+  placed(node: RNode, at: FoldPath, step: NodeStep<RNode>): void {
+    node.path = at;
+    if (typeof step.entry.prefab !== "string") return;
+    node.prefab = step.entry.prefab;
+    if (step.added) node.added = true;
+  }
+
+  component(node: RNode, c: ComponentEntry, worlds: readonly string[] | undefined, _scope: unknown, _source: string, _at: FoldPath, home?: OverrideHome): ResolvedComponent {
+    const w = strings(worlds);
+    const out: ResolvedComponent = {
       type: c.type,
       ...(c.data !== undefined ? { data: c.data } : {}),
       ...(typeof c.enabled === "boolean" ? { enabled: c.enabled } : {}),
-      ...(strings(c.worlds) ? { worlds: strings(c.worlds) } : {}),
-    });
+      ...(w ? { worlds: w } : {}),
+      ...(home ? { added: home } : {}),
+    };
+    node.components.push(out);
+    return out;
   }
 
-  private override(inst: Inst, o: Record<string, unknown>, instAt: readonly string[], path: string, stack: readonly string[]): void {
-    let current = inst;
-    let container = inst;
-    let containerAt = instAt;
-    const target = strings(o.target) ?? [];
-    for (let i = 0; i < target.length; i++) {
-      const next = current.nested?.get(target[i]);
-      if (!next) return;
-      current = next;
-      if (current.nested) {
-        container = current;
-        containerAt = [...instAt, ...target.slice(0, i + 1)];
-      }
-    }
-    const node = current.node;
-    if (o.removeNode === true) {
-      if (target.length === 0) return;
-      node.removed = true;
-      container.nested?.delete(target[target.length - 1]);
-      return;
-    }
-    if (Array.isArray(o.addNodes)) {
-      container.nested ??= new Map();
-      const added = o.addNodes.filter((n): n is Record<string, unknown> => isObject(n) && typeof n.id === "string");
-      if (!added.some((n) => container.nested!.has(n.id as string))) {
-        const { ids } = this.file(added, node, path, containerAt, stack);
-        for (const [id, i] of ids) container.nested.set(id, i);
-      }
-    }
-    this.apply(node, o);
+  name(node: RNode, name: string): void {
+    node.name = name;
   }
-
-  private apply(node: RNode, o: Record<string, unknown>): void {
-    if (typeof o.name === "string") node.name = o.name;
-    if (typeof o.active === "boolean") node.active = o.active;
-    if (typeof o.removeComponent === "string") {
-      const at = node.components.findIndex((c) => c.type === o.removeComponent);
-      if (at >= 0) node.components.splice(at, 1);
-    }
-    if (o.addComponent !== undefined) this.addComponent(node, o.addComponent);
-    const order = strings(o.order);
-    if (order) {
-      const pool = [...node.components];
-      const ordered: ResolvedComponent[] = [];
-      for (const type of order) {
-        const at = pool.findIndex((c) => c.type === type);
-        if (at >= 0) ordered.push(...pool.splice(at, 1));
-      }
-      node.components = [...ordered, ...pool];
-    }
-    if (typeof o.component !== "string") return;
-    const index = typeof o.index === "number" ? o.index : 0;
-    const c = node.components.filter((x) => x.type === o.component)[index];
-    if (!c) return;
-    if (o.field === undefined) {
-      if (typeof o.enabled === "boolean") c.enabled = o.enabled;
-      const worlds = strings(o.worlds);
-      if (worlds) c.worlds = worlds;
-    } else if (typeof o.field === "string") {
-      c.data = { ...(isObject(c.data) ? c.data : {}), [o.field]: o.value };
-    }
+  tags(node: RNode, tags: string[]): void {
+    node.tags = strings(tags);
+  }
+  active(node: RNode, active: boolean): void {
+    node.active = active;
+  }
+  removeNode(node: RNode): void {
+    node.removed = true;
+  }
+  removeComponent(node: RNode, c: ResolvedComponent): void {
+    node.components = node.components.filter((x) => x !== c);
+  }
+  order(node: RNode, ordered: readonly ResolvedComponent[]): void {
+    node.components = [...ordered];
+  }
+  enabled(_node: RNode, c: ResolvedComponent, enabled: boolean): void {
+    c.enabled = enabled;
+  }
+  worlds(_node: RNode, c: ResolvedComponent, worlds: string[]): void {
+    c.worlds = strings(worlds);
+  }
+  field(_node: RNode, c: ResolvedComponent | undefined, _type: string, _index: number, field: string, value: unknown): void {
+    if (c) c.data = { ...(isObject(c.data) ? c.data : {}), [field]: value };
   }
 
   finish(path: string): ResolvedScene {
@@ -298,9 +240,7 @@ export function resolveScene(path: string, options: ResolveOptions = {}): Resolv
   }
   const r = new Resolver(options.read ?? defaultRead);
   const file = r.load(path);
-  if (file) {
-    r.file(file.nodes as unknown[], undefined, path, [], [path]);
-  }
+  if (file) foldNodes(r, file.nodes as unknown[], undefined, path);
   const scene = r.finish(path);
   if (!injected) cache.set(path, { scene, deps: [...r.visited].map((p) => [p, rawAsset(p)] as [string, unknown]) });
   return scene;

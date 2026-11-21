@@ -78,7 +78,7 @@ test("create a shader graph, wire a colour property to the output, and see the p
   // A colour property, set to red, placed in the graph and wired to Base Color.
   await panel.getByRole("combobox", { name: "Add property" }).selectOption("color");
   await expect(panel.getByRole("textbox", { name: "Property name" })).toHaveValue("Color");
-  await panel.getByLabel("Color value").fill("#ff0000");
+  await panel.getByLabel("Color value", { exact: true }).fill("#ff0000");
   await expect.poll(async () => (await graphFile(page, file)).properties).toEqual([{ name: "Color", type: "color", value: "#ff0000" }]);
   await panel.getByRole("button", { name: "Place" }).click();
   await expect(node(page, "property1")).toContainText("Color");
@@ -157,7 +157,7 @@ test("editing a graph saves it for the scene's meshes whose material uses it", a
   await page.locator(".asset-tile", { hasText: "pulse.material.json" }).click();
   const material = page.getByLabel("Material", { exact: true });
   await expect(material.getByRole("combobox", { name: "Shader" })).toHaveValue("asset:shaders/pulse.shadergraph.json");
-  await expect(material.getByLabel("Tint value")).toHaveValue("#7a5cff");
+  await expect(material.getByLabel("Tint value", { exact: true })).toHaveValue("#7a5cff");
   await material.getByLabel("Speed value").fill("5");
   await material.getByLabel("Speed value").press("Enter");
   await expect.poll(() => readFile(page, "Playground/materials/pulse.material.json")).toContain('"Speed": 5');

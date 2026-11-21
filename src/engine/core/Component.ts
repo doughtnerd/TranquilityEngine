@@ -71,7 +71,7 @@ export abstract class Component {
    */
   get world(): WorldHandle {
     const world = this._node.world;
-    const handle = (world._engine as { _handleOf?(world: World): WorldHandle | null } | null)?._handleOf?.(world);
+    const handle = world._owner?._handleOf(world);
     if (!handle) throw new Error(`${this.constructor.name}: the World "${world.name}" has no handle: it isn't in an Engine.`);
     return handle;
   }

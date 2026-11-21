@@ -28,8 +28,6 @@
 .sg-property-row { display: flex; gap: 4px; align-items: center; }
 .sg-property-row > input[type="text"] { flex: 1; }
 .sg-property-actions button { padding: 0 6px; }
-.sg-property-color { display: flex; gap: 4px; align-items: center; }
-.sg-property-color input[type="number"] { width: 56px; }
 .sg-property .sg-fields input { width: 46px; }
 
 .sg-preview-card { border-top: 1px solid var(--border); padding: 6px 8px; }
@@ -62,7 +60,7 @@
 .sg-row.setting select, .sg-row.setting input[type="text"] { flex: 1; }
 .sg-fields { display: flex; gap: 2px; }
 .sg-fields input { width: 38px; }
-.sg-row input[type="color"], .sg-property-color input[type="color"] { width: 36px; height: 18px; padding: 0; border: 1px solid var(--border); background: var(--input-bg); }
+.sg-row input[type="color"] { width: 36px; height: 18px; padding: 0; border: 1px solid var(--border); background: var(--input-bg); }
 .sg-bind { color: var(--faint); font-style: italic; }
 
 .sg-port { position: absolute; top: 50%; width: 10px; height: 10px; margin-top: -5px; border-radius: 50%; box-sizing: border-box; border: 2px solid var(--sg-float); background: var(--surface); cursor: crosshair; }

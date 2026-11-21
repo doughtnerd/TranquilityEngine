@@ -1000,41 +1000,27 @@ export function connectWorld(client: World, transportName: string, options: Reco
   ensureSession(client).connect(transportName, address, options);
 }
 
-/** A World whose Engine dropped it (destroyed). Worlds created without an Engine count as alive. */
+/** A World its owner dropped (destroyed, ADR 0281). A World no owner has (made directly, in a test) counts as alive. */
 function isDestroyed(world: World): boolean {
-  const engine = world._engine as { _world?(name: string): World | null } | null;
-  return !!engine?._world && engine._world(world.name) !== world;
+  return world._owner !== null && world._owner._handleOf(world) === null;
 }
 
-/** Loopback addresses made up for links that don't give one, unique per Engine and server World. */
-const engineNumbers = new WeakMap<object, number>();
-let nextEngineNumber = 1;
-
-/**
- * Defaults for listens that give no port or host, per Engine and transport name (ADR 0067, 0255):
- * the dedicated server sets the WebSocket one to its first server World's port (and `--host`), so
- * every World created at runtime in that Engine that listens without a port shares that port, by path.
- */
-const listenDefaults = new WeakMap<object, Map<string, { port?: number; host?: string }>>();
-
-/** @internal Set (or with null, clear) the default port and host for `transportName` listens in `engine`'s Worlds that don't give one. */
-export function setListenDefaults(engine: object, transportName: string, defaults: { port?: number; host?: string } | null): void {
-  let byTransport = listenDefaults.get(engine);
-  if (!byTransport) listenDefaults.set(engine, (byTransport = new Map()));
-  if (defaults) byTransport.set(transportName, { ...defaults });
-  else byTransport.delete(transportName);
-}
+/** Loopback prefixes for Worlds no owner has (made directly, in tests); an owned World's comes from its owner (`_loopbackPrefix`). */
+const ownerlessPrefixes = new WeakMap<World, string>();
+let nextOwnerless = 1;
 
 /** Where `world` listens over `transportName` with `options` (ADR 0255). Throws if a network transport has no port. */
 function worldListenTarget(world: World, transportName: string, options: Record<string, unknown>): ListenTarget {
-  const owner = (world._engine as object | null) ?? world;
+  const owner = world._owner;
   const engineName = () => {
-    let n = engineNumbers.get(owner);
-    if (n === undefined) engineNumbers.set(owner, (n = nextEngineNumber++));
-    return `engine-${n}`;
+    if (owner) return owner._loopbackPrefix;
+    let prefix = ownerlessPrefixes.get(world);
+    if (prefix === undefined) ownerlessPrefixes.set(world, (prefix = `world-${nextOwnerless++}`));
+    return prefix;
   };
   const target = listenTarget(transportName, options, {
-    defaults: world._engine ? listenDefaults.get(world._engine as object)?.get(transportName) : undefined,
+    // The owner's defaults (ADR 0067, 0255): the dedicated server's port for Worlds created at runtime.
+    defaults: owner?._listenDefaults(transportName),
     // A path just makes a loopback name unique (ADR 0067): "engine-1/match/3".
     loopbackPrefix: engineName,
     loopbackName: () => `${engineName()}/${world.name}`,

@@ -13,17 +13,18 @@
  * `LobbyClient` is the one instance behind `Lobby`: a page plays one player (tests play several from
  * several pages, each importing the engine afresh).
  */
-import { templateConfig } from "../../core/bootstrap";
 import { World } from "../../core/World";
 import { _worldOf } from "../../core/WorldHandle";
-import type { WorldConfig, WorldHandle } from "../../core/worlds";
+import type { WorldHandle } from "../../core/worlds";
 import { defineBuiltinSystem } from "../../core/systems";
 import { createBitWriter, type BitWriter } from "../codec";
 import { netSession } from "../session";
 import { _matchOf } from "./match";
 import { hostLobby, lobbyFromConfig, lobbyServerOf } from "./server";
 import { C2S, S2C, cleanName, readMap, readMatch, readView, writeMap, type LobbyMe, type LobbyOptions, type LobbyRoom, type LobbyRoomInfo, type LobbyState, type MatchTicket } from "./protocol";
-import { LOBBY_C2S, LOBBY_S2C, declaredBootstrap, engineOf, type LobbyEngine } from "./wire";
+import { LOBBY_C2S, LOBBY_S2C } from "./wire";
+import type { WorldOwner } from "../../core/worldOwner";
+import { bootstrapTopology } from "../../core/bootstrapTopology";
 import { uniqueName } from "../../core/uniqueName";
 
 /** The player as the lobby shows them to others. */
@@ -53,7 +54,7 @@ class LobbyClient {
   private currentRoom: LobbyRoom | null = null;
   private slot = -1;
   private myName = "";
-  private engine: LobbyEngine | null = null;
+  private engine: WorldOwner | null = null;
   private world: WorldHandle | null = null;
   /** The lobby server World this client made for `"local"`, destroyed with it. */
   private localServer: WorldHandle | null = null;
@@ -103,8 +104,7 @@ class LobbyClient {
   connect(address: string, profile: LobbyProfile, options: LobbyConnectOptions = {}): void {
     if (this.world) this.disconnect();
     this.error = "";
-    const current = World.active;
-    const engine = current ? engineOf(current) : null;
+    const engine = World.active?._owner ?? null;
     if (!engine) throw new Error("Lobby.connect needs an Engine: call it from a World's code (a script or system), after Engine.create.");
     this.engine = engine;
     this.myName = cleanName(profile?.name, "Player");
@@ -133,20 +133,22 @@ class LobbyClient {
   }
 
   /** Make (or find) this page's lobby server World and listen over loopback; its address. */
-  private startLocal(engine: LobbyEngine): string {
+  private startLocal(engine: WorldOwner): string {
     let handle = engine.worlds().find((h) => {
       const w = _worldOf(h);
-      return !!w && (lobbyServerOf(w) !== null || !!engine._worldConfig?.(h.name)?.lobby);
+      return !!w && (lobbyServerOf(w) !== null || !!engine._worldConfig(h.name)?.lobby);
     });
     if (!handle) {
-      const config = lobbyConfig(engine);
-      if (!config) throw new Error('the project has no World or template with a "lobby" config to run locally.');
+      // The lobby the dedicated server would run (ADR 0256, 0281), so a page and the server agree.
+      const topology = bootstrapTopology(engine._declaredBootstrap ?? undefined);
+      const config = topology?.serverLobby;
+      if (!config) throw new Error(topology?.lobbyProblems[0] ?? 'the project has no server World or template with a "lobby" config to run locally.');
       handle = engine.createWorld({ ...config, name: freeWorldName(engine, config.name) });
       this.localServer = handle;
     }
     const world = _worldOf(handle)!;
     if (!lobbyServerOf(world)) {
-      const options = engine._worldConfig?.(handle.name)?.lobby;
+      const options = engine._worldConfig(handle.name)?.lobby;
       if (options) hostLobby(world, options);
     }
     const session = netSession(world);
@@ -299,8 +301,7 @@ class LobbyClient {
     }
     let handle: WorldHandle;
     try {
-      const template = templateConfig(declaredBootstrap(engine) as never, m.clientTemplate);
-      handle = engine.createWorld({ ...template, name: freeWorldName(engine, `Match ${m.matchId} Client`) });
+      handle = engine._createFromTemplate(m.clientTemplate, freeWorldName(engine, `Match ${m.matchId} Client`));
     } catch (err) {
       this.error = `Couldn't create the match client World from template "${m.clientTemplate}": ${(err as Error).message}`;
       return;
@@ -351,8 +352,8 @@ class LobbyClient {
   }
 
   /** Pause the page's other rendering Worlds and give the match World the screen. */
-  private takeScreen(engine: LobbyEngine, match: WorldHandle): void {
-    const states = engine._viewStates?.() ?? [];
+  private takeScreen(engine: WorldOwner, match: WorldHandle): void {
+    const states = engine._viewStates();
     for (const s of states) {
       const handle = engine.findWorld(s.name);
       if (!handle || handle === match || handle.hasTag(LOBBY_CLIENT_TAG) || !s.renders || s.paused) continue;
@@ -362,7 +363,7 @@ class LobbyClient {
     // The Engine hands its main view, and local input with it, to the match World (an Engine draws
     // one World per surface, ADR 0032): it fills the screen as the menu did, in the editor's game
     // view and the player alike. The view comes back when the match World goes.
-    if (!states.find((s) => s.name === match.name)?.renders || !engine._handView) return;
+    if (!states.find((s) => s.name === match.name)?.renders) return;
     try {
       this.detachView = engine._handView(match.name);
     } catch (err) {
@@ -408,18 +409,8 @@ class LobbyClient {
 }
 
 /** `base`, or `base 2`, `base 3`… if a World of that name exists. */
-function freeWorldName(engine: LobbyEngine, base: string): string {
+function freeWorldName(engine: WorldOwner, base: string): string {
   return uniqueName(base, (n) => engine._world(n) !== null);
-}
-
-/** The project's lobby World config: a template with `"lobby"`, else a start-up World with one. */
-function lobbyConfig(engine: LobbyEngine): WorldConfig | null {
-  const declared = declaredBootstrap(engine) as { worlds?: readonly WorldConfig[]; templates?: Readonly<Record<string, Omit<WorldConfig, "name"> & { name?: string }>> } | undefined;
-  if (!declared || typeof declared !== "object") return null;
-  for (const [key, t] of Object.entries(declared.templates ?? {})) {
-    if (t.lobby) return templateConfig(declared as never, key);
-  }
-  return declared.worlds?.find((w) => w.lobby) ?? null;
 }
 
 /**

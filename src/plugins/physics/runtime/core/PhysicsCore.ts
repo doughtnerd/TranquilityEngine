@@ -18,6 +18,7 @@ import type { BodyType, CollisionFlags } from "../../../../engine/physics/types"
 import { GameObject } from "../../../../engine/scene/GameObject";
 import type { Transform } from "../../../../engine/scene/Transform";
 import type { BackendBody, BackendCharacter, BodySettings, CharacterSettings, DimensionTypes, JointDesc, JointSettings, PhysicsCapabilities, PhysicsWorldBackend, Pose } from "../backend";
+import { bodyInertia, bodyMass, type BodyCommands } from "../bodyCommands";
 import type { BodyState, ColliderState, JointState } from "./state";
 
 /** @internal The RigidBody fields the core reads, in either dimension. */
@@ -30,6 +31,7 @@ export interface BodyComponent<D extends DimensionTypes> extends Component {
   angularDrag: number;
   interpolate: boolean;
   _state: BodyState<D> | null;
+  readonly _commands: BodyCommands<D>;
 }
 
 /** @internal The collider fields the core reads. */
@@ -127,8 +129,6 @@ export abstract class PhysicsCore<D extends DimensionTypes, T extends CoreTypes<
   protected abstract lerpRotation(a: D["rot"], b: D["rot"], alpha: number): D["rot"];
   protected abstract poseDiffers(a: Pose<D>, b: Pose<D>): boolean;
   protected abstract bodySettings(rb: T["body"]): BodySettings;
-  /** The velocity, angular velocity (radians), force and torque scripts left for the coming step; cleared as they're taken. */
-  protected abstract takePending(rb: T["body"]): { velocity: number[] | null; angularVelocity: number[] | null; force: number[]; torque: number[] };
   /** The collider's signature (rebuilt when it changes) and what its shape is built from; null while it can't be built yet (a mesh loading). */
   protected abstract colliderSource(c: T["collider"], active: boolean): { signature: string; scale: readonly number[]; source?: readonly unknown[] | null } | null;
   protected abstract colliderShape(c: T["collider"], scale: readonly number[], body: T["body"] | null, source: readonly unknown[] | null | undefined): D["shape"];
@@ -310,7 +310,7 @@ export abstract class PhysicsCore<D extends DimensionTypes, T extends CoreTypes<
       st.interpolated = false;
       st.syncedVersion = version;
     }
-    const pending = this.takePending(rb);
+    const pending = rb._commands.take();
     if (pending.velocity) body.setLinearVelocity(this.vec(pending.velocity));
     if (pending.angularVelocity) body.setAngularVelocity(this.ang(pending.angularVelocity));
     // "force" mode applies for exactly one step (Unity semantics).
@@ -498,7 +498,7 @@ export abstract class PhysicsCore<D extends DimensionTypes, T extends CoreTypes<
       const bst = rb._state;
       const b = bst?.body;
       if (!b || !bst.active) continue;
-      const mass = Math.max(rb.mass, 1e-4), inertia = mass / 6;
+      const mass = bodyMass(rb.mass), inertia = bodyInertia(rb.mass);
       const v0 = this.arr(m0.v0), w0 = this.arr(m0.w0), v1 = this.arr(b.linearVelocity()), w1 = this.arr(b.angularVelocity());
       const g = this.arr(this.backend.gravity), gs = rb.useGravity ? rb.gravityScale : 0;
       const F = v1.map((v, i) => (mass * (v - v0[i])) / dt - mass * g[i] * gs - (bst.lastForce[i] ?? 0) + mass * rb.drag * v);

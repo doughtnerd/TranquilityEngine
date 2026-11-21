@@ -120,14 +120,15 @@ export function deleteNodes(scene: OpenScene, ids: readonly string[]): NodeRefer
   }
   const refs = referencesInto(doc, ids);
   undoStep(stack, ids.length === 1 ? `Delete ${doc.node(ids[0]).name ?? ids[0]}` : `Delete ${ids.length} nodes`, () => {
+    // One write per field: a list field (ADR 0042) keeps its other items, with each one pointing into the deleted nodes set to None.
+    const fields = new Map<string, NodeReference[]>();
     for (const r of refs) {
-      let value: unknown = null;
-      if (r.element !== undefined) {
-        // An item of a list field (ADR 0042): set just that item to None.
-        const [id, ...target] = r.path;
-        const list = doc.isPrefabInstance(id) ? doc.overrideValue(id, target, r.type, r.field, r.index) : doc.fieldValue(id, r.type, r.field, r.index);
-        value = Array.isArray(list) ? list.map((item, i) => (i === r.element ? null : item)) : null;
-      }
+      const key = JSON.stringify([r.path, r.type, r.index, r.field]);
+      fields.set(key, [...(fields.get(key) ?? []), r]);
+    }
+    for (const [r, ...more] of fields.values()) {
+      const gone = new Set([r, ...more].map((x) => x.element));
+      const value = r.element !== undefined && Array.isArray(r.value) ? r.value.map((item, i) => (gone.has(i) ? null : item)) : null;
       stack.execute(new SetField(r.path[0], r.type, r.field, value, { index: r.index, target: r.path.slice(1) }));
     }
     for (const id of ids) stack.execute(new RemoveNode(id));

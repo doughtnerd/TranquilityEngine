@@ -5,14 +5,15 @@ import { Fragment } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { ContextKind, OutputContext, OutputSettings, OutputSort, ParticleGraphSystem, SimulationChoice } from "../../../../../engine/scene/particleGraph";
 import { OUTPUT_TYPES } from "../../../../../engine/scene/particleGraph";
-import { BUILTIN_MESHES } from "../../../../../engine/scene/models";
 import { contextOf, outputCount, removeOutput, setOutputSettings, setOutputSoftness, setOutputSort, setOutputType, setSeed, setSimulation, setSpawnSettings, setSystemSettings } from "../../particleGraph/graphEdit";
 import { NumField } from "../particles/valueInputs";
 import { BlockView, Port } from "./BlockView";
 import { useGraphEditor } from "./editorContext";
 import { CONTEXT_TITLES, OUTPUT_LABELS } from "./layout";
-import { AssetValue, BoolValue, ChoiceValue } from "./valueFields";
-import { NO_DRAG } from "../../../../../editor/sdk";
+import { BoolValue, ChoiceValue } from "./valueFields";
+import { AssetPicker, NO_DRAG, NO_WHEEL } from "../../../../../editor/sdk";
+
+const PICKER = `pg-select ${NO_DRAG} ${NO_WHEEL}`;
 
 const SORTS: OutputSort[] = ["auto", "on", "off"];
 const SORT_LABELS: Record<string, string> = { auto: "Auto", on: "On", off: "Off" };
@@ -123,7 +124,7 @@ function InitializeSettings(props: { system: ParticleGraphSystem }) {
 }
 
 function OutputSettingsView(props: { system: ParticleGraphSystem; output: number }) {
-  const { graph, readOnly, commit, assets } = useGraphEditor();
+  const { graph, readOnly, commit } = useGraphEditor();
   const out = contextOf(props.system, "output", props.output) as OutputContext;
   const s = out.settings;
   const id = props.system.id;
@@ -135,12 +136,12 @@ function OutputSettingsView(props: { system: ParticleGraphSystem; output: number
         <ChoiceValue label="Output type" value={out.type} choices={OUTPUT_TYPES} labels={OUTPUT_LABELS} readOnly={readOnly} onChange={(v) => commit(setOutputType(graph, id, v as typeof out.type, o))} />
       </Setting>
       <Setting label="Material" title="A material asset; with none, an unlit material using the texture and blending">
-        <AssetValue label="Material" value={s.material} assets={assets.materials} none="(none)" readOnly={readOnly} onChange={(v) => set({ material: v })} />
+        <AssetPicker class={PICKER} label="Material" value={s.material} kinds={["material"]} none="(none)" disabled={readOnly} onCommit={(v) => set({ material: v })} />
       </Setting>
       {!s.material && (
         <>
           <Setting label="Texture">
-            <AssetValue label="Texture" value={s.texture} assets={assets.images} none="Soft dot" readOnly={readOnly} onChange={(v) => set({ texture: v })} />
+            <AssetPicker class={PICKER} label="Texture" value={s.texture} kinds={["texture"]} none="Soft dot" disabled={readOnly} onCommit={(v) => set({ texture: v })} />
           </Setting>
           <Setting label="Blending">
             <ChoiceValue label="Blending" value={s.blending} choices={BLENDINGS} readOnly={readOnly} onChange={(v) => set({ blending: v as OutputSettings["blending"] })} />
@@ -158,7 +159,7 @@ function OutputSettingsView(props: { system: ParticleGraphSystem; output: number
       </Setting>
       {out.type === "mesh" && (
         <Setting label="Mesh">
-          <AssetValue label="Mesh" value={s.mesh} builtins={BUILTIN_MESHES.map((m) => `builtin:${m}`)} assets={assets.meshes} none="(none)" readOnly={readOnly} onChange={(v) => set({ mesh: v })} />
+          <AssetPicker class={PICKER} label="Mesh" value={s.mesh} kinds={["mesh"]} none="(none)" disabled={readOnly} onCommit={(v) => set({ mesh: v })} />
         </Setting>
       )}
       {out.type === "stretched" && (

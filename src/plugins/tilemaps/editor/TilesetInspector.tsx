@@ -8,7 +8,7 @@ import { missingBlobMasks } from "../runtime/autotile";
 import { ANY_PATTERN, type TileCollision, type TileDef, type TilesetData } from "../runtime/tileset";
 import { tilesForSlices } from "./tilesetAssets";
 import { TileThumb } from "./TileThumb";
-import { AssetDocumentFrame, editor, openAssetDocument } from "../../../editor/sdk";
+import { AssetDocumentFrame, AssetPicker, ColorField, editor, openAssetDocument } from "../../../editor/sdk";
 import "./tilesetInspector.css";
 import { parsePolygon, polygonText } from "./polygonText";
 
@@ -36,9 +36,9 @@ export function TilesetInspector(props: { path: string }) {
   const readOnly = doc.readOnly;
   const tile = data.tiles.find((t) => t.id === selected) ?? null;
 
-  // Every edit is one undo step through the tileset's asset document.
-  const set = (patch: Partial<TilesetData>) => {
-    if (!readOnly) doc.edit({ ...doc.value.peek(), ...patch });
+  // Every edit is one undo step through the tileset's asset document; a colour drag is one (`drag`, ADR 0282).
+  const set = (patch: Partial<TilesetData>, drag = false) => {
+    if (!readOnly) doc.edit({ ...doc.value.peek(), ...patch }, drag ? { coalesce: true } : undefined);
   };
   const setTile = (id: number, patch: Partial<TileDef>) => {
     const tiles = doc.value.peek().tiles.map((t) => {
@@ -51,7 +51,8 @@ export function TilesetInspector(props: { path: string }) {
   };
 
   const usedSprites = new Set(data.tiles.map((t) => t.sprite));
-  const images = project.files.filter((f) => editor.assets.kindOf(f) === "image" && editor.assets.importSettings(project, f).settings.sprites.length > 0);
+  const hasSlices = (image: string) => editor.assets.importSettings(project, image).settings.sprites.length > 0;
+  const images = project.files.filter((f) => editor.assets.kindOf(f) === "image" && hasSlices(f));
   const addFrom = (image: string) => {
     const nextId = data.tiles.reduce((m, t) => Math.max(m, t.id), 0) + 1;
     const added = tilesForSlices(editor.assets.importSettings(project, image).settings, image, nextId, usedSprites);
@@ -97,7 +98,7 @@ export function TilesetInspector(props: { path: string }) {
           return (
             <div class="tileset-terrain" key={t.name}>
               <div class="tileset-terrain-row">
-                <input type="color" aria-label={`${t.name} colour`} disabled={readOnly} value={/^#[0-9a-f]{6}$/i.test(t.color ?? "") ? t.color : "#7cb342"} onChange={(e) => set({ terrains: data.terrains.map((o) => (o === t ? { ...o, color: (e.currentTarget as HTMLInputElement).value } : o)) })} />
+                <ColorField label={`${t.name} colour`} disabled={readOnly} value={/^#[0-9a-f]{6}$/i.test(t.color ?? "") ? t.color! : "#7cb342"} onValue={(color, drag) => set({ terrains: doc.value.peek().terrains.map((o) => (o.name === t.name ? { ...o, color } : o)) }, drag)} />
                 <input
                   type="text"
                   aria-label={`${t.name} name`}
@@ -150,7 +151,7 @@ export function TilesetInspector(props: { path: string }) {
             ))}
           </div>
         )}
-        <AddFromSlices images={images} defaultImage={images.find((i) => data.tiles.some((t) => t.sprite.includes(`${i}#`))) ?? images[0]} disabled={readOnly} onAdd={addFrom} />
+        <AddFromSlices images={images} accepts={hasSlices} defaultImage={images.find((i) => data.tiles.some((t) => t.sprite.includes(`${i}#`))) ?? images[0]} disabled={readOnly} onAdd={addFrom} />
       </div>
 
       {tile && <TileEditor key={tile.id} data={data} tile={tile} readOnly={readOnly} setTile={(patch) => setTile(tile.id, patch)} onDelete={() => { set({ tiles: data.tiles.filter((t) => t.id !== tile.id) }); setSelected(null); }} project={project} />}
@@ -158,19 +159,14 @@ export function TilesetInspector(props: { path: string }) {
   );
 }
 
-function AddFromSlices(props: { images: string[]; defaultImage: string | undefined; disabled: boolean; onAdd: (image: string) => void }) {
+/** Pick an image with slices (the SDK's asset picker over images, narrowed to those with slices) and add a tile per slice. */
+function AddFromSlices(props: { images: string[]; accepts: (image: string) => boolean; defaultImage: string | undefined; disabled: boolean; onAdd: (image: string) => void }) {
   const [image, setImage] = useState(props.defaultImage ?? "");
   const chosen = props.images.includes(image) ? image : props.defaultImage ?? "";
   if (props.images.length === 0) return <p class="hint">No image in the project has slices yet.</p>;
   return (
     <div class="tileset-add">
-      <select aria-label="Image" value={chosen} onChange={(e) => setImage((e.currentTarget as HTMLSelectElement).value)}>
-        {props.images.map((i) => (
-          <option key={i} value={i}>
-            {i}
-          </option>
-        ))}
-      </select>
+      <AssetPicker label="Image" kinds={["texture"]} stored="path" none={null} accepts={props.accepts} value={chosen} onCommit={setImage} />
       <button disabled={props.disabled || !chosen} onClick={() => props.onAdd(chosen)}>
         Add tiles from slices
       </button>

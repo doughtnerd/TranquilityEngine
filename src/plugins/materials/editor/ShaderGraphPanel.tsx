@@ -38,8 +38,9 @@ import {
 import { HEADER, PREVIEW, ROW, inlineFields, nodeBox, nodeTitle, portOffset, settingValue, type NodeBox } from "./shaderGraph/nodeLayout";
 import { createMaterialForGraph, SHADER_GRAPH_PANEL, shaderGraphDocument } from "./shaderGraphAssets";
 import { shaderFindItems } from "./shaderGraph/graphSearch";
-import { PropertyValue, numberValue, toHex2 } from "./ShaderPropertyValue";
-import { editor, type EditorProject, NO_DRAG, NO_PAN, NO_WHEEL, NoteView, NodeSearchPopup, Minimap, SelectionBox, GraphFindBox, WireRefusal, handleProps, px, toGraph, useGraphCanvas, useGraphFind, useGraphSearch, useGraphSelection, useGraphWiring, useNodeDrag, wirePath, type CanvasNode, type GraphDragHooks, type Point, type SearchItem, Panel } from "../../../editor/sdk";
+import { PropertyValue, TEXTURE_SLOT, numberValue } from "./ShaderPropertyValue";
+import { Color } from "../../../engine";
+import { AssetPicker, ColorField, editor, type EditorProject, type ValueReport, NO_DRAG, NO_PAN, NO_WHEEL, NoteView, NodeSearchPopup, Minimap, SelectionBox, GraphFindBox, WireRefusal, handleProps, px, toGraph, useGraphCanvas, useGraphFind, useGraphSearch, useGraphSelection, useGraphWiring, useNodeDrag, wirePath, type CanvasNode, type GraphDragHooks, type Point, type SearchItem, Panel } from "../../../editor/sdk";
 import "../../../editor/graph/graph.css";
 import "./shaderGraph.css";
 
@@ -299,7 +300,6 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
     return n && p ? { x: n.x + p.x, y: n.y + p.y } : null;
   };
 
-  const images = project.files.filter((f) => editor.assets.kindOf(f) === "image");
   const subgraphs = project.files.filter((f) => editor.assets.kindOf(f) === "shadersubgraph" && f !== path);
   const problems = [...parseProblems, ...compiled.problems];
   const sub = !!graph.subgraph;
@@ -404,7 +404,6 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
           <Blackboard
             sub={sub}
             graph={graph}
-            images={images}
             readOnly={readOnly}
             commit={commit}
             placeNode={(name) => {
@@ -485,8 +484,7 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
                 portTypes={compiled.portTypes}
                 connected={connectedInputs}
                 flowId={flowId}
-                images={images}
-                subgraphs={subgraphs}
+                path={path}
                 readOnly={readOnly}
                 onDown={keys.onItemDown}
                 onPortDown={wiring.onPortDown}
@@ -528,8 +526,8 @@ function NodeView(props: {
   portTypes: Record<string, ValueType>;
   connected: ReadonlySet<string>;
   flowId: string;
-  images: string[];
-  subgraphs: string[];
+  /** The open graph's path (a sub-graph's own Sub Graph slot leaves it out). */
+  path: string;
   readOnly: boolean;
   onDown(e: PointerEvent, id: string): void;
   onPortDown(e: MouseEvent, node: string, port: string, side: "input" | "output"): void;
@@ -579,13 +577,13 @@ function NodeView(props: {
             <div key={`i-${r.port.id}`} class={`sg-row in${connected ? " connected" : ""}`} style={{ top: px(top), height: px(ROW) }}>
               <span {...handleProps(props.flowId, node.id, r.port.id, "input")} class={`${handleProps(props.flowId, node.id, r.port.id, "input").class} sg-port ${cssType(t)}${connected ? " filled" : ""}`} title={`${r.port.label} (${t})`} onMouseDown={(e) => props.onPortDown(e, node.id, r.port.id, "input")} />
               <span class="sg-label">{r.port.label}</span>
-              {!connected && <InlineValue node={node} port={r.port} dynamic={dynamic} readOnly={props.readOnly} onValue={(v) => props.commit(setInput(graph, node.id, r.port.id, v), true)} />}
+              {!connected && <InlineValue node={node} port={r.port} dynamic={dynamic} readOnly={props.readOnly} onValue={(v, drag) => props.commit(setInput(graph, node.id, r.port.id, v), drag)} />}
             </div>
           );
         }
         return (
           <div key={`s-${r.setting.id}`} class="sg-row setting" style={{ top: px(top), height: px(ROW) }}>
-            <SettingField node={node} setting={r.setting} graph={graph} images={props.images} subgraphs={props.subgraphs} readOnly={props.readOnly} onValue={(v) => props.commit(setSetting(graph, node.id, r.setting.id, v), r.setting.kind === "color")} />
+            <SettingField node={node} setting={r.setting} graph={graph} path={props.path} readOnly={props.readOnly} onValue={(v, drag) => props.commit(setSetting(graph, node.id, r.setting.id, v), drag)} />
           </div>
         );
       })}
@@ -593,11 +591,14 @@ function NodeView(props: {
   );
 }
 
-const rgbToHex = (v: readonly number[]) => `#${toHex2(v[0] ?? 1)}${toHex2(v[1] ?? 1)}${toHex2(v[2] ?? 1)}`;
-const hexToRgb = (hex: string): number[] => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+const rgbToHex = (v: readonly number[]) => new Color(v[0] ?? 1, v[1] ?? 1, v[2] ?? 1).toHex();
+const hexToRgb = (hex: string): number[] => {
+  const c = Color.from(hex);
+  return [c.r, c.g, c.b];
+};
 
 /** An unconnected input's value: number fields, a colour picker for colour inputs, or the built-in it reads. */
-function InlineValue(props: { node: GraphNode; port: PortDef; dynamic: ValueType; readOnly: boolean; onValue(v: InputValue): void }) {
+function InlineValue(props: { node: GraphNode; port: PortDef; dynamic: ValueType; readOnly: boolean; onValue: ValueReport<InputValue> }) {
   const { node, port, dynamic } = props;
   const label = `${nodeTitle(node)} ${port.label}`;
   if (port.bind) return <span class="sg-bind">{port.bind === "uv" ? "UV0" : port.bind.replace(/([A-Z])/g, " $1").toLowerCase()}</span>;
@@ -605,7 +606,7 @@ function InlineValue(props: { node: GraphNode; port: PortDef; dynamic: ValueType
   const value = node.inputs?.[port.id] ?? port.default ?? 0;
   if (port.color) {
     const rgb = Array.isArray(value) ? value : [value, value, value];
-    return <input type="color" class={`sg-color ${NO_DRAG}`} aria-label={label} disabled={props.readOnly} value={rgbToHex(rgb)} onChange={(e) => props.onValue(hexToRgb((e.currentTarget as HTMLInputElement).value))} />;
+    return <ColorField class={`sg-color ${NO_DRAG}`} label={label} disabled={props.readOnly} value={rgbToHex(rgb)} onValue={(hex, drag) => props.onValue(hexToRgb(hex), drag)} />;
   }
   const n = inlineFields(port, false, dynamic);
   const values = Array.from({ length: n }, (_, i) => (Array.isArray(value) ? value[i] ?? 0 : value));
@@ -623,8 +624,8 @@ function InlineValue(props: { node: GraphNode; port: PortDef; dynamic: ValueType
           onChange={(e) => {
             const x = numberValue(e);
             if (!Number.isFinite(x)) return;
-            if (n === 1) props.onValue(x);
-            else props.onValue(values.map((old, j) => (j === i ? x : old)));
+            if (n === 1) props.onValue(x, false);
+            else props.onValue(values.map((old, j) => (j === i ? x : old)), false);
           }}
         />
       ))}
@@ -632,12 +633,12 @@ function InlineValue(props: { node: GraphNode; port: PortDef; dynamic: ValueType
   );
 }
 
-function SettingField(props: { node: GraphNode; setting: SettingDef; graph: ShaderGraph; images: string[]; subgraphs: string[]; readOnly: boolean; onValue(v: string): void }) {
+function SettingField(props: { node: GraphNode; setting: SettingDef; graph: ShaderGraph; path: string; readOnly: boolean; onValue: ValueReport<string> }) {
   const { node, setting, graph } = props;
   const value = settingValue(node, setting);
   const label = `${nodeTitle(node)} ${setting.label}`;
   const select = (options: { value: string; label: string }[]) => (
-    <select class={`${NO_DRAG} ${NO_WHEEL}`} aria-label={label} disabled={props.readOnly} value={value} onChange={(e) => props.onValue((e.currentTarget as HTMLSelectElement).value)}>
+    <select class={`${NO_DRAG} ${NO_WHEEL}`} aria-label={label} disabled={props.readOnly} value={value} onChange={(e) => props.onValue((e.currentTarget as HTMLSelectElement).value, false)}>
       {options.map((o) => (
         <option key={o.value} value={o.value}>
           {o.label}
@@ -648,13 +649,13 @@ function SettingField(props: { node: GraphNode; setting: SettingDef; graph: Shad
   let field;
   if (setting.kind === "select") field = select((setting.options ?? []).map((o) => ({ value: o, label: o[0].toUpperCase() + o.slice(1) })));
   else if (setting.kind === "subgraph")
-    field = select([{ value: "", label: "(pick a sub-graph)" }, ...props.subgraphs.map((f) => ({ value: `asset:${f}`, label: editor.assets.fileName(f) })), ...(value && !props.subgraphs.includes(value.replace(/^asset:/, "")) ? [{ value, label: `${value} (missing)` }] : [])]);
+    field = <AssetPicker class={`${NO_DRAG} ${NO_WHEEL}`} label={label} kinds={["shadersubgraph"]} accepts={(f) => f !== props.path} none="(pick a sub-graph)" value={value} disabled={props.readOnly} onCommit={(v) => props.onValue(v, false)} />;
   else if (setting.kind === "property") field = select([{ value: "", label: "(pick a property)" }, ...graph.properties.map((p) => ({ value: p.name, label: p.name }))]);
   else if (setting.kind === "keyword") field = select([{ value: "", label: "(pick a keyword)" }, ...(graph.keywords ?? []).map((k) => ({ value: k.name, label: k.name }))]);
   else if (setting.kind === "texture")
-    field = select([{ value: "", label: "White" }, ...props.images.map((f) => ({ value: `asset:${f}`, label: editor.assets.fileName(f) })), ...(value && !props.images.includes(value.replace(/^asset:/, "")) ? [{ value, label: `${value} (missing)` }] : [])]);
-  else if (setting.kind === "color") field = <input type="color" class={NO_DRAG} aria-label={label} disabled={props.readOnly} value={value.slice(0, 7)} onChange={(e) => props.onValue((e.currentTarget as HTMLInputElement).value)} />;
-  else field = <input type="text" class={NO_DRAG} aria-label={label} disabled={props.readOnly} value={value} onChange={(e) => props.onValue((e.currentTarget as HTMLInputElement).value)} />;
+    field = <AssetPicker class={`${NO_DRAG} ${NO_WHEEL}`} label={label} kinds={TEXTURE_SLOT} none="White" value={value} disabled={props.readOnly} onCommit={(v) => props.onValue(v, false)} />;
+  else if (setting.kind === "color") field = <ColorField class={NO_DRAG} label={label} disabled={props.readOnly} value={value} onValue={props.onValue} />;
+  else field = <input type="text" class={NO_DRAG} aria-label={label} disabled={props.readOnly} value={value} onChange={(e) => props.onValue((e.currentTarget as HTMLInputElement).value, false)} />;
   return (
     <>
       <span class="sg-label">{setting.label}</span>
@@ -697,7 +698,7 @@ function NodeSearch(props: { graph: ShaderGraph; subgraphs: string[]; at: Point;
 
 const PROPERTY_LABELS: Record<GraphPropertyType, string> = { float: "Float", vector2: "Vector 2", vector3: "Vector 3", vector4: "Vector 4", color: "Color", texture: "Texture" };
 
-function Blackboard(props: { sub: boolean; graph: ShaderGraph; images: string[]; readOnly: boolean; commit(g: ShaderGraph, drag?: boolean): void; placeNode(name: string): void }) {
+function Blackboard(props: { sub: boolean; graph: ShaderGraph; readOnly: boolean; commit(g: ShaderGraph, drag?: boolean): void; placeNode(name: string): void }) {
   const { graph, readOnly, commit } = props;
   return (
     <div class="sg-blackboard" aria-label="Properties">
@@ -748,7 +749,7 @@ function Blackboard(props: { sub: boolean; graph: ShaderGraph; images: string[];
             </select>
           </div>
           <div class="sg-property-row">
-            <PropertyValue name={p.name} type={p.type} value={p.value} images={props.images} disabled={readOnly} onValue={(v) => commit(shaderGraphEdits.setPropertyValue(graph, p.name, v), true)} />
+            <PropertyValue name={p.name} type={p.type} value={p.value} disabled={readOnly} onValue={(v, drag) => commit(shaderGraphEdits.setPropertyValue(graph, p.name, v), drag)} />
           </div>
           <div class="sg-property-row sg-property-actions">
             <button title="Place a node that reads this property" disabled={readOnly} onClick={() => props.placeNode(p.name)}>

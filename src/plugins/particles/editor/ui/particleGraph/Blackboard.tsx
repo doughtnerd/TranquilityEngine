@@ -4,14 +4,14 @@
 import { GRAPH_PROPERTY_TYPES, type GraphProperty, type GraphPropertyType } from "../../../../../engine/scene/particleGraph";
 import { PROPERTY_LABELS, particleGraphEdits, setPropertyExposed } from "../../particleGraph/graphEdit";
 import { useGraphEditor } from "./editorContext";
-import { AssetValue, ColorSwatch, CurveValue, GradientValue, NumberValue, VectorValue, asGradient, asKeys, fieldOf } from "./valueFields";
-import { editor } from "../../../../../editor/sdk";
+import { ColorSwatch, CurveValue, GradientValue, NumberValue, VectorValue, asGradient, asKeys, fieldOf } from "./valueFields";
+import { AssetPicker, editor, NO_DRAG, NO_WHEEL } from "../../../../../editor/sdk";
 
 /** The drag data type of a property dragged from the Blackboard. */
 export const PROPERTY_DRAG = "application/x-myco-particle-property";
 
 function PropertyValue(props: { prop: GraphProperty }) {
-  const { graph, readOnly, commit, assets } = useGraphEditor();
+  const { graph, readOnly, commit } = useGraphEditor();
   const { prop } = props;
   const set = (v: GraphProperty["value"]) => commit(particleGraphEdits.setPropertyValue(graph, prop.name, v));
   const label = `${prop.name} value`;
@@ -28,7 +28,7 @@ function PropertyValue(props: { prop: GraphProperty }) {
     case "gradient":
       return <GradientValue label={label} gradient={asGradient(fieldOf(prop.value, "gradient"))} readOnly={readOnly} onChange={(g) => set({ gradient: g })} />;
     case "texture":
-      return <AssetValue label={label} value={typeof prop.value === "string" ? prop.value : ""} assets={assets.images} none="(none)" readOnly={readOnly} onChange={set} />;
+      return <AssetPicker class={`pg-select ${NO_DRAG} ${NO_WHEEL}`} label={label} value={typeof prop.value === "string" ? prop.value : ""} kinds={["texture"]} none="(none)" disabled={readOnly} onCommit={set} />;
   }
 }
 

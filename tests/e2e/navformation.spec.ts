@@ -112,8 +112,7 @@ test("a formation asset is created, painted, undone and assigned to a NavGroup",
   const group = page.locator(".inspector-body .component", { has: page.locator("h3", { hasText: "NavGroup" }) });
   await expect(group).toBeVisible();
   const field = group.getByRole("combobox", { name: "formationAsset" });
-  await field.fill("asset:navigation/New Formation.formation.json");
-  await field.press("Enter");
+  await field.selectOption("navigation/New Formation.formation.json");
   const preview = group.getByLabel("Group formation");
   await expect(preview).toContainText("New Formation.formation.json");
   await expect(preview).toContainText("5 × 3, 6 slots");

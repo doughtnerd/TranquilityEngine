@@ -15,6 +15,7 @@ import { AxisJoint2D, FixedJoint2D, HingeJoint2D, Joint2D, RopeJoint2D, SliderJo
 import { RigidBody2D } from "../RigidBody2D";
 import { CollisionEvents2D, TriggerEvents2D } from "../systems2d";
 import { TilemapCollider2D } from "../TilemapCollider2D";
+import { bodyInertia, bodyMass } from "../bodyCommands";
 import { PhysicsCore } from "./PhysicsCore";
 import type { JointState } from "./state";
 import { TilemapColliders2D } from "./tilemap2d";
@@ -103,11 +104,11 @@ export class PhysicsWorld2D extends PhysicsCore<Dim2, Types2D> {
   }
 
   protected bodySettings(rb: RigidBody2D) {
-    const c = rb.constraints, mass = Math.max(rb.mass, 1e-4);
+    const c = rb.constraints, mass = bodyMass(rb.mass);
     return {
       type: rb.bodyType,
       mass,
-      inertia: mass / 6, // box-ish: colliders on bodies have no density
+      inertia: bodyInertia(rb.mass),
       gravityScale: rb.useGravity ? rb.gravityScale : 0,
       linearDamping: rb.drag,
       angularDamping: rb.angularDrag,
@@ -117,16 +118,6 @@ export class PhysicsWorld2D extends PhysicsCore<Dim2, Types2D> {
     };
   }
 
-  protected takePending(rb: RigidBody2D) {
-    const velocity = rb._pendingVelocity ? [...rb._pendingVelocity] : null;
-    const angularVelocity = rb._pendingAngularVelocity !== null ? [rb._pendingAngularVelocity * DEG2RAD] : null;
-    rb._pendingVelocity = null;
-    rb._pendingAngularVelocity = null;
-    const force = [rb._force[0], rb._force[1]], torque = [rb._torque];
-    rb._force[0] = rb._force[1] = 0;
-    rb._torque = 0;
-    return { velocity, angularVelocity, force, torque };
-  }
 
   // --- colliders -----------------------------------------------------------------------------------
 

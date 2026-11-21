@@ -485,18 +485,6 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
 
   // --- drawing ---------------------------------------------------------------------------------------
 
-  const files = editor.assets.listed(project.files);
-  const assets = useMemo(
-    () => ({
-      images: files.filter((f) => editor.assets.kindOf(f) === "image").map((f) => `asset:${f}`),
-      materials: files.filter((f) => editor.assets.kindOf(f) === "material" || editor.assets.kindOf(f) === "shadergraph").map((f) => `asset:${f}`),
-      meshes: files.filter((f) => editor.assets.kindOf(f) === "model").map((f) => `asset:${f}`),
-      subgraphs: files.filter((f) => editor.assets.kindOf(f) === "particlesubgraph" && f !== path).map((f) => `asset:${f}`),
-      blocks: files.filter((f) => editor.assets.kindOf(f) === "particleblock").map((f) => `asset:${f}`),
-    }),
-    [project.files],
-  );
-
   const api: GraphEditorApi = {
     graph,
     readOnly,
@@ -519,7 +507,7 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
     startBlockDrag,
     draggingBlock: blockDrag?.key ?? null,
     blockDrop: blockDrag?.drop ?? null,
-    assets,
+    path,
     resolve,
     assetDoc,
     typeOf,
