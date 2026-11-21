@@ -10,7 +10,7 @@ import { environmentEditorPlugin } from "../plugins/environment/editor";
 import { meshesEditorPlugin } from "../plugins/meshes/editor";
 import { postProcessingEditorPlugin } from "../plugins/post-processing/editor";
 import { uiEditorPlugin } from "../plugins/ui/editor";
-import { assetKindsOf, assetListId, assetsForKinds, isHiddenField } from "./assetFieldKinds";
+import { assetChoices, assetKindsOf, assetsForKinds, isHiddenField } from "./assetFieldKinds";
 import { messageLog } from "./messages";
 import { activatePlugins, deactivatePlugin } from "./sdk/plugins";
 import { useCoreAssetKinds } from "./testing";
@@ -110,14 +110,45 @@ describe("assetKindsOf", () => {
     expect(assetKindsOf({ name: "n", type: String, value: "", options: { kind: "audio" } })).toEqual([]);
   });
 
-  it("names the datalist for the kinds", () => {
-    expect(assetListId([])).toBe("asset-list-all");
-    expect(assetListId(["material"])).toBe("asset-list-material");
-    expect(assetListId(["texture", "rendertexture"])).toBe("asset-list-texture+rendertexture");
-  });
-
   it("knows hidden fields", () => {
     expect(isHiddenField({ name: "x", type: AssetRef, value: "", options: { hidden: true } })).toBe(true);
     expect(isHiddenField({ name: "x", type: AssetRef, value: "" })).toBe(false);
+  });
+});
+
+// ADR 0282: what an asset slot offers and shows, which the SDK's AssetPicker renders.
+describe("assetChoices", () => {
+  const values = (kinds: AssetFieldKind[], files = FILES) => assetChoices(kinds, files, "").entries.map((e) => e.value);
+
+  it("offers built-ins first, then the files that fit, stored with asset: by default or as bare paths", () => {
+    expect(values(["texture", "rendertexture"])).toEqual(["asset:images/bird.png", "asset:images/sky.jpg", "asset:rt/mirror.rendertexture.json"]);
+    expect(assetChoices(["texture"], FILES, "", { stored: "path" }).entries.map((e) => e.value)).toEqual(["images/bird.png", "images/sky.jpg"]);
+    const mesh = values(["mesh"]);
+    expect(mesh[0]).toBe("builtin:cube");
+    expect(mesh.at(-1)).toBe("asset:models/ship.glb");
+  });
+
+  it("leaves sidecars out and narrows by accepts", () => {
+    expect(values([], ["images/bird.png", "images/bird.png.meta.json"])).toEqual(["asset:images/bird.png"]);
+    expect(assetChoices(["texture"], FILES, "", { accepts: (f) => f.endsWith(".png") }).entries.map((e) => e.value)).toEqual(["asset:images/bird.png"]);
+  });
+
+  it("labels files by name, by path where two share a name, and built-ins in words", () => {
+    const { entries } = assetChoices(["texture"], ["a/tile.png", "b/tile.png", "c/grass.png"], "");
+    expect(entries.map((e) => e.label)).toEqual(["a/tile.png", "b/tile.png", "grass.png"]);
+    expect(assetChoices(["mesh"], [], "").entries[0].label).toBe("Cube");
+  });
+
+  it("finds the value whatever its reference form, in the slot's stored form", () => {
+    expect(assetChoices(["texture"], FILES, "images/bird.png")).toMatchObject({ selected: "asset:images/bird.png", other: null });
+    expect(assetChoices(["texture"], FILES, "asset:./images/bird.png", { stored: "path" })).toMatchObject({ selected: "images/bird.png", other: null });
+    expect(assetChoices(["mesh"], FILES, "builtin:cube")).toMatchObject({ selected: "builtin:cube", other: null });
+    expect(assetChoices(["texture"], FILES, "")).toMatchObject({ selected: "", other: null });
+  });
+
+  it("shows a file the project doesn't have as missing, and an existing file it doesn't offer (a sub-mesh) as itself", () => {
+    expect(assetChoices(["texture"], FILES, "asset:images/gone.png").other).toEqual({ value: "asset:images/gone.png", label: "gone.png (missing)" });
+    expect(assetChoices(["mesh"], FILES, "models/ship.glb#Hull", { stored: "path" }).other).toEqual({ value: "models/ship.glb#Hull", label: "ship.glb#Hull" });
+    expect(assetChoices(["mesh"], FILES, "builtin:teapot").other).toEqual({ value: "builtin:teapot", label: "Teapot (missing)" });
   });
 });

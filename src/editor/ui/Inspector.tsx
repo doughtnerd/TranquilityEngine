@@ -19,7 +19,7 @@ import {
   type WorldsSetting,
 } from "../inspectorEdits";
 import "./inspector-fields.css";
-import { AssetLists, FieldRows, TextInput } from "./fieldRows";
+import { FieldRows, TextInput } from "./fieldRows";
 import { documentFieldTarget } from "../fieldTarget";
 import {
   disabledPluginOf,
@@ -93,7 +93,6 @@ function NodeInspector(props: { scene: OpenScene; path: NodePath }) {
     <Panel>
       <div class="inspector-body">
         <SceneReadOnlyNote scene={scene} />
-        <AssetLists />
         <div class="node-header">
           <input
             type="checkbox"
@@ -239,7 +238,6 @@ function MultiInspector(props: { scene: OpenScene; paths: NodePath[] }) {
   return (
     <div class="inspector-body">
       <SceneReadOnlyNote scene={scene} />
-      <AssetLists />
       <PrefabActionsBar scene={scene} paths={paths} />
       <div class="node-header">
         <input

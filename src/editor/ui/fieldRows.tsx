@@ -4,22 +4,24 @@
 // rotations through their codec component (ADR 0165). So live editing reaches every field kind the
 // document's Inspector edits.
 import type { VNode } from "preact";
-import { useEffect, useMemo, useRef, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { Color, GameObject, Quaternion } from "../../engine";
-import { ASSET_FIELD_KINDS, AssetRef, getComponentClass, getFields, isListType, listComponentIds, type AssetFieldKind, type FieldChoice } from "../../engine/core/registry";
+import type { FieldChoice } from "../../engine/core/registry";
 import type { ComponentInfo, FieldValue } from "../../engine/editor";
-import { listedFiles } from "../assetBrowser";
-import { assetKindsOf, assetListId, assetsForKinds } from "../assetFieldKinds";
+import { assetKindsOf } from "../assetFieldKinds";
 import { rotationViewOf } from "../fieldEdits";
 import { fieldChoicesFor, listedChoices, loadFieldChoices } from "../fieldChoices";
 import type { FieldDrag, FieldTarget, NodeRefs } from "../fieldTarget";
 import { choicesFor, fieldTitle, itemField } from "../fieldValues";
 import { FIELD_KINDS, fieldKind, type FieldKind, type FieldKindName } from "../fields/kinds";
-import { MIXED, NumberInput, formatNumber } from "../fields/NumberInput";
+import { MIXED, NumberInput } from "../fields/NumberInput";
+import { hexWithAlpha } from "../colorMath";
 import { RotationField } from "../fields/RotationField";
 import type { FieldChoicesContribution } from "../sdk/contributions";
-import { currentProject, docVersion, scriptsVersion, status } from "../state";
+import { currentProject, status } from "../state";
+import { AssetPicker } from "./AssetPicker";
 import { useDraftText } from "./draftText";
+import { ColorField } from "./valueControls";
 import "./inspector-fields.css";
 
 /** A component's fields as rows. `readOnly` fields show their value as JSON. */
@@ -83,6 +85,7 @@ function FieldRow(props: { target: FieldTarget; field: FieldValue; readOnly?: bo
             onCommit={commit}
             onCommitAxis={commitAxis}
             onCommitEach={commitEach}
+            drag={(label) => target.drag(field, label)}
           />
         )}
       </div>
@@ -123,6 +126,8 @@ interface WidgetProps {
   onCommitAxis: (axis: number, value: number) => void;
   /** Each node's new value, in `values` order. */
   onCommitEach: (next: readonly unknown[]) => void;
+  /** Start a drag named `label` on the row's field: its writes are one undo step until it ends (ADR 0257). */
+  drag: (label: string) => FieldDrag;
 }
 
 /** The widget for a field of `props.kind`. */
@@ -159,10 +164,9 @@ const WIDGETS: Readonly<Record<FieldKindName, (props: WidgetProps) => VNode | nu
     <input type="checkbox" checked={!mixed && Boolean(field.value)} indeterminate={mixed} aria-label={field.name} onChange={(e) => onCommit((e.currentTarget as HTMLInputElement).checked)} />
   ),
   string: ({ field, mixed, onCommit }) => <TextInput value={mixed ? "" : String(field.value ?? "")} placeholder={mixed ? MIXED : undefined} label={field.name} onCommit={onCommit} />,
-  asset: ({ field, mixed, onCommit }) => (
-    <TextInput value={mixed ? "" : String(field.value ?? "")} placeholder={mixed ? MIXED : undefined} label={field.name} list={assetListId(assetKindsOf(field))} onCommit={onCommit} />
-  ),
-  color: ({ field, mixed, onCommit }) => <ColorInput value={field.value instanceof Color ? field.value : Color.white} mixed={mixed} label={field.name} onCommit={onCommit} />,
+  // The SDK's asset picker (ADR 0282) over the kinds the field declares; the field kind adds `asset:` in the scene file.
+  asset: ({ field, mixed, onCommit }) => <AssetPicker value={String(field.value ?? "")} kinds={assetKindsOf(field)} stored="path" mixed={mixed} label={field.name} onCommit={onCommit} />,
+  color: ColorWidget,
   vector2: vectorWidget,
   vector3: vectorWidget,
   node: ({ field, mixed, nodes, onCommit }) => <NodeRefInput value={nodes.keyOf(field.value)} mixed={mixed} nodes={nodes} label={field.name} onCommit={onCommit} />,
@@ -176,7 +180,7 @@ const WIDGETS: Readonly<Record<FieldKindName, (props: WidgetProps) => VNode | nu
     ) : (
       <RotationField values={values.map((x) => (x instanceof Quaternion ? x : null))} view={rotationViewOf(field)} label={field.name} toggleKey={rowKey} onCommit={onCommitEach} />
     ),
-  list: ({ kind, field, mixed, nodes, rowKey, onCommit }) => <ListInput kind={kind} field={field} mixed={mixed} nodes={nodes} rowKey={rowKey} onCommit={onCommit} />,
+  list: ({ kind, field, mixed, nodes, rowKey, onCommit, drag }) => <ListInput kind={kind} field={field} mixed={mixed} nodes={nodes} rowKey={rowKey} onCommit={onCommit} drag={drag} />,
   unknown: ({ field }) => <span class="none field-json">{safeJSON(field.value)}</span>,
 };
 
@@ -196,54 +200,10 @@ function safeJSON(v: unknown): string {
   }
 }
 
-/**
- * The asset suggestions asset fields offer as you type (ADR 0043, 0044): one `<datalist>` per asset
- * kind a field can declare (ADR 0131), one per combination of kinds a registered component declares,
- * and every file for fields that declare none.
- */
-export function AssetLists() {
-  const version = docVersion.value; // files come and go
-  const scripts = scriptsVersion.value; // script components come and go
-  const project = currentProject.value;
-  // Built when the project's files change, not on every Inspector render.
-  return useMemo(() => {
-    const files = listedFiles(project?.files ?? []);
-    const options = (list: readonly string[]) => list.map((f) => <option key={f} value={f} />);
-    const lists = new Map<string, readonly AssetFieldKind[]>(ASSET_FIELD_KINDS.map((k) => [assetListId([k]), [k]]));
-    for (const kinds of declaredKindCombinations()) lists.set(assetListId(kinds), kinds);
-    return (
-      <>
-        {[...lists].map(([id, kinds]) => (
-          <datalist key={id} id={id}>
-            {options(assetsForKinds(kinds, files))}
-          </datalist>
-        ))}
-        <datalist id="asset-list-all">{options(files)}</datalist>
-      </>
-    );
-  }, [project, version, scripts, project?.files]);
-}
-
-/** Each combination of several asset kinds a registered component's field declares (`{ kind: ["texture", "rendertexture"] }`), and each kind outside the engine's own (a plugin's, ADR 0143). */
-function declaredKindCombinations(): AssetFieldKind[][] {
-  const combos: AssetFieldKind[][] = [];
-  for (const id of listComponentIds()) {
-    const cls = getComponentClass(id);
-    if (!cls) continue;
-    for (const f of getFields(cls)) {
-      const item = isListType(f.type) ? f.type[0] : f.type;
-      if (item !== AssetRef) continue;
-      const kinds = assetKindsOf({ name: f.name, type: f.type, value: undefined, options: f.options });
-      if (kinds.length > 1 || (kinds.length === 1 && !(ASSET_FIELD_KINDS as readonly string[]).includes(kinds[0]))) combos.push(kinds);
-    }
-  }
-  return combos;
-}
-
 /** Text that commits on Enter or blur and reverts on Escape. */
-export function TextInput(props: { value: string; label: string; class?: string; placeholder?: string; list?: string; onCommit: (v: string) => void }) {
+export function TextInput(props: { value: string; label: string; class?: string; placeholder?: string; onCommit: (v: string) => void }) {
   const { input } = useDraftText(props.value, (draft) => draft !== props.value && props.onCommit(draft));
-  return <input type="text" class={props.class} aria-label={props.label} placeholder={props.placeholder} list={props.list} {...input} />;
+  return <input type="text" class={props.class} aria-label={props.label} placeholder={props.placeholder} {...input} />;
 }
 
 /** A vector edited per axis; a null axis differs between the selected nodes. */
@@ -261,23 +221,29 @@ function VectorInput(props: { value: (number | null)[]; label: string; onCommitA
   );
 }
 
-function ColorInput(props: { value: Color; mixed?: boolean; label: string; onCommit: (v: Color) => void }) {
-  const c = props.value;
+/**
+ * A colour field (ADR 0282): the picker's drag is one field drag, opened on its first report and closed by the report
+ * that ends it, as a scrub label's drag is from press to release (ADR 0257). The opacity is kept.
+ */
+function ColorWidget({ field, mixed, drag, onCommit }: WidgetProps) {
+  const open = useRef<FieldDrag | null>(null);
+  useEffect(() => () => open.current?.end(), []);
+  const c = field.value instanceof Color ? field.value : Color.white;
   return (
-    <span class="color">
-      <input
-        type="color"
-        aria-label={props.label}
-        value={c.toHex()}
-        onChange={(e) => {
-          const next = Color.from((e.currentTarget as HTMLInputElement).value);
-          next.a = c.a;
-          props.onCommit(next);
-        }}
-      />
-      <span class="hex">{props.mixed ? MIXED : c.toHex()}</span>
-      {!props.mixed && c.a < 1 && <span class="alpha">α {formatNumber(c.a)}</span>}
-    </span>
+    <ColorField
+      value={hexWithAlpha(c.toHex(), c.a)}
+      mixed={mixed}
+      showHex
+      label={field.name}
+      onValue={(hex, dragging) => {
+        if (dragging && !open.current?.open) open.current = drag(`Drag ${field.name}`);
+        onCommit(Color.from(hex));
+        if (!dragging) {
+          open.current?.end();
+          open.current = null;
+        }
+      }}
+    />
   );
 }
 
@@ -388,7 +354,7 @@ function ChoiceInput(props: { choices: readonly FieldChoice[]; value: unknown; m
  * nodes whose lists differ it shows the active node's list under a dash; an edit replaces every
  * node's list with the edited one.
  */
-function ListInput(props: { kind: FieldKind; field: FieldValue; mixed: boolean; nodes: NodeRefs; rowKey?: string; onCommit: (items: unknown[]) => void }) {
+function ListInput(props: { kind: FieldKind; field: FieldValue; mixed: boolean; nodes: NodeRefs; rowKey?: string; onCommit: (items: unknown[]) => void; drag: (label: string) => FieldDrag }) {
   const { field, mixed, nodes } = props;
   const items = Array.isArray(field.value) ? (field.value as unknown[]) : [];
   const item = props.kind.item!;
@@ -433,6 +399,7 @@ function ListInput(props: { kind: FieldKind; field: FieldValue; mixed: boolean; 
                 onCommit={(v) => replace(i, v)}
                 onCommitAxis={(axis, n) => item.axes && replace(i, item.axes.write(value, axis, n, rotationViewOf(f)))}
                 onCommitEach={(next) => replace(i, next[0])}
+                drag={props.drag}
               />
             </div>
             <span class="list-buttons">

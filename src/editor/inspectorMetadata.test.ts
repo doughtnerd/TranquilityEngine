@@ -5,7 +5,7 @@ import "../engine";
 import { AssetRef, behavior, field, getComponentClass, getFields, isListType, listComponentIds, type FieldInfo } from "../engine/core/registry";
 import { GameBehavior } from "../engine";
 import type { FieldValue } from "../engine/editor";
-import { assetKindsOf, assetListId, isHiddenField } from "./assetFieldKinds";
+import { assetKindsOf, isHiddenField } from "./assetFieldKinds";
 import { itemField } from "./fieldValues";
 
 @behavior("test.inspectorMetadata.Jukebox")
@@ -59,7 +59,7 @@ describe("engine asset fields", () => {
 
   it("a material list's items offer materials", () => {
     const list = declared("engine.MeshRenderer", "materials");
-    expect(assetListId(assetKindsOf(itemField(list, 0, "")))).toBe("asset-list-material");
+    expect(assetKindsOf(itemField(list, 0, ""))).toEqual(["material"]);
   });
 
   it.each([
@@ -76,9 +76,9 @@ describe("engine asset fields", () => {
 });
 
 describe("script component asset fields", () => {
-  it("a declared kind gets the filtered list; an undeclared one every file", () => {
+  it("a declared kind narrows the files; an undeclared one takes every file", () => {
     expect(getComponentClass("test.inspectorMetadata.Jukebox")).toBe(Jukebox);
-    expect(assetListId(kindsOf("test.inspectorMetadata.Jukebox", "track"))).toBe("asset-list-audio");
-    expect(assetListId(kindsOf("test.inspectorMetadata.Jukebox", "anything"))).toBe("asset-list-all");
+    expect(kindsOf("test.inspectorMetadata.Jukebox", "track")).toEqual(["audio"]);
+    expect(kindsOf("test.inspectorMetadata.Jukebox", "anything")).toEqual([]);
   });
 });
