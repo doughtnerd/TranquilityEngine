@@ -45,9 +45,6 @@
 .pe-badge { padding: 0 6px; border-radius: 9px; background: var(--badge); color: var(--badge-text); font-size: 10px; font-weight: 400; line-height: 16px; }
 
 /* --- rows --- */
-.pe-vec { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; width: 100%; }
-.pe-axis { display: flex; align-items: center; gap: 3px; min-width: 0; }
-.pe-axis em { color: var(--muted); font-style: normal; font-size: 10px; text-transform: uppercase; }
 /* The mode picker is a small arrow button, as in Unity: its options say Constant, Random, Curve…, and the value beside it shows which. */
 .pe-list-head { display: flex; align-items: center; justify-content: space-between; margin: 6px 0 2px; color: var(--muted); }
 
