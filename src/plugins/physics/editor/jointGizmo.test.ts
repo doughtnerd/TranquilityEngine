@@ -86,6 +86,21 @@ describe("joint overlay", () => {
     select([a]);
     expect(view.overlay().lines[0].color).not.toBe(normal);
   });
+
+  it("draws a 2D joint's anchor and slider axis where the mirrored node's world matrix puts them (ADR 0301, 0305)", () => {
+    const scene = openScene.value!;
+    const a = insertNew(scene, "empty", { position: [2, 1, 0] });
+    scene.stack.execute(new AddComponent(a, { type: "engine.SliderJoint2D", data: { anchor: [1, 0.5], axis: [1, 0], useLimits: true, limits: { min: 0, max: 2 } } }));
+    const node = scene.sync.nodeFor(a)!;
+    node.transform!.scale.set(-1, 1, 1); // mirrored left to right
+    const lines = view.overlay().lines;
+    // The cross's x line is centred on the anchor: (2 - 1, 1 + 0.5).
+    close(lines[0].points[0], [1 - 0.15, 1.5, 0]);
+    // The slider's range runs along the node's mirrored x axis, -x in the world, from the anchor.
+    const range = lines[3].points;
+    close(range[0], [1, 1.5, 0]);
+    close(range[1], [-1, 1.5, 0]);
+  });
 });
 
 /** The joint tool on `engine`'s scene view, over a fake viewport (ADR 0128): what it draws now, and a function that removes it. */

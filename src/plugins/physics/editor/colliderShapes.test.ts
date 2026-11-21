@@ -1,6 +1,7 @@
 // The collider shape table (ADR 0288), driven entry by entry: property tests over random fields and poses
 // ("dragging a handle to where it is leaves the shape unchanged"; "the outline is where the physics backend's
-// shape is", measured with raycasts against the real Rapier worlds), then examples of each entry's rules.
+// shape is", measured with raycasts against the real Rapier worlds, mirrored nodes included, ADR 0301), then
+// examples of each entry's rules. An entry's fields are the collider class's own shape fields and its centre (ADR 0305).
 import { describe, expect, it } from "vitest";
 import {
   Assets,
@@ -24,7 +25,7 @@ import {
 } from "../../../myco";
 import { polygonArea } from "../../../editor/polygonMath";
 import { shapeKit3d } from "../../../editor/sdk";
-import { toLocal, type Pose2D } from "./colliderMath";
+import { frame2D, frame2DOf, frameToLocal, upright2D, type Frame2D } from "../../../engine/scene/frame2d";
 import { COLLIDER_SHAPES, colliderShapeFor, colliderShapeOf, type AnyColliderShape2D, type AnyColliderShape3D, type EditableColliderType, type FieldPatch, type Press2D } from "./colliderShapes";
 
 const { MIN_EXTENT, axisDrag, resizeAxis, worldCenter } = shapeKit3d;
@@ -61,19 +62,19 @@ const unitQuat = (r: Rnd): Pose3D["rotation"] => {
 
 /** Random fields for each entry, as its `read` would give them. */
 const FIELDS: Record<EditableColliderType, (r: Rnd) => object> = {
-  "engine.BoxCollider2D": (r) => ({ center: [r.range(-2, 2), r.range(-2, 2)], size: [r.range(0.2, 4), r.range(0.2, 4)] }),
-  "engine.CircleCollider2D": (r) => ({ center: [r.range(-2, 2), r.range(-2, 2)], radius: r.range(0.1, 3) }),
-  "engine.CharacterController2D": (r) => ({ center: [r.range(-2, 2), r.range(-2, 2)], radius: r.range(0.1, 1.5), height: r.range(0.1, 5) }),
-  "engine.PolygonCollider2D": (r) => ({ center: [r.range(-1, 1), r.range(-1, 1)], points: Array.from({ length: 3 + Math.floor(r.next() * 4) }, () => [r.range(-3, 3), r.range(-3, 3)]) }),
-  "engine.EdgeCollider2D": (r) => ({ center: [r.range(-1, 1), r.range(-1, 1)], points: Array.from({ length: 2 + Math.floor(r.next() * 4) }, () => [r.range(-3, 3), r.range(-3, 3)]) }),
-  "engine.BoxCollider": (r) => ({ center: [r.range(-2, 2), r.range(-2, 2), r.range(-2, 2)], size: [r.range(0.2, 4), r.range(0.2, 4), r.range(0.2, 4)] }),
-  "engine.SphereCollider": (r) => ({ center: [r.range(-2, 2), r.range(-2, 2), r.range(-2, 2)], radius: r.range(0.1, 3) }),
-  "engine.CapsuleCollider": (r) => ({ center: [r.range(-2, 2), r.range(-2, 2), r.range(-2, 2)], radius: r.range(0.1, 1.5), height: r.range(0.1, 5), direction: (["x", "y", "z"] as const)[Math.floor(r.next() * 3)] }),
-  "engine.CharacterController": (r) => ({ center: [r.range(-2, 2), r.range(-2, 2), r.range(-2, 2)], radius: r.range(0.1, 1.5), height: r.range(0.1, 5), direction: "y" }),
+  "engine.BoxCollider2D": (r) => ({ kind: "box", center: [r.range(-2, 2), r.range(-2, 2)], size: [r.range(0.2, 4), r.range(0.2, 4)] }),
+  "engine.CircleCollider2D": (r) => ({ kind: "circle", center: [r.range(-2, 2), r.range(-2, 2)], radius: r.range(0.1, 3) }),
+  "engine.CharacterController2D": (r) => ({ kind: "capsule", center: [r.range(-2, 2), r.range(-2, 2)], radius: r.range(0.1, 1.5), height: r.range(0.1, 5) }),
+  "engine.PolygonCollider2D": (r) => ({ kind: "polygon", center: [r.range(-1, 1), r.range(-1, 1)], points: Array.from({ length: 3 + Math.floor(r.next() * 4) }, () => [r.range(-3, 3), r.range(-3, 3)]) }),
+  "engine.EdgeCollider2D": (r) => ({ kind: "edge", center: [r.range(-1, 1), r.range(-1, 1)], points: Array.from({ length: 2 + Math.floor(r.next() * 4) }, () => [r.range(-3, 3), r.range(-3, 3)]) }),
+  "engine.BoxCollider": (r) => ({ kind: "box", center: [r.range(-2, 2), r.range(-2, 2), r.range(-2, 2)], size: [r.range(0.2, 4), r.range(0.2, 4), r.range(0.2, 4)] }),
+  "engine.SphereCollider": (r) => ({ kind: "sphere", center: [r.range(-2, 2), r.range(-2, 2), r.range(-2, 2)], radius: r.range(0.1, 3) }),
+  "engine.CapsuleCollider": (r) => ({ kind: "capsule", center: [r.range(-2, 2), r.range(-2, 2), r.range(-2, 2)], radius: r.range(0.1, 1.5), height: r.range(0.1, 5), axis: Math.floor(r.next() * 3) }),
+  "engine.CharacterController": (r) => ({ kind: "capsule", center: [r.range(-2, 2), r.range(-2, 2), r.range(-2, 2)], radius: r.range(0.1, 1.5), height: r.range(0.1, 5), axis: 1, upright: true }),
   "engine.MeshCollider": (r) => ({ center: [r.range(-1, 1), r.range(-1, 1), r.range(-1, 1)], mesh: { vertices: [0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 1], indices: [0, 1, 2, 0, 2, 3] } }),
 };
 
-const pose2D = (r: Rnd, upright: boolean): Pose2D => ({ position: [r.range(-5, 5), r.range(-5, 5), r.range(-2, 2)], rotation: upright ? 0 : r.range(-180, 180), scale: [r.scale(), r.scale()] });
+const pose2D = (r: Rnd, upright: boolean): Frame2D => frame2D([r.range(-5, 5), r.range(-5, 5), r.range(-2, 2)], upright ? 0 : r.range(-Math.PI, Math.PI), [r.scale(), r.scale()]);
 const pose3D = (r: Rnd, upright: boolean): Pose3D => ({ position: [r.range(-5, 5), r.range(-5, 5), r.range(-5, 5)], rotation: upright ? [0, 0, 0, 1] : unitQuat(r), scale: [r.scale(), r.scale(), r.scale()] });
 
 const shapes2D = COLLIDER_SHAPES.filter((s): s is typeof s & AnyColliderShape2D => s.dimension === "2d");
@@ -110,7 +111,7 @@ describe("every entry of the collider shape table (ADR 0288)", () => {
           expect(press, id).not.toBeNull();
           const start = press!.start ? apply(f, press!.start) : f; // an insert handle adds its point first
           for (const alt of [false, true]) {
-            const after = apply(start, press!.drag(toLocal(pose, at), alt, identitySnap));
+            const after = apply(start, press!.drag(frameToLocal(pose, at), alt, identitySnap));
             close(shape.outline(after, pose).points.flat(), shape.outline(start, pose).points.flat());
           }
         }
@@ -151,23 +152,23 @@ async function world(physics: "2d" | "3d") {
   return engine;
 }
 
-/** A node at a random pose, its transform as the 2D or 3D pose the table takes. */
+/** A node at a random pose (in 2D, a mirrored scale one time in three), its transform as the 2D or 3D pose the table takes. */
 function placed(r: Rnd, dimension: "2d" | "3d") {
   const node = GameObject.create("shape");
   const t = node.transform!;
   t.position.set(r.range(-5, 5), r.range(-5, 5), dimension === "2d" ? 0 : r.range(-5, 5));
-  // Positive scales: a mirrored node turns differently in the 2D world, and its outline is checked above.
-  t.scale.set(r.range(0.4, 2.5), r.range(0.4, 2.5), dimension === "2d" ? 1 : r.range(0.4, 2.5));
+  const flip = () => (dimension === "2d" && r.next() < 0.33 ? -1 : 1);
+  t.scale.set(r.range(0.4, 2.5) * flip(), r.range(0.4, 2.5) * flip(), dimension === "2d" ? 1 : r.range(0.4, 2.5));
   if (dimension === "2d") t.rotation2D = r.range(-Math.PI, Math.PI);
   else t.eulerAngles = { x: r.range(-1.5, 1.5), y: r.range(-Math.PI, Math.PI), z: r.range(-Math.PI, Math.PI) };
   return node;
 }
 
 describe("the outline is where the physics backend's shape is (ADR 0288)", () => {
-  it("2D: a ray from outside towards each handle hits the collider at that handle", async () => {
+  it("2D: a ray from outside towards each handle hits the collider at that handle, mirrored nodes included", async () => {
     const engine = await world("2d");
     const r = random(2);
-    for (let n = 0; n < 12; n++) {
+    for (let n = 0; n < 24; n++) {
       const node = placed(r, "2d");
       const kind = n % 3;
       const c: Collider2D =
@@ -179,8 +180,7 @@ describe("the outline is where the physics backend's shape is (ADR 0288)", () =>
       c.center.set(r.range(-1, 1), r.range(-1, 1));
       engine.step(1 / 60);
       const shape = colliderShapeOf(c)!;
-      const t = node.transform!, s = t.worldScale;
-      const pose: Pose2D = { position: [t.worldPosition.x, t.worldPosition.y, 0], rotation: shape.upright ? 0 : (t.worldRotation2D * 180) / Math.PI, scale: [s.x, s.y] };
+      const frame = frame2DOf(node), pose = shape.upright ? upright2D(frame) : frame;
       const handles = shape.handles(shape.read(c)!, pose);
       const center = handles.center;
       for (const [id, at] of Object.entries(handles)) {
@@ -235,7 +235,7 @@ describe("the outline is where the physics backend's shape is (ADR 0288)", () =>
 
 // --- each entry's rules, by example -------------------------------------------------------------------
 
-const identity2D: Pose2D = { position: [0, 0, 0], rotation: 0, scale: [1, 1] };
+const identity2D: Frame2D = frame2D([0, 0, 0], 0, [1, 1]);
 const identity3D: Pose3D = { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
 const turnY90: Pose3D["rotation"] = [0, Math.SQRT1_2, 0, Math.SQRT1_2];
 const entry2D = (type: EditableColliderType) => colliderShapeFor(type) as AnyColliderShape2D;
@@ -246,37 +246,37 @@ const dragged2D = (type: EditableColliderType, f: object, handle: string, p: [nu
 describe("2D entries", () => {
   it("box: corners and edge handles around the offset centre, scaled and turned with the node", () => {
     const box = entry2D("engine.BoxCollider2D");
-    expect(box.outline({ center: [1, 0], size: [4, 2] }, identity2D)).toEqual({ points: [[-1, -1, 0], [3, -1, 0], [3, 1, 0], [-1, 1, 0]], closed: true });
-    expect(box.handles({ center: [0, 0], size: [4, 2] }, { ...identity2D, scale: [2, 1] })).toMatchObject({ left: [-4, 0, 0], right: [4, 0, 0], top: [0, 1, 0], bottom: [0, -1, 0], center: [0, 0, 0] });
-    const turned = box.outline({ center: [0, 0], size: [2, 2] }, { ...identity2D, rotation: 45 }).points;
+    expect(box.outline({ kind: "box", center: [1, 0], size: [4, 2] }, identity2D)).toEqual({ points: [[-1, -1, 0], [3, -1, 0], [3, 1, 0], [-1, 1, 0]], closed: true });
+    expect(box.handles({ kind: "box", center: [0, 0], size: [4, 2] }, { ...identity2D, scale: [2, 1] })).toMatchObject({ left: [-4, 0, 0], right: [4, 0, 0], top: [0, 1, 0], bottom: [0, -1, 0], center: [0, 0, 0] });
+    const turned = box.outline({ kind: "box", center: [0, 0], size: [2, 2] }, { ...identity2D, angle: Math.PI / 4 }).points;
     expect(polygonArea(turned)).toBeCloseTo(4);
     close(turned[0], [0, -Math.SQRT2, 0]);
   });
 
   it("box: drags one edge with the opposite edge fixed, both with Alt, and never past the opposite edge", () => {
-    const f = { center: [0, 0], size: [2, 2] };
+    const f = { kind: "box", center: [0, 0], size: [2, 2] };
     expect(dragged2D("engine.BoxCollider2D", f, "right", [3, 5])).toEqual({ center: [1, 0], size: [4, 2] });
     expect(dragged2D("engine.BoxCollider2D", f, "bottom", [0, -3])).toEqual({ center: [0, -1], size: [2, 4] });
-    expect(dragged2D("engine.BoxCollider2D", { center: [1, 0], size: [2, 2] }, "left", [-3, 0], true)).toEqual({ size: [8, 2] }); // the centre stays
+    expect(dragged2D("engine.BoxCollider2D", { kind: "box", center: [1, 0], size: [2, 2] }, "left", [-3, 0], true)).toEqual({ size: [8, 2] }); // the centre stays
     const r = dragged2D("engine.BoxCollider2D", f, "right", [-5, 0]) as { center: number[]; size: number[] };
     expect(r.size[0]).toBeCloseTo(MIN_EXTENT);
     expect(r.center[0]).toBeCloseTo(-1 + MIN_EXTENT / 2);
   });
 
   it("circle: sized by the larger scale axis, rim handles turning with the node, the radius undoing the scale", () => {
-    const circle = entry2D("engine.CircleCollider2D"), pose: Pose2D = { ...identity2D, scale: [1, 3] };
-    close(circle.outline({ center: [0, 0], radius: 0.5 }, pose).points[0], [1.5, 0, 0]);
-    close(circle.handles({ center: [0, 0], radius: 0.5 }, { ...pose, rotation: 90 })["radius-right"], [0, 1.5, 0]);
-    expect(polygonArea(circle.outline({ center: [0, 0], radius: 1 }, identity2D).points)).toBeCloseTo(Math.PI, 1);
-    const scaled: Pose2D = { ...identity2D, scale: [2, 2] };
-    expect((dragged2D("engine.CircleCollider2D", { center: [0, 0], radius: 1 }, "radius-top", toLocal(scaled, [3, 4]), false, scaled) as { radius: number }).radius).toBeCloseTo(2.5);
-    expect(dragged2D("engine.CircleCollider2D", { center: [0, 0], radius: 1 }, "radius-top", [0, 0])).toEqual({ radius: MIN_EXTENT });
+    const circle = entry2D("engine.CircleCollider2D"), pose: Frame2D = { ...identity2D, scale: [1, 3] };
+    close(circle.outline({ kind: "circle", center: [0, 0], radius: 0.5 }, pose).points[0], [1.5, 0, 0]);
+    close(circle.handles({ kind: "circle", center: [0, 0], radius: 0.5 }, { ...pose, angle: Math.PI / 2 })["radius-right"], [0, 1.5, 0]);
+    expect(polygonArea(circle.outline({ kind: "circle", center: [0, 0], radius: 1 }, identity2D).points)).toBeCloseTo(Math.PI, 1);
+    const scaled: Frame2D = { ...identity2D, scale: [2, 2] };
+    expect((dragged2D("engine.CircleCollider2D", { kind: "circle", center: [0, 0], radius: 1 }, "radius-top", frameToLocal(scaled, [3, 4]), false, scaled) as { radius: number }).radius).toBeCloseTo(2.5);
+    expect(dragged2D("engine.CircleCollider2D", { kind: "circle", center: [0, 0], radius: 1 }, "radius-top", [0, 0])).toEqual({ radius: MIN_EXTENT });
   });
 
   it("character controller: an upright capsule, radius by |scale.x| and height by |scale.y|, dragged in local units", () => {
-    const capsule = entry2D("engine.CharacterController2D"), pose: Pose2D = { position: [1, 2, 0], rotation: 0, scale: [2, 1] };
+    const capsule = entry2D("engine.CharacterController2D"), pose = frame2D([1, 2, 0], 0, [2, 1]);
     expect(capsule.upright).toBe(true);
-    const f = { center: [0, 0], radius: 0.5, height: 4 };
+    const f = { kind: "capsule", center: [0, 0], radius: 0.5, height: 4 };
     const h = capsule.handles(f, pose);
     close(h["radius-right"], [2, 2, 0]);
     close(h["height-top"], [1, 4, 0]);
@@ -292,23 +292,23 @@ describe("2D entries", () => {
 
   it("a zero-radius capsule is drawn at the backend's smallest size, as the physics world builds it (no more gizmo/backend mismatch)", () => {
     const capsule = entry2D("engine.CharacterController2D");
-    const h = capsule.handles({ center: [0, 0], radius: 0, height: 1 }, identity2D);
+    const h = capsule.handles({ kind: "capsule", center: [0, 0], radius: 0, height: 1 }, identity2D);
     expect(h["radius-right"][0]).toBeCloseTo(1e-4, 8);
   });
 
   it("polygon and edge: a vertex handle per point, an insert handle per edge (the closing one only when closed), offset by the centre", () => {
     const square = [[0, 0], [2, 0], [2, 2], [0, 2]];
     const polygon = entry2D("engine.PolygonCollider2D"), edge = entry2D("engine.EdgeCollider2D");
-    const closed = polygon.handles({ center: [1, 0], points: square }, identity2D);
+    const closed = polygon.handles({ kind: "polygon", center: [1, 0], points: square }, identity2D);
     expect(closed["vertex:1"]).toEqual([3, 0, 0]);
     expect(closed["insert:3"]).toEqual([1, 1, 0]);
-    expect(Object.keys(edge.handles({ center: [0, 0], points: square }, identity2D)).filter((k) => k.startsWith("insert:"))).toHaveLength(3);
-    expect(polygon.outline({ center: [0, 0], points: [[1, 1]] }, { ...identity2D, scale: [2, 1] })).toEqual({ points: [[2, 1, 0]], closed: true });
-    expect(edge.outline({ center: [0, 0], points: square }, identity2D).closed).toBe(false);
+    expect(Object.keys(edge.handles({ kind: "edge", center: [0, 0], points: square }, identity2D)).filter((k) => k.startsWith("insert:"))).toHaveLength(3);
+    expect(polygon.outline({ kind: "polygon", center: [0, 0], points: [[1, 1]] }, { ...identity2D, scale: [2, 1] })).toEqual({ points: [[2, 1, 0]], closed: true });
+    expect(edge.outline({ kind: "edge", center: [0, 0], points: square }, identity2D).closed).toBe(false);
   });
 
   it("polygon and edge: vertices drag (snapped), an insert handle adds the edge's middle point and drags it, Ctrl+click removes down to the minimum", () => {
-    const square = [[0, 0], [2, 0], [2, 2], [0, 2]], f = { center: [1, 1], points: square };
+    const square = [[0, 0], [2, 0], [2, 2], [0, 2]], f = { kind: "polygon", center: [1, 1], points: square };
     const polygon = entry2D("engine.PolygonCollider2D"), edge = entry2D("engine.EdgeCollider2D");
     const move = drag2D(polygon.press(f, identity2D, "vertex:2", { ctrl: false }))!;
     expect(move.label).toBe("Move collider vertex");
@@ -317,46 +317,46 @@ describe("2D entries", () => {
     expect(insert.start).toEqual({ points: [[0, 0], [2, 0], [2, 2], [0, 2], [0, 1]] });
     expect((insert.drag([0, 0], false, identitySnap) as { points: number[][] }).points[4]).toEqual([-1, -1]);
     expect(polygon.press(f, identity2D, "vertex:0", { ctrl: true })).toEqual({ label: "Remove collider vertex", edit: { points: [[2, 0], [2, 2], [0, 2]] } });
-    expect(polygon.press({ center: [0, 0], points: square.slice(0, 3) }, identity2D, "vertex:0", { ctrl: true })).toEqual({ refused: "A polygon collider needs at least 3 points." });
-    expect(edge.press({ center: [0, 0], points: square.slice(0, 2) }, identity2D, "vertex:0", { ctrl: true })).toEqual({ refused: "An edge collider needs at least 2 points." });
+    expect(polygon.press({ kind: "polygon", center: [0, 0], points: square.slice(0, 3) }, identity2D, "vertex:0", { ctrl: true })).toEqual({ refused: "A polygon collider needs at least 3 points." });
+    expect(edge.press({ kind: "edge", center: [0, 0], points: square.slice(0, 2) }, identity2D, "vertex:0", { ctrl: true })).toEqual({ refused: "An edge collider needs at least 2 points." });
     expect(polygon.press(f, identity2D, "vertex:9", { ctrl: false })).toBeNull();
   });
 
   it("polygon and edge: read points as pairs or {x, y}, dropping malformed ones", () => {
     const c = new PolygonCollider2D();
     c.points = [[1, 2], { x: 3, y: 4 }, ["a", 1], null] as unknown as PolygonCollider2D["points"];
-    expect(entry2D("engine.PolygonCollider2D").read(c)).toEqual({ center: [0, 0], points: [[1, 2], [3, 4]] });
+    expect(entry2D("engine.PolygonCollider2D").read(c)).toEqual({ kind: "polygon", center: [0, 0], points: [[1, 2], [3, 4]] });
   });
 });
 
 describe("3D entries", () => {
   it("box: face handles scaled, turned and offset like the physics shape; twelve edges", () => {
     const box = entry3D("engine.BoxCollider");
-    const h = box.handles({ center: [0.5, 0, 0], size: [1, 2, 4] }, { position: [1, 2, 3], rotation: turnY90, scale: [2, 1, 1] });
+    const h = box.handles({ kind: "box", center: [0.5, 0, 0], size: [1, 2, 4] }, { position: [1, 2, 3], rotation: turnY90, scale: [2, 1, 1] });
     close(h.center, [1, 2, 2]); // centre (0.5 × 2) along the node's x, which faces -z
     close(h["x+"], [1, 2, 1]);
     close(h["y+"], [1, 3, 2]);
     close(h["z-"], [-1, 2, 2]);
-    expect(box.wire({ center: [0, 0, 0], size: [1, 1, 1] }, identity3D)).toHaveLength(12);
+    expect(box.wire({ kind: "box", center: [0, 0, 0], size: [1, 1, 1] }, identity3D)).toHaveLength(12);
   });
 
   it("box: drags a face with the opposite face fixed, or both with Alt", () => {
-    const box = entry3D("engine.BoxCollider"), f = { center: [0, 0, 0], size: [2, 2, 2] };
+    const box = entry3D("engine.BoxCollider"), f = { kind: "box", center: [0, 0, 0], size: [2, 2, 2] };
     expect(box.press(f, identity3D, "x+")!(2, false)).toEqual({ center: [0.5, 0, 0], size: [3, 2, 2] });
     expect(box.press(f, identity3D, "y-")!(3, false)).toEqual({ center: [0, -1, 0], size: [2, 4, 2] });
-    expect(box.press({ center: [0, 0, 1], size: [2, 2, 2] }, identity3D, "z+")!(2, true)).toEqual({ size: [2, 2, 4] });
-    expect(box.press({ center: [0, 0, 0], size: [2, 1, 1] }, { ...identity3D, scale: [2, 1, 1] }, "x+")!(4, false)).toEqual({ center: [0.5, 0, 0], size: [3, 1, 1] }); // world 2…4 → local
+    expect(box.press({ kind: "box", center: [0, 0, 1], size: [2, 2, 2] }, identity3D, "z+")!(2, true)).toEqual({ size: [2, 2, 4] });
+    expect(box.press({ kind: "box", center: [0, 0, 0], size: [2, 1, 1] }, { ...identity3D, scale: [2, 1, 1] }, "x+")!(4, false)).toEqual({ center: [0.5, 0, 0], size: [3, 1, 1] }); // world 2…4 → local
   });
 
   it("sphere and capsule: handles by the scale rules, and reaches turned back into radius and height", () => {
     const sphere = entry3D("engine.SphereCollider"), capsule = entry3D("engine.CapsuleCollider");
-    close(sphere.handles({ center: [0, 0, 0], radius: 0.5 }, { ...identity3D, scale: [1, 3, 1] })["radius:x+"], [1.5, 0, 0]);
-    const c = capsule.handles({ center: [0, 0, 0], radius: 0.5, height: 3, direction: "z" }, identity3D);
+    close(sphere.handles({ kind: "sphere", center: [0, 0, 0], radius: 0.5 }, { ...identity3D, scale: [1, 3, 1] })["radius:x+"], [1.5, 0, 0]);
+    const c = capsule.handles({ kind: "capsule", center: [0, 0, 0], radius: 0.5, height: 3, axis: 2 }, identity3D);
     close(c["height+"], [0, 0, 1.5]);
     close(c["radius:u+"], [0.5, 0, 0]); // across z: x first
-    expect(capsule.wire({ center: [0, 0, 0], radius: 0.5, height: 3, direction: "y" }, identity3D)).toHaveLength(10); // two rings, four sides, four caps
-    expect(sphere.press({ center: [0, 0, 0], radius: 1 }, { ...identity3D, scale: [1, 2, 1] }, "radius:x+")!(3, false)).toEqual({ radius: 1.5 });
-    const f = { center: [0, 0, 0], radius: 1, height: 2, direction: "y" };
+    expect(capsule.wire({ kind: "capsule", center: [0, 0, 0], radius: 0.5, height: 3, axis: 1 }, identity3D)).toHaveLength(10); // two rings, four sides, four caps
+    expect(sphere.press({ kind: "sphere", center: [0, 0, 0], radius: 1 }, { ...identity3D, scale: [1, 2, 1] }, "radius:x+")!(3, false)).toEqual({ radius: 1.5 });
+    const f = { kind: "capsule", center: [0, 0, 0], radius: 1, height: 2, axis: 1 };
     expect(capsule.press(f, { ...identity3D, scale: [2, 5, 1] }, "radius:u+")!(1, false)).toEqual({ radius: 0.5 });
     expect(capsule.press(f, { ...identity3D, scale: [1, 2, 1] }, "height+")!(2, false)).toEqual({ height: 2 });
     close(resizeAxis(capsule, f, identity3D, "height-")!, [0, -1, 0]);
@@ -365,7 +365,7 @@ describe("3D entries", () => {
   it("character controller: an upright y capsule with the capsule's handles", () => {
     const cc = entry3D("engine.CharacterController");
     expect(cc.upright).toBe(true);
-    const wire = cc.wire({ center: [0, 0, 0], radius: 0.5, height: 2, direction: "y" }, identity3D);
+    const wire = cc.wire({ kind: "capsule", center: [0, 0, 0], radius: 0.5, height: 2, axis: 1, upright: true }, identity3D);
     expect(wire.flat().every((p) => Math.abs(p[1]) <= 1 + 1e-9)).toBe(true);
   });
 
