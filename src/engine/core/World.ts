@@ -204,7 +204,7 @@ export class World {
     this.kind = kind;
     this.name = identity.name ?? KIND_IDENTITY[kind].name;
     this.worldTags = [...(identity.tags ?? KIND_IDENTITY[kind].tags)];
-    this.settings = resolveSettings(settings as ProjectSettingsInput);
+    this.settings = resolveSettings(settings); // an Engine passes its resolved settings, which come back as they are
     this.time = {
       time: 0,
       deltaTime: 0,

@@ -315,11 +315,18 @@ export const RUNTIME_SETTINGS: { readonly [K in RuntimeSettingsKey]: RuntimeSett
 
 const SECTIONS = Object.values(RUNTIME_SETTINGS) as RuntimeSettingsSection[];
 
+/** Settings `resolveSettings` made: resolving one again gives it back as it is (an Engine's Worlds take the Engine's). */
+const resolved = new WeakSet<object>();
+
 /** The settings of a project with no `project.json` values: every section's default. */
 export const defaultSettings: ProjectSettings = resolveSettings({});
 
-/** `project.json`'s values with the defaults for what's left out and for what's wrong (`settingsIssues` says what). */
-export function resolveSettings(input: ProjectSettingsInput = {}): ProjectSettings {
+/**
+ * `project.json`'s values with the defaults for what's left out and for what's wrong (`settingsIssues` says what).
+ * Settings it returned come back unchanged, without parsing them again.
+ */
+export function resolveSettings(input: ProjectSettingsInput | ProjectSettings = {}): ProjectSettings {
+  if (resolved.has(input)) return input as ProjectSettings;
   const out: Record<string, unknown> = {};
   const written = input as Record<string, unknown>;
   for (const section of SECTIONS) {
@@ -327,6 +334,7 @@ export function resolveSettings(input: ProjectSettingsInput = {}): ProjectSettin
     if (value !== undefined) out[section.key] = value;
   }
   if (input.bootstrap !== undefined) out.bootstrap = input.bootstrap; // checked by validateBootstrap when the bootstrap runs
+  resolved.add(out);
   return out as unknown as ProjectSettings;
 }
 

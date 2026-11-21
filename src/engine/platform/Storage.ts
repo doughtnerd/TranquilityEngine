@@ -37,9 +37,11 @@ export class MemoryStorage implements StorageBackend {
 let backend: StorageBackend = new MemoryStorage();
 
 export class Storage {
-  /** @internal Set by the Engine from the platform adapter. */
-  static use(b: StorageBackend): void {
+  /** @internal Set by the project context (ADR 0319) from the platform adapter. Returns the backend it replaced. */
+  static use(b: StorageBackend): StorageBackend {
+    const replaced = backend;
     backend = b;
+    return replaced;
   }
 
   static save(key: string, value: StorageValue, namespace: StorageNamespace = "saves"): Promise<void> {
