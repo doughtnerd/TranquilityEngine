@@ -1,4 +1,5 @@
-import { isFieldOverride, type ComponentEntry, type NodeEntry, type NodePath, type OverrideEntry, type SceneDocument, type SceneFile } from "./SceneDocument";
+import { sameTarget, setsProperty } from "../../engine/scene/overrideFold";
+import { type ComponentEntry, type NodeEntry, type NodePath, type OverrideEntry, type SceneDocument, type SceneFile } from "./SceneDocument";
 import { normalizeAssetPath } from "../../engine/scene/Assets";
 
 /**
@@ -145,7 +146,8 @@ export class SetField implements Command {
     const hadList = entry.overrides !== undefined;
     entry.overrides ??= [];
     const list = entry.overrides;
-    const pos = list.findIndex((o) => isFieldOverride(o, this.target, this.type, this.field, this.index));
+    const field = { kind: "field", type: this.type, index: this.index, field: this.field } as const;
+    const pos = list.findIndex((o) => setsProperty(o, field) && sameTarget(o.target, this.target));
     if (pos >= 0) {
       const old = clone(list[pos].value);
       list[pos].value = clone(this.value);

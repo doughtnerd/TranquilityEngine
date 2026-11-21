@@ -8,7 +8,8 @@ import { AddComponent, AddNode, SetField, type NodePath } from "./document";
 import { choicesFor, fieldTitle, itemField } from "./fieldValues";
 import { fieldKind } from "./fields/kinds";
 import { deleteNodes } from "./hierarchyEdit";
-import { componentWorlds, effectiveWorlds, knownWorldTags, setComponentWorlds, setNodeTags, tagsOverridden, withWorldTag, worldsBadge } from "./inspectorEdits";
+import { componentWorlds, effectiveWorlds, knownWorldTags, setComponentWorlds, setNodeTags, TAGS, withWorldTag, worldsBadge } from "./inspectorEdits";
+import { isOverridden } from "./overrideWriter";
 import { OrbitCamera } from "./OrbitCamera";
 import { removeComponentFrom } from "./componentEdits";
 import { openSceneFile } from "./project";
@@ -182,7 +183,7 @@ describe("node tags", () => {
     expect(doc.node("pipes").tags).toEqual(["hazard"]);
     expect(doc.node("pipes").overrides).toEqual([{ target: ["top"], tags: ["hazard"] }]);
     expect(target("pipes/top").node.tags).toEqual(["hazard"]);
-    expect(tagsOverridden(doc, ["pipes", "top"])).toBe(true);
+    expect(isOverridden(doc, ["pipes", "top"], TAGS)).toBe(true);
     setNodeTags(scene(), [["pipes"], ["pipes", "top"]], () => undefined, "Revert tags");
     expect(doc.node("pipes").tags).toBeUndefined();
     expect(doc.node("pipes").overrides).toBeUndefined();

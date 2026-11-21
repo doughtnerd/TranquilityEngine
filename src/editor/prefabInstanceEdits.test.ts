@@ -1,9 +1,10 @@
-// Renaming and deactivating nodes inside prefab instances, and Open Prefab's mapping (ADR 0122).
+// Renaming and deactivating nodes inside prefab instances (through the override writer, ADR 0287), and Open Prefab's mapping (ADR 0122).
 import { beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input } from "../engine";
 import { OrbitCamera } from "./OrbitCamera";
 import { AddNode, SetOverrides, type SceneFile } from "./document";
-import { applyOverridesTo, findInner, instanceInnerNodes, isInnerPropertyOverridden, nodePropertyCommand, prefabTarget, revertInnerProperty } from "./prefabs";
+import { isOverridden, writeProperty } from "./overrideWriter";
+import { applyOverridesTo, findInner, instanceInnerNodes, prefabTarget } from "./prefabs";
 import { openSceneFile } from "./project";
 import { editorSettings, joinPath, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
 import { ancestorKeys, hierarchyEntries } from "./selectionModel";
@@ -70,16 +71,16 @@ describe("inner node paths", () => {
 describe("renaming and deactivating inside an instance", () => {
   it("renames an inner node as an override, and naming it back removes the override", () => {
     const { doc, stack, sync } = openScene.value!;
-    stack.execute(nodePropertyCommand(doc, ["d", "knob"], "name", "Handle"));
+    stack.execute(writeProperty(doc, ["d", "knob"], { kind: "name" }, "Handle")!);
     expect(doc.overrides("d")).toEqual([{ target: ["knob"], name: "Handle" }]);
     expect(sync.nodeFor(["d", "knob"])!.name).toBe("Handle");
     expect(findInner(doc, ["d", "knob"])!.name).toBe("Handle");
-    expect(isInnerPropertyOverridden(doc, ["d", "knob"], "name")).toBe(true);
+    expect(isOverridden(doc, ["d", "knob"], { kind: "name" })).toBe(true);
 
-    stack.execute(nodePropertyCommand(doc, ["d", "knob"], "name", "Grip")); // replaces, doesn't add
+    stack.execute(writeProperty(doc, ["d", "knob"], { kind: "name" }, "Grip")!); // replaces, doesn't add
     expect(doc.overrides("d")).toEqual([{ target: ["knob"], name: "Grip" }]);
 
-    stack.execute(nodePropertyCommand(doc, ["d", "knob"], "name", "Knob"));
+    stack.execute(writeProperty(doc, ["d", "knob"], { kind: "name" }, "Knob")!);
     expect(doc.overrides("d")).toEqual([]);
     expect(sync.nodeFor(["d", "knob"])!.name).toBe("Knob");
 
@@ -90,13 +91,13 @@ describe("renaming and deactivating inside an instance", () => {
   it("deactivates an inner node, and reverting brings it back", () => {
     const scene = openScene.value!;
     const { doc, stack, sync } = scene;
-    stack.execute(nodePropertyCommand(doc, ["d", "frame"], "active", false));
+    stack.execute(writeProperty(doc, ["d", "frame"], { kind: "active" }, false)!);
     expect(doc.overrides("d")).toEqual([{ target: ["frame"], active: false }]);
     expect(sync.nodeFor(["d", "frame"])!.active).toBe(false);
     expect(findInner(doc, ["d", "frame"])!.active).toBe(false);
     expect(hierarchyEntries(doc).find((e) => e.key === "d/frame")).toBeTruthy();
 
-    revertInnerProperty(scene, ["d", "frame"], "active");
+    stack.execute(writeProperty(doc, ["d", "frame"], { kind: "active" }, undefined)!);
     expect(doc.overrides("d")).toEqual([]);
     expect(sync.nodeFor(["d", "frame"])!.active).toBe(true);
   });
@@ -104,17 +105,17 @@ describe("renaming and deactivating inside an instance", () => {
   it("compares with the nested instance's value: an outer rename wins over the prefab file's override", () => {
     const { doc, stack, sync } = openScene.value!;
     expect(findInner(doc, ["d", "pp", "top"])!.name).toBe("Lid"); // no rename of its own yet: the nested instance's value
-    stack.execute(nodePropertyCommand(doc, ["d", "pp", "top"], "name", "Cap"));
+    stack.execute(writeProperty(doc, ["d", "pp", "top"], { kind: "name" }, "Cap")!);
     expect(doc.overrides("d")).toEqual([{ target: ["pp", "top"], name: "Cap" }]);
     expect(sync.nodeFor(["d", "pp", "top"])!.name).toBe("Cap");
     expect(findInner(doc, ["d", "pp", "top"])!.name).toBe("Cap");
-    stack.execute(nodePropertyCommand(doc, ["d", "pp", "top"], "name", "Lid"));
+    stack.execute(writeProperty(doc, ["d", "pp", "top"], { kind: "name" }, "Lid")!);
     expect(doc.overrides("d")).toEqual([]);
   });
 
   it("renames the instance itself on its own entry, not as an override", () => {
     const { doc, stack } = openScene.value!;
-    stack.execute(nodePropertyCommand(doc, ["d"], "name", "Front door"));
+    stack.execute(writeProperty(doc, ["d"], { kind: "name" }, "Front door")!);
     expect(doc.node("d").name).toBe("Front door");
     expect(doc.overrides("d")).toEqual([]);
   });
@@ -124,10 +125,10 @@ describe("Apply writes names and active flags (ADR 0122)", () => {
   it("into plain prefab nodes, as overrides on nested instances, and leaves the instance root's alone", async () => {
     const scene = openScene.value!;
     const { doc, stack } = scene;
-    stack.execute(nodePropertyCommand(doc, ["d", "knob"], "name", "Handle"));
-    stack.execute(nodePropertyCommand(doc, ["d", "frame"], "active", false));
-    stack.execute(nodePropertyCommand(doc, ["d", "pp", "top"], "name", "Cap"));
-    stack.execute(nodePropertyCommand(doc, ["d", "pp"], "name", "Pipes"));
+    stack.execute(writeProperty(doc, ["d", "knob"], { kind: "name" }, "Handle")!);
+    stack.execute(writeProperty(doc, ["d", "frame"], { kind: "active" }, false)!);
+    stack.execute(writeProperty(doc, ["d", "pp", "top"], { kind: "name" }, "Cap")!);
+    stack.execute(writeProperty(doc, ["d", "pp"], { kind: "name" }, "Pipes")!);
     // A hand-written override on the instance root stays on the instance.
     stack.execute(new SetOverrides("d", "root", [...doc.overrides("d"), { active: false }]));
 
@@ -150,7 +151,7 @@ describe("Apply writes names and active flags (ADR 0122)", () => {
     const scene = openScene.value!;
     await project.writeText("prefabs/door.prefab.json", JSON.stringify({ ...DOOR, nodes: DOOR.nodes.map((n) => (n.id === "frame" ? { ...n, active: false } : n)) }));
     scene.stack.execute(new SetOverrides("d", "refresh", []));
-    scene.stack.execute(nodePropertyCommand(scene.doc, ["d", "frame"], "active", true));
+    scene.stack.execute(writeProperty(scene.doc, ["d", "frame"], { kind: "active" }, true)!);
     expect(scene.doc.overrides("d")).toEqual([{ target: ["frame"], active: true }]);
     await applyOverridesTo(scene, project, ["d"]);
     expect(fileOf("prefabs/door.prefab.json").nodes.find((n) => n.id === "frame")!.active).toBeUndefined();

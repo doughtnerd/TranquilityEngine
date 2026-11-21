@@ -8,12 +8,12 @@
 import { listComponents, type ComponentInfo, type FieldValue } from "../engine/editor";
 import { untracked } from "@preact/signals";
 import { writeComponentField } from "./componentField";
-import { RevertOverrides, isFieldOverride, type NodePath, type SceneDocument } from "./document";
+import type { NodePath, SceneDocument } from "./document";
 import { editStep, whyNotEdit } from "./editGate";
 import { fieldKind, type NodeIds } from "./fields/kinds";
 import type { RotationView } from "./fields/rotationCodec";
 import { rotationAngles } from "./preferences";
-import { isOverridden } from "./prefabs";
+import { isOverridden, writeProperty } from "./overrideWriter";
 import type { OpenScene } from "./state";
 
 /** Which component a field belongs to: its type and its index among the node's components of that type. */
@@ -40,7 +40,7 @@ function isMixed(scene: OpenScene, field: FieldValue, values: readonly unknown[]
 
 /** True when the field is an override on any of the nodes (prefab instances and nodes inside them). */
 const isFieldOverridden = (doc: SceneDocument, paths: readonly NodePath[], component: ComponentRef, field: string): boolean =>
-  paths.some((p) => isOverridden(doc, p, component.type, field, component.index));
+  paths.some((p) => isOverridden(doc, p, { kind: "field", type: component.type, index: component.index, field }));
 
 /** Each node's live value of the field (undefined where the node or component is gone). */
 export function fieldValues(scene: OpenScene, paths: readonly NodePath[], component: ComponentRef, field: string): unknown[] {
@@ -114,9 +114,10 @@ export function setFieldAxis(
 export function revertField(scene: OpenScene, paths: readonly NodePath[], component: ComponentRef, field: string): void {
   const label = `Revert ${field}`;
   editStep({ kind: "scene", scene }, label, () => {
-    for (const [id, ...target] of paths) {
-      if (!scene.doc.isPrefabInstance(id)) continue;
-      scene.stack.execute(new RevertOverrides(id, label, (o) => isFieldOverride(o, target, component.type, field, component.index)));
+    for (const path of paths) {
+      if (!scene.doc.isPrefabInstance(path[0])) continue;
+      const command = writeProperty(scene.doc, path, { kind: "field", type: component.type, index: component.index, field }, undefined, label);
+      if (command) scene.stack.execute(command);
     }
   });
 }

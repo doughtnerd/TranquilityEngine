@@ -1,6 +1,6 @@
 # 0122. Nodes inside a prefab instance can be renamed and deactivated, and an instance opens its prefab in a tab
 
-- **Status:** Proposed
+- **Status:** Proposed; amended by 0287 (name and active overrides are written by the override writer, any override setting them counts)
 - **Date:** 2026-11-07
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

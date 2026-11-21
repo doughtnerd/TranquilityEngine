@@ -9,7 +9,8 @@
 // values), `componentEdits.ts` (components) and `inspectorEdits.ts` (Worlds and tags).
 import { RevertOverrides, type NodePath } from "./document";
 import { errorStatus } from "./messages";
-import { applyOverridesTo, createPrefab, createPrefabFromNodes, findInner, isInnerPropertyOverridden, nodePropertyCommand, revertInnerProperty } from "./prefabs";
+import { isOverridden, writeProperty } from "./overrideWriter";
+import { applyOverridesTo, createPrefab, createPrefabFromNodes, findInner } from "./prefabs";
 import { openPrefabFrom } from "./prefabTabs";
 import type { EditorProject } from "./projects";
 import { whyReadOnly } from "./readOnly";
@@ -19,6 +20,8 @@ import { editableNow, statusSentence, whyNotEdit } from "./editGate";
 import { undoStep } from "./undoStep";
 
 const isInner = (path: NodePath) => path.length > 1;
+const NAME = { kind: "name" } as const;
+const ACTIVE = { kind: "active" } as const;
 
 /** The node's name as the scene shows it: its entry's name (else its id), or an inner node's name. */
 function nameOf(scene: OpenScene, path: NodePath): string {
@@ -51,8 +54,8 @@ export function nodeHeader(scene: OpenScene, paths: readonly NodePath[]): NodeHe
     names: paths.map((p) => nameOf(scene, p)),
     active: actives.every(Boolean) ? true : actives.some(Boolean) ? "mixed" : false,
     inner: paths.some(isInner),
-    nameOverridden: paths.some((p) => isInnerPropertyOverridden(scene.doc, p, "name")),
-    activeOverridden: paths.some((p) => isInnerPropertyOverridden(scene.doc, p, "active")),
+    nameOverridden: paths.some((p) => isOverridden(scene.doc, p, NAME)),
+    activeOverridden: paths.some((p) => isOverridden(scene.doc, p, ACTIVE)),
   };
 }
 
@@ -64,7 +67,10 @@ export function setNodesActive(scene: OpenScene, paths: readonly NodePath[], on:
   if (!editableNow({ kind: "scene", scene })) return 0;
   const changing = paths.filter((p) => activeOf(scene, p) !== on);
   const write = () => {
-    for (const p of changing) scene.stack.execute(nodePropertyCommand(scene.doc, p, "active", on));
+    for (const p of changing) {
+      const command = writeProperty(scene.doc, p, ACTIVE, on);
+      if (command) scene.stack.execute(command);
+    }
   };
   if (changing.length === 1) write();
   else if (changing.length > 1) undoStep(scene.stack, `${on ? "Activate" : "Deactivate"} ${changing.length} nodes`, write);
@@ -78,15 +84,24 @@ export function setNodesActive(scene: OpenScene, paths: readonly NodePath[], on:
 export function renameNode(scene: OpenScene, path: NodePath, name: string): boolean {
   if (!editableNow({ kind: "scene", scene })) return false;
   if (name === nameOf(scene, path)) return false;
-  scene.stack.execute(nodePropertyCommand(scene.doc, path, "name", name));
+  const command = writeProperty(scene.doc, path, NAME, name);
+  if (!command) return false;
+  scene.stack.execute(command);
   return true;
 }
 
 /** Remove the name and active overrides of the nodes inside instances, as one undo step. Returns how many were removed. */
 export function revertNameAndActive(scene: OpenScene, paths: readonly NodePath[]): number {
   if (!editableNow({ kind: "scene", scene })) return 0;
-  const found = paths.flatMap((p) => (["name", "active"] as const).filter((key) => isInnerPropertyOverridden(scene.doc, p, key)).map((key) => ({ p, key })));
-  if (found.length > 0) undoStep(scene.stack, "Revert name and active", () => found.forEach(({ p, key }) => revertInnerProperty(scene, p, key)));
+  const found = paths.flatMap((p) => [NAME, ACTIVE].filter((key) => isOverridden(scene.doc, p, key)).map((key) => ({ p, key })));
+  if (found.length > 0) {
+    undoStep(scene.stack, "Revert name and active", () => {
+      for (const { p, key } of found) {
+        const command = writeProperty(scene.doc, p, key, undefined);
+        if (command) scene.stack.execute(command);
+      }
+    });
+  }
   return found.length;
 }
 

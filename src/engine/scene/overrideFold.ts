@@ -125,6 +125,60 @@ export interface FoldResult<N> {
   readonly scope: FoldScope<N>;
 }
 
+/**
+ * A property one override sets on the node its target names (ADR 0287): the node's own name,
+ * active flag, tags or behaviour order, or a switch, Worlds or field of its `index`-th component of
+ * `type`. The fold applies overrides by these rules and the editor's override writer finds the
+ * override to change by them, so the two can't disagree about which override sets what.
+ */
+export type OverrideProperty =
+  | { readonly kind: "name" }
+  | { readonly kind: "active" }
+  | { readonly kind: "tags" }
+  | { readonly kind: "order" }
+  | { readonly kind: "enabled"; readonly type: string; readonly index: number }
+  | { readonly kind: "worlds"; readonly type: string; readonly index: number }
+  | { readonly kind: "field"; readonly type: string; readonly index: number; readonly field: string };
+
+/** True if two override targets are the same (an omitted target equals `[]`). */
+export function sameTarget(a: readonly string[] | undefined, b: readonly string[] | undefined): boolean {
+  const x = a ?? [], y = b ?? [];
+  return x.length === y.length && x.every((v, i) => v === y[i]);
+}
+
+/** The component an override names (`component`, and `index`, 0 when absent), or undefined. */
+export function overrideComponent(o: OverrideEntry): { readonly type: string; readonly index: number } | undefined {
+  return typeof o.component === "string" ? { type: o.component, index: typeof o.index === "number" ? o.index : 0 } : undefined;
+}
+
+/**
+ * True if override `o` sets property `p` (whatever its target). A switch or Worlds is read only
+ * from an override without a `field`: with one, the override sets that field and nothing else of
+ * the component.
+ */
+export function setsProperty(o: OverrideEntry, p: OverrideProperty): boolean {
+  switch (p.kind) {
+    case "name":
+      return typeof o.name === "string";
+    case "active":
+      return typeof o.active === "boolean";
+    case "tags":
+      return Array.isArray(o.tags);
+    case "order":
+      return Array.isArray(o.order);
+  }
+  const c = overrideComponent(o);
+  if (!c || c.type !== p.type || c.index !== p.index) return false;
+  if (p.kind === "field") return o.field === p.field;
+  if (o.field !== undefined) return false;
+  return p.kind === "enabled" ? typeof o.enabled === "boolean" : Array.isArray(o.worlds);
+}
+
+const NAME = { kind: "name" } as const;
+const ACTIVE = { kind: "active" } as const;
+const TAGS = { kind: "tags" } as const;
+const ORDER = { kind: "order" } as const;
+
 const MAX_DEPTH = 32;
 const TRANSFORM = "engine.Transform";
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
@@ -271,9 +325,10 @@ class Fold<N, C> {
       if (root) this.rootAliases.set([...at, root.id].join("/"), at.join("/"));
     }
     for (const o of Array.isArray(entry.overrides) ? entry.overrides : []) {
-      if (!isObject(o) || typeof o.component !== "string" || o.field !== undefined || !Array.isArray(o.worlds)) continue;
-      const key = `${[...at, ...(Array.isArray(o.target) ? (o.target as string[]) : [])].join("/")}#${o.component}#${o.index ?? 0}`;
-      if (!this.worldsOverrides.has(key)) this.worldsOverrides.set(key, o.worlds);
+      const c = isObject(o) ? overrideComponent(o) : undefined;
+      if (!c || !setsProperty(o, { kind: "worlds", ...c })) continue;
+      const key = `${[...at, ...(Array.isArray(o.target) ? (o.target as string[]) : [])].join("/")}#${c.type}#${c.index}`;
+      if (!this.worldsOverrides.has(key)) this.worldsOverrides.set(key, o.worlds!);
     }
   }
 
@@ -320,9 +375,9 @@ class Fold<N, C> {
   /** Apply override `o` to `node`, which belongs to instance `container`. */
   private apply(container: Inst<N>, node: N, o: OverrideEntry, home: OverrideHome, scope: Map<string, Inst<N>>, source: string, at: FoldPath): void {
     if (Array.isArray(o.addNodes)) this.addNodes(o.addNodes, node, container, source, at);
-    if (typeof o.name === "string") this.a.name?.(node, o.name);
-    if (Array.isArray(o.tags)) this.a.tags?.(node, o.tags);
-    if (typeof o.active === "boolean") this.a.active?.(node, o.active);
+    if (setsProperty(o, NAME)) this.a.name?.(node, o.name!);
+    if (setsProperty(o, TAGS)) this.a.tags?.(node, o.tags!);
+    if (setsProperty(o, ACTIVE)) this.a.active?.(node, o.active!);
     const list = this.slots.get(node) ?? [];
     if (typeof o.removeComponent === "string") {
       const i = list.findIndex((c) => c.type === o.removeComponent);
@@ -332,32 +387,34 @@ class Fold<N, C> {
       }
     }
     if (isObject(o.addComponent) && typeof o.addComponent.type === "string") this.add(node, o.addComponent, o.addComponent.worlds, scope, source, at, home);
-    if (Array.isArray(o.order)) {
-      const next = arrange(list, o.order);
+    if (setsProperty(o, ORDER)) {
+      const next = arrange(list, o.order!);
       list.splice(0, list.length, ...next);
       this.a.order?.(node, next.flatMap((c) => (c.handle === undefined ? [] : [c.handle])));
     }
-    if (typeof o.component !== "string") return;
-    const index = typeof o.index === "number" ? o.index : 0;
-    const slot = list.filter((c) => c.type === o.component)[index];
+    const named = overrideComponent(o);
+    if (!named) return;
+    const { index } = named;
+    const slot = list.filter((c) => c.type === named.type)[index];
     if (o.field === undefined) {
+      const enabled = setsProperty(o, { kind: "enabled", ...named });
       if (!slot) {
         // A `worlds` override alone may name a component this file doesn't have in every case; only a switch is a problem.
-        if (typeof o.enabled === "boolean") this.problem(`${source}: override targets missing component "${o.component}".`, at);
+        if (enabled) this.problem(`${source}: override targets missing component "${o.component}".`, at);
         return;
       }
       if (slot.handle === undefined) return;
-      if (typeof o.enabled === "boolean") this.a.enabled?.(node, slot.handle, o.enabled);
-      if (Array.isArray(o.worlds)) this.a.worlds?.(node, slot.handle, o.worlds);
+      if (enabled) this.a.enabled?.(node, slot.handle, o.enabled!);
+      if (setsProperty(o, { kind: "worlds", ...named })) this.a.worlds?.(node, slot.handle, o.worlds!);
       return;
     }
     if (typeof o.field !== "string") return;
     if (!slot) {
-      if (o.component === TRANSFORM) this.a.field?.(node, undefined, o.component, index, o.field, o.value, scope, source);
-      else if (getDataComponentDef(o.component) === undefined) this.problem(`${source}: override targets missing component "${o.component}".`, at);
+      if (named.type === TRANSFORM) this.a.field?.(node, undefined, named.type, index, o.field, o.value, scope, source);
+      else if (getDataComponentDef(named.type) === undefined) this.problem(`${source}: override targets missing component "${named.type}".`, at);
       return;
     }
-    if (slot.handle !== undefined) this.a.field?.(node, slot.handle, o.component, index, o.field, o.value, scope, source);
+    if (slot.handle !== undefined) this.a.field?.(node, slot.handle, named.type, index, o.field, o.value, scope, source);
   }
 
   /** An `addNodes` override: create the nodes under `parent`, and register their ids in `container` so later overrides can target them. */

@@ -6,8 +6,8 @@ import type { GameObject } from "../engine";
 import { getComponentClass, getComponentOptions } from "../engine/core/registry";
 import type { ProjectSettingsInput } from "../engine/core/settings";
 import type { ComponentInfo } from "../engine/editor";
-import { originOf } from "./componentEdits";
-import { SetComponentWorlds, SetOverrides, SetTags, sameTarget, type NodePath, type OverrideEntry, type SceneDocument } from "./document";
+import type { NodePath, SceneDocument } from "./document";
+import { inheritedValue, originOf, writeProperty, writtenValue } from "./overrideWriter";
 import type { OpenScene } from "./state";
 import { editableNow } from "./editGate";
 import { undoStep } from "./undoStep";
@@ -20,10 +20,8 @@ export interface WorldsSetting {
   readonly inherited: readonly string[] | undefined;
 }
 
-
-/** A `worlds` override for component `index` of `type` at `target`. */
-const isWorldsOverride = (o: OverrideEntry, target: readonly string[], type: string, index: number) =>
-  o.component === type && o.field === undefined && o.worlds !== undefined && (o.index ?? 0) === index && sameTarget(o.target, target);
+/** The Worlds property of component `info` (the override writer's word for it, ADR 0287). */
+const worldsOf = (info: Pick<ComponentInfo, "type" | "index">) => ({ kind: "worlds", type: info.type, index: info.index }) as const;
 
 /** The class's own `worlds` option (ADR 0033 §3). */
 function classWorlds(type: string): readonly string[] | undefined {
@@ -36,17 +34,11 @@ function classWorlds(type: string): readonly string[] | undefined {
  * here: Transform, or a component the file doesn't have (added by a script).
  */
 export function componentWorlds(doc: SceneDocument, path: NodePath, info: ComponentInfo): WorldsSetting | null {
-  if (info.kind === "transform") return null;
-  const origin = originOf(doc, path, info);
-  if (!origin) return null;
-  const [id, ...target] = path;
-  if (origin.kind === "file") return { own: doc.node(id).components![origin.position].worlds, inherited: classWorlds(info.type) };
-  if (origin.kind === "added") return { own: doc.node(id).overrides![origin.at].addComponent!.worlds, inherited: classWorlds(info.type) };
-  const override = doc.overrides(id).find((o) => isWorldsOverride(o, target, info.type, info.index));
-  // What the prefab files give it (their entries and nested instances' overrides): the resolved view without this override (ADR 0280).
-  const others = doc.overrides(id).filter((o) => o !== override);
-  const inherited = doc.resolve(id, others).nodes.find((n) => sameTarget(n.path, path))?.components.filter((c) => c.type === info.type)[info.index]?.worlds;
-  return { own: override?.worlds, inherited: inherited ?? classWorlds(info.type) };
+  if (info.kind === "transform" || !originOf(doc, path, info)) return null;
+  const p = worldsOf(info);
+  // Inside an instance, what the prefab files give it (their entries and nested instances' overrides).
+  const inherited = inheritedValue(doc, path, p) as readonly string[] | undefined;
+  return { own: writtenValue(doc, path, p) as readonly string[] | undefined, inherited: inherited ?? classWorlds(info.type) };
 }
 
 /** The Worlds that apply: own, else inherited. Undefined: every World. */
@@ -95,24 +87,9 @@ export function setComponentWorlds(
   if (able.length === 0) return 0;
   const verb = worlds === undefined ? "Reset Worlds" : "Set Worlds";
   undoStep(stack, label ?? (able.length === 1 ? verb : `${verb} on ${able.length} nodes`), () => {
-    for (const { path, info, next: worlds } of able) {
-      const [id, ...target] = path;
-      const origin = originOf(doc, path, info)!;
-      if (origin.kind === "file") {
-        stack.execute(new SetComponentWorlds(id, origin.position, worlds));
-        continue;
-      }
-      const list = structuredClone(doc.node(id).overrides ?? []);
-      if (origin.kind === "added") {
-        const entry = list[origin.at].addComponent!;
-        if (worlds === undefined) delete entry.worlds;
-        else entry.worlds = [...worlds];
-      } else {
-        const at = list.findIndex((o) => isWorldsOverride(o, target, info.type, info.index));
-        if (at >= 0) list.splice(at, 1);
-        if (worlds !== undefined) list.push({ ...(target.length > 0 ? { target: [...target] } : {}), component: info.type, ...(info.index > 0 ? { index: info.index } : {}), worlds: [...worlds] });
-      }
-      stack.execute(new SetOverrides(id, verb, list));
+    for (const { path, info, next } of able) {
+      const command = writeProperty(doc, path, worldsOf(info), next === undefined ? undefined : [...next], verb);
+      if (command) stack.execute(command);
     }
   });
   return able.length;
@@ -133,13 +110,8 @@ export function knownWorldTags(settings: ProjectSettingsInput | undefined, extra
 
 // --- tags -------------------------------------------------------------------------------------
 
-/** True if `target` inside instance `id` has a `tags` override (or, for the instance itself, its own `tags`). */
-export function tagsOverridden(doc: SceneDocument, path: NodePath): boolean {
-  const [id, ...target] = path;
-  if (!doc.isPrefabInstance(id)) return false;
-  if (target.length === 0) return doc.node(id).tags !== undefined;
-  return doc.overrides(id).some((o) => o.tags !== undefined && sameTarget(o.target, target));
-}
+/** A node's tags, as the override writer (ADR 0287) names them: `isOverridden(doc, path, TAGS)` says whether a node's tags are this scene's own. */
+export const TAGS = { kind: "tags" } as const;
 
 /**
  * Set each node's tags (`tagsFor` gets the node's current tags), as one undo step: a plain node's
@@ -151,18 +123,11 @@ export function setNodeTags(scene: OpenScene, paths: readonly NodePath[], tagsFo
   const { doc, stack } = scene;
   undoStep(stack, paths.length === 1 ? label : `${label} on ${paths.length} nodes`, () => {
     for (const path of paths) {
-      const [id, ...target] = path;
       const current = scene.sync.nodeFor(path)?.tags ?? [];
       const next = tagsFor(current);
       if (next !== undefined && next.length === current.length && next.every((t, i) => t === current[i])) continue;
-      if (target.length === 0) {
-        if (next === undefined && !doc.isPrefabInstance(id)) continue;
-        stack.execute(new SetTags(id, next));
-        continue;
-      }
-      const list = structuredClone(doc.node(id).overrides ?? []).filter((o) => !(o.tags !== undefined && sameTarget(o.target, target) && Object.keys(o).every((k) => k === "tags" || k === "target")));
-      if (next !== undefined) list.push({ target: [...target], tags: [...next] });
-      stack.execute(new SetOverrides(id, label, list));
+      const command = writeProperty(doc, path, TAGS, next === undefined ? undefined : [...next], label);
+      if (command) stack.execute(command);
     }
   });
 }
