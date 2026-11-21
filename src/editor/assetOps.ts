@@ -2,7 +2,8 @@
 // paste), duplicating and copying, and new folders. Renames and moves update what refers to the
 // files (assetReferences.ts): scenes, prefabs, project.json and other JSON files are rewritten (the
 // open scene as one undo step, kept when it's saved), and instances of a changed prefab in the open
-// scene are rebuilt. Scripts aren't edited, so ones that quote a moved file are listed. Deleting is
+// scene are rebuilt; open asset documents take the change in their whole history (ADR 0302). Scripts and
+// model files (.obj, .mtl, .gltf) aren't edited, so ones that name a moved file are listed. Deleting is
 // in assetDelete.ts.
 // A file's import settings sidecar (`<file>.meta.json`, ADR 0040) moves, copies and deletes with
 // it (projects.ts), and references to its slices (`<file>#<slice>`) are updated like the file's.
@@ -112,7 +113,7 @@ export async function moveAssets(moves: readonly (readonly [string, string])[], 
     return false;
   }
   const histories = assetDocumentsMoved(done); // open asset documents and their undo follow their files
-  const { updated: cleaned, scriptUsers } = await updateReferences(project, done);
+  const { updated: cleaned, notRewritten } = await updateReferences(project, done);
   // Open Code tabs follow their files.
   const rename = movedPath(done);
   if (openScripts.value.some((p) => rename(p) !== null)) {
@@ -125,7 +126,7 @@ export async function moveAssets(moves: readonly (readonly [string, string])[], 
   const label = done.length === 1 ? `${done[0][0]} to ${done[0][1]}` : `${done.length} items`;
   const parts = [
     cleaned.length > 0 ? ` Updated references in ${cleaned.join(", ")}.` : "",
-    scriptUsers.length > 0 ? ` Scripts that mention the old path weren't changed: ${scriptUsers.join(", ")}.` : "",
+    notRewritten.length > 0 ? ` Files that name the old path weren't changed (scripts and model files aren't rewritten): ${notRewritten.join(", ")}.` : "",
   ];
   status.value = {
     kind: "info",
@@ -140,9 +141,9 @@ export async function moveAssets(moves: readonly (readonly [string, string])[], 
 
 /**
  * Point references at the moved files' new paths (the asset reference module): the open scene's
- * change is one undo step. Returns the files updated and the scripts that still quote an old path.
+ * change is one undo step. Returns the files updated and the files no owner rewrites (scripts, model files) that still name an old path.
  */
-function updateReferences(project: EditorProject, moves: readonly (readonly [string, string])[]): Promise<{ updated: string[]; scriptUsers: string[] }> {
+function updateReferences(project: EditorProject, moves: readonly (readonly [string, string])[]): Promise<{ updated: string[]; notRewritten: string[] }> {
   return rewriteReferences(project, moves, `Update references to ${moves.length === 1 ? fileName(moves[0][1]) : `${moves.length} moved files`}`);
 }
 

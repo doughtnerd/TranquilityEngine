@@ -1,9 +1,10 @@
 // Deleting assets and scripts from the Assets panel. The file goes from disk for good, so the
 // editor asks first (unless told not to), listing what refers to it: scenes and prefabs (by
-// `asset:` path or prefab path), other JSON files and scripts that quote it, the project settings (autoloads), and
+// `asset:` path or prefab path), other JSON files, files whose kind reads them as naming it (an .mtl's textures,
+// ADR 0302) and scripts that quote it, the project settings (autoloads), and
 // the open scene. Scenes, prefabs and project.json are then cleaned of it (assetReferences.ts):
 // files on disk are rewritten, and the open scene is edited as one undo step (save to keep it).
-// Scripts can't be cleaned automatically and are listed as still referring to it.
+// Other files (scripts, asset and model files) keep their references and are listed as still referring to it.
 import { fileName } from "./assetBrowser";
 import { entryPath, isFolderEntry } from "./assetEntry";
 import { closeScript, openScripts } from "./code/codeState";
@@ -98,14 +99,14 @@ export async function deleteAssets(entries: readonly string[]): Promise<boolean>
   const loose = entries.filter((e) => !isFolderEntry(e) && !folders.some((f) => isWithin(e, f)));
   const deleting = new Set([...loose, ...folders.flatMap((f) => filesIn(project, f))]);
   const open = scene && scene.stack.dirty ? { path: scene.path, text: JSON.stringify(scene.doc.toJSON()) } : null;
-  const users = [...new Set([...deleting].flatMap((path) => assetUsers(project, path, open)))].filter((u) => !deleting.has(u));
+  const users = (await assetUsers(project, [...deleting], open)).filter((u) => !deleting.has(u));
   if (askBeforeDeletingAssets.value) {
     const contents = folders.length > 0 ? ` ${deleting.size === 1 ? "1 file" : `${deleting.size} files`} in all.` : "";
     const answer = await confirmInEditor({
       title: `Delete ${name}?`,
       message:
         users.length > 0
-          ? `It's deleted from disk, which can't be undone.${contents} ${users.length === 1 ? "This file uses it" : `These ${users.length} files use it`}: references in scenes, prefabs and project settings are removed (instances of it are deleted); scripts keep theirs.`
+          ? `It's deleted from disk, which can't be undone.${contents} ${users.length === 1 ? "This file uses it" : `These ${users.length} files use it`}: references in scenes, prefabs and project settings are removed (instances of it are deleted); other files (scripts, asset and model files) keep theirs.`
           : `It's deleted from disk, which can't be undone.${contents} Nothing in the project uses it.`,
       items: users,
       confirmLabel: "Delete",
@@ -141,7 +142,7 @@ export async function deleteAssets(entries: readonly string[]): Promise<boolean>
     step?.end();
   }
   // What's left: scripts, mostly. (The open scene's file changes when it's saved.)
-  const remaining = [...new Set([...deleting].flatMap((path) => assetUsers(project, path)))].filter((u) => u !== openScene.value?.path);
+  const remaining = (await assetUsers(project, [...deleting])).filter((u) => u !== openScene.value?.path);
   docVersion.value++; // the Assets panel lists the project's files
   scriptsVersion.value++;
   for (const path of deleting) if (openScripts.value.includes(path)) closeScript(path);
