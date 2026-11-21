@@ -1,17 +1,20 @@
 // Field rows and value widgets for both Inspectors (ADR 0243): the edited document's and a live World's.
 // A row renders one component field of a `FieldTarget` (`../fieldTarget.ts`), which decides where a
-// commit goes; one switch over ADR 0042's field kinds picks the widget, rotations through their codec
-// component (ADR 0165). So live editing reaches every field kind the document's Inspector edits.
+// commit goes. The widget for each field kind (`../fields/kinds.ts`, ADR 0273) is registered here by kind,
+// rotations through their codec component (ADR 0165). So live editing reaches every field kind the
+// document's Inspector edits.
+import type { VNode } from "preact";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { Color, GameObject, Quaternion } from "../../engine";
 import { ASSET_FIELD_KINDS, AssetRef, getComponentClass, getFields, isListType, listComponentIds, type AssetFieldKind, type FieldChoice } from "../../engine/core/registry";
 import type { ComponentInfo, FieldValue } from "../../engine/editor";
 import { listedFiles } from "../assetBrowser";
 import { assetKindsOf, assetListId, assetsForKinds } from "../assetFieldKinds";
-import { rotationViewOf, withAxis } from "../fieldEdits";
+import { rotationViewOf } from "../fieldEdits";
 import { fieldChoicesFor, listedChoices, loadFieldChoices } from "../fieldChoices";
 import type { FieldDrag, FieldTarget, NodeRefs } from "../fieldTarget";
-import { choicesFor, defaultItem, editorFor, fieldTitle, itemEditorFor, itemField, type FieldEditor } from "../fieldValues";
+import { choicesFor, fieldTitle, itemField } from "../fieldValues";
+import { FIELD_KINDS, fieldKind, type FieldKind, type FieldKindName } from "../fields/kinds";
 import { MIXED, NumberInput, formatNumber } from "../fields/NumberInput";
 import { RotationField } from "../fields/RotationField";
 import type { FieldChoicesContribution } from "../sdk/contributions";
@@ -40,7 +43,7 @@ export function FieldRows(props: { target: FieldTarget; fields: readonly FieldVa
 function FieldRow(props: { target: FieldTarget; field: FieldValue; readOnly?: boolean }) {
   const { target, field } = props;
   const info = target.info;
-  const editor: FieldEditor = props.readOnly ? "unknown" : editorFor(field);
+  const kind = props.readOnly ? FIELD_KINDS.unknown : fieldKind(field);
   const { values, mixed, overridden } = target.state(field);
   // Choices a plugin supplies for this field (ADR 0152), e.g. a MeshRenderer's material variants.
   const contributed = props.readOnly ? undefined : fieldChoicesFor(info.type, field.name);
@@ -59,7 +62,7 @@ function FieldRow(props: { target: FieldTarget; field: FieldValue; readOnly?: bo
   return (
     <>
       <div class={`label-cell${overridden ? " overridden" : ""}`}>
-        <ScrubLabel name={field.name} title={fieldTitle(field)} drag={(label) => target.drag(field, label)} value={isNumeric(editor) && !mixed ? Number(field.value) : null} onScrub={commit} />
+        <ScrubLabel name={field.name} title={fieldTitle(field)} drag={(label) => target.drag(field, label)} value={isNumeric(kind) && !mixed ? Number(field.value) : null} onScrub={commit} />
         {overridden && (
           <button class="revert" title={`Overridden in this scene. Revert ${field.name} to the prefab's value`} aria-label={`Revert ${field.name}`} onClick={revert}>
             ↺
@@ -70,8 +73,8 @@ function FieldRow(props: { target: FieldTarget; field: FieldValue; readOnly?: bo
         {choices !== undefined ? (
           <ChoiceInput choices={choices} value={field.value} mixed={mixed} label={field.name} onCommit={commit} />
         ) : (
-          <FieldEditorView
-            editor={editor}
+          <FieldWidget
+            kind={kind}
             field={field}
             values={values}
             mixed={mixed}
@@ -103,10 +106,11 @@ function useContributedChoices(contribution: FieldChoicesContribution | undefine
   return loaded;
 }
 
-const isNumeric = (e: FieldEditor) => e === "number" || e === "integer";
+const isNumeric = (kind: FieldKind) => kind.name === "number" || kind.name === "integer";
 
-function FieldEditorView(props: {
-  editor: FieldEditor;
+/** What a field kind's widget is given. */
+interface WidgetProps {
+  kind: FieldKind;
   field: FieldValue;
   /** Each selected node's value; `field.value` is the active node's. */
   values: readonly unknown[];
@@ -119,78 +123,67 @@ function FieldEditorView(props: {
   onCommitAxis: (axis: number, value: number) => void;
   /** Each node's new value, in `values` order. */
   onCommitEach: (next: readonly unknown[]) => void;
-}) {
-  const { editor, field, values, mixed, nodes, onCommit } = props;
-  const v = field.value;
-  switch (editor) {
-    case "number":
-    case "integer":
-      return <NumberInput value={mixed ? null : Number(v)} integer={editor === "integer"} label={field.name} onCommit={onCommit} />;
-    case "boolean":
-      return (
-        <input
-          type="checkbox"
-          checked={!mixed && Boolean(v)}
-          indeterminate={mixed}
-          aria-label={field.name}
-          onChange={(e) => onCommit((e.currentTarget as HTMLInputElement).checked)}
-        />
-      );
-    case "string":
-      return <TextInput value={mixed ? "" : String(v ?? "")} placeholder={mixed ? MIXED : undefined} label={field.name} onCommit={onCommit} />;
-    case "asset":
-      return <TextInput value={mixed ? "" : String(v ?? "")} placeholder={mixed ? MIXED : undefined} label={field.name} list={assetListId(assetKindsOf(field))} onCommit={onCommit} />;
-    case "color":
-      return <ColorInput value={v instanceof Color ? v : Color.white} mixed={mixed} label={field.name} onCommit={onCommit} />;
-    case "vector2":
-    case "vector3":
-      if (values.some((x) => x !== null && x !== undefined) && values.some((x) => x === null || x === undefined)) {
-        // Set on some nodes, unset (automatic) on others.
-        return <span class="none">{MIXED} (some Auto)</span>;
-      }
-      if (v === null || v === undefined) {
-        // Unset (e.g. a sprite's size, which then comes from its texture): offer to set one.
-        const zero = editor === "vector2" ? [1, 1] : [0, 0, 0];
-        return (
-          <span class="unset">
-            <span class="none">Auto</span>
-            <button title={`Set ${field.name} explicitly`} onClick={() => onCommit(zero)}>
-              Set
-            </button>
-          </span>
-        );
-      }
-      return <VectorInput value={axesOf(values)} label={field.name} onCommitAxis={props.onCommitAxis} />;
-    case "node":
-      return <NodeRefInput value={nodes.keyOf(v)} mixed={mixed} nodes={nodes} label={field.name} onCommit={onCommit} />;
-    case "object":
-      return mixed ? <span class="none">{MIXED} (differs)</span> : <ObjectInput value={(v ?? {}) as Record<string, unknown>} onCommit={onCommit} />;
-    case "choice":
-      return <ChoiceInput choices={choicesFor(field, currentProject.value?.settings) ?? []} value={v} mixed={mixed} label={field.name} onCommit={onCommit} />;
-    case "quaternion":
-      // A codec component (ADR 0165): Euler radians or degrees, or x, y, z, w, as the field or Settings say.
-      if (v === null || v === undefined) return <span class="none">None</span>;
-      return (
-        <RotationField
-          values={values.map((x) => (x instanceof Quaternion ? x : null))}
-          view={rotationViewOf(field)}
-          label={field.name}
-          toggleKey={props.rowKey}
-          onCommit={props.onCommitEach}
-        />
-      );
-    case "list":
-      return <ListInput field={field} mixed={mixed} nodes={nodes} rowKey={props.rowKey} onCommit={onCommit} />;
-    default:
-      return <span class="none field-json">{safeJSON(v)}</span>;
-  }
 }
+
+/** The widget for a field of `props.kind`. */
+function FieldWidget(props: WidgetProps) {
+  const Widget = WIDGETS[props.kind.name];
+  return <Widget {...props} />;
+}
+
+const numberWidget = ({ kind, field, mixed, onCommit }: WidgetProps) => (
+  <NumberInput value={mixed ? null : Number(field.value)} integer={kind.name === "integer"} label={field.name} onCommit={onCommit} />
+);
+
+/** A vector: per axis; unset (Auto, e.g. a sprite's size from its texture) offers Set; set on some nodes only, a dash. */
+function vectorWidget({ kind, field, values, onCommit, onCommitAxis }: WidgetProps) {
+  if (values.some((x) => !kind.isUnset(x)) && values.some((x) => kind.isUnset(x))) return <span class="none">{MIXED} (some Auto)</span>;
+  if (kind.isUnset(field.value)) {
+    return (
+      <span class="unset">
+        <span class="none">Auto</span>
+        <button title={`Set ${field.name} explicitly`} onClick={() => onCommit(kind.explicit!())}>
+          Set
+        </button>
+      </span>
+    );
+  }
+  return <VectorInput value={sharedAxes(values.map((x) => kind.axes!.read(x, "radians")))} label={field.name} onCommitAxis={onCommitAxis} />;
+}
+
+/** The widget for each field kind (ADR 0273). */
+const WIDGETS: Readonly<Record<FieldKindName, (props: WidgetProps) => VNode | null>> = {
+  number: numberWidget,
+  integer: numberWidget,
+  boolean: ({ field, mixed, onCommit }) => (
+    <input type="checkbox" checked={!mixed && Boolean(field.value)} indeterminate={mixed} aria-label={field.name} onChange={(e) => onCommit((e.currentTarget as HTMLInputElement).checked)} />
+  ),
+  string: ({ field, mixed, onCommit }) => <TextInput value={mixed ? "" : String(field.value ?? "")} placeholder={mixed ? MIXED : undefined} label={field.name} onCommit={onCommit} />,
+  asset: ({ field, mixed, onCommit }) => (
+    <TextInput value={mixed ? "" : String(field.value ?? "")} placeholder={mixed ? MIXED : undefined} label={field.name} list={assetListId(assetKindsOf(field))} onCommit={onCommit} />
+  ),
+  color: ({ field, mixed, onCommit }) => <ColorInput value={field.value instanceof Color ? field.value : Color.white} mixed={mixed} label={field.name} onCommit={onCommit} />,
+  vector2: vectorWidget,
+  vector3: vectorWidget,
+  node: ({ field, mixed, nodes, onCommit }) => <NodeRefInput value={nodes.keyOf(field.value)} mixed={mixed} nodes={nodes} label={field.name} onCommit={onCommit} />,
+  object: ({ field, mixed, onCommit }) =>
+    mixed ? <span class="none">{MIXED} (differs)</span> : <ObjectInput value={(field.value ?? {}) as Record<string, unknown>} onCommit={onCommit} />,
+  choice: ({ field, mixed, onCommit }) => <ChoiceInput choices={choicesFor(field, currentProject.value?.settings) ?? []} value={field.value} mixed={mixed} label={field.name} onCommit={onCommit} />,
+  // A codec component (ADR 0165): Euler radians or degrees, or x, y, z, w, as the field or Settings say.
+  quaternion: ({ field, values, rowKey, onCommitEach }) =>
+    field.value === null || field.value === undefined ? (
+      <span class="none">None</span>
+    ) : (
+      <RotationField values={values.map((x) => (x instanceof Quaternion ? x : null))} view={rotationViewOf(field)} label={field.name} toggleKey={rowKey} onCommit={onCommitEach} />
+    ),
+  list: ({ kind, field, mixed, nodes, rowKey, onCommit }) => <ListInput kind={kind} field={field} mixed={mixed} nodes={nodes} rowKey={rowKey} onCommit={onCommit} />,
+  unknown: ({ field }) => <span class="none field-json">{safeJSON(field.value)}</span>,
+};
 
 // --- inputs -------------------------------------------------------------------------------------
 
-/** Each axis shared by every vector in `values`, or null where they differ. */
-function axesOf(values: readonly unknown[]): (number | null)[] {
-  const arrays = values.map((x) => (x as { toArray(): number[] }).toArray());
+/** Each axis shared by every vector's axes in `arrays`, or null where they differ. */
+function sharedAxes(arrays: readonly number[][]): (number | null)[] {
   return arrays[0].map((n, i) => (arrays.every((a) => a[i] === n) ? n : null));
 }
 
@@ -395,11 +388,11 @@ function ChoiceInput(props: { choices: readonly FieldChoice[]; value: unknown; m
  * nodes whose lists differ it shows the active node's list under a dash; an edit replaces every
  * node's list with the edited one.
  */
-function ListInput(props: { field: FieldValue; mixed: boolean; nodes: NodeRefs; rowKey?: string; onCommit: (items: unknown[]) => void }) {
+function ListInput(props: { kind: FieldKind; field: FieldValue; mixed: boolean; nodes: NodeRefs; rowKey?: string; onCommit: (items: unknown[]) => void }) {
   const { field, mixed, nodes } = props;
   const items = Array.isArray(field.value) ? (field.value as unknown[]) : [];
-  const editor = itemEditorFor(field);
-  const choices = editor === "choice" ? choicesFor(field, currentProject.value?.settings) : null;
+  const item = props.kind.item!;
+  const choices = item.name === "choice" ? choicesFor(field, currentProject.value?.settings) : null;
   const name = humanize(field.name);
   const write = (next: unknown[]) => props.onCommit(next);
   const replace = (i: number, v: unknown) => write(items.map((x, j) => (j === i ? v : x)));
@@ -411,7 +404,7 @@ function ListInput(props: { field: FieldValue; mixed: boolean; nodes: NodeRefs; 
   };
   const add = () => {
     const last = items[items.length - 1];
-    const copy = items.length === 0 ? defaultItem(editor, choices) : copyItem(last);
+    const copy = items.length === 0 ? item.blank(choices) : copyItem(last);
     write([...items, copy]);
   };
   return (
@@ -424,21 +417,21 @@ function ListInput(props: { field: FieldValue; mixed: boolean; nodes: NodeRefs; 
           + Add
         </button>
       </div>
-      {items.map((item, i) => {
-        const f = itemField(field, i, item);
+      {items.map((value, i) => {
+        const f = itemField(field, i, value);
         return (
           <div key={i} class="list-item">
             <span class="list-index">{i}</span>
             <div class="list-value">
-              <FieldEditorView
-                editor={editor}
+              <FieldWidget
+                kind={item}
                 field={f}
-                values={[item]}
+                values={[value]}
                 mixed={false}
                 nodes={nodes}
                 rowKey={props.rowKey === undefined ? undefined : `${props.rowKey}[${i}]`}
                 onCommit={(v) => replace(i, v)}
-                onCommitAxis={(axis, n) => replace(i, withAxis(item, editor, axis, n, rotationViewOf(f)))}
+                onCommitAxis={(axis, n) => item.axes && replace(i, item.axes.write(value, axis, n, rotationViewOf(f)))}
                 onCommitEach={(next) => replace(i, next[0])}
               />
             </div>

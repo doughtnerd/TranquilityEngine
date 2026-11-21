@@ -13,7 +13,7 @@ import { GameObject } from "../engine";
 import { listComponents, listNodes, writeField, type FieldValue } from "../engine/editor";
 import { SetField, type NodePath } from "./document";
 import { editableNow, whyNotEdit } from "./editGate";
-import { editorFor, itemEditorFor, toSceneJSON } from "./fieldValues";
+import { fieldKind, type NodeIds } from "./fields/kinds";
 import type { OpenScene } from "./state";
 import { beginUndoStep } from "./undoStep";
 
@@ -50,7 +50,7 @@ const sceneTarget = (place: DocumentComponent) => ({ kind: "scene", scene: place
 const title = (type: string) => type.replace(/^[^.]*\./, "");
 
 /** A live node's key in reference values: its entity (a destroyed node gets a key no node has). */
-const liveKey = (n: GameObject) => (n.isValid ? String(n.entity) : "destroyed");
+const liveKey: NodeIds = (n) => (n.isValid ? String(n.entity) : "destroyed");
 
 /** The node of `world` a live reference key names, or null. */
 const liveNodeAt = (node: GameObject) => (key: string): GameObject | null => listNodes(node.world).find((n) => n.depth > 0 && String(n.node.entity) === key)?.node ?? null;
@@ -72,10 +72,10 @@ export function storedFieldValue(place: ComponentPlace, field: string): unknown 
     if (!place.node.isValid) return undefined;
     const f = liveField(place, field);
     if (!f) return undefined;
-    const editor = editorFor(f);
-    if (editor === "unknown" || f.value === undefined) return undefined;
+    const kind = fieldKind(f);
+    if (!kind.savable || f.value === undefined) return undefined;
     try {
-      return f.value === null ? null : toSceneJSON(editor, f.value, { field, nodeId: liveKey, itemEditor: editor === "list" ? itemEditorFor(f) : undefined });
+      return f.value === null ? null : kind.toJSON(f.value, liveKey);
     } catch {
       return undefined;
     }

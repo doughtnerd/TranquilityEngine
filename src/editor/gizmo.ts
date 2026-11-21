@@ -8,7 +8,7 @@ import { effect } from "@preact/signals";
 import type { Engine } from "../engine";
 import { type GizmoHandlers, type GizmoOptions, type LocalPose, viewport } from "../engine/editor";
 import { SetField, type NodePath, type SceneDocument } from "./document";
-import { toSceneJSON } from "./fieldValues";
+import { FIELD_KINDS, noNodeRefs } from "./fields/kinds";
 import { topmostKeys } from "./selectionModel";
 import { cleanSnap, gizmoPivot, gizmoSpace, snapActive, snapSettings } from "./sceneTools";
 import { isEditable } from "./editable";
@@ -39,7 +39,7 @@ export function gizmoEdit(doc: SceneDocument, node: string | NodePath, mode: Mod
 }
 
 /** A pose's Transform field in scene-file form (a rotation as a quaternion). */
-const poseValue = (pose: LocalPose, field: "position" | "rotation" | "scale"): unknown => toSceneJSON(field === "rotation" ? "quaternion" : "vector3", pose[field]);
+const poseValue = (pose: LocalPose, field: "position" | "rotation" | "scale"): unknown => FIELD_KINDS[field === "rotation" ? "quaternion" : "vector3"].toJSON(pose[field], noNodeRefs);
 
 /**
  * The gizmo's settings for the targets (`keys`, in order) from the scene tools: snapping (Ctrl or

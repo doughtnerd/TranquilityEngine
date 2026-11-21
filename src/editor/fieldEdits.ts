@@ -5,14 +5,13 @@
 // one undo step across every selected node; every write goes through the component field write (ADR 0257), so the
 // edit gate refuses them during play. Siblings: `componentEdits.ts` (components) and
 // `inspectorEdits.ts` (Worlds and tags).
-import { Color, GameObject, Quaternion } from "../engine";
 import { listComponents, type ComponentInfo, type FieldValue } from "../engine/editor";
 import { untracked } from "@preact/signals";
-import { storedFieldValue, writeComponentField } from "./componentField";
+import { writeComponentField } from "./componentField";
 import { RevertOverrides, isFieldOverride, type NodePath, type SceneDocument } from "./document";
 import { editStep, whyNotEdit } from "./editGate";
-import { editorFor, itemEditorFor, toSceneJSON, type FieldEditor } from "./fieldValues";
-import { rotationCodec, rotationFrom, withRotationAxis, type RotationView } from "./fields/rotationCodec";
+import { fieldKind, type NodeIds } from "./fields/kinds";
+import type { RotationView } from "./fields/rotationCodec";
 import { rotationAngles } from "./preferences";
 import { isOverridden } from "./prefabs";
 import type { OpenScene } from "./state";
@@ -29,34 +28,15 @@ export const rotationViewOf = (field: Pick<FieldValue, "options">): RotationView
 /** The Rotation angles preference (anything unreadable: radians). */
 const preferredRotationView = (): RotationView => (rotationAngles.value === "degrees" ? "degrees" : "radians");
 
-/** A vector's axes, or a default when it's unset. */
-function axesBase(value: unknown, editor: FieldEditor): number[] {
-  if (Array.isArray(value)) return [...value];
-  if (value && typeof value === "object" && "toArray" in value) return (value as { toArray(): number[] }).toArray();
-  return editor === "vector2" ? [1, 1] : [0, 0, 0];
-}
+/** Node references in the open document: by document id. */
+const documentNodeIds = (scene: OpenScene): NodeIds => (n) => scene.sync.nodeIdOf(n);
 
-/**
- * `value` with axis `axis` set to `n`, its other axes kept. A rotation's axes are the ones its view shows
- * (`view`, default the field's), written back through the rotation codec as a Quaternion.
- */
-export function withAxis(value: unknown, editor: FieldEditor, axis: number, n: number, view: RotationView = preferredRotationView()): unknown {
-  if (editor === "quaternion") return withRotationAxis(rotationFrom(value), view, axis, n);
-  return axesBase(value, editor).map((old, j) => (j === axis ? n : old));
+/** True when the nodes' values (one per node) differ, by the field's kind (the same rotation is the same value). */
+function isMixed(scene: OpenScene, field: FieldValue, values: readonly unknown[]): boolean {
+  const kind = fieldKind(field);
+  const nodeIds = documentNodeIds(scene);
+  return values.some((v) => !kind.same(values[0], v, nodeIds));
 }
-
-/** A comparable form of a field value, to tell whether several nodes' values differ. */
-function valueKey(v: unknown, scene: OpenScene): string {
-  if (Array.isArray(v)) return `[${v.map((x) => valueKey(x, scene)).join(",")}]`;
-  if (v instanceof Quaternion) return `quat:${JSON.stringify(rotationCodec("radians").read(v).map((r) => Math.round(r * 1e6)))}`;
-  if (v instanceof Color) return `color:${v.toHex()}:${v.a}`;
-  if (v instanceof GameObject) return `node:${scene.sync.nodeIdOf(v)}`;
-  if (v && typeof v === "object" && "toArray" in v) return JSON.stringify((v as { toArray(): number[] }).toArray());
-  return JSON.stringify(v ?? null);
-}
-
-/** True when the nodes' values (one per node) differ. */
-const isMixed = (scene: OpenScene, values: readonly unknown[]): boolean => new Set(values.map((v) => valueKey(v, scene))).size > 1;
 
 /** True when the field is an override on any of the nodes (prefab instances and nodes inside them). */
 const isFieldOverridden = (doc: SceneDocument, paths: readonly NodePath[], component: ComponentRef, field: string): boolean =>
@@ -79,8 +59,8 @@ export interface FieldState {
   readonly overridden: boolean;
 }
 
-export function fieldState(scene: OpenScene, paths: readonly NodePath[], component: ComponentRef, field: string, values = fieldValues(scene, paths, component, field)): FieldState {
-  return { values, mixed: isMixed(scene, values), overridden: isFieldOverridden(scene.doc, paths, component, field) };
+export function fieldState(scene: OpenScene, paths: readonly NodePath[], component: ComponentRef, field: FieldValue, values = fieldValues(scene, paths, component, field.name)): FieldState {
+  return { values, mixed: isMixed(scene, field, values), overridden: isFieldOverridden(scene.doc, paths, component, field.name) };
 }
 
 /** The edit gate's reason the scene can't be edited now, or null. */
@@ -89,22 +69,16 @@ const whyNotEditScene = (scene: OpenScene): string | null => untracked(() => why
 /**
  * Set the field on each node to `valueFor(i)` (i: the node's index in `paths`), as one undo step, through the
  * component field write (ADR 0257: the edit gate, overrides on prefab instances, unchanged values skipped). The value
- * is converted to its scene-file form against what the file holds now: the instance's override on a prefab instance
- * (or a node inside one), else the node's own field. Returns why it couldn't (play mode, say), or null.
+ * is converted to its scene-file form by the field's kind (ADR 0273). Returns why it couldn't (play mode, say), or null.
  */
 export function setFieldEach(scene: OpenScene, paths: readonly NodePath[], component: ComponentRef, field: FieldValue, valueFor: (i: number) => unknown): string | null {
-  const editor = editorFor(field);
+  const kind = fieldKind(field);
+  const nodeIds = documentNodeIds(scene);
   const write = (): string | null => {
     let reason: string | null = null;
     paths.forEach((path, i) => {
       const place = { scene, path, type: component.type, index: component.index };
-      const json = toSceneJSON(editor, valueFor(i), {
-        field: field.name,
-        previous: storedFieldValue(place, field.name),
-        nodeId: (n) => scene.sync.nodeIdOf(n),
-        itemEditor: editor === "list" ? itemEditorFor(field) : undefined,
-      });
-      reason ??= writeComponentField(place, field.name, json);
+      reason ??= writeComponentField(place, field.name, kind.toJSON(valueFor(i), nodeIds));
     });
     return reason;
   };
@@ -131,8 +105,9 @@ export function setFieldAxis(
   values: readonly unknown[] = fieldValues(scene, paths, component, field.name),
   view: RotationView = rotationViewOf(field),
 ): string | null {
-  const editor = editorFor(field);
-  return setFieldEach(scene, paths, component, field, (i) => withAxis(values[i], editor, axis, n, view));
+  const axes = fieldKind(field).axes;
+  if (!axes) return `${field.name} has no axes`;
+  return setFieldEach(scene, paths, component, field, (i) => axes.write(values[i], axis, n, view));
 }
 
 /** Remove the field's override from every node that has one, as one undo step (through the edit gate). Plain nodes are skipped. */

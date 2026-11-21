@@ -1,42 +1,16 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { AssetRef, Color, Engine, GameObject, Input, PlainObject, Quaternion, Vector2, Vector3 } from "../engine";
+import { Engine, GameObject, Input, Vector3 } from "../engine";
 import { SpriteRenderer } from "../engine/render/components";
 import { listComponents } from "../engine/editor";
 import { RenameNode, SetActive, SetField } from "./document";
-import { editorFor, parseNumber, toSceneJSON } from "./fieldValues";
+import { parseNumber } from "./fieldValues";
+import { FIELD_KINDS, noNodeRefs } from "./fields/kinds";
 import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile } from "./project";
 import { openScene, sceneCamera } from "./state";
 import { DEMO_SCENE, demoAssets, demoSettings } from "./testing";
 
-describe("field values (scene-file JSON)", () => {
-  it("picks editors from declared types", () => {
-    const f = (type: unknown, value: unknown = null) => editorFor({ name: "f", type: type as never, value });
-    expect(f(Number)).toBe("number");
-    expect(f(Vector3)).toBe("vector3");
-    expect(f(Vector2)).toBe("vector2");
-    expect(f(Color)).toBe("color");
-    expect(f(GameObject)).toBe("node");
-    expect(f(AssetRef)).toBe("asset");
-    expect(f(PlainObject)).toBe("object");
-    expect(f({ kind: "f32" })).toBe("number");
-    expect(f({ kind: "u8" })).toBe("integer");
-  });
-
-  it("converts values to their scene-file form", () => {
-    expect(toSceneJSON("vector3", new Vector3(1, 2, 3))).toEqual([1, 2, 3]);
-    // Rotations are quaternions (ADR 0163), from a Quaternion or from Euler radians (ZXY), w kept ≥ 0.
-    expect(toSceneJSON("quaternion", [0, 0, Math.PI / 2])).toEqual([0, 0, 0.7071068, 0.7071068]);
-    expect(toSceneJSON("quaternion", new Quaternion(0, -0.7071068, 0, -0.7071068))).toEqual([0, 0.7071068, 0, 0.7071068]);
-    expect(toSceneJSON("color", new Color(1, 0, 0, 1))).toBe("#ff0000");
-    expect(toSceneJSON("color", new Color(0, 1, 0, 0.5))).toBe("#00ff0080");
-    expect(toSceneJSON("asset", "images/bird.png")).toBe("asset:images/bird.png");
-    expect(toSceneJSON("asset", "asset:images/bird.png")).toBe("asset:images/bird.png");
-    expect(toSceneJSON("node", "bird")).toEqual({ $node: "bird" });
-    expect(toSceneJSON("node", null)).toBeNull();
-    expect(toSceneJSON("integer", 2.6)).toBe(3);
-  });
-
+describe("number boxes", () => {
   it("parses numbers and simple arithmetic, rejecting anything else", () => {
     expect(parseNumber("1.5")).toBe(1.5);
     expect(parseNumber(" 2*3 ")).toBe(6);
@@ -63,7 +37,7 @@ describe("editing the open demo scene (ADR 0026)", () => {
   it("writes a field to the document and the World, and undo restores both", () => {
     const { doc, stack, sync } = openScene.value!;
     const before = JSON.stringify(doc.toJSON());
-    stack.execute(new SetField("bird", "engine.Transform", "position", toSceneJSON("vector3", new Vector3(2, 3, 0))));
+    stack.execute(new SetField("bird", "engine.Transform", "position", FIELD_KINDS.vector3.toJSON(new Vector3(2, 3, 0), noNodeRefs)));
     expect(doc.fieldValue("bird", "engine.Transform", "position")).toEqual([2, 3, 0]);
     expect(sync.nodeFor("bird")!.transform!.position.toArray()).toEqual([2, 3, 0]);
     expect(stack.dirty).toBe(true);

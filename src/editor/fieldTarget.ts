@@ -4,14 +4,14 @@
 // running game (written as the scene loader would assign it, play-only, no undo). Both adapters write
 // through the one component field write (`componentField.ts`, ADR 0257). Field rows (`ui/fieldRows.tsx`) hand a target values in the
 // editors' form (numbers, strings, `Color`, axis arrays, `Quaternion`s, a node choice's key, plain
-// objects, list items); each adapter converts them to scene-file JSON with `toSceneJSON` and writes
-// them its own way.
+// objects, list items); each adapter converts them to scene-file JSON through the field's kind
+// (`fields/kinds.ts`, ADR 0273) and writes them its own way.
 import { GameObject } from "../engine";
 import type { ComponentInfo, FieldValue } from "../engine/editor";
 import { beginFieldDrag, writeComponentField, type FieldDrag } from "./componentField";
 import type { NodePath } from "./document";
-import { fieldState, revertField, rotationViewOf, setField, setFieldAxis, setFieldEach, withAxis, type FieldState } from "./fieldEdits";
-import { editorFor, itemEditorFor, toSceneJSON } from "./fieldValues";
+import { fieldState, revertField, rotationViewOf, setField, setFieldAxis, setFieldEach, type FieldState } from "./fieldEdits";
+import { fieldKind, type NodeIds } from "./fields/kinds";
 import { liveNodeChoices, setLiveNodeRef } from "./liveEdits";
 import type { OpenScene } from "./state";
 
@@ -69,7 +69,7 @@ export function documentFieldTarget(scene: OpenScene, paths: readonly NodePath[]
   const valuesOf = (field: FieldValue) => infos.map((i) => i.fields.find((f) => f.name === field.name)?.value);
   return {
     info,
-    state: (field) => fieldState(scene, paths, info, field.name, valuesOf(field)),
+    state: (field) => fieldState(scene, paths, info, field, valuesOf(field)),
     set: (field, value) => setField(scene, paths, info, field, value),
     setEach: (field, values) => setFieldEach(scene, paths, info, field, (i) => values[i]),
     setAxis: (field, axis, n) => setFieldAxis(scene, paths, info, field, axis, n, valuesOf(field)),
@@ -92,17 +92,18 @@ export function documentFieldTarget(scene: OpenScene, paths: readonly NodePath[]
  */
 export function liveFieldTarget(node: GameObject, info: ComponentInfo, afterEdit: () => void = () => {}): FieldTarget {
   const place = { node, type: info.type, index: info.index };
+  // A destroyed node's entity may already name another node, so it gets a key no node has.
+  const liveIds: NodeIds = (n) => (n.isValid ? String(n.entity) : "destroyed");
   const nodeAt = (key: string): GameObject | null => liveNodeChoices(node.world).find((c) => String(c.node.entity) === key)?.node ?? null;
   const write = (field: FieldValue, value: unknown): string | null => {
     if (!node.isValid) return "the node has been destroyed";
-    const editor = editorFor(field);
+    const kind = fieldKind(field);
     let reason: string | null;
-    if (editor === "node") {
+    if (kind.name === "node") {
       const target = value === null || value === undefined || value instanceof GameObject ? (value ?? null) : nodeAt(String(value));
       reason = value !== null && value !== undefined && target === null ? `that node isn't in World ${node.world.name}` : setLiveNodeRef(node, info, field.name, target);
     } else {
-      const json = toSceneJSON(editor, value, { field: field.name, nodeId: (n) => (n.isValid ? String(n.entity) : "destroyed"), itemEditor: editor === "list" ? itemEditorFor(field) : undefined });
-      reason = writeComponentField(place, field.name, json);
+      reason = writeComponentField(place, field.name, kind.toJSON(value, liveIds));
     }
     afterEdit();
     return reason;
@@ -113,7 +114,10 @@ export function liveFieldTarget(node: GameObject, info: ComponentInfo, afterEdit
     state: (field) => ({ values: [valueOf(field)], mixed: false, overridden: false }),
     set: write,
     setEach: (field, values) => write(field, values[0]),
-    setAxis: (field, axis, n) => write(field, withAxis(valueOf(field), editorFor(field), axis, n, rotationViewOf(field))),
+    setAxis: (field, axis, n) => {
+      const axes = fieldKind(field).axes;
+      return axes ? write(field, axes.write(valueOf(field), axis, n, rotationViewOf(field))) : `${field.name} has no axes`;
+    },
     revert() {},
     drag(field, label) {
       const drag = beginFieldDrag(place, label, [field.name]) ?? CLOSED;
@@ -131,8 +135,7 @@ export function liveFieldTarget(node: GameObject, info: ComponentInfo, afterEdit
     },
     nodes: {
       choices: () => liveNodeChoices(node.world).map((c) => ({ key: String(c.node.entity), label: c.name, depth: c.depth })),
-      // A destroyed node's entity may already name another node, so it gets a key no choice has.
-      keyOf: (v) => (v instanceof GameObject ? (v.isValid ? String(v.entity) : "destroyed") : null),
+      keyOf: (v) => (v instanceof GameObject ? liveIds(v) : null),
       missing: "destroyed",
     },
   };
