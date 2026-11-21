@@ -1,4 +1,6 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { goldenDir, goldenNames } from "../golden/replay";
 import { LoudnessStats } from "./loudnessStats";
 
 // G7d (ADR 0171 amended by 0172; Ld6's L-Ld6a fixtures): the synthesised EBU Tech 3341 / 3342 set read through
@@ -31,9 +33,8 @@ interface Fixture {
   measured: Readings;
 }
 
-const fixtures = Object.entries(import.meta.glob<Fixture>("../golden/loudness/*.json", { eager: true, import: "default" }))
-  .sort(([a], [b]) => a.localeCompare(b))
-  .map(([, f]) => f);
+// Read through the golden reader (`golden/replay.ts`): the loudness suite owns `golden/loudness/`, as every suite owns its folder.
+const fixtures = goldenNames("loudness").map((name) => JSON.parse(readFileSync(`${goldenDir("loudness")}${name}.json`, "utf8")) as Fixture);
 
 /** The signal, one channel (both channels carry it), as `loudness_ebu.rs`'s `render`. */
 function render(rate: number, segments: readonly Segment[]): Float32Array {
