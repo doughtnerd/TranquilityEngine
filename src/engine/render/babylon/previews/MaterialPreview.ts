@@ -3,19 +3,18 @@
  * API `render/previewRouting.ts` routes to. `MaterialPreview` is a live preview of a graph on a
  * built-in mesh in a canvas of its own, lit like a default scene (a sun, soft ambient light and the studio
  * environment); drag to turn the mesh. `NodePreviewRenderer` draws every node's preview with one offscreen
- * engine, copied into each node's 2D canvas. Graphs compile to WGSL.
+ * engine, copied into each node's 2D canvas. Graphs compile to WGSL. Both draw on a preview stage (ADR 0300), which
+ * owns the engine, scene, orbit, loop and context loss; they keep the meshes and graph materials they put on it.
  *
  * The engine starts asynchronously (WebGPU needs `initAsync`), so the constructors return at once and
  * the first frames appear a moment later; calls made before that are applied when it's up.
  */
 import { Camera } from "@babylonjs/core/Cameras/camera.js";
 import { TargetCamera } from "@babylonjs/core/Cameras/targetCamera.js";
-import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
 import type { HDRCubeTexture } from "@babylonjs/core/Materials/Textures/hdrCubeTexture.js";
 import { Matrix, Quaternion, Vector3 } from "@babylonjs/core/Maths/math.vector.js";
 import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData.js";
-import type { Scene } from "@babylonjs/core/scene.js";
 import { meshesIfLoaded, type BuiltinMesh } from "../../../scene/models";
 import type { GraphValue, NodePreviewShape, ShaderGraph } from "../../../scene/shaderGraph";
 import { Graphics } from "../../Graphics";
@@ -23,18 +22,8 @@ import { compileShaderGraph, type CompiledShaderGraph } from "../../shaderGraph/
 import { createGraphMaterial, type BabylonGraphMaterial, type GraphShared } from "../graphMaterial";
 import { meshOf } from "../materials";
 import type { BabylonMaterialLibrary } from "../materialLibrary";
-import { appliedPixelRatio } from "../../RenderSurface";
-import {
-  aimCamera,
-  createPreviewScene,
-  createStudioTexture,
-  previewMaterials,
-  renderFrame,
-  renderFrameChecked,
-  useWhenReady,
-} from "./common";
-import { createEngine } from "../createEngine";
-import { addDefaultLights } from "../lighting";
+import { createStudioTexture, previewMaterials, renderFrame, renderFrameChecked, useWhenReady } from "./common";
+import { PreviewStage } from "./previewStage";
 
 export type PreviewMesh = Extract<BuiltinMesh, "sphere" | "cube" | "capsule" | "plane" | "quad">;
 
@@ -50,23 +39,16 @@ export class MaterialPreview {
   readonly canvas: HTMLCanvasElement;
   /** Called with the shader compiler's log when the generated shader fails to compile (a compiler bug), or null once one compiles. */
   onShaderError: ((message: string | null) => void) | null = null;
-  private engine: AbstractEngine | null = null;
-  private scene: Scene | null = null;
-  private camera: TargetCamera | null = null;
+  private readonly stage: PreviewStage;
   private mesh: Mesh | null = null;
   private studio: HDRCubeTexture | null = null;
   private readonly shared: GraphShared = { time: 0, resolution: [1, 1] };
-  private readonly resizeObserver: ResizeObserver;
   private graph: BabylonGraphMaterial | null = null;
   /** The textures the graph loaded (ADR 0127), freed when it's rebuilt, so changed images load anew. */
   private library: BabylonMaterialLibrary | null = null;
   private kind: PreviewMesh = "sphere";
   /** What `setGraph` last drew, to rebuild when the quality tier changes a Quality Branch. */
   private last: { graph: ShaderGraph; properties: Record<string, GraphValue>; compiled: CompiledShaderGraph; usesShaderLevel: boolean; version: number } | null = null;
-  private frame = 0;
-  private yaw = 0.6;
-  private pitch = 0.35;
-  private readonly distance = 3.4;
   private readonly start = performance.now();
   /** The graph was rebuilt and no frame has been checked for shader errors yet. */
   private unchecked = false;
@@ -74,50 +56,19 @@ export class MaterialPreview {
 
   constructor(container: HTMLElement, canvas?: HTMLCanvasElement) {
     this.canvas = canvas ?? document.createElement("canvas");
-    this.canvas.style.display = "block";
-    this.canvas.style.width = "100%";
-    this.canvas.style.height = "100%";
-    this.canvas.style.touchAction = "none";
-    if (!this.canvas.isConnected) container.appendChild(this.canvas);
-    this.canvas.addEventListener("pointerdown", this.onPointerDown);
-    this.resizeObserver = new ResizeObserver(() => this.resize());
-    this.resizeObserver.observe(container);
-    void this.init();
-  }
-
-  private async init(): Promise<void> {
-    try {
-      const engine = await createEngine(this.canvas, { antialias: true, transparent: true });
-      if (this.disposed) {
-        engine.dispose();
-        return;
-      }
-      this.engine = engine;
-      engine.setHardwareScalingLevel(1 / appliedPixelRatio()); // the World surface's pixel ratio, at render scale 1 (ADR 0154)
-      const scene = createPreviewScene(engine);
-      addDefaultLights(scene, "preview"); // the default rig, a World's own (ADR 0277)
-      const camera = new TargetCamera("preview.camera", Vector3.Zero(), scene, false);
-      camera.fov = (35 * Math.PI) / 180;
-      camera.fovMode = Camera.FOVMODE_VERTICAL_FIXED;
-      camera.minZ = 0.1;
-      camera.maxZ = 50;
-      camera.rotationQuaternion = Quaternion.Identity();
-      scene.activeCamera = camera;
-      this.scene = scene;
-      this.camera = camera;
-      this.studio = createStudioTexture(scene);
-      void useWhenReady(scene, this.studio).catch(() => undefined); // no reflections until it's ready (or ever, if it can't)
-      this.resize();
-      this.applyMesh();
-      if (this.last) this.build(this.last.compiled, this.last.properties);
-      const loop = () => {
-        this.frame = requestAnimationFrame(loop);
-        this.render();
-      };
-      this.frame = requestAnimationFrame(loop);
-    } catch (err) {
-      console.warn("[myco] shader graph preview couldn't start:", err);
-    }
+    this.stage = new PreviewStage(this.canvas, {
+      name: "shader graph preview",
+      host: container,
+      // Turned around the origin from in front, a little to the right and above (ADR 0300's orbit; no zoom).
+      orbit: { fov: 35, near: 0.1, far: 50, target: [0, 0, 0], start: { yaw: Math.PI - 0.6, pitch: 0.35, distance: 3.4 } },
+      onUp: (stage) => {
+        this.studio = createStudioTexture(stage.scene!);
+        void useWhenReady(stage.scene!, this.studio).catch(() => undefined); // no reflections until it's ready (or ever, if it can't)
+        this.applyMesh();
+        if (this.last) this.build(this.last.compiled, this.last.properties);
+      },
+      frame: () => this.render(),
+    });
   }
 
   setMesh(kind: PreviewMesh): void {
@@ -126,7 +77,7 @@ export class MaterialPreview {
   }
 
   private applyMesh(): void {
-    const scene = this.scene;
+    const scene = this.stage.scene;
     if (!scene) return;
     const material = this.mesh?.material ?? null;
     this.mesh?.dispose();
@@ -144,12 +95,12 @@ export class MaterialPreview {
     const compiled = compileShaderGraph(graph, { shaderLevel: Graphics.tier.shaderLevel });
     this.last = { graph, properties, compiled, usesShaderLevel: compiled.usesShaderLevel, version: Graphics._version };
     this.onShaderError?.(null);
-    if (this.scene) this.build(compiled, properties);
+    if (this.stage.scene) this.build(compiled, properties);
     return compiled;
   }
 
   private build(compiled: CompiledShaderGraph, properties: Record<string, GraphValue>): void {
-    const scene = this.scene;
+    const scene = this.stage.scene;
     if (!scene) return;
     this.graph?.dispose();
     this.unchecked = true;
@@ -165,58 +116,31 @@ export class MaterialPreview {
 
   /** Forget loaded textures (the project's images changed): the graph loads them again. */
   clearTextures(): void {
-    if (this.last && this.scene) this.build(this.last.compiled, this.last.properties);
-  }
-
-  private onPointerDown = (e: PointerEvent) => {
-    if (e.button !== 0) return;
-    const x0 = e.clientX, y0 = e.clientY, yaw = this.yaw, pitch = this.pitch;
-    this.canvas.setPointerCapture(e.pointerId);
-    const move = (m: PointerEvent) => {
-      this.yaw = yaw + (m.clientX - x0) * 0.01;
-      this.pitch = Math.max(-1.4, Math.min(1.4, pitch + (m.clientY - y0) * 0.01));
-    };
-    const up = () => {
-      this.canvas.removeEventListener("pointermove", move);
-      this.canvas.removeEventListener("pointerup", up);
-    };
-    this.canvas.addEventListener("pointermove", move);
-    this.canvas.addEventListener("pointerup", up);
-  };
-
-  private resize(): void {
-    this.engine?.resize();
+    if (this.last && this.stage.scene) this.build(this.last.compiled, this.last.properties);
   }
 
   private render(): void {
-    const engine = this.engine, scene = this.scene, camera = this.camera;
-    if (!engine || !scene || !camera || this.disposed) return;
+    const engine = this.stage.engine;
+    if (!engine || this.disposed) return;
     if (this.last && this.last.usesShaderLevel && this.last.version !== Graphics._version) this.setGraph(this.last.graph, this.last.properties);
     this.shared.time = (performance.now() - this.start) / 1000;
     this.shared.resolution = [engine.getRenderWidth(), engine.getRenderHeight()];
-    const r = this.distance;
-    aimCamera(camera, [Math.sin(this.yaw) * Math.cos(this.pitch) * r, Math.sin(this.pitch) * r, -Math.cos(this.yaw) * Math.cos(this.pitch) * r], [0, 0, 0]); // yaw 0 in front, at -Z (ADR 0164)
     // The first frame a new graph is ready to draw is watched for WGSL errors (see renderFrameChecked).
     if (this.unchecked && this.mesh?.material?.isReady(this.mesh)) {
       this.unchecked = false;
-      renderFrameChecked(engine, scene, (message) => {
+      this.stage.draw((message) => {
         if (this.disposed) return;
         this.onShaderError?.(message);
       });
-    } else renderFrame(engine, scene);
+    } else this.stage.draw();
   }
 
   dispose(): void {
     this.disposed = true;
-    cancelAnimationFrame(this.frame);
-    this.resizeObserver.disconnect();
-    this.canvas.removeEventListener("pointerdown", this.onPointerDown);
     this.graph?.dispose();
     this.library?.dispose();
     this.studio?.dispose();
-    this.scene?.dispose();
-    this.engine?.dispose();
-    this.canvas.remove();
+    this.stage.dispose();
   }
 }
 
@@ -226,56 +150,45 @@ export class MaterialPreview {
  * need a GPU context per node.
  */
 export class NodePreviewRenderer {
-  private engine: AbstractEngine | null = null;
-  private scene: Scene | null = null;
+  private readonly stage: PreviewStage;
   private mesh: Mesh | null = null;
   /** The sphere and cube a node's preview can be drawn on, made on first use (ADR 0117). */
   private readonly shapes = new Map<NodePreviewShape, Mesh>();
   private readonly shared: GraphShared = { time: 0, resolution: [1, 1] };
-  private readonly canvas: HTMLCanvasElement;
   /** Compiled graphs, their materials and textures (ADR 0127) by the graph's JSON; ones not drawn in a pass are freed. */
   private readonly entries = new Map<string, { compiled: CompiledShaderGraph; graph: BabylonGraphMaterial; library: BabylonMaterialLibrary; used: boolean; failed: boolean; checked: boolean }>();
   private readonly start = performance.now();
   private disposed = false;
 
   constructor(readonly size = 96) {
-    this.canvas = document.createElement("canvas");
-    this.canvas.width = this.canvas.height = size;
-    void this.init();
-  }
-
-  private async init(): Promise<void> {
-    try {
-      const engine = await createEngine(this.canvas, { antialias: false, transparent: true });
-      if (this.disposed) {
-        engine.dispose();
-        return;
-      }
-      this.engine = engine;
-      engine.setSize(this.size, this.size);
-      const scene = createPreviewScene(engine);
-      const camera = new TargetCamera("preview.camera", new Vector3(0, 0, -1), scene, false); // looking along +Z
-      camera.mode = Camera.ORTHOGRAPHIC_CAMERA;
-      camera.orthoLeft = -0.5;
-      camera.orthoRight = 0.5;
-      camera.orthoTop = 0.5;
-      camera.orthoBottom = -0.5;
-      camera.minZ = 0.1;
-      camera.maxZ = 10;
-      camera.rotationQuaternion = Quaternion.Identity();
-      scene.activeCamera = camera;
-      const mesh = new Mesh("preview.quad", scene);
-      const data = new VertexData();
-      data.positions = [-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0];
-      data.normals = [0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1];
-      data.uvs = [0, 0, 1, 0, 1, 1, 0, 1];
-      data.indices = [0, 1, 2, 0, 2, 3];
-      data.applyToMesh(mesh, false);
-      this.scene = scene;
-      this.mesh = mesh;
-    } catch (err) {
-      console.warn("[myco] node previews couldn't start:", err);
-    }
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = size;
+    this.stage = new PreviewStage(canvas, {
+      name: "node previews",
+      antialias: false,
+      scene: "unlit",
+      onUp: ({ engine, scene }) => {
+        engine!.setSize(this.size, this.size);
+        const camera = new TargetCamera("preview.camera", new Vector3(0, 0, -1), scene!, false); // looking along +Z
+        camera.mode = Camera.ORTHOGRAPHIC_CAMERA;
+        camera.orthoLeft = -0.5;
+        camera.orthoRight = 0.5;
+        camera.orthoTop = 0.5;
+        camera.orthoBottom = -0.5;
+        camera.minZ = 0.1;
+        camera.maxZ = 10;
+        camera.rotationQuaternion = Quaternion.Identity();
+        scene!.activeCamera = camera;
+        const mesh = new Mesh("preview.quad", scene!);
+        const data = new VertexData();
+        data.positions = [-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0];
+        data.normals = [0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1];
+        data.uvs = [0, 0, 1, 0, 1, 1, 0, 1];
+        data.indices = [0, 1, 2, 0, 2, 3];
+        data.applyToMesh(mesh, false);
+        this.mesh = mesh;
+      },
+    });
   }
 
   /** Start a pass over every preview: advances time. */
@@ -287,12 +200,13 @@ export class NodePreviewRenderer {
 
   /** The mesh for a preview shape: the quad, or a sphere or cube fitted to the same square view. */
   private meshFor(shape: NodePreviewShape): Mesh | null {
-    if (shape === "quad" || !this.scene) return this.mesh;
+    const scene = this.stage.scene;
+    if (shape === "quad" || !scene) return this.mesh;
     let m = this.shapes.get(shape);
     if (!m) {
       const src = meshesIfLoaded(`builtin:${shape}`)?.[0];
       if (!src) return this.mesh;
-      m = meshOf(this.scene, `preview.${shape}`, src);
+      m = meshOf(scene, `preview.${shape}`, src);
       if (shape === "sphere") m.scaling.setAll(0.92);
       else {
         m.scaling.setAll(0.62);
@@ -306,7 +220,7 @@ export class NodePreviewRenderer {
 
   /** Draw `graph` (a node's preview graph) into `target`, on `shape`. False if its shader didn't compile. */
   draw(graph: ShaderGraph, target: HTMLCanvasElement, shape: NodePreviewShape = "quad"): boolean {
-    const scene = this.scene, engine = this.engine, mesh = this.meshFor(shape);
+    const scene = this.stage.scene, engine = this.stage.engine, mesh = this.meshFor(shape);
     if (!scene || !engine || !mesh || this.disposed) return true; // still starting: the next pass draws
     const level = Graphics.tier.shaderLevel;
     const key = `${level}|${JSON.stringify(graph)}`;
@@ -338,7 +252,7 @@ export class NodePreviewRenderer {
     const ctx = target.getContext("2d");
     if (!ctx) return !e.failed;
     ctx.clearRect(0, 0, target.width, target.height);
-    if (!e.failed) ctx.drawImage(this.canvas, 0, 0, this.size, this.size, 0, 0, target.width, target.height);
+    if (!e.failed) ctx.drawImage(this.stage.canvas, 0, 0, this.size, this.size, 0, 0, target.width, target.height);
     return !e.failed;
   }
 
@@ -359,7 +273,6 @@ export class NodePreviewRenderer {
       e.library.dispose();
     }
     this.entries.clear();
-    this.scene?.dispose();
-    this.engine?.dispose();
+    this.stage.dispose();
   }
 }

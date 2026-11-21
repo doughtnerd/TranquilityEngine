@@ -3,7 +3,7 @@
 // the asset: they set the values `onAudition` hands the panel, which passes them to Audition (E6.4, contract C4).
 import { TextField, editor } from "../../../../editor/sdk";
 import { MAX_LOCAL_PARAMETERS, isLabelled, type AudioEventAsset, type ParameterDef } from "../../../../engine/audio/eventFormat";
-import { parameterUses } from "./eventTreeModel";
+import { eventNameReferences } from "../../../../engine/audio/eventReferences";
 import {
   addParameter,
   parameterNameProblem,
@@ -48,7 +48,7 @@ function Num(props: { value: number; label: string; disabled: boolean; min?: num
 function ParameterRow(props: ParametersPaneProps & { index: number; parameter: ParameterDef }) {
   const { event, index, parameter: p, onChange, readOnly } = props;
   const set = (next: ParameterDef, label: string) => onChange(setParameterAt(event, index, next), false, label);
-  const uses = parameterUses(event, p.name);
+  const uses = eventNameReferences(event).filter((r) => r.kind === "parameter" && r.name === p.name).length; // for the "delete parameter" confirmation
   const value = props.values[p.name];
   return (
     <div class="ev-param" data-testid="event-parameter" data-parameter={p.name} role="group" aria-label={`Parameter ${p.name}`}>

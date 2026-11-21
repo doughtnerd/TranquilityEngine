@@ -6,7 +6,7 @@ import type { EditorProject } from "../../../editor/projects";
 import { useEditorPlugins } from "../../testEditorPlugins";
 import { physicsEditorPlugin } from "../../physics/editor";
 import { renameLayer } from "../../physics/editor/physicsSettingsModel";
-import { audioNamedLists, occlusionLayerReferences, renameBusInEvent, renameParameterInEvent } from "./audioNames";
+import { audioNamedLists, occlusionLayerReferences } from "./audioNames";
 import { audioEditorPlugin } from "./index";
 import { addMaterial, addParameter, renameBus, renameMaterial, renameParameter } from "./audioSettingsModel";
 
@@ -90,15 +90,5 @@ describe("the Audio section's named lists", () => {
     await s.undo();
     expect((s.draft.audio as { occlusion: { layers: string[] } }).occlusion.layers).toEqual(["Walls"]);
     expect(occlusionLayerReferences.settings!(s.draft, "Glass", "Pane")).toBe(s.draft); // not listed: unchanged
-  });
-});
-
-describe("audio event renames", () => {
-  it("return the same value when nothing names the old name, and never treat the reverb send as a bus", () => {
-    expect(renameBusInEvent(EVENT, "Voice", "Speech")).toBe(EVENT);
-    expect(renameParameterInEvent(EVENT, "Depth", "Height")).toBe(EVENT);
-    const reverbBus = { ...EVENT, bus: "reverb" };
-    expect((renameBusInEvent(reverbBus, "reverb", "Hall") as typeof EVENT).sends).toBe(EVENT.sends);
-    expect((renameBusInEvent(EVENT, "UI", "reverb") as typeof EVENT).sends).toBe(EVENT.sends);
   });
 });

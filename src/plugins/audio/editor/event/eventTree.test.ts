@@ -6,7 +6,6 @@ import {
   eventNodes,
   formatAudioEvent,
   parseAudioEvent,
-  type AudioEventAsset,
   type EventNode,
 } from "../../../../engine/audio/eventFormat";
 import {
@@ -25,12 +24,10 @@ import {
   newNode,
   nodeLabel,
   nodePaths,
-  parameterUses,
   parentPath,
   parsePathKey,
   pathKey,
   removeNode,
-  renameParameter,
   reorderChild,
   samePath,
   setNode,
@@ -79,12 +76,6 @@ const zeros = (n: number): NodePath => Array.from({ length: n }, () => 0);
 function wideLayer(count: number): EventNode {
   return list("layer", Array.from({ length: count }, (_, i) => clipNode(`c${i}.ogg`)));
 }
-
-const eventWith = (root: EventNode, extra: Partial<AudioEventAsset> = {}): AudioEventAsset => ({
-  ...emptyAudioEvent(),
-  root,
-  ...extra,
-});
 
 // --- tests ----------------------------------------------------------------------------------------------------------
 
@@ -449,45 +440,6 @@ describe("eventTree edits", () => {
     wrapNode(root, [2], "sustain");
     cloneNode(root);
     expect(JSON.stringify(root)).toBe(snapshot);
-  });
-});
-
-describe("eventTree parameters", () => {
-  /** An event with a local parameter "Speed" used by the event, a switch, a blend and a sustain's loop and start. */
-  function speedEvent(): AudioEventAsset {
-    const automation = [{ parameter: "Speed", target: "pitch" as const, curve: [[0, 1], [10, 2]] as [number, number][] }];
-    const root = list("layer", [
-      { ...newNode("switch"), parameter: "Speed", children: [] } as EventNode,
-      { ...newNode("blend"), parameter: "Speed", children: [] } as EventNode,
-      sustain({ ...clipNode("loop.ogg"), automation }, { start: { ...clipNode("start.ogg"), automation } }),
-      clipNode("x.ogg"),
-    ]);
-    return eventWith(root, {
-      parameters: [{ name: "Speed", min: 0, max: 10, default: 0, seekSpeed: 20 }],
-      automation: [{ parameter: "Speed", target: "volume", curve: [[0, 0.5], [10, 1]] }],
-    });
-  }
-
-  it("parameterUses counts switch/blend parameters and event and node automation", () => {
-    const event = speedEvent();
-    // The event's automation, the switch, the blend, the loop's and the start's automation.
-    expect(parameterUses(event, "Speed")).toBe(5);
-    expect(parameterUses(event, "Missing")).toBe(0);
-  });
-
-  it("renameParameter renames the definition and every use, sharing unaffected subtrees", () => {
-    const event = deepFreeze(speedEvent());
-    const renamed = renameParameter(event, "Speed", "Velocity");
-    expect(renamed.parameters[0].name).toBe("Velocity");
-    expect(renamed.automation[0].parameter).toBe("Velocity");
-    expect(parameterUses(renamed, "Speed")).toBe(0);
-    expect(parameterUses(renamed, "Velocity")).toBe(5);
-    const root = renamed.root as Extract<EventNode, { type: "layer" }>;
-    expect(root.children[0]).toMatchObject({ type: "switch", parameter: "Velocity" });
-    expect(root.children[1]).toMatchObject({ type: "blend", parameter: "Velocity" });
-    expect(root.children[3]).toBe((event.root as Extract<EventNode, { type: "layer" }>).children[3]);
-    expect(event.parameters[0].name).toBe("Speed");
-    expect(renameParameter(event, "Speed", "Speed")).toBe(event);
   });
 });
 
