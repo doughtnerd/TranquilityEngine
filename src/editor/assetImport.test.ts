@@ -156,7 +156,7 @@ describe("asset operations carry sidecars", () => {
   });
 
   it("deleting an image deletes its sidecar, lists slice users, and removes slice references", async () => {
-    expect(assetUsers(project, "images/PipeUp.png")).toContain("prefabs/slice.prefab.json");
+    expect(await assetUsers(project, "images/PipeUp.png")).toContain("prefabs/slice.prefab.json");
     expect(await deleteAssets(["images/PipeUp.png"])).toBe(true);
     expect(onDisk("images/PipeUp.png.meta.json")).toBeUndefined();
     expect(project.files).not.toContain("images/PipeUp.png.meta.json");

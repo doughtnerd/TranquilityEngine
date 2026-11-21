@@ -10,7 +10,12 @@ import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile } from "./project";
 import { editorSettings, joinPath, useProjectAssets, type EditorProject } from "./projects";
 import { activatePlugins, deactivatePlugin } from "./sdk/plugins";
-import { openScene, sceneCamera } from "./state";
+import { assetKinds, type AssetKindContribution } from "./sdk/contributions";
+import { openAssetDocument, type AssetDocument } from "./assetDocuments";
+import { deleteAssets } from "./assetDelete";
+import { moveAssets } from "./assetOps";
+import { askBeforeDeletingAssets } from "./preferences";
+import { openScene, sceneCamera, status } from "./state";
 import { closeTestProject, openTestProject, ROOT, useCoreAssetKinds, type MemoryFileSystem } from "./testing";
 
 useCoreAssetKinds();
@@ -78,21 +83,21 @@ describe("reference strings", () => {
 describe("who uses an asset", () => {
   it("finds JSON files and scripts quoting it in any spelling (quotes, asset:, ./, #slice), not longer names", async () => {
     await open();
-    expect(assetUsers(project, "images/bird.png")).toEqual(["materials/wood.material.json", "prefabs/crate.prefab.json"]);
-    expect(assetUsers(project, "images/sheet.png")).toEqual(["prefabs/walker.prefab.json", "scenes/main.scene.json", "scripts/Walker.ts"]);
-    expect(assetUsers(project, "prefabs/crate.prefab.json")).toEqual(["scenes/main.scene.json", "scripts/Spawner.ts"]);
-    expect(assetUsers(project, "prefabs/music.prefab.json")).toEqual(["project.json"]);
+    expect(await assetUsers(project, "images/bird.png")).toEqual(["materials/wood.material.json", "prefabs/crate.prefab.json"]);
+    expect(await assetUsers(project, "images/sheet.png")).toEqual(["prefabs/walker.prefab.json", "scenes/main.scene.json", "scripts/Walker.ts"]);
+    expect(await assetUsers(project, "prefabs/crate.prefab.json")).toEqual(["scenes/main.scene.json", "scripts/Spawner.ts"]);
+    expect(await assetUsers(project, "prefabs/music.prefab.json")).toEqual(["project.json"]);
   });
 
   it("narrows to one slice, and widens to what is inside a folder", async () => {
     await open();
-    expect(assetUsers(project, "images/sheet.png#walk")).toEqual(["prefabs/walker.prefab.json", "scripts/Walker.ts"]);
-    expect(assetUsers(project, "images")).toContain("materials/wood.material.json");
+    expect(await assetUsers(project, "images/sheet.png#walk")).toEqual(["prefabs/walker.prefab.json", "scripts/Walker.ts"]);
+    expect(await assetUsers(project, "images")).toContain("materials/wood.material.json");
   });
 
   it("includes the open scene's unsaved document", async () => {
     await open();
-    expect(assetUsers(project, "images/gone.png", { path: "scenes/main.scene.json", text: '{"x":"asset:images/gone.png"}' })).toEqual(["scenes/main.scene.json (unsaved edits)"]);
+    expect(await assetUsers(project, "images/gone.png", { path: "scenes/main.scene.json", text: '{"x":"asset:images/gone.png"}' })).toEqual(["scenes/main.scene.json (unsaved edits)"]);
   });
 });
 
@@ -151,7 +156,7 @@ describe("rewriting references for moves", () => {
     await open();
     await project.move("images", "art");
     await project.move("prefabs/music.prefab.json", "audio.prefab.json");
-    const { updated, scriptUsers } = await rewriteReferences(project, [["images", "art"], ["prefabs/music.prefab.json", "audio.prefab.json"]], "Move");
+    const { updated, notRewritten: scriptUsers } = await rewriteReferences(project, [["images", "art"], ["prefabs/music.prefab.json", "audio.prefab.json"]], "Move");
     expect(updated.sort()).toEqual(["materials/wood.material.json", "prefabs/crate.prefab.json", "prefabs/decoy.prefab.json", "prefabs/walker.prefab.json", "project.json", "scenes/main.scene.json"]);
     expect(onDisk("prefabs/crate.prefab.json")).toContain('"./art/bird.png"');
     expect(onDisk("prefabs/walker.prefab.json")).toContain('"asset:art/sheet.png#walk"');
@@ -165,13 +170,13 @@ describe("rewriting references for moves", () => {
 
   it("renames one slice only, and finds single-quoted script users", async () => {
     await open();
-    const { updated, scriptUsers } = await rewriteReferences(project, [["images/sheet.png#walk", "images/sheet.png#run"]], "Rename slice");
+    const { updated, notRewritten: scriptUsers } = await rewriteReferences(project, [["images/sheet.png#walk", "images/sheet.png#run"]], "Rename slice");
     expect(updated).toEqual(["prefabs/walker.prefab.json"]);
     expect(onDisk("prefabs/walker.prefab.json")).toContain('"asset:images/sheet.png#run"');
     expect(onDisk("scenes/main.scene.json")).toContain("#walk_0"); // another slice
     expect(scriptUsers).toEqual(["scripts/Walker.ts"]);
     await project.move("prefabs/crate.prefab.json", "prefabs/box.prefab.json");
-    expect((await rewriteReferences(project, [["prefabs/crate.prefab.json", "prefabs/box.prefab.json"]], "Rename")).scriptUsers).toEqual(["scripts/Spawner.ts"]);
+    expect((await rewriteReferences(project, [["prefabs/crate.prefab.json", "prefabs/box.prefab.json"]], "Rename")).notRewritten).toEqual(["scripts/Spawner.ts"]);
   });
 
   it("edits the open scene as one undo step instead of its file, and rebuilds instances of a changed prefab", async () => {
@@ -195,7 +200,7 @@ describe("removing references to a deleted asset", () => {
     expect(await removeReferences(project, "images/bird.png", "Remove")).toEqual(["prefabs/crate.prefab.json"]);
     expect(JSON.parse(onDisk("prefabs/crate.prefab.json")).nodes[0].components[0].data).toEqual({});
     expect(onDisk("materials/wood.material.json")).toContain("images/bird.png");
-    expect(assetUsers(project, "images/bird.png")).toEqual(["materials/wood.material.json"]);
+    expect(await assetUsers(project, "images/bird.png")).toEqual(["materials/wood.material.json"]);
     expect(await removeReferences(project, "prefabs/music.prefab.json", "Remove")).toEqual(["project.json"]);
     expect(JSON.parse(onDisk("project.json")).autoload).toEqual([]);
   });
@@ -285,5 +290,169 @@ describe("cleaning a parsed file of a deleted asset", () => {
       changed: true,
     });
     expect(settingsWithoutAsset({ name: "x" }, "prefabs/music.prefab.json").changed).toBe(false);
+  });
+});
+
+// ADR 0302: a project-wide edit asks each file's owner to apply it, and users come from the same readers as dependencies.
+describe("project-wide edits through each file's owner (ADR 0302)", () => {
+  interface Cue {
+    clip: string;
+    gain: number;
+  }
+  const CUE = "audio/hit.cue.json";
+  /** The cue format's layout: clip first, two-space indent. */
+  const cueText = (cue: Cue) => `${JSON.stringify({ clip: cue.clip, gain: cue.gain }, null, 2)}\n`;
+  let unregister: () => void;
+  const opened: AssetDocument<Cue>[] = [];
+  const openCue = (path = CUE) => {
+    const doc = openAssetDocument<Cue>(project, path, "cue");
+    opened.push(doc);
+    return doc;
+  };
+
+  beforeAll(() => {
+    unregister = assetKinds.register(<AssetKindContribution<Cue>>{
+      id: "cue",
+      extensions: [".cue.json"],
+      label: "Cue",
+      icon: "",
+      format: {
+        parse: (raw) => {
+          const r = (raw ?? {}) as Partial<Cue>;
+          return { value: { clip: typeof r.clip === "string" ? r.clip : "", gain: typeof r.gain === "number" ? r.gain : 1 }, problems: [] };
+        },
+        format: cueText,
+        empty: () => ({ clip: "", gain: 1 }),
+        writeDelay: 50,
+      },
+    });
+  });
+  afterAll(() => unregister());
+  afterEach(async () => {
+    await Promise.all(opened.splice(0).map((d) => d.flush()));
+  });
+
+  async function openCues(files: Record<string, string | Uint8Array> = {}) {
+    ({ fs, project } = await openTestProject({
+      "audio/hit.wav": new Uint8Array([1]),
+      [CUE]: cueText({ clip: "audio/hit.wav", gain: 1 }),
+      ...files,
+    }));
+  }
+
+  it("Undo after a rename keeps the new path in an open asset document", async () => {
+    await openCues();
+    const doc = openCue();
+    doc.edit({ clip: "audio/hit.wav", gain: 0.5 }, { label: "Gain" });
+    await doc.flush();
+    await project.move("audio/hit.wav", "audio/punch.wav");
+    const { updated } = await rewriteReferences(project, [["audio/hit.wav", "audio/punch.wav"]], "Update references to punch.wav");
+    expect(updated).toEqual([CUE]);
+    expect(doc.value.value).toEqual({ clip: "audio/punch.wav", gain: 0.5 });
+    expect(doc.undoLabel.value).toBe("Gain"); // the rename isn't a step to undo: the history follows it
+    doc.undo();
+    expect(doc.value.value).toEqual({ clip: "audio/punch.wav", gain: 1 });
+    await doc.flush();
+    expect(onDisk(CUE)).toBe(cueText({ clip: "audio/punch.wav", gain: 1 }));
+    doc.redo();
+    expect(doc.value.value).toEqual({ clip: "audio/punch.wav", gain: 0.5 });
+  });
+
+  it("renaming the clip in the Assets panel (moveAssets) leaves no old path in the open document's history", async () => {
+    await openCues();
+    const doc = openCue();
+    doc.edit({ clip: "audio/hit.wav", gain: 0.5 }, { label: "Gain" });
+    expect(await moveAssets([["audio/hit.wav", "audio/punch.wav"]], "Renamed")).toBe(true);
+    expect(doc.value.value).toEqual({ clip: "audio/punch.wav", gain: 0.5 });
+    doc.undo();
+    expect(doc.value.value).toEqual({ clip: "audio/punch.wav", gain: 1 });
+    await doc.flush();
+    expect(onDisk(CUE)).toBe(cueText({ clip: "audio/punch.wav", gain: 1 }));
+  });
+
+  it("lists an open document's unwritten reference as a user, and rewrites it", async () => {
+    await openCues({ "audio/other.wav": new Uint8Array([2]) });
+    const doc = openCue();
+    doc.edit({ clip: "audio/other.wav", gain: 1 }, { coalesce: true }); // not written yet
+    await project.move("audio/other.wav", "audio/thud.wav");
+    expect((await rewriteReferences(project, [["audio/other.wav", "audio/thud.wav"]], "Move")).updated).toEqual([CUE]);
+    expect(doc.value.value.clip).toBe("audio/thud.wav");
+  });
+
+  it("a rename during a pending coalesced edit isn't overwritten when the edit is written", async () => {
+    await openCues();
+    const doc = openCue();
+    doc.edit({ clip: "audio/hit.wav", gain: 0.2 }, { coalesce: true });
+    await project.move("audio/hit.wav", "audio/punch.wav");
+    await rewriteReferences(project, [["audio/hit.wav", "audio/punch.wav"]], "Update references");
+    await doc.flush();
+    expect(doc.value.value).toEqual({ clip: "audio/punch.wav", gain: 0.2 });
+    expect(onDisk(CUE)).toBe(cueText({ clip: "audio/punch.wav", gain: 0.2 }));
+    doc.undo();
+    expect(doc.value.value).toEqual({ clip: "audio/punch.wav", gain: 1 });
+  });
+
+  it("writes a closed asset file through its kind's format, unless the format would lose something it holds", async () => {
+    await openCues({
+      "audio/a.cue.json": '{"gain":1,"clip":"audio/hit.wav"}',
+      "audio/b.cue.json": '{"clip":"audio/hit.wav","gain":1,"note":"kept"}',
+    });
+    await project.move("audio/hit.wav", "audio/punch.wav");
+    const { updated } = await rewriteReferences(project, [["audio/hit.wav", "audio/punch.wav"]], "Move");
+    expect(updated.sort()).toEqual(["audio/a.cue.json", "audio/b.cue.json", CUE]);
+    expect(onDisk("audio/a.cue.json")).toBe(cueText({ clip: "audio/punch.wav", gain: 1 })); // canonical layout
+    expect(JSON.parse(onDisk("audio/b.cue.json"))).toEqual({ clip: "audio/punch.wav", gain: 1, note: "kept" }); // the format drops "note"
+  });
+
+  describe("with the Meshes plugin's reference readers", () => {
+    beforeAll(() => activatePlugins([meshesEditorPlugin]));
+    afterAll(() => deactivatePlugin(meshesEditorPlugin.manifest.name));
+    // Model files are served as bytes, not text: the readers get their text from the project's URL for them.
+    const bytes = (text: string) => new TextEncoder().encode(text);
+    const MODEL_TEXTS: Record<string, string> = {
+      "models/crate.obj": "mtllib crate.mtl\nv 0 0 0\n",
+      "models/crate.mtl": "newmtl a\nmap_Kd tex/crate.png\n",
+      "models/car.gltf": json({ images: [{ uri: "tex/crate.png" }] }),
+    };
+    const MODELS: Record<string, string | Uint8Array> = {
+      ...Object.fromEntries(Object.entries(MODEL_TEXTS).map(([p, t]) => [p, bytes(t)])),
+      "models/tex/crate.png": new Uint8Array([1]),
+      "prefabs/crate.prefab.json": scene([{ id: "c", components: [{ type: "engine.MeshRenderer", data: { mesh: "asset:models/crate.obj" } }] }]),
+    };
+
+    it("finds the files a kind's reader says name an asset: an .mtl's texture, an .obj's material library", async () => {
+      ({ fs, project } = await openTestProject(MODELS));
+      expect(await assetUsers(project, "models/tex/crate.png")).toEqual(["models/car.gltf", "models/crate.mtl"]);
+      expect(await assetUsers(project, "models/crate.mtl")).toEqual(["models/crate.obj"]);
+      expect(await assetUsers(project, "models/tex")).toEqual(["models/car.gltf", "models/crate.mtl"]);
+    });
+
+    it("agrees with dependencies: every file a file depends on lists it as a user", async () => {
+      ({ fs, project } = await openTestProject({ ...FILES, ...MODELS }));
+      const texts = new Map<string, string>();
+      for (const [p, v] of Object.entries({ ...FILES, ...MODELS, ...MODEL_TEXTS })) if (typeof v === "string") texts.set(p, v);
+      const src: ReferenceSource = { files: project.files, text: (p) => texts.get(p) };
+      for (const file of project.files) for (const dep of assetDependencies(src, file)) expect(await assetUsers(project, dep), `${file} → ${dep}`).toContain(file);
+    });
+
+    it("lists files a kind reads but can't write as not rewritten on a move", async () => {
+      ({ fs, project } = await openTestProject(MODELS));
+      await project.move("models/tex/crate.png", "models/tex/box.png");
+      const { updated, notRewritten } = await rewriteReferences(project, [["models/tex/crate.png", "models/tex/box.png"]], "Move");
+      expect(updated).toEqual([]);
+      expect(notRewritten).toEqual(["models/car.gltf", "models/crate.mtl"]);
+      expect(new TextDecoder().decode(fs.files.get(joinPath(ROOT, "models/crate.mtl")) as Uint8Array)).toContain("tex/crate.png");
+    });
+
+    it("deleting a texture an .mtl names says the .mtl still refers to it", async () => {
+      ({ fs, project } = await openTestProject(MODELS));
+      askBeforeDeletingAssets.value = false;
+      try {
+        expect(await deleteAssets(["models/tex/crate.png"])).toBe(true);
+      } finally {
+        askBeforeDeletingAssets.value = true;
+      }
+      expect(status.value?.text).toContain("Still referred to by models/car.gltf, models/crate.mtl.");
+    });
   });
 });

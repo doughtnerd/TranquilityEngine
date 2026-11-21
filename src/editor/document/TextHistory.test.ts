@@ -59,6 +59,24 @@ describe("TextHistory (ADR 0027 over an asset's text)", () => {
     expect(h.allStates[1].hash).toBe(new TextHistory("ONE 2 three", "f").allStates[0].hash);
   });
 
+  it("rewrites every state's text, branches included, keeping the tree, the labels and the current state (ADR 0302)", () => {
+    const h = new TextHistory("old a", "f");
+    h.record("one", "old ab");
+    h.record("two", "old abc");
+    h.undo();
+    h.record("three", "old abd");
+    h.undo(); // at "one", with two branches below
+    const shape = h.allStates.map((s) => [s.seq, s.parent, s.label]);
+    expect(h.rewrite((t) => t.replace("old", "new"))).toBe(true);
+    expect(h.allStates.map((s) => [s.seq, s.parent, s.label])).toEqual(shape);
+    expect(h.text).toBe("new ab");
+    expect(h.current).toBe(1);
+    expect(texts(h)).toEqual(new Map([[0, "new a"], [1, "new ab"], [2, "new abc"], [3, "new abd"]]));
+    expect(h.allStates[2].hash).toBe(new TextHistory("new abc", "f").allStates[0].hash);
+    expect(h.undoLabel).toBe("one");
+    expect(h.rewrite((t) => t)).toBe(false);
+  });
+
   it("round-trips through a history file, matching the text to a state", () => {
     const h = new TextHistory("x", "old.json");
     h.record("y", "xy");

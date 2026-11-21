@@ -40,14 +40,14 @@ afterEach(async () => {
 
 // The rule itself is tested in assetReferences.test.ts; this checks it on the Flappy sample.
 describe("what uses an asset", () => {
-  it("finds prefabs and scenes, project settings and scripts that refer to it", () => {
-    expect(assetUsers(project, "images/background.png")).toEqual(["prefabs/background.prefab.json"]);
-    expect(assetUsers(project, "prefabs/music.prefab.json")).toEqual(["project.json"]);
-    expect(assetUsers(project, "prefabs/pipe-pair.prefab.json")).toEqual(["scripts/Spawner2.ts"]);
-    expect(assetUsers(project, "prefabs/background.prefab.json")).toEqual(["scenes/main.scene.json"]);
+  it("finds prefabs and scenes, project settings and scripts that refer to it", async () => {
+    expect(await assetUsers(project, "images/background.png")).toEqual(["prefabs/background.prefab.json"]);
+    expect(await assetUsers(project, "prefabs/music.prefab.json")).toEqual(["project.json"]);
+    expect(await assetUsers(project, "prefabs/pipe-pair.prefab.json")).toEqual(["scripts/Spawner2.ts"]);
+    expect(await assetUsers(project, "prefabs/background.prefab.json")).toEqual(["scenes/main.scene.json"]);
     // Since SM1 the prefab plays the town music event, and the event uses the clip.
-    expect(assetUsers(project, "music/town.mp3")).toEqual(["music/town.audioevent.json"]);
-    expect(assetUsers(project, "music/town.audioevent.json")).toEqual(["prefabs/music.prefab.json"]);
+    expect(await assetUsers(project, "music/town.mp3")).toEqual(["music/town.audioevent.json"]);
+    expect(await assetUsers(project, "music/town.audioevent.json")).toEqual(["prefabs/music.prefab.json"]);
   });
 });
 
