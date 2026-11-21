@@ -17,7 +17,7 @@
 // Types only: three.js loads with the first model file parsed (`parseModel`), so it stays out of the
 // start-up bundle of the editor and of games (ADR 0082); the built-in meshes need none of it.
 import type { BufferAttribute, BufferGeometry, Color as ThreeColor, LoadingManager, Material, Matrix4, Mesh, Object3D, Side, Texture } from "three";
-import { Assets, normalizeAssetPath, sidecarValue } from "./Assets";
+import { Assets, fetchAssetBytes, normalizeAssetPath, sidecarValue } from "./Assets";
 import { BAKED_SUFFIX, decodeBakedModel, encodeBakedModel } from "./bakedModel";
 import { BUILTIN_MESHES, builtinMeshData, type BuiltinMesh } from "./builtinMeshes";
 import { Mat4 } from "../core/math";
@@ -654,16 +654,10 @@ function builtinMeshes(ref: string): readonly ModelMesh[] {
 
 // --- loading -------------------------------------------------------------------------------------
 
+/** A file's bytes from its URL (`fetchAssetBytes`: fetched, or read from disk for the server's `file:` URLs), as the loaders' ArrayBuffer. */
 async function fetchBytes(url: string): Promise<ArrayBuffer> {
-  if (url.startsWith("file:") && typeof window === "undefined") {
-    // The dedicated server (Node) gives project files file: URLs, which its fetch can't read.
-    const fs = (await import(/* @vite-ignore */ ["node", "fs/promises"].join(":"))) as { readFile(path: URL): Promise<Uint8Array> };
-    const bytes = await fs.readFile(new URL(url));
-    return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
-  }
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.arrayBuffer();
+  const bytes = await fetchAssetBytes(url);
+  return bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength ? (bytes.buffer as ArrayBuffer) : (bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
 }
 
 /** Textures a model names, found among the project's assets: beside the model, by name, or in a `textures/` folder there. */
