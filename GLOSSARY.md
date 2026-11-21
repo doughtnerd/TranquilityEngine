@@ -128,6 +128,9 @@ The domain terms used in Myco Engine's code, decision records and reviews. Add a
 
 - **View allocator:** what decides which surface (the main view, a tile, or none after a hand-over) and which input target each World has (`core/viewAllocator.ts`, ADR 0238). The Engine asks it `surfaceOf(world)`.
 - **End of frame:** the last step of a World's frame (ADR 0011, 0239). Work queued with `World.atFrameEnd` runs there, after deferred destroys; outside a frame it runs at once. _Avoid:_ checking `inFrame` by hand.
+- **World owner:** what owns a set of Worlds and what it offers the modules working with them (`WorldOwner` in `core/worldOwner.ts`, ADR 0281): a World's config and handle, whether it is alive, creating Worlds (from a template under a chosen name too), the declared bootstrap, listen defaults and view hand-over. `Engine` is the implementation; a World holds it as `_owner`.
+- **Declared bootstrap:** the one bootstrap World templates are looked up in and lobbies are found in (ADR 0281): the declarative bootstrap passed to `Engine.create`, else `project.json`'s when declarative. Distinct from the bootstrap that runs, which may be code.
+- **Server lobby:** the lobby World a dedicated server starts (`BootstrapTopology.serverLobby`, ADR 0281), which `Lobby.connect("local")` runs too; a `lobby` config no server would run is a bootstrap problem.
 
 ## UI (ADR 0076, 0271)
 

@@ -1,6 +1,6 @@
 # 0068. Lobbies and matchmaking: a lobby server World hands players to match Worlds it creates
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by [0281](0281-worlds-reach-their-owner-through-one-typed-world-owner-seam.md) (`Lobby.connect("local")` runs the bootstrap topology's lobby; lobby configs a dedicated server wouldn't run are bootstrap problems)
 - **Date:** 2026-11-04
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

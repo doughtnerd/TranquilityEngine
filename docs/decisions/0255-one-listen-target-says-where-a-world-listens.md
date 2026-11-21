@@ -1,6 +1,6 @@
 # 0255. One listen target says where a World listens, from the transport, the options and the host's overrides
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by [0281](0281-worlds-reach-their-owner-through-one-typed-world-owner-seam.md) (per-Engine listen defaults are owner state, `WorldOwner._setListenDefaults`, not a `WeakMap`)
 - **Date:** 2026-11-20
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
