@@ -2,40 +2,43 @@
 // (its World and Play) make this list active through a plugin set (`pluginSet.ts`, ADR 0144) before
 // `Engine.create`; nothing here may import from `src/editor/` or a plugin's `editor/` folder.
 import { audioRuntimePlugin } from "./audio/runtime";
+import { FIRST_PARTY_KEYS, type FirstPartyPlugin } from "./catalogue";
+import { environmentRuntimePlugin } from "./environment/runtime";
 import { materialsRuntimePlugin } from "./materials/runtime";
+import { meshesRuntimePlugin } from "./meshes/runtime";
 import { navigationRuntimePlugin } from "./navigation/runtime";
 import { particlesRuntimePlugin } from "./particles/runtime";
 import { physicsRuntimePlugin } from "./physics/runtime";
 import { physicsRapierRuntimePlugin } from "./physics-rapier/runtime";
 import { createPluginSet, throwOnPluginProblem, type PluginSet, type SetPlugin } from "./pluginSet";
+import { postProcessingRuntimePlugin } from "./post-processing/runtime";
 import { runtimeActivator, type RuntimePlugin } from "./runtimeContext";
 import { skyRuntimePlugin } from "./sky/runtime";
-import { tilemapsRuntimePlugin } from "./tilemaps/runtime";
 import { spritesRuntimePlugin } from "./sprites/runtime";
-import { meshesRuntimePlugin } from "./meshes/runtime";
-import { waterRuntimePlugin } from "./water/runtime";
+import { tilemapsRuntimePlugin } from "./tilemaps/runtime";
 import { uiRuntimePlugin } from "./ui/runtime";
-import { environmentRuntimePlugin } from "./environment/runtime";
-import { postProcessingRuntimePlugin } from "./post-processing/runtime";
+import { waterRuntimePlugin } from "./water/runtime";
 
-// Render features register in this order; inside a phase their `after` constraints decide (ADR 0135, 0140),
-// so the order here only breaks ties: content runs sprites, tilemaps, meshes in any order of this list.
-export const RUNTIME_PLUGINS: readonly RuntimePlugin[] = [
-  materialsRuntimePlugin,
-  skyRuntimePlugin,
-  spritesRuntimePlugin,
-  meshesRuntimePlugin,
-  particlesRuntimePlugin,
-  physicsRuntimePlugin,
-  physicsRapierRuntimePlugin,
-  navigationRuntimePlugin,
-  tilemapsRuntimePlugin,
-  waterRuntimePlugin,
-  uiRuntimePlugin,
-  environmentRuntimePlugin,
-  postProcessingRuntimePlugin,
-  audioRuntimePlugin,
-];
+// Every catalogue entry's runtime half (ADR 0275): a plugin added to the catalogue without one doesn't compile.
+const RUNTIME_HALVES: { readonly [K in FirstPartyPlugin]: RuntimePlugin } = {
+  materials: materialsRuntimePlugin,
+  sky: skyRuntimePlugin,
+  sprites: spritesRuntimePlugin,
+  meshes: meshesRuntimePlugin,
+  particles: particlesRuntimePlugin,
+  physics: physicsRuntimePlugin,
+  "physics-rapier": physicsRapierRuntimePlugin,
+  navigation: navigationRuntimePlugin,
+  tilemaps: tilemapsRuntimePlugin,
+  water: waterRuntimePlugin,
+  ui: uiRuntimePlugin,
+  environment: environmentRuntimePlugin,
+  "post-processing": postProcessingRuntimePlugin,
+  audio: audioRuntimePlugin,
+};
+
+/** The first-party runtime halves in catalogue order, the order render features and systems register in (ADR 0135, 0140). */
+export const RUNTIME_PLUGINS: readonly RuntimePlugin[] = FIRST_PARTY_KEYS.map((k) => RUNTIME_HALVES[k]);
 
 export { isRuntimePluginActive, pluginOfComponent, runtimePluginManifest, type RuntimePlugin, type RuntimePluginContext } from "./runtimeContext";
 

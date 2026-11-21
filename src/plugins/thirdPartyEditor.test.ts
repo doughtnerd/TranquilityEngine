@@ -6,7 +6,8 @@ import { join, relative, resolve, sep } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { getComponentClass } from "../engine/core/registry";
 import { assetKind } from "../editor/assetBrowser";
-import { joinPath, openFolderProject } from "../editor/projects";
+import { jsonFiles, joinPath, openFolderProject } from "../editor/projects";
+import { planWebBuild } from "../export/webBuild";
 import { assetKinds, componentNotes } from "../editor/sdk/contributions";
 import { isPluginActive } from "../editor/sdk/plugins";
 import { MemoryFileSystem } from "../editor/testing";
@@ -74,6 +75,20 @@ describe("third-party plugins in the editor", () => {
     expect(getComponentClass("acme.Spinner")).toBeUndefined();
     expect(note()).toBeNull();
     expect(assetKinds.get("spin")).toBeUndefined();
+  });
+
+  it("loads the plugins a game build of the same project holds (one plan, ADR 0275)", async () => {
+    for (const disabled of [[], ["acme.spinner"]]) {
+      const fs = await fixtureFolder();
+      fs.files.set(joinPath(ROOT, "project.json"), JSON.stringify({ name: "Spinner fixture", plugins: { disabled } }));
+      fs.files.delete(joinPath(ROOT, "scripts/useSpinner.ts"));
+      const project = await openFolderProject(fs, ROOT);
+      expect((await loadProjectCode(project)).problems).toEqual([]);
+      const build = await planWebBuild({ name: "spinner", settings: project.settings, files: [...project.files], scripts: project.scripts, json: jsonFiles(project) });
+      const built = (build.manifest.plugins ?? []).map((p) => p.manifest.name);
+      expect(projectPlugins.value.usable.filter((p) => isRuntimePluginActive(p.manifest.name)).map((p) => p.manifest.name)).toEqual(built);
+      expect(built).toEqual(disabled.length ? [] : ["acme.spinner"]);
+    }
   });
 
   it("reports a refused plugin with the script problems, and loads none of its code", async () => {

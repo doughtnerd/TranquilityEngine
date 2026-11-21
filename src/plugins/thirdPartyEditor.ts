@@ -1,19 +1,19 @@
 // Third-party plugins in the editor (ADR 0139). Opening a project and every script reload go through
-// `loadProjectCode`: find and check the project's plugins (`thirdParty.ts`), load the scripts plus the
-// enabled plugins' code (both halves) through the script loader, then hand the halves from the fresh
+// `loadProjectCode`: plan the project's code as every host does (`planPluginCode`, ADR 0275), load the
+// scripts plus the enabled plugins' code (both halves) through the script loader, then hand the halves from the fresh
 // modules to the editor's plugin set (ADR 0144), which re-activates the ones whose module changed, so
 // saving an editor-half file re-registers its contributions live. Editor code only.
 import { signal } from "@preact/signals";
 import * as editorSdk from "../editor/sdk";
 import { packageSourceFor } from "../editor/projectPackages";
 import { jsonFiles, type EditorProject } from "../editor/projects";
-import { loadedPackageModule, loadedScriptModule, replaceScripts, type LoadResult, type ScriptProblem } from "../editor/scriptLoader";
+import { loadedPluginModule, replaceScripts, type LoadResult, type ScriptProblem } from "../editor/scriptLoader";
 import type { EditorPlugin, EditorPluginContext } from "../editor/sdk/plugins";
-import { applyEditorPlugins, pluginManifests, type EditorSetPlugin } from "./editorPlugins";
-import { resolveEnabledPlugins } from "./enabled";
+import { FIRST_PARTY_MANIFESTS } from "./catalogue";
+import { applyEditorPlugins, type EditorSetPlugin } from "./editorPlugins";
 import type { PluginManifest } from "./manifest";
 import type { PluginSetProblem } from "./pluginSet";
-import { activateOf, checkPlugins, discoverPlugins, npmPluginEntries, selectPluginCode, toRuntimePlugin, type FoundPlugin, type PluginProblem } from "./thirdParty";
+import { activateOf, planPluginCode, toRuntimePlugin, type FoundPlugin, type PluginProblem, type ThirdPartyManifest } from "./thirdParty";
 
 // What `import … from "myco/editor"` gives a plugin's editor half (the script loader's shim reads it).
 (globalThis as { __mycoEditor?: unknown }).__mycoEditor = editorSdk;
@@ -33,45 +33,42 @@ const EMPTY: ProjectPluginsState = { found: [], usable: [], problems: [] };
 export const projectPlugins = signal<ProjectPluginsState>(EMPTY);
 
 /** Every plugin manifest the Plugins category lists: first-party, then the project's usable third-party ones. */
-export const allPluginManifests = (): PluginManifest[] => [...pluginManifests(), ...projectPlugins.value.usable.map((p) => p.manifest)];
+export const allPluginManifests = (): PluginManifest[] => [...FIRST_PARTY_MANIFESTS, ...projectPlugins.value.usable.map((p) => p.manifest)];
 
 /**
- * An editor half from its entry module (or none: a plugin with only static asset kinds). Static kinds
- * from plugin.json register unless the half registers a kind with the same id itself.
+ * An editor half from its manifest, its entry (for the message) and the entry's module (or none: a
+ * plugin with only static asset kinds). Static kinds from plugin.json register unless the half
+ * registers a kind with the same id itself.
  */
-export function toEditorPlugin(plugin: FoundPlugin, module: Record<string, unknown> | undefined): EditorPlugin {
+function toEditorPlugin(manifest: ThirdPartyManifest, entry: string | undefined, module: Record<string, unknown> | undefined): EditorPlugin {
   const activate = module ? (activateOf(module) as ((context: EditorPluginContext) => void) | undefined) : undefined;
-  if (module && !activate) throw new Error(`${plugin.manifest.name}: its editor entry (${plugin.editor}) exports no activate(context) function`);
+  if (module && !activate) throw new Error(`${manifest.name}: its editor entry (${entry}) exports no activate(context) function`);
   return {
-    manifest: plugin.manifest,
+    manifest,
     activate(context) {
       const own = new Set<string>();
       activate?.({ ...context, registerAssetKind: (kind) => (own.add(kind.id), context.registerAssetKind(kind)) });
-      for (const kind of plugin.manifest.assetKinds ?? []) if (!own.has(kind.id)) context.registerAssetKind({ id: kind.id, extensions: kind.extensions, label: kind.label, icon: kind.icon });
+      for (const kind of manifest.assetKinds ?? []) if (!own.has(kind.id)) context.registerAssetKind({ id: kind.id, extensions: kind.extensions, label: kind.label, icon: kind.icon });
     },
   };
 }
 
-const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
-
 /**
- * The enabled plugins as the plugin set takes them: each half built from its freshly loaded module. A
- * plugin whose code doesn't load gets a runtime half that throws the error, so the set reports it as
- * failing to activate and skips the plugins that need it.
+ * The plan's loaded plugins as the plugin set takes them: each half built from its freshly loaded
+ * module. A plugin whose code doesn't load gets a runtime half that throws the error, so the set
+ * reports it as failing to activate and skips the plugins that need it.
  */
-async function toSetPlugins(plugins: readonly FoundPlugin[], enabled: ReadonlySet<string>): Promise<EditorSetPlugin[]> {
-  const load = (p: FoundPlugin, entry: string) => (p.source.kind === "project" ? loadedScriptModule(entry) : loadedPackageModule(entry));
+async function toSetPlugins(plugins: readonly FoundPlugin[]): Promise<EditorSetPlugin[]> {
   const out: EditorSetPlugin[] = [];
   for (const p of plugins) {
-    if (!enabled.has(p.manifest.name)) continue;
     try {
-      const runtimeModule = p.runtime ? await load(p, p.runtime) : undefined;
-      const editorModule = p.editor ? await load(p, p.editor) : undefined;
+      const runtimeModule = await loadedPluginModule(p, "runtime");
+      const editorModule = await loadedPluginModule(p, "editor");
       const hasEditor = !!editorModule || !!p.manifest.assetKinds?.length;
       out.push({
         manifest: p.manifest,
-        ...(runtimeModule ? { runtime: toRuntimePlugin(p, runtimeModule) } : {}),
-        ...(hasEditor ? { editor: toEditorPlugin(p, editorModule) } : {}),
+        ...(runtimeModule ? { runtime: toRuntimePlugin(p.manifest, p.runtime!, runtimeModule) } : {}),
+        ...(hasEditor ? { editor: toEditorPlugin(p.manifest, p.editor, editorModule) } : {}),
         modules: { runtime: runtimeModule, editor: editorModule ?? (hasEditor ? p.manifest : undefined) },
       });
     } catch (err) {
@@ -93,23 +90,14 @@ export async function loadProjectCode(project: EditorProject, options: { runtime
   const runtime = options.runtime ?? true;
   const json = jsonFiles(project);
   const packages = packageSourceFor(project);
-  const builtIn = pluginManifests();
-  let found: Awaited<ReturnType<typeof discoverPlugins>>;
-  try {
-    found = await discoverPlugins({ json, code: project.scripts.keys(), packages: packages?.files });
-  } catch (err) {
-    found = { plugins: [], problems: [{ plugin: "(plugins)", where: "plugins/", message: `couldn't look for plugins: ${message(err)}` }] };
-  }
-  const checked = checkPlugins(found.plugins, builtIn);
   const disabled = project.settings.plugins?.disabled;
-  const enabled = resolveEnabledPlugins([...builtIn, ...checked.plugins.map((p) => p.manifest)], disabled);
-  const code = selectPluginCode(project.scripts, checked.plugins, enabled, { editor: true });
-  const result = await replaceScripts(code, json, packages, npmPluginEntries(checked.plugins, enabled, { editor: true }));
-  const applied = applyEditorPlugins(disabled, { thirdParty: await toSetPlugins(checked.plugins, enabled), keepRuntime: !runtime });
-  const whereOf = (problem: PluginSetProblem) => checked.plugins.find((p) => p.manifest.name === problem.plugin)?.where ?? `plugins (${problem.plugin})`;
+  const plan = await planPluginCode({ json, code: project.scripts, packages: packages?.files, disabled }, { editor: true });
+  const result = await replaceScripts(plan.code, json, packages, plan.npmEntries);
+  const applied = applyEditorPlugins(disabled, { thirdParty: await toSetPlugins(plan.loaded), keepRuntime: !runtime });
+  const whereOf = (problem: PluginSetProblem) => plan.plugins.find((p) => p.manifest.name === problem.plugin)?.where ?? `plugins (${problem.plugin})`;
   const failed = applied.problems.map((p): PluginProblem => ({ plugin: p.plugin, where: whereOf(p), message: p.message }));
-  const problems = [...found.problems, ...checked.problems, ...failed];
-  projectPlugins.value = { found: found.plugins, usable: checked.plugins, problems };
+  const problems = [...plan.problems, ...failed];
+  projectPlugins.value = { found: plan.found, usable: plan.plugins, problems };
   return { ...result, problems: [...result.problems, ...problems.map(asScriptProblem)] };
 }
 

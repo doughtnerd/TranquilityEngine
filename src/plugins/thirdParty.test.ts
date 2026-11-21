@@ -1,5 +1,6 @@
 // Third-party plugins (ADR 0139): manifests, SDK ranges, discovery in plugins/ and npm packages,
-// checks and order, enabling, loading through the script loader, game builds and the server.
+// checks and order, enabling, loading through the script loader, game builds and the server. All
+// through the one plan every host runs (`planPluginCode`, ADR 0275).
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -7,22 +8,11 @@ import { getComponentClass } from "../engine/core/registry";
 import { loadScripts, loadedScriptModule } from "../editor/scriptLoader";
 import { planWebBuild } from "../export/webBuild";
 import { loadProjectCode as loadServerCode, readProject } from "../server/project";
+import { FIRST_PARTY_MANIFESTS } from "./catalogue";
 import { resolveEnabledPlugins } from "./enabled";
 import type { PluginManifest } from "./manifest";
-import { FIRST_PARTY_MANIFESTS } from "./manifests";
 import { isRuntimePluginActive, runtimeActivator } from "./runtimeContext";
-import {
-  SDK_VERSION,
-  checkPlugins,
-  discoverPlugins,
-  npmPluginEntries,
-  planPluginCode,
-  satisfies,
-  selectPluginCode,
-  toRuntimePlugin,
-  type FoundPlugin,
-  type ThirdPartyManifest,
-} from "./thirdParty";
+import { SDK_VERSION, planPluginCode, satisfies, toRuntimePlugin, type PluginFiles, type ThirdPartyManifest } from "./thirdParty";
 
 const FIXTURE = resolve(__dirname, "fixtures/spinner-project");
 
@@ -48,12 +38,18 @@ function readFixture(dir = FIXTURE): { json: Map<string, string>; code: Map<stri
 }
 
 const manifest = (over: Partial<ThirdPartyManifest> & { name: string }): ThirdPartyManifest => ({ version: "1.0.0", sdk: "^1.0.0", runtime: "runtime/index.ts", ...over });
-/** What discovery makes of a project plugin whose plugin.json holds `raw`: its manifest, or null and every problem. */
+const entries = (folder: string) => [`plugins/${folder}/runtime/index.ts`, `plugins/${folder}/editor/index.ts`];
+/** What the plan makes of a project plugin whose plugin.json holds `raw`: its manifest, or null and every problem. */
 async function readManifest(raw: unknown): Promise<{ manifest: ThirdPartyManifest | null; problems: string[] }> {
-  const { plugins, problems } = await discoverPlugins({ json: new Map([["plugins/p/plugin.json", JSON.stringify(raw)]]), code: ["plugins/p/runtime/index.ts", "plugins/p/editor/index.ts"] });
-  return { manifest: plugins[0]?.manifest ?? null, problems: problems.flatMap((p) => p.message.split("; ")) };
+  const plan = await planPluginCode({ json: new Map([["plugins/p/plugin.json", JSON.stringify(raw)]]), code: new Map(entries("p").map((e) => [e, ""])) }, { editor: true });
+  return { manifest: plan.found[0]?.manifest ?? null, problems: plan.problems.flatMap((p) => p.message.split("; ")) };
 }
-const found = (m: ThirdPartyManifest): FoundPlugin => ({ manifest: m, source: { kind: "project", folder: `plugins/${m.name}` }, where: `plugins/${m.name}/plugin.json`, runtime: `plugins/${m.name}/runtime/index.ts` });
+/** A project holding these plugins, each in `plugins/<its name>/` with its entries, and these scripts. */
+function projectOf(manifests: readonly ThirdPartyManifest[], scripts: readonly string[] = []): { json: Map<string, string>; code: Map<string, string> } {
+  const json = new Map(manifests.map((m) => [`plugins/${m.name}/plugin.json`, JSON.stringify(m)]));
+  const code = new Map([...scripts, ...manifests.flatMap((m) => entries(m.name))].map((path) => [path, ""]));
+  return { json, code };
+}
 
 describe("SDK version ranges", () => {
   it("matches npm's range syntax", () => {
@@ -77,17 +73,6 @@ describe("SDK version ranges", () => {
   it("is the engine's version", () => {
     const pkg = JSON.parse(readFileSync(resolve(__dirname, "../../package.json"), "utf8")) as { version: string };
     expect(SDK_VERSION).toBe(pkg.version);
-  });
-
-  it("lists every first-party plugin's manifest", () => {
-    const dirs = readdirSync(__dirname).filter((d) => {
-      try {
-        return statSync(join(__dirname, d, "manifest.ts")).isFile();
-      } catch {
-        return false;
-      }
-    });
-    expect(FIRST_PARTY_MANIFESTS.length).toBe(dirs.length);
   });
 });
 
@@ -125,9 +110,9 @@ describe("plugin.json validation", () => {
 describe("discovery", () => {
   it("finds plugins/<folder>/plugin.json with its entries", async () => {
     const { json, code } = readFixture();
-    const { plugins, problems } = await discoverPlugins({ json, code: code.keys() });
+    const { found, problems } = await planPluginCode({ json, code }, { editor: true });
     expect(problems).toEqual([]);
-    expect(plugins).toEqual([
+    expect(found).toEqual([
       expect.objectContaining({
         source: { kind: "project", folder: "plugins/spinner" },
         where: "plugins/spinner/plugin.json",
@@ -143,8 +128,8 @@ describe("discovery", () => {
       ["plugins/missing/plugin.json", JSON.stringify(manifest({ name: "acme.missing" }))],
       ["plugins/swapped/plugin.json", JSON.stringify(manifest({ name: "acme.swapped", runtime: "editor/index.ts" }))],
     ]);
-    const { plugins, problems } = await discoverPlugins({ json, code: ["plugins/swapped/editor/index.ts"] });
-    expect(plugins).toEqual([]);
+    const { found, problems } = await planPluginCode({ json, code: new Map([["plugins/swapped/editor/index.ts", ""]]) }, { editor: true });
+    expect(found).toEqual([]);
     expect(problems.map((p) => [p.plugin, p.message])).toEqual([
       ["plugins/broken/plugin.json", expect.stringContaining("isn't valid JSON")],
       ["acme.missing", "its runtime entry plugins/missing/runtime/index.ts doesn't exist"],
@@ -162,35 +147,45 @@ describe("discovery", () => {
       ["node_modules/acme-bad/package.json", JSON.stringify({ name: "acme-bad", myco: { plugin: "nowhere.json" } })],
     ]);
     const json = new Map([["package.json", JSON.stringify({ dependencies: { "acme-npm": "^1.0.0", "lodash-es": "^4" }, devDependencies: { "acme-bad": "1.0.0", "not-installed": "1.0.0" } })]]);
-    const { plugins, problems } = await discoverPlugins({ json, code: [], packages: { read: async (p) => files.get(p) ?? null } });
-    expect(plugins).toEqual([expect.objectContaining({ source: { kind: "npm", package: "acme-npm" }, runtime: "acme-npm/dist/runtime.js", editor: "acme-npm/dist/editor.js" })]);
-    expect(problems).toEqual([expect.objectContaining({ where: "node_modules/acme-bad/nowhere.json", message: expect.stringContaining("isn't there") })]);
-    expect(npmPluginEntries(plugins, new Set(["acme.npm"]), { editor: false })).toEqual(["acme-npm/dist/runtime.js"]);
-    expect(npmPluginEntries(plugins, new Set(["acme.npm"]), { editor: true })).toEqual(["acme-npm/dist/runtime.js", "acme-npm/dist/editor.js"]);
+    const packages: PluginFiles = { read: async (p) => files.get(p) ?? null };
+    const build = await planPluginCode({ json, code: new Map(), packages }, { editor: false });
+    expect(build.found).toEqual([expect.objectContaining({ source: { kind: "npm", package: "acme-npm" }, runtime: "acme-npm/dist/runtime.js", editor: "acme-npm/dist/editor.js" })]);
+    expect(build.problems).toEqual([expect.objectContaining({ where: "node_modules/acme-bad/nowhere.json", message: expect.stringContaining("isn't there") })]);
+    expect(build.npmEntries).toEqual(["acme-npm/dist/runtime.js"]);
+    expect((await planPluginCode({ json, code: new Map(), packages }, { editor: true })).npmEntries).toEqual(["acme-npm/dist/runtime.js", "acme-npm/dist/editor.js"]);
+    expect((await planPluginCode({ json, code: new Map(), packages, disabled: ["acme.npm"] }, { editor: true })).npmEntries).toEqual([]);
+  });
+
+  it("makes a discovery that fails a problem, not a throw", async () => {
+    const json = new Map([["package.json", JSON.stringify({ dependencies: { "acme-npm": "^1.0.0" } })]]);
+    const plan = await planPluginCode({ json, code: new Map(), packages: { read: () => Promise.reject(new Error("disk gone")) } }, { editor: true });
+    expect(plan.found).toEqual([]);
+    expect(plan.problems).toEqual([{ plugin: "(plugins)", where: "plugins/", message: "couldn't look for plugins: disk gone" }]);
   });
 });
 
 describe("checks and order", () => {
-  it("refuses a plugin whose SDK range the engine doesn't meet", () => {
-    const { plugins, problems } = checkPlugins([found(manifest({ name: "acme.future", sdk: "^2.0.0" }))], FIRST_PARTY_MANIFESTS, "1.0.0");
+  it("refuses a plugin whose SDK range the engine doesn't meet", async () => {
+    const { plugins, problems } = await planPluginCode(projectOf([manifest({ name: "acme.future", sdk: "^2.0.0" })]), { editor: false });
     expect(plugins).toEqual([]);
-    expect(problems).toEqual([expect.objectContaining({ plugin: "acme.future", message: "acme.future needs Myco SDK ^2.0.0; this is 1.0.0" })]);
+    expect(problems).toEqual([expect.objectContaining({ plugin: "acme.future", message: `acme.future needs Myco SDK ^2.0.0; this is ${SDK_VERSION}` })]);
   });
 
-  it("orders by dependencies, first-party ones included, and refuses what can't be satisfied", () => {
-    const list = [
-      found(manifest({ name: "acme.c", dependencies: { "acme.b": "^1.0.0", "myco.physics": "*" } })),
-      found(manifest({ name: "acme.b", dependencies: { "acme.a": "1.x" } })),
-      found(manifest({ name: "acme.a" })),
-      found(manifest({ name: "acme.old", dependencies: { "acme.a": "^2.0.0" } })),
-      found(manifest({ name: "acme.lonely", dependencies: { "acme.nowhere": "*" } })),
-      found(manifest({ name: "acme.needslonely", dependencies: { "acme.lonely": "*" } })),
-      found(manifest({ name: "acme.x", dependencies: { "acme.y": "*" } })),
-      found(manifest({ name: "acme.y", dependencies: { "acme.x": "*" } })),
-      found(manifest({ name: "myco.sky" })),
-      found(manifest({ name: "acme.a" })),
-    ];
-    const { plugins, problems } = checkPlugins(list, FIRST_PARTY_MANIFESTS);
+  it("orders by dependencies, first-party ones included, and refuses what can't be satisfied", async () => {
+    const project = projectOf([
+      manifest({ name: "acme.c", dependencies: { "acme.b": "^1.0.0", "myco.physics": "*" } }),
+      manifest({ name: "acme.b", dependencies: { "acme.a": "1.x" } }),
+      manifest({ name: "acme.a" }),
+      manifest({ name: "acme.old", dependencies: { "acme.a": "^2.0.0" } }),
+      manifest({ name: "acme.lonely", dependencies: { "acme.nowhere": "*" } }),
+      manifest({ name: "acme.needslonely", dependencies: { "acme.lonely": "*" } }),
+      manifest({ name: "acme.x", dependencies: { "acme.y": "*" } }),
+      manifest({ name: "acme.y", dependencies: { "acme.x": "*" } }),
+    ]);
+    // A second acme.a, in a folder found after the first one's.
+    project.json.set("plugins/zz-copy/plugin.json", JSON.stringify(manifest({ name: "acme.a" })));
+    project.code.set("plugins/zz-copy/runtime/index.ts", "");
+    const { plugins, problems } = await planPluginCode(project, { editor: false });
     expect(plugins.map((p) => p.manifest.name)).toEqual(["acme.a", "acme.b", "acme.c"]);
     const why = Object.fromEntries(problems.map((p) => [p.plugin, p.message]));
     expect(why).toEqual({
@@ -199,17 +194,16 @@ describe("checks and order", () => {
       "acme.needslonely": "acme.needslonely needs acme.lonely, which has a problem",
       "acme.x": "dependency cycle: acme.x → acme.y → acme.x",
       "acme.y": "dependency cycle: acme.x → acme.y → acme.x",
-      "myco.sky": "myco.sky is a first-party plugin's name",
       "acme.a": "another plugin named acme.a was found first, at plugins/acme.a/plugin.json",
     });
   });
 });
 
 describe("enabling", () => {
-  const a = found(manifest({ name: "acme.a" }));
-  const b = found(manifest({ name: "acme.b", dependencies: { "acme.a": "*" } }));
-  const p = found(manifest({ name: "acme.p", dependencies: { "myco.physics": "*" } }));
-  const all = (disabled: string[]) => resolveEnabledPlugins([...FIRST_PARTY_MANIFESTS, a.manifest, b.manifest, p.manifest], disabled);
+  const a = manifest({ name: "acme.a", editor: "editor/index.ts" });
+  const b = manifest({ name: "acme.b", dependencies: { "acme.a": "*" } });
+  const p = manifest({ name: "acme.p", dependencies: { "myco.physics": "*" } });
+  const all = (disabled: string[]) => resolveEnabledPlugins([...FIRST_PARTY_MANIFESTS, a, b, p], disabled);
 
   it("defaults third-party plugins on, and turns off dependents of disabled plugins, first-party ones included", () => {
     expect([...all([])].filter((n) => n.startsWith("acme."))).toEqual(["acme.a", "acme.b", "acme.p"]);
@@ -217,17 +211,29 @@ describe("enabling", () => {
     expect([...all(["myco.physics"])].filter((n) => n.startsWith("acme."))).toEqual(["acme.a", "acme.b"]);
   });
 
-  it("loads only enabled plugins' files, and their editor folders only in the editor", () => {
-    const code = new Map([
-      ["scripts/main.ts", ""],
-      ["plugins/acme.a/runtime/index.ts", ""],
-      ["plugins/acme.a/editor/index.ts", ""],
-      ["plugins/acme.b/runtime/index.ts", ""],
-      ["plugins/stray/runtime/index.ts", ""], // no valid plugin here
-    ]);
-    expect([...selectPluginCode(code, [a, b], all([]), { editor: true }).keys()]).toEqual(["scripts/main.ts", "plugins/acme.a/runtime/index.ts", "plugins/acme.a/editor/index.ts", "plugins/acme.b/runtime/index.ts"]);
-    expect([...selectPluginCode(code, [a, b], all([]), { editor: false }).keys()]).toEqual(["scripts/main.ts", "plugins/acme.a/runtime/index.ts", "plugins/acme.b/runtime/index.ts"]);
-    expect([...selectPluginCode(code, [a, b], all(["acme.a"]), { editor: true }).keys()]).toEqual(["scripts/main.ts"]);
+  it("loads only enabled plugins' files, and their editor folders only in the editor", async () => {
+    const project = projectOf([a, b], ["scripts/main.ts"]);
+    project.code.delete("plugins/acme.b/editor/index.ts");
+    project.code.set("plugins/stray/runtime/index.ts", ""); // no valid plugin here
+    const keys = async (options: { editor: boolean }, disabled: string[] = []) => [...(await planPluginCode({ ...project, disabled }, options)).code.keys()].sort();
+    expect(await keys({ editor: true })).toEqual(["plugins/acme.a/editor/index.ts", "plugins/acme.a/runtime/index.ts", "plugins/acme.b/runtime/index.ts", "scripts/main.ts"]);
+    expect(await keys({ editor: false })).toEqual(["plugins/acme.a/runtime/index.ts", "plugins/acme.b/runtime/index.ts", "scripts/main.ts"]);
+    expect(await keys({ editor: true }, ["acme.a"])).toEqual(["scripts/main.ts"]);
+  });
+
+  it("plans the same plugins for the editor and a build; only the editor halves' files differ", async () => {
+    const project = projectOf([a, b, p], ["scripts/main.ts"]);
+    for (const disabled of [[], ["acme.a"], ["myco.physics"]]) {
+      const editor = await planPluginCode({ ...project, disabled }, { editor: true });
+      const build = await planPluginCode({ ...project, disabled }, { editor: false });
+      const names = (list: readonly { manifest: { name: string } }[]) => list.map((x) => x.manifest.name);
+      expect(names(editor.plugins)).toEqual(names(build.plugins));
+      expect(names(editor.loaded)).toEqual(names(build.loaded));
+      expect(names(editor.runtime)).toEqual(names(build.runtime));
+      expect([...editor.enabled]).toEqual([...build.enabled]);
+      expect(editor.problems).toEqual(build.problems);
+      expect([...editor.code.keys()].filter((k) => !k.includes("/editor/"))).toEqual([...build.code.keys()]);
+    }
   });
 });
 
@@ -236,14 +242,14 @@ describe("loading through the script loader", () => {
 
   it("compiles a plugin's runtime half like scripts and activates it: its Component is claimed, and unregistered on deactivation", async () => {
     const { json, code } = readFixture();
-    const plan = await planPluginCode({ json, code, builtIn: FIRST_PARTY_MANIFESTS }, { editor: false });
+    const plan = await planPluginCode({ json, code }, { editor: false });
     expect(plan.problems).toEqual([]);
     expect([...plan.code.keys()].sort()).toEqual(["plugins/spinner/runtime/index.ts", "scripts/useSpinner.ts"]);
     const result = await loadScripts(plan.code, json);
     expect(result.problems).toEqual([]);
     const spinner = plan.runtime[0]!;
     const module = await loadedScriptModule(spinner.runtime!);
-    runtimeActivator.activate(toRuntimePlugin(spinner, module));
+    runtimeActivator.activate(toRuntimePlugin(spinner.manifest, spinner.runtime!, module));
     expect(isRuntimePluginActive("acme.spinner")).toBe(true);
     expect(getComponentClass("acme.Spinner")).toBe(module.Spinner);
     expect(((await loadedScriptModule("scripts/useSpinner.ts")) as { defaultSpeed: number }).defaultSpeed).toBe(90);
@@ -267,7 +273,7 @@ describe("loading through the script loader", () => {
   });
 
   it("refuses an entry that exports no activate()", () => {
-    expect(() => toRuntimePlugin(found(manifest({ name: "acme.none" })), {})).toThrow("exports no activate(context) function");
+    expect(() => toRuntimePlugin(manifest({ name: "acme.none" }), "plugins/acme.none/runtime/index.ts", {})).toThrow("acme.none: its runtime entry (plugins/acme.none/runtime/index.ts) exports no activate(context) function");
   });
 });
 
@@ -318,10 +324,10 @@ describe("the dedicated server", () => {
     const { json, code } = readFixture();
     const drawOnly = { ...JSON.parse(json.get("plugins/spinner/plugin.json")!), server: false } as PluginManifest;
     json.set("plugins/spinner/plugin.json", JSON.stringify(drawOnly));
-    const server = await planPluginCode({ json, code, builtIn: FIRST_PARTY_MANIFESTS }, { editor: false, server: true });
+    const server = await planPluginCode({ json, code }, { editor: false, server: true });
     expect(server.runtime).toEqual([]);
     expect([...server.code.keys()]).toEqual(["scripts/useSpinner.ts"]);
-    const build = await planPluginCode({ json, code, builtIn: FIRST_PARTY_MANIFESTS }, { editor: false });
+    const build = await planPluginCode({ json, code }, { editor: false });
     expect(build.runtime.map((p) => p.manifest.name)).toEqual(["acme.spinner"]);
   });
 });
