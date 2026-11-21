@@ -188,7 +188,7 @@ export class BabylonEditorViewport implements ViewportAdapter {
   }
 
   /**
-   * Where each active node under `root` with a Transform is on the canvas: the rectangle around everything
+   * Where each active node under `root` with a Transform or a drawing is on the canvas: the rectangle around everything
    * drawn for it (ADR 0276: sprite quads, meshes, tile layers, water, world canvases, screen Text), or (with
    * nothing drawn) a point at its origin. Nodes partly behind the camera are left out. Parents come before children.
    */
@@ -242,7 +242,7 @@ export class BabylonEditorViewport implements ViewportAdapter {
     const out: { node: GameObject; rect: ScreenRect }[] = [];
     const visit = (node: GameObject): void => {
       if (world.isPendingDestroy(node.entity) || !node.activeInHierarchy) return;
-      const rect = node.transform ? boundsOf(node) : null;
+      const rect = node.transform || drawn.has(node) ? boundsOf(node) : null; // screen Text needs no Transform
       if (rect) out.push({ node, rect });
       for (const c of node.children) visit(c);
     };
