@@ -1,8 +1,10 @@
-import { createContext, type ComponentChildren } from "preact";
+import { createContext } from "preact";
 import { useContext } from "preact/hooks";
 import { computed, signal, type Signal } from "@preact/signals";
 import { Panel, usePanelValue } from "./panel/Panel";
 import { pathKey, type SceneDocument } from "../document";
+import { deleteSelected } from "../deleteSelection";
+import { renameNode } from "../nodeEdits";
 import { assetDrag } from "../assetDrag";
 import { filterHierarchy } from "../hierarchyFilter";
 import { nodeDrag, startNodeDrag } from "../nodeDrag";
@@ -11,16 +13,16 @@ import { instanceInnerNodes, type InnerNode } from "../prefabs";
 import { openPrefabFrom } from "../prefabTabs";
 import { ancestorKeys, combineSelection, rangeBetween } from "../selectionModel";
 import { select, selectUIElement, showSceneSettings } from "../inspectorTarget";
-import { docVersion, isSelected, openScene, selectedKeys, selectedUIElement } from "../state";
+import { docVersion, isSelected, openScene, selectedKeys, selectedUIElement, type OpenScene } from "../state";
 import { documentRows, resolveUIElement, rowAncestry, selectedUIRef, uiBuildVersion, watchUIDocumentBuilds, type UIDocumentRows, type UIElementRow } from "../uiDocuments";
-import { HierarchyMenu, openCreateMenu, openHierarchyMenu, openUIElementMenu } from "./HierarchyMenu";
+import { HIERARCHY_TREE, HierarchyMenu, openCreateMenu, openHierarchyMenu, openUIElementMenu, uiTreeKey } from "./HierarchyMenu";
 import { renameUIElement } from "../uiDocumentEdits";
 import { whyNotEdit } from "../editGate";
-import { renamingUIElement, startUIElementDrag, uiDropDescription, uiElementDrag } from "../uiElementDrag";
+import { startUIElementDrag, uiDropDescription, uiElementDrag } from "../uiElementDrag";
 import "./hierarchy.css";
 import { liveInspecting } from "../runtimeInspect";
 import { RuntimeHierarchy, WorldPicker } from "./RuntimeHierarchy";
-import { activeElementOf } from "../windows/dom";
+import { TreeView, renameRow, type TreeRow, type TreeSelect } from "./TreeView";
 
 /**
  * One Hierarchy panel's view state (ADR 0174): each copy of the panel has its own, so expanding a row or
@@ -55,9 +57,12 @@ const HierarchyViewContext = createContext<HierarchyView | null>(null);
 const fallbackView = new HierarchyView();
 const useView = (): HierarchyView => useContext(HierarchyViewContext) ?? fallbackView;
 
-function toggle(set: Signal<ReadonlySet<string>>, key: string): void {
+/** Put `key` in the set or take it out. */
+function setMember(set: Signal<ReadonlySet<string>>, key: string, member: boolean): void {
+  if (set.value.has(key) === member) return;
   const next = new Set(set.value);
-  if (!next.delete(key)) next.add(key);
+  if (member) next.add(key);
+  else next.delete(key);
   set.value = next;
 }
 
@@ -81,35 +86,25 @@ function uiDocumentsAt(view: HierarchyView, key: string): UIDocumentRows[] {
 }
 
 /** A row click: select it alone, Ctrl/Cmd toggles it, Shift selects the visible rows from the anchor (Ctrl+Shift adds them). */
-function clickRow(view: HierarchyView, e: MouseEvent, key: string): void {
-  const ctrl = e.ctrlKey || e.metaKey;
-  if (e.shiftKey) {
-    const tree = (e.currentTarget as HTMLElement).closest(".tree");
-    const order = [...(tree?.querySelectorAll<HTMLElement>(".row[data-key]") ?? [])].map((el) => el.dataset.key!);
+
+/** A row picked by a click or an arrow key: it alone, Ctrl/Cmd toggles it, Shift selects the visible scene rows from the anchor (Ctrl+Shift adds them). */
+function selectRow(view: HierarchyView, key: string, how: TreeSelect): void {
+  if (how.range) {
+    const order = how.visible.filter((k) => !k.startsWith(uiTreeKey("")));
     const range = rangeBetween(order, view.anchor ?? key, key);
-    select(ctrl ? combineSelection(selectedKeys.peek(), range, "add") : range, key);
+    select(how.toggle ? combineSelection(selectedKeys.peek(), range, "add") : range, key);
     return;
   }
   view.anchor = key;
-  select(ctrl ? combineSelection(selectedKeys.peek(), [key], "toggle") : [key], key);
-}
-
-/** Right-click on a row: select it (unless it's part of the selection already) and open its menu. */
-function rowMenu(view: HierarchyView, e: MouseEvent, key: string): void {
-  e.preventDefault();
-  e.stopPropagation();
-  if (!selectedKeys.peek().includes(key)) {
-    view.anchor = key;
-    select([key], key);
-  }
-  openHierarchyMenu(e.clientX, e.clientY, key);
+  select(how.toggle ? combineSelection(selectedKeys.peek(), [key], "toggle") : [key], key);
 }
 
 /**
  * The open scene's node tree, read from the document (ADR 0026). Prefab instances expand to the
  * nodes inside them, read from their prefab files; those are selectable and edit as overrides.
  * The header has the scene's name, a Create ("+") menu and a search box; rows and empty space
- * have a right-click menu; each row has editor-only hide and lock toggles.
+ * have a right-click menu; each row has editor-only hide and lock toggles. Rows are drawn by the tree view
+ * (ADR 0278): arrow keys move, F2 renames, Delete deletes.
  */
 export function Hierarchy() {
   const view = usePanelValue("hierarchy.view", () => new HierarchyView());
@@ -137,7 +132,7 @@ export function Hierarchy() {
           onContextMenu={(e) => {
             if ((e.target as HTMLElement).closest("input")) return;
             e.preventDefault();
-            openHierarchyMenu(e.clientX, e.clientY, null);
+            openHierarchyMenu(e.clientX, e.clientY, null, view);
           }}
         >
           <WorldPicker />
@@ -158,18 +153,14 @@ export function Hierarchy() {
               {scene.path.split("/").pop()}
               {scene.stack.dirty && " •"}
             </div>
-            <button class="hierarchy-add" aria-label="Create node" title="Create a node" onClick={(e) => openCreateMenu(e.currentTarget as HTMLElement)}>
+            <button class="hierarchy-add" aria-label="Create node" title="Create a node" onClick={(e) => openCreateMenu(e.currentTarget as HTMLElement, view)}>
               +
             </button>
           </div>
           <HierarchySearch />
-          <ul class="tree" role="tree" aria-label="Scene nodes">
-            {scene.doc.roots().map((id) => (
-              <TreeNode key={id} doc={scene.doc} id={id} depth={0} />
-            ))}
-          </ul>
+          <TreeView tree={HIERARCHY_TREE} label="Scene nodes" rows={sceneRows(view, scene)} owner={view} multiselectable />
           {filter && filter.matches.size === 0 && <p class="empty hierarchy-no-match">No nodes match “{view.query.value.trim()}”</p>}
-          <HierarchyMenu />
+          <HierarchyMenu owner={view} />
           <UIElementDragGhost />
         </div>
       </HierarchyViewContext.Provider>
@@ -198,223 +189,212 @@ function HierarchySearch() {
   );
 }
 
-function TreeNode(props: { doc: SceneDocument; id: string; depth: number }) {
-  const { doc, id, depth } = props;
-  // Components that read signals skip re-rendering when their props are unchanged, so read the
-  // document version here too or renames and reorders wouldn't show.
-  docVersion.value;
-  const view = useView();
+
+// --- the tree view's adapters (ADR 0278): scene nodes (prefab instances' inner nodes included) and UI elements ---
+
+/** The open scene's top-level rows. */
+function sceneRows(view: HierarchyView, scene: OpenScene): TreeRow[] {
+  return scene.doc.roots().flatMap((id) => sceneNodeRow(view, scene, id) ?? []);
+}
+
+/** A scene node's row (a prefab instance's with its inner nodes), or null when the search hides it. */
+function sceneNodeRow(view: HierarchyView, scene: OpenScene, id: string): TreeRow | null {
   if (!view.shown(id)) return null;
+  const doc = scene.doc;
   const node = doc.node(id);
-  if (node.prefab) return <InstanceNode doc={doc} id={id} depth={depth} />;
+  const ui = uiDocumentsAt(view, id);
+  if (node.prefab) {
+    const inner = instanceInnerNodes(doc, id);
+    const overrides = node.overrides?.length ?? 0;
+    return nodeRow(view, scene, {
+      key: id,
+      name: node.name ?? id,
+      inactive: node.active === false,
+      expandable: inner.length > 0 || ui.length > 0,
+      open: view.expanded.value.has(id) || selectionInside(id) || (!!view.filter.value && inner.some((n) => view.shown(pathKey(n.path)))),
+      openSet: view.expanded,
+      badge: { text: prefabName(node.prefab), title: `${node.prefab}${overrides ? ` · ${overrides} override${overrides === 1 ? "" : "s"}` : ""}`, modified: overrides > 0 },
+      children: () => [...inner.flatMap((n) => innerNodeRow(view, scene, n) ?? []), ...uiDocumentRows(view, ui)],
+    });
+  }
   const children = doc.children(id);
-  const ui = uiDocumentsAt(view, id);
-  const open = !view.collapsed.value.has(id) || selectionInside(id) || (!!view.filter.value && children.some((c) => view.shown(c)));
-  return (
-    <Row
-      doc={doc}
-      rowKey={id}
-      name={node.name ?? id}
-      depth={depth}
-      inactive={node.active === false}
-      expandable={children.length > 0 || ui.length > 0}
-      open={open}
-      onToggle={() => toggle(view.collapsed, id)}
-    >
-      {children.map((child) => (
-        <TreeNode key={child} doc={doc} id={child} depth={depth + 1} />
-      ))}
-      <UIDocumentElements documents={ui} depth={depth + 1} />
-    </Row>
-  );
+  return nodeRow(view, scene, {
+    key: id,
+    name: node.name ?? id,
+    inactive: node.active === false,
+    expandable: children.length > 0 || ui.length > 0,
+    open: !view.collapsed.value.has(id) || selectionInside(id) || (!!view.filter.value && children.some((c) => view.shown(c))),
+    collapseSet: view.collapsed,
+    children: () => [...children.flatMap((c) => sceneNodeRow(view, scene, c) ?? []), ...uiDocumentRows(view, ui)],
+  });
 }
 
-function InstanceNode(props: { doc: SceneDocument; id: string; depth: number }) {
-  const { doc, id, depth } = props;
-  docVersion.value;
-  const view = useView();
-  const node = doc.node(id);
-  const inner = instanceInnerNodes(doc, id);
-  const ui = uiDocumentsAt(view, id);
-  const open = view.expanded.value.has(id) || selectionInside(id) || (!!view.filter.value && inner.some((n) => view.shown(pathKey(n.path))));
-  const overrides = node.overrides?.length ?? 0;
-  return (
-    <Row
-      doc={doc}
-      rowKey={id}
-      name={node.name ?? id}
-      depth={depth}
-      inactive={node.active === false}
-      expandable={inner.length > 0 || ui.length > 0}
-      open={open}
-      onToggle={() => toggle(view.expanded, id)}
-      badge={{ text: prefabName(node.prefab!), title: `${node.prefab}${overrides ? ` · ${overrides} override${overrides === 1 ? "" : "s"}` : ""}`, modified: overrides > 0 }}
-    >
-      {inner.map((n) => (
-        <InnerTreeNode key={pathKey(n.path)} doc={doc} node={n} depth={depth + 1} />
-      ))}
-      <UIDocumentElements documents={ui} depth={depth + 1} />
-    </Row>
-  );
-}
-
-function InnerTreeNode(props: { doc: SceneDocument; node: InnerNode; depth: number }) {
-  const { doc, node, depth } = props;
-  docVersion.value;
+/** A node inside a prefab instance: selectable, and its edits are overrides. */
+function innerNodeRow(view: HierarchyView, scene: OpenScene, node: InnerNode): TreeRow | null {
   const key = pathKey(node.path);
-  const view = useView();
   if (!view.shown(key)) return null;
-  const set = node.prefab ? view.expanded : view.collapsed;
   const ui = uiDocumentsAt(view, key);
-  const open =
-    (node.prefab ? view.expanded.value.has(key) : !view.collapsed.value.has(key)) || selectionInside(key) || (!!view.filter.value && node.children.some((c) => view.shown(pathKey(c.path))));
-  return (
-    <Row
-      doc={doc}
-      rowKey={key}
-      name={node.name}
-      depth={depth}
-      inner
-      inactive={!node.active}
-      expandable={node.children.length > 0 || ui.length > 0}
-      open={open}
-      onToggle={() => toggle(set, key)}
-      badge={node.prefab ? { text: prefabName(node.prefab), title: node.prefab, modified: false } : undefined}
-    >
-      {node.children.map((c) => (
-        <InnerTreeNode key={pathKey(c.path)} doc={doc} node={c} depth={depth + 1} />
-      ))}
-      <UIDocumentElements documents={ui} depth={depth + 1} />
-    </Row>
-  );
+  return nodeRow(view, scene, {
+    key,
+    name: node.name,
+    inner: true,
+    inactive: !node.active,
+    expandable: node.children.length > 0 || ui.length > 0,
+    open: (node.prefab ? view.expanded.value.has(key) : !view.collapsed.value.has(key)) || selectionInside(key) || (!!view.filter.value && node.children.some((c) => view.shown(pathKey(c.path)))),
+    ...(node.prefab ? { openSet: view.expanded } : { collapseSet: view.collapsed }),
+    badge: node.prefab ? { text: prefabName(node.prefab), title: node.prefab, modified: false } : undefined,
+    children: () => [...node.children.flatMap((c) => innerNodeRow(view, scene, c) ?? []), ...uiDocumentRows(view, ui)],
+  });
+}
+
+interface NodeRowSpec {
+  readonly key: string;
+  readonly name: string;
+  readonly inner?: boolean;
+  readonly inactive: boolean;
+  readonly expandable: boolean;
+  readonly open: boolean;
+  /** Where its open state lives: rows that start open record being closed, ones that start closed being opened. */
+  readonly collapseSet?: Signal<ReadonlySet<string>>;
+  readonly openSet?: Signal<ReadonlySet<string>>;
+  readonly badge?: { text: string; title: string; modified: boolean };
+  readonly children: () => TreeRow[];
+}
+
+/** A scene node row's look and edits: select, the menu, rename (an undoable document edit, an override inside an instance), Delete and the node drag. */
+function nodeRow(view: HierarchyView, scene: OpenScene, spec: NodeRowSpec): TreeRow {
+  const { key, name, badge } = spec;
+  const doc = scene.doc;
+  const filter = view.filter.value;
+  const drop = dropMode(key);
+  const classes = [
+    spec.inactive && "inactive",
+    spec.inner && "inner",
+    filter && !filter.matches.has(key) && "filter-context", // shown only as an ancestor of a match
+    isHidden(doc, key) && "scene-hidden",
+    isLocked(doc, key) && "scene-locked",
+  ].filter(Boolean);
+  return {
+    key,
+    label: name,
+    expandable: spec.expandable,
+    open: spec.open,
+    children: spec.expandable && spec.open ? spec.children() : undefined,
+    selected: isSelected(key),
+    className: classes.join(" "),
+    attrs: { "data-key": key },
+    title: spec.inner ? "Inside a prefab instance: edits become overrides" : undefined,
+    drop: drop === "root" ? null : drop,
+    dragging: nodeDrag.value?.keys.includes(key) ?? false,
+    trailing: (
+      <>
+        {badge && (
+          <span
+            class={`badge${badge.modified ? " modified" : ""}`}
+            title={`${badge.title} · double-click to open the prefab`}
+            onDblClick={(e) => {
+              e.stopPropagation();
+              void openPrefabFrom(key.split("/"));
+            }}
+          >
+            {badge.text}
+            {badge.modified && " •"}
+          </span>
+        )}
+        <RowFlags doc={doc} rowKey={key} name={name} />
+      </>
+    ),
+    setOpen: (open) => {
+      if (spec.collapseSet) setMember(spec.collapseSet, key, !open);
+      else if (spec.openSet) setMember(spec.openSet, key, open);
+    },
+    select: (how) => selectRow(view, key, how),
+    menu: (x, y) => {
+      if (!selectedKeys.peek().includes(key)) {
+        view.anchor = key;
+        select([key], key);
+      }
+      openHierarchyMenu(x, y, key, view);
+    },
+    rename: whyNotEdit({ kind: "scene", scene })
+      ? null
+      : {
+          value: name,
+          label: "Node name",
+          commit: (value) => {
+            if (value.trim() !== "" && openScene.peek() === scene) renameNode(scene, key.split("/"), value);
+          },
+        },
+    remove: () => void deleteSelected(),
+    drag: (e) => startNodeDrag(e, key),
+  };
+}
+
+/** A node's UI documents' element rows (ADR 0077), under its own children; none while searching. */
+function uiDocumentRows(view: HierarchyView, documents: readonly UIDocumentRows[]): TreeRow[] {
+  if (documents.length === 0) return [];
+  const selectedKey = selectedUIElement.value;
+  const opened = selectedKey ? new Set(rowAncestry(documents, selectedKey) ?? []) : new Set<string>();
+  return documents.flatMap((d) => (d.root ? [uiElementRow(view, d.root, d.file ?? d.root.file, opened)] : []));
 }
 
 /**
- * A node's UI documents' elements (ADR 0077), under its own children: built from the markup file,
- * not saved in the scene, so they're marked as the file's. Clicking one selects the element; the
- * right-click menu creates inside it, renames (its id), duplicates and deletes; double-click or F2
- * renames; dragging reorders or reparents within its file. Edits are written to the markup.
+ * A UI document element's row: built from the markup file, not saved in the scene, so it's marked as the file's.
+ * Clicking selects the element; the menu creates inside it, renames (its id), duplicates and deletes; double-click
+ * or F2 renames; dragging reorders or reparents within its file. Edits are written to the markup.
  */
-function UIDocumentElements(props: { documents: readonly UIDocumentRows[]; depth: number }) {
-  selectedUIElement.value;
-  useView().uiExpanded.value;
-  if (props.documents.length === 0) return null;
-  const selectedKey = selectedUIElement.value;
-  const opened = selectedKey ? new Set(rowAncestry(props.documents, selectedKey) ?? []) : new Set<string>();
-  return (
-    <>
-      {props.documents.map((d) => d.root && <UIElementTreeRow key={d.root.key} row={d.root} depth={props.depth} file={d.file ?? d.root.file} opened={opened} />)}
-    </>
-  );
-}
-
-/** How a dragged UI element would land on the row `key`, if it's the target. */
-function uiDropMode(key: string): string | null {
-  const t = uiElementDrag.value?.target;
-  return t && t.row === key ? t.mode : null;
-}
-
-function UIElementTreeRow(props: { row: UIElementRow; depth: number; file: string; opened: ReadonlySet<string> }) {
-  const { row, depth, opened } = props;
-  const { uiExpanded } = useView();
-  const selected = selectedUIElement.value === row.key;
-  const expandable = row.children.length > 0;
+function uiElementRow(view: HierarchyView, row: UIElementRow, file: string, opened: ReadonlySet<string>): TreeRow {
+  const uiExpanded = view.uiExpanded;
   const open = uiExpanded.value.has(row.key) || opened.has(row.key);
-  const where = row.file === props.file ? row.file : `${row.file} (used by ${props.file})`;
-  const renaming = renamingUIElement.value === row.key;
-  const drop = uiDropMode(row.key);
-  const dragging = uiElementDrag.value?.key === row.key;
-  const classes = ["row", "ui-element", selected && "selected", drop && `drop-${drop}`, dragging && "dragging"].filter(Boolean).join(" ");
-  return (
-    <li role="treeitem" aria-selected={selected} aria-expanded={expandable ? open : undefined}>
-      <div
-        class={classes}
-        data-ui-key={row.key}
-        tabIndex={-1}
-        style={{ paddingLeft: `${depth * 14 + 4}px` }}
-        title={`${row.synthetic ? "A button's text content" : `<${row.tag}>`} from ${where}. Built from the file, not saved in the scene; edits are written to the file.`}
-        onPointerDown={(e) => {
-          if (!row.synthetic && !renaming) startUIElementDrag(e, row.ref, row.key, row.label);
-        }}
-        onClick={(e) => {
-          e.stopPropagation();
-          selectUIElement(row.ref);
-        }}
-        onDblClick={(e) => {
-          e.stopPropagation();
-          if (!row.synthetic && !whyNotEdit({ kind: "ui-documents" })) renamingUIElement.value = row.key;
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "F2" && !row.synthetic && !whyNotEdit({ kind: "ui-documents" })) renamingUIElement.value = row.key;
-        }}
-        onContextMenu={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          selectUIElement(row.ref);
-          openUIElementMenu(e.clientX, e.clientY, row.ref);
-        }}
-      >
-        <span
-          class={`caret${expandable ? "" : " leaf"}`}
-          onClick={(e) => {
-            e.stopPropagation();
-            if (expandable) toggle(uiExpanded, row.key);
-          }}
-        >
-          {expandable ? (open ? "▾" : "▸") : ""}
-        </span>
-        <span class="ui-element-icon" aria-hidden="true">
-          ◇
-        </span>
-        {renaming ? <UIElementRename row={row} /> : <span class="name">{row.label}</span>}
-      </div>
-      {expandable && open && (
-        <ul role="group">
-          {row.children.map((c) => (
-            <UIElementTreeRow key={c.key} row={c} depth={depth + 1} file={props.file} opened={opened} />
-          ))}
-        </ul>
-      )}
-    </li>
-  );
+  const where = row.file === file ? row.file : `${row.file} (used by ${file})`;
+  const key = uiTreeKey(row.key);
+  const renamable = !row.synthetic && !whyNotEdit({ kind: "ui-documents" });
+  const scene = openScene.peek();
+  const drop = uiElementDrag.value?.target?.row === row.key ? uiElementDrag.value.target.mode : null;
+  return {
+    key,
+    label: row.label,
+    expandable: row.children.length > 0,
+    open,
+    children: open ? row.children.map((c) => uiElementRow(view, c, file, opened)) : undefined,
+    selected: selectedUIElement.value === row.key,
+    className: "ui-element",
+    attrs: { "data-ui-key": row.key },
+    title: `${row.synthetic ? "A button's text content" : `<${row.tag}>`} from ${where}. Built from the file, not saved in the scene; edits are written to the file.`,
+    icon: (
+      <span class="ui-element-icon" aria-hidden="true">
+        ◇
+      </span>
+    ),
+    drop,
+    dragging: uiElementDrag.value?.key === row.key,
+    setOpen: (on) => setMember(uiExpanded, row.key, on),
+    select: () => selectUIElement(row.ref),
+    menu: (x, y) => {
+      selectUIElement(row.ref);
+      openUIElementMenu(x, y, row.ref, view);
+    },
+    activate: () => {
+      if (renamable) renameRow(HIERARCHY_TREE, key, view);
+    },
+    rename: renamable
+      ? (() => {
+          const initial = (scene && resolveUIElement(scene.sync, row.ref)?.id) ?? "";
+          return {
+            value: initial,
+            label: "Element id",
+            placeholder: "id",
+            commit: (value: string) => {
+              if (value.trim() !== initial) renameUIElement(row.ref, value);
+            },
+          };
+        })()
+      : null,
+    remove: () => void deleteSelected(),
+    drag: row.synthetic ? undefined : (e) => startUIElementDrag(e, row.ref, row.key, row.label),
+  };
 }
 
-/** Renaming an element row in place: its id (empty removes it). Enter or leaving commits, Escape cancels. */
-function UIElementRename(props: { row: UIElementRow }) {
-  const scene = openScene.value;
-  const el = scene ? resolveUIElement(scene.sync, props.row.ref) : null;
-  const initial = el?.id ?? "";
-  let done = false;
-  const finish = (value: string | null) => {
-    if (done) return;
-    done = true;
-    renamingUIElement.value = null;
-    if (value !== null && value.trim() !== initial) renameUIElement(props.row.ref, value);
-  };
-  return (
-    <input
-      class="rename-input"
-      aria-label="Element id"
-      placeholder="id"
-      value={initial}
-      ref={(input) => {
-        // Its own window's focus: in a detached panel window (ADR 0174) the main document's never is the input, so every render reselected it.
-        if (input && activeElementOf(input) !== input) {
-          input.focus();
-          input.select();
-        }
-      }}
-      onClick={(e) => e.stopPropagation()}
-      onPointerDown={(e) => e.stopPropagation()}
-      onKeyDown={(e) => {
-        e.stopPropagation();
-        if (e.key === "Enter") finish((e.currentTarget as HTMLInputElement).value);
-        if (e.key === "Escape") finish(null);
-      }}
-      onBlur={(e) => finish((e.currentTarget as HTMLInputElement).value)}
-    />
-  );
-}
 
 /** The label following a dragged UI element, saying what releasing will do (or why it can't). */
 function UIElementDragGhost() {
@@ -473,74 +453,3 @@ function RowFlags(props: { doc: SceneDocument; rowKey: string; name: string }) {
   );
 }
 
-function Row(props: {
-  doc: SceneDocument;
-  rowKey: string;
-  name: string;
-  depth: number;
-  inactive?: boolean;
-  inner?: boolean;
-  expandable: boolean;
-  open: boolean;
-  onToggle: () => void;
-  badge?: { text: string; title: string; modified: boolean };
-  children?: ComponentChildren;
-}) {
-  const { doc, rowKey, depth, expandable, open, badge } = props;
-  const view = useView();
-  const selected = isSelected(rowKey);
-  const drop = dropMode(rowKey);
-  const filter = view.filter.value;
-  const context = !!filter && !filter.matches.has(rowKey); // shown only as an ancestor of a match
-  const hidden = isHidden(doc, rowKey), locked = isLocked(doc, rowKey);
-  const classes = [
-    "row",
-    selected && "selected",
-    props.inactive && "inactive",
-    props.inner && "inner",
-    drop && `drop-${drop}`,
-    nodeDrag.value?.keys.includes(rowKey) && "dragging",
-    context && "filter-context",
-    hidden && "scene-hidden",
-    locked && "scene-locked",
-  ].filter(Boolean);
-  return (
-    <li role="treeitem" aria-selected={selected} aria-expanded={expandable ? open : undefined}>
-      <div
-        class={classes.join(" ")}
-        data-key={rowKey}
-        onPointerDown={(e) => startNodeDrag(e, rowKey)}
-        style={{ paddingLeft: `${depth * 14 + 4}px` }}
-        title={props.inner ? "Inside a prefab instance: edits become overrides" : undefined}
-        onClick={(e) => clickRow(view, e, rowKey)}
-        onContextMenu={(e) => rowMenu(view, e, rowKey)}
-      >
-        <span
-          class={`caret${expandable ? "" : " leaf"}`}
-          onClick={(e) => {
-            e.stopPropagation();
-            if (expandable) props.onToggle();
-          }}
-        >
-          {expandable ? (open ? "▾" : "▸") : ""}
-        </span>
-        <span class="name">{props.name}</span>
-        {badge && (
-          <span
-            class={`badge${badge.modified ? " modified" : ""}`}
-            title={`${badge.title} · double-click to open the prefab`}
-            onDblClick={(e) => {
-              e.stopPropagation();
-              void openPrefabFrom(rowKey.split("/"));
-            }}
-          >
-            {badge.text}
-            {badge.modified && " •"}
-          </span>
-        )}
-        <RowFlags doc={doc} rowKey={rowKey} name={props.name} />
-      </div>
-      {expandable && open && <ul role="group">{props.children}</ul>}
-    </li>
-  );
-}

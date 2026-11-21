@@ -162,8 +162,10 @@ test("the live Hierarchy creates, renames, reparents and deletes nodes; the live
   await expect.poll(() => liveParent(page, "Inner")).toBe("Bird");
   await row("Inner").dragTo(hierarchy.locator(".live-name"));
   await expect.poll(() => liveParent(page, "Inner")).toBe("main");
-  // A loaded scene can't be moved.
-  await expect(tree.locator(".row.live-scene")).toHaveAttribute("draggable", "false");
+  // A loaded scene can't be moved: dragging it does nothing.
+  const sceneParent = await liveParent(page, "main");
+  await tree.locator(".row.live-scene").dragTo(row("Bird"));
+  expect(await liveParent(page, "main")).toBe(sceneParent);
 
   // Add a component with a node reference, point it at the bird, then remove it.
   await row("Marker").click();

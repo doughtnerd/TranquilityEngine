@@ -264,22 +264,6 @@ button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px
 
 /* Hierarchy */
 .scene-name { color: var(--muted); font-size: calc(12px * var(--ui-scale)); margin-bottom: 4px; }
-.tree, .tree ul { list-style: none; margin: 0; padding: 0; }
-.tree .row {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 2px 4px;
-  border-radius: 3px;
-  cursor: default;
-  white-space: nowrap;
-}
-.tree .row:hover { background: var(--hover); }
-.tree .row.selected { background: var(--selection); color: var(--selection-text); }
-.tree .row.inactive .name { opacity: 0.5; }
-.tree .caret { width: 14px; flex: none; color: var(--muted); text-align: center; cursor: pointer; }
-.tree .caret.leaf { cursor: default; }
-.tree .name { overflow: hidden; text-overflow: ellipsis; }
 
 /* Inspector */
 .node-header { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
@@ -381,14 +365,11 @@ button:disabled:hover { background: var(--button); }
 .asset-drag-ghost { position: fixed; z-index: 20; pointer-events: none; padding: 4px 8px; border-radius: 4px; background: var(--accent); color: var(--accent-text); font-size: calc(12px * var(--ui-scale)); white-space: nowrap; box-shadow: 0 2px 8px var(--shadow); }
 .asset-drag-ghost.invalid { background: var(--danger-strong); color: var(--danger-text); }
 .viewport-drop-highlight { position: absolute; inset: 0; z-index: 1; pointer-events: none; box-shadow: inset 0 0 0 2px var(--accent); background: var(--accent-faint); }
-.tree .row.drop-into, .scene-name.drop-into { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); border-radius: 3px; }
-.tree .row.drop-before { box-shadow: inset 0 2px 0 var(--accent); }
-.tree .row.drop-after { box-shadow: inset 0 -2px 0 var(--accent); }
+.scene-name.drop-into { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); border-radius: 3px; }
 .scene-name { padding: 2px 4px; }
 body:has(.asset-drag-ghost), body:has(.asset-drag-ghost) * { cursor: copy !important; user-select: none; }
 body:has(.asset-drag-ghost.invalid), body:has(.asset-drag-ghost.invalid) * { cursor: not-allowed !important; }
 .fields .unset { display: inline-flex; align-items: center; gap: 8px; }
-.tree .row.dragging { opacity: 0.5; }
 
 /* Confirm dialog and status actions */
 .dialog-backdrop { position: fixed; inset: 0; z-index: 30; background: var(--backdrop); display: flex; align-items: center; justify-content: center; }
