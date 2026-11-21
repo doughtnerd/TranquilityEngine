@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input, Quaternion, Vector3 } from "../engine";
 import { composeMatrix, localPoseFromWorld, type LocalPose } from "../engine/render/gizmoMath";
 import { SetField } from "./document";
-import { gizmoEdit, installGizmo } from "./gizmo";
+import { installGizmo } from "./gizmo";
 import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile } from "./project";
 import { openScene, sceneCamera, snapping, tool, viewMode } from "./state";
@@ -35,41 +35,6 @@ describe("gizmo math: world pose → local Transform values", () => {
     const pose = localPoseFromWorld(null, new Vector3(0.1 + 0.2, -0, 0), new Quaternion(), new Vector3(1, 1, 1));
     expect(pose.position).toEqual([0.3, 0, 0]);
     expect(Object.is(pose.position[1], -0)).toBe(false);
-  });
-});
-
-describe("gizmo edits (ADR 0026)", () => {
-  beforeEach(async () => {
-    Input.reset();
-    const engine = await Engine.create({ headless: true, kind: "editor", project: demoSettings(), assets: demoAssets() });
-    sceneCamera.value = OrbitCamera.create(GameObject.create("SceneCamera", { parent: engine.world.root }));
-    openSceneFile(engine, DEMO_SCENE);
-  });
-
-  const z45 = Quaternion.rotateZ(Math.PI / 4).toArray();
-  const asPose = (): LocalPose => ({ position: [2, 3, 0], rotation: z45, scale: [1.5, 1.5, 1] });
-
-  it("each mode edits its own Transform field", () => {
-    const { doc } = openScene.value!;
-    expect(gizmoEdit(doc, "bird", "translate", asPose()).field).toBe("position");
-    expect(gizmoEdit(doc, "bird", "rotate", asPose()).field).toBe("rotation");
-    expect(gizmoEdit(doc, "bird", "scale", asPose()).value).toEqual([1.5, 1.5, 1]);
-  });
-
-  it("writes a rotation as a quaternion, 2D ones too (ADR 0163)", () => {
-    const { doc, stack, sync } = openScene.value!;
-    stack.execute(gizmoEdit(doc, "bird", "rotate", asPose()));
-    expect(doc.fieldValue("bird", "engine.Transform", "rotation")).toEqual([0, 0, 0.3826834, 0.9238795]);
-    expect(sync.nodeFor("bird")!.transform!.rotation2D).toBeCloseTo(Math.PI / 4, 4);
-    // A file that still says a single angle is rewritten as a quaternion by the next rotate.
-    stack.execute(new SetField("bird", "engine.Transform", "rotation", 10));
-    expect(gizmoEdit(doc, "bird", "rotate", asPose()).value).toEqual([0, 0, 0.3826834, 0.9238795]);
-  });
-
-  it("on a prefab instance the drag writes an override", () => {
-    const { doc, stack } = openScene.value!;
-    stack.execute(gizmoEdit(doc, "bg-a", "translate", { ...asPose(), position: [5, 3, 0] }));
-    expect(doc.overrides("bg-a").some((o) => o.field === "position")).toBe(true);
   });
 });
 
@@ -114,6 +79,38 @@ describe("the gizmo on the selection, over a fake viewport (ADR 0128)", () => {
     expect(stack.undoLabel).toBe("Move Bird");
     stack.undo();
     expect(JSON.stringify(doc.toJSON())).toBe(before);
+  });
+
+  it("each tool edits its own Transform field; a rotation is written as a quaternion, 2D ones too (ADR 0163)", () => {
+    const { doc, stack, sync } = openScene.value!;
+    select(["bird"]);
+    const handlers = surface.adapter.gizmo!.handlers!;
+    const drag = (pose: LocalPose) => (handlers.onStart(), handlers.onChange([pose]), handlers.onEnd());
+    const pose: LocalPose = { position: [2, 3, 0], rotation: z45, scale: [1.5, 1.5, 1] };
+    tool.value = "scale";
+    drag(pose);
+    expect(doc.fieldValue("bird", "engine.Transform", "scale")).toEqual([1.5, 1.5, 1]);
+    expect(stack.undoLabel).toBe("Scale Bird");
+    tool.value = "rotate";
+    drag(pose);
+    expect(doc.fieldValue("bird", "engine.Transform", "rotation")).toEqual([0, 0, 0.3826834, 0.9238795]);
+    expect(sync.nodeFor("bird")!.transform!.rotation2D).toBeCloseTo(Math.PI / 4, 4);
+    expect(doc.fieldValue("bird", "engine.Transform", "position")).not.toEqual([2, 3, 0]); // one node turns in place
+    // A file that still says a single angle is rewritten as a quaternion by the next rotate.
+    stack.execute(new SetField("bird", "engine.Transform", "rotation", 10));
+    drag(pose);
+    expect(doc.fieldValue("bird", "engine.Transform", "rotation")).toEqual([0, 0, 0.3826834, 0.9238795]);
+  });
+
+  it("on a prefab instance the drag writes an override", () => {
+    const { doc } = openScene.value!;
+    select(["bg-a"]);
+    tool.value = "move";
+    const handlers = surface.adapter.gizmo!.handlers!;
+    handlers.onStart();
+    handlers.onChange([{ position: [5, 3, 0], rotation: z45, scale: [1, 1, 1] }]);
+    handlers.onEnd();
+    expect(doc.overrides("bg-a").some((o) => o.field === "position")).toBe(true);
   });
 
   it("puts the nodes back on Escape during a drag, recording nothing", () => {

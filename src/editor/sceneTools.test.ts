@@ -5,7 +5,7 @@ import { alignOffsets, distributeOffsets, type Box } from "./boxAlign";
 import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile } from "./project";
 import { cleanSnap, gizmoPivot, gizmoSpace, installSceneToolKeys, snapActive, snapSettings, snapTo, updateSnap } from "./sceneTools";
-import { openScene, sceneCamera, snapping } from "./state";
+import { openScene, playState, sceneCamera, snapping, status } from "./state";
 import { select } from "./inspectorTarget";
 import { DEMO_SCENE, demoAssets, demoSettings } from "./testing";
 
@@ -117,6 +117,22 @@ describe("align on the open scene", () => {
     expect(stack.undoLabel).toBe("Align left (2 nodes)");
     stack.undo();
     expect(JSON.stringify(doc.toJSON())).toBe(before);
+  });
+
+  it("leaves the scene alone during play, through the edit gate (ADR 0247)", () => {
+    const { doc, stack } = openScene.value!;
+    select(["bird", "bg-a"]);
+    const before = JSON.stringify(doc.toJSON());
+    const label = stack.undoLabel;
+    playState.value = "playing";
+    try {
+      expect(runAlign({ kind: "align", axis: 0, edge: "min" }, true)).toBe(0);
+      expect(JSON.stringify(doc.toJSON())).toBe(before);
+      expect(stack.undoLabel).toBe(label);
+      expect(status.value).toEqual({ kind: "info", text: "Stop playing to align left." });
+    } finally {
+      playState.value = "edit";
+    }
   });
 
   it("needs enough nodes", () => {

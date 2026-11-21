@@ -1,6 +1,7 @@
 import type { ComponentChildren } from "preact";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
-import { actionLabel, alignTargets, minNodes, runAlign, type AlignAction, type Axis } from "../align";
+import { actionLabel, alignTargets, minNodes, runAlign, whyNotAlign, type AlignAction, type Axis } from "../align";
+import { statusSentence } from "../editGate";
 import { previewCamera, previewFrame, selectedCamera } from "../cameraPreview";
 import { cameraPreviewEnabled, cleanSnap, gizmoPivot, gizmoSpace, snapSettings, toggleGizmoPivot, toggleGizmoSpace, updateSnap, type SnapSettings } from "../sceneTools";
 import { docVersion, openScene, sceneCamera, selectedKeys, viewMode } from "../state";
@@ -204,15 +205,24 @@ function AlignMenu() {
         ...([0, 1, 2] as Axis[]).map((axis) => (["min", "center", "max"] as const).map((edge): AlignAction => ({ kind: "align", axis, edge }))),
         ([0, 1, 2] as Axis[]).map((axis): AlignAction => ({ kind: "distribute", axis })),
       ];
+  // During play the scene is read-only (ADR 0247): the menu says so instead of moving nodes.
+  const blocked = scene ? whyNotAlign() : null;
   return (
-    <Popover label="Align" buttonClass="align-menu" buttonText="Align ▾" title={count < 2 ? "Align and distribute: select two or more nodes" : `Align and distribute ${count} nodes`} disabled={count < 2}>
+    <Popover
+      label="Align"
+      buttonClass="align-menu"
+      buttonText="Align ▾"
+      title={blocked ? `Align and distribute: ${statusSentence(blocked)}` : count < 2 ? "Align and distribute: select two or more nodes" : `Align and distribute ${count} nodes`}
+      disabled={count < 2 || blocked !== null}
+    >
       <div class="align-grid">
         {rows.map((row, i) => (
           <div key={i} class="align-row">
             {row.map((a) => {
               const label = actionLabel(a, planar);
+              const why = whyNotAlign(a, planar) ?? (count < minNodes(a) ? `select ${minNodes(a)} or more nodes` : null);
               return (
-                <button key={label} disabled={count < minNodes(a)} title={count < minNodes(a) ? `${label}: select ${minNodes(a)} or more nodes` : label} onClick={() => runAlign(a, planar)}>
+                <button key={label} disabled={why !== null} title={why ? `${label}: ${why}` : label} onClick={() => runAlign(a, planar)}>
                   {capitalize(label.replace(/^(Align|Distribute) /, ""))}
                 </button>
               );
