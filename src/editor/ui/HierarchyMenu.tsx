@@ -13,7 +13,7 @@ import { openScene, selectedKeys, selection, type OpenScene } from "../state";
 import { createUIElement, deleteUIElement, duplicateUIElement, NEW_ELEMENTS } from "../uiDocumentEdits";
 import { whyNotEdit } from "../editGate";
 import { documentsOn, resolveUIElement, selectedUIRef, uiRefKey, type UIElementRef } from "../uiDocuments";
-import { renamingUIElement } from "../uiElementDrag";
+import { renameRow } from "./TreeView";
 import { usePopover } from "./popover";
 
 interface MenuItem {
@@ -25,8 +25,18 @@ interface MenuItem {
   separator?: boolean;
 }
 
-/** The open menu: where, and its items. */
-export const hierarchyMenu = signal<{ x: number; y: number; items: MenuItem[] } | null>(null);
+/** The tree name the scene Hierarchy's rows are renamed under (`renameRow`, ADR 0278). */
+export const HIERARCHY_TREE = "hierarchy";
+
+/** A UI element row's key in the Hierarchy's tree: its ref key, set apart from scene nodes' path keys. */
+export const uiTreeKey = (refKey: string) => `ui:${refKey}`;
+
+/**
+ * The open menu: where, its items, and the Hierarchy panel that opened it (`owner`): with two Hierarchy panels,
+ * each draws only its own menus, so the other's popover doesn't take a press in the menu for one outside it and
+ * close it before the item runs. No owner: every panel draws it.
+ */
+export const hierarchyMenu = signal<{ x: number; y: number; items: MenuItem[]; owner?: object } | null>(null);
 
 const SEPARATOR: MenuItem = { label: "", separator: true };
 
@@ -63,7 +73,7 @@ export function createMenuItems(scene: OpenScene): MenuItem[] {
 }
 
 /** The right-click menu for a UI document element row (ADR 0077): create inside it, rename, duplicate, delete. */
-function uiElementMenuItems(scene: OpenScene, ref: UIElementRef): MenuItem[] {
+function uiElementMenuItems(scene: OpenScene, ref: UIElementRef, owner?: object): MenuItem[] {
   const el = resolveUIElement(scene.sync, ref);
   const reason = whyNotEdit({ kind: "ui-documents" }) ?? (el ? null : "it's gone");
   const label = el?._synthetic ? "a button's label is its text content" : null;
@@ -71,20 +81,20 @@ function uiElementMenuItems(scene: OpenScene, ref: UIElementRef): MenuItem[] {
   return [
     ...uiElementItems(ref),
     SEPARATOR,
-    { label: "Rename", shortcut: "F2", disabled: reason ?? label, run: () => (renamingUIElement.value = uiRefKey(ref)) },
+    { label: "Rename", shortcut: "F2", disabled: reason ?? label, run: () => renameRow(HIERARCHY_TREE, uiTreeKey(uiRefKey(ref)), owner) },
     { label: "Duplicate", shortcut: "Ctrl+D", disabled: reason ?? label ?? root, run: () => void duplicateUIElement(ref) },
     { label: "Delete", shortcut: "Del", disabled: reason ?? root, run: () => void deleteUIElement(ref) },
   ];
 }
 
-/** Open the right-click menu for a UI document element row. */
-export function openUIElementMenu(x: number, y: number, ref: UIElementRef): void {
+/** Open the right-click menu for a UI document element row, in the panel `owner`. */
+export function openUIElementMenu(x: number, y: number, ref: UIElementRef, owner?: object): void {
   const scene = openScene.value;
-  if (scene) hierarchyMenu.value = { x, y, items: uiElementMenuItems(scene, ref) };
+  if (scene) hierarchyMenu.value = { x, y, items: uiElementMenuItems(scene, ref, owner), owner };
 }
 
 /** The right-click menu for the row `key`, or for empty space (null). */
-function rowMenuItems(scene: OpenScene, key: string | null): MenuItem[] {
+function rowMenuItems(scene: OpenScene, key: string | null, owner?: object): MenuItem[] {
   const pasteItem = (asChild: boolean): MenuItem => ({
     label: asChild ? "Paste as Child" : "Paste",
     shortcut: asChild ? "Ctrl+Shift+V" : "Ctrl+V",
@@ -105,6 +115,7 @@ function rowMenuItems(scene: OpenScene, key: string | null): MenuItem[] {
     { label: "Copy", shortcut: "Ctrl+C", disabled: inner, run: () => void copySelection() },
     pasteItem(false),
     pasteItem(true),
+    { label: "Rename", shortcut: "F2", disabled: editing, run: () => renameRow(HIERARCHY_TREE, key, owner) },
     { label: "Duplicate", shortcut: "Ctrl+D", disabled: editing ?? inner, run: () => void duplicateSelection() },
     { label: "Delete", shortcut: "Del", disabled: editing ?? (keys.some(isInsidePrefab) && !keys.every(isInsidePrefab) ? "can't delete nodes inside a prefab together with others" : null), run: () => void deleteSelected() },
     ...(scene.doc.has(key.split("/")[0]) && scene.doc.isPrefabInstance(key.split("/")[0])
@@ -124,22 +135,24 @@ function rowMenuItems(scene: OpenScene, key: string | null): MenuItem[] {
   ];
 }
 
-/** Open the right-click menu at a page point. */
-export function openHierarchyMenu(x: number, y: number, key: string | null): void {
+/** Open the right-click menu at a page point, in the panel `owner`. */
+export function openHierarchyMenu(x: number, y: number, key: string | null, owner?: object): void {
   const scene = openScene.value;
-  if (scene) hierarchyMenu.value = { x, y, items: rowMenuItems(scene, key) };
+  if (scene) hierarchyMenu.value = { x, y, items: rowMenuItems(scene, key, owner), owner };
 }
 
-/** Open the "+" menu under its button. */
-export function openCreateMenu(button: HTMLElement): void {
+/** Open the "+" menu under its button, in the panel `owner`. */
+export function openCreateMenu(button: HTMLElement, owner?: object): void {
   const scene = openScene.value;
   if (!scene) return;
   const r = button.getBoundingClientRect();
-  hierarchyMenu.value = { x: r.left, y: r.bottom + 2, items: createMenuItems(scene) };
+  hierarchyMenu.value = { x: r.left, y: r.bottom + 2, items: createMenuItems(scene), owner };
 }
 
-export function HierarchyMenu() {
-  const m = hierarchyMenu.value;
+/** The open menu, drawn in the panel that opened it (`owner`: that panel's view state). */
+export function HierarchyMenu(props: { owner?: object }) {
+  const open = hierarchyMenu.value;
+  const m = open && (open.owner === undefined || open.owner === props.owner) ? open : null;
   const el = useRef<HTMLDivElement>(null);
   // In its own window (a detached panel window, ADR 0174), measured to stay on screen.
   usePopover(el, !!m, { anchor: m, key: m, focusFirst: true, onDismiss: () => (hierarchyMenu.value = null) });

@@ -9,10 +9,11 @@
  * lists (per-component migrations are ADR 0123), and the loader still reads `[x, y, z]` as Euler degrees,
  * now in the default `"ZXY"` order, which agrees with the old reading whenever at most one axis is set.
  *
- * Pure and synchronous, so it runs wherever scene files are read (editor, game, server, rewrite CLI).
+ * The walk over the file is `sceneFileWalk.ts` (ADR 0279). Pure and synchronous, so it runs wherever scene files are read (editor, game, server, rewrite CLI).
  */
 import { DEG2RAD, Quaternion } from "../core/math";
-import type { ComponentEntry, NodeEntry, OverrideEntry, SceneFile } from "./SceneLoader";
+import type { SceneFile } from "./SceneLoader";
+import { mapSceneFile } from "./sceneFileWalk";
 
 const TRANSFORM = "engine.Transform";
 
@@ -29,26 +30,7 @@ function rotationToQuaternion(value: unknown): unknown {
   return q.toArray().map(tidy);
 }
 
-function migrateComponent(c: ComponentEntry): ComponentEntry {
-  if (c.type !== TRANSFORM || !c.data || !("rotation" in c.data)) return c;
-  return { ...c, data: { ...c.data, rotation: rotationToQuaternion(c.data.rotation) } };
-}
-
-function migrateOverride(o: OverrideEntry): OverrideEntry {
-  let out = o;
-  if (o.component === TRANSFORM && o.field === "rotation") out = { ...out, value: rotationToQuaternion(o.value) };
-  if (o.addComponent) out = { ...out, addComponent: migrateComponent(o.addComponent) };
-  if (o.addNodes) out = { ...out, addNodes: o.addNodes.map(migrateNode) };
-  return out;
-}
-
-function migrateNode(n: NodeEntry): NodeEntry {
-  const components = n.components?.map(migrateComponent);
-  const overrides = n.overrides?.map(migrateOverride);
-  return { ...n, ...(components ? { components } : {}), ...(overrides ? { overrides } : {}) };
-}
-
 /** The migration itself (registered by `SceneLoader` from version 2). */
 export function migrateRotationsToQuaternions(file: SceneFile): SceneFile {
-  return { ...file, nodes: (file.nodes ?? []).map(migrateNode) };
+  return mapSceneFile(file, { field: (component, field, value) => (component === TRANSFORM && field === "rotation" ? rotationToQuaternion(value) : value) });
 }

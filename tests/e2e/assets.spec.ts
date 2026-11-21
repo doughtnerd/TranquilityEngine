@@ -18,7 +18,7 @@ const assets = (page: Page) => page.locator(".panel.assets");
 
 test("browses folders with image thumbnails", async ({ page }) => {
   await openEditor(page);
-  await assets(page).getByRole("button", { name: "images", exact: true }).click();
+  await assets(page).getByRole("tree", { name: "Folders" }).locator(".asset-folder", { hasText: /^images$/ }).click();
   const tiles = assets(page).locator(".asset-tile");
   await expect(tiles.filter({ hasText: "flappyBird.png" })).toHaveCount(1);
   // Thumbnails are real images that loaded.
@@ -49,7 +49,7 @@ test("searches across folders and adds a prefab to the scene as an undoable step
 
 test("double-clicking a prefab opens it", async ({ page }) => {
   await openEditor(page);
-  await assets(page).getByRole("button", { name: "prefabs", exact: true }).click();
+  await assets(page).getByRole("tree", { name: "Folders" }).locator(".asset-folder", { hasText: /^prefabs$/ }).click();
   await assets(page).locator(".asset-tile").filter({ hasText: "pipe-pair.prefab.json" }).dblclick();
   await expect(page.locator(".scene-name")).toHaveText("pipe-pair.prefab.json");
   await expect(page.locator(".tree .row .name").first()).toHaveText("PipePair");

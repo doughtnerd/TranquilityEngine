@@ -256,6 +256,23 @@ describe("cleaning a parsed file of a deleted asset", () => {
     ]);
   });
 
+  it("removes instances of a prefab that a prefab instance adds, with their added children", () => {
+    const outer: SceneFile = {
+      format: "myco.scene@4",
+      nodes: [
+        {
+          id: "level",
+          prefab: "prefabs/level.prefab.json",
+          overrides: [{ addNodes: [{ id: "p", prefab: "prefabs/pipe.prefab.json" }, { id: "under", parent: "p" }, { id: "kept", components: [{ type: "engine.SpriteRenderer", data: { sprite: "asset:images/bird.png" } }] }] }],
+        },
+      ],
+    };
+    const result = sceneWithoutAsset(outer, "prefabs/pipe.prefab.json");
+    expect(result.changed).toBe(true);
+    expect(result.removedNodes).toEqual([]); // only the file's own nodes are listed
+    expect(result.file.nodes[0].overrides![0].addNodes!.map((n) => n.id)).toEqual(["kept"]);
+  });
+
   it("changes nothing when nothing names it", () => {
     const result = sceneWithoutAsset(file, "images/other.png");
     expect(result.changed).toBe(false);
