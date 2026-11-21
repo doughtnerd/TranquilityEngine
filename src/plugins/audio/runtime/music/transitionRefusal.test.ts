@@ -13,7 +13,7 @@ import { parseAudioEvent } from "../../../../engine/audio/eventFormat";
 import type { MusicNode, MusicSwitchNode } from "../../../../engine/audio/musicFormat";
 import type { MusicClipFacts } from "../../../../engine/audio/musicValidate";
 import { createMusicPlayer, type MusicPlayer } from "./musicSystem";
-import { setSegmentClipSource } from "./segmentRun";
+import { serveMusicClips } from "./testing/clips";
 import { planTick, requestStart } from "./planner";
 import { requestTransition, type Transition } from "./transition";
 
@@ -38,7 +38,7 @@ function rig(): void {
   b = makeFakeBackend();
   setAudioBackend(b);
   b.lookahead = L;
-  setSegmentClipSource({ url: (p) => p, settings: () => ({ volume: 1, stream: true }), bus: (o) => o ?? "Master", facts: () => long() });
+  serveMusicClips(b, () => long(), { stream: true });
   b.advanceTo(1);
 }
 

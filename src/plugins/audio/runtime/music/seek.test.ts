@@ -8,7 +8,7 @@ import { parseAudioEvent } from "../../../../engine/audio/eventFormat";
 import type { MusicNode, MusicSwitchNode } from "../../../../engine/audio/musicFormat";
 import type { MusicClipFacts } from "../../../../engine/audio/musicValidate";
 import { createMusicPlayer, disposeMusicPlayer, type MusicPlayer } from "./musicSystem";
-import { setSegmentClipSource } from "./segmentRun";
+import { serveMusicClips } from "./testing/clips";
 import { planTick, requestStart } from "./planner";
 import { requestTransition } from "./transition";
 import { seekMusic } from "./seek";
@@ -33,7 +33,7 @@ function rig(): void {
   b = makeFakeBackend();
   setAudioBackend(b);
   b.lookahead = L;
-  setSegmentClipSource({ url: (p) => p, settings: () => ({ volume: 1, stream: true }), bus: (o) => o ?? "Master", facts: () => facts() });
+  serveMusicClips(b, () => facts(), { stream: true });
   b.advanceTo(1);
 }
 const instance = (): EventInstance =>

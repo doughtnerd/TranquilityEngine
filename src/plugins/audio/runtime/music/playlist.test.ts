@@ -15,7 +15,7 @@ import {
 import type { MusicClipFacts } from "../../../../engine/audio/musicValidate";
 import { createMusicPlayer, type MusicPlayer } from "./musicSystem";
 import { createPlaylistState, enterPlaylist } from "./playlist";
-import { setSegmentClipSource } from "./segmentRun";
+import { serveMusicClips } from "./testing/clips";
 
 const RATE = 48_000;
 const L = 1 / 30;
@@ -58,7 +58,7 @@ function rig(): void {
   b = makeFakeBackend();
   setAudioBackend(b);
   b.lookahead = L;
-  setSegmentClipSource({ url: (p) => `/assets/${p}`, settings: () => ({ volume: 1, stream: true }), bus: (o) => o ?? "Master", facts });
+  serveMusicClips(b, facts, { stream: true });
   stamps = [];
   const music = b.music!;
   const inner = music.stampGroup.bind(music);

@@ -5,14 +5,15 @@ import { makeFakeBackend, type FakeBackend, type FakeVoice, endAudioSession, mus
 import type { EventInstance } from "../events/eventRuntime";
 import { parseSegmentNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
 import { createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
-import { createSegmentRun, pollPrimed, primeRun, routeGroupEvent, setSegmentClipSource, stampRun, type SegmentRun } from "./segmentRun";
+import { createSegmentRun, pollPrimed, primeRun, routeGroupEvent, stampRun, type SegmentRun } from "./segmentRun";
+import { serveMusicClips } from "./testing/clips";
 import { setAudibleStems, tickStems } from "./stems";
 import { commitStart } from "./musicPlayer";
 
 function rig(): { b: FakeBackend; player: MusicPlayer; run: SegmentRun; f: MusicFrame; voices: FakeVoice[] } {
   const b = makeFakeBackend();
   setAudioBackend(b);
-  setSegmentClipSource({ url: (p) => p, settings: () => ({ volume: 1, stream: true }), bus: (o) => o ?? "Master", facts: () => undefined });
+  serveMusicClips(b, {}, { stream: true });
   const node = parseSegmentNode(
     { type: "segment", id: "s", tracks: [{ name: "drums", clip: "a.ogg" }, { name: "bass", clip: "b.ogg" }, { name: "pad", clip: "c.ogg" }] },
     "test",

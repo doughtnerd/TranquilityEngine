@@ -194,7 +194,7 @@ const rigs: [string, () => Promise<Rig | null>][] = [["core (loopback)", coreRig
 
 // The deterministic gate on the runtime's own per-play cost (E5.3b). The core's table, writer and mirror (and the fake's
 // recording voice) allocate on their own account, so this plays through a backend whose `play` returns one shared
-// voice and whose automation sink does nothing: what is left is `Audio.play` + the event runtime + `startClip` and the
+// voice and whose automation sink does nothing: what is left is `Audio.play` + the event runtime + the clip resolver and the
 // asset lookups. Heap deltas are medians over batches (a scavenge inside a batch only lowers a batch's number), so the
 // ceilings below are stable under load; they sit about 1.5x over the measured values after E5.3b (before it: rand4 about
 // 4.4 KB, layer3 about 9 KB). A change that adds a closure, a spread or a table per play shows up here.

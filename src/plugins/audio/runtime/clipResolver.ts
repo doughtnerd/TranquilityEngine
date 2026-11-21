@@ -1,0 +1,59 @@
+/**
+ * The clip resolver (ADR 0293): how a clip path becomes a play request, in one module. `AudioSource`, `Audio.playOneShot`,
+ * the event runtime and music segment runs all start from `clipRequest`, so the URL, the import volume with the FuMa
+ * gain (ADR 0040, 0162 §2.4), the stream-or-decode rule, the ambisonic flag and the bus are decided once.
+ *
+ * It depends on `Assets` (URLs and import settings), the mixer (bus names), the clip registry (what it learned of an
+ * ambisonic clip: its FuMa gain and its length) and the active backend's clip facts (`AudioBackend.clipCache`, G-1). It
+ * imports neither `AudioSource.ts` nor the event runtime, so every caller imports it directly.
+ */
+import { mixer } from "../../../engine/audio/mixer";
+import { Assets } from "../../../engine/scene/Assets";
+import { stemMode, type MusicClipFacts } from "../../../engine/audio/musicValidate";
+import { ambisonicImportGain, ambisonicStreamsByDefault } from "./core/clipRegistry";
+import { audioBackend, hasAudioBackend, type PlayRequest } from "./backend";
+
+/**
+ * What the clip is played as. `"sound"` (sources, one-shots, event clips): the import setting `stream`, and an ambisonic
+ * clip (§2.4) is sent with `ambisonic` set and streams once the registry found it longer than 5 s. `"music"` (a segment's
+ * stems, ADR 0166 §2.6): decoded up to 30 s and streamed beyond when the clip's facts are known, else the import setting;
+ * never ambisonic (the music lint refuses ambisonic stems, `musicValidate.ts`).
+ */
+export type ClipUse = "sound" | "music";
+
+/** Whether `path`'s sidecar marks it ambisonic (ADR 0162 §2.4): it plays through the listener's rotation, with no position. */
+export const isAmbisonicClip = (path: string): boolean => Assets.importSettings(path).ambisonic !== null;
+
+/** The clip's import volume (ADR 0040), which scales every playback of it, times its FuMa import gain (§2.4; 1 for every other clip). */
+export const clipVolume = (path: string): number => Assets.importSettings(path).volume * ambisonicImportGain(path);
+
+/** The clip's facts (length, rate, channels) from the active backend's clip cache; undefined while unknown or with no backend. */
+export function clipFacts(path: string): MusicClipFacts | undefined {
+  return hasAudioBackend() ? audioBackend().clipCache?.clipFacts(path) : undefined;
+}
+
+/** Whether a play of `path` as `use` streams rather than decodes (see `ClipUse`). */
+export function clipStreams(path: string, use: ClipUse = "sound"): boolean {
+  const settings = Assets.importSettings(path);
+  if (use === "music") {
+    const facts = clipFacts(path);
+    return facts && facts.rate > 0 ? stemMode(path, facts) === "stream" : settings.stream;
+  }
+  return settings.stream || (settings.ambisonic !== null && ambisonicStreamsByDefault(path));
+}
+
+/**
+ * The base play request for `path`, played as `use` on `output` (a mixer bus name; empty or unknown: Master): its URL
+ * (throws for a missing asset), `loop`, the stream rule, the bus, `volume` = the import volume with the FuMa gain, and
+ * `ambisonic: true` for an ambisonic sound. A fresh object: the caller scales `volume` by its own level and adds its fields.
+ */
+export function clipRequest(path: string, loop: boolean, output: string | undefined, use: ClipUse = "sound"): PlayRequest {
+  const settings = Assets.importSettings(path);
+  const ambisonic = use === "sound" && settings.ambisonic !== null;
+  const req: PlayRequest = {
+    path, url: Assets.url(path), loop, stream: use === "music" ? clipStreams(path, use) : settings.stream || (ambisonic && ambisonicStreamsByDefault(path)),
+    bus: mixer.resolveOutput(output), volume: settings.volume * ambisonicImportGain(path),
+  };
+  if (ambisonic) req.ambisonic = true;
+  return req;
+}

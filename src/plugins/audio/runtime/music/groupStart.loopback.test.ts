@@ -9,7 +9,8 @@ import type { EventInstance } from "../events/eventRuntime";
 import { parseAudioEvent } from "../../../../engine/audio/eventFormat";
 import type { MusicNode } from "../../../../engine/audio/musicFormat";
 import { createMusicPlayer, type MusicFrame } from "./musicSystem";
-import { routeGroupEvent, setSegmentClipSource } from "./segmentRun";
+import { routeGroupEvent } from "./segmentRun";
+import { serveMusicClips } from "./testing/clips";
 import { planTick, requestStart } from "./planner";
 import { endAudioSession, loopbackAudio, closeLoopbackAudio } from "../testing";
 
@@ -50,7 +51,7 @@ describe("C2b: the group gate on the loopback host (ADR 0166 §4.3)", () => {
       }
     };
     const paths = Array.from({ length: STEMS }, (_, k) => `s${k}.wav`);
-    setSegmentClipSource({ url: (p) => p, settings: () => ({ volume: 1, stream: false }), bus: () => "Music", facts: () => ({ frames: FRAMES, rate: RATE, channels: 1, gapless: true }) });
+    serveMusicClips(null);
     // Load the clips (silent voices), then let them end.
     for (const path of paths) backend.play({ path, url: path, loop: false, stream: false, bus: "Music", volume: 0 });
     await step(20);

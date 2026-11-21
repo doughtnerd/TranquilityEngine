@@ -11,50 +11,16 @@
  */
 import type { AudioFrameMap, AudioVoice, MusicGroupEvent, MusicGroupMember, MusicGroupRequest, MusicGroupStamp, PlayRequest } from "../backend";
 import type { MusicTrack, SegmentNode, MusicNode } from "../../../../engine/audio/musicFormat";
-import { stemMode, type MusicClipFacts } from "../../../../engine/audio/musicValidate";
 import type { MusicFrame, MusicPlayer } from "./musicSystem";
 import type { EventOptions } from "../events/eventRuntime";
 import { audioBackend } from "../backend";
+import { clipFacts, clipRequest, clipStreams } from "../clipResolver";
 import { applySlip, firstLoopOf, type MemberLoop } from "./anchors";
 import { stopLoopTails } from "./loopTail";
 import { CyclicIdCounter } from "./cyclicIds";
 
 /** The highest music group id (§3.2: ids 1..1023). */
 const MAX_MUSIC_GROUP_ID = 1023;
-
-/**
- * How a run resolves a stem's clip (P1). The event runtime's clip starter is private to `eventRuntime.ts`, so whoever
- * owns `AudioSource.ts` provides this (P6/P7 wire it; tests set it). `facts` feeds the stream-or-decode rule (§2.6,
- * `musicValidate.stemMode`: up to 30 s decoded, longer streamed); unknown facts fall back to the import setting `stream`.
- */
-export interface SegmentClipSource {
-  /** The clip's URL. */
-  url(path: string): string;
-  /** The clip's import settings (ADR 0040): `volume` scales the stem, `stream` is the fallback mode. */
-  settings(path: string): { readonly volume: number; readonly stream: boolean };
-  /** A mixer bus name for a track's `bus` or the event's (empty or unknown: Master). */
-  bus(output: string | undefined): string;
-  /** The clip's facts (length, rate), or undefined when not yet probed. */
-  facts(path: string): MusicClipFacts | undefined;
-}
-
-const DEFAULT_CLIP_SOURCE: SegmentClipSource = {
-  url: (path) => path,
-  settings: () => ({ volume: 1, stream: true }),
-  bus: (output) => output ?? "",
-  facts: () => undefined,
-};
-let clipSource: SegmentClipSource = DEFAULT_CLIP_SOURCE;
-
-/** Set how runs resolve clips; null restores the default (URL = path, streamed, no facts). */
-export function setSegmentClipSource(source: SegmentClipSource | null): void {
-  clipSource = source ?? DEFAULT_CLIP_SOURCE;
-}
-
-/** @internal The clip source in use. */
-export function segmentClipSource(): SegmentClipSource {
-  return clipSource;
-}
 
 /** One stem of a run (§3.2 `StemRun`). */
 export interface StemRun {
@@ -122,18 +88,11 @@ export function createSegmentRun(player: MusicPlayer, node: MusicNode, startFram
     if (!t.clip) continue;
     const alternative = pickAlternative(t, player.instance.group, node.id, k, 0);
     const clip = alternative === 0 ? t.clip : t.alternatives[alternative - 1]!;
-    const streamed = isStreamed(clip);
+    const streamed = clipStreams(clip, "music");
     stems.push({ track: t.name, alternative, clip, streamed, voice: null, primed: !streamed });
   }
   if (stems.length === 0) return null;
   return { node, player, state: "new", group: 0, stems, startAt: Number.NaN, startFrame: Math.max(0, Math.round(startFrame)), loopsDone: 0, prime: null };
-}
-
-/** The stream-or-decode rule (§2.6): the clip's facts when known (30 s rule), else its import setting. */
-function isStreamed(clip: string): boolean {
-  const facts = clipSource.facts(clip);
-  if (facts && facts.rate > 0) return stemMode(clip, facts) === "stream";
-  return clipSource.settings(clip).stream;
 }
 
 /**
@@ -170,19 +129,14 @@ export function groupRequest(player: MusicPlayer, run: SegmentRun): MusicGroupRe
   const members: MusicGroupMember[] = [];
   for (const s of run.stems) {
     const t = tracks.find((x) => x.name === s.track);
-    const settings = clipSource.settings(s.clip);
     const loop = memberLoop(run, s.clip);
-    const play: PlayRequest = {
-      path: s.clip,
-      url: clipSource.url(s.clip),
-      loop: loop !== null,
-      stream: s.streamed,
-      bus: clipSource.bus(t?.bus || bus),
-      volume: level * (t?.volume ?? 1) * settings.volume,
-      priority,
-      world: inst.world,
-      group: inst.group,
-    };
+    // ADR 0293: the clip resolver's request; the run decided stream or decode when it was made (the member primes so).
+    const play: PlayRequest = clipRequest(s.clip, loop !== null, t?.bus || bus, "music");
+    play.stream = s.streamed;
+    play.volume = level * (t?.volume ?? 1) * play.volume!;
+    play.priority = priority;
+    play.world = inst.world;
+    play.group = inst.group;
     members.push(
       loop
         ? { stem: s.track, play, startFrame: run.startFrame, loop: true, loopStartFrame: loop.startFrame, loopEndFrame: loop.endFrame }
@@ -194,7 +148,7 @@ export function groupRequest(player: MusicPlayer, run: SegmentRun): MusicGroupRe
 
 /** The clip's own rate (its facts), else 48 kHz, as the anchor's (`anchors.ts`). */
 function clipRate(clip: string): number {
-  const r = clipSource.facts(clip)?.rate;
+  const r = clipFacts(clip)?.rate;
   return r !== undefined && r > 0 ? r : 48_000;
 }
 
@@ -211,7 +165,7 @@ function memberLoop(run: SegmentRun, clip: string): MemberLoop | null {
 /** The rate a run's `startFrame` is in: its first stem's (as `anchors.ts`). */
 function runRate(run: SegmentRun): number {
   for (const s of run.stems) {
-    const r = clipSource.facts(s.clip)?.rate;
+    const r = clipFacts(s.clip)?.rate;
     if (r !== undefined && r > 0) return r;
   }
   return 48_000;

@@ -7,7 +7,8 @@ import type { EventInstance } from "../events/eventRuntime";
 import { AutoTarget, continuousBindings, evaluateQuantized, QUANTIZED_RAMP_SECONDS, TsAutomation, type Binding } from "../events/automation";
 import { parseSegmentNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
 import { createMusicPlayer, type MusicFrame } from "./musicSystem";
-import { setSegmentClipSource, type SegmentRun, type StemRun } from "./segmentRun";
+import type { SegmentRun, StemRun } from "./segmentRun";
+import { serveMusicClips } from "./testing/clips";
 import { quantizedRamp, setAudibleStems, tickStems, type StampedRamp } from "./stems";
 import { commitStart } from "./musicPlayer";
 
@@ -17,7 +18,7 @@ const QUANTUM_SAMPLES = 128;
 function setup() {
   const b = makeFakeBackend();
   setAudioBackend(b);
-  setSegmentClipSource({ url: (p) => p, settings: () => ({ volume: 1, stream: true }), bus: (o) => o ?? "Master", facts: () => ({ frames: 120 * RATE, rate: RATE, channels: 2, gapless: true }) });
+  serveMusicClips(b, () => ({ frames: 120 * RATE, rate: RATE, channels: 2, gapless: true }), { stream: true });
   const node = parseSegmentNode({ type: "segment", id: "s", tracks: [{ name: "drums", clip: "a.ogg" }, { name: "bass", clip: "b.ogg" }] }, "test", { problems: [], ids: new Set() }) as SegmentNode;
   const inst = { group: 7, world: 1, path: "m.audioevent", asset: { bus: "Music", priority: 200, volume: 1 } } as unknown as EventInstance;
   const player = createMusicPlayer(inst, node);
@@ -147,7 +148,7 @@ describe("a quantised stem on the loopback host (ADR 0166 R6)", () => {
         await Promise.resolve();
       }
     };
-    setSegmentClipSource({ url: (p) => p, settings: () => ({ volume: 1, stream: false }), bus: () => "Music", facts: () => ({ frames: FRAMES, rate: RATE, channels: 1, gapless: true }) });
+    serveMusicClips(null);
     // Load the clip with a silent voice, let the clock settle.
     backend.play({ path: "dc.wav", url: "dc.wav", loop: false, stream: false, bus: "Music", volume: 0 });
     await step(20);

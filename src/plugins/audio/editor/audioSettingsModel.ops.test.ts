@@ -14,14 +14,6 @@ const addDucking = (d: SettingsDraft): SettingsDraft => addDuckingEdit(d).draft;
 const setDuckingValue = (d: SettingsDraft, index: number, key: keyof DuckingRule, value: string | number): SettingsDraft => setDuckingValueEdit(d, index, key, value).draft;
 
 const empty = () => readDraft({});
-/**
- * Chained edits of the M5 keys need the parse to keep them (`meter`, `loudnessTargets`, `loudnessResetOnPlay`: Ld5's
- * parse, W2). Until it lands, `audioOf` drops them and a second edit can't see the first; these cases run once it does.
- */
-const parseKeepsM5Keys = (() => {
-  const a = parseAudioSettings({ buses: [{ name: "M" }, { name: "V", meter: "loudness" }], loudnessResetOnPlay: false, loudnessTargets: [{ name: "x", integrated: -20, tolerance: 1, truePeak: -1 }] }).settings;
-  return a.buses[1].meter === "loudness" && a.loudnessResetOnPlay === false && a.loudnessTargets?.[0]?.name === "x";
-})();
 
 describe("the model functions are their ops (Mo1)", () => {
   it("each function gives the same draft as applyOpToDraft of its op", () => {
@@ -57,6 +49,10 @@ describe("the model functions are their ops (Mo1)", () => {
 });
 
 describe("the M5 model functions (ADR 0171 §2.1)", () => {
+  it("the parse keeps the M5 keys, so chained edits see each other (Ld5)", () => {
+    const a = parseAudioSettings({ buses: [{ name: "M" }, { name: "V", meter: "loudness" }], loudnessResetOnPlay: false, loudnessTargets: [{ name: "x", integrated: -20, tolerance: 1, truePeak: -1 }] }).settings;
+    expect([a.buses[1]!.meter, a.loudnessResetOnPlay, a.loudnessTargets?.[0]?.name]).toEqual(["loudness", false, "x"]);
+  });
   it("writes the M5 keys from a fresh draft (one edit, before Ld5's parse)", () => {
     expect((setBusMeter(empty(), "Voice", true).audio as { buses: { name: string; meter?: string }[] }).buses.find((b) => b.name === "Voice")!.meter).toBe("loudness");
     expect((addLoudnessTarget(empty()).audio as { loudnessTargets: { name: string }[] }).loudnessTargets.map((t) => t.name)).toEqual(["console", "mobile", "Target"]);
@@ -64,7 +60,7 @@ describe("the M5 model functions (ADR 0171 §2.1)", () => {
     expect(setBusMeter(empty(), "Master", true)).toEqual(empty());
     expect(opRefusal(audioSettings.read(empty()), { op: "setBus", bus: "Master", key: "meter", value: "loudness" })).toBe("Master is always metered");
   });
-  it.skipIf(!parseKeepsM5Keys)("meters a bus, refuses the root with a message, and turns it off", () => {
+  it("meters a bus, refuses the root with a message, and turns it off", () => {
     const d = setBusMeter(empty(), "Voice", true);
     expect((d.audio as { buses: { name: string; meter?: string }[] }).buses.find((b) => b.name === "Voice")!.meter).toBe("loudness");
     expect(setBusMeter(empty(), "Master", true)).toEqual(empty());
@@ -75,7 +71,7 @@ describe("the M5 model functions (ADR 0171 §2.1)", () => {
     const d = moveEffect(addEffect(addEffect(empty(), "Music", "lowpass"), "Music", "compressor"), "Music", 1, 0);
     expect(audioSettings.read(d).buses.find((b) => b.name === "Music")!.effects.map((e) => e.type)).toEqual(["compressor", "lowpass"]);
   });
-  it.skipIf(!parseKeepsM5Keys)("adds, edits and removes loudness targets, keeping at least one", () => {
+  it("adds, edits and removes loudness targets, keeping at least one", () => {
     const a0 = audioSettings.read(empty());
     expect(loudnessTargets(a0).map((t) => t.name)).toEqual(["console", "mobile"]);
     let d = addLoudnessTarget(empty());
@@ -90,7 +86,7 @@ describe("the M5 model functions (ADR 0171 §2.1)", () => {
     d = removeLoudnessTarget(d, 2);
     expect("loudnessTargets" in (d.audio as object)).toBe(false);
   });
-  it.skipIf(!parseKeepsM5Keys)("sets loudnessResetOnPlay off and back (absent when on)", () => {
+  it("sets loudnessResetOnPlay off and back (absent when on)", () => {
     const off = setLoudnessResetOnPlay(empty(), false);
     expect((off.audio as { loudnessResetOnPlay?: boolean }).loudnessResetOnPlay).toBe(false);
     expect("loudnessResetOnPlay" in (setLoudnessResetOnPlay(off, true).audio as object)).toBe(false);
