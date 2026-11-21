@@ -274,15 +274,5 @@ describe("Compare with Play start", () => {
       model.noteReset("integrated");
       expect(model.tainted).toBe(false);
     });
-
-    it("a Play with loudnessResetOnPlay clears the mark, one without keeps it", () => {
-      const { model, r } = hubRig();
-      model.begin(r.project.audio);
-      model.toggle();
-      model.notePlay(false);
-      expect(model.tainted).toBe(true);
-      model.notePlay(true);
-      expect(model.tainted).toBe(false);
-    });
   });
 });

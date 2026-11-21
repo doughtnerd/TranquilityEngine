@@ -1,7 +1,6 @@
 // The Mixer panel's controller (ADR 0171 change 22, ADR 0172; api-and-models §6 and §7; task Mp2b): pure, no Preact. It ties
-// the merged models into one panel: `mixerModel` (strips, the drag), `meterModel` (hold and clip latch), `monitorModel`
-// (monitor mute and solo), `compareModel` (Compare with Play start), `sessionModel` (Reset, Pause, elapsed, the target), and
-// the banners. Everything outside it (the section's draft and edits, the play Engine's mixer, the loudness hub, the capture,
+// two modules into one panel: `mixerModel` (strips, the drag) and `mixerSession` (ADR 0292: what Reset, Play and Stop do to
+// the meters, the monitor controls and Compare; Pause, elapsed, the target), and the banners. Everything outside it (the section's draft and edits, the play Engine's mixer, the loudness hub, the capture,
 // the audio clock, the op log) is an injected function, so a test needs no editor and no audio.
 //
 // Rules the panel keeps:
@@ -11,20 +10,18 @@
 //     mute click is one each. Monitor solo, Compare, snapshots, the target, Reset and Pause never commit (session state).
 //   - Compare never commits and never writes an undo step: its ops go through `apply` (the mixer has no origin argument, so
 //     `compare` is dropped there) and each switch drops a capture marker. While it is on the faders and mute are locked.
-//   - Play state is read, not told: the first `sample()` that sees Play running starts the Compare snapshot, applies
-//     `loudnessResetOnPlay` and clears the monitor controls; the first that sees it stopped ends Compare.
+//   - Play state is read, not told: the first `sample()` that sees Play running tells the session Play started, the first
+//     that sees it stopped tells it Play stopped (the session says what each clears).
 import type { ApplyResult, MixOp } from "../../../../engine/audio/mixOps";
 import { appliesAtNextPlay, reasonMessage } from "../../../../engine/audio/busCapability";
 import type { AudioSettings } from "../../../../engine/audio/settings";
 import { audioSection } from "../../../../engine/audio/audioSection";
 import type { LoudnessResetWhat } from "../../../../engine/audio/loudnessTypes";
 import type { SettingsDraft } from "../../../../editor/sdk";
-import { createCompareModel, type CompareModel, type CompareSwap } from "./compareModel";
-import { createMeter, resetClip, tickMeter, type MeterState } from "./meterModel";
+import type { CompareSwap } from "./compareModel";
 import { createMixerModel, type BusReading, type MixerModel, type Strip } from "./mixerModel";
-import { createMonitorModel, type MonitorModel } from "./monitorModel";
+import { createMixerSession, type MixerSession, type SessionCompare, type SessionMonitor, type TargetChoice } from "./mixerSession";
 import type { OpLogEntry } from "./opLog";
-import { createSessionModel, type SessionModel, type TargetChoice } from "./sessionModel";
 import type { StripModel } from "./MixerStrip";
 
 // ---- banners (pure) ---------------------------------------------------------------------------------------------------
@@ -152,16 +149,15 @@ export const NOT_PLAYING = "Not playing: the strips show the saved mix. Levels, 
 
 export class MixerPanelController {
   readonly mixer: MixerModel;
-  readonly monitor: MonitorModel;
-  readonly compare: CompareModel;
-  readonly session: SessionModel;
+  /** ADR 0292: Reset, Play and Stop for the meters, the monitor controls and Compare; Pause, elapsed, the target. */
+  readonly session: MixerSession;
+  readonly monitor: SessionMonitor;
+  readonly compare: SessionCompare;
   /** The gestures a strip drives: the mixer model's, with the faders locked while Compare is on and solo routed to the monitor. */
   readonly stripModel: StripModel;
   /** How many times `sample` ran (the render-count tests read it). */
   samples = 0;
-  private meters = new Map<string, MeterState>();
   private wasPlaying = false;
-  private busKey = "";
   private baseSeq = 0;
   private own = new Set<string>();
 
@@ -170,35 +166,26 @@ export class MixerPanelController {
     private readonly onChange: () => void = () => {},
   ) {
     const hub = deps.hub ?? {};
-    this.monitor = createMonitorModel({
-      host: {
-        setMonitor: (b, c) => deps.setMonitor(b, c),
-        noteMonitorMute: (b) => hub.noteMonitorMute?.(b),
-        noteMonitorSolo: () => hub.noteMonitorSolo?.(),
-        setMonitorActive: (on) => hub.setMonitorActive?.(on),
-      },
-    });
-    this.compare = createCompareModel({
-      host: {
-        // The mixer has no origin argument: Compare's ops reach it as any live op does.
-        apply: (op) => this.apply(op),
-        flushNow: () => deps.flushNow?.(),
-        marker: (text) => deps.mark?.(text),
-        setCompare: (on) => hub.setCompare?.(on),
-      },
-      current: () => this.audio(),
-    });
-    this.session = createSessionModel({
+    this.session = createMixerSession({
       host: {
         reset: (what) => hub.reset?.(what),
         pause: () => hub.pause?.(),
         resume: () => hub.resume?.(),
         setTarget: (name) => deps.setTarget(name),
+        setMonitor: (b, c) => deps.setMonitor(b, c),
+        noteMonitorMute: (b) => hub.noteMonitorMute?.(b),
+        noteMonitorSolo: () => hub.noteMonitorSolo?.(),
+        setMonitorActive: (on) => hub.setMonitorActive?.(on),
+        setCompare: (on) => hub.setCompare?.(on),
+        apply: (op) => this.apply(op),
+        flushNow: () => deps.flushNow?.(),
+        marker: (text) => deps.mark?.(text),
       },
       clock: deps.clock,
-      marks: [this.monitor, this.compare],
-      audio: this.audio(),
+      current: () => this.audio(),
     });
+    this.monitor = this.session.monitor;
+    this.compare = this.session.compare;
     this.session.syncTarget(deps.target());
     this.mixer = createMixerModel({
       draft: () => deps.draft() ?? ({} as SettingsDraft),
@@ -240,18 +227,12 @@ export class MixerPanelController {
     const audio = this.audio();
     this.baseSeq = this.deps.entries?.().at(-1)?.seq ?? 0;
     this.own.clear();
-    this.compare.begin(audio);
-    this.monitor.clearAll();
-    const resetOnPlay = audio.loudnessResetOnPlay ?? true;
-    this.session.notePlay(resetOnPlay);
-    if (resetOnPlay) this.meters.clear();
+    this.session.playStarted(audio);
   }
 
   private playStopped(): void {
-    if (this.compare.active) { if (this.stripModel.dragging) this.mixer.cancelDrag(); }
-    this.compare.end();
-    this.monitor.clearAll();
-    this.meters.clear();
+    if (this.compare.active && this.stripModel.dragging) this.mixer.cancelDrag();
+    this.session.playStopped();
   }
 
   /**
@@ -265,36 +246,23 @@ export class MixerPanelController {
     else if (!playing && this.wasPlaying) this.playStopped();
     this.wasPlaying = playing;
     const audio = this.audio();
-    const names = audio.buses.map((b) => b.name);
-    const key = names.join("\n");
-    if (key !== this.busKey) {
-      this.busKey = key;
-      this.monitor.setBuses(audio.buses.map((b) => ({ name: b.name, parent: b.parent ?? null })), audio.buses.flatMap((b, i) => (i === 0 || b.meter !== undefined ? [b.name] : [])));
-      for (const n of [...this.meters.keys()]) if (!names.includes(n)) this.meters.delete(n);
-    }
     this.session.setAudio(audio);
     this.session.syncTarget(this.deps.target());
     if (!playing) return;
-    const nowMs = this.deps.clock() * 1000;
-    for (const name of names) {
-      const r = this.deps.readBus(name);
-      this.meters.set(name, tickMeter(this.meters.get(name) ?? createMeter(), r?.peak ?? 0, nowMs));
-    }
+    this.session.tickMeters(audio.buses.map((b) => b.name), (name) => this.deps.readBus(name)?.peak ?? 0, this.deps.clock() * 1000);
   }
 
   // ---- gestures ----
 
   /** Clear one bus's clip latch (a click on its lamp or meter). */
   resetClip(bus: string): void {
-    const m = this.meters.get(bus);
-    if (m) this.meters.set(bus, resetClip(m));
+    this.session.resetClip(bus);
     this.onChange();
   }
 
   /** Reset every meter (and the models' marks and the elapsed time; `"all"` also clears the clip latches). */
   reset(what: LoudnessResetWhat = "all"): void {
     this.session.reset(what);
-    if (what === "all") for (const [n, m] of this.meters) this.meters.set(n, resetClip(m));
     this.onChange();
   }
 
@@ -345,7 +313,7 @@ export class MixerPanelController {
       return r ? { ...r, monitorMute: this.monitor.isMuted(name), monitorSolo: this.monitor.isSoloed(name) } : null;
     };
     const meterOf = (name: string) => {
-      const s = this.meters.get(name);
+      const s = this.session.meter(name);
       const r = playing ? this.deps.readBus(name) : null;
       return s && r ? { peak: r.peak, hold: s.hold, clipLatched: s.clipped } : undefined;
     };

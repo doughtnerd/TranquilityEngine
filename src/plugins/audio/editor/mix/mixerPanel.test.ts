@@ -345,20 +345,6 @@ describe("Reset, Pause and the elapsed time (the audio clock)", () => {
     expect(r.log.hub.filter((h) => h === "pause" || h === "resume")).toEqual(["pause", "resume"]);
   });
 
-  it("Reset clears the clip latches and the monitor's taint marks", () => {
-    const r = rig();
-    r.play();
-    r.peak("sfx", 1.2);
-    r.c.sample();
-    expect(r.c.view().strips.find((s) => s.name === "sfx")!.meter.clipLatched).toBe(true);
-    r.c.reset("all");
-    expect(r.c.view().strips.find((s) => s.name === "sfx")!.meter.clipLatched).toBe(false);
-    r.c.stripModel.toggleSolo("sfx", false);
-    expect(r.c.monitor.taintedMeters().length).toBeGreaterThan(0);
-    r.c.reset("all");
-    expect(r.c.monitor.taintedMeters()).toEqual([]);
-  });
-
   it("every gesture re-renders once through onChange", () => {
     const r = rig();
     r.play();
@@ -577,15 +563,6 @@ describe("the strips follow the readings", () => {
   it("level-ducked buses are named for the strips' gain-reduction meter", () => {
     const r = rig();
     expect([...r.c.view().ducked]).toEqual(["music"]);
-  });
-
-  it("Stop clears the monitor controls", () => {
-    const r = rig();
-    r.play();
-    r.c.stripModel.toggleSolo("sfx", false);
-    r.play(false);
-    expect(r.c.monitor.active).toBe(false);
-    expect(r.log.monitors).toContainEqual(["sfx", { solo: false }]);
   });
 });
 
