@@ -34,7 +34,9 @@ export const layout = signal<Layout>(load());
  * Read the saved layout again, now that plugins have registered their panels (ADR 0134). A plugin
  * module that imports this store (to show its panel) loads it before the plugin is activated, when
  * its panels are still unknown and would be dropped; `editorBoot.ts` calls this right after
- * activating the plugins, before the editor renders.
+ * activating the plugins, before the editor renders. Boot only: it reads the layout saved before this
+ * session, so calling it later would undo the session's panel moves (opening a project checks the live
+ * layout instead, `applyProjectPlugins`).
  */
 export function reloadLayout(): void {
   layout.value = load();

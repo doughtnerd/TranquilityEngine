@@ -4,8 +4,11 @@
 // `layout/store.ts` (to show its panel) before this body runs, so the layout is read again after
 // activation. A plugin that throws is rolled back by the plugin set (ADR 0144) and reported; it must not
 // stop the editor, so the rest still start.
+import { reloadLayout } from "../editor/layout/store";
 import { applyEditorPlugins, reportPluginProblems } from "./editorPlugins";
 
 // Every plugin on: the project isn't known yet. Opening a project applies its `plugins.disabled`
 // (`session.ts`, ADR 0133).
-reportPluginProblems(applyEditorPlugins(undefined, { layout: "reload" }).problems);
+// The saved layout is read here, once: opening a project later checks the live layout instead.
+reportPluginProblems(applyEditorPlugins(undefined).problems);
+reloadLayout();
