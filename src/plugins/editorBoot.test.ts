@@ -14,13 +14,14 @@ describe("editorBoot", () => {
     await import("../editor/corePanels");
     const { activatePanel, defaultLayout, instancesOf, movePanel } = await import("../editor/layout/model");
     const { registeredPanels } = await import("../editor/layout/registeredPanels");
-    const { applyEditorPlugins, pluginManifests } = await import("./editorPlugins");
+    const { applyEditorPlugins } = await import("./editorPlugins");
+    const { FIRST_PARTY_MANIFESTS } = await import("./catalogue");
     applyEditorPlugins(undefined);
     const start = defaultLayout(registeredPanels());
     const [shaderGraph] = instancesOf(start, "shadergraph");
     const [hierarchy] = instancesOf(start, "hierarchy");
     const saved = JSON.stringify(activatePanel(movePanel(start, shaderGraph!, { kind: "tab", group: "hierarchy" }), "sky", registeredPanels()));
-    applyEditorPlugins(pluginManifests().map((m) => m.name)); // every plugin off again
+    applyEditorPlugins(FIRST_PARTY_MANIFESTS.map((m) => m.name)); // every plugin off again
     vi.resetModules();
 
     const storage = new Map([[KEY, saved]]);
