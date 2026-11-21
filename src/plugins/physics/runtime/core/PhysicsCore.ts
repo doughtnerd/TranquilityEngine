@@ -10,7 +10,7 @@
  * - kinematic bodies: Transform → physics before each step (moved with velocity-aware kinematics);
  * - static bodies and colliders without a body: pushed when their Transform changes.
  */
-import { GameBehavior, type Component } from "../../../../engine/core/Component";
+import type { Component } from "../../../../engine/core/Component";
 import type { BufferDef } from "../../../../engine/core/data";
 import type { World } from "../../../../engine/core/World";
 import { layerGroups } from "../../../../engine/physics/layers";
@@ -525,14 +525,7 @@ export abstract class PhysicsCore<D extends DimensionTypes, T extends CoreTypes<
   private breakJoint(j: T["joint"], force: number, torque: number): void {
     this.releaseJoint(j);
     j._broken = true;
-    for (const comp of [...this.world._componentsOf(j.node.entity)]) {
-      if (!(comp instanceof GameBehavior) || !comp.isActiveAndEnabled || !comp.onJointBreak) continue;
-      try {
-        comp.onJointBreak(j, force, torque);
-      } catch (err) {
-        console.error(`[myco] ${comp.constructor.name}.onJointBreak threw:`, err);
-      }
-    }
+    this.world._sendMessage([j.node], "onJointBreak", j, force, torque);
     GameObject.destroy(j);
   }
 
@@ -573,25 +566,12 @@ export abstract class PhysicsCore<D extends DimensionTypes, T extends CoreTypes<
     }
   }
 
-  /** Call the hook on active behaviors of `self`'s node, owner and body node. */
+  /** Send the hook to `self`'s node, owner and body node; the World de-duplicates them (ADR 0303). */
   private notify(self: T["collider"], other: T["collider"], trigger: boolean, phase: Hook): void {
-    const nodes = new Set([self.node.entity, self.owner.entity]);
     const body = this.colliderBody(self);
-    if (body?.node.isValid) nodes.add(body.node.entity);
-    const hook = `${trigger ? "onTrigger" : "onCollision"}${phase}`;
-    const collision = trigger ? null : { collider: other, otherCollider: self, gameObject: other.owner, rigidbody: other._state?.body ?? null };
-    for (const e of nodes) {
-      for (const comp of [...this.world._componentsOf(e)]) {
-        if (!(comp instanceof GameBehavior) || !comp.isActiveAndEnabled) continue;
-        const fn = (comp as unknown as Record<string, ((arg: unknown) => void) | undefined>)[hook];
-        if (!fn) continue;
-        try {
-          fn.call(comp, trigger ? other : collision);
-        } catch (err) {
-          console.error(`[myco] ${comp.constructor.name}.${hook} threw:`, err);
-        }
-      }
-    }
+    const nodes = body ? [self.node, self.owner, body.node] : [self.node, self.owner];
+    if (trigger) this.world._sendMessage(nodes, `onTrigger${phase}`, other);
+    else this.world._sendMessage(nodes, `onCollision${phase}`, { collider: other, otherCollider: self, gameObject: other.owner, rigidbody: other._state?.body ?? null });
   }
 
   /** Forget a collider's touching pairs (it's going away). */

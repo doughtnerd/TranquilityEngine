@@ -179,6 +179,17 @@ export interface LifecycleHooks {
 export type FrameHook = "fixedUpdate" | "update" | "lateUpdate";
 
 /**
+ * The hooks the World sends as behaviour messages (ADR 0303): those that take an argument, which the
+ * sender chooses (the other collider, the hit, the music event).
+ */
+export type MessageHook = {
+  [K in keyof LifecycleHooks]-?: Parameters<NonNullable<LifecycleHooks[K]>> extends [] ? never : K;
+}[keyof LifecycleHooks];
+
+/** The arguments a message hook takes. */
+export type MessageArgs<H extends MessageHook> = Parameters<NonNullable<LifecycleHooks[H]>>;
+
+/**
  * A user script. Subclass it, implement lifecycle methods, and attach it to nodes.
  *
  * ```ts
