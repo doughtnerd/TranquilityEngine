@@ -541,7 +541,7 @@ function opsRig() {
     fetchBytes: async () => new ArrayBuffer(0),
     clips: fakeClips(),
     play: () => null,
-    sending: () => true,
+    session: { maySend: true },
     musicRings: () => 0,
     sampleRate: () => 48_000,
     warnOnce: createWarnOnce(() => {}),

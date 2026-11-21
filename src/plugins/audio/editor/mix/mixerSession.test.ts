@@ -1,10 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { parseAudioSettings } from "../../../../engine/audio/settings";
+import { parseAudioSettings, type AudioSettings } from "../../../../engine/audio/settings";
 import type { LoudnessResetWhat } from "../../../../engine/audio/loudnessTypes";
 import { LoudnessHub } from "../../runtime/mix/loudnessHub";
-import { createCompareModel } from "./compareModel";
-import { createMonitorModel, type MonitorBus } from "./monitorModel";
-import { createSessionModel, type SessionHost } from "./sessionModel";
+import { createMixerSession, type MixerSessionHost } from "./mixerSession";
 
 /** A clock the test advances; the model never reads any other. */
 function makeClock() {
@@ -12,16 +10,20 @@ function makeClock() {
   return { now: () => t, advance: (s: number) => { t += s; } };
 }
 
-function setup(over: { audio?: Parameters<typeof createSessionModel>[0]["audio"] } = {}) {
+const applied = () => ({ ok: true, class: "direct" }) as const;
+
+function setup(over: { audio?: AudioSettings } = {}) {
   const clock = makeClock();
   const calls: string[] = [];
-  const host: SessionHost = {
+  const host: MixerSessionHost = {
     reset: (w) => calls.push(`reset ${w}`),
     pause: () => calls.push("pause"),
     resume: () => calls.push("resume"),
     setTarget: (n) => calls.push(`setTarget ${n}`),
+    apply: applied,
   };
-  const model = createSessionModel({ host, clock: clock.now, ...over });
+  const audio = over.audio ?? parseAudioSettings({}).settings;
+  const model = createMixerSession({ host, clock: clock.now, current: () => audio });
   return { model, clock, calls };
 }
 
@@ -81,10 +83,11 @@ describe("session controls", () => {
   });
 
   describe("reset on Play (loudnessResetOnPlay), a case per option", () => {
+    const play = (resetOnPlay: boolean) => parseAudioSettings({ loudnessResetOnPlay: resetOnPlay }).settings;
     it("true: elapsed restarts", () => {
       const { model, clock } = setup();
       clock.advance(7);
-      model.notePlay(true);
+      model.playStarted(play(true));
       expect(model.elapsed).toBe(0);
       clock.advance(1);
       expect(model.elapsed).toBe(1);
@@ -93,7 +96,7 @@ describe("session controls", () => {
     it("false: elapsed carries across the Play, and a new Engine clock does not lose or add time", () => {
       const { model, clock } = setup();
       clock.advance(7);
-      model.notePlay(false);
+      model.playStarted(play(false));
       expect(model.elapsed).toBe(7);
       clock.advance(2);
       expect(model.elapsed).toBe(9);
@@ -103,7 +106,7 @@ describe("session controls", () => {
       const { model, clock } = setup();
       clock.advance(2);
       model.pause();
-      model.notePlay(false);
+      model.playStarted(play(false));
       clock.advance(5);
       expect(model.paused).toBe(true);
       expect(model.elapsed).toBe(2);
@@ -173,7 +176,7 @@ describe("the target picker", () => {
   it("sets the real hub's target", () => {
     const hub = new LoudnessHub();
     hub.configure({ available: true, root: "Master", buses: [{ name: "Master", parent: null, slot: 0, metered: false }] });
-    const model = createSessionModel({ host: { setTarget: (n) => { hub.target = n; } }, clock: () => 0 });
+    const model = createMixerSession({ host: { setTarget: (n) => { hub.target = n; }, apply: applied }, clock: () => 0, current: () => parseAudioSettings({}).settings });
     model.pickTarget("mobile");
     expect(hub.target).toBe("mobile");
     expect(hub.busLoudness("Master")!.target!.name).toBe("mobile");
@@ -181,12 +184,13 @@ describe("the target picker", () => {
 });
 
 describe("taint marks cleared by the session (6.6), through the monitor and Compare models and the real hub", () => {
-  const BUSES: MonitorBus[] = [
-    { name: "Master" }, { name: "Sfx", parent: "Master" }, { name: "Voice", parent: "Sfx" }, { name: "Music", parent: "Master" },
-  ];
+  // Master is the root (always metered); Sfx and Voice meter loudness; Music doesn't.
+  const AUDIO = parseAudioSettings({
+    buses: [{ name: "Master" }, { name: "Sfx", parent: "Master", meter: "loudness" }, { name: "Voice", parent: "Sfx", meter: "loudness" }, { name: "Music", parent: "Master" }],
+  }).settings;
   const METERED = ["Master", "Sfx", "Voice"];
 
-  function rig() {
+  function rig(audio: AudioSettings = AUDIO) {
     const hub = new LoudnessHub();
     hub.configure({
       available: true,
@@ -198,24 +202,22 @@ describe("taint marks cleared by the session (6.6), through the monitor and Comp
         { name: "Music", parent: "Master", slot: 3, metered: false },
       ],
     });
-    const monitor = createMonitorModel({
+    const clock = makeClock();
+    const session = createMixerSession({
+      clock: clock.now,
+      current: () => audio,
       host: {
+        reset: (w) => { for (const b of METERED) hub.busLoudness(b)!.reset(w); },
         noteMonitorMute: (b) => hub.noteMonitorMute(b),
         noteMonitorSolo: () => hub.noteMonitorSolo(),
         setMonitorActive: (on) => hub.setMonitorActive(on),
+        setCompare: (on) => hub.setCompare(on),
+        apply: applied,
       },
-      metered: METERED,
     });
-    monitor.setBuses(BUSES, METERED);
-    const compare = createCompareModel({ host: { apply: () => ({ ok: true, class: "direct" }), setCompare: (on) => hub.setCompare(on) }, current: () => parseAudioSettings({}).settings });
-    const clock = makeClock();
-    const session = createSessionModel({
-      clock: clock.now,
-      marks: [monitor, compare],
-      host: { reset: (w) => { for (const b of METERED) hub.busLoudness(b)!.reset(w); } },
-    });
+    session.setAudio(audio);
     const hubTainted = () => METERED.filter((b) => hub.busLoudness(b)!.tainted);
-    return { hub, monitor, compare, session, hubTainted };
+    return { hub, monitor: session.monitor, compare: session.compare, session, hubTainted };
   }
 
   it("a monitor mute of Voice taints exactly Voice, Sfx and Master in the model and the hub; Reset clears both", () => {
@@ -244,10 +246,10 @@ describe("taint marks cleared by the session (6.6), through the monitor and Comp
 
   it("a monitor solo and Compare taint every meter; Reset clears every mark", () => {
     const r = rig();
+    r.session.playStarted(AUDIO);
     r.monitor.setSolo("Voice", true);
     expect(r.monitor.taintedMeters()).toEqual(METERED);
     expect(r.hubTainted()).toEqual(METERED);
-    r.compare.begin(parseAudioSettings({}).settings);
     r.compare.toggle();
     expect(r.compare.tainted).toBe(true);
     r.session.reset();
@@ -256,18 +258,20 @@ describe("taint marks cleared by the session (6.6), through the monitor and Comp
     expect(r.hubTainted()).toEqual([]);
   });
 
-  it("Play: loudnessResetOnPlay true clears the marks (hub.play resets its meters), false keeps them", () => {
-    const keep = rig();
-    keep.monitor.setSolo("Sfx", true);
-    keep.session.notePlay(false);
-    expect(keep.monitor.taintedMeters()).toEqual(METERED);
-
-    const clear = rig();
-    clear.monitor.setSolo("Sfx", true);
-    clear.session.notePlay(true);
-    clear.hub.play();
-    expect(clear.monitor.taintedMeters()).toEqual([]);
-    expect(clear.hubTainted()).toEqual([]);
+  it("Play: loudnessResetOnPlay true clears the monitor's and Compare's marks (hub.play resets its meters), false keeps them", () => {
+    for (const reset of [false, true]) {
+      const audio = { ...AUDIO, loudnessResetOnPlay: reset };
+      const r = rig(audio);
+      r.session.playStarted(audio);
+      r.monitor.setSolo("Sfx", true);
+      r.compare.toggle();
+      r.session.playStopped();
+      r.session.playStarted(audio);
+      if (reset) r.hub.play();
+      expect(r.monitor.taintedMeters(), `reset ${reset}`).toEqual(reset ? [] : METERED);
+      expect(r.compare.tainted, `reset ${reset}`).toBe(!reset);
+      expect(r.hubTainted(), `reset ${reset}`).toEqual(reset ? [] : METERED);
+    }
   });
 
   it("a mark made after a reset taints afresh", () => {
@@ -277,5 +281,84 @@ describe("taint marks cleared by the session (6.6), through the monitor and Comp
     r.monitor.setMute("Sfx", true);
     expect(r.monitor.taintedMeters()).toEqual(["Master", "Sfx"]);
     expect(r.hubTainted()).toEqual(["Master", "Sfx"]);
+  });
+});
+
+describe("what Reset, Play and Stop clear (ADR 0292)", () => {
+  const AUDIO = parseAudioSettings({ buses: [{ name: "master" }, { name: "sfx", parent: "master" }, { name: "music", parent: "master" }] }).settings;
+
+  function rig(audio: AudioSettings = AUDIO) {
+    const clock = makeClock();
+    const calls: string[] = [];
+    const session = createMixerSession({
+      clock: clock.now,
+      current: () => audio,
+      host: {
+        setMonitor: (b, c) => calls.push(`setMonitor ${b} ${JSON.stringify(c)}`),
+        setCompare: (on) => calls.push(`setCompare ${on}`),
+        apply: applied,
+      },
+    });
+    session.setAudio(audio);
+    return { session, clock, calls, latched: (bus: string) => session.meter(bus)?.clipped ?? false };
+  }
+
+  it("Reset: all clears every clip latch and keeps the hold; integrated and maxPeak keep the latches", () => {
+    for (const [what, clears] of [["all", true], ["integrated", false], ["maxPeak", false]] as const) {
+      const r = rig();
+      r.session.playStarted(AUDIO);
+      r.session.tickMeters(["sfx"], () => 1.2, 0);
+      r.session.reset(what);
+      expect(r.latched("sfx"), what).toBe(!clears);
+      expect(r.session.meter("sfx")!.hold, what).toBe(1.2);
+    }
+  });
+
+  it("a click clears one bus's clip latch", () => {
+    const r = rig();
+    r.session.playStarted(AUDIO);
+    r.session.tickMeters(["sfx", "music"], () => 1.5, 0);
+    r.session.resetClip("sfx");
+    expect([r.latched("sfx"), r.latched("music")]).toEqual([false, true]);
+  });
+
+  it("Play: loudnessResetOnPlay true starts the meters and the elapsed time over; false keeps both", () => {
+    for (const reset of [true, false]) {
+      const audio = { ...AUDIO, loudnessResetOnPlay: reset };
+      const r = rig(audio);
+      r.session.playStarted(audio);
+      r.session.tickMeters(["sfx"], () => 1.5, 0);
+      r.clock.advance(30);
+      r.session.playStarted(audio); // a new Play's start (the panel sees one after each Stop)
+      expect(r.latched("sfx"), `reset ${reset}`).toBe(!reset);
+      expect(r.session.elapsed, `reset ${reset}`).toBe(reset ? 0 : 30);
+    }
+  });
+
+  it("Play and Stop turn the monitor controls off (they belong to the Engine); Stop forgets the meters and ends Compare", () => {
+    const r = rig({ ...AUDIO, loudnessResetOnPlay: false });
+    r.session.playStarted(AUDIO);
+    r.session.monitor.setSolo("sfx", true);
+    r.session.playStarted(AUDIO);
+    expect(r.session.monitor.active).toBe(false);
+    r.session.monitor.setMute("music", true);
+    r.session.compare.toggle();
+    r.session.tickMeters(["sfx"], () => 0.5, 0);
+    r.calls.length = 0;
+    r.session.playStopped();
+    expect(r.calls).toEqual(["setCompare false", 'setMonitor music {"mute":false}']);
+    expect([r.session.monitor.active, r.session.compare.active, r.session.compare.available]).toEqual([false, false, false]);
+    expect(r.session.meter("sfx")).toBeUndefined();
+  });
+
+  it("a bus removed from the section loses its meter and its monitor controls", () => {
+    const r = rig();
+    r.session.playStarted(AUDIO);
+    r.session.monitor.setMute("music", true);
+    r.session.tickMeters(["sfx", "music"], () => 0.5, 0);
+    r.session.setAudio(parseAudioSettings({ buses: [{ name: "master" }, { name: "sfx", parent: "master" }] }).settings);
+    expect(r.session.meter("music")).toBeUndefined();
+    expect(r.session.meter("sfx")).toBeDefined();
+    expect(r.session.monitor.isMuted("music")).toBe(false);
   });
 });

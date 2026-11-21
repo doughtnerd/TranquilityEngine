@@ -16,7 +16,7 @@
 // Across Play (§3.8): a new Play builds a new Engine from the project, i.e. from the edited mix, so a Compare in force
 // simply ends (`begin` tells the hub `setCompare(false)`, applies nothing, writes no marker) and the snapshot is replaced by
 // the new Play's start. Stop drops the snapshot (`end`), and Compare with it. Taint marks follow the meters' rule: they stay
-// until a reset (`noteReset`) or a Play that resets (`notePlay`).
+// until a reset (`noteReset`; the mixer session, ADR 0292, also sends one for a Play that resets the meters).
 import { diffOps, type ApplyResult, type MixOp } from "../../../../engine/audio/mixOps";
 import type { AudioSettings } from "../../../../engine/audio/settings";
 import type { LoudnessResetWhat } from "../../../../engine/audio/loudnessTypes";
@@ -72,8 +72,6 @@ export interface CompareModel {
   taintedFor(bus: string): boolean;
   /** A meter was reset (`bus` omitted: all): `"all"` and `"integrated"` clear the mark for every meter; `"maxPeak"` doesn't. */
   noteReset(what: LoudnessResetWhat, bus?: string): void;
-  /** Play started; with `loudnessResetOnPlay` the meters reset and the mark clears. Call after `begin`. */
-  notePlay(resetOnPlay: boolean): void;
 }
 
 const clone = <T>(v: T): T => structuredClone(v);
@@ -137,9 +135,6 @@ export function createCompareModel(options: CompareOptions): CompareModel {
     noteReset(what, bus) {
       if (what === "maxPeak") return;
       if (bus === undefined) { everTainted = false; cleared.clear(); } else cleared.add(bus);
-    },
-    notePlay(resetOnPlay) {
-      if (resetOnPlay) { everTainted = false; cleared.clear(); }
     },
   };
   return model;

@@ -400,6 +400,57 @@ describe("CoreBackend (api-and-models §3, §6)", () => {
     expect(v.reason).toBeNull();
   });
 
+  // ADR 0291: the core session answers "may send" (a core listens now) and "may queue" (a core will keep what is written:
+  // the frame's BATCH reaches a locked context's port and applies when it resumes). One row per lifecycle state: a play
+  // starts only when it may send; automation (a global parameter) goes out whenever it may queue, locked included; the
+  // fader's preview post (`flushNow`) only when it may send; nothing reaches a core during a rebuild, failed or disposed.
+  const states: { state: string; enter(): ReturnType<typeof rig>; plays: "starts" | "waits" | "refused"; param: boolean; preview: boolean }[] = [
+    { state: "running", enter: () => rig(), plays: "starts", param: true, preview: true },
+    { state: "locked", enter: () => rig({ status: "locked" }), plays: "waits", param: true, preview: false },
+    {
+      state: "recovering",
+      enter: () => {
+        const r = rig();
+        r.newCore = "silent";
+        void r.rebuild();
+        return r;
+      },
+      plays: "waits",
+      param: false,
+      preview: false,
+    },
+    { state: "failed", enter: () => rig({ status: "failed" }), plays: "refused", param: false, preview: false },
+    {
+      state: "disposed",
+      enter: () => {
+        const r = rig();
+        r.backend.dispose();
+        return r;
+      },
+      plays: "refused",
+      param: false,
+      preview: false,
+    },
+  ];
+  it.each(states)("$state: what reaches the core follows the session's send rule (ADR 0291)", ({ enter, plays, param, preview }) => {
+    const r = enter();
+    r.frame();
+    r.posted.take();
+    // The fader's preview path: an edit, then `flushNow` posts at once when the session may send.
+    r.mixer.apply({ op: "setBus", bus: "SFX", key: "volume", value: 0.5 });
+    r.backend.flushNow();
+    expect(r.posted.pending.length > 0, "preview post").toBe(preview);
+    r.posted.take();
+    const v = r.backend.play(req());
+    if (plays === "refused") expect(v).toBeNull();
+    else expect(v!.reason).toBe(plays === "starts" ? null : "locked");
+    r.backend.automation!.setParam(0, 0, 0.5, 0);
+    r.frame();
+    const ops = r.ops();
+    expect(only(ops, Op.PLAY), "PLAY").toHaveLength(plays === "starts" ? 1 : 0);
+    expect(only(ops, Op.PARAM), "PARAM").toHaveLength(param ? 1 : 0);
+  });
+
   it("a failed host plays nothing", () => {
     const r = rig({ status: "failed" });
     expect(r.backend.play(req())).toBeNull();

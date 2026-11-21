@@ -49,7 +49,7 @@ const OPS: [MixOp, string][] = [
 /** A backend on the recording host (no wasm, ADR 0234), over its own mixer. */
 function backendRig() {
   const r = recordingAudio({ mixer: "own", settings: parseAudioSettings(PROJECT).settings, preset: { maxLogical: 16 } });
-  return { backend: r.backend, mixer: r.mixer, posted: r.posted, lock: () => r.lock(), tick: (dt: number) => r.tick(dt) };
+  return { backend: r.backend, mixer: r.mixer, posted: r.posted, tick: (dt: number) => r.tick(dt) };
 }
 
 afterEach(closeRecordingAudio);
@@ -178,7 +178,7 @@ describe("flushNow (the preview path, §6.6)", () => {
       writer: () => ({ busSlot() {}, loudConfig() {}, busRampFrames() {}, sampleRate: 48_000, get pending() { return pending; }, flush: () => { posts.push(now); pending = 0; return 1; } }),
       automation: () => ({ renameBus() {} }),
       syncMix() {},
-      sending: () => true,
+      session: { maySend: true },
       firstFrame: () => 0,
       nowMs: () => now,
       setTimer: (fn, ms) => void timers.push({ at: now + ms, fn }),
@@ -230,15 +230,5 @@ describe("flushNow (the preview path, §6.6)", () => {
     for (let i = 1; i < posts.length; i++) expect(posts[i]! - posts[i - 1]!).toBeGreaterThanOrEqual(FADER_COALESCE_MS);
     expect(posts.length).toBeLessThanOrEqual(Math.floor(49.5 / FADER_COALESCE_MS) + 2);
     expect(posts[posts.length - 1]!).toBeGreaterThanOrEqual(49.5); // the last edit (at 49.5 ms) was posted
-  });
-
-  it("posts nothing while the backend can't send (locked, recovering, disposed)", () => {
-    const { backend, mixer, posted, lock } = backendRig();
-    lock();
-    mixer.apply({ op: "setBus", bus: "Music", key: "volume", value: 0.5 });
-    posted.take();
-    backend.flushNow();
-    expect(posted.pending).toHaveLength(0);
-    backend.dispose();
   });
 });

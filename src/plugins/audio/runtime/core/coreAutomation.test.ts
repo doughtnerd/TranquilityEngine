@@ -20,7 +20,7 @@ const STAGING_BYTES = 4 * BATCH_MAX_BYTES;
 
 type Call = [string, ...unknown[]];
 
-function rig(options: { sending?: boolean; writer?: CoreAutomationDeps["writer"] } = {}) {
+function rig(options: { mayQueue?: boolean; writer?: CoreAutomationDeps["writer"] } = {}) {
   const table = new VoiceTable(16);
   const calls: Call[] = [];
   const writer: CoreAutomationDeps["writer"] = options.writer ?? {
@@ -32,7 +32,7 @@ function rig(options: { sending?: boolean; writer?: CoreAutomationDeps["writer"]
   };
   const anchors: [number, number, number][] = [];
   const retimes: number[] = [];
-  const state = { sending: options.sending ?? true, now: 10_000, pos: 0 };
+  const state = { mayQueue: options.mayQueue ?? true, now: 10_000, pos: 0 };
   const info: ClipInfo = { id: 1, path: "a.wav", state: "ready", refs: 1, frames: 96_000, channels: 1, sampleRate: 48_000, format: 1, bytes: 0, failure: null };
   const buses = new Map([["Master", 0], ["SFX", 1], ["Music", 2]]);
   const auto = new CoreAutomation({
@@ -42,7 +42,7 @@ function rig(options: { sending?: boolean; writer?: CoreAutomationDeps["writer"]
     playheads: { positionNow: () => state.pos, start: (i, f, p) => void anchors.push([i, f, p]), retime: (i) => void retimes.push(i) },
     clipInfo: () => info,
     busIndex: (name) => buses.get(name) ?? -1,
-    sending: () => state.sending,
+    session: { get mayQueue() { return state.mayQueue; } },
   });
   /** A voice on the core (PLAYING), in `group`. */
   const voice = (group = 0, s: number = VoiceState.PLAYING): AudioVoice => {
@@ -178,7 +178,7 @@ describe("CoreAutomation: the sink over the writer (E3.1)", () => {
   });
 
   it("while a rebuild runs only the mirror changes", () => {
-    const { auto, calls, voice } = rig({ sending: false });
+    const { auto, calls, voice } = rig({ mayQueue: false });
     auto.defineCurve(0, [[0, 1]]);
     auto.setParam(0, 0, 1, 0);
     const v = voice(0);
@@ -237,7 +237,7 @@ describe("CoreAutomation: bulk uploads and the mirror's replay", () => {
   });
 
   it("replays a 1,024-curve mirror, the parameters and the bus bindings in the header REPLAY; bindings and loops after each PLAY", () => {
-    const { auto, voice } = rig({ sending: false });
+    const { auto, voice } = rig({ mayQueue: false });
     for (let id = 0; id < 1024; id++) auto.defineCurve(id, fullCurve(id));
     auto.setParam(0, 1, 0.75, 3);
     auto.setParam(9, 15, 2, 0);

@@ -62,6 +62,7 @@ import type { ClipInfo } from "./clipRegistry";
 import type { ClockMap } from "./clock";
 import { AUTOMATION_GLOBAL, CORE_CURVE_KEYS, type AutomationBinding, type CommandWriter } from "./commandWriter";
 import type { PlayheadTracker, ReplayBuilder } from "./replay";
+import type { SendGate } from "./session";
 import { VoiceFlag, VoiceState, type VoiceTable } from "./voiceTable";
 
 
@@ -109,8 +110,12 @@ export interface CoreAutomationDeps {
   clipInfo(i: number): ClipInfo | null;
   /** The bus index of `name` in the tree last configured, or -1 when there is no such bus. */
   busIndex(name: string): number;
-  /** True while no core keeps what is sent (a hard rebuild): the mirror is updated and the REPLAY sends it. */
-  readonly sending: () => boolean;
+  /**
+   * ADR 0291: the core session. Automation writes whenever a core will keep it (`mayQueue`), locked included: curves,
+   * parameters and bus bindings then reach the core with the frame's BATCH and are current when the voices the unlock
+   * starts read them. While it may not (a rebuild, failed, disposed) only the mirror moves, and the REPLAY sends it.
+   */
+  readonly session: Pick<SendGate, "mayQueue">;
   /** E4.4: a stream voice's loop or release, asked for at context frame `at` (the backend's stream manager); absent: kept in the mirror only. */
   readonly streamLoop?: (i: number, loop: LoopRecord, at: number) => void;
   /** Batches the writer has posted (`CommandWriter.stats.batches`): a PLAY written since the last one is still staged. */
@@ -247,7 +252,7 @@ export class CoreAutomation implements AutomationSink {
     if (!(id >= 0 && id < MAX_CURVES) || !Number.isInteger(id)) return;
     this.curves.set(id, curve);
     const bytes = curveBytes(curve) + 20;
-    if (this.budget >= bytes && this.deps.sending()) this.sendCurve(id);
+    if (this.budget >= bytes && this.deps.session.mayQueue) this.sendCurve(id);
     else this.dirtyCurves.add(id);
     this.reevaluateCurve(id);
     if (this.buses.size > 0) this.publishBuses();
@@ -269,7 +274,7 @@ export class CoreAutomation implements AutomationSink {
     else this.fading.delete(k);
     this.dirtyParams.delete(k);
     if (group === 0) this.publishBuses();
-    if (this.deps.sending()) {
+    if (this.deps.session.mayQueue) {
       this.deps.writer.param(group, slot, value, this.paramSeek[k]!);
       this.stats.params++;
     }
@@ -326,7 +331,7 @@ export class CoreAutomation implements AutomationSink {
     } else this.buses.set(bus, wire);
     this.dirtyBuses.delete(bus);
     this.publishBuses();
-    if (this.deps.sending()) this.sendBus(bus);
+    if (this.deps.session.mayQueue) this.sendBus(bus);
     else this.dirtyBuses.add(bus);
   }
 
@@ -430,7 +435,7 @@ export class CoreAutomation implements AutomationSink {
   beginFrame(): void {
     this.budget = RESYNC_BYTES_PER_FRAME;
     if (this.fading.size > 0) this.stepFades();
-    if (!this.deps.sending() || (this.dirtyCurves.size === 0 && this.dirtyParams.size === 0 && this.dirtyBuses.size === 0)) return;
+    if (!this.deps.session.mayQueue || (this.dirtyCurves.size === 0 && this.dirtyParams.size === 0 && this.dirtyBuses.size === 0)) return;
     if (this.dirtyCurves.size > 0) {
       const ids = [...this.dirtyCurves].sort((a, b) => a - b);
       for (const id of ids) {
@@ -472,7 +477,7 @@ export class CoreAutomation implements AutomationSink {
     this.selSent.clear();
     this.publishBuses();
     if (this.buses.size === 0 && this.busSentTo.size === 0) return;
-    if (!this.deps.sending()) {
+    if (!this.deps.session.mayQueue) {
       for (const bus of this.buses.keys()) this.dirtyBuses.add(bus);
       return;
     }
@@ -653,7 +658,7 @@ export class CoreAutomation implements AutomationSink {
 
   private onCore(i: number): boolean {
     const s = this.deps.table.state[i]!;
-    return (s === VoiceState.PLAYING || s === VoiceState.VIRTUAL || s === VoiceState.STOPPING) && this.deps.sending();
+    return (s === VoiceState.PLAYING || s === VoiceState.VIRTUAL || s === VoiceState.STOPPING) && this.deps.session.mayQueue;
   }
 
   private index(i: number, group: number, global: boolean, local: boolean): void {

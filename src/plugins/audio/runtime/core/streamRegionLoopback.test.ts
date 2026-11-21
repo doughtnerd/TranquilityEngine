@@ -201,7 +201,7 @@ describe("CoreAutomation's stream seam and a held-back PLAY (E4.4, C6)", () => {
       playheads: { positionNow: () => 0, start: () => {}, retime: () => {} },
       clipInfo: () => ({ id: 1, path: "a.wav", state: "ready", refs: 1, frames: 96_000, channels: 2, sampleRate: 48_000, format: 0, bytes: 0, failure: null }),
       busIndex: () => 0,
-      sending: () => true,
+      session: { mayQueue: true },
       streamLoop: (i, loop: LoopRecord, at) => void loops.push(["stream", i, loop, at]),
       writerBatches: () => state.batches,
     });

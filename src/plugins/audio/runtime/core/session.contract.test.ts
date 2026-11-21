@@ -40,7 +40,7 @@ function runPhase(s: CoreSession, phase: SessionPhase): void {
 describe("CoreSession (ADR 0178)", () => {
   it("runs each phase in PHASE_ORDER's order, whatever order the participants joined in", () => {
     const log: string[] = [];
-    const s = new CoreSession();
+    const s = new CoreSession(() => "running");
     for (const name of [...ALL_NAMES].reverse()) s.join(name, recorder(name, log));
     expect(() => s.requireComplete()).not.toThrow();
     for (const phase of PHASES) {
@@ -55,7 +55,7 @@ describe("CoreSession (ADR 0178)", () => {
   });
 
   it("refuses a participant that implements a phase whose order doesn't list it, and a name joined twice", () => {
-    const s = new CoreSession();
+    const s = new CoreSession(() => "running");
     expect(() => s.join("beds", { dispose: () => {} })).toThrow(/beds" implements dispose, but PHASE_ORDER.dispose doesn't list it/);
     s.join("beds", { replayHeader: () => {} });
     expect(() => s.join("beds", { replayHeader: () => {} })).toThrow(/joined twice/);
@@ -67,7 +67,7 @@ describe("CoreSession (ADR 0178)", () => {
   });
 
   it("owns recovering and disposed: set before the phase's participants run; recovery phases stop and dispose runs once after dispose", () => {
-    const s = new CoreSession();
+    const s = new CoreSession(() => "running");
     const seen: string[] = [];
     s.join("dip", { beginRecovery: () => void seen.push(`begin ${s.recovering}`) });
     s.join("mirror", { contextReplaced: () => void seen.push("context"), endRecovery: () => void seen.push(`end ${s.recovering}`) });
@@ -84,6 +84,25 @@ describe("CoreSession (ADR 0178)", () => {
     s.recoveryFailed();
     expect(seen).toEqual(["begin true", "end false", "begin true", "failed false", "dispose true"]);
     expect([s.recovering, s.disposed]).toEqual([false, true]);
+  });
+
+  it("answers the send rule from its own state and the host's status (ADR 0291)", () => {
+    let status: "locked" | "running" | "failed" = "running";
+    const s = new CoreSession(() => status);
+    const rule = () => [s.maySend, s.mayQueue];
+    expect(rule(), "running").toEqual([true, true]);
+    status = "locked";
+    expect(rule(), "locked").toEqual([false, true]);
+    status = "running";
+    s.beginRecovery();
+    expect(rule(), "recovering").toEqual([false, false]);
+    s.endRecovery();
+    expect(rule(), "recovered").toEqual([true, true]);
+    status = "failed";
+    expect(rule(), "failed").toEqual([false, false]);
+    status = "running";
+    s.dispose();
+    expect(rule(), "disposed").toEqual([false, false]);
   });
 
   it("the replay header's order is ADR 0157 §7 as S10 and §4.2 extended it; the per-voice order follows each PLAY", () => {
