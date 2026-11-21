@@ -13,7 +13,8 @@ import { select } from "../../../editor/inspectorTarget";
 import { DEMO_SCENE, demoAssets, demoSettings, insertNew, sceneViewTools } from "../../../editor/testing";
 import { parseAudioSettings } from "../../../engine/audio/settings";
 import { occluderTool } from "./AudioOccluderGizmo";
-import { viewportTools } from "../../../editor/sdk/contributions";
+import { componentWireframes, viewportTools } from "../../../editor/sdk/contributions";
+import { colliderWireframes } from "../../physics/editor/colliderGizmo";
 import type { EditorOverlay } from "../../../engine/editor";
 import { AMBISONIC_IGNORED_FIELDS, analyzeOccluder, blendColor, describeCost, materialTint, occluderCost, physics3dAvailable, sendCurveOf, zoneCostLine, zoneNotices, zoneReverbLine } from "./audioInspectorModel";
 import { audioSettings } from "./audioDraft";
@@ -141,14 +142,17 @@ describe("audio inspector sections", () => {
   });
 
   describe("occluder gizmo", () => {
-    // The occluder tool installed on a viewport tool host, as the scene view does; the test reads what it draws.
+    // The occluder tool installed on a viewport tool host, as the scene view does, with the Physics plugin's collider
+    // wireframes registered as its editor half registers them (ADR 0295); the test reads what the tool draws.
     let draw: (() => EditorOverlay) | null = null;
     let stop = () => {};
+    let wiresOff = () => {};
     beforeEach(() => {
       const off = viewportTools.register(occluderTool);
+      wiresOff = componentWireframes.register(colliderWireframes);
       const view = sceneViewTools(engine);
       draw = view.overlay;
-      stop = () => (view.stop(), off());
+      stop = () => (view.stop(), off(), wiresOff());
     });
     afterEach(() => stop());
     const occluderOverlay = (): EditorOverlay => draw!();
@@ -174,6 +178,24 @@ describe("audio inspector sections", () => {
       expect(tints.size).toBe(7);
       expect(materialTint(defaults, "")).toBe(materialTint(defaults, defaults.occlusion.defaultMaterial));
       expect(blendColor(0xffffff, 0x000000, 0.5)).toBe(0x808080);
+    });
+
+    it("draws a capsule collider as a capsule, as the Physics plugin's collider tool does (no longer its bounding box)", () => {
+      node([[OCC], ["engine.CapsuleCollider"]]);
+      expect(occluderOverlay().lines).toHaveLength(10); // two rings, four sides, four caps
+    });
+
+    it("outlines a box collider with a negative size at its magnitude, as physics simulates it", () => {
+      node([[OCC], [BOX, { size: [-4, 2, 2] }]]);
+      const xs = occluderOverlay().lines.flatMap((l) => l.points.map((p) => p[0]));
+      expect([Math.min(...xs), Math.max(...xs)]).toEqual([-2, 2]);
+    });
+
+    it("draws nothing for a collider no registered wireframe draws (the Physics plugin's editor half off)", () => {
+      node([[OCC], [BOX]]);
+      expect(occluderOverlay().lines).toHaveLength(12);
+      wiresOff();
+      expect(occluderOverlay().lines).toHaveLength(0);
     });
 
     it("follows a descendant's own occluder: the child is outlined in its own material", () => {

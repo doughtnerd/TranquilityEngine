@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { BoxCollider, Engine } from "../../../myco";
-import { centerDelta, closestOnAxis, rotate, type Pose3D } from "./collider3dMath";
 import type { EditorOverlay } from "../../../engine/editor";
 import { editor, viewportTools } from "../../../editor/sdk";
 import { EDITABLE_COLLIDERS, colliderTool, type EditingCollider } from "./colliderGizmo";
@@ -9,27 +8,12 @@ import { openSceneFile } from "../../../editor/project";
 import { DEMO_SCENE, demoAssets, demoSettings, insertNew, sceneViewTools } from "../../../editor/testing";
 
 const close = (a: readonly number[], b: readonly number[]) => a.forEach((v, i) => expect(v).toBeCloseTo(b[i], 6));
-const identity: Pose3D = { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
-const turnY90: [number, number, number, number] = [0, Math.SQRT1_2, 0, Math.SQRT1_2];
 /** Edit a collider, as the Inspector's Edit Collider toggle does. */
 const editCollider = (editing: EditingCollider) => editor.viewport.enter(colliderTool.id, editing);
 const select = (key: string | null) => editor.scene.selection.set(key ? [key] : []);
 
-// Each collider type's wireframe, handles and drags are its entry in the collider shape table: colliderShapes.test.ts.
-describe("the 3D pose maths (ADR 0045)", () => {
-  it("turns vectors by quaternions", () => {
-    close(rotate(turnY90, [1, 0, 0]), [0, 0, -1]);
-    close(rotate(turnY90, [0, 0, 1]), [1, 0, 0]);
-  });
-
-  it("finds where a ray passes closest to a handle's axis, and moves centres in local units", () => {
-    // A ray straight down at x = 2 passes the x axis at 2.
-    expect(closestOnAxis([2, 5, 0], [0, -1, 0], [0, 0, 0], [1, 0, 0])).toBeCloseTo(2);
-    expect(closestOnAxis([0, 5, 0], [1, 0, 0], [0, 0, 0], [1, 0, 0])).toBeNull(); // parallel
-    close(centerDelta({ ...identity, rotation: turnY90, scale: [2, 1, 1] }, [0, 0, -2]), [1, 0, 0]);
-  });
-});
-
+// Each collider type's wireframe, handles and drags are its entry in the collider shape table: colliderShapes.test.ts;
+// the pose maths and the axis drag are the 3D shape kit's: src/editor/shapeKit3d.test.ts.
 describe("3D colliders in the editor", () => {
   let engine: Engine;
 

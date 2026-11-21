@@ -23,9 +23,13 @@ import {
   type Collider2D,
 } from "../../../myco";
 import { polygonArea } from "../../../editor/polygonMath";
-import { worldCenter, type Pose3D, type V3 } from "./collider3dMath";
-import { MIN_EXTENT, toLocal, type Pose2D } from "./colliderMath";
-import { COLLIDER_SHAPES, colliderShapeFor, colliderShapeOf, resizeAxis, type AnyColliderShape2D, type AnyColliderShape3D, type EditableColliderType, type FieldPatch, type Press2D } from "./colliderShapes";
+import { shapeKit3d } from "../../../editor/sdk";
+import { toLocal, type Pose2D } from "./colliderMath";
+import { COLLIDER_SHAPES, colliderShapeFor, colliderShapeOf, type AnyColliderShape2D, type AnyColliderShape3D, type EditableColliderType, type FieldPatch, type Press2D } from "./colliderShapes";
+
+const { MIN_EXTENT, axisDrag, resizeAxis, worldCenter } = shapeKit3d;
+type Pose3D = shapeKit3d.Pose3D;
+type V3 = shapeKit3d.V3;
 
 const close = (a: readonly number[], b: readonly number[], digits = 6) => {
   expect(a.length).toBe(b.length);
@@ -74,6 +78,14 @@ const pose3D = (r: Rnd, upright: boolean): Pose3D => ({ position: [r.range(-5, 5
 
 const shapes2D = COLLIDER_SHAPES.filter((s): s is typeof s & AnyColliderShape2D => s.dimension === "2d");
 const shapes3D = COLLIDER_SHAPES.filter((s): s is typeof s & AnyColliderShape3D => s.dimension === "3d");
+/** A ray that hits world point `at` square across the unit `axis`. */
+function rayOnto(at: V3, axis: V3): shapeKit3d.Ray3D {
+  const helper = Math.abs(axis[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0];
+  const n = [axis[1] * helper[2] - axis[2] * helper[1], axis[2] * helper[0] - axis[0] * helper[2], axis[0] * helper[1] - axis[1] * helper[0]];
+  const len = Math.hypot(n[0], n[1], n[2]);
+  const d = n.map((v) => -v / len);
+  return { origin: [at[0] - d[0] * 5, at[1] - d[1] * 5, at[2] - d[2] * 5], direction: d };
+}
 const apply = <F extends object>(f: F, patch: FieldPatch): F => ({ ...f, ...patch });
 const identitySnap = (n: number) => n;
 const drag2D = (press: Press2D | null) => (press && "drag" in press ? press : null);
@@ -116,11 +128,13 @@ describe("every entry of the collider shape table (ADR 0288)", () => {
         const handles = shape.handles(f, pose), c = worldCenter(pose, f.center);
         for (const [id, at] of Object.entries(handles)) {
           if (id === "center") continue;
-          const axis = resizeAxis(shape, f, pose, id)!, resize = shape.press(f, pose, id);
-          expect(resize, id).not.toBeNull();
-          const reach = (at[0] - c[0]) * axis[0] + (at[1] - c[1]) * axis[1] + (at[2] - c[2]) * axis[2];
-          expect(reach).toBeGreaterThan(0); // the axis points outwards
-          for (const alt of [false, true]) close(shape.wire(apply(f, resize!(reach, alt)), pose).flat().flat(), wire);
+          const axis = resizeAxis(shape, f, pose, id)!;
+          expect((at[0] - c[0]) * axis[0] + (at[1] - c[1]) * axis[1] + (at[2] - c[2]) * axis[2]).toBeGreaterThan(0); // the axis points outwards
+          // A pointer ray onto the handle, across its axis, pressed and moved nowhere: the kit's axis drag, as the gizmo runs it.
+          const ray = rayOnto(at, axis);
+          const drag = axisDrag(shape, f, pose, id, ray);
+          expect(drag, id).not.toBeNull();
+          for (const alt of [false, true]) close(shape.wire(apply(f, drag!(ray, alt)!), pose).flat().flat(), wire);
         }
       }
     });

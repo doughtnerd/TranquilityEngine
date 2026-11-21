@@ -1,6 +1,7 @@
 // 2D pose maths for the physics gizmos (ADR 0022): a node's local XY plane to the world and back. Each
 // collider type's outline, handles and drags are its entry in the collider shape table (`colliderShapes.ts`,
-// ADR 0288); the physics backend sizes shapes as `engine/physics/shape2d.ts` says.
+// ADR 0288); the physics backend sizes shapes as `engine/physics/shape2d.ts` says. The 3D pose maths, the
+// smallest drag extent and the field tidying are the 3D shape kit's (`shapeKit3d` in `myco/editor`, ADR 0295).
 
 export type V2 = readonly [number, number];
 
@@ -12,8 +13,6 @@ export interface Pose2D {
 }
 
 const DEG = Math.PI / 180;
-/** Smallest size or radius a drag can make. */
-export const MIN_EXTENT = 0.01;
 
 /** A point in the node's local space → world space (on the node's z plane). */
 export function toWorld(pose: Pose2D, p: V2): [number, number, number] {
@@ -29,6 +28,3 @@ export function toLocal(pose: Pose2D, p: readonly [number, number, ...number[]])
   const x = dx * c - dy * s, y = dx * s + dy * c;
   return [pose.scale[0] ? x / pose.scale[0] : 0, pose.scale[1] ? y / pose.scale[1] : 0];
 }
-
-/** Round away float noise so files stay readable. */
-export const tidy = (n: number) => Math.round(n * 1e4) / 1e4;

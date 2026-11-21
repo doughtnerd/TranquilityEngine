@@ -11,16 +11,22 @@
 // or switching scenes. 2D collider outlines are also selectable: a click inside one picks its node.
 // What each collider type looks like and how its handles change it is its entry in the collider shape
 // table (`colliderShapes.ts`, ADR 0288); this module is the loop over it: drawing, picking, and turning
-// pointer moves into the entry's field patches.
+// pointer moves into the entry's field patches (a 3D handle through the 3D shape kit's axis drag, ADR 0295). It
+// also offers the 3D colliders' wireframes to other plugins' tools (`colliderWireframes`, ADR 0295: the Audio
+// plugin's occluder tool draws them).
 import { RAD2DEG } from "../../../engine/core/math";
 import type { ReadonlySignal } from "@preact/signals";
 import { GameObject, type Engine } from "../../../engine";
 import { Collider, Collider2D } from "../runtime";
 import { type EditorOverlay, viewport } from "../../../engine/editor";
-import { centerDelta, closestOnAxis, worldCenter, type Pose3D, type V3, type Wire } from "./collider3dMath";
-import { tidy, toLocal, type Pose2D, type V2 } from "./colliderMath";
-import { COLLIDER_SHAPES, colliderShapeFor, colliderShapeOf, resizeAxis, type AnyColliderShape2D, type AnyColliderShape3D, type EditableColliderType, type FieldPatch } from "./colliderShapes";
-import { type ComponentEditMode, type ViewportDrag, type ViewportPointer, type ViewportToolContext, type ViewportToolContribution, editor, type OpenScene, theme, viewportColors } from "../../../editor/sdk";
+import { toLocal, type Pose2D, type V2 } from "./colliderMath";
+import { COLLIDER_SHAPES, colliderShapeFor, colliderShapeOf, type AnyColliderShape2D, type AnyColliderShape3D, type EditableColliderType, type FieldPatch } from "./colliderShapes";
+import { type ComponentEditMode, type ComponentWireframeContribution, type ViewportDrag, type ViewportPointer, type ViewportToolContext, type ViewportToolContribution, editor, type OpenScene, shapeKit3d, theme, viewportColors } from "../../../editor/sdk";
+
+const { centerDelta, pose3DOf, tidy, worldCenter } = shapeKit3d;
+type Pose3D = shapeKit3d.Pose3D;
+type V3 = shapeKit3d.V3;
+type Wire = shapeKit3d.Wire;
 
 /** The collider tool's id: also its overlay id and its active-tool id. */
 export const COLLIDER_TOOL_ID = "myco.physics.colliders";
@@ -42,13 +48,6 @@ export function poseOf(node: GameObject): Pose2D {
   const t = node.transform!;
   const p = t.worldPosition, s = t.worldScale;
   return { position: [p.x, p.y, p.z], rotation: t.worldRotation2D * RAD2DEG, scale: [s.x, s.y] }; // Pose2D is in degrees
-}
-
-/** A node's 3D world pose for collider math. */
-export function pose3DOf(node: GameObject): Pose3D {
-  const t = node.transform!;
-  const p = t.worldPosition, q = t.worldRotation, s = t.worldScale;
-  return { position: [p.x, p.y, p.z], rotation: [q.x, q.y, q.z, q.w], scale: [s.x, s.y, s.z] };
 }
 
 /** The pose a collider's shape is placed with: upright (no rotation) for a character controller's capsule. */
@@ -89,22 +88,36 @@ function colliderShapes(engine: Engine): { node: GameObject; points: [number, nu
 /** Each 3D collider's last wireframe and what it was made from (shape, pose and centre), so an unchanged one isn't rebuilt every frame. */
 const wires = new WeakMap<Collider, { key: string; wire: Wire }>();
 
+/** A 3D collider's wireframe in world space, as its entry draws it; null for one the table doesn't hold, or a mesh collider whose model is loading. */
+function colliderWire(c: Collider): Wire | null {
+  const node = c.node, shape = colliderShapeOf(c);
+  if (!shape || !node.transform) return null;
+  const fields = shape.read(c);
+  if (!fields) return null;
+  const pose = shapePose3D(node, shape);
+  const key = `${shape.signature(fields)}|${pose.position}|${pose.rotation}|${pose.scale}|${fields.center}`;
+  let cached = wires.get(c);
+  if (!cached || cached.key !== key) wires.set(c, (cached = { key, wire: shape.wire(fields, pose) }));
+  return cached.wire;
+}
+
 /** Every 3D collider in the edited scene, as a wireframe in world space. Mesh colliders whose model is loading are left out. */
 function collider3dShapes(engine: Engine): { node: GameObject; wire: Wire }[] {
   const out: { node: GameObject; wire: Wire }[] = [];
   for (const c of GameObject.findObjectsOfType(Collider)) {
-    const node = c.node, shape = colliderShapeOf(c);
-    if (!shape || !node.transform || !engine.world.inEditMode(node.entity)) continue;
-    const fields = shape.read(c);
-    if (!fields) continue;
-    const pose = shapePose3D(node, shape);
-    const key = `${shape.signature(fields)}|${pose.position}|${pose.rotation}|${pose.scale}|${fields.center}`;
-    let cached = wires.get(c);
-    if (!cached || cached.key !== key) wires.set(c, (cached = { key, wire: shape.wire(fields, pose) }));
-    out.push({ node, wire: cached.wire });
+    if (!c.node.transform || !engine.world.inEditMode(c.node.entity)) continue;
+    const wire = colliderWire(c);
+    if (wire) out.push({ node: c.node, wire });
   }
   return out;
 }
+
+/** The 3D colliders' wireframes, offered to other plugins' scene-view tools (ADR 0295): the same wireframes the collider tool draws. */
+export const colliderWireframes: ComponentWireframeContribution = {
+  id: "myco.physics.colliders",
+  types: new Set(COLLIDER_SHAPES.filter((s) => s.dimension === "3d").map((s) => s.type)),
+  wire: (c) => (c instanceof Collider ? colliderWire(c) : null),
+};
 
 /** The handles of the collider being edited, by id, in world space. */
 const handlesOf = (e: Edited): Record<string, readonly number[]> => (e.dimension === "2d" ? e.shape.handles(e.fields, shapePose2D(e.node, e.shape)) : e.shape.handles(e.fields, shapePose3D(e.node, e.shape)));
@@ -212,18 +225,18 @@ function drag2D(view: ViewportToolContext<EditingCollider>, scene: OpenScene, pr
 }
 
 /**
- * Drag a 3D collider's handle along its axis (to the point nearest the pointer's ray), or the
+ * Drag a 3D collider's handle along its axis (the kit's axis drag: to the point nearest the pointer's ray), or the
  * centre handle across the plane through it that faces the camera.
  */
 function drag3D(view: ViewportToolContext<EditingCollider>, scene: OpenScene, press: ViewportPointer, handle: string, edited: Extract<Edited, { dimension: "3d" }>): ViewportDrag | null {
   const { world } = view;
   const { node, shape, fields } = edited;
   const pose = shapePose3D(node, shape); // fixed for the drag
-  const c0 = worldCenter(pose, fields.center);
   const ray0 = viewport(world).rayAt(press.x, press.y);
   if (!ray0) return null;
   const write = patchWriter(scene, edited.editing);
   if (handle === "center") {
+    const c0 = worldCenter(pose, fields.center);
     const normal: V3 = [-ray0.direction[0], -ray0.direction[1], -ray0.direction[2]];
     const grab0 = viewport(world).pointOnPlane(press.x, press.y, normal, c0);
     return view.gesture("Move collider center", {
@@ -235,20 +248,12 @@ function drag3D(view: ViewportToolContext<EditingCollider>, scene: OpenScene, pr
       },
     });
   }
-  const grabbed = shape.handles(fields, pose)[handle];
-  const resize = grabbed ? shape.press(fields, pose, handle) : null;
-  if (!grabbed || !resize) return null;
-  const along = resizeAxis(shape, fields, pose, handle);
-  if (!along) return null;
-  // Where along the handle's line the press was, so the handle doesn't jump to the pointer.
-  const t0 = closestOnAxis(ray0.origin, ray0.direction, c0, along);
-  const handleT = (grabbed[0] - c0[0]) * along[0] + (grabbed[1] - c0[1]) * along[1] + (grabbed[2] - c0[2]) * along[2];
+  const drag = shapeKit3d.axisDrag(shape, fields, pose, handle, ray0);
+  if (!drag) return null;
   return view.gesture("Resize collider", {
     move: (p) => {
-      const ray = viewport(world).rayAt(p.x, p.y);
-      const t = ray ? closestOnAxis(ray.origin, ray.direction, c0, along) : null;
-      if (t === null || t0 === null) return;
-      write(resize(handleT + (t - t0), p.alt)); // how far out the handle is now, along its own outward axis
+      const patch = drag(viewport(world).rayAt(p.x, p.y), p.alt);
+      if (patch) write(patch);
     },
   });
 }

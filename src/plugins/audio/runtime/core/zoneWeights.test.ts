@@ -62,10 +62,11 @@ describe("zone volumes", () => {
     expect(outsideDistance(offset, 17, 0, 0)).toBeCloseTo(1, 5);
   });
 
-  it("negative sizes and zero-length columns", () => {
+  it("negative sizes (their magnitude, as colliders are sized) and zero-length columns", () => {
     const negative = zoneVolumeFromMatrix(makeZoneVolume(), IDENTITY, 0, ZONE_SHAPE_BOX, 0, 0, 0, -4, 4, 4, 0);
-    expect(negative.hx).toBeCloseTo(0, 5);
+    expect(negative.hx).toBeCloseTo(2, 5);
     expect(negative.hy).toBeCloseTo(2, 5);
+    expect(zoneVolumeFromMatrix(makeZoneVolume(), IDENTITY, 0, ZONE_SHAPE_SPHERE, 0, 0, 0, 1, 1, 1, -3).radius).toBeCloseTo(3, 5);
 
     // Scale 0 on x: the x column has no length, so its axis is the unit X axis and its half extent is 0.
     const flat = [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];

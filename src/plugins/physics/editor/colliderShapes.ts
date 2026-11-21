@@ -6,7 +6,8 @@
 // Entries work on plain field values in local units, never on the Component, so they're tested without an
 // editor. Their sizes come from `engine/physics/shape2d.ts` and `shape3d.ts`, which the physics worlds build
 // their shapes with, so an outline is the simulated shape by construction. The centre handle is the loop's:
-// it moves `center` the same way for every collider.
+// it moves `center` the same way for every collider. 3D entries are built from the 3D shape kit (`shapeKit3d` in
+// `myco/editor`, ADR 0295): its pose maths, wireframes, face and radius handle rules, and the axis drag the loop runs.
 import { meshTriangleData } from "../../../engine/editor";
 import { shapeSize2D } from "../../../engine/physics/shape2d";
 import { AXIS_INDEX, shapeSize3D } from "../../../engine/physics/shape3d";
@@ -25,13 +26,17 @@ import {
   type Collider,
   type Collider2D,
 } from "../runtime";
-import { axesOf, rotate, worldCenter, type Pose3D, type V3, type Wire } from "./collider3dMath";
-import { MIN_EXTENT, toWorld, type Pose2D, type V2 } from "./colliderMath";
+import { shapeKit3d } from "../../../editor/sdk";
+import { toWorld, type Pose2D, type V2 } from "./colliderMath";
 
+const kit = shapeKit3d;
+const { MIN_EXTENT } = shapeKit3d;
 type P3 = [number, number, number];
+type V3 = shapeKit3d.V3;
+type Pose3D = shapeKit3d.Pose3D;
 
 /** What a handle press or drag writes: collider field name → new value (plain arrays for vectors). */
-export type FieldPatch = Readonly<Record<string, unknown>>;
+export type FieldPatch = shapeKit3d.FieldPatch;
 
 /** A press on a 2D collider's handle (other than the centre). */
 export type Press2D =
@@ -65,22 +70,14 @@ export interface ColliderShape2D<C extends Collider2D = Collider2D, F extends { 
   press(f: F, pose: Pose2D, handle: string, mods: { ctrl: boolean }): Press2D | null;
 }
 
-/** A 3D collider type's entry. */
-export interface ColliderShape3D<C extends Collider = Collider, F extends { center: V3 } = { center: V3 }> extends ShapeBase<C, F> {
+/**
+ * A 3D collider type's entry: a kit shape (`shapeKit3d.HandleShape3D`: wireframe, handles with `center` among them,
+ * an optional handle axis, and a press on a handle other than `center` turning its reach into a patch).
+ */
+export interface ColliderShape3D<C extends Collider = Collider, F extends { center: V3 } = { center: V3 }> extends ShapeBase<C, F>, shapeKit3d.HandleShape3D<F> {
   readonly dimension: "3d";
   /** Changes whenever the wireframe for the same pose and centre would (the loop reuses the last one otherwise). */
   signature(f: F): string;
-  /** The wireframe in world space. */
-  wire(f: F, pose: Pose3D): Wire;
-  /** The handles by id, in world space; `center` among them. */
-  handles(f: F, pose: Pose3D): Record<string, V3>;
-  /** The outward world axis `handle` moves along; without it, from the centre through the handle. */
-  handleAxis?(f: F, pose: Pose3D, handle: string): V3;
-  /**
-   * A press on `handle` (not `center`), with the fields and pose at the press: what to write when the handle
-   * is `reach` metres out from the shape's centre along its axis (Alt: `alt`); null when the handle does nothing.
-   */
-  press(f: F, pose: Pose3D, handle: string): ((reach: number, alt: boolean) => FieldPatch) | null;
 }
 
 // The table holds entries over different field shapes; each one's fields only ever come from its own `read`.
@@ -287,34 +284,13 @@ const polygon2D = pointsShape("engine.PolygonCollider2D", PolygonCollider2D, tru
 const edge2D = pointsShape("engine.EdgeCollider2D", EdgeCollider2D, false);
 
 // --- 3D -------------------------------------------------------------------------------------------
+// Built from the 3D shape kit's rules (ADR 0295), which the Audio plugin's zone table shares.
 
 const add = (a: readonly number[], b: readonly number[]): V3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
 const scale3 = (a: readonly number[], k: number): V3 => [a[0] * k, a[1] * k, a[2] * k];
 
-/** A point given in the shape's turned (unscaled) frame around world centre `c`. */
-const at = (pose: Pose3D, c: V3, local: readonly number[]): V3 => add(c, rotate(pose.rotation, local));
-
-/** A circle of radius `r` around `c` in the plane of world axes `u` and `v`, from angle `from` to `to`. */
-function circle(c: V3, u: V3, v: V3, r: number, from = 0, to = Math.PI * 2, n = 32): V3[] {
-  const pts: V3[] = [];
-  for (let i = 0; i <= n; i++) {
-    const a = from + ((to - from) * i) / n;
-    pts.push(add(c, add(scale3(u, Math.cos(a) * r), scale3(v, Math.sin(a) * r))));
-  }
-  return pts;
-}
-
 type BoxFields3D = { center: V3; size: V3 };
-const BOX_FACES = ["x+", "x-", "y+", "y-", "z+", "z-"] as const;
-const boxHalf3D = (f: BoxFields3D, pose: Pose3D) => (shapeSize3D({ kind: "box", size: f.size }, pose.scale) as { halfExtents: V3 }).halfExtents;
-
-/** A box's twelve edges in world space. */
-function boxWire(pose: Pose3D, center: V3, h: V3): Wire {
-  const c = worldCenter(pose, center);
-  const corner = (i: number) => at(pose, c, [i & 1 ? h[0] : -h[0], i & 2 ? h[1] : -h[1], i & 4 ? h[2] : -h[2]]);
-  const edges = [[0, 1], [2, 3], [4, 5], [6, 7], [0, 2], [1, 3], [4, 6], [5, 7], [0, 4], [1, 5], [2, 6], [3, 7]];
-  return edges.map(([a, b]) => [corner(a), corner(b)]);
-}
+const boxSize3D = (f: BoxFields3D, pose: Pose3D) => shapeSize3D({ kind: "box", size: f.size }, pose.scale) as { kind: "box"; halfExtents: V3 };
 
 const box3D = {
   dimension: "3d",
@@ -323,40 +299,18 @@ const box3D = {
   upright: false,
   read: (c) => ({ center: v3(c.center), size: v3(c.size) }),
   signature: (f) => `b${f.size}`,
-  wire: (f, pose) => boxWire(pose, f.center, boxHalf3D(f, pose)),
+  wire: (f, pose) => kit.sizedShapeWire(boxSize3D(f, pose), pose, f.center),
   // A handle on each face's centre, and one on the centre.
   handles(f, pose) {
-    const h = boxHalf3D(f, pose), c = worldCenter(pose, f.center);
-    const out: Record<string, V3> = { center: c };
-    for (const face of BOX_FACES) {
-      const i = AXIS_INDEX[face[0] as "x"], local: V3 = [0, 0, 0];
-      local[i] = face[1] === "+" ? h[i] : -h[i];
-      out[face] = at(pose, c, local);
-    }
-    return out;
+    const c = kit.worldCenter(pose, f.center);
+    return { center: c, ...kit.faceHandles({ shape: "box", center: c, axes: kit.axesOf(pose), half: boxSize3D(f, pose).halfExtents, radius: 0 }) };
   },
   // The opposite face stays put, or with Alt both faces move (the centre stays).
-  press(f, pose, handle) {
-    if (!(BOX_FACES as readonly string[]).includes(handle)) return null;
-    const i = AXIS_INDEX[handle[0] as "x"], s = handle[1] === "+" ? 1 : -1;
-    const k = Math.abs(pose.scale[i]) || 1;
-    const half = (Math.abs(f.size[i]) * k) / 2;
-    return (reach, alt) => {
-      const center: V3 = [...f.center], size: V3 = [...f.size];
-      if (alt) {
-        size[i] = Math.max(MIN_EXTENT, (2 * reach) / k);
-        return { size };
-      }
-      const world = Math.max(MIN_EXTENT * k, reach + half); // from the fixed face to the dragged one
-      size[i] = world / k;
-      center[i] = f.center[i] + (s * (world / 2 - half)) / (pose.scale[i] || 1);
-      return { size, center };
-    };
-  },
+  press: (f, pose, handle) => kit.facePress(f, pose, handle),
 } satisfies ColliderShape3D<BoxCollider, BoxFields3D>;
 
 type SphereFields3D = { center: V3; radius: number };
-const sphereR = (f: SphereFields3D, pose: Pose3D) => (shapeSize3D({ kind: "sphere", radius: f.radius }, pose.scale) as { radius: number }).radius;
+const sphereSize3D = (f: SphereFields3D, pose: Pose3D) => shapeSize3D({ kind: "sphere", radius: f.radius }, pose.scale) as { kind: "sphere"; radius: number };
 
 const sphere3D = {
   dimension: "3d",
@@ -365,25 +319,13 @@ const sphere3D = {
   upright: false,
   read: (c) => ({ center: v3(c.center), radius: c.radius }),
   signature: (f) => `s${f.radius}`,
-  wire(f, pose) {
-    const r = sphereR(f, pose), c = worldCenter(pose, f.center), [x, y, z] = axesOf(pose);
-    return [circle(c, x, y, r), circle(c, x, z, r), circle(c, y, z, r)];
-  },
+  wire: (f, pose) => kit.sizedShapeWire(sphereSize3D(f, pose), pose, f.center),
   // A handle at each end of the sphere's three axes, and one on the centre.
   handles(f, pose) {
-    const r = sphereR(f, pose), c = worldCenter(pose, f.center), axes = axesOf(pose);
-    const out: Record<string, V3> = { center: c };
-    ["x", "y", "z"].forEach((name, i) => {
-      out[`radius:${name}+`] = add(c, scale3(axes[i], r));
-      out[`radius:${name}-`] = add(c, scale3(axes[i], -r));
-    });
-    return out;
+    const c = kit.worldCenter(pose, f.center);
+    return { center: c, ...kit.radiusHandles({ shape: "sphere", center: c, axes: kit.axesOf(pose), half: [0, 0, 0], radius: sphereSize3D(f, pose).radius }) };
   },
-  press(_f, pose, handle) {
-    if (!handle.startsWith("radius:")) return null;
-    const k = Math.max(...pose.scale.map(Math.abs)) || 1;
-    return (reach) => ({ radius: Math.max(MIN_EXTENT, Math.abs(reach) / k) });
-  },
+  press: (_f, pose, handle) => kit.radiusPress(pose, handle),
 } satisfies ColliderShape3D<SphereCollider, SphereFields3D>;
 
 type CapsuleFields3D = { center: V3; radius: number; height: number; direction: "x" | "y" | "z" };
@@ -393,7 +335,7 @@ function capsuleAxes(direction: "x" | "y" | "z"): [0 | 1 | 2, number, number] {
   const a = AXIS_INDEX[direction] ?? 1;
   return [a, (a + 1) % 3, (a + 2) % 3];
 }
-const capsuleSize3D = (f: CapsuleFields3D, pose: Pose3D) => shapeSize3D({ kind: "capsule", radius: f.radius, height: f.height, axis: capsuleAxes(f.direction)[0] }, pose.scale) as { radius: number; halfHeight: number };
+const capsuleSize3D = (f: CapsuleFields3D, pose: Pose3D) => shapeSize3D({ kind: "capsule", radius: f.radius, height: f.height, axis: capsuleAxes(f.direction)[0] }, pose.scale) as { kind: "capsule"; radius: number; halfHeight: number; axis: 0 | 1 | 2 };
 
 function capsuleShape<C extends CapsuleCollider | CharacterController, T extends string>(type: T, cls: new () => C, upright: boolean, direction: (c: C) => "x" | "y" | "z"): ColliderShape3D<C, CapsuleFields3D> & { readonly type: T } {
   return {
@@ -403,24 +345,11 @@ function capsuleShape<C extends CapsuleCollider | CharacterController, T extends
     upright,
     read: (c) => ({ center: v3(c.center), radius: c.radius, height: c.height, direction: direction(c) }),
     signature: (f) => `c${f.radius},${f.height},${f.direction}`,
-    wire(f, pose) {
-      const [a, b, d] = capsuleAxes(f.direction), { radius: r, halfHeight: hh } = capsuleSize3D(f, pose);
-      const axes = axesOf(pose), c = worldCenter(pose, f.center);
-      const up = axes[a], u = axes[b], v = axes[d];
-      const top = add(c, scale3(up, hh)), bottom = add(c, scale3(up, -hh));
-      const wire: Wire = [circle(top, u, v, r), circle(bottom, u, v, r)];
-      for (const side of [u, v]) {
-        for (const k of [1, -1]) wire.push([add(top, scale3(side, k * r)), add(bottom, scale3(side, k * r))]);
-        // The end caps' half circles over the top and under the bottom.
-        wire.push(circle(top, side, up, r, 0, Math.PI, 16));
-        wire.push(circle(bottom, side, up, r, Math.PI, Math.PI * 2, 16));
-      }
-      return wire;
-    },
+    wire: (f, pose) => kit.sizedShapeWire(capsuleSize3D(f, pose), pose, f.center),
     // On the radius (across the capsule both ways), the two ends, and the centre.
     handles(f, pose) {
       const [a, b, d] = capsuleAxes(f.direction), { radius: r, halfHeight: hh } = capsuleSize3D(f, pose);
-      const axes = axesOf(pose), c = worldCenter(pose, f.center);
+      const axes = kit.axesOf(pose), c = kit.worldCenter(pose, f.center);
       return {
         center: c,
         "height+": add(c, scale3(axes[a], hh + r)),
@@ -433,7 +362,7 @@ function capsuleShape<C extends CapsuleCollider | CharacterController, T extends
     },
     handleAxis(f, pose, handle) {
       const [a, b, d] = capsuleAxes(f.direction);
-      const axis = axesOf(pose)[handle.startsWith("height") ? a : handle.startsWith("radius:u") ? b : d];
+      const axis = kit.axesOf(pose)[handle.startsWith("height") ? a : handle.startsWith("radius:u") ? b : d];
       return handle.endsWith("-") ? scale3(axis, -1) : axis;
     },
     // The radius from the reach over the larger scale across the capsule; the height (both ends move) over the scale along it.
@@ -453,42 +382,10 @@ function capsuleShape<C extends CapsuleCollider | CharacterController, T extends
 const capsule3D = capsuleShape("engine.CapsuleCollider", CapsuleCollider, false, (c) => c.direction);
 const character3D = capsuleShape("engine.CharacterController", CharacterController, true, () => "y");
 
-// Mesh colliders are drawn by their triangle edges (shared edges once), or above this many triangles as the
-// box around them; only their centre is edited.
+// Mesh colliders are drawn by their triangle edges (shared edges once), or for big meshes as the box around them
+// (the kit's mesh wireframe); only their centre is edited.
 
-const MESH_WIRE_TRIANGLES = 2000;
-type TriangleData = { readonly vertices: readonly number[]; readonly indices: readonly number[] };
-type MeshOutline = { edges: number[] } | { boxCenter: V3; boxSize: V3 };
-type MeshFields3D = { center: V3; mesh: TriangleData };
-
-/** Each mesh's outline (costly for big meshes), and a number per mesh for signatures; the same object while a mesh is unchanged. */
-const meshOutlines = new WeakMap<TriangleData, { id: number; outline: MeshOutline }>();
-let meshIds = 0;
-
-function meshOutline(mesh: TriangleData): { id: number; outline: MeshOutline } {
-  let known = meshOutlines.get(mesh);
-  if (known) return known;
-  const { vertices, indices } = mesh;
-  let outline: MeshOutline;
-  if (indices.length / 3 > MESH_WIRE_TRIANGLES) {
-    const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
-    for (let i = 0; i < vertices.length; i += 3) for (let k = 0; k < 3; k++) (min[k] = Math.min(min[k], vertices[i + k])), (max[k] = Math.max(max[k], vertices[i + k]));
-    outline = { boxCenter: [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2], boxSize: [max[0] - min[0], max[1] - min[1], max[2] - min[2]] };
-  } else {
-    const edges: number[] = [], seen = new Set<number>(), n = vertices.length / 3;
-    for (let t = 0; t + 2 < indices.length; t += 3) {
-      for (const [p, q] of [[indices[t], indices[t + 1]], [indices[t + 1], indices[t + 2]], [indices[t + 2], indices[t]]]) {
-        const key = p < q ? p * n + q : q * n + p;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        edges.push(p, q);
-      }
-    }
-    outline = { edges };
-  }
-  meshOutlines.set(mesh, (known = { id: ++meshIds, outline }));
-  return known;
-}
+type MeshFields3D = { center: V3; mesh: shapeKit3d.TriangleData };
 
 const mesh3D = {
   dimension: "3d",
@@ -499,19 +396,12 @@ const mesh3D = {
     const mesh = meshTriangleData(c.mesh, c.node);
     return mesh ? { center: v3(c.center), mesh } : null;
   },
-  signature: (f) => `m${meshOutline(f.mesh).id}`,
-  wire(f, pose) {
-    const { outline } = meshOutline(f.mesh), { vertices } = f.mesh;
-    if ("boxSize" in outline) return boxWire(pose, add(f.center, outline.boxCenter), outline.boxSize.map((v, i) => Math.abs(v * pose.scale[i]) / 2) as V3);
-    const c = worldCenter(pose, f.center);
-    const world = (i: number): V3 => at(pose, c, [vertices[i * 3] * pose.scale[0], vertices[i * 3 + 1] * pose.scale[1], vertices[i * 3 + 2] * pose.scale[2]]);
-    const wire: Wire = [];
-    for (let i = 0; i + 1 < outline.edges.length; i += 2) wire.push([world(outline.edges[i]), world(outline.edges[i + 1])]);
-    return wire;
-  },
-  handles: (f, pose) => ({ center: worldCenter(pose, f.center) }),
+  signature: (f) => kit.meshSignature(f.mesh),
+  wire: (f, pose) => kit.meshWire(f.mesh, pose, f.center),
+  handles: (f, pose) => ({ center: kit.worldCenter(pose, f.center) }),
   press: () => null,
 } satisfies ColliderShape3D<MeshCollider, MeshFields3D>;
+
 
 // --- the table ------------------------------------------------------------------------------------
 
@@ -529,20 +419,6 @@ export function colliderShapeOf(c: Collider2D): AnyColliderShape2D | undefined;
 export function colliderShapeOf(c: Collider): AnyColliderShape3D | undefined;
 export function colliderShapeOf(c: Collider | Collider2D): AnyColliderShape2D | AnyColliderShape3D | undefined {
   return byClass.get(c.constructor);
-}
-
-/**
- * The outward world axis a 3D collider's `handle` moves along: the entry's own, or from the shape's centre
- * through the handle; null when the handle sits on the centre (nothing to drag along).
- */
-export function resizeAxis<F extends { center: V3 }>(shape: ColliderShape3D<Collider, F>, f: F, pose: Pose3D, handle: string): V3 | null {
-  const own = shape.handleAxis?.(f, pose, handle);
-  if (own) return own;
-  const at = shape.handles(f, pose)[handle], c = worldCenter(pose, f.center);
-  if (!at) return null;
-  const d: V3 = [at[0] - c[0], at[1] - c[1], at[2] - c[2]];
-  const len = Math.hypot(d[0], d[1], d[2]);
-  return len < 1e-9 ? null : scale3(d, 1 / len);
 }
 
 /** The entry for a Component type id. */

@@ -1,6 +1,8 @@
 // Geometry for the joint gizmos: the lines that show a joint's anchors, axis, limits and spring in
 // world space. Pure functions over plain arrays, so they're tested without a renderer.
-import type { V3 } from "./collider3dMath";
+import type { shapeKit3d } from "../../../editor/sdk";
+
+type V3 = shapeKit3d.V3;
 
 export type { V3 };
 
