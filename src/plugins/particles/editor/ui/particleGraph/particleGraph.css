@@ -67,7 +67,7 @@
 .pg-unit { color: var(--faint); font-size: 10px; flex: none; }
 .pg-swatch { display: flex; align-items: center; gap: 3px; min-width: 0; flex: 1; }
 .pg-swatch input[type="color"] { width: 26px; height: 18px; padding: 0; flex: none; border: 1px solid var(--border); border-radius: 3px; background: var(--input-bg); }
-.pg-swatch input.num-input { flex: 0 1 40px; width: 40px; }
+.pg-swatch input[type="number"] { flex: 0 1 40px; width: 40px; }
 /* The value-mode menu (Constant / Random / Curve…): a compact ▾ button, its options listed when opened. */
 .particle-graph select.pg-mode { width: 18px; flex: none; padding: 0; color: transparent; appearance: none; cursor: pointer; }
 .particle-graph .pg-mode-wrap { position: relative; display: inline-flex; flex: none; }

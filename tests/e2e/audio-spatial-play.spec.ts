@@ -157,7 +157,6 @@ test("live tuning: an AudioSource's occlusion switch, a zone's impulse response 
   // A zone field: its impulse response replaces the preset in the zones row.
   await selectLive(page, "Zone");
   const ir = card(page, "AudioReverbZone").getByRole("combobox", { name: "ir", exact: true });
-  await ir.fill("asset:music/town.mp3");
-  await ir.press("Enter");
+  await ir.selectOption("music/town.mp3");
   await expect.poll(async () => (await debug(page)).zones![0].ir).toBe("music/town.mp3");
 });

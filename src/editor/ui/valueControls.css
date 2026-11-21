@@ -1,0 +1,8 @@
+/* The SDK's slider and colour controls (ADR 0282). Theme tokens only. */
+.slider-field { display: flex; gap: 6px; align-items: center; min-width: 0; }
+.slider-field input[type="range"] { flex: 1 1 auto; min-width: 60px; margin: 0; accent-color: var(--accent); }
+.slider-field input[type="number"] { flex: 0 0 64px; width: 64px; }
+.color-field { display: inline-flex; gap: 6px; align-items: center; min-width: 0; }
+.color-field input[type="color"] { width: 32px; height: 20px; padding: 0; border: 1px solid var(--border); border-radius: 3px; background: var(--bg); flex: none; }
+.color-field input[type="number"] { width: 56px; flex: none; }
+.color-field-hex { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; }

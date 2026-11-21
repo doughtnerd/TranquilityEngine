@@ -46,7 +46,7 @@ function InputRow(props: { system: ParticleGraphSystem; block: GraphBlock; input
   const { system, block, input } = props;
   const port = `${block.id}.${input.name}`;
   const from = api.wired.get(`${system.id}.${port}`);
-  const assets = input.type === "asset" ? (block.type === "custom" ? api.assets.blocks : api.assets.images) : undefined;
+  const kinds = input.type === "asset" ? (block.type === "custom" ? ["particleblock"] : ["texture"]) : undefined;
   return (
     <div class={`pg-input${from ? " wired" : ""}`}>
       {isWireableInput(input) && <Port owner={system.id} port={port} side="input" type={input.type} label={input.label} filled={!!from} />}
@@ -69,7 +69,7 @@ function InputRow(props: { system: ParticleGraphSystem; block: GraphBlock; input
           max={input.max}
           step={input.step}
           unit={input.unit}
-          assets={assets}
+          kinds={kinds}
           readOnly={api.readOnly}
           onChange={(v) => api.commit(setBlockInput(api.graph, system.id, block.id, input.name, v))}
         />

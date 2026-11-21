@@ -6,7 +6,7 @@ import { docPathFor, forgetKept, inspectedWorld, keepComponent, keepNode, kept, 
 import { playing } from "../session";
 import { openScene, status } from "../state";
 import { AddComponentMenu } from "./AddComponentMenu";
-import { AssetLists, FieldRows } from "./fieldRows";
+import { FieldRows } from "./fieldRows";
 import { liveFieldTarget } from "../fieldTarget";
 import "./playdebug.css";
 
@@ -47,7 +47,6 @@ export function RuntimeInspector() {
   };
   return (
     <div class="inspector-body runtime-inspector">
-      <AssetLists />
       <div class="node-header">
         <input
           type="checkbox"

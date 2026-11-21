@@ -50,3 +50,7 @@ export { selectedAssets } from "../assetSelection";
 // Drop targets for assets dragged from the Assets panel (ADR 0022): a plugin panel registers an element, the drag's
 // label shows its message over it and releasing calls it. `draggedAssets` is what a drag in progress carries.
 export { registerAssetDropTarget, draggedAssets, type AssetDropTargetSpec, type AssetDropPoint } from "../assetDropTargets";
+// One control per kind of value slot (ADR 0282): an asset picker over field kinds (listing, labels, the `asset:`
+// prefix, built-ins, the missing state), and a slider and a colour field that report drags by one commit rule.
+export { AssetPicker, type AssetPickerProps } from "../ui/AssetPicker";
+export { ColorField, SliderField, type ColorFieldProps, type SliderFieldProps, type ValueReport } from "../ui/valueControls";
