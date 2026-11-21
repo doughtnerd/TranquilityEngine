@@ -1,7 +1,7 @@
 /**
  * Tilemap drawing (ADR 0103, 0136), renderer-neutral: each layer's chunk becomes one quad batch per
- * texture (usually one), rebuilt only when the chunk's cells, the tileset, a texture or an image's slices
- * change. The renderer core draws the batches (`QuadBatchHost`); this module knows tiles, the renderer
+ * texture (usually one), rebuilt only when the chunk's cells, the map's cell size, the tileset, a texture or
+ * an image's slices change. The renderer core draws the batches (`QuadBatchHost`); this module knows tiles, the renderer
  * knows quads. Like sprites, tiles draw in sorting-layer order without depth testing (ADR 0014).
  * No Babylon here (ADR 0075): it's unit-tested against a fake host.
  */
@@ -16,6 +16,9 @@ import { tileAnchor, type Tileset } from "./tileset";
 interface ChunkEntry {
   version: number;
   framesVersion: number;
+  /** The cell size its vertices were laid out at (`Tilemap.cellSize`). */
+  cellX: number;
+  cellY: number;
   batches: QuadBatch[];
 }
 
@@ -83,6 +86,7 @@ export class TilemapRenderer {
     if (entry.matrix) for (let i = 0; i < 16 && !moved; i++) moved = entry.matrix[i] !== wm[e * 16 + i];
     if (moved) entry.matrix = wm.slice(e * 16, e * 16 + 16);
 
+    const { x: cellX, y: cellY } = map.cellSize;
     layers.forEach((layer, li) => {
       let le = entry!.layers[li];
       const visible = active && layer.meta.visible && !!tileset;
@@ -99,9 +103,9 @@ export class TilemapRenderer {
       if (visible) {
         for (const [key, chunk] of layer.chunks) {
           let ce = le.chunks.get(key);
-          if (ce && ce.version === chunk.version && ce.framesVersion === entry!.framesVersion) continue;
+          if (ce && ce.version === chunk.version && ce.framesVersion === entry!.framesVersion && ce.cellX === cellX && ce.cellY === cellY) continue;
           if (ce) for (const b of ce.batches) b.dispose();
-          ce = { version: chunk.version, framesVersion: entry!.framesVersion, batches: [] };
+          ce = { version: chunk.version, framesVersion: entry!.framesVersion, cellX, cellY, batches: [] };
           le.chunks.set(key, ce);
           const built = buildChunkMeshes(chunk.cells, chunk.cx, chunk.cy, map.cellSize, (id) => this.frame(entry!, map, id));
           for (const m of built) {
