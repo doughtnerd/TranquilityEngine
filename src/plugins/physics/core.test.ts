@@ -5,6 +5,7 @@ import { Assets, BoxCollider2D, Engine, GameBehavior, GameObject, HingeJoint2D, 
 import { applyTestPlugins } from "../testPlugins";
 import type { BackendBody, BackendCollider, BodySettings, ColliderDesc, Dim2, JointDesc, PhysicsBackend2D, PhysicsWorld2DBackend, Pose } from "./runtime";
 import { registerPhysicsBackend } from "./runtime";
+import { RAD2DEG } from "../../engine/core/math";
 import { wrapAngle } from "./runtime/core";
 import { physics2DOf } from "./runtime/systems2d";
 
@@ -61,8 +62,12 @@ class FakeBody implements BackendBody<Dim2> {
   setAngularVelocity(w: number): void {
     this.spin = w;
   }
-  applyImpulse(): void {}
-  applyTorqueImpulse(): void {}
+  applyImpulse(j: { x: number; y: number }): void {
+    this.velocity = { x: this.velocity.x + j.x / this.settings!.mass, y: this.velocity.y + j.y / this.settings!.mass };
+  }
+  applyTorqueImpulse(j: number): void {
+    if (!this.settings!.lockRotation[0]) this.spin += j / this.settings!.inertia;
+  }
   setStepForce(): void {}
 }
 
@@ -278,6 +283,30 @@ describe("the shared physics core over a fake backend (ADR 0137)", () => {
     expect(broken).toHaveLength(1);
     expect(fake!.joints).toHaveLength(1); // and never rebuilt
     expect(node.getBehavior(HingeJoint2D)).toBeNull(); // destroyed
+    engine.dispose();
+  });
+});
+
+describe("a RigidBody2D's commands before its body exists (ADR 0283)", () => {
+  it("applies linear and angular impulses given before the body exists as the body itself would", async () => {
+    const engine = await setup();
+    const early = await body(engine, "early"); // no step yet: no backend body
+    early.rb.addForce({ x: 2, y: 0 }, "impulse");
+    early.rb.addTorque(0.5, "impulse");
+    early.rb.addTorque(0.5, "impulse");
+    const frozen = await body(engine, "frozen");
+    frozen.rb.constraints = { freezePosition: { x: false, y: false }, freezeRotation: true };
+    frozen.rb.addTorque(1, "impulse");
+    expect(frozen.rb.angularVelocity).toBe(0); // no spin around a frozen axis
+    step(engine);
+    const late = await body(engine, "late");
+    step(engine); // its body exists now
+    late.rb.addForce({ x: 2, y: 0 }, "impulse");
+    late.rb.addTorque(1, "impulse");
+    expect(late.rb.angularVelocity).toBeCloseTo(6 * RAD2DEG); // 1 / (mass 1 / 6)
+    expect(early.rb.angularVelocity).toBeCloseTo(late.rb.angularVelocity, 6); // not a one-step torque
+    expect(early.rb.velocity.x).toBeCloseTo(late.rb.velocity.x, 6);
+    expect(frozen.rb.angularVelocity).toBe(0);
     engine.dispose();
   });
 });

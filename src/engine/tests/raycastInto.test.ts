@@ -4,7 +4,7 @@ import { Assets, BoxCollider, CapsuleCollider, Engine, GameObject, SceneManager 
 import { raycastInto, rayGroupsFor, type WorldRayInto, type WorldRayQuery } from "../core/worldServices";
 import { PhysicsWorld3D } from "../../plugins/physics/runtime/core/PhysicsWorld3D";
 import { initRapier3D, rapier3DBackend } from "../../plugins/physics-rapier/runtime/rapier3d";
-import { PHYSICS_3D_SERVICE } from "../../plugins/physics/runtime/systems3d";
+import { PHYSICS_3D_SERVICE } from "../../plugins/physics/runtime/dimensions";
 
 const project = { physics: { gravity: [0, -10] as [number, number], layers: ["Default", "Walls", "Ghost"], collisionMatrix: { Default: ["Default", "Walls", "Ghost"] } } };
 

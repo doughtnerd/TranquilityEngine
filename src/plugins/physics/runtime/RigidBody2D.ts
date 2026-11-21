@@ -1,12 +1,15 @@
 import { physics2DOf } from "./systems2d";
 import { Component } from "../../../engine/core/Component";
-import { DEG2RAD, RAD2DEG, Vector2, type Vec2Like } from "../../../engine/core/math";
+import { Vector2, type Vec2Like } from "../../../engine/core/math";
 import { PlainObject, component, field } from "../../../engine/core/registry";
 import type { Dim2 } from "./backend";
+import { BodyCommands, type BodyAxes } from "./bodyCommands";
 import type { BodyState } from "./core/state";
 
 import type { BodyType, ForceMode } from "../../../engine/physics/types";
 export type { BodyType, ForceMode };
+
+const AXES_2D: BodyAxes<Dim2> = { linear: 2, angular: 1, vec: (a) => ({ x: a[0], y: a[1] }), ang: (a) => a[0], fromVec: (v) => [v.x, v.y], fromAng: (w) => [w] };
 
 export interface RigidBody2DConstraints {
   freezePosition: { x: boolean; y: boolean };
@@ -37,65 +40,37 @@ export class RigidBody2D extends Component {
   @field(Boolean) interpolate = true;
 
   /** @internal */ _state: BodyState<Dim2> | null = null;
-  /** @internal */ _pendingVelocity: [number, number] | null = null;
-  /** @internal */ _pendingAngularVelocity: number | null = null;
-  /** @internal */ _force: [number, number] = [0, 0];
-  /** @internal */ _torque = 0;
+  /** @internal What scripts asked of the body, applied at once or waiting for it (ADR 0283). */
+  readonly _commands = new BodyCommands<Dim2>(AXES_2D);
   private readonly velocityStorage = [0, 0];
-  private readonly velocityView = Vector2.view(this.velocityStorage, 0, () => this.setVelocity(this.velocityStorage[0], this.velocityStorage[1]));
+  private readonly velocityView = Vector2.view(this.velocityStorage, 0, () => this._commands.setVelocity(this._state?.body, this.velocityStorage));
 
   /** Linear velocity in units/second (live view: assigning components changes the body). */
   get velocity(): Vector2 {
-    const body = this._state?.body;
-    if (body) {
-      const v = body.linearVelocity();
-      this.velocityStorage[0] = v.x;
-      this.velocityStorage[1] = v.y;
-    } else if (this._pendingVelocity) {
-      [this.velocityStorage[0], this.velocityStorage[1]] = this._pendingVelocity;
-    }
+    const v = this._commands.velocity(this._state?.body);
+    if (v) [this.velocityStorage[0], this.velocityStorage[1]] = v;
     return this.velocityView;
   }
   set velocity(v: Vec2Like) {
-    this.setVelocity(v.x, v.y);
+    this._commands.setVelocity(this._state?.body, [v.x, v.y]);
   }
 
   /** Angular velocity in degrees/second. */
   get angularVelocity(): number {
-    const body = this._state?.body;
-    return body ? body.angularVelocity() * RAD2DEG : (this._pendingAngularVelocity ?? 0);
+    return this._commands.angularVelocity(this._state?.body)[0];
   }
   set angularVelocity(degPerSec: number) {
-    const body = this._state?.body;
-    if (body) body.setAngularVelocity(degPerSec * DEG2RAD);
-    else this._pendingAngularVelocity = degPerSec;
+    this._commands.setAngularVelocity(this._state?.body, [degPerSec]);
   }
 
   /** Apply a force for the next fixed step (`"force"`) or an instant change in momentum (`"impulse"`). */
   addForce(force: Vec2Like, mode: ForceMode = "force"): void {
-    const body = this._state?.body;
-    if (mode === "impulse" && body) {
-      body.applyImpulse({ x: force.x, y: force.y });
-    } else if (mode === "impulse") {
-      const m = this.mass > 0 ? this.mass : 1;
-      const [vx, vy] = this._pendingVelocity ?? [0, 0];
-      this._pendingVelocity = [vx + force.x / m, vy + force.y / m];
-    } else {
-      this._force[0] += force.x;
-      this._force[1] += force.y;
-    }
+    this._commands.addForce(this._state?.body, [force.x, force.y], mode, this.mass);
   }
 
+  /** Apply a torque for the next fixed step, or an angular impulse. */
   addTorque(torque: number, mode: ForceMode = "force"): void {
-    const body = this._state?.body;
-    if (mode === "impulse" && body) body.applyTorqueImpulse(torque);
-    else this._torque += torque;
-  }
-
-  private setVelocity(x: number, y: number): void {
-    const body = this._state?.body;
-    if (body) body.setLinearVelocity({ x, y });
-    else this._pendingVelocity = [x, y];
+    this._commands.addTorque(this._state?.body, [torque], mode, this.mass, [!!this.constraints?.freezeRotation]);
   }
 
   override _onDetach(): void {

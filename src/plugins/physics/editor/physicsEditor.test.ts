@@ -27,12 +27,15 @@ describe("physics editor half", () => {
 
 describe("noBackendNote", () => {
   const state = (count2d: number, count3d: number, owner = "myco.physics") => ({ pluginOf: () => owner, backendCount: (d: "2d" | "3d") => (d === "2d" ? count2d : count3d) });
-  it("finds a Component's dimension", () => {
-    const no2d = state(0, 1); // ids ending in 2D are 2D, the rest 3D
+  it("finds a Component's dimension from the runtime's descriptions, and never notes Buoyancy (its kinematic mode needs no backend)", () => {
+    const no2d = state(0, 1), no3d = state(1, 0);
     expect(noBackendNote("engine.RigidBody2D", no2d)).toBe(NO_BACKEND_NOTE);
     expect(noBackendNote("engine.TilemapCollider2D", no2d)).toBe(NO_BACKEND_NOTE);
     expect(noBackendNote("engine.RigidBody", no2d)).toBeNull();
+    expect(noBackendNote("engine.MeshCollider", no3d)).toBe(NO_BACKEND_NOTE);
     expect(noBackendNote("engine.Buoyancy", no2d)).toBeNull();
+    expect(noBackendNote("engine.Buoyancy", no3d)).toBeNull(); // the old /2D$/ rule called it 3D
+    expect(noBackendNote("engine.Buoyancy", state(0, 0))).toBeNull();
   });
   it("labels only physics Components whose dimension has no backend", () => {
     expect(noBackendNote("engine.RigidBody2D", state(0, 1))).toBe(NO_BACKEND_NOTE);
