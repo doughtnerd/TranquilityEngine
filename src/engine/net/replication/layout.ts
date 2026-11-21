@@ -370,144 +370,196 @@ export function applyState(layout: Layout, binding: Binding, values: ArrayLike<n
   });
 }
 
-// --- prediction (T13) ---------------------------------------------------------------------------
+// --- prediction (T13, ADR 0312) -----------------------------------------------------------------
 
 /** A predicted value's tolerance, relative to its size, for unquantized f32 fields. */
 const F32_TOLERANCE = 1e-5;
+/**
+ * Two predicted rotations closer than this angle (radians) agree. Each received quaternion
+ * component is off by up to half a `ROTATION_STEP`; a whole step on all four moves the rotation by
+ * at most about 4 steps of angle (0.002 rad, 0.11°), so float noise never trips it.
+ */
+export const ROTATION_TOLERANCE = 4 * ROTATION_STEP;
 
-/** @internal T13: which of a layout's values the owning client predicts, and where they live. */
-export interface PredictedPlan {
-  /** Per layout value: 1 if predicted. */
+/**
+ * One run of predicted values at its layout index `at`. A predicted state is every slot's values,
+ * in layout order: picking from a received state, reading the node, writing it and comparing all
+ * walk the same slots.
+ */
+type Slot =
+  /** 3 values each; compared one by one, each within its quantization step. */
+  | { readonly kind: "position"; readonly at: number; readonly tolerance: number }
+  | { readonly kind: "scale"; readonly at: number; readonly tolerance: number }
+  /** 4 values, a quaternion; compared as a rotation (the angle between, q and -q the same). */
+  | { readonly kind: "rotation"; readonly at: number }
+  /** 1 value: a data or behavior field (its part and name in the binding). */
+  | {
+      readonly kind: "field";
+      readonly at: number;
+      readonly part: number;
+      readonly name: string;
+      readonly boolean: boolean;
+      /** Integer (i32, u8, booleans): exact. Step: within `tolerance`. Relative (unquantized f32): within `tolerance` times its size (at least 1). */
+      readonly compare: "integer" | "step" | "relative";
+      readonly tolerance: number;
+    };
+
+const WIDTH = { position: 3, rotation: 4, scale: 3, field: 1 } as const;
+
+/**
+ * @internal T13: a layout's predicted values, which the owning client simulates instead of taking
+ * received states (`prediction.ts`): the transform (if replicated), data fields listed in
+ * `replicate(def, { predicted })` that are sent, and behavior fields declared `predicted`. The plan
+ * owns their one order (layout order) for every operation on a predicted state.
+ */
+export class PredictedPlan {
+  /** Per layout value: 1 if predicted (`applyState` leaves these alone on the owning client). */
   readonly mask: Uint8Array;
-  /** The predicted values' layout indices, in order: a predicted state is these values. */
-  readonly indices: readonly number[];
-  /** Per predicted value: how far apart a prediction and the server's value may be (quantization). */
-  readonly tolerance: Float64Array;
-  /** Per predicted value: compared as an integer (i32, u8). */
-  readonly integer: Uint8Array;
-  /** Per predicted value: its tolerance scales with its size (unquantized f32: at least 1). */
-  readonly relative: Uint8Array;
-  /** The transform's layout index (its 10 values come first in `indices`), or -1. */
-  readonly transformAt: number;
-  /** Predicted data and behavior fields, after the transform: their part and field name. */
-  readonly fields: readonly { readonly part: number; readonly name: string; readonly boolean: boolean }[];
+  /** Values in a predicted state. */
+  readonly size: number;
+  /** Whether the transform is predicted (it is whenever it's replicated). */
+  readonly hasTransform: boolean;
+  private readonly slots: readonly Slot[];
+
+  constructor(layout: Layout) {
+    const slots: Slot[] = [];
+    layout.parts.forEach((part, p) => {
+      if (part.kind === "transform") {
+        slots.push({ kind: "position", at: part.at, tolerance: POSITION_STEP });
+        slots.push({ kind: "rotation", at: part.at + 3 });
+        slots.push({ kind: "scale", at: part.at + 7, tolerance: SCALE_STEP });
+      } else if (part.kind === "data") {
+        const predicted = replicationOf(part.def)?.predicted ?? [];
+        for (const name of predicted) {
+          if (!part.fields.includes(name)) warnOnce(`predicted:${part.def.id}.${name}`, `${part.def.id}.${name} is listed as predicted but isn't replicated (not in "fields"); it isn't predicted.`);
+        }
+        part.fields.forEach((name, i) => {
+          if (predicted.includes(name)) slots.push(fieldSlot(layout, part.at + i, p, name, false));
+        });
+      } else if (part.kind === "behavior") {
+        part.fields.forEach((f, i) => {
+          if (f.predicted) slots.push(fieldSlot(layout, part.at + i, p, f.name, f.boolean));
+        });
+      }
+    });
+    slots.sort((a, b) => a.at - b.at);
+    this.slots = slots;
+    this.mask = new Uint8Array(layout.size);
+    let size = 0;
+    for (const s of slots) {
+      this.mask.fill(1, s.at, s.at + WIDTH[s.kind]);
+      size += WIDTH[s.kind];
+    }
+    this.size = size;
+    this.hasTransform = slots.some((s) => s.kind === "position");
+  }
+
+  /** The predicted values of a full (received) state. */
+  pick(state: GhostState): number[] {
+    const out: number[] = [];
+    for (const s of this.slots) for (let k = 0; k < WIDTH[s.kind]; k++) out.push(state[s.at + k]);
+    return out;
+  }
+
+  /** The bound node's predicted values now. */
+  read(binding: Binding): number[] {
+    const out: number[] = [];
+    const { node } = binding;
+    const world = node.world;
+    const e = node.entity;
+    for (const s of this.slots) {
+      if (s.kind === "position") for (let i = 0; i < 3; i++) out.push(world.tPos[e * 3 + i]);
+      else if (s.kind === "rotation") for (let i = 0; i < 4; i++) out.push(world.tRot[e * 4 + i]);
+      else if (s.kind === "scale") for (let i = 0; i < 3; i++) out.push(world.tScl[e * 3 + i]);
+      else {
+        const v = binding.targets[s.part]?.[s.name];
+        out.push(s.boolean ? (v ? 1 : 0) : typeof v === "number" ? v : 0);
+      }
+    }
+    return out;
+  }
+
+  /** Write predicted values (from `read` or `pick`) to the bound node. */
+  apply(binding: Binding, values: ArrayLike<number>): void {
+    const { node } = binding;
+    const world = node.world;
+    const e = node.entity;
+    let at = 0;
+    for (const s of this.slots) {
+      if (s.kind === "position") {
+        for (let i = 0; i < 3; i++) world.tPos[e * 3 + i] = values[at++];
+      } else if (s.kind === "rotation") {
+        // Received rotations are quantized, a little off unit length; normalize.
+        const len = Math.hypot(values[at], values[at + 1], values[at + 2], values[at + 3]) || 1;
+        for (let i = 0; i < 4; i++) world.tRot[e * 4 + i] = values[at++] / len;
+      } else if (s.kind === "scale") {
+        for (let i = 0; i < 3; i++) world.tScl[e * 3 + i] = values[at++];
+      } else {
+        const target = binding.targets[s.part];
+        const v = values[at++];
+        if (target) target[s.name] = s.boolean ? v !== 0 : v;
+      }
+    }
+    if (this.hasTransform) world.markTransformDirty(e);
+  }
+
+  /**
+   * How far a predicted state is from the server's: the largest difference of any value beyond its
+   * tolerance (a rotation's in radians), or 0 if every value is within it (a correct prediction).
+   */
+  error(predicted: ArrayLike<number>, authoritative: ArrayLike<number>): number {
+    let error = 0;
+    let at = 0;
+    for (const s of this.slots) {
+      if (s.kind === "rotation") {
+        const d = rotationError(predicted, authoritative, at);
+        if (d > error) error = d;
+      } else {
+        for (let k = 0; k < WIDTH[s.kind]; k++) {
+          const d = valueError(s, predicted[at + k], authoritative[at + k]);
+          if (d > error) error = d;
+        }
+      }
+      at += WIDTH[s.kind];
+    }
+    return error;
+  }
+}
+
+function fieldSlot(layout: Layout, at: number, part: number, name: string, boolean: boolean): Slot {
+  // A quantized value is off by up to half a step; allow one step, so float noise never trips it.
+  if (layout.steps[at] > 0) return { kind: "field", at, part, name, boolean, compare: "step", tolerance: layout.steps[at] };
+  if (layout.kinds[at] === "f32") return { kind: "field", at, part, name, boolean, compare: "relative", tolerance: F32_TOLERANCE };
+  return { kind: "field", at, part, name, boolean, compare: "integer", tolerance: 0 };
+}
+
+/** One value's difference beyond its tolerance (0 within it; Infinity for NaN). */
+function valueError(s: Exclude<Slot, { kind: "rotation" }>, a: number, b: number): number {
+  if (s.kind === "field" && s.compare === "integer") return Math.abs((a | 0) - (b | 0));
+  const d = Math.abs(Math.fround(a) - b);
+  const tolerance = s.kind === "field" && s.compare === "relative" ? s.tolerance * Math.max(1, Math.abs(b)) : s.tolerance;
+  if (d <= tolerance) return 0;
+  return d > 0 ? d : Infinity; // NaN
+}
+
+/** The angle between the quaternions at `a[at..at+3]` and `b[at..at+3]` beyond `ROTATION_TOLERANCE` (0 within it; Infinity for NaN or a zero quaternion). */
+function rotationError(a: ArrayLike<number>, b: ArrayLike<number>, at: number): number {
+  const la = Math.hypot(a[at], a[at + 1], a[at + 2], a[at + 3]);
+  const lb = Math.hypot(b[at], b[at + 1], b[at + 2], b[at + 3]);
+  const dot = (a[at] * b[at] + a[at + 1] * b[at + 1] + a[at + 2] * b[at + 2] + a[at + 3] * b[at + 3]) / (la * lb);
+  // q and -q are the same rotation: the angle uses |dot|.
+  const angle = 2 * Math.acos(Math.min(1, Math.abs(dot)));
+  if (angle <= ROTATION_TOLERANCE) return 0;
+  return angle > 0 ? angle : Infinity; // NaN
 }
 
 const plans = new WeakMap<Layout, PredictedPlan>();
 
-/**
- * @internal T13: a layout's predicted values: the transform (if replicated), data fields listed in
- * `replicate(def, { predicted })` that are sent, and behavior fields declared `predicted`.
- */
+/** @internal T13: a layout's predicted plan (made once per layout). */
 export function predictedPlan(layout: Layout): PredictedPlan {
   let plan = plans.get(layout);
-  if (plan) return plan;
-  const mask = new Uint8Array(layout.size);
-  const fields: { part: number; name: string; boolean: boolean }[] = [];
-  let transformAt = -1;
-  layout.parts.forEach((part, p) => {
-    if (part.kind === "transform") {
-      transformAt = part.at;
-      mask.fill(1, part.at, part.at + 10);
-    } else if (part.kind === "data") {
-      const predicted = replicationOf(part.def)?.predicted ?? [];
-      for (const name of predicted) {
-        const i = part.fields.indexOf(name);
-        if (i < 0) {
-          warnOnce(`predicted:${part.def.id}.${name}`, `${part.def.id}.${name} is listed as predicted but isn't replicated (not in "fields"); it isn't predicted.`);
-          continue;
-        }
-        mask[part.at + i] = 1;
-      }
-      part.fields.forEach((name, i) => mask[part.at + i] && fields.push({ part: p, name, boolean: false }));
-    } else if (part.kind === "behavior") {
-      part.fields.forEach((f, i) => {
-        if (!f.predicted) return;
-        mask[part.at + i] = 1;
-        fields.push({ part: p, name: f.name, boolean: f.boolean });
-      });
-    }
-  });
-  const indices: number[] = [];
-  for (let i = 0; i < layout.size; i++) if (mask[i]) indices.push(i);
-  const tolerance = new Float64Array(indices.length);
-  const integer = new Uint8Array(indices.length);
-  const relative = new Uint8Array(indices.length);
-  indices.forEach((at, i) => {
-    // A quantized value is off by up to half a step; allow one step, so float noise never trips it.
-    if (layout.steps[at] > 0) tolerance[i] = layout.steps[at];
-    else if (layout.kinds[at] === "f32") {
-      tolerance[i] = F32_TOLERANCE;
-      relative[i] = 1;
-    } else integer[i] = 1;
-  });
-  plans.set(layout, (plan = { mask, indices, tolerance, integer, relative, transformAt, fields }));
+  if (!plan) plans.set(layout, (plan = new PredictedPlan(layout)));
   return plan;
-}
-
-/** @internal T13: the predicted values of a full (received) state. */
-export function pickPredicted(plan: PredictedPlan, state: GhostState): number[] {
-  return plan.indices.map((i) => state[i]);
-}
-
-/** @internal T13: the bound node's predicted values now. */
-export function readPredicted(plan: PredictedPlan, binding: Binding): number[] {
-  const out: number[] = [];
-  const { node } = binding;
-  if (plan.transformAt >= 0) {
-    const world = node.world;
-    const e = node.entity;
-    for (let i = 0; i < 3; i++) out.push(world.tPos[e * 3 + i]);
-    for (let i = 0; i < 4; i++) out.push(world.tRot[e * 4 + i]);
-    for (let i = 0; i < 3; i++) out.push(world.tScl[e * 3 + i]);
-  }
-  for (const f of plan.fields) {
-    const v = binding.targets[f.part]?.[f.name];
-    out.push(f.boolean ? (v ? 1 : 0) : typeof v === "number" ? v : 0);
-  }
-  return out;
-}
-
-/** @internal T13: write predicted values (from `readPredicted` or `pickPredicted`) to the bound node. */
-export function applyPredicted(plan: PredictedPlan, binding: Binding, values: ArrayLike<number>): void {
-  const { node } = binding;
-  let at = 0;
-  if (plan.transformAt >= 0) {
-    const world = node.world;
-    const e = node.entity;
-    for (let i = 0; i < 3; i++) world.tPos[e * 3 + i] = values[at++];
-    // Received rotations are quantized, a little off unit length; normalize.
-    const len = Math.hypot(values[at], values[at + 1], values[at + 2], values[at + 3]) || 1;
-    for (let i = 0; i < 4; i++) world.tRot[e * 4 + i] = values[at++] / len;
-    for (let i = 0; i < 3; i++) world.tScl[e * 3 + i] = values[at++];
-    world.markTransformDirty(e);
-  }
-  for (const f of plan.fields) {
-    const target = binding.targets[f.part];
-    const v = values[at++];
-    if (target) target[f.name] = f.boolean ? v !== 0 : v;
-  }
-}
-
-/**
- * @internal T13: how far a predicted state is from the server's: the largest difference of any
- * value beyond its tolerance, or 0 if every value is within it (a correct prediction).
- */
-export function predictionError(plan: PredictedPlan, predicted: ArrayLike<number>, authoritative: ArrayLike<number>): number {
-  let error = 0;
-  for (let i = 0; i < plan.indices.length; i++) {
-    const a = predicted[i], b = authoritative[i];
-    let d: number;
-    if (plan.integer[i]) d = (a | 0) === (b | 0) ? 0 : Math.abs((a | 0) - (b | 0));
-    else {
-      d = Math.abs(Math.fround(a) - b);
-      const tolerance = plan.relative[i] ? plan.tolerance[i] * Math.max(1, Math.abs(b)) : plan.tolerance[i];
-      if (d <= tolerance) d = 0;
-      else if (!(d > 0)) d = Infinity; // NaN
-    }
-    if (d > error) error = d;
-  }
-  return error;
 }
 
 /**

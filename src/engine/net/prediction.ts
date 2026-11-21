@@ -32,15 +32,18 @@
  *   newest `MAX_CATCH_UP_TICKS` at most; older ones are dropped and counted;
  * - then the step's pass runs the predicted systems for serverTick, unless that tick was already
  *   simulated (two fixed steps on one serverTick): then they skip this step.
- * Catch-up and re-simulated ticks replay each tick's input (`setInputReplayTick`): `Move.of(node)`
- * returns the input written for that tick, or the newest earlier one if it has none, as the
- * server would repeat it.
+ * Catch-up and re-simulated ticks run inside `session.replay(tick, …)` (ADR 0311): the session then
+ * says which tick is simulated, so `Move.of(node)` returns the input written for that tick, or the
+ * newest earlier one if it has none, as the server would repeat it, and `predictedTick()` that
+ * tick. Each step's pass is reported to the session too (`reportPredictedPass`), and the
+ * scheduler asks the session how to run predicted systems.
  *
  * ## Rollback and re-simulation
  *
  * When a ghost's newest received state is for a tick S it hasn't compared yet, the client compares
- * it with what it predicted for S (`predictionError`). Within tolerance (one quantization step for
- * quantized fields, 1e-5 relative for other floats, exact for integers) it just drops older
+ * it with what it predicted for S (`PredictedPlan.error`, ADR 0312). Within tolerance (rotations within
+ * `ROTATION_TOLERANCE` of angle, q and -q alike; one quantization step for other quantized values,
+ * 1e-5 relative for other floats, exact for integers) it just drops older
  * history. Otherwise it's a misprediction: the ghost is set to the server's state at S, every
  * other predicted ghost to its own prediction for S, and the predicted systems run again for
  * S+1 … the newest predicted tick, recording new predictions (one rollback). A ghost's first state
@@ -66,12 +69,12 @@
  * last and largest error, rollbacks, re-simulated ticks, and the timeline's catch-ups and skips.
  */
 import { World } from "../core/World";
-import { _setPredictionDriver, defineBuiltinSystem, type PredictedRun } from "../core/systems";
+import { defineBuiltinSystem, type PredictedRun } from "../core/systems";
 import type { GameObject } from "../scene/GameObject";
-import { setInputReplayTick } from "./input";
 import { clientReplication, type ClientGhost, type ClientReplication } from "./replication/client";
-import { applyPredicted, pickPredicted, predictedPlan, predictionError, readPredicted, type Binding, type PredictedPlan } from "./replication/layout";
+import { predictedPlan, type Binding, type PredictedPlan } from "./replication/layout";
 import { netSession, type NetPeer, type NetSession } from "./session";
+import { TickHistory } from "./tickHistory";
 
 /** Skipped ticks run at most this many at the start of a fixed step; older ones are dropped. */
 export const MAX_CATCH_UP_TICKS = 8;
@@ -120,8 +123,8 @@ interface PredictedGhost {
   readonly ghost: ClientGhost;
   readonly binding: Binding;
   readonly plan: PredictedPlan;
-  /** Predicted values by tick. */
-  readonly history: Map<number, number[]>;
+  /** Predicted values by tick, the newest `HISTORY_TICKS`. */
+  readonly history: TickHistory<number[]>;
   /** The newest received tick compared or synced; -1: none yet. */
   reconciled: number;
   smoothing: Smoothing | null;
@@ -142,17 +145,14 @@ interface Correction {
 /** @internal A client World's prediction. */
 export class ClientPrediction {
   readonly stats: PredictionStats = { mispredictions: 0, lastError: 0, maxError: 0, rollbacks: 0, resimulatedTicks: 0, predictedTicks: 0, catchUpTicks: 0, droppedTicks: 0, skippedSteps: 0 };
-  /** How this fixed step's pass runs predicted systems. */
-  pass: PredictedRun = SKIP;
   /** The newest tick predicted; -1: none yet. */
   lastSimulated = -1;
-  /** The tick predicted systems are running for while prediction runs them itself (catch-up, re-simulation); null otherwise. */
-  replaying: number | null = null;
   resimulating = false;
   private readonly ghosts = new Map<ClientGhost, PredictedGhost>();
   /** The predicted ghosts' nodes: predicted systems' rows. */
   private readonly nodes = new Set<GameObject>();
-  private readonly includes = (node: GameObject) => this.nodes.has(node);
+  /** A step's pass: the predicted ghosts are the rows. */
+  private readonly run: PredictedRun = { run: true, includes: (node) => this.nodes.has(node) };
   private peer: NetPeer | null = null;
   /** The tick the last pass predicted, recorded at the start of the next step. */
   private recordTick = -1;
@@ -174,7 +174,7 @@ export class ClientPrediction {
     this.unsmooth();
     const replication = clientReplication(this.world);
     if (peer?.state !== "open" || !replication) {
-      this.pass = SKIP;
+      session.reportPredictedPass(SKIP);
       return;
     }
     const tick = session.time.serverTick;
@@ -197,10 +197,10 @@ export class ClientPrediction {
     if (tick > this.lastSimulated) {
       this.lastSimulated = this.recordTick = tick;
       this.stats.predictedTicks++;
-      this.pass = { run: true, includes: this.includes };
+      session.reportPredictedPass(this.run);
     } else {
       this.stats.skippedSteps++;
-      this.pass = SKIP;
+      session.reportPredictedPass(SKIP);
     }
   }
 
@@ -255,7 +255,7 @@ export class ClientPrediction {
       if (!binding || !binding.node.isValid || !binding.rep.isPredictedLocally) continue;
       let p = this.ghosts.get(g);
       if (!p || p.binding !== binding) {
-        p = { ghost: g, binding, plan: predictedPlan(g.layout), history: new Map(), reconciled: -1, smoothing: null, shown: null, seen: 0 };
+        p = { ghost: g, binding, plan: predictedPlan(g.layout), history: new TickHistory(HISTORY_TICKS), reconciled: -1, smoothing: null, shown: null, seen: 0 };
         this.ghosts.set(g, p);
       }
       p.seen = generation;
@@ -268,25 +268,14 @@ export class ClientPrediction {
   private record(tick: number, nodes: ReadonlySet<GameObject>): void {
     for (const p of this.ghosts.values()) {
       if (!nodes.has(p.binding.node)) continue;
-      p.history.set(tick, readPredicted(p.plan, p.binding));
-      for (const t of p.history.keys()) {
-        if (t > tick - HISTORY_TICKS) break; // in insertion order, oldest first
-        p.history.delete(t);
-      }
+      p.history.set(tick, p.plan.read(p.binding));
     }
   }
 
   /** Run the predicted systems for `tick`, on the ghosts in `nodes`, with that tick's input. */
   private simulate(tick: number, nodes: ReadonlySet<GameObject>): void {
     const world = this.world;
-    this.replaying = tick;
-    setInputReplayTick(world, tick);
-    try {
-      world.scheduler.runPredicted(world.time.fixedDeltaTime, (node) => nodes.has(node));
-    } finally {
-      setInputReplayTick(world, null);
-      this.replaying = null;
-    }
+    this.session.replay(tick, () => world.scheduler.runPredicted(world.time.fixedDeltaTime, (node) => nodes.has(node)));
   }
 
   /** Compare new snapshot states with the predictions for their ticks; roll back and re-simulate on a difference. */
@@ -300,10 +289,10 @@ export class ClientPrediction {
       const tick = newest.tick;
       const first = p.reconciled < 0;
       p.reconciled = tick;
-      const authoritative = pickPredicted(p.plan, newest.values);
+      const authoritative = p.plan.pick(newest.values);
       const predicted = p.history.get(tick);
       if (predicted) {
-        const error = predictionError(p.plan, predicted, authoritative);
+        const error = p.plan.error(predicted, authoritative);
         if (error === 0) continue;
         this.stats.mispredictions++;
         this.stats.lastError = error;
@@ -318,12 +307,12 @@ export class ClientPrediction {
     if (corrections.length > 0) {
       if (counted) this.stats.rollbacks++;
       const before = new Map<PredictedGhost, number[]>();
-      for (const c of corrections) if (c.p.plan.transformAt >= 0 && !c.first) before.set(c.p, this.position(c.p));
+      for (const c of corrections) if (c.p.plan.hasTransform && !c.first) before.set(c.p, this.position(c.p));
       const from = Math.min(...corrections.map((c) => c.tick));
       if (from > this.lastSimulated || this.lastSimulated - from >= MAX_ROLLBACK_TICKS) {
         // Ahead of the prediction (the timeline is just starting), or too far behind: take the server's state.
         for (const c of corrections) {
-          applyPredicted(c.p.plan, c.p.binding, c.values);
+          c.p.plan.apply(c.p.binding, c.values);
           c.p.history.set(c.tick, c.values);
         }
         this.lastSimulated = Math.max(this.lastSimulated, ...corrections.map((c) => c.tick));
@@ -335,9 +324,7 @@ export class ClientPrediction {
         if (old) this.startSmoothing(c.p, old);
       }
     }
-    for (const p of this.ghosts.values()) {
-      for (const t of p.history.keys()) if (t < p.reconciled) p.history.delete(t);
-    }
+    for (const p of this.ghosts.values()) p.history.dropBefore(p.reconciled);
   }
 
   /** Restore every predicted ghost at `from` and run the predicted systems again up to the newest predicted tick. */
@@ -351,7 +338,7 @@ export class ClientPrediction {
     const nodes = new Set<GameObject>();
     const correct = (tick: number) => {
       for (const c of at.get(tick) ?? []) {
-        applyPredicted(c.p.plan, c.p.binding, c.values);
+        c.p.plan.apply(c.p.binding, c.values);
         nodes.add(c.p.binding.node);
       }
     };
@@ -359,7 +346,7 @@ export class ClientPrediction {
     for (const p of this.ghosts.values()) {
       const own = p.history.get(from);
       if (own && !at.get(from)?.some((c) => c.p === p)) {
-        applyPredicted(p.plan, p.binding, own);
+        p.plan.apply(p.binding, own);
         nodes.add(p.binding.node);
       }
     }
@@ -408,7 +395,7 @@ export class ClientPrediction {
     this.ghosts.clear();
     this.nodes.clear();
     this.lastSimulated = this.recordTick = -1;
-    this.pass = SKIP;
+    this.session.reportPredictedPass(SKIP);
   }
 }
 
@@ -435,7 +422,7 @@ export function predictionStats(world: World): PredictionStats | null {
  * that isn't networked.
  */
 export function predictedTick(world: World = World.require()): number {
-  return predictions.get(world)?.replaying ?? world.time.network?.serverTick ?? -1;
+  return netSession(world)?.replayTick ?? world.time.network?.serverTick ?? -1;
 }
 
 /**
@@ -445,9 +432,6 @@ export function predictedTick(world: World = World.require()): number {
 export function isResimulating(world: World = World.require()): boolean {
   return predictions.get(world)?.resimulating ?? false;
 }
-
-// Predicted systems on network clients run as the prediction says; elsewhere, like any other.
-_setPredictionDriver((world) => (netSession(world)?.isClient ? (clientPrediction(world)?.pass ?? SKIP) : null));
 
 defineBuiltinSystem({
   name: "engine.PredictionTick",

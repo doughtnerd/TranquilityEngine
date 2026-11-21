@@ -88,14 +88,13 @@ export interface PredictedRun {
   readonly includes: (node: GameObject) => boolean;
 }
 
-/** Decides how a World's predicted systems run in its fixed step; null: like any other system. */
-type PredictionDriver = (world: World) => PredictedRun | null;
-
-let predictionDriver: PredictionDriver | null = null;
-
-/** @internal Prediction (T13) takes over predicted systems on network clients. */
-export function _setPredictionDriver(driver: PredictionDriver | null): void {
-  predictionDriver = driver;
+/**
+ * @internal What the scheduler asks a networked World's session (`World._net`, set by
+ * `net/session.ts`; ADR 0311). A World without one runs predicted systems like any other.
+ */
+export interface WorldNet {
+  /** How the World's predicted systems run in this fixed step; null: like any other system. */
+  predictedRun(): PredictedRun | null;
 }
 
 const builtinSystems: BuiltinSystem[] = [];
@@ -219,8 +218,8 @@ export class Scheduler {
     let predicted: PredictedRun | null | undefined;
     for (const s of this.ordered[phase]) {
       if (s.builtin) s.builtin.run(this.world, dt);
-      else if (s.user?.predicted && predictionDriver) {
-        if (predicted === undefined) predicted = predictionDriver(this.world);
+      else if (s.user?.predicted && this.world._net) {
+        if (predicted === undefined) predicted = this.world._net.predictedRun();
         if (!predicted) this.runUser(s.user, dt);
         else if (predicted.run) this.runUser(s.user, dt, predicted.includes);
       } else if (s.user) this.runUser(s.user, dt);

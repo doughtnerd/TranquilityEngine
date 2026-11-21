@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Engine, defineInput, defineSystem, f32, i32, u8, type BootstrapConfig, type GameObject } from "../index";
 import { World } from "../core/World";
-import { setInputReplayTick } from "../net/input";
 import { netSession } from "../net/session";
 import type { LinkConditions, TransportConnection } from "../net/Transport";
 
@@ -225,13 +224,9 @@ describe("input streams (T12)", () => {
     writes = [() => Move.write({ x: 1.5, y: 7, jump: 1 }), () => Move.write({ x: 2 }), () => (Move.local.y = -4)];
     step(engine, 3);
     const clientTicks = [...Array(3)].map((_, i) => client.time.network!.serverTick - 2 + i);
-    // Prediction replays the client's own input for past ticks through of().
-    const inputAt = (tick: number) => {
-      setInputReplayTick(client, tick);
-      const input = World._runIn(client, () => ({ ...Move.of(netSession(client)!.serverPeer!.node!) }));
-      setInputReplayTick(client, null);
-      return input;
-    };
+    // Prediction replays the client's own input for past ticks through of(), inside the session's replay.
+    const session = netSession(client)!;
+    const inputAt = (tick: number) => session.replay(tick, () => World._runIn(client, () => ({ ...Move.of(session.serverPeer!.node!) })));
     expect(clientTicks.map(inputAt)).toEqual([
       { x: 1.5, y: 7, jump: 1 },
       { x: 2, y: 7, jump: 1 },

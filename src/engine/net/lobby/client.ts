@@ -518,12 +518,13 @@ export class Lobby {
 
 // One built-in for every part of the lobby, in every World (it does nothing in most): a lobby
 // server World's rooms (hosted from its config on its first frame), a match World's players, and a
-// hidden lobby client World's messages. After the network receive, so this frame's messages are in.
+// hidden lobby client World's messages. After the network receive, so this frame's messages are in,
+// and before replication's receive (an order that used to follow from which module loaded first).
 defineBuiltinSystem({
   name: "engine.Lobby",
   phase: "update",
   after: ["engine.NetReceive"],
-  before: ["engine.UpdateScripts"],
+  before: ["engine.ReplicationReceive", "engine.UpdateScripts"],
   run: (world) => {
     (lobbyServerOf(world) ?? lobbyFromConfig(world))?.update();
     _matchOf(world)?.update();
