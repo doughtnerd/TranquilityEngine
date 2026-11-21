@@ -1,6 +1,6 @@
 # 0030. Write and run project scripts inside the editor
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0308 (the Code panel's tabs and unsaved text have one owner, `code/codeBuffers.ts`, asked by the discard guard and following moves and deletes)
 - **Date:** 2026-11-01
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
