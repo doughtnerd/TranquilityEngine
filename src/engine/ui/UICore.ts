@@ -13,7 +13,7 @@ import type { Node as YogaNode, Yoga } from "yoga-layout/load";
 import { Mat4, Vector2 } from "../core/math";
 import type { World } from "../core/World";
 import type { GameObject } from "../scene/GameObject";
-import { Input } from "../input/Input";
+import { devices, type InputClaim, type PointerFrame } from "../input/devices";
 import { UIButton, UICanvas, UIInputField, UIPanel, type UIComponentType } from "./components";
 import { UI_KIND_TYPES, flexShrinkOf, isInteractiveKind, isLeafKind, sameTextRun, textRunOf, uiKindOf } from "./elementKinds";
 import { fontEpoch } from "./fonts";
@@ -84,6 +84,8 @@ export class UICore implements UICoreLike {
   private height = 0;
   /** The button a pointer press began on, until it's released. */
   private pressed: Entry | null = null;
+  /** The left button was down or held at the last routing (a press on the canvas takes DOM focus first). */
+  private pointerHeld = false;
   private disposed = false;
   private canvasList: UILaidOutCanvas[] = [];
   private elementList: UILaidOutElement[] = [];
@@ -105,7 +107,7 @@ export class UICore implements UICoreLike {
     this.interactiveMode = options.interactive ?? true;
     this.host = options.host ?? {};
     this.passive = options.passive ?? false;
-    this.removeHook = this.passive ? () => undefined : Input._addFrameHook(() => this.route());
+    this.removeHook = this.passive ? () => undefined : devices.addRouter((pointer) => this.route(pointer));
     // With Yoga loaded already (another core loaded it), lay out from the first sync: a World that
     // syncs only when something changes (the editor's) may not sync again for a while.
     const yoga = loadedYoga();
@@ -493,8 +495,7 @@ export class UICore implements UICoreLike {
     const onBlur = () => {
       if (this.programmatic || !this.active) return;
       // A press on the canvas takes DOM focus first; routing re-focuses the field that press hit.
-      const raw = Input._raw();
-      if (raw.down(0) || raw.held(0)) return;
+      if (this.pointerHeld) return;
       this.active._focused = false;
     };
     el.addEventListener("input", onInput);
@@ -553,10 +554,11 @@ export class UICore implements UICoreLike {
   // --- Pointer routing ------------------------------------------------------------------------
 
   /**
-   * The frame hook (ADR 0069), run in `Input.beginFrame` before any World steps: hit-test the
-   * pointer against last frame's layout, claim it for UI, update buttons and focus.
+   * The routing step (ADR 0069, 0310), run in the device snapshot before any World steps: hit-test
+   * the pointer against last frame's layout, claim it for UI, update buttons and focus.
    */
-  private route(): void {
+  private route(raw: PointerFrame): InputClaim | void {
+    this.pointerHeld = raw.down(0) || raw.held(0);
     const world = this.world;
     if (this.disposed || !world) return;
     const buttons = [...this.entries.values()].filter((e) => e.kind === "button");
@@ -566,9 +568,7 @@ export class UICore implements UICoreLike {
       this.pressed = null;
       return;
     }
-    const raw = Input._raw();
-    const hit = this.hit(raw.pointer.x, raw.pointer.y);
-    if (hit) Input._claimPointer();
+    const hit = this.hit(raw.x, raw.y);
     // Scripts in the World's next frame see what happened now.
     const frame = world.time.frameCount + 1;
     const usable = (e: Entry | null) => !!e && e.kind === "button" && (e.comp as UIButton).interactable && e.comp.isActiveAndEnabled;
@@ -594,7 +594,7 @@ export class UICore implements UICoreLike {
       }
       focused ||= c.focused;
     }
-    if (focused) Input._claimKeyboard();
+    return { pointer: !!hit, keyboard: focused };
   }
 
   /**

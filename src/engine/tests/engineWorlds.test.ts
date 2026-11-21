@@ -3,6 +3,7 @@ import { Assets, Engine, GameBehavior, GameObject, Input, SceneManager, Time, de
 import { _undefineSystem } from "../core/systems";
 import { World } from "../core/World";
 import { _worldOf } from "../core/WorldHandle";
+import { DomInput } from "./domInput";
 
 // ADR 0032, T1: several Worlds per Engine, each with its own clock, stepped in one loop.
 
@@ -290,7 +291,7 @@ describe("wave 1 review fixes", () => {
   it("hands the view and input to the next World when the World that has them is destroyed", async () => {
     Input.reset();
     const engine = await Engine.create({ headless: true });
-    Input.simulate("down", "space");
+    DomInput.attach().keyDown(" ");
     engine.step(1 / 60);
     expect(seen.Default.space).toBe(true); // the menu has the view, and input
     // The Host flow: the menu makes a server World and a match World, then destroys itself.

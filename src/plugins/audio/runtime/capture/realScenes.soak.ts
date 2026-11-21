@@ -22,7 +22,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { resolveObjectURL } from "node:buffer";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Assets, Engine, Input, SceneManager } from "../../../../myco";
+import { Assets, Engine, SceneManager } from "../../../../myco";
 import { mixer } from "../../../../engine/audio/mixer";
 import { parseAudioSettings } from "../../../../engine/audio/settings";
 import { readProject } from "../../../../server/project";
@@ -34,6 +34,7 @@ import { openCapture } from "./reader";
 import type { CaptureChunkControl } from "./testSupport";
 import { RecordType } from "./format";
 import { FRAME_QUANTA, FRAME_SECONDS, RATE, bytesByType, memorySaveEnv, stat, timedCallOverheadUs, timedSink } from "./soakSupport";
+import { DomInput } from "../../../../engine/tests/domInput";
 
 // The recorder and save chunks are the real ones, wrapped: the take's recorder is kept, its save goes to memory.
 const chunk = vi.hoisted((): CaptureChunkControl => ({ options: {}, recorders: [], saveEnv: null }));
@@ -218,9 +219,9 @@ async function runScene(spec: SceneSpec): Promise<SceneResult | null> {
   };
   await step(false);
   for (const key of spec.keys) {
-    Input.simulate("down", key);
+    DomInput.attach().keyDown(key);
     await step(false);
-    Input.simulate("up", key);
+    DomInput.attach().keyUp(key);
     await step(false);
   }
   while (audioSeconds < spec.maxWarm && (audioSeconds < spec.warm || (spec.ready && !spec.ready()))) await step(false);

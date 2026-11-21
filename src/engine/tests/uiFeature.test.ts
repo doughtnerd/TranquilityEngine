@@ -12,6 +12,7 @@ import { UIButton, UICanvas, type UILength } from "../ui/components";
 import { BabylonUI } from "../render/babylon/ui";
 import { BabylonUIFeature, type BabylonUIHost } from "../render/babylon/uiFeature";
 import { _registeredRenderFeatures, ownerOf, specNeeded } from "../render/renderFeatures";
+import { DomInput } from "./domInput";
 
 /** A plugin's render feature spec, as its activation registered it. */
 const registeredSpec = (name: string) => _registeredRenderFeatures().find((f) => f.spec.name === name)!.spec;
@@ -141,16 +142,16 @@ describe("BabylonUIFeature", () => {
     const { play } = menu();
     f.sync(World.require());
     // A press on Play: not interactive (the editor's scene view, where clicks select), it doesn't press it.
-    Input.simulatePointer(100, 25);
-    Input.simulate("down", "mouse0");
+    const dom = DomInput.attach();
+    dom.pointerDown(0, 100, 25);
     engine.step(1 / 60);
     expect(play.pressed).toBe(false);
     expect(Input.pointerOverUI).toBe(false);
-    Input.simulate("up", "mouse0");
+    dom.pointerUp(0);
     engine.step(1 / 60);
     state.interactive = true;
     f.sync(World.require());
-    Input.simulate("down", "mouse0");
+    dom.pointerDown(0);
     engine.step(1 / 60);
     expect(play.pressed).toBe(true);
     expect(play.isActiveAndEnabled).toBe(true);

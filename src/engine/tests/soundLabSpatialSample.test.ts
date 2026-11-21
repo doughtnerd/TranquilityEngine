@@ -6,7 +6,7 @@
 import { readFileSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Assets, AudioOccluder, AudioReverbZone, Engine, GameObject, Input, SceneManager } from "../../myco";
+import { Assets, AudioOccluder, AudioReverbZone, Engine, GameObject, SceneManager } from "../../myco";
 import { parseAudioSettings } from "../audio/settings";
 import { readProject } from "../../server/project";
 // The sample's scripts, registered as loading the project's scripts would (ADR 0031).
@@ -28,6 +28,7 @@ import { setAudioBackend } from "../../plugins/audio/runtime/backend";
 import { makeFakeBackend } from "../../plugins/audio/runtime/testing";
 import { OcclusionPass } from "../../plugins/audio/runtime/core/occlusion";
 import { ListenerFrame, SendCurveTable, SpatialViewFlag, type SpatialVoiceView } from "../../plugins/audio/runtime/core/spatial";
+import { DomInput } from "./domInput";
 
 const SAMPLE = fileURLToPath(new URL("../../../samples/sound-lab", import.meta.url));
 const fake = makeFakeBackend();
@@ -198,9 +199,9 @@ describe("the Sound Lab spatial page (ADR 0162 E8)", () => {
     const yaw0 = bench.transform.eulerAngles.y;
     const seen: number[] = [];
     for (let k = 0; k < 4; k++) {
-      Input.simulate("down", "8");
+      DomInput.attach().keyDown("8");
       engine!.step(1 / 60);
-      Input.simulate("up", "8");
+      DomInput.attach().keyUp("8");
       engine!.step(1 / 60);
       seen.push(Math.round((((bench.transform.eulerAngles.y - yaw0) * 180) / Math.PI + 720) % 360) % 360);
     }
@@ -211,9 +212,9 @@ describe("the Sound Lab spatial page (ADR 0162 E8)", () => {
   it("key 5 moves the orbit on a level circle (front, right, behind, left), then a vertical one, then stops it", async () => {
     await boot("scenes/spatial.scene.json");
     const press = (k: string) => {
-      Input.simulate("down", k);
+      DomInput.attach().keyDown(k);
       engine!.step(1 / 60);
-      Input.simulate("up", k);
+      DomInput.attach().keyUp(k);
     };
     // Where the orbit is in the listener's own axes (it is the listener's child): +Z ahead, +X right, +Y up.
     const at = () => {

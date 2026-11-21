@@ -9,6 +9,7 @@ import { chooseSelection, hitIds, isPlainClick } from "./viewportPicks";
 import { DEMO_SCENE, demoAssets, demoSettings } from "./testing";
 import { FakeRenderSurface } from "../engine/render/fakeViewport";
 import { installGizmo } from "./gizmo";
+import { DomInput } from "../engine/tests/domInput";
 
 describe("click versus drag", () => {
   it("counts a left press and release with little movement as a click", () => {
@@ -68,7 +69,7 @@ describe("with the demo scene open", () => {
     expect(orbit.focusPoint.toArray()).toEqual([-4, 1, 0]);
 
     orbit.focus([5, 5, 0]);
-    Input.simulate("down", "f");
+    DomInput.attach().keyDown("f");
     engine.step(1 / 60);
     expect(orbit.focusPoint.toArray()).toEqual([-4, 1, 0]);
 

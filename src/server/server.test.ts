@@ -9,6 +9,7 @@ import { World } from "../engine/core/World";
 import { loadedScriptModule } from "../editor/scriptLoader";
 import { parseArgs } from "./main";
 import { ServerError, startServer, type RunningServer, type ServerOptions } from "./run";
+import { DomInput } from "../engine/tests/domInput";
 
 // T14: the dedicated server, in-process, on real sockets (port 0), with a client Engine in the
 // test connecting to it by URL. The fixture project's scripts register into this process's
@@ -404,9 +405,10 @@ describe("the arena sample on myco-server (T16)", () => {
     // D held: the client predicts the move at once, and the server moves its player too.
     const x0 = mine.node.transform!.position.x;
     const serverX0 = onServer[0].node.transform!.position.x;
-    Input.simulate("down", "d");
+    const dom = DomInput.attach();
+    dom.keyDown("d");
     await until(() => mine.node.transform!.position.x > x0 + 1 && onServer[0].node.transform!.position.x > serverX0 + 1);
-    Input.simulate("up", "d");
+    dom.keyUp("d");
     expect(mine.data.aimX).toBe(1);
 
     // Leaving removes the player.
@@ -432,9 +434,10 @@ describe("the arena sample on myco-server (T16)", () => {
     await until(() => playersIn(a, Player).every((p) => Math.abs(Math.abs(p.node.transform!.position.x) - 3) < 0.05));
 
     // Both clients hold Space (they share the keyboard here); only the shooter's shots can hit.
-    Input.simulate("down", "space");
+    const dom = DomInput.attach();
+    dom.keyDown(" ");
     await until(() => shooter.data.score > 0, 5000);
-    Input.simulate("up", "space");
+    dom.keyUp(" ");
     expect(target.data.score).toBe(0);
     // The target respawned at the spawn point farthest from the shooter.
     expect(target.node.transform!.position.x).toBeCloseTo(5.5, 3);

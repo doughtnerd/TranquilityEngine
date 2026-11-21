@@ -1,16 +1,18 @@
 import { vi } from "vitest";
-import { Input } from "../index";
+import { DomInput } from "./domInput";
 import { UICore } from "../ui/UICore";
 import type { World } from "../core/World";
 import type { UIComponentType } from "../ui/components";
 
 // Test helpers that drive UI the way a player does: a UI core lays a World's UI out and routes the
-// pointer as the renderer's does (ADR 0076), and presses go in through `Input`. A headless World has
+// pointer as the renderer's does (ADR 0076), and presses go in through `Input`'s DOM adapter (`dom`). A headless World has
 // no core of its own, so its buttons never click and its fields never submit without one.
 
 /** A UI core for `world` at a canvas size, and pointer gestures on its elements. */
 export class UIPointer {
   readonly core: UICore;
+  /** The keyboard and mouse, through `Input`'s DOM adapter. */
+  readonly dom: DomInput;
 
   private constructor(
     private readonly world: World,
@@ -18,6 +20,7 @@ export class UIPointer {
     readonly height: number,
   ) {
     this.core = new UICore({ interactive: true });
+    this.dom = DomInput.attach();
   }
 
   static async create(world: World, width = 1280, height = 720): Promise<UIPointer> {
@@ -46,19 +49,18 @@ export class UIPointer {
   /** Move the pointer over `el`; routing sees it at the next frame. */
   hover(el: UIComponentType): void {
     const { x, y } = this.centreOf(el);
-    Input.simulatePointer(x, y);
+    this.dom.moveTo(x, y);
   }
 
   /** Move the pointer off every element. */
   leave(): void {
-    Input.simulatePointer(-1, -1);
+    this.dom.moveTo(-1, -1);
   }
 
   /** Press and release the left button over `el`: scripts see `clicked` in the next frame. */
   click(el: UIComponentType): void {
     this.hover(el);
-    Input.simulate("down", "mouse0");
-    Input.simulate("up", "mouse0");
+    this.dom.click();
   }
 
   dispose(): void {
