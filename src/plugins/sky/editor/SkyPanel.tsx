@@ -3,11 +3,10 @@
 // `SECTIONS` table below. Editing goes through the sky's asset document, which keeps undo and redo,
 // writes the file (sliders after a short pause) and follows changes made elsewhere; the preview,
 // the thumbnails and any scene using the sky then pick the file up.
-import { useMemo } from "preact/hooks";
 import { SKY_PRESETS, skyPreset, type SkyPresetId } from "../../../engine/sky/presets";
 import { cloneSky, defaultCloudLayer, MAX_CLOUD_LAYERS, type SkySettings } from "../../../engine/sky/skyFormat";
 import { skyLight, sunAngles } from "../../../engine/sky/skyMath";
-import { AssetDocumentFrame, openAssetDocument, editor, LargePreview, Panel } from "../../../editor/sdk";
+import { AssetDocumentFrame, AssetPicker, ColorField, openAssetDocument, editor, LargePreview, Panel, SliderField } from "../../../editor/sdk";
 import "./skyPanel.css";
 
 type Path = readonly (string | number)[];
@@ -140,11 +139,10 @@ function SkyEditor({ path }: { path: string }) {
   const readOnly = doc.readOnly;
   const draft = doc.value.value;
 
-  /** `drag`: a slider or colour drag, whose quick changes in a row make one undo step and one write. Otherwise one step, written now. */
+  /** `drag`: a slider or colour drag under way (the SDK controls' commit rule, ADR 0282): its changes merge into one undo step, closed by the report that ends it. */
   const change = (next: SkySettings, drag = false) => doc.edit(next, drag ? { coalesce: true } : undefined);
   const applyPreset = (id: SkyPresetId) => doc.edit(skyPreset(id));
 
-  const images = useMemo(() => editor.assets.listed(project.files).filter((f) => editor.assets.kindOf(f) === "image"), [project.files]);
   const sun = sunAngles(draft);
   const light = skyLight(draft);
 
@@ -173,7 +171,7 @@ function SkyEditor({ path }: { path: string }) {
             <fieldset class="component sky-section" key={s.title}>
               <legend>{s.title}</legend>
               {s.fields.filter((f) => visible(f, draft)).map((f) => (
-                <FieldRow key={f.path.join(".")} field={f} value={get(draft, f.path)} images={images} disabled={readOnly} onValue={(v, drag) => change(set(draft, f.path, v), drag)} />
+                <FieldRow key={f.path.join(".")} field={f} value={get(draft, f.path)} disabled={readOnly} onValue={(v, drag) => change(set(draft, f.path, v), drag)} />
               ))}
             </fieldset>
           ))}
@@ -188,7 +186,7 @@ function SkyEditor({ path }: { path: string }) {
                   </button>
                 </div>
                 {CLOUD_FIELDS.map((f) => (
-                  <FieldRow key={f.path.join(".")} field={{ ...f, label: f.label, path: ["clouds", i, ...f.path] }} prefix={`Cloud ${i + 1} `} value={get(layer, f.path)} images={images} disabled={readOnly} onValue={(v, drag) => change(set(draft, ["clouds", i, ...f.path], v), drag)} />
+                  <FieldRow key={f.path.join(".")} field={{ ...f, label: f.label, path: ["clouds", i, ...f.path] }} prefix={`Cloud ${i + 1} `} value={get(layer, f.path)} disabled={readOnly} onValue={(v, drag) => change(set(draft, ["clouds", i, ...f.path], v), drag)} />
                 ))}
               </div>
             ))}
@@ -213,27 +211,18 @@ function visible(f: Field, s: SkySettings): boolean {
   return true;
 }
 
-function FieldRow(props: { field: Field; value: unknown; images: readonly string[]; disabled: boolean; prefix?: string; onValue: (v: unknown, drag?: boolean) => void }) {
+function FieldRow(props: { field: Field; value: unknown; disabled: boolean; prefix?: string; onValue: (v: unknown, drag?: boolean) => void }) {
   const { field: f, value, disabled, onValue } = props;
   const label = `${props.prefix ?? ""}${f.label}`;
   const hint = "hint" in f ? f.hint : undefined;
   switch (f.kind) {
-    case "number": {
-      const n = typeof value === "number" ? value : 0;
-      const read = (drag: boolean) => (e: Event) => {
-        const v = Number((e.currentTarget as HTMLInputElement).value);
-        if (Number.isFinite(v)) onValue(v, drag);
-      };
+    case "number":
       return (
         <label class="import-row sky-number" title={hint}>
           <span>{f.label}</span>
-          <span class="sky-slider">
-            <input type="range" aria-label={label} min={f.min} max={f.max} step={f.step} value={n} disabled={disabled} onInput={read(true)} />
-            <input type="number" aria-label={`${label} value`} step={f.step} value={+n.toFixed(4)} disabled={disabled} onChange={read(false)} />
-          </span>
+          <SliderField label={label} min={f.min} max={f.max} step={f.step} value={typeof value === "number" ? value : 0} disabled={disabled} onValue={onValue} />
         </label>
       );
-    }
     case "bool":
       return (
         <label class="import-row" title={hint}>
@@ -245,7 +234,7 @@ function FieldRow(props: { field: Field; value: unknown; images: readonly string
       return (
         <label class="import-row">
           <span>{f.label}</span>
-          <input type="color" aria-label={label} value={typeof value === "string" ? value.slice(0, 7) : "#000000"} disabled={disabled} onInput={(e) => onValue((e.currentTarget as HTMLInputElement).value, true)} />
+          <ColorField label={label} value={typeof value === "string" ? value : "#000000"} disabled={disabled} onValue={onValue} />
         </label>
       );
     case "choice":
@@ -264,21 +253,13 @@ function FieldRow(props: { field: Field; value: unknown; images: readonly string
           </select>
         </label>
       );
-    case "image": {
-      const listId = "sky-panel-images";
+    case "image":
+      // The sky file stores the bare project path.
       return (
         <label class="import-row" title={hint}>
           <span>{f.label}</span>
-          <span>
-            <input type="text" aria-label={label} list={listId} placeholder="None" value={typeof value === "string" ? value : ""} disabled={disabled} onChange={(e) => onValue((e.currentTarget as HTMLInputElement).value.trim().replace(/^asset:/, ""))} />
-            <datalist id={listId}>
-              {props.images.map((i) => (
-                <option key={i} value={i} />
-              ))}
-            </datalist>
-          </span>
+          <AssetPicker label={label} kinds={["texture"]} stored="path" value={typeof value === "string" ? value : ""} disabled={disabled} onCommit={onValue} />
         </label>
       );
-    }
   }
 }

@@ -2,17 +2,18 @@
 // Assets panel (a summary), and under a ParticleSystem component the effect's exposed properties as
 // per-instance overrides. Effects are edited in the Particle Graph panel, not here.
 import type { ComponentChildren } from "preact";
+import { useEffect, useRef } from "preact/hooks";
 import { expandParticleGraph, projectAssets } from "../../../../engine/scene/particleSubgraphs";
 import type { GraphProperty, ParticleGraph } from "../../../../engine/scene/particleGraph";
 import { compileParticleGraph } from "../../../../engine/scene/particleCompile";
-import type { CurveKey, ParticleColor, ParticleGradient } from "../../../../engine/scene/particles";
+import type { CurveKey, ParticleGradient } from "../../../../engine/scene/particles";
 import { effectFileMigrated, particleDocument } from "../particleAssets";
 import { parseBlockAsset, parseSubgraphAsset, type AssetPort } from "../../../../engine/scene/particleSubgraphs";
 import { assetDocKind, docToAsset } from "../particleGraph/assetDocs";
 import { CurveEditor } from "./particles/ParticleCurve";
 import { GradientEditor } from "./particles/GradientEditor";
-import { NumField, ParticleColorInput, VecField } from "./particles/valueInputs";
-import { AssetDocumentFrame, editor, type NodePath, type OpenScene, LargePreview, sectionField, type InspectorSectionProps } from "../../../../editor/sdk";
+import { NumField, VecField } from "./particles/valueInputs";
+import { AssetDocumentFrame, AssetPicker, ColorField, editor, type NodePath, type OpenScene, LargePreview, sectionField, type InspectorSectionProps, type UndoStep } from "../../../../editor/sdk";
 
 /** What compiling a graph reports (its parse problems are the document's). */
 const compileProblems = (graph: ParticleGraph): string[] => compileParticleGraph(expandParticleGraph(graph, projectAssets).graph).problems.map((p) => p.message);
@@ -120,12 +121,13 @@ export function ParticleAssetInspector(props: { path: string }) {
   );
 }
 
-const imageAssets = (): string[] => editor.assets.listed(editor.project.current?.files ?? []).filter((f) => editor.assets.kindOf(f) === "image").map((f) => `asset:${f}`);
-
 type Override = number | readonly number[] | string | boolean | Record<string, unknown>;
 
-/** The input for one property's value, by type. */
-function PropertyInput(props: { prop: GraphProperty; value: unknown; onChange: (v: Override) => void; onGesture: () => void }) {
+/**
+ * The input for one property's value, by type. A colour drag is one undo step (`onDrag`, ADR 0282), as a curve or
+ * gradient gesture is (`onGesture`).
+ */
+function PropertyInput(props: { prop: GraphProperty; value: unknown; onChange: (v: Override) => void; onGesture: () => void; onDrag: (drag: boolean) => void }) {
   const { prop, value, onChange } = props;
   const label = prop.name;
   switch (prop.type) {
@@ -145,10 +147,19 @@ function PropertyInput(props: { prop: GraphProperty; value: unknown; onChange: (
       const v = Array.isArray(value) ? value : [0, 0, 0];
       return <VecField label={label} value={[Number(v[0] ?? 0), Number(v[1] ?? 0), Number(v[2] ?? 0)]} onChange={onChange} />;
     }
-    case "color": {
-      const color: ParticleColor = typeof value === "string" ? value : "#ffffff";
-      return <ParticleColorInput label={label} value={color} allowGradients={false} onChange={(c) => onChange(c as string)} />;
-    }
+    case "color":
+      return (
+        <ColorField
+          label={label}
+          value={typeof value === "string" ? value : "#ffffff"}
+          alpha
+          onValue={(hex, drag) => {
+            if (drag) props.onDrag(true);
+            onChange(hex);
+            if (!drag) props.onDrag(false);
+          }}
+        />
+      );
     case "curve": {
       const keys: CurveKey[] = value && typeof value === "object" && "curve" in value ? (value as { curve: CurveKey[] }).curve : [[0, 1], [1, 1]];
       return (
@@ -166,16 +177,7 @@ function PropertyInput(props: { prop: GraphProperty; value: unknown; onChange: (
       );
     }
     case "texture":
-      return (
-        <>
-          <input type="text" class="pe-text" aria-label={label} list="particle-property-textures" value={typeof value === "string" ? value : ""} placeholder="(none)" onChange={(e) => onChange((e.currentTarget as HTMLInputElement).value)} />
-          <datalist id="particle-property-textures">
-            {imageAssets().map((a) => (
-              <option key={a} value={a} />
-            ))}
-          </datalist>
-        </>
-      );
+      return <AssetPicker label={label} value={typeof value === "string" ? value : ""} kinds={["texture"]} none="(none)" onCommit={onChange} />;
   }
 }
 
@@ -186,6 +188,8 @@ function PropertyInput(props: { prop: GraphProperty; value: unknown; onChange: (
 function ParticleSystemEffect(props: { scene: OpenScene; path: NodePath; index: number; effectPath: string; embedded?: unknown; overrides?: unknown }) {
   editor.project.version;
   const { scene, path, index } = props;
+  const openDrag = useRef<UndoStep | null>(null);
+  useEffect(() => () => openDrag.current?.end(), []);
   const [id] = path;
   const asset = props.effectPath.replace(/^asset:/, "");
   const project = editor.project.current;
@@ -228,6 +232,14 @@ function ParticleSystemEffect(props: { scene: OpenScene; path: NodePath; index: 
   const exposed = graph.properties.filter((p) => p.exposed);
   const issues = [...new Set([...problems.map((p) => p.message), ...compileProblems(graph)])];
   const setOverride = (name: string, value: Override) => set("overrides", { ...overrides, [name]: value });
+  /** A colour drag's writes are one undo step: opened by its first drag report, closed by the report that ends it. */
+  const colorDrag = (drag: boolean) => {
+    if (drag && !openDrag.current) openDrag.current = editor.scene.beginEdit("Edit particle property", scene);
+    else if (!drag) {
+      openDrag.current?.end();
+      openDrag.current = null;
+    }
+  };
   const revert = (name: string) => {
     const { [name]: _removed, ...rest } = overrides;
     set("overrides", rest);
@@ -247,7 +259,7 @@ function ParticleSystemEffect(props: { scene: OpenScene; path: NodePath; index: 
             const overridden = Object.prototype.hasOwnProperty.call(overrides, p.name);
             return (
               <PropertyRow key={p.name} name={p.name} overridden={overridden} onRevert={() => revert(p.name)}>
-                <PropertyInput prop={p} value={overridden ? overrides[p.name] : p.value} onChange={(v) => setOverride(p.name, v)} onGesture={() => groupGesture(scene)} />
+                <PropertyInput prop={p} value={overridden ? overrides[p.name] : p.value} onChange={(v) => setOverride(p.name, v)} onGesture={() => groupGesture(scene)} onDrag={colorDrag} />
               </PropertyRow>
             );
           })}

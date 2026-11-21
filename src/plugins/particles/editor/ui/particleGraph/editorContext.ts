@@ -44,8 +44,8 @@ export interface GraphEditorApi {
   /** The block being dragged (`system.block`) and where it would land. */
   draggingBlock: string | null;
   blockDrop: BlockDrop | null;
-  /** Project assets offered by the pickers (`asset:` references). */
-  assets: { images: string[]; materials: string[]; meshes: string[]; subgraphs: string[]; blocks: string[] };
+  /** The open file's project path (a sub-graph's own Sub-graph slot leaves it out). */
+  path: string;
   /** Reads a project asset's JSON by `asset:` reference (sub-graph and block ports come from it). */
   resolve: AssetResolver;
   /** Set when the open file is a sub-graph or custom block asset rather than an effect. */

@@ -35,8 +35,7 @@ test("the rim shader asset compiles and draws on a mesh", async ({ page, webgpu 
   await row(page, "Ball").click();
   const material = card(page, "MeshRenderer").getByRole("combobox", { name: "material" });
   const before = (await drawn())!.stats.programs;
-  await material.fill("materials/rim.material.json");
-  await material.press("Enter");
+  await material.selectOption("materials/rim.material.json");
   await expect.poll(async () => (await drawn())!.stats.programs, { timeout: 30_000 }).toBeGreaterThan(before);
   test.info().annotations.push({ type: "engine", description: webgpu ? "WebGPU (WGSL)" : "WebGL2 (GLSL)" });
   const shaderErrors = errors.filter((e) => /shader|effect|compil|wgsl|glsl/i.test(e));

@@ -70,6 +70,7 @@ export const materialsEditorPlugin: EditorPlugin = {
       panel: SHADER_GRAPH_PANEL,
       inspector: shaderGraphInspector,
       create: { label: "New Shader Sub Graph", name: "New Sub Graph", what: "sub-graphs" },
+      referencedAs: ["shadersubgraph"],
     });
     context.registerPanel({
       id: SHADER_GRAPH_PANEL,

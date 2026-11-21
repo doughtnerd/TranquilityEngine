@@ -11,11 +11,11 @@ import { NumField } from "../particles/valueInputs";
 import { Port, ProblemBadge } from "./BlockView";
 import { useGraphEditor } from "./editorContext";
 import { NODE_WIDTH } from "./layout";
-import { AssetValue, ChoiceValue, ColorSwatch, CurveValue, GradientValue, InlineValue, VectorValue, asGradient, asKeys } from "./valueFields";
-import { editor, NO_DRAG, NO_PAN, NO_WHEEL, px, useNodeDrag, type GraphDragHooks, type Point } from "../../../../../editor/sdk";
+import { ChoiceValue, ColorSwatch, CurveValue, GradientValue, InlineValue, VectorValue, asGradient, asKeys } from "./valueFields";
+import { AssetPicker, editor, NO_DRAG, NO_PAN, NO_WHEEL, px, useNodeDrag, type GraphDragHooks, type Point } from "../../../../../editor/sdk";
 
 function SettingField(props: { node: GraphNode; setting: NodeSettingDef }) {
-  const { graph, readOnly, commit, assets } = useGraphEditor();
+  const { graph, readOnly, commit, path } = useGraphEditor();
   const { node, setting } = props;
   const raw = node.settings?.[setting.name];
   const value = raw !== undefined ? raw : setting.default;
@@ -41,7 +41,7 @@ function SettingField(props: { node: GraphNode; setting: NodeSettingDef }) {
     }
     default:
       if (node.type === "subgraph" && setting.name === "asset") {
-        return <AssetValue label={label} value={String(value ?? "")} assets={assets.subgraphs} none="(pick a sub-graph)" readOnly={readOnly} onChange={set} />;
+        return <AssetPicker class={`pg-select ${NO_DRAG} ${NO_WHEEL}`} label={label} value={String(value ?? "")} kinds={["particlesubgraph"]} accepts={(f) => f !== path} none="(pick a sub-graph)" disabled={readOnly} onCommit={set} />;
       }
       if ((node.type === ASSET_INPUT || node.type === ASSET_OUTPUT) && setting.name === "name") {
         return (

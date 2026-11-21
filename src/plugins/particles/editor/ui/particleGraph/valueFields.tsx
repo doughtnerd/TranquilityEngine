@@ -1,16 +1,16 @@
 // Compact value fields for blocks, nodes and the Blackboard (ADR 0060): 0057's number and colour
 // forms (constant, random, curve, random curves; colour, random, gradient, random gradients),
-// vectors, flags, choices and asset pickers. Curves and gradients show as a small preview that
+// vectors, flags, choices and asset pickers (the SDK's, ADR 0282). Curves and gradients show as a small preview that
 // opens the curve or gradient editor in a popover, so blocks stay one line per input.
 import type { ComponentChildren } from "preact";
 import { useRef, useState } from "preact/hooks";
 import type { GraphInputValue } from "../../../../../engine/scene/particleGraph";
-import { colorKind, hexColor, numberKind, parseHexColor, type CurveKey, type ParticleColor, type ParticleColorKind, type ParticleGradient, type ParticleNumber, type ParticleNumberKind } from "../../../../../engine/scene/particles";
+import { colorKind, numberKind, type CurveKey, type ParticleColor, type ParticleColorKind, type ParticleGradient, type ParticleNumber, type ParticleNumberKind } from "../../../../../engine/scene/particles";
 import { convertColor, convertNumber } from "../../particles/curveEdit";
 import { CurveEditor, CurvePreview } from "../particles/ParticleCurve";
 import { GradientEditor, GradientPreview } from "../particles/GradientEditor";
 import { NumField } from "../particles/valueInputs";
-import { editor, NO_DRAG, NO_PAN, NO_WHEEL, usePopover } from "../../../../../editor/sdk";
+import { AssetPicker, ColorField, NO_DRAG, NO_PAN, NO_WHEEL, usePopover } from "../../../../../editor/sdk";
 
 const CTRL = `${NO_DRAG} ${NO_WHEEL}`;
 
@@ -123,25 +123,12 @@ export function NumberValue(props: { value: unknown; fallback?: ParticleNumber; 
   );
 }
 
-/** A colour swatch with an opacity field (a constant colour keeps its alpha in `#rrggbbaa`). */
+/**
+ * A colour swatch with an opacity field (a constant colour keeps its alpha in `#rrggbbaa`): the SDK's colour field
+ * (ADR 0282). The graph editor makes a pick one undo step (its pointer gesture and colour pick capture).
+ */
 export function ColorSwatch(props: { value: string; label: string; readOnly?: boolean; alpha?: boolean; onChange(hex: string): void }) {
-  const [r, g, b, a] = parseHexColor(props.value);
-  return (
-    <span class="pg-swatch">
-      <input
-        type="color"
-        class={CTRL}
-        aria-label={props.label}
-        disabled={props.readOnly}
-        value={hexColor(r, g, b)}
-        onInput={(e) => {
-          const [nr, ng, nb] = parseHexColor((e.currentTarget as HTMLInputElement).value);
-          props.onChange(hexColor(nr, ng, nb, a));
-        }}
-      />
-      {props.alpha !== false && <NumField value={+a.toFixed(3)} label={`${props.label} alpha`} min={0} max={1} disabled={props.readOnly} onCommit={(n) => props.onChange(hexColor(r, g, b, n))} />}
-    </span>
-  );
+  return <ColorField class={`pg-swatch ${CTRL}`} value={props.value} label={props.label} alpha={props.alpha !== false} disabled={props.readOnly} onValue={(hex) => props.onChange(hex)} />;
 }
 
 /** A colour in the forms its input allows. */
@@ -241,27 +228,6 @@ export function BoolValue(props: { value: boolean; label: string; readOnly?: boo
   return <input type="checkbox" class={CTRL} aria-label={props.label} disabled={props.readOnly} checked={props.value} onChange={(e) => props.onChange((e.currentTarget as HTMLInputElement).checked)} />;
 }
 
-/**
- * An asset reference picked from the project's assets (`asset:<path>`), or none. `builtins` are
- * offered first (`builtin:cube`…). A reference to a missing file is kept and marked.
- */
-export function AssetValue(props: { value: string; assets: readonly string[]; builtins?: readonly string[]; none: string; label: string; readOnly?: boolean; onChange(v: string): void }) {
-  const { value } = props;
-  const known = new Set([...(props.builtins ?? []), ...props.assets]);
-  const label = (ref: string) => (ref.startsWith("builtin:") ? choiceLabel(ref.slice(8)) : editor.assets.fileName(ref.replace(/^asset:/, "")));
-  return (
-    <select class={`pg-select ${CTRL}`} aria-label={props.label} title={value ? value.replace(/^asset:/, "") : props.none} disabled={props.readOnly} value={value} onChange={(e) => props.onChange((e.currentTarget as HTMLSelectElement).value)}>
-      <option value="">{props.none}</option>
-      {[...(props.builtins ?? []), ...props.assets].map((ref) => (
-        <option key={ref} value={ref}>
-          {label(ref)}
-        </option>
-      ))}
-      {value && !known.has(value) && <option value={value}>{`${label(value)} (missing)`}</option>}
-    </select>
-  );
-}
-
 /** A block or node input's inline value by type. */
 export function InlineValue(props: {
   type: string;
@@ -274,7 +240,8 @@ export function InlineValue(props: {
   max?: number;
   step?: number;
   unit?: string;
-  assets?: readonly string[];
+  /** For an asset input: the field kinds it takes (ADR 0282). */
+  kinds?: readonly string[];
   readOnly?: boolean;
   onChange(v: GraphInputValue): void;
 }) {
@@ -298,7 +265,7 @@ export function InlineValue(props: {
     case "gradient":
       return <GradientValue gradient={asGradient(fieldOf(value, "gradient"))} label={label} readOnly={readOnly} onChange={(g) => onChange({ gradient: g })} />;
     case "asset":
-      return <AssetValue value={String(value ?? "")} assets={props.assets ?? []} none="(none)" label={label} readOnly={readOnly} onChange={onChange} />;
+      return <AssetPicker class={`pg-select ${CTRL}`} value={String(value ?? "")} kinds={props.kinds ?? []} none="(none)" label={label} disabled={readOnly} onCommit={onChange} />;
     default:
       return <span class="pg-faint">{JSON.stringify(value)}</span>;
   }

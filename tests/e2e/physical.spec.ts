@@ -34,8 +34,8 @@ test("a physical material's fields save to its file", async ({ page, browserName
   const material = page.getByLabel("Material", { exact: true });
   await material.getByRole("combobox", { name: "Shader" }).selectOption("physical");
   for (const [label, value] of [["Clearcoat", "1"], ["Transmission", "0.5"], ["IOR", "1.33"]] as const) {
-    await material.getByRole("spinbutton", { name: label, exact: true }).fill(value);
-    await material.getByRole("spinbutton", { name: label, exact: true }).press("Enter");
+    await material.getByRole("spinbutton", { name: `${label} value`, exact: true }).fill(value);
+    await material.getByRole("spinbutton", { name: `${label} value`, exact: true }).press("Enter");
   }
   await expect.poll(async () => JSON.parse((await readFile(page, "Playground/materials/metal.material.json")) ?? "{}")).toMatchObject({ shader: "physical", clearcoat: 1, transmission: 0.5, ior: 1.33 });
   expect(errors).toEqual([]);

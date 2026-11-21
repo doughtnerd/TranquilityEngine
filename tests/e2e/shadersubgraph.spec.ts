@@ -77,8 +77,7 @@ test("sub-graphs rebuild the materials using them; custom functions, copy and pa
   // The Ground draws with the water graph, which uses shaders/ripple.shadersubgraph.json.
   await row(page, "Ground").click();
   const material = card(page, "MeshRenderer").getByRole("combobox", { name: "material" });
-  await material.fill("materials/water.material.json");
-  await material.press("Enter");
+  await material.selectOption("materials/water.material.json");
   await expect.poll(() => meshMaterial(page, "Ground")).toBe("lit");
   const before = await programs(page);
 
