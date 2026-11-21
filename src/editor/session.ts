@@ -7,7 +7,6 @@ import { Engine, GameObject } from "../engine";
 import { viewport } from "../engine/editor";
 import { pathKey } from "./document";
 import type { FileSystem } from "../engine/platform/FileSystem";
-import { effect } from "@preact/signals";
 import { FsaFileSystem, ensureWritable } from "./fsaFileSystem";
 import { scaffoldProject, type ProjectTemplate } from "./newProject";
 import type { OpenRequest } from "./launcher/handoff";
@@ -15,7 +14,7 @@ import { NO_FOLDERS_NOTE, projectFileSystem } from "./projectFs";
 import { recentProjects, recentVersion, type RecentProject } from "./recentProjects";
 import { confirmDiscard } from "./dialogs";
 import { copySample, findSample, openSampleProject, type SampleInfo } from "./samples";
-import { defaultHistoryPlatform } from "./historyPersistence";
+import { editorPlatform } from "./projectPlace";
 import { historyLocation } from "./preferences";
 import { confirmInEditor } from "./ui/ConfirmDialog";
 import { installSceneView } from "./cameraPreview";
@@ -177,7 +176,7 @@ export async function sceneViewStarted(timeout = 4000): Promise<void> {
 // the preferences say, and stop play mode before the active tab changes.
 const tabs = createSceneTabs({
   world: () => session?.engine.world ?? null,
-  history: { project: () => currentProject.peek(), location: () => historyLocation.peek(), platform: defaultHistoryPlatform },
+  history: { project: () => currentProject.peek(), location: historyLocation, platform: editorPlatform },
   confirm: confirmInEditor,
   beforeSwitch: () => void play.stop(),
 });
@@ -211,12 +210,6 @@ export async function closeScene(scene: OpenScene): Promise<boolean> {
 export function closeScenes(scenes: readonly OpenScene[]): Promise<number> {
   return tabs.close(scenes);
 }
-
-// Switching where history is kept moves writing there right away (the tree is written in full).
-effect(() => {
-  const location = historyLocation.value;
-  void tabs.relocateHistories(location);
-});
 
 /** The folder file system (desktop, or a Chromium browser), or null with a note in the status bar. */
 async function folders(): Promise<FileSystem | null> {

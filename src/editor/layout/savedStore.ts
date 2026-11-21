@@ -5,8 +5,8 @@
 // A layout saved to both places is mirrored: every write from here writes the same file to both, so
 // the two only differ after an outside change (a teammate's commit pulled in); the newer copy wins.
 import { computed, effect, signal } from "@preact/signals";
-import type { StorageBackend } from "../../engine/platform/Storage";
 import type { FileSystem } from "../../engine/platform/FileSystem";
+import { editorPlatform, projectFolder } from "../projectPlace";
 import { persisted } from "../preferences";
 import { joinPath, type EditorProject } from "../projects";
 import { currentProject, status } from "../state";
@@ -34,20 +34,7 @@ import { panels } from "../sdk/contributions";
 import { registeredPanels } from "./registeredPanels";
 import { captureWindowBounds } from "./detached";
 
-/** Where layout files are read and written. */
-export interface LayoutPlatform {
-  /** The platform's file system (Tauri), for projects whose own isn't writable; null in browsers. */
-  fs: FileSystem | null;
-  userStorage: StorageBackend;
-}
-
 const USER_PREFIX = "layouts/";
-
-/** The editor's platform (history's: the FileSystem, and per-user storage). */
-async function platformSource(): Promise<LayoutPlatform> {
-  const { defaultHistoryPlatform } = await import("../historyPersistence");
-  return defaultHistoryPlatform();
-}
 
 /** User layouts, by file name. */
 const userLayouts = signal<ReadonlyMap<string, LayoutFile>>(new Map());
@@ -75,17 +62,17 @@ export function whyNoProjectLayouts(project: EditorProject | null = currentProje
   return null;
 }
 
+/** The file system that writes the project's folder (the same rule as edit histories', ADR 0316), or null. */
 async function projectFs(project: EditorProject): Promise<FileSystem | null> {
-  if (project.fileSystem?.canWrite) return project.fileSystem;
-  return (await platformSource()).fs;
+  return projectFolder(project, await editorPlatform())?.write ?? null;
 }
 
 async function readProjectLayouts(project: EditorProject | null): Promise<Map<string, LayoutFile>> {
   const out = new Map<string, LayoutFile>();
-  if (!project?.root) return out;
-  const fs = project.fileSystem ?? (await platformSource()).fs;
-  if (!fs) return out;
-  const folder = joinPath(project.root, LAYOUTS_FOLDER);
+  const place = project ? projectFolder(project, await editorPlatform()) : null;
+  const fs = place?.read;
+  if (!place || !fs) return out;
+  const folder = joinPath(place.root, LAYOUTS_FOLDER);
   try {
     if (!(await fs.exists(folder))) return out;
     for (const entry of await fs.list(folder)) {
@@ -102,7 +89,7 @@ async function readProjectLayouts(project: EditorProject | null): Promise<Map<st
 async function readUserLayouts(): Promise<Map<string, LayoutFile>> {
   const out = new Map<string, LayoutFile>();
   try {
-    const storage = (await platformSource()).userStorage;
+    const storage = (await editorPlatform()).userStorage;
     for (const key of await storage.list("settings")) {
       if (!key.startsWith(USER_PREFIX)) continue;
       const name = key.slice(USER_PREFIX.length);
@@ -131,7 +118,7 @@ let writes = 0;
 
 async function writeUser(name: string, file: LayoutFile | null): Promise<void> {
   writes++;
-  const storage = (await platformSource()).userStorage;
+  const storage = (await editorPlatform()).userStorage;
   if (file) await storage.save("settings", USER_PREFIX + name, layoutFileText(file));
   else await storage.delete("settings", USER_PREFIX + name);
   const next = new Map(userLayouts.peek());

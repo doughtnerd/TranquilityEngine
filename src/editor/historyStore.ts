@@ -2,9 +2,9 @@
 // `a` and `b`, written alternately. Every slot carries a generation number and a checksum of its
 // content; loading takes the newest slot that parses and checks out. A failure mid-write can only
 // damage the slot being written, so the other still holds the previous generation. On top of
-// that, project files go through the platform's temp-file-then-rename write.
+// that, project files go through the platform's temp-file-then-rename write. Which slots a document uses is
+// `historyPersistence.ts`'s choice (ADR 0316).
 import type { FileSystem } from "../engine/platform/FileSystem";
-import type { StorageBackend } from "../engine/platform/Storage";
 import { hashText, type HistoryFile } from "./document";
 import { joinPath } from "./projects";
 
@@ -68,7 +68,7 @@ export class HistoryStore {
 
 /**
  * History files in the project folder: `.myco/history/<scene path>.history.<slot>.json`, or under
- * `base` (asset documents use `.myco/asset-history`, ADR 0133).
+ * `base` (asset documents use `.myco/asset-history`, ADR 0141).
  */
 export function projectSlots(fs: FileSystem, root: string, scene: string, base = ".myco/history"): SlotBackend {
   const folder = scene.includes("/") ? scene.slice(0, scene.lastIndexOf("/")) : "";
@@ -82,22 +82,6 @@ export function projectSlots(fs: FileSystem, root: string, scene: string, base =
     async write(slot, text) {
       await fs.mkdir(dir);
       await fs.writeText(file(slot), text);
-    },
-  };
-}
-
-/** History in per-user storage, keyed by project and scene (app data under Tauri, IndexedDB in browsers). */
-export function userSlots(storage: StorageBackend, projectKey: string, scene: string): SlotBackend {
-  const slug = scene.replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "").slice(0, 60);
-  const key = (slot: "a" | "b") => `history-${hashText(`${projectKey}|${scene}`)}-${slug}.${slot}`;
-  return {
-    where: "per-user storage",
-    async read(slot) {
-      const v = await storage.load("cache", key(slot));
-      return typeof v === "string" ? v : null;
-    },
-    async write(slot, text) {
-      await storage.save("cache", key(slot), text);
     },
   };
 }

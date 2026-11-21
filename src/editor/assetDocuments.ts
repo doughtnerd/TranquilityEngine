@@ -11,7 +11,7 @@
 // with its file.
 import { computed, effect, signal, untracked, type ReadonlySignal } from "@preact/signals";
 import { deepEqual } from "../engine/audio/deepEqual";
-import { AssetHistoryPersistence, deleteAssetHistories, moveAssetHistories } from "./assetHistory";
+import { deleteAssetHistories, moveAssetHistories, persistHistory, type HistoryOutcome, type PersistedHistory } from "./historyPersistence";
 import { TextHistory, type HistoryState } from "./document";
 import { errorStatus } from "./messages";
 import { isWithin, type EditorProject } from "./projects";
@@ -90,7 +90,7 @@ class Document<T> implements AssetDocument<T> {
   /** Values of states seen this session, so undo needn't parse the text back (others are parsed). */
   private values = new Map<number, T>();
   /** Saves the tree; null on a read-only project. */
-  private readonly persistence: AssetHistoryPersistence | null;
+  private readonly persistence: PersistedHistory | null;
   /** Bumped when the tree or the pending burst change, for canUndo/canRedo and the History panel. */
   private readonly historyVersion = signal(0);
   /** The value before a coalesced burst that hasn't been written yet, with its write timer and label. */
@@ -139,13 +139,15 @@ class Document<T> implements AssetDocument<T> {
       forward: () => this.go(() => this.tree.forward()),
     };
     this.persistence = project.canSave
-      ? new AssetHistoryPersistence({
+      ? persistHistory({
           project,
+          kind: "asset",
           tree: this.tree,
-          loaded: (result) => this.historyLoaded(result),
+          path: () => this.tree.path,
           saveFailed: (err) => (status.value = errorStatus(`Couldn't save the edit history for ${this.path}`, err)),
         })
       : null;
+    void this.persistence?.loaded.then((outcome) => this.historyLoaded(outcome));
     this.stopWatching = effect(() => {
       docVersion.value;
       untracked(() => this.reread());
@@ -319,15 +321,16 @@ class Document<T> implements AssetDocument<T> {
   }
 
   /** The saved history was looked for when the document opened. */
-  private historyLoaded(result: { adopted: true; ahead: boolean } | { adopted: false }): void {
-    if (this.closed) return;
-    if (!result.adopted) {
-      status.value = { kind: "info", text: `${this.path} changed outside the editor, so its saved edit history no longer applies; starting a new one.` };
+  private historyLoaded(outcome: HistoryOutcome): void {
+    if (this.closed || outcome.kind === "new") return;
+    if (outcome.kind === "set aside") {
+      // Edits made while it loaded start their own history (ADR 0316): nothing to tell.
+      if (outcome.why === "changed") status.value = { kind: "info", text: `${this.path} changed outside the editor, so its saved edit history no longer applies; starting a new one.` };
       return;
     }
     this.values = new Map([[this.tree.current, this.value.peek()]]);
     this.historyVersion.value++;
-    if (result.ahead) {
+    if (outcome.ahead !== null) {
       status.value = { kind: "info", text: `${this.path} had edits that weren't written when the editor closed. They're in its edit history: Redo, or the History panel, brings them back.` };
     }
   }

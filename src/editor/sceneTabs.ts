@@ -5,13 +5,14 @@
 //
 // The session (session.ts) owns the project and play lifecycles and hands this module its seams:
 // the Editor World tabs build into, where histories are kept, and the confirm dialog.
-import { batch } from "@preact/signals";
+import { batch, type ReadonlySignal } from "@preact/signals";
 import { Assets, Camera, DEG2RAD, GameObject, type Engine } from "../engine";
 import type { World } from "../engine/core/World";
 import { CommandStack, SceneDocument, WorldSync, type SceneFile } from "./document";
-import { attachHistory, slotsFor, type AttachedHistory, type HistoryLocation, type HistoryPlatform } from "./historyPersistence";
+import { persistHistory, sceneHistory, type HistoryLocation, type HistoryOutcome, type PersistedHistory } from "./historyPersistence";
 import { errorStatus } from "./messages";
 import type { ViewMode } from "./OrbitCamera";
+import type { EditorPlatform } from "./projectPlace";
 import type { EditorProject } from "./projects";
 import { sceneOpenMigrations } from "./sdk/contributions";
 import { docVersion, openScene, openScenes, sceneCamera, selectedKeys, setViewMode, status, viewMode, type OpenScene } from "./state";
@@ -52,8 +53,9 @@ export interface SceneTabSeams {
   history?: {
     /** The open project, or null (no history then). Read untracked. */
     project(): EditorProject | null;
-    location(): HistoryLocation;
-    platform(): Promise<HistoryPlatform>;
+    /** Where histories are kept; open tabs follow a change. */
+    readonly location: ReadonlySignal<HistoryLocation>;
+    platform(): Promise<EditorPlatform>;
   };
   /** Ask the user (closing tabs with unsaved changes, restoring unsaved changes). */
   confirm(options: ConfirmOptions): Promise<{ readonly ok: boolean }>;
@@ -65,7 +67,8 @@ export interface SceneTabs {
   /**
    * Open a scene or prefab in a tab of its own, or switch to its tab if it's open already. Other
    * tabs keep their unsaved changes. If it can't be opened, the previous tab comes back and the
-   * status bar says why. Its history, restore offer and migrations follow in the background (`settled`).
+   * status bar says why. The tab opens once its saved history is read (ADR 0316: no edit can race the load); the
+   * restore offer and migrations follow in the background (`settled`).
    */
   open(path: string): Promise<void>;
   /** Switch to the open tab `scene` (unsaved changes in the others stay). */
@@ -78,8 +81,6 @@ export interface SceneTabs {
   close(scenes: readonly OpenScene[]): Promise<number>;
   /** Close every tab without asking (the project is closing) and stop saving their histories. */
   closeAll(): Promise<void>;
-  /** Write the open tabs' histories to `location` from now on. */
-  relocateHistories(location: HistoryLocation): Promise<void>;
   /** Resolves once background work is done: opened tabs' history, restore offer and migrations, closed tabs' last history writes. */
   settled(): Promise<void>;
 }
@@ -90,8 +91,8 @@ interface TabView {
   camera: { mode: ViewMode; focus: number[]; distance: number; yaw: number; pitch: number } | null;
 }
 const tabViews = new WeakMap<OpenScene, TabView>();
-/** Each open tab's edit history on disk (ADR 0027), kept saving while the tab is open. */
-const histories = new Map<OpenScene, AttachedHistory>();
+/** Each open tab's edit history on disk (ADR 0027, 0316), kept saving while the tab is open. */
+const histories = new Map<OpenScene, PersistedHistory>();
 
 /** Background work in flight: opened tabs' history, restore offer and migrations, closed tabs' last history writes. */
 const running = new Set<Promise<void>>();
@@ -112,9 +113,22 @@ function show(tabs: readonly OpenScene[], active: OpenScene | null): void {
   });
 }
 
-/** Read `path` into a document and build its nodes in `world`. Throws (leaving nothing behind) if it can't. */
-function load(world: World, path: string): OpenScene {
+/** A scene file read into a document and its command stack, not yet built into a World. */
+interface ReadScene {
+  doc: SceneDocument;
+  stack: CommandStack;
+}
+
+/** Read `path` into a document and its command stack. Throws if it can't. */
+function read(path: string): ReadScene {
   const doc = new SceneDocument(Assets.json<SceneFile>(path), path);
+  const stack = new CommandStack(doc);
+  stack.files = editorTextFiles; // UI document edits (ADR 0077) write their files in the same history
+  return { doc, stack };
+}
+
+/** Build a read scene's nodes in `world`. Throws (leaving nothing behind) if it can't. */
+function build(world: World, path: string, { doc, stack }: ReadScene): OpenScene {
   const sync = new WorldSync(world, doc);
   try {
     sync.build();
@@ -122,8 +136,6 @@ function load(world: World, path: string): OpenScene {
     sync.dispose();
     throw err;
   }
-  const stack = new CommandStack(doc);
-  stack.files = editorTextFiles; // UI document edits (ADR 0077) write their files in the same history
   sync.attach(stack);
   stack.subscribe(() => docVersion.value++);
   return { path, doc, stack, sync };
@@ -172,7 +184,7 @@ function forget(scene: OpenScene): void {
   tabViews.delete(scene);
   const h = histories.get(scene);
   histories.delete(scene);
-  if (h) track(h.detach());
+  if (h) track(h.stop());
 }
 
 /** Match the scene view to the scene's own camera: 2D for orthographic scenes, centred on it. */
@@ -223,26 +235,15 @@ export function createSceneTabs(seams: SceneTabSeams): SceneTabs {
   }
 
   /**
-   * Load the tab's saved history and keep saving it. If the editor closed with unsaved changes,
+   * What the tab's saved history held, once it's open (ADR 0027). If the editor closed with unsaved changes,
    * offer them back; declining keeps them in the history (redo, History panel).
    */
-  async function attach(scene: OpenScene): Promise<void> {
-    const h = seams.history, project = h?.project();
-    if (!h || !project) return;
-    const slots = slotsFor(project, scene.path, h.location(), await h.platform());
-    if (!isOpen(scene)) return;
-    const attached = await attachHistory(scene.stack, scene.path, slots, (err) => {
-      status.value = errorStatus(`Couldn't save the edit history for ${scene.path}`, err);
-    });
-    if (!isOpen(scene) || histories.has(scene)) {
-      await attached.detach();
-      return;
-    }
-    histories.set(scene, attached);
-    if (attached.mismatched) {
+  async function offerHistory(scene: OpenScene, outcome: HistoryOutcome): Promise<void> {
+    if (outcome.kind === "set aside" && outcome.why === "changed") {
       status.value = { kind: "info", text: `${scene.path} changed outside the editor, so its saved edit history no longer applies; starting a new one.` };
     }
-    const r = attached.restorable;
+    if (outcome.kind !== "adopted" || outcome.ahead === null) return;
+    const r = scene.stack.allStates.find((x) => x.seq === outcome.ahead);
     if (!r) return;
     const answer = await seams.confirm({
       title: "Restore unsaved changes?",
@@ -272,14 +273,68 @@ export function createSceneTabs(seams: SceneTabSeams): SceneTabs {
     }
   }
 
-  async function afterOpen(scene: OpenScene): Promise<void> {
+  async function afterOpen(scene: OpenScene, outcome: HistoryOutcome): Promise<void> {
+    await offerHistory(scene, outcome);
+    await migrate(scene);
+  }
+
+  /** Scenes being read (their history loading), by path, so opening one twice makes one tab. */
+  const opening = new Map<string, Promise<void>>();
+  /** Bumped by `closeAll`: a scene still loading its history when the project closes doesn't open. */
+  let epoch = 0;
+
+  /** Start keeping `stack`'s history, or null without a project. */
+  function startHistory(path: string, stack: CommandStack): PersistedHistory | null {
+    const h = seams.history, project = h?.project();
+    if (!h || !project) return null;
+    return persistHistory({
+      project,
+      kind: "scene",
+      tree: sceneHistory(stack, path),
+      path: () => path,
+      location: h.location,
+      platform: h.platform,
+      saveFailed: (err) => (status.value = errorStatus(`Couldn't save the edit history for ${path}`, err)),
+    });
+  }
+
+  async function openNew(path: string): Promise<void> {
+    const world = seams.world();
+    if (!world) return;
+    let file: ReadScene;
     try {
-      await attach(scene);
+      file = read(path);
     } catch (err) {
-      status.value = errorStatus(`Couldn't load the edit history for ${scene.path}`, err);
+      status.value = errorStatus(`Couldn't open ${path}`, err);
       return;
     }
-    await migrate(scene);
+    // The saved history first, so the tab is never editable before it's adopted or set aside.
+    const started = epoch;
+    const history = startHistory(path, file.stack);
+    const outcome: HistoryOutcome = history ? await history.loaded : { kind: "new" };
+    if (epoch !== started || seams.world() !== world) {
+      if (history) track(history.stop());
+      return;
+    }
+    seams.beforeSwitch?.();
+    const previous = openScene.peek();
+    if (previous) putAside(previous);
+    let scene: OpenScene;
+    try {
+      scene = build(world, path, file);
+    } catch (err) {
+      if (history) track(history.stop());
+      status.value = errorStatus(`Couldn't open ${path}`, err);
+      if (previous) bringBack(openScenes.peek(), previous);
+      return;
+    }
+    if (history) {
+      histories.set(scene, history);
+      scene.stack.subscribe(() => history.save());
+    }
+    status.value = null;
+    enter([...openScenes.peek(), scene], scene, world);
+    track(afterOpen(scene, outcome));
   }
 
   return {
@@ -287,22 +342,11 @@ export function createSceneTabs(seams: SceneTabSeams): SceneTabs {
       if (openScene.peek()?.path === path) return;
       const tab = openScenes.peek().find((s) => s.path === path);
       if (tab) return activate(tab);
-      const world = seams.world();
-      if (!world) return;
-      seams.beforeSwitch?.();
-      const previous = openScene.peek();
-      if (previous) putAside(previous);
-      let scene: OpenScene;
-      try {
-        scene = load(world, path);
-      } catch (err) {
-        status.value = errorStatus(`Couldn't open ${path}`, err);
-        if (previous) bringBack(openScenes.peek(), previous);
-        return;
-      }
-      status.value = null;
-      enter([...openScenes.peek(), scene], scene, world);
-      track(afterOpen(scene));
+      const pending = opening.get(path);
+      if (pending) return pending;
+      const work = openNew(path).finally(() => opening.delete(path));
+      opening.set(path, work);
+      return work;
     },
 
     activate,
@@ -336,19 +380,13 @@ export function createSceneTabs(seams: SceneTabSeams): SceneTabs {
     },
 
     async closeAll() {
+      epoch++;
       openScene.peek()?.sync.dispose(); // the others were put aside already
       show([], null);
       select([]);
-      const detaching = [...histories.values()].map((h) => h.detach());
+      const detaching = [...histories.values()].map((h) => h.stop());
       histories.clear();
       await Promise.all(detaching);
-    },
-
-    async relocateHistories(location) {
-      const project = seams.history?.project();
-      if (!seams.history || !project || histories.size === 0) return;
-      const p = await seams.history.platform();
-      await Promise.all([...histories].map(([scene, h]) => h.relocate(slotsFor(project, scene.path, location, p))));
     },
 
     async settled() {
@@ -373,7 +411,7 @@ export function openSceneFile(engine: Engine, path: string): void {
   const rest = tabs.filter((s) => s !== previous);
   let scene: OpenScene;
   try {
-    scene = load(world, path);
+    scene = build(world, path, read(path));
   } catch (err) {
     show(rest, null);
     docVersion.value++;

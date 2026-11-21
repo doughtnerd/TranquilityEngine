@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { defaultHistoryPlatform } from "./historyPersistence";
+import { editorPlatform } from "./projectPlace";
 import type { PluginManifest } from "../plugins/manifest";
 import { openTypes } from "./layout/model";
 import { applyDefaultLayout, saveLayoutAs, savedLayouts } from "./layout/savedStore";
@@ -40,7 +40,7 @@ async function run(draft: SettingsDraft, name: string, on: boolean, answers: Plu
 }
 
 beforeEach(async () => {
-  const storage = (await defaultHistoryPlatform()).userStorage; // the editor's own: in-memory under Node
+  const storage = (await editorPlatform()).userStorage; // the editor's own: in-memory under Node
   for (const key of await storage.list("settings")) await storage.delete("settings", key);
   // Read the layouts again without a project, as closing one does (in-memory storage: a task turn finishes the read).
   await openTestProject();
