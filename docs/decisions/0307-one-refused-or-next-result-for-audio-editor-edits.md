@@ -1,6 +1,6 @@
 # 0307. One refused-or-next result for audio editor edits
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0313 (every settings edit and the guarded tree edits return the result; the music panels apply it through one node handle)
 - **Date:** 2026-11-21
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
