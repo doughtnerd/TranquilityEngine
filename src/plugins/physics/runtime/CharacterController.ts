@@ -1,5 +1,4 @@
 import { physics3DOf } from "./systems3d";
-import { GameBehavior } from "../../../engine/core/Component";
 import { Vector3, type Vec3Like } from "../../../engine/core/math";
 import { component, field } from "../../../engine/core/registry";
 import type { GameObject } from "../../../engine/scene/GameObject";
@@ -98,7 +97,7 @@ export class CharacterController extends Collider {
     }
     this._flags = result.flags;
     this.setVelocity(result.movement.x, result.movement.y, result.movement.z);
-    for (const hit of result.hits) dispatchHit(this, hit);
+    for (const hit of result.hits) this._world._sendMessage([this.node, this.owner], "onControllerColliderHit", hit);
     return this._flags;
   }
 
@@ -127,20 +126,5 @@ export class CharacterController extends Collider {
   /** @internal The controller's tuning, as the backend reads it. */
   _settingsSignature(): string {
     return [this.slopeLimit, this.stepOffset, this.skinWidth, this.snapToGround, this.pushBodies, this.mass].join("|");
-  }
-}
-
-/** Call `onControllerColliderHit` on the controller's node's (and owner's) active behaviors. */
-function dispatchHit(cc: CharacterController, hit: ControllerColliderHit): void {
-  const nodes = new Set([cc.node, cc.owner]);
-  for (const node of nodes) {
-    for (const comp of [...node.getBehaviors(GameBehavior)]) {
-      if (!comp.isActiveAndEnabled || !comp.onControllerColliderHit) continue;
-      try {
-        comp.onControllerColliderHit(hit);
-      } catch (err) {
-        console.error(`[myco] ${comp.constructor.name}.onControllerColliderHit threw:`, err);
-      }
-    }
   }
 }

@@ -9,7 +9,7 @@
 import { GameObject, type InstantiateOptions } from "../scene/GameObject";
 import { instantiatePrefab } from "../scene/SceneLoader";
 import { Transform } from "../scene/Transform";
-import { Component, GameBehavior, type FrameHook, type PendingWait } from "./Component";
+import { Component, GameBehavior, type FrameHook, type MessageHook, type MessageArgs, type PendingWait } from "./Component";
 import { DataStore, type BufferDef, type DataComponentDef } from "./data";
 import { Mat4 } from "./math";
 import { QueryRows, type Rows } from "./rows";
@@ -976,12 +976,32 @@ export class World {
     return this.alive[e] === 1;
   }
 
+  /**
+   * @internal Send a behaviour message (ADR 0303): call `hook` with `args` on the active GameBehaviors
+   * of `nodes` that define it. The caller (a physics plugin) decides who hears the message and with
+   * what; the World owns how it is delivered: each node once (duplicates and destroyed nodes are
+   * skipped), its components snapshotted first (a hook may add or remove components), none inside
+   * a scene being edited (ADR 0026), and a hook that throws or returns a Promise that rejects is
+   * logged with the behaviour's name, as lifecycle hooks are.
+   */
+  _sendMessage<H extends MessageHook>(nodes: Iterable<GameObject>, hook: H, ...args: MessageArgs<H>): void {
+    const seen = new Set<number>();
+    for (const node of nodes) {
+      if (seen.has(node.entity) || !node.isValid) continue;
+      seen.add(node.entity);
+      for (const c of [...this.componentsOf[node.entity]]) {
+        if (c instanceof GameBehavior && c.isActiveAndEnabled && c[hook]) this.invoke(c, hook, args);
+      }
+    }
+  }
+
   // --- internals ----------------------------------------------------------------------------
 
-  private invoke(b: GameBehavior, hook: keyof GameBehavior): void {
+  /** Call one hook on one behaviour: the edit-mode gate, error and async rules every hook shares. */
+  private invoke(b: GameBehavior, hook: keyof GameBehavior, args: readonly unknown[] = []): void {
     if (this.inEditMode(b._node.entity)) return; // scripts don't run in a scene being edited (ADR 0026)
     try {
-      const result = (b[hook] as () => unknown).call(b);
+      const result = (b[hook] as (...a: unknown[]) => unknown).apply(b, args as unknown[]);
       if (result instanceof Promise) {
         result.catch((err) => console.error(`[myco] ${b.constructor.name}.${String(hook)} rejected:`, err));
       }
