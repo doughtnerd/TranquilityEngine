@@ -6,12 +6,12 @@
 import { GameObject, type Engine } from "../../../engine";
 import { Joint, Joint2D, AxisJoint, AxisJoint2D, BallJoint, FixedJoint, FixedJoint2D, HingeJoint, HingeJoint2D, RopeJoint, RopeJoint2D, SliderJoint, SliderJoint2D, SpringJoint, SpringJoint2D } from "../runtime";
 import type { EditorOverlay } from "../../../engine/editor";
-import { worldCenter } from "./collider3dMath";
 import { toWorld } from "./colliderMath";
 import { jointWire, type JointKind, type JointShape, type V3 } from "./jointMath";
-import { poseOf, pose3DOf } from "./colliderGizmo";
-import { rotate } from "./collider3dMath";
-import { type ViewportToolContribution, editor } from "../../../editor/sdk";
+import { poseOf } from "./colliderGizmo";
+import { type ViewportToolContribution, editor, shapeKit3d } from "../../../editor/sdk";
+
+const { pose3DOf, rotate, worldCenter } = shapeKit3d;
 
 const COLOR = 0xe8a33d;
 const COLOR_SELECTED = 0xffcf70;

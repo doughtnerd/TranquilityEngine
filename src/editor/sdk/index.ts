@@ -54,3 +54,6 @@ export { registerAssetDropTarget, draggedAssets, type AssetDropTargetSpec, type 
 // prefix, built-ins, the missing state), and a slider and a colour field that report drags by one commit rule.
 export { AssetPicker, type AssetPickerProps } from "../ui/AssetPicker";
 export { ColorField, SliderField, type ColorFieldProps, type SliderFieldProps, type ValueReport } from "../ui/valueControls";
+// The 3D shape kit (ADR 0295): pose maths, wireframes, the face, radius and blend-shell handle rules and the axis drag
+// that 3D handle gizmos build their shape tables from.
+export * as shapeKit3d from "../shapeKit3d";

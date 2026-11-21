@@ -16,6 +16,7 @@
  * compile, a missing bootstrap script or scene, an output folder that isn't empty), 2 for bad
  * arguments. Node runs it from source through `cli.mjs` and the server's TypeScript hooks.
  */
+import { parseCommandLine, readCommandLine, UsageError, type Command } from "../server/commandLine";
 import { ExportError, ServerError, exportProject, type ExportOptions, type ExportTarget } from "./node";
 
 export const USAGE = `Usage: npm run export -- <projectDir> [options]
@@ -32,68 +33,36 @@ Options:
   --no-build       Desktop: only write the Tauri project
   -h, --help       Show this help`;
 
-export class UsageError extends Error {}
+const EXPORT_COMMAND: Command<ExportOptions> = {
+  argument: "project folder",
+  verb: "export",
+  options: {
+    "--out": { takes: "a folder", set: (o, v) => void (o.out = v) },
+    "--target": {
+      takes: "web or desktop",
+      set: (o, v) => {
+        if (v !== "web" && v !== "desktop") throw new UsageError(`--target is web or desktop (got ${JSON.stringify(v)}).`);
+        o.target = v as ExportTarget;
+      },
+    },
+    "--scene": { takes: "a scene path", set: (o, v) => void (o.mainScene = v.replace(/\\/g, "/").replace(/^\.?\//, "")) },
+    "--audio-capture": { set: (o) => void (o.audioCapture = true) },
+    "--build": { set: (o) => void (o.tauriBuild = true) },
+    "--no-build": { set: (o) => void (o.tauriBuild = false) },
+  },
+};
 
+/** `argv` (without node and the script) as export options, or `"help"`. Throws a `UsageError`. */
 export function parseArgs(argv: readonly string[]): ExportOptions | "help" {
-  const options: Partial<ExportOptions> = {};
-  const positional: string[] = [];
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i];
-    const [flag, inline] = arg.startsWith("--") && arg.includes("=") ? [arg.slice(0, arg.indexOf("=")), arg.slice(arg.indexOf("=") + 1)] : [arg, undefined];
-    const value = () => {
-      const v = inline ?? argv[++i];
-      if (!v || v.startsWith("-")) throw new UsageError(`${flag} needs a value.`);
-      return v;
-    };
-    switch (flag) {
-      case "-h":
-      case "--help":
-        return "help";
-      case "--out":
-        options.out = value();
-        break;
-      case "--target": {
-        const t = value();
-        if (t !== "web" && t !== "desktop") throw new UsageError(`--target is web or desktop (got ${JSON.stringify(t)}).`);
-        options.target = t as ExportTarget;
-        break;
-      }
-      case "--scene":
-        options.mainScene = value().replace(/\\/g, "/").replace(/^\.?\//, "");
-        break;
-      case "--audio-capture":
-        options.audioCapture = true;
-        break;
-      case "--build":
-        options.tauriBuild = true;
-        break;
-      case "--no-build":
-        options.tauriBuild = false;
-        break;
-      default:
-        if (arg.startsWith("-")) throw new UsageError(`Unknown option ${arg}.`);
-        positional.push(arg);
-    }
-  }
-  if (positional.length === 0) throw new UsageError("Give the project folder to export.");
-  if (positional.length > 1) throw new UsageError(`Give one project folder (got ${positional.map((p) => JSON.stringify(p)).join(", ")}).`);
-  if (options.tauriBuild !== undefined && options.target !== "desktop") throw new UsageError("--build and --no-build go with --target desktop.");
-  return { ...options, projectDir: positional[0] };
+  const parsed = parseCommandLine(argv, EXPORT_COMMAND);
+  if (parsed === "help") return parsed;
+  if (parsed.options.tauriBuild !== undefined && parsed.options.target !== "desktop") throw new UsageError("--build and --no-build go with --target desktop.");
+  return { ...parsed.options, projectDir: parsed.argument };
 }
 
 export async function main(argv: readonly string[]): Promise<number> {
-  let options: ExportOptions | "help";
-  try {
-    options = parseArgs(argv);
-  } catch (err) {
-    if (!(err instanceof UsageError)) throw err;
-    console.error(`export: ${err.message}\n\n${USAGE}`);
-    return 2;
-  }
-  if (options === "help") {
-    console.log(USAGE);
-    return 0;
-  }
+  const options = readCommandLine("export", USAGE, () => parseArgs(argv));
+  if (typeof options === "number") return options;
   try {
     const result = await exportProject({ ...options, log: (line) => console.log(line) });
     if (result.web === result.out) console.log(`Done. To play it here: node "${result.out.replace(/\\/g, "/")}/serve.mjs", then open the address it prints.`);

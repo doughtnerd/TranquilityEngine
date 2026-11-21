@@ -35,8 +35,9 @@ import { musicPlayers, planStepDone, type MusicFrame, type MusicPlayer } from ".
 import { adoptPlan, adoptSuccessor, cancelSuccessor, clearPlan, commitStart, noteStartHeard, primeStart, refuseStart, waitForRoom } from "./musicPlayer";
 import { withStartPosition } from "./startPosition";
 import {
-  cancelRun, createSegmentRun, groupRequest, pollPrimed, primeRun, segmentClipSource, stampRun, type SegmentRun,
+  cancelRun, createSegmentRun, groupRequest, pollPrimed, primeRun, stampRun, type SegmentRun,
 } from "./segmentRun";
+import { clipFacts } from "../clipResolver";
 
 /** The margin on Ê in the lead (ADR 0167 §1). */
 export const PRIME_LEAD_FACTOR = 1.25;
@@ -314,7 +315,7 @@ function neverFits(player: MusicPlayer, run: SegmentRun, music: MusicBackend): {
   const pool = ringPoolOf(music);
   if (pool === undefined) return null;
   const own = streamedCount(run);
-  const alone = Math.max(own, segmentRingNeed(run.node as SegmentNode, segmentClipSource().facts).rings);
+  const alone = Math.max(own, segmentRingNeed(run.node as SegmentNode, clipFacts).rings);
   if (alone > pool) return { need: alone, pool, beside: false };
   const playing = player.run !== run ? streamedCount(player.run) : 0;
   if (own + playing > pool) return { need: own + playing, pool, beside: true };

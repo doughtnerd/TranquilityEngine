@@ -436,3 +436,63 @@ function createWriterBytes(n: number): Uint8Array {
   w.writeVarUint(n);
   return w.finish();
 }
+
+describe("the wire header (T10)", () => {
+  /** LEB128, as the wire format specifies it: 7 bits per byte, low groups first, high bit = more. */
+  const leb128 = (n: number): number[] => {
+    const out: number[] = [];
+    for (; n >= 0x80; n = Math.floor(n / 0x80)) out.push((n % 0x80) | 0x80);
+    return [...out, n];
+  };
+  const decode = (data: Uint8Array, at: number): [number, number] => {
+    let value = 0;
+    for (let scale = 1; ; scale *= 0x80) {
+      const byte = data[at++];
+      value += (byte & 0x7f) * scale;
+      if (!(byte & 0x80)) return [value, at];
+    }
+  };
+
+  /** A client World connected to a raw loopback server this test speaks for, by hand. */
+  async function rawServer(address: string) {
+    const raw = createTransport("loopback", { now });
+    await raw.listen(address);
+    const game = await create({ worlds: [{ name: "Client", tags: ["client"] }] });
+    game.findWorld("Client")!.connect(address, "loopback", { now });
+    step(game, 1);
+    const hello = raw.poll().find((e) => e.kind === "data");
+    if (hello?.kind !== "data") throw new Error("no hello");
+    return { raw, game, hello };
+  }
+
+  it("frames each message as the kind and the sender's tick, LEB128 varuints, then the body, both ways", async () => {
+    const { raw, game, hello } = await rawServer("test-session-wire");
+    expect([...hello.data.slice(0, 2)]).toEqual([0, 0]); // hello, tick 0
+    // Welcome (kind 1) at server tick 300: [0xac, 0x02]. The body: connection id 7, then the server's position.
+    const body = createBitWriter();
+    body.writeVarUint(7);
+    body.writeVarUint(300);
+    body.writeBits(0, 8);
+    expect(leb128(300)).toEqual([0xac, 0x02]);
+    hello.connection.send("reliable", Uint8Array.from([1, ...leb128(300), ...body.finish()]));
+    step(game, 2);
+    expect(connections(world(game, "Client"))).toMatchObject([{ id: 7, state: ConnectionState.open }]);
+    // The client's pings (kind 2) carry the server tick it predicts, past 300: two bytes, canonical LEB128.
+    const ping = raw.poll().find((e) => e.kind === "data" && e.data[0] === 2);
+    if (ping?.kind !== "data") throw new Error("no ping");
+    const [tick, end] = decode(ping.data, 1);
+    expect(tick).toBeGreaterThanOrEqual(300);
+    expect([...ping.data.slice(1, end)]).toEqual(leb128(tick));
+    raw.close();
+  });
+
+  it("closes a connection whose message header is cut short", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { raw, game, hello } = await rawServer("test-session-wire-short");
+    hello.connection.send("reliable", Uint8Array.from([1, 0x80]));
+    step(game, 2);
+    const close = raw.poll().find((e) => e.kind === "close");
+    expect(close?.kind === "close" && close.reason).toMatch(/protocol error: malformed message header/);
+    raw.close();
+  });
+});

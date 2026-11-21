@@ -1,6 +1,6 @@
 # 0077. UI is authored as markup documents with stylesheets, driven by scripts, and edited in the scene view
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0298 (where an element is written and its path are the UI document's answers, `ui/documentSource.ts`)
 - **Date:** 2026-11-05
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

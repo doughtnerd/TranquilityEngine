@@ -28,7 +28,7 @@ import { OrbitCamera } from "./OrbitCamera";
 import { createPlaySession } from "./playSession";
 import { saveOpenScene } from "./project";
 import { createSceneTabs } from "./sceneTabs";
-import { applyEditorPlugins } from "../plugins/editorPlugins";
+import { applyProjectPlugins } from "../plugins/editorPlugins";
 import { loadProjectCode, unloadThirdPartyPlugins } from "../plugins/thirdPartyEditor";
 import { editorSettings, joinPath, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
 import { currentProject, docVersion, openScene, playing, sceneCamera, scriptProblems, scriptsVersion, status, viewMode, type OpenScene } from "./state";
@@ -116,7 +116,7 @@ async function loadProject(project: EditorProject): Promise<void> {
   resetAssetBrowser();
   // The first-party plugins before the scripts and scenes: a disabled plugin's Components are gone (ADR 0133),
   // and the previous project's third-party plugins go. Problems are reported with the script problems below.
-  applyEditorPlugins(project.settings.plugins?.disabled, { thirdParty: [], layout: "reload" });
+  applyProjectPlugins(project.settings.plugins?.disabled); // the panel layout stays as the session left it
   const scripts = await loadProjectCode(project); // scripts and third-party plugins, then first- and third-party applied together (ADR 0139, 0144)
   scriptProblems.value = scripts.problems;
   scriptsVersion.value++;

@@ -19,7 +19,7 @@ import { rebuildHost, type RebuildOutcome } from "./recovery";
 import { BackgroundController, type VisibilitySource } from "./background";
 import { Unlock, type UnlockContext } from "./unlock";
 import { createMusicPlayer, musicEarlyStep, type MusicPlayer } from "../music/musicSystem";
-import { setSegmentClipSource } from "../music/segmentRun";
+import { serveMusicClips } from "../music/testing/clips";
 import { audioFrameDriver, endAudioSession } from "../testing";
 
 const RATE = 48_000;
@@ -128,12 +128,7 @@ async function rig() {
   const mixer = new Mixer(defaultAudioSettings());
   // ADR 0221: the production assembly over this host.
   const backend: CoreBackend = assembleCore(host, { clips, clock: loop.clock, mixer, recovery: { now: () => 0, warn: () => {} } }).createBackend();
-  setSegmentClipSource({
-    url: (p) => p,
-    settings: () => ({ volume: 1, stream: false }),
-    bus: () => "Music",
-    facts: () => ({ frames: CLIP_FRAMES, rate: RATE, channels: 1, gapless: true }),
-  });
+  serveMusicClips(null); // ADR 0293: the stems are project assets; their facts are the core's own once decoded
   const page = fakePage();
   const controller = new BackgroundController({ host, target: backend, visibility: page as VisibilitySource, rebuild: async () => "unavailable" }).start();
   backend.addCleanup(() => controller.dispose());

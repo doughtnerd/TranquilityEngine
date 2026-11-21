@@ -19,7 +19,7 @@ import { rebuildHost, type RebuildOutcome } from "./recovery";
 import { BackgroundController, type VisibilitySource } from "./background";
 import { Unlock, type UnlockContext } from "./unlock";
 import { createMusicPlayer, musicEarlyStep, type MusicPlayer } from "../music/musicSystem";
-import { setSegmentClipSource } from "../music/segmentRun";
+import { serveMusicClips } from "../music/testing/clips";
 import { predictDue, seatBeats } from "../music/beatClock";
 import { Audio } from "../Audio";
 import { setAudioBackend } from "../backend";
@@ -150,12 +150,7 @@ async function rig(startInRhythm: boolean) {
   const tick = testing.audioFrameDriver(backend, mixer);
   setAudioBackend(backend);
   host.reconfigure(withRhythm(startInRhythm)); // as `service.ts` does at start: nothing to rebuild
-  setSegmentClipSource({
-    url: (p) => p,
-    settings: () => ({ volume: 1, stream: false }),
-    bus: () => "Music",
-    facts: () => ({ frames: CLIP_FRAMES, rate: RATE, channels: 1, gapless: true }),
-  });
+  serveMusicClips(null); // ADR 0293: the stems are project assets; their facts are the core's own once decoded
   const page = { hidden: false, addEventListener() {}, removeEventListener() {} };
   const controller = new BackgroundController({ host, target: backend, visibility: page as unknown as VisibilitySource, rebuild: async () => "unavailable" }).start();
   backend.addCleanup(() => controller.dispose());

@@ -12,9 +12,10 @@ import { compileSegmentGrid, ticksToSeconds } from "../../../../engine/audio/mus
 import type { MusicClipFacts } from "../../../../engine/audio/musicValidate";
 import { createMusicPlayer, type MusicPlayer } from "./musicSystem";
 import {
-  createSegmentRun, groupRequest, pollPrimed, primeRun, routeGroupEvent, setSegmentClipSource, stampRun,
+  createSegmentRun, groupRequest, pollPrimed, primeRun, routeGroupEvent, stampRun,
   type SegmentRun,
 } from "./segmentRun";
+import { projectBuses, serveMusicClips } from "./testing/clips";
 import { anchorRun, applySlip, nextGridHeard, nextHeard, predictWrap, rebaseAnchors, ticksAt, type GridAnchor } from "./anchors";
 import { adoptSuccessor, attachState, promote } from "./musicPlayer";
 
@@ -42,9 +43,13 @@ function playing(node: SegmentNode, startFrame: number, at: number): { player: M
   return { player, run };
 }
 
-function rig(rate = 48_000, frames = 600 * 48_000): void {
+/** A fake backend registered, whose clip cache reports `facts` (ADR 0293: the clip resolver reads them there). */
+function rig(rate = 48_000, frames = 600 * 48_000): FakeBackend {
   facts = { "a.ogg": { frames, rate, channels: 2, gapless: true }, "b.ogg": { frames, rate, channels: 2, gapless: true } };
-  setSegmentClipSource({ url: (p) => p, settings: () => ({ volume: 1, stream: true }), bus: (o) => o ?? "Master", facts: (p) => facts[p] });
+  const b = makeFakeBackend();
+  setAudioBackend(b);
+  serveMusicClips(b, (p) => facts[p], { stream: true });
+  return b;
 }
 
 /** The heard time of the position `ticks` first heard at or after heard `after` (the anchor's time by default). */
@@ -201,9 +206,7 @@ describe("anchors: slips from group events (§3.6, §4.3)", () => {
   });
 
   it("routeGroupEvent applies the slip of a live group's start (P1's router, the context rate given or read)", () => {
-    rig();
-    const b: FakeBackend = makeFakeBackend();
-    setAudioBackend(b);
+    const b = rig();
     const player = createMusicPlayer(instance(), segment({}));
     const f = musicFrameAt(b, 1);
     const run = createSegmentRun(player, player.root, 0)!;
@@ -226,11 +229,9 @@ describe("anchors: slips from group events (§3.6, §4.3)", () => {
   });
 
   it("with a clock map, a start pins t0 to its start frame's heard time (the stamp's rounding goes)", () => {
-    rig();
-    const b: FakeBackend = makeFakeBackend();
+    const b = rig();
     b.advance(0.25);
     b.startContext(48_000); // its frame 0 is heard at 0.25
-    setAudioBackend(b);
     const player = createMusicPlayer(instance(), segment({}));
     const f = musicFrameAt(b, 1);
     const run = createSegmentRun(player, player.root, 0)!;
@@ -260,6 +261,7 @@ describe("anchors: slips from group events (§3.6, §4.3)", () => {
 describe("groupRequest reads the instance's EventOptions (F-7c)", () => {
   it("bus and priority override the event's, volume multiplies with the event's; a track's bus still wins", () => {
     rig();
+    const restoreBuses = projectBuses(["Music", "Sfx", "Stems"]);
     const node = segment({ tracks: [{ name: "t0", clip: "a.ogg", volume: 0.5 }, { name: "t1", clip: "b.ogg", bus: "Stems" }] });
     const inst = instance({ asset: { bus: "Music", priority: 200, volume: 0.8 }, options: { bus: "Sfx", priority: 9, volume: 0.5 } });
     const player = createMusicPlayer(inst, node);
@@ -273,6 +275,7 @@ describe("groupRequest reads the instance's EventOptions (F-7c)", () => {
     const r2 = groupRequest(plain, createSegmentRun(plain, node, 0)!);
     expect(r2.members.map((m) => [m.play.bus, m.play.priority])).toEqual([["Music", 200], ["Stems", 200]]);
     expect(r2.members[0]!.play.volume).toBeCloseTo(0.4, 12);
+    restoreBuses();
   });
 });
 

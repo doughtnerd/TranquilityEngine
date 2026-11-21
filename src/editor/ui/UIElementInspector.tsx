@@ -2,6 +2,7 @@ import { useState } from "preact/hooks";
 import { useDraftText } from "./draftText";
 import { Color } from "../../engine";
 import type { UIDocumentElement } from "../../engine/ui/UIDocument";
+import { documentFile, elementSource } from "../../engine/ui/documentSource";
 import { openScript } from "../code/codeState";
 import { currentProject, openScene, playState } from "../state";
 import { editorTextFiles } from "../textFiles";
@@ -30,8 +31,8 @@ export function UIElementInspector() {
   playState.value;
   const scene = openScene.value, ref = selectedUIRef();
   const el = scene && ref ? resolveUIElement(scene.sync, ref) : null;
-  if (!el || !ref) return <p class="empty">{editorTextFiles.busy ? "Updating…" : "The selected UI element is gone (its document changed)."}</p>;
-  const where = markupLocation(el);
+  const where = el && markupLocation(el);
+  if (!el || !ref || !where) return <p class="empty">{editorTextFiles.busy ? "Updating…" : "The selected UI element is gone (its document changed)."}</p>;
   const rows = fieldSources(el);
   const type = el.component.constructor.name;
   const readOnly = whyNotEdit({ kind: "ui-documents" });
@@ -68,7 +69,7 @@ export function UIElementInspector() {
           </>
         )}
         <dt>Document</dt>
-        <dd>{el.document._markupPath ?? el.document.document}</dd>
+        <dd>{documentFile(el.document) ?? el.document.document}</dd>
       </dl>
       {!readOnly && !where.synthetic && <MoveToClass key={ref.path} el={el} uiRef={ref} />}
       <section class="component">
@@ -138,7 +139,7 @@ function DraftInput(props: { value: string; label: string; placeholder?: string;
 function writtenText(row: FieldSourceRow, el: UIDocumentElement): string {
   const o = row.origin;
   if (o.kind === "attribute" || o.kind === "binding") return o.attribute.value;
-  if (o.kind === "content") return (el._synthetic ? el.parent?._markup.text : el._markup.text) ?? "";
+  if (o.kind === "content") return elementSource(el)?.text ?? "";
   return attributeText(row.value);
 }
 

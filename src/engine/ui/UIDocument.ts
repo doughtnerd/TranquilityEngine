@@ -20,6 +20,7 @@ import { projectFileKind } from "../scene/projectFiles";
 import type { GameObject } from "../scene/GameObject";
 import { UIButton, UIInputField, type UIComponentType } from "./components";
 import { uiPseudoState, uiTypeOfTag } from "./elementKinds";
+import { childPaths, labelPath } from "./documentSource";
 import type { BindingPart, MarkupElement, ResolvedValue, Selector, SourceProblem, StyleTarget, UIPseudo, UIStylesheet, UITag } from "./document/types";
 
 export type { SourceProblem, UITag } from "./document/types";
@@ -175,7 +176,7 @@ export class UIDocumentElement {
   /** @internal */ _lastValue: string | null = null;
   /** @internal */ _changeFrame = -1;
   /** @internal True for a button's label made from its text content. */ _synthetic = false;
-  /** @internal Its place among the document's static elements (`""` for the root, `/#id`, `/Panel[1]`, `/label`…); null in list rows. */ _path: string | null = null;
+  /** @internal Its static path (the rule is `documentSource.ts`'s); null in list rows and inside them. */ _path: string | null = null;
 
   /** @internal */
   constructor(readonly document: UIDocument) {
@@ -504,17 +505,6 @@ export class UIDocument extends Component {
     return el && el._alive ? el : null;
   }
 
-  /** @internal Editor: the static element at `path` (see `UIDocumentElement._path`), or null. */
-  _elementAt(path: string): UIDocumentElement | null {
-    const root = this.rootElement;
-    if (!root) return null;
-    let found: UIDocumentElement | null = null;
-    walk(root, (el) => {
-      if (!found && el._alive && el._path === path) found = el;
-    });
-    return found;
-  }
-
   /**
    * @internal Editor: an element's cascade as if its pseudo-class state were `state` (the rest as it
    * is now), without writing anything: where a button's `:hover` / `:pressed` colours come from.
@@ -524,9 +514,9 @@ export class UIDocument extends Component {
     return parsers.resolveStyle({ ...el._target, state: { ...el._target.state, ...state } }, el._markup, el._comp.constructor as ComponentClass, this.sheets, el._parent?._resolved ?? null, () => {});
   }
 
-  /** @internal Editor: the markup file the tree was built from (project path), or null before a build. */
-  get _markupPath(): string | null {
-    return this.builtFrom === null ? null : normalizeAssetPath(this.builtFrom) || null;
+  /** @internal The `document` value the tree was last built from, or null before a build (`documentSource.ts`). */
+  get _builtFrom(): string | null {
+    return this.builtFrom;
   }
 
   /** @internal Editor: the stylesheets of the last build, in cascade order. */
@@ -583,7 +573,7 @@ export class UIDocument extends Component {
     const P = parsers;
     if (!P) return;
     const reuse = new Map<string, UIDocumentElement>();
-    if (this.rootElement) collectReusable(this.rootElement, "", reuse);
+    if (this.rootElement) collectReusable(this.rootElement, reuse);
     this.teardown(reuse);
     this.builtFrom = this.document;
     this.problemList = [];
@@ -710,18 +700,12 @@ export class UIDocument extends Component {
     // A button's text content is its label: a Text child.
     if (markup.tag === "Button" && markup.text !== null) {
       const label: MarkupElement = { kind: "element", tag: "Text", attributes: [], children: [], text: markup.text, template: null, span: markup.span, openTagSpan: markup.openTagSpan, file: markup.file };
-      const child = this.build(label, el, null, reuse, `${path}/label`);
+      const child = this.build(label, el, null, reuse, labelPath(path));
       child._synthetic = true;
       el._children.push(child);
     }
-    const counts = new Map<string, number>();
-    for (const childMarkup of markup.children) {
-      const id = childMarkup.attributes.find((a) => a.name === "id")?.value;
-      const n = counts.get(childMarkup.tag) ?? 0;
-      counts.set(childMarkup.tag, n + 1);
-      const childPath = scope ? "" : `${path}/${id ? `#${id}` : `${childMarkup.tag}[${n}]`}`;
-      el._children.push(this.build(childMarkup, el, null, scope ? null : reuse, childPath));
-    }
+    const paths = scope ? null : childPaths(path, markup.children);
+    markup.children.forEach((childMarkup, i) => el._children.push(this.build(childMarkup, el, null, scope ? null : reuse, paths?.[i] ?? "")));
     return el;
   }
 
@@ -940,20 +924,10 @@ function walk(el: UIDocumentElement, fn: (el: UIDocumentElement) => void): void 
 }
 
 /** Static elements by their path, so a rebuild hands their handlers to the new elements. */
-function collectReusable(el: UIDocumentElement, path: string, out: Map<string, UIDocumentElement>): void {
-  if (el._scope) return; // rows are made again by list()
-  out.set(path, el);
-  const counts = new Map<string, number>();
-  for (const c of el._children) {
-    if (c._scope) continue;
-    if (c._synthetic) {
-      collectReusable(c, `${path}/label`, out);
-      continue;
-    }
-    const n = counts.get(c.tag) ?? 0;
-    counts.set(c.tag, n + 1);
-    collectReusable(c, `${path}/${c.id ? `#${c.id}` : `${c.tag}[${n}]`}`, out);
-  }
+function collectReusable(el: UIDocumentElement, out: Map<string, UIDocumentElement>): void {
+  if (el._path === null) return; // rows (and what's in them) are made again by list()
+  out.set(el._path, el);
+  for (const c of el._children) collectReusable(c, out);
 }
 
 function dropElement(el: UIDocumentElement): void {

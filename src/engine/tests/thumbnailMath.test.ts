@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { frameView, MAX_PITCH, moveOrbit, orbitOf, orbitPosition, seededRandom, previewPixels } from "../render/thumbnailMath";
+import { draggedOrbit, frameView, MAX_PITCH, moveOrbit, orbitOf, orbitPosition, seededRandom, previewPixels, wheeledOrbit } from "../render/thumbnailMath";
 
 describe("thumbnail framing (ADR 0061)", () => {
   it("looks at the bounds' centre from the given direction, far enough to fit them", () => {
@@ -56,6 +56,35 @@ describe("preview orbit (ADR 0061)", () => {
     expect(moveOrbit(o, 0, 0, 0.01, 1, 10).distance).toBe(1);
     expect(moveOrbit(o, 0, 0, 100, 1, 10).distance).toBe(10);
     expect(moveOrbit(o, 0, 0, 0, 1, 10).distance).toBe(5); // a zero zoom factor leaves it alone
+  });
+});
+
+describe("the one orbit every preview turns with (ADR 0300)", () => {
+  it("puts yaw 0 in front, on +Z, and growing yaw toward +X", () => {
+    const front = orbitPosition([0, 0, 0], { yaw: 0, pitch: 0, distance: 2 });
+    expect(front.map((v) => +v.toFixed(6))).toEqual([0, 0, 2]);
+    expect(orbitPosition([0, 0, 0], { yaw: 0.3, pitch: 0, distance: 2 })[0]).toBeGreaterThan(0);
+  });
+
+  it("turns with a drag: right grows the yaw (the camera goes round to its left), down raises the camera, 0.01 rad a pixel", () => {
+    const from = { yaw: 1, pitch: 0.2, distance: 4 };
+    const to = draggedOrbit(from, 50, 20, 1, 10);
+    expect(to.yaw).toBeCloseTo(1.5);
+    expect(to.pitch).toBeCloseTo(0.4);
+    expect(to.distance).toBe(4);
+    expect(draggedOrbit(from, 0, 1e4, 1, 10).pitch).toBeCloseTo(MAX_PITCH);
+    // Left-handed (ADR 0164): seen from +Z, a camera looking at the origin has +X on its left.
+    const before = orbitPosition([0, 0, 0], { yaw: 0, pitch: 0, distance: 1 });
+    const after = orbitPosition([0, 0, 0], draggedOrbit({ yaw: 0, pitch: 0, distance: 1 }, 10, 0, 1, 1));
+    expect(after[0]).toBeGreaterThan(before[0]);
+  });
+
+  it("zooms with the wheel by e^(deltaY / 1000), within the limits", () => {
+    const o = { yaw: 0, pitch: 0, distance: 6 };
+    expect(wheeledOrbit(o, 100, 0.5, 60).distance).toBeCloseTo(6 * Math.exp(0.1));
+    expect(wheeledOrbit(o, -100, 0.5, 60).distance).toBeLessThan(6);
+    expect(wheeledOrbit(o, 1e5, 0.5, 60).distance).toBe(60);
+    expect(wheeledOrbit(o, -1e5, 0.5, 60).distance).toBe(0.5);
   });
 });
 

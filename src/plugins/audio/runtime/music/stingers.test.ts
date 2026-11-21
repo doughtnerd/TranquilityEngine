@@ -8,7 +8,8 @@ import type { EventInstance } from "../events/eventRuntime";
 import { parseAudioEvent } from "../../../../engine/audio/eventFormat";
 import type { MusicNode, SegmentNode } from "../../../../engine/audio/musicFormat";
 import { createMusicPlayer, type MusicPlayer } from "./musicSystem";
-import { createSegmentRun, setSegmentClipSource } from "./segmentRun";
+import { createSegmentRun } from "./segmentRun";
+import { projectBuses, serveMusicClips } from "./testing/clips";
 import { tickStingers, triggerOn } from "./stingers";
 import { commitStart, noteStartHeard, promote, stopPlayer } from "./musicPlayer";
 
@@ -33,7 +34,7 @@ let player: MusicPlayer;
 function rig(root: MusicNode): void {
   b = makeFakeBackend();
   setAudioBackend(b);
-  setSegmentClipSource({ url: (p) => p, settings: () => ({ volume: 1, stream: false }), bus: (o) => o ?? "Master", facts: () => undefined });
+  serveMusicClips(b);
   const inst = { group: 7, world: 1, path: "m.audioevent", asset: { bus: "Music" } } as unknown as EventInstance;
   player = createMusicPlayer(inst, root);
   const a = (root as unknown as { children: SegmentNode[] }).children[0]!;
@@ -121,11 +122,13 @@ describe("quantise and the grid", () => {
   });
 
   it("uses its own volume and bus", () => {
+    const restoreBuses = projectBuses(["Music", "Stingers"]);
     rig(rootOf([stinger({ volume: 0.5, bus: "Stingers" })]));
     expect(triggerOn(player.instance, "hit")).toBe(true);
     const play = b.music!.admitted[0]!.members[0]!.play;
     expect(play.bus).toBe("Stingers");
     expect(play.volume).toBeCloseTo(0.5, 9);
+    restoreBuses();
   });
 });
 
@@ -167,7 +170,7 @@ describe("ifTooLate", () => {
 
   it("a streamed stinger that finds its point inside its prime lead applies ifTooLate when primed", () => {
     rig(rootOf([stinger({ ifTooLate: "skip" })]));
-    setSegmentClipSource({ url: (p) => p, settings: () => ({ volume: 1, stream: true }), bus: (o) => o ?? "Master", facts: () => undefined });
+    serveMusicClips(b, {}, { stream: true });
     player.counters.leadMs = 200;
     at(0.1);
     // Point 0.5 is after now + 0.2: accepted, queued, waiting for its ring.
@@ -199,7 +202,7 @@ describe("dontRepeat", () => {
 
 describe("at most 4 at once", () => {
   // The fake backend only keeps voices for primed (streamed) groups, so these stingers stream.
-  const streamed = (): void => setSegmentClipSource({ url: (p) => p, settings: () => ({ volume: 1, stream: true }), bus: (o) => o ?? "Master", facts: () => undefined });
+  const streamed = (): void => serveMusicClips(b, {}, { stream: true });
   const fire = (): boolean => {
     const ok = triggerOn(player.instance, "hit");
     b.music!.setPrimed(b.music!.admitted[b.music!.admitted.length - 1]!.group);

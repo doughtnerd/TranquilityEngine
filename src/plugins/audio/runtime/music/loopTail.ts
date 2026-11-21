@@ -38,7 +38,8 @@ import type { MusicFrame, MusicPlayer } from "./musicSystem";
 import { attachState } from "./musicPlayer";
 import { firstLoopOf, nextWrapOf, regionFramesOf } from "./anchors";
 import { frameIntervalSeconds, lookaheadSeconds } from "./planner";
-import { groupRequest, segmentClipSource, type SegmentRun } from "./segmentRun";
+import { groupRequest, type SegmentRun } from "./segmentRun";
+import { clipFacts } from "../clipResolver";
 
 /** One held tail span: a region's tail for one stem of the run. */
 interface TailSpan {
@@ -88,14 +89,14 @@ function sounding(run: SegmentRun): boolean {
 }
 
 function clipRate(clip: string): number {
-  const r = segmentClipSource().facts(clip)?.rate;
+  const r = clipFacts(clip)?.rate;
   return r !== undefined && r > 0 ? r : FALLBACK_RATE;
 }
 
 /** The rate the run's `startFrame` is in: its first stem's (as `anchors.ts`). */
 function runRate(run: SegmentRun): number {
   for (const s of run.stems) {
-    const r = segmentClipSource().facts(s.clip)?.rate;
+    const r = clipFacts(s.clip)?.rate;
     if (r !== undefined && r > 0) return r;
   }
   return FALLBACK_RATE;

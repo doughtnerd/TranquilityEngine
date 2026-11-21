@@ -3,16 +3,17 @@
 // set after the commit waits one more pass; a stall over the commit point runs one more pass; once the release has been
 // heard the anchor moves past the region and the next `while` region is read afresh.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { AudioBackend } from "../backend";
+import { setAudioBackend, type AudioBackend } from "../backend";
 import type { EventInstance } from "../events/eventRuntime";
 import { parseSegmentNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
 import type { MusicClipFacts } from "../../../../engine/audio/musicValidate";
 import { createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
-import { createSegmentRun, setSegmentClipSource, type SegmentRun } from "./segmentRun";
+import { createSegmentRun, type SegmentRun } from "./segmentRun";
+import { serveMusicClips } from "./testing/clips";
 import { nextGridHeard, nextWrapOf, predictWrap, ticksAt } from "./anchors";
 import { tickRegions } from "./regions";
 import { conditionHolds } from "./regionCondition";
-import { endAudioSession } from "../testing";
+import { endAudioSession, makeFakeBackend } from "../testing";
 import { commitStart, noteStartHeard, promote } from "./musicPlayer";
 
 const L = 0.05;
@@ -67,13 +68,17 @@ const looped = (cond: Record<string, unknown> = { parameter: "Loop", is: "hold" 
 
 afterEach(() => {
   endAudioSession();
+  setAudioBackend(null);
   for (const k of Object.keys(params)) delete params[k];
   vi.restoreAllMocks();
 });
 
 function rig(): void {
   facts = { "a.ogg": { frames: 600 * 48_000, rate: 48_000, channels: 2, gapless: true } };
-  setSegmentClipSource({ url: (p) => p, settings: () => ({ volume: 1, stream: false }), bus: (o) => o ?? "Master", facts: (p) => facts[p] });
+  // ADR 0293: the clip resolver reads the facts from the registered backend's clip cache.
+  const b = makeFakeBackend();
+  setAudioBackend(b);
+  serveMusicClips(b, (p) => facts[p]);
 }
 
 describe("conditionHolds (api-and-models §2.3 `while`)", () => {

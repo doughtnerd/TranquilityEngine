@@ -6,7 +6,6 @@ import { GameObject } from "../../../../myco";
 import { AudioSource } from "../AudioSource";
 import { Audio } from "../index";
 import { musicPlayers, playerOf } from "../music/musicSystem";
-import { segmentClipSource } from "../music/segmentRun";
 import { events } from "./eventRuntime";
 import { eventKit, ev } from "./eventTestKit";
 import { commitStart, noteStartHeard, refuseStart } from "../music/musicPlayer";
@@ -196,13 +195,3 @@ describe("pitch on music", () => {
   });
 });
 
-describe("the segment clip source", () => {
-  it("is wired by AudioSource.ts to the project's URLs, import settings and buses", async () => {
-    await kit.boot({});
-    const src = segmentClipSource();
-    expect(src.url("a.wav")).toBe("data:,");
-    expect(src.settings("a.wav").volume).toBe(1);
-    expect(src.bus("SFX")).toBe("SFX");
-    expect(src.bus(undefined)).toBe("Master");
-  });
-});

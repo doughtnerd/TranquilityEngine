@@ -238,12 +238,12 @@ test("editing a material updates the Inspector's live preview", { tag: "@slow" }
   const canvas = ".asset-large-preview.live canvas.asset-live-preview";
   await expect(page.locator(canvas)).toBeVisible({ timeout: 30_000 });
   const before = await settledPrint(page, canvas);
-  const roughness = page.getByLabel("Material", { exact: true }).getByRole("spinbutton", { name: "Roughness", exact: true });
+  const roughness = page.getByLabel("Material", { exact: true }).getByRole("spinbutton", { name: "Roughness value", exact: true });
   const now = Number(await roughness.inputValue());
   await roughness.fill(now < 0.5 ? "1" : "0");
   await roughness.press("Enter");
-  await page.getByLabel("Material", { exact: true }).getByRole("spinbutton", { name: "Metalness", exact: true }).fill("1");
-  await page.getByLabel("Material", { exact: true }).getByRole("spinbutton", { name: "Metalness", exact: true }).press("Enter");
+  await page.getByLabel("Material", { exact: true }).getByRole("spinbutton", { name: "Metalness value", exact: true }).fill("1");
+  await page.getByLabel("Material", { exact: true }).getByRole("spinbutton", { name: "Metalness value", exact: true }).press("Enter");
   await expect.poll(() => canvasPrint(page, canvas), { timeout: 30_000 }).not.toBe(before);
   expect(errors).toEqual([]);
 });

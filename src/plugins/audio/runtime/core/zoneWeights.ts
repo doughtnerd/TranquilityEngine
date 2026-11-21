@@ -63,10 +63,13 @@ export function makeZoneVolume(): ZoneVolume {
 /**
  * @internal Rebuilds `out` from a node's world matrix and the zone's fields (§1.5). `m` is column-major (the engine's
  * `Mat4`: column k is `m[o + 4k .. o + 4k + 2]`, translation at `m[o + 12 .. o + 14]`). The world centre is the matrix
- * applied to the local `center` point. Box: half extents are `size / 2` times each column's length (the node's world
- * scale per axis); the rotation rows are the normalised columns. Sphere: `radius` times the largest column length.
- * Negative sizes or radius count as 0; a zero-length column gives the matching unit axis and a half extent of 0.
- * Returns `out`.
+ * applied to the local `center` point. Box: half extents are `|size| / 2` times each column's length (the node's world
+ * scale per axis); the rotation rows are the normalised columns. Sphere: `|radius|` times the largest column length.
+ * A negative size or radius counts as its magnitude, as colliders are sized (`engine/physics/shape3d.ts`, ADR 0295); a
+ * zero-length column gives the matching unit axis and a half extent of 0. Returns `out`.
+ *
+ * This is the one pose-to-volume function for zones (ADR 0295): the zone manager calls it with the node's world matrix,
+ * and the zone gizmo's shape table with the edited node's pose as a matrix, so the outline is the runtime volume.
  */
 export function zoneVolumeFromMatrix(
   out: ZoneVolume,
@@ -100,7 +103,7 @@ export function zoneVolumeFromMatrix(
     out.r10 = 0; out.r11 = 1; out.r12 = 0;
     out.r20 = 0; out.r21 = 0; out.r22 = 1;
     out.hx = 0; out.hy = 0; out.hz = 0;
-    out.radius = Math.max(0, radius) * Math.max(l0, l1, l2);
+    out.radius = Math.abs(radius) * Math.max(l0, l1, l2);
     return out;
   }
 
@@ -112,10 +115,10 @@ export function zoneVolumeFromMatrix(
   else { out.r10 = 0; out.r11 = 1; out.r12 = 0; }
   if (l2 > 0) { out.r20 = c2x / l2; out.r21 = c2y / l2; out.r22 = c2z / l2; }
   else { out.r20 = 0; out.r21 = 0; out.r22 = 1; }
-  // Half extents: size / 2 scaled by each axis's world length. Negative sizes count as 0.
-  out.hx = (Math.max(0, sizeX) / 2) * l0;
-  out.hy = (Math.max(0, sizeY) / 2) * l1;
-  out.hz = (Math.max(0, sizeZ) / 2) * l2;
+  // Half extents: |size| / 2 scaled by each axis's world length.
+  out.hx = (Math.abs(sizeX) / 2) * l0;
+  out.hy = (Math.abs(sizeY) / 2) * l1;
+  out.hz = (Math.abs(sizeZ) / 2) * l2;
   out.radius = 0;
   return out;
 }

@@ -12,7 +12,7 @@ import { parseAudioEvent } from "../../../../engine/audio/eventFormat";
 import type { MusicNode, MusicSwitchNode } from "../../../../engine/audio/musicFormat";
 import type { MusicClipFacts } from "../../../../engine/audio/musicValidate";
 import { createMusicPlayer, musicEarlyStep, type MusicPlayer } from "./musicSystem";
-import { setSegmentClipSource } from "./segmentRun";
+import { serveMusicClips } from "./testing/clips";
 import { planTick, requestStart } from "./planner";
 import { tickPlaylist } from "./playlist";
 import { cancelTransition, planImmediate, requestTransition, tickTransition, type Transition } from "./transition";
@@ -50,7 +50,7 @@ function rig(): void {
     if (v) v.fadeShaped = (fade) => void fades.push({ voice: v, fade });
     return v;
   };
-  setSegmentClipSource({ url: (p) => p, settings: () => ({ volume: 1, stream: true }), bus: (o) => o ?? "Master", facts: () => long() });
+  serveMusicClips(b, () => long(), { stream: true });
   b.advanceTo(1);
 }
 
@@ -372,10 +372,7 @@ describe("R3a: planImmediate (H5)", () => {
 
 /** Clips whose name `short` picks are 10 s (decoded, no ring); the rest 120 s (streamed). */
 function clipFacts(short: (clip: string) => boolean): void {
-  setSegmentClipSource({
-    url: (p) => p, settings: () => ({ volume: 1, stream: true }), bus: (o) => o ?? "Master",
-    facts: (clip) => (short(clip) ? { frames: 10 * RATE, rate: RATE, channels: 2, gapless: true } : long()),
-  });
+  serveMusicClips(b, (clip) => (short(clip) ? { frames: 10 * RATE, rate: RATE, channels: 2, gapless: true } : long()), { stream: true });
 }
 
 /** The bridge R: its exit cue at bar 2 (2 s after its start). */

@@ -14,7 +14,7 @@ import { planTick, type PlanRequest } from "./planner";
 import { withStartPosition } from "./startPosition";
 import { createMusicPlayer, type MusicPlayer } from "./musicSystem";
 import { tickPlaylist } from "./playlist";
-import { setSegmentClipSource } from "./segmentRun";
+import { serveMusicClips } from "./testing/clips";
 import { setAudioBackend } from "../backend";
 import { endAudioSession, makeFakeBackend, musicFrameAt } from "../testing";
 
@@ -27,10 +27,7 @@ function firstPlanned(p: MusicPlayer): string | undefined {
 function firstFrame(p: MusicPlayer, plan: boolean): string | undefined {
   const b = makeFakeBackend();
   setAudioBackend(b);
-  setSegmentClipSource({
-    url: (c) => `/assets/${c}`, settings: () => ({ volume: 1, stream: true }), bus: (o) => o ?? "Master",
-    facts: () => ({ frames: 120 * 48_000, rate: 48_000, channels: 2, gapless: true }),
-  });
+  serveMusicClips(b, () => ({ frames: 120 * 48_000, rate: 48_000, channels: 2, gapless: true }), { stream: true });
   const f = musicFrameAt(b);
   tickPlaylist(p, f);
   if (plan) planTick(p, f);
@@ -58,7 +55,6 @@ const player = (root: MusicNode) => createMusicPlayer({ group: groups++, world: 
 
 afterEach(() => {
   endAudioSession();
-  setSegmentClipSource(null);
   setAudioBackend(null);
 });
 

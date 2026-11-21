@@ -13,10 +13,10 @@ const T120 = [{ at: "1:1:0", bpm: 120, beatsPerBar: 4, beatUnit: 4 }];
 const ms = (s: number) => s * 1000;
 
 beforeEach(() => {
-  rigClips();
-  const fake = makeFakeBackend() as unknown as { timeAt(ms: number): number };
-  fake.timeAt = (t) => t / 1000;
-  setAudioBackend(fake as never);
+  const fake = makeFakeBackend();
+  (fake as unknown as { timeAt(ms: number): number }).timeAt = (t) => t / 1000;
+  setAudioBackend(fake);
+  rigClips(600, 48_000, fake);
 });
 afterEach(() => {
   setCalibration(0);

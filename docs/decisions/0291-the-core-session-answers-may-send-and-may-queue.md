@@ -1,6 +1,6 @@
 # 0291. The core session answers "may send" and "may queue"
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0294 (music group operations asked while locked are held and sent after the PLAY; answers the open question)
 - **Date:** 2026-11-21
 - **Deciders:** Chris Carlson
 - **Supersedes:** — (amends 0178: the session owns the send rule as well as `recovering` and `disposed`)

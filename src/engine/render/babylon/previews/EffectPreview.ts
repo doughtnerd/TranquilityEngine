@@ -1,31 +1,25 @@
 /**
- * @internal Editor: a live preview of a particle effect (ADR 0060) on the Babylon backend (ADR 0075
- * stage 7): a canvas of its own, a ground grid, an orbit camera (drag to turn, wheel to zoom), and one
- * effect player (`effectPlayer.ts`, ADR 0153) at the origin, the same player a World's ParticleSystems
- * play through: CPU and kernel systems, their draws and fallbacks, delays, events and restarts. Material
- * assets and textures come from the preview scene's material library (ADR 0127), lit by the preview's own
- * soft lights.
+ * @internal Editor: a live preview of a particle effect (ADR 0060) on the Babylon backend (ADR 0075 stage 7): a
+ * preview stage of its own (ADR 0300: the engine, the default light rig, the orbit camera turned by dragging and zoomed
+ * by the wheel, the loop), a ground grid, and one effect player (`effectPlayer.ts`, ADR 0153) at the origin, the same
+ * player a World's ParticleSystems play through: CPU and kernel systems, their draws and fallbacks, delays, events and
+ * restarts. Material assets and textures come from the preview scene's material library (ADR 0127).
  *
  * The engine starts asynchronously (WebGPU needs `initAsync`), so the constructor returns at once; a
  * program set before that is built when it's up.
  */
-import { Camera } from "@babylonjs/core/Cameras/camera.js";
-import { TargetCamera } from "@babylonjs/core/Cameras/targetCamera.js";
-import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
 import { Color3, Color4 } from "@babylonjs/core/Maths/math.color.js";
-import { Quaternion, Vector3 } from "@babylonjs/core/Maths/math.vector.js";
+import { Vector3 } from "@babylonjs/core/Maths/math.vector.js";
 import { CreateLineSystem } from "@babylonjs/core/Meshes/Builders/linesBuilder.js";
 import type { LinesMesh } from "@babylonjs/core/Meshes/linesMesh.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import type { ParticleProgram } from "../../../scene/particleCompile";
 import type { ParticleEffectPreviewApi, PreviewBackground } from "../../previewTypes";
-import { appliedPixelRatio } from "../../RenderSurface";
 import type { GraphShared } from "../graphMaterial";
 import { EffectPlayer, EffectResources, libraryEffectHost } from "../effectPlayer";
-import { aimCamera, createPreviewScene, previewMaterials, renderFrame } from "./common";
-import { addDefaultLights } from "../lighting";
-import { createEngine } from "../createEngine";
+import { previewMaterials } from "./common";
 import type { BabylonMaterialLibrary } from "../materialLibrary";
+import { PreviewStage } from "./previewStage";
 
 export type { PreviewBackground } from "../../previewTypes";
 
@@ -66,11 +60,8 @@ export class ParticleEffectPreview implements ParticleEffectPreviewApi {
   /** Called when the playing state changes (play, pause). */
   onChange: (() => void) | null = null;
 
-  private engine: AbstractEngine | null = null;
-  private scene: Scene | null = null;
-  private camera: TargetCamera | null = null;
+  private readonly stage: PreviewStage;
   private grid: LinesMesh | null = null;
-  private readonly resizeObserver: ResizeObserver;
   /** The scene's materials and textures (ADR 0127). */
   private library: BabylonMaterialLibrary | null = null;
   private resources: EffectResources | null = null;
@@ -80,55 +71,28 @@ export class ParticleEffectPreview implements ParticleEffectPreviewApi {
   private player: EffectPlayer | null = null;
   private retry = 0;
   private _playing = true;
-  private frame = 0;
-  private last = 0;
   private disposed = false;
   private _background: PreviewBackground = "grid";
-  private yaw = 0.6;
-  private pitch = 0.4;
-  private distance = 6;
-  private readonly target = { x: 0, y: 1, z: 0 };
 
-  constructor(private readonly container: HTMLElement) {
+  constructor(container: HTMLElement) {
     this.canvas = document.createElement("canvas");
-    Object.assign(this.canvas.style, { display: "block", width: "100%", height: "100%", touchAction: "none" });
-    container.appendChild(this.canvas);
-    this.canvas.addEventListener("pointerdown", this.onPointerDown);
-    this.canvas.addEventListener("wheel", this.onWheel, { passive: false });
-    this.resizeObserver = new ResizeObserver(() => this.resize());
-    this.resizeObserver.observe(container);
-    this.last = performance.now();
-    void this.init();
-  }
-
-  private async init(): Promise<void> {
-    try {
-      const engine = await createEngine(this.canvas, { transparent: true });
-      if (this.disposed) {
-        engine.dispose();
-        return;
-      }
-      this.engine = engine;
-      const scene = createPreviewScene(engine);
-      const camera = new TargetCamera("preview.camera", Vector3.Zero(), scene, false);
-      camera.fov = (40 * Math.PI) / 180;
-      camera.fovMode = Camera.FOVMODE_VERTICAL_FIXED;
-      camera.minZ = 0.1;
-      camera.maxZ = 200;
-      camera.rotationQuaternion = Quaternion.Identity();
-      scene.activeCamera = camera;
-      addDefaultLights(scene, "preview"); // the default rig (ADR 0277), for lit material assets (Babylon's particle systems and the unlit material ignore them)
-      this.scene = scene;
-      this.library = previewMaterials(scene, this.shared);
-      this.resources = new EffectResources(libraryEffectHost(scene, this.library), (message) => console.warn(`[myco] preview: ${message}`));
-      this.camera = camera;
-      this.background = this._background;
-      this.resize();
-      this.build();
-      this.frame = requestAnimationFrame(this.loop);
-    } catch (err) {
-      console.warn("[myco] particle preview couldn't start:", err);
-    }
+    this.stage = new PreviewStage(this.canvas, {
+      name: "particle preview",
+      host: container,
+      // Around a point a unit up, from in front, a little to the right and above (ADR 0300's orbit).
+      orbit: { fov: 40, near: 0.1, far: 200, target: [0, 1, 0], start: { yaw: Math.PI - 0.6, pitch: 0.4, distance: 6 }, minDistance: 0.5, maxDistance: 60 },
+      onUp: (stage) => {
+        // Lit by the stage's default rig (ADR 0277), for lit material assets (Babylon's particle systems and the unlit material ignore it).
+        this.library = previewMaterials(stage.scene!, this.shared);
+        this.resources = new EffectResources(libraryEffectHost(stage.scene!, this.library), (message) => console.warn(`[myco] preview: ${message}`));
+        this.background = this._background;
+        this.build();
+      },
+      frame: (dt) => {
+        this.step(dt);
+        this.stage.draw();
+      },
+    });
   }
 
   // --- public ----------------------------------------------------------------------------------------
@@ -143,7 +107,7 @@ export class ParticleEffectPreview implements ParticleEffectPreviewApi {
 
   set background(value: PreviewBackground) {
     this._background = value;
-    const scene = this.scene;
+    const scene = this.stage.scene;
     if (!scene) return; // applied when the scene is made
     const b = BACKGROUNDS[value];
     scene.clearColor = Color4.FromColor3(Color3.FromHexString(b.clear), 1); // sRGB, written as it is
@@ -187,24 +151,17 @@ export class ParticleEffectPreview implements ParticleEffectPreviewApi {
     this.onChange?.();
   }
 
-  resize(w = this.container.clientWidth, h = this.container.clientHeight): void {
-    const ratio = appliedPixelRatio(); // the World surface's pixel ratio, at render scale 1 (ADR 0154)
-    this.engine?.setSize(Math.max(1, Math.round(w * ratio)), Math.max(1, Math.round(h * ratio)));
+  resize(w?: number, h?: number): void {
+    this.stage.resize(w, h);
   }
 
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    cancelAnimationFrame(this.frame);
-    this.resizeObserver.disconnect();
-    this.canvas.removeEventListener("pointerdown", this.onPointerDown);
-    this.canvas.removeEventListener("wheel", this.onWheel);
     this.clearEmitters();
     this.resources?.dispose();
     this.library?.dispose();
-    this.scene?.dispose(); // the grid, textures, particle systems and meshes go with it
-    this.engine?.dispose();
-    this.canvas.remove();
+    this.stage.dispose(); // the grid, textures, particle systems and meshes go with its scene
   }
 
   // --- building --------------------------------------------------------------------------------------
@@ -222,18 +179,7 @@ export class ParticleEffectPreview implements ParticleEffectPreviewApi {
     this.retry = RETRY_INTERVAL;
   }
 
-  // --- loop ------------------------------------------------------------------------------------------
-
-  private readonly loop = (now: number): void => {
-    if (this.disposed) return;
-    this.frame = requestAnimationFrame(this.loop);
-    const dt = Math.min(0.1, Math.max(0, (now - this.last) / 1000));
-    this.last = now;
-    // Detached or hidden (a closed tab, zero size): neither simulate nor draw.
-    if (!this.canvas.isConnected || !this.canvas.clientWidth || !this.canvas.clientHeight) return;
-    this.step(dt);
-    this.draw();
-  };
+  // --- frame -----------------------------------------------------------------------------------------
 
   private step(realDt: number): void {
     this.retry -= realDt;
@@ -245,38 +191,4 @@ export class ParticleEffectPreview implements ParticleEffectPreviewApi {
     this.shared.time += realDt; // graph materials' Time node
     player.repeatWhenFinished(dt, REPEAT_GAP, this._playing && this.looping);
   }
-
-  private draw(): void {
-    const engine = this.engine, scene = this.scene, camera = this.camera;
-    if (!engine || !scene || !camera) return;
-    const r = this.distance;
-    const t = this.target;
-    aimCamera(camera, [t.x + Math.sin(this.yaw) * Math.cos(this.pitch) * r, t.y + Math.sin(this.pitch) * r, t.z - Math.cos(this.yaw) * Math.cos(this.pitch) * r], [t.x, t.y, t.z]); // yaw 0 in front, at -Z (ADR 0164)
-    renderFrame(engine, scene);
-  }
-
-  // --- orbit -----------------------------------------------------------------------------------------
-
-  private onPointerDown = (e: PointerEvent): void => {
-    if (e.button !== 0) return;
-    const x0 = e.clientX, y0 = e.clientY, yaw = this.yaw, pitch = this.pitch;
-    this.canvas.setPointerCapture(e.pointerId);
-    const move = (m: PointerEvent) => {
-      this.yaw = yaw - (m.clientX - x0) * 0.01;
-      this.pitch = Math.max(-1.4, Math.min(1.4, pitch + (m.clientY - y0) * 0.01));
-    };
-    const up = () => {
-      this.canvas.removeEventListener("pointermove", move);
-      this.canvas.removeEventListener("pointerup", up);
-      this.canvas.removeEventListener("pointercancel", up);
-    };
-    this.canvas.addEventListener("pointermove", move);
-    this.canvas.addEventListener("pointerup", up);
-    this.canvas.addEventListener("pointercancel", up);
-  };
-
-  private onWheel = (e: WheelEvent): void => {
-    e.preventDefault();
-    this.distance = Math.max(0.5, Math.min(60, this.distance * Math.exp(e.deltaY * 0.001)));
-  };
 }

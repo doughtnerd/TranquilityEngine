@@ -809,6 +809,7 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
     this.replayer.flush();
     this.automation.beginFrame();
     this.voices.unlock(); // the locked queue drains once the session may send
+    this.musicOps.sendHeld(); // ADR 0294: then the stamped ramps and primes held meanwhile, after the members' PLAYs
     this.voices.moveSpatial();
   }
 

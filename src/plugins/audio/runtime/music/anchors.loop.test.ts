@@ -8,7 +8,8 @@ import { parseSegmentNode, type SegmentNode } from "../../../../engine/audio/mus
 import { compileSegmentGrid, ticksToSeconds } from "../../../../engine/audio/musicGrid";
 import type { MusicClipFacts } from "../../../../engine/audio/musicValidate";
 import { createMusicPlayer, type MusicPlayer } from "./musicSystem";
-import { createSegmentRun, groupRequest, pollPrimed, primeRun, setSegmentClipSource, stampRun, type SegmentRun } from "./segmentRun";
+import { createSegmentRun, groupRequest, pollPrimed, primeRun, stampRun, type SegmentRun } from "./segmentRun";
+import { serveMusicClips } from "./testing/clips";
 import { nextGridHeard, predictWrap, ticksAt } from "./anchors";
 import { promote } from "./musicPlayer";
 
@@ -20,9 +21,9 @@ function rig(rate: number | null, seconds = 4): FakeBackend {
     "a.ogg": { frames: Math.round(seconds * rate), rate, channels: 2, gapless: true },
     "b.ogg": { frames: Math.round(seconds * rate), rate, channels: 2, gapless: true },
   };
-  setSegmentClipSource({ url: (p) => p, settings: () => ({ volume: 1, stream: streamed }), bus: (o) => o ?? "Master", facts: (p) => facts[p] });
   const b = makeFakeBackend();
   setAudioBackend(b);
+  serveMusicClips(b, (p) => facts[p], { stream: streamed });
   return b;
 }
 

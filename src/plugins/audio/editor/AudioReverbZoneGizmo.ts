@@ -6,30 +6,14 @@
 // `blendDistance`. Each drag is one undo step (the fields are written through `editor.scene.writeField`, an override on prefab
 // instances; Escape mid-drag puts it back). Editing a zone is the tool's mode (ADR 0231), which the viewport tool host
 // ends: picking a transform tool, Escape, play, another tool, selecting another node or switching scenes.
+// What each zone shape looks like and how its handles change it is its entry in the zone shape table (`zoneShapes.ts`,
+// ADR 0295); this module is the loop over it, with the 3D shape kit's axis drag turning pointer moves into patches.
 import type { ReadonlySignal } from "@preact/signals";
 import { GameObject, type Engine } from "../../../engine";
 import { type EditorOverlay, viewport } from "../../../engine/editor";
 import { AudioReverbZone } from "../runtime";
-import {
-  BLEND_HANDLE,
-  blendAxis,
-  blendHandle,
-  closestOnAxis,
-  dragBlend,
-  dragZoneFace,
-  dragZoneRadius,
-  tidy,
-  zoneFaceHandles,
-  zoneGeometry,
-  zoneRadiusHandles,
-  zoneShellWire,
-  zoneVolumeWire,
-  type Pose3D,
-  type V3,
-  type ZoneFace,
-  type ZoneGeometry,
-} from "./zoneMath";
-import { type ComponentEditMode, type ViewportDrag, type ViewportPointer, type ViewportToolContext, type ViewportToolContribution, editor, type OpenScene, theme, viewportColors } from "../../../editor/sdk";
+import { readZone, zoneShapeFor } from "./zoneShapes";
+import { type ComponentEditMode, type ViewportDrag, type ViewportToolContext, type ViewportToolContribution, editor, type OpenScene, shapeKit3d, theme, viewportColors } from "../../../editor/sdk";
 
 /** The zone tool's id: also its overlay id and its active-tool id. */
 export const ZONE_TOOL_ID = "myco.audio.zones";
@@ -47,18 +31,6 @@ const VOLUME_DIM = 0x2a6f85;
 const SHELL = 0xf0a64c;
 const SHELL_DIM = 0x7a5a2d;
 
-/** A node's world pose for zone math. */
-export function zonePoseOf(node: GameObject): Pose3D {
-  const t = node.transform!;
-  const p = t.worldPosition, q = t.worldRotation, s = t.worldScale;
-  return { position: [p.x, p.y, p.z], rotation: [q.x, q.y, q.z, q.w], scale: [s.x, s.y, s.z] };
-}
-
-/** A zone's volume in world space. */
-export function geometryOf(node: GameObject, zone: AudioReverbZone): ZoneGeometry {
-  return zoneGeometry(zonePoseOf(node), zone.shape, [zone.center.x, zone.center.y, zone.center.z], [zone.size.x, zone.size.y, zone.size.z], zone.radius);
-}
-
 /** The zone being edited, if it's still there. */
 function editedZone(): { node: GameObject; zone: AudioReverbZone; editing: EditingZone } | null {
   const editing = editingZone.value;
@@ -68,11 +40,6 @@ function editedZone(): { node: GameObject; zone: AudioReverbZone; editing: Editi
   return zone ? { node, zone, editing } : null;
 }
 
-/** The handles of a zone being edited, by id. */
-export function zoneHandles(g: ZoneGeometry, blendDistance: number): Record<string, V3> {
-  return { ...(g.shape === "sphere" ? zoneRadiusHandles(g) : zoneFaceHandles(g)), [BLEND_HANDLE]: blendHandle(g, blendDistance) };
-}
-
 /** What to draw this frame: every zone in the edited scene, handles for the one being edited. */
 function zoneOverlay(engine: Engine): EditorOverlay {
   const overlay: EditorOverlay = { lines: [], handles: [] };
@@ -80,14 +47,15 @@ function zoneOverlay(engine: Engine): EditorOverlay {
   for (const zone of GameObject.findObjectsOfType(AudioReverbZone)) {
     const node = zone.node;
     if (!node.transform || !engine.world.inEditMode(node.entity)) continue;
-    const g = geometryOf(node, zone), on = selected.has(node);
-    for (const points of zoneVolumeWire(g)) overlay.lines.push({ points, closed: false, color: on ? VOLUME : VOLUME_DIM });
-    for (const points of zoneShellWire(g, zone.blendDistance)) overlay.lines.push({ points, closed: false, color: on ? SHELL : SHELL_DIM });
+    const shape = zoneShapeFor(zone.shape), f = readZone(zone), pose = shapeKit3d.pose3DOf(node), on = selected.has(node);
+    for (const points of shape.wire(f, pose)) overlay.lines.push({ points, closed: false, color: on ? VOLUME : VOLUME_DIM });
+    for (const points of shape.shell(f, pose)) overlay.lines.push({ points, closed: false, color: on ? SHELL : SHELL_DIM });
   }
   const edited = editedZone();
   if (edited) {
     const handle = viewportColors(theme.peek()).handle; // the theme's accent
-    for (const [id, position] of Object.entries(zoneHandles(geometryOf(edited.node, edited.zone), edited.zone.blendDistance))) overlay.handles.push({ id, position, color: id === BLEND_HANDLE ? SHELL : handle });
+    const handles = zoneShapeFor(edited.zone.shape).handles(readZone(edited.zone), shapeKit3d.pose3DOf(edited.node));
+    for (const [id, position] of Object.entries(handles)) overlay.handles.push({ id, position, color: id === shapeKit3d.BLEND_HANDLE ? SHELL : handle });
   }
   return overlay;
 }
@@ -115,63 +83,36 @@ export const zoneTool: ViewportToolContribution<EditingZone> = {
       const handle = viewport(world).pickOverlayHandle(p.x, p.y);
       if (!handle) return null;
       // A press on a handle never also selects, orbits or starts the transform gizmo, even when it changes nothing.
-      return startZoneDrag((x, y) => viewport(world).rayAt(x, y), view.gesture, open, p, handle, edited.node, edited.zone, edited.editing) ?? {};
+      return startZoneDrag(view, open, p, handle, edited.node, edited.zone, edited.editing) ?? {};
     });
   },
 };
 
-/** Writes one field of the edited zone through the component field write (ADR 0257). */
-function fieldWriter(scene: OpenScene, editing: EditingZone): (field: string, value: unknown) => void {
+/** Writes a patch of the edited zone's fields through the component field write (ADR 0257), tidied. */
+function patchWriter(scene: OpenScene, editing: EditingZone): (patch: shapeKit3d.FieldPatch) => void {
   const place = { scene, path: editing.key.split("/"), type: ZONE_TYPE, index: editing.index };
-  return (field, value) => void editor.scene.writeField(place, field, value);
+  const tidied = (v: unknown): unknown => (typeof v === "number" ? shapeKit3d.tidy(v) : Array.isArray(v) ? v.map(tidied) : v);
+  return (patch) => {
+    for (const [field, value] of Object.entries(patch)) void editor.scene.writeField(place, field, tidied(value));
+  };
 }
 
-/** The pointer ray at a canvas point, as the viewport gives it. */
-type RayAt = (x: number, y: number) => { origin: readonly number[]; direction: readonly number[] } | null;
-
 /**
- * Press on a zone handle: drag it along its axis, to the point on the axis nearest the pointer's ray (face and radius
- * handles along the line out from the centre, the blend handle along the x/y diagonal). One undo step; writes `size` and
- * `center` (box), `radius` (sphere) or `blendDistance`. Null when the handle isn't on this zone or its axis can't be
- * worked out.
+ * Press on a zone handle: the entry's drag along the handle's axis (face and radius handles out from the centre, the
+ * blend handle along the x/y diagonal), to the point on the axis nearest the pointer's ray. One undo step; writes `size`
+ * and `center` (a box face; `size` alone with Alt), `radius` (a sphere) or `blendDistance`. Null when the handle isn't on
+ * this zone or its axis can't be followed (the camera sees it end-on).
  */
-function startZoneDrag(rayAt: RayAt, gesture: ViewportToolContext["gesture"], scene: OpenScene, press: { x: number; y: number }, handle: string, node: GameObject, zone: AudioReverbZone, editing: EditingZone): ViewportDrag | null {
-  const pose = zonePoseOf(node); // fixed for the drag
-  const g = geometryOf(node, zone);
-  const handles = zoneHandles(g, zone.blendDistance);
-  const grabbed = handles[handle];
-  const ray0 = rayAt(press.x, press.y);
-  if (!grabbed || !ray0) return null;
-  const startCenter: V3 = [zone.center.x, zone.center.y, zone.center.z];
-  const startSize: V3 = [zone.size.x, zone.size.y, zone.size.z];
-  const startBlend = zone.blendDistance;
-  let origin: V3 = g.center, axis: V3, start: number;
-  if (handle === BLEND_HANDLE) {
-    ({ origin, direction: axis } = blendAxis(g));
-    start = startBlend;
-  } else {
-    const d = [grabbed[0] - g.center[0], grabbed[1] - g.center[1], grabbed[2] - g.center[2]];
-    const len = Math.hypot(d[0]!, d[1]!, d[2]!);
-    if (len < 1e-9) return null;
-    axis = [d[0]! / len, d[1]! / len, d[2]! / len];
-    start = len;
-  }
-  // Where along the handle's line the press was, so the handle doesn't jump to the pointer.
-  const t0 = closestOnAxis(ray0.origin, ray0.direction, origin, axis);
-  if (t0 === null) return null;
-  const write = fieldWriter(scene, editing);
-  const move = (p: ViewportPointer) => {
-    const ray = rayAt(p.x, p.y);
-    const t = ray ? closestOnAxis(ray.origin, ray.direction, origin, axis) : null;
-    if (t === null) return;
-    const reach = start + (t - t0); // how far out the handle is now, along its own outward axis
-    if (handle === BLEND_HANDLE) write("blendDistance", tidy(dragBlend(reach)));
-    else if (g.shape === "sphere") write("radius", tidy(dragZoneRadius(reach, pose)));
-    else {
-      const r = dragZoneFace(handle as ZoneFace, reach, pose, startCenter, startSize, p.alt);
-      write("size", r.size.map(tidy));
-      if (!p.alt || r.center.some((v, i) => v !== startCenter[i])) write("center", r.center.map(tidy));
-    }
-  };
-  return gesture(handle === BLEND_HANDLE ? "Resize zone blend" : "Resize zone", { move });
+function startZoneDrag(view: ViewportToolContext<EditingZone>, scene: OpenScene, press: { x: number; y: number }, handle: string, node: GameObject, zone: AudioReverbZone, editing: EditingZone): ViewportDrag | null {
+  const ray0 = viewport(view.world).rayAt(press.x, press.y);
+  if (!ray0) return null;
+  const drag = shapeKit3d.axisDrag(zoneShapeFor(zone.shape), readZone(zone), shapeKit3d.pose3DOf(node), handle, ray0); // fields and pose fixed for the drag
+  if (!drag) return null;
+  const write = patchWriter(scene, editing);
+  return view.gesture(handle === shapeKit3d.BLEND_HANDLE ? "Resize zone blend" : "Resize zone", {
+    move: (p) => {
+      const patch = drag(viewport(view.world).rayAt(p.x, p.y), p.alt);
+      if (patch) write(patch);
+    },
+  });
 }

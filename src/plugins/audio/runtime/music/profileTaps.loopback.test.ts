@@ -7,7 +7,8 @@ import type { EventInstance } from "../events/eventRuntime";
 import { parseAudioEvent } from "../../../../engine/audio/eventFormat";
 import type { MusicNode, MusicSwitchNode } from "../../../../engine/audio/musicFormat";
 import { createMusicPlayer, tickPlayer, type MusicFrame } from "./musicSystem";
-import { routeGroupEvent, setSegmentClipSource } from "./segmentRun";
+import { routeGroupEvent } from "./segmentRun";
+import { serveMusicClips } from "./testing/clips";
 import { requestTransition } from "./transition";
 import { NULL_PROFILE_SINK } from "../mix/profileSink";
 import { taps } from "../mix/profileTaps";
@@ -45,7 +46,7 @@ async function rig() {
       await Promise.resolve();
     }
   };
-  setSegmentClipSource({ url: (p) => p, settings: () => ({ volume: 1, stream: false }), bus: () => "Music", facts: () => ({ frames: FRAMES, rate: RATE, channels: 1, gapless: true }) });
+  serveMusicClips(null);
   for (const path of ["a.wav", "b.wav"]) backend.play({ path, url: path, loop: false, stream: false, bus: "Music", volume: 0 });
   await step(20);
   const f = { backend: backend as AudioBackend, music: backend.music, now: 0, dt: 0.003, hidden: false };

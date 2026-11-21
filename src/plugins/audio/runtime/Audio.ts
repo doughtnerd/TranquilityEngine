@@ -6,14 +6,15 @@
 import { mixer, type Bus } from "../../../engine/audio/mixer";
 import type { Vec3Like } from "../../../engine/core/math";
 import { World } from "../../../engine/core/World";
-import { clipVolume, isAmbisonicClip, startClip, worldKeyOf, worldPlays } from "./AudioSource";
+import { worldKeyOf, worldPlays } from "./AudioSource";
+import { clipRequest } from "./clipResolver";
 import { warnOnce } from "./core/handle";
 import type { AudioLatency, MusicEvent, MusicHandle, MusicKind } from "../../../engine/audio/musicTypes";
 import { audioHorizon, audioTimeAt, musicHandleOf } from "./music/handle";
 import { onMusicOf, _setMusicHandleFactory } from "./music/musicSystem";
 import { triggerOn } from "./music/stingers";
 import { audioLatency, getCalibration, isCalibrationStale, rhythmModeSetting, setCalibration } from "./music/calibration";
-import { audioBackend, type AudioDebugInfo, type AudioEventHandle, type AudioHandle, type AudioPanner, type AudioReason, type AudioStatus, type AudioVoice, type PlayRequest, type SendCurve } from "./backend";
+import { audioBackend, type AudioDebugInfo, type AudioEventHandle, type AudioHandle, type AudioPanner, type AudioReason, type AudioStatus, type AudioVoice, type SendCurve } from "./backend";
 import { events, type EventInstance, type EventOptions } from "./events/eventRuntime";
 import { debugRows, type AudioDebugRows } from "./audioRows";
 import { audioCapture, captureDebug, type AudioCapture } from "./capture/capture";
@@ -152,15 +153,17 @@ export const Audio = {
       if (!worldPlays(World.active)) return INERT;
       const o: OneShotOptions = typeof options === "number" ? { volume: options } : options !== null && typeof options === "object" ? options : {};
       const path = String(clip).replace(/^asset:/, "");
-      const extra: Partial<PlayRequest> = { oneShot: true, world: worldKeyOf(World.active) };
-      extra.volume = clampWarn("volume", finiteOr("volume", o.volume, 1), 0, Infinity) * clipVolume(path);
-      extra.pitch = clampWarn("pitch", finiteOr("pitch", o.pitch, 1), MIN_PITCH, MAX_PITCH);
-      extra.priority = Math.round(clampWarn("priority", finiteOr("priority", o.priority, 128), 0, 255));
+      const req = clipRequest(path, false, o.bus);
+      req.oneShot = true;
+      req.world = worldKeyOf(World.active);
+      req.volume = clampWarn("volume", finiteOr("volume", o.volume, 1), 0, Infinity) * req.volume!;
+      req.pitch = clampWarn("pitch", finiteOr("pitch", o.pitch, 1), MIN_PITCH, MAX_PITCH);
+      req.priority = Math.round(clampWarn("priority", finiteOr("priority", o.priority, 128), 0, 255));
       if (o.at !== undefined) {
-        if (typeof o.at === "number" && Number.isFinite(o.at)) { if (audioBackend().status !== "locked") extra.at = o.at; }
+        if (typeof o.at === "number" && Number.isFinite(o.at)) { if (audioBackend().status !== "locked") req.at = o.at; }
         else warnOnce("at:nonfinite", "Audio.playOneShot: at must be a finite number of seconds; playing now.");
       }
-      const ambisonic = isAmbisonicClip(path);
+      const ambisonic = req.ambisonic === true;
       if (o.position && ambisonic) warnOnce(`position:ambisonic:${path}`, `Audio.playOneShot: "${path}" is an ambisonic clip; position, distances, occlusion and dopplerLevel are ignored (ADR 0162).`);
       else if (o.position) {
         const p = o.position;
@@ -168,23 +171,23 @@ export const Audio = {
           // A streamed clip is spatial on the core; the Babylon fallback flattens it (and warns) itself.
           const min = Math.max(0, finiteOr("minDistance", o.minDistance, 1));
           const max = Math.max(min, finiteOr("maxDistance", o.maxDistance, 100));
-          extra.attenuation = { minDistance: min, maxDistance: max, rolloff: "inverse" };
-          extra.position = p;
+          req.attenuation = { minDistance: min, maxDistance: max, rolloff: "inverse" };
+          req.position = p;
           // ADR 0162 §1.3: occlusion, Doppler and the reverb send apply to positioned one-shots only.
-          extra.occlusion = o.occlusion !== false;
-          extra.dopplerLevel = clampWarn("dopplerLevel", finiteOr("dopplerLevel", o.dopplerLevel, 0), 0, 5);
-          extra.reverbSend = clampWarn("reverbSend", finiteOr("reverbSend", o.reverbSend, 1), 0, 2);
-          if (Array.isArray(o.reverbSendCurve)) extra.reverbSendCurve = o.reverbSendCurve;
+          req.occlusion = o.occlusion !== false;
+          req.dopplerLevel = clampWarn("dopplerLevel", finiteOr("dopplerLevel", o.dopplerLevel, 0), 0, 5);
+          req.reverbSend = clampWarn("reverbSend", finiteOr("reverbSend", o.reverbSend, 1), 0, 2);
+          if (Array.isArray(o.reverbSendCurve)) req.reverbSendCurve = o.reverbSendCurve;
         } else warnOnce("position:nonfinite", "Audio.playOneShot: position must be finite; playing flat.");
       }
       // ADR 0162 §1.3: the one-shot's own filter (flat or positioned) and an ambisonic clip's yaw.
       if (o.lowpass !== undefined || o.highpass !== undefined) {
-        extra.filter = {};
-        if (o.lowpass !== undefined) extra.filter.lowpass = clampWarn("lowpass", finiteOr("lowpass", o.lowpass, 24000), 10, 24000);
-        if (o.highpass !== undefined) extra.filter.highpass = clampWarn("highpass", finiteOr("highpass", o.highpass, 10), 10, 24000);
+        req.filter = {};
+        if (o.lowpass !== undefined) req.filter.lowpass = clampWarn("lowpass", finiteOr("lowpass", o.lowpass, 24000), 10, 24000);
+        if (o.highpass !== undefined) req.filter.highpass = clampWarn("highpass", finiteOr("highpass", o.highpass, 10), 10, 24000);
       }
-      if (o.yaw !== undefined) extra.yaw = clampWarn("yaw", finiteOr("yaw", o.yaw, 0), -180, 180);
-      const v = startClip(path, false, o.bus, extra);
+      if (o.yaw !== undefined) req.yaw = clampWarn("yaw", finiteOr("yaw", o.yaw, 0), -180, 180);
+      const v = audioBackend().play(req);
       return v ? new VoiceHandle(v) : INERT;
     } catch (e) {
       warnOnce("playOneShot:threw", `Audio.playOneShot failed (${e instanceof Error ? e.message : String(e)}); no sound.`);

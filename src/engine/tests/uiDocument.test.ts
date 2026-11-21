@@ -7,6 +7,7 @@ import { parseBindings, parseMarkup } from "../ui/document/markup";
 import { matchSelector, parseStylesheet, resolveStyle } from "../ui/document/stylesheet";
 import type { MarkupElement, StyleTarget, UIPseudo, UITag } from "../ui/document/types";
 import { loadUIDocumentSupport } from "../ui/UIDocument";
+import { childPath, documentFile, elementAtPath, elementSource } from "../ui/documentSource";
 import { UIPointer, stubDocument } from "./uiPointer";
 
 // ADR 0077: UI documents: markup, stylesheets, the cascade, and the UIDocument runtime.
@@ -467,7 +468,7 @@ describe("UIDocument in the editor (ADR 0077 wave B)", () => {
     const { doc } = editing();
     expect(doc.root).not.toBeNull(); // no await: built as the component activated
     expect(doc.query("#play")!.as(UIButton).backgroundColor).toEqual(Color.from("#336699"));
-    expect(doc._markupPath).toBe("ui/menu.ui.xml");
+    expect(documentFile(doc)).toBe("ui/menu.ui.xml");
     expect(doc._sheets.map((s) => s.file)).toEqual(["ui/menu.ui.css"]);
     // It watches the markup it read as well as the stylesheet (the stylesheet: the next test).
     files["ui/menu.ui.xml"] = MENU.replace(">Play<", ">Go<");
@@ -500,21 +501,23 @@ describe("UIDocument in the editor (ADR 0077 wave B)", () => {
     const { doc } = editing();
     const play = doc.query("#play")!;
     expect(UIDocument._elementOf(play.component)).toBe(play);
-    expect(play._path).toBe("/#menu/#play");
-    expect(doc.root!._path).toBe("");
-    const label = play.children[0];
-    expect(label._synthetic).toBe(true);
-    expect(label._path).toBe("/#menu/#play/label");
-    expect(doc._elementAt("/#menu/#play")).toBe(play);
-    expect(doc._elementAt("/#menu/#nope")).toBeNull();
+    expect(elementSource(play)!.path).toBe("/#menu/#play");
+    expect(elementSource(doc.root!)!.path).toBe("");
+    const label = elementSource(play.children[0])!;
+    expect(label.label).toBe(true);
+    expect(label.path).toBe("/#menu/#play/label");
+    expect(elementAtPath(doc, "/#menu/#play")).toBe(play);
+    expect(elementAtPath(doc, "/#menu/#play/label")).toBe(play.children[0]);
+    expect(elementAtPath(doc, "/#menu/#nope")).toBeNull();
     // Rows have no path, nor does anything inside them.
     const [row] = doc.list("#rows", [{ label: "a", n: 1 }]);
-    expect(row._path).toBeNull();
+    expect(elementSource(row)).toBeNull();
+    expect(elementSource(row.children[0] ?? row)).toBeNull();
     // A rebuild keeps static paths, and the old component no longer maps.
     const oldComp = play.component;
     files["ui/menu.ui.css"] = MENU_CSS + "\n.extra { gap: 1px; }";
     engine.step(DT);
-    const again = doc._elementAt("/#menu/#play")!;
+    const again = elementAtPath(doc, "/#menu/#play")!;
     expect(again).not.toBeNull();
     expect(UIDocument._elementOf(again.component)).toBe(again);
     expect(again.component).not.toBe(oldComp);
@@ -552,5 +555,67 @@ describe("UIDocument in the editor (ADR 0077 wave B)", () => {
     expect(play.as(UIButton).backgroundColor).toEqual(Color.from("#336699"));
     expect(play._boundFields()).toEqual([]);
     expect(doc.query("#title")!._boundFields()).toEqual(["text"]);
+  });
+});
+
+describe("where a UI document's elements are written (ADR 0298)", () => {
+  const PAGE = `<Canvas>
+  <Panel/>
+  <Panel id="a"><Text>Hi</Text></Panel>
+  <Text/>
+  <Use src="widgets/badge.ui.xml" id="badge"/>
+  <Panel><Button>Go</Button></Panel>
+</Canvas>`;
+  const BADGE = `<Panel class="badge"><Image/><Text>New</Text></Panel>`;
+
+  beforeEach(() => {
+    files["ui/page.ui.xml"] = PAGE;
+    files["ui/widgets/badge.ui.xml"] = BADGE;
+  });
+
+  it("names each element by id, or by its tag counted among same-tag siblings, and a button's label", async () => {
+    const doc = await open("ui/page.ui.xml");
+    const paths = doc.root!.children.map((c) => elementSource(c)!.path);
+    expect(paths).toEqual(["/Panel[0]", "/#a", "/Text[0]", "/#badge", "/Panel[3]"]);
+    expect(elementSource(doc.query("#a Text")!)!.path).toBe("/#a/Text[0]");
+    expect(elementSource(doc.query("#badge Text")!)!.path).toBe("/#badge/Text[0]");
+    const go = doc.query("Button")!;
+    expect(elementSource(go)!.path).toBe("/Panel[3]/Button[0]");
+    expect(elementSource(go.children[0])!.path).toBe("/Panel[3]/Button[0]/label");
+    for (const el of doc.queryAll("*")) expect(elementAtPath(doc, elementSource(el)!.path)).toBe(el);
+  });
+
+  it("says where an element's own tag and its <Use> tag are written", async () => {
+    const doc = await open("ui/page.ui.xml");
+    const root = elementSource(doc.root!)!;
+    expect(root).toMatchObject({ file: "ui/page.ui.xml", place: { file: "ui/page.ui.xml", path: [] }, usePlace: null, sitePlace: null, index: -1, childCount: 5 });
+    expect(elementSource(doc.query("#a Text")!)).toMatchObject({ place: { file: "ui/page.ui.xml", path: [1, 0] }, usePlace: null, sitePlace: { file: "ui/page.ui.xml", path: [1, 0] }, index: 0, text: "Hi" });
+    // A used document's root: its own tag is the used file's root; it sits where its <Use> tag is.
+    const badge = elementSource(doc.query("#badge")!)!;
+    expect(badge).toMatchObject({ file: "ui/widgets/badge.ui.xml", from: "ui/widgets/badge.ui.xml", place: { file: "ui/widgets/badge.ui.xml", path: [] }, usePlace: { file: "ui/page.ui.xml", path: [3] }, index: 3, childCount: 2 });
+    expect(badge.sitePlace).toEqual(badge.usePlace);
+    expect(elementSource(doc.query("#badge Text")!)).toMatchObject({ file: "ui/widgets/badge.ui.xml", place: { file: "ui/widgets/badge.ui.xml", path: [1] }, usePlace: null });
+    // A button's label has no tag: its text and place are the button's.
+    const go = doc.query("Button")!;
+    const label = elementSource(go.children[0])!;
+    expect(label).toMatchObject({ label: true, place: { file: "ui/page.ui.xml", path: [4, 0] }, sitePlace: null, index: -1, childCount: 0, attributes: [], text: "Go" });
+    expect(PAGE.slice(label.openTagSpan.start, label.openTagSpan.end)).toBe("<Button>");
+  });
+
+  it("gives the path a child will have, the path a rebuild then gives it", async () => {
+    const doc = await open("ui/page.ui.xml");
+    const root = doc.root!;
+    // Inserting a Panel second: the Panels after it count one more.
+    expect(childPath(root, 1, "Panel", null)).toBe("/Panel[1]");
+    expect(childPath(root, 99, "Panel", null)).toBe("/Panel[4]");
+    expect(childPath(root, 0, "Text", "t")).toBe("/#t");
+    // Moving the first Panel to the end: it no longer counts itself; the used root counts as the Panel it is.
+    expect(childPath(root, 4, "Panel", null, root.children[0])).toBe("/Panel[3]");
+    files["ui/page.ui.xml"] = PAGE.replace(`  <Panel id="a">`, `  <Panel/>\n  <Panel id="a">`);
+    engine.step(DT);
+    expect(elementSource(elementAtPath(doc, "/Panel[1]")!)!.index).toBe(1);
+    files["ui/page.ui.xml"] = PAGE.replace(`  <Panel/>\n`, "").replace(`</Canvas>`, `  <Panel/>\n</Canvas>`);
+    engine.step(DT);
+    expect(elementSource(elementAtPath(doc, "/Panel[3]")!)!.index).toBe(4);
   });
 });

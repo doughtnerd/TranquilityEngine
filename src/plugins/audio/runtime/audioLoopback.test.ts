@@ -1,7 +1,8 @@
 // api-and-models §8, "Loopback" row: the real wasm with a fake HostClock, through `createLoopbackHost` (testing.ts).
-// The coreBackend cases stay `it.skip` until A1.4 delivers coreBackend.
-import { describe, expect, it } from "vitest";
-import { createLoopbackHost, LOOPBACK_RATE, type LoopbackHost } from "./testing";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { Assets, Engine, GameObject, SceneManager } from "../../../myco";
+import { AudioSource } from "./AudioSource";
+import { closeLoopbackAudio, createLoopbackHost, loopbackAudio, LOOPBACK_RATE, type LoopbackHost } from "./testing";
 import {
   ASAP,
   Kind,
@@ -164,20 +165,39 @@ describe("loopback host: raw BATCH records (runs now)", () => {
   });
 });
 
-describe("loopback host: needs A1.4's coreBackend (skipped until it lands)", () => {
-  // TODO(A1.4): un-skip once coreBackend lands. Assert: an AudioSource fed a generated WAV plays, and when the
-  // clip's end is reached the source's playing is false.
-  it.skip("an AudioSource plays a generated WAV, and its end reaches playing = false", () => {});
+// The core backend's own cases live with it: virtual voices promoting (`core/selectionLoopback.test.ts`), REPLAY after a
+// rebuild (`core/zonesLoopback.test.ts`, `core/session.contract.test.ts`, `core/musicRecoveryLoopback.test.ts`) and a
+// seek's new epoch (`core/streamLoopback.test.ts`, `core/clipSeekLoopback.test.ts`).
+describe("loopback host: an AudioSource on the core backend", () => {
+  afterEach(async () => {
+    await closeLoopbackAudio();
+    Assets.clearSources();
+    vi.restoreAllMocks();
+  });
 
-  // TODO(A1.4): un-skip once coreBackend lands. Assert: when a mixed slot frees, the highest-scored virtual voice
-  // is promoted to mixed (STATUS mixedVoices rises, the voice stops being demoted).
-  it.skip("virtual voices promote when a mixed slot frees", () => {});
-
-  // TODO(A1.4): un-skip once coreBackend lands. Assert: after a rebuild, REPLAY restores the live voices (same ids,
-  // same clips and positions) so STATUS liveVoices matches the pre-rebuild count.
-  it.skip("REPLAY restores voices after a rebuild", () => {});
-
-  // TODO(A1.4): un-skip once coreBackend lands. Assert: after SEEK with a new epoch, chunks tagged with the old
-  // epoch are dropped (STATUS shows no playback from them) and the new epoch's chunks play.
-  it.skip("a seek epoch drops the old stream chunks", () => {});
+  it("an AudioSource plays a generated WAV, and its end reaches playing = false", { timeout: 60_000 }, async (ctx) => {
+    Assets.clearSources();
+    Assets.addSource(Assets.fromObject({ "s.json": { format: "myco.scene@1", nodes: [] }, "tone.wav": "data:audio/wav;base64,AAAA" }));
+    const engine = await Engine.create({ headless: true, project: { audio: { buses: [{ name: "Master" }] } } });
+    await SceneManager.load("s.json");
+    engine.world.render = {} as never;
+    const tone = new Float32Array(CLIP_FRAMES).map((_, i) => 0.25 * Math.sin((2 * Math.PI * 440 * i) / LOOPBACK_RATE));
+    const loop = await loopbackAudio({ decode: () => ({ channelData: [tone] }), recovery: { now: () => 0, warn: () => {} } });
+    if (!loop) return ctx.skip();
+    const source = GameObject.create("Tone").addBehavior(AudioSource, { clip: "asset:tone.wav", playOnAwake: false });
+    source.play();
+    let heard = 0;
+    let frames = 0;
+    // Frames of 6 quanta (16 ms) until the source reports it ended; the 0.1 s clip ends within a few.
+    for (; frames < 60 && (frames === 0 || source.isPlaying); frames++) {
+      loop.tick(0.016);
+      const { left } = loop.render(6);
+      for (const v of left) heard = Math.max(heard, Math.abs(v));
+      for (let k = 0; k < 8; k++) await Promise.resolve();
+    }
+    expect(heard, "the clip was heard").toBeGreaterThan(0.1);
+    expect(source.isPlaying).toBe(false);
+    expect(frames).toBeLessThan(60);
+    engine.dispose();
+  });
 });

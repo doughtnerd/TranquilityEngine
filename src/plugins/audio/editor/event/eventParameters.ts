@@ -1,7 +1,7 @@
 // The Event editor's parameter edits (ADR 0158 §2): an event's local parameters, numeric or labelled, kept valid the
 // way `parseParameters` reads them (unique non-empty names, min <= default <= max, a labelled default among its
-// labels), and the audition values the sliders hold. Pure; renaming goes through `renameParameter` (eventTreeModel.ts)
-// so every use follows.
+// labels), and the audition values the sliders hold. Pure; renaming goes through the event references module
+// (`engine/audio/eventReferences.ts`, ADR 0299) so every use follows.
 import {
   MAX_LOCAL_PARAMETERS,
   isLabelled,
@@ -11,7 +11,7 @@ import {
   type NumericParameter,
   type ParameterDef,
 } from "../../../../engine/audio/eventFormat";
-import { renameParameter } from "./eventTreeModel";
+import { renameEventName } from "../../../../engine/audio/eventReferences";
 import { uniqueName } from "../../../../engine/core/uniqueName";
 
 /** The event with a new numeric parameter (0..1, default 0, seek 0) at the end; unchanged at `MAX_LOCAL_PARAMETERS`. */
@@ -38,7 +38,7 @@ export function renameParameterAt(event: AudioEventAsset, index: number, name: s
   const p = event.parameters[index];
   const trimmed = name.trim();
   if (!p || parameterNameProblem(event.parameters, index, trimmed)) return event;
-  return renameParameter(event, p.name, trimmed);
+  return renameEventName(event, "parameter", "local", p.name, trimmed);
 }
 
 /** Replace parameter `index` with `next`. */

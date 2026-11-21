@@ -59,7 +59,7 @@ export interface ProcessImagesOptions {
 
 /**
  * Process the plan's images: each image its sidecar says to resize or compress gets a processed
- * file at the same path (written over the copy), and, if it was resized, a `sourceSize` in its
+ * file at the same path (the build writer, buildWriter.ts, writes it in place of the copy), and, if it was resized, a `sourceSize` in its
  * sidecar so the game still measures it at its authored size. Images that can't be processed
  * (undecodable, or no smaller) are shipped as they are, with a line in `log` for the first.
  */

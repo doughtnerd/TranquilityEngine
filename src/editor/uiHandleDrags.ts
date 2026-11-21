@@ -4,6 +4,7 @@
 // boxes on the canvas through the `BoxOf` it's given.
 import type { UIDocumentElement } from "../engine/ui/UIDocument";
 import type { UIComponentType } from "../engine/ui/components";
+import { elementSource } from "../engine/ui/documentSource";
 import { openScene } from "./state";
 import { beginUIEdit, moveUIElement, setUIElementAttributes } from "./uiDocumentEdits";
 import { whyNotEdit } from "./editGate";
@@ -31,8 +32,9 @@ export type BoxOf = (c: UIComponentType) => BoxOnCanvas | null;
 export function whyNoHandles(el: UIDocumentElement): string | null {
   const reason = whyNotEdit({ kind: "ui-documents" });
   if (reason) return reason;
-  if (el._path === null) return "it's made by a script (a list row)";
-  if (el._synthetic) return "a button's label is its text content";
+  const src = elementSource(el);
+  if (!src) return "it's made by a script (a list row)";
+  if (src.label) return "a button's label is its text content";
   if (!el.parent || el.tag === "Canvas") return "the root fills its canvas";
   return null;
 }
@@ -147,13 +149,13 @@ export function beginMove(ref: UIElementRef, pointer: Point, boxOf: BoxOf): Hand
 /** The siblings in flow (shown, not absolute, written in the file) along the parent's main axis, with the dragged element's markup index. */
 function flowSiblings(el: UIDocumentElement, parent: UIDocumentElement, parentMap: BoxMap, boxOf: BoxOf): { siblings: FlowSibling[]; self: number } {
   const column = isColumn(String(fieldsOf(parent).flexDirection ?? "row"));
-  const children = parent._markup.children;
   const siblings: FlowSibling[] = [];
   for (const s of parent.children) {
-    if (s === el || s._path === null || s._synthetic || !s.node.activeInHierarchy) continue;
+    const src = elementSource(s);
+    if (s === el || !src || src.label || !s.node.activeInHierarchy) continue;
     const sf = fieldsOf(s);
     if (sf.positionType === "absolute" || sf.display === "none") continue;
-    const index = children.indexOf(s._markup);
+    const index = src.index;
     const b = index >= 0 ? boxOf(s.component) : null;
     if (!b) continue;
     const local = b.points.map((p) => parentMap.toLocal(p));
@@ -161,7 +163,7 @@ function flowSiblings(el: UIDocumentElement, parent: UIDocumentElement, parentMa
     const along = local.map((p) => p![column ? 1 : 0]);
     siblings.push({ index, start: Math.min(...along), end: Math.max(...along) });
   }
-  return { siblings, self: children.indexOf(el._markup) };
+  return { siblings, self: elementSource(el)?.index ?? -1 };
 }
 
 function reorderDrag(ref: UIElementRef, el: UIDocumentElement, parent: UIDocumentElement, parentMap: BoxMap, pad: { x: number; y: number; width: number; height: number }, boxOf: BoxOf, label: string): HandleDrag | null {
@@ -169,7 +171,7 @@ function reorderDrag(ref: UIElementRef, el: UIDocumentElement, parent: UIDocumen
   const column = isColumn(direction);
   const { siblings, self } = flowSiblings(el, parent, parentMap, boxOf);
   if (self < 0) return null;
-  const parentRef: UIElementRef = { host: ref.host, index: ref.index, path: parent._path ?? "" };
+  const parentRef: UIElementRef = { host: ref.host, index: ref.index, path: elementSource(parent)?.path ?? "" };
   // The marker spans the parent's content box (inside its padding).
   const p = (parent.component as { padding?: number }).padding;
   const inset = typeof p === "number" && Number.isFinite(p) ? Math.max(0, p) : 0;

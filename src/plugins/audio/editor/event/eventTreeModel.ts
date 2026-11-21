@@ -1,13 +1,10 @@
 // The Event editor's pure tree operations (ADR 0158 §1, §7): addressing a node of an audio event's container tree by
-// path, and every structural edit the tree pane makes (add, remove, reorder, move, duplicate, wrap), plus renaming a
-// local parameter everywhere it is used. Every function returns new values and never mutates its inputs: untouched
+// path, and every structural edit the tree pane makes (add, remove, reorder, move, duplicate, wrap). Renaming a
+// parameter where the event names it is `engine/audio/eventReferences.ts`'s (ADR 0299). Every function returns new values and never mutates its inputs: untouched
 // subtrees are shared, changed ones are copied along the path. The panel turns each result into one undoable edit.
 import {
   MAX_EVENT_DEPTH,
   MAX_EVENT_NODES,
-  eventNodes,
-  type Automation,
-  type AudioEventAsset,
   type EventNode,
   type NodeBase,
   type NodeType,
@@ -401,59 +398,6 @@ export function wrapNode(root: EventNode, path: NodePath, type: ListNodeType | "
   return { root: setNode(root, path, wrapper), path: [...path] };
 }
 
-// --- parameters -----------------------------------------------------------------------------------------------------
-
-/**
- * How many places name the parameter `name`: `switch`/`blend` nodes' `parameter`, and `automation` entries' `parameter`
- * on the event and on every node. For the "delete parameter" confirmation.
- */
-export function parameterUses(event: AudioEventAsset, name: string): number {
-  let uses = event.automation.filter((a) => a.parameter === name).length;
-  for (const node of eventNodes(event.root)) {
-    uses += node.automation.filter((a) => a.parameter === name).length;
-    if ((node.type === "switch" || node.type === "blend") && node.parameter === name) uses++;
-  }
-  if (event.musicRoot) uses += musicParameterUses(event.musicRoot, name);
-  return uses;
-}
-
-/**
- * A copy of `event` with every use of the parameter `from` (as `parameterUses` counts them, plus the entry in
- * `event.parameters` itself) renamed `to`. Nothing else changes; subtrees without a use are shared. When `from` equals
- * `to` the event comes back as is.
- */
-export function renameParameter(event: AudioEventAsset, from: string, to: string): AudioEventAsset {
-  if (from === to) return event;
-  const renameAutomation = (list: Automation[]): Automation[] =>
-    list.some((a) => a.parameter === from) ? list.map((a) => (a.parameter === from ? { ...a, parameter: to } : a)) : list;
-  const renameNode = (node: EventNode): EventNode => {
-    const fields: Record<string, unknown> = {};
-    const automation = renameAutomation(node.automation);
-    if (automation !== node.automation) fields.automation = automation;
-    if ((node.type === "switch" || node.type === "blend") && node.parameter === from) fields.parameter = to;
-    if (node.type === "sustain") {
-      for (const slot of SUSTAIN_SLOTS) {
-        const child = node[slot];
-        if (child) {
-          const renamed = renameNode(child);
-          if (renamed !== child) fields[slot] = renamed;
-        }
-      }
-    } else if (node.type !== "clip") {
-      const children = node.children.map((c) => renameNode(c));
-      if (children.some((c, i) => c !== node.children[i])) fields.children = children;
-    }
-    return Object.keys(fields).length > 0 ? withFields(node, fields) : node;
-  };
-  return {
-    ...event,
-    parameters: event.parameters.map((p) => (p.name === from ? { ...p, name: to } : p)),
-    automation: renameAutomation(event.automation),
-    root: renameNode(event.root),
-    ...(event.musicRoot ? { musicRoot: renameMusicParameter(event.musicRoot, from, to) } : {}),
-  };
-}
-
 // --- music trees (ADR 0166 §2.3, §2.5; decision D6) ----------------------------------------------------------------------
 // A music event's tree is `AudioEventAsset.musicRoot`: segments, playlists and music switches. A container's children
 // are reached by number, its `library` segments (bridges and stingers) by `"lib<n>"`. Ids are required and unique per
@@ -657,33 +601,6 @@ export function duplicateMusicNode(root: MusicNode, path: NodePath): MusicEdit {
   const unkeyed = parent.type === "musicSwitch" && renamed.value !== undefined ? (({ value: _value, ...rest }) => rest as MusicNode)(renamed) : renamed;
   const children = [...parent.children.slice(0, at), unkeyed, ...parent.children.slice(at)];
   return { root: replaceMusicNodeAt(root, parentP, withMusic(parent, { children })), path: [...parentP, at] };
-}
-
-/** Every parameter name a music tree reads: musicSwitch parameters, stem automation and region `while` conditions. */
-function musicParameterNames(root: MusicNode): string[] {
-  const out: string[] = [];
-  for (const { node } of musicEntries(root)) {
-    if (node.type === "musicSwitch") out.push(node.parameter);
-    if (node.type === "segment") {
-      for (const t of node.tracks) for (const a of t.automation) out.push(a.parameter);
-      for (const r of node.regions) if (r.while) out.push(r.while.parameter);
-    }
-  }
-  return out;
-}
-
-/** How many places in a music tree name the parameter `name` (added to `parameterUses`' count for a music event). */
-export const musicParameterUses = (root: MusicNode, name: string): number => musicParameterNames(root).filter((n) => n === name).length;
-
-/** The music tree with every use of the parameter `from` renamed `to` (`renameParameter`'s music half). */
-export function renameMusicParameter(root: MusicNode, from: string, to: string): MusicNode {
-  return mapMusicTree(root, (n) => {
-    if (n.type === "musicSwitch") return n.parameter === from ? withMusic(n, { parameter: to }) : n;
-    if (n.type !== "segment") return n;
-    const tracks = n.tracks.map((t) => (t.automation.some((a) => a.parameter === from) ? { ...t, automation: t.automation.map((a) => (a.parameter === from ? { ...a, parameter: to } : a)) } : t));
-    const regions = n.regions.map((r) => (r.while?.parameter === from ? { ...r, while: { ...r.while, parameter: to } } : r));
-    return tracks.some((t, i) => t !== n.tracks[i]) || regions.some((r, i) => r !== n.regions[i]) ? withMusic(n, { tracks, regions }) : n;
-  });
 }
 
 /** A short label for a music tree row: the node's id. */

@@ -5,16 +5,16 @@ import { makeFakeBackend, endAudioSession } from "../testing";
 import { parseSegmentNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
 import { ticksToSeconds } from "../../../../engine/audio/musicGrid";
 import type { MusicClipFacts } from "../../../../engine/audio/musicValidate";
-import { setSegmentClipSource } from "./segmentRun";
+import { serveMusicClips } from "./testing/clips";
 import { segmentGrid, segmentLength, segmentLoops } from "./segmentGrids";
 
 let facts: Record<string, MusicClipFacts | undefined> = {};
 
 function rig(): ReturnType<typeof makeFakeBackend> {
   facts = {};
-  setSegmentClipSource({ url: (p) => p, settings: () => ({ volume: 1, stream: true }), bus: (o) => o ?? "Master", facts: (p) => facts[p] });
   const b = makeFakeBackend();
   setAudioBackend(b);
+  serveMusicClips(b, (p) => facts[p], { stream: true });
   return b;
 }
 
@@ -33,7 +33,6 @@ function segment(): SegmentNode {
 afterEach(() => {
   endAudioSession();
   setAudioBackend(null);
-  setSegmentClipSource(null);
 });
 
 describe("segment grids (ADR 0263)", () => {

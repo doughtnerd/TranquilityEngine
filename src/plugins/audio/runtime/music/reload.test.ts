@@ -8,7 +8,8 @@ import type { EventInstance } from "../events/eventRuntime";
 import { parseSegmentNode, type SegmentNode, type MusicNode } from "../../../../engine/audio/musicFormat";
 import type { MusicClipFacts } from "../../../../engine/audio/musicValidate";
 import { createMusicPlayer, type MusicPlayer } from "./musicSystem";
-import { setSegmentClipSource, type SegmentRun } from "./segmentRun";
+import { type SegmentRun } from "./segmentRun";
+import { serveMusicClips } from "./testing/clips";
 import { requestStart } from "./planner";
 import { noteAssetChanged, setReloadHost } from "./reload";
 
@@ -39,7 +40,7 @@ function rig(): void {
   b.lookahead = L;
   invalidated.length = 0;
   eventRoot = null;
-  setSegmentClipSource({ url: (p) => `/assets/${p}`, settings: () => ({ volume: 1, stream: true }), bus: (o) => o ?? "Master", facts: () => FACTS });
+  serveMusicClips(b, () => FACTS, { stream: true });
   setReloadHost({ invalidateClip: (p) => invalidated.push(p), eventRoot: () => eventRoot });
   b.advanceTo(1);
 }

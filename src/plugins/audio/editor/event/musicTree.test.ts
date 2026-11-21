@@ -10,7 +10,7 @@ import { formatAudioEvent, parseAudioEvent, type AudioEventAsset } from "../../.
 import type { MusicNode, MusicSwitchNode, PlaylistNode, SegmentNode } from "../../../../engine/audio/musicFormat";
 import { useEditorPlugins } from "../../../testEditorPlugins";
 import { audioEditorPlugin } from "..";
-import { addMusicNode, canDuplicateMusic, canRemoveMusic, duplicateMusicNode, freshMusicId, musicIdProblem, musicIds, parameterUses, parsePathKey, pathKey, removeMusicNode, renameMusicId, renameParameter, reorderMusicNode } from "./eventTreeModel";
+import { addMusicNode, canDuplicateMusic, canRemoveMusic, duplicateMusicNode, freshMusicId, musicIdProblem, musicIds, parsePathKey, pathKey, removeMusicNode, renameMusicId, reorderMusicNode } from "./eventTreeModel";
 import { isLibraryPath, musicEntries, musicNodeAt, replaceMusicNodeAt } from "../../../../engine/audio/musicTree";
 import {
   coerceField, musicNodeFields, newStinger, patchStinger, readField, stingerAtFrom, stingerAtKind, writeField, type FieldDescriptor,
@@ -221,22 +221,6 @@ describe("reordering and duplicating", () => {
     expect(musicIds(dup.root)).toContain("riser-2");
     expectRoundTrip(dup.root);
     expect(canDuplicateMusic(music(), [])).toBe(false);
-  });
-});
-
-describe("parameters", () => {
-  it("uses and renames reach the music tree", () => {
-    const event = load();
-    expect(parameterUses(event, "State")).toBe(1);
-    expect(parameterUses(event, "Intensity")).toBe(2); // a stem automation and a region condition
-    const renamed = renameParameter(event, "Intensity", "Danger");
-    expect(renamed.parameters.map((p) => p.name)).toEqual(["State", "Danger"]);
-    const seg = renamed.musicRoot && (renamed.musicRoot as MusicSwitchNode).children[0] as SegmentNode;
-    expect(seg?.tracks[0].automation[0].parameter).toBe("Danger");
-    expect(seg?.regions[0].while?.parameter).toBe("Danger");
-    const sw = renameParameter(event, "State", "World");
-    expect((sw.musicRoot as MusicSwitchNode).parameter).toBe("World");
-    expect(parseAudioEvent(JSON.parse(formatAudioEvent(sw))).problems).toEqual([]);
   });
 });
 
