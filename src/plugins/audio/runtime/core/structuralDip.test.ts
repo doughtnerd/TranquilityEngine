@@ -363,7 +363,7 @@ function dipRig() {
   let now = 0;
   const LOOKAHEAD = 1024;
   const dip = new StructuralDip();
-  dip.bind({ mixer: () => mixer, buses: () => buses, writer: () => writer, sending: () => true, firstFrame: () => now + LOOKAHEAD, framesNow: () => now });
+  dip.bind({ mixer: () => mixer, buses: () => buses, writer: () => writer, session: { maySend: true }, firstFrame: () => now + LOOKAHEAD, framesNow: () => now });
   posted.length = 0;
   /** The sequences posted since the last call. */
   const sequences = () => sequenceBatches(posted.splice(0).flatMap((b) => { const batch = batchRecords(b); return batch ? [decode(batch)] : []; })).map(sequenceOf);

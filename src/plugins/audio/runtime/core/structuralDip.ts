@@ -41,6 +41,7 @@ import { BUS_LP_OFF_HZ, BUS_RAMP_MASK_GAIN, FadeLaw, LANE_DIP, QUANTUM_FRAMES, S
 import type { BusIndex, SlotStamp } from "./busIndex";
 import type { CommandWriter } from "./commandWriter";
 import { LOOKAHEAD_MAX_SECONDS } from "./lookahead";
+import type { SendGate } from "./session";
 
 /** The dip's length (R8): `DIP_FRAMES` = round(0.020 × sampleRate). */
 const DIP_MS = 20;
@@ -64,8 +65,8 @@ export interface StructuralDipHost {
   mixer(): Pick<Mixer, "_applyLive" | "_setDip" | "audioSettings"> & Partial<Pick<Mixer, "_releaseTombstones">>;
   buses(): Pick<BusIndex, "slotOf" | "moveBus" | "removeBus" | "settle" | "recycle" | "rootOf" | "moveVoices" | "dipVoices" | "slotConfig" | "slots" | "names">;
   writer(): Pick<CommandWriter, "busRampFrames" | "busSlot" | "flush" | "pending" | "sampleRate">;
-  /** Whether a batch may be posted now (running, not recovering, not disposed). */
-  sending(): boolean;
+  /** ADR 0291: the core session, asked whether a batch may be posted now (`maySend`). */
+  readonly session: Pick<SendGate, "maySend">;
   /** `ClockMap.nextFirstFrame()`: F0 = now + lookahead, the frame a batch posted now applies at. */
   firstFrame(): number;
   /** `ClockMap.framesNow()`: the frame a command sent now reaches the core at (recycling, the in-flight check); default `firstFrame` less the lookahead's ceiling. */
@@ -297,7 +298,7 @@ export class StructuralDip {
     const w = host.writer();
     const buses = host.buses();
     const table = buses.slots.slots;
-    const sending = host.sending();
+    const sending = host.session.maySend;
     // What was staged before goes out on its own, so the sequence starts a batch.
     if (sending && w.pending > 0) w.flush(host.firstFrame());
     const rate = w.sampleRate;

@@ -279,9 +279,10 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
   /**
    * ADR 0178: the core session's lifecycle: the reconfigure, rebuild, replay, failure and dispose phases run their
    * participants in `PHASE_ORDER`'s order (`session.ts`; the participants join in `joinSession`). It owns `recovering`
-   * and `disposed`.
+   * and `disposed`, and (ADR 0291) answers whether the core may be written to now (`maySend`, `mayQueue`), which the
+   * parts that write ask it.
    */
-  readonly session = new CoreSession();
+  readonly session = new CoreSession(() => this.host.status);
   /** ADR 0171 (K0): the bus indexing (`busIndex.ts`; Ma1 moves it onto the slot table). */
   readonly buses: BusIndex;
   /** ADR 0171 (K0): the bus gain writer (`laneWriter.ts`; Wa2, then Mx2). */
@@ -314,7 +315,7 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
       this.lanes.sync();
       this.loudness.liveApplied(); // Ld2: the live op sent its own LOUD_CONFIG (or changed nothing it carries)
     },
-    sending: () => !this.disposed && !this.recovering && this.host.status === "running",
+    session: this.session,
     firstFrame: () => this.clockMap.nextFirstFrame(),
     framesNow: () => this.clockMap.framesNow(),
     stampAt: (t) => this.clockMap.stampFor(this.clockMap.frameOfTime(t)),
@@ -450,7 +451,7 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
       fetchBytes,
       clips: this.clips,
       play: (req) => this.play(req),
-      sending: () => !this.disposed && !this.recovering && this.host.status === "running",
+      session: this.session,
       musicRings: () => this.host.preset.maxMusicRings ?? 0,
       sampleRate: () => this.clockMap.sampleRate,
       warnOnce: this.warnOnce,
@@ -485,7 +486,7 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
       playheads: this.playheads,
       clipInfo: (i) => ((this.table.flags[i]! & VoiceFlag.STREAM) !== 0 ? this.streams.clipInfo(this.table.clip[i]!) : this.clips.info(this.table.clip[i]!)),
       busIndex: (name) => this.busIndexByName.get(name) ?? -1,
-      sending: () => !this.disposed && !this.recovering && this.host.status !== "failed",
+      session: this.session,
       streamLoop: (i, loop, at) => this.streams.setLoop(this.table.clip[i]!, loop, at),
       writerBatches: () => this.writer.stats.batches,
       busView: (name, gain) => this.mixer._setAutomationView(name, gain),
@@ -526,6 +527,7 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
       aac: () => this.aac,
       mixedCap: () => this.mixedCap(),
       maxWide: () => this.host.preset.maxWide ?? 0,
+      session: this.session,
       holdStemResends: () => this.recovering || this.replayer.waitingForClock,
     });
     // ADR 0171 (K0): the per-concern modules (closures read the backend lazily).
@@ -715,8 +717,8 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
   /** Starts a clip. Returns null only when the backend can't play at all (the host failed). */
   play(req: CorePlayRequest): CoreVoice | null {
     if (this.disposed || this.host.status === "failed") return null;
-    // A3.4a: while a hard rebuild runs, new plays wait in the locked queue and start once the new core is up.
-    const id = this.voices.start(req, this.host.status === "running" && !this.recovering);
+    // A3.4a: while locked or a hard rebuild runs, new plays wait in the locked queue (`voices.start` asks `maySend`).
+    const id = this.voices.start(req);
     if (id === 0) return null;
     const voice = new Voice(this.voices, this.table, id, this.automation);
     this.automation.onPlay(voice, req);
@@ -806,7 +808,7 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
     this.musicOps.beginFrame(); // ADR 0166 (Q2): this frame's music STATUS when step 0 didn't run (P1)
     this.replayer.flush();
     this.automation.beginFrame();
-    if (this.voices.lockedQueue.size > 0 && this.host.status === "running" && !this.recovering) this.voices.unlock();
+    this.voices.unlock(); // the locked queue drains once the session may send
     this.voices.moveSpatial();
   }
 
@@ -850,7 +852,7 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
     // E2: a mute in force (master, hidden tab, or any bus's authored or script mute) or MASTER not 1 suspends the loudness target check.
     this.loudness.frame(this.isMuted || this.hiddenMuteOn || this.mixer.anyMuted(), this.master !== 1);
     // A3.4a: during a rebuild (or after recovery gave up) no core keeps what is sent; the replay re-derives it all.
-    if (this.recovering || this.host.status === "failed") this.writer.clear();
+    if (!this.session.mayQueue) this.writer.clear();
     else if (this.writer.pending > 0) this.writer.flush(this.clockMap.nextFirstFrame());
   }
 

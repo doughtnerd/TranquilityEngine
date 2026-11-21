@@ -64,6 +64,7 @@ import type { LoopRecord } from "./coreAutomation";
 import { MAX_STAMPED, StampedKind, STAMPED_FLAG_STOP_AT_END, VoiceReason, type VoiceTable } from "./voiceTable";
 import type { WorkletChannel } from "./workletChannel";
 import type { WarnOnce } from "./codecs";
+import type { SendGate } from "./session";
 import type { ClipInfo, ClipRegistry } from "./clipRegistry";
 import type { CorePlayRequest, CoreVoice } from "./coreBackend";
 import { dryGainBeforeStem, effectiveDryGain } from "./voices";
@@ -122,8 +123,11 @@ export interface MusicOpsHost {
   readonly clips: Pick<ClipRegistry, "acquire" | "release" | "state">;
   /** Plays one voice through the backend's ordinary path (`CoreBackend.play`); a member carries `music`. */
   play(req: CorePlayRequest): CoreVoice | null;
-  /** False while nothing reaches a core (disposed, a rebuild running, failed). */
-  sending(): boolean;
+  /**
+   * ADR 0291: the core session. The group operations write only when it may send now (`maySend`): while locked a member
+   * voice waits in the locked queue unplayed, so a FADE or SET_PARAMS (or a prime) for it would reach the core first.
+   */
+  readonly session: Pick<SendGate, "maySend">;
   /** The music ring pool's size from the preset (`audio.music.rings`; 0 before ABI 3.0's preset carries it). */
   musicRings(): number;
   /** The context's rate, Hz (a rebuild may change it). */
@@ -469,7 +473,7 @@ export class CoreMusicOps implements MusicBackend {
 
   fadeShaped(id: number, f: ShapedFade): void {
     const t = this.host.table;
-    if (!t.isLive(id) || !this.host.sending()) return;
+    if (!t.isLive(id) || !this.host.session.maySend) return;
     const i = id & 0xffff;
     const clock = this.host.clockMap;
     const law = fadeLawCode(f.law);
@@ -500,7 +504,7 @@ export class CoreMusicOps implements MusicBackend {
    */
   paramsShaped(id: number, r: { gain?: number; lowpassHz?: number; seconds: number; law?: FadeLawName; at?: number }): void {
     const t = this.host.table;
-    if (!t.isLive(id) || !this.host.sending()) return;
+    if (!t.isLive(id) || !this.host.session.maySend) return;
     const hasGain = r.gain !== undefined && Number.isFinite(r.gain);
     const hasLp = r.lowpassHz !== undefined && Number.isFinite(r.lowpassHz);
     if (!hasGain && !hasLp) return;
@@ -706,7 +710,7 @@ export class CoreMusicOps implements MusicBackend {
    * doesn't hold for the instance (fetched first, all before the one post, so the group stays one message).
    */
   private post(g: Group, send: Member[], retarget: boolean, protect: readonly string[] | undefined, forceBytes = false): void {
-    if (!this.host.sending()) return;
+    if (!this.host.session.maySend) return;
     let decoder: StreamDecoderLike;
     try {
       decoder = this.connect();

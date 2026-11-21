@@ -30,7 +30,7 @@ function rig(now = 1000) {
   const clips = { info: () => info, onResident: (_c: number, cb: (i: typeof info) => void) => cb(info) };
   const clockMap = { framesNow: () => now, lookaheadFrames: () => 0, sampleRate: RATE, timeOffset: 0, carryPending: false, reset() {} };
   const posted: ArrayBuffer[] = [];
-  const session = new CoreSession();
+  const session = new CoreSession(() => "running");
   const src = {
     table,
     clips,

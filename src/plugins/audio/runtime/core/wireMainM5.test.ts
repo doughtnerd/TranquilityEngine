@@ -261,7 +261,7 @@ describe("Replayer, the header order without BUS_MIX", () => {
     });
     const posted: ArrayBuffer[] = [];
     // ADR 0178: the header is the session's replayHeader phase; the parts this test has join it (the replayer adds RESET).
-    const session = new CoreSession();
+    const session = new CoreSession(() => "running");
     session.join("buses", { replayHeader: (b) => replayBusConfig(b, [{ parent: BUS_ROOT, effects: [] }, { parent: 0, effects: [] }]) });
     session.join("lanes", { replayHeader: (b) => lanes.replayLanes(b) });
     session.join("master", { replayHeader: (b) => replayMaster(b, 0.75, false) });
