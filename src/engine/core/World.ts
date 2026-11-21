@@ -18,6 +18,7 @@ import { resolveSettings, type ProjectSettings, type ProjectSettingsInput } from
 import type { RenderSurface } from "../render/RenderSurface";
 import type { NetworkTime } from "../net/time";
 import type { WorldTag } from "./worlds";
+import type { WorldOwner } from "./worldOwner";
 import { _disposeWorldServices, _interpolateWorldServices, _onComponentAttached, _worldServiceOf } from "./worldServices";
 
 export type WorldKind = "runtime" | "editor" | "server";
@@ -127,8 +128,8 @@ export class World {
 
   /** @internal */ readonly scheduler: Scheduler;
   /** @internal */ _waits: PendingWait[] = [];
-  /** @internal The Engine that owns this World (ADR 0032): set by the Engine (T1), used by `Engine.createWorld`/`findWorld`. */
-  _engine: unknown = null;
+  /** @internal The owner of this World, its Engine (ADR 0032, 0281): set when the Engine creates it; null for a World made directly. */
+  _owner: WorldOwner | null = null;
   /** @internal Transports this World owns (ADR 0033), closed when it's destroyed: see `createWorldTransport`. */
   readonly _transports = new Set<{ close(): void }>();
   /** @internal Whether local input reaches this World (`WorldConfig.input`): set by the Engine (T1), read by Input (T3). */

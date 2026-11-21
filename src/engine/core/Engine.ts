@@ -16,7 +16,10 @@ import { listSystemCatalog } from "./systems";
 import { World, type WorldKind } from "./World";
 import { notifyEngineLifecycle } from "./engineLifecycle";
 import { WorldHandleImpl } from "./WorldHandle";
-import { DEFAULT_WORLD_TAGS, type Bootstrap, type BootstrapEngine, type BootstrapSetting, type WorldConfig, type WorldHandle } from "./worlds";
+import type { ListenDefaults, WorldOwner, WorldViewState } from "./worldOwner";
+import { DEFAULT_WORLD_TAGS, type Bootstrap, type BootstrapConfig, type BootstrapEngine, type BootstrapSetting, type WorldConfig, type WorldHandle } from "./worlds";
+
+export type { WorldViewState } from "./worldOwner";
 
 export interface EngineOptions {
   /** Project settings (usually the game's `project.json`). */
@@ -53,25 +56,6 @@ export interface EngineOptions {
   loadScript?: ResolveBootstrapOptions["loadScript"];
 }
 
-/** @internal Editor: one World's place in the Engine's views and input, from `Engine._viewStates`. */
-export interface WorldViewState {
-  readonly name: string;
-  /** It wants to render (`WorldConfig.renders`, or the default for its tags). */
-  readonly renders: boolean;
-  /** It has the Engine's main view (ADR 0034). */
-  readonly mainView: boolean;
-  /** It draws to a surface of its own besides the main view (`Engine._attachView`). */
-  readonly extraView: boolean;
-  /**
-   * It handed the main view to another World (`Engine._handView`, a lobby's match World): its
-   * surface is kept, hidden, until the view comes back. It's on no screen meanwhile.
-   */
-  readonly viewHanded: boolean;
-  /** Local input reaches it. */
-  readonly takesInput: boolean;
-  readonly paused: boolean;
-}
-
 /**
  * @internal Editor: the Engine's timings while play mode's Stats show (`_setTiming`), in milliseconds.
  * `frame`: the frame's real delta time and how long the whole step took; `world`: one World's
@@ -93,8 +77,18 @@ export interface EngineTiming {
  * engine.start();
  * ```
  */
-export class Engine implements BootstrapEngine {
+export class Engine implements BootstrapEngine, WorldOwner {
   readonly settings: ProjectSettings;
+  /**
+   * @internal The declared bootstrap (ADR 0281), decided here once: the declarative bootstrap passed
+   * to `Engine.create`, else `project.json`'s when that's declarative, else null. World templates
+   * (`createWorld("Match")`, a lobby's match Worlds) are looked up in it, and lobbies are found in it.
+   */
+  readonly _declaredBootstrap: BootstrapConfig | null;
+  /** @internal Loopback addresses made up for this Engine's Worlds start with it (ADR 0067). */
+  readonly _loopbackPrefix = `engine-${nextEngineNumber++}`;
+  /** Defaults for listens without a port or host, per transport (ADR 0255): the dedicated server sets them. */
+  private readonly listenDefaults = new Map<string, ListenDefaults>();
   private defaultWorld: World | null = null;
   /** Live Worlds, in creation (and step) order. */
   private readonly list: World[] = [];
@@ -120,6 +114,7 @@ export class Engine implements BootstrapEngine {
 
   private constructor(private readonly options: EngineOptions) {
     this.settings = resolveSettings(options.project ?? {});
+    this._declaredBootstrap = declarative(options.bootstrap) ?? declarative(this.settings.bootstrap);
     this.views = new ViewAllocator({
       container: options.headless ? null : (options.container ?? null),
       createSurface: (element, world) => createRenderSurface(element, world.settings, world.kind),
@@ -195,7 +190,7 @@ export class Engine implements BootstrapEngine {
   }
 
   private static current(): Engine {
-    const engine = World.require()._engine;
+    const engine = World.require()._owner;
     if (!(engine instanceof Engine)) throw new Error("The current World doesn't belong to an Engine.");
     return engine;
   }
@@ -214,7 +209,7 @@ export class Engine implements BootstrapEngine {
     const tags = c.tags ?? DEFAULT_WORLD_TAGS;
     const kind: WorldKind = tags.includes("editor") ? "editor" : tags.includes("server") ? "server" : "runtime";
     const world = new World(kind, this.options.project ?? {}, { name: c.name, tags });
-    world._engine = this;
+    world._owner = this;
     if (c.tickRate !== undefined) world.time.fixedDeltaTime = 1 / c.tickRate;
     if (c.timeScale !== undefined) world.time.timeScale = c.timeScale;
 
@@ -270,14 +265,29 @@ export class Engine implements BootstrapEngine {
     return this.list.map((w) => this.handles.get(w)!);
   }
 
-  /**
-   * A WorldConfig as given, or a bootstrap template by name (validated): from the declarative
-   * bootstrap passed to `Engine.create`, else from `project.json`'s.
-   */
+  /** A WorldConfig as given, or the declared bootstrap's template by name (validated). */
   private resolveConfig(config: WorldConfig | string): WorldConfig {
-    if (typeof config !== "string") return config;
-    const declared = typeof this.options.bootstrap === "object" ? this.options.bootstrap : this.settings.bootstrap;
-    return templateConfig(declared, config);
+    return typeof config === "string" ? templateConfig(this._declaredBootstrap ?? undefined, config) : config;
+  }
+
+  /** @internal Create a World from the declared bootstrap's template `template`, named `name` (a lobby's match Worlds, ADR 0068). */
+  _createFromTemplate(template: string, name: string): WorldHandle {
+    return this.createWorld({ ...templateConfig(this._declaredBootstrap ?? undefined, template), name });
+  }
+
+  /** @internal Defaults for this Engine's Worlds' listens over `transport` that give no port or host (ADR 0255). */
+  _listenDefaults(transport: string): ListenDefaults | undefined {
+    return this.listenDefaults.get(transport);
+  }
+
+  /**
+   * @internal Set (or with null, clear) the default port and host for `transport` listens that give
+   * none: the dedicated server sets the WebSocket one to its first server World's port (and `--host`),
+   * so Worlds created at runtime that listen without a port share it, by path (ADR 0067).
+   */
+  _setListenDefaults(transport: string, defaults: ListenDefaults | null): void {
+    if (defaults) this.listenDefaults.set(transport, { ...defaults });
+    else this.listenDefaults.delete(transport);
   }
 
   /**
@@ -483,6 +493,13 @@ export class Engine implements BootstrapEngine {
     if (World.active && worlds.includes(World.active)) World.active = null;
     notifyEngineLifecycle("disposed", this.options.kind ?? "runtime");
   }
+}
+
+let nextEngineNumber = 1;
+
+/** A bootstrap setting or option that's a declarative config (not a code bootstrap, a script path or nothing), or null. */
+function declarative(setting: BootstrapSetting | Bootstrap | null | undefined): BootstrapConfig | null {
+  return typeof setting === "object" && setting !== null && !Array.isArray(setting) ? setting : null;
 }
 
 /** The one World an editor or server Engine gets when it's given no bootstrap. */

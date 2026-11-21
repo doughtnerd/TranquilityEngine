@@ -125,6 +125,42 @@ describe("lobby options (ADR 0068)", () => {
     const o = resolveLobbyOptions({ matchTemplate: "M", settings: { a: { choices: ["x", "y"], default: "y" } } });
     expect(o).toMatchObject({ maxPlayers: 8, minPlayers: 1, fillWithBots: false, startCountdown: 3, quickMatchWait: 10, joinTimeout: 30, settings: { a: ["y", "x"] } });
   });
+
+  it("reports a lobby no dedicated server would run (ADR 0281)", () => {
+    const untagged = validateBootstrap({ worlds: [{ name: "Menu" }], templates: { Lobby: { tags: ["lobby"], lobby: LOBBY } } });
+    expect(untagged).toEqual([expect.stringMatching(/templates\["Lobby"\]: a World with a "lobby" config must be tagged "server"/)]);
+    const unstarted = validateBootstrap({ worlds: [{ name: "Game", tags: ["server"] }], templates: { Lobby: { tags: ["server"], lobby: LOBBY } } });
+    expect(unstarted).toEqual([expect.stringMatching(/a dedicated server never starts this lobby/)]);
+  });
+});
+
+// ADR 0281: Lobby.connect("local") runs the lobby the dedicated server would, from the declared bootstrap.
+describe("a local lobby agrees with the dedicated server (ADR 0281)", () => {
+  it("refuses a lobby template the server wouldn't start, saying why, even under a code bootstrap", async () => {
+    const engine = await Engine.create({
+      headless: true,
+      // The templates are project.json's (the declared bootstrap), the Worlds the code bootstrap's.
+      project: { bootstrap: { worlds: [{ name: "Menu" }], templates: { Lobby: { tags: ["lobby"], lobby: LOBBY }, Match: { tags: ["server"] } } } },
+      bootstrap: (e) => void e.createWorld({ name: "Menu" }),
+    });
+    engines.push(engine);
+    World._runIn(engine.world, () => Lobby.connect("local", { name: "Pat" }));
+    expect(Lobby.state).toBe("offline");
+    expect(Lobby.error).toMatch(/templates\["Lobby"\]: a World with a "lobby" config must be tagged "server"/);
+    expect(engine.worlds().map((w) => w.name)).toEqual(["Menu"]);
+  });
+
+  it("runs the server-tagged lobby template under a code bootstrap", async () => {
+    const engine = await Engine.create({
+      headless: true,
+      project: { bootstrap: bootstrap() },
+      bootstrap: (e) => void e.createWorld({ name: "Menu" }),
+    });
+    engines.push(engine);
+    World._runIn(engine.world, () => Lobby.connect("local", { name: "Pat" }));
+    await stepUntil([engine], () => Lobby.state === "lobby", "lobby");
+    expect(engine.findWorld("Lobby")?.tags).toEqual(["server", "lobby"]);
+  });
 });
 
 // A page's fresh engine import takes a few seconds.

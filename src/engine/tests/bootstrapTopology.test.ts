@@ -72,3 +72,33 @@ describe("bootstrap topology", () => {
     expect(t.serverStart).toEqual([]);
   });
 });
+
+// ADR 0281: the lobby is the one the dedicated server starts; Lobby.connect("local") runs the same.
+describe("bootstrap topology: the lobby (ADR 0281)", () => {
+  const lobby = { matchTemplate: "Match" };
+
+  it("is the first World the server starts with a lobby config", () => {
+    const fromTemplate = bootstrapTopology({ worlds: [{ name: "Menu" }], templates: { Match: { tags: ["server"] }, Lobby: { tags: ["server"], lobby } } })!;
+    expect(fromTemplate.serverLobby?.name).toBe("Lobby");
+    expect(fromTemplate.lobbyProblems).toEqual([]);
+    const startUp = bootstrapTopology({ worlds: [{ name: "Menu" }, { name: "Hub", tags: ["server"], lobby }], templates: { Match: { tags: ["server"] } } })!;
+    expect(startUp.serverLobby?.name).toBe("Hub");
+    expect(bootstrapTopology({ worlds: [{ name: "Menu" }], templates: { Arena: { tags: ["server"] } } })!.serverLobby).toBeNull();
+  });
+
+  it("reports a lobby config no dedicated server would run: untagged, or on a template it doesn't start", () => {
+    const untagged = bootstrapTopology({ worlds: [{ name: "Menu", lobby }], templates: { Lobby: { tags: ["lobby"], lobby } } })!;
+    expect(untagged.serverLobby).toBeNull();
+    expect(untagged.lobbyProblems).toEqual([
+      expect.stringMatching(/^bootstrap\.worlds\[0\] \("Menu"\): a World with a "lobby" config must be tagged "server"/),
+      expect.stringMatching(/^bootstrap\.templates\["Lobby"\]: a World with a "lobby" config must be tagged "server"/),
+    ]);
+    const unstarted = bootstrapTopology({ worlds: [{ name: "Game", tags: ["server"] }], templates: { Lobby: { tags: ["server"], lobby } } })!;
+    expect(unstarted.serverLobby).toBeNull();
+    expect(unstarted.lobbyProblems).toEqual([expect.stringMatching(/^bootstrap\.templates\["Lobby"\]: a dedicated server never starts this lobby.*"Game"/)]);
+    // The dedicated server's own bootstrap: the lobby template started as a World of the same name.
+    const serverOwn = bootstrapTopology({ worlds: [{ name: "Lobby", tags: ["server"], lobby }], templates: { Lobby: { tags: ["server"], lobby } } })!;
+    expect(serverOwn.lobbyProblems).toEqual([]);
+    expect(serverOwn.serverLobby?.name).toBe("Lobby");
+  });
+});
