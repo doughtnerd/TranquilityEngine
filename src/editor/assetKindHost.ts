@@ -132,7 +132,7 @@ export function openAsset(path: string): boolean {
     return true;
   }
   if (kind !== "sprite" && opensInCodePanel(kind)) {
-    void import("./code/codeState").then((m) => m.openScript(file));
+    void import("./code/codeBuffers").then((m) => m.openScript(file));
     return true;
   }
   return false;

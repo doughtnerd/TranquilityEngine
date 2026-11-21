@@ -3,7 +3,7 @@ import { useDraftText } from "./draftText";
 import { Color } from "../../engine";
 import type { UIDocumentElement } from "../../engine/ui/UIDocument";
 import { documentFile, elementSource } from "../../engine/ui/documentSource";
-import { openScript } from "../code/codeState";
+import { openScript } from "../code/codeBuffers";
 import { currentProject, openScene, playState } from "../state";
 import { editorTextFiles } from "../textFiles";
 import { attributeText, movableAttributes, moveUIElementToClass, renameUIElement, setUIElementClasses, setUIElementField, suggestedClassName } from "../uiDocumentEdits";

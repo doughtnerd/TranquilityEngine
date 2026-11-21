@@ -2,7 +2,7 @@
 // it in the Code panel, and (from Add Component) add the new component to the selected nodes.
 import { errorStatus } from "./messages";
 import type { GameObject } from "../engine";
-import { openScript } from "./code/codeState";
+import { openScript } from "./code/codeBuffers";
 import { addComponentTo } from "./componentEdits";
 import type { NodePath } from "./document";
 import { saveScript } from "./session";

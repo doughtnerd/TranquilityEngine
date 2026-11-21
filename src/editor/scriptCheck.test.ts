@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { activeScript, openScripts, revealAt } from "./code/codeState";
+import { activeScript, closeAllScripts, revealAt } from "./code/codeBuffers";
 import { checkScriptsBeforePlay } from "./preferences";
 import type { EditorProject } from "./projects";
 import { checkBeforePlay, type ScriptDiagnostic } from "./scriptCheck";
@@ -14,8 +14,7 @@ const errors: ScriptDiagnostic[] = [
 
 afterEach(() => {
   checkScriptsBeforePlay.value = true;
-  openScripts.value = [];
-  activeScript.value = null;
+  closeAllScripts();
   revealAt.value = null;
 });
 

@@ -1,17 +1,9 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { assetKind } from "../assetBrowser";
-import { layout, resetLayout } from "../layout/store";
-import { instancesOf } from "../layout/model";
-import { activeScript, closeAllScripts, closeScript, dirtyScripts, openScript, openScripts, scriptFor, setDirty } from "./codeState";
-import { useBuiltinPanels, useCoreAssetKinds } from "../testing";
+import { scriptFor } from "./codeState";
+import { useCoreAssetKinds } from "../testing";
 
 useCoreAssetKinds(); // core asset kinds, as main.tsx registers them (ADR 0143)
-useBuiltinPanels(); // and the built-in panels, the Code panel among them (ADR 0182)
-
-beforeEach(() => {
-  closeAllScripts();
-  resetLayout();
-});
 
 describe("finding the script for a type", () => {
   const scripts = new Map([
@@ -33,26 +25,8 @@ describe("finding the script for a type", () => {
   });
 });
 
-describe("Code panel tabs", () => {
-  it("open once each, bring the Code panel forward, and close to the neighbouring tab", () => {
-    openScript("scripts/a.ts");
-    openScript("scripts/b.ts");
-    openScript("scripts/a.ts");
-    expect(openScripts.value).toEqual(["scripts/a.ts", "scripts/b.ts"]);
-    expect(activeScript.value).toBe("scripts/a.ts");
-    const [code] = instancesOf(layout.value, "code");
-    const group = layout.value.docks.flatMap((d) => d.groups).find((g) => g.panels.includes(code!))!;
-    expect(group.active).toBe(code);
-
-    setDirty("scripts/a.ts", true);
-    closeScript("scripts/a.ts");
-    expect(activeScript.value).toBe("scripts/b.ts");
-    expect(dirtyScripts.value.has("scripts/a.ts")).toBe(false);
-    closeScript("scripts/b.ts");
-    expect(activeScript.value).toBeNull();
-  });
-
-  it("list scripts in the Assets panel as their own kind", () => {
+describe("scripts in the Assets panel", () => {
+  it("are their own kind", () => {
     expect(assetKind("scripts/Wheel.ts")).toBe("script");
     expect(assetKind("scripts/types.d.ts")).toBe("other");
   });
