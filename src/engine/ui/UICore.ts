@@ -17,6 +17,7 @@ import { devices, type InputClaim, type PointerFrame } from "../input/devices";
 import { UIButton, UICanvas, UIInputField, UIPanel, type UIComponentType } from "./components";
 import { UI_KIND_TYPES, flexShrinkOf, isInteractiveKind, isLeafKind, sameTextRun, textRunOf, uiKindOf } from "./elementKinds";
 import { fontEpoch } from "./fonts";
+import { uiInteractions } from "./interactions";
 import { canvasScale, estimateText, loadYogaOnce, loadedYoga, uiLength } from "./layout";
 import type { TextMeasureRequest, UITextRun, UICoreHost, UICoreLike, UICoreOptions, UICorners, UIKind, UILaidOutCanvas, UILaidOutElement, UIPickRay } from "./uiCoreTypes";
 
@@ -42,8 +43,6 @@ interface Entry {
   applied: unknown[];
   /** Last laid-out result, in its canvas's UI pixels. */
   box: { x: number; y: number; width: number; height: number; visible: boolean; opacity: number };
-  /** Input field: Enter was pressed since the last routing. */
-  pendingSubmit?: boolean;
 }
 
 interface CanvasEntry extends Entry {
@@ -94,7 +93,6 @@ export class UICore implements UICoreLike {
   // Typing: one hidden DOM <input>, shared by whichever field is focused.
   private dom: HTMLInputElement | null = null;
   private active: UIInputField | null = null;
-  private activeEntry: Entry | null = null;
   private programmatic = false;
   private detachDom: (() => void) | null = null;
 
@@ -478,6 +476,7 @@ export class UICore implements UICoreLike {
     el.setAttribute("aria-hidden", "true");
     el.tabIndex = -1;
     el.style.cssText = "position:fixed;left:-10000px;top:0;width:1px;height:1px;opacity:0;pointer-events:none;";
+    // The player's typing: the value now, the change event for the World's next frame (ADR 0309).
     const onInput = () => {
       const c = this.active;
       if (!c) return;
@@ -486,17 +485,21 @@ export class UICore implements UICoreLike {
         v = v.slice(0, c.maxLength);
         el.value = v;
       }
+      if (v === c.value) return;
       c.value = v;
+      uiInteractions(c._world).record("change", c);
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Enter" && this.activeEntry) this.activeEntry.pendingSubmit = true;
-      else if (e.key === "Escape" && this.active) this.active._focused = false;
+      const c = this.active;
+      if (!c) return;
+      if (e.key === "Enter") uiInteractions(c._world).record("submit", c);
+      else if (e.key === "Escape") uiInteractions(c._world).blur(c);
     };
     const onBlur = () => {
       if (this.programmatic || !this.active) return;
       // A press on the canvas takes DOM focus first; routing re-focuses the field that press hit.
       if (this.pointerHeld) return;
-      this.active._focused = false;
+      uiInteractions(this.active._world).blur(this.active);
     };
     el.addEventListener("input", onInput);
     el.addEventListener("keydown", onKey);
@@ -524,7 +527,6 @@ export class UICore implements UICoreLike {
     if (!el) return;
     if (this.active !== wantComp) {
       this.active = wantComp;
-      this.activeEntry = want;
       el.value = wantComp.value;
       this.programmatic = true;
       el.focus();
@@ -543,7 +545,6 @@ export class UICore implements UICoreLike {
   private unfocusDom(): void {
     const el = this.dom;
     this.active = null;
-    this.activeEntry = null;
     if (el && typeof document !== "undefined" && document.activeElement === el) {
       this.programmatic = true;
       el.blur();
@@ -555,45 +556,37 @@ export class UICore implements UICoreLike {
 
   /**
    * The routing step (ADR 0069, 0310), run in the device snapshot before any World steps: hit-test
-   * the pointer against last frame's layout, claim it for UI, update buttons and focus.
+   * the pointer against last frame's layout, claim it for UI, and hand the World's interaction log
+   * (ADR 0309) what the pointer did, with focus moved by a press; the log publishes the frame's events.
    */
   private route(raw: PointerFrame): InputClaim | void {
     this.pointerHeld = raw.down(0) || raw.held(0);
     const world = this.world;
     if (this.disposed || !world) return;
-    const buttons = [...this.entries.values()].filter((e) => e.kind === "button");
-    const fields = [...this.entries.values()].filter((e) => e.kind === "input");
+    const log = uiInteractions(world);
     if (!this.interactiveMode || !world._takesInput) {
-      for (const b of buttons) (b.comp as UIButton)._hovered = (b.comp as UIButton)._pressed = false;
+      log.idle();
       this.pressed = null;
       return;
     }
+    const fields = [...this.entries.values()].filter((e) => e.kind === "input");
     const hit = this.hit(raw.x, raw.y);
-    // Scripts in the World's next frame see what happened now.
-    const frame = world.time.frameCount + 1;
-    const usable = (e: Entry | null) => !!e && e.kind === "button" && (e.comp as UIButton).interactable && e.comp.isActiveAndEnabled;
+    const usable = (e: Entry | null): e is Entry => !!e && e.kind === "button" && (e.comp as UIButton).interactable && e.comp.isActiveAndEnabled;
 
-    for (const b of buttons) (b.comp as UIButton)._hovered = b === hit && usable(b);
     if (raw.down(0)) {
       this.pressed = usable(hit) ? hit : null;
-      for (const f of fields) (f.comp as UIInputField)._focused = f === hit;
+      if (hit?.kind === "input") log.focus(hit.comp as UIInputField);
+      else for (const f of fields) log.blur(f.comp as UIInputField);
     }
     if (this.pressed && !this.entries.has(this.pressed.comp)) this.pressed = null;
+    let clicked: UIButton | null = null;
     if (raw.up(0)) {
-      if (this.pressed && this.pressed === hit) (this.pressed.comp as UIButton)._clickFrame = frame;
+      if (this.pressed && this.pressed === hit) clicked = this.pressed.comp as UIButton;
       this.pressed = null;
     } else if (this.pressed && !raw.held(0) && !raw.down(0)) this.pressed = null; // released without an up (focus lost)
-    for (const b of buttons) (b.comp as UIButton)._pressed = b === this.pressed;
+    log.route({ hovered: usable(hit) ? (hit.comp as UIButton) : null, pressed: (this.pressed?.comp as UIButton | undefined) ?? null, clicked });
 
-    let focused = false;
-    for (const f of fields) {
-      const c = f.comp as UIInputField;
-      if (f.pendingSubmit) {
-        f.pendingSubmit = false;
-        if (c.focused) c._submitFrame = frame;
-      }
-      focused ||= c.focused;
-    }
+    const focused = fields.some((f) => (f.comp as UIInputField).focused);
     return { pointer: !!hit, keyboard: focused };
   }
 

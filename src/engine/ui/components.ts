@@ -11,6 +11,7 @@
 import { Component } from "../core/Component";
 import { Color, Vector2 } from "../core/math";
 import { AssetRef, component, field } from "../core/registry";
+import { uiInteractions } from "./interactions";
 
 /** A length in UI pixels (a number or `"120"`), a percentage of the parent (`"50%"`), or `"auto"`. */
 export type UILength = number | string;
@@ -138,7 +139,8 @@ export class UIImage extends UIElement {
 /**
  * A panel that takes the pointer. Its children (usually a `UIText`, which has the font) are its label. Read its state
  * from scripts: `hovered`, `pressed`, and `clicked`, true for the frame a click finished, like
- * `Input.getMouseButtonUp`. A pointer press on a button goes to the UI, not to `Input`.
+ * `Input.getMouseButtonUp`. A pointer press on a button goes to the UI, not to `Input`. The state is the
+ * UI core's (its interaction log, ADR 0309).
  */
 @component("engine.UIButton")
 export class UIButton extends UIPanel {
@@ -146,11 +148,6 @@ export class UIButton extends UIPanel {
   @field(Color) pressedColor = new Color(0.17, 0.19, 0.23, 1);
   /** False: the button ignores the pointer (it still blocks it from the game) and stays unhovered. */
   @field(Boolean) interactable = true;
-
-  /** @internal The routing writes these (ADR 0069). */
-  _hovered = false;
-  /** @internal */ _pressed = false;
-  /** @internal The World frame whose scripts see `clicked`. */ _clickFrame = -1;
 
   constructor() {
     super();
@@ -163,24 +160,26 @@ export class UIButton extends UIPanel {
 
   /** True while the pointer is over the button (and it's interactable). */
   get hovered(): boolean {
-    return this._hovered && this.interactable && this.isActiveAndEnabled;
+    return uiInteractions(this._world).isHovered(this) && this.interactable && this.isActiveAndEnabled;
   }
 
   /** True from the press on the button until the pointer button is released. */
   get pressed(): boolean {
-    return this._pressed && this.interactable && this.isActiveAndEnabled;
+    return uiInteractions(this._world).isPressed(this) && this.interactable && this.isActiveAndEnabled;
   }
 
-  /** True for the one frame a click on the button finished (pressed and released over it). */
+  /** True for the one frame a click on the button finished (pressed and released over it), in every phase of that frame. */
   get clicked(): boolean {
-    return this._clickFrame === this._world.time.frameCount && this.interactable;
+    return uiInteractions(this._world).happened(this, "click") && this.interactable;
   }
 }
 
 /**
  * A one-line text field. Clicking it focuses it; typing goes through a hidden DOM `<input>`, so IME
- * and paste work. While it's focused, keys go to it and `Input.getKey*` report false. `submitted`
- * is true for the frame Enter was pressed in it.
+ * and paste work. While it's focused, keys go to it and `Input.getKey*` report false. `changed` is
+ * true for the frame after the player changed `value`, `submitted` for the frame after Enter was
+ * pressed in it (both seen by every phase of that frame, like `UIButton.clicked`); a script writing
+ * `value` never counts as a change.
  */
 @component("engine.UIInputField")
 export class UIInputField extends UIPanel {
@@ -194,9 +193,6 @@ export class UIInputField extends UIPanel {
   @field(Color) color = Color.white;
   @field(Color) placeholderColor = new Color(1, 1, 1, 0.45);
 
-  /** @internal */ _focused = false;
-  /** @internal The World frame whose scripts see `submitted`. */ _submitFrame = -1;
-
   constructor() {
     super();
     this.backgroundColor = new Color(0.1, 0.11, 0.13, 1);
@@ -207,18 +203,28 @@ export class UIInputField extends UIPanel {
     this.width = "240";
   }
 
-  /** True while it takes the keyboard. Set it to focus or unfocus the field from a script. */
+  /**
+   * True while it takes the keyboard. Set it to focus or unfocus the field from a script; one field
+   * in a World has focus, so focusing one unfocuses the others.
+   */
   get focused(): boolean {
-    return this._focused && this.isActiveAndEnabled;
+    return uiInteractions(this._world).isFocused(this) && this.isActiveAndEnabled;
   }
 
   set focused(value: boolean) {
-    this._focused = value;
+    const log = uiInteractions(this._world);
+    if (value) log.focus(this);
+    else log.blur(this);
+  }
+
+  /** True for the one frame the player changed the value (typed, pasted, deleted). */
+  get changed(): boolean {
+    return uiInteractions(this._world).happened(this, "change");
   }
 
   /** True for the one frame Enter was pressed in the focused field. */
   get submitted(): boolean {
-    return this._submitFrame === this._world.time.frameCount;
+    return uiInteractions(this._world).happened(this, "submit");
   }
 }
 

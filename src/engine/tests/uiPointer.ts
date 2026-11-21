@@ -6,7 +6,7 @@ import type { UIComponentType } from "../ui/components";
 
 // Test helpers that drive UI the way a player does: a UI core lays a World's UI out and routes the
 // pointer as the renderer's does (ADR 0076), and presses go in through `Input`'s DOM adapter (`dom`). A headless World has
-// no core of its own, so its buttons never click and its fields never submit without one.
+// no core of its own, so its buttons never click and its fields never change or submit without one.
 
 /** A UI core for `world` at a canvas size, and pointer gestures on its elements. */
 export class UIPointer {
