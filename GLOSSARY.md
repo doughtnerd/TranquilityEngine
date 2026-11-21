@@ -152,6 +152,7 @@ The domain terms used in Myco Engine's code, decision records and reviews. Add a
 - **World owner:** what owns a set of Worlds and what it offers the modules working with them (`WorldOwner` in `core/worldOwner.ts`, ADR 0281): a World's config and handle, whether it is alive, creating Worlds (from a template under a chosen name too), the declared bootstrap, listen defaults and view hand-over. `Engine` is the implementation; a World holds it as `_owner`.
 - **Declared bootstrap:** the one bootstrap World templates are looked up in and lobbies are found in (ADR 0281): the declarative bootstrap passed to `Engine.create`, else `project.json`'s when declarative. Distinct from the bootstrap that runs, which may be code.
 - **Server lobby:** the lobby World a dedicated server starts (`BootstrapTopology.serverLobby`, ADR 0281), which `Lobby.connect("local")` runs too; a `lobby` config no server would run is a bootstrap problem.
+- **Behaviour message:** a hook with an argument (`onCollisionEnter`, `onTriggerStay`, `onJointBreak`, `onControllerColliderHit`, the music hooks), sent by a plugin to the active GameBehaviors of some nodes through `World._sendMessage` (ADR 0303). The sender picks the nodes and the argument; the World delivers to each node once, with lifecycle hooks' edit-mode, error and async rules. _Avoid:_ looping over a node's components to call a hook.
 
 ## UI (ADR 0076, 0271)
 
