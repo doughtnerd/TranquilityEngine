@@ -51,7 +51,8 @@ and extend the mix to the prototype's model.
   "snapshots": [{ "name": "Underwater", "folder": "States",
                   "start": { "kind": "conditions", "match": "all", "conditions": [{ "parameter": "depth", "op": "gt", "value": 0 }] },
                   "fadeInMs": 300, "fadeOutMs": 500, "holdMs": 0, "priority": 20, "combine": "override",
-                  "buses": { "Ambience": -20, "Music": -6 } }],
+                  "buses": { "Ambience": -20, "Music": -6 },
+                  "effects": { "Music": { "fx3": { "cutoff": 800 } } } }],
   "loudness": { "targets": [ /* as today */ ], "resetOnPlay": true }
 }
 ```
@@ -71,8 +72,11 @@ its sends; solo is exclusive and keeps Master, returns, and the soloed bus's anc
 **Returns** are buses fed only by post-fader sends, with their own insert chain, routed to a bus (default Master). A bus
 may send to any return; Master can't send. The old single shared reverb becomes a return named "Reverb".
 
-**Snapshots blend.** Any number can be active. Per bus, Override snapshots resolve by priority (equal priority: the one
-started last wins) and Add snapshots stack their offsets on top. Each fades in and out over its times as a linear ramp
+**Snapshots blend.** A snapshot holds per-bus level offsets and, optionally, overrides of any bus or return effect
+parameter (`effects: { bus: { effectId: { param: value } } }`; owner decision 2026-11-22). Any number can be active.
+Per bus, Override snapshots resolve by priority (equal priority: the one started last wins) and Add snapshots stack
+their level offsets on top; an effect parameter takes the winning snapshot's value (Add snapshots don't override
+parameters). Each fades in and out over its times as a linear ramp
 in dB and stays at least `holdMs`. Start kinds: `base` (always on), `code` (`Audio.snapshot(name).start()` and
 `.stop()`; `Audio.snapshot(name, fade)` and `clearSnapshot` stay as shorthands), `never` (audition only), `conditions`
 (evaluated on the main thread when a named parameter changes; ops `lt le eq ne ge gt between` on numbers, `is not` on
@@ -94,8 +98,9 @@ per-user Studio preference, not project data.
 
 **Migration** (with 0329's, same confirmation): the `audio` section moves out of `project.json` into `audio.json`;
 volumes convert to dB; a `reverb` effect becomes a send to a created "Reverb" return; snapshot multipliers convert to dB
-offsets; bus automation keeps its curves with target `volume` (or `fx:` on a low-pass effect created for low-pass
-automation). The engine reads `audio.json`; a `project.json` that still has an `audio` section is migrated, not read.
+offsets and a snapshot `lowpass` becomes an override of a low-pass effect created on that bus (bypass-neutral at
+20 kHz outside the snapshot); bus automation keeps its curves with target `volume` (or `fx:` on that low-pass effect
+for low-pass automation). The engine reads `audio.json`; a `project.json` that still has an `audio` section is migrated, not read.
 
 ## Alternatives considered
 
@@ -127,9 +132,7 @@ automation). The engine reads `audio.json`; a `project.json` that still has an `
 
 ## Open questions
 
-- Snapshots in the prototype hold level offsets only; today's snapshots also hold a low-pass per bus. Proposed: a
-  snapshot may also override any bus effect parameter, and the migration moves the low-pass into a bus low-pass effect
-  the snapshot overrides. Needs the owner's answer.
+- ~~Snapshot scope~~: level offsets plus any bus effect parameter (owner, 2026-11-22).
 - Whether users can add more returns in v1 (the prototype shows a list but seeds one).
 
 ## References

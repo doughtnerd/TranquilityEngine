@@ -37,8 +37,6 @@ superseded and not part of the spec.
 
 - History: the engine's undo tree and asset-document histories on every screen; tree operations (rename, move, delete
   of assets) behave as the editor's asset operations do.
-- Samples are assets: rename renames the file (with reference rewriting), delete deletes it. The prototype says
-  "the file on disk keeps its name" and "the file on disk stays"; see question 2.
 - Occlusion: several obstacles' losses add (prototype: worst wins); materials are the engine's table.
 - Doppler uses listener velocity; reverb-zone membership is per source.
 - Voice stealing and virtual voices follow the engine's priority-based selection.
@@ -51,17 +49,14 @@ superseded and not part of the spec.
   (not Single/Direct), Playlist track (not Synth track), max instances 0–32 (0 = no limit), weights 0–100, split shifts
   automation, snapshot editing writes the snapshot's offset, the changed-on-disk review also runs on re-import.
 
-## Questions for the owner
+## Owner answers to the plan's questions (2026-11-22)
 
-1. **Snapshot scope.** The prototype's snapshots hold level offsets only; today's also hold a low-pass per bus.
-   Proposed: snapshots may also override any bus effect parameter (the migration moves low-pass into a bus effect).
-2. **Samples as a library or as files.** Proposed: samples are the project's audio files (rename and delete act on
-   files, as for every asset). The prototype treats the Samples tree as a library over files.
-3. **v1 without a live link.** The player bar's Game session pill becomes take replay; Mixer and Spatial "live"
-   changes are heard through the Studio's runtime (auditions, test scenes, take replay), not a running game.
-4. **macOS desktop.** The engine defaults to the reduced Babylon backend on macOS desktop builds, which runs no
-   effects, snapshot ramps or time automation. The Studio on macOS needs the Rust core; proposed: the Studio always
-   uses the core, and the macOS gate is revisited.
+1. **Snapshots** hold level offsets plus overrides of any bus effect parameter; today's snapshot low-pass migrates into
+   a bus low-pass effect the snapshot overrides (0330).
+2. **Samples are files**: rename and delete act on the file, with reference rewriting, as for every asset (0328).
+3. **v1 without a live link**: take replay stands in for the Game session; Mixer and Spatial changes are heard through
+   the Studio's runtime (0327).
+4. **macOS**: the Studio always uses the Rust core backend and says why if it can't start (0327).
 
 ## Milestones
 

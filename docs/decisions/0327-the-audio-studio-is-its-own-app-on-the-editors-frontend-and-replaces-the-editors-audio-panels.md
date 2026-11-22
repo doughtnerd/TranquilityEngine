@@ -61,7 +61,9 @@ for the editor.
 
 **The Studio runs its own audio runtime.** It starts a headless Engine with only the audio plugin's runtime (no
 renderer, no scene), the same `myco` audio code a game runs, so every audition, the Mixer, Spatial test scenes and take
-replay (0334) play through the real engine. It never boots the scene editor.
+replay (0334) play through the real engine. It never boots the scene editor. It always uses the Rust core backend,
+on every platform including macOS desktop (where games still default to the Babylon fallback until 0157's gate
+passes); if the core can't start, the Studio says why instead of running degraded (owner decision 2026-11-22).
 
 **The shell** (`src/studio/shell/`): the six screens of the prototype in three groups, Author (Samples, Playlists), Mix
 (Mixer, Spatial), Run (Take, Profiler), switched from the header and with Ctrl/⌘+1…6. Each screen is a dock of panels
@@ -95,7 +97,8 @@ editor applies to its documents and deletes (one file channel that works for bot
 today (`AuditionHost`, `MixerPanelDeps`, `LiveHost`, `ProfileSource`). v1 implements them over the Studio's own
 runtime. The live link (later record) implements them over a connection to a game or editor, carrying the 0171
 "live link on paper" telemetry framing plus a control channel. Until then the player bar's Game session pill is
-replaced by the replay of the open take (0334) and the "Linked to game" badge is not shown.
+replaced by the replay of the open take (0334), the "Linked to game" badge is not shown, and Mixer and Spatial
+changes are heard through the Studio's runtime (auditions, test scenes, take replay) (owner decision 2026-11-22).
 
 ## Alternatives considered
 
