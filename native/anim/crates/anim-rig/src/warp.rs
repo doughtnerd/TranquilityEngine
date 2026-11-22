@@ -354,18 +354,22 @@ fn unwarped(curve: &RootCurve, w: &MotionWarp, t: f32) -> AosTransform {
 ///
 /// # Maths
 ///
-/// The unwarped root is the clip's motion since `t0` carried onto `start`:
-/// `U(t) = start ∘ (root(t0)⁻¹ ∘ root(t))` (rotation and translation). Its miss at the end is
-/// `Δp = target.t − U(t1).t` and `Δψ`, the yaw about `up` of `target.r · U(t1).r⁻¹`
-/// (swing-twist, [`swing_twist`]). With `α(t) = smoothstep((t − t0)/(t1 − t0))` (zero slope at
-/// `t0`, so the warp starts smoothly):
+/// The unwarped root is the clip's motion since `t0` carried onto `start` (`S`):
+/// `U(t) = S ∘ (root(t0)⁻¹ ∘ root(t))` (rotation and translation). The yaw it misses by at the
+/// end is `Δψ`, the twist about `up` of `target.r · U(t1).r⁻¹` (swing-twist, [`swing_twist`]);
+/// `Q(x)` is the rotation of `x` about `up`. With `α(t) = smoothstep((t − t0)/(t1 − t0))` (zero
+/// slope at `t0`, so the warp starts smoothly):
 ///
-/// - position `U(t).t + α(t)·Δp`;
-/// - rotation `Q(α(t)·Δψ)·U(t).r`, `Q` the rotation about `up`.
+/// - rotation `R(t) = Q(α·Δψ)·U(t).r`;
+/// - position `P(t) = S.t + Q(α·Δψ)·(U(t).t − S.t) + α·Δp`, with
+///   `Δp = target.t − S.t − Q(Δψ)·(U(t1).t − S.t)`: the path turns about the start with the
+///   facing (so the root never slides sideways), and the remaining miss is spread over the
+///   window.
 ///
-/// So before `t0` the root is exactly the clip's (`α = 0`), at `t1` it is exactly at
-/// `target.t`, with `target`'s yaw (exactly `target.r` when the two differ by yaw only), and
-/// after `t1` the clip continues from there. A window with `t1 ≤ t0` jumps at `t0`.
+/// So before `t0` the root is exactly the clip's (`α = 0`); at `t1` it is exactly at
+/// `target.t`, with `target`'s yaw (exactly `target.r` when the two differ by yaw only); after
+/// `t1` the clip's motion continues from there, turned by `Δψ`. A window with `t1 ≤ t0` jumps at
+/// `t0`.
 pub fn motion_warp(curve: &RootCurve, w: &MotionWarp, t: f32) -> AosTransform {
     let u = unwarped(curve, w, t);
     let alpha = if w.t1 > w.t0 {
@@ -379,15 +383,18 @@ pub fn motion_warp(curve: &RootCurve, w: &MotionWarp, t: f32) -> AosTransform {
         return u;
     }
     let end = unwarped(curve, w, w.t1);
-    let dp = w.target.translation - end.translation;
     let up = normalize_or(w.up, AosVec3::new(0.0, 1.0, 0.0));
     let diff = (w.target.rotation * end.rotation.conjugate()).normalize_or_identity();
     let (_, twist) = swing_twist(diff, up);
     let twist = if twist.w < 0.0 { -twist } else { twist };
     let yaw = 2.0 * atan2(twist.xyz().dot(up), twist.w);
+    let s0 = w.start.translation;
+    let q_full = AosQuat::from_axis_angle(up, yaw);
+    let dp = w.target.translation - s0 - q_full.rotate(end.translation - s0);
+    let q = AosQuat::from_axis_angle(up, yaw * alpha);
     AosTransform::new(
-        u.translation + dp.scale(alpha),
-        (AosQuat::from_axis_angle(up, yaw * alpha) * u.rotation).normalize_or_identity(),
+        s0 + q.rotate(u.translation - s0) + dp.scale(alpha),
+        (q * u.rotation).normalize_or_identity(),
         AosVec3::one(),
     )
 }

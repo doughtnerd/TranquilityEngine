@@ -114,9 +114,8 @@ pub fn quat_angle(a: AosQuat, b: AosQuat) -> f32 {
 }
 
 pub fn quat_angle64(a: AosQuat, b: r::Quat) -> f64 {
-    let a = q64(a);
-    let d = a.dot(b).abs().min(1.0);
-    2.0 * d.acos()
+    let d = q64(a).conjugate() * b;
+    2.0 * r::Vec3::new(d.x, d.y, d.z).length().atan2(d.w.abs())
 }
 
 pub fn assert_close(a: AosVec3, b: AosVec3, tol: f32, what: &str) {

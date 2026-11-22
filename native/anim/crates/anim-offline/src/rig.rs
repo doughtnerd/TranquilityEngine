@@ -276,7 +276,6 @@ pub fn motion_warp(
         return u;
     }
     let end = unwarped(t1);
-    let dp = target.translation - end.translation;
     let diff = target.rotation * end.rotation.conjugate();
     // A ground-plane reference vector perpendicular to up.
     let refv = if up.x.abs() < 0.57735 {
@@ -288,9 +287,12 @@ pub fn motion_warp(
     let turned = diff.rotate(refv);
     let turned = turned - up.scale(turned.dot(up));
     let yaw = refv.cross(turned).dot(up).atan2(refv.dot(turned));
+    let s0 = start.translation;
+    let dp = target.translation - s0 - Quat::from_axis_angle(up, yaw).rotate(end.translation - s0);
+    let q = Quat::from_axis_angle(up, yaw * alpha);
     Transform {
-        translation: u.translation + dp.scale(alpha),
-        rotation: Quat::from_axis_angle(up, yaw * alpha) * u.rotation,
+        translation: s0 + q.rotate(u.translation - s0) + dp.scale(alpha),
+        rotation: q * u.rotation,
         scale: Vec3::ONE,
     }
 }
