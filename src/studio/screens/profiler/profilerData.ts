@@ -19,6 +19,7 @@ import {
   CAPTURE_OUTPUT_SLOT, captureNames, type CaptureEventAt, type CaptureEventType, type CaptureLoudnessMark, type CaptureLoudnessTarget, type CaptureNames,
 } from "../../../plugins/audio/runtime/capture/reader";
 import { effectsCost, type EffectsCost } from "./effectsCostModel";
+import { buildMemory, type MemoryData } from "./memoryModel";
 import { buildMessages, rulerMarks, type LoudnessWarning, type ProfilerMessage, type ProfilerNote, type RulerMark } from "./messagesModel";
 import { profilerTargets } from "./cursorKeys";
 import { planTracks, type CaptureContents, type PlannedTrack } from "./trackPlan";
@@ -56,6 +57,8 @@ export interface ProfilerData {
   readonly load: LoadData | null;
   /** DSP cost by section (where effects run), estimated from the CPU meter (`effectsCostModel.ts`); null before it is fitted. */
   readonly effects: EffectsCost | null;
+  /** ADR 0337 §6: the clip arena and the loaded packages' memory over time (`memoryModel.ts`); null without either. */
+  readonly memory: MemoryData | null;
   /** Each bus's effective gain, dB, by slot. */
   readonly buses: ReadonlyMap<number, Series>;
   readonly loudness: LoudnessData | null;
@@ -75,7 +78,9 @@ export interface ProfilerData {
 }
 
 /** The events the screen reads beside the voices. */
-const OTHER_EVENT_TYPES: readonly CaptureEventType[] = ["parameter", "snapshot", "musicTransition"];
+const OTHER_EVENT_TYPES: readonly CaptureEventType[] = ["parameter", "snapshot", "musicTransition", "audioPackage"];
+/** ADR 0337 §6: the STATUS column the memory track reads. */
+const MEMORY_COLUMN = "arenaUsedKB";
 
 /** The capture's META `target` as a loudness target (the recorder writes the `audio.loudnessTargets` entry in force), or null. */
 export function metaTarget(target: unknown): CaptureLoudnessTarget | null {
@@ -132,7 +137,7 @@ export class ProfilerDataReader {
 
   constructor(private readonly source: ProfileSource, opts: ProfilerDataOptions = {}) {
     this.kit = TrackKit.of(source);
-    this.kit.status([...VOICE_COLUMNS, ...CURSOR_COLUMNS]);
+    this.kit.status([...VOICE_COLUMNS, ...CURSOR_COLUMNS, MEMORY_COLUMN]);
     const cpu = cpuTracks({ source });
     this.cpu = cpu.find((m) => m.track.id === "cpu.load");
     this.sections = cpu.find((m) => m.track.id === "cpu.sections");
@@ -200,12 +205,14 @@ export class ProfilerDataReader {
     const cpuLines = this.cpu?.data()?.lines ?? [];
     const load: LoadData | null = vs ? { voices: { times: vs.times, values: vs.mixed }, cap: { times: vs.times, values: vs.cap }, cpu: cpuLines } : null;
     const effects = effectsCost(this.sections?.data()?.lines);
+    const memory = buildMemory(feed.times, feed.length && !src.summary.mainSideOnly ? feed.column(MEMORY_COLUMN) : null, this.events, names, origin);
 
     const contents: CaptureContents = {
       frames: this.frames.length > 0,
       status: feed.length > 0 && !src.summary.mainSideOnly,
       cpu: cpuLines.length > 0,
       effects: effects !== null,
+      memory: memory !== null,
       buses: [...buses.keys()].sort((a, b) => a - b).map((slot) => ({ slot, name: names.bus(slot) })),
       loudness: loudness !== null && loudness.shortTerm.times.length > 0,
       voices: voices.length > 0,
@@ -216,7 +223,7 @@ export class ProfilerDataReader {
     const marks = rulerMarks(messages);
     const cursorCols = feed.length ? feed.columns() : emptyCursorColumns();
     return {
-      duration, contents, tracks: planTracks(contents), load, effects, buses, loudness, voices, parameters, messages, marks,
+      duration, contents, tracks: planTracks(contents), load, effects, memory, buses, loudness, voices, parameters, messages, marks,
       targets: profilerTargets(cursorCols, src.markers, origin, marks), target: this.target, frames: this.frames,
     };
   }

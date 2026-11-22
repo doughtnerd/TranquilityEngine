@@ -15,7 +15,7 @@ describe("the Profiler's data reader", () => {
   it("plans the tracks the fixture has data for, in the prototype's order", async () => {
     const source = await openFixture();
     const data = await new ProfilerDataReader(source).refresh();
-    expect(data.tracks.map((t) => t.label)).toEqual(["Load", "Bus · Music", "Bus · Vehicles", "Bus · Dialogue", "Voices", "Game · Speed"]);
+    expect(data.tracks.map((t) => t.label)).toEqual(["Load", "Memory", "Bus · Music", "Bus · Vehicles", "Bus · Dialogue", "Voices", "Game · Speed"]);
     expect(data.load!.cap.values[0]).toBe(4);
     // Music is ducked by 6 dB from 4 s to 7 s: -6 dB authored, -12 dB while ducked.
     const music = data.buses.get(1)!;
@@ -23,6 +23,21 @@ describe("the Profiler's data reader", () => {
     expect(at(2)).toBeCloseTo(-6.02, 1);
     expect(at(5)).toBeCloseTo(-12.04, 1);
     expect(Array.from(data.parameters.get("Speed")!.values)).toEqual([20, 80, 118]);
+    source.close();
+  });
+
+  it("reads the memory track: the clip arena from STATUS and the Forest package's memory from its PKG events (ADR 0337 §6)", async () => {
+    const source = await openFixture();
+    const m = (await new ProfilerDataReader(source).refresh()).memory!;
+    const at = (s: { times: ArrayLike<number>; values: ArrayLike<number> }, t: number) => s.values[Array.from(s.times).filter((x) => x <= t).length - 1]!;
+    expect(at(m.arena, 0.1)).toBe(2048 * 1024);
+    expect(at(m.arena, 2)).toBe((2048 + 3 * 64 + 880) * 1024);
+    expect(at(m.arena, 11)).toBe((2048 + 64) * 1024);
+    expect(Array.from(m.packages.times)).toEqual([1.2, 9]);
+    expect(Array.from(m.packages.values)).toEqual([901_120, 0]);
+    expect(m.marks.map((k) => [k.time, k.kind, k.text])).toEqual([[1.2, "loaded", "Forest loaded · 880 KB"], [9, "unload", "Forest unloaded"]]);
+    expect(m.peakPackages).toBe(901_120);
+    expect(m.unknownPackages).toEqual([]);
     source.close();
   });
 

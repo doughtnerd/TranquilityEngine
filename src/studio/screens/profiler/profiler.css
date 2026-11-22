@@ -46,6 +46,12 @@
 .pf-bus { stroke: var(--series-2); }
 .pf-loud { stroke: var(--series-4); }
 .pf-param { stroke: var(--series-3); }
+/* ADR 0337 §6: memory — the clip arena, the loaded packages, and a mark per package load, unload and failure */
+.pf-mem-arena { stroke: var(--series-5); }
+.pf-mem-packages { stroke: var(--series-6); stroke-dasharray: 3 2; }
+.pf-mem-mark { position: absolute; top: 0; bottom: 0; width: 0; border-left: 1px solid var(--series-6); pointer-events: auto; }
+.pf-mem-mark.unload { border-left-style: dashed; border-left-color: var(--muted); }
+.pf-mem-mark.failed { border-left-color: var(--danger); }
 .pf-ref { stroke-width: 1; }
 .pf-zero { stroke: var(--border-strong); }
 .pf-target { stroke: var(--warning); stroke-dasharray: 4 3; }
