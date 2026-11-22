@@ -4,6 +4,7 @@
 import type { StudioPanel } from "../shell/studioPanels";
 import { SCREENS, type ScreenId } from "../shell/screens";
 import { historyPanel, placeholderPanel } from "./placeholder";
+import { PROFILER_PANELS } from "./profiler";
 
 const purpose = (id: ScreenId) => SCREENS.find((s) => s.id === id)!.purpose;
 
@@ -38,10 +39,5 @@ export const SCREEN_PANELS: Readonly<Record<ScreenId, readonly StudioPanel[]>> =
     placeholderPanel({ id: "take-timeline", title: "Timeline", dock: "fill", fixed: true, icon: "◉", empty: "Take", body: <p>{purpose("take")} Open a take to replay it.</p> }),
     placeholderPanel({ id: "take-inspector", title: "Instance", dock: "right", empty: "Nothing selected", body: "The selected instance: what asked for it, what it played, and notes." }),
   ],
-  profiler: [
-    placeholderPanel({ id: "profiler-captures", title: "Captures", dock: "left", empty: "No captures yet", body: "Start a capture in the editor or a game build, or capture a take as it replays here; saved captures show here." }),
-    placeholderPanel({ id: "profiler-tracks", title: "Tracks", dock: "fill", fixed: true, icon: "▤", empty: "Profiler", body: <p>{purpose("profiler")} Open a capture to inspect it.</p> }),
-    placeholderPanel({ id: "profiler-details", title: "Details", dock: "right", empty: "Nothing selected", body: "The selected voice and why it played." }),
-    placeholderPanel({ id: "profiler-log", title: "Log", dock: "bottom", empty: "No events", body: "The capture's events and warnings in time order." }),
-  ],
+  profiler: PROFILER_PANELS,
 };

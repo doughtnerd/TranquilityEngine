@@ -19,7 +19,7 @@ describe("the Profiler's data reader", () => {
     expect(data.load!.cap.values[0]).toBe(4);
     // Music is ducked by 6 dB from 4 s to 7 s: -6 dB authored, -12 dB while ducked.
     const music = data.buses.get(1)!;
-    const at = (t: number) => music.values[[...Array.from(music.times)].findLastIndex((x) => x <= t)]!;
+    const at = (t: number) => music.values[Array.from(music.times).filter((x) => x <= t).length - 1]!;
     expect(at(2)).toBeCloseTo(-6.02, 1);
     expect(at(5)).toBeCloseTo(-12.04, 1);
     expect(Array.from(data.parameters.get("Speed")!.values)).toEqual([20, 80, 118]);

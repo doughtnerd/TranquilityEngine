@@ -16,7 +16,8 @@ import { NO_PICK_PATH, whyChain } from "./whyModel";
 const names = namesFromStart({ clips: [[1, "engine.ogg"], [2, "boost.wav"], [3, "vo.wav"]], buses: [[1, "Vehicles"], [2, "Dialogue"]] });
 
 let seq = 0;
-const at = (seconds: number, event: Omit<CaptureEvent, "perfMs">): CaptureEventAt => ({ seq: ++seq, seconds, event: { perfMs: 0, ...event } as CaptureEvent });
+type EventInit = CaptureEvent extends infer E ? (E extends unknown ? Omit<E, "perfMs"> : never) : never;
+const at = (seconds: number, event: EventInit): CaptureEventAt => ({ seq: ++seq, seconds, event: { perfMs: 0, ...event } as CaptureEvent });
 const start = (s: number, voice: number, clip: number, slot: number) => at(s, { type: "voiceStart", voice, clip, slot, busGen: 0, flags: 0, atFrameLo: 0, gain: 0.5 });
 
 function scene(): VoiceBlock[] {
