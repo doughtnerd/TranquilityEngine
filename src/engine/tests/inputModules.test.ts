@@ -164,6 +164,8 @@ function recorder() {
     gamepadButton: (id, i, v) => log.push(["button", id, i, v]),
     gamepadAxis: (id, i, v) => log.push(["axis", id, i, v]),
     gamepadSensor: (id, kind) => log.push(["sensor", id, kind]),
+    gamepadTouch: () => {},
+    gamepadBattery: () => {},
     touchStart: () => {},
     touchMove: () => {},
     touchEnd: () => {},

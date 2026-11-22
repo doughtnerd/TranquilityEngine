@@ -9,14 +9,25 @@
  * - **Output:** USB report 0x05 and Bluetooth report 0x11 (with a CRC-32): motors and light bar.
  * - **Motion:** through the factory calibration in feature report 0x02 (USB, the adapter) or 0x05
  *   (Bluetooth).
+ * - **Touchpad and battery:** two touch points (normalized as SDL does, 1920 × 920: the pad
+ *   reports up to about 943, but SDL finds 920 feels better) and the battery byte.
  * - **The wireless adapter** reports whether a controller is paired with it; the pad is reported
  *   connected only while one is.
  */
 import { Later, PadState, SLOT_COLOURS, byte01, byte255, bytesOf, featureBody, hasOutputReport, outputLength, send, type HidPadFactory, type HidPadOutput } from "./driver";
-import { BluetoothCrcCheck, NOMINAL_IMU, reportImu, reportSonyControls, sealBluetoothReport, sonyImuCalibration, type ImuCalibration } from "./sony";
+import { BluetoothCrcCheck, NOMINAL_IMU, reportImu, reportSonyControls, reportTouchpad, sealBluetoothReport, sonyImuCalibration, type ImuCalibration } from "./sony";
 
 export const DUALSHOCK4_PRODUCTS: readonly number[] = [0x05c4, 0x09cc, 0x0ba0];
 const WIRELESS_ADAPTER = 0x0ba0;
+const TOUCHPAD_HEIGHT = 920;
+
+/** The battery byte: level in the low nibble; bit 4 on the cable (then 0..10 charging, 11 full). */
+function battery(v: number): [number, boolean] {
+  const level = v & 0x0f;
+  if (!(v & 0x10)) return [Math.min(1, (level * 10 + 5) / 100), false];
+  if (level <= 10) return [Math.min(1, (level * 10 + 5) / 100), true];
+  return level === 11 ? [1, false] : [-1, false];
+}
 
 export const dualShock4: HidPadFactory = (device, link) => {
   const pad = new PadState(link);
@@ -70,6 +81,8 @@ export const dualShock4: HidPadFactory = (device, link) => {
   const full = (b: Uint8Array, o: number) => {
     reportSonyControls(pad, b, o, o + 4, b[o + 7], b[o + 8], false);
     if (sensors) reportImu(pad, imu, b, o + 12, o + 18);
+    reportTouchpad(pad, b, o + 34, TOUCHPAD_HEIGHT);
+    pad.battery(...battery(b[o + 29]));
   };
 
   const calibrate = async () => {

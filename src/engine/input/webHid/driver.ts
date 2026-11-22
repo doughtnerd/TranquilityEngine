@@ -1,6 +1,6 @@
 /**
  * What a WebHID controller driver is (ADR 0335): one per opened device, made by its family's
- * module (`dualSense.ts`, `dualShock4.ts`, `switchPro.ts`). The adapter (`webHidGamepads.ts`) feeds
+ * module (`dualSense.ts`, `dualShock4.ts`, `switchPro.ts`, `joyCon.ts`). The adapter (`webHidGamepads.ts`) feeds
  * it the device's input reports; the driver announces the pad through its link once it's ready,
  * reports its controls on the engine's wire indices (`controls.ts`), and encodes output.
  */
@@ -20,6 +20,11 @@ export interface HidPadLink {
   connected(info: Omit<GamepadInfo, "id">): void;
   /** The controller went away (a wireless adapter whose controller switched off). */
   disconnected(): void;
+  /**
+   * The device is (or no longer is) in use as part of another pad (a Joy-Con joined to its
+   * partner): it announces no pad of its own, but the Gamepad API still skips it.
+   */
+  joined(on: boolean): void;
 }
 
 /** Output a driver sends to its device. */
@@ -47,6 +52,13 @@ export type HidPadFactory = (device: HidDevice, link: HidPadLink) => HidPadDrive
 export class PadState {
   private readonly buttons = new Float32Array(GAMEPAD_BUTTONS.length);
   private readonly axes = new Float32Array(GAMEPAD_AXES.length);
+  /** Per touchpad finger: down, x, y. */
+  private readonly touches = [
+    { down: false, x: 0, y: 0 },
+    { down: false, x: 0, y: 0 },
+  ];
+  private batteryLevel = Number.NaN;
+  private charging = false;
 
   constructor(private readonly link: HidPadLink) {}
 
@@ -73,6 +85,24 @@ export class PadState {
 
   sensor(kind: "gyro" | "accel", x: number, y: number, z: number): void {
     this.link.sink.gamepadSensor(this.link.id, kind, x, y, z);
+  }
+
+  /** Touchpad finger 0 or 1: down, and where (0..1, top-left 0, 0). A lifted finger's position doesn't matter. */
+  touch(finger: 0 | 1, down: boolean, x: number, y: number): void {
+    const t = this.touches[finger];
+    if (t.down === down && (!down || (t.x === x && t.y === y))) return;
+    t.down = down;
+    t.x = x;
+    t.y = y;
+    this.link.sink.gamepadTouch(this.link.id, finger, down, x, y);
+  }
+
+  /** Battery level 0..1 (-1 unknown) and whether it's charging. */
+  battery(level: number, charging: boolean): void {
+    if (level === this.batteryLevel && charging === this.charging) return;
+    this.batteryLevel = level;
+    this.charging = charging;
+    this.link.sink.gamepadBattery(this.link.id, level, charging);
   }
 }
 
