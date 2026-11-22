@@ -22,6 +22,7 @@ publish = false
 
 [workspace.dependencies]
 anim-wire = { path = "crates/anim-wire" }
+anim-wasm = { path = "crates/anim-wasm" }
 anim-math = { path = "crates/anim-math" }
 anim-format = { path = "crates/anim-format" }
 anim-compress = { path = "crates/anim-compress" }

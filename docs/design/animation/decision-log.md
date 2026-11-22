@@ -81,3 +81,5 @@ Decisions made during the build that the records didn't settle. Each entry: the 
 - **D77 (T42g).** *The query pose is the instance's pose history* in the root bone's character frame (Unreal's pose history). Tag masks from static words, int parameters and chooser rows are ORed.
 - **D78 (T45c).** *Plugin calls are one instance at a time* (count = 1) because the graph pulls poses depth-first; lock-step evaluation by node level is the documented path to batching. A plugin module is an arena asset bound like clips; a fault retries each frame and reports once (the flag is in the blob).
 - **D79 (T42g).** *The pose-database bake isn't in the runtime module;* Phase B builds a separate editor wasm for the bake worker.
+- **D80 (T82r).** *A per-player frame cache trades memory for speed* (ozz-animation): excluded from snapshots, invalidated by an asset epoch bumped on every release. *Revert:* `Program::pose` instead of `pose_cached`.
+- **D81 (T82r).** *The wasm's name section is stripped by default;* `MYCO_ANIM_KEEP_NAMES=1` keeps it for profiling.

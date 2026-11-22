@@ -34,3 +34,20 @@ Wave results, measurements (marked measured or estimated) and gate changes.
 - **T40 graph half merged:** first pass green; agent time about 36 minutes. **Size gate raised 580 → 745 KB:** the rig node family links the `anim-rig` solvers into the module for the first time (491,064 → 637,130 B; +20%). **Measured** (Node, noisy, 100 × 60 bones): locomotion graph 3.1–3.6 ms; plus a two-foot grounder and a look-at 3.5–3.7 ms (the rig adds about 0.2 ms).
 - **T41 node half + T44r merged:** first pass green; agent time about 36 minutes. Alone 491,064 → 695,567 B (guess ~62 KB, raw bake ~30 KB, map building, profile decode, physics); merged with T40g **831,834 B; size gate raised to 975 KB** (merged + 20%). Merge conflicts were only build outputs and the gate comment. **Follow-up for Phase B:** the editor-only exports (bone-map guessing, bakes) could move into a separate editor wasm to keep about 90 KB out of game builds (it's a tripwire, so it isn't urgent).
 - **T42 node half + T45 core half merged:** first pass green; agent time about 39 minutes. Merging it with the rig and retarget branches gave three-way additive conflicts in `anim-graph/src/eval.rs`, `anim-wasm/src/assets.rs` and `init.rs` (each branch added enum variants, trait methods and fields at the same spots); resolved by union, plus one test initializer missing T40g's new `rig` field. **All Phase R graph families are in. Wasm 893,247 B** (gate 975 KB, not raised). `cargo +stable clippy --workspace` reports 22 warnings, left for T82r.
+
+## Phase R complete (2026-11-22)
+
+- **T82r merged:** agent time about 115 minutes. **Measured on wasm in Node** (median of 7 rounds, shared 4-core container, base vs final in alternating rounds):
+
+| Scenario (100 instances unless noted) | Before | After | Tripwire |
+|---|---|---|---|
+| Budget scene: 80 bones, locomotion graph (state machine, 2D blend space, slot) + grounder (two-bone IK on both feet) + look-at | 5.68 ms | **2.80 ms** (2.50–3.20) | 1.5 ms, **over** |
+| Motion matching, 20 characters, 30-minute database, KD-tree | 0.64 ms | **0.57 ms** (0.51–0.72) | 0.6 ms, under (noisy rounds over) |
+| Motion matching, brute force | 1.91 ms | 1.84 ms | over (KD is the default) |
+| 1,000 tweens (linear / eased / vec3+quaternion) | — | 0.046 / 0.055 / 0.091 ms | 0.2 ms, under |
+
+- Changes, all with bit-identical outputs: a per-player frame cache (ozz-animation's sampling context; side table excluded from snapshots, keyed by clip, rest pose and an asset epoch), the rig's model-space cache following only the ancestor chain, KD rows stored in leaf order, no per-sample binding re-check, matrices not rebuilt for an unchanged shown pose. Tried and reverted: four-lane channel unpacking, per-lane distance pruning, a SoA skinning pass (slower).
+- **Size:** 893,247 → 827,668 B (name section stripped by default, −79 KB; `MYCO_ANIM_KEEP_NAMES=1` keeps it); **gate reset 975 → 970 KB**. Editor-only exports are 92 KB. opt-level 2 saves 14 KB but is 5% slower; s and z are larger.
+- **Memory:** "memory needed" for 128 instances × 64 bones is 7.2 → 15.8 MB (frame caches, about 9 KB per slot at 80 bones).
+- **Remaining profile of the budget scene:** decoding about 35%, graph dispatch about 10%, tracks 4%, model space 4%. Next candidates: decode only bones a masked slot uses, a cheaper `ClipRef`, threads (0340 says to reconsider them if budgets fail; owner decision).
+- **Phase R totals:** 530 Rust tests, 37 Vitest tests in the animation plugin, all green. The 0340 machine (Ryzen AI Max+ 395) hasn't been used for these measurements; the shared container is slower and noisy.
