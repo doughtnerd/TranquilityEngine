@@ -20,6 +20,7 @@ import { createAsset } from "../assetKindHost";
 import { canOpenFolders } from "../projectFs";
 import { recentProjects } from "../recentProjects";
 import { closeProject, openProject, reloadScripts, save } from "../session";
+import { openAudioStudioOnProject } from "../studioLaunch";
 import { isEditable } from "../shortcuts";
 import { currentProject, docVersion, openScene, selectedKeys, selectedUIElement } from "../state";
 import { whyNotEdit } from "../editGate";
@@ -115,6 +116,7 @@ const ACTIONS: MenuActions = {
   showPanel,
   addPanel: () => requestAddPanel(),
   resetLayout: applyDefaultLayout,
+  openAudioStudio: () => void openAudioStudioOnProject(),
   applyLayout: (file) => (file === null ? applyDefaultLayout() : void applySavedLayout(file)),
   saveLayout: () => void saveLayout(),
   saveLayoutAs: () => (saveLayoutAsOpen.value = true),
