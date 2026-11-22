@@ -130,7 +130,7 @@ export interface SearchHit {
   readonly where: string;
 }
 
-/** The playlists (files and nested entries) whose name or path holds every word of `query`, in tree order. */
+/** The playlists (files by path, nested entries by name) holding every word of `query`, in tree order. */
 export function searchTree(nodes: readonly PlaylistNode[], query: string): SearchHit[] {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
   const out: SearchHit[] = [];
@@ -138,7 +138,9 @@ export function searchTree(nodes: readonly PlaylistNode[], query: string): Searc
     for (const n of list) {
       if (n.kind === "folder") { walk(n.children, n.path); continue; }
       const where = n.kind === "file" ? n.path.replace(/\.playlist\.json$/i, "") : `${trail} › ${n.name}`;
-      if (words.length && words.every((w) => where.toLowerCase().includes(w))) out.push({ node: n, where });
+      // A file matches by its path, an entry by its own name (its parent's path is shown, not searched).
+      const text = (n.kind === "file" ? where : n.name).toLowerCase();
+      if (words.length && words.every((w) => text.includes(w))) out.push({ node: n, where });
       walk(n.children, where);
     }
   };
