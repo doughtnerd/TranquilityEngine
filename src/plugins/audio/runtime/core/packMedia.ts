@@ -42,7 +42,7 @@ export function clipPackRef(path: string): PackRef | null {
 }
 
 /** Whether a packaged sound plays from the decoder's copy through a stream ring: `compressed` Vorbis or Opus. */
-export const streamsFromPack = (s: PackedSound): boolean => s.load === "compressed" && (s.codec === "vorbis" || s.codec === "opus" || s.codec === "source");
+export const streamsFromPack = (s: Pick<PackedSound, "load" | "codec">): boolean => s.load === "compressed" && (s.codec === "vorbis" || s.codec === "opus" || s.codec === "source");
 
 /** The stream manager's `packRef`: a `compressed` Vorbis or Opus entry streams from the decoder's copy; a `stream` entry is fetched. */
 export function streamPackRef(path: string): PackRef | null {
