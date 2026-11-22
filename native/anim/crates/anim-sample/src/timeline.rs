@@ -123,7 +123,11 @@ pub fn advance(wrap: Wrap, duration: f32, head: &mut Playhead, delta: f32, first
     let d = if duration > 0.0 { duration } else { 0.0 };
     let delta = finite_or_zero(delta);
     let flags = if first { WINDOW_START } else { 0 };
-    let t0 = if head.time > 0.0 { head.time.min(d) } else { 0.0 };
+    let t0 = if head.time > 0.0 {
+        head.time.min(d)
+    } else {
+        0.0
+    };
     let mut out = Advance {
         windows: [Window::new(0.0, 0.0, false); MAX_LEGS],
         count: 0,
@@ -188,8 +192,7 @@ pub fn advance(wrap: Wrap, duration: f32, head: &mut Playhead, delta: f32, first
         }
         _ => {
             single(head, &mut out, false);
-            out.finished =
-                (delta > 0.0 && head.time >= d) || (delta < 0.0 && head.time <= 0.0);
+            out.finished = (delta > 0.0 && head.time >= d) || (delta < 0.0 && head.time <= 0.0);
             if matches!(wrap, Wrap::Loop | Wrap::PingPong) {
                 // A zero-length timeline can't wrap or turn and never finishes.
                 out.finished = false;
@@ -250,7 +253,11 @@ fn is_quat(kind: TrackKind, width: u32) -> bool {
 /// Adds one entry's column block `cols` at weight `w` (> 0) to the accumulators `acc` and `best`
 /// (both `layout.column_words()` long, aligned to the block's words).
 pub fn mix_add(layout: &ClipBindings, acc: &mut [u32], best: &mut [f32], cols: &[u32], w: f32) {
-    if w.is_nan() || w <= 0.0 || cols.len() < layout.column_words() || acc.len() < cols.len().min(layout.column_words()) {
+    if w.is_nan()
+        || w <= 0.0
+        || cols.len() < layout.column_words()
+        || acc.len() < cols.len().min(layout.column_words())
+    {
         return;
     }
     for c in layout.columns() {
@@ -300,7 +307,11 @@ pub fn mix_add(layout: &ClipBindings, acc: &mut [u32], best: &mut [f32], cols: &
 /// Writes the mix of the entries added so far (total weight `total`, > 0) into `out`
 /// (`layout.column_words()` long): see the module docs. Default columns are left as they are.
 pub fn mix_resolve(layout: &ClipBindings, acc: &[u32], total: f32, out: &mut [u32]) {
-    if !(total > 0.0) || out.len() < layout.column_words() || acc.len() < layout.column_words() {
+    if total.is_nan()
+        || total <= 0.0
+        || out.len() < layout.column_words()
+        || acc.len() < layout.column_words()
+    {
         return;
     }
     for c in layout.columns() {

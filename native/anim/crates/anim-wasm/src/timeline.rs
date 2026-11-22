@@ -28,11 +28,10 @@
 use anim_format::clip::KeyData;
 use anim_format::NONE;
 use anim_sample::timeline::{
-    advance, mix_add, mix_begin, mix_resolve, Playhead, Wrap, SubclipTrack,
+    advance, mix_add, mix_begin, mix_resolve, Playhead, SubclipTrack, Wrap,
 };
 use anim_sample::{
-    TrackRecord, TrackSink, Window, SUBCLIP_ENTERED, SUBCLIP_EXITED, WINDOW_SEEK,
-    WINDOW_START,
+    TrackRecord, TrackSink, Window, SUBCLIP_ENTERED, SUBCLIP_EXITED, WINDOW_SEEK, WINDOW_START,
 };
 use anim_wire::core::{
     Init, PASS_FIXED, STATUS_BAD_RECORD, STATUS_FULL, STATUS_OK, STATUS_STALE_HANDLE,
@@ -54,7 +53,10 @@ use crate::tweens::Spec;
 /// The memory this feature needs for `init`'s parameters, in bytes (summed by [`crate::init`]):
 /// the default table, its record buffer and an estimate of its values.
 pub(crate) fn bytes_needed(_init: &Init) -> u64 {
-    Timelines::bytes_for(DEFAULT_MAX_TIMELINES as usize, DEFAULT_RECORD_BYTES as usize)
+    Timelines::bytes_for(
+        DEFAULT_MAX_TIMELINES as usize,
+        DEFAULT_RECORD_BYTES as usize,
+    )
 }
 
 /// The most timeline instances (handle indices are 16 bits).
@@ -365,7 +367,9 @@ impl Timelines {
     fn live(&mut self, h: u32) -> Option<&mut Inst> {
         let (index, generation) = split(h);
         match self.slots.get_mut(index) {
-            Some(s) if s.generation == generation && s.inst.live && s.inst.pending == Pending::None => {
+            Some(s)
+                if s.generation == generation && s.inst.live && s.inst.pending == Pending::None =>
+            {
                 Some(&mut s.inst)
             }
             _ => None,
@@ -375,7 +379,10 @@ impl Timelines {
     fn allocate(&mut self, words: u32, blocks: u32) -> (u32, u32) {
         let v = self.value_regions.alloc(words);
         let w = self.weight_regions.alloc(blocks);
-        let (vend, wend) = (self.value_regions.end as usize, self.weight_regions.end as usize);
+        let (vend, wend) = (
+            self.value_regions.end as usize,
+            self.weight_regions.end as usize,
+        );
         if self.values.len() < vend {
             self.values.resize(vend, 0);
         }
@@ -393,7 +400,16 @@ impl Timelines {
         let duration = arena.clip_asset(c.clip)?.duration;
         let index = self.free.pop().ok_or(STATUS_FULL)? as usize;
         let inst = &mut self.slots[index].inst;
-        inst.reset(c.world, c.host_id, c.time_mode, c.wrap, c.speed, c.flags, c.start, duration);
+        inst.reset(
+            c.world,
+            c.host_id,
+            c.time_mode,
+            c.wrap,
+            c.speed,
+            c.flags,
+            c.start,
+            duration,
+        );
         inst.root = c.clip;
         inst.is_seq = false;
         let generation = self.slots[index].generation;
@@ -469,7 +485,16 @@ impl Timelines {
         } else {
             f32::INFINITY
         };
-        inst.reset(head.world, head.host_id, head.time_mode, head.wrap, head.speed, head.flags, 0.0, d);
+        inst.reset(
+            head.world,
+            head.host_id,
+            head.time_mode,
+            head.wrap,
+            head.speed,
+            head.flags,
+            0.0,
+            d,
+        );
         inst.is_seq = true;
         inst.members = members;
         inst.order = Vec::with_capacity(inst.members.len());
@@ -505,7 +530,11 @@ impl Timelines {
         if asset != 0 && arena.clip_asset(asset).is_err() {
             return STATUS_STALE_HANDLE;
         }
-        match inst.binds.iter_mut().find(|b| b[0] == owner && b[1] == string_id) {
+        match inst
+            .binds
+            .iter_mut()
+            .find(|b| b[0] == owner && b[1] == string_id)
+        {
             Some(b) => b[2] = asset,
             None => inst.binds.push([owner, string_id, asset]),
         }
@@ -519,11 +548,24 @@ impl Timelines {
     fn relayout(&mut self, arena: &Arena, index: usize) -> Result<(), u32> {
         let root = arena.clip_asset(self.slots[index].inst.root)?;
         let inst = &mut self.slots[index].inst;
-        let old = (inst.value_off, inst.words, inst.weight_off, inst.blocks.len() as u32);
+        let old = (
+            inst.value_off,
+            inst.words,
+            inst.weight_off,
+            inst.blocks.len() as u32,
+        );
         inst.nodes.clear();
         let mut open_words = root.bindings.notify_words() as u32;
         inst.root_open = 0;
-        build_nodes(arena, &inst.binds, inst.root, NONE, 1, &mut inst.nodes, &mut open_words);
+        build_nodes(
+            arena,
+            &inst.binds,
+            inst.root,
+            NONE,
+            1,
+            &mut inst.nodes,
+            &mut open_words,
+        );
         inst.open.clear();
         inst.open.resize(open_words as usize, 0);
 
@@ -615,7 +657,11 @@ impl Timelines {
             OP_PLAY => {
                 if inst.finished {
                     inst.head = Playhead {
-                        time: if inst.speed >= 0.0 { 0.0 } else { inst.duration },
+                        time: if inst.speed >= 0.0 {
+                            0.0
+                        } else {
+                            inst.duration
+                        },
                         dir: 1.0,
                     };
                     inst.started = false;
@@ -641,7 +687,7 @@ impl Timelines {
     pub fn info(&self, h: u32) -> Option<TimelineInfo> {
         let (index, generation) = split(h);
         let s = self.slots.get(index)?;
-        (s.generation == generation && s.inst.live).then(|| TimelineInfo {
+        (s.generation == generation && s.inst.live).then_some(TimelineInfo {
             instance: h,
             value_offset: s.inst.value_off,
             value_words: s.inst.words,
@@ -664,7 +710,10 @@ impl Timelines {
     /// handle or a short `out`).
     pub fn write_blocks(&self, h: u32, out: &mut [u8]) -> usize {
         let (index, generation) = split(h);
-        let Some(s) = self.slots.get(index).filter(|s| s.generation == generation && s.inst.live)
+        let Some(s) = self
+            .slots
+            .get(index)
+            .filter(|s| s.generation == generation && s.inst.live)
         else {
             return 0;
         };
@@ -709,7 +758,11 @@ impl Timelines {
 
     /// The frame's `tracks` records (bytes written, count, dropped).
     pub fn records(&self) -> (&[u8], u32, u32) {
-        (&self.rec.buf[..self.rec.len], self.rec.count, self.rec.dropped)
+        (
+            &self.rec.buf[..self.rec.len],
+            self.rec.count,
+            self.rec.dropped,
+        )
     }
 
     /// The records buffer, whole (for its address).
@@ -744,7 +797,14 @@ impl Timelines {
     }
 
     /// Advances the instances of `world` in `pass`. Never allocates.
-    pub fn update(&mut self, arena: &Arena, world: u32, pass: u32, dt_scaled: f32, dt_unscaled: f32) {
+    pub fn update(
+        &mut self,
+        arena: &Arena,
+        world: u32,
+        pass: u32,
+        dt_scaled: f32,
+        dt_unscaled: f32,
+    ) {
         for index in 0..self.slots.len() {
             if !self.slots[index].inst.live || self.slots[index].inst.world != world {
                 continue;
@@ -1080,36 +1140,51 @@ fn eval_clip_window(
     let root_words = root.bindings.notify_words();
     let root_handle = inst.root;
     let seek = window.flags & WINDOW_SEEK != 0;
-    with_ctx(arena, inst, values, weights, writer, subs, seek, |ctx, out_v, out_w, blocks| {
-        for (i, b) in blocks.iter().enumerate().skip(1) {
-            let r = b.offset as usize..(b.offset + b.words) as usize;
-            mix_begin(&mut ctx.acc[r.clone()], &mut ctx.best[r]);
-            ctx.totals[i] = 0.0;
-        }
-        let root_cols = &mut out_v[..blocks[0].words as usize];
-        ctx.writer.set_clip(root_handle);
-        let at = ctx.subs.len();
-        let mut sink = Collect {
-            writer: &mut *ctx.writer,
-            subs: &mut *ctx.subs,
-        };
-        bound.evaluate(&window, 1.0, &mut ctx.open[..root_words], root_cols, &mut sink);
-        ctx.children(NONE, root_handle, 1, 1.0, at);
-        ctx.subs.truncate(at);
-        out_w[0] = 1.0;
-        for (i, b) in blocks.iter().enumerate().skip(1) {
-            let total = ctx.totals[i];
-            if total > 0.0 {
-                if let Ok(layout) = ctx.arena.clip_asset(b.layout) {
-                    let r = b.offset as usize..(b.offset + b.words) as usize;
-                    mix_resolve(&layout.bindings, &ctx.acc[r.clone()], total, &mut out_v[r]);
-                }
-                out_w[i] = total.min(1.0);
-            } else {
-                out_w[i] = 0.0;
+    with_ctx(
+        arena,
+        inst,
+        values,
+        weights,
+        writer,
+        subs,
+        seek,
+        |ctx, out_v, out_w, blocks| {
+            for (i, b) in blocks.iter().enumerate().skip(1) {
+                let r = b.offset as usize..(b.offset + b.words) as usize;
+                mix_begin(&mut ctx.acc[r.clone()], &mut ctx.best[r]);
+                ctx.totals[i] = 0.0;
             }
-        }
-    });
+            let root_cols = &mut out_v[..blocks[0].words as usize];
+            ctx.writer.set_clip(root_handle);
+            let at = ctx.subs.len();
+            let mut sink = Collect {
+                writer: &mut *ctx.writer,
+                subs: &mut *ctx.subs,
+            };
+            bound.evaluate(
+                &window,
+                1.0,
+                &mut ctx.open[..root_words],
+                root_cols,
+                &mut sink,
+            );
+            ctx.children(NONE, root_handle, 1, 1.0, at);
+            ctx.subs.truncate(at);
+            out_w[0] = 1.0;
+            for (i, b) in blocks.iter().enumerate().skip(1) {
+                let total = ctx.totals[i];
+                if total > 0.0 {
+                    if let Ok(layout) = ctx.arena.clip_asset(b.layout) {
+                        let r = b.offset as usize..(b.offset + b.words) as usize;
+                        mix_resolve(&layout.bindings, &ctx.acc[r.clone()], total, &mut out_v[r]);
+                    }
+                    out_w[i] = total.min(1.0);
+                } else {
+                    out_w[i] = 0.0;
+                }
+            }
+        },
+    );
 }
 
 /// Ends every open notify state of a clip instance (killed, stopped, retired) and clears them.
@@ -1127,17 +1202,30 @@ fn end_all(
     };
     let root_words = root.bindings.notify_words();
     let root_handle = inst.root;
-    with_ctx(arena, inst, values, weights, writer, subs, false, |ctx, _, _, _| {
-        ctx.writer.set_clip(root_handle);
-        root.bindings
-            .end_notify_states(time, 0.0, &mut ctx.open[..root_words], &mut *ctx.writer);
-        for j in 0..ctx.nodes.len() {
-            if ctx.nodes[j].parent == NONE {
-                ctx.end_node(j, time);
+    with_ctx(
+        arena,
+        inst,
+        values,
+        weights,
+        writer,
+        subs,
+        false,
+        |ctx, _, _, _| {
+            ctx.writer.set_clip(root_handle);
+            root.bindings.end_notify_states(
+                time,
+                0.0,
+                &mut ctx.open[..root_words],
+                &mut *ctx.writer,
+            );
+            for j in 0..ctx.nodes.len() {
+                if ctx.nodes[j].parent == NONE {
+                    ctx.end_node(j, time);
+                }
             }
-        }
-        ctx.open.fill(0);
-    });
+            ctx.open.fill(0);
+        },
+    );
 }
 
 /// Evaluates every sequence member at time `t` (writes the blocks) and reports the members that

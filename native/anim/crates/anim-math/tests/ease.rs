@@ -85,7 +85,10 @@ fn every_easing_matches_its_closed_form() {
             let want = reference(id, t as f64);
             let err = (got - want).abs();
             worst = worst.max(err);
-            assert!(err <= TOLERANCE, "id {id} at t = {t}: {got} vs {want} (err {err:e})");
+            assert!(
+                err <= TOLERANCE,
+                "id {id} at t = {t}: {got} vs {want} (err {err:e})"
+            );
         }
     }
     eprintln!("worst easing error: {worst:e}");

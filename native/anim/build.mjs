@@ -19,9 +19,12 @@ const OUT_NAME = "myco_anim";
  * Raised by T13r (2026-11-22): the first build with a real core (the four format readers, compressed sampling with T20r's
  * binding tables and track windows, the graph interpreter, pose maths, inertialization) measured 292,316 bytes
  * (111 KB gzipped); the stub-based 30 KB gate never described a full build. + 20% = 350,779 B -> 345 KB.
+ * Raised by T22r (2026-11-22): tweens and timelines (ten new boundary records with their codecs, the Penner easings, the tween table,
+ * timeline instances with nested subclip evaluation, crossfade mixing and sequences, 33 new exports) take the module from 292,313 to
+ * 361,549 bytes; + 20% = 433,859 B -> 425 KB.
  * Raise it with a line in docs/design/animation/build-log.md saying why; never cut a feature to stay under it.
  */
-const SIZE_LIMIT = 345 * 1024;
+const SIZE_LIMIT = 425 * 1024;
 
 /** Runs `cmd args` in native/anim with inherited stdio. RUSTFLAGS are dropped so .cargo/config.toml's +simd128 applies. */
 function run(cmd, args) {

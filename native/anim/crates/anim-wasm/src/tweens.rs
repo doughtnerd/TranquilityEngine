@@ -124,7 +124,7 @@ impl Spec {
             };
         } else if flags & FLAG_RELATIVE != 0 {
             for i in 0..4 {
-                to[i] = from[i] + to[i];
+                to[i] += from[i];
             }
         }
         for i in width..4 {
@@ -182,8 +182,8 @@ impl Spec {
         } else if self.kind == KIND_QUAT_SLERP {
             *out = quat_array(quat(&self.from).slerp(quat(&self.to), e));
         } else {
-            for i in 0..4 {
-                out[i] = self.from[i] * (1.0 - e) + self.to[i] * e;
+            for ((o, a), b) in out.iter_mut().zip(self.from).zip(self.to) {
+                *o = a * (1.0 - e) + b * e;
             }
         }
     }
@@ -194,7 +194,7 @@ impl Spec {
     /// With `yoyo` an odd cycle runs backwards through the same easing (`ease(1 − p)`).
     pub fn eval(&self, t: f64, out: &mut [f32; 4]) -> Eval {
         let delay = self.delay as f64;
-        if !(t >= delay) {
+        if t.is_nan() || t < delay {
             return Eval {
                 started: false,
                 cycle: 0,
@@ -417,10 +417,11 @@ impl Tweens {
     /// Advances the tweens of `world` in `pass` (see the module docs). Never allocates.
     pub fn update(&mut self, world: u32, pass: u32, dt_scaled: f32, dt_unscaled: f32) {
         for index in 0..self.slots.len() {
-            let s = self.slots[index];
-            if s.state == State::Free || s.world != world {
+            let head = &self.slots[index];
+            if head.state == State::Free || head.world != world {
                 continue;
             }
+            let s = *head;
             let h = handle(index, s.generation);
             match s.state {
                 State::Kill | State::Destroy => {
