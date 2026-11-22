@@ -22,7 +22,7 @@ import { useElementWidth } from "../../../components/useElementWidth";
 import { sampleFromDrag } from "../libraryModel";
 import { playlistTitle } from "../playlistPaths";
 import {
-  addAutomation, addPoint, addVolumeEnvelope, deletePoints, isTimeInput, movePoints, ownerOf, setPointShape, SHAPES, targetSpec, targetSpecs, writeAutomation, type AutomationOwner,
+  addAutomation, addPoint, addVolumeEnvelope, deletePoints, isTimeInput, movePoints, ownerOf, setAutomation, setPointShape, SHAPES, targetSpec, targetSpecs, writeAutomation, type AutomationOwner,
 } from "./automationEdits";
 import { clipFollows } from "./clipGeometry";
 import { CurveOverlay, yToValue } from "./CurveOverlay";
@@ -31,7 +31,7 @@ import { beginDrag } from "./pointerDrag";
 import { openSequenceCurves } from "./openSequenceCurves";
 import { copySelection, paste, pasteLabel } from "./sequenceClipboard";
 import {
-  addPlaylistClip, addSampleClip, addSampleOnNewTrack, addTrack, clipAt, deleteClips, duplicateClips, duplicateTrack, makeAsync, moveClips, moveClipsToAdjacentTrack, moveTrack,
+  addPlaylistClip, addSampleClip, addSampleOnNewTrack, addTrack, deleteClips, duplicateClips, duplicateTrack, makeAsync, moveClips, moveClipsToAdjacentTrack, moveTrack,
   newTrack, nudgeClipEdge, removeTracks, setClipLength, setMeter, setSequenceLength, setTempo, setTrack, splitClip, toggleClipsEnabled, trimClipStart, trimToPlayhead,
 } from "./sequenceEdits";
 import { beatSeconds, beatsPerBar, keepTaps, METERS, nudgeStep, SNAP_MENU, snapSpan, snapTime, tapTempo, type SnapMode } from "./sequenceGrid";
@@ -902,7 +902,7 @@ export function SequenceView(props: SequenceViewProps) {
                         <span class="sq-auto-name" title={a.target}>{spec?.name ?? a.target}</span>
                         <span class="sq-faint">{time ? "time" : `by ${(a.input as { parameter: string }).parameter}`}</span>
                         <button type="button" class={`sq-icon${a.bypass ? "" : " on"}`} aria-pressed={!a.bypass} aria-label={`${spec?.name ?? a.target} automation on`} title={a.bypass ? "Bypassed: the plain value plays (click to turn on)" : "On (click to bypass)"} disabled={!writable}
-                          onClick={() => runSeq(`${spec?.name ?? a.target} automation ${a.bypass ? "on" : "off"}`, (q) => ({ next: { ...q, tracks: q.tracks.map((x) => (x.id === t.id ? { ...x, automation: x.automation.map((y) => (y.id === a.id ? { ...y, bypass: !y.bypass } : y)) } : x)) } }))}>●</button>
+                          onClick={() => runSeq(`${spec?.name ?? a.target} automation ${a.bypass ? "on" : "off"}`, (q) => setAutomation(q, { track: t.id }, a.id, { bypass: !a.bypass }))}>●</button>
                         <button type="button" class="sq-icon" aria-label={`Edit ${spec?.name ?? a.target} curve`} title="Open in the curve editor" onClick={() => openCurves({ track: t.id }, length, t.name, a.target)}>✎</button>
                       </div>
                       <div class="sq-lane sq-auto-lane" onDblClick={(e) => dblClickLane(e, t.id, a.id)}>

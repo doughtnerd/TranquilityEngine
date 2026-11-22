@@ -358,14 +358,3 @@ export function setMeter(s: SequenceSettings, meter: string): R {
   if (!/^\d{1,2}\/\d{1,2}$/.test(meter) || meter.split("/").some((n) => Number(n) === 0)) return refuse(`"${meter}" isn't a meter like 4/4`);
   return accept({ ...s, tempo: { bpm: s.tempo?.bpm ?? 120, meter } });
 }
-
-/** Clips under the playhead track `trackId`'s, for the hover card and "Split here". */
-export function clipAt(s: SequenceSettings, trackId: string, t: number, sourceOf: SourceOf): Clip | null {
-  const track = s.tracks.find((x) => x.id === trackId);
-  if (!track) return null;
-  for (let i = track.clips.length - 1; i >= 0; i--) {
-    const c = track.clips[i]!;
-    if (t >= c.at && t < c.at + clipLength(c, sourceOf(c))) return c;
-  }
-  return null;
-}
