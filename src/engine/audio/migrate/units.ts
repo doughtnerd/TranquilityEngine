@@ -36,7 +36,8 @@ export function mapCurve(curve: Curve, mapY: (y: number) => number, resample: bo
     const interp = k[2];
     const sampled = interior > 0 && i + 1 < n && interp !== "step" && curve[i + 1][0] > k[0];
     // A resampled segment becomes piecewise linear (its shape is in the samples); other keys keep their interp.
-    if (interp && interp !== "linear" && !sampled) out.push([tidy(k[0]), tidy(mapY(k[1])), interp]);
+    // A Bézier key's handles are in the old unit, so a mapped Bézier key is resampled like the shapes (never kept).
+    if (interp && interp !== "linear" && interp !== "bezier" && !sampled) out.push([tidy(k[0]), tidy(mapY(k[1])), interp]);
     else out.push([tidy(k[0]), tidy(mapY(k[1]))]);
     if (sampled) {
       const x0 = k[0], x1 = curve[i + 1][0];
