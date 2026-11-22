@@ -312,7 +312,8 @@ fn run_stage(buf: &[f32], len: usize, channels: usize, rate: f32, items: &mut [I
         }
         pos += n;
     }
-    let frames = if any_ring { loud_end.min(pos) } else { len };
+    // A capped tail keeps every frame to the cap; one that died away ends at its last audible frame.
+    let frames = if capped { pos } else if any_ring { loud_end.min(pos) } else { len };
     out.truncate(frames * channels);
     (out, frames, if capped { warn::TAIL_CAPPED } else { 0 })
 }
