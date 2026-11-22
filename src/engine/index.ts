@@ -48,5 +48,8 @@ export { CUBEMAP_FORMAT, parseCubemap, formatCubemap, type CubemapFaces, type Cu
 
 export type { NavAgentType, NavArea, NavigationSettings } from "./nav/settings";
 
+// Text localisation (ADR 0342 §6): string keys resolved through the language's fallback chain, ICU messages on `Intl`.
+export { Locale, LocalText, type LocaleLanguage, type MessageArg, type MessageArgs } from "./localisation/Locale";
+
 export { Input } from "./input/Input";
 export { Storage, MemoryStorage, type StorageBackend } from "./platform/Storage";

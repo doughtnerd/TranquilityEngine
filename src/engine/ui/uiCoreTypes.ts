@@ -35,10 +35,14 @@ export interface UITextRun {
   /** Line height as a multiple of the font size. */
   readonly lineHeight: number;
   readonly wrap: UITextWrap;
+  /** The base direction it is drawn in: the current language's (ADR 0342 §5). */
+  readonly direction: "ltr" | "rtl";
+  /** Its alignment as an edge, `start`/`end` resolved for `direction`. */
+  readonly align: "left" | "center" | "right" | "justify";
 }
 
-/** A text run to measure, for Yoga's layout of text elements. */
-export interface TextMeasureRequest extends UITextRun {
+/** A text run to measure, for Yoga's layout of text elements (direction and alignment don't change its size). */
+export interface TextMeasureRequest extends Omit<UITextRun, "direction" | "align"> {
   /** Width available in UI pixels (Infinity when unbounded, and always for `wrap: "none"`); text wraps to it. */
   readonly maxWidth: number;
 }

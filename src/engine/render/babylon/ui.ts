@@ -39,7 +39,10 @@ import { splitSpriteRef } from "../../scene/importSettings";
 import type { WarmContent } from "../../scene/warmUp";
 import { WARM_PREFIX, type WarmItem } from "./warmUp";
 import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UIComponentType } from "../../ui/components";
-import { fontEpoch, onFontLoaded } from "../../ui/fonts";
+import type { ICanvasRenderingContext } from "@babylonjs/core/Engines/ICanvas.js";
+import { Locale } from "../../localisation/Locale";
+import { fontEpoch, onFontLoaded, withLanguageFonts } from "../../ui/fonts";
+import { wrapLine, wrapText, type LineBreakMode } from "../../ui/text/lineBreak";
 import type { TextMeasureRequest, UICoreLike, UILaidOutCanvas, UILaidOutElement, UITextRun, UITextWrap } from "../../ui/uiCoreTypes";
 import { Text, type Anchor } from "../components";
 import { flipRows, redrawnPixels, type PixelRect } from "../pixelRegions";
@@ -103,6 +106,30 @@ interface TextEntry {
 }
 
 /**
+ * A text block in the language's direction, wrapping lines by the engine's line breaking (ADR 0342 §5): the context's
+ * base direction is the language's, and lines break where `lineBreak.ts` allows (spaces, between CJK characters with
+ * the kinsoku rules, Thai words), measured as `textSize` measures them for layout.
+ */
+class LocalisedTextBlock extends TextBlock {
+  /** The base direction (ADR 0342 §5): the canvas context's `direction`, so the browser orders mixed runs within a line. */
+  direction: "ltr" | "rtl" = "ltr";
+  /** Where lines may break: `ui/text/lineBreak.ts`'s rules, the same ones `textSize` measured with. */
+  breakMode: LineBreakMode = "normal";
+
+  protected override _applyStates(context: ICanvasRenderingContext): void {
+    super._applyStates(context);
+    const c = context as unknown as { direction?: string; textAlign?: string };
+    c.direction = this.direction;
+    c.textAlign = "left"; // the block places each line itself, from its left edge
+  }
+
+  protected override _parseLineWordWrap(line: string | undefined, width: number, context: ICanvasRenderingContext): object[] {
+    const metrics = this as unknown as { _getTextMetricsWidth(m: unknown): number };
+    return wrapLine(line ?? "", width, (s) => metrics._getTextMetricsWidth(context.measureText(s)), this.breakMode);
+  }
+}
+
+/**
  * The interim Text's block, padded on every side. When a control changes, Babylon GUI clears and
  * redraws its old and new boxes, but it grows the old box by one padding in width and height
  * (`Measure.addAndTransformToRef(-left, -top, right, bottom)`), so the old box takes in the left and
@@ -112,7 +139,7 @@ interface TextEntry {
  * pixels, widens the redrawn rectangle on every side through Babylon's own hook (Rectangle widens it
  * for its border the same way). On WebGPU, `uploadRedrawnPart` uploads that same rectangle.
  */
-class PaddedTextBlock extends TextBlock {
+class PaddedTextBlock extends LocalisedTextBlock {
   overflow = 0;
   protected override _computeAdditionalOffsetX(): number {
     return this.overflow;
@@ -372,7 +399,7 @@ export class BabylonUI {
     let label: TextBlock | null = null;
     let caret: Rectangle | null = null;
     if (el.kind === "text") {
-      const t = new TextBlock(name);
+      const t = new LocalisedTextBlock(name);
       t.resizeToFit = false;
       t.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
       // Layout gives each line 1.2 em, but a font's ascent plus descent can be a little taller (Inter's is),
@@ -387,7 +414,7 @@ export class BabylonUI {
     } else {
       const r = new Rectangle(name);
       if (el.kind === "input") {
-        label = new TextBlock(`${name}.text`);
+        label = new LocalisedTextBlock(`${name}.text`);
         label.resizeToFit = false;
         label.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         label.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
@@ -437,18 +464,19 @@ export class BabylonUI {
 
   /** A UIText: the core's text run (exactly what it measured), with the component's colour and alignment. */
   private syncUIText(e: ElementEntry, c: UIText, run: UITextRun): void {
-    const t = e.control as TextBlock;
+    const t = e.control as LocalisedTextBlock;
     if (put(t, "text", run.text)) t.text = run.text;
     this.setFont(t, run);
     const ck = colorKey(c.color);
     if (put(t, "color", ck)) t.color = c.color.toCss();
-    const align = c.textAlign === "center" ? Control.HORIZONTAL_ALIGNMENT_CENTER : c.textAlign === "right" ? Control.HORIZONTAL_ALIGNMENT_RIGHT : Control.HORIZONTAL_ALIGNMENT_LEFT;
+    // `start`/`end` already resolved for the language's direction (ADR 0342 §5); justify draws from the left, as before.
+    const align = run.align === "center" ? Control.HORIZONTAL_ALIGNMENT_CENTER : run.align === "right" ? Control.HORIZONTAL_ALIGNMENT_RIGHT : Control.HORIZONTAL_ALIGNMENT_LEFT;
     if (put(t, "align", align)) t.textHorizontalAlignment = align;
+    if (put(t, "dir", run.direction)) t.direction = run.direction;
     if (put(t, "wrap", run.wrap)) {
       t.textWrapping = run.wrap === "none" ? WRAP_CLIP : WRAP_WORD;
-      // anywhere: any character may end a line (the splitter hands the wrapper letters, joined with nothing).
-      t.wordSplittingFunction = run.wrap === "anywhere" ? (line: string) => [...line] : null;
-      t.wordDivider = run.wrap === "anywhere" ? "" : " ";
+      // The block wraps with `lineBreak.ts`, as `textSize` measured: anywhere, or at spaces and between CJK characters.
+      t.breakMode = run.wrap === "anywhere" ? "anywhere" : "normal";
     }
   }
 
@@ -502,6 +530,12 @@ export class BabylonUI {
     const run = el.text!; // the value, or the placeholder while it's empty, as the core measured it
     if (put(label, "text", run.text)) label.text = run.text;
     this.setFont(label, run);
+    // From the language's start edge, in its direction (ADR 0342 §5).
+    const rtl = run.direction === "rtl";
+    if (put(label, "dir", run.direction)) {
+      (label as LocalisedTextBlock).direction = run.direction;
+      label.textHorizontalAlignment = rtl ? Control.HORIZONTAL_ALIGNMENT_RIGHT : Control.HORIZONTAL_ALIGNMENT_LEFT;
+    }
     const color = c.value ? c.color : c.placeholderColor;
     if (put(label, "color", colorKey(color))) label.color = color.toCss();
     if (put(label, "left", c.padding)) label.leftInPixels = c.padding;
@@ -519,7 +553,11 @@ export class BabylonUI {
     const pw = prefix ? textSize(prefix, run.fontSize, run.fontWeight, run.fontFamily, run.lineHeight).width : 0; // exact, unlike layout's roomier measure
     caret.isVisible = true;
     const ch = run.fontSize * run.lineHeight;
-    if (put(caret, "left", c.padding + pw)) caret.leftInPixels = c.padding + pw;
+    // Right to left: the text ends at the right edge, so the caret sits that far in from it. Approximate for text that
+    // mixes directions (a known limit, ADR 0342 §5).
+    const full = rtl && c.value ? textSize(run.text, run.fontSize, run.fontWeight, run.fontFamily, run.lineHeight).width : 0;
+    const x = rtl ? c.padding + Math.max(lw, full) - pw : c.padding + pw;
+    if (put(caret, "left", x)) caret.leftInPixels = x;
     if (put(caret, "h", ch)) caret.heightInPixels = ch;
     if (put(caret, "color", colorKey(c.color))) caret.background = c.color.toCss();
   }
@@ -575,7 +613,11 @@ export class BabylonUI {
     const outline = t.outlineColor && t.outlineWidth > 0 ? t.outlineWidth : 0;
     if (put(ctl, "text", t.text)) ctl.text = t.text;
     const weight = t.fontWeight;
-    this.setFont(ctl, { fontSize: t.fontSize, fontWeight: weight, fontFamily: t.fontFamily, lineHeight: t.lineHeight });
+    // The current language's fonts after its own, in the language's direction (ADR 0342 §5).
+    const family = withLanguageFonts(t.fontFamily);
+    this.setFont(ctl, { fontSize: t.fontSize, fontWeight: weight, fontFamily: family, lineHeight: t.lineHeight });
+    const direction = Locale.direction;
+    if (put(ctl, "dir", direction)) ctl.direction = direction;
     if (put(ctl, "color", colorKey(t.color))) ctl.color = t.color.toCss();
     if (put(ctl, "outline", `${outline}|${t.outlineColor ? colorKey(t.outlineColor) : -1}`)) {
       // Stroked `outlineWidth * 2` wide, centred on the glyph edge: `outlineWidth` shows outside it.
@@ -587,7 +629,7 @@ export class BabylonUI {
 
     // The box, as RenderBackend.drawText: the text plus `pad` on every side.
     const pad = Math.ceil(outline + 2);
-    const size = textSize(t.text, t.fontSize, weight, t.fontFamily, t.lineHeight);
+    const size = textSize(t.text, t.fontSize, weight, family, t.lineHeight);
     const w = Math.ceil(size.width + pad * 2);
     const h = Math.ceil(t.lineHeight * t.fontSize * size.lines + pad * 2);
     if (put(ctl, "pad", pad)) {
@@ -811,8 +853,8 @@ function context(): MeasureContext | null {
 }
 
 /**
- * Text's lines (wrapped to `maxWidth` at spaces, or at any character for `wrap: "anywhere"`, as the GUI's
- * word wrapping does with the splitter `syncUIText` gives it) and the widest one.
+ * Text's lines (wrapped to `maxWidth` by `lineBreak.ts`: at spaces and between CJK characters, or at any character for
+ * `wrap: "anywhere"`, as the drawing's text blocks wrap) and the widest one.
  */
 function textSize(text: string, fontSize: number, weight: string, family: string, lineHeight: number, maxWidth = Infinity, wrap: UITextWrap = "word"): { width: number; height: number; lines: number } {
   const ctx = context();
@@ -821,35 +863,9 @@ function textSize(text: string, fontSize: number, weight: string, family: string
     return ctx.measureText(s).width;
   };
   if (ctx) ctx.font = `${weight} ${fontSize}px ${family}`;
-  let lines = 0;
-  let widest = 0;
-  for (const paragraph of text.split("\n")) {
-    if (!Number.isFinite(maxWidth)) {
-      lines++;
-      widest = Math.max(widest, width(paragraph));
-      continue;
-    }
-    const divider = wrap === "anywhere" ? "" : " ";
-    const words = wrap === "anywhere" ? [...paragraph] : paragraph.split(" ");
-    let line = words[0] ?? "";
-    let lineWidth = width(line);
-    for (let n = 1; n < words.length; n++) {
-      const test = `${line}${divider}${words[n]}`;
-      const w = width(test);
-      if (w > maxWidth) {
-        lines++;
-        widest = Math.max(widest, lineWidth);
-        line = words[n];
-        lineWidth = width(line);
-      } else {
-        line = test;
-        lineWidth = w;
-      }
-    }
-    lines++;
-    widest = Math.max(widest, lineWidth);
-  }
-  lines = Math.max(1, lines);
+  const wrapped = wrapText(text, maxWidth, width, wrap === "anywhere" ? "anywhere" : "normal");
+  const lines = Math.max(1, wrapped.length);
+  const widest = wrapped.reduce((w, l) => Math.max(w, l.width), 0);
   return { width: widest, height: lines * lineHeight * fontSize, lines };
 }
 
