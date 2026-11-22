@@ -383,3 +383,8 @@ Mixer wasm 471,630 B. Supersedes D30's "track, clip and nested effects keep per-
 Coordinator choice: gain added to the instance level in the catalogue (the core runs it there). Tails ring after a
 stop with fade (FMOD allow-fadeout). Known red after merging: the clip-delay loopback (interaction with W11-E's
 unstamped restart or quantised bindings); a fix task is running.
+
+**D50. The post-merge red was a real ordering bug (fixed).** A voice's ROUTE (its level submix) was staged asap, and
+the writer's frame sort moved it ahead of a stamped PLAY, which clears the voice's route on the core — so any stamped
+voice in a level with effects played dry. It showed only once W11-E's restart began stamping loading voices. ROUTE now
+carries its PLAY's stamp, as AUTOMATE and LOOPS already did; covered by a writer unit test and a loopback test.
