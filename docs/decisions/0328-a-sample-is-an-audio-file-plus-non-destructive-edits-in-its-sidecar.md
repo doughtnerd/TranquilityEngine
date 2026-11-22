@@ -1,6 +1,6 @@
 # 0328. A sample is an audio file plus non-destructive edits in its sidecar
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

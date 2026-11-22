@@ -1,6 +1,6 @@
 # 0331. One effect catalogue runs at four levels: baked into a sample, per voice, per playing instance, per bus
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

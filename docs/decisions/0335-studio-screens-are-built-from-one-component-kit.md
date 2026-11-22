@@ -1,6 +1,6 @@
 # 0335. Studio screens are built from one component kit: generic parts in the editor UI, audio parts in `src/studio/components/`
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

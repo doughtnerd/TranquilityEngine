@@ -1,6 +1,6 @@
 # 0334. A take records what the game asked of audio and the engine's profile in one file, and replays against current audio
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

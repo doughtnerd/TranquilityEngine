@@ -1,6 +1,6 @@
 # 0330. The mix moves to `audio.json`, with returns, VCAs and blending snapshots
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** — (amends 0097, 0171, 0172, 0173: where the audio settings live and what the mix holds)

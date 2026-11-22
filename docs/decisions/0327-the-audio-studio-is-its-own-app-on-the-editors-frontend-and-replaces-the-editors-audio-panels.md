@@ -1,6 +1,6 @@
 # 0327. The Audio Studio is its own app on the editor's frontend and replaces the editor's audio panels
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** — (retires the editor-side panels of 0158, 0166/0167, 0171/0172, 0220; see Deprecates)

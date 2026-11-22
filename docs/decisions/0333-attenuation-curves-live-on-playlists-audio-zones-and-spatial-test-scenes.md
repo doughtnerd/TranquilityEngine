@@ -1,6 +1,6 @@
 # 0333. Attenuation curves live on playlists; audio zones are a component; spatial test scenes are Studio assets
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** — (amends 0162: attenuation is a set of curves, not a rolloff model)

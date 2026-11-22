@@ -1,6 +1,6 @@
 # 0332. One curve model with Bézier keys everywhere, time as a parameter the core advances, and one curve editor
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
