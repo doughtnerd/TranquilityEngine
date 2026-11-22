@@ -9,7 +9,7 @@ import { onAudioConfigured } from "./audioConfigure";
 import { resolveSettings, validateBootstrap, type ProjectSettings, type ProjectSettingsInput } from "./settings";
 import { Graphics } from "../render/Graphics";
 import type { FrameMonitor } from "../render/qualityDetect";
-import { LinkApplier } from "./linkApplier";
+import { LinkApplier, type LinkedWorldAction } from "./linkApplier";
 import { bootProject } from "./projectBoot";
 import type { ProjectContext } from "./projectContext";
 import { ViewAllocator } from "./viewAllocator";
@@ -18,7 +18,7 @@ import { World, type WorldKind } from "./World";
 import { notifyEngineLifecycle } from "./engineLifecycle";
 import { WorldHandleImpl } from "./WorldHandle";
 import type { ListenDefaults, WorldOwner, WorldViewState } from "./worldOwner";
-import { DEFAULT_WORLD_TAGS, type Bootstrap, type BootstrapConfig, type BootstrapEngine, type BootstrapSetting, type WorldConfig, type WorldHandle } from "./worlds";
+import { DEFAULT_WORLD_TAGS, type Bootstrap, type BootstrapConfig, type BootstrapEngine, type BootstrapSetting, type LinkConfig, type WorldConfig, type WorldHandle } from "./worlds";
 
 export type { WorldViewState } from "./worldOwner";
 
@@ -256,6 +256,14 @@ export class Engine implements BootstrapEngine, WorldOwner {
     return this.links.linkedServer(client);
   }
 
+  /**
+   * @internal The dedicated server (ADR 0323): call `act` for each World created at runtime that one
+   * of `links` names as its server, at the start of the next frame (`LinkApplier.watch`). Returns the removal.
+   */
+  _watchLinks(links: readonly LinkConfig[], act: LinkedWorldAction): () => void {
+    return this.links.watch(links, act);
+  }
+
   /** A handle on one of this Engine's Worlds, by name, or null. */
   findWorld(name: string): WorldHandle | null {
     const world = this.list.find((w) => w.name === name);
@@ -432,7 +440,7 @@ export class Engine implements BootstrapEngine, WorldOwner {
     const timing = this.timing;
     const begun = timing ? performance.now() : 0;
     this.watchQuality(dt);
-    this.links.retryDeferred();
+    this.links.beginFrame();
     // 2. Input snapshot: once per Engine frame, shared by the Worlds that take input
     Input.beginFrame();
     for (const world of [...this.list]) {

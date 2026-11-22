@@ -404,6 +404,15 @@ export class NetSession implements WorldNet {
     return [...this.listeners.values()].flatMap((l) => (l.address === null ? [] : [{ transport: l.transportName, address: l.address, listenedAt: l.listenedAt }]));
   }
 
+  /**
+   * @internal Whether this session listens, or is starting to, over any transport (ADR 0323): a
+   * WebSocket listen in Node has no address until it's bound, so `listening()` leaves it out until then.
+   * The dedicated server asks before listening for a World its code may have listened for already.
+   */
+  listens(): boolean {
+    return this.listeners.size > 0;
+  }
+
   /** @internal Whether this session already listens (or is starting to) over `transportName` at the address `options` give. */
   listensAt(transportName: string, options: Record<string, unknown>): boolean {
     return this.listeners.has(`${transportName}|${worldListenTarget(this.world, transportName, options).address}`);
