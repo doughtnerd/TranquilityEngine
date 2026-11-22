@@ -14,7 +14,7 @@
  * Pure; no plugin, no DOM.
  */
 import type { Curve, CurveKey } from "../../core/curve";
-import { curveToJson, isRecord, LenientReader } from "../effects/lenientRead";
+import { curveToJson, isRecord, LenientReader } from "../lenientRead";
 import { ATTENUATION_FORMAT, type Attenuation, type AttenuationAsset, type AttenuationCurves, type AttenuationPreset } from "./types";
 
 export const ATTENUATION_CURVES = ["volume", "lowpass", "reverbSend", "spread"] as const satisfies readonly (keyof AttenuationCurves)[];

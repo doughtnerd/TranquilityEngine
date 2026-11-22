@@ -7,6 +7,7 @@ import { Audio } from "../runtime";
 import { AUDIO_EVENT_SUFFIX } from "../../../engine/audio/eventFormat";
 import { createEventFromClips } from "./createEventFromClips";
 import { audioEventFormat, audioEventReferences } from "./eventAsset";
+import { registerStudioAssetKinds } from "./studioAssets";
 import { audioNamedLists, occlusionLayerReferences } from "./audioNames";
 import { EVENT_EDITOR_PANEL } from "./event/openEventEditor";
 import { zoneTool } from "./AudioReverbZoneGizmo";
@@ -73,6 +74,9 @@ export const audioEditorPlugin: EditorPlugin = {
       referencedAs: ["audioEvent"],
       references: { ...audioEventReferences, extensions: [AUDIO_EVENT_SUFFIX] },
     });
+    // The Audio Studio's assets (ADR 0329, 0328, 0333): playlists, derived samples, attenuation presets. Listed, moved and
+    // their references followed here; the Studio edits them.
+    registerStudioAssetKinds(context);
     // A clip's (or several clips') context menu: one event playing one of them per play.
     context.registerAssetAction({
       id: "myco.audio.event-from-clips",

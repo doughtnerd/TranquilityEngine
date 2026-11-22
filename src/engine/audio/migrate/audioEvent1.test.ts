@@ -322,7 +322,7 @@ describe("interactive music", () => {
     expect(seq.tempo).toEqual({ bpm: 120, meter: "4/4" });
     expect(seq.length).toBe(8);
     expect(seq.tracks).toMatchObject([{ name: "drums", kind: "audio", volume: -6.021, output: "Drums", clips: [{ sample: "m/d.wav", at: 0, length: 8, sync: true }] }]);
-    expect(seq.markers).toEqual([{ id: "m1", name: "entry", at: 0 }, { id: "m2", name: "hit", at: 3 }, { id: "m3", name: "exit", at: 8 }]);
+    expect(seq.markers).toEqual([{ id: "m1", name: "entry", at: 0, type: "exit" }, { id: "m2", name: "hit", at: 3, type: "cue" }, { id: "m3", name: "exit", at: 8, type: "exit" }]);
     expect(notes).toEqual([]);
   });
 
@@ -373,13 +373,38 @@ describe("interactive music", () => {
     hasNote(notes, "played 2 passes");
   });
 
-  it("without the stems' length, clips are 0 s and positions at the end are dropped, with notes", () => {
-    const { playlist, notes } = mig({ root: segment({ regions: [{ id: "all", from: "1:1:0", to: "end", count: 0 }] }) });
-    expect(playlist.sequence!.length).toBe(0);
+  it("without the stems' length, clips and the sequence play to the end (0), the exit at the end needs no marker and a whole-segment loop replays the sequence", () => {
+    const { playlist, notes } = mig({ root: segment({ cues: [{ name: "hit", at: "2:1:0" }], regions: [{ id: "all", from: "1:1:0", to: "end", count: 0 }] }) });
+    expect(playlist.type).toBe("queue");
+    expect(playlist.queue).toEqual({ pick: "roundRobin", avoidRepeat: 0, continuous: { gapMs: 0 } });
+    expect(playlist.playback.plays).toBe("untilStopped");
+    const seq = embedded(playlist, 0).sequence!;
+    expect(seq.length).toBe(0);
+    expect(seq.tracks[0].clips).toMatchObject([{ sample: "m/a.wav", at: 0, length: 0, sync: true }]);
+    expect(seq.loops).toEqual([]);
+    expect(seq.markers).toEqual([{ id: "m1", name: "hit", at: 2, type: "cue" }]);
+    hasNote(notes, "the stems' length is unknown");
+    hasNote(notes, `region "all" loops the whole segment`);
+    hasNote(notes, `the exit at "end" needs no marker`);
+  });
+
+  it("without the stems' length, a parameter-bound region to the end and a later cue at the end are still dropped, with notes", () => {
+    const { playlist, notes } = mig({
+      parameters: [{ name: "Loop", min: 0, max: 1 }],
+      root: segment({ cues: [{ name: "outro", at: "end" }], regions: [{ id: "tail", from: "2:1:0", to: "end", while: { parameter: "Loop", atLeast: 0.5 } }] }),
+    });
+    expect(playlist.type).toBe("sequence");
     expect(playlist.sequence!.loops).toEqual([]);
     expect(playlist.sequence!.markers).toEqual([]);
-    hasNote(notes, "the stems' length is unknown");
-    hasNote(notes, `region "all" can't be placed`);
+    hasNote(notes, `region "tail" can't be placed`);
+    hasNote(notes, `marker "outro" at "end" needs the segment's length`);
+  });
+
+  it("a sustain whose end section's length is unknown plays it to the end: the sequence length is 0", () => {
+    const { playlist, notes } = mig({ root: { type: "sustain", start: clip("s.wav"), loop: clip("l.wav"), end: clip("e.wav") } }, lengths({ "s.wav": 1, "l.wav": 2 }));
+    expect(playlist.sequence!.length).toBe(0);
+    expect(playlist.sequence!.loops[0]).toMatchObject({ start: 1, end: 3, active: "held" });
+    expect(notes.some((n) => n.includes(".end:"))).toBe(false);
   });
 
   it("stem automation → track automation (volume in dB; low-pass via an effect); quantize is noted", () => {

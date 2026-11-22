@@ -4,8 +4,10 @@
  * chose to write beside it, and lint notes naming every approximation. It never throws.
  *
  * The migration has no audio files. Clip, loop and marker times that depend on a sample's length (a segment's `"end"`,
- * a sustain's sections, a start offset's trim) need `options.sampleSeconds`; without it they are written as 0 (or the
- * loop is dropped) and a note says so. Callers that can read the audio (the Studio, `npm run audio:migrate`) pass it.
+ * a sustain's sections, a start offset's trim) need `options.sampleSeconds`. Without it, clip and sequence lengths are
+ * 0, which the playlist contract reads as "to the end" (D5), an exit at the end needs no marker, and a loop over a whole
+ * segment replays the sequence through a continuous Queue; what still can't be placed is dropped with a note. Callers
+ * that can read the audio (`migrateProjectAudio` in `project.ts`, so `npm run audio:migrate`) pass it.
  *
  * The mapping, in short (each choice is explained where it is made):
  * - `clip` → Clip (a looping region or sustain → a one-clip Sequence with a sequence loop); `random` → Queue random;
@@ -234,13 +236,13 @@ class Migrator {
       return body;
     }
     const offset = n.startOffset;
+    // An unknown length is 0: the clip and the sequence play to the sample's end (D5).
     const clipLength = length !== undefined ? Math.max(0, length - offset) : 0;
-    if (length === undefined) this.note(where, `"${n.clip}": length unknown; the sequence clip's length is 0 (set it to the sample's length).`);
     const region = n.loopRegion ?? (length !== undefined ? [0, length] as [number, number] : undefined);
     const seq = this.newSequence(clipLength);
     const track = this.newTrack(seq, "audio", "Audio 1");
     track.clips.push(this.newClip(track, { sample: n.clip }, 0, clipLength, offset));
-    if (!region) this.note(where, "sustain with no loop region needs the sample's length; the loop was dropped.");
+    if (!region) this.note(where, `"${n.clip}": length unknown; a sustain with no loop region needs it to place the held loop, so the loop was dropped.`);
     else {
       const start = tidy(Math.max(0, region[0] - offset)), end = tidy(region[1] - offset);
       if (end <= start) this.note(where, `the loop region ends before the start offset; the loop was dropped.`);
@@ -400,14 +402,17 @@ class Migrator {
    * finishes the pass. A clip as the loop section goes on an audio track so the held loop is exactly its loop region.
    */
   sustain(n: SustainNode, where: string): PlaylistBody {
+    // The end section is last: an unknown length there is 0, "to the end" (D5), and so is the sequence's. Start and loop
+    // place what follows them, so their lengths matter and an unknown one is noted.
+    const endKnown = !n.end || this.estimate(n.end) !== undefined;
     const len = (node: AnyEventNode | undefined, slot: string): number => {
       if (!node) return 0;
       const l = this.estimate(node);
-      if (l === undefined) this.note(`${where}.${slot}`, "length unknown; its sequence clip is 0 s long (set it from the samples).");
+      if (l === undefined && slot !== "end") this.note(`${where}.${slot}`, "length unknown; its sequence clip is 0 s long (set it from the samples).");
       return l === undefined ? 0 : tidy(l);
     };
     const ls = len(n.start, "start"), ll = len(n.loop, "loop"), le = len(n.end, "end");
-    const seq = this.newSequence(tidy(ls + ll + le));
+    const seq = this.newSequence(endKnown ? tidy(ls + ll + le) : 0);
     const track = this.newTrack(seq, "playlist", "Sustain");
     const addNode = (node: AnyEventNode | undefined, at: number, length: number, slot: string): void => {
       if (node) track.clips.push(this.nodeClip(track, node, at, length, `${where}.${slot}`));
@@ -550,12 +555,17 @@ class Migrator {
   /**
    * A segment: a Sequence at its first tempo marker, stems as sync tracks spanning the segment, cues as markers (the
    * exit cue, or `"end"`, as a marker named `exit`), regions as sequence loops (bound to the parameter when `while`).
+   *
+   * Without the stems' length the sequence and its clips are 0 s long, "to the end" (D5), and two things that sit at
+   * `"end"` survive another way: an exit at the end needs no marker (an Exit wait with no Exit marker falls back to the
+   * loop end, which for a sequence that plays through is its end, ADR 0329), and a region over the whole segment that
+   * isn't bound to a parameter becomes a continuous Queue replaying the sequence back to back.
    */
   segment(seg: SegmentNode, where: string): PlaylistBody {
     const lengths = seg.tracks.flatMap((t) => [t.clip, ...t.alternatives]).map((c) => (c ? this.seconds(c) : undefined));
     const knownLengths = lengths.filter((l): l is number => l !== undefined);
     const length = knownLengths.length > 0 ? tidy(Math.max(...knownLengths)) : undefined;
-    if (length === undefined && seg.tracks.length > 0) this.note(where, `segment "${seg.id}": the stems' length is unknown; clips and the sequence are 0 s long and positions at "end" are dropped.`);
+    if (length === undefined && seg.tracks.length > 0) this.note(where, `segment "${seg.id}": the stems' length is unknown; clips and the sequence play to their end (length 0), and loops and markers at "end" are placed without it where they can be.`);
     const seq = this.newSequence(length ?? 0);
     const first = seg.tempo[0];
     seq.tempo = first ? { bpm: first.bpm, meter: `${first.beatsPerBar}/${first.beatUnit}` } : null;
@@ -563,10 +573,14 @@ class Migrator {
     seg.tracks.forEach((t, i) => this.stem(seq, t, length ?? 0, `${where}.tracks[${i}]`));
     // Markers: every cue by name; the exit point (named cue or the end) as `exit` when no cue has that name.
     const markers: SequenceMarker[] = [];
+    // ADR 0329: the entry and exit points are Exit markers, other cues Cue markers.
+    const exitNames = new Set([seg.entry ?? "entry", seg.exit ?? "exit"]);
     const addMarker = (name: string, text: string, w: string): void => {
       const s = this.at(text, seg, length);
+      const type = exitNames.has(name) ? "exit" : "cue";
+      if (s === undefined && text === "end" && type === "exit") return void this.note(w, `the exit at "end" needs no marker without the segment's length: an exit wait falls back to the sequence's end.`);
       if (s === undefined) { this.note(w, `marker "${name}" at "${text}" needs the segment's length; dropped.`); return; }
-      markers.push({ id: `m${markers.length + 1}`, name, at: s });
+      markers.push({ id: `m${markers.length + 1}`, name, at: s, type });
     };
     seg.cues.forEach((c, i) => addMarker(c.name, c.at, `${where}.cues[${i}]`));
     if (!seg.cues.some((c) => c.name === (seg.exit ?? "exit"))) addMarker("exit", segmentExitPosition(seg), `${where}.exit`);
@@ -574,9 +588,17 @@ class Migrator {
     const entry = segmentEntryPosition(seg);
     if (entry !== "1:1:0" && entry !== "start") this.note(where, `segment "${seg.id}" enters at "${entry}"; the sequence plays from its start (the marker "${seg.entry ?? "entry"}" is kept).`);
     if (seg.gridOffset > 0) this.note(where, `segment "${seg.id}": gridOffset ${seg.gridOffset} s is folded into the marker and loop times; the sequence's beat grid starts at 0.`);
+    let wholeLoop = false;
     seg.regions.forEach((r, i) => {
       const w = `${where}.regions[${i}]`;
       const start = this.at(r.from, seg, length), end = this.at(r.to, seg, length);
+      if (length === undefined && start === 0 && r.to === "end" && !r.while) {
+        wholeLoop = true;
+        this.loopsForever = true;
+        this.note(w, `region "${r.id}" loops the whole segment, whose length is unknown: the sequence plays back to back in a continuous Queue instead of a sequence loop.`);
+        if (r.count > 0) this.note(w, `region "${r.id}" played ${r.count} passes; it now repeats until the instance is stopped.`);
+        return;
+      }
       if (start === undefined || end === undefined || end <= start) { this.note(w, `region "${r.id}" can't be placed (its end needs the segment's length or is not after its start); dropped.`); return; }
       const loop = this.loop(seq, start, end, r.while ? "parameter" : "always", "finish", 0, r.id);
       if (r.while) loop.binding = this.binding(r.while, w);
@@ -585,7 +607,11 @@ class Migrator {
       if (r.tailBeats) this.note(w, `region "${r.id}": tailBeats ${r.tailBeats} (the ringing past the loop end) is not kept.`);
       seq.loops.push(loop);
     });
-    return this.sequenceBody(seq);
+    if (!wholeLoop) return this.sequenceBody(seq);
+    const queue = newBody("queue");
+    queue.entries = [{ kind: "embedded", embedded: this.sequenceBody(seq), ...newUse() }];
+    queue.queue = { pick: "roundRobin", avoidRepeat: 0, continuous: this.continuous(0, where) };
+    return queue;
   }
 
   /** Music children as queue or switch entries. */

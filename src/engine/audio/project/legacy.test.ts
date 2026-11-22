@@ -44,7 +44,7 @@ describe("fromLegacySection (the migration)", () => {
   });
 
   it("turns the reverb send effect into a send to a created Reverb return", () => {
-    expect(project.returns).toEqual([{ name: "Reverb", output: "Master", volumeDb: 0, mute: false, effects: [{ id: "fx1", type: "reverb", on: true, params: {} }] }]);
+    expect(project.returns).toEqual([{ name: "Reverb", output: "Master", volumeDb: 0, mute: false, effects: [{ id: "fx1", type: "reverb", on: true, params: { size: 0.5, decay: 1.8, mix: 100 } }] }]);
     const sfx = busOf(project, "SFX");
     expect(sfx.sends).toEqual([{ to: "Reverb", levelDb: expect.closeTo(20 * Math.log10(0.25), 6) }]);
     expect(sfx.effects[0]).toEqual({ id: "fx1", type: "compressor", on: true, params: { threshold: -20, ratio: 4, attack: 70, release: 300, makeup: 0, knee: 10 } });
@@ -140,9 +140,9 @@ describe("mergeLegacyIntoProject (the legacy panels' adapter)", () => {
     if (lp.type === "lowpass") lp.frequency = 3000;
     const music = busOf(mergeLegacyIntoProject(RICH, v), "Music");
     expect(music.effects).toEqual([
-      { id: "eq", type: "eq", on: true, params: { low: 2 } },
+      { id: "eq", type: "eq", on: true, params: { low: 2, mid: 0, high: 0 } },
       { id: "lp", type: "lowpass", on: true, params: { cutoff: 3000, resonance: 0.3, drive: 0 } },
-      { id: "off", type: "highpass", on: false, params: {} },
+      { id: "off", type: "highpass", on: false, params: { cutoff: 20, resonance: 0.1, drive: 0 } },
     ]);
   });
 

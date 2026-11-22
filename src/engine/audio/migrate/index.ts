@@ -2,7 +2,8 @@
  * Project-wide migration of audio events to playlists (ADR 0329 §"Migration"): every `*.audioevent.json` becomes a
  * `*.playlist.json` beside it with the same base name. Pure: it takes the project's text files and returns what to
  * write, what to delete (callers move the old file to `.myco/migrated/`) and the path moves, so callers rewrite the
- * references (scenes' `AudioSource.clip`, scripts, other assets) themselves. Never throws.
+ * references (scenes' `AudioSource.clip`, scripts, other assets) themselves; `project.ts` (`migrateProjectAudio`) does all
+ * of that over a project folder. Never throws.
  */
 import { formatPlaylist } from "../playlist/format";
 import { AUDIO_EVENT_SUFFIX, isAudioEventPath, parseAudioEvent } from "../eventFormat";

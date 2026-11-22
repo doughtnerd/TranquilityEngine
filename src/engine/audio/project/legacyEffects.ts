@@ -3,13 +3,13 @@
  * high-pass, compressor and the reverb send) and back. `toRuntimeSettings` maps one way, the migration and the legacy
  * panels' adapter (`legacy.ts`) the other. One place, so the two directions can't drift apart.
  *
- * Parameter names follow ADR 0331's catalogue table: filters `cutoff` (Hz), `resonance` (0..1), `drive` (%); the
- * compressor `threshold` (dB), `ratio`, `attack` and `release` (ms), `makeup` (dB). The runtime's `q` maps onto
- * `resonance` linearly over `Q_RANGE`; the compressor's `knee` (dB), which the catalogue doesn't list, is kept as a
- * parameter of that name so a migrated compressor sounds the same.
+ * Parameter names, ranges and defaults are the catalogue's (`effects/catalogue.ts`, ADR 0331); `RUNTIME_FIELDS` is the
+ * one table that says which runtime field each catalogue parameter is and how its unit converts (`frequency` and
+ * `cutoff`, `q` and `resonance` linearly over `Q_RANGE`, seconds and milliseconds). Every direction below reads it.
  *
  * Pure; no plugin, no DOM.
  */
+import { clampEffectParam, defaultEffect, effectParamSpec, effectParamValue } from "../effects/catalogue";
 import type { Effect } from "../effects/types";
 import type { BusEffect } from "../settings";
 import type { AudioProject } from "./types";
@@ -18,17 +18,6 @@ import type { AudioProject } from "./types";
 export const Q_RANGE = [0.5, 20] as const;
 /** A low-pass at or above this cutoff is open: the bypass-neutral setting a migrated snapshot or automation low-pass rests at. */
 export const OPEN_CUTOFF = 20000;
-
-/**
- * Each mapped parameter's value when an effect leaves it out. TODO(ADR 0331): take these from the catalogue
- * (`effects/catalogue.ts`) once it merges; until then they are the runtime's own defaults, and the migration writes
- * every parameter, so a migrated mix doesn't depend on them.
- */
-export const LOCAL_DEFAULTS = {
-  lowpass: { cutoff: OPEN_CUTOFF, resonance: 0, drive: 0 },
-  highpass: { cutoff: 20, resonance: 0, drive: 0 },
-  compressor: { threshold: -24, ratio: 12, attack: 3, release: 250, makeup: 0, knee: 30 },
-} as const;
 
 const round6 = (x: number): number => Math.round(x * 1e6) / 1e6;
 
@@ -39,13 +28,33 @@ export const msOf = (s: number): number => round6(s * 1000);
 /** Seconds from milliseconds. */
 export const secondsOf = (ms: number): number => Math.round(ms * 1e6) / 1e9;
 
-/** An effect's parameter with the local default applied. */
-export function param(e: Effect, name: string): number {
-  const v = e.params[name];
-  if (typeof v === "number") return v;
-  const defaults = (LOCAL_DEFAULTS as Record<string, Record<string, number>>)[e.type];
-  return defaults?.[name] ?? 0;
+type MappedType = "lowpass" | "highpass" | "compressor";
+type RuntimeBusEffect = Exclude<BusEffect, { type: "reverb" }>;
+
+/** One runtime field of a mapped bus effect: the catalogue parameter it is, and its unit conversion each way. */
+export interface RuntimeField {
+  field: string;
+  param: string;
+  toRuntime(value: number): number;
+  toParam(value: number): number;
 }
+
+const same = (v: number): number => v;
+const field = (name: string, param: string, toRuntime = same, toParam = same): RuntimeField => Object.freeze({ field: name, param, toRuntime, toParam });
+const FILTER_FIELDS: readonly RuntimeField[] = Object.freeze([field("frequency", "cutoff"), field("q", "resonance", qOfResonance, resonanceOfQ)]);
+
+/** The one legacy/catalogue table: every runtime bus effect field and the catalogue parameter it maps to. */
+export const RUNTIME_FIELDS: Readonly<Record<MappedType, readonly RuntimeField[]>> = Object.freeze({
+  lowpass: FILTER_FIELDS,
+  highpass: FILTER_FIELDS,
+  compressor: Object.freeze([
+    field("threshold", "threshold"), field("knee", "knee"), field("ratio", "ratio"),
+    field("attack", "attack", secondsOf, msOf), field("release", "release", secondsOf, msOf),
+  ]),
+});
+
+/** An effect's parameter, with the catalogue default when it leaves it out (0 for a name its type doesn't have). */
+export const param = (e: Effect, name: string): number => effectParamValue(e, name) ?? 0;
 
 /** True when the runtime's bus chain has an equivalent of `e` (an `on` low-pass, high-pass or compressor). */
 export const isMappable = (e: Effect): boolean => e.on && (e.type === "lowpass" || e.type === "highpass" || e.type === "compressor");
@@ -65,26 +74,27 @@ export function isCarrier(project: Pick<AudioProject, "snapshots" | "automation"
 /** True when `e` appears in the runtime view's bus chain. */
 export const isShown = (project: Pick<AudioProject, "snapshots" | "automation">, owner: string, e: Effect): boolean => isMappable(e) && !isCarrier(project, owner, e);
 
-/** The runtime bus effect of a mappable effect (`isMappable`), with what it can't carry in `lost`. */
+/**
+ * The runtime bus effect of a mappable effect (`isMappable`), with what it can't carry in `lost`: each catalogue
+ * parameter `RUNTIME_FIELDS` doesn't map (filter `drive`, compressor `makeup`) that isn't at its default.
+ */
 export function toBusEffect(e: Effect, lost: string[]): BusEffect {
-  switch (e.type) {
-    case "lowpass":
-    case "highpass":
-      if (param(e, "drive") !== 0) lost.push("drive");
-      return { type: e.type, frequency: param(e, "cutoff"), q: qOfResonance(param(e, "resonance")) };
-    default:
-      if (param(e, "makeup") !== 0) lost.push("makeup");
-      return {
-        type: "compressor", threshold: param(e, "threshold"), knee: param(e, "knee"), ratio: param(e, "ratio"),
-        attack: secondsOf(param(e, "attack")), release: secondsOf(param(e, "release")),
-      };
+  const type = e.type as MappedType;
+  const fields = RUNTIME_FIELDS[type];
+  const out: Record<string, unknown> = { type };
+  for (const f of fields) out[f.field] = f.toRuntime(param(e, f.param));
+  for (const name of Object.keys(defaultEffect(type, "").params)) {
+    if (!fields.some((f) => f.param === name) && param(e, name) !== effectParamSpec(type, name)!.default) lost.push(name);
   }
+  return out as unknown as BusEffect;
 }
 
-/** The params of a new effect made from a runtime bus effect (not the reverb send). Every mapped parameter is written. */
-export function paramsOf(b: Exclude<BusEffect, { type: "reverb" }>): Record<string, number> {
-  if (b.type === "compressor") return { threshold: b.threshold, ratio: b.ratio, attack: msOf(b.attack), release: msOf(b.release), makeup: 0, knee: b.knee };
-  return { cutoff: b.frequency, resonance: resonanceOfQ(b.q), drive: 0 };
+/** The params of a new effect made from a runtime bus effect (not the reverb send): every catalogue parameter, mapped ones from `b` fitted to the catalogue ranges (a legacy threshold below −60 dB reads as −60). */
+export function paramsOf(b: RuntimeBusEffect): Record<string, number> {
+  const params = defaultEffect(b.type, "").params;
+  const fields = b as unknown as Record<string, number>;
+  for (const f of RUNTIME_FIELDS[b.type]) params[f.param] = clampEffectParam(effectParamSpec(b.type, f.param)!, f.toParam(fields[f.field]));
+  return params;
 }
 
 /**
@@ -93,15 +103,9 @@ export function paramsOf(b: Exclude<BusEffect, { type: "reverb" }>): Record<stri
  */
 export function updatedParams(e: Effect, before: BusEffect, after: BusEffect): Record<string, number> {
   const params = { ...e.params };
-  if (after.type === "compressor" && before.type === "compressor") {
-    if (after.threshold !== before.threshold) params.threshold = after.threshold;
-    if (after.knee !== before.knee) params.knee = after.knee;
-    if (after.ratio !== before.ratio) params.ratio = after.ratio;
-    if (after.attack !== before.attack) params.attack = msOf(after.attack);
-    if (after.release !== before.release) params.release = msOf(after.release);
-  } else if ((after.type === "lowpass" || after.type === "highpass") && before.type === after.type) {
-    if (after.frequency !== before.frequency) params.cutoff = after.frequency;
-    if (after.q !== before.q) params.resonance = resonanceOfQ(after.q);
-  }
+  if (after.type === "reverb" || before.type !== after.type) return params;
+  const was = before as unknown as Record<string, number>;
+  const now = after as unknown as Record<string, number>;
+  for (const f of RUNTIME_FIELDS[after.type]) if (now[f.field] !== was[f.field]) params[f.param] = clampEffectParam(effectParamSpec(after.type, f.param)!, f.toParam(now[f.field]));
   return params;
 }

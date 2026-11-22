@@ -10,7 +10,8 @@
  * Pure; no plugin, no DOM.
  */
 import type { Curve, CurveKey } from "../../core/curve";
-import { EFFECT_TYPES, type Effect, type EffectType } from "../effects/types";
+import { effectsToJson, parseEffects as parseEffectChain } from "../effects/catalogue";
+import type { Effect } from "../effects/types";
 import { audioCurve, parseParameters } from "../eventFormat";
 import { BUILTIN_MATERIALS } from "../occlusionMaterials";
 import { sameMaterial } from "../audioSection";
@@ -154,34 +155,6 @@ function parseEngineSettings(raw: unknown, options: AudioParseOptions, problems:
   return out;
 }
 
-/**
- * One effect, or null (with a problem). TODO(ADR 0331): replace this shape check with `parseEffect` from
- * `../effects/catalogue` once it merges (it checks each type's parameters, ranges and levels and fills defaults); until
- * then an effect keeps its numeric params as written.
- */
-function parseEffect(raw: unknown, where: string, taken: Set<string>, problems: string[]): Effect | null {
-  if (!isRecord(raw)) return void problems.push(`${where}: must be an object; dropped.`), null;
-  if (typeof raw.type !== "string" || !(EFFECT_TYPES as readonly string[]).includes(raw.type)) {
-    problems.push(`${where}: unknown effect type ${JSON.stringify(raw.type)}; dropped.`);
-    return null;
-  }
-  let id = typeof raw.id === "string" && raw.id !== "" ? raw.id : "";
-  if (id === "" || taken.has(id)) {
-    if (raw.id !== undefined) problems.push(`${where}: id ${JSON.stringify(raw.id)} is missing or taken; given a new one.`);
-    id = freeEffectId(taken);
-  }
-  taken.add(id);
-  const params: Record<string, number> = {};
-  if (raw.params !== undefined && !isRecord(raw.params)) problems.push(`${where}.params: must be an object of numbers; ignored.`);
-  for (const [k, v] of Object.entries(isRecord(raw.params) ? raw.params : {})) {
-    if (isNum(v)) params[k] = v;
-    else problems.push(`${where}.params.${k}: must be a number; dropped.`);
-  }
-  const fx: Effect = { id, type: raw.type as EffectType, on: bool(raw.on, `${where}.on`, true, problems), params };
-  if (typeof raw.key === "string" && raw.key !== "") fx.key = raw.key;
-  return fx;
-}
-
 /** The first `fxN` not in `taken`. */
 export function freeEffectId(taken: ReadonlySet<string> | readonly string[]): string {
   const has = (id: string) => (Array.isArray(taken) ? (taken as readonly string[]).includes(id) : (taken as ReadonlySet<string>).has(id));
@@ -190,18 +163,9 @@ export function freeEffectId(taken: ReadonlySet<string> | readonly string[]): st
   return `fx${n}`;
 }
 
-function parseEffects(raw: unknown, where: string, problems: string[]): Effect[] {
-  if (raw === undefined) return [];
-  if (!Array.isArray(raw)) return void problems.push(`${where}: must be a list; ignored.`), [];
-  const taken = new Set<string>();
-  const out: Effect[] = [];
-  raw.forEach((e, i) => {
-    if (out.length >= MIX_LIMITS.effectsPerOwner) return void (i === MIX_LIMITS.effectsPerOwner && problems.push(`${where}: at most ${MIX_LIMITS.effectsPerOwner} effects; the rest are dropped.`));
-    const fx = parseEffect(e, `${where}[${i}]`, taken, problems);
-    if (fx) out.push(fx);
-  });
-  return out;
-}
+/** A bus's or return's insert chain: the catalogue's parse at the bus level (ADR 0331), at most `effectsPerOwner`. */
+const parseEffects = (raw: unknown, where: string, problems: string[]): Effect[] =>
+  raw === undefined ? [] : parseEffectChain(raw, "bus", where, problems, MIX_LIMITS.effectsPerOwner);
 
 const dbOf = (raw: unknown, where: string, problems: string[], fallback = 0) => ranged(raw, where, MIX_LIMITS.db, fallback, problems);
 
@@ -532,8 +496,8 @@ export function audioProjectToJson(project: AudioProject): Record<string, unknow
     format: AUDIO_PROJECT_FORMAT,
     settings: settingsToJson(project.settings),
     parameters: clone(project.parameters),
-    buses: project.buses.map((b) => ({ name: b.name, parent: b.parent, volumeDb: b.volumeDb, mute: b.mute, voiceLimit: b.voiceLimit, bed: b.bed && { ...b.bed }, meter: b.meter, effects: b.effects.map(effectToJson), sends: b.sends.map((s) => ({ ...s })) })),
-    returns: project.returns.map((r) => ({ name: r.name, output: r.output, volumeDb: r.volumeDb, mute: r.mute, effects: r.effects.map(effectToJson) })),
+    buses: project.buses.map((b) => ({ name: b.name, parent: b.parent, volumeDb: b.volumeDb, mute: b.mute, voiceLimit: b.voiceLimit, bed: b.bed && { ...b.bed }, meter: b.meter, effects: effectsToJson(b.effects), sends: b.sends.map((s) => ({ ...s })) })),
+    returns: project.returns.map((r) => ({ name: r.name, output: r.output, volumeDb: r.volumeDb, mute: r.mute, effects: effectsToJson(r.effects) })),
     vcas: project.vcas.map((v) => ({ name: v.name, volumeDb: v.volumeDb, members: [...v.members] })),
     automation: project.automation.map((a) => ({ on: a.on, target: a.target, parameter: a.parameter, curve: clone(a.curve), bypass: a.bypass })),
     ducking: project.ducking.map((d) => ({ ...d })),
@@ -541,8 +505,6 @@ export function audioProjectToJson(project: AudioProject): Record<string, unknow
     loudness: { targets: project.loudness.targets.map((t) => ({ ...t })), resetOnPlay: project.loudness.resetOnPlay },
   };
 }
-
-const effectToJson = (e: Effect): Record<string, unknown> => ({ id: e.id, type: e.type, on: e.on, params: { ...e.params }, ...(e.key !== undefined ? { key: e.key } : {}) });
 
 function settingsToJson(s: AudioEngineSettings): Record<string, unknown> {
   const defaults = defaultEngineSettings() as unknown as Record<string, unknown>;

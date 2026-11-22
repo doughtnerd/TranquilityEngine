@@ -14,7 +14,7 @@
  *
  * Pure; no plugin, no DOM.
  */
-import { IdScope, isFiniteNumber, isRecord, LenientReader } from "./lenientRead";
+import { IdScope, isFiniteNumber, isRecord, LenientReader } from "../lenientRead";
 import { EFFECT_TYPES, type Effect, type EffectLevel, type EffectParamSpec, type EffectSpec, type EffectType } from "./types";
 
 export const EFFECT_LEVELS: readonly EffectLevel[] = ["sample", "voice", "instance", "bus"];
@@ -42,6 +42,8 @@ export const EFFECT_CATALOGUE: Readonly<Record<EffectType, EffectSpec>> = Object
   compressor: spec({ type: "compressor", label: "Compressor", version: "1", cost: "medium", levels: ALL, params: [
     p("threshold", "Threshold", -60, 0, 0.1, "dB", -18), p("ratio", "Ratio", 1, 20, 0.1, ":1", 3),
     p("attack", "Attack", 0.1, 200, 0.1, "ms", 10), p("release", "Release", 5, 2000, 1, "ms", 120), p("makeup", "Makeup", 0, 24, 0.1, "dB", 0),
+    // The soft-knee width the runtime's bus compressor has always had (`settings.ts`, Web Audio's 0..40 dB, default 30).
+    p("knee", "Knee", 0, 40, 0.1, "dB", 30),
   ] }),
   sidechainCompressor: spec({ type: "sidechainCompressor", label: "Sidechain compressor", version: "1", cost: "medium", levels: ["bus"], key: "bus", params: [
     p("threshold", "Threshold", -60, 0, 0.1, "dB", -24), p("ratio", "Ratio", 1, 20, 0.1, ":1", 3), p("release", "Release", 5, 2000, 1, "ms", 300),
