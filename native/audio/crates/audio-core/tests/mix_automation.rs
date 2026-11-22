@@ -160,7 +160,7 @@ fn a_submix_binding_drives_its_chain_from_a_local_parameter() {
     // Instance group 5's submix on bus 1 runs a gain effect; its local parameter 2 drives the gain (0 -> 0 dB, 1 -> +6 dB),
     // so the effect opens above its configured value.
     let mut m = mixer(4);
-    let s = wire::Submix { voice_id: 0, frame_offset: wire::ASAP, group: 5, bus: 1, effects: vec![wire::SubmixEffects { type_: wire::SUBMIX_FX_GAIN, flags: wire::SUBMIX_FX_ON, p: [0.0; 8] }] };
+    let s = wire::Submix { voice_id: 0, frame_offset: wire::ASAP, group: 5, bus: 1, parent: 0, reserved: 0, effects: vec![wire::SubmixEffects { type_: wire::SUBMIX_FX_GAIN, flags: wire::SUBMIX_FX_ON, p: [0.0; 8] }] };
     let Rec::Play(mut p) = dc_at(V1, 1, 0.25) else { unreachable!() };
     p.group = 5;
     m.submit(&[config(&[ROOT, 0]), raw(move |b| s.write(b, 0)), Rec::Play(p), curves(0, &[&[(0.0, 0.0), (1.0, 6.0)]]), submix_automate(0, &[(2, 0, fx_target(0, 0, false))])]);

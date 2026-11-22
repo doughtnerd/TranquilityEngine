@@ -82,12 +82,14 @@ describe("PlaylistBody.automation", () => {
     expect(fake.plays).toHaveLength(2);
   });
 
-  it("ABI 4.8: with an instance submix, a parameter-keyed lane of the root's own effect drives the submix's effect, not the voices", async () => {
+  it("ABI 4.10: with an instance submix, a parameter-keyed lane of the root's own effect drives the submix's effect, not the voices", async () => {
     const automated: [number, { effect: string; param: number; log: boolean; input: unknown }[]][] = [];
     Object.assign(fake, {
       submixes: {
         open: () => true,
         close: () => {},
+        levelOf: () => ({ slot: 0 }),
+        openLevel: () => null,
         automate: (group: number, lanes: { effect: string; param: number; log: boolean; input: unknown }[]) => void automated.push([group, lanes.map((l) => ({ effect: l.effect, param: l.param, log: l.log, input: l.input }))]),
       },
     });

@@ -152,7 +152,7 @@ describe("CoreAutomation: the sink over the writer (E3.1)", () => {
       ["param", 5, 2, 0.5, 4],
       ["automate", v.id, 12_345, [{ param: 2, curve: 3, target: AutoTarget.Volume, offset: 0 }]],
       // Local and pitch bindings are not for buses.
-      ["busAutomate", 2, [{ param: AUTOMATION_GLOBAL | 1, curve: 3, target: AutoTarget.Volume, offset: 0 }]],
+      ["busAutomate", 2, [{ param: AUTOMATION_GLOBAL | 1, curve: 3, target: AutoTarget.Volume }]],
     ]);
   });
 
@@ -237,7 +237,7 @@ describe("CoreAutomation: the sink over the writer (E3.1)", () => {
     auto.onBusesConfigured();
     expect(calls).toEqual([
       ["busAutomate", 2, []],
-      ["busAutomate", 1, [{ param: AUTOMATION_GLOBAL, curve: 0, target: AutoTarget.Volume, offset: 0 }]],
+      ["busAutomate", 1, [{ param: AUTOMATION_GLOBAL, curve: 0, target: AutoTarget.Volume }]],
     ]);
   });
 
