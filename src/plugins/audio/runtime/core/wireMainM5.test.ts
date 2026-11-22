@@ -213,6 +213,7 @@ const m5Header = () => ({
   loudShed: 1,
   busRecordsEarly: 17,
   sidechainLate: 19,
+  genStarved: 0,
   reserved2: 0,
 });
 

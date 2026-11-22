@@ -23,6 +23,10 @@
 // ADR 0166 M4 (Z4, leaf L-Z4b; api-and-models §4.1, §4.2, §3.2): PLAY's `gate` (`playGated`, `PlayArgs.gate`) and bit 8
 // `fadeZero` (`PlayArgs.fadeZero`); the `shape` word on FADE, SET_PARAMS and STOP, which makes them 28, 60 and 24 B
 // (`fadeShaped`, `stopShaped`, `setParams`' `shape`), each stampable; and a gate group's records stay in one BATCH.
+//
+// ADR 0346 (ABI 5.1) adds `gen` (GEN, a generator voice's parameters, from a preallocated value buffer) and
+// `generatorTarget` (AUTOMATE target kind 5); a generator voice is a `play` of `GEN_CLIP_ID_FIRST + kind`. The playlist
+// runtime (G3) decides when to send them.
 import {
   ASAP,
   BUS_AUTOMATE_MAX_BINDINGS,
@@ -82,6 +86,13 @@ import {
   writeParam,
   writeTime,
   writeLoops,
+  writeGen,
+  GEN_FIXED_END,
+  GEN_PARAMS_MAX,
+  AUTO_TARGET_GEN,
+  AUTO_TARGET_GEN_PARAM_SHIFT,
+  AUTO_TARGET_LOG,
+  type Gen,
   LOOPS_LOOPS_FIXED_END,
   writeSubmix,
   SUBMIX_EFFECTS_FIXED_END,
@@ -207,6 +218,15 @@ export type BusAutomationBinding = Omit<AutomateBindings, "offset">;
 export const AUTOMATION_GLOBAL = PARAM_GLOBAL;
 /** ADR 0332: `AutomationBinding.param` bit (bit 15 clear) for a time parameter, `TIME_VOICE`, `TIME_CLIP` or `TIME_SEQUENCE` in bits 0-1. */
 export const AUTOMATION_TIME = PARAM_TIME;
+/**
+ * ADR 0346 (ABI 5.1): an `AutomationBinding.target` that drives generator parameter `param` (the generator catalogue's
+ * index): the curve's value replaces it each quantum, or with `log` 2 to the curve's value (frequencies and rates
+ * interpolate in log scale, as their curves are keyed in log2).
+ */
+export const generatorTarget = (param: number, log: boolean): number =>
+  (AUTO_TARGET_GEN | ((param & 0xff) << AUTO_TARGET_GEN_PARAM_SHIFT) | (log ? AUTO_TARGET_LOG : 0)) >>> 0;
+/** All of GEN's mask bits: every parameter a kind has (bits past its count are dropped by `gen` with `params`' length). */
+export const GEN_MASK_ALL = 0xffffffff;
 /** The core keeps at most this many bindings per voice and per bus, curves of at most `CORE_CURVE_KEYS` keys. */
 const CORE_BINDINGS = 8;
 /** The core's curve table keeps this many keys (`automation.rs` `CURVE_KEYS`; ADR 0332's limit, `MAX_CURVE_KEYS`). */
@@ -336,6 +356,10 @@ export class CommandWriter implements VoiceCommandSink {
   private readonly loopRec: SetLoop = { voiceId: 0, frameOffset: ASAP, loopStartFrame: 0, loopEndFrame: 0, flags: 0 };
   private readonly paramRec: Param = { voiceId: 0, frameOffset: ASAP, group: 0, slot: 0, value: 0, seekPerSecond: 0 };
   private readonly loopsRec: Loops = { voiceId: 0, frameOffset: ASAP, loops: [] };
+  private readonly genRec: Gen = { voiceId: 0, frameOffset: ASAP, mask: 0, seed: 0, rampFrames: 0, values: NO_NUMBERS };
+  /** GEN's packed values, and a view of each length 0..GEN_PARAMS_MAX over them (made once: a record allocates nothing). */
+  private readonly genValues = new Float32Array(GEN_PARAMS_MAX);
+  private readonly genViews: readonly Float32Array[] = Array.from({ length: GEN_PARAMS_MAX + 1 }, (_, n) => this.genValues.subarray(0, n));
   private readonly submixRec: Submix = { voiceId: 0, frameOffset: ASAP, group: 0, bus: 0, parent: 0, reserved: 0, effects: [] };
   private readonly routeRec: Route = { voiceId: 0, frameOffset: ASAP, submix: 0, reserved: 0 };
   private readonly timeRec: Time = { voiceId: 0, frameOffset: ASAP, group: 0, which: TIME_SEQUENCE, value: 0, rate: 0 };
@@ -733,6 +757,33 @@ export class CommandWriter implements VoiceCommandSink {
     const at = this.begin(16 + LOOPS_LOOPS_FIXED_END * loops.length);
     if (at >= 0) this.end(at, writeLoops(this.view, at, r), atFrame);
     r.loops = [];
+  }
+
+  /**
+   * GEN (ADR 0346, ABI 5.1): generator voice `voiceId`'s parameters. `params[i]` is parameter i in the generator
+   * catalogue's order (the wire order); the parameters whose bit is set in `mask` are sent, in that order (bits past
+   * `GEN_PARAMS_MAX` and past `params` are dropped). `seed` (non-zero) re-seeds the voice's noise; 0 keeps it. A started
+   * voice glides the changed smooth parameters over `rampFrames`; one not started takes them at once. Send the first
+   * right after the voice's PLAY with the same `atFrame` (omitted = asap), with every parameter, so it stays after the
+   * PLAY in the batch; the core applies it on arrival.
+   */
+  gen(voiceId: number, atFrame: number | undefined, mask: number, params: ArrayLike<number>, seed = 0, rampFrames = 0): void {
+    const r = this.genRec;
+    let sent = 0;
+    let n = 0;
+    for (let i = 0; i < GEN_PARAMS_MAX && i < params.length; i++) {
+      if (((mask >>> i) & 1) === 0) continue;
+      this.genValues[n++] = params[i]!;
+      sent |= 1 << i;
+    }
+    r.voiceId = voiceId;
+    r.mask = sent >>> 0;
+    r.seed = seed >>> 0;
+    r.rampFrames = Math.max(0, Math.round(rampFrames)) >>> 0;
+    r.values = this.genViews[n]!;
+    const at = this.begin(GEN_FIXED_END + 4 * n);
+    if (at >= 0) this.end(at, writeGen(this.view, at, r), atFrame);
+    r.values = NO_NUMBERS;
   }
 
   /**

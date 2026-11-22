@@ -206,7 +206,8 @@ describe("M5 STATUS sections at the caps and at zero (L-Wa1b)", () => {
       loudShed: 7,
       busRecordsEarly: 8,
       sidechainLate: 9,
-      reserved2: 0xdeadbeef,
+      genStarved: 0x0a0b,
+      reserved2: 0xbeef,
     };
     const buffer = new ArrayBuffer(wire.STATUS_BUFFER_BYTES);
     const n = wire.writeStatus(new DataView(buffer), 0, block, 3);
@@ -229,8 +230,9 @@ describe("M5 STATUS sections at the caps and at zero (L-Wa1b)", () => {
     expect(dv.getUint16(246, true)).toBe(7);
     expect(dv.getUint16(248, true)).toBe(8);
     expect(dv.getUint16(250, true)).toBe(9);
-    // The last header word (252) is the StatusBlock's `reserved2`.
-    expect(dv.getUint32(252, true)).toBe(0xdeadbeef);
+    // ABI 5.1 (ADR 0346): the last header word holds `genStarved` (252) and `reserved2` (254).
+    expect(dv.getUint16(252, true)).toBe(0x0a0b);
+    expect(dv.getUint16(254, true)).toBe(0xbeef);
   });
 
   it("an all-default STATUS writes exactly the 256 B header, its M5 bytes 176..255 are zero, and the three M5 arrays read empty", () => {
