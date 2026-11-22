@@ -8,14 +8,22 @@ import {
   AddComponent,
   AddNode,
   CommandStack,
+  MoveComponent,
   RemoveComponent,
   RemoveNode,
   RenameNode,
   ReparentNode,
+  ReplaceDocument,
+  RevertOverrides,
   SceneDocument,
+  SetComponentEnabled,
+  SetComponentWorlds,
+  SetComponents,
   SetOverrides,
   SetActive,
   SetField,
+  SetScenePreload,
+  SetTags,
   WorldSync,
   type Command,
   type SceneFile,
@@ -280,6 +288,24 @@ describe("commands keep the document and World in step", () => {
       },
       () => expect(at("ceiling").getBehavior(BoxCollider2D)!.size.toArray()).toEqual([40, 1]),
     );
+  });
+
+  it("the stack undoes every other command exactly, key order included (ADR 0321)", () => {
+    const keys = (id: string) => Object.keys(doc.node(id));
+    const ceiling = () => doc.components("ceiling");
+    roundTrip(new SetTags("ceiling", ["solid"]), () => expect(keys("ceiling")).toEqual(["id", "name", "tags", "components"]), () => expect(doc.node("ceiling").tags).toBeUndefined());
+    roundTrip(new SetTags("bird", undefined), () => expect(doc.node("bird").tags).toBeUndefined(), () => expect(keys("bird")).toEqual(["id", "name", "tags", "components"]));
+    roundTrip(new SetComponentEnabled("ceiling", 1, false), () => expect(Object.keys(ceiling()[1])).toEqual(["type", "enabled", "data"]), () => expect(ceiling()[1].enabled).toBeUndefined());
+    roundTrip(new SetComponentWorlds("ceiling", 1, ["server"]), () => expect(Object.keys(ceiling()[1])).toEqual(["type", "worlds", "data"]), () => expect(ceiling()[1].worlds).toBeUndefined());
+    roundTrip(new MoveComponent("ceiling", 0, 1), () => expect(ceiling().map((c) => c.type)).toEqual(["engine.BoxCollider2D", "engine.Transform"]), () => expect(ceiling()[0].type).toBe("engine.Transform"));
+    roundTrip(new SetComponents("ceiling", [{ type: "engine.Transform" }]), () => expect(at("ceiling").getBehavior(BoxCollider2D)).toBeNull(), () => expect(at("ceiling").getBehavior(BoxCollider2D)).not.toBeNull());
+    roundTrip(new SetScenePreload(["prefabs/pipe.prefab.json"]), () => expect(doc.preload).toEqual(["prefabs/pipe.prefab.json"]), () => expect(doc.settings).toEqual(raw.settings));
+    roundTrip(
+      new ReplaceDocument({ ...raw, nodes: raw.nodes.filter((n) => n.id !== "ceiling") }, "Drop ceiling"),
+      () => expect(doc.has("ceiling")).toBe(false),
+      () => expect(at("ceiling").getBehavior(BoxCollider2D)).not.toBeNull(),
+    );
+    roundTrip(new RevertOverrides("bg-b"), () => expect(doc.overrides("bg-b")).toEqual([]), () => expect(doc.overrides("bg-b").length).toBeGreaterThan(0));
   });
 });
 

@@ -1,21 +1,21 @@
 // Internal (ADR 0094, 0250): kernel programs as shaders, written in KSL (`render/shaderSource`), which
 // turns them into WGSL (WebGPU compute and draw) and GLSL ES 3.0 (the WebGL2 texture simulation and
-// draw), so the built-in steps are written once. The hashes and noise are `kernelMath.ts`'s KSL (`KERNEL_MATH_SHADER`).
-// It mirrors `kernelJs.ts` line for line; `npm run bench:particles` compares them in a browser (bench/particles/parity.html).
+// draw), so the built-in steps are written once. The hashes and noise are `kernelMath.ts`'s KSL (`KERNEL_MATH_SHADER`),
+// the steps `kernelSteps.ts`'s (ADR 0251) and the expression operators and the set statement `kernelOps.ts`'s (ADR 0325),
+// each beside the JavaScript `kernelJs.ts` runs and held to it by a unit test.
 import {
   ATTR,
-  LOCAL_WIDTH,
   LUT_SAMPLES,
   U,
   widthOf,
   type KExpr,
-  type KLocal,
   type KStmt,
   type KernelOutput,
   type KernelSystem,
 } from "../../../scene/particleKernel";
 import { fl, shaderSource, type ShaderDialect } from "../../shaderSource/shaderSource";
 import { KERNEL_MATH_SHADER } from "./kernelMath";
+import { fitKsl, KERNEL_OPS, KERNEL_OPS_KSL, LOCAL_KSL, setKsl, VEC } from "./kernelOps";
 import { DEPTH_STEP_KSL, KERNEL_GLOBALS_KSL as GLOBALS, KERNEL_HELPERS_KSL, KERNEL_STEPS_KSL as STEPS, SHAPE_MODES as MODES, shapeKsl } from "./kernelSteps";
 
 /** `src` (KSL) in `dialect`. */
@@ -26,62 +26,26 @@ function ksl(src: string, dialect: ShaderDialect): string {
 // --- shared prelude (hashes, noise, colour, the built-in steps) ------------------------------------------
 
 /** KSL helpers every kernel shader includes. Needs `k_lutAt(row, i)` and the globals from `globals()`. */
-const PRELUDE = /* KSL */ `${KERNEL_MATH_SHADER.ksl}${KERNEL_HELPERS_KSL}`;
-
-
+const PRELUDE = /* KSL */ `${KERNEL_MATH_SHADER.ksl}${KERNEL_HELPERS_KSL}${KERNEL_OPS_KSL}`;
 
 // --- expressions and statements -------------------------------------------------------------------------
 
 const COMP = "xyzw";
-const VEC = ["", "KF", "KV2", "KV3", "KV4"];
-const LOCAL_NAME: Record<KLocal, string> = {
-  t: "k_t",
-  index: "k_idx",
-  speed: "",
-  spos: "k_spos",
-  sdir: "k_sdir",
-  speedMod: "k_speedMod",
-  oColor: "k_oColor",
-  oSize: "k_oSize",
-  oTile: "k_oTile",
-};
 
-/** Emits KSL for a stage: expressions bound to temporaries, in order. */
+/** Emits KSL for a stage: expressions bound to temporaries, in order. Operators and sets are `kernelOps.ts`'s. */
 class Emitter {
   readonly lines: string[] = [];
   private n = 0;
-  constructor(
-    private readonly prefix: string,
-    private readonly dialect: ShaderDialect,
-  ) {}
+  constructor(private readonly prefix: string) {}
 
-  private tmp(w: number, value: string): string {
+  tmp(w: number, value: string): string {
     const name = `${this.prefix}${this.n++}`;
     this.lines.push(`VAR(${VEC[w]}, ${name}) = ${value};`);
     return name;
   }
 
-  /** `s` (width `from`) as width `to`: a splat or a prefix swizzle. */
-  private fit(s: string, from: number, to: number): string {
-    if (from === to) return s;
-    if (from === 1) return `${VEC[to]}(${s})`;
-    return `${s}.${COMP.slice(0, to)}`;
-  }
-
-  /** Select between a and b (width w) by a boolean of width w. */
-  private sel(cond: string, a: string, b: string, w: number): string {
-    if (this.dialect === "wgsl") return `select(${b}, ${a}, ${cond})`;
-    return w === 1 ? `((${cond}) ? (${a}) : (${b}))` : `mix(${b}, ${a}, ${cond})`;
-  }
-
-  private eq(a: string, b: string, w: number): string {
-    if (this.dialect === "wgsl" || w === 1) return `(${a} == ${b})`;
-    return `equal(${a}, ${b})`;
-  }
-
-  private safeDiv(a: string, b: string, w: number): string {
-    const zero = w === 1 ? "0.0" : `${VEC[w]}(0.0)`;
-    return this.sel(this.eq(b, zero, w), zero, `(${a} / ${b})`, w);
+  line(text: string): void {
+    this.lines.push(text);
   }
 
   expr(e: KExpr): string {
@@ -96,11 +60,11 @@ class Emitter {
         return `a${slot}.${COMP.slice(comp, comp + aw)}`;
       }
       case "local":
-        return e.name === "speed" ? "(length(a1.xyz) * k_speedMod)" : LOCAL_NAME[e.name];
+        return e.name === "speed" ? "(length(a1.xyz) * k_speedMod)" : LOCAL_KSL[e.name];
       case "rand":
         return `k_rand(a3.w, ${e.salt >>> 0}u)`;
       case "lut": {
-        const t = this.fit(this.expr(e.t), widthOf(e.t), 1);
+        const t = fitKsl(this.expr(e.t), widthOf(e.t), 1);
         const v = this.tmp(4, `k_lut(${e.row}, ${t})`);
         return w === 1 ? `${v}.x` : v;
       }
@@ -110,89 +74,23 @@ class Emitter {
         if (iw === 1) return inner;
         return `${this.tmp(iw, inner)}.${COMP[Math.min(e.i, iw - 1)]}`;
       }
-      case "op":
-        return this.tmp(w, this.op(e, w));
-    }
-  }
-
-  private op(e: Extract<KExpr, { k: "op" }>, w: number): string {
-    const raw = e.args.map((a) => [this.expr(a), widthOf(a)] as const);
-    const a = raw.map(([s, aw]) => this.fit(s, aw, w));
-    switch (e.op) {
-      case "add":
-        return `(${a[0]} + ${a[1]})`;
-      case "sub":
-        return `(${a[0]} - ${a[1]})`;
-      case "mul":
-        return `(${a[0]} * ${a[1]})`;
-      case "div":
-        return this.safeDiv(a[0], a[1], w);
-      case "neg":
-        return `(-${a[0]})`;
-      case "abs":
-        return `abs(${a[0]})`;
-      case "min":
-        return `min(${a[0]}, ${a[1]})`;
-      case "max":
-        return `max(${a[0]}, ${a[1]})`;
-      case "clamp":
-        return `min(max(${a[0]}, ${a[1]}), ${a[2]})`;
-      case "lerp":
-        return `mix(${a[0]}, ${a[1]}, ${a[2]})`;
-      case "remap": {
-        const [x, i0, i1, o0, o1] = a;
-        const f = this.tmp(w, this.safeDiv(`(${x} - ${i0})`, `(${i1} - ${i0})`, w));
-        return `(${o0} + ${f} * (${o1} - ${o0}))`;
+      case "op": {
+        const args = e.args.map((a) => {
+          const text = this.expr(a);
+          const width = widthOf(a);
+          return { text, width, fitted: fitKsl(text, width, w) };
+        });
+        return this.tmp(w, KERNEL_OPS[e.op].ksl(e, args, w, this));
       }
-      case "step":
-        return `step(${a[0]}, ${a[1]})`;
-      case "smoothstep": {
-        const [e0, e1, x] = a;
-        const t = this.tmp(w, `clamp(${this.safeDiv(`(${x} - ${e0})`, `(${e1} - ${e0})`, w)}, ${this.fit("0.0", 1, w)}, ${this.fit("1.0", 1, w)})`);
-        return this.sel(this.eq(e0, e1, w), `step(${e0}, ${x})`, `(${t} * ${t} * (${this.fit("3.0", 1, w)} - ${this.fit("2.0", 1, w)} * ${t}))`, w);
-      }
-      case "sin":
-        return `sin(${a[0]})`;
-      case "cos":
-        return `cos(${a[0]})`;
-      case "noise1":
-        return `k_vnoise(${a[0]}, ${Math.round(e.seed ?? 0)})`;
-      case "vec":
-        return `${VEC[w]}(${raw.map(([s]) => s).join(", ")})`;
-      case "length":
-        return `length(${raw[0][0]})`;
-      case "normalize": {
-        const v = this.tmp(raw[0][1], raw[0][0]);
-        const len = this.tmp(1, `length(${v})`);
-        return this.sel(`(${len} == 0.0)`, `${VEC[w]}(0.0)`, `(${v} / ${len})`, 1);
-      }
-      case "hsv":
-        return `k_hsv(${raw.map(([s, aw]) => this.fit(s, aw, 1)).join(", ")})`;
-      case "toLinear":
-        return `k_toLinear(${this.fit(raw[0][0], raw[0][1], 4)})`;
     }
   }
 
   stmt(st: KStmt): void {
     if (st.s === "set") {
-      const ew = widthOf(st.e);
-      if ("attr" in st.target) {
-        const [slot, comp, w] = ATTR[st.target.attr];
-        const v = this.tmp(w, this.fit(this.expr(st.e), ew, w));
-        for (let i = 0; i < w; i++) {
-          const dst = `a${slot}.${COMP[comp + i]}`;
-          const src = w === 1 ? v : `${v}.${COMP[i]}`;
-          this.lines.push(`${dst} = ${st.mode === "set" ? src : `${dst} ${st.mode === "add" ? "+" : "*"} ${src}`};`);
-        }
-        return;
-      }
-      const name = LOCAL_NAME[st.target.local];
-      const w = LOCAL_WIDTH[st.target.local];
-      const v = this.fit(this.expr(st.e), ew, w);
-      this.lines.push(`${name} = ${st.mode === "set" ? v : `${name} ${st.mode === "add" ? "+" : "*"} ${v}`};`);
+      setKsl(st, this.expr(st.e), widthOf(st.e), this);
       return;
     }
-    const arg = (i: number, w: number) => this.fit(this.expr(st.args[i]), widthOf(st.args[i]), w);
+    const arg = (i: number, w: number) => fitKsl(this.expr(st.args[i]), widthOf(st.args[i]), w);
     switch (st.b) {
       case "shape": {
         const args = st.args.map((_, i) => arg(i, 1));
@@ -249,8 +147,8 @@ class Emitter {
 }
 
 /** A stage's statements as a KSL function `name`. */
-function stageFunction(name: string, stmts: readonly KStmt[], dialect: ShaderDialect): string {
-  const em = new Emitter(`${name}_`, dialect);
+function stageFunction(name: string, stmts: readonly KStmt[]): string {
+  const em = new Emitter(`${name}_`);
   for (const s of stmts) em.stmt(s);
   return `FN(void, ${name}) {\n  ${em.lines.join("\n  ")}\n}\n`;
 }
@@ -336,7 +234,7 @@ FN(KF, k_spawnEvent) {
 `;
 
 /** Shared KSL for a kernel's simulation: prelude, steps, the shape, init and update. */
-function simulationKsl(kernel: KernelSystem, dialect: ShaderDialect): string {
+function simulationKsl(kernel: KernelSystem): string {
   const shapeStmt = kernel.init.find((s) => s.s === "builtin" && s.b === "shape") as Extract<KStmt, { s: "builtin" }> | undefined;
   return [
     GLOBALS,
@@ -344,8 +242,8 @@ function simulationKsl(kernel: KernelSystem, dialect: ShaderDialect): string {
     STEPS,
     kernel.depth ? DEPTH_STEP_KSL : "",
     shapeKsl(shapeStmt?.shape?.type ?? "point"),
-    stageFunction("k_init", kernel.init, dialect),
-    stageFunction("k_update", kernel.update, dialect),
+    stageFunction("k_init", kernel.init),
+    stageFunction("k_update", kernel.update),
     simulationBody(kernel),
   ].join("\n");
 }
@@ -408,7 +306,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) grou
   ${kernel.trail ? "k_trailWrite(i);" : ""}
 }
 ${dead ? spawnMain(kernel) : ""}`;
-  return head + ksl(simulationKsl(kernel, "wgsl"), "wgsl") + main;
+  return head + ksl(simulationKsl(kernel), "wgsl") + main;
 }
 
 /**
@@ -535,14 +433,14 @@ void main() {
   o3 = a3;
 }
 `;
-  return head + ksl(simulationKsl(kernel, "glsl"), "glsl") + main;
+  return head + ksl(simulationKsl(kernel), "glsl") + main;
 }
 
 // --- drawing --------------------------------------------------------------------------------------------
 
 /** The output stage as KSL `k_output()`: k_oColor/k_oSize/k_oTile from the particle (a0..a3 loaded). */
-function outputKsl(out: KernelOutput, dialect: ShaderDialect): string {
-  return `${stageFunction("k_output", out.stmts, dialect)}
+function outputKsl(out: KernelOutput): string {
+  return `${stageFunction("k_output", out.stmts)}
 FN(void, k_outputStage) {
   VAR(KF, life) = a1.w;
   k_t = 1.0;
@@ -601,7 +499,7 @@ varying float vDepth;
 varying vec3 vWorld;
 varying vec3 vEye;
 vec4 k_lutAt(int row, int i) { return texelFetch(kl, ivec2(i, row), 0); }
-${ksl(GLOBALS + PRELUDE + outputKsl(out, "glsl"), "glsl")}
+${ksl(GLOBALS + PRELUDE + outputKsl(out), "glsl")}
 ${ksl(ORIENT, "glsl")}
 void main() {
   int i = gl_InstanceID;
@@ -757,7 +655,7 @@ varying vDepth : f32;
 varying vWorld : vec3<f32>;
 varying vEye : vec3<f32>;
 fn k_lutAt(row: i32, i: i32) -> vec4f { return kl[row * ${LUT_SAMPLES} + i]; }
-${ksl(GLOBALS + PRELUDE + outputKsl(out, "wgsl"), "wgsl")}
+${ksl(GLOBALS + PRELUDE + outputKsl(out), "wgsl")}
 ${ksl(ORIENT, "wgsl")}
 @vertex
 fn main(input : VertexInputs) -> FragmentInputs {
@@ -901,7 +799,7 @@ vec4 k_hist(float k) {
   int block = int(f - floor(f / ${fl(points)}) * ${fl(points)});
   return texelFetch(khist, ivec2(k_slot % w, block * ${rows} + k_slot / w), 0);
 }
-${ksl(GLOBALS + PRELUDE + outputKsl(out, "glsl"), "glsl")}
+${ksl(GLOBALS + PRELUDE + outputKsl(out), "glsl")}
 ${ksl(ORIENT + TRAIL, "glsl")}
 void main() {
   int i = gl_InstanceID;
@@ -962,7 +860,7 @@ fn k_hist(k: f32) -> vec4f {
   let block = u32(f - floor(f / ${fl(points)}) * ${fl(points)});
   return khist[block * ${kernel.capacity}u + k_slot];
 }
-${ksl(GLOBALS + PRELUDE + outputKsl(out, "wgsl"), "wgsl")}
+${ksl(GLOBALS + PRELUDE + outputKsl(out), "wgsl")}
 ${ksl(ORIENT + TRAIL, "wgsl")}
 @vertex
 fn main(input : VertexInputs) -> FragmentInputs {
@@ -1037,7 +935,7 @@ vec4 k_hist(float k) {
   return texelFetch(kphist, ivec2(k_slot % w, block * ${rows} + k_slot / w), 0);
 }`;
   // The KSL helpers read uniforms as `ku[i]`; here they come from a texture row.
-  const body = ksl(GLOBALS + PRELUDE + outputKsl(out, dialect) + ORIENT + (trail ? TRAIL : ""), dialect).replace(/\bku\[([^\]]+)\]/g, "k_u($1)");
+  const body = ksl(GLOBALS + PRELUDE + outputKsl(out) + ORIENT + (trail ? TRAIL : ""), dialect).replace(/\bku\[([^\]]+)\]/g, "k_u($1)");
   const fetch = (tex: string, x: string, y: string) => (wgsl ? `textureLoad(${tex}, vec2i(${x}, ${y}), 0)` : `texelFetch(${tex}, ivec2(${x}, ${y}), 0)`);
   const state = opts.interleaved
     ? wgsl

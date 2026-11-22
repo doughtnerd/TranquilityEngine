@@ -1,6 +1,6 @@
 # 0085. Files dragged from the OS into the Assets panel are copied into the project
 
-- **Status:** Proposed
+- **Status:** Proposed; amended by 0324 (one OS drop controller decides a drop, the browser and desktop events are adapters)
 - **Date:** 2026-11-07
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

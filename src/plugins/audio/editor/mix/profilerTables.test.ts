@@ -1,6 +1,7 @@
-// ADR 0171/0172 (Pf5; api-and-models §7): the profiler's tables, their models. Cases: the window (at most 64 rows at
-// every scroll position; the window moves with the scroll), keyboard focus moves, reasons and the thief on a real recorded
-// scene, the filter, the bus table's factors and products, music rows, every empty state's text, and theme tokens only.
+// ADR 0171/0172 (Pf5; api-and-models §7) and 0326: the profiler's tables, their models. Cases: the window (at most 64 rows
+// at every scroll position; the window moves with the scroll), keyboard focus moves, reasons and the thief on a real
+// recorded scene, the bus table's factors and products, music rows, and the table kit: given a seek state and a filter,
+// what each table shows (its rows, summary and empty state); and theme tokens only.
 // The rendered tables (rows, scrolling, keys, clicks, typing in the filter) are VoiceTable.stories.tsx,
 // BusTable.stories.tsx and profilerTables.stories.tsx. No wall clock anywhere.
 import { readFileSync } from "node:fs";
@@ -8,21 +9,15 @@ import { describe, expect, it } from "vitest";
 import type { CaptureKeyframe, CaptureKeyframeBus, CaptureKeyframeMusic, CaptureKeyframeVoice, CaptureSeekState } from "../../runtime/capture/reader";
 import { SAMPLE_RATE } from "../../runtime/capture/testSupport";
 import { type ProfilerSlots, profilerSlots } from "./ProfilerPanel";
-import { voiceTableData } from "./VoiceTable";
 import { ProfilerTables } from "./profilerTables";
-import { busParents, busTableRows, musicRows, tableEmptyText, voiceCells } from "./profilerTablesModel";
+import { busParents, busTableRows, musicRows, profilerTables, tableEmptyText, voiceCells, type TableKind } from "./profilerTablesModel";
+import type { ProfileSource } from "./profilerSource";
 import { MAX_RENDERED_ROWS, OVERSCAN_ROWS, ROW_HEIGHT, VIEWPORT_HEIGHT, VIEWPORT_ROWS, moveFocus, navigate, scrollToIndex, windowRows } from "./gridWindow";
 import { captureNames } from "../../runtime/capture/reader";
 import { namesFromStart } from "../../runtime/capture/testSupport";
 import { reconstructVoices, type VoiceRow } from "./voiceTableModel";
+import { EMPTY_STATES } from "./emptyStates";
 import { openScene } from "./voiceSceneSupport";
-
-// The tables' own empty-state words.
-const TABLE_EMPTY = {
-  noCursor: "Place the cursor on the timeline to read the tables",
-  noMatch: "No rows match the filter",
-  none: { voices: "No voices at the cursor", buses: "No bus data at the cursor", events: "No event instances at the cursor", music: "No music playing at the cursor" },
-} as const;
 
 // ---- synthetic seek states ----
 
@@ -37,10 +32,19 @@ const voice = (id: number, over: Partial<CaptureKeyframeVoice> = {}): CaptureKey
   id, clip: 1 + (id % 3), slot: id % 3, state: "playing", priority: id % 5, reason: null, gain: 0.5, pitch: 1, audibility: 1 - id / 8192, playheadFrames: id * 10, ...over,
 });
 const thousand = (): CaptureSeekState => seekState(keyframe({ voices: Array.from({ length: 1024 }, (_, i) => voice(i + 1)) }));
-const NAMES_LOOKUP = namesFromStart({ clips: [[1, "jump.ogg"], [2, "Land.ogg"], [3, "footstep.ogg"]], buses: [[0, "Master"], [1, "Music"], [2, "SFX"]] });
-const CTX = { playing: false, truncated: false };
+const NAME_TABLES = { clips: [[1, "jump.ogg"], [2, "Land.ogg"], [3, "footstep.ogg"]], buses: [[0, "Master"], [1, "Music"], [2, "SFX"]], events: [[5, "PlayerJump"], [6, "Ambience"], [1, "Intro"], [2, "Loop"], [3, "Outro"]] } as const;
+const NAMES_LOOKUP = namesFromStart(NAME_TABLES);
+/** A source with these names (as the summary's log: each held from the start) and the META audio section's buses. */
+const source = (truncated = false): Pick<ProfileSource, "summary" | "truncated"> => {
+  const log = (t: readonly (readonly [number, string])[] = []) => t.map(([id, name]) => [id, name, -Infinity] as const);
+  const names = { clips: log(NAME_TABLES.clips), buses: log(NAME_TABLES.buses), events: log(NAME_TABLES.events), parameters: [], snapshots: [], targets: [] };
+  const audio = { buses: [{ name: "Master" }, { name: "Music", parent: "Master" }, { name: "SFX", parent: "Music" }] };
+  return { summary: { names, meta: { audio } }, truncated } as unknown as Pick<ProfileSource, "summary" | "truncated">;
+};
+const KINDS: readonly TableKind[] = ["voices", "buses", "events", "music"];
 
-const voiceData = (state: CaptureSeekState, filter = "") => voiceTableData(reconstructVoices(state, NAMES_LOOKUP), filter, CTX);
+/** The voice table at a seek, through the kit. */
+const voiceData = (state: CaptureSeekState, filter = "") => profilerTables(source(), state, filter).voices;
 
 // ---- the window ----
 
@@ -170,21 +174,6 @@ describe("the voice table on a recorded scene: reasons and the thief", () => {
   });
 });
 
-describe("the filter", () => {
-  const state = seekState(keyframe({ voices: [voice(1, { clip: 1, slot: 1 }), voice(2, { clip: 2, slot: 2 }), voice(3, { clip: 1, slot: 2 }), voice(4, { clip: 3, slot: 1 })] }));
-
-  it("narrows the voice rows by clip or bus name, case-insensitively", () => {
-    expect(voiceData(state, "JUMP").rows.map((r) => r.id).sort()).toEqual([1, 3]);
-    expect(voiceData(state, "sfx").rows.map((r) => r.id).sort()).toEqual([2, 3]);
-    expect(voiceData(state, "  land ").rows.map((r) => r.id)).toEqual([2]);
-    expect(voiceData(state, "").rows).toHaveLength(4);
-  });
-
-  it("says how many matched", () => {
-    expect(voiceData(state, "jump").summary).toBe("2 of 4 voices");
-  });
-});
-
 // ---- the bus table ----
 
 /** A bus row whose lanes sit at the given gains (value and target alike; unity when absent), with the given flags. */
@@ -261,46 +250,79 @@ describe("music rows", () => {
     expect(rows.find((r) => r.id === 9)).toMatchObject({ segment: "Outro", position: null, tempo: null });
     expect(rows).toHaveLength(3);
   });
-
-  it("filters music rows by segment name", () => {
-    expect(musicRows(seekState(keyframe({ music })), eventName, "out").map((r) => r.id)).toEqual([8]);
-  });
 });
 
-// ---- empty states ----
+// ---- the table kit: what each table shows at a seek state and filter ----
 
-describe("every empty state", () => {
-  const base = { playing: false, truncated: false, beforeFirstKeyframe: false, rows: 0, unfiltered: 0, filter: "", ready: true };
+describe("the table kit", () => {
+  const ev = (id: number, asset: number, voices = 1) => ({ id, asset, voices, paramsHash: 0 });
+  const music: CaptureKeyframeMusic[] = [{ id: 7, segment: 1, state: "playing", pass: 1, bar: 1, beat: 1, tick: 0, tempo: 120, pending: null }];
+  const full = seekState(keyframe({
+    voices: [voice(1, { clip: 1, slot: 1 }), voice(2, { clip: 2, slot: 2 }), voice(3, { clip: 1, slot: 2 }), voice(4, { clip: 3, slot: 1 })],
+    buses: [bus(0), bus(1), bus(2)],
+    events: [ev(1, 5), ev(2, 6)],
+    music,
+  }));
 
-  it("asks for a cursor position before any seek answered, in every table", () => {
-    for (const kind of ["voices", "buses", "events", "music"] as const) {
-      expect(tableEmptyText(kind, { ...base, ready: false })).toBe(TABLE_EMPTY.noCursor);
-    }
+  it("before a seek answered, every table is empty, asks for a cursor and has no summary", () => {
+    const t = profilerTables(source(), null, "jump");
+    for (const k of KINDS) expect([t[k].rows.length, t[k].summary, t[k].empty], k).toEqual([0, "", "noCursor"]);
   });
 
-  it("has a text for each table with no rows", () => {
-    expect(tableEmptyText("voices", base)).toBe("No voices at the cursor");
-    expect(tableEmptyText("buses", base)).toBe("No bus data at the cursor");
-    expect(tableEmptyText("events", base)).toBe("No event instances at the cursor");
-    expect(tableEmptyText("music", base)).toBe("No music playing at the cursor");
+  it("with no filter, each table has every row at the cursor and counts them", () => {
+    const t = profilerTables(source(), full, "");
+    expect(t.voices.rows.map((r) => r.id)).toEqual([1, 2, 3, 4]); // most audible first
+    expect(t.buses.rows.map((r) => r.name)).toEqual(["Master", "Music", "SFX"]);
+    expect(t.events.rows.map((r) => r.name)).toEqual(["PlayerJump", "Ambience"]);
+    expect(t.music.rows.map((r) => r.segment)).toEqual(["Intro"]);
+    expect([t.voices.summary, t.buses.summary, t.events.summary, t.music.summary]).toEqual(["4 voices", "3 buses", "2 event instances", "1 music instance"]);
+    for (const k of KINDS) expect(t[k].empty, k).toBeNull();
   });
 
-  it("says nothing matched when the filter removed every row, and nothing when there are rows", () => {
-    expect(tableEmptyText("voices", { ...base, filter: "zz", unfiltered: 5 })).toBe(TABLE_EMPTY.noMatch);
-    expect(tableEmptyText("voices", { ...base, rows: 3, unfiltered: 5 })).toBeNull();
+  it("filters every table by its own names, case-insensitively and trimmed, and says how many matched", () => {
+    expect(voiceData(full, "JUMP").rows.map((r) => r.id).sort()).toEqual([1, 3]); // clip name
+    expect(voiceData(full, "sfx").rows.map((r) => r.id).sort()).toEqual([2, 3]); // bus name
+    expect(voiceData(full, "  land ").rows.map((r) => r.id)).toEqual([2]);
+    const t = profilerTables(source(), full, "mus");
+    expect(t.buses.rows.map((r) => r.name)).toEqual(["Music"]);
+    expect(t.voices.rows.map((r) => r.busName)).toEqual(["Music", "Music"]);
+    expect([t.voices.summary, t.buses.summary, t.events.summary, t.music.summary]).toEqual(["2 of 4 voices", "1 of 3 buses", "0 of 2 event instances", "0 of 1 music instance"]);
+    expect(profilerTables(source(), full, "jump").events.rows.map((r) => r.name)).toEqual(["PlayerJump"]); // event name
+    expect(profilerTables(source(), full, "intro").music.rows.map((r) => r.segment)).toEqual(["Intro"]); // segment name
   });
 
-  it("uses the design's Truncated text before a truncated capture's first keyframe", () => {
-    expect(tableEmptyText("voices", { ...base, truncated: true, beforeFirstKeyframe: true })).toBe("Truncated: the ring wrapped");
-    expect(tableEmptyText("buses", { ...base, truncated: true, beforeFirstKeyframe: true })).toBe("Truncated: the ring wrapped");
-    expect(tableEmptyText("voices", { ...base, truncated: true, beforeFirstKeyframe: false })).toBe(TABLE_EMPTY.none.voices);
+  it("says nothing matched when the filter removed every row, and nothing is there when there was none", () => {
+    const t = profilerTables(source(), full, "zzz");
+    for (const k of KINDS) expect(t[k].empty, k).toBe("noMatch");
+    const empty = profilerTables(source(), seekState(keyframe()), "zzz");
+    for (const k of KINDS) expect(empty[k].empty, k).toBe("none");
+    expect(profilerTables(source(), seekState(keyframe()), "").voices.summary).toBe("0 voices");
   });
 
-  it("says a seek with no keyframe lists only the last second's starts", () => {
-    const d = voiceTableData(reconstructVoices(seekState(null), NAMES_LOOKUP), "", CTX);
-    expect(d.empty).toBe(TABLE_EMPTY.none.voices);
-    const noKf = voiceTableData({ rows: reconstructVoices(seekState(keyframe({ voices: [voice(1)] })), NAMES_LOOKUP).rows, fromKeyframe: false }, "", CTX);
-    expect(noKf.summary).toContain("no keyframe at or before the cursor");
+  it("keeps every voice for naming a thief, filtered or not", () => {
+    const t = profilerTables(source(), full, "land");
+    expect(t.voices.rows).toHaveLength(1);
+    expect(t.voices.all).toHaveLength(4);
+  });
+
+  it("before the first keyframe, the voices say they are only the last second's starts, and a truncated capture's tables say it wrapped", () => {
+    const start = { kind: "event", event: { type: "voiceStart", perfMs: 0, voice: 9, clip: 1, slot: 1, gain: 1 } };
+    const noKf = seekState(null, [start]);
+    const t = profilerTables(source(), noKf, "");
+    expect(t.voices.rows.map((r) => r.id)).toEqual([9]);
+    expect(t.voices.summary).toContain("no keyframe at or before the cursor");
+    expect(t.buses.summary).toBe("0 buses"); // the caveat is the voices'
+    for (const k of KINDS) expect(profilerTables(source(), seekState(null), "")[k].empty, k).toBe("none");
+    const truncated = profilerTables(source(true), seekState(null), "");
+    for (const k of KINDS) expect(truncated[k].empty, k).toBe("truncated");
+    expect(profilerTables(source(true), seekState(keyframe()), "").voices.empty).toBe("none"); // after a keyframe: nothing at the cursor
+  });
+
+  it("words each empty state: one text for no cursor and no match, one per table for nothing there, the design's for its states", () => {
+    for (const e of ["noCursor", "noMatch"] as const) expect(new Set(KINDS.map((k) => tableEmptyText(k, e))).size, e).toBe(1);
+    expect(new Set(KINDS.map((k) => tableEmptyText(k, "none"))).size).toBe(4);
+    expect(tableEmptyText("voices", "none")).toBe("No voices at the cursor");
+    for (const k of KINDS) expect(tableEmptyText(k, "truncated")).toBe(EMPTY_STATES.truncated);
   });
 });
 
@@ -319,7 +341,7 @@ describe("the slot", () => {
 describe("theme tokens only", () => {
   const LITERAL = /#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(|\bhwb\(|\blab\(|\blch\(|\boklch\(|\boklab\(|\bcolor\(/;
   const NAMED = /:\s*(?:white|black|red|green|blue|yellow|orange|gray|grey|cyan|magenta|purple|pink|brown)\b/i;
-  for (const file of ["profilerTables.css", "WindowedGrid.tsx", "VoiceTable.tsx", "BusTable.tsx", "profilerTables.tsx"]) {
+  for (const file of ["profilerTables.css", "WindowedGrid.tsx", "ProfilerTableSection.tsx", "VoiceTable.tsx", "BusTable.tsx", "profilerTables.tsx"]) {
     it(`${file} holds no colour literal and every var() is a theme token`, () => {
       const src = readFileSync(new URL(`./${file}`, import.meta.url), "utf8");
       const code = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");

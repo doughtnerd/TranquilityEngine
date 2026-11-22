@@ -2,7 +2,7 @@
  * Automatic graphics quality (ADR 0055): a first guess at the quality tier from what the
  * platform says about the machine, and a frame-time monitor that steps down when the game runs
  * slowly. Pure (no DOM or WebGL access here; callers pass the data in), so the rules are
- * unit-tested without a browser.
+ * unit-tested without a browser. `autoQuality.ts` applies them (ADR 0322).
  */
 
 /** What the platform tells us about the machine (any may be missing). */

@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Assets } from "../engine";
 import { FORMAT, PREFAB, prefabFiles } from "../engine/tests/overrideCases";
 import type { ResolvedNode } from "../engine/scene/resolvedScene";
-import { SceneDocument, sameTarget, type Command, type NodePath, type SceneFile } from "./document";
+import { CommandStack, SceneDocument, sameTarget, type Command, type NodePath, type SceneFile } from "./document";
 import { inheritedValue, isOverridden, writeAddComponent, writeAddNodes, writeProperty, writeRemoveComponent, writeRemoveNode, type OverrideProperty } from "./overrideWriter";
 
 const A = "test.fold.A", B = "test.fold.B", C = "test.fold.C", D = "test.fold.D", T = "engine.Transform";
@@ -21,9 +21,11 @@ const SCENE: SceneFile = {
 };
 
 let doc: SceneDocument;
+let stack: CommandStack;
 beforeEach(() => {
   Assets.addSource(Assets.fromObject(prefabFiles));
   doc = new SceneDocument(structuredClone(SCENE), "s.scene.json");
+  stack = new CommandStack(doc);
 });
 afterEach(() => Assets.clearSources());
 
@@ -73,7 +75,7 @@ function seen(path: NodePath, p: OverrideProperty): unknown {
 
 const run = (command: Command | null): void => {
   expect(command).not.toBeNull();
-  command!.apply(doc);
+  stack.execute(command!);
 };
 
 /** The edit kinds: a property and the value to set it to on a shape. */
@@ -99,7 +101,7 @@ describe("write, then fold, gives what was asked (ADR 0287)", () => {
         // An override inside an instance; a plain node's entry, or an instance root's own name, flag and tags.
         const asOverride = inside && (shape.path.length > 1 || !["name", "active", "tags"].includes(p.kind));
         expect(isOverridden(doc, shape.path, p)).toBe(asOverride || (p.kind === "tags" && inside));
-        command!.undo(doc);
+        expect(stack.undo()).toBe(true);
         expect(doc.toJSON()).toEqual(before);
         if (!asOverride) return;
         // Reverting takes the override out, and with nothing left in it, the override goes.

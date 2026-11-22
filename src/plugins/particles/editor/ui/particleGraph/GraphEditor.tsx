@@ -542,8 +542,7 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
         data-asset-document={doc.path}
         ref={root}
         tabIndex={0}
-        onKeyDown={keys.onKeyDown}
-        onPaste={keys.onPaste}
+        {...keys.rootProps}
         onPointerDownCapture={startGesture}
         onInputCapture={(e) => {
           if (isColorInput(e.target)) gesture.current.color = true;

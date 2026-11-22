@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { Assets } from "../scene/Assets";
+import { Environment } from "../render/components";
 import { SKY_PRESETS, skyPreset } from "../sky/presets";
 import { Sky } from "../../plugins/sky/runtime/Sky";
 import { GameObject } from "../index";
@@ -186,6 +188,38 @@ describe("Sky component", () => {
       world.step(5);
       expect(sky.currentTime).toBeCloseTo(14);
     } finally {
+      World.active = previous;
+    }
+  });
+
+  it("keeps script edits while the Environment names a sky that isn't there, and copies the asset once it is", () => {
+    const world = new World("runtime");
+    const previous = World.active;
+    World.active = world;
+    const PATH = "skies/later.sky.json";
+    const BAD = "skies/bad.sky.json";
+    const sources = [Assets.fromObject({ [BAD]: "not a sky" })];
+    Assets.addSource(sources[0]);
+    try {
+      const env = GameObject.create("Env").addComponent(Environment);
+      env.map = `asset:${PATH}`;
+      const sky = GameObject.create("Sky").addComponent(Sky);
+      sky.settings.exposure = 2;
+      expect(sky.settings.exposure).toBe(2);
+
+      // The asset arrives: the sky takes it as saved.
+      sources.push(Assets.fromObject({ [PATH]: JSON.parse(formatSky(skyPreset("night"))) }));
+      Assets.addSource(sources[1]);
+      expect(sky.settings.sun.timeOfDay).toBe(23.5);
+      sky.settings.exposure = 3;
+      expect(sky.settings.exposure).toBe(3);
+
+      // A sky asset that isn't a JSON object reads as the default sky; edits to it stay too.
+      env.map = `asset:${BAD}`;
+      sky.settings.exposure = 4;
+      expect(sky.settings.exposure).toBe(4);
+    } finally {
+      for (const s of sources) Assets.removeSource(s);
       World.active = previous;
     }
   });

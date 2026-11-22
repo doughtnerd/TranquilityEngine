@@ -275,7 +275,53 @@ describe("myco-server (T14)", () => {
     // A loopback link means nothing to a dedicated server: said once, no listen.
     const quiet = server.engine.createWorld("Quiet");
     await until(() => lines.some((l) => l.includes('World "Quiet" (created at runtime): its link from "Game" uses "loopback"')));
+    expect(lines).toContain(`[server] World "Quiet" (created at runtime) isn't listening: its link from "Game" gives no WebSocket port; its code can still listen on the server's port, by path.`);
     expect(quiet.addresses()).toEqual([]);
+  });
+
+  it("leaves a World its code listens for alone, even while that listen is still starting (ADR 0323)", async () => {
+    // A lobby's way (ADR 0068): game code creates a linked server template and listens on it in the
+    // same step. The WebSocket listen finishes asynchronously, so the World has no address yet when
+    // the step ends; the server must not listen a second time where the link says.
+    const dir = mkdtempSync(join(tmpdir(), "myco-server-"));
+    temps.push(dir);
+    mkdirSync(join(dir, "scripts"));
+    writeFileSync(
+      join(dir, "project.json"),
+      JSON.stringify({
+        bootstrap: {
+          worlds: [{ name: "Game", tags: ["client"] }, { name: "Lobby", tags: ["server", "spawner"] }],
+          templates: { Arena: { tags: ["server"], renders: false } },
+          links: [{ from: "Game", to: "Arena", transport: "websocket", options: { address: "ws://127.0.0.1:0/arena" } }],
+        },
+      }),
+    );
+    writeFileSync(
+      join(dir, "scripts", "Spawner.ts"),
+      `import { Engine, defineSystem } from "myco";
+let spawned = false;
+defineSystem({
+  name: "fixture.Spawner",
+  phase: "update",
+  worlds: ["spawner"],
+  run() {
+    if (spawned) return;
+    spawned = true;
+    void Engine.createWorld("Arena").listen("websocket", { path: "/mine" });
+  },
+});
+`,
+    );
+    const lines: string[] = [];
+    const server = await start({ projectDir: dir }, lines);
+    const { port } = server.listeners[0];
+    await until(() => (server.engine.findWorld("Arena")?.addresses().length ?? 0) > 0);
+    const arena = server.engine.findWorld("Arena")!;
+    const listened = `[server] World "Arena" was created at runtime and is listening on ws://127.0.0.1:${port}/mine.`;
+    await until(() => lines.includes(listened));
+    await new Promise((resolve) => setTimeout(resolve, 100)); // a few more server steps
+    expect(arena.addresses()).toEqual([`ws://127.0.0.1:${port}/mine`]);
+    expect(lines.filter((l) => l.includes('World "Arena"'))).toEqual([listened]);
   });
 
   it("names server templates run at start as createWorld would, so links by the template's name apply", async () => {
