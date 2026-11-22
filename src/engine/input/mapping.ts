@@ -9,7 +9,11 @@ export interface InputMapping {
   /** 0 generic, 1 xbox, 2 playstation, 3 switch (`GAMEPAD_FAMILIES`). */
   familyOf(vendor: number, product: number, name: string): number;
   parseWebGamepadId(id: string): { vendor: number; product: number } | null;
-  /** Per control in wire order (23 buttons, then 4 axes): `[kind, index]`; undefined when the database has no entry. */
+  /**
+   * Per control in wire order (23 buttons, then 4 axes): `[kind, index, kind2, index2]`, the value
+   * being the first source's minus the second's (the second is kind 0 except on a stick axis driven
+   * by two buttons or hat directions); undefined when the database has no entry.
+   */
   webMapping(vendor: number, product: number, platform: number): Int16Array | undefined;
   /** The wire-order control names the module was built with. */
   controlNames(): string[];

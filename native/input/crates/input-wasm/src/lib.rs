@@ -23,14 +23,16 @@ pub fn parse_web_gamepad_id(id: &str) -> i32 {
 }
 
 /// A raw browser gamepad's layout from the SDL database, for `platform` (0 Windows, 1 macOS,
-/// 2 Linux, 3 other), or `undefined` if the controller isn't known there. 27 `[kind, index]` pairs
-/// in wire order; kind 0 none, 1 raw button, 2 raw axis (-1..1), 3 raw axis positive half (0..1),
-/// 4 raw axis negative half (0..1), 5 raw axis inverted (-1..1), 6 hat (index = hat * 16 + SDL hat
-/// mask: 1 up, 2 right, 4 down, 8 left).
+/// 2 Linux, 3 other), or `undefined` if the controller isn't known there. 27 entries of four
+/// numbers, `[kind, index, kind2, index2]`, in wire order: the control's value is the first
+/// source's minus the second's. The second is kind 0 except on a stick axis driven by two buttons
+/// or hat directions (`+rightx:b9,-rightx:b4`). Kind 0 none, 1 raw button, 2 raw axis (-1..1),
+/// 3 raw axis positive half (0..1), 4 raw axis negative half (0..1), 5 raw axis inverted (-1..1),
+/// 6 hat (index = hat * 16 + SDL hat mask: 1 up, 2 right, 4 down, 8 left).
 #[wasm_bindgen]
 pub fn web_mapping(vendor: u16, product: u16, platform: u8) -> Option<Vec<i16>> {
     let mapping = input_map::web_mapping(vendor, product, Platform::from_u8(platform))?;
-    Some(mapping.controls.iter().flat_map(|s| s.wire()).collect())
+    Some(mapping.controls.iter().flat_map(|b| b.wire()).collect())
 }
 
 /// The 23 button names, then the 4 axis names, comma-separated, in wire order.
@@ -52,11 +54,14 @@ mod tests {
     }
 
     #[test]
-    fn mappings_are_27_pairs() {
+    fn mappings_are_27_entries_of_four() {
         let m = web_mapping(0x054c, 0x05c4, 2).unwrap();
-        assert_eq!(m.len(), 27 * 2);
-        assert_eq!(&m[23 * 2..23 * 2 + 2], &[2, 0]); // leftStickX ← axes[0]
+        assert_eq!(m.len(), 27 * 4);
+        assert_eq!(&m[23 * 4..24 * 4], &[2, 0, 0, 0]); // leftStickX ← axes[0]
         assert!(web_mapping(0xfffe, 0xfffe, 0).is_none());
+        // 8BitDo N64 (Windows): rightStickX ← buttons[9] − buttons[4].
+        let n64 = web_mapping(0x2dc8, 0x9002, 0).unwrap();
+        assert_eq!(&n64[25 * 4..26 * 4], &[1, 9, 1, 4]);
     }
 
     #[test]

@@ -20,10 +20,12 @@ export function parse_web_gamepad_id(id: string): number;
 
 /**
  * A raw browser gamepad's layout from the SDL database, for `platform` (0 Windows, 1 macOS,
- * 2 Linux, 3 other), or `undefined` if the controller isn't known there. 27 `[kind, index]` pairs
- * in wire order; kind 0 none, 1 raw button, 2 raw axis (-1..1), 3 raw axis positive half (0..1),
- * 4 raw axis negative half (0..1), 5 raw axis inverted (-1..1), 6 hat (index = hat * 16 + SDL hat
- * mask: 1 up, 2 right, 4 down, 8 left).
+ * 2 Linux, 3 other), or `undefined` if the controller isn't known there. 27 entries of four
+ * numbers, `[kind, index, kind2, index2]`, in wire order: the control's value is the first
+ * source's minus the second's. The second is kind 0 except on a stick axis driven by two buttons
+ * or hat directions (`+rightx:b9,-rightx:b4`). Kind 0 none, 1 raw button, 2 raw axis (-1..1),
+ * 3 raw axis positive half (0..1), 4 raw axis negative half (0..1), 5 raw axis inverted (-1..1),
+ * 6 hat (index = hat * 16 + SDL hat mask: 1 up, 2 right, 4 down, 8 left).
  */
 export function web_mapping(vendor: number, product: number, platform: number): Int16Array | undefined;
 
