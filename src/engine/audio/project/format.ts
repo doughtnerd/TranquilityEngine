@@ -96,12 +96,12 @@ function bool(raw: unknown, where: string, fallback: boolean, problems: string[]
 
 /** The default engine settings (every `AudioSettings` key but the mix, plus ADR 0331/0333's). */
 export function defaultEngineSettings(): AudioEngineSettings {
-  return { ...engineKeys(defaultAudioSettings()), submixes: DEFAULT_SUBMIXES, bedBeyond: null, dopplerAmount: 1 };
+  return { ...engineKeys(defaultAudioSettings()), submixes: DEFAULT_SUBMIXES, bedBeyond: null, dopplerAmount: 1, dialogue: { ...DEFAULT_DIALOGUE } };
 }
 
 /** The engine settings of a runtime `AudioSettings` (a copy), with ADR 0331/0333's keys at their defaults. */
 export function engineSettingsOf(a: AudioSettings): AudioEngineSettings {
-  return { ...structuredClone(engineKeys(a)), submixes: DEFAULT_SUBMIXES, bedBeyond: null, dopplerAmount: 1 };
+  return { ...structuredClone(engineKeys(a)), submixes: DEFAULT_SUBMIXES, bedBeyond: null, dopplerAmount: 1, dialogue: { ...DEFAULT_DIALOGUE } };
 }
 
 /** `a` without its mix keys. */
@@ -147,7 +147,7 @@ function parseEngineSettings(raw: unknown, options: AudioParseOptions, problems:
     problems.push(`settings.${k}: the mix lives at the top level of audio.json; ignored here.`);
     delete input[k];
   }
-  delete input.submixes; delete input.bedBeyond; delete input.dopplerAmount;
+  delete input.submixes; delete input.bedBeyond; delete input.dopplerAmount; delete input.dialogue;
   const parsed = parseAudioSettings(input, options);
   for (const p of parsed.problems) problems.push(p.replace(/^audio\.?/, "settings."));
   const out: AudioEngineSettings = {
@@ -155,12 +155,30 @@ function parseEngineSettings(raw: unknown, options: AudioParseOptions, problems:
     submixes: ranged(raw.submixes, "settings.submixes", MIX_LIMITS.submixes, DEFAULT_SUBMIXES, problems, true),
     bedBeyond: null,
     dopplerAmount: ranged(raw.dopplerAmount, "settings.dopplerAmount", MIX_LIMITS.dopplerAmount, 1, problems),
+    dialogue: parseDialogueSettings(raw.dialogue, problems),
   };
   if (raw.bedBeyond !== undefined && raw.bedBeyond !== null) {
     if (isNum(raw.bedBeyond) && raw.bedBeyond > 0) out.bedBeyond = raw.bedBeyond;
     else problems.push("settings.bedBeyond: must be a distance above 0 or null; using null.");
   }
   return out;
+}
+
+/** ADR 0341 §4: `settings.dialogue` (bad values: the defaults, with a problem). */
+const DEFAULT_DIALOGUE = Object.freeze({ maxVoices: 3, interruptFadeMs: 150 });
+function parseDialogueSettings(raw: unknown, problems: string[]): AudioEngineSettings["dialogue"] {
+  if (raw === undefined) return { ...DEFAULT_DIALOGUE };
+  if (!isRecord(raw)) {
+    problems.push("settings.dialogue: must be an object; using the defaults.");
+    return { ...DEFAULT_DIALOGUE };
+  }
+  const int = (v: unknown, key: string, fallback: number, max: number) => {
+    if (v === undefined) return fallback;
+    if (typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= max) return v;
+    problems.push(`settings.dialogue.${key}: must be a whole number 0..${max}; using ${fallback}.`);
+    return fallback;
+  };
+  return { maxVoices: int(raw.maxVoices, "maxVoices", DEFAULT_DIALOGUE.maxVoices, 64), interruptFadeMs: int(raw.interruptFadeMs, "interruptFadeMs", DEFAULT_DIALOGUE.interruptFadeMs, 10_000) };
 }
 
 /** The first `fxN` not in `taken`. */
