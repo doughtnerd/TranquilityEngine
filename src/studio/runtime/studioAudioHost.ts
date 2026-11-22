@@ -43,9 +43,40 @@ export interface StudioAudioHost {
   audition(path: string, options?: EventOptions): AudioEventHandle | null;
   /** Play a clip once; null when the runtime can't play. */
   playClip(path: string, options?: OneShotOptions): AudioHandle | null;
+  /**
+   * Play part of a clip: audible from source second `from` to `to`, optionally cycling `loop` (`count` passes, 0 =
+   * endless) with a crossfade at each seam. Uses only the public `Audio` API: one-shots have no start offset yet (a
+   * core task adds one), so each pass starts its clip early, silent, and is faded in at its source time; starting
+   * late in a long file therefore waits that long, and seams are timed by polling (~10 ms). Null when it can't play.
+   */
+  playClipSpan(path: string, span: ClipSpan, options?: OneShotOptions): SpanPlayback | null;
   /** Stop everything this host started (fading over `fadeSeconds`). */
   stopAll(fadeSeconds?: number): void;
 }
+
+/** What `playClipSpan` plays, source seconds. */
+export interface ClipSpan {
+  readonly from: number;
+  readonly to: number;
+  readonly loop?: { readonly start: number; readonly end: number; readonly count: number; readonly crossfadeMs: number } | null;
+  /** Silent seconds before `from` is heard (a count-in). */
+  readonly preRoll?: number;
+}
+
+/** A playing span. */
+export interface SpanPlayback {
+  /** Audio-clock seconds when `from` is heard (the playhead's zero). */
+  readonly startedAt: number;
+  readonly playing: boolean;
+  /** Leave a loop: the current pass plays to the loop's end, then the rest to `to`. */
+  release(): void;
+  stop(fadeSeconds?: number): void;
+}
+
+/** Lead time before the first sound, seconds (scheduling margin). */
+const SPAN_LEAD = 0.05;
+/** How often a span's gates are checked, ms. */
+export const SPAN_POLL_MS = 10;
 
 /** The host plus what the shell does with it: start it on a project's settings, stop it. */
 export interface StudioAudioRuntime extends StudioAudioHost {
@@ -120,6 +151,91 @@ export function createStudioAudioHost(seams: HostSeams): StudioAudioRuntime {
     return h;
   };
 
+  const spans = new Set<SpanPlayback>();
+
+  /** One pass: a one-shot started `srcStart` early so `srcStart` is heard at `audibleAt`, silent until then. */
+  interface Pass {
+    readonly handle: AudioHandle;
+    readonly audibleAt: number;
+    /** Clock time it goes silent and stops (Infinity: until released or the span ends). */
+    endAt: number;
+    open: boolean;
+  }
+  const playSpan = (path: string, span: ClipSpan, options: OneShotOptions): SpanPlayback | null => {
+    const now = audio.time;
+    const startedAt = now + SPAN_LEAD + (span.preRoll ?? 0) + span.from;
+    // `count` is how many times the loop body plays (0: endless), so a count of 1 crosses no seam.
+    const loop = span.loop && span.loop.count !== 1 && span.loop.end - span.loop.start > 0.001 && span.from < span.loop.end ? span.loop : null;
+    const len = loop ? loop.end - loop.start : 0;
+    const xf = loop ? Math.min(len / 2, loop.crossfadeMs / 1000) : 0;
+    const passes: Pass[] = [];
+    let released = false;
+    let done = false;
+    let seamIndex = 0; // the next seam to cross
+    const seamAt = (k: number) => startedAt + (loop!.end - span.from) + k * len;
+    const lastSeam = () => (loop!.count === 0 ? Infinity : loop!.count - 2);
+    const start = (srcStart: number, audibleAt: number, endAt: number): Pass | null => {
+      const at = Math.max(audio.time, audibleAt - srcStart);
+      const handle = audio.playOneShot(path, { ...options, at });
+      if (!handle.playing) return null;
+      handles.add(handle);
+      if (srcStart > 0) handle.fade(0, 0);
+      const pass = { handle, audibleAt, endAt, open: srcStart <= 0 };
+      passes.push(pass);
+      return pass;
+    };
+    const tailEnd = (seam: number) => seam + (span.to - loop!.end);
+    const first = start(span.from, startedAt, loop ? Infinity : startedAt + (span.to - span.from));
+    if (!first) return null;
+    let stopTimer: (() => void) | null = null;
+    const finish = (fade = 0) => {
+      if (done) return;
+      done = true;
+      for (const p of passes) p.handle.stop(fade);
+      stopTimer?.();
+      spans.delete(playback);
+    };
+    const tick = () => {
+      const t = audio.time;
+      for (const p of passes) {
+        if (!p.open && t >= p.audibleAt - xf) {
+          p.open = true;
+          p.handle.fade(1, xf || 0.004);
+        }
+        if (p.endAt !== Infinity && t >= p.endAt - xf && p.handle.playing) p.handle.stop(xf || 0.004);
+      }
+      if (loop && !released) {
+        const k = seamIndex;
+        if (k <= lastSeam()) {
+          // Start the next pass ahead, so it can be heard at the seam.
+          if (passes.length === k + 1 && t >= seamAt(k) - loop.start - 0.25) {
+            const isLast = k === lastSeam();
+            if (start(loop.start, seamAt(k), isLast ? tailEnd(seamAt(k + 1)) : Infinity)) passes[k].endAt = seamAt(k);
+          }
+          if (t >= seamAt(k)) seamIndex++;
+        }
+      }
+      if (passes.every((p) => !p.handle.playing)) finish();
+    };
+    stopTimer = seams.every(SPAN_POLL_MS, tick);
+    const playback: SpanPlayback = {
+      startedAt,
+      get playing() {
+        return !done;
+      },
+      release() {
+        if (!loop || released) return;
+        released = true;
+        // The pass being heard runs to the loop's end, then on to `to`; a pass started ahead for the next seam goes.
+        if (passes.length > seamIndex + 1) passes.pop()!.handle.stop(0);
+        passes[passes.length - 1].endAt = tailEnd(seamAt(seamIndex));
+      },
+      stop: (fade) => finish(fade ?? 0),
+    };
+    spans.add(playback);
+    return playback;
+  };
+
   const host: StudioAudioRuntime = {
     state,
     stats,
@@ -133,9 +249,14 @@ export function createStudioAudioHost(seams: HostSeams): StudioAudioRuntime {
       if (!playable.peek()) return null;
       return track(audio.playOneShot(path, options));
     },
+    playClipSpan(path, span, options) {
+      if (!playable.peek() || !(span.to > span.from)) return null;
+      return playSpan(path, span, options ?? {});
+    },
     stopAll(fadeSeconds = 0) {
       for (const h of handles) h.stop(fadeSeconds);
       handles.clear();
+      for (const s of spans) s.stop(fadeSeconds);
     },
     async open(settings) {
       host.close();

@@ -27,6 +27,25 @@ function fakeAudio(over: { backend?: string; status?: string; throws?: boolean }
   return { audio, state, handles };
 }
 
+/** A fake `Audio` with a clock and handles that fade, for spans. */
+function spanAudio() {
+  const base = fakeAudio();
+  const clock = { t: 0 };
+  const calls: { at?: number }[] = [];
+  const handles: { gain: number; playing: boolean; stop(f?: number): void; fade(to: number, s: number): void }[] = [];
+  const audio = Object.assign({}, base.audio, {
+    playOneShot: vi.fn((_path: string, o: { at?: number }) => {
+      calls.push({ at: o.at === undefined ? undefined : Math.round(o.at * 1e6) / 1e6 });
+      const h = { gain: 1, playing: true, stop() { h.playing = false; }, fade(to: number) { h.gain = to; } };
+      handles.push(h);
+      return h;
+    }),
+  }) as AudioApi;
+  Object.defineProperty(audio, "status", { get: () => "running" });
+  Object.defineProperty(audio, "time", { get: () => clock.t });
+  return { audio, clock, calls, handles };
+}
+
 type Start = (settings: unknown) => Promise<{ stop(): void }>;
 function seams(audio: AudioApi, start: ReturnType<typeof vi.fn<Start>> = vi.fn<Start>(async () => ({ stop: vi.fn() }))) {
   const ticks: (() => void)[] = [];
@@ -119,6 +138,52 @@ describe("Studio audio runtime host", () => {
     await opening;
     expect(lateStop).toHaveBeenCalledOnce();
     expect(slow.state.value.kind).toBe("idle");
+  });
+
+  it("plays a span of a clip: started early and silent, heard from `from`, stopped at `to`", async () => {
+    const f = spanAudio();
+    const { s, tick } = seams(f.audio);
+    const host = createStudioAudioHost(s);
+    await host.open({});
+    f.clock.t = 10;
+    const p = host.playClipSpan("a.wav", { from: 1, to: 1.5 })!;
+    expect(p.startedAt).toBeCloseTo(11.05, 9);
+    expect(f.calls).toEqual([{ at: 10.05 }]);
+    expect(f.handles[0].gain).toBe(0); // silent until 1 s into the clip
+    f.clock.t = 11.06;
+    tick();
+    expect(f.handles[0].gain).toBe(1);
+    f.clock.t = 11.56;
+    tick();
+    expect(f.handles[0].playing).toBe(false);
+    expect(p.playing).toBe(false);
+    expect(host.playClipSpan("a.wav", { from: 1, to: 1 })).toBeNull();
+  });
+
+  it("cycles a loop with a pass started ahead for each seam, and releases to the tail", async () => {
+    const f = spanAudio();
+    const { s, tick } = seams(f.audio);
+    const host = createStudioAudioHost(s);
+    await host.open({});
+    f.clock.t = 0;
+    const p = host.playClipSpan("a.wav", { from: 0, to: 3, loop: { start: 1, end: 2, count: 0, crossfadeMs: 0 } })!;
+    // Seam 0 at 0.05 + 2 = 2.05; the next pass must start at 1.05 (1 s early) to be at 1 s then.
+    f.clock.t = 0.85;
+    tick();
+    expect(f.calls.map((c) => c.at)).toEqual([0.05, 1.05]);
+    expect(f.handles[1].gain).toBe(0);
+    f.clock.t = 2.06;
+    tick();
+    expect(f.handles[0].playing).toBe(false);
+    expect(f.handles[1].gain).toBe(1);
+    p.release();
+    f.clock.t = 3.04; // the pass reaches the loop's end at 3.05, then plays the tail to 3 s in the clip (4.05)
+    tick();
+    expect(f.handles[1].playing).toBe(true);
+    f.clock.t = 4.06;
+    tick();
+    expect(p.playing).toBe(false);
+    expect(f.calls).toHaveLength(2);
   });
 
   it("reads stats leniently", () => {
