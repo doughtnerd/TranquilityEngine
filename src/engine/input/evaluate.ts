@@ -831,8 +831,9 @@ defineBuiltinSystem({ name: "engine.InputEvaluate", phase: "input", after: ["eng
 defineBuiltinSystem({
   name: "engine.InputTick",
   phase: "fixedUpdate",
-  after: ["engine.NetInputTick"],
-  before: ["engine.FixedUpdateScripts"],
+  // Pinned on both sides so the order doesn't depend on which module registered first.
+  after: ["engine.NetInputTick", "engine.PhysicsRestoreInterpolated", "engine.Physics3DRestoreInterpolated"],
+  before: ["engine.PredictionTick", "engine.FixedUpdateScripts"],
   run: (w) => {
     if (takesLocalInput(w)) writeOut(w, "tick");
   },

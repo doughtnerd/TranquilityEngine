@@ -7,11 +7,13 @@ import { Text } from "../../../engine/render/components";
 import type { RenderFeatureSpec } from "../../../engine/render/renderFeatures";
 import { isUIComponent, UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText } from "../../../engine/ui/components";
 import { UIDocument } from "../../../engine/ui/UIDocument";
+import { UIControlMapper } from "../../../engine/ui/controlMapper";
 import type { RuntimePlugin } from "../../runtimeContext";
 import { uiManifest } from "../manifest";
 
 export { Text, type Anchor } from "../../../engine/render/components";
 export { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UIAlign, type UICanvasMode, type UIDisplay, type UIFlexDirection, type UIImageFit, type UIJustify, type UILength, type UIPositionType, type UITextAlign, type UIWordBreak } from "../../../engine/ui/components";
+export { UIControlMapper, type UIControlMapperCell, type UIControlMapperDevice, type UIControlMapperRow, type UIControlMapperText } from "../../../engine/ui/controlMapper";
 export { UIClassList, UIDocument, UIDocumentElement, UIEvents, type UIEvent, type UIEventHandler, type UIEventType, type UIListOptions, type UITag } from "../../../engine/ui/UIDocument";
 
 /**
@@ -32,7 +34,7 @@ const UI_SPEC: RenderFeatureSpec = {
 export const uiRuntimePlugin: RuntimePlugin = {
   manifest: uiManifest,
   activate(context) {
-    context.registerComponents([UICanvas, UIPanel, UIText, UIImage, UIButton, UIInputField, UIDocument, Text]);
+    context.registerComponents([UICanvas, UIPanel, UIText, UIImage, UIButton, UIInputField, UIDocument, UIControlMapper, Text]);
     context.registerRenderFeature({
       spec: UI_SPEC,
       load: () => import("./uiFeature").then((m) => m.loadUIFeature()),

@@ -155,6 +155,6 @@ function connectionNode(world: World, node: GameObject): GameObject | null {
   return peer?.node ?? null;
 }
 
-defineBuiltinSystem({ name: "engine.InputNetSend", phase: "fixedUpdate", after: ["engine.InputTick"], before: ["engine.FixedUpdateScripts"], run: (w) => send(w) });
-defineBuiltinSystem({ name: "engine.InputNetApply", phase: "fixedUpdate", after: ["engine.NetInputTick", "engine.InputTick"], before: ["engine.FixedUpdateScripts"], run: (w) => apply(w, false) });
+defineBuiltinSystem({ name: "engine.InputNetSend", phase: "fixedUpdate", after: ["engine.InputTick", "engine.PredictionTick"], before: ["engine.FixedUpdateScripts"], run: (w) => send(w) });
+defineBuiltinSystem({ name: "engine.InputNetApply", phase: "fixedUpdate", after: ["engine.NetInputTick", "engine.InputTick", "engine.PredictionTick", "engine.InputNetSend"], before: ["engine.FixedUpdateScripts"], run: (w) => apply(w, false) });
 defineBuiltinSystem({ name: "engine.InputNetReplay", phase: "fixedUpdate", predicted: true, after: ["engine.PredictionTick"], before: ["engine.FixedUpdateScripts"], run: (w) => apply(w, true) });
