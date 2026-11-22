@@ -15,6 +15,7 @@ import { compileScript, ENGINE_MODULE, LEGACY_ENGINE_MODULE, isScriptPath, loadO
 import { bundlePackages, isPackageSpecifier, type PackageSource } from "../editor/packages";
 import { isProjectFile, skipsFolder } from "../engine/scene/projectFiles";
 import { LEGACY_AUDIO_MESSAGE, hasLegacyAudio } from "../engine/audio/project/load";
+import { audioEventRefusal, isAudioEventPath } from "../engine/audio/retiredAudioEvent";
 import { projectScriptAssetRefs } from "../engine/scene/scriptAssetRefs";
 import { planPluginCode, type BuiltPlugin } from "../plugins/thirdParty";
 import { ENGINE_FILE, MANIFEST_FILE, MANIFEST_FORMAT, PROJECT_DIR, modulePath, relativeSpecifier, type GameManifest } from "./format";
@@ -160,6 +161,11 @@ export async function planWebBuild(source: BuildSource, options: BuildOptions = 
   if (!source.files.includes("project.json")) throw new ExportError("The project has no project.json.");
   // ADR 0330: the mix ships in audio.json, copied with the other files; an unmigrated project.json audio section is refused.
   if (hasLegacyAudio(parsedJson(source.json.get("project.json")))) throw new ExportError(LEGACY_AUDIO_MESSAGE);
+  // ADR 0329: the retired audio event format doesn't ship; the project migrates its events to playlists first.
+  const events = source.files.filter((f) => isAudioEventPath(f) && isExportedFile(f));
+  if (events.length > 0) {
+    throw new ExportError(`${audioEventRefusal("Export", events[0]!)}${events.length > 1 ? ` (${events.length} audio event files in all)` : ""}`, events.map((path) => ({ path, message: audioEventRefusal("Export", path) })));
+  }
   const copies = source.files.filter(isExportedFile).sort();
   const bootstrap = source.settings.bootstrap;
   if (typeof bootstrap === "string" && !source.scripts.has(bootstrap.replace(/^\.?\//, ""))) {

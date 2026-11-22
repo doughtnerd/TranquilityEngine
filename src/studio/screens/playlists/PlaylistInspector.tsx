@@ -2,8 +2,8 @@
 // position, at weight 0, "Edit voice curves…"), then the open playlist's Playback rules, Output (its own bus or the one
 // it inherits, › to open it in the Mixer), Effects (the catalogue's chain, ADR 0331), Spatial (an attenuation preset or
 // inline distances; curves are M7's), local parameters, and Used by. A view over props: edits are labelled body edits.
-import type { ParameterDef } from "../../../engine/audio/eventFormat";
-import { isLabelled } from "../../../engine/audio/eventFormat";
+import type { ParameterDef } from "../../../engine/audio/parameters";
+import { isLabelled } from "../../../engine/audio/parameters";
 import type { PlaylistBody, PlaybackRules } from "../../../engine/audio/playlist/types";
 import { SegmentedControl } from "../../../editor/ui/SegmentedControl";
 import { EffectChain } from "../../components/EffectChain";

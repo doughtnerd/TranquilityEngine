@@ -14,7 +14,7 @@ import { setAudioBackend } from "../../plugins/audio/runtime/backend";
 import { makeFakeBackend, endAudioSession } from "../../plugins/audio/runtime/testing";
 import { Audio } from "../../plugins/audio/runtime";
 import { setCalibration } from "../../plugins/audio/runtime/music/calibration";
-import { events } from "../../plugins/audio/runtime/events/eventRuntime";
+import { playlistHost } from "../../plugins/audio/runtime/playlists/host";
 import type { RhythmLab, RhythmState } from "../../../samples/sound-lab/scripts/behaviors/RhythmLab";
 import { DomInput } from "./domInput";
 
@@ -68,7 +68,7 @@ beforeEach(() => {
   fake.advanceTo(0); // the rAF time moves with it, back to 0
   fake.ready = true;
   setAudioBackend(fake);
-  events().now = () => fake.time;
+  playlistHost().now = () => fake.time;
   endAudioSession();
   vi.spyOn(console, "warn").mockImplementation(() => {});
 });

@@ -6,7 +6,7 @@ import { defaultEntryUse, emptyPlaylistBody, PLAYLIST_LIMITS } from "../../../en
 import type {
   Adsr, BlendAxis, BlendSettings, ChangeHow, ChangeRule, Entry, EntryUse, PlaybackRules, PlaylistBody, PlaylistSpatial, QueueSettings, SampleEntry, SwitchSettings,
 } from "../../../engine/audio/playlist/types";
-import { isLabelled, type ParameterDef } from "../../../engine/audio/eventFormat";
+import { isLabelled, type ParameterDef } from "../../../engine/audio/parameters";
 import type { Effect } from "../../../engine/audio/effects/types";
 import { accept, refuse, type EditResult } from "../../../plugins/audio/editor/editResult";
 import { axisRange, place1D, place2D } from "./blendPlacement";

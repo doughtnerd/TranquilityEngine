@@ -36,7 +36,7 @@ import { applyOpToProject, projectOpRefusal, type ProjectMixOp } from "./project
 type EffectOverrides = ResolvedMix["effects"];
 import { liveRuleAnswer, unsupportedAnswer, type LiveCaps, type SentClass } from "./busCapability";
 import { LoudnessView, EMPTY_BUS_LOUDNESS, type BusLoudness, type LoudnessSource } from "./loudnessTypes";
-import { parameterDefault } from "./eventFormat";
+import { parameterDefault } from "./parameters";
 import { engineSettingsOf, projectOfMix } from "./project/format";
 import { dbToGain, levelDbOf, MIN_DB } from "./project/gain";
 import { fromLegacySection, mergeLegacyIntoProject } from "./project/legacy";

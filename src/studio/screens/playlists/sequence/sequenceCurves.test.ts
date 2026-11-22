@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ParameterDef } from "../../../../engine/audio/eventFormat";
+import type { ParameterDef } from "../../../../engine/audio/parameters";
 import { TIME_INPUT } from "../../../../editor/ui/curves/curveEditorModel";
 import { applyCurveResult, curveSpec } from "./sequenceCurves";
 import { fixtureSequence } from "./sequenceFixture";

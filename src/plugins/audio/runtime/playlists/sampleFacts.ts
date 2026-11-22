@@ -7,13 +7,13 @@
  * Cached per parsed sidecar block (a sidecar edit is a new object, so an edit is picked up) and per known file length.
  */
 import { compileTempoMap, type SegmentGrid } from "../../../../engine/audio/musicGrid";
-import type { TempoMarker as GridTempoMarker } from "../../../../engine/audio/musicFormat";
+import type { TempoMarker as GridTempoMarker } from "../../../../engine/audio/musicGrid";
 import { MUSIC_TICKS_PER_BEAT } from "../../../../engine/audio/musicPosition";
 import type { SampleEdits, SampleLoop, SampleMarker, SampleTempo } from "../../../../engine/audio/sample/types";
 import type { LoopBehaviour } from "../../../../engine/audio/playlist/types";
 import { Assets } from "../../../../engine/scene/Assets";
 import { warnOnce } from "../core/handle";
-import { events } from "../events/eventRuntime";
+import { playlistHost } from "./host";
 
 /** A sample loop as a playing voice uses it: its region (seconds in the file) and behaviour. `start == end`: a hold point. */
 export interface FactLoop {
@@ -51,7 +51,7 @@ const none = new Map<string, { length: number | null; facts: SampleFacts }>();
 export function sampleFacts(path: string): SampleFacts {
   let edits: SampleEdits | null = null;
   try { edits = Assets.importSettings(path).sample ?? null; } catch { edits = null; }
-  const length = events().clipLength(path);
+  const length = playlistHost().clipLength(path);
   const hit = edits ? cache.get(edits) : none.get(path);
   if (hit && hit.length === length) return hit.facts;
   const facts = compile(path, edits, length);

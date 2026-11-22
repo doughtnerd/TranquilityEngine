@@ -4,7 +4,7 @@
 // wait on. The label playing now (its test value) is marked. A view over props.
 import type { ChangeHow, PlaylistBody } from "../../../engine/audio/playlist/types";
 import type { PlaylistLint } from "../../../engine/audio/playlist/lint";
-import { isLabelled, type ParameterDef } from "../../../engine/audio/eventFormat";
+import { isLabelled, type ParameterDef } from "../../../engine/audio/parameters";
 import { defaultEntryUse } from "../../../engine/audio/playlist/format";
 import { NumberBox, SelectBox, Section } from "./fields";
 import type { BodyEdit } from "./EntryList";

@@ -14,7 +14,7 @@ const FRAME_QUANTA = 4;
 const FRAME_SECONDS = (FRAME_QUANTA * QUANTUM) / RATE;
 const QUANTUM_MS = (QUANTUM / RATE) * 1000;
 const SILENT = 1e-3;
-const F = "myco.audioevent@1";
+const P = "myco.playlist@1";
 
 afterEach(async () => {
   await closeLoopbackAudio();
@@ -26,7 +26,7 @@ async function rig(maxMixed: number) {
   Assets.addSource(Assets.fromObject({
     "s.json": { format: "myco.scene@1", nodes: [] },
     "long.wav": "data:,",
-    "plain.audioevent.json": { format: F, root: { type: "clip", clip: "long.wav", loop: true } },
+    "plain.playlist.json": { format: P, type: "clip", entries: [{ sample: "long.wav", loop: "on" }] },
   }));
   const engine = await Engine.create({
     headless: true,
@@ -75,10 +75,10 @@ describe("voice selection includes bus automation (M2 F3, loopback)", () => {
   it("under a full budget, voices on a bus automated low (or below one) lose to a loud bus", { timeout: 30_000 }, async (ctx) => {
     const r = await rig(2);
     if (!r) return ctx.skip();
-    Audio.play("plain.audioevent.json", { bus: "Quiet" });
-    Audio.play("plain.audioevent.json", { bus: "Sub" });
-    Audio.play("plain.audioevent.json", { bus: "Loud" });
-    Audio.play("plain.audioevent.json", { bus: "Loud" });
+    Audio.play("plain.playlist.json", { bus: "Quiet" });
+    Audio.play("plain.playlist.json", { bus: "Sub" });
+    Audio.play("plain.playlist.json", { bus: "Loud" });
+    Audio.play("plain.playlist.json", { bus: "Loud" });
     await r.step(4);
     Audio.setParameter("Level", 0.1);
     await r.step(40); // the 0.2 s seek is over
@@ -95,7 +95,7 @@ describe("voice selection includes bus automation (M2 F3, loopback)", () => {
   it("a bus automated down to silence stays mixed and audible until the fade ends; up again, mixed when it begins", { timeout: 30_000 }, async (ctx) => {
     const r = await rig(4);
     if (!r) return ctx.skip();
-    Audio.play("plain.audioevent.json", { bus: "Sub" });
+    Audio.play("plain.playlist.json", { bus: "Sub" });
     await r.step(6);
     expect(stateOf("Sub")).toEqual(["playing"]);
     // Down: Level 1 -> 0 at 5/s is 0.2 s; the bus gain follows it 1 -> 0.
@@ -135,7 +135,7 @@ describe("voice selection includes bus automation (M2 F3, loopback)", () => {
   it("leaves the bus factor alone while nothing seeks", { timeout: 30_000 }, async (ctx) => {
     const r = await rig(4);
     if (!r) return ctx.skip();
-    Audio.play("plain.audioevent.json", { bus: "Sub" });
+    Audio.play("plain.playlist.json", { bus: "Sub" });
     await r.step(6);
     const before = Array.from(r.backend.selection.busGain);
     await r.step(10);

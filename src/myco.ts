@@ -184,17 +184,9 @@ export type { AudioTake, AudioTakeState } from "./plugins/audio/runtime";
 export type { AudioSnapshot } from "./plugins/audio/runtime";
 
 // Interactive-music types, exported as types only (ADR 0168): a script can name them in annotations, and nothing
-// reaches the runtime bundle. The handle and event types, then the music format's node model and rules.
+// reaches the runtime bundle. ADR 0329 retired the music format's node model and rules (`*.audioevent.json`), so only the
+// handle and event types remain; music is authored as playlists.
 export type { MusicEventHandle, CalibrationApi } from "./engine/audio/musicTypes";
-export type {
-  TempoMarker, MusicCue, RegionCondition, MusicRegion, MusicAutomation, MusicTrack, SegmentNode, PlaylistNode,
-  MusicSwitchNode, MusicContainerNode, MusicNode, MusicNodeType, TrackPick, PlaylistMode, MusicAutomationTarget,
-  AutomationQuantize,
-} from "./engine/audio/musicFormat";
-export type {
-  TransitionRule, TransitionFade, TransitionExit, TransitionEnter, TransitionBridge, StingerDef, StingerAt, FadeCurve,
-  IfTooLate,
-} from "./engine/audio/musicRules";
 
 // The Navigation plugin (ADR 0065, 0135). Its settings types (`NavigationSettings`…) are core exports.
 export {

@@ -15,7 +15,7 @@ import { MUSIC_TICKS_PER_BEAT } from "../../../../engine/audio/musicPosition";
 import type { GridSpec, MusicSeekResult } from "../../../../engine/audio/musicTypes";
 import type { AudioMarkerEvent } from "../backend";
 import { nextGridHeardOn, nextHeardOn, ticksAtOn, type LoopAnchor, type NextPoint } from "../music/anchors";
-import type { SegmentLoops } from "../music/segmentGrids";
+import type { SegmentLoops } from "../music/anchors";
 import type { MusicalBoundary, MusicalPosition, MusicalSource } from "./musical";
 import type { PVoice } from "./nodes";
 import { tempoGrid, type FactMarker, type SampleFacts } from "./sampleFacts";

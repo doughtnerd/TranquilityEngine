@@ -4,7 +4,7 @@
 // game sent (from an open take, ADR 0334; takes aren't built yet, so the hook is empty until they register a source),
 // and the undo label an Apply commits.
 // Pure, apart from the histogram source a take registers.
-import { isLabelled, parameterRange, type ParameterDef } from "../../engine/audio/eventFormat";
+import { isLabelled, parameterRange, type ParameterDef } from "../../engine/audio/parameters";
 import type { CurveInput } from "../../editor/ui/curves/curveEditorModel";
 
 const PREFIX = "param:";

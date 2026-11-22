@@ -14,7 +14,7 @@
  * Moved from the Studio's Mixer (`src/studio/screens/mixer/snapshotBlend.ts`, which re-exports it) so the runtime and the
  * Studio run one model. Pure; no plugin, no DOM.
  */
-import { isLabelled, type ParameterDef } from "../eventFormat";
+import { isLabelled, type ParameterDef } from "../parameters";
 import type { Snapshot, SnapshotCondition, SnapshotStart } from "./types";
 
 /** Parameter values by name: a number, or a labelled parameter's label index. */

@@ -1,17 +1,19 @@
-// ADR 0158 §5 (E3.9) on the real wasm (the loopback host): `Audio.debug()` on the core shows automation. An event
-// voice's `gain` and `pitch` carry main's estimate of its automated gain and pitch (following the parameter's seek), it
+// ADR 0158 §5 (E3.9) on the real wasm (the loopback host), with playlists (ADR 0329): `Audio.debug()` on the core shows
+// automation. A playlist voice's `gain` and `pitch` carry main's estimate of its automated gain and pitch (following the parameter's seek), it
 // has a `playheadSeconds` (the tracker's estimate, moving at the automated pitch), a bus's `gain`/`effectiveGain`
 // carry the bus automation a global parameter drives, and an instance's `events` row goes with its last listed voice,
 // never a poll before it (a stop with a fade, and a natural end).
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Assets, Engine, SceneManager } from "../../../../myco";
 import { Audio } from "../index";
-import { events } from "../events/eventRuntime";
 import { endAudioSession, loopbackAudio, closeLoopbackAudio } from "../testing";
 
 const LONG = 96_000;
 const SHORT = 4_800; // 0.1 s
-const F = "myco.audioevent@1";
+const P = "myco.playlist@1";
+/** A gain (dB) and a pitch (semitones) curve on Speed whose keys give gain 0.2 and pitch 0.7 at 0.2, gain 1 and pitch 1.5 at 1. */
+const DB = (g: number) => 20 * Math.log10(g);
+const ST = (r: number) => 12 * Math.log2(r);
 
 afterEach(async () => {
   await closeLoopbackAudio();
@@ -24,18 +26,21 @@ async function rig() {
     "s.json": { format: "myco.scene@1", nodes: [] },
     "long.wav": "data:,",
     "short.wav": "data:,",
-    "auto.audioevent.json": {
-      format: F,
-      bus: "Music",
+    "auto.playlist.json": {
+      format: P,
+      type: "layer",
+      output: "Music",
       parameters: [{ name: "Speed", min: 0, max: 1, default: 1, seekSpeed: 5 }],
-      automation: [
-        { parameter: "Speed", target: "volume", curve: [[0, 0], [1, 1]] },
-        { parameter: "Speed", target: "pitch", curve: [[0, 0.5], [1, 1.5]] },
-      ],
-      root: { type: "clip", clip: "long.wav", loop: true },
+      entries: [{
+        embedded: { type: "clip", entries: [{ sample: "long.wav", loop: "on" }] },
+        curves: {
+          gain: { input: { parameter: "Speed" }, curve: [[0.2, DB(0.2)], [1, 0]] },
+          pitch: { input: { parameter: "Speed" }, curve: [[0.2, ST(0.7)], [1, ST(1.5)]] },
+        },
+      }],
     },
-    "plain.audioevent.json": { format: F, root: { type: "clip", clip: "long.wav", loop: true } },
-    "short.audioevent.json": { format: F, root: { type: "clip", clip: "short.wav" } },
+    "plain.playlist.json": { format: P, type: "clip", entries: [{ sample: "long.wav", loop: "on" }] },
+    "short.playlist.json": { format: P, type: "clip", entries: [{ sample: "short.wav" }] },
   }));
   const engine = await Engine.create({
     headless: true,
@@ -73,10 +78,10 @@ async function rig() {
 const eventVoices = (id: number) => Audio.debug().voices.filter((v) => v.event === id && v.state !== "stolen");
 
 describe("Audio.debug() on the core shows automation (E3.9, loopback)", () => {
-  it("an event voice's gain and pitch follow its automation (through the seek), and it has a moving playhead", { timeout: 30_000 }, async (ctx) => {
+  it("a playlist voice's gain and pitch follow its automation (through the seek), and it has a moving playhead", { timeout: 30_000 }, async (ctx) => {
     const r = await rig();
     if (!r) return ctx.skip();
-    const h = Audio.play("auto.audioevent.json");
+    const h = Audio.play("auto.playlist.json");
     const id = Audio.debug().events[0]!.id;
     await vi.waitFor(async () => {
       await r.step(1);
@@ -98,15 +103,18 @@ describe("Audio.debug() on the core shows automation (E3.9, loopback)", () => {
     const mid = eventVoices(id)[0]!;
     expect(mid.gain).toBeGreaterThan(0.25);
     expect(mid.gain).toBeLessThan(0.95);
-    expect(mid.pitch).toBeCloseTo(0.5 + mid.gain, 5); // both curves read the same smoothed value
+    // Both curves read the same smoothed value: where the gain is on its dB curve, the pitch is on its semitone curve (to
+    // the resolution of the dB and semitone curves' conversion into the core's linear keys).
+    const at = (DB(mid.gain) - DB(0.2)) / (0 - DB(0.2));
+    expect(ST(mid.pitch)).toBeCloseTo(ST(0.7) + at * (ST(1.5) - ST(0.7)), 2);
     await r.step(20);
     const done = eventVoices(id)[0]!;
     expect(done.gain).toBeCloseTo(0.2, 5);
     expect(done.pitch).toBeCloseTo(0.7, 5);
     // A voice without automation reads its own gain and pitch, as before.
-    Audio.play("plain.audioevent.json", { volume: 0.5 });
+    Audio.play("plain.playlist.json", { volume: 0.5 });
     await r.step(4);
-    const plainId = Audio.debug().events.find((e) => e.asset === "plain.audioevent.json")!.id;
+    const plainId = Audio.debug().events.find((e) => e.asset === "plain.playlist.json")!.id;
     const plain = eventVoices(plainId)[0]!;
     expect(plain.gain).toBeCloseTo(0.5, 5);
     expect(plain.pitch).toBe(1);
@@ -115,7 +123,7 @@ describe("Audio.debug() on the core shows automation (E3.9, loopback)", () => {
   it("a bus's gain and effectiveGain carry the bus automation a global parameter drives", { timeout: 30_000 }, async (ctx) => {
     const r = await rig();
     if (!r) return ctx.skip();
-    Audio.play("plain.audioevent.json"); // the runtime binds the buses on its first play
+    Audio.play("plain.playlist.json"); // the runtime binds the buses on its first play
     await r.step(4);
     const music = () => Audio.debug().buses.find((b) => b.name === "Music")!;
     // Intensity 1: the curve's 1, so the static 0.6.
@@ -143,7 +151,7 @@ describe("Audio.debug() on the core shows automation (E3.9, loopback)", () => {
       if (row) expect(row.voices).toBeGreaterThanOrEqual(1);
     };
     // A stop with a fade: the voice is listed (stopping) for the fade, and so is the row.
-    const h = Audio.play("auto.audioevent.json");
+    const h = Audio.play("auto.playlist.json");
     watched = Audio.debug().events[0]!.id;
     await r.step(10, poll);
     h.stop(0.1);
@@ -155,8 +163,8 @@ describe("Audio.debug() on the core shows automation (E3.9, loopback)", () => {
     for (const p of polls) expect(p.row).toBe(p.voices > 0);
     // A natural end: the clip plays out, the voice ends, and the row goes with it.
     polls.length = 0;
-    Audio.play("short.audioevent.json");
-    watched = Audio.debug().events.find((e) => e.asset === "short.audioevent.json")!.id;
+    Audio.play("short.playlist.json");
+    watched = Audio.debug().events.find((e) => e.asset === "short.playlist.json")!.id;
     await r.step(40, poll);
     expect(polls.some((p) => p.voices > 0)).toBe(true);
     expect(polls.at(-1)).toEqual({ row: false, voices: 0 });

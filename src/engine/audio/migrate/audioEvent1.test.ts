@@ -3,7 +3,7 @@
  * event the way callers do (`parseAudioEvent` of the JSON) and checks the playlist fields and notes.
  */
 import { describe, expect, it } from "vitest";
-import { parseAudioEvent } from "../eventFormat";
+import { parseAudioEvent } from "./legacy/eventFormat";
 import type { Attenuation } from "../attenuation/types";
 import type { EmbeddedEntry, PlaylistBody, SampleEntry } from "../playlist/types";
 import { migrateAudioEvent, type MigrateOptions } from "./audioEvent1";

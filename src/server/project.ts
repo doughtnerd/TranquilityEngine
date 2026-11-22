@@ -18,6 +18,7 @@ import { isProjectFile, loadProjectFiles, projectFileKind, skipsFolder } from ".
 import { nodePackageSource } from "./packages";
 import { LEGACY_AUDIO_MESSAGE, projectWithAudio } from "../engine/audio/project/load";
 import { AUDIO_PROJECT_FILE } from "../engine/audio/project/types";
+import { audioEventRefusal, isAudioEventPath } from "../engine/audio/retiredAudioEvent";
 import { isScriptPath, loadScripts, loadedPluginModule, loadedScriptModule, type ScriptProblem } from "../editor/scriptLoader";
 import type { RuntimePlugin } from "../plugins/runtimeContext";
 import { planPluginCode, toRuntimePlugin } from "../plugins/thirdParty";
@@ -59,6 +60,9 @@ export async function readProject(dir: string): Promise<ServerProject> {
 
   const files = await listFiles(root);
   if (!files.includes("project.json")) throw new ServerError(`"${root}" isn't a project folder: it has no project.json.`);
+  // ADR 0329: the retired audio event format isn't read; the project migrates its events to playlists first.
+  const event = files.find(isAudioEventPath);
+  if (event !== undefined) throw new ServerError(audioEventRefusal(join(root, ...event.split("/")), event));
 
   const fullPath = (path: string) => join(root, ...path.split("/"));
   const scripts = new Map<string, string>();

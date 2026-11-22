@@ -8,7 +8,7 @@ import { readProject } from "../../server/project";
 import { Audio, AudioSource } from "../../plugins/audio/runtime";
 import { setAudioBackend } from "../../plugins/audio/runtime/backend";
 import { makeFakeBackend, endAudioSession } from "../../plugins/audio/runtime/testing";
-import { events } from "../../plugins/audio/runtime/events/eventRuntime";
+import { playlistHost } from "../../plugins/audio/runtime/playlists/host";
 import "../../editor/sampleTypes";
 import { BirdEvents } from "../../../samples/flappy/scripts/data";
 import { GameManager } from "../../../samples/flappy/scripts/behaviors/GameManager";
@@ -51,7 +51,7 @@ beforeEach(() => {
   fake.advanceTo(0); // the rAF time moves with it, back to 0
   fake.ready = true;
   setAudioBackend(fake);
-  events().now = () => fake.time;
+  playlistHost().now = () => fake.time;
   endAudioSession();
   vi.spyOn(console, "warn").mockImplementation(() => {});
 });

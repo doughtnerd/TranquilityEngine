@@ -2,7 +2,7 @@
 // that reads the list back; then that a rename and a remove carry along what the holder says (the Studio's holders: the
 // global parameters in `audio.json`, `src/studio/screens/mixer/globalParameters.ts`, and a playlist's own).
 import { describe, expect, it } from "vitest";
-import { MAX_LOCAL_PARAMETERS, MAX_PARAMETERS, parseParameters, type ParameterDef } from "../../../engine/audio/eventFormat";
+import { MAX_LOCAL_PARAMETERS, MAX_PARAMETERS, parseParameters, type ParameterDef } from "../../../engine/audio/parameters";
 import type { EditResult } from "./editResult";
 import { parameterList, type ParameterList } from "./parameterList";
 

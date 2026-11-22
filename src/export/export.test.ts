@@ -108,6 +108,14 @@ describe("planWebBuild", () => {
     expect((err as Error).message).toMatch(/still has an "audio" section, which moved to audio\.json/);
   });
 
+  it("refuses a project that still has audio event files, naming the migration (ADR 0329)", async () => {
+    const old = source({ jsonFiles: { "audio/step.audioevent.json": '{ "format": "myco.audioevent@1" }', "audio/hit.audioevent.json": "{}" } });
+    const err = await planWebBuild(old).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ExportError);
+    expect((err as Error).message).toMatch(/is an audio event \(myco\.audioevent@1\).*npm run audio:migrate.*\(2 audio event files in all\)/);
+    expect((err as ExportError).problems.map((p) => p.path).sort()).toEqual(["audio/hit.audioevent.json", "audio/step.audioevent.json"]);
+  });
+
   it("checks the bootstrap script and the main scene", async () => {
     await expect(planWebBuild(source({ settings: { bootstrap: "scripts/Boot.ts" } }))).rejects.toThrow(/bootstrap is the script "scripts\/Boot.ts"/);
     await expect(planWebBuild(source(), { mainScene: "scenes/nope.scene.json" })).rejects.toThrow(/no scene/);

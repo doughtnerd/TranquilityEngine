@@ -19,7 +19,6 @@ import { batchRecords } from "./batchRecords";
 import { VoiceState, VoiceTable } from "./voiceTable";
 import { fakeDecoder } from "./fakeDecoder";
 import { closeLoopbackAudio, closeRecordingAudio, endAudioSession, fakeHostClock, loopbackAudio, recordingAudio } from "../testing";
-import { emptySegment } from "../../../../engine/audio/musicFormat";
 import { debugRows } from "../audioRows";
 
 /** The prime-latency average's seed before any prime has been measured, ms. */
@@ -814,30 +813,5 @@ describe("a streamed music stem's voice (F-16)", () => {
     r.status({ currentFrame: 4096, playheads: [{ id, clipFrame: 4800 + 2048 }] });
     expect(row().state).toBe("playing");
     r.backend.dispose();
-  });
-});
-
-// --- The debug row's `pending` through a transition's states ------------------------------------------------------------
-
-describe("a music debug row's pending change", () => {
-  it("is set while the transition is pending, stamped or running (past T - L), and null once done", async () => {
-    const { createMusicPlayer } = await import("../music/musicSystem");
-    const { beginTransition } = await import("../music/musicPlayer");
-    const { backend } = rig();
-    const player = createMusicPlayer({ group: 4, path: "m.audioevent.json" } as never, emptySegment("A"));
-    const match = { rule: 1, ruleKey: "A>B", tier: 2, parent: null, exit: "nextBar", enter: "start" };
-    const t = { to: emptySegment("B"), match, state: "pending", exitAt: Number.NaN, cancelBy: Number.NaN, incoming: null, bridge: null, outgoing: null, after: null, immediate: null } as never;
-    beginTransition(player, t);
-    const pending = () => debugRows(backend.debug(), backend).music![0]!.pending;
-    for (const state of ["pending", "stamped", "running", "bridging"]) {
-      (player.transition as { state: string }).state = state;
-      expect(pending()?.to, state).toBe("B");
-    }
-    for (const state of ["done", "cancelled"]) {
-      (player.transition as { state: string }).state = state;
-      expect(pending(), state).toBeNull();
-    }
-    endAudioSession();
-    backend.dispose();
   });
 });

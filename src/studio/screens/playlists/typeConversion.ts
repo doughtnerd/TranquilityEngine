@@ -13,7 +13,7 @@
 // Pure.
 import { defaultBlend, defaultEntryUse, defaultQueue, defaultSequence, defaultSwitch, emptyPlaylistBody } from "../../../engine/audio/playlist/format";
 import type { Clip, Entry, PlaylistBody, PlaylistType, SampleEntry, Track } from "../../../engine/audio/playlist/types";
-import { isLabelled } from "../../../engine/audio/eventFormat";
+import { isLabelled } from "../../../engine/audio/parameters";
 import { accept, refuse, type EditResult } from "../../../plugins/audio/editor/editResult";
 import { axisRange, spreadPositions } from "./blendPlacement";
 import { defaultMap, sampleEntry, type EditContext } from "./playlistEdits";

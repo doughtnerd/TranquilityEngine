@@ -11,7 +11,8 @@
 import type { Curve, CurveKey } from "../../core/curve";
 import { effectsToJson, parseEffects as parseEffectChain } from "../effects/catalogue";
 import type { Effect } from "../effects/types";
-import { audioCurve, parseParameters } from "../eventFormat";
+import { parseParameters } from "../parameters";
+import { audioCurve } from "../audioCurveLimit";
 import { BUILTIN_MATERIALS } from "../occlusionMaterials";
 import { sameMaterial } from "../audioSection";
 import {

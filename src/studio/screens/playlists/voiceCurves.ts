@@ -6,7 +6,7 @@
 // "Edit dirt_02 curves" (more).
 // Pure.
 import { TIME_INPUT, withEnds, type CurveEditorResult, type CurveEditorSpec, type CurveInput as DialogInput, type CurveLane } from "../../../editor/ui/curves/curveEditorModel";
-import type { ParameterDef } from "../../../engine/audio/eventFormat";
+import type { ParameterDef } from "../../../engine/audio/parameters";
 import { VOICE_CURVE_TARGETS } from "../../../engine/audio/playlist/format";
 import type { CurveInput, VoiceCurve, VoiceCurveTarget } from "../../../engine/audio/playlist/types";
 import type { Curve } from "../../../engine/core/curve";

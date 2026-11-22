@@ -4,8 +4,8 @@
 // and prefab overrides). `busRenameEdit` turns a rename into the project-wide edit the editor's project file module
 // applies through each file's owner (`editProjectFiles`); `audio.json` itself is left to the Mixer's own edit.
 // Pure: each rename returns the same value when nothing in it names `from`.
-import { AUDIO_EVENT_SUFFIX } from "../../../engine/audio/eventFormat";
-import { renameEventName } from "../../../engine/audio/eventReferences";
+import { AUDIO_EVENT_SUFFIX } from "../../../engine/audio/retiredAudioEvent";
+import { renameEventName } from "../../../engine/audio/migrate/legacy/eventReferences";
 import { PLAYLIST_SUFFIX } from "../../../engine/audio/playlist/types";
 import { AUDIO_PROJECT_FILE } from "../../../engine/audio/project/types";
 import type { ProjectFileEdit } from "../../../editor/projectFileEdits";

@@ -12,7 +12,7 @@
  */
 import type { Curve } from "../../core/curve";
 import type { Effect } from "../effects/types";
-import type { ParameterDef } from "../eventFormat";
+import type { ParameterDef } from "../parameters";
 import type { AudioSettings, DuckingDetector, DuckingMode, LoudnessTarget } from "../settings";
 
 export const AUDIO_PROJECT_FORMAT = "myco.audio@1";

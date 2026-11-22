@@ -5,7 +5,7 @@
 // under 1760 Hz, so a smooth change reads `abrupt` <= 0.23) or a constant 0.5 (`const.wav`).
 //
 // Timing is the audio clock's: `step(n)` runs n main-thread frames of 4 quanta each (`mixer.update`, the backend frame `tick`,
-// `events().update`, then the loopback renders), never a wall clock. Two rigs given the same steps render the same
+// `playlistHost().update`, then the loopback renders), never a wall clock. Two rigs given the same steps render the same
 // samples, so a run without the edit is the reference S4's `abrupt` compares with.
 //
 // ADR 0221: the rig is `loopbackAudio` (the production assembly on the loopback); this file keeps only the measurement.

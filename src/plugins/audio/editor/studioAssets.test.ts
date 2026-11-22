@@ -44,7 +44,7 @@ describe("the Studio's asset kinds", () => {
     expect(assetKind("audio/music.playlist.json")).toBe("playlist");
     expect(assetKind("audio/Step.Sample.json")).toBe("derivedSample");
     expect(assetKind("audio/far.attenuation.json")).toBe("attenuation");
-    expect(registeredKind("playlist")).toMatchObject({ label: "Playlist", folder: "audio", referencedAs: ["audioEvent"] });
+    expect(registeredKind("playlist")).toMatchObject({ label: "Playlist", folder: "audio", referencedAs: ["playlist"] });
     expect(registeredKind("playlist")!.panel).toBeUndefined();
   });
 

@@ -3,7 +3,7 @@
 // public API on the fake backend.
 import { describe, expect, it } from "vitest";
 import { Audio, AudioSource } from "../index";
-import { eventKit, pla, sample } from "../events/eventTestKit";
+import { eventKit, pla, sample } from "./testKit";
 import { GameObject } from "../../../../myco";
 
 const kit = eventKit();

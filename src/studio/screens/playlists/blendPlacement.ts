@@ -1,7 +1,7 @@
 // Where a new Blend entry goes (the prototype's `place1D` / `place2D`, PL:931–945). Positions are in the axis's units
 // (a parameter's min..max, or 0..seconds of voice time); ranges come from the caller. Pure.
 import type { BlendAxis } from "../../../engine/audio/playlist/types";
-import { parameterRange, type ParameterDef } from "../../../engine/audio/eventFormat";
+import { parameterRange, type ParameterDef } from "../../../engine/audio/parameters";
 
 /** An axis's range in its units. */
 export type AxisRange = readonly [number, number];

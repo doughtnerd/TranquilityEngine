@@ -10,7 +10,7 @@ import.meta.glob("../../../../../samples/sound-lab/scripts/behaviors/*.ts", { ea
 import { setAudioBackend } from "../backend";
 import { makeFakeBackend, endAudioSession } from "../testing";
 import { Audio } from "../index";
-import { events } from "../events/eventRuntime";
+import { playlistHost } from "../playlists/host";
 
 const SAMPLE = fileURLToPath(new URL("../../../../../samples/sound-lab", import.meta.url));
 const fake = makeFakeBackend();
@@ -56,7 +56,7 @@ beforeEach(() => {
   fake.advanceTo(0);
   fake.ready = true;
   setAudioBackend(fake);
-  events().now = () => fake.time; // cooldowns follow the fake clock, not wall time
+  playlistHost().now = () => fake.time; // cooldowns follow the fake clock, not wall time
   endAudioSession();
   warnings.length = 0;
   errors.length = 0;

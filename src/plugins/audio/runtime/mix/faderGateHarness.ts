@@ -20,7 +20,7 @@ import { vi } from "vitest";
 import { mixer, DRAG_RAMP_MS } from "../../../../engine/audio/mixer";
 import { parseAudioSettings } from "../../../../engine/audio/settings";
 import { Kind, LANE_AUTHORED, Op, readBusRamp } from "../wire.generated";
-import { events } from "../events/eventRuntime";
+import { playlistHost } from "../playlists/host";
 import { presetFromSettings } from "../core/context";
 import { loopbackAudio } from "../testing";
 
@@ -154,7 +154,7 @@ export async function runFaderGate(options: GateOptions): Promise<DragResult[] |
           now = nextTick;
           mixer.update(cadence / 1000);
           audio.tick(cadence / 1000);
-          events().update(cadence / 1000);
+          playlistHost().update(cadence / 1000);
           collect(now);
           nextTick += cadence;
         } else if (e && e.t <= start) {

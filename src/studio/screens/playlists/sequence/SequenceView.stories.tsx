@@ -5,7 +5,7 @@
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";
 import { expect, fn, userEvent, within } from "storybook/test";
-import type { ParameterDef } from "../../../../engine/audio/eventFormat";
+import type { ParameterDef } from "../../../../engine/audio/parameters";
 import { lintPlaylist } from "../../../../engine/audio/playlist/lint";
 import type { PlaylistBody } from "../../../../engine/audio/playlist/types";
 import { storyPeaks } from "../../../components/storyPeaks";

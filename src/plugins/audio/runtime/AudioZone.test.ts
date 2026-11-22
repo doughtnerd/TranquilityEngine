@@ -2,7 +2,7 @@
 // boxes and heights too) and around the listener inside, an inside zone's feather, `zoneDepth`, samples, and stopping.
 import { describe, expect, it } from "vitest";
 import { Audio, AudioZone } from "./index";
-import { eventKit, pla, sample } from "./events/eventTestKit";
+import { eventKit, pla, sample } from "./playlists/testKit";
 import { GameObject } from "../../../myco";
 
 const kit = eventKit();

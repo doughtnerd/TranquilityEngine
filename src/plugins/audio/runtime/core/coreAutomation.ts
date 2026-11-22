@@ -23,7 +23,7 @@
 //   REPLAY has no staging limit (the builder grows and chunks at the inbox size), so the replay sends it all at once,
 //   CURVES split into records of at most 32 KB.
 // - **Selection** (0158 §3 "Selection still sees it"): when a parameter changes, the affected bound voices' curves are
-//   evaluated once at the target (`events/automation.ts` `evaluate`, over `engine/core/curve.ts`) into the table's
+//   evaluated once at the target (`automation.ts` `evaluate`, over `engine/core/curve.ts`) into the table's
 //   `autoGain` (audibility) and `autoPitch` (the playhead estimate); smoothing in the core trails by at most the seek
 //   time, which selection's hysteresis absorbs. Nothing here runs per frame for a steady instance.
 //
@@ -70,7 +70,7 @@ import {
   type CurvesCurves,
 } from "../wire.generated";
 import type { AudioVoice, PlayRequest } from "../backend";
-import { AutoTarget, evaluateInto, MAX_BINDINGS, MAX_CURVES, MAX_GLOBAL_SLOTS, MAX_GROUPS, MAX_LOCAL_SLOTS, MAX_VOICE_LOOPS, type AutomationSink, type AutoResult, type Binding, type VoiceLoop } from "../events/automation";
+import { AutoTarget, evaluateInto, MAX_BINDINGS, MAX_CURVES, MAX_GLOBAL_SLOTS, MAX_GROUPS, MAX_LOCAL_SLOTS, MAX_VOICE_LOOPS, type AutomationSink, type AutoResult, type Binding, type VoiceLoop } from "../automation";
 import { evalCurve } from "../../../../engine/core/curve";
 import { onLoopPoints } from "../loopPoints";
 import type { ClipInfo } from "./clipRegistry";

@@ -11,7 +11,7 @@
 // - Overlaps: for the Trigger dialog, the other snapshots sharing a bus or a parameter with one, and who wins where.
 //
 // Pure.
-import { isLabelled, type ParameterDef } from "../../../engine/audio/eventFormat";
+import { isLabelled, type ParameterDef } from "../../../engine/audio/parameters";
 import { startHolds } from "../../../engine/audio/project/snapshots";
 import type { ConditionOp, Snapshot, SnapshotCondition, SnapshotStart } from "../../../engine/audio/project/types";
 

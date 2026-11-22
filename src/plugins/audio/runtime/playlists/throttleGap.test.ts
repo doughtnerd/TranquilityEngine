@@ -31,7 +31,7 @@ import { Audio } from "../index";
 import { fakeDecoder, type PlanarClip } from "../core/fakeDecoder";
 import type { CoreBackend } from "../core/coreBackend";
 import { endAudioSession, loopbackAudio, closeLoopbackAudio } from "../testing";
-import { events } from "../events/eventRuntime";
+import { playlistHost } from "../playlists/host";
 
 const SAMPLE = fileURLToPath(new URL("../../../../../samples/sound-lab/", import.meta.url));
 const RATE = 48_000;
@@ -123,7 +123,7 @@ async function render(event: string, script: Record<number, number>, total: numb
       if (script[f] !== undefined) {
         h.setParameter("RPM", script[f]!);
       }
-      events().update(FRAME_SECONDS);
+      playlistHost().update(FRAME_SECONDS);
       loop.tick(FRAME_SECONDS);
       const out = loop.render(FRAME_QUANTA);
       const rms: number[] = [];

@@ -1,20 +1,23 @@
-// ADR 0249: the event and music rows are composed once above the backend seam, for `Audio.debug()` and the capture's
-// keyframe, whichever backend plays. The keyframe half keeps FU5's rule (no Set, Map or array per keyframe; every row a
+// ADR 0249: the event rows (the playlist runtime's instances, ADR 0329) and the music section are composed once above the
+// backend seam, for `Audio.debug()` and the capture's keyframe, whichever backend plays. The keyframe half keeps FU5's rule (no Set, Map or array per keyframe; every row a
 // pooled object), counted by construction, never by heap deltas.
-import { afterEach, describe, expect, it } from "vitest";
-import { emptySegment } from "../../../engine/audio/musicFormat";
+import { describe, expect, it } from "vitest";
 import type { AudioCaptureSource, BackendKeyframe } from "./backend";
-import { KEYFRAME_PITCH_ONE, KeyframeMusicState, NO_NAME } from "./capture/keyframeLayout";
-import type { EventInstance } from "./events/eventRuntime";
-import { createMusicPlayer } from "./music/musicSystem";
+import { KEYFRAME_PITCH_ONE, NO_NAME } from "./capture/keyframeLayout";
 import { debugRows, KeyframeRows } from "./audioRows";
-import { endAudioSession, makeFakeBackend } from "./testing";
+import { Audio } from "./Audio";
+import { eventKit, pla, sample } from "./playlists/testKit";
 
-afterEach(() => endAudioSession());
+const kit = eventKit();
 
-const player = (group: number) => createMusicPlayer({ group, path: `m${group}.audioevent.json` } as unknown as EventInstance, emptySegment("verse"));
+/** Boots with two playlists and plays each once: two instances. */
+async function twoPlaying(): Promise<void> {
+  await kit.boot({ "p.playlist.json": pla("clip", [sample("a.wav")]), "q.playlist.json": pla("clip", [sample("b.wav")]) });
+  Audio.play("p.playlist.json");
+  Audio.play("q.playlist.json");
+}
 
-/** A backend's keyframe: one voice of event 9, nothing else. */
+/** A backend's keyframe: one voice of instance 9, nothing else. */
 function source(): AudioCaptureSource & { calls: number } {
   const k: BackendKeyframe = {
     voices: [{ id: 1, clip: 0, slot: 0, state: 0, priority: 0, reason: 0, gain: 1, pitch: KEYFRAME_PITCH_ONE, audibility: 0, playheadFrames: 0 }],
@@ -52,29 +55,26 @@ function countConstructions(body: () => void): { sets: number; maps: number; arr
 }
 
 describe("KeyframeRows (the capture's keyframe, ADR 0249)", () => {
-  it("passes the backend's sections through and adds one music row per player", () => {
+  it("passes the backend's sections through and adds one event row per playing playlist instance; no music rows", async () => {
     const src = source();
     const rows = new KeyframeRows(src, { time: 1 });
-    player(4);
-    player(6);
-    const p = rows.read((_t, name) => name.length, NO_NAME);
-    expect(src.calls).toBe(1);
+    let p = rows.read((_t, name) => name.length, NO_NAME);
+    expect(p.events).toEqual([]); // no instance plays: the backend's voice counts alone make no row
+    await twoPlaying();
+    p = rows.read((_t, name) => name.length, NO_NAME);
+    expect(src.calls).toBe(2);
     expect(p.voices.map((v) => v.id)).toEqual([1]);
     expect(p.mix.slotTableVersion).toBe(3);
-    expect(p.events).toEqual([]); // no event instance plays: the backend's voice counts alone make no row
-    expect(p.music.map((m) => [m.id, m.state, m.segment, m.bar, m.beat])).toEqual([
-      [4, KeyframeMusicState.priming, NO_NAME, 1, 1],
-      [6, KeyframeMusicState.priming, NO_NAME, 1, 1],
-    ]);
+    expect(p.events.map((e) => [e.asset, e.voices])).toEqual([["p.playlist.json".length, 1], ["q.playlist.json".length, 1]]);
+    expect(p.music).toEqual([]);
   });
 
-  it("builds nothing per keyframe after warm-up, and reuses its arrays and rows", () => {
+  it("builds nothing per keyframe after warm-up, and reuses its arrays and rows", async () => {
+    await twoPlaying();
     const rows = new KeyframeRows(source(), { time: 1 });
-    player(4);
-    player(6);
     const nameId = (_t: string, name: string): number => name.length;
     const first = rows.read(nameId, NO_NAME);
-    const music = [...first.music];
+    const events = [...first.events];
     const arrays = [first.events, first.music];
     for (let i = 0; i < 5; i++) rows.read(nameId, NO_NAME);
     const c = countConstructions(() => { for (let i = 0; i < 600; i++) rows.read(nameId, NO_NAME); });
@@ -82,25 +82,26 @@ describe("KeyframeRows (the capture's keyframe, ADR 0249)", () => {
     const p = rows.read(nameId, NO_NAME);
     expect(p).toBe(first);
     [p.events, p.music].forEach((a, k) => expect(a).toBe(arrays[k]));
-    p.music.forEach((r, k) => expect(r).toBe(music[k]));
+    p.events.forEach((r, k) => expect(r).toBe(events[k]));
   });
 });
 
-describe("debugRows (Audio.debug()'s event and music rows, ADR 0249)", () => {
-  it("a backend with music gets a row per player and totals from its own view, whichever backend it is", () => {
-    const b = makeFakeBackend();
-    player(4);
+describe("debugRows (Audio.debug()'s event rows and music section, ADR 0249)", () => {
+  it("a backend with music gets an empty music section and totals from its own view; the instances are event rows", async () => {
+    await twoPlaying();
+    const b = kit.fake;
     const rows = debugRows(b.debug(), b);
-    expect(rows.music!.map((r) => [r.id, r.state, r.primeEmaMs])).toEqual([[4, "priming", 40]]);
+    expect(rows.music).toEqual([]);
     expect(rows.musicTotals).toMatchObject({ poolUsed: 0, groupsLate: 0, refusals: {}, stingers: { played: 0, late: 0, skipped: 0, dropped: 0 } });
-    expect(rows.events).toEqual([]);
+    expect(rows.events.map((r) => r.asset)).toEqual(["p.playlist.json", "q.playlist.json"]);
     expect(rows.eventTotals).toEqual({ lateStarts: 0 });
+    expect(rows.playlistTotals?.lateStarts).toBe(0);
   });
 
-  it("a backend without music (the pending stand-in) reports no music section", () => {
-    const b = makeFakeBackend();
+  it("a backend without music (the pending stand-in) reports no music section", async () => {
+    await twoPlaying();
+    const b = kit.fake;
     b.music = undefined;
-    player(4);
     const rows = debugRows(b.debug(), b);
     expect(rows.music).toBeUndefined();
     expect(rows.musicTotals).toBeUndefined();

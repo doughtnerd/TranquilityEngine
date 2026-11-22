@@ -5,7 +5,7 @@
 // the refusal.
 import type { ComponentChildren } from "preact";
 import { TextField } from "../../../editor/sdk";
-import { isLabelled, type ParameterDef } from "../../../engine/audio/eventFormat";
+import { isLabelled, type ParameterDef } from "../../../engine/audio/parameters";
 import type { EditResult } from "./editResult";
 import type { ParameterKind, ParameterList } from "./parameterList";
 import "./parameters.css";

@@ -4,8 +4,8 @@ import {
   formatAudioEvent,
   parseAudioEvent,
   type AudioEventAsset,
-} from "../../../engine/audio/eventFormat";
-import { audioEventFormat, audioEventReferences } from "./eventAsset";
+} from "../../../engine/audio/migrate/legacy/eventFormat";
+import { audioEventReferences } from "./eventAsset";
 
 /** An event built from a literal root through the engine's lenient parser. */
 const eventOf = (root: unknown): AudioEventAsset => parseAudioEvent({ format: AUDIO_EVENT_FORMAT, root }).value;
@@ -14,33 +14,6 @@ const clip = (path: string) => ({ type: "clip", clip: path });
 
 /** The clip paths the kind's references extractor reads from the event's saved text. */
 const eventClipPaths = (event: AudioEventAsset): readonly string[] => audioEventReferences.read("sfx/x.audioevent.json", formatAudioEvent(event));
-
-describe("audioEventFormat", () => {
-  it("parses a valid event with no problems and formats it back to the same value", () => {
-    const { value, problems } = parseAudioEvent({
-      format: AUDIO_EVENT_FORMAT,
-      bus: "SFX",
-      volume: 0.8,
-      root: { type: "random", avoidRepeat: 1, children: [clip("sfx/a.ogg"), clip("sfx/b.ogg")] },
-    });
-    expect(problems).toEqual([]);
-
-    const text = audioEventFormat.format(value);
-    const again = audioEventFormat.parse(JSON.parse(text), "x.audioevent.json");
-    expect(again.value).toEqual(value);
-    expect(again.problems).toEqual([]);
-    expect(text).toBe(formatAudioEvent(value));
-  });
-
-  it("reports parse problems as { message } and never throws, for undefined and for junk", () => {
-    for (const raw of [undefined, "junk"]) {
-      const read = audioEventFormat.parse(raw, "x.audioevent.json");
-      expect(read.problems.length).toBeGreaterThan(0);
-      for (const problem of read.problems) expect(typeof problem.message).toBe("string");
-      expect(read.value.root.type).toBe("layer");
-    }
-  });
-});
 
 describe("audioEventReferences clip paths", () => {
   it("lists clips at every depth, once each, in tree order", () => {

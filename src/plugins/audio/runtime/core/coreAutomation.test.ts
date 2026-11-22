@@ -3,7 +3,7 @@
 // selection's view of automated gain, and the region-aware wrap.
 import { describe, expect, it } from "vitest";
 import type { Curve } from "../../../../engine/core/curve";
-import { AutoTarget, TimeParam, timeParam, type Binding } from "../events/automation";
+import { AutoTarget, TimeParam, timeParam, type Binding } from "../automation";
 import { Kind, Op, readEnvelope, readRecordHead } from "../wire.generated";
 import type { AudioVoice } from "../backend";
 import { CommandWriter, CORE_CURVE_KEYS, AUTOMATION_GLOBAL, AUTOMATION_TIME } from "./commandWriter";

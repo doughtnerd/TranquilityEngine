@@ -92,8 +92,8 @@ export const STUDIO_ASSET_KINDS: readonly AssetKindContribution[] = [
     icon: PLAYLIST_ICON,
     format: playlistFormat,
     folder: "audio",
-    // `AudioSource.clip` takes a playlist where it took an audio event (ADR 0329 "Public API").
-    referencedAs: ["audioEvent"],
+    // `AudioSource.clip` takes a playlist (ADR 0329 "Public API").
+    referencedAs: ["playlist"],
     references: playlistReferenceReader,
   },
   { id: "derivedSample", extensions: [SAMPLE_SUFFIX], label: "Sample", icon: SAMPLE_ICON, format: derivedSampleFormat, folder: "audio", references: derivedSampleReferenceReader },

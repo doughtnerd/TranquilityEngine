@@ -7,7 +7,7 @@
 // shows as a toast. The selection, playhead and modes live in `sequenceState.ts`, shared with the Inspector and the
 // transport.
 import { useEffect, useRef, useState } from "preact/hooks";
-import type { ParameterDef } from "../../../../engine/audio/eventFormat";
+import type { ParameterDef } from "../../../../engine/audio/parameters";
 import type { PlaylistLint } from "../../../../engine/audio/playlist/lint";
 import type { Clip, PlaylistBody, SequenceSettings } from "../../../../engine/audio/playlist/types";
 import type { CurveInterp } from "../../../../engine/core/curve";

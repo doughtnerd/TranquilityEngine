@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import { Audio } from "../index";
 import { Assets } from "../../../../myco";
-import { eventKit, pla, sample } from "../events/eventTestKit";
+import { eventKit, pla, sample } from "./testKit";
 
 const kit = eventKit();
 const fake = kit.fake;

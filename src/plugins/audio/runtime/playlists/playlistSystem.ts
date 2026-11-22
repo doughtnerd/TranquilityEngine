@@ -1,7 +1,8 @@
 /**
- * The playlist runtime (ADR 0329): plays `*.playlist.json` assets as instances of ordinary voices. Hosted by the event
- * runtime (`EventSystem.host`), whose automation sink, curve table, global parameters, instance groups, per-World
- * generators and frame it shares, so ids, the profile and the debug rows stay one space while both run.
+ * The playlist runtime (ADR 0329): plays `*.playlist.json` assets, and samples as one-sample Clip playlists, as instances
+ * of ordinary voices. Hosted by `host.ts` (`PlaylistHost`), whose automation sink, curve table, global parameters,
+ * instance groups, per-World generators and frame it uses. An audio event (`*.audioevent.json`, the format the playlists
+ * replaced) is refused with a message naming the migration.
  *
  * A trigger runs the gate (cooldown, chance, max instances with steals; `engine/audio/playlist/gate.ts`), then resolves
  * the tree (`nodes.ts`). Refused triggers are counted with their reason and the latest are kept for `Audio.debug()`.
@@ -10,15 +11,28 @@ import { World } from "../../../../engine/core/World";
 import { mixer } from "../../../../engine/audio/mixer";
 import { gateTrigger, STEAL_FADE_SECONDS, type GateCandidate } from "../../../../engine/audio/playlist/gate";
 import { newPickState, type PickState } from "../../../../engine/audio/playlist/picks";
-import { isLabelled, type ParameterDef } from "../../../../engine/audio/eventFormat";
+import { isLabelled, type ParameterDef } from "../../../../engine/audio/parameters";
 import { Camera } from "../../../../engine/render/components";
 import type { Vec3Like } from "../../../../engine/core/math";
 import { AudioListener, listenerPose } from "../AudioListener";
-import { events, type EventDebugRow, type HostedRuntime } from "../events/eventRuntime";
+import { audioEventRefusal, isAudioEventPath } from "../../../../engine/audio/retiredAudioEvent";
+import { isPlaylistPath } from "../../../../engine/audio/playlist/format";
+import { playlistHost, type HostedRuntime } from "./host";
 import { taps } from "../mix/profileTaps";
 import { NULL_PROFILE_SINK } from "../mix/profileSink";
-import { loadPlaylist } from "./loader";
+import { loadPlaylist, samplePlaylist } from "./loader";
 import { PlaylistInstance, type InstanceSystem, type PlaylistOptions } from "./instance";
+
+/** A row of `Audio.debug().events`: one playlist instance (`asset` is the playlist's path) and its late-start count. */
+export interface EventDebugRow {
+  id: number;
+  asset: string;
+  world: number;
+  voices: number;
+  parameters: Record<string, number | string>;
+  /** Entries of a continuous Queue this instance started on the previous one's end, one frame late. */
+  lateStarts: number;
+}
 
 /** Why a trigger played nothing. */
 export type PlaylistRefusalReason = "cooldown" | "chance" | "maxInstances" | "missing" | "unsupported";
@@ -75,14 +89,23 @@ export class PlaylistSystem implements HostedRuntime, InstanceSystem {
   private readonly steals: PlaylistSteal[] = [];
   private lateStarts = 0;
   private endsSeen = 0;
+  /** Audio event paths already warned about (one warning each per session). */
+  private readonly refusedEvents = new Set<string>();
 
-  /** Plays a playlist; null when the trigger played nothing (its reason is recorded). */
+  /**
+   * Plays a playlist (or a sample, as a one-sample Clip playlist); null when the trigger played nothing (its reason is
+   * recorded). An audio event file is refused (`unsupported`) with one warning naming the migration.
+   */
   play(path: string, options: PlaylistOptions, world: number, sourceKey?: string): PlaylistInstance | null {
-    const host = events();
+    const host = playlistHost();
     host.host(this);
     host.syncSettings(); // the seed, globals and backend as the project has them now (the generator is seeded here)
     this.reapIfEnded();
-    const asset = loadPlaylist(path);
+    if (isAudioEventPath(path)) {
+      if (!this.refusedEvents.has(path)) { this.refusedEvents.add(path); console.warn(`[myco] ${audioEventRefusal("Audio.play", path)}`); }
+      return this.refuse(path, world, "unsupported");
+    }
+    const asset = isPlaylistPath(path) ? loadPlaylist(path) : samplePlaylist(path);
     if (!asset) return this.refuse(path, world, "missing");
     const key = `${world}:${sourceKey ?? path}`;
     const now = host.now();
@@ -108,7 +131,7 @@ export class PlaylistSystem implements HostedRuntime, InstanceSystem {
     return instance;
   }
 
-  /** Global parameter reads for `Audio.getParameter` go through the event runtime; this only forwards changes. */
+  /** Global parameter reads for `Audio.getParameter` go through the host; this only forwards changes. */
   onGlobal(name: string): void {
     for (const i of this.live) i.onParameter(name, true);
   }
@@ -116,7 +139,7 @@ export class PlaylistSystem implements HostedRuntime, InstanceSystem {
   update(dt: number): void {
     if (this.live.size === 0 && this.timers.length === 0 && this.holding.length === 0) return;
     this.reapIfEnded();
-    const t = events().clock();
+    const t = playlistHost().clock();
     while (this.timers.length > 0 && this.timers[0]!.at <= t) {
       // A stopped instance's timer still runs its wrapper, which only counts it down (`PlaylistInstance.schedule`).
       this.timers.shift()!.run();
@@ -146,6 +169,7 @@ export class PlaylistSystem implements HostedRuntime, InstanceSystem {
     this.steals.length = 0;
     this.lateStarts = 0;
     this.endsSeen = mixer.voicesEnded;
+    this.refusedEvents.clear();
   }
 
   forgetWorld(key: number): void {
@@ -159,7 +183,7 @@ export class PlaylistSystem implements HostedRuntime, InstanceSystem {
 
   // --- InstanceSystem ---------------------------------------------------------------------------------------------
 
-  random(world: number): number { return events().random(world); }
+  random(world: number): number { return playlistHost().random(world); }
 
   pickState(world: number, key: string): PickState {
     let m = this.picks.get(world);
@@ -189,7 +213,7 @@ export class PlaylistSystem implements HostedRuntime, InstanceSystem {
       this.lingering.push(instance);
     }
     if (instance.hasVoices && instance.group > 0) this.holding.push(instance);
-    else events().giveGroup(instance.group);
+    else playlistHost().giveGroup(instance.group);
   }
 
   noteParameter(name: string, def: ParameterDef, value: number, instance: number | null): void {
@@ -262,7 +286,7 @@ export class PlaylistSystem implements HostedRuntime, InstanceSystem {
 
   private refuse(path: string, world: number, reason: PlaylistRefusalReason, message?: string): null {
     this.refusedCounts[reason]++;
-    this.note(this.refusals, { playlist: path, world, reason, time: events().clock() });
+    this.note(this.refusals, { playlist: path, world, reason, time: playlistHost().clock() });
     if (message) console.warn(message);
     return null;
   }
@@ -290,7 +314,7 @@ export class PlaylistSystem implements HostedRuntime, InstanceSystem {
     let w = 0;
     for (const i of this.holding) {
       if (i.hasVoices) this.holding[w++] = i;
-      else events().giveGroup(i.group);
+      else playlistHost().giveGroup(i.group);
     }
     this.holding.length = w;
   }
@@ -320,11 +344,11 @@ export function playlistsIfStarted(): PlaylistSystem | null {
   return system;
 }
 
-/** The page's playlist runtime (hosted by the event runtime on first use). */
+/** The page's playlist runtime (hosted by the playlist host on first use). */
 export function playlists(): PlaylistSystem {
   if (!system) {
     system = new PlaylistSystem();
-    events().host(system);
+    playlistHost().host(system);
   }
   return system;
 }

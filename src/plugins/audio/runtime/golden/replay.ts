@@ -1,10 +1,10 @@
 // @internal Test support (ADR 0166 M4-0 task Z3 and the golden families after it; consistent with ADR 0221 and 0234): the
 // one replay of the audio goldens on the committed wasm. Never imported by runtime code.
 //
-// **Where fixtures live.** One folder per suite under `golden/` (`goldenDir`): `core/` (`audioGolden.test.ts`), `events/`
-// (`events/eventGolden.test.ts`), `zones/` (`core/zonesLoopback.test.ts`), `m4/` and `gate/` (written natively by
+// **Where fixtures live.** One folder per suite under `golden/` (`goldenDir`): `core/` (`audioGolden.test.ts`),
+// `zones/` (`core/zonesLoopback.test.ts`), `m4/` and `gate/` (written natively by
 // `in_voice_goldens.rs` and `gate_*.rs`), `m5/` and `m5/sidechain/` (`m5_goldens.rs`, `sends_post_fader_golden.rs`,
-// `sidechain_goldens.rs`), `seams/` (`music/seam.test.ts`), `loudness/` (`loudness_ebu.rs`). A suite owns its folder, so
+// `sidechain_goldens.rs`), `seams/` (written by the retired music runtime's `music/seam.test.ts`, kept as recorded wire traces), `loudness/` (`loudness_ebu.rs`). A suite owns its folder, so
 // "the folder holds exactly the suite's files" needs no filename prefix.
 //
 // **Z3's fixture** (`Fixture`): `preset` (the init values that differ from `LOOPBACK_PRESET`), `clips` (mono f32 clips at
@@ -28,7 +28,7 @@ import type { CorePreset } from "../worklet/coreDriver";
 export const UPDATE_GOLDENS = process.env.UPDATE_GOLDENS === "1";
 
 /** A suite's fixture folder (see the header). */
-export type GoldenSuite = "core" | "events" | "zones" | "m4" | "gate" | "m5" | "m5/sidechain" | "seams" | "loudness";
+export type GoldenSuite = "core" | "zones" | "m4" | "gate" | "m5" | "m5/sidechain" | "seams" | "loudness";
 
 const ROOT = fileURLToPath(new URL("./", import.meta.url));
 

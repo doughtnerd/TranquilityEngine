@@ -3,7 +3,7 @@
 // Clip — through the public API on the fake backend's single clock (ADR 0286).
 import { describe, expect, it } from "vitest";
 import { Audio } from "../Audio";
-import { eventKit, pla, sample } from "../events/eventTestKit";
+import { eventKit, pla, sample } from "./testKit";
 import type { FakeVoice } from "../testing";
 
 const kit = eventKit();

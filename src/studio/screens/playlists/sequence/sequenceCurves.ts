@@ -3,7 +3,7 @@
 // automated), each driven by time ("Clip time" on a clip, "Timeline" on a track) or a scalar parameter; Apply writes
 // the lanes back as one edit: a changed lane's curve, input and bypass; a newly shaped lane becomes automation; a lane
 // flattened to one value goes back to the plain value (proto: "Flat lanes collapse back to plain values"). Pure.
-import { isLabelled, type ParameterDef } from "../../../../engine/audio/eventFormat";
+import { isLabelled, type ParameterDef } from "../../../../engine/audio/parameters";
 import type { CurveKey } from "../../../../engine/core/curve";
 import type { Automation, CurveInput as PlaylistCurveInput, SequenceSettings } from "../../../../engine/audio/playlist/types";
 import { TIME_INPUT, type CurveEditorResult, type CurveEditorSpec, type CurveInput, type CurveLane } from "../../../../editor/ui/curves/curveEditorModel";

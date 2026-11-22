@@ -5,7 +5,7 @@ import { getComponentClass } from "../../../../engine/core/registry";
 import { parseAudioTestScene } from "../../../../engine/audio/spatial/testScene";
 import { AUDIO_SCENE_FORMAT } from "../../../../engine/audio/spatial/testSceneTypes";
 import { World } from "../../../../engine/core/World";
-import { eventKit, pla, sample } from "../events/eventTestKit";
+import { eventKit, pla, sample } from "../playlists/testKit";
 import { AudioListener } from "../AudioListener";
 import { AudioOccluder } from "../AudioOccluder";
 import { AudioReverbZone } from "../AudioReverbZone";

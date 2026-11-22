@@ -24,7 +24,8 @@
 
 import type { Curve } from "../core/curve";
 import { detectPlatform, type PlatformEnv } from "../core/graphics";
-import { audioCurve, parseParameters, type ParameterDef } from "./eventFormat";
+import { parseParameters, type ParameterDef } from "./parameters";
+import { audioCurve } from "./audioCurveLimit";
 import { BUS_RULES, MAX_BUSES, MAX_CORE_BUS_EFFECTS, busRuleFindings, findingText } from "./busCapability";
 import { DEFAULT_MATERIAL_NAME, builtinMaterials, parseOccluderMaterials, resolveDefaultMaterial, type OccluderMaterial } from "./occlusionMaterials";
 

@@ -14,7 +14,7 @@
  *
  * Times are seconds on the mixer's heard clock. Pure; no plugin, no DOM.
  */
-import type { ParameterDef } from "../eventFormat";
+import type { ParameterDef } from "../parameters";
 import { resolveSnapshots, startHolds, startParameters, valueOf, type ActiveSnapshot, type ResolvedMix } from "./snapshots";
 import type { Snapshot } from "./types";
 

@@ -10,7 +10,7 @@ import { mixer, type Mixer, type MixOpTarget, type ResolvedBus } from "../../../
 import type { MixOp, OpClass } from "../../../engine/audio/mixOps";
 import type { AudioSettings } from "../../../engine/audio/settings";
 import { onAudioConfigured } from "../../../engine/core/audioConfigure";
-import type { AutomationSink } from "./events/automation";
+import type { AutomationSink } from "./automation";
 import type { Curve } from "../../../engine/core/curve";
 import type { AudioLatency, MusicEventHandle } from "../../../engine/audio/musicTypes";
 import type { AudioMarkerEvent, AudioMarkerType } from "../../../engine/audio/markerTypes";
@@ -620,7 +620,7 @@ export interface AudioBackend {
   /** ADR 0166 §4.6, C10: the music operations. Absent: no music (the player plays nothing and warns once). */
   readonly music?: MusicBackend;
   /**
-   * ADR 0158: the backend's own automation (the core's tables). Absent: the event runtime evaluates automation on main
+   * ADR 0158: the backend's own automation (the core's tables). Absent: the playlist runtime evaluates automation on main
    * with `TsAutomation` once per frame and drives voices through their setters.
    */
   readonly automation?: AutomationSink;
@@ -751,7 +751,7 @@ export function onAudioBackendAttached(fn: (b: AudioBackend) => void): void {
 
 /**
  * ADR 0248: `fn` runs after the installed backend's live mix sent an op (`mixer.apply` reached `MixOpTarget.sendOp`), on
- * every backend: the event runtime binds bus automation again after a `setAutomation`.
+ * every backend: the playlist runtime binds bus automation again after a `setAutomation`.
  */
 export function onMixOpSent(fn: (op: MixOp, cls: OpClass) => void): void {
   opSentHooks.push(fn);
