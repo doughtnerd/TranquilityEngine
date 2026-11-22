@@ -87,6 +87,28 @@ export function startRebind(world: World, player: GameObject, action: string, op
   });
 }
 
+/** A rebind in progress, as the editor's input debugger shows it. */
+export interface PendingRebind {
+  readonly action: string;
+  /** The context and mapping index whose control it replaces, and the part (`control`, `up`, `modifier0`…). */
+  readonly context: string;
+  readonly mapping: number;
+  readonly part: string;
+  /** The devices it listens to. */
+  readonly device: "keyboard" | "gamepad";
+  /** The control that cancels it. */
+  readonly cancel: string;
+  /** Seconds before it gives up (Infinity: it waits). */
+  readonly remaining: number;
+}
+
+/** @internal The rebind a player node is waiting on, or null (the editor's input debugger). */
+export function pendingRebind(player: GameObject): PendingRebind | null {
+  const token = player.isValid ? player.getData(RebindRequest)?.token : undefined;
+  const p = token === undefined ? undefined : pending.get(token);
+  return p ? { action: p.action, context: p.context, mapping: p.mapping, part: p.part, device: p.gamepad ? "gamepad" : "keyboard", cancel: p.cancel, remaining: p.remaining } : null;
+}
+
 function finish(player: GameObject, token: number, chosen: { control: string; conflicts: string[] } | null): void {
   const p = pending.get(token);
   pending.delete(token);

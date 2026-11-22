@@ -172,3 +172,20 @@ player.rumble(0.3, 0.8, 200);
 - **Web:** builds read the browser's Gamepad API. The engine applies the SDL controller database to pads the browser doesn't map, and detects each pad's family.
 - **Touch and pen:** a touchscreen and a pen are devices of their own, which appear when first used. The first finger down and the pen also act as the mouse, so `Input.getMouseButton(0)` and UI buttons work by touch. A touch or pen press on a UI button goes to the UI, not the game.
 - **Your own devices:** `Input.inject` reports device events as an adapter does, for on-screen controls, automation and tests.
+
+## In the editor
+
+- **New contexts:** the Assets panel's New… menu has **New Input Context**, which writes `input/New Input Context.input.json`.
+- **Editing a context:** select the file to edit it in the Inspector, or double-click it to open the **Input Context** panel. For each mapping, pick:
+  - the action;
+  - its controls: one control, a d-pad, an axis or a chord. Type a path, pick one from the list by device, or click **Bind** and press the key, mouse button or gamepad control. Escape cancels.
+  - its modifiers, its triggers and their type, and whether it consumes its controls.
+
+  Under each mapping are the problems Play would report: an unknown action, a bad control path, bad parameters. Edits undo like any asset's, and a running game picks up the saved file.
+- **InputContext's `context` field** lists the project's `*.input.json` files and the contexts your scripts register.
+- **Input Debugger panel** (Window › Input Debugger): while playing, pick a World to see:
+  - its devices and players;
+  - each player's active contexts by priority, and the controls each one consumed;
+  - every action's value, phase flags and hold time, and the mapping that produced it;
+  - rebinds in progress;
+  - a log of recent action, device, join and rebind events.
