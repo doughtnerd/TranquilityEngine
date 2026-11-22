@@ -9,6 +9,7 @@ import { openSpriteEditor } from "./assetImport";
 import type { SceneDocument } from "./document";
 import { wouldNest } from "./prefabs";
 import { assetKinds, type AssetKindContribution, type AssetSceneNodes } from "./sdk/contributions";
+import { STRINGS_ASSET_KIND } from "./ui/localisation/stringsKind";
 
 const CODE_ICON = "M9 8l-4 4 4 4M15 8l4 4-4 4M13 6l-2 12";
 const FILE_ICON = "M7 3h7l5 5v13H7zM14 3v5h5";
@@ -93,6 +94,8 @@ const CORE_ASSET_KINDS: readonly AssetKindContribution[] = [
     referencedAs: ["rendertexture"],
     create: { label: "New Render Texture", create: (folder) => import("./renderTextureAssets").then((m) => m.createRenderTexture(folder)) },
   },
+  // String tables and translations (ADR 0342 §1): asset documents the Localisation panel edits.
+  STRINGS_ASSET_KIND,
   { id: "json", extensions: [".json"], label: "JSON", icon: "M9 4H8a2 2 0 0 0-2 2v3a2 2 0 0 1-2 2 2 2 0 0 1 2 2v3a2 2 0 0 0 2 2h1M15 4h1a2 2 0 0 1 2 2v3a2 2 0 0 0 2 2 2 2 0 0 0-2 2v3a2 2 0 0 1-2 2h-1", codeEditor: true },
   { id: "xml", extensions: [".xml"], label: "XML", icon: CODE_ICON, codeEditor: true },
   { id: "script", extensions: [".ts"], label: "Script", icon: CODE_ICON, codeEditor: true }, // `.d.ts` is no script (the asset kind module)
