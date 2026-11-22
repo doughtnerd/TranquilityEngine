@@ -52,13 +52,20 @@ describe("offsets per device", () => {
 });
 
 describe("status bar", () => {
-  const stats = { backend: "core", status: "running", sampleRate: 48000, voices: 3, voiceCap: 64, cpuPercent: 4.2, cpuNote: null, underruns: 0, latencyMs: 23.4, latencyReliable: true };
+  const stats = { backend: "core", status: "running", sampleRate: 48000, voices: 3, voiceCap: 64, cpuPercent: 4.2, cpuNote: null, underruns: 0, latencyMs: 23.4, latencyReliable: true, fxStarved: 0, fxStarvedOwner: null };
   it("shows the core's figures while running", () => {
     expect(statusParts({ kind: "running" }, stats).map((p) => p.text)).toEqual(["Rust core", "48 kHz", "Voices 3 / 64", "CPU 4.2 %", "23 ms"]);
   });
   it("warns about a full voice cap, unmeasured CPU, underruns and an estimated latency", () => {
     const parts = statusParts({ kind: "running" }, { ...stats, sampleRate: 44100, voices: 64, cpuPercent: null, cpuNote: "CPU not measured yet", underruns: 2, latencyReliable: false });
     expect(parts.map((p) => [p.text, p.tone])).toEqual([["Rust core", "success"], ["44.1 kHz", undefined], ["Voices 64 / 64", "warning"], ["CPU —", "muted"], ["23 ms", "muted"], ["2 underruns", "warning"]]);
+  });
+  it("warns when effects ran out of the core's effect memory, naming the last owner (ABI 4.8)", () => {
+    const parts = statusParts({ kind: "running" }, { ...stats, fxStarved: 2, fxStarvedOwner: "Ambience" });
+    const part = parts.find((p) => p.text === "Effect memory full")!;
+    expect(part.tone).toBe("warning");
+    expect(part.title).toMatch(/2 effects got no effect memory.*\(last: Ambience\)/);
+    expect(statusParts({ kind: "running" }, stats).some((p) => p.text === "Effect memory full")).toBe(false);
   });
   it("says what the runtime is doing otherwise", () => {
     expect(statusParts({ kind: "idle" }, null)[0].text).toBe("No project open");

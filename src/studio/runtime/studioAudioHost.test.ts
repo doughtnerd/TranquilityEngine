@@ -221,6 +221,8 @@ describe("Studio audio runtime host", () => {
 
   it("reads stats leniently", () => {
     const s = statsFromDebug({ status: "running", sampleRate: NaN, counters: undefined as never, core: {}, cpu: { loadPermille: null, hidden: "clock too coarse" } as never }, null);
-    expect(s).toMatchObject({ backend: "unknown", sampleRate: 0, voices: 0, cpuPercent: null, cpuNote: "clock too coarse", latencyMs: 0 });
+    expect(s).toMatchObject({ backend: "unknown", sampleRate: 0, voices: 0, cpuPercent: null, cpuNote: "clock too coarse", latencyMs: 0, fxStarved: 0, fxStarvedOwner: null });
+    const starved = statsFromDebug({ status: "running", sampleRate: 48000, counters: undefined as never, core: {}, cpu: null as never, mix: { fxStarved: 3, fxStarvedOwner: "instance submix 2" } as never }, null);
+    expect(starved).toMatchObject({ fxStarved: 3, fxStarvedOwner: "instance submix 2" });
   });
 });
