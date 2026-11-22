@@ -14,7 +14,7 @@ export interface DeleteDialogProps {
 }
 
 /** The delete confirmation's wording for a plan: where children go up to, and the summary line. */
-export function deleteWording(plan: DeletePlan): { up: string; summary: string } {
+function deleteWording(plan: DeletePlan): { up: string; summary: string } {
   const file = plan.target.kind === "file";
   return {
     up: file ? "Keep them: each embedded one becomes a playlist file in the same folder" : "Move them up to the parent playlist",

@@ -6,7 +6,7 @@
 // scrubs them. Weights are the engine's (`blendViewModel.ts`). A view over props.
 import { useRef, useState } from "preact/hooks";
 import type { Adsr, BlendAxis, PlaylistBody } from "../../../engine/audio/playlist/types";
-import { isLabelled, type ParameterDef } from "../../../engine/audio/eventFormat";
+import { isLabelled } from "../../../engine/audio/eventFormat";
 import { SegmentedControl } from "../../../editor/ui/SegmentedControl";
 import { NumberBox, SelectBox, Section } from "./fields";
 import type { BodyEdit } from "./EntryList";
@@ -213,7 +213,7 @@ const ADSR_FIELDS: { key: keyof Adsr; label: string; unit: string }[] = [
 ];
 
 /** The ADSR shape as an SVG path over a 0..1000 × 0..60 box (hold drawn as a fixed segment). */
-export function adsrPath(e: Adsr): string {
+function adsrPath(e: Adsr): string {
   const total = e.attackMs + e.decayMs + 400 + e.releaseMs || 1;
   const x = (ms: number) => (ms / total) * 1000;
   const y = (lvl: number) => 60 - lvl * 56;
@@ -251,4 +251,3 @@ export function EnvelopeEditor(props: { readonly body: PlaylistBody; readonly wr
   );
 }
 
-export type { ParameterDef };
