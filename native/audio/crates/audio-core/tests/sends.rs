@@ -63,7 +63,7 @@ fn raw(write: impl Fn(&mut [u8]) -> Result<usize, i32>) -> Rec {
 }
 
 fn voice_fx(voice: u32, mask: u32, send: [f32; 4], aux_bus: u16, aux_level: f32) -> Rec {
-    raw(|b| wire::SetVoiceFx { voice_id: voice, frame_offset: wire::ASAP, mask, ramp_frames: 0, hp_hz: 0.0, send, yaw: 0.0, aux_level, aux_bus, reserved: 0 }.write(b, 0))
+    raw(|b| wire::SetVoiceFx { voice_id: voice, frame_offset: wire::ASAP, mask, ramp_frames: 0, hp_hz: 0.0, send, yaw: 0.0, aux_level, aux_bus, spread: 0 }.write(b, 0))
 }
 
 fn set_gain(voice: u32, gain: f32) -> Rec {

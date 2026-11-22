@@ -136,8 +136,8 @@ async function rig(audio: Record<string, unknown>, assets: Record<string, unknow
 
 const listener = { id: "p1", name: "Player 1", position: { x: 0, y: 0, z: 0 } };
 
-/** A scene with the listener at the origin facing +z and `emitters` (static), zones and reverb zones as given. */
-function scene(parts: Partial<Pick<AudioTestScene, "emitters" | "audioZones" | "reverbZones">>): AudioTestScene {
+/** A scene (parsed from its file form) with the listener at the origin facing +z and `emitters` (static), zones and reverb zones as given. */
+function scene(parts: { emitters?: unknown[]; audioZones?: unknown[]; reverbZones?: unknown[] }): AudioTestScene {
   return parseAudioTestScene({ format: AUDIO_SCENE_FORMAT, listeners: [listener], activeListener: "p1", ...parts }).scene;
 }
 const emitter = (id: string, z: number, sound: string, x = 0) => ({ id, name: id, kind: "static", position: { x, y: 0, z }, sound, volume: 0 });

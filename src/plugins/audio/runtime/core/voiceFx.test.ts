@@ -15,6 +15,7 @@ import {
   SET_VOICE_FX_MASK_AUX,
   SET_VOICE_FX_MASK_HP_HZ,
   SET_VOICE_FX_MASK_SENDS,
+  SET_VOICE_FX_MASK_SPREAD,
   SET_VOICE_FX_MASK_YAW,
   readSetVoiceFx,
 } from "../wire.generated";
@@ -394,5 +395,50 @@ describe("VoiceFx promotion and lifetime (C20)", () => {
     expect(rec.send[2]).toBeCloseTo(0.5, 6);
     expect(rec.auxBus).toBe(1);
     expect(rec.auxLevel).toBeCloseTo(0.25, 6);
+  });
+});
+
+describe("VoiceFx spread (ADR 0333, ABI 4.11)", () => {
+  /** A writer that keeps the spread each SET_VOICE_FX carried, with its mask. */
+  function spreadRig() {
+    const table = new VoiceTable(8);
+    const sent: { mask: number; spread: number | undefined }[] = [];
+    const fx = new VoiceFx(table, { setVoiceFx: (a: VoiceFxArgs) => void sent.push({ mask: a.mask, spread: a.spread }), setParams: () => {} });
+    const i = slot(table.allocate(BUS, 10, WORLD, VoiceState.PLAYING));
+    return { fx, sent, i };
+  }
+
+  it("a spread goes out with the spread bit once it moves past 1 degree, or to or from 0", () => {
+    const { fx, sent, i } = spreadRig();
+    fx.setSpread(i, 90);
+    fx.flush(480);
+    expect(sent).toEqual([{ mask: SET_VOICE_FX_MASK_SPREAD, spread: 90 }]);
+    fx.setSpread(i, 90.6);
+    fx.flush(480);
+    expect(sent).toHaveLength(1);
+    fx.setSpread(i, 180);
+    fx.setSpread(i, 400); // clamped to all round
+    fx.flush(480);
+    expect(sent[1]).toEqual({ mask: SET_VOICE_FX_MASK_SPREAD, spread: 360 });
+    fx.setSpread(i, 0);
+    fx.flush(480);
+    expect(sent[2]).toEqual({ mask: SET_VOICE_FX_MASK_SPREAD, spread: 0 });
+    expect(fx.isDefault(i)).toBe(true);
+  });
+
+  it("a promoted voice gets its spread again (its pool entry was fresh), and the replay carries it in hundredths", () => {
+    const { fx, sent, i } = spreadRig();
+    fx.setSpread(i, 45);
+    fx.flush(0);
+    fx.onDemote(i);
+    fx.onPromote(i);
+    expect(sent.at(-1)).toEqual({ mask: SET_VOICE_FX_MASK_SPREAD, spread: 45 });
+    const b = new ReplayBuilder();
+    fx.replayVoice(b, 7, i);
+    const posted: ArrayBuffer[] = [];
+    b.post({ post: (buf) => posted.push(buf), nextSeq: () => 0 }, 0, false);
+    const rec = readSetVoiceFx(new DataView(posted[0]!), 32);
+    expect(rec.mask).toBe(SET_VOICE_FX_MASK_SPREAD);
+    expect(rec.spread).toBe(4500);
   });
 });
