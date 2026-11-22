@@ -114,4 +114,28 @@ describe("resolveSample (ADR 0328)", () => {
     expect(bad.source).toBe("");
     expect(bad.problems.join("\n")).toMatch(/bad\.sample\.json/);
   });
+
+  it("edits naming a flattened render play it: a project path, else a bare name beside the source; the edits stay", () => {
+    const files = {
+      "audio/a.wav": "data:", "audio/a.flat1.wav": "data:", "renders/b.wav": "data:", "audio/b.wav": "data:",
+      "audio/a.wav.meta.json": { sample: { trim: [0.1, 1], source: "a.flat1.wav" } },
+      "audio/b.wav.meta.json": { sample: { source: "renders/b.wav" } },
+      "audio/a.snip.sample.json": derived("audio/a.wav", { range: [0.2, 0.6], sample: { source: "a.flat1.wav" } }),
+    };
+    expect(resolveSample("audio/a.wav", reader(files))).toMatchObject({ source: "audio/a.wav", render: "audio/a.flat1.wav", edits: { trim: [0.1, 1] }, problems: [] });
+    expect(resolveSample("audio/b.wav", reader(files)).render).toBe("renders/b.wav");
+    expect(resolveSample("audio/a.snip.sample.json", reader(files))).toMatchObject({ source: "audio/a.wav", render: "audio/a.flat1.wav", edits: { trim: [0.2, 0.6] } });
+  });
+
+  it("a render that is missing, or is a derived sample, is reported and the source plays", () => {
+    const files = {
+      "a.wav": "data:", "a.wav.meta.json": { sample: { source: "a.flat1.wav" } },
+      "b.wav": "data:", "b.wav.meta.json": { sample: { source: "x.sample.json" } },
+    };
+    const a = resolveSample("a.wav", reader(files));
+    expect([a.render, a.source]).toEqual([null, "a.wav"]);
+    expect(a.problems[0]).toMatch(/a\.wav: its render "a\.flat1\.wav" isn't in the project/);
+    expect(resolveSample("b.wav", reader(files)).problems[0]).toMatch(/b\.wav: its render "x\.sample\.json" is a derived sample/);
+    expect(resolveSample("c.wav", reader({ "c.wav": "data:" })).render).toBeNull();
+  });
 });

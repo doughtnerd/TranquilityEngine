@@ -3,7 +3,7 @@
 // clips' facts (ADR 0286), and the project's assets and buses.
 import { describe, expect, it, vi } from "vitest";
 import { Assets } from "../../../myco";
-import { clipFacts, clipRequest, clipSource, clipStreams, clipVolume, isAmbisonicClip, sampleEdits, samplePlan } from "./clipResolver";
+import { clipFacts, clipRequest, clipSource, clipStreams, clipVolume, isAmbisonicClip, sampleEdits, samplePass, samplePlan } from "./clipResolver";
 import { eventKit } from "./playlists/testKit";
 
 const kit = eventKit();
@@ -91,5 +91,26 @@ describe("derived samples through the clip resolver (ADR 0328)", () => {
     const lines = warn.mock.calls.map((c) => String(c[0]));
     expect(lines.filter((l) => l.includes('its source "gone.wav" isn\'t in the project'))).toHaveLength(1);
     expect(lines.some((l) => l.includes("nope.sample.json"))).toBe(true);
+  });
+
+  it("the request carries the sample's trimmed start and its normalisation gain; the pass says where it ends", async () => {
+    await kit.boot({ "x.sample.json": { format: SAMPLE, source: "a.wav", range: [0.8, 1.6], lineage: { kind: "snippet", parent: "a.wav", mode: "pin" }, sample: { normalize: { mode: "peak", target: -1, gainDb: 6 } } } });
+    const req = clipRequest("x.sample.json", false, undefined);
+    expect(req.offset).toBe(0.8);
+    expect(req.volume).toBeCloseTo(Math.pow(10, 6 / 20));
+    expect(clipVolume("x.sample.json")).toBeCloseTo(Math.pow(10, 6 / 20));
+    // The file's length unknown: the trim decides; known: the trim ends before it.
+    expect(samplePass("x.sample.json")).toEqual({ offset: 0.8, length: expect.closeTo(0.8, 9), early: true });
+    kit.fake.durations.set("a.wav", 1.2);
+    expect(samplePass("x.sample.json")).toEqual({ offset: 0.8, length: expect.closeTo(0.4, 9), early: false });
+    expect(samplePass("x.sample.json", [0.8, 1.6], 0.1)).toMatchObject({ offset: 0.9, length: expect.closeTo(0.3, 9) });
+    expect(samplePass("b.wav")).toEqual({ offset: 0, length: null, early: false });
+  });
+
+  it("a flattened render is the clip that loads, with the source's settings and without the baked gain", async () => {
+    await kit.boot({ "a.flat1.wav": "data:flat", "a.wav.meta.json": { format: IMPORT, volume: 0.5, stream: true, sample: { normalize: { mode: "peak", target: -1, gainDb: 6 }, source: "a.flat1.wav" } } });
+    expect(clipSource("a.wav")).toBe("a.flat1.wav");
+    expect(clipRequest("a.wav", false, undefined)).toEqual({ path: "a.flat1.wav", url: "data:flat", loop: false, stream: true, bus: "Master", volume: 0.5 });
+    expect([samplePlan("a.wav").gain, clipVolume("a.wav"), clipStreams("a.wav")]).toEqual([1, 0.5, true]);
   });
 });
