@@ -198,6 +198,31 @@ describe("a moving emitter of a test scene on the loopback core (ADR 0333, 0162)
     }
   }, 60_000);
 
+  it("a listener moved while playing (the Spatial view's drag) is heard with Doppler too: (c ± v) / c", async (ctx) => {
+    const r = await rig();
+    if (!r) return ctx.skip();
+    // A static emitter at the origin; the listener walks along x from -80, OFFSET m off it, at 20 m/s (a pose a frame).
+    player = playAudioTestScene(engine!.world, parseAudioTestScene({
+      format: AUDIO_SCENE_FORMAT,
+      listeners: [{ id: "p1", name: "Player 1", position: { x: -80, y: 0, z: -OFFSET } }],
+      activeListener: "p1",
+      emitters: [{ id: "bell", name: "Bell", kind: "static", position: { x: 0, y: 0, z: 0 }, sound: "tone.wav", volume: 0 }],
+    }).scene);
+    let x = -80;
+    for (let t = 0; t < 8; t += DT) {
+      x += SPEED * DT;
+      player.moveObject("p1", { position: { x, y: 0, z: -OFFSET } });
+      await r.run(DT);
+    }
+    const up = frequency(r.out, 1, 2) / TONE_HZ;
+    const down = frequency(r.out, 6, 7) / TONE_HZ;
+    const cos = meanCos(40, 60);
+    const towards = (C + SPEED * cos) / C, away = (C - SPEED * cos) / C;
+    console.info(`[moving doppler] listener moving: approach ${up.toFixed(5)} (expected ${towards.toFixed(5)}), recession ${down.toFixed(5)} (expected ${away.toFixed(5)})`);
+    expect(up).toBeCloseTo(towards, 3);
+    expect(down).toBeCloseTo(away, 3);
+  }, 60_000);
+
   it("a route that doesn't loop stops at its end, and the pitch returns to the clip's", async (ctx) => {
     const r = await rig();
     if (!r) return ctx.skip();

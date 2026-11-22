@@ -14,7 +14,7 @@ import { eventKit } from "../../../plugins/audio/runtime/playlists/testKit";
 import { createRouter, type HashLocation } from "../../shell/route";
 import { provideStudio } from "../../shell/studioServices";
 import type { StudioAudioRuntime } from "../../runtime/studioAudioHost";
-import { livePlace, placeNow, startFrameLoop, type FrameSource } from "./liveMotion";
+import { dopplerRatioText, liveDistanceText, livePlace, placeNow, sameMotion, speedText, startFrameLoop, type FrameSource } from "./liveMotion";
 import { findObject, moveObjectTo } from "./sceneEdits";
 import { editScene, motion, openScene, playing, playScene, scene, stopAudition } from "./spatialScreen";
 
@@ -160,5 +160,28 @@ describe("the screen's frame loop", () => {
     f.fire(0.016);
     expect(seen).toEqual([0, 20, 0, 16]);
     expect(f.pending()).toBe(0);
+  });
+});
+
+describe("the readout of a moving emitter", () => {
+  const row = (doppler: number | null, playing = true) => ({ id: "car", kind: "emitter" as const, playing, rendered: "panned" as const, distance: 10, occlusion: null, doppler, dopplerCents: null });
+
+  it("shows the Doppler ratio and its cents, its speed and its live distance", () => {
+    expect(dopplerRatioText(row(343 / 323))).toBe("×1.062 · +104 ct");
+    expect(dopplerRatioText(row(343 / 363))).toBe("×0.945 · −98 ct");
+    expect(dopplerRatioText(row(1))).toBe("×1.000");
+    expect(dopplerRatioText(row(1.05, false))).toBe("—");
+    expect(dopplerRatioText(row(null))).toBe("—");
+    expect(dopplerRatioText(undefined)).toBe("—");
+    expect(speedText(12)).toBe("12.0 m/s");
+    expect(speedText(0)).toBe("Stopped");
+    expect(liveDistanceText({ x: 3, y: 0, z: 4 }, { x: 0, y: 0, z: 0 })).toBe("5.0 m");
+  });
+
+  it("redraws only when something moved", () => {
+    const a = [{ id: "car", position: { x: 1, y: 0, z: 0 }, direction: { x: 1, y: 0, z: 0 }, speed: 10 }];
+    expect(sameMotion(a, [{ ...a[0]!, position: { x: 1, y: 0, z: 0 } }])).toBe(true);
+    expect(sameMotion(a, [{ ...a[0]!, position: { x: 1.1, y: 0, z: 0 } }])).toBe(false);
+    expect(sameMotion(a, [])).toBe(false);
   });
 });
