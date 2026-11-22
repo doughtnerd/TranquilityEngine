@@ -21,7 +21,9 @@ import {
   slideLoop, snippets, sourceTime, updateLoop, updateMarker, viewTime, type SampleEdit,
 } from "./sampleEditing";
 import { detachMarker, fileOrigin, markerDiff, revertLoop, revertMarker } from "./sampleFile";
-import { lengthOf, loudnessOf, pcmNow, peaksFailure, peaksOf, wavMetadataOf, type SampleSession } from "./sampleSession";
+import { lengthOf, loudnessOf, pcmNow, pcmOf, peaksFailure, peaksOf, wavMetadataOf, type SampleSession } from "./sampleSession";
+import type { DetectKind } from "../../../engine/audio/sample/detect/detect";
+import { detectInto } from "./sampleDetect";
 import { editedLength, trimOf } from "./sampleTime";
 import { estimateLabelWidth, liveSelection, loopRegions, MARKER_ROWS_SHOWN, nextMarker, packMarkerRows, regionAt, sampleWarnings, selectionSpan, snapTime, trimHoldingMarkers, fitToSource } from "./sampleView";
 import { nearestZeroCrossing, seamJump } from "./seam";
@@ -97,6 +99,8 @@ function Timeline(props: { session: SampleSession }) {
     return zero && pcm ? nearestZeroCrossing(pcm, t) : t;
   };
   const commit = (r: SampleEdit, coalesce = false) => session.commit(r, { coalesce });
+  /** Detect (the Tempo and Root note popovers): the source audio, analysed on the detection worker, committed as one step. */
+  const detect = async (kind: DetectKind) => detectInto(session, await pcmOf(project, session.source.peek()), kind);
   const [ta, tb] = trimOf(e, length);
   const seamPcm = pcmNow(project, source);
   const seams = new Map(seamPcm ? e.loops.filter((l) => !isHold(l)).map((l) => [l.id, seamJump(seamPcm, l.start, l.end)] as const) : []);
@@ -173,8 +177,8 @@ function Timeline(props: { session: SampleSession }) {
           <button class="smp-tool" title="Write markers, loops, tempo and root into the WAV (a backup is kept)" disabled={session.readOnly || !/\.wave?$/i.test(source)} onClick={() => (dialog.value = { kind: "write" })}>Write to file…</button>
           <button class="smp-tool" title="Fork as new sample (Ctrl+Shift+S)" disabled={session.readOnly} onClick={() => (dialog.value = { kind: "fork", mode: "fork" })}>Fork…</button>
           <span class="smp-sep" />
-          <TempoPopover edits={e} commit={(r) => commit(r)} disabled={session.readOnly} />
-          <RootPopover edits={e} commit={(r) => commit(r)} disabled={session.readOnly} />
+          <TempoPopover edits={e} commit={(r) => commit(r)} detect={detect} disabled={session.readOnly} />
+          <RootPopover edits={e} commit={(r) => commit(r)} detect={detect} disabled={session.readOnly} />
           <NormalizePopover edits={e} measured={loudnessOf(project, source)} bextLoudness={wav?.bext?.loudnessValue ?? null} commit={(r) => commit(r)} disabled={session.readOnly} />
           <span class="smp-sep" />
           <button class="smp-tool" title="Add marker at the playhead (M)" disabled={session.readOnly} onClick={act.addMarkerAtPlayhead}>+ Marker</button>

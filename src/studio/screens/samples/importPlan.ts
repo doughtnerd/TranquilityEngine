@@ -1,11 +1,14 @@
 // The Samples import's model (ADR 0328 "Import", the prototype's review): which metadata kinds the picked WAV files
 // carry (cue points and labels, regions, sampler loops, root note, tempo, timecode origin), a toggle per kind, where
 // each file lands (Into folder, Keep structure), and the sidecar `sample` block each file gets from its chunks
-// filtered by the toggles. Pure: the view reads the files and copies them.
+// filtered by the toggles, with the detected tempo and root filling what a file lacks ("Detect what's missing"). Pure:
+// the view reads the files, runs the detection and copies them.
+import type { SampleDetection } from "../../../engine/audio/sample/detect/detect";
 import { defaultSampleEdits } from "../../../engine/audio/sample/format";
 import type { SampleEdits, SampleKind } from "../../../engine/audio/sample/types";
 import type { WavMetadata } from "../../../engine/audio/sample/wavChunks";
 import { sampleEditsFromWav } from "../../../engine/audio/sample/wavSample";
+import { detectedEdit, detectionNeeded } from "./sampleDetectModel";
 
 export type MetadataKind = "cues" | "regions" | "loops" | "root" | "tempo" | "timecode" | "detect";
 
@@ -42,12 +45,15 @@ export interface KindCount {
   readonly items: number;
 }
 
-/** The kinds the files carry, in the review's order. Detect is offered whenever a file lacks tempo or root. */
+/**
+ * The kinds the files carry, in the review's order. Detect is offered whenever a file lacks tempo or root (a file
+ * that isn't a WAV has neither).
+ */
 export function kindsFound(files: readonly PickedFile[]): KindCount[] {
-  const count = (pick: (m: WavMetadata) => number) => {
+  const count = (pick: (m: WavMetadata) => number, orNoMeta = 0) => {
     let f = 0, n = 0;
     for (const x of files) {
-      const c = x.meta ? pick(x.meta) : 0;
+      const c = x.meta ? pick(x.meta) : orNoMeta;
       if (c > 0) (f++, (n += c));
     }
     return { files: f, items: n };
@@ -59,15 +65,15 @@ export function kindsFound(files: readonly PickedFile[]): KindCount[] {
     root: count((m) => (m.root || m.tempo?.rootNote != null ? 1 : 0)),
     tempo: count((m) => (m.tempo ? 1 : 0)),
     timecode: count((m) => (m.bext ? 1 : 0)),
-    detect: count((m) => (!m.tempo || !m.root ? 1 : 0)),
+    detect: count((m) => (!m.tempo || !(m.root || m.tempo.rootNote != null) ? 1 : 0), 1),
   };
   return METADATA_KINDS.map((kind) => ({ kind, ...counts[kind.id] })).filter((k) => k.files > 0);
 }
 
 export type KindToggles = Readonly<Partial<Record<MetadataKind, boolean>>>;
 
-/** On unless turned off. Detection isn't built yet, so it is never on (TODO: a tempo and pitch detector). */
-export const kindOn = (toggles: KindToggles, k: MetadataKind): boolean => k !== "detect" && toggles[k] !== false;
+/** On unless turned off. */
+export const kindOn = (toggles: KindToggles, k: MetadataKind): boolean => toggles[k] !== false;
 
 /** The kind a sample starts as: a loop if a loop repeats a count, held (sustain) if one is endless, music with a tempo. */
 export function guessKind(e: Pick<SampleEdits, "loops" | "tempo">): SampleKind {
@@ -75,19 +81,30 @@ export function guessKind(e: Pick<SampleEdits, "loops" | "tempo">): SampleKind {
   return e.tempo ? "music" : "oneshot";
 }
 
+/** What "Detect what's missing" analyses for a file: the tempo and root its chunks don't give (after the toggles). */
+export function detectionFor(meta: WavMetadata | null, toggles: KindToggles): ("tempo" | "root")[] {
+  if (!kindOn(toggles, "detect")) return [];
+  const parts = meta ? sampleEditsFromWav(meta) : null;
+  return detectionNeeded({ tempo: kindOn(toggles, "tempo") ? (parts?.tempo ?? null) : null, root: kindOn(toggles, "root") ? (parts?.root ?? null) : null });
+}
+
 /**
- * The sidecar `sample` block a file gets: its chunks (`sampleEditsFromWav`) less the kinds turned off. Null when
+ * The sidecar `sample` block a file gets: its chunks (`sampleEditsFromWav`) less the kinds turned off, then, with
+ * Detect on, a confident `detected` tempo and root where the file has none (never over the file's own). Null when
  * nothing is left (the file needs no block; a sidecar may still be written for Load).
  */
-export function sampleBlockFor(meta: WavMetadata | null, toggles: KindToggles): SampleEdits | null {
-  if (!meta) return null;
-  const parts = sampleEditsFromWav(meta);
+export function sampleBlockFor(meta: WavMetadata | null, toggles: KindToggles, detected: SampleDetection | null = null): SampleEdits | null {
+  const parts = meta ? sampleEditsFromWav(meta) : { markers: [], loops: [], tempo: null, root: null };
   const markers = parts.markers
     .filter((m) => (m.file?.chunk === "ltxt" ? kindOn(toggles, "regions") : kindOn(toggles, "cues")))
     .map((m, i) => ({ ...m, id: `m${i + 1}` }));
   const loops = kindOn(toggles, "loops") ? parts.loops : [];
-  const tempo = kindOn(toggles, "tempo") ? parts.tempo : null;
-  const root = kindOn(toggles, "root") ? parts.root : null;
+  let tempo = kindOn(toggles, "tempo") ? parts.tempo : null;
+  let root = kindOn(toggles, "root") ? parts.root : null;
+  if (detected && kindOn(toggles, "detect")) {
+    const r = detectedEdit({ ...defaultSampleEdits(), tempo, root }, detected, ["tempo", "root"], "import");
+    if ("next" in r) ({ tempo, root } = r.next);
+  }
   if (!markers.length && !loops.length && !tempo && !root) return null;
   const kind = guessKind({ loops, tempo });
   return { ...defaultSampleEdits(kind), markers, loops, tempo, root };

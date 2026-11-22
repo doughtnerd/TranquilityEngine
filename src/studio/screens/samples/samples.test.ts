@@ -336,7 +336,7 @@ describe("import plan", () => {
     loops: [{ cueId: 0, type: 0, start: 1000, end: 2000, fraction: 0, playCount: 0 }],
   };
   it("lists the kinds found and builds the sidecar block less what's off", () => {
-    expect(kindsFound([{ rel: "door.wav", meta }, { rel: "x.mp3", meta: null }]).map((k) => [k.kind.id, k.items])).toEqual([["cues", 1], ["regions", 1], ["loops", 1], ["root", 1], ["detect", 1]]);
+    expect(kindsFound([{ rel: "door.wav", meta }, { rel: "x.mp3", meta: null }]).map((k) => [k.kind.id, k.items])).toEqual([["cues", 1], ["regions", 1], ["loops", 1], ["root", 1], ["detect", 2]]);
     const all = sampleBlockFor(meta, {})!;
     expect(all.markers.map((m) => m.name)).toEqual(["Creak start", "Creak"]);
     expect(all.kind).toBe("sustain");
@@ -345,7 +345,7 @@ describe("import plan", () => {
     expect(some.markers.map((m) => [m.id, m.name])).toEqual([["m1", "Creak start"]]);
     expect(some.loops).toEqual([]);
     expect(sampleBlockFor(meta, { cues: false, regions: false, loops: false, root: false })).toBeNull();
-    expect(kindOn({}, "detect")).toBe(false);
+    expect(kindOn({}, "detect")).toBe(true);
     expect(guessKind({ loops: [], tempo: { bpm: 1, meter: "4/4", map: [], source: "file" } })).toBe("music");
   });
   it("places files keeping their folders or flat", () => {
