@@ -372,8 +372,10 @@ export async function processAudio(build: WebBuildPlan, options: ProcessAudioOpt
   const audioFiles = files.filter((p) => AUDIO_FILE.test(p));
   if (audioFiles.length === 0 && packageDefs.length === 0) return { plan: build, report: null };
 
-  // Every JSON a sidecar, playlist or derived sample might need, read up front so the planner stays synchronous.
+  // Every JSON a sidecar, playlist or derived sample might need, read up front so the planner stays synchronous: the
+  // project's, and sidecars the render step wrote for sounds that had none.
   for (const p of files) if (p.endsWith(".json")) await readJson(p);
+  for (const p of audioFiles) if (!fileSet.has(sidecarPath(p)) && generated.has(copiedPath(sidecarPath(p)))) await readJson(sidecarPath(p));
   const sidecarFacts = new Map<string, AudioSidecarFacts | null>();
   const facts = (path: string): AudioSidecarFacts | null => {
     if (sidecarFacts.has(path)) return sidecarFacts.get(path)!;

@@ -110,8 +110,8 @@ export async function writeWebBuild(plan: WebBuildPlan, options: WriteBuildOptio
     const audio = await processAudio(plan, { platform: options.platform, read: (path) => project.read(path), encoder: options.audio.encoder, decode: options.audio.decode, cache: options.audio.cache, log });
     plan = audio.report ? { ...audio.plan, audioReport: audio.report } : audio.plan;
   }
-  const generated = new Map(plan.generated);
-  if (options.notices !== undefined) generated.set(NOTICES_FILE, options.notices);
+  if (options.notices !== undefined) plan = { ...plan, generated: new Map([...plan.generated, [NOTICES_FILE, options.notices]]) };
+  const generated = plan.generated;
 
   await clear(folder, "", entries, options.keep ?? []);
   const binaries = plan.binaries ?? new Map<string, Uint8Array>();
