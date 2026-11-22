@@ -29,6 +29,18 @@
 //! frames, so most samples skip that work. Results are bit-identical with and without a cache.
 //! A cache used with another clip, or too short, is refilled or ignored, never misread.
 //!
+//! # Frame cache
+//!
+//! A playing clip samples a moving time, and at a display rate above the clip's sample rate
+//! consecutive samples mostly share their frames (`f0` of one is `f0` or `f1` of the last). A
+//! [`FrameCache`] (T82r; ozz-animation's sampling context) keeps the last two frames a player
+//! decoded, in memory the caller owns (one per playing clip player), so
+//! [`BoundClip::sample_pose_cached`] decodes only frames it doesn't hold and redoes only the
+//! interpolation. It holds exactly the decoded values, keyed by the clip's bytes, the rest pose
+//! and a caller tag (bumped when assets are released, so memory reused by another clip never
+//! matches), so results are bit-identical with and without it, and a cache can be dropped or
+//! cleared at any time (it is never part of a snapshot).
+//!
 //! # Binding table
 //!
 //! A [`ClipSampler`] reads the clip's 16-byte channel and 32-byte track records as it samples,
@@ -55,10 +67,12 @@ use anim_math::quant::{is_supported_bits, unpack_range, unpack_unorm};
 use anim_math::{AosQuat, AosTransform, AosVec3, F32x4, Lane, SoaTransform};
 
 mod bind;
+mod frames;
 pub mod timeline;
 pub mod window;
 
 pub use bind::{BoundClip, ClipBindings, Column, ColumnType};
+pub use frames::FrameCache;
 pub use window::{
     NotifyPhase, TrackRecord, TrackSink, Window, MAX_WRAPS, SUBCLIP_ENTERED, SUBCLIP_EXITED,
     WINDOW_SEEK, WINDOW_START,
@@ -300,6 +314,18 @@ impl<'a> ClipSampler<'a> {
             (None, Some(bind)) => bind.raw_pose(self, p, a, b),
             (None, None) => self.raw_pose(p, a, b),
         }
+        self.interpolate(p, a, b, out);
+        Ok(())
+    }
+
+    /// The pose between the decoded frames `a` (at `p.f0`) and `b` (at `p.f1`) into `out`.
+    pub(crate) fn interpolate(
+        &self,
+        p: FramePos,
+        a: &[AosTransform],
+        b: &[AosTransform],
+        out: &mut [SoaTransform],
+    ) {
         let alpha = F32x4::splat(p.alpha);
         for (g, o) in out.iter_mut().enumerate() {
             let lanes = |pose: &[AosTransform]| -> [AosTransform; 4] {
@@ -321,7 +347,6 @@ impl<'a> ClipSampler<'a> {
                 ta.scale.lerp(tb.scale, alpha),
             );
         }
-        Ok(())
     }
 
     fn raw_pose(&self, p: FramePos, a: &mut [AosTransform], b: &mut [AosTransform]) {

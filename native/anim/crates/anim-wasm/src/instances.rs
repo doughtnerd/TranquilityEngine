@@ -26,7 +26,7 @@
 pub mod implicit;
 
 use anim_graph::eval::{pose_from_words, pose_to_words, Program, SOA_WORDS};
-use anim_math::layout::soa_len;
+use anim_math::layout::{soa_len, LANES};
 use anim_math::SoaTransform;
 use anim_wire::core::{
     Init, HANDLE_INDEX_MASK, STATUS_BAD_RECORD, STATUS_FULL, STATUS_MISMATCH, STATUS_OK,
@@ -40,10 +40,22 @@ use crate::assets::{handle, split};
 /// history poses.
 pub(crate) fn bytes_needed(init: &Init) -> u64 {
     let groups = soa_len(init.max_bones as usize) as u64;
-    let state = implicit::program().state_words(groups as usize) as u64 * 4;
+    let program = &implicit::program();
+    let state = program.state_words(groups as usize) as u64 * 4;
     let poses = 2 * groups * core::mem::size_of::<SoaTransform>() as u64;
+    let players = (player_slots(program) * player_words(groups as usize * LANES)) as u64 * 4;
     let entry = core::mem::size_of::<Slot>() as u64;
-    (init.max_instances as u64).saturating_mul(entry + state + poses)
+    (init.max_instances as u64).saturating_mul(entry + state + poses + players)
+}
+
+/// T82r: frame-cache slots for `program`: one per clip player node.
+pub(crate) fn player_slots(program: &Program) -> usize {
+    program.clip_players()
+}
+
+/// T82r: words per frame-cache slot for `bones` bones.
+pub(crate) fn player_words(bones: usize) -> usize {
+    anim_sample::FrameCache::words_for(bones)
 }
 
 /// Snapshot magic (`"ANSN"` little-endian).
@@ -75,6 +87,10 @@ pub struct Instance {
     pub stale: bool,
     /// Flagged for the graph debugger (`graph` family `DEBUG`; not part of snapshots).
     pub debug: bool,
+    /// T82r: the clip players' frame caches (`anim_sample::FrameCache`, [`player_words`] words
+    /// per slot, a slot per clip player of the program). Not part of snapshots: the pose doesn't
+    /// depend on them.
+    pub players: Vec<u32>,
     /// T82r: the instance's row of the bone-matrix view holds `last`'s matrices (the last frame
     /// it was visible showed `last` itself, not an LOD blend), so a frame showing a `last` with
     /// the same bits skips rebuilding them. Not part of snapshots (a restore clears it).
@@ -128,6 +144,7 @@ impl Table {
             stale: false,
             debug: false,
             shown_last: false,
+            players: vec![0; player_slots(program) * player_words(groups * LANES)],
         };
         if let Some(index) = self.free.pop() {
             let slot = &mut self.slots[index as usize];

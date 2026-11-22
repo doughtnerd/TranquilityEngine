@@ -519,12 +519,17 @@ fn pose(cx: &mut EvalContext<'_>, at: usize) {
     } else {
         skel.rest
     };
-    let (out, scratch) = cx.pose_and_sample_scratch(slot);
-    if clip
-        .bound
-        .sample_pose(time, rest, scratch, out, None)
-        .is_err()
-    {
+    let (out, scratch, cache, tag) = cx.pose_sample_and_cache(slot);
+    let sampled = match cache {
+        // T82r: the player's frame cache (the same bits as without it).
+        Some(words) => {
+            let mut cache = anim_sample::FrameCache::new(words, tag);
+            clip.bound
+                .sample_pose_cached(time, rest, scratch, out, &mut cache)
+        }
+        None => clip.bound.sample_pose(time, rest, scratch, out, None),
+    };
+    if sampled.is_err() {
         // A clip made for another skeleton (or scratch too small): nothing to show.
         cx.fill_rest(slot);
         return;

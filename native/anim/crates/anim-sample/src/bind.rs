@@ -37,6 +37,7 @@ use anim_pose::sync::SyncMarker;
 
 use crate::Form;
 use crate::{
+    FrameCache,
     apply, blend_track, decode, seg_range, ClipSampler, FramePos, SampleError, Seg, SegmentCache,
     TrackSample,
 };
@@ -470,6 +471,69 @@ impl ClipBindings {
         true
     }
 
+    /// The segment holding frame `f`, if its records are there.
+    pub(crate) fn frame_seg<'a>(&self, c: &CompressedView<'a>, f: u32) -> Option<Seg<'a>> {
+        self.seg(c, (f / self.segment_frames) as usize, f)
+    }
+
+    /// Decodes frame `f` alone into `out` (filled with the rest pose by the caller): the values
+    /// [`decode_pose`](Self::decode_pose) writes into `a` when `f` is its `f0`, or into `b` when
+    /// it is its `f1`, bit for bit (each value is decoded from its own segment's range either
+    /// way). The caller checks [`frame_seg`](Self::frame_seg) first; without it nothing is
+    /// written.
+    pub(crate) fn decode_frame(&self, c: &CompressedView<'_>, f: u32, out: &mut [AosTransform]) {
+        let Some(s) = self.frame_seg(c, f) else {
+            return;
+        };
+        let width_sum = self.width_sum;
+        let format = c.rotation_format();
+        let constants = c.constants();
+        let clip_ranges = c.clip_ranges();
+        let seg_ranges = c.segment_ranges();
+        let mut pos = s.frame_pos;
+        for ch in &self.channels {
+            let w = ch.width as usize;
+            let mut v = [0.0f32; 4];
+            match ch.mode {
+                ChannelMode::Default => continue,
+                ChannelMode::Constant => {
+                    if ch.bone == NONE {
+                        continue;
+                    }
+                    for (k, v) in v.iter_mut().enumerate().take(w) {
+                        *v = constants.get(ch.data_offset as usize + k).unwrap_or(0.0);
+                    }
+                }
+                ChannelMode::Animated => {
+                    let a_i = ch.animated_index as usize;
+                    let r = s.rates.get(a_i).copied().unwrap_or(0) as u32;
+                    let n = w.min(4);
+                    if ch.bone == NONE {
+                        pos += r as u64 * n as u64;
+                        continue;
+                    }
+                    let comp = ch.comp as usize;
+                    for (k, v) in v.iter_mut().enumerate().take(n) {
+                        let (m, e) = seg_range(
+                            &clip_ranges,
+                            seg_ranges,
+                            ch.width,
+                            ch.data_offset,
+                            k,
+                            s.index * width_sum + comp + k,
+                        );
+                        *v = decode(s.data, pos, r, m, e);
+                        pos += r as u64;
+                    }
+                }
+            }
+            let bone = ch.bone as usize;
+            if bone < out.len() {
+                apply(&mut out[bone], ch.kind, &v, format);
+            }
+        }
+    }
+
     pub(crate) fn decode_pose(
         &self,
         c: &CompressedView<'_>,
@@ -740,6 +804,20 @@ impl<'a, 'b> BoundClip<'a, 'b> {
     ) -> Result<(), SampleError> {
         self.sampler
             .pose_impl(Some(self.bindings), t, rest, scratch, out, cache)
+    }
+
+    /// [`sample_pose`](Self::sample_pose) through a [`FrameCache`]: decodes only the frames
+    /// around `t` the cache doesn't hold (the same bits as without it). The raw form, or a
+    /// cache too short for the clip, samples as `sample_pose` does without a cache.
+    pub fn sample_pose_cached(
+        &self,
+        t: f32,
+        rest: &[AosTransform],
+        scratch: &mut [AosTransform],
+        out: &mut [SoaTransform],
+        cache: &mut FrameCache<'_>,
+    ) -> Result<(), SampleError> {
+        crate::frames::sample(self, t, rest, scratch, out, cache)
     }
 
     /// [`ClipSampler::sample_track`] through the binding table: the same bits.

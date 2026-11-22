@@ -207,6 +207,11 @@ pub trait Assets {
     fn plugins(&self) -> Option<&dyn crate::plugin::PluginHost> {
         None
     }
+    /// A tag that changes whenever memory a released asset lived in may hold another (T82r: the
+    /// clip players' `FrameCache` tag).
+    fn cache_epoch(&self) -> u32 {
+        0
+    }
 }
 
 /// A playback event for the host (play promises, `AnimatorStateChanges`, the graph family's
@@ -477,6 +482,10 @@ pub struct Program {
     ctx_lists: Vec<u32>,
     node_ctx: Vec<u32>,
     inertia_target: Vec<u32>,
+    /// T82r: per node, its ordinal among the clip players (`NONE` for other kinds), and the
+    /// count: a player's frame-cache slot (`Program::pose_cached`).
+    player_ordinal: Vec<u32>,
+    player_count: u32,
 }
 
 /// Which (family, kind) pairs gate their inputs (module docs).
@@ -699,7 +708,15 @@ impl Program {
             ctx_lists: Vec::new(),
             node_ctx: vec![0; n],
             inertia_target: vec![NONE; n],
+            player_ordinal: vec![NONE; n],
+            player_count: 0,
         };
+        for (i, node) in program.nodes.iter().enumerate() {
+            if node.family == Family::Sources && node.kind == crate::sources::kind::CLIP_PLAYER {
+                program.player_ordinal[i] = program.player_count;
+                program.player_count += 1;
+            }
+        }
         let children = program.children();
         program.order = topological_order(&children);
         program.depth = program.longest_chain(&children);
@@ -998,6 +1015,12 @@ impl Program {
         self.nodes.len()
     }
 
+    /// The clip player nodes (T82r: the frame-cache slots [`pose_cached`](Self::pose_cached)
+    /// uses, one each).
+    pub fn clip_players(&self) -> usize {
+        self.player_count as usize
+    }
+
     /// Node `node`'s family and kind.
     pub fn node_kind(&self, node: u32) -> Option<(Family, u16)> {
         self.nodes.get(node as usize).map(|n| (n.family, n.kind))
@@ -1150,6 +1173,23 @@ impl Program {
         scratch: Scratch<'_>,
         out: &mut [SoaTransform],
     ) {
+        self.pose_cached(inputs, state, scratch, &mut [], 0, out);
+    }
+
+    /// [`pose`](Self::pose), with memory for the clip players' frame caches (T82r,
+    /// `anim_sample::FrameCache`): `players` holds slots of `player_words` words, one per clip
+    /// player ([`clip_players`](Self::clip_players) slots give each of the program's players its
+    /// own; linked graphs' players may share one, which is then refilled). The pose doesn't depend on the slots' contents, so the caller
+    /// keeps them out of snapshots. Never allocates.
+    pub fn pose_cached(
+        &self,
+        inputs: &Inputs<'_>,
+        state: &mut [u32],
+        scratch: Scratch<'_>,
+        players: &mut [u32],
+        player_words: usize,
+        out: &mut [SoaTransform],
+    ) {
         let groups = inputs.skeleton.groups();
         let mut sink = NoEvents;
         let mut cx = EvalContext::with(
@@ -1161,6 +1201,8 @@ impl Program {
             Some(scratch),
             0.0,
         );
+        cx.players = players;
+        cx.player_words = player_words;
         let alpha = cx.eval_alpha(self.output);
         let slot = cx.push_slot();
         match slot {
@@ -1360,6 +1402,9 @@ pub struct EvalContext<'a> {
     collected_len: usize,
     /// Inside a linked graph: the outer window and the linked node's inertialization target.
     outer: Option<(ProgramWindow<'a>, u32)>,
+    /// T82r: the clip players' frame caches (`player_words` words each; empty: none).
+    players: &'a mut [u32],
+    player_words: usize,
     /// The first transform of slot 0 in the pose stack (0 at top level; inside a skeleton scope,
     /// where the scope's region starts: T41).
     slot_base: usize,
@@ -1408,6 +1453,8 @@ impl<'a> EvalContext<'a> {
             collected_len: 0,
             outer: None,
             slot_base: 0,
+            players: &mut [],
+            player_words: 0,
         }
     }
 
@@ -2024,6 +2071,42 @@ impl<'a> EvalContext<'a> {
         let pose = self.pose_mut(slot);
         if pose.len() == rest.len() {
             pose.copy_from_slice(rest);
+        }
+    }
+
+    /// [`pose_and_sample_scratch`](Self::pose_and_sample_scratch) plus the current node's frame
+    /// cache slot (T82r; `None` without one) and the cache tag ([`Assets::cache_epoch`]).
+    #[allow(clippy::type_complexity)]
+    pub fn pose_sample_and_cache(
+        &mut self,
+        slot: usize,
+    ) -> (
+        &mut [SoaTransform],
+        &mut [AosTransform],
+        Option<&mut [u32]>,
+        u32,
+    ) {
+        let tag = self.inputs.assets.cache_epoch();
+        let r = self.slot_range(slot);
+        let w = self.player_words;
+        let count = if w == 0 { 0 } else { self.players.len() / w };
+        let cache = if count == 0 {
+            None
+        } else {
+            // The player's ordinal in its program: distinct slots for a program's players; a
+            // linked graph's (at its own state base) shift theirs, and may share a slot.
+            let ordinal = self.program.player_ordinal.get(self.node as usize).copied();
+            match ordinal {
+                Some(o) if o != NONE => {
+                    let k = (o as usize + self.base) % count;
+                    Some(&mut self.players[k * w..(k + 1) * w])
+                }
+                _ => None,
+            }
+        };
+        match &mut self.scratch {
+            Some(s) => (&mut s.poses[r], &mut *s.sample, cache, tag),
+            None => (&mut [], &mut [], cache, tag),
         }
     }
 

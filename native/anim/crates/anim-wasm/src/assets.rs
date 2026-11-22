@@ -199,6 +199,9 @@ pub struct Arena {
     held: usize,
     /// T45: the plugin host's call buffers and fault reports (`crate::plugin`).
     pub(crate) plugin_rt: crate::plugin::Runtime,
+    /// T82r: bumped on every release, so a clip player's frame cache never takes a clip loaded
+    /// into a released one's memory for it (`Assets::cache_epoch`).
+    epoch: u32,
 }
 
 /// `generation << 16 | index`.
@@ -222,6 +225,7 @@ impl Arena {
             free: Vec::new(),
             held: 0,
             plugin_rt: crate::plugin::Runtime::new(),
+            epoch: 0,
         }
     }
 
@@ -316,6 +320,7 @@ impl Arena {
         // Generations skip 0, so a handle is never 0.
         slot.generation = slot.generation.wrapping_add(1).max(1);
         self.free.push(index as u16);
+        self.epoch = self.epoch.wrapping_add(1);
         STATUS_OK
     }
 
@@ -469,6 +474,10 @@ impl Arena {
 }
 
 impl Assets for Arena {
+    fn cache_epoch(&self) -> u32 {
+        self.epoch
+    }
+
     fn clip(&self, handle: u32) -> Option<ClipRef<'_>> {
         let c = self.clip_asset(handle).ok()?;
         Some(ClipRef {
