@@ -1,6 +1,6 @@
 # 0238. One view allocator gives Worlds their surfaces and input, one link applier connects links, and project settings boot in one step
 
-- **Status:** Proposed; amended by 0319 (the boot step acquires a project context the Engine releases)
+- **Status:** Proposed; amended by 0319 (the boot step acquires a project context the Engine releases), 0323 (the link applier tells watchers when a linked World appears; `beginFrame` replaces `retryDeferred`)
 - **Date:** 2026-11-09
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
