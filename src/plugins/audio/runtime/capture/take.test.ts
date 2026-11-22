@@ -6,7 +6,7 @@
 import { describe, expect, it } from "vitest";
 import {
   CAPTURE_FLAG_TAKE, CAPTURE_HEADER_BYTES, CAPTURE_MAX_UNCOMPRESSED_BYTES, CAPTURE_RECORD_HEAD_BYTES, CaptureError, RecordType,
-  TAKE_MAX_UNCOMPRESSED_BYTES, assembleCapture, encodeRecords, readCaptureHeader, recordPayloadBytes, type CaptureRecordInit, type IndexEntry,
+  TAKE_MAX_UNCOMPRESSED_BYTES, assembleCapture, encodeRecords, readCaptureHeader, recordPayloadBytes, type CaptureMetaInit, type CaptureRecordInit, type IndexEntry,
 } from "./format";
 import { decodeRecordAt, openCapture } from "./reader";
 import { assembleTakeFile, captureFileBytes, mergeRequests, type SaveTake } from "./save";
@@ -215,7 +215,7 @@ describe("a take file (ADR 0334)", () => {
     it("an unknown required record, a malformed request, a capture opened as a take, a take without its META section", async () => {
       const ring = new FakeRing();
       const base = profile(ring, [768]);
-      const make = (extra: CaptureRecordInit[], meta = { ...SAMPLE_META, take: { audioHash: "", seed: 0, seeded: true, duration: 1, frames: false, emitters: {} } }, take = true) =>
+      const make = (extra: CaptureRecordInit[], meta: CaptureMetaInit = { ...SAMPLE_META, take: { audioHash: "", seed: 0, seeded: true, duration: 1, frames: false, emitters: {} } }, take = true) =>
         assembleCapture({ ...SAMPLE_HEADER, take }, meta, [...base, ...extra], { index: true });
       const mark = encodeTakeRecordBytes({ type: TakeRecordType.MARK, payload: { kind: "mark", t: 0, text: "ok" } });
       expect(await code(make([{ type: TakeRecordType.MARK, epoch: 0, seq: 50, frame: 768, payload: mark }]))).toBe("opened");

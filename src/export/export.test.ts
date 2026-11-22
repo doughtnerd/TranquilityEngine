@@ -135,6 +135,17 @@ describe("the audio capture option", () => {
   });
 });
 
+describe("the audio take option (ADR 0334)", () => {
+  it("planWebBuild writes audioTake only when asked; --audio-take sets it", async () => {
+    expect((await planWebBuild(source())).manifest).not.toHaveProperty("audioTake");
+    const plan = await planWebBuild(source(), { audioTake: true });
+    expect(JSON.parse(plan.generated.get("game.json")!)).toMatchObject({ audioTake: true });
+    expect(plan.manifest).not.toHaveProperty("audioCapture");
+    expect(parseArgs(["proj", "--audio-take"])).toEqual({ projectDir: "proj", audioTake: true });
+    expect(USAGE).toMatch(/--audio-take[\s\S]*F10/);
+  });
+});
+
 describe("desktop project", () => {
   it("names the app after the project and points the window at the web build", () => {
     const files = desktopProjectFiles({ name: "Flappy Bird", settings: { display: { width: 720, height: 680 } } });

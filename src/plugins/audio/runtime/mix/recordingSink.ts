@@ -9,7 +9,7 @@ export type TapCall = [kind: keyof ProfileSink, ...args: unknown[]];
 export function recordingSink(): { sink: ProfileSink; calls: TapCall[]; of(kind: keyof ProfileSink): unknown[][]; clear(): void } {
   const calls: TapCall[] = [];
   const sink: Record<string, unknown> = {};
-  for (const kind of Object.keys(NULL_PROFILE_SINK)) {
+  for (const kind of [...Object.keys(NULL_PROFILE_SINK), "pick", "loudnessWarning"]) {
     sink[kind] = (...args: unknown[]): void => {
       calls.push([kind as keyof ProfileSink, ...args]);
     };

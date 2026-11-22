@@ -729,4 +729,23 @@ describe("ADR 0260: a bus added or renamed during the take is named from then on
     expect(names.bus(1, renamedAt)).toBe("Score");
     mixer.configure(parseAudioSettings({}).settings);
   });
+
+  it("ADR 0334: an op the live mix sends is written as a MIXOP record (origin editor), the bus as its slot", async () => {
+    const r = rig();
+    mixer.configure(parseAudioSettings({ buses: [{ name: "Master" }, { name: "Music", parent: "Master" }] }).settings);
+    withSlots(r, [{ slot: 0, name: "Master", state: "live" }, { slot: 1, name: "Music", state: "live" }]);
+    await Audio.capture.start();
+    r.feed(SECOND / 2);
+    expect(mixer.apply({ op: "setBus", bus: "Music", key: "volume", value: 0.5 }).ok).toBe(true);
+    r.feed(2);
+    await Audio.capture.save();
+    const c = await r.open(r.downloads[0]!.bytes);
+    const ops = Array.from({ length: c.records.count }, (_, i) => decodeRecordAt(c, i)).filter((d) => d.kind === "mixop");
+    expect(ops).toHaveLength(1);
+    const op = ops[0]!;
+    if (op.kind !== "mixop") throw new Error("unreachable");
+    expect(op.payload.origin).toBe(0); // editor
+    expect(op.payload.words[0]).toBe(1); // the bus word: Music's slot
+    mixer.configure(parseAudioSettings({}).settings);
+  });
 });
