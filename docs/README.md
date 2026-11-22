@@ -83,7 +83,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0030](decisions/0030-in-editor-scripting.md) | Write and run project scripts inside the editor | Accepted, amended by 0308 (Code panel tabs and unsaved text have one owner) |
 | [0031](decisions/0031-samples-ship-beside-the-engine.md) | Samples are projects that ship beside the engine, not inside it | Accepted |
 | [0032](decisions/0032-worlds-systems-and-bootstraps.md) | The Engine runs several isolated Worlds, each with its own systems and clock | Accepted; partly superseded by 0034 (the current World outside frames, rendering and input ownership), amended by 0062 |
-| [0033](decisions/0033-server-authoritative-netcode.md) | Server-authoritative netcode between client and server Worlds | Accepted, amended by 0062 (links apply whenever both Worlds exist), 0333 (client-to-server WebRTC rides the WebSocket transport, signalled over its socket) |
+| [0033](decisions/0033-server-authoritative-netcode.md) | Server-authoritative netcode between client and server Worlds | Accepted, amended by 0062 (links apply whenever both Worlds exist), 0333 (client-to-server WebRTC rides the WebSocket transport, signalled over its socket), 0338 (input streams carry a local player index) |
 | [0034](decisions/0034-current-world-view-and-async.md) | Between frames the default World is current; the view passes between Worlds | Accepted |
 | [0035](decisions/0035-ws-for-the-node-websocket-server.md) | The Node WebSocket server uses the `ws` package | Accepted |
 | [0036](decisions/0036-connect-a-world-by-address.md) | A client World connects to a remote server by address | Accepted |

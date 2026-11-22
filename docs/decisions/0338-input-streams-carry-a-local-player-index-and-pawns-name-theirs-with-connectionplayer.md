@@ -4,7 +4,7 @@
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
-- **Related:** 0033, 0311, 0337
+- **Related:** 0033 (amends), 0311, 0337
 
 ## Context
 
