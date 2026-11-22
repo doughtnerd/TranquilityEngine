@@ -64,7 +64,7 @@ export interface RhythmState {
  *
  * Touch (a phone has no keys): a press on the game view is a tap, exactly like SPACE, timed from the `pointerdown` event's own
  * time stamp (a mouse click does the same). A row of buttons along the bottom stands in for C, G, X, O, D and B; a press on a
- * button is not a tap. D shows or hides the music health readout (prime lead and late groups, `Audio.debug().music`).
+ * button is not a tap. D shows or hides the music readout (each music playlist's voices and late starts, `Audio.debug().events`).
  */
 @behavior("lab.RhythmLab")
 export class RhythmLab extends GameBehavior {

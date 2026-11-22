@@ -29,7 +29,7 @@ import { TouchBar } from "../touchBar";
  *     that loops. All eight start stamped on one instant.
  *   - A, B, C (5; `music-list3.playlist.json`): a Sequence of three 4 s sections, once through.
  *
- * O stops the music. D shows or hides the music health readout (prime lead and late groups, `Audio.debug().music`).
+ * O stops the music. D shows or hides the music readout (each music playlist's voices and late starts, `Audio.debug().events`).
  *
  * Touch: a row of buttons along the bottom of the view stands in for every key (a phone has none); they go through the same
  * code as the keys. Back (B) is the button for the key that goes back to the tour.
