@@ -24,8 +24,9 @@ import { Camera } from "../../../engine/render/components";
 import { isPlaylistPath } from "../../../engine/audio/playlist/format";
 import { AudioListener, listenerPose } from "./AudioListener";
 import { worldKeyOf, worldPlays } from "./AudioSource";
-import { audioBackend, type AudioVoice } from "./backend";
+import type { AudioVoice } from "./backend";
 import { clipRequest, clipVolume } from "./clipResolver";
+import { playSampleVoice } from "./sampleVoice";
 import { audioZoneEdgeSpread, UprightBox } from "./core/spatial";
 import { warnOnce } from "./core/handle";
 import { playlists } from "./playlists/playlistSystem";
@@ -156,7 +157,8 @@ export class AudioZone extends Component {
       req.owner = this.node.name;
       req.attenuation = SAMPLE_ATTENUATION;
       req.position = at;
-      this.voice = audioBackend().play(req);
+      // ADR 0328: the sample's trimmed start, normalisation gain and loop region (endless: a zone has no release).
+      this.voice = playSampleVoice(path, req);
     } catch (e) {
       warnOnce(`zone:sample:${path}`, `[myco] AudioZone "${this.node.name}": the sample "${path}" can't play (${e instanceof Error ? e.message : String(e)}).`);
     }

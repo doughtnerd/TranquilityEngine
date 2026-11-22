@@ -10,6 +10,11 @@
  * - **Range.** A snippet's `range` (seconds in the source) is the region it plays: the block's `trim` narrowed to the
  *   range (their overlap; the range alone when the block has no trim or they don't overlap). Loops and markers keep
  *   their source times.
+ * - **Render.** Edits with a `source` (a flattened render, "Flatten" in ADR 0328: `brake_skid.flat1.wav`) play that file
+ *   in place of the source (`render`). The render is the source with the baked chain, its automation and the
+ *   normalisation gain rendered in, on the source's own timeline: trim, loops and markers keep their source times and
+ *   still apply; only what it bakes is not applied again. Its path is a project path, or a bare name beside the source.
+ *   A render that isn't in the project (or names a derived sample) is reported and the source plays with every edit.
  *
  * Cycles (a source chain or a lineage chain that comes back to itself) are cut where they close, with a problem line:
  * a source cycle plays nothing, a lineage cycle plays the derived sample's own block. Nothing throws.
@@ -40,6 +45,12 @@ export interface ResolvedSample {
    * resolved block, a snippet's range applied as its trim.
    */
   readonly edits: SampleEdits | null;
+  /**
+   * The flattened render that plays in place of `source` (the edits' `source`, found in the project; ADR 0328 "Flatten"),
+   * null when there is none. It bakes the effects, their automation and the normalisation gain; it keeps the source's
+   * timeline, so `edits`' trim, loops and markers apply to it as they are.
+   */
+  readonly render: string | null;
   /** True for a `*.sample.json`. */
   readonly derived: boolean;
   /** One line per problem found on the way, each naming its file. */
@@ -54,10 +65,28 @@ function snippetTrim(trim: [number, number] | null, range: [number, number]): [n
   return end > start ? [start, end] : [range[0], range[1]];
 }
 
+/** The render `edits` name for `source` (a project path, else a bare name beside the source), or null with a problem line. */
+function renderOf(source: string, edits: SampleEdits | null, read: SampleReader, problems: string[], where: string): string | null {
+  const name = edits?.source;
+  if (!name || source === "") return null;
+  if (isDerivedSamplePath(name)) {
+    problems.push(`${where}: its render "${name}" is a derived sample, not an audio file; it plays its source.`);
+    return null;
+  }
+  const slash = source.lastIndexOf("/");
+  const beside = slash >= 0 && !name.includes("/") ? source.slice(0, slash + 1) + name : null;
+  if (read.has(name)) return name;
+  if (beside !== null && read.has(beside)) return beside;
+  problems.push(`${where}: its render "${name}" isn't in the project; it plays its source with every edit.`);
+  return null;
+}
+
 /** What `path` plays, read through `read`. */
 export function resolveSample(path: string, read: SampleReader): ResolvedSample {
   if (!isDerivedSamplePath(path)) {
-    return { path, source: path, edits: read.has(path) ? read.sidecar(path).sample : null, derived: false, problems: [] };
+    const problems: string[] = [];
+    const edits = read.has(path) ? read.sidecar(path).sample : null;
+    return { path, source: path, edits, render: renderOf(path, edits, read, problems, path), derived: false, problems };
   }
   const problems: string[] = [];
   const parsed = new Map<string, DerivedSampleAsset | null>();
@@ -96,7 +125,7 @@ export function resolveSample(path: string, read: SampleReader): ResolvedSample 
   }
 
   const own = load(path);
-  if (!own) return { path, source: "", edits: null, derived: true, problems };
+  if (!own) return { path, source: "", edits: null, render: null, derived: true, problems };
 
   // The lineage: a following fork's parent edits, resolved recursively.
   const block = (p: string, seen: readonly string[]): SampleEdits => {
@@ -124,5 +153,5 @@ export function resolveSample(path: string, read: SampleReader): ResolvedSample 
   };
   let edits = block(path, [path]);
   if (own.range) edits = { ...edits, trim: snippetTrim(edits.trim, own.range) };
-  return { path, source, edits, derived: true, problems };
+  return { path, source, edits, render: renderOf(source, edits, read, problems, path), derived: true, problems };
 }

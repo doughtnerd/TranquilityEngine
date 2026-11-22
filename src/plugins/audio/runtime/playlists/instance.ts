@@ -25,7 +25,7 @@ import { AudioListener, listenerPose } from "../AudioListener";
 import { CURVE_DRIVEN_ATTENUATION, curveDbToGain, evalAttenuation, FLAT_SEND_CURVE, LOWPASS_OFF_HZ, type AttenuationAt, type AttenuationCurveSet } from "../core/spatial";
 import { isLabelled, parameterDefault, type ParameterDef } from "../../../../engine/audio/parameters";
 import { audioBackend, type AudioMarkerEvent, type AudioMarkerType, type AudioPanner, type AudioReason, type AudioVoice, type PlayRequest } from "../backend";
-import { clipRequest, sampleEdits, samplePlan } from "../clipResolver";
+import { clipRequest, SAMPLE_END_FADE, sampleEdits, samplePass, samplePlan } from "../clipResolver";
 import { warnOnce } from "../core/handle";
 import { playlistHost } from "./host";
 import { startOffsetOf, type EventOptions } from "./options";
@@ -65,8 +65,6 @@ export interface InstanceSystem {
 
 /** The stop fade when the game names none (ADR 0329: "stop fades everything over 120 ms"). */
 export const STOP_FADE_SECONDS = 0.12;
-/** A trimmed sample's end: a short fade, so the cut doesn't click. */
-const TRIM_FADE = 0.005;
 const HELD: LoopBehaviour = Object.freeze({ active: "held", exit: "finish", exitFadeMs: 40, reentry: "ignore" });
 /** ADR 0328: the loop programs of voices playing a sample's loops (the core runs them; `resend` sends them again). */
 const programs = new WeakMap<LoopRun, readonly VoiceLoop[]>();
@@ -658,7 +656,10 @@ export class PlaylistInstance implements NodeHost {
     this.setParameter(ZONE_DEPTH_PARAMETER, Math.min(1, Math.max(0, Number.isFinite(depth) ? depth : 0)));
   }
 
-  /** Plays one sample entry below `ctx`: the clip resolver's request, the sample's sidecar edits, the tree's levels. */
+  /**
+   * Plays one sample entry below `ctx`: the clip resolver's request (with the sample's normalisation gain), its pass
+   * (`samplePass`: the trimmed start and end, as every play of a sample), its loops, the tree's levels.
+   */
   playSample(entry: SampleEntry, ctx: Ctx, loopOverride?: LoopRun | null): PVoice | null {
     if (this.stopped) return null;
     const path = entry.sample;
@@ -672,7 +673,7 @@ export class PlaylistInstance implements NodeHost {
       warnOnce(`playlist:sample:${path}`, `[myco] ${ctx.where}: the sample "${path}" can't play (${e instanceof Error ? e.message : String(e)}).`);
       return null;
     }
-    const staticVolume = req.volume! * plan.gain * dbToGain(c.gainDb) * Math.max(0, this.options.volume ?? 1);
+    const staticVolume = req.volume! * dbToGain(c.gainDb) * Math.max(0, this.options.volume ?? 1);
     const staticPitch = clampPitch(stToRatio(c.pitchSt) * this.pitchOption);
     // When it starts: its stamp, else the earliest exact start, else now (heard; voice time and end estimates count from it).
     const start = ctx.at ?? playlistHost().horizon() ?? this.clock();
@@ -717,7 +718,10 @@ export class PlaylistInstance implements NodeHost {
     const from = trim ? trim[0] : 0;
     const skip = this.startOffset > 0 ? this.offsetInto(this.startOffset, from, trim, loop, path) : 0;
     if (skip === null) return null;
-    if (from + skip > 0) req.offset = from + skip; // a trimmed start, sample-exact (a start offset, not a seek)
+    // ADR 0328: the pass every play of a sample makes (`samplePass`): a trimmed start, sample-exact (a start offset, not a seek).
+    const pass = samplePass(path, trim, skip);
+    if (pass.offset > 0) req.offset = pass.offset;
+    else delete req.offset;
     let voice: AudioVoice | null;
     try { voice = audioBackend().play(req); } catch { voice = null; }
     if (!voice) return null;
@@ -731,9 +735,7 @@ export class PlaylistInstance implements NodeHost {
     const program = loop ? programs.get(loop) : undefined;
     if (program) sink.setLoops(voice, this.group, program);
     else if (loop && (loop.start > 0 || loop.end > 0 || !looping)) sink.setLoop(voice, loop.start, loop.end, looping);
-    const fileLength = playlistHost().clipLength(path);
-    const to = trim ? Math.min(trim[1], fileLength ?? Infinity) : fileLength;
-    const length = to !== null && Number.isFinite(to) ? Math.max(0, to - from - skip) / base.pitch : null;
+    const length = pass.length !== null ? pass.length / base.pitch : null;
     const v: PVoice = {
       voice, path, base, staticVolume, staticPitch, bindings, dyn: dynList, timeCurves,
       start, length, loop, leaving: false, appliedGain: dyn, appliedPitch: t.pitch, appliedLowpass: curved ? lowpass : t.lowpass, positioned: req.position !== undefined,
@@ -744,9 +746,9 @@ export class PlaylistInstance implements NodeHost {
       this.hasCurveVoices = true;
     }
     // A trim that ends before the file does: stop there (after a release, a held loop plays out to it too).
-    if (trim && length !== null && (fileLength === null || trim[1] < fileLength - 1e-6) && !looping) {
+    if (pass.early && length !== null && !looping) {
       const end = (start ?? this.clock()) + length;
-      this.schedule(end, () => { if (!v.leaving && !v.loop?.looping) { v.leaving = true; voice!.stop(TRIM_FADE); } });
+      this.schedule(end, () => { if (!v.leaving && !v.loop?.looping) { v.leaving = true; voice!.stop(SAMPLE_END_FADE); } });
     }
     return v;
   }
