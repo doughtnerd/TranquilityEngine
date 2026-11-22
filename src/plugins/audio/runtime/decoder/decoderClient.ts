@@ -288,11 +288,16 @@ class Client implements DecoderClient {
   }
 
   loadPack(pack: number, bytes: ArrayBuffer): Promise<{ readonly entries: number; readonly bytes: number }> {
+    // The waiter goes in first: an in-process worker may answer within `postMessage`.
+    const answer = new Promise<{ entries: number; bytes: number }>((resolve, reject) => {
+      const waiters = this.packWaiters.get(pack) ?? [];
+      waiters.push({ resolve, reject });
+      this.packWaiters.set(pack, waiters);
+    });
     this.packs.set(pack, bytes.slice(0));
-    let worker: WorkerLike;
     try {
       const had = this.worker !== null;
-      worker = this.ensureWorker();
+      const worker = this.ensureWorker();
       // A worker spawned just now was sent the package (with every other) as it started.
       if (had) {
         const copy = bytes.slice(0);
@@ -300,14 +305,11 @@ class Client implements DecoderClient {
       }
     } catch (e) {
       this.packs.delete(pack);
-      return Promise.reject(new DecoderUnavailableError(`audio decoder: no worker (${e instanceof Error ? e.message : String(e)})`));
+      this.settlePack(pack, new DecoderUnavailableError(`audio decoder: no worker (${e instanceof Error ? e.message : String(e)})`));
     }
-    return new Promise((resolve, reject) => {
-      const waiters = this.packWaiters.get(pack) ?? [];
-      waiters.push({ resolve, reject });
-      this.packWaiters.set(pack, waiters);
-    });
+    return answer;
   }
+
 
   releasePack(pack: number): void {
     this.packs.delete(pack);

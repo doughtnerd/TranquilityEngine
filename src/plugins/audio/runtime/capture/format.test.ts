@@ -67,7 +67,7 @@ describe("capture header (§5.1)", () => {
   it("names both ABI versions on a wire mismatch", () => {
     const c = sampleCapture().slice();
     c[12] ^= 0xff;
-    expect(() => readCaptureHeader(c)).toThrow(/ABI 4\.11.*re-record with this build/);
+    expect(() => readCaptureHeader(c)).toThrow(/ABI 4\.12.*re-record with this build/);
   });
 });
 

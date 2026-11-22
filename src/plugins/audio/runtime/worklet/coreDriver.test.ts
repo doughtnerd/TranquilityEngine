@@ -390,7 +390,8 @@ describe("ABI 2.0 init and the layout mirror (ADR 0162 C8)", () => {
       }
     }
     // An M2 preset: the pool, the scratch, and in Zones the aux accumulator (C3) and the sends area's chain gains (C4).
-    expect(spatialRegionsBytes(PRESET, RATE)).toBe(32 * 560 + 8192 + PRESET.maxBuses * 1024 + (64 + PRESET.maxBuses * 512) + 64);
+    // ADR 0337 A4: and the ADPCM voice cursors (2,176 B per mixed voice).
+    expect(spatialRegionsBytes(PRESET, RATE)).toBe(32 * 560 + 8192 + PRESET.maxBuses * 1024 + (64 + PRESET.maxBuses * 512) + 64 + 32 * 2176);
   });
 
   it("ABI 4.0 (3.0 added max_music_rings): max_music_rings 0..16 is accepted, 17 refused, and the preset's count reaches init (ADR 0166 W1)", () => {
