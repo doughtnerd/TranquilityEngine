@@ -3,7 +3,7 @@
  *
  * - **`coreSectionOf(project)`** is what the runtime's mixer hands its backends (`Mixer.audioSettings`): the bus tree
  *   the audio core's slots and the Web Audio fallback's nodes are built from. Levels are each bus's fader alone (the
- *   mixer runs VCAs as their own gain lane), the effects the backends' bus chains run (low-pass, high-pass, compressor),
+ *   mixer runs VCAs as their own gain lane), the effects the backends' bus chains run (every type the audio core runs, `CORE_EFFECT_TYPES`, ADR 0331 ABI 4.6: legacy low-pass, high-pass and compressor when exact, else catalogue effects, `coreBusEffect`),
  *   a send to a return that holds a reverb as the core's reverb send (its level plus the return's, 0 while the return is
  *   muted), ducking and the `volume` and low-pass automation the core runs. The
  *   mixer itself runs everything else on the main thread from the `AudioProject` (snapshots, VCAs, returns' lanes,

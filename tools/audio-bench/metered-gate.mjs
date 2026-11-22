@@ -70,6 +70,8 @@ const SCENES = [
   "fx-submix-pitch",
   "fx-submix-formant",
   "fx-sidechain",
+  // ADR 0330 (ABI 4.7): 12 buses each sending into two returns.
+  "bus-sends",
   "automation-virtual",
   "bus-automation",
   "sustain",

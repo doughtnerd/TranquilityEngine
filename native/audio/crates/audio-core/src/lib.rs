@@ -22,6 +22,7 @@ pub mod automation;
 pub mod bed;
 pub mod bus;
 pub mod bus_order;
+pub mod bus_sends;
 pub mod bus_slots;
 pub mod cap;
 pub mod cap_controller;

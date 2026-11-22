@@ -41,7 +41,8 @@ use crate::memory::{PlatformMemory, PLATFORM_MEMORY};
 /// `BUS_FX_CATALOGUE + kind`, on bus chains; eight effects a bus, no one-compressor limit; the `FxMem`
 /// region (effect memory); smoothed catalogue parameters; sidechain keys order the buses.
 pub const ABI_MAJOR: u32 = 4;
-pub const ABI_MINOR: u32 = 6;
+/// 4.7 (ADR 0330): BUS_SENDS (0x1E), post-fader bus-to-return sends with level ramps and core-side muting.
+pub const ABI_MINOR: u32 = 7;
 
 /// The inbox: BATCH, REPLAY and small control messages (api-and-models §5: fixed 1 MiB).
 pub const INBOX_BYTES: usize = 1 << 20;
@@ -357,7 +358,7 @@ mod tests {
 
     #[test]
     fn identity_exports() {
-        assert_eq!(myco_audio_abi_version(), 0x406);
+        assert_eq!(myco_audio_abi_version(), 0x407);
         assert_eq!(myco_audio_inbox_cap(), 1 << 20);
         assert_eq!(myco_audio_inbox_ptr() as usize % 64, 0);
         assert_eq!(myco_audio_status_ptr() as usize % 64, 0);

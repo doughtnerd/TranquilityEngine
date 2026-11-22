@@ -4,7 +4,7 @@
 
 export const WIRE_GENERATED = true;
 /** First 16 bytes of the schema's SHA-256, lower-case hex (32 characters). */
-export const SCHEMA_HASH = "907b703be038b187ee0b51182f40c156";
+export const SCHEMA_HASH = "b2283bb4820ce50e47272aa5f7361a2b";
 
 /** envelope magic, 'MYA1' */
 export const MAGIC = 0x4d594131;
@@ -232,6 +232,10 @@ export const SHAPE_SEQUENCE_SHIFT = 0x3;
 export const SHAPE_SEQUENCE_MASK = 0x1fff;
 /** effects a slot keeps; a BUS_SLOT naming more keeps the first eight (ADR 0331, ABI 4.6) */
 export const BUS_SLOT_MAX_EFFECTS = 0x8;
+/** sends a bus keeps (BUS_SENDS, ADR 0330, ABI 4.7); more are dropped */
+export const MAX_BUS_SENDS = 0x4;
+/** BUS_SENDS item flags bit 0: muted (the send ramps to 0 and keeps its level; ADR 0330 D29 #7) */
+export const BUS_SEND_MUTED = 0x1;
 /** BUS_DUCK rule flags bit 0: level mode (reads the trigger bus's buffer; adds a bus-order edge) */
 export const DUCK_FLAG_LEVEL = 0x1;
 /** BUS_DUCK rule flags bit 1: the detector is RMS rather than peak */
@@ -386,6 +390,7 @@ export const Op = {
   LOUD_CONFIG: 0x1b,
   BUS_SLOT: 0x1c,
   TIME: 0x1d,
+  BUS_SENDS: 0x1e,
   LISTENER: 0x20,
   RESET: 0x30,
 } as const;
@@ -2984,6 +2989,93 @@ export function readTime(view: DataView, off: number): Time {
   const limit = off + view.getUint16(off + 2, true) * 4;
   if (limit > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "Time: truncated");
   return _readTime(view, off, limit)[0];
+}
+
+export interface BusSendsSends {
+  /** the receiving bus slot (a return) */
+  to: number;
+  /** BUS_SEND_MUTED */
+  flags: number;
+  /** linear gain, 0..4; a non-finite value is 0 */
+  level: number;
+  /** ramp to the level (or to 0 when muted) over this many frames; 0 a step */
+  frames: number;
+}
+
+export const BUS_SENDS_SENDS_FIXED_END = 12;
+
+export function writeBusSendsSends(view: DataView, off: number, rec: BusSendsSends): number {
+  view.setUint16(off + 0, rec.to, true);
+  view.setUint16(off + 2, rec.flags, true);
+  view.setFloat32(off + 4, rec.level, true);
+  view.setUint32(off + 8, rec.frames, true);
+  let cur = off + 12;
+  return cur - off;
+}
+
+function _readBusSendsSends(view: DataView, off: number, limit: number): [BusSendsSends, number] {
+  if (off + 12 > limit) throw new WireError(ErrorCode.TRUNCATED, "BusSendsSends: truncated");
+  const to = view.getUint16(off + 0, true);
+  const flags = view.getUint16(off + 2, true);
+  const level = view.getFloat32(off + 4, true);
+  const frames = view.getUint32(off + 8, true);
+  let cur = off + 12;
+  return [{ to, flags, level, frames }, cur - off];
+}
+
+export function readBusSendsSends(view: DataView, off: number): BusSendsSends {
+  const limit = view.byteLength;
+  return _readBusSendsSends(view, off, limit)[0];
+}
+
+/** replace one bus's post-fader sends into returns (voiceId = bus slot); asap (ADR 0330) */
+export interface BusSends {
+  voiceId: number;
+  frameOffset: number;
+  sends: BusSendsSends[];
+}
+
+export const BUS_SENDS_FIXED_END = 16;
+
+export function writeBusSends(view: DataView, off: number, rec: BusSends): number {
+  if (rec.sends.length > 4) throw new WireError(ErrorCode.OVERSIZE, "BusSends: sends over its cap 4");
+  view.setUint32(off + 12, rec.sends.length, true);
+  let cur = off + 16;
+  for (const item of rec.sends) cur += writeBusSendsSends(view, cur, item);
+  const total = cur - off;
+  if (total % 4 !== 0 || total / 4 > 0xffff) throw new WireError(ErrorCode.OVERSIZE, "BusSends: record too long");
+  view.setUint16(off + 0, 30, true);
+  view.setUint16(off + 2, total / 4, true);
+  view.setUint32(off + 4, rec.voiceId, true);
+  view.setUint32(off + 8, rec.frameOffset, true);
+  return cur - off;
+}
+
+function _readBusSends(view: DataView, off: number, limit: number): [BusSends, number] {
+  if (off + 16 > limit) throw new WireError(ErrorCode.TRUNCATED, "BusSends: truncated");
+  const sendCount = view.getUint32(off + 12, true);
+  let cur = off + 16;
+  if (sendCount > 4) throw new WireError(ErrorCode.MALFORMED, "BusSends: sends over its cap");
+  if (sendCount * 12 > limit - cur) throw new WireError(ErrorCode.TRUNCATED, "BusSends: sends overrun");
+  const sends: BusSendsSends[] = [];
+  for (let i = 0; i < sendCount; i++) {
+    const [item, used] = _readBusSendsSends(view, cur, limit);
+    cur += used;
+    sends.push(item);
+  }
+  if (cur > limit) throw new WireError(ErrorCode.MALFORMED, "BusSends: malformed");
+  cur = limit;
+  const voiceId = view.getUint32(off + 4, true);
+  const frameOffset = view.getUint32(off + 8, true);
+  return [{ voiceId, frameOffset, sends }, cur - off];
+}
+
+export function readBusSends(view: DataView, off: number): BusSends {
+  if (off + 12 > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "BusSends: truncated");
+  if (view.getUint16(off + 0, true) !== 30) throw new WireError(ErrorCode.MALFORMED, "BusSends: wrong opcode");
+  const limit = off + view.getUint16(off + 2, true) * 4;
+  if (limit > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "BusSends: truncated");
+  return _readBusSends(view, off, limit)[0];
 }
 
 /** a camera cut: jump to the rotation, no ramp */

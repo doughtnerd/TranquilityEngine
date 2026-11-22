@@ -27,6 +27,8 @@ import {
   readBusPresence,
   readBusRamp,
   readBusSlot,
+  readBusSends,
+  BUS_SEND_MUTED,
   readLoudConfig,
   readRecordHead,
   STATUS_BUFFER_BYTES,
@@ -122,6 +124,18 @@ describe("CommandWriter, the M5 records", () => {
     w2.flush(0);
     const r2 = records(p2[0]!);
     expect(readBusSlot(r2.view, r2.records[1]!.off).effects[0]!.p).toEqual([0, 0, 0, 0, 0, 0, 0]);
+  });
+
+  it("busSends (ADR 0330, ABI 4.7): 16 B plus 12 B per send, at most MAX_BUS_SENDS", () => {
+    const { writer, posted } = writerRig();
+    const send = (to: number, level: number, flags = 0, frames = 0) => ({ to, flags, level, frames });
+    writer.busSends(3, [send(1, 0.5), send(2, 1, BUS_SEND_MUTED, 480), send(4, 1), send(5, 1), send(6, 1)]);
+    writer.flush(0);
+    const { view, records: recs } = records(posted[0]!);
+    expect(recs.map((r) => [r.op, r.bytes])).toEqual([[Op.BUS_SENDS, 16 + 4 * 12]]);
+    const rec = readBusSends(view, recs[0]!.off);
+    expect(rec.voiceId).toBe(3);
+    expect(rec.sends.map((x) => [x.to, x.flags, x.level, x.frames])).toEqual([[1, 0, 0.5, 0], [2, BUS_SEND_MUTED, 1, 480], [4, 0, 1, 0], [5, 0, 1, 0]]);
   });
 
   it("busDuck: replace-all, asap, 16 B plus 24 B per rule; more than MAX_DUCK_RULES is a WireError OVERSIZE and nothing is staged", () => {

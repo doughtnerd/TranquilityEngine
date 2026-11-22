@@ -2,26 +2,26 @@
 // `cargo run --manifest-path native/audio/crates/audio-wire/Cargo.toml --bin gen_wire`.
 #![allow(clippy::all, dead_code, unused_mut)]
 
-/// First 16 bytes of the schema's SHA-256 (hex: 907b703be038b187ee0b51182f40c156).
+/// First 16 bytes of the schema's SHA-256 (hex: b2283bb4820ce50e47272aa5f7361a2b).
 pub const SCHEMA_HASH: [u8; 16] = [
-    0x90,
-    0x7b,
-    0x70,
+    0xb2,
+    0x28,
     0x3b,
-    0xe0,
-    0x38,
-    0xb1,
-    0x87,
-    0xee,
-    0x0b,
-    0x51,
-    0x18,
-    0x2f,
-    0x40,
-    0xc1,
-    0x56,
+    0xb4,
+    0x82,
+    0x0c,
+    0xe5,
+    0x0e,
+    0x47,
+    0x27,
+    0x2a,
+    0xa5,
+    0xf7,
+    0x36,
+    0x1a,
+    0x2b,
 ];
-pub const SCHEMA_HASH_HEX: &str = "907b703be038b187ee0b51182f40c156";
+pub const SCHEMA_HASH_HEX: &str = "b2283bb4820ce50e47272aa5f7361a2b";
 
 /// envelope magic, 'MYA1'
 pub const MAGIC: u32 = 0x4d594131;
@@ -249,6 +249,10 @@ pub const SHAPE_SEQUENCE_SHIFT: u32 = 0x3;
 pub const SHAPE_SEQUENCE_MASK: u32 = 0x1fff;
 /// effects a slot keeps; a BUS_SLOT naming more keeps the first eight (ADR 0331, ABI 4.6)
 pub const BUS_SLOT_MAX_EFFECTS: u32 = 0x8;
+/// sends a bus keeps (BUS_SENDS, ADR 0330, ABI 4.7); more are dropped
+pub const MAX_BUS_SENDS: u32 = 0x4;
+/// BUS_SENDS item flags bit 0: muted (the send ramps to 0 and keeps its level; ADR 0330 D29 #7)
+pub const BUS_SEND_MUTED: u32 = 0x1;
 /// BUS_DUCK rule flags bit 0: level mode (reads the trigger bus's buffer; adds a bus-order edge)
 pub const DUCK_FLAG_LEVEL: u32 = 0x1;
 /// BUS_DUCK rule flags bit 1: the detector is RMS rather than peak
@@ -406,6 +410,7 @@ pub mod op {
     pub const LOUD_CONFIG: u16 = 0x1b;
     pub const BUS_SLOT: u16 = 0x1c;
     pub const TIME: u16 = 0x1d;
+    pub const BUS_SENDS: u16 = 0x1e;
     pub const LISTENER: u16 = 0x20;
     pub const RESET: u16 = 0x30;
 }
@@ -3940,6 +3945,129 @@ impl Time {
             which,
             value,
             rate,
+        }, cur - base))
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct BusSendsSends {
+    /// the receiving bus slot (a return)
+    pub to: u16,
+    /// BUS_SEND_MUTED
+    pub flags: u16,
+    /// linear gain, 0..4; a non-finite value is 0
+    pub level: f32,
+    /// ramp to the level (or to 0 when muted) over this many frames; 0 a step
+    pub frames: u32,
+}
+
+impl BusSendsSends {
+    pub const FIXED_END: usize = 12;
+    pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
+        if base + Self::FIXED_END > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + 0, self.to);
+        put_u16(out, base + 2, self.flags);
+        put_f32(out, base + 4, self.level);
+        put_u32(out, base + 8, self.frames);
+        let mut cur = base + Self::FIXED_END;
+        Ok(cur - base)
+    }
+    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
+        let limit = buf.len();
+        Self::read_to(buf, base, limit)
+    }
+    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
+        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
+            return Err(ERR_TRUNCATED);
+        }
+        let to = get_u16(buf, base + 0);
+        let flags = get_u16(buf, base + 2);
+        let level = get_f32(buf, base + 4);
+        let frames = get_u32(buf, base + 8);
+        let mut cur = base + Self::FIXED_END;
+        Ok((Self {
+            to,
+            flags,
+            level,
+            frames,
+        }, cur - base))
+    }
+}
+
+/// replace one bus's post-fader sends into returns (voiceId = bus slot); asap (ADR 0330)
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct BusSends {
+    pub voice_id: u32,
+    pub frame_offset: u32,
+    pub sends: Vec<BusSendsSends>,
+}
+
+impl BusSends {
+    pub const FIXED_END: usize = 16;
+    pub const OPCODE: u16 = 30; // BUS_SENDS
+    pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
+        if base + Self::FIXED_END > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        if self.sends.len() > 4 {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u32(out, base + 12, u32::try_from(self.sends.len()).map_err(|_| ERR_OVERSIZE)?);
+        let mut cur = base + Self::FIXED_END;
+        for item in &self.sends {
+            cur += item.write(out, cur)?;
+        }
+        let total = cur - base;
+        if total % 4 != 0 || total / 4 > u16::MAX as usize {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + RecordHead::OPCODE_AT, Self::OPCODE);
+        put_u16(out, base + RecordHead::WORDS_AT, (total / 4) as u16);
+        put_u32(out, base + RecordHead::VOICE_ID_AT, self.voice_id);
+        put_u32(out, base + RecordHead::FRAME_OFFSET_AT, self.frame_offset);
+        Ok(cur - base)
+    }
+    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
+        let (head, _) = RecordHead::read(buf, base)?;
+        if head.opcode != Self::OPCODE {
+            return Err(ERR_MALFORMED);
+        }
+        let limit = base + head.words as usize * 4;
+        if limit > buf.len() {
+            return Err(ERR_TRUNCATED);
+        }
+        Self::read_to(buf, base, limit)
+    }
+    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
+        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
+            return Err(ERR_TRUNCATED);
+        }
+        let (head, _) = RecordHead::read(buf, base)?;
+        let send_count = get_u32(buf, base + 12);
+        let mut cur = base + Self::FIXED_END;
+        if send_count as usize > 4 {
+            return Err(ERR_MALFORMED);
+        }
+        let count = send_count as usize;
+        if count.checked_mul(12).map_or(true, |n| n > limit - cur) {
+            return Err(ERR_TRUNCATED);
+        }
+        let mut sends = Vec::with_capacity(count);
+        for _ in 0..count {
+            let (item, n) = BusSendsSends::read_to(buf, cur, limit)?;
+            cur += n;
+            sends.push(item);
+        }
+        if cur > limit {
+            return Err(ERR_MALFORMED);
+        }
+        let cur = limit; // appended words of a newer minor are skipped
+        Ok((Self {
+            voice_id: head.voice_id,
+            frame_offset: head.frame_offset,
+            sends,
         }, cur - base))
     }
 }

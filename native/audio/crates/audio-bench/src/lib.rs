@@ -562,6 +562,8 @@ pub enum Catalogue {
     Submix(u32, [f32; 3]),
     /// Buses 4..: a sidechain compressor keyed on bus 1.
     Sidechain,
+    /// Buses 4..: two post-fader sends each, into buses 1 and 2 (returns; ADR 0330, ABI 4.7).
+    Sends,
 }
 
 /// The frozen scenes by name.
@@ -631,6 +633,8 @@ pub fn scene(name: &str) -> Option<Scene> {
         "fx-submix-pitch" => Scene { submixes: 32, catalogue: Some(Catalogue::Submix(wire::SUBMIX_FX_PITCH, [7.0, 0.0, 0.0])), ..Scene::looping(name, 128) },
         "fx-submix-formant" => Scene { submixes: 32, catalogue: Some(Catalogue::Submix(wire::SUBMIX_FX_FORMANT, [4.0, 0.0, 0.0])), ..Scene::looping(name, 128) },
         "fx-sidechain" => Scene { buses: 16, catalogue: Some(Catalogue::Sidechain), ..Scene::looping(name, 32) },
+        // ADR 0330 (ABI 4.7): 16 buses, 12 sending into two returns (buses 1 and 2).
+        "bus-sends" => Scene { buses: 16, catalogue: Some(Catalogue::Sends), ..Scene::looping(name, 32) },
         // Not gated: the timed control-rate pass of `automation`, and the virtual scene's twin without bindings.
         "automation-probe" => Scene { bindings: 3, probe_automation: true, ..Scene::looping(name, 256) },
         "automation-virtual-base" => Scene { virtual_voices: 256, ..Scene::looping(name, 16) },
@@ -1531,6 +1535,12 @@ impl Bench {
         if s.zones_active > 0 {
             self.zones_init();
         }
+        if s.catalogue == Some(Catalogue::Sends) {
+            for bus in 4..s.buses {
+                let sends = [1u16, 2].iter().map(|&to| wire::BusSendsSends { to, flags: 0, level: 0.3, frames: 0 }).collect();
+                self.push(&wire::BusSends { voice_id: bus, frame_offset: wire::ASAP, sends });
+            }
+        }
         for slot in 0..s.submixes.min(wire::SUBMIXES_MAX as u32) {
             // ADR 0331: a 1.2 kHz low-pass, then a compressor (catalogue parameters); an `fx-submix-*` scene's one kind.
             let effects = match s.catalogue {
@@ -2423,7 +2433,7 @@ macro_rules! wire_record {
         }
     )*};
 }
-wire_record!(wire::ZoneConfig, wire::BedConfig, wire::Play, wire::SetParams, wire::BusConfig, wire::BusRamp, wire::Master, wire::Automate, wire::BusAutomate, wire::Curves, wire::Param, wire::SetLoop, wire::SetVoiceFx, wire::Listener, wire::Fade, wire::Stop, wire::LoudConfig, wire::BusDuck, wire::Time, wire::Loops, wire::Submix);
+wire_record!(wire::ZoneConfig, wire::BedConfig, wire::Play, wire::SetParams, wire::BusConfig, wire::BusRamp, wire::Master, wire::Automate, wire::BusAutomate, wire::Curves, wire::Param, wire::SetLoop, wire::SetVoiceFx, wire::Listener, wire::Fade, wire::Stop, wire::LoudConfig, wire::BusDuck, wire::Time, wire::Loops, wire::Submix, wire::BusSends);
 
 /// ADR 0158 E2: the automation scenes' curves. 0 volume over 0..1 (a smooth rise, 8 keys), 1 pitch 0.8..1.25
 /// (easeIn), 2 lowpass 800..20,000 Hz (easeOut, 16 keys, so the search takes a few steps). With `bezier` (ADR 0332)

@@ -114,6 +114,8 @@ pub struct BusSlot {
     pub snapshot: Biquad,
     /// The effect chain (`fx.rs`, K5).
     pub fx: FxChain,
+    /// ADR 0330 (ABI 4.7): post-fader sends into returns (`bus_sends.rs`).
+    pub sends: crate::bus_sends::Sends,
 }
 
 /// The bus tree's scalars and the shared reverb's input. All-zero is valid; [`init`] fills it.
@@ -442,6 +444,7 @@ pub fn reset(core: &mut Core) {
         slot.meter.reset();
         slot.snapshot = Biquad::default();
         slot.fx.reset_with(fxdata);
+        crate::bus_sends::settle(slot);
     }
     v.area.key_env = [Default::default(); InitParams::MAX_BUSES as usize];
     crate::lanes::settle_master(master_lanes.unwrap_or(&mut spare), &mut v.area.master);
@@ -617,6 +620,10 @@ pub fn mixdown(core: &mut Core) {
         block.copy_from_slice(&slot.buf);
         slot.buf = [0.0; 2 * QUANTUM];
         let parent = slot.parent;
+        // ADR 0330 (ABI 4.7): post-fader sends into the returns (mixed after this bus).
+        if slot.sends.count != 0 {
+            crate::bus_sends::feed(&mut v.slots[..count], b, &block);
+        }
         let (dst_l, dst_r): (&mut [f32], &mut [f32]) = if parent == ROOT || parent as usize >= count {
             (&mut out_l[..], &mut out_r[..])
         } else {

@@ -206,6 +206,8 @@ pub fn rerun(core: &mut Core) {
                 v.area.key_env[b] = Default::default();
             }
         }
+        // ADR 0330: each send orders its return after the sender.
+        ne += crate::bus_sends::edges(&v.slots[..count], &mut extra[ne..]);
         let extra = &extra[..ne];
         match duck::area(&mut *duck_bytes) {
             Some(d) => {
