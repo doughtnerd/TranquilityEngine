@@ -10,8 +10,9 @@ describe("projectWithAudio", () => {
     const read = projectWithAudio({ name: "Game", display: { width: 320 } }, AUDIO);
     expect(read.legacyAudio).toBe(false);
     expect(read.problems).toEqual([]);
-    expect(read.warnings).toEqual(["settings.dopplerAmount needs the new mixer; Doppler plays at 1 until then."]);
+    expect(read.warnings).toEqual([]);
     const settings = resolveSettings(read.project);
+    expect(settings.audio.doppler.amount).toBe(0.5); // ADR 0333: the Doppler pass scales every voice's level by it
     expect(settings.name).toBe("Game");
     expect(settings.audio.buses.map((b) => [b.name, b.volume])).toEqual([["Master", 1], ["Music", expect.closeTo(Math.pow(10, -6 / 20), 9)]]);
   });

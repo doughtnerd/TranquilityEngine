@@ -589,10 +589,13 @@ function runtimeBus(project: AudioProject, bus: Bus, warn: (line: string) => voi
 export function toRuntimeSettings(project: AudioProject, warnings: string[] = []): AudioSettings {
   const warn = (line: string) => void warnings.push(line);
   const { submixes: _submixes, bedBeyond, dopplerAmount, ...engine } = project.settings;
-  if (bedBeyond !== null) warn("settings.bedBeyond needs the new mixer; beds go by priority until then.");
-  if (dopplerAmount !== 1) warn("settings.dopplerAmount needs the new mixer; Doppler plays at 1 until then.");
+  // TODO(ADR 0333): `bedBeyond` needs the audio core's panner pick to send a voice past it to its bus's bed (it picks beds
+  // by HRTF rank only today); the runtime view leaves it out until then.
+  if (bedBeyond !== null) warn("settings.bedBeyond needs the audio core's distance-based beds; beds go by HRTF rank until then.");
   const isBus = (name: string) => project.buses.some((b) => b.name === name);
   const out: AudioSettings = { ...structuredClone(engine), buses: [], snapshots: [], ducking: [], parameters: structuredClone(project.parameters), automation: [] };
+  // ADR 0333: the global Doppler amount scales every voice's Doppler level (the Doppler pass reads it).
+  if (dopplerAmount !== 1) out.doppler = { ...out.doppler, amount: dopplerAmount };
   out.buses = project.buses.map((b) => runtimeBus(project, b, warn));
   for (const r of project.returns) {
     if (r.output !== project.buses[0]?.name) warn(`return "${r.name}": its output "${r.output}" needs the new mixer; it plays into the master bus until then.`);
