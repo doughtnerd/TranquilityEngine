@@ -11,6 +11,7 @@ import { openSceneFile } from "./project";
 import { installShortcuts } from "./shortcuts";
 import { openScene, openScenes, pickTool, sceneCamera, selectedKeys, tool } from "./state";
 import { select } from "./inspectorTarget";
+import { KEY_OWNER } from "./graph/keyOwner";
 import { DEMO_SCENE, demoAssets, demoSettings } from "./testing";
 
 type Mods = Partial<{ ctrlKey: boolean; metaKey: boolean; shiftKey: boolean; altKey: boolean; code: string }>;
@@ -33,6 +34,16 @@ function press(key: string, mods: Mods = {}, target: object | null = null): bool
   Object.defineProperty(e, "target", { value: target });
   keys.dispatchEvent(e);
   return e.preventDefault.mock.calls.length > 0;
+}
+
+/**
+ * An element inside a root with these attributes, as `closest` sees it: enough of the DOM for the
+ * attribute selectors (`[name]`) the shortcuts ask about; any other selector matches nothing.
+ */
+function inside(rootAttrs: Record<string, string>): object {
+  const root = { nodeType: 1, tagName: "DIV", getAttribute: (n: string) => rootAttrs[n] ?? null };
+  const matches = (sel: string) => sel.split(",").some((s) => (/^\[([\w-]+)\]$/.exec(s.trim())?.[1] ?? "") in rootAttrs);
+  return { nodeType: 1, tagName: "DIV", closest: (sel: string) => (matches(sel) ? root : null) };
 }
 
 beforeEach(async () => {
@@ -65,6 +76,20 @@ describe("tool shortcuts", () => {
     press("q", { shiftKey: true });
     press("w", { ctrlKey: true, shiftKey: true });
     expect(tool.value).toBe("scale");
+  });
+
+  it("leaves Q/W/E/R, Delete and the clipboard keys inside a graph editor to the graph", () => {
+    pickTool("move");
+    select(["bird"]);
+    const n = openScene.value!.doc.nodes.length;
+    const inGraph = inside({ [KEY_OWNER]: "" });
+    for (const key of ["q", "e", "r"]) press(key, {}, inGraph);
+    expect(tool.value).toBe("move");
+    expect(press("Delete", {}, inGraph)).toBe(false);
+    expect(press("d", { ctrlKey: true }, inGraph)).toBe(false);
+    expect(openScene.value!.doc.nodes.length).toBe(n);
+    press("q", {}, inside({ class: "elsewhere" }));
+    expect(tool.value).toBe("select");
   });
 });
 
@@ -146,6 +171,13 @@ describe("node shortcuts", () => {
     expect(e.preventDefault).toHaveBeenCalled();
     const doc = openScene.value!.doc;
     expect(doc.children("bird").map((id) => doc.node(id).name)).toContain("Lamp");
+  });
+
+  it("leaves a paste in a graph editor to the graph", () => {
+    const e = Object.assign(new Event("paste"), { clipboardData: { getData: () => "x" }, preventDefault: vi.fn() });
+    Object.defineProperty(e, "target", { value: inside({ [KEY_OWNER]: "" }) });
+    keys.dispatchEvent(e);
+    expect(e.preventDefault).not.toHaveBeenCalled();
   });
 
   it("leaves a paste in a text field to the field", () => {
