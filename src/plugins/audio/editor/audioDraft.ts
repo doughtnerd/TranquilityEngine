@@ -1,4 +1,5 @@
-// `project.json`'s `audio` key (ADR 0097) as a settings section handle (ADR 0253): the one way the Audio settings
+// The settings draft's `audio` key (ADR 0097; since ADR 0330 `audio.json`'s runtime view, saved back to `audio.json` by
+// the project section, decision D2) as a settings section handle (ADR 0253): the one way the Audio settings
 // section, the mixer and the inspectors read the key (`audioSection`'s parse, memoised per section object and frozen,
 // ADR 0175) and write it back whole (`withSettings`: built-in occlusion materials pruned). Small on purpose: the mixer
 // and the inspectors read it without loading the settings model. Its edits are `"canonical"` (ADR 0306): a value set by

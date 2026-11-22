@@ -1,4 +1,4 @@
-// The Project panel's Audio section (ADR 0097): `project.json`'s `audio` key as part of the settings draft,
+// The Project panel's Audio section (ADR 0097): the settings draft's `audio` key (since ADR 0330 the old section shape of `audio.json`, which the draft's saves merge into, decision D2),
 // edited by pure functions like navigation and graphics. Edits start from the leniently parsed section and
 // write the whole section back, so the rest of the panel's undo/save machinery works unchanged. A scalar key has no
 // setter here: the view sets it by path on the section handle (`audioSettings.set(d, "zones.standby", n)`), which stores

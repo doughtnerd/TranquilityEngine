@@ -17,10 +17,10 @@ import { sameMaterial } from "../audioSection";
 import {
   BED_PRIORITY_LIMITS, DEFAULT_BED_PRIORITY, DEFAULT_DUCK_DETECTOR, DEFAULT_DUCK_THRESHOLD, DEFAULT_LOUDNESS_TARGETS, MASTER,
   MAX_BUSES, MAX_DUCK_RULES, MAX_LEVEL_RULES, ROOT_BED_PRIORITY, defaultAudioSettings, parseAudioSettings,
-  type AudioParseOptions, type AudioSettings, type BusEffect, type BusSettings, type DuckingRule as RuntimeDuckingRule,
+  type AudioParseOptions, type AudioSettings, type BusSettings, type DuckingRule as RuntimeDuckingRule,
   type LoudnessTarget, type SnapshotSettings, type BusAutomation,
 } from "../settings";
-import { MAX_DB, MIN_DB, dbToGain, gainToDb } from "./gain";
+import { MAX_DB, MIN_DB, dbToGain } from "./gain";
 import { isCarrier, isShown, secondsOf, toBusEffect } from "./legacyEffects";
 import {
   AUDIO_PROJECT_FORMAT, type AudioEngineSettings, type AudioProject, type AudioProjectParse, type Bus, type ConditionOp,

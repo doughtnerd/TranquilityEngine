@@ -1,6 +1,8 @@
 /**
- * Internal (ADR 0097): the `audio` section of `project.json`, a tree of mixer buses with per-bus
- * volume, mute and effects, plus snapshots and ducking rules.
+ * Internal (ADR 0097): the runtime's mix model, a tree of mixer buses with per-bus volume, mute and effects, plus
+ * snapshots and ducking rules. It was the `audio` section of `project.json`; since ADR 0330 the project's mix lives in
+ * `audio.json` (`project/format.ts`) and the runtime runs `toRuntimeSettings` of it, in this shape. The old section is
+ * read only by the migration (`project/legacy.ts`).
  *
  * ```jsonc
  * "audio": {

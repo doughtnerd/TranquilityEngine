@@ -1,4 +1,5 @@
-// A project section (ADR 0151): a set of top-level keys of `project.json` being edited by one panel
+// A project section (ADR 0151): a set of top-level keys of `project.json` being edited by one panel (the `audio` key
+// is `audio.json`'s, ADR 0330: read as its runtime view and saved into it, `audioProjectFile.ts`)
 // (Project Settings: everything but `bootstrap`; Worlds: `bootstrap`). It holds the draft and its
 // undo history, keeps them when another panel's keys change, tells its own write coming back from an
 // outside edit, writes valid drafts only (through the shared queue, so panels never drop each other's

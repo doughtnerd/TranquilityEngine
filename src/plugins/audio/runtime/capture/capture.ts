@@ -561,7 +561,10 @@ class Capture implements AudioCapture {
     };
   }
 
-  /** META (§5.2): the project, the engine, the device, the audio section as it stands, the target in force and the names known now. */
+  /**
+   * META (§5.2): the project, the engine, the device, the mix as it stands (the mixer's settings: `audio.json`'s runtime
+   * view since ADR 0330), the target in force and the names known now.
+   */
   private buildMeta(backend: AudioBackend, ringBytes: number): CaptureMetaInit {
     const d = backend.debug();
     const settings = mixer.audioSettings;
