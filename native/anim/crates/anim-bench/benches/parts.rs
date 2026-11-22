@@ -1,5 +1,5 @@
 //! The budget scenarios' parts, natively (`cargo bench -p anim-bench --bench parts`): clip sampling
-//! (60 and 80 bones; compressed with and without a segment cache, and raw; through the binding
+//! (60 and 80 bones; compressed with and without a segment cache or a frame cache, and raw; through the binding
 //! table, as the core samples), the rig stack alone (100 instances of the reference pose under the
 //! budget graph's grounder and look-at), matching search (KD-tree and brute force, one query near a
 //! database frame), retargeting one pose, and skinning matrices (model space and the 3×4 matrices).
@@ -14,7 +14,7 @@ use anim_format::skeleton::SkeletonView;
 use anim_match::{MatchDb, SearchFilter, SearchMode};
 use anim_math::layout::soa_len;
 use anim_math::{AosMat3x4, AosTransform, F32x4, SoaTransform};
-use anim_sample::{rest_pose, ClipBindings, ClipSampler, Form, SegmentCache};
+use anim_sample::{rest_pose, ClipBindings, ClipSampler, Form, FrameCache, SegmentCache};
 use criterion::{criterion_group, criterion_main, Criterion};
 use std::hint::black_box;
 
@@ -64,6 +64,22 @@ fn sampling(c: &mut Criterion) {
                         let cache = cached.then_some(&mut cache);
                         bound
                             .sample_pose(t, &rest, &mut scratch, &mut out, cache)
+                            .unwrap();
+                        black_box(out[0].translation.x)
+                    })
+                });
+            }
+            if form == Form::Compressed {
+                // T82r: a clip player's frame cache (decoded frames and segment ranges).
+                let mut head = vec![0u32; FrameCache::header_len(bones)];
+                let mut frames = vec![SoaTransform::identity(); FrameCache::frames_len(bones)];
+                let mut t = 0.0f32;
+                g.bench_function(format!("compressed_frame_cache/{bones}_bones"), |b| {
+                    b.iter(|| {
+                        t = (t + DT) % 2.0;
+                        let mut cache = FrameCache::new(&mut head, &mut frames, 0);
+                        bound
+                            .sample_pose_cached(t, &rest, &mut scratch, &mut out, &mut cache)
                             .unwrap();
                         black_box(out[0].translation.x)
                     })
