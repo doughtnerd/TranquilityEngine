@@ -139,11 +139,6 @@ impl MatchController {
         }
     }
 
-    /// Updates since the last search (0 right after one).
-    pub fn since_search(&self) -> u32 {
-        self.since_search
-    }
-
     /// The playing clip and time, if any.
     pub fn playing(&self) -> Option<(u32, f32)> {
         (self.clip != NONE).then_some((self.clip, self.time))

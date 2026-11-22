@@ -454,11 +454,7 @@ impl BoneSource for PoseBones<'_> {
         }
         let at = |frame: &CharacterFrame, pose: &[SoaTransform]| {
             let m = model(self.parents, pose, b);
-            AosTransform::new(
-                frame.point3_to_local(m.translation),
-                m.rotation,
-                m.scale,
-            )
+            AosTransform::new(frame.point3_to_local(m.translation), m.rotation, m.scale)
         };
         Some((
             at(&self.frame_last, self.last),
@@ -543,15 +539,7 @@ fn update(cx: &mut EvalContext<'_>, node: &NodeData<'_>) {
     let mut query = [F32x4::splat(0.0); MAX_QUERY_LANES];
     let built = lanes <= MAX_QUERY_LANES && skel.bones() > 0 && {
         let bones = PoseBones::new(skel.parents, skel.rest, last, prev, root);
-        build_query_from(
-            db,
-            &bones,
-            delta,
-            pose_dt,
-            &trajectory,
-            &mut query[..lanes],
-        )
-        .is_ok()
+        build_query_from(db, &bones, delta, pose_dt, &trajectory, &mut query[..lanes]).is_ok()
     };
     let tags = tag_filter(cx, node);
     let settings = controller_settings(cx, node);
@@ -568,9 +556,8 @@ fn update(cx: &mut EvalContext<'_>, node: &NodeData<'_>) {
         let rate = db.sample_rate();
         let s = cx.state();
         let current = sources::clip_of(s);
-        let near = current == target
-            && target != 0
-            && (sources::time_of(s) - o.time).abs() <= 1.0 / rate;
+        let near =
+            current == target && target != 0 && (sources::time_of(s) - o.time).abs() <= 1.0 / rate;
         if !near {
             // The old clip's last step is this update's root motion.
             sources::player_phase(cx, state::PLAYER, 1.0);

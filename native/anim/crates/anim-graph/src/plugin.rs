@@ -202,32 +202,6 @@ pub trait PluginHost {
     fn fault(&self, fault: Fault);
 }
 
-/// The parameter words of a `PLUGIN_NODE` (for compilers and tests): module string id, kind,
-/// state bytes, the block, then bindings `(offset, words, parameter)`.
-pub fn plugin_node_params(
-    module: u32,
-    kind: u32,
-    state_bytes: u32,
-    block: &[u32],
-    bindings: &[(u32, u32, u32)],
-) -> Vec<u32> {
-    let mut w = vec![module, kind, state_bytes, block.len() as u32];
-    w.extend_from_slice(block);
-    w.push(bindings.len() as u32);
-    for &(o, n, p) in bindings {
-        w.extend_from_slice(&[o, n, p]);
-    }
-    w
-}
-
-/// The view of a `PLUGIN_NODE`'s state: (flags, last fault status).
-pub fn fault_state(s: &[u32]) -> (u32, u32) {
-    (
-        s.get(state::FLAGS).copied().unwrap_or(0),
-        s.get(state::STATUS).copied().unwrap_or(0),
-    )
-}
-
 /// Evaluates a node of this family. Called only by [`crate::dispatch`].
 pub(crate) fn evaluate(cx: &mut EvalContext<'_>, kind: u16, node: NodeData<'_>) -> NodeStatus {
     match kind {
@@ -370,7 +344,11 @@ fn call(cx: &mut EvalContext<'_>, node: &NodeData<'_>, out: usize) -> u32 {
     // Input 0 is already in `out`; the others through a scratch slot, one at a time (a nested
     // plugin node pushes its own frame above this one meanwhile).
     if inputs > 0 {
-        to_aos(cx.pose(out), bones, &mut host.buffers().borrow_mut().floats[fa..]);
+        to_aos(
+            cx.pose(out),
+            bones,
+            &mut host.buffers().borrow_mut().floats[fa..],
+        );
     }
     for (j, &input) in node.inputs.iter().enumerate().take(inputs).skip(1) {
         let Some(slot) = cx.push_slot() else {
@@ -379,7 +357,11 @@ fn call(cx: &mut EvalContext<'_>, node: &NodeData<'_>, out: usize) -> u32 {
         };
         cx.eval_pose(input, slot);
         let at = fa + j * pose_floats;
-        to_aos(cx.pose(slot), bones, &mut host.buffers().borrow_mut().floats[at..]);
+        to_aos(
+            cx.pose(slot),
+            bones,
+            &mut host.buffers().borrow_mut().floats[at..],
+        );
         cx.pop_slot();
     }
     // The parameter block: defaults, the node's words, then the bindings.
@@ -388,10 +370,7 @@ fn call(cx: &mut EvalContext<'_>, node: &NodeData<'_>, out: usize) -> u32 {
         let params = &mut b.words[wa..wa + pwords];
         params.copy_from_slice(info.defaults);
         let n = node.word(word::BLOCK_WORDS) as usize;
-        let block = node
-            .params
-            .get(word::BLOCK..word::BLOCK + n)
-            .unwrap_or(&[]);
+        let block = node.params.get(word::BLOCK..word::BLOCK + n).unwrap_or(&[]);
         for (p, w) in params.iter_mut().zip(block) {
             *p = *w;
         }

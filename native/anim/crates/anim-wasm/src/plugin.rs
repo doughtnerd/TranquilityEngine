@@ -105,7 +105,8 @@ impl Runtime {
             buffers: RefCell::new(CallBuffers::default()),
             faults: RefCell::new(vec![
                 0;
-                PLUGIN_FAULT_CAPACITY as usize * PluginFault::STRIDE as usize
+                PLUGIN_FAULT_CAPACITY as usize
+                    * PluginFault::STRIDE as usize
             ]),
             fault_count: Cell::new(0),
             faults_dropped: Cell::new(0),

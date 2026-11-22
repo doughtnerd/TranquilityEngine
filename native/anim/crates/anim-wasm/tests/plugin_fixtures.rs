@@ -20,9 +20,27 @@ use std::process::Command;
 use anim_format::graph::{family, ParamValue};
 use anim_format::skeleton::{Bone, Skeleton};
 use anim_format::NONE;
-use anim_graph::plugin::{self, plugin_node_params};
+use anim_graph::plugin;
 use anim_meter::{is_metered, meter, Limits};
 use common::graph::Builder;
+
+/// A `PLUGIN_NODE`'s parameter words (`anim_graph::plugin`'s layout): module string id, kind, state
+/// bytes, the block, then bindings `(offset, words, parameter)`.
+fn plugin_node_params(
+    module: u32,
+    kind: u32,
+    state_bytes: u32,
+    block: &[u32],
+    bindings: &[(u32, u32, u32)],
+) -> Vec<u32> {
+    let mut w = vec![module, kind, state_bytes, block.len() as u32];
+    w.extend_from_slice(block);
+    w.push(bindings.len() as u32);
+    for &(o, n, p) in bindings {
+        w.extend_from_slice(&[o, n, p]);
+    }
+    w
+}
 
 fn dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))

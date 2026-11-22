@@ -6,9 +6,9 @@
 //! matched clip's root curve; snapshot and restore; no allocation per frame; the `match` family's
 //! debug records and the database's clip table.
 
+mod common;
 #[path = "../../anim-match/tests/common/mod.rs"]
 mod mcommon;
-mod common;
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -56,7 +56,9 @@ fn clip_with_curve(gait: mcommon::Gait) -> Vec<u8> {
     let mut clip = mcommon::clip(gait);
     let hips = &clip.tracks[0].raw;
     let curve = hips
-        .chunks_exact(10)
+        .as_chunks::<10>()
+        .0
+        .iter()
         .map(|f| {
             let yaw = 2.0 * (f[4] as f64).atan2(f[6] as f64);
             [f[0], 0.0, f[2], yaw as f32]
@@ -259,9 +261,9 @@ impl Sim {
     /// One frame toward desired velocity `desired` (world, facing +Z), plus `extra` commands.
     fn step(&mut self, desired: [f32; 2], extra: &[Vec<u8>]) -> MatchNode {
         let k = (DT * 4.0).min(1.0);
-        for i in 0..2 {
-            self.vel[i] += (desired[i] - self.vel[i]) * k;
-            self.pos[i] += self.vel[i] * DT;
+        for ((v, p), d) in self.vel.iter_mut().zip(&mut self.pos).zip(desired) {
+            *v += (d - *v) * k;
+            *p += *v * DT;
         }
         let mut cmds = vec![
             set_vec2(self.h, self.p.position, self.pos),
@@ -278,7 +280,10 @@ impl Sim {
         let n = self.core.match_debug_write(self.h) as usize;
         let bytes = &self.core.match_debug()[..n];
         let header = MatchHeader::decode(bytes).unwrap();
-        assert_eq!((header.instance, header.nodes, header.dropped), (self.h, 1, 0));
+        assert_eq!(
+            (header.instance, header.nodes, header.dropped),
+            (self.h, 1, 0)
+        );
         let node = MatchNode::decode(&bytes[MatchHeader::STRIDE as usize..]).unwrap();
         assert_eq!(node.node, self.node);
         assert_eq!(node.database, self.db);
@@ -326,7 +331,11 @@ fn idle_then_walk_switches_through_inertialization() {
             },
         );
         let first = sim.step([0.0; 2], &[]);
-        assert_eq!(first.flags & MATCH_SWITCHED, MATCH_SWITCHED, "the first update starts a clip");
+        assert_eq!(
+            first.flags & MATCH_SWITCHED,
+            MATCH_SWITCHED,
+            "the first update starts a clip"
+        );
         for _ in 0..30 {
             let r = sim.step([0.0; 2], &[]);
             assert_eq!(r.clip, sim.clips[0], "standing still plays idle");
@@ -347,10 +356,19 @@ fn idle_then_walk_switches_through_inertialization() {
                 let jump = max_diff(&m, &prev.iter().map(|v| *v as f64).collect::<Vec<_>>());
                 let raw_jump = max_diff(&prev, &raw);
                 if inertialize {
-                    assert!(off > 1e-2, "the switch frame shows the decaying offset ({off})");
-                    assert!(jump < raw_jump, "inertialization softens the jump ({jump} vs {raw_jump})");
+                    assert!(
+                        off > 1e-2,
+                        "the switch frame shows the decaying offset ({off})"
+                    );
+                    assert!(
+                        jump < raw_jump,
+                        "inertialization softens the jump ({jump} vs {raw_jump})"
+                    );
                 } else {
-                    assert!(off < 1e-4, "without an inertialization node it is a cut ({off})");
+                    assert!(
+                        off < 1e-4,
+                        "without an inertialization node it is a cut ({off})"
+                    );
                 }
                 switched = Some(f);
             }
@@ -359,7 +377,12 @@ fn idle_then_walk_switches_through_inertialization() {
         let s = switched.expect("a switch to walk");
         // After the blend time with no further switch, the output is the matched clip.
         let settled = (s + 1..log.len())
-            .find(|&f| f >= s + 8 && log[s + 1..=f].iter().all(|(r, _)| r.flags & MATCH_SWITCHED == 0))
+            .find(|&f| {
+                f >= s + 8
+                    && log[s + 1..=f]
+                        .iter()
+                        .all(|(r, _)| r.flags & MATCH_SWITCHED == 0)
+            })
             .expect("a quiet stretch after the switch");
         let (r, m) = &log[settled];
         assert_eq!(r.clip, sim.clips[1]);
@@ -382,7 +405,10 @@ fn root_motion_comes_from_the_matched_clip() {
         if r.clip == sim.clips[1] && r.flags & MATCH_SWITCHED == 0 {
             // The walk clip's root curve: 1.4 m/s along +Z (one frame of it, in the step's frame).
             assert!((root[2] - 1.4 * DT).abs() < 2e-3, "walk root step {root:?}");
-            assert!(root[0].abs() < 5e-3, "only the hips' sway sideways {root:?}");
+            assert!(
+                root[0].abs() < 5e-3,
+                "only the hips' sway sideways {root:?}"
+            );
             walked += 1;
         }
         if r.clip == sim.clips[0] && r.flags & MATCH_SWITCHED == 0 {
@@ -425,9 +451,15 @@ fn tags_gate_the_search() {
         assert_eq!(r.clip, sim.clips[0]);
     }
     let r = sim.step([0.0, 1.4], &[set_int(h, tags, walk_bit as i32)]);
-    assert_eq!((r.clip, r.flags & MATCH_SWITCHED), (sim.clips[1], MATCH_SWITCHED));
+    assert_eq!(
+        (r.clip, r.flags & MATCH_SWITCHED),
+        (sim.clips[1], MATCH_SWITCHED)
+    );
     let r = sim.step([0.0; 2], &[set_int(h, tags, walk_bit as i32)]);
-    assert_eq!(r.clip, sim.clips[1], "the walk-only filter keeps walking while standing still");
+    assert_eq!(
+        r.clip, sim.clips[1],
+        "the walk-only filter keeps walking while standing still"
+    );
 
     // A chooser row: `mode == 1` picks a walk-only MATCH_TAGS row, else idle-only.
     let mut sim = Sim::new(
@@ -439,10 +471,16 @@ fn tags_gate_the_search() {
     );
     let (h, mode) = (sim.h, sim.p.mode);
     for _ in 0..20 {
-        assert_eq!(sim.step([0.0; 2], &[set_int(h, mode, 1)]).clip, sim.clips[1]);
+        assert_eq!(
+            sim.step([0.0; 2], &[set_int(h, mode, 1)]).clip,
+            sim.clips[1]
+        );
     }
     let r = sim.step([0.0; 2], &[set_int(h, mode, 0)]);
-    assert_eq!((r.clip, r.flags & MATCH_SWITCHED), (sim.clips[0], MATCH_SWITCHED));
+    assert_eq!(
+        (r.clip, r.flags & MATCH_SWITCHED),
+        (sim.clips[0], MATCH_SWITCHED)
+    );
 }
 
 #[test]
@@ -473,7 +511,11 @@ fn searches_run_every_interval_times_lod_updates() {
             searched.push(r.updates);
         }
     }
-    assert_eq!(searched, vec![41, 45, 49, 53], "every 4 updates at LOD 1 (the last search was at 33)");
+    assert_eq!(
+        searched,
+        vec![41, 45, 49, 53],
+        "every 4 updates at LOD 1 (the last search was at 33)"
+    );
 }
 
 #[test]

@@ -180,8 +180,7 @@ impl Core {
         };
         if let Some(program) = program {
             for n in 0..program.node_count() as u32 {
-                if program.node_kind(n) != Some((Family::Matching, matching::kind::POSE_DATABASE))
-                {
+                if program.node_kind(n) != Some((Family::Matching, matching::kind::POSE_DATABASE)) {
                     continue;
                 }
                 let Some(v) = matching::view(program.node_state(&mut inst.state, groups, n)) else {

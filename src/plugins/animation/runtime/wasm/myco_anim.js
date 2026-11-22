@@ -239,11 +239,112 @@ export function load_skeleton(bytes) {
 }
 
 /**
+ * The match debug buffer's byte offset in memory (`match` family, `MATCH_DEBUG_BYTES` long).
+ * @returns {number}
+ */
+export function match_debug_ptr() {
+    const ret = wasm.match_debug_ptr();
+    return ret >>> 0;
+}
+
+/**
+ * Writes an instance's match report into the match buffer; returns its byte length.
+ * @param {number} handle
+ * @returns {number}
+ */
+export function match_debug_write(handle) {
+    const ret = wasm.match_debug_write(handle);
+    return ret >>> 0;
+}
+
+/**
  * The bone-matrix view's byte offset in memory.
  * @returns {number}
  */
 export function matrices_ptr() {
     const ret = wasm.matrices_ptr();
+    return ret >>> 0;
+}
+
+/**
+ * Fault reports waiting (since the last `write_inputs`).
+ * @returns {number}
+ */
+export function plugin_fault_count() {
+    const ret = wasm.plugin_fault_count();
+    return ret >>> 0;
+}
+
+/**
+ * Fault reports dropped since the last `write_inputs`.
+ * @returns {number}
+ */
+export function plugin_faults_dropped() {
+    const ret = wasm.plugin_faults_dropped();
+    return ret >>> 0;
+}
+
+/**
+ * The fault reports' byte offset in memory (`plugin` family `PluginFault` records).
+ * @returns {number}
+ */
+export function plugin_faults_ptr() {
+    const ret = wasm.plugin_faults_ptr();
+    return ret >>> 0;
+}
+
+/**
+ * Registers a node module by its descriptor blob (copied in); returns its handle, or 0.
+ * @param {Uint8Array | number[]} descriptor
+ * @returns {number}
+ */
+export function plugin_register(descriptor) {
+    const ptr0 = passArray8ToWasm0(descriptor, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.plugin_register(ptr0, len0);
+    return ret >>> 0;
+}
+
+/**
+ * Binds a database's clip `index` to a clip handle (0 unbinds); returns a status.
+ * @param {number} db
+ * @param {number} index
+ * @param {number} clip
+ * @returns {number}
+ */
+export function posedb_bind(db, index, clip) {
+    const ret = wasm.posedb_bind(db, index, clip);
+    return ret >>> 0;
+}
+
+/**
+ * A database clip's asset reference ("" for none).
+ * @param {number} db
+ * @param {number} index
+ * @returns {string}
+ */
+export function posedb_clip(db, index) {
+    let deferred1_0;
+    let deferred1_1;
+    try {
+        const ret = wasm.posedb_clip(db, index);
+        deferred1_0 = ret[0];
+        deferred1_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+    }
+}
+
+/**
+ * Loads a `myco.posedb@1` file (copied in); returns its handle, or 0 (see `last_status`).
+ * @param {Uint8Array | number[]} bytes
+ * @returns {number}
+ */
+export function posedb_load(bytes) {
+    const ptr0 = passArray8ToWasm0(bytes, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.posedb_load(ptr0, len0);
     return ret >>> 0;
 }
 
@@ -631,6 +732,10 @@ function __wbg_get_imports() {
         __wbg___wbindgen_copy_to_typed_array_680b191e71920dc1: function(arg0, arg1, arg2) {
             new Uint8Array(arg2.buffer, arg2.byteOffset, arg2.byteLength).set(getArrayU8FromWasm0(arg0, arg1));
         },
+        __wbg_call_066f358961d06666: function() { return handleError(function (arg0) {
+            const ret = mycoAnimPluginHost.call(arg0 >>> 0);
+            return ret;
+        }, arguments); },
         __wbindgen_init_externref_table: function() {
             const table = wasm.__wbindgen_externrefs;
             table.set(0, undefined);
@@ -644,6 +749,12 @@ function __wbg_get_imports() {
         __proto__: null,
         "./myco_anim_bg.js": import0,
     };
+}
+
+function addToExternrefTable0(obj) {
+    const idx = wasm.__externref_table_alloc();
+    wasm.__wbindgen_externrefs.set(idx, obj);
+    return idx;
 }
 
 function getArrayU8FromWasm0(ptr, len) {
@@ -670,6 +781,15 @@ function getUint8ArrayMemory0() {
         cachedUint8ArrayMemory0 = new Uint8Array(wasm.memory.buffer);
     }
     return cachedUint8ArrayMemory0;
+}
+
+function handleError(f, args) {
+    try {
+        return f.apply(this, args);
+    } catch (e) {
+        const idx = addToExternrefTable0(e);
+        wasm.__wbindgen_exn_store(idx);
+    }
 }
 
 function passArray8ToWasm0(arg, malloc) {

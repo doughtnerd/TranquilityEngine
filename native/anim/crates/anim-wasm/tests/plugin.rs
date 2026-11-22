@@ -8,7 +8,7 @@
 mod common;
 
 use anim_format::graph::family;
-use anim_graph::plugin::{self, plugin_node_params};
+use anim_graph::plugin;
 use anim_plugin_sdk::descriptor::{encode, encoded_len};
 use anim_plugin_sdk::{Context, Inputs, Node, NodeDesc, ParamDesc, Params, Transform, Unit};
 use anim_wire::core::{STATUS_BAD_ASSET, STATUS_OK};
@@ -18,6 +18,24 @@ use anim_wire::plugin::{
 use anim_wire::WireRecord;
 use common::graph::*;
 use common::*;
+
+/// A `PLUGIN_NODE`'s parameter words (`anim_graph::plugin`'s layout): module string id, kind, state
+/// bytes, the block, then bindings `(offset, words, parameter)`.
+fn plugin_node_params(
+    module: u32,
+    kind: u32,
+    state_bytes: u32,
+    block: &[u32],
+    bindings: &[(u32, u32, u32)],
+) -> Vec<u32> {
+    let mut w = vec![module, kind, state_bytes, block.len() as u32];
+    w.extend_from_slice(block);
+    w.push(bindings.len() as u32);
+    for &(o, n, p) in bindings {
+        w.extend_from_slice(&[o, n, p]);
+    }
+    w
+}
 
 const MAX_BONES: u32 = 64;
 
@@ -36,7 +54,14 @@ impl Node for Counter {
     const KIND: u32 = 3;
     const NAME: &'static str = "counter";
     type State = [f32; 2];
-    fn evaluate(_: &Context<'_>, _: &Inputs<'_>, _: &Params<'_>, _: &mut [f32; 2], _: &mut [Transform]) {}
+    fn evaluate(
+        _: &Context<'_>,
+        _: &Inputs<'_>,
+        _: &Params<'_>,
+        _: &mut [f32; 2],
+        _: &mut [Transform],
+    ) {
+    }
 }
 
 const NODES: &[NodeDesc] = &[Scale::DESC, Counter::DESC];
@@ -45,7 +70,9 @@ static DESCRIPTOR: [u8; LEN] = encode::<LEN>(NODES);
 
 fn faults(core: &anim_wasm::init::Core) -> Vec<PluginFault> {
     core.plugin_faults()
-        .chunks_exact(PluginFault::STRIDE as usize)
+        .as_chunks::<{ PluginFault::STRIDE as usize }>()
+        .0
+        .iter()
         .map(|c| PluginFault::decode(c).unwrap())
         .collect()
 }
@@ -55,7 +82,12 @@ fn faults(core: &anim_wasm::init::Core) -> Vec<PluginFault> {
 fn graph(kind: u32, state_bytes: u32) -> (Vec<u8>, u32, u32) {
     let mut b = Builder::new();
     let module = b.s("module");
-    let r = b.node(family::SOURCES, anim_graph::sources::kind::REFERENCE_POSE, &[], &[]);
+    let r = b.node(
+        family::SOURCES,
+        anim_graph::sources::kind::REFERENCE_POSE,
+        &[],
+        &[],
+    );
     let p = plugin_node_params(module, kind, state_bytes, &[2.0f32.to_bits()], &[]);
     let n = b.node(family::PLUGIN, plugin::kind::PLUGIN_NODE, &[r], &p);
     (b.build(n), n, module)
@@ -100,7 +132,12 @@ fn without_a_host_the_input_passes_through_and_each_instance_reports_once() {
     let (_, b) = instance(&mut core, &g, s, &[(module, m)]);
     // The same pose without the plugin node.
     let mut plain = Builder::new();
-    let r = plain.node(family::SOURCES, anim_graph::sources::kind::REFERENCE_POSE, &[], &[]);
+    let r = plain.node(
+        family::SOURCES,
+        anim_graph::sources::kind::REFERENCE_POSE,
+        &[],
+        &[],
+    );
     let (_, p) = instance(&mut core, &plain.build(r), s, &[]);
 
     frame(&mut core, 1.0 / 30.0);
@@ -161,7 +198,10 @@ fn an_unbound_module_or_a_wrong_state_size_faults() {
     let (g, _, module) = graph(Counter::KIND, 4);
     let (_, b) = instance(&mut core, &g, s, &[(module, m)]);
     frame(&mut core, 1.0 / 30.0);
-    let mut got: Vec<(u32, u32)> = faults(&core).iter().map(|f| (f.instance, f.status)).collect();
+    let mut got: Vec<(u32, u32)> = faults(&core)
+        .iter()
+        .map(|f| (f.instance, f.status))
+        .collect();
     got.sort();
     assert_eq!(got, vec![(a, FAULT_NO_MODULE), (b, FAULT_MISMATCH)]);
 }

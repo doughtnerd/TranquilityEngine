@@ -116,9 +116,54 @@ export function load_mask(weights: Float32Array | number[]): number;
 export function load_skeleton(bytes: Uint8Array | number[]): number;
 
 /**
+ * The match debug buffer's byte offset in memory (`match` family, `MATCH_DEBUG_BYTES` long).
+ */
+export function match_debug_ptr(): number;
+
+/**
+ * Writes an instance's match report into the match buffer; returns its byte length.
+ */
+export function match_debug_write(handle: number): number;
+
+/**
  * The bone-matrix view's byte offset in memory.
  */
 export function matrices_ptr(): number;
+
+/**
+ * Fault reports waiting (since the last `write_inputs`).
+ */
+export function plugin_fault_count(): number;
+
+/**
+ * Fault reports dropped since the last `write_inputs`.
+ */
+export function plugin_faults_dropped(): number;
+
+/**
+ * The fault reports' byte offset in memory (`plugin` family `PluginFault` records).
+ */
+export function plugin_faults_ptr(): number;
+
+/**
+ * Registers a node module by its descriptor blob (copied in); returns its handle, or 0.
+ */
+export function plugin_register(descriptor: Uint8Array | number[]): number;
+
+/**
+ * Binds a database's clip `index` to a clip handle (0 unbinds); returns a status.
+ */
+export function posedb_bind(db: number, index: number, clip: number): number;
+
+/**
+ * A database clip's asset reference ("" for none).
+ */
+export function posedb_clip(db: number, index: number): string;
+
+/**
+ * Loads a `myco.posedb@1` file (copied in); returns its handle, or 0 (see `last_status`).
+ */
+export function posedb_load(bytes: Uint8Array | number[]): number;
 
 /**
  * Releases an asset; returns a status.
@@ -327,7 +372,16 @@ export interface InitOutput {
     readonly load_graph: (a: number, b: number) => number;
     readonly load_mask: (a: number, b: number) => number;
     readonly load_skeleton: (a: number, b: number) => number;
+    readonly match_debug_ptr: () => number;
+    readonly match_debug_write: (a: number) => number;
     readonly matrices_ptr: () => number;
+    readonly plugin_fault_count: () => number;
+    readonly plugin_faults_dropped: () => number;
+    readonly plugin_faults_ptr: () => number;
+    readonly plugin_register: (a: number, b: number) => number;
+    readonly posedb_bind: (a: number, b: number, c: number) => number;
+    readonly posedb_clip: (a: number, b: number) => [number, number];
+    readonly posedb_load: (a: number, b: number) => number;
     readonly release: (a: number) => number;
     readonly restore: (a: number, b: number, c: number) => number;
     readonly roots_ptr: () => number;
@@ -364,6 +418,8 @@ export interface InitOutput {
     readonly tween_values_ptr: () => number;
     readonly tweens_configure: (a: number) => number;
     readonly write_inputs: (a: number) => number;
+    readonly __wbindgen_exn_store: (a: number) => void;
+    readonly __externref_table_alloc: () => number;
     readonly __wbindgen_externrefs: WebAssembly.Table;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_free: (a: number, b: number, c: number) => void;

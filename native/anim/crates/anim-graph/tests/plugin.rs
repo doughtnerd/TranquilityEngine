@@ -15,15 +15,38 @@ use anim_format::NONE;
 use anim_graph::eval::{
     Assets, ClipRef, Events, Inputs, Program, Scratch, SkeletonPose, StateEvent,
 };
-use anim_graph::plugin::{
-    self, fault, fault_state, plugin_node_params, Call, CallBuffers, Fault, NodeInfo, PluginHost,
-};
+use anim_graph::plugin::{self, fault, Call, CallBuffers, Fault, NodeInfo, PluginHost};
 use anim_math::layout::{pack_pose, soa_len};
 use anim_math::{AosQuat, AosTransform, AosVec3, F32x4, SoaTransform};
 use anim_plugin_sdk::abi::{state_stride, Status};
 use anim_plugin_sdk::descriptor::{Descriptor, HEADER_BYTES};
-use anim_plugin_sdk::{export_nodes, Context, Inputs as NodeInputs, Node, ParamDesc, Params, Transform, Unit};
+use anim_plugin_sdk::{
+    export_nodes, Context, Inputs as NodeInputs, Node, ParamDesc, Params, Transform, Unit,
+};
 use anim_pose::inertialize::Inertializer;
+
+/// A `PLUGIN_NODE`'s parameter words (`anim_graph::plugin`'s layout): module string id, kind, state
+/// bytes, the block, then bindings `(offset, words, parameter)`.
+fn plugin_node_params(
+    module: u32,
+    kind: u32,
+    state_bytes: u32,
+    block: &[u32],
+    bindings: &[(u32, u32, u32)],
+) -> Vec<u32> {
+    let mut w = vec![module, kind, state_bytes, block.len() as u32];
+    w.extend_from_slice(block);
+    w.push(bindings.len() as u32);
+    for &(o, n, p) in bindings {
+        w.extend_from_slice(&[o, n, p]);
+    }
+    w
+}
+
+/// A `PLUGIN_NODE`'s state words: (flags, last fault status).
+fn fault_state(s: &[u32]) -> (u32, u32) {
+    (s[plugin::state::FLAGS], s[plugin::state::STATUS])
+}
 
 // ---- The nodes (a plugin crate's code) ----
 
@@ -35,7 +58,13 @@ impl Node for Scale {
     const PARAMS: &'static [ParamDesc] =
         &[ParamDesc::float("factor", Unit::Multiplier, 0.0, 10.0, 1.0).animatable()];
     type State = ();
-    fn evaluate(_: &Context<'_>, _: &NodeInputs<'_>, p: &Params<'_>, _: &mut (), out: &mut [Transform]) {
+    fn evaluate(
+        _: &Context<'_>,
+        _: &NodeInputs<'_>,
+        p: &Params<'_>,
+        _: &mut (),
+        out: &mut [Transform],
+    ) {
         let f = p.float(0);
         for t in out {
             for v in &mut t.translation {
@@ -51,7 +80,13 @@ impl Node for Counter {
     const KIND: u32 = 3;
     const NAME: &'static str = "counter";
     type State = [f32; 2];
-    fn evaluate(cx: &Context<'_>, _: &NodeInputs<'_>, _: &Params<'_>, s: &mut [f32; 2], out: &mut [Transform]) {
+    fn evaluate(
+        cx: &Context<'_>,
+        _: &NodeInputs<'_>,
+        _: &Params<'_>,
+        s: &mut [f32; 2],
+        out: &mut [Transform],
+    ) {
         s[0] += cx.dt;
         s[1] += 1.0;
         out[0].translation[1] += s[0];
@@ -66,7 +101,13 @@ impl Node for Sum {
     const INPUTS: u8 = 2;
     const NEEDS_SKELETON: bool = true;
     type State = ();
-    fn evaluate(cx: &Context<'_>, inputs: &NodeInputs<'_>, _: &Params<'_>, _: &mut (), out: &mut [Transform]) {
+    fn evaluate(
+        cx: &Context<'_>,
+        inputs: &NodeInputs<'_>,
+        _: &Params<'_>,
+        _: &mut (),
+        out: &mut [Transform],
+    ) {
         assert_eq!(cx.parents.len(), cx.bones);
         let b = inputs.pose(1);
         for (o, t) in out.iter_mut().zip(b) {
@@ -162,14 +203,19 @@ impl PluginHost for Host {
         // and back out like the wasm host does.
         let mut state = [0u128; 64];
         let words = c.state.len();
-        let bytes = unsafe { std::slice::from_raw_parts_mut(state.as_mut_ptr().cast::<u32>(), 256) };
+        let bytes =
+            unsafe { std::slice::from_raw_parts_mut(state.as_mut_ptr().cast::<u32>(), 256) };
         bytes[..words].copy_from_slice(c.state);
         let status = unsafe {
             myco_node_evaluate(
                 c.kind,
                 1,
                 c.bones,
-                if c.parents.is_empty() { std::ptr::null() } else { c.parents.as_ptr() },
+                if c.parents.is_empty() {
+                    std::ptr::null()
+                } else {
+                    c.parents.as_ptr()
+                },
                 c.input.as_ptr(),
                 c.output.as_mut_ptr(),
                 c.params.as_ptr(),
@@ -261,7 +307,9 @@ fn skel() -> Skel {
     let mut rest_soa = vec![SoaTransform::identity(); soa_len(BONES)];
     pack_pose(&rest, &mut rest_soa);
     Skel {
-        parents: (0..BONES as u16).map(|i| if i == 0 { u16::MAX } else { i - 1 }).collect(),
+        parents: (0..BONES as u16)
+            .map(|i| if i == 0 { u16::MAX } else { i - 1 })
+            .collect(),
         rest,
         rest_soa,
         identity: vec![AosTransform::identity(); BONES],
@@ -299,9 +347,21 @@ impl G {
         self.g.nodes.len() as u32 - 1
     }
     fn rest(&mut self) -> u32 {
-        self.node(family::SOURCES, anim_graph::sources::kind::REFERENCE_POSE, &[], &[])
+        self.node(
+            family::SOURCES,
+            anim_graph::sources::kind::REFERENCE_POSE,
+            &[],
+            &[],
+        )
     }
-    fn plugin(&mut self, kind: u32, state_bytes: u32, inputs: &[u32], block: &[u32], binds: &[(u32, u32, u32)]) -> u32 {
+    fn plugin(
+        &mut self,
+        kind: u32,
+        state_bytes: u32,
+        inputs: &[u32],
+        block: &[u32],
+        binds: &[(u32, u32, u32)],
+    ) -> u32 {
         let p = plugin_node_params(0, kind, state_bytes, block, binds);
         self.node(family::PLUGIN, plugin::kind::PLUGIN_NODE, inputs, &p)
     }
@@ -341,14 +401,31 @@ impl Run {
             inertializer: Inertializer::new(BONES),
             out: vec![SoaTransform::identity(); groups],
         };
-        let Run { program, world, skel, bindings, state, .. } = &mut r;
+        let Run {
+            program,
+            world,
+            skel,
+            bindings,
+            state,
+            ..
+        } = &mut r;
         program.init_state(&inputs(world, skel, bindings), state);
         r
     }
 
     /// One frame: update, then pose; returns the output pose (AoS).
     fn frame(&mut self, dt: f32) -> Vec<AosTransform> {
-        let Run { program, world, skel, bindings, state, poses, sample, inertializer, out } = self;
+        let Run {
+            program,
+            world,
+            skel,
+            bindings,
+            state,
+            poses,
+            sample,
+            inertializer,
+            out,
+        } = self;
         let i = inputs(world, skel, bindings);
         program.update(&i, state, dt, &mut NoEvents);
         let scratch = Scratch {
@@ -363,11 +440,16 @@ impl Run {
     }
 
     fn faults(&self) -> Vec<Fault> {
-        self.world.host.as_ref().map_or(Vec::new(), |h| h.faults.borrow().clone())
+        self.world
+            .host
+            .as_ref()
+            .map_or(Vec::new(), |h| h.faults.borrow().clone())
     }
 
     fn node_state(&mut self, node: u32) -> Vec<u32> {
-        self.program.node_state(&mut self.state, soa_len(BONES), node).to_vec()
+        self.program
+            .node_state(&mut self.state, soa_len(BONES), node)
+            .to_vec()
     }
 }
 
@@ -392,8 +474,16 @@ fn bits(p: &[AosTransform]) -> Vec<u32> {
     p.iter()
         .flat_map(|t| {
             [
-                t.translation.x, t.translation.y, t.translation.z, t.rotation.x, t.rotation.y,
-                t.rotation.z, t.rotation.w, t.scale.x, t.scale.y, t.scale.z,
+                t.translation.x,
+                t.translation.y,
+                t.translation.z,
+                t.rotation.x,
+                t.rotation.y,
+                t.rotation.z,
+                t.rotation.w,
+                t.scale.x,
+                t.scale.y,
+                t.scale.z,
             ]
         })
         .map(f32::to_bits)
@@ -402,7 +492,17 @@ fn bits(p: &[AosTransform]) -> Vec<u32> {
 
 fn scaled(rest: &[AosTransform], f: f32) -> Vec<AosTransform> {
     rest.iter()
-        .map(|t| AosTransform::new(AosVec3::new(t.translation.x * f, t.translation.y * f, t.translation.z * f), t.rotation, t.scale))
+        .map(|t| {
+            AosTransform::new(
+                AosVec3::new(
+                    t.translation.x * f,
+                    t.translation.y * f,
+                    t.translation.z * f,
+                ),
+                t.rotation,
+                t.scale,
+            )
+        })
         .collect()
 }
 
@@ -413,7 +513,11 @@ fn the_sample_scale_node_runs_through_the_sdk() {
     let s = g.plugin(Scale::KIND, 0, &[r], &[2.0f32.to_bits()], &[]);
     let mut run = Run::new(g.program(s), SAMPLE, true);
     let pose = run.frame(1.0 / 30.0);
-    assert_eq!(bits(&pose), bits(&scaled(&skel().rest, 2.0)), "SoA → AoS → module → SoA, exact");
+    assert_eq!(
+        bits(&pose),
+        bits(&scaled(&skel().rest, 2.0)),
+        "SoA → AoS → module → SoA, exact"
+    );
     assert!(run.faults().is_empty());
     assert_eq!(fault_state(&run.node_state(s)), (0, 0));
 }
@@ -483,8 +587,15 @@ fn a_fault_passes_input_0_through_keeps_state_and_reports_once() {
     );
     let s = run.node_state(c);
     assert_eq!(fault_state(&s), (plugin::FAULTED | plugin::REPORTED, TRAP));
-    assert!(s[plugin::state::FIXED..].iter().all(|w| *w == 0), "the state is kept");
-    assert_eq!(*run.world.host.as_ref().unwrap().calls.borrow(), 3, "it tries again each frame");
+    assert!(
+        s[plugin::state::FIXED..].iter().all(|w| *w == 0),
+        "the state is kept"
+    );
+    assert_eq!(
+        *run.world.host.as_ref().unwrap().calls.borrow(),
+        3,
+        "it tries again each frame"
+    );
 }
 
 #[test]
@@ -535,7 +646,11 @@ fn state_lives_in_the_blob_and_restores_exactly() {
     let s = run.node_state(c);
     let words = &s[plugin::state::FIXED..];
     assert_eq!(words.len(), state_stride(8) / 4);
-    assert_eq!(f32::from_bits(words[1]), 10.0, "ten successful calls counted in the core's state");
+    assert_eq!(
+        f32::from_bits(words[1]),
+        10.0,
+        "ten successful calls counted in the core's state"
+    );
     let snapshot = run.state.clone();
     let after: Vec<Vec<u32>> = (0..5).map(|_| bits(&run.frame(1.0 / 60.0))).collect();
     run.state.copy_from_slice(&snapshot);
@@ -552,7 +667,17 @@ fn frames_never_allocate() {
     let c = g.plugin(Counter::KIND, 8, &[sum], &[], &[]);
     let mut run = Run::new(g.program(c), SAMPLE, true);
     run.frame(0.1);
-    let Run { program, world, skel, bindings, state, poses, sample, inertializer, out } = &mut run;
+    let Run {
+        program,
+        world,
+        skel,
+        bindings,
+        state,
+        poses,
+        sample,
+        inertializer,
+        out,
+    } = &mut run;
     COUNTING.with(|c| c.set(true));
     for _ in 0..20 {
         let i = inputs(world, skel, bindings);

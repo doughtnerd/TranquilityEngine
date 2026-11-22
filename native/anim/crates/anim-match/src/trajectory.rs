@@ -161,7 +161,7 @@ impl TrajectoryPredictor {
             0,
         ];
         out[..11].copy_from_slice(&head);
-        for (p, w) in self.history.iter().zip(out[11..].chunks_exact_mut(4)) {
+        for (p, w) in self.history.iter().zip(out[11..].as_chunks_mut::<4>().0) {
             w.copy_from_slice(&[
                 p.time.to_bits(),
                 p.position[0].to_bits(),
@@ -180,7 +180,7 @@ impl TrajectoryPredictor {
         }
         let f = |i: usize| f32::from_bits(words[i]);
         let mut history = [Past::default(); HISTORY];
-        for (p, w) in history.iter_mut().zip(words[11..].chunks_exact(4)) {
+        for (p, w) in history.iter_mut().zip(words[11..].as_chunks::<4>().0) {
             *p = Past {
                 time: f32::from_bits(w[0]),
                 position: [f32::from_bits(w[1]), f32::from_bits(w[2])],
