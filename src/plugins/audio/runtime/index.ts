@@ -11,6 +11,8 @@ import { AudioReverbZone } from "./AudioReverbZone";
 import { AudioZone, AUDIO_ZONE_SYSTEM } from "./AudioZone";
 import { AUDIO_SERVICE } from "./core/service";
 import { AUDIO_SYSTEMS } from "./audioSystem";
+import { AudioPackageLoader } from "./media/AudioPackageLoader";
+import { AUDIO_PACKAGES_SERVICE } from "./media/service";
 
 export { Audio, type OneShotOptions } from "./Audio";
 // ADR 0330: `Audio.snapshot(name)`'s handle.
@@ -36,11 +38,16 @@ export type { Bus } from "../../../engine/audio/mixer";
 export { createDecoderClient, type DecoderClient, type DecodedClip } from "./decoder/decoderClient";
 export { hintFromName } from "./decoder/protocol";
 
+// ADR 0337 §9: audio packages (`Audio.package(name)`) and the component that loads them with a scene.
+export { AudioPackageLoader } from "./media/AudioPackageLoader";
+export type { AudioPackage } from "./media/packages";
+
 export const audioRuntimePlugin: RuntimePlugin = {
   manifest: audioManifest,
   activate(context) {
-    context.registerComponents([AudioSource, AudioListener, AudioOccluder, AudioReverbZone, AudioZone]);
+    context.registerComponents([AudioSource, AudioListener, AudioOccluder, AudioReverbZone, AudioZone, AudioPackageLoader]);
     context.registerEngineSystems([...AUDIO_SYSTEMS, AUDIO_ZONE_SYSTEM]);
     context.registerWorldService(AUDIO_SERVICE);
+    context.registerWorldService(AUDIO_PACKAGES_SERVICE);
   },
 };
