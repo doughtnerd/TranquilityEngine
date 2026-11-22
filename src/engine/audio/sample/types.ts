@@ -34,7 +34,12 @@ export interface SampleLoop extends LoopBehaviour {
   file: LoopFileSnapshot | null;
 }
 
-export type MarkerType = "note" | "exit" | "hit" | "cue";
+/**
+ * note (annotation; the only range), exit ("music may leave here"; the audio after it is the post-exit tail, ADR 0336),
+ * hit (a stinger's landing beat), cue (reported to the game), entry (the musical entry point: a Switch change at a
+ * boundary starts the sample early so its first Entry marker lands on the boundary, ADR 0336 pre-entry).
+ */
+export type MarkerType = "note" | "exit" | "hit" | "cue" | "entry";
 export interface MarkerFileSnapshot { chunk: "cue" | "ltxt"; id: number; at: number; end?: number; name: string }
 export interface SampleMarker {
   id: string;

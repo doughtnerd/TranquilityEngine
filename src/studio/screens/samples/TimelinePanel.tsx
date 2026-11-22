@@ -17,7 +17,7 @@ import { clampView, fitView, timeToX, xToTime, type WaveBand } from "../../compo
 import { useElementWidth } from "../../components/useElementWidth";
 import * as act from "./sampleActions";
 import {
-  addLoop, addMarker, convertMarker, deleteMarker, hasFixedName, isHold, MARKER_TOKENS, MARKER_TYPE_NAMES, moveLoop, moveMarker, removeLoop, resetTrim, setSnapToZero, setTrim,
+  addLoop, addMarker, convertMarker, deleteMarker, hasFixedName, isHold, MARKER_TOKENS, MARKER_TYPE_NAMES, MARKER_TYPE_ORDER, moveLoop, moveMarker, removeLoop, resetTrim, setSnapToZero, setTrim,
   slideLoop, snippets, sourceTime, updateLoop, updateMarker, viewTime, type SampleEdit,
 } from "./sampleEditing";
 import { detachMarker, fileOrigin, markerDiff, revertLoop, revertMarker } from "./sampleFile";
@@ -25,7 +25,7 @@ import { lengthOf, loudnessOf, pcmNow, pcmOf, peaksFailure, peaksOf, wavMetadata
 import type { DetectKind } from "../../../engine/audio/sample/detect/detect";
 import { detectInto } from "./sampleDetect";
 import { editedLength, trimOf } from "./sampleTime";
-import { estimateLabelWidth, liveSelection, loopRegions, MARKER_ROWS_SHOWN, nextMarker, packMarkerRows, regionAt, sampleWarnings, selectionSpan, snapTime, trimHoldingMarkers, fitToSource } from "./sampleView";
+import { estimateLabelWidth, liveSelection, loopRegions, MARKER_ROWS_SHOWN, musicalSpans,nextMarker, packMarkerRows, regionAt, sampleWarnings, selectionSpan, snapTime, trimHoldingMarkers, fitToSource } from "./sampleView";
 import { nearestZeroCrossing, seamJump } from "./seam";
 import { NormalizePopover, RootPopover, SnapPopover, TempoPopover, TimeFormatPopover } from "./SampleTools";
 import { dialog, hoverTime, openSession, playheadTime, razorOn, select, selection, snapSetting, timeFormat, viewSpan } from "./samplesState";
@@ -119,6 +119,10 @@ function Timeline(props: { session: SampleSession }) {
     ...(scope && sel.kind !== "sample" ? [{ start: v(scope.start), end: v(scope.end), color: "--accent" }] : []),
   ];
   if (e.trim) bands.push({ start: 0, end: v(ta), color: "--faint", hatched: true }, { start: v(tb), end: len, color: "--faint", hatched: true });
+  // ADR 0336: the post-exit tail and the pre-entry, shaded under the waveform.
+  const spans = musicalSpans(e, length);
+  if (spans.tail) bands.push({ start: v(spans.tail[0]), end: v(spans.tail[1]), color: "--marker-exit", hatched: true, label: "Tail" });
+  if (spans.preEntry) bands.push({ start: v(spans.preEntry[0]), end: v(spans.preEntry[1]), color: "--marker-exit", label: "Pre-entry" });
 
   const markerMenu = (m: SampleMarker, at: { x: number; y: number }) => {
     const diff = markerDiff(m);
@@ -126,7 +130,7 @@ function Timeline(props: { session: SampleSession }) {
       ...at,
       label: `${m.name} menu`,
       entries: tidyEntries([
-        ...(["note", "exit", "hit", "cue"] as const).map((t) => ({ id: `type-${t}`, label: `${m.type === t ? "✓ " : ""}${MARKER_TYPE_NAMES[t]}`, run: () => commit(updateMarker(e, m.id, { type: t })) })),
+        ...MARKER_TYPE_ORDER.map((t) => ({ id: `type-${t}`, label: `${m.type === t ? "✓ " : ""}${MARKER_TYPE_NAMES[t]}`, run: () => commit(updateMarker(e, m.id, { type: t })) })),
         SEPARATOR,
         m.type === "note" && { id: "convert", label: m.end !== undefined ? "Convert to point" : "Convert to range", run: () => commit(convertMarker(e, m.id, length)) },
         { id: "play", label: "Play from here", run: () => act.togglePlay({ kind: "marker", id: m.id }) },
@@ -225,7 +229,7 @@ function Timeline(props: { session: SampleSession }) {
                 return (
                   <div
                     key={m.id}
-                    class={`smp-marker${on ? " on" : ""}${m.file ? " ff" : ""}${outside ? " outside" : ""}`}
+                    class={`smp-marker${m.type === "entry" ? " entry" : ""}${on ? " on" : ""}${m.file ? " ff" : ""}${outside ? " outside" : ""}`}
                     style={{ left: `${mx}px`, top: `${(rows.get(m.id) ?? 0) * ROW_PX}px`, width: m.end !== undefined ? `${Math.max(2, x(m.end) - mx)}px` : undefined, "--mk": token }}
                     role="button"
                     tabIndex={-1}

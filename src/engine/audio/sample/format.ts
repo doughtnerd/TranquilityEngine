@@ -21,7 +21,7 @@ import {
 
 export const SAMPLE_KINDS: readonly SampleKind[] = ["oneshot", "loop", "sustain", "music"];
 export const LOOP_DIRECTIONS: readonly LoopDirection[] = ["forward", "pingPong", "backward"];
-export const MARKER_TYPES: readonly MarkerType[] = ["note", "exit", "hit", "cue"];
+export const MARKER_TYPES: readonly MarkerType[] = ["note", "exit", "hit", "cue", "entry"];
 export const VALUE_SOURCES: readonly ValueSource[] = ["file", "detected", "set"];
 export const NORMALIZE_MODES: readonly SampleNormalize["mode"][] = ["off", "loudness", "peak"];
 export const LINEAGE_KINDS: readonly SampleLineage["kind"][] = ["snippet", "fork", "duplicate"];
@@ -51,8 +51,8 @@ export const DEFAULT_CROSSFADE_MS = 20;
 /** Default normalisation targets: integrated LUFS for loudness, dBFS for peak. */
 export const DEFAULT_LOUDNESS_TARGET = -16;
 export const DEFAULT_PEAK_TARGET = -1;
-/** The name a marker type gets when none is given (exit and hit have fixed names in the Studio). */
-export const MARKER_DEFAULT_NAMES: Record<MarkerType, string> = { note: "Marker", exit: "Exit", hit: "Hit point", cue: "cue" };
+/** The name a marker type gets when none is given (exit, hit and entry have fixed names in the Studio). */
+export const MARKER_DEFAULT_NAMES: Record<MarkerType, string> = { note: "Marker", exit: "Exit", hit: "Hit point", cue: "cue", entry: "Entry" };
 
 const METER = /^\d{1,2}\/\d{1,2}$/;
 const HEX_COLOUR = /^#[0-9a-fA-F]{6}$/;

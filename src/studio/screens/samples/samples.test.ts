@@ -14,7 +14,7 @@ import { applyMerge, changedCount, detachAll, loopDiff, markerDiff, mergeRows, r
 import { allSamples, cleanFolderName, fileChip, libraryTree, metaLine, moveUpPlan, searchSamples, shortLength, usesOf } from "./sampleLibrary";
 import { editedLength, inClosedGap, toSource, toView } from "./sampleTime";
 import {
-  fitToSource, landmarks, liveSelection, loopRegions, outlineGroups, packMarkerRows, parseSelection, parseSnapStep, regionAt, sampleWarnings, selectionKey, selectionSpan,
+  fitToSource, landmarks, liveSelection, loopRegions, musicalSpans, outlineGroups, packMarkerRows, parseSelection, parseSnapStep, regionAt, sampleWarnings, selectionKey, selectionSpan,
   snapTime, trimHoldingMarkers,
 } from "./sampleView";
 import { nearestZeroCrossing, seamJump, seamStrip, seamWindow } from "./seam";
@@ -281,9 +281,21 @@ describe("timeline structure", () => {
 
   it("groups the outline and filters it", () => {
     const g = outlineGroups(skid(), LEN);
-    expect(g.map((x) => x.title)).toEqual(["Cues", "Exits", "Hit points", "Loops", "Notes", "Ranges", "Snippets"]);
+    expect(g.map((x) => x.title)).toEqual(["Cues", "Entries", "Exits", "Hit points", "Loops", "Notes", "Ranges", "Snippets"]);
     expect(g.find((x) => x.id === "notes")!.items.map((i) => i.name)).toEqual(["Lock-up", "Release"]);
     expect(outlineGroups(skid(), LEN, "rel").find((x) => x.id === "notes")!.items.map((i) => i.name)).toEqual(["Release"]);
+  });
+
+  it("makes a marker an Entry (fixed name), and shades the post-exit tail and the pre-entry inside the trim", () => {
+    const e = next(addMarker(defaultSampleEdits(), 0.4, LEN, "entry"));
+    expect(e.markers[0]).toMatchObject({ type: "entry", name: "Entry" });
+    expect(refusalOf(updateMarker(e, e.markers[0].id, { name: "x" }))).toBe("Entry has a fixed name");
+    const note = next(updateMarker(e, e.markers[0].id, { type: "note" }));
+    expect(label(updateMarker(note, note.markers[0].id, { type: "entry" }))).toBe(`Make ${note.markers[0].name} an entry`);
+    const withExit = { ...e, trim: [0.2, 2.4] as [number, number], markers: [...e.markers, marker("x", 2, { type: "exit" })] };
+    expect(musicalSpans(withExit, LEN)).toEqual({ tail: [2, 2.4], preEntry: [0.2, 0.4] });
+    expect(musicalSpans({ ...withExit, trim: [0.5, 1.9] }, LEN)).toEqual({ tail: null, preEntry: null }); // both outside the trim
+    expect(musicalSpans(defaultSampleEdits(), LEN)).toEqual({ tail: null, preEntry: null });
   });
 
   it("snaps in ms, samples and beats", () => {
