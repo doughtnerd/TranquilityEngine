@@ -61,3 +61,36 @@ with an empty World; the Studio activates only the audio plugin; at most 3 toast
 (WCAG 2.2.1); switching screens drops the asset selection; Studio panels can't detach in v1; clicking the project name
 closes the project. Known gap: the Studio's World needs a hidden 1×1 view because the audio runtime plays only Worlds
 with a view — an audio-only World option is scheduled. Revert: per item (`src/studio/`).
+
+**D10. Bézier curves (W1-T3, merged).** `"bezier"` is a key form (separate `CURVE_KEY_INTERPS`), not a sixth segment
+shape, so old editors keep compiling; missing handles default to the flat third-of-segment handle; every CURVES wire
+key carries four handle floats (fixed layout), ABI 4.1, wire minor unchanged; the core precomputes control points
+(automation table ~2.4 MB at the default preset, was ~1.1 MB); one key limit (64) in `audioCurveLimit.ts`. Mixer wasm
+378,644 B; new metered scene `automation-bezier` (+~1,700 instructions per Bézier binding per quantum).
+
+**D11. Data cleanup (W2-B, merged).** Compressor `knee` 0..40 dB default 30 (the runtime's and Web Audio's); the
+migrated Reverb return's reverb is 100 % wet (Wwise/FMOD/DAW practice); legacy values outside catalogue ranges are
+clamped on conversion; unknown-length segments: an exit at "end" writes no marker (Exit waits fall back to the end),
+a whole-segment loop becomes a continuous round-robin Queue; migration skips dot folders, node_modules, dist, target and
+reports (doesn't rewrite) scripts; audio lengths come from header magic (WAV/FLAC/Ogg/Opus/MP3); playlists are
+accepted wherever an audio event was (`AudioSource.clip`). Auto-migrate on open is not yet enabled.
+
+**D12. Audio parts kit (W2-K, merged).** Fader keys: arrows 0.5 dB, Shift/PageUp 3 dB, Home/End, 0 = unity; meter peak
+hold 1.5 s then 20 dB/s, clip latched; label scrub 1/300 of range per px (log for log params); VCA counted exactly once
+down the tree; type badge colours by series index; span statuses ok/virtual/stolen/blocked/error.
+
+**D13. Profiler screen (W2-H, merged).** The live view uses the plugin's existing `captureLiveHost` seam (as the
+editor's profiler does); captures save into `captures/capture_NN.mycap` on desktop by reading the saved file back from
+storage, in the browser they download (a public bytes-returning save needs a small API change: proposed, not made);
+loudness warnings are computed from the meters against the capture's target until captures record them; Record is
+enabled while the Studio runtime mixes a voice. No effects-cost track (captures lack the data yet), no zoom yet.
+
+**D14. Playlist runtime (W2-A, merged).** Hosted beside the event runtime on one automation sink, curve table, group id
+space and seeded generator (one instance id space for debug and captures). Blend weights, envelopes and voice-time
+curves run on the main thread per frame until core time parameters land. Samples with no loop in an untilStopped
+playlist loop their region as a held loop; `always` loops survive release (FMOD/Wwise key-off). Stop fades 120 ms.
+Only the root playlist's playback rules gate; nested playlists add delay. Weight 0 never plays; glide is a one-pole
+filter τ = glide/3. Equal-power crossfades. New public types `AudioMarkerEvent` and `AudioMarkerType` (the `onMarker`
+payload ADR 0329 names) and a debug field `Audio.debug().playlistTotals` — covered by ADR 0329's `onMarker` and debug
+rules; flagged for review. Gaps warned once: voice pan, high-pass curves, non-filter playlist effects (need submixes),
+attenuation curves (M7), Sequences and musical timing (M5).
