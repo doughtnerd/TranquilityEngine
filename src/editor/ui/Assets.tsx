@@ -41,7 +41,8 @@ import {
   type Modifiers,
 } from "../assetSelection";
 import { previewAssets, select, selectAssets } from "../inspectorTarget";
-import { installOsDrop, osDragFolder, osDragOver } from "../osDrop";
+import { installOsDrop } from "../osDrop";
+import { osDrag } from "../osDropController";
 import { newScript, scriptFolderFor } from "../newScript";
 import { assetTileSize, assetView } from "../preferences";
 import { joinPath, type EditorProject } from "../projects";
@@ -98,7 +99,7 @@ function useAsLast(browser: AssetBrowserView): void {
 
 /** True while a drag would drop on the folder `path`. */
 const dropTarget = (path: string) => {
-  if (osDragFolder.value === path) return true;
+  if (osDrag.value?.folder === path) return true;
   const t = assetDrag.value?.target;
   return t?.kind === "folder" && t.folder === path;
 };
@@ -187,7 +188,7 @@ export function AssetsPanel() {
     <Panel>
       <AssetsViewContext.Provider value={view}>
         <div
-          class={`asset-browser${osDragOver.value ? " os-drop" : ""}`}
+          class={`asset-browser${osDrag.value ? (osDrag.value.refused ? " os-drop refused" : " os-drop") : ""}`}
           onPointerDownCapture={() => useAsLast(browser)}
           onFocusCapture={() => useAsLast(browser)}
           onDragEnterCapture={() => useAsLast(browser)}
