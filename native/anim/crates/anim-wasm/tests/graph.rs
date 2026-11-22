@@ -230,6 +230,35 @@ fn when_normalized_time_waits_for_the_fraction() {
     assert!((15..=16).contains(&f), "frame {f}");
 }
 
+#[test]
+fn debug_reports_when_not_reached() {
+    let mut r = rig();
+    let mut b = Builder::new();
+    let m = three_state_machine(&mut b, &[vec![tr(1, NONE, When::Exit, How::Cut)]]);
+    let mut spec = ClipSpec::new(1.0, true, 1);
+    spec.exits = vec![0.5];
+    let ca = r.clip(spec);
+    let cb = r.clip(ClipSpec::new(1.0, true, 2));
+    let cc = r.clip(ClipSpec::new(1.0, true, 3));
+    let binds = vec![(b.s("a"), ca), (b.s("b"), cb), (b.s("c"), cc)];
+    let bytes = b.build(m.node);
+    let (_, h) = instance(&mut r.core, &bytes, r.skel, &binds);
+    send(&mut r.core, &[debug_on(h)]);
+    r.core.evaluate(0, 0, DT, DT);
+    let rep = report(&mut r.core, h);
+    assert_eq!(rep.transitions[0].blocker, BLOCK_WHEN);
+    assert!((rep.machines[0].state_time - DT).abs() < 1e-6);
+    assert!((rep.machines[0].normalized - DT).abs() < 1e-6);
+    // The active player's node with its playhead.
+    let n = rep.node(0).unwrap();
+    assert_eq!((n.clip, n.weight), (ca, 1.0));
+    assert!((n.time - DT).abs() < 1e-6 && (n.normalized - DT).abs() < 1e-6);
+    // An instance not flagged writes nothing.
+    let g2 = r.core.load_graph(&bytes);
+    let h2 = r.core.create_instance(0, r.skel, g2);
+    assert_eq!(r.core.debug_write(h2), 0);
+}
+
 fn how_rig(how: How, inertialize: bool) -> (Rig, u32, u32, u32) {
     let mut r = rig();
     let mut b = Builder::new();

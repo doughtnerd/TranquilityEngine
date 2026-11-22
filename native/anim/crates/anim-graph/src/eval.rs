@@ -351,7 +351,7 @@ pub struct MachineInfo {
     pub entry: u32,
     /// First any-state transition and count.
     pub any: (u32, u32),
-    /// The machine's next-hop table in [`Program::hops`] (`count²` words).
+    /// The machine's next-hop table in the program's hop list (`count²` words).
     pub hops: u32,
 }
 
