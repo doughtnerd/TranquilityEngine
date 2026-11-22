@@ -94,3 +94,12 @@ filter τ = glide/3. Equal-power crossfades. New public types `AudioMarkerEvent`
 payload ADR 0329 names) and a debug field `Audio.debug().playlistTotals` — covered by ADR 0329's `onMarker` and debug
 rules; flagged for review. Gaps warned once: voice pan, high-pass curves, non-filter playlist effects (need submixes),
 attenuation curves (M7), Sequences and musical timing (M5).
+
+**D15. Samples screen (W2-D, merged).** Edits stay in source time (ADR 0328) and the timeline draws edited time;
+sidecars are opened as documents through a Studio-registered sidecar kind with no file ending (the editor's handling of
+`.meta.json` is unchanged); derived samples use the plugin's `derivedSample` kind (coordinator removed a duplicate);
+a following fork stores only fields it changed; loop count = how many times the body plays; clips under 400 ms are
+measured as one loudness block; Write-to-WAV backups in `.myco/sample-versions/`. Known gaps: audition is approximate
+(public one-shots have no start offset — a core/API start offset is scheduled), offline render/cache, re-import and
+source versions, tempo/root detection (no detector in the engine; Detect is disabled), changed-on-disk needs the Studio
+project watch (W3-F).
