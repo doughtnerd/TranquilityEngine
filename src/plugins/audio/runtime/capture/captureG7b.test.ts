@@ -75,7 +75,7 @@ function rig(opts: { babylon?: boolean; keyframe?: boolean } = {}) {
   const env: SaveEnv = {
     tauri: false,
     storage: { save: async () => {}, list: async () => [], delete: async () => {} },
-    appDataDir: async () => "/data/app",
+    storageRoot: async () => "/data/app",
     download: (bytes, fileName) => void downloads.push({ bytes, fileName }),
     compress: defaultSaveEnv().compress,
     now: () => new Date(2026, 10, 13, 10, 15, 0),

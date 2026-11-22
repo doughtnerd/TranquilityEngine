@@ -58,7 +58,7 @@ function fakeEnv(over: Partial<SaveEnv> = {}) {
         await storage.delete(namespace, key);
       },
     },
-    appDataDir: async () => "/data/app/",
+    storageRoot: async () => "/data/app/",
     download: (bytes, fileName) => downloads.push({ bytes, fileName }),
     compress: deflateRawCompress,
     now: () => at(10, 15, 0),
@@ -271,7 +271,7 @@ describe("the web path: a download named from the sanitised name", () => {
 });
 
 describe("the Tauri path: Storage.save(key, bytes, \"cache\"), resolving with the app-data path", () => {
-  it("saves the bytes in the cache namespace and resolves <appDataDir>/cache/<key>.bin", async () => {
+  it("saves the bytes in the cache namespace and resolves <storage root>/cache/<key>.bin", async () => {
     const { env, downloads, saved, storage } = fakeEnv({ tauri: true });
     const before = webSaveCount();
     const path = await saveCapture(takeOf(recorded(3)), "arena-2", env);
@@ -301,13 +301,13 @@ describe("the Tauri path: Storage.save(key, bytes, \"cache\"), resolving with th
 
   it("the path mirrors TauriStorage: a trailing slash goes, the key is URI-encoded", async () => {
     const take = takeOf(recorded(1));
-    const windows = fakeEnv({ tauri: true, appDataDir: async () => "C:\\Users\\me\\AppData\\" }).env;
+    const windows = fakeEnv({ tauri: true, storageRoot: async () => "C:\\Users\\me\\AppData\\" }).env;
     expect(await saveCapture(take, "a.b", windows)).toBe("C:\\Users\\me\\AppData/cache/a.b.mycap.bin");
-    expect(await saveCapture(take, "k", fakeEnv({ tauri: true, appDataDir: async () => "/d" }).env)).toBe("/d/cache/k.mycap.bin");
+    expect(await saveCapture(take, "k", fakeEnv({ tauri: true, storageRoot: async () => "/d" }).env)).toBe("/d/cache/k.mycap.bin");
   });
 
   it("still resolves when the app-data folder can't be read", async () => {
-    const { env, saved } = fakeEnv({ tauri: true, appDataDir: () => Promise.reject(new Error("no path api")) });
+    const { env, saved } = fakeEnv({ tauri: true, storageRoot: () => Promise.reject(new Error("no path api")) });
     await expect(saveCapture(takeOf(recorded(2)), "x", env)).resolves.toBe("cache/x.mycap.bin");
     expect(saved.length).toBe(1);
   });

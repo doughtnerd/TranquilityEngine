@@ -255,7 +255,7 @@ export function memorySaveEnv(): SaveEnv & { files: { name: string; bytes: Uint8
     files,
     tauri: false,
     storage: { save: async () => {}, list: async () => [], delete: async () => {} },
-    appDataDir: async () => "",
+    storageRoot: async () => "",
     download: (bytes, name) => void files.push({ name, bytes: bytes.slice() }),
     compress: async (payload) => new Uint8Array(deflateRawSync(payload)),
     now: () => new Date(2026, 10, 14, 12, 0, 0),

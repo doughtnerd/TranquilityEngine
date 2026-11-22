@@ -28,6 +28,8 @@ export interface RecordStore {
   get(ns: StorageNamespace, key: string): Promise<StoredRecord | undefined>;
   remove(ns: StorageNamespace, key: string): Promise<void>;
   keys(ns: StorageNamespace): Promise<string[]>;
+  /** The folder the records are files under, where they are files (Tauri). */
+  readonly root?: string;
 }
 
 const SUPPORTED =
@@ -76,6 +78,11 @@ function decode(record: StoredRecord): StorageValue {
 /** A backend over a record store: every value goes through the one encoding on the way in and out. */
 export class EncodedStorage implements StorageBackend {
   constructor(private readonly records: RecordStore) {}
+
+  /** The folder this storage writes its files under, where it writes files (Tauri: the scope's folder). */
+  get root(): string | undefined {
+    return this.records.root;
+  }
 
   async save(ns: StorageNamespace, key: string, value: StorageValue): Promise<void> {
     await this.records.put(ns, key, encode(value));

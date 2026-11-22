@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DirEntry, FileSystem } from "../platform/FileSystem";
-import { MemoryStorage, type StorageBackend } from "../platform/Storage";
+import { MemoryStorage, Storage, type StorageBackend } from "../platform/Storage";
 import { EncodedStorage, openStorage } from "../platform/storageScope";
 import { moveLegacyEditorData, TauriRecords } from "../platform/tauriRecords";
 
@@ -187,6 +187,17 @@ describe("storage scopes under Tauri (ADR 0317)", () => {
     expect(files.filter((f) => f.startsWith(`${APP}/play/flappy-bird-`) && f.endsWith("/saves/slot.json"))).toHaveLength(2);
     expect(files).toContain(`${APP}/editor/cache/history-x.a.json`);
     expect(files.some((f) => f.startsWith(`${APP}/saves/`))).toBe(false);
+  });
+
+  it("says which folder a played project's files go under, for a host that reports where it saved", async () => {
+    const played = await openStorage({ kind: "project", id: "C:/Games/Flappy", name: "Flappy Bird" });
+    const previous = Storage.use(played);
+    try {
+      expect(Storage.root()).toMatch(new RegExp(`^${APP}/play/flappy-bird-[0-9a-f]{8}$`));
+    } finally {
+      Storage.use(previous);
+    }
+    expect(new MemoryStorage().root).toBeUndefined();
   });
 
   it("moves the editor's history and user layouts out of the shared root once, leaving Play's old saves", async () => {

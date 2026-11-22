@@ -10,7 +10,7 @@ import type { RecordStore, StoredRecord } from "./storageScope";
 export class TauriRecords implements RecordStore {
   private readonly ready = new Map<StorageNamespace, Promise<void>>();
 
-  constructor(private readonly fs: FileSystem, private readonly root: string) {}
+  constructor(private readonly fs: FileSystem, readonly root: string) {}
 
   async put(ns: StorageNamespace, key: string, record: StoredRecord): Promise<void> {
     await this.ensureDir(ns);

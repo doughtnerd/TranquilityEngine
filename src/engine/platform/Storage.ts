@@ -16,6 +16,8 @@ export interface StorageBackend {
   load(namespace: StorageNamespace, key: string): Promise<StorageValue | undefined>;
   delete(namespace: StorageNamespace, key: string): Promise<void>;
   list(namespace: StorageNamespace): Promise<string[]>;
+  /** The folder the backend writes files under, where it writes files (desktop); undefined otherwise. */
+  readonly root?: string;
 }
 
 /** Storage in memory (tests, headless Engines): the same value contract as every built-in backend (ADR 0317). */
@@ -38,6 +40,11 @@ export class Storage {
     const replaced = backend;
     backend = b;
     return replaced;
+  }
+
+  /** @internal The folder the backend in use writes files under (desktop), for a host that reports where a file went. */
+  static root(): string | undefined {
+    return backend.root;
   }
 
   static save(key: string, value: StorageValue, namespace: StorageNamespace = "saves"): Promise<void> {
