@@ -562,6 +562,12 @@ export class UprightBox {
   private localX(x: number, z: number): number { return (x - this.cx) * this.cos - (z - this.cz) * this.sin; }
   private localZ(x: number, z: number): number { return (x - this.cx) * this.sin + (z - this.cz) * this.cos; }
 
+  /** The world point `(lx, lz)` of the box's frame (local x along the width, z along the depth) into `out.x`/`out.z`. */
+  toWorld(lx: number, lz: number, out: { x: number; z: number }): void {
+    out.x = this.cx + lx * this.cos + lz * this.sin;
+    out.z = this.cz - lx * this.sin + lz * this.cos;
+  }
+
   /** Whether the point is inside (edges included). */
   contains(x: number, y: number, z: number): boolean {
     return y >= this.bottom && y <= this.top && Math.abs(this.localX(x, z)) <= this.halfWidth && Math.abs(this.localZ(x, z)) <= this.halfDepth;

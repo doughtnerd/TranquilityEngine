@@ -12,6 +12,7 @@ import { audioNamedLists, occlusionLayerReferences } from "./audioNames";
 import { EVENT_EDITOR_PANEL } from "./event/openEventEditor";
 import { zoneTool } from "./AudioReverbZoneGizmo";
 import { occluderTool } from "./AudioOccluderGizmo";
+import { audioZoneTool } from "./AudioZoneGizmo";
 import { occlusionTool } from "./OcclusionOverlay";
 import { registerMusicPanels } from "./music";
 import { registerMixPanels } from "./mix";
@@ -105,6 +106,9 @@ export const audioEditorPlugin: EditorPlugin = {
     // The occlusion overlay (E4): rays to occluded sources while playing, switched on in the Audio Debug panel.
     context.registerViewportTool(occlusionTool);
     context.registerInspectorSection("engine.AudioReverbZone", () => import("./ZoneInspector").then((m) => m.ZoneSection), { single: true });
+    // ADR 0333: the audio zone's outline in the scene view and its Inspector section.
+    context.registerViewportTool(audioZoneTool);
+    context.registerInspectorSection("engine.AudioZone", () => import("./AudioZoneInspector").then((m) => m.AudioZoneSection), { single: true });
     context.registerInspectorSection("engine.AudioOccluder", () => import("./OccluderInspector").then((m) => m.OccluderSection), { single: true });
     context.registerInspectorSection("engine.AudioSource", () => import("./AudioSourceSections").then((m) => m.AudioSourceSection), { single: true });
   },
