@@ -177,7 +177,7 @@ pub struct SpringParams {
 /// new position `parent` and velocity `v_parent`, the animated offset `rest` from the parent.
 /// Returns the new position before length, angle and collision constraints:
 /// `v = v_p + ((x − x_prev)/h_prev − v_p)·e^(−damping·h)`, `v ← v·e^(−drag·h)`,
-/// `x' = (x + v·h + g·h² + k·h²·(parent + rest)) / (1 + k·h²)`.
+/// `x' = x + v·h + g·h² + (parent + rest − x)·min(k·h², 1)`.
 #[allow(clippy::too_many_arguments)]
 pub fn spring_step(
     x: Vec3,
@@ -196,9 +196,9 @@ pub fn spring_step(
     };
     let v = v_parent + (v - v_parent).scale((-p.damping * h).exp());
     let v = v.scale((-p.drag * h).exp());
-    let kh2 = p.stiffness * h * h;
+    let kh2 = (p.stiffness * h * h).min(1.0);
     let a = parent + rest;
-    (x + v.scale(h) + p.gravity.scale(h * h) + a.scale(kh2)).scale(1.0 / (1.0 + kh2))
+    x + v.scale(h) + p.gravity.scale(h * h) + (a - x).scale(kh2)
 }
 
 /// The time at which a uniformly sampled, non-decreasing travel curve first reaches `d`

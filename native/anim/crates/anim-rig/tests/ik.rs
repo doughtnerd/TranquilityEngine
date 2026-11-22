@@ -32,20 +32,37 @@ fn lengths(rig: &Rig) -> (f32, f32) {
 
 #[test]
 fn two_bone_reaches_targets_inside_reach() {
-    for target in [v3(1.2, 0.8, 0.3), v3(0.5, -0.9, 0.4), v3(-0.3, 0.6, -1.1), v3(0.2, 0.1, 0.05)] {
+    for target in [
+        v3(1.2, 0.8, 0.3),
+        v3(0.5, -0.9, 0.4),
+        v3(-0.3, 0.6, -1.1),
+        v3(0.2, 0.1, 0.05),
+    ] {
         let mut rig = arm();
         let (a, b, c) = (rig.pos(1), rig.pos(2), rig.pos(3));
         solve(&mut rig, &TwoBoneGoal::new(target));
         assert_close(rig.pos(3), target, 1e-5, "tip");
         let (la, lb) = lengths(&rig);
-        assert!((la - 1.0).abs() < 1e-5 && (lb - 1.0).abs() < 1e-5, "lengths {la} {lb}");
+        assert!(
+            (la - 1.0).abs() < 1e-5 && (lb - 1.0).abs() < 1e-5,
+            "lengths {la} {lb}"
+        );
         let (mid, tip) = r::two_bone(v64(a), v64(b), v64(c), v64(target), None);
-        assert!(dist64(rig.pos(2), mid) < 2e-5, "mid vs reference: {:?} {mid:?}", rig.pos(2));
+        assert!(
+            dist64(rig.pos(2), mid) < 2e-5,
+            "mid vs reference: {:?} {mid:?}",
+            rig.pos(2)
+        );
         assert!(dist64(rig.pos(3), tip) < 2e-5);
         // The lazy cache agrees with a full recompute.
         let fresh = rig.fresh_model();
         for i in 0..4 {
-            assert_close(rig.model[i].translation, fresh[i].translation, 1e-6, "cache");
+            assert_close(
+                rig.model[i].translation,
+                fresh[i].translation,
+                1e-6,
+                "cache",
+            );
         }
     }
 }
@@ -59,7 +76,13 @@ fn two_bone_outside_reach_straightens_toward_the_target() {
     assert_close(rig.pos(3), dir.scale(2.0), 2e-5, "tip at full reach");
     assert_close(rig.pos(2), dir, 2e-5, "mid on the line");
     assert!((res.reach - 2.0).abs() < 1e-6);
-    let (mid, tip) = r::two_bone(v64(v3(0.0, 0.0, 0.0)), v64(arm().pos(2)), v64(arm().pos(3)), v64(target), None);
+    let (mid, tip) = r::two_bone(
+        v64(v3(0.0, 0.0, 0.0)),
+        v64(arm().pos(2)),
+        v64(arm().pos(3)),
+        v64(target),
+        None,
+    );
     assert!(dist64(rig.pos(2), mid) < 2e-5 && dist64(rig.pos(3), tip) < 2e-5);
     assert_finite(&rig);
 }
@@ -68,7 +91,12 @@ fn two_bone_outside_reach_straightens_toward_the_target() {
 fn two_bone_target_closer_than_fold_folds_fully() {
     let mut rig = Rig::new(
         vec![u16::MAX, 0, 1, 2],
-        &[tr(0.0, 0.0, 0.0), tr(0.0, 0.0, 0.0), trq(1.0, 0.0, 0.0, axis_angle(0.0, 0.0, 1.0, 20.0)), tr(0.6, 0.0, 0.0)],
+        &[
+            tr(0.0, 0.0, 0.0),
+            tr(0.0, 0.0, 0.0),
+            trq(1.0, 0.0, 0.0, axis_angle(0.0, 0.0, 1.0, 20.0)),
+            tr(0.6, 0.0, 0.0),
+        ],
     );
     let target = v3(0.1, 0.1, 0.0);
     solve(&mut rig, &TwoBoneGoal::new(target));
@@ -95,8 +123,18 @@ fn two_bone_singular_straight_arm() {
         let mut goal = TwoBoneGoal::new(target);
         goal.pole = Pole::Direction(pole);
         solve(&mut rig, &goal);
-        let (mid, _) = r::two_bone(v64(v3(0.0, 0.0, 0.0)), v64(v3(1.0, 0.0, 0.0)), v64(v3(2.0, 0.0, 0.0)), v64(target), Some(v64(pole)));
-        assert!(dist64(rig.pos(2), mid) < 2e-5, "{:?} vs {mid:?}", rig.pos(2));
+        let (mid, _) = r::two_bone(
+            v64(v3(0.0, 0.0, 0.0)),
+            v64(v3(1.0, 0.0, 0.0)),
+            v64(v3(2.0, 0.0, 0.0)),
+            v64(target),
+            Some(v64(pole)),
+        );
+        assert!(
+            dist64(rig.pos(2), mid) < 2e-5,
+            "{:?} vs {mid:?}",
+            rig.pos(2)
+        );
         assert!(rig.pos(2).dot(pole) > 0.5);
     }
     // Target exactly on the root: finite, lengths kept.
@@ -112,11 +150,25 @@ fn two_bone_pole_flips_the_bend() {
         for kind in 0..2 {
             let mut rig = arm();
             let mut goal = TwoBoneGoal::new(target);
-            goal.pole = if kind == 0 { Pole::Direction(pole) } else { Pole::Position(pole.scale(3.0)) };
+            goal.pole = if kind == 0 {
+                Pole::Direction(pole)
+            } else {
+                Pole::Position(pole.scale(3.0))
+            };
             solve(&mut rig, &goal);
             assert_close(rig.pos(3), target, 1e-5, "tip");
-            assert!(rig.pos(2).y * sign > 0.3, "mid on the pole's side: {:?}", rig.pos(2));
-            let (mid, _) = r::two_bone(v64(v3(0.0, 0.0, 0.0)), v64(arm().pos(2)), v64(arm().pos(3)), v64(target), Some(v64(pole)));
+            assert!(
+                rig.pos(2).y * sign > 0.3,
+                "mid on the pole's side: {:?}",
+                rig.pos(2)
+            );
+            let (mid, _) = r::two_bone(
+                v64(v3(0.0, 0.0, 0.0)),
+                v64(arm().pos(2)),
+                v64(arm().pos(3)),
+                v64(target),
+                Some(v64(pole)),
+            );
             assert!(dist64(rig.pos(2), mid) < 2e-5);
         }
     }
@@ -133,8 +185,15 @@ fn two_bone_soft_ik_eases_into_full_reach() {
         goal.soft = soft;
         let res = solve(&mut rig, &goal);
         let want = r::soft_reach(d as f64, 2.0, soft as f64);
-        assert!((res.reach as f64 - want).abs() < 2e-6, "reach at {d}: {} vs {want}", res.reach);
-        assert!(res.reach < 2.0 && res.reach >= last, "monotone, never straight");
+        assert!(
+            (res.reach as f64 - want).abs() < 2e-6,
+            "reach at {d}: {} vs {want}",
+            res.reach
+        );
+        assert!(
+            res.reach < 2.0 && res.reach >= last,
+            "monotone, never straight"
+        );
         assert!((dist(rig.pos(3), v3(0.0, 0.0, 0.0)) - res.reach).abs() < 1e-5);
         last = res.reach;
     }
@@ -263,7 +322,11 @@ fn ccd_error_never_grows_and_stops_at_tolerance() {
             let mut p = rig.pose();
             ccd(&mut p, &chain, &[], &goal, &mut scratch)
         };
-        assert!(res.error <= last + 1e-6, "iteration {it}: {} > {last}", res.error);
+        assert!(
+            res.error <= last + 1e-6,
+            "iteration {it}: {} > {last}",
+            res.error
+        );
         last = res.error;
     }
     // A loose tolerance stops early.
@@ -307,8 +370,17 @@ fn ccd_and_fabrik_unreachable_straighten() {
             }
         };
         let reach = target.length() - 2.4;
-        assert!((res.error - reach).abs() < 2e-3, "solver {which}: {}", res.error);
-        assert_close(rig.pos(4), dir.scale(2.4), 3e-3, "straight toward the target");
+        assert!(
+            (res.error - reach).abs() < 2e-3,
+            "solver {which}: {}",
+            res.error
+        );
+        assert_close(
+            rig.pos(4),
+            dir.scale(2.4),
+            3e-3,
+            "straight toward the target",
+        );
     }
 }
 
@@ -331,7 +403,12 @@ fn fabrik_converges_and_matches_reference() {
         let (refp, refit, _) = r::fabrik(&start, v64(target), res.iterations, 0.0);
         assert_eq!(refit, res.iterations);
         for (j, &b) in chain.iter().enumerate() {
-            assert!(dist64(rig.pos(b as usize), refp[j]) < 2e-4, "joint {j}: {:?} {:?}", rig.pos(b as usize), refp[j]);
+            assert!(
+                dist64(rig.pos(b as usize), refp[j]) < 2e-4,
+                "joint {j}: {:?} {:?}",
+                rig.pos(b as usize),
+                refp[j]
+            );
         }
     }
 }
@@ -342,7 +419,11 @@ fn assert_within_limits(rig: &Rig, chain: &[u16], limits: &[JointLimit], tol: f3
     for (j, &b) in chain.iter().enumerate().take(chain.len() - 1) {
         let local = rig.local(b as usize).rotation;
         let limited = limits[j].apply(local);
-        assert!(quat_angle(local, limited) < tol, "joint {j} outside its limit by {}", quat_angle(local, limited));
+        assert!(
+            quat_angle(local, limited) < tol,
+            "joint {j} outside its limit by {}",
+            quat_angle(local, limited)
+        );
     }
 }
 
@@ -383,7 +464,13 @@ fn chain_solvers_respect_joint_limits() {
     let mut scratch = vec![ChainJoint::default(); 4];
     let goal = ChainGoal::new(target);
     ccd(&mut a.pose(), &chain, &[], &goal, &mut scratch);
-    ccd(&mut b.pose(), &chain, &[JointLimit::FREE; 4], &goal, &mut scratch);
+    ccd(
+        &mut b.pose(),
+        &chain,
+        &[JointLimit::FREE; 4],
+        &goal,
+        &mut scratch,
+    );
     assert!(same_pose(&a, &b));
 }
 

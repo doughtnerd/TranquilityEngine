@@ -121,7 +121,10 @@ pub fn quat_angle64(a: AosQuat, b: r::Quat) -> f64 {
 
 pub fn assert_close(a: AosVec3, b: AosVec3, tol: f32, what: &str) {
     let d = dist(a, b);
-    assert!(d <= tol, "{what}: {a:?} vs {b:?} (distance {d}, tolerance {tol})");
+    assert!(
+        d <= tol,
+        "{what}: {a:?} vs {b:?} (distance {d}, tolerance {tol})"
+    );
 }
 
 pub fn assert_finite(rig: &Rig) {

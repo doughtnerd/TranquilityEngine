@@ -7,6 +7,10 @@ use anim_math::{AosQuat, AosTransform, AosVec3};
 
 /// The most bones in one spring chain (the anchor included).
 pub const MAX_SPRING_BONES: usize = 16;
+/// The share of a child's constraint correction taken out of its parent's velocity (Müller et
+/// al. 2012, "Fast Simulation of Inextensible Hair and Fur": dynamic follow-the-leader).
+const FTL_DAMPING: f32 = 0.9;
+
 /// The most colliders one chain tests.
 pub const MAX_SPRING_COLLIDERS: usize = 16;
 
@@ -83,6 +87,8 @@ struct Particle {
     prev: AosVec3,
     /// The animated world position at the end of the previous update.
     anim: AosVec3,
+    /// How far the length constraint moved this particle in the last substep.
+    corr: AosVec3,
 }
 
 /// One chain's simulation state (fixed size).
@@ -106,6 +112,7 @@ impl SpringChainState {
                 pos: z,
                 prev: z,
                 anim: z,
+                corr: z,
             }; MAX_SPRING_BONES],
             prev_h: 0.0,
             initialized: false,
@@ -171,11 +178,18 @@ fn push_out(p: AosVec3, shape: WorldShape, extra: f32) -> AosVec3 {
 /// substeps `h`, and interpolates the animated positions linearly from the previous update's
 /// to this one's across them. Per substep, for particle `j` with parent particle `p`:
 ///
-/// 1. Velocity by time-corrected Verlet: `v = (x − x_prev)/h_prev` (zero after a reset).
+/// 1. Velocity by time-corrected Verlet: `v = (x − x_prev)/h_prev − 0.9·d_child/h_prev`
+///    (zero after a reset), where `d_child` is how far step 4 moved the child particle last
+///    substep. Solving each length constraint by moving only the child (follow-the-leader) is
+///    exact per link but makes a chain act heavier at the root; that term (dynamic
+///    follow-the-leader, Müller et al. 2012) removes the bias.
 /// 2. `v ← v_p + (v − v_p)·e^(−damping·h)`, then `v ← v·e^(−drag·h)` ([`exp_neg`]).
 /// 3. The animated target `a = p + (animⱼ − anim_p)` (the animated offset hung from the
-///    simulated parent). Gravity and the spring are integrated **implicitly**:
-///    `x' = (x + v·h + g·h² + k·h²·a) / (1 + k·h²)`, stable for any stiffness and step.
+///    simulated parent). Störmer-Verlet: `x' = x + v·h + g·h² + (a − x)·min(k·h², 1)`. Verlet
+///    is symplectic, so the spring adds no numerical damping and the motion barely depends on
+///    `h` (damping comes only from `damping` and `drag`). It is stable while `k·h² < 4`; the cap
+///    at 1 keeps it stable for any stiffness (a spring that stiff reaches its target within a
+///    substep anyway).
 /// 4. Length: `x' ← p + normalize(x' − p)·|animⱼ − anim_p|`; then the direction is clamped to
 ///    `max_angle` around `a − p`.
 /// 5. Colliders push `x'` out of every sphere and capsule (radius + particle radius). This
@@ -255,6 +269,7 @@ pub fn spring(
                 pos: anim[j],
                 prev: anim[j],
                 anim: anim[j],
+                corr: AosVec3::zero(),
             };
         }
         state.prev_h = 0.0;
@@ -264,7 +279,7 @@ pub fn spring(
         let steps = ((dt / max_step).ceil() as u32).clamp(1, settings.max_substeps.max(1));
         let h = dt / steps as f32;
         let k = settings.stiffness.max(0.0);
-        let kh2 = k * h * h;
+        let kh2 = (k * h * h).min(1.0);
         let damp = exp_neg(settings.damping.max(0.0) * h);
         let drag = exp_neg(settings.drag.max(0.0) * h);
         let g = settings.gravity;
@@ -287,7 +302,11 @@ pub fn spring(
             for j in 1..n {
                 let x = ps[j].pos;
                 let mut v = if state.prev_h > 0.0 {
-                    (x - ps[j].prev).scale(1.0 / state.prev_h)
+                    let mut v = (x - ps[j].prev).scale(1.0 / state.prev_h);
+                    if j + 1 < n {
+                        v = v - ps[j + 1].corr.scale(FTL_DAMPING / state.prev_h);
+                    }
+                    v
                 } else {
                     AosVec3::zero()
                 };
@@ -296,8 +315,8 @@ pub fn spring(
                 let p = ps[j - 1].pos;
                 let rest = sub_anim[j] - sub_anim[j - 1];
                 let a = p + rest;
-                let mut xn =
-                    (x + v.scale(h) + g.scale(h * h) + a.scale(kh2)).scale(1.0 / (1.0 + kh2));
+                let free = x + v.scale(h) + g.scale(h * h) + (a - x).scale(kh2);
+                let mut xn = free;
                 let len = rest.length();
                 let rest_dir = normalize_or(rest, AosVec3::new(0.0, -1.0, 0.0));
                 let dir = normalize_or(xn - p, rest_dir);
@@ -306,6 +325,7 @@ pub fn spring(
                 for &shape in shapes {
                     xn = push_out(xn, shape, settings.radius);
                 }
+                ps[j].corr = xn - free;
                 ps[j].prev = x;
                 ps[j].pos = xn;
                 v_parent = (xn - x).scale(1.0 / h);

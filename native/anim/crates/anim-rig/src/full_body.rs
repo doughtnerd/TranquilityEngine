@@ -429,7 +429,16 @@ pub fn full_body(
             }
             if has_children[ci] {
                 let end = s[o + len - 1].position;
-                fit_branch(s, chains, &off, &weight, nc, Some(ci), end, Some(&goal.effectors[ci]));
+                fit_branch(
+                    s,
+                    chains,
+                    &off,
+                    &weight,
+                    nc,
+                    Some(ci),
+                    end,
+                    Some(&goal.effectors[ci]),
+                );
             }
         }
     }
