@@ -14,7 +14,7 @@ import { audioHorizon, audioTimeAt, musicHandleOf } from "./music/handle";
 import { onMusicOf, _setMusicHandleFactory } from "./music/musicSystem";
 import { triggerOn } from "./music/stingers";
 import { audioLatency, getCalibration, isCalibrationStale, rhythmModeSetting, setCalibration } from "./music/calibration";
-import { audioBackend, type AudioDebugInfo, type AudioHandle, type AudioMarkerEvent, type AudioMarkerType, type AudioPanner, type AudioPlaylistHandle, type AudioReason, type AudioStatus, type AudioVoice, type SendCurve } from "./backend";
+import { audioBackend, coreUnavailable, type AudioDebugInfo, type AudioHandle, type AudioMarkerEvent, type AudioMarkerType, type AudioPanner, type AudioPlaylistHandle, type AudioReason, type AudioStatus, type AudioVoice, type SendCurve } from "./backend";
 import { events, type EventInstance, type EventOptions } from "./events/eventRuntime";
 import { playlists } from "./playlists/playlistSystem";
 import { playlistHandleOf } from "./playlists/handle";
@@ -360,7 +360,8 @@ export const Audio = {
   debug(): AudioDebugState {
     const backend = audioBackend();
     const info = backend.debug();
-    // Rc4: the shared capture ring (null while none runs).
-    return { ...info, ...debugRows(info, backend), recorder: captureDebug() };
+    // Rc4: the shared capture ring (null while none runs). ADR 0327: why the core couldn't run, once known.
+    const why = coreUnavailable();
+    return { ...info, ...debugRows(info, backend), recorder: captureDebug(), ...(why !== null ? { coreUnavailable: why } : {}) };
   },
 };

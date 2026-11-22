@@ -32,6 +32,11 @@ export interface EngineOptions {
   /** Element the canvas is placed in. Omit (or pass `headless: true`) to run without rendering. */
   container?: HTMLElement;
   headless?: boolean;
+  /**
+   * @internal ADR 0327: an audio-only Engine (the Audio Studio's runtime): it draws nothing (as `headless`), but its
+   * Worlds play sound as the World with the view does, so the audio plugin listens to and mixes them.
+   */
+  audioOnly?: boolean;
   /** Storage backend for saves/settings (ADR 0024). Defaults to files under Tauri, IndexedDB in browsers, memory when headless. */
   storage?: StorageBackend;
   /**
@@ -120,7 +125,7 @@ export class Engine implements BootstrapEngine, WorldOwner {
     this.settings = resolveSettings(options.project ?? {});
     this._declaredBootstrap = declarative(options.bootstrap) ?? declarative(this.settings.bootstrap);
     this.views = new ViewAllocator({
-      container: options.headless ? null : (options.container ?? null),
+      container: options.headless || options.audioOnly ? null : (options.container ?? null),
       createSurface: (element, world) => createRenderSurface(element, world.settings, world.kind),
       input: Input,
     });
@@ -152,7 +157,7 @@ export class Engine implements BootstrapEngine, WorldOwner {
         project: options.project,
         assets: options.assets,
         storage: options.storage,
-        draws: !options.headless && !!options.container,
+        draws: !options.headless && !options.audioOnly && !!options.container,
         kind,
         quality: options.quality ?? "player",
       });
@@ -215,6 +220,7 @@ export class Engine implements BootstrapEngine, WorldOwner {
     const kind: WorldKind = tags.includes("editor") ? "editor" : tags.includes("server") ? "server" : "runtime";
     const world = new World(kind, this.settings, { name: c.name, tags });
     world._owner = this;
+    world._audioOnly = this.options.audioOnly === true;
     if (c.tickRate !== undefined) world.time.fixedDeltaTime = 1 / c.tickRate;
     if (c.timeScale !== undefined) world.time.timeScale = c.timeScale;
 

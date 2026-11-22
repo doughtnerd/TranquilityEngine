@@ -239,12 +239,20 @@ export function defaultSaveEnv(): SaveEnv {
 }
 
 /**
+ * `take` as the bytes of a `.mycap` file, compressed as `saveCapture` writes them (stored raw where `compress` gives null).
+ * The Audio Studio writes these into its project (ADR 0334; decision log D13) instead of a download or the app's cache.
+ */
+export function captureFileBytes(take: SaveTake, compress: SaveEnv["compress"] = deflateRawCompress): Promise<Uint8Array> {
+  return compressCapture(assembleTakeFile(take), compress);
+}
+
+/**
  * Compresses and saves `take`. Resolves with the file name on the web, with the app-data path on Tauri (and then rotates
  * auto-named files to 16). The span is copied by the caller before this runs, so a ring that goes on recording changes
  * nothing here.
  */
 export async function saveCapture(take: SaveTake, name?: string, env: SaveEnv = defaultSaveEnv()): Promise<string> {
-  const bytes = await compressCapture(assembleTakeFile(take), env.compress);
+  const bytes = await captureFileBytes(take, env.compress);
   const { file, auto } = captureFileName(name, env.now());
   if (!env.tauri) {
     env.download(bytes, file);

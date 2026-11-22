@@ -1,10 +1,10 @@
 // The Studio's audio runtime host, through its interface, over a fake starter and a fake public `Audio`.
 import { describe, expect, it, vi } from "vitest";
 import { statsFromDebug } from "./audioStats";
-import { CORE_UNAVAILABLE, createStudioAudioHost, studioRuntimeSettings, type AudioApi, type HostSeams } from "./studioAudioHost";
+import { CORE_UNAVAILABLE, coreUnavailableText, createStudioAudioHost, studioRuntimeSettings, type AudioApi, type HostSeams } from "./studioAudioHost";
 
 /** A fake `Audio`: its debug answers with `backend` and `status`; plays give handles that stay playing until stopped. */
-function fakeAudio(over: { backend?: string; status?: string; throws?: boolean } = {}) {
+function fakeAudio(over: { backend?: string; status?: string; throws?: boolean; why?: string } = {}) {
   const state = { backend: over.backend ?? "core", status: over.status ?? "running" };
   const handles: { stopped: number | null; playing: boolean; stop(f?: number): void }[] = [];
   const handle = (playing = true) => {
@@ -15,7 +15,7 @@ function fakeAudio(over: { backend?: string; status?: string; throws?: boolean }
   const audio = {
     debug: () => {
       if (over.throws) throw new Error("gone");
-      return { status: state.status, sampleRate: 48000, counters: { mixedVoices: 2, mixedCap: 64, underruns: 0 }, core: { backend: state.backend }, cpu: { loadPermille: 42, hidden: null } };
+      return { status: state.status, sampleRate: 48000, counters: { mixedVoices: 2, mixedCap: 64, underruns: 0 }, core: { backend: state.backend }, cpu: { loadPermille: 42, hidden: null }, ...(over.why ? { coreUnavailable: over.why } : {}) };
     },
     get status() {
       return state.status;
@@ -92,6 +92,19 @@ describe("Studio audio runtime host", () => {
     expect(host.state.value).toEqual({ kind: "failed", reason: CORE_UNAVAILABLE });
     expect(host.audition("music/theme.playlist.json")).toBeNull();
     expect(audio.play).not.toHaveBeenCalled();
+  });
+
+  it("shows the engine's own reason the core didn't start when it gave one", async () => {
+    const why = `audio core couldn't load (WebAssembly.instantiate(): out of memory); using "babylon".`;
+    const host = createStudioAudioHost(seams(fakeAudio({ backend: "babylon", why }).audio).s);
+    await host.open({});
+    const state = host.state.value;
+    expect(state.kind).toBe("failed");
+    const reason = state.kind === "failed" ? state.reason : "";
+    expect(reason).toMatch(/plays only through the core/);
+    expect(reason).toMatch(/The engine says: audio core couldn't load \(WebAssembly.instantiate\(\): out of memory\)$/);
+    expect(coreUnavailableText("Audio core unavailable: this engine lacks AudioWorklet. The core needs X. Using the \"babylon\" backend: basic playback.")).toMatch(/lacks AudioWorklet\. The core needs X\.$/);
+    expect(coreUnavailableText(undefined)).toBe(CORE_UNAVAILABLE);
   });
 
   it("reports a runtime that couldn't start, or a core that stopped", async () => {

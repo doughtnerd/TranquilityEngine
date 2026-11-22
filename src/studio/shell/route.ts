@@ -3,6 +3,7 @@
 // editor's hand-off (ADR 0327), a second window or a reload opens the same place. Back and Forward follow the hash.
 // It replaces the prototype's `myco.nav` hand-off.
 import { signal, type ReadonlySignal } from "@preact/signals";
+import { parseStudioHash } from "../../editor/studioAssets";
 import { DEFAULT_SCREEN, isScreenId, type ScreenId } from "./screens";
 
 export interface Route {
@@ -29,14 +30,29 @@ export interface HashLocation {
   listen(fn: () => void): () => void;
 }
 
-/** A hash as a route; anything unreadable is the default screen. */
+const decoded = (text: string): string => {
+  try {
+    return decodeURIComponent(text);
+  } catch {
+    return text; // a malformed escape: as written
+  }
+};
+
+/**
+ * A hash as a route; anything unreadable is the default screen. Also reads the editor's form (`#/<screen>/<asset path>`,
+ * `studioHash` in studioAssets.ts, what Open in Audio Studio puts in a browser tab's URL): the path after the screen is
+ * the asset, unless `?asset=` names one.
+ */
 export function parseRoute(hash: string): Route {
   const text = hash.replace(/^#/, "").replace(/^\//, "");
   const q = text.indexOf("?");
-  const name = decodeURIComponent(q < 0 ? text : text.slice(0, q)).toLowerCase();
+  const path = q < 0 ? text : text.slice(0, q);
+  const slash = path.indexOf("/");
+  const name = decoded(slash < 0 ? path : path.slice(0, slash)).toLowerCase();
   const screen = isScreenId(name) ? name : DEFAULT_SCREEN;
   const params = new URLSearchParams(q < 0 ? "" : text.slice(q + 1));
-  const asset = params.get("asset") || undefined;
+  const inPath = slash >= 0 && isScreenId(name) ? parseStudioHash(`#/${name}${path.slice(slash)}`).asset : null;
+  const asset = params.get("asset") || inPath || undefined;
   const select = params.get("select") || undefined;
   return { screen, ...(asset ? { asset } : {}), ...(select ? { select } : {}) };
 }

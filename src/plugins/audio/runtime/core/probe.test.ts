@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } fr
 import { audioBackend, mixer, registerDefaultBackend, setAudioBackend, type AudioBackend } from "../backend";
 import { probeCoreSupport, type ProbeEnv } from "./probe";
 import { defaultBackend, parseAudioSettings } from "../../../../engine/audio/settings";
-import { endAudioSession } from "../testing";
+import { endAudioSession, makeFakeBackend } from "../testing";
+import { Audio } from "../index";
 
 /** A full engine: every probe passes. Built fresh each call, so no test shares or mutates a stub. */
 const fullEnv = (): ProbeEnv => ({
@@ -159,5 +160,29 @@ describe("probeCoreSupport on a stubbed old engine", () => {
     expect(audioBackend().name).toBe("babylon");
     expect(make).toHaveBeenCalledTimes(1);
     expect(warn).not.toHaveBeenCalled();
+  });
+});
+
+describe("Audio.debug().coreUnavailable (ADR 0327)", () => {
+  beforeEach(() => {
+    endAudioSession();
+    setAudioBackend(makeFakeBackend());
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    setAudioBackend(null);
+    endAudioSession();
+  });
+
+  it("is absent until the engine says why the core can't run", () => {
+    expect(Audio.debug().coreUnavailable).toBeUndefined();
+  });
+
+  it("carries the probe's refusal, and a released session forgets it", async () => {
+    await probeCoreSupport(oldEngine());
+    expect(Audio.debug().coreUnavailable).toMatch(/lacks AudioWorklet, WebAssembly simd128/);
+    endAudioSession();
+    expect(Audio.debug().coreUnavailable).toBeUndefined();
   });
 });

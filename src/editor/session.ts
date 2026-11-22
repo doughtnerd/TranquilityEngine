@@ -6,11 +6,10 @@ import { errorStatus } from "./messages";
 import { Engine, GameObject } from "../engine";
 import { viewport } from "../engine/editor";
 import { pathKey } from "./document";
-import { FsaFileSystem } from "./fsaFileSystem";
 import type { OpenRequest } from "./launcher/handoff";
 import { NO_FOLDERS_NOTE, projectFileSystem } from "./projectFs";
 import { projectOpening, type LocationOutcome, type OpenIntent, type OpenOutcome, type OpenResult, type ProjectSource } from "./projectOpening";
-import { recentProjects } from "./recentProjects";
+import { recentProjects, rememberProject } from "./recentProjects";
 import { confirmDiscard } from "./dialogs";
 import { copySample, findSample, openSampleProject } from "./samples";
 import { editorPlatform, projectStorage } from "./projectPlace";
@@ -218,22 +217,6 @@ export function closeScenes(scenes: readonly OpenScene[]): Promise<number> {
   return tabs.close(scenes);
 }
 
-
-/** Add an opened folder project to the recent projects list (a browser folder by its handle). */
-async function rememberProject(project: EditorProject): Promise<void> {
-  const fs = project.fileSystem, root = project.root;
-  if (!fs || !root) return;
-  try {
-    if (fs instanceof FsaFileSystem) {
-      const handle = await fs.directoryHandle(root);
-      await recentProjects().add({ name: project.name, path: handle.name, handle });
-    } else {
-      await recentProjects().add({ name: project.name, path: root });
-    }
-  } catch (err) {
-    console.warn(`[editor] couldn't add ${root} to the recent projects: ${message(err)}`);
-  }
-}
 
 /** Open `source` in this window (a folder project is remembered in the recent projects). Throws if it can't be read. */
 async function openHere(source: ProjectSource): Promise<OpenResult> {

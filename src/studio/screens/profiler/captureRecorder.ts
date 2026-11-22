@@ -1,15 +1,15 @@
 // Recording the Studio's own runtime (ADR 0334 "Profiling a take as it plays"; the prototype's Record in the player
 // bar): Record starts a capture (`Audio.capture.start()`, the public API) and follows the recorder's live ring through the
-// editor profiler's `LiveFollow` (the `LiveHost` seam), so the timeline grows while it records; Stop ends the capture
-// and saves it into the project's `captures/` folder (`capture_NN.mycap`), then opens the saved file. `Audio.capture`
-// saves to the app's data folder on the desktop, from where the file is read back and written into the project; in a
-// browser it can only download the file, and the recorder says so (the file can then be imported with Open capture
-// file…). Everything outside is a seam, so the flow is tested without a recorder.
+// editor profiler's `LiveFollow` (the `LiveHost` seam), so the timeline grows while it records; Stop ends the capture,
+// takes the take's file bytes (the capture module's internal `captureFileBytes`, the same file `Audio.capture.save()`
+// writes; decision log D13) and writes them into the project's `captures/` folder (`capture_NN.mycap`) on every
+// platform, the browser included, then opens the saved file. Everything outside is a seam, so the flow is tested
+// without a recorder.
 import { signal } from "@preact/signals";
 import type { AudioCapture } from "../../../plugins/audio/runtime";
 import { LiveFollow, type LiveFollowOptions, type LiveHost } from "../../../plugins/audio/editor/mix/liveFollow";
 import type { ProfileSource } from "../../../plugins/audio/editor/mix/profilerSource";
-import { captureTitle, nextCapturePath } from "./captureTree";
+import { nextCapturePath } from "./captureTree";
 import type { ProfilerStore } from "./profilerStore";
 
 export type RecorderState =
@@ -18,21 +18,17 @@ export type RecorderState =
   | { readonly kind: "recording" }
   | { readonly kind: "saving" }
   | { readonly kind: "saved"; readonly path: string }
-  /** The platform downloaded the file instead of handing it back (a browser). */
-  | { readonly kind: "downloaded"; readonly file: string }
   | { readonly kind: "failed"; readonly message: string };
 
 export interface RecorderSeams {
-  readonly capture: Pick<AudioCapture, "state" | "seconds" | "start" | "stop" | "save">;
+  readonly capture: Pick<AudioCapture, "state" | "seconds" | "start" | "stop">;
+  /** The latest take as a `.mycap` file's bytes (rejects when nothing was recorded). */
+  fileBytes(): Promise<Uint8Array>;
   /** The recorder's live ring; null where there is none (no live view while recording). */
   readonly liveHost: LiveHost | null;
   readonly store: Pick<ProfilerStore, "openLive" | "refreshLive" | "openPath" | "close">;
   /** The project's files now (to name the capture). */
   files(): readonly string[];
-  /** The bytes of a capture `Audio.capture.save` just wrote under `fileName`, or null where it downloaded it instead. */
-  readSaved(fileName: string): Promise<Uint8Array | null>;
-  /** Remove that copy once it is in the project. */
-  forgetSaved?(fileName: string): Promise<void>;
   /** Write `bytes` into the project at (or next to) `path`; resolves with the path written. */
   write(path: string, bytes: Uint8Array): Promise<string>;
   /** `LiveFollow` options (tests: the scheduler and the source's Worker). */
@@ -96,16 +92,9 @@ export class CaptureRecorder {
     this.shown = null;
     this.state.value = { kind: "saving" };
     const path = nextCapturePath(this.seams.files());
-    const stem = captureTitle(path);
     try {
-      const saved = await this.seams.capture.save(stem);
-      const bytes = await this.seams.readSaved(`${stem}.mycap`);
-      if (!bytes) {
-        this.state.value = { kind: "downloaded", file: saved.slice(saved.replace(/\\/g, "/").lastIndexOf("/") + 1) };
-        return;
-      }
+      const bytes = await this.seams.fileBytes();
       const written = await this.seams.write(path, bytes);
-      await this.seams.forgetSaved?.(`${stem}.mycap`).catch(() => {});
       this.state.value = { kind: "saved", path: written };
       await this.seams.store.openPath(written);
     } catch (e) {
@@ -137,8 +126,6 @@ export function recorderStatus(state: RecorderState, seconds: number): string | 
       return "Saving the capture…";
     case "saved":
       return `Saved ${state.path}`;
-    case "downloaded":
-      return `Downloaded ${state.file}: this browser can't write it into the project; import it with Open capture file…`;
     case "failed":
       return state.message;
   }

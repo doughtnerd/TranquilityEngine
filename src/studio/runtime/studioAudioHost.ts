@@ -90,6 +90,15 @@ export const CORE_UNAVAILABLE =
   "The core needs AudioWorklet, WebAssembly SIMD and AudioContext.getOutputTimestamp (Chrome or Edge 91+, Firefox 89+, Safari 16.4+, or the desktop app). " +
   "The browser console has the engine's exact reason.";
 
+/**
+ * Why the Studio won't play when the engine fell back from the core: the engine's own reason (`Audio.debug().coreUnavailable`:
+ * a missing AudioWorklet or WebAssembly SIMD, a failed load or start) when it gave one, else `CORE_UNAVAILABLE`.
+ */
+export function coreUnavailableText(why: string | undefined): string {
+  const reason = why?.trim().replace(/;?\s*using "babylon"\.?$/i, "").replace(/\s*Using the "babylon" backend:.*$/is, "");
+  return reason ? `The Rust audio core didn't start in this window, and the Studio plays only through the core (it doesn't fall back to the Babylon backend). The engine says: ${reason}` : CORE_UNAVAILABLE;
+}
+
 /** How often the runtime's state and figures are read, ms. */
 export const POLL_MS = 500;
 
@@ -103,14 +112,16 @@ export function studioRuntimeSettings(settings: ProjectSettingsInput): ProjectSe
 export function stateFromAudio(audio: Pick<AudioApi, "debug" | "status">): StudioAudioState | null {
   let backend: unknown;
   let status: string;
+  let why: string | undefined;
   try {
     const info = audio.debug();
     backend = info.core?.backend;
     status = info.status;
+    why = info.coreUnavailable;
   } catch (err) {
     return { kind: "failed", reason: `The audio runtime didn't answer: ${err instanceof Error ? err.message : String(err)}` };
   }
-  if (backend === "babylon") return { kind: "failed", reason: CORE_UNAVAILABLE };
+  if (backend === "babylon") return { kind: "failed", reason: coreUnavailableText(why) };
   if (backend !== "core") return null; // the pending stand-in while the core loads
   if (status === "failed") return { kind: "failed", reason: "The Rust audio core stopped working (it failed to recover from an error). Reopen the project to start it again." };
   return status === "locked" ? { kind: "locked" } : { kind: "running" };
