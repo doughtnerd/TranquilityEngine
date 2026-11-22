@@ -2,6 +2,7 @@
 // the real engine"; the prototype's Plays now and Voices panels, PL:1239–1325): the voices of the open playlist's
 // instances now, and a log of every voice seen while auditioning (start, end, status, gain, instance) with the triggers
 // the playback rules refused. The panels poll a snapshot; this folds each snapshot into the log. Pure.
+import type { PlaylistBody } from "../../../engine/audio/playlist/types";
 
 /** The part of `Audio.debug()` the log reads. */
 export interface DebugSnapshot {
@@ -101,6 +102,21 @@ export function logSpan(log: readonly LogRow[], now: number): [number, number] |
   const start = Math.min(...log.map((r) => r.start));
   const end = Math.max(...log.map((r) => r.end ?? now));
   return [start, Math.max(start, end)];
+}
+
+/**
+ * Whether Release means something for a playlist (the player bar shows it then): it plays until stopped, a Queue plays
+ * continuously, a Blend has a voice envelope, or a Clip loops its region, here or in any playlist it plays.
+ */
+export function canRelease(body: PlaylistBody, load: (path: string) => PlaylistBody | null, seen: ReadonlySet<string> = new Set()): boolean {
+  if (body.playback.plays === "untilStopped" || body.queue?.continuous || (body.type === "blend" && body.blend && body.blend.envelope.mode !== "off")) return true;
+  return body.entries.some((e) => {
+    if (e.kind === "sample") return body.type === "clip" && e.loop === "on";
+    if (e.kind === "embedded") return canRelease(e.embedded, load, seen);
+    if (seen.has(e.playlist)) return false;
+    const linked = load(e.playlist);
+    return linked ? canRelease(linked, load, new Set([...seen, e.playlist])) : false;
+  });
 }
 
 /** A status in the prototype's words. */
