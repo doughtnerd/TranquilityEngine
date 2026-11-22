@@ -23,6 +23,8 @@ import { NULL_PROFILE_SINK } from "../mix/profileSink";
 import { loadPlaylist, samplePlaylist } from "./loader";
 import { PlaylistInstance, type InstanceSystem, type PlaylistOptions, type StingerOutcome } from "./instance";
 import { musicRowOf } from "./musicRows";
+import type { PlaylistAsset } from "../../../../engine/audio/playlist/types";
+import { watchCaption } from "../localisation/captions";
 import type { MusicDebugRow } from "../debugTypes";
 
 /** A row of `Audio.debug().events`: one playlist instance (`asset` is the playlist's path) and its late-start count. */
@@ -100,16 +102,17 @@ export class PlaylistSystem implements HostedRuntime, InstanceSystem {
    * Plays a playlist (or a sample, as a one-sample Clip playlist); null when the trigger played nothing (its reason is
    * recorded). An audio event file is refused (`unsupported`) with one warning naming the migration.
    */
-  play(path: string, options: PlaylistOptions, world: number, sourceKey?: string): PlaylistInstance | null {
+  play(path: string, options: PlaylistOptions, world: number, sourceKey?: string, given?: PlaylistAsset): PlaylistInstance | null {
     const host = playlistHost();
     host.host(this);
     host.syncSettings(); // the seed, globals and backend as the project has them now (the generator is seeded here)
     this.reapIfEnded();
-    if (isAudioEventPath(path)) {
+    if (!given && isAudioEventPath(path)) {
       if (!this.refusedEvents.has(path)) { this.refusedEvents.add(path); console.warn(`[myco] ${audioEventRefusal("Audio.play", path)}`); }
       return this.refuse(path, world, "unsupported");
     }
-    const asset = isPlaylistPath(path) ? loadPlaylist(path) : samplePlaylist(path);
+    // `given`: a playlist the runtime made (ADR 0340 §5: a line's implicit Clip), played under `path` for the rows.
+    const asset = given ?? (isPlaylistPath(path) ? loadPlaylist(path) : samplePlaylist(path));
     if (!asset) return this.refuse(path, world, "missing");
     const key = `${world}:${sourceKey ?? path}`;
     const now = host.now();
@@ -132,6 +135,8 @@ export class PlaylistSystem implements HostedRuntime, InstanceSystem {
     this.live.add(instance);
     if (taps.sink !== NULL_PROFILE_SINK) taps.sink.eventStart(group, path);
     instance.start();
+    // ADR 0343 §4: a playlist with a caption reports its instances' start and end (`Audio.onCaption`).
+    if (asset.caption) watchCaption(instance, asset.caption);
     return instance;
   }
 

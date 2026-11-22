@@ -13,6 +13,10 @@
  * every other caller plays through `playSampleVoice` (`sampleVoice.ts`), which stops a pass at the trim's end and loops
  * the sample's loop region.
  *
+ * ADR 0340 §2: a path under a localised root resolves first to its file in the current audio language (`localiseClip`,
+ * through the language's fallback chain), so everything below answers for that language's file and its own sidecar;
+ * a path no language of the chain has resolves to no file (the callers' reason is `missingLanguage`).
+ *
  * ADR 0337 §7: a build's media table (`media/packages.ts` `mediaSource`) comes before `Assets`: a packaged sound plays
  * its package's in-memory bytes (or its loose streamed media), a converted one streams when its load mode says so.
  *
@@ -30,6 +34,8 @@ import type { LoopBehaviour } from "../../../engine/audio/playlist/types";
 import { isDerivedSamplePath } from "../../../engine/audio/sample/format";
 import { resolveSample, type ResolvedSample, type SampleReader } from "../../../engine/audio/sample/resolve";
 import type { SampleEdits } from "../../../engine/audio/sample/types";
+import { variantPath, type VariantMatch } from "../../../engine/localisation/variants";
+import { audioChain, audioLanguage, audioLocalisation } from "./localisation/languageState";
 
 /**
  * ADR 0328: what a sample path plays (`resolveSample`: an audio file with its sidecar block, or a derived sample, and
@@ -50,7 +56,29 @@ const liveReader: SampleReader = {
   sidecar: (p) => Assets.importSettings(p),
 };
 
+/** What a localised path no language of the chain has resolves to: nothing to play (ADR 0340 §3). */
+const MISSING: ResolvedSample = Object.freeze({ path: "", source: "", render: null, edits: null, derived: false, problems: [] });
+
+/**
+ * ADR 0340 §2: the file a play of `path` loads in the current audio language. A path under a localised root
+ * (`audio.json` `localisation.roots`) names the reference language's file; this swaps its language folder for the first
+ * language of the current language's fallback chain that has the file (`variantPath`), with the language found. A path
+ * outside every root comes back unchanged (language null); null when no language of the chain has it (`missingLanguage`).
+ * Every function here answers for the localised file, so each variant plays with its own sidecar (trim, markers,
+ * normalisation, lip-sync) and derived samples under a root localise too.
+ */
+export function localiseClip(path: string): VariantMatch | null {
+  const roots = audioLocalisation().roots;
+  if (roots.length === 0) return { path, language: null };
+  return variantPath(path, audioChain(), roots, liveReader.has);
+}
+
 function resolvedSample(path: string): ResolvedSample {
+  const local = localiseClip(path);
+  return local === null ? MISSING : resolvedFile(local.path);
+}
+
+function resolvedFile(path: string): ResolvedSample {
   const hit = resolvedSamples.get(path);
   if (hit && hit.reads.every(([kind, p, value]) => liveReader[kind](p) === value)) return hit.resolved;
   const reads: [keyof SampleReader, string, unknown][] = [];
@@ -81,7 +109,9 @@ export function clipSource(path: string): string {
  * file, also when a flattened render plays in its place (the render is a stand-in for the source, not a new clip).
  */
 function clipSettingsPath(path: string): string {
-  return isDerivedSamplePath(path) ? resolvedSample(path).source : path;
+  if (isDerivedSamplePath(path)) return resolvedSample(path).source;
+  // ADR 0340 §2: a localised file's own import settings (the path unchanged outside every root).
+  return localiseClip(path)?.path ?? path;
 }
 
 /**
@@ -211,7 +241,7 @@ export function samplePass(path: string, trim: [number, number] | null = sampleP
  */
 export function clipRequest(path: string, loop: boolean, output: string | undefined): PlayRequest {
   const file = clipSource(path);
-  if (file === "") throw new Error(`the derived sample "${path}" has no audio file to play`);
+  if (file === "") throw new Error(localiseClip(path) === null ? `"${path}" has no file in ${audioLanguage()} or its fallbacks` : `the derived sample "${path}" has no audio file to play`);
   const settingsPath = clipSettingsPath(path);
   const settings = Assets.importSettings(settingsPath);
   const ambisonic = settings.ambisonic !== null;
