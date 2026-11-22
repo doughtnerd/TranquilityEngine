@@ -1,6 +1,6 @@
 # 0340. Localised audio lives in per-language folders, and voice-over plays by key from line tables
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0343 (subtitle text moves to 0342's string tables and line tables lose `text`; subtitles follow the text language; one reading-speed rule; captions; an optional built-in subtitle display)
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
