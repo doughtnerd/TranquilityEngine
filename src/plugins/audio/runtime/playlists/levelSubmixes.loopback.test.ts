@@ -145,22 +145,27 @@ describe("per-level submixes on the core (ADR 0331, ABI 4.9)", () => {
 
 describe("time-keyed lanes read through a binding's time origin (ADR 0332, ABI 4.9)", () => {
   it("a long instance whose voices read a time-keyed pan lane doesn't grow the core's curve table", { timeout: 30_000 }, async (ctx) => {
+    // A 2 s sequence whose track pans along sequence time, with a clip every 60 ms: each clip's voice reads the lane from
+    // a different point (its start on the sequence's clock). Before ABI 4.9 each voice uploaded a shifted copy of the
+    // curve (measured on the base: 3 curves, then 11 after ~9 clips, 29 after ~27).
+    const clips = Array.from({ length: 32 }, (_, k) => ({ id: `c${k}`, sample: "tick.wav", at: k * 0.06, length: 0 }));
     const r = await rig({
-      "q.playlist.json": pla("queue", [sample("tick.wav")], {
-        playback: { plays: "untilStopped" },
-        queue: { pick: "random", avoidRepeat: 0, continuous: { gapMs: 20 } },
-        automation: [{ id: "p", target: "pan", input: "voiceTime", curve: [[0, -1], [8, 1]] }],
-      }),
+      "pan.playlist.json": {
+        format: "myco.playlist@1", type: "sequence", entries: [],
+        sequence: { length: 2, tracks: [{ id: "t", kind: "audio", automation: [{ id: "p", target: "pan", input: "sequenceTime", curve: [[0, -1], [2, 1]] }], clips }] },
+      },
     });
     if (!r) return ctx.skip();
     try {
-      const h = Audio.play("q.playlist.json");
-      await r.step(60); // ~0.64 s: about ten entries
       const curves = () => (Audio.debug().core as { automationCurves?: number }).automationCurves ?? 0;
+      await r.warm("pan.playlist.json");
+      const before = curves();
+      const h = Audio.play("pan.playlist.json");
+      await r.step(50); // ~0.5 s: about 9 clips
       const early = curves();
-      await r.step(120); // ~1.3 s more: about twenty more entries, each starting later on the lane
+      await r.step(100); // ~1.1 s more: about 18 more clips, each starting later on the lane
       const late = curves();
-      console.info(`[levels] curve table: ${early} curves after ~10 entries, ${late} after ~30`);
+      console.info(`[levels] curve table: ${before} curves before, ${early} after ~9 clips, ${late} after ~27`);
       expect(early).toBeGreaterThan(0);
       expect(late).toBe(early);
       h.stop(0);
