@@ -1,0 +1,30 @@
+[package]
+name = "myco-studio"
+version = "0.1.0"
+description = "Myco Audio Studio, standalone desktop shell (Tauri, ADR 0327): the Studio page of the editor's frontend in its own app"
+authors = ["Chris Carlson"]
+license = "MIT"
+repository = ""
+edition = "2024"
+rust-version = "1.90"
+
+# Its own crate beside src-tauri (not a workspace member of it), so each app keeps its own Cargo.lock
+# and builds with `tauri build` run on its folder (`npm run tauri:studio:build`).
+
+[lib]
+name = "myco_studio_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.7.4", features = [] }
+
+[dependencies]
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+log = "0.4"
+tauri = { version = "2.12.5", features = [] }
+tauri-plugin-log = "2"
+tauri-plugin-fs = { version = "2", features = ["watch"] }
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-persisted-scope = "2"

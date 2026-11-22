@@ -109,6 +109,18 @@ describe("the File System Access file system", () => {
     expect(seen).toHaveLength(2);
   });
 
+  it("stamps a folder's files to compare later, skipping the folders it's told to (the project watch, ADR 0327)", async () => {
+    const { fs } = await mounted();
+    await fs.writeText("/game/.myco/x.json", "{}");
+    const before = await fs.stamps("/game", (name) => name.startsWith("."));
+    expect(before.has("/game/scripts/Player.ts")).toBe(true);
+    expect([...before.keys()].some((p) => p.includes("/.myco/"))).toBe(false);
+    await fs.writeText("/game/scripts/Player.ts", "export const changed = true;");
+    const after = await fs.stamps("/game");
+    expect(after.get("/game/scripts/Player.ts")).not.toBe(before.get("/game/scripts/Player.ts"));
+    expect(after.has("/game/.myco/x.json")).toBe(true);
+  });
+
   it("asks for write access to a remembered folder", async () => {
     const handle = folder();
     handle.permission = "prompt";
