@@ -81,6 +81,8 @@ export interface Ctx {
 /** What the nodes need of their instance. */
 export interface NodeHost {
   readonly stopped: boolean;
+  /** ADR 0334: the instance's id (its group) for the capture's pick records; absent or 0: none. */
+  readonly group?: number;
   readonly untilStopped: boolean;
   readonly musical: MusicalClock;
   /** A number in [0, 1) from the World's seeded generator. */

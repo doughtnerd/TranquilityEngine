@@ -29,6 +29,8 @@ Options:
   --scene PATH     The scene to start in (default: scenes/main.scene.json, else the first scene)
   --audio-capture  Ship the audio capture trigger: F9 (or a one-second three-finger hold) records the game's audio mix and
                    saves a .mycap file for the editor's Profiler. The file names the project's clips, buses and events.
+  --audio-take     Ship the audio take trigger: F10 records a take (what the game asked of audio, and the profile) and
+                   saves a .mycotake file for the Studio. The file names the project's playlists, parameters and nodes.
   --build          Desktop: run tauri build (default when Rust is installed)
   --no-build       Desktop: only write the Tauri project
   -h, --help       Show this help`;
@@ -47,6 +49,7 @@ const EXPORT_COMMAND: Command<ExportOptions> = {
     },
     "--scene": { takes: "a scene path", set: (o, v) => void (o.mainScene = v.replace(/\\/g, "/").replace(/^\.?\//, "")) },
     "--audio-capture": { set: (o) => void (o.audioCapture = true) },
+    "--audio-take": { set: (o) => void (o.audioTake = true) },
     "--build": { set: (o) => void (o.tauriBuild = true) },
     "--no-build": { set: (o) => void (o.tauriBuild = false) },
   },

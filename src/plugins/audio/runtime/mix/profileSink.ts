@@ -57,6 +57,29 @@ export interface ProfileSink {
   gap(reason: ProfileGapReason): void;
   /** §5.3 MARKER: `text` cut to `CAPTURE_MARK_BYTES` by the recorder. */
   marker(text: string): void;
+  /** ADR 0334: one playlist decision of instance `pick.instance` (the "Why it played" chain); optional, the recorder's. */
+  pick?(pick: ProfilePick): void;
+  /** ADR 0334: metered bus `bus` (null: the output) moved against its loudness target to `state`; optional, the recorder's. */
+  loudnessWarning?(bus: string | null, state: ProfileLoudnessState): void;
+}
+
+/** ADR 0334: a loudness target state a warning names (`high` and `low` warn, `ok` clears). */
+export type ProfileLoudnessState = "high" | "low" | "ok";
+
+/**
+ * ADR 0334: one decision of a playlist instance: at nesting `depth`, the playlist at `playlist` (a path) of `type` chose
+ * entry `choice` (-1 none) and why: a Switch's `label`, a Blend's two heaviest entries with their weights, a Queue's pick
+ * (the choice itself), a Sequence's clip (the choice).
+ */
+export interface ProfilePick {
+  instance: number;
+  depth: number;
+  playlist: string;
+  type: "clip" | "queue" | "switch" | "blend" | "layer" | "sequence";
+  choice: number;
+  label: string | null;
+  /** A Blend's two heaviest entries, heaviest first: `[entry, weight]`. */
+  weights: readonly (readonly [number, number])[] | null;
 }
 
 const noop = (): void => {};

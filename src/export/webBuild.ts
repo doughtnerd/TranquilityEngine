@@ -40,6 +40,8 @@ export interface BuildOptions {
   readonly mainScene?: string;
   /** Write `audioCapture: true` into the manifest, so the player installs the capture trigger (default off). */
   readonly audioCapture?: boolean;
+  /** ADR 0334: write `audioTake: true` into the manifest, so the player installs the take trigger (F10; default off). */
+  readonly audioTake?: boolean;
 }
 
 /** What a web build is made of, before anything is written. */
@@ -186,6 +188,7 @@ export async function planWebBuild(source: BuildSource, options: BuildOptions = 
     scripts: order.map((path) => ({ source: path, module: modulePath(path) })),
     ...(plugins.length > 0 && { plugins }),
     ...(options.audioCapture === true && { audioCapture: true as const }),
+    ...(options.audioTake === true && { audioTake: true as const }),
   };
   const assetRefs = projectScriptAssetRefs(source.scripts.values(), (p) => copies.includes(p));
   if (assetRefs.length) (manifest as { assetRefs?: readonly string[] }).assetRefs = assetRefs;

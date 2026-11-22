@@ -22,9 +22,12 @@ import type { AudioSettings } from "../../../engine/audio/settings";
 import type { AudioBackend } from "./backend";
 import { isSpatialPassHost, isStagedFrameHost, type ListenerFrame } from "./core/spatial";
 import { musicPlanStep } from "./music/musicSystem";
+import { takeTap } from "./capture/takeTap";
 
 /** ADR 0270: runs one backend frame in the production order (see the header). Allocates nothing. */
 export function runAudioFrame(backend: AudioBackend, frame: ListenerFrame, dt: number, settings: AudioSettings): void {
+  // ADR 0334: a recording take reads the listener's and the emitters' poses once per frame (30 Hz, changes only).
+  if (takeTap.sink) takeTap.sink.frame(frame.node ? frame : null);
   if (isStagedFrameHost(backend)) {
     const view = backend.spatialVoices;
     backend.frameAttenuate(dt); // 1. attenuation

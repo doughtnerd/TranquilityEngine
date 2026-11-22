@@ -34,6 +34,8 @@ export interface ExportOptions {
   tauriBuild?: boolean;
   /** Ship the built-in audio capture trigger (F9, a three-finger hold): the game can record its audio mix for the Profiler (default off). */
   audioCapture?: boolean;
+  /** ADR 0334: ship the take trigger (F10): the game can record takes for the Studio (default off). */
+  audioTake?: boolean;
   log?: (line: string) => void;
 }
 
@@ -59,7 +61,7 @@ export async function exportProject(options: ExportOptions): Promise<ExportResul
   if (isOutputInsideProject(project.root, out)) {
     throw new ExportError(`The output folder "${out}" is inside the project, where the next export would copy it in. Use a folder outside it, or under its dist/ folder.`);
   }
-  let plan = await planWebBuild({ name: basename(project.root), settings: project.settings, files: project.files, scripts: project.scripts, json: project.json, packages: nodePackageSource(project.root, "production") }, { mainScene: options.mainScene, audioCapture: options.audioCapture });
+  let plan = await planWebBuild({ name: basename(project.root), settings: project.settings, files: project.files, scripts: project.scripts, json: project.json, packages: nodePackageSource(project.root, "production") }, { mainScene: options.mainScene, audioCapture: options.audioCapture, audioTake: options.audioTake });
   const playerDir = options.playerDir ?? (await ensurePlayer(log));
 
   const folder = nodeFolder(out);

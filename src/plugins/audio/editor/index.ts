@@ -55,6 +55,8 @@ export const audioEditorPlugin: EditorPlugin = {
     context.registerNameReferences(occlusionLayerReferences);
     // Play Stats: the audio thread's underruns since the page loaded, on every World's Nodes row (the audio core is shared).
     context.registerPlayStatsCounter({ id: "myco.audio.underruns", label: "audio underruns", count: () => Audio.debug().counters.underruns });
+    // ADR 0334: Record take and Record capture on the Play toolbar, saving into the project's takes/ and captures/ folders.
+    context.registerPlayToolbarItem({ id: "myco.audio.record", view: () => import("./mix/RecordToggles").then((m) => m.RecordToggles) });
     // The Audio Debug panel (A2.5): a 4 Hz copy of `Audio.debug()` while playing (status, counters, buses, voices).
     context.registerPanel({
       id: "audiodebug",

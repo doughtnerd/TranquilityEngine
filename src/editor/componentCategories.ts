@@ -52,6 +52,7 @@ const BY_NAME: Readonly<Record<string, string>> = {
   AudioListener: "Audio",
   AudioOccluder: "Audio", // ADR 0162
   AudioReverbZone: "Audio", // ADR 0162
+  AudioZone: "Audio", // ADR 0333
   UICanvas: "UI",
   UIPanel: "UI",
   UIText: "UI",

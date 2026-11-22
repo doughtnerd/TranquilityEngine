@@ -16,8 +16,9 @@ import {
   readRecordHead, CAPTURE_KEYFRAME_INTERVAL_MS, decodeKeyframe, readCaptureKeyframe, type CaptureKeyframe,
   type CaptureHeader, type CaptureMeta, type CaptureSnapshot, type CaptureSummary, type EpochPayload, type EventPayload,
   type GapPayload, type IndexPayload, type MarkerPayload, type MixOpPayload, type NameTable,
-  type NamesPayload, type RecordHead,
+  type NamesPayload, type RecordHead, CAPTURE_FLAG_TAKE, TAKE_MAX_UNCOMPRESSED_BYTES, decodeRequestRecord, isTakeRecordType,
 } from "./format";
+import type { TakeRecord } from "../../../../engine/audio/take/records";
 import { LOUD_OUTPUT_TAP, readStatus, readStatusHeaderField, STATUS_HEADER_COLUMNS, type StatusBlock, type StatusHeaderField } from "../wire.generated";
 import { firstAtOrAfter, lastAtOrBefore } from "../../../../engine/core/sortedSearch";
 import { readCaptureEvent, type CaptureEvent, type CaptureEventType } from "./events";
@@ -40,6 +41,8 @@ export { reasonText, type CaptureReason, type CaptureVoiceReason } from "./reaso
  * an open route can turn it away before reading its bytes.
  */
 export const CAPTURE_MAX_FILE_BYTES = CAPTURE_HEADER_BYTES + CAPTURE_META_MAX_BYTES + CAPTURE_MAX_UNCOMPRESSED_BYTES;
+/** ADR 0334: the largest take file the reader can accept (the take's uncompressed cap, 256 MiB, and the same slack). */
+export const TAKE_MAX_FILE_BYTES = CAPTURE_HEADER_BYTES + CAPTURE_META_MAX_BYTES + TAKE_MAX_UNCOMPRESSED_BYTES;
 /** The slot the final output is metered under (STATUS loudness rows and the loudness answers), beside the buses' own slots. */
 export const CAPTURE_OUTPUT_SLOT = LOUD_OUTPUT_TAP;
 
@@ -62,6 +65,11 @@ export interface ReaderOptions {
    * (a Worker then sees `cancel` and sets `signal`). Without it the records scan is one synchronous loop.
    */
   pause?(): Promise<void>;
+  /**
+   * ADR 0334: each request record of a take (PLAY .. take KEYFRAME), decoded, with its seq, as the scan checks it. Without
+   * it the reader passes over them (the Profiler's views read only the profile records).
+   */
+  onRequestRecord?(record: TakeRecord, seq: number): void;
 }
 
 /** Records between cancel checks and progress calls. */
@@ -136,6 +144,8 @@ export interface CaptureContents {
   index: IndexPayload | null;
   truncated: boolean;
   mainSideOnly: boolean;
+  /** ADR 0334: the file is a take (its stream may hold request records, which the reader checked and passed over). */
+  take: boolean;
   warnings: string[];
 }
 
@@ -189,7 +199,8 @@ export class CaptureDecoder {
     for (const t of NAME_TABLES) nameLog[t] = [...meta.names[t]].map(([id, name]) => [id, name, -Infinity] as const);
     this.contents = {
       header, meta, records: new RecordTable(), segments: [], keyframes: [], epochs: [], names: meta.names, nameLog, index: null,
-      truncated: (header.flags & CAPTURE_FLAG_TRUNCATED) !== 0, mainSideOnly: (header.flags & CAPTURE_FLAG_MAIN_SIDE_ONLY) !== 0, warnings: [],
+      truncated: (header.flags & CAPTURE_FLAG_TRUNCATED) !== 0, mainSideOnly: (header.flags & CAPTURE_FLAG_MAIN_SIDE_ONLY) !== 0,
+      take: (header.flags & CAPTURE_FLAG_TAKE) !== 0, warnings: [],
     };
     this.epochRate = header.sampleRate;
   }
@@ -339,7 +350,14 @@ export class CaptureDecoder {
         if (this.live) throw new CaptureError("badIndex", at, "an INDEX record in a live segment");
         decodeIndex(view, p, len, base);
         break;
-      default: break; // an unknown type below 0x80: skipped by `len` (§5.3)
+      default:
+        if (isTakeRecordType(h.type)) {
+          // ADR 0334: a take's request record: checked (refused rather than misread) and passed over, or handed to the take reader.
+          if (!c.take) throw new CaptureError("badRecord", at, `a request record (type 0x${h.type.toString(16)}) in a capture that is not a take`);
+          const r = decodeRequestRecord(h.type, view, p, len, base);
+          this.opts.onRequestRecord?.(r, h.seq);
+        }
+        break; // an unknown type below 0x80: skipped by `len` (§5.3)
     }
   }
 

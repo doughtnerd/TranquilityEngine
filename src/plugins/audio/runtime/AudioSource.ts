@@ -21,6 +21,7 @@ import { isPlaylistPath } from "../../../engine/audio/playlist/format";
 import { playlists } from "./playlists/playlistSystem";
 import type { PlaylistInstance } from "./playlists/instance";
 import { noteAssetChanged, setReloadHost } from "./music/reload";
+import { takePlayOptions, takeTap, type TakeEmitter } from "./capture/takeTap";
 
 
 export type { Rolloff } from "./backend";
@@ -152,7 +153,10 @@ export class AudioSource extends Component {
       }, worldKeyOf(this._world));
       this.applied = "";
       this.appliedPitch = this.pitch;
-      if (this.playlist) this.applyPlaylist();
+      if (this.playlist) {
+        takeTap.sink?.play(this.playlist, path, this.takeEmitter(), takePlayOptions({ pitch: this.pitch, priority: clamp255(this.priority), bus: this.output || undefined }));
+        this.applyPlaylist();
+      }
       return;
     }
     if (isAudioEventPath(path)) {
@@ -163,6 +167,7 @@ export class AudioSource extends Component {
       this.applied = "";
       this.appliedPitch = this.pitch;
       if (this.instance) {
+        takeTap.sink?.play(this.instance, path, this.takeEmitter(), takePlayOptions({ pitch: this.pitch, priority: clamp255(this.priority), bus: this.output || undefined }));
         this.instance.musicSource = this; // ADR 0166 K2: this node's `onMusicBeat`, `onMusicBar`, `onMusicCue` hear the music
         this.applyEvent();
       }
@@ -185,7 +190,16 @@ export class AudioSource extends Component {
     this.appliedM3 = "";
     this.appliedCurve.length = 0;
     this.playedAttenuation = spatial;
-    if (this.voice) this.apply(path);
+    if (this.voice) {
+      takeTap.sink?.play(this.voice, path, spatial ? this.takeEmitter() : null, takePlayOptions({ volume: this.volume, pitch: this.pitch, priority: clamp255(this.priority), bus: this.output || undefined }));
+      this.apply(path);
+    }
+  }
+
+  /** ADR 0334: this node as a take's emitter (its world position each read). */
+  private takeEmitter(): TakeEmitter {
+    const node = this.node;
+    return { key: node, name: node.name, position: () => node.transform?.worldPosition ?? null };
   }
 
   pause(): void {
@@ -213,6 +227,8 @@ export class AudioSource extends Component {
 
   /** ADR 0158: key-off the playing event, so its sustain loops play their tails. Does nothing for a clip. */
   release(): void {
+    const sink = takeTap.sink;
+    if (sink) for (const p of [this.instance, this.playlist]) if (p) sink.release(p);
     this.instance?.release();
     this.playlist?.release();
   }
@@ -229,6 +245,8 @@ export class AudioSource extends Component {
   }
 
   stop(): void {
+    const sink = takeTap.sink;
+    if (sink) for (const p of [this.voice, this.instance, this.playlist]) if (p) sink.stop(p, p === this.playlist ? 0.12 : 0);
     this.voice?.stop();
     this.voice = null;
     this.instance?.stop();

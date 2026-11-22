@@ -54,7 +54,8 @@ describe("capture header (§5.1)", () => {
     expect(codeOf(() => readCaptureHeader(file.subarray(0, 95)))).toBe("badMagic");
     const v = (f: (d: DataView) => void) => { const c = file.slice(); f(new DataView(c.buffer)); return c; };
     expect(codeOf(() => readCaptureHeader(v((d) => d.setUint8(0, 0))))).toBe("badMagic");
-    expect(codeOf(() => readCaptureHeader(v((d) => d.setUint16(8, 2, true))))).toBe("newerFormat");
+    expect(codeOf(() => readCaptureHeader(v((d) => d.setUint16(8, 3, true))))).toBe("newerFormat");
+    expect(codeOf(() => readCaptureHeader(v((d) => d.setUint16(8, 1, true))))).toBe("olderFormat"); // ADR 0334: format 1 is refused
     expect(codeOf(() => readCaptureHeader(v((d) => d.setUint16(8, 0, true))))).toBe("olderFormat");
     // Every later field is bad too: the first step still wins.
     const all = v((d) => { d.setUint8(12, d.getUint8(12) ^ 1); d.setUint32(68, 0xffffffff, true); });

@@ -19,6 +19,12 @@ import type { RingSpan } from "./ring";
 
 /** The file extension every capture carries. */
 export const CAPTURE_EXTENSION = ".mycap";
+/** ADR 0334: a take's (`TAKE_SUFFIX` of `engine/audio/take/types.ts`). */
+export const TAKE_EXTENSION = ".mycotake";
+
+/** What is saved: a capture (`.mycap`, auto names `capture-…`) or a take (`.mycotake`, auto names `take-…`). */
+export type SaveKind = "capture" | "take";
+const EXTENSION: Readonly<Record<SaveKind, string>> = { capture: CAPTURE_EXTENSION, take: TAKE_EXTENSION };
 /** A file name's stem is cut to this many characters (§1.2); the extension is added after. */
 const CAPTURE_NAME_MAX_CHARS = 64;
 
@@ -47,20 +53,59 @@ export interface SaveTake {
   span: RingSpan;
   /** The first kept seq when the ring wrapped over the take's start, else 0. */
   truncatedFromSeq: number;
+  /**
+   * ADR 0334: a take's request records (whole records, head and payload, in seq order; their seqs taken from the ring's
+   * counter), merged into the span by seq. With it the file is a take (`header.take`).
+   */
+  requests?: { bytes: Uint8Array; recordCount: number };
+}
+
+/**
+ * ADR 0334: the ring's span with a take's request records merged in by seq (both streams are in seq order and their seqs
+ * come from one counter, so the merge keeps every record's order); the INDEX entries move with their keyframes.
+ */
+export function mergeRequests(span: RingSpan, requests: { bytes: Uint8Array; recordCount: number }): RingSpan {
+  const a = span.bytes;
+  const b = requests.bytes;
+  const out = new Uint8Array(a.byteLength + b.byteLength);
+  const va = new DataView(a.buffer, a.byteOffset, a.byteLength);
+  const vb = new DataView(b.buffer, b.byteOffset, b.byteLength);
+  const moved = new Map<number, number>();
+  let ia = 0;
+  let ib = 0;
+  let at = 0;
+  const copy = (src: Uint8Array, view: DataView, off: number): number => {
+    const n = CAPTURE_RECORD_HEAD_BYTES + view.getUint32(off + 4, true);
+    if (src === a) moved.set(off, at);
+    out.set(src.subarray(off, off + n), at);
+    at += n;
+    return off + n;
+  };
+  while (ia + CAPTURE_RECORD_HEAD_BYTES <= a.byteLength || ib + CAPTURE_RECORD_HEAD_BYTES <= b.byteLength) {
+    const hasA = ia + CAPTURE_RECORD_HEAD_BYTES <= a.byteLength;
+    const hasB = ib + CAPTURE_RECORD_HEAD_BYTES <= b.byteLength;
+    if (hasA && (!hasB || va.getUint32(ia + 8, true) < vb.getUint32(ib + 8, true))) ia = copy(a, va, ia);
+    else ib = copy(b, vb, ib);
+  }
+  const keyframes = span.keyframes.map((e) => ({ ...e, byteOffset: moved.get(e.byteOffset) ?? e.byteOffset }));
+  return { ...span, bytes: out.subarray(0, at), recordCount: span.recordCount + requests.recordCount, keyframes };
 }
 
 // --- names ----------------------------------------------------------------------------------------------------------
 
-const AUTO_NAME = /^capture-(\d{8})-(\d{6})(?:-(\d+))?\.mycap$/;
+const AUTO_NAME: Readonly<Record<SaveKind, RegExp>> = {
+  capture: /^capture-(\d{8})-(\d{6})(?:-(\d+))?\.mycap$/,
+  take: /^take-(\d{8})-(\d{6})(?:-(\d+))?\.mycotake$/,
+};
 const pad = (n: number, w = 2): string => String(n).padStart(w, "0");
 
 let lastAutoStem = "";
 let autoRepeats = 0;
 let webSaves = 0;
 
-/** `capture-YYYYMMDD-HHMMSS` in local time; a second save within the same second gets `-2`, `-3`... so none overwrites. */
-function autoCaptureStem(now: Date): string {
-  const stem = `capture-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+/** `capture-YYYYMMDD-HHMMSS` (`take-…` for a take) in local time; a second save within the same second gets `-2`, `-3`... so none overwrites. */
+function autoCaptureStem(now: Date, kind: SaveKind = "capture"): string {
+  const stem = `${kind}-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
   if (stem === lastAutoStem) autoRepeats++;
   else {
     lastAutoStem = stem;
@@ -74,12 +119,13 @@ function autoCaptureStem(now: Date): string {
  * no `..`), a `.mycap` the caller already wrote isn't doubled, the stem is cut to 64 characters and `.mycap` is appended.
  * An absent name, or one with nothing left, is the auto name. `auto` says which, since only auto-named files rotate.
  */
-function captureFileName(name: string | undefined, now: Date): { file: string; auto: boolean } {
+function captureFileName(name: string | undefined, now: Date, kind: SaveKind = "capture"): { file: string; auto: boolean } {
+  const ext = EXTENSION[kind];
   let stem = typeof name === "string" ? name.trim() : "";
-  if (stem.toLowerCase().endsWith(CAPTURE_EXTENSION)) stem = stem.slice(0, -CAPTURE_EXTENSION.length);
+  if (stem.toLowerCase().endsWith(ext)) stem = stem.slice(0, -ext.length);
   stem = stem.replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^\.+/, "").slice(0, CAPTURE_NAME_MAX_CHARS);
-  if (stem) return { file: stem + CAPTURE_EXTENSION, auto: false };
-  return { file: autoCaptureStem(now) + CAPTURE_EXTENSION, auto: true };
+  if (stem) return { file: stem + ext, auto: false };
+  return { file: autoCaptureStem(now, kind) + ext, auto: true };
 }
 
 /** Downloads this page has started since it loaded: the web trigger stops at `CAPTURE_TRIGGER_MAX_FILES` per session (R16), since a download can't be deleted. */
@@ -112,8 +158,8 @@ export function liveHead(header: CaptureHeaderInit, meta: CaptureMetaInit): Uint
  * starts at a later segment (a start from Held, a truncated ring) begins at its own keyframe.
  */
 export function assembleTakeFile(take: SaveTake): Uint8Array {
-  const { span } = take;
-  const init: CaptureHeaderInit = { ...take.header, sampleRate: span.sampleRate || take.header.sampleRate, firstFrame: span.firstFrame };
+  const span = take.requests ? mergeRequests(take.span, take.requests) : take.span;
+  const init: CaptureHeaderInit = { ...take.header, sampleRate: span.sampleRate || take.header.sampleRate, firstFrame: span.firstFrame, ...(take.requests ? { take: true } : {}) };
   const shell = assembleCapture(init, take.meta, []);
   const header = readCaptureHeader(shell);
   const last = lastRecord(span.bytes);
@@ -174,6 +220,11 @@ async function compressCapture(file: Uint8Array, compress: SaveEnv["compress"]):
   return out;
 }
 
+/** The finished file's bytes (compressed where the runtime can): what `saveCapture` writes, for a caller that writes it itself (the editor's project folders). */
+export function captureFileBytes(take: SaveTake, compress: SaveEnv["compress"] = deflateRawCompress): Promise<Uint8Array> {
+  return compressCapture(assembleTakeFile(take), compress);
+}
+
 // --- where it goes --------------------------------------------------------------------------------------------------
 
 /** Where Tauri's `Storage` puts `key` in the `cache` namespace (`TauriRecords`: `<storage root>/cache/<encoded key>.bin`). */
@@ -182,8 +233,8 @@ function cachePath(root: string, key: string): string {
 }
 
 /** `[date, time, repeat]` of an auto-named file, for ordering; null for any other name. */
-function autoOrder(key: string): [string, string, number] | null {
-  const m = AUTO_NAME.exec(key);
+function autoOrder(key: string, kind: SaveKind): [string, string, number] | null {
+  const m = AUTO_NAME[kind].exec(key);
   return m ? [m[1]!, m[2]!, m[3] ? Number(m[3]) : 1] : null;
 }
 
@@ -192,9 +243,9 @@ function autoOrder(key: string): [string, string, number] | null {
  * the older ones, oldest first (`Storage.list`, `delete`). Files a caller named are never touched, and neither is anything
  * else in `cache`. Returns the keys it deleted. The built-in trigger (X1) calls this, not a copy of it.
  */
-export async function rotateCaptures(storage: Pick<SaveEnv["storage"], "list" | "delete">, keep = CAPTURE_TRIGGER_MAX_FILES): Promise<string[]> {
+export async function rotateCaptures(storage: Pick<SaveEnv["storage"], "list" | "delete">, keep = CAPTURE_TRIGGER_MAX_FILES, kind: SaveKind = "capture"): Promise<string[]> {
   const ordered = (await storage.list("cache"))
-    .map((key) => ({ key, order: autoOrder(key) }))
+    .map((key) => ({ key, order: autoOrder(key, kind) }))
     .filter((e): e is { key: string; order: [string, string, number] } => e.order !== null)
     .sort((a, b) => (a.order[0] < b.order[0] ? -1 : a.order[0] > b.order[0] ? 1 : a.order[1] < b.order[1] ? -1 : a.order[1] > b.order[1] ? 1 : a.order[2] - b.order[2]));
   const deleted: string[] = [];
@@ -238,13 +289,6 @@ export function defaultSaveEnv(): SaveEnv {
   };
 }
 
-/**
- * `take` as the bytes of a `.mycap` file, compressed as `saveCapture` writes them (stored raw where `compress` gives null).
- * The Audio Studio writes these into its project (ADR 0334; decision log D13) instead of a download or the app's cache.
- */
-export function captureFileBytes(take: SaveTake, compress: SaveEnv["compress"] = deflateRawCompress): Promise<Uint8Array> {
-  return compressCapture(assembleTakeFile(take), compress);
-}
 
 /**
  * Compresses and saves `take`. Resolves with the file name on the web, with the app-data path on Tauri (and then rotates
@@ -252,15 +296,16 @@ export function captureFileBytes(take: SaveTake, compress: SaveEnv["compress"] =
  * nothing here.
  */
 export async function saveCapture(take: SaveTake, name?: string, env: SaveEnv = defaultSaveEnv()): Promise<string> {
+  const kind: SaveKind = take.requests ? "take" : "capture";
   const bytes = await captureFileBytes(take, env.compress);
-  const { file, auto } = captureFileName(name, env.now());
+  const { file, auto } = captureFileName(name, env.now(), kind);
   if (!env.tauri) {
     env.download(bytes, file);
     webSaves++;
     return file;
   }
   await env.storage.save(file, bytes, "cache");
-  if (auto) await rotateCaptures(env.storage);
+  if (auto) await rotateCaptures(env.storage, CAPTURE_TRIGGER_MAX_FILES, kind);
   try {
     return cachePath(await env.storageRoot(), file);
   } catch {

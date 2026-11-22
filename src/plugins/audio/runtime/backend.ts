@@ -6,7 +6,7 @@
  */
 import type { Vec3Like } from "../../../engine/core/math";
 import { mixer, type Mixer, type MixOpTarget, type ResolvedBus } from "../../../engine/audio/mixer";
-import type { MixOp } from "../../../engine/audio/mixOps";
+import type { MixOp, OpClass } from "../../../engine/audio/mixOps";
 import type { AudioSettings } from "../../../engine/audio/settings";
 import { onAudioConfigured } from "../../../engine/core/audioConfigure";
 import type { AutomationSink } from "./events/automation";
@@ -715,7 +715,7 @@ export function audioBackend(): AudioBackend {
 // --- Above the seam (ADR 0248): what every installed backend gets once, whichever it is ---------------------------------
 
 const attachHooks: ((b: AudioBackend) => void)[] = [];
-const opSentHooks: ((op: MixOp) => void)[] = [];
+const opSentHooks: ((op: MixOp, cls: OpClass) => void)[] = [];
 
 /**
  * ADR 0248: `fn` runs on every backend the selector installs (`audioBackend()`, `setAudioBackend`; never the pending
@@ -732,7 +732,7 @@ export function onAudioBackendAttached(fn: (b: AudioBackend) => void): void {
  * ADR 0248: `fn` runs after the installed backend's live mix sent an op (`mixer.apply` reached `MixOpTarget.sendOp`), on
  * every backend: the event runtime binds bus automation again after a `setAutomation`.
  */
-export function onMixOpSent(fn: (op: MixOp) => void): void {
+export function onMixOpSent(fn: (op: MixOp, cls: OpClass) => void): void {
   opSentHooks.push(fn);
 }
 
@@ -746,7 +746,7 @@ function opTargetOf(b: AudioBackend): MixOpTarget | null {
     },
     sendOp(op, cls) {
       const r = inner.sendOp(op, cls);
-      for (const fn of opSentHooks) fn(op);
+      for (const fn of opSentHooks) fn(op, cls); // ADR 0334: the class too (the capture writes MIXOP records)
       return r;
     },
     notSent: (r) => inner.notSent?.(r),
