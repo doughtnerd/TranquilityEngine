@@ -113,6 +113,23 @@ fn read_body(state: &[u32], bone: usize) -> Option<BodyPose> {
     ok.then_some(p)
 }
 
+/// Replaces the simulated bones of `local` (the fallback pose, SoA) with a `PHYSICAL_POSE`
+/// node's state (the node's own conversion, and the host's capture for get-up). `model` is
+/// scratch of one transform per bone. Returns whether the state holds a pose (else `local` is
+/// unchanged). Never allocates.
+pub fn physical_to_local(
+    state: &[u32],
+    parents: &[u16],
+    local: &mut [SoaTransform],
+    model: &mut [anim_math::AosTransform],
+) -> bool {
+    if state.get(physical::VALID).copied().unwrap_or(0) == 0 {
+        return false;
+    }
+    bodies_to_local(parents, |b| read_body(state, b), local, model);
+    true
+}
+
 /// A `PHYSICS_BLEND` node's drive source (the host's drive step): fills `now` (and `prev` when
 /// two poses are stored) from its state; returns the poses stored (0, 1 or 2) and the seconds
 /// between them. `now` and `prev` have `groups` transforms.
@@ -170,13 +187,9 @@ fn physical_pose(cx: &mut EvalContext<'_>, node: NodeData<'_>) {
                 Some(f) => cx.eval_pose(f, out),
                 None => cx.fill_rest(out),
             }
-            if cx.state()[physical::VALID] == 0 {
-                return;
-            }
             let parents = cx.skeleton().parents;
             if let Some((state, pose, model)) = cx.state_slot_sample(out) {
-                let state: &[u32] = state;
-                bodies_to_local(parents, |b| read_body(state, b), pose, model);
+                physical_to_local(state, parents, pose, model);
             }
         }
         Phase::Root => cx.set_root(RootDelta::identity()),

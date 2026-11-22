@@ -88,15 +88,18 @@ fn total_bytes(init: &Init) -> u64 {
 
 /// The animation core.
 pub struct Core {
-    started: bool,
-    max_bones: usize,
-    arena: Arena,
-    table: Table,
-    frame: Frame,
+    // `pub(crate)` so feature modules can add their calls in their own files (T41, T44r).
+    pub(crate) started: bool,
+    pub(crate) max_bones: usize,
+    pub(crate) arena: Arena,
+    pub(crate) table: Table,
+    pub(crate) frame: Frame,
     implicit: Program,
-    last_status: u32,
+    pub(crate) last_status: u32,
     tweens: Tweens,
     timelines: Timelines,
+    /// T44r: the physics rows and views ([`crate::physics`]).
+    pub(crate) physics: crate::physics::Physics,
 }
 
 impl Default for Core {
@@ -118,6 +121,7 @@ impl Core {
             last_status: STATUS_NOT_INITIALIZED,
             tweens: Tweens::default(),
             timelines: Timelines::default(),
+            physics: crate::physics::Physics::default(),
         }
     }
 
@@ -138,6 +142,7 @@ impl Core {
                 DEFAULT_MAX_TIMELINES as usize,
                 DEFAULT_RECORD_BYTES as usize,
             );
+            self.physics = crate::physics::Physics::default();
             self.started = true;
             self.last_status = STATUS_OK;
         }
@@ -150,7 +155,7 @@ impl Core {
         self.last_status
     }
 
-    fn handle(&mut self, r: Result<u32, u32>) -> u32 {
+    pub(crate) fn handle(&mut self, r: Result<u32, u32>) -> u32 {
         match r {
             Ok(h) => {
                 self.last_status = STATUS_OK;
@@ -549,7 +554,7 @@ impl Core {
         &self.timelines
     }
 
-    fn addr<T>(v: &[T]) -> u32 {
+    pub(crate) fn addr<T>(v: &[T]) -> u32 {
         v.as_ptr() as usize as u32
     }
 }
@@ -559,7 +564,7 @@ thread_local! {
     static CORE: RefCell<Core> = RefCell::new(Core::new());
 }
 
-fn with<R>(f: impl FnOnce(&mut Core) -> R) -> R {
+pub(crate) fn with<R>(f: impl FnOnce(&mut Core) -> R) -> R {
     CORE.with(|c| f(&mut c.borrow_mut()))
 }
 

@@ -22,6 +22,12 @@ anim-match.workspace = true
 anim-physics.workspace = true
 anim-plugin-sdk.workspace = true
 wasm-bindgen.workspace = true
+# The `editor` feature's compressed retarget bake only (T41); never in the runtime module.
+anim-compress = { workspace = true, optional = true }
+
+[features]
+# Editor-worker builds (Phase B): `retarget_bake_compressed`. build.mjs builds without it.
+editor = ["dep:anim-compress", "anim-retarget/compress"]
 
 [build-dependencies]
 sha2.workspace = true
