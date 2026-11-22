@@ -15,6 +15,19 @@ export const clip = (c: string, extra: Record<string, unknown> = {}) => ({ type:
 /** An event asset: `ev(root, { bus: "SFX", limit: {...} })`. */
 export const ev = (root: unknown, extra: Record<string, unknown> = {}) => ({ format: F, root, ...extra });
 
+/** ADR 0329: the playlist format tag. */
+export const PF = "myco.playlist@1";
+/** A sample entry: `sample("a.wav", { volume: -6 })`. */
+export const sample = (s: string, extra: Record<string, unknown> = {}) => ({ sample: s, ...extra });
+/** An embedded playlist entry: `embed(pl("clip", [sample("a.wav")]), { weight: 2 })`. */
+export const embed = (body: unknown, extra: Record<string, unknown> = {}) => ({ embedded: body, ...extra });
+/** A linked playlist entry: `link("b.playlist.json")`. */
+export const link = (path: string, extra: Record<string, unknown> = {}) => ({ playlist: path, ...extra });
+/** A playlist body (embedded) of `type` with `entries`: `pl("queue", [...], { queue: { pick: "shuffle" } })`. */
+export const pl = (type: string, entries: unknown[], extra: Record<string, unknown> = {}) => ({ type, entries, ...extra });
+/** A playlist asset: `pla("queue", [...], {...})` (a body with the format line). */
+export const pla = (type: string, entries: unknown[], extra: Record<string, unknown> = {}) => ({ format: PF, ...pl(type, entries, extra) });
+
 export interface EventKit {
   readonly fake: FakeBackend;
   /**

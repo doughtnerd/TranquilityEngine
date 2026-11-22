@@ -15,7 +15,7 @@ export { Audio, type OneShotOptions } from "./Audio";
 // ADR 0166 §1 (Q2): the interactive music types (the engine's `musicTypes.ts`) and the `Calibration` namespace.
 export { Calibration } from "./music/calibration";
 export type { AudioLatency, CalibrationResult, GridPoint, GridSpec, MusicEvent, MusicHandle, MusicKind, MusicPositionAt, MusicSeekResult } from "../../../engine/audio/musicTypes";
-export type { AudioBedDebug, AudioDebugInfo, AudioEventHandle, AudioHandle, AudioM3Counters, AudioMemoryDebug, AudioOcclusionDebug, AudioPanner, AudioReason, AudioStatus, AudioVoiceM3Debug, AudioZoneDebug, MusicDebugPending, MusicDebugRow, MusicDebugState, MusicDebugTotals, SendCurve } from "./backend";
+export type { AudioBedDebug, AudioDebugInfo, AudioEventHandle, AudioPlaylistHandle, AudioMarkerEvent, AudioMarkerType, AudioHandle, AudioM3Counters, AudioMemoryDebug, AudioOcclusionDebug, AudioPanner, AudioReason, AudioStatus, AudioVoiceM3Debug, AudioZoneDebug, MusicDebugPending, MusicDebugRow, MusicDebugState, MusicDebugTotals, SendCurve } from "./backend";
 // ADR 0171 §1.2, §1.3 (K0): the capture surface and the M5 debug shapes.
 export type { AudioCpuDebug, AudioMixCaps, AudioMixDebug, AudioMixSlotDebug, AudioRecorderDebug } from "./backend";
 export type { AudioCapture, AudioCaptureState } from "./capture/capture";
