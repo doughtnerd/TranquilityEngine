@@ -481,6 +481,13 @@ fn render_voices<const LIST: bool>(core: &mut Core, frame: u64, from: usize, to:
     // ADR 0162 A4: the beds kind-2 voices encode into, another region again (`None` without beds).
     // SAFETY: the `Beds` region is distinct from every region borrowed here.
     let mut beds = crate::bed::view(unsafe { &mut *(&mut regions.beds[..] as *mut [u8]) });
+    // ADR 0331: the instance groups' submix routes, or `None` when no submix is in use (every voice
+    // then pans with its bus, as before), with every slot's automation entry (its PLAY's `group`).
+    let routes = crate::submix::routes(regions);
+    let groups: Option<*const [VoiceAuto]> = if routes.is_some() { automation::all_entries(&mut regions.automation[..]).map(|a| a as *const _) } else { None };
+    // SAFETY: the routes are read only below (the `Submixes` region, distinct from every region
+    // borrowed here; only `submix::configure`, between quanta, writes them).
+    let routes: Option<&crate::submix::Header> = routes.map(|r| unsafe { &*r });
     let mut v = view(regions);
     let (source_frames, moving) = (&mut acc.0, &mut acc.1);
     let mut once = true;
@@ -550,7 +557,16 @@ fn render_voices<const LIST: bool>(core: &mut Core, frame: u64, from: usize, to:
             let skip = if due.at != u32::MAX { Some(due.ramp) } else { None };
             crate::curves::linear_knots(v.curves, index, slot.reserved, skip, &mut slot.fade, &mut slot.gain);
         }
-        let Some((out_l, out_r)) = inputs.get(slot.bus) else { continue };
+        let route = match (routes, groups) {
+            // SAFETY: the routes and the entries are read only (the `Submixes` and `Automation`
+            // regions, distinct from those borrowed here; `auto` below is taken after this read).
+            (Some(r), Some(g)) => {
+                let group = unsafe { &*g }.get(index).filter(|e| e.id == slot.id).map_or(0, |e| e.group);
+                crate::submix::route_code(Some(r), group, slot.bus)
+            }
+            _ => slot.bus,
+        };
+        let Some((out_l, out_r)) = inputs.get(route) else { continue };
         if slot.flags & flag::MIXED != 0 {
             *source_frames += slot.pitch.value * slot.rate_ratio * (to - start) as f32;
             *moving += !slot.panner.matrix.iter().all(|r| r.is_settled()) as u32;
@@ -574,7 +590,7 @@ fn render_voices<const LIST: bool>(core: &mut Core, frame: u64, from: usize, to:
         let prog = auto.as_deref().filter(|a| a.loop_on == automation::LOOP_PROGRAM && a.prog != 0).and_then(|a| progs.and_then(|p| unsafe { (&mut *p).get_mut(a.prog as usize - 1) })).map(|e| &mut e.prog);
         // SAFETY: `zones` views the `Zones` region, distinct from every region borrowed here; one
         // voice holds it at a time.
-        let fx = VoiceFx { entry: crate::fxpool::owned(v.pool, slot.fx, index), zones: unsafe { &mut *zones }, beds: beds.as_mut(), due };
+        let fx = VoiceFx { entry: crate::fxpool::owned(v.pool, slot.fx, index), zones: unsafe { &mut *zones }, beds: beds.as_mut(), due, route };
         // `AUTO = false` compiles the automation away: a voice without bindings or a loop region takes
         // exactly the M1 code (0158 E2: it costs nothing and renders bit for bit as before).
         match (slot.flags & flag::STREAM != 0, auto.is_some()) {
@@ -1014,7 +1030,8 @@ fn render_voice<const AUTO: bool, const DUE: bool>(slot: &mut VoiceSlot, auto: O
         }
         voice_chain(slot, auto.as_deref_mut(), &mut fx, sample_rate, from, &mut l[..n], &mut r[..n]);
         let (id, bus) = (slot.id, slot.bus);
-        slot.panner.mix_range(hrtf, fx.bed(), id, bus, frame, from, &l[..n], &r[..n], &mut out_l[from..from + n], &mut out_r[from..from + n]);
+        let route = fx.route;
+        slot.panner.mix_range(hrtf, fx.bed(bus), id, route, frame, from, &l[..n], &r[..n], &mut out_l[from..from + n], &mut out_r[from..from + n]);
         if slot.flags & (flag::DEMOTING | flag::PAUSING | flag::PAUSED) != 0 && slot.mix.is_settled() {
             // The demote (or pause) fade is done: virtual from the next frame, keeping time (or,
             // paused, holding from here).
@@ -1196,7 +1213,8 @@ fn render_stream_voice<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut
     if mixed {
         voice_chain(slot, auto.as_deref_mut(), &mut fx, sample_rate, from, &mut l[..done], &mut r[..done]);
         let (id, bus) = (slot.id, slot.bus);
-        slot.panner.mix_range(hrtf, fx.bed(), id, bus, frame, from, &l[..done], &r[..done], &mut out_l[from..from + done], &mut out_r[from..from + done]);
+        let route = fx.route;
+        slot.panner.mix_range(hrtf, fx.bed(bus), id, route, frame, from, &l[..done], &r[..done], &mut out_l[from..from + done], &mut out_r[from..from + done]);
         if slot.flags & (flag::DEMOTING | flag::PAUSING | flag::PAUSED) != 0 && slot.mix.is_settled() {
             slot.flags &= !(flag::MIXED | flag::DEMOTING | flag::PAUSING);
         }
@@ -1373,7 +1391,8 @@ fn render_seek_tail<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut Vo
     }
     voice_chain(slot, auto.as_deref_mut(), &mut fx, sample_rate, from, &mut l[..done], &mut r[..done]);
     let (id, bus) = (slot.id, slot.bus);
-    slot.panner.mix_range(hrtf, fx.bed(), id, bus, frame, from, &l[..done], &r[..done], &mut out_l[from..from + done], &mut out_r[from..from + done]);
+    let route = fx.route;
+    slot.panner.mix_range(hrtf, fx.bed(bus), id, route, frame, from, &l[..done], &r[..done], &mut out_l[from..from + done], &mut out_r[from..from + done]);
     if slot.flags & (flag::DEMOTING | flag::PAUSING | flag::PAUSED) != 0 && slot.mix.is_settled() {
         slot.flags &= !(flag::MIXED | flag::DEMOTING | flag::PAUSING);
     }
@@ -1419,15 +1438,22 @@ struct VoiceFx<'a> {
     /// 0166 M4-0 (H1): the class G record the gain loop applies in this range (sample relative to
     /// the range's first frame), or `DueGain::NONE`: then every gain loop runs exactly as before.
     due: &'a DueGain,
+    /// ADR 0331: where the voice's panner mixes: its bus, or its instance's submix
+    /// (`submix::route_code`; then it pans without the bed).
+    route: u16,
 }
 
 impl VoiceFx<'_> {
     fn reborrow(&mut self) -> VoiceFx<'_> {
-        VoiceFx { entry: self.entry.as_deref_mut(), zones: &mut *self.zones, beds: self.beds.as_deref_mut(), due: self.due }
+        VoiceFx { entry: self.entry.as_deref_mut(), zones: &mut *self.zones, beds: self.beds.as_deref_mut(), due: self.due, route: self.route }
     }
 
-    /// ADR 0162 A4: the panner's kind-2 context, when the core has beds and the voice an entry.
-    fn bed(&mut self) -> Option<crate::panner::BedCtx<'_>> {
+    /// ADR 0162 A4: the panner's kind-2 context, when the core has beds and the voice an entry (and
+    /// pans with its own bus: a voice routed into a submix has none, ADR 0331).
+    fn bed(&mut self, bus: u16) -> Option<crate::panner::BedCtx<'_>> {
+        if self.route != bus {
+            return None;
+        }
         match (self.beds.as_deref_mut(), self.entry.as_deref_mut()) {
             (Some(beds), Some(entry)) => Some(crate::panner::BedCtx { beds, entry }),
             _ => None,

@@ -1,11 +1,13 @@
 /**
- * A playlist's `effects` at runtime (ADR 0331: "once per playing instance, on its mixed output"). Until the core runs
- * instance submixes, this is the one adapter: low-pass, high-pass and gain effects map onto each voice's own filter and
- * gain (they commute with the mix, so the result is the same as on the submix for those three), and every other type is
- * skipped with one warning per type.
+ * A playlist's `effects` at runtime (ADR 0331: "once per playing instance, on its mixed output"), the one adapter:
  *
- * TODO(ADR 0331 instance submixes): when the core has them, playlist effects run on the instance's submix and this
- * mapping goes.
+ * - **The instance's own chain** (its root playlist or sequence) runs on the instance's submix when the backend has one
+ *   free (`AudioSubmixes.open`, from `PlaylistInstance.start`): `instanceChain` is what it sends, and the root level's
+ *   effects aren't mapped onto its voices (`bodyCtx` skips them).
+ * - **Otherwise** (no submix on this backend, the pool full, or a nested playlist's, a track's or a clip's effects, which
+ *   share the instance's one submix group: per-level submixes are a follow-up) `playlistEffectProps` maps low-pass,
+ *   high-pass and gain onto each voice's own filter and gain (they commute with the mix, so the result is the same as on
+ *   a submix for those three), and every other type is skipped with one warning per type.
  */
 import { effectParamValue } from "../../../../engine/audio/effects/catalogue";
 import type { Effect } from "../../../../engine/audio/effects/types";
@@ -27,9 +29,14 @@ export function playlistEffectProps(effects: readonly Effect[], where: string): 
       case "highpass": out.highpass = Math.max(out.highpass ?? 0, effectParamValue(e, "cutoff") ?? 20); break;
       case "gain": out.gainDb = (out.gainDb ?? 0) + (effectParamValue(e, "gain") ?? 0); break;
       default:
-        warnOnce(`playlist:effect:${e.type}`, `[myco] ${where}: playlist effect "${e.type}" needs instance submixes (ADR 0331), which the audio core doesn't have yet; skipped. Low-pass, high-pass and gain apply.`);
+        warnOnce(`playlist:effect:${e.type}`, `[myco] ${where}: playlist effect "${e.type}" runs on an instance submix (ADR 0331), and this one plays without one (no submix on this backend, the pool full, or a nested playlist's, track's or clip's effect); skipped. Low-pass, high-pass and gain apply.`);
     }
   }
   cache.set(effects, out);
   return out;
+}
+
+/** The effects an instance's submix runs: the enabled ones, in order (empty: the instance needs no submix). */
+export function instanceChain(effects: readonly Effect[]): readonly Effect[] {
+  return effects.some((e) => e.on) ? effects.filter((e) => e.on) : [];
 }

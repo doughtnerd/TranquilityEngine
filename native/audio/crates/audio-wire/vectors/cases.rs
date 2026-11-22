@@ -585,6 +585,31 @@ pub fn cases() -> Vec<VectorCase> {
                 "0200", "6500", "0180", "0000", "0000003f", // count, flags, param, reserved, threshold
             ),
         ),
+        // SUBMIX (ADR 0331), variable length: 20 + 40 = 60 B = 15 words, asap. Slot 2 for group 4 on
+        // bus 1; one effect: a low-pass (kind 1), on, cutoff 800 Hz, resonance 0.5.
+        case(
+            "SUBMIX_one_lowpass",
+            Subject::Opcode("SUBMIX"),
+            vec![
+                ("voiceId", vu(2)),
+                ("frameOffset", vu(0xFFFF_FFFF)),
+                ("group", vu(4)),
+                ("bus", vu(1)),
+                (
+                    "effects",
+                    va(vec![vr(vec![
+                        ("type", vu(1)),
+                        ("flags", vu(1)),
+                        ("p", va(vec![vf(800.0), vf(0.5), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0)])),
+                    ])]),
+                ),
+            ],
+            concat!(
+                "0c00", "0f00", "02000000", "ffffffff", "0400", "0100", "01000000", // head, group, bus, effectCount 1
+                "01000000", "01000000", "00004844", "0000003f", // type, flags, p0 800, p1 0.5
+                "00000000", "00000000", "00000000", "00000000", "00000000", "00000000", // p2..p7
+            ),
+        ),
         // TIME (ADR 0332), 24 B = 6 words, stamped at 256: group 7's sequence clock (which 2) at 1.5 s,
         // rate 1.0.
         case(

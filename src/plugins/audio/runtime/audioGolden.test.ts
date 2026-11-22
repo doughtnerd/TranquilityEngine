@@ -75,6 +75,7 @@ import {
   writeParam,
   writeTime,
   writeLoops,
+  writeSubmix,
   PARAM_TIME,
   TIME_CLIP,
   TIME_SEQUENCE,
@@ -165,6 +166,9 @@ const automate = (voiceId: number, bindings: [number, number, number][]): Writer
   writeAutomate(view, off, { voiceId, frameOffset: ASAP, bindings: bindings.map(([param, curve, target]) => ({ param, curve, target })) });
 const busAutomate = (bus: number, bindings: [number, number, number][]): Writer => (view, off) =>
   writeBusAutomate(view, off, { voiceId: bus, frameOffset: ASAP, bindings: bindings.map(([param, curve, target]) => ({ param, curve, target })) });
+/** ADR 0331: SUBMIX `slot` for `group` on `bus`: `[type, on, ...params]` effects. */
+const submix = (slot: number, group: number, bus: number, effects: [number, boolean, ...number[]][]): Writer => (view, off) =>
+  writeSubmix(view, off, { voiceId: slot, frameOffset: ASAP, group, bus, effects: effects.map(([type, on, ...p]) => ({ type, flags: on ? 1 : 0, p: [...p, 0, 0, 0, 0, 0, 0, 0, 0].slice(0, 8) })) });
 /** SET_LOOP `voiceId`, `frameOffset` frames into the batch (ASAP for at once). */
 /** ADR 0328: a loop program: `[start, end, crossfade, exitFade, count, flags]` per loop (no parameter). */
 const loops = (voiceId: number, list: [number, number, number, number, number, number][]): Writer => (view, off) =>
@@ -493,6 +497,21 @@ const SCENES: Record<string, (s: Stage) => void | Promise<void>> = {
     s.send(param(0, 0, 1, 2), param(7, 2, 1, 1.5));
     s.run(90);
     s.send(param(0, 0, 0.3, 0), param(7, 2, 0.2, 0));
+    s.run(20);
+  },
+  // ADR 0331 (ABI 4.5): two voices of group 4 through its submix (a 1.2 kHz low-pass with resonance, then a compressor
+  // with 6 dB makeup), a third voice outside it; the submix is reconfigured mid-way (the low-pass bypassed) and freed.
+  "submix-chain"(s) {
+    s.send(
+      submix(2, 4, 0, [[1, true, 1200, 0.4, 0], [3, true, -24, 4, 5, 80, 6, 6]]),
+      play(voice(1), CLIP, { flags: MIXED | LOOP, group: 4 }),
+      play(voice(2), CLIP, { flags: MIXED | LOOP, group: 4, pitch: 1.5, gain: 0.5 }),
+      play(voice(3), CLIP, { flags: MIXED | LOOP, group: 0, gain: 0.3 }),
+    );
+    s.run(40);
+    s.send(submix(2, 4, 0, [[1, false, 1200, 0.4, 0], [3, true, -24, 4, 5, 80, 6, 6]]));
+    s.run(30);
+    s.send(submix(2, 0, 0, []));
     s.run(20);
   },
   // ABI 4.4: a pan curve swept left to right by a seeking global parameter, summed with a constant offset, and a

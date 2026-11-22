@@ -92,7 +92,7 @@ export const PHASE_ORDER = {
   // Queued live adds go before the new tree (6548b14); BUS_CONFIG and the bus lanes (busIndex, which runs `busesReset`
   // inside); then the loudness hub and LOUD_CONFIG for the new slots, after BUS_CONFIG.
   reconfigure: ["deferredAdds", "buses", "loudness"],
-  busesReset: ["voices", "lanes"],
+  busesReset: ["voices", "lanes", "submixes"],
   // F-12's stale stems go; the worklet channel to the dead node goes; the replayer notes the trap frame; an open
   // structural dip settles at its end state (R12); the music side is told a rebuild runs (ADR 0248: rhythm-mode holds).
   beginRecovery: ["voices", "worklet", "replayer", "dip", "musicOps"],
@@ -105,9 +105,10 @@ export const PHASE_ORDER = {
   endRecovery: ["mirror", "loudness", "worklet", "musicOps", "replayer"],
   // ADR 0157 §7 as extended by ADR 0162 (S10, K4) and ADR 0171 (§4.2, Mx2, Dp1, Ld2): RESET 0, BUS_CONFIG (slot order,
   // tombstones as silent roots), BED_CONFIG, BUS_DUCK and BUS_PRESENCE, LOUD_CONFIG, the bus lanes (BUS_RAMP), MASTER,
-  // LISTENER (snapped), ZONE_CONFIG, then the automation mirror (curves, parameters, bus bindings). Each appends nothing
-  // while its feature is inert, so an earlier milestone's replay is byte-identical.
-  replayHeader: ["reset", "buses", "beds", "presence", "loudness", "lanes", "master", "listener", "zones", "automation"],
+  // LISTENER (snapped), ZONE_CONFIG, then the automation mirror (curves, parameters, bus bindings), then ADR 0331's
+  // instance submixes (before the voices, whose groups route into them). Each appends nothing while its feature is
+  // inert, so an earlier milestone's replay is byte-identical.
+  replayHeader: ["reset", "buses", "beds", "presence", "loudness", "lanes", "master", "listener", "zones", "automation", "submixes"],
   // After each replayed PLAY: its AUTOMATE and SET_LOOP, its SET_VOICE_FX (mixed voices), then the voice table's own
   // state (FADE to its fade gain, its stamped ramps, SET_PAUSED).
   replayVoice: ["automation", "voiceFx", "voiceState"],
@@ -119,7 +120,7 @@ export const PHASE_ORDER = {
   // Queued adds and plays go, the replay's waiting voices go, the listeners and the mixer's hooks are removed, the page's
   // loudness hub is released (if still ours), the music, stream and zone parts close, the link gets its default decoder
   // back, and nothing staged is sent.
-  dispose: ["deferredAdds", "voices", "replayer", "cleanups", "loudness", "musicOps", "streams", "zones", "link", "writer"],
+  dispose: ["deferredAdds", "voices", "replayer", "cleanups", "loudness", "musicOps", "streams", "zones", "submixes", "link", "writer"],
 } as const satisfies { readonly [P in SessionPhase]: readonly string[] };
 
 /** Every participant name some phase lists. */

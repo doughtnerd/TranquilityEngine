@@ -1,5 +1,5 @@
-//! The Audio Studio wire (ADRs 0328, 0332): time parameters (ABI 4.2), sample loop programs (LOOPS,
-//! ABI 4.3) and the records later Studio milestones add to the voice. `batch.rs` lists the opcodes
+//! The Audio Studio wire (ADRs 0328, 0331, 0332): time parameters (ABI 4.2), sample loop programs
+//! (LOOPS, ABI 4.3), instance submixes (SUBMIX, ABI 4.5) and the records later Studio milestones add. `batch.rs` lists the opcodes
 //! in id order; `schema.rs` merges the constants below into its output. Byte offsets in the comments
 //! count from the record's first
 //! byte, head included (12 B).
@@ -28,7 +28,46 @@ pub const CONSTANTS: &[Const] = &[
     c!("LOOP_EXIT_SHIFT", 4, "LOOPS item flags bits 4-5: 0 finish, 1 jump (through crossfadeFrames), 2 crossfade (exitFadeFrames)"),
     c!("LOOP_REENTER", 0x40, "LOOPS item flags bit 6: re-enter (clear: ignore)"),
     c!("LOOP_BELOW", 0x80, "LOOPS item flags bit 7: a parameter activation holds while the parameter is below threshold (clear: above)"),
+    c!("SUBMIXES_MAX", 64, "instance submix slots the core lays out (ADR 0331); SUBMIX voiceId 0..63"),
+    c!("SUBMIX_EFFECTS_MAX", 8, "effects a submix's chain keeps; extra ones are ignored"),
+    c!("SUBMIX_FX_LOWPASS", 1, "SUBMIX effect type: the catalogue's lowpass; p cutoff Hz, resonance 0..1, drive %"),
+    c!("SUBMIX_FX_HIGHPASS", 2, "SUBMIX effect type: the catalogue's highpass; p cutoff Hz, resonance 0..1, drive %"),
+    c!("SUBMIX_FX_COMPRESSOR", 3, "SUBMIX effect type: the catalogue's compressor; p threshold dB, ratio, attack ms, release ms, makeup dB, knee dB"),
+    c!("SUBMIX_FX_ON", 1, "SUBMIX effect flags bit 0: the effect runs (clear: bypassed, its state kept)"),
 ];
+
+/// One effect of a SUBMIX chain: 40 B.
+const SUBMIX_EFFECTS: Repeat = Repeat {
+    name: "effects",
+    count_field: "effectCount",
+    item: &[
+        Field::new("type", Ty::U32).doc("SUBMIX_FX_*; a type the core doesn't know passes the signal through"),
+        Field::new("flags", Ty::U32).doc("SUBMIX_FX_ON"),
+        Field::new("p", Ty::F32).array(8).doc("the catalogue's parameters in its order; unused p = 0"),
+    ],
+    then: None,
+    max: 0,
+};
+
+/// 0x0C SUBMIX (ADR 0331, ABI 4.5): configures instance submix slot `voiceId` (0..SUBMIXES_MAX-1):
+/// the voices of instance `group` route into it, it runs its chain and feeds bus `bus`. An effect
+/// count of 0 (or group 0) frees the slot. Applies on arrival, like AUTOMATE; main sends it before
+/// the instance's first PLAY.
+pub const SUBMIX: Opcode = Opcode {
+    id: 0x0C,
+    name: "SUBMIX",
+    payload: Body::with_tail(
+        &[
+            Field::new("group", Ty::U16).doc("the instance group 1..=1024 whose voices route here; 0 frees"), // 12
+            Field::new("bus", Ty::U16).doc("the output bus index"),                                           // 14
+            Field::new("effectCount", Ty::U32),                                                              // 16
+        ],
+        Tail::Repeat(&SUBMIX_EFFECTS),
+    ),
+    total_bytes: None,
+    sent: true,
+    doc: "configure an instance submix's group, bus and insert chain (ADR 0331); no effects frees it",
+};
 
 /// One loop of a LOOPS program: 28 B.
 const LOOPS_ITEMS: Repeat = Repeat {

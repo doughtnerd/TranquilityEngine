@@ -588,12 +588,13 @@ function runtimeBus(project: AudioProject, bus: Bus, warn: (line: string) => voi
  */
 export function toRuntimeSettings(project: AudioProject, warnings: string[] = []): AudioSettings {
   const warn = (line: string) => void warnings.push(line);
-  const { submixes: _submixes, bedBeyond, dopplerAmount, ...engine } = project.settings;
+  const { submixes, bedBeyond, dopplerAmount, ...engine } = project.settings;
   // TODO(ADR 0333): `bedBeyond` needs the audio core's panner pick to send a voice past it to its bus's bed (it picks beds
   // by HRTF rank only today); the runtime view leaves it out until then.
   if (bedBeyond !== null) warn("settings.bedBeyond needs the audio core's distance-based beds; beds go by HRTF rank until then.");
   const isBus = (name: string) => project.buses.some((b) => b.name === name);
   const out: AudioSettings = { ...structuredClone(engine), buses: [], snapshots: [], ducking: [], parameters: structuredClone(project.parameters), automation: [] };
+  if (submixes !== DEFAULT_SUBMIXES) out.voices = { ...out.voices, submixes }; // ADR 0331: the instance submix pool (absent: the default)
   // ADR 0333: the global Doppler amount scales every voice's Doppler level (the Doppler pass reads it).
   if (dopplerAmount !== 1) out.doppler = { ...out.doppler, amount: dopplerAmount };
   out.buses = project.buses.map((b) => runtimeBus(project, b, warn));

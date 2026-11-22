@@ -336,7 +336,10 @@ export class EventSystem {
 
   /** @internal ADR 0329: a hosted runtime's instance group is free again (its last voice has ended). */
   giveGroup(group: number): void {
-    if (group > 0) this.freeGroup(group);
+    if (group <= 0) return;
+    // ADR 0331: its instance submix goes with it (its voices have ended).
+    audioBackend().submixes?.close(group);
+    this.freeGroup(group);
   }
 
   /** @internal The global parameters (name → slot, definition, value), for a hosted runtime's switches and bindings. */

@@ -73,6 +73,8 @@ import {
   writeTime,
   writeLoops,
   LOOPS_LOOPS_FIXED_END,
+  writeSubmix,
+  SUBMIX_EFFECTS_FIXED_END,
   writePlay,
   writeReset,
   writeSeek,
@@ -101,6 +103,8 @@ import {
   type Time,
   type Loops,
   type LoopsLoops,
+  type Submix,
+  type SubmixEffects,
   type Play,
   type Reset,
   type Seek,
@@ -310,6 +314,7 @@ export class CommandWriter implements VoiceCommandSink {
   private readonly loopRec: SetLoop = { voiceId: 0, frameOffset: ASAP, loopStartFrame: 0, loopEndFrame: 0, flags: 0 };
   private readonly paramRec: Param = { voiceId: 0, frameOffset: ASAP, group: 0, slot: 0, value: 0, seekPerSecond: 0 };
   private readonly loopsRec: Loops = { voiceId: 0, frameOffset: ASAP, loops: [] };
+  private readonly submixRec: Submix = { voiceId: 0, frameOffset: ASAP, group: 0, bus: 0, effects: [] };
   private readonly timeRec: Time = { voiceId: 0, frameOffset: ASAP, group: 0, which: TIME_SEQUENCE, value: 0, rate: 0 };
   private readonly automateRec: Automate = { voiceId: 0, frameOffset: ASAP, bindings: [] };
   private readonly busAutomateRec: BusAutomate = { voiceId: 0, frameOffset: ASAP, bindings: [] };
@@ -691,6 +696,21 @@ export class CommandWriter implements VoiceCommandSink {
     const at = this.begin(16 + LOOPS_LOOPS_FIXED_END * loops.length);
     if (at >= 0) this.end(at, writeLoops(this.view, at, r), atFrame);
     r.loops = [];
+  }
+
+  /**
+   * SUBMIX (ADR 0331, ABI 4.5): configures instance submix `slot`: the voices of instance `group` on bus index `bus`
+   * route into it and it runs `effects`; no effects (or group 0) frees it. Applies on arrival (asap).
+   */
+  submix(slot: number, group: number, bus: number, effects: readonly SubmixEffects[]): void {
+    const r = this.submixRec;
+    r.voiceId = slot;
+    r.group = effects.length > 0 ? group : 0;
+    r.bus = bus;
+    r.effects = effects as SubmixEffects[];
+    const at = this.begin(20 + SUBMIX_EFFECTS_FIXED_END * effects.length);
+    if (at >= 0) this.end(at, writeSubmix(this.view, at, r), undefined);
+    r.effects = [];
   }
 
   /**

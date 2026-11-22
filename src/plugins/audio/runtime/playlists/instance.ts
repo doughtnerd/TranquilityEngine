@@ -29,6 +29,9 @@ import { events, startOffsetOf, type EventOptions } from "../events/eventRuntime
 import { MAX_BINDINGS, MAX_LOCAL_SLOTS, MAX_VOICE_LOOPS, type Binding, type ParamRef, type VoiceLoop } from "../events/automation";
 import { Assets } from "../../../../engine/scene/Assets";
 import { evalTimeCurves, staticPanBinding } from "./curves";
+import { instanceChain } from "./effects";
+import type { Effect } from "../../../../engine/audio/effects/types";
+import { mixer } from "../../../../engine/audio/mixer";
 import { linkedPlaylist, loadAttenuation } from "./loader";
 import { clockOver, MUSICAL_FALLBACK_NOTE, type MusicalClock, type MusicalSource } from "./musical";
 import { sampleFacts, type SampleFacts } from "./sampleFacts";
@@ -341,6 +344,8 @@ export class PlaylistInstance implements NodeHost {
       where: this.path,
     };
     this.rootCtx = ctx;
+    // ADR 0331: the instance's own effects run on a submix of its voices on its bus, when the backend has one free.
+    this.submixedEffects = this.openSubmix(a);
     // `EventOptions.offset`: what this resolve starts begins as if that much had played (`playSample`, `SequenceNode`).
     this.startOffset = startOffsetOf(this.options.offset, `Audio.play("${this.path}")`);
     try { this.root = resolveBody(this, a, ctx, this.path, this.path); } finally { this.startOffset = 0; }
@@ -348,6 +353,23 @@ export class PlaylistInstance implements NodeHost {
 
   /** `NodeHost.startOffset`: the play's offset while `start` resolves the tree, else 0. */
   startOffset = 0;
+
+  /** `NodeHost.submixedEffects`: the root's effects when they run on the instance's submix. */
+  submixedEffects: readonly Effect[] | null = null;
+
+  /**
+   * ADR 0331: a submix for the root playlist's (or sequence's) enabled effects, feeding the bus its voices play on (the
+   * root's output, else the play's bus: what `clipRequest` resolves for them). The root's effects when it got one; null
+   * when it has none to run, the backend has no submixes, or the pool is full (the voices then map them, `effects.ts`).
+   * The event runtime frees it with the group.
+   */
+  private openSubmix(a: PlaylistAsset): readonly Effect[] | null {
+    const chain = instanceChain(a.effects);
+    const submixes = this.group > 0 && chain.length > 0 ? audioBackend().submixes : undefined;
+    if (!submixes) return null;
+    const bus = mixer.resolveOutput(a.output !== null ? a.output : this.options.bus);
+    return submixes.open(this.group, bus, chain, this.path) ? a.effects : null;
+  }
 
   stop(fadeSeconds = STOP_FADE_SECONDS): void {
     if (this.stopped) return;

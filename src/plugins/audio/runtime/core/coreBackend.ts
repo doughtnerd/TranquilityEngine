@@ -103,6 +103,7 @@ import { setRecoveryProfileSink } from "./recovery";
 import { NULL_PROFILE_SINK, type ProfileSink } from "../mix/profileSink";
 import { wireProfileTaps } from "../mix/profileTaps";
 import { CoreAutomation } from "./coreAutomation";
+import { CoreSubmixes } from "./submixes";
 import { CoreMusicOps, type MusicMemberTag } from "./musicOps";
 import { CoreVoices } from "./voices";
 
@@ -270,6 +271,8 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
   readonly streams: StreamManager;
   /** ADR 0158 (E3.1): the event runtime's automation sink on the core, and its mirror for a rebuild (`coreAutomation.ts`). */
   readonly automation: CoreAutomation;
+  /** ADR 0331: the instance submix pool (`submixes.ts`). */
+  readonly submixes: CoreSubmixes;
   /** ADR 0166 (Q2): the music group operations (`music`); P1 and P9 fill them in `musicOps.ts`. */
   readonly musicOps: CoreMusicOps;
 
@@ -496,6 +499,14 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
         this.lanes.selAuto[b] = gain;
         this.lanes.refreshBusGain();
       },
+    });
+    this.submixes = new CoreSubmixes({
+      writer: this.writer,
+      session: this.session,
+      poolSize: () => this.mixer.audioSettings.voices.submixes,
+      busIndex: (name) => this.busIndexByName.get(name) ?? -1,
+      profile: () => this.profile,
+      warnOnce: (key, message) => this.warnOnce(key, message),
     });
     this.replayer = new Replayer(this.view, host.link);
     // ADR 0176: the core voice, over the parts above (closures read the backend lazily: the buses come next).
@@ -915,6 +926,7 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
     s.join("master", { replayHeader: (b) => replayMaster(b, this.master, this.isMuted || this.hiddenMuteOn) });
     s.join("listener", { replayHeader: (b) => this.listener.replay(b) });
     s.join("automation", { replayHeader: (b) => this.automation.replayHeader(b), replayVoice: (b, v) => this.automation.replayVoice(b, v.id, v.i) });
+    s.join("submixes", { replayHeader: (b) => this.submixes.replayHeader(b), busesReset: () => this.submixes.busesReset(), dispose: () => this.submixes.clear() });
     s.join("voiceFx", { replayVoice: (b, v) => (v.mixed ? this.voiceFx.replayVoice(b, v.id, v.i) : undefined) });
     s.join("musicOps", {
       beginRecovery: () => this.musicOps.rebuilding(true),

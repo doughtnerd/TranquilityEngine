@@ -62,7 +62,9 @@ export function bodyCtx(host: NodeHost, ctx: Ctx, body: PlaylistBody, where: str
   const gainDb = body.volume + lerp(body.volumeRandom, host.random());
   const pitchSt = body.pitch + lerp(body.pitchRandom, host.random());
   const override = body.output !== null;
-  const props = accumulate(ctx.props, { gainDb, pitchSt, fx: playlistEffectProps(body.effects, where), outputOverride: override });
+  // ADR 0331: the instance's own chain runs on its submix when it has one (`NodeHost.submixedEffects`).
+  const fx = body.effects === host.submixedEffects ? undefined : playlistEffectProps(body.effects, where);
+  const props = accumulate(ctx.props, { gainDb, pitchSt, ...(fx ? { fx } : {}), outputOverride: override });
   const delay = ctx.depth > 0 ? body.playback.delay : 0; // the root's delay is the instance's (`PlaylistInstance.start`)
   return {
     ...ctx,

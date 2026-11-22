@@ -2,26 +2,26 @@
 // `cargo run --manifest-path native/audio/crates/audio-wire/Cargo.toml --bin gen_wire`.
 #![allow(clippy::all, dead_code, unused_mut)]
 
-/// First 16 bytes of the schema's SHA-256 (hex: dab86974ee2f2e7b037ec31f1a21d6ee).
+/// First 16 bytes of the schema's SHA-256 (hex: be0897c5c766511fb84c1fa79910f175).
 pub const SCHEMA_HASH: [u8; 16] = [
-    0xda,
-    0xb8,
-    0x69,
-    0x74,
-    0xee,
-    0x2f,
-    0x2e,
-    0x7b,
-    0x03,
-    0x7e,
-    0xc3,
+    0xbe,
+    0x08,
+    0x97,
+    0xc5,
+    0xc7,
+    0x66,
+    0x51,
     0x1f,
-    0x1a,
-    0x21,
-    0xd6,
-    0xee,
+    0xb8,
+    0x4c,
+    0x1f,
+    0xa7,
+    0x99,
+    0x10,
+    0xf1,
+    0x75,
 ];
-pub const SCHEMA_HASH_HEX: &str = "dab86974ee2f2e7b037ec31f1a21d6ee";
+pub const SCHEMA_HASH_HEX: &str = "be0897c5c766511fb84c1fa79910f175";
 
 /// envelope magic, 'MYA1'
 pub const MAGIC: u32 = 0x4d594131;
@@ -289,6 +289,18 @@ pub const LOOP_EXIT_SHIFT: u32 = 0x4;
 pub const LOOP_REENTER: u32 = 0x40;
 /// LOOPS item flags bit 7: a parameter activation holds while the parameter is below threshold (clear: above)
 pub const LOOP_BELOW: u32 = 0x80;
+/// instance submix slots the core lays out (ADR 0331); SUBMIX voiceId 0..63
+pub const SUBMIXES_MAX: u32 = 0x40;
+/// effects a submix's chain keeps; extra ones are ignored
+pub const SUBMIX_EFFECTS_MAX: u32 = 0x8;
+/// SUBMIX effect type: the catalogue's lowpass; p cutoff Hz, resonance 0..1, drive %
+pub const SUBMIX_FX_LOWPASS: u32 = 0x1;
+/// SUBMIX effect type: the catalogue's highpass; p cutoff Hz, resonance 0..1, drive %
+pub const SUBMIX_FX_HIGHPASS: u32 = 0x2;
+/// SUBMIX effect type: the catalogue's compressor; p threshold dB, ratio, attack ms, release ms, makeup dB, knee dB
+pub const SUBMIX_FX_COMPRESSOR: u32 = 0x3;
+/// SUBMIX effect flags bit 0: the effect runs (clear: bypassed, its state kept)
+pub const SUBMIX_FX_ON: u32 = 0x1;
 
 /// K2 stub: the export exists but does nothing yet
 pub const ERR_NOT_IMPLEMENTED: i32 = -1;
@@ -350,6 +362,7 @@ pub mod op {
     pub const AUTOMATE: u16 = 0x09;
     pub const SET_VOICE_FX: u16 = 0x0a;
     pub const LOOPS: u16 = 0x0b;
+    pub const SUBMIX: u16 = 0x0c;
     pub const BUS_CONFIG: u16 = 0x10;
     pub const MASTER: u16 = 0x12;
     pub const CURVES: u16 = 0x13;
@@ -2327,6 +2340,128 @@ impl Loops {
             voice_id: head.voice_id,
             frame_offset: head.frame_offset,
             loops,
+        }, cur - base))
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SubmixEffects {
+    /// SUBMIX_FX_*; a type the core doesn't know passes the signal through
+    pub type_: u32,
+    /// SUBMIX_FX_ON
+    pub flags: u32,
+    /// the catalogue's parameters in its order; unused p = 0
+    pub p: [f32; 8],
+}
+
+impl SubmixEffects {
+    pub const FIXED_END: usize = 40;
+    pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
+        if base + Self::FIXED_END > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u32(out, base + 0, self.type_);
+        put_u32(out, base + 4, self.flags);
+        for i in 0..8 { put_f32(out, base + 8 + i * 4, self.p[i]); }
+        let mut cur = base + Self::FIXED_END;
+        Ok(cur - base)
+    }
+    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
+        let limit = buf.len();
+        Self::read_to(buf, base, limit)
+    }
+    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
+        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
+            return Err(ERR_TRUNCATED);
+        }
+        let type_ = get_u32(buf, base + 0);
+        let flags = get_u32(buf, base + 4);
+        let p = { let mut a = [0 as f32; 8]; for i in 0..8 { a[i] = get_f32(buf, base + 8 + i * 4); } a };
+        let mut cur = base + Self::FIXED_END;
+        Ok((Self {
+            type_,
+            flags,
+            p,
+        }, cur - base))
+    }
+}
+
+/// configure an instance submix's group, bus and insert chain (ADR 0331); no effects frees it
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Submix {
+    pub voice_id: u32,
+    pub frame_offset: u32,
+    /// the instance group 1..=1024 whose voices route here; 0 frees
+    pub group: u16,
+    /// the output bus index
+    pub bus: u16,
+    pub effects: Vec<SubmixEffects>,
+}
+
+impl Submix {
+    pub const FIXED_END: usize = 20;
+    pub const OPCODE: u16 = 12; // SUBMIX
+    pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
+        if base + Self::FIXED_END > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + 12, self.group);
+        put_u16(out, base + 14, self.bus);
+        put_u32(out, base + 16, u32::try_from(self.effects.len()).map_err(|_| ERR_OVERSIZE)?);
+        let mut cur = base + Self::FIXED_END;
+        for item in &self.effects {
+            cur += item.write(out, cur)?;
+        }
+        let total = cur - base;
+        if total % 4 != 0 || total / 4 > u16::MAX as usize {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + RecordHead::OPCODE_AT, Self::OPCODE);
+        put_u16(out, base + RecordHead::WORDS_AT, (total / 4) as u16);
+        put_u32(out, base + RecordHead::VOICE_ID_AT, self.voice_id);
+        put_u32(out, base + RecordHead::FRAME_OFFSET_AT, self.frame_offset);
+        Ok(cur - base)
+    }
+    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
+        let (head, _) = RecordHead::read(buf, base)?;
+        if head.opcode != Self::OPCODE {
+            return Err(ERR_MALFORMED);
+        }
+        let limit = base + head.words as usize * 4;
+        if limit > buf.len() {
+            return Err(ERR_TRUNCATED);
+        }
+        Self::read_to(buf, base, limit)
+    }
+    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
+        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
+            return Err(ERR_TRUNCATED);
+        }
+        let (head, _) = RecordHead::read(buf, base)?;
+        let group = get_u16(buf, base + 12);
+        let bus = get_u16(buf, base + 14);
+        let effect_count = get_u32(buf, base + 16);
+        let mut cur = base + Self::FIXED_END;
+        let count = effect_count as usize;
+        if count.checked_mul(40).map_or(true, |n| n > limit - cur) {
+            return Err(ERR_TRUNCATED);
+        }
+        let mut effects = Vec::with_capacity(count);
+        for _ in 0..count {
+            let (item, n) = SubmixEffects::read_to(buf, cur, limit)?;
+            cur += n;
+            effects.push(item);
+        }
+        if cur > limit {
+            return Err(ERR_MALFORMED);
+        }
+        let cur = limit; // appended words of a newer minor are skipped
+        Ok((Self {
+            voice_id: head.voice_id,
+            frame_offset: head.frame_offset,
+            group,
+            bus,
+            effects,
         }, cur - base))
     }
 }

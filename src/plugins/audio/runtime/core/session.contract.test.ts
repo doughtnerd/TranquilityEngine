@@ -106,8 +106,8 @@ describe("CoreSession (ADR 0178)", () => {
   });
 
   it("the replay header's order is ADR 0157 §7 as S10 and §4.2 extended it; the per-voice order follows each PLAY", () => {
-    // RESET 0, BUS_CONFIG, BED_CONFIG, BUS_DUCK + BUS_PRESENCE, LOUD_CONFIG, BUS_RAMP lanes, MASTER, LISTENER, ZONE_CONFIG, automation.
-    expect(PHASE_ORDER.replayHeader).toEqual(["reset", "buses", "beds", "presence", "loudness", "lanes", "master", "listener", "zones", "automation"]);
+    // RESET 0, BUS_CONFIG, BED_CONFIG, BUS_DUCK + BUS_PRESENCE, LOUD_CONFIG, BUS_RAMP lanes, MASTER, LISTENER, ZONE_CONFIG, automation, SUBMIX (ADR 0331).
+    expect(PHASE_ORDER.replayHeader).toEqual(["reset", "buses", "beds", "presence", "loudness", "lanes", "master", "listener", "zones", "automation", "submixes"]);
     // AUTOMATE + SET_LOOP, SET_VOICE_FX, then FADE, stamped ramps and SET_PAUSED.
     expect(PHASE_ORDER.replayVoice).toEqual(["automation", "voiceFx", "voiceState"]);
   });

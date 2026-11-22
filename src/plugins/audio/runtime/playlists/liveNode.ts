@@ -3,6 +3,7 @@
  * `sequence.ts`) is and what it needs of its instance (`NodeHost`).
  */
 import type { Curve } from "../../../../engine/core/curve";
+import type { Effect } from "../../../../engine/audio/effects/types";
 import type { VoiceProps } from "../../../../engine/audio/playlist/accumulate";
 import type { PickState } from "../../../../engine/audio/playlist/picks";
 import type { LoopBehaviour, PlaylistBody, SampleEntry } from "../../../../engine/audio/playlist/types";
@@ -121,6 +122,11 @@ export interface NodeHost {
    * its playhead's start and sets it to 0 while it builds, so what it starts isn't offset twice.
    */
   startOffset?: number;
+  /**
+   * ADR 0331: the effects list (by identity: the root playlist's) the instance runs on its submix, so `bodyCtx` doesn't
+   * map it onto the voices too; absent or null when the instance has no submix.
+   */
+  readonly submixedEffects?: readonly Effect[] | null;
 }
 
 // --- the base node ---------------------------------------------------------------------------------------------------

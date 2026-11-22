@@ -1120,6 +1120,12 @@ pub(crate) fn voice_entries(region: &mut [u8]) -> Option<&mut [VoiceAuto]> {
     (v.header.active_len != 0).then_some(v.voices)
 }
 
+/// Every voice slot's entry, whatever is bound (ADR 0331: the render loop reads a voice's PLAY
+/// `group` for its submix route).
+pub(crate) fn all_entries(region: &mut [u8]) -> Option<&mut [VoiceAuto]> {
+    view(region).map(|v| v.voices)
+}
+
 /// The buses' automation entries for `bus::mixdown`, or `None` when no bus has bindings.
 pub(crate) fn bus_entries(region: &mut [u8]) -> Option<&mut [BusAuto]> {
     let v = view(region)?;

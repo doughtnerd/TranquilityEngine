@@ -59,6 +59,8 @@ const SCENES = [
   "automation-pan-highpass",
   // ADR 0328: 128 voices each running a loop program (a crossfaded forward loop and a ping-pong loop), released by crossfade.
   "loop-programs",
+  // ADR 0331: 128 voices in 32 instances, each through its submix (a low-pass and a compressor).
+  "submixes",
   "automation-virtual",
   "bus-automation",
   "sustain",

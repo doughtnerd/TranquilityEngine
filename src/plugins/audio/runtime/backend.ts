@@ -5,6 +5,7 @@
  * Lives in the audio plugin (ADR 0157 §6); the engine imports the mixer from `engine/audio/mixer`.
  */
 import type { Vec3Like } from "../../../engine/core/math";
+import type { Effect } from "../../../engine/audio/effects/types";
 import { mixer, type Mixer, type MixOpTarget, type ResolvedBus } from "../../../engine/audio/mixer";
 import type { MixOp, OpClass } from "../../../engine/audio/mixOps";
 import type { AudioSettings } from "../../../engine/audio/settings";
@@ -635,6 +636,26 @@ export interface AudioBackend {
   readonly capture?: AudioCaptureSource;
   /** ADR 0248: the output device. Absent (the pending backend, a fake): nothing is kept per device. */
   readonly device?: AudioOutputDevice;
+  /**
+   * ADR 0331: instance submixes (the core's). Absent: instance effects map onto each voice (filters and gain) and the
+   * other effect types are skipped with one warning.
+   */
+  readonly submixes?: AudioSubmixes;
+}
+
+/**
+ * ADR 0331: the instance submix pool. A submix runs an instance's insert chain on the mix of its voices on one bus and
+ * feeds that bus.
+ */
+export interface AudioSubmixes {
+  /**
+   * Gives instance `group` (its voices' `PlayRequest.group`) a submix feeding `bus` that runs `effects` (the catalogue's;
+   * one already held is reconfigured). Call before the instance's first play. False when the pool is full: the
+   * instance plays without its chain (the refusal is warned once and marked in a capture). `where` names the instance.
+   */
+  open(group: number, bus: string, effects: readonly Effect[], where: string): boolean;
+  /** Frees instance `group`'s submix once its voices have ended (its group is given back). */
+  close(group: number): void;
 }
 
 let backend: AudioBackend | null = null;

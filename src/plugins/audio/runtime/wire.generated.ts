@@ -4,7 +4,7 @@
 
 export const WIRE_GENERATED = true;
 /** First 16 bytes of the schema's SHA-256, lower-case hex (32 characters). */
-export const SCHEMA_HASH = "dab86974ee2f2e7b037ec31f1a21d6ee";
+export const SCHEMA_HASH = "be0897c5c766511fb84c1fa79910f175";
 
 /** envelope magic, 'MYA1' */
 export const MAGIC = 0x4d594131;
@@ -272,6 +272,18 @@ export const LOOP_EXIT_SHIFT = 0x4;
 export const LOOP_REENTER = 0x40;
 /** LOOPS item flags bit 7: a parameter activation holds while the parameter is below threshold (clear: above) */
 export const LOOP_BELOW = 0x80;
+/** instance submix slots the core lays out (ADR 0331); SUBMIX voiceId 0..63 */
+export const SUBMIXES_MAX = 0x40;
+/** effects a submix's chain keeps; extra ones are ignored */
+export const SUBMIX_EFFECTS_MAX = 0x8;
+/** SUBMIX effect type: the catalogue's lowpass; p cutoff Hz, resonance 0..1, drive % */
+export const SUBMIX_FX_LOWPASS = 0x1;
+/** SUBMIX effect type: the catalogue's highpass; p cutoff Hz, resonance 0..1, drive % */
+export const SUBMIX_FX_HIGHPASS = 0x2;
+/** SUBMIX effect type: the catalogue's compressor; p threshold dB, ratio, attack ms, release ms, makeup dB, knee dB */
+export const SUBMIX_FX_COMPRESSOR = 0x3;
+/** SUBMIX effect flags bit 0: the effect runs (clear: bypassed, its state kept) */
+export const SUBMIX_FX_ON = 0x1;
 
 /** Negative i32 results of the C ABI (0 is ok). */
 export const ErrorCode = {
@@ -330,6 +342,7 @@ export const Op = {
   AUTOMATE: 0x09,
   SET_VOICE_FX: 0x0a,
   LOOPS: 0x0b,
+  SUBMIX: 0x0c,
   BUS_CONFIG: 0x10,
   MASTER: 0x12,
   CURVES: 0x13,
@@ -1811,6 +1824,95 @@ export function readLoops(view: DataView, off: number): Loops {
   const limit = off + view.getUint16(off + 2, true) * 4;
   if (limit > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "Loops: truncated");
   return _readLoops(view, off, limit)[0];
+}
+
+export interface SubmixEffects {
+  /** SUBMIX_FX_*; a type the core doesn't know passes the signal through */
+  type: number;
+  /** SUBMIX_FX_ON */
+  flags: number;
+  /** the catalogue's parameters in its order; unused p = 0 */
+  p: number[];
+}
+
+export const SUBMIX_EFFECTS_FIXED_END = 40;
+
+export function writeSubmixEffects(view: DataView, off: number, rec: SubmixEffects): number {
+  view.setUint32(off + 0, rec.type, true);
+  view.setUint32(off + 4, rec.flags, true);
+  for (let i = 0; i < 8; i++) view.setFloat32(off + 8 + i * 4, rec.p[i], true);
+  let cur = off + 40;
+  return cur - off;
+}
+
+function _readSubmixEffects(view: DataView, off: number, limit: number): [SubmixEffects, number] {
+  if (off + 40 > limit) throw new WireError(ErrorCode.TRUNCATED, "SubmixEffects: truncated");
+  const type = view.getUint32(off + 0, true);
+  const flags = view.getUint32(off + 4, true);
+  const p = Array.from({ length: 8 }, (_, i) => view.getFloat32(off + 8 + i * 4, true));
+  let cur = off + 40;
+  return [{ type, flags, p }, cur - off];
+}
+
+export function readSubmixEffects(view: DataView, off: number): SubmixEffects {
+  const limit = view.byteLength;
+  return _readSubmixEffects(view, off, limit)[0];
+}
+
+/** configure an instance submix's group, bus and insert chain (ADR 0331); no effects frees it */
+export interface Submix {
+  voiceId: number;
+  frameOffset: number;
+  /** the instance group 1..=1024 whose voices route here; 0 frees */
+  group: number;
+  /** the output bus index */
+  bus: number;
+  effects: SubmixEffects[];
+}
+
+export const SUBMIX_FIXED_END = 20;
+
+export function writeSubmix(view: DataView, off: number, rec: Submix): number {
+  view.setUint16(off + 12, rec.group, true);
+  view.setUint16(off + 14, rec.bus, true);
+  view.setUint32(off + 16, rec.effects.length, true);
+  let cur = off + 20;
+  for (const item of rec.effects) cur += writeSubmixEffects(view, cur, item);
+  const total = cur - off;
+  if (total % 4 !== 0 || total / 4 > 0xffff) throw new WireError(ErrorCode.OVERSIZE, "Submix: record too long");
+  view.setUint16(off + 0, 12, true);
+  view.setUint16(off + 2, total / 4, true);
+  view.setUint32(off + 4, rec.voiceId, true);
+  view.setUint32(off + 8, rec.frameOffset, true);
+  return cur - off;
+}
+
+function _readSubmix(view: DataView, off: number, limit: number): [Submix, number] {
+  if (off + 20 > limit) throw new WireError(ErrorCode.TRUNCATED, "Submix: truncated");
+  const group = view.getUint16(off + 12, true);
+  const bus = view.getUint16(off + 14, true);
+  const effectCount = view.getUint32(off + 16, true);
+  let cur = off + 20;
+  if (effectCount * 40 > limit - cur) throw new WireError(ErrorCode.TRUNCATED, "Submix: effects overrun");
+  const effects: SubmixEffects[] = [];
+  for (let i = 0; i < effectCount; i++) {
+    const [item, used] = _readSubmixEffects(view, cur, limit);
+    cur += used;
+    effects.push(item);
+  }
+  if (cur > limit) throw new WireError(ErrorCode.MALFORMED, "Submix: malformed");
+  cur = limit;
+  const voiceId = view.getUint32(off + 4, true);
+  const frameOffset = view.getUint32(off + 8, true);
+  return [{ voiceId, frameOffset, group, bus, effects }, cur - off];
+}
+
+export function readSubmix(view: DataView, off: number): Submix {
+  if (off + 12 > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "Submix: truncated");
+  if (view.getUint16(off + 0, true) !== 12) throw new WireError(ErrorCode.MALFORMED, "Submix: wrong opcode");
+  const limit = off + view.getUint16(off + 2, true) * 4;
+  if (limit > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "Submix: truncated");
+  return _readSubmix(view, off, limit)[0];
 }
 
 export interface BusConfigBusesEffects {
