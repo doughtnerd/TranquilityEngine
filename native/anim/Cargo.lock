@@ -39,6 +39,7 @@ dependencies = [
  "anim-format",
  "anim-match",
  "anim-math",
+ "anim-offline",
  "anim-physics",
  "anim-plugin-sdk",
  "anim-pose",

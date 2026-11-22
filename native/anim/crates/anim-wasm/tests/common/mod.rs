@@ -6,6 +6,8 @@
 #[path = "../../../anim-compress/tests/common/mod.rs"]
 pub mod synth;
 
+pub mod graph;
+
 use anim_compress::{compress, RootMotion, Settings, ROOT_ALL};
 use anim_format::clip::ClipView;
 use anim_format::skeleton::{Skeleton, SkeletonView};

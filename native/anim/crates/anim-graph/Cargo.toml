@@ -17,3 +17,7 @@ anim-retarget.workspace = true
 anim-match.workspace = true
 anim-physics.workspace = true
 anim-plugin-sdk.workspace = true
+
+# Tests compare blend-space weights with the f64 reference (anim-offline depends only on anim-format).
+[dev-dependencies]
+anim-offline.workspace = true

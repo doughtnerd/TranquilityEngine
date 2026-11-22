@@ -534,9 +534,24 @@ fn enter(
     duration: f32,
     shape: u32,
 ) -> Entry {
-    let program = cx.program();
-    let (root, ctx) = state_ctx(program, m, s);
+    let ctx = state_ctx(cx.program(), m, s).1;
     cx.init_context(ctx);
+    entered(cx, mi, m, s, duration, shape)
+}
+
+/// Makes local state `s` current (its context already initialised): returns its entry. The
+/// machine's own Init uses it directly: the loop that initialises the machine has initialised its
+/// states' contexts (they come first in evaluation order), so a random selector there picks once.
+fn entered(
+    cx: &mut EvalContext<'_>,
+    mi: usize,
+    m: &MachineInfo,
+    s: u32,
+    duration: f32,
+    shape: u32,
+) -> Entry {
+    let program = cx.program();
+    let (root, _) = state_ctx(program, m, s);
     let st = cx.state();
     st[machine::CURRENT] = s;
     st[machine::TARGET] = NONE;
@@ -818,7 +833,7 @@ fn state_machine(cx: &mut EvalContext<'_>, node: NodeData<'_>) {
             if m.states.1 == 0 {
                 return;
             }
-            let e = enter(cx, mi, &m, entry, 0.0, 0);
+            let e = entered(cx, mi, &m, entry, 0.0, 0);
             set_entries(cx, &[e]);
         }
         Phase::Update => update_machine(cx, mi, &m),
@@ -1123,10 +1138,9 @@ fn random_pick(cx: &mut EvalContext<'_>, node: &NodeData<'_>) -> u32 {
 fn random(cx: &mut EvalContext<'_>, node: NodeData<'_>) {
     match cx.phase() {
         Phase::Layout => cx.set_state_words(rnd::WORDS, 0),
+        // The pick's context was initialised by the loop that initialises this node.
         Phase::Init => {
-            let pick = random_pick(cx, &node);
-            let ctx = cx.input_context(&node, pick as usize);
-            cx.init_context(ctx);
+            random_pick(cx, &node);
         }
         Phase::Update => {
             let pick = cx.state()[rnd::PICK] as usize;
@@ -1209,8 +1223,6 @@ fn chooser(cx: &mut EvalContext<'_>, node: NodeData<'_>) {
     match cx.phase() {
         Phase::Init => {
             let pick = choose(cx, ci);
-            let (_, ctx) = pick_target(program, ci, pick);
-            cx.init_context(ctx);
             let s = cx.state();
             s[ch::PICK] = pick;
             s[ch::PREV] = NONE;
