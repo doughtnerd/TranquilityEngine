@@ -1,5 +1,8 @@
 /* Play mode debugging (ADR 0022): pause/step, the World picker, the live Hierarchy and Inspector. */
 .play-controls .pause-button.active { color: var(--accent); border-color: var(--accent); }
+/* The preview language menu and the Subtitles overlay toggle (ADR 0342 §9, 0343 §6). */
+.play-controls .play-language { max-width: 150px; background: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 1px 4px; }
+.play-controls .play-subtitles.active { color: var(--accent); border-color: var(--accent); }
 
 .world-picker { padding: 4px 6px; border-bottom: 1px solid var(--border); }
 .world-picker label { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
