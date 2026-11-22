@@ -2,26 +2,26 @@
 // `cargo run --manifest-path native/audio/crates/audio-wire/Cargo.toml --bin gen_wire`.
 #![allow(clippy::all, dead_code, unused_mut)]
 
-/// First 16 bytes of the schema's SHA-256 (hex: b2283bb4820ce50e47272aa5f7361a2b).
+/// First 16 bytes of the schema's SHA-256 (hex: 763245ca0a6470f2ea9f42e9d76d3d4a).
 pub const SCHEMA_HASH: [u8; 16] = [
-    0xb2,
-    0x28,
-    0x3b,
-    0xb4,
-    0x82,
-    0x0c,
-    0xe5,
-    0x0e,
-    0x47,
-    0x27,
-    0x2a,
-    0xa5,
-    0xf7,
-    0x36,
-    0x1a,
-    0x2b,
+    0x76,
+    0x32,
+    0x45,
+    0xca,
+    0x0a,
+    0x64,
+    0x70,
+    0xf2,
+    0xea,
+    0x9f,
+    0x42,
+    0xe9,
+    0xd7,
+    0x6d,
+    0x3d,
+    0x4a,
 ];
-pub const SCHEMA_HASH_HEX: &str = "b2283bb4820ce50e47272aa5f7361a2b";
+pub const SCHEMA_HASH_HEX: &str = "763245ca0a6470f2ea9f42e9d76d3d4a";
 
 /// envelope magic, 'MYA1'
 pub const MAGIC: u32 = 0x4d594131;
@@ -335,6 +335,34 @@ pub const BUS_FX_CATALOGUE: u32 = 0x10;
 pub const FX_MEMORY_SECONDS: u32 = 0x14;
 /// SUBMIX effect flags bit 0: the effect runs (clear: bypassed, its state kept)
 pub const SUBMIX_FX_ON: u32 = 0x1;
+/// SUBMIX parent: the slot feeds its bus (else parent - 1 is the slot it feeds; ABI 4.9)
+pub const SUBMIX_PARENT_NONE: u32 = 0x0;
+/// submix levels a chain of parents keeps (ABI 4.9); a slot deeper than this feeds its bus
+pub const SUBMIX_DEPTH_MAX: u32 = 0x8;
+/// LOOPS shapes nibble: equal power (sin in, cos out; the default, ABI 4.9)
+pub const FADE_SHAPE_EQUAL_POWER: u32 = 0x0;
+/// LOOPS shapes nibble: linear
+pub const FADE_SHAPE_LINEAR: u32 = 0x1;
+/// LOOPS shapes nibble: s-curve u^2(3 - 2u)
+pub const FADE_SHAPE_S_CURVE: u32 = 0x2;
+/// LOOPS shapes nibble: inverse s-curve 2u - u^2(3 - 2u)
+pub const FADE_SHAPE_INV_S_CURVE: u32 = 0x3;
+/// LOOPS shapes nibble: log 1 - (1 - u)^1.41
+pub const FADE_SHAPE_LOG1: u32 = 0x4;
+/// LOOPS shapes nibble: log 1 - (1 - u)^2
+pub const FADE_SHAPE_LOG2: u32 = 0x5;
+/// LOOPS shapes nibble: log 1 - (1 - u)^3
+pub const FADE_SHAPE_LOG3: u32 = 0x6;
+/// LOOPS shapes nibble: exp u^1.41
+pub const FADE_SHAPE_EXP1: u32 = 0x7;
+/// LOOPS shapes nibble: exp u^2
+pub const FADE_SHAPE_EXP2: u32 = 0x8;
+/// LOOPS shapes nibble: exp u^3
+pub const FADE_SHAPE_EXP3: u32 = 0x9;
+/// LOOPS item shapes bits 0-3: the seam crossfade's FADE_SHAPE_* (ABI 4.9)
+pub const LOOP_SEAM_SHAPE_SHIFT: u32 = 0x0;
+/// LOOPS item shapes bits 4-7: the exit crossfade's FADE_SHAPE_* (ABI 4.9)
+pub const LOOP_EXIT_SHAPE_SHIFT: u32 = 0x4;
 
 /// K2 stub: the export exists but does nothing yet
 pub const ERR_NOT_IMPLEMENTED: i32 = -1;
@@ -397,6 +425,7 @@ pub mod op {
     pub const SET_VOICE_FX: u16 = 0x0a;
     pub const LOOPS: u16 = 0x0b;
     pub const SUBMIX: u16 = 0x0c;
+    pub const ROUTE: u16 = 0x0d;
     pub const BUS_CONFIG: u16 = 0x10;
     pub const MASTER: u16 = 0x12;
     pub const CURVES: u16 = 0x13;
@@ -2036,10 +2065,12 @@ pub struct AutomateBindings {
     pub curve: u16,
     /// 0 volume (gain multiplier), 1 pitch (ratio multiplier), 2 lowpass (Hz), 3 highpass (Hz floor, highest wins; voices only, ABI 4.4), 4 pan (-1..1, summed; voices only, ABI 4.4)
     pub target: u32,
+    /// ABI 4.9: seconds added to a time parameter before the curve reads it (the binding's time origin: a lane keyed on its playlist's start, read by a voice that started later, is `start - origin`); ignored for other params
+    pub offset: f32,
 }
 
 impl AutomateBindings {
-    pub const FIXED_END: usize = 8;
+    pub const FIXED_END: usize = 12;
     pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
         if base + Self::FIXED_END > out.len() {
             return Err(ERR_OVERSIZE);
@@ -2047,6 +2078,7 @@ impl AutomateBindings {
         put_u16(out, base + 0, self.param);
         put_u16(out, base + 2, self.curve);
         put_u32(out, base + 4, self.target);
+        put_f32(out, base + 8, self.offset);
         let mut cur = base + Self::FIXED_END;
         Ok(cur - base)
     }
@@ -2061,11 +2093,13 @@ impl AutomateBindings {
         let param = get_u16(buf, base + 0);
         let curve = get_u16(buf, base + 2);
         let target = get_u32(buf, base + 4);
+        let offset = get_f32(buf, base + 8);
         let mut cur = base + Self::FIXED_END;
         Ok((Self {
             param,
             curve,
             target,
+            offset,
         }, cur - base))
     }
 }
@@ -2119,7 +2153,7 @@ impl Automate {
         let binding_count = get_u32(buf, base + 12);
         let mut cur = base + Self::FIXED_END;
         let count = binding_count as usize;
-        if count.checked_mul(8).map_or(true, |n| n > limit - cur) {
+        if count.checked_mul(12).map_or(true, |n| n > limit - cur) {
             return Err(ERR_TRUNCATED);
         }
         let mut bindings = Vec::with_capacity(count);
@@ -2244,9 +2278,9 @@ pub struct LoopsLoops {
     pub start_frame: u32,
     /// clip frames; equal to startFrame: a hold point
     pub end_frame: u32,
-    /// the seam's equal-power crossfade (and a hold point's fades), clip frames
+    /// the seam's crossfade (and a hold point's fades), clip frames; shaped by `shapes` bits 0-3
     pub crossfade_frames: u32,
-    /// exit crossfade's length, clip frames
+    /// exit crossfade's length, clip frames; shaped by `shapes` bits 4-7
     pub exit_fade_frames: u32,
     /// 0 endless; else passes in all, the first included
     pub count: u16,
@@ -2254,7 +2288,8 @@ pub struct LoopsLoops {
     pub flags: u16,
     /// activation parameter: a binding param (PARAM_GLOBAL | slot, or a local slot)
     pub param: u16,
-    pub reserved: u16,
+    /// ABI 4.9: FADE_SHAPE_* of the seam (bits 0-3) and exit (bits 4-7) crossfades; 0 equal power
+    pub shapes: u16,
     /// activation threshold
     pub threshold: f32,
 }
@@ -2272,7 +2307,7 @@ impl LoopsLoops {
         put_u16(out, base + 16, self.count);
         put_u16(out, base + 18, self.flags);
         put_u16(out, base + 20, self.param);
-        put_u16(out, base + 22, self.reserved);
+        put_u16(out, base + 22, self.shapes);
         put_f32(out, base + 24, self.threshold);
         let mut cur = base + Self::FIXED_END;
         Ok(cur - base)
@@ -2292,7 +2327,7 @@ impl LoopsLoops {
         let count = get_u16(buf, base + 16);
         let flags = get_u16(buf, base + 18);
         let param = get_u16(buf, base + 20);
-        let reserved = get_u16(buf, base + 22);
+        let shapes = get_u16(buf, base + 22);
         let threshold = get_f32(buf, base + 24);
         let mut cur = base + Self::FIXED_END;
         Ok((Self {
@@ -2303,7 +2338,7 @@ impl LoopsLoops {
             count,
             flags,
             param,
-            reserved,
+            shapes,
             threshold,
         }, cur - base))
     }
@@ -2421,20 +2456,23 @@ impl SubmixEffects {
     }
 }
 
-/// configure an instance submix's group, bus and insert chain (ADR 0331); no effects frees it
+/// configure a submix's group, bus, parent and insert chain (ADR 0331); no effects frees it
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Submix {
     pub voice_id: u32,
     pub frame_offset: u32,
-    /// the instance group 1..=1024 whose voices route here; 0 frees
+    /// the instance group 1..=1024 whose voices on `bus` route here; 0 none (ROUTE only)
     pub group: u16,
     /// the output bus index
     pub bus: u16,
+    /// ABI 4.9: the slot this one feeds, plus 1; SUBMIX_PARENT_NONE (0) the bus
+    pub parent: u16,
+    pub reserved: u16,
     pub effects: Vec<SubmixEffects>,
 }
 
 impl Submix {
-    pub const FIXED_END: usize = 20;
+    pub const FIXED_END: usize = 24;
     pub const OPCODE: u16 = 12; // SUBMIX
     pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
         if base + Self::FIXED_END > out.len() {
@@ -2443,6 +2481,8 @@ impl Submix {
         put_u16(out, base + 12, self.group);
         put_u16(out, base + 14, self.bus);
         put_u32(out, base + 16, u32::try_from(self.effects.len()).map_err(|_| ERR_OVERSIZE)?);
+        put_u16(out, base + 20, self.parent);
+        put_u16(out, base + 22, self.reserved);
         let mut cur = base + Self::FIXED_END;
         for item in &self.effects {
             cur += item.write(out, cur)?;
@@ -2476,6 +2516,8 @@ impl Submix {
         let group = get_u16(buf, base + 12);
         let bus = get_u16(buf, base + 14);
         let effect_count = get_u32(buf, base + 16);
+        let parent = get_u16(buf, base + 20);
+        let reserved = get_u16(buf, base + 22);
         let mut cur = base + Self::FIXED_END;
         let count = effect_count as usize;
         if count.checked_mul(40).map_or(true, |n| n > limit - cur) {
@@ -2496,7 +2538,71 @@ impl Submix {
             frame_offset: head.frame_offset,
             group,
             bus,
+            parent,
+            reserved,
             effects,
+        }, cur - base))
+    }
+}
+
+/// route a voice into a submix slot (ADR 0331 levels)
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Route {
+    pub voice_id: u32,
+    pub frame_offset: u32,
+    /// the submix slot plus 1; 0 the group's route
+    pub submix: u16,
+    pub reserved: u16,
+}
+
+impl Route {
+    pub const FIXED_END: usize = 16;
+    pub const OPCODE: u16 = 13; // ROUTE
+    pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
+        if base + Self::FIXED_END > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + 12, self.submix);
+        put_u16(out, base + 14, self.reserved);
+        let mut cur = base + Self::FIXED_END;
+        let total = cur - base;
+        if total % 4 != 0 || total / 4 > u16::MAX as usize {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + RecordHead::OPCODE_AT, Self::OPCODE);
+        put_u16(out, base + RecordHead::WORDS_AT, (total / 4) as u16);
+        put_u32(out, base + RecordHead::VOICE_ID_AT, self.voice_id);
+        put_u32(out, base + RecordHead::FRAME_OFFSET_AT, self.frame_offset);
+        Ok(cur - base)
+    }
+    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
+        let (head, _) = RecordHead::read(buf, base)?;
+        if head.opcode != Self::OPCODE {
+            return Err(ERR_MALFORMED);
+        }
+        let limit = base + head.words as usize * 4;
+        if limit > buf.len() {
+            return Err(ERR_TRUNCATED);
+        }
+        Self::read_to(buf, base, limit)
+    }
+    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
+        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
+            return Err(ERR_TRUNCATED);
+        }
+        let (head, _) = RecordHead::read(buf, base)?;
+        let submix = get_u16(buf, base + 12);
+        let reserved = get_u16(buf, base + 14);
+        let mut cur = base + Self::FIXED_END;
+        if cur > limit {
+            return Err(ERR_MALFORMED);
+        }
+        let cur = limit; // appended words of a newer minor are skipped
+        Ok((Self {
+            voice_id: head.voice_id,
+            frame_offset: head.frame_offset,
+            submix,
+            reserved,
         }, cur - base))
     }
 }

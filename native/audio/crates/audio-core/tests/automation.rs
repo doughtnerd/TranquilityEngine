@@ -74,7 +74,7 @@ fn automate(voice: u32, bindings: &[(u16, u16, u32)]) -> Rec {
     let a = wire::Automate {
         voice_id: voice,
         frame_offset: wire::ASAP,
-        bindings: bindings.iter().map(|&(param, curve, target)| wire::AutomateBindings { param, curve, target }).collect(),
+        bindings: bindings.iter().map(|&(param, curve, target)| wire::AutomateBindings { param, curve, target, offset: 0.0 }).collect(),
     };
     raw(move |b| a.write(b, 0))
 }

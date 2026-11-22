@@ -44,6 +44,8 @@ fn submix_rec(slot: u32, group: u16, bus: u16, effects: &[(u32, &[f32])]) -> Rec
         frame_offset: wire::ASAP,
         group,
         bus,
+        parent: 0,
+        reserved: 0,
         effects: effects
             .iter()
             .map(|&(type_, p)| {

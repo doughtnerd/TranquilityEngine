@@ -9,7 +9,9 @@
 //!   forward again) or backward (forward to its end, then the region plays reversed, again and again);
 //! - a **repeat count** (0 endless; else the region is played that many times in all, the first pass
 //!   included, then the voice plays on past it);
-//! - a **crossfade** at the seam (`xfade` clip frames, equal power): where the playhead wraps, the
+//! - a **crossfade** at the seam (`xfade` clip frames, in the loop's seam shape, ABI 4.9: one of the
+//!   playlist fade shapes, `audio_dsp::fade_shapes`; equal power by default; an exit crossfade takes
+//!   its exit shape): where the playhead wraps, the
 //!   audio it leaves goes on reading past the seam as a tail fading out while the loop's other end
 //!   fades in (a ping-pong turn is continuous, so it needs none);
 //! - a **hold point** when `start == end`: the playhead parks there (silent, its last audio fading out
@@ -31,7 +33,6 @@
 //! sample (`voices::set_loop`). Stream voices keep the single-region loop of the decoder worker, and
 //! ambisonic voices play a program straight through (neither reads frame by frame here).
 
-use audio_dsp::equal_power::{cos_quarter, sin_quarter};
 use audio_dsp::resample::{weights, Samples, Source};
 use audio_wire::generated as wire;
 
@@ -83,11 +84,22 @@ pub struct LoopDef {
     pub flags: u16,
     /// A binding's `param` (global or local slot) for activation `PARAMETER`.
     pub param: u16,
-    pub _pad: u16,
+    /// ABI 4.9: the seam's (bits 0-3) and exit's (bits 4-7) crossfade shapes (`FADE_SHAPE_*`).
+    pub shapes: u16,
     pub threshold: f32,
 }
 
 impl LoopDef {
+    /// The seam crossfade's shape (also a hold point's fades, a jump exit and a re-entry).
+    #[inline]
+    pub fn seam_shape(&self) -> u8 {
+        ((self.shapes >> wire::LOOP_SEAM_SHAPE_SHIFT) & 0xF) as u8
+    }
+    /// The exit crossfade's shape.
+    #[inline]
+    pub fn exit_shape(&self) -> u8 {
+        ((self.shapes >> wire::LOOP_EXIT_SHAPE_SHIFT) & 0xF) as u8
+    }
     #[inline]
     pub fn direction(&self) -> u8 {
         (self.flags & flags::DIRECTION_MASK) as u8
@@ -142,6 +154,9 @@ pub struct Program {
     /// The crossfade in progress: frames left of `fade_len` (the main reader fades in, the tail out).
     pub fade_left: u32,
     pub fade_len: u32,
+    /// The crossfade in progress's shape (`FADE_SHAPE_*`, ABI 4.9).
+    pub fade_shape: u8,
+    pub _pad: [u8; 3],
     pub tail_pos: f64,
     pub defs: [LoopDef; MAX_LOOPS],
 }
@@ -220,8 +235,8 @@ fn leave(p: &mut Program, c: usize) {
 }
 
 /// Starts a crossfade of `len` frames: the tail (when `tail`) reads on from `(pos, dir)` fading out
-/// while the main reader fades in. `len` 0 is a cut.
-fn begin_fade(p: &mut Program, len: u32, tail: Option<(f64, i8)>) {
+/// while the main reader fades in, both in `shape` (`FADE_SHAPE_*`). `len` 0 is a cut.
+fn begin_fade(p: &mut Program, len: u32, shape: u8, tail: Option<(f64, i8)>) {
     if len == 0 {
         p.tail_on = 0;
         p.fade_left = 0;
@@ -229,6 +244,7 @@ fn begin_fade(p: &mut Program, len: u32, tail: Option<(f64, i8)>) {
     }
     p.fade_len = len;
     p.fade_left = len;
+    p.fade_shape = shape;
     match tail {
         Some((pos, dir)) => {
             p.tail_on = 1;
@@ -269,7 +285,7 @@ pub fn step(p: &mut Program, pos: &mut f64, step: f32) {
             if *pos <= start && new > start {
                 if armed {
                     // Park on the hold point; what was playing reads on as a fading tail.
-                    begin_fade(p, l.xfade, Some((new, 1)));
+                    begin_fade(p, l.xfade, l.seam_shape(), Some((new, 1)));
                     p.parked = 1;
                     p.fade_left = p.fade_left.max(0);
                     *pos = start;
@@ -287,7 +303,7 @@ pub fn step(p: &mut Program, pos: &mut f64, step: f32) {
                 let len = end - start;
                 match l.direction() {
                     direction::FORWARD => {
-                        begin_fade(p, l.xfade, Some((new, 1)));
+                        begin_fade(p, l.xfade, l.seam_shape(), Some((new, 1)));
                         while new >= end {
                             new -= len;
                         }
@@ -310,7 +326,7 @@ pub fn step(p: &mut Program, pos: &mut f64, step: f32) {
             if l.direction() == direction::BACKWARD {
                 p.passes = p.passes.saturating_add(1);
                 let more = armed && (l.count == 0 || p.passes < l.count);
-                begin_fade(p, l.xfade, Some((new, -1)));
+                begin_fade(p, l.xfade, l.seam_shape(), Some((new, -1)));
                 if more {
                     while new < start {
                         new += len;
@@ -347,15 +363,15 @@ pub fn settle(p: &mut Program, pos: &mut f64) {
         if l.hold() {
             if p.parked != 0 {
                 p.parked = 0;
-                begin_fade(p, l.xfade, None);
+                begin_fade(p, l.xfade, l.seam_shape(), None);
                 leave(p, c);
             }
         } else {
             let inside = p.dir < 0 || (*pos >= l.start as f64 && *pos < l.end as f64);
             if inside {
                 match l.exit() {
-                    exit::JUMP => exit_to_end(p, pos, c, l.xfade),
-                    exit::CROSSFADE => exit_to_end(p, pos, c, l.exit_fade),
+                    exit::JUMP => exit_to_end(p, pos, c, l.xfade, l.seam_shape()),
+                    exit::CROSSFADE => exit_to_end(p, pos, c, l.exit_fade, l.exit_shape()),
                     _ => {} // finish: the pass plays out, then the loop is left at its end
                 }
             }
@@ -375,7 +391,7 @@ pub fn settle(p: &mut Program, pos: &mut f64) {
     }
     if let Some(i) = back {
         let d = p.defs[i];
-        begin_fade(p, d.xfade, Some((*pos, p.dir)));
+        begin_fade(p, d.xfade, d.seam_shape(), Some((*pos, p.dir)));
         *pos = d.start as f64;
         p.dir = 1;
         p.passes = 0;
@@ -389,9 +405,9 @@ pub fn settle(p: &mut Program, pos: &mut f64) {
     }
 }
 
-fn exit_to_end(p: &mut Program, pos: &mut f64, c: usize, fade: u32) {
+fn exit_to_end(p: &mut Program, pos: &mut f64, c: usize, fade: u32, shape: u8) {
     let end = p.defs[c].end as f64;
-    begin_fade(p, fade, Some((*pos, p.dir)));
+    begin_fade(p, fade, shape, Some((*pos, p.dir)));
     *pos = end;
     p.dir = 1;
     leave(p, c);
@@ -496,7 +512,7 @@ fn render_frame(p: &mut Program, src: &Source<'_>, pos: &mut f64, st: f32, out_l
         let (mut l, mut r) = if p.parked != 0 { (0.0, 0.0) } else { read(src, *pos, wrap_of(p, *pos)) };
         if p.fade_left > 0 && p.fade_len > 0 {
             let u = 1.0 - p.fade_left as f32 / p.fade_len as f32;
-            let (gm, gt) = (sin_quarter(u), cos_quarter(u));
+            let (gm, gt) = audio_dsp::fade_shapes::crossfade(p.fade_shape, u);
             l *= gm;
             r *= gm;
             if p.tail_on != 0 {
@@ -521,6 +537,7 @@ pub fn advance(p: &mut Program, pos: &mut f64, steps: &[f32]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use audio_dsp::equal_power::{cos_quarter, sin_quarter};
 
     fn def(start: u32, end: u32, dir: u8, act: u8, exit_: u8, count: u16) -> LoopDef {
         LoopDef { start, end, count, flags: dir as u16 | (act as u16) << flags::ACTIVE_SHIFT | (exit_ as u16) << flags::EXIT_SHIFT, ..LoopDef::default() }
@@ -664,6 +681,39 @@ mod tests {
         let u = 0.5f32;
         assert!((l[18] - (10.0 * sin_quarter(u) + 18.0 * cos_quarter(u))).abs() < 1e-3, "{}", l[18]);
         assert_eq!(l[20], 12.0, "after the fade, the loop alone");
+        assert_eq!(l, r);
+    }
+
+    /// ABI 4.9: the seam takes the loop's seam shape, the exit crossfade its exit shape.
+    #[test]
+    fn a_shaped_seam_and_exit_read_their_shapes_at_mid_crossfade() {
+        let clip: Vec<f32> = (0..64).map(|i| i as f32).collect();
+        let src = Source { samples: Samples::F32(&clip), channels: 1, frames: 64 };
+        let linear = wire::FADE_SHAPE_LINEAR as u16;
+        let s_curve = wire::FADE_SHAPE_S_CURVE as u16;
+        let shapes = linear << wire::LOOP_SEAM_SHAPE_SHIFT | s_curve << wire::LOOP_EXIT_SHAPE_SHIFT;
+        let mut p = Program::default();
+        load(&mut p, &[LoopDef { xfade: 4, exit_fade: 4, shapes, ..def(8, 16, direction::FORWARD, active::HELD, exit::CROSSFADE, 0) }], 1, 0.0);
+        let mut pos = 0.0;
+        let (mut l, mut r) = (vec![0.0; 24], vec![0.0; 24]);
+        render(&mut p, &src, &mut pos, &[1.0; 24], &mut l, &mut r);
+        // Frame 18 is mid-seam (u = 0.5): linear, 0.5 of the loop's start (10) and 0.5 of the tail (18),
+        // where equal power would read 0.707 of each.
+        assert!((l[18] - (10.0 * 0.5 + 18.0 * 0.5)).abs() < 1e-3, "{}", l[18]);
+        // The loop is let go: it exits to its end through an s-curve crossfade, the audio it left
+        // reading on as the tail.
+        let before = pos;
+        p.want = 0;
+        settle(&mut p, &mut pos);
+        assert_eq!(pos, 16.0);
+        let (mut l, mut r) = (vec![0.0; 4], vec![0.0; 4]);
+        render(&mut p, &src, &mut pos, &[1.0; 4], &mut l, &mut r);
+        let s = |u: f32| u * u * (3.0 - 2.0 * u);
+        for (k, u) in [(1usize, 0.25f32), (2, 0.5)] {
+            let want = (16.0 + k as f64) as f32 * s(u) + (before + k as f64) as f32 * (1.0 - s(u));
+            assert!((l[k] - want).abs() < 1e-3, "frame {k}: {} vs {want}", l[k]);
+        }
+        assert!((s(0.25) - 0.15625).abs() < 1e-6, "not equal power's sin(π/8) = 0.383");
         assert_eq!(l, r);
     }
 }

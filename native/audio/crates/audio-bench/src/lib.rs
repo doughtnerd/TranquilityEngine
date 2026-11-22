@@ -1550,7 +1550,7 @@ impl Bench {
                     wire::SubmixEffects { type_: wire::SUBMIX_FX_COMPRESSOR as u32, flags: wire::SUBMIX_FX_ON, p: [-24.0, 4.0, 10.0, 120.0, 3.0, 6.0, 0.0, 0.0] },
                 ],
             };
-            self.push(&wire::Submix { voice_id: slot, frame_offset: wire::ASAP, group: slot as u16 + 1, bus: 0, effects });
+            self.push(&wire::Submix { voice_id: slot, frame_offset: wire::ASAP, group: slot as u16 + 1, bus: 0, parent: 0, reserved: 0, effects });
         }
         if s.bindings > 0 || s.bus_automation || s.lanes7 {
             self.push(&bench_curves(s.bezier));
@@ -1914,7 +1914,7 @@ impl Bench {
             } else {
                 [(0x8000u16, 0u16, 0u32), (0, 1, 1), (0x8001, 2, 2), (0x8000, 0, 4), (0x8001, 2, 3)]
             };
-            let bindings = all[..s.bindings.min(5) as usize].iter().map(|&(param, curve, target)| wire::AutomateBindings { param, curve, target }).collect();
+            let bindings = all[..s.bindings.min(5) as usize].iter().map(|&(param, curve, target)| wire::AutomateBindings { param, curve, target, offset: 0.0 }).collect();
             self.push(&wire::Automate { voice_id: id, frame_offset: wire::ASAP, bindings });
         }
         if s.sustain && s.loop_programs && mixed && stream.is_none() {
@@ -1926,7 +1926,7 @@ impl Bench {
                 count: 0,
                 flags: dir | 1 << wire::LOOP_ACTIVE_SHIFT | 2 << wire::LOOP_EXIT_SHIFT,
                 param: 0,
-                reserved: 0,
+                shapes: 0,
                 threshold: 0.0,
             };
             let loops = vec![item(frames / 6, frames / 3, 0), item(frames / 2, 2 * frames / 3, 1)];

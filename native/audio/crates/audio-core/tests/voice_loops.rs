@@ -59,7 +59,7 @@ fn loops(voice: u32, list: &[L]) -> Rec {
                 count: l.count,
                 flags: l.dir as u16 | (l.act as u16) << flags::ACTIVE_SHIFT | (l.exit as u16) << flags::EXIT_SHIFT | if l.reenter { flags::REENTER } else { 0 } | if l.below { flags::BELOW } else { 0 },
                 param: l.param,
-                reserved: 0,
+                shapes: 0,
                 threshold: l.threshold,
             })
             .collect(),
