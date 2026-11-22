@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { Take } from "../../engine/audio/take/reader";
 import type { TakeRecord } from "../../engine/audio/take/records";
 import type { TakeMeta, TakeRequest } from "../../engine/audio/take/types";
-import { TakeReplay, UNSEEDED_NOTE, type ReplayHandle, type ReplayPlayOptions, type ReplayPose, type ReplayTarget, type Vec3 } from "./takeReplay";
+import { TakeReplay, UNSEEDED_NOTE, type ReplayHandle, type ReplayLineHandle, type ReplayPlayOptions, type ReplayPose, type ReplayTarget, type Vec3 } from "./takeReplay";
 
 const META: TakeMeta = { project: "P", engine: "myco", audioHash: "h", seed: 9, device: "ua", started: new Date(0).toISOString(), duration: 10, emitters: { 0: "Listener", 1: "Bike" }, frames: false };
 const req = (q: TakeRequest): TakeRecord => ({ type: "request", requests: [q] });
@@ -271,5 +271,72 @@ describe("TakeReplay (ADR 0334)", () => {
     expect(log).toEqual(["stop a", "bus SFX=1/0", "clear/0", "master 1"]);
     replay.play();
     expect(replay.playing.value).toBe(false);
+  });
+});
+
+describe("TakeReplay: lines, languages and dialogue says (ADR 0340 §10, 0341 §6)", () => {
+  /** A target whose `say` picks from a table (what the current project would pick), and plays lines by key. */
+  function sayTarget(picks: Record<string, string | null>) {
+    const fake = fakeTarget();
+    const lineHandle = (key: string): ReplayLineHandle => {
+      let stopped = false;
+      return {
+        key, position: null,
+        get state() { return stopped ? ("ended" as const) : ("playing" as const); },
+        get playing() { return !stopped; },
+        stop() { stopped = true; fake.log.push(`stop line ${key}`); },
+        release() {}, setParameter() {}, trigger() {},
+      };
+    };
+    fake.target.line = (key) => (fake.log.push(`line ${key}`), lineHandle(key));
+    fake.target.say = (event, o) => {
+      fake.log.push(`say ${event} ${JSON.stringify(o.args)}${o.channel ? ` @${o.channel}` : ""}`);
+      const key = picks[event] ?? null;
+      return key === null ? null : lineHandle(key);
+    };
+    fake.target.language = (audio, subtitles) => fake.log.push(`language ${audio}/${subtitles}`);
+    return fake;
+  }
+
+  const records = [
+    req({ kind: "language", t: 0.1, audio: "fr", subtitles: null }),
+    req({ kind: "line", t: 0.2, instance: 1, key: "intro_01", language: "fr", options: { volume: 0.5 } }),
+    req({ kind: "say", t: 0.3, instance: 2, event: "spotted", args: { speaker: "Guard", distance: "*" }, options: { channel: "Guard" }, state: "playing", picked: { key: "guard_near", pathIndex: 0 }, random: 1234 }),
+    req({ kind: "say", t: 0.4, instance: 3, event: "chat", args: {}, options: {}, state: "playing", picked: { key: "chat_01", pathIndex: 0 }, random: 99 }),
+    req({ kind: "stop", t: 0.5, instance: 1, fade: 0.1 }),
+  ];
+
+  function run(picks: Record<string, string | null>, recordedPicks = false) {
+    const clock = { t: 100 };
+    const fake = sayTarget(picks);
+    const replay = new TakeReplay(new Take(META, records), fake.target, { now: () => clock.t });
+    replay.replayRecordedPicks.value = recordedPicks;
+    replay.play();
+    fake.log.length = 0;
+    clock.t = 101;
+    replay.tick();
+    return { replay, log: fake.log };
+  }
+
+  it("re-decides each say with its recorded arguments after restarting the generator from its recorded state", () => {
+    const { replay, log } = run({ spotted: "guard_near", chat: "chat_01" });
+    expect(log).toEqual([
+      "language fr/null", "line intro_01",
+      "seed 1234", 'say spotted {"speaker":"Guard"} @Guard', // `*` (matched only wildcards) is left to the default
+      "seed 99", "say chat {}",
+      "stop line intro_01",
+    ]);
+    expect(replay.pickDifferences.value.size).toBe(0);
+  });
+
+  it('marks the says whose replay picked differently ("picked X, recorded Y"), and only those', () => {
+    const { replay } = run({ spotted: "guard_any", chat: "chat_01" });
+    expect([...replay.pickDifferences.value.values()]).toEqual([{ instance: 2, event: "spotted", t: 0.3, picked: "guard_any", recorded: "guard_near" }]);
+  });
+
+  it("Replay recorded picks plays the recorded lines by key instead of deciding", () => {
+    const { replay, log } = run({ spotted: "guard_any", chat: null }, true);
+    expect(log).toEqual(["language fr/null", "line intro_01", "line guard_near", "line chat_01", "stop line intro_01"]);
+    expect(replay.pickDifferences.value.size).toBe(0);
   });
 });
