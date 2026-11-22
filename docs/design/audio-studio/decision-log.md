@@ -456,3 +456,13 @@ backend (no wasi-sdk); the decoder client keeps a main-thread copy of packages f
 integration task decides). Merge fix: the runtime's `media` seam and the core's `codecs` capability were the same
 thing built twice; unified on `codecs`. The two halves of package playback (runtime blob URLs vs decoder packs) were
 never connected — an integration task is wiring them. Mixer 497,970 B of the 512 KB tripwire.
+
+**D59. Plugins in the core and package playback wired (W12-B3/B4 and integration, merged).** Full Vitest
+(engine, audio, Studio, export) after: 630 files, 7205 passed. Plugin glue on the real core: 0.18–0.33 µs per call
+(matches the spike); 32 tremolos on 4 buses 163 µs per quantum. Mixer 501,602 B (tripwire 512 KB not raised). Choices
+to review: plugins are on wherever the core runs (no engine gate; 0344 §6 asked for one only if JSC/SpiderMonkey fail,
+still unmeasured); the fuel cap is per chain level; "disabled" is per effect type; `myco_ext` has five imports
+(describe and sweep added); package bytes are re-fetched on a decoder restart rather than kept twice; a load counts as
+complete once its copies are queued while output is locked (no gesture yet); the stream-head hand-over is two stamped
+voices (no ABI change; pitch or pause during the head can shift the seam). Merge fix: both branches added a capability
+to `AudioBackend` at the same spot; kept both.
