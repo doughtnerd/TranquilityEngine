@@ -1,0 +1,794 @@
+/**
+ * Sequence playlists at runtime (ADR 0329 "Sequence"): a timeline of audio and playlist tracks with clips, loops, hold
+ * points and markers, played by a playhead (`sequencePlayhead.ts`) planned a little ahead of the heard clock so every
+ * clip voice starts stamped at its exact heard time.
+ *
+ * - **Tracks:** volume (dB) and pan add down the tree; `output` sends the track to a bus (its audio leaves the
+ *   sequence's playlist effects there); `mute`, `solo` and `enabled` silence tracks (a disabled track's clips don't
+ *   drive the playhead either; muted and un-soloed tracks still do, so muting a stem never changes the arrangement).
+ * - **Clips** play a sample (audio tracks) or resolve a playlist once when the playhead enters them (playlist tracks).
+ *   Clip time maps to sample time as pickup, first pass, further passes of the first loop filling the clip, tail
+ *   (`clipMap.ts`); `length` 0 is the rest of the sample (one pass). Gain and pitch add; pan accumulates (no voice pan
+ *   control exists yet); `reverse` isn't supported by the audio core (one warning, it plays forward).
+ * - **Sync clips** are locked to the playhead: each piece of the map is one voice, swapped at the piece's heard time
+ *   (sample-exact splices), cut when the playhead leaves the clip or jumps. Their first loop moves the playhead (the
+ *   region of its passes): active it wraps back one pass at the tail, inactive `jump`/`crossfade` skip to the tail and
+ *   `finish` leaves at the next Exit marker in the pass (else the pass's end); `reenter` jumps back in; a hold point
+ *   parks it. Where sync loops overlap, the higher track drives and the others follow with their loop ignored (one
+ *   warning).
+ * - **Async clips** start a voice when the playhead enters them and run their own clock with their loop's behaviour
+ *   (the instance's loop adapter: `setLoopActive`, `endLoop` on release); they aren't cut when the playhead leaves, only
+ *   when it jumps back before them.
+ * - **Automation** on clips and tracks: parameter-keyed curves become automation bindings (`curves.ts`); time-keyed ones
+ *   (clip time, sequence time, voice time) are the voice-time adapter's curves shifted to where the voice starts, so the
+ *   one per-frame evaluation runs them. Targets: volume, pitch, enabled (a step on the gain), and the `cutoff` of a
+ *   low-pass or the `gain` of a gain effect; pan and other effect parameters wait for their controls (one warning).
+ * - **Effects** on tracks and clips go through the playlist effects adapter (`effects.ts`).
+ * - **Markers:** sequence `cue` and `exit` markers and the Cue, Exit and Hit markers of sync clips' samples are reported
+ *   from the planned playhead, delivered on the first frame whose heard clock has passed them (one frame of accuracy);
+ *   async clips' sample markers come from their voices (`VoiceMarkers`).
+ * - **Musical clock** (`MusicalSource`): the sequence's tempo on the playhead (beats, bars, `seek`); `exit` is the next
+ *   sequence `exit` marker or Exit marker of a sync clip's sample, else the next loop wrap.
+ * - **Hot reload:** an edited sequence swaps at the next bar (at once without a tempo): the old voices fade out over
+ *   5 ms there and the new version continues at the same sequence time when the tempo is unchanged and that time is
+ *   inside it, else from its start (the music runtime's reload rule, `music/reload.ts`).
+ * - `untilStopped` keeps the instance after the playhead's end; `release` ends held loops (sequence loops and sync clip
+ *   loops by their exit settings, async voices' through the adapter); `stop` fades everything.
+ */
+import type { Curve, CurveKey } from "../../../../engine/core/curve";
+import { accumulate } from "../../../../engine/audio/playlist/accumulate";
+import { compileTempoMap, nextGridSeconds, positionToTicks, ticksToSeconds, type SegmentGrid } from "../../../../engine/audio/musicGrid";
+import { isBarBeatTick, parsePosition } from "../../../../engine/audio/musicPosition";
+import type { GridSpec, MusicSeekResult } from "../../../../engine/audio/musicTypes";
+import type {
+  Automation, Clip, LoopBehaviour, PlaylistAsset, PlaylistBody, SampleEntry, SequenceSettings, Track, VoiceCurve,
+} from "../../../../engine/audio/playlist/types";
+import type { Effect } from "../../../../engine/audio/effects/types";
+import { effectParamValue } from "../../../../engine/audio/effects/catalogue";
+import { warnOnce } from "../core/handle";
+import { RELOAD_FADE_MS, sameTempoMap } from "../music/reload";
+import { clipGeometry, clipTimesOf, pieceAt, type ClipGeometry } from "./clipMap";
+import { curveParts, type TimeCurve } from "./curves";
+import { playlistEffectProps } from "./effects";
+import { LiveNode, type Ctx, type LoopRun, type NodeHost, type PVoice } from "./liveNode";
+import { linkedPlaylist, loadPlaylist } from "./loader";
+import type { MusicalBoundary, MusicalPosition, MusicalSource } from "./musical";
+import { resolveBody } from "./nodes";
+import { meterOf, sampleFacts, tempoGrid, type FactMarker, type SampleFacts } from "./sampleFacts";
+import { Playhead, type PlayheadLoop, type PlayheadMove } from "./sequencePlayhead";
+import { positionOn } from "./voiceMusical";
+
+/** How far past the earliest stampable time the playhead is planned (decisions inside it are final). */
+const PLAN_AHEAD = 0.1;
+/** A splice's tail (a wrap or a piece change): the old voice fades out over this from the swap. */
+const SPLICE_FADE = 0.002;
+/** A cut's fade (a sync clip left, an async clip jumped before), seconds. */
+const CUT_FADE = 0.005;
+const EPS = 1e-9;
+/** Heard seconds of past playhead moves kept for position questions. */
+const HISTORY_SECONDS = 2;
+/** How far a boundary question looks ahead of the plan, heard seconds. */
+const PREDICT_SECONDS = 256;
+
+/** A time-keyed automation curve, shifted to a voice's start when it plays. */
+interface TimeAuto {
+  target: TimeCurve["target"];
+  curve: Curve;
+  input: "clipTime" | "sequenceTime" | "voiceTime";
+}
+
+interface ClipRt {
+  readonly clip: Clip;
+  readonly track: Track;
+  /** Sequence seconds the clip starts and ends at (end Infinity: a playlist clip of its natural length). */
+  readonly start: number;
+  readonly end: number;
+  readonly sync: boolean;
+  readonly audible: boolean;
+  readonly facts: SampleFacts | null;
+  readonly geo: ClipGeometry | null;
+  /** The clip's first loop with its override: region (sample seconds) and behaviour. */
+  readonly loop: { start: number; end: number; behaviour: LoopBehaviour } | null;
+  /** Visible sample markers. */
+  readonly markers: readonly FactMarker[];
+  readonly ctx: Ctx;
+  readonly time: readonly TimeAuto[];
+  /** The playhead is inside the clip (its voices are managed). */
+  inside: boolean;
+  voice: PVoice | null;
+  /** Sequence seconds the current piece ends at (sync sample clips). */
+  pieceTo: number;
+  node: LiveNode | null;
+  /** The playhead loop it drives, -1: none. */
+  driving: number;
+}
+
+interface PhLoop {
+  readonly pl: PlayheadLoop;
+  readonly behaviour: LoopBehaviour;
+}
+
+type HistoryItem = PlayheadMove;
+
+const shiftCache = new WeakMap<Curve, Map<number, Curve>>();
+/** `curve` read `offset` seconds later: what it says at t + offset, at t. */
+function shifted(curve: Curve, offset: number): Curve {
+  if (Math.abs(offset) < EPS) return curve;
+  let m = shiftCache.get(curve);
+  if (!m) shiftCache.set(curve, (m = new Map()));
+  const hit = m.get(offset);
+  if (hit) return hit;
+  const out = curve.map((k) => [k[0] - offset, ...k.slice(1)] as unknown as CurveKey);
+  if (m.size > 64) m.clear();
+  m.set(offset, out);
+  return out;
+}
+
+const STEP_OFF_DB = -120;
+
+export class SequenceNode extends LiveNode implements MusicalSource {
+  private body: PlaylistBody;
+  private settings!: SequenceSettings;
+  private clips: ClipRt[] = [];
+  private loops: PhLoop[] = [];
+  private playhead!: Playhead;
+  private grid: SegmentGrid | null = null;
+  private length = 0;
+  private readonly moves: PlayheadMove[] = [];
+  private history: HistoryItem[] = [];
+  private releasedHere = false;
+  /** A sequence marker position already reported by a park (the run leaving it doesn't report it again). */
+  private firedAt = Number.NaN;
+  private pendingSeek: number | null = null;
+  private reload: { body: PlaylistBody; at: number } | null = null;
+  private source: PlaylistAsset | null;
+  /** Heard time the playhead ended at (NaN: not yet). */
+  private endAt = Number.NaN;
+  private readonly scratch: number[] = [];
+
+  constructor(host: NodeHost, ctx: Ctx, key: string, body: PlaylistBody) {
+    super(host, ctx, key);
+    this.body = body;
+    this.source = this.fileAsset();
+    this.build(body, 0, host.startOf(ctx.at), 0);
+    this.plan();
+  }
+
+  // --- building ----------------------------------------------------------------------------------------------------
+
+  /** The playlist file this sequence lives in, when it is one (hot reload compares it). */
+  private fileAsset(): PlaylistAsset | null {
+    const where = this.ctx.where;
+    if (!where.endsWith(".playlist.json")) return null;
+    return loadPlaylist(where);
+  }
+
+  private build(body: PlaylistBody, position: number, at: number, fadeIn: number): void {
+    const s = body.sequence ?? { length: 0, tempo: null, tracks: [], loops: [], markers: [] };
+    this.settings = s;
+    this.body = body;
+    if (s.tempo) {
+      const [bpb, unit] = meterOf(s.tempo.meter);
+      this.grid = tempoGrid({ bpm: s.tempo.bpm, meter: `${bpb}/${unit}` }, undefined, this.ctx.where);
+    } else this.grid = null;
+    const anySolo = s.tracks.some((t) => t.solo && t.enabled);
+    this.clips = [];
+    s.tracks.forEach((track) => {
+      if (!track.enabled) return;
+      const trackCtx = this.trackCtx(track);
+      for (const clip of track.clips) {
+        if (!clip.enabled) continue;
+        const rt = this.clipRt(clip, track, trackCtx, !track.mute && (!anySolo || track.solo));
+        if (rt) this.clips.push(rt);
+      }
+    });
+    let len = s.length;
+    if (!(len > 0)) {
+      len = 0;
+      for (const c of this.clips) if (Number.isFinite(c.end)) len = Math.max(len, c.end);
+    }
+    this.length = len;
+    this.loops = s.loops.map((l) => ({ pl: { start: l.start, end: l.end, wrapTo: l.start, behaviour: l }, behaviour: l }));
+    this.driveLoops();
+    if (position >= this.length - EPS) position = 0;
+    this.playhead = new Playhead(this.loops.map((l) => l.pl), this.length, position, at);
+    this.land(position, at, fadeIn);
+  }
+
+  /** A track's level below the sequence: volume, pan, effects, output, automation. */
+  private trackCtx(track: Track): { ctx: Ctx; time: TimeAuto[] } {
+    const override = track.output !== null;
+    let ctx: Ctx = {
+      ...this.ctx,
+      props: accumulate(this.ctx.props, { gainDb: track.volume, pan: track.pan, fx: playlistEffectProps(track.effects, this.ctx.where), outputOverride: override }),
+      bus: override ? track.output! : this.ctx.bus,
+    };
+    const time: TimeAuto[] = [];
+    ctx = this.automation(track.automation, track.effects, ctx, time, `track "${track.name}"`);
+    return { ctx, time };
+  }
+
+  private clipRt(clip: Clip, track: Track, level: { ctx: Ctx; time: TimeAuto[] }, audible: boolean): ClipRt | null {
+    const where = `${this.ctx.where} clip "${clip.id}"`;
+    if (clip.reverse) warnOnce(`playlist:reverse:${this.ctx.where}:${clip.id}`, `[myco] ${where}: reverse playback isn't supported by the audio core yet; it plays forward.`);
+    let ctx: Ctx = { ...level.ctx, props: accumulate(level.ctx.props, { gainDb: clip.gain, pitchSt: clip.pitch, pan: clip.pan, fx: playlistEffectProps(clip.effects, where) }) };
+    const time = level.time.slice();
+    ctx = this.automation(clip.automation, clip.effects, ctx, time, where);
+    const base = { clip, track, start: clip.at, sync: clip.sync, audible, ctx, time, inside: false, voice: null, pieceTo: Number.POSITIVE_INFINITY, node: null, driving: -1 };
+    if (clip.sample === undefined) {
+      return { ...base, end: clip.length > 0 ? clip.at + clip.length : Number.POSITIVE_INFINITY, facts: null, geo: null, loop: null, markers: [] };
+    }
+    const facts = sampleFacts(clip.sample);
+    const first = facts.loops[0];
+    let loop: ClipRt["loop"] = null;
+    if (first) {
+      const o = clip.loops[first.id] ?? {};
+      const behaviour: LoopBehaviour = { ...first.behaviour };
+      if (o.active !== undefined) behaviour.active = o.active;
+      if (o.binding !== undefined) behaviour.binding = o.binding;
+      if (o.exit !== undefined) behaviour.exit = o.exit;
+      if (o.exitFadeMs !== undefined) behaviour.exitFadeMs = o.exitFadeMs;
+      if (o.reentry !== undefined) behaviour.reentry = o.reentry;
+      loop = { start: o.start ?? first.start, end: o.end ?? first.end, behaviour };
+    }
+    const offset = facts.from + clip.offset;
+    const geo = clipGeometry(clip.length, offset, facts.end, loop);
+    const hidden = new Set(clip.hiddenMarkers);
+    return { ...base, end: clip.at + geo.length, facts, geo, loop: geo.loop ? loop : null, markers: facts.markers.filter((m) => !hidden.has(m.id)) };
+  }
+
+  /**
+   * Automation as voice controls: parameter-keyed curves become bindings on `ctx`; time-keyed ones go to `time` (shifted
+   * per voice). Returns the context with the bindings added.
+   */
+  private automation(list: readonly Automation[], effects: readonly Effect[], ctx: Ctx, time: TimeAuto[], where: string): Ctx {
+    for (const a of list) {
+      if (a.bypass || a.curve.length === 0) continue;
+      let target: TimeCurve["target"] | null = null;
+      let curve: Curve = a.curve;
+      if (a.target === "volume") target = "gain";
+      else if (a.target === "pitch") target = "pitch";
+      else if (a.target === "enabled") { target = "gain"; curve = a.curve.map((k) => [k[0], k[1] >= 0.5 ? 0 : STEP_OFF_DB, "step"] as CurveKey); }
+      else if (a.target === "pan") {
+        warnOnce(`playlist:auto-pan`, `[myco] ${where}: pan automation needs a voice pan control the audio core doesn't have yet; skipped.`);
+        continue;
+      } else {
+        const [, id, param] = a.target.split(":");
+        const fx = effects.find((e) => e.id === id);
+        if (fx?.type === "lowpass" && param === "cutoff") target = "lowpass";
+        else if (fx?.type === "gain" && param === "gain") target = "gain";
+        else {
+          warnOnce(`playlist:auto-fx:${fx?.type ?? id}:${param}`, `[myco] ${where}: automation of "${a.target}" needs instance submixes (ADR 0331)${fx ? "" : " and names no effect of its level"}; skipped. Low-pass cutoff and gain apply.`);
+          continue;
+        }
+        if (target === "gain" && fx) {
+          // The curve is the effect's gain; the effect's static gain is already in the level, so automate the difference.
+          const base = effectParamValue(fx, "gain") ?? 0;
+          curve = a.curve.map((k) => [k[0], k[1] - base, ...k.slice(2)] as unknown as CurveKey);
+        }
+      }
+      if (typeof a.input === "string") {
+        time.push({ target, curve, input: a.input });
+        continue;
+      }
+      const vc: VoiceCurve = { input: a.input, curve, bypass: false };
+      const parts = curveParts({ [target]: vc }, ctx, (n) => this.host.paramRef(n), (c) => this.host.curveId(c), where);
+      ctx = { ...ctx, bindings: parts.bindings };
+    }
+    return ctx;
+  }
+
+  /** Sync clips' first loops as playhead loops: the higher track drives where they overlap. */
+  private driveLoops(): void {
+    const taken: [number, number][] = [];
+    for (const c of this.clips) {
+      const g = c.geo;
+      if (!c.sync || !g || !g.loop || !c.loop) continue;
+      const passLen = g.loop.end - g.loop.start;
+      const hold = passLen <= 1e-6;
+      if (!hold && g.offset > g.loop.start + EPS) {
+        warnOnce(`playlist:sync-partial:${this.ctx.where}:${c.clip.id}`, `[myco] ${this.ctx.where} clip "${c.clip.id}": it starts inside its loop, so the loop can't drive the playhead; it follows.`);
+        continue;
+      }
+      const start = c.start + (hold ? g.firstPassEnd : g.firstPassEnd - passLen);
+      const end = c.start + (hold ? g.firstPassEnd : g.tailStart);
+      const region: [number, number] = [start, hold ? c.start + g.tailStart : end];
+      if (taken.some(([a, b]) => region[0] < b - EPS && a < region[1] - EPS || (hold && Math.abs(a - region[0]) < EPS))) {
+        warnOnce(`playlist:sync-clash:${this.ctx.where}:${c.clip.id}`, `[myco] ${this.ctx.where} clip "${c.clip.id}": its sync loop overlaps a higher track's; that one drives and this one follows.`);
+        continue;
+      }
+      taken.push(region);
+      const pl: PlayheadLoop = hold
+        ? { start, end: start, wrapTo: start, behaviour: c.loop.behaviour, leaveTo: c.start + g.tailStart }
+        : { start, end, wrapTo: end - passLen, behaviour: c.loop.behaviour, exitAfter: (from) => this.syncExitAfter(c, from) };
+      c.driving = this.loops.length;
+      this.loops.push({ pl, behaviour: c.loop.behaviour });
+    }
+  }
+
+  /** The next point at or after `from` where a sync clip's inactive `finish` loop leaves: an Exit marker in the pass, else the pass's end. */
+  private syncExitAfter(c: ClipRt, from: number): number {
+    const g = c.geo!;
+    const passLen = g.loop!.end - g.loop!.start;
+    let best = c.start + g.tailStart;
+    for (let k = 0; k <= g.extraPasses; k++) {
+      const b = c.start + g.firstPassEnd + k * passLen;
+      if (b >= from - EPS && b < best) best = b;
+    }
+    const u = from - c.start;
+    for (const m of c.markers) {
+      if (m.type !== "exit" || m.at < g.loop!.start - EPS || m.at >= g.loop!.end - EPS) continue;
+      this.scratch.length = 0;
+      for (const t of clipTimesOf(g, m.at, u, g.tailStart, this.scratch)) if (c.start + t < best) best = c.start + t;
+    }
+    return best;
+  }
+
+  // --- loops' activation -------------------------------------------------------------------------------------------
+
+  private active(b: LoopBehaviour): boolean {
+    switch (b.active) {
+      case "always": return true;
+      case "held": return !this.releasedHere && !this.host.released;
+      case "parameter": {
+        const bind = b.binding;
+        const p = bind ? this.host.param(bind.parameter) : null;
+        if (!bind || !p) return false;
+        return bind.op === ">" ? p.value > bind.value : p.value < bind.value;
+      }
+    }
+  }
+
+  private readonly isActive = (i: number): boolean => this.active(this.loops[i]!.behaviour);
+
+  // --- planning ----------------------------------------------------------------------------------------------------
+
+  /** Plans the playhead up to the earliest stampable time plus `PLAN_AHEAD`, acting on every move. */
+  private plan(): void {
+    if (this.stopped) return;
+    const until = this.host.startOf(null) + PLAN_AHEAD;
+    if (this.pendingSeek !== null) {
+      const to = this.pendingSeek;
+      this.pendingSeek = null;
+      this.moves.length = 0;
+      this.playhead.seek(to, this.moves);
+      for (const m of this.moves) this.apply(m);
+    }
+    if (this.reload && this.reload.at <= until) {
+      const { body, at } = this.reload;
+      this.reload = null;
+      this.step(Math.max(at, this.playhead.time));
+      this.swap(body, Math.max(at, this.playhead.time));
+    }
+    this.step(until);
+    // Old moves go (a position question looks back a little).
+    const keep = this.host.clock() - HISTORY_SECONDS;
+    let k = 0;
+    while (k < this.history.length - 1 && moveEnd(this.history[k]!) < keep) k++;
+    if (k > 0) this.history.splice(0, k);
+  }
+
+  private step(until: number): void {
+    this.moves.length = 0;
+    this.playhead.advance(until, this.isActive, this.moves);
+    for (const m of this.moves) this.apply(m);
+  }
+
+  private apply(m: PlayheadMove): void {
+    this.history.push(m);
+    switch (m.kind) {
+      case "run": this.onRun(m.from, m.to, m.at); break;
+      case "jump": this.onJump(m.from, m.to, m.at, m.fadeMs / 1000); break;
+      case "park":
+        this.markersAt(m.position, m.at);
+        this.firedAt = m.position;
+        break;
+      case "end": this.onEnd(m.at); break;
+    }
+  }
+
+  private onRun(from: number, to: number, at: number): void {
+    const h = (s: number): number => at + (s - from);
+    // Sequence markers in [from, to) (one a park reported isn't reported again as the playhead leaves it).
+    for (const mk of this.settings.markers) {
+      if (mk.type !== "cue" && mk.type !== "exit") continue;
+      if (mk.at < from - EPS || mk.at >= to - EPS) continue;
+      if (Math.abs(mk.at - this.firedAt) <= EPS && Math.abs(mk.at - from) <= EPS) continue;
+      this.host.emitMarker({ type: mk.type, name: mk.name, sample: this.ctx.where, time: h(mk.at) });
+    }
+    this.firedAt = Number.NaN;
+    for (const c of this.clips) {
+      let enterAt = Number.NaN;
+      if (!c.inside && c.start >= from - EPS && c.start < to - EPS) {
+        c.inside = true;
+        enterAt = c.start;
+        this.startClip(c, 0, h(c.start), 0);
+      }
+      if (!c.inside) continue;
+      const winFrom = Number.isNaN(enterAt) ? from : enterAt;
+      // A sync clip's pieces: each boundary inside the run swaps its voice there.
+      if (c.sync && c.geo) {
+        for (let guard = 0; guard < 4096 && c.pieceTo < to - EPS && c.pieceTo < c.end - EPS; guard++) {
+          if (c.pieceTo < winFrom - EPS) break;
+          const q = c.pieceTo;
+          this.endVoice(c, h(q), SPLICE_FADE, false);
+          this.startClip(c, q - c.start, h(q), 0);
+        }
+      }
+      const leaves = c.end > winFrom + EPS && c.end <= to + EPS;
+      // Sample markers of a sync clip heard in this run.
+      if (c.sync && c.geo && c.audible && c.markers.length > 0) {
+        const u0 = winFrom - c.start, u1 = Math.min(to, c.end) - c.start;
+        for (const mk of c.markers) {
+          this.scratch.length = 0;
+          for (const u of clipTimesOf(c.geo, mk.at, u0, u1, this.scratch)) {
+            this.host.emitMarker({ type: mk.type, name: mk.name, sample: c.facts!.path, time: h(c.start + u) });
+          }
+        }
+      }
+      if (leaves) {
+        c.inside = false;
+        if (c.sync) this.endClip(c, h(c.end), CUT_FADE);
+      }
+    }
+  }
+
+  private onJump(from: number, to: number, at: number, fade: number): void {
+    void from;
+    const f = fade > 0 ? fade : SPLICE_FADE;
+    for (const c of this.clips) {
+      const lands = to >= c.start - EPS && to < c.end - EPS;
+      if (c.inside) {
+        if (c.sync) this.endClip(c, at, f, fade > 0);
+        else if (to < c.start - EPS) this.endClip(c, at, Math.max(f, CUT_FADE), fade > 0);
+        c.inside = false;
+      } else if (!c.sync && to < c.start - EPS && this.clipSounding(c)) this.endClip(c, at, Math.max(f, CUT_FADE), fade > 0);
+      if (!lands) continue;
+      c.inside = true;
+      if (!c.sync && this.clipSounding(c)) continue; // an async clip still sounding isn't restarted
+      this.startClip(c, to - c.start, at, fade);
+    }
+  }
+
+  private onEnd(at: number): void {
+    this.endAt = at;
+    for (const c of this.clips) {
+      if (c.inside && c.sync) this.endClip(c, at, CUT_FADE);
+      c.inside = false;
+    }
+  }
+
+  /** Clips holding `position` start there (a first start, a reload). */
+  private land(position: number, at: number, fadeIn: number): void {
+    for (const c of this.clips) {
+      if (position < c.start - EPS || position >= c.end - EPS) continue;
+      c.inside = true;
+      this.startClip(c, position - c.start, at, fadeIn);
+    }
+  }
+
+  /** Sequence markers at exactly `position` (a park on a hold point). */
+  private markersAt(position: number, at: number): void {
+    if (Math.abs(this.firedAt - position) <= EPS) return;
+    for (const mk of this.settings.markers) {
+      if ((mk.type === "cue" || mk.type === "exit") && Math.abs(mk.at - position) <= EPS) this.host.emitMarker({ type: mk.type, name: mk.name, sample: this.ctx.where, time: at });
+    }
+  }
+
+  // --- clip voices -------------------------------------------------------------------------------------------------
+
+  private clipSounding(c: ClipRt): boolean {
+    if (c.voice && !c.voice.leaving && c.voice.voice.playing) return true;
+    return c.node !== null && !c.node.stopped && c.node.sounding;
+  }
+
+  /** The time automation shifted to a voice starting at clip time `u`. */
+  private timeCurves(c: ClipRt, u: number): readonly TimeCurve[] {
+    if (c.time.length === 0) return c.ctx.timeCurves;
+    const out = c.ctx.timeCurves.slice();
+    for (const t of c.time) {
+      const offset = t.input === "clipTime" ? u : t.input === "sequenceTime" ? c.start + u : 0;
+      out.push({ target: t.target, curve: shifted(t.curve, offset) });
+    }
+    return out;
+  }
+
+  /** Starts clip `c` at clip time `u`, heard `at`, fading in over `fadeIn` seconds (0: none). */
+  private startClip(c: ClipRt, u: number, at: number, fadeIn: number): void {
+    c.voice = null;
+    if (c.clip.sample === undefined) {
+      if (!c.audible) return;
+      c.node = this.resolveClipPlaylist(c, u, at, fadeIn);
+      if (c.node) this.children.push(c.node);
+      return;
+    }
+    const g = c.geo!;
+    const piece = pieceAt(g, u);
+    c.pieceTo = piece ? c.start + piece.to : Number.POSITIVE_INFINITY;
+    if (!piece || piece.sample === null || !c.audible) return;
+    const s = piece.sample + (u - piece.from);
+    const pieceEnd = piece.sample + (piece.to - piece.from);
+    const facts = c.facts!;
+    let loop: LoopRun | null = null;
+    if (!c.sync && c.loop && c.loop.end > c.loop.start && s < c.loop.end - EPS) {
+      loop = { start: c.loop.start, end: c.loop.end, behaviour: c.loop.behaviour, looping: this.active(c.loop.behaviour) };
+    }
+    const end = c.sync ? pieceEnd : (Number.isFinite(g.sampleEnd) ? g.sampleEnd : Number.POSITIVE_INFINITY);
+    const entry: SampleEntry = {
+      kind: "sample", sample: facts.path, trim: [s, end], loop: "off",
+      volume: 0, pitch: 0, weight: 1, atZeroWeight: "stop", curves: {},
+    };
+    const ctx: Ctx = { ...c.ctx, at, fadeIn, timeCurves: this.timeCurves(c, u) };
+    const v = this.host.playSample(entry, ctx, loop);
+    if (!v) return;
+    c.voice = v;
+    this.voices.push(v);
+    if (!c.sync && c.markers.length > 0) this.host.trackMarkers(v, { ...facts, markers: c.markers }, s);
+  }
+
+  private resolveClipPlaylist(c: ClipRt, u: number, at: number, fadeIn: number): LiveNode | null {
+    const src = c.clip.playlist!;
+    const ctx: Ctx = { ...c.ctx, at, fadeIn, timeCurves: this.timeCurves(c, u), depth: this.ctx.depth + 1 };
+    if (typeof src === "string") {
+      const body = linkedPlaylist(src, ctx.chain);
+      if (!body) return null;
+      return resolveBody(this.host, body, { ...ctx, chain: [...ctx.chain, src] }, src, src);
+    }
+    return resolveBody(this.host, src, ctx, `${this.key}/clip:${c.clip.id}`, this.ctx.where);
+  }
+
+  /** Ends clip `c`'s current voice at heard `at` over `fade` seconds (`crossfade`: equal power, else linear). */
+  private endVoice(c: ClipRt, at: number, fade: number, crossfade: boolean): void {
+    const v = c.voice;
+    c.voice = null;
+    if (!v || v.leaving) return;
+    v.leaving = true;
+    v.voice.fadeShaped({ to: 0, seconds: fade, law: crossfade ? "equalPowerOut" : "linear", at, stopAtEnd: true });
+  }
+
+  private endClip(c: ClipRt, at: number, fade: number, crossfade = false): void {
+    this.endVoice(c, at, fade, crossfade);
+    const n = c.node;
+    c.node = null;
+    if (n && !n.stopped) n.leave(fade, at);
+  }
+
+  // --- the node ----------------------------------------------------------------------------------------------------
+
+  override update(now: number, dt: number): void {
+    super.update(now, dt);
+    if (this.stopped) return;
+    this.checkReload();
+    this.plan();
+    // Voices that have gone for good leave the list.
+    if (this.voices.length > 32) {
+      let w = 0;
+      for (const v of this.voices) if (v.voice.alive ?? v.voice.playing) this.voices[w++] = v;
+      this.voices.length = w;
+    }
+    for (let k = this.children.length - 1; k >= 0; k--) if (this.children[k]!.stopped && !this.children[k]!.sounding) this.children.splice(k, 1);
+  }
+
+  override onParameter(name: string): void {
+    super.onParameter(name);
+    // Async voices whose loop follows the parameter (the playhead's loops read it as it plans).
+    for (const c of this.clips) {
+      const v = c.voice;
+      const b = v?.loop?.behaviour.binding;
+      if (!v || v.leaving || v.loop?.behaviour.active !== "parameter" || !b || b.parameter !== name) continue;
+      this.host.setLoopActive(v, this.active(v.loop.behaviour));
+    }
+  }
+
+  override release(): void {
+    this.releasedHere = true;
+    super.release();
+  }
+
+  override get sounding(): boolean {
+    if (this.stopped) return false;
+    if (!this.playhead.ended) return true;
+    if (this.host.clock() < this.endAt - EPS) return true;
+    return super.sounding;
+  }
+
+  override get looping(): boolean {
+    return !this.playhead.ended || super.looping;
+  }
+
+  override end(): number | null {
+    if (!this.playhead.ended) return null;
+    const e = super.end();
+    return e === null ? null : Math.max(e, this.endAt);
+  }
+
+  override musicalSource(): MusicalSource | null {
+    return this.stopped ? null : this;
+  }
+
+  // --- hot reload --------------------------------------------------------------------------------------------------
+
+  private checkReload(): void {
+    if (!this.source || this.reload) return;
+    const now = loadPlaylist(this.ctx.where);
+    if (!now || now === this.source) return;
+    this.source = now;
+    const body = this.bodyIn(now);
+    if (!body) {
+      warnOnce(`playlist:reload:${this.key}`, `[myco] ${this.ctx.where}: the reloaded playlist no longer holds this sequence where it was; the old version keeps playing.`);
+      return;
+    }
+    if (JSON.stringify(body.sequence) === JSON.stringify(this.body.sequence)) return;
+    const from = this.host.startOf(null);
+    const at = this.grid ? (this.nextBoundary("bar", from + PLAN_AHEAD) ?? from) : from;
+    this.reload = { body, at };
+  }
+
+  /** This sequence's body inside the reloaded file (by its key below the file's path), or null. */
+  private bodyIn(asset: PlaylistBody): PlaylistBody | null {
+    const where = this.ctx.where;
+    if (!this.key.startsWith(where)) return null;
+    let b: PlaylistBody | null = asset;
+    for (const seg of this.key.slice(where.length).split("/").filter(Boolean)) {
+      if (!b) return null;
+      if (seg.startsWith("clip:")) {
+        const id = seg.slice(5);
+        let next: PlaylistBody | null = null;
+        for (const t of b.sequence?.tracks ?? []) for (const cl of t.clips) if (cl.id === id && typeof cl.playlist === "object") next = cl.playlist;
+        b = next;
+      } else {
+        const e: PlaylistBody["entries"][number] | undefined = b.entries[Number(seg)];
+        b = e && e.kind === "embedded" ? e.embedded : null;
+      }
+    }
+    return b && b.type === "sequence" ? b : null;
+  }
+
+  /** Swaps to `body` at heard `at` (the reload rule). */
+  private swap(body: PlaylistBody, at: number): void {
+    const fade = RELOAD_FADE_MS / 1000;
+    for (const c of this.clips) this.endClip(c, at, fade);
+    const oldGrid = this.grid;
+    const position = this.playhead.position;
+    const s = body.sequence;
+    let sameTempo = !oldGrid && !s?.tempo;
+    if (oldGrid && s?.tempo) {
+      const [bpb, unit] = meterOf(s.tempo.meter);
+      sameTempo = sameTempoMap(oldGrid, compileTempoMap([{ at: "1:1:0", bpm: s.tempo.bpm, beatsPerBar: bpb, beatUnit: unit }], 0));
+    }
+    this.endAt = Number.NaN;
+    // The same sequence time when the tempo is unchanged (and the time is inside the new version), else its start.
+    this.build(body, sameTempo ? position : 0, at, 0);
+  }
+
+  // --- the musical clock -------------------------------------------------------------------------------------------
+
+  get label(): string { return this.ctx.where; }
+  get hasGrid(): boolean { return this.grid !== null; }
+
+  /** Walks the playhead's moves at or after heard `from` (the kept past, the plan, then a prediction) until `visit` says stop. */
+  private walk(from: number, visit: (m: PlayheadMove) => boolean): void {
+    for (const m of this.history) if (moveEnd(m) >= from - EPS && visit(m)) return;
+    const p = this.playhead.clone();
+    const moves: PlayheadMove[] = [];
+    for (let k = 0; k < PREDICT_SECONDS / 4 && !p.ended; k++) {
+      moves.length = 0;
+      p.advance(p.time + 4, this.isActive, moves);
+      for (const m of moves) if (moveEnd(m) >= from - EPS && visit(m)) return;
+    }
+  }
+
+  /** The first heard time at or after `from` whose sequence time is a point of `next` (sequence seconds at or after s; NaN none). */
+  private firstHeard(from: number, next: (s: number) => number): number | null {
+    let out: number | null = null;
+    this.walk(from, (m) => {
+      if (m.kind !== "run") return false;
+      const a = Math.max(from, m.at);
+      const s = m.from + (a - m.at);
+      if (s >= m.to - EPS) return false;
+      const p = next(s);
+      if (Number.isFinite(p) && p < m.to - EPS) { out = m.at + (p - m.from); return true; }
+      return false;
+    });
+    return out;
+  }
+
+  /** Sequence seconds of the first Exit point at or after `s`: sequence `exit` markers and sync clips' sample Exit markers. */
+  private nextExit(s: number): number {
+    let best = Number.POSITIVE_INFINITY;
+    for (const mk of this.settings.markers) if (mk.type === "exit" && mk.at >= s - EPS && mk.at < best) best = mk.at;
+    for (const c of this.clips) {
+      if (!c.sync || !c.geo || c.end < s) continue;
+      for (const mk of c.markers) {
+        if (mk.type !== "exit") continue;
+        this.scratch.length = 0;
+        for (const u of clipTimesOf(c.geo, mk.at, Math.max(0, s - c.start), c.geo.length, this.scratch)) if (c.start + u < best) best = c.start + u;
+      }
+    }
+    return best;
+  }
+
+  private hasExits(): boolean {
+    if (this.settings.markers.some((m) => m.type === "exit")) return true;
+    return this.clips.some((c) => c.sync && c.markers.some((m) => m.type === "exit"));
+  }
+
+  nextBoundary(kind: MusicalBoundary, from: number): number | null {
+    if (this.stopped) return null;
+    if (kind === "exit") {
+      if (this.hasExits()) return this.firstHeard(from, (s) => this.nextExit(s));
+      // No Exit marker: the next loop wrap.
+      let out: number | null = null;
+      this.walk(from, (m) => (m.kind === "jump" && m.why === "wrap" && m.at >= from - EPS ? ((out = m.at), true) : false));
+      return out;
+    }
+    const g = this.grid;
+    if (!g) return null;
+    return this.firstHeard(from, (s) => nextGridSeconds(g, s, kind));
+  }
+
+  secondsPerBeat(): number | null {
+    const g = this.grid;
+    return g ? 60 / g.bpm[0]! : null;
+  }
+
+  /** Sequence seconds heard at `time`, NaN when unknown (before the kept past, or past the end). */
+  private sequenceAt(time: number): number {
+    const first = this.history[0];
+    if (!first || time < first.at - EPS) return Number.NaN;
+    if (time <= this.playhead.time + EPS) {
+      // The kept past and the plan: the last move at or before `time` says where the playhead is.
+      let s = Number.NaN;
+      for (const m of this.history) {
+        if (m.at > time + EPS) break;
+        if (m.kind === "run") s = time <= moveEnd(m) ? m.from + (time - m.at) : m.to;
+        else s = m.kind === "jump" ? m.to : m.position;
+      }
+      return s;
+    }
+    let s = Number.NaN;
+    this.walk(time, (m) => {
+      if (m.kind === "run" && time >= m.at - EPS && time <= moveEnd(m) + EPS) { s = m.from + (time - m.at); return true; }
+      if (m.kind === "park" && time >= m.at - EPS) { s = m.position; return true; }
+      return m.at > time + EPS;
+    });
+    return s;
+  }
+
+  positionAt(time: number): MusicalPosition | null {
+    const g = this.grid;
+    if (!g || this.stopped) return null;
+    const s = this.sequenceAt(time);
+    return Number.isFinite(s) ? positionOn(g, s) : null;
+  }
+
+  nextGrid(spec: GridSpec, from: number): { time: number; bar: number; beat: number } | null {
+    const g = this.grid;
+    if (!g) return null;
+    let point = Number.NaN;
+    const t = this.firstHeard(from, (s) => (point = nextGridSeconds(g, s, spec)));
+    if (t === null) return null;
+    const p = positionOn(g, point);
+    return p ? { time: t, bar: p.bar, beat: p.beat } : null;
+  }
+
+  seek(to: string): MusicSeekResult {
+    const g = this.grid;
+    if (!g || this.stopped) return { ok: false, reason: this.stopped ? "notPlaying" : "invalid", permanent: true };
+    const p = parsePosition(to);
+    if (!p || !isBarBeatTick(p)) return { ok: false, reason: "invalid", permanent: true };
+    const s = ticksToSeconds(g, positionToTicks(g, p.bar, p.beat, p.tick));
+    if (!(s >= 0) || s >= this.length) return { ok: false, reason: "invalid", permanent: true };
+    this.pendingSeek = s;
+    return { ok: true, time: Math.max(this.playhead.time, this.host.startOf(null)) };
+  }
+}
+
+function moveEnd(m: PlayheadMove): number {
+  return m.kind === "run" ? m.at + (m.to - m.from) : m.at;
+}
+
+/** The Sequence resolver. */
+export function resolveSequence(host: NodeHost, body: PlaylistBody, ctx: Ctx, key: string): LiveNode {
+  return new SequenceNode(host, ctx, key, body);
+}

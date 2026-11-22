@@ -84,9 +84,6 @@ export class PlaylistSystem implements HostedRuntime, InstanceSystem {
     this.reapIfEnded();
     const asset = loadPlaylist(path);
     if (!asset) return this.refuse(path, world, "missing");
-    if (asset.type === "sequence") {
-      return this.refuse(path, world, "unsupported", `[myco] ${path}: Sequence playlists play from M5 (sequences arrive with the musical clock); the trigger plays nothing.`);
-    }
     const key = `${world}:${sourceKey ?? path}`;
     const now = host.now();
     const same: GateCandidate<PlaylistInstance>[] = [];

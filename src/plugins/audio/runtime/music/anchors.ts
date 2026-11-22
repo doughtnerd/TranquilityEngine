@@ -355,7 +355,7 @@ function regionAt(c: SegmentLoops, s: number): LoopRegion | null {
   return null;
 }
 
-function cursorOf(a: GridAnchor, c: SegmentLoops): Cursor {
+function cursorOf(a: AnchorPoint, c: SegmentLoops): Cursor {
   const s = ticksToSeconds(c.grid, a.ticks);
   const r = regionAt(c, s);
   return { s, h: a.time, region: r ? c.regions.indexOf(r) : -1, passes: r ? Math.max(1, a.pass) : 1 };
@@ -464,6 +464,11 @@ export function nextHeard(position: PlayingPosition | GridAnchor, after: number,
   const c = compiledOf(a);
   if (!c) return out;
   readRelease(pos?.regions ?? anchorRegions.get(a));
+  return heardIn(c, a, after, next, strict, out);
+}
+
+/** `nextHeard`'s walk over compiled loops `c` from anchor point `a` (the release already read), into `out`. */
+function heardIn(c: SegmentLoops, a: AnchorPoint, after: number, next: NextPoint, strict: boolean, out: HeardPoint): HeardPoint {
   const from = Math.max(after, a.time);
   const cur = cursorOf(a, c);
   walkTo(cur, c, from);
@@ -507,4 +512,50 @@ const nextGridPoint: NextPoint = (g, file, strict) =>
 export function nextGridHeard(position: PlayingPosition | GridAnchor, after: number, spec: GridSpec, strict = false): HeardPoint {
   gridSpec = spec;
   return nextHeard(position, after, nextGridPoint, strict);
+}
+
+// --- Playlist voices (ADR 0329) ------------------------------------------------------------------------------------------
+
+/** What the pass walk reads of an anchor: a position in ticks heard at `time`, in loop pass `pass`, on a clip of `rate` Hz. */
+interface AnchorPoint {
+  readonly ticks: number;
+  readonly time: number;
+  readonly pass: number;
+  readonly rate: number;
+}
+
+/**
+ * ADR 0329: the heard position of a playing playlist voice, keyed on the voice instead of a music segment: its grid (the
+ * sample's tempo map, `GridAnchor`'s ticks) and loop regions are given directly (`loops`), so the same pass walk answers
+ * for a sample that loops its own region. Its regions carry no release: a voice whose loop stops wrapping is re-anchored
+ * where it is, with that region gone.
+ */
+export interface LoopAnchor extends AnchorPoint {
+  readonly loops: SegmentLoops;
+}
+
+/** ADR 0285 `nextHeard` for a playlist voice's anchor (its regions as given; no release). One reused object: read it, don't keep it. */
+export function nextHeardOn(anchor: LoopAnchor, after: number, next: NextPoint, strict = false): HeardPoint {
+  const out = heardScratch;
+  out.at = Number.NaN;
+  out.file = Number.NaN;
+  if (!Number.isFinite(after) || !Number.isFinite(anchor.time)) return out;
+  readRelease(null);
+  return heardIn(anchor.loops, anchor, after, next, strict, out);
+}
+
+/** ADR 0285 `nextGridHeard` for a playlist voice's anchor. */
+export function nextGridHeardOn(anchor: LoopAnchor, after: number, spec: GridSpec, strict = false): HeardPoint {
+  gridSpec = spec;
+  return nextHeardOn(anchor, after, nextGridPoint, strict);
+}
+
+/** ADR 0285 `ticksAt` for a playlist voice's anchor: the position (fractional ticks) heard at `time`, NaN when unknown. */
+export function ticksAtOn(anchor: LoopAnchor, time: number): number {
+  const c = anchor.loops;
+  if (!Number.isFinite(time) || !Number.isFinite(anchor.time)) return Number.NaN;
+  const cur = cursorOf(anchor, c);
+  readRelease(null);
+  if (time > anchor.time) walkTo(cur, c, time);
+  return secondsToTicks(c.grid, cur.s + (time - cur.h));
 }

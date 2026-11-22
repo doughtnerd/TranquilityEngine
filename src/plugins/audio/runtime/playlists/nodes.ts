@@ -5,118 +5,30 @@
  * starts a continuous Queue's next entry) or a per-frame read of a dynamic gain (Blend weights, the Blend envelope,
  * voice-time curves), which the instance applies to its voices.
  *
- * A Sequence resolves to nothing until M5 (one warning); the musical clock a Switch waits on is `MusicalClock`.
+ * Sequences are `sequence.ts`; the musical clock a Switch waits on is its playing entry's (`LiveNode.musicalSource`).
  */
-import type { Curve } from "../../../../engine/core/curve";
-import { accumulate, type VoiceProps } from "../../../../engine/audio/playlist/accumulate";
+import { accumulate } from "../../../../engine/audio/playlist/accumulate";
 import { blendWeights1D, blendWeights2D } from "../../../../engine/audio/playlist/blendWeights";
 import { adsrLevel, envelopeHoldMs, lerpAdsr } from "../../../../engine/audio/playlist/envelope";
 import { defaultBlend, defaultQueue, defaultSwitch } from "../../../../engine/audio/playlist/format";
-import { pickEntry, type PickState } from "../../../../engine/audio/playlist/picks";
+import { pickEntry } from "../../../../engine/audio/playlist/picks";
 import { changeFor } from "../../../../engine/audio/playlist/switchRules";
 import type {
-  Adsr, BlendAxis, ChangeHow, Entry, EntryUse, LoopBehaviour, PlaylistBody, PlaylistType, SampleEntry,
+  Adsr, BlendAxis, ChangeHow, Entry, EntryUse, PlaylistBody, PlaylistType, SampleEntry,
 } from "../../../../engine/audio/playlist/types";
-import { isLabelled, parameterRange, type ParameterDef } from "../../../../engine/audio/eventFormat";
-import type { AudioVoice, Attenuation } from "../backend";
+import { isLabelled, parameterRange } from "../../../../engine/audio/eventFormat";
 import { warnOnce } from "../core/handle";
-import type { Binding, ParamRef } from "../events/automation";
-import { curveParts, type TimeCurve } from "./curves";
+import { curveParts } from "./curves";
 import { playlistEffectProps } from "./effects";
+import { EmptyNode, LiveNode, type Ctx, type DynGain, type NodeHost, type SpatialPlan } from "./liveNode";
 import { linkedPlaylist } from "./loader";
-import { FALLBACK_SECONDS_PER_BEAT, MUSICAL_FALLBACK_NOTE, type MusicalClock } from "./musical";
+import { FALLBACK_SECONDS_PER_BEAT, MUSICAL_FALLBACK_NOTE, type MusicalSource } from "./musical";
+import { resolveSequence } from "./sequence";
+import { sampleFacts } from "./sampleFacts";
+import { VoiceClock, VoiceMusical } from "./voiceMusical";
 
-// --- shared shapes ---------------------------------------------------------------------------------------------------
-
-/** A gain factor a node changes while its voices play (a Blend weight, an envelope, the instance's fade). */
-export interface DynGain { gain: number }
-
-/** A playing voice's loop: its region (seconds in the file; `end` 0 the file's end), behaviour and whether it loops now. */
-export interface LoopRun {
-  start: number;
-  end: number;
-  behaviour: LoopBehaviour;
-  looping: boolean;
-}
-
-/** One voice a playlist instance plays. */
-export interface PVoice {
-  readonly voice: AudioVoice;
-  readonly path: string;
-  /** The volume and pitch bound or set now (static × dynamic). */
-  readonly base: { volume: number; pitch: number };
-  readonly staticVolume: number;
-  readonly staticPitch: number;
-  readonly bindings: readonly Binding[];
-  readonly dyn: readonly DynGain[];
-  readonly timeCurves: readonly TimeCurve[];
-  /** Heard time it starts at, when known. */
-  readonly start: number | null;
-  /** One pass at its pitch, seconds, when known. */
-  readonly length: number | null;
-  loop: LoopRun | null;
-  /** Fading out (a crossfade, a steal, a stop): no longer counts as playing for the instance. */
-  leaving: boolean;
-  appliedGain: number;
-  appliedPitch: number;
-  appliedLowpass: number | null;
-  /** Played with a position (it follows the handle's `position`). */
-  readonly positioned: boolean;
-}
-
-/** Where a voice plays from, resolved from the playlist's `spatial` block. */
-export interface SpatialPlan {
-  attenuation: Attenuation;
-  occlusion: boolean;
-  doppler: number;
-}
-
-/** What a node passes down to the entries below it. */
-export interface Ctx {
-  /** Heard start time; null: as soon as possible. */
-  at: number | null;
-  props: VoiceProps;
-  /** Output bus name; undefined: Master. */
-  bus: string | undefined;
-  bindings: readonly Binding[];
-  timeCurves: readonly TimeCurve[];
-  dyn: readonly DynGain[];
-  /** The linked playlists above, the root first (cycle protection). */
-  chain: readonly string[];
-  depth: number;
-  /** Seconds of equal-power fade-in for the voices started (a crossfade's incoming side). */
-  fadeIn: number;
-  spatial: SpatialPlan | null;
-  /** The nearest playlist path above, for messages. */
-  where: string;
-}
-
-/** What the nodes need of their instance. */
-export interface NodeHost {
-  readonly stopped: boolean;
-  readonly untilStopped: boolean;
-  readonly musical: MusicalClock;
-  /** A number in [0, 1) from the World's seeded generator. */
-  random(): number;
-  /** The persistent pick state of the Queue at `key` (per playlist, per World). */
-  pickState(key: string): PickState;
-  /** The heard clock now. */
-  clock(): number;
-  /** `at`, else the earliest exact start, else now. */
-  startOf(at: number | null): number;
-  /** A parameter's value and definition (local, else global); null when there is none. */
-  param(name: string): { value: number; def: ParameterDef } | null;
-  paramRef(name: string): ParamRef | null;
-  curveId(curve: Curve): number | null;
-  playSample(entry: SampleEntry, ctx: Ctx): PVoice | null;
-  /** The voice's loop ends by its exit settings (release). */
-  endLoop(v: PVoice): void;
-  /** A parameter-bound loop turns on or off. */
-  setLoopActive(v: PVoice, active: boolean): void;
-  schedule(at: number, run: () => void): void;
-  noteLateStart(): void;
-  spatialOf(body: PlaylistBody, parent: SpatialPlan | null): SpatialPlan | null;
-}
+export { EmptyNode, LiveNode } from "./liveNode";
+export type { Ctx, DynGain, LoopRun, NodeHost, PVoice, SpatialPlan } from "./liveNode";
 
 /** Below this a weight counts as zero (the prototype drops entries under 1e-4). */
 export const ZERO_WEIGHT = 1e-4;
@@ -131,104 +43,11 @@ const ZERO_WEIGHT_FADE = 0.04;
 
 const lerp = ([lo, hi]: readonly [number, number], t: number): number => (lo === hi ? lo : lo + (hi - lo) * t);
 
-// --- the base node ---------------------------------------------------------------------------------------------------
-
-export abstract class LiveNode {
-  protected readonly children: LiveNode[] = [];
-  protected readonly voices: PVoice[] = [];
-  stopped = false;
-
-  constructor(protected readonly host: NodeHost, protected readonly ctx: Ctx, protected readonly key: string) {}
-
-  /** Stop every voice below, fading over `fade` seconds. */
-  stop(fade: number): void {
-    if (this.stopped) return;
-    this.stopped = true;
-    for (const v of this.voices) {
-      if (v.leaving) continue;
-      v.leaving = true;
-      v.voice.stop(fade);
-    }
-    for (const c of this.children) c.stop(fade);
-  }
-
-  /** The outgoing side of a crossfade: every voice below fades out (equal power) over `seconds` from `at`, then stops. */
-  leave(seconds: number, at: number | null): void {
-    if (this.stopped) return;
-    this.stopped = true;
-    for (const v of this.voices) {
-      if (v.leaving) continue;
-      v.leaving = true;
-      v.voice.fadeShaped({ to: 0, seconds, law: "equalPowerOut", stopAtEnd: true, ...(at !== null ? { at } : {}) });
-    }
-    for (const c of this.children) c.leave(seconds, at);
-  }
-
-  /** Key-off: held loops end by their exit settings. */
-  release(): void {
-    for (const v of this.voices) if (v.loop?.looping && v.loop.behaviour.active === "held" && !v.leaving) this.host.endLoop(v);
-    for (const c of this.children) c.release();
-  }
-
-  onParameter(name: string): void {
-    for (const c of this.children) c.onParameter(name);
-  }
-
-  /** Once per frame (heard `now`). */
-  update(now: number, dt: number): void {
-    for (const c of this.children) c.update(now, dt);
-  }
-
-  /** Anything below still plays or will (a pending pick counts). */
-  get sounding(): boolean {
-    for (const v of this.voices) if (!v.leaving && v.voice.playing) return true;
-    for (const c of this.children) if (c.sounding) return true;
-    return false;
-  }
-
-  /** Any voice below loops now. */
-  get looping(): boolean {
-    for (const v of this.voices) if (!v.leaving && v.voice.playing && v.loop?.looping) return true;
-    for (const c of this.children) if (c.looping) return true;
-    return false;
-  }
-
-  /** When everything below ends (heard time), or null when unknown or never (a loop, a continuous Queue). */
-  end(): number | null {
-    let end = -Infinity;
-    for (const v of this.voices) {
-      if (v.leaving) continue;
-      if (v.loop?.looping || v.start === null || v.length === null) return null;
-      end = Math.max(end, v.start + v.length);
-    }
-    for (const c of this.children) {
-      if (c.stopped) continue;
-      const e = c.end();
-      if (e === null) return null;
-      end = Math.max(end, e);
-    }
-    return Number.isFinite(end) ? end : this.host.startOf(this.ctx.at);
-  }
-
-  /** The longest one-shot pass below (ms), null when unknown. */
-  longestMs(): number | null {
-    let ms: number | null = null;
-    for (const v of this.voices) if (!v.leaving && v.length !== null && !v.loop?.looping) ms = Math.max(ms ?? 0, v.length * 1000);
-    for (const c of this.children) {
-      const m = c.longestMs();
-      if (m !== null) ms = Math.max(ms ?? 0, m);
-    }
-    return ms;
-  }
-}
-
-/** Plays nothing (an empty or unresolvable playlist). */
-class EmptyNode extends LiveNode {}
 
 // --- context down the tree -------------------------------------------------------------------------------------------
 
 /** An entry's per-use settings below `ctx`: gain and pitch add, its curves add bindings or voice-time curves. */
-function useCtx(host: NodeHost, ctx: Ctx, use: EntryUse): Ctx {
+export function useCtx(host: NodeHost, ctx: Ctx, use: EntryUse): Ctx {
   const hasCurves = Object.keys(use.curves).length > 0;
   if (use.volume === 0 && use.pitch === 0 && !hasCurves) return ctx;
   const parts = hasCurves ? curveParts(use.curves, ctx, (n) => host.paramRef(n), (c) => host.curveId(c), ctx.where) : ctx;
@@ -236,7 +55,7 @@ function useCtx(host: NodeHost, ctx: Ctx, use: EntryUse): Ctx {
 }
 
 /** A playlist's own level below `ctx`: volume and pitch with their random ranges (drawn per trigger), effects, output, spatial, delay. */
-function bodyCtx(host: NodeHost, ctx: Ctx, body: PlaylistBody, where: string): Ctx {
+export function bodyCtx(host: NodeHost, ctx: Ctx, body: PlaylistBody, where: string): Ctx {
   // The draws are taken even for a fixed range, so a level's picks don't depend on its neighbours' settings.
   const gainDb = body.volume + lerp(body.volumeRandom, host.random());
   const pitchSt = body.pitch + lerp(body.pitchRandom, host.random());
@@ -286,11 +105,23 @@ export function resolveEntry(host: NodeHost, entry: Entry, parent: Ctx, key: str
 // --- Clip ------------------------------------------------------------------------------------------------------------
 
 class ClipNode extends LiveNode {
+  private musical: VoiceMusical | null = null;
+
   constructor(host: NodeHost, ctx: Ctx, key: string, entry: SampleEntry | null) {
     super(host, ctx, key);
     if (!entry) return;
     const v = host.playSample(entry, useCtx(host, ctx, entry));
-    if (v) this.voices.push(v);
+    if (!v) return;
+    this.voices.push(v);
+    const facts = sampleFacts(entry.sample);
+    const from = entry.trim ? entry.trim[0] : facts.from;
+    if (facts.markers.length > 0) host.trackMarkers(v, facts, from);
+    // Its musical clock: the sample's tempo, Exit markers and loop (ADR 0329 "the playing entry's sync sample").
+    this.musical = new VoiceMusical(new VoiceClock(v, facts, from), () => host.clock());
+  }
+
+  override musicalSource(): MusicalSource | null {
+    return this.musical && this.sounding ? this.musical : null;
   }
 
   override onParameter(name: string): void {
@@ -454,35 +285,69 @@ class SwitchNode extends LiveNode {
     this.change(changeFor(this.s, from ?? "", next ?? ""));
   }
 
+  /** Bumped per change: a change still waiting for its boundary when a newer one arrives is dropped. */
+  private serial = 0;
+
+  /** The musical clock of the entry playing now (ADR 0329: Switch timing waits on the playing entry). */
+  private clock(): MusicalSource | null {
+    return this.current && !this.current.stopped ? this.current.musicalSource() : null;
+  }
+
+  override musicalSource(): MusicalSource | null {
+    return this.clock() ?? super.musicalSource();
+  }
+
   private change(how: ChangeHow): void {
     if (how.when === "nextTrigger") return; // the playing entry carries on; the next trigger reads the new label
+    const serial = ++this.serial;
     if (how.when !== "now") {
-      const at = this.host.musical.nextBoundary(how.when, this.host.startOf(null));
+      const at = this.clock()?.nextBoundary(how.when, this.host.startOf(null)) ?? null;
       if (at === null) warnOnce(`playlist:switch-when:${this.ctx.where}:${how.when}`, `[myco] ${this.ctx.where}: a Switch change at the next ${how.when} ${MUSICAL_FALLBACK_NOTE}.`);
       else {
-        this.host.schedule(at - LOOKAHEAD, () => this.apply(how, at));
+        this.host.schedule(at - LOOKAHEAD, () => { if (serial === this.serial) this.apply(how, at); });
         return;
       }
     }
     this.apply(how, null);
   }
 
+  /**
+   * The change at heard `at` (null: now). `crossfade` and `cut` swap the entries there; `transition` plays as the
+   * engine's bridge (ADR 0329): the old entry leaves at the boundary, the transition plays from it, and the new entry
+   * enters at the transition's Exit marker (its musical clock's next `exit`: a marker, else its loop's end, else its
+   * end), each hand-over crossfaded over `length`. A transition that can't play crossfades straight to the new entry.
+   */
   private apply(how: ChangeHow, at: number | null): void {
     if (this.stopped || this.host.stopped) return;
-    let kind = how.how;
-    if (kind === "transition") {
-      warnOnce(`playlist:switch-transition:${this.ctx.where}`, `[myco] ${this.ctx.where}: Switch transition playlists play from M5 (with the musical clock); crossfading instead.`);
-      kind = "crossfade";
-    }
-    const seconds = "ms" in how.length ? how.length.ms / 1000 : how.length.beats * (this.host.musical.secondsPerBeat() ?? FALLBACK_SECONDS_PER_BEAT);
+    const spb = this.clock()?.secondsPerBeat() ?? FALLBACK_SECONDS_PER_BEAT;
+    const seconds = "ms" in how.length ? how.length.ms / 1000 : how.length.beats * spb;
     const old = this.current;
-    if (kind === "cut" || !(seconds > 0)) {
-      old?.stop(CUT_FADE);
-      this.startFor(this.label, 0, at);
-    } else {
-      old?.leave(seconds, at);
-      this.startFor(this.label, seconds, at);
+    const fade = seconds > 0 ? seconds : 0;
+    if (how.how === "cut" || !(fade > 0)) old?.stop(CUT_FADE);
+    else old?.leave(fade, at);
+    if (how.how === "transition") {
+      if (!how.transition) warnOnce(`playlist:switch-transition:${this.ctx.where}`, `[myco] ${this.ctx.where}: a Switch rule plays a transition but names none; it crossfades.`);
+      else if (this.bridge(how.transition, how.how === "transition" ? fade : 0, at)) return;
     }
+    this.startFor(this.label, how.how === "cut" ? 0 : fade, at);
+  }
+
+  /** Plays `entry` as a bridge from `at`; true when it plays (the new entry is then scheduled at its Exit marker). */
+  private bridge(entry: Entry, fade: number, at: number | null): boolean {
+    const from = this.host.startOf(at);
+    const t = resolveEntry(this.host, entry, { ...this.ctx, at, fadeIn: fade }, `${this.key}/transition`, 0);
+    if (!t || !t.sounding) return false;
+    this.children.push(t);
+    this.current = t;
+    const exit = t.musicalSource()?.nextBoundary("exit", from + 1e-6) ?? t.end();
+    const enter = exit !== null && exit > from ? exit : from;
+    const serial = this.serial;
+    this.host.schedule(enter - LOOKAHEAD, () => {
+      if (serial !== this.serial || this.stopped) return;
+      if (fade > 0) t.leave(fade, enter); else t.stop(CUT_FADE);
+      this.startFor(this.label, fade, enter);
+    });
+    return true;
   }
 }
 
@@ -667,19 +532,12 @@ const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
 
 const resolveBlend: Resolver = (host, body, ctx, key) => new BlendNode(host, ctx, key, body);
 
-// --- Sequence (M5) ---------------------------------------------------------------------------------------------------
-
-const resolveSequence: Resolver = (host, _body, ctx, key) => {
-  warnOnce(`playlist:sequence:${ctx.where}`, `[myco] ${ctx.where}: Sequence playlists play from M5 (sequences arrive with the musical clock); it plays nothing for now.`);
-  return new EmptyNode(host, ctx, key);
-};
-
-/** One resolver per playlist type. */
+/** One resolver per playlist type (the Sequence's is `sequence.ts`, called when it runs: the modules import each other). */
 export const RESOLVERS: Readonly<Record<PlaylistType, Resolver>> = Object.freeze({
   clip: resolveClip,
   queue: resolveQueue,
   switch: resolveSwitch,
   blend: resolveBlend,
   layer: resolveLayer,
-  sequence: resolveSequence,
+  sequence: (host, body, ctx, key) => resolveSequence(host, body, ctx, key),
 });

@@ -32,7 +32,7 @@ import { cancelRun, type SegmentRun } from "./segmentRun";
 import { FALLBACK_CLIP_RATE, segmentGrid, segmentLength } from "./segmentGrids";
 
 /** The crossfade at the swap, milliseconds: the outgoing stems fade out from T (the seek's 5 ms, R25). */
-const RELOAD_FADE_MS = 5;
+export const RELOAD_FADE_MS = 5;
 
 /** Seconds after the fade's end the outgoing run is cancelled (its voices have stopped; this frees the group). */
 const RETIRE_SLACK_SECONDS = 0.1;
@@ -112,8 +112,8 @@ function sameArray(a: ArrayLike<number>, b: ArrayLike<number>, n: number): boole
   return true;
 }
 
-/** The two maps put every bar and beat at the same file time. */
-function sameTempoMap(a: TempoMap, b: TempoMap): boolean {
+/** The two maps put every bar and beat at the same file time (also the playlist runtime's sequence reload rule, ADR 0329). */
+export function sameTempoMap(a: TempoMap, b: TempoMap): boolean {
   return a.count === b.count && a.gridOffset === b.gridOffset &&
     sameArray(a.startTick, b.startTick, a.count) && sameArray(a.bpm, b.bpm, a.count) &&
     sameArray(a.beatsPerBar, b.beatsPerBar, a.count) && sameArray(a.beatUnit, b.beatUnit, a.count);
