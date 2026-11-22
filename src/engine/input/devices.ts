@@ -50,6 +50,11 @@ export const POINTER_DEVICE = -2;
 export const TOUCH_DEVICE = -3;
 export const PEN_DEVICE = -4;
 
+/** A swipe: the primary touch lifted within this many seconds of touching down… */
+export const SWIPE_MAX_SECONDS = 0.5;
+/** …at least this many CSS pixels from where it touched down. */
+export const SWIPE_MIN_DISTANCE = 40;
+
 /** Bit `PRIMARY_TOUCH` of the touch bitmasks is the primary touch; bits 0–9 are fingers by slot. */
 export const PRIMARY_TOUCH = TOUCH_SLOTS;
 
@@ -101,6 +106,12 @@ export interface TouchscreenSnapshot {
   readonly primaryDeltaY: number;
   /** How much the distance between the two lowest-slot fingers grew this frame, CSS pixels (negative: pinching in). */
   readonly pinch: number;
+  /**
+   * A swipe ended this frame: the primary touch's stroke from touch-down to lift, CSS pixels (+Y down), when it
+   * was quick (`SWIPE_MAX_SECONDS`) and long enough (`SWIPE_MIN_DISTANCE`); 0 otherwise.
+   */
+  readonly swipeX: number;
+  readonly swipeY: number;
 }
 
 /** The pen as the game sees it this frame (after routing). */
@@ -234,7 +245,13 @@ class Touchscreen {
   /** This frame's touch-downs and lifts, by slot, for the raw events. */
   readonly changes: { slot: number; value: number; time: number }[] = [];
   /** What the game sees. */
-  readonly view = { held: 0, down: 0, up: 0, count: 0, x: new Float32Array(TOUCH_SLOTS), y: new Float32Array(TOUCH_SLOTS), primaryX: 0, primaryY: 0, primaryDeltaX: 0, primaryDeltaY: 0, pinch: 0 };
+  readonly view = { held: 0, down: 0, up: 0, count: 0, x: new Float32Array(TOUCH_SLOTS), y: new Float32Array(TOUCH_SLOTS), primaryX: 0, primaryY: 0, primaryDeltaX: 0, primaryDeltaY: 0, pinch: 0, swipeX: 0, swipeY: 0 };
+  /** Where and when the primary touch touched down (swipes), and this frame's swipe. */
+  private startX = 0;
+  private startY = 0;
+  private startTime = 0;
+  private sx = 0;
+  private sy = 0;
 
   slotOf(id: number): number {
     for (let i = 0; i < TOUCH_SLOTS; i++) if (this.ids[i] === id && this.held & (1 << i)) return i;
@@ -247,6 +264,7 @@ class Touchscreen {
     this.ui &= ~this.ended;
     this.ended = this.down = this.up = 0;
     this.dx = this.dy = 0;
+    this.sx = this.sy = 0;
     this.changes.length = 0;
     for (const ev of this.queue) {
       if (ev.kind === "start") {
@@ -268,6 +286,9 @@ class Touchscreen {
           this.down |= PRIMARY;
           v.primaryX = ev.x;
           v.primaryY = ev.y;
+          this.startX = ev.x;
+          this.startY = ev.y;
+          this.startTime = ev.time;
         }
         continue;
       }
@@ -288,6 +309,12 @@ class Touchscreen {
         this.ended |= bit;
         this.changes.push({ slot, value: 0, time: ev.time });
         if (ev.id === this.primaryId) {
+          const sx = ev.x - this.startX;
+          const sy = ev.y - this.startY;
+          if ((ev.time - this.startTime) / 1000 <= SWIPE_MAX_SECONDS && Math.hypot(sx, sy) >= SWIPE_MIN_DISTANCE) {
+            this.sx += sx;
+            this.sy += sy;
+          }
           this.primaryId = -1;
           this.held &= ~PRIMARY;
           this.up |= PRIMARY;
@@ -317,6 +344,10 @@ class Touchscreen {
     }
     v.primaryDeltaX = this.dx;
     v.primaryDeltaY = this.dy;
+    // A swipe whose touch the UI took is the UI's.
+    const uiPrimary = (this.ui & PRIMARY) !== 0;
+    v.swipeX = uiPrimary ? 0 : this.sx;
+    v.swipeY = uiPrimary ? 0 : this.sy;
     // Pinch: the change in distance between the same two fingers since last frame.
     v.pinch = 0;
     if (b >= 0) {

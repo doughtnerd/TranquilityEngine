@@ -478,6 +478,10 @@ function read(c: Control, paired: Paired, out: Float32Array): void {
       case "pinch":
         out[0] = t.pinch;
         break;
+      case "swipe":
+        out[0] = t.swipeX;
+        out[1] = 0 - t.swipeY;
+        break;
       case "count":
         out[0] = t.count;
         break;

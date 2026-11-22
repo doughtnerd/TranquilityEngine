@@ -43,6 +43,7 @@ const Touch = defineActions("test.inputActions.Touch", {
   tap: button("<Touch>/primary"),
   second: button("<Touch>/touch1"),
   drag: vec2("<Touch>/primaryDelta"),
+  swipe: vec2("<Touch>/swipe"),
   zoom: axis("<Touch>/pinch"),
   draw: button("<Pen>/tip"),
   ink: axis("<Pen>/pressure"),
@@ -197,6 +198,24 @@ describe("actions and the default context (ADR 0336)", () => {
     expect(p0().released("tap")).toBe(true);
     expect(events.splice(0)).toEqual([["Touchscreen", "<Touch>/touch0", 0], ["Touchscreen", "<Touch>/touch1", 0]]);
     expect(Input.getMouseButton(0)).toBe(false); // injected touches aren't the pointer
+  });
+
+  it("reads a quick, long stroke as a swipe in the frame it lifts (+Y up), and a short one as none", () => {
+    Input.inject.touchStart(5, 100, 300);
+    step();
+    Input.inject.touchMove(5, 100, 200);
+    step();
+    expect(p0().vector2("swipe").toArray()).toEqual([0, 0]);
+    Input.inject.touchEnd(5, 120, 150);
+    step();
+    expect(p0().vector2("swipe").toArray()).toEqual([20, 150]);
+    expect(p0().performed("swipe")).toBe(true);
+    step();
+    expect(p0().vector2("swipe").toArray()).toEqual([0, 0]);
+    Input.inject.touchStart(6, 100, 100);
+    Input.inject.touchEnd(6, 110, 100); // 10 px: too short
+    step();
+    expect(p0().vector2("swipe").toArray()).toEqual([0, 0]);
   });
 
   it("reads pen controls: the tip, pressure, tilt with +Y away from the user, and position", () => {

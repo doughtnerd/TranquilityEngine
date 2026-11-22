@@ -43,7 +43,7 @@ export const GamepadState = defineComponent("engine.GamepadState", gamepadSchema
 
 const touchSchema: Record<string, typeof f32 | typeof i32> = { held: i32, down: i32, up: i32, count: i32 };
 for (let i = 0; i < TOUCH_SLOTS; i++) touchSchema[`x${i}`] = touchSchema[`y${i}`] = f32;
-for (const f of ["primaryX", "primaryY", "primaryDeltaX", "primaryDeltaY", "pinch"]) touchSchema[f] = f32;
+for (const f of ["primaryX", "primaryY", "primaryDeltaX", "primaryDeltaY", "pinch", "swipeX", "swipeY"]) touchSchema[f] = f32;
 
 /**
  * The touchscreen this frame (it appears with the first touch): `held`/`down`/`up` bitmasks (bits
@@ -151,6 +151,8 @@ function writeTouch(view: Record<string, number>, touch: TouchscreenSnapshot): v
   view.primaryDeltaX = touch.primaryDeltaX;
   view.primaryDeltaY = touch.primaryDeltaY;
   view.pinch = touch.pinch;
+  view.swipeX = touch.swipeX;
+  view.swipeY = touch.swipeY;
 }
 
 function writePen(view: Record<string, number>, pen: PenSnapshot): void {

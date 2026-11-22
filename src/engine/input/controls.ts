@@ -56,7 +56,7 @@ export type ControlSource =
   | { readonly device: "gamepad"; readonly read: "gyro" | "accel" }
   /** A finger's press (`slot` 0–9), or the primary touch's (`slot` -1); its position; the primary's delta; the pinch. */
   | { readonly device: "touch"; readonly read: "press" | "position"; readonly slot: number }
-  | { readonly device: "touch"; readonly read: "delta" | "pinch" | "count" }
+  | { readonly device: "touch"; readonly read: "delta" | "pinch" | "count" | "swipe" }
   | { readonly device: "pen"; readonly read: "button"; readonly bit: number }
   | { readonly device: "pen"; readonly read: "position" | "delta" | "pressure" | "tilt" | "twist" | "inRange" };
 
@@ -115,6 +115,7 @@ function parse(path: string): Omit<Control, "id"> | null {
     if (name === "primaryPosition") return { path, source: { device: "touch", read: "position", slot: -1 }, dimensions: 2, additive: false };
     if (name === "primaryDelta") return { path, source: { device: "touch", read: "delta" }, dimensions: 2, additive: true };
     if (name === "pinch") return { path, source: { device: "touch", read: "pinch" }, dimensions: 1, additive: true };
+    if (name === "swipe") return { path, source: { device: "touch", read: "swipe" }, dimensions: 2, additive: true };
     if (name === "count") return { path, source: { device: "touch", read: "count" }, dimensions: 1, additive: false };
     const finger = /^touch(\d)(Position)?$/.exec(name);
     if (finger) return { path, source: { device: "touch", read: finger[2] ? "position" : "press", slot: Number(finger[1]) }, dimensions: finger[2] ? 2 : 1, additive: false };

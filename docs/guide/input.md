@@ -27,7 +27,7 @@ export const PlayerActions = defineActions("game.PlayerActions", {
 - Pointer: `<Pointer>/button0`…, `<Pointer>/delta`, `<Pointer>/scroll`, `<Pointer>/position`.
 - Gamepad buttons: `<Gamepad>/buttonSouth` (A / Cross), `buttonEast`, `buttonWest`, `buttonNorth`, `leftShoulder`, `rightTrigger`, `start`, `dpadUp`, …
 - Gamepad sticks and motion: `<Gamepad>/leftStick`, `rightStick`, `leftStickX`, `dpad`, `gyro`, `accel`.
-- Touch: `<Touch>/primary` (the first finger down, pressed), `primaryPosition`, `primaryDelta`, `touch0`…`touch9` (each finger by slot), `touch0Position`…, `pinch` (how much two fingers spread this frame, in pixels), `count`.
+- Touch: `<Touch>/primary` (the first finger down, pressed), `primaryPosition`, `primaryDelta`, `touch0`…`touch9` (each finger by slot), `touch0Position`…, `pinch` (how much two fingers spread this frame, in pixels), `swipe` (the stroke of a quick flick, in the frame the finger lifts: under 0.5 s and at least 40 px, +Y up), `count`. A long press is a `hold` trigger on `<Touch>/primary`; a two-finger tap is a `tap` trigger on `<Touch>/touch1`.
 - Pen: `<Pen>/tip`, `barrel`, `eraser`, `pressure` (0..1), `position`, `delta`, `tilt` (-1..1), `twist`, `inRange`.
 
 ## Read them
