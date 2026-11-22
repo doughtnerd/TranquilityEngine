@@ -95,7 +95,7 @@ export interface PendingRebind {
   readonly mapping: number;
   readonly part: string;
   /** The devices it listens to. */
-  readonly device: "keyboard" | "gamepad";
+  readonly device: DeviceGroup;
   /** The control that cancels it. */
   readonly cancel: string;
   /** Seconds before it gives up (Infinity: it waits). */
@@ -106,7 +106,7 @@ export interface PendingRebind {
 export function pendingRebind(player: GameObject): PendingRebind | null {
   const token = player.isValid ? player.getData(RebindRequest)?.token : undefined;
   const p = token === undefined ? undefined : pending.get(token);
-  return p ? { action: p.action, context: p.context, mapping: p.mapping, part: p.part, device: p.gamepad ? "gamepad" : "keyboard", cancel: p.cancel, remaining: p.remaining } : null;
+  return p ? { action: p.action, context: p.context, mapping: p.mapping, part: p.part, device: p.group, cancel: p.cancel, remaining: p.remaining } : null;
 }
 
 function finish(player: GameObject, token: number, chosen: { control: string; conflicts: string[] } | null): void {
