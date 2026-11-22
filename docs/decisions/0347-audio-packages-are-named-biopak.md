@@ -1,6 +1,6 @@
 # 0347. Audio packages are named BioPak
 
-- **Status:** Proposed (held: not built on the animation branch, owner 2026-11-22)
+- **Status:** Proposed
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
@@ -14,11 +14,11 @@ Audio 0337 (audio branch, merging first) ships audio in loadable packages, built
 The owner decided (2026-11-22):
 - Audio packages are called **BioPak**.
 - A package of mixed assets (sounds, animation clips, pose databases, models) would get a different name and convention, in its own record later.
-- Neither change is built on the animation branch.
+- The BioPak rename may be built on this branch once the audio branch has merged. Mixed-asset packages wait for their own record.
 
 ## Decision
 
-When this record is built, after the animation work:
+Once the audio branch has merged:
 
 - **File:** `audio/packages/<name>.biopak`, magic `BIOPAK01`, TOC format `myco.biopak@1`. The TOC's fields and the entry layout stay as audio 0337 defines them.
 - **Names:** BioPak in the Studio's Packages screen, the export report, docs and messages. The `AudioPackage` API and `audio.json` `packages` keep their names.
