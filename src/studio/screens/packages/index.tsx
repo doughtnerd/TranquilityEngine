@@ -49,7 +49,7 @@ function screen() {
   if (!project || !doc) return null;
   const audio = doc.value.value;
   const source: StudioPlanSource = projectPlanSource(project);
-  const json = (p: string) => (project.files.includes(p) ? project.assets.get(p) : undefined);
+  const json = (p: string) => (project.assets.has(p) ? project.assets.get(p) : undefined);
   const deps = audioDependencies(json);
   const commit = (result: EditResult<AudioProject>, label: string) => applyEdit(result, label, (next) => doc.edit(next, { label }), doc.value.peek());
   return { project, doc, audio, source, deps, commit, readOnly: doc.readOnly };

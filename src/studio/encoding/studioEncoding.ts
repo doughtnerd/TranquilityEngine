@@ -76,7 +76,7 @@ export function projectPlanSource(project: EditorProject, sidecar?: (path: strin
   return {
     files: project.files,
     audio: audioProjectNow(project),
-    json: (p) => (project.files.includes(p) ? project.assets.get(p) : undefined),
+    json: (p) => (project.assets.has(p) ? project.assets.get(p) : undefined),
     ...(sidecar ? { sidecar } : {}),
   };
 }
