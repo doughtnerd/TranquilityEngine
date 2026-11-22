@@ -66,11 +66,28 @@ Entries are always playlists: an **embedded** one belongs to its parent, a **lin
 | Type | What it does |
 | --- | --- |
 | **Clip** | One sample. Its loops come from the sample's sidecar (the Samples screen); `loop: "on"` loops the trimmed region until released, `"off"` never loops. |
-| **Queue** | Picks one entry per trigger: `random` (weighted, skipping the last `avoidRepeat`), `shuffle` (a deck) or `roundRobin`. `continuous: { gapMs }` plays entries back to back until stopped (a negative gap crossfades). |
+| **Queue** | Picks one entry per trigger: `random` (weighted, skipping the last `avoidRepeat`), `shuffle` (a deck) or `roundRobin`. `continuous: { gapMs, shape }` plays entries back to back until stopped (a negative gap crossfades, in `shape`: a fade shape, default `equalPower`, see Interactive music). |
 | **Switch** | A labelled parameter picks the entry (`map`: label → entry index). A change follows `onChange` or the best-matching rule (see Interactive music). |
-| **Blend** | One or two scalar axes (a parameter, or voice time) place the entries; `crossfade` or `layer`, linear or equal power, `follow` glides the input or `hold` samples it at the trigger, and an optional ADSR envelope. |
+| **Blend** | One or two scalar axes (a parameter, or voice time) place the entries; `crossfade` or `layer`, linear or equal power, `follow` glides the input or `hold` samples it at the trigger, and an optional ADSR envelope. Entries can carry a region (1D) and a weight curve (below). |
 | **Layer** | Plays every entry together. |
 | **Sequence** | A timeline of audio and playlist tracks with clips, loops, hold points, markers and automation (the Sequencer). |
+
+**Blend regions and weight curves** (ADR 0336). By default a 1D entry is full only at its `x` and crossfades out to its
+neighbours' positions (`layer`: it ramps in from the previous one and stays). Like an FMOD instrument on a parameter
+sheet or a Wwise blend-track range, an entry can instead say where it plays:
+
+```jsonc
+{ "embedded": { ... }, "x": 0.5, "region": { "start": 0.05, "end": 0.95, "fadeIn": 0.4, "fadeOut": 0.4, "shapeOut": "sCurve" } }
+```
+
+Its weight is 0 outside `[start, end]`, ramps up over `fadeIn` and down over `fadeOut` (axis units), 1 between, so
+neighbours overlap where their regions do, and a layer can end. The fades' shapes default to the blend's `curve`
+(`equalPower` → sin/cos); `crossfade` and `layer` only change how regions are derived for entries without one. In the
+Studio's lane each region is a trapezoid with handles for its edges and fade widths (drag, or ← → with Shift ×10);
+"Reset to automatic" clears it. A **weight curve** (`"weightCurve": [[0, 0], [0.4, 0], [1, 1]]`) maps an entry's raw
+weight (0..1) to its gain: in 2D, where regions don't apply, it narrows or shapes an entry's reach (an equal-power 2D
+blend is normalised to constant power); in 1D it applies after the region. The Studio offers presets matching the fade
+shapes, and the curve editor for the rest; the 2D plane tints each entry's shaped influence.
 
 **Playback rules** gate each trigger in order: cooldown since the last accepted trigger, chance, then max instances (steal the oldest, quietest or farthest with a 40 ms fade, or refuse). `untilStopped` keeps the instance alive until the game stops it. Only the root playlist's rules gate.
 
