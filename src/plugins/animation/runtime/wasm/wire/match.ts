@@ -2,5 +2,59 @@
 // native/anim/crates/anim-wire/src/match.rs. Do not edit: change the Rust and rebuild.
 // Internal to the animation plugin (ADR 0340): never part of the public API.
 
-/** Wire family `match`: motion matching: trajectory inputs, tags and search results (ADR 0340). */
+/**
+ * Wire family `match`: motion matching (ADR 0340, 0342): the live debugger's records of the graph's pose-database
+ * nodes (native/anim/crates/anim-wire/src/match.rs).
+ */
 export const MATCH_FAMILY = { name: "match", id: 5, version: 1 } as const;
+
+/** The match buffer's size in bytes. */
+export const MATCH_DEBUG_BYTES = 4096;
+
+/** `MATCH_NODE.flags`: the last update switched. */
+export const MATCH_SWITCHED = 1;
+
+/** `MATCH_NODE.flags`: the last update searched. */
+export const MATCH_SEARCHED = 2;
+
+/** The head of a match report. */
+export const MATCH_HEADER = {
+  opcode: 0x0501,
+  version: 1,
+  stride: 16,
+  fields: {
+    /** The instance handle. */
+    instance: { offset: 4, type: "u32" },
+    /** `MatchNode` records. */
+    nodes: { offset: 8, type: "u32" },
+    /** Records that didn't fit. */
+    dropped: { offset: 12, type: "u32" },
+  },
+} as const;
+
+/** A `POSE_DATABASE` node's state. */
+export const MATCH_NODE = {
+  opcode: 0x0502,
+  version: 1,
+  stride: 40,
+  fields: {
+    /** The node index. */
+    node: { offset: 4, type: "u32" },
+    /** The database's asset handle (0: none bound). */
+    database: { offset: 8, type: "u32" },
+    /** The playing clip's asset handle (0: none). */
+    clip: { offset: 12, type: "u32" },
+    /** Its playhead, seconds. */
+    time: { offset: 16, type: "f32" },
+    /** The database frame playing (`0xFFFFFFFF`: none). */
+    frame: { offset: 20, type: "u32" },
+    /** Its cost against the last query. */
+    cost: { offset: 24, type: "f32" },
+    /** Updates the node has run. */
+    updates: { offset: 28, type: "u32" },
+    /** The update count at the last search (`0xFFFFFFFF`: never). */
+    lastSearch: { offset: 32, type: "u32" },
+    /** `MATCH_*` flags of the last update. */
+    flags: { offset: 36, type: "u32" },
+  },
+} as const;
