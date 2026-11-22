@@ -39,10 +39,11 @@ const readPads = (): (PadReading | null)[] => {
 };
 
 /**
- * Wait for the next press anywhere in the window: `done(path)` with its control, or `done(null)` on Escape. Returns a
- * function that stops waiting (without calling `done`). Key presses and clicks are taken (they don't reach the page).
+ * Wait for the next press anywhere in the window: `done(path)` with its control, or `done(null)` on Escape or on a
+ * press inside `cancelOn` (the button that started capture, now reading "Cancel"). Returns a function that stops
+ * waiting (without calling `done`). Key presses and clicks are taken (they don't reach the page).
  */
-export function captureControl(done: (path: string | null) => void): () => void {
+export function captureControl(done: (path: string | null) => void, cancelOn?: Element | null): () => void {
   let stopped = false;
   let frame = 0;
   const finish = (path: string | null) => {
@@ -61,7 +62,7 @@ export function captureControl(done: (path: string | null) => void): () => void 
     const after = (ev: Event) => swallow(ev);
     for (const type of ["click", "contextmenu"]) window.addEventListener(type, after, { capture: true, once: true });
     setTimeout(() => ["click", "contextmenu"].forEach((type) => window.removeEventListener(type, after, true)), 1000);
-    finish(pointerControl(e.button));
+    finish(cancelOn && e.target instanceof Node && cancelOn.contains(e.target) ? null : pointerControl(e.button));
   };
   const swallow = (e: Event) => {
     e.preventDefault();

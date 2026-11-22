@@ -227,7 +227,7 @@ function ControlRow(props: { part: string; listId: string; single: boolean; valu
   const commit = (path: string) => props.onCommit(canonicalControlPath(path.trim()) ?? path.trim());
   const draft = useDraftText(props.value, commit);
   const label = props.single ? "Control" : PART_LABELS[props.part] ?? props.part;
-  const bind = () => {
+  const bind = (e: MouseEvent) => {
     if (capturing) {
       stop.current?.();
       setCapturing(false);
@@ -236,11 +236,12 @@ function ControlRow(props: { part: string; listId: string; single: boolean; valu
     setCapturing(true);
     // Now, not after a timer: the browser runs input before timers, so a key pressed while the page is busy would
     // reach the page instead. This click's own events have passed the window's capture phase, so they aren't taken.
+    // A press on this button (now "Cancel") cancels rather than binding the mouse button.
     stop.current = captureControl((path) => {
       stop.current = null;
       setCapturing(false);
       if (path) commit(path);
-    });
+    }, e.currentTarget as Element);
   };
   return (
     <div class="import-row input-control-row">

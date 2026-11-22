@@ -103,6 +103,11 @@ export const PressToBind: Story = {
     bind.click();
     bind.dispatchEvent(new KeyboardEvent("keydown", { key: "m", bubbles: true, cancelable: true }));
     await waitFor(async () => expect((await saved()).mappings[0].control).toBe("<Keyboard>/m"));
+    // Clicking Cancel with the mouse cancels; it doesn't bind the mouse button.
+    await userEvent.click(card.getByRole("button", { name: "Bind" }));
+    await userEvent.click(card.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(card.getByRole("button", { name: "Bind" })).toBeVisible());
+    expect((await saved()).mappings[0].control).toBe("<Keyboard>/m");
   },
 };
 
