@@ -42,6 +42,23 @@ fn the_bake_is_deterministic() {
     assert_eq!(db.trajectory_offsets(), &[-0.33, 0.33, 0.66, 1.0]);
 }
 
+/// The bake's bytes are the same on every target (native and wasm32 + simd128): a golden hash.
+/// A deliberate change to the bake or the fixtures updates the constant.
+#[test]
+fn the_bake_matches_its_golden_hash() {
+    let bytes = fixture().bake(&schema(), &BakeSettings::default()).bytes;
+    let mut h = 0xcbf2_9ce4_8422_2325u64;
+    for b in &bytes {
+        h = (h ^ *b as u64).wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    assert_eq!(
+        h,
+        0xfeb3_bbab_7884_1e88,
+        "FNV-1a of the baked locomotion database ({} bytes)",
+        bytes.len()
+    );
+}
+
 #[test]
 fn features_and_statistics_match_the_reference() {
     let fx = fixture();
@@ -74,11 +91,14 @@ fn features_and_statistics_match_the_reference() {
         let kind_of = |d: usize| {
             db.features
                 .iter()
-                .find(|f| (f.first_dim as usize..(f.first_dim + f.dims as u32) as usize).contains(&d))
+                .find(|f| {
+                    (f.first_dim as usize..(f.first_dim + f.dims as u32) as usize).contains(&d)
+                })
                 .unwrap()
                 .kind
         };
         // Raw features (row · std + mean) against the reference.
+        #[allow(clippy::needless_range_loop)]
         for (i, r) in rows.iter().enumerate() {
             for d in 0..dims {
                 let v = db.matrix[i * dims + d] as f64 * db.std[d] as f64 + db.mean[d] as f64;
@@ -153,9 +173,10 @@ fn looping_trajectories_continue_over_the_seam() {
     let baked = fx.bake(&schema(), &BakeSettings::default());
     let db = &baked.db;
     let dims = db.dims as usize;
-    let f = db.features.iter().find(|f| {
-        f.kind == FeatureKind::TrajectoryPosition && f.time_offset == 1.0
-    });
+    let f = db
+        .features
+        .iter()
+        .find(|f| f.kind == FeatureKind::TrajectoryPosition && f.time_offset == 1.0);
     let o = f.unwrap().first_dim as usize;
     for (i, fr) in db.frames.iter().enumerate().filter(|(_, f)| f.clip == 1) {
         let z = db.matrix[i * dims + o + 1] * db.std[o + 1] + db.mean[o + 1];
@@ -196,7 +217,10 @@ fn ranges_select_frames_and_union_their_tags() {
         assert_eq!(view.has_tag(i, 0), t <= 1.0 || t >= 0.5, "a at {t}");
         assert_eq!(view.has_tag(i, 1), t >= 0.5, "b at {t}");
     }
-    assert_eq!(view.strings().get(view.clips().get(0).unwrap()), Some("walk.anim"));
+    assert_eq!(
+        view.strings().get(view.clips().get(0).unwrap()),
+        Some("walk.anim")
+    );
 }
 
 #[test]
@@ -248,7 +272,10 @@ fn bad_input_is_refused() {
         weight: 1.0,
         time_offset: 0.0,
     };
-    assert_eq!(bake(&skel, &clips, &[], &s).unwrap_err(), BakeError::Feature(0));
+    assert_eq!(
+        bake(&skel, &clips, &[], &s).unwrap_err(),
+        BakeError::Feature(0)
+    );
     assert_eq!(
         bake(&skel, &clips, &[custom], &s).unwrap_err(),
         BakeError::Feature(0)

@@ -131,7 +131,10 @@ pub enum BakeError {
     /// (the feature's index).
     Feature(usize),
     /// A clip's bone count isn't the skeleton's, or it can't be sampled in the requested form.
-    Clip { clip: usize, error: Option<SampleError> },
+    Clip {
+        clip: usize,
+        error: Option<SampleError>,
+    },
     /// A range is reversed or not finite (clip, range).
     Range { clip: usize, range: usize },
     /// More than [`MAX_TAGS`] distinct tags.
@@ -228,10 +231,8 @@ pub fn bake(
                 }
             }
         }
-        let mut eval = ClipEval::new(skel, clip, settings.root_bone).map_err(|e| BakeError::Clip {
-            clip: ci,
-            error: e,
-        })?;
+        let mut eval = ClipEval::new(skel, clip, settings.root_bone)
+            .map_err(|e| BakeError::Clip { clip: ci, error: e })?;
         let duration = eval.duration;
         let h = 1.0 / rate;
         let mut i = 0u32;
@@ -520,4 +521,3 @@ impl<'a> ClipEval<'a> {
         }
     }
 }
-

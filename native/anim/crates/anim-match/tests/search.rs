@@ -25,8 +25,10 @@ fn query_from(features: &[Feature], v: &[f32], lanes: usize) -> Vec<F32x4> {
             flat[d] = v[d] * f.weight.sqrt();
         }
     }
-    flat.chunks_exact(4)
-        .map(|c| F32x4::new(c[0], c[1], c[2], c[3]))
+    flat.as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| F32x4::from_array(*c))
         .collect()
 }
 
@@ -130,9 +132,7 @@ fn kd_tree_and_brute_force_agree_with_ties_and_depth() {
     let matrix: Vec<f32> = (0..n * dims)
         .map(|_| (rng.f32(-2.0, 2.0) * 4.0).round() / 4.0)
         .collect();
-    let scale: Vec<f32> = (0..dims)
-        .map(|d| features[d / 2].weight.sqrt())
-        .collect();
+    let scale: Vec<f32> = (0..dims).map(|d| features[d / 2].weight.sqrt()).collect();
     for leaf in [1, 4, 16] {
         let db = PoseDb {
             sample_rate: 30.0,
@@ -274,6 +274,10 @@ fn a_frame_finds_itself_at_zero_cost_unless_skipped() {
     }
     // A query of the wrong length finds nothing.
     assert!(db
-        .search(&[F32x4::splat(0.0)], &SearchFilter::default(), SearchMode::KdTree)
+        .search(
+            &[F32x4::splat(0.0)],
+            &SearchFilter::default(),
+            SearchMode::KdTree
+        )
         .is_none());
 }

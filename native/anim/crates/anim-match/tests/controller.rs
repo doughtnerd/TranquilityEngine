@@ -168,7 +168,10 @@ fn searches_run_every_interval_or_on_a_large_trajectory_change() {
     let pattern: Vec<bool> = (0..8)
         .map(|_| c.update(&db, DT, &q(0.0, 0.0), &filter).searched)
         .collect();
-    assert_eq!(pattern, [false, false, false, true, false, false, false, true]);
+    assert_eq!(
+        pattern,
+        [false, false, false, true, false, false, false, true]
+    );
     // A trajectory 1 away from the continuation's (cost 1 > 0.5) searches at once.
     assert!(!c.update(&db, DT, &q(0.0, 0.5), &filter).searched);
     assert!(c.update(&db, DT, &q(0.0, 1.0), &filter).searched);
@@ -321,11 +324,22 @@ fn closed_loop_locomotion_picks_the_matching_clips() {
             ([0.0, 0.0], 1.2 * 4.0)
         };
         for k in 0..2 {
-            (x[k], v[k], a[k]) =
-                velocity_spring(x[k], v[k], a[k], desired[k], traj_settings.velocity_half_life, dt);
+            (x[k], v[k], a[k]) = velocity_spring(
+                x[k],
+                v[k],
+                a[k],
+                desired[k],
+                traj_settings.velocity_half_life,
+                dt,
+            );
         }
-        (yaw, yaw_rate) =
-            spring_damper(yaw, yaw_rate, desired_yaw, traj_settings.facing_half_life, dt);
+        (yaw, yaw_rate) = spring_damper(
+            yaw,
+            yaw_rate,
+            desired_yaw,
+            traj_settings.facing_half_life,
+            dt,
+        );
 
         let input = TrajectoryInput {
             position: x,
@@ -335,7 +349,12 @@ fn closed_loop_locomotion_picks_the_matching_clips() {
             desired_yaw,
         };
         predictor.update(dt, &input, &traj_settings);
-        predictor.predict(&input, &traj_settings, db.trajectory_offsets(), &mut trajectory);
+        predictor.predict(
+            &input,
+            &traj_settings,
+            db.trajectory_offsets(),
+            &mut trajectory,
+        );
 
         // The displayed pose: the clip the controller plays (last frame's choice, advanced).
         std::mem::swap(&mut cur, &mut prev);

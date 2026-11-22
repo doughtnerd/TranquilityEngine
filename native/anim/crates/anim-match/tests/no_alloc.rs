@@ -7,8 +7,8 @@ mod common;
 use anim_format::posedb::PoseDbView;
 use anim_match::{
     build_query, BakeSettings, ControllerSettings, MatchController, MatchDb, PoseInput,
-    SearchFilter, SearchMode, TagFilter, TagMask, Trajectory, TrajectoryInput,
-    TrajectoryPredictor, TrajectorySettings,
+    SearchFilter, SearchMode, TagFilter, TagMask, Trajectory, TrajectoryInput, TrajectoryPredictor,
+    TrajectorySettings,
 };
 use anim_math::{AosTransform, AosVec3};
 use anim_pose::root::RootDelta;
@@ -84,10 +84,7 @@ fn the_runtime_does_not_allocate() {
         let out = controller.update(&db, 1.0 / 60.0, &query, &tags);
         found += out.searched as u32;
         for mode in [SearchMode::BruteForce, SearchMode::KdTree] {
-            let filter = SearchFilter {
-                tags,
-                skip: None,
-            };
+            let filter = SearchFilter { tags, skip: None };
             found += db.search(&query, &filter, mode).is_some() as u32;
         }
         found += (db.cost(&query, 3) >= 0.0) as u32;

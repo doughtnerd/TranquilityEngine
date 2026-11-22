@@ -84,11 +84,18 @@ fn a_clip_frame_finds_itself() {
         let mut query = db.new_query();
         build_query(&db, &pose, &traj, &mut query).unwrap();
         let frame = db.frame_at(clip, t).unwrap() as usize;
-        assert!(db.cost(&query, frame) < 1e-4, "clip {clip}: {}", db.cost(&query, frame));
+        assert!(
+            db.cost(&query, frame) < 1e-4,
+            "clip {clip}: {}",
+            db.cost(&query, frame)
+        );
         for mode in [SearchMode::BruteForce, SearchMode::KdTree] {
             let m = db.search(&query, &SearchFilter::default(), mode).unwrap();
             assert!(m.cost <= db.cost(&query, frame));
-            assert!(m.clip == clip && (m.time - t).abs() < 1.5 * h, "clip {clip}: {m:?}");
+            assert!(
+                m.clip == clip && (m.time - t).abs() < 1.5 * h,
+                "clip {clip}: {m:?}"
+            );
         }
 
         // Refusals: wrong length, a missing trajectory sample, a bone out of range.

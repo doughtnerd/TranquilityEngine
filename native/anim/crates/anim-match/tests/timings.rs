@@ -107,8 +107,10 @@ fn search_timings_on_a_30_minute_database() {
                     }
                 })
                 .collect();
-            v.chunks_exact(4)
-                .map(|c| F32x4::new(c[0], c[1], c[2], c[3]))
+            v.as_chunks::<4>()
+                .0
+                .iter()
+                .map(|c| F32x4::from_array(*c))
                 .collect()
         };
         for (label, near) in [("near a frame", true), ("random", false)] {
@@ -127,7 +129,10 @@ fn search_timings_on_a_30_minute_database() {
                 ),
             ] {
                 let mut per = [0.0f64; 2];
-                for (m, mode) in [SearchMode::BruteForce, SearchMode::KdTree].iter().enumerate() {
+                for (m, mode) in [SearchMode::BruteForce, SearchMode::KdTree]
+                    .iter()
+                    .enumerate()
+                {
                     for q in queries.iter().take(40) {
                         black_box(db.search(q, &filter, *mode));
                     }

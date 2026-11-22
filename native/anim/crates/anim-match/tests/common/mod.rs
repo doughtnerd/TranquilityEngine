@@ -44,7 +44,9 @@ pub fn skeleton() -> Skeleton {
         scale: [1.0; 3],
         inverse_bind: [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0],
     };
-    let names = ["hips", "spine", "l_thigh", "l_shin", "l_foot", "r_thigh", "r_shin", "r_foot"];
+    let names = [
+        "hips", "spine", "l_thigh", "l_shin", "l_foot", "r_thigh", "r_shin", "r_foot",
+    ];
     Skeleton {
         name: NONE,
         profile: NONE,
@@ -139,13 +141,19 @@ pub fn stop() -> Gait {
     gait(s, 0.0, 1.0, 2.5, false)
 }
 
+// Trigonometry in f64, rounded to f32: libm's last-bit differences between targets vanish in the
+// rounding, so the fixtures (and the golden hash of their bake) are the same on every target.
 fn quat_x(a: f32) -> [f32; 4] {
-    let (s, c) = (a * 0.5).sin_cos();
-    [s, 0.0, 0.0, c]
+    let (s, c) = (a as f64 * 0.5).sin_cos();
+    [s as f32, 0.0, 0.0, c as f32]
 }
 fn quat_y(a: f32) -> [f32; 4] {
-    let (s, c) = (a * 0.5).sin_cos();
-    [0.0, s, 0.0, c]
+    let (s, c) = (a as f64 * 0.5).sin_cos();
+    [0.0, s as f32, 0.0, c as f32]
+}
+/// `sin(2π · cycles · phase)`.
+fn tau_sin(phase: f64, cycles: f64) -> f32 {
+    (phase * cycles * std::f64::consts::TAU).sin() as f32
 }
 
 /// A clip of `gait` at 30 Hz, raw form, root motion in the hips (root bone 0).
@@ -173,9 +181,9 @@ pub fn clip(gait: Gait) -> Clip {
         let t = f as f32 / RATE;
         let v = gait.speed.at(t);
         let amp = 0.12 + 0.18 * (v / 3.5).min(1.0);
-        let swing = (phase as f32 * std::f32::consts::TAU).sin() * amp * (v.min(1.0) + 0.1);
-        let bob = 0.02 * (phase as f32 * std::f32::consts::TAU * 2.0).cos() * (v.min(1.0) + 0.2);
-        let sway = 0.01 * (phase as f32 * std::f32::consts::TAU).sin();
+        let swing = tau_sin(phase, 1.0) * amp * (v.min(1.0) + 0.1);
+        let bob = 0.02 * tau_sin(phase + 0.125, 2.0) * (v.min(1.0) + 0.2);
+        let sway = 0.01 * tau_sin(phase, 1.0);
         let local: Vec<([f32; 3], [f32; 4])> = skel
             .bones
             .iter()
@@ -253,7 +261,10 @@ pub fn fixture() -> Fixture {
     let set = locomotion();
     Fixture {
         skel: skeleton().write().unwrap(),
-        clips: set.iter().map(|(_, g, _)| clip(*g).write().unwrap()).collect(),
+        clips: set
+            .iter()
+            .map(|(_, g, _)| clip(*g).write().unwrap())
+            .collect(),
         names: set.iter().map(|(n, _, _)| *n).collect(),
         ranges: set.iter().map(|(_, _, r)| r.clone()).collect(),
         durations: set.iter().map(|(_, g, _)| g.duration).collect(),

@@ -227,10 +227,7 @@ impl TrajectoryPredictor {
                 (p, yaw)
             } else if t < 0.0 {
                 let (p, yaw) = self.past(input, t);
-                (
-                    [p[0] - input.position[0], p[1] - input.position[1]],
-                    yaw,
-                )
+                ([p[0] - input.position[0], p[1] - input.position[1]], yaw)
             } else {
                 ([0.0; 2], input.yaw)
             };

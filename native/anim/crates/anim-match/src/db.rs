@@ -91,7 +91,7 @@ pub(crate) enum Node {
 
 /// Consecutive frames of one clip: frame `first + k` is at `start + k / sample_rate`.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Run {
+pub(crate) struct Run {
     pub clip: u32,
     pub first: u32,
     pub count: u32,
@@ -161,8 +161,10 @@ impl MatchDb {
         }
         offsets[..offset_count].sort_by(f32::total_cmp);
         let to_lanes = |v: &[f32]| -> Vec<F32x4> {
-            v.chunks_exact(4)
-                .map(|c| F32x4::new(c[0], c[1], c[2], c[3]))
+            v.as_chunks::<4>()
+                .0
+                .iter()
+                .map(|c| F32x4::from_array(*c))
                 .collect()
         };
         let matrix = view.matrix();
@@ -249,7 +251,7 @@ impl MatchDb {
         let n = self.frames.len();
         let mut seen = vec![false; n];
         let mut covered = 0usize;
-        // (node, depth); the path's splits as (axis, split, went left).
+        // The path's splits as (axis, split, went left).
         let mut path: Vec<(u32, f32, bool)> = Vec::with_capacity(MAX_KD_DEPTH);
         self.check_node(view, 0, &mut path, &mut seen, &mut covered)?;
         if covered != n {
@@ -349,10 +351,6 @@ impl MatchDb {
     pub fn has_kd_tree(&self) -> bool {
         !self.nodes.is_empty()
     }
-    /// The runs of consecutive frames.
-    pub fn runs(&self) -> &[Run] {
-        &self.runs
-    }
     /// Whether frame `i` has tag `tag`.
     pub fn has_tag(&self, i: usize, tag: usize) -> bool {
         tag / 32 < self.tag_words
@@ -364,7 +362,8 @@ impl MatchDb {
     /// Whether frame `i` passes `filter`.
     #[inline]
     pub fn passes(&self, i: usize, filter: &TagFilter) -> bool {
-        self.prepare(filter).is_some_and(|p| self.passes_prepared(i, &p))
+        self.prepare(filter)
+            .is_some_and(|p| self.passes_prepared(i, &p))
     }
 
     /// `filter` reduced to the database's tag words, or `None` when no frame can pass (a

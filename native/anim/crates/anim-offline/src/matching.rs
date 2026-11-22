@@ -72,7 +72,11 @@ impl Ground {
             yaw: -self.yaw,
         };
         let (x, z) = inv.rotate(-self.x, -self.z);
-        Ground { x, z, yaw: -self.yaw }
+        Ground {
+            x,
+            z,
+            yaw: -self.yaw,
+        }
     }
 
     /// A world point into this frame.

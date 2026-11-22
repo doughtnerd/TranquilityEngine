@@ -163,9 +163,15 @@ impl MatchController {
             }
             (None, _) => false,
         };
-        if let (true, Some(Match {
-            frame, cost, clip, time,
-        })) = (switch, best)
+        if let (
+            true,
+            Some(Match {
+                frame,
+                cost,
+                clip,
+                time,
+            }),
+        ) = (switch, best)
         {
             self.clip = clip;
             self.time = time;

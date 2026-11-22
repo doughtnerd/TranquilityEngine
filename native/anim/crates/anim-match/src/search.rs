@@ -144,11 +144,7 @@ impl MatchDb {
             return f32::INFINITY;
         }
         let mut acc = F32x4::splat(0.0);
-        for ((q, r), m) in query
-            .iter()
-            .zip(self.row(frame))
-            .zip(&self.trajectory_mask)
-        {
+        for ((q, r), m) in query.iter().zip(self.row(frame)).zip(&self.trajectory_mask) {
             let d = (*q - *r) * *m;
             acc = acc + d * d;
         }
@@ -157,7 +153,12 @@ impl MatchDb {
 
     /// The least-cost frame passing `filter`, or `None` when none does (or `query` isn't
     /// `lanes()` long). Never allocates.
-    pub fn search(&self, query: &[F32x4], filter: &SearchFilter, mode: SearchMode) -> Option<Match> {
+    pub fn search(
+        &self,
+        query: &[F32x4],
+        filter: &SearchFilter,
+        mode: SearchMode,
+    ) -> Option<Match> {
         if query.len() != self.lanes || self.frames.is_empty() {
             return None;
         }

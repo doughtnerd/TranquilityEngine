@@ -21,7 +21,10 @@ fn the_spring_converges_without_overshoot() {
         let dt = 1.0 / 120.0;
         for step in 1..=(1200.0 * hl) as usize {
             (x, v) = spring_damper(x, v, 1.0, hl, dt);
-            assert!(x >= last - 1e-7 && x <= 1.0 + 1e-6, "hl {hl} step {step}: {x}");
+            assert!(
+                x >= last - 1e-7 && x <= 1.0 + 1e-6,
+                "hl {hl} step {step}: {x}"
+            );
             last = x;
         }
         // Ten half-lives: (1 + y·t)·e^(−y·t) ≈ 1.4e-5 of the gap remains.
@@ -76,7 +79,12 @@ fn stepping_is_frame_rate_independent() {
 
 #[test]
 fn angles_wrap_into_minus_pi_to_pi() {
-    for (x, want) in [(0.0, 0.0), (3.0, 3.0), (4.0, 4.0 - 2.0 * PI), (-7.0, -7.0 + 2.0 * PI)] {
+    for (x, want) in [
+        (0.0, 0.0),
+        (3.0, 3.0),
+        (4.0, 4.0 - 2.0 * PI),
+        (-7.0, -7.0 + 2.0 * PI),
+    ] {
         assert!((wrap_angle(x) - want).abs() < 1e-6);
     }
 }
@@ -168,7 +176,11 @@ fn a_new_desire_follows_the_spring_and_turns_the_short_way() {
         let (dz, _, _) = velocity_spring(0.0, 0.0, 0.0, 2.0, s.velocity_half_life, o);
         // World (0, dz) in the frame facing yaw 3: right = (cos, −sin), forward = (sin, cos).
         let want = [dz * -sin, dz * cos];
-        assert!(close(t.positions[i], want, 1e-5), "{o}: {:?} {want:?}", t.positions[i]);
+        assert!(
+            close(t.positions[i], want, 1e-5),
+            "{o}: {:?} {want:?}",
+            t.positions[i]
+        );
         // −3 is 0.28 rad past +π: the turn goes up through π, so the relative yaw grows positive
         // toward 2π − 6 ≈ 0.283 and never the long way.
         let rel = t.directions[i][0].atan2(t.directions[i][1]);
@@ -190,7 +202,11 @@ fn the_past_comes_from_the_history() {
         p.update(dt, &input, &settings());
     }
     let t = predict(&p, &input);
-    assert!(close(t.positions[0], [0.0, -1.4 * 0.33], 1e-4), "{:?}", t.positions[0]);
+    assert!(
+        close(t.positions[0], [0.0, -1.4 * 0.33], 1e-4),
+        "{:?}",
+        t.positions[0]
+    );
     // Older than the history: clamps to the oldest sample.
     let mut q = TrajectoryPredictor::new();
     q.update(dt, &input, &settings());
@@ -230,7 +246,12 @@ fn closed_loop_prediction_is_frame_rate_independent() {
     };
     let (a, b) = (run(30), run(240));
     for i in 1..4 {
-        assert!(close(a.positions[i], b.positions[i], 1e-5), "{i}: {:?} {:?}", a.positions[i], b.positions[i]);
+        assert!(
+            close(a.positions[i], b.positions[i], 1e-5),
+            "{i}: {:?} {:?}",
+            a.positions[i],
+            b.positions[i]
+        );
         assert!(close(a.directions[i], b.directions[i], 1e-5), "{i}");
     }
 }
