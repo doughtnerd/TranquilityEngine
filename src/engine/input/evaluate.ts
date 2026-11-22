@@ -28,7 +28,7 @@ import type { GameObject } from "../scene/GameObject";
 import { ActionEvents, ActionPhase, EDGE_FLAGS, actionSets, type ActionEventPhase, type ActionInfo, type ActionSetDef } from "./actions";
 import type { InputContextSpec, MappingSpec, ModifierSpec } from "./contextTypes";
 import { DEFAULT_CONTEXT, InputContext, activeContexts, bindingsVersion, registeredContexts, resolveContext } from "./contexts";
-import { PRESS_POINT, requireControl, type Control } from "./controls";
+import { PRESS_POINT, controlById, requireControl, type Control } from "./controls";
 import { DeviceKind, GamepadState, InputDevice, deviceNodes, takesLocalInput } from "./deviceEntities";
 import { devices, mouseKey } from "./devices";
 import { compileModifier, deadzone, type Modifier } from "./modifiers";
@@ -318,6 +318,9 @@ interface ActionState {
 interface PlayerEval {
   table?: PlayerTable;
   readonly actions: Map<string, ActionState>;
+  /** The last evaluation, for the editor's input debugger: the mapping that gave each action its value, and each consumed control's claiming context. */
+  readonly sources: Map<ActionState, CompiledMapping>;
+  readonly claims: Map<number, string>;
 }
 
 const perWorld = new WeakMap<World, Map<GameObject, PlayerEval>>();
@@ -327,7 +330,7 @@ function evalOf(world: World, player: GameObject): PlayerEval {
   if (!m) perWorld.set(world, (m = new Map()));
   for (const p of m.keys()) if (!p.isValid) m.delete(p);
   let e = m.get(player);
-  if (!e) m.set(player, (e = { actions: new Map() }));
+  if (!e) m.set(player, (e = { actions: new Map(), sources: new Map(), claims: new Map() }));
   return e;
 }
 
@@ -335,6 +338,40 @@ function evalOf(world: World, player: GameObject): PlayerEval {
 export function playerTable(world: World, player: GameObject): PlayerTable {
   const e = evalOf(world, player);
   return (e.table = tableFor(world, player.getData(InputPlayer)!.index, e.table));
+}
+
+/** What a player's last evaluation saw (`lastEvaluation`). */
+export interface EvaluationTrace {
+  /** By `set.id:action`: the mapping that gave the action its value (actions at zero have none). */
+  readonly sources: ReadonlyMap<string, CompiledMapping>;
+  /** Controls consumed (claimed by a performing mapping), by control path: the context that claimed each. */
+  readonly consumed: ReadonlyMap<string, string>;
+}
+
+/** @internal A player node's last evaluation, for the editor's input debugger (ADR 0336); null before its first. */
+export function lastEvaluation(world: World, player: GameObject): EvaluationTrace | null {
+  const e = perWorld.get(world)?.get(player);
+  if (!e) return null;
+  return {
+    sources: new Map([...e.sources].map(([s, m]) => [actionKey(s.set, s.action), m])),
+    consumed: new Map([...e.claims].map(([id, ctx]) => [controlById(id).path, ctx])),
+  };
+}
+
+const NO_PROFILE: PlayerProfile = { format: 1, overrides: {}, accessibility: {}, version: 0 };
+
+/**
+ * @internal The problems the evaluator reports for a context (unknown actions, control paths that name no control,
+ * bad modifier and trigger parameters), each with its mapping's index, as the editor's context asset editor lists them.
+ */
+export function contextProblems(spec: InputContextSpec): { readonly mapping: number; readonly message: string }[] {
+  const out: { mapping: number; message: string }[] = [];
+  spec.mappings.forEach((m, i) => {
+    const problems: string[] = [];
+    compileMapping(m, spec.name, i, NO_PROFILE, problems);
+    for (const message of problems) out.push({ mapping: i, message });
+  });
+  return out;
 }
 
 function actionState(e: PlayerEval, set: ActionSetDef, action: ActionInfo): ActionState {
@@ -549,6 +586,8 @@ function evaluatePlayer(world: World, player: GameObject, dt: number): void {
 
   // Controls claimed by each context (by its index in priority order), and chords' claims within it.
   const claimedAt = new Map<number, number>();
+  e.sources.clear();
+  e.claims.clear();
   const chordClaims = table.contexts.map(() => new Set<number>());
   for (let level = 0; level < table.levels; level++) {
     table.contexts.forEach((ctx, ci) => {
@@ -571,7 +610,10 @@ function evaluatePlayer(world: World, player: GameObject, dt: number): void {
         if (mag > acc.mag) {
           acc.mag = mag;
           acc.value.set(value);
-          if (mag > 0) acc.family = family;
+          if (mag > 0) {
+            acc.family = family;
+            e.sources.set(s, m);
+          }
         }
         if (state > acc.state) acc.state = state;
         if (pulse) acc.pulse = true;
@@ -584,7 +626,10 @@ function evaluatePlayer(world: World, player: GameObject, dt: number): void {
           claimedHere.push(...m.controls);
         }
       }
-      for (const c of claimedHere) if (!(claimedAt.get(c)! <= ci)) claimedAt.set(c, ci);
+      for (const c of claimedHere) {
+        if (!(claimedAt.get(c)! <= ci)) claimedAt.set(c, ci);
+        if (!e.claims.has(c)) e.claims.set(c, ctx.name);
+      }
     });
     for (const [s, acc] of accums) if (levelOf(s) === level) settle(player, info, table, profile.accessibility, s, acc, dt);
   }
