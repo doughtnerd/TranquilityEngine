@@ -122,12 +122,13 @@ export interface NodeHost {
 export const ZERO_WEIGHT = 1e-4;
 /** A continuous Queue asks for its next entry this far ahead of its start, so its PLAY reaches the core in time. */
 const LOOKAHEAD = 0.25;
+/** The least a continuous Queue moves on per entry, seconds. */
+const MIN_STEP = 0.02;
 /** A cut's fade, seconds (no click). */
 const CUT_FADE = 0.005;
 /** The fade of an entry a Blend stops at weight zero. */
 const ZERO_WEIGHT_FADE = 0.04;
 
-const dbToGain = (db: number): number => Math.pow(10, db / 20);
 const lerp = ([lo, hi]: readonly [number, number], t: number): number => (lo === hi ? lo : lo + (hi - lo) * t);
 
 // --- the base node ---------------------------------------------------------------------------------------------------
@@ -363,12 +364,15 @@ class RunnerNode extends LiveNode {
     if (prev && overlap > 0) prev.leave(overlap, at);
     // Finished entries go (the list stays short over a long run).
     for (let k = this.children.length - 1; k >= 0; k--) if (this.children[k] !== prev && !this.children[k]!.sounding) this.children.splice(k, 1);
-    if (!child) { this.running = false; return; }
+    // Nothing to play (a missing link, a refused voice): the run ends rather than spin.
+    if (!child || !child.sounding) { this.running = false; return; }
     this.children.push(child);
     this.current = child;
     const end = child.end();
     if (end !== null) {
-      const next = end + this.gap;
+      // At least MIN_STEP on, so a zero-length entry (or an overlap longer than an entry) can't stall the frame.
+      const from = this.host.startOf(at);
+      const next = Math.max(end + this.gap, from + MIN_STEP);
       this.host.schedule(next - LOOKAHEAD, () => this.step(next));
     } else this.waiting = true;
   }

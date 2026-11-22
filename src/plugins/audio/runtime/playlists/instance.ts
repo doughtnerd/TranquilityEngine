@@ -315,6 +315,12 @@ export class PlaylistInstance implements NodeHost {
     }
     this.root?.update(now, dt);
     this.applyDynamics(now);
+    // A long run (a continuous Queue) drops the voices that have gone for good.
+    if (this.voices.length > 64) {
+      let w = 0;
+      for (const v of this.voices) if (v.voice.alive ?? v.voice.playing) this.voices[w++] = v;
+      this.voices.length = w;
+    }
   }
 
   /** The backend changed: locals, bindings and loops again, for voices still playing. */

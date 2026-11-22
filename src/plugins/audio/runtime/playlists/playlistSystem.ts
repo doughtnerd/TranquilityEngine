@@ -80,6 +80,7 @@ export class PlaylistSystem implements HostedRuntime, InstanceSystem {
   play(path: string, options: PlaylistOptions, world: number, sourceKey?: string): PlaylistInstance | null {
     const host = events();
     host.host(this);
+    host.syncSettings(); // the seed, globals and backend as the project has them now (the generator is seeded here)
     this.reapIfEnded();
     const asset = loadPlaylist(path);
     if (!asset) return this.refuse(path, world, "missing");

@@ -118,6 +118,23 @@ describe("continuous Queue", () => {
     expect(fake.voices[0]!.events).toContainEqual({ kind: "fadeShaped", to: 0, seconds: 0.2, law: "equalPowerOut", stopAtEnd: true, at: expect.closeTo(0.8, 9) });
   });
 
+  it("ends rather than spins when an entry plays nothing, or is zero length", async () => {
+    await kit.boot({ "c.playlist.json": pla("queue", [sample("a.wav"), sample("b.wav")], { queue: { pick: "roundRobin", continuous: { gapMs: 0 } } }) });
+    fake.ready = false;
+    const h = Audio.play("c.playlist.json");
+    kit.frame();
+    expect(h.playing).toBe(false);
+    fake.ready = true;
+    fake.durations.set("a.wav", 0);
+    fake.durations.set("b.wav", 0);
+    fake.lookahead = 0;
+    Audio.play("c.playlist.json");
+    kit.setTime(0.1);
+    kit.frame();
+    // At least 20 ms apart: 0, then each pick up to 0.1 + 0.25 ahead.
+    expect(fake.plays.filter((p) => p.at !== undefined).length).toBeLessThan(20);
+  });
+
   it("with unknown lengths the next entry starts when the current one ends (a late start); release stops picking", async () => {
     await kit.boot({ "c.playlist.json": pla("queue", [sample("a.wav"), sample("b.wav")], { queue: { pick: "roundRobin", continuous: { gapMs: 0 } } }) });
     const h = Audio.play("c.playlist.json");

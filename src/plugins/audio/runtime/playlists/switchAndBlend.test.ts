@@ -207,6 +207,27 @@ describe("Blend", () => {
     expect(fake.plays.map((p) => p.volume)).toEqual([expect.closeTo(0.5, 6), expect.closeTo(0.2, 6), expect.closeTo(0.3, 6)]);
   });
 
+  it("the zone envelope gives each entry the low/high lerp by its rank, and one-shots release on their own", async () => {
+    const low = { attackMs: 200, decayMs: 0, sustain: 1, releaseMs: 100 };
+    const high = { attackMs: 0, decayMs: 0, sustain: 1, releaseMs: 100 };
+    await kit.boot({
+      "z.playlist.json": pla("blend", [sample("a.wav", { x: 0, atZeroWeight: "continue" }), sample("b.wav", { x: 10, atZeroWeight: "continue" })], {
+        parameters: SPEED,
+        blend: { axes: [{ parameter: "Speed" }], fade: "layer", curve: "linear", follow: { glideMs: 0 }, envelope: { mode: "zone", low, high } },
+      }),
+    });
+    fake.durations.set("a.wav", 1);
+    fake.durations.set("b.wav", 1);
+    Audio.play("z.playlist.json", { parameters: { Speed: 10 } });
+    kit.setTime(0.1); kit.frame();
+    expect(voiceOf("a.wav").volume).toBeCloseTo(0.5, 6); // rank 0: low (200 ms attack)
+    expect(voiceOf("b.wav").volume).toBeCloseTo(1, 6); // rank 1: high (no attack)
+    kit.setTime(1.05); kit.frame(); // past the longest one-shot (1 s): releasing over 100 ms
+    expect(voiceOf("b.wav").volume).toBeCloseTo(0.5, 6);
+    kit.setTime(1.2); kit.frame();
+    expect(voiceOf("a.wav").stopped).toBe(true);
+  });
+
   it("the envelope (morph) attacks, holds a looping entry until released, then releases linearly", async () => {
     const adsr = { attackMs: 100, decayMs: 100, sustain: 0.5, releaseMs: 200 };
     await kit.boot({
