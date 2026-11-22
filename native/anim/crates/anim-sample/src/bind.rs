@@ -476,12 +476,51 @@ impl ClipBindings {
         self.seg(c, (f / self.segment_frames) as usize, f)
     }
 
+    /// The index of the segment holding frame `f`.
+    pub(crate) fn segment_of(&self, f: u32) -> u32 {
+        f / self.segment_frames
+    }
+
+    /// Segment `seg`'s widened ranges (`seg_range`'s values, as f32 bits) into `out`, two per
+    /// animated component, as a [`SegmentCache`] holds them. `out` holds at least
+    /// [`cache_len`](Self::cache_len) words.
+    pub(crate) fn segment_ranges(&self, c: &CompressedView<'_>, seg: usize, out: &mut [u32]) {
+        let width_sum = self.width_sum;
+        let clip_ranges = c.clip_ranges();
+        let seg_ranges = c.segment_ranges();
+        for ch in &self.channels {
+            if ch.mode != ChannelMode::Animated {
+                continue;
+            }
+            let comp = ch.comp as usize;
+            for k in 0..ch.width as usize {
+                let (min, ext) = seg_range(
+                    &clip_ranges,
+                    seg_ranges,
+                    ch.width,
+                    ch.data_offset,
+                    k,
+                    seg * width_sum + comp + k,
+                );
+                out[2 * (comp + k)] = min.to_bits();
+                out[2 * (comp + k) + 1] = ext.to_bits();
+            }
+        }
+    }
+
     /// Decodes frame `f` alone into `out` (filled with the rest pose by the caller): the values
     /// [`decode_pose`](Self::decode_pose) writes into `a` when `f` is its `f0`, or into `b` when
     /// it is its `f1`, bit for bit (each value is decoded from its own segment's range either
     /// way). The caller checks [`frame_seg`](Self::frame_seg) first; without it nothing is
-    /// written.
-    pub(crate) fn decode_frame(&self, c: &CompressedView<'_>, f: u32, out: &mut [AosTransform]) {
+    /// written. `ranges`, when given, holds the segment's [`segment_ranges`](Self::segment_ranges)
+    /// (the same values `seg_range` computes).
+    pub(crate) fn decode_frame(
+        &self,
+        c: &CompressedView<'_>,
+        f: u32,
+        out: &mut [AosTransform],
+        ranges: Option<&[u32]>,
+    ) {
         let Some(s) = self.frame_seg(c, f) else {
             return;
         };
@@ -514,14 +553,20 @@ impl ClipBindings {
                     }
                     let comp = ch.comp as usize;
                     for (k, v) in v.iter_mut().enumerate().take(n) {
-                        let (m, e) = seg_range(
-                            &clip_ranges,
-                            seg_ranges,
-                            ch.width,
-                            ch.data_offset,
-                            k,
-                            s.index * width_sum + comp + k,
-                        );
+                        let (m, e) = match ranges {
+                            Some(r) => (
+                                f32::from_bits(r[2 * (comp + k)]),
+                                f32::from_bits(r[2 * (comp + k) + 1]),
+                            ),
+                            None => seg_range(
+                                &clip_ranges,
+                                seg_ranges,
+                                ch.width,
+                                ch.data_offset,
+                                k,
+                                s.index * width_sum + comp + k,
+                            ),
+                        };
                         *v = decode(s.data, pos, r, m, e);
                         pos += r as u64;
                     }

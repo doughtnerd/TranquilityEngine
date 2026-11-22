@@ -46,7 +46,7 @@ pub(crate) fn bytes_needed(init: &Init) -> u64 {
     let poses = 2 * groups * core::mem::size_of::<SoaTransform>() as u64;
     let bones = groups as usize * LANES;
     let players = (player_slots(program)
-        * (FrameCache::HEADER_WORDS * 4
+        * (FrameCache::header_len(bones) * 4
             + FrameCache::frames_len(bones) * core::mem::size_of::<SoaTransform>()))
         as u64;
     let entry = core::mem::size_of::<Slot>() as u64;
@@ -147,7 +147,7 @@ impl Table {
             stale: false,
             debug: false,
             shown_last: false,
-            player_headers: vec![0; player_slots(program) * FrameCache::HEADER_WORDS],
+            player_headers: vec![0; player_slots(program) * FrameCache::header_len(groups * LANES)],
             player_frames: vec![
                 SoaTransform::identity();
                 player_slots(program) * FrameCache::frames_len(groups * LANES)

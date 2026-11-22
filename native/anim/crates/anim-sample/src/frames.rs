@@ -7,20 +7,27 @@ use anim_math::{AosTransform, F32x4, SoaTransform};
 use crate::{group, BoundClip, SampleError};
 
 /// Header words: bones, tag, clip key (2), rest key (2), the two held frames, the slot to
-/// replace next.
-const HEADER: usize = 9;
+/// replace next, the segment whose ranges follow the header.
+const HEADER: usize = 10;
 const BONES: usize = 0;
 const TAG: usize = 1;
 const CLIP: usize = 2;
 const REST: usize = 4;
 const FRAME: usize = 6;
 const NEXT: usize = 8;
+const SEG: usize = 9;
+/// Range words per bone the header region is sized for (a translation and a full rotation, two
+/// words per component); a clip with more animated components decodes without them.
+const RANGE_WORDS_PER_BONE: usize = 2 * 7;
 /// A held-frame word meaning "none".
 const NO_FRAME: u32 = u32::MAX;
 
 /// The last two frames a clip player decoded, packed four bones at a time as the interpolation
-/// reads them, in memory the caller owns ([`HEADER_WORDS`](Self::HEADER_WORDS) words and
-/// [`frames_len`](Self::frames_len) transforms; one per playing clip player). Its contents are
+/// reads them, and the widened ranges of the segment it decoded last (a [`SegmentCache`]'s), in
+/// memory the caller owns ([`header_len`](Self::header_len) words and
+/// [`frames_len`](Self::frames_len) transforms; one per playing clip player).
+///
+/// [`SegmentCache`]: crate::SegmentCache Its contents are
 /// checked on every use against the clip, the rest pose, the bone count and the caller's `tag`,
 /// so any memory may be handed in, and the same memory may serve another player or clip later
 /// (it is refilled). Never part of a snapshot: results don't depend on what it holds.
@@ -31,8 +38,11 @@ pub struct FrameCache<'m> {
 }
 
 impl<'m> FrameCache<'m> {
-    /// Header words a cache needs.
-    pub const HEADER_WORDS: usize = HEADER;
+    /// Header words a cache for `bones` bones needs: the header and room for a segment's ranges
+    /// (a clip animating more than translations and rotations decodes without them).
+    pub const fn header_len(bones: usize) -> usize {
+        HEADER + RANGE_WORDS_PER_BONE * bones
+    }
 
     /// Transforms a cache for `bones` bones needs: two frames of `soa_len(bones)` groups.
     pub const fn frames_len(bones: usize) -> usize {
@@ -55,6 +65,7 @@ impl<'m> FrameCache<'m> {
         if self.header.len() >= HEADER {
             self.header[FRAME] = NO_FRAME;
             self.header[FRAME + 1] = NO_FRAME;
+            self.header[SEG] = NO_FRAME;
         }
     }
 }
@@ -95,7 +106,7 @@ pub(crate) fn sample(
     let split = |v: u64| [v as u32, (v >> 32) as u32];
     let key = split(c.data().as_ptr() as usize as u64);
     let rest_key = split(rest.as_ptr() as usize as u64);
-    let h = &mut cache.header[..HEADER];
+    let (h, tail) = cache.header.split_at_mut(HEADER);
     if h[BONES] != n as u32
         || h[TAG] != cache.tag
         || h[CLIP..CLIP + 2] != key
@@ -103,8 +114,11 @@ pub(crate) fn sample(
     {
         h.copy_from_slice(&[
             n as u32, cache.tag, key[0], key[1], rest_key[0], rest_key[1], NO_FRAME, NO_FRAME, 0,
+            NO_FRAME,
         ]);
     }
+    let ranges = &mut tail[..];
+    let cache_ranges = bind.cache_len() <= ranges.len();
     let frames = &mut *cache.frames;
     // The slot of each frame, decoding the ones not held (into the slot the other doesn't use).
     let mut slot_of = |f: u32, keep: u32, h: &mut [u32]| -> usize {
@@ -120,7 +134,17 @@ pub(crate) fn sample(
         };
         let a = &mut scratch[..n];
         a.copy_from_slice(rest);
-        bind.decode_frame(&c, f, a);
+        let r = if cache_ranges {
+            let seg = bind.segment_of(f);
+            if h[SEG] != seg {
+                bind.segment_ranges(&c, seg as usize, ranges);
+                h[SEG] = seg;
+            }
+            Some(&ranges[..])
+        } else {
+            None
+        };
+        bind.decode_frame(&c, f, a, r);
         for (g, o) in frames[k * groups..(k + 1) * groups].iter_mut().enumerate() {
             *o = group(a, g);
         }
