@@ -6,7 +6,7 @@ import { DRAG_RAMP_MS } from "../../../../engine/audio/mixer";
 import { MIX_OP_NAMES, isProjectOp, opClass, type MixOp } from "../../../../engine/audio/mixOps";
 import { parseAudioSettings } from "../../../../engine/audio/settings";
 import { mixJsonOf, parseAudioProject } from "../../../../engine/audio/project/format";
-import { BUS_SLOT_FLAGS_STRUCTURAL, DRAG_RAMP_MS as WIRE_DRAG_RAMP_MS, FADER_COALESCE_MS, Op, readBusSlot } from "../wire.generated";
+import { BUS_SLOT_FLAGS_STRUCTURAL, DRAG_RAMP_MS as WIRE_DRAG_RAMP_MS, FADER_COALESCE_MS, LANE_AUTHORED, Op, readBusRamp, readBusSends, readBusSlot } from "../wire.generated";
 import { closeRecordingAudio, recordingAudio } from "../testing";
 import { DeferredAdds } from "./deferredAdds";
 import { LiveMix, type LiveMixHost } from "./liveMix";
@@ -83,9 +83,10 @@ describe("liveMix (Ma1)", () => {
     }
   });
 
-  // ADR 0330: what the main thread moves of a bus's effects (a snapshot's override, a send following its return) reaches
-  // the core as one BUS_SLOT for that bus; the mix model's own ops send the old ops they change of the bus view.
-  it("the mixer's live effects reach the core: a snapshot override and a return's level are BUS_SLOTs for their buses", () => {
+  // ADR 0330: what the main thread moves of a bus's effects (a snapshot's override) reaches the core as one BUS_SLOT for
+  // that bus; the mix model's own ops send the old ops they change of the bus view: a return is a bus of it (ABI 4.7), so
+  // its level is its own authored lane, and the sends into it are BUS_SENDS of the buses that feed it.
+  it("the mixer's live effects reach the core: a snapshot override is a BUS_SLOT, a return's level its own lane, a send BUS_SENDS", () => {
     const project = parseAudioProject({
       format: "myco.audio@1",
       buses: [
@@ -105,12 +106,21 @@ describe("liveMix (Ma1)", () => {
     r.tick(0.016);
     const music = slots().filter((x) => x.slot === 1);
     expect(music.at(-1)!.effects.map((e) => [e.type, e.p[0]])).toEqual([[0, 900]]);
+    r.posted.take();
     r.mixer.apply({ op: "setReturn", name: "Reverb", ret: { name: "Reverb", output: "Master", volumeDb: -6, mute: false, effects: project.returns[0]!.effects } });
     r.mixer.update(0.016);
     r.tick(0.016);
-    const sfx = slots().filter((x) => x.slot === 2);
-    expect(sfx.at(-1)!.effects[0]!.type).toBe(3);
-    expect(sfx.at(-1)!.effects[0]!.p[0]).toBeCloseTo(Math.pow(10, -12 / 20), 6);
+    expect(r.backend.buses.slotOf("Reverb")).toBe(3);
+    const ramps = r.posted.takeOps(Op.BUS_RAMP).map((x) => readBusRamp(x.view, x.off)).filter((x) => x.voiceId === 3 && x.lane === LANE_AUTHORED);
+    expect(ramps.at(-1)!.gain).toBeCloseTo(Math.pow(10, -6 / 20), 6);
+    expect(slots().filter((x) => x.slot === 2), "SFX's chain is untouched").toEqual([]);
+    // A send's level: BUS_SENDS for SFX into the return's slot.
+    r.mixer.apply({ op: "setSend", bus: "SFX", to: "Reverb", levelDb: -12 });
+    r.mixer.update(0.016);
+    r.tick(0.016);
+    const sends = r.posted.takeOps(Op.BUS_SENDS).map((x) => readBusSends(x.view, x.off));
+    expect(sends.map((x) => [x.voiceId, x.sends.map((y) => [y.to, y.flags])])).toEqual([[2, [[3, 0]]]]);
+    expect(sends[0]!.sends[0]!.level).toBeCloseTo(Math.pow(10, -12 / 20), 6);
     r.backend.dispose();
   });
 
