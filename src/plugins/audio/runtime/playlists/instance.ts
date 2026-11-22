@@ -40,12 +40,6 @@ import { resolveBody, resolveEntry, type Ctx, type DynGain, type LiveNode, type 
 
 /** Options for `Audio.play` of a playlist: the event options (ADR 0158 §5), plus what the engine's components add. */
 export interface PlaylistOptions extends EventOptions {
-  /**
-   * @internal ADR 0333: `AudioSource.minDistance`/`maxDistance` as overrides: the playlist's attenuation curves stretch
-   * to them (`stretchAttenuation`). Absent: the attenuation's own distances.
-   */
-  minDistance?: number;
-  maxDistance?: number;
   /** @internal The node that plays it (debug rows' Source column, the test-scene readout). */
   owner?: string;
   /** @internal ADR 0333: an `AudioZone` plays it, so it has the built-in local parameter `zoneDepth` (0..1). */

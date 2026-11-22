@@ -63,6 +63,13 @@ export interface EventOptions {
   dopplerLevel?: number;
   reverbSend?: number;
   reverbSendCurve?: Curve;
+  /**
+   * ADR 0333: distance overrides for a spatial playlist, metres. Its attenuation curves stretch from their own distances
+   * to these (`stretchAttenuation`); either omitted keeps the attenuation's own. `AudioSource.minDistance`/`maxDistance`
+   * reach the playlist this way. Audio event assets (ADR 0158) and flat playlists ignore them.
+   */
+  minDistance?: number;
+  maxDistance?: number;
 }
 
 // --- loading ------------------------------------------------------------------------------------------------------
