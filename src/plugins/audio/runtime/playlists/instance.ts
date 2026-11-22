@@ -44,6 +44,20 @@ import { decideStinger } from "../music/stingerPolicy";
 import { resolveBody, resolveEntry, type Ctx, type DynGain, type LiveNode, type LoopRun, type NodeHost, type PendingSwitchChange, type PVoice, type SpatialPlan } from "./nodes";
 import { shapedFade } from "./liveNode";
 import { QuantizedLanes } from "./quantizedLanes";
+import type { LineEntry } from "../../../../engine/audio/playlist/types";
+import { argumentNames } from "../../../../engine/audio/dialogue/format";
+import { localiseClip } from "../clipResolver";
+import { audioLanguage, noteLocalisedVoice, noteMissingLanguage } from "../localisation/languageState";
+import { dialogueEvent } from "../localisation/lineRegistry";
+import { resolveLine } from "../localisation/lineResolve";
+import { decideEvent, dialogueMemory } from "../dialogue/decideLine";
+
+/** ADR 0340 §5: the line a line entry played: its key, file and the language it is in. */
+export interface HeardLine {
+  readonly key: string;
+  readonly path: string;
+  readonly language: string;
+}
 
 /** Options for `Audio.play` of a playlist: the event options (ADR 0158 §5), plus what the engine's components add. */
 export interface PlaylistOptions extends EventOptions {
@@ -194,7 +208,7 @@ export class PlaylistInstance implements NodeHost {
     return g;
   }
 
-  /** Null while any voice is audible; else the first voice's reason. */
+  /** Null while any voice is audible; else the first voice's reason, else why a sample or line it picked played nothing. */
   get reason(): AudioReason | null {
     let first: AudioReason | null = null;
     for (const v of this.voices) {
@@ -203,8 +217,17 @@ export class PlaylistInstance implements NodeHost {
       if (voice.reason === null && voice.playing) return null;
       first ??= voice.reason;
     }
-    return first;
+    return first ?? (this.voiceCount === 0 ? this.refusal : null);
   }
+
+  /**
+   * ADR 0340 §3, §5: why the last sample or line it picked played nothing (`missingLanguage`, `unknownLine`, or a
+   * dialogue event's refusal); null when every pick played.
+   */
+  refusal: AudioReason | null = null;
+
+  /** ADR 0340 §5: the line its last line entry played (key, file and language), for the line handle; null before one. */
+  heardLine: HeardLine | null = null;
 
   get panner(): AudioPanner | null {
     for (const v of this.voices) if (v.voice.playing && v.voice.panner) return v.voice.panner;
@@ -748,12 +771,68 @@ export class PlaylistInstance implements NodeHost {
   }
 
   /**
+   * `NodeHost.lineSample` (ADR 0340 §5, 0341 §3): the line a line entry plays now. Its key is the entry's own, else (a
+   * programmer entry, `line: null`) the play's `EventOptions.line`, else (`{ event }`) its dialogue event's decision with
+   * arguments from this instance's labelled parameters of the same name (local, then global). The file is the key's in
+   * the current audio language's chain. Nothing to play: null, with `refusal` saying why.
+   */
+  lineSample(entry: LineEntry, _ctx: Ctx): SampleEntry | null {
+    let key: string | null;
+    let event: string | null = null;
+    if (entry.line === null) {
+      key = typeof this.options.line === "string" && this.options.line !== "" ? this.options.line : null;
+      if (key === null) warnOnce(`playlist:line-option:${this.path}`, `[myco] ${this.path}: a line entry takes its key from the play's "line" option, and none was given; it plays nothing.`);
+    } else if (typeof entry.line === "string") key = entry.line;
+    else {
+      event = entry.line.event;
+      const found = dialogueEvent(event);
+      if (!found) {
+        warnOnce(`playlist:line-event:${this.path}:${event}`, `[myco] ${this.path}: the line entry's dialogue event "${event}" doesn't exist; it plays nothing.`);
+        this.refusal = "unknownEvent";
+        return null;
+      }
+      const args: Record<string, string> = {};
+      for (const name of argumentNames(found.event)) {
+        const v = this.getParameter(name);
+        if (typeof v === "string") args[name] = v;
+      }
+      const d = decideEvent(found.event, args, () => this.random());
+      if ("none" in d) { this.refusal = d.none; return null; }
+      key = d.key;
+    }
+    if (key === null) { this.refusal = "unknownLine"; return null; }
+    const r = resolveLine(key);
+    if (!r) {
+      warnOnce(`playlist:line-key:${this.path}:${key}`, `[myco] ${this.path}: no line table has the line "${key}"; it plays nothing.`);
+      this.refusal = "unknownLine";
+      return null;
+    }
+    if (!r.file) {
+      this.refusal = "missingLanguage";
+      noteMissingLanguage(key, audioLanguage());
+      return null;
+    }
+    if (event !== null) dialogueMemory.spoke(event, key, this.clock(), r.loc.line.once);
+    this.heardLine = { key, path: r.file.path, language: r.file.language };
+    const { kind: _kind, line: _line, ...use } = entry;
+    return { kind: "sample", sample: r.file.path, trim: null, loop: "inherit", ...use };
+  }
+
+  /**
    * Plays one sample entry below `ctx`: the clip resolver's request (with the sample's normalisation gain), its pass
    * (`samplePass`: the trimmed start and end, as every play of a sample), its loops, the tree's levels.
    */
   playSample(entry: SampleEntry, ctx: Ctx, loopOverride?: LoopRun | null): PVoice | null {
     if (this.stopped) return null;
     const path = entry.sample;
+    // ADR 0340 §2–§3: a localised sample plays its file in the current language's chain (the clip resolver swaps it);
+    // none in the chain: nothing plays, with reason `missingLanguage`.
+    const local = localiseClip(path);
+    if (local === null) {
+      this.refusal = "missingLanguage";
+      noteMissingLanguage(path, audioLanguage());
+      return null;
+    }
     const plan = samplePlan(path);
     const trim = entry.trim ?? plan.trim;
     const loop = loopOverride !== undefined ? loopOverride : this.loopFor(entry, plan, trim);
@@ -823,6 +902,7 @@ export class PlaylistInstance implements NodeHost {
     // ADR 0337 §7: through the package registry (the strict rule; an unload stops the voice).
     try { voice = mediaPlay(req); } catch { voice = null; }
     if (!voice) return null;
+    if (local.language !== null) noteLocalisedVoice(voice, local.language);
     const sink = playlistHost().automation;
     const bindings = this.quant.bindings(this.withStaticPan(timed.bindings, c.pan, ctx.where), ctx.quantized, start);
     if (bindings.length > 0) sink.bindVoice(voice, this.group, bindings, base, ctx.at ?? undefined);
@@ -1068,6 +1148,7 @@ function hitOffset(entry: Entry, chain: readonly string[]): number {
 function firstSample(entry: Entry, chain: readonly string[], depth: number): SampleEntry | null {
   if (depth > 16) return null;
   if (entry.kind === "sample") return entry;
+  if (entry.kind === "line") return null; // ADR 0340 §5: its file is known only when it is picked
   const body = entry.kind === "embedded" ? entry.embedded : linkedPlaylist(entry.playlist, chain);
   if (!body) return null;
   const next = entry.kind === "linked" ? [...chain, entry.playlist] : chain;

@@ -95,6 +95,12 @@ export function sampleTitle(path: string): string {
   return dot > 0 ? name.slice(0, dot) : name;
 }
 
+/** ADR 0340 §5, 0341 §3: a line entry's display name: its key, "Line (from play)" for a programmer line, or its dialogue event. */
+export function lineTitle(line: string | null | { event: string }): string {
+  if (line === null) return "Line (from play)";
+  return typeof line === "string" ? `Line ${line}` : `Event ${line.event}`;
+}
+
 const TYPE_NAMES: Record<PlaylistBody["type"], string> = { clip: "Clip", queue: "Queue", switch: "Switch", blend: "Blend", layer: "Layer", sequence: "Sequence" };
 
 /** A playlist type's name in the UI. */
@@ -107,10 +113,11 @@ export const typeName = (type: PlaylistBody["type"]): string => TYPE_NAMES[type]
 export function entryName(e: Entry, index: number): string {
   if (e.kind === "linked") return playlistTitle(e.playlist);
   if (e.kind === "sample") return sampleTitle(e.sample);
+  if (e.kind === "line") return lineTitle(e.line);
   const b = e.embedded;
   if (b.type === "clip") {
     const s = b.entries[0];
-    return s && s.kind === "sample" ? sampleTitle(s.sample) : `Clip ${index + 1}`;
+    return s && s.kind === "sample" ? sampleTitle(s.sample) : s && s.kind === "line" ? lineTitle(s.line) : `Clip ${index + 1}`;
   }
   return `${typeName(b.type)} ${index + 1}`;
 }
@@ -133,16 +140,16 @@ export function breadcrumb(path: PlaylistPath, load: (file: string) => PlaylistB
     } else {
       const e: Entry | undefined = body?.entries[step.entry];
       out.push({ name: e ? entryName(e, step.entry) : "?", path: upTo });
-      body = e && e.kind === "embedded" ? e.embedded : null;
+      body = e?.kind === "embedded" ? e.embedded : null;
     }
   });
   return out;
 }
 
-/** The path one level down, into entry `index` of the open playlist: an embedded entry steps in, a linked one opens its file. Null for a sample. */
+/** The path one level down, into entry `index` of the open playlist: an embedded entry steps in, a linked one opens its file. Null for a sample or a line. */
 export function childPath(path: PlaylistPath, open: PlaylistBody, index: number): PlaylistPath | null {
   const e = open.entries[index];
-  if (!e || e.kind === "sample") return null;
+  if (!e || e.kind === "sample" || e.kind === "line") return null;
   return e.kind === "embedded" ? [...path, { entry: index }] : [...path, { file: e.playlist }];
 }
 

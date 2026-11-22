@@ -13,7 +13,7 @@ import type { Audio, AudioEventHandle, AudioHandle, EventOptions, OneShotOptions
 import { statsFromDebug, type StudioAudioStats } from "./audioStats";
 
 /** The public `Audio` API, as far as the Studio uses it. */
-export type AudioApi = Pick<typeof Audio, "play" | "playOneShot" | "capture" | "debug" | "status" | "calibration" | "calibrationStale" | "latency" | "volume" | "muted" | "buses" | "bus" | "setParameter" | "getParameter" | "snapshot" | "clearSnapshot" | "time">;
+export type AudioApi = Pick<typeof Audio, "play" | "playOneShot" | "capture" | "debug" | "status" | "calibration" | "calibrationStale" | "latency" | "volume" | "muted" | "buses" | "bus" | "setParameter" | "getParameter" | "snapshot" | "clearSnapshot" | "time" | "line" | "say" | "setLanguage" | "subtitleLanguage">;
 
 export type StudioAudioState =
   /** No project open. */

@@ -29,8 +29,16 @@ export type Rolloff = "linear" | "inverse" | "exponential";
 /**
  * Why a sound isn't audible right now; null while it is (api-and-models §1). ADR 0337 §7: `notLoaded`, a refused play of a
  * packaged sound whose packages are all unloaded (strict packaging).
+ *
+ * ADR 0340 §3, §5: `missingLanguage`, a localised file no language of the chain has; `unknownLine`, a line key no line
+ * table defines. ADR 0341 §5: refused says: `unknownEvent` (no dialogue event by that name), `busy` (the channel was busy
+ * and the say was dropped, or waited past its `maxWait`), `cooldown` and `chance` (the event's or line's), `silence` (an
+ * explicit silence path), `noMatch` (no path matches) and `unavailable` (matches, but no line could play).
  */
-export type AudioReason = "virtual" | "stolen" | "busMuted" | "locked" | "failed" | "waitingForData" | "notLoaded";
+export type AudioReason =
+  | "virtual" | "stolen" | "busMuted" | "locked" | "failed" | "waitingForData" | "notLoaded"
+  | "missingLanguage" | "unknownLine"
+  | "unknownEvent" | "busy" | "cooldown" | "chance" | "silence" | "noMatch" | "unavailable";
 /** `Audio.status` (§1). */
 export type AudioStatus = "locked" | "running" | "failed";
 /** `audio.background` (§2): what the host does when the page is hidden. */

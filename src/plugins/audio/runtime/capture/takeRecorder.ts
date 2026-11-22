@@ -13,12 +13,12 @@ import {
   TAKE_MAX_KEYFRAME_INSTANCES, TakeRecordType, encodeTakeRecord, takeRecordBytes, type TakeMixOp, type TakePoses, type TakeRecordInit,
 } from "../../../../engine/audio/take/records";
 import type { TakeMetaSection } from "../../../../engine/audio/take/reader";
-import { LISTENER_EMITTER, type TakeKeyframe, type TakePlayOptions } from "../../../../engine/audio/take/types";
+import { LISTENER_EMITTER, type TakeKeyframe, type TakePlayOptions, type TakeRequest, type TakeSayPick } from "../../../../engine/audio/take/types";
 import type { Vec3 } from "../../../../engine/audio/spatial/testSceneTypes";
 import { CAPTURE_META_MAX_BYTES, CAPTURE_RECORD_HEAD_BYTES, CAPTURE_RECORD_MAX_BYTES, TAKE_MAX_UNCOMPRESSED_BYTES, writeRecordHead } from "./format";
 import type { CaptureTee } from "./capture";
 import { TakeFrameGrabber, type TakeFrameGrabberOptions, type TakePictureSource } from "./takeFrames";
-import type { TakeEmitter, TakeListenerPose, TakeRequestSink } from "./takeTap";
+import type { TakeEmitter, TakeListenerPose, TakeRequestSink, TakeSayInit } from "./takeTap";
 
 /** What the recorder uses of the ring's hold (`CaptureTakeRing`). */
 export interface TakeRecorderRing {
@@ -153,6 +153,32 @@ export class TakeRecorder implements TakeRequestSink, CaptureTee {
   mix(op: TakeMixOp, target: string, value: number, seconds: number): void {
     if (!Number.isFinite(value)) return;
     this.write({ type: TakeRecordType.MIX, payload: { kind: "mix", t: this.seconds, op, target, value, seconds: Number.isFinite(seconds) ? Math.max(0, seconds) : 0 } });
+  }
+
+  line(instance: object, key: string, language: string | null, emitter: TakeEmitter | null, options: TakePlayOptions): void {
+    const id = this.idOf(instance);
+    if (emitter) this.emitterOf(emitter);
+    this.write({ type: TakeRecordType.LINE, payload: { kind: "line", t: this.seconds, instance: id, key, language, options } });
+  }
+
+  language(audio: string, subtitles: string | null): void {
+    this.write({ type: TakeRecordType.LANGUAGE, payload: { kind: "language", t: this.seconds, audio, subtitles } });
+  }
+
+  say(instance: object, say: TakeSayInit): void {
+    const id = this.idOf(instance);
+    if (say.emitter) this.emitterOf(say.emitter);
+    const payload: Extract<TakeRequest, { kind: "say" }> = { kind: "say", t: this.seconds, instance: id, event: say.event, args: { ...say.args }, options: say.options, state: say.state, picked: say.picked };
+    if (say.random !== null) payload.random = say.random >>> 0;
+    this.write({ type: TakeRecordType.SAY, payload });
+  }
+
+  sayState(instance: object, state: "playing" | "dropped", picked: TakeSayPick | null, random: number | null): void {
+    const id = this.ids.get(instance);
+    if (id === undefined) return; // asked before the take began
+    const payload: Extract<TakeRequest, { kind: "sayState" }> = { kind: "sayState", t: this.seconds, instance: id, state, picked };
+    if (random !== null) payload.random = random >>> 0;
+    this.write({ type: TakeRecordType.SAYSTATE, payload });
   }
 
   frame(listener: TakeListenerPose | null, picture: TakePictureSource | null = null): void {

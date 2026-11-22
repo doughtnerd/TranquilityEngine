@@ -44,6 +44,11 @@ export interface EventOptions {
    */
   minDistance?: number;
   maxDistance?: number;
+  /**
+   * ADR 0340 §5: the line key a programmer line entry (`{ "line": null }`) plays (FMOD's programmer instrument); a
+   * playlist without one ignores it. A line table's template playlist gets each line's key this way.
+   */
+  line?: string;
 }
 
 /** `EventOptions.offset` (and `OneShotOptions.offset`) checked: seconds ≥ 0, else 0 with one warning naming `where`. */
