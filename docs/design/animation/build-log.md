@@ -14,3 +14,7 @@ Wave results, measurements (marked measured or estimated) and gate changes.
 - Pilot measures (measured, 4 cores): cold wasm build 8.6 s; cold `cargo test` 8.7 s (18.8 s with nothing cached); incremental rebuilds under 1 s; `target/` about 380 MB per worktree. Well under the 10-minute line: no shared `CARGO_TARGET_DIR` needed. First-pass success: yes (one typecheck error came from `node-datachannel` missing after the master merge; fixed by `npm ci`). Agent time about 17 minutes.
 - Coordinator: added `build:anim` to `package.json`; `rustfmt` and `clippy` added to the pinned toolchain's components; wasm rebuilt and committed; typecheck and the animation tests green.
 - **Seam notes for later tasks:** the wire mechanism is `anim-wire/src/record.rs`; `FAMILIES` in `anim-wire/src/lib.rs` is written once. A Rust task commits its family's `wire/<family>.ts` **and** `crates/anim-wire/vectors/<family>.json`. `anim-wasm` features add their memory needs through `bytes_needed` in their own file.
+
+## R-W1: T10 merged 2026-11-22
+
+- `anim-math` with bit-identical simd128 and scalar paths, verified on wasm in Node (the task's own runner), plus f64 reference and golden hash. First pass green; agent time about 16 minutes. Wasm unchanged in size (25,206 B; the core doesn't use the maths yet).

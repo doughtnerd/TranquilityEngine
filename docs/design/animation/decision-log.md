@@ -11,3 +11,7 @@ Decisions made during the build that the records didn't settle. Each entry: the 
 - **D7 (T02).** *`anim-format` has no dependencies; `anim-offline` depends only on `format`,* so the reference shares no code with the fast path and there's no dev-dependency cycle.
 - **D8 (T02).** *`+simd128` in `native/anim/.cargo/config.toml`,* included in the source hash; `build.mjs` clears inherited RUSTFLAGS. *Revert:* pass the flag from `build.mjs` as audio does.
 - **D9 (T02).** *Opcode = family id << 8 | kind;* per-family versions with exact-match decoding; test vectors as per-family JSON in the crate (no test-only TypeScript exports).
+- **D10 (T10).** *Bone matrices are row-major 3×4* (three vec4 rows, translation in the fourth column), 12 floats per bone. *Revert:* transpose in `Mat3x4T`.
+- **D11 (T10).** *TRS follows Unreal's `FTransform`:* per-component scale, no shear; the TRS inverse is exact for uniform scale, `Mat3x4T::inverse_or` is exact always. *Revert:* accumulate in matrices.
+- **D12 (T10).** *Skeleton parents are `u16` with `NO_PARENT = 0xFFFF`, parents first.* T03r was told to match.
+- **D13 (T10).** *glam only for conversions,* because its backends order operations differently and would break bit-identity between wasm and native.
