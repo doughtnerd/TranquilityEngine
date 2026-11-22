@@ -3,7 +3,9 @@
  * `*.playlist.json` beside it (`migrateProjectAudioEvents`, with each sample's length read from its audio file's
  * headers), every JSON file that names a migrated event is rewritten to name its playlist (scenes' and prefabs'
  * `AudioSource.clip`, playlists, sample sidecars, project.json: any reference string, `rewriteJsonReferences`), and the
- * old files move to `.myco/migrated/` under their project paths. `npm run audio:migrate` runs it over the disk; the
+ * old files move to `.myco/migrated/` under their project paths. A looping clip's loop goes into its audio file's sidecar
+ * (`sample.loops`, ADR 0328) or, when that sidecar already has a different loop, a derived sample beside it
+ * (`sampleLoops.ts`); a WAV's own `smpl` loops are read for clips that looped the file's loop points. `npm run audio:migrate` runs it over the disk; the
  * editor and the Studio run it over their own file system when they open a project with old files, after asking
  * (`src/editor/audioEventMigration.ts`).
  *
@@ -17,6 +19,9 @@ import { eventClips, isAudioEventPath, parseAudioEvent } from "./legacy/eventFor
 import { audioFileSeconds, TIMED_AUDIO_EXTENSIONS } from "./audioDuration";
 import { migrateProjectAudioEvents } from "./index";
 import { rewriteJsonReferences } from "./jsonReferences";
+import { readWavMetadata } from "../sample/wavChunks";
+import { sampleEditsFromWav } from "../sample/wavSample";
+import type { SampleLoop } from "../sample/types";
 
 /** The file access the driver needs; the editor's `FileSystem` (`engine/platform/FileSystem.ts`) has it all. */
 export interface MigrationFileSystem {
@@ -38,9 +43,9 @@ export interface AudioMigrationOptions {
 }
 
 export interface AudioMigrationReport {
-  /** New files (project paths): the playlists. */
+  /** New files (project paths): the playlists, and the sidecars and derived samples (`*.sample.json`) made for loops. */
   written: string[];
-  /** Existing files whose references to migrated events were rewritten. */
+  /** Existing files whose references to migrated events were rewritten, and sidecars whose `sample` block now holds a loop. */
   rewritten: string[];
   /** Old event files and where they went (under `.myco/migrated/`). */
   moved: { from: string; to: string }[];
@@ -100,6 +105,7 @@ export async function migrateProjectAudio(fs: MigrationFileSystem, root: string,
   // The lengths of the samples the events name, from their files' headers.
   const fileSet = new Set(files);
   const seconds = new Map<string, number | undefined>();
+  const wavLoops = new Map<string, SampleLoop[]>();
   for (const path of events) {
     let raw: unknown;
     try {
@@ -116,14 +122,23 @@ export async function migrateProjectAudio(fs: MigrationFileSystem, root: string,
         seconds.set(clip, undefined);
         report.notes.push(`${clip}: the migration can't read this format's length.`);
       } else {
-        const s = audioFileSeconds(await fs.readBinary(join(root, clip)));
+        const bytes = await fs.readBinary(join(root, clip));
+        const s = audioFileSeconds(bytes);
         seconds.set(clip, s);
         if (s === undefined) report.notes.push(`${clip}: its headers give no length.`);
+        // The old runtime looped a WAV's own `smpl` loop for a clip with no loop region; the migration keeps it.
+        if (clip.toLowerCase().endsWith(".wav")) {
+          const loops = sampleEditsFromWav(readWavMetadata(bytes)).loops;
+          if (loops.length > 0) wavLoops.set(clip, loops);
+        }
       }
     }
   }
 
-  const migration = migrateProjectAudioEvents(json, { sampleSeconds: (p) => seconds.get(projectPath(p)) });
+  const migration = migrateProjectAudioEvents(json, {
+    sampleSeconds: (p) => seconds.get(projectPath(p)),
+    fileLoops: (p) => wavLoops.get(p),
+  });
   report.notes.push(...migration.notes);
   const moves = new Map(migration.references.map((r) => [r.from, r.to]));
   const write = async (path: string, text: string) => {
@@ -132,9 +147,12 @@ export async function migrateProjectAudio(fs: MigrationFileSystem, root: string,
     await fs.writeText(join(root, path), text);
   };
 
+  // New files (playlists, new sidecars, derived samples) are reported as written, changed sidecars as rewritten; the
+  // notes say which loop each sample file holds and for which events.
+  const changedSidecars = new Set(migration.samples.changedSidecars);
   for (const [path, text] of migration.writes) {
     await write(path, rewriteJsonReferences(text, moves) ?? text);
-    report.written.push(path);
+    (changedSidecars.has(path) ? report.rewritten : report.written).push(path);
   }
 
   const gone = new Set(migration.deletes);

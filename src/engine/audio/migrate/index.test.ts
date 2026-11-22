@@ -41,7 +41,7 @@ describe("migrateProjectAudioEvents", () => {
   it("passes the old file's parse problems and the migration's notes through, each with its path", () => {
     const r = migrateProjectAudioEvents(new Map([["x.audioevent.json", event({ type: "clip", clip: "x.wav", loop: true }, { volume: 9 })]]));
     expect(r.notes.some((n) => n.startsWith("x.audioevent.json: volume: 9 is outside"))).toBe(true);
-    expect(r.notes.some((n) => n.startsWith("x.audioevent.json root:") && n.includes(`"inherit"`))).toBe(true);
+    expect(r.notes.some((n) => n.startsWith("x.audioevent.json root:") && n.includes("couldn't be placed in the sample"))).toBe(true);
   });
 
   it("passes sample lengths through", () => {
