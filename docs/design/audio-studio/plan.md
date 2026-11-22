@@ -93,7 +93,7 @@ Waves (by file ownership, so parallel tasks don't collide):
   automation inputs; Spatial in the Studio (base game scene loading, 3D physics occlusion); ADRs for (2) and (4).
 - **W11 (after W9-A returns, W9-B render, W9-D playlist features merge):** core effect/send automation + dB ramp law
   + submix parameter automation + Studio undo/redo of live mixer moves (mixer owner); clip/entry effect chains in the
-  core and playlist runtime + per-level submixes; Samples re-import and source versions + tempo/root detection; native
+  core and playlist runtime + per-level submixes; Samples re-import and source versions + tempo/root detection (owner: "I do have tempo and root note detection UI, make sure to use it" — wire the existing Detect buttons in `SampleTools.tsx` and the import dialog's detect toggle in `ImportDialog.tsx`/`importPlan.ts`, matching the prototype's detection UI; values land with `source: "detected"`) + the render follow-ups (worker, content-hash cache in `.myco/cache/samples/`, exports rendering baked samples, sample automation lane editing); native
   spatial (per-voice spread, zone-interior beds, `bedBeyond`, preset reverb times); smaller items (starved-memory
   status flag, music debug rows from playlists, "Create playlist from clips" in the Studio, stream-voice loops, curve
   table per-binding time origin, lift `fields.tsx` into the kit, migrate CLI wording).
