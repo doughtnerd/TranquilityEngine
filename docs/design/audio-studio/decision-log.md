@@ -40,3 +40,10 @@ pending moves are written before files move and applied first in every watch bat
 before Play by size/mtime stamps, not polling; scripts keep their own watch. Not verified: real Tauri builds (no
 webkit2gtk in the container; `cargo check` passed with stub pkg-config). Open scene tabs don't yet reload on outside
 changes (follow-up). Revert: per item in the W1-T2 report (build log).
+
+**D7. Formats (W1-T4, merged).** Effects at a level their type can't run at are kept with a problem (the runtime
+skips them) so they can be moved, not lost. Attenuation presets: linear (gain law), inverse (−20·log10 d/min, holds at
+max), exponential (straight dB line to −60 at max), inverse square (silent at max, as Wwise/FMOD treat max distance).
+Overlapping sample loops: the later is dropped; a trim not containing a loop is widened. Root note: MIDI 60 = C4. Write
+to WAV writes notes, loops, root and tempo; Exit/Hit/Cue markers stay in the sidecar. A missing playlist type reads as
+Queue; a new Blend defaults to a voice-time axis. Revert: the named functions in `src/engine/audio/{effects,attenuation,sample,playlist}/`.
