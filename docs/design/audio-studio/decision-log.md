@@ -287,3 +287,9 @@ and markers stay in source time and still apply (the reading where loops and mar
 explicit). `sample.source` is a project path, else a bare name beside the source. Clip voices (one-shots,
 AudioSource, zones) loop the first loop region forward and endlessly (held until `release()`); full loop programs stay
 playlist-only. One-shots never loop. The render task was told to match this.
+
+**D38. Music tails come from Exit markers, not a new field (coordinator, after an owner question).** The Samples
+screen's Pickup and Tail are derived loop-playback regions (trim start → first loop, last loop → trim end) and already
+play. The musical post-exit tail (W9-D) is the audio after a sample's or sequence's Exit marker, Wwise's exit-cue model:
+on a handover the outgoing section rings past it to its end; no Exit marker = no tail (today). Exit markers work on
+any sample, looped or not, so no extra "mark a tail" tool is needed. Optional Entry/pre-entry likewise.
