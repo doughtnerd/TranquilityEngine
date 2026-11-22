@@ -86,7 +86,13 @@
                     ]
                   },
                   "x": 0.05,
-                  "atZeroWeight": "continue"
+                  "atZeroWeight": "continue",
+                  "region": {
+                    "start": -0.4,
+                    "end": 0.5,
+                    "fadeIn": 0.4,
+                    "fadeOut": 0.4
+                  }
                 },
                 {
                   "embedded": {
@@ -98,7 +104,13 @@
                     ]
                   },
                   "x": 0.5,
-                  "atZeroWeight": "continue"
+                  "atZeroWeight": "continue",
+                  "region": {
+                    "start": 0.05,
+                    "end": 0.95,
+                    "fadeIn": 0.4,
+                    "fadeOut": 0.4
+                  }
                 },
                 {
                   "embedded": {
@@ -110,7 +122,13 @@
                     ]
                   },
                   "x": 0.95,
-                  "atZeroWeight": "continue"
+                  "atZeroWeight": "continue",
+                  "region": {
+                    "start": 0.5,
+                    "end": 1.4,
+                    "fadeIn": 0.4,
+                    "fadeOut": 0.4
+                  }
                 }
               ],
               "blend": {
@@ -120,7 +138,7 @@
                   }
                 ],
                 "fade": "crossfade",
-                "curve": "linear",
+                "curve": "equalPower",
                 "follow": {
                   "glideMs": 0
                 },

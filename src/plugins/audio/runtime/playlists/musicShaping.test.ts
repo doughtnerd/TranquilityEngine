@@ -264,7 +264,7 @@ describe("Post-exit tails", () => {
 
   it("a loop's wrap rings the audio from the loop's end to the next Exit marker over the next pass", async () => {
     // music-loop's shape: a 6 s body, the loop over 0..4, an Exit marker at 6: 2 s of tail at each wrap.
-    await kit.boot({ "m.playlist.json": pla("sequence", [], SEQ("a.wav", 6, [{ id: "x", name: "exit", at: 6, type: "exit" }], [{ id: "l", start: 0, end: 4 }]) as never) });
+    await kit.boot({ "m.playlist.json": pla("sequence", [], SEQ("a.wav", 6, [{ id: "x", name: "exit", at: 6, type: "exit" }], [{ id: "l", start: 0, end: 4, tail: true }]) as never) });
     fake.durations.set("a.wav", 6);
     Audio.play("m.playlist.json");
     at(3.9);
@@ -274,8 +274,8 @@ describe("Post-exit tails", () => {
     expect(fadesOf(first)).toEqual([{ kind: "fadeShaped", to: 0, seconds: 0.005, law: "linear", at: 6, stopAtEnd: true }]);
   });
 
-  it("tail: false on the loop splices at the wrap as before", async () => {
-    await kit.boot({ "m.playlist.json": pla("sequence", [], SEQ("a.wav", 6, [{ id: "x", name: "exit", at: 6, type: "exit" }], [{ id: "l", start: 0, end: 4, tail: false }]) as never) });
+  it("a loop without tail splices at the wrap as before", async () => {
+    await kit.boot({ "m.playlist.json": pla("sequence", [], SEQ("a.wav", 6, [{ id: "x", name: "exit", at: 6, type: "exit" }], [{ id: "l", start: 0, end: 4 }]) as never) });
     fake.durations.set("a.wav", 6);
     Audio.play("m.playlist.json");
     at(3.9);

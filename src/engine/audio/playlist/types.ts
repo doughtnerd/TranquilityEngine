@@ -214,8 +214,8 @@ export interface SequenceLoop extends LoopBehaviour {
   start: number;
   end: number;
   /**
-   * ADR 0336: on each wrap, the audio between the loop's end and the first `exit` marker after it rings on over the next
-   * pass (the music tail). Absent: true; with no Exit marker after the loop's end there is no tail.
+   * ADR 0336: true: on each wrap, the audio between the loop's end and the first `exit` marker after it rings on over
+   * the next pass (the music tail; with no Exit marker after the loop's end there is none). Absent: false (a splice).
    */
   tail?: boolean;
   /** ADR 0336: the shape of an `exit: "crossfade"` (both sides); absent: equalPower. */

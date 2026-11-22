@@ -569,7 +569,7 @@ class PlaylistReader {
       let end = r.num(raw.end, `${w}.end`, start, 0);
       if (end < start) { r.problem(w, "end was before start; swapped."); [start, end] = [end, start]; }
       const loop: SequenceLoop = { id: loopIds.take(raw.id, w, "l"), start, end, ...parseLoopBehaviour(raw, w, this.problems, "always") };
-      if (raw.tail !== undefined && !r.bool(raw.tail, `${w}.tail`, true)) loop.tail = false;
+      if (raw.tail !== undefined && r.bool(raw.tail, `${w}.tail`, false)) loop.tail = true;
       if (raw.exitShape !== undefined) { const sh = this.shape(raw.exitShape, `${w}.exitShape`); if (sh !== "equalPower") loop.exitShape = sh; }
       out.loops.push(loop);
     });
@@ -779,7 +779,7 @@ function sequenceToJson(s: SequenceSettings): JsonRecord {
   const out: JsonRecord = { length: s.length };
   if (s.tempo) out.tempo = { bpm: s.tempo.bpm, meter: s.tempo.meter };
   out.tracks = s.tracks.map(trackToJson);
-  if (s.loops.length) out.loops = s.loops.map((l) => ({ id: l.id, start: l.start, end: l.end, ...loopBehaviourToJson(l), ...(l.tail === false ? { tail: false } : {}), ...(l.exitShape && l.exitShape !== "equalPower" ? { exitShape: l.exitShape } : {}) }));
+  if (s.loops.length) out.loops = s.loops.map((l) => ({ id: l.id, start: l.start, end: l.end, ...loopBehaviourToJson(l), ...(l.tail ? { tail: true } : {}), ...(l.exitShape && l.exitShape !== "equalPower" ? { exitShape: l.exitShape } : {}) }));
   if (s.markers.length) out.markers = s.markers.map((m) => ({ id: m.id, name: m.name, at: m.at, ...(m.type && m.type !== "note" ? { type: m.type } : {}) }));
   return out;
 }

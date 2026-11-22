@@ -1,4 +1,5 @@
 import { parsePlaylist } from "../playlist/format";
+import type { PlaylistBody } from "../playlist/types";
 import { parseDerivedSample } from "../sample/format";
 import { parseImportSettings } from "../../scene/importSettings";
 /**
@@ -106,5 +107,46 @@ describe("the Sound Lab's engines migrate to what they were fixed to by hand", (
         .toEqual({ ...theirs.settings.sample, loops: withoutIds(theirs.settings.sample?.loops) });
       expect({ ...mine.settings, sample: null }, path).toEqual({ ...theirs.settings, sample: null });
     }
+  });
+});
+
+describe("ADR 0336: the Sound Lab's music migrates with what the first mapping lost", () => {
+  const lab = new Map([...texts].filter(([p]) => p.startsWith("sound-lab/")).map(([p, t]) => [p.slice("sound-lab/".length), t]));
+  const seconds = (p: string): number | undefined => {
+    const file = join(SAMPLES, "sound-lab", p);
+    return existsSync(file) ? audioFileSeconds(new Uint8Array(readFileSync(file))) : undefined;
+  };
+  const result = migrateProjectAudioEvents(lab, { sampleSeconds: seconds });
+  const mine = (path: string) => parsePlaylist(JSON.parse(result.writes.get(path)!), path);
+  const theirs = (path: string) => parsePlaylist(JSON.parse(readFileSync(join(SAMPLES, "sound-lab", path), "utf8")), path);
+
+  // music-list3 stays as it was fixed by hand (a one-shot sequence of three sections, not the queue the mapping writes).
+  for (const name of ["audio/music/music-loop", "audio/music/music-world", "audio/events/music-intensity"]) {
+    it(`${name}.playlist.json equals the sample's`, () => {
+      const path = `${name}.playlist.json`;
+      expect(mine(path).problems).toEqual([]);
+      expect(mine(path).playlist).toEqual(theirs(path).playlist);
+    });
+  }
+
+  it("restores the engine blend's overlapping fades, music-loop's tail, music-world's curves and bridge fades, and the intensity stems' beat quantise", () => {
+    const engine = theirs("audio/events/engine.playlist.json").playlist;
+    const blend = engine.sequence!.tracks[0]!.clips[1]!.playlist as PlaylistBody;
+    expect(blend.blend!.curve).toBe("equalPower");
+    expect(blend.entries.map((e) => e.region)).toEqual([
+      { start: -0.4, end: 0.5, fadeIn: 0.4, fadeOut: 0.4 },
+      { start: 0.05, end: 0.95, fadeIn: 0.4, fadeOut: 0.4 },
+      { start: 0.5, end: 1.4, fadeIn: 0.4, fadeOut: 0.4 },
+    ]);
+    const loop = theirs("audio/music/music-loop.playlist.json").playlist.sequence!;
+    expect(loop.loops[0]).toMatchObject({ start: 0, end: 4, tail: true });
+    expect(loop.markers.find((m) => m.at === 6)?.type).toBe("exit"); // the 4-beat tail rings 4..6
+    const world = theirs("audio/music/music-world.playlist.json").playlist.switch!;
+    const rule = (from: string, to: string) => world.rules.find((r) => r.from === from && r.to === to)!;
+    expect(rule("explore", "calm")).toMatchObject({ shapeOut: "linear", shapeIn: "linear", length: { beats: 4 } });
+    expect(rule("calm", "explore")).toMatchObject({ shapeOut: "sCurve", shapeIn: "sCurve" });
+    expect(rule("calm", "combat")).toMatchObject({ how: "transition", length: { beats: 1 }, transitionIn: { length: { beats: 0 } }, transitionOut: { length: { beats: 0 } } });
+    const stems = theirs("audio/events/music-intensity.playlist.json").playlist.sequence!.tracks;
+    expect(stems.flatMap((t) => t.automation.map((a) => a.quantize))).toEqual(["beat", "beat"]);
   });
 });

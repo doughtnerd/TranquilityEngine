@@ -387,7 +387,7 @@ export class SequenceNode extends LiveNode implements MusicalSource {
     // next Exit marker after it rings on over the next pass.
     const own = loop >= 0 && loop < this.settings.loops.length ? this.settings.loops[loop]! : null;
     const shape = own?.exitShape ?? "equalPower";
-    const tail = why === "wrap" && own && own.tail !== false ? this.tailAfter(from) : 0;
+    const tail = why === "wrap" && own?.tail ? this.tailAfter(from) : 0;
     for (const c of this.clips) {
       const lands = to >= c.start - EPS && to < c.end - EPS;
       if (c.inside) {
