@@ -153,7 +153,21 @@ async function child(name, frames) {
     };
     step = () => {
       const k = Math.min(dt * 4, 1);
-      const records = [];
+      // SET_PARAM records (32 bytes) written straight into the command buffer, as a host does.
+      const v = view();
+      const start = glue.commands_ptr();
+      let at = start;
+      const put = (h, param, type, x, y) => {
+        v.setUint32(at, 0x0301 | (1 << 16), true);
+        v.setUint32(at + 4, h, true);
+        v.setUint32(at + 8, param, true);
+        v.setUint32(at + 12, type, true);
+        v.setFloat32(at + 16, x, true);
+        v.setFloat32(at + 20, y, true);
+        v.setUint32(at + 24, 0, true);
+        v.setUint32(at + 28, 0, true);
+        at += 32;
+      };
       hs.forEach((h, i) => {
         const d = desired(i, frame);
         for (let a = 0; a < 2; a++) {
@@ -167,15 +181,13 @@ async function child(name, frames) {
           yaw[i] += Math.max(-4 * dt, Math.min(4 * dt, turn));
         }
         if (d[0] !== 0 || d[1] !== 0) desiredYaw[i] = Math.atan2(d[0], d[1]);
-        records.push(
-          setParam(h, ids.position, 3, f32bits(pos[i][0]), f32bits(pos[i][1])),
-          setParam(h, ids.yaw, 0, f32bits(yaw[i])),
-          setParam(h, ids.velocity, 3, f32bits(vel[i][0]), f32bits(vel[i][1])),
-          setParam(h, ids.desired, 3, f32bits(d[0]), f32bits(d[1])),
-          setParam(h, ids.desiredYaw, 0, f32bits(desiredYaw[i])),
-        );
+        put(h, ids.position, 3, pos[i][0], pos[i][1]);
+        put(h, ids.yaw, 0, yaw[i], 0);
+        put(h, ids.velocity, 3, vel[i][0], vel[i][1]);
+        put(h, ids.desired, 3, d[0], d[1]);
+        put(h, ids.desiredYaw, 0, desiredYaw[i], 0);
       });
-      send(records);
+      glue.write_inputs(at - start);
       glue.evaluate(0, 0, dt, dt);
       frame++;
     };
