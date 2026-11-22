@@ -51,6 +51,17 @@ impl TagFilter {
     }
 }
 
+/// A [`TagFilter`] checked against a database's tag count (see `MatchDb::prepare`).
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Prepared {
+    required: [u32; TAG_WORDS],
+    excluded: [u32; TAG_WORDS],
+    any: [u32; TAG_WORDS],
+    need_any: bool,
+    /// Every frame passes.
+    open: bool,
+}
+
 /// Why a database couldn't be loaded for search.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LoadError {
@@ -353,17 +364,43 @@ impl MatchDb {
     /// Whether frame `i` passes `filter`.
     #[inline]
     pub fn passes(&self, i: usize, filter: &TagFilter) -> bool {
+        self.prepare(filter).is_some_and(|p| self.passes_prepared(i, &p))
+    }
+
+    /// `filter` reduced to the database's tag words, or `None` when no frame can pass (a
+    /// required tag, or every `any` tag, past the database's tags).
+    pub(crate) fn prepare(&self, filter: &TagFilter) -> Option<Prepared> {
         let w = self.tag_words;
-        let words = self.tags.get(i * w..i * w + w).unwrap_or(&[]);
+        let beyond = |m: &TagMask| m.0[w..].iter().any(|&x| x != 0);
+        let within = |m: &TagMask| m.0[..w].iter().any(|&x| x != 0);
+        if beyond(&filter.required) || (!filter.any.is_empty() && !within(&filter.any)) {
+            return None;
+        }
+        Some(Prepared {
+            required: filter.required.0,
+            excluded: filter.excluded.0,
+            any: filter.any.0,
+            need_any: !filter.any.is_empty(),
+            open: !within(&filter.required) && !within(&filter.excluded) && filter.any.is_empty(),
+        })
+    }
+
+    /// [`passes`](Self::passes) with a prepared filter.
+    #[inline(always)]
+    pub(crate) fn passes_prepared(&self, i: usize, p: &Prepared) -> bool {
+        if p.open {
+            return true;
+        }
+        let w = self.tag_words;
+        let words = &self.tags[i * w..i * w + w];
         let mut any = false;
-        for k in 0..TAG_WORDS {
-            let f = words.get(k).copied().unwrap_or(0);
-            if f & filter.required.0[k] != filter.required.0[k] || f & filter.excluded.0[k] != 0 {
+        for (k, &f) in words.iter().enumerate() {
+            if f & p.required[k] != p.required[k] || f & p.excluded[k] != 0 {
                 return false;
             }
-            any |= f & filter.any.0[k] != 0;
+            any |= f & p.any[k] != 0;
         }
-        any || filter.any.is_empty()
+        any || !p.need_any
     }
     /// The frame playing clip `clip` at `time` follows: the nearest frame of a run of that clip
     /// holding `time` (within half a frame of its ends), or `None`.

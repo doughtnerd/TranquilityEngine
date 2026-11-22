@@ -21,7 +21,7 @@
 //! - comparisons are strict (`>`), so a frame that ties the best is still evaluated and the
 //!   index tie-break applies.
 
-use crate::db::{MatchDb, Node, TagFilter};
+use crate::db::{MatchDb, Node, Prepared, TagFilter};
 use crate::MAX_KD_DEPTH;
 use anim_math::F32x4;
 
@@ -71,27 +71,26 @@ fn hsum(v: F32x4) -> f32 {
 }
 
 /// The squared distance between `q` and `r` (equal lengths), or some partial sum greater than
-/// `limit` once one is (checked every two lanes).
+/// `limit` once one is (checked once, after the first half of the lanes: the schema puts the
+/// pose features first, which separate frames most).
 #[inline(always)]
 pub(crate) fn distance(q: &[F32x4], r: &[F32x4], limit: f32) -> f32 {
-    let mut acc = F32x4::splat(0.0);
     let n = q.len().min(r.len());
-    let mut i = 0;
-    while i + 2 <= n {
-        let d0 = q[i] - r[i];
-        let d1 = q[i + 1] - r[i + 1];
-        acc = acc + d0 * d0;
-        acc = acc + d1 * d1;
-        i += 2;
-        if i < n {
-            let s = hsum(acc);
-            if s > limit {
-                return s;
-            }
+    let (q, r) = (&q[..n], &r[..n]);
+    let half = n.div_ceil(2);
+    let mut acc = F32x4::splat(0.0);
+    for (a, b) in q[..half].iter().zip(&r[..half]) {
+        let d = *a - *b;
+        acc = acc + d * d;
+    }
+    if half < n {
+        let s = hsum(acc);
+        if s > limit {
+            return s;
         }
     }
-    if i < n {
-        let d = q[i] - r[i];
+    for (a, b) in q[half..].iter().zip(&r[half..]) {
+        let d = *a - *b;
         acc = acc + d * d;
     }
     hsum(acc)
@@ -119,15 +118,15 @@ impl MatchDb {
     }
 
     #[inline(always)]
-    fn allowed(&self, i: usize, filter: &SearchFilter, open: bool) -> bool {
-        if let Some(s) = filter.skip {
+    fn allowed(&self, i: usize, skip: Option<Skip>, tags: &Prepared) -> bool {
+        if let Some(s) = skip {
             if (i as u32).wrapping_sub(s.first) <= s.last.wrapping_sub(s.first)
                 && self.frames[i].clip == s.clip
             {
                 return false;
             }
         }
-        open || self.passes(i, &filter.tags)
+        self.passes_prepared(i, tags)
     }
 
     /// The weighted cost of frame `frame` against `query` (`lanes()` long). `f32::INFINITY` when
@@ -162,10 +161,11 @@ impl MatchDb {
         if query.len() != self.lanes || self.frames.is_empty() {
             return None;
         }
+        let tags = self.prepare(&filter.tags)?;
         let best = if mode == SearchMode::KdTree && !self.nodes.is_empty() {
-            self.search_kd(query, filter)
+            self.search_kd(query, filter.skip, &tags)
         } else {
-            self.search_brute(query, filter)
+            self.search_brute(query, filter.skip, &tags)
         };
         (best.frame != u32::MAX).then(|| {
             let f = self.frames[best.frame as usize];
@@ -178,14 +178,13 @@ impl MatchDb {
         })
     }
 
-    fn search_brute(&self, q: &[F32x4], filter: &SearchFilter) -> Best {
-        let open = filter.tags.is_open();
+    fn search_brute(&self, q: &[F32x4], skip: Option<Skip>, tags: &Prepared) -> Best {
         let mut best = Best {
             cost: f32::INFINITY,
             frame: u32::MAX,
         };
         for (i, row) in self.rows.chunks_exact(self.lanes).enumerate() {
-            if !self.allowed(i, filter, open) {
+            if !self.allowed(i, skip, tags) {
                 continue;
             }
             let d = distance(q, row, best.cost);
@@ -194,8 +193,7 @@ impl MatchDb {
         best
     }
 
-    fn search_kd(&self, q: &[F32x4], filter: &SearchFilter) -> Best {
-        let open = filter.tags.is_open();
+    fn search_kd(&self, q: &[F32x4], skip: Option<Skip>, tags: &Prepared) -> Best {
         let mut best = Best {
             cost: f32::INFINITY,
             frame: u32::MAX,
@@ -214,7 +212,7 @@ impl MatchDb {
                 Node::Leaf { first, count } => {
                     for &f in &self.indices[first as usize..(first + count) as usize] {
                         let i = f as usize;
-                        if !self.allowed(i, filter, open) {
+                        if !self.allowed(i, skip, tags) {
                             continue;
                         }
                         let d = distance(q, self.row(i), best.cost);

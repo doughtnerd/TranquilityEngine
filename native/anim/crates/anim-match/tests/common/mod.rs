@@ -69,8 +69,8 @@ pub fn skeleton() -> Skeleton {
 /// How a procedural clip moves.
 #[derive(Clone, Copy, Debug)]
 pub struct Gait {
-    /// Ground speed at time t (m/s).
-    pub speed: fn(f32) -> f32,
+    /// Ground speed (m/s).
+    pub speed: Speed,
     /// Yaw rate (rad/s).
     pub yaw_rate: f32,
     /// Seconds per stride cycle (two steps).
@@ -79,59 +79,64 @@ pub struct Gait {
     pub looping: bool,
 }
 
-pub fn idle() -> Gait {
-    Gait {
-        speed: |_| 0.0,
-        yaw_rate: 0.0,
-        cycle: 2.0,
-        duration: 2.0,
-        looping: true,
+/// `from`, ramping linearly to `to` over the first `ramp` seconds.
+#[derive(Clone, Copy, Debug)]
+pub struct Speed {
+    pub from: f32,
+    pub to: f32,
+    pub ramp: f32,
+}
+
+impl Speed {
+    pub fn constant(v: f32) -> Self {
+        Speed {
+            from: v,
+            to: v,
+            ramp: 1.0,
+        }
     }
+    pub fn at(&self, t: f32) -> f32 {
+        self.from + (self.to - self.from) * (t / self.ramp).clamp(0.0, 1.0)
+    }
+}
+
+fn gait(speed: Speed, yaw_rate: f32, cycle: f32, duration: f32, looping: bool) -> Gait {
+    Gait {
+        speed,
+        yaw_rate,
+        cycle,
+        duration,
+        looping,
+    }
+}
+
+pub fn idle() -> Gait {
+    gait(Speed::constant(0.0), 0.0, 2.0, 2.0, true)
 }
 pub fn walk() -> Gait {
-    Gait {
-        speed: |_| 1.4,
-        yaw_rate: 0.0,
-        cycle: 1.0,
-        duration: 2.0,
-        looping: true,
-    }
+    gait(Speed::constant(1.4), 0.0, 1.0, 2.0, true)
 }
 pub fn run() -> Gait {
-    Gait {
-        speed: |_| 3.5,
-        yaw_rate: 0.0,
-        cycle: 0.7,
-        duration: 2.1,
-        looping: true,
-    }
+    gait(Speed::constant(3.5), 0.0, 0.7, 2.1, true)
 }
 pub fn turn() -> Gait {
-    Gait {
-        speed: |_| 1.4,
-        yaw_rate: 1.2,
-        cycle: 1.0,
-        duration: 2.0,
-        looping: true,
-    }
+    gait(Speed::constant(1.4), 1.2, 1.0, 2.0, true)
 }
 pub fn start() -> Gait {
-    Gait {
-        speed: |t| 1.4 * (t / 1.0).clamp(0.0, 1.0),
-        yaw_rate: 0.0,
-        cycle: 1.0,
-        duration: 2.5,
-        looping: false,
-    }
+    let s = Speed {
+        from: 0.0,
+        to: 1.4,
+        ramp: 1.0,
+    };
+    gait(s, 0.0, 1.0, 2.5, false)
 }
 pub fn stop() -> Gait {
-    Gait {
-        speed: |t| 1.4 * (1.0 - t / 1.0).clamp(0.0, 1.0),
-        yaw_rate: 0.0,
-        cycle: 1.0,
-        duration: 2.5,
-        looping: false,
-    }
+    let s = Speed {
+        from: 1.4,
+        to: 0.0,
+        ramp: 1.0,
+    };
+    gait(s, 0.0, 1.0, 2.5, false)
 }
 
 fn quat_x(a: f32) -> [f32; 4] {
@@ -157,7 +162,7 @@ pub fn clip(gait: Gait) -> Clip {
         if f > 0 {
             for s in 0..sub {
                 let t = (f - 1) as f64 / RATE as f64 + (s as f64 + 0.5) * h;
-                let v = (gait.speed)(t as f32) as f64;
+                let v = gait.speed.at(t as f32) as f64;
                 let y = yaw + gait.yaw_rate as f64 * h * 0.5;
                 x += v * y.sin() * h;
                 z += v * y.cos() * h;
@@ -166,7 +171,7 @@ pub fn clip(gait: Gait) -> Clip {
             }
         }
         let t = f as f32 / RATE;
-        let v = (gait.speed)(t);
+        let v = gait.speed.at(t);
         let amp = 0.12 + 0.18 * (v / 3.5).min(1.0);
         let swing = (phase as f32 * std::f32::consts::TAU).sin() * amp * (v.min(1.0) + 0.1);
         let bob = 0.02 * (phase as f32 * std::f32::consts::TAU * 2.0).cos() * (v.min(1.0) + 0.2);
