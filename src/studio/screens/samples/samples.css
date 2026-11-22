@@ -128,6 +128,8 @@
 .smp-fx-tools { margin-left: auto; display: flex; gap: 2px; }
 .smp-fx-tools button { padding: 0 6px; }
 .smp-fx-param { display: grid; grid-template-columns: 90px 1fr 70px; gap: 6px; align-items: center; font-size: calc(11px * var(--ui-scale)); }
+.smp-flatten { display: flex; gap: 8px; align-items: center; justify-content: space-between; padding: 4px 10px; font-size: calc(11px * var(--ui-scale)); }
+.smp-flatten-tools { display: flex; gap: 4px; }
 .smp-add-fx { display: flex; gap: 8px; align-items: center; padding: 4px 10px 10px; }
 
 /* Dialogs */

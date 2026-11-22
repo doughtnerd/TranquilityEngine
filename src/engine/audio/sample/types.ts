@@ -78,9 +78,8 @@ export interface SampleEdits {
   effects: Effect[];
   /**
    * Automation of the baked chain's effect parameters over the sample (decision log D23), keyed on `clipTime`: seconds in
-   * the source file, like every other time here. Read and written with the block; nothing plays it yet. The offline
-   * render (ADR 0328 "flatten"/render cache, not built) is its runtime: it bakes `effects` with these lanes applied, so
-   * a playing sample never evaluates them live.
+   * the source file, like every other time here. The offline render (`sampleRender.ts`, ADR 0328 "Flatten") is its
+   * runtime: it bakes `effects` with these lanes applied, so a playing sample never evaluates them live.
    */
   automation: SampleAutomation[];
   frozen: boolean;
@@ -92,7 +91,12 @@ export interface SampleEdits {
   closedGaps: [number, number][];
   stinger: boolean;
   snapToZero: boolean;
-  /** Set when the sample plays a flattened render (`brake_skid.flat1.wav`) instead of the original. */
+  /**
+   * Set when the sample plays a flattened render (`brake_skid.flat1.wav`: a project path, or a bare name in the source
+   * file's folder) instead of the original. The render (`renderSample`) keeps the source's timeline (same start and
+   * length, an effect tail appended) and bakes only the chain, its automation and normalisation: the runtime still
+   * applies trim and loops, skips the normalize gain, and loops and markers keep their source seconds.
+   */
   source?: string;
 }
 

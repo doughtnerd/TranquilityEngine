@@ -2,16 +2,21 @@
 // locked Trim and Closed gaps rows, the baked effects (add from the catalogue's sample-level types, remove, reorder,
 // bypass, parameters), then the locked Normalize row. A simple local list until the kit's EffectChain lands.
 //
-// TODO(ADR 0328): the offline render (trim, closed gaps, effects, normalize) is a later task; until it exists the
-// chain shows "Render pending" and auditions play the source unprocessed. Freeze, Flatten, A/B and effect automation
-// wait for the render too.
+// Flatten (ADR 0328) renders the chain and the normalize gain into `<name>.flat<n>.wav` beside the source and points
+// the sample at it (`sample.source`, one undoable step); Unflatten points it back. The render keeps the source's
+// timeline, so trim and closed gaps stay live edits. Freeze, A/B and effect automation editing are later tasks.
 import { allowedAt, effectParamValue, effectSpec, effectTypesAt } from "../../../engine/audio/effects/catalogue";
 import type { Effect, EffectType } from "../../../engine/audio/effects/types";
 import type { SampleEdits } from "../../../engine/audio/sample/types";
+import { useState } from "preact/hooks";
 import { Chip } from "../../../editor/ui/Chip";
 import { EmptyState } from "../../../editor/ui/EmptyState";
 import { Panel } from "../../../editor/ui/panel/Panel";
 import { effectEdits } from "./sampleEffects";
+import { flattenSample, hasRenderableEdits, renderPathOf, unflattenSample } from "./sampleFlatten";
+import { nameOf } from "./sampleLibrary";
+import { pcmOf, type SampleSession } from "./sampleSession";
+import { toasts } from "../../shell/studioServices";
 import { openSession } from "./samplesState";
 import { removedSeconds } from "./sampleTime";
 
@@ -46,6 +51,36 @@ function EffectRow(props: { f: Effect; e: SampleEdits; first: boolean; last: boo
   );
 }
 
+/** Flatten / Re-flatten / Unflatten, with what the sample plays now. */
+function FlattenBar(props: { session: SampleSession; e: SampleEdits; ro: boolean }) {
+  const { session, e, ro } = props;
+  const [busy, setBusy] = useState(false);
+  const render = renderPathOf(session.project.files, session.source.value, e);
+  const flatten = async () => {
+    setBusy(true);
+    try {
+      const r = await flattenSample(session, await pcmOf(session.project, session.source.peek()));
+      if ("refused" in r) toasts.show({ text: `Can't flatten: ${r.refused}.` });
+      else toasts.show({ text: [`Flattened to ${nameOf(r.path)}`, ...r.render.warnings].join(" · "), undo: () => session.undo() });
+    } catch (err) {
+      toasts.show({ text: `Can't flatten: ${err instanceof Error ? err.message : String(err)}`, kind: "error" });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div class="smp-flatten">
+      {render ? <Chip tone="neutral" title={`Plays ${render}: the effects and normalize are baked into it`}>Flattened · {nameOf(render)}</Chip> : <span class="smp-muted">Plays the source; Flatten bakes the effects and normalize into a file beside it</span>}
+      <span class="smp-flatten-tools">
+        <button type="button" class="primary" disabled={ro || busy || !hasRenderableEdits(e)} title={hasRenderableEdits(e) ? "Render the effects and normalize into a new file beside the source" : "Nothing to bake: add an effect or normalize"} onClick={() => void flatten()}>
+          {busy ? "Rendering…" : render ? "Re-flatten" : "Flatten"}
+        </button>
+        {render && <button type="button" disabled={ro || busy} title="Play the source again (the render file stays)" onClick={() => unflattenSample(session)}>Unflatten</button>}
+      </span>
+    </div>
+  );
+}
+
 export function EditsPanel() {
   const session = openSession.value;
   if (!session) {
@@ -60,7 +95,7 @@ export function EditsPanel() {
   const commit = (r: { next: SampleEdits; label: string } | { refused: string }) => session.commit(r);
   const n = e.normalize;
   return (
-    <Panel class="smp-edits" toolbar={<span class="smp-edits-bar"><span class="smp-muted">Baked into the sample · no runtime cost · game parameters can't drive them</span><Chip tone={e.effects.length || e.trim || e.closedGaps.length || n.mode !== "off" ? "warning" : "neutral"}>{e.effects.length || e.trim || e.closedGaps.length || n.mode !== "off" ? "Render pending" : "Source only"}</Chip></span>}>
+    <Panel class="smp-edits" toolbar={<span class="smp-edits-bar"><span class="smp-muted">Baked into the sample · no runtime cost · game parameters can't drive them</span><Chip tone={e.source !== undefined ? "neutral" : hasRenderableEdits(e) ? "warning" : "neutral"}>{e.source !== undefined ? "Flattened" : hasRenderableEdits(e) ? "Not flattened" : "Source only"}</Chip></span>}>
       <ol class="smp-chain">
         <li class="smp-fx locked"><b>Source</b> <span class="smp-muted">{session.source.value}</span></li>
         {e.trim && <li class="smp-fx locked"><b>Trim</b> <span class="smp-muted">locked · edit it on the timeline</span></li>}
@@ -68,6 +103,7 @@ export function EditsPanel() {
         {e.effects.map((f, i) => <EffectRow key={f.id} f={f} e={e} first={i === 0} last={i === e.effects.length - 1} ro={ro} commit={commit} />)}
         {n.mode !== "off" && <li class="smp-fx locked"><b>Normalize</b> <span class="smp-muted">{n.gainDb > 0 ? "+" : ""}{n.gainDb.toFixed(1)} dB · applied last, after the effects</span></li>}
       </ol>
+      <FlattenBar session={session} e={e} ro={ro} />
       <label class="smp-add-fx">
         <span>Add effect</span>
         <select aria-label="Add effect" disabled={ro} value="" onChange={(ev) => {
